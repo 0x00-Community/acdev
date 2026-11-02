@@ -512,7 +512,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
 
 - **渲染**: 每个 web 是一个进程, 一个 xdg_toplevel. 它自己光栅化 (crates/paint, 三块轮转的 GBM 画布), 画完经
   linux-dmabuf 交给合成器, 合成器和原生窗口一样合成. 窗口 id 和原生窗口同一个空间 (桌面 0, web 窗口从 `1<<20` 起, Broker 发).
-  桌面是 canvas 里 z 最低的 `fullscreen` 窗口; 别的 web 窗口先是居中的 800x600 `free` 窗口, 叠放以窗口表为准.
+  桌面是 canvas 里 z 最低的 `fullscreen` 窗口; 别的 web 窗口先是居中的 `free` 窗口 (尺寸是清单的 `size`, 默认 800x600, 不超过屏幕), 叠放以窗口表为准.
 - **输入**: 标准 Wayland: 合成器按窗口表的 z 找到指针下的窗口发 wl_pointer / wl_keyboard, web 进程 (crates/window) 转成
   shell 事件进队列; 滚轮的默认滚动和 :hover 在它自己的 render 线程上. 拖放和剪贴板走 data-device. pointermove 和浏览器一样
   对齐到帧 (acde-host `host.ts`): 只留最新的一个, 下一个 `frame` 或别的事件来之前才派发 (连同命中测试), 鼠标回报率再高, 页面每帧
@@ -591,7 +591,8 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   两个都只有桌面能调.
 - **应用清单**: 包的 `package.json` 里 `acde.apps` (类型 acde-api `manifest.d.ts`, 解析 acde-host `apps.ts`): `id`、`label`、`icon`、
   `entry` (默认导出 `WindowApp` 的模块, 或 HTML, 见「网页应用」)、`capabilities` (fs [可限 roots]、terminal、office、launch、
-  slots、open、openFiles, 其余的键是服务名, 如 `assistant`)、`mimeTypes` (「默认应用」)、`heapMb` (默认 256, 最小 32)、
+  slots、open、openFiles、session、desktops (`acde:session` / `acde:desktops`, 本来只给桌面; 系统设置这类应用要), 其余的键是服务名,
+  如 `assistant`)、`mimeTypes` (「默认应用」)、`heapMb` (默认 256, 最小 32)、`size` (窗口的默认尺寸 `[宽, 高]`, 逻辑像素, 默认 800x600)、
   `multiple`、`frame` (默认 true: acde-host 画标题栏, 见「窗框」)、`backend`. acde-base 自己不带应用 (只有登录页一个桌面); 应用都来自桌面包 (acde-dopamine) 或第三方包.
 - **沙箱**: 每个 web 是独立的 V8 isolate, 页面和 web 的宿主代码 (acde-host 的 web.js) 在同一个 realm 里, 拿到的只有裁剪过的
   `acde`. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口: `sys` (整个 acde 进程的环境变量、读写文件、`spawn` / `run` / `kill`)、
@@ -618,7 +619,7 @@ split-window 上没有, 没带过来 (按第一原则, 这类能力以后只经 
 - **`acde.config.jsonc`** (照 wrangler.jsonc; 也认 `acde.config.json`; 类型 `AcdeConfig` 和 `config.schema.json` 在 SDK 里):
   工程根目录的这份配置声明工程是什么 —— `"type": "app"` 是一个窗口应用, `"type": "desktop"` 是一个桌面 (用户可以自己做桌面,
   不只是桌面上的应用). 公共字段 `name` / `version` (默认取 package.json), `public` (原样复制的静态目录, 默认 `public`).
-  app: `id`、`label`、`icon`、`entry` (HTML, 默认 `index.html`; 或默认导出 `WindowApp` 的模块)、`capabilities`、`heapMb`、`multiple`、
+  app: `id`、`label`、`icon`、`entry` (HTML, 默认 `index.html`; 或默认导出 `WindowApp` 的模块)、`capabilities`、`heapMb`、`size`、`multiple`、
   `frame`、`mimeTypes`、`backend` (`false` 不要; 默认找 `server.ts` 等, 见下). desktop: `id`、`label` (显示名)、`description`、
   `entry` (桌面页, 默认 `index.html`)、`heapMb`、`services` (服务名 → 模块, 打成 `services/<名>.js`, 跑在 Broker 里)、`apps`
   (桌面自带的窗口应用, 每个和 app 的字段一样, `id` / `entry` 必填). 这份配置只在构建时读: `acde app build` (acde-app `app.ts`
@@ -785,7 +786,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
 - Broker 侧 (napi `Shell`): `Shell.broker()` 建合成器 (没有桌面文档). `onEvents(cb)` 在队列从空变非空时叫醒 Broker, `pump()` 取事件.
   `grant({desktop?, window?})` → `{window, token}`: 给 web 进程的令牌 (随机 64 位, 只认领一次: 客户端在 `acde_window.bind` 里交回,
   合成器把那个 toplevel 登记成这个窗口); desktop 为真是桌面 (窗口 0, fullscreen, z 最低), window 是已有的 web 窗口 (换进程),
-  都不给是新 web 窗口; 带 `rect` ([x, y, w, h]) 的是摆在那里的窗口 (`mode` 另给, 默认 `free`; 桌面的面板给 `pinned`, 不抢焦点). `release(window)` 作废它没用掉的令牌; `place` / `raise` / `setMode` / `windows` / `canvases` 见「窗口模型」
+  都不给是新 web 窗口 (`size` [w, h] 是它居中摆放时的尺寸, 默认 800x600); 带 `rect` ([x, y, w, h]) 的是摆在那里的窗口 (`mode` 另给, 默认 `free`; 桌面的面板给 `pinned`, 不抢焦点). `release(window)` 作废它没用掉的令牌; `place` / `raise` / `setMode` / `windows` / `canvases` 见「窗口模型」
   (`windows()` 每行另有 `window`: 绑定过 `acde_window` 的窗口的 Broker 窗口 id, 和 `pid`: Wayland 客户端的进程号); `animate(window, {opacity?, scale?, dx?, dy?,
   duration? (毫秒, 默认 200), delay?, easing? (linear / ease / ease-in / ease-out / ease-in-out, 默认 ease)})`: 从现在的 look
   过渡到给的值 (没给的不变), 每帧插值, 做完发 `windowanimated`; 回到单位阵的窗口不再记 look; `shortcut(combo, scope, owner)` /

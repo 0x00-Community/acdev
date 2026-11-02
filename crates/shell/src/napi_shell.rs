@@ -22,6 +22,7 @@ pub struct GrantOptions {
     pub window: Option<u32>,
     pub mode: Option<String>,
     pub rect: Option<Vec<i32>>,
+    pub size: Option<Vec<i32>>,
 }
 
 #[napi(object)]
@@ -110,7 +111,7 @@ impl Shell {
     #[napi]
     pub fn grant(&self, options: Option<GrantOptions>) -> Result<SurfaceGrant> {
         use std::hash::{BuildHasher, Hasher};
-        let options = options.unwrap_or(GrantOptions { desktop: None, window: None, mode: None, rect: None });
+        let options = options.unwrap_or(GrantOptions { desktop: None, window: None, mode: None, rect: None, size: None });
         let mode = options.mode.as_deref().map_or(Ok(acde_model::Mode::Free), str::parse).map_err(napi_error)?;
         let desktop = options.desktop.unwrap_or(false);
         let id = match (desktop, options.window) {
@@ -122,7 +123,8 @@ impl Shell {
         hasher.write_u32(id);
         let token = hasher.finish();
         let rect = options.rect.as_deref().and_then(|r| <[i32; 4]>::try_from(r).ok()).filter(|r| r[2] > 0 && r[3] > 0);
-        self.handle.send(Command::Grant(token, Grant { id, desktop, mode, rect }));
+        let size = options.size.as_deref().and_then(|s| <[i32; 2]>::try_from(s).ok()).filter(|s| s[0] > 0 && s[1] > 0);
+        self.handle.send(Command::Grant(token, Grant { id, desktop, mode, rect, size }));
         Ok(SurfaceGrant { window: id, token: BigInt::from(token) })
     }
 

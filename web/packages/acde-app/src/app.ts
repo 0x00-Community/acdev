@@ -208,6 +208,7 @@ export class Project {
       entry: placed.entry,
       ...(config.capabilities && { capabilities: config.capabilities }),
       ...(config.heapMb !== undefined && { heapMb: config.heapMb }),
+      ...(config.size && { size: config.size }),
       ...(config.multiple !== undefined && { multiple: config.multiple }),
       ...(config.frame !== undefined && { frame: config.frame }),
       ...(config.mimeTypes && { mimeTypes: config.mimeTypes }),

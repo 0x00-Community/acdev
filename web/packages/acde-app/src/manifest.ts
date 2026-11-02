@@ -2,7 +2,7 @@ import type { AppManifest as AppEntry, Capabilities, PackageManifest } from '@do
 
 export type { Capabilities, PackageManifest } from '@dopame/acde-api'
 
-export type AppManifest = Required<Omit<AppEntry, 'backend'>> & { readonly backend: AppBackend | null }
+export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & { readonly backend: AppBackend | null; readonly size: readonly [number, number] | null }
 
 export interface AppBackend {
   readonly entry: string
@@ -17,7 +17,7 @@ export interface Findings {
 export class Manifest {
   static readonly HEAP_MB = 256
   static readonly MIN_HEAP_MB = 32
-  static readonly CAPABILITIES: ReadonlySet<string> = new Set(['fs', 'terminal', 'office', 'launch', 'slots', 'open', 'openFiles'])
+  static readonly CAPABILITIES: ReadonlySet<string> = new Set(['fs', 'terminal', 'office', 'launch', 'slots', 'open', 'openFiles', 'session', 'desktops'])
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
 
   static heapMb(value: unknown, fallback: number): number {
@@ -39,7 +39,9 @@ export class Manifest {
     const types = field('mimeTypes')
     if (types !== undefined && (!Array.isArray(types) || types.some((t) => typeof t !== 'string' || !Manifest.#MIME.test(t)))) return `app ${id}: mimeTypes must be MIME types (type/subtype, or type/* for all of a type)`
     const mimeTypes = (types as string[] | undefined) ?? []
-    return { id, label, icon, entry, capabilities, heapMb: Manifest.heapMb(field('heapMb'), Manifest.HEAP_MB), multiple: field('multiple') === true, frame: field('frame') !== false, mimeTypes, backend }
+    const size = Manifest.#size(field('size'))
+    if (size === undefined) return `app ${id}: size must be [width, height] in whole logical pixels`
+    return { id, label, icon, entry, capabilities, heapMb: Manifest.heapMb(field('heapMb'), Manifest.HEAP_MB), multiple: field('multiple') === true, frame: field('frame') !== false, mimeTypes, backend, size }
   }
 
   static check(manifest: PackageManifest, isDir: (path: string) => boolean, resolve: (url: string) => boolean): Findings {
@@ -69,6 +71,11 @@ export class Manifest {
       }
     }
     return findings
+  }
+
+  static #size(raw: unknown): readonly [number, number] | null | undefined {
+    if (raw === undefined || raw === null) return null
+    return Array.isArray(raw) && raw.length === 2 && raw.every((n) => Number.isInteger(n) && n > 0) ? [raw[0], raw[1]] : undefined
   }
 
   static #backend(raw: unknown): AppBackend | null | string {

@@ -30,6 +30,7 @@ pub struct Grant {
     pub desktop: bool,
     pub mode: acde_model::Mode,
     pub rect: Option<[i32; 4]>,
+    pub size: Option<[i32; 2]>,
 }
 
 #[derive(Clone, Copy, Debug)]

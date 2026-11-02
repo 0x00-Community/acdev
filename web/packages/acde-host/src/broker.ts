@@ -24,7 +24,7 @@ import { process } from './sys/process'
 export interface BrokerShell {
   pump(): RawShellEvent[]
   onEvents(callback: () => void): void
-  grant(options?: { desktop?: boolean; window?: number; mode?: 'fullscreen' | 'free' | 'fixed' | 'pinned'; rect?: number[] }): { window: number; token: bigint }
+  grant(options?: { desktop?: boolean; window?: number; mode?: 'fullscreen' | 'free' | 'fixed' | 'pinned'; rect?: number[]; size?: readonly number[] }): { window: number; token: bigint }
   place(window: number, x: number, y: number, width: number, height: number): void
   release(window: number): void
   focus(window: number): void
@@ -378,7 +378,7 @@ export class Broker {
     for (const record of this.#windows.values()) this.#announce(record)
   }
 
-  #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode }).token): void {
+  #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode, ...(record.app?.size && { size: record.app.size }) }).token): void {
     const app = record.app!
     const init: WebInit = {
       kind: 'window',
@@ -612,7 +612,7 @@ export class Broker {
         return { window: running.id }
       }
     }
-    const grant = this.shell.grant({ mode })
+    const grant = this.shell.grant({ mode, ...(app.size && { size: app.size }) })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], hiddenSince: null, request, mode }
     this.#windows.set(record.id, record)
     this.#spawnWindow(record, grant.token)
@@ -683,11 +683,9 @@ export class Broker {
       if (caps && !this.#allowed(caps, service)) continue
       shapes[service] = this.#shape(service, target)
     }
-    if (!caps) {
-      shapes['inspect'] = this.#shape('inspect', this.inspect.api)
-      shapes['session'] = this.#shape('session', this.session.api)
-      shapes['desktops'] = this.#shape('desktops', this.desktops)
-    }
+    if (!caps) shapes['inspect'] = this.#shape('inspect', this.inspect.api)
+    if (!caps || caps.session) shapes['session'] = this.#shape('session', this.session.api)
+    if (!caps || caps.desktops) shapes['desktops'] = this.#shape('desktops', this.desktops)
     return shapes
   }
 
@@ -765,7 +763,7 @@ export class Broker {
       return call(...args)
     }
     if (service === 'session' || service === 'desktops') {
-      if (!desktop) throw Broker.#refused(web, `acde.${service}`)
+      if (!desktop && !caps?.[service]) throw Broker.#refused(web, `acde.${service}`)
       const api = (service === 'session' ? this.session.api : this.desktops) as Record<string, (...a: unknown[]) => unknown>
       const call = api[method]
       if (!call) throw new Error(`acde.${service} has no ${method}`)

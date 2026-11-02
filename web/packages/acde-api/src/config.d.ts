@@ -16,6 +16,7 @@ export interface WindowAppConfig {
   readonly entry?: string
   readonly capabilities?: Capabilities
   readonly heapMb?: number
+  readonly size?: readonly [number, number]
   readonly multiple?: boolean
   readonly frame?: boolean
   readonly mimeTypes?: readonly string[]

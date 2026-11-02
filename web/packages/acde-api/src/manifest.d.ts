@@ -21,6 +21,7 @@ export interface AppManifest {
   readonly entry: string
   readonly capabilities?: Capabilities
   readonly heapMb?: number
+  readonly size?: readonly [number, number]
   readonly multiple?: boolean
   readonly frame?: boolean
   readonly mimeTypes?: readonly string[]
@@ -40,6 +41,8 @@ export interface Capabilities {
   readonly slots?: boolean
   readonly open?: boolean | readonly string[]
   readonly openFiles?: boolean
+  readonly session?: boolean
+  readonly desktops?: boolean
   readonly [service: string]: unknown
 }
 

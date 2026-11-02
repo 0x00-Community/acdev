@@ -351,7 +351,8 @@ impl Compositor {
                 self.place(&window, rect);
             }
             Some(grant) => {
-                let size = smithay::utils::Size::from((800.min(screen.size.w), 600.min(screen.size.h)));
+                let [w, h] = grant.size.unwrap_or([800, 600]);
+                let size = smithay::utils::Size::from((w.min(screen.size.w), h.min(screen.size.h)));
                 let loc = self.landing(size, None);
                 self.space.map_element(window.clone(), loc, false);
                 self.native_enter(&window, id, grant.mode);
