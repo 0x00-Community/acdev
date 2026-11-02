@@ -7,6 +7,7 @@ mod dom;
 mod engine;
 mod error;
 mod geometry;
+pub mod gpu;
 mod layers;
 mod net;
 mod parse;

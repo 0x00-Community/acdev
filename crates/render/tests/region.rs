@@ -1,8 +1,7 @@
 use std::time::{Duration, Instant};
 
-use acde_render::anyrender::{ImageRenderer, PaintScene, Scene};
+use acde_render::anyrender::Scene;
 use acde_render::{Frame, Options};
-use anyrender_vello_cpu::VelloCpuImageRenderer;
 use kurbo::Rect;
 
 mod common;
@@ -83,9 +82,7 @@ fn frame(handle: &common::Handle) -> Frame {
 }
 
 fn raster(scene: Scene) -> Vec<u8> {
-    let mut rgba = Vec::new();
-    VelloCpuImageRenderer::new(W, H).render_to_vec(|p| p.append_scene(scene, Default::default()), &mut rgba);
-    rgba
+    acde_render::gpu::rasterize(scene, (W, H), Default::default())
 }
 
 fn rects(n: usize) -> Vec<Rect> {
@@ -109,7 +106,7 @@ fn differing(a: &[u8], b: &[u8], r: Rect) -> usize {
     let (x0, y0, x1, y1) = (r.x0 as u32, r.y0 as u32, r.x1.ceil() as u32, r.y1.ceil() as u32);
     (y0..y1.min(H))
         .flat_map(|y| (x0..x1.min(W)).map(move |x| ((y * W + x) * 4) as usize))
-        .filter(|&i| a[i..i + 4] != b[i..i + 4])
+        .filter(|&i| (0..4).any(|k| a[i + k].abs_diff(b[i + k]) > 2))
         .count()
 }
 

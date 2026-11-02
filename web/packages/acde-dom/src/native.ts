@@ -134,7 +134,7 @@ export interface DomNative {
   measureText(id: number, font: string, text: string): Float64Array
   toDataURL(id: number, type: string): string
   getImageData(id: number, x: number, y: number, width: number, height: number): Uint8Array
-  capture(id: number, scale: number): { x: number; y: number; width: number; height: number; pixelWidth: number; pixelHeight: number; scale: number; rgba: Uint8Array } | null
+  capture(id: number, scale: number): { x: number; y: number; width: number; height: number; pixelWidth: number; pixelHeight: number; scale: number; picture: number } | null
 
   setPanel(id: number, x: number, y: number, width: number, height: number): void
   unpin(id: number): void

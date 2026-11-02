@@ -31,9 +31,7 @@ export class Host {
   onPanelMove: (id: number, extent: readonly [number, number, number, number]) => void = () => {}
   onGrab: (event: { kind: string; granted?: boolean; reason?: string }) => void = () => {}
   onFirstFrame: () => void = () => {}
-  onSoftware: () => void = () => {}
   #framed = false
-  #software = false
 
   constructor(page: WebInternals, dom: DomNative, scale: number, native: Native | null, windows: WindowList) {
     this.#page = page
@@ -129,10 +127,6 @@ export class Host {
       case 'resize':
         this.#shellInput.scale = event.scale
         this.#dom.resize?.(event.width, event.height, event.scale)
-        if (event.software && !this.#software) {
-          this.#software = true
-          this.onSoftware()
-        }
         return page.resize()
       case 'keydown':
         if (event.key === 'PrintScreen') return void this.#screenshot()

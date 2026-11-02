@@ -137,7 +137,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     return value.nodeType === NodeType.Text ? `#text ${JSON.stringify((value as Text).data.slice(0, 40))}` : value.nodeName
   }
 
-  const htmlAttributes = { ...(options.reducedMotion ? { 'data-acde-software': '' } : {}), ...(options.htmlAttributes ?? {}) }
+  const htmlAttributes = { ...(options.htmlAttributes ?? {}) }
   let frameVersion = -1
 
   const deliverScrolls = () => {

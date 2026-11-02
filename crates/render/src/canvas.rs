@@ -1,13 +1,13 @@
 use std::f64::consts::TAU;
 use std::sync::Arc;
 
-use anyrender::{ImageRenderer, PaintScene, Scene};
-use anyrender_vello_cpu::VelloCpuImageRenderer;
+use anyrender::{PaintScene, Scene};
 use blitz_dom::BaseDocument;
 use kurbo::{Affine, BezPath, Cap, Join, PathEl, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2};
 use peniko::{BlendMode, Color, Compose, Fill, Gradient, Mix};
 
 use crate::error::{Error, Result};
+use crate::gpu::{self, CanvasImage};
 
 const MAX_COMMANDS: usize = 20_000;
 pub(crate) const MAX_SIDE: u32 = 4096;
@@ -127,7 +127,7 @@ pub(crate) struct Canvas {
     state: State,
     stack: Vec<State>,
     path: BezPath,
-    bitmap: std::cell::OnceCell<Option<peniko::ImageBrush>>,
+    bitmap: std::cell::OnceCell<Option<Arc<CanvasImage>>>,
 }
 
 struct Reader<'a> {
@@ -317,34 +317,27 @@ impl Canvas {
     }
 
     pub(crate) fn pixels(&self) -> Option<(u32, u32, Vec<u8>)> {
+        let image = self.bitmap()?;
+        let (w, h) = (image.texture.width(), image.texture.height());
+        Some((w, h, gpu::read(&image, [0, 0, w, h])?))
+    }
+
+    fn render(&self) -> Option<Arc<CanvasImage>> {
         let (w, h) = (self.size.0 as u32, self.size.1 as u32);
         if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE {
             return None;
         }
-        let mut rgba = Vec::new();
-        let picture = Arc::unwrap_or_clone(self.picture());
-        VelloCpuImageRenderer::new(w, h).render_to_vec(|p| p.append_scene(picture, Affine::IDENTITY), &mut rgba);
-        crate::capture::Capture::unpremultiply(&mut rgba);
-        Some((w, h, rgba))
+        gpu::draw(Arc::unwrap_or_clone(self.picture()), (w, h), Affine::IDENTITY)
+    }
+
+    fn bitmap(&self) -> Option<Arc<CanvasImage>> {
+        self.bitmap.get_or_init(|| self.render()).clone()
     }
 
     pub(crate) fn source(&self) -> Source {
-        match self.bitmap.get_or_init(|| self.pixels().map(|(w, h, rgba)| Self::brush(w, h, rgba))) {
-            Some(brush) => Source::Raster(brush.clone()),
+        match self.bitmap() {
+            Some(image) => Source::Raster(image.brush()),
             None => Source::Picture(self.picture(), self.size),
-        }
-    }
-
-    fn brush(width: u32, height: u32, rgba: Vec<u8>) -> peniko::ImageBrush {
-        peniko::ImageBrush {
-            image: peniko::ImageData {
-                data: peniko::Blob::new(Arc::new(rgba)),
-                format: peniko::ImageFormat::Rgba8,
-                width,
-                height,
-                alpha_type: peniko::ImageAlphaType::Alpha,
-            },
-            sampler: peniko::ImageSampler::default(),
         }
     }
 
@@ -749,50 +742,11 @@ impl Canvas {
         let (w, h) = ((area.width() / k).ceil() as u32, (area.height() / k).ceil() as u32);
         let mut shape = Scene::new();
         draw(&mut shape);
-        let mut rgba = Vec::new();
         let place = Affine::scale(1.0 / k) * Affine::translate(shadow.offset - area.origin().to_vec2());
-        VelloCpuImageRenderer::new(w, h).render_to_vec(|p| p.append_scene(shape, place), &mut rgba);
-        let mut alpha: Vec<f32> = rgba.as_chunks::<4>().0.iter().map(|p| f32::from(p[3]) / 255.0).collect();
-        Self::blur(&mut alpha, (w as usize, h as usize), sigma / k);
-        let [r, g, b, a] = shadow.color.premultiply().components;
-        for (px, k) in rgba.as_chunks_mut::<4>().0.iter_mut().zip(alpha) {
-            for (c, v) in px.iter_mut().zip([r, g, b, a]) {
-                *c = (v * k * 255.0).round().clamp(0.0, 255.0) as u8;
-            }
-        }
-        let mut tile = Self::brush(w, h, rgba);
-        tile.image.alpha_type = peniko::ImageAlphaType::AlphaPremultiplied;
+        let image = gpu::shadow(shape, (w, h), place, sigma / k, shadow.color.components)?;
+        let mut tile = image.brush();
         tile.sampler.quality = peniko::ImageQuality::High;
         Some((tile, Affine::translate(area.origin().to_vec2()) * Affine::scale(k)))
-    }
-
-    fn blur(alpha: &mut [f32], (w, h): (usize, usize), sigma: f64) {
-        let d = (sigma * 3.0 * TAU.sqrt() / 4.0 + 0.5).floor() as usize;
-        if d < 2 {
-            return;
-        }
-        let r = d / 2;
-        let mut line = Vec::new();
-        let mut pass = |alpha: &mut [f32], len: usize, count: usize, at: &dyn Fn(usize, usize) -> usize| {
-            for k in 0..count {
-                for _ in 0..3 {
-                    line.clear();
-                    line.extend((0..len).map(|i| alpha[at(k, i)]));
-                    let mut sum: f32 = line.iter().take(r + 1).sum();
-                    for i in 0..len {
-                        alpha[at(k, i)] = sum / (2 * r + 1) as f32;
-                        if let Some(v) = line.get(i + r + 1) {
-                            sum += v;
-                        }
-                        if i >= r {
-                            sum -= line[i - r];
-                        }
-                    }
-                }
-            }
-        };
-        pass(alpha, w, h, &|y, x| y * w + x);
-        pass(alpha, h, w, &|x, y| y * w + x);
     }
 
     fn fill(&mut self, path: &BezPath, rule: Fill) {
@@ -843,43 +797,38 @@ impl Canvas {
     }
 
     fn put_image_data(&mut self, data: &[u8], (w, h): (u32, u32), at: Point, dirty: Rect) {
-        if ![at.x, at.y, dirty.x0, dirty.y0, dirty.x1, dirty.y1].iter().all(|v| v.is_finite()) {
+        if ![at.x, at.y, dirty.x0, dirty.y0, dirty.x1, dirty.y1].iter().all(|v| v.is_finite()) || data.len() < (w * h * 4) as usize {
             return;
         }
-        let Some((cw, ch, mut rgba)) = self.pixels() else { return };
+        let Some(image) = self.render() else { return };
+        let (cw, ch) = (i64::from(image.texture.width()), i64::from(image.texture.height()));
         let dirty = dirty.abs().intersect(Rect::new(0.0, 0.0, f64::from(w), f64::from(h))).round();
         let (dx, dy) = (at.x.trunc() as i64, at.y.trunc() as i64);
-        for y in dirty.y0 as i64..dirty.y1 as i64 {
-            for x in dirty.x0 as i64..dirty.x1 as i64 {
-                let (tx, ty) = (x + dx, y + dy);
-                if tx < 0 || ty < 0 || tx >= i64::from(cw) || ty >= i64::from(ch) {
-                    continue;
-                }
-                let from = ((y * i64::from(w) + x) * 4) as usize;
-                let to = ((ty * i64::from(cw) + tx) * 4) as usize;
-                rgba[to..to + 4].copy_from_slice(&data[from..from + 4]);
-            }
+        let (x0, y0) = ((dirty.x0 as i64).max(-dx), (dirty.y0 as i64).max(-dy));
+        let (x1, y1) = ((dirty.x1 as i64).min(cw - dx), (dirty.y1 as i64).min(ch - dy));
+        if x1 > x0 && y1 > y0 {
+            gpu::write(&image, data, (w, h), [x0 as u32, y0 as u32], [(x0 + dx) as u32, (y0 + dy) as u32, (x1 - x0) as u32, (y1 - y0) as u32]);
         }
-        self.restart(Self::brush(cw, ch, rgba));
+        self.restart(image);
     }
 
     pub(crate) fn image_data(&self, area: Rect) -> Vec<u8> {
         let area = area.abs().round();
         let (w, h) = (area.width() as usize, area.height() as usize);
         let mut out = vec![0u8; w * h * 4];
-        let Source::Raster(brush) = self.source() else { return out };
-        let (cw, ch) = (brush.image.width as i64, brush.image.height as i64);
-        let data = brush.image.data.data();
+        let Some(image) = self.bitmap() else { return out };
+        let (cw, ch) = (i64::from(image.texture.width()), i64::from(image.texture.height()));
         let (x0, y0) = (area.x0 as i64, area.y0 as i64);
         let (from_x, to_x) = (x0.clamp(0, cw), (x0 + w as i64).clamp(0, cw));
-        if from_x >= to_x {
+        let (from_y, to_y) = (y0.clamp(0, ch), (y0 + h as i64).clamp(0, ch));
+        if from_x >= to_x || from_y >= to_y {
             return out;
         }
+        let Some(data) = gpu::read(&image, [from_x as u32, from_y as u32, (to_x - from_x) as u32, (to_y - from_y) as u32]) else { return out };
         let row = ((to_x - from_x) * 4) as usize;
-        for sy in y0.max(0)..(y0 + h as i64).min(ch) {
-            let from = ((sy * cw + from_x) * 4) as usize;
-            let to = (((sy - y0) * w as i64 + (from_x - x0)) * 4) as usize;
-            out[to..to + row].copy_from_slice(&data[from..from + row]);
+        for (i, line) in data.chunks_exact(row).enumerate() {
+            let to = (((from_y - y0) as usize + i) * w + (from_x - x0) as usize) * 4;
+            out[to..to + row].copy_from_slice(line);
         }
         out
     }
@@ -970,19 +919,19 @@ impl Canvas {
     }
 
     fn flatten(&mut self) {
-        let Some((w, h, rgba)) = self.pixels() else {
-            return;
-        };
-        self.restart(Self::brush(w, h, rgba));
+        if let Some(image) = self.render() {
+            self.restart(image);
+        }
     }
 
-    fn restart(&mut self, brush: peniko::ImageBrush) {
+    fn restart(&mut self, image: Arc<CanvasImage>) {
         let mut scene = Scene::new();
-        scene.draw_image(brush.as_ref(), Affine::IDENTITY);
+        scene.draw_image(image.brush().as_ref(), Affine::IDENTITY);
         for (path, rule) in &self.state.clips {
             scene.push_clip_layer(*rule, Affine::IDENTITY, path);
         }
         self.scene = Arc::new(scene);
+        self.bitmap = Default::default();
     }
 
     fn extents(line: &parley::Line<blitz_dom::node::TextBrush>) -> (f64, f64) {

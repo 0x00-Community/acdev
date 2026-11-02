@@ -1,8 +1,7 @@
 use std::time::{Duration, Instant};
 
-use acde_render::anyrender::{ImageRenderer, PaintScene, Scene};
+use acde_render::anyrender::Scene;
 use acde_render::{Frame, Options, Rect};
-use anyrender_vello_cpu::VelloCpuImageRenderer;
 
 mod common;
 use common::{Doc, Handle};
@@ -34,10 +33,7 @@ struct Check {
 
 impl Check {
     fn raster(scene: Scene) -> Vec<u8> {
-        let mut rgba = Vec::new();
-        VelloCpuImageRenderer::new(W, H)
-            .render_to_vec(|p| p.append_scene(scene, Default::default()), &mut rgba);
-        rgba
+        acde_render::gpu::rasterize(scene, (W, H), Default::default())
     }
 
     fn frame(&self) -> Frame {

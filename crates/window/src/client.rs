@@ -7,6 +7,7 @@ use std::time::Duration;
 use acde_model::{Event, Inbox, Waker};
 use acde_paint::{Painter, Pixels, Sheet};
 use smithay::backend::allocator::Buffer as _;
+use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::reexports::calloop::channel::{self, Channel};
 use smithay::reexports::calloop::generic::Generic;
 use smithay::reexports::calloop::ping::make_ping;
@@ -25,9 +26,8 @@ use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::xdg::XdgShell;
 use smithay_client_toolkit::shell::xdg::window::{Window, WindowDecorations};
 use smithay_client_toolkit::shm::Shm;
-use smithay_client_toolkit::shm::slot::SlotPool;
 use wayland_client::globals::registry_queue_init;
-use wayland_client::protocol::{wl_buffer, wl_data_device_manager::DndAction, wl_keyboard, wl_pointer, wl_shm, wl_surface};
+use wayland_client::protocol::{wl_buffer, wl_data_device_manager::DndAction, wl_keyboard, wl_pointer, wl_surface};
 use wayland_client::{Connection, Proxy, QueueHandle};
 use wayland_protocols::wp::fractional_scale::v1::client::{wp_fractional_scale_manager_v1, wp_fractional_scale_v1};
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1;
@@ -44,7 +44,7 @@ pub(crate) const TEXT: [&str; 3] = ["text/plain;charset=utf-8", "text/plain", "U
 pub struct DragImage {
     pub width: u32,
     pub height: u32,
-    pub rgba: Vec<u8>,
+    pub scene: acde_render::anyrender::Scene,
     pub hotspot: (i32, i32),
 }
 
@@ -172,7 +172,7 @@ pub(crate) struct Drag {
     pub(crate) source: DragSource,
     pub(crate) data: HashMap<String, String>,
     pub(crate) dropped: bool,
-    pub(crate) icon: Option<(wl_surface::WlSurface, SlotPool)>,
+    pub(crate) icon: Option<(wl_surface::WlSurface, wl_buffer::WlBuffer)>,
 }
 
 pub(crate) struct App {
@@ -203,7 +203,7 @@ pub(crate) struct App {
     pub(crate) signal: LoopSignal,
     pub(crate) logical: (u32, u32),
     pub(crate) scale: f64,
-    pub(crate) told: Option<(u32, u32, f64, Option<bool>)>,
+    pub(crate) told: Option<(u32, u32, f64)>,
     pub(crate) configured: bool,
     pub(crate) active: bool,
     pub(crate) dirty: bool,
@@ -391,12 +391,11 @@ impl App {
             return;
         }
         let (w, h) = self.physical();
-        let software = self.painter.software();
-        if self.told == Some((w, h, self.scale, software)) {
+        if self.told == Some((w, h, self.scale)) {
             return;
         }
-        self.told = Some((w, h, self.scale, software));
-        self.events.push(Event { kind: "resize".into(), width: Some(w.into()), height: Some(h.into()), scale: Some(self.scale), software, ..Default::default() });
+        self.told = Some((w, h, self.scale));
+        self.events.push(Event { kind: "resize".into(), width: Some(w.into()), height: Some(h.into()), scale: Some(self.scale), ..Default::default() });
     }
 
     fn on_render(&mut self) {
@@ -453,11 +452,7 @@ impl App {
     }
 
     fn interval(&self) -> Option<Duration> {
-        match (*WEB_FPS, self.painter.software()) {
-            (Some(fps), _) => Some(Duration::from_secs_f64(1.0 / fps)),
-            (None, Some(true)) => Some(Duration::from_secs_f64(1.0 / 15.0)),
-            _ => self.refresh,
-        }
+        WEB_FPS.map(|fps| Duration::from_secs_f64(1.0 / fps)).or(self.refresh)
     }
 
     pub(crate) fn note_refresh(&mut self) {
@@ -605,19 +600,17 @@ impl App {
     }
 
     pub(crate) fn buffers_of(&self, plane: usize) -> Vec<wl_buffer::WlBuffer> {
-        let qh = &self.qh;
-        self.painter
-            .canvases(plane)
-            .filter_map(|dmabuf| {
-                let params = self.dmabuf.create_params(qh).ok()?;
-                let modifier: u64 = dmabuf.format().modifier.into();
-                for (i, (fd, (offset, stride))) in dmabuf.handles().zip(dmabuf.offsets().zip(dmabuf.strides())).enumerate() {
-                    params.add(fd, i as u32, offset, stride, modifier);
-                }
-                let (buffer, _) = params.create_immed(dmabuf.width() as i32, dmabuf.height() as i32, dmabuf.format().code as u32, zwp_linux_buffer_params_v1::Flags::empty(), qh);
-                Some(buffer)
-            })
-            .collect()
+        self.painter.canvases(plane).filter_map(|dmabuf| self.wl_buffer(dmabuf)).collect()
+    }
+
+    fn wl_buffer(&self, dmabuf: &Dmabuf) -> Option<wl_buffer::WlBuffer> {
+        let params = self.dmabuf.create_params(&self.qh).ok()?;
+        let modifier: u64 = dmabuf.format().modifier.into();
+        for (i, (fd, (offset, stride))) in dmabuf.handles().zip(dmabuf.offsets().zip(dmabuf.strides())).enumerate() {
+            params.add(fd, i as u32, offset, stride, modifier);
+        }
+        let (buffer, _) = params.create_immed(dmabuf.width() as i32, dmabuf.height() as i32, dmabuf.format().code as u32, zwp_linux_buffer_params_v1::Flags::empty(), &self.qh);
+        Some(buffer)
     }
 
     pub(crate) fn ask_frame(&mut self) {
@@ -681,31 +674,33 @@ impl App {
     }
 
     fn start_drag(&mut self, data: HashMap<String, String>, icon: Option<DragImage>) {
+        if self.data_devices.is_none() || self.device.is_none() {
+            return;
+        }
+        let icon = icon.and_then(|i| self.icon(i));
         let (Some(manager), Some(device)) = (self.data_devices.as_ref(), self.device.as_ref()) else { return };
         let source = manager.create_drag_and_drop_source(&self.qh, data.keys(), DndAction::Copy | DndAction::Move);
-        let icon = icon.and_then(|i| self.icon(i));
         source.start_drag(device, self.window.wl_surface(), icon.as_ref().map(|(s, _)| s), self.pointer_serial);
+        if let Some((surface, _)) = &icon {
+            surface.commit();
+        }
         self.drag = Some(Drag { source, data, dropped: false, icon });
     }
 
-    fn icon(&self, image: DragImage) -> Option<(wl_surface::WlSurface, SlotPool)> {
+    fn icon(&mut self, image: DragImage) -> Option<(wl_surface::WlSurface, wl_buffer::WlBuffer)> {
         let (w, h) = (i32::try_from(image.width).ok()?, i32::try_from(image.height).ok()?);
-        if image.rgba.len() != (image.width * image.height * 4) as usize || w == 0 || h == 0 {
+        if w == 0 || h == 0 {
             return None;
         }
-        let mut pool = SlotPool::new(image.rgba.len(), &self.shm).ok()?;
-        let (buffer, canvas) = pool.create_buffer(w, h, w * 4, wl_shm::Format::Argb8888).ok()?;
-        for (out, px) in canvas.as_chunks_mut::<4>().0.iter_mut().zip(image.rgba.as_chunks::<4>().0) {
-            *out = [px[2], px[1], px[0], px[3]];
-        }
+        let dmabuf = self.painter.icon(image.scene, (image.width, image.height)).inspect_err(|e| log::warn!("拖动图标: {e}")).ok()?;
+        let buffer = self.wl_buffer(&dmabuf)?;
         let surface = self.compositor.create_surface(&self.qh);
-        buffer.attach_to(&surface).ok()?;
+        surface.attach(Some(&buffer), 0, 0);
         if surface.version() >= 5 {
             surface.offset(-image.hotspot.0, -image.hotspot.1);
         }
         surface.damage_buffer(0, 0, w, h);
-        surface.commit();
-        Some((surface, pool))
+        Some((surface, buffer))
     }
 
     pub(crate) fn conn(&self) -> &Connection {

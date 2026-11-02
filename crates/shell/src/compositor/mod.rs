@@ -189,7 +189,6 @@ impl Handle {
         let err = std::io::stderr().as_fd().try_clone_to_owned()?;
         process.args(args).env("WAYLAND_DISPLAY", &self.socket).stdin(Stdio::null()).stdout(out).stderr(err);
         process.env_remove("DISPLAY");
-        process.env_remove("LP_NUM_THREADS");
         process.envs(env);
         if let Some(cwd) = cwd {
             process.current_dir(cwd);

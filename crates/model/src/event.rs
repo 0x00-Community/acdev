@@ -25,7 +25,6 @@ pub struct Event {
     pub mime: Option<Vec<String>>,
     pub data: Option<std::collections::HashMap<String, String>>,
     pub parent: Option<u32>,
-    pub software: Option<bool>,
     pub stamp: Option<f64>,
 }
 

@@ -1,6 +1,4 @@
-use acde_render::anyrender::{ImageRenderer, PaintScene};
 use acde_render::Options;
-use anyrender_vello_cpu::VelloCpuImageRenderer;
 
 mod common;
 use common::Doc;
@@ -9,11 +7,7 @@ const W: u32 = 120;
 const H: u32 = 80;
 
 fn red_pixels(doc: &Doc) -> usize {
-    let mut rgba = Vec::new();
-    VelloCpuImageRenderer::new(W, H).render_to_vec(
-        |p| p.append_scene(doc.scene(), Default::default()),
-        &mut rgba,
-    );
+    let rgba = acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default());
     rgba.chunks(4)
         .filter(|p| p[0] > 200 && p[1] < 80 && p[2] < 80)
         .count()
@@ -76,9 +70,7 @@ fn data_url_image_is_loaded() {
 }
 
 fn pixels(doc: &Doc) -> Vec<u8> {
-    let mut rgba = Vec::new();
-    VelloCpuImageRenderer::new(W, H).render_to_vec(|p| p.append_scene(doc.scene(), Default::default()), &mut rgba);
-    rgba
+    acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default())
 }
 
 #[test]

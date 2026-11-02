@@ -157,9 +157,6 @@ fn event_object<'s>(scope: &mut v8::PinScope<'s, '_>, event: Event) -> v8::Local
             fields.push((name, bind::string(scope, value).into()));
         }
     }
-    if let Some(software) = event.software {
-        fields.push(("software", v8::Boolean::new(scope, software).into()));
-    }
     if let Some(mime) = &event.mime {
         let kinds: Vec<v8::Local<v8::Value>> = mime.iter().map(|kind| bind::string(scope, kind).into()).collect();
         fields.push(("mime", v8::Array::new_with_elements(scope, &kinds).into()));
@@ -309,8 +306,12 @@ fn start_drag<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackAr
         let mut number = |name: &str| bind::get(scope, icon, name).and_then(|v| v.number_value(scope)).filter(|n| n.is_finite());
         let (width, height) = (number("width")? as u32, number("height")? as u32);
         let hotspot = (number("hotX").unwrap_or(0.0) as i32, number("hotY").unwrap_or(0.0) as i32);
-        let rgba = bind::get(scope, icon, "rgba").and_then(bind::bytes)?;
-        Some(DragImage { width, height, rgba, hotspot })
+        let picture = number("picture").and_then(|id| crate::dom::Pictures::take(id as u32));
+        let scene = match picture {
+            Some(scene) => scene,
+            None => acde_render::Capture::bitmap(width, height, bind::get(scope, icon, "rgba").and_then(bind::bytes).filter(|b| b.len() == (width * height * 4) as usize)?),
+        };
+        Some(DragImage { width, height, scene, hotspot })
     });
     with_surface(scope, |surface| surface.start_drag(data, icon));
 }

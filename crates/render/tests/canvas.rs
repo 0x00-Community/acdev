@@ -1,6 +1,4 @@
-use acde_render::anyrender::{ImageRenderer, PaintScene};
 use acde_render::Options;
-use anyrender_vello_cpu::VelloCpuImageRenderer;
 
 mod common;
 use common::Doc;
@@ -62,9 +60,7 @@ impl Page {
     }
 
     fn pixels(&self) -> Vec<u8> {
-        let mut rgba = Vec::new();
-        VelloCpuImageRenderer::new(W, H).render_to_vec(|p| p.append_scene(self.doc.scene(), Default::default()), &mut rgba);
-        rgba
+        acde_render::gpu::rasterize(self.doc.scene(), (W, H), Default::default())
     }
 
     fn at(px: &[u8], x: u32, y: u32) -> [u8; 4] {

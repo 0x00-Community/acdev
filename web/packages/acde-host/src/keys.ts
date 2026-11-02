@@ -56,7 +56,7 @@ export class ShellInput {
       case 'close': return { type: 'close' }
       case 'panelmove': return { type: 'panelmove', id: raw.code ?? 0, x: raw.x ?? 0, y: raw.y ?? 0, width: raw.width ?? 0, height: raw.height ?? 0 }
       case 'exit': return { type: 'exit' }
-      case 'resize': return { type: 'resize', width: raw.width ?? 0, height: raw.height ?? 0, scale: raw.scale ?? this.#scale, software: raw.software === true }
+      case 'resize': return { type: 'resize', width: raw.width ?? 0, height: raw.height ?? 0, scale: raw.scale ?? this.#scale }
       case 'dndenter': return { type: 'dndenter', target: this.#render.hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0, mime: raw.mime ?? [] }
       case 'dndmove': return { type: 'dndmove', target: this.#render.hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0 }
       case 'dnddrop': return { type: 'dnddrop', target: this.#render.hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0, data: raw.data ?? {} }

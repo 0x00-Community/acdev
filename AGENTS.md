@@ -46,7 +46,7 @@ acde web <app>#<窗口> (子进程)                      每个应用窗口一�
 ```
 
 web 进程 (`acde web <名字> --port <fd> --heap-mb <mb>`, 同一个可执行文件, crates/acde `web.rs`): 里面是 crates/render 的文档、
-crates/paint (光栅化, 从合成器搬出来的那套: vello on Vulkan / vello_cpu, filter 和 drop-shadow) 和 crates/window
+crates/paint (光栅化, 从合成器搬出来的那套: vello on Vulkan, filter 和 drop-shadow) 和 crates/window
 (Wayland 客户端: xdg_toplevel + linux-dmabuf + `acde_window`, 输入 / 剪贴板 / 拖放 / frame). 它死掉只掉它的窗口.
 
 ## 窗口模型 (split-window)
@@ -553,7 +553,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   (定位加 z-index、transform 等; 不是也行, render 把它当成片段边界, 换面板集合时清一次绘制缓存), 不带祖先的裁剪和透明度.
 - **帧**: `requestFrame` 之后, 上一帧画完交出去就给下一帧 (光栅化定节奏, 不等合成器 vblank; 动画同样), 但两帧之间至少隔
   输出刷新周期的 0.9 倍 (取最快那块输出当前模式的刷新率, wl_output 报的; 没有刷新率时不限), 页面没出新帧时
-  退回 wl_surface 的 frame 回调; 软件光栅化最多 15fps, `ACDE_WEB_FPS` 指定时用它. stress 窗口 (每帧重画) 约 900 帧/s.
+  退回 wl_surface 的 frame 回调; `ACDE_WEB_FPS` 指定时用它. stress 窗口 (每帧重画) 约 900 帧/s.
 - **通信**: 只有 `acde:` 模块. 每个 web 的能力是 Broker 按它的清单给的代理 (`remote.ts` 的 `RemoteBridge`), `define` 把每个
   能力登记成内置模块 `acde:<名字>` (HostNative `defineModule`, crates/acde `modules.rs` 用 V8 的合成模块提供, 导出 `{<名字>, default}`;
   没登记的 `acde:` 导入解析时就失败); 页面没有 `acde` 全局. **事件不派到 `window` 上**: 宿主的通知都进 `remote.ts` 的 `Notices`
@@ -721,7 +721,7 @@ split-window 上没有, 没带过来 (按第一原则, 这类能力以后只经 
   尺寸是物理像素, scale 是 hidpi 缩放. base_url 默认 `http://acde.local/`; 同源资源按 resources 最长前缀匹配, 在 dirs 里依次找;
   `file:` 直接读盘; 不联网, 读不到的资源回空内容. 读和解码在调用的线程上同步做 (拿着文档锁).
   `Document` 只发句柄: `dom()` (JS 线程), `handle()` (web 进程的 `acde-window` 线程); 另有 `scene()` / `sync()` 给测试.
-  crates/acde 建文档时只传 resources、reduced_motion、dark 和 name (web 的名字, 只用在日志里); 软件渲染时 `Dom::set_reduced_motion` 事后打开.
+  crates/acde 建文档时只传 resources、reduced_motion、dark 和 name (web 的名字, 只用在日志里); `Dom::set_reduced_motion` 可以事后改.
 - 线程: 文档由 JS 线程和专用的 `acde-render` 线程共用 (一把锁, BaseDocument 不是 Send); `acde-window` 线程只往命令队列里放命令.
 - DOM: `Dom` 是 acde-dom 的 `DomNative` (契约 `web/packages/acde-dom/src/native.ts`, 每个函数一个同名的 snake_case 方法),
   crates/acde 的 V8 绑定在 JS 线程上直接调. 节点 id 是 u32, 不复用, `<html>` 是 0; 查询是 CSS 像素; 出错的说明以 DOMException 的名字开头.
@@ -740,11 +740,21 @@ split-window 上没有, 没带过来 (按第一原则, 这类能力以后只经 
   scene 按它们切成的段 (从下到上), 为空时直接画 scene. 每段 Layer {scene, bounds, backdrop, filter}:
   有 backdrop 时, 光栅化方先把画布上 backdrop.bounds (圆角 radius(), 再和 clip 求交) 里已画好的内容按 blur() / saturate() / brightness()
   处理, 再画这一段; 有 filter 时, 这一段先画进临时纹理, 做滤镜后再合成. 坐标都是物理像素.
-  (`crates/paint` 现状: backdrop 的 blur / saturate / brightness, filter 的 drop-shadow、模糊和颜色矩阵在 GPU 上做, 软件渲染时没有别的
-  效果的段的 drop-shadow 在 CPU 上和内容一起画; 其他滤镜效果忽略, 照常画.)
-- `Dom::capture(id, scale)`: 单独画一个元素的子树 (拖动图标), 返回画出来的内容的包围盒 (x/y/width/height, CSS px)、
-  pixel_width/pixel_height、实际缩放 scale 和直通 alpha 的 rgba; 不带祖先的 transform/opacity/裁剪, 单边超过 2048 像素时缩小,
-  什么都没画时返回 None.
+  (`crates/paint` 现状: backdrop 的 blur / saturate / brightness, filter 的 drop-shadow、模糊和颜色矩阵在 GPU 上做; 其他滤镜效果忽略,
+  照常画.)
+- `Dom::capture(id, scale)`: 单独录一个元素的子树 (拖动图标), 返回画出来的内容的包围盒 (x/y/width/height, CSS px)、
+  pixel_width/pixel_height、实际缩放 scale 和放好位置的 `scene` (像素坐标, 不光栅化); 不带祖先的 transform/opacity/裁剪, 单边超过
+  2048 像素时缩小, 什么都没画时返回 None. JS 拿到的是 `picture` 编号 (crates/acde `dom.rs` `Pictures`, 每个 web 只留最后一个),
+  `startDrag` 的图标带它时 web 进程的光栅化线程把这个 scene 画进一块 GBM dmabuf (crates/paint `Painter::icon`), 经 linux-dmabuf
+  交给合成器当拖动图标; 不带 `picture` 时用 `rgba` (Dopame 自己画的文件图标, 当图片画进 dmabuf). `Capture::pixels()` 在 GPU 上画完
+  读回, 只给测试用.
+- canvas 2D 要像素的地方都在 GPU 上 (render `gpu.rs`): 用 web 进程光栅化线程的同一个 wgpu 设备 (crates/paint 发布 `Gpu` 时
+  `gpu::install`; 光栅化线程起来之前 `gpu::expect`, 之后要设备的调用最多等 10 秒; 两样都没有时 (测试) 自己开一个非 CPU 的设备),
+  在上面跑一个离屏的 vello (`Mutex` 里, 头一次用时建). flatten (命令超过上限)、canvas 当图片源 (drawImage / createPattern) 画进一张
+  纹理 (`CanvasImage`, 和 WebGPU canvas 同一个类型), scene 里引用它, 光栅化线程按 blob id 把它换成那张纹理 (`Overrides`), 不读回;
+  `putImageData` 先画成纹理再 `write_texture` 写进那块; `shadowBlur` 把形状画进纹理, 再用 compute shader (`blur.wgsl`, 两遍可分离
+  高斯, 顺带上色) 做成阴影纹理; `getImageData` / `toDataURL` 画完同步读回 (标准接口要同步的像素, 浏览器也是这样). 提交都拿
+  `Shared::submit_lock` (和光栅化线程挂信号量的那段互斥).
 - 选项 default_lang (BCP 47, 默认 zh-Hans): 没有 lang 属性的内容按这个语言选 CJK 字体变体 (zh-Hans → SC,
   zh-Hant → TC, zh-HK → HK, ja → JP, ko → KR); 元素上的 lang 优先.
 - 所有入口都有 catch_unwind, panic 时调用返回 Err 或丢掉这一帧.
@@ -782,7 +792,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
   `unshortcut(...)` 见「平台职责」, 冲突时 `shortcut` 抛错;
   `focus`, `hide(window, hidden)`, `close`, `quit` (停掉合成器, 等它的线程拆完 EGL / GBM 再返回, 最多 3 秒:
   进程随后 `exit`, Mesa 的 atexit 清理和合成器线程同时释放会把堆弄坏); `socketName` (子进程的
-  `WAYLAND_DISPLAY`); `launch(argv, {cwd, env})` (去掉 `DISPLAY` 和 `LP_NUM_THREADS`, 返回 pid); `stats(reset?)`;
+  `WAYLAND_DISPLAY`); `launch(argv, {cwd, env})` (去掉 `DISPLAY`, 返回 pid); `stats(reset?)`;
   `screenshot(path)` (主输出离屏画一遍存 PNG); `inject(...)` (见下). 令牌是 Shell 里的一张表 (不是指针).
 - web 侧: natives 的 `claimSurface(token)` (crates/acde `webnative.rs` → crates/window `Surface::claim`: 连上合成器, 开 toplevel,
   `acde_window.bind(token)`, 等到窗口 id; 一条 `acde-window` 线程负责 Wayland 和光栅化) 给出这个 web 的 surface:
@@ -820,13 +830,17 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
   多块输出按逻辑宽度 (分辨率除以缩放) 从左往右排. 光标一律合成进画面, 不用 DRM 光标平面 (`render_frame` 不给
   `ALLOW_CURSOR_PLANE_SCANOUT`): 带 T2 的 Intel Mac 上 2 倍缩放时, 走光标平面的光标只能走屏幕左上 1/4; 改成合成之后在
   那台 Mac 上验过, 光标走满全屏 (Xe3 + 4K HDMI 上 `ACDE_SCALE=2` 也一样). 其他环境变量: `ACDE_SOCKET`
-  (Wayland socket 名), `ACDE_RENDER_NODE`, `ACDE_VK=cpu|none`, `ACDE_WEB_CPU=0|1` (强制 / 不用 vello_cpu), `ACDE_WEB_THREADS`,
+  (Wayland socket 名), `ACDE_RENDER_NODE`,
   调试用的 `ACDE_WEB_FULL` (每帧整张重画) / `ACDE_WEB_POLL` (不用信号量, 轮询). 日志见「日志和计时」.
 
 ### GPU 与性能 (硬约束)
 
 acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU 拷像素、不允许 GPU 回读**. 例外: RDP 后端 (每帧回读损坏区域)、
-截屏、软件光栅化 (CPU 画好再上传).
+截屏、标准接口要同步给像素的 (canvas 的 `getImageData` / `toDataURL`, 见「组件契约」的 render).
+
+**网页只在 GPU 上画, 不支持 CPU 光栅化** (用户定, 2026-11-02): 没有 vello_cpu, CPU 类型的 Vulkan 设备 (lavapipe) 不认. 没有 GPU
+(虚拟机的 virtio-gpu 没有 3D、nomodeset) 时网页图层不可用 (日志 `网页图层不可用: 没有 GPU (Vulkan)`), 页面不出帧. 合成器自己 (GLES)
+不在此列.
 
 - 原生应用 (OpenGL / GLES / Vulkan, 例如 Minecraft): 客户端在 GPU 上渲染, 经 linux-dmabuf v4 (带 feedback) 零拷贝交给合成器
   (旧 EGL 客户端走 wl_drm); 全屏且格式/修饰符合适时直接扫描输出 (上 DRM plane), 否则用 GPU 合成.
@@ -836,8 +850,6 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 - 网页图层: 在 web 进程里, Blitz 由 vello 在 GPU (wgpu, Vulkan) 上画进画布 (crates/paint, 光栅化线程 `acde-web`). 画布是 web
   进程自己 GBM 分配的 dmabuf (linear), 经 linux-dmabuf 交给合成器 (viewporter 裁掉对齐用的边, 也做分数缩放), Vulkan 信号量
   导出的 sync_file 落定后才 commit; 合成器还拿着的画布不画; 不经 CPU. 只重画脏区域, 页面没变化时不重画. 选中的设备写在日志 (`网页图层用 ...`).
-  没有 Vulkan GPU (虚拟机、nomodeset) 时网页在 CPU 上画 (vello_cpu, 见「packaging/qemu」), lavapipe 做剩下的 GPU 活,
-  网页动画限到 15fps.
 - 光栅化调度: 每个 web 进程一条光栅化线程 (`acde-web`), 一次一帧: 上一帧交出去 (sync_file) 之前不开始下一帧, 编码前只等
   两个任务之前的那次提交 (等它导出的 sync_file, 不在 wgpu 里等), CPU 编码和 GPU 执行重叠. 挪窗口时内容不重新光栅化, 只换位置. 闲 2 秒放掉中间纹理.
 - 叠放: 只看窗口表的 z (见「窗口管理」); 网页窗口和原生窗口一样是一块缓冲. web 窗口里的 backdrop-filter 只模糊它自己窗口里
@@ -849,16 +861,16 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
   提交里写测到的数.
 - 网页里的 WebGPU (`navigator.gpu`, `<canvas>` 的 `webgpu` 上下文): acde-dom `src/gpu/` 经 `GpuNative` 调 crates/acde `webgpu/`,
   跑在这个 web 进程光栅化线程的那个 wgpu 设备上 (crates/paint `gpu.rs`, 提交都经 `Gpu::submit`). canvas 纹理光栅化线程直接当
-  图片画, 不经 CPU; 每个任务结束时 present. 一个 GPUDevice 只是错误和 `destroy()` 的范围. 软件渲染时页面拿不到 adapter.
+  图片画, 不经 CPU; 每个任务结束时 present. 一个 GPUDevice 只是错误和 `destroy()` 的范围. 网页图层不可用时页面拿不到 adapter.
   map 和 `onSubmittedWorkDone` 的回调由 `acde-gpu-poll` 线程非阻塞地轮询 (有在等的回调时, 队列没空 0.5 ms 一次, 空了 4 ms 一次):
   wgpu 的 `poll(Wait)` 等 GPU 的整段时间都拿着设备的 snatch 读锁, 这时有线程要销毁资源 (拿写锁), 别的线程的提交、建视图、
   `onSubmittedWorkDone` 就全排到 GPU 做完之后. 所以每帧的路径上不用 `Wait`.
   `toDataURL` / `copyExternalImageToTexture` 同步读回; `toBlob` 异步读回, PNG 在单独的线程上编码 (crates/acde, 用 render 的
-  `encode_png`). 背压: 两批 present 没做完 (超过 1 秒的不算) 时这次 vblank 不跑 rAF 回调. 只在 Lima 的 lavapipe 上验过.
+  `encode_png`). 背压: 两批 present 没做完 (超过 1 秒的不算) 时这次 vblank 不跑 rAF 回调. 当时只在 Lima 的 lavapipe 上验过, 真 GPU 上没验过.
 - WebGL: Blitz 不支持, 待排期 (计划: `<canvas>` 由原生 GL 渲染进 dmabuf). Canvas 2D 由 render 画
   (acde-dom `src/dom/canvas.ts` 编成命令流, 经 `Dom::canvas` 交给 render; `Path2D` 的 SVG 路径字符串连同 addPath 的变换原样
   送过去, render 用 kurbo 解析, 出错时画出错之前的部分). 一张 canvas 攒的命令超过 20000 条时 render 把它
-  光栅化成一张图再接着记 (`ACDE_CANVAS_MAX_COMMANDS`, 0 不限).
+  在 GPU 上画成一张纹理再接着记 (`ACDE_CANVAS_MAX_COMMANDS`, 0 不限).
 
 ### iframe 策略
 
@@ -896,7 +908,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/render` | Rust | Blitz 原生 web 渲染 |
 | `crates/runtime` | Rust | 系统接口的 napi 导出. 异步执行器 `src/rt.rs`: 线程 `acde-rt` 上一个 ntex System (运行时 ntex 自己选: io_uring, 不行用 polling), 也是 napi 的 `async-runtime` 后端, 阻塞活进它的线程池; HTTP / WebSocket 用 ntex, TLS 用 OpenSSL, 不用 tokio; 唯一起的子进程是终端的 shell (`std::process`, 一条 `terminal-<pid>` 线程用 pidfd 等它). 检查在 `tests/`, 用编好的 acde 跑 (`acde run`, 不要 Node): `tests/run.sh <acde> tests/<x>-check.mjs` (fs-copyin、terminal), 输入法 `tests/ime-check.sh` (在私有 D-Bus 和 fcitx5 上跑 `src/ime.rs` 里 ignored 的 Rust 测试; `Ime` 不是 napi 导出, 只由 crates/acde `webnative.rs` 绑给 web), `tests/portal-check.sh <acde>`; 临时目录在 `$ACDE_CHECK_TMP` (默认 `$TMPDIR`) |
 | `crates/acde` | Rust | `acde` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, web 进程 (`acde web`), 把 render 的文档绑给 JS (见「宿主: crates/acde」) |
-| `crates/paint` | Rust | `acde-paint`: web 进程的光栅化 (render 的帧 → GBM dmabuf: vello / vello_cpu, filter、drop-shadow、backdrop), WebGPU 共用它的 wgpu 设备 |
+| `crates/paint` | Rust | `acde-paint`: web 进程的光栅化 (render 的帧 → GBM dmabuf: vello, filter、drop-shadow、backdrop; 拖动图标), WebGPU 和 render 的 canvas 共用它的 wgpu 设备 |
 | `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` 协议 (`protocol/acde-window.xml`) |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
@@ -941,7 +953,7 @@ JS 里 `console.*` 是 target `js`, 页面错误和没接住的异常是 `js` �
 | `perf::latency` | crates/window (web 进程, 这一帧的 frame 回调时) | 一次输入到上屏: `<pointerdown/pointerup/keydown/wheel/scroll> owner=<surface> ms=<总>`, 分段 `queue` (进队列到 JS 取走) `js` (到 commit) `render` (到 render 出帧) `raster` (到光栅化做完) `present` (到 vblank) |
 | `perf::task` | crates/acde | 事件循环里超过 8ms 的任务: `task ms= hook=` (hook: 任务后的钩子, 提交文档、flush canvas), V8 自己的任务 `v8` |
 | `perf::frame` | render | 每帧: `<web> commit= resolve= paint= finish= ms=` |
-| `perf::raster` | crates/paint、crates/window (web 进程) | 光栅化任务 `job surfaces= cpu= wait= record= ms=` (ms 是交给 GPU 之前), 每个 surface 从发出到做完 `surface owner= ms=` |
+| `perf::raster` | crates/paint、crates/window (web 进程) | 光栅化任务 `job surfaces= wait= record= ms=` (ms 是交给 GPU 之前), 每个 surface 从发出到做完 `surface owner= ms=` |
 | `perf::compose` | shell | 合成一帧: `<输出> elements= ms=`, RDP 的含读回 `rdp elements= rects= ms=`; 计划 `plan inputs= layers= damage= route=`; 一次 backdrop 模糊 `backdrop window= w= h= blur= ms=` (CPU 侧, 含画下面的元素) |
 | `perf::rpc` | acde-host | web 侧 `call <服务>.<方法> error= ms=` (往返), Broker 侧 `serve <服务>.<方法> ms=` (处理) |
 
@@ -981,7 +993,6 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个 we
 | `vendors/parley` | linebender/parley, + 改动 |
 | `vendors/stylo` | servo/stylo, + 改动 |
 | `vendors/stylo_atoms` | servo/stylo, + 一个 atom |
-| `vendors/vello_cpu` | linebender/vello, + 改动 |
 | `vendors/vello` | linebender/vello (crates.io `vello` 0.11.0), + 改动 |
 | `vendors/ironrdp-server` | Devolutions/IronRDP, + 改动 (tokio → ntex, TLS 用 OpenSSL) |
 | `vendors/taffy` | DioxusLabs/taffy, git 提交 `4e59968`, 未改 |
@@ -1095,15 +1106,6 @@ acrender 和 acde 用的是同一份 (`cargo tree -i parley` 只有一个).
 
 crates.io 上的原样拷来 (加了空的 `[workspace]`), 只在 `static_atoms.txt` 加了 `prefers-reduced-motion`: stylo 的媒体特性名要是静态 atom.
 
-### vendors/vello_cpu
-
-| 文件 | 改了什么 | 为什么 |
-| --- | --- | --- |
-| `src/fine/common/rounded_blurred_rect.rs` `superellipse` | 模糊圆角矩形的距离: 不在角上时直接取另一边, 在角上用便宜的 log2 / exp2 (和 f64 powf 差不到 2e-4 像素) | 拖窗口时光栅化线程 81% 的时间在每像素 3 次 powf 上 |
-| `src/render.rs` `glyph_atlas_resources_are_lazy` | 关掉 | 它 include 的资源不在 crates.io 的包里 |
-
-去掉了 `examples/`. 验证: `cd vendors/vello_cpu && cargo test --release --lib acrender`.
-
 ### vendors/vello
 
 crates.io 的 `vello` 0.11.0 原样拷来 (去掉 `Cargo.toml.orig` / `Cargo.lock`, 加了空的 `[workspace]`), 只改 `src/scene.rs`:
@@ -1194,7 +1196,7 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 | `/usr/share/xdg-desktop-portal/acde-portals.conf` | `XDG_CURRENT_DESKTOP=acde` 的 portal 后端: 全部用 GTK (flatpak / snap 应用的文件对话框) |
 
 会话入口 `/usr/bin/acde`: 子命令 (desktops、sessions、applications、open、run、window、app) 和 `-h` / `--help` / `--version` 直接 exec acde.
-否则跑 `/usr/lib/acde/acde` (没有 `WAYLAND_DISPLAY` / `DISPLAY` 时 shell 自己接管 seat 走 DRM/KMS), 默认 `LP_NUM_THREADS=2`.
+否则跑 `/usr/lib/acde/acde` (没有 `WAYLAND_DISPLAY` / `DISPLAY` 时 shell 自己接管 seat 走 DRM/KMS).
 异常退出就重新拉起 (journal 里 `-t acde` 一行 `acde exited with status N: starting it again`), 60 秒内第 3 次崩溃放弃, 退回显示管理器
 (登录页 `--greeter` 放弃时改成 `exec agreety --cmd /usr/bin/acde`, 免得 greetd 一直重启它); 正常退出或收到 TERM/INT/HUP 不重启.
 退出码 3 且有交接文件时 (「桌面包」): 读完删掉, 程序在就导出里面的环境变量并 `exec` 它, 不在就记一行日志、按崩溃处理.
@@ -1206,7 +1208,7 @@ input-method-v2, IBus 不支持它); 网页里的输入框走 runtime 的 `Ime` 
 包从 PKGBUILD 所在仓库的 `HEAD` 构建 (`git archive`), 未提交的改动不会进包. x86_64 和 aarch64 都能打; 版本从 `v*` tag 来
 (`v1.2.3` 即 `1.2.3`, 之后的提交是 `1.2.3.r<数>.g<hash>`). 可选依赖: acde-dopame、greetd、Document Server (docker)、
 `plasma-workspace` (装了登录页里就有 KDE Plasma)、GPU 自己的 Vulkan 驱动 (`vulkan-intel`、`vulkan-radeon`、`nvidia-utils`):
-依赖里的 `vulkan-driver` 由兜底的 lavapipe 满足, 没装硬件驱动的机器网页图层在 CPU 上画, 镜像要在包列表里列上它们.
+依赖里的 `vulkan-driver` 要由其中一个满足 (lavapipe 不算, 网页不在 CPU 上画), 镜像要在包列表里列上它们.
 
 构建: Arch / CachyOS 上 `cd packaging/arch && makepkg -s`; 没有 Arch 的机器用 `packaging/arch/podman-build.sh out/`
 (一次性的 archlinux 容器). `check()` 不要显示器跑一次 `acde desktops --package <greet>`, 要列出登录页 `greet`.
@@ -1216,9 +1218,9 @@ ISO 构建时从这里的 release 下载包放进镜像的本地仓库.
 
 ## packaging/qemu
 
-整套会话在虚拟机里的验收用 agentos 仓库的 `image/test-lima.sh` (Lima, 和 AgentOS 镜像一样的启动链: greetd 在 tty1 直接进
-`/usr/bin/acde`; 见那个仓库的 AGENTS.md). 这里是在会话所在的机器上驱动和测量它的 `drive.sh` / `drive.mjs` (会话要带
-`ACDE_DEBUG_DIR` 起).
+会话所在的机器上驱动和测量会话的 `drive.sh` / `drive.mjs` (会话要带 `ACDE_DEBUG_DIR` 起). 网页只在 GPU 上画以后, 没有 3D 的
+虚拟机 (agentos 仓库 `image/test-lima.sh` 的 Lima, virtio-gpu) 起不来网页图层, 不再在上面验收 (用户定, 2026-11-02); 验收在有 GPU 的
+真机上 (.169 Intel、.187 AMD).
 
 - greetd 的 `initial_session` 只在 greetd 第一次启动时跑, 改了配置要重启虚拟机.
 - fcitx5 退出时把内存里的 profile 写回, 要改 profile 先 `kill -9` 它再改.
@@ -1226,10 +1228,6 @@ ISO 构建时从这里的 release 下载包放进镜像的本地仓库.
 - Lima (vz) 的 virtio-gpu (没有 3D) 在 renderD128 上分配 GBM 报 Permission denied: web 进程 (crates/window) 没设 `ACDE_RENDER_NODE` 时
   按 renderD* 再 card* 的顺序试分配一块 64x64 linear 画布, 用第一个分配得了的 (这里是 card0, 日志 `网页窗口用 ... 分配画布`).
 - 光标在哪都不走光标平面 (见「组件契约」的 shell), 每次移动合成一帧 (只重画光标的新旧位置). 待机唤醒和热改分辨率在虚拟机里验不了.
-- 软件光栅化 (没有 Vulkan GPU): 网页默认用 vello_cpu 画 (比在 lavapipe 上跑 vello 的计算着色器快得多). 一帧里要重画的块先在 CPU
-  上画完, 每块按至少 32 行切成横条, 由 `ACDE_WEB_THREADS` 个线程 (默认核数减 1, 最多 4; 额外的线程叫 `acde-web-cpu`) 一起画;
-  没有别的效果的段的 drop-shadow 也在 CPU 上画 (三次盒式模糊); 这样的段只上传、合成不透明的部分. 剩下的 GPU 活在 lavapipe 上.
-  `LP_NUM_THREADS=2` 比默认 (每核一线程) 省 CPU 而不变慢, 所以会话入口默认 2.
 
 本机有显示器、但 seat0 被登录器 (gdm) 占着时, 不用停登录器也能验 DRM 后端: 以自己的身份在另一个 VT 上开一个 logind 会话跑 acde,
 `sudo systemd-run --unit=acde-drm-test --uid=$USER -p PAMName=login -p TTYPath=/dev/tty7 -p StandardInput=tty-force <脚本>`
@@ -1256,9 +1254,9 @@ ISO 构建时从这里的 release 下载包放进镜像的本地仓库.
 说明真拖动了), `scroll [APP]`, `stress [N]` (N 个 stress 应用的窗口每帧重画, 要把 `web/packages/acde-host/tests/fixtures/stress-app`
 加进 `ACDE_PATH`), `contend [N]` (stress 窗口重画的同时拖一个 files 窗口: 各 surface 抢光栅化线程), `open [APP]` (反复开关窗口).
 结果: `cpuPercent` (100 是一个核), `threads` (按线程名合计: `acde-web` 光栅化, `acde` 是 Broker 和各 web 的主线程 (JS),
-`acde-render`, `llvmpipe-*`), `rssMb`, 都含 acde 下面所有进程 (测量期间结束的不算); `shell`: 每秒合成几帧和 p50 / p95 / max;
+`acde-render`), `rssMb`, 都含 acde 下面所有进程 (测量期间结束的不算); `shell`: 每秒合成几帧和 p50 / p95 / max;
 光栅化看 web 进程的 `perf::raster`; `webs`: 每个 web 每秒出几帧、`frame` / `frameLocked` / `resolve` 的平均和最长.
-无显示器时用 RDP 后端起会话再量: `ACDE_BACKEND=rdp`, `ACDE_DEBUG_DIR=<目录>`, `LP_NUM_THREADS=2`, `--seconds N`.
+无显示器时用 RDP 后端起会话再量: `ACDE_BACKEND=rdp`, `ACDE_DEBUG_DIR=<目录>`, `--seconds N`.
 
 ## web
 
@@ -1359,9 +1357,8 @@ xdg-desktop-portal Settings 的 `org.freedesktop.appearance` `color-scheme` (run
 `{type: 'languages', language, languages}`: `navigator.language` / `languages` 变成新的, `window` 上发标准的 `languagechange`
 (没变不发). 之后起的 web 也拿新语言. 已经在跑的原生程序、桌面服务和 acde 进程自己的环境 (之后经 shell 起的原生程序) 要等下次登录.
 
-**软件渲染**: 每个 web 自己的 surface 报 `resize {software}` (光栅化设备选好之后); 第一次是 true 时页面的 `<html>` 补上
-`data-acde-software` (Dopame 据此去掉模糊和 canvas 动画), `ACDE_REDUCED_MOTION` 没设时再打开 `prefers-reduced-motion: reduce`
-(`Dom::set_reduced_motion`). 页面照常加载, 不等设备. `ACDE_REDUCED_MOTION=1` 从一开始就两样都有 (GPU 上也一样), `=0` 都不开.
+**减少动效**: `ACDE_REDUCED_MOTION=1` 让每个 web 的 `prefers-reduced-motion: reduce` 成立, `=0` 不成立. 没有软件渲染, 也没有
+`data-acde-software` 了.
 
 **远程桌面** (没有显示器: 服务器、虚拟机): `ACDE_BACKEND=rdp` 让 shell 离屏合成, 用 RDP 送出 (crates/shell `compositor/rdp.rs`,
 服务端是 vendors/ironrdp-server). 要 `ACDE_RDP_USER` / `ACDE_RDP_PASSWORD` 和证书 (`ACDE_RDP_CERT` / `ACDE_RDP_KEY`, PEM 或 DER,

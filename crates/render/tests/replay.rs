@@ -127,7 +127,7 @@ fn icons_in_a_window_opened_after_hidden_are_drawn() {
     let Replayed { doc, ids } = Recording::load("open-browser").replay();
     for (id, what) in [(2499, "title icon"), (576, "address bar lock")] {
         let capture = doc.capture(ids[id], None).unwrap();
-        let drawn = capture.as_ref().map_or(0, |c| c.rgba.chunks(4).filter(|p| p[3] > 64).count());
+        let drawn = capture.as_ref().map_or(0, |c| c.pixels().chunks(4).filter(|p| p[3] > 64).count());
         assert!(drawn > 8, "{what} (node {id}) draws {drawn} pixels");
     }
     let stats = doc.stats().unwrap();

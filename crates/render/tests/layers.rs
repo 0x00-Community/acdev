@@ -1,9 +1,8 @@
 use std::time::{Duration, Instant};
 
 use acde_render::anyrender::filters::FilterEffect;
-use acde_render::anyrender::{ImageRenderer, PaintScene, Scene};
+use acde_render::anyrender::{PaintScene, Scene};
 use acde_render::{Frame, Options};
-use anyrender_vello_cpu::VelloCpuImageRenderer;
 
 mod common;
 use common::{Doc, Handle};
@@ -58,16 +57,11 @@ impl Page {
 }
 
 fn raster(size: (u32, u32), scenes: Vec<Scene>) -> Vec<u8> {
-    let mut rgba = Vec::new();
-    VelloCpuImageRenderer::new(size.0, size.1).render_to_vec(
-        |p| {
-            scenes
-                .into_iter()
-                .for_each(|s| p.append_scene(s, Default::default()))
-        },
-        &mut rgba,
-    );
-    rgba
+    let mut all = Scene::new();
+    for scene in scenes {
+        all.append_scene(scene, Default::default());
+    }
+    acde_render::gpu::rasterize(all, size, Default::default())
 }
 
 fn near(a: f64, b: f64) -> bool {

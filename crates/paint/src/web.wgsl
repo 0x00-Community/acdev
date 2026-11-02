@@ -49,12 +49,6 @@ fn fs_clear(in: VsOut) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0);
 }
 
-// 已经预乘的一段 (vello_cpu 画的) 原样叠到画布上
-@fragment
-fn fs_place_premultiplied(in: VsOut) -> @location(0) vec4<f32> {
-    return textureLoad(src, vec2<i32>(in.pos.xy - params.rect.xy), 0);
-}
-
 @fragment
 fn fs_place(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureLoad(src, vec2<i32>(in.pos.xy - params.rect.xy), 0);

@@ -140,10 +140,6 @@ impl Painter {
         })
     }
 
-    pub fn software(&self) -> Option<bool> {
-        self.status.software.get().copied().or_else(|| self.failed().then_some(false))
-    }
-
     fn failed(&self) -> bool {
         self.status.ready.get() == Some(&false)
     }
@@ -263,6 +259,18 @@ impl Painter {
             target.stale = true;
         }
         self.dropped = true;
+    }
+
+    pub fn icon(&mut self, scene: acde_render::anyrender::Scene, (w, h): (u32, u32)) -> Result<Dmabuf, String> {
+        if self.failed() {
+            return Err("网页图层不可用".to_string());
+        }
+        let bo = self.allocator.create_buffer(w, h, FORMAT, &[Modifier::Linear]).map_err(|e| format!("GBM 分配: {e}"))?;
+        let dmabuf = bo.export().map_err(|e| format!("导出 dmabuf: {e}"))?;
+        let (reply, answer) = mpsc::channel();
+        self.jobs.send(Job::Icon { dmabuf: dmabuf.clone(), size: (w, h), scene, reply }).map_err(|_| "光栅化线程退出了".to_string())?;
+        answer.recv_timeout(Duration::from_secs(3)).map_err(|_| "光栅化线程没有回应".to_string())??;
+        Ok(dmabuf)
     }
 
     pub fn take_dropped(&mut self) -> bool {

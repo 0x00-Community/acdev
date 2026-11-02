@@ -99,12 +99,6 @@ class Web {
     new PageCalls(page, rpc, init.name)
     web.onActivation = (active) => self?.emit(active ? 'activate' : 'deactivate')
     web.onGrab = (event) => self?.emit(event.kind === 'lost' ? 'grablost' : 'grab', event)
-    web.onSoftware = () => {
-      if (init.reducedMotion !== null) return
-      page.window.document.documentElement?.setAttribute('data-acde-software', '')
-      dom.setReducedMotion?.(true)
-      page.mediaChanged()
-    }
     if (init.kind === 'desktop') {
       web.onFirstFrame = () => void rpc.call('page', 'shown').catch(() => undefined)
       const pinned = new Pinned(rpc, surface, dom, page as never)

@@ -38,8 +38,9 @@ fn solid_box_is_its_border_box() {
     let c = page.capture(el, None).unwrap();
     assert_eq!((c.x, c.y, c.width, c.height), (10.0, 30.0, 40.0, 20.0));
     assert_eq!((c.pixel_width, c.pixel_height, c.scale), (40, 20, 1.0));
-    assert_eq!(c.rgba.len(), 40 * 20 * 4);
-    assert!(c.rgba.chunks(4).all(|p| p == [255, 0, 0, 255]));
+    let rgba = c.pixels();
+    assert_eq!(rgba.len(), 40 * 20 * 4);
+    assert!(rgba.chunks(4).all(|p| p == [255, 0, 0, 255]));
 }
 
 #[test]

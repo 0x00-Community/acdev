@@ -107,7 +107,8 @@ export class DragDrop {
 export interface DragIcon {
   readonly width: number
   readonly height: number
-  readonly rgba: Uint8Array
+  readonly rgba?: Uint8Array
+  readonly picture?: number
   readonly hotX: number
   readonly hotY: number
 }
@@ -118,7 +119,7 @@ interface ElementPicture {
   readonly pixelWidth: number
   readonly pixelHeight: number
   readonly scale: number
-  readonly rgba: Uint8Array
+  readonly picture: number
 }
 
 export class DragSource {
@@ -191,7 +192,7 @@ export class DragSource {
     return {
       width: picture.pixelWidth,
       height: picture.pixelHeight,
-      rgba: picture.rgba,
+      picture: picture.picture,
       hotX: clamp((image ? image.x : pressed.x - picture.x) * picture.scale, picture.pixelWidth),
       hotY: clamp((image ? image.y : pressed.y - picture.y) * picture.scale, picture.pixelHeight),
     }

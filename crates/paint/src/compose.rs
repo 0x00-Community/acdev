@@ -82,7 +82,6 @@ impl Params {
 const KEEP_FRAMES: u64 = 8;
 const CACHE_BYTES: u64 = 96 << 20;
 const MAX_BINDS: usize = 256;
-const STAGING_BYTES: u64 = 32 << 20;
 
 #[derive(Clone, Copy)]
 enum Pipe {
@@ -91,9 +90,7 @@ enum Pipe {
     Backdrop,
     Shadow,
     Place,
-    PlacePremultiplied,
     Flatten,
-    FlattenPremultiplied,
     Filter,
     Clear,
     CopyOver,
@@ -119,14 +116,6 @@ struct Uniforms {
     pending: Vec<u8>,
 }
 
-#[derive(Default)]
-struct Staging {
-    buffer: Option<wgpu::Buffer>,
-    used: u64,
-    peak: u64,
-    idle: u32,
-}
-
 pub struct Composer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -137,7 +126,6 @@ pub struct Composer {
     uniforms: Uniforms,
     binds: HashMap<wgpu::TextureView, (wgpu::BindGroup, u64)>,
     textures: HashMap<(u32, u32, u32), Cached>,
-    staging: Staging,
     frame: u64,
 }
 
@@ -193,9 +181,7 @@ impl Composer {
             pipeline("fs_backdrop", Some(over)),
             pipeline("fs_shadow", Some(over)),
             pipeline("fs_place", Some(over)),
-            pipeline("fs_place_premultiplied", Some(over)),
             pipeline("fs_place", None),
-            pipeline("fs_place_premultiplied", None),
             pipeline("fs_filter", Some(over)),
             pipeline("fs_clear", None),
             pipeline("fs_copy", Some(over)),
@@ -216,7 +202,6 @@ impl Composer {
             layer: None,
             binds: HashMap::new(),
             textures: HashMap::new(),
-            staging: Staging::default(),
             frame: 0,
         }
     }
@@ -290,28 +275,18 @@ impl Composer {
             self.queue.write_buffer(&u.buffer, 0, &u.pending);
             u.pending.clear();
         }
-        self.staging.used = 0;
     }
 
     pub fn end_frame(&mut self) {
         let frame = self.frame;
         self.binds.retain(|_, (_, used)| *used + KEEP_FRAMES > frame);
         self.textures.retain(|_, c| c.used + KEEP_FRAMES > frame);
-        let s = &mut self.staging;
-        let size = s.buffer.as_ref().map_or(0, wgpu::Buffer::size);
-        s.idle = if s.peak * 2 < size { s.idle + 1 } else { 0 };
-        if s.idle > KEEP_FRAMES as u32 * 8 {
-            s.buffer = None;
-            s.idle = 0;
-        }
-        s.peak = 0;
         self.frame += 1;
     }
 
     pub fn trim(&mut self) {
         self.binds.clear();
         self.textures.clear();
-        self.staging = Staging::default();
         self.layer = None;
         let _ = self.device.poll(wgpu::PollType::Poll);
     }
@@ -434,72 +409,24 @@ impl Composer {
         views.into_iter().next().expect("至少一层")
     }
 
-    pub fn place(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, origin: [u32; 2], clip: [u32; 4], premultiplied: bool) {
+    pub fn place(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, origin: [u32; 2], clip: [u32; 4]) {
         let Some((_, _, layer)) = self.layer.clone() else { return };
-        let pipe = if premultiplied { Pipe::PlacePremultiplied } else { Pipe::Place };
+        let pipe = Pipe::Place;
         let params = Params { rect: [origin[0] as f32, origin[1] as f32, 0.0, 0.0], ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe, src: &layer, params, scissor: Some(clip) }]);
     }
 
-    pub fn filtered(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, e: &Effect, [x, y, w, h]: [u32; 4], clip: [u32; 4], premultiplied: bool) {
+    pub fn filtered(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, e: &Effect, [x, y, w, h]: [u32; 4], clip: [u32; 4]) {
         let Some((_, _, layer)) = self.layer.clone() else { return };
         if w < 2 || h < 2 {
             return;
         }
         let flat = self.textures(w, h, 0).swap_remove(0);
-        let pipe = if premultiplied { Pipe::FlattenPremultiplied } else { Pipe::Flatten };
-        self.pass(encoder, &flat, true, &[Draw { pipe, src: &layer, params: Params::default(), scissor: None }]);
+        self.pass(encoder, &flat, true, &[Draw { pipe: Pipe::Flatten, src: &layer, params: Params::default(), scissor: None }]);
         let src = if e.blur > 0.0 { self.blur(encoder, flat.texture(), None, [0, 0, w, h], e.blur) } else { flat };
         let (matrix, bias) = e.columns();
         let params = Params { rect: [x as f32, y as f32, w as f32, h as f32], matrix, bias, ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Filter, src: &src, params, scissor: Some(clip) }]);
-    }
-
-    pub fn staging_room(&mut self, [w, h]: [u32; 2]) -> bool {
-        let bytes = Self::staged_bytes(w, h);
-        let s = &mut self.staging;
-        let size = s.buffer.as_ref().map_or(0, wgpu::Buffer::size);
-        if s.used + bytes <= size {
-            return true;
-        }
-        let cap = STAGING_BYTES.max(bytes);
-        if size >= cap && s.used > 0 {
-            return false;
-        }
-        let size = (size * 2).clamp(bytes, cap);
-        s.buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("acde web staging"), size, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false }));
-        s.used = 0;
-        true
-    }
-
-    fn staged_bytes(w: u32, h: u32) -> u64 {
-        u64::from((4 * w).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)) * u64::from(h)
-    }
-
-    pub fn upload_layer(&mut self, encoder: &mut wgpu::CommandEncoder, rgba: &[u8], width: u32, [x, y, w, h]: [u32; 4]) {
-        let Some((_, texture, _)) = &self.layer else { return };
-        let Some(buffer) = &self.staging.buffer else { return };
-        let (row, stride) = (4 * w as usize, (4 * w).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT));
-        let bytes = Self::staged_bytes(w, h);
-        let Some(size) = wgpu::BufferSize::new(bytes) else { return };
-        let source = 4 * width as usize;
-        if x + w > width || rgba.len() < source * (y + h) as usize {
-            return;
-        }
-        let offset = self.staging.used;
-        let Some(mut view) = self.queue.write_buffer_with(buffer, offset, size) else { return };
-        for (i, line) in rgba.chunks_exact(source).skip(y as usize).take(h as usize).enumerate() {
-            let at = i * stride as usize;
-            view.slice(at..at + row).copy_from_slice(&line[4 * x as usize..4 * x as usize + row]);
-        }
-        drop(view);
-        encoder.copy_buffer_to_texture(
-            wgpu::TexelCopyBufferInfo { buffer, layout: wgpu::TexelCopyBufferLayout { offset, bytes_per_row: Some(stride), rows_per_image: Some(h) } },
-            wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-        );
-        self.staging.used += bytes;
-        self.staging.peak = self.staging.peak.max(self.staging.used);
     }
 
     pub fn clear_rects(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, rects: impl IntoIterator<Item = [u32; 4]>) {

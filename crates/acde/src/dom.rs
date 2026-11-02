@@ -285,6 +285,37 @@ impl IntoJs for acde_render::Viewport {
     }
 }
 
+pub(crate) struct Pictures;
+
+thread_local! {
+    static PICTURE: std::cell::RefCell<(u32, Option<(u32, acde_render::anyrender::Scene)>)> = const { std::cell::RefCell::new((0, None)) };
+}
+
+impl Pictures {
+    fn keep(scene: acde_render::anyrender::Scene) -> u32 {
+        PICTURE.with(|p| {
+            let mut p = p.borrow_mut();
+            p.0 = p.0.wrapping_add(1).max(1);
+            let id = p.0;
+            p.1 = Some((id, scene));
+            id
+        })
+    }
+
+    pub(crate) fn take(id: u32) -> Option<acde_render::anyrender::Scene> {
+        PICTURE.with(|p| {
+            let mut p = p.borrow_mut();
+            match p.1.take() {
+                Some((kept, scene)) if kept == id => Some(scene),
+                other => {
+                    p.1 = other;
+                    None
+                }
+            }
+        })
+    }
+}
+
 impl IntoJs for acde_render::Capture {
     fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
         let n = |scope: &mut v8::PinScope<'s, '_>, v: f64| -> v8::Local<'s, v8::Value> { v8::Number::new(scope, v).into() };
@@ -296,7 +327,7 @@ impl IntoJs for acde_render::Capture {
             ("pixelWidth", n(scope, self.pixel_width as f64)),
             ("pixelHeight", n(scope, self.pixel_height as f64)),
             ("scale", n(scope, self.scale)),
-            ("rgba", bind::uint8_array(scope, self.rgba).into()),
+            ("picture", n(scope, f64::from(Pictures::keep(self.scene)))),
         ];
         bind::object(scope, &fields).into()
     }

@@ -13,9 +13,11 @@ use vello::kurbo::Affine;
 use vello::peniko::Color;
 use wgpu::hal::vulkan::Api as Vk;
 
-use crate::compose::{Composer, Shadow};
-use crate::gpu::{CanvasImage, Gpu};
-use crate::plane::{Content, Part, Pixels, Rect};
+use acde_render::gpu::Overrides;
+
+use crate::compose::Composer;
+use crate::gpu::Gpu;
+use crate::plane::{Part, Pixels, Rect};
 
 const EXTENSIONS: [&std::ffi::CStr; 4] = [
     ash::khr::external_memory_fd::NAME,
@@ -31,6 +33,7 @@ pub enum Job {
     Canvases(usize, Vec<Dmabuf>, (u32, u32)),
     Draw { surfaces: Vec<(Vec<Pass>, (u32, u32))> },
     Release(Vec<usize>),
+    Icon { dmabuf: Dmabuf, size: (u32, u32), scene: acde_render::anyrender::Scene, reply: mpsc::Sender<Result<(), String>> },
 }
 
 pub struct Pass {
@@ -40,279 +43,8 @@ pub struct Pass {
     pub targets: Option<Vec<Rect>>,
 }
 
-struct CpuRaster {
-    workers: Vec<CpuWorker>,
-    spare: Vec<Vec<u8>>,
-}
-
-#[derive(Default)]
-struct CpuWorker {
-    renderer: Option<anyrender_vello_cpu::VelloCpuImageRenderer>,
-    size: [u32; 2],
-}
-
-struct CpuTask<'a> {
-    scene: acde_render::anyrender::Scene,
-    origin: Affine,
-    size: [u32; 2],
-    out: &'a mut [u8],
-    piece: usize,
-    y: u32,
-}
-
-pub struct Rastered {
-    pub rgba: Vec<u8>,
-    pub size: [u32; 2],
-    pub opaque: Option<[u32; 4]>,
-    pub shadowed: bool,
-}
-
-pub struct CpuPiece<'a> {
-    pub content: &'a Content,
-    pub drawn: Rect,
-    pub shadows: &'a [Shadow],
-}
-
-impl CpuRaster {
-    const BAND_ROWS: u32 = 32;
-
-    fn wanted(software: bool) -> bool {
-        match std::env::var("ACDE_WEB_CPU").as_deref() {
-            Ok("0") => false,
-            Ok("1") => true,
-            _ => software,
-        }
-    }
-
-    fn new() -> Self {
-        let threads = std::env::var("ACDE_WEB_THREADS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1)).min(4))
-            .max(1);
-        log::info!("网页光栅化 (CPU) 用 {threads} 个线程");
-        Self { workers: (0..threads).map(|_| CpuWorker::default()).collect(), spare: Vec::new() }
-    }
-
-    fn rasterize(&mut self, pieces: &[CpuPiece]) -> Vec<Rastered> {
-        let threads = self.workers.len() as u32;
-        let mut out: Vec<Vec<u8>> = pieces
-            .iter()
-            .map(|p| {
-                let [_, _, w, h] = p.drawn.xywh();
-                let mut buffer = self.spare.pop().unwrap_or_default();
-                buffer.resize((w * h * 4) as usize, 0);
-                buffer
-            })
-            .collect();
-        let mut tasks = Vec::new();
-        for (index, (piece, buffer)) in pieces.iter().zip(out.iter_mut()).enumerate() {
-            let [ox, oy, w, h] = piece.drawn.xywh();
-            let bands = (h / Self::BAND_ROWS).clamp(1, threads);
-            let rows = h.div_ceil(bands);
-            for (i, out) in buffer.chunks_mut((rows * w * 4) as usize).enumerate() {
-                let y = oy + i as u32 * rows;
-                let band = out.len() as u32 / (w * 4);
-                let rect = Rect::new((ox as i32, y as i32).into(), (w as i32, band as i32).into());
-                let origin = Affine::translate((-f64::from(ox), -f64::from(y)));
-                tasks.push(CpuTask { scene: piece.content.scene_for(rect), origin, size: [w, band], out, piece: index, y: i as u32 * rows });
-            }
-        }
-        tasks.sort_by_key(|t| t.size[0] * t.size[1]);
-        let opaque = std::sync::Mutex::new(vec![None; pieces.len()]);
-        if tasks.len() == 1 || self.workers.len() == 1 {
-            for task in tasks {
-                self.workers[0].draw(task, &opaque);
-            }
-        } else {
-            let queue = std::sync::Mutex::new(tasks);
-            let (first, rest) = self.workers.split_first_mut().expect("at least one worker");
-            std::thread::scope(|scope| {
-                for worker in rest {
-                    let (queue, opaque) = (&queue, &opaque);
-                    let spawned = std::thread::Builder::new().name("acde-web-cpu".into()).spawn_scoped(scope, move || worker.run(queue, opaque));
-                    if let Err(e) = spawned {
-                        log::warn!("网页光栅化线程: {e}");
-                    }
-                }
-                first.run(&queue, &opaque);
-            });
-        }
-        let mut opaque = opaque.into_inner().unwrap_or_default();
-        self.shadows(pieces, &mut out, &mut opaque);
-        out.into_iter()
-            .zip(pieces)
-            .zip(opaque)
-            .map(|((rgba, piece), opaque)| {
-                let [_, _, w, h] = piece.drawn.xywh();
-                Rastered { rgba, size: [w, h], opaque: opaque.map(|[x0, y0, x1, y1]: [u32; 4]| [x0, y0, x1 - x0, y1 - y0]), shadowed: !piece.shadows.is_empty() }
-            })
-            .collect()
-    }
-
-    fn shadows(&self, pieces: &[CpuPiece], out: &mut [Vec<u8>], opaque: &mut [Option<[u32; 4]>]) {
-        let mut jobs: Vec<_> = pieces.iter().zip(out.iter_mut()).zip(opaque.iter_mut()).filter(|((p, _), _)| !p.shadows.is_empty()).collect();
-        if jobs.is_empty() {
-            return;
-        }
-        type Job<'a> = ((&'a CpuPiece<'a>, &'a mut Vec<u8>), &'a mut Option<[u32; 4]>);
-        let run = |jobs: &mut [Job]| {
-            for ((piece, rgba), opaque) in jobs {
-                let [_, _, w, h] = piece.drawn.xywh();
-                Self::drop_shadows(rgba, [w, h], piece.shadows);
-                **opaque = Self::opaque_bounds(rgba, w);
-            }
-        };
-        let per = jobs.len().div_ceil(self.workers.len());
-        if per == jobs.len() {
-            return run(&mut jobs);
-        }
-        std::thread::scope(|scope| {
-            for chunk in jobs.chunks_mut(per) {
-                if let Err(e) = std::thread::Builder::new().name("acde-web-cpu".into()).spawn_scoped(scope, || run(chunk)) {
-                    log::warn!("网页光栅化线程: {e}");
-                }
-            }
-        });
-    }
-
-    fn drop_shadows(rgba: &mut [u8], [w, h]: [u32; 2], shadows: &[Shadow]) {
-        let (w, h) = (w as usize, h as usize);
-        let alpha: Vec<f32> = rgba.as_chunks::<4>().0.iter().map(|p| f32::from(p[3]) / 255.0).collect();
-        let mut under = vec![[0f32; 4]; w * h];
-        let mut blurred = alpha.clone();
-        for s in shadows {
-            blurred.copy_from_slice(&alpha);
-            Self::gaussian(&mut blurred, w, h, s.blur);
-            let (dx, dy) = (s.dx.round() as isize, s.dy.round() as isize);
-            for y in 0..h {
-                let sy = y as isize - dy;
-                if sy < 0 || sy >= h as isize {
-                    continue;
-                }
-                for x in 0..w {
-                    let sx = x as isize - dx;
-                    if sx < 0 || sx >= w as isize {
-                        continue;
-                    }
-                    let a = blurred[sy as usize * w + sx as usize] * s.color[3];
-                    if a <= 0.0 {
-                        continue;
-                    }
-                    let px = &mut under[y * w + x];
-                    let k = 1.0 - a;
-                    *px = [s.color[0] * a + px[0] * k, s.color[1] * a + px[1] * k, s.color[2] * a + px[2] * k, a + px[3] * k];
-                }
-            }
-        }
-        for (p, u) in rgba.as_chunks_mut::<4>().0.iter_mut().zip(&under) {
-            let k = 1.0 - f32::from(p[3]) / 255.0;
-            for i in 0..4 {
-                p[i] = (f32::from(p[i]) + u[i] * 255.0 * k).round().min(255.0) as u8;
-            }
-        }
-    }
-
-    fn gaussian(v: &mut [f32], w: usize, h: usize, sigma: f32) {
-        if sigma < 0.5 {
-            return;
-        }
-        let n = 3.0;
-        let ideal = (12.0 * sigma * sigma / n + 1.0).sqrt();
-        let mut lower = ideal.floor() as i32;
-        if lower % 2 == 0 {
-            lower -= 1;
-        }
-        let l = lower as f32;
-        let m = ((12.0 * sigma * sigma - n * l * l - 4.0 * n * l - 3.0 * n) / (-4.0 * l - 4.0)).round() as i32;
-        let mut line = Vec::new();
-        for i in 0..3 {
-            let radius = ((if i < m { lower } else { lower + 2 }) - 1).max(0) as usize / 2;
-            if radius == 0 {
-                continue;
-            }
-            for row in v.chunks_exact_mut(w) {
-                Self::box_line(row, 1, w, radius, &mut line);
-            }
-            for x in 0..w {
-                Self::box_line(&mut v[x..], w, h, radius, &mut line);
-            }
-        }
-    }
-
-    fn box_line(v: &mut [f32], step: usize, len: usize, radius: usize, line: &mut Vec<f32>) {
-        line.clear();
-        line.extend((0..len).map(|i| v[i * step]));
-        let scale = 1.0 / (2 * radius + 1) as f32;
-        let mut sum: f32 = line.iter().take(radius).sum();
-        for i in 0..len {
-            if i + radius < len {
-                sum += line[i + radius];
-            }
-            v[i * step] = sum * scale;
-            if i >= radius {
-                sum -= line[i - radius];
-            }
-        }
-    }
-
-    fn opaque_bounds(rgba: &[u8], width: u32) -> Option<[u32; 4]> {
-        let mut bounds: Option<[u32; 4]> = None;
-        for (y, line) in rgba.chunks_exact(width as usize * 4).enumerate() {
-            if line.iter().all(|&b| b == 0) {
-                continue;
-            }
-            let first = line.iter().position(|&b| b != 0).unwrap_or(0) as u32 / 4;
-            let last = line.iter().rposition(|&b| b != 0).unwrap_or(0) as u32 / 4 + 1;
-            let y = y as u32;
-            bounds = Some(match bounds {
-                Some([x0, y0, x1, _]) => [x0.min(first), y0, x1.max(last), y + 1],
-                None => [first, y, last, y + 1],
-            });
-        }
-        bounds
-    }
-
-    fn recycle(&mut self, buffers: impl IntoIterator<Item = Vec<u8>>) {
-        self.spare.extend(buffers);
-    }
-}
-
-impl CpuWorker {
-    fn run(&mut self, queue: &std::sync::Mutex<Vec<CpuTask>>, opaque: &std::sync::Mutex<Vec<Option<[u32; 4]>>>) {
-        loop {
-            let Some(task) = queue.lock().ok().and_then(|mut q| q.pop()) else { return };
-            self.draw(task, opaque);
-        }
-    }
-
-    fn draw(&mut self, CpuTask { scene, origin, size, out, piece, y }: CpuTask, opaque: &std::sync::Mutex<Vec<Option<[u32; 4]>>>) {
-        use acde_render::anyrender::ImageRenderer;
-        let renderer = match self.renderer.as_mut() {
-            Some(renderer) if self.size == size => {
-                renderer.reset();
-                renderer
-            }
-            Some(renderer) => {
-                renderer.resize(size[0], size[1]);
-                renderer
-            }
-            None => self.renderer.insert(anyrender_vello_cpu::VelloCpuImageRenderer::new(size[0], size[1])),
-        };
-        self.size = size;
-        renderer.render(|painter| painter.append_scene(scene, origin), out);
-        let Some([x0, y0, x1, y1]) = CpuRaster::opaque_bounds(out, size[0]) else { return };
-        let band = [x0, y + y0, x1, y + y1];
-        if let Ok(mut opaque) = opaque.lock() {
-            let merged = opaque[piece].map_or(band, |[a, b, c, d]: [u32; 4]| [a.min(band[0]), b.min(band[1]), c.max(band[2]), d.max(band[3])]);
-            opaque[piece] = Some(merged);
-        }
-    }
-}
-
 #[derive(Default)]
 pub struct Status {
-    pub software: std::sync::OnceLock<bool>,
     pub ready: std::sync::OnceLock<bool>,
 }
 
@@ -333,25 +65,21 @@ pub struct Raster {
     next_semaphore: usize,
     submits: std::collections::VecDeque<(wgpu::SubmissionIndex, Option<OwnedFd>)>,
     composer: Composer,
-    cpu: Option<CpuRaster>,
     gpu: Option<std::sync::Arc<Gpu>>,
-    overrides: std::collections::HashMap<u64, (u64, u32, u32)>,
-    copying: Vec<(std::sync::Arc<CanvasImage>, u64)>,
+    overrides: Overrides,
     poll: bool,
 }
 
 impl Raster {
-    pub fn new(on_device: impl FnOnce(bool)) -> Result<Self, String> {
+    pub fn new() -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
-        let choice = std::env::var("ACDE_VK").unwrap_or_default();
         let mut adapters: Vec<_> = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
             .into_iter()
-            .filter(|a| choice != "none" && (choice != "cpu" || a.get_info().device_type == wgpu::DeviceType::Cpu))
+            .filter(|a| a.get_info().device_type != wgpu::DeviceType::Cpu)
             .collect();
         adapters.sort_by_key(|a| match a.get_info().device_type {
             wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu => 0,
-            wgpu::DeviceType::VirtualGpu | wgpu::DeviceType::Other => 1,
-            wgpu::DeviceType::Cpu => 2,
+            _ => 1,
         });
         let mut errors = Vec::new();
         let (adapter, device, queue) = adapters
@@ -363,17 +91,14 @@ impl Raster {
                     None
                 }
             })
-            .ok_or_else(|| if errors.is_empty() { "没有 Vulkan 设备".to_string() } else { errors.join("; ") })?;
+            .ok_or_else(|| if errors.is_empty() { "没有 GPU (Vulkan)".to_string() } else { errors.join("; ") })?;
         log::info!("网页图层用 {} ({:?})", adapter.get_info().name, adapter.get_info().device_type);
-        let software = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
-        on_device(software);
         let vello = vello::Renderer::new(
             &device,
             vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None },
         )
         .map_err(|e| format!("vello: {e}"))?;
         let composer = Composer::new(&device, &queue);
-        let cpu = CpuRaster::wanted(software).then(CpuRaster::new);
         let mut raster = Self {
             device,
             queue,
@@ -385,34 +110,30 @@ impl Raster {
             submits: Default::default(),
             composer,
             gpu: None,
-            overrides: Default::default(),
-            copying: Vec::new(),
-            cpu,
+            overrides: Overrides::default(),
             poll: std::env::var_os("ACDE_WEB_POLL").is_some(),
         };
         raster.semaphores = raster.create_semaphores();
         raster.warm_up();
-        let shared = raster.cpu.is_none().then(|| (raster.device.clone(), raster.queue.clone(), adapter.get_info()));
-        raster.gpu = Gpu::publish(shared);
+        raster.gpu = Gpu::publish(Some((raster.device.clone(), raster.queue.clone(), adapter.get_info())));
         Ok(raster)
     }
 
     pub fn spawn(jobs: mpsc::Receiver<Job>, done: mpsc::Sender<Done>, status: std::sync::Arc<Status>, waker: Ping) -> std::io::Result<()> {
+        acde_render::gpu::expect();
         std::thread::Builder::new().name("acde-web".into()).spawn(move || {
-            let on_device = |software: bool| {
-                let _ = status.software.set(software);
-                waker.ping();
-            };
-            let mut raster = match Self::new(on_device) {
+            let mut raster = match Self::new() {
                 Ok(raster) => raster,
                 Err(e) => {
-                    log::warn!("网页图层不可用: {e}");
+                    log::error!("网页图层不可用: {e}");
                     Gpu::publish(None);
                     let _ = status.ready.set(false);
+                    waker.ping();
                     return;
                 }
             };
             let _ = status.ready.set(true);
+            waker.ping();
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| raster.run(waker, jobs, done))).is_err() {
                 log::error!("网页图层的光栅化线程 panic, 退出这个 web 进程");
                 acde_log::flush();
@@ -452,6 +173,9 @@ impl Raster {
                         self.canvases.remove(&plane);
                     }
                 }
+                Job::Icon { dmabuf, size, scene, reply } => {
+                    let _ = reply.send(self.icon(&dmabuf, size, scene));
+                }
                 Job::Draw { surfaces } => {
                     let result = self.draw(surfaces);
                     if done.send(result).is_err() {
@@ -488,27 +212,8 @@ impl Raster {
 
     fn draw(&mut self, surfaces: Vec<(Vec<Pass>, (u32, u32))>) -> Done {
         let started = std::time::Instant::now();
-        self.copying.clear();
         let count = surfaces.len();
-        let mut rasters = self.cpu.as_mut().map(|cpu| {
-            let pieces: Vec<CpuPiece> = surfaces
-                .iter()
-                .flat_map(|(passes, size)| {
-                    let full = Rect::from_size((size.0 as i32, size.1 as i32).into());
-                    passes.iter().flat_map(move |pass| {
-                        let targets = pass.targets.clone().unwrap_or_else(|| vec![full]);
-                        pass.parts.iter().flat_map(move |part| {
-                            let shadows: &[Shadow] = if part.effect.is_none() { &part.shadows } else { &[] };
-                            Self::pieces(part, &targets, full).into_iter().map(move |(drawn, _)| CpuPiece { content: &part.content, drawn, shadows })
-                        })
-                    })
-                })
-                .collect();
-            cpu.rasterize(&pieces).into_iter()
-        });
-        let mut used: Vec<Vec<u8>> = Vec::new();
         let oldest = if self.submits.len() > 1 { self.submits.pop_front() } else { None };
-        let rastered = started.elapsed();
         let poll = match oldest {
             Some((_, Some(fence))) => {
                 let mut fds = [rustix::event::PollFd::new(&fence, rustix::event::PollFlags::IN)];
@@ -528,7 +233,7 @@ impl Raster {
         let mut encoder = self.device.create_command_encoder(&encoder_desc);
         for (passes, size) in surfaces {
             for pass in passes {
-                self.draw_pass(&mut encoder, pass, size, rasters.as_mut(), &mut used)?;
+                self.draw_pass(&mut encoder, pass, size)?;
             }
         }
         let semaphore = self.semaphores.get(self.next_semaphore).copied().filter(|_| !self.poll);
@@ -541,22 +246,16 @@ impl Raster {
         }
         self.submits.push_back((Self::submit(&self.device, &self.queue, &mut self.composer, &mut encoder), None));
         drop(lock);
-        for (canvas, generation) in self.copying.drain(..) {
-            canvas.mark_copied(generation);
-        }
+        self.overrides.submitted();
         log::debug!(
             target: "perf::raster",
-            "job surfaces={count} cpu={:.3} wait={:.3} record={:.3} ms={:.3}",
-            rastered.as_secs_f64() * 1000.0,
-            (waited - rastered).as_secs_f64() * 1000.0,
+            "job surfaces={count} wait={:.3} record={:.3} ms={:.3}",
+            waited.as_secs_f64() * 1000.0,
             (started.elapsed() - waited).as_secs_f64() * 1000.0,
             acde_log::since_ms(started),
         );
         self.composer.end_frame();
-        self.forget_canvases();
-        if let Some(cpu) = self.cpu.as_mut() {
-            cpu.recycle(used);
-        }
+        self.overrides.forget(&mut self.vello);
         match semaphore.and_then(|s| self.export_sync_file(s)) {
             Some(fd) => {
                 if let Some(last) = self.submits.back_mut() {
@@ -594,8 +293,6 @@ impl Raster {
         encoder: &mut wgpu::CommandEncoder,
         Pass { plane, parts, next, targets }: Pass,
         size: (u32, u32),
-        mut rasters: Option<&mut std::vec::IntoIter<Rastered>>,
-        used: &mut Vec<Vec<u8>>,
     ) -> Result<(), String> {
         let full = Rect::from_size((size.0 as i32, size.1 as i32).into());
         let (_, canvas_view) = self.canvases.get(&plane).and_then(|c| c.get(next)?.clone()).ok_or("网页画布还没导入")?;
@@ -612,112 +309,49 @@ impl Raster {
             for (drawn, clip) in Self::pieces(&part, &targets, full) {
                 let [ox, oy, width, height] = drawn.xywh();
                 let origin = Affine::translate((-f64::from(ox), -f64::from(oy)));
-                let premultiplied = match rasters.as_mut() {
-                    Some(rasters) => {
-                        let Rastered { rgba, size, opaque, shadowed } = rasters.next().ok_or("网页: CPU 画好的块不够")?;
-                        let plain = part.effect.is_none() && (part.shadows.is_empty() || shadowed);
-                        let region = match opaque {
-                            None if plain => {
-                                used.push(rgba);
-                                continue;
-                            }
-                            Some(o) if plain => o,
-                            _ => [0, 0, size[0], size[1]],
-                        };
-                        let [_, _, w, h] = region;
-                        if !self.composer.staging_room([w, h]) {
-                            Self::submit(&self.device, &self.queue, &mut self.composer, encoder);
-                            self.composer.staging_room([w, h]);
-                        }
-                        self.composer.upload_layer(encoder, &rgba, size[0], region);
-                        used.push(rgba);
-                        if plain {
-                            let at = Rect::new(((ox + region[0]) as i32, (oy + region[1]) as i32).into(), (w as i32, h as i32).into());
-                            if let Some(clip) = clip.intersection(at) {
-                                self.composer.place(encoder, &canvas_view, [ox + region[0], oy + region[1]], clip.xywh(), true);
-                            }
-                            continue;
-                        }
-                        true
-                    }
-                    None => {
-                        let scene = part.content.scene_for(drawn);
-                        if scene.commands.is_empty() {
-                            continue;
-                        }
-                        Self::submit(&self.device, &self.queue, &mut self.composer, encoder);
-                        self.scene.reset();
-                        if CanvasImage::any() {
-                            self.use_canvases(&scene);
-                        }
-                        VelloScenePainter::new(&mut self.scene).append_scene(scene, origin);
-                        let params = vello::RenderParams { base_color: Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
-                        Self::keep_atlas(&mut self.scene);
-                        self.vello.render_to_texture(&self.device, &self.queue, &self.scene, &layer, &params).map_err(|e| format!("vello 渲染: {e}"))?;
-                        false
-                    }
-                };
+                let scene = part.content.scene_for(drawn);
+                if scene.commands.is_empty() {
+                    continue;
+                }
+                Self::submit(&self.device, &self.queue, &mut self.composer, encoder);
+                self.scene.reset();
+                self.overrides.apply(&mut self.vello, &scene);
+                VelloScenePainter::new(&mut self.scene).append_scene(scene, origin);
+                let params = vello::RenderParams { base_color: Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
+                acde_render::gpu::keep_atlas(&mut self.scene);
+                self.vello.render_to_texture(&self.device, &self.queue, &self.scene, &layer, &params).map_err(|e| format!("vello 渲染: {e}"))?;
                 for shadow in &part.shadows {
                     self.composer.shadow(encoder, &canvas_view, shadow, drawn.xywh(), clip.xywh());
                 }
                 match part.effect.is_none() {
-                    true => self.composer.place(encoder, &canvas_view, [ox, oy], clip.xywh(), premultiplied),
-                    false => self.composer.filtered(encoder, &canvas_view, &part.effect, drawn.xywh(), clip.xywh(), premultiplied),
+                    true => self.composer.place(encoder, &canvas_view, [ox, oy], clip.xywh()),
+                    false => self.composer.filtered(encoder, &canvas_view, &part.effect, drawn.xywh(), clip.xywh()),
                 }
             }
         }
         Ok(())
     }
 
-    fn use_canvases(&mut self, scene: &acde_render::anyrender::Scene) {
-        use acde_render::anyrender::Paint;
-        use acde_render::anyrender::recording::RenderCommand;
-        for command in &scene.commands {
-            let RenderCommand::Fill(fill) = command else { continue };
-            let Paint::Image(brush) = &fill.brush else { continue };
-            let id = brush.image.data.id();
-            let Some(canvas) = CanvasImage::find(id) else { continue };
-            let generation = canvas.generation();
-            match self.overrides.get_mut(&id) {
-                Some((seen, ..)) if *seen == generation => {}
-                Some((seen, ..)) => {
-                    *seen = generation;
-                    self.vello.mark_override_image_dirty(&brush.image);
-                    self.copying.push((canvas, generation));
-                }
-                None => {
-                    let texture = wgpu::TexelCopyTextureInfoBase { texture: canvas.texture.clone(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All };
-                    self.vello.override_image(&brush.image, Some(texture));
-                    self.overrides.insert(id, (generation, brush.image.width, brush.image.height));
-                    self.copying.push((canvas, generation));
-                }
-            }
-        }
-    }
-
-    fn forget_canvases(&mut self) {
-        if self.overrides.is_empty() {
-            return;
-        }
-        let gone: Vec<_> = self.overrides.iter().filter(|(id, _)| CanvasImage::find(**id).is_none()).map(|(id, (_, w, h))| (*id, *w, *h)).collect();
-        for (id, width, height) in gone {
-            self.overrides.remove(&id);
-            let image = vello::peniko::ImageData {
-                data: vello::peniko::Blob::from_raw_parts(std::sync::Arc::new(Vec::<u8>::new()), id),
-                format: vello::peniko::ImageFormat::Rgba8,
-                alpha_type: vello::peniko::ImageAlphaType::Alpha,
-                width,
-                height,
-            };
-            self.vello.override_image(&image, None);
-        }
-    }
-
-    fn keep_atlas(scene: &mut vello::Scene) {
-        use vello::kurbo::Rect;
-        use vello::peniko::{Fill, Gradient};
-        let clear = Gradient::new_linear((0.0, 0.0), (1.0, 0.0)).with_stops([Color::TRANSPARENT, Color::TRANSPARENT]);
-        scene.fill(Fill::NonZero, Affine::IDENTITY, &clear, None, &Rect::new(0.0, 0.0, 1.0, 1.0));
+    fn icon(&mut self, dmabuf: &Dmabuf, (width, height): (u32, u32), scene: acde_render::anyrender::Scene) -> Result<(), String> {
+        let texture = self.import_vulkan(dmabuf, (width, height))?;
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let layer = self.composer.layer_view((width, height));
+        self.scene.reset();
+        self.overrides.apply(&mut self.vello, &scene);
+        VelloScenePainter::new(&mut self.scene).append_scene(scene, Affine::IDENTITY);
+        acde_render::gpu::keep_atlas(&mut self.scene);
+        let params = vello::RenderParams { base_color: Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
+        self.vello.render_to_texture(&self.device, &self.queue, &self.scene, &layer, &params).map_err(|e| format!("vello 渲染: {e}"))?;
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde drag icon") });
+        Composer::clear(&mut encoder, &view);
+        self.composer.place(&mut encoder, &view, [0, 0], [0, 0, width, height]);
+        let index = Self::submit(&self.device, &self.queue, &mut self.composer, &mut encoder);
+        self.overrides.submitted();
+        self.composer.end_frame();
+        self.device
+            .poll(wgpu::PollType::Wait { submission_index: Some(index), timeout: Some(std::time::Duration::from_secs(2)) })
+            .map(|_| ())
+            .map_err(|e| format!("等 GPU: {e}"))
     }
 
     fn warm_up(&mut self) {

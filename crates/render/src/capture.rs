@@ -1,5 +1,6 @@
-use anyrender::{ImageRenderer, PaintScene};
-use anyrender_vello_cpu::VelloCpuImageRenderer;
+use std::sync::Arc;
+
+use anyrender::{PaintScene, Scene};
 use blitz_dom::{BaseDocument, NodeId};
 use kurbo::{Affine, Rect};
 
@@ -15,7 +16,7 @@ pub struct Capture {
     pub pixel_width: u32,
     pub pixel_height: u32,
     pub scale: f64,
-    pub rgba: Vec<u8>,
+    pub scene: Scene,
 }
 
 impl Capture {
@@ -36,11 +37,9 @@ impl Capture {
         let scale = wanted * fit;
         let pixel = |len: f64| ((len * fit).ceil() as u32).max(1);
         let (pixel_width, pixel_height) = (pixel(bounds.width()), pixel(bounds.height()));
-        let mut rgba = Vec::new();
         let place = Affine::scale(fit) * Affine::translate(-bounds.origin().to_vec2());
-        VelloCpuImageRenderer::new(pixel_width, pixel_height)
-            .render_to_vec(|p| p.append_scene(scene, place), &mut rgba);
-        Self::unpremultiply(&mut rgba);
+        let mut placed = Scene::new();
+        placed.append_scene(scene, place);
 
         let n = doc.get_node(node)?;
         let size = n.final_layout().size;
@@ -56,23 +55,27 @@ impl Capture {
             pixel_width,
             pixel_height,
             scale,
-            rgba,
+            scene: placed,
         })
+    }
+
+    pub fn pixels(&self) -> Vec<u8> {
+        let size = (self.pixel_width, self.pixel_height);
+        crate::gpu::draw(self.scene.clone(), size, Affine::IDENTITY)
+            .and_then(|image| crate::gpu::read(&image, [0, 0, size.0, size.1]))
+            .unwrap_or_else(|| vec![0; (size.0 * size.1 * 4) as usize])
     }
 
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
         let i = ((y * self.pixel_width + x) * 4) as usize;
-        [self.rgba[i], self.rgba[i + 1], self.rgba[i + 2], self.rgba[i + 3]]
+        let rgba = self.pixels();
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
     }
 
-    pub(crate) fn unpremultiply(rgba: &mut [u8]) {
-        for px in rgba.as_chunks_mut::<4>().0 {
-            let a = u32::from(px[3]);
-            if a != 0 && a != 255 {
-                for c in &mut px[..3] {
-                    *c = ((u32::from(*c) * 255 + a / 2) / a).min(255) as u8;
-                }
-            }
-        }
+    pub fn bitmap(width: u32, height: u32, rgba: Vec<u8>) -> Scene {
+        let mut scene = Scene::new();
+        let image = peniko::ImageData { data: peniko::Blob::new(Arc::new(rgba)), format: peniko::ImageFormat::Rgba8, alpha_type: peniko::ImageAlphaType::Alpha, width, height };
+        scene.draw_image(peniko::ImageBrush { image, sampler: peniko::ImageSampler::default() }.as_ref(), Affine::IDENTITY);
+        scene
     }
 }

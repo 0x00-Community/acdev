@@ -1,6 +1,4 @@
-use acde_render::anyrender::{ImageRenderer, PaintScene};
 use acde_render::Options;
-use anyrender_vello_cpu::VelloCpuImageRenderer;
 
 mod common;
 use common::Doc;
@@ -31,11 +29,7 @@ impl Page {
     }
 
     fn count(&self, x0: u32, y0: u32, x1: u32, y1: u32) -> (usize, usize) {
-        let mut rgba = Vec::new();
-        VelloCpuImageRenderer::new(W, H).render_to_vec(
-            |p| p.append_scene(self.doc.scene(), Default::default()),
-            &mut rgba,
-        );
+        let rgba = acde_render::gpu::rasterize(self.doc.scene(), (W, H), Default::default());
         let (mut dark, mut red) = (0, 0);
         for y in y0..y1 {
             for x in x0..x1 {

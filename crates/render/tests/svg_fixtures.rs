@@ -1,7 +1,5 @@
-use acde_render::anyrender::{ImageRenderer, PaintScene};
 use acde_render::blitz_dom::node::SvgImageData;
 use acde_render::Options;
-use anyrender_vello_cpu::VelloCpuImageRenderer;
 
 mod common;
 use common::Doc;
@@ -50,12 +48,7 @@ impl Page {
     }
 
     fn raster(&self) -> Vec<u8> {
-        let mut rgba = Vec::new();
-        VelloCpuImageRenderer::new(SIZE, SIZE).render_to_vec(
-            |p| p.append_scene(self.doc.scene(), Default::default()),
-            &mut rgba,
-        );
-        rgba
+        acde_render::gpu::rasterize(self.doc.scene(), (SIZE, SIZE), Default::default())
     }
 }
 

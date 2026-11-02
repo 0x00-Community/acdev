@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use acde_render::anyrender_vello::wgpu;
-use vello::peniko;
+use acde_render::gpu::Shared;
 
 type LostListener = Box<dyn Fn(&str) + Send>;
 type Waiter = Box<dyn FnOnce(Option<Arc<Gpu>>) + Send>;
@@ -14,7 +14,7 @@ pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub info: wgpu::AdapterInfo,
-    submit: Mutex<()>,
+    shared: Arc<Shared>,
     polls: Mutex<usize>,
     polling: Condvar,
     poller: std::sync::Once,
@@ -36,10 +36,10 @@ impl Gpu {
     pub(crate) fn publish(gpu: Option<(wgpu::Device, wgpu::Queue, wgpu::AdapterInfo)>) -> Option<Arc<Gpu>> {
         let gpu = gpu.map(|(device, queue, info)| {
             let gpu = Arc::new(Gpu {
+                shared: Shared::new(device.clone(), queue.clone()),
                 device,
                 queue,
                 info,
-                submit: Mutex::new(()),
                 polls: Mutex::new(0),
                 polling: Condvar::new(),
                 poller: std::sync::Once::new(),
@@ -71,6 +71,7 @@ impl Gpu {
         if GPU.set(gpu.clone()).is_err() {
             return GPU.get().cloned().flatten();
         }
+        acde_render::gpu::install(gpu.as_ref().map(|g| g.shared.clone()));
         let waiters = std::mem::take(&mut *WAITERS.lock().unwrap_or_else(|e| e.into_inner()));
         for waiter in waiters {
             waiter(gpu.clone());
@@ -99,7 +100,7 @@ impl Gpu {
     }
 
     pub(crate) fn submit_lock(&self) -> MutexGuard<'_, ()> {
-        self.submit.lock().unwrap_or_else(|e| e.into_inner())
+        self.shared.submit_lock()
     }
 
     pub fn hold_poll(self: &Arc<Self>) {
@@ -150,76 +151,4 @@ impl Gpu {
 
 pub fn set_error_sink(sink: Option<ErrorSink>) {
     SINK.with(|s| *s.borrow_mut() = sink);
-}
-
-pub struct CanvasImage {
-    pub texture: wgpu::Texture,
-    id: u64,
-    generation: AtomicU64,
-    copied: AtomicU64,
-}
-
-static IMAGES: Mutex<Option<HashMap<u64, Weak<CanvasImage>>>> = Mutex::new(None);
-static IMAGE_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-impl AsRef<[u8]> for CanvasImage {
-    fn as_ref(&self) -> &[u8] {
-        &[]
-    }
-}
-
-impl CanvasImage {
-    pub fn new(texture: wgpu::Texture) -> Arc<Self> {
-        let id = peniko::Blob::<u8>::new(Arc::new(Vec::<u8>::new())).id();
-        let image = Arc::new(Self { texture, id, generation: AtomicU64::new(0), copied: AtomicU64::new(0) });
-        IMAGES.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_default().insert(id, Arc::downgrade(&image));
-        IMAGE_COUNT.fetch_add(1, Ordering::Relaxed);
-        image
-    }
-
-    pub fn image(self: &Arc<Self>) -> peniko::ImageData {
-        peniko::ImageData {
-            data: peniko::Blob::from_raw_parts(self.clone(), self.id),
-            format: peniko::ImageFormat::Rgba8,
-            alpha_type: peniko::ImageAlphaType::Alpha,
-            width: self.texture.width(),
-            height: self.texture.height(),
-        }
-    }
-
-    pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::Acquire)
-    }
-
-    pub fn painted(&self) {
-        self.generation.fetch_add(1, Ordering::Release);
-    }
-
-    pub fn copied(&self) -> bool {
-        self.copied.load(Ordering::Acquire) >= self.generation()
-    }
-
-    pub(crate) fn mark_copied(&self, generation: u64) {
-        self.copied.fetch_max(generation, Ordering::Release);
-    }
-
-    pub(crate) fn find(id: u64) -> Option<Arc<Self>> {
-        if IMAGE_COUNT.load(Ordering::Relaxed) == 0 {
-            return None;
-        }
-        IMAGES.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(&id)?.upgrade()
-    }
-
-    pub(crate) fn any() -> bool {
-        IMAGE_COUNT.load(Ordering::Relaxed) > 0
-    }
-}
-
-impl Drop for CanvasImage {
-    fn drop(&mut self) {
-        if let Some(images) = IMAGES.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            images.remove(&self.id);
-        }
-        IMAGE_COUNT.fetch_sub(1, Ordering::Relaxed);
-    }
 }

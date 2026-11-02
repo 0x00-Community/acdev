@@ -331,8 +331,9 @@ impl App {
 
     fn end_drag(&mut self) {
         let Some(drag) = self.drag.take() else { return };
-        if let Some((surface, _)) = &drag.icon {
+        if let Some((surface, buffer)) = &drag.icon {
             surface.destroy();
+            buffer.destroy();
         }
         self.events.push(Event { kind: "dragend".into(), button: Some(u32::from(drag.dropped)), ..Default::default() });
     }

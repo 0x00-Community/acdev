@@ -34,11 +34,9 @@ depends=(
   'mesa' 'libdrm' 'libinput' 'seatd' 'systemd-libs' 'wayland' 'libxkbcommon'
   # TLS (ntex's, through OpenSSL): the RDP backend (ACDE_BACKEND=rdp) and NLA
   'openssl'
-  # the web layer is drawn on Vulkan (vello). lavapipe (vulkan-swrast) is the fallback that works on every machine:
-  # without it the desktop is blank where no hardware driver fits. It also provides vulkan-driver, so pacman never
-  # pulls in a hardware driver for this: install the GPU's own (optdepends; the Dopame ISO lists them), else the web
-  # layer is rasterized on the CPU (animations at 15 fps, blurs of hundreds of ms per frame)
-  'vulkan-icd-loader' 'vulkan-driver' 'vulkan-swrast'
+  # the web layer is drawn on the GPU through Vulkan (vello), and only there: CPU devices (lavapipe) are refused, so the
+  # GPU's own driver is required (vulkan-intel, vulkan-radeon, nvidia-utils; the Dopame ISO lists them)
+  'vulkan-icd-loader' 'vulkan-driver'
   # text: fontconfig and fonts for Latin and CJK
   'fontconfig' 'noto-fonts' 'noto-fonts-cjk' 'noto-fonts-emoji'
   # the pointer under DRM: the shell draws the theme's arrow (default-cursors' `default` inherits Adwaita)
@@ -57,9 +55,9 @@ depends=(
 )
 optdepends=(
   'acde-dopame: the Dopame desktop and its apps'
-  'vulkan-intel: the web layer on Intel GPUs (else on the CPU, through lavapipe)'
-  'vulkan-radeon: the web layer on AMD GPUs (else on the CPU, through lavapipe)'
-  'nvidia-utils: the web layer on NVIDIA GPUs with the NVIDIA driver (else on the CPU, through lavapipe)'
+  'vulkan-intel: the web layer on Intel GPUs'
+  'vulkan-radeon: the web layer on AMD GPUs'
+  'nvidia-utils: the web layer on NVIDIA GPUs with the NVIDIA driver'
   'plasma-workspace: KDE Plasma (its plasma.desktop Wayland session) on the login screen, started instead of acde'
   'docker: ONLYOFFICE Document Server for runtime Office (/usr/lib/acde/office-ds.sh)'
   'greetd: the login screen (`acde --greeter` as its greeter; greetd-agreety as the fallback)'
@@ -148,9 +146,6 @@ fi
 # Input method: fcitx5. Native Wayland clients reach it through text-input-v3 (the shell implements input-method-v2,
 # which IBus does not), so no GTK / Qt IM module.
 unset GTK_IM_MODULE QT_IM_MODULE XMODIFIERS
-# Software rendering (llvmpipe / lavapipe, no GPU): 2 rasterizer threads cost less CPU per web frame than one per
-# core without slowing frames (AGENTS.md「packaging/qemu」). GPU drivers ignore it; shell does not pass it to launched apps.
-export LP_NUM_THREADS=${LP_NUM_THREADS:-2}
 # A crash starts the desktop again (one journal line each, tag acde); the third crash within 60 s gives up, back to
 # the display manager (on the live ISO after 10 s). A normal exit (logout) ends the session, and so does a signal to this script (greetd ending it),
 # passed on to the desktop. acde runs in the background to be waited for: `<&0` keeps the session's stdin.

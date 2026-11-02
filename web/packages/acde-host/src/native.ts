@@ -26,7 +26,7 @@ export type ShellEvent =
   | { type: 'pointerleave'; modifiers?: Modifiers }
   | { type: 'wheel'; target: number | null; x: number; y: number; deltaX: number; deltaY: number; modifiers?: Modifiers }
   | { type: 'keydown' | 'keyup'; key: string; code: string; keycode?: number; repeat?: boolean; modifiers?: Modifiers; fromIme?: boolean }
-  | { type: 'resize'; width: number; height: number; scale: number; software?: boolean }
+  | { type: 'resize'; width: number; height: number; scale: number }
   | DragInput
   | { type: 'dragend'; dropped: boolean }
   | { type: 'close' }
@@ -48,7 +48,6 @@ export interface RawShellEvent {
   readonly width?: number
   readonly height?: number
   readonly scale?: number
-  readonly software?: boolean
   readonly parent?: number | null
   readonly mime?: readonly string[]
   readonly data?: Readonly<Record<string, string>>
