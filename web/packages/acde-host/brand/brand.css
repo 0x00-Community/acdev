@@ -1,0 +1,70 @@
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url(outfit-latin-500-normal.woff2) format('woff2');
+}
+
+:root {
+  --pink: #F24FD3;
+  --coral: #FF6F8E;
+  --orange: #FF9A3C;
+  --yellow: #FFC21C;
+  --gradient: linear-gradient(45deg, #F24FD3 0%, #FF6F8E 45%, #FF9A3C 75%, #FFC21C 100%);
+  --ink: #12141C;
+  --muted: rgba(18, 20, 28, 0.58);
+  --paper: #F6F6F8;
+  --card: #FFFFFF;
+  --line: rgba(18, 20, 28, 0.10);
+  --field: #FFFFFF;
+  --error: #D3264F;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #FFFFFF;
+    --muted: rgba(255, 255, 255, 0.58);
+    --paper: #0E0F14;
+    --card: #171920;
+    --line: rgba(255, 255, 255, 0.10);
+    --field: #0E0F14;
+    --error: #FF8BA6;
+  }
+}
+
+.lockup {
+  --h: 40px;
+  display: flex;
+  align-items: flex-start;
+  height: var(--h);
+  color: var(--ink);
+}
+
+.lockup canvas.mark {
+  display: block;
+  flex: none;
+  width: var(--h);
+  height: var(--h);
+}
+
+.lockup .word {
+  position: relative;
+  flex: none;
+  margin: 0 calc(var(--h) * 0.2444) 0 calc(var(--h) * 0.3);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 500;
+  font-size: calc(var(--h) * 0.94);
+  line-height: calc(var(--h) * 0.9644);
+  white-space: nowrap;
+}
+
+.lockup canvas.sparkle {
+  position: absolute;
+  display: block;
+  left: calc(100% - var(--h) * 0.0188);
+  top: calc(var(--h) * 0.0028);
+  width: calc(var(--h) * 0.2632);
+  height: calc(var(--h) * 0.2632);
+  color: var(--ink);
+}

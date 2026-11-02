@@ -1,0 +1,11 @@
+{
+  "name": "acde-stress-app",
+  "private": true,
+  "description": "A window web for acde's acceptance: it misbehaves on request (out of memory, a loop that never ends, an error at load) so the checks can see the desktop and the other windows go on",
+  "acde": {
+    "apps": [
+      { "id": "stress", "label": "压力测试", "icon": "bug_report", "entry": "/ui/stress/stress.js", "capabilities": {}, "heapMb": 64, "multiple": true }
+    ],
+    "assets": { "/ui/stress/": ["."] }
+  }
+}

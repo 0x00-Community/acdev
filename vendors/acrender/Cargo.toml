@@ -1,0 +1,113 @@
+[workspace]
+members = [
+    "packages/debug_timer",
+    "packages/blitz-traits",
+    "packages/blitz-dom",
+    "packages/blitz-paint",
+    "packages/stylo_taffy",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.3.0-beta.4"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/dioxuslabs/blitz"
+repository = "https://github.com/dioxuslabs/blitz"
+categories = ["gui"]
+edition = "2024"
+rust-version = "1.91.0"
+
+[workspace.dependencies]
+# Blitz dependencies(in-repo)
+blitz-dom = { version = "=0.3.0-beta.4", path = "./packages/blitz-dom", default-features = false }
+blitz-paint = { version = "=0.3.0-beta.4", path = "./packages/blitz-paint", default-features = false }
+blitz-traits = { version = "=0.3.0-beta.4", path = "./packages/blitz-traits", default-features = false }
+stylo_taffy = { version = "=0.3.0-beta.4", path = "./packages/stylo_taffy", default-features = false }
+debug_timer = { version = "0.1.2", path = "./packages/debug_timer" }
+
+# Servo dependencies
+style = { version = "0.22.0", package = "stylo" }
+style_traits = { version = "0.22.0", package = "stylo_traits" }
+style_atoms = { version = "0.22.0", package = "stylo_atoms" }
+style_config = { version = "0.22.0", package = "stylo_static_prefs" }
+style_dom = { version = "0.22.0", package = "stylo_dom" }
+selectors = { version = "0.41.0", package = "selectors" }
+cssparser = { version = "0.38.0" }
+
+# HTML5ever dependencies
+markup5ever = "0.40.0" # needs to match stylo web_atoms version
+
+# Other Servo dependencies
+euclid = "0.22"
+atomic_refcell = "0.1.13"
+app_units = "0.7.5"
+smallvec = "1"
+thin-vec = "0.2"
+
+# Taffy + Parley + Fontations
+# acrender: taffy at upstream Blitz's git revision 4e59968, vendored (vendors/taffy): builds need crates.io only
+taffy = { version = "0.15.0", path = "../taffy", default-features = false, features = [
+    "std",
+    "flexbox",
+    "flexbox_balance",
+    "grid",
+    "block_layout",
+    "content_size",
+    "calc",
+    "detailed_layout_info",
+] }
+parley = { version = "0.12", default-features = false, features = ["std"] }
+skrifa = { version = "0.44", default-features = false, features = [
+    "std",
+] } # Should match parley and vello versions
+
+# AnyRender
+anyrender = { version = "0.14.0" }
+anyrender_svg = { version = "0.15.0" }
+
+# Linebender + Fontations + SVG
+color = "0.3"
+linebender_resource_handle = "0.1"
+peniko = "0.6.0"
+kurbo = "0.13.1"
+usvg = "0.48.1"
+svgtypes = "0.16.1" # Should match usvg's version
+
+# Input
+keyboard-types = "0.8"
+
+# IO & Networking
+url = "2.5.0"
+http = "1.1.0"
+
+# Media & Decoding
+image = { version = "0.25.6", default-features = false }
+wuff = "0.2"
+html-escape = "0.2.13"
+percent-encoding = "2.3.1"
+serde = "1"
+
+# WASM
+web-time = "1"
+
+# Other dependencies
+bytes = "1.7.1"
+slotmap = "1.0.7"
+tracing = "0.1.40"
+smol_str = "0.3"
+bitflags = "2.8.0"
+bytemuck = "1"
+
+# Unicode (ICU4X)
+icu_casemap = { version = "2.3", default-features = false, features = ["compiled_data"] }
+icu_locale_core = { version = "2.3", default-features = false }
+icu_properties = { version = "2.3", default-features = false, features = ["compiled_data"] }
+icu_segmenter = { version = "2.3", default-features = false, features = ["compiled_data"] }
+writeable = { version = "0.6", default-features = false }
+
+# acrender: the same patched crates as acde-base's root workspace (../), so this workspace builds what acde-base builds
+[patch.crates-io]
+stylo = { path = "../stylo" }
+stylo_atoms = { path = "../stylo_atoms" }
+parley = { path = "../parley" }
+fontique = { path = "../fontique" }

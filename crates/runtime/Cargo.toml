@@ -1,0 +1,45 @@
+[package]
+name = "acde-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# logging (the host installs env_logger through acde-log)
+log = "0.4"
+# napi: 和 agentrt-rust/crates/napi 同版本
+napi = { version = "=3.14.2", default-features = false, features = ["napi8", "async-runtime", "serde-json"] }
+napi-derive = "=3.6.12"
+# the pty, the terminal's poll loop, signals and process groups, O_NOFOLLOW
+rustix = { version = "1", features = ["event", "fs", "process", "pty", "termios"] }
+# local time of the names of new Office documents
+jiff = "0.2"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+# the executor (rt.rs; ntex picks io_uring, else polling, at run time), the HTTP/WebSocket client and servers
+ntex = { version = "4.4", features = ["openssl"] }
+# TLS of ntex's HTTP client (http.rs: a connector that verifies the peer)
+openssl = "0.10"
+# executor-independent async pieces (channels, block_on)
+async-channel = "2"
+futures-lite = "2"
+futures-channel = "0.3"
+# accepting on the servers' Unix sockets (ntex has no listener outside ntex-server)
+async-io = "2"
+uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
+# String.prototype.localeCompare (ICU, Node's default locale) for the Finder's sort order
+icu_collator = "2"
+icu_locale_core = "2"
+url = "2"
+sha2 = "0.10"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+base64 = "0.22"
+rand = "0.9"
+# the web desktop's input method (fcitx5, else IBus) over D-Bus
+zbus = "5"
+# the Office app (app-office): Document Server JWTs and bridge tickets, blank documents
+hmac = "0.12"
+flate2 = "1"
+crc32fast = "1"
+# the voice input (voice/): the microphone through PipeWire, 16 kHz mono
+pipewire = { version = "0.10", features = ["v0_3_49"] }

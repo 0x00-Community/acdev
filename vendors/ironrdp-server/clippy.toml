@@ -1,0 +1,2 @@
+# acde: as in the IronRDP repository (its clippy.toml is not in the crates.io package): the tests may unwrap
+allow-unwrap-in-tests = true

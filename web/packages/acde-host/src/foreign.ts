@@ -1,0 +1,92 @@
+import { DesktopEntry } from './desktopentry'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from './sys/fs'
+import { runtimeDir, xdgDirs } from './sys/os'
+import { basename, dirname, join } from './sys/path'
+import { process, type Env } from './sys/process'
+
+export interface ForeignSession {
+  readonly kind: 'session'
+  readonly id: string
+  readonly name: string
+  readonly description: string | null
+  readonly file: string
+  readonly argv: readonly string[]
+  readonly desktopNames: readonly string[]
+}
+
+export class WaylandSessions {
+  static readonly PREFIX = 'session:'
+  static readonly HANDOFF_EXIT = 3
+
+  static list(env: Env = process.env, report: (line: string) => void = () => {}): ForeignSession[] {
+    return DesktopEntry.files(xdgDirs('data', 'wayland-sessions', env, false)).flatMap(({ file }) => {
+      try {
+        const session = WaylandSessions.parse(file, readFileSync(file, 'utf8'), env)
+        return session ? [session] : []
+      } catch (error) {
+        report(`acde-host: ${file}: ${(error as Error).message}`)
+        return []
+      }
+    })
+  }
+
+  static parse(file: string, text: string, env: Env = process.env): ForeignSession | null {
+    const base = basename(file).replace(/\.desktop$/, '')
+    if (base === 'acde' || base.startsWith('acde-') || !/^[\w.+@-]+$/.test(base)) return null
+    const entry = new DesktopEntry(file, text)
+    if (!entry.application || entry.flag('Hidden') || entry.flag('NoDisplay')) return null
+    const argv = entry.exec()
+    if (!argv || basename(argv[0]!) === 'acde') return null
+    const tryExec = entry.string('TryExec')
+    if (tryExec && !DesktopEntry.executable(tryExec, env)) return null
+    if (!DesktopEntry.executable(argv[0]!, env)) return null
+    const desktopNames = entry.list('DesktopNames')
+    return {
+      kind: 'session',
+      id: `${WaylandSessions.PREFIX}${base}`,
+      name: WaylandSessions.title(entry.localized('Name', env) ?? base, desktopNames),
+      description: entry.localized('Comment', env),
+      file,
+      argv,
+      desktopNames,
+    }
+  }
+
+  static title(name: string, desktopNames: readonly string[]): string {
+    const short = name.replace(/\s*\(Wayland\)\s*$/i, '') || name
+    const desktop = desktopNames[0]
+    return desktop === 'KDE' && !/\bKDE\b/i.test(short) ? `KDE ${short}` : short
+  }
+
+  static quote(arg: string): string {
+    return `'${arg.replace(/'/g, `'\\''`)}'`
+  }
+
+  static environment(session: ForeignSession): [string, string][] {
+    const base = basename(session.file).replace(/\.desktop$/, '')
+    return [
+      ['XDG_CURRENT_DESKTOP', session.desktopNames.length ? session.desktopNames.join(':') : base],
+      ['XDG_SESSION_DESKTOP', session.desktopNames[0] ?? base],
+      ['XDG_SESSION_TYPE', 'wayland'],
+      ['DESKTOP_SESSION', base],
+    ]
+  }
+
+  static command(session: ForeignSession): string {
+    const vars = WaylandSessions.environment(session)
+    return [session.argv.map(WaylandSessions.quote).join(' '), ...vars.map(([name, value]) => `${name}=${DesktopEntry.line(value)}`), ''].join('\n')
+  }
+
+  static handoffFile(env: Env = process.env): string {
+    return join(runtimeDir(env), 'acde', 'exec')
+  }
+
+  static handOff(session: ForeignSession, env: Env = process.env): string {
+    const file = WaylandSessions.handoffFile(env)
+    const dir = dirname(file)
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 })
+    writeFileSync(`${file}.new`, WaylandSessions.command(session), { mode: 0o600 })
+    renameSync(`${file}.new`, file)
+    return file
+  }
+}

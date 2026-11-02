@@ -1,0 +1,387 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { createWeb, type Web } from './harness.ts'
+
+const FAKE = `(() => {
+  const backend = globalThis.backend = { calls: [], aborted: [], sent: [], closed: [], connections: 0 }
+  const enc = new TextEncoder(), dec = new TextDecoder()
+  const later = (ms, fn) => setTimeout(fn, ms)
+  let next = 1
+  const answer = (on, status, headers, chunks, gap = 1) => {
+    const steps = [{ type: 'head', status, statusText: status === 200 ? 'OK' : 'X', headers }, ...chunks.map((c) => ({ type: 'chunk', data: enc.encode(c) })), { type: 'end' }]
+    const step = () => {
+      on(steps.shift())
+      if (steps.length) later(gap, step)
+    }
+    later(1, step)
+  }
+  __acdeDom.installBackendTransport({
+    port: 3000,
+    request(port, method, path, headers, body, on) {
+      const id = next++
+      const call = { id, port, method, path, headers: Object.fromEntries(headers), body: body ? dec.decode(body) : null }
+      backend.calls.push(call)
+      const p = path.split('?')[0]
+      if (p === '/api/echo') answer(on, 200, [['content-type', 'application/json']], [JSON.stringify(call)])
+      else if (p === '/stream') answer(on, 200, [['content-type', 'text/plain']], ['a', 'b', 'c'], 5)
+      else if (p === '/redirect') answer(on, 303, [['location', '/api/echo?from=redirect']], ['moved'])
+      else if (p === '/cookie') answer(on, 200, [['set-cookie', 'sid=abc; Path=/; HttpOnly'], ['set-cookie', 'theme=dark; Path=/'], ['content-type', 'text/plain']], ['ok'])
+      else if (p === '/slow') later(1, () => { on({ type: 'head', status: 200, statusText: 'OK', headers: [] }); on({ type: 'chunk', data: enc.encode('first') }) })
+      else if (p === '/fail') later(1, () => on({ type: 'error', message: 'connect: no such file' }))
+      else if (p === '/events') {
+        backend.connections++
+        if (backend.connections === 1) answer(on, 200, [['content-type', 'text/event-stream']], ['\\uFEFFretry: 20\\n: comment\\n', 'data: one\\n\\n', 'event: ping\\nid: 7\\ndata: a\\r\\ndata: b\\r', '\\n\\r\\ndata: unfinished'])
+        else later(1, () => { on({ type: 'head', status: 200, statusText: 'OK', headers: [['content-type', 'text/event-stream; charset=utf-8']] }); on({ type: 'chunk', data: enc.encode('data: again ' + call.headers['last-event-id'] + '\\n\\n') }) })
+      } else if (p === '/not-events') answer(on, 200, [['content-type', 'text/html']], ['<p>'])
+      else answer(on, 404, [['content-type', 'text/plain']], ['not found: ' + path])
+      return Promise.resolve(id)
+    },
+    abort(id) { backend.aborted.push(id) },
+    websocket(port, path, headers, protocols, on) {
+      const id = next++
+      backend.calls.push({ id, port, ws: true, path, headers: Object.fromEntries(headers), protocols })
+      backend.sockets ??= {}
+      backend.sockets[id] = on
+      later(1, () => on({ type: 'open', protocol: protocols[0] ?? '', extensions: '' }))
+      return Promise.resolve(id)
+    },
+    send(id, data) {
+      backend.sent.push(typeof data === 'string' ? data : [...data])
+      const on = backend.sockets[id]
+      later(1, () => on(typeof data === 'string' ? { type: 'message', text: 'echo:' + data } : { type: 'message', data }))
+    },
+    close(id, code, reason) {
+      backend.closed.push([id, code, reason])
+      later(1, () => backend.sockets[id]({ type: 'close', code: code ?? 1005, reason: reason ?? '', wasClean: true }))
+    },
+  })
+})()`
+
+async function webWithBackend(): Promise<Web> {
+  const web = createWeb()
+  web.host.assets.set('/app/demo/index.js', 'export {}')
+  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  web.run(FAKE)
+  return web
+}
+
+test('backend routing: assets stay assets, same-origin and loopback URLs reach the backend, other hosts are refused', async () => {
+  const web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = {}
+    const asset = await fetch('/app/demo/index.js')
+    out.asset = [asset.status, asset.headers.get('content-type'), await asset.text(), backend.calls.length]
+    const post = await (await fetch('/api/echo?x=1', { method: 'POST', body: 'hi', headers: { 'X-A': '1', Host: 'evil', Cookie: 'no' } })).json()
+    out.post = [post.port, post.method, post.path, post.body, post.headers.host, post.headers.origin, post.headers['x-a'], post.headers['content-type'], post.headers.cookie ?? null]
+    const get = await (await fetch('/api/echo')).json()
+    out.get = [get.port, get.headers.origin ?? null, get.headers.accept]
+    for (const url of ['http://localhost:4000/api/echo', 'http://127.0.0.1:5000/api/echo', 'http://[::1]:6000/api/echo', 'http://0.0.0.0:7000/api/echo', 'http://localhost/api/echo']) {
+      const r = await (await fetch(url)).json()
+      out[url] = [r.port, r.headers.host]
+    }
+    const missing = await fetch('/missing')
+    out.missing = [missing.status, missing.ok, await missing.text()]
+    for (const bad of ['https://example.com/x', 'http://10.0.0.1:3000/x']) {
+      try { await fetch(bad); out[bad] = 'fetched?' } catch (e) { out[bad] = e instanceof TypeError }
+    }
+    try { await fetch('/fail'); out.fail = 'fetched?' } catch (e) { out.fail = [e instanceof TypeError, e.message, e.cause] }
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), {
+    asset: [200, 'text/javascript', 'export {}', 0],
+    post: [3000, 'POST', '/api/echo?x=1', 'hi', 'localhost', 'http://localhost', '1', 'text/plain;charset=UTF-8', null],
+    get: [3000, null, '*/*'],
+    'http://localhost:4000/api/echo': [4000, 'localhost:4000'],
+    'http://127.0.0.1:5000/api/echo': [5000, 'localhost:5000'],
+    'http://[::1]:6000/api/echo': [6000, 'localhost:6000'],
+    'http://0.0.0.0:7000/api/echo': [7000, 'localhost:7000'],
+    'http://localhost/api/echo': [80, 'localhost'],
+    missing: [404, false, 'not found: /missing'],
+    'https://example.com/x': true,
+    'http://10.0.0.1:3000/x': true,
+    fail: [true, 'Failed to fetch', 'connect: no such file'],
+  })
+  assert.deepEqual(web.host.errors, [])
+  web.close()
+})
+
+test('backend responses stream: chunks as they come, clone, pipeThrough, abort', async () => {
+  const web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = {}
+    const r = await fetch('/stream')
+    out.head = [r.status, r.headers.get('content-type'), r.bodyUsed, r.body instanceof ReadableStream]
+    const copy = r.clone()
+    const reader = r.body.getReader()
+    const chunks = []
+    for (;;) { const { value, done } = await reader.read(); if (done) break; chunks.push(new TextDecoder().decode(value)) }
+    out.chunks = chunks
+    out.used = r.bodyUsed
+    out.copy = await copy.text()
+    try { await r.text(); out.again = 'read twice?' } catch (e) { out.again = e instanceof TypeError }
+    const piped = (await fetch('/stream')).body.pipeThrough(new TextDecoderStream())
+    const parts = []
+    for await (const part of piped) parts.push(part)
+    out.piped = parts.join('')
+    const controller = new AbortController()
+    const slow = await fetch('/slow', { signal: controller.signal })
+    const slowReader = slow.body.getReader()
+    out.first = new TextDecoder().decode((await slowReader.read()).value)
+    controller.abort()
+    try { await slowReader.read(); out.aborted = 'read on?' } catch (e) { out.aborted = e.name }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    out.abortCalls = backend.aborted.length
+    const early = new AbortController()
+    const pending = fetch('/slow', { signal: early.signal })
+    early.abort()
+    try { await pending } catch (e) { out.early = e.name }
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), {
+    head: [200, 'text/plain', false, true],
+    chunks: ['a', 'b', 'c'],
+    used: true,
+    copy: 'abc',
+    again: true,
+    piped: 'abc',
+    first: 'first',
+    aborted: 'AbortError',
+    abortCalls: 1,
+    early: 'AbortError',
+  })
+  assert.deepEqual(web.host.errors, [])
+  web.close()
+})
+
+test('redirects are followed (303 → GET), cookies are kept and sent, Set-Cookie is not shown', async () => {
+  const web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = {}
+    const r = await fetch('/redirect', { method: 'POST', body: 'x' })
+    const body = await r.json()
+    out.redirect = [r.status, r.redirected, r.url, body.method, body.path, body.body, backend.aborted.length]
+    const manual = await fetch('/redirect', { redirect: 'manual' })
+    out.manual = [manual.status, manual.headers.get('location')]
+    const c = await fetch('/cookie')
+    out.setCookie = [c.headers.get('set-cookie'), document.cookie]
+    document.cookie = 'lang=zh'
+    document.cookie = 'sid=stolen'
+    const echo = await (await fetch('/api/echo')).json()
+    out.cookie = echo.headers.cookie
+    const omit = await (await fetch('/api/echo', { credentials: 'omit' })).json()
+    out.omit = omit.headers.cookie ?? null
+    document.cookie = 'theme=; Max-Age=0'
+    out.after = document.cookie
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), {
+    redirect: [200, true, 'http://acde.local/api/echo?from=redirect', 'GET', '/api/echo?from=redirect', null, 1],
+    manual: [303, '/api/echo?from=redirect'],
+    setCookie: [null, 'theme=dark'],
+    cookie: 'sid=abc; theme=dark; lang=zh',
+    omit: null,
+    after: 'lang=zh',
+  })
+  assert.deepEqual(web.host.errors, [])
+  web.close()
+})
+
+test('XMLHttpRequest to the backend: states, progress, headers, response types, errors', async () => {
+  const web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = {}
+    const run = (setup) => new Promise((resolve) => {
+      const xhr = new XMLHttpRequest()
+      const seen = []
+      xhr.onreadystatechange = () => seen.push(xhr.readyState)
+      xhr.onprogress = () => seen.push('p')
+      xhr.onload = () => seen.push('load')
+      xhr.onerror = () => seen.push('error')
+      xhr.onloadend = () => resolve({ xhr, seen })
+      setup(xhr)
+    })
+    const post = await run((xhr) => { xhr.open('POST', '/api/echo'); xhr.setRequestHeader('X-B', '2'); xhr.responseType = 'json'; xhr.send(JSON.stringify({ a: 1 })) })
+    out.post = [post.xhr.status, post.xhr.response.method, post.xhr.response.body, post.xhr.response.headers['x-b'], post.xhr.getResponseHeader('Content-Type'), post.seen.join()]
+    const stream = await run((xhr) => { xhr.open('GET', '/stream'); xhr.send() })
+    out.stream = [stream.xhr.responseText, stream.seen.join(), stream.xhr.getAllResponseHeaders()]
+    const fail = await run((xhr) => { xhr.open('GET', '/fail'); xhr.send() })
+    out.fail = [fail.xhr.status, fail.xhr.readyState, fail.seen.join()]
+    const sync = new XMLHttpRequest()
+    sync.open('GET', '/api/echo', false)
+    try { sync.send(); out.sync = 'sent?' } catch (e) { out.sync = e.name }
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), {
+    post: [200, 'POST', '{"a":1}', '2', 'application/json', '1,2,3,p,4,load'],
+    stream: ['abc', '1,2,3,p,3,p,3,p,4,load', 'content-type: text/plain\r\n'],
+    fail: [0, 4, '1,4,error'],
+    sync: 'NetworkError',
+  })
+  assert.deepEqual(web.host.errors, [])
+  web.close()
+})
+
+test('WebSocket to the backend: open, text and binary messages, close; refused without a backend route', async () => {
+  const web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = {}
+    const ws = new WebSocket('/ws?room=1', ['chat', 'v2'])
+    out.url = [ws.url, ws.readyState, ws.binaryType, WebSocket.OPEN, ws.CLOSED]
+    try { ws.send('too early') } catch (e) { out.early = e.name }
+    const events = []
+    await new Promise((resolve) => { ws.onopen = resolve })
+    out.open = [ws.readyState, ws.protocol]
+    const call = backend.calls.at(-1)
+    out.call = [call.port, call.path, call.protocols, call.headers.host, call.headers.origin]
+    ws.binaryType = 'arraybuffer'
+    const messages = []
+    ws.onmessage = (e) => messages.push(typeof e.data === 'string' ? e.data : [...new Uint8Array(e.data)])
+    ws.send('hello')
+    ws.send(new Uint8Array([1, 2, 3]))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    out.messages = messages
+    out.sent = backend.sent
+    try { ws.close(1001) } catch (e) { out.badCode = e.name }
+    const closed = new Promise((resolve) => { ws.onclose = (e) => resolve([e.code, e.reason, e.wasClean, ws.readyState]) })
+    ws.onerror = () => events.push('error')
+    ws.close(1000, 'bye')
+    out.closing = ws.readyState
+    out.close = await closed
+    out.errors = events
+    const other = new WebSocket('ws://example.com/x')
+    out.refused = await new Promise((resolve) => { const seen = []; other.onerror = () => seen.push('error'); other.onclose = (e) => resolve([...seen, e.code, other.readyState]) })
+    const port = new WebSocket('ws://127.0.0.1:9000/live')
+    await new Promise((resolve) => { port.onopen = resolve })
+    out.port = [backend.calls.at(-1).port, backend.calls.at(-1).path]
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), {
+    url: ['ws://acde.local/ws?room=1', 0, 'blob', 1, 3],
+    early: 'InvalidStateError',
+    open: [1, 'chat'],
+    call: [3000, '/ws?room=1', ['chat', 'v2'], 'localhost', 'http://localhost'],
+    messages: ['echo:hello', [1, 2, 3]],
+    sent: ['hello', [1, 2, 3]],
+    badCode: 'InvalidAccessError',
+    closing: 2,
+    close: [1000, 'bye', true, 3],
+    errors: [],
+    refused: ['error', 1006, 3],
+    port: [9000, '/live'],
+  })
+  assert.deepEqual(web.host.errors, [])
+  web.close()
+})
+
+test('EventSource from the backend: events, types, ids, retry, reconnect with Last-Event-ID, close', async () => {
+  const web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = { log: [] }
+    const es = new EventSource('/events')
+    out.start = [es.url, es.readyState]
+    es.onopen = () => out.log.push('open ' + es.readyState)
+    es.onmessage = (e) => out.log.push('message ' + JSON.stringify(e.data) + ' ' + e.lastEventId)
+    es.addEventListener('ping', (e) => out.log.push('ping ' + JSON.stringify(e.data) + ' ' + e.lastEventId))
+    es.onerror = () => out.log.push('error ' + es.readyState)
+    await new Promise((resolve) => { const t = setInterval(() => { if (out.log.some((l) => l.startsWith('message "again'))) { clearInterval(t); resolve() } }, 2) })
+    es.close()
+    out.closed = es.readyState
+    const bad = new EventSource('/not-events')
+    out.bad = await new Promise((resolve) => { bad.onerror = () => resolve(bad.readyState) })
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), {
+    start: ['http://acde.local/events', 0],
+    log: ['open 1', 'message "one" ', 'ping "a\\nb" 7', 'error 0', 'open 1', 'message "again 7" 7'],
+    closed: 2,
+    bad: 2,
+  })
+  assert.deepEqual(web.host.errors, [])
+  web.close()
+})
+
+test('without a backend transport nothing changes: non-asset requests are refused, WebSocket and EventSource fail', async () => {
+  const web = createWeb()
+  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = []
+    for (const [url, init] of [['/api/x', { method: 'POST', body: 'x' }], ['http://localhost:3000/api'], ['/missing']]) {
+      try { await fetch(url, init); out.push('fetched?') } catch (e) { out.push(e instanceof TypeError) }
+    }
+    const ws = new WebSocket('ws://localhost:3000/ws')
+    out.push(await new Promise((resolve) => { const seen = []; ws.onerror = () => seen.push('error'); ws.onclose = (e) => resolve([...seen, e.code]) }))
+    const es = new EventSource('/events')
+    out.push(await new Promise((resolve) => { es.onerror = () => resolve(es.readyState) }))
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), [true, true, true, ['error', 1006], 2])
+  assert.deepEqual(web.host.errors, [])
+  web.close()
+})
+
+test('streams: tee, pipeTo through a TransformStream, ReadableStream.from, async iteration, errors, Blob.stream', async () => {
+  const web = createWeb()
+  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = {}
+    const all = async (stream) => { const got = []; for await (const c of stream) got.push(c); return got }
+    const [a, b] = ReadableStream.from([1, 2, 3]).tee()
+    out.tee = [await all(a), await all(b)]
+    const upper = new TransformStream({ transform(chunk, c) { c.enqueue(String(chunk).toUpperCase()) }, flush(c) { c.enqueue('!') } })
+    const collected = []
+    await ReadableStream.from(['a', 'b']).pipeThrough(upper).pipeTo(new WritableStream({ write(c) { collected.push(c) } }))
+    out.piped = collected
+    const failing = new ReadableStream({ start(c) { c.enqueue('x'); c.error(new Error('boom')) } })
+    try { await all(failing); out.error = 'no error?' } catch (e) { out.error = e.message }
+    let pulls = 0
+    const pulled = new ReadableStream({ pull(c) { pulls++; if (pulls > 3) c.close(); else c.enqueue(pulls) } }, { highWaterMark: 0 })
+    out.pulled = await all(pulled)
+    const reader = new ReadableStream({ start(c) { c.enqueue('q') } }).getReader()
+    out.locked = [await reader.read(), reader.closed instanceof Promise]
+    reader.releaseLock()
+    out.blob = new TextDecoder().decode((await new Blob(['hi']).stream().getReader().read()).value)
+    const enc = new TextEncoderStream()
+    const w = enc.writable.getWriter(); w.write('é'); w.close()
+    out.encoded = (await all(enc.readable)).map((u) => [...u])
+    const response = new Response(ReadableStream.from([new TextEncoder().encode('from '), new TextEncoder().encode('stream')]))
+    out.response = await response.text()
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), {
+    tee: [[1, 2, 3], [1, 2, 3]],
+    piped: ['A', 'B', '!'],
+    error: 'boom',
+    pulled: [1, 2, 3],
+    locked: [{ value: 'q', done: false }, true],
+    blob: 'hi',
+    encoded: [[195, 169]],
+    response: 'from stream',
+  })
+  assert.deepEqual(web.host.errors, [])
+  web.close()
+})
+
+test('Set-Cookie values stay apart; formData parses forms', async () => {
+  const web = createWeb()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = []
+    const h = new Headers([['Set-Cookie', 'a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT'], ['set-cookie', 'b=2'], ['x-one', '1']])
+    out.push(h.getSetCookie(), [...h], h.get('set-cookie'))
+    const urlencoded = await new Request('/f', { method: 'POST', body: new URLSearchParams({ a: '1', b: 'two' }) }).formData()
+    out.push(urlencoded.get('a'), urlencoded.get('b'))
+    const multipart = '--XyZ\\r\\nContent-Disposition: form-data; name="name"\\r\\n\\r\\n值\\r\\n' +
+      '--XyZ\\r\\nContent-Disposition: form-data; name="file"; filename="f.txt"\\r\\nContent-Type: text/plain\\r\\n\\r\\nfile body\\r\\n--XyZ--\\r\\n'
+    const parsed = await new Request('/f', { method: 'POST', body: multipart, headers: { 'content-type': 'multipart/form-data; boundary=XyZ' } }).formData()
+    const file = parsed.get('file')
+    out.push(parsed.get('name'), file.name, file.type, await file.text())
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), [
+    ['a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT', 'b=2'],
+    [['set-cookie', 'a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT'], ['set-cookie', 'b=2'], ['x-one', '1']],
+    'a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT, b=2',
+    '1', 'two',
+    '值', 'f.txt', 'text/plain', 'file body',
+  ])
+  web.close()
+})

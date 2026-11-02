@@ -1,0 +1,252 @@
+# Maintainer: Dopame <dopame@dopame.local>
+#
+# acde-base, the Dopame desktop base: a Wayland compositor (crates/shell) whose desktop is a web page rendered
+# natively (Blitz, crates/render), its JS in acde's own V8 host (crates/acde, no Node), with every system interface in
+# Rust (crates/runtime, through Node-API on V8), and the login screen. The desktops themselves come from desktop packages (acde-dopame,
+# ...) installed under /usr/share/acde/packages. Built from the commit this PKGBUILD belongs to (`git archive HEAD` of
+# this repository), so `makepkg` here packages exactly what is committed.
+#
+# Installed layout:
+#   /usr/lib/acde/acde             the program: V8, runtime, render and shell in one binary
+#   /usr/lib/acde/app/             acde-host: dist/broker.js and dist/web.js (bundles), greet/ (the login screen:
+#                                  `acde --greeter`, greetd's greeter; user, password and desktop on one page), brand/
+#                                  (the Dopame mark, Outfit and its OFL license, for it)
+#   /usr/lib/acde/acde-app/        what `acde app` (new / check / build / install / run) runs under bun (TypeScript sources)
+#   /usr/lib/acde/acde-api/        @dopame/acde-api, the SDK (types, load, the Vite plugin): `acde app new` makes it an app's devDependency
+#   /usr/bin/acde                  the session (the script below runs /usr/lib/acde/acde, or the Wayland session it
+#                                  hands over to: KDE Plasma); `acde desktops`, `acde sessions`
+#   /usr/share/acde/packages/      where desktop packages go (each its own directory)
+#   /usr/share/wayland-sessions/acde.desktop   the desktop started last (else the first installed);
+#                                  a desktop package installs acde-<id>.desktop for each of its desktops
+#   /usr/lib/tmpfiles.d/acde.conf  /var/lib/acde/greeter: the login screen's state and font cache
+#   /etc/xdg/fcitx5/profile        fcitx5's default: English, Ctrl+Space for pinyin
+#   /usr/share/xdg-desktop-portal/acde-portals.conf   portals for XDG_CURRENT_DESKTOP=acde: the GTK backend
+
+pkgname=acde-base
+pkgver=0.0.0
+pkgrel=1
+pkgdesc='Dopame desktop base: Wayland compositor with natively rendered web desktops, system API and login screen'
+arch=('x86_64' 'aarch64')
+url='https://github.com/dopamine-org/acde-base'
+license=('Apache-2.0' 'OFL-1.1')
+depends=(
+  # compositor: DRM/KMS, GBM and EGL/GLES (mesa), input, seat, udev; Wayland clients only (no X server)
+  'mesa' 'libdrm' 'libinput' 'seatd' 'systemd-libs' 'wayland' 'libxkbcommon'
+  # TLS (ntex's, through OpenSSL): the RDP backend (ACDE_BACKEND=rdp) and NLA
+  'openssl'
+  # the web layer is drawn on Vulkan (vello). lavapipe (vulkan-swrast) is the fallback that works on every machine:
+  # without it the desktop is blank where no hardware driver fits. It also provides vulkan-driver, so pacman never
+  # pulls in a hardware driver for this: install the GPU's own (optdepends; the Dopame ISO lists them), else the web
+  # layer is rasterized on the CPU (animations at 15 fps, blurs of hundreds of ms per frame)
+  'vulkan-icd-loader' 'vulkan-driver' 'vulkan-swrast'
+  # text: fontconfig and fonts for Latin and CJK
+  'fontconfig' 'noto-fonts' 'noto-fonts-cjk' 'noto-fonts-emoji'
+  # the pointer under DRM: the shell draws the theme's arrow (default-cursors' `default` inherits Adwaita)
+  'adwaita-cursors'
+  # system services the shell talks to over D-Bus: network, power, sessions, audio
+  'dbus' 'networkmanager' 'upower' 'pipewire' 'wireplumber'
+  # input method for the web desktop's text fields (runtime's Ime, D-Bus) and native windows
+  'fcitx5' 'fcitx5-chinese-addons' 'fcitx5-gtk' 'fcitx5-qt'
+  # native programs the desktop starts: the default terminal, the web browser (a native window of its own: web
+  # pages and the Office editor pages open there), the screen locker, opening files with their programs (Finder)
+  'foot' 'firefox' 'swaylock' 'xdg-utils'
+  # file dialogs and other portals for sandboxed (flatpak / snap) and portal-using apps: the GTK backend
+  'xdg-desktop-portal' 'xdg-desktop-portal-gtk'
+  # apps' backends run on bun (acde-host backend.ts); acde-app uses it too
+  'bun'
+)
+optdepends=(
+  'acde-dopame: the Dopame desktop and its apps'
+  'vulkan-intel: the web layer on Intel GPUs (else on the CPU, through lavapipe)'
+  'vulkan-radeon: the web layer on AMD GPUs (else on the CPU, through lavapipe)'
+  'nvidia-utils: the web layer on NVIDIA GPUs with the NVIDIA driver (else on the CPU, through lavapipe)'
+  'plasma-workspace: KDE Plasma (its plasma.desktop Wayland session) on the login screen, started instead of acde'
+  'docker: ONLYOFFICE Document Server for runtime Office (/usr/lib/acde/office-ds.sh)'
+  'greetd: the login screen (`acde --greeter` as its greeter; greetd-agreety as the fallback)'
+)
+makedepends=('git' 'rust' 'bun' 'clang' 'cmake' 'pkgconf' 'python')
+options=('!lto' '!debug')
+source=()
+
+_repo() {
+  realpath -- "${startdir}/../.."
+}
+
+# v1.2.3 tags give 1.2.3; commits after a tag (or without one) get .r<count>.g<hash>
+pkgver() {
+  local desc
+  desc=$(git -C "$(_repo)" describe --tags --long --match 'v[0-9]*' 2>/dev/null) ||
+    desc="v0.0.0-$(git -C "$(_repo)" rev-list --count HEAD)-g$(git -C "$(_repo)" rev-parse --short HEAD)"
+  desc=${desc#v}
+  local version=${desc%%-*} rest=${desc#*-}
+  local count=${rest%%-*} hash=${rest#*-}
+  if [[ $count == 0 ]]; then
+    printf '%s\n' "$version"
+  else
+    printf '%s.r%s.%s\n' "$version" "$count" "$hash"
+  fi
+}
+
+prepare() {
+  rm -rf -- "${srcdir}/acde"
+  mkdir -p -- "${srcdir}/acde"
+  git -c safe.directory='*' -C "$(_repo)" archive --format=tar HEAD | tar -x -C "${srcdir}/acde"
+}
+
+build() {
+  cd "${srcdir}/acde"
+  export CARGO_TARGET_DIR="${srcdir}/target"
+  # panic messages carry source paths: not the build directory's
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=${srcdir}=/usr/src/acde"
+  cargo build --locked --release -p acde
+  # the bundles: bun only builds them (esbuild); nothing of bun is installed
+  cd web
+  bun install --frozen-lockfile
+  bun run --filter @dopame/acde-host bundle
+}
+
+check() {
+  # the program starts and answers a command without a display: the Broker's bundle, the packages, the login screen
+  ACDE_APP="${srcdir}/acde/web/packages/acde-host/dist" ACDE_PATH= XDG_DATA_HOME="${srcdir}/check" \
+    "${srcdir}/target/release/acde" desktops --package "${srcdir}/acde/web/packages/acde-host/greet" | grep -q greet
+}
+
+package() {
+  install -Dm755 "${srcdir}/target/release/acde" "${pkgdir}/usr/lib/acde/acde"
+  local app="${srcdir}/acde/web/packages/acde-host"
+  install -Dm644 -t "${pkgdir}/usr/lib/acde/app/dist" "$app/dist/broker.js" "$app/dist/web.js"
+  install -Dm644 -t "${pkgdir}/usr/lib/acde/app" "$app/package.json" "$app/LICENSE"
+  cp -a -- "$app/greet" "${pkgdir}/usr/lib/acde/app/greet"
+  cp -a -- "$app/brand" "${pkgdir}/usr/lib/acde/app/brand"
+  # `acde app` runs acde-app's cli.ts under bun (beside the program: /usr/lib/acde/acde-app); `acde app new` points an
+  # app's devDependency at the SDK beside it (/usr/lib/acde/acde-api)
+  local web="${srcdir}/acde/web/packages" dir
+  for dir in acde-app acde-api; do
+    install -Dm644 -t "${pkgdir}/usr/lib/acde/$dir" "$web/$dir/package.json"
+    cp -r --no-preserve=ownership -- "$web/$dir/src" "${pkgdir}/usr/lib/acde/$dir/src"
+  done
+  cp -r --no-preserve=ownership -- "$web/acde-app/templates" "${pkgdir}/usr/lib/acde/acde-app/templates"
+  install -Dm644 -t "${pkgdir}/usr/lib/acde/acde-api" "$web/acde-api/config.schema.json"
+  install -dm755 "${pkgdir}/usr/share/acde/packages"
+  install -Dm755 "${srcdir}/acde/packaging/office/office-ds.sh" "${pkgdir}/usr/lib/acde/office-ds.sh"
+  install -Dm755 /dev/stdin "${pkgdir}/usr/bin/acde" <<'EOF'
+#!/bin/sh
+# Commands (`acde desktops`, `sessions`, `applications`, `open`, `run FILE`, `window APP`, `app ...`, `--help`) are not the session: run as they are, no
+# journal redirection, no restart when they fail (a program in the session running `acde --help` restarted it 3 times)
+case "${1:-}" in desktops|sessions|applications|open|run|window|app|-h|--help|--version) exec /usr/lib/acde/acde "$@" ;; esac
+# The Dopame desktop session. Without WAYLAND_DISPLAY or DISPLAY the shell takes the seat and drives DRM/KMS.
+# Its output goes to the journal (tag acde): a display manager such as greetd does not connect the session to it.
+# Once: systemd-cat sets JOURNAL_STREAM to the stream it gives us, so the re-run sees it on its stdout and goes on.
+if [ "${JOURNAL_STREAM:-}" != "$(stat -L -c %d:%i /proc/$$/fd/1 2>/dev/null)" ] && command -v systemd-cat >/dev/null; then
+  exec systemd-cat -t acde "$0" "$@"
+fi
+# The login screen: greetd's greeter user has no home (/). Its state (each user's last desktop) and fontconfig's cache
+# go to /var/lib/acde/greeter (tmpfiles.d, owned by greeter)
+if [ "${1:-}" = --greeter ] && [ -w /var/lib/acde/greeter ]; then
+  export XDG_STATE_HOME=/var/lib/acde/greeter/state XDG_CACHE_HOME=/var/lib/acde/greeter/cache
+fi
+# Input method: fcitx5. Native Wayland clients reach it through text-input-v3 (the shell implements input-method-v2,
+# which IBus does not), so no GTK / Qt IM module.
+unset GTK_IM_MODULE QT_IM_MODULE XMODIFIERS
+# Software rendering (llvmpipe / lavapipe, no GPU): 2 rasterizer threads cost less CPU per web frame than one per
+# core without slowing frames (AGENTS.md「packaging/qemu」). GPU drivers ignore it; shell does not pass it to launched apps.
+export LP_NUM_THREADS=${LP_NUM_THREADS:-2}
+# A crash starts the desktop again (one journal line each, tag acde); the third crash within 60 s gives up, back to
+# the display manager (on the live ISO after 10 s). A normal exit (logout) ends the session, and so does a signal to this script (greetd ending it),
+# passed on to the desktop. acde runs in the background to be waited for: `<&0` keeps the session's stdin.
+# Exit 3: a Wayland session that is not acde's was chosen (desktops.choose, or remembered); acde wrote the
+# handoff file (line 1: the shell-quoted command; then NAME=value lines, its environment) and this session becomes it.
+handoff=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/acde/exec
+hand_over() {
+  { IFS= read -r line; vars=$(cat); } < "$handoff"
+  rm -f "$handoff"
+  eval "set -- $line"
+  if [ $# -eq 0 ] || ! command -v "$1" >/dev/null 2>&1; then
+    logger -t acde "handoff to ${1:-nothing}: not found"
+    return 1
+  fi
+  logger -t acde "acde handed the session over: $*"
+  trap - TERM INT HUP
+  while IFS= read -r var; do
+    case "$var" in [A-Za-z_]*=*) export "$var" ;; esac
+  done <<VARS
+$vars
+VARS
+  exec "$@"
+}
+child=
+trap 'kill -TERM "$child" 2>/dev/null; wait "$child"; exit 0' TERM INT HUP
+crashes=
+while :; do
+  rm -f "$handoff"
+  /usr/lib/acde/acde "$@" <&0 &
+  child=$!
+  wait "$child"
+  status=$?
+  [ "$status" -eq 0 ] && exit 0
+  [ "$status" -eq 3 ] && [ -s "$handoff" ] && hand_over
+  now=$(date +%s)
+  recent=$now
+  for at in $crashes; do [ $((now - at)) -lt 60 ] && recent="$recent $at"; done
+  crashes=$recent
+  count=$(echo $crashes | wc -w)
+  if [ "$count" -ge 3 ]; then
+    logger -t acde "acde exited with status $status, $count crashes within 60 s: giving up"
+    # the login screen (greetd's greeter): agreety's text prompt instead, on the terminal (stdout is the journal), so
+    # that one can still log in; greetd would only start the crashing one again
+    if [ "${1:-}" = --greeter ] && command -v agreety >/dev/null && tty=$(tty 2>/dev/null); then
+      logger -t acde "the login screen keeps crashing: agreety instead"
+      exec agreety --cmd /usr/bin/acde <"$tty" >"$tty" 2>&1
+    fi
+    # the live ISO's greetd starts the desktop again at once (no login): not in a tight loop
+    [ -d /run/archiso ] && sleep 10
+    exit "$status"
+  fi
+  logger -t acde "acde exited with status $status: starting it again ($count within 60 s)"
+done
+EOF
+  # the login screen's state and font cache (greetd's greeter user; without that user the line is skipped with a warning)
+  install -Dm644 /dev/stdin "${pkgdir}/usr/lib/tmpfiles.d/acde.conf" <<'EOF'
+d /var/lib/acde/greeter 0700 greeter greeter -
+EOF
+  # fcitx5's system default profile (a user's ~/.config/fcitx5/profile wins): typing starts in English (keyboard-us),
+  # Ctrl+Space switches to pinyin. Without it a new user only has keyboard-us and cannot type Chinese.
+  install -Dm644 /dev/stdin "${pkgdir}/etc/xdg/fcitx5/profile" <<'EOF'
+[Groups/0]
+# Group Name
+Name=Default
+# Layout
+Default Layout=us
+# Default Input Method
+DefaultIM=pinyin
+
+[Groups/0/Items/0]
+# Name
+Name=keyboard-us
+# Layout
+Layout=
+
+[Groups/0/Items/1]
+# Name
+Name=pinyin
+# Layout
+Layout=
+
+[GroupOrder]
+0=Default
+EOF
+  # xdg-desktop-portal picks backends by XDG_CURRENT_DESKTOP (the shell exports acde to the user's systemd and D-Bus
+  # environment); without this file it finds none for acde and apps get no file chooser
+  install -Dm644 /dev/stdin "${pkgdir}/usr/share/xdg-desktop-portal/acde-portals.conf" <<'EOF'
+[preferred]
+default=gtk
+EOF
+  install -Dm644 /dev/stdin "${pkgdir}/usr/share/wayland-sessions/acde.desktop" <<'EOF'
+[Desktop Entry]
+Name=Dopame
+Comment=Dopame desktop (acde): the desktop started last, else the first installed
+Exec=/usr/bin/acde
+Type=Application
+DesktopNames=acde
+EOF
+}
