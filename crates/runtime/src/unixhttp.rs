@@ -291,7 +291,7 @@ impl Upgrade {
         if !events.emit(Event::Open { protocol, extensions: String::new() }).await {
             return;
         }
-        let codec = Messages::codec(true);
+        let codec = Messages::codec();
         let mut messages = Messages::default();
         let mut commands = Some(commands);
         let mut deadline = Deadline::new(Millis::ZERO);

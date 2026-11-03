@@ -11,8 +11,9 @@ use crate::failure::{Failure, Outcome};
 use crate::fields::Fields;
 use crate::fs::Finder;
 use crate::fs::path::NodePath;
+use crate::js::JsText;
 use blank::BlankKind;
-use bridge::{Bridge, Handlers};
+use bridge::Handlers;
 use docserver::DocumentServer;
 use documents::{MAX_DOCUMENT_BYTES, OfficeFile, OfficeFiles, SaveResult};
 use napi::Result;
@@ -195,7 +196,7 @@ impl Service {
 
     fn saved(session: &mut Session, result: SaveResult) {
         session.state = if result.conflict { SaveState::Conflict } else { SaveState::Saved };
-        session.saved_at = Some(crate::clock::Clock::now().as_millis() as i64);
+        session.saved_at = Some(crate::unix_now().as_millis() as i64);
         session.expected_ms = result.modified_ms;
         if result.conflict {
             session.conflict_path = Some(result.path.clone());
@@ -343,10 +344,10 @@ impl Office {
         let handlers: Arc<dyn Handlers> = Arc::new(Bridged(Arc::clone(&service)));
         let starting = Arc::clone(&service);
         let task = crate::rt::spawn_abortable(async move {
-            match Bridge::listen(&starting.settings.socket) {
+            match bridge::listen(&starting.settings.socket) {
                 Ok(listener) => {
                     *starting.bridge_error.locked() = None;
-                    Bridge::serve(listener, handlers).await;
+                    bridge::serve(listener, handlers).await;
                 }
                 Err(error) => {
                     let message = format!("office bridge could not listen on {}: {error}", starting.settings.socket);
@@ -393,8 +394,7 @@ impl Office {
         self.run(move |s| {
             let fields = Fields::read(body.as_ref(), &["root", "kind"], &["dir", "name"])?;
             let kind = BlankKind::try_from(fields.get("kind").as_str()).map_err(|()| Failure::invalid("kind must be docx, xlsx or pptx"))?;
-            let name = fields.present("name").filter(|n| !crate::js::JsText::js_trim(n.as_str()).is_empty());
-            let name = name.map(|n| crate::js::JsText::js_trim(n.as_str()).to_owned());
+            let name = fields.present("name").map(|n| n.js_trim().to_owned()).filter(|n| !n.is_empty());
             let dir = fields.get("dir");
             let path = s.files.create(&fields.get("root"), &dir, kind, name.as_deref())?;
             Ok(json!({"path": path}))

@@ -7,30 +7,26 @@ use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use std::{collections::HashMap, sync::Mutex};
 
-struct Signing;
+fn mac(key: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC takes any key");
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
 
-impl Signing {
-    pub fn mac(key: &[u8], data: &[u8]) -> Vec<u8> {
-        let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC takes any key");
-        mac.update(data);
-        mac.finalize().into_bytes().to_vec()
-    }
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
 
-    fn same(a: &str, b: &str) -> bool {
-        a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+fn object(part: &str) -> Outcome<Map<String, Value>> {
+    let bytes = B64.decode(part.trim_end_matches('=')).map_err(|_| Failure::token_refused("malformed token"))?;
+    match serde_json::from_slice(&bytes) {
+        Ok(Value::Object(map)) => Ok(map),
+        _ => Err(Failure::token_refused("malformed token")),
     }
+}
 
-    fn object(part: &str) -> Outcome<Map<String, Value>> {
-        let bytes = B64.decode(part.trim_end_matches('=')).map_err(|_| Failure::token_refused("malformed token"))?;
-        match serde_json::from_slice(&bytes) {
-            Ok(Value::Object(map)) => Ok(map),
-            _ => Err(Failure::token_refused("malformed token")),
-        }
-    }
-
-    fn now_ms() -> f64 {
-        crate::clock::Clock::now().as_millis() as f64
-    }
+fn now_ms() -> f64 {
+    crate::unix_now().as_millis() as f64
 }
 
 pub struct Jwt {
@@ -43,11 +39,11 @@ impl Jwt {
     }
 
     fn sign_part(&self, data: &str) -> String {
-        B64.encode(Signing::mac(&self.secret, data.as_bytes()))
+        B64.encode(mac(&self.secret, data.as_bytes()))
     }
 
     pub fn sign(&self, claims: &Value, ttl_seconds: Option<u64>) -> String {
-        let now = (Signing::now_ms() / 1000.0).floor() as u64;
+        let now = (now_ms() / 1000.0).floor() as u64;
         let mut body = claims.as_object().cloned().unwrap_or_default();
         body.insert("iat".into(), now.into());
         if let Some(ttl) = ttl_seconds {
@@ -60,15 +56,15 @@ impl Jwt {
     pub fn verify(&self, token: &str) -> Outcome<Map<String, Value>> {
         let parts: Vec<&str> = token.split('.').collect();
         let [header_part, claims_part, signature] = parts.as_slice() else { return Err(Failure::token_refused("malformed token")) };
-        let (header, claims) = (Signing::object(header_part)?, Signing::object(claims_part)?);
+        let (header, claims) = (object(header_part)?, object(claims_part)?);
         if header.get("alg").and_then(Value::as_str) != Some("HS256") {
             return Err(Failure::token_refused("unexpected token algorithm"));
         }
         let signed = format!("{header_part}.{claims_part}");
-        if !Signing::same(&self.sign_part(&signed), signature) {
+        if !same(&self.sign_part(&signed), signature) {
             return Err(Failure::token_refused("bad token signature"));
         }
-        let now = Signing::now_ms() / 1000.0;
+        let now = now_ms() / 1000.0;
         if claims.get("exp").and_then(Value::as_f64).is_some_and(|exp| exp + 60.0 < now) {
             return Err(Failure::token_refused("token expired"));
         }
@@ -129,18 +125,18 @@ const CALLBACK_TTL_MS: f64 = 24.0 * 3_600_000.0;
 
 impl Tickets {
     pub fn new(secret: &str) -> Self {
-        Self { key: Signing::mac(secret.as_bytes(), b"agentrt-office/ticket/v1"), used: Mutex::default() }
+        Self { key: mac(secret.as_bytes(), b"agentrt-office/ticket/v1"), used: Mutex::default() }
     }
 
     fn sign(&self, body: &str) -> String {
-        B64.encode(Signing::mac(&self.key, body.as_bytes()))
+        B64.encode(mac(&self.key, body.as_bytes()))
     }
 
     pub fn issue(&self, kind: TicketKind, root: &str, path: &str, key: &str, mtime_ms: i64) -> String {
         let ttl = if kind == TicketKind::File { FILE_TTL_MS } else { CALLBACK_TTL_MS };
         let nonce = B64.encode(rand::random::<[u8; 9]>());
         let body = json!({"root": root, "path": path, "key": key, "mtimeMs": mtime_ms, "kind": kind.name(),
-            "exp": Signing::now_ms() + ttl, "nonce": nonce});
+            "exp": now_ms() + ttl, "nonce": nonce});
         let body = B64.encode(body.to_string());
         format!("{body}.{}", self.sign(&body))
     }
@@ -148,15 +144,15 @@ impl Tickets {
     pub fn read(&self, token: &str, kind: TicketKind) -> Outcome<Ticket> {
         let mut parts = token.split('.');
         let (Some(body), Some(signature), None) = (parts.next(), parts.next(), parts.next()) else { return Err(Failure::token_refused("bad ticket")) };
-        if body.is_empty() || signature.is_empty() || !Signing::same(&self.sign(body), signature) {
+        if body.is_empty() || signature.is_empty() || !same(&self.sign(body), signature) {
             return Err(Failure::token_refused("bad ticket"));
         }
-        let value = Signing::object(body).map_err(|_| Failure::token_refused("bad ticket"))?;
+        let value = object(body).map_err(|_| Failure::token_refused("bad ticket"))?;
         if value.get("kind").and_then(Value::as_str) != Some(kind.name()) {
             return Err(Failure::token_refused("ticket is for another purpose"));
         }
         let exp = value.get("exp").and_then(Value::as_f64).ok_or_else(|| Failure::token_refused("ticket expired"))?;
-        if exp < Signing::now_ms() {
+        if exp < now_ms() {
             return Err(Failure::token_refused("ticket expired"));
         }
         let text = |name: &str| value.get(name).and_then(Value::as_str).map(str::to_owned);
@@ -170,7 +166,7 @@ impl Tickets {
 
     pub fn consume(&self, token: &str) -> Outcome<Ticket> {
         let ticket = self.read(token, TicketKind::File)?;
-        let now = Signing::now_ms();
+        let now = now_ms();
         let mut used = self.used.locked();
         used.retain(|_, exp| *exp >= now);
         if used.contains_key(&ticket.nonce) {

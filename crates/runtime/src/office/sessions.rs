@@ -75,7 +75,7 @@ impl EditSessions {
         format!("{root}\0{path}")
     }
 
-    pub fn key(root: &str, path: &str, modified_ms: i64, size: u64) -> String {
+    fn key(root: &str, path: &str, modified_ms: i64, size: u64) -> String {
         let digest = Sha256::digest(format!("{root}\0{path}\0{modified_ms}\0{size}").as_bytes());
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)[..32].to_owned()
     }

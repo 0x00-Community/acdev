@@ -1,13 +1,15 @@
 use ntex::io::Io;
 use std::io;
 
+pub(crate) fn tls() -> Result<openssl::ssl::SslConnector, openssl::error::ErrorStack> {
+    let mut ssl = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls())?;
+    _ = ssl.set_alpn_protos(b"\x08http/1.1");
+    Ok(ssl.build())
+}
+
 pub(crate) fn client() -> ntex::client::Client {
     thread_local! {
-        static CLIENT: ntex::client::Client = {
-            let mut ssl = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls()).expect("acde runtime: OpenSSL");
-            _ = ssl.set_alpn_protos(b"\x08http/1.1");
-            ntex::client::Client::builder().openssl(ssl.build()).build(ntex::SharedCfg::default())
-        };
+        static CLIENT: ntex::client::Client = ntex::client::Client::builder().openssl(tls().expect("acde runtime: OpenSSL")).build(ntex::SharedCfg::default());
     }
     CLIENT.with(Clone::clone)
 }
@@ -163,7 +165,7 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.to_owned())
 }
 
-pub(crate) async fn line(io: &Io, limit: u64) -> io::Result<String> {
+async fn line(io: &Io, limit: u64) -> io::Result<String> {
     let window = usize::try_from(limit).unwrap_or(usize::MAX);
     loop {
         let found = io.with_read_dst(|buf| {
@@ -186,7 +188,7 @@ pub(crate) async fn line(io: &Io, limit: u64) -> io::Result<String> {
     }
 }
 
-pub(crate) async fn read(io: &Io, buffer: &mut [u8]) -> io::Result<usize> {
+async fn read(io: &Io, buffer: &mut [u8]) -> io::Result<usize> {
     loop {
         let read = io.with_read_dst(|buf| {
             let n = buf.len().min(buffer.len());
@@ -231,12 +233,11 @@ pub(crate) enum Incoming {
 }
 
 impl Messages {
-    pub(crate) const FRAME: usize = 16 << 20;
+    const FRAME: usize = 16 << 20;
     const MESSAGE: usize = 64 << 20;
 
-    pub(crate) fn codec(client: bool) -> ntex::ws::Codec {
-        let codec = ntex::ws::Codec::new().max_size(Self::FRAME);
-        if client { codec.set_client_mode() } else { codec }
+    pub(crate) fn codec() -> ntex::ws::Codec {
+        ntex::ws::Codec::new().max_size(Self::FRAME).set_client_mode()
     }
 
     pub(crate) async fn next(&mut self, io: &Io, codec: &ntex::ws::Codec) -> Result<Option<Incoming>, String> {

@@ -60,8 +60,7 @@ pub struct OfficeFiles {
 
 impl OfficeFiles {
     fn stamp() -> String {
-        let now = jiff::Timestamp::from_second(crate::clock::Clock::now().as_secs() as i64).unwrap_or_default();
-        now.to_zoned(jiff::tz::TimeZone::system()).strftime("%m-%d %H-%M").to_string()
+        jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::system()).strftime("%m-%d %H-%M").to_string()
     }
 
     pub fn new(finder: Arc<Finder>) -> Self {

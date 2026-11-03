@@ -1,6 +1,5 @@
 mod atspi;
 mod bus;
-mod clock;
 mod failure;
 mod fields;
 pub(crate) mod fs;
@@ -39,6 +38,10 @@ fn failure(code: &str, message: &str) -> Error {
     )
 }
 
+fn unix_now() -> std::time::Duration {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
+}
+
 fn state_file(name: &str) -> Option<std::path::PathBuf> {
     let state = std::env::var_os("XDG_STATE_HOME")
         .filter(|v| !v.is_empty())
@@ -56,4 +59,24 @@ async fn blocking<T: Send + 'static>(
             "native task did not complete; query the original operation",
         )
     })?
+}
+
+#[cfg(test)]
+fn private_bus(name: &str) -> Option<(std::process::Child, String, std::path::PathBuf)> {
+    use std::io::BufRead;
+    let dir = std::env::temp_dir().join(format!("acde-{name}-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).ok()?;
+    let config = dir.join("bus.conf");
+    let policy = "<policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/><allow eavesdrop=\"true\"/><allow own=\"*\"/></policy>";
+    std::fs::write(&config, format!("<busconfig><type>session</type><listen>unix:dir={}</listen><auth>EXTERNAL</auth>{policy}</busconfig>", dir.display())).ok()?;
+    let mut daemon = std::process::Command::new("dbus-daemon")
+        .arg(format!("--config-file={}", config.display()))
+        .arg("--print-address")
+        .arg("--nofork")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    let mut address = String::new();
+    std::io::BufReader::new(daemon.stdout.take()?).read_line(&mut address).ok()?;
+    Some((daemon, address.trim().to_string(), dir))
 }

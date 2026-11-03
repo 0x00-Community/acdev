@@ -51,37 +51,33 @@ impl Surrounding {
     }
 }
 
-struct IbusText;
+fn ibus_variant(text: &str) -> Result<Variant<'static>> {
+    let attachments = std::collections::HashMap::<String, Variant<'static>>::new();
+    let attributes: Structure<'static> = StructureBuilder::new()
+        .add_field("IBusAttrList")
+        .add_field(attachments.clone())
+        .add_field(Vec::<Variant<'static>>::new())
+        .build()
+        .map_err(|e| e.to_string())?;
+    let text: Structure<'static> = StructureBuilder::new()
+        .add_field("IBusText")
+        .add_field(attachments)
+        .add_field(text.to_owned())
+        .append_field(Variant::Value(Box::new(Variant::Structure(attributes))))
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(Variant::Structure(text))
+}
 
-impl IbusText {
-    fn variant(text: &str) -> Result<Variant<'static>> {
-        let attachments = std::collections::HashMap::<String, Variant<'static>>::new();
-        let attributes: Structure<'static> = StructureBuilder::new()
-            .add_field("IBusAttrList")
-            .add_field(attachments.clone())
-            .add_field(Vec::<Variant<'static>>::new())
-            .build()
-            .map_err(|e| e.to_string())?;
-        let text: Structure<'static> = StructureBuilder::new()
-            .add_field("IBusText")
-            .add_field(attachments)
-            .add_field(text.to_owned())
-            .append_field(Variant::Value(Box::new(Variant::Structure(attributes))))
-            .build()
-            .map_err(|e| e.to_string())?;
-        Ok(Variant::Structure(text))
+fn ibus_text(value: &Variant<'_>) -> Option<String> {
+    let mut value = value;
+    while let Variant::Value(inner) = value {
+        value = inner;
     }
-
-    fn text(value: &Variant<'_>) -> Option<String> {
-        let mut value = value;
-        while let Variant::Value(inner) = value {
-            value = inner;
-        }
-        let Variant::Structure(structure) = value else { return None };
-        match structure.fields().get(2)? {
-            Variant::Str(text) => Some(text.to_string()),
-            _ => None,
-        }
+    let Variant::Structure(structure) = value else { return None };
+    match structure.fields().get(2)? {
+        Variant::Str(text) => Some(text.to_string()),
+        _ => None,
     }
 }
 
@@ -213,11 +209,11 @@ impl Ime {
             }
             (Backend::Ibus, "CommitText") => {
                 let text: OwnedValue = body.deserialize().ok()?;
-                Some(json!({"type": "commit", "text": IbusText::text(&text)?}))
+                Some(json!({"type": "commit", "text": ibus_text(&text)?}))
             }
             (Backend::Ibus, "UpdatePreeditText") => {
                 let (text, cursor, visible): (OwnedValue, u32, bool) = body.deserialize().ok()?;
-                let text = if visible { IbusText::text(&text)? } else { String::new() };
+                let text = if visible { ibus_text(&text)? } else { String::new() };
                 let units: usize = text.chars().take(cursor as usize).map(char::len_utf16).sum();
                 Some(json!({"type": "preedit", "text": text, "cursor": units}))
             }
@@ -262,7 +258,7 @@ impl Ime {
         let (c, a) = (Surrounding::chars(&text, cursor as usize), Surrounding::chars(&text, anchor as usize));
         let sent: zbus::Result<()> = match self.backend {
             Backend::Fcitx => self.context.send("SetSurroundingText", &(text.as_str(), c, a)),
-            Backend::Ibus => self.context.send("SetSurroundingText", &(IbusText::variant(&text)?, c, a)),
+            Backend::Ibus => self.context.send("SetSurroundingText", &(ibus_variant(&text)?, c, a)),
         };
         sent.bus()?;
         *self.surrounding.locked() = Surrounding { text, cursor: cursor as usize };

@@ -1,6 +1,5 @@
 use crate::sync::Locked;
 use crate::failure::{Code, Failure, Outcome};
-use crate::pty::{Pty, PtyOptions};
 use crate::js::JsFn;
 use napi::bindgen_prelude::Unknown;
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
@@ -100,7 +99,7 @@ impl Session {
     }
 
     fn output(text: String) -> Value {
-        Value::Object(serde_json::Map::from_iter([("type".to_owned(), Value::from("output")), ("data".to_owned(), Value::String(text))]))
+        json!({"type": "output", "data": text})
     }
 
     fn units(event: &Value) -> usize {
@@ -376,9 +375,9 @@ impl Terminals {
         }
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
         let file = Self::login_shell();
-        let env = vec![("TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
-        let options = PtyOptions { file: file.clone(), args: vec!["-l".into()], env, cwd: home.clone(), cols, rows };
-        let (master, child) = Pty::open(&options).map_err(|reason| {
+        let mut command = std::process::Command::new(&file);
+        command.arg("-l").envs([("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]).current_dir(&home);
+        let (master, child) = crate::pty::spawn(&mut command, cols, rows).map_err(|reason| {
             log::warn!("could not start {file} -l: {reason}");
             Failure::http(500, format!("could not start the terminal: {reason}"))
         })?;
@@ -471,7 +470,7 @@ impl Terminals {
         let (c, r) = Self::size(cols, rows)?;
         let session = self.registry.get(&id)?;
         if let Some(master) = session.master() {
-            Pty::set_size(&*master, c, r).map_err(|e| Failure::new(500, Code::Service("pty_failed".into()), e))?;
+            crate::pty::set_size(&*master, c, r).map_err(|e| Failure::new(500, Code::Service("pty_failed".into()), e))?;
         }
         Ok(json!({"cols": c, "rows": r}))
     }

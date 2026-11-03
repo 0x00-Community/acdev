@@ -1,8 +1,8 @@
 use crate::failure::{Failure, Outcome};
 use std::os::unix::fs::MetadataExt;
 
-pub const DEFAULT_DOCUMENT_SERVER: &str = "http://127.0.0.1:8085";
-pub const DEFAULT_BRIDGE_URL: &str = "http://127.0.0.1:7979";
+const DEFAULT_DOCUMENT_SERVER: &str = "http://127.0.0.1:8085";
+const DEFAULT_BRIDGE_URL: &str = "http://127.0.0.1:7979";
 
 pub struct OfficeSettings {
     pub document_server: String,

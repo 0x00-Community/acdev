@@ -1,6 +1,5 @@
 use std::io::Write;
-use std::path::PathBuf;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use futures_lite::future::or;
 use ntex::time::{Millis, Seconds};
@@ -77,19 +76,19 @@ async fn session(id: u32, ctl: async_channel::Receiver<Ctl>, emit: &impl Fn(Valu
             Step::Ctl(Some(Ctl::Finish))
         } else {
             or(
-            or(async { Step::Frame(asr.frames.recv().await) }, async {
-                if finishing.is_some() {
-                    std::future::pending().await
-                } else {
-                    Step::Pcm(pcm.recv().await.ok())
-                }
-            }),
-            or(async { Step::Ctl(ctl.recv().await.ok()) }, async {
-                ntex::time::sleep(wait).await;
-                Step::Timeout
-            }),
-        )
-        .await
+                or(async { Step::Frame(asr.frames.recv().await) }, async {
+                    if finishing.is_some() {
+                        std::future::pending().await
+                    } else {
+                        Step::Pcm(pcm.recv().await.ok())
+                    }
+                }),
+                or(async { Step::Ctl(ctl.recv().await.ok()) }, async {
+                    ntex::time::sleep(wait).await;
+                    Step::Timeout
+                }),
+            )
+            .await
         };
         match step {
             Step::Pcm(Some(chunk)) => {
@@ -201,10 +200,9 @@ impl Asr {
             .and_then(|c| c.set_header("x-custom-keepalive", "true"))
             .map_err(|error| error.to_string())?
             .set_handshake_timeout(Seconds(5));
-        let mut ssl = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls()).map_err(|error| error.to_string())?;
-        _ = ssl.set_alpn_protos(b"\x08http/1.1");
+        let tls = crate::http::tls().map_err(|error| error.to_string())?;
         let connection = WsClient::new(url.as_str(), ntex::SharedCfg::new("acde-voice").add(config))
-            .openssl(ssl.build())
+            .openssl(tls)
             .connect()
             .await
             .map_err(|error| format!("cannot reach the speech recognition server: {error}"))?;
@@ -266,7 +264,7 @@ impl Asr {
 
     async fn audio(&mut self, frame: &[u8]) -> Result<(), String> {
         self.sequence += 1;
-        let millis = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        let millis = crate::unix_now().as_millis() as u64;
         self.send("TaskRequest", Some(&json!({"extra": {}, "timestamp_ms": millis})), frame).await
     }
 
@@ -377,12 +375,8 @@ struct Identity {
 }
 
 impl Identity {
-    fn file() -> Option<PathBuf> {
-        crate::state_file("doubao-ime.json")
-    }
-
     async fn ensure() -> Result<Self, String> {
-        let file = Self::file().ok_or("no HOME")?;
+        let file = crate::state_file("doubao-ime.json").ok_or("no HOME")?;
         if let Some(identity) = std::fs::read(&file).ok().and_then(|bytes| serde_json::from_slice::<Self>(&bytes).ok()) {
             return Ok(identity);
         }
@@ -408,7 +402,7 @@ impl Identity {
         rand::rng().fill_bytes(&mut random);
         let openudid: String = random.iter().map(|b| format!("{b:02x}")).collect();
         let (clientudid, cdid, request) = (uuid::Uuid::new_v4().to_string(), uuid::Uuid::new_v4().to_string(), uuid::Uuid::new_v4().to_string());
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        let now = crate::unix_now().as_millis() as u64;
         let body = json!({
             "magic_tag": "ss_app_log",
             "_gen_time": now,
