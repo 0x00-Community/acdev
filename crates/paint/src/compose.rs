@@ -93,7 +93,6 @@ enum Pipe {
     Flatten,
     Filter,
     Clear,
-    CopyOver,
 }
 
 struct Draw<'a> {
@@ -184,7 +183,6 @@ impl Composer {
             pipeline("fs_place", None),
             pipeline("fs_filter", Some(over)),
             pipeline("fs_clear", None),
-            pipeline("fs_copy", Some(over)),
         ];
         let stride = Params::SIZE.next_multiple_of(u64::from(device.limits().min_uniform_buffer_offset_alignment));
         Self {
@@ -386,7 +384,7 @@ impl Composer {
         }
     }
 
-    fn blur(&mut self, encoder: &mut wgpu::CommandEncoder, src: &wgpu::Texture, over: Option<&wgpu::TextureView>, [x0, y0, w, h]: [u32; 4], sigma: f32) -> wgpu::TextureView {
+    fn blur(&mut self, encoder: &mut wgpu::CommandEncoder, src: &wgpu::Texture, [x0, y0, w, h]: [u32; 4], sigma: f32) -> wgpu::TextureView {
         let levels = ((sigma.max(1.0) / 2.0).log2().ceil() as u32).clamp(1, 5);
         let views = self.textures(w, h, levels);
         encoder.copy_texture_to_texture(
@@ -394,9 +392,6 @@ impl Composer {
             wgpu::TexelCopyTextureInfo { texture: views[0].texture(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
-        if let Some(over) = over {
-            self.pass(encoder, &views[0], false, &[Draw { pipe: Pipe::CopyOver, src: over, params: Params { rect: [x0 as f32, y0 as f32, 0.0, 0.0], ..Default::default() }, scissor: None }]);
-        }
         let texel = |v: &wgpu::TextureView| [1.0 / v.texture().width() as f32, 1.0 / v.texture().height() as f32];
         for i in 0..levels as usize {
             let params = Params { texel: texel(&views[i]), offset: 1.0, ..Default::default() };
@@ -423,7 +418,7 @@ impl Composer {
         }
         let flat = self.textures(w, h, 0).swap_remove(0);
         self.pass(encoder, &flat, true, &[Draw { pipe: Pipe::Flatten, src: &layer, params: Params::default(), scissor: None }]);
-        let src = if e.blur > 0.0 { self.blur(encoder, flat.texture(), None, [0, 0, w, h], e.blur) } else { flat };
+        let src = if e.blur > 0.0 { self.blur(encoder, flat.texture(), [0, 0, w, h], e.blur) } else { flat };
         let (matrix, bias) = e.columns();
         let params = Params { rect: [x as f32, y as f32, w as f32, h as f32], matrix, bias, ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Filter, src: &src, params, scissor: Some(clip) }]);
@@ -435,12 +430,9 @@ impl Composer {
         self.pass(encoder, canvas, false, &draws);
     }
 
-    pub fn backdrop(&mut self, encoder: &mut wgpu::CommandEncoder, under: Option<&wgpu::TextureView>, canvas: &wgpu::TextureView, b: &Backdrop) {
+    pub fn backdrop(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, b: &Backdrop) {
         let Some(region) = Self::region(b.rect, canvas.texture().size()) else { return };
-        let blurred = match under {
-            Some(under) => self.blur(encoder, under.texture(), Some(canvas), region, b.blur),
-            None => self.blur(encoder, canvas.texture(), None, region, b.blur),
-        };
+        let blurred = self.blur(encoder, canvas.texture(), region, b.blur);
         let params = Params { rect: b.rect, radius: b.radius, saturate: b.saturate, brightness: b.brightness, ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Backdrop, src: &blurred, params, scissor: Some(region) }]);
     }
@@ -457,7 +449,7 @@ impl Composer {
         if x1 <= x0 || y1 <= y0 {
             return;
         }
-        let blurred = self.blur(encoder, &layer, None, [0, 0, w, h], s.blur);
+        let blurred = self.blur(encoder, &layer, [0, 0, w, h], s.blur);
         let params = Params { rect, shift: [s.dx, s.dy], color: s.color, ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Shadow, src: &blurred, params, scissor: Some([x0, y0, x1 - x0, y1 - y0]) }]);
     }

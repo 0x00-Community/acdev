@@ -31,29 +31,22 @@ const IDLE_TRIM: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub enum Job {
     Canvases(usize, Vec<Dmabuf>, (u32, u32)),
-    Draw { surfaces: Vec<(Vec<Pass>, (u32, u32))> },
-    Release(Vec<usize>),
+    Draw(Vec<Pass>),
+    Release(usize),
     Icon { dmabuf: Dmabuf, size: (u32, u32), scene: acde_render::anyrender::Scene, reply: mpsc::Sender<Result<(), String>> },
 }
 
 pub struct Pass {
     pub plane: usize,
+    pub size: (u32, u32),
     pub parts: Vec<Part>,
     pub next: usize,
     pub targets: Option<Vec<Rect>>,
 }
 
-#[derive(Default)]
-pub struct Status {
-    pub ready: std::sync::OnceLock<bool>,
-}
+pub type Ready = std::sync::Arc<std::sync::OnceLock<bool>>;
 
-pub struct Drew {
-    pub fence: Option<OwnedFd>,
-    pub partial: bool,
-}
-
-pub type Done = Result<Drew, String>;
+pub type Done = Result<Option<OwnedFd>, String>;
 
 pub struct Raster {
     device: wgpu::Device,
@@ -119,7 +112,7 @@ impl Raster {
         Ok(raster)
     }
 
-    pub fn spawn(jobs: mpsc::Receiver<Job>, done: mpsc::Sender<Done>, status: std::sync::Arc<Status>, waker: Ping) -> std::io::Result<()> {
+    pub fn spawn(jobs: mpsc::Receiver<Job>, done: mpsc::Sender<Done>, ready: Ready, waker: Ping) -> std::io::Result<()> {
         acde_render::gpu::expect();
         std::thread::Builder::new().name("acde-web".into()).spawn(move || {
             let mut raster = match Self::new() {
@@ -127,12 +120,12 @@ impl Raster {
                 Err(e) => {
                     log::error!("网页图层不可用: {e}");
                     Gpu::publish(None);
-                    let _ = status.ready.set(false);
+                    let _ = ready.set(false);
                     waker.ping();
                     return;
                 }
             };
-            let _ = status.ready.set(true);
+            let _ = ready.set(true);
             waker.ping();
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| raster.run(waker, jobs, done))).is_err() {
                 log::error!("网页图层的光栅化线程 panic, 退出这个 web 进程");
@@ -168,16 +161,14 @@ impl Raster {
                         .collect();
                     self.canvases.insert(plane, canvases);
                 }
-                Job::Release(planes) => {
-                    for plane in planes {
-                        self.canvases.remove(&plane);
-                    }
+                Job::Release(plane) => {
+                    self.canvases.remove(&plane);
                 }
                 Job::Icon { dmabuf, size, scene, reply } => {
                     let _ = reply.send(self.icon(&dmabuf, size, scene));
                 }
-                Job::Draw { surfaces } => {
-                    let result = self.draw(surfaces);
+                Job::Draw(passes) => {
+                    let result = self.draw(passes);
                     if done.send(result).is_err() {
                         break;
                     }
@@ -210,9 +201,9 @@ impl Raster {
         unsafe { adapter.create_device_from_hal::<Vk>(hal, &desc) }.map_err(|e| format!("wgpu 设备: {e}"))
     }
 
-    fn draw(&mut self, surfaces: Vec<(Vec<Pass>, (u32, u32))>) -> Done {
+    fn draw(&mut self, passes: Vec<Pass>) -> Done {
         let started = std::time::Instant::now();
-        let count = surfaces.len();
+        let count = passes.len();
         let oldest = if self.submits.len() > 1 { self.submits.pop_front() } else { None };
         let poll = match oldest {
             Some((_, Some(fence))) => {
@@ -231,10 +222,8 @@ impl Raster {
         let waited = started.elapsed();
         let encoder_desc = wgpu::CommandEncoderDescriptor { label: Some("acde web") };
         let mut encoder = self.device.create_command_encoder(&encoder_desc);
-        for (passes, size) in surfaces {
-            for pass in passes {
-                self.draw_pass(&mut encoder, pass, size)?;
-            }
+        for pass in passes {
+            self.draw_pass(&mut encoder, pass)?;
         }
         let semaphore = self.semaphores.get(self.next_semaphore).copied().filter(|_| !self.poll);
         let lock = self.gpu.as_ref().map(|gpu| gpu.submit_lock());
@@ -261,11 +250,11 @@ impl Raster {
                 if let Some(last) = self.submits.back_mut() {
                     last.1 = fd.try_clone().ok();
                 }
-                Ok(Drew { fence: Some(fd), partial: false })
+                Ok(Some(fd))
             }
             None => {
                 self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| format!("等 GPU: {e}"))?;
-                Ok(Drew { fence: None, partial: false })
+                Ok(None)
             }
         }
     }
@@ -291,8 +280,7 @@ impl Raster {
     fn draw_pass(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        Pass { plane, parts, next, targets }: Pass,
-        size: (u32, u32),
+        Pass { plane, size, parts, next, targets }: Pass,
     ) -> Result<(), String> {
         let full = Rect::from_size((size.0 as i32, size.1 as i32).into());
         let (_, canvas_view) = self.canvases.get(&plane).and_then(|c| c.get(next)?.clone()).ok_or("网页画布还没导入")?;
@@ -304,7 +292,7 @@ impl Raster {
         let targets = targets.unwrap_or_else(|| vec![full]);
         for part in parts {
             if let Some(backdrop) = part.backdrop.as_ref().filter(|b| targets.iter().any(|t| Rect::covering(b.rect).overlaps(*t))) {
-                self.composer.backdrop(encoder, None, &canvas_view, backdrop);
+                self.composer.backdrop(encoder, &canvas_view, backdrop);
             }
             for (drawn, clip) in Self::pieces(&part, &targets, full) {
                 let [ox, oy, width, height] = drawn.xywh();
@@ -372,7 +360,7 @@ impl Raster {
             log::warn!("vello 预热: {e}");
         }
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        log::info!("vello 预热 {:.1}ms", started.elapsed().as_secs_f64() * 1000.0);
+        log::info!("vello 预热 {:.1}ms", acde_log::since_ms(started));
     }
 
     fn create_semaphores(&self) -> Vec<vk::Semaphore> {

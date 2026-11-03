@@ -87,11 +87,6 @@ fn rounded_rect(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
 }
 
 // 原样拷贝 (已经预乘的画布), 源坐标 = 目标坐标 + rect.xy; 配 over 混合把上层叠到背景的拷贝上
-@fragment
-fn fs_copy(in: VsOut) -> @location(0) vec4<f32> {
-    return textureLoad(src, vec2<i32>(in.pos.xy + params.rect.xy), 0);
-}
-
 // src 是已模糊的背景 (预乘, 覆盖 rect), 在画布坐标系里按圆角遮罩画回去
 @fragment
 fn fs_backdrop(in: VsOut) -> @location(0) vec4<f32> {

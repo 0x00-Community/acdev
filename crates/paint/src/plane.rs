@@ -31,7 +31,6 @@ impl Pixels for Rect {
     }
 }
 
-
 pub struct Part {
     pub content: Content,
     pub backdrop: Option<Backdrop>,
@@ -79,7 +78,7 @@ impl From<acde_render::Layer> for Part {
                 _ => {}
             }
         }
-        let cover = |r: &vello::kurbo::Rect| Rect::covering([r.x0 as f32 - 1.0, r.y0 as f32 - 1.0, r.width() as f32 + 2.0, r.height() as f32 + 2.0]);
+        let cover = |r: &vello::kurbo::Rect| Rect::damaged(&(*r).into());
         let bounds = Some(layer.filter.as_ref().map_or_else(|| layer.bounds.as_ref().map_or_else(Rect::default, cover), |f| cover(&f.bounds)));
         Self { content: Content::Layer(Box::new(layer)), backdrop, shadows, effect, bounds }
     }
@@ -87,18 +86,12 @@ impl From<acde_render::Layer> for Part {
 
 pub struct Sheet {
     pub parts: Vec<Part>,
-    pub damage: Option<Vec<Rect>>,
-}
-
-impl Sheet {
-    pub fn damaged(rects: &[acde_render::Rect]) -> Option<Vec<Rect>> {
-        Some(rects.iter().filter(|d| d.width > 0.0 && d.height > 0.0).map(Rect::damaged).collect())
-    }
+    pub damage: Vec<Rect>,
 }
 
 impl From<acde_render::Plane> for Sheet {
     fn from(plane: acde_render::Plane) -> Self {
-        let damage = Self::damaged(&plane.damage_rects);
+        let damage = plane.damage_rects.iter().filter(|d| d.width > 0.0 && d.height > 0.0).map(Rect::damaged).collect();
         let bounds = plane.bounds.as_ref().map(Rect::damaged);
         let parts = if plane.layers.is_empty() {
             vec![Part { content: Content::Plane(Box::new(plane)), backdrop: None, shadows: Vec::new(), effect: Effect::default(), bounds }]
@@ -108,4 +101,3 @@ impl From<acde_render::Plane> for Sheet {
         Self { parts, damage }
     }
 }
-

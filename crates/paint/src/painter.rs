@@ -11,12 +11,13 @@ use smithay::reexports::calloop::ping::Ping;
 use smithay::reexports::gbm;
 use smithay::utils::{DeviceFd, Rectangle};
 
-use crate::plane::{Pixels, Rect, Sheet};
-use crate::raster::{Done, Job, Pass, Raster, Status};
+use crate::plane::{Part, Pixels, Rect, Sheet};
+use crate::raster::{Done, Job, Pass, Raster, Ready};
 
 const FORMAT: Fourcc = Fourcc::Abgr8888;
 const PAD: u32 = 64;
 const CANVASES: usize = 3;
+const MAX_REGIONS: usize = 48;
 
 struct Canvas {
     dmabuf: Dmabuf,
@@ -59,7 +60,7 @@ pub struct Painter {
     jobs: mpsc::Sender<Job>,
     done: mpsc::Receiver<Done>,
     allocator: GbmAllocator<DeviceFd>,
-    status: std::sync::Arc<Status>,
+    ready: Ready,
     targets: HashMap<usize, Target>,
     inflight: Option<Inflight>,
     generation: u64,
@@ -69,20 +70,31 @@ pub struct Painter {
 }
 
 impl Target {
-    fn spread(parts: &[crate::plane::Part], mut damage: Vec<Rect>, full: Rect) -> Vec<Rect> {
-        const MAX: usize = 48;
-        let reads: Vec<Rect> = parts.iter().filter_map(|p| p.backdrop.map(|b| Rect::covering(b.rect))).filter_map(|r| r.intersection(full)).collect();
+    fn backdrop_reads(parts: &[Part], full: Rect) -> Vec<Rect> {
+        parts.iter().filter_map(|p| p.backdrop.map(|b| Rect::covering(b.rect))).filter_map(|r| r.intersection(full)).collect()
+    }
+
+    fn add(regions: &mut Vec<Rect>, r: Rect) -> bool {
+        let pieces = r.subtract_rects(regions.iter().copied());
+        let grew = !pieces.is_empty();
+        regions.extend(pieces);
+        grew
+    }
+
+    fn cover_reads(regions: &mut Vec<Rect>, reads: &[Rect]) {
         let mut changed = true;
-        while changed && damage.len() <= MAX {
+        while changed && regions.len() <= MAX_REGIONS {
             changed = false;
-            for read in &reads {
-                if damage.iter().any(|r| r.overlaps(*read)) {
-                    let pieces = read.subtract_rects(damage.iter().copied());
-                    changed |= !pieces.is_empty();
-                    damage.extend(pieces);
+            for read in reads {
+                if regions.iter().any(|r| r.overlaps(*read)) {
+                    changed |= Self::add(regions, *read);
                 }
             }
         }
+    }
+
+    fn spread(parts: &[Part], mut damage: Vec<Rect>, full: Rect) -> Vec<Rect> {
+        Self::cover_reads(&mut damage, &Self::backdrop_reads(parts, full));
         damage
     }
 
@@ -90,33 +102,18 @@ impl Target {
         (1..=self.canvases.len()).map(|k| (self.current + k) % self.canvases.len()).find(|&i| i != self.current && !self.canvases[i].held)
     }
 
-    fn region(&self, index: usize, parts: &[crate::plane::Part], damage: Option<&[Rect]>, full: Rect, whole: bool) -> Option<Vec<Rect>> {
-        const MAX: usize = 48;
+    fn region(&self, index: usize, parts: &[Part], damage: Option<&[Rect]>, full: Rect, whole: bool) -> Option<Vec<Rect>> {
         if whole {
             return None;
         }
         let since = self.damage.damage_since(Some(self.canvases[index].drawn?))?;
-        let reads: Vec<Rect> = parts.iter().filter_map(|p| p.backdrop.map(|b| Rect::covering(b.rect))).filter_map(|r| r.intersection(full)).collect();
         let mut regions: Vec<Rect> = Vec::new();
-        let add = |regions: &mut Vec<Rect>, r: Rect| {
-            let pieces = r.subtract_rects(regions.iter().copied());
-            regions.extend(pieces.iter().copied());
-            !pieces.is_empty()
-        };
         for r in damage?.iter().chain(since.iter()).filter_map(|r| r.intersection(full)) {
-            add(&mut regions, r);
+            Self::add(&mut regions, r);
         }
-        let mut changed = true;
-        while changed && regions.len() <= MAX {
-            changed = false;
-            for read in &reads {
-                if regions.iter().any(|r| r.overlaps(*read)) {
-                    changed |= add(&mut regions, *read);
-                }
-            }
-        }
+        Self::cover_reads(&mut regions, &Self::backdrop_reads(parts, full));
         let area: i32 = regions.iter().map(|r| r.size.w * r.size.h).sum();
-        (regions.len() <= MAX && area * 2 < full.size.w * full.size.h).then_some(regions)
+        (regions.len() <= MAX_REGIONS && area * 2 < full.size.w * full.size.h).then_some(regions)
     }
 }
 
@@ -124,13 +121,13 @@ impl Painter {
     pub fn new(gbm: gbm::Device<DeviceFd>, waker: Ping) -> Result<Self, String> {
         let (jobs, jobs_rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel();
-        let status = std::sync::Arc::new(Status::default());
-        Raster::spawn(jobs_rx, done_tx, status.clone(), waker).map_err(|e| format!("光栅化线程: {e}"))?;
+        let ready = Ready::default();
+        Raster::spawn(jobs_rx, done_tx, ready.clone(), waker).map_err(|e| format!("光栅化线程: {e}"))?;
         Ok(Self {
             jobs,
             done,
             allocator: GbmAllocator::new(gbm, GbmBufferFlags::RENDERING),
-            status,
+            ready,
             targets: HashMap::new(),
             inflight: None,
             generation: 0,
@@ -141,7 +138,7 @@ impl Painter {
     }
 
     fn failed(&self) -> bool {
-        self.status.ready.get() == Some(&false)
+        self.ready.get() == Some(&false)
     }
 
     pub fn busy(&self) -> bool {
@@ -172,7 +169,7 @@ impl Painter {
 
     pub fn release(&mut self, plane: usize) {
         if self.targets.remove(&plane).is_some() {
-            let _ = self.jobs.send(Job::Release(vec![plane]));
+            let _ = self.jobs.send(Job::Release(plane));
         }
     }
 
@@ -181,19 +178,18 @@ impl Painter {
             return Ok(None);
         }
         let frame = self.frames + 1;
-        let mut surfaces = Vec::new();
+        let mut passes = Vec::new();
         let mut drawn = Vec::new();
         for (plane, sheet, size) in sheets {
             if size.0 == 0 || size.1 == 0 {
                 continue;
             }
             let full = Rectangle::from_size((size.0 as i32, size.1 as i32).into());
-            let damage = sheet.damage.map(|d| d.into_iter().filter(|r| !r.is_empty()).collect::<Vec<_>>());
             let fresh = self.targets.get(&plane).is_none_or(|t| t.size != size || t.stale);
-            if !fresh && (sheet.parts.is_empty() || damage.as_ref().is_some_and(Vec::is_empty)) {
+            if !fresh && (sheet.parts.is_empty() || sheet.damage.is_empty()) {
                 continue;
             }
-            let damage = if fresh { None } else { damage.map(|d| Target::spread(&sheet.parts, d, full)) };
+            let damage = (!fresh).then(|| Target::spread(&sheet.parts, sheet.damage, full));
             if let Err(e) = self.ensure(plane, size) {
                 for d in &drawn {
                     self.discard(d);
@@ -207,13 +203,13 @@ impl Painter {
             log::trace!("网页重画 plane={plane} parts={} damage={damage:?} regions={targets:?}", sheet.parts.len());
             target.canvases[next].held = true;
             target.stale = false;
-            surfaces.push((vec![Pass { plane, parts: sheet.parts, next, targets }], size));
+            passes.push(Pass { plane, size, parts: sheet.parts, next, targets });
             drawn.push(Drawn { plane, canvas: next, frame, generation: target.generation, size, damage });
         }
-        if surfaces.is_empty() {
+        if passes.is_empty() {
             return Ok(None);
         }
-        if self.jobs.send(Job::Draw { surfaces }).is_err() {
+        if self.jobs.send(Job::Draw(passes)).is_err() {
             for d in &drawn {
                 self.discard(d);
             }
@@ -227,8 +223,8 @@ impl Painter {
     pub fn finish(&mut self) -> Option<Finished> {
         let done = self.done.try_recv().ok()?;
         let inflight = self.inflight.take()?;
-        let (fence, partial) = match done {
-            Ok(drew) => (drew.fence, drew.partial),
+        let fence = match done {
+            Ok(fence) => fence,
             Err(e) => {
                 log::warn!("网页光栅化: {e}");
                 for d in &inflight.drawn {
@@ -245,7 +241,7 @@ impl Painter {
                 Some(rects) => target.damage.add(rects.iter().copied()),
                 None => target.damage.add([full]),
             }
-            target.canvases[d.canvas].drawn = (!partial).then(|| target.damage.current_commit());
+            target.canvases[d.canvas].drawn = Some(target.damage.current_commit());
         }
         Some(Finished { drawn: inflight.drawn, fence, took: inflight.started.elapsed(), trace: inflight.trace })
     }
