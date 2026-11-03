@@ -102,13 +102,10 @@ impl Target {
         (1..=self.canvases.len()).map(|k| (self.current + k) % self.canvases.len()).find(|&i| i != self.current && !self.canvases[i].held)
     }
 
-    fn region(&self, index: usize, parts: &[Part], damage: Option<&[Rect]>, full: Rect, whole: bool) -> Option<Vec<Rect>> {
-        if whole {
-            return None;
-        }
+    fn region(&self, index: usize, parts: &[Part], damage: &[Rect], full: Rect) -> Option<Vec<Rect>> {
         let since = self.damage.damage_since(Some(self.canvases[index].drawn?))?;
         let mut regions: Vec<Rect> = Vec::new();
-        for r in damage?.iter().chain(since.iter()).filter_map(|r| r.intersection(full)) {
+        for r in damage.iter().chain(since.iter()).filter_map(|r| r.intersection(full)) {
             Self::add(&mut regions, r);
         }
         Self::cover_reads(&mut regions, &Self::backdrop_reads(parts, full));
@@ -157,10 +154,6 @@ impl Painter {
         self.targets.get(&plane).into_iter().flat_map(|t| t.canvases.iter().map(|c| &c.dmabuf))
     }
 
-    pub fn size(&self, plane: usize) -> (u32, u32) {
-        self.targets.get(&plane).map_or((0, 0), |t| t.size)
-    }
-
     pub fn hold(&mut self, plane: usize, canvas: usize, held: bool) {
         if let Some(c) = self.targets.get_mut(&plane).and_then(|t| t.canvases.get_mut(canvas)) {
             c.held = held;
@@ -196,10 +189,9 @@ impl Painter {
                 }
                 return Err(e);
             }
-            let whole = self.full || damage.is_none();
             let target = self.targets.get_mut(&plane).expect("ensured");
             let Some(next) = target.next() else { continue };
-            let targets = target.region(next, &sheet.parts, damage.as_deref(), full, whole);
+            let targets = damage.as_deref().filter(|_| !self.full).and_then(|d| target.region(next, &sheet.parts, d, full));
             log::trace!("网页重画 plane={plane} parts={} damage={damage:?} regions={targets:?}", sheet.parts.len());
             target.canvases[next].held = true;
             target.stale = false;

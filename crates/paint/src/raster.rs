@@ -302,12 +302,7 @@ impl Raster {
                     continue;
                 }
                 Self::submit(&self.device, &self.queue, &mut self.composer, encoder);
-                self.scene.reset();
-                self.overrides.apply(&mut self.vello, &scene);
-                VelloScenePainter::new(&mut self.scene).append_scene(scene, origin);
-                let params = vello::RenderParams { base_color: Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
-                acde_render::gpu::keep_atlas(&mut self.scene);
-                self.vello.render_to_texture(&self.device, &self.queue, &self.scene, &layer, &params).map_err(|e| format!("vello 渲染: {e}"))?;
+                self.render(scene, origin, (width, height), &layer)?;
                 for shadow in &part.shadows {
                     self.composer.shadow(encoder, &canvas_view, shadow, drawn.xywh(), clip.xywh());
                 }
@@ -320,16 +315,20 @@ impl Raster {
         Ok(())
     }
 
+    fn render(&mut self, scene: acde_render::anyrender::Scene, place: Affine, (width, height): (u32, u32), target: &wgpu::TextureView) -> Result<(), String> {
+        self.scene.reset();
+        self.overrides.apply(&mut self.vello, &scene);
+        VelloScenePainter::new(&mut self.scene).append_scene(scene, place);
+        acde_render::gpu::keep_atlas(&mut self.scene);
+        let params = vello::RenderParams { base_color: Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
+        self.vello.render_to_texture(&self.device, &self.queue, &self.scene, target, &params).map_err(|e| format!("vello 渲染: {e}"))
+    }
+
     fn icon(&mut self, dmabuf: &Dmabuf, (width, height): (u32, u32), scene: acde_render::anyrender::Scene) -> Result<(), String> {
         let texture = self.import_vulkan(dmabuf, (width, height))?;
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let layer = self.composer.layer_view((width, height));
-        self.scene.reset();
-        self.overrides.apply(&mut self.vello, &scene);
-        VelloScenePainter::new(&mut self.scene).append_scene(scene, Affine::IDENTITY);
-        acde_render::gpu::keep_atlas(&mut self.scene);
-        let params = vello::RenderParams { base_color: Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
-        self.vello.render_to_texture(&self.device, &self.queue, &self.scene, &layer, &params).map_err(|e| format!("vello 渲染: {e}"))?;
+        self.render(scene, Affine::IDENTITY, (width, height), &layer)?;
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde drag icon") });
         Composer::clear(&mut encoder, &view);
         self.composer.place(&mut encoder, &view, [0, 0], [0, 0, width, height]);

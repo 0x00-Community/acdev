@@ -68,10 +68,10 @@ struct Params {
 impl Params {
     const SIZE: u64 = 144;
 
-    fn bytes(&self) -> [u8; 144] {
+    fn bytes(&self) -> [u8; Self::SIZE as usize] {
         let head = [self.texel[0], self.texel[1], self.offset, self.saturate, self.rect[0], self.rect[1], self.rect[2], self.rect[3], self.radius, self.brightness, self.shift[0], self.shift[1]];
         let f = head.iter().chain(&self.color).chain(&self.matrix).chain(&self.bias);
-        let mut out = [0u8; 144];
+        let mut out = [0u8; Self::SIZE as usize];
         for (chunk, v) in out.as_chunks_mut::<4>().0.iter_mut().zip(f) {
             *chunk = v.to_le_bytes();
         }
