@@ -42,7 +42,7 @@ export interface SysNative {
   spawn?(argv: readonly string[], options: { cwd?: string; env: Record<string, string>; prefix: string; stdin?: boolean; onStdout?: (line: string) => void }, onExit: (code: number | null, signal: number | null) => void): number
   write?(pid: number, text: string): boolean
   endInput?(pid: number): void
-  spawnWeb(name: string, init: unknown, heapMb: number, env: Record<string, string>, onMessage: (message: unknown) => void, onExit: (code: number, reason: string | null) => void): WebThreadHandle
+  spawnWeb(name: string, init: unknown, heapMb: number, env: Record<string, string>, onMessage: (message: unknown) => void, onExit: (code: number, reason: string | null) => void, fs: true | string[] | null): WebThreadHandle
 }
 
 export interface Natives {

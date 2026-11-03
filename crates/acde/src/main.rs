@@ -8,6 +8,8 @@ mod bind;
 mod child;
 mod dom;
 mod engine;
+#[cfg(target_os = "linux")]
+mod fs;
 mod host;
 mod modules;
 #[cfg(target_os = "linux")]

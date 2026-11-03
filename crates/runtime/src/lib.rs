@@ -23,7 +23,7 @@ pub use ime::{Ime, ImeCapability};
 pub use network::Network;
 pub use office::Office;
 pub use portal::{Appearance, FileChooser};
-pub use fs::{FileBytes, Finder};
+pub use fs::{FileBytes, Finder, FsCall, FsError, FsReply, Workspace};
 pub use terminal::Terminals;
 pub use unixhttp::{Deliver, Event as UnixEvent, UnixClient};
 pub use voice::Voice;

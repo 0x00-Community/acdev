@@ -411,10 +411,17 @@ export class Broker {
   }
 
   #spawn(init: WebInit, heapMb: number): Web {
-    const worker = new WebThread({ name: init.name, init, env: { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }, heapMb, onExit: (code, reason) => this.#exited(web, code, reason) })
+    const worker = new WebThread({ name: init.name, init, env: { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }, heapMb, fs: Broker.#fs(init.app?.capabilities ?? null), onExit: (code, reason) => this.#exited(web, code, reason) })
     const web = new Web(init.kind, init.name, init.window, worker, init.app ?? null)
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     return web
+  }
+
+  static #fs(caps: Capabilities | null): true | string[] | null {
+    if (!caps) return true
+    const fs = caps.fs
+    if (typeof fs === 'object' && fs) return [...fs.roots]
+    return fs ? true : null
   }
 
   static #env(): Record<string, string> {
@@ -694,7 +701,7 @@ export class Broker {
   #shapes(caps: Capabilities | null): Record<string, ServiceShape> {
     const shapes: Record<string, ServiceShape> = {}
     for (const [service, target] of Object.entries(this.bridge.value)) {
-      if (caps && !this.#allowed(caps, service)) continue
+      if (service === 'fs' || (caps && !this.#allowed(caps, service))) continue
       shapes[service] = this.#shape(service, target)
     }
     for (const [service, api] of Object.entries(this.#builtins())) if (!caps || (service !== 'inspect' && caps[service])) shapes[service] = this.#shape(service, api)
@@ -779,8 +786,7 @@ export class Broker {
       return call(...args)
     }
     if (caps && !this.#allowed(caps, service)) throw Broker.#refused(web, `acde.${service}`)
-    const fs = caps?.fs
-    if (service === 'fs' && typeof fs === 'object' && !fs.roots.includes(String(args[0]))) throw Broker.#refused(web, `the files of ${String(args[0])}`)
+    if (service === 'fs') throw new Error('acde.fs is bound in the web itself, not served by the Broker')
     const target = this.bridge.value[service] as Record<string, (...a: unknown[]) => unknown> | ((...a: unknown[]) => unknown) | undefined
     if (!target) throw Object.assign(new Error(`acde.${service} is not running`), { status: 503 })
     if (method === '' && typeof target === 'function') return target(...args)

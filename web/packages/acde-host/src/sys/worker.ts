@@ -5,7 +5,7 @@ export class WebThread {
   readonly #listeners: ((message: unknown) => void)[] = []
   readonly #exited: Promise<number>
 
-  constructor(options: { name: string; init: unknown; env: Record<string, string>; heapMb: number; onExit: (code: number, reason: string | null) => void }) {
+  constructor(options: { name: string; init: unknown; env: Record<string, string>; heapMb: number; fs: true | string[] | null; onExit: (code: number, reason: string | null) => void }) {
     let exit!: (code: number) => void
     this.#exited = new Promise((resolve) => (exit = resolve))
     this.#handle = sys().spawnWeb(options.name, options.init, options.heapMb, options.env,
@@ -15,7 +15,8 @@ export class WebThread {
       (code, reason) => {
         options.onExit(code, reason)
         exit(code)
-      })
+      },
+      options.fs)
   }
 
   on(_event: 'message', listener: (message: unknown) => void): void {

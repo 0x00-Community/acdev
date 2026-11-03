@@ -51,8 +51,30 @@ impl Handle {
     }
 }
 
+#[cfg(target_os = "linux")]
+type Workspace = acde_runtime::Workspace;
+#[cfg(not(target_os = "linux"))]
+type Workspace = ();
+
+#[derive(Default)]
+struct Webs {
+    next: u32,
+    live: HashMap<u32, Handle>,
+    workspace: Option<Workspace>,
+}
+
+impl Webs {
+    #[cfg(target_os = "linux")]
+    fn workspace(&mut self, roots: Option<Vec<String>>) -> Workspace {
+        self.workspace.get_or_insert_with(Workspace::new).scoped(roots)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn workspace(&mut self, _: Option<Vec<String>>) -> Workspace {}
+}
+
 thread_local! {
-    static WEBS: RefCell<(u32, HashMap<u32, Handle>)> = RefCell::new(Default::default());
+    static WEBS: RefCell<Webs> = RefCell::new(Webs::default());
     static UPSTREAM: RefCell<Option<Upstream>> = const { RefCell::new(None) };
     static ON_MESSAGE: RefCell<Option<v8::Global<v8::Function>>> = const { RefCell::new(None) };
 }
@@ -68,6 +90,7 @@ struct Spec {
     init: Vec<u8>,
     heap_mb: f64,
     env: Vec<(String, String)>,
+    fs: Option<Workspace>,
 }
 
 impl Spec {
@@ -99,7 +122,7 @@ impl Spec {
                 let (code, reason) = if killed { (Self::KILLED, None) } else { (code, reason) };
                 _ = broker.send(Msg::Task(Box::new(move |scope| {
                     let _on_message = on_message;
-                    WEBS.with(|w| w.borrow_mut().1.remove(&id));
+                    WEBS.with(|w| w.borrow_mut().live.remove(&id));
                     let code = v8::Integer::new(scope, code).into();
                     let reason: v8::Local<v8::Value> = match &reason {
                         Some(r) => bind::string(scope, r).into(),
@@ -124,7 +147,7 @@ impl Spec {
         UPSTREAM.with(|u| *u.borrow_mut() = Some(upstream));
         let tid = rustix::thread::gettid().as_raw_nonzero().get();
         _ = ready.send(Started { tx: runtime.lp.sender(), isolate, stopping: stopping.clone(), busy: runtime.lp.busy(), tid });
-        let code = run_web(&mut runtime, self.init, &self.env, &stopping);
+        let code = run_web(&mut runtime, self.init, &self.env, self.fs, &stopping);
         ON_MESSAGE.with(|m| *m.borrow_mut() = None);
         UPSTREAM.with(|u| *u.borrow_mut() = None);
         #[cfg(target_os = "linux")]
@@ -133,6 +156,7 @@ impl Spec {
             crate::webnative::clear();
             crate::audio::clear();
             crate::backend::clear();
+            crate::fs::clear();
         }
         bind::clear_promises();
         drop(runtime);
@@ -153,17 +177,25 @@ pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     let on_message = Arc::new(bind::SendFunction(v8::Global::new(scope, on_message)));
     let on_exit = bind::SendFunction(v8::Global::new(scope, on_exit));
     let broker = rt::current();
+    let fs = match args.get(6) {
+        v if v.is_true() => Some(WEBS.with(|w| w.borrow_mut().workspace(None))),
+        v if v.is_array() => {
+            let roots = bind::strings(scope, v).unwrap_or_default();
+            Some(WEBS.with(|w| w.borrow_mut().workspace(Some(roots))))
+        }
+        _ => None,
+    };
     let id = WEBS.with(|w| {
         let mut w = w.borrow_mut();
-        w.0 = w.0.wrapping_add(1);
-        w.0
+        w.next = w.next.wrapping_add(1);
+        w.next
     });
-    let handle = match (Spec { name, init, heap_mb, env }).spawn(id, on_message, on_exit, broker.sender()) {
+    let handle = match (Spec { name, init, heap_mb, env, fs }).spawn(id, on_message, on_exit, broker.sender()) {
         Ok(handle) => handle,
         Err(e) => return bind::throw_error(scope, &e),
     };
     broker.keep_alive(true);
-    WEBS.with(|w| w.borrow_mut().1.insert(id, handle));
+    WEBS.with(|w| w.borrow_mut().live.insert(id, handle));
     let obj = v8::Object::new(scope);
     let data: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, id).into();
     crate::methods!(scope, obj, data = data;
@@ -177,7 +209,7 @@ pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
 
 fn with_handle<R>(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, f: impl FnOnce(&Handle) -> R) -> Option<R> {
     let id = args.data().uint32_value(scope)?;
-    WEBS.with(|w| w.borrow().1.get(&id).map(f))
+    WEBS.with(|w| w.borrow().live.get(&id).map(f))
 }
 
 fn post_to_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
@@ -238,7 +270,7 @@ impl HeapGuard {
     }
 }
 
-fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], stopping: &Arc<AtomicBool>) -> i32 {
+fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], fs: Option<Workspace>, stopping: &Arc<AtomicBool>) -> i32 {
     crate::modules::set_loader(std::rc::Rc::new(crate::dom::WebLoader));
     let bundle = app_dir().join("web.js");
     let Some(url) = std::fs::canonicalize(&bundle).ok().and_then(|p| url::Url::from_file_path(p).ok()) else {
@@ -257,6 +289,9 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], s
         #[cfg(target_os = "linux")]
         {
             crate::webnative::install(scope, natives);
+            if let Some(fs) = fs {
+                crate::fs::install(scope, natives, fs);
+            }
             crate::webgpu::install(scope, natives);
             crate::audio::install(scope, natives);
         }
