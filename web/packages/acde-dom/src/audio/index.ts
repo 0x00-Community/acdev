@@ -16,6 +16,8 @@ export const mediaEvents = { ended: (_media: number): void => {} }
 const KEY = Symbol('key')
 const ID = Symbol('id')
 const UPLOAD = Symbol('upload')
+const START = Symbol('start')
+const SET_STATE = Symbol('setState')
 
 const playing = new Map<number, AudioScheduledSourceNode>()
 const live = new Set<BaseAudioContext>()
@@ -37,10 +39,6 @@ function time(what: string, value: unknown): number {
   const t = finite(what, value)
   if (t < 0) throw new RangeError(`Failed to execute '${what}': the time must be non-negative.`)
   return t
-}
-
-function later(fn: () => void): void {
-  host.setTimer(0, fn)
 }
 
 class AudioParam {
@@ -246,10 +244,10 @@ class AudioScheduledSourceNode extends AudioNode {
     const at = time('start', when)
     this.#started = true
     playing.set(this[ID], this)
-    this.startAt(at)
+    this[START](at)
   }
 
-  protected startAt(when: number): void {
+  [START](when: number): void {
     native?.start(this[ID], when, 0, -1)
   }
 
@@ -258,9 +256,6 @@ class AudioScheduledSourceNode extends AudioNode {
     native?.stop(this[ID], time('stop', when))
   }
 
-  ended(): void {
-    fire(this, new Event('ended'))
-  }
 }
 defineHandlers(AudioScheduledSourceNode.prototype, ['ended'])
 tag(AudioScheduledSourceNode)
@@ -414,7 +409,7 @@ export class AudioBufferSourceNode extends AudioScheduledSourceNode {
   #offset = 0
   #duration = -1
 
-  protected override startAt(when: number): void {
+  override [START](when: number): void {
     this.#started = true
     if (this.#buffer) native?.setBuffer(this[ID], this.#buffer[UPLOAD]())
     native?.start(this[ID], when, this.#offset, this.#duration)
@@ -604,12 +599,12 @@ export class BaseAudioContext extends EventTarget {
     return undefined
   }
 
-  protected setState(state: 'suspended' | 'running' | 'closed'): void {
+  [SET_STATE](state: 'suspended' | 'running' | 'closed'): void {
     if (state === this.#state) return
     if (this.#state === 'running') this.#frozen = this.currentTime
     this.#state = state
     if (state === 'closed') live.delete(this)
-    later(() => fire(this, new Event('statechange')))
+    host.setTimer(0, () => fire(this, new Event('statechange')))
   }
 
   createGain(): GainNode {
@@ -707,7 +702,7 @@ export class AudioContext extends BaseAudioContext {
     if (this.state === 'closed') return Promise.reject(new DOMException('Cannot resume a closed AudioContext.', 'InvalidStateError'))
     if (this.state === 'suspended') {
       native?.setRunning(this[ID], true)
-      this.setState('running')
+      this[SET_STATE]('running')
     }
     return Promise.resolve()
   }
@@ -715,7 +710,7 @@ export class AudioContext extends BaseAudioContext {
   suspend(): Promise<void> {
     if (this.state === 'closed') return Promise.reject(new DOMException('Cannot suspend a closed AudioContext.', 'InvalidStateError'))
     if (this.state === 'running') {
-      this.setState('suspended')
+      this[SET_STATE]('suspended')
       native?.setRunning(this[ID], false)
     }
     return Promise.resolve()
@@ -723,7 +718,7 @@ export class AudioContext extends BaseAudioContext {
 
   close(): Promise<void> {
     if (this.state === 'closed') return Promise.reject(new DOMException('The AudioContext is closed already.', 'InvalidStateError'))
-    this.setState('closed')
+    this[SET_STATE]('closed')
     native?.closeContext(this[ID])
     return Promise.resolve()
   }
@@ -751,7 +746,7 @@ export function installAudio(audio: AudioNative): Record<string, unknown> {
       const node = playing.get(id)
       if (!node) return
       playing.delete(id)
-      node.ended()
+      fire(node, new Event('ended'))
     } else if (kind === 1) {
       mediaEvents.ended(id)
     }
