@@ -124,7 +124,7 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
 
 迁移顺序 (每步都能单独验):
 
-1. `acde_shell` 协议: 合成器侧实现现在 napi `Shell` 的方法和事件; Broker 先在主进程里改成经它调 (接口对 TS 不变).
+1. (已做) `acde_shell` 协议: 合成器侧实现现在 napi `Shell` 的方法和事件; Broker 先在主进程里改成经它调 (接口对 TS 不变).
 2. Broker 搬进 `acde runtime` 子进程: 主进程只剩合成器, 起 runtime 时交 `acde_shell` 和 Wayland 连接.
 3. web 从子进程改成 runtime 进程里的线程 + isolate: `spawnWeb` 对 TS 不变, port 换成进程内通道; 堆上限、外部内存记账、
    CPU 时间和卡死检测按 isolate.
@@ -332,6 +332,33 @@ layer-shell. 标准协议负责缓冲、`damage_buffer`、`set_opaque_region`、
 | `grab_lost` | `reason` | 被框架收回: `esc` / `other_window` / `focus_lost` |
 
 **命名**: 接口就叫 `acde_window`, 名字里不带编号; 这份 spec 不按代编号, 除非用户明确要求.
+
+### 协议: `acde_shell`
+
+Broker 管合成器的私有协议 (`crates/model/protocol/acde-shell.xml`): 合成器起来时建一对 socketpair, 一头作为带 `shell` 标记的
+客户端插进 Display, 另一头交给 Broker; `acde_shell` 全局只对这条连接可见 (`can_view`), 别的客户端绑不到. 合成器侧是 shell
+`compositor/acde_shell.rs` (请求换成内部的 `Command`, 事件是 `ShellEvent` 类型化发出, Broker 还没绑上时最多攒 256 条, 绑上时补发),
+Broker 侧是 shell `link.rs` (wayland-client, 读线程 `acde-shell-link`), napi `Shell` 的方法和事件对 TS 不变. 窗口 id 是合成器窗口表的 id,
+坐标是 canvas 逻辑像素, int 参数 -1 表示没有, 小数走 wl_fixed (1/256).
+
+| 请求 | 对应 `Shell` | 说明 |
+| --- | --- | --- |
+| `grant` | `grant` | 令牌拆成高低 32 位; `width` / `height` 为 0 是不给 rect, `size_*` 为 0 是不给 size |
+| `release` / `focus` / `hide` / `close` / `place` / `raise` / `set_mode` | 同名 | `raise` 的 `above` -1 是最前 |
+| `list` → `acde_shell_list` | `windows` / `canvases` | 回 `window` × N、`canvas` × N、`done` |
+| `stats` → `acde_shell_stats` | `stats` | 回 `done` (毫秒是 wl_fixed) |
+| `screenshot` → `acde_shell_result` | `screenshot` | 回 `done(width, height)` 或 `failed(message)`; 存 PNG 在别的线程, 写完才回 |
+| `shortcut` → `acde_shell_result` | `shortcut` | 冲突时 `failed` |
+| `unshortcut` | 同名 | |
+| `inject_move` / `inject_motion` / `inject_button` / `inject_wheel` / `inject_key` | `inject` | type 在 Broker 侧先解析成枚举 |
+| `animate` | `animate` | `given` 位标记给了哪些值 (没给的不变, 没给 easing 用缺省) |
+| `launch` → `acde_shell_result` | `launch` | argv、env (key=value) 是以 NUL 结尾的串首尾相接; 合成器起程序 (它的 `WAYLAND_DISPLAY`, 去掉 `DISPLAY`), 回 `done(pid)` |
+| `quit` | `quit` | Broker 先停读线程再发, 然后等合成器线程拆完 (同进程时) |
+
+事件一种一个: `output`、`window_open`、`window_close`、`window_title`、`window_fullscreen(fullscreen)` (→ `windowfullscreen` /
+`windowunfullscreen`)、`window_minimize`、`window_activate`、`window_animated`、`shortcut(owner, key, scope)` (→ `{window: owner, key,
+title: scope}`)、`window_gone`、`window_min_size`、`window_parent`、`milestone`、`input_target`; Broker 侧还原成「shell」一节表里的
+`Event`. `exit` 不是协议事件: 连接断了 (或 `quit`) 时 Broker 侧自己发.
 
 ### 帧、损伤与输入
 
@@ -998,7 +1025,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/acde` | Rust | `acde` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, web 进程 (`acde web`), 把 render 的文档绑给 JS (见「宿主: crates/acde」) |
 | `crates/paint` | Rust | `acde-paint`: web 进程的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acgpu 打开的 wgpu 设备 |
 | `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
-| `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` 协议 (`protocol/acde-window.xml`) |
+| `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
 | `crates/acde-napi` | Rust | 用 rusty_v8 实现的 Node-API C 接口 (napi8), 让 runtime / shell 的 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` (deno_napi 0.191.0, MIT, 见 LICENSE-MIT): 任务派发换成嵌入方的, 去掉了旧式模块注册、async_hooks、callback scope、napi9+ 和 runtime / shell 链接不到的入口 (删掉后 `cargo build -p acde` 照样链接成功的那些: Date、DataView、TypedArray、escapable handle scope、new_target、freeze / seal、detach、async cleanup hook、symbol、instanceof 等); cleanup hook 只检查参数, 不存 (Env 不析构, 本来就不会跑); 每个 async work 起一条 `acde-napi-work` 线程 (只有 shell 的 screenshot 用); `open` 把一个模块的导出注册进一个 context |
 | `crates/fps-probe` | Rust | 量合成器出帧的 Wayland 客户端, 和 KDE 对比用 (见「crates/fps-probe」) |

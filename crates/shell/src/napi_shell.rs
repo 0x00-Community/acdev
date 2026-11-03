@@ -7,11 +7,13 @@ use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi::{Env, Error, Result, Status, Task};
 use napi_derive::napi;
 
-use crate::compositor::{Animate, BTN_LEFT, CanvasInfo, Command, Compositor, Event, Grant, Handle, Inbox, Injected, SURFACE_IDS, Stats, WindowInfo};
+use crate::compositor::{Animate, BTN_LEFT, CanvasInfo, Compositor, Event, Grant, Handle, Inbox, Injected, SURFACE_IDS, Stats, WindowInfo};
+use crate::link::Link;
 
 #[napi]
 pub struct Shell {
     handle: Handle,
+    link: Link,
     events: Arc<Inbox>,
     next_surface: std::sync::atomic::AtomicU32,
 }
@@ -105,8 +107,10 @@ fn napi_error(e: impl ToString) -> Error {
 impl Shell {
     #[napi(factory)]
     pub fn broker() -> Result<Self> {
-        let (handle, events) = Compositor::spawn().map_err(napi_error)?;
-        Ok(Self { handle, events, next_surface: SURFACE_IDS.into() })
+        let (handle, stream) = Compositor::spawn().map_err(napi_error)?;
+        let events = Arc::new(Inbox::default());
+        let link = Link::connect(stream, events.clone()).map_err(napi_error)?;
+        Ok(Self { handle, link, events, next_surface: SURFACE_IDS.into() })
     }
 
     #[napi]
@@ -125,13 +129,13 @@ impl Shell {
         let token = hasher.finish();
         let rect = options.rect.as_deref().and_then(|r| <[i32; 4]>::try_from(r).ok()).filter(|r| r[2] > 0 && r[3] > 0);
         let size = options.size.as_deref().and_then(|s| <[i32; 2]>::try_from(s).ok()).filter(|s| s[0] > 0 && s[1] > 0);
-        self.handle.send(Command::Grant(token, Grant { id, desktop, mode, rect, size }));
+        self.link.grant(token, Grant { id, desktop, mode, rect, size });
         Ok(SurfaceGrant { window: id, token: BigInt::from(token) })
     }
 
     #[napi]
     pub fn release(&self, window: u32) {
-        self.handle.send(Command::Release(window));
+        self.link.release(window);
     }
 
     #[napi(getter)]
@@ -156,100 +160,111 @@ impl Shell {
     #[napi]
     pub fn launch(&self, argv: Vec<String>, options: Option<LaunchOptions>) -> Result<u32> {
         let (cwd, env) = options.map_or((None, None), |o| (o.cwd, o.env));
-        self.handle.launch(&argv, cwd.as_deref(), env.iter().flatten()).map_err(napi_error)
+        self.link.launch(&argv, cwd.as_deref(), env.iter().flatten()).map_err(napi_error)
     }
 
     #[napi]
     pub fn stats(&self, reset: Option<bool>) -> Stats {
-        let (reply, rx) = std::sync::mpsc::channel();
-        self.handle.send(Command::Stats(reset.unwrap_or(false), reply));
-        rx.recv_timeout(Duration::from_millis(500)).unwrap_or_default()
+        self.link.stats(reset.unwrap_or(false))
     }
 
     #[napi(ts_return_type = "Promise<{ width: number, height: number }>")]
     pub fn screenshot(&self, path: String) -> AsyncTask<Screenshot> {
-        let (reply, rx) = std::sync::mpsc::channel();
-        self.handle.send(Command::Screenshot(path.into(), reply));
-        AsyncTask::new(Screenshot { rx })
+        AsyncTask::new(Screenshot { rx: self.link.screenshot(path) })
     }
 
     #[napi]
     pub fn focus(&self, window: u32) {
-        self.handle.send(Command::Focus(window));
+        self.link.focus(window);
     }
 
     #[napi]
     pub fn hide(&self, window: u32, hidden: bool) {
-        self.handle.send(Command::Hide { window, hidden });
+        self.link.hide(window, hidden);
     }
 
     #[napi]
     pub fn close(&self, window: u32) {
-        self.handle.send(Command::Close(window));
+        self.link.close(window);
     }
 
     #[napi]
     pub fn place(&self, window: u32, x: i32, y: i32, width: i32, height: i32) {
-        self.handle.send(Command::Place { window, x, y, width, height });
+        self.link.place(window, [x, y, width, height]);
     }
 
     #[napi]
     pub fn raise(&self, window: u32, above: Option<u32>) {
-        self.handle.send(Command::Raise { window, above });
+        self.link.raise(window, above);
     }
 
     #[napi]
     pub fn set_mode(&self, window: u32, mode: String) -> Result<()> {
-        self.handle.send(Command::SetMode { window, mode: mode.parse().map_err(napi_error)? });
+        self.link.set_mode(window, mode.parse().map_err(napi_error)?);
         Ok(())
     }
 
     #[napi]
-    pub fn windows(&self) -> Vec<WindowInfo> {
-        self.list().0
+    pub fn windows(&self) -> Vec<WindowRow> {
+        self.link.list().0.into_iter().map(WindowRow::from).collect()
     }
 
     #[napi]
     pub fn canvases(&self) -> Vec<CanvasInfo> {
-        self.list().1
-    }
-
-    fn list(&self) -> (Vec<WindowInfo>, Vec<CanvasInfo>) {
-        let (reply, rx) = std::sync::mpsc::channel();
-        self.handle.send(Command::List(reply));
-        rx.recv_timeout(Duration::from_millis(500)).unwrap_or_default()
+        self.link.list().1
     }
 
     #[napi]
     pub fn inject(&self, event: InjectEvent) -> Result<()> {
-        self.handle.send(Command::Inject(event.try_into()?));
+        self.link.inject(event.try_into()?);
         Ok(())
     }
 
     #[napi]
     pub fn animate(&self, window: u32, options: AnimateOptions) -> Result<()> {
-        self.handle.send(Command::Animate(window, options.try_into()?));
+        self.link.animate(window, options.try_into()?);
         Ok(())
     }
 
     #[napi]
     pub fn shortcut(&self, combo: String, scope: String, owner: u32) -> Result<()> {
         let scope = scope.parse().map_err(napi_error)?;
-        let (reply, rx) = std::sync::mpsc::channel();
-        self.handle.send(Command::Shortcut { combo, scope, owner, reply });
-        rx.recv_timeout(Duration::from_millis(500)).map_err(napi_error)?.map_err(napi_error)
+        self.link.shortcut(combo, scope, owner).map_err(napi_error)
     }
 
     #[napi]
     pub fn unshortcut(&self, combo: String, scope: String, owner: u32) -> Result<()> {
         let scope = scope.parse().map_err(napi_error)?;
-        self.handle.send(Command::Unshortcut { combo, scope, owner });
+        self.link.unshortcut(combo, scope, owner);
         Ok(())
     }
 
     #[napi]
     pub fn quit(&mut self) {
+        self.link.quit();
         self.handle.quit();
+    }
+}
+
+#[napi(object)]
+pub struct WindowRow {
+    pub id: u32,
+    pub window: Option<u32>,
+    pub canvas: u32,
+    pub mode: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub z: i32,
+    pub focus: bool,
+    pub hidden: bool,
+    pub pid: Option<u32>,
+}
+
+impl From<WindowInfo> for WindowRow {
+    fn from(w: WindowInfo) -> Self {
+        Self { id: w.id, window: w.window, canvas: w.canvas, mode: w.mode.as_str().into(), x: w.x, y: w.y, width: w.width, height: w.height, z: w.z, focus: w.focus, hidden: w.hidden, pid: w.pid }
     }
 }
 

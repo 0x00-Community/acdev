@@ -30,11 +30,12 @@ use smithay::{
     delegate_xdg_shell,
 };
 
-use super::{Compositor, Event, NativeId};
+use super::{Compositor, NativeId, ShellEvent};
 
 #[derive(Default)]
 pub struct ClientState {
     pub compositor: CompositorClientState,
+    pub shell: bool,
 }
 
 impl ClientData for ClientState {}
@@ -185,9 +186,9 @@ impl XdgShellHandler for Compositor {
             self.native_leave(id);
         }
         if Self::bound(surface.wl_surface()).is_none() {
-            self.emit(Event { kind: "windowclose".into(), window: id, ..Default::default() });
+            self.emit(ShellEvent::WindowClose(id));
         } else if let Some(rect) = last {
-            self.emit(Event { kind: "windowgone".into(), window: id, x: Some(rect.x), y: Some(rect.y), width: Some(rect.w), height: Some(rect.h), ..Default::default() });
+            self.emit(ShellEvent::WindowGone { window: id, rect: [rect.x, rect.y, rect.w, rect.h].map(|v| v as i32) });
         }
         if focused && let Some(parent) = parent {
             self.focus_window(Some(&parent));
@@ -272,13 +273,13 @@ impl XdgShellHandler for Compositor {
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {
         let window = self.window_of(surface.wl_surface());
-        self.emit(Event { kind: "windowminimize".into(), window: window.as_ref().and_then(Self::window_id), ..Default::default() });
+        self.emit(ShellEvent::WindowMinimize(window.as_ref().and_then(Self::window_id)));
     }
 
     fn title_changed(&mut self, surface: ToplevelSurface) {
         let Some(window) = self.window_of(surface.wl_surface()) else { return };
         let (title, app_id) = Self::names(surface.wl_surface());
-        self.emit(Event { kind: "windowtitle".into(), window: Self::window_id(&window), title, app_id, ..Default::default() });
+        self.emit(ShellEvent::WindowTitle { window: Self::window_id(&window), title, app_id });
     }
 
     fn app_id_changed(&mut self, surface: ToplevelSurface) {
@@ -369,7 +370,7 @@ impl Compositor {
                 self.native_enter(&window, id, acde_model::Mode::Free);
                 self.focus_window(Some(&window));
                 let (title, app_id) = Self::names(&surface);
-                self.emit(Event { kind: "windowopen".into(), window: Some(id), title, app_id, ..Default::default() });
+                self.emit(ShellEvent::WindowOpen { window: id, title, app_id });
                 self.milestone("第一个原生窗口");
                 if let Some(toplevel) = window.toplevel().filter(|t| Self::wants_fullscreen(t)).cloned() {
                     XdgShellHandler::fullscreen_request(self, toplevel, None);

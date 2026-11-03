@@ -142,8 +142,11 @@ dependencies = [
  "napi-derive",
  "ntex",
  "png",
+ "rustix 1.1.5",
  "smithay",
  "tracing",
+ "wayland-backend",
+ "wayland-client",
  "wayland-scanner",
  "xcursor",
 ]

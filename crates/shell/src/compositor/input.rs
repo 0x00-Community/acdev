@@ -14,7 +14,7 @@ use acde_model::{Binding, Combo, Scope};
 use smithay::input::keyboard::{ModifiersState, xkb};
 
 use super::grabs::Lost;
-use super::{Compositor, Event};
+use super::{Compositor, ShellEvent};
 
 enum Key {
     Vt(i32),
@@ -112,7 +112,7 @@ impl Compositor {
         let window = self.window_under(pos).map(|(w, _)| w);
         if pressed && super::env::ENV.debug_input {
             let target = window.as_ref().and_then(Self::window_id);
-            self.emit(Event { kind: "inputtarget".into(), window: target, x: Some(pos.x), y: Some(pos.y), button: Some(button), ..Default::default() });
+            self.emit(ShellEvent::InputTarget { window: target, x: pos.x, y: pos.y, button });
         }
         let serial = SERIAL_COUNTER.next_serial();
         if pressed && self.grabs.any() && !self.grab_holds(window.as_ref()) {
@@ -124,7 +124,7 @@ impl Compositor {
             } else {
                 self.focus_window(window.as_ref());
                 if let Some(w) = window.as_ref() {
-                    self.emit(Event { kind: "windowactivate".into(), window: Self::window_id(w), ..Default::default() });
+                    self.emit(ShellEvent::WindowActivate(Self::window_id(w)));
                     if let Some(edges) = self.grab_hint_at(w, pos) {
                         let start = smithay::input::pointer::GrabStartData { focus: None, button, location: pos };
                         self.start_drag(w, edges, serial, start);
@@ -224,8 +224,7 @@ impl Compositor {
             Some(Key::Esc) => self.lose_grabs(Lost::Esc),
             Some(Key::Shortcut(binding)) => {
                 let name = self.shortcut_names.get(&binding.combo).cloned();
-                let scope = format!("{:?}", binding.scope).to_lowercase();
-                self.emit(Event { kind: "shortcut".into(), window: Some(binding.owner), key: name, title: Some(scope), ..Default::default() });
+                self.emit(ShellEvent::Shortcut { owner: binding.owner, key: name, scope: binding.scope });
             }
             Some(Key::Held) | None => {}
         }

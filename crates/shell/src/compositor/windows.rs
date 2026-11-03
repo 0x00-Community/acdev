@@ -6,7 +6,7 @@ use smithay::utils::{Logical, Size};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface, XdgToplevelSurfaceData};
 
-use super::{Compositor, Event};
+use super::{Compositor, ShellEvent};
 
 struct MinSize(Cell<Size<i32, Logical>>);
 
@@ -66,8 +66,7 @@ impl Compositor {
         if last.0.replace(size) == size || (size.w <= 0 && size.h <= 0) {
             return;
         }
-        let event = Event { kind: "windowminsize".into(), window: Self::window_id(window), width: Some(size.w.into()), height: Some(size.h.into()), ..Default::default() };
-        self.emit(event);
+        self.emit(ShellEvent::WindowMinSize { window: Self::window_id(window), width: size.w, height: size.h });
     }
 
     fn emit_parent(&mut self, window: &Window, parent: Option<&Window>) {
@@ -77,7 +76,7 @@ impl Compositor {
             return;
         }
         window.user_data().insert_if_missing(|| HadParent);
-        self.emit(Event { kind: "windowparent".into(), window: Some(id), parent, ..Default::default() });
+        self.emit(ShellEvent::WindowParent { window: id, parent });
     }
 }
 

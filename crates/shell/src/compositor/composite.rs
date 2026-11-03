@@ -7,7 +7,7 @@ use smithay::desktop::Window;
 
 use super::backend::Elements;
 use super::effects::Backdrop;
-use super::{Compositor, Event};
+use super::{Compositor, ShellEvent};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Animate {
@@ -88,7 +88,7 @@ impl Compositor {
             if self.motion.looks.get(&managed).is_some_and(|l| *l == Look::default()) {
                 self.motion.looks.remove(&managed);
             }
-            self.emit(Event { kind: "windowanimated".into(), window: Some(native), ..Default::default() });
+            self.emit(ShellEvent::WindowAnimated(native));
         }
     }
 

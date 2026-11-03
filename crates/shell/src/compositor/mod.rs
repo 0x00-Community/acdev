@@ -12,6 +12,8 @@ mod rdp;
 mod stacking;
 mod windows;
 mod acde_window;
+mod acde_shell;
+pub use acde_shell::ShellEvent;
 mod grabs;
 pub use acde_window::Grant;
 mod input;
@@ -22,11 +24,8 @@ mod protocols;
 mod timing;
 
 use std::ffi::{OsStr, OsString};
-use std::io;
-use std::os::fd::AsFd;
-use std::process::{Command as Process, Stdio};
+use std::os::unix::net::UnixStream;
 use std::sync::mpsc;
-use std::sync::Arc;
 use std::time::Duration;
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -57,13 +56,12 @@ pub(crate) const BTN_LEFT: u32 = 0x110;
 
 pub struct Extra(u32);
 
-#[cfg_attr(feature = "napi", napi(object))]
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct WindowInfo {
     pub id: u32,
     pub window: Option<u32>,
     pub canvas: u32,
-    pub mode: String,
+    pub mode: acde_model::Mode,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -178,28 +176,6 @@ impl Handle {
         &self.socket
     }
 
-    pub fn launch<'a>(
-        &self,
-        argv: &[String],
-        cwd: Option<&str>,
-        env: impl IntoIterator<Item = (&'a String, &'a String)>,
-    ) -> io::Result<u32> {
-        let (program, args) = argv.split_first().ok_or_else(|| io::Error::other("argv 为空"))?;
-        let mut process = Process::new(program);
-        let out = std::io::stdout().as_fd().try_clone_to_owned()?;
-        let err = std::io::stderr().as_fd().try_clone_to_owned()?;
-        process.args(args).env("WAYLAND_DISPLAY", &self.socket).stdin(Stdio::null()).stdout(out).stderr(err);
-        process.env_remove("DISPLAY");
-        process.envs(env);
-        if let Some(cwd) = cwd {
-            process.current_dir(cwd);
-        }
-        let mut child = process.spawn()?;
-        let pid = child.id();
-        std::thread::spawn(move || child.wait());
-        Ok(pid)
-    }
-
     pub fn quit(&mut self) {
         self.send(Command::Quit);
         let Some(thread) = self.thread.take() else { return };
@@ -236,7 +212,8 @@ pub struct Compositor {
     pub data_device: DataDeviceState,
     pub seat: Seat<Self>,
     pub backend: Backend,
-    pub broker: Arc<Inbox>,
+    pub shell: acde_shell::ShellLink,
+    pub socket: OsString,
     pub table: acde_model::WindowTable,
     pub canvas: Option<acde_model::CanvasId>,
     pub native_ids: std::collections::HashMap<u32, acde_model::WindowId>,
@@ -268,27 +245,25 @@ pub struct Compositor {
 }
 
 impl Compositor {
-    pub fn spawn() -> Result<(Handle, Arc<Inbox>), String> {
+    pub fn spawn() -> Result<(Handle, UnixStream), String> {
         let (commands, channel) = channel::channel();
-        let broker = Arc::new(Inbox::default());
-        let broker_events = broker.clone();
+        let (client, server) = UnixStream::pair().map_err(|e| format!("acde_shell 连接: {e}"))?;
         let (ready, ready_rx) = mpsc::sync_channel(1);
         let thread = std::thread::Builder::new()
             .name("acde-compositor".into())
             .spawn(move || {
-                if let Err(e) = Self::run(channel, broker_events.clone(), &ready) {
+                if let Err(e) = Self::run(channel, server, &ready) {
                     let _ = ready.send(Err(e));
                 }
-                broker_events.push(Event::named("exit"));
             })
             .map_err(|e| e.to_string())?;
         let socket = ready_rx.recv().map_err(|_| "合成器线程启动失败".to_string())??;
-        Ok((Handle { commands, socket, thread: Some(thread) }, broker))
+        Ok((Handle { commands, socket, thread: Some(thread) }, client))
     }
 
     fn run(
         commands: Channel<Command>,
-        broker: Arc<Inbox>,
+        shell: UnixStream,
         ready: &mpsc::SyncSender<Result<OsString, String>>,
     ) -> Result<(), String> {
         use smithay::backend::renderer::{ImportDma, ImportEgl, ImportMemWl};
@@ -343,7 +318,7 @@ impl Compositor {
         .map_err(|e| format!("Wayland socket: {e}"))?;
         let socket_name = socket.socket_name().to_os_string();
         lh.insert_source(socket, |stream, _, state| {
-            if let Err(e) = state.display.insert_client(stream, Arc::new(handlers::ClientState::default())) {
+            if let Err(e) = state.display.insert_client(stream, std::sync::Arc::new(handlers::ClientState::default())) {
                 log::warn!("接入客户端失败: {e}");
             }
         })
@@ -370,7 +345,8 @@ impl Compositor {
             data_device: DataDeviceState::new::<Compositor>(&dh),
             seat,
             backend,
-            broker,
+            shell: Default::default(),
+            socket: socket_name.clone(),
             table: Default::default(),
             canvas: None,
             native_ids: Default::default(),
@@ -417,6 +393,8 @@ impl Compositor {
             x += (f64::from(mode.w) / scale).ceil() as i32;
         }
         Self::acde_window_global(&dh);
+        Self::acde_shell_global(&dh);
+        state.insert_shell_client(shell)?;
         state.init_canvas();
         state.emit_output();
         state.export_session_env(&[("WAYLAND_DISPLAY", &socket_name.to_string_lossy()), ("XDG_SESSION_TYPE", "wayland"), ("XDG_CURRENT_DESKTOP", "acde")]);
@@ -471,8 +449,8 @@ impl Compositor {
         stats
     }
 
-    fn emit(&self, event: Event) {
-        self.broker.push(event);
+    fn emit(&mut self, event: ShellEvent) {
+        self.shell.emit(event);
     }
 
     fn window_id(window: &Window) -> Option<u32> {
@@ -630,8 +608,7 @@ impl Compositor {
             return;
         }
         if (was == Some(full)) != (mode == full) && Some(id) != self.desktop {
-            let kind = if mode == full { "windowfullscreen" } else { "windowunfullscreen" };
-            self.emit(Event { kind: kind.into(), window: Some(id), ..Default::default() });
+            self.emit(ShellEvent::WindowFullscreen { window: id, fullscreen: mode == full });
         }
         if let Some(toplevel) = window.toplevel() {
             use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State;
@@ -665,7 +642,7 @@ impl Compositor {
                     id,
                     window,
                     canvas: 0,
-                    mode: w.mode.as_str().into(),
+                    mode: w.mode,
                     x: w.rect.x as i32,
                     y: w.rect.y as i32,
                     width: w.rect.w as u32,
@@ -872,7 +849,7 @@ impl Compositor {
         if self.milestones.insert(name) {
             let ms = self.start.elapsed().as_secs_f64() * 1000.0;
             log::info!("启动: {name} ms={:.0}", acde_log::now_ms());
-            self.emit(Event { kind: "milestone".into(), title: Some(name.into()), time: Some(ms), ..Default::default() });
+            self.emit(ShellEvent::Milestone { title: name, ms });
         }
     }
 
@@ -887,15 +864,9 @@ impl Compositor {
         self.canvas = Some(self.table.add_canvas(rect, scale));
     }
 
-    pub fn emit_output(&self) {
+    pub fn emit_output(&mut self) {
         let Some(mode) = self.backend.output.current_mode() else { return };
-        self.emit(Event {
-            kind: "output".into(),
-            width: Some(mode.size.w.into()),
-            height: Some(mode.size.h.into()),
-            scale: Some(self.scale()),
-            ..Default::default()
-        });
+        self.emit(ShellEvent::Output { width: mode.size.w, height: mode.size.h, scale: self.scale() });
     }
 }
 
