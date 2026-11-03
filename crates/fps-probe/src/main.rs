@@ -62,7 +62,7 @@ struct Stats {
 }
 
 impl Stats {
-    fn add(&mut self, other: &Stats) {
+    fn add(&mut self, mut other: Stats) {
         self.callbacks += other.callbacks;
         self.commits += other.commits;
         self.presented += other.presented;
@@ -71,8 +71,8 @@ impl Stats {
         self.vsync += other.vsync;
         self.hw_clock += other.hw_clock;
         self.zero_copy += other.zero_copy;
-        self.intervals.extend_from_slice(&other.intervals);
-        self.latency.extend_from_slice(&other.latency);
+        self.intervals.append(&mut other.intervals);
+        self.latency.append(&mut other.latency);
     }
 
     fn percentiles(values: &[f64]) -> String {
@@ -347,8 +347,8 @@ fn wait(queue: &mut EventQueue<Probe>, probe: &mut Probe, timeout: Duration) -> 
         let ready = {
             let fd = guard.connection_fd();
             let mut fds = [PollFd::new(&fd, PollFlags::IN)];
-            let ts = Timespec { tv_sec: timeout.as_secs() as _, tv_nsec: timeout.subsec_nanos() as _ };
-            poll(&mut fds, Some(&ts)).map_err(|e| format!("poll: {e}"))? > 0
+            let ts = Timespec::try_from(timeout).ok();
+            poll(&mut fds, ts.as_ref()).map_err(|e| format!("poll: {e}"))? > 0
         };
         if ready {
             guard.read().map_err(|e| format!("read: {e}"))?;
@@ -417,12 +417,12 @@ fn run(args: Args) -> Result<(), String> {
         if Instant::now() >= next {
             let window = std::mem::take(&mut probe.window);
             println!("{}", window.json(&probe, window_start.elapsed().as_secs_f64(), false));
-            probe.total.add(&window);
+            probe.total.add(window);
             window_start = Instant::now();
         }
     }
     let window = std::mem::take(&mut probe.window);
-    probe.total.add(&window);
+    probe.total.add(window);
     let total = std::mem::take(&mut probe.total);
     println!("{}", total.json(&probe, started.elapsed().as_secs_f64(), true));
     Ok(())
