@@ -955,7 +955,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
   `onSubmittedWorkDone` 就全排到 GPU 做完之后. 所以每帧的路径上不用 `Wait`.
   `toDataURL` / `copyExternalImageToTexture` 同步读回; `toBlob` 异步读回, PNG 在单独的线程上编码 (crates/acde, 用 render 的
   `encode_png`). 背压: 两批 present 没做完 (超过 1 秒的不算) 时这次 vblank 不跑 rAF 回调. 当时只在 Lima 的 lavapipe 上验过, 真 GPU 上没验过.
-- WebGL: Blitz 不支持, 待排期 (计划: `<canvas>` 由原生 GL 渲染进 dmabuf). Canvas 2D 由 render 画
+- WebGL: 还没有. 要做 (用户定, 2026-11-03): `webgl` / `webgl2` / `webgpu` 三种 canvas 3D 上下文都由 acgpu 实现 (acgpu docs/roadmap.md「canvas 3D」), 接口照 web 标准. Canvas 2D 由 render 画
   (acde-dom `src/dom/canvas.ts` 编成命令流, 经 `Dom::canvas` 交给 render; `Path2D` 的 SVG 路径字符串连同 addPath 的变换原样
   送过去, render 用 kurbo 解析, 出错时画出错之前的部分). 一张 canvas 攒的命令超过 20000 条时 render 把它
   在 GPU 上画成一张纹理再接着记 (`ACDE_CANVAS_MAX_COMMANDS`, 0 不限).
