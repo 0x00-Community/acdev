@@ -1,12 +1,12 @@
 # acde-base
 
-Linux 桌面的底座, 替代 KDE / GNOME. 桌面和应用都是网页.
+acde (Agent Computer Desktop Environment): Linux 桌面的底座, 替代 KDE / GNOME. 桌面和应用都是网页.
 
 - 自己就是 Wayland 合成器, 直接管屏幕、键盘、鼠标.
 - 网页用自己的渲染器画, 不是 Chromium; JS 跑在内嵌的 V8 里.
 - 普通 Wayland 程序照常能跑; 只会 X11 的不行.
 - 现成的网页工程 (React、Vue、Next.js …) 用 `acde app build` / `acde app run` 打成桌面应用, 不用改代码.
-- 桌面长什么样由桌面包决定, 例如 [acde-dopamine](https://github.com/dopamine-org/acde-dopamine); 这里只是平台.
+- 桌面长什么样由桌面包决定, 例如 [acde-dopame](https://github.com/dopame-org/acde-dopame); 这里只是平台.
 
 ## 跑起来
 

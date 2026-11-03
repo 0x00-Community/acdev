@@ -14,7 +14,7 @@
 >   这正是 acde 存在的目的. 「魔改」只许发生在 `acde:` 这一层, 标准接口一个字不动.
 > - 兼容的是**标准接口**, 不是 Chromium: 渲染器是自研的 (Blitz 分叉 acrender, 没有 JS 引擎, 页面 JS 在 acde 自己的 V8 里),
 >   不搬 Chromium 那一套 —— 没有 devtools、远程调试端口、浏览器外壳、多余的进程和后台服务. 缺什么按标准补进自己的实现, 不引入浏览器内核.
-> - **现状差距很大**: acde-dopamine 大量直接用 napi 导出做底层接口, web 层也有过非标准的扩展,
+> - **现状差距很大**: acde-dopame 大量直接用 napi 导出做底层接口, web 层也有过非标准的扩展,
 >   这些都是要收回的债, 不是可以照抄的先例; 新代码不许再加, 动到旧代码时往这个方向收. (已收回: `acde` 全局、`window` 上的
 >   `acde:*` 事件、`agentrt:open-app` 和 `__agentrtAsks`: 事件改成 `acde:` 模块上的 `on`, 见「通信」.)
 > - **计划 (现在不做)**: 系统桌面的运行时是同一个 V8 里的不同 context —— 每个应用一个 context 互相隔离; 桌面有权看到所有
@@ -23,13 +23,13 @@
 
 根目录的 README.md 是给人看的简介, 其余说明都在本文件里. full agentic.
 
-Dopame 的桌面基座, 替换 KDE Plasma / GNOME. 它自己就是 Wayland 合成器: 桌面是一张网页, 页面 JS 跑在内嵌的 V8 里 (不用 Node),
+acde = Agent Computer Desktop Environment. Dopame 的桌面基座, 替换 KDE Plasma / GNOME. 它自己就是 Wayland 合成器: 桌面是一张网页, 页面 JS 跑在内嵌的 V8 里 (不用 Node),
 用没有 JS 引擎的原生 web 渲染器 Blitz (`vendors/acrender`) 画出来, 系统接口在 Broker 里走 napi, 不监听任何端口 (远程桌面后端除外).
 原生应用作为 Wayland 客户端连进来, 和网页窗口一起由 acde 合成. 只支持 Wayland: 没有 X server, 也没有 Xwayland,
 只会说 X11 的程序 (Java AWT、默认走 X11 的 LWJGL 游戏、xeyes 一类) 跑不了.
 
 acde-base 只是平台: 合成器, 渲染, 系统接口, host 和登录页. 具体的桌面 (页面, 应用, 它们要的服务) 由桌面包提供,
-例如 [acde-dopamine](https://github.com/dopamine-org/acde-dopamine). 登录时选哪个桌面, 见下面「桌面包」.
+例如 [acde-dopame](https://github.com/dopame-org/acde-dopame). 登录时选哪个桌面, 见下面「桌面包」.
 
 本文件是仓库里唯一的说明, 子目录不放 AGENTS.md; 各子目录的说明在下面按路径命名的章节里. 过时的测量记录不留, 要看翻 git 历史.
 
@@ -388,7 +388,7 @@ acde 是一个 Rust 可执行文件, 内嵌 V8 (rusty_v8, crate `v8`); 页面的
   `ServiceProcess`: `write` 写 stdin, `end` 关掉 stdin, `kill` 给它的进程组发信号). 和应用后端一样由 crates/acde `child.rs` 起
   (自己的会话和进程组, acde 死了它收到 SIGTERM, 环境只有 `env` 给的); stdout 逐行交给 `onLine` (没给就进日志), stderr 逐行进
   acde 的日志, 前缀 `[<服务名>]`. 服务关闭 (`close` 返回之后) 时 Broker 给它起的、还活着的进程组发 SIGTERM, 3 秒后 SIGKILL;
-  要收尾的进程在 `close` 里先 `end` 再等它退出. 例: acde-dopamine 的总管和小弟是它自己的 Rust 程序, assistant 服务这样起它.
+  要收尾的进程在 `close` 里先 `end` 再等它退出. 例: acde-dopame 的总管和小弟是它自己的 Rust 程序, assistant 服务这样起它.
 
 acde 依次在这些地方找包: acde-host 自己 (只有品牌资源, 没有桌面), `ACDE_PATH` (冒号分隔的包目录),
 `$XDG_DATA_HOME/acde/packages/*`, `$XDG_DATA_DIRS/acde/packages/*` (默认 `/usr/local/share:/usr/share`). 同一个 id 先到先得.
@@ -594,7 +594,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   `entry` (默认导出 `WindowApp` 的模块, 或 HTML, 见「网页应用」)、`capabilities` (fs [可限 roots]、terminal、office、launch、
   slots、open、openFiles、session、desktops (`acde:session` / `acde:desktops`, 本来只给桌面; 系统设置这类应用要), 其余的键是服务名,
   如 `assistant`)、`mimeTypes` (「默认应用」)、`heapMb` (默认 256, 最小 32)、`size` (窗口的默认尺寸 `[宽, 高]`, 逻辑像素, 默认 800x600)、
-  `multiple`、`frame` (默认 true: acde-host 画标题栏, 见「窗框」)、`backend`. acde-base 自己不带应用 (只有登录页一个桌面); 应用都来自桌面包 (acde-dopamine) 或第三方包.
+  `multiple`、`frame` (默认 true: acde-host 画标题栏, 见「窗框」)、`backend`. acde-base 自己不带应用 (只有登录页一个桌面); 应用都来自桌面包 (acde-dopame) 或第三方包.
 - **沙箱**: 每个 web 是独立的 V8 isolate, 页面和 web 的宿主代码 (acde-host 的 web.js) 在同一个 realm 里, 拿到的只有裁剪过的
   `acde`. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口: `sys` (整个 acde 进程的环境变量、读写文件、`spawn` / `run` / `kill`)、
   它的 surface、输入法, 还能 import `file:` 模块. 每个 web 是自己的进程 (环境只有 Broker 给的那些, 会话结束随 PDEATHSIG 一起走),
@@ -930,7 +930,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 cargo build --release -p acde                  # target/release/acde
 cd web && bun install && bun run build       # packages/acde-host/dist/{broker,web}.js
 ../target/release/acde desktops                                           # 装了哪些桌面
-ACDE_PATH=<acde-dopamine 的包目录> ../target/release/acde --desktop dopame  # 起这个桌面
+ACDE_PATH=<acde-dopame 的包目录> ../target/release/acde --desktop dopame  # 起这个桌面
 ```
 
 acde 找 bundle 的顺序: `$ACDE_APP`, 自己旁边的 `app/dist` (装好的包), `<exe>/../../web/packages/acde-host/dist` (仓库里的
@@ -960,7 +960,7 @@ JS 里 `console.*` 是 target `js`, 页面错误和没接住的异常是 `js` �
 | `perf::rpc` | acde-host | web 侧 `call <服务>.<方法> error= ms=` (往返), Broker 侧 `serve <服务>.<方法> ms=` (处理) |
 
 桌面包服务起的进程 (`ctx.spawn`) 的 stderr 逐行进 acde 的日志 (前缀 `[<服务名>]`); 它们按同样格式打的 `perf::<名字>` 行 (例如
-acde-dopamine 的 `perf::assistant` / `perf::agent`) `perf-log.sh` 照样汇总. 会话的 `RUST_LOG` 由服务自己决定传不传.
+acde-dopame 的 `perf::assistant` / `perf::agent`) `perf-log.sh` 照样汇总. 会话的 `RUST_LOG` 由服务自己决定传不传.
 
 输入到上屏的 Trace (`acde_log::Trace`, 时间都是 `now_ms`): web 进程收到 Wayland 输入、放进事件队列时盖时间 (`Event.stamp`, crates/model `Inbox`), web 取走时 crates/acde
 记 `pumped` 并交给 render (`Dom::input`), 下一次改了文档的 `commit` 记 `committed` (1 秒内没有改文档的 commit 就丢掉), 出帧时记 `framed`
@@ -1263,7 +1263,7 @@ ISO 构建时从这里的 release 下载包放进镜像的本地仓库.
 ## web
 
 Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run test`; 没有 pnpm, 没有 Node: 测试是 `bun test`).
-这里的代码都跑在 `acde` 进程里 (acde-app 除外, 它由 bun 跑), 没有 HTTP 服务. 跑桌面要把 `ACDE_PATH` 指向一个构建好的 acde-dopamine 包.
+这里的代码都跑在 `acde` 进程里 (acde-app 除外, 它由 bun 跑), 没有 HTTP 服务. 跑桌面要把 `ACDE_PATH` 指向一个构建好的 acde-dopame 包.
 
 ### web/packages/acde-api
 
@@ -1277,7 +1277,7 @@ SDK: 桌面包和应用写代码时依据的类型, 唯一对外发布的 JS 包
 `acde.config.jsonc`, 同样的 JSON schema 是 `config.schema.json`, 包导出 `./config.schema.json`), `src/modules.d.ts` (`acde:<名字>`
 模块的声明, 每个导出同名的值和 default; 桌面服务的名字落到 `acde:*`; 用 `/// <reference types="@dopame/acde-api" />` 或 tsconfig 的
 `types` 引入). 还没上 npm: 应用经 `acde app new` 的
-`file:` 依赖用装好的那份, acde-dopamine 仍拷一份 (`scripts/sync-acde-api.sh`).
+`file:` 依赖用装好的那份, acde-dopame 仍拷一份 (`scripts/sync-acde-api.sh`).
 
 ### web/packages/acde-dom
 
