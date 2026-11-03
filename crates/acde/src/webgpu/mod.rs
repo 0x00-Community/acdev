@@ -36,7 +36,6 @@ pub(crate) enum Obj {
 pub(crate) struct Device {
     on_error: v8::Global<v8::Function>,
     on_lost: v8::Global<v8::Function>,
-    lost: bool,
 }
 
 pub(crate) struct Buffer {
@@ -200,11 +199,12 @@ impl Throw {
 }
 
 fn enter(device: Id) -> bool {
-    ERRORS.with(|e| {
-        let mut e = e.borrow_mut();
-        e.current = device;
-        e.devices.get(&device).is_some_and(|d| !d.lost)
-    })
+    ERRORS.with(|e| e.borrow_mut().current = device);
+    live(device)
+}
+
+fn live(device: Id) -> bool {
+    ERRORS.with(|e| e.borrow().devices.get(&device).is_some_and(|d| !d.lost))
 }
 
 pub(crate) fn current_device() -> Id {
@@ -247,7 +247,7 @@ fn dispatch_errors(scope: &mut v8::PinScope) {
     let errors = ERRORS.with(|e| std::mem::take(&mut e.borrow_mut().uncaptured));
     for (device, error) in errors {
         let Some(callback) = STATE.with(|s| match s.borrow().objects.get(&device) {
-            Some(Obj::Device(d)) if !d.lost => Some(d.on_error.clone()),
+            Some(Obj::Device(d)) if live(device) => Some(d.on_error.clone()),
             _ => None,
         }) else {
             continue;
@@ -376,19 +376,26 @@ fn adapter_ready(scope: &mut v8::PinScope, gpu: Option<Arc<Gpu>>) {
 }
 
 fn all_lost(scope: &mut v8::PinScope, message: &str) {
+    let devices: Vec<Id> = ERRORS.with(|e| {
+        e.borrow_mut()
+            .devices
+            .iter_mut()
+            .filter(|(_, d)| !d.lost)
+            .map(|(&id, d)| {
+                d.lost = true;
+                id
+            })
+            .collect()
+    });
     let callbacks: Vec<_> = with_state(|s| {
-        s.objects
-            .values_mut()
-            .filter_map(|o| match o {
-                Obj::Device(d) if !d.lost => {
-                    d.lost = true;
-                    Some(d.on_lost.clone())
-                }
+        devices
+            .iter()
+            .filter_map(|id| match s.objects.get(id) {
+                Some(Obj::Device(d)) => Some(d.on_lost.clone()),
                 _ => None,
             })
             .collect()
     });
-    ERRORS.with(|e| e.borrow_mut().devices.values_mut().for_each(|d| d.lost = true));
     for callback in callbacks {
         let reason = bind::string(scope, "unknown");
         let message = bind::string(scope, message);
@@ -540,7 +547,7 @@ natives! {
         let (Ok(on_error), Ok(on_lost)) = (v8::Local::<v8::Function>::try_from(args.get(2)), v8::Local::<v8::Function>::try_from(args.get(3))) else {
             return Err(Throw::Type("createDevice: callbacks".into()));
         };
-        let device = Device { on_error: v8::Global::new(scope, on_error), on_lost: v8::Global::new(scope, on_lost), lost: false };
+        let device = Device { on_error: v8::Global::new(scope, on_error), on_lost: v8::Global::new(scope, on_lost) };
         let id = with_state(|s| s.insert(Obj::Device(device)));
         ERRORS.with(|e| e.borrow_mut().devices.insert(id, DeviceErrors::default()));
         Ok(id.into())
@@ -549,9 +556,6 @@ natives! {
     "destroyDevice" => fn destroy_device(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         with_state(|s| {
-            if let Some(Obj::Device(d)) = s.objects.get_mut(&device) {
-                d.lost = true;
-            }
             for obj in s.objects.values() {
                 match obj {
                     Obj::Buffer(b) if b.device == device => b.buffer.destroy(),
