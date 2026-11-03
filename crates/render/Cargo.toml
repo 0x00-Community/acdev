@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 base64 = "0.22"
 data-url = "0.3"
-# blitz / anyrender / anyrender_vello 版本由这里钉死并 pub use, paint / window / acde 只经 acde_render 引用
+# blitz / acgpu 版本由这里钉死并 pub use, paint / window / acde 只经 acde_render 引用
 # complex-scripts: 中文/日文断行 (ICU4X 分词模型); floats: CSS float
 blitz-dom = { version = "=0.3.0-beta.4", default-features = false, features = [
     "svg",
@@ -22,20 +22,20 @@ blitz-paint = { version = "=0.3.0-beta.4", features = ["scrollbars"] }
 blitz-traits = "=0.3.0-beta.4"
 # 和 blitz-dom (acrender) 用的同一份 stylo, 读 overflow / visibility
 stylo = "=0.22.0"
-anyrender = "=0.14.0"
-anyrender_vello = "=0.15.0"
+# 网页图层画进 acgpu 的 2D 场景; 没有 acgpu 驱动时 acgpu 自己回退到 vello on wgpu (feature wgpu)
+acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "2cf211abb11aaa071a1377a2401286a88af56f4b" }
 # blitz-dom (acrender) 用的 parley, 取插入点几何
 parley = { version = "=0.12.0", default-features = false, features = ["std"] }
-# anyrender 0.14 用的 kurbo, 算脏区域的包围盒
+# acgpu 场景用的 kurbo, 算脏区域的包围盒
 kurbo = "0.13"
-# anyrender 0.14 用的 peniko, 看图层的合成方式 (region.rs)
+# acgpu 场景用的 peniko, 看图层的合成方式 (region.rs)
 peniko = "0.6"
 # canvas 的离屏光栅化 (flatten、阴影、当图片源、getImageData / toDataURL)、拖动图标的测试读回: 用 web 进程光栅化线程的 wgpu 设备
 vello = "0.11"
 pollster = "0.4"
 # canvas 的 toDataURL 编 PNG
 png = "0.18"
-# 文字的字形坐标 (parley 和 anyrender 的 NormalizedCoord) 按位转, 和 blitz-paint 一样
+# 文字的字形坐标 (parley 和 acgpu 的 NormalizedCoord) 按位转, 和 blitz-paint 一样
 bytemuck = "1"
 # 文档锁: JS 线程和 render 线程共用文档 (MutexGuard::bump 让锁给等着的线程)
 parking_lot = "0.12"

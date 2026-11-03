@@ -1,7 +1,7 @@
 use super::{ElementCx, to_image_quality, to_peniko_image};
 use crate::color::{Color, ToColorColor};
 use crate::gradient::to_peniko_gradient;
-use anyrender::PaintScene;
+use acgpu::PaintScene;
 use blitz_dom::NodeId;
 use blitz_dom::node::{ImageData, ImageResourceData, SpecialElementData};
 use kurbo::{self, Affine, BezPath, Point, Rect, Shape, Size, Vec2};
@@ -460,7 +460,7 @@ impl ElementCx<'_, '_> {
             ))
             * viewport;
 
-        anyrender_svg::render_svg_tree(scene, &svg.tree, transform);
+        crate::svg::SvgPainter::draw(scene, &svg.tree, transform);
     }
 
     fn draw_raster_image_layer(&self, scene: &mut impl PaintScene, layer: &ImageLayerStyles) {
@@ -615,7 +615,7 @@ impl ElementCx<'_, '_> {
             self.scale,
             &current_color,
         );
-        let brush = anyrender::Paint::Gradient(&gradient);
+        let brush = acgpu::Paint::Gradient(&gradient);
 
         // acrender: tile offsets in the element's space, as for raster layers
         let transform = base_transform.pre_translate(Vec2 {

@@ -338,7 +338,7 @@ pub struct BaseDocument {
     pub(crate) sub_document_nodes: HashSet<NodeId>,
     /// acrender: what each `<canvas>` has drawn (2D context commands, in its bitmap's pixels), painted
     /// into its content box
-    pub(crate) canvas_pictures: HashMap<NodeId, Arc<anyrender::Scene>>,
+    pub(crate) canvas_pictures: HashMap<NodeId, Arc<acgpu::Scene>>,
     /// acrender: simple inline SVGs built straight from the DOM (see DocumentConfig::svg_text_only)
     pub(crate) svg_from_dom: bool,
     /// acrender: `DocumentConfig::skip_iframe_content`
@@ -1214,7 +1214,7 @@ impl BaseDocument {
     }
 
     /// acrender: what a `<canvas>` shows (`None`: nothing); the canvas is painted again
-    pub fn set_canvas_picture(&mut self, node_id: NodeId, picture: Option<Arc<anyrender::Scene>>) {
+    pub fn set_canvas_picture(&mut self, node_id: NodeId, picture: Option<Arc<acgpu::Scene>>) {
         match picture {
             Some(p) => _ = self.canvas_pictures.insert(node_id, p),
             None => _ = self.canvas_pictures.remove(&node_id),
@@ -1233,7 +1233,7 @@ impl BaseDocument {
         self.nodes.geometry_generation()
     }
 
-    pub fn canvas_picture(&self, node_id: NodeId) -> Option<&Arc<anyrender::Scene>> {
+    pub fn canvas_picture(&self, node_id: NodeId) -> Option<&Arc<acgpu::Scene>> {
         self.canvas_pictures.get(&node_id)
     }
 

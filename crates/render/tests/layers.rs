@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use acde_render::anyrender::filters::FilterEffect;
-use acde_render::anyrender::{PaintScene, Scene};
+use acde_render::acgpu::FilterEffect;
+use acde_render::acgpu::{PaintScene, Scene};
 use acde_render::{Frame, Options};
 
 mod common;
@@ -91,7 +91,7 @@ fn backdrop_card_splits_into_two_segments() {
         b.bounds
     );
     assert_eq!(b.scale, 2.0);
-    let effects: Vec<&FilterEffect> = b.filter.nodes().iter().map(|n| &n.effect).collect();
+    let effects: Vec<&FilterEffect> = b.filter.effects().iter().collect();
     assert!(
         matches!(effects[0], FilterEffect::GaussianBlur(_)),
         "{effects:?}"
@@ -116,7 +116,7 @@ fn drop_shadow_element_is_its_own_segment() {
     assert_eq!(frame.plane.layers.len(), 2, "the page, then the filtered element (nothing visible after it)");
     let f = frame.plane.layers[1].filter.as_ref().unwrap();
     assert!(matches!(
-        f.filter.nodes()[0].effect,
+        f.filter.effects()[0],
         FilterEffect::DropShadow(_)
     ));
     assert!(

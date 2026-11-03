@@ -1,6 +1,6 @@
 use super::ElementCx;
 use crate::color::{Color, ToColorColor as _};
-use anyrender::PaintScene;
+use acgpu::PaintScene;
 use kurbo::{Rect, Vec2};
 use peniko::{Compose, Fill, Mix};
 

@@ -1,4 +1,4 @@
-use anyrender::PaintScene;
+use acgpu::PaintScene;
 use blitz_dom::{BaseDocument, NodeId, node::TextBrush, util::ToColorColor};
 use kurbo::{Affine, BezPath, Cap, Circle, Rect, Stroke};
 use parley::{Affinity, Cursor, Layout, Line, PositionedLayoutItem, Selection};
@@ -483,7 +483,7 @@ fn draw_decoration_line(
     baseline: f32,
     offset: f32,
     size: f32,
-    brush: &anyrender::Paint,
+    brush: &acgpu::Paint,
     double_dir: f64,
     deco_style: TextDecorationStyle,
     inset_start: f64,
@@ -613,7 +613,7 @@ fn flush_line_decorations(
         if width <= 0.0 {
             continue;
         }
-        let brush = anyrender::Paint::from(deco.color);
+        let brush = acgpu::Paint::from(deco.color);
 
         // `text-decoration-inset` shortens (or, when negative, extends) the line from the
         // inline-start/end edges. Percentages resolve against the decoration line length
@@ -807,11 +807,11 @@ fn draw_ellipsis_marker(
         bytemuck::cast_slice(run.normalized_coords()),
         embolden,
         Fill::NonZero,
-        &anyrender::Paint::from(color),
+        &acgpu::Paint::from(color),
         1.0,
         transform,
         glyph_xform,
-        marker.positioned_glyphs().map(|glyph| anyrender::Glyph {
+        marker.positioned_glyphs().map(|glyph| acgpu::Glyph {
             id: glyph.id as _,
             x: glyph.x + dx,
             y: glyph.y + dy,
@@ -975,14 +975,14 @@ pub(crate) fn stroke_text<'a>(
                     normalized_coords,
                     embolden,
                     Fill::NonZero,
-                    &anyrender::Paint::from(text_color),
+                    &acgpu::Paint::from(text_color),
                     1.0, // alpha
                     transform,
                     glyph_xform,
                     glyph_run
                         .positioned_glyphs()
                         .take_while(|g| cut_here.is_none_or(|(limit, _)| g.x + g.advance <= limit))
-                        .map(|glyph| anyrender::Glyph {
+                        .map(|glyph| acgpu::Glyph {
                             id: glyph.id as _,
                             x: glyph.x,
                             y: glyph.y,

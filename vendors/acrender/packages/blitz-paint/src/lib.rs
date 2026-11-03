@@ -1,5 +1,5 @@
-//! Paint a [`blitz_dom::BaseDocument`] by pushing [`anyrender`] drawing commands into
-//! an impl [`anyrender::PaintScene`].
+//! Paint a [`blitz_dom::BaseDocument`] by pushing drawing commands into an impl of acgpu's
+//! [`acgpu::PaintScene`] (acrender: the 2D scene is acgpu's, anyrender is gone).
 
 #![allow(clippy::collapsible_if)]
 
@@ -11,11 +11,13 @@ mod kurbo_css;
 mod layers;
 mod render;
 mod sizing;
+#[cfg(feature = "svg")]
+mod svg;
 mod text;
 
 use std::collections::HashSet;
 
-use anyrender::{PaintScene, Scene};
+use acgpu::{PaintScene, Scene};
 use blitz_dom::{BaseDocument, NodeId, util::Color};
 use render::BlitzDomPainter;
 
@@ -32,7 +34,7 @@ const FONT_EMBOLDEN_ENABLED: bool = cfg!(any(
 const SELECTION_COLOR: Color = Color::from_rgb8(180, 213, 255);
 
 /// Paint a [`blitz_dom::BaseDocument`] by pushing drawing commands into
-/// an impl [`anyrender::PaintScene`].
+/// an impl [`acgpu::PaintScene`].
 ///
 /// This function assumes that the styles and layout in the [`BaseDocument`] are already
 /// resolved. Please ensure that this is the case before trying to paint.

@@ -21,7 +21,7 @@ use crate::kurbo_css::NonUniformRoundedRectRadii;
 use crate::layers;
 use crate::sizing::compute_object_fit;
 use crate::text::DrawTextContext;
-use anyrender::{PaintScene, Scene};
+use acgpu::{PaintScene, Scene};
 use blitz_dom::node::{
     ListItemLayout, ListItemLayoutPosition, Marker, NodeData, RasterImageData, TextInputData,
     TextLayout, TextNodeData,
@@ -104,23 +104,9 @@ impl<'a> PhysicalTracks<'a> {
     }
 }
 
-/// acrender: a recorded command moved by `transform` (what anyrender's `append_scene` does to each command)
 /// acrender: `command` with `transform` applied on top of its own
-pub fn placed(
-    mut command: anyrender::recording::RenderCommand,
-    transform: Affine,
-) -> anyrender::recording::RenderCommand {
-    use anyrender::recording::RenderCommand as C;
-    match &mut command {
-        C::PushLayer(c) => c.transform = transform * c.transform,
-        C::PushClipLayer(c) => c.transform = transform * c.transform,
-        C::PopLayer => {}
-        C::Stroke(c) => c.transform = transform * c.transform,
-        C::Fill(c) => c.transform = transform * c.transform,
-        C::GlyphRun(c) => c.transform = transform * c.transform,
-        C::BoxShadow(c) => c.transform = transform * c.transform,
-    }
-    command
+pub fn placed(command: acgpu::RenderCommand, transform: Affine) -> acgpu::RenderCommand {
+    command.transformed(transform)
 }
 
 /// A short-lived struct which holds a bunch of parameters for rendering a scene so
@@ -765,7 +751,7 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
                 // - y1: positive bottom expansion
                 let filter_expansion_area = filter
                     .as_ref()
-                    .map(|f| f.expansion_rect())
+                    .map(|f| f.expansion())
                     .unwrap_or(Rect::ZERO);
 
                 // acrender: the border box (the bounding box of its path)
@@ -1699,13 +1685,13 @@ fn create_css_rect(style: &ComputedValues, layout: &Layout, scale: f64) -> CssBo
 
 #[cfg(feature = "svg")]
 /// acrender: draws a usvg tree with `inner` (relative to the element) and the element's `transform`
-/// applied on top. anyrender_svg outsets group-opacity clips by 2px after transforming to the canvas,
+/// applied on top. svg.rs (like anyrender_svg before it) outsets group-opacity clips by 2px after transforming to the canvas,
 /// so rendering with the full transform made that margin depend on where the element was drawn
 /// (a cached paint fragment is recorded in local space and placed later): render relative to the
 /// element and append, so it is the same either way.
 fn draw_svg_tree(scene: &mut impl PaintScene, tree: &usvg::Tree, transform: Affine, inner: Affine) {
-    let mut local = anyrender::Scene::new();
-    anyrender_svg::render_svg_tree(&mut local, tree, inner);
+    let mut local = acgpu::Scene::new();
+    crate::svg::SvgPainter::draw(&mut local, tree, inner);
     scene.append_scene(local, transform);
 }
 

@@ -75,8 +75,7 @@ name = "acde-render"
 version = "0.1.0"
 dependencies = [
  "acde-log",
- "anyrender",
- "anyrender_vello",
+ "acgpu",
  "base64 0.22.1",
  "blitz-dom",
  "blitz-paint",
@@ -171,6 +170,41 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-scanner",
+]
+
+[[package]]
+name = "acgpu"
+version = "0.1.0"
+source = "git+https://github.com/dopame-org/acgpu?rev=2cf211abb11aaa071a1377a2401286a88af56f4b#2cf211abb11aaa071a1377a2401286a88af56f4b"
+dependencies = [
+ "acgpu-core",
+ "acgpu-wgpu",
+]
+
+[[package]]
+name = "acgpu-core"
+version = "0.1.0"
+source = "git+https://github.com/dopame-org/acgpu?rev=2cf211abb11aaa071a1377a2401286a88af56f4b#2cf211abb11aaa071a1377a2401286a88af56f4b"
+dependencies = [
+ "kurbo",
+ "libc",
+ "mlirformat",
+ "mlirpass",
+ "peniko",
+ "serde",
+ "vello_common",
+]
+
+[[package]]
+name = "acgpu-wgpu"
+version = "0.1.0"
+source = "git+https://github.com/dopame-org/acgpu?rev=2cf211abb11aaa071a1377a2401286a88af56f4b#2cf211abb11aaa071a1377a2401286a88af56f4b"
+dependencies = [
+ "acgpu-core",
+ "kurbo",
+ "peniko",
+ "vello",
+ "wgpu",
 ]
 
 [[package]]
@@ -285,60 +319,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "anstream"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "824a212faf96e9acacdbd09febd34438f8f711fb84e09a8916013cd7815ca28d"
+dependencies = [
+ "anstyle",
+ "anstyle-parse",
+ "anstyle-query",
+ "anstyle-wincon",
+ "colorchoice",
+ "is_terminal_polyfill",
+ "utf8parse",
+]
+
+[[package]]
 name = "anstyle"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
+name = "anstyle-parse"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52ce7f38b242319f7cabaa6813055467063ecdc9d355bbb4ce0c68908cd8130e"
+dependencies = [
+ "utf8parse",
+]
+
+[[package]]
+name = "anstyle-query"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "anstyle-wincon"
+version = "3.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
+dependencies = [
+ "anstyle",
+ "once_cell_polyfill",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
-
-[[package]]
-name = "anyrender"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1755d0ef8e00e87b6b825dfbe5a35d34d3b302e97e80a48e93f9cd361fbada06"
-dependencies = [
- "kurbo",
- "peniko",
- "raw-window-handle",
- "smallvec",
-]
-
-[[package]]
-name = "anyrender_svg"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39327debd1bdca190d086c107825a5dc4c665be31e99e5c0854345a050d08cad"
-dependencies = [
- "anyrender",
- "image",
- "kurbo",
- "peniko",
- "usvg",
-]
-
-[[package]]
-name = "anyrender_vello"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04d545f71a3f13b1099d5787c44cfeb00322cebbebbf90c4f8cdae78bee423f7"
-dependencies = [
- "anyrender",
- "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "futures-channel",
- "kurbo",
- "peniko",
- "pollster",
- "rustc-hash 2.1.3",
- "vello",
- "wasm-bindgen-futures",
- "wgpu",
- "wgpu_context",
-]
 
 [[package]]
 name = "app_units"
@@ -752,14 +786,14 @@ dependencies = [
 name = "blitz-dom"
 version = "0.3.0-beta.4"
 dependencies = [
- "anyrender",
+ "acgpu",
  "app_units",
  "atomic_refcell",
  "bitflags 2.13.2",
  "blitz-traits",
  "color",
  "cssparser",
- "debug_timer 0.1.3",
+ "debug_timer",
  "euclid",
  "html-escape",
  "icu_casemap",
@@ -797,12 +831,12 @@ dependencies = [
 name = "blitz-paint"
 version = "0.3.0-beta.4"
 dependencies = [
- "anyrender",
- "anyrender_svg",
+ "acgpu",
  "blitz-dom",
  "blitz-traits",
  "bytemuck",
  "color",
+ "image",
  "kurbo",
  "parley",
  "peniko",
@@ -1069,6 +1103,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa8876b300ab35ba921adea3dfd70157a46249b33f95c9084ae5709785478946"
+dependencies = [
+ "clap_builder",
+ "clap_derive",
+]
+
+[[package]]
+name = "clap_builder"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0797fb7aeb1406c84efac526901f7ec3ead2124f946b494e72879d4b54704d"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "clap_lex",
+ "strsim",
+]
+
+[[package]]
+name = "clap_derive"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9c751b79415d4e559e3d1fcf128e09e720eb673a06d26cf6f392d37d75b66e0"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
+name = "clap_lex"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1099,12 +1173,21 @@ name = "color"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ec7c5eb7a16992b1904d76c517d170ab353b0e0b3d5a0c81a8a0cd1037893cf"
+dependencies = [
+ "bytemuck",
+]
 
 [[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
+
+[[package]]
+name = "colorchoice"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "concurrent-queue"
@@ -1461,12 +1544,6 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-
-[[package]]
-name = "debug_timer"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 
 [[package]]
 name = "debug_unsafe"
@@ -1952,6 +2029,12 @@ checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
 ]
+
+[[package]]
+name = "fearless_simd"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4beca3cb2444e3304ac30843cc091f44ed58932353cd492ce740067bfce6b12"
 
 [[package]]
 name = "ff"
@@ -3146,6 +3229,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "is_terminal_polyfill"
+version = "1.70.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
 name = "iso7816"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3640,6 +3729,55 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mlirformat"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c97c64fa05503cb63e754a62814abe1379c7e427a627029c1b1acd132f23601"
+dependencies = [
+ "clap",
+ "mlirformat-macros",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "mlirformat-macros"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aea2473c25608967c4a29c1f48d8bfac580508202d8e2fd72393f08129df675"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "mlirpass"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc384615fb759b36fa47229b0403a4d33842a3540186882f7da096e2d6e5b0b5"
+dependencies = [
+ "libm",
+ "mlirformat",
+ "mlirpass-macros",
+ "serde",
+ "smallvec",
+ "thiserror",
+]
+
+[[package]]
+name = "mlirpass-macros"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e585a0894ea4e979d710850e61d5ce2c0b5b47615b004f6bf924f1095839c00"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -4356,6 +4494,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "once_cell_polyfill"
+version = "1.70.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
 name = "oneshot"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4584,6 +4728,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "839c8299360d2e998bdb106dc0a6cd71dcc5f4df51df1b620361bf50e283cca6"
 dependencies = [
+ "bytemuck",
  "color",
  "kurbo",
  "linebender_resource_handle",
@@ -6063,6 +6208,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "strsim"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
 name = "strum"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7020,6 +7171,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
+name = "utf8parse"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
 name = "uuid"
 version = "1.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7086,6 +7243,22 @@ dependencies = [
  "vello_encoding",
  "vello_shaders",
  "wgpu",
+]
+
+[[package]]
+name = "vello_common"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73c2fbe53548bcd25c8ff42f75a93770a8611a16b37bee56d7ef7b44e36027f1"
+dependencies = [
+ "bytemuck",
+ "fearless_simd",
+ "guillotiere",
+ "log",
+ "peniko",
+ "png",
+ "smallvec",
+ "thiserror",
 ]
 
 [[package]]
@@ -7563,16 +7736,6 @@ dependencies = [
  "serde",
  "static_assertions",
  "web-sys",
-]
-
-[[package]]
-name = "wgpu_context"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5277f9d30e7087f1eeb0034206dce7d3377e76da017fdceb8aa4faebb1df68e2"
-dependencies = [
- "futures-intrusive",
- "wgpu",
 ]
 
 [[package]]

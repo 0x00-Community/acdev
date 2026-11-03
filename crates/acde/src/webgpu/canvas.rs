@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use acde_render::anyrender_vello::wgpu;
+use acde_render::acgpu::fallback::wgpu;
 use acde_paint::{CanvasImage, Gpu};
 
 use super::{Id, Kind, Obj, Out, Ret, State, Texture, Throw, desc, enter, finish, json, report, with_state};

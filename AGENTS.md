@@ -52,7 +52,7 @@ acde web <app>#<窗口> (子进程)                      每个应用窗口一�
 ```
 
 web 进程 (`acde web <名字> --port <fd> --heap-mb <mb>`, 同一个可执行文件, crates/acde `web.rs`): 里面是 crates/render 的文档、
-crates/paint (光栅化, 从合成器搬出来的那套: vello on Vulkan, filter 和 drop-shadow) 和 crates/window
+crates/paint (光栅化, 从合成器搬出来的那套: acgpu 的场景经 acgpu 的回退画在 vello on Vulkan 上, filter 和 drop-shadow) 和 crates/window
 (Wayland 客户端: xdg_toplevel + linux-dmabuf + `acde_window`, 输入 / 剪贴板 / 拖放 / frame). 它死掉只掉它的窗口.
 
 ### 运行时进程 (目标, 在做)
@@ -1068,9 +1068,13 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个 we
 - 都是直接放在本仓库里的源码 (没有 submodule, 不带上游历史): 直接在这里改, 改动处加 `acrender:` (ironrdp-server 是 `acde:`)
   注释, 下面的表同步更新; 升级上游时把这些改动重新打上去. 有 `Cargo.toml` 的末尾加了空的 `[workspace]`, 根 `Cargo.toml` 用
   `[patch.crates-io]` 替换上游 (crate 名不改).
-- **acgpu 不进本仓库** (用户定, 2026-11-02): 我们自己的 GPU 用户态驱动 acgpu (dopame-org/acgpu) 是独立仓库, 这里不放它的拷贝
-  (没有 `vendors/acgpu`), 也不依赖它. 网页图层在 Xe3 上走 acgpu 的那一段 (`vendors/acgpu` 和 crates/paint `acgpu.rs`) 已经删掉,
-  对拷贝的改动搬回了 acgpu 仓库; 最后一版在历史里 (`7b9181d`). 以后要再接, 先由用户定怎么依赖, 不拷进来.
+- **acgpu 是依赖, 不进本仓库** (用户定, 2026-11-02 / 11-03): 我们自己的 GPU 用户态驱动 acgpu (dopame-org/acgpu) 是独立仓库, 这里
+  不放它的拷贝 (没有 `vendors/acgpu`), 以 Rust crate 依赖它: git 依赖仓库根的 `acgpu` 包, 钉 rev (crates/render 和
+  vendors/acrender 的 Cargo.toml). 网页图层画进 acgpu 的 2D 场景 (`acgpu::PaintScene` / `Scene` / `RenderCommand` / `Filter`):
+  blitz-paint 和 crates/render 直接画进它, 没有 anyrender 这一层 (已删; 它画 SVG 的 anyrender_svg 搬成了 blitz-paint 的 `svg.rs`).
+  画出来是 acgpu 的事, 回退也归 acgpu: 没有 acgpu 驱动时走 `acgpu::fallback` (vello on wgpu), acde 只经它拿 `VelloScene` 和
+  `wgpu`. 现在 crates/paint 还自己调 vello 的 `Renderer` 和图层合成, 这部分要搬进 acgpu (acgpu docs/roadmap.md「接入 acde-base」S3).
+  改 acgpu 的场景接口就是改 acde 的接口: 先在 acgpu 提交推送, 再在这里改 rev.
 
 版本看各目录的 `Cargo.toml` 和根 `Cargo.lock`.
 

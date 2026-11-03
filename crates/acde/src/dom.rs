@@ -281,10 +281,10 @@ impl IntoJs for acde_render::Viewport {
 }
 
 thread_local! {
-    static PICTURE: RefCell<(u32, Option<(u32, acde_render::anyrender::Scene)>)> = const { RefCell::new((0, None)) };
+    static PICTURE: RefCell<(u32, Option<(u32, acde_render::acgpu::Scene)>)> = const { RefCell::new((0, None)) };
 }
 
-fn keep_picture(scene: acde_render::anyrender::Scene) -> u32 {
+fn keep_picture(scene: acde_render::acgpu::Scene) -> u32 {
     PICTURE.with(|p| {
         let mut p = p.borrow_mut();
         p.0 = p.0.wrapping_add(1).max(1);
@@ -295,7 +295,7 @@ fn keep_picture(scene: acde_render::anyrender::Scene) -> u32 {
 }
 
 #[cfg(target_os = "linux")]
-pub fn take_picture(id: u32) -> Option<acde_render::anyrender::Scene> {
+pub fn take_picture(id: u32) -> Option<acde_render::acgpu::Scene> {
     PICTURE.with(|p| {
         let mut p = p.borrow_mut();
         match p.1.take() {

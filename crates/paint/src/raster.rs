@@ -1,9 +1,9 @@
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::sync::mpsc;
 
-use acde_render::anyrender::PaintScene;
-use acde_render::anyrender_vello::VelloScenePainter;
-use acde_render::anyrender_vello::wgpu;
+use acde_render::acgpu::PaintScene;
+use acde_render::acgpu::fallback::VelloScene;
+use acde_render::acgpu::fallback::wgpu;
 use ash::vk;
 use smithay::backend::allocator::Buffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -33,7 +33,7 @@ pub enum Job {
     Canvases(usize, Vec<Dmabuf>, (u32, u32)),
     Draw(Vec<Pass>),
     Release(usize),
-    Icon { dmabuf: Dmabuf, size: (u32, u32), scene: acde_render::anyrender::Scene, reply: mpsc::Sender<Result<(), String>> },
+    Icon { dmabuf: Dmabuf, size: (u32, u32), scene: acde_render::acgpu::Scene, reply: mpsc::Sender<Result<(), String>> },
 }
 
 pub struct Pass {
@@ -315,16 +315,16 @@ impl Raster {
         Ok(())
     }
 
-    fn render(&mut self, scene: acde_render::anyrender::Scene, place: Affine, (width, height): (u32, u32), target: &wgpu::TextureView) -> Result<(), String> {
+    fn render(&mut self, scene: acde_render::acgpu::Scene, place: Affine, (width, height): (u32, u32), target: &wgpu::TextureView) -> Result<(), String> {
         self.scene.reset();
         self.overrides.apply(&mut self.vello, &scene);
-        VelloScenePainter::new(&mut self.scene).append_scene(scene, place);
+        VelloScene::from(&mut self.scene).append_scene(scene, place);
         acde_render::gpu::keep_atlas(&mut self.scene);
         let params = vello::RenderParams { base_color: Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
         self.vello.render_to_texture(&self.device, &self.queue, &self.scene, target, &params).map_err(|e| format!("vello 渲染: {e}"))
     }
 
-    fn icon(&mut self, dmabuf: &Dmabuf, (width, height): (u32, u32), scene: acde_render::anyrender::Scene) -> Result<(), String> {
+    fn icon(&mut self, dmabuf: &Dmabuf, (width, height): (u32, u32), scene: acde_render::acgpu::Scene) -> Result<(), String> {
         let texture = self.import_vulkan(dmabuf, (width, height))?;
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let layer = self.composer.layer_view((width, height));

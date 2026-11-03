@@ -1,4 +1,4 @@
-use acde_render::anyrender::Scene;
+use acde_render::acgpu::Scene;
 use smithay::utils::{Buffer as BufferCoord, Rectangle};
 
 use crate::compose::{Backdrop, Effect, Shadow};
@@ -57,7 +57,7 @@ impl Content {
 
 impl From<acde_render::Layer> for Part {
     fn from(layer: acde_render::Layer) -> Self {
-        use acde_render::anyrender::filters::FilterEffect;
+        use acde_render::acgpu::FilterEffect;
         let backdrop = layer.backdrop.as_ref().map(|b| {
             let r = b.bounds.intersect(b.clip);
             Backdrop {
@@ -70,12 +70,11 @@ impl From<acde_render::Layer> for Part {
         });
         let mut shadows = Vec::new();
         let mut effect = Effect::default();
-        for (n, scale) in layer.filter.iter().flat_map(|f| f.filter.nodes().iter().map(|n| (n, f.scale as f32))) {
-            match &n.effect {
+        for (e, scale) in layer.filter.iter().flat_map(|f| f.filter.effects().iter().map(|e| (e, f.scale as f32))) {
+            match e {
                 FilterEffect::DropShadow(d) => shadows.push(Shadow { dx: d.dx * scale, dy: d.dy * scale, blur: d.std_deviation * scale, color: d.color.components }),
                 FilterEffect::GaussianBlur(g) => effect.blur(g.std_deviation * scale),
                 FilterEffect::ColorMatrix(m) => effect.matrix(m.0),
-                _ => {}
             }
         }
         let cover = |r: &vello::kurbo::Rect| Rect::damaged(&(*r).into());

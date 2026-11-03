@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
-use acde_render::anyrender_vello::wgpu;
+use acde_render::acgpu::fallback::wgpu;
 use acde_paint::Gpu;
 
 use crate::bind;

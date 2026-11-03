@@ -61,9 +61,8 @@ skrifa = { version = "0.44", default-features = false, features = [
     "std",
 ] } # Should match parley and vello versions
 
-# AnyRender
-anyrender = { version = "0.14.0" }
-anyrender_svg = { version = "0.15.0" }
+# acrender: the 2D scene is acgpu's (anyrender is gone); blitz paints straight into acgpu's PaintScene
+acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "2cf211abb11aaa071a1377a2401286a88af56f4b", default-features = false }
 
 # Linebender + Fontations + SVG
 color = "0.3"

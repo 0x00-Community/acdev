@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use anyrender::Filter;
-use anyrender::Scene;
-use anyrender::filters::FilterEffect;
-use anyrender::filters::color_transformation::ColorMatrix;
-use anyrender::recording::{LayerCommand, RenderCommand};
+use acgpu::Filter;
+use acgpu::Scene;
+use acgpu::FilterEffect;
+use acgpu::ColorMatrix;
+use acgpu::{LayerCommand, RenderCommand};
 use kurbo::{Affine, BezPath, PathEl, Rect, Shape};
 
 use crate::commands::{Builder, Commands};
@@ -47,9 +47,9 @@ impl Backdrop {
 
     pub fn blur(&self) -> f64 {
         self.filter
-            .nodes()
+            .effects()
             .iter()
-            .map(|n| match &n.effect {
+            .map(|e| match e {
                 FilterEffect::GaussianBlur(b) => f64::from(b.std_deviation) * self.scale,
                 _ => 0.0,
             })
@@ -69,7 +69,7 @@ impl Backdrop {
     }
 
     fn matrices(&self) -> impl Iterator<Item = &[f32; 20]> {
-        self.filter.nodes().iter().filter_map(|n| match &n.effect {
+        self.filter.effects().iter().filter_map(|e| match e {
             FilterEffect::ColorMatrix(m) => Some(&m.0),
             _ => None,
         })

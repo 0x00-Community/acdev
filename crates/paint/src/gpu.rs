@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
-use acde_render::anyrender_vello::wgpu;
+use acde_render::acgpu::fallback::wgpu;
 use acde_render::gpu::Shared;
 
 type LostListener = Box<dyn Fn(&str) + Send>;

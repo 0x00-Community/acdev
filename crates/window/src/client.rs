@@ -45,7 +45,7 @@ pub(crate) const TEXT: [&str; 3] = ["text/plain;charset=utf-8", "text/plain", "U
 pub struct DragImage {
     pub width: u32,
     pub height: u32,
-    pub scene: acde_render::anyrender::Scene,
+    pub scene: acde_render::acgpu::Scene,
     pub hotspot: (i32, i32),
 }
 

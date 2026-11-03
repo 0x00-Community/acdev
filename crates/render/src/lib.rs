@@ -16,8 +16,7 @@ mod serialize;
 mod tree;
 mod verify;
 
-pub use anyrender;
-pub use anyrender_vello;
+pub use acgpu;
 pub use blitz_dom;
 pub use blitz_paint;
 pub use canvas::encode_png;
@@ -183,13 +182,13 @@ impl Frame {
         self.trace = acde_log::Trace::earliest(old.trace, self.trace);
     }
 
-    pub fn whole(&self) -> anyrender::Scene {
+    pub fn whole(&self) -> acgpu::Scene {
         let plane = &self.plane;
         let commands = match plane.layers.is_empty() {
             true => plane.commands.to_vec(),
             false => plane.layers.iter().flat_map(|l| l.scene().commands).collect(),
         };
-        anyrender::Scene { tolerance: plane.tolerance, commands }
+        acgpu::Scene { tolerance: plane.tolerance, commands }
     }
 }
 
@@ -220,11 +219,11 @@ impl Plane {
         }
     }
 
-    pub fn scene_for(&self, rect: kurbo::Rect) -> anyrender::Scene {
+    pub fn scene_for(&self, rect: kurbo::Rect) -> acgpu::Scene {
         region::scene_for(&self.commands, &self.draw, self.tolerance, rect)
     }
 
-    pub fn scene(&self) -> anyrender::Scene {
+    pub fn scene(&self) -> acgpu::Scene {
         self.commands.to_scene(self.tolerance)
     }
 }
@@ -397,12 +396,12 @@ impl Document {
         _ = done.recv_timeout(Duration::from_secs(10));
     }
 
-    pub fn scene(&self) -> anyrender::Scene {
+    pub fn scene(&self) -> acgpu::Scene {
         self.shared
             .call(&self.wake, |engine| Ok(engine.scene()))
             .unwrap_or_else(|e| {
                 log::error!("{e}");
-                anyrender::Scene::new()
+                acgpu::Scene::new()
             })
     }
 }

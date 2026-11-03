@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use acde_render::anyrender_vello::wgpu;
+use acde_render::acgpu::fallback::wgpu;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Backdrop {

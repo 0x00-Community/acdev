@@ -3,9 +3,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
-use anyrender::recording::RenderCommand;
-use anyrender::{Paint, PaintScene, Scene};
-use anyrender_vello::{VelloScenePainter, wgpu};
+use acgpu::RenderCommand;
+use acgpu::{Paint, PaintScene, Scene};
+use acgpu::fallback::{VelloScene, wgpu};
 use kurbo::Affine;
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -323,7 +323,7 @@ impl Offscreen {
         self.overrides.forget(&mut self.vello);
         self.scene.reset();
         self.overrides.apply(&mut self.vello, &scene);
-        VelloScenePainter::new(&mut self.scene).append_scene(scene, place);
+        VelloScene::from(&mut self.scene).append_scene(scene, place);
         keep_atlas(&mut self.scene);
         let params = vello::RenderParams { base_color: peniko::Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
         let rendered = {
