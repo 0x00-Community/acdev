@@ -4,11 +4,11 @@ use anyrender::Filter;
 use anyrender::Scene;
 use anyrender::filters::FilterEffect;
 use anyrender::filters::color_transformation::ColorMatrix;
-use anyrender::recording::RenderCommand;
+use anyrender::recording::{LayerCommand, RenderCommand};
 use kurbo::{Affine, BezPath, PathEl, Rect, Shape};
 
 use crate::commands::{Builder, Commands};
-use crate::damage::{Damage, Kind};
+use crate::damage::{Damage, Kind, draw_bounds};
 
 pub struct Layer {
     commands: Commands,
@@ -29,25 +29,20 @@ pub struct Backdrop {
 }
 
 impl Backdrop {
-    fn radii_of(shape: &BezPath) -> [f64; 4] {
-        let b = shape.bounding_box();
-        let points: Vec<kurbo::Point> = shape
+    pub fn radius(&self) -> f64 {
+        let b = self.shape.bounding_box();
+        let max = (b.width() / 2.0).min(b.height() / 2.0);
+        self.shape
             .elements()
             .iter()
             .filter_map(|el| match el {
                 PathEl::MoveTo(p) | PathEl::LineTo(p) | PathEl::QuadTo(_, p) | PathEl::CurveTo(_, _, p) => Some(*p),
-                _ => None,
+                PathEl::ClosePath => None,
             })
-            .collect();
-        let on = |y: f64| points.iter().filter(move |p| (p.y - y).abs() < 0.01);
-        let max = (b.width() / 2.0).min(b.height() / 2.0);
-        let left = |y: f64| on(y).map(|p| p.x - b.x0).fold(f64::MAX, f64::min).clamp(0.0, max);
-        let right = |y: f64| on(y).map(|p| b.x1 - p.x).fold(f64::MAX, f64::min).clamp(0.0, max);
-        [left(b.y0), right(b.y0), right(b.y1), left(b.y1)]
-    }
-
-    pub fn radius(&self) -> f64 {
-        Self::radii_of(&self.shape)[0]
+            .filter(|p| (p.y - b.y0).abs() < 0.01)
+            .map(|p| p.x - b.x0)
+            .fold(f64::MAX, f64::min)
+            .clamp(0.0, max)
     }
 
     pub fn blur(&self) -> f64 {
@@ -98,7 +93,7 @@ pub struct LayerFilter {
 
 impl Layer {
     pub fn scene_for(&self, rect: Rect) -> Scene {
-        crate::region::Region::scene_for(&self.commands, &self.draw, self.tolerance, rect)
+        crate::region::scene_for(&self.commands, &self.draw, self.tolerance, rect)
     }
 
     pub fn scene(&self) -> Scene {
@@ -165,7 +160,7 @@ impl<'a> Split<'a> {
             viewport,
         };
         for (i, (command, t)) in commands.iter().enumerate() {
-            split.this = draw.get(i).copied().unwrap_or_else(|| Damage::draw_bounds(command, t));
+            split.this = draw.get(i).copied().unwrap_or_else(|| draw_bounds(command, t));
             split.this_kind = kinds.get(i).copied().unwrap_or_else(|| Kind::of(command, t));
             split.command(i, command, t);
         }
@@ -188,11 +183,7 @@ impl<'a> Split<'a> {
                 };
                 self.cut();
                 self.backdrop = Some(backdrop);
-                let RenderCommand::PushLayer(mut plain) = Commands::placed(command, t) else { unreachable!() };
-                plain.backdrop_filter = None;
-                let plain = RenderCommand::PushLayer(plain);
-                let kind = Kind::of(&plain, Affine::IDENTITY);
-                self.push(Pushed::Own(Box::new(plain)), kind);
+                self.push_plain(command, t, |l| l.backdrop_filter = None);
             }
             RenderCommand::PushLayer(l) if self.filter_depth.is_none() && l.filter.is_some() => {
                 let filter = l.filter.clone().unwrap();
@@ -202,11 +193,7 @@ impl<'a> Split<'a> {
                 self.cut();
                 self.filter = Some(LayerFilter { filter, bounds: bounds.intersect(self.clip()), scale: self.scale(t * l.transform) });
                 self.filter_depth = Some(self.open.len());
-                let RenderCommand::PushLayer(mut plain) = Commands::placed(command, t) else { unreachable!() };
-                plain.filter = None;
-                let plain = RenderCommand::PushLayer(plain);
-                let kind = Kind::of(&plain, Affine::IDENTITY);
-                self.push(Pushed::Own(Box::new(plain)), kind);
+                self.push_plain(command, t, |l| l.filter = None);
             }
             RenderCommand::PushLayer(_) | RenderCommand::PushClipLayer(_) => self.push(Pushed::At(i), self.this_kind),
             RenderCommand::PopLayer => {
@@ -244,6 +231,14 @@ impl<'a> Split<'a> {
         self.current_draws = true;
         self.current_draw.push(self.this);
         self.current_kinds.push(self.this_kind);
+    }
+
+    fn push_plain(&mut self, command: &RenderCommand, t: Affine, strip: fn(&mut LayerCommand)) {
+        let RenderCommand::PushLayer(mut plain) = Commands::placed(command, t) else { unreachable!() };
+        strip(&mut plain);
+        let plain = RenderCommand::PushLayer(plain);
+        let kind = Kind::of(&plain, Affine::IDENTITY);
+        self.push(Pushed::Own(Box::new(plain)), kind);
     }
 
     fn push(&mut self, pushed: Pushed, kind: Kind) {

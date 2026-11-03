@@ -7,16 +7,14 @@ use blitz_dom::{BaseDocument, DocumentConfig, NodeId};
 use blitz_traits::net::Url;
 use blitz_traits::shell::{ColorScheme, Viewport};
 
-use crate::capture::Capture;
 use crate::verify::Mismatch;
 use blitz_paint::PaintCache;
 use crate::commands::Commands;
 use crate::damage::Damage;
-use crate::layers::Split;
 use crate::net::LocalNet;
 use crate::tree::{Ids, Tree};
 use crate::canvas::Canvas;
-use crate::{Error, Frame, Options, Panel, Plane, Rect, Result, Stats, TextMetrics};
+use crate::{Error, Frame, Options, Panel, Plane, Rect, Result, Stats};
 
 const FRAME: f64 = 1.0 / 60.0;
 
@@ -94,9 +92,8 @@ impl Engine {
         let document = this.doc.root_node().id;
         {
             let mut tree = this.tree();
-            let html = tree.create_element_ns(blitz_dom::ns!(html), "html");
-            tree.m
-                .append_children(document, &[tree.ids.node(html).unwrap()]);
+            let html = tree.create_element(blitz_dom::ns!(html), "html");
+            tree.m.append_children(document, &[html]);
         }
         this.doc.add_user_agent_stylesheet(blitz_dom::UserAgentStylesheet::parse(UA_EXTRA));
         Ok(this)
@@ -116,33 +113,11 @@ impl Engine {
         }
     }
 
-    pub(crate) fn capture(&mut self, id: u32, scale: Option<f64>) -> Result<Option<Capture>> {
-        let node = self.ids.node(id)?;
-        Ok(Capture::of(self.resolved(), node, scale))
-    }
-
-    pub(crate) fn measure_text(&mut self, id: u32, font: &str, text: &str) -> Result<TextMetrics> {
-        self.ids.node(id)?;
-        Ok(Canvas::measure(&mut self.doc, font, text))
-    }
-
-    pub(crate) fn to_data_url(&self, id: u32) -> Result<String> {
-        self.with_canvas(id, |c| c.data_url().unwrap_or_else(|| "data:,".into()))
-    }
-
-    pub(crate) fn get_image_data(&mut self, id: u32, x: f64, y: f64, width: f64, height: f64) -> Result<Vec<u8>> {
-        if ![x, y, width, height].iter().all(|v| v.is_finite()) || (width * height).abs() > f64::from(crate::canvas::MAX_SIDE).powi(2) {
-            return Err(Error::new("getImageData: bad rectangle"));
-        }
-        self.with_canvas(id, |c| c.image_data(kurbo::Rect::new(x, y, x + width, y + height)))
-    }
-
-    fn with_canvas<T>(&self, id: u32, f: impl FnOnce(&Canvas) -> T) -> Result<T> {
-        let node = self.ids.node(id)?;
-        Ok(match self.ids.canvases.get(&id) {
+    pub(crate) fn with_canvas<T>(&self, id: u32, node: NodeId, f: impl FnOnce(&Canvas) -> T) -> T {
+        match self.ids.canvases.get(&id) {
             Some(c) => f(c),
             None => f(&Canvas::new(Canvas::size_of(&self.doc, node))),
-        })
+        }
     }
 
     pub(crate) fn resize(&mut self, width: u32, height: u32, scale: f32) {
@@ -212,9 +187,7 @@ impl Engine {
             ..self.stats
         }
     }
-}
 
-impl Engine {
     pub(crate) fn scene(&mut self) -> anyrender::Scene {
         self.resolved();
         self.paint().0.to_scene(anyrender::Scene::new().tolerance)
@@ -242,7 +215,7 @@ impl Engine {
         let cache = self.paint_cache.stats;
         self.stats.fragments_recorded = cache.recorded;
         self.stats.fragments_reused = cache.reused;
-        self.stats.paint_ms = Self::ms(start);
+        self.stats.paint_ms = acde_log::since_ms(start);
         let mut from_cache = true;
         if self.verify {
             let mut reference = anyrender::Scene::new();
@@ -343,10 +316,10 @@ impl Engine {
         let (rects, by_fragment, missed) = self.damage.update(&commands, anyrender::Scene::new().tolerance, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
         self.stats.damage_mismatches += u32::from(missed);
         self.stats.damage_by_fragment += u32::from(by_fragment);
-        self.stats.damage_ms = Self::ms(start);
+        self.stats.damage_ms = acde_log::since_ms(start);
         let start = Instant::now();
         let plane = self.damage.plane(commands, rects, scale, viewport);
-        self.stats.layers_ms = Self::ms(start);
+        self.stats.layers_ms = acde_log::since_ms(start);
         plane
     }
 
@@ -358,32 +331,7 @@ impl Engine {
         let extent = damage.kinds().iter().zip(damage.draw()).filter(|(k, r)| **k == crate::damage::Kind::Draw && r.area() > 0.0).map(|(_, r)| *r).reduce(|a, b| a.union(b)).map(Rect::from);
         Panel { id, size, plane: damage.plane(commands, rects, scale, viewport), extent }
     }
-}
 
-impl Damage {
-    fn plane(&mut self, commands: Commands, rects: Vec<kurbo::Rect>, scale: f64, viewport: kurbo::Rect) -> Plane {
-        let tolerance = anyrender::Scene::new().tolerance;
-        let damage = self;
-        let union = rects.iter().copied().reduce(|x, y| x.union(y)).unwrap_or(kurbo::Rect::ZERO);
-        let bounds = Damage::content_bounds(damage.kinds(), damage.draw(), viewport).map(Rect::from);
-        let (commands, layers, draw) = match Split::layers(commands, tolerance, damage.kinds(), damage.draw(), scale, viewport) {
-            Ok(layers) => (Commands::default(), layers, Vec::new()),
-            Err(commands) => (commands, Vec::new(), damage.draw().to_vec()),
-        };
-        Plane {
-            commands,
-            tolerance,
-            layers,
-            damage: union.into(),
-            damage_rects: rects.into_iter().map(Rect::from).collect(),
-            bounds,
-            draw,
-        }
-    }
-
-}
-
-impl Engine {
     pub(crate) fn paint_frame(&mut self) -> Painted {
         self.resolved();
         let (commands, panels) = self.paint();
@@ -392,7 +340,7 @@ impl Engine {
             commands,
             panels,
             scale,
-            size: self.size(),
+            size: self.doc.viewport().window_size,
             animating: self.doc.is_animating(),
             commit: self.committed,
         }
@@ -414,12 +362,6 @@ impl Engine {
         }
     }
 
-    pub(crate) fn size(&self) -> (u32, u32) {
-        self.doc.viewport().window_size
-    }
-}
-
-impl Engine {
     pub(crate) fn tree(&mut self) -> Tree<'_> {
         self.touch();
         Tree {
@@ -444,10 +386,6 @@ impl Engine {
         self.stats.frame = Default::default();
     }
 
-    pub(crate) fn ms(start: Instant) -> f64 {
-        start.elapsed().as_secs_f64() * 1e3
-    }
-
     pub(crate) fn resolved(&mut self) -> &BaseDocument {
         let animation_due = self.doc.is_animating() && self.clock.now() - self.resolved_at >= FRAME;
         if self.stale || animation_due {
@@ -455,7 +393,7 @@ impl Engine {
             let start = Instant::now();
             self.resolved_at = self.clock.now();
             self.doc.resolve(self.resolved_at);
-            self.stats.resolve_ms = Self::ms(start);
+            self.stats.resolve_ms = acde_log::since_ms(start);
             self.stats.resolve.add(self.stats.resolve_ms);
             self.stats.resolves += 1;
             self.stale = false;

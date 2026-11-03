@@ -22,16 +22,15 @@ pub struct Capture {
 impl Capture {
     const MAX_SIDE: f64 = 2048.0;
 
-    pub(crate) fn of(doc: &BaseDocument, node: NodeId, scale: Option<f64>) -> Option<Self> {
+    pub(crate) fn of(doc: &BaseDocument, node: NodeId, scale: f64) -> Option<Self> {
         doc.get_node(node).filter(|n| n.is_element())?;
         let doc_scale = doc.viewport().scale_f64();
-        let wanted = scale.filter(|s| s.is_finite() && *s > 0.0).unwrap_or(doc_scale);
+        let wanted = if scale.is_finite() && scale > 0.0 { scale } else { doc_scale };
         let zoom = Affine::scale(wanted / doc_scale);
         let mut scene = anyrender::Scene::new();
         blitz_paint::paint_element(&mut scene, doc, node, doc_scale, zoom);
         let everywhere = Rect::new(-1e9, -1e9, 1e9, 1e9);
-        let draw = Damage::flat_draw_rects(&scene.commands);
-        let bounds = Damage::painted_bounds(&scene.commands, &draw, everywhere)?.expand();
+        let bounds = Damage::painted_bounds(&scene.commands, everywhere)?.expand();
 
         let fit = (Self::MAX_SIDE / bounds.width().max(bounds.height())).min(1.0);
         let scale = wanted * fit;

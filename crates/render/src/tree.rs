@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::error::{Error, Result};
 use blitz_dom::{DocumentMutator, LocalName, Namespace, NodeId, QualName, ns};
@@ -9,7 +9,7 @@ pub(crate) struct Ids {
     slots: Vec<Slot>,
     live: u32,
     pub(crate) canvases: HashMap<u32, crate::canvas::Canvas>,
-    pub(crate) gpu_canvases: std::collections::HashSet<u32>,
+    pub(crate) gpu_canvases: HashSet<u32>,
     pub(crate) images: HashMap<u32, (String, u8)>,
     pub(crate) templates: HashMap<NodeId, NodeId>,
     pub(crate) doctypes: HashMap<NodeId, Doctype>,
@@ -46,7 +46,7 @@ impl Ids {
     fn track(&mut self, node: NodeId) -> u32 {
         let id = self.nodes.len() as u32;
         self.nodes.push(node);
-        let index = node.as_u64() as u32 as usize;
+        let index = Self::index(node);
         if self.slots.len() <= index {
             self.slots.resize(index + 1, Slot { node: NodeId::default(), id: NO_ID, pinned: false });
         }
@@ -75,9 +75,11 @@ impl Ids {
     }
 
     fn slot(&self, node: NodeId) -> Option<&Slot> {
-        self.slots
-            .get(node.as_u64() as u32 as usize)
-            .filter(|s| s.node == node && s.id != NO_ID)
+        self.slots.get(Self::index(node)).filter(|s| s.node == node && s.id != NO_ID)
+    }
+
+    fn index(node: NodeId) -> usize {
+        node.as_u64() as u32 as usize
     }
 
     pub(crate) fn forget(&mut self, node: NodeId) {
@@ -86,7 +88,7 @@ impl Ids {
         self.forms.remove(&node);
         self.scrolls.remove(&node);
         let Some(id) = self.handle(node) else { return };
-        self.slots[node.as_u64() as u32 as usize] = Slot { node: NodeId::default(), id: NO_ID, pinned: false };
+        self.slots[Self::index(node)] = Slot { node: NodeId::default(), id: NO_ID, pinned: false };
         self.live -= 1;
         self.nodes[id as usize] = NodeId::default();
         self.canvases.remove(&id);
@@ -103,8 +105,7 @@ impl Ids {
     }
 
     pub(crate) fn pin(&mut self, node: NodeId, pinned: bool) {
-        let index = node.as_u64() as u32 as usize;
-        if let Some(slot) = self.slots.get_mut(index).filter(|s| s.node == node && s.id != NO_ID) {
+        if let Some(slot) = self.slots.get_mut(Self::index(node)).filter(|s| s.node == node && s.id != NO_ID) {
             slot.pinned = pinned;
         }
     }
@@ -120,47 +121,26 @@ pub(crate) struct Tree<'d> {
 }
 
 impl Tree<'_> {
-    fn element(&mut self, ns: Namespace, tag: &str) -> NodeId {
-        self.m
-            .create_element(QualName::new(None, ns, tag.into()), Vec::new())
-    }
-
-    pub(crate) fn namespace(code: u8) -> Result<Namespace> {
-        match code {
-            0 => Ok(ns!(html)),
-            1 => Ok(ns!(svg)),
-            2 => Ok(ns!(mathml)),
-            _ => Err(Error::new(format!("unknown namespace {code}"))),
-        }
-    }
-
-    pub(crate) fn create_element_ns(&mut self, ns: Namespace, tag: &str) -> u32 {
+    pub(crate) fn create_element(&mut self, ns: Namespace, tag: &str) -> NodeId {
         let html = ns == ns!(html);
         let tag = match html {
             true => tag.to_ascii_lowercase(),
             false => tag.to_owned(),
         };
-        let node = self.element(ns, &tag);
+        let node = self.m.create_element(QualName::new(None, ns, tag.as_str().into()), Vec::new());
         let id = self.ids.track(node);
         if html && tag == "img" {
             self.ids.images.insert(id, (String::new(), u8::MAX));
         }
-        id
+        node
     }
 
-    pub(crate) fn create_text(&mut self, text: &str) -> u32 {
-        let node = self.m.create_text_node(text);
-        self.ids.track(node)
-    }
-
-    pub(crate) fn set_attribute_qual(&mut self, id: u32, node: NodeId, name: QualName, value: &str) {
+    pub(crate) fn set_attribute(&mut self, id: u32, node: NodeId, name: QualName, value: Option<&str>) {
         self.reset_canvas(id, node, &name.local);
-        self.m.set_attribute(node, name, value);
-    }
-
-    pub(crate) fn remove_attribute_qual(&mut self, id: u32, node: NodeId, name: QualName) {
-        self.reset_canvas(id, node, &name.local);
-        self.m.clear_attribute(node, name);
+        match value {
+            Some(value) => self.m.set_attribute(node, name, value),
+            None => self.m.clear_attribute(node, name),
+        }
     }
 
     fn reset_canvas(&mut self, id: u32, node: NodeId, name: &LocalName) {
@@ -169,12 +149,17 @@ impl Tree<'_> {
         }
     }
 
+    fn canvas_node(&self, id: u32) -> Result<NodeId> {
+        let node = self.ids.node(id)?;
+        match self.m.doc.get_node(node).and_then(|n| n.element_data()).is_some_and(|e| &*e.name.local == "canvas") {
+            true => Ok(node),
+            false => Err(Error::new(format!("node {id} is not a <canvas>"))),
+        }
+    }
+
     pub(crate) fn canvas_image(&mut self, id: u32, image: Option<peniko::ImageData>) -> Result<()> {
         use anyrender::PaintScene;
-        let node = self.ids.node(id)?;
-        if !self.m.doc.get_node(node).and_then(|n| n.element_data()).is_some_and(|e| &*e.name.local == "canvas") {
-            return Err(Error::new(format!("node {id} is not a <canvas>")));
-        }
+        let node = self.canvas_node(id)?;
         self.ids.canvases.remove(&id);
         let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) else {
             self.ids.gpu_canvases.remove(&id);
@@ -193,10 +178,7 @@ impl Tree<'_> {
 
     pub(crate) fn canvas(&mut self, id: u32, ops: &[u8]) -> Result<()> {
         use crate::canvas::{Canvas, Source};
-        let node = self.ids.node(id)?;
-        if !self.m.doc.get_node(node).and_then(|n| n.element_data()).is_some_and(|e| &*e.name.local == "canvas") {
-            return Err(Error::new(format!("node {id} is not a <canvas>")));
-        }
+        let node = self.canvas_node(id)?;
         let size = Canvas::size_of(self.m.doc, node);
         let mut canvas = self.ids.canvases.remove(&id).filter(|c| c.size() == size).unwrap_or_else(|| Canvas::new(size));
         let ids = &*self.ids;

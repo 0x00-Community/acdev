@@ -5,7 +5,9 @@ use blitz_dom::NodeId;
 use blitz_paint::{Change, PaintCache, Run};
 use kurbo::{Affine, Rect, Shape};
 
+use crate::Plane;
 use crate::commands::Commands;
+use crate::layers::Split;
 
 const PAD: f64 = 2.0;
 
@@ -48,10 +50,6 @@ impl Kind {
             _ => Kind::Draw,
         }
     }
-
-    pub(crate) fn all(commands: &Commands) -> Vec<Self> {
-        commands.iter().map(|(c, t)| Self::of(c, t)).collect()
-    }
 }
 
 const WINDOW: usize = 48;
@@ -84,10 +82,10 @@ impl Damage {
         let cache = cache.filter(|c| self.previous.is_some() && c.previous().is_some() && c.previous() == sequence);
         let draw = match cache {
             Some(cache) => Self::reuse_draw(cache, &self.draw, b),
-            None => Self::draw_rects(b),
+            None => b.iter().map(|(c, t)| draw_bounds(c, t)).collect(),
         };
         let old_draw = std::mem::replace(&mut self.draw, draw);
-        let kinds = Kind::all(b);
+        let kinds: Vec<Kind> = b.iter().map(|(c, t)| Kind::of(c, t)).collect();
         let loose: HashMap<usize, RenderCommand> = match given {
             Some(c) => Self::uncovered(c.runs(), b.len()).filter_map(|i| Some((i, Self::placed_at(b, i)?))).collect(),
             None => HashMap::new(),
@@ -183,23 +181,11 @@ impl Damage {
         })
     }
 
-    pub(crate) fn draw_bounds(command: &RenderCommand, t: Affine) -> Rect {
-        Changed::draw_bounds(command, t)
-    }
-
-    pub(crate) fn draw_rects(commands: &Commands) -> Vec<Rect> {
-        commands.iter().map(|(c, t)| Changed::draw_bounds(c, t)).collect()
-    }
-
-    pub(crate) fn flat_draw_rects(commands: &[RenderCommand]) -> Vec<Rect> {
-        commands.iter().map(|c| Changed::draw_bounds(c, Affine::IDENTITY)).collect()
-    }
-
     fn reuse_draw(cache: &PaintCache, old: &[Rect], commands: &Commands) -> Vec<Rect> {
         let mut draw = Vec::with_capacity(commands.len());
         let fresh = |draw: &mut Vec<Rect>, end: usize| {
             let start = draw.len();
-            draw.extend(commands.iter_range(start..end).map(|(c, t)| Changed::draw_bounds(c, t)));
+            draw.extend(commands.iter_range(start..end).map(|(c, t)| draw_bounds(c, t)));
         };
         for (j, i, len) in Self::unchanged(cache) {
             let end = (j + len).min(commands.len());
@@ -409,9 +395,10 @@ impl Damage {
         Some(bounds.inflate(PAD, PAD).intersect(viewport))
     }
 
-    pub(crate) fn painted_bounds(commands: &[RenderCommand], draw: &[Rect], viewport: Rect) -> Option<Rect> {
+    pub(crate) fn painted_bounds(commands: &[RenderCommand], viewport: Rect) -> Option<Rect> {
         let kinds: Vec<Kind> = commands.iter().map(|c| Kind::of(c, Affine::IDENTITY)).collect();
-        Self::bounds_of(&kinds, draw, viewport)
+        let draw: Vec<Rect> = commands.iter().map(|c| draw_bounds(c, Affine::IDENTITY)).collect();
+        Self::bounds_of(&kinds, &draw, viewport)
     }
 
     fn bounds_of(kinds: &[Kind], draw: &[Rect], viewport: Rect) -> Option<Rect> {
@@ -424,6 +411,28 @@ impl Damage {
         .bounds(viewport)
     }
 }
+
+impl Damage {
+    pub(crate) fn plane(&mut self, commands: Commands, rects: Vec<Rect>, scale: f64, viewport: Rect) -> Plane {
+        let tolerance = anyrender::Scene::new().tolerance;
+        let union = rects.iter().copied().reduce(|x, y| x.union(y)).unwrap_or(Rect::ZERO);
+        let bounds = Damage::content_bounds(self.kinds(), self.draw(), viewport).map(crate::Rect::from);
+        let (commands, layers, draw) = match Split::layers(commands, tolerance, self.kinds(), self.draw(), scale, viewport) {
+            Ok(layers) => (Commands::default(), layers, Vec::new()),
+            Err(commands) => (commands, Vec::new(), self.draw().to_vec()),
+        };
+        Plane {
+            commands,
+            tolerance,
+            layers,
+            damage: union.into(),
+            damage_rects: rects.into_iter().map(crate::Rect::from).collect(),
+            bounds,
+            draw,
+        }
+    }
+}
+
 
 impl Changed<'_> {
     fn bounds(&self, viewport: Rect) -> Option<Rect> {
@@ -469,42 +478,43 @@ impl Changed<'_> {
         }
         damage
     }
+}
 
-    fn draw_bounds(command: &RenderCommand, t: Affine) -> Rect {
-        match command {
-            RenderCommand::Fill(f) => (t * f.transform).transform_rect_bbox(f.shape.bounding_box()),
-            RenderCommand::Stroke(s) => {
-                let out = s.style.width * s.style.miter_limit.max(1.0) / 2.0;
-                (t * s.transform).transform_rect_bbox(s.shape.bounding_box().inflate(out, out))
-            }
-            RenderCommand::GlyphRun(g) => {
-                let (fs, bold) = (
-                    f64::from(g.font_size),
-                    g.embolden.x.abs().max(g.embolden.y.abs()),
-                );
-                let origins = g
-                    .glyphs
-                    .iter()
-                    .map(|gl| Rect::new(gl.x.into(), gl.y.into(), gl.x.into(), gl.y.into()));
-                let Some(origins) = origins.reduce(|a, b| a.union(b)) else {
-                    return Rect::ZERO;
-                };
-                let run = Rect::new(
-                    origins.x0 - fs,
-                    origins.y0 - 2.0 * fs,
-                    origins.x1 + 2.0 * fs,
-                    origins.y1 + fs,
-                );
-                let run = g
-                    .glyph_transform
-                    .map_or(run, |t| t.transform_rect_bbox(run));
-                (t * g.transform).transform_rect_bbox(run.inflate(bold, bold))
-            }
-            RenderCommand::BoxShadow(b) => {
-                let out = b.radius + 3.0 * b.std_dev;
-                (t * b.transform).transform_rect_bbox(b.rect.inflate(out, out))
-            }
-            _ => Rect::ZERO,
+pub(crate) fn draw_bounds(command: &RenderCommand, t: Affine) -> Rect {
+    match command {
+        RenderCommand::Fill(f) => (t * f.transform).transform_rect_bbox(f.shape.bounding_box()),
+        RenderCommand::Stroke(s) => {
+            let out = s.style.width * s.style.miter_limit.max(1.0) / 2.0;
+            (t * s.transform).transform_rect_bbox(s.shape.bounding_box().inflate(out, out))
         }
+        RenderCommand::GlyphRun(g) => {
+            let (fs, bold) = (
+                f64::from(g.font_size),
+                g.embolden.x.abs().max(g.embolden.y.abs()),
+            );
+            let origins = g
+                .glyphs
+                .iter()
+                .map(|gl| Rect::new(gl.x.into(), gl.y.into(), gl.x.into(), gl.y.into()));
+            let Some(origins) = origins.reduce(|a, b| a.union(b)) else {
+                return Rect::ZERO;
+            };
+            let run = Rect::new(
+                origins.x0 - fs,
+                origins.y0 - 2.0 * fs,
+                origins.x1 + 2.0 * fs,
+                origins.y1 + fs,
+            );
+            let run = g
+                .glyph_transform
+                .map_or(run, |t| t.transform_rect_bbox(run));
+            (t * g.transform).transform_rect_bbox(run.inflate(bold, bold))
+        }
+        RenderCommand::BoxShadow(b) => {
+            let out = b.radius + 3.0 * b.std_dev;
+            (t * b.transform).transform_rect_bbox(b.rect.inflate(out, out))
+        }
+        _ => Rect::ZERO,
     }
 }
+

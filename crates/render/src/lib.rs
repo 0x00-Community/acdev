@@ -123,7 +123,6 @@ pub struct CaretPosition {
     pub offset: u32,
 }
 
-
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Timing {
     pub count: u32,
@@ -185,16 +184,7 @@ impl Frame {
         }
         self.trace = acde_log::Trace::earliest(old.trace, self.trace);
     }
-}
 
-pub struct Panel {
-    pub id: u32,
-    pub size: (u32, u32),
-    pub plane: Plane,
-    pub extent: Option<Rect>,
-}
-
-impl Frame {
     pub fn whole(&self) -> anyrender::Scene {
         let plane = &self.plane;
         let commands = match plane.layers.is_empty() {
@@ -203,6 +193,13 @@ impl Frame {
         };
         anyrender::Scene { tolerance: plane.tolerance, commands }
     }
+}
+
+pub struct Panel {
+    pub id: u32,
+    pub size: (u32, u32),
+    pub plane: Plane,
+    pub extent: Option<Rect>,
 }
 
 #[derive(Default)]
@@ -226,7 +223,7 @@ impl Plane {
     }
 
     pub fn scene_for(&self, rect: kurbo::Rect) -> anyrender::Scene {
-        region::Region::scene_for(&self.commands, &self.draw, self.tolerance, rect)
+        region::scene_for(&self.commands, &self.draw, self.tolerance, rect)
     }
 
     pub fn scene(&self) -> anyrender::Scene {
@@ -314,7 +311,8 @@ impl Shared {
                 engine.held.push(cmd);
                 continue;
             }
-            present |= engine.guard(cmd);
+            engine.apply(cmd);
+            present = true;
         }
         present
     }
@@ -521,7 +519,7 @@ fn present_frame(shared: &Shared, engine: &mut parking_lot::MutexGuard<'_, Engin
         failed(engine);
         return false;
     }
-    let resolved = Engine::ms(started);
+    let resolved = acde_log::since_ms(started);
     let mut again = yield_lock(shared, engine);
     if engine.uncommitted {
         return again;
@@ -531,20 +529,19 @@ fn present_frame(shared: &Shared, engine: &mut parking_lot::MutexGuard<'_, Engin
         failed(engine);
         return false;
     };
-    let locked = Engine::ms(paint_started);
+    let locked = acde_log::since_ms(paint_started);
     again |= yield_lock(shared, engine);
     let finish_started = std::time::Instant::now();
-    let Ok(frame) = catch_unwind(AssertUnwindSafe(|| engine.finish_frame(painted))) else {
+    let Ok(mut frame) = catch_unwind(AssertUnwindSafe(|| engine.finish_frame(painted))) else {
         failed(engine);
         return false;
     };
-    let finished = Engine::ms(finish_started);
+    let finished = acde_log::since_ms(finish_started);
     engine.frame_timed(locked, resolved + locked + finished);
     log::debug!(target: "perf::frame", "{} commit={} resolve={resolved:.3} paint={locked:.3} finish={finished:.3} ms={:.3}", engine.name, frame.commit, resolved + locked + finished);
     let Ok(mut slot) = shared.slot.lock() else {
         return again;
     };
-    let mut frame = frame;
     if let Some(old) = slot.frame.take() {
         frame.absorb(old);
     }
@@ -557,33 +554,17 @@ fn present_frame(shared: &Shared, engine: &mut parking_lot::MutexGuard<'_, Engin
 }
 
 impl Engine {
-    fn guard(&mut self, cmd: Cmd) -> bool {
-        catch_unwind(AssertUnwindSafe(|| match cmd {
-            Cmd::Tick(now_ms) => {
-                self.tick(now_ms);
-                true
-            }
-            Cmd::ScrollAt(x, y, dx, dy, at) => {
-                self.scroll_at(x, y, dx, dy, at);
-                true
-            }
-            Cmd::Pointer(x, y) => {
-                self.pointer(x, y);
-                true
-            }
-            Cmd::Commit(seq) => {
-                self.committed = self.committed.max(seq);
-                true
-            }
-            Cmd::Invalidate => {
-                self.invalidate();
-                true
-            }
-        }))
-        .unwrap_or_else(|_| {
+    fn apply(&mut self, cmd: Cmd) {
+        let applied = catch_unwind(AssertUnwindSafe(|| match cmd {
+            Cmd::Tick(now_ms) => self.tick(now_ms),
+            Cmd::ScrollAt(x, y, dx, dy, at) => self.scroll_at(x, y, dx, dy, at),
+            Cmd::Pointer(x, y) => self.pointer(x, y),
+            Cmd::Commit(seq) => self.committed = self.committed.max(seq),
+            Cmd::Invalidate => self.invalidate(),
+        }));
+        if applied.is_err() {
             log::error!("panicked, command dropped");
             self.recover();
-            true
-        })
+        }
     }
 }

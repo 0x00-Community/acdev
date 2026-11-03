@@ -312,14 +312,10 @@ impl Canvas {
     }
 
     pub(crate) fn data_url(&self) -> Option<String> {
-        let (w, h, rgba) = self.pixels()?;
-        Some(format!("data:image/png;base64,{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, encode_png(w, h, &rgba)?)))
-    }
-
-    pub(crate) fn pixels(&self) -> Option<(u32, u32, Vec<u8>)> {
         let image = self.bitmap()?;
         let (w, h) = (image.texture.width(), image.texture.height());
-        Some((w, h, gpu::read(&image, [0, 0, w, h])?))
+        let png = encode_png(w, h, &gpu::read(&image, [0, 0, w, h])?)?;
+        Some(format!("data:image/png;base64,{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, png)))
     }
 
     fn render(&self) -> Option<Arc<CanvasImage>> {
@@ -680,14 +676,12 @@ impl Canvas {
 
     fn arc_to(&mut self, p1: Point, p2: Point, radius: f64) {
         let t = self.state.transform;
-        let Some(PathEl::MoveTo(last) | PathEl::LineTo(last)) = self.path.elements().last().copied() else {
-            if let Some(PathEl::QuadTo(_, last) | PathEl::CurveTo(_, _, last)) = self.path.elements().last().copied() {
-                return self.arc_to_from(t.inverse() * last, p1, p2, radius);
+        match self.path.elements().last().copied() {
+            Some(PathEl::MoveTo(last) | PathEl::LineTo(last) | PathEl::QuadTo(_, last) | PathEl::CurveTo(_, _, last)) => {
+                self.arc_to_from(t.inverse() * last, p1, p2, radius)
             }
-            self.path.move_to(t * p1);
-            return;
-        };
-        self.arc_to_from(t.inverse() * last, p1, p2, radius);
+            Some(PathEl::ClosePath) | None => self.path.move_to(t * p1),
+        }
     }
 
     fn arc_to_from(&mut self, p0: Point, p1: Point, p2: Point, radius: f64) {

@@ -135,7 +135,7 @@ impl CanvasImage {
         self.copied.load(Ordering::Acquire) >= self.generation()
     }
 
-    pub fn mark_copied(&self, generation: u64) {
+    fn mark_copied(&self, generation: u64) {
         self.copied.fetch_max(generation, Ordering::Release);
     }
 

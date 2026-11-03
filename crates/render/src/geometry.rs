@@ -25,16 +25,12 @@ pub(crate) struct Geometry<'a> {
 }
 
 impl Geometry<'_> {
-    fn transform(n: &Node) -> Option<Affine> {
-        match n.data {
-            NodeData::Element(_) | NodeData::AnonymousBlock(_) => n.transform().as_deref().copied(),
-            _ => None,
-        }
-    }
-
     fn css_transform(&self, n: &Node) -> Option<Affine> {
+        if !matches!(n.data, NodeData::Element(_) | NodeData::AnonymousBlock(_)) {
+            return None;
+        }
         let scale = self.doc.viewport().scale_f64();
-        Self::transform(n).map(|t| {
+        n.transform().as_deref().copied().map(|t| {
             let [a, b, c, d, e, f] = t.as_coeffs();
             Affine::new([a, b, c, d, e / scale, f / scale])
         })

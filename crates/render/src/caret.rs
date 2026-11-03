@@ -229,13 +229,7 @@ impl<'a> Caret<'a> {
     }
 
     fn content_origin(&self, n: &Node, dy: f64) -> Rect {
-        let border_box = self.doc.get_client_bounding_rect(n.id).map(Rect::from);
-        let border_box = border_box.unwrap_or(Rect {
-            x: 0.0,
-            y: 0.0,
-            width: 0.0,
-            height: 0.0,
-        });
+        let border_box = self.doc.get_client_bounding_rect(n.id).map(Rect::from).unwrap_or_default();
         let l = n.final_layout();
         Rect {
             x: border_box.x + f64::from(l.padding.left + l.border.left),
