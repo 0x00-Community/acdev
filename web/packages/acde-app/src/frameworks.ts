@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 
 export interface Output {
@@ -76,14 +76,6 @@ export class Frameworks {
     }
   }
 
-  static #bin(b: Build, name: string): string {
-    for (let at = b.dir; ; at = dirname(at)) {
-      const path = join(at, 'node_modules', '.bin', name)
-      if (existsSync(path)) return path
-      if (dirname(at) === at) throw new Error(`no ${name} in node_modules/.bin: run bun install first`)
-    }
-  }
-
   static async #spawn(cwd: string, args: readonly string[], env: Record<string, string> = {}): Promise<void> {
     const child = Bun.spawn([process.execPath, ...args], { cwd, env: { ...process.env, ...Frameworks.ENV, ...env }, stdio: ['ignore', 'inherit', 'inherit'] })
     const code = await child.exited
@@ -91,7 +83,9 @@ export class Frameworks {
   }
 
   static #tool(b: Build, name: string, args: readonly string[], env?: Record<string, string>): Promise<void> {
-    return Frameworks.#spawn(b.dir, ['--bun', Frameworks.#bin(b, name), ...args], env)
+    const bin = Frameworks.#up(b.dir, join('node_modules', '.bin', name))
+    if (!bin) throw new Error(`no ${name} in node_modules/.bin: run bun install first`)
+    return Frameworks.#spawn(b.dir, ['--bun', bin, ...args], env)
   }
 
   static #page(dir: string): string | null {
@@ -255,10 +249,5 @@ export default { port: Number(process.env.PORT) || 3000, fetch: (request) => han
     const result = await Bun.build({ entrypoints: [file], outdir: dir, target: 'bun', format: 'esm', splitting: true, naming: { entry: 'server.[ext]', chunk: 'chunks/[name]-[hash].[ext]' }, throw: false })
     if (!result.success) throw new AggregateError(result.logs, `${name} server: ${result.logs.map((log) => String(log.message ?? log)).join('; ')}`)
     return { dir, entry: 'server.js' }
-  }
-
-  static readPackage(dir: string): Record<string, unknown> {
-    const file = join(dir, 'package.json')
-    return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>) : {}
   }
 }

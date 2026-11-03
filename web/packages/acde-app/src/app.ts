@@ -6,31 +6,30 @@ import acdeVite from '../../acde-api/src/vite.js'
 import { Frameworks, type Output } from './frameworks.ts'
 import { appId } from './sockets.ts'
 
-export type { AcdeConfig, AppConfig, DesktopConfig, WindowAppConfig } from '@dopame/acde-api'
-
-export interface BuiltApp {
+interface BuiltApp {
   readonly id: string
   readonly label: string
   readonly icon: string
   readonly entry: string
   readonly capabilities?: Readonly<Record<string, unknown>>
   readonly heapMb?: number
+  readonly size?: readonly [number, number]
   readonly multiple?: boolean
   readonly frame?: boolean
   readonly mimeTypes?: readonly string[]
   readonly backend?: { readonly entry: string; readonly port: number }
 }
 
-export interface BuiltPackage {
+interface BuiltPackage {
   readonly name: string
   readonly version: string
   readonly private: true
   readonly acde: PackageManifest & { readonly apps: readonly BuiltApp[]; readonly assets: Readonly<Record<string, readonly string[]>> }
 }
 
-export const BACKENDS = ['server.ts', 'server.js', 'src/server.ts', 'src/server.js', 'server/index.ts', 'server/index.js', 'backend/index.ts', 'backend/index.js']
-export const DEFAULT_PORT = 3000
-export const PRELOAD = 'acde-listen.js'
+const BACKENDS = ['server.ts', 'server.js', 'src/server.ts', 'src/server.js', 'server/index.ts', 'server/index.js', 'backend/index.ts', 'backend/index.js']
+const DEFAULT_PORT = 3000
+const BUN_OPTIONS = { target: 'bun', format: 'esm', splitting: false, minify: { syntax: true, whitespace: false, identifiers: false }, throw: false } as const
 
 interface Legacy {
   readonly id?: string
@@ -284,14 +283,12 @@ export class Project {
   }
 
   static async #backend(entry: string, out: string): Promise<void> {
-    const options = { outdir: out, target: 'bun', format: 'esm', splitting: false, minify: { syntax: true, whitespace: false, identifiers: false }, throw: false } as const
-    Project.#check('backend', await Bun.build({ ...options, entrypoints: [entry], naming: { entry: 'server.[ext]' } }))
+    Project.#check('backend', await Bun.build({ ...BUN_OPTIONS, outdir: out, entrypoints: [entry], naming: { entry: 'server.[ext]' } }))
     await Project.#preload(out)
   }
 
   static async #preload(out: string): Promise<void> {
-    const options = { outdir: out, target: 'bun', format: 'esm', splitting: false, minify: { syntax: true, whitespace: false, identifiers: false }, throw: false } as const
-    Project.#check('preload', await Bun.build({ ...options, entrypoints: [join(import.meta.dir, 'listen.ts')], naming: { entry: PRELOAD.replace(/\.js$/, '.[ext]') } }))
+    Project.#check('preload', await Bun.build({ ...BUN_OPTIONS, outdir: out, entrypoints: [join(import.meta.dir, 'listen.ts')], naming: { entry: 'acde-listen.[ext]' } }))
   }
 
   static #check(what: string, result: Bun.BuildOutput): void {
@@ -308,17 +305,13 @@ export class Project {
   }
 }
 
-export async function build(dir: string, out: string): Promise<BuiltPackage> {
-  return Project.open(dir).build(out)
+export function packagesDir(): string {
+  const set = process.env['XDG_DATA_HOME']
+  return join(set && isAbsolute(set) ? set : join(homedir(), '.local', 'share'), 'acde', 'packages')
 }
 
-export function packagesDir(env: Readonly<Record<string, string | undefined>> = process.env): string {
-  const data = env['XDG_DATA_HOME'] && isAbsolute(env['XDG_DATA_HOME']) ? env['XDG_DATA_HOME'] : join(homedir(), '.local', 'share')
-  return join(data, 'acde', 'packages')
-}
-
-export function install(out: string, id: string, env?: Readonly<Record<string, string | undefined>>): string {
-  const dest = join(packagesDir(env), id)
+export function install(out: string, id: string): string {
+  const dest = join(packagesDir(), id)
   const next = `${dest}.new-${process.pid}`
   mkdirSync(dirname(dest), { recursive: true })
   rmSync(next, { recursive: true, force: true })
