@@ -7,7 +7,7 @@ use smithay_client_toolkit::shell::xdg::window::{Window, WindowDecorations};
 use wayland_client::protocol::{wl_buffer, wl_surface};
 use wayland_protocols::wp::viewporter::client::wp_viewport;
 
-use crate::client::{App, Data};
+use crate::client::{App, Buffers, Data, show};
 use crate::protocol::acde_window;
 
 pub(crate) struct PanelView {
@@ -17,9 +17,7 @@ pub(crate) struct PanelView {
     viewport: wp_viewport::WpViewport,
     pub(crate) rect: [i32; 4],
     input: Option<[i32; 4]>,
-    pub(crate) buffers: Vec<wl_buffer::WlBuffer>,
-    retired: Vec<wl_buffer::WlBuffer>,
-    generation: u64,
+    pub(crate) buffers: Buffers,
     pub(crate) configured: bool,
     pub(crate) active: bool,
     reported: Option<[f64; 4]>,
@@ -49,7 +47,7 @@ impl App {
         acde.bind((token >> 32) as u32, token as u32);
         let viewport = self.viewporter.get_viewport(window.wl_surface(), &self.qh, Data);
         window.commit();
-        self.panels.push(PanelView { id, window, acde, viewport, rect, input: None, buffers: Vec::new(), retired: Vec::new(), generation: 0, configured: false, active: false, reported: None, backdrop: None, backdrops: std::collections::VecDeque::new() });
+        self.panels.push(PanelView { id, window, acde, viewport, rect, input: None, buffers: Buffers::default(), configured: false, active: false, reported: None, backdrop: None, backdrops: std::collections::VecDeque::new() });
     }
 
     pub(crate) fn place_panel(&mut self, id: u32, rect: [i32; 4], input: [i32; 4]) {
@@ -70,9 +68,7 @@ impl App {
         let panel = self.panels.remove(at);
         self.painter.release(PanelView::plane(id));
         panel.acde.destroy();
-        for buffer in panel.buffers.into_iter().chain(panel.retired) {
-            buffer.destroy();
-        }
+        panel.buffers.destroy();
     }
 
     pub(crate) fn panel_configured(&mut self, window: &Window, active: bool) -> bool {
@@ -160,55 +156,25 @@ impl App {
 
     pub(crate) fn present_panel(&mut self, drawn: acde_paint::Drawn) {
         let plane = drawn.plane;
-        let generation = self.painter.generation(plane);
-        if drawn.generation != generation {
-            return;
-        }
-        let Some(at) = self.panels.iter().position(|p| PanelView::plane(p.id) == plane) else { return };
-        if self.panels[at].generation != generation {
-            let fresh = self.buffers_of(plane);
-            let panel = &mut self.panels[at];
-            let old = std::mem::replace(&mut panel.buffers, fresh);
-            panel.retired.extend(old);
-            panel.generation = generation;
-        }
-        let (w, h) = drawn.size;
+        let Some(buffer) = self.current_buffer(&drawn) else { return };
         let scale = self.scale;
-        let panel = &mut self.panels[at];
-        let Some(buffer) = panel.buffers.get(drawn.canvas).cloned() else {
-            self.painter.discard(&drawn);
-            self.painter.take_dropped();
-            return self.redraw();
-        };
+        let Some(panel) = self.panels.iter_mut().find(|p| PanelView::plane(p.id) == plane) else { return };
         let surface = panel.surface().clone();
-        surface.attach(Some(&buffer), 0, 0);
-        match &drawn.damage {
-            Some(rects) => {
-                for r in rects {
-                    surface.damage_buffer(r.loc.x, r.loc.y, r.size.w, r.size.h);
-                }
-            }
-            None => surface.damage_buffer(0, 0, w as i32, h as i32),
-        }
-        panel.viewport.set_source(0.0, 0.0, f64::from(w), f64::from(h));
-        let (lw, lh) = (f64::from(w) / scale, f64::from(h) / scale);
-        panel.viewport.set_destination(lw.round().max(1.0) as i32, lh.round().max(1.0) as i32);
+        show(&surface, &panel.viewport, &buffer, &drawn, scale);
         Self::apply_backdrop(panel, drawn.frame);
         surface.commit();
-        for old in panel.retired.drain(..) {
-            old.destroy();
-        }
+        panel.buffers.destroy_retired();
         self.painter.hold(plane, drawn.canvas, true);
     }
 
     pub(crate) fn release_buffer(&mut self, buffer: &wl_buffer::WlBuffer) {
         let mut released = Vec::new();
-        if let Some(index) = self.buffers.iter().position(|b| b == buffer).filter(|_| self.generation == self.painter.generation(0)) {
+        if let Some(index) = self.buffers.index_of(buffer, self.painter.generation(0)) {
             released.push((0, index));
         }
         for panel in &self.panels {
             let plane = PanelView::plane(panel.id);
-            if let Some(index) = panel.buffers.iter().position(|b| b == buffer).filter(|_| panel.generation == self.painter.generation(plane)) {
+            if let Some(index) = panel.buffers.index_of(buffer, self.painter.generation(plane)) {
                 released.push((plane, index));
             }
         }

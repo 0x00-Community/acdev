@@ -25,7 +25,7 @@ use wayland_protocols::wp::fractional_scale::v1::client::{wp_fractional_scale_ma
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1;
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
 
-use crate::client::{App, Data};
+use crate::client::{App, Data, TEXT};
 use crate::protocol::{acde_window, acde_window_manager};
 
 delegate_dispatch2!(App);
@@ -154,7 +154,6 @@ impl PointerHandler for App {
             let Some((ox, oy)) = self.origin_of(&event.surface) else { continue };
             let (x, y) = (event.position.0 + ox, event.position.1 + oy);
             let s = self.scale;
-            self.position = (x, y);
             match event.kind {
                 PointerEventKind::Enter { serial } => {
                     self.left = false;
@@ -256,9 +255,9 @@ impl DataDeviceHandler for App {
     fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_device::WlDataDevice) {
         let (Some(offer), Some((x, y))) = (self.device.as_ref().and_then(|d| d.data().drag_offer()), self.over.take()) else { return };
         let pipes: Vec<(String, OwnedFd)> = Self::mimes(&offer).into_iter().filter_map(|m| offer.receive(m.clone()).ok().map(|p| (m, OwnedFd::from(p)))).collect();
-        let _ = self.conn().flush();
+        let _ = self.conn.flush();
         let events = self.events.clone();
-        let conn = self.conn().clone();
+        let conn = self.conn.clone();
         std::thread::spawn(move || {
             let data = pipes
                 .into_iter()
@@ -287,7 +286,7 @@ impl DataSourceHandler for App {
 
     fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &wl_data_source::WlDataSource, mime: String, pipe: WritePipe) {
         let text = match (&self.clipboard, &self.drag) {
-            (Some((s, text)), _) if s.inner() == source => TEXT_MIMES.contains(&mime.as_str()).then(|| text.clone()),
+            (Some((s, text)), _) if s.inner() == source => TEXT.contains(&mime.as_str()).then(|| text.clone()),
             (_, Some(drag)) if drag.source.inner() == source => drag.data.get(&mime).cloned(),
             _ => None,
         };
@@ -338,8 +337,6 @@ impl App {
         self.events.push(Event { kind: "dragend".into(), button: Some(u32::from(drag.dropped)), ..Default::default() });
     }
 }
-
-const TEXT_MIMES: [&str; 3] = crate::client::TEXT;
 
 impl ShmHandler for App {
     fn shm_state(&mut self) -> &mut Shm {

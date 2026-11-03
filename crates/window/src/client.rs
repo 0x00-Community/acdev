@@ -5,7 +5,7 @@ use std::sync::{Arc, LazyLock, mpsc};
 use std::time::Duration;
 
 use acde_model::{Event, Inbox, Waker};
-use acde_paint::{Painter, Pixels, Sheet};
+use acde_paint::{Drawn, Painter, Sheet};
 use smithay::backend::allocator::Buffer as _;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::reexports::calloop::channel::{self, Channel};
@@ -33,6 +33,7 @@ use wayland_protocols::wp::fractional_scale::v1::client::{wp_fractional_scale_ma
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1;
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
 
+use crate::panel::PanelView;
 use crate::protocol::{acde_window, acde_window_manager};
 
 static WEB_FPS: LazyLock<Option<f64>> = LazyLock::new(|| std::env::var("ACDE_WEB_FPS").ok().and_then(|v| v.parse::<f64>().ok()).filter(|f| *f > 0.0));
@@ -168,6 +169,47 @@ impl Drop for Surface {
 
 pub(crate) struct Data;
 
+#[derive(Default)]
+pub(crate) struct Buffers {
+    list: Vec<wl_buffer::WlBuffer>,
+    retired: Vec<wl_buffer::WlBuffer>,
+    generation: u64,
+}
+
+impl Buffers {
+    pub(crate) fn index_of(&self, buffer: &wl_buffer::WlBuffer, generation: u64) -> Option<usize> {
+        self.list.iter().position(|b| b == buffer).filter(|_| self.generation == generation)
+    }
+
+    pub(crate) fn destroy_retired(&mut self) {
+        for old in self.retired.drain(..) {
+            old.destroy();
+        }
+    }
+
+    pub(crate) fn destroy(self) {
+        for buffer in self.list.into_iter().chain(self.retired) {
+            buffer.destroy();
+        }
+    }
+}
+
+pub(crate) fn show(surface: &wl_surface::WlSurface, viewport: &wp_viewport::WpViewport, buffer: &wl_buffer::WlBuffer, drawn: &Drawn, scale: f64) {
+    let (w, h) = drawn.size;
+    surface.attach(Some(buffer), 0, 0);
+    match &drawn.damage {
+        Some(rects) => {
+            for r in rects {
+                surface.damage_buffer(r.loc.x, r.loc.y, r.size.w, r.size.h);
+            }
+        }
+        None => surface.damage_buffer(0, 0, w as i32, h as i32),
+    }
+    viewport.set_source(0.0, 0.0, f64::from(w), f64::from(h));
+    let (lw, lh) = (f64::from(w) / scale, f64::from(h) / scale);
+    viewport.set_destination(lw.round().max(1.0) as i32, lh.round().max(1.0) as i32);
+}
+
 pub(crate) struct Drag {
     pub(crate) source: DragSource,
     pub(crate) data: HashMap<String, String>,
@@ -188,15 +230,13 @@ pub(crate) struct App {
     pub(crate) xdg: XdgShell,
     pub(crate) manager: acde_window_manager::AcdeWindowManager,
     pub(crate) viewporter: wp_viewporter::WpViewporter,
-    pub(crate) panels: Vec<crate::panel::PanelView>,
+    pub(crate) panels: Vec<PanelView>,
     pub(crate) told_active: bool,
     pub(crate) viewport: wp_viewport::WpViewport,
     pub(crate) _fractional: Option<wp_fractional_scale_v1::WpFractionalScaleV1>,
     pub(crate) render: acde_render::RenderHandle,
     pub(crate) painter: Painter,
-    pub(crate) buffers: Vec<wl_buffer::WlBuffer>,
-    pub(crate) retired: Vec<wl_buffer::WlBuffer>,
-    pub(crate) generation: u64,
+    pub(crate) buffers: Buffers,
     pub(crate) events: Arc<Inbox>,
     pub(crate) ready: Option<mpsc::SyncSender<Result<u32, String>>>,
     pub(crate) handle: LoopHandle<'static, App>,
@@ -213,7 +253,6 @@ pub(crate) struct App {
     pub(crate) pointer: Option<wl_pointer::WlPointer>,
     pub(crate) keyboard: Option<wl_keyboard::WlKeyboard>,
     pub(crate) device: Option<DataDevice>,
-    pub(crate) position: (f64, f64),
     pub(crate) serial: u32,
     pub(crate) pointer_serial: u32,
     pub(crate) left: bool,
@@ -292,9 +331,7 @@ impl App {
             _fractional: fractional,
             render,
             painter,
-            buffers: Vec::new(),
-            retired: Vec::new(),
-            generation: 0,
+            buffers: Buffers::default(),
             events,
             ready: Some(ready),
             handle,
@@ -311,7 +348,6 @@ impl App {
             pointer: None,
             keyboard: None,
             device: None,
-            position: (0.0, 0.0),
             serial: 0,
             pointer_serial: 0,
             left: false,
@@ -440,7 +476,7 @@ impl App {
         self.escapes(&frame.panels);
         let backdrops = Self::backdrops(&frame.panels);
         let mut sheets = vec![(0, Sheet::from(frame.plane), frame.size)];
-        sheets.extend(frame.panels.into_iter().filter(|p| self.panels.iter().any(|v| v.id == p.id && v.configured)).map(|p| (crate::panel::PanelView::plane(p.id), Sheet::from(p.plane), p.size)));
+        sheets.extend(frame.panels.into_iter().filter(|p| self.panels.iter().any(|v| v.id == p.id && v.configured)).map(|p| (PanelView::plane(p.id), Sheet::from(p.plane), p.size)));
         match self.painter.draw(sheets, frame.trace) {
             Ok(Some(drawn)) => self.queue_backdrops(drawn, backdrops),
             Ok(None) => {}
@@ -550,42 +586,17 @@ impl App {
         self.paint();
     }
 
-    fn present_main(&mut self, finished: acde_paint::Drawn, took: Duration, trace: Option<acde_log::Trace>) {
-        if finished.generation != self.painter.generation(0) {
-            return;
-        }
-        if self.generation != finished.generation {
-            self.buffers_for_canvases();
-        }
-        let Some(buffer) = self.buffers.get(finished.canvas).cloned() else {
-            self.painter.discard(&finished);
-            self.painter.take_dropped();
-            return self.redraw();
-        };
-        let (w, h) = finished.size;
+    fn present_main(&mut self, drawn: Drawn, took: Duration, trace: Option<acde_log::Trace>) {
+        let Some(buffer) = self.current_buffer(&drawn) else { return };
         let surface = self.surface().clone();
-        surface.attach(Some(&buffer), 0, 0);
-        match &finished.damage {
-            Some(rects) => {
-                for r in rects {
-                    let [x, y, w, h] = r.xywh();
-                    surface.damage_buffer(x as i32, y as i32, w as i32, h as i32);
-                }
-            }
-            None => surface.damage_buffer(0, 0, w as i32, h as i32),
-        }
-        self.viewport.set_source(0.0, 0.0, f64::from(w), f64::from(h));
-        let (lw, lh) = (f64::from(w) / self.scale, f64::from(h) / self.scale);
-        self.viewport.set_destination(lw.round().max(1.0) as i32, lh.round().max(1.0) as i32);
-        self.painter.hold(0, finished.canvas, true);
+        show(&surface, &self.viewport, &buffer, &drawn, self.scale);
+        self.painter.hold(0, drawn.canvas, true);
         if !self.frame_pending && (self.animating || self.want_frame || trace.is_some()) {
             self.frame_pending = true;
             surface.frame(&self.qh, smithay_client_toolkit::compositor::FrameCallbackData(surface.clone()));
         }
         surface.commit();
-        for old in self.retired.drain(..) {
-            old.destroy();
-        }
+        self.buffers.destroy_retired();
         log::debug!(target: "perf::raster", "surface owner={} ms={:.3}", self.window_id, took.as_secs_f64() * 1000.0);
         if let Some(trace) = trace {
             self.presenting.push(acde_log::Trace { rastered: acde_log::now_ms(), ..trace });
@@ -593,13 +604,35 @@ impl App {
         }
     }
 
-    fn buffers_for_canvases(&mut self) {
-        self.retired.append(&mut self.buffers);
-        self.buffers = self.buffers_of(0);
-        self.generation = self.painter.generation(0);
+    fn buffers_mut(&mut self, plane: usize) -> Option<&mut Buffers> {
+        match plane {
+            0 => Some(&mut self.buffers),
+            _ => self.panels.iter_mut().find(|p| PanelView::plane(p.id) == plane).map(|p| &mut p.buffers),
+        }
     }
 
-    pub(crate) fn buffers_of(&self, plane: usize) -> Vec<wl_buffer::WlBuffer> {
+    pub(crate) fn current_buffer(&mut self, drawn: &Drawn) -> Option<wl_buffer::WlBuffer> {
+        let generation = self.painter.generation(drawn.plane);
+        if drawn.generation != generation {
+            return None;
+        }
+        if self.buffers_mut(drawn.plane)?.generation != generation {
+            let fresh = self.buffers_of(drawn.plane);
+            let buffers = self.buffers_mut(drawn.plane)?;
+            let old = std::mem::replace(&mut buffers.list, fresh);
+            buffers.retired.extend(old);
+            buffers.generation = generation;
+        }
+        let buffer = self.buffers_mut(drawn.plane)?.list.get(drawn.canvas).cloned();
+        if buffer.is_none() {
+            self.painter.discard(drawn);
+            self.painter.take_dropped();
+            self.redraw();
+        }
+        buffer
+    }
+
+    fn buffers_of(&self, plane: usize) -> Vec<wl_buffer::WlBuffer> {
         self.painter.canvases(plane).filter_map(|dmabuf| self.wl_buffer(dmabuf)).collect()
     }
 
@@ -665,7 +698,7 @@ impl App {
         let Some(offer) = self.device.as_ref().and_then(|d| d.data().selection_offer()) else { return reply(String::new()) };
         let mime = offer.with_mime_types(|types| TEXT.iter().find(|t| types.iter().any(|m| m == *t)).map(|t| t.to_string()));
         let Some(pipe) = mime.and_then(|m| offer.receive(m).ok()) else { return reply(String::new()) };
-        let _ = self.conn().flush();
+        let _ = self.conn.flush();
         std::thread::spawn(move || {
             let mut text = String::new();
             let _ = std::fs::File::from(OwnedFd::from(pipe)).read_to_string(&mut text);
@@ -701,9 +734,5 @@ impl App {
         }
         surface.damage_buffer(0, 0, w, h);
         Some((surface, buffer))
-    }
-
-    pub(crate) fn conn(&self) -> &Connection {
-        &self.conn
     }
 }
