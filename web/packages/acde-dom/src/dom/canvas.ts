@@ -77,23 +77,30 @@ function parseColor(text: string): Rgba | null {
   return rgba
 }
 
-export class CanvasGradient {
-  static #next = 1
-  readonly id = CanvasGradient.#next++
-  version = 0
-  readonly stops: [number, Rgba][] = []
+const PAINT = Symbol('paint')
+const COMMANDS = Symbol('commands')
 
-  constructor(
-    readonly kind: 1 | 2,
-    readonly coords: readonly number[],
-  ) {}
+interface GradientPaint {
+  version: number
+  readonly kind: 1 | 2
+  readonly coords: readonly number[]
+  readonly stops: [number, Rgba][]
+}
+
+export class CanvasGradient {
+  readonly [PAINT]: GradientPaint
+
+  constructor(kind: 1 | 2, coords: readonly number[]) {
+    this[PAINT] = { version: 0, kind, coords, stops: [] }
+  }
 
   addColorStop(offset: number, color: string): void {
     const rgba = parseColor(String(color))
     if (!rgba || !(offset >= 0 && offset <= 1)) throw new DOMException(`addColorStop(${offset}, ${color})`, 'SyntaxError')
-    this.stops.push([offset, rgba])
-    this.stops.sort((a, b) => a[0] - b[0])
-    this.version++
+    const paint = this[PAINT]
+    paint.stops.push([offset, rgba])
+    paint.stops.sort((a, b) => a[0] - b[0])
+    paint.version++
   }
 }
 
@@ -156,21 +163,27 @@ class CommandWriter {
 }
 
 type Matrix = [number, number, number, number, number, number]
-export class CanvasPattern {
-  static #next = 1
-  static readonly REPEATS = ['repeat', 'repeat-x', 'repeat-y', 'no-repeat']
-  readonly id = CanvasPattern.#next++
-  version = 0
-  m: Matrix = [1, 0, 0, 1, 0, 0]
 
-  constructor(
-    readonly source: Element,
-    readonly repetition: number,
-  ) {}
+const REPEATS = ['repeat', 'repeat-x', 'repeat-y', 'no-repeat']
+
+interface PatternPaint {
+  version: number
+  readonly source: Element
+  readonly repetition: number
+  m: Matrix
+}
+
+export class CanvasPattern {
+  readonly [PAINT]: PatternPaint
+
+  constructor(source: Element, repetition: number) {
+    this[PAINT] = { version: 0, source, repetition, m: [1, 0, 0, 1, 0, 0] }
+  }
 
   setTransform(t: { a?: number; b?: number; c?: number; d?: number; e?: number; f?: number } = {}): void {
-    this.m = [t.a ?? 1, t.b ?? 0, t.c ?? 0, t.d ?? 1, t.e ?? 0, t.f ?? 0]
-    this.version++
+    const paint = this[PAINT]
+    paint.m = [t.a ?? 1, t.b ?? 0, t.c ?? 0, t.d ?? 1, t.e ?? 0, t.f ?? 0]
+    paint.version++
   }
 }
 
@@ -209,7 +222,7 @@ interface Sent {
 }
 
 function styleVersion(style: Style): number {
-  return style instanceof CanvasGradient || style instanceof CanvasPattern ? style.version : -1
+  return style instanceof CanvasGradient || style instanceof CanvasPattern ? style[PAINT].version : -1
 }
 
 const Sub = {
@@ -574,7 +587,7 @@ export class CanvasContext2d {
   createPattern(image: Element, repetition: string | null = 'repeat'): CanvasPattern | null {
     const tag = image?.localName
     if (tag !== 'img' && tag !== 'canvas') throw new TypeError('createPattern: an <img> or <canvas>')
-    const rep = repetition === null || repetition === '' ? 0 : CanvasPattern.REPEATS.indexOf(String(repetition))
+    const rep = repetition === null || repetition === '' ? 0 : REPEATS.indexOf(String(repetition))
     if (rep < 0) throw new DOMException(`createPattern repetition ${repetition}`, 'SyntaxError')
     if (tag === 'canvas' && (!(image as unknown as CanvasElement).width || !(image as unknown as CanvasElement).height)) throw new DOMException('createPattern of an empty canvas', 'InvalidStateError')
     if (tag === 'img' && !(image as unknown as { complete: boolean }).complete) return null
@@ -605,7 +618,7 @@ export class CanvasContext2d {
 
   #replay(path: Path2D): void {
     this.beginPath()
-    for (const command of path.commands) {
+    for (const command of path[COMMANDS]) {
       if (command[0] === 'svg') this.#svgPath(command[1] as string, command.slice(2) as number[])
       else (this as unknown as Record<string, (...a: number[]) => void>)[command[0]]!(...(command.slice(1) as number[]))
     }
@@ -695,11 +708,13 @@ export class CanvasContext2d {
 
   #paint(out: CommandWriter, style: Style): void {
     if (style instanceof CanvasPattern) {
-      return void out.u8(3).u8(style.source.localName === 'img' ? 0 : 1).u32(style.source[ID]).u8(style.repetition).f32(...style.m)
+      const { source, repetition, m } = style[PAINT]
+      return void out.u8(3).u8(source.localName === 'img' ? 0 : 1).u32(source[ID]).u8(repetition).f32(...m)
     }
     if (style instanceof CanvasGradient) {
-      out.u8(style.kind).f32(...style.coords).u32(style.stops.length)
-      for (const [offset, rgba] of style.stops) out.f32(offset, ...rgba)
+      const { kind, coords, stops } = style[PAINT]
+      out.u8(kind).f32(...coords).u32(stops.length)
+      for (const [offset, rgba] of stops) out.f32(offset, ...rgba)
       return
     }
     out.u8(0).f32(...((typeof style === 'string' && parseColor(style)) || [0, 0, 0, 0]))
@@ -758,65 +773,65 @@ export const canvases = new CanvasContexts()
 type PathCommand = [string, ...number[]] | ['svg', string, ...number[]]
 
 export class Path2D {
-  readonly commands: PathCommand[] = []
+  readonly [COMMANDS]: PathCommand[] = []
 
   constructor(init?: Path2D | string) {
-    if (init instanceof Path2D) this.commands.push(...init.commands.map((c) => [...c] as PathCommand))
-    else if (typeof init === 'string') this.commands.push(['svg', init, 1, 0, 0, 1, 0, 0])
+    if (init instanceof Path2D) this[COMMANDS].push(...init[COMMANDS].map((c) => [...c] as PathCommand))
+    else if (typeof init === 'string') this[COMMANDS].push(['svg', init, 1, 0, 0, 1, 0, 0])
   }
 
   addPath(path: Path2D, transform?: { a?: number; b?: number; c?: number; d?: number; e?: number; f?: number }): void {
     if (!transform) {
-      this.commands.push(...path.commands)
+      this[COMMANDS].push(...path[COMMANDS])
       return
     }
     const m = DOMMatrix.fromMatrix(transform)
     const p = (x: number, y: number) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]
-    for (const command of path.commands) {
+    for (const command of path[COMMANDS]) {
       if (command[0] === 'svg') {
         const [, d, a, b, c, dd, e, f] = command as [string, string, number, number, number, number, number, number]
         const t = m.multiply({ a, b, c, d: dd, e, f })
-        this.commands.push(['svg', d, t.a, t.b, t.c, t.d, t.e, t.f])
+        this[COMMANDS].push(['svg', d, t.a, t.b, t.c, t.d, t.e, t.f])
         continue
       }
       const [op, ...a] = command as [string, ...number[]]
-      if (op === 'moveTo' || op === 'lineTo') this.commands.push([op, ...p(a[0]!, a[1]!)])
-      else if (op === 'quadraticCurveTo') this.commands.push([op, ...p(a[0]!, a[1]!), ...p(a[2]!, a[3]!)])
-      else if (op === 'bezierCurveTo') this.commands.push([op, ...p(a[0]!, a[1]!), ...p(a[2]!, a[3]!), ...p(a[4]!, a[5]!)])
-      else this.commands.push([op, ...a])
+      if (op === 'moveTo' || op === 'lineTo') this[COMMANDS].push([op, ...p(a[0]!, a[1]!)])
+      else if (op === 'quadraticCurveTo') this[COMMANDS].push([op, ...p(a[0]!, a[1]!), ...p(a[2]!, a[3]!)])
+      else if (op === 'bezierCurveTo') this[COMMANDS].push([op, ...p(a[0]!, a[1]!), ...p(a[2]!, a[3]!), ...p(a[4]!, a[5]!)])
+      else this[COMMANDS].push([op, ...a])
     }
   }
 
   closePath(): void {
-    this.commands.push(['closePath'])
+    this[COMMANDS].push(['closePath'])
   }
   moveTo(x: number, y: number): void {
-    this.commands.push(['moveTo', x, y])
+    this[COMMANDS].push(['moveTo', x, y])
   }
   lineTo(x: number, y: number): void {
-    this.commands.push(['lineTo', x, y])
+    this[COMMANDS].push(['lineTo', x, y])
   }
   quadraticCurveTo(cx: number, cy: number, x: number, y: number): void {
-    this.commands.push(['quadraticCurveTo', cx, cy, x, y])
+    this[COMMANDS].push(['quadraticCurveTo', cx, cy, x, y])
   }
   bezierCurveTo(a: number, b: number, c: number, d: number, x: number, y: number): void {
-    this.commands.push(['bezierCurveTo', a, b, c, d, x, y])
+    this[COMMANDS].push(['bezierCurveTo', a, b, c, d, x, y])
   }
   arc(x: number, y: number, r: number, a0: number, a1: number, ccw = false): void {
-    this.commands.push(['arc', x, y, r, a0, a1, ccw ? 1 : 0])
+    this[COMMANDS].push(['arc', x, y, r, a0, a1, ccw ? 1 : 0])
   }
   arcTo(x1: number, y1: number, x2: number, y2: number, r: number): void {
-    this.commands.push(['arcTo', x1, y1, x2, y2, r])
+    this[COMMANDS].push(['arcTo', x1, y1, x2, y2, r])
   }
   ellipse(x: number, y: number, rx: number, ry: number, rotation: number, a0: number, a1: number, ccw = false): void {
-    this.commands.push(['ellipse', x, y, rx, ry, rotation, a0, a1, ccw ? 1 : 0])
+    this[COMMANDS].push(['ellipse', x, y, rx, ry, rotation, a0, a1, ccw ? 1 : 0])
   }
   rect(x: number, y: number, w: number, h: number): void {
-    this.commands.push(['rect', x, y, w, h])
+    this[COMMANDS].push(['rect', x, y, w, h])
   }
   roundRect(x: number, y: number, w: number, h: number, r: number | number[] = 0): void {
     const radii = Array.isArray(r) ? r : [r]
-    this.commands.push(['roundRect', x, y, w, h, ...radii])
+    this[COMMANDS].push(['roundRect', x, y, w, h, ...radii])
   }
 }
 tag(Path2D)
