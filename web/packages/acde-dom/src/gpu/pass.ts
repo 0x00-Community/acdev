@@ -42,173 +42,162 @@ function offsets(dynamic?: Iterable<number> | ArrayLike<number>, start = 0, leng
   return length === undefined ? list.slice(start) : list.slice(start, start + length)
 }
 
+let recording: (encoding: Encoding) => Recorder | null
+let ending: (encoding: Encoding) => Recorder | null
+
 abstract class Encoding {
   label: string
-  protected readonly gpu: GpuNative
-  protected readonly device: number
-  protected readonly rec = new Recorder()
+  readonly #rec = new Recorder()
   #ended = false
 
-  constructor(gpu: GpuNative, device: number, label: string) {
-    this.gpu = gpu
-    this.device = device
+  constructor(label: string) {
     this.label = label
   }
 
-  protected live(): Recorder | null {
-    return this.#ended ? null : this.rec
-  }
-
-  protected close(): Recorder | null {
-    if (this.#ended) return null
-    this.#ended = true
-    return this.rec
+  static {
+    recording = (encoding) => (encoding.#ended ? null : encoding.#rec)
+    ending = (encoding) => {
+      if (encoding.#ended) return null
+      encoding.#ended = true
+      return encoding.#rec
+    }
   }
 
   setBindGroup(index: number, group: unknown, dynamicOffsets?: Iterable<number> | ArrayLike<number>, start?: number, length?: number): void {
     const o = offsets(dynamicOffsets, start, length)
-    this.live()?.op(2, index, idOf(group), o.length, ...o)
+    recording(this)?.op(2, index, idOf(group), o.length, ...o)
   }
 
   pushDebugGroup(label: string): void {
-    const r = this.live()
+    const r = recording(this)
     r?.op(16, r.string(label))
   }
 
   popDebugGroup(): void {
-    this.live()?.op(17)
+    recording(this)?.op(17)
   }
 
   insertDebugMarker(label: string): void {
-    const r = this.live()
+    const r = recording(this)
     r?.op(18, r.string(label))
   }
 }
 
 abstract class RenderEncoding extends Encoding {
   setPipeline(pipeline: unknown): void {
-    this.live()?.op(1, idOf(pipeline))
+    recording(this)?.op(1, idOf(pipeline))
   }
 
   setVertexBuffer(slot: number, buffer: unknown, offset = 0, size?: number): void {
-    this.live()?.op(3, slot, idOf(buffer), offset, size ?? -1)
+    recording(this)?.op(3, slot, idOf(buffer), offset, size ?? -1)
   }
 
   setIndexBuffer(buffer: unknown, format: string, offset = 0, size?: number): void {
     if (format !== 'uint16' && format !== 'uint32') throw new TypeError(`'${format}' is not a GPUIndexFormat`)
-    this.live()?.op(4, idOf(buffer), format === 'uint32' ? 1 : 0, offset, size ?? -1)
+    recording(this)?.op(4, idOf(buffer), format === 'uint32' ? 1 : 0, offset, size ?? -1)
   }
 
   draw(vertexCount: number, instanceCount = 1, firstVertex = 0, firstInstance = 0): void {
-    this.live()?.op(5, vertexCount, instanceCount, firstVertex, firstInstance)
+    recording(this)?.op(5, vertexCount, instanceCount, firstVertex, firstInstance)
   }
 
   drawIndexed(indexCount: number, instanceCount = 1, firstIndex = 0, baseVertex = 0, firstInstance = 0): void {
-    this.live()?.op(6, indexCount, instanceCount, firstIndex, baseVertex, firstInstance)
+    recording(this)?.op(6, indexCount, instanceCount, firstIndex, baseVertex, firstInstance)
   }
 
   drawIndirect(buffer: unknown, offset: number): void {
-    this.live()?.op(7, idOf(buffer), offset)
+    recording(this)?.op(7, idOf(buffer), offset)
   }
 
   drawIndexedIndirect(buffer: unknown, offset: number): void {
-    this.live()?.op(8, idOf(buffer), offset)
+    recording(this)?.op(8, idOf(buffer), offset)
   }
 }
 
 export class GPURenderPassEncoder extends RenderEncoding {
-  readonly #encoder: number
-  readonly #descriptor: string
+  readonly #submit: (r: Recorder) => void
 
   constructor(gpu: GpuNative, device: number, encoder: number, descriptor: string, label: string) {
-    super(gpu, device, label)
-    this.#encoder = encoder
-    this.#descriptor = descriptor
+    super(label)
+    this.#submit = (r) => gpu.renderPass(device, encoder, descriptor, r.data, r.length, r.strings)
   }
 
   setViewport(x: number, y: number, width: number, height: number, minDepth: number, maxDepth: number): void {
-    this.live()?.op(9, x, y, width, height, minDepth, maxDepth)
+    recording(this)?.op(9, x, y, width, height, minDepth, maxDepth)
   }
 
   setScissorRect(x: number, y: number, width: number, height: number): void {
-    this.live()?.op(10, x, y, width, height)
+    recording(this)?.op(10, x, y, width, height)
   }
 
   setBlendConstant(color: unknown): void {
     const [r, g, b, a] = colorOf(color)
-    this.live()?.op(11, r, g, b, a)
+    recording(this)?.op(11, r, g, b, a)
   }
 
   setStencilReference(reference: number): void {
-    this.live()?.op(12, reference)
+    recording(this)?.op(12, reference)
   }
 
   beginOcclusionQuery(index: number): void {
-    this.live()?.op(13, index)
+    recording(this)?.op(13, index)
   }
 
   endOcclusionQuery(): void {
-    this.live()?.op(14)
+    recording(this)?.op(14)
   }
 
   executeBundles(bundles: Iterable<unknown>): void {
     const ids = Array.from(bundles, idOf)
-    this.live()?.op(15, ids.length, ...ids)
+    recording(this)?.op(15, ids.length, ...ids)
   }
 
   end(): void {
-    const r = this.close()
-    if (!r) return
-    this.gpu.renderPass(this.device, this.#encoder, this.#descriptor, r.data, r.length, r.strings)
+    const r = ending(this)
+    if (r) this.#submit(r)
   }
 }
 tag(GPURenderPassEncoder)
 
 export class GPUComputePassEncoder extends Encoding {
-  readonly #encoder: number
-  readonly #descriptor: string
+  readonly #submit: (r: Recorder) => void
 
   constructor(gpu: GpuNative, device: number, encoder: number, descriptor: string, label: string) {
-    super(gpu, device, label)
-    this.#encoder = encoder
-    this.#descriptor = descriptor
+    super(label)
+    this.#submit = (r) => gpu.computePass(device, encoder, descriptor, r.data, r.length, r.strings)
   }
 
   setPipeline(pipeline: unknown): void {
-    this.live()?.op(1, idOf(pipeline))
+    recording(this)?.op(1, idOf(pipeline))
   }
 
   dispatchWorkgroups(x: number, y = 1, z = 1): void {
-    this.live()?.op(19, x, y, z)
+    recording(this)?.op(19, x, y, z)
   }
 
   dispatchWorkgroupsIndirect(buffer: unknown, offset: number): void {
-    this.live()?.op(20, idOf(buffer), offset)
+    recording(this)?.op(20, idOf(buffer), offset)
   }
 
   end(): void {
-    const r = this.close()
-    if (!r) return
-    this.gpu.computePass(this.device, this.#encoder, this.#descriptor, r.data, r.length, r.strings)
+    const r = ending(this)
+    if (r) this.#submit(r)
   }
 }
 tag(GPUComputePassEncoder)
 
 export class GPURenderBundleEncoder extends RenderEncoding {
-  readonly #descriptor: string
-  readonly #make: (bundle: number, label: string) => unknown
+  readonly #finish: (r: Recorder, label: string) => unknown
 
   constructor(gpu: GpuNative, device: number, descriptor: string, label: string, make: (bundle: number, label: string) => unknown) {
-    super(gpu, device, label)
-    this.#descriptor = descriptor
-    this.#make = make
+    super(label)
+    this.#finish = (r, label) => make(gpu.createRenderBundle(device, descriptor, r.data, r.length, r.strings), label)
   }
 
   finish(descriptor: { label?: string } = {}): unknown {
-    const r = this.close()
+    const r = ending(this)
     if (!r) throw new DOMException('The render bundle encoder is finished', 'InvalidStateError')
-    const label = descriptor.label ?? ''
-    return this.#make(this.gpu.createRenderBundle(this.device, this.#descriptor, r.data, r.length, r.strings), label)
+    return this.#finish(r, descriptor.label ?? '')
   }
 }
 tag(GPURenderBundleEncoder)

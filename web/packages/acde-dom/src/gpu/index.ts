@@ -9,7 +9,6 @@ let native: GpuNative = null as unknown as GpuNative
 
 const dropped = new FinalizationRegistry<number>((id) => native.drop(id))
 
-
 function exception(message: string): DOMException {
   const m = /^(\w+Error): ([\s\S]*)$/.exec(message)
   return m ? new DOMException(m[2], m[1]) : new DOMException(message, 'OperationError')
@@ -168,20 +167,18 @@ class GPUCompilationInfo {
 }
 tag(GPUCompilationInfo)
 
+const DEVICE = Symbol('device')
+
 class Base implements Owned {
   readonly [ID]: number
+  readonly [DEVICE]: GPUDevice
   label: string
-  readonly device: GPUDevice
 
   constructor(device: GPUDevice, id: number, label: unknown) {
     this[ID] = id
-    this.device = device
+    this[DEVICE] = device
     this.label = label === undefined ? '' : String(label)
     if (id) dropped.register(this, id)
-  }
-
-  get dev(): number {
-    return this.device[ID]
   }
 }
 
@@ -210,10 +207,10 @@ class GPUBuffer extends Base {
   mapAsync(mode: number, offset = 0, size?: number): Promise<void> {
     const length = size ?? Math.max(0, this.size - offset)
     if (this.#state !== 'unmapped') {
-      return native.mapAsync(this.dev, this[ID], mode, offset, length).then(() => Promise.reject(new DOMException('The buffer is not unmapped', 'OperationError')))
+      return native.mapAsync(this[DEVICE][ID], this[ID], mode, offset, length).then(() => Promise.reject(new DOMException('The buffer is not unmapped', 'OperationError')))
     }
     this.#state = 'pending'
-    const pending = native.mapAsync(this.dev, this[ID], mode, offset, length).then((failure) => {
+    const pending = native.mapAsync(this[DEVICE][ID], this[ID], mode, offset, length).then((failure) => {
       if (this.#pending !== pending) throw new DOMException('The mapping was aborted', 'AbortError')
       this.#pending = null
       if (failure !== null) {
@@ -242,7 +239,7 @@ class GPUBuffer extends Base {
     if (this.#state === 'pending') this.#pending = null
     const written: (number | ArrayBuffer)[] = []
     for (const [at, range] of this.#ranges) written.push(at, range)
-    native.unmap(this.dev, this[ID], written)
+    native.unmap(this[DEVICE][ID], this[ID], written)
     this.#ranges = []
     this.#mapping = null
     this.#state = 'unmapped'
@@ -250,7 +247,7 @@ class GPUBuffer extends Base {
 
   destroy(): void {
     if (this.#state !== 'unmapped') this.unmap()
-    native.destroyBuffer(this.dev, this[ID])
+    native.destroyBuffer(this[DEVICE][ID], this[ID])
   }
 }
 tag(GPUBuffer)
@@ -280,11 +277,11 @@ class GPUTexture extends Base {
 
   createView(d: Dict = {}): GPUTextureView {
     const json = JSON.stringify({ ...d, label: d.label, usage: d.usage || undefined })
-    return new GPUTextureView(this.device, guard(() => native.createView(this.dev, this[ID], json)), d.label)
+    return new GPUTextureView(this[DEVICE], guard(() => native.createView(this[DEVICE][ID], this[ID], json)), d.label)
   }
 
   destroy(): void {
-    native.destroyTexture(this.dev, this[ID])
+    native.destroyTexture(this[DEVICE][ID], this[ID])
   }
 }
 tag(GPUTexture)
@@ -316,7 +313,7 @@ tag(GPUShaderModule)
 
 class Pipeline extends Base {
   getBindGroupLayout(index: number): GPUBindGroupLayout {
-    return new GPUBindGroupLayout(this.device, native.getBindGroupLayout(this.dev, this[ID], index), '')
+    return new GPUBindGroupLayout(this[DEVICE], native.getBindGroupLayout(this[DEVICE][ID], this[ID], index), '')
   }
 }
 class GPUComputePipeline extends Pipeline {}
@@ -333,7 +330,7 @@ class GPUQuerySet extends Base {
     this.count = d.count
   }
   destroy(): void {
-    native.destroyQuerySet(this.dev, this[ID])
+    native.destroyQuerySet(this[DEVICE][ID], this[ID])
   }
 }
 tag(GPUQuerySet)
@@ -349,57 +346,57 @@ class GPUCommandEncoder extends Base {
       occlusionQuerySet: d.occlusionQuerySet ? idOf(d.occlusionQuerySet) : undefined,
       timestampWrites: d.timestampWrites ? { ...d.timestampWrites, querySet: idOf(d.timestampWrites.querySet) } : undefined,
     })
-    return new GPURenderPassEncoder(native, this.dev, this[ID], json, d.label ?? '')
+    return new GPURenderPassEncoder(native, this[DEVICE][ID], this[ID], json, d.label ?? '')
   }
 
   beginComputePass(d: Dict = {}): GPUComputePassEncoder {
     const json = JSON.stringify({ label: d.label, timestampWrites: d.timestampWrites ? { ...d.timestampWrites, querySet: idOf(d.timestampWrites.querySet) } : undefined })
-    return new GPUComputePassEncoder(native, this.dev, this[ID], json, d.label ?? '')
+    return new GPUComputePassEncoder(native, this[DEVICE][ID], this[ID], json, d.label ?? '')
   }
 
   copyBufferToBuffer(source: unknown, a: number, b?: unknown, c?: number, d?: number): void {
     if (typeof a !== 'number') {
       const destination = a as unknown as GPUBuffer
       const size = (b as number | undefined) ?? (source as GPUBuffer).size
-      return native.copyBufferToBuffer(this.dev, this[ID], idOf(source), 0, idOf(destination), 0, size)
+      return native.copyBufferToBuffer(this[DEVICE][ID], this[ID], idOf(source), 0, idOf(destination), 0, size)
     }
-    native.copyBufferToBuffer(this.dev, this[ID], idOf(source), a, idOf(b), c ?? 0, d ?? Math.max(0, (source as GPUBuffer).size - a))
+    native.copyBufferToBuffer(this[DEVICE][ID], this[ID], idOf(source), a, idOf(b), c ?? 0, d ?? Math.max(0, (source as GPUBuffer).size - a))
   }
 
   copyBufferToTexture(source: Dict, destination: Dict, size: unknown): void {
-    native.copyBufferToTexture(this.dev, this[ID], JSON.stringify({ source: texelBuffer(source), destination: texelTexture(destination), size: extent(size) }))
+    native.copyBufferToTexture(this[DEVICE][ID], this[ID], JSON.stringify({ source: texelBuffer(source), destination: texelTexture(destination), size: extent(size) }))
   }
 
   copyTextureToBuffer(source: Dict, destination: Dict, size: unknown): void {
-    native.copyTextureToBuffer(this.dev, this[ID], JSON.stringify({ source: texelTexture(source), destination: texelBuffer(destination), size: extent(size) }))
+    native.copyTextureToBuffer(this[DEVICE][ID], this[ID], JSON.stringify({ source: texelTexture(source), destination: texelBuffer(destination), size: extent(size) }))
   }
 
   copyTextureToTexture(source: Dict, destination: Dict, size: unknown): void {
-    native.copyTextureToTexture(this.dev, this[ID], JSON.stringify({ source: texelTexture(source), destination: texelTexture(destination), size: extent(size) }))
+    native.copyTextureToTexture(this[DEVICE][ID], this[ID], JSON.stringify({ source: texelTexture(source), destination: texelTexture(destination), size: extent(size) }))
   }
 
   clearBuffer(buffer: GPUBuffer, offset = 0, size?: number): void {
-    native.clearBuffer(this.dev, this[ID], idOf(buffer), offset, size ?? Math.max(0, buffer.size - offset))
+    native.clearBuffer(this[DEVICE][ID], this[ID], idOf(buffer), offset, size ?? Math.max(0, buffer.size - offset))
   }
 
   resolveQuerySet(querySet: GPUQuerySet, firstQuery: number, queryCount: number, destination: GPUBuffer, destinationOffset: number): void {
-    native.resolveQuerySet(this.dev, this[ID], idOf(querySet), firstQuery, queryCount, idOf(destination), destinationOffset)
+    native.resolveQuerySet(this[DEVICE][ID], this[ID], idOf(querySet), firstQuery, queryCount, idOf(destination), destinationOffset)
   }
 
   pushDebugGroup(label: string): void {
-    native.encoderDebug(this.dev, this[ID], 0, String(label))
+    native.encoderDebug(this[DEVICE][ID], this[ID], 0, String(label))
   }
 
   popDebugGroup(): void {
-    native.encoderDebug(this.dev, this[ID], 1, '')
+    native.encoderDebug(this[DEVICE][ID], this[ID], 1, '')
   }
 
   insertDebugMarker(label: string): void {
-    native.encoderDebug(this.dev, this[ID], 2, String(label))
+    native.encoderDebug(this[DEVICE][ID], this[ID], 2, String(label))
   }
 
   finish(d: Dict = {}): GPUCommandBuffer {
-    return new GPUCommandBuffer(this.device, native.finishEncoder(this.dev, this[ID], d.label ?? ''), d.label)
+    return new GPUCommandBuffer(this[DEVICE], native.finishEncoder(this[DEVICE][ID], this[ID], d.label ?? ''), d.label)
   }
 }
 tag(GPUCommandEncoder)
@@ -412,11 +409,11 @@ let externalPixels: ExternalPixels = () => null
 
 class GPUQueue extends Base {
   submit(buffers: Iterable<GPUCommandBuffer>): void {
-    native.submit(this.dev, Array.from(buffers, idOf))
+    native.submit(this[DEVICE][ID], Array.from(buffers, idOf))
   }
 
   onSubmittedWorkDone(): Promise<void> {
-    return native.onSubmittedWorkDone(this.dev)
+    return native.onSubmittedWorkDone(this[DEVICE][ID])
   }
 
   writeBuffer(buffer: GPUBuffer, bufferOffset: number, data: ArrayBufferView | ArrayBuffer, dataOffset = 0, size?: number): void {
@@ -425,19 +422,19 @@ class GPUQueue extends Base {
     const count = view.byteLength / element
     const length = size ?? count - dataOffset
     if (dataOffset < 0 || length < 0 || dataOffset + length > count) throw new DOMException('writeBuffer: the data range is outside the data', 'OperationError')
-    native.writeBuffer(this.dev, idOf(buffer), bufferOffset, new Uint8Array(view.buffer, view.byteOffset + dataOffset * element, length * element))
+    native.writeBuffer(this[DEVICE][ID], idOf(buffer), bufferOffset, new Uint8Array(view.buffer, view.byteOffset + dataOffset * element, length * element))
   }
 
   writeTexture(destination: Dict, data: ArrayBufferView | ArrayBuffer, layout: Dict, size: unknown): void {
     const json = JSON.stringify({ destination: texelTexture(destination), layout: { offset: layout.offset ?? 0, bytesPerRow: layout.bytesPerRow, rowsPerImage: layout.rowsPerImage }, size: extent(size) })
-    native.writeTexture(this.dev, json, data)
+    native.writeTexture(this[DEVICE][ID], json, data)
   }
 
   copyExternalImageToTexture(source: Dict, destination: Dict, copySize: unknown): void {
     const pixels = externalPixels(source.source)
     if (!pixels) throw new DOMException('copyExternalImageToTexture: the source has no pixels', 'OperationError')
     const size = extent(copySize)
-    const [sx, sy] = [origin(source.origin)['x'] as number, origin(source.origin)['y'] as number]
+    const { x: sx, y: sy } = origin(source.origin) as { x: number; y: number }
     const { width, height } = size as { width: number; height: number }
     if (sx + width > pixels.width || sy + height > pixels.height) throw new DOMException('copyExternalImageToTexture: the copy is outside the source', 'OperationError')
     const out = new Uint8Array(width * height * 4)
