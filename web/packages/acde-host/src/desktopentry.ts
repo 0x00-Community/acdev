@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, stat } from './sys/fs'
 import { isAbsolute, join } from './sys/path'
-import { process, type Env } from './sys/process'
+import { process } from './sys/process'
 
 export class DesktopEntry {
   static readonly #DROPPED = new Set(['f', 'F', 'u', 'U', 'd', 'D', 'n', 'N', 'v', 'm'])
@@ -13,22 +13,30 @@ export class DesktopEntry {
     this.#keys = DesktopEntry.group(text, 'Desktop Entry')
   }
 
-  static group(text: string, name: string): Map<string, string> {
-    const keys = new Map<string, string>()
-    let inGroup = false
+  static groups(text: string): Map<string, Map<string, string>> {
+    const groups = new Map<string, Map<string, string>>()
+    let keys: Map<string, string> | null = null
     for (const raw of text.split(/\r?\n/)) {
       const line = raw.trim()
       if (!line || line.startsWith('#')) continue
       if (line.startsWith('[')) {
-        inGroup = line === `[${name}]`
+        keys = null
+        if (!line.endsWith(']')) continue
+        const name = line.slice(1, -1)
+        keys = groups.get(name) ?? new Map<string, string>()
+        groups.set(name, keys)
         continue
       }
       const at = line.indexOf('=')
-      if (!inGroup || at <= 0) continue
+      if (!keys || at <= 0) continue
       const key = line.slice(0, at).trim()
       if (!keys.has(key)) keys.set(key, line.slice(at + 1).trim())
     }
-    return keys
+    return groups
+  }
+
+  static group(text: string, name: string): Map<string, string> {
+    return DesktopEntry.groups(text).get(name) ?? new Map<string, string>()
   }
 
   static line(value: string): string {
@@ -79,8 +87,8 @@ export class DesktopEntry {
     return (this.#keys.get(key) ?? '').split(/(?<!\\);/).map((item) => DesktopEntry.unescape(item.trim())).filter(Boolean)
   }
 
-  localized(key: string, env: Env = process.env): string | null {
-    for (const locale of DesktopEntry.locales(env)) {
+  localized(key: string): string | null {
+    for (const locale of DesktopEntry.locales()) {
       const value = this.string(`${key}[${locale}]`)
       if (value) return value
     }
@@ -134,16 +142,17 @@ export class DesktopEntry {
     return value.replace(/\\([sntr\\;])/g, (_, c: string) => ({ s: ' ', n: '\n', t: '\t', r: '\r' })[c] ?? c)
   }
 
-  static executable(program: string, env: Env = process.env): boolean {
+  static executable(program: string): boolean {
     const runs = (path: string) => {
       const found = stat(path)
       return !!found?.isFile && (found.mode & 0o111) !== 0
     }
     if (program.includes('/')) return isAbsolute(program) && runs(program)
-    return (env['PATH'] || '/usr/local/sbin:/usr/local/bin:/usr/bin').split(':').filter(Boolean).some((dir) => runs(join(dir, program)))
+    return (process.env['PATH'] || '/usr/local/sbin:/usr/local/bin:/usr/bin').split(':').filter(Boolean).some((dir) => runs(join(dir, program)))
   }
 
-  static locales(env: Env = process.env): string[] {
+  static locales(): string[] {
+    const { env } = process
     const locale = (env['LC_ALL'] || env['LC_MESSAGES'] || env['LANG'] || '').replace(/[.@].*$/, '')
     if (!locale || locale === 'C' || locale === 'POSIX') return []
     const lang = locale.split('_')[0]!

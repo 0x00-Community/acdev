@@ -16,7 +16,6 @@ export class DesktopSession {
   readonly #children = new Set<number>()
   language: SessionLanguage | null = null
 
-  constructor(readonly report: (line: string) => void = (line) => Log.write(Level.Info, 'acde_host', line)) {}
 
   attach(shell: Pick<BrokerShell, 'launch' | 'quit'>): void {
     this.#shell = shell
@@ -39,21 +38,21 @@ export class DesktopSession {
 
   handOff(session: ForeignSession): void {
     const file = WaylandSessions.handOff(session)
-    this.report(`acde-host: handing the session over to ${session.id} (${session.argv.join(' ')}), ${file}`)
+    DesktopSession.#report(`handing the session over to ${session.id} (${session.argv.join(' ')}), ${file}`)
     this.end('handoff')
   }
 
   end(kind: SessionEnd): void {
     if (kind === 'reboot' || kind === 'poweroff') {
-      if (!this.own) return void this.report(`acde-host: ${kind} asked for; nested, not done`)
+      if (!this.own) return void DesktopSession.#report(`${kind} asked for; nested, not done`)
       const result = spawnSync('systemctl', [kind, '--no-wall'], { encoding: 'utf8', timeout: 15000 })
       if (result.status !== 0) {
         const message = (result.error?.message ?? result.stderr ?? '').trim() || `systemctl ${kind}: exit ${result.status}`
-        this.report(`acde-host: ${kind} refused: ${message}`)
+        DesktopSession.#report(`${kind} refused: ${message}`, Level.Warn)
         throw new Error(message)
       }
     }
-    this.report(`acde-host: session ${kind}`)
+    DesktopSession.#report(`session ${kind}`)
     this.#ending = kind
     this.terminate()
     this.#shell?.quit()
@@ -68,6 +67,10 @@ export class DesktopSession {
     }
     this.#children.clear()
     if (this.own) spawnSync('pkill', ['-TERM', '-x', '-u', String(process.getuid?.() ?? ''), 'fcitx5'], { timeout: 3000 })
+  }
+
+  static #report(line: string, level = Level.Info): void {
+    Log.write(level, 'acde_host', line)
   }
 
   readonly api = {

@@ -4,16 +4,6 @@ import type { InstalledDesktop } from './packages'
 import { DesktopServices } from './services'
 import { Level, Log } from './log'
 
-interface NativeNetwork {
-  state(): Promise<unknown>
-  networks(scan?: boolean): Promise<unknown>
-  connect(ssid: string, password?: string): Promise<void>
-  activate(iface: string): Promise<void>
-  disconnect(iface: string): Promise<void>
-  setWifiEnabled(on: boolean): Promise<void>
-  watch(callback: (state: unknown) => void): void
-}
-
 export class PageBridge {
   readonly #closers: (() => unknown)[] = []
   readonly value: Record<string, unknown> = {}
@@ -25,12 +15,12 @@ export class PageBridge {
 
   async start(native: Native, desktop: InstalledDesktop): Promise<void> {
     const system = this.#open(native)
-    await Promise.all([system, this.services.start(desktop, native as unknown as Record<string, unknown>, this.value, system)])
+    await Promise.all([system, this.services.start(desktop, native, this.value, system)])
   }
 
   async startDesktop(desktop: InstalledDesktop, native: Native): Promise<void> {
     await this.services.stop(this.value)
-    await this.services.start(desktop, native as unknown as Record<string, unknown>, this.value)
+    await this.services.start(desktop, native, this.value)
   }
 
   async #open(native: Native): Promise<void> {
@@ -42,9 +32,9 @@ export class PageBridge {
         return null
       }
     }
-    const Network = (native as { Network?: { open(): Promise<NativeNetwork> } }).Network
+    const { Terminals, Network } = native
     const [terminal, network] = await Promise.all([
-      native.Terminals ? optional('terminal', () => new native.Terminals!()) : null,
+      Terminals ? optional('terminal', () => new Terminals()) : null,
       Network ? optional('network', () => Network.open()) : null,
     ])
     const fs = native.Finder ? await optional('fs', () => new native.Finder!()) : null

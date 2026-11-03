@@ -4,7 +4,6 @@ import { spawnSync } from './sys/child_process'
 import { existsSync, mkdirSync, readFileSync, stat, writeFileSync } from './sys/fs'
 import { xdgDirs, xdgHome } from './sys/os'
 import { basename, dirname, isAbsolute, join, normalize } from './sys/path'
-import { process, type Env } from './sys/process'
 import { fileURLToPath, pathToFileURL } from './sys/url'
 
 export interface OpenHandler {
@@ -52,12 +51,12 @@ class MimeTypes {
     return patterns.includes(`${type}/*`) ? 1 : 0
   }
 
-  static of(path: string, run = spawnSync): string {
+  static of(path: string): string {
     if (stat(path)?.isDirectory) return MimeTypes.DIRECTORY
-    const gio = run('gio', ['info', '--attributes=standard::content-type', path], { timeout: 3000 })
+    const gio = spawnSync('gio', ['info', '--attributes=standard::content-type', path], { timeout: 3000 })
     const fromGio = /standard::content-type:\s*(\S+)/.exec(gio.stdout ?? '')?.[1]
     if (gio.status === 0 && fromGio && MimeTypes.valid(fromGio)) return fromGio
-    const file = run('file', ['--brief', '--mime-type', path], { timeout: 3000 })
+    const file = spawnSync('file', ['--brief', '--mime-type', path], { timeout: 3000 })
     const fromFile = (file.stdout ?? '').trim()
     if (file.status === 0 && MimeTypes.valid(fromFile) && fromFile !== 'application/octet-stream') return fromFile
     const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''
@@ -68,52 +67,47 @@ class MimeTypes {
 class MimeApps {
   static readonly DESKTOP = 'acde'
 
-  static lists(env: Env = process.env): string[] {
-    return [...xdgDirs('config', '', env), ...xdgDirs('data', 'applications', env)].flatMap((dir) => [join(dir, `${MimeApps.DESKTOP}-mimeapps.list`), join(dir, 'mimeapps.list')])
+  static #lists(): string[] {
+    return [...xdgDirs('config', ''), ...xdgDirs('data', 'applications')].flatMap((dir) => [join(dir, `${MimeApps.DESKTOP}-mimeapps.list`), join(dir, 'mimeapps.list')])
   }
 
-  static defaults(text: string): Map<string, string[]> {
-    const out = new Map<string, string[]>()
-    for (const [mime, ids] of DesktopEntry.group(text, 'Default Applications')) out.set(mime, ids.split(';').map((id) => id.trim()).filter(Boolean))
-    return out
-  }
-
-  static defaultFor(mime: string, installed: (id: string) => boolean, env: Env = process.env): string | null {
-    for (const list of MimeApps.lists(env)) {
+  static defaultFor(mime: string, installed: (id: string) => boolean): string | null {
+    for (const list of MimeApps.#lists()) {
       let text: string
       try {
         text = readFileSync(list, 'utf8')
       } catch {
         continue
       }
-      for (const id of MimeApps.defaults(text).get(mime) ?? []) if (installed(id)) return id
+      const ids = DesktopEntry.group(text, 'Default Applications').get(mime) ?? ''
+      for (const id of ids.split(';').map((id) => id.trim()).filter(Boolean)) if (installed(id)) return id
     }
     return null
   }
 
-  static natives(env: Env = process.env): NativeEntry[] {
-    return DesktopEntry.files(xdgDirs('data', 'applications', env)).flatMap(({ name: id, file }) => {
+  static natives(): NativeEntry[] {
+    return DesktopEntry.files(xdgDirs('data', 'applications')).flatMap(({ name: id, file }) => {
       if (DesktopEntries.appOf(id)) return []
       const entry = DesktopEntry.read(file)
       if (!entry?.application || entry.flag('Hidden') || !entry.string('Exec')) return []
       const mimeTypes = entry.list('MimeType')
-      return mimeTypes.length ? [{ id, file, name: entry.localized('Name', env) ?? id, icon: entry.string('Icon') ?? '', mimeTypes }] : []
+      return mimeTypes.length ? [{ id, file, name: entry.localized('Name') ?? id, icon: entry.string('Icon') ?? '', mimeTypes }] : []
     })
   }
 
-  static setDefault(mime: string, id: string, env: Env = process.env): string {
-    const file = join(xdgHome('config', env), `${MimeApps.DESKTOP}-mimeapps.list`)
+  static setDefault(mime: string, id: string): string {
+    const file = join(xdgHome('config'), `${MimeApps.DESKTOP}-mimeapps.list`)
     let text = ''
     try {
       text = readFileSync(file, 'utf8')
     } catch {
     }
     mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, MimeApps.withDefault(text, mime, id))
+    writeFileSync(file, MimeApps.#withDefault(text, mime, id))
     return file
   }
 
-  static withDefault(text: string, mime: string, id: string): string {
+  static #withDefault(text: string, mime: string, id: string): string {
     const lines = text.split(/\r?\n/)
     while (lines.length && lines[lines.length - 1] === '') lines.pop()
     let group = lines.findIndex((line) => line.trim() === '[Default Applications]')
@@ -176,16 +170,12 @@ export interface OpenOptions {
 
 export class Opener {
   readonly #host: OpenerHost
-  readonly #env: Env
-  readonly #run: typeof spawnSync
 
-  constructor(host: OpenerHost, env: Env = process.env, run: typeof spawnSync = spawnSync) {
+  constructor(host: OpenerHost) {
     this.#host = host
-    this.#env = env
-    this.#run = run
   }
 
-  static path(target: string): string | null {
+  static #path(target: string): string | null {
     if (target.startsWith('file:')) {
       try {
         return normalize(fileURLToPath(target))
@@ -196,14 +186,10 @@ export class Opener {
     return isAbsolute(target) ? normalize(target) : null
   }
 
-  mimeOf(path: string): string {
-    return MimeTypes.of(path, this.#run)
-  }
-
   handlers(target: string): { mime: string; handlers: OpenHandler[] } {
     const path = Opener.#existing(target)
-    const mime = this.mimeOf(path)
-    const natives = MimeApps.natives(this.#env)
+    const mime = MimeTypes.of(path)
+    const natives = MimeApps.natives()
     const chosen = this.#chosen(mime, natives)
     const acde = this.#acdeFor(mime).map((app) => ({ kind: 'acde' as const, id: app.id, label: app.label, icon: app.icon, default: chosen?.kind === 'acde' && chosen.id === app.id }))
     const native = natives.filter((n) => MimeTypes.match(n.mimeTypes, mime)).map((n) => ({ kind: 'native' as const, id: n.id, label: n.name, icon: n.icon, default: chosen?.kind === 'native' && chosen.id === n.id }))
@@ -214,21 +200,19 @@ export class Opener {
     if (!MimeTypes.valid(mime)) throw Object.assign(new Error(`not a MIME type: ${mime}`), { status: 400 })
     const id = handler.endsWith('.desktop') ? handler : DesktopEntries.idOf(handler)
     const app = DesktopEntries.appOf(id)
-    if (app ? !this.#host.apps().some((a) => a.id === app) : !MimeApps.natives(this.#env).some((n) => n.id === id)) throw Object.assign(new Error(`no app ${handler}`), { status: 404 })
-    return MimeApps.setDefault(mime, id, this.#env)
+    if (app ? !this.#host.apps().some((a) => a.id === app) : !MimeApps.natives().some((n) => n.id === id)) throw Object.assign(new Error(`no app ${handler}`), { status: 404 })
+    return MimeApps.setDefault(mime, id)
   }
 
   async open(target: string, options: OpenOptions = {}): Promise<{ kind: 'acde' | 'native'; id: string; window?: number }> {
-    const scheme = Opener.scheme(String(target))
+    const scheme = Opener.#scheme(String(target))
     if (scheme) return this.#openUrl(String(target), scheme, options)
     const path = Opener.#existing(target)
     const isDir = !!stat(path)?.isDirectory
     const select = !!options.select && !isDir
-    const mime = select ? MimeTypes.DIRECTORY : this.mimeOf(path)
-    const natives = MimeApps.natives(this.#env)
-    let chosen: { kind: 'acde' | 'native'; id: string } | null
-    if (options.app) chosen = this.#asked(options.app, natives)
-    else chosen = this.#chosen(mime, natives)
+    const mime = select ? MimeTypes.DIRECTORY : MimeTypes.of(path)
+    const natives = MimeApps.natives()
+    let chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
     if (!chosen) throw Object.assign(new Error(`没有能打开这种文件的应用 (${mime})`), { status: 404, code: 'no_app' })
     if (chosen.kind === 'acde') {
       const id = chosen.id
@@ -247,7 +231,7 @@ export class Opener {
 
   async #openUrl(url: string, scheme: string, options: OpenOptions): Promise<{ kind: 'acde' | 'native'; id: string; window?: number }> {
     const mime = `x-scheme-handler/${scheme}`
-    const natives = MimeApps.natives(this.#env)
+    const natives = MimeApps.natives()
     const chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
     const app = chosen?.kind === 'acde' ? this.#host.apps().find((a) => a.id === chosen.id) : null
     if (app && !app.capabilities.fs) return { kind: 'acde', id: app.id, window: this.#host.launch(app.id, { url }).window }
@@ -257,7 +241,7 @@ export class Opener {
     return { kind: 'native', id: native.id }
   }
 
-  static scheme(target: string): string | null {
+  static #scheme(target: string): string | null {
     const scheme = /^([a-z][\w+.-]*):/i.exec(target)?.[1]?.toLowerCase() ?? null
     return scheme === 'file' ? null : scheme
   }
@@ -285,7 +269,7 @@ export class Opener {
       const app = DesktopEntries.appOf(id)
       return app ? apps.some((a) => a.id === app) : natives.some((n) => n.id === id)
     }
-    const listed = MimeApps.defaultFor(mime, installed, this.#env)
+    const listed = MimeApps.defaultFor(mime, installed)
     if (listed) {
       const app = DesktopEntries.appOf(listed)
       return app ? { kind: 'acde', id: app } : { kind: 'native', id: listed }
@@ -302,7 +286,7 @@ export class Opener {
   }
 
   static #existing(target: string): string {
-    const path = Opener.path(String(target))
+    const path = Opener.#path(String(target))
     if (!path) throw Object.assign(new Error(`not a local file: ${target}`), { status: 400 })
     if (!existsSync(path)) throw Object.assign(new Error(`${path} does not exist`), { status: 404 })
     return path

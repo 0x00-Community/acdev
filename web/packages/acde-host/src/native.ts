@@ -80,11 +80,49 @@ export interface Native {
   Office?: new (finder: object) => NativeOffice
   Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   Terminals?: new () => { closeAll(): void }
+  Network?: { open(): Promise<NativeNetwork> }
+  Appearance?: { open(): Promise<NativeAppearance> }
+  FileChooser?: { open(): Promise<NativeFileChooser> }
+  Greetd?: NativeGreetd
   Accessibility?: { open(): Promise<NativeAccessibility> }
   DesktopBus?: {
     open(handler: (request: BusRequest) => unknown): NativeDesktopBus
     send(uris: string[], app?: string | null): Promise<void>
   }
+}
+
+interface NativeNetwork {
+  state(): Promise<unknown>
+  networks(scan?: boolean): Promise<unknown>
+  connect(ssid: string, password?: string): Promise<void>
+  activate(iface: string): Promise<void>
+  disconnect(iface: string): Promise<void>
+  setWifiEnabled(on: boolean): Promise<void>
+  watch(callback: (state: unknown) => void): void
+}
+
+interface NativeAppearance {
+  dark(): Promise<boolean>
+  watch(callback: (dark: boolean) => void): void
+}
+
+type FileFilter = { name: string; globs: string[]; mimes: string[] }
+
+export interface NativeFileChooser {
+  openFile(options: { title: string; multiple: boolean; directory: boolean; filters: FileFilter[] }): Promise<string[] | null>
+  saveFile(options: { title: string; name: string; filters: FileFilter[] }): Promise<string | null>
+}
+
+export interface GreetUser {
+  readonly name: string
+  readonly fullName: string
+  readonly uid: number
+}
+
+interface NativeGreetd {
+  available(): boolean
+  users(): GreetUser[]
+  login(user: string, password: string, cmd: string[], env: string[]): Promise<void>
 }
 
 interface BusRequest {

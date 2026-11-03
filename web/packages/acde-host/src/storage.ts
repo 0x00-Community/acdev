@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from './sys/fs'
 import { xdgHome } from './sys/os'
 import { dirname, join } from './sys/path'
-import { process, type Env } from './sys/process'
+import { process } from './sys/process'
 import { Level, Log } from './log'
 
 export class StorageFile {
@@ -14,9 +14,9 @@ export class StorageFile {
     this.#path = path
   }
 
-  static forApp(id: string, env: Env = process.env): string | null {
-    if (env['ACDE_STORAGE'] === '') return null
-    return join(xdgHome('config', env), 'acde', 'storage', `app-${id}.json`)
+  static forApp(id: string): string | null {
+    if (process.env['ACDE_STORAGE'] === '') return null
+    return join(xdgHome('config'), 'acde', 'storage', `app-${id}.json`)
   }
 
   read(): Record<string, string> | null {

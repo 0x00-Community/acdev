@@ -3,11 +3,11 @@ import { xdgDirs, xdgHome } from './sys/os'
 import { dirname, isAbsolute, join, resolve } from './sys/path'
 import { fileURLToPath } from './sys/url'
 import type { DesktopManifest, PackageManifest, ServiceManifest } from '@dopame/acde-api'
-import { process, type Env } from './sys/process'
+import { process } from './sys/process'
 import { Manifest } from '@dopame/acde-app/manifest'
 import { DesktopEntry } from './desktopentry'
 import { WaylandSessions, type ForeignSession } from './foreign'
-
+import { Level, Log } from './log'
 
 interface InstalledPackage {
   readonly dir: string
@@ -38,42 +38,37 @@ export class Packages {
   readonly #desktops = new Map<string, InstalledDesktop>()
   #sessions: ForeignSession[] = []
   readonly #extra: readonly string[]
-  readonly #env: Env
-  readonly #report: (line: string) => void
 
-  constructor(extra: readonly string[] = [], env: Env = process.env, report: (line: string) => void = Packages.report) {
+  constructor(extra: readonly string[] = []) {
     this.#extra = extra
-    this.#env = env
-    this.#report = report
     this.rescan()
   }
 
   rescan(): void {
-    const env = this.#env, report = this.#report
     this.packages.length = 0
     this.#desktops.clear()
-    this.#sessions = WaylandSessions.list(env, report)
-    for (const dir of [Packages.HOST, ...this.#extra, ...Packages.dirs(env)]) {
+    this.#sessions = WaylandSessions.list()
+    for (const dir of [Packages.HOST, ...this.#extra, ...Packages.#dirs()]) {
       if (this.packages.some((p) => p.dir === dir)) continue
-      const found = Packages.read(dir, report)
+      const found = Packages.#read(dir)
       if (!found) continue
       this.packages.push(found)
       for (const raw of found.manifest.desktops ?? []) {
         const desktop = Packages.#desktop(found, raw)
-        if (!desktop) report(`acde-host: ${dir}/package.json: a desktop needs id, name and an entry file that exists`)
-        else if (this.#desktops.has(desktop.id)) report(`acde-host: desktop ${desktop.id} in ${dir} is already defined; the first one stays`)
+        if (!desktop) Packages.#warn(`${dir}/package.json: a desktop needs id, name and an entry file that exists`)
+        else if (this.#desktops.has(desktop.id)) Packages.#warn(`desktop ${desktop.id} in ${dir} is already defined; the first one stays`)
         else this.#desktops.set(desktop.id, desktop)
       }
     }
   }
 
-  static report(line: string): void {
-    process.stderr.write(`${line}\n`)
+  static #warn(line: string): void {
+    Log.write(Level.Warn, 'acde_host', line)
   }
 
-  static dirs(env: Env = process.env): string[] {
-    const listed = (env['ACDE_PATH'] ?? '').split(':').filter(Boolean).map((dir) => resolve(dir))
-    const inRoots = xdgDirs('data', 'acde/packages', env).flatMap((root) => {
+  static #dirs(): string[] {
+    const listed = (process.env['ACDE_PATH'] ?? '').split(':').filter(Boolean).map((dir) => resolve(dir))
+    const inRoots = xdgDirs('data', 'acde/packages').flatMap((root) => {
       try {
         return readdirSync(root).filter((name) => !name.startsWith('.')).sort().map((name) => join(root, name)).filter((dir) => !!stat(dir)?.isDirectory)
       } catch {
@@ -83,7 +78,7 @@ export class Packages {
     return [...listed, ...inRoots]
   }
 
-  static read(dir: string, report: (line: string) => void = Packages.report): InstalledPackage | null {
+  static #read(dir: string): InstalledPackage | null {
     const file = join(dir, 'package.json')
     if (!existsSync(file)) return null
     try {
@@ -91,7 +86,7 @@ export class Packages {
       if (typeof pkg.acde !== 'object' || pkg.acde === null) return null
       return { dir, name: typeof pkg.name === 'string' && pkg.name ? pkg.name : dir.split('/').pop()!, manifest: pkg.acde as PackageManifest }
     } catch (error) {
-      report(`acde-host: ${file}: ${(error as Error).message}`)
+      Packages.#warn(`${file}: ${(error as Error).message}`)
       return null
     }
   }
@@ -141,11 +136,7 @@ export class Packages {
     return out
   }
 
-  static installRoot(env: Env = process.env): string {
-    return join(xdgHome('data', env), 'acde', 'packages')
-  }
-
-  static installId(pkg: InstalledPackage): string {
+  static #installId(pkg: InstalledPackage): string {
     const app = pkg.manifest.apps?.[0]?.id
     if (typeof app === 'string' && /^[\w-]+$/.test(app)) return app
     const id = pkg.name.replace(/^@[^/]*\//, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')
@@ -153,12 +144,12 @@ export class Packages {
     return id
   }
 
-  static install(dir: string, env: Env = process.env): { id: string; dir: string } {
+  static install(dir: string): { id: string; dir: string } {
     const from = resolve(dir)
-    const pkg = Packages.read(from)
+    const pkg = Packages.#read(from)
     if (!pkg) throw Object.assign(new Error(`${from}: no package.json with an acde field`), { status: 400 })
-    const id = Packages.installId(pkg)
-    const root = Packages.installRoot(env)
+    const id = Packages.#installId(pkg)
+    const root = join(xdgHome('data'), 'acde', 'packages')
     const to = join(root, id)
     if (from === to) return { id, dir: to }
     if (`${to}/`.startsWith(`${from}/`) || `${from}/`.startsWith(`${to}/`)) throw Object.assign(new Error(`${from}: cannot install a package into itself`), { status: 400 })
@@ -186,23 +177,20 @@ export class Packages {
     }
   }
 
-  static rememberFile(env: Env = process.env): string {
-    return join(xdgHome('state', env), 'acde', 'desktop')
+  static rememberFile(): string {
+    return join(xdgHome('state'), 'acde', 'desktop')
   }
 
-  static remember(id: string, env: Env = process.env): void {
-    const file = Packages.rememberFile(env)
+  static remember(id: string): void {
+    const file = Packages.rememberFile()
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, `${id}\n`)
   }
 
-  static renamed(id: string): string {
-    return Object.hasOwn(Packages.RENAMED, id) ? Packages.RENAMED[id]! : id
-  }
-
-  choose(wanted: string | null, env: Env = process.env, report: (line: string) => void = Packages.report, foreign = true): InstalledDesktop | ForeignSession {
+  choose(wanted: string | null, foreign = true, quiet = false): InstalledDesktop | ForeignSession {
+    const warn = quiet ? () => {} : Packages.#warn
     const find = (id: string) => {
-      const found = this.find(Packages.renamed(id)) ?? this.find(id)
+      const found = this.find(Object.hasOwn(Packages.RENAMED, id) ? Packages.RENAMED[id]! : id) ?? this.find(id)
       return found && (foreign || found.kind === 'acde') ? found : null
     }
     if (wanted) {
@@ -215,23 +203,23 @@ export class Packages {
     }
     const remembered = (() => {
       try {
-        return readFileSync(Packages.rememberFile(env), 'utf8').trim()
+        return readFileSync(Packages.rememberFile(), 'utf8').trim()
       } catch {
         return null
       }
     })()
-    for (const [id, where] of [[env['ACDE_DESKTOP'], 'ACDE_DESKTOP'], [remembered, Packages.rememberFile(env)]] as const) {
+    for (const [id, where] of [[process.env['ACDE_DESKTOP'], 'ACDE_DESKTOP'], [remembered, Packages.rememberFile()]] as const) {
       if (!id) continue
       const found = find(id)
       if (found && found.id !== id && id === remembered) {
         try {
-          Packages.remember(found.id, env)
+          Packages.remember(found.id)
         } catch (error) {
-          report(`acde-host: ${Packages.rememberFile(env)}: desktop ${id} is now ${found.id}, not rewritten: ${(error as Error).message}`)
+          warn(`${Packages.rememberFile()}: desktop ${id} is now ${found.id}, not rewritten: ${(error as Error).message}`)
         }
       }
       if (found) return found
-      report(`acde-host: ${where} names desktop ${id}, which is not installed${this.find(id) ? ' as an acde desktop' : ''}`)
+      warn(`${where} names desktop ${id}, which is not installed${this.find(id) ? ' as an acde desktop' : ''}`)
     }
     const first = this.desktops()[0] ?? (foreign ? this.#sessions[0] : undefined)
     if (first) return first

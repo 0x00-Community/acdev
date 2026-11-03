@@ -1310,7 +1310,7 @@ acde 的宿主代码, esbuild 打成 crates/acde 跑的两个 ES 模块 (运行�
 | --- | --- |
 | `src/main.ts` | 命令行 (下面); 起 Broker、fcitx5 (自己的会话)、`--launch` 的程序、XDG autostart (desktop web 第一帧 (经 `page.shown`) 之后 300 ms, 5 秒兜底; 登录页上不起) |
 | `src/broker.ts` | 主线程: `Shell.broker()`、服务、窗口表、起 window web、关闭和崩溃、看门狗、丢弃隐藏窗口、重起 desktop web; 按清单检查每个调用 |
-| `src/bridge.ts`, `src/services.ts` | 给 web 的接口: runtime 的 `Finder` / `Office` / `Terminals` / `Network` (Terminals 和 Network 并行打开, 之后 Finder, 有它才开 Office; 打不开的去掉并在 stderr 说一行), 桌面包的服务 (按清单顺序挂上, 同名先到先得, acde 自己的名字保留) |
+| `src/bridge.ts`, `src/services.ts` | 给 web 的接口: runtime 的 `Finder` / `Office` / `Terminals` / `Network` (Terminals 和 Network 并行打开, 之后 Finder, 有它才开 Office; 打不开的去掉并在日志里说一行), 桌面包的服务 (按清单顺序挂上, 同名先到先得, acde 自己的名字保留) |
 | `src/packages.ts`, `src/apps.ts` | 包发现、桌面、应用清单、启动哪个桌面、会话项 |
 | `src/open.ts` | 「默认应用」 |
 | `src/foreign.ts` | 外部 Wayland 会话和交出会话 |

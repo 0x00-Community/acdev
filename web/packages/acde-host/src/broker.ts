@@ -10,7 +10,7 @@ import { Opener, type OpenOptions } from './open'
 import { NativeApps } from './launcher'
 import { PageSource } from './page'
 import { StartupTimeline } from './timeline'
-import type { Native, RawShellEvent } from './native'
+import type { Native, NativeFileChooser, RawShellEvent } from './native'
 import { Packages, type InstalledDesktop } from './packages'
 import { Rpc } from './rpc'
 import { DesktopSession, type RunEnd } from './session'
@@ -34,7 +34,7 @@ export interface BrokerShell {
   launch(argv: string[], options?: { cwd?: string; env?: Record<string, string> }): number
   screenshot(path: string): Promise<{ width: number; height: number }>
   stats(reset?: boolean): Record<string, unknown>
-  windows(): { id: number; window?: number; canvas: number; mode: string; x: number; y: number; width: number; height: number; z: number; focus: boolean }[]
+  windows(): ShellWindow[]
   animate(window: number, options: AnimateOptions): void
   shortcut(combo: string, scope: 'session' | 'desktop' | 'app', owner: number): void
   unshortcut(combo: string, scope: 'session' | 'desktop' | 'app', owner: number): void
@@ -43,7 +43,22 @@ export interface BrokerShell {
   readonly socketName: string
 }
 
-export interface AnimateOptions {
+export interface ShellWindow {
+  readonly id: number
+  readonly window?: number
+  readonly canvas: number
+  readonly mode: string
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+  readonly z: number
+  readonly focus: boolean
+  readonly hidden?: boolean
+  readonly pid?: number | null
+}
+
+interface AnimateOptions {
   opacity?: number
   scale?: number
   dx?: number
@@ -137,11 +152,6 @@ interface WindowRecord {
   hidden?: boolean
 }
 
-interface NativeFileChooser {
-  openFile(options: { title: string; multiple: boolean; directory: boolean; filters: { name: string; globs: string[]; mimes: string[] }[] }): Promise<string[] | null>
-  saveFile(options: { title: string; name: string; filters: { name: string; globs: string[]; mimes: string[] }[] }): Promise<string | null>
-}
-
 export class Broker {
   static readonly HANG_MS = 5000
   static readonly CLOSE_WAIT_MS = 3000
@@ -156,7 +166,7 @@ export class Broker {
   readonly opener: Opener
   readonly natives = new NativeApps()
   readonly session = new DesktopSession()
-  readonly language = new SessionLanguage(process.env, (languages) => {
+  readonly language = new SessionLanguage((languages) => {
     for (const web of this.#webs()) web.post({ type: 'languages', ...languages })
   })
   readonly backends: AppBackends
@@ -280,10 +290,6 @@ export class Broker {
     StartupTimeline.mark('services started')
   }
 
-  startDesktop(): void {
-    this.#spawnDesktop()
-  }
-
   readonly desktops = {
     list: () => {
       const { packages } = this.#options
@@ -302,24 +308,19 @@ export class Broker {
       if (remember) Packages.remember(next.id)
       if (next.kind === 'session') return this.session.handOff(next)
       if (next.id === this.#current.id) return
-      process.stderr.write(`acde-host: switching to desktop ${next.id}\n`)
+      Log.write(Level.Info, 'acde_host', `switching to desktop ${next.id}`)
       const old = this.#desktop
       if (old) old.closing = true
       this.#desktop = null
       await old?.worker.terminate().catch(() => 0)
       this.#current = next
       await this.bridge.startDesktop(next, this.native)
-      this.#spawnDesktop()
+      this.startDesktop()
     },
   }
 
   get desktopId(): string {
     return this.#current.id
-  }
-
-  static theme(html: string): string {
-    const match = /:root\s*\{[^}]*\}/.exec(html)
-    return match ? match[0] : ''
   }
 
   async run(signal?: AbortSignal): Promise<RunEnd> {
@@ -351,7 +352,7 @@ export class Broker {
     await this.bridge.close()
   }
 
-  #spawnDesktop(): void {
+  startDesktop(): void {
     const grant = this.shell.grant({ desktop: true })
     const { storageFile, standalone } = this.#options
     const init: WebInit = {
@@ -432,7 +433,7 @@ export class Broker {
     let theme = this.#themes.get(id)
     if (theme === undefined) {
       try {
-        theme = Broker.theme(readFileSync(this.#current.html, 'utf8'))
+        theme = /:root\s*\{[^}]*\}/.exec(readFileSync(this.#current.html, 'utf8'))?.[0] ?? ''
       } catch {
         theme = ''
       }
@@ -458,14 +459,14 @@ export class Broker {
       if (this.#stopped) return
       const crashes = this.#desktopCrashes.note()
       if (crashes.tooMany) {
-        process.stderr.write(`acde-host: the desktop stopped ${crashes.count} times in a minute (exit ${code}${reason ? `, ${reason}` : ''}); the session ends\n`)
+        Log.write(Level.Error, 'acde_host', `the desktop stopped ${crashes.count} times in a minute (exit ${code}${reason ? `, ${reason}` : ''}); the session ends`)
         this.#stopped = true
         this.#ended = 'exit'
         this.#poke()
         return
       }
-      process.stderr.write(`acde-host: the desktop stopped (exit ${code}${reason ? `, ${reason}` : ''}); starting it again\n`)
-      setTimeout(() => !this.#stopped && this.#spawnDesktop(), 500)
+      Log.write(Level.Warn, 'acde_host', `the desktop stopped (exit ${code}${reason ? `, ${reason}` : ''}); starting it again`)
+      setTimeout(() => !this.#stopped && this.startDesktop(), 500)
       return
     }
     const record = this.#windows.get(web.window)
@@ -477,7 +478,7 @@ export class Broker {
     if (record.resume !== undefined && !web.closing) return
     if (!web.closing) {
       this.#toDesktop({ type: 'windowcrash', window: record.id, reason: reason ?? (code === 0 ? 'exit' : `exit ${code}`) })
-      process.stderr.write(`acde-host: [${web.name}] stopped (${reason ?? `exit ${code}`})\n`)
+      Log.write(Level.Warn, 'acde_host', `[${web.name}] stopped (${reason ?? `exit ${code}`})`)
     }
     this.#forget(record)
   }
@@ -532,7 +533,7 @@ export class Broker {
       }
       if (web.hung || !busy) continue
       web.hung = true
-      process.stderr.write(`acde-host: [${web.name}] not answering for ${Broker.HANG_MS / 1000} s\n`)
+      Log.write(Level.Warn, 'acde_host', `[${web.name}] not answering for ${Broker.HANG_MS / 1000} s`)
       if (web.kind === 'window') this.#toDesktop({ type: 'windowhang', window: web.window })
     }
     const minutes = Number(process.env['ACDE_DISCARD_MINUTES'] ?? 30)
@@ -683,7 +684,7 @@ export class Broker {
 
   installApps(dir: string): { id: string; dir: string; apps: { id: string; label: string; icon: string; script: string }[] } {
     const installed = Packages.install(String(dir))
-    process.stderr.write(`acde-host: installed package ${installed.id} from ${dir} into ${installed.dir}\n`)
+    Log.write(Level.Info, 'acde_host', `installed package ${installed.id} from ${dir} into ${installed.dir}`)
     return { ...installed, apps: this.refreshApps() }
   }
 
@@ -936,7 +937,7 @@ export class Broker {
         if (!/^https?:\/\//i.test(url)) return false
         const browser = this.apps.get(Broker.BROWSER)
         if (!browser || !this.#available(browser)) {
-          process.stderr.write(`acde-host: [${web.name}] opens ${url}: no ${Broker.BROWSER} app installed\n`)
+          Log.write(Level.Warn, 'acde_host', `[${web.name}] opens ${url}: no ${Broker.BROWSER} app installed`)
           return false
         }
         this.launch(Broker.BROWSER, { url })
@@ -971,7 +972,7 @@ export class Broker {
         const [name, type, bytes] = args as [unknown, unknown, unknown]
         if (!(bytes instanceof Uint8Array)) throw new TypeError('acde: a download is bytes')
         const path = Downloads.save(text(name, 1000), text(type, 200), bytes)
-        process.stderr.write(`acde-host: [${web.name}] saved ${path} (${bytes.length} bytes)\n`)
+        Log.write(Level.Info, 'acde_host', `[${web.name}] saved ${path} (${bytes.length} bytes)`)
         this.#toDesktop({ type: 'download', window: web.window, app: web.app?.id ?? null, path, name: basename(path), size: bytes.length })
         return path
       }
@@ -987,12 +988,12 @@ export class Broker {
 
   #fileChooser(): Promise<NativeFileChooser | null> {
     this.#chooser ??= (async () => {
-      const FileChooser = (this.native as unknown as { FileChooser?: { open(): Promise<NativeFileChooser> } }).FileChooser
+      const FileChooser = this.native.FileChooser
       if (!FileChooser) return null
       try {
         return await FileChooser.open()
       } catch (error) {
-        if (!this.#chooserWarned) process.stderr.write(`acde-host: no file chooser: ${(error as Error).message}\n`)
+        if (!this.#chooserWarned) Log.write(Level.Warn, 'acde_host', `no file chooser: ${(error as Error).message}`)
         this.#chooserWarned = true
         this.#chooser = null
         return null

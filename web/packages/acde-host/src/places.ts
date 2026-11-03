@@ -1,6 +1,6 @@
 import { xdgHome } from './sys/os'
 import { join } from './sys/path'
-import { process, type Env } from './sys/process'
+import { process } from './sys/process'
 import { StorageFile } from './storage'
 
 export type Rect = [number, number, number, number]
@@ -10,8 +10,8 @@ export class WindowPlaces {
   readonly #file: StorageFile | null
   readonly #rects: Record<string, string>
 
-  constructor(env: Env = process.env) {
-    this.#file = env['ACDE_STORAGE'] === '' ? null : new StorageFile(join(xdgHome('state', env), 'acde', 'windows.json'))
+  constructor() {
+    this.#file = process.env['ACDE_STORAGE'] === '' ? null : new StorageFile(join(xdgHome('state'), 'acde', 'windows.json'))
     this.#rects = this.#file?.read() ?? {}
   }
 

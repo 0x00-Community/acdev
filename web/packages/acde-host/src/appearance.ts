@@ -2,11 +2,6 @@ import { Level, Log } from './log'
 import type { Native } from './native'
 import { process, type Env } from './sys/process'
 
-interface NativeAppearance {
-  dark(): Promise<boolean>
-  watch(callback: (dark: boolean) => void): void
-}
-
 export class Appearance {
   static readonly WAIT_MS = 1000
 
@@ -19,7 +14,7 @@ export class Appearance {
   }
 
   static async follow(native: Native, apply: (dark: boolean) => void): Promise<void> {
-    const Portal = (native as unknown as { Appearance?: { open(): Promise<NativeAppearance> } }).Appearance
+    const Portal = native.Appearance
     if (!Portal) return
     try {
       const portal = await Portal.open()

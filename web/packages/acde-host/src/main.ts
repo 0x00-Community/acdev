@@ -3,7 +3,7 @@ import { Appearance } from './appearance'
 import { Autostart } from './autostart'
 import { Broker } from './broker'
 import { DebugDir } from './debug'
-import type { Native, NativeDesktopBus } from './native'
+import type { GreetUser, Native, NativeDesktopBus } from './native'
 import { WaylandSessions } from './foreign'
 import { DesktopEntries } from './open'
 import { Packages, type InstalledDesktop } from './packages'
@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { bindNatives, type Natives } from './sys/natives'
 import { xdgHome } from './sys/os'
 import { dirname, join, resolve } from './sys/path'
-import { onceSignal, process, type Env } from './sys/process'
+import { onceSignal, process } from './sys/process'
 import { unref, within } from './sys/timers'
 import { StartupTimeline } from './timeline'
 import { Level, Log } from './log'
@@ -64,7 +64,8 @@ class Main {
   static readonly AUTOSTART_WAIT = 5000
   static readonly CLOSE_WAIT = 3000
 
-  static session(env: Env = process.env): boolean {
+  static session(): boolean {
+    const { env } = process
     if (env['ACDE_BACKEND'] === 'drm') return true
     if (env['ACDE_BACKEND'] === 'rdp') return false
     return !env['DISPLAY'] && !env['WAYLAND_DISPLAY']
@@ -73,8 +74,7 @@ class Main {
   static readonly LOGIN_COMMAND = ['/usr/bin/acde']
 
   static greeter(native: Native, broker: Broker, packages: Packages): Record<string, unknown> {
-    type GreetUser = { name: string; fullName: string; uid: number }
-    const greetd = (native as { Greetd?: { available(): boolean; users(): GreetUser[]; login(user: string, password: string, cmd: string[], env: string[]): Promise<void> } }).Greetd
+    const greetd = native.Greetd
     if (!greetd) throw new Error('acde --greeter: this acde has no greetd support (runtime Greetd)')
     const command = (id: string | null): [string[], string[]] => {
       if (!id) return [Main.LOGIN_COMMAND, ['XDG_SESSION_TYPE=wayland']]
@@ -115,16 +115,15 @@ class Main {
     }
   }
 
-  static reducedMotion(env: Env = process.env): boolean | null {
-    if (env['ACDE_REDUCED_MOTION'] === '1') return true
-    if (env['ACDE_REDUCED_MOTION'] === '0') return false
-    return null
+  static #switch(name: string): boolean | null {
+    const set = process.env[name]
+    return set === '1' ? true : set === '0' ? false : null
   }
 
-  static storageFile(desktop: string, env: Env = process.env): string | null {
-    const set = env['ACDE_STORAGE']
+  static storageFile(desktop: string): string | null {
+    const set = process.env['ACDE_STORAGE']
     if (set !== undefined) return set || null
-    const dir = join(xdgHome('config', env), 'acde', 'storage')
+    const dir = join(xdgHome('config'), 'acde', 'storage')
     const file = join(dir, `${desktop}.json`)
     for (const [before, now] of Object.entries(Packages.RENAMED)) {
       const old = join(dir, `${before}.json`)
@@ -147,12 +146,6 @@ class Main {
     } catch (error) {
       Log.write(Level.Warn, 'acde_host', `${file} not written: ${(error as Error).message}`)
     }
-  }
-
-  static busNames(session: boolean, env: Env = process.env): boolean {
-    if (env['ACDE_BUS_NAMES'] === '1') return true
-    if (env['ACDE_BUS_NAMES'] === '0') return false
-    return session
   }
 
   static async open(native: Native, argv: string[]): Promise<number> {
@@ -188,7 +181,7 @@ class Main {
     if (name === 'desktops') {
       let chosen: string | null = null
       try {
-        chosen = packages.choose(args.string('desktop') ?? null, process.env, () => {}).id
+        chosen = packages.choose(args.string('desktop') ?? null, true, true).id
       } catch {
       }
       for (const d of packages.desktops()) process.stdout.write(`${d.id === chosen ? '*' : ' '} ${d.id}\t${d.name}\t${d.package.name} (${d.package.dir})\n`)
@@ -239,7 +232,7 @@ class Main {
     if (args.positionals.length && args.positionals[0] !== 'window') throw new Error(`acde: unknown command ${args.positionals[0]} (acde window <app>)`)
     if (args.positionals[0] === 'window' && !args.positionals[1]) throw new Error('acde window <app>: which app (the id in its manifest, e.g. files, term, editor)')
     const standalone = args.positionals[1] ?? null
-    const desktop = standalone && !wanted && !packages.desktops().length ? packages.bare() : packages.choose(wanted, process.env, Packages.report, !standalone)
+    const desktop = standalone && !wanted && !packages.desktops().length ? packages.bare() : packages.choose(wanted, !standalone)
     if (desktop.kind === 'session') {
       const file = WaylandSessions.handOff(desktop)
       Log.write(Level.Info, 'acde_host', `${desktop.id} chosen: handing the session over (${desktop.argv.join(' ')}), ${file}, exit ${WaylandSessions.HANDOFF_EXIT}`)
@@ -260,7 +253,7 @@ class Main {
       width,
       height,
       scale,
-      reducedMotion: Main.reducedMotion(),
+      reducedMotion: Main.#switch('ACDE_REDUCED_MOTION'),
       dark: fixed ?? false,
       session,
       storageFile: (id) => (greeter ? null : Main.storageFile(id)),
@@ -288,13 +281,13 @@ class Main {
         if (started) return
         started = true
         StartupTimeline.mark('autostart')
-        new Autostart('acde').start(shell.launch.bind(shell), new Set(session ? ['fcitx5'] : []))
+        Autostart.start(shell.launch.bind(shell), new Set(session ? ['fcitx5'] : []))
       }
       broker.onDesktopShown = () => unref(setTimeout(start, Main.AUTOSTART_AFTER_SHOWN))
       unref(setTimeout(start, Main.AUTOSTART_WAIT))
     }
     let bus: NativeDesktopBus | null = null
-    if (Main.busNames(session) && !greeter && native.DesktopBus) {
+    if ((Main.#switch('ACDE_BUS_NAMES') ?? session) && !greeter && native.DesktopBus) {
       try {
         bus = native.DesktopBus.open((request) => broker.openFromBus(request))
         Log.write(Level.Info, 'acde_host', `on the session bus as ${bus.names.join(', ') || 'nothing (the names are taken)'}`)

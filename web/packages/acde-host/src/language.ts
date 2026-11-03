@@ -25,17 +25,13 @@ export class SessionLanguage {
     return languages.length ? { language: languages[0]!, languages } : {}
   }
 
-  static locale(tag: string): string {
+  static #locale(tag: string): string {
     const match = SessionLanguage.TAG.exec(tag)
     if (!match) throw Object.assign(new Error(`acde.session.setLanguage: ${JSON.stringify(tag)} is not a language-REGION tag such as zh-CN`), { status: 400 })
     return `${match[1]}_${match[2]}.UTF-8`
   }
 
-  static file(env: Env = process.env): string {
-    return join(xdgHome('config', env), 'locale.conf')
-  }
-
-  static persist(locale: string, file: string = SessionLanguage.file()): void {
+  static #persist(locale: string, file: string): void {
     const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l.trim() && !/^\s*(LANG|LANGUAGE)=/.test(l)) : []
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(`${file}.tmp`, [`LANG=${locale}`, ...lines, ''].join('\n'))
@@ -43,12 +39,11 @@ export class SessionLanguage {
   }
 
   #current: Languages
+  readonly #onChange: (languages: Languages) => void
 
-  constructor(
-    env: Env,
-    readonly onChange: (languages: Languages) => void,
-  ) {
-    this.#current = SessionLanguage.of(env)
+  constructor(onChange: (languages: Languages) => void) {
+    this.#current = SessionLanguage.of(process.env)
+    this.#onChange = onChange
   }
 
   get current(): Languages {
@@ -56,12 +51,13 @@ export class SessionLanguage {
   }
 
   set(tag: string): void {
-    const locale = SessionLanguage.locale(tag)
+    const locale = SessionLanguage.#locale(tag)
     const next = SessionLanguage.of({ LANG: locale })
+    const file = join(xdgHome('config'), 'locale.conf')
     try {
-      SessionLanguage.persist(locale)
+      SessionLanguage.#persist(locale, file)
     } catch (error) {
-      Log.write(Level.Warn, 'acde_host', `${SessionLanguage.file()} not written: ${(error as Error).message}`)
+      Log.write(Level.Warn, 'acde_host', `${file} not written: ${(error as Error).message}`)
     }
     process.env['LANG'] = locale
     delete process.env['LANGUAGE']
@@ -70,6 +66,6 @@ export class SessionLanguage {
     if (this.#current.language === next.language) return
     Log.write(Level.Info, 'acde_host', `session language: ${next.language}`)
     this.#current = next
-    this.onChange(next)
+    this.#onChange(next)
   }
 }

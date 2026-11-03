@@ -75,20 +75,6 @@ export interface ActResult {
   readonly text: string
 }
 
-interface ShellRow {
-  readonly id: number
-  readonly window?: number
-  readonly mode: string
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-  readonly z: number
-  readonly focus: boolean
-  readonly hidden?: boolean
-  readonly pid?: number | null
-}
-
 interface NativeNode {
   readonly id: string
   readonly role: string
@@ -141,7 +127,7 @@ export class Inspect {
   }
 
   windows(): InspectWindow[] {
-    const rows = this.#host.shell.windows() as readonly ShellRow[]
+    const rows = this.#host.shell.windows()
     const out: InspectWindow[] = []
     for (const row of rows) {
       const id = row.window ?? row.id
@@ -288,7 +274,7 @@ export class Inspect {
   }
 
   #opening(): Set<number> {
-    const shown = new Set((this.#host.shell.windows() as readonly ShellRow[]).map((r) => r.window ?? r.id))
+    const shown = new Set(this.#host.shell.windows().map((r) => r.window ?? r.id))
     return new Set(this.#host.records().filter((id) => !shown.has(id)))
   }
 
@@ -430,7 +416,7 @@ export class Inspect {
   }
 
   #cover(window: InspectWindow, x: number, y: number): InspectWindow | null {
-    const rows = this.#host.shell.windows() as readonly ShellRow[]
+    const rows = this.#host.shell.windows()
     const own = rows.find((r) => (r.window ?? r.id) === window.id)
     for (const row of rows) {
       const id = row.window ?? row.id

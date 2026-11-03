@@ -3,8 +3,9 @@ import { xdgHome } from './sys/os'
 import { join } from './sys/path'
 import { pathToFileURL } from './sys/url'
 import type { ServiceFactory, ServiceInstance, ServiceProcess, SpawnOptions } from '@dopame/acde-api'
+import type { Native } from './native'
 import type { InstalledDesktop } from './packages'
-import { process, stopGroup, type Env } from './sys/process'
+import { process, stopGroup } from './sys/process'
 import { Level, Log } from './log'
 import { sys } from './sys/natives'
 
@@ -51,8 +52,8 @@ export class DesktopServices {
   readonly sync = new Set<string>()
   inspect: object | null = null
 
-  async start(desktop: InstalledDesktop, native: Readonly<Record<string, unknown>> | null, value: Record<string, unknown>, before: Promise<unknown> = Promise.resolve(), env: Env = process.env): Promise<void> {
-    const state = xdgHome('state', env)
+  async start(desktop: InstalledDesktop, native: Native, value: Record<string, unknown>, before: Promise<unknown> = Promise.resolve()): Promise<void> {
+    const state = xdgHome('state')
     const owner = desktop.package.name.replace(/^@/, '').replace(/[^\w.-]+/g, '-')
     const started = await Promise.all(
       desktop.services.map(async (service) => {
@@ -64,7 +65,7 @@ export class DesktopServices {
           if (typeof module.default !== 'function') throw new Error(`${service.module} has no default export function`)
           const dir = join(state, 'acde', owner, service.name)
           mkdirSync(dir, { recursive: true })
-          return { name: service.name, log, processes, instance: await module.default({ name: service.name, package: desktop.package.dir, state: dir, native, env, log, spawn, ...(this.inspect ? { inspect: this.inspect as never } : {}) }) }
+          return { name: service.name, log, processes, instance: await module.default({ name: service.name, package: desktop.package.dir, state: dir, native: native as unknown as Record<string, unknown>, env: process.env, log, spawn, ...(this.inspect ? { inspect: this.inspect as never } : {}) }) }
         } catch (error) {
           log(`not started: ${(error as Error).stack ?? error}`)
           Processes.stop(processes)

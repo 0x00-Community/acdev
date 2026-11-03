@@ -2,7 +2,7 @@ import { DesktopEntry } from './desktopentry'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from './sys/fs'
 import { runtimeDir, xdgDirs } from './sys/os'
 import { basename, dirname, join } from './sys/path'
-import { process, type Env } from './sys/process'
+import { Level, Log } from './log'
 
 export interface ForeignSession {
   readonly kind: 'session'
@@ -18,19 +18,19 @@ export class WaylandSessions {
   static readonly PREFIX = 'session:'
   static readonly HANDOFF_EXIT = 3
 
-  static list(env: Env = process.env, report: (line: string) => void = () => {}): ForeignSession[] {
-    return DesktopEntry.files(xdgDirs('data', 'wayland-sessions', env, false)).flatMap(({ file }) => {
+  static list(): ForeignSession[] {
+    return DesktopEntry.files(xdgDirs('data', 'wayland-sessions', false)).flatMap(({ file }) => {
       try {
-        const session = WaylandSessions.parse(file, readFileSync(file, 'utf8'), env)
+        const session = WaylandSessions.#parse(file, readFileSync(file, 'utf8'))
         return session ? [session] : []
       } catch (error) {
-        report(`acde-host: ${file}: ${(error as Error).message}`)
+        Log.write(Level.Warn, 'acde_host', `${file}: ${(error as Error).message}`)
         return []
       }
     })
   }
 
-  static parse(file: string, text: string, env: Env = process.env): ForeignSession | null {
+  static #parse(file: string, text: string): ForeignSession | null {
     const base = basename(file).replace(/\.desktop$/, '')
     if (base === 'acde' || base.startsWith('acde-') || !/^[\w.+@-]+$/.test(base)) return null
     const entry = new DesktopEntry(file, text)
@@ -38,28 +38,24 @@ export class WaylandSessions {
     const argv = entry.exec()
     if (!argv || basename(argv[0]!) === 'acde') return null
     const tryExec = entry.string('TryExec')
-    if (tryExec && !DesktopEntry.executable(tryExec, env)) return null
-    if (!DesktopEntry.executable(argv[0]!, env)) return null
+    if (tryExec && !DesktopEntry.executable(tryExec)) return null
+    if (!DesktopEntry.executable(argv[0]!)) return null
     const desktopNames = entry.list('DesktopNames')
     return {
       kind: 'session',
       id: `${WaylandSessions.PREFIX}${base}`,
-      name: WaylandSessions.title(entry.localized('Name', env) ?? base, desktopNames),
-      description: entry.localized('Comment', env),
+      name: WaylandSessions.#title(entry.localized('Name') ?? base, desktopNames),
+      description: entry.localized('Comment'),
       file,
       argv,
       desktopNames,
     }
   }
 
-  static title(name: string, desktopNames: readonly string[]): string {
+  static #title(name: string, desktopNames: readonly string[]): string {
     const short = name.replace(/\s*\(Wayland\)\s*$/i, '') || name
     const desktop = desktopNames[0]
     return desktop === 'KDE' && !/\bKDE\b/i.test(short) ? `KDE ${short}` : short
-  }
-
-  static quote(arg: string): string {
-    return `'${arg.replace(/'/g, `'\\''`)}'`
   }
 
   static environment(session: ForeignSession): [string, string][] {
@@ -72,20 +68,17 @@ export class WaylandSessions {
     ]
   }
 
-  static command(session: ForeignSession): string {
+  static #command(session: ForeignSession): string {
+    const quote = (arg: string) => `'${arg.replace(/'/g, `'\\''`)}'`
     const vars = WaylandSessions.environment(session)
-    return [session.argv.map(WaylandSessions.quote).join(' '), ...vars.map(([name, value]) => `${name}=${DesktopEntry.line(value)}`), ''].join('\n')
+    return [session.argv.map(quote).join(' '), ...vars.map(([name, value]) => `${name}=${DesktopEntry.line(value)}`), ''].join('\n')
   }
 
-  static handoffFile(env: Env = process.env): string {
-    return join(runtimeDir(env), 'acde', 'exec')
-  }
-
-  static handOff(session: ForeignSession, env: Env = process.env): string {
-    const file = WaylandSessions.handoffFile(env)
+  static handOff(session: ForeignSession): string {
+    const file = join(runtimeDir(), 'acde', 'exec')
     const dir = dirname(file)
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 })
-    writeFileSync(`${file}.new`, WaylandSessions.command(session), { mode: 0o600 })
+    writeFileSync(`${file}.new`, WaylandSessions.#command(session), { mode: 0o600 })
     renameSync(`${file}.new`, file)
     return file
   }
