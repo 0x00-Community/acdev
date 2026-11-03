@@ -157,7 +157,7 @@ fn cached<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str) -> Option<v8::Local<'
     MAP.with(|m| m.borrow().by_url.get(url).map(|g| v8::Local::new(scope, g)))
 }
 
-pub fn compile<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str, source: &str) -> Option<v8::Local<'s, v8::Module>> {
+fn compile<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str, source: &str) -> Option<v8::Local<'s, v8::Module>> {
     if let Some(module) = cached(scope, url) {
         return Some(module);
     }
@@ -177,20 +177,7 @@ fn compile_graph<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str) -> Option<v8::
     if let Some(exports) = builtin(scope, url) {
         return synthetic(scope, url, exports);
     }
-    let loader = match loader() {
-        Ok(loader) => loader,
-        Err(e) => {
-            crate::bind::throw_type_error(scope, &e);
-            return None;
-        }
-    };
-    let source = match loader.load(url) {
-        Ok(source) => source,
-        Err(e) => {
-            crate::bind::throw_type_error(scope, &e);
-            return None;
-        }
-    };
+    let source = thrown(scope, loader().and_then(|loader| loader.load(url)))?;
     let module = compile(scope, url, &source)?;
     imports(scope, module, url)?;
     Some(module)
@@ -202,13 +189,7 @@ fn imports(scope: &mut v8::PinScope, module: v8::Local<v8::Module>, url: &str) -
         let request = requests.get(scope, i)?;
         let request = v8::Local::<v8::ModuleRequest>::try_from(request).ok()?;
         let specifier = request.get_specifier().to_rust_string_lossy(scope);
-        let target = match target(&specifier, url) {
-            Ok(target) => target,
-            Err(e) => {
-                crate::bind::throw_type_error(scope, &e);
-                return None;
-            }
-        };
+        let target = thrown(scope, target(&specifier, url))?;
         compile_graph(scope, &target)?;
     }
     Some(())
@@ -223,20 +204,13 @@ fn resolve_callback<'s>(
     v8::callback_scope!(unsafe scope, context);
     let specifier = specifier.to_rust_string_lossy(scope);
     let referrer = url_of(scope, referrer).unwrap_or_default();
-    let target = target(&specifier, &referrer);
-    match target {
-        Ok(target) => match cached(scope, &target) {
-            Some(module) => Some(module),
-            None => {
-                crate::bind::throw_type_error(scope, &format!("acde: module {target} was not loaded"));
-                None
-            }
-        },
-        Err(e) => {
-            crate::bind::throw_type_error(scope, &e);
-            None
-        }
-    }
+    let target = thrown(scope, target(&specifier, &referrer))?;
+    let module = cached(scope, &target);
+    thrown(scope, module.ok_or_else(|| format!("acde: module {target} was not loaded")))
+}
+
+fn thrown<T>(scope: &mut v8::PinScope, result: Result<T, String>) -> Option<T> {
+    result.map_err(|e| crate::bind::throw_type_error(scope, &e)).ok()
 }
 
 fn link<'s>(scope: &mut v8::PinScope<'s, '_>, module: v8::Local<'s, v8::Module>) -> Option<v8::Local<'s, v8::Value>> {
