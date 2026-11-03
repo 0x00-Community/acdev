@@ -21,7 +21,7 @@
 >   context 的内容; 窗口无权往外看, 除非有签名声明允许互通, 或者用户允许了共享. 现在的「每个窗口一个 web 进程」和 `acde:` 模块
 >   按清单给能力, 是在这之前的做法.
 
-不需要 README.md, full agentic.
+根目录的 README.md 是给人看的简介, 其余说明都在本文件里. full agentic.
 
 Dopame 的桌面基座, 替换 KDE Plasma / GNOME. 它自己就是 Wayland 合成器: 桌面是一张网页, 页面 JS 跑在内嵌的 V8 里 (不用 Node),
 用没有 JS 引擎的原生 web 渲染器 Blitz (`vendors/acrender`) 画出来, 系统接口在 Broker 里走 napi, 不监听任何端口 (远程桌面后端除外).
@@ -900,7 +900,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 - 汇报时分开写「已验证 / 未验证」.
 - 输出诊断用 `log` 的宏 (`log::warn!` …, 计时见「日志和计时」), 不用 `eprintln!`; acde-host 用 `src/log.ts` 的 `Log`. 例外: 测试、命令行的用法和结果
   (stdout)、fps-probe (独立的程序).
-- 仓库里不放 README; 说明都写在本文件里, 子目录不放 AGENTS.md.
+- 除了根目录给人看的 README.md 简介, 说明都写在本文件里, 子目录不放 README 或 AGENTS.md.
 
 ## 目录
 
