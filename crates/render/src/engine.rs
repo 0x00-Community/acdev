@@ -179,10 +179,8 @@ impl Engine {
             images: m.images as u32,
             image_bytes: m.image_bytes as f64,
             fonts: m.fonts as u32,
-            ids: self.ids.next(),
             live_ids: self.ids.live(),
             animating: self.doc.is_animating(),
-            canvases: self.ids.canvases.len() as u32,
             malloc_bytes: Self::malloc_bytes(),
             ..self.stats
         }

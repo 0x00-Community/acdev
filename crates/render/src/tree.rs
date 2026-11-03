@@ -62,10 +62,6 @@ impl Ids {
         }
     }
 
-    pub(crate) fn next(&self) -> u32 {
-        self.nodes.len() as u32
-    }
-
     pub(crate) fn node(&self, id: u32) -> Result<NodeId> {
         match self.nodes.get(id as usize) {
             Some(&node) if node != NodeId::default() => Ok(node),
