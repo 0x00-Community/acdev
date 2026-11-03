@@ -30,6 +30,10 @@ export class WebThread {
     return this.#handle.busyMs()
   }
 
+  cpuMs(): number {
+    return this.#handle.cpuMs()
+  }
+
   terminate(): Promise<number> {
     this.#handle.terminate()
     return this.#exited

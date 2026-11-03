@@ -986,7 +986,7 @@ export class Broker {
   async debugStats(reset = false): Promise<Record<string, unknown>> {
     const webs = this.#webs()
     const stats = await Promise.all(webs.map((w) => w.rpc.call('debug', 'stats', [reset]).catch((e: Error) => ({ error: e.message }))))
-    return Object.fromEntries(webs.map((w, i) => [w.name, stats[i]]))
+    return Object.fromEntries(webs.map((w, i) => [w.name, { ...(stats[i] as object), cpuMs: w.worker.cpuMs() }]))
   }
 
   get windows(): { id: number; kind: string; app: string | null; title: string | null; running: boolean }[] {

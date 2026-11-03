@@ -44,9 +44,9 @@ acde-base 只是平台: 合成器, 渲染, 系统接口, host 和登录页. 具�
 ```
 acde (crates/acde, 主进程, 没有 V8)                 crates/shell Wayland 合成器 (独立线程): canvas / 窗口表, 所有窗口都是 Wayland 客户端
  └─ acde runtime (子进程, 自己的进程组)            主线程: Broker isolate (web/packages/acde-host) 系统接口、当前桌面的服务、窗口记录、会话;
-     │                                              crates/runtime 系统接口 (Broker 经 napi 调); 经 `acde_shell` 管合成器; 起 web 进程
-     ├─ acde web desktop (子进程)                  当前桌面的页面: V8 isolate + render 文档 + 光栅化 + Wayland 客户端
-     └─ acde web <app>#<窗口> (子进程)             每个应用窗口一个, 只拿到它的清单允许的 `acde`
+     │                                              crates/runtime 系统接口 (Broker 经 napi 调); 经 `acde_shell` 管合成器; 起 web
+     ├─ web desktop (线程 + isolate)               当前桌面的页面: V8 isolate + render 文档 + 光栅化 + Wayland 客户端
+     └─ web <app>#<窗口> (线程 + isolate)          每个应用窗口一个, 只拿到它的清单允许的 `acde`
 原生程序                                            普通 Wayland 客户端
 ```
 
@@ -55,9 +55,13 @@ acde (crates/acde, 主进程, 没有 V8)                 crates/shell Wayland �
 自己进程里起合成器). 合成器等 runtime 在这条连接上发来第一条消息才起 (`desktops`、交给别的会话、出错退出这些不碰 DRM 的路径不起它);
 连接先挂断或 runtime 先退出就不起. SIGINT / SIGTERM / SIGHUP 转给 runtime (它的进程组, 终端的 Ctrl-C 只到主进程); runtime 正常退出
 (或被转过去的信号结束) 时主进程停合成器, 用它的退出码退出; 被别的信号杀掉 (崩溃) 时在同一个合成器上新建一条 `acde_shell` 连接重起它,
-60 秒内最多 3 次. runtime 设了 PDEATHSIG (主进程死它跟着死), web 进程同样跟着 runtime.
+60 秒内最多 3 次. runtime 设了 PDEATHSIG (主进程死它跟着死).
 
-web 进程 (`acde web <名字> --port <fd> --heap-mb <mb>`, 同一个可执行文件, crates/acde `web.rs`): 里面是 crates/render 的文档、
+web (crates/acde `web.rs` `spawnWeb`: runtime 里的一条 JS 线程 `acde`, 栈 8 MiB, 自己的 isolate (堆上限 `heapMb`) 和事件循环;
+本文其余地方说的「web 进程」都指它): 和 Broker 之间的消息是结构化克隆的字节, 投进对方事件循环的通道 (没有 socket); `terminate`
+置停止并 `terminate_execution` (卡在 JS 里也停得下, 退出码 137); 线程 panic 只结束这个 web (退出码 134, 原因 `panic: …`);
+句柄的 `busyMs` (当前任务跑了多久, Broker 判卡死) 和 `cpuMs` (这条线程用掉的 CPU, `/proc/self/task/<tid>/schedstat`;
+`DebugApi.stats` 每个 web 带上). 段错误、abort 仍然带掉整个 runtime (主进程重起它). 里面是 crates/render 的文档、
 crates/paint (光栅化线程: 交给 acgpu, 今天是它的 Vulkan 回退 —— vello 画、filter / drop-shadow / backdrop 合成都在 acgpu 里) 和 crates/window
 (Wayland 客户端: xdg_toplevel + linux-dmabuf + `acde_window`, 输入 / 剪贴板 / 拖放 / frame). 它死掉只掉它的窗口.
 
@@ -132,8 +136,8 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
 
 1. (已做) `acde_shell` 协议: 合成器侧实现现在 napi `Shell` 的方法和事件; Broker 先在主进程里改成经它调 (接口对 TS 不变).
 2. (已做) Broker 搬进 `acde runtime` 子进程: 主进程只剩合成器, 起 runtime 时交 `acde_shell` 和 Wayland 连接 (`WAYLAND_DISPLAY`).
-3. web 从子进程改成 runtime 进程里的线程 + isolate: `spawnWeb` 对 TS 不变, port 换成进程内通道; 堆上限、外部内存记账、
-   CPU 时间和卡死检测按 isolate.
+3. (已做, 外部内存记账除外) web 从子进程改成 runtime 进程里的线程 + isolate: `spawnWeb` 对 TS 不变, port 换成进程内通道;
+   堆上限、CPU 时间和卡死检测按 isolate. 还没有: 外部内存 (ArrayBuffer、render 文档、GPU 缓冲) 按 isolate 记账.
 4. 系统能力直接注入: fs / terminal / network / office / ime 在各 isolate 里绑定同一份 Rust 对象; 删掉 Broker 代理的这些分支.
 5. 窗口 / 应用 / 会话表进 Rust 共享表, `acde:windows` / `acde:apps` / `acde:window` / `acde:session` / `acde:desktops` 直接调.
 6. 桌面包服务改成跨 isolate 的进程内调用; 删掉 `rpc.ts` / `remote.ts` 和 port.
@@ -680,7 +684,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   'crash' | 'hang' | 'show' | …)` (shell 的窗口事件去掉 `window` 前缀), `acde:apps` 的 `on('changed')` (桌面), `acde:desktop` 的
   `on('download' | 'notification' | 'screenshot' | 'shortcut')`, `acde:window` 的 `on('shortcut')` 和原有的 `request` 等;
   别的类型 `on` 直接抛 TypeError. 本文件里的 `acde.<名字>.<方法>` 是简写, 指 `acde:<名字>` 模块导出的值. 调用经
-  web 进程的 port (fd, `[u32 长度][u8 种类][V8 结构化克隆]`: 消息 / 初始化 / 退出原因 / busy) 到 Broker (`rpc.ts`: 返回值、抛出的错误原样回来, 回调函数可以跨: 终端输出这类).
+  web 和 Broker 之间的进程内通道 (V8 结构化克隆的字节) 到 Broker (`rpc.ts`: 返回值、抛出的错误原样回来, 回调函数可以跨: 终端输出这类).
   ⚠ 这是现状, 不是设计: `acde:` 模块应当在 web 进程里直接注入、直接调原生实现, 见第一原则; 这条 RPC 是要收回的债.
   - window web: 清单里有的服务 (`acde.fs`、`acde.terminal` …), `acde.window` (标题、菜单、关闭、最小化、`on` 事件:
     `beforeclose` 返回 false 留住窗口、`request` 别的应用 `acde.open(<id>, {…})` 要它打开什么 (要那个应用清单的 `open`
@@ -724,8 +728,8 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   它起的原生窗口一起关. web 的进程自己停了 (堆超限、加载时抛错) 是崩溃: 桌面在窗框里说明, 可以重新打开.
   无响应: Broker 读每个 web 循环当前任务跑了多久 (`busyMs`, 不靠心跳), 超过 5 秒报 `windowhang`, 回到循环报 `windowresponsive`;
   桌面可以强制关 (`kill`). desktop web 自己停了 Broker 重新起它 (一分钟最多 3 次), 窗口照常.
-- **调试**: `acde window <app>` 只跑一个应用 (Broker 直接起它, `fullscreen`, 桌面只是底色); 每个 web 有名字 (`files#1048576`, 进程是
-  `acde web <名字>`), 报错带名字 (`acde: [files#1048576] page error: …` / `uncaught: …`); 运行中的会话用 `ACDE_DEBUG_DIR`
+- **调试**: `acde window <app>` 只跑一个应用 (Broker 直接起它, `fullscreen`, 桌面只是底色); 每个 web 有名字 (`files#1048576`, 也是它
+  事件循环的名字, `perf::task` 日志带它), 报错带名字 (`acde: [files#1048576] page error: …` / `uncaught: …`); 运行中的会话用 `ACDE_DEBUG_DIR`
   (「web/packages/acde-host」) 和 `packaging/qemu/drive.sh` 驱动和测量. 没有自动验收; 无显示器时用 `ACDE_BACKEND=rdp` 起整个会话.
 
 ## 网页应用 (`acde app`, SDK, 应用后端)
@@ -1028,7 +1032,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/shell` | Rust | 合成器与系统交互 |
 | `crates/render` | Rust | Blitz 原生 web 渲染 |
 | `crates/runtime` | Rust | 系统接口的 napi 导出. 异步执行器 `src/rt.rs`: 线程 `acde-rt` 上一个 ntex System (运行时 ntex 自己选: io_uring, 不行用 polling), 也是 napi 的 `async-runtime` 后端, 阻塞活进它的线程池; HTTP / WebSocket 用 ntex, TLS 用 OpenSSL, 不用 tokio; 唯一起的子进程是终端的 shell (`std::process`, 一条 `terminal-<pid>` 线程用 pidfd 等它). 检查在 `tests/`, 用编好的 acde 跑 (`acde run`, 不要 Node): `tests/run.sh <acde> tests/<x>-check.mjs` (fs-copyin、terminal), 输入法 `tests/ime-check.sh` (在私有 D-Bus 和 fcitx5 上跑 `src/ime.rs` 里 ignored 的 Rust 测试; `Ime` 不是 napi 导出, 只由 crates/acde `webnative.rs` 绑给 web), `tests/portal-check.sh <acde>`; 临时目录在 `$ACDE_CHECK_TMP` (默认 `$TMPDIR`) |
-| `crates/acde` | Rust | `acde` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, web 进程 (`acde web`), 把 render 的文档绑给 JS (见「宿主: crates/acde」) |
+| `crates/acde` | Rust | `acde` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, web 线程 (`spawnWeb`), 把 render 的文档绑给 JS (见「宿主: crates/acde」) |
 | `crates/paint` | Rust | `acde-paint`: web 进程的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acgpu 打开的 wgpu 设备 |
 | `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
@@ -1063,7 +1067,7 @@ acde 找 bundle 的顺序: `$ACDE_APP`, 自己旁边的 `app/dist` (装好的包
 格式化在打日志的线程上, 写 stderr 在 `acde-log` 线程上 (积压超过 8 MB 时丢掉并记下丢了几行): 合成器、光栅化、render 线程不会被
 journald 卡住. 退出前和 panic 时 `acde_log::flush()` 把积压的写完. smithay 的 tracing 事件经 tracing 的 `log` feature 进同一个 logger.
 JS 里 `console.*` 是 target `js`, 页面错误和没接住的异常是 `js` 的 error; acde-host 用 `src/log.ts` (`Log.write`, `Log.enabled`
-缓存每个 target 开没开, `Log.clock()` 和 Rust 的 `acde_log::now_ms()` 同一个零点: 本进程启动, 所以同一个进程里的线程可比, web 进程的时间从它自己启动算起).
+缓存每个 target 开没开, `Log.clock()` 和 Rust 的 `acde_log::now_ms()` 同一个零点: 本进程启动, 所以同一个进程里的线程可比; web 和 Broker 同在 runtime 里, 时间可比).
 
 计时都是 debug 级、target `perf::<段>`, 平时关着 (一个原子读), `RUST_LOG=perf=debug` 打开全部 (或 `perf::rpc=debug` 只开一段).
 每行带 `ms=` 和别的 `键=值`; `packaging/qemu/perf-log.sh [日志文件]` (或从 stdin, 例如 `journalctl -b -t acde -o cat`) 按种类汇总:

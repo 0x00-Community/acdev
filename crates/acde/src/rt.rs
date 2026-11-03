@@ -4,7 +4,7 @@ use std::cmp::Reverse;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use acde_napi::{LocalTask, ScopeTask};
@@ -64,6 +64,7 @@ pub struct Loop {
     reporter: RefCell<Option<v8::Global<v8::Function>>>,
     exit: Cell<Option<i32>>,
     started: Instant,
+    name: String,
 }
 
 thread_local! {
@@ -189,7 +190,7 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn new(heap_mb: Option<usize>) -> Self {
+    pub fn new(heap_mb: Option<usize>, name: &str) -> Self {
         crate::engine::init();
         let mut params = v8::CreateParams::default();
         if let Some(mb) = heap_mb {
@@ -216,13 +217,14 @@ impl Runtime {
             reporter: Default::default(),
             exit: Cell::new(None),
             started: Instant::now(),
+            name: name.to_owned(),
         });
         LOOP.with(|l| *l.borrow_mut() = Some(lp.clone()));
         let context = {
             v8::scope!(let scope, &mut isolate);
             let context = v8::Context::new(scope, Default::default());
             let scope = &mut v8::ContextScope::new(scope, context);
-            crate::profile::start(scope, web_name());
+            crate::profile::start(scope, name);
             v8::Global::new(scope, context)
         };
         Runtime { context, lp, isolate }
@@ -350,14 +352,8 @@ pub fn busy_stamp() -> u64 {
     acde_log::start().elapsed().as_millis() as u64 + 1
 }
 
-static WEB_NAME: OnceLock<String> = OnceLock::new();
-
-pub fn set_web_name(name: &str) {
-    _ = WEB_NAME.set(name.to_owned());
-}
-
-pub fn web_name() -> &'static str {
-    WEB_NAME.get().map_or("broker", String::as_str)
+pub fn web_name() -> String {
+    LOOP.with(|l| l.borrow().as_ref().map_or_else(|| "broker".to_owned(), |l| l.name.clone()))
 }
 
 fn run_task<R>(scope: &mut v8::PinScope, f: impl FnOnce(&mut v8::PinScope) -> R) -> R {

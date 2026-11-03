@@ -13,6 +13,7 @@ export interface WebThreadHandle {
   post(message: unknown): void
   terminate(): void
   busyMs(): number
+  cpuMs(): number
 }
 
 export interface SysNative {

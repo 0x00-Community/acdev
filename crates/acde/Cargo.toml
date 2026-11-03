@@ -20,7 +20,7 @@ getrandom = "0"
 # sys.rs: package.json of node_modules packages; webgpu/: descriptors
 serde_json = "1"
 # sys.rs, child.rs, main.rs, supervise.rs: the socket lock, kill, uid, pre_exec of spawned children, waiting for acde runtime
-rustix = { version = "1", features = ["fs", "process", "stdio", "event"] }
+rustix = { version = "1", features = ["fs", "process", "stdio", "event", "thread"] }
 # sys.rs: SIGINT, SIGTERM and SIGHUP for the host's handlers
 signal-hook = "0.4"
 # logging: env_logger behind acde-log (written on its own thread), perf timings for the whole chain

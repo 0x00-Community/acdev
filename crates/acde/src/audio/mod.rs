@@ -39,7 +39,7 @@ fn web() -> Option<u64> {
     }
     static NEXT: AtomicU64 = AtomicU64::new(1);
     let web = NEXT.fetch_add(1, Ordering::Relaxed);
-    let name = rt::web_name().to_owned();
+    let name = rt::web_name();
     if !output::send(Ctl::Open { web, name, notify: rt::current().sender() }) {
         return None;
     }

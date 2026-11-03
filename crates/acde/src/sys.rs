@@ -480,7 +480,7 @@ pub fn start(entry: Entry, args: &[String]) -> i32 {
             return 1;
         }
     };
-    let mut runtime = rt::Runtime::new(None);
+    let mut runtime = rt::Runtime::new(None, "broker");
     crate::modules::set_loader(Rc::new(FileLoader));
     runtime.task(|scope| {
         let mut fields: Vec<(&str, v8::Local<v8::Value>)> = vec![("host", crate::host::object(scope).into()), ("sys", object(scope, args).into())];

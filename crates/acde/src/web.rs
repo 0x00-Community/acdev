@@ -1,13 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::bind;
 use crate::rt::{self, Msg};
@@ -25,83 +22,38 @@ pub fn app_dir() -> PathBuf {
     bin.join("../../web/packages/acde-host/dist")
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-enum Kind {
-    Message = 0,
-    Init = 1,
-    Exit = 2,
-    Busy = 3,
-}
-
-impl TryFrom<u8> for Kind {
-    type Error = std::io::Error;
-
-    fn try_from(byte: u8) -> std::io::Result<Self> {
-        match byte {
-            0 => Ok(Self::Message),
-            1 => Ok(Self::Init),
-            2 => Ok(Self::Exit),
-            3 => Ok(Self::Busy),
-            other => Err(std::io::Error::other(format!("port frame kind {other}"))),
-        }
-    }
-}
-
-struct Port {
-    reader: UnixStream,
-    writer: Mutex<UnixStream>,
-}
-
-impl TryFrom<UnixStream> for Port {
-    type Error = std::io::Error;
-
-    fn try_from(stream: UnixStream) -> std::io::Result<Self> {
-        Ok(Self { writer: Mutex::new(stream.try_clone()?), reader: stream })
-    }
-}
-
-impl Port {
-    fn write(&self, kind: Kind, bytes: &[u8]) -> std::io::Result<()> {
-        let length = u32::try_from(bytes.len()).map_err(std::io::Error::other)?;
-        let mut header = [0u8; 5];
-        header[..4].copy_from_slice(&length.to_le_bytes());
-        header[4] = kind as u8;
-        let mut stream = self.writer.lock().map_err(|_| std::io::Error::other("port lock"))?;
-        stream.write_all(&header)?;
-        stream.write_all(bytes)
-    }
-
-    fn read(&self) -> std::io::Result<Option<(Kind, Vec<u8>)>> {
-        let mut stream = &self.reader;
-        let mut header = [0u8; 5];
-        match stream.read_exact(&mut header) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-            Err(e) => return Err(e),
-        }
-        let length = u32::from_le_bytes([header[0], header[1], header[2], header[3]]) as usize;
-        let mut bytes = vec![0u8; length];
-        stream.read_exact(&mut bytes)?;
-        Ok(Some((Kind::try_from(header[4])?, bytes)))
-    }
-}
-
-struct Busy {
-    ms: u64,
-    at: Instant,
+struct Upstream {
+    broker: Sender<Msg>,
+    on_message: Arc<bind::SendFunction>,
 }
 
 struct Handle {
-    tx: Sender<Vec<u8>>,
-    pid: rustix::process::Pid,
+    tx: Sender<Msg>,
+    isolate: v8::IsolateHandle,
+    stopping: Arc<AtomicBool>,
     killed: Arc<AtomicBool>,
-    busy: Arc<Mutex<Busy>>,
+    busy: Arc<AtomicU64>,
+    tid: i32,
+}
+
+struct Started {
+    tx: Sender<Msg>,
+    isolate: v8::IsolateHandle,
+    stopping: Arc<AtomicBool>,
+    busy: Arc<AtomicU64>,
+    tid: i32,
+}
+
+impl Handle {
+    fn cpu_ms(&self) -> f64 {
+        let stat = std::fs::read_to_string(format!("/proc/self/task/{}/schedstat", self.tid)).unwrap_or_default();
+        stat.split_whitespace().next().and_then(|ns| ns.parse::<u64>().ok()).map_or(0.0, |ns| ns as f64 / 1e6)
+    }
 }
 
 thread_local! {
     static WEBS: RefCell<(u32, HashMap<u32, Handle>)> = RefCell::new(Default::default());
-    static PORT: RefCell<Option<Arc<Port>>> = const { RefCell::new(None) };
+    static UPSTREAM: RefCell<Option<Upstream>> = const { RefCell::new(None) };
     static ON_MESSAGE: RefCell<Option<v8::Global<v8::Function>>> = const { RefCell::new(None) };
 }
 
@@ -119,71 +71,32 @@ struct Spec {
 }
 
 impl Spec {
+    const STACK: usize = 8 << 20;
+    const START_WAIT: Duration = Duration::from_secs(10);
+    const KILLED: i32 = 137;
+    const PANICKED: i32 = 134;
+
     fn spawn(self, id: u32, on_message: Arc<bind::SendFunction>, on_exit: bind::SendFunction, broker: Sender<Msg>) -> Result<Handle, String> {
-        use std::os::unix::process::CommandExt;
-        let (ours, theirs) = UnixStream::pair().map_err(|e| format!("spawnWeb: {e}"))?;
-        let raw = theirs.as_raw_fd();
-        let exe = std::env::current_exe().map_err(|e| format!("spawnWeb: {e}"))?;
-        let mut command = std::process::Command::new(exe);
-        command.args(["web", &self.name, "--port", &raw.to_string(), "--heap-mb", &self.heap_mb.max(0.0).to_string()]);
-        command.env_clear().envs(self.env.iter().map(|(k, v)| (k, v)));
-        unsafe {
-            command.pre_exec(move || {
-                let fd = BorrowedFd::borrow_raw(raw);
-                rustix::io::fcntl_setfd(fd, rustix::io::FdFlags::empty())?;
-                rustix::process::set_parent_process_death_signal(Some(rustix::process::Signal::KILL))?;
-                Ok(())
-            });
-        }
-        let mut child = command.spawn().map_err(|e| format!("spawnWeb: {e}"))?;
-        drop(theirs);
-        let pid = rustix::process::Pid::from_raw(child.id() as i32).ok_or("spawnWeb: no pid")?;
-        let port = Arc::new(Port::try_from(ours).map_err(|e| format!("spawnWeb: {e}"))?);
-        port.write(Kind::Init, &self.init).map_err(|e| format!("spawnWeb: {e}"))?;
-        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-        let writer = port.clone();
-        let label = self.name.clone();
-        std::thread::Builder::new()
-            .name(format!("acde-port {label}"))
-            .spawn(move || {
-                for bytes in rx {
-                    if writer.write(Kind::Message, &bytes).is_err() {
-                        return;
-                    }
-                }
-            })
-            .map_err(|e| format!("spawnWeb: {e}"))?;
+        let (ready, started) = std::sync::mpsc::sync_channel(1);
         let killed = Arc::new(AtomicBool::new(false));
-        let busy = Arc::new(Mutex::new(Busy { ms: 0, at: Instant::now() }));
-        let (dead, busy_in) = (killed.clone(), busy.clone());
-        let name = self.name;
+        let dead = killed.clone();
+        let name = self.name.clone();
         std::thread::Builder::new()
-            .name(format!("acde-port {name}"))
+            .name("acde".into())
+            .stack_size(Self::STACK)
             .spawn(move || {
-                let mut reason = None;
-                loop {
-                    match port.read() {
-                        Ok(Some((Kind::Message, bytes))) => {
-                            let on_message = on_message.clone();
-                            _ = broker.send(Msg::Task(Box::new(move |scope| call_with(scope, &on_message.0, &bytes))));
-                        }
-                        Ok(Some((Kind::Busy, bytes))) => {
-                            let ms = bytes.as_slice().try_into().map(u64::from_le_bytes).unwrap_or(0);
-                            if let Ok(mut b) = busy_in.lock() {
-                                *b = Busy { ms, at: Instant::now() };
-                            }
-                        }
-                        Ok(Some((Kind::Exit, bytes))) => reason = Some(String::from_utf8_lossy(&bytes).into_owned()),
-                        Ok(Some((Kind::Init, _))) => {}
-                        Ok(None) => break,
-                        Err(e) => {
-                            log::warn!("[{name}] port: {e}");
-                            break;
-                        }
+                let upstream = Upstream { broker: broker.clone(), on_message: on_message.clone() };
+                let (code, reason) = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(upstream, &ready))) {
+                    Ok(ended) => ended,
+                    Err(panic) => {
+                        let message = panic.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
+                        log::error!("[{name}] panic: {message}");
+                        (Self::PANICKED, Some(format!("panic: {message}")))
                     }
-                }
-                let (code, reason) = exit_status(child.wait(), reason);
-                let reason = reason.filter(|_| !dead.load(Ordering::SeqCst));
+                };
+                UPSTREAM.with(|u| u.borrow_mut().take());
+                let killed = dead.load(Ordering::SeqCst);
+                let (code, reason) = if killed { (Self::KILLED, None) } else { (code, reason) };
                 _ = broker.send(Msg::Task(Box::new(move |scope| {
                     let _on_message = on_message;
                     WEBS.with(|w| w.borrow_mut().1.remove(&id));
@@ -197,7 +110,35 @@ impl Spec {
                 })));
             })
             .map_err(|e| format!("spawnWeb: {e}"))?;
-        Ok(Handle { tx, pid, killed, busy })
+        let Started { tx, isolate, stopping, busy, tid } = started.recv_timeout(Self::START_WAIT).map_err(|_| "spawnWeb: the web thread did not start".to_owned())?;
+        Ok(Handle { tx, isolate, stopping, killed, busy, tid })
+    }
+
+    fn run(self, upstream: Upstream, ready: &std::sync::mpsc::SyncSender<Started>) -> (i32, Option<String>) {
+        let heap = (self.heap_mb > 0.0).then_some(self.heap_mb as usize);
+        let mut runtime = rt::Runtime::new(heap, &self.name);
+        let isolate = runtime.isolate.thread_safe_handle();
+        let reason = Arc::new(Mutex::new(None::<String>));
+        let stopping = Arc::new(AtomicBool::new(false));
+        let guard = HeapGuard::install(&mut runtime, isolate.clone(), reason.clone(), stopping.clone());
+        UPSTREAM.with(|u| *u.borrow_mut() = Some(upstream));
+        let tid = rustix::thread::gettid().as_raw_nonzero().get();
+        _ = ready.send(Started { tx: runtime.lp.sender(), isolate, stopping: stopping.clone(), busy: runtime.lp.busy(), tid });
+        let code = run_web(&mut runtime, self.init, &self.env, &stopping);
+        ON_MESSAGE.with(|m| *m.borrow_mut() = None);
+        UPSTREAM.with(|u| *u.borrow_mut() = None);
+        #[cfg(target_os = "linux")]
+        {
+            crate::webgpu::clear();
+            crate::webnative::clear();
+            crate::audio::clear();
+            crate::backend::clear();
+        }
+        bind::clear_promises();
+        drop(runtime);
+        drop(guard);
+        let reason = reason.lock().ok().and_then(|r| r.clone());
+        (code, reason)
     }
 }
 
@@ -229,6 +170,7 @@ pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         "post" => post_to_web,
         "terminate" => terminate_web,
         "busyMs" => busy_ms,
+        "cpuMs" => cpu_ms,
     );
     rv.set(obj.into());
 }
@@ -240,19 +182,35 @@ fn with_handle<R>(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments
 
 fn post_to_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let Some(bytes) = crate::host::serialize_value(scope, args.get(0)) else { return };
-    with_handle(scope, &args, |h| _ = h.tx.send(bytes));
+    with_handle(scope, &args, |h| {
+        _ = h.tx.send(Msg::Task(Box::new(move |scope| {
+            if let Some(function) = ON_MESSAGE.with(|m| m.borrow().clone()) {
+                call_with(scope, &function, &bytes);
+            }
+        })));
+    });
 }
 
 fn terminate_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     with_handle(scope, &args, |h| {
         h.killed.store(true, Ordering::SeqCst);
-        _ = rustix::process::kill_process(h.pid, rustix::process::Signal::KILL);
+        h.stopping.store(true, Ordering::SeqCst);
+        h.isolate.terminate_execution();
+        _ = h.tx.send(Msg::Wake);
     });
 }
 
 fn busy_ms(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let ms = with_handle(scope, &args, |h| h.busy.lock().map_or(0, |b| if b.ms == 0 { 0 } else { b.ms + b.at.elapsed().as_millis() as u64 })).unwrap_or(0);
+    let ms = with_handle(scope, &args, |h| {
+        let since = h.busy.load(Ordering::Relaxed);
+        if since == 0 { 0 } else { rt::busy_stamp().saturating_sub(since).max(1) }
+    })
+    .unwrap_or(0);
     rv.set_double(ms as f64);
+}
+
+fn cpu_ms(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    rv.set_double(with_handle(scope, &args, Handle::cpu_ms).unwrap_or(0.0));
 }
 
 struct HeapGuard {
@@ -280,109 +238,14 @@ impl HeapGuard {
     }
 }
 
-const BUSY_EVERY: Duration = Duration::from_millis(200);
-
-pub fn main(args: &[String]) -> i32 {
-    let name = args.first().cloned().unwrap_or_else(|| "web".into());
-    rt::set_web_name(&name);
-    let option = |key: &str| args.windows(2).find(|w| w[0] == key).map(|w| w[1].as_str());
-    let Some(fd) = option("--port").and_then(|v| v.parse::<i32>().ok()) else {
-        log::error!("[{name}] acde web: no --port");
-        return 2;
-    };
-    let heap_mb: f64 = option("--heap-mb").and_then(|v| v.parse().ok()).unwrap_or(0.0);
-    let stream = UnixStream::from(unsafe { OwnedFd::from_raw_fd(fd) });
-    _ = rustix::io::fcntl_setfd(&stream, rustix::io::FdFlags::CLOEXEC);
-    let port = match Port::try_from(stream) {
-        Ok(port) => Arc::new(port),
-        Err(e) => {
-            log::error!("[{name}] port: {e}");
-            return 1;
-        }
-    };
-    let init = match port.read() {
-        Ok(Some((Kind::Init, init))) => init,
-        _ => {
-            log::error!("[{name}] no WebInit on the port");
-            return 1;
-        }
-    };
-    let mut runtime = rt::Runtime::new((heap_mb > 0.0).then_some(heap_mb as usize));
-    let handle = runtime.isolate.thread_safe_handle();
-    let reason = Arc::new(Mutex::new(None::<String>));
-    let stopping = Arc::new(AtomicBool::new(false));
-    let guard = HeapGuard::install(&mut runtime, handle, reason.clone(), stopping.clone());
-    PORT.with(|p| *p.borrow_mut() = Some(port.clone()));
-    let tx = runtime.lp.sender();
-    let reader = port.clone();
-    let spawned = std::thread::Builder::new().name("acde-port".into()).spawn(move || {
-        while let Ok(Some((kind, bytes))) = reader.read() {
-            if kind != Kind::Message {
-                continue;
-            }
-            _ = tx.send(Msg::Task(Box::new(move |scope| {
-                if let Some(function) = ON_MESSAGE.with(|m| m.borrow().clone()) {
-                    call_with(scope, &function, &bytes);
-                }
-            })));
-        }
-        _ = tx.send(Msg::Task(Box::new(|_| rt::current().exit(0))));
-    });
-    if let Err(e) = spawned {
-        log::error!("[{name}] {e}");
-        return 1;
-    }
-    let busy = runtime.lp.busy();
-    let reporter = port.clone();
-    let _ = std::thread::Builder::new().name("acde-busy".into()).spawn(move || {
-        let mut last = 0;
-        loop {
-            std::thread::sleep(BUSY_EVERY);
-            let since = busy.load(Ordering::Relaxed);
-            let ms = if since == 0 { 0 } else { rt::busy_stamp().saturating_sub(since).max(1) };
-            if ms != last && reporter.write(Kind::Busy, &ms.to_le_bytes()).is_err() {
-                return;
-            }
-            last = ms;
-        }
-    });
-    let code = run_web(&mut runtime, init, &stopping);
-    if let Some(reason) = reason.lock().ok().and_then(|r| r.clone()) {
-        _ = port.write(Kind::Exit, reason.as_bytes());
-    }
-    ON_MESSAGE.with(|m| *m.borrow_mut() = None);
-    #[cfg(target_os = "linux")]
-    {
-        crate::webgpu::clear();
-        crate::webnative::clear();
-        crate::audio::clear();
-        crate::backend::clear();
-    }
-    bind::clear_promises();
-    drop(runtime);
-    drop(guard);
-    code
-}
-
-fn exit_status(status: std::io::Result<std::process::ExitStatus>, reason: Option<String>) -> (i32, Option<String>) {
-    use std::os::unix::process::ExitStatusExt;
-    match status {
-        Ok(status) => match (status.code(), status.signal()) {
-            (Some(code), _) => (code, reason),
-            (None, Some(signal)) => (128 + signal, reason.or_else(|| Some(format!("signal {signal}")))),
-            (None, None) => (1, reason),
-        },
-        Err(e) => (1, reason.or_else(|| Some(e.to_string()))),
-    }
-}
-
-fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, stopping: &Arc<AtomicBool>) -> i32 {
+fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], stopping: &Arc<AtomicBool>) -> i32 {
     crate::modules::set_loader(std::rc::Rc::new(crate::dom::WebLoader));
     let bundle = app_dir().join("web.js");
     let Some(url) = std::fs::canonicalize(&bundle).ok().and_then(|p| url::Url::from_file_path(p).ok()) else {
         log::error!("no web bundle at {}", bundle.display());
         return 1;
     };
+    let env = env.to_vec();
     runtime.task(move |scope| {
         let natives = v8::Object::new(scope);
         let host = crate::host::object(scope);
@@ -408,21 +271,29 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, stopping: &Arc<AtomicBool>)
             crate::backend::install(scope, natives, init);
             bind::set(scope, natives, "init", init);
         }
-        let env: Vec<(String, String)> = std::env::vars().collect();
         let env: Vec<(&str, v8::Local<v8::Value>)> = env.iter().map(|(key, value)| (key.as_str(), bind::string(scope, value).into())).collect();
         let env = bind::object(scope, &env);
         bind::set(scope, natives, "env", env.into());
+        if let Some(own) = v8::Function::builder(own_env).data(env.into()).build(scope) {
+            bind::set(scope, sys, "env", own.into());
+        }
         crate::sys::boot_module(scope, url.as_str(), natives.into());
     });
     runtime.lp.keep_alive(true);
     runtime.run_until(|| stopping.load(Ordering::SeqCst))
 }
 
+fn own_env(_: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    rv.set(args.data());
+}
+
 fn post_to_broker(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let Some(bytes) = crate::host::serialize_value(scope, args.get(0)) else { return };
-    if let Some(port) = PORT.with(|p| p.borrow().clone()) {
-        _ = port.write(Kind::Message, &bytes);
-    }
+    UPSTREAM.with(|u| {
+        let Some(up) = u.borrow().as_ref().map(|u| (u.broker.clone(), u.on_message.clone())) else { return };
+        let (broker, on_message) = up;
+        _ = broker.send(Msg::Task(Box::new(move |scope| call_with(scope, &on_message.0, &bytes))));
+    });
 }
 
 fn set_on_message(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
