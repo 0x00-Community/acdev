@@ -593,19 +593,10 @@ pub struct QuerySetDesc {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BufferCopy {
     pub buffer: u32,
-    #[serde(default)]
-    pub offset: u64,
-    pub bytes_per_row: Option<u32>,
-    pub rows_per_image: Option<u32>,
-}
-
-impl BufferCopy {
-    pub fn layout(&self) -> wgpu::TexelCopyBufferLayout {
-        wgpu::TexelCopyBufferLayout { offset: self.offset, bytes_per_row: self.bytes_per_row, rows_per_image: self.rows_per_image }
-    }
+    #[serde(flatten)]
+    pub layout: DataLayout,
 }
 
 #[derive(Deserialize)]
@@ -659,6 +650,12 @@ pub struct DataLayout {
     pub offset: u64,
     pub bytes_per_row: Option<u32>,
     pub rows_per_image: Option<u32>,
+}
+
+impl DataLayout {
+    pub fn wgpu(&self) -> wgpu::TexelCopyBufferLayout {
+        wgpu::TexelCopyBufferLayout { offset: self.offset, bytes_per_row: self.bytes_per_row, rows_per_image: self.rows_per_image }
+    }
 }
 
 #[derive(Deserialize)]

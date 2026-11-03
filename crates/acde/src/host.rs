@@ -291,7 +291,7 @@ fn serialize(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
 }
 
 fn deserialize(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some(bytes) = bind::arg_bytes(&args, 0) else {
+    let Some(bytes) = bind::bytes(args.get(0)) else {
         return bind::throw_type_error(scope, "deserialize: not bytes");
     };
     let value = deserialize_bytes(scope, &bytes);

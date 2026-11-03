@@ -1,10 +1,11 @@
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use acde_render::anyrender_vello::wgpu;
 use acde_paint::{CanvasImage, Gpu};
 
-use super::{Id, Kind, Obj, Out, Ret, State, Texture, Throw, desc, enter, finish, json, report, uint, with_state};
+use super::{Id, Kind, Obj, Out, Ret, State, Texture, Throw, desc, enter, finish, json, report, with_state};
 use crate::bind;
 use crate::rt::{self, Msg};
 
@@ -42,7 +43,7 @@ impl Context {
             return self.images[i].clone();
         }
         if self.images.len() >= MAX_IMAGES
-            && let Some(i) = self.images.iter().position(|i| (i.texture.width(), i.texture.height()) == size && !self.front.as_ref().is_some_and(|f| Arc::ptr_eq(f, i)))
+            && let Some(i) = self.images.iter().position(|i| (i.texture.width(), i.texture.height()) == size && !front(i))
         {
             return self.images[i].clone();
         }
@@ -72,8 +73,6 @@ struct Passes {
 thread_local! {
     static PASSES: RefCell<Option<Rc<Passes>>> = const { RefCell::new(None) };
 }
-
-use std::rc::Rc;
 
 const SHADER: &str = r"
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
@@ -186,7 +185,7 @@ super::natives! {
     }
 
     "configure" => fn configure(scope, args) {
-        let (node, device) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (node, device) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         let config: desc::CanvasConfig = json(scope, &args, 2)?;
         if !matches!(config.format, wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba16Float) {
             return Err(Throw::Type(format!("{:?} is not a canvas format (rgba8unorm, bgra8unorm, rgba16float)", config.format)));
@@ -208,7 +207,7 @@ super::natives! {
     }
 
     "unconfigure" => fn unconfigure(scope, args) {
-        let node = uint(scope, &args, 0);
+        let node = bind::arg_u32(scope, &args, 0);
         with_state(|s| {
             if let Some(Context { current: Some(current), .. }) = s.canvases.remove(&node) {
                 s.objects.remove(&current.id);
@@ -218,8 +217,8 @@ super::natives! {
     }
 
     "currentTexture" => fn current_texture(scope, args) {
-        let node = uint(scope, &args, 0);
-        let size = (uint(scope, &args, 1).max(1), uint(scope, &args, 2).max(1));
+        let node = bind::arg_u32(scope, &args, 0);
+        let size = (bind::arg_u32(scope, &args, 1).max(1), bind::arg_u32(scope, &args, 2).max(1));
         let id = with_state(|s| -> Result<Id, Throw> {
             let gpu = s.gpu()?;
             let id = s.id();
@@ -265,7 +264,7 @@ super::natives! {
     }
 
     "present" => fn present(scope, args) {
-        let node = uint(scope, &args, 0);
+        let node = bind::arg_u32(scope, &args, 0);
         let shown = with_state(|s| -> Result<Option<Arc<CanvasImage>>, Throw> {
             let gpu = s.gpu()?;
             let Some(c) = s.canvases.get_mut(&node) else { return Ok(None) };
@@ -311,28 +310,18 @@ super::natives! {
     }
 
     "pixels" => fn pixels(scope, args) {
-        let node = uint(scope, &args, 0);
-        let read = with_state(|s| -> Result<Option<(u32, u32, Vec<u8>)>, Throw> {
-            let gpu = s.gpu()?;
-            let Some(image) = s.canvases.get(&node).and_then(|c| c.front.clone()) else { return Ok(None) };
-            Ok(read_back(&gpu, &image.texture))
-        })?;
+        let read = front_pixels(bind::arg_u32(scope, &args, 0))?;
         Ok(Ret::Val(pixels_value(scope, read)))
     }
 
     "png" => fn png(scope, args) {
-        let (node, width, height) = (uint(scope, &args, 0), uint(scope, &args, 1), uint(scope, &args, 2));
-        let read = with_state(|s| -> Result<Option<(u32, u32, Vec<u8>)>, Throw> {
-            let gpu = s.gpu()?;
-            let Some(image) = s.canvases.get(&node).and_then(|c| c.front.clone()) else { return Ok(None) };
-            Ok(read_back(&gpu, &image.texture))
-        })?;
-        let png = png_of(read, width, height);
+        let (node, width, height) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u32(scope, &args, 2));
+        let png = png_of(front_pixels(node)?, width, height);
         Ok(Ret::Val(bind::uint8_array(scope, png).into()))
     }
 
     "pngAsync" => fn png_async(scope, args) {
-        let (node, width, height) = (uint(scope, &args, 0), uint(scope, &args, 1), uint(scope, &args, 2));
+        let (node, width, height) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u32(scope, &args, 2));
         let Some((token, promise)) = super::promise(scope) else { return Ok(().into()) };
         let tx = rt::current().sender();
         with_state(|s| -> Result<(), Throw> {
@@ -355,6 +344,14 @@ super::natives! {
         })?;
         Ok(Ret::Val(promise))
     }
+}
+
+fn front_pixels(node: Id) -> Result<Option<(u32, u32, Vec<u8>)>, Throw> {
+    with_state(|s| {
+        let gpu = s.gpu()?;
+        let Some(image) = s.canvases.get(&node).and_then(|c| c.front.clone()) else { return Ok(None) };
+        Ok(read_back(&gpu, &image.texture))
+    })
 }
 
 fn png_of(pixels: Option<(u32, u32, Vec<u8>)>, width: u32, height: u32) -> Vec<u8> {

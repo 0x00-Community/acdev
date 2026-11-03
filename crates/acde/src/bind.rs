@@ -154,12 +154,18 @@ pub fn arg_f64(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i
     args.get(i).number_value(scope).unwrap_or(f64::NAN)
 }
 
-pub fn arg_bool(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> bool {
-    args.get(i).boolean_value(scope)
+pub fn arg_u32(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> u32 {
+    let n = arg_f64(scope, args, i);
+    if n.is_finite() && n >= 0.0 { n as u32 } else { 0 }
 }
 
-pub fn arg_bytes(args: &v8::FunctionCallbackArguments, i: i32) -> Option<Vec<u8>> {
-    bytes(args.get(i))
+pub fn arg_u64(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> u64 {
+    let n = arg_f64(scope, args, i);
+    if n.is_finite() && n >= 0.0 { n as u64 } else { 0 }
+}
+
+pub fn arg_bool(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> bool {
+    args.get(i).boolean_value(scope)
 }
 
 pub fn with_bytes<R>(value: v8::Local<v8::Value>, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
@@ -202,6 +208,11 @@ fn array_buffer<'s, T: Copy>(scope: &mut v8::PinScope<'s, '_>, data: &[T]) -> v8
 pub fn uint32_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[u32]) -> v8::Local<'s, v8::Uint32Array> {
     let buffer = array_buffer(scope, data);
     v8::Uint32Array::new(scope, buffer, 0, data.len()).expect("acde: Uint32Array")
+}
+
+pub fn float32_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[f32]) -> v8::Local<'s, v8::Float32Array> {
+    let buffer = array_buffer(scope, data);
+    v8::Float32Array::new(scope, buffer, 0, data.len()).expect("acde: Float32Array")
 }
 
 pub fn float64_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[f64]) -> v8::Local<'s, v8::Float64Array> {

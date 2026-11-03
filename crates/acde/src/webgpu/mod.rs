@@ -30,7 +30,7 @@ pub(crate) enum Obj {
     Encoder(Option<wgpu::CommandEncoder>),
     CommandBuffer(Option<wgpu::CommandBuffer>),
     RenderBundle(wgpu::RenderBundle),
-    QuerySet(wgpu::QuerySet, Id),
+    QuerySet(QuerySet),
 }
 
 pub(crate) struct Device {
@@ -67,6 +67,11 @@ pub(crate) struct View {
 pub(crate) struct BindGroup {
     pub group: wgpu::BindGroup,
     pub canvas_textures: Vec<Id>,
+}
+
+pub(crate) struct QuerySet {
+    set: wgpu::QuerySet,
+    device: Id,
 }
 
 pub(crate) struct Shader {
@@ -131,18 +136,7 @@ getters! {
     render_pipeline: RenderPipeline => wgpu::RenderPipeline, "GPURenderPipeline";
     compute_pipeline: ComputePipeline => wgpu::ComputePipeline, "GPUComputePipeline";
     render_bundle: RenderBundle => wgpu::RenderBundle, "GPURenderBundle";
-}
-
-impl State {
-    pub fn query_set(&self, device: Id, id: Id) -> Option<&wgpu::QuerySet> {
-        match self.objects.get(&id) {
-            Some(Obj::QuerySet(q, _)) => Some(q),
-            _ => {
-                report(device, Kind::Validation, format!("invalid GPUQuerySet ({id})"));
-                None
-            }
-        }
-    }
+    query_set: QuerySet => QuerySet, "GPUQuerySet";
 }
 
 thread_local! {
@@ -171,7 +165,6 @@ impl Kind {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct ErrorInfo {
     kind: Kind,
     message: String,
@@ -247,8 +240,7 @@ fn sink(error: wgpu::Error) {
         wgpu::Error::Validation { description, .. } => (Kind::Validation, description),
         wgpu::Error::Internal { description, .. } => (Kind::Internal, description),
     };
-    let device = ERRORS.with(|e| e.borrow().current);
-    report(device, kind, message);
+    report(current_device(), kind, message);
 }
 
 fn dispatch_errors(scope: &mut v8::PinScope) {
@@ -317,20 +309,9 @@ pub(crate) fn finish<'s>(scope: &mut v8::PinScope<'s, '_>, rv: &mut v8::ReturnVa
         Ok(Err(Throw::Error(message))) => bind::throw_error(scope, &message),
         Err(panic) => {
             let message = panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
-            let device = ERRORS.with(|e| e.borrow().current);
-            report(device, Kind::Internal, format!("acde: {message}"));
+            report(current_device(), Kind::Internal, format!("acde: {message}"));
         }
     }
-}
-
-pub(crate) fn uint(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> u32 {
-    let n = bind::arg_f64(scope, args, i);
-    if n.is_finite() && n >= 0.0 { n as u32 } else { 0 }
-}
-
-pub(crate) fn uint64(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> u64 {
-    let n = bind::arg_f64(scope, args, i);
-    if n.is_finite() && n >= 0.0 { n as u64 } else { 0 }
 }
 
 pub(crate) fn json<T: serde::de::DeserializeOwned>(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> Result<T, Throw> {
@@ -566,7 +547,7 @@ natives! {
     }
 
     "destroyDevice" => fn destroy_device(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         with_state(|s| {
             if let Some(Obj::Device(d)) = s.objects.get_mut(&device) {
                 d.lost = true;
@@ -575,7 +556,7 @@ natives! {
                 match obj {
                     Obj::Buffer(b) if b.device == device => b.buffer.destroy(),
                     Obj::Texture(t) if t.device == device && t.canvas.is_none() => t.texture.destroy(),
-                    Obj::QuerySet(q, d) if *d == device => q.destroy(),
+                    Obj::QuerySet(q) if q.device == device => q.set.destroy(),
                     _ => {}
                 }
             }
@@ -589,7 +570,7 @@ natives! {
     }
 
     "pushErrorScope" => fn push_error_scope(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let filter = match bind::arg_string(scope, &args, 1).as_str() {
             "validation" => Kind::Validation,
             "out-of-memory" => Kind::OutOfMemory,
@@ -605,7 +586,7 @@ natives! {
     }
 
     "popErrorScope" => fn pop_error_scope(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let popped = ERRORS.with(|e| e.borrow_mut().devices.get_mut(&device).map(|d| (d.lost, d.scopes.pop())));
         Ok(match popped {
             Some((true, _)) => Ret::Val(v8::null(scope).into()),
@@ -623,7 +604,7 @@ natives! {
     }
 
     "drop" => fn drop_object(scope, args) {
-        let id = uint(scope, &args, 0);
+        let id = bind::arg_u32(scope, &args, 0);
         let obj = with_state(|s| s.objects.remove(&id));
         if matches!(obj, Some(Obj::Device(_))) {
             ERRORS.with(|e| e.borrow_mut().devices.remove(&id));
@@ -633,7 +614,7 @@ natives! {
     }
 
     "createBuffer" => fn create_buffer(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::BufferDesc = json(scope, &args, 1)?;
         if !enter(device) {
             return Ok(0.into());
@@ -649,7 +630,7 @@ natives! {
     }
 
     "destroyBuffer" => fn destroy_buffer(scope, args) {
-        let (device, id) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, id) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         enter(device);
         with_state(|s| {
             if let Some(Obj::Buffer(b)) = s.objects.get_mut(&id) {
@@ -661,8 +642,8 @@ natives! {
     }
 
     "mapAsync" => fn map_async(scope, args) {
-        let (device, id, mode) = (uint(scope, &args, 0), uint(scope, &args, 1), uint(scope, &args, 2));
-        let (offset, size) = (uint64(scope, &args, 3), uint64(scope, &args, 4));
+        let (device, id, mode) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u32(scope, &args, 2));
+        let (offset, size) = (bind::arg_u64(scope, &args, 3), bind::arg_u64(scope, &args, 4));
         let Some((token, promise)) = promise(scope) else { return Ok(().into()) };
         let tx = rt::current().sender();
         let failed = |scope: &mut v8::PinScope, message: &str| {
@@ -707,8 +688,8 @@ natives! {
     }
 
     "getMappedRange" => fn get_mapped_range(scope, args) {
-        let id = uint(scope, &args, 0);
-        let (offset, size) = (uint64(scope, &args, 1), uint64(scope, &args, 2));
+        let id = bind::arg_u32(scope, &args, 0);
+        let (offset, size) = (bind::arg_u64(scope, &args, 1), bind::arg_u64(scope, &args, 2));
         let bytes = with_state(|s| -> Result<Option<Vec<u8>>, Throw> {
             let Some(Obj::Buffer(b)) = s.objects.get(&id) else { return Err(Throw::Error("OperationError: invalid GPUBuffer".into())) };
             let Map::Mapped { write, created, offset: at, size: len } = b.map else {
@@ -741,7 +722,7 @@ natives! {
     }
 
     "unmap" => fn unmap(scope, args) {
-        let (device, id) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, id) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         enter(device);
         let mut written: Vec<(u64, v8::Local<v8::ArrayBuffer>)> = Vec::new();
         if let Ok(list) = v8::Local::<v8::Array>::try_from(args.get(2)) {
@@ -785,7 +766,7 @@ natives! {
     }
 
     "writeBuffer" => fn write_buffer(scope, args) {
-        let (device, id, offset) = (uint(scope, &args, 0), uint(scope, &args, 1), uint64(scope, &args, 2));
+        let (device, id, offset) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u64(scope, &args, 2));
         if !enter(device) {
             return Ok(().into());
         }
@@ -799,7 +780,7 @@ natives! {
     }
 
     "createTexture" => fn create_texture(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::TextureDesc = json(scope, &args, 1)?;
         if !enter(device) {
             return Ok(0.into());
@@ -823,7 +804,7 @@ natives! {
     }
 
     "destroyTexture" => fn destroy_texture(scope, args) {
-        let (device, id) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, id) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         enter(device);
         with_state(|s| {
             match s.objects.get(&id) {
@@ -835,7 +816,7 @@ natives! {
     }
 
     "createView" => fn create_view(scope, args) {
-        let (device, texture) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, texture) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         let desc: desc::ViewDesc = json(scope, &args, 2)?;
         if !enter(device) {
             return Ok(0.into());
@@ -849,7 +830,7 @@ natives! {
     }
 
     "createSampler" => fn create_sampler(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::SamplerDesc = json(scope, &args, 1)?;
         if !enter(device) {
             return Ok(0.into());
@@ -860,7 +841,7 @@ natives! {
     }
 
     "createBindGroupLayout" => fn create_bind_group_layout(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::BindGroupLayoutDesc = json(scope, &args, 1)?;
         let entries = desc.entries.iter().map(desc::LayoutEntry::wgpu).collect::<Result<Vec<_>, _>>().map_err(Throw::from_message)?;
         if !enter(device) {
@@ -872,7 +853,7 @@ natives! {
     }
 
     "createPipelineLayout" => fn create_pipeline_layout(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::PipelineLayoutDesc = json(scope, &args, 1)?;
         if !enter(device) {
             return Ok(0.into());
@@ -896,7 +877,7 @@ natives! {
     }
 
     "createBindGroup" => fn create_bind_group(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::BindGroupDesc = json(scope, &args, 1)?;
         if !enter(device) {
             return Ok(0.into());
@@ -935,7 +916,7 @@ natives! {
     }
 
     "createShaderModule" => fn create_shader_module(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let code = bind::arg_string(scope, &args, 1);
         let label = Some(bind::arg_string(scope, &args, 2));
         if !enter(device) {
@@ -948,7 +929,7 @@ natives! {
     }
 
     "compilationInfo" => fn compilation_info(scope, args) {
-        let id = uint(scope, &args, 0);
+        let id = bind::arg_u32(scope, &args, 0);
         let messages: Vec<_> = with_state(|s| match s.objects.get(&id) {
             Some(Obj::Shader(shader)) => shader
                 .messages
@@ -982,7 +963,7 @@ natives! {
     }
 
     "createComputePipeline" => fn create_compute_pipeline(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::ComputePipelineDesc = json(scope, &args, 1)?;
         let is_async = bind::arg_bool(scope, &args, 2);
         if !enter(device) {
@@ -1013,7 +994,7 @@ natives! {
     }
 
     "createRenderPipeline" => fn create_render_pipeline(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::RenderPipelineDesc = json(scope, &args, 1)?;
         let is_async = bind::arg_bool(scope, &args, 2);
         let primitive = desc.primitive.wgpu().map_err(Throw::from_message)?;
@@ -1083,7 +1064,7 @@ natives! {
     }
 
     "getBindGroupLayout" => fn get_bind_group_layout(scope, args) {
-        let (device, pipeline, index) = (uint(scope, &args, 0), uint(scope, &args, 1), uint(scope, &args, 2));
+        let (device, pipeline, index) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u32(scope, &args, 2));
         if !enter(device) {
             return Ok(0.into());
         }
@@ -1102,7 +1083,7 @@ natives! {
     }
 
     "createQuerySet" => fn create_query_set(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::QuerySetDesc = json(scope, &args, 1)?;
         let ty = match desc.kind.as_str() {
             "occlusion" => wgpu::QueryType::Occlusion,
@@ -1114,21 +1095,21 @@ natives! {
         }
         let gpu = with_state(|s| s.gpu())?;
         let set = gpu.device.create_query_set(&wgpu::QuerySetDescriptor { label: desc::label(&desc.label), ty, count: desc.count });
-        Ok(with_state(|s| s.insert(Obj::QuerySet(set, device))).into())
+        Ok(with_state(|s| s.insert(Obj::QuerySet(QuerySet { set, device }))).into())
     }
 
     "destroyQuerySet" => fn destroy_query_set(scope, args) {
-        let id = uint(scope, &args, 1);
+        let id = bind::arg_u32(scope, &args, 1);
         with_state(|s| {
-            if let Some(Obj::QuerySet(q, _)) = s.objects.get(&id) {
-                q.destroy();
+            if let Some(Obj::QuerySet(q)) = s.objects.get(&id) {
+                q.set.destroy();
             }
         });
         Ok(().into())
     }
 
     "createCommandEncoder" => fn create_command_encoder(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let label = Some(bind::arg_string(scope, &args, 1));
         if !enter(device) {
             return Ok(0.into());
@@ -1139,8 +1120,8 @@ natives! {
     }
 
     "copyBufferToBuffer" => fn copy_buffer_to_buffer(scope, args) {
-        let (device, encoder, source) = (uint(scope, &args, 0), uint(scope, &args, 1), uint(scope, &args, 2));
-        let (source_offset, destination, destination_offset, size) = (uint64(scope, &args, 3), uint(scope, &args, 4), uint64(scope, &args, 5), uint64(scope, &args, 6));
+        let (device, encoder, source) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u32(scope, &args, 2));
+        let (source_offset, destination, destination_offset, size) = (bind::arg_u64(scope, &args, 3), bind::arg_u32(scope, &args, 4), bind::arg_u64(scope, &args, 5), bind::arg_u64(scope, &args, 6));
         encode(device, encoder, |s, e| {
             let (Some(src), Some(dst)) = (s.buffer(device, source), s.buffer(device, destination)) else { return };
             e.copy_buffer_to_buffer(&src.buffer, source_offset, &dst.buffer, destination_offset, size);
@@ -1149,29 +1130,29 @@ natives! {
     }
 
     "copyBufferToTexture" => fn copy_buffer_to_texture(scope, args) {
-        let (device, encoder) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, encoder) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         let desc: desc::CopyBufferToTexture = json(scope, &args, 2)?;
         encode(device, encoder, |s, e| {
             canvas::touch(s, e, desc.destination.texture, false);
             let (Some(src), Some(dst)) = (s.buffer(device, desc.source.buffer), s.texture(device, desc.destination.texture)) else { return };
-            e.copy_buffer_to_texture(wgpu::TexelCopyBufferInfo { buffer: &src.buffer, layout: desc.source.layout() }, desc.destination.wgpu(&dst.texture), desc.size.into());
+            e.copy_buffer_to_texture(wgpu::TexelCopyBufferInfo { buffer: &src.buffer, layout: desc.source.layout.wgpu() }, desc.destination.wgpu(&dst.texture), desc.size.into());
         });
         Ok(().into())
     }
 
     "copyTextureToBuffer" => fn copy_texture_to_buffer(scope, args) {
-        let (device, encoder) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, encoder) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         let desc: desc::CopyTextureToBuffer = json(scope, &args, 2)?;
         encode(device, encoder, |s, e| {
             canvas::touch(s, e, desc.source.texture, false);
             let (Some(src), Some(dst)) = (s.texture(device, desc.source.texture), s.buffer(device, desc.destination.buffer)) else { return };
-            e.copy_texture_to_buffer(desc.source.wgpu(&src.texture), wgpu::TexelCopyBufferInfo { buffer: &dst.buffer, layout: desc.destination.layout() }, desc.size.into());
+            e.copy_texture_to_buffer(desc.source.wgpu(&src.texture), wgpu::TexelCopyBufferInfo { buffer: &dst.buffer, layout: desc.destination.layout.wgpu() }, desc.size.into());
         });
         Ok(().into())
     }
 
     "copyTextureToTexture" => fn copy_texture_to_texture(scope, args) {
-        let (device, encoder) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, encoder) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         let desc: desc::CopyTextureToTexture = json(scope, &args, 2)?;
         encode(device, encoder, |s, e| {
             canvas::touch(s, e, desc.source.texture, false);
@@ -1183,8 +1164,8 @@ natives! {
     }
 
     "clearBuffer" => fn clear_buffer(scope, args) {
-        let (device, encoder, buffer) = (uint(scope, &args, 0), uint(scope, &args, 1), uint(scope, &args, 2));
-        let (offset, size) = (uint64(scope, &args, 3), uint64(scope, &args, 4));
+        let (device, encoder, buffer) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u32(scope, &args, 2));
+        let (offset, size) = (bind::arg_u64(scope, &args, 3), bind::arg_u64(scope, &args, 4));
         encode(device, encoder, |s, e| {
             let Some(b) = s.buffer(device, buffer) else { return };
             e.clear_buffer(&b.buffer, offset, Some(size));
@@ -1193,17 +1174,17 @@ natives! {
     }
 
     "resolveQuerySet" => fn resolve_query_set(scope, args) {
-        let (device, encoder, set) = (uint(scope, &args, 0), uint(scope, &args, 1), uint(scope, &args, 2));
-        let (first, count, destination, offset) = (uint(scope, &args, 3), uint(scope, &args, 4), uint(scope, &args, 5), uint64(scope, &args, 6));
+        let (device, encoder, set) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u32(scope, &args, 2));
+        let (first, count, destination, offset) = (bind::arg_u32(scope, &args, 3), bind::arg_u32(scope, &args, 4), bind::arg_u32(scope, &args, 5), bind::arg_u64(scope, &args, 6));
         encode(device, encoder, |s, e| {
             let (Some(q), Some(b)) = (s.query_set(device, set), s.buffer(device, destination)) else { return };
-            e.resolve_query_set(q, first..first.saturating_add(count), &b.buffer, offset);
+            e.resolve_query_set(&q.set, first..first.saturating_add(count), &b.buffer, offset);
         });
         Ok(().into())
     }
 
     "encoderDebug" => fn encoder_debug(scope, args) {
-        let (device, encoder, op) = (uint(scope, &args, 0), uint(scope, &args, 1), uint(scope, &args, 2));
+        let (device, encoder, op) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u32(scope, &args, 2));
         let label = bind::arg_string(scope, &args, 3);
         encode(device, encoder, |_, e| match op {
             0 => e.push_debug_group(&label),
@@ -1214,9 +1195,9 @@ natives! {
     }
 
     "renderPass" => fn render_pass(scope, args) {
-        let (device, encoder) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, encoder) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         let desc: desc::RenderPassDesc = json(scope, &args, 2)?;
-        let commands = pass::commands(&args, 3, uint(scope, &args, 4));
+        let commands = pass::commands(&args, 3, bind::arg_u32(scope, &args, 4));
         let strings = pass::strings(scope, &args, 5);
         let mut problem = None;
         encode(device, encoder, |s, e| problem = pass::render(s, e, device, &desc, &commands, &strings).err());
@@ -1227,16 +1208,16 @@ natives! {
     }
 
     "computePass" => fn compute_pass(scope, args) {
-        let (device, encoder) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, encoder) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         let desc: desc::ComputePassDesc = json(scope, &args, 2)?;
-        let commands = pass::commands(&args, 3, uint(scope, &args, 4));
+        let commands = pass::commands(&args, 3, bind::arg_u32(scope, &args, 4));
         let strings = pass::strings(scope, &args, 5);
         encode(device, encoder, |s, e| pass::compute(s, e, device, &desc, &commands, &strings));
         Ok(().into())
     }
 
     "finishEncoder" => fn finish_encoder(scope, args) {
-        let (device, encoder) = (uint(scope, &args, 0), uint(scope, &args, 1));
+        let (device, encoder) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
         if !enter(device) {
             return Ok(0.into());
         }
@@ -1256,9 +1237,9 @@ natives! {
     }
 
     "createRenderBundle" => fn create_render_bundle(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::RenderBundleDesc = json(scope, &args, 1)?;
-        let commands = pass::commands(&args, 2, uint(scope, &args, 3));
+        let commands = pass::commands(&args, 2, bind::arg_u32(scope, &args, 3));
         let strings = pass::strings(scope, &args, 4);
         if !enter(device) {
             return Ok(0.into());
@@ -1268,7 +1249,7 @@ natives! {
     }
 
     "submit" => fn submit(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let mut ids = Vec::new();
         if let Ok(list) = v8::Local::<v8::Array>::try_from(args.get(1)) {
             for i in 0..list.length() {
@@ -1301,7 +1282,7 @@ natives! {
     }
 
     "writeTexture" => fn write_texture(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::WriteTexture = json(scope, &args, 1)?;
         if !enter(device) {
             return Ok(().into());
@@ -1311,14 +1292,13 @@ natives! {
         with_state(|s| {
             canvas::touch_now(s, &gpu, desc.destination.texture);
             let Some(t) = s.texture(device, desc.destination.texture) else { return };
-            let layout = wgpu::TexelCopyBufferLayout { offset: desc.layout.offset, bytes_per_row: desc.layout.bytes_per_row, rows_per_image: desc.layout.rows_per_image };
-            bind::with_bytes(data, |bytes| gpu.queue.write_texture(desc.destination.wgpu(&t.texture), bytes, layout, desc.size.into()));
+            bind::with_bytes(data, |bytes| gpu.queue.write_texture(desc.destination.wgpu(&t.texture), bytes, desc.layout.wgpu(), desc.size.into()));
         });
         Ok(().into())
     }
 
     "onSubmittedWorkDone" => fn on_submitted_work_done(scope, args) {
-        let device = uint(scope, &args, 0);
+        let device = bind::arg_u32(scope, &args, 0);
         let Some((token, promise)) = promise(scope) else { return Ok(().into()) };
         let gpu = with_state(|s| s.gpu())?;
         enter(device);

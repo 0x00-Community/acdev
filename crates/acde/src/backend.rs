@@ -150,7 +150,7 @@ fn abort(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::R
 
 fn send(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let Some(connection) = connection(scope, &args, true) else { return };
-    let data = match bind::arg_bytes(&args, 1) {
+    let data = match bind::bytes(args.get(1)) {
         Some(bytes) => Err(bytes),
         None => Ok(bind::arg_string(scope, &args, 1)),
     };

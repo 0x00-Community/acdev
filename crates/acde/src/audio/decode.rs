@@ -104,7 +104,7 @@ pub fn decode_all(bytes: Arc<[u8]>, rate: f64) -> Result<AudioData, String> {
     Ok(AudioData { rate, channels: planar })
 }
 
-pub fn resample(samples: &[f32], from: f64, to: f64) -> Vec<f32> {
+fn resample(samples: &[f32], from: f64, to: f64) -> Vec<f32> {
     let n = samples.len();
     if n == 0 {
         return Vec::new();

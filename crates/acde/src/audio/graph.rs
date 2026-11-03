@@ -191,7 +191,7 @@ struct Seg {
     curve: Curve,
 }
 
-pub struct Param {
+struct Param {
     base: f32,
     min: f32,
     max: f32,
@@ -200,7 +200,7 @@ pub struct Param {
 }
 
 impl Param {
-    pub fn new(value: f32, min: f32, max: f32) -> Param {
+    fn new(value: f32, min: f32, max: f32) -> Param {
         Param { base: value, min, max, events: Vec::new(), segs: vec![Seg { end: f64::INFINITY, curve: Curve::Const(value) }] }
     }
 
@@ -248,7 +248,7 @@ impl Param {
         self.segs.push(Seg { end: f64::INFINITY, curve: hold });
     }
 
-    pub fn at(&self, t: f64) -> f32 {
+    fn at(&self, t: f64) -> f32 {
         let i = self.segs.partition_point(|s| s.end <= t);
         self.segs.get(i).map_or(self.base, |s| s.curve.at(t))
     }
@@ -258,7 +258,7 @@ impl Param {
         self.events.insert(i, event);
     }
 
-    pub fn apply(&mut self, op: ParamOp, now: f64) {
+    fn apply(&mut self, op: ParamOp, now: f64) {
         match op {
             ParamOp::Value(v) => {
                 if self.events.is_empty() {
@@ -434,7 +434,7 @@ impl Node {
 }
 
 pub struct Graph {
-    pub rate: f64,
+    rate: f64,
     pub frame: u64,
     dest: u32,
     nodes: HashMap<u32, Node>,
@@ -467,7 +467,7 @@ impl Graph {
         Graph { rate, frame: 0, dest, nodes, order: Vec::new(), order_dirty: true, input: [[0.0; QUANTUM]; 2], values: [[0.0; QUANTUM]; 2], gone: Vec::new() }
     }
 
-    pub fn now(&self) -> f64 {
+    fn now(&self) -> f64 {
         self.frame as f64 / self.rate
     }
 

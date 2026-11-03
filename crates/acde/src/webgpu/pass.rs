@@ -192,15 +192,15 @@ pub fn render(s: &mut State, encoder: &mut wgpu::CommandEncoder, device: Id, d: 
     };
     let occlusion_query_set = match d.occlusion_query_set {
         Some(id) => match s.query_set(device, id) {
-            Some(q) => Some(q),
+            Some(q) => Some(&q.set),
             None => return Ok(()),
         },
         None => None,
     };
     let timestamp_writes = match &d.timestamp_writes {
         Some(t) => match s.query_set(device, t.query_set) {
-            Some(query_set) => Some(wgpu::RenderPassTimestampWrites {
-                query_set,
+            Some(q) => Some(wgpu::RenderPassTimestampWrites {
+                query_set: &q.set,
                 beginning_of_pass_write_index: t.beginning_of_pass_write_index,
                 end_of_pass_write_index: t.end_of_pass_write_index,
             }),
@@ -260,8 +260,8 @@ pub fn compute(s: &mut State, encoder: &mut wgpu::CommandEncoder, device: Id, d:
     let s = &*s;
     let timestamp_writes = match &d.timestamp_writes {
         Some(t) => match s.query_set(device, t.query_set) {
-            Some(query_set) => Some(wgpu::ComputePassTimestampWrites {
-                query_set,
+            Some(q) => Some(wgpu::ComputePassTimestampWrites {
+                query_set: &q.set,
                 beginning_of_pass_write_index: t.beginning_of_pass_write_index,
                 end_of_pass_write_index: t.end_of_pass_write_index,
             }),

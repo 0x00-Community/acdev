@@ -110,11 +110,6 @@ fn deliver(scope: &mut v8::PinScope, notes: Vec<Note>) {
     }
 }
 
-fn uint(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> u32 {
-    let n = bind::arg_f64(scope, args, i);
-    if n.is_finite() && n >= 0.0 { n as u32 } else { 0 }
-}
-
 fn int(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> i32 {
     let n = bind::arg_f64(scope, args, i);
     if n.is_finite() { n as i32 } else { -1 }
@@ -122,13 +117,6 @@ fn int(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -
 
 fn floats(value: v8::Local<v8::Value>) -> Option<Vec<f32>> {
     bind::with_bytes(value, |bytes| bytes.as_chunks::<4>().0.iter().map(|b| f32::from_ne_bytes(*b)).collect())
-}
-
-fn float32_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[f32]) -> v8::Local<'s, v8::Float32Array> {
-    let bytes: Vec<u8> = data.iter().flat_map(|v| v.to_ne_bytes()).collect();
-    let store = v8::ArrayBuffer::new_backing_store_from_vec(bytes).make_shared();
-    let buffer = v8::ArrayBuffer::with_backing_store(scope, &store);
-    v8::Float32Array::new(scope, buffer, 0, data.len()).expect("acde: Float32Array")
 }
 
 fn on_event(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
@@ -140,7 +128,7 @@ fn on_event(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8
 }
 
 fn create_context(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let (ctx, dest) = (uint(scope, &args, 0), uint(scope, &args, 1));
+    let (ctx, dest) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
     if web().is_none() {
         return bind::throw_error(scope, "NotSupportedError: no audio output");
     }
@@ -150,26 +138,26 @@ fn create_context(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments,
 }
 
 fn set_running(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let ctx = uint(scope, &args, 0);
+    let ctx = bind::arg_u32(scope, &args, 0);
     let running = bind::arg_bool(scope, &args, 1);
     send(Cmd::Running { ctx, running });
 }
 
 fn close_context(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let ctx = uint(scope, &args, 0);
+    let ctx = bind::arg_u32(scope, &args, 0);
     with_state(|s| s.clocks.remove(&ctx));
     send(Cmd::CloseContext { ctx });
 }
 
 fn time(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let ctx = uint(scope, &args, 0);
+    let ctx = bind::arg_u32(scope, &args, 0);
     let seconds = with_state(|s| s.clocks.get(&ctx).map_or(0.0, |c| c.seconds()));
     rv.set_double(seconds);
 }
 
 fn create_node(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let (ctx, node) = (uint(scope, &args, 0), uint(scope, &args, 1));
-    let Some(kind) = Kind::from_code(uint(scope, &args, 2)) else {
+    let (ctx, node) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
+    let Some(kind) = Kind::from_code(bind::arg_u32(scope, &args, 2)) else {
         return bind::throw_type_error(scope, "audio.createNode: unknown kind");
     };
     let shared = Arc::new(Shared::default());
@@ -178,19 +166,19 @@ fn create_node(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _:
 }
 
 fn connect(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let (from, to, param) = (uint(scope, &args, 0), uint(scope, &args, 1), int(scope, &args, 2));
+    let (from, to, param) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), int(scope, &args, 2));
     send(Cmd::Connect { from, to, param });
 }
 
 fn disconnect(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let from = uint(scope, &args, 0);
+    let from = bind::arg_u32(scope, &args, 0);
     let to = int(scope, &args, 1) as i64;
     let param = int(scope, &args, 2);
     send(Cmd::Disconnect { from, to, param });
 }
 
 fn automate(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let (node, param, code) = (uint(scope, &args, 0), uint(scope, &args, 1) as usize, uint(scope, &args, 2));
+    let (node, param, code) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1) as usize, bind::arg_u32(scope, &args, 2));
     let value = bind::arg_f64(scope, &args, 3) as f32;
     let at = bind::arg_f64(scope, &args, 4);
     let extra = bind::arg_f64(scope, &args, 5);
@@ -208,7 +196,7 @@ fn automate(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8
 }
 
 fn automate_curve(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let (node, param) = (uint(scope, &args, 0), uint(scope, &args, 1) as usize);
+    let (node, param) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1) as usize);
     let Some(values) = floats(args.get(2)) else {
         return bind::throw_type_error(scope, "audio.automateCurve: values must be a Float32Array");
     };
@@ -217,44 +205,44 @@ fn automate_curve(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments,
 }
 
 fn param_value(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let (node, param) = (uint(scope, &args, 0), uint(scope, &args, 1) as usize);
+    let (node, param) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1) as usize);
     let value = with_state(|s| s.nodes.get(&node).map_or(0.0, |n| n.param(param)));
     rv.set_double(f64::from(value));
 }
 
 fn set_wave(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let (node, wave) = (uint(scope, &args, 0), Wave::from_code(uint(scope, &args, 1)));
+    let (node, wave) = (bind::arg_u32(scope, &args, 0), Wave::from_code(bind::arg_u32(scope, &args, 1)));
     send(Cmd::Wave { node, wave });
 }
 
 fn set_loop(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let node = uint(scope, &args, 0);
+    let node = bind::arg_u32(scope, &args, 0);
     let looping = bind::arg_bool(scope, &args, 1);
     let (start, end) = (bind::arg_f64(scope, &args, 2), bind::arg_f64(scope, &args, 3));
     send(Cmd::Loop { node, looping, start: if start.is_finite() { start } else { 0.0 }, end: if end.is_finite() { end } else { 0.0 } });
 }
 
 fn set_buffer(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let (node, buffer) = (uint(scope, &args, 0), uint(scope, &args, 1));
+    let (node, buffer) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
     let data = with_state(|s| s.buffers.get(&buffer).cloned());
     send(Cmd::Buffer { node, data });
 }
 
 fn start(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let node = uint(scope, &args, 0);
+    let node = bind::arg_u32(scope, &args, 0);
     let (when, offset, duration) = (bind::arg_f64(scope, &args, 1), bind::arg_f64(scope, &args, 2), bind::arg_f64(scope, &args, 3));
     let offset = if offset.is_finite() { offset } else { 0.0 };
     send(Cmd::Start { node, when, offset, duration: (duration >= 0.0).then_some(duration) });
 }
 
 fn stop(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let node = uint(scope, &args, 0);
+    let node = bind::arg_u32(scope, &args, 0);
     let when = bind::arg_f64(scope, &args, 1);
     send(Cmd::Stop { node, when });
 }
 
 fn release(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let node = uint(scope, &args, 0);
+    let node = bind::arg_u32(scope, &args, 0);
     with_state(|s| s.nodes.remove(&node));
     send(Cmd::Release { node });
 }
@@ -290,8 +278,8 @@ fn off_thread<T: Send + 'static>(name: &str, work: impl FnOnce() -> T + Send + '
 }
 
 fn decode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let buffer = uint(scope, &args, 0);
-    let Some(bytes) = bind::arg_bytes(&args, 1) else {
+    let buffer = bind::arg_u32(scope, &args, 0);
+    let Some(bytes) = bind::bytes(args.get(1)) else {
         return bind::throw_type_error(scope, "audio.decode: not bytes");
     };
     let Some((token, promise)) = bind::promise(scope) else { return };
@@ -316,7 +304,7 @@ fn decode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
 }
 
 fn create_buffer(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let buffer = uint(scope, &args, 0);
+    let buffer = bind::arg_u32(scope, &args, 0);
     let rate = bind::arg_f64(scope, &args, 1);
     let Ok(list) = v8::Local::<v8::Array>::try_from(args.get(2)) else {
         return bind::throw_type_error(scope, "audio.createBuffer: channels must be an array");
@@ -335,25 +323,25 @@ fn create_buffer(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
 }
 
 fn channel_data(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let buffer = uint(scope, &args, 0);
+    let buffer = bind::arg_u32(scope, &args, 0);
     let data = with_state(|s| s.buffers.get(&buffer).cloned());
     let channels = data.as_ref().map_or(&[][..], |d| &d.channels[..]);
     let list = v8::Array::new(scope, channels.len() as i32);
     for (i, channel) in channels.iter().enumerate() {
-        let array = float32_array(scope, channel);
+        let array = bind::float32_array(scope, channel);
         list.set_index(scope, i as u32, array.into());
     }
     rv.set(list.into());
 }
 
 fn release_buffer(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let buffer = uint(scope, &args, 0);
+    let buffer = bind::arg_u32(scope, &args, 0);
     with_state(|s| s.buffers.remove(&buffer));
 }
 
 fn open_media(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let media = uint(scope, &args, 0);
-    let Some(bytes) = bind::arg_bytes(&args, 1) else {
+    let media = bind::arg_u32(scope, &args, 0);
+    let Some(bytes) = bind::bytes(args.get(1)) else {
         return bind::throw_type_error(scope, "audio.openMedia: not bytes");
     };
     let Some(web) = web() else {
@@ -381,7 +369,7 @@ fn open_media(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
 }
 
 fn media(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let (media, code) = (uint(scope, &args, 0), uint(scope, &args, 1));
+    let (media, code) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
     let value = bind::arg_f64(scope, &args, 2);
     let value = if value.is_finite() { value } else { 0.0 };
     let op = match code {
@@ -404,13 +392,13 @@ fn media(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::R
 }
 
 fn media_time(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let media = uint(scope, &args, 0);
+    let media = bind::arg_u32(scope, &args, 0);
     let seconds = with_state(|s| s.media.get(&media).map_or(0.0, |t| f64::from_bits(t.load(Ordering::Acquire))));
     rv.set_double(seconds);
 }
 
 fn close_media(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let media = uint(scope, &args, 0);
+    let media = bind::arg_u32(scope, &args, 0);
     with_state(|s| s.media.remove(&media));
     send(Cmd::CloseMedia { media });
 }
