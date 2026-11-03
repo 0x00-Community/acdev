@@ -12,6 +12,10 @@
 > - acde 的定位是一个运行时 (像 node / bun / workerd 之于 wrangler): 标准接口原样提供, 特殊能力只经 `acde:` 模块提供.
 >   标准 Node 不让页面直接碰系统调用, acde 偏要让: 桌面 (包括它的 React 组件) 直接 `import { fs } from 'acde:fs'` 读写文件,
 >   这正是 acde 存在的目的. 「魔改」只许发生在 `acde:` 这一层, 标准接口一个字不动.
+> - **`acde:` 模块是进程内注入, 不是 RPC**: 像 wrangler 拉起 workerd 时把 binding 注入 worker 那样, acde 在页面所在的进程里把
+>   `acde:` 模块直接注入页面的 V8, 调用直接进 Rust 原生实现 —— 不经 unix socket, 不经 IPC / 消息端口, 不转给别的进程代办.
+>   现在 web 进程经 port 把调用发到 Broker、由 `rpc.ts` / `remote.ts` 代理 (见「通信」) 是错的做法, 是要收回的债,
+>   新能力不许再往这条 RPC 上加.
 > - 兼容的是**标准接口**, 不是 Chromium: 渲染器是自研的 (Blitz 分叉 acrender, 没有 JS 引擎, 页面 JS 在 acde 自己的 V8 里),
 >   不搬 Chromium 那一套 —— 没有 devtools、远程调试端口、浏览器外壳、多余的进程和后台服务. 缺什么按标准补进自己的实现, 不引入浏览器内核.
 > - **现状差距很大**: acde-dopame 大量直接用 napi 导出做底层接口, web 层也有过非标准的扩展,
@@ -563,6 +567,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   `on('download' | 'notification' | 'screenshot' | 'shortcut')`, `acde:window` 的 `on('shortcut')` 和原有的 `request` 等;
   别的类型 `on` 直接抛 TypeError. 本文件里的 `acde.<名字>.<方法>` 是简写, 指 `acde:<名字>` 模块导出的值. 调用经
   web 进程的 port (fd, `[u32 长度][u8 种类][V8 结构化克隆]`: 消息 / 初始化 / 退出原因 / busy) 到 Broker (`rpc.ts`: 返回值、抛出的错误原样回来, 回调函数可以跨: 终端输出这类).
+  ⚠ 这是现状, 不是设计: `acde:` 模块应当在 web 进程里直接注入、直接调原生实现, 见第一原则; 这条 RPC 是要收回的债.
   - window web: 清单里有的服务 (`acde.fs`、`acde.terminal` …), `acde.window` (标题、菜单、关闭、最小化、`on` 事件:
     `beforeclose` 返回 false 留住窗口、`request` 别的应用 `acde.open(<id>, {…})` 要它打开什么 (要那个应用清单的 `open`
     允许 `<id>`; 窗口就是为一个请求开的时, 那个请求交给第一个 `request` 处理函数, 在 `mount` 之后才加的也收得到, 只给一次:
