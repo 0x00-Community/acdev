@@ -78,16 +78,14 @@ export class WindowSelf {
   #menus: AppMenu[] = []
   readonly #handlers = new Map<WindowEventName, Set<(value?: unknown) => unknown>>()
   #unmount: (() => void) | null = null
-  readonly #resume: unknown
   #opening: Record<string, unknown> | null
   onVisible: (visible: boolean) => void = () => {}
   onTitle: (title: string) => void = () => {}
 
-  constructor(rpc: Rpc, surface: NativeSurface, page: PageLike, resume: unknown, opening: Record<string, unknown> | null) {
+  constructor(rpc: Rpc, surface: NativeSurface, page: PageLike, opening: Record<string, unknown> | null) {
     this.#rpc = rpc
     this.#surface = surface
     this.#page = page
-    this.#resume = resume
     this.#opening = opening
   }
 
@@ -131,7 +129,6 @@ export class WindowSelf {
       const set = this.#handlers.get(name) ?? new Set()
       set.add(handler)
       this.#handlers.set(name, set)
-      if (name === 'resume' && this.#resume !== undefined) queueMicrotask(() => handler(this.#resume))
       const opening = name === 'request' ? this.#opening : null
       if (opening) {
         this.#opening = null
@@ -165,13 +162,6 @@ export class WindowSelf {
         const [menu, item] = args as [string, string]
         const it = this.#menus.find((m) => m.id === menu)?.items.find((x) => 'id' in x && x.id === item) as { onSelect?(): unknown } | undefined
         return it?.onSelect?.()
-      }
-      case 'suspend': {
-        for (const handler of this.#handlers.get('suspend') ?? []) {
-          const state = await handler()
-          if (state !== undefined && state !== null) return state
-        }
-        return null
       }
     }
     throw new Error(`a window web has no ${method}`)

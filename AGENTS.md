@@ -525,7 +525,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   不发给客户端. 页面里是 `acde.window.requestMode` / `setGrabHint` / `requestActivate`. 隐藏 (最小化) 是框架状态 (`Shell.hide(window, hidden)`):
   隐藏的窗口不画、不命中、不拿焦点 (藏起有焦点的窗口时焦点给剩下最上面的), 留在窗口表和 z 列表里, 显示时拿焦点; `windows()` 带 `hidden`.
   只有桌面能隐藏 / 显示 / 提到最前 (`acde.windows.hide` / `show` / `focus`); 应用的 `acde.window.minimize` 只是给桌面发
-  `windowminimize`, 由桌面决定. 从应用外面打开到某个窗口 (`windowshow`) 时 Broker 先显示它、给它焦点. 隐藏后丢弃还没有接上.
+  `windowminimize`, 由桌面决定. 从应用外面打开到某个窗口 (`windowshow`) 时 Broker 先显示它、给它焦点. 隐藏后丢弃还没有.
 - **窗框** (acde-host `src/frame.ts`): 应用窗口默认由 acde-host 在窗口 web 里画一条标题栏, 应用不用改代码 (React、Vue、
   任何编译成 html/js/css 的页面一样). 它是挂在 `<html>` 下 (不在 `<body>` 里) 的 `<acde-frame>`, 样式全是内联 `all: initial` 加
   `!important`, 应用的 CSS 和 `body.innerHTML = ''` 碰不到; 被删掉或 `<html>` 的 style 被改掉时补回去. `<html>` 加上
@@ -566,7 +566,8 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   - window web: 清单里有的服务 (`acde.fs`、`acde.terminal` …), `acde.window` (标题、菜单、关闭、最小化、`on` 事件:
     `beforeclose` 返回 false 留住窗口、`request` 别的应用 `acde.open(<id>, {…})` 要它打开什么 (要那个应用清单的 `open`
     允许 `<id>`; 窗口就是为一个请求开的时, 那个请求交给第一个 `request` 处理函数, 在 `mount` 之后才加的也收得到, 只给一次:
-    `WindowSelf` 的 `#opening`, 和 `resume` 补发一样; 窗口开着、还没有处理函数时来的请求也先存在这里, 交给下一个注册的)、`suspend` / `resume`、`activate` / `deactivate`;
+    `WindowSelf` 的 `#opening`; 窗口开着、还没有处理函数时来的请求也先存在这里, 交给下一个注册的)、`activate` / `deactivate`
+    (`suspend` / `resume` 在类型里, 但没有丢弃, 不会发);
     各事件处理函数的签名是 acde-api `AcdeWindow.on` 的重载;
     对框架的请求 `requestMode(mode)`、`setGrabHint(rect, edges?)`、`setBackdrop(rect | null, effect?)`、`requestActivate()`、
     `requestGrab(kind)` / `releaseGrab(kind)` (结果是 `grab {kind, granted}` / `grablost {reason}` 事件)、app 级快捷键
@@ -599,9 +600,8 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   它的 surface、输入法, 还能 import `file:` 模块. 每个 web 是自己的进程 (环境只有 Broker 给的那些, 会话结束随 PDEATHSIG 一起走),
   崩溃、卡死、堆超限都只影响它自己; 系统调用级的沙箱 (Landlock / seccomp) 还没加.
 - **内存**: web 的 V8 堆上限是清单的 `heapMb` (应用默认 256, 桌面默认 1024), 超了只停这一个 web: 窗口的, 桌面收到
-  `windowcrash {reason: 'memory'}`; 桌面的, 按下面「生命周期」重新起. render 文档自己的上限 (图片缓存等) 照旧. 隐藏的窗口不出帧、画布放掉. 丢弃 (`ACDE_DISCARD_MINUTES`,
-  `suspend` / `resume`) 的代码在 Broker 里, 但还没接上: 没人记隐藏的起始时间, 丢弃后再显示也不会重新起.
-- **生命周期**: 启动 → 运行 ⇄ 隐藏 → (丢弃) → 关闭: 先问应用 (`beforeclose`, 3 秒不答就关), 再停 web 的线程、放掉 surface;
+  `windowcrash {reason: 'memory'}`; 桌面的, 按下面「生命周期」重新起. render 文档自己的上限 (图片缓存等) 照旧. 隐藏的窗口不出帧、画布放掉. 隐藏久了丢弃 (停掉 web, 再显示时重新起) 还没有.
+- **生命周期**: 启动 → 运行 ⇄ 隐藏 → 关闭: 先问应用 (`beforeclose`, 3 秒不答就关), 再停 web 的线程、放掉 surface;
   它起的原生窗口一起关. web 的进程自己停了 (堆超限、加载时抛错) 是崩溃: 桌面在窗框里说明, 可以重新打开.
   无响应: Broker 读每个 web 循环当前任务跑了多久 (`busyMs`, 不靠心跳), 超过 5 秒报 `windowhang`, 回到循环报 `windowresponsive`;
   桌面可以强制关 (`kill`). desktop web 自己停了 Broker 重新起它 (一分钟最多 3 次), 窗口照常.
@@ -1309,7 +1309,7 @@ acde 的宿主代码, esbuild 打成 crates/acde 跑的两个 ES 模块 (运行�
 | 文件 | 做什么 |
 | --- | --- |
 | `src/main.ts` | 命令行 (下面); 起 Broker、fcitx5 (自己的会话)、`--launch` 的程序、XDG autostart (desktop web 第一帧 (经 `page.shown`) 之后 300 ms, 5 秒兜底; 登录页上不起) |
-| `src/broker.ts` | 主线程: `Shell.broker()`、服务、窗口表、起 window web、关闭和崩溃、看门狗、丢弃隐藏窗口、重起 desktop web; 按清单检查每个调用 |
+| `src/broker.ts` | 主线程: `Shell.broker()`、服务、窗口表、起 window web、关闭和崩溃、看门狗、重起 desktop web; 按清单检查每个调用 |
 | `src/bridge.ts`, `src/services.ts` | 给 web 的接口: runtime 的 `Finder` / `Office` / `Terminals` / `Network` (Terminals 和 Network 并行打开, 之后 Finder, 有它才开 Office; 打不开的去掉并在日志里说一行), 桌面包的服务 (按清单顺序挂上, 同名先到先得, acde 自己的名字保留) |
 | `src/packages.ts`, `src/apps.ts` | 包发现、桌面、应用清单、启动哪个桌面、会话项 |
 | `src/open.ts` | 「默认应用」 |
@@ -1343,7 +1343,7 @@ acde --launch foot --seconds 10 --stats   # 起一个程序; 10 秒后停; 打�
 ```
 
 环境变量: `ACDE_PATH`, `ACDE_DESKTOP`, `ACDE_STORAGE` (桌面的 localStorage 文件, 默认 `$XDG_CONFIG_HOME/acde/storage/<desktop>.json`,
-空: 只在内存), `ACDE_DISCARD_MINUTES`, `ACDE_REDUCED_MOTION=1/0`, `ACDE_AUTOSTART=1/0` (嵌套时起 / 不起),
+空: 只在内存), `ACDE_REDUCED_MOTION=1/0`, `ACDE_AUTOSTART=1/0` (嵌套时起 / 不起),
 `ACDE_DEBUG_DIR`, `ACDE_BUS_NAMES=1/0`, `ACDE_COLOR_SCHEME=light/dark` (见下面的配色); shell 的见「组件契约」.
 
 **配色** (`src/appearance.ts`): 页面的 `prefers-color-scheme` 跟会话走. `ACDE_COLOR_SCHEME=light` / `dark` 定死; 没设时 Broker 读

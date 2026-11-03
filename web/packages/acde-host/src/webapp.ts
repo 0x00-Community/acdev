@@ -6,7 +6,7 @@ import type { StorageFile } from './storage'
 import { Level, Log } from './log'
 
 interface WindowEvents {
-  on(name: 'beforeclose' | 'suspend', handler: () => unknown): () => boolean
+  on(name: 'beforeclose', handler: () => unknown): () => boolean
 }
 
 export class WebAppPage {
@@ -34,7 +34,6 @@ export class WebAppPage {
     env.navigate = (url, target) => this.#navigate(url, target)
     env.alert = (message) => this.#alert(message)
     window.on('beforeclose', () => void storage?.flush())
-    window.on('suspend', () => void storage?.flush())
   }
 
   loaded(html: boolean): void {

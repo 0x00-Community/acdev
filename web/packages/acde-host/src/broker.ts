@@ -107,7 +107,6 @@ export interface WebInit {
   readonly app?: AppManifest
   readonly theme?: string
   readonly request?: Record<string, unknown> | null
-  readonly resume?: unknown
   readonly url?: string | null
   readonly sockets?: string
 }
@@ -144,8 +143,6 @@ interface WindowRecord {
   web: Web | null
   app: AppManifest | null
   menus: WireMenu[]
-  hiddenSince: number | null
-  resume?: unknown
   request?: Record<string, unknown> | null
   url?: string | null
   mode?: 'fullscreen' | 'free'
@@ -406,12 +403,10 @@ export class Broker {
       theme: this.#theme(),
       storageFile: StorageFile.forApp(app.id),
       request: record.request ?? null,
-      resume: record.resume,
       url: record.url ?? null,
       ...(app.backend && { sockets: AppBackends.socketDir(app.id) }),
     }
     record.request = null
-    record.resume = undefined
     record.web = this.#spawn('window', record.id, init, app, app.heapMb)
     if (record.hidden) this.#tellVisible(record)
   }
@@ -475,7 +470,6 @@ export class Broker {
     this.#closePrograms(web)
     this.#claims.splice(0, this.#claims.length, ...this.#claims.filter((c) => c.web !== web))
     if (web.reloading && !web.closing && !this.#stopped) return this.#spawnWindow(record)
-    if (record.resume !== undefined && !web.closing) return
     if (!web.closing) {
       this.#toDesktop({ type: 'windowcrash', window: record.id, reason: reason ?? (code === 0 ? 'exit' : `exit ${code}`) })
       Log.write(Level.Warn, 'acde_host', `[${web.name}] stopped (${reason ?? `exit ${code}`})`)
@@ -523,7 +517,6 @@ export class Broker {
   }
 
   #watch(): void {
-    const now = Date.now()
     for (const web of this.#webs()) {
       if (web.closing) continue
       const busy = web.worker.busyMs() >= Broker.HANG_MS
@@ -536,21 +529,6 @@ export class Broker {
       Log.write(Level.Warn, 'acde_host', `[${web.name}] not answering for ${Broker.HANG_MS / 1000} s`)
       if (web.kind === 'window') this.#toDesktop({ type: 'windowhang', window: web.window })
     }
-    const minutes = Number(process.env['ACDE_DISCARD_MINUTES'] ?? 30)
-    if (!(minutes > 0)) return
-    for (const record of this.#windows.values()) {
-      if (record.web && !record.web.closing && record.hiddenSince !== null && now - record.hiddenSince > minutes * 60000) void this.#discard(record)
-    }
-  }
-
-  async #discard(record: WindowRecord): Promise<void> {
-    const web = record.web
-    if (!web) return
-    record.hiddenSince = null
-    const state = await within(web.rpc.call('window', 'suspend'), Broker.CLOSE_WAIT_MS, undefined).catch(() => undefined)
-    if (state === undefined || state === null || record.web !== web) return
-    record.resume = state
-    await web.worker.terminate()
   }
 
   #screen(): { width: number; height: number } {
@@ -587,7 +565,7 @@ export class Broker {
     if (record?.kind === 'web') return this.#toDesktop(event)
     if (event.type === 'windowopen') {
       const claim = this.#claims.shift() ?? null
-      const opened: WindowRecord = { id: event.window, kind: 'native', appId: event.appId ?? null, title: event.title ?? null, owner: claim?.web ?? null, web: null, app: null, menus: [], hiddenSince: null }
+      const opened: WindowRecord = { id: event.window, kind: 'native', appId: event.appId ?? null, title: event.title ?? null, owner: claim?.web ?? null, web: null, app: null, menus: [] }
       this.#windows.set(event.window, opened)
       if (claim) {
         claim.web.owns.set(event.window, claim.pid)
@@ -650,7 +628,7 @@ export class Broker {
     }
     const rect = mode === 'free' && !this.#running(appId) ? this.#places.get(appId, this.#screen()) : null
     const grant = this.shell.grant({ mode, ...(rect ? { rect } : app.size && { size: app.size }) })
-    const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], hiddenSince: null, request, mode }
+    const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], request, mode }
     this.#windows.set(record.id, record)
     this.#spawnWindow(record, grant.token)
     this.#announce(record)
