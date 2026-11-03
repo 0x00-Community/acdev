@@ -65,6 +65,7 @@ struct System {
     workspace: Option<acde_runtime::Workspace>,
     terminals: Option<acde_runtime::Terminals>,
     networks: acde_runtime::Networks,
+    office: Option<acde_runtime::OfficeService>,
 }
 
 #[cfg(target_os = "linux")]
@@ -73,6 +74,7 @@ struct Grants {
     fs: Option<acde_runtime::Workspace>,
     terminal: Option<acde_runtime::Terminals>,
     network: Option<acde_runtime::Networks>,
+    office: Option<acde_runtime::OfficeService>,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -90,11 +92,13 @@ impl Webs {
         };
         let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
         let network = bind::get(scope, wanted, "network").is_some_and(|v| v.is_true());
+        let office = bind::get(scope, wanted, "office").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         Grants {
             fs: fs.map(|roots| system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(roots)),
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
             network: network.then(|| system.networks.clone()),
+            office: system.office.clone().filter(|_| office),
         }
     }
 
@@ -115,6 +119,9 @@ impl Grants {
         }
         if let Some(networks) = self.network {
             crate::network::install(scope, natives, networks);
+        }
+        if let Some(office) = self.office {
+            crate::office::install(scope, natives, office);
         }
     }
 
@@ -208,6 +215,7 @@ impl Spec {
             crate::fs::clear();
             crate::terminal::clear();
             crate::network::clear();
+            crate::office::clear();
         }
         bind::clear_promises();
         drop(runtime);
@@ -216,6 +224,39 @@ impl Spec {
         (code, reason)
     }
 }
+
+#[cfg(target_os = "linux")]
+pub fn open_office(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let opened = WEBS.with(|w| {
+        let mut w = w.borrow_mut();
+        let system = &mut w.system;
+        if system.office.is_some() {
+            return Ok(());
+        }
+        let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(None);
+        system.office = Some(acde_runtime::OfficeService::open(&workspace)?);
+        Ok::<(), String>(())
+    });
+    match opened {
+        Ok(()) => rv.set_null(),
+        Err(message) => rv.set(bind::string(scope, &message).into()),
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn close_office(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    if let Some(office) = WEBS.with(|w| w.borrow_mut().system.office.take()) {
+        office.close();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn open_office(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    rv.set(bind::string(scope, "no office on this platform").into());
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn close_office(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {}
 
 pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let name = bind::arg_string(scope, &args, 0);

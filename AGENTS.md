@@ -138,9 +138,9 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
 2. (已做) Broker 搬进 `acde runtime` 子进程: 主进程只剩合成器, 起 runtime 时交 `acde_shell` 和 Wayland 连接 (`WAYLAND_DISPLAY`).
 3. (已做, 外部内存记账除外) web 从子进程改成 runtime 进程里的线程 + isolate: `spawnWeb` 对 TS 不变, port 换成进程内通道;
    堆上限、CPU 时间和卡死检测按 isolate. 还没有: 外部内存 (ArrayBuffer、render 文档、GPU 缓冲) 按 isolate 记账.
-4. 系统能力直接注入: fs / terminal / network / office / ime 在各 isolate 里绑定同一份 Rust 对象; 删掉 Broker 代理的这些分支.
-   已做: ime (crates/acde `webnative.rs`)、fs、terminal、network (见下). 还没做: office (仍经 Broker).
-   - `spawnWeb` 第 7 个参数是这个 web 拿到的系统能力 `{fs, terminal, network}` (Broker `#grants`: 桌面全给, 应用按清单); 给了的才注入
+4. (已做) 系统能力直接注入: fs / terminal / network / office / ime 在各 isolate 里绑定同一份 Rust 对象; 删掉 Broker 代理的这些分支.
+   ime 在 crates/acde `webnative.rs`, 别的见下. Broker 自己 (桌面服务) 还有 napi 的 `Finder` / `Terminals` / `Network`, 是另一份.
+   - `spawnWeb` 第 7 个参数是这个 web 拿到的系统能力 `{fs, terminal, network, office}` (Broker `#grants`: 桌面全给, 应用按清单); 给了的才注入
      (`natives.fs` / `natives.terminal`), 没给的 `import('acde:<名字>')` 直接失败; Broker 不再给 web 发这些的 shape, `#serve` 收到
      直接拒绝. 每种在 Broker 线程第一次用到时建一份, 所有 web 共用.
    - terminal: crates/runtime `Terminals` 加 Rust 侧的 `listen(id, sink)` (sink 返回 false 表示收不到了, 下次发时摘掉) 和
@@ -153,6 +153,10 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
    - network: crates/runtime `Networks` (所有 web 共用: 第一次调用时连 NetworkManager, `NetCall` 是六个调用, `listen` 可以挂任意多个
      Rust sink, 第一次挂时才开始盯 PropertiesChanged). crates/acde `network.rs` 绑成 `natives.network`, `watch` 的状态投回这个 web
      的事件循环. 连接活到 runtime 退出 (不在 drop 时关: 关了盯信号的线程退出时 zbus 会报 remove match rule 失败).
+   - office: crates/runtime `OfficeService` (Document Server 的会话、令牌和桥接 socket, 一个 runtime 只能有一个, 文件走 web 共用的
+     `Workspace`). Broker 起服务时调 `sys.openOffice()` 开它 (失败的原因打一行 warn, 要 office 的应用就算不可用),
+     结束时 `sys.closeOffice()`; napi `Office` 删了. crates/acde `office.rs` 绑成 `natives.office` (server / state / status / save /
+     new), web 的 `acde:office` 再加上 `editorPage` (`office.ts` 的 `OfficePage.write`, 纯 JS 写编辑页文件, 在 web 自己里跑).
    - 调用都在 crates/acde `offload.rs`: 每次一条线程做阻塞的活, promise 在这个 web 的事件循环上落定; 失败是带 `code` (和 `status`)
      的 Error.
    - fs: crates/runtime `Workspace` (Finder 的共享状态 + 这个 web 能用的 roots, `None` 是全部) 和 `FsCall` / `FsReply`, napi

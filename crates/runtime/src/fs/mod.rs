@@ -261,6 +261,10 @@ impl Workspace {
         Self { shared: Arc::clone(&self.shared), roots: roots.map(Into::into) }
     }
 
+    pub(crate) fn shared_fs(&self) -> Arc<Shared> {
+        Arc::clone(&self.shared)
+    }
+
     pub fn call(&self, call: FsCall) -> std::result::Result<FsReply, FsError> {
         if let Some(roots) = &self.roots {
             match call.scope() {
@@ -360,10 +364,4 @@ impl Finder {
 
 impl FsReply {
     pub const OCTETS: &str = "application/octet-stream";
-}
-
-impl Finder {
-    pub(crate) fn shared(&self) -> Arc<Shared> {
-        Arc::clone(&self.shared)
-    }
 }

@@ -77,7 +77,6 @@ export type Shell = Pick<NativeSurface, 'setClipboard' | 'readClipboard'>
 export interface Native {
   Shell: { broker(options?: { title?: string }): BrokerShell }
   Finder?: new () => object
-  Office?: new (finder: object) => NativeOffice
   Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   Terminals?: new () => { closeAll(): void }
   Network?: { open(): Promise<NativeNetwork> }
@@ -136,11 +135,3 @@ export interface NativeDesktopBus {
   close(): void
 }
 
-export interface NativeOffice {
-  server(): Promise<unknown>
-  state(root?: string, dir?: string, path?: string): Promise<unknown>
-  status(key: string): unknown
-  save(body: unknown): Promise<unknown>
-  'new'(body: unknown): Promise<unknown>
-  close(): void
-}

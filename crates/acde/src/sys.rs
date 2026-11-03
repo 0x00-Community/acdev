@@ -150,6 +150,8 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         "getuid" => getuid,
         "onSignal" => on_signal,
         "spawnWeb" => crate::web::spawn_web,
+        "openOffice" => crate::web::open_office,
+        "closeOffice" => crate::web::close_office,
     );
     #[cfg(target_os = "linux")]
     {

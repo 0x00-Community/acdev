@@ -21,6 +21,8 @@ mod web;
 #[cfg(target_os = "linux")]
 mod network;
 #[cfg(target_os = "linux")]
+mod office;
+#[cfg(target_os = "linux")]
 mod offload;
 #[cfg(target_os = "linux")]
 mod supervise;

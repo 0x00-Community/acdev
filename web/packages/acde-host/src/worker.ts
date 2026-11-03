@@ -11,6 +11,7 @@ import { Pinned } from './pinned'
 import { RemoteBridge, WindowList, WindowSelf } from './remote'
 import { Rpc, type RpcPort } from './rpc'
 import { StorageFile } from './storage'
+import { OfficePage } from './office'
 import { readFileSync } from './sys/fs'
 import { bindNatives, type Natives } from './sys/natives'
 import { process } from './sys/process'
@@ -31,6 +32,7 @@ interface WebNatives extends Natives {
   readonly fs?: object
   readonly terminal?: object
   readonly network?: object
+  readonly office?: object
 }
 
 export default async function boot(natives: WebNatives): Promise<void> {
@@ -113,6 +115,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   if (natives.fs) bridge.value['fs'] = natives.fs
   if (natives.terminal) bridge.value['terminal'] = natives.terminal
   if (natives.network) bridge.value['network'] = natives.network
+  if (natives.office) bridge.value['office'] = { ...natives.office, editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme) }
   bridge.define(host)
   const app = self ? new WebAppPage(page, rpc, init.name, self.api, storage) : null
   StartupTimeline.mark('page load started')

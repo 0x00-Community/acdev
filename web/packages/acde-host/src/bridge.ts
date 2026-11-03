@@ -1,5 +1,5 @@
-import type { Native, NativeOffice } from './native'
-import { OfficePage } from './office'
+import type { Native } from './native'
+import { sys } from './sys/natives'
 import type { InstalledDesktop } from './packages'
 import { DesktopServices } from './services'
 import { Level, Log } from './log'
@@ -8,9 +8,10 @@ export class PageBridge {
   readonly #closers: (() => unknown)[] = []
   readonly value: Record<string, unknown> = {}
   readonly services = new DesktopServices()
+  #office = false
 
   available(caps: { fs?: unknown; terminal?: unknown; office?: unknown }): boolean {
-    return (!caps.fs || !!this.value['fs']) && (!caps.terminal || !!this.value['terminal']) && (!caps.office || !!this.value['office'])
+    return (!caps.fs || !!this.value['fs']) && (!caps.terminal || !!this.value['terminal']) && (!caps.office || this.#office)
   }
 
   async start(native: Native, desktop: InstalledDesktop): Promise<void> {
@@ -39,27 +40,16 @@ export class PageBridge {
     ])
     const fs = native.Finder ? await optional('fs', () => new native.Finder!()) : null
     if (fs) this.value['fs'] = fs
-    const office = native.Office && fs ? await optional('office', () => new native.Office!(fs)) : null
-    if (office) {
-      this.value['office'] = PageBridge.#office(office)
-      this.#closers.unshift(() => office.close())
-    }
+    const failed = sys().openOffice()
+    if (failed === null) {
+      this.#office = true
+      this.#closers.unshift(() => sys().closeOffice())
+    } else Log.write(Level.Warn, 'acde_host', `office unavailable: ${failed}`)
     if (terminal) {
       this.value['terminal'] = terminal
       this.#closers.unshift(() => terminal.closeAll())
     }
     if (network) this.value['network'] = network
-  }
-
-  static #office(office: NativeOffice): Record<string, unknown> {
-    return {
-      server: () => office.server(),
-      state: (root?: string, dir?: string, path?: string) => office.state(root, dir, path),
-      status: async (key: string) => office.status(key),
-      save: (body: unknown) => office.save(body),
-      new: (body: unknown) => office.new(body),
-      editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme),
-    }
   }
 
   async close(): Promise<void> {

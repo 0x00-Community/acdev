@@ -9,15 +9,12 @@ mod tokens;
 use crate::sync::Locked;
 use crate::failure::{Failure, Outcome};
 use crate::fields::Fields;
-use crate::fs::Finder;
 use crate::fs::path::NodePath;
 use crate::js::JsText;
 use blank::BlankKind;
 use bridge::Handlers;
 use docserver::DocumentServer;
 use documents::{MAX_DOCUMENT_BYTES, OfficeFile, OfficeFiles, SaveResult};
-use napi::Result;
-use napi_derive::napi;
 use serde_json::{Value, json};
 use sessions::{EditSessions, SaveState, Session, Shared as SessionRef};
 use settings::OfficeSettings;
@@ -313,27 +310,20 @@ impl Handlers for Bridged {
     }
 }
 
-#[napi]
-pub struct Office {
-    service: Arc<Service>,
-    bridge: Mutex<Option<crate::rt::Task>>,
+pub enum OfficeCall {
+    Server,
+    State { root: Option<String>, dir: Option<String>, path: Option<String> },
+    Status { key: String },
+    Save { body: Option<Value> },
+    New { body: Option<Value> },
 }
 
-impl Office {
-    async fn run<T: Send + 'static>(&self, work: impl FnOnce(&Arc<Service>) -> Outcome<T> + Send + 'static) -> Result<T> {
-        let service = Arc::clone(&self.service);
-        crate::blocking(move || work(&service).map_err(Into::into)).await
-    }
-}
-
-#[napi]
-impl Office {
-    #[napi(constructor)]
-    pub fn new(finder: &Finder) -> Result<Self> {
+impl Service {
+    fn start(finder: Arc<crate::fs::Shared>) -> Outcome<(Arc<Service>, crate::rt::Task)> {
         let settings = OfficeSettings::from_env()?;
         let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
         let service = Arc::new(Service {
-            files: OfficeFiles::new(finder.shared()),
+            files: OfficeFiles::new(finder),
             sessions: EditSessions::default(),
             secrets: Mutex::default(),
             cached: Mutex::default(),
@@ -356,57 +346,62 @@ impl Office {
                 }
             }
         });
-        Ok(Self { service, bridge: Mutex::new(Some(task)) })
+        Ok((service, task))
     }
 
-    #[napi]
-    pub async fn server(&self) -> Result<Value> {
-        self.run(|s| Ok(s.status(true))).await
+    fn call(&self, call: OfficeCall) -> Outcome<Value> {
+        match call {
+            OfficeCall::Server => Ok(self.status(true)),
+            OfficeCall::State { root, dir, path } => self.props(root.as_deref(), dir.as_deref(), path.as_deref()),
+            OfficeCall::Status { key } => {
+                let session = self.sessions.get(&key).ok_or_else(|| Failure::http(404, "no open document with this key"))?;
+                Ok(session.locked().status())
+            }
+            OfficeCall::Save { body } => {
+                let key = Fields::read(body.as_ref(), &["key"], &[])?.get("key");
+                let session = self.sessions.get(&key).ok_or_else(|| Failure::http(404, "no open document with this key"))?;
+                let credentials = self.credentials().map_err(|f| Failure::http(503, f.message))?;
+                let server = DocumentServer::new(&self.settings.document_server, Some(credentials), None);
+                let forced = key.clone();
+                let result = Service::wait(move || async move { server.forcesave(&forced).await })??;
+                Ok(json!({"result": result, "status": session.locked().status()}))
+            }
+            OfficeCall::New { body } => {
+                let fields = Fields::read(body.as_ref(), &["root", "kind"], &["dir", "name"])?;
+                let kind = BlankKind::try_from(fields.get("kind").as_str()).map_err(|()| Failure::invalid("kind must be docx, xlsx or pptx"))?;
+                let name = fields.present("name").map(|n| n.js_trim().to_owned()).filter(|n| !n.is_empty());
+                let dir = fields.get("dir");
+                let path = self.files.create(&fields.get("root"), &dir, kind, name.as_deref())?;
+                Ok(json!({"path": path}))
+            }
+        }
     }
 
-    #[napi]
-    pub async fn state(&self, root: Option<String>, dir: Option<String>, path: Option<String>) -> Result<Value> {
-        self.run(move |s| s.props(root.as_deref(), dir.as_deref(), path.as_deref())).await
-    }
-
-    #[napi]
-    pub fn status(&self, key: String) -> Result<Value> {
-        let session = self.service.sessions.get(&key).ok_or_else(|| Failure::http(404, "no open document with this key"))?;
-        Ok(session.locked().status())
-    }
-
-    #[napi]
-    pub async fn save(&self, body: Option<Value>) -> Result<Value> {
-        self.run(move |s| {
-            let key = Fields::read(body.as_ref(), &["key"], &[])?.get("key");
-            let session = s.sessions.get(&key).ok_or_else(|| Failure::http(404, "no open document with this key"))?;
-            let credentials = s.credentials().map_err(|f| Failure::http(503, f.message))?;
-            let server = DocumentServer::new(&s.settings.document_server, Some(credentials), None);
-            let forced = key.clone();
-            let result = Service::wait(move || async move { server.forcesave(&forced).await })??;
-            Ok(json!({"result": result, "status": session.locked().status()}))
-        })
-        .await
-    }
-
-    #[napi(js_name = "new")]
-    pub async fn create(&self, body: Option<Value>) -> Result<Value> {
-        self.run(move |s| {
-            let fields = Fields::read(body.as_ref(), &["root", "kind"], &["dir", "name"])?;
-            let kind = BlankKind::try_from(fields.get("kind").as_str()).map_err(|()| Failure::invalid("kind must be docx, xlsx or pptx"))?;
-            let name = fields.present("name").map(|n| n.js_trim().to_owned()).filter(|n| !n.is_empty());
-            let dir = fields.get("dir");
-            let path = s.files.create(&fields.get("root"), &dir, kind, name.as_deref())?;
-            Ok(json!({"path": path}))
-        })
-        .await
-    }
-
-    #[napi]
-    pub fn close(&self) {
-        if let Some(task) = self.bridge.locked().take() {
+    fn stop(&self, bridge: &Mutex<Option<crate::rt::Task>>) {
+        if let Some(task) = bridge.locked().take() {
             task.abort();
         }
-        *self.service.bridge_error.locked() = Some("office bridge is not listening".into());
+        *self.bridge_error.locked() = Some("office bridge is not listening".into());
+    }
+}
+
+#[derive(Clone)]
+pub struct OfficeService {
+    service: Arc<Service>,
+    bridge: Arc<Mutex<Option<crate::rt::Task>>>,
+}
+
+impl OfficeService {
+    pub fn open(workspace: &crate::fs::Workspace) -> std::result::Result<Self, String> {
+        let (service, task) = Service::start(workspace.shared_fs()).map_err(|f| f.message)?;
+        Ok(Self { service, bridge: Arc::new(Mutex::new(Some(task))) })
+    }
+
+    pub fn call(&self, call: OfficeCall) -> std::result::Result<Value, String> {
+        self.service.call(call).map_err(|failure| serde_json::to_string(&failure).unwrap_or(failure.message))
+    }
+
+    pub fn close(&self) {
+        self.service.stop(&self.bridge);
     }
 }
