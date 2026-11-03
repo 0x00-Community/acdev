@@ -73,11 +73,13 @@ impl ShellLink {
         }
     }
 
-    fn bind(&mut self, shell: AcdeShell) {
+    fn bind(&mut self, shell: AcdeShell) -> bool {
+        let first = !self.backlog.is_empty();
         for event in self.backlog.drain(..) {
             event.send(&shell);
         }
-        self.bound.push(shell);
+        self.bound.push(shell.clone());
+        first
     }
 }
 
@@ -326,7 +328,11 @@ impl Compositor {
 impl GlobalDispatch<AcdeShell, ()> for Compositor {
     fn bind(state: &mut Self, _: &DisplayHandle, _: &Client, resource: New<AcdeShell>, _: &(), data_init: &mut DataInit<'_, Self>) {
         let shell = data_init.init(resource, ());
-        state.shell.bind(shell);
+        if !state.shell.bind(shell.clone())
+            && let Some(mode) = state.backend.output.current_mode()
+        {
+            ShellEvent::Output { width: mode.size.w, height: mode.size.h, scale: state.scale() }.send(&shell);
+        }
     }
 
     fn can_view(client: Client, _: &()) -> bool {

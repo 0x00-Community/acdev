@@ -20,8 +20,8 @@ napi-derive = { version = "=3.6.12", optional = true }
 # napi Shell 是 acde_shell 协议的客户端 (经 socketpair 连合成器); 和 crates/window 同版本
 wayland-client = { version = "0.31", optional = true }
 wayland-backend = { version = "0.3", optional = true }
-# napi Shell 的读线程: poll 连接和停止管道 (退出时先停读线程, 合成器再关连接)
-rustix = { version = "1", features = ["event", "pipe"], optional = true }
+# napi Shell 的读线程: poll 连接和停止管道 (退出时先停读线程, 合成器再关连接); 接过 acde runtime 继承的 acde_shell fd
+rustix = { version = "1", features = ["event", "pipe", "fs"], optional = true }
 smithay = { version = "0.7.0", default-features = false, features = [
 	"backend_gbm", "backend_drm", "backend_libinput", "backend_udev", "backend_session_libseat", "backend_egl", "renderer_gl", "use_system_lib",
 	"wayland_frontend", "desktop",

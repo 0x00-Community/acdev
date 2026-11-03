@@ -42,14 +42,20 @@ acde-base 只是平台: 合成器, 渲染, 系统接口, host 和登录页. 具�
 ## 进程结构
 
 ```
-acde (crates/acde, 主进程, 内嵌 V8)                 不跑 web
- ├─ 主线程: Broker isolate (web/packages/acde-host)  系统接口、当前桌面的服务、窗口记录、会话; 起 web 进程
- ├─ crates/shell   Wayland 合成器 (独立线程): canvas / 窗口表, 所有窗口都是 Wayland 客户端
- └─ crates/runtime 系统接口 (Broker 经 napi 调)
-acde web desktop (子进程)                           当前桌面的页面: V8 isolate + render 文档 + 光栅化 + Wayland 客户端
-acde web <app>#<窗口> (子进程)                      每个应用窗口一个, 只拿到它的清单允许的 `acde`
+acde (crates/acde, 主进程, 没有 V8)                 crates/shell Wayland 合成器 (独立线程): canvas / 窗口表, 所有窗口都是 Wayland 客户端
+ └─ acde runtime (子进程, 自己的进程组)            主线程: Broker isolate (web/packages/acde-host) 系统接口、当前桌面的服务、窗口记录、会话;
+     │                                              crates/runtime 系统接口 (Broker 经 napi 调); 经 `acde_shell` 管合成器; 起 web 进程
+     ├─ acde web desktop (子进程)                  当前桌面的页面: V8 isolate + render 文档 + 光栅化 + Wayland 客户端
+     └─ acde web <app>#<窗口> (子进程)             每个应用窗口一个, 只拿到它的清单允许的 `acde`
 原生程序                                            普通 Wayland 客户端
 ```
+
+主进程 (crates/acde `supervise.rs`, `Supervisor`): 定好 `WAYLAND_DISPLAY` 之后建一对 socketpair, 起 `acde runtime <同样的参数>`
+(`ACDE_SHELL_FD` 是继承下来的那一头, runtime 的 napi `Shell.broker()` 接过去并设回 CLOEXEC; 没有这个变量时 `Shell.broker()` 照旧在
+自己进程里起合成器). 合成器等 runtime 在这条连接上发来第一条消息才起 (`desktops`、交给别的会话、出错退出这些不碰 DRM 的路径不起它);
+连接先挂断或 runtime 先退出就不起. SIGINT / SIGTERM / SIGHUP 转给 runtime (它的进程组, 终端的 Ctrl-C 只到主进程); runtime 正常退出
+(或被转过去的信号结束) 时主进程停合成器, 用它的退出码退出; 被别的信号杀掉 (崩溃) 时在同一个合成器上新建一条 `acde_shell` 连接重起它,
+60 秒内最多 3 次. runtime 设了 PDEATHSIG (主进程死它跟着死), web 进程同样跟着 runtime.
 
 web 进程 (`acde web <名字> --port <fd> --heap-mb <mb>`, 同一个可执行文件, crates/acde `web.rs`): 里面是 crates/render 的文档、
 crates/paint (光栅化线程: 交给 acgpu, 今天是它的 Vulkan 回退 —— vello 画、filter / drop-shadow / backdrop 合成都在 acgpu 里) 和 crates/window
@@ -125,7 +131,7 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
 迁移顺序 (每步都能单独验):
 
 1. (已做) `acde_shell` 协议: 合成器侧实现现在 napi `Shell` 的方法和事件; Broker 先在主进程里改成经它调 (接口对 TS 不变).
-2. Broker 搬进 `acde runtime` 子进程: 主进程只剩合成器, 起 runtime 时交 `acde_shell` 和 Wayland 连接.
+2. (已做) Broker 搬进 `acde runtime` 子进程: 主进程只剩合成器, 起 runtime 时交 `acde_shell` 和 Wayland 连接 (`WAYLAND_DISPLAY`).
 3. web 从子进程改成 runtime 进程里的线程 + isolate: `spawnWeb` 对 TS 不变, port 换成进程内通道; 堆上限、外部内存记账、
    CPU 时间和卡死检测按 isolate.
 4. 系统能力直接注入: fs / terminal / network / office / ime 在各 isolate 里绑定同一份 Rust 对象; 删掉 Broker 代理的这些分支.
@@ -337,7 +343,7 @@ layer-shell. 标准协议负责缓冲、`damage_buffer`、`set_opaque_region`、
 
 Broker 管合成器的私有协议 (`crates/model/protocol/acde-shell.xml`): 合成器起来时建一对 socketpair, 一头作为带 `shell` 标记的
 客户端插进 Display, 另一头交给 Broker; `acde_shell` 全局只对这条连接可见 (`can_view`), 别的客户端绑不到. 合成器侧是 shell
-`compositor/acde_shell.rs` (请求换成内部的 `Command`, 事件是 `ShellEvent` 类型化发出, Broker 还没绑上时最多攒 256 条, 绑上时补发),
+`compositor/acde_shell.rs` (请求换成内部的 `Command`, 事件是 `ShellEvent` 类型化发出, Broker 还没绑上时最多攒 256 条, 第一次绑上时补发; 之后再绑上的 (重起的 runtime) 先收一条当前的 `output`),
 Broker 侧是 shell `link.rs` (wayland-client, 读线程 `acde-shell-link`), napi `Shell` 的方法和事件对 TS 不变. 窗口 id 是合成器窗口表的 id,
 坐标是 canvas 逻辑像素, int 参数 -1 表示没有, 小数走 wl_fixed (1/256).
 
@@ -353,7 +359,7 @@ Broker 侧是 shell `link.rs` (wayland-client, 读线程 `acde-shell-link`), nap
 | `inject_move` / `inject_motion` / `inject_button` / `inject_wheel` / `inject_key` | `inject` | type 在 Broker 侧先解析成枚举 |
 | `animate` | `animate` | `given` 位标记给了哪些值 (没给的不变, 没给 easing 用缺省) |
 | `launch` → `acde_shell_result` | `launch` | argv、env (key=value) 是以 NUL 结尾的串首尾相接; 合成器起程序 (它的 `WAYLAND_DISPLAY`, 去掉 `DISPLAY`), 回 `done(pid)` |
-| `quit` | `quit` | Broker 先停读线程再发, 然后等合成器线程拆完 (同进程时) |
+| `quit` | `quit` | Broker 先停读线程再发, 然后等合成器线程拆完 (同进程时; 分进程时由主进程等) |
 
 事件一种一个: `output`、`window_open`、`window_close`、`window_title`、`window_fullscreen(fullscreen)` (→ `windowfullscreen` /
 `windowunfullscreen`)、`window_minimize`、`window_activate`、`window_animated`、`shortcut(owner, key, scope)` (→ `{window: owner, key,

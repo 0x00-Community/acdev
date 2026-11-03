@@ -12,7 +12,7 @@ use crate::link::Link;
 
 #[napi]
 pub struct Shell {
-    handle: Handle,
+    handle: Option<Handle>,
     link: Link,
     events: Arc<Inbox>,
     next_surface: std::sync::atomic::AtomicU32,
@@ -107,7 +107,13 @@ fn napi_error(e: impl ToString) -> Error {
 impl Shell {
     #[napi(factory)]
     pub fn broker() -> Result<Self> {
-        let (handle, stream) = Compositor::spawn().map_err(napi_error)?;
+        let (handle, stream) = match std::env::var(Self::SHELL_FD) {
+            Ok(fd) => (None, Self::inherited(&fd).map_err(napi_error)?),
+            Err(_) => {
+                let (client, server) = std::os::unix::net::UnixStream::pair().map_err(napi_error)?;
+                (Some(Compositor::spawn(server).map_err(napi_error)?), client)
+            }
+        };
         let events = Arc::new(Inbox::default());
         let link = Link::connect(stream, events.clone()).map_err(napi_error)?;
         Ok(Self { handle, link, events, next_surface: SURFACE_IDS.into() })
@@ -140,7 +146,10 @@ impl Shell {
 
     #[napi(getter)]
     pub fn socket_name(&self) -> String {
-        self.handle.socket_name().to_string_lossy().into_owned()
+        match &self.handle {
+            Some(handle) => handle.socket_name().to_string_lossy().into_owned(),
+            None => std::env::var("WAYLAND_DISPLAY").unwrap_or_default(),
+        }
     }
 
     #[napi]
@@ -242,7 +251,29 @@ impl Shell {
     #[napi]
     pub fn quit(&mut self) {
         self.link.quit();
-        self.handle.quit();
+        if let Some(handle) = self.handle.as_mut() {
+            handle.quit();
+        }
+    }
+}
+
+impl Shell {
+    const SHELL_FD: &str = "ACDE_SHELL_FD";
+
+    fn inherited(fd: &str) -> std::result::Result<std::os::unix::net::UnixStream, String> {
+        use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
+        use std::os::fd::{BorrowedFd, FromRawFd, OwnedFd};
+        let raw: i32 = fd.parse().map_err(|_| format!("{}={fd}: 不是 fd", Self::SHELL_FD))?;
+        let borrowed = (raw > 2).then(|| unsafe { BorrowedFd::borrow_raw(raw) }).ok_or_else(|| format!("{}={fd}: 不是 fd", Self::SHELL_FD))?;
+        let flags = fcntl_getfd(borrowed).map_err(|e| format!("{}={fd}: {e}", Self::SHELL_FD))?;
+        if flags.contains(FdFlags::CLOEXEC) {
+            return Err(format!("{}={fd}: 已经被拿走了", Self::SHELL_FD));
+        }
+        if !rustix::fs::fstat(borrowed).is_ok_and(|s| rustix::fs::FileType::from_raw_mode(s.st_mode) == rustix::fs::FileType::Socket) {
+            return Err(format!("{}={fd}: 不是 socket", Self::SHELL_FD));
+        }
+        fcntl_setfd(borrowed, FdFlags::CLOEXEC).map_err(|e| format!("{}={fd}: {e}", Self::SHELL_FD))?;
+        Ok(unsafe { OwnedFd::from_raw_fd(raw) }.into())
     }
 }
 

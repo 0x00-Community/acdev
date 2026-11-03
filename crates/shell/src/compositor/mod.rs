@@ -107,6 +107,7 @@ pub enum Command {
     Animate(u32, Animate),
     Shortcut { combo: String, scope: acde_model::Scope, owner: u32, reply: mpsc::Sender<Result<(), String>> },
     Unshortcut { combo: String, scope: acde_model::Scope, owner: u32 },
+    Connect(UnixStream),
     Quit,
 }
 
@@ -170,6 +171,10 @@ pub struct Handle {
 impl Handle {
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
+    }
+
+    pub fn connect(&self, shell: UnixStream) {
+        self.send(Command::Connect(shell));
     }
 
     pub fn socket_name(&self) -> &OsStr {
@@ -245,9 +250,8 @@ pub struct Compositor {
 }
 
 impl Compositor {
-    pub fn spawn() -> Result<(Handle, UnixStream), String> {
+    pub fn spawn(server: UnixStream) -> Result<Handle, String> {
         let (commands, channel) = channel::channel();
-        let (client, server) = UnixStream::pair().map_err(|e| format!("acde_shell 连接: {e}"))?;
         let (ready, ready_rx) = mpsc::sync_channel(1);
         let thread = std::thread::Builder::new()
             .name("acde-compositor".into())
@@ -258,7 +262,7 @@ impl Compositor {
             })
             .map_err(|e| e.to_string())?;
         let socket = ready_rx.recv().map_err(|_| "合成器线程启动失败".to_string())??;
-        Ok((Handle { commands, socket, thread: Some(thread) }, client))
+        Ok(Handle { commands, socket, thread: Some(thread) })
     }
 
     fn run(
@@ -696,6 +700,11 @@ impl Compositor {
                 let _ = reply.send(self.register_shortcut(&combo, scope, owner));
             }
             Command::Unshortcut { combo, scope, owner } => self.unregister_shortcut(&combo, scope, owner),
+            Command::Connect(stream) => {
+                if let Err(e) = self.insert_shell_client(stream) {
+                    log::warn!("{e}");
+                }
+            }
             Command::Quit => {
                 self.clear_session_env();
                 self.signal.stop();

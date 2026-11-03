@@ -17,6 +17,8 @@ mod rt;
 mod sys;
 mod web;
 #[cfg(target_os = "linux")]
+mod supervise;
+#[cfg(target_os = "linux")]
 mod webnative;
 #[cfg(target_os = "linux")]
 mod webgpu;
@@ -48,6 +50,16 @@ fn session_env() {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn session(args: &[String]) -> i32 {
+    supervise::Supervisor::new(args).run()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn session(args: &[String]) -> i32 {
+    sys::start(sys::Entry::Broker, args)
+}
+
 fn free_socket(runtime: &std::path::Path, name: &str) -> bool {
     use rustix::fs::{FlockOperation, flock};
     let lock = runtime.join(format!("{name}.lock"));
@@ -65,9 +77,11 @@ fn main() {
         Some("app") => app::main(&args[2..]),
         Some("run") if args.len() > 2 => sys::start(sys::Entry::Script(args[2].clone()), &args[3..]),
         Some("desktops" | "sessions" | "applications" | "open") => sys::start(sys::Entry::Broker, &args[1..]),
+        #[cfg(target_os = "linux")]
+        Some("runtime") => sys::start(sys::Entry::Broker, &args[2..]),
         _ => {
             session_env();
-            sys::start(sys::Entry::Broker, &args[1..])
+            session(&args[1..])
         }
     };
     acde_log::flush();
