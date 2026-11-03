@@ -63,11 +63,8 @@ version = "0.1.0"
 dependencies = [
  "acde-log",
  "acde-render",
- "ash",
  "log",
- "pollster",
  "smithay",
- "vello",
 ]
 
 [[package]]
@@ -175,16 +172,16 @@ dependencies = [
 [[package]]
 name = "acgpu"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=2cf211abb11aaa071a1377a2401286a88af56f4b#2cf211abb11aaa071a1377a2401286a88af56f4b"
+source = "git+https://github.com/dopame-org/acgpu?rev=c130648e431ba632c1777e61215457e39c4a3438#c130648e431ba632c1777e61215457e39c4a3438"
 dependencies = [
  "acgpu-core",
- "acgpu-wgpu",
+ "acgpu-fallback",
 ]
 
 [[package]]
 name = "acgpu-core"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=2cf211abb11aaa071a1377a2401286a88af56f4b#2cf211abb11aaa071a1377a2401286a88af56f4b"
+source = "git+https://github.com/dopame-org/acgpu?rev=c130648e431ba632c1777e61215457e39c4a3438#c130648e431ba632c1777e61215457e39c4a3438"
 dependencies = [
  "kurbo",
  "libc",
@@ -196,13 +193,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "acgpu-wgpu"
+name = "acgpu-fallback"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=2cf211abb11aaa071a1377a2401286a88af56f4b#2cf211abb11aaa071a1377a2401286a88af56f4b"
+source = "git+https://github.com/dopame-org/acgpu?rev=c130648e431ba632c1777e61215457e39c4a3438#c130648e431ba632c1777e61215457e39c4a3438"
 dependencies = [
  "acgpu-core",
+ "ash",
  "kurbo",
  "peniko",
+ "pollster",
+ "rustix 1.1.5",
  "vello",
  "wgpu",
 ]

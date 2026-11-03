@@ -195,7 +195,8 @@ impl Painter {
             log::trace!("网页重画 plane={plane} parts={} damage={damage:?} regions={targets:?}", sheet.parts.len());
             target.canvases[next].held = true;
             target.stale = false;
-            passes.push(Pass { plane, size, parts: sheet.parts, next, targets });
+            let regions = targets.as_ref().map(|t| t.iter().map(Pixels::px).collect());
+            passes.push(Pass { plane, size, parts: sheet.parts, next, targets: regions });
             drawn.push(Drawn { plane, canvas: next, frame, generation: target.generation, size, damage });
         }
         if passes.is_empty() {

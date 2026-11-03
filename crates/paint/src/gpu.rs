@@ -103,6 +103,10 @@ impl Gpu {
         self.shared.submit_lock()
     }
 
+    pub(crate) fn submit_mutex(&self) -> &Mutex<()> {
+        self.shared.submit_mutex()
+    }
+
     pub fn hold_poll(self: &Arc<Self>) {
         self.poller.call_once(|| {
             let gpu = self.clone();

@@ -1,4 +1,3 @@
-mod compose;
 mod gpu;
 mod painter;
 mod plane;

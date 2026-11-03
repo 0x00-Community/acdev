@@ -52,7 +52,7 @@ acde web <app>#<窗口> (子进程)                      每个应用窗口一�
 ```
 
 web 进程 (`acde web <名字> --port <fd> --heap-mb <mb>`, 同一个可执行文件, crates/acde `web.rs`): 里面是 crates/render 的文档、
-crates/paint (光栅化, 从合成器搬出来的那套: acgpu 的场景经 acgpu 的回退画在 vello on Vulkan 上, filter 和 drop-shadow) 和 crates/window
+crates/paint (光栅化线程: 交给 acgpu, 今天是它的 Vulkan 回退 —— vello 画、filter / drop-shadow / backdrop 合成都在 acgpu 里) 和 crates/window
 (Wayland 客户端: xdg_toplevel + linux-dmabuf + `acde_window`, 输入 / 剪贴板 / 拖放 / frame). 它死掉只掉它的窗口.
 
 ### 运行时进程 (目标, 在做)
@@ -996,7 +996,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/render` | Rust | Blitz 原生 web 渲染 |
 | `crates/runtime` | Rust | 系统接口的 napi 导出. 异步执行器 `src/rt.rs`: 线程 `acde-rt` 上一个 ntex System (运行时 ntex 自己选: io_uring, 不行用 polling), 也是 napi 的 `async-runtime` 后端, 阻塞活进它的线程池; HTTP / WebSocket 用 ntex, TLS 用 OpenSSL, 不用 tokio; 唯一起的子进程是终端的 shell (`std::process`, 一条 `terminal-<pid>` 线程用 pidfd 等它). 检查在 `tests/`, 用编好的 acde 跑 (`acde run`, 不要 Node): `tests/run.sh <acde> tests/<x>-check.mjs` (fs-copyin、terminal), 输入法 `tests/ime-check.sh` (在私有 D-Bus 和 fcitx5 上跑 `src/ime.rs` 里 ignored 的 Rust 测试; `Ime` 不是 napi 导出, 只由 crates/acde `webnative.rs` 绑给 web), `tests/portal-check.sh <acde>`; 临时目录在 `$ACDE_CHECK_TMP` (默认 `$TMPDIR`) |
 | `crates/acde` | Rust | `acde` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, web 进程 (`acde web`), 把 render 的文档绑给 JS (见「宿主: crates/acde」) |
-| `crates/paint` | Rust | `acde-paint`: web 进程的光栅化 (render 的帧 → GBM dmabuf: vello, filter、drop-shadow、backdrop; 拖动图标), WebGPU 和 render 的 canvas 共用它的 wgpu 设备 |
+| `crates/paint` | Rust | `acde-paint`: web 进程的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acgpu 打开的 wgpu 设备 |
 | `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` 协议 (`protocol/acde-window.xml`) |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
@@ -1072,8 +1072,12 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个 we
   不放它的拷贝 (没有 `vendors/acgpu`), 以 Rust crate 依赖它: git 依赖仓库根的 `acgpu` 包, 钉 rev (crates/render 和
   vendors/acrender 的 Cargo.toml). 网页图层画进 acgpu 的 2D 场景 (`acgpu::PaintScene` / `Scene` / `RenderCommand` / `Filter`):
   blitz-paint 和 crates/render 直接画进它, 没有 anyrender 这一层 (已删; 它画 SVG 的 anyrender_svg 搬成了 blitz-paint 的 `svg.rs`).
-  画出来是 acgpu 的事, 回退也归 acgpu: 没有 acgpu 驱动时走 `acgpu::fallback` (vello on wgpu), acde 只经它拿 `VelloScene` 和
-  `wgpu`. 现在 crates/paint 还自己调 vello 的 `Renderer` 和图层合成, 这部分要搬进 acgpu (acgpu docs/roadmap.md「接入 acde-base」S3).
+  画出来是 acgpu 的事, 回退也归 acgpu: 谁来画由 `acgpu::Backend::pick(Capability::Pages)` 定, 今天是 Vulkan 回退
+  `acgpu::fallback` (feature `fallback-vulkan`, 缺省开; 关掉时 acgpu 驱动做不了的直接 panic). 整页的光栅和合成 (vello 渲染、
+  图层的滤镜 / 投影 / 毛玻璃、dma-buf 画布导入、sync_file) 都在 `acgpu::fallback` 的 `Raster` / `Composer` / `Device` 里;
+  crates/paint 只剩线程、GBM 画布分配、损伤和区域、把 render 的帧拆成 `Part` (`plane.rs` 实现 acgpu 的 `Content`),
+  render 的 `Overrides` 实现 acgpu 的 `Images` (canvas / WebGPU 纹理当场景里的图片). canvas 2D 的离屏光栅 (render `gpu.rs`
+  `Offscreen`、`CanvasImage`) 还在 acde, 下一步搬.
   改 acgpu 的场景接口就是改 acde 的接口: 先在 acgpu 提交推送, 再在这里改 rev.
 
 版本看各目录的 `Cargo.toml` 和根 `Cargo.lock`.
@@ -1236,7 +1240,7 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 
 - canvas 的图案 (createPattern) 在第一次用它画时取来源的位图, 规范是 createPattern 那一刻 (host 在来源之后又变了时会重发样式).
 - vello 0.11 (vello_encoding `Resolver::resolve`): 没有图片的场景把图集当 1x1 重建, 已上传的图片仍标成已上传, 之后贴图画空;
-  一帧渲染多次时触发, crates/paint (`raster.rs`) 在每个场景垫一块 1x1 渐变绕开 (7376f11). 升级 vello 时看上游修了没有.
+  一帧渲染多次时触发, 每个场景垫一块 1x1 渐变绕开 (7376f11; 现在是 acgpu 的 `VelloScene::keep_atlas`). 升级 vello 时看上游修了没有.
 - `ACDE_PAINT_VERIFY=1 cargo test -p acde-render` 在机器忙时偶发 `tests/damage.rs` `damage_covers_every_changed_pixel` 等帧超过
   5 秒 ("no frame"), 单独重跑都过.
 

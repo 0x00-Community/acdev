@@ -23,7 +23,7 @@ blitz-traits = "=0.3.0-beta.4"
 # 和 blitz-dom (acrender) 用的同一份 stylo, 读 overflow / visibility
 stylo = "=0.22.0"
 # 网页图层画进 acgpu 的 2D 场景; 没有 acgpu 驱动时 acgpu 自己回退到 vello on wgpu (feature wgpu)
-acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "2cf211abb11aaa071a1377a2401286a88af56f4b" }
+acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "c130648e431ba632c1777e61215457e39c4a3438" }
 # blitz-dom (acrender) 用的 parley, 取插入点几何
 parley = { version = "=0.12.0", default-features = false, features = ["std"] }
 # acgpu 场景用的 kurbo, 算脏区域的包围盒

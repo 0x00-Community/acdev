@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use acgpu::RenderCommand;
 use acgpu::{Paint, PaintScene, Scene};
-use acgpu::fallback::{VelloScene, wgpu};
+use acgpu::fallback::{Images, VelloScene, wgpu};
 use kurbo::Affine;
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -25,6 +25,11 @@ impl Shared {
 
     pub fn submit_lock(&self) -> MutexGuard<'_, ()> {
         self.submit.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The lock every submit to this queue takes (acgpu's page rasterizer takes it too).
+    pub fn submit_mutex(&self) -> &Mutex<()> {
+        &self.submit
     }
 
     fn open() -> Option<Arc<Self>> {
@@ -166,8 +171,9 @@ pub struct Overrides {
     copying: Vec<(Arc<CanvasImage>, u64)>,
 }
 
-impl Overrides {
-    pub fn apply(&mut self, vello: &mut vello::Renderer, scene: &Scene) {
+/// Canvas images (2D canvases, WebGPU canvases) are wgpu textures: vello reads them through image overrides.
+impl acgpu::fallback::Images for Overrides {
+    fn apply(&mut self, vello: &mut vello::Renderer, scene: &Scene) {
         if !CanvasImage::any() {
             return;
         }
@@ -199,13 +205,13 @@ impl Overrides {
         }
     }
 
-    pub fn submitted(&mut self) {
+    fn submitted(&mut self) {
         for (canvas, generation) in self.copying.drain(..) {
             canvas.mark_copied(generation);
         }
     }
 
-    pub fn forget(&mut self, vello: &mut vello::Renderer) {
+    fn forget(&mut self, vello: &mut vello::Renderer) {
         if self.seen.is_empty() {
             return;
         }
@@ -222,11 +228,6 @@ impl Overrides {
             vello.override_image(&image, None);
         }
     }
-}
-
-pub fn keep_atlas(scene: &mut vello::Scene) {
-    let clear = peniko::Gradient::new_linear((0.0, 0.0), (1.0, 0.0)).with_stops([peniko::Color::TRANSPARENT, peniko::Color::TRANSPARENT]);
-    scene.fill(peniko::Fill::NonZero, Affine::IDENTITY, &clear, None, &kurbo::Rect::new(0.0, 0.0, 1.0, 1.0));
 }
 
 struct Blur {
@@ -324,7 +325,7 @@ impl Offscreen {
         self.scene.reset();
         self.overrides.apply(&mut self.vello, &scene);
         VelloScene::from(&mut self.scene).append_scene(scene, place);
-        keep_atlas(&mut self.scene);
+        VelloScene::keep_atlas(&mut self.scene);
         let params = vello::RenderParams { base_color: peniko::Color::TRANSPARENT, width, height, antialiasing_method: vello::AaConfig::Area };
         let rendered = {
             let _lock = self.shared.submit_lock();
