@@ -47,10 +47,6 @@ export class DragDrop {
     return transfer
   }
 
-  #fire(target: Element, type: string, x: number, y: number, transfer: DataTransfer, related: Element | null = null): boolean {
-    return DragDrop.fire(this.#window, target, type, x, y, transfer, related)
-  }
-
   static fire(window: PageWindow, target: Element, type: string, x: number, y: number, transfer: DataTransfer, related: Element | null = null): boolean {
     const event = new window.MouseEvent(type, { bubbles: true, cancelable: !/^drag(leave|end)$/.test(type), composed: true, clientX: x, clientY: y, screenX: x, screenY: y, relatedTarget: related } as never)
     Object.defineProperty(event, 'dataTransfer', { value: transfer })
@@ -72,7 +68,7 @@ export class DragDrop {
   }
 
   #leave(): void {
-    if (this.#target?.isConnected) this.#fire(this.#target, 'dragleave', 0, 0, this.#transfer(null))
+    if (this.#target?.isConnected) DragDrop.fire(this.#window, this.#target, 'dragleave', 0, 0, this.#transfer(null))
     this.#reset()
   }
 
@@ -83,8 +79,8 @@ export class DragDrop {
   }
 
   #drop(target: Element, x: number, y: number, data: Readonly<Record<string, string>>): void {
-    if (this.#taken) this.#fire(target, 'drop', x, y, this.#transfer(data))
-    else if (target.isConnected) this.#fire(target, 'dragleave', x, y, this.#transfer(null))
+    if (this.#taken) DragDrop.fire(this.#window, target, 'drop', x, y, this.#transfer(data))
+    else if (target.isConnected) DragDrop.fire(this.#window, target, 'dragleave', x, y, this.#transfer(null))
     this.#reset()
   }
 
@@ -131,7 +127,7 @@ export class DragSource {
   #pressed: { source: Element; x: number; y: number } | null = null
   #drag: { source: Element; transfer: DataTransfer; target: Element | null; taken: boolean } | null = null
 
-  constructor(page: WebInternals, start: (data: Record<string, string>, icon: DragIcon) => void, picture: (element: Element) => ElementPicture | null = () => null) {
+  constructor(page: WebInternals, start: (data: Record<string, string>, icon: DragIcon) => void, picture: (element: Element) => ElementPicture | null) {
     this.#window = page.window as unknown as PageWindow
     this.#start = start
     this.#picture = picture

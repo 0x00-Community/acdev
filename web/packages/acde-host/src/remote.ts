@@ -189,12 +189,10 @@ export class WindowSelf {
 
 export class RemoteBridge {
   readonly value: Record<string, unknown> = {}
-  readonly windows: WindowList
   readonly #rpc: Rpc
 
   constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList) {
     this.#rpc = rpc
-    this.windows = windows
     for (const [service, shape] of Object.entries(init.services)) this.value[service] = this.#proxy(service, shape)
     const apps = {
       list: () => rpc.call('apps', 'list'),
@@ -218,7 +216,7 @@ export class RemoteBridge {
       }
       this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification', 'screenshot', 'shortcut']) }
       this.value['windows'] = {
-        ...this.windows.api,
+        ...windows.api,
         kill: (id: number) => rpc.call('windows', 'kill', [id]),
         focus: (id: number) => rpc.call('windows', 'focus', [id]),
         hide: (id: number) => rpc.call('windows', 'hide', [id]),
@@ -230,7 +228,7 @@ export class RemoteBridge {
         unshortcut: (combo: string, scope: 'session' | 'desktop' = 'desktop') => rpc.call('windows', 'unshortcut', [combo, scope]),
       }
     } else {
-      this.value['windows'] = this.windows.api
+      this.value['windows'] = windows.api
       this.value['open'] = apps.open
       if (init.app?.capabilities['openFiles']) Object.assign(this.value, files)
       if (self) {
