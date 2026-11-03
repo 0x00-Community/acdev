@@ -9,7 +9,6 @@ import { objectUrls, URL, URLSearchParams } from './url'
 
 export const net = {
   base: () => 'http://acde.local/',
-  misses: new Map<string, number>(),
   log: true,
 }
 
@@ -38,11 +37,13 @@ function routeKey(method: string, url: string): string {
   }
 }
 
+const refused = new Set<string>()
+
 function miss(method: string, url: string): void {
   const key = routeKey(method, url)
-  const seen = net.misses.get(key) ?? 0
-  net.misses.set(key, seen + 1)
-  if (seen === 0 && net.log) host.print(1, `acde-dom: ${key}: no network; refused`)
+  if (refused.has(key)) return
+  refused.add(key)
+  if (net.log) host.print(1, `acde-dom: ${key}: no network; refused`)
 }
 
 const failures = new Set<string>()
