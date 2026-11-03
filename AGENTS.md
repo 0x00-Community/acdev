@@ -1076,8 +1076,8 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个 we
   `acgpu::fallback` (feature `fallback-vulkan`, 缺省开; 关掉时 acgpu 驱动做不了的直接 panic). 整页的光栅和合成 (vello 渲染、
   图层的滤镜 / 投影 / 毛玻璃、dma-buf 画布导入、sync_file) 都在 `acgpu::fallback` 的 `Raster` / `Composer` / `Device` 里;
   crates/paint 只剩线程、GBM 画布分配、损伤和区域、把 render 的帧拆成 `Part` (`plane.rs` 实现 acgpu 的 `Content`),
-  render 的 `Overrides` 实现 acgpu 的 `Images` (canvas / WebGPU 纹理当场景里的图片). canvas 2D 的离屏光栅 (render `gpu.rs`
-  `Offscreen`、`CanvasImage`) 还在 acde, 下一步搬.
+  canvas / WebGPU 纹理当场景里的图片是 acgpu 的 `GpuImage` (render 里叫 `CanvasImage`), `Overrides` 也是 acgpu 的. canvas 2D 的
+  离屏光栅 (画、读回、写入、阴影) 是 acgpu 的 `Offscreen`; render `gpu.rs` 只剩共享设备的全局入口和几个转发函数.
   改 acgpu 的场景接口就是改 acde 的接口: 先在 acgpu 提交推送, 再在这里改 rev.
 
 版本看各目录的 `Cargo.toml` 和根 `Cargo.lock`.

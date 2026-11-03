@@ -55,7 +55,9 @@ impl Raster {
         let started = std::time::Instant::now();
         let pages = Pages::new(device, std::env::var_os("ACDE_WEB_POLL").is_some())?;
         log::info!("vello 预热 {:.1}ms", acde_log::since_ms(started));
-        Ok(Self { pages, overrides: Overrides::default(), gpu: Gpu::publish(Some(published)) })
+        let gpu = Gpu::publish(Some(published));
+        let images = gpu.as_ref().map_or_else(Default::default, |g| g.images().clone());
+        Ok(Self { pages, overrides: Overrides::from(images), gpu })
     }
 
     pub fn spawn(jobs: mpsc::Receiver<Job>, done: mpsc::Sender<Done>, ready: Ready, waker: Ping) -> std::io::Result<()> {

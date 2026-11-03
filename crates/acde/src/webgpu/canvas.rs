@@ -57,7 +57,7 @@ impl Context {
             usage: usage | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats,
         });
-        let image = CanvasImage::new(texture);
+        let image = CanvasImage::new(texture, gpu.images());
         self.images.push(image.clone());
         image
     }

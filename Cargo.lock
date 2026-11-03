@@ -88,12 +88,10 @@ dependencies = [
  "parley",
  "peniko",
  "png",
- "pollster",
  "roxmltree 0.21.1",
  "stylo",
  "stylo_dom",
  "stylo_traits",
- "vello",
 ]
 
 [[package]]
@@ -172,7 +170,7 @@ dependencies = [
 [[package]]
 name = "acgpu"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=c130648e431ba632c1777e61215457e39c4a3438#c130648e431ba632c1777e61215457e39c4a3438"
+source = "git+https://github.com/dopame-org/acgpu?rev=d95843cbd3ecbd4378fff55934cbe7bb814e7998#d95843cbd3ecbd4378fff55934cbe7bb814e7998"
 dependencies = [
  "acgpu-core",
  "acgpu-fallback",
@@ -181,7 +179,7 @@ dependencies = [
 [[package]]
 name = "acgpu-core"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=c130648e431ba632c1777e61215457e39c4a3438#c130648e431ba632c1777e61215457e39c4a3438"
+source = "git+https://github.com/dopame-org/acgpu?rev=d95843cbd3ecbd4378fff55934cbe7bb814e7998#d95843cbd3ecbd4378fff55934cbe7bb814e7998"
 dependencies = [
  "kurbo",
  "libc",
@@ -195,7 +193,7 @@ dependencies = [
 [[package]]
 name = "acgpu-fallback"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=c130648e431ba632c1777e61215457e39c4a3438#c130648e431ba632c1777e61215457e39c4a3438"
+source = "git+https://github.com/dopame-org/acgpu?rev=d95843cbd3ecbd4378fff55934cbe7bb814e7998#d95843cbd3ecbd4378fff55934cbe7bb814e7998"
 dependencies = [
  "acgpu-core",
  "ash",

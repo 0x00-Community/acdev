@@ -22,17 +22,14 @@ blitz-paint = { version = "=0.3.0-beta.4", features = ["scrollbars"] }
 blitz-traits = "=0.3.0-beta.4"
 # 和 blitz-dom (acrender) 用的同一份 stylo, 读 overflow / visibility
 stylo = "=0.22.0"
-# 网页图层画进 acgpu 的 2D 场景; 没有 acgpu 驱动时 acgpu 自己回退到 vello on wgpu (feature wgpu)
-acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "c130648e431ba632c1777e61215457e39c4a3438" }
+# 网页图层画进 acgpu 的 2D 场景; 谁来画、离屏的 canvas 画在哪, 都由 acgpu 定 (今天是它的 Vulkan 回退 fallback-vulkan)
+acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "d95843cbd3ecbd4378fff55934cbe7bb814e7998" }
 # blitz-dom (acrender) 用的 parley, 取插入点几何
 parley = { version = "=0.12.0", default-features = false, features = ["std"] }
 # acgpu 场景用的 kurbo, 算脏区域的包围盒
 kurbo = "0.13"
 # acgpu 场景用的 peniko, 看图层的合成方式 (region.rs)
 peniko = "0.6"
-# canvas 的离屏光栅化 (flatten、阴影、当图片源、getImageData / toDataURL)、拖动图标的测试读回: 用 web 进程光栅化线程的 wgpu 设备
-vello = "0.11"
-pollster = "0.4"
 # canvas 的 toDataURL 编 PNG
 png = "0.18"
 # 文字的字形坐标 (parley 和 acgpu 的 NormalizedCoord) 按位转, 和 blitz-paint 一样

@@ -107,6 +107,11 @@ impl Gpu {
         self.shared.submit_mutex()
     }
 
+    /// The GPU images made on this device (canvases a page can paint with).
+    pub fn images(&self) -> &Arc<acde_render::acgpu::fallback::ImageSet> {
+        &self.shared.images
+    }
+
     pub fn hold_poll(self: &Arc<Self>) {
         self.poller.call_once(|| {
             let gpu = self.clone();
