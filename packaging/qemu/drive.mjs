@@ -8,6 +8,7 @@
 //   windows                           the Broker's window table
 //   launch APP | close WINDOW         through the desktop's acde:apps / acde:windows
 //   stats [reset]                     shell's frame timings and render's per web, as they are
+//   screenshot PATH                   the main output drawn once off screen, saved as a PNG at PATH
 //   perf SCENARIO [SECONDS] [ARG]     a measurement (below); prints what changed over it
 
 const KEYS = {
@@ -400,6 +401,8 @@ export async function run(api, [command, ...args]) {
       return windows.launch(args[0])
     case 'close':
       return windows.close(args[0])
+    case 'screenshot':
+      return api.shell.screenshot(args[0])
     case 'stats':
       return { shell: api.shell.stats(args[0] === 'reset'), webs: await api.stats(args[0] === 'reset') }
     case 'perf': {

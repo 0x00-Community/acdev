@@ -1408,6 +1408,7 @@ ISO 构建时从这里的 release 下载包放进镜像的本地仓库.
 | `eval WEB CODE` | 在 web 里求值 (`desktop`, `<app>#<window>`) |
 | `windows` / `launch APP` / `close WINDOW` | Broker 的窗口表; 经桌面的 `acde.apps` / `acde.windows` 开关窗口 |
 | `stats [reset]` | shell 和每个 web 的 render 的现值 |
+| `screenshot PATH` | 主输出离屏画一遍存成 PNG (`Shell.screenshot`), 回 `{width, height}` |
 | `perf 场景 [秒] [参数]` | 量一段操作: 开始时把计时清零, 结束时报这段时间里的数 |
 
 `perf` 的场景 (输入 60Hz): `idle`, `pointer` (指针在桌面中间绕圈), `drag [APP]` (按住窗口标题栏绕圈拖, 默认 files; `dragged`
