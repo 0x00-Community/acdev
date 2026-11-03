@@ -1,3 +1,4 @@
+import type { OpenHandler } from '@dopame/acde-api'
 import type { AppManifest } from './apps'
 import { DesktopEntry } from './desktopentry'
 import { spawnSync } from './sys/child_process'
@@ -5,14 +6,6 @@ import { existsSync, mkdirSync, readFileSync, stat, writeFileSync } from './sys/
 import { xdgDirs, xdgHome } from './sys/os'
 import { basename, dirname, isAbsolute, join, normalize } from './sys/path'
 import { fileURLToPath, pathToFileURL } from './sys/url'
-
-export interface OpenHandler {
-  readonly kind: 'acde' | 'native'
-  readonly id: string
-  readonly label: string
-  readonly icon: string
-  readonly default: boolean
-}
 
 interface NativeEntry {
   readonly id: string

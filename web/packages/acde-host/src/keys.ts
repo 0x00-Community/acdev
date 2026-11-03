@@ -1,9 +1,5 @@
 import type { Modifiers, RawShellEvent, ShellEvent } from './native'
 
-interface HitTest {
-  hitTest(x: number, y: number): number | null
-}
-
 const KEYS: Record<number, readonly [string, string?]> = {
   1: ['Escape', 'Escape'], 12: ['Minus'], 13: ['Equal'], 14: ['Backspace', 'Backspace'], 15: ['Tab', 'Tab'],
   26: ['BracketLeft'], 27: ['BracketRight'], 28: ['Enter', 'Enter'], 29: ['ControlLeft', 'Control'], 39: ['Semicolon'],
@@ -41,12 +37,12 @@ const BUTTONS: Record<number, number> = { 272: 0, 273: 2, 274: 1, 275: 3, 276: 4
 const MODIFIER: Record<string, keyof Modifiers> = { Shift: 'shift', Control: 'ctrl', Alt: 'alt', Meta: 'meta' }
 
 export class ShellInput {
-  readonly #render: HitTest
+  readonly #hitTest: (x: number, y: number) => number | null
   readonly #mods = { shift: false, ctrl: false, alt: false, meta: false }
   #scale: number
 
-  constructor(render: HitTest, scale: number) {
-    this.#render = render
+  constructor(hitTest: (x: number, y: number) => number | null, scale: number) {
+    this.#hitTest = hitTest
     this.#scale = scale
   }
 
@@ -57,9 +53,9 @@ export class ShellInput {
       case 'panelmove': return { type: 'panelmove', id: raw.code ?? 0, x: raw.x ?? 0, y: raw.y ?? 0, width: raw.width ?? 0, height: raw.height ?? 0 }
       case 'exit': return { type: 'exit' }
       case 'resize': return { type: 'resize', width: raw.width ?? 0, height: raw.height ?? 0, scale: raw.scale ?? this.#scale }
-      case 'dndenter': return { type: 'dndenter', target: this.#render.hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0, mime: raw.mime ?? [] }
-      case 'dndmove': return { type: 'dndmove', target: this.#render.hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0 }
-      case 'dnddrop': return { type: 'dnddrop', target: this.#render.hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0, data: raw.data ?? {} }
+      case 'dndenter': return { type: 'dndenter', target: this.#hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0, mime: raw.mime ?? [] }
+      case 'dndmove': return { type: 'dndmove', target: this.#hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0 }
+      case 'dnddrop': return { type: 'dnddrop', target: this.#hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0, data: raw.data ?? {} }
       case 'dndleave': return { type: 'dndleave' }
       case 'dragend': return { type: 'dragend', dropped: raw.button === 1 }
       case 'pointerleave': return { type: 'pointerleave', modifiers: { ...this.#mods } }
@@ -68,7 +64,7 @@ export class ShellInput {
       case 'pointerup':
       case 'wheel': {
         const x = raw.x ?? 0, y = raw.y ?? 0
-        const target = this.#render.hitTest(x, y)
+        const target = this.#hitTest(x, y)
         const modifiers = { ...this.#mods }
         if (raw.type === 'wheel') return { type: 'wheel', target, x, y, deltaX: raw.deltaX ?? 0, deltaY: raw.deltaY ?? 0, modifiers }
         return { type: raw.type, target, x, y, button: BUTTONS[raw.button ?? 272] ?? 0, modifiers }

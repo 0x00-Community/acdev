@@ -57,10 +57,6 @@ export class InputMethod {
     this.#open = open
   }
 
-  static open(Ime: (new (callback: (event: ImeEvent) => void) => NativeIme) | undefined, onEvent: (event: ImeEvent) => void): InputMethod | null {
-    return Ime ? new InputMethod(() => new Ime(onEvent)) : null
-  }
-
   focus(state: TextInputState): void {
     this.#guard((ime) => {
       const sent = this.#focused ? this.#sent : null

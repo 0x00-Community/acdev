@@ -3,6 +3,7 @@ import { firefoxSnapDir, xdgHome } from './sys/os'
 import { join } from './sys/path'
 import { pathToFileURL } from './sys/url'
 import { process } from './sys/process'
+import { PageSource } from './page'
 
 export class OfficePage {
   static dir(): string {
@@ -15,7 +16,7 @@ export class OfficePage {
     if (config.editorConfig?.customization) config.editorConfig.customization['uiTheme'] = theme === 'dark' ? 'theme-night' : 'theme-white'
     const key = String(config.document?.key ?? 'document').replace(/[^\w.-]/g, '_')
     const json = JSON.stringify(config).replace(/</g, '\\u003c')
-    const title = String(config.document?.title ?? '文稿').replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
+    const title = PageSource.escape(String(config.document?.title ?? '文稿'))
     const html = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>${title}</title>
 <style>html,body,#editor{margin:0;height:100%;overflow:hidden}</style>

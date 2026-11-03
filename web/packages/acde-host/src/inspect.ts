@@ -1,3 +1,4 @@
+import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
 import type { BrokerShell } from './broker'
 import { keyCode } from './keys'
 import type { PageNode, PagePoint, PageTree } from './pageinspect'
@@ -8,7 +9,7 @@ export interface NativeAccessibility {
   act(node: string, action: string, text?: string | null): Promise<boolean>
 }
 
-export interface InspectHost {
+interface InspectHost {
   readonly shell: BrokerShell
   web(window: number): Rpc | null
   record(window: number): { readonly kind: 'native' | 'web'; readonly app: string | null; readonly title: string | null } | null
@@ -20,33 +21,7 @@ export interface InspectHost {
   records(): readonly number[]
 }
 
-export interface InspectNode {
-  readonly ref: string
-  readonly role: string
-  readonly name?: string
-  readonly value?: string
-  readonly states?: readonly string[]
-  readonly level?: number
-  readonly rect?: readonly [number, number, number, number]
-  readonly more?: number
-  readonly children?: readonly InspectNode[]
-}
-
-export interface InspectWindow {
-  readonly ref: string
-  readonly id: number
-  readonly kind: 'desktop' | 'web' | 'native'
-  readonly app: string | null
-  readonly title: string | null
-  readonly mode: string
-  readonly rect: readonly [number, number, number, number]
-  readonly z: number
-  readonly focus: boolean
-  readonly hidden: boolean
-  readonly pid: number | null
-}
-
-export interface SnapshotOptions {
+interface SnapshotOptions {
   readonly window?: string
   readonly ref?: string
   readonly all?: boolean
@@ -56,21 +31,19 @@ export interface SnapshotOptions {
   readonly tree?: boolean
 }
 
-export interface Snapshot {
+interface Snapshot {
   readonly text: string
   readonly windows: readonly InspectWindow[]
   readonly trees: Readonly<Record<string, readonly InspectNode[]>>
 }
 
-export type InspectAction = 'click' | 'double' | 'right' | 'hover' | 'type' | 'settext' | 'key' | 'scroll' | 'focus' | 'close' | 'minimize' | 'restore'
-
-export interface InspectStep {
+interface InspectStep {
   readonly ref: string
   readonly action: InspectAction
   readonly text?: string | number | null
 }
 
-export interface ActResult {
+interface ActResult {
   readonly ok: boolean
   readonly text: string
 }

@@ -98,7 +98,7 @@ export interface WebInit {
   readonly screen?: { width: number; height: number }
   readonly reducedMotion: boolean | null
   readonly dark: boolean
-  readonly languages?: Languages
+  readonly languages: Languages
   readonly services: Readonly<Record<string, ServiceShape>>
   readonly resources: { prefix: string; dirs: string[] }[]
   readonly page?: string

@@ -1,20 +1,10 @@
+import type { AppMenu, NativeWindow, WindowApp, WindowEdge, WindowEventName, WindowMode, WindowRect } from '@dopame/acde-api'
 import type { ServiceShape, WebInit, WireMenu } from './broker'
-import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
-
-type WindowMode = 'fullscreen' | 'free' | 'fixed' | 'pinned'
-type WindowEdge = 'top' | 'bottom' | 'left' | 'right'
-type WindowRect = { x: number; y: number; width: number; height: number }
-import type { Rpc } from './rpc'
 import { Level, Log } from './log'
+import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
+import type { Rpc } from './rpc'
 
-export interface NativeWindow {
-  readonly id: number
-  readonly appId: string | null
-  readonly title: string | null
-  readonly web?: boolean
-}
-
-export class Notices {
+class Notices {
   readonly #handlers = new Map<string, Set<(detail: unknown) => void>>()
 
   on(type: string, handler: (detail: unknown) => void): () => boolean {
@@ -78,37 +68,25 @@ export class WindowList {
   }
 }
 
-interface AppMenu {
-  readonly id: string
-  readonly label: string
-  readonly items: readonly ({ readonly type: 'separator' } | { readonly id: string; readonly label: string; readonly shortcut?: string; readonly checked?: boolean; readonly disabled?: boolean; onSelect?(): void | Promise<void> })[]
-}
-
-type WindowEventName = 'activate' | 'deactivate' | 'beforeclose' | 'request' | 'suspend' | 'resume' | 'grab' | 'grablost'
-
-type PageLike = { dispatchEvent(event: Event): boolean; CustomEvent: typeof CustomEvent; Event: typeof Event }
+type PageLike = { dispatchEvent(event: Event): boolean; Event: typeof Event; document: Document }
 
 export class WindowSelf {
+  static readonly #EDGES: Record<WindowEdge, number> = { top: 1, bottom: 2, left: 4, right: 8 }
   readonly #rpc: Rpc
-  readonly #app: string
+  readonly #surface: NativeSurface
+  readonly #page: PageLike
   #menus: AppMenu[] = []
   readonly #handlers = new Map<WindowEventName, Set<(value?: unknown) => unknown>>()
   #unmount: (() => void) | null = null
-  #page: PageLike | null = null
   readonly #resume: unknown
   #opening: Record<string, unknown> | null
   onVisible: (visible: boolean) => void = () => {}
   onTitle: (title: string) => void = () => {}
-  #surface: NativeSurface | null = null
-  static readonly #EDGES: Record<WindowEdge, number> = { top: 1, bottom: 2, left: 4, right: 8 }
 
-  bindSurface(surface: NativeSurface): void {
-    this.#surface = surface
-  }
-
-  constructor(rpc: Rpc, app: string, resume: unknown, opening: Record<string, unknown> | null = null) {
+  constructor(rpc: Rpc, surface: NativeSurface, page: PageLike, resume: unknown, opening: Record<string, unknown> | null) {
     this.#rpc = rpc
-    this.#app = app
+    this.#surface = surface
+    this.#page = page
     this.#resume = resume
     this.#opening = opening
   }
@@ -123,55 +101,48 @@ export class WindowSelf {
       const wire: WireMenu[] = this.#menus.map((m) => ({
         id: m.id,
         label: m.label,
-        items: m.items.map((it) => ('type' in it && it.type === 'separator' ? { type: 'separator' as const } : { id: (it as { id: string }).id, label: (it as { label: string }).label, shortcut: (it as { shortcut?: string }).shortcut, checked: (it as { checked?: boolean }).checked, disabled: (it as { disabled?: boolean }).disabled, action: !!(it as { onSelect?: unknown }).onSelect })),
+        items: m.items.map((it) => ('type' in it ? { type: 'separator' as const } : { id: it.id, label: it.label, shortcut: it.shortcut, checked: it.checked, disabled: it.disabled, action: !!it.onSelect })),
       }))
       void this.#rpc.call('window', 'setMenus', [wire]).catch(() => undefined)
     },
   }
 
-  attach(page: PageLike): void {
-    this.#page = page
+  readonly api = {
+    host: this.host,
+    mount: (app: WindowApp) => this.#mount(app),
+    setTitle: this.host.setTitle,
+    setMenus: this.host.setMenus,
+    close: () => this.#rpc.call('window', 'close'),
+    minimize: () => this.#rpc.call('window', 'minimize'),
+    requestAttention: () => this.#rpc.call('window', 'requestAttention'),
+    requestMode: (mode: WindowMode) => this.#surface.requestMode(mode),
+    setGrabHint: (rect: WindowRect, edges: readonly WindowEdge[] = []) =>
+      this.#surface.setGrabHint(rect.x, rect.y, rect.width, rect.height, edges.reduce((bits, e) => bits | WindowSelf.#EDGES[e], 0)),
+    setBackdrop: (rect: WindowRect | null, effect: { radius?: number; blur?: number; saturate?: number; brightness?: number } = {}) => {
+      const r = rect ?? { x: 0, y: 0, width: 0, height: 0 }
+      this.#surface.setBackdrop(r.x, r.y, r.width, r.height, effect.radius ?? 0, effect.blur ?? 0, effect.saturate ?? 1, effect.brightness ?? 1)
+    },
+    requestActivate: () => this.#surface.requestActivate(),
+    requestGrab: (kind: 'pointer' | 'keyboard') => this.#surface.requestGrab(kind),
+    shortcut: (combo: string) => this.#rpc.call('window', 'shortcut', [combo]),
+    unshortcut: (combo: string) => this.#rpc.call('window', 'unshortcut', [combo]),
+    releaseGrab: (kind: 'pointer' | 'keyboard') => this.#surface.releaseGrab(kind),
+    on: (name: WindowEventName, handler: (value?: unknown) => unknown) => {
+      const set = this.#handlers.get(name) ?? new Set()
+      set.add(handler)
+      this.#handlers.set(name, set)
+      if (name === 'resume' && this.#resume !== undefined) queueMicrotask(() => handler(this.#resume))
+      const opening = name === 'request' ? this.#opening : null
+      if (opening) {
+        this.#opening = null
+        queueMicrotask(() => handler(opening))
+      }
+      return () => set.delete(handler)
+    },
   }
 
-  api(): Record<string, unknown> {
-    return {
-      host: this.host,
-      mount: (app: { mount(element: Element, host: unknown): () => void }) => this.#mount(app),
-      setTitle: this.host.setTitle,
-      setMenus: this.host.setMenus,
-      close: () => this.#rpc.call('window', 'close'),
-      minimize: () => this.#rpc.call('window', 'minimize'),
-      requestAttention: () => this.#rpc.call('window', 'requestAttention'),
-      requestMode: (mode: WindowMode) => this.#surface?.requestMode(mode),
-      setGrabHint: (rect: WindowRect, edges: readonly WindowEdge[] = []) =>
-        this.#surface?.setGrabHint(rect.x, rect.y, rect.width, rect.height, edges.reduce((bits, e) => bits | WindowSelf.#EDGES[e], 0)),
-      setBackdrop: (rect: WindowRect | null, effect: { radius?: number; blur?: number; saturate?: number; brightness?: number } = {}) => {
-        const r = rect ?? { x: 0, y: 0, width: 0, height: 0 }
-        this.#surface?.setBackdrop(r.x, r.y, r.width, r.height, effect.radius ?? 0, effect.blur ?? 0, effect.saturate ?? 1, effect.brightness ?? 1)
-      },
-      requestActivate: () => this.#surface?.requestActivate(),
-      requestGrab: (kind: 'pointer' | 'keyboard') => this.#surface?.requestGrab(kind),
-      shortcut: (combo: string) => this.#rpc.call('window', 'shortcut', [combo]),
-      unshortcut: (combo: string) => this.#rpc.call('window', 'unshortcut', [combo]),
-      releaseGrab: (kind: 'pointer' | 'keyboard') => this.#surface?.releaseGrab(kind),
-      on: (name: WindowEventName, handler: (value?: unknown) => unknown) => {
-        const set = this.#handlers.get(name) ?? new Set()
-        set.add(handler)
-        this.#handlers.set(name, set)
-        if (name === 'resume' && this.#resume !== undefined) queueMicrotask(() => handler(this.#resume))
-        const opening = name === 'request' ? this.#opening : null
-        if (opening) {
-          this.#opening = null
-          queueMicrotask(() => handler(opening))
-        }
-        return () => set.delete(handler)
-      },
-    }
-  }
-
-  #mount(app: { mount(element: Element, host: unknown): () => void }): void {
-    const page = this.#page as unknown as { document: Document } | null
-    const root = page?.document.getElementById('app')
+  #mount(app: WindowApp): void {
+    const root = this.#page.document.getElementById('app')
     if (!root) throw new Error('acde.window.mount: the window document has no #app')
     this.#unmount = app.mount(root, this.host)
     void this.#rpc.call('window', 'ready').catch(() => undefined)
@@ -181,7 +152,7 @@ export class WindowSelf {
     switch (method) {
       case 'beforeclose': {
         for (const handler of this.#handlers.get('beforeclose') ?? []) if ((await handler()) === false) return false
-        if (this.#page && !WindowSelf.unload(this.#page)) return false
+        if (!WindowSelf.unload(this.#page)) return false
         this.#unmount?.()
         this.#unmount = null
         return true
@@ -273,10 +244,9 @@ export class RemoteBridge {
       this.value['open'] = apps.open
       if (init.app?.capabilities['openFiles']) Object.assign(this.value, files)
       if (self) {
-        const api = self.api()
+        const api = self.api
         const shortcut = windows.notices.for('window', ['shortcut'])
-        const own = api['on'] as (name: WindowEventName, handler: (value?: unknown) => unknown) => () => boolean
-        this.value['window'] = { ...api, on: (name: string, handler: (value?: unknown) => unknown) => (name === 'shortcut' ? shortcut(name, handler) : own(name as WindowEventName, handler)) }
+        this.value['window'] = { ...api, on: (name: string, handler: (value?: unknown) => unknown) => (name === 'shortcut' ? shortcut(name, handler) : api.on(name as WindowEventName, handler)) }
       }
     }
   }

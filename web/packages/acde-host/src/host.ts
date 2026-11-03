@@ -1,5 +1,5 @@
 import type { DomNative, WebInternals } from '@dopame/acde-dom'
-import { DragDrop, DragSource, type DragIcon } from './dnd'
+import { DragDrop, DragSource } from './dnd'
 import { InputMethod, type ImeEvent } from './ime'
 import { ShellInput } from './keys'
 import { WINDOW_EVENTS, type Native, type NativeSurface, type RawShellEvent, type ShellEvent, type WindowEvent } from './native'
@@ -33,14 +33,17 @@ export class Host {
   onFirstFrame: () => void = () => {}
   #framed = false
 
-  constructor(page: WebInternals, dom: DomNative, scale: number, native: Native | null, windows: WindowList) {
+  constructor(page: WebInternals, dom: DomNative, scale: number, Ime: Native['Ime'], windows: WindowList) {
     this.#page = page
     this.#dom = dom
     this.#windows = windows
-    this.#shellInput = new ShellInput({ hitTest: (x, y) => this.#hit(x, y) }, scale)
+    this.#shellInput = new ShellInput((x, y) => {
+      const id = dom.hitTest(x, y)
+      return id === -1 ? null : id
+    }, scale)
     this.#text = new TextEntry(page, dom)
     this.#dnd = new DragDrop(page)
-    this.#drag = new DragSource(page, (data, icon) => this.#startDrag(data, icon), (element) => {
+    this.#drag = new DragSource(page, (data, icon) => this.#surface?.startDrag(data, icon), (element) => {
       const id = page.idOf(element)
       try {
         return id < 0 ? null : dom.capture(id, 1)
@@ -48,7 +51,7 @@ export class Host {
         return null
       }
     })
-    this.#ime = InputMethod.open(native?.Ime, (event) => this.#onIme(event))
+    this.#ime = Ime ? new InputMethod(() => new Ime((event) => this.#onIme(event))) : null
     if (this.#ime) this.#text.attachIme(this.#ime)
     page.input.onKeyDefault = (target, key, modifiers) => {
       const ctrl = !!(modifiers.ctrl || modifiers.meta)
@@ -61,15 +64,6 @@ export class Host {
   insertText(text: string): void {
     this.#text.commit(text)
     this.#text.report()
-  }
-
-  #hit(x: number, y: number): number | null {
-    const id = this.#dom.hitTest(x, y)
-    return id === -1 ? null : id
-  }
-
-  #startDrag(data: Record<string, string>, icon: DragIcon): void {
-    this.#surface?.startDrag(data, icon)
   }
 
   deliver(raw: readonly RawShellEvent[]): void {
@@ -182,7 +176,7 @@ export class Host {
   }
 
   async #screenshot(): Promise<void> {
-    const dir = Host.picturesDir()
+    const dir = userDir('PICTURES', 'Pictures')
     const stamp = new Date().toLocaleString('sv-SE').replace(/:/g, '.')
     const path = join(dir, `截图 ${stamp}.png`)
     let detail: Record<string, unknown>
@@ -193,10 +187,6 @@ export class Host {
       detail = { path, error: (error as Error).message }
     }
     this.#windows.notices.emit('desktop:screenshot', detail)
-  }
-
-  static picturesDir(): string {
-    return userDir('PICTURES', 'Pictures')
   }
 
   #onIme(event: ImeEvent): void {

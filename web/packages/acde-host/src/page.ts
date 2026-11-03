@@ -4,9 +4,12 @@ import { dirname, join, normalize } from './sys/path'
 export class PageSource {
   static readonly ORIGIN = 'http://acde.local'
 
+  static escape(text: string): string {
+    return text.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
+  }
+
   static window(app: { label: string; entry: string }, theme: string): string {
-    const esc = (text: string) => text.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
-    return `<!doctype html><html lang="zh-Hans"><head><meta charset="utf-8"><title>${esc(app.label)}</title><style>${theme}
+    return `<!doctype html><html lang="zh-Hans"><head><meta charset="utf-8"><title>${PageSource.escape(app.label)}</title><style>${theme}
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
 body { font-family: var(--f-sans, sans-serif); color: var(--ink, #1d1d1f); background: var(--paper, #fff); -webkit-font-smoothing: antialiased; }
 #app { display: block; width: 100%; height: 100%; overflow: auto; font-size: initial; line-height: normal; }
@@ -27,7 +30,7 @@ body { font-family: var(--f-sans, sans-serif); color: var(--ink, #1d1d1f); backg
       const response = await window.fetch(url, { headers: { accept: 'text/html,application/xhtml+xml,*/*;q=0.8' } })
       return await response.text()
     } catch (error) {
-      const esc = (text: string) => text.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
+      const esc = PageSource.escape
       return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(url)}</title></head><body style="font: 14px/1.5 system-ui, sans-serif; padding: 24px"><p>${esc(url)}: ${esc(String((error as Error)?.message ?? error))}</p></body></html>`
     }
   }

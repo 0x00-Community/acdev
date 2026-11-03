@@ -3,7 +3,6 @@ import type { Rpc } from './rpc'
 import { readFileSync, stat, writeFileSync } from './sys/fs'
 import { basename } from './sys/path'
 import { Level, Log } from './log'
-import { SessionLanguage, type Languages } from './language'
 
 type Env = WebInternals['env']
 type Chooser = NonNullable<Env['files']>
@@ -124,11 +123,6 @@ export class PageCalls {
       return ''
     }
   }
-
-  static languages(env: Record<string, string>): Languages {
-    return SessionLanguage.of(env)
-  }
-
 
   #log(text: string): void {
     Log.write(Level.Warn, 'acde_host', `[${this.#name}] ${text}`)

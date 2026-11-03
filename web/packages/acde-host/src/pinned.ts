@@ -1,10 +1,8 @@
+import type { PinnedPanel } from '@dopame/acde-api'
+import type { NativeSurface } from './native'
 import type { Rpc } from './rpc'
 
-export interface PanelSurface {
-  openPanel(id: number, token: bigint, x: number, y: number, width: number, height: number): void
-  placePanel(id: number, x: number, y: number, width: number, height: number, ix: number, iy: number, iw: number, ih: number): void
-  closePanel(id: number): void
-}
+type PanelSurface = Pick<NativeSurface, 'openPanel' | 'placePanel' | 'closePanel'>
 
 interface PanelDom {
   setPanel(id: number, x: number, y: number, width: number, height: number): void
@@ -28,10 +26,6 @@ interface Panel {
   stops: (() => void)[]
 }
 
-export interface PinOptions {
-  readonly margin?: number
-}
-
 export class Pinned {
   readonly #rpc: Rpc
   readonly #surface: PanelSurface
@@ -51,7 +45,7 @@ export class Pinned {
     })
   }
 
-  pin(element: Element, options: PinOptions = {}): { update(): void; unpin(): void } {
+  pin(element: Element, options: { readonly margin?: number } = {}): PinnedPanel {
     const known = this.#panels.get(element)
     if (known) return this.#handle(known)
     const panel: Panel = { element, id: this.#page.idOf(element), margin: Math.max(0, options.margin ?? 0), window: null, opening: false, rect: null, extent: null, stops: [] }
@@ -88,7 +82,7 @@ export class Pinned {
     this.#place(panel)
   }
 
-  #handle(panel: Panel): { update(): void; unpin(): void } {
+  #handle(panel: Panel): PinnedPanel {
     return { update: () => this.#place(panel), unpin: () => this.#unpin(panel) }
   }
 
