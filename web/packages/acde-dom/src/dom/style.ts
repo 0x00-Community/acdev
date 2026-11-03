@@ -78,94 +78,104 @@ const handler: ProxyHandler<CSSStyleDeclaration> = {
   },
 }
 
+interface DeclarationState {
+  readonly element: Element | null
+  readonly pseudo: string
+  readonly computed: boolean
+  text: string | null
+  textVersion: number
+  parsed: Declarations
+  names: string[] | null
+  namesVersion: number
+}
+
+const STATE = Symbol('state')
+
+export function declarationsOf(style: CSSStyleDeclaration): Declarations {
+  const s = style[STATE]
+  if (!s.element || s.textVersion === version) return s.parsed
+  const text = dom.getAttribute(s.element[ID], 'style')
+  s.textVersion = version
+  if (text === s.text) return s.parsed
+  s.text = text
+  s.parsed = parseDeclarations(text ?? '')
+  return s.parsed
+}
+
+export function writeDeclarations(style: CSSStyleDeclaration, declarations: Declarations): void {
+  const s = style[STATE]
+  const text = serialize(declarations)
+  if (!s.element) {
+    s.parsed = declarations
+    return
+  }
+  if (text === (s.text ?? '')) return
+  s.text = text === '' ? null : text
+  s.parsed = declarations
+  setAttribute(s.element, 'style', s.text)
+  s.textVersion = version
+}
+
+function writable(style: CSSStyleDeclaration): void {
+  if (style[STATE].computed) throw new DOMException("Failed to execute 'setProperty' on 'CSSStyleDeclaration': These styles are computed, and therefore read-only.", 'NoModificationAllowedError')
+}
+
+function nameList(style: CSSStyleDeclaration): string[] {
+  const s = style[STATE]
+  if (!s.computed) return [...declarationsOf(style).keys()]
+  if (s.namesVersion !== version || !s.names) {
+    const all = dom.computedStyleAll(s.element![ID], s.pseudo)
+    const names: string[] = []
+    for (let i = 0; i < all.length; i += 2) names.push(all[i]!)
+    s.names = names
+    s.namesVersion = version
+  }
+  return s.names
+}
+
 export class CSSStyleDeclaration {
-  readonly _element: Element | null
-  readonly _pseudo: string
-  readonly _computed: boolean
-  _text: string | null = null
-  _textVersion = -1
-  _parsed: Declarations = new Map()
-  _names: string[] | null = null
-  _namesVersion = -1
+  readonly [STATE]: DeclarationState
 
   constructor(element: Element | null = null, computed = false, pseudo = '') {
-    this._element = element
-    this._computed = computed
-    this._pseudo = pseudo
-  }
-
-  _declarations(): Declarations {
-    if (!this._element || this._textVersion === version) return this._parsed
-    const text = dom.getAttribute(this._element[ID], 'style')
-    this._textVersion = version
-    if (text === this._text) return this._parsed
-    this._text = text
-    this._parsed = parseDeclarations(text ?? '')
-    return this._parsed
-  }
-
-  _write(declarations: Declarations): void {
-    const text = serialize(declarations)
-    if (!this._element) {
-      this._parsed = declarations
-      return
-    }
-    if (text === (this._text ?? '')) return
-    this._text = text === '' ? null : text
-    this._parsed = declarations
-    setAttribute(this._element, 'style', this._text)
-    this._textVersion = version
-  }
-
-  _readonly(): void {
-    if (this._computed) throw new DOMException("Failed to execute 'setProperty' on 'CSSStyleDeclaration': These styles are computed, and therefore read-only.", 'NoModificationAllowedError')
+    this[STATE] = { element, pseudo, computed, text: null, textVersion: -1, parsed: new Map(), names: null, namesVersion: -1 }
   }
 
   get cssText(): string {
-    if (this._computed) return ''
-    return this._element ? (dom.getAttribute(this._element[ID], 'style') ?? '') : serialize(this._parsed)
+    const s = this[STATE]
+    if (s.computed) return ''
+    return s.element ? (dom.getAttribute(s.element[ID], 'style') ?? '') : serialize(s.parsed)
   }
   set cssText(text: string) {
-    this._readonly()
-    if (this._element) setAttribute(this._element, 'style', String(text))
-    else this._parsed = parseDeclarations(String(text))
+    writable(this)
+    const s = this[STATE]
+    if (s.element) setAttribute(s.element, 'style', String(text))
+    else s.parsed = parseDeclarations(String(text))
   }
 
   get length(): number {
-    return this._nameList().length
-  }
-
-  _nameList(): string[] {
-    if (!this._computed) return [...this._declarations().keys()]
-    if (this._namesVersion !== version || !this._names) {
-      const all = dom.computedStyleAll(this._element![ID], this._pseudo)
-      const names: string[] = []
-      for (let i = 0; i < all.length; i += 2) names.push(all[i]!)
-      this._names = names
-      this._namesVersion = version
-    }
-    return this._names
+    return nameList(this).length
   }
 
   item(index: number): string {
-    return this._nameList()[index] ?? ''
+    return nameList(this)[index] ?? ''
   }
 
   getPropertyValue(name: string): string {
     const key = propertyKey(String(name))
-    if (this._computed) return computedStyleOf(this._element![ID], this._pseudo, key)
-    return this._declarations().get(key)?.value ?? ''
+    const s = this[STATE]
+    if (s.computed) return computedStyleOf(s.element![ID], s.pseudo, key)
+    return declarationsOf(this).get(key)?.value ?? ''
   }
 
   getPropertyPriority(name: string): string {
-    if (this._computed) return ''
-    return this._declarations().get(propertyKey(String(name)))?.important ? 'important' : ''
+    if (this[STATE].computed) return ''
+    return declarationsOf(this).get(propertyKey(String(name)))?.important ? 'important' : ''
   }
 
   setProperty(name: string, value: string | null, priority = ''): void {
-    this._readonly()
+    writable(this)
     const key = propertyKey(String(name))
-    const declarations = new Map(this._declarations())
+    const declarations = new Map(declarationsOf(this))
     const text = value === null || value === undefined ? '' : String(value).trim()
     if (text === '') declarations.delete(key)
     else {
@@ -175,11 +185,11 @@ export class CSSStyleDeclaration {
       if (old && old.value === text && old.important === important) return
       declarations.set(key, { value: text, important })
     }
-    this._write(declarations)
+    writeDeclarations(this, declarations)
   }
 
   removeProperty(name: string): string {
-    this._readonly()
+    writable(this)
     const old = this.getPropertyValue(name)
     this.setProperty(name, '')
     return old
@@ -197,7 +207,7 @@ export class CSSStyleDeclaration {
   }
 
   *[Symbol.iterator](): IterableIterator<string> {
-    yield* this._nameList()
+    yield* nameList(this)
   }
 }
 tag(CSSStyleDeclaration)
@@ -213,7 +223,7 @@ export function computedStyle(element: Element, pseudo: string): CSSStyleDeclara
 
 function freeStyle(text: string): CSSStyleDeclaration {
   const style = new CSSStyleDeclaration(null)
-  style._parsed = parseDeclarations(text)
+  style[STATE].parsed = parseDeclarations(text)
   return new Proxy(style, handler)
 }
 
@@ -289,17 +299,17 @@ export class CSSRuleList {
   }
 
   get length(): number {
-    return this[SHEET]._ruleCount()
+    return ruleCount(this[SHEET])
   }
 
   item(index: number): CSSRule | null {
     const i = Number(index) >>> 0
-    return i < this[SHEET]._ruleCount() ? this[SHEET]._rule(i) : null
+    return i < ruleCount(this[SHEET]) ? ruleAt(this[SHEET], i) : null
   }
 
   *[Symbol.iterator](): IterableIterator<CSSRule> {
     const n = this.length
-    for (let i = 0; i < n; i++) yield this[SHEET]._rule(i)
+    for (let i = 0; i < n; i++) yield ruleAt(this[SHEET], i)
   }
 }
 tag(CSSRuleList)
@@ -314,6 +324,9 @@ const ruleIndex: ProxyHandler<CSSRuleList> = {
     return Reflect.has(target, key)
   },
 }
+
+let ruleCount: (sheet: CSSStyleSheet) => number
+let ruleAt: (sheet: CSSStyleSheet, index: number) => CSSRule
 
 function ruleOf(text: string, sheet: CSSStyleSheet): CSSRule {
   return text.startsWith('@') ? new CSSRule(text, sheet) : new CSSStyleRule(text, sheet)
@@ -361,14 +374,12 @@ export class CSSStyleSheet {
     return this.#rules
   }
 
-  _ruleCount(): number {
-    const n = this.#native()
-    return n >= 0 ? n : this.#text().length
-  }
-
-  _rule(index: number): CSSRule {
-    const text = this.#native() >= 0 ? dom.sheetRule(this.#owner![ID], index) : (this.#text()[index] ?? '')
-    return ruleOf(text, this)
+  static {
+    ruleCount = (sheet) => {
+      const n = sheet.#native()
+      return n >= 0 ? n : sheet.#text().length
+    }
+    ruleAt = (sheet, index) => ruleOf(sheet.#native() >= 0 ? dom.sheetRule(sheet.#owner![ID], index) : (sheet.#text()[index] ?? ''), sheet)
   }
 
   get cssRules(): CSSRuleList {
@@ -397,7 +408,7 @@ export class CSSStyleSheet {
   }
 
   addRule(selector: string, style: string, index?: number): number {
-    this.insertRule(`${selector} { ${style} }`, index ?? this._ruleCount())
+    this.insertRule(`${selector} { ${style} }`, index ?? ruleCount(this))
     return -1
   }
 

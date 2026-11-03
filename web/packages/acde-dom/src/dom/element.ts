@@ -140,7 +140,7 @@ export class Element extends Node {
 
   get attributes(): NamedNodeMap {
     const map = (this[ATTRIBUTE_MAP] ??= new NamedNodeMap(this))
-    map.refresh()
+    refreshAttributes(map)
     return map
   }
 
@@ -535,6 +535,8 @@ export class Attr {
 }
 tag(Attr)
 
+let refreshAttributes: (map: NamedNodeMap) => void
+
 export class NamedNodeMap {
   readonly #element: Element
   #names: string[] = []
@@ -544,14 +546,16 @@ export class NamedNodeMap {
     this.#element = element
   }
 
-  refresh(): void {
-    const names = attributeNames(this.#element[ID])
-    for (let i = names.length; i < this.#names.length; i++) delete (this as unknown as Record<number, Attr>)[i]
-    this.#names = names
-    for (let i = 0; i < names.length; i++) {
-      let attr = this.#attrs.get(names[i]!)
-      if (!attr) this.#attrs.set(names[i]!, (attr = new Attr(this.#element, names[i]!)))
-      Object.defineProperty(this, i, { value: attr, enumerable: true, configurable: true })
+  static {
+    refreshAttributes = (map) => {
+      const names = attributeNames(map.#element[ID])
+      for (let i = names.length; i < map.#names.length; i++) delete (map as unknown as Record<number, Attr>)[i]
+      map.#names = names
+      for (let i = 0; i < names.length; i++) {
+        let attr = map.#attrs.get(names[i]!)
+        if (!attr) map.#attrs.set(names[i]!, (attr = new Attr(map.#element, names[i]!)))
+        Object.defineProperty(map, i, { value: attr, enumerable: true, configurable: true })
+      }
     }
   }
 

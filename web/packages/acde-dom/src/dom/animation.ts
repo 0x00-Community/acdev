@@ -3,7 +3,7 @@ import { DOMException } from '../core/exception'
 import { host, tag } from '../core/host'
 import type { Element } from './element'
 import { documentId, dom, ID, wrap } from './realm'
-import { inlineStyle, propertyName } from './style'
+import { declarationsOf, inlineStyle, propertyName, writeDeclarations } from './style'
 
 export class AnimationTimeline {
   get currentTime(): number {
@@ -355,14 +355,14 @@ export class Animation extends EventTarget {
     const frames = effect.getKeyframes()
     const edge = this.#state === 'finished' ? (this.#rate < 0 ? 0 : 1) : -1
     const style = inlineStyle(target)
-    const declarations = new Map(style._declarations())
+    const declarations = new Map(declarationsOf(style))
     for (const key of new Set(frames.flatMap((frame) => Object.keys(frame).filter((k) => !META.has(k))))) {
       const name = cssProperty(key)
       const at = frames.findLast((frame) => frame['computedOffset'] === edge && frame[key] !== undefined && frame[key] !== null)
       const value = at ? String(at[key]).trim() : dom.computedStyle(target[ID], '', name)
       if (value && safe(value)) declarations.set(name, { value, important: false })
     }
-    style._write(declarations)
+    writeDeclarations(style, declarations)
   }
 }
 defineHandlers(Animation.prototype, ['finish', 'cancel', 'remove'])
@@ -518,7 +518,7 @@ function restyle(target: Element, changed: Animation, restart: boolean): void {
   if (!entry) {
     if (!restart || !changed[CSS](target)) return
     entry = { animations: [], original: new Map(), held: { names: [] } }
-    const declarations = inlineStyle(target)._declarations()
+    const declarations = declarationsOf(inlineStyle(target))
     for (const key of OWN) {
       const declaration = declarations.get(key)
       if (declaration) entry.original.set(key, declaration)
@@ -545,7 +545,7 @@ function restyle(target: Element, changed: Animation, restart: boolean): void {
   }
   entry.animations = kept
   const style = inlineStyle(target)
-  const declarations = new Map(style._declarations())
+  const declarations = new Map(declarationsOf(style))
   for (const key of OWN) declarations.delete(key)
   if (kept.length) {
     LONGHANDS.forEach((key, i) => declarations.set(key, { value: kept.map((a) => a[RULE]!.values[i]).join(', '), important: false }))
@@ -555,7 +555,7 @@ function restyle(target: Element, changed: Animation, restart: boolean): void {
     styled.delete(target)
     collected.unregister(entry.held)
   }
-  style._write(declarations)
+  writeDeclarations(style, declarations)
   for (const name of gone) keyframes.drop(name)
 }
 

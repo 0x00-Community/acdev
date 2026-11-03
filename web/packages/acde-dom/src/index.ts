@@ -320,7 +320,6 @@ function interfaces(): Record<string, unknown> {
       if (typeof value === 'function' && /^[A-Z]/.test(name) && value.prototype) out[name] = value
     }
   }
-  delete out['Input']
   delete out['HTMLOrSVGElementMixin']
   return out
 }
