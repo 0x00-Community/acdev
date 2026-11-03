@@ -697,10 +697,12 @@ export class Broker {
       if (caps && !this.#allowed(caps, service)) continue
       shapes[service] = this.#shape(service, target)
     }
-    if (!caps) shapes['inspect'] = this.#shape('inspect', this.inspect.api)
-    if (!caps || caps.session) shapes['session'] = this.#shape('session', this.session.api)
-    if (!caps || caps.desktops) shapes['desktops'] = this.#shape('desktops', this.desktops)
+    for (const [service, api] of Object.entries(this.#builtins())) if (!caps || (service !== 'inspect' && caps[service])) shapes[service] = this.#shape(service, api)
     return shapes
+  }
+
+  #builtins(): Record<'inspect' | 'session' | 'desktops', Record<string, (...args: never[]) => unknown>> {
+    return { inspect: this.inspect.api, session: this.session.api, desktops: this.desktops }
   }
 
   #shape(service: string, target: unknown): ServiceShape {
@@ -770,16 +772,9 @@ export class Broker {
     if (service === 'window') return this.#selfCall(web, method, args)
     if (service === 'panel') return this.#panelCall(web, method, args)
     if (service === 'page') return this.#pageCall(web, method, args)
-    if (service === 'inspect') {
-      if (!desktop) throw Broker.#refused(web, 'acde.inspect')
-      const call = (this.inspect.api as Record<string, (...a: unknown[]) => unknown>)[method]
-      if (!call) throw new Error(`acde.inspect has no ${method}`)
-      return call(...args)
-    }
-    if (service === 'session' || service === 'desktops') {
-      if (!desktop && !caps?.[service]) throw Broker.#refused(web, `acde.${service}`)
-      const api = (service === 'session' ? this.session.api : this.desktops) as Record<string, (...a: unknown[]) => unknown>
-      const call = api[method]
+    if (service === 'inspect' || service === 'session' || service === 'desktops') {
+      if (!desktop && (service === 'inspect' || !caps?.[service])) throw Broker.#refused(web, `acde.${service}`)
+      const call = (this.#builtins()[service] as Record<string, (...a: unknown[]) => unknown>)[method]
       if (!call) throw new Error(`acde.${service} has no ${method}`)
       return call(...args)
     }
