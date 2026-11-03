@@ -33,6 +33,7 @@ pub(crate) fn spawn(command: &mut Command, cols: u32, rows: u32) -> Result<(Owne
         command.pre_exec(|| {
             setsid()?;
             ioctl_tiocsctty(BorrowedFd::borrow_raw(0))?;
+            libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32);
             Ok(())
         });
     }

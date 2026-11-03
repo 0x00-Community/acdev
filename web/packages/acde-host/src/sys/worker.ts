@@ -1,11 +1,11 @@
-import { sys, type WebThreadHandle } from './natives'
+import { sys, type WebGrants, type WebThreadHandle } from './natives'
 
 export class WebThread {
   readonly #handle: WebThreadHandle
   readonly #listeners: ((message: unknown) => void)[] = []
   readonly #exited: Promise<number>
 
-  constructor(options: { name: string; init: unknown; env: Record<string, string>; heapMb: number; fs: true | string[] | null; onExit: (code: number, reason: string | null) => void }) {
+  constructor(options: { name: string; init: unknown; env: Record<string, string>; heapMb: number; grants: WebGrants; onExit: (code: number, reason: string | null) => void }) {
     let exit!: (code: number) => void
     this.#exited = new Promise((resolve) => (exit = resolve))
     this.#handle = sys().spawnWeb(options.name, options.init, options.heapMb, options.env,
@@ -16,7 +16,7 @@ export class WebThread {
         options.onExit(code, reason)
         exit(code)
       },
-      options.fs)
+      options.grants)
   }
 
   on(_event: 'message', listener: (message: unknown) => void): void {

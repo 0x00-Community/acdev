@@ -21,6 +21,8 @@ mod web;
 #[cfg(target_os = "linux")]
 mod supervise;
 #[cfg(target_os = "linux")]
+mod terminal;
+#[cfg(target_os = "linux")]
 mod webnative;
 #[cfg(target_os = "linux")]
 mod webgpu;

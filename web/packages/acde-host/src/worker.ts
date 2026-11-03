@@ -29,6 +29,7 @@ interface WebNatives extends Natives {
   readonly audio?: AudioNative
   readonly backend?: Omit<BackendTransport, 'port'>
   readonly fs?: object
+  readonly terminal?: object
 }
 
 export default async function boot(natives: WebNatives): Promise<void> {
@@ -109,6 +110,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     bridge.value['desktop'] = { ...(bridge.value['desktop'] as object), pin: (element: Element, options?: { margin?: number }) => pinned.pin(element, options) }
   }
   if (natives.fs) bridge.value['fs'] = natives.fs
+  if (natives.terminal) bridge.value['terminal'] = natives.terminal
   bridge.define(host)
   const app = self ? new WebAppPage(page, rpc, init.name, self.api, storage) : null
   StartupTimeline.mark('page load started')

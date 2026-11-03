@@ -1,6 +1,7 @@
 import { readFileSync } from './sys/fs'
 import { unref, within } from './sys/timers'
 import { WebThread } from './sys/worker'
+import type { WebGrants } from './sys/natives'
 import { AppRegistry, type AppManifest, type Capabilities } from './apps'
 import { AppBackends } from './backend'
 import { Crashes } from './crashes'
@@ -411,17 +412,18 @@ export class Broker {
   }
 
   #spawn(init: WebInit, heapMb: number): Web {
-    const worker = new WebThread({ name: init.name, init, env: { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }, heapMb, fs: Broker.#fs(init.app?.capabilities ?? null), onExit: (code, reason) => this.#exited(web, code, reason) })
+    const worker = new WebThread({ name: init.name, init, env: { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }, heapMb, grants: Broker.#grants(init.app?.capabilities ?? null), onExit: (code, reason) => this.#exited(web, code, reason) })
     const web = new Web(init.kind, init.name, init.window, worker, init.app ?? null)
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     return web
   }
 
-  static #fs(caps: Capabilities | null): true | string[] | null {
-    if (!caps) return true
+  static readonly #LOCAL = new Set(['fs', 'terminal'])
+
+  static #grants(caps: Capabilities | null): WebGrants {
+    if (!caps) return { fs: true, terminal: true }
     const fs = caps.fs
-    if (typeof fs === 'object' && fs) return [...fs.roots]
-    return fs ? true : null
+    return { fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null, terminal: !!caps.terminal }
   }
 
   static #env(): Record<string, string> {
@@ -701,7 +703,7 @@ export class Broker {
   #shapes(caps: Capabilities | null): Record<string, ServiceShape> {
     const shapes: Record<string, ServiceShape> = {}
     for (const [service, target] of Object.entries(this.bridge.value)) {
-      if (service === 'fs' || (caps && !this.#allowed(caps, service))) continue
+      if (Broker.#LOCAL.has(service) || (caps && !this.#allowed(caps, service))) continue
       shapes[service] = this.#shape(service, target)
     }
     for (const [service, api] of Object.entries(this.#builtins())) if (!caps || (service !== 'inspect' && caps[service])) shapes[service] = this.#shape(service, api)
@@ -786,7 +788,7 @@ export class Broker {
       return call(...args)
     }
     if (caps && !this.#allowed(caps, service)) throw Broker.#refused(web, `acde.${service}`)
-    if (service === 'fs') throw new Error('acde.fs is bound in the web itself, not served by the Broker')
+    if (Broker.#LOCAL.has(service)) throw new Error(`acde.${service} is bound in the web itself, not served by the Broker`)
     const target = this.bridge.value[service] as Record<string, (...a: unknown[]) => unknown> | ((...a: unknown[]) => unknown) | undefined
     if (!target) throw Object.assign(new Error(`acde.${service} is not running`), { status: 503 })
     if (method === '' && typeof target === 'function') return target(...args)

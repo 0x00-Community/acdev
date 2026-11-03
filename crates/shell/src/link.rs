@@ -84,7 +84,7 @@ impl Link {
         let qh = queue.handle();
         let shell: AcdeShell = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("acde_shell: {e}"))?;
         conn.flush().map_err(|e| format!("acde_shell: {e}"))?;
-        let (stopped, stop) = rustix::pipe::pipe().map_err(|e| format!("acde_shell: {e}"))?;
+        let (stopped, stop) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).map_err(|e| format!("acde_shell: {e}"))?;
         let mut reader = Reader { inbox };
         let thread = std::thread::Builder::new()
             .name("acde-shell-link".into())

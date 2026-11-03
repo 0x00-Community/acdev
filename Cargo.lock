@@ -110,6 +110,7 @@ dependencies = [
  "icu_collator",
  "icu_locale_core",
  "jiff",
+ "libc",
  "log",
  "napi",
  "napi-derive",

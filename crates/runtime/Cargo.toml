@@ -12,6 +12,8 @@ napi = { version = "=3.14.2", default-features = false, features = ["napi8", "as
 napi-derive = "=3.6.12"
 # the pty, the terminal's poll loop, signals and process groups, O_NOFOLLOW
 rustix = { version = "1", features = ["event", "fs", "process", "pty", "termios"] }
+# pty.rs: close_range in the terminal shell's child (rustix has none), so it inherits no fd of the runtime
+libc = "0.2"
 # local time of the names of new Office documents
 jiff = "0.2"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

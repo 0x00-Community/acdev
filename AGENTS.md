@@ -139,14 +139,23 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
 3. (已做, 外部内存记账除外) web 从子进程改成 runtime 进程里的线程 + isolate: `spawnWeb` 对 TS 不变, port 换成进程内通道;
    堆上限、CPU 时间和卡死检测按 isolate. 还没有: 外部内存 (ArrayBuffer、render 文档、GPU 缓冲) 按 isolate 记账.
 4. 系统能力直接注入: fs / terminal / network / office / ime 在各 isolate 里绑定同一份 Rust 对象; 删掉 Broker 代理的这些分支.
-   已做: ime (crates/acde `webnative.rs`)、fs (见下). 还没做: terminal、network、office (仍经 Broker).
+   已做: ime (crates/acde `webnative.rs`)、fs、terminal (见下). 还没做: network、office (仍经 Broker).
+   - `spawnWeb` 第 7 个参数是这个 web 拿到的系统能力 `{fs, terminal}` (Broker `#grants`: 桌面全给, 应用按清单); 给了的才注入
+     (`natives.fs` / `natives.terminal`), 没给的 `import('acde:<名字>')` 直接失败; Broker 不再给 web 发这些的 shape, `#serve` 收到
+     直接拒绝. 每种在 Broker 线程第一次用到时建一份, 所有 web 共用.
+   - terminal: crates/runtime `Terminals` 加 Rust 侧的 `listen(id, sink)` (sink 返回 false 表示收不到了, 下次发时摘掉) 和
+     `shared()` (共用同一张会话表, 不是 owner: 只有 `new()` 出来的那个 drop 时关掉所有会话). crates/acde `terminal.rs` 绑成
+     `natives.terminal`: open / subscribe / input / resize / close 都返回 promise (和经 RPC 时一样能 `.catch`), 失败和 napi
+     一样 (message 是失败的 JSON, `code 'GenericFailure'`); subscribe 的事件投回这个 web 的事件循环. Broker 自己的 napi
+     `Terminals` 是另一张表 (会话结束时 `closeAll`). shell 在 runtime 进程里起 (和 GPU、Wayland、各 web 同进程), 所以 pty 的
+     子进程 exec 前 `close_range(3, ~0)`: runtime 里的 fd (Mesa 的 udmabuf / memfd、没带 CLOEXEC 的管道) 一个都不带过去
+     —— 带过去的管道写端曾让 `quit` 等读线程永远等不到 (退出时卡死).
    - fs: crates/runtime `Workspace` (Finder 的共享状态 + 这个 web 能用的 roots, `None` 是全部) 和 `FsCall` / `FsReply`, napi
-     `Finder` 也是它的包装. Broker 线程第一次 `spawnWeb` 时建一份, 每个 web 按清单拿一个 `scoped` 的副本 (`spawnWeb` 第 7 个参数:
-     `true` 是全部, roots 数组, `null` 是没有 —— 没有时 `natives.fs` 不注入, `import('acde:fs')` 直接失败); roots 在 Rust 里查
+     `Finder` 也是它的包装. Broker 线程第一次 `spawnWeb` 时建一份, 每个 web 按清单拿一个 `scoped` 的副本 (`{fs}`: `true` 是全部,
+     roots 数组, `null` 是没有); roots 在 Rust 里查
      (第一个参数: root, `locate` 是 path; 不带参数的 `state` / `roots` / `desktop` 在限了 roots 时拒绝), 拒绝是 `status 403`、
      `code 'forbidden'` 的 Error, 别的失败和 napi 一样: message 是失败的 JSON, `code 'GenericFailure'`. crates/acde `fs.rs` 把它
-     绑成 `natives.fs` (每次调用一条 `acde-fs` 线程, 结果投回这个 web 的事件循环), web 的 `acde:fs` 就是它; Broker 不再给 web
-     发 fs 的 shape, `#serve` 收到 fs 直接拒绝. Broker 自己 (桌面服务、`locate`、office) 还用自己的 napi `Finder` (另一份
+     绑成 `natives.fs` (每次调用一条 `acde-fs` 线程, 结果投回这个 web 的事件循环), web 的 `acde:fs` 就是它. Broker 自己 (桌面服务、`locate`、office) 还用自己的 napi `Finder` (另一份
      `Place`, Broker 不读写它).
 5. 窗口 / 应用 / 会话表进 Rust 共享表, `acde:windows` / `acde:apps` / `acde:window` / `acde:session` / `acde:desktops` 直接调.
 6. 桌面包服务改成跨 isolate 的进程内调用; 删掉 `rpc.ts` / `remote.ts` 和 port.

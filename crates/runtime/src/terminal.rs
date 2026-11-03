@@ -31,7 +31,22 @@ const LINGER_BYTES: usize = 64 * 1024;
 const LINGER: Duration = Duration::from_millis(4);
 const MAX_INPUT_UNITS: usize = 64 * 1024;
 
-type Listener = JsFn<Value, 16>;
+enum Listener {
+    Js(JsFn<Value, 16>),
+    Rust(Box<dyn Fn(Value) -> bool + Send + Sync>),
+}
+
+impl Listener {
+    fn notify(&self, events: Value) -> bool {
+        match self {
+            Self::Js(callback) => {
+                callback.notify(events, ThreadsafeFunctionCallMode::Blocking);
+                true
+            }
+            Self::Rust(sink) => sink(events),
+        }
+    }
+}
 
 #[derive(Default)]
 struct Utf8Stream {
@@ -133,11 +148,9 @@ impl Session {
             state.listeners.clone()
         };
         let batch = Value::Array(events);
-        if let Some((last, others)) = listeners.split_last() {
-            for listener in others {
-                listener.notify(batch.clone(), ThreadsafeFunctionCallMode::Blocking);
-            }
-            last.notify(batch, ThreadsafeFunctionCallMode::Blocking);
+        let gone: Vec<Arc<Listener>> = listeners.into_iter().filter(|listener| !listener.notify(batch.clone())).collect();
+        if !gone.is_empty() {
+            self.state().listeners.retain(|l| !gone.iter().any(|g| Arc::ptr_eq(l, g)));
         }
     }
 
@@ -349,6 +362,7 @@ impl Io<'_> {
 #[napi]
 pub struct Terminals {
     registry: Arc<Registry>,
+    owner: bool,
 }
 
 impl Terminals {
@@ -422,7 +436,7 @@ impl Terminals {
 impl Terminals {
     #[napi(constructor)]
     pub fn new() -> Self {
-        Self { registry: Arc::new(Registry { sessions: Mutex::default() }) }
+        Self { registry: Arc::new(Registry { sessions: Mutex::default() }), owner: true }
     }
 
     #[napi]
@@ -433,23 +447,8 @@ impl Terminals {
 
     #[napi(ts_args_type = "id: string, callback: (events: Array<{ type: 'output', data: string } | { type: 'cwd', path: string } | { type: 'exit', code: number | null, signal: number | null }>) => void")]
     pub fn subscribe(&self, env: Env, id: String, callback: Unknown) -> Result<()> {
-        let session = self.registry.get(&id)?;
-        let callback = Listener::new(&env, callback)?;
-        let ended = {
-            let mut state = session.state();
-            state.deadlines.removal = None;
-            let backlog: Vec<Value> = state.backlog.drain(..).collect();
-            state.backlog_units = 0;
-            if !backlog.is_empty() {
-                callback.notify(Value::Array(backlog), ThreadsafeFunctionCallMode::NonBlocking);
-            }
-            state.listeners.push(Arc::new(callback));
-            state.ended
-        };
-        if ended {
-            self.registry.close(&session);
-        }
-        Ok(())
+        let callback = Listener::Js(JsFn::new(&env, callback)?);
+        Ok(self.attach(&id, callback)?)
     }
 
     #[napi]
@@ -492,6 +491,35 @@ impl Terminals {
     }
 }
 
+impl Terminals {
+    pub fn listen(&self, id: &str, sink: impl Fn(Value) -> bool + Send + Sync + 'static) -> Result<()> {
+        Ok(self.attach(id, Listener::Rust(Box::new(sink)))?)
+    }
+
+    pub fn shared(&self) -> Self {
+        Self { registry: Arc::clone(&self.registry), owner: false }
+    }
+
+    fn attach(&self, id: &str, listener: Listener) -> Outcome<()> {
+        let session = self.registry.get(id)?;
+        let ended = {
+            let mut state = session.state();
+            state.deadlines.removal = None;
+            let backlog: Vec<Value> = state.backlog.drain(..).collect();
+            state.backlog_units = 0;
+            if !backlog.is_empty() {
+                listener.notify(Value::Array(backlog));
+            }
+            state.listeners.push(Arc::new(listener));
+            state.ended
+        };
+        if ended {
+            self.registry.close(&session);
+        }
+        Ok(())
+    }
+}
+
 impl Default for Terminals {
     fn default() -> Self {
         Self::new()
@@ -500,6 +528,8 @@ impl Default for Terminals {
 
 impl Drop for Terminals {
     fn drop(&mut self) {
-        self.close_all();
+        if self.owner {
+            self.close_all();
+        }
     }
 }

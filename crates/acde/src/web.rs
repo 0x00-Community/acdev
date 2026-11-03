@@ -51,26 +51,68 @@ impl Handle {
     }
 }
 
-#[cfg(target_os = "linux")]
-type Workspace = acde_runtime::Workspace;
-#[cfg(not(target_os = "linux"))]
-type Workspace = ();
-
 #[derive(Default)]
 struct Webs {
     next: u32,
     live: HashMap<u32, Handle>,
-    workspace: Option<Workspace>,
+    #[cfg(target_os = "linux")]
+    system: System,
 }
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct System {
+    workspace: Option<acde_runtime::Workspace>,
+    terminals: Option<acde_runtime::Terminals>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct Grants {
+    fs: Option<acde_runtime::Workspace>,
+    terminal: Option<acde_runtime::Terminals>,
+}
+
+#[cfg(not(target_os = "linux"))]
+#[derive(Default)]
+struct Grants;
 
 impl Webs {
     #[cfg(target_os = "linux")]
-    fn workspace(&mut self, roots: Option<Vec<String>>) -> Workspace {
-        self.workspace.get_or_insert_with(Workspace::new).scoped(roots)
+    fn grants(&mut self, scope: &mut v8::PinScope, wanted: v8::Local<v8::Value>) -> Grants {
+        let Ok(wanted) = v8::Local::<v8::Object>::try_from(wanted) else { return Grants::default() };
+        let fs = match bind::get(scope, wanted, "fs") {
+            Some(v) if v.is_true() => Some(None),
+            Some(v) if v.is_array() => Some(Some(bind::strings(scope, v).unwrap_or_default())),
+            _ => None,
+        };
+        let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
+        let system = &mut self.system;
+        Grants {
+            fs: fs.map(|roots| system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(roots)),
+            terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
+        }
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn workspace(&mut self, _: Option<Vec<String>>) -> Workspace {}
+    fn grants(&mut self, _: &mut v8::PinScope, _: v8::Local<v8::Value>) -> Grants {
+        Grants
+    }
+}
+
+impl Grants {
+    #[cfg(target_os = "linux")]
+    fn install(self, scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
+        if let Some(fs) = self.fs {
+            crate::fs::install(scope, natives, fs);
+        }
+        if let Some(terminals) = self.terminal {
+            crate::terminal::install(scope, natives, terminals);
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn install(self, _: &mut v8::PinScope, _: v8::Local<v8::Object>) {}
 }
 
 thread_local! {
@@ -90,7 +132,7 @@ struct Spec {
     init: Vec<u8>,
     heap_mb: f64,
     env: Vec<(String, String)>,
-    fs: Option<Workspace>,
+    grants: Grants,
 }
 
 impl Spec {
@@ -147,7 +189,7 @@ impl Spec {
         UPSTREAM.with(|u| *u.borrow_mut() = Some(upstream));
         let tid = rustix::thread::gettid().as_raw_nonzero().get();
         _ = ready.send(Started { tx: runtime.lp.sender(), isolate, stopping: stopping.clone(), busy: runtime.lp.busy(), tid });
-        let code = run_web(&mut runtime, self.init, &self.env, self.fs, &stopping);
+        let code = run_web(&mut runtime, self.init, &self.env, self.grants, &stopping);
         ON_MESSAGE.with(|m| *m.borrow_mut() = None);
         UPSTREAM.with(|u| *u.borrow_mut() = None);
         #[cfg(target_os = "linux")]
@@ -157,6 +199,7 @@ impl Spec {
             crate::audio::clear();
             crate::backend::clear();
             crate::fs::clear();
+            crate::terminal::clear();
         }
         bind::clear_promises();
         drop(runtime);
@@ -177,20 +220,13 @@ pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     let on_message = Arc::new(bind::SendFunction(v8::Global::new(scope, on_message)));
     let on_exit = bind::SendFunction(v8::Global::new(scope, on_exit));
     let broker = rt::current();
-    let fs = match args.get(6) {
-        v if v.is_true() => Some(WEBS.with(|w| w.borrow_mut().workspace(None))),
-        v if v.is_array() => {
-            let roots = bind::strings(scope, v).unwrap_or_default();
-            Some(WEBS.with(|w| w.borrow_mut().workspace(Some(roots))))
-        }
-        _ => None,
-    };
+    let grants = WEBS.with(|w| w.borrow_mut().grants(scope, args.get(6)));
     let id = WEBS.with(|w| {
         let mut w = w.borrow_mut();
         w.next = w.next.wrapping_add(1);
         w.next
     });
-    let handle = match (Spec { name, init, heap_mb, env, fs }).spawn(id, on_message, on_exit, broker.sender()) {
+    let handle = match (Spec { name, init, heap_mb, env, grants }).spawn(id, on_message, on_exit, broker.sender()) {
         Ok(handle) => handle,
         Err(e) => return bind::throw_error(scope, &e),
     };
@@ -270,7 +306,7 @@ impl HeapGuard {
     }
 }
 
-fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], fs: Option<Workspace>, stopping: &Arc<AtomicBool>) -> i32 {
+fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], grants: Grants, stopping: &Arc<AtomicBool>) -> i32 {
     crate::modules::set_loader(std::rc::Rc::new(crate::dom::WebLoader));
     let bundle = app_dir().join("web.js");
     let Some(url) = std::fs::canonicalize(&bundle).ok().and_then(|p| url::Url::from_file_path(p).ok()) else {
@@ -289,9 +325,7 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], f
         #[cfg(target_os = "linux")]
         {
             crate::webnative::install(scope, natives);
-            if let Some(fs) = fs {
-                crate::fs::install(scope, natives, fs);
-            }
+            grants.install(scope, natives);
             crate::webgpu::install(scope, natives);
             crate::audio::install(scope, natives);
         }
