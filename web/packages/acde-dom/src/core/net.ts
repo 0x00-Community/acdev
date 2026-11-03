@@ -1,5 +1,5 @@
-import { Blob, bytesOfBlob } from './blob'
-import { backendTarget, backendTransport, cookies, requestHeaders, type BackendTarget, type Header, type HttpEvent, type WsEvent } from './backend'
+import { Blob, blobBytes } from './blob'
+import { backendTarget, cookies, requestHeaders, type BackendTarget, type Header, type HttpEvent, type WsEvent, transport } from './backend'
 import { bytesOf, concat, TextDecoder, unbase64 } from './encoding'
 import { CloseEvent, defineHandlers, Event, EventTarget, fire, MessageEvent, ProgressEvent } from './event'
 import { DOMException } from './exception'
@@ -56,8 +56,9 @@ function backendFailed(method: string, url: string, message: string): void {
 
 type Loaded = { bytes: Uint8Array; type: string }
 
-function assetType(pathname: string): string {
-  return typeOfName(pathname) || 'application/octet-stream'
+function asset(url: URL): Loaded | null {
+  const bytes = host.readAsset(url.href)
+  return bytes && { bytes, type: typeOfName(url.pathname) || 'application/octet-stream' }
 }
 
 function load(url: string, method: string): Loaded | null {
@@ -72,7 +73,7 @@ function load(url: string, method: string): Loaded | null {
   }
   if (url.startsWith('blob:')) {
     const blob = objectUrls.get(url)
-    return blob instanceof Blob ? { bytes: bytesOfBlob(blob), type: blob.type } : null
+    return blob instanceof Blob ? { bytes: blobBytes(blob), type: blob.type } : null
   }
   let parsed: URL
   try {
@@ -85,16 +86,13 @@ function load(url: string, method: string): Loaded | null {
     miss(method, url)
     return null
   }
-  const bytes = host.readAsset(parsed.href)
-  if (!bytes) {
-    miss(method, url)
-    return null
-  }
-  return { bytes, type: assetType(parsed.pathname) }
+  const found = asset(parsed)
+  if (!found) miss(method, url)
+  return found
 }
 
 function backendRoute(url: string, method: string, connection = false): { target: BackendTarget } | { asset: Loaded } | null {
-  if (!backendTransport() || url.startsWith('data:') || url.startsWith('blob:')) return null
+  if (!transport || url.startsWith('data:') || url.startsWith('blob:')) return null
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -105,8 +103,8 @@ function backendRoute(url: string, method: string, connection = false): { target
   const target = backendTarget(parsed, own)
   if (!target) return null
   if (!connection && parsed.origin === own.origin && (method === 'GET' || method === 'HEAD')) {
-    const bytes = host.readAsset(parsed.href)
-    if (bytes) return { asset: { bytes, type: assetType(parsed.pathname) } }
+    const found = asset(parsed)
+    if (found) return { asset: found }
   }
   return { target }
 }
@@ -202,7 +200,7 @@ function multipart(form: FormDataLike): { bytes: Uint8Array; type: string } {
     if (value instanceof Blob) {
       const filename = (value as Blob & { name?: string }).name ?? 'blob'
       head += `; filename="${quote(filename)}"\r\nContent-Type: ${value.type || 'application/octet-stream'}\r\n\r\n`
-      parts.push(host.encodeUtf8(head), bytesOfBlob(value), host.encodeUtf8('\r\n'))
+      parts.push(host.encodeUtf8(head), blobBytes(value), host.encodeUtf8('\r\n'))
     } else parts.push(host.encodeUtf8(`${head}\r\n\r\n${String(value).replace(/\r?\n|\r/g, '\r\n')}\r\n`))
   }
   parts.push(host.encodeUtf8(`--${boundary}--\r\n`))
@@ -212,7 +210,7 @@ function multipart(form: FormDataLike): { bytes: Uint8Array; type: string } {
 function extractBody(body: BodyInit): { bytes: Uint8Array | null; stream: ReadableStream<Uint8Array> | null; type: string | null } {
   if (body === null || body === undefined) return { bytes: null, stream: null, type: null }
   if (typeof body === 'string') return { bytes: host.encodeUtf8(body), stream: null, type: 'text/plain;charset=UTF-8' }
-  if (body instanceof Blob) return { bytes: bytesOfBlob(body), stream: null, type: body.type || null }
+  if (body instanceof Blob) return { bytes: blobBytes(body), stream: null, type: body.type || null }
   if (body instanceof URLSearchParams) return { bytes: host.encodeUtf8(body.toString()), stream: null, type: 'application/x-www-form-urlencoded;charset=UTF-8' }
   if (body instanceof ReadableStream) return { bytes: null, stream: body, type: null }
   if (isFormData(body)) {
@@ -469,7 +467,7 @@ interface ExchangeRequest {
 }
 
 function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHandlers): () => void {
-  const transport = backendTransport()!
+  const backend = transport!
   const withCookies = request.credentials !== 'omit'
   let current: Promise<number> | null = null
   let finished = false
@@ -480,7 +478,7 @@ function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHa
     on.error(message)
   }
   const stop = (id: Promise<number> | null): void => {
-    id?.then((n) => transport.abort(n)).catch(() => undefined)
+    id?.then((n) => backend.abort(n)).catch(() => undefined)
   }
   const send = (target: BackendTarget, url: string, method: string, pageHeaders: Iterable<readonly [string, string]>, body: Uint8Array | null): void => {
     const headers = requestHeaders(pageHeaders, target, { origin: method !== 'GET' && method !== 'HEAD', cookies: withCookies })
@@ -528,7 +526,7 @@ function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHa
           return fail(event.message)
       }
     }
-    const mine: Promise<number> = Promise.resolve().then(() => transport.request(target.port, method, target.path, headers, body, onEvent))
+    const mine: Promise<number> = Promise.resolve().then(() => backend.request(target.port, method, target.path, headers, body, onEvent))
     current = mine
     mine.catch((error: unknown) => {
       if (current === mine) fail(String((error as Error)?.message ?? error))
@@ -900,8 +898,8 @@ export class WebSocket extends EventTarget {
   }
 
   #connect(target: BackendTarget, protocols: string[]): void {
-    const transport = backendTransport()!
-    const headers = requestHeaders([], target, { origin: true, cookies: true })
+    const backend = transport!
+      const headers = requestHeaders([], target, { origin: true, cookies: true })
     const onEvent = (event: WsEvent): void => {
       if (this.#finished) return
       switch (event.type) {
@@ -930,7 +928,7 @@ export class WebSocket extends EventTarget {
           return this.#finish(1006, '', false)
       }
     }
-    this.#id = Promise.resolve().then(() => transport.websocket(target.port, target.path, headers, protocols, onEvent))
+    this.#id = Promise.resolve().then(() => backend.websocket(target.port, target.path, headers, protocols, onEvent))
     this.#id.catch((error: unknown) => {
       backendFailed('WS', this.url, String((error as Error)?.message ?? error))
       this.#finish(1006, '', false)
@@ -956,14 +954,13 @@ export class WebSocket extends EventTarget {
     if (this.readyState === WS_STATES.CONNECTING) throw new DOMException("Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.", 'InvalidStateError')
     let payload: string | Uint8Array
     if (typeof data === 'string') payload = data
-    else if (data instanceof Blob) payload = bytesOfBlob(data).slice()
+    else if (data instanceof Blob) payload = blobBytes(data).slice()
     else if (typeof data === 'object' && data !== null) payload = bytesOf(data as ArrayBuffer).slice()
     else payload = String(data)
     if (this.readyState !== WS_STATES.OPEN || !this.#id) {
       this.bufferedAmount += typeof payload === 'string' ? host.encodeUtf8(payload).length : payload.length
       return
     }
-    const transport = backendTransport()
     this.#id.then((id) => transport?.send(id, payload)).catch(() => undefined)
   }
 
@@ -979,7 +976,6 @@ export class WebSocket extends EventTarget {
       return
     }
     this.readyState = WS_STATES.CLOSING
-    const transport = backendTransport()
     this.#id.then((id) => transport?.close(id, code, reason === undefined ? undefined : String(reason))).catch(() => undefined)
   }
 }

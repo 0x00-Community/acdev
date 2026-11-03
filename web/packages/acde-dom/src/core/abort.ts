@@ -58,8 +58,7 @@ export class AbortSignal extends EventTarget {
 
   static timeout(ms: number): AbortSignal {
     const signal = makeSignal()
-    const handle = host.setTimer(Math.max(0, Number(ms) || 0), () => signalAbort(signal, new DOMException('signal timed out', 'TimeoutError')), false)
-    void handle
+    host.setTimer(Math.max(0, Number(ms) || 0), () => signalAbort(signal, new DOMException('signal timed out', 'TimeoutError')), false)
     return signal
   }
 

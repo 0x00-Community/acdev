@@ -47,8 +47,8 @@ export interface EventInit {
 
 let eventTrusted: (event: Event, trusted: boolean) => void
 export let eventPath: (event: Event, full: (() => EventTarget[]) | null) => void
-let dispatchImpl: (target: EventTarget, event: Event) => boolean
-let invokeImpl: (target: EventTarget, event: Event, capture: boolean) => void
+let dispatch: (target: EventTarget, event: Event) => boolean
+let invoke: (target: EventTarget, event: Event, capture: boolean) => void
 
 export class Event {
   static readonly NONE = 0
@@ -90,7 +90,7 @@ export class Event {
     eventPath = (event, full) => {
       event.#full = full
     }
-    dispatchImpl = (target, event) => {
+    dispatch = (target, event) => {
       if (event.#dispatching || !event.#initialized) throw new DOMException('The event is already being dispatched.', 'InvalidStateError')
       event.#dispatching = true
       event.#target = target
@@ -126,7 +126,7 @@ export class Event {
       }
       return !event.#canceled
     }
-    invokeImpl = (target, event, capture) => {
+    invoke = (target, event, capture) => {
       const map = (target as Targetish)[LISTENERS]
       const list = map?.get(event.#type)
       if (!list || list.length === 0) return
@@ -234,14 +234,6 @@ for (const [name, value] of [['NONE', 0], ['CAPTURING_PHASE', 1], ['AT_TARGET', 
   Object.defineProperty(Event.prototype, name, { value, enumerable: true })
 }
 tag(Event)
-
-function invoke(target: EventTarget, event: Event, capture: boolean): void {
-  invokeImpl(target, event, capture)
-}
-
-export function dispatch(target: EventTarget, event: Event): boolean {
-  return dispatchImpl(target, event)
-}
 
 function call(target: EventTarget, listener: Listener, event: Event): void {
   if (listener.handler) {

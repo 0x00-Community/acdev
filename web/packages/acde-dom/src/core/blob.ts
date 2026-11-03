@@ -6,7 +6,7 @@ import { streamOfBytes, type ReadableStream } from './streams'
 
 type BlobPart = Blob | ArrayBuffer | ArrayBufferView | string
 
-let blobBytes: (blob: Blob) => Uint8Array
+export let blobBytes: (blob: Blob) => Uint8Array
 
 export class Blob {
   #bytes: Uint8Array
@@ -56,10 +56,6 @@ export class Blob {
   }
 }
 tag(Blob)
-
-export function bytesOfBlob(blob: Blob): Uint8Array {
-  return blobBytes(blob)
-}
 
 export class File extends Blob {
   readonly #name: string

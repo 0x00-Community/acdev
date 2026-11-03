@@ -21,14 +21,10 @@ export interface BackendTransport {
   close(id: number, code?: number, reason?: string): unknown
 }
 
-let transport: BackendTransport | null = null
+export let transport: BackendTransport | null = null
 
 export function installBackendTransport(given: BackendTransport | null): void {
   transport = given
-}
-
-export function backendTransport(): BackendTransport | null {
-  return transport
 }
 
 export interface BackendTarget {
