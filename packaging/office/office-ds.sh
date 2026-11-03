@@ -30,8 +30,8 @@ PORT=${OFFICE_DS_PORT:-8085}
 MEMORY=${OFFICE_DS_MEMORY:-4g}
 CPUS=${OFFICE_DS_CPUS:-2}
 BRIDGE_DIR=${ACDE_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/acde}
-BRIDGE_CONF=$(dirname "${AGENTRT_OFFICE_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/agentos/office/ds.env}")/acde-bridge.conf
 ENV_FILE=${AGENTRT_OFFICE_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/agentos/office/ds.env}
+BRIDGE_CONF=$(dirname "$ENV_FILE")/acde-bridge.conf
 
 die() { echo "office-ds: $*" >&2; exit 1; }
 
