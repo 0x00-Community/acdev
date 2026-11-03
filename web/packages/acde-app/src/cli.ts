@@ -46,7 +46,7 @@ class Cli {
       console.log(`acde app: ${pkg.dir}. 下一步: cd ${dir} && bun install && acde app run`)
       return 0
     }
-    const pkg = AppPackage.open(dir)
+    const pkg = new AppPackage(dir)
     if (command === 'check') return Cli.report(pkg) ? 0 : 1
     const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')

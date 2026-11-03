@@ -53,7 +53,7 @@ export class Project {
   readonly config: AcdeConfig
   readonly pkg: Readonly<Record<string, unknown>>
 
-  private constructor(dir: string) {
+  constructor(dir: string) {
     this.dir = realpathSync(resolve(dir))
     const file = join(this.dir, 'package.json')
     const pkg = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>) : {}
@@ -83,10 +83,6 @@ export class Project {
     }
     this.name = text(this.config.name) ?? text(pkg['name']) ?? basename(this.dir)
     this.version = text(this.config.version) ?? text(pkg['version']) ?? '0.0.0'
-  }
-
-  static open(dir: string): Project {
-    return new Project(dir)
   }
 
   get framework(): string | null {

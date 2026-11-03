@@ -20,18 +20,14 @@ export class AppPackage {
   readonly manifest: PackageManifest | null
   readonly project: Project | null
 
-  private constructor(dir: string) {
+  constructor(dir: string) {
     this.dir = realpathSync(resolve(dir))
     const file = join(this.dir, 'package.json')
     const json = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { name?: unknown; acde?: { apps?: unknown } }) : {}
     const configured = Project.CONFIGS.some((name) => existsSync(join(this.dir, name)))
     this.manifest = !configured && Array.isArray(json.acde?.apps) ? (json.acde as PackageManifest) : null
-    this.project = this.manifest ? null : Project.open(this.dir)
+    this.project = this.manifest ? null : new Project(this.dir)
     this.name = this.project?.name ?? (typeof json.name === 'string' ? json.name : basename(this.dir))
-  }
-
-  static open(dir: string): AppPackage {
-    return new AppPackage(dir)
   }
 
   static create(dir: string, kind: (typeof AppPackage.KINDS)[number], id = basename(resolve(dir)), label = id, api = process.env['ACDE_API'] || `file:${AppPackage.API}`): AppPackage {
