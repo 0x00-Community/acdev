@@ -170,6 +170,7 @@ impl Compositor {
             None => pointer.motion(self, under, &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time }),
         }
         pointer.frame(self);
+        self.hover_cursor(pos);
         if matches!(self.backend.target, super::backend::Target::Drm(_)) || self.drag_icon_shown() {
             self.backend.damaged();
         }

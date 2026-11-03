@@ -11,10 +11,10 @@ use smithay::wayland::compositor::with_states;
 use super::Compositor;
 use super::acde_window::{AcdeWindow, Hints, WireGrab, WireLost};
 
-const TOP: u32 = 1;
-const BOTTOM: u32 = 2;
-const LEFT: u32 = 4;
-const RIGHT: u32 = 8;
+pub(super) const TOP: u32 = 1;
+pub(super) const BOTTOM: u32 = 2;
+pub(super) const LEFT: u32 = 4;
+pub(super) const RIGHT: u32 = 8;
 const MIN: (i32, i32) = (96, 64);
 
 pub struct Drag {
@@ -96,7 +96,10 @@ impl PointerGrab<Compositor> for Drag {
         &self.start
     }
 
-    fn unset(&mut self, _: &mut Compositor) {}
+    fn unset(&mut self, data: &mut Compositor) {
+        data.cursor.drag = None;
+        data.cursor_changed();
+    }
 }
 
 impl Compositor {
@@ -109,7 +112,26 @@ impl Compositor {
         let Some(pointer) = self.seat.get_pointer() else { return false };
         let drag = Drag { start, window: window.clone(), initial: Rectangle::new(loc, size), edges };
         pointer.set_grab(self, drag, serial, Focus::Clear);
+        self.cursor.drag = Some(super::cursor::Cursor::for_edges(edges));
+        self.cursor.hover = None;
+        self.cursor_changed();
         true
+    }
+
+    pub fn hover_cursor(&mut self, pos: Point<f64, Logical>) {
+        let pointer = self.seat.get_pointer().expect("seat 有 pointer");
+        let hover = match pointer.is_grabbed() {
+            true => None,
+            false => self.window_under(pos).and_then(|(w, _)| self.grab_hint_at(&w, pos)).filter(|&e| e != 0).map(super::cursor::Cursor::for_edges),
+        };
+        if hover != self.cursor.hover {
+            self.cursor.hover = hover;
+            self.cursor_changed();
+        }
+    }
+
+    pub fn cursor_changed(&mut self) {
+        self.backend.damaged();
     }
 
     pub fn grab_hint_at(&self, window: &Window, pos: Point<f64, Logical>) -> Option<u32> {

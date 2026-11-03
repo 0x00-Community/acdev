@@ -780,7 +780,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
 
 - 协议: xdg-shell、xdg-dialog、keyboard-shortcuts-inhibit、xdg-decoration 和 KDE server-decoration (都回 client-side: 装饰是客户端的内容)、`acde_window`、linux-dmabuf v4、wl_drm、
   linux-drm-syncobj、wp_presentation、fifo / commit-timing、viewporter、fractional-scale、pointer-constraints + relative-pointer、
-  pointer-gestures、data-device + primary-selection、xdg-activation、cursor-shape (所有形状都画成箭头)、single-pixel-buffer、
+  pointer-gestures、data-device + primary-selection、xdg-activation、cursor-shape (按形状名从 xcursor 主题取图, 没有的画箭头; 指针在窗口的改大小 grab hint 上时合成器画对应方向的双向箭头, 合成器移窗时画 grabbing、改大小时画那个方向的箭头, 盖过客户端设的光标)、single-pixel-buffer、
   wlr-layer-shell、ext-session-lock、idle-notify / idle-inhibit、text-input-v3 + input-method-v2 + virtual-keyboard、xdg-output.
   没有 Xwayland, 不接 X11 程序.
 - Broker 侧 (napi `Shell`): `Shell.broker()` 建合成器 (没有桌面文档). `onEvents(cb)` 在队列从空变非空时叫醒 Broker, `pump()` 取事件.
@@ -1187,7 +1187,7 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 | 路径 | 是什么 |
 | --- | --- |
 | `/usr/lib/acde/acde` | crates/acde 的程序 |
-| `/usr/lib/acde/app/` | acde-host 打好的 `dist/` (`broker.js`, `web.js`)、登录页 `greet/` (`acde --greeter`, greetd 的 greeter)、它用的品牌 `brand/` (标志、Outfit 字体和 OFL 许可证) 和 `package.json` (`/acde/brand/` 从它的清单来); 没有 node_modules |
+| `/usr/lib/acde/app/` | acde-host 打好的 `dist/` (`broker.js`, `web.js`)、登录页 `greet/` (`acde --greeter`, greetd 的 greeter)、它用的品牌 `brand/` (标志和字标) 和 `package.json` (`/acde/brand/` 从它的清单来); 没有 node_modules |
 | `/usr/share/acde/packages/` | 系统装的桌面包, 每个一个目录 |
 | `/usr/lib/acde/acde-app/`, `/usr/lib/acde/acde-api/` | `acde app` 由 bun 跑的源码 (应用的后端也跑在 bun 上) 和 SDK (`acde app new` 让应用的 devDependency 指过来) |
 | `/usr/lib/acde/office-ds.sh` | 文稿用的 ONLYOFFICE Document Server (docker) 启动脚本 |
@@ -1323,7 +1323,7 @@ acde 的宿主代码, esbuild 打成 crates/acde 跑的两个 ES 模块 (运行�
 | `src/crashes.ts`, `src/log.ts` | 一段时间里崩了几次 (服务、web、后端的重启上限); `Log` (见「日志和计时」) |
 | `src/webapp.ts`, `src/pagecalls.ts`, `src/downloads.ts`, `src/backend.ts` | 「网页应用」: HTML 入口、页面的浏览器调用、下载、应用后端 |
 | `src/storage.ts`, `src/places.ts`, `src/office.ts`, `src/autostart.ts`, `src/desktopentry.ts`, `src/debug.ts`, `src/timeline.ts`, `src/page.ts`, `src/native.ts`, `src/sys/` | localStorage 文件; 应用窗口的位置 (「窗口管理」); Document Server 的编辑页; XDG autostart; 读 .desktop 文件 (autostart、外部会话、原生程序共用); `ACDE_DEBUG_DIR`; 启动标记; window web 的文档; crates/acde 给的原生接口 (`sys/` 用 node 风格的名字包了一层, XDG 目录在 `sys/os.ts`) |
-| `greet/`, `brand/` | 登录页 (`--greeter`, 见「桌面包」的登录页); 它的品牌: `mark.mjs` 是 agentos 仓库 `branding/mark.mjs` (母版, 只在那边改) 的原样拷贝, `lockup.mjs` 用它在 `<canvas>` 上按 devicePixelRatio 画标志和闪光 (resize、配色变了重画), `brand.css` 是配色 (浅色 / `prefers-color-scheme: dark`) 和字标的排法 (Outfit 500 的真文字, `outfit-latin-500-normal.woff2`, 许可证 `OFL.txt`); 包清单的 `assets` 把它挂在 `/acde/brand/` |
+| `greet/`, `brand/` | 登录页 (`--greeter`, 见「桌面包」的登录页); 它的品牌: `mark.mjs` 和 `art.mjs` 是 agentos 仓库 `branding/` 的原样拷贝 (母版, 只在那边改; 几何从设计稿 `dopamine_01.ai` 抽出来), `lockup.mjs` 用 `drawLockup` 在一块 `<canvas>` 上按 devicePixelRatio 画整个 lockup (标志、设计稿的字形、四角星; resize、配色变了重画, 字色取 `.lockup` 的 `color`), `brand.css` 是配色 (浅色 / `prefers-color-scheme: dark`); 包清单的 `assets` 把它挂在 `/acde/brand/` |
 | `scripts/bundle.mjs`, `scripts/fake-ds.ts`, `tests/fixtures/stress-app` | 打 `dist/` (压空白和语法, 保留名字, source map); 替身 Document Server (`bun scripts/fake-ds.ts`); `drive.sh perf stress` 用的应用 |
 
 #### Run
