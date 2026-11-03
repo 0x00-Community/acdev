@@ -46,10 +46,10 @@ class MimeTypes {
 
   static of(path: string): string {
     if (stat(path)?.isDirectory) return MimeTypes.DIRECTORY
-    const gio = spawnSync('gio', ['info', '--attributes=standard::content-type', path], { timeout: 3000 })
+    const gio = spawnSync('gio', ['info', '--attributes=standard::content-type', path], 3000)
     const fromGio = /standard::content-type:\s*(\S+)/.exec(gio.stdout ?? '')?.[1]
     if (gio.status === 0 && fromGio && MimeTypes.valid(fromGio)) return fromGio
-    const file = spawnSync('file', ['--brief', '--mime-type', path], { timeout: 3000 })
+    const file = spawnSync('file', ['--brief', '--mime-type', path], 3000)
     const fromFile = (file.stdout ?? '').trim()
     if (file.status === 0 && MimeTypes.valid(fromFile) && fromFile !== 'application/octet-stream') return fromFile
     const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''

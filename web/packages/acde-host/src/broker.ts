@@ -177,7 +177,7 @@ export class Broker {
   readonly #places = new WindowPlaces()
   readonly #placed = new Map<number, string>()
   readonly #claims: { web: Web; pid: number }[] = []
-  #output = { width: 0, height: 0, scale: 1 }
+  #output: { width: number; height: number; scale: number }
   readonly #desktopCrashes = new Crashes(Broker.RESTARTS)
   readonly #themes = new Map<string, string>()
   #stopped = false
@@ -370,8 +370,7 @@ export class Broker {
       storageFile: storageFile(this.#current.id),
       standalone,
     }
-    const web = this.#spawn('desktop', 0, init, null, this.#current.heapMb)
-    this.#desktop = web
+    this.#desktop = this.#spawn(init, this.#current.heapMb)
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
       try {
         this.launch(standalone, null, 'fullscreen')
@@ -383,8 +382,8 @@ export class Broker {
   }
 
   #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode, ...(record.app?.size && { size: record.app.size }) }).token): void {
-    if (record.app) this.#placed.set(record.id, record.app.id)
     const app = record.app!
+    this.#placed.set(record.id, app.id)
     const init: WebInit = {
       kind: 'window',
       name: `${app.id}#${record.id}`,
@@ -407,13 +406,13 @@ export class Broker {
       ...(app.backend && { sockets: AppBackends.socketDir(app.id) }),
     }
     record.request = null
-    record.web = this.#spawn('window', record.id, init, app, app.heapMb)
+    record.web = this.#spawn(init, app.heapMb)
     if (record.hidden) this.#tellVisible(record)
   }
 
-  #spawn(kind: 'desktop' | 'window', window: number, init: WebInit, app: AppManifest | null, heapMb: number): Web {
+  #spawn(init: WebInit, heapMb: number): Web {
     const worker = new WebThread({ name: init.name, init, env: { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }, heapMb, onExit: (code, reason) => this.#exited(web, code, reason) })
-    const web = new Web(kind, init.name, window, worker, app)
+    const web = new Web(init.kind, init.name, init.window, worker, init.app ?? null)
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     return web
   }

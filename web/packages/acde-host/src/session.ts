@@ -45,7 +45,7 @@ export class DesktopSession {
   end(kind: SessionEnd): void {
     if (kind === 'reboot' || kind === 'poweroff') {
       if (!this.own) return void DesktopSession.#report(`${kind} asked for; nested, not done`)
-      const result = spawnSync('systemctl', [kind, '--no-wall'], { encoding: 'utf8', timeout: 15000 })
+      const result = spawnSync('systemctl', [kind, '--no-wall'], 15000)
       if (result.status !== 0) {
         const message = (result.error?.message ?? result.stderr ?? '').trim() || `systemctl ${kind}: exit ${result.status}`
         DesktopSession.#report(`${kind} refused: ${message}`, Level.Warn)
@@ -66,7 +66,7 @@ export class DesktopSession {
       }
     }
     this.#children.clear()
-    if (this.own) spawnSync('pkill', ['-TERM', '-x', '-u', String(process.getuid?.() ?? ''), 'fcitx5'], { timeout: 3000 })
+    if (this.own) spawnSync('pkill', ['-TERM', '-x', '-u', String(process.getuid()), 'fcitx5'], 3000)
   }
 
   static #report(line: string, level = Level.Info): void {
