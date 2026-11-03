@@ -73,10 +73,7 @@ export class TextDecoder {
   decode(input?: BufferSourceLike | null, options?: { stream?: boolean }): string {
     let bytes = bytesOf(input)
     if (this.#pending) {
-      const joined = new Uint8Array(this.#pending.length + bytes.length)
-      joined.set(this.#pending)
-      joined.set(bytes, this.#pending.length)
-      bytes = joined
+      bytes = concat([this.#pending, bytes])
       this.#pending = null
     }
     if (options?.stream && this.#encoding === 'utf-8') {

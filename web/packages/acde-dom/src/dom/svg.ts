@@ -73,13 +73,8 @@ export class SVGTransformList {
     const text = dom.getAttribute(this.element[ID], 'transform') ?? ''
     const items: SVGTransform[] = []
     for (const m of text.matchAll(/[a-zA-Z]+\s*\([^)]*\)/g)) {
-      try {
-        const parsed = parseTransform(m[0], true)
-        const matrix = new DOMMatrix()
-        matrix.m = parsed.m
-        items.push(new SVGTransform(matrix))
-      } catch {
-      }
+      const matrix = transformMatrix(m[0])
+      if (matrix) items.push(new SVGTransform(matrix))
     }
     return items
   }
@@ -128,15 +123,19 @@ export class SVGAnimatedTransformList {
 }
 tag(SVGAnimatedTransformList)
 
+function transformMatrix(text: string): DOMMatrix | null {
+  try {
+    const m = new DOMMatrix()
+    m.m = parseTransform(text, true).m
+    return m
+  } catch {
+    return null
+  }
+}
+
 function ownTransform(id: number): DOMMatrix {
   const text = dom.getAttribute(id, 'transform')
-  const m = new DOMMatrix()
-  if (!text) return m
-  try {
-    m.m = parseTransform(text, true).m
-  } catch {
-  }
-  return m
+  return (text && transformMatrix(text)) || new DOMMatrix()
 }
 
 function viewportMatrix(svg: number): DOMMatrix {

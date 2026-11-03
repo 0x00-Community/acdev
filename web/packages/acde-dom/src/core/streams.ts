@@ -89,7 +89,7 @@ function rs<R>(stream: ReadableStream<R>): ReadState<R> {
   return s
 }
 
-function desiredSize(s: ReadState<any>): number | null {
+function desiredSize(s: { readonly state: string; readonly hwm: number; readonly total: number }): number | null {
   if (s.state === 'errored') return null
   if (s.state === 'closed') return 0
   return s.hwm - s.total
@@ -557,6 +557,10 @@ export class WritableStreamDefaultController {
 }
 tag(WritableStreamDefaultController)
 
+function writerReleased(): TypeError {
+  return new TypeError('This writable stream writer has been released')
+}
+
 export class WritableStreamDefaultWriter<W = unknown> {
   #stream: WritableStream<W> | null
 
@@ -568,27 +572,24 @@ export class WritableStreamDefaultWriter<W = unknown> {
   }
 
   #state(): WriteState<W> {
-    if (!this.#stream) throw new TypeError('This writable stream writer has been released')
+    if (!this.#stream) throw writerReleased()
     return ws(this.#stream)
   }
 
   get closed(): Promise<undefined> {
-    return this.#stream ? ws(this.#stream).closed.promise : Promise.reject(new TypeError('This writable stream writer has been released'))
+    return this.#stream ? ws(this.#stream).closed.promise : Promise.reject(writerReleased())
   }
 
   get ready(): Promise<undefined> {
-    return this.#stream ? ws(this.#stream).ready.promise : Promise.reject(new TypeError('This writable stream writer has been released'))
+    return this.#stream ? ws(this.#stream).ready.promise : Promise.reject(writerReleased())
   }
 
   get desiredSize(): number | null {
-    const s = this.#state()
-    if (s.state === 'errored') return null
-    if (s.state === 'closed') return 0
-    return s.hwm - s.total
+    return desiredSize(this.#state())
   }
 
   write(chunk: W): Promise<undefined> {
-    if (!this.#stream) return Promise.reject(new TypeError('This writable stream writer has been released'))
+    if (!this.#stream) return Promise.reject(writerReleased())
     const s = ws(this.#stream)
     if (s.state === 'errored') return Promise.reject(s.error)
     if (s.state === 'closed' || s.closeRequested) return Promise.reject(new TypeError('Cannot write to a closing or closed stream'))
@@ -608,12 +609,12 @@ export class WritableStreamDefaultWriter<W = unknown> {
   }
 
   close(): Promise<undefined> {
-    if (!this.#stream) return Promise.reject(new TypeError('This writable stream writer has been released'))
+    if (!this.#stream) return Promise.reject(writerReleased())
     return closeWritable(ws(this.#stream))
   }
 
   abort(reason?: unknown): Promise<undefined> {
-    if (!this.#stream) return Promise.reject(new TypeError('This writable stream writer has been released'))
+    if (!this.#stream) return Promise.reject(writerReleased())
     return abortWritable(ws(this.#stream), reason)
   }
 

@@ -181,10 +181,7 @@ export class Element extends Node {
   }
 
   getAttributeNames(): string[] {
-    const list = dom.attributes(this[ID])
-    const names: string[] = []
-    for (let i = 0; i < list.length; i += 2) names.push(list[i]!)
-    return names
+    return attributeNames(this[ID])
   }
 
   toggleAttribute(name: string, force?: boolean): boolean {
@@ -381,6 +378,13 @@ interface ScrollIntoViewOptions {
   behavior?: string
 }
 
+function attributeNames(id: number): string[] {
+  const list = dom.attributes(id)
+  const names: string[] = []
+  for (let i = 0; i < list.length; i += 2) names.push(list[i]!)
+  return names
+}
+
 function qualified(namespace: string | null, name: string): string {
   if (namespace === 'http://www.w3.org/1999/xlink' && !name.includes(':')) return `xlink:${name}`
   if (namespace === 'http://www.w3.org/XML/1998/namespace' && !name.includes(':')) return `xml:${name}`
@@ -541,9 +545,7 @@ export class NamedNodeMap {
   }
 
   refresh(): void {
-    const list = dom.attributes(this.#element[ID])
-    const names: string[] = []
-    for (let i = 0; i < list.length; i += 2) names.push(list[i]!)
+    const names = attributeNames(this.#element[ID])
     for (let i = names.length; i < this.#names.length; i++) delete (this as unknown as Record<number, Attr>)[i]
     this.#names = names
     for (let i = 0; i < names.length; i++) {
@@ -612,9 +614,13 @@ export class DOMTokenList {
     this.#supported = supported
   }
 
-  #read(): string[] {
+  #current(): string {
     const id = this.#element[ID]
-    const text = this.#attribute === 'class' ? dom.className(id) : (dom.getAttribute(id, this.#attribute) ?? '')
+    return this.#attribute === 'class' ? dom.className(id) : (dom.getAttribute(id, this.#attribute) ?? '')
+  }
+
+  #read(): string[] {
+    const text = this.#current()
     if (text !== this.#text) {
       this.#text = text
       const tokens: string[] = []
@@ -641,7 +647,7 @@ export class DOMTokenList {
   }
 
   get value(): string {
-    return this.#attribute === 'class' ? dom.className(this.#element[ID]) : (dom.getAttribute(this.#element[ID], this.#attribute) ?? '')
+    return this.#current()
   }
   set value(value: string) {
     setAttribute(this.#element, this.#attribute, String(value))
