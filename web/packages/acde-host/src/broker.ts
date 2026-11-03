@@ -17,6 +17,7 @@ import { DesktopSession, type RunEnd } from './session'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage, type Languages } from './language'
 import { StorageFile } from './storage'
+import { WindowPlaces } from './places'
 import { Level, Log } from './log'
 import { basename } from './sys/path'
 import { process } from './sys/process'
@@ -165,6 +166,8 @@ export class Broker {
   #desktop: Web | null = null
   readonly #windows = new Map<number, WindowRecord>()
   readonly #panels = new Set<number>()
+  readonly #places = new WindowPlaces()
+  readonly #placed = new Map<number, string>()
   readonly #claims: { web: Web; pid: number }[] = []
   #output = { width: 0, height: 0, scale: 1 }
   readonly #desktopCrashes = new Crashes(Broker.RESTARTS)
@@ -341,6 +344,7 @@ export class Broker {
     this.#poke()
     const webs = this.#webs()
     for (const web of webs) web.closing = true
+    this.#keepPlaces()
     this.#desktop = null
     await Promise.all([...webs.map((web) => web.worker.terminate().catch(() => 0)), this.backends.stopAll()])
     await this.bridge.close()
@@ -379,6 +383,7 @@ export class Broker {
   }
 
   #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode, ...(record.app?.size && { size: record.app.size }) }).token): void {
+    if (record.app) this.#placed.set(record.id, record.app.id)
     const app = record.app!
     const init: WebInit = {
       kind: 'window',
@@ -477,6 +482,7 @@ export class Broker {
   #forget(record: WindowRecord): void {
     this.#windows.delete(record.id)
     this.shell.release(record.id)
+    unref(setTimeout(() => !this.#windows.has(record.id) && this.#placed.delete(record.id), Broker.CLOSE_WAIT_MS))
     this.#toDesktop({ type: 'windowclose', window: record.id })
     if (record.app?.backend && !this.#running(record.app.id)) void this.backends.stop(record.app.id)
   }
@@ -562,6 +568,7 @@ export class Broker {
         return
     }
     if (!event.type.startsWith('window') || event.window === undefined) return
+    if (event.type === 'windowgone') return this.#gone(event)
     const record = this.#windows.get(event.window)
     if (record?.kind === 'web') return this.#toDesktop(event)
     if (event.type === 'windowopen') {
@@ -585,6 +592,21 @@ export class Broker {
     }
     if (record.owner) record.owner.post({ type: 'events', events: [event] })
     else this.#toDesktop(event)
+  }
+
+  #gone(event: RawShellEvent): void {
+    const app = this.#placed.get(event.window!)
+    if (!app) return
+    if (!this.#windows.has(event.window!)) this.#placed.delete(event.window!)
+    this.#places.set(app, [event.x ?? NaN, event.y ?? NaN, event.width ?? NaN, event.height ?? NaN])
+  }
+
+  #keepPlaces(): void {
+    for (const row of this.shell.windows()) {
+      const app = row.window === undefined ? undefined : this.#placed.get(row.window)
+      if (app && (row.mode === 'free' || row.mode === 'fixed')) this.#places.set(app, [row.x, row.y, row.width, row.height])
+    }
+    this.#places.flush()
   }
 
   #toDesktop(event: Record<string, unknown> | RawShellEvent): void {
@@ -612,7 +634,9 @@ export class Broker {
         return { window: running.id }
       }
     }
-    const grant = this.shell.grant({ mode, ...(app.size && { size: app.size }) })
+    const scale = this.#output.scale || 1
+    const rect = mode === 'free' && !this.#running(appId) ? this.#places.get(appId, { width: this.#output.width / scale, height: this.#output.height / scale }) : null
+    const grant = this.shell.grant({ mode, ...(rect ? { rect } : app.size && { size: app.size }) })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], hiddenSince: null, request, mode }
     this.#windows.set(record.id, record)
     this.#spawnWindow(record, grant.token)

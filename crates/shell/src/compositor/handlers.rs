@@ -173,13 +173,20 @@ impl XdgShellHandler for Compositor {
         let Some(window) = self.window_of(surface.wl_surface()) else { return };
         let focused = self.seat.get_keyboard().and_then(|k| k.current_focus()).is_some_and(|f| f == *surface.wl_surface());
         let parent = self.parent_window(&window);
-        self.space.unmap_elem(&window);
         let id = Self::window_id(&window);
+        let last = id.and_then(|id| self.native_ids.get(&id)).and_then(|&managed| self.table.window(managed)).and_then(|w| match w.mode {
+            acde_model::Mode::Free | acde_model::Mode::Fixed => Some(w.rect),
+            acde_model::Mode::Fullscreen => window.user_data().get::<Restore>().and_then(|r| r.0.get()).map(super::table_rect),
+            acde_model::Mode::Pinned => None,
+        });
+        self.space.unmap_elem(&window);
         if let Some(id) = id {
             self.native_leave(id);
         }
         if Self::bound(surface.wl_surface()).is_none() {
             self.emit(Event { kind: "windowclose".into(), window: id, ..Default::default() });
+        } else if let Some(rect) = last {
+            self.emit(Event { kind: "windowgone".into(), window: id, x: Some(rect.x), y: Some(rect.y), width: Some(rect.w), height: Some(rect.h), ..Default::default() });
         }
         if focused && let Some(parent) = parent {
             self.focus_window(Some(&parent));
@@ -349,6 +356,9 @@ impl Compositor {
                 self.space.map_element(window.clone(), rect.loc, false);
                 self.native_enter(&window, id, mode);
                 self.place(&window, rect);
+                if mode != acde_model::Mode::Pinned {
+                    self.focus_window(Some(&window));
+                }
             }
             Some(grant) => {
                 let [w, h] = grant.size.unwrap_or([800, 600]);

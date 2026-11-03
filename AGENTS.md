@@ -517,7 +517,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   shell 事件进队列; 滚轮的默认滚动和 :hover 在它自己的 render 线程上. 拖放和剪贴板走 data-device. pointermove 和浏览器一样
   对齐到帧 (acde-host `host.ts`): 只留最新的一个, 下一个 `frame` 或别的事件来之前才派发 (连同命中测试), 鼠标回报率再高, 页面每帧
   也只处理一次移动.
-- **窗口管理** (合成器内置的策略, Broker 可以用 `Shell.place` / `raise` / `setMode` 改): 新窗口居中, 按窗口数错开 32 像素;
+- **窗口管理** (合成器内置的策略, Broker 可以用 `Shell.place` / `raise` / `setMode` 改): 新窗口居中, 按窗口数错开 32 像素; 应用的窗口记得位置 (Broker `src/places.ts`): 窗口关掉时合成器发 `windowgone`, Broker 按应用 id 记下它最后的 rect (全屏的记进全屏之前的那块; 会话结束时开着的窗口也记) 到 `$XDG_STATE_HOME/acde/windows.json` (`ACDE_STORAGE` 为空时只在内存), 这个应用下次打开、又没有别的窗口开着时用 `grant` 的 `rect` 摆回去 (尺寸不超过屏幕; 露出屏幕不到 48 像素或标题栏在屏幕上沿之外时照旧居中);
   有父窗口的居中在父窗口上方; 原生窗口在第一次带尺寸的提交时摆. 点进一个窗口: 它拿到焦点并提到它那一层的最前 (桌面不动;
   `pinned` 永远在 `free` / `fixed` 上面). 模式由框架裁决: 只有 `free` 改尺寸 (`Shell.place` 对 `fixed` 只挪位置, `pinned`
   只有 Broker 能摆 (桌面的面板, 见下), 对 `fullscreen` 不理); `fullscreen` 铺满 canvas. 客户端只能请求: `acde_window.request_mode` / `request_activate`, xdg 的
@@ -818,6 +818,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
 | `windowanimated {window}` | Broker → 桌面 | `animate` 的过渡做完 |
 | `shortcut {window, key, title}` | Broker → owner | 注册的快捷键按下了; app 级给那个窗口的 web, 别的给桌面; 页面里是 `acde:window` / `acde:desktop` 的 `on('shortcut')` |
 | `grab {key, code}` / `grablost {title}` | web surface | `acde_window` 的 grab 结果 (key 是种类, code 1 是授予) / 被收回 (title 是原因); 页面里是 `acde.window.on('grab' / 'grablost')` |
+| `windowgone {window, x, y, width, height}` | Broker | 绑定过 `acde_window` 的窗口 (web) 没了, 带它最后的 rect (canvas 坐标; 全屏的是进全屏之前的, `pinned` 不发); 给「窗口管理」记位置 |
 | `windowminsize {window, width, height}` | Broker | 窗框不能比它小 |
 | `windowparent {window, parent}` | Broker | 对话框等子窗口: 显示在父窗口上方, 不进 Dock; parent 为空表示不再是子窗口 |
 | `milestone {title, time}` | Broker | 合成器的启动里程碑, 各一次 (第一帧提交、第一次 vblank、第一个原生窗口) |
@@ -1321,7 +1322,7 @@ acde 的宿主代码, esbuild 打成 crates/acde 跑的两个 ES 模块 (运行�
 | `src/frame.ts`, `src/pinned.ts` | 「窗框」; 「钉住的面板」 |
 | `src/crashes.ts`, `src/log.ts` | 一段时间里崩了几次 (服务、web、后端的重启上限); `Log` (见「日志和计时」) |
 | `src/webapp.ts`, `src/pagecalls.ts`, `src/downloads.ts`, `src/backend.ts` | 「网页应用」: HTML 入口、页面的浏览器调用、下载、应用后端 |
-| `src/storage.ts`, `src/office.ts`, `src/autostart.ts`, `src/desktopentry.ts`, `src/debug.ts`, `src/timeline.ts`, `src/page.ts`, `src/native.ts`, `src/sys/` | localStorage 文件; Document Server 的编辑页; XDG autostart; 读 .desktop 文件 (autostart、外部会话、原生程序共用); `ACDE_DEBUG_DIR`; 启动标记; window web 的文档; crates/acde 给的原生接口 (`sys/` 用 node 风格的名字包了一层, XDG 目录在 `sys/os.ts`) |
+| `src/storage.ts`, `src/places.ts`, `src/office.ts`, `src/autostart.ts`, `src/desktopentry.ts`, `src/debug.ts`, `src/timeline.ts`, `src/page.ts`, `src/native.ts`, `src/sys/` | localStorage 文件; 应用窗口的位置 (「窗口管理」); Document Server 的编辑页; XDG autostart; 读 .desktop 文件 (autostart、外部会话、原生程序共用); `ACDE_DEBUG_DIR`; 启动标记; window web 的文档; crates/acde 给的原生接口 (`sys/` 用 node 风格的名字包了一层, XDG 目录在 `sys/os.ts`) |
 | `greet/`, `brand/` | 登录页 (`--greeter`, 见「桌面包」的登录页); 它的品牌: `mark.mjs` 是 agentos 仓库 `branding/mark.mjs` (母版, 只在那边改) 的原样拷贝, `lockup.mjs` 用它在 `<canvas>` 上按 devicePixelRatio 画标志和闪光 (resize、配色变了重画), `brand.css` 是配色 (浅色 / `prefers-color-scheme: dark`) 和字标的排法 (Outfit 500 的真文字, `outfit-latin-500-normal.woff2`, 许可证 `OFL.txt`); 包清单的 `assets` 把它挂在 `/acde/brand/` |
 | `scripts/bundle.mjs`, `scripts/fake-ds.ts`, `tests/fixtures/stress-app` | 打 `dist/` (压空白和语法, 保留名字, source map); 替身 Document Server (`bun scripts/fake-ds.ts`); `drive.sh perf stress` 用的应用 |
 
