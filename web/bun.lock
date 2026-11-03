@@ -12,6 +12,12 @@
     "packages/acde-api": {
       "name": "@dopame/acde-api",
       "version": "0.1.0",
+      "peerDependencies": {
+        "vite": ">=5",
+      },
+      "optionalPeers": [
+        "vite",
+      ],
     },
     "packages/acde-app": {
       "name": "@dopame/acde-app",
