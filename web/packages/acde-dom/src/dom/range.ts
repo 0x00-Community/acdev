@@ -159,33 +159,38 @@ function checkPoint(node: Node, offset: number, method: string, iface = 'Range')
   if (offset > length) throw new DOMException(`Failed to execute '${method}' on '${iface}': The offset ${offset} is larger than the node's length (${length}).`, 'IndexSizeError')
 }
 
+const START_NODE = Symbol('startContainer')
+const START_OFFSET = Symbol('startOffset')
+const END_NODE = Symbol('endContainer')
+const END_OFFSET = Symbol('endOffset')
+
 export class AbstractRange {
-  protected _sc: Node
-  protected _so: number
-  protected _ec: Node
-  protected _eo: number
+  protected [START_NODE]: Node
+  protected [START_OFFSET]: number
+  protected [END_NODE]: Node
+  protected [END_OFFSET]: number
 
   constructor(sc: Node, so: number, ec: Node, eo: number) {
-    this._sc = sc
-    this._so = so
-    this._ec = ec
-    this._eo = eo
+    this[START_NODE] = sc
+    this[START_OFFSET] = so
+    this[END_NODE] = ec
+    this[END_OFFSET] = eo
   }
 
   get startContainer(): Node {
-    return this._sc
+    return this[START_NODE]
   }
   get startOffset(): number {
-    return this._so
+    return this[START_OFFSET]
   }
   get endContainer(): Node {
-    return this._ec
+    return this[END_NODE]
   }
   get endOffset(): number {
-    return this._eo
+    return this[END_OFFSET]
   }
   get collapsed(): boolean {
-    return this._sc === this._ec && this._so === this._eo
+    return this[START_NODE] === this[END_NODE] && this[START_OFFSET] === this[END_OFFSET]
   }
 }
 tag(AbstractRange)
@@ -220,41 +225,41 @@ export class Range extends AbstractRange {
   static {
     setBoundary = (range, start, node, offset) => {
       if (start) {
-        range._sc = node
-        range._so = offset
+        range[START_NODE] = node
+        range[START_OFFSET] = offset
       } else {
-        range._ec = node
-        range._eo = offset
+        range[END_NODE] = node
+        range[END_OFFSET] = offset
       }
     }
   }
 
   get commonAncestorContainer(): Node {
-    const common = commonAncestor(this._sc[ID], this._ec[ID])
-    return common === NONE ? this._sc : wrap<Node>(common)!
+    const common = commonAncestor(this[START_NODE][ID], this[END_NODE][ID])
+    return common === NONE ? this[START_NODE] : wrap<Node>(common)!
   }
 
   setStart(node: Node, offset: number): void {
     const o = Number(offset) >>> 0
     checkPoint(node, o, 'setStart')
-    if (root(node[ID]) !== root(this._ec[ID]) || compare(node[ID], o, this._ec[ID], this._eo) === Position.After) {
-      this._ec = node
-      this._eo = o
+    if (root(node[ID]) !== root(this[END_NODE][ID]) || compare(node[ID], o, this[END_NODE][ID], this[END_OFFSET]) === Position.After) {
+      this[END_NODE] = node
+      this[END_OFFSET] = o
     }
-    this._sc = node
-    this._so = o
+    this[START_NODE] = node
+    this[START_OFFSET] = o
     changed(this)
   }
 
   setEnd(node: Node, offset: number): void {
     const o = Number(offset) >>> 0
     checkPoint(node, o, 'setEnd')
-    if (root(node[ID]) !== root(this._sc[ID]) || compare(node[ID], o, this._sc[ID], this._so) === Position.Before) {
-      this._sc = node
-      this._so = o
+    if (root(node[ID]) !== root(this[START_NODE][ID]) || compare(node[ID], o, this[START_NODE][ID], this[START_OFFSET]) === Position.Before) {
+      this[START_NODE] = node
+      this[START_OFFSET] = o
     }
-    this._ec = node
-    this._eo = o
+    this[END_NODE] = node
+    this[END_OFFSET] = o
     changed(this)
   }
 
@@ -279,11 +284,11 @@ export class Range extends AbstractRange {
 
   collapse(toStart = false): void {
     if (toStart) {
-      this._ec = this._sc
-      this._eo = this._so
+      this[END_NODE] = this[START_NODE]
+      this[END_OFFSET] = this[START_OFFSET]
     } else {
-      this._sc = this._ec
-      this._so = this._eo
+      this[START_NODE] = this[END_NODE]
+      this[START_OFFSET] = this[END_OFFSET]
     }
     changed(this)
   }
@@ -291,80 +296,80 @@ export class Range extends AbstractRange {
   selectNode(node: Node): void {
     const parent = this.#parentOf(node, 'selectNode')
     const index = indexOf(node)
-    this._sc = parent
-    this._so = index
-    this._ec = parent
-    this._eo = index + 1
+    this[START_NODE] = parent
+    this[START_OFFSET] = index
+    this[END_NODE] = parent
+    this[END_OFFSET] = index + 1
     changed(this)
   }
 
   selectNodeContents(node: Node): void {
     if (node.nodeType === NodeType.DocumentType) throw new DOMException("Failed to execute 'selectNodeContents' on 'Range': The node provided is of type 'DocumentType'.", 'InvalidNodeTypeError')
-    this._sc = node
-    this._so = 0
-    this._ec = node
-    this._eo = nodeLength(node)
+    this[START_NODE] = node
+    this[START_OFFSET] = 0
+    this[END_NODE] = node
+    this[END_OFFSET] = nodeLength(node)
     changed(this)
   }
 
   compareBoundaryPoints(how: number, source: Range): number {
     if (how < 0 || how > 3) throw new DOMException("Failed to execute 'compareBoundaryPoints' on 'Range': The comparison method provided must be one of 'START_TO_START', 'START_TO_END', 'END_TO_END', or 'END_TO_START'.", 'NotSupportedError')
-    if (root(this._sc[ID]) !== root(source.startContainer[ID])) throw new DOMException("Failed to execute 'compareBoundaryPoints' on 'Range': The source range is in a different document than this range.", 'WrongDocumentError')
-    const [a, ao] = how === 0 || how === 3 ? [this._sc, this._so] : [this._ec, this._eo]
+    if (root(this[START_NODE][ID]) !== root(source.startContainer[ID])) throw new DOMException("Failed to execute 'compareBoundaryPoints' on 'Range': The source range is in a different document than this range.", 'WrongDocumentError')
+    const [a, ao] = how === 0 || how === 3 ? [this[START_NODE], this[START_OFFSET]] : [this[END_NODE], this[END_OFFSET]]
     const [b, bo] = how === 0 || how === 1 ? [source.startContainer, source.startOffset] : [source.endContainer, source.endOffset]
     return compare(a[ID], ao, b[ID], bo)
   }
 
   comparePoint(node: Node, offset: number): number {
-    if (root(node[ID]) !== root(this._sc[ID])) throw new DOMException("Failed to execute 'comparePoint' on 'Range': The node provided and the Range are not in the same tree.", 'WrongDocumentError')
+    if (root(node[ID]) !== root(this[START_NODE][ID])) throw new DOMException("Failed to execute 'comparePoint' on 'Range': The node provided and the Range are not in the same tree.", 'WrongDocumentError')
     const o = Number(offset) >>> 0
     checkPoint(node, o, 'comparePoint')
-    if (compare(node[ID], o, this._sc[ID], this._so) === Position.Before) return -1
-    if (compare(node[ID], o, this._ec[ID], this._eo) === Position.After) return 1
+    if (compare(node[ID], o, this[START_NODE][ID], this[START_OFFSET]) === Position.Before) return -1
+    if (compare(node[ID], o, this[END_NODE][ID], this[END_OFFSET]) === Position.After) return 1
     return 0
   }
 
   isPointInRange(node: Node, offset: number): boolean {
-    if (root(node[ID]) !== root(this._sc[ID])) return false
+    if (root(node[ID]) !== root(this[START_NODE][ID])) return false
     if (offset > nodeLength(node)) throw new DOMException(`Failed to execute 'isPointInRange' on 'Range': The offset ${offset} is larger than the node's length.`, 'IndexSizeError')
-    return compare(node[ID], offset, this._sc[ID], this._so) !== Position.Before && compare(node[ID], offset, this._ec[ID], this._eo) !== Position.After
+    return compare(node[ID], offset, this[START_NODE][ID], this[START_OFFSET]) !== Position.Before && compare(node[ID], offset, this[END_NODE][ID], this[END_OFFSET]) !== Position.After
   }
 
   intersectsNode(node: Node): boolean {
     const id = node[ID]
-    if (root(id) !== root(this._sc[ID])) return false
+    if (root(id) !== root(this[START_NODE][ID])) return false
     const parent = dom.parent(id)
     if (parent === NONE) return true
     const index = dom.childNodes(parent).indexOf(id)
-    return compare(parent, index, this._ec[ID], this._eo) === Position.Before && compare(parent, index + 1, this._sc[ID], this._so) === Position.After
+    return compare(parent, index, this[END_NODE][ID], this[END_OFFSET]) === Position.Before && compare(parent, index + 1, this[START_NODE][ID], this[START_OFFSET]) === Position.After
   }
 
   cloneRange(): Range {
     const range = new Range()
-    setBoundary(range, true, this._sc, this._so)
-    setBoundary(range, false, this._ec, this._eo)
+    setBoundary(range, true, this[START_NODE], this[START_OFFSET])
+    setBoundary(range, false, this[END_NODE], this[END_OFFSET])
     return range
   }
 
   detach(): void {}
 
   override toString(): string {
-    const sc = this._sc, ec = this._ec
-    if (sc === ec && isText(sc)) return dom.data(sc[ID]).slice(this._so, this._eo)
+    const sc = this[START_NODE], ec = this[END_NODE]
+    if (sc === ec && isText(sc)) return dom.data(sc[ID]).slice(this[START_OFFSET], this[END_OFFSET])
     let out = ''
-    if (isText(sc)) out += dom.data(sc[ID]).slice(this._so)
+    if (isText(sc)) out += dom.data(sc[ID]).slice(this[START_OFFSET])
     for (const id of this.#contained()) {
       const type = dom.nodeType(id)
       if (type === NodeType.Text) out += dom.data(id)
       else if (type === NodeType.Element || type === NodeType.DocumentFragment) out += dom.textContent(id)
     }
-    if (isText(ec)) out += dom.data(ec[ID]).slice(0, this._eo)
+    if (isText(ec)) out += dom.data(ec[ID]).slice(0, this[END_OFFSET])
     return out
   }
 
   #contained(): number[] {
-    const sc = this._sc[ID], ec = this._ec[ID], so = this._so, eo = this._eo
-    if (sc === ec) return isCharacterData(this._sc) ? [] : Array.from(dom.childNodes(sc).subarray(so, eo))
+    const sc = this[START_NODE][ID], ec = this[END_NODE][ID], so = this[START_OFFSET], eo = this[END_OFFSET]
+    if (sc === ec) return isCharacterData(this[START_NODE]) ? [] : Array.from(dom.childNodes(sc).subarray(so, eo))
     const starts = [sc, ...dom.ancestors(sc)], ends = [ec, ...dom.ancestors(ec)]
     const endAt = new Map<number, number>()
     for (let i = 0; i < ends.length; i++) endAt.set(ends[i]!, i)
@@ -377,7 +382,7 @@ export class Range extends AbstractRange {
       for (let i = 0; i < ids.length; i++) out.push(ids[i]!)
     }
     if (si > 0) {
-      if (!isCharacterData(this._sc)) push(dom.childNodes(sc).subarray(so))
+      if (!isCharacterData(this[START_NODE])) push(dom.childNodes(sc).subarray(so))
       for (let k = 1; k < si; k++) {
         const ids = dom.childNodes(starts[k]!)
         push(ids.subarray(ids.indexOf(starts[k - 1]!) + 1))
@@ -392,22 +397,22 @@ export class Range extends AbstractRange {
         const ids = dom.childNodes(ends[k]!)
         push(ids.subarray(0, ids.indexOf(ends[k - 1]!)))
       }
-      if (!isCharacterData(this._ec)) push(dom.childNodes(ec).subarray(0, eo))
+      if (!isCharacterData(this[END_NODE])) push(dom.childNodes(ec).subarray(0, eo))
     }
     return out
   }
 
   #collapsePoint(): [Node, number] {
-    const sc = this._sc[ID], ec = this._ec[ID]
+    const sc = this[START_NODE][ID], ec = this[END_NODE][ID]
     const common = commonAncestor(sc, ec)
-    if (common === sc || common === NONE) return [this._sc, this._so]
+    if (common === sc || common === NONE) return [this[START_NODE], this[START_OFFSET]]
     const child = childToward(common, sc)
     return [wrap<Node>(common)!, dom.childNodes(common).indexOf(child) + 1]
   }
 
   deleteContents(): void {
     if (this.collapsed) return
-    const sc = this._sc, so = this._so, ec = this._ec, eo = this._eo
+    const sc = this[START_NODE], so = this[START_OFFSET], ec = this[END_NODE], eo = this[END_OFFSET]
     if (sc === ec && isCharacterData(sc)) {
       ;(sc as CharacterData).replaceData(so, eo - so, '')
       return
@@ -417,8 +422,8 @@ export class Range extends AbstractRange {
     if (isCharacterData(sc)) (sc as CharacterData).replaceData(so, nodeLength(sc) - so, '')
     for (const id of contained) remove(wrap<Node>(id)!)
     if (isCharacterData(ec)) (ec as CharacterData).replaceData(0, eo, '')
-    this._sc = this._ec = newNode
-    this._so = this._eo = newOffset
+    this[START_NODE] = this[END_NODE] = newNode
+    this[START_OFFSET] = this[END_OFFSET] = newOffset
     changed(this)
   }
 
@@ -433,7 +438,7 @@ export class Range extends AbstractRange {
   #extract(move: boolean): DocumentFragment {
     const fragment = new DocumentFragment()
     if (this.collapsed) return fragment
-    const sc = this._sc, so = this._so, ec = this._ec, eo = this._eo
+    const sc = this[START_NODE], so = this[START_OFFSET], ec = this[END_NODE], eo = this[END_OFFSET]
     if (sc === ec && isCharacterData(sc)) {
       const clone = sc.cloneNode(false) as CharacterData
       clone.data = dom.data(sc[ID]).slice(so, eo)
@@ -488,23 +493,23 @@ export class Range extends AbstractRange {
       }
     }
     if (move) {
-      this._sc = this._ec = newNode
-      this._so = this._eo = newOffset
+      this[START_NODE] = this[END_NODE] = newNode
+      this[START_OFFSET] = this[END_OFFSET] = newOffset
       changed(this)
     }
     return fragment
   }
 
   insertNode(node: Node): void {
-    const sc = this._sc
+    const sc = this[START_NODE]
     if (sc.nodeType === NodeType.Comment || (isText(sc) && !sc.parentNode) || sc === node) throw new DOMException("Failed to execute 'insertNode' on 'Range': The range start is in a node that cannot be split.", 'HierarchyRequestError')
     let ref: Node | null
     let parent: Node
     if (isText(sc)) {
-      ref = (sc as Text).splitText(this._so)
+      ref = (sc as Text).splitText(this[START_OFFSET])
       parent = ref.parentNode!
     } else {
-      ref = wrap<Node>(dom.childNodes(sc[ID])[this._so] ?? NONE)
+      ref = wrap<Node>(dom.childNodes(sc[ID])[this[START_OFFSET]] ?? NONE)
       parent = sc
     }
     if (ref === node) ref = node.nextSibling
@@ -513,8 +518,8 @@ export class Range extends AbstractRange {
     const added = node.nodeType === NodeType.DocumentFragment ? nodeLength(node) : 1
     insert(parent, node, ref)
     if (this.collapsed) {
-      this._ec = parent
-      this._eo = index + added
+      this[END_NODE] = parent
+      this[END_OFFSET] = index + added
     }
     changed(this)
   }
@@ -532,23 +537,23 @@ export class Range extends AbstractRange {
   createContextualFragment(html: string): DocumentFragment {
     const markup = String(html)
     noteMarkup(markup)
-    let context = this._sc
+    let context = this[START_NODE]
     if (context.nodeType !== NodeType.Element) context = context.parentNode ?? wrap<Node>(bodyId()) ?? wrap<Node>(rootElementId())!
     return wrap<DocumentFragment>(guard(() => dom.parseFragment(context[ID], markup)))!
   }
 
   #rects(): Float64Array[] {
-    const sc = this._sc, ec = this._ec
+    const sc = this[START_NODE], ec = this[END_NODE]
     const rects: Float64Array[] = []
     const push = (list: Float64Array) => {
       for (let i = 0; i + 3 < list.length; i += 4) rects.push(list.subarray(i, i + 4))
     }
     if (isText(sc) && sc === ec) {
-      push(dom.textRects(sc[ID], this._so, this._eo))
-      if (rects.length === 0 && this.collapsed) push(dom.caretRect(sc[ID], this._so))
+      push(dom.textRects(sc[ID], this[START_OFFSET], this[END_OFFSET]))
+      if (rects.length === 0 && this.collapsed) push(dom.caretRect(sc[ID], this[START_OFFSET]))
       return rects
     }
-    if (isText(sc)) push(dom.textRects(sc[ID], this._so, nodeLength(sc)))
+    if (isText(sc)) push(dom.textRects(sc[ID], this[START_OFFSET], nodeLength(sc)))
     const walk = (id: number) => {
       for (let child = dom.firstChild(id); child !== NONE; child = dom.nextSibling(child)) {
         const type = dom.nodeType(child)
@@ -567,9 +572,9 @@ export class Range extends AbstractRange {
         walk(id)
       }
     }
-    if (isText(ec)) push(dom.textRects(ec[ID], 0, this._eo))
+    if (isText(ec)) push(dom.textRects(ec[ID], 0, this[END_OFFSET]))
     if (rects.length === 0 && sc.nodeType === NodeType.Element) {
-      const child = dom.childNodes(sc[ID])[this._so]
+      const child = dom.childNodes(sc[ID])[this[START_OFFSET]]
       rects.push(child !== undefined && dom.nodeType(child) === NodeType.Element ? rectOf(child) : rectOf(sc[ID]))
     }
     return rects

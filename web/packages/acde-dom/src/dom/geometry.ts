@@ -1,17 +1,25 @@
 import { DOMException } from '../core/exception'
 import { tag } from '../core/host'
 
+const X = Symbol('x')
+const Y = Symbol('y')
+const WIDTH = Symbol('width')
+const HEIGHT = Symbol('height')
+const POINT = Symbol('point')
+const M = Symbol('matrix')
+const IS_2D = Symbol('is2D')
+
 export class DOMRectReadOnly {
-  protected _x: number
-  protected _y: number
-  protected _w: number
-  protected _h: number
+  protected [X]: number
+  protected [Y]: number
+  protected [WIDTH]: number
+  protected [HEIGHT]: number
 
   constructor(x = 0, y = 0, width = 0, height = 0) {
-    this._x = +x
-    this._y = +y
-    this._w = +width
-    this._h = +height
+    this[X] = +x
+    this[Y] = +y
+    this[WIDTH] = +width
+    this[HEIGHT] = +height
   }
 
   static fromRect(rect?: { x?: number; y?: number; width?: number; height?: number }): DOMRectReadOnly {
@@ -19,28 +27,28 @@ export class DOMRectReadOnly {
   }
 
   get x(): number {
-    return this._x
+    return this[X]
   }
   get y(): number {
-    return this._y
+    return this[Y]
   }
   get width(): number {
-    return this._w
+    return this[WIDTH]
   }
   get height(): number {
-    return this._h
+    return this[HEIGHT]
   }
   get left(): number {
-    return Math.min(this._x, this._x + this._w)
+    return Math.min(this[X], this[X] + this[WIDTH])
   }
   get right(): number {
-    return Math.max(this._x, this._x + this._w)
+    return Math.max(this[X], this[X] + this[WIDTH])
   }
   get top(): number {
-    return Math.min(this._y, this._y + this._h)
+    return Math.min(this[Y], this[Y] + this[HEIGHT])
   }
   get bottom(): number {
-    return Math.max(this._y, this._y + this._h)
+    return Math.max(this[Y], this[Y] + this[HEIGHT])
   }
 
   toJSON(): object {
@@ -54,28 +62,28 @@ export class DOMRect extends DOMRectReadOnly {
     return new DOMRect(rect?.x, rect?.y, rect?.width, rect?.height)
   }
   override get x(): number {
-    return this._x
+    return this[X]
   }
   override set x(v: number) {
-    this._x = +v
+    this[X] = +v
   }
   override get y(): number {
-    return this._y
+    return this[Y]
   }
   override set y(v: number) {
-    this._y = +v
+    this[Y] = +v
   }
   override get width(): number {
-    return this._w
+    return this[WIDTH]
   }
   override set width(v: number) {
-    this._w = +v
+    this[WIDTH] = +v
   }
   override get height(): number {
-    return this._h
+    return this[HEIGHT]
   }
   override set height(v: number) {
-    this._h = +v
+    this[HEIGHT] = +v
   }
 }
 tag(DOMRect)
@@ -105,10 +113,10 @@ export function rectList(values: Float64Array): DOMRectList {
 }
 
 export class DOMPointReadOnly {
-  protected _p: [number, number, number, number]
+  protected [POINT]: [number, number, number, number]
 
   constructor(x = 0, y = 0, z = 0, w = 1) {
-    this._p = [+x, +y, +z, +w]
+    this[POINT] = [+x, +y, +z, +w]
   }
 
   static fromPoint(p?: { x?: number; y?: number; z?: number; w?: number }): DOMPointReadOnly {
@@ -116,22 +124,22 @@ export class DOMPointReadOnly {
   }
 
   get x(): number {
-    return this._p[0]
+    return this[POINT][0]
   }
   get y(): number {
-    return this._p[1]
+    return this[POINT][1]
   }
   get z(): number {
-    return this._p[2]
+    return this[POINT][2]
   }
   get w(): number {
-    return this._p[3]
+    return this[POINT][3]
   }
 
   matrixTransform(matrix?: DOMMatrixInit): DOMPoint {
     const m = DOMMatrixReadOnly.fromMatrix(matrix)
-    const [x, y, z, w] = this._p
-    const v = m.m
+    const [x, y, z, w] = this[POINT]
+    const v = m[M]
     return new DOMPoint(v[0]! * x + v[4]! * y + v[8]! * z + v[12]! * w, v[1]! * x + v[5]! * y + v[9]! * z + v[13]! * w, v[2]! * x + v[6]! * y + v[10]! * z + v[14]! * w, v[3]! * x + v[7]! * y + v[11]! * z + v[15]! * w)
   }
 
@@ -146,28 +154,28 @@ export class DOMPoint extends DOMPointReadOnly {
     return new DOMPoint(p?.x, p?.y, p?.z, p?.w)
   }
   override get x(): number {
-    return this._p[0]
+    return this[POINT][0]
   }
   override set x(v: number) {
-    this._p[0] = +v
+    this[POINT][0] = +v
   }
   override get y(): number {
-    return this._p[1]
+    return this[POINT][1]
   }
   override set y(v: number) {
-    this._p[1] = +v
+    this[POINT][1] = +v
   }
   override get z(): number {
-    return this._p[2]
+    return this[POINT][2]
   }
   override set z(v: number) {
-    this._p[2] = +v
+    this[POINT][2] = +v
   }
   override get w(): number {
-    return this._p[3]
+    return this[POINT][3]
   }
   override set w(v: number) {
-    this._p[3] = +v
+    this[POINT][3] = +v
   }
 }
 tag(DOMPoint)
@@ -264,7 +272,7 @@ function length(text: string): number {
   return v
 }
 
-export function parseTransform(text: string, svg = false): { m: M16; is2D: boolean } {
+function parseTransform(text: string, svg = false): { m: M16; is2D: boolean } {
   let m = identity()
   let is2D = true
   const source = text.trim()
@@ -312,28 +320,34 @@ export function parseTransform(text: string, svg = false): { m: M16; is2D: boole
   return { m, is2D }
 }
 
+export function svgTransform(text: string): DOMMatrix {
+  const matrix = new DOMMatrix()
+  matrix[M] = parseTransform(text, true).m
+  return matrix
+}
+
 const NAMES = ['m11', 'm12', 'm13', 'm14', 'm21', 'm22', 'm23', 'm24', 'm31', 'm32', 'm33', 'm34', 'm41', 'm42', 'm43', 'm44'] as const
 
 export class DOMMatrixReadOnly {
-  m: M16
-  protected _2d: boolean
+  [M]: M16
+  protected [IS_2D]: boolean
 
   constructor(init?: string | number[] | Float32Array | Float64Array) {
     if (init === undefined) {
-      this.m = identity()
-      this._2d = true
+      this[M] = identity()
+      this[IS_2D] = true
     } else if (typeof init === 'string') {
       const { m, is2D } = parseTransform(init)
-      this.m = m
-      this._2d = is2D
+      this[M] = m
+      this[IS_2D] = is2D
     } else {
       const list = Array.from(init, Number)
       if (list.length === 6) {
-        this.m = from2d(list[0]!, list[1]!, list[2]!, list[3]!, list[4]!, list[5]!)
-        this._2d = true
+        this[M] = from2d(list[0]!, list[1]!, list[2]!, list[3]!, list[4]!, list[5]!)
+        this[IS_2D] = true
       } else if (list.length === 16) {
-        this.m = list
-        this._2d = false
+        this[M] = list
+        this[IS_2D] = false
       } else throw new TypeError(`Failed to construct 'DOMMatrix': The sequence must contain 6 elements for a 2D matrix or 16 elements for a 3D matrix.`)
     }
   }
@@ -341,13 +355,13 @@ export class DOMMatrixReadOnly {
   static fromMatrix(init?: DOMMatrixInit | DOMMatrixReadOnly): DOMMatrix {
     if (init instanceof DOMMatrixReadOnly) {
       const copy = new DOMMatrix()
-      copy.m = init.m.slice()
-      copy._2d = init._2d
+      copy[M] = init[M].slice()
+      copy[IS_2D] = init[IS_2D]
       return copy
     }
     const out = new DOMMatrix()
     if (!init) return out
-    const v = out.m
+    const v = out[M]
     v[0] = init.m11 ?? init.a ?? 1
     v[1] = init.m12 ?? init.b ?? 0
     v[4] = init.m21 ?? init.c ?? 0
@@ -364,7 +378,7 @@ export class DOMMatrixReadOnly {
     v[11] = init.m34 ?? 0
     v[14] = init.m43 ?? 0
     v[15] = init.m44 ?? 1
-    out._2d = init.is2D ?? ([2, 3, 6, 7, 8, 9, 11, 14].every((i) => v[i] === 0) && v[10] === 1 && v[15] === 1)
+    out[IS_2D] = init.is2D ?? ([2, 3, 6, 7, 8, 9, 11, 14].every((i) => v[i] === 0) && v[10] === 1 && v[15] === 1)
     return out
   }
 
@@ -376,29 +390,29 @@ export class DOMMatrixReadOnly {
   }
 
   get a(): number {
-    return this.m[0]!
+    return this[M][0]!
   }
   get b(): number {
-    return this.m[1]!
+    return this[M][1]!
   }
   get c(): number {
-    return this.m[4]!
+    return this[M][4]!
   }
   get d(): number {
-    return this.m[5]!
+    return this[M][5]!
   }
   get e(): number {
-    return this.m[12]!
+    return this[M][12]!
   }
   get f(): number {
-    return this.m[13]!
+    return this[M][13]!
   }
   get is2D(): boolean {
-    return this._2d
+    return this[IS_2D]
   }
   get isIdentity(): boolean {
     const id = identity()
-    return this.m.every((v, i) => v === id[i])
+    return this[M].every((v, i) => v === id[i])
   }
 
   multiply(other?: DOMMatrixInit | DOMMatrixReadOnly): DOMMatrix {
@@ -443,23 +457,23 @@ export class DOMMatrixReadOnly {
   }
 
   toFloat32Array(): Float32Array {
-    return Float32Array.from(this.m)
+    return Float32Array.from(this[M])
   }
   toFloat64Array(): Float64Array {
-    return Float64Array.from(this.m)
+    return Float64Array.from(this[M])
   }
 
   toJSON(): object {
     const out: Record<string, number | boolean> = { a: this.a, b: this.b, c: this.c, d: this.d, e: this.e, f: this.f, is2D: this.is2D, isIdentity: this.isIdentity }
-    NAMES.forEach((name, i) => (out[name] = this.m[i]!))
+    NAMES.forEach((name, i) => (out[name] = this[M][i]!))
     return out
   }
 
   toString(): string {
-    return this._2d ? `matrix(${[this.a, this.b, this.c, this.d, this.e, this.f].join(', ')})` : `matrix3d(${this.m.join(', ')})`
+    return this[IS_2D] ? `matrix(${[this.a, this.b, this.c, this.d, this.e, this.f].join(', ')})` : `matrix3d(${this[M].join(', ')})`
   }
 }
-NAMES.forEach((name, i) => Object.defineProperty(DOMMatrixReadOnly.prototype, name, { get(this: DOMMatrixReadOnly) { return this.m[i] }, enumerable: true, configurable: true }))
+NAMES.forEach((name, i) => Object.defineProperty(DOMMatrixReadOnly.prototype, name, { get(this: DOMMatrixReadOnly) { return this[M][i] }, enumerable: true, configurable: true }))
 tag(DOMMatrixReadOnly)
 
 export class DOMMatrix extends DOMMatrixReadOnly {
@@ -469,14 +483,14 @@ export class DOMMatrix extends DOMMatrixReadOnly {
 
   multiplySelf(other?: DOMMatrixInit | DOMMatrixReadOnly): this {
     const o = DOMMatrixReadOnly.fromMatrix(other)
-    this.m = multiply(this.m, o.m)
-    this._2d = this._2d && o.is2D
+    this[M] = multiply(this[M], o[M])
+    this[IS_2D] = this[IS_2D] && o.is2D
     return this
   }
   preMultiplySelf(other?: DOMMatrixInit | DOMMatrixReadOnly): this {
     const o = DOMMatrixReadOnly.fromMatrix(other)
-    this.m = multiply(o.m, this.m)
-    this._2d = this._2d && o.is2D
+    this[M] = multiply(o[M], this[M])
+    this[IS_2D] = this[IS_2D] && o.is2D
     return this
   }
   translateSelf(tx = 0, ty = 0, tz = 0): this {
@@ -484,8 +498,8 @@ export class DOMMatrix extends DOMMatrixReadOnly {
     t[12] = tx
     t[13] = ty
     t[14] = tz
-    this.m = multiply(this.m, t)
-    if (tz) this._2d = false
+    this[M] = multiply(this[M], t)
+    if (tz) this[IS_2D] = false
     return this
   }
   scaleSelf(sx = 1, sy = sx, sz = 1, ox = 0, oy = 0, oz = 0): this {
@@ -494,8 +508,8 @@ export class DOMMatrix extends DOMMatrixReadOnly {
     t[0] = sx
     t[5] = sy
     t[10] = sz
-    this.m = multiply(this.m, t)
-    if (sz !== 1) this._2d = false
+    this[M] = multiply(this[M], t)
+    if (sz !== 1) this[IS_2D] = false
     return this.translateSelf(-ox, -oy, -oz)
   }
   scale3dSelf(s = 1, ox = 0, oy = 0, oz = 0): this {
@@ -510,47 +524,47 @@ export class DOMMatrix extends DOMMatrixReadOnly {
     const rad = Math.PI / 180
     if (rz) {
       const c = Math.cos(rz * rad), s = Math.sin(rz * rad)
-      this.m = multiply(this.m, from2d(c, s, -s, c, 0, 0))
+      this[M] = multiply(this[M], from2d(c, s, -s, c, 0, 0))
     }
     if (ry) {
       const c = Math.cos(ry * rad), s = Math.sin(ry * rad)
-      this.m = multiply(this.m, [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1])
-      this._2d = false
+      this[M] = multiply(this[M], [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1])
+      this[IS_2D] = false
     }
     if (rx) {
       const c = Math.cos(rx * rad), s = Math.sin(rx * rad)
-      this.m = multiply(this.m, [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1])
-      this._2d = false
+      this[M] = multiply(this[M], [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1])
+      this[IS_2D] = false
     }
     return this
   }
   skewXSelf(sx = 0): this {
-    this.m = multiply(this.m, from2d(1, 0, Math.tan((sx * Math.PI) / 180), 1, 0, 0))
+    this[M] = multiply(this[M], from2d(1, 0, Math.tan((sx * Math.PI) / 180), 1, 0, 0))
     return this
   }
   skewYSelf(sy = 0): this {
-    this.m = multiply(this.m, from2d(1, Math.tan((sy * Math.PI) / 180), 0, 1, 0, 0))
+    this[M] = multiply(this[M], from2d(1, Math.tan((sy * Math.PI) / 180), 0, 1, 0, 0))
     return this
   }
   invertSelf(): this {
-    const inv = invert(this.m)
+    const inv = invert(this[M])
     if (!inv) {
-      this.m = new Array(16).fill(NaN)
-      this._2d = false
-    } else this.m = inv
+      this[M] = new Array(16).fill(NaN)
+      this[IS_2D] = false
+    } else this[M] = inv
     return this
   }
   setMatrixValue(text: string): this {
     const { m, is2D } = parseTransform(text)
-    this.m = m
-    this._2d = is2D
+    this[M] = m
+    this[IS_2D] = is2D
     return this
   }
 }
 for (const [name, i] of [['a', 0], ['b', 1], ['c', 4], ['d', 5], ['e', 12], ['f', 13]] as const) {
-  Object.defineProperty(DOMMatrix.prototype, name, { get(this: DOMMatrix) { return this.m[i] }, set(this: DOMMatrix, v: number) { this.m[i] = +v }, enumerable: true, configurable: true })
+  Object.defineProperty(DOMMatrix.prototype, name, { get(this: DOMMatrix) { return this[M][i] }, set(this: DOMMatrix, v: number) { this[M][i] = +v }, enumerable: true, configurable: true })
 }
-NAMES.forEach((name, i) => Object.defineProperty(DOMMatrix.prototype, name, { get(this: DOMMatrix) { return this.m[i] }, set(this: DOMMatrix, v: number) { this.m[i] = +v }, enumerable: true, configurable: true }))
+NAMES.forEach((name, i) => Object.defineProperty(DOMMatrix.prototype, name, { get(this: DOMMatrix) { return this[M][i] }, set(this: DOMMatrix, v: number) { this[M][i] = +v }, enumerable: true, configurable: true }))
 tag(DOMMatrix)
 
 function invert(m: M16): M16 | null {

@@ -1,7 +1,7 @@
 import { tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { Element, setAttribute } from './element'
-import { DOMMatrix, DOMPoint, DOMRect, parseTransform } from './geometry'
+import { DOMMatrix, DOMPoint, DOMRect, svgTransform } from './geometry'
 import { defineElementHandlers, HTMLOrSVGElementMixin, svgClasses, svgFallback } from './html'
 import { metricsOf, rectOf } from './layout'
 import { elementById, mixin } from './node'
@@ -125,9 +125,7 @@ tag(SVGAnimatedTransformList)
 
 function transformMatrix(text: string): DOMMatrix | null {
   try {
-    const m = new DOMMatrix()
-    m.m = parseTransform(text, true).m
-    return m
+    return svgTransform(text)
   } catch {
     return null
   }

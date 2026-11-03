@@ -38,19 +38,20 @@ interface Timing {
 }
 
 const OWNER = Symbol('owner')
+const TIMING = Symbol('timing')
 const SYNC = Symbol('sync')
 const CSS = Symbol('css')
 const RULE = Symbol('rule')
 const BODY = Symbol('body')
 
 export class AnimationEffect {
-  protected timing: Timing
+  readonly [TIMING]: Timing
   [OWNER]: Animation | null = null
 
   constructor(options?: number | Partial<Timing> & { duration?: number | string }) {
     const o = typeof options === 'number' ? { duration: options } : (options ?? {})
     const duration = typeof o.duration === 'number' ? o.duration : 0
-    this.timing = {
+    this[TIMING] = {
       delay: Number(o.delay ?? 0),
       endDelay: Number(o.endDelay ?? 0),
       duration: Math.max(0, duration),
@@ -63,16 +64,16 @@ export class AnimationEffect {
   }
 
   getTiming(): Timing {
-    return { ...this.timing }
+    return { ...this[TIMING] }
   }
 
   getComputedTiming(): Timing & { activeDuration: number; endTime: number; localTime: number | null; progress: number | null; currentIteration: number | null } {
-    const active = this.timing.duration * this.timing.iterations
-    return { ...this.timing, activeDuration: active, endTime: Math.max(0, this.timing.delay + active + this.timing.endDelay), localTime: null, progress: null, currentIteration: null }
+    const active = this[TIMING].duration * this[TIMING].iterations
+    return { ...this[TIMING], activeDuration: active, endTime: Math.max(0, this[TIMING].delay + active + this[TIMING].endDelay), localTime: null, progress: null, currentIteration: null }
   }
 
   updateTiming(timing?: Partial<Timing>): void {
-    Object.assign(this.timing, timing ?? {})
+    Object.assign(this[TIMING], timing ?? {})
     this[OWNER]?.[SYNC]()
   }
 
