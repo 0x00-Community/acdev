@@ -10,9 +10,9 @@ export function readFileSync(path: string, encoding?: unknown): string | Uint8Ar
   return encoding ? sys().readText(path) : sys().readFile(path)
 }
 
-export function writeFileSync(path: string, data: string | Uint8Array, options?: { mode?: number } | string): void {
+export function writeFileSync(path: string, data: string | Uint8Array, options?: { mode?: number }): void {
   sys().writeFile(path, data)
-  if (typeof options === 'object' && options?.mode !== undefined) sys().chmod(path, options.mode)
+  if (options?.mode !== undefined) sys().chmod(path, options.mode)
 }
 
 export function existsSync(path: string): boolean {

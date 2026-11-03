@@ -1,5 +1,5 @@
-import { mkdirSync, readdirSync, rmSync, stat, writeFileSync } from './sys/fs'
-import { firefoxSnapDir, xdgHome } from './sys/os'
+import { existsSync, mkdirSync, readdirSync, rmSync, stat, writeFileSync } from './sys/fs'
+import { homedir, xdgHome } from './sys/os'
 import { join } from './sys/path'
 import { pathToFileURL } from './sys/url'
 import { process } from './sys/process'
@@ -7,8 +7,8 @@ import { PageSource } from './page'
 
 export class OfficePage {
   static dir(): string {
-    const snap = firefoxSnapDir()
-    return snap ? join(snap, 'acde-office') : join(process.env['XDG_RUNTIME_DIR'] || xdgHome('cache'), 'acde', 'office')
+    const snap = join(homedir(), 'snap', 'firefox', 'common')
+    return existsSync(snap) ? join(snap, 'acde-office') : join(process.env['XDG_RUNTIME_DIR'] || xdgHome('cache'), 'acde', 'office')
   }
 
   static write(setup: { api: string; config: unknown }, theme: 'light' | 'dark'): string {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from './fs'
+import { readFileSync } from './fs'
 import { sys } from './natives'
 import { isAbsolute, join } from './path'
 import { process } from './process'
@@ -34,9 +34,4 @@ export function userDir(name: 'PICTURES' | 'DOWNLOAD', fallback: string): string
   } catch {
   }
   return join(home, fallback)
-}
-
-export function firefoxSnapDir(): string | null {
-  const dir = join(homedir(), 'snap', 'firefox', 'common')
-  return existsSync(dir) ? dir : null
 }
