@@ -13,10 +13,14 @@ use rustix::process::{self, Signal};
 use crate::bind;
 use crate::rt::{self, Msg};
 
+struct Spawned {
+    on_exit: v8::Global<v8::Function>,
+    on_stdout: Option<v8::Global<v8::Function>>,
+    input: Option<Sender<Vec<u8>>>,
+}
+
 thread_local! {
-    static EXITS: RefCell<HashMap<u32, v8::Global<v8::Function>>> = RefCell::new(HashMap::new());
-    static LINES: RefCell<HashMap<u32, v8::Global<v8::Function>>> = RefCell::new(HashMap::new());
-    static INPUTS: RefCell<HashMap<u32, Sender<Vec<u8>>>> = RefCell::new(HashMap::new());
+    static CHILDREN: RefCell<HashMap<u32, Spawned>> = RefCell::new(HashMap::new());
 }
 
 type Fork = (Command, SyncSender<std::io::Result<Child>>);
@@ -105,7 +109,7 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
         }
     });
     let tx = rt::current().sender();
-    if let Some(mut input) = child.stdin.take() {
+    let input = child.stdin.take().map(|mut input| {
         let (feed, fed) = channel::<Vec<u8>>();
         _ = std::thread::Builder::new().name("acde-child-in".into()).spawn(move || {
             for bytes in fed {
@@ -114,8 +118,8 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
                 }
             }
         });
-        INPUTS.with(|i| i.borrow_mut().insert(pid, feed));
-    }
+        feed
+    });
     let read = lines.map(|lines| {
         let (done, read) = sync_channel::<()>(1);
         let tx = tx.clone();
@@ -141,17 +145,14 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
         return bind::throw_error(scope, &format!("spawn {program}: {e}"));
     }
     let on_exit = v8::Global::new(scope, on_exit);
-    EXITS.with(|e| e.borrow_mut().insert(pid, on_exit));
+    let on_stdout = on_stdout.map(|f| v8::Global::new(scope, f));
+    CHILDREN.with(|c| c.borrow_mut().insert(pid, Spawned { on_exit, on_stdout, input }));
     rt::current().keep_alive(true);
-    if let Some(on_stdout) = on_stdout {
-        let on_stdout = v8::Global::new(scope, on_stdout);
-        LINES.with(|l| l.borrow_mut().insert(pid, on_stdout));
-    }
     rv.set_uint32(pid);
 }
 
 fn stdout_line(scope: &mut v8::PinScope, pid: u32, line: &str) {
-    let Some(callback) = LINES.with(|l| l.borrow().get(&pid).cloned()) else { return };
+    let Some(callback) = CHILDREN.with(|c| c.borrow().get(&pid).and_then(|c| c.on_stdout.clone())) else { return };
     let line = bind::string(scope, line);
     bind::call(scope, callback, &[line.into()]);
 }
@@ -159,19 +160,21 @@ fn stdout_line(scope: &mut v8::PinScope, pid: u32, line: &str) {
 pub fn write(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let pid = args.get(0).uint32_value(scope).unwrap_or(0);
     let text = bind::arg_string(scope, &args, 1);
-    let sent = INPUTS.with(|i| i.borrow().get(&pid).is_some_and(|feed| feed.send(text.into_bytes()).is_ok()));
+    let sent = CHILDREN.with(|c| c.borrow().get(&pid).and_then(|c| c.input.as_ref()).is_some_and(|feed| feed.send(text.into_bytes()).is_ok()));
     rv.set_bool(sent);
 }
 
 pub fn end_input(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let pid = args.get(0).uint32_value(scope).unwrap_or(0);
-    INPUTS.with(|i| i.borrow_mut().remove(&pid));
+    CHILDREN.with(|c| {
+        if let Some(child) = c.borrow_mut().get_mut(&pid) {
+            child.input = None;
+        }
+    });
 }
 
 fn exited(scope: &mut v8::PinScope, pid: u32, code: Option<i32>, signal: Option<i32>) {
-    LINES.with(|l| l.borrow_mut().remove(&pid));
-    INPUTS.with(|i| i.borrow_mut().remove(&pid));
-    let Some(callback) = EXITS.with(|e| e.borrow_mut().remove(&pid)) else { return };
+    let Some(child) = CHILDREN.with(|c| c.borrow_mut().remove(&pid)) else { return };
     rt::current().keep_alive(false);
     let code: v8::Local<v8::Value> = match code {
         Some(code) => v8::Integer::new(scope, code).into(),
@@ -181,7 +184,7 @@ fn exited(scope: &mut v8::PinScope, pid: u32, code: Option<i32>, signal: Option<
         Some(signal) => v8::Integer::new(scope, signal).into(),
         None => v8::null(scope).into(),
     };
-    bind::call(scope, callback, &[code, signal]);
+    bind::call(scope, child.on_exit, &[code, signal]);
 }
 
 fn text(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &str) -> Option<String> {
