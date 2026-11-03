@@ -114,16 +114,17 @@ tag(IntersectionObserverEntry)
 
 const intersectionObservers = new Set<IntersectionObserver>()
 
-type Margin = [number, string][]
+type Side = [number, string]
+type Margin = [Side, Side, Side, Side]
 
 function parseMargin(text: string): Margin {
   const parts = text.trim().split(/\s+/).filter(Boolean)
-  const values = parts.map((p): [number, string] => {
+  const values = parts.map((p): Side => {
     const m = /^(-?[\d.]+)(px|%)?$/.exec(p)
     if (!m) throw new SyntaxError(`Failed to construct 'IntersectionObserver': rootMargin must be specified in pixels or percent.`)
     return [parseFloat(m[1]!), m[2] ?? 'px']
   })
-  const [t = [0, 'px'], r = t, b = t, l = r] = values as [number, string][]
+  const [t = [0, 'px'] as Side, r = t, b = t, l = r] = values
   return [t, r, b, l]
 }
 
@@ -208,8 +209,8 @@ export class IntersectionObserver {
       w = v.width
       h = v.height
     }
-    const [t, rr, b, l] = this.#margin.map(([v, u]) => [v, u] as const) as unknown as [[number, string], [number, string], [number, string], [number, string]]
-    const amount = ([v, u]: [number, string], size: number) => (u === '%' ? (v / 100) * size : v)
+    const [t, rr, b, l] = this.#margin
+    const amount = ([v, u]: Side, size: number) => (u === '%' ? (v / 100) * size : v)
     const top = amount(t, h), right = amount(rr, w), bottom = amount(b, h), left = amount(l, w)
     return new DOMRectReadOnly(x - left, y - top, w + left + right, h + top + bottom)
   }

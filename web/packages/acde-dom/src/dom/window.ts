@@ -11,9 +11,9 @@ import { env, frames, resolveUrl } from './env'
 import { HashChangeEvent, MediaQueryListEvent, PopStateEvent } from './events'
 import { HANDLER_TYPES } from './element'
 import { linkHooks } from './html'
-import { metricsOf } from './layout'
+import { rootScroll } from './layout'
 import { FileSystemFileHandle, FileSystemHandle, FileSystemWritableFileStream, showOpenFilePicker, showSaveFilePicker } from './picker'
-import { documentId, dom, ID, rootElementId, wrap } from './realm'
+import { documentId, dom, rootElementId, wrap } from './realm'
 import { computedStyle, type CSSStyleDeclaration } from './style'
 
 export const viewport = { width: 0, height: 0, scale: 1 }
@@ -26,10 +26,6 @@ export function readViewport(): void {
   viewport.width = v.width
   viewport.height = v.height
   viewport.scale = v.scale
-}
-
-function rootElement(): Element | null {
-  return wrap<Element>(rootElementId())
 }
 
 export class Window extends EventTarget {}
@@ -673,10 +669,10 @@ export class VisualViewport extends EventTarget {
     return 0
   }
   get pageLeft(): number {
-    return scrollOf(0)
+    return rootScroll(0)
   }
   get pageTop(): number {
-    return scrollOf(1)
+    return rootScroll(1)
   }
   get scale(): number {
     return 1
@@ -685,14 +681,8 @@ export class VisualViewport extends EventTarget {
 defineHandlers(VisualViewport.prototype, ['resize', 'scroll', 'scrollend'])
 tag(VisualViewport)
 
-function scrollOf(axis: 0 | 1): number {
-  const root = rootElement()
-  const m = root ? metricsOf(root[ID]) : null
-  return m ? (axis === 0 ? m.scrollLeft : m.scrollTop) : 0
-}
-
 function scrollViewport(x: number | null, y: number | null, smooth: boolean): void {
-  const root = rootElement()
+  const root = wrap<Element>(rootElementId())
   if (root) scrollElement(root, x, y, smooth)
 }
 
@@ -739,7 +729,7 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
     localStorage: () => parts.localStorage,
     sessionStorage: () => parts.sessionStorage,
     customElements: () => parts.customElements,
-    event: () => windowEvent(),
+    event: windowEvent,
     opener: () => null,
     frameElement: () => null,
     closed: () => false,
@@ -756,10 +746,10 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
     screenY: () => 0,
     screenLeft: () => 0,
     screenTop: () => 0,
-    scrollX: () => scrollOf(0),
-    scrollY: () => scrollOf(1),
-    pageXOffset: () => scrollOf(0),
-    pageYOffset: () => scrollOf(1),
+    scrollX: () => rootScroll(0),
+    scrollY: () => rootScroll(1),
+    pageXOffset: () => rootScroll(0),
+    pageYOffset: () => rootScroll(1),
   }
   for (const [name, get] of Object.entries(getters)) {
     Object.defineProperty(global, name, { get, set: name === 'location' ? (v: string) => parts.location.assign(v) : undefined, enumerable: true, configurable: true })
@@ -791,7 +781,7 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
     scrollBy: (x?: number | ScrollOptions, y?: number) => {
       const dx = typeof x === 'object' && x ? (x.left ?? 0) : Number(x ?? 0)
       const dy = typeof x === 'object' && x ? (x.top ?? 0) : Number(y ?? 0)
-      scrollViewport(scrollOf(0) + dx, scrollOf(1) + dy, typeof x === 'object' && x?.behavior === 'smooth')
+      scrollViewport(rootScroll(0) + dx, rootScroll(1) + dy, typeof x === 'object' && x?.behavior === 'smooth')
     },
     postMessage: (message: unknown, _origin?: unknown) => {
       const data = structuredClone(message)

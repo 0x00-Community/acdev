@@ -1,9 +1,9 @@
 import { DOMException } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { G, host, queueTask, tag } from '../core/host'
+import { host, queueTask, tag } from '../core/host'
 import { File } from '../core/blob'
 import { NONE } from '../native'
-import { ACTIVATION, SubmitEvent } from './events'
+import { ACTIVATION, FileList, SubmitEvent } from './events'
 import { ATTRIBUTE_CHANGED, LOCAL, setAttribute, tokenList, type Element, type DOMTokenList } from './element'
 import { env, resolveUrl } from './env'
 import { focusable, setFocus } from './focus'
@@ -11,7 +11,7 @@ import { HTMLElement, registerHtml } from './html'
 import { acceptFilters, readPicked } from './picker'
 import { cssString, HTMLCollection, liveCollection, mixin, staticNodeList, type Node, type NodeList } from './node'
 import { bool, long, string, url } from './reflect'
-import { ancestorsOf, documentId, dom, ID, wrap } from './realm'
+import { documentId, dom, ID, wrap } from './realm'
 
 const SELECTION = Symbol('selection')
 const SELECTED = Symbol('selected')
@@ -41,7 +41,7 @@ function formOwner(element: Element): HTMLFormElement | null {
 function labelsOf(element: Element): NodeList {
   const id = element[ID]
   const list: Node[] = []
-  const root = ancestorsOf(id).at(-1) ?? id
+  const root = dom.ancestors(id).at(-1) ?? id
   for (const label of dom.querySelectorAll(root, 'label')) {
     const control = wrap<HTMLLabelElement>(label)!.control
     if (control === element) list.push(wrap<Node>(label)!)
@@ -185,7 +185,7 @@ class ConstraintValidation {
   }
 }
 
-function selectionOf(field: Field): Selection {
+export function fieldSelection(field: Field): Selection {
   const holder = field as unknown as { [SELECTION]?: Selection }
   const length = field.value.length
   let s = holder[SELECTION]
@@ -205,10 +205,6 @@ function setSelection(field: Field, start: number, end: number, direction: strin
 }
 
 export type TextField = Field
-
-export function fieldSelection(field: Field): { readonly start: number; readonly end: number } {
-  return selectionOf(field)
-}
 
 export function setFieldSelection(field: Field, start: number, end: number): void {
   setSelection(field, start, end, 'none')
@@ -231,33 +227,33 @@ class TextSelection {
   get selectionStart(): number | null {
     const self = this as unknown as Field
     if (!selectable(self)) return null
-    return selectionOf(self).start
+    return fieldSelection(self).start
   }
   set selectionStart(value: number) {
     const self = this as unknown as Field
     if (!selectable(self)) throw new DOMException(`The input element's type ('${(self as HTMLInputElement).type}') does not support selection.`, 'InvalidStateError')
-    const s = selectionOf(self)
+    const s = fieldSelection(self)
     setSelection(self, value, Math.max(value, s.end), s.direction)
   }
   get selectionEnd(): number | null {
     const self = this as unknown as Field
     if (!selectable(self)) return null
-    return selectionOf(self).end
+    return fieldSelection(self).end
   }
   set selectionEnd(value: number) {
     const self = this as unknown as Field
     if (!selectable(self)) throw new DOMException(`The input element's type ('${(self as HTMLInputElement).type}') does not support selection.`, 'InvalidStateError')
-    const s = selectionOf(self)
+    const s = fieldSelection(self)
     setSelection(self, Math.min(s.start, value), value, s.direction)
   }
   get selectionDirection(): string | null {
     const self = this as unknown as Field
     if (!selectable(self)) return null
-    return selectionOf(self).direction
+    return fieldSelection(self).direction
   }
   set selectionDirection(value: string) {
     const self = this as unknown as Field
-    const s = selectionOf(self)
+    const s = fieldSelection(self)
     setSelection(self, s.start, s.end, value)
   }
   setSelectionRange(this: Field, start: number, end: number, direction?: string): void {
@@ -271,7 +267,7 @@ class TextSelection {
   }
   setRangeText(this: Field, replacement: string, start?: number, end?: number, mode = 'preserve'): void {
     if (!selectable(this)) throw new DOMException("Failed to execute 'setRangeText': The input element's type does not support selection.", 'InvalidStateError')
-    const s = selectionOf(this)
+    const s = fieldSelection(this)
     const value = this.value
     const from = Math.min(start ?? s.start, value.length), to = Math.min(end ?? s.end, value.length)
     if (from > to) throw new DOMException("Failed to execute 'setRangeText': The provided start value is larger than the end value.", 'IndexSizeError')
@@ -320,7 +316,7 @@ function radioGroup(input: HTMLInputElement): number[] {
   const name = dom.getAttribute(id, 'name')
   if (!name) return [id]
   const form = formOwner(input)
-  const root = form ? form[ID] : (ancestorsOf(id).at(-1) ?? id)
+  const root = form ? form[ID] : (dom.ancestors(id).at(-1) ?? id)
   const all = dom.querySelectorAll(root, `input[name=${cssString(name)}]`)
   const out: number[] = []
   for (const other of all) {
@@ -462,10 +458,9 @@ export class HTMLInputElement extends HTMLElement {
     if (this.type !== 'file') return null
     const holder = this as unknown as { [FILES]?: { files: File[]; list: unknown } }
     const held = (holder[FILES] ??= { files: [], list: null })
-    return (held.list ??= new (G['FileList'] as new (files: File[]) => unknown)(held.files.slice()))
+    return (held.list ??= new FileList(held.files.slice()))
   }
   set files(value: unknown) {
-    const FileList = G['FileList'] as new (files: File[]) => { length: number; item(i: number): File | null }
     if (this.type !== 'file' || !(value instanceof FileList)) return
     const files: File[] = []
     for (let i = 0; i < value.length; i++) files.push(value.item(i)!)
@@ -500,7 +495,7 @@ export class HTMLInputElement extends HTMLElement {
     if (this.type === 'file') pickFiles(this)
   }
 
-  [ACTIVATION](event: Event): { run(): void; cancel(): void } | null {
+  [ACTIVATION](): { run(): void; cancel(): void } | null {
     if (disabledControl(this)) return null
     const type = this.type
     if (type === 'file') return { run: () => pickFiles(this), cancel: () => {} }
@@ -539,7 +534,6 @@ export class HTMLInputElement extends HTMLElement {
     }
     if (type === 'submit' || type === 'image') return { run: () => this.form?.requestSubmit(this), cancel: () => {} }
     if (type === 'reset') return { run: () => this.form?.reset(), cancel: () => {} }
-    void event
     return null
   }
 
@@ -558,7 +552,7 @@ long(HTMLInputElement.prototype, 'minLength', -1, 'minlength', 0)
 long(HTMLInputElement.prototype, 'size', 20, 'size', 1)
 long(HTMLInputElement.prototype, 'width', 0)
 long(HTMLInputElement.prototype, 'height', 0)
-url(HTMLInputElement.prototype, 'src', resolveUrl)
+url(HTMLInputElement.prototype, 'src')
 mixin(HTMLInputElement, ConstraintValidation)
 mixin(HTMLInputElement, TextSelection)
 tag(HTMLInputElement)
@@ -720,7 +714,6 @@ function ownerSelect(option: number): number {
     const grand = dom.parent(parent)
     return grand !== NONE && dom.localName(grand) === 'select' ? grand : NONE
   }
-  if (dom.localName(parent) === 'datalist') return NONE
   return NONE
 }
 
@@ -974,7 +967,7 @@ export class HTMLLabelElement extends HTMLElement {
     const target = dom.getAttribute(this[ID], 'for')
     if (target !== null) {
       const id = dom.getElementById(target)
-      return id !== NONE && dom.matches(id, LABELABLE) && ancestorsOf(id).at(-1) === ancestorsOf(this[ID]).at(-1) ? wrap<HTMLElement>(id) : null
+      return id !== NONE && dom.matches(id, LABELABLE) && dom.ancestors(id).at(-1) === dom.ancestors(this[ID]).at(-1) ? wrap<HTMLElement>(id) : null
     }
     return wrap<HTMLElement>(dom.querySelector(this[ID], LABELABLE))
   }

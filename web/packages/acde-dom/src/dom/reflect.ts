@@ -1,4 +1,5 @@
 import { setAttribute, type Element } from './element'
+import { resolveUrl } from './env'
 import { dom, ID } from './realm'
 
 type Proto = object
@@ -43,10 +44,10 @@ export function long(proto: Proto, prop: string, fallback: number, attr = prop.t
   })
 }
 
-export function url(proto: Proto, prop: string, resolve: (url: string) => string, attr = prop.toLowerCase()): void {
+export function url(proto: Proto, prop: string, attr = prop.toLowerCase()): void {
   define(proto, prop, function () {
     const raw = dom.getAttribute(this[ID], attr)
-    return raw === null ? '' : resolve(raw)
+    return raw === null ? '' : resolveUrl(raw)
   }, function (value) {
     setAttribute(this, attr, String(value))
   })

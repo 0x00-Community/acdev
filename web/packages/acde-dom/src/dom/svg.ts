@@ -4,8 +4,8 @@ import { Element, setAttribute } from './element'
 import { DOMMatrix, DOMPoint, DOMRect, parseTransform } from './geometry'
 import { defineElementHandlers, HTMLOrSVGElementMixin, svgClasses, svgFallback } from './html'
 import { metricsOf, rectOf } from './layout'
-import { cssString, mixin } from './node'
-import { ancestorsOf, dom, guard, ID, wrap } from './realm'
+import { elementById, mixin } from './node'
+import { dom, ID, wrap } from './realm'
 
 export class SVGAnimatedString {
   constructor(
@@ -165,7 +165,7 @@ function viewportMatrix(svg: number): DOMMatrix {
 function screenCTM(id: number): DOMMatrix {
   const chain: number[] = [id]
   let svg = NONE
-  const ancestors = ancestorsOf(id)
+  const ancestors = dom.ancestors(id)
   if (dom.localName(id) === 'svg') svg = id
   else {
     for (const a of ancestors) {
@@ -212,7 +212,7 @@ export class SVGGraphicsElement extends SVGElement {
 
   get farthestViewportElement(): SVGElement | null {
     let found: SVGElement | null = null
-    for (const a of ancestorsOf(this[ID])) if (dom.nodeType(a) === NodeType.Element && dom.localName(a) === 'svg') found = wrap<SVGElement>(a)
+    for (const a of dom.ancestors(this[ID])) if (dom.nodeType(a) === NodeType.Element && dom.localName(a) === 'svg') found = wrap<SVGElement>(a)
     return found
   }
 
@@ -268,7 +268,7 @@ export class SVGSVGElement extends SVGGraphicsElement {
     return new SVGTransform(DOMMatrix.fromMatrix(matrix))
   }
   getElementById(id: string): Element | null {
-    return wrap<Element>(guard(() => dom.querySelector(this[ID], `[id=${cssString(String(id))}]`)))
+    return elementById(this[ID], String(id))
   }
   get viewBox(): { baseVal: DOMRect | null; animVal: DOMRect | null } {
     const box = (dom.getAttribute(this[ID], 'viewBox') ?? '').trim().split(/[\s,]+/).map(Number)

@@ -136,16 +136,12 @@ export function detach(ids: Uint32Array | readonly number[]): void {
   }
 }
 
-export function ancestorsOf(id: number): Uint32Array {
-  return dom.ancestors(id)
-}
-
 let rootsVersion = -1
 let root = NONE
 let head = NONE
 let body = NONE
 
-function roots(): void {
+export function roots(): void {
   if (rootsVersion === treeVersion) return
   rootsVersion = treeVersion
   root = documentElementOf(documentId)
@@ -181,8 +177,6 @@ export function bodyId(): number {
   roots()
   return body
 }
-
-export { guard } from '../core/exception'
 
 const STATE_CALLS = ['setFocus', 'setActive', 'setValue', 'setChecked', 'setSelectedIndex'] as const
 

@@ -232,7 +232,6 @@ export class CanvasContext2d {
   #sentStack: Sent[] = []
   readonly #out = new CommandWriter()
   #size: [number, number]
-  target: number | null = null
   imageSmoothingEnabled = true
   imageSmoothingQuality = 'low'
   filter = 'none'
@@ -556,7 +555,7 @@ export class CanvasContext2d {
     this.#text(1, text, x, y, maxWidth)
   }
   measureText(text: string): TextMetrics {
-    return this.owner.measure(this.canvas, this.#state.font, String(text))
+    return new TextMetrics(dom.measureText(this.canvas[ID], this.#state.font, String(text)))
   }
   drawImage(image: Element, ...a: number[]): void {
     this.#check()
@@ -755,10 +754,6 @@ class CanvasContexts {
   pixels(canvas: CanvasElement, sx: number, sy: number, sw: number, sh: number): Uint8Array | null {
     this.flush()
     return dom.getImageData(canvas[ID], sx, sy, sw, sh)
-  }
-
-  measure(canvas: CanvasElement, font: string, text: string): TextMetrics {
-    return new TextMetrics(dom.measureText(canvas[ID], font, text))
   }
 
   toDataURL(canvas: CanvasElement, type: string): string {

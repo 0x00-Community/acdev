@@ -1,8 +1,8 @@
-import { DOMException } from '../core/exception'
+import { DOMException, guard } from '../core/exception'
 import { tag } from '../core/host'
 import { setAttribute, type Element } from './element'
 import { computedStyleOf } from './layout'
-import { changed, dom, guard, ID, version } from './realm'
+import { changed, dom, ID, version } from './realm'
 
 type Declarations = Map<string, { value: string; important: boolean }>
 
@@ -25,6 +25,14 @@ export function propertyName(key: string): string {
   return name
 }
 
+function propertyKey(name: string): string {
+  return name.startsWith('--') ? name : name.toLowerCase()
+}
+
+function serialize(declarations: Declarations): string {
+  return [...declarations].map(([name, { value, important }]) => `${name}: ${value}${important ? ' !important' : ''};`).join(' ')
+}
+
 function parseDeclarations(text: string): Declarations {
   const declarations: Declarations = new Map()
   let depth = 0, quote = '', start = 0
@@ -38,7 +46,7 @@ function parseDeclarations(text: string): Declarations {
     const important = /!\s*important$/i.test(value)
     if (important) value = value.replace(/!\s*important$/i, '').trim()
     if (name && value) {
-      const key = name.startsWith('--') ? name : name.toLowerCase()
+      const key = propertyKey(name)
       declarations.delete(key)
       declarations.set(key, { value, important })
     }
@@ -97,7 +105,7 @@ export class CSSStyleDeclaration {
   }
 
   _write(declarations: Declarations): void {
-    const text = [...declarations].map(([name, { value, important }]) => `${name}: ${value}${important ? ' !important' : ''};`).join(' ')
+    const text = serialize(declarations)
     if (!this._element) {
       this._parsed = declarations
       return
@@ -115,7 +123,7 @@ export class CSSStyleDeclaration {
 
   get cssText(): string {
     if (this._computed) return ''
-    return this._element ? (dom.getAttribute(this._element[ID], 'style') ?? '') : [...this._parsed].map(([n, { value, important }]) => `${n}: ${value}${important ? ' !important' : ''};`).join(' ')
+    return this._element ? (dom.getAttribute(this._element[ID], 'style') ?? '') : serialize(this._parsed)
   }
   set cssText(text: string) {
     this._readonly()
@@ -144,21 +152,19 @@ export class CSSStyleDeclaration {
   }
 
   getPropertyValue(name: string): string {
-    const key = String(name)
-    if (this._computed) return computedStyleOf(this._element![ID], this._pseudo, key.startsWith('--') ? key : key.toLowerCase())
-    return this._declarations().get(key.startsWith('--') ? key : key.toLowerCase())?.value ?? ''
+    const key = propertyKey(String(name))
+    if (this._computed) return computedStyleOf(this._element![ID], this._pseudo, key)
+    return this._declarations().get(key)?.value ?? ''
   }
 
   getPropertyPriority(name: string): string {
     if (this._computed) return ''
-    const key = String(name)
-    return this._declarations().get(key.startsWith('--') ? key : key.toLowerCase())?.important ? 'important' : ''
+    return this._declarations().get(propertyKey(String(name)))?.important ? 'important' : ''
   }
 
   setProperty(name: string, value: string | null, priority = ''): void {
     this._readonly()
-    const raw = String(name)
-    const key = raw.startsWith('--') ? raw : raw.toLowerCase()
+    const key = propertyKey(String(name))
     const declarations = new Map(this._declarations())
     const text = value === null || value === undefined ? '' : String(value).trim()
     if (text === '') declarations.delete(key)

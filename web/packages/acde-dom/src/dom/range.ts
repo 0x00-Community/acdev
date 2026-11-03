@@ -1,12 +1,12 @@
-import { DOMException } from '../core/exception'
+import { DOMException, guard } from '../core/exception'
 import { Event, fire } from '../core/event'
 import { host, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { DOMRect, DOMRectList } from './geometry'
 import { rectOf } from './layout'
-import { ANY_PARENT, CharacterData, insert, Node, rangeHooks, remove, splitHooks, DocumentFragment, type Text } from './node'
+import { ANY_PARENT, CharacterData, DocumentFragment, insert, Node, rangeHooks, remove, type Text } from './node'
 import { noteMarkup } from './element'
-import { ancestorsOf, bodyId, CONNECTED, documentId, dom, guard, ID, rootElementId, wrap } from './realm'
+import { bodyId, CONNECTED, documentId, dom, ID, rootElementId, wrap } from './realm'
 
 const enum Position {
   Before = -1,
@@ -31,7 +31,7 @@ function indexOf(node: Node): number {
 }
 
 function root(id: number): number {
-  const ancestors = ancestorsOf(id)
+  const ancestors = dom.ancestors(id)
   return ancestors.length ? ancestors[ancestors.length - 1]! : id
 }
 
@@ -41,16 +41,16 @@ function contains(a: number, b: number): boolean {
 
 function commonAncestor(a: number, b: number): number {
   if (a === b) return a
-  const above = new Set(ancestorsOf(b))
+  const above = new Set(dom.ancestors(b))
   above.add(b)
   if (above.has(a)) return a
-  const up = ancestorsOf(a)
+  const up = dom.ancestors(a)
   for (let i = 0; i < up.length; i++) if (above.has(up[i]!)) return up[i]!
   return NONE
 }
 
 function childToward(ancestor: number, id: number): number {
-  const up = ancestorsOf(id)
+  const up = dom.ancestors(id)
   const at = up.indexOf(ancestor)
   return at <= 0 ? id : up[at - 1]!
 }
@@ -64,7 +64,7 @@ function compare(a: number, ao: number, b: number, bo: number): Position {
 
 function ordered(a: number, ao: number, b: number, ancestor: boolean): Position {
   if (ancestor) {
-    const ancestors = ancestorsOf(b)
+    const ancestors = dom.ancestors(b)
     const at = ancestors.indexOf(a)
     const child = at <= 0 ? b : ancestors[at - 1]!
     if (dom.childNodes(a).indexOf(child) < ao) return Position.After
@@ -102,9 +102,13 @@ function someLive(test: (range: Range) => boolean): boolean {
   return false
 }
 
-function eachLive(fn: (range: Range) => void): void {
+function moveBoundaries(move: (container: Node, offset: number) => [Node, number] | null): void {
   someLive((range) => {
-    fn(range)
+    const start = move(range.startContainer, range.startOffset)
+    const end = move(range.endContainer, range.endOffset)
+    if (start) range.setBoundary(true, start[0], start[1])
+    if (end) range.setBoundary(false, end[0], end[1])
+    if (start || end) range.changed()
     return false
   })
 }
@@ -122,82 +126,31 @@ rangeHooks.relevant = (parent, inside) =>
     return boundaryRelevant(start, parent, inside) || (end !== start && boundaryRelevant(end, parent, inside))
   })
 
-function afterRemoval(container: Node, offset: number, parent: number, index: number, node: Node): [Node, number] | null {
-  const id = container[ID]
-  if (id === parent) return offset > index ? [container, offset - 1] : null
-  if (container === node || (container[CONNECTED] === node[CONNECTED] && contains(node[ID], id))) return [wrap<Node>(parent)!, index]
-  return null
-}
-
-rangeHooks.removing = (parent, index, node) => {
-  eachLive((range) => {
-    const start = afterRemoval(range.startContainer, range.startOffset, parent, index, node)
-    const end = afterRemoval(range.endContainer, range.endOffset, parent, index, node)
-    if (start) range.setBoundary(true, start[0], start[1])
-    if (end) range.setBoundary(false, end[0], end[1])
-    if (start || end) range.changed()
+rangeHooks.removing = (parent, index, node) =>
+  moveBoundaries((container, offset) => {
+    const id = container[ID]
+    if (id === parent) return offset > index ? [container, offset - 1] : null
+    if (container === node || (container[CONNECTED] === node[CONNECTED] && contains(node[ID], id))) return [wrap<Node>(parent)!, index]
+    return null
   })
-}
 
-rangeHooks.inserted = (parent, index, count) => {
-  eachLive((range) => {
-    let moved = false
-    if (range.startContainer[ID] === parent && range.startOffset > index) {
-      range.setBoundary(true, range.startContainer, range.startOffset + count)
-      moved = true
-    }
-    if (range.endContainer[ID] === parent && range.endOffset > index) {
-      range.setBoundary(false, range.endContainer, range.endOffset + count)
-      moved = true
-    }
-    if (moved) range.changed()
-  })
-}
+rangeHooks.inserted = (parent, index, count) => moveBoundaries((container, offset) => (container[ID] === parent && offset > index ? [container, offset + count] : null))
 
-rangeHooks.replacing = (parent) => {
-  eachLive((range) => {
-    let moved = false
-    const fix = (start: boolean, container: Node, offset: number) => {
-      if (container === parent ? offset === 0 : !(container[CONNECTED] === parent[CONNECTED] && contains(parent[ID], container[ID]))) return
-      range.setBoundary(start, parent, 0)
-      moved = true
-    }
-    fix(true, range.startContainer, range.startOffset)
-    fix(false, range.endContainer, range.endOffset)
-    if (moved) range.changed()
+rangeHooks.replacing = (parent) =>
+  moveBoundaries((container, offset) => {
+    if (container === parent ? offset === 0 : !(container[CONNECTED] === parent[CONNECTED] && contains(parent[ID], container[ID]))) return null
+    return [parent, 0]
   })
-}
 
-rangeHooks.replaced = (node, offset, count, length) => {
-  eachLive((range) => {
-    let moved = false
-    const fix = (start: boolean, container: Node, o: number) => {
-      if (container[ID] !== node) return
-      if (o > offset && o <= offset + count) range.setBoundary(start, container, offset)
-      else if (o > offset + count) range.setBoundary(start, container, o + length - count)
-      else return
-      moved = true
-    }
-    fix(true, range.startContainer, range.startOffset)
-    fix(false, range.endContainer, range.endOffset)
-    if (moved) range.changed()
+rangeHooks.replaced = (node, offset, count, length) =>
+  moveBoundaries((container, o) => {
+    if (container[ID] !== node) return null
+    if (o > offset && o <= offset + count) return [container, offset]
+    if (o > offset + count) return [container, o + length - count]
+    return null
   })
-}
 
-splitHooks.split = (node, tail, offset) => {
-  eachLive((range) => {
-    let moved = false
-    if (range.startContainer[ID] === node && range.startOffset > offset) {
-      range.setBoundary(true, wrap<Node>(tail)!, range.startOffset - offset)
-      moved = true
-    }
-    if (range.endContainer[ID] === node && range.endOffset > offset) {
-      range.setBoundary(false, wrap<Node>(tail)!, range.endOffset - offset)
-      moved = true
-    }
-    if (moved) range.changed()
-  })
-}
+rangeHooks.split = (node, tail, offset) => moveBoundaries((container, o) => (container[ID] === node && o > offset ? [wrap<Node>(tail)!, o - offset] : null))
 
 function checkPoint(node: Node, offset: number, method: string, iface = 'Range'): void {
   if (!(node instanceof Node)) throw new TypeError(`Failed to execute '${method}' on '${iface}': parameter 1 is not of type 'Node'.`)
@@ -409,7 +362,7 @@ export class Range extends AbstractRange {
   #contained(): number[] {
     const sc = this._sc[ID], ec = this._ec[ID], so = this._so, eo = this._eo
     if (sc === ec) return isCharacterData(this._sc) ? [] : Array.from(dom.childNodes(sc).subarray(so, eo))
-    const starts = [sc, ...ancestorsOf(sc)], ends = [ec, ...ancestorsOf(ec)]
+    const starts = [sc, ...dom.ancestors(sc)], ends = [ec, ...dom.ancestors(ec)]
     const endAt = new Map<number, number>()
     for (let i = 0; i < ends.length; i++) endAt.set(ends[i]!, i)
     let si = 0

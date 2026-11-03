@@ -5,7 +5,7 @@ import { NONE, NodeType } from '../native'
 import type { Element } from './element'
 import { KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from './events'
 import { focus, focusable, focusedElement, setFocus } from './focus'
-import { ancestorsOf, dom, documentId, ID, moved, rootElementId, wrap } from './realm'
+import { dom, documentId, ID, moved, rootElementId, wrap } from './realm'
 
 export interface Modifiers {
   readonly shift?: boolean
@@ -42,6 +42,10 @@ const KEY_CODES: Record<string, number> = {
 
 function keyCodeOf(key: string): number {
   return KEY_CODES[key] ?? (/^[a-z0-9]$/i.test(key) ? key.toUpperCase().charCodeAt(0) : 0)
+}
+
+function buttonBit(button: number): number {
+  return 1 << (button === 1 ? 2 : button === 2 ? 1 : button)
 }
 
 function mods(modifiers: Modifiers | undefined) {
@@ -87,7 +91,7 @@ export class Input {
   #chain(node: Element | null): number[] {
     if (!node) return []
     const list = [node[ID]]
-    const up = ancestorsOf(node[ID])
+    const up = dom.ancestors(node[ID])
     for (let i = 0; i < up.length && up[i] !== documentId; i++) list.push(up[i]!)
     return list
   }
@@ -137,7 +141,7 @@ export class Input {
   #down(x: number, y: number, options: PointerOptions): void {
     const target = this.elementAt(options.target, x, y)
     const button = options.button ?? 0
-    this.#buttons |= 1 << (button === 1 ? 2 : button === 2 ? 1 : button)
+    this.#buttons |= buttonBit(button)
     const init = this.#init(x, y, options, button)
     this.#hoverTo(target, init)
     this.#pressed = target
@@ -156,7 +160,7 @@ export class Input {
   #up(x: number, y: number, options: PointerOptions): void {
     const target = this.elementAt(options.target, x, y)
     const button = options.button ?? 0
-    this.#buttons &= ~(1 << (button === 1 ? 2 : button === 2 ? 1 : button))
+    this.#buttons &= ~buttonBit(button)
     const init = this.#init(x, y, options, button)
     this.#pointer(target, 'up', init, button === 0 ? this.#lastDown.count : 1)
     dom.setActive(NONE)
@@ -187,7 +191,7 @@ export class Input {
 
   key(type: 'keydown' | 'keyup', key: string, code: string, options: KeyOptions = {}): boolean {
     focus.modality = 'keyboard'
-    const target = focusedElement() ?? (wrap<Document & Element>(documentId) as unknown as { body: Element | null }).body ?? this.elementAt(null, 0, 0)
+    const target = focusedElement() ?? wrap<{ body: Element | null }>(documentId)!.body ?? this.elementAt(null, 0, 0)
     const keyCode = options.keyCode ?? keyCodeOf(key)
     const init = { key, code, keyCode, which: keyCode, repeat: !!options.repeat, location: options.location ?? 0, isComposing: !!options.isComposing, ...mods(options.modifiers) }
     if (!this.#fire(target, type, init, KeyboardEvent as never)) return false
@@ -230,5 +234,3 @@ export class Input {
     this.#fire(element, 'lostpointercapture', { pointerId, bubbles: false, cancelable: false }, PointerEvent as never)
   }
 }
-
-type Document = object

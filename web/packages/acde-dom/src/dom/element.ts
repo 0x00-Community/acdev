@@ -1,12 +1,12 @@
-import { DOMException } from '../core/exception'
+import { DOMException, guard } from '../core/exception'
 import { getHandler, setHandler } from '../core/event'
 import { tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
 import { DOMRect, rectList, type DOMRectList } from './geometry'
 import { computedStyleOf, metricsOf, rectOf } from './layout'
 import { attributeObservers, observing, recordAttribute } from './mutation'
-import { ChildNodeMixin, insert, mixin, Node, ParentNodeMixin, remove, replaceAll, Text, type DocumentFragment, type NodeList } from './node'
-import { ancestorsOf, bodyId, changed, CONNECTED as CONNECTED_KEY, dom, guard, ID, moved, wrap } from './realm'
+import { ChildNodeMixin, insert, mixin, Node, ParentNodeMixin, remove, replaceAll, Text, type DocumentFragment } from './node'
+import { bodyId, changed, CONNECTED as CONNECTED_KEY, dom, ID, moved, wrap } from './realm'
 
 export const LOCAL = Symbol('localName')
 export const NS = Symbol('namespace')
@@ -438,7 +438,7 @@ export function scrollElement(element: Element, left: number | null, top: number
 }
 
 function scrollIntoView(element: Element, block: string, inline: string, smooth: boolean): void {
-  const ancestors = ancestorsOf(element[ID])
+  const ancestors = dom.ancestors(element[ID])
   let target = rectOf(element[ID])
   for (let i = 0; i < ancestors.length; i++) {
     const id = ancestors[i]!
@@ -809,4 +809,3 @@ export function handlerSet(element: Element, type: string): void {
   ;((element as unknown as { [SEEN]?: Set<string> })[SEEN] ??= new Set()).add(type)
 }
 
-export type { NodeList }

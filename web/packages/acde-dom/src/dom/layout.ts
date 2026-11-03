@@ -1,5 +1,5 @@
-import type { Metrics } from '../native'
-import { dom, layoutEpoch, version } from './realm'
+import { NONE, type Metrics } from '../native'
+import { dom, layoutEpoch, rootElementId, version } from './realm'
 
 let cachedVersion = -1
 let cachedEpoch = -1
@@ -38,4 +38,10 @@ export function computedStyleOf(id: number, pseudo: string, property: string): s
   let value = values.get(key)
   if (value === undefined) values.set(key, (value = dom.computedStyle(id, pseudo, property)))
   return value
+}
+
+export function rootScroll(axis: 0 | 1): number {
+  const html = rootElementId()
+  const m = html === NONE ? null : metricsOf(html)
+  return m ? (axis === 0 ? m.scrollLeft : m.scrollTop) : 0
 }

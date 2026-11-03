@@ -100,7 +100,7 @@ export class HTMLImageElement extends HTMLElement {
     }
   }
 }
-url(HTMLImageElement.prototype, 'src', resolveUrl)
+url(HTMLImageElement.prototype, 'src')
 for (const name of ['alt', 'srcset', 'sizes', 'useMap', 'decoding', 'loading', 'fetchPriority', 'name', 'align', 'border', 'longDesc', 'lowsrc']) string(HTMLImageElement.prototype, name, name.toLowerCase())
 nullable(HTMLImageElement.prototype, 'crossOrigin', 'crossorigin')
 string(HTMLImageElement.prototype, 'referrerPolicy', 'referrerpolicy')
@@ -272,8 +272,7 @@ export class HTMLMediaElement extends HTMLElement {
   #source(): string {
     const src = dom.getAttribute(this[ID], 'src')
     if (src) return resolveUrl(src)
-    const source = (this as unknown as { querySelector?(s: string): { getAttribute(n: string): string | null } | null }).querySelector?.('source[src]')
-    const url = source?.getAttribute('src')
+    const url = this.querySelector('source[src]')?.getAttribute('src')
     return url ? resolveUrl(url) : ''
   }
 
@@ -536,8 +535,8 @@ export class HTMLMediaElement extends HTMLElement {
     else if (name === 'loop' && this.#media) audioNative()?.media(this.#media, 4, value === null ? 0 : 1)
   }
 }
-url(HTMLMediaElement.prototype, 'src', resolveUrl)
-for (const name of ['preload']) string(HTMLMediaElement.prototype, name)
+url(HTMLMediaElement.prototype, 'src')
+string(HTMLMediaElement.prototype, 'preload')
 nullable(HTMLMediaElement.prototype, 'crossOrigin', 'crossorigin')
 for (const name of ['autoplay', 'loop', 'controls']) bool(HTMLMediaElement.prototype, name)
 bool(HTMLMediaElement.prototype, 'defaultMuted', 'muted')
@@ -560,7 +559,7 @@ export class HTMLVideoElement extends HTMLMediaElement {
   }
 }
 for (const name of ['width', 'height']) long(HTMLVideoElement.prototype, name, 0)
-url(HTMLVideoElement.prototype, 'poster', resolveUrl)
+url(HTMLVideoElement.prototype, 'poster')
 bool(HTMLVideoElement.prototype, 'playsInline', 'playsinline')
 tag(HTMLVideoElement)
 

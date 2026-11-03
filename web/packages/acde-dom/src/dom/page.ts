@@ -1,11 +1,11 @@
 import { Event, fire, type EventTarget } from '../core/event'
 import { G, host, report } from '../core/host'
 import { URL } from '../core/url'
-import { noteMarkup, setAttribute, type Element } from './element'
+import { noteMarkup, type Element } from './element'
 import { env, resolveUrl } from './env'
 import { documentState } from './document'
 import { HTMLScriptElement } from './html'
-import { detach, documentId, dom, ID, lifecycle, rootElementId, strongIds, treeChanged, wrap, type Wrapper } from './realm'
+import { detach, documentId, dom, ID, lifecycle, roots, strongIds, treeChanged, wrap, type Wrapper } from './realm'
 
 const STARTED = Symbol('started')
 type Script = HTMLScriptElement & { [STARTED]?: boolean }
@@ -101,15 +101,14 @@ async function runModule(script: Script): Promise<void> {
   }
 }
 
-export async function loadPage(html: string, htmlAttributes: Readonly<Record<string, string>>): Promise<void> {
+export async function loadPage(html: string): Promise<void> {
   const old = strongIds().filter((id) => id !== documentId)
   if (old.length) detach(old)
   documentState.readyState = 'loading'
   noteMarkup(html)
   dom.parseDocument(html)
   treeChanged()
-  const root = wrap<Element>(rootElementId())
-  if (root) for (const [name, value] of Object.entries(htmlAttributes)) setAttribute(root, name, value)
+  roots()
   const scripts = [...dom.querySelectorAll(documentId, 'script')].map((id) => wrap<Script>(id)!)
   for (const script of scripts) script[STARTED] = true
   for (const script of scripts) if (kind(script) === 'importmap') runImportMap(script)

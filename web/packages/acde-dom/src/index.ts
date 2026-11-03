@@ -44,7 +44,6 @@ export { installBackendTransport, type BackendTransport, type Header as BackendH
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly url: string
   readonly reducedMotion?: boolean
-  readonly htmlAttributes?: Readonly<Record<string, string>>
   readonly localStorage?: Readonly<Record<string, string>> | null
   readonly onStorageChange?: (entries: Record<string, string>) => void
   readonly logNetwork?: boolean
@@ -112,7 +111,6 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   const registry = new CustomElementRegistry()
 
   extendElements(input)
-  html.setStyleSheetOf((element) => new CSSStyleSheet(undefined, element))
   const navigator = new Navigator(options)
   installWindow(global, {
     document,
@@ -140,7 +138,6 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     return value.nodeType === NodeType.Text ? `#text ${JSON.stringify((value as Text).data.slice(0, 40))}` : value.nodeName
   }
 
-  const htmlAttributes = { ...(options.htmlAttributes ?? {}) }
   let frameVersion = -1
 
   const deliverScrolls = () => {
@@ -168,7 +165,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     editing,
     idOf,
     nodeOf: (id: number) => wrap(id),
-    loadPage: (page) => loadPage(page, htmlAttributes),
+    loadPage,
     frame(time) {
       frames.wanted = false
       moved()

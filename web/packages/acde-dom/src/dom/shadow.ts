@@ -5,7 +5,7 @@ import type { Element } from './element'
 import { LOCAL, NS } from './element'
 import { SHADOW_ROOT } from './events'
 import { focusedElement } from './focus'
-import { DocumentFragment, type Node } from './node'
+import { DocumentFragment } from './node'
 import { CONNECTED, ID } from './realm'
 import { getSelection, type Selection } from './range'
 
@@ -102,4 +102,3 @@ export function shadowRootOf(host: Element): ShadowRoot | null {
   return root && root._mode === 'open' ? root : null
 }
 
-export type { Node }

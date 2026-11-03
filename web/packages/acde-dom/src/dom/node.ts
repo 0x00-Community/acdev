@@ -1,9 +1,9 @@
-import { DOMException } from '../core/exception'
+import { DOMException, guard } from '../core/exception'
 import { BUILD_PATH, EventTarget, type Event } from '../core/event'
 import { tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { characterDataObservers, childListObservers, observing, recordCharacterData, recordChildList, recordLists, type Observers } from './mutation'
-import { adopt, ancestorsOf, attach, changed, CONNECTED, constructing, detach, documentId, dom, guard, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper } from './realm'
+import { adopt, attach, changed, CONNECTED, constructing, detach, documentId, dom, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper } from './realm'
 import type { Document } from './document'
 import type { Element } from './element'
 
@@ -16,6 +16,7 @@ export const rangeHooks = {
   inserted: (_parent: number, _index: number, _count: number) => {},
   replacing: (_parent: Node) => {},
   replaced: (_node: number, _offset: number, _count: number, _length: number) => {},
+  split: (_node: number, _tail: number, _offset: number) => {},
 }
 
 export const pathHooks = {
@@ -136,18 +137,6 @@ export class NodeList extends LiveList {
 }
 tag(NodeList)
 
-function liveNodeList(source: () => Uint32Array): NodeList {
-  listConstructing = true
-  try {
-    const list = new NodeList()
-    list[SOURCE] = source
-    list[TREE] = true
-    return new Proxy(list, liveIndex)
-  } finally {
-    listConstructing = false
-  }
-}
-
 export function staticNodeList(nodes: readonly Node[]): NodeList {
   listConstructing = true
   try {
@@ -198,7 +187,7 @@ export class HTMLCollection extends LiveList {
 }
 tag(HTMLCollection)
 
-export function liveCollection<T extends HTMLCollection>(source: () => Uint32Array, cls: new () => T = HTMLCollection as never, tree = false): T {
+export function liveCollection<T extends LiveList>(source: () => Uint32Array, cls: new () => T = HTMLCollection as never, tree = false): T {
   listConstructing = true
   try {
     const list = new cls()
@@ -212,6 +201,10 @@ export function liveCollection<T extends HTMLCollection>(source: () => Uint32Arr
 
 export function cssString(value: string): string {
   return `"${value.replace(/["\\\n\r\f]/g, (c) => (c === '"' || c === '\\' ? `\\${c}` : `\\${c.charCodeAt(0).toString(16)} `))}"`
+}
+
+export function elementById(root: number, id: string): Element | null {
+  return wrap<Element>(guard(() => dom.querySelector(root, `[id=${cssString(id)}]`)))
 }
 
 function nodeArg(value: unknown, method: string, iface = 'Node'): Node {
@@ -402,7 +395,7 @@ export class Node extends EventTarget implements Wrapper {
   }
 
   get baseURI(): string {
-    return documentBase()
+    return baseHooks.url()
   }
 
   get isConnected(): boolean {
@@ -426,7 +419,7 @@ export class Node extends EventTarget implements Wrapper {
     let list = this[CHILD_LIST]
     if (!list) {
       const id = this[ID]
-      list = this[CHILD_LIST] = liveNodeList(() => dom.childNodes(id))
+      list = this[CHILD_LIST] = liveCollection(() => dom.childNodes(id), NodeList, true)
     }
     return list
   }
@@ -452,7 +445,7 @@ export class Node extends EventTarget implements Wrapper {
   }
 
   getRootNode(_options?: { composed?: boolean }): Node {
-    const ancestors = ancestorsOf(this[ID])
+    const ancestors = dom.ancestors(this[ID])
     return ancestors.length ? wrap<Node>(ancestors[ancestors.length - 1]!)! : this
   }
 
@@ -595,9 +588,6 @@ function equalElements(a: number, b: number): boolean {
 }
 
 export const baseHooks = { url: () => '' }
-function documentBase(): string {
-  return baseHooks.url()
-}
 
 export function cloneOf(node: Node, deep: boolean): Node {
   return wrap<Node>(guard(() => dom.clone(node[ID], deep)))!
@@ -825,15 +815,13 @@ export class Text extends CharacterData {
     const parent = this.parentNode
     if (parent) {
       insert(parent, tail, this.nextSibling)
-      if (rangeHooks.active()) splitHooks.split(this[ID], tail[ID], offset)
+      if (rangeHooks.active()) rangeHooks.split(this[ID], tail[ID], offset)
     }
     replaceData(this, offset, data.length - offset, '')
     return tail
   }
 }
 tag(Text)
-
-export const splitHooks = { split: (_node: number, _tail: number, _offset: number) => {} }
 
 export class CDATASection extends Text {}
 tag(CDATASection)
@@ -897,8 +885,7 @@ export class DocumentFragment extends Node {
   }
 
   getElementById(id: string): Element | null {
-    const found = guard(() => dom.querySelector(this[ID], `[id=${cssString(String(id))}]`))
-    return wrap<Element>(found)
+    return elementById(this[ID], String(id))
   }
 }
 mixin(DocumentFragment, ParentNodeMixin)

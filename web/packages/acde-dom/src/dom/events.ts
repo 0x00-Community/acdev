@@ -3,9 +3,9 @@ import { eventPath, hooks, type Event, Event as BaseEvent, type EventInit, type 
 import { G, queueTask, tag } from '../core/host'
 import { NodeType } from '../native'
 import { flags, handlerOf, type Element } from './element'
-import { metricsOf, rectOf } from './layout'
+import { metricsOf, rectOf, rootScroll } from './layout'
 import { pathHooks, type Node } from './node'
-import { ancestorsOf, documentId, dom, existing, ID, rootElementId, wrap, type Wrapper } from './realm'
+import { documentId, dom, existing, ID, wrap, type Wrapper } from './realm'
 
 export const SHADOW_ROOT = Symbol('shadowRoot')
 export const ACTIVATION = Symbol('activation')
@@ -21,7 +21,7 @@ pathHooks.build = (node: Node, event: Event, path: EventTarget[]) => {
   const full = isClick(event)
   const inline = flags.inlineHandlers
   if (inline && node.nodeType === NodeType.Element) handlerOf(node as unknown as Element, type)
-  const ancestors = ancestorsOf(node[ID])
+  const ancestors = dom.ancestors(node[ID])
   let previous: Wrapper = node
   const last = ancestors.length - 1
   for (let i = 0; i < ancestors.length; i++) {
@@ -66,8 +66,7 @@ hooks.activation = (event, path) => {
 hooks.compile = (target, _type, source) => {
   try {
     return new Function('event', source).bind(target) as (event: Event) => unknown
-  } catch (error) {
-    void error
+  } catch {
     return null
   }
 }
@@ -193,10 +192,10 @@ export class MouseEvent extends UIEvent {
     return this.clientY
   }
   get pageX(): number {
-    return this.clientX + scrollOffset(0)
+    return this.clientX + rootScroll(0)
   }
   get pageY(): number {
-    return this.clientY + scrollOffset(1)
+    return this.clientY + rootScroll(1)
   }
   get offsetX(): number {
     return this.clientX - targetOrigin(this.target, 0)
@@ -255,13 +254,6 @@ export class MouseEvent extends UIEvent {
   }
 }
 tag(MouseEvent)
-
-function scrollOffset(axis: 0 | 1): number {
-  const html = rootElementId()
-  if (html < 0) return 0
-  const m = metricsOf(html)
-  return m ? (axis === 0 ? m.scrollLeft : m.scrollTop) : 0
-}
 
 function targetOrigin(target: EventTarget | null, axis: 0 | 1): number {
   const id = (target as unknown as Wrapper | null)?.[ID]
@@ -612,20 +604,13 @@ export class DataTransfer {
   #data = new Map<string, string>()
   #files: File[] = []
   #items: DataTransferItemList | null = null
-  #types: string[] | null = null
   dropEffect = 'none'
   effectAllowed = 'uninitialized'
-  dragImage: { element: unknown; x: number; y: number } | null = null
 
   get types(): readonly string[] {
-    if (this.#types) return Object.freeze(this.#types.slice())
     const types = [...this.#data.keys()]
     if (this.#files.length) types.push('Files')
     return Object.freeze(types)
-  }
-
-  setTypes(types: readonly string[] | null): void {
-    this.#types = types ? [...types] : null
   }
 
   get files(): FileList {
@@ -673,8 +658,6 @@ export class DataTransfer {
     else this.#data.delete(DataTransfer.#normalize(format))
   }
 
-  setDragImage(element: unknown, x: number, y: number): void {
-    this.dragImage = { element, x, y }
-  }
+  setDragImage(_element: unknown, _x: number, _y: number): void {}
 }
 tag(DataTransfer)

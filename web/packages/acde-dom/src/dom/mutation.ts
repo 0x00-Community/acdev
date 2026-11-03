@@ -1,5 +1,5 @@
 import { host, report, tag } from '../core/host'
-import { ancestorsOf, existing, ID, wrap, type Wrapper } from './realm'
+import { dom, existing, ID, wrap, type Wrapper } from './realm'
 
 interface MutationObserverInit {
   childList?: boolean
@@ -177,7 +177,7 @@ function interested(target: number, accept: (options: Options) => boolean): Obse
   }
   visit(target, true)
   if (subtrees === 0) return found
-  const ancestors = ancestorsOf(target)
+  const ancestors = dom.ancestors(target)
   for (let i = 0; i < ancestors.length; i++) visit(ancestors[i]!, false)
   return found
 }

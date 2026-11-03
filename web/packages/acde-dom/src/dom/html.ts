@@ -11,7 +11,7 @@ import { metricsOf } from './layout'
 import { CharacterData, Comment, DocumentFragment, DocumentType, mixin, Node, replaceAll, Text, type NodeList } from './node'
 import { bool, long, nullable, string, url } from './reflect'
 import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap } from './realm'
-import { inlineStyle, type CSSStyleDeclaration } from './style'
+import { CSSStyleSheet, inlineStyle, type CSSStyleDeclaration } from './style'
 
 export const customHooks = {
   nameOf: (_ctor: Function): string | null => null,
@@ -263,7 +263,7 @@ export const HTMLSpanElement = simple('HTMLSpanElement')
 export const HTMLParagraphElement = simple('HTMLParagraphElement', (p) => string(p, 'align'))
 export const HTMLHeadingElement = simple('HTMLHeadingElement', (p) => string(p, 'align'))
 export const HTMLPreElement = simple('HTMLPreElement', (p) => long(p, 'width', 0))
-export const HTMLQuoteElement = simple('HTMLQuoteElement', (p) => url(p, 'cite', resolveUrl))
+export const HTMLQuoteElement = simple('HTMLQuoteElement', (p) => url(p, 'cite'))
 export const HTMLBRElement = simple('HTMLBRElement', (p) => string(p, 'clear'))
 export const HTMLHRElement = simple('HTMLHRElement', (p) => {
   string(p, 'align')
@@ -287,7 +287,7 @@ export const HTMLLIElement = simple('HTMLLIElement', (p) => {
 })
 export const HTMLDListElement = simple('HTMLDListElement', (p) => bool(p, 'compact'))
 export const HTMLModElement = simple('HTMLModElement', (p) => {
-  url(p, 'cite', resolveUrl)
+  url(p, 'cite')
   string(p, 'dateTime', 'datetime')
 })
 export const HTMLTimeElement = simple('HTMLTimeElement', (p) => string(p, 'dateTime', 'datetime'))
@@ -306,19 +306,19 @@ export const HTMLMetaElement = simple('HTMLMetaElement', (p) => {
   string(p, 'scheme')
 })
 export const HTMLBaseElement = simple('HTMLBaseElement', (p) => {
-  url(p, 'href', resolveUrl)
+  url(p, 'href')
   string(p, 'target')
 })
 export const HTMLTitleElement = simple('HTMLTitleElement', textAlias)
 export const HTMLMapElement = simple('HTMLMapElement', (p) => string(p, 'name'))
 export const HTMLEmbedElement = simple('HTMLEmbedElement', (p) => {
-  url(p, 'src', resolveUrl)
+  url(p, 'src')
   string(p, 'type')
   string(p, 'width')
   string(p, 'height')
 })
 export const HTMLObjectElement = simple('HTMLObjectElement', (p) => {
-  url(p, 'data', resolveUrl)
+  url(p, 'data')
   string(p, 'type')
   string(p, 'name')
   string(p, 'width')
@@ -332,7 +332,7 @@ export const HTMLParamElement = simple('HTMLParamElement', (p) => {
 })
 export const HTMLPictureElement = simple('HTMLPictureElement')
 export const HTMLSourceElement = simple('HTMLSourceElement', (p) => {
-  url(p, 'src', resolveUrl)
+  url(p, 'src')
   string(p, 'srcset')
   string(p, 'sizes')
   string(p, 'type')
@@ -341,7 +341,7 @@ export const HTMLSourceElement = simple('HTMLSourceElement', (p) => {
   long(p, 'height', 0)
 })
 export const HTMLTrackElement = simple('HTMLTrackElement', (p) => {
-  url(p, 'src', resolveUrl)
+  url(p, 'src')
   string(p, 'kind')
   string(p, 'srclang')
   string(p, 'label')
@@ -579,7 +579,7 @@ export class HTMLScriptElement extends HTMLElement {
   }
 }
 textAlias(HTMLScriptElement.prototype)
-url(HTMLScriptElement.prototype, 'src', resolveUrl)
+url(HTMLScriptElement.prototype, 'src')
 string(HTMLScriptElement.prototype, 'type')
 bool(HTMLScriptElement.prototype, 'noModule', 'nomodule')
 bool(HTMLScriptElement.prototype, 'async')
@@ -594,7 +594,7 @@ export class HTMLStyleElement extends HTMLElement {
   #sheet: unknown = null
   get sheet(): unknown {
     if (!this.isConnected) return null
-    if (!this.#sheet) this.#sheet = styleSheetOf(this)
+    if (!this.#sheet) this.#sheet = new CSSStyleSheet(undefined, this)
     return this.#sheet
   }
 }
@@ -602,11 +602,6 @@ string(HTMLStyleElement.prototype, 'media')
 string(HTMLStyleElement.prototype, 'type')
 bool(HTMLStyleElement.prototype, 'disabled')
 tag(HTMLStyleElement)
-
-let styleSheetOf: (element: Element) => unknown = () => null
-export function setStyleSheetOf(fn: (element: Element) => unknown): void {
-  styleSheetOf = fn
-}
 
 const REL_LIST = Symbol('relList')
 
@@ -637,7 +632,7 @@ function linkLoad(link: HTMLLinkElement): void {
 lifecycle.connected.push((node) => {
   if (node instanceof HTMLLinkElement) linkLoad(node)
 })
-url(HTMLLinkElement.prototype, 'href', resolveUrl)
+url(HTMLLinkElement.prototype, 'href')
 string(HTMLLinkElement.prototype, 'rel')
 string(HTMLLinkElement.prototype, 'as')
 string(HTMLLinkElement.prototype, 'media')
@@ -706,7 +701,7 @@ function hyperlink(proto: object): void {
       return null
     }
   }
-  url(proto, 'href', resolveUrl)
+  url(proto, 'href')
   Object.defineProperty(proto, 'relList', {
     get(this: Element) {
       return tokenList(this, REL_LIST, 'rel', ['noreferrer', 'noopener', 'opener'])
@@ -797,7 +792,6 @@ Object.defineProperty(HTMLElement.prototype, ACTIVATION, {
 
 export const svgClasses = new Map<string, new () => Element>()
 export const svgFallback = { cls: null as unknown as new () => Element }
-export const mathClass = { cls: Element as new () => Element }
 
 function htmlClass(local: string): new () => Element {
   const known = htmlClasses.get(local)
@@ -814,7 +808,7 @@ classes.of = (type, ns, local) => {
       pendingElement.ns = ns
       if (ns === Ns.Html) return htmlClass(local)
       if (ns === Ns.Svg) return svgClasses.get(local) ?? svgFallback.cls
-      return mathClass.cls
+      return Element
     }
     case NodeType.Text: return Text as never
     case NodeType.Comment: return Comment as never

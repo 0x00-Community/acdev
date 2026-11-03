@@ -1,19 +1,19 @@
 import { CustomEvent, Event, EventTarget } from '../core/event'
 import { URL } from '../core/url'
 import { cookies } from '../core/backend'
-import { DOMException } from '../core/exception'
+import { DOMException, guard } from '../core/exception'
 import { G, tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
 import { animationsOf, documentTimeline, type Animation } from './animation'
-import { Attr, Element, noteMarkup, pendingElement, setAttribute } from './element'
+import { Attr, Element, noteMarkup, setAttribute } from './element'
 import { env } from './env'
 import { ClipboardEvent, CompositionEvent, DragEvent, FocusEvent, InputEvent, KeyboardEvent, MouseEvent, PointerEvent, UIEvent, WheelEvent } from './events'
 import * as editing from './editing'
 import { focus, focusedElement } from './focus'
-import { createHtml, defineElementHandlers, documentClass, mathClass, svgClasses, svgFallback, type HTMLElement } from './html'
-import { Comment, cssString, DocumentFragment, DocumentType, Node, ParentNodeMixin, baseHooks, HTMLCollection, liveCollection, mixin, type NodeList, staticNodeListOfIds, Text, cloneOf, remove } from './node'
+import { createHtml, defineElementHandlers, documentClass, type HTMLElement } from './html'
+import { Comment, cssString, DocumentFragment, elementById, DocumentType, Node, ParentNodeMixin, baseHooks, HTMLCollection, liveCollection, mixin, type NodeList, staticNodeListOfIds, Text, cloneOf, remove } from './node'
 import { CaretPosition, getSelection, Range, type Selection } from './range'
-import { bodyId, childNamed, construct, constructing, documentElementOf, documentId, dom, guard, headId, ID, nodeConstructing, rootElementId, wrap } from './realm'
+import { bodyId, childNamed, classes, construct, constructing, documentElementOf, documentId, dom, headId, ID, nodeConstructing, rootElementId, wrap } from './realm'
 import { CSSStyleSheet, StyleSheetList } from './style'
 import { NodeIterator, TreeWalker } from './traversal'
 
@@ -28,10 +28,7 @@ const NS_URI: Record<string, Ns> = { 'http://www.w3.org/1999/xhtml': Ns.Html, 'h
 function createElementIn(ns: Ns, local: string): Element {
   if (ns === Ns.Html) return createHtml(local)
   const id = guard(() => dom.createElement(ns, local))
-  pendingElement.local = local
-  pendingElement.ns = ns
-  const cls = ns === Ns.Svg ? (svgClasses.get(local) ?? svgFallback.cls) : mathClass.cls
-  return construct(cls, id)
+  return construct(classes.of(NodeType.Element, ns, local), id) as Element
 }
 
 const NAME = /^[A-Za-z_:\u00C0-\uFFFF][\w.:\-\u00B7\u00C0-\uFFFF]*$/
@@ -348,7 +345,7 @@ export class Document extends Node {
     const key = String(id)
     if (this.#live) return wrap<Element>(dom.getElementById(key))
     if (!key) return null
-    return wrap<Element>(guard(() => dom.querySelector(this[ID], `[id=${cssString(key)}]`)))
+    return elementById(this[ID], key)
   }
 
   getElementsByName(name: string): NodeList {
