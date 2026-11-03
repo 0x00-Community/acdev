@@ -681,7 +681,7 @@ split-window 上没有, 没带过来 (按第一原则, 这类能力以后只经 
   (`confirm` / `prompt` 不阻塞, 返回 false / null); 链接: `#frag` 滚动, 同应用的页面换页, 外部 http(s) 交给浏览器应用,
   `<a download>` / blob: / data: 存进下载目录, 桌面经 `acde:desktop` 的 `on('download')` 收到; `<input type=file>` / `showOpenFilePicker` /
   `showSaveFilePicker` 走 xdg-desktop-portal 的 FileChooser (runtime `portal.rs`); `Notification` 转给桌面
-  (`acde:desktop` 的 `on('notification')`); 窗口隐藏 / 显示是 `visibilitychange`; `navigator.language` 跟会话的语言. 声音: `Audio` /
+  (`acde:desktop` 的 `on('notification')`); 窗口隐藏 / 显示是 `visibilitychange`; `navigator.language` 跟会话的语言; `screen.width` / `height` (和 `avail*`) 是主输出的逻辑尺寸 (Broker 放进 init 的 `screen`, 输出变了发 `{type: 'screen'}`), `innerWidth` 才是窗口自己的. 声音: `Audio` /
   `AudioContext` 由 crates/acde 经 PipeWire 播放 (acde-dom `src/audio/`). 还没有: indexedDB, Web Worker, `crypto.subtle`,
   OffscreenCanvas / createImageBitmap, 全屏和指针锁定, 页面直接联网 (经后端取), `:target`.
 - **后端**: acde-host `src/backend.ts` 起 `bun --preload acde-listen.js server.js`, 应用第一个窗口打开时起, 最后一个窗口关掉和

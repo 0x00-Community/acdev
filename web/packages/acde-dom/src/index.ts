@@ -35,7 +35,7 @@ import { attachShadow, shadowRootOf, ShadowRoot } from './dom/shadow'
 import { CSS, CSSRule, CSSRuleList, CSSStyleDeclaration, CSSStyleRule, CSSStyleSheet, StyleSheetList } from './dom/style'
 import * as svg from './dom/svg'
 import { NodeFilter, NodeIterator, TreeWalker } from './dom/traversal'
-import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, ScreenOrientation, setNavigatorLanguages, Storage, storage, storageEntries, VisualViewport, Window, type NavigatorOptions } from './dom/window'
+import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, Storage, storage, storageEntries, VisualViewport, Window, type NavigatorOptions } from './dom/window'
 
 export type { AudioNative, DomNative, DomStats, GpuNative, HostNative, PhaseTiming } from './native'
 export { installCore } from './core/index'
@@ -50,6 +50,7 @@ export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly logNetwork?: boolean
   readonly gpu?: GpuNative
   readonly audio?: AudioNative
+  readonly screen?: { width: number; height: number }
 }
 
 export interface WebInternals {
@@ -66,6 +67,7 @@ export interface WebInternals {
   resize(): void
   mediaChanged(): void
   setLanguages(languages: { language?: string; languages?: readonly string[] }): void
+  setScreen(size: { width: number; height: number }): void
   setVisible(visible: boolean): void
   setActive(active: boolean): void
   reportError(error: unknown): void
@@ -84,6 +86,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   net.base = () => env.url
   net.log = options.logNetwork ?? true
   readViewport()
+  if (options.screen) Object.assign(screenSize, options.screen)
 
   let reporting = false
   const reportError = (error: unknown) => {
@@ -205,6 +208,9 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     mediaChanged,
     setLanguages(languages) {
       if (setNavigatorLanguages(navigator, languages)) fire(global as unknown as EventTarget, new Event('languagechange'))
+    },
+    setScreen(size) {
+      Object.assign(screenSize, size)
     },
     setVisible(visible) {
       if (documentState.hidden === !visible) return

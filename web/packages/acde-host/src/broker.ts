@@ -80,6 +80,7 @@ export interface WebInit {
   readonly width: number
   readonly height: number
   readonly scale: number
+  readonly screen?: { width: number; height: number }
   readonly reducedMotion: boolean | null
   readonly dark: boolean
   readonly languages?: Languages
@@ -361,6 +362,7 @@ export class Broker {
       width: this.#output.width,
       height: this.#output.height,
       scale: this.#output.scale,
+      screen: this.#screen(),
       reducedMotion: this.#options.reducedMotion,
       dark: this.#dark,
       languages: this.language.current,
@@ -393,6 +395,7 @@ export class Broker {
       width: 800 * this.#output.scale,
       height: 600 * this.#output.scale,
       scale: this.#output.scale,
+      screen: this.#screen(),
       reducedMotion: this.#options.reducedMotion,
       dark: this.#dark,
       languages: this.language.current,
@@ -549,10 +552,20 @@ export class Broker {
     await web.worker.terminate()
   }
 
+  #screen(): { width: number; height: number } {
+    const scale = this.#output.scale || 1
+    return { width: Math.round(this.#output.width / scale), height: Math.round(this.#output.height / scale) }
+  }
+
   #event(event: RawShellEvent): void {
     switch (event.type) {
       case 'output':
-        if (event.width && event.height) this.#output = { width: event.width, height: event.height, scale: event.scale ?? this.#output.scale }
+        if (event.width && event.height) {
+          const was = this.#screen()
+          this.#output = { width: event.width, height: event.height, scale: event.scale ?? this.#output.scale }
+          const screen = this.#screen()
+          if (screen.width !== was.width || screen.height !== was.height) for (const web of this.#webs()) web.post({ type: 'screen', ...screen })
+        }
         return
       case 'milestone':
         return StartupTimeline.mark(`shell ${event.title}`)
@@ -634,8 +647,7 @@ export class Broker {
         return { window: running.id }
       }
     }
-    const scale = this.#output.scale || 1
-    const rect = mode === 'free' && !this.#running(appId) ? this.#places.get(appId, { width: this.#output.width / scale, height: this.#output.height / scale }) : null
+    const rect = mode === 'free' && !this.#running(appId) ? this.#places.get(appId, this.#screen()) : null
     const grant = this.shell.grant({ mode, ...(rect ? { rect } : app.size && { size: app.size }) })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], hiddenSince: null, request, mode }
     this.#windows.set(record.id, record)

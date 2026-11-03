@@ -61,6 +61,7 @@ class Web {
       onStorageChange: storage ? (entries) => storage.changed(entries) : undefined,
       gpu: natives.gpu,
       audio: natives.audio,
+      ...(init.screen && { screen: init.screen }),
     })
     host.onTaskEnd(() => page.endTask())
     host.setReporter((error, promise) => {
@@ -86,8 +87,9 @@ class Web {
     })
     listeners.push((message) => {
       if (Rpc.handles(message)) return
-      const m = message as { type?: string; events?: unknown[]; dark?: boolean; language?: string; languages?: string[] }
+      const m = message as { type?: string; events?: unknown[]; dark?: boolean; language?: string; languages?: string[]; width?: number; height?: number }
       if (m.type === 'events' && Array.isArray(m.events)) web.deliver(m.events as never)
+      if (m.type === 'screen' && m.width && m.height) page.setScreen({ width: m.width, height: m.height })
       if (m.type === 'languages') page.setLanguages({ language: m.language, languages: m.languages })
       if (m.type === 'colorscheme') {
         dom.setDark?.(m.dark === true)

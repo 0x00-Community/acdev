@@ -17,6 +17,9 @@ import { documentId, dom, ID, rootElementId, wrap } from './realm'
 import { computedStyle, type CSSStyleDeclaration } from './style'
 
 export const viewport = { width: 0, height: 0, scale: 1 }
+export const screenSize = { width: 0, height: 0 }
+const screenWidth = (): number => screenSize.width || viewport.width
+const screenHeight = (): number => screenSize.height || viewport.height
 
 export function readViewport(): void {
   const v = dom.viewport()
@@ -612,7 +615,7 @@ tag(Navigator)
 
 export class ScreenOrientation extends EventTarget {
   get type(): string {
-    return viewport.width >= viewport.height ? 'landscape-primary' : 'portrait-primary'
+    return screenWidth() >= screenHeight() ? 'landscape-primary' : 'portrait-primary'
   }
   get angle(): number {
     return 0
@@ -627,16 +630,16 @@ tag(ScreenOrientation)
 export class Screen extends EventTarget {
   readonly orientation = new ScreenOrientation()
   get width(): number {
-    return viewport.width
+    return screenWidth()
   }
   get height(): number {
-    return viewport.height
+    return screenHeight()
   }
   get availWidth(): number {
-    return viewport.width
+    return screenWidth()
   }
   get availHeight(): number {
-    return viewport.height
+    return screenHeight()
   }
   get availLeft(): number {
     return 0
