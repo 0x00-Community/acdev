@@ -46,6 +46,7 @@ struct Screen {
     queued: Option<std::time::Instant>,
     feedback: Option<ScreenFeedback>,
     sampled: Vec<Buffer>,
+    planes: (bool, usize),
 }
 
 #[derive(Clone)]
@@ -135,7 +136,7 @@ impl DrmTarget {
                 log::info!("光标平面 output={} legacy={} device_cursors={device_cursors:?} surface_cursors={own:?} cursor_size={manager_cursor_size:?}", output.name(), c.surface().is_legacy());
             });
             let feedback = surface.with_compositor(|c| ScreenFeedback::new(node, render_node, &formats, c.surface()));
-            screens.push(Screen { crtc, output, surface, dirty: true, presenting: false, queued: None, feedback, sampled: Vec::new() });
+            screens.push(Screen { crtc, output, surface, dirty: true, presenting: false, queued: None, feedback, sampled: Vec::new(), planes: (false, 0) });
         }
         let primary = screens.first().map(|s| s.output.clone()).ok_or("没有已连接的显示器")?;
 
@@ -226,8 +227,17 @@ impl Compositor {
             let screen = &mut drm.screens[index];
             screen.dirty = false;
             let started = std::time::Instant::now();
-            let states = match screen.surface.render_frame(&mut backend.renderer, &elements, CLEAR, FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT | FrameFlags::ALLOW_OVERLAY_PLANE_SCANOUT) {
+            let flags = match super::env::ENV.scanout {
+                true => FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT | FrameFlags::ALLOW_OVERLAY_PLANE_SCANOUT,
+                false => FrameFlags::empty(),
+            };
+            let states = match screen.surface.render_frame(&mut backend.renderer, &elements, CLEAR, flags) {
                 Ok(result) if !result.is_empty => {
+                    let planes = (matches!(result.primary_element, smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_)), result.overlay_elements.len());
+                    if planes != screen.planes {
+                        log::info!("平面 {}: 主平面{} 叠加平面 {} 个", output.name(), if planes.0 { "直扫客户端缓冲" } else { "合成" }, planes.1);
+                        screen.planes = planes;
+                    }
                     log::debug!(target: "perf::compose", "{} elements={} ms={:.3}", output.name(), elements.len(), acde_log::since_ms(started));
                     for element in &elements {
                         if let Some(UnderlyingStorage::Wayland(buffer)) = element.underlying_storage(&mut backend.renderer) {

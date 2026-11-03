@@ -833,7 +833,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
   `ALLOW_CURSOR_PLANE_SCANOUT`): 带 T2 的 Intel Mac 上 2 倍缩放时, 走光标平面的光标只能走屏幕左上 1/4; 改成合成之后在
   那台 Mac 上验过, 光标走满全屏 (Xe3 + 4K HDMI 上 `ACDE_SCALE=2` 也一样). 其他环境变量: `ACDE_SOCKET`
   (Wayland socket 名), `ACDE_RENDER_NODE`,
-  调试用的 `ACDE_WEB_FULL` (每帧整张重画) / `ACDE_WEB_POLL` (不用信号量, 轮询). 日志见「日志和计时」.
+  调试用的 `ACDE_WEB_FULL` (每帧整张重画) / `ACDE_WEB_POLL` (不用信号量, 轮询) / `ACDE_SCANOUT=0` (DRM 上不把客户端缓冲直接放到主平面或叠加平面, 全部合成; 平面分配变了时打一行 info `平面 <输出>: …`, 查闪烁用). 日志见「日志和计时」.
 
 ### GPU 与性能 (硬约束)
 
