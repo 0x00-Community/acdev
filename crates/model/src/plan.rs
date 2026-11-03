@@ -97,7 +97,7 @@ impl CompositePlan {
         let count = layers.len();
         for i in 0..count {
             let Some(Effect::Backdrop { rect, blur, .. }) = layers[i].effect else { continue };
-            let reach = Self::blur_margin(blur);
+            let reach = f64::from(blur_margin(blur_levels(blur)));
             let sampled = Rect::new(rect.x - reach, rect.y - reach, rect.w + 2.0 * reach, rect.h + 2.0 * reach);
             let vacated = skipped.iter().filter(|(above, _)| i + above >= count).flat_map(|(_, own)| own);
             let under = owns[..i].iter().flatten().chain(vacated).chain(gone).any(|d| d.intersects(&sampled));
@@ -120,13 +120,8 @@ impl CompositePlan {
         Self { damage: Self::merge(damage), route, layers }
     }
 
-    pub fn blur_margin(blur: f32) -> f64 {
-        let levels = ((blur.max(1.0) / 2.0).log2().ceil() as u32).clamp(1, 5);
-        f64::from((2i32 << levels).min(64))
-    }
-
-    pub fn merge(rects: Vec<Rect>) -> Vec<Rect> {
-        let mut out = crate::merge(rects.into_iter().filter(|r| !r.is_empty()).collect());
+    fn merge(rects: Vec<Rect>) -> Vec<Rect> {
+        let mut out = union_overlapping(rects.into_iter().filter(|r| !r.is_empty()).collect());
         while out.len() > MAX_DAMAGE {
             let (mut best, mut cost) = ((0, 1), f64::MAX);
             for i in 0..out.len() {
@@ -141,7 +136,7 @@ impl CompositePlan {
             let joined = out[best.0].union(&out[best.1]);
             out.swap_remove(best.1);
             out[best.0] = joined;
-            out = crate::merge(out);
+            out = union_overlapping(out);
         }
         out
     }
@@ -149,4 +144,29 @@ impl CompositePlan {
     pub fn layer(&self, window: WindowId) -> Option<&Layer> {
         self.layers.iter().find(|l| l.window == window)
     }
+}
+
+pub fn blur_levels(blur: f32) -> u32 {
+    ((blur.max(1.0) / 2.0).log2().ceil() as u32).clamp(1, 5)
+}
+
+pub fn blur_margin(levels: u32) -> i32 {
+    2 << levels
+}
+
+fn union_overlapping(mut rects: Vec<Rect>) -> Vec<Rect> {
+    let mut out: Vec<Rect> = Vec::with_capacity(rects.len());
+    while let Some(mut r) = rects.pop() {
+        let mut i = 0;
+        while i < out.len() {
+            if r.intersects(&out[i]) {
+                r = r.union(&out.swap_remove(i));
+                i = 0;
+            } else {
+                i += 1;
+            }
+        }
+        out.push(r);
+    }
+    out
 }

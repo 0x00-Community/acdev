@@ -196,17 +196,10 @@ impl WindowTable {
     }
 
     pub fn create(&mut self, canvas: CanvasId, mode: Mode, rect: Rect) -> Result<WindowId, Error> {
-        self.create_child(canvas, mode, rect, None, false)
+        self.create_child(canvas, mode, rect, None)
     }
 
-    pub fn create_child(
-        &mut self,
-        canvas: CanvasId,
-        mode: Mode,
-        rect: Rect,
-        parent: Option<WindowId>,
-        modal: bool,
-    ) -> Result<WindowId, Error> {
+    pub fn create_child(&mut self, canvas: CanvasId, mode: Mode, rect: Rect, parent: Option<WindowId>) -> Result<WindowId, Error> {
         let c = self.canvases.get(&canvas).ok_or(Error::UnknownCanvas)?;
         if let Some(p) = parent
             && self.windows.get(&p).is_none_or(|w| w.canvas != canvas)
@@ -222,7 +215,7 @@ impl WindowTable {
         }
         self.next_window += 1;
         let id = WindowId(self.next_window);
-        self.windows.insert(id, Window { id, canvas, mode, rect, parent, modal });
+        self.windows.insert(id, Window { id, canvas, mode, rect, parent, modal: false });
         self.canvases.get_mut(&canvas).expect("checked above").z.push(id);
         Ok(id)
     }
@@ -315,13 +308,8 @@ impl WindowTable {
     pub fn raise(&mut self, id: WindowId, above: Option<WindowId>) -> Result<(), Error> {
         let canvas = self.windows.get(&id).ok_or(Error::UnknownWindow)?.canvas;
         let z = &mut self.canvases.get_mut(&canvas).ok_or(Error::UnknownCanvas)?.z;
-        if let Some(a) = above {
-            if a == id {
-                return Err(Error::NotAbove);
-            }
-            if !z.contains(&a) {
-                return Err(Error::NotAbove);
-            }
+        if above.is_some_and(|a| a == id || !z.contains(&a)) {
+            return Err(Error::NotAbove);
         }
         z.retain(|&x| x != id);
         match above {
@@ -370,26 +358,6 @@ impl WindowTable {
         let Some(c) = self.canvas(w.canvas) else { return false };
         opaque && !effects && opacity == 1.0 && identity && buffer_ok && w.rect.covers(&c.rect)
     }
-}
-
-pub(crate) fn merge(mut rects: Vec<Rect>) -> Vec<Rect> {
-    let mut out: Vec<Rect> = Vec::with_capacity(rects.len());
-    'next: while let Some(r) = rects.pop() {
-        let mut r = r;
-        let mut i = 0;
-        while i < out.len() {
-            if r.intersects(&out[i]) {
-                r = r.union(&out[i]);
-                out.swap_remove(i);
-                i = 0;
-            } else {
-                i += 1;
-            }
-        }
-        out.push(r);
-        continue 'next;
-    }
-    out
 }
 
 #[cfg(test)]

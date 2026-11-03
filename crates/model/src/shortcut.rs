@@ -56,14 +56,11 @@ pub struct Binding {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Refused {
-    Taken(Binding),
-}
+pub struct Taken(pub Binding);
 
-impl std::fmt::Display for Refused {
+impl std::fmt::Display for Taken {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Refused::Taken(b) = self;
-        write!(f, "shortcut taken by {:?} owner {}", b.scope, b.owner)
+        write!(f, "shortcut taken by {:?} owner {}", self.0.scope, self.0.owner)
     }
 }
 
@@ -73,7 +70,7 @@ pub struct Shortcuts {
 }
 
 impl Shortcuts {
-    pub fn register(&mut self, new: Binding) -> Result<(), Refused> {
+    pub fn register(&mut self, new: Binding) -> Result<(), Taken> {
         let clash = self.bindings.iter().find(|b| {
             b.combo == new.combo
                 && match (b.scope, new.scope) {
@@ -84,7 +81,7 @@ impl Shortcuts {
         });
         match clash {
             Some(b) if *b == new => Ok(()),
-            Some(b) => Err(Refused::Taken(*b)),
+            Some(b) => Err(Taken(*b)),
             None => {
                 self.bindings.push(new);
                 Ok(())
@@ -92,10 +89,8 @@ impl Shortcuts {
         }
     }
 
-    pub fn unregister(&mut self, combo: Combo, scope: Scope, owner: u32) -> bool {
-        let before = self.bindings.len();
+    pub fn unregister(&mut self, combo: Combo, scope: Scope, owner: u32) {
         self.bindings.retain(|b| !(b.combo == combo && b.scope == scope && b.owner == owner));
-        before != self.bindings.len()
     }
 
     pub fn forget(&mut self, owner: u32) {
