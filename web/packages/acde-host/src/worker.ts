@@ -30,6 +30,7 @@ interface WebNatives extends Natives {
   readonly backend?: Omit<BackendTransport, 'port'>
   readonly fs?: object
   readonly terminal?: object
+  readonly network?: object
 }
 
 export default async function boot(natives: WebNatives): Promise<void> {
@@ -111,6 +112,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   }
   if (natives.fs) bridge.value['fs'] = natives.fs
   if (natives.terminal) bridge.value['terminal'] = natives.terminal
+  if (natives.network) bridge.value['network'] = natives.network
   bridge.define(host)
   const app = self ? new WebAppPage(page, rpc, init.name, self.api, storage) : null
   StartupTimeline.mark('page load started')

@@ -139,8 +139,8 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
 3. (已做, 外部内存记账除外) web 从子进程改成 runtime 进程里的线程 + isolate: `spawnWeb` 对 TS 不变, port 换成进程内通道;
    堆上限、CPU 时间和卡死检测按 isolate. 还没有: 外部内存 (ArrayBuffer、render 文档、GPU 缓冲) 按 isolate 记账.
 4. 系统能力直接注入: fs / terminal / network / office / ime 在各 isolate 里绑定同一份 Rust 对象; 删掉 Broker 代理的这些分支.
-   已做: ime (crates/acde `webnative.rs`)、fs、terminal (见下). 还没做: network、office (仍经 Broker).
-   - `spawnWeb` 第 7 个参数是这个 web 拿到的系统能力 `{fs, terminal}` (Broker `#grants`: 桌面全给, 应用按清单); 给了的才注入
+   已做: ime (crates/acde `webnative.rs`)、fs、terminal、network (见下). 还没做: office (仍经 Broker).
+   - `spawnWeb` 第 7 个参数是这个 web 拿到的系统能力 `{fs, terminal, network}` (Broker `#grants`: 桌面全给, 应用按清单); 给了的才注入
      (`natives.fs` / `natives.terminal`), 没给的 `import('acde:<名字>')` 直接失败; Broker 不再给 web 发这些的 shape, `#serve` 收到
      直接拒绝. 每种在 Broker 线程第一次用到时建一份, 所有 web 共用.
    - terminal: crates/runtime `Terminals` 加 Rust 侧的 `listen(id, sink)` (sink 返回 false 表示收不到了, 下次发时摘掉) 和
@@ -150,6 +150,11 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
      `Terminals` 是另一张表 (会话结束时 `closeAll`). shell 在 runtime 进程里起 (和 GPU、Wayland、各 web 同进程), 所以 pty 的
      子进程 exec 前 `close_range(3, ~0)`: runtime 里的 fd (Mesa 的 udmabuf / memfd、没带 CLOEXEC 的管道) 一个都不带过去
      —— 带过去的管道写端曾让 `quit` 等读线程永远等不到 (退出时卡死).
+   - network: crates/runtime `Networks` (所有 web 共用: 第一次调用时连 NetworkManager, `NetCall` 是六个调用, `listen` 可以挂任意多个
+     Rust sink, 第一次挂时才开始盯 PropertiesChanged). crates/acde `network.rs` 绑成 `natives.network`, `watch` 的状态投回这个 web
+     的事件循环. 连接活到 runtime 退出 (不在 drop 时关: 关了盯信号的线程退出时 zbus 会报 remove match rule 失败).
+   - 调用都在 crates/acde `offload.rs`: 每次一条线程做阻塞的活, promise 在这个 web 的事件循环上落定; 失败是带 `code` (和 `status`)
+     的 Error.
    - fs: crates/runtime `Workspace` (Finder 的共享状态 + 这个 web 能用的 roots, `None` 是全部) 和 `FsCall` / `FsReply`, napi
      `Finder` 也是它的包装. Broker 线程第一次 `spawnWeb` 时建一份, 每个 web 按清单拿一个 `scoped` 的副本 (`{fs}`: `true` 是全部,
      roots 数组, `null` 是没有); roots 在 Rust 里查

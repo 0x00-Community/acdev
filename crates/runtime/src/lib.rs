@@ -20,7 +20,7 @@ pub use atspi::Accessibility;
 pub use bus::DesktopBus;
 pub use greetd::{GreetUser, Greetd};
 pub use ime::{Ime, ImeCapability};
-pub use network::Network;
+pub use network::{NetCall, Network, Networks};
 pub use office::Office;
 pub use portal::{Appearance, FileChooser};
 pub use fs::{FileBytes, Finder, FsCall, FsError, FsReply, Workspace};

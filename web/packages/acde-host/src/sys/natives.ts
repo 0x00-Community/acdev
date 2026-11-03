@@ -48,6 +48,7 @@ export interface SysNative {
 export interface WebGrants {
   readonly fs: true | string[] | null
   readonly terminal: boolean
+  readonly network: boolean
 }
 
 export interface Natives {

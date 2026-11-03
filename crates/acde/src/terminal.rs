@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use acde_runtime::Terminals;
 
-use crate::bind;
+use crate::{bind, offload};
 use crate::rt::{self, Msg};
 
 #[derive(Default)]
@@ -44,25 +44,15 @@ fn with_terminals(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, f: impl Fn
     let Some(resolver) = bind::resolver(scope, token) else { return };
     match result {
         Ok(value) => {
-            let value = json(scope, &value);
+            let value = offload::json(scope, &value);
             resolver.resolve(scope, value);
         }
         Err(error) => {
-            let text = bind::string(scope, &error);
-            let thrown = v8::Exception::error(scope, text);
-            if let Ok(object) = v8::Local::<v8::Object>::try_from(thrown) {
-                let code = bind::string(scope, "GenericFailure").into();
-                bind::set(scope, object, "code", code);
-            }
+            let thrown = offload::failure(scope, &error, None, "GenericFailure");
             resolver.reject(scope, thrown);
         }
     }
     rv.set(promise.into());
-}
-
-fn json<'s>(scope: &mut v8::PinScope<'s, '_>, value: &serde_json::Value) -> v8::Local<'s, v8::Value> {
-    let text = bind::string(scope, &value.to_string());
-    v8::json::parse(scope, text).unwrap_or_else(|| v8::null(scope).into())
 }
 
 fn open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -108,6 +98,6 @@ fn subscribe(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
 
 fn deliver(scope: &mut v8::PinScope, token: u32, events: &serde_json::Value) {
     let Some(callback) = STATE.with(|s| s.borrow().listeners.get(&token).cloned()) else { return };
-    let value = json(scope, events);
+    let value = offload::json(scope, events);
     bind::call(scope, &callback, &[value]);
 }

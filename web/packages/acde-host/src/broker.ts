@@ -418,12 +418,12 @@ export class Broker {
     return web
   }
 
-  static readonly #LOCAL = new Set(['fs', 'terminal'])
+  static readonly #LOCAL = new Set(['fs', 'terminal', 'network'])
 
   static #grants(caps: Capabilities | null): WebGrants {
-    if (!caps) return { fs: true, terminal: true }
+    if (!caps) return { fs: true, terminal: true, network: true }
     const fs = caps.fs
-    return { fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null, terminal: !!caps.terminal }
+    return { fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null, terminal: !!caps.terminal, network: !!caps.network }
   }
 
   static #env(): Record<string, string> {

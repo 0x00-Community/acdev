@@ -2,8 +2,7 @@ use std::cell::RefCell;
 
 use acde_runtime::{FsCall, FsError, FsReply, Workspace};
 
-use crate::bind;
-use crate::rt::{self, Msg};
+use crate::{bind, offload};
 
 #[derive(Clone, Copy)]
 enum Method {
@@ -127,30 +126,14 @@ fn call(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
     let Some(workspace) = WORKSPACE.with(|w| w.borrow().clone()) else {
         return bind::throw_error(scope, "acde.fs: not given to this web");
     };
-    let Some((token, promise)) = bind::promise(scope) else { return };
     let request = method.call(&Args::read(scope, &args));
-    let tx = rt::current().sender();
-    let lp = rt::current();
-    lp.keep_alive(true);
-    let started = std::thread::Builder::new().name("acde-fs".into()).spawn(move || {
-        let reply = workspace.call(request);
-        _ = tx.send(Msg::Task(Box::new(move |scope| settle(scope, token, reply))));
-    });
-    if let Err(e) = started {
-        lp.keep_alive(false);
-        bind::forget_promise(token);
-        return bind::throw_error(scope, &format!("acde.fs: {e}"));
-    }
-    rv.set(promise.into());
+    offload::run(scope, &mut rv, "acde-fs", move || workspace.call(request), settle);
 }
 
-fn settle(scope: &mut v8::PinScope, token: u32, reply: Result<FsReply, FsError>) {
-    rt::current().keep_alive(false);
-    let Some(resolver) = bind::resolver(scope, token) else { return };
+fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, reply: Result<FsReply, FsError>) {
     match reply {
         Ok(FsReply::Json(value)) => {
-            let text = bind::string(scope, &value.to_string());
-            let value = v8::json::parse(scope, text).unwrap_or_else(|| v8::null(scope).into());
+            let value = offload::json(scope, &value);
             resolver.resolve(scope, value);
         }
         Ok(FsReply::File { name, data }) => {
@@ -160,21 +143,12 @@ fn settle(scope: &mut v8::PinScope, token: u32, reply: Result<FsReply, FsError>)
             let file = bind::object(scope, &[("name", name), ("contentType", kind), ("data", data)]);
             resolver.resolve(scope, file.into());
         }
-        Err(error) => {
-            let (message, status, code) = match error {
-                FsError::Refused(what) => (format!("this app may not use {what} (not in its manifest's capabilities)"), 403, "forbidden"),
-                FsError::Failed(json) => (json, 500, "GenericFailure"),
-            };
-            let text = bind::string(scope, &message);
-            let thrown = v8::Exception::error(scope, text);
-            if let Ok(object) = v8::Local::<v8::Object>::try_from(thrown) {
-                if status == 403 {
-                    let status = v8::Integer::new(scope, status).into();
-                    bind::set(scope, object, "status", status);
-                }
-                let code = bind::string(scope, code).into();
-                bind::set(scope, object, "code", code);
-            }
+        Err(FsError::Refused(what)) => {
+            let thrown = offload::failure(scope, &format!("this app may not use {what} (not in its manifest's capabilities)"), Some(403), "forbidden");
+            resolver.reject(scope, thrown);
+        }
+        Err(FsError::Failed(json)) => {
+            let thrown = offload::failure(scope, &json, None, "GenericFailure");
             resolver.reject(scope, thrown);
         }
     }

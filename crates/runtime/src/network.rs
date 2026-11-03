@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use napi::bindgen_prelude::Unknown;
@@ -10,7 +10,8 @@ use zbus::blocking::{Connection, MessageIterator, Proxy};
 use zbus::proxy::CacheProperties;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value as Variant};
 
-use crate::js::{Sink, Watch, notify};
+use crate::js::{Watch, notify};
+use crate::sync::Locked;
 use crate::{blocking, failure};
 
 const NM: &str = "org.freedesktop.NetworkManager";
@@ -345,15 +346,7 @@ impl Drop for Network {
 impl Network {
     #[napi(factory)]
     pub async fn open() -> Result<Self> {
-        blocking(|| {
-            let connection = Connection::system().map_err(|e| failure("network_unavailable", &e.to_string()))?;
-            let nm = Nm { connection };
-            nm.proxy(NM_PATH, NM)
-                .and_then(|p| p.get_property::<String>("Version"))
-                .map_err(|e| failure("network_unavailable", &format!("NetworkManager is not running: {e}")))?;
-            Ok(Self { nm, watch: Watch::default() })
-        })
-        .await
+        blocking(|| Ok(Self { nm: Nm::open()?, watch: Watch::default() })).await
     }
 
     #[napi]
@@ -400,12 +393,37 @@ impl Network {
 
     #[napi(ts_args_type = "callback: (state: unknown) => void")]
     pub fn watch(&self, env: Env, callback: Unknown<'_>) -> Result<()> {
-        self.watch.watch(&env, callback, |sink| self.start_watching(sink))
+        self.watch.watch(&env, callback, |sink| self.nm.start_watching(move |state| notify(&sink, state)))
     }
 }
 
-impl Network {
-    fn start_watching(&self, sink: Sink<Value>) -> Result<()> {
+impl Nm {
+    fn open() -> Result<Self> {
+        let connection = Connection::system().map_err(|e| failure("network_unavailable", &e.to_string()))?;
+        let nm = Nm { connection };
+        nm.proxy(NM_PATH, NM)
+            .and_then(|p| p.get_property::<String>("Version"))
+            .map_err(|e| failure("network_unavailable", &format!("NetworkManager is not running: {e}")))?;
+        Ok(nm)
+    }
+
+    fn call(&self, call: NetCall) -> Result<Value> {
+        match call {
+            NetCall::State => self.state().map_err(bus),
+            NetCall::Networks { scan } => {
+                if scan {
+                    self.scan().map_err(bus)?;
+                }
+                self.networks().map_err(bus)
+            }
+            NetCall::Connect { ssid, password } => self.join(&ssid, password.as_deref()).map(|()| Value::Null),
+            NetCall::Activate { iface } => self.activate(&iface).map(|()| Value::Null),
+            NetCall::Disconnect { iface } => self.disconnect(&iface).map(|()| Value::Null),
+            NetCall::SetWifiEnabled { on } => self.set_wifi_enabled(on).map(|()| Value::Null),
+        }
+    }
+
+    fn start_watching(&self, notify: impl Fn(Value) + Send + 'static) -> Result<()> {
         let rule = zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
             .sender(NM)
@@ -414,7 +432,7 @@ impl Network {
             .and_then(|b| b.member("PropertiesChanged"))
             .map_err(bus)?
             .build();
-        let signals = MessageIterator::for_match_rule(rule, &self.nm.connection, None).map_err(bus)?;
+        let signals = MessageIterator::for_match_rule(rule, &self.connection, None).map_err(bus)?;
         let (tx, rx) = mpsc::channel::<()>();
         let spawn = |name: &str, f: Box<dyn FnOnce() + Send>| {
             std::thread::Builder::new().name(name.into()).spawn(f).map(drop).map_err(|e| napi::Error::from_reason(e.to_string()))
@@ -429,18 +447,79 @@ impl Network {
                 }
             }),
         )?;
-        let nm = self.nm.clone();
+        let nm = self.clone();
         spawn(
             "acde-network-state",
             Box::new(move || {
                 while rx.recv().is_ok() {
                     while rx.recv_timeout(SETTLE).is_ok() {}
                     if let Ok(state) = nm.state() {
-                        notify(&sink, state);
+                        notify(state);
                     }
                 }
             }),
         )?;
         Ok(())
+    }
+}
+
+pub enum NetCall {
+    State,
+    Networks { scan: bool },
+    Connect { ssid: String, password: Option<String> },
+    Activate { iface: String },
+    Disconnect { iface: String },
+    SetWifiEnabled { on: bool },
+}
+
+type NetSink = Box<dyn Fn(Value) -> bool + Send>;
+
+#[derive(Default)]
+struct Hub {
+    nm: Option<Nm>,
+    sinks: Vec<NetSink>,
+    watching: bool,
+}
+
+#[derive(Clone, Default)]
+pub struct Networks {
+    hub: Arc<Mutex<Hub>>,
+}
+
+impl Networks {
+    fn nm(&self) -> std::result::Result<Nm, String> {
+        let mut hub = self.hub.locked();
+        if let Some(nm) = &hub.nm {
+            return Ok(nm.clone());
+        }
+        let nm = Nm::open().map_err(|e| e.reason)?;
+        hub.nm = Some(nm.clone());
+        Ok(nm)
+    }
+
+    pub fn call(&self, call: NetCall) -> std::result::Result<Value, String> {
+        self.nm()?.call(call).map_err(|e| e.reason)
+    }
+
+    pub fn listen(&self, sink: impl Fn(Value) -> bool + Send + 'static) -> std::result::Result<(), String> {
+        let nm = self.nm()?;
+        let start = {
+            let mut hub = self.hub.locked();
+            hub.sinks.push(Box::new(sink));
+            !std::mem::replace(&mut hub.watching, true)
+        };
+        if !start {
+            return Ok(());
+        }
+        let hub = Arc::downgrade(&self.hub);
+        nm.start_watching(move |state| {
+            if let Some(hub) = hub.upgrade() {
+                hub.locked().sinks.retain(|sink| sink(state.clone()));
+            }
+        })
+        .map_err(|e| {
+            self.hub.locked().watching = false;
+            e.reason
+        })
     }
 }

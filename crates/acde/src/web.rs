@@ -64,6 +64,7 @@ struct Webs {
 struct System {
     workspace: Option<acde_runtime::Workspace>,
     terminals: Option<acde_runtime::Terminals>,
+    networks: acde_runtime::Networks,
 }
 
 #[cfg(target_os = "linux")]
@@ -71,6 +72,7 @@ struct System {
 struct Grants {
     fs: Option<acde_runtime::Workspace>,
     terminal: Option<acde_runtime::Terminals>,
+    network: Option<acde_runtime::Networks>,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -87,10 +89,12 @@ impl Webs {
             _ => None,
         };
         let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
+        let network = bind::get(scope, wanted, "network").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         Grants {
             fs: fs.map(|roots| system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(roots)),
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
+            network: network.then(|| system.networks.clone()),
         }
     }
 
@@ -108,6 +112,9 @@ impl Grants {
         }
         if let Some(terminals) = self.terminal {
             crate::terminal::install(scope, natives, terminals);
+        }
+        if let Some(networks) = self.network {
+            crate::network::install(scope, natives, networks);
         }
     }
 
@@ -200,6 +207,7 @@ impl Spec {
             crate::backend::clear();
             crate::fs::clear();
             crate::terminal::clear();
+            crate::network::clear();
         }
         bind::clear_promises();
         drop(runtime);
