@@ -56,6 +56,8 @@ function disabledControl(element: Element): boolean {
 
 const VALIDITY = ['valueMissing', 'typeMismatch', 'patternMismatch', 'tooShort', 'rangeUnderflow', 'rangeOverflow'] as const
 
+let validityOwner: (state: ValidityState) => Element
+
 export class ValidityState {
   declare readonly valueMissing: boolean
   declare readonly typeMismatch: boolean
@@ -63,7 +65,15 @@ export class ValidityState {
   declare readonly tooShort: boolean
   declare readonly rangeUnderflow: boolean
   declare readonly rangeOverflow: boolean
-  constructor(readonly owner: Element) {}
+  readonly #owner: Element
+
+  constructor(owner: Element) {
+    this.#owner = owner
+  }
+
+  static {
+    validityOwner = (state) => state.#owner
+  }
   get tooLong(): boolean {
     return false
   }
@@ -74,17 +84,17 @@ export class ValidityState {
     return false
   }
   get customError(): boolean {
-    return !!(this.owner as unknown as { [CUSTOM_VALIDITY]?: string })[CUSTOM_VALIDITY]
+    return !!(this.#owner as unknown as { [CUSTOM_VALIDITY]?: string })[CUSTOM_VALIDITY]
   }
   get valid(): boolean {
-    const v = validity(this.owner)
+    const v = validity(this.#owner)
     return !(VALIDITY.some((key) => v[key]) || this.customError)
   }
 }
 for (const key of VALIDITY) {
   Object.defineProperty(ValidityState.prototype, key, {
     get(this: ValidityState) {
-      return validity(this.owner)[key]
+      return validity(validityOwner(this))[key]
     },
     configurable: true,
   })
@@ -592,22 +602,24 @@ mixin(HTMLTextAreaElement, TextSelection)
 tag(HTMLTextAreaElement)
 export interface HTMLTextAreaElement extends ConstraintValidation, TextSelection {}
 
+const SELECT = Symbol('select')
+
 export class HTMLOptionsCollection extends HTMLCollection {
-  select: HTMLSelectElement | null = null
+  [SELECT]: HTMLSelectElement | null = null
 
   get selectedIndex(): number {
-    return this.select ? this.select.selectedIndex : -1
+    return this[SELECT] ? this[SELECT].selectedIndex : -1
   }
   set selectedIndex(value: number) {
-    if (this.select) this.select.selectedIndex = value
+    if (this[SELECT]) this[SELECT].selectedIndex = value
   }
 
   add(element: Element, before?: Element | number | null): void {
-    this.select?.add(element, before)
+    this[SELECT]?.add(element, before)
   }
 
   remove(index: number): void {
-    this.select?.remove(index)
+    this[SELECT]?.remove(index)
   }
 }
 tag(HTMLOptionsCollection)
@@ -628,7 +640,7 @@ export class HTMLSelectElement extends HTMLElement {
     if (!holder[OPTIONS]) {
       const id = this[ID]
       const list = liveCollection(() => optionIds(id), HTMLOptionsCollection)
-      list.select = this
+      list[SELECT] = this
       holder[OPTIONS] = list
     }
     return holder[OPTIONS]

@@ -249,10 +249,11 @@ export class History {
 tag(History)
 
 const STORAGE = Symbol('storage')
+export const STORAGE_CHANGED = Symbol('storageChanged')
 
 export class Storage {
-  [STORAGE]: Map<string, string> = new Map()
-  onChange: (() => void) | null = null
+  [STORAGE]: Map<string, string> = new Map();
+  [STORAGE_CHANGED]: (() => void) | null = null
 
   get length(): number {
     return this[STORAGE].size
@@ -267,15 +268,15 @@ export class Storage {
     const k = String(key), v = String(value)
     if (this[STORAGE].get(k) === v) return
     this[STORAGE].set(k, v)
-    this.onChange?.()
+    this[STORAGE_CHANGED]?.()
   }
   removeItem(key: string): void {
-    if (this[STORAGE].delete(String(key))) this.onChange?.()
+    if (this[STORAGE].delete(String(key))) this[STORAGE_CHANGED]?.()
   }
   clear(): void {
     if (this[STORAGE].size === 0) return
     this[STORAGE].clear()
-    this.onChange?.()
+    this[STORAGE_CHANGED]?.()
   }
 }
 tag(Storage)
@@ -289,7 +290,7 @@ export function storage(initial: Record<string, string> | null | undefined): Sto
       return t.getItem(key) ?? undefined
     },
     set(t, key, value) {
-      if (typeof key === 'symbol' || key === 'onChange') return Reflect.set(t, key, value)
+      if (typeof key === 'symbol') return Reflect.set(t, key, value)
       t.setItem(key, value)
       return true
     },
@@ -311,7 +312,7 @@ export function storage(initial: Record<string, string> | null | undefined): Sto
 }
 
 export function storageEntries(s: Storage): Record<string, string> {
-  return Object.fromEntries((s as unknown as { [STORAGE]: Map<string, string> })[STORAGE] ?? new Map())
+  return Object.fromEntries(s[STORAGE])
 }
 
 const watched = new Set<MediaQueryList>()

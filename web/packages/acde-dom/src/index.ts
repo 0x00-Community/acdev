@@ -35,7 +35,7 @@ import { attachShadow, shadowRootOf, ShadowRoot } from './dom/shadow'
 import { CSS, CSSRule, CSSRuleList, CSSStyleDeclaration, CSSStyleRule, CSSStyleSheet, StyleSheetList } from './dom/style'
 import * as svg from './dom/svg'
 import { NodeFilter, NodeIterator, TreeWalker } from './dom/traversal'
-import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, Storage, storage, storageEntries, VisualViewport, Window, type NavigatorOptions } from './dom/window'
+import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, Storage, storage, STORAGE_CHANGED, storageEntries, VisualViewport, Window, type NavigatorOptions } from './dom/window'
 
 export type { AudioNative, DomNative, DomStats, GpuNative, HostNative, PhaseTiming } from './native'
 export { installCore } from './core/index'
@@ -105,7 +105,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   const local = storage(options.localStorage)
   const session = storage(null)
   let storageDirty = false
-  local.onChange = () => {
+  local[STORAGE_CHANGED] = () => {
     storageDirty = true
   }
   const registry = new CustomElementRegistry()

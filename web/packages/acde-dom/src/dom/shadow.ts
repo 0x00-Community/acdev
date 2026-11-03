@@ -10,21 +10,23 @@ import { CONNECTED, ID } from './realm'
 import { getSelection, type Selection } from './range'
 
 const HOST = Symbol('host')
+const MODE = Symbol('mode')
+const DELEGATES_FOCUS = Symbol('delegatesFocus')
 const VALID_HOSTS = new Set(['article', 'aside', 'blockquote', 'body', 'div', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'main', 'nav', 'p', 'section', 'span'])
 
 export class ShadowRoot extends DocumentFragment {
   declare [HOST]: Element
-  declare _mode: string
-  declare _delegatesFocus: boolean
+  declare [MODE]: string
+  declare [DELEGATES_FOCUS]: boolean
 
   get host(): Element {
     return this[HOST]
   }
   get mode(): string {
-    return this._mode
+    return this[MODE]
   }
   get delegatesFocus(): boolean {
-    return this._delegatesFocus
+    return this[DELEGATES_FOCUS]
   }
   get slotAssignment(): string {
     return 'named'
@@ -91,14 +93,14 @@ export function attachShadow(host: Element, init: { mode?: string; delegatesFocu
   const root = Object.create(ShadowRoot.prototype) as ShadowRoot
   ;(root as unknown as { [ID]: number })[ID] = host[ID]
   root[HOST] = host
-  root._mode = init.mode
-  root._delegatesFocus = !!init.delegatesFocus
+  root[MODE] = init.mode
+  root[DELEGATES_FOCUS] = !!init.delegatesFocus
   holder[SHADOW_ROOT] = root
   return root
 }
 
 export function shadowRootOf(host: Element): ShadowRoot | null {
   const root = (host as unknown as { [SHADOW_ROOT]?: ShadowRoot })[SHADOW_ROOT]
-  return root && root._mode === 'open' ? root : null
+  return root && root[MODE] === 'open' ? root : null
 }
 

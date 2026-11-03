@@ -225,6 +225,9 @@ const COMPOSITES = ['source-over', 'source-in', 'source-out', 'source-atop', 'de
   'lighter', 'copy', 'xor', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light',
   'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity']
 
+let takeCommands: (context: CanvasContext2d) => Uint8Array
+let hasCommands: (context: CanvasContext2d) => boolean
+
 export class CanvasContext2d {
   #state: State = CanvasContext2d.#initial()
   #stack: State[] = []
@@ -236,29 +239,17 @@ export class CanvasContext2d {
   imageSmoothingQuality = 'low'
   filter = 'none'
 
-  constructor(
-    readonly canvas: CanvasElement,
-    readonly owner: CanvasContexts,
-  ) {
+  constructor(readonly canvas: CanvasElement) {
     this.#size = [canvas.width, canvas.height]
+  }
+
+  static {
+    takeCommands = (context) => context.#out.take()
+    hasCommands = (context) => context.#out.len > 0
   }
 
   static #initial(): State {
     return { m: [1, 0, 0, 1, 0, 0], fill: '#000000', stroke: '#000000', lineWidth: 1, cap: 'butt', join: 'miter', miter: 10, dash: [], dashOffset: 0, alpha: 1, gco: 'source-over', font: '10px sans-serif', align: 'start', baseline: 'alphabetic', direction: 'inherit', shadow: { color: 'rgba(0, 0, 0, 0)', rgba: [0, 0, 0, 0], blur: 0, x: 0, y: 0 } }
-  }
-
-  take(): Uint8Array {
-    return this.#out.take()
-  }
-
-  get pending(): boolean {
-    return this.#out.len > 0
-  }
-
-  forget(): void {
-    this.#out.take()
-    this.#sent = { dirty: ALL, fill: -1, stroke: -1 }
-    this.#sentStack = []
   }
 
   #changed(bits: number): void {
@@ -593,7 +584,7 @@ export class CanvasContext2d {
     if (![sx, sy, sw, sh].every(Number.isFinite)) throw new TypeError('getImageData: non-finite argument')
     if (!sw || !sh) throw new DOMException('getImageData: zero width or height', 'IndexSizeError')
     const width = Math.abs(Math.trunc(sw)), height = Math.abs(Math.trunc(sh))
-    const bytes = this.owner.pixels(this.canvas, sx, sy, sw, sh)
+    const bytes = canvases.pixels(this.canvas, sx, sy, sw, sh)
     const data = bytes && bytes.length === width * height * 4 ? new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.length) : new Uint8ClampedArray(width * height * 4)
     return new ImageData(data, width, height)
   }
@@ -646,7 +637,7 @@ export class CanvasContext2d {
   }
 
   #cmd(): CommandWriter {
-    this.owner.writing(this)
+    canvases.writing(this)
     return this.#out
   }
 
@@ -678,7 +669,7 @@ export class CanvasContext2d {
     if (need & STROKE && !(send & STROKE) && typeof s.stroke !== 'string' && styleVersion(s.stroke) !== sent.stroke) send |= STROKE
     if (send === 0) return
     sent.dirty &= ~send
-    this.owner.writing(this)
+    canvases.writing(this)
     const out = this.#out
     if (send & M) out.u8(Sub.SetTransform).f32(...s.m)
     if (send & FILL) {
@@ -722,7 +713,7 @@ class CanvasContexts {
 
   context(canvas: CanvasElement): CanvasContext2d {
     let context = this.#contexts.get(canvas)
-    if (!context) this.#contexts.set(canvas, (context = new CanvasContext2d(canvas, this)))
+    if (!context) this.#contexts.set(canvas, (context = new CanvasContext2d(canvas)))
     return context
   }
 
@@ -733,20 +724,20 @@ class CanvasContexts {
   writing(context: CanvasContext2d): void {
     if (this.#writer !== context) {
       const last = this.#writer
-      if (last?.pending) this.#send(last)
+      if (last && hasCommands(last)) this.#send(last)
       this.#writer = context
     }
     this.#dirty.add(context)
   }
 
   #send(context: CanvasContext2d): void {
-    const bytes = context.take()
+    const bytes = takeCommands(context)
     if (bytes.length) dom.canvas(context.canvas[ID], bytes)
   }
 
   flush(): void {
     if (this.#dirty.size === 0) return
-    for (const context of this.#dirty) if (context.pending) this.#send(context)
+    for (const context of this.#dirty) if (hasCommands(context)) this.#send(context)
     this.#dirty.clear()
     this.#writer = null
   }

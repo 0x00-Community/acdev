@@ -106,9 +106,9 @@ function moveBoundaries(move: (container: Node, offset: number) => [Node, number
   someLive((range) => {
     const start = move(range.startContainer, range.startOffset)
     const end = move(range.endContainer, range.endOffset)
-    if (start) range.setBoundary(true, start[0], start[1])
-    if (end) range.setBoundary(false, end[0], end[1])
-    if (start || end) range.changed()
+    if (start) setBoundary(range, true, start[0], start[1])
+    if (end) setBoundary(range, false, end[0], end[1])
+    if (start || end) changed(range)
     return false
   })
 }
@@ -199,6 +199,11 @@ export class StaticRange extends AbstractRange {
 tag(StaticRange)
 
 let selectionChanged: () => void = () => {}
+let setBoundary: (range: Range, start: boolean, node: Node, offset: number) => void
+
+function changed(range: Range): void {
+  if (range === selectionRange) selectionChanged()
+}
 
 export class Range extends AbstractRange {
   static readonly START_TO_START = 0
@@ -212,18 +217,16 @@ export class Range extends AbstractRange {
     if (!unlisted) listRange(this)
   }
 
-  setBoundary(start: boolean, node: Node, offset: number): void {
-    if (start) {
-      this._sc = node
-      this._so = offset
-    } else {
-      this._ec = node
-      this._eo = offset
+  static {
+    setBoundary = (range, start, node, offset) => {
+      if (start) {
+        range._sc = node
+        range._so = offset
+      } else {
+        range._ec = node
+        range._eo = offset
+      }
     }
-  }
-
-  changed(): void {
-    if (this === selectionRange) selectionChanged()
   }
 
   get commonAncestorContainer(): Node {
@@ -240,7 +243,7 @@ export class Range extends AbstractRange {
     }
     this._sc = node
     this._so = o
-    this.changed()
+    changed(this)
   }
 
   setEnd(node: Node, offset: number): void {
@@ -252,7 +255,7 @@ export class Range extends AbstractRange {
     }
     this._ec = node
     this._eo = o
-    this.changed()
+    changed(this)
   }
 
   #parentOf(node: Node, method: string): Node {
@@ -282,7 +285,7 @@ export class Range extends AbstractRange {
       this._sc = this._ec
       this._so = this._eo
     }
-    this.changed()
+    changed(this)
   }
 
   selectNode(node: Node): void {
@@ -292,7 +295,7 @@ export class Range extends AbstractRange {
     this._so = index
     this._ec = parent
     this._eo = index + 1
-    this.changed()
+    changed(this)
   }
 
   selectNodeContents(node: Node): void {
@@ -301,7 +304,7 @@ export class Range extends AbstractRange {
     this._so = 0
     this._ec = node
     this._eo = nodeLength(node)
-    this.changed()
+    changed(this)
   }
 
   compareBoundaryPoints(how: number, source: Range): number {
@@ -338,8 +341,8 @@ export class Range extends AbstractRange {
 
   cloneRange(): Range {
     const range = new Range()
-    range.setBoundary(true, this._sc, this._so)
-    range.setBoundary(false, this._ec, this._eo)
+    setBoundary(range, true, this._sc, this._so)
+    setBoundary(range, false, this._ec, this._eo)
     return range
   }
 
@@ -416,7 +419,7 @@ export class Range extends AbstractRange {
     if (isCharacterData(ec)) (ec as CharacterData).replaceData(0, eo, '')
     this._sc = this._ec = newNode
     this._so = this._eo = newOffset
-    this.changed()
+    changed(this)
   }
 
   extractContents(): DocumentFragment {
@@ -463,8 +466,8 @@ export class Range extends AbstractRange {
         const clone = firstPartial.cloneNode(false)
         fragment.appendChild(clone)
         const sub = unlistedRange()
-        sub.setBoundary(true, sc, so)
-        sub.setBoundary(false, firstPartial, nodeLength(firstPartial))
+        setBoundary(sub, true, sc, so)
+        setBoundary(sub, false, firstPartial, nodeLength(firstPartial))
         clone.appendChild(sub.#extract(move))
       }
     }
@@ -479,15 +482,15 @@ export class Range extends AbstractRange {
         const clone = lastPartial.cloneNode(false)
         fragment.appendChild(clone)
         const sub = unlistedRange()
-        sub.setBoundary(true, lastPartial, 0)
-        sub.setBoundary(false, ec, eo)
+        setBoundary(sub, true, lastPartial, 0)
+        setBoundary(sub, false, ec, eo)
         clone.appendChild(sub.#extract(move))
       }
     }
     if (move) {
       this._sc = this._ec = newNode
       this._so = this._eo = newOffset
-      this.changed()
+      changed(this)
     }
     return fragment
   }
@@ -513,7 +516,7 @@ export class Range extends AbstractRange {
       this._ec = parent
       this._eo = index + added
     }
-    this.changed()
+    changed(this)
   }
 
   surroundContents(parent: Node): void {
@@ -715,8 +718,8 @@ export class Selection {
     const o = Number(offset) >>> 0
     checkPoint(node, o, 'collapse', 'Selection')
     const range = unlistedRange()
-    range.setBoundary(true, node, o)
-    range.setBoundary(false, node, o)
+    setBoundary(range, true, node, o)
+    setBoundary(range, false, node, o)
     this.#set(range)
   }
 
@@ -747,8 +750,8 @@ export class Selection {
     const range = unlistedRange()
     const same = anchor === focus || root(anchor[ID]) === root(focus[ID])
     const backward = same && compare(focus[ID], fo, anchor[ID], ao) === Position.Before
-    range.setBoundary(true, !same ? focus : backward ? focus : anchor, !same ? fo : backward ? fo : ao)
-    range.setBoundary(false, backward ? anchor : focus, backward ? ao : fo)
+    setBoundary(range, true, !same ? focus : backward ? focus : anchor, !same ? fo : backward ? fo : ao)
+    setBoundary(range, false, backward ? anchor : focus, backward ? ao : fo)
     this.#set(range, backward)
   }
 

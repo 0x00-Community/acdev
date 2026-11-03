@@ -553,18 +553,22 @@ export class FileList {
 tag(FileList)
 
 export class DataTransferItem {
+  readonly #value: string | File
+
   constructor(
     readonly kind: 'string' | 'file',
     readonly type: string,
-    private readonly value: string | File,
-  ) {}
+    value: string | File,
+  ) {
+    this.#value = value
+  }
   getAsString(callback: ((data: string) => void) | null): void {
     if (this.kind !== 'string' || typeof callback !== 'function') return
-    const value = this.value as string
+    const value = this.#value as string
     queueTask(() => callback(value))
   }
   getAsFile(): File | null {
-    return this.kind === 'file' ? (this.value as File) : null
+    return this.kind === 'file' ? (this.#value as File) : null
   }
   webkitGetAsEntry(): null {
     return null
@@ -578,27 +582,31 @@ export class DataTransferItemList {
     this.#owner = owner
   }
   get length(): number {
-    return this.#owner.itemsList().length
+    return transferItems(this.#owner).length
   }
   add(data: string | File, type?: string): DataTransferItem | null {
     if (typeof data === 'string') {
       this.#owner.setData(String(type), data)
-      return this.#owner.itemsList().find((item) => item.kind === 'string' && item.type === String(type).toLowerCase()) ?? null
+      return transferItems(this.#owner).find((item) => item.kind === 'string' && item.type === String(type).toLowerCase()) ?? null
     }
-    this.#owner.addFile(data)
-    return this.#owner.itemsList().at(-1) ?? null
+    addTransferFile(this.#owner, data)
+    return transferItems(this.#owner).at(-1) ?? null
   }
   remove(index: number): void {
-    this.#owner.removeItem(index)
+    removeTransferItem(this.#owner, index)
   }
   clear(): void {
     this.#owner.clearData()
   }
   [Symbol.iterator](): IterableIterator<DataTransferItem> {
-    return this.#owner.itemsList()[Symbol.iterator]()
+    return transferItems(this.#owner)[Symbol.iterator]()
   }
 }
 tag(DataTransferItemList)
+
+let transferItems: (transfer: DataTransfer) => DataTransferItem[]
+let addTransferFile: (transfer: DataTransfer, file: File) => void
+let removeTransferItem: (transfer: DataTransfer, index: number) => void
 
 export class DataTransfer {
   #data = new Map<string, string>()
@@ -621,21 +629,21 @@ export class DataTransfer {
     return (this.#items ??= new DataTransferItemList(this))
   }
 
-  itemsList(): DataTransferItem[] {
-    const items: DataTransferItem[] = []
-    for (const [type, value] of this.#data) items.push(new DataTransferItem('string', type, value))
-    for (const file of this.#files) items.push(new DataTransferItem('file', file.type, file))
-    return items
-  }
-
-  addFile(file: File): void {
-    this.#files.push(file)
-  }
-
-  removeItem(index: number): void {
-    const keys = [...this.#data.keys()]
-    if (index < keys.length) this.#data.delete(keys[index]!)
-    else this.#files.splice(index - keys.length, 1)
+  static {
+    transferItems = (transfer) => {
+      const items: DataTransferItem[] = []
+      for (const [type, value] of transfer.#data) items.push(new DataTransferItem('string', type, value))
+      for (const file of transfer.#files) items.push(new DataTransferItem('file', file.type, file))
+      return items
+    }
+    addTransferFile = (transfer, file) => {
+      transfer.#files.push(file)
+    }
+    removeTransferItem = (transfer, index) => {
+      const keys = [...transfer.#data.keys()]
+      if (index < keys.length) transfer.#data.delete(keys[index]!)
+      else transfer.#files.splice(index - keys.length, 1)
+    }
   }
 
   static #normalize(format: string): string {
