@@ -1,20 +1,7 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use v8::{ValueDeserializerHelper, ValueSerializerHelper};
 
 use crate::bind;
 use crate::rt;
-
-type ReadAsset = Rc<dyn Fn(&str) -> Option<Vec<u8>>>;
-
-thread_local! {
-    static ASSETS: RefCell<Option<ReadAsset>> = const { RefCell::new(None) };
-}
-
-pub fn set_assets(read: ReadAsset) {
-    ASSETS.with(|a| *a.borrow_mut() = Some(read));
-}
 
 pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object> {
     let obj = v8::Object::new(scope);
@@ -169,8 +156,7 @@ fn run_script(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
 
 fn read_asset(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let url = bind::arg_string(scope, &args, 0);
-    let read = ASSETS.with(|a| a.borrow().clone());
-    match read.and_then(|read| read(&url)) {
+    match crate::dom::read_asset(&url) {
         Some(bytes) => rv.set(bind::uint8_array(scope, bytes).into()),
         None => rv.set_null(),
     }

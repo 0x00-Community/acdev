@@ -25,10 +25,6 @@ pub fn app_dir() -> PathBuf {
     bin.join("../../web/packages/acde-host/dist")
 }
 
-struct Owned(v8::Global<v8::Function>);
-unsafe impl Send for Owned {}
-unsafe impl Sync for Owned {}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum Kind {
@@ -123,7 +119,7 @@ struct Spec {
 }
 
 impl Spec {
-    fn spawn(self, id: u32, on_message: Arc<Owned>, on_exit: Owned, broker: Sender<Msg>) -> Result<Handle, String> {
+    fn spawn(self, id: u32, on_message: Arc<bind::SendFunction>, on_exit: bind::SendFunction, broker: Sender<Msg>) -> Result<Handle, String> {
         use std::os::unix::process::CommandExt;
         let (ours, theirs) = UnixStream::pair().map_err(|e| format!("spawnWeb: {e}"))?;
         let raw = theirs.as_raw_fd();
@@ -186,7 +182,7 @@ impl Spec {
                         }
                     }
                 }
-                let (code, reason) = WebProcess::status(child.wait(), reason);
+                let (code, reason) = exit_status(child.wait(), reason);
                 let reason = reason.filter(|_| !dead.load(Ordering::SeqCst));
                 _ = broker.send(Msg::Task(Box::new(move |scope| {
                     let _on_message = on_message;
@@ -213,8 +209,8 @@ pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     let (Ok(on_message), Ok(on_exit)) = (v8::Local::<v8::Function>::try_from(args.get(4)), v8::Local::<v8::Function>::try_from(args.get(5))) else {
         return bind::throw_type_error(scope, "spawnWeb: onMessage and onExit must be functions");
     };
-    let on_message = Arc::new(Owned(v8::Global::new(scope, on_message)));
-    let on_exit = Owned(v8::Global::new(scope, on_exit));
+    let on_message = Arc::new(bind::SendFunction(v8::Global::new(scope, on_message)));
+    let on_exit = bind::SendFunction(v8::Global::new(scope, on_exit));
     let broker = rt::current();
     let id = WEBS.with(|w| {
         let mut w = w.borrow_mut();
@@ -284,110 +280,104 @@ impl HeapGuard {
     }
 }
 
-pub struct WebProcess;
+const BUSY_EVERY: Duration = Duration::from_millis(200);
 
-impl WebProcess {
-    const BUSY_EVERY: Duration = Duration::from_millis(200);
-
-    pub fn main(args: &[String]) -> i32 {
-        let name = args.first().cloned().unwrap_or_else(|| "web".into());
-        rt::set_web_name(&name);
-        let option = |key: &str| args.windows(2).find(|w| w[0] == key).map(|w| w[1].as_str());
-        let Some(fd) = option("--port").and_then(|v| v.parse::<i32>().ok()) else {
-            log::error!("[{name}] acde web: no --port");
-            return 2;
-        };
-        let heap_mb: f64 = option("--heap-mb").and_then(|v| v.parse().ok()).unwrap_or(0.0);
-        let stream = UnixStream::from(unsafe { OwnedFd::from_raw_fd(fd) });
-        _ = rustix::io::fcntl_setfd(&stream, rustix::io::FdFlags::CLOEXEC);
-        let port = match Port::try_from(stream) {
-            Ok(port) => Arc::new(port),
-            Err(e) => {
-                log::error!("[{name}] port: {e}");
-                return 1;
-            }
-        };
-        let init = match port.read() {
-            Ok(Some((Kind::Init, init))) => init,
-            _ => {
-                log::error!("[{name}] no WebInit on the port");
-                return 1;
-            }
-        };
-        let mut runtime = rt::Runtime::new((heap_mb > 0.0).then_some(heap_mb as usize));
-        let handle = runtime.isolate.thread_safe_handle();
-        let reason = Arc::new(Mutex::new(None::<String>));
-        let stopping = Arc::new(AtomicBool::new(false));
-        let guard = HeapGuard::install(&mut runtime, handle, reason.clone(), stopping.clone());
-        PORT.with(|p| *p.borrow_mut() = Some(port.clone()));
-        let tx = runtime.lp.sender();
-        let reader = port.clone();
-        let spawned = std::thread::Builder::new().name("acde-port".into()).spawn(move || {
-            while let Ok(Some((kind, bytes))) = reader.read() {
-                if kind != Kind::Message {
-                    continue;
-                }
-                _ = tx.send(Msg::Task(Box::new(move |scope| {
-                    if let Some(function) = ON_MESSAGE.with(|m| m.borrow().clone()) {
-                        call_with(scope, &function, &bytes);
-                    }
-                })));
-            }
-            _ = tx.send(Msg::Task(Box::new(|_| rt::current().exit(0))));
-        });
-        if let Err(e) = spawned {
-            log::error!("[{name}] {e}");
+pub fn main(args: &[String]) -> i32 {
+    let name = args.first().cloned().unwrap_or_else(|| "web".into());
+    rt::set_web_name(&name);
+    let option = |key: &str| args.windows(2).find(|w| w[0] == key).map(|w| w[1].as_str());
+    let Some(fd) = option("--port").and_then(|v| v.parse::<i32>().ok()) else {
+        log::error!("[{name}] acde web: no --port");
+        return 2;
+    };
+    let heap_mb: f64 = option("--heap-mb").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    let stream = UnixStream::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    _ = rustix::io::fcntl_setfd(&stream, rustix::io::FdFlags::CLOEXEC);
+    let port = match Port::try_from(stream) {
+        Ok(port) => Arc::new(port),
+        Err(e) => {
+            log::error!("[{name}] port: {e}");
             return 1;
         }
-        let busy = runtime.lp.busy();
-        let reporter = port.clone();
-        let _ = std::thread::Builder::new().name("acde-busy".into()).spawn(move || {
-            let mut last = 0;
-            loop {
-                std::thread::sleep(Self::BUSY_EVERY);
-                let since = busy.load(Ordering::Relaxed);
-                let now = acde_log::start().elapsed().as_millis() as u64 + 1;
-                let ms = if since == 0 { 0 } else { now.saturating_sub(since).max(1) };
-                if ms != last && reporter.write(Kind::Busy, &ms.to_le_bytes()).is_err() {
-                    return;
-                }
-                last = ms;
+    };
+    let init = match port.read() {
+        Ok(Some((Kind::Init, init))) => init,
+        _ => {
+            log::error!("[{name}] no WebInit on the port");
+            return 1;
+        }
+    };
+    let mut runtime = rt::Runtime::new((heap_mb > 0.0).then_some(heap_mb as usize));
+    let handle = runtime.isolate.thread_safe_handle();
+    let reason = Arc::new(Mutex::new(None::<String>));
+    let stopping = Arc::new(AtomicBool::new(false));
+    let guard = HeapGuard::install(&mut runtime, handle, reason.clone(), stopping.clone());
+    PORT.with(|p| *p.borrow_mut() = Some(port.clone()));
+    let tx = runtime.lp.sender();
+    let reader = port.clone();
+    let spawned = std::thread::Builder::new().name("acde-port".into()).spawn(move || {
+        while let Ok(Some((kind, bytes))) = reader.read() {
+            if kind != Kind::Message {
+                continue;
             }
-        });
-        let env: Vec<(String, String)> = std::env::vars().collect();
-        let code = run_web(&mut runtime, init, env, &stopping);
-        if let Some(reason) = reason.lock().ok().and_then(|r| r.clone()) {
-            _ = port.write(Kind::Exit, reason.as_bytes());
+            _ = tx.send(Msg::Task(Box::new(move |scope| {
+                if let Some(function) = ON_MESSAGE.with(|m| m.borrow().clone()) {
+                    call_with(scope, &function, &bytes);
+                }
+            })));
         }
-        ON_MESSAGE.with(|m| *m.borrow_mut() = None);
-        #[cfg(target_os = "linux")]
-        {
-            crate::webgpu::clear();
-            crate::webnative::clear();
-            crate::audio::clear();
-            crate::backend::clear();
-        }
-        bind::clear_promises();
-        drop(runtime);
-        drop(guard);
-        code
+        _ = tx.send(Msg::Task(Box::new(|_| rt::current().exit(0))));
+    });
+    if let Err(e) = spawned {
+        log::error!("[{name}] {e}");
+        return 1;
     }
-
-    fn status(status: std::io::Result<std::process::ExitStatus>, reason: Option<String>) -> (i32, Option<String>) {
-        use std::os::unix::process::ExitStatusExt;
-        match status {
-            Ok(status) => match (status.code(), status.signal()) {
-                (Some(code), _) => (code, reason),
-                (None, Some(signal)) => (128 + signal, reason.or_else(|| Some(format!("signal {signal}")))),
-                (None, None) => (1, reason),
-            },
-            Err(e) => (1, reason.or_else(|| Some(e.to_string()))),
+    let busy = runtime.lp.busy();
+    let reporter = port.clone();
+    let _ = std::thread::Builder::new().name("acde-busy".into()).spawn(move || {
+        let mut last = 0;
+        loop {
+            std::thread::sleep(BUSY_EVERY);
+            let since = busy.load(Ordering::Relaxed);
+            let ms = if since == 0 { 0 } else { rt::busy_stamp().saturating_sub(since).max(1) };
+            if ms != last && reporter.write(Kind::Busy, &ms.to_le_bytes()).is_err() {
+                return;
+            }
+            last = ms;
         }
+    });
+    let code = run_web(&mut runtime, init, &stopping);
+    if let Some(reason) = reason.lock().ok().and_then(|r| r.clone()) {
+        _ = port.write(Kind::Exit, reason.as_bytes());
+    }
+    ON_MESSAGE.with(|m| *m.borrow_mut() = None);
+    #[cfg(target_os = "linux")]
+    {
+        crate::webgpu::clear();
+        crate::webnative::clear();
+        crate::audio::clear();
+        crate::backend::clear();
+    }
+    bind::clear_promises();
+    drop(runtime);
+    drop(guard);
+    code
+}
+
+fn exit_status(status: std::io::Result<std::process::ExitStatus>, reason: Option<String>) -> (i32, Option<String>) {
+    use std::os::unix::process::ExitStatusExt;
+    match status {
+        Ok(status) => match (status.code(), status.signal()) {
+            (Some(code), _) => (code, reason),
+            (None, Some(signal)) => (128 + signal, reason.or_else(|| Some(format!("signal {signal}")))),
+            (None, None) => (1, reason),
+        },
+        Err(e) => (1, reason.or_else(|| Some(e.to_string()))),
     }
 }
 
-fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: Vec<(String, String)>, stopping: &Arc<AtomicBool>) -> i32 {
-    crate::modules::set_loader(crate::dom::loader());
+fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, stopping: &Arc<AtomicBool>) -> i32 {
+    crate::modules::set_loader(std::rc::Rc::new(crate::dom::WebLoader));
     let bundle = app_dir().join("web.js");
     let Some(url) = std::fs::canonicalize(&bundle).ok().and_then(|p| url::Url::from_file_path(p).ok()) else {
         log::error!("no web bundle at {}", bundle.display());
@@ -418,6 +408,7 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: Vec<(String, String)>,
             crate::backend::install(scope, natives, init);
             bind::set(scope, natives, "init", init);
         }
+        let env: Vec<(String, String)> = std::env::vars().collect();
         let env: Vec<(&str, v8::Local<v8::Value>)> = env.iter().map(|(key, value)| (key.as_str(), bind::string(scope, value).into())).collect();
         let env = bind::object(scope, &env);
         bind::set(scope, natives, "env", env.into());

@@ -112,8 +112,7 @@ impl Loop {
     }
 
     fn mark_busy(&self) {
-        let now = acde_log::start().elapsed().as_millis() as u64 + 1;
-        self.busy.store(now, Ordering::Relaxed);
+        self.busy.store(busy_stamp(), Ordering::Relaxed);
     }
 
     pub fn set_reporter(&self, reporter: Option<v8::Global<v8::Function>>) {
@@ -263,10 +262,6 @@ impl Runtime {
         after_task(scope);
     }
 
-    pub fn run(&mut self) -> i32 {
-        self.run_until(|| false)
-    }
-
     pub fn run_until(&mut self, stop: impl Fn() -> bool) -> i32 {
         let lp = self.lp.clone();
         loop {
@@ -351,6 +346,10 @@ fn isolate_ptr(isolate: &mut v8::Isolate) -> *mut std::ffi::c_void {
 
 const LONG_TASK_MS: f64 = 8.0;
 
+pub fn busy_stamp() -> u64 {
+    acde_log::start().elapsed().as_millis() as u64 + 1
+}
+
 static WEB_NAME: OnceLock<String> = OnceLock::new();
 
 pub fn set_web_name(name: &str) {
@@ -371,13 +370,8 @@ fn run_task<R>(scope: &mut v8::PinScope, f: impl FnOnce(&mut v8::PinScope) -> R)
         }
         result
     };
-    end_task(scope, started);
-    result
-}
-
-fn end_task(scope: &mut v8::PinScope, started: Option<Instant>) {
     if scope.is_execution_terminating() {
-        return;
+        return result;
     }
     scope.perform_microtask_checkpoint();
     report_rejections(scope);
@@ -389,6 +383,7 @@ fn end_task(scope: &mut v8::PinScope, started: Option<Instant>) {
             log::debug!(target: "perf::task", "{} ms={ms:.3} hook={:.3}", web_name(), acde_log::since_ms(hook));
         }
     }
+    result
 }
 
 fn report_rejections(scope: &mut v8::PinScope) {

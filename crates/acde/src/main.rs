@@ -61,8 +61,8 @@ fn main() {
     acde_log::init();
     let args: Vec<String> = std::env::args().collect();
     let code = match args.get(1).map(String::as_str) {
-        Some("web") => web::WebProcess::main(&args[2..]),
-        Some("app") => app::AppTool::main(&args[2..]),
+        Some("web") => web::main(&args[2..]),
+        Some("app") => app::main(&args[2..]),
         Some("run") if args.len() > 2 => sys::start(sys::Entry::Script(args[2].clone()), &args[3..]),
         Some("desktops" | "sessions" | "applications" | "open") => sys::start(sys::Entry::Broker, &args[1..]),
         _ => {

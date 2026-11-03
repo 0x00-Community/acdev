@@ -13,6 +13,11 @@ macro_rules! methods {
     };
 }
 
+pub struct SendFunction(pub v8::Global<v8::Function>);
+
+unsafe impl Send for SendFunction {}
+unsafe impl Sync for SendFunction {}
+
 pub fn string<'s>(scope: &mut v8::PinScope<'s, '_>, text: &str) -> v8::Local<'s, v8::String> {
     v8::String::new(scope, text).unwrap_or_else(|| v8::String::empty(scope))
 }

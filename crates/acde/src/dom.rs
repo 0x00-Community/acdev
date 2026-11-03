@@ -1,13 +1,12 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
-use std::rc::Rc;
+use std::path::{Path, PathBuf};
 
 use acde_render::{Dom, NONE};
 
 use crate::bind;
 use crate::modules::Loader;
 
-pub const ORIGIN: &str = "http://acde.local";
+const ORIGIN: &str = "http://acde.local";
 
 thread_local! {
     static DOC: RefCell<Option<(acde_render::Document, Dom)>> = const { RefCell::new(None) };
@@ -23,23 +22,35 @@ pub fn render_handle() -> Option<acde_render::RenderHandle> {
     DOC.with(|d| d.borrow().as_ref().map(|(document, _)| document.handle()))
 }
 
-#[derive(Clone, Default)]
-pub struct Assets(Vec<(String, Vec<PathBuf>)>);
+#[derive(Default)]
+struct Assets(Vec<acde_render::Resource>);
 
 impl Assets {
-    pub fn file(&self, url: &str) -> Option<PathBuf> {
+    fn file(&self, url: &str) -> Option<PathBuf> {
         let parsed = url::Url::parse(url).ok()?;
         if parsed.origin().ascii_serialization() != ORIGIN {
             return None;
         }
         let path = parsed.path();
-        let (name, dirs) = self.0.iter().filter_map(|(prefix, dirs)| Some((path.strip_prefix(prefix.as_str())?, dirs))).min_by_key(|(name, _)| name.len())?;
+        let (name, dirs) = self.0.iter().filter_map(|r| Some((path.strip_prefix(r.prefix.as_str())?, &r.dirs))).min_by_key(|(name, _)| name.len())?;
         let name = percent(name);
         if name.is_empty() || name.ends_with(".map") || name.split('/').any(|seg| seg.is_empty() || seg.starts_with('.')) {
             return None;
         }
-        dirs.iter().map(|dir| dir.join(&name)).find(|file| file.is_file())
+        dirs.iter().map(|dir| Path::new(dir).join(&name)).find(|file| file.is_file())
     }
+}
+
+thread_local! {
+    static ASSETS: RefCell<Assets> = RefCell::default();
+}
+
+fn asset_file(url: &str) -> Option<PathBuf> {
+    ASSETS.with(|a| a.borrow().file(url))
+}
+
+pub fn read_asset(url: &str) -> Option<Vec<u8>> {
+    std::fs::read(asset_file(url)?).ok()
 }
 
 fn percent(text: &str) -> String {
@@ -61,9 +72,7 @@ fn percent(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-pub struct WebLoader {
-    pub assets: Rc<RefCell<Assets>>,
-}
+pub struct WebLoader;
 
 impl Loader for WebLoader {
     fn resolve(&self, specifier: &str, referrer: &str) -> Result<String, String> {
@@ -81,23 +90,9 @@ impl Loader for WebLoader {
         if url.starts_with("file:") {
             return crate::sys::FileLoader.load(url);
         }
-        let file = self.assets.borrow().file(url).ok_or_else(|| format!("acde: module {url} is not a local file"))?;
+        let file = asset_file(url).ok_or_else(|| format!("acde: module {url} is not a local file"))?;
         std::fs::read_to_string(&file).map_err(|e| format!("acde: {}: {e}", file.display()))
     }
-}
-
-thread_local! {
-    static ASSETS: Rc<RefCell<Assets>> = Rc::new(RefCell::new(Assets::default()));
-}
-
-fn set_resources(resources: Vec<(String, Vec<PathBuf>)>) {
-    ASSETS.with(|a| *a.borrow_mut() = Assets(resources));
-    let assets = ASSETS.with(Rc::clone);
-    crate::host::set_assets(Rc::new(move |url: &str| assets.borrow().file(url).and_then(|f| std::fs::read(f).ok())));
-}
-
-pub fn loader() -> Rc<WebLoader> {
-    Rc::new(WebLoader { assets: ASSETS.with(Rc::clone) })
 }
 
 pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue) {
@@ -130,7 +125,7 @@ pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionC
         reduced_motion = bind::get(scope, options, "reducedMotion").is_some_and(|v| v.is_true());
         dark = bind::get(scope, options, "dark").is_some_and(|v| v.is_true());
     }
-    set_resources(resources.iter().map(|r| (r.prefix.clone(), r.dirs.iter().map(PathBuf::from).collect())).collect());
+    ASSETS.with(|a| *a.borrow_mut() = Assets(resources.clone()));
     let name = Some(crate::rt::web_name().to_owned());
     let options = acde_render::Options { base_url: Some(format!("{ORIGIN}/")), resources: Some(resources), default_lang, reduced_motion, dark, name, ..Default::default() };
     let document = match acde_render::Document::new(width, height, scale, &options) {
@@ -285,35 +280,32 @@ impl IntoJs for acde_render::Viewport {
     }
 }
 
-pub(crate) struct Pictures;
-
 thread_local! {
-    static PICTURE: std::cell::RefCell<(u32, Option<(u32, acde_render::anyrender::Scene)>)> = const { std::cell::RefCell::new((0, None)) };
+    static PICTURE: RefCell<(u32, Option<(u32, acde_render::anyrender::Scene)>)> = const { RefCell::new((0, None)) };
 }
 
-impl Pictures {
-    fn keep(scene: acde_render::anyrender::Scene) -> u32 {
-        PICTURE.with(|p| {
-            let mut p = p.borrow_mut();
-            p.0 = p.0.wrapping_add(1).max(1);
-            let id = p.0;
-            p.1 = Some((id, scene));
-            id
-        })
-    }
+fn keep_picture(scene: acde_render::anyrender::Scene) -> u32 {
+    PICTURE.with(|p| {
+        let mut p = p.borrow_mut();
+        p.0 = p.0.wrapping_add(1).max(1);
+        let id = p.0;
+        p.1 = Some((id, scene));
+        id
+    })
+}
 
-    pub(crate) fn take(id: u32) -> Option<acde_render::anyrender::Scene> {
-        PICTURE.with(|p| {
-            let mut p = p.borrow_mut();
-            match p.1.take() {
-                Some((kept, scene)) if kept == id => Some(scene),
-                other => {
-                    p.1 = other;
-                    None
-                }
+#[cfg(target_os = "linux")]
+pub fn take_picture(id: u32) -> Option<acde_render::anyrender::Scene> {
+    PICTURE.with(|p| {
+        let mut p = p.borrow_mut();
+        match p.1.take() {
+            Some((kept, scene)) if kept == id => Some(scene),
+            other => {
+                p.1 = other;
+                None
             }
-        })
-    }
+        }
+    })
 }
 
 impl IntoJs for acde_render::Capture {
@@ -327,7 +319,7 @@ impl IntoJs for acde_render::Capture {
             ("pixelWidth", n(scope, self.pixel_width as f64)),
             ("pixelHeight", n(scope, self.pixel_height as f64)),
             ("scale", n(scope, self.scale)),
-            ("picture", n(scope, f64::from(Pictures::keep(self.scene)))),
+            ("picture", n(scope, f64::from(keep_picture(self.scene)))),
         ];
         bind::object(scope, &fields).into()
     }

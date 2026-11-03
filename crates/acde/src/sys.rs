@@ -148,7 +148,6 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         "kill" => kill,
         "run" => run,
         "getuid" => getuid,
-        "uptime" => uptime,
         "onSignal" => on_signal,
         "spawnWeb" => crate::web::spawn_web,
     );
@@ -416,10 +415,6 @@ fn getuid(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::Re
     rv.set_uint32(rustix::process::getuid().as_raw());
 }
 
-fn uptime(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    rv.set_double(acde_log::start().elapsed().as_secs_f64());
-}
-
 fn on_signal(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
         return bind::throw_type_error(scope, "onSignal: not a function");
@@ -439,10 +434,6 @@ mod signals {
 
     static LISTENING: AtomicBool = AtomicBool::new(false);
 
-    struct Callback(v8::Global<v8::Function>);
-    unsafe impl Send for Callback {}
-    unsafe impl Sync for Callback {}
-
     pub fn listen(loop_tx: Sender<Msg>, callback: v8::Global<v8::Function>) {
         if LISTENING.swap(true, Ordering::AcqRel) {
             return;
@@ -450,7 +441,7 @@ mod signals {
         let Ok(mut signals) = Signals::new([SIGINT, SIGTERM, SIGHUP]) else {
             return;
         };
-        let callback = std::sync::Arc::new(Callback(callback));
+        let callback = std::sync::Arc::new(crate::bind::SendFunction(callback));
         _ = std::thread::Builder::new().name("acde-signals".into()).spawn(move || {
             for signal in signals.forever() {
                 let name = match signal {
@@ -505,7 +496,7 @@ pub fn start(entry: Entry, args: &[String]) -> i32 {
         }
         crate::modules::import(scope, &url);
     });
-    runtime.run()
+    runtime.run_until(|| false)
 }
 
 pub fn boot_module(scope: &mut v8::PinScope, url: &str, natives: v8::Local<v8::Value>) {

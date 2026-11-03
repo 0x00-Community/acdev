@@ -745,7 +745,7 @@ split-window 上没有, 没带过来 (按第一原则, 这类能力以后只经 
   照常画.)
 - `Dom::capture(id, scale)`: 单独录一个元素的子树 (拖动图标), 返回画出来的内容的包围盒 (x/y/width/height, CSS px)、
   pixel_width/pixel_height、实际缩放 scale 和放好位置的 `scene` (像素坐标, 不光栅化); 不带祖先的 transform/opacity/裁剪, 单边超过
-  2048 像素时缩小, 什么都没画时返回 None. JS 拿到的是 `picture` 编号 (crates/acde `dom.rs` `Pictures`, 每个 web 只留最后一个),
+  2048 像素时缩小, 什么都没画时返回 None. JS 拿到的是 `picture` 编号 (crates/acde `dom.rs` `keep_picture` / `take_picture`, 每个 web 只留最后一个),
   `startDrag` 的图标带它时 web 进程的光栅化线程把这个 scene 画进一块 GBM dmabuf (crates/paint `Painter::icon`), 经 linux-dmabuf
   交给合成器当拖动图标; 不带 `picture` 时用 `rgba` (Dopame 自己画的文件图标, 当图片画进 dmabuf). `Capture::pixels()` 在 GPU 上画完
   读回, 只给测试用.
