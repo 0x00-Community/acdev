@@ -30,7 +30,7 @@ use smithay::{
     delegate_xdg_shell,
 };
 
-use super::{Compositor, Event, WindowId};
+use super::{Compositor, Event, NativeId};
 
 #[derive(Default)]
 pub struct ClientState {
@@ -88,7 +88,8 @@ struct WantsFullscreen(std::sync::atomic::AtomicBool);
 
 impl Compositor {
     fn client_drag(&mut self, surface: &ToplevelSurface, edges: u32, serial: Serial) {
-        let (Some(window), Some(pointer)) = (self.window_of(surface.wl_surface()), self.seat.get_pointer()) else { return };
+        let Some(window) = self.window_of(surface.wl_surface()) else { return };
+        let pointer = self.pointer();
         if !pointer.has_grab(serial) {
             return;
         }
@@ -174,7 +175,7 @@ impl XdgShellHandler for Compositor {
         let focused = self.seat.get_keyboard().and_then(|k| k.current_focus()).is_some_and(|f| f == *surface.wl_surface());
         let parent = self.parent_window(&window);
         let id = Self::window_id(&window);
-        let last = id.and_then(|id| self.native_ids.get(&id)).and_then(|&managed| self.table.window(managed)).and_then(|w| match w.mode {
+        let last = id.and_then(|id| self.managed_window(id)).and_then(|w| match w.mode {
             acde_model::Mode::Free | acde_model::Mode::Fixed => Some(w.rect),
             acde_model::Mode::Fullscreen => window.user_data().get::<Restore>().and_then(|r| r.0.get()).map(super::table_rect),
             acde_model::Mode::Pinned => None,
@@ -270,7 +271,8 @@ impl XdgShellHandler for Compositor {
     }
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {
-        self.forward_request("windowminimize", &surface);
+        let window = self.window_of(surface.wl_surface());
+        self.emit(Event { kind: "windowminimize".into(), window: window.as_ref().and_then(Self::window_id), ..Default::default() });
     }
 
     fn title_changed(&mut self, surface: ToplevelSurface) {
@@ -287,11 +289,6 @@ impl XdgShellHandler for Compositor {
 pub struct Restore(pub std::cell::Cell<Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>>>);
 
 impl Compositor {
-    fn forward_request(&self, kind: &str, surface: &ToplevelSurface) {
-        let window = self.window_of(surface.wl_surface());
-        self.emit(Event { kind: kind.into(), window: window.as_ref().and_then(Self::window_id), ..Default::default() });
-    }
-
     fn initial_configure(&mut self, surface: &WlSurface) {
         if let Some(window) = self.window_of(surface) {
             let sent = with_states(surface, |states| {
@@ -322,21 +319,18 @@ impl Compositor {
     fn register(&mut self, window: Window) {
         let Some(surface) = window.toplevel().map(|t| t.wl_surface().clone()) else { return };
         let grant = Self::bound(&surface);
-        let id = grant.map_or_else(
-            || {
-                self.next_window += 1;
-                self.next_window - 1
-            },
-            |g| g.id,
-        );
-        window.user_data().insert_if_missing(|| WindowId(id));
+        let id = match grant {
+            Some(g) => g.id,
+            None => self.next_window_id(),
+        };
+        window.user_data().insert_if_missing(|| NativeId(id));
         let screen = self.space.output_geometry(&self.backend.output).unwrap_or_default();
         match grant {
             Some(grant) if grant.desktop || (grant.rect.is_none() && grant.mode == acde_model::Mode::Fullscreen) => {
                 self.space.map_element(window.clone(), screen.loc, false);
                 self.native_enter(&window, id, acde_model::Mode::Fullscreen);
                 if grant.desktop {
-                    if let Some(&managed) = self.native_ids.get(&id) {
+                    if let Some(managed) = self.managed(id) {
                         let _ = self.table.lower(managed);
                     }
                     self.desktop = Some(id);
@@ -386,10 +380,7 @@ impl Compositor {
 
     fn want_fullscreen(surface: &ToplevelSurface, on: bool) {
         with_states(surface.wl_surface(), |s| {
-            s.data_map.insert_if_missing_threadsafe(|| WantsFullscreen(std::sync::atomic::AtomicBool::new(false)));
-            if let Some(w) = s.data_map.get::<WantsFullscreen>() {
-                w.0.store(on, std::sync::atomic::Ordering::Relaxed);
-            }
+            s.data_map.get_or_insert_threadsafe(|| WantsFullscreen(std::sync::atomic::AtomicBool::new(false))).0.store(on, std::sync::atomic::Ordering::Relaxed);
         });
     }
 

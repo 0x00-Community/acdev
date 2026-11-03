@@ -211,8 +211,8 @@ impl Effects {
             Some(r) if r.size.w > 1 && r.size.h > 1 => r,
             _ => return Ok(None),
         };
-        let levels = ((b.blur.max(1.0) / 2.0).log2().ceil() as u32).clamp(1, 5);
-        let margin = (2i32 << levels).min(64);
+        let levels = acde_model::blur_levels(b.blur);
+        let margin = acde_model::blur_margin(levels);
         let Some(region) = Rectangle::new(rect.loc - Point::from((margin, margin)), rect.size + Size::from((2 * margin, 2 * margin))).intersection(Rectangle::from_size(screen)) else { return Ok(None) };
         let Some((down, up, program)) = self.programs(renderer).map(|p| (p.down.clone(), p.up.clone(), p.backdrop.clone())) else { return Ok(None) };
         let buffer = |s: Size<i32, Physical>| Size::<i32, Buffer>::from((s.w.max(1), s.h.max(1)));

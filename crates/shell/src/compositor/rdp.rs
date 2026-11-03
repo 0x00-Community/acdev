@@ -31,15 +31,12 @@ enum Request {
     Full,
 }
 
-#[derive(Default)]
-struct Shared {
-    updates: Mutex<Option<async_channel::Sender<DisplayUpdate>>>,
-}
+type Updates = Arc<Mutex<Option<async_channel::Sender<DisplayUpdate>>>>;
 
 pub struct RdpTarget {
     texture: GlesTexture,
     damage: OutputDamageTracker,
-    shared: Arc<Shared>,
+    updates: Updates,
     rendered: bool,
     full: bool,
 }
@@ -68,7 +65,7 @@ impl RdpTarget {
         output.set_preferred(mode);
         let damage = OutputDamageTracker::from_output(&output);
 
-        let shared = Arc::new(Shared::default());
+        let updates = Updates::default();
         let (tx, rx): (Sender<Request>, Channel<Request>) = channel::channel();
         lh.insert_source(rx, |event, _, state| {
             if let channel::Event::Msg(request) = event {
@@ -76,9 +73,9 @@ impl RdpTarget {
             }
         })
         .map_err(|e| e.to_string())?;
-        Server::spawn(w, h, shared.clone(), tx)?;
+        spawn_server(w, h, updates.clone(), tx)?;
 
-        let target = Target::Rdp(Box::new(Self { texture, damage, shared, rendered: false, full: true }));
+        let target = Target::Rdp(Box::new(Self { texture, damage, updates, rendered: false, full: true }));
         Ok((Backend::new(renderer, output, target), node))
     }
 }
@@ -101,7 +98,7 @@ impl Compositor {
         let elements = self.screen_elements(&output, false);
         let Backend { renderer, target, .. } = &mut self.backend;
         let Target::Rdp(rdp) = target else { return };
-        let sender = rdp.shared.updates.lock().expect("rdp 锁").clone();
+        let sender = rdp.updates.lock().expect("rdp 锁").clone();
         let age = usize::from(rdp.rendered);
         let started = std::time::Instant::now();
         let (states, updates) = {
@@ -166,49 +163,45 @@ impl Compositor {
     }
 }
 
-struct Server;
-
-impl Server {
-    fn spawn(w: u16, h: u16, shared: Arc<Shared>, tx: Sender<Request>) -> Result<(), String> {
-        let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-        let (Some(username), Some(password)) = (env("ACDE_RDP_USER"), env("ACDE_RDP_PASSWORD")) else {
-            return Err("RDP 后端要 ACDE_RDP_USER 和 ACDE_RDP_PASSWORD".into());
-        };
-        let dir = env("XDG_CONFIG_HOME").map_or_else(|| PathBuf::from(env("HOME").unwrap_or_default()).join(".config"), PathBuf::from).join("agentos/rdp");
-        let cert = env("ACDE_RDP_CERT").map_or_else(|| dir.join("cert.pem"), PathBuf::from);
-        let key = env("ACDE_RDP_KEY").map_or_else(|| dir.join("key.pem"), PathBuf::from);
-        let identity = TlsIdentityCtx::init_from_paths(&cert, &key).map_err(|e| format!("RDP 证书 ({}): {e:#}", cert.display()))?;
-        let acceptor = identity.make_acceptor().map_err(|e| format!("RDP TLS: {e:#}"))?;
-        let addr: std::net::SocketAddr = env("ACDE_RDP_ADDR").unwrap_or_else(|| "0.0.0.0:3390".into()).parse().map_err(|e| format!("ACDE_RDP_ADDR: {e}"))?;
-        let size = DesktopSize { width: w, height: h };
-        let pub_key = identity.pub_key;
-        let nla = env("ACDE_RDP_SECURITY").as_deref() == Some("nla");
-        std::thread::Builder::new()
-            .name("acde-rdp".into())
-            .spawn(move || {
-                let credentials = Credentials { username, password, domain: None };
-                let builder = RdpServer::builder().with_addr(addr);
-                let builder = if nla { builder.with_hybrid(acceptor, pub_key) } else { builder.with_tls(acceptor) };
-                let mut server = builder
-                    .with_input_handler(Input { tx: tx.clone(), size })
-                    .with_display_handler(Display { size, shared, tx })
-                    .with_credential_validator(Some(Arc::new(ExactMatchCredentialValidator::new(credentials.clone()))))
-                    .build();
-                server.set_credentials(Some(credentials));
-                log::info!("RDP 服务在 {addr}");
-                let system = ntex::rt::System::build().name("acde-rdp").build(ntex::rt::DefaultRuntime);
-                if let Err(e) = system.block_on(async move { server.run().await }) {
-                    log::warn!("RDP 服务停了: {e:#}");
-                }
-            })
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
+fn spawn_server(w: u16, h: u16, updates: Updates, tx: Sender<Request>) -> Result<(), String> {
+    let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    let (Some(username), Some(password)) = (env("ACDE_RDP_USER"), env("ACDE_RDP_PASSWORD")) else {
+        return Err("RDP 后端要 ACDE_RDP_USER 和 ACDE_RDP_PASSWORD".into());
+    };
+    let dir = env("XDG_CONFIG_HOME").map_or_else(|| PathBuf::from(env("HOME").unwrap_or_default()).join(".config"), PathBuf::from).join("agentos/rdp");
+    let cert = env("ACDE_RDP_CERT").map_or_else(|| dir.join("cert.pem"), PathBuf::from);
+    let key = env("ACDE_RDP_KEY").map_or_else(|| dir.join("key.pem"), PathBuf::from);
+    let identity = TlsIdentityCtx::init_from_paths(&cert, &key).map_err(|e| format!("RDP 证书 ({}): {e:#}", cert.display()))?;
+    let acceptor = identity.make_acceptor().map_err(|e| format!("RDP TLS: {e:#}"))?;
+    let addr: std::net::SocketAddr = env("ACDE_RDP_ADDR").unwrap_or_else(|| "0.0.0.0:3390".into()).parse().map_err(|e| format!("ACDE_RDP_ADDR: {e}"))?;
+    let size = DesktopSize { width: w, height: h };
+    let pub_key = identity.pub_key;
+    let nla = env("ACDE_RDP_SECURITY").as_deref() == Some("nla");
+    std::thread::Builder::new()
+        .name("acde-rdp".into())
+        .spawn(move || {
+            let credentials = Credentials { username, password, domain: None };
+            let builder = RdpServer::builder().with_addr(addr);
+            let builder = if nla { builder.with_hybrid(acceptor, pub_key) } else { builder.with_tls(acceptor) };
+            let mut server = builder
+                .with_input_handler(Input { tx: tx.clone(), size })
+                .with_display_handler(Display { size, updates, tx })
+                .with_credential_validator(Some(Arc::new(ExactMatchCredentialValidator::new(credentials.clone()))))
+                .build();
+            server.set_credentials(Some(credentials));
+            log::info!("RDP 服务在 {addr}");
+            let system = ntex::rt::System::build().name("acde-rdp").build(ntex::rt::DefaultRuntime);
+            if let Err(e) = system.block_on(async move { server.run().await }) {
+                log::warn!("RDP 服务停了: {e:#}");
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 struct Display {
     size: DesktopSize,
-    shared: Arc<Shared>,
+    updates: Updates,
     tx: Sender<Request>,
 }
 
@@ -221,19 +214,19 @@ impl RdpServerDisplay for Display {
     async fn updates(&mut self) -> anyhow::Result<Box<dyn RdpServerDisplayUpdates>> {
         let (sender, receiver) = async_channel::unbounded();
         let _ = sender.try_send(DisplayUpdate::DefaultPointer);
-        *self.shared.updates.lock().expect("rdp 锁") = Some(sender);
+        *self.updates.lock().expect("rdp 锁") = Some(sender);
         let _ = self.tx.send(Request::Full);
         log::info!("RDP 客户端连上了");
-        Ok(Box::new(Updates { receiver }))
+        Ok(Box::new(UpdateStream { receiver }))
     }
 }
 
-struct Updates {
+struct UpdateStream {
     receiver: async_channel::Receiver<DisplayUpdate>,
 }
 
 #[async_trait::async_trait]
-impl RdpServerDisplayUpdates for Updates {
+impl RdpServerDisplayUpdates for UpdateStream {
     async fn next_update(&mut self) -> anyhow::Result<Option<DisplayUpdate>> {
         Ok(self.receiver.recv().await.ok())
     }

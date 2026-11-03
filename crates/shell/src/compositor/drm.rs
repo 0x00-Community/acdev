@@ -96,7 +96,6 @@ impl DrmTarget {
         let egl = unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|e| format!("EGL: {e}"))?;
         let context = EGLContext::new(&egl).map_err(|e| format!("EGL context: {e}"))?;
         let render_formats = context.dmabuf_render_formats().clone();
-        let formats = render_formats.clone();
         let mut renderer = unsafe { GlesRenderer::new(context) }.map_err(|e| format!("GLES: {e}"))?;
 
         let screens_info = Self::connected(&drm);
@@ -106,7 +105,7 @@ impl DrmTarget {
             GbmFramebufferExporter::new(gbm.clone(), Some(render_node)),
             Some(gbm.clone()),
             COLOR_FORMATS,
-            render_formats,
+            render_formats.clone(),
         );
         let mut screens = Vec::new();
         let mut x = 0;
@@ -125,17 +124,10 @@ impl DrmTarget {
             output.change_current_state(Some(wl_mode), None, None, Some((x, 0).into()));
             x += wl_mode.size.w;
             let planes = manager.device().planes(&crtc).ok();
-            let planes_cursor = planes.as_ref().map(|p| p.cursor.clone()).unwrap_or_default();
-            let manager_cursor_size = manager.device().cursor_size();
             let surface = manager
                 .initialize_output::<GlesRenderer, Elements>(crtc, mode, &[conn.handle()], &output, planes, &mut renderer, &DrmOutputRenderElements::default())
                 .map_err(|e| format!("初始化输出 {}: {e}", output.name()))?;
-            let device_cursors: Vec<_> = planes_cursor.iter().map(|p| p.handle).collect();
-            surface.with_compositor(|c| {
-                let own: Vec<_> = c.surface().planes().cursor.iter().map(|p| p.handle).collect();
-                log::info!("光标平面 output={} legacy={} device_cursors={device_cursors:?} surface_cursors={own:?} cursor_size={manager_cursor_size:?}", output.name(), c.surface().is_legacy());
-            });
-            let feedback = surface.with_compositor(|c| ScreenFeedback::new(node, render_node, &formats, c.surface()));
+            let feedback = surface.with_compositor(|c| ScreenFeedback::new(node, render_node, &render_formats, c.surface()));
             screens.push(Screen { crtc, output, surface, dirty: true, presenting: false, queued: None, feedback, sampled: Vec::new(), planes: (false, 0) });
         }
         let primary = screens.first().map(|s| s.output.clone()).ok_or("没有已连接的显示器")?;
@@ -247,18 +239,14 @@ impl Compositor {
                     result.states
                 }
                 Ok(_) => {
-                    if output == primary {
-                        drm.idle_vblank = true;
-                    }
+                    drm.idle_vblank |= output == primary;
                     self.frames_without_repaint(&output);
                     continue;
                 }
                 Err(e) => {
                     log::warn!("渲染 {}: {e}", output.name());
                     screen.dirty = true;
-                    if output == primary {
-                        drm.idle_vblank = true;
-                    }
+                    drm.idle_vblank |= output == primary;
                     continue;
                 }
             };
@@ -280,9 +268,7 @@ impl Compositor {
                 Err(e) => {
                     log::warn!("排帧 {}: {e}", output.name());
                     screen.dirty = true;
-                    if output == primary {
-                        drm.idle_vblank = true;
-                    }
+                    drm.idle_vblank |= output == primary;
                 }
             }
         }
@@ -301,11 +287,11 @@ impl Compositor {
     }
 
     fn schedule_idle_vblank(&mut self) {
-        let Target::Drm(drm) = &mut self.backend.target else { return };
-        if !std::mem::take(&mut drm.idle_vblank) {
-            return;
+        if let Target::Drm(drm) = &mut self.backend.target
+            && std::mem::take(&mut drm.idle_vblank)
+        {
+            self.idle_vblank();
         }
-        self.idle_vblank();
     }
 
     fn on_drm_vblank(&mut self, crtc: crtc::Handle) {

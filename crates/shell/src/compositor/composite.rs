@@ -4,9 +4,7 @@ use acde_model::{CompositePlan, Easing, Effect, Input, Look, Rect, Route, Transi
 use smithay::backend::renderer::element::{Element, Id, RenderElement};
 use smithay::backend::renderer::utils::CommitCounter;
 use smithay::desktop::Window;
-use smithay::wayland::compositor::with_states;
 
-use super::acde_window::Hints;
 use super::backend::Elements;
 use super::effects::Backdrop;
 use super::{Compositor, Event};
@@ -94,11 +92,6 @@ impl Compositor {
         }
     }
 
-    pub fn backdrop_of(window: &Window) -> Option<([i32; 4], [f64; 4])> {
-        let surface = window.toplevel()?.wl_surface().clone();
-        with_states(&surface, |s| s.data_map.get::<std::sync::Mutex<Hints>>()?.lock().ok()?.backdrop)
-    }
-
     #[allow(clippy::mutable_key_type)]
     pub fn plan(&mut self, shown: &[Shown], scale: f64) -> CompositePlan {
         let mut inputs = Vec::new();
@@ -126,7 +119,7 @@ impl Compositor {
                 }
             }
             input.direct_buffer = s.elements.len() == 1 && s.elements.iter().all(|e| e.underlying_storage(&mut self.backend.renderer).is_some());
-            if let Some(([x, y, w, h], [radius, blur, saturate, brightness])) = Self::backdrop_of(&s.window) {
+            if let Some(([x, y, w, h], [radius, blur, saturate, brightness])) = s.window.toplevel().and_then(|t| Self::with_hints(t.wl_surface(), |h| h.backdrop)).flatten() {
                 input.backdrop = Some(Effect::Backdrop {
                     rect: Rect::new(x.into(), y.into(), w.into(), h.into()),
                     radius: radius as f32,

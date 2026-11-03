@@ -47,7 +47,7 @@ impl Compositor {
         let scale = output.current_scale().fractional_scale();
         let mut elements = match cursor {
             true => {
-                let pointer = self.seat.get_pointer().map(|p| p.current_location()).unwrap_or_default();
+                let pointer = self.pointer().current_location();
                 self.cursor.elements(&mut self.backend.renderer, pointer - origin, scale)
             }
             false => Vec::new(),
@@ -61,7 +61,7 @@ impl Compositor {
     }
 
     fn drag_icon_elements(&mut self, origin: Point<f64, Logical>, scale: f64) -> Vec<Elements> {
-        let pointer = self.seat.get_pointer().map(|p| p.current_location()).unwrap_or_default();
+        let pointer = self.pointer().current_location();
         let Some((icon, offset)) = self.drag.as_ref().and_then(|d| d.icon.as_ref()) else { return Vec::new() };
         let at = (pointer - origin + offset.to_f64()).to_physical(scale).to_i32_round();
         render_elements_from_surface_tree(&mut self.backend.renderer, icon, at, scale, 1.0, Kind::Unspecified).into_iter().map(Elements::Surface).collect()

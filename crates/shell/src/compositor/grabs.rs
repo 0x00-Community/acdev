@@ -6,10 +6,9 @@ use smithay::input::pointer::{
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Serial};
-use smithay::wayland::compositor::with_states;
 
 use super::Compositor;
-use super::acde_window::{AcdeWindow, Hints, WireGrab, WireLost};
+use super::acde_window::{AcdeWindow, WireGrab, WireLost};
 
 pub(super) const TOP: u32 = 1;
 pub(super) const BOTTOM: u32 = 2;
@@ -98,47 +97,39 @@ impl PointerGrab<Compositor> for Drag {
 
     fn unset(&mut self, data: &mut Compositor) {
         data.cursor.drag = None;
-        data.cursor_changed();
+        data.backend.damaged();
     }
 }
 
 impl Compositor {
     pub fn start_drag(&mut self, window: &Window, edges: u32, serial: Serial, start: GrabStartData<Compositor>) -> bool {
-        let Some(mode) = Self::window_id(window).and_then(|id| self.native_ids.get(&id)).and_then(|m| self.table.window(*m)).map(|w| w.mode) else { return false };
+        let Some(mode) = self.managed_of(window).and_then(|m| self.table.window(m)).map(|w| w.mode) else { return false };
         if (edges == 0 && !mode.can_move()) || (edges != 0 && !mode.can_resize()) {
             return false;
         }
         let (Some(loc), size) = (self.space.element_location(window), window.geometry().size) else { return false };
-        let Some(pointer) = self.seat.get_pointer() else { return false };
         let drag = Drag { start, window: window.clone(), initial: Rectangle::new(loc, size), edges };
-        pointer.set_grab(self, drag, serial, Focus::Clear);
+        self.pointer().set_grab(self, drag, serial, Focus::Clear);
         self.cursor.drag = Some(super::cursor::Cursor::for_edges(edges));
         self.cursor.hover = None;
-        self.cursor_changed();
+        self.backend.damaged();
         true
     }
 
     pub fn hover_cursor(&mut self, pos: Point<f64, Logical>) {
-        let pointer = self.seat.get_pointer().expect("seat 有 pointer");
-        let hover = match pointer.is_grabbed() {
+        let hover = match self.pointer().is_grabbed() {
             true => None,
             false => self.window_under(pos).and_then(|(w, _)| self.grab_hint_at(&w, pos)).filter(|&e| e != 0).map(super::cursor::Cursor::for_edges),
         };
         if hover != self.cursor.hover {
             self.cursor.hover = hover;
-            self.cursor_changed();
+            self.backend.damaged();
         }
     }
 
-    pub fn cursor_changed(&mut self) {
-        self.backend.damaged();
-    }
-
     pub fn grab_hint_at(&self, window: &Window, pos: Point<f64, Logical>) -> Option<u32> {
-        let surface = window.toplevel()?.wl_surface().clone();
         let local = pos - self.space.element_location(window)?.to_f64();
-        with_states(&surface, |s| {
-            let hints = s.data_map.get::<std::sync::Mutex<Hints>>()?.lock().ok()?;
+        Self::with_hints(window.toplevel()?.wl_surface(), |hints| {
             hints
                 .grab
                 .iter()
@@ -146,6 +137,7 @@ impl Compositor {
                 .find(|([x, y, w, h], _)| Rectangle::<i32, Logical>::new((*x, *y).into(), (*w, *h).into()).to_f64().contains(local))
                 .map(|(_, edges)| *edges)
         })
+        .flatten()
     }
 }
 
@@ -219,7 +211,7 @@ impl From<Lost> for WireLost {
 impl Compositor {
     pub fn request_grab(&mut self, surface: &WlSurface, resource: &AcdeWindow, kind: GrabKind) {
         self.grabs.alive();
-        let framework = kind == GrabKind::Pointer && self.seat.get_pointer().is_some_and(|p| p.is_grabbed());
+        let framework = kind == GrabKind::Pointer && self.pointer().is_grabbed();
         let taken = self.grabs.slot(kind).as_ref().is_some_and(|h| h.surface != *surface);
         let window = self.window_of(surface);
         let granted = !framework && !taken && window.is_some() && !self.lock.locked();

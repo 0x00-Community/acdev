@@ -46,7 +46,7 @@ pub struct Hints {
     pub backdrop: Option<([i32; 4], [f64; 4])>,
 }
 
-pub struct Handle(pub std::sync::Mutex<Option<AcdeWindow>>);
+struct Resource(std::sync::Mutex<AcdeWindow>);
 
 impl Compositor {
     pub fn acde_window_global(dh: &DisplayHandle) {
@@ -58,7 +58,11 @@ impl Compositor {
     }
 
     pub fn acde_resource(surface: &WlSurface) -> Option<AcdeWindow> {
-        with_states(surface, |s| s.data_map.get::<Handle>().and_then(|h| h.0.lock().ok()?.clone()))
+        with_states(surface, |s| Some(s.data_map.get::<Resource>()?.0.lock().ok()?.clone()))
+    }
+
+    pub fn with_hints<R>(surface: &WlSurface, f: impl FnOnce(&Hints) -> R) -> Option<R> {
+        with_states(surface, |s| Some(f(&*s.data_map.get::<std::sync::Mutex<Hints>>()?.lock().ok()?)))
     }
 }
 
@@ -73,11 +77,8 @@ impl Dispatch<AcdeWindowManager, ()> for Compositor {
         if let generated::acde_window_manager::Request::GetWindow { id, surface } = request {
             let window = data_init.init(id, WindowRequests { surface: surface.clone() });
             with_states(&surface, |s| {
-                s.data_map.insert_if_missing_threadsafe(|| Handle(std::sync::Mutex::new(None)));
-                if let Some(h) = s.data_map.get::<Handle>()
-                    && let Ok(mut slot) = h.0.lock()
-                {
-                    *slot = Some(window);
+                if let Ok(mut slot) = s.data_map.get_or_insert_threadsafe(|| Resource(std::sync::Mutex::new(window.clone()))).0.lock() {
+                    *slot = window;
                 }
             });
         }
@@ -167,8 +168,7 @@ impl From<WireGrab> for super::grabs::GrabKind {
 impl Compositor {
     fn hints(&mut self, surface: &WlSurface, f: impl FnOnce(&mut Hints)) {
         with_states(surface, |s| {
-            s.data_map.insert_if_missing_threadsafe(|| std::sync::Mutex::new(Hints::default()));
-            if let Some(Ok(mut hints)) = s.data_map.get::<std::sync::Mutex<Hints>>().map(std::sync::Mutex::lock) {
+            if let Ok(mut hints) = s.data_map.get_or_insert_threadsafe(|| std::sync::Mutex::new(Hints::default())).lock() {
                 f(&mut hints);
             }
         });

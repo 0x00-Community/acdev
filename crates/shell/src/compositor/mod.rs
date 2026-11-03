@@ -38,6 +38,7 @@ use smithay::input::{Seat, SeatState};
 use smithay::reexports::calloop::channel::{self, Channel};
 use smithay::reexports::calloop::{LoopSignal, RegistrationToken};
 use smithay::reexports::wayland_server::DisplayHandle;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::wayland::compositor::CompositorState;
 use smithay::wayland::dmabuf::DmabufState;
 use smithay::wayland::output::OutputManagerState;
@@ -48,7 +49,7 @@ use smithay::utils::{Logical, Rectangle};
 
 pub use backend::Backend;
 
-pub use acde_model::{Event, Inbox, Waker};
+pub use acde_model::{Event, Inbox};
 
 pub const SURFACE_IDS: u32 = 1 << 20;
 
@@ -155,7 +156,7 @@ impl Samples {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct WindowId(pub u32);
+pub struct NativeId(pub u32);
 
 const QUIT_WAIT: Duration = Duration::from_secs(3);
 const DEFERRED_MOVE: Duration = Duration::from_millis(150);
@@ -198,9 +199,7 @@ impl Handle {
         std::thread::spawn(move || child.wait());
         Ok(pid)
     }
-}
 
-impl Handle {
     pub fn quit(&mut self) {
         self.send(Command::Quit);
         let Some(thread) = self.thread.take() else { return };
@@ -288,7 +287,7 @@ impl Compositor {
     }
 
     fn run(
-        commands: Commands,
+        commands: Channel<Command>,
         broker: Arc<Inbox>,
         ready: &mpsc::SyncSender<Result<OsString, String>>,
     ) -> Result<(), String> {
@@ -477,14 +476,39 @@ impl Compositor {
     }
 
     fn window_id(window: &Window) -> Option<u32> {
-        window.user_data().get::<WindowId>().map(|id| id.0)
+        window.user_data().get::<NativeId>().map(|id| id.0)
+    }
+
+    fn managed(&self, id: u32) -> Option<acde_model::WindowId> {
+        self.native_ids.get(&id).copied()
+    }
+
+    fn managed_of(&self, window: &Window) -> Option<acde_model::WindowId> {
+        Self::window_id(window).and_then(|id| self.managed(id))
+    }
+
+    fn managed_window(&self, id: u32) -> Option<&acde_model::Window> {
+        self.table.window(self.managed(id)?)
+    }
+
+    fn native_of(&self, managed: acde_model::WindowId) -> Option<u32> {
+        self.native_ids.iter().find(|(_, m)| **m == managed).map(|(id, _)| *id)
+    }
+
+    fn next_window_id(&mut self) -> u32 {
+        self.next_window += 1;
+        self.next_window - 1
+    }
+
+    fn extra_id(surface: &WlSurface) -> Option<u32> {
+        smithay::wayland::compositor::with_states(surface, |s| s.data_map.get::<Extra>().map(|e| e.0))
     }
 
     fn window(&self, id: u32) -> Option<Window> {
         self.space.elements().find(|w| Self::window_id(w) == Some(id)).cloned()
     }
 
-    pub fn window_of(&self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) -> Option<Window> {
+    pub fn window_of(&self, surface: &WlSurface) -> Option<Window> {
         use smithay::wayland::seat::WaylandFocus;
         self.space.elements().find(|w| w.wl_surface().as_deref() == Some(surface)).cloned()
     }
@@ -508,31 +532,28 @@ impl Compositor {
     }
 
     pub(crate) fn native_place(&mut self, id: u32, rect: Rectangle<i32, Logical>) {
-        let Some(&managed) = self.native_ids.get(&id) else { return };
+        let Some(managed) = self.managed(id) else { return };
         let _ = self.table.set_rect(managed, table_rect(rect));
     }
 
-    pub(crate) fn extra_enter(&mut self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface, rect: Rectangle<i32, Logical>, parent: Option<u32>) {
+    pub(crate) fn extra_enter(&mut self, surface: &WlSurface, rect: Rectangle<i32, Logical>, parent: Option<u32>) {
         let Some(canvas) = self.canvas else { return };
-        let parent = parent.and_then(|p| self.native_ids.get(&p)).copied();
-        let Ok(managed) = self.table.create_child(canvas, acde_model::Mode::Pinned, table_rect(rect), parent, false) else { return };
-        self.next_window += 1;
-        let id = self.next_window - 1;
+        let parent = parent.and_then(|p| self.managed(p));
+        let Ok(managed) = self.table.create_child(canvas, acde_model::Mode::Pinned, table_rect(rect), parent) else { return };
+        let id = self.next_window_id();
         self.extras.insert(id, managed);
         smithay::wayland::compositor::with_states(surface, |s| {
             s.data_map.insert_if_missing_threadsafe(|| Extra(id));
         });
     }
 
-    pub(crate) fn extra_place(&mut self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface, rect: Rectangle<i32, Logical>) {
-        let Some(id) = smithay::wayland::compositor::with_states(surface, |s| s.data_map.get::<Extra>().map(|e| e.0)) else { return };
-        let Some(&managed) = self.extras.get(&id) else { return };
+    pub(crate) fn extra_place(&mut self, surface: &WlSurface, rect: Rectangle<i32, Logical>) {
+        let Some(&managed) = Self::extra_id(surface).and_then(|id| self.extras.get(&id)) else { return };
         let _ = self.table.set_rect(managed, table_rect(rect));
     }
 
-    pub(crate) fn extra_leave(&mut self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) {
-        let Some(id) = smithay::wayland::compositor::with_states(surface, |s| s.data_map.get::<Extra>().map(|e| e.0)) else { return };
-        if let Some(managed) = self.extras.remove(&id) {
+    pub(crate) fn extra_leave(&mut self, surface: &WlSurface) {
+        if let Some(managed) = Self::extra_id(surface).and_then(|id| self.extras.remove(&id)) {
             self.motion.forget(managed);
             self.table.remove(managed);
         }
@@ -552,7 +573,7 @@ impl Compositor {
     pub(crate) fn native_focus(&mut self, window: Option<&Window>) {
         let Some(canvas) = self.canvas else { return };
         let id = window.and_then(Self::window_id);
-        let managed = id.and_then(|id| self.native_ids.get(&id)).copied();
+        let managed = id.and_then(|id| self.managed(id));
         let _ = self.table.focus(canvas, managed);
         if let Some(managed) = managed.filter(|_| id != self.desktop) {
             let _ = self.table.front(managed);
@@ -561,11 +582,10 @@ impl Compositor {
 
     fn place_managed(&mut self, id: u32, x: i32, y: i32, width: i32, height: i32) {
         let Some(window) = self.window(id) else { return };
-        let Some(mode) = self.native_ids.get(&id).and_then(|m| self.table.window(*m)).map(|w| w.mode) else { return };
+        let Some(mode) = self.managed_window(id).map(|w| w.mode) else { return };
         let size = match mode {
-            acde_model::Mode::Free => (width.max(1), height.max(1)).into(),
+            acde_model::Mode::Free | acde_model::Mode::Pinned => (width.max(1), height.max(1)).into(),
             acde_model::Mode::Fixed => window.geometry().size,
-            acde_model::Mode::Pinned => (width.max(1), height.max(1)).into(),
             acde_model::Mode::Fullscreen => return,
         };
         self.place(&window, Rectangle::new((x, y).into(), size));
@@ -575,14 +595,14 @@ impl Compositor {
         let Some(window) = self.window(id) else { return };
         match hidden {
             true if self.hidden.insert(id) => {
-                let focused = self.canvas.and_then(|c| self.table.canvas(c)?.focus) == self.native_ids.get(&id).copied();
+                let focused = self.canvas.and_then(|c| self.table.canvas(c)?.focus) == self.managed(id);
                 if focused {
                     let next = self.stack().into_iter().next();
                     self.focus_window(next.as_ref());
                 }
             }
             false if self.hidden.remove(&id) => {
-                let pinned = self.native_ids.get(&id).and_then(|m| self.table.window(*m)).is_some_and(|w| w.mode == acde_model::Mode::Pinned);
+                let pinned = self.managed_window(id).is_some_and(|w| w.mode == acde_model::Mode::Pinned);
                 if !pinned {
                     self.focus_window(Some(&window));
                 }
@@ -593,21 +613,18 @@ impl Compositor {
     }
 
     fn raise_managed(&mut self, id: u32, above: Option<u32>) {
-        let Some(&window) = self.native_ids.get(&id) else { return };
-        let above = above.and_then(|a| self.native_ids.get(&a).copied());
+        let Some(window) = self.managed(id) else { return };
+        let above = above.and_then(|a| self.managed(a));
         let _ = self.table.raise(window, above);
         self.backend.damaged();
     }
 
     pub(crate) fn set_mode_managed(&mut self, id: u32, mode: acde_model::Mode) {
-        let (Some(&managed), Some(window)) = (self.native_ids.get(&id), self.window(id)) else { return };
+        let (Some(managed), Some(window)) = (self.managed(id), self.window(id)) else { return };
         let was = self.table.window(managed).map(|w| w.mode);
         let full = acde_model::Mode::Fullscreen;
         if mode == full && was != Some(full) && let Some(old) = self.space.element_geometry(&window) {
-            window.user_data().insert_if_missing(|| handlers::Restore(std::cell::Cell::new(None)));
-            if let Some(restore) = window.user_data().get::<handlers::Restore>() {
-                restore.0.set(Some(old));
-            }
+            window.user_data().get_or_insert(|| handlers::Restore(std::cell::Cell::new(None))).0.set(Some(old));
         }
         if self.table.set_mode(managed, mode).is_err() {
             return;
@@ -716,8 +733,6 @@ impl Compositor {
         }
     }
 }
-
-pub type Commands = Channel<Command>;
 
 impl Compositor {
     pub fn place(&mut self, window: &Window, rect: Rectangle<i32, Logical>) {

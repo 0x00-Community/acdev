@@ -26,7 +26,7 @@ impl Compositor {
             .iter()
             .map(|window| {
                 let native = Self::window_id(window);
-                let managed = native.and_then(|id| self.native_ids.get(&id)).copied();
+                let managed = native.and_then(|id| self.managed(id));
                 let look = managed.map(|m| self.motion.look(m)).unwrap_or_default();
                 let elements = self.native_elements(window, geometry, scale, look);
                 Shown { window: window.clone(), managed, native, elements }
@@ -51,7 +51,7 @@ impl Compositor {
                     elements.insert(at, backdrop);
                 }
             }
-            let live: Vec<u32> = plan.layers.iter().filter(|l| l.effect.is_some()).filter_map(|l| self.native_ids.iter().find(|(_, m)| **m == l.window).map(|(id, _)| *id)).collect();
+            let live: Vec<u32> = plan.layers.iter().filter(|l| l.effect.is_some()).filter_map(|l| self.native_of(l.window)).collect();
             self.effects.retain(|id| live.contains(&id));
         }
         elements
@@ -59,8 +59,8 @@ impl Compositor {
 
     pub fn stack(&self) -> Vec<Window> {
         let z = |w: &Window| {
-            let managed = Self::window_id(w).and_then(|id| self.native_ids.get(&id))?;
-            self.table.canvas(self.canvas?)?.z.iter().position(|x| x == managed)
+            let managed = self.managed_of(w)?;
+            self.table.canvas(self.canvas?)?.z.iter().position(|x| *x == managed)
         };
         let mut windows: Vec<(Option<usize>, usize, Window)> = self.space.elements().rev().filter(|w| Self::window_id(w).is_none_or(|id| !self.hidden.contains(&id))).enumerate().map(|(i, w)| (z(w), i, w.clone())).collect();
         windows.sort_by_key(|(z, i, _)| (std::cmp::Reverse(z.map_or(-1, |z| z as i64)), *i));
@@ -114,7 +114,7 @@ impl Compositor {
     pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(Window, Point<i32, Logical>)> {
         self.stack().into_iter().find_map(|w| {
             let location = self.space.element_location(&w)?;
-            let look = Self::window_id(&w).and_then(|id| self.native_ids.get(&id)).map(|m| self.motion.look(*m)).unwrap_or_default();
+            let look = self.managed_of(&w).map(|m| self.motion.look(m)).unwrap_or_default();
             let at = acde_model::Rect::new(location.x.into(), location.y.into(), w.geometry().size.w.into(), w.geometry().size.h.into());
             let seen = pos;
             let pos: Point<f64, Logical> = look.unmap(&at, 1.0, pos.x, pos.y).into();

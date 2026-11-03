@@ -17,6 +17,7 @@ pub struct Shell {
 }
 
 #[napi(object)]
+#[derive(Default)]
 pub struct GrantOptions {
     pub desktop: Option<bool>,
     pub window: Option<u32>,
@@ -111,7 +112,7 @@ impl Shell {
     #[napi]
     pub fn grant(&self, options: Option<GrantOptions>) -> Result<SurfaceGrant> {
         use std::hash::{BuildHasher, Hasher};
-        let options = options.unwrap_or(GrantOptions { desktop: None, window: None, mode: None, rect: None, size: None });
+        let options = options.unwrap_or_default();
         let mode = options.mode.as_deref().map_or(Ok(acde_model::Mode::Free), str::parse).map_err(napi_error)?;
         let desktop = options.desktop.unwrap_or(false);
         let id = match (desktop, options.window) {

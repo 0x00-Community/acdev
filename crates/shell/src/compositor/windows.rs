@@ -26,12 +26,8 @@ impl Compositor {
         self.sync_parent(surface);
     }
 
-    fn managed_of(&self, window: &Window) -> Option<acde_model::WindowId> {
-        Self::window_id(window).and_then(|id| self.native_ids.get(&id)).copied()
-    }
-
     fn window_of_managed(&self, managed: acde_model::WindowId) -> Option<Window> {
-        self.native_ids.iter().find(|(_, m)| **m == managed).and_then(|(id, _)| self.window(*id))
+        self.window(self.native_of(managed)?)
     }
 
     pub fn sync_parent(&mut self, surface: &ToplevelSurface) {

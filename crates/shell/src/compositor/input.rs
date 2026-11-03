@@ -3,7 +3,7 @@ use smithay::backend::input::{
     KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
 };
 use smithay::input::keyboard::FilterResult;
-use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent, RelativeMotionEvent};
+use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerHandle, RelativeMotionEvent};
 use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_constraint};
 use smithay::backend::input::PointerMotionEvent;
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
@@ -42,11 +42,11 @@ impl Compositor {
                 let Some(output) = self.space.outputs().next() else { return };
                 let Some(geo) = self.space.output_geometry(output) else { return };
                 let pos = event.position_transformed(geo.size) + geo.loc.to_f64();
-                let delta = pos - self.seat.get_pointer().expect("seat 有 pointer").current_location();
+                let delta = pos - self.pointer().current_location();
                 self.pointer_moved(pos, delta, delta, event.time(), event.time_msec());
             }
             InputEvent::PointerMotion { event } => {
-                let current = self.seat.get_pointer().expect("seat 有 pointer").current_location();
+                let current = self.pointer().current_location();
                 let pos = self.clamp_to_outputs(current + event.delta());
                 self.pointer_moved(pos, event.delta(), event.delta_unaccel(), event.time(), event.time_msec());
             }
@@ -77,11 +77,11 @@ impl Compositor {
         match event {
             Injected::Move(pos) => {
                 let pos = self.clamp_to_outputs(pos);
-                let delta = pos - self.seat.get_pointer().expect("seat 有 pointer").current_location();
+                let delta = pos - self.pointer().current_location();
                 self.pointer_moved(pos, delta, delta, u64::from(time) * 1000, time);
             }
             Injected::Motion(delta) => {
-                let pos = self.clamp_to_outputs(self.seat.get_pointer().expect("seat 有 pointer").current_location() + delta);
+                let pos = self.clamp_to_outputs(self.pointer().current_location() + delta);
                 self.pointer_moved(pos, delta, delta, u64::from(time) * 1000, time);
             }
             Injected::Button { button, pressed } => self.on_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, time),
@@ -101,8 +101,12 @@ impl Compositor {
         }
     }
 
+    pub fn pointer(&self) -> PointerHandle<Self> {
+        self.seat.get_pointer().expect("seat 有 pointer")
+    }
+
     fn on_button(&mut self, button: u32, state: ButtonState, time: u32) {
-        let pointer = self.seat.get_pointer().expect("seat 有 pointer");
+        let pointer = self.pointer();
         let pos = pointer.current_location();
         let pressed = state == ButtonState::Pressed;
         let window = self.window_under(pos).map(|(w, _)| w);
@@ -135,14 +139,14 @@ impl Compositor {
     }
 
     fn on_axis(&mut self, frame: AxisFrame) {
-        let pointer = self.seat.get_pointer().expect("seat 有 pointer");
+        let pointer = self.pointer();
         pointer.axis(self, frame);
         pointer.frame(self);
     }
 
     fn pointer_moved(&mut self, pos: Point<f64, Logical>, delta: Point<f64, Logical>, delta_unaccel: Point<f64, Logical>, utime: u64, time: u32) {
         let under = self.pointer_holder().or_else(|| self.surface_under(pos));
-        let pointer = self.seat.get_pointer().expect("seat 有 pointer");
+        let pointer = self.pointer();
         pointer.relative_motion(self, under.clone(), &RelativeMotionEvent { delta, delta_unaccel, utime });
         let constraint = under.as_ref().and_then(|(surface, origin)| {
             with_pointer_constraint(surface, &pointer, |c| {
