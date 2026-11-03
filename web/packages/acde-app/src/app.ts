@@ -162,7 +162,7 @@ export class Project {
       const scratch = mkdtempSync(join(tmpdir(), 'acde-app-'))
       try {
         const built = await framework.build({ dir: this.dir, pkg: this.pkg, scratch, vitePlugins: [acdeVite()] })
-        return Project.#manifestOf(config, id, base, await this.#place(built, config, out, base, assets))
+        return Project.#manifestOf(config, id, await this.#place(built, config, out, base, assets))
       } finally {
         rmSync(scratch, { recursive: true, force: true })
       }
@@ -174,7 +174,7 @@ export class Project {
       assets[`${base}backend/`] = [`${dir}backend`]
     }
     assets[base] = [`${dir}web`]
-    return Project.#manifestOf(config, id, base, { entry: base + page, backend: server ? `${base}backend/server.js` : null })
+    return Project.#manifestOf(config, id, { entry: base + page, backend: server ? `${base}backend/server.js` : null })
   }
 
   async #place(built: Output, config: WindowAppConfig, out: string, base: string, assets: Record<string, string[]>): Promise<{ entry: string; backend: string | null }> {
@@ -197,7 +197,7 @@ export class Project {
     return { entry: base + built.page!, backend: server ? `${base}backend/server.js` : null }
   }
 
-  static #manifestOf(config: WindowAppConfig, id: string, base: string, placed: { entry: string; backend: string | null }): BuiltApp {
+  static #manifestOf(config: WindowAppConfig, id: string, placed: { entry: string; backend: string | null }): BuiltApp {
     const port = (config.backend ? config.backend.port : undefined) ?? DEFAULT_PORT
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`app ${id}: backend.port must be a port number, not ${String(port)}`)
     return {
