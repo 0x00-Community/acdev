@@ -660,6 +660,9 @@ interface CanvasLike {
   readonly height: number
 }
 
+let present: (context: GPUCanvasContext) => GPUDevice | null
+let flushed: (context: GPUCanvasContext) => number
+
 export class GPUCanvasContext {
   readonly canvas: CanvasLike
   readonly #node: number
@@ -696,7 +699,7 @@ export class GPUCanvasContext {
     const width = Math.max(1, this.canvas.width), height = Math.max(1, this.canvas.height)
     if (this.#texture) {
       if (this.#texture.width === width && this.#texture.height === height) return this.#texture
-      this.present()
+      present(this)
     }
     const id = native.currentTexture(this.#node, width, height)
     this.#texture = new GPUTexture(config.device as GPUDevice, id, { size: [width, height], format: config.format, usage: config.usage, label: '' })
@@ -704,26 +707,17 @@ export class GPUCanvasContext {
     return this.#texture
   }
 
-  present(): GPUDevice | null {
-    if (!this.#texture) return null
-    this.#texture = null
-    native.present(this.#node)
-    return this.#config?.device as GPUDevice
-  }
-
-  pixels(): { width: number; height: number; rgba: Uint8Array } | null {
-    this.present()
-    return native.pixels(this.#node)
-  }
-
-  dataURL(): string {
-    this.present()
-    return `data:image/png;base64,${base64(native.png(this.#node, this.canvas.width, this.canvas.height))}`
-  }
-
-  pngAsync(): Promise<Uint8Array> {
-    this.present()
-    return native.pngAsync(this.#node, this.canvas.width, this.canvas.height)
+  static {
+    present = (context) => {
+      if (!context.#texture) return null
+      context.#texture = null
+      native.present(context.#node)
+      return context.#config?.device as GPUDevice
+    }
+    flushed = (context) => {
+      present(context)
+      return context.#node
+    }
   }
 }
 tag(GPUCanvasContext)
@@ -731,8 +725,24 @@ tag(GPUCanvasContext)
 const inFlight = new Set<{ at: number }>()
 const IN_FLIGHT_MS = 1000
 
+const byCanvas = new WeakMap<object, GPUCanvasContext>()
+
 export const contexts = {
-  byCanvas: new WeakMap<object, GPUCanvasContext>(),
+  has(canvas: object): boolean {
+    return byCanvas.has(canvas)
+  },
+  pixels(canvas: object): { width: number; height: number; rgba: Uint8Array } | null | undefined {
+    const context = byCanvas.get(canvas)
+    return context && native.pixels(flushed(context))
+  },
+  dataURL(canvas: CanvasLike): string | null {
+    const context = byCanvas.get(canvas)
+    return context ? `data:image/png;base64,${base64(native.png(flushed(context), canvas.width, canvas.height))}` : null
+  },
+  png(canvas: CanvasLike): Promise<Uint8Array> | null {
+    const context = byCanvas.get(canvas)
+    return context ? native.pngAsync(flushed(context), canvas.width, canvas.height) : null
+  },
   waiting: new Set<GPUCanvasContext>(),
   behind(): boolean {
     if (inFlight.size < 2) return false
@@ -743,14 +753,14 @@ export const contexts = {
   },
   of(canvas: CanvasLike, node: number): GPUCanvasContext | null {
     if (!native) return null
-    let context = contexts.byCanvas.get(canvas)
-    if (!context) contexts.byCanvas.set(canvas, (context = new GPUCanvasContext(canvas, node)))
+    let context = byCanvas.get(canvas)
+    if (!context) byCanvas.set(canvas, (context = new GPUCanvasContext(canvas, node)))
     return context
   },
   present(): void {
     if (contexts.waiting.size === 0) return
     let device: GPUDevice | null = null
-    for (const context of contexts.waiting) device = context.present() ?? device
+    for (const context of contexts.waiting) device = present(context) ?? device
     contexts.waiting.clear()
     if (!device) return
     const entry = { at: Date.now() }

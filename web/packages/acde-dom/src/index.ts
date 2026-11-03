@@ -234,8 +234,8 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
 function externalPixels(source: unknown): { width: number; height: number; rgba: Uint8Array } | null {
   if (source instanceof ImageData) return { width: source.width, height: source.height, rgba: new Uint8Array(source.data.buffer, source.data.byteOffset, source.data.byteLength) }
   if (source instanceof media.HTMLCanvasElement) {
-    const gpu = gpuContexts.byCanvas.get(source)
-    if (gpu) return gpu.pixels()
+    const gpu = gpuContexts.pixels(source)
+    if (gpu !== undefined) return gpu
     const { width, height } = source
     if (!width || !height || !canvases.has(source as never)) return null
     const rgba = canvases.pixels(source as never, 0, 0, width, height)

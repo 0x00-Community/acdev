@@ -151,21 +151,19 @@ export class HTMLCanvasElement extends HTMLElement {
 
   getContext(type: string, _options?: unknown): CanvasContext2d | GPUCanvasContext | null {
     const kind = String(type)
-    if (kind === '2d') return gpuContexts.byCanvas.has(this) ? null : canvases.context(this as unknown as CanvasElement)
+    if (kind === '2d') return gpuContexts.has(this) ? null : canvases.context(this as unknown as CanvasElement)
     if (kind === 'webgpu') return canvases.has(this as unknown as CanvasElement) ? null : gpuContexts.of(this, this[ID])
     return null
   }
 
   toDataURL(type = 'image/png', _quality?: number): string {
-    const gpu = gpuContexts.byCanvas.get(this)
-    if (gpu) return gpu.dataURL()
-    return canvases.toDataURL(this as unknown as CanvasElement, String(type))
+    return gpuContexts.dataURL(this) ?? canvases.toDataURL(this as unknown as CanvasElement, String(type))
   }
 
   toBlob(callback: (blob: Blob | null) => void, type = 'image/png', quality?: number): void {
-    const gpu = gpuContexts.byCanvas.get(this)
-    if (gpu) {
-      gpu.pngAsync().then((bytes) => callback(new Blob([bytes], { type: 'image/png' })), () => callback(null))
+    const png = gpuContexts.png(this)
+    if (png) {
+      png.then((bytes) => callback(new Blob([bytes], { type: 'image/png' })), () => callback(null))
       return
     }
     const url = this.toDataURL(type, quality)
