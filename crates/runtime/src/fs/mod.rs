@@ -174,13 +174,8 @@ impl Finder {
     }
     #[napi]
     pub async fn download(&self, root: String, path: String) -> Result<FileBytes> {
-        let file = self
-            .run(move |s| {
-                let (name, data) = s.fs.raw(&root, &path)?;
-                Ok((name, "application/octet-stream".to_owned(), data))
-            })
-            .await?;
-        Ok(file.into())
+        let (name, data) = self.run(move |s| s.fs.raw(&root, &path)).await?;
+        Ok(FileBytes { name, content_type: "application/octet-stream".to_owned(), data: data.into() })
     }
     #[napi]
     pub async fn locate(&self, path: String) -> Result<Value> {
@@ -269,11 +264,5 @@ impl Finder {
 impl Finder {
     pub(crate) fn shared(&self) -> Arc<Shared> {
         Arc::clone(&self.shared)
-    }
-}
-
-impl From<(String, String, Vec<u8>)> for FileBytes {
-    fn from((name, content_type, data): (String, String, Vec<u8>)) -> Self {
-        Self { name, content_type, data: data.into() }
     }
 }

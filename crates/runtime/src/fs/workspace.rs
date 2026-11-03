@@ -11,19 +11,11 @@ use std::{
     path::Path,
 };
 
-pub const MAX_ENTRIES: usize = 5000;
-pub const MAX_PREVIEW_BYTES: u64 = 256 * 1024;
-pub const MAX_RAW_BYTES: u64 = 64 * 1024 * 1024;
-pub const MAX_WRITE_BYTES: usize = 384 * 1024;
-
-const IMAGE_TYPES: [(&str, &str); 6] = [
-    (".png", "image/png"),
-    (".jpg", "image/jpeg"),
-    (".jpeg", "image/jpeg"),
-    (".gif", "image/gif"),
-    (".webp", "image/webp"),
-    (".bmp", "image/bmp"),
-];
+const MAX_ENTRIES: usize = 5000;
+const MAX_PREVIEW_BYTES: u64 = 256 * 1024;
+const MAX_RAW_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_WRITE_BYTES: usize = 384 * 1024;
+const IMAGES: [&str; 6] = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -149,7 +141,7 @@ pub struct WorkspaceFs {
 
 impl WorkspaceFs {
     pub fn new() -> Self {
-        Self { collator: Self::collator(), home: Self::home() }
+        Self { collator: Self::collator(), home: std::env::var("HOME").unwrap_or_else(|_| "/".into()) }
     }
 
     fn collator() -> CollatorBorrowed<'static> {
@@ -164,19 +156,6 @@ impl WorkspaceFs {
         Collator::try_new((&locale).into(), CollatorOptions::default())
             .or_else(|_| Collator::try_new(Default::default(), CollatorOptions::default()))
             .expect("compiled root collation data")
-    }
-
-    fn home() -> String {
-        std::env::var("HOME").unwrap_or_else(|_| "/".into())
-    }
-
-    pub fn image_type(path: &str) -> Option<&str> {
-        let ext = path.extname().to_lowercase();
-        IMAGE_TYPES.iter().find(|(e, _)| *e == ext).map(|(_, t)| *t)
-    }
-
-    fn exists(path: &str) -> bool {
-        Path::new(path).exists()
     }
 
     fn user_dir(&self, name: &str, fallback: &str) -> String {
@@ -204,19 +183,19 @@ impl WorkspaceFs {
 
     pub fn desktop(&self) -> Outcome<String> {
         let desktop = self.user_dir("DESKTOP", "Desktop");
-        if !Self::exists(&desktop) {
+        if !Path::new(&desktop).exists() {
             DirBuilder::new().recursive(true).mode(0o755).create(&desktop)?;
         }
         Ok(desktop)
     }
 
     pub fn downloads(&self) -> Option<String> {
-        Some(self.user_dir("DOWNLOAD", "Downloads")).filter(|dir| Self::exists(dir))
+        Some(self.user_dir("DOWNLOAD", "Downloads")).filter(|dir| Path::new(dir).exists())
     }
 
     pub fn roots(&self) -> Outcome<Vec<FinderRoot>> {
         let fallback = self.home.join("agentos-work");
-        let work = Some(fallback).filter(|path| Self::exists(path));
+        let work = Some(fallback).filter(|path| Path::new(path).exists());
         let desktop = self.desktop()?;
         let root = |path: String, label: &str, source: RootSource| FinderRoot {
             path,
@@ -327,7 +306,7 @@ impl WorkspaceFs {
             content,
             truncated,
         };
-        if Self::image_type(&absolute).is_some() {
+        if IMAGES.contains(&absolute.extname().to_lowercase().as_str()) {
             let kind = if size <= MAX_RAW_BYTES { PreviewKind::Image } else { PreviewKind::TooLarge };
             return Ok(preview(kind, None, None));
         }
@@ -366,7 +345,7 @@ impl WorkspaceFs {
     }
 
     pub fn mkdir(&self, root_path: &str, relative: &str) -> Outcome<FinderEntry> {
-        let Resolved { absolute, .. } = self.writable(root_path, relative, false)?;
+        let Resolved { absolute, .. } = self.resolve_at(root_path, relative, false)?;
         DirBuilder::new().mode(0o755).create(&absolute)?;
         FinderEntry::read(&absolute, absolute.basename())
     }
@@ -375,7 +354,7 @@ impl WorkspaceFs {
         if content.len() > MAX_WRITE_BYTES {
             return Err(Failure::http(413, "content exceeds 384 KiB"));
         }
-        let Resolved { absolute, .. } = self.writable(root_path, relative, false)?;
+        let Resolved { absolute, .. } = self.resolve_at(root_path, relative, false)?;
         let current = fs::symlink_metadata(&absolute).ok();
         match &current {
             Some(_) if expected == "new" => return Err(Failure::http(409, "file already exists")),
@@ -420,7 +399,7 @@ impl WorkspaceFs {
         if !info.is_file() {
             return Err(Failure::invalid("only regular files can be copied in"));
         }
-        let Resolved { absolute, real, .. } = self.writable(root_path, dir, true)?;
+        let Resolved { absolute, real, .. } = self.resolve_at(root_path, dir, true)?;
         if !fs::metadata(&real)?.is_dir() {
             return Err(Failure::invalid("not a directory"));
         }
@@ -460,8 +439,7 @@ impl WorkspaceFs {
     }
 
     pub fn remove(&self, root_path: &str, relative: &str) -> Outcome<()> {
-        let root = self.root(root_path)?;
-        let Resolved { absolute, relative, .. } = Self::resolve(&root, relative, false)?;
+        let Resolved { absolute, relative, .. } = self.resolve_at(root_path, relative, false)?;
         if relative.is_empty() {
             return Err(Failure::invalid("the workspace root cannot be deleted"));
         }
@@ -473,9 +451,7 @@ impl WorkspaceFs {
         Ok(())
     }
 
-    fn writable(&self, root_path: &str, relative: &str, must_exist: bool) -> Outcome<Resolved> {
-        let root = self.root(root_path)?;
-        let resolved = Self::resolve(&root, relative, must_exist)?;
-        Ok(resolved)
+    fn resolve_at(&self, root_path: &str, relative: &str, must_exist: bool) -> Outcome<Resolved> {
+        Self::resolve(&self.root(root_path)?, relative, must_exist)
     }
 }

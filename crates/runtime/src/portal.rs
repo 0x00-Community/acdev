@@ -1,17 +1,14 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use napi::bindgen_prelude::Unknown;
-use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi::{Env, Result};
 use napi_derive::napi;
 use serde::Deserialize;
 use zbus::blocking::{Connection, MessageIterator, Proxy};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value as Variant};
 
-use crate::js::JsFn;
-use crate::sync::Locked;
+use crate::js::{Watch, notify};
 use crate::{blocking, failure};
 
 const PORTAL: &str = "org.freedesktop.portal.Desktop";
@@ -156,8 +153,7 @@ fn dark_scheme(value: &Variant<'_>) -> bool {
 #[napi]
 pub struct Appearance {
     connection: Connection,
-    sink: Arc<Mutex<Option<JsFn<bool>>>>,
-    watching: AtomicBool,
+    watch: Watch<bool>,
 }
 
 impl Appearance {
@@ -176,7 +172,7 @@ impl Appearance {
     }
 
     fn on(connection: Connection) -> Self {
-        Self { connection, sink: Default::default(), watching: AtomicBool::new(false) }
+        Self { connection, watch: Watch::default() }
     }
 }
 
@@ -195,37 +191,30 @@ impl Appearance {
 
     #[napi(ts_args_type = "callback: (dark: boolean) => void")]
     pub fn watch(&self, env: Env, callback: Unknown<'_>) -> Result<()> {
-        *self.sink.locked() = Some(JsFn::new(&env, callback)?);
-        if self.watching.swap(true, Ordering::SeqCst) {
-            return Ok(());
-        }
-        let started = Self::changes(&self.connection).map_err(bus).and_then(|signals| {
-            let sink = self.sink.clone();
+        self.watch.watch(&env, callback, |sink| {
+            let signals = Self::changes(&self.connection).map_err(bus)?;
             std::thread::Builder::new()
                 .name("acde-appearance".into())
                 .spawn(move || {
                     for message in signals {
                         let Ok(message) = message else { break };
                         let Ok((namespace, key, value)) = message.body().deserialize::<(String, String, OwnedValue)>() else { continue };
-                        if namespace == APPEARANCE
-                            && key == COLOR_SCHEME
-                            && let Some(sink) = sink.locked().as_ref()
-                        {
-                            sink.notify(dark_scheme(&value), ThreadsafeFunctionCallMode::NonBlocking);
+                        if namespace == APPEARANCE && key == COLOR_SCHEME {
+                            notify(&sink, dark_scheme(&value));
                         }
                     }
                 })
                 .map(drop)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))
-        });
-        started.inspect_err(|_| self.watching.store(false, Ordering::SeqCst))
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader};
+    use crate::private_bus;
+    use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
 
     type Calls = Arc<Mutex<Vec<(String, String, HashMap<String, OwnedValue>)>>>;
@@ -275,23 +264,9 @@ mod tests {
         }
     }
 
-    fn private_bus() -> Option<(std::process::Child, String, std::path::PathBuf)> {
-        let dir = std::env::temp_dir().join(format!("acde-portal-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).ok()?;
-        let config = dir.join("bus.conf");
-        std::fs::write(&config, format!(
-            "<busconfig><type>session</type><listen>unix:dir={}</listen><auth>EXTERNAL</auth><policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/><allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>",
-            dir.display()
-        )).ok()?;
-        let mut daemon = std::process::Command::new("dbus-daemon").arg(format!("--config-file={}", config.display())).arg("--print-address").arg("--nofork").stdout(std::process::Stdio::piped()).spawn().ok()?;
-        let mut address = String::new();
-        BufReader::new(daemon.stdout.take()?).read_line(&mut address).ok()?;
-        Some((daemon, address.trim().to_string(), dir))
-    }
-
     #[test]
     fn against_a_stand_in_portal() {
-        let Some((mut daemon, address, dir)) = private_bus() else {
+        let Some((mut daemon, address, dir)) = private_bus("portal") else {
             eprintln!("no dbus-daemon: skipped");
             return;
         };
@@ -355,7 +330,7 @@ mod tests {
 
     #[test]
     fn color_scheme_against_a_stand_in_portal() {
-        let Some((mut daemon, address, dir)) = private_bus() else {
+        let Some((mut daemon, address, dir)) = private_bus("portal") else {
             eprintln!("no dbus-daemon: skipped");
             return;
         };

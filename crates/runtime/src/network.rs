@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use napi::bindgen_prelude::Unknown;
-use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi::{Env, Result};
 use napi_derive::napi;
 use serde_json::{json, Value};
@@ -12,8 +10,7 @@ use zbus::blocking::{Connection, MessageIterator, Proxy};
 use zbus::proxy::CacheProperties;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value as Variant};
 
-use crate::js::JsFn;
-use crate::sync::Locked;
+use crate::js::{Sink, Watch, notify};
 use crate::{blocking, failure};
 
 const NM: &str = "org.freedesktop.NetworkManager";
@@ -127,13 +124,13 @@ impl Nm {
         Ok(self.devices()?.into_iter().find(|d| d.kind == WIFI).map(|d| d.path))
     }
 
-    fn device_by_iface(&self, iface: &str) -> zbus::Result<Option<OwnedObjectPath>> {
-        for device in self.devices()? {
-            if device.props.get::<String>("Interface")? == iface {
-                return Ok(Some(device.path));
+    fn device_by_iface(&self, iface: &str) -> Result<OwnedObjectPath> {
+        for device in self.devices().map_err(bus)? {
+            if device.props.get::<String>("Interface").map_err(bus)? == iface {
+                return Ok(device.path);
             }
         }
-        Ok(None)
+        Err(failure("no_device", &format!("no device {iface}")))
     }
 
     fn ip4(&self, config: &OwnedObjectPath) -> Option<String> {
@@ -313,7 +310,7 @@ impl Nm {
     }
 
     fn activate(&self, iface: &str) -> Result<()> {
-        let device = self.device_by_iface(iface).map_err(bus)?.ok_or_else(|| failure("no_device", &format!("no device {iface}")))?;
+        let device = self.device_by_iface(iface)?;
         let none = ObjectPath::try_from("/").map_err(|e| bus(e.into()))?;
         self.proxy(NM_PATH, NM)
             .map_err(bus)?
@@ -323,7 +320,7 @@ impl Nm {
     }
 
     fn disconnect(&self, iface: &str) -> Result<()> {
-        let device = self.device_by_iface(iface).map_err(bus)?.ok_or_else(|| failure("no_device", &format!("no device {iface}")))?;
+        let device = self.device_by_iface(iface)?;
         self.proxy(device.as_str(), DEVICE).map_err(bus)?.call::<_, _, ()>("Disconnect", &()).map_err(bus)
     }
 
@@ -335,8 +332,7 @@ impl Nm {
 #[napi]
 pub struct Network {
     nm: Nm,
-    sink: Arc<Mutex<Option<JsFn<Value>>>>,
-    watching: AtomicBool,
+    watch: Watch<Value>,
 }
 
 impl Drop for Network {
@@ -355,7 +351,7 @@ impl Network {
             nm.proxy(NM_PATH, NM)
                 .and_then(|p| p.get_property::<String>("Version"))
                 .map_err(|e| failure("network_unavailable", &format!("NetworkManager is not running: {e}")))?;
-            Ok(Self { nm, sink: Default::default(), watching: AtomicBool::new(false) })
+            Ok(Self { nm, watch: Watch::default() })
         })
         .await
     }
@@ -404,16 +400,12 @@ impl Network {
 
     #[napi(ts_args_type = "callback: (state: unknown) => void")]
     pub fn watch(&self, env: Env, callback: Unknown<'_>) -> Result<()> {
-        *self.sink.locked() = Some(JsFn::new(&env, callback)?);
-        if self.watching.swap(true, Ordering::SeqCst) {
-            return Ok(());
-        }
-        self.start_watching().inspect_err(|_| self.watching.store(false, Ordering::SeqCst))
+        self.watch.watch(&env, callback, |sink| self.start_watching(sink))
     }
 }
 
 impl Network {
-    fn start_watching(&self) -> Result<()> {
+    fn start_watching(&self, sink: Sink<Value>) -> Result<()> {
         let rule = zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
             .sender(NM)
@@ -437,16 +429,14 @@ impl Network {
                 }
             }),
         )?;
-        let (nm, sink) = (self.nm.clone(), self.sink.clone());
+        let nm = self.nm.clone();
         spawn(
             "acde-network-state",
             Box::new(move || {
                 while rx.recv().is_ok() {
                     while rx.recv_timeout(SETTLE).is_ok() {}
-                    if let Ok(state) = nm.state()
-                        && let Some(sink) = sink.locked().as_ref()
-                    {
-                        sink.notify(state, ThreadsafeFunctionCallMode::NonBlocking);
+                    if let Ok(state) = nm.state() {
+                        notify(&sink, state);
                     }
                 }
             }),

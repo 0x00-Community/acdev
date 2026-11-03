@@ -3,6 +3,8 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Env, JsValue, Result, Status};
 use serde_json::Value;
 
+use crate::sync::Locked;
+
 const GUARD: &str = r#"(f) => (...args) => {
   const ok = (value) => JSON.stringify({ ok: value === undefined ? null : value })
   const fail = (error) => JSON.stringify({ error: String(error?.message ?? error) })
@@ -52,6 +54,36 @@ impl<A: 'static + JsValuesTupleIntoVec, const Q: usize> JsFn<A, Q> {
 
     pub fn notify(&self, argument: A, mode: ThreadsafeFunctionCallMode) {
         self.tsfn.call(argument, mode);
+    }
+}
+
+pub type Sink<A> = std::sync::Arc<std::sync::Mutex<Option<JsFn<A>>>>;
+
+pub struct Watch<A: 'static + JsValuesTupleIntoVec> {
+    sink: Sink<A>,
+    started: std::sync::atomic::AtomicBool,
+}
+
+impl<A: 'static + JsValuesTupleIntoVec> Default for Watch<A> {
+    fn default() -> Self {
+        Self { sink: Sink::default(), started: Default::default() }
+    }
+}
+
+impl<A: 'static + JsValuesTupleIntoVec> Watch<A> {
+    pub fn watch(&self, env: &Env, callback: Unknown, start: impl FnOnce(Sink<A>) -> Result<()>) -> Result<()> {
+        use std::sync::atomic::Ordering;
+        *self.sink.locked() = Some(JsFn::new(env, callback)?);
+        if self.started.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+        start(self.sink.clone()).inspect_err(|_| self.started.store(false, Ordering::SeqCst))
+    }
+}
+
+pub fn notify<A: 'static + JsValuesTupleIntoVec>(sink: &Sink<A>, value: A) {
+    if let Some(sink) = sink.locked().as_ref() {
+        sink.notify(value, ThreadsafeFunctionCallMode::NonBlocking);
     }
 }
 

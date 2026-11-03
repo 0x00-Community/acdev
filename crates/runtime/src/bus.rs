@@ -129,26 +129,12 @@ impl DesktopBus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader};
+    use crate::private_bus;
     use std::sync::Mutex;
-
-    fn private_bus() -> Option<(std::process::Child, String, std::path::PathBuf)> {
-        let dir = std::env::temp_dir().join(format!("acde-bus-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).ok()?;
-        let config = dir.join("bus.conf");
-        std::fs::write(&config, format!(
-            "<busconfig><type>session</type><listen>unix:dir={}</listen><auth>EXTERNAL</auth><policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/><allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>",
-            dir.display()
-        )).ok()?;
-        let mut daemon = std::process::Command::new("dbus-daemon").arg(format!("--config-file={}", config.display())).arg("--print-address").arg("--nofork").stdout(std::process::Stdio::piped()).spawn().ok()?;
-        let mut address = String::new();
-        BufReader::new(daemon.stdout.take()?).read_line(&mut address).ok()?;
-        Some((daemon, address.trim().to_string(), dir))
-    }
 
     #[test]
     fn calls_reach_the_handler_and_its_errors_the_caller() {
-        let Some((mut daemon, address, dir)) = private_bus() else {
+        let Some((mut daemon, address, dir)) = private_bus("bus") else {
             eprintln!("no dbus-daemon: skipped");
             return;
         };
