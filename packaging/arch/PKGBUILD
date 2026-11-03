@@ -10,7 +10,7 @@
 #   /usr/lib/acde/acde             the program: V8, runtime, render and shell in one binary
 #   /usr/lib/acde/app/             acde-host: dist/broker.js and dist/web.js (bundles), greet/ (the login screen:
 #                                  `acde --greeter`, greetd's greeter; user, password and desktop on one page), brand/
-#                                  (the Dopame mark, Outfit and its OFL license, for it)
+#                                  (the Dopame mark and wordmark, for it)
 #   /usr/lib/acde/acde-app/        what `acde app` (new / check / build / install / run) runs under bun (TypeScript sources)
 #   /usr/lib/acde/acde-api/        @dopame/acde-api, the SDK (types, load, the Vite plugin): `acde app new` makes it an app's devDependency
 #   /usr/bin/acde                  the session (the script below runs /usr/lib/acde/acde, or the Wayland session it
@@ -28,7 +28,7 @@ pkgrel=1
 pkgdesc='Dopame desktop base: Wayland compositor with natively rendered web desktops, system API and login screen'
 arch=('x86_64' 'aarch64')
 url='https://github.com/dopamine-org/acde-base'
-license=('Apache-2.0' 'OFL-1.1')
+license=('Apache-2.0')
 depends=(
   # compositor: DRM/KMS, GBM and EGL/GLES (mesa), input, seat, udev; Wayland clients only (no X server)
   'mesa' 'libdrm' 'libinput' 'seatd' 'systemd-libs' 'wayland' 'libxkbcommon'
