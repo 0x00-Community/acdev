@@ -18,7 +18,6 @@ pub use std::os::raw::c_void;
 pub use std::ptr;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread_local;
 
 pub use v8;
 pub use value::napi_value;
@@ -279,15 +278,6 @@ pub struct EnvShared {
   pub type_tag: v8::Global<v8::Private>,
 }
 
-impl EnvShared {
-  pub fn new(
-    napi_wrap: v8::Global<v8::Private>,
-    type_tag: v8::Global<v8::Private>,
-  ) -> Self {
-    Self { instance_data: None, napi_wrap, type_tag }
-  }
-}
-
 #[repr(C)]
 pub struct Env {
   context: NonNull<v8::Context>,
@@ -308,38 +298,6 @@ unsafe impl Send for Env {}
 unsafe impl Sync for Env {}
 
 impl Env {
-  #[allow(clippy::too_many_arguments, reason = "construction")]
-  pub fn new(
-    isolate_ptr: v8::UnsafeRawIsolatePtr,
-    context: v8::Global<v8::Context>,
-    global: v8::Global<v8::Object>,
-    create_buffer: v8::Global<v8::Function>,
-    report_error: v8::Global<v8::Function>,
-    sender: V8CrossThreadTaskSpawner,
-    gc_finalizer_spawner: V8TaskSpawner,
-    external_ops_tracker: ExternalOpsTracker,
-  ) -> Self {
-    Self {
-      isolate_ptr,
-      context: context.into_raw(),
-      global,
-      create_buffer,
-      report_error,
-      shared: std::ptr::null_mut(),
-      async_work_sender: sender,
-      gc_finalizer_spawner,
-      gc_finalizers: Default::default(),
-      external_ops_tracker,
-      last_error: napi_extended_error_info {
-        error_message: std::ptr::null(),
-        engine_reserved: std::ptr::null_mut(),
-        engine_error_code: 0,
-        error_code: Cell::new(napi_ok),
-      },
-      last_exception: None,
-    }
-  }
-
   pub fn shared(&self) -> &EnvShared {
     unsafe { &*self.shared }
   }
@@ -435,45 +393,41 @@ pub struct Embedder {
   pub report_error: v8::Global<v8::Function>,
 }
 
-struct IsolateKeys {
-  napi_wrap: v8::Global<v8::Private>,
-  type_tag: v8::Global<v8::Private>,
-}
-
-thread_local! {
-  static KEYS: RefCell<Option<IsolateKeys>> = const { RefCell::new(None) };
-}
-
 pub fn open<'s>(
   scope: &mut v8::PinScope<'s, '_>,
   embedder: Embedder,
   register: napi_addon_register_func,
 ) -> v8::Local<'s, v8::Value> {
-  let (napi_wrap, type_tag) = KEYS.with(|keys| {
-    let mut keys = keys.borrow_mut();
-    let keys = keys.get_or_insert_with(|| {
-      let name = v8::String::new(scope, "napi_wrap").unwrap();
-      let napi_wrap = v8::Private::new(scope, Some(name));
-      let name = v8::String::new(scope, "type_tag").unwrap();
-      let type_tag = v8::Private::new(scope, Some(name));
-      IsolateKeys { napi_wrap: v8::Global::new(scope, napi_wrap), type_tag: v8::Global::new(scope, type_tag) }
-    });
-    (keys.napi_wrap.clone(), keys.type_tag.clone())
-  });
-  let shared = EnvShared::new(napi_wrap, type_tag);
+  let name = v8::String::new(scope, "napi_wrap").unwrap();
+  let napi_wrap = v8::Private::new(scope, Some(name));
+  let name = v8::String::new(scope, "type_tag").unwrap();
+  let type_tag = v8::Private::new(scope, Some(name));
+  let shared = EnvShared {
+    instance_data: None,
+    napi_wrap: v8::Global::new(scope, napi_wrap),
+    type_tag: v8::Global::new(scope, type_tag),
+  };
   let context = scope.get_current_context();
   let global = context.global(scope);
-  let mut env = Env::new(
-    unsafe { scope.as_raw_isolate_ptr() },
-    v8::Global::new(scope, context),
-    v8::Global::new(scope, global),
-    embedder.create_buffer,
-    embedder.report_error,
-    embedder.cross_thread,
-    embedder.local,
-    embedder.ops,
-  );
-  env.shared = Box::into_raw(Box::new(shared));
+  let env = Env {
+    isolate_ptr: unsafe { scope.as_raw_isolate_ptr() },
+    context: v8::Global::new(scope, context).into_raw(),
+    global: v8::Global::new(scope, global),
+    create_buffer: embedder.create_buffer,
+    report_error: embedder.report_error,
+    shared: Box::into_raw(Box::new(shared)),
+    async_work_sender: embedder.cross_thread,
+    gc_finalizer_spawner: embedder.local,
+    gc_finalizers: Default::default(),
+    external_ops_tracker: embedder.ops,
+    last_error: napi_extended_error_info {
+      error_message: std::ptr::null(),
+      engine_reserved: std::ptr::null_mut(),
+      engine_error_code: 0,
+      error_code: Cell::new(napi_ok),
+    },
+    last_exception: None,
+  };
   let env_ptr = Box::into_raw(Box::new(env)) as napi_env;
   let exports = v8::Object::new(scope);
   let returned = unsafe { register(env_ptr, exports.into()) };
