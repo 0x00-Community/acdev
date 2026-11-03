@@ -21,9 +21,11 @@
 > - **现状差距很大**: acde-dopame 大量直接用 napi 导出做底层接口, web 层也有过非标准的扩展,
 >   这些都是要收回的债, 不是可以照抄的先例; 新代码不许再加, 动到旧代码时往这个方向收. (已收回: `acde` 全局、`window` 上的
 >   `acde:*` 事件、`agentrt:open-app` 和 `__agentrtAsks`: 事件改成 `acde:` 模块上的 `on`, 见「通信」.)
-> - **计划 (现在不做)**: 系统桌面的运行时是同一个 V8 里的不同 context —— 每个应用一个 context 互相隔离; 桌面有权看到所有
->   context 的内容; 窗口无权往外看, 除非有签名声明允许互通, 或者用户允许了共享. 现在的「每个窗口一个 web 进程」和 `acde:` 模块
->   按清单给能力, 是在这之前的做法.
+> - **目标 (在做, 见「运行时进程」)**: 所有窗口 (包括桌面) 共用一个 V8 (一个运行时进程), 每个窗口 / 桌面 / Broker 各一个
+>   isolate (各一个线程), 内存、生死、CPU 时间均衡.
+>   `acde:` 模块在各自的 isolate 里直接注入, 系统能力是进程里共享的同一份 Rust 实现; 桌面包服务之间、页面和服务之间是
+>   isolate 之间的进程内调用 (像 workerd 的 service binding), 不经 socket. 现在的「每个窗口一个 web 进程 + port + Broker 代理」
+>   是在这之前的做法.
 
 根目录的 README.md 是给人看的简介, 其余说明都在本文件里. full agentic.
 
@@ -52,6 +54,85 @@ acde web <app>#<窗口> (子进程)                      每个应用窗口一�
 web 进程 (`acde web <名字> --port <fd> --heap-mb <mb>`, 同一个可执行文件, crates/acde `web.rs`): 里面是 crates/render 的文档、
 crates/paint (光栅化, 从合成器搬出来的那套: vello on Vulkan, filter 和 drop-shadow) 和 crates/window
 (Wayland 客户端: xdg_toplevel + linux-dmabuf + `acde_window`, 输入 / 剪贴板 / 拖放 / frame). 它死掉只掉它的窗口.
+
+### 运行时进程 (目标, 在做)
+
+acde 产出**一个**可执行文件, 在 Linux / Windows / macOS 上都能跑, 定位像 workerd: 运行时本身, 标准接口原样提供, 特殊能力只经
+`acde:` 模块注入. 两种跑法, 运行时是同一套:
+
+| 跑法 | 命令 | 平台 | 窗口 | 合成器 |
+| --- | --- | --- | --- | --- |
+| **AgentComputer 会话** (真实运行环境) | `acde --desktop <id>` (登录页起) | Linux | 合成器的 Wayland 客户端 (xdg_toplevel) | acde 自己 (主进程) |
+| **调试桌面** | `acde desktop [<id> \| 目录]` | Linux / Windows / macOS, 在别人的桌面里 | 宿主系统的原生窗口 | 宿主系统的 |
+| **调试窗口** | `acde app [<id> \| 目录]` | 同上 | 同上 | 同上 |
+
+调试桌面和调试窗口是同一套东西 (像 Electron 把页面开成原生窗口, 像 `wrangler dev`), 只差两点:
+
+- **权限等级**: 调试桌面里的页面是桌面, 拿桌面的权限 (`acde:windows` / `acde:apps` / `acde:desktops` / `acde:session` /
+  `acde:inspect` …, 桌面包的服务也起); 调试窗口里的页面是应用, 只拿它清单 capabilities 给的模块.
+- **事件类型**: 桌面收桌面的事件 (`acde:windows` 的 open / close / title …、`acde:desktop` 的 download / notification / shortcut …);
+  应用收自己窗口的事件 (`acde:window` 的 shortcut / request …).
+
+别的 (一个 V8、每个窗口一个 isolate、注入、均衡) 都一样. 调试模式不是浏览器外壳, 不带 devtools、远程调试端口 (见第一原则).
+`acde app` 不带参数时跑当前目录的工程 (`acde.config.jsonc` 的 `"type": "app"`), `acde desktop` 同理 (`"type": "desktop"`);
+工程的工具子命令 (`acde app new / check / build / install`) 照旧. 现在的 `acde window <app>` 由 `acde app <id>` 取代.
+
+```
+AgentComputer:
+acde (主进程)                       合成器 (crates/shell) + 窗口管理 + 输入 / 外设. 没有 V8, 不跑 JS
+acde runtime (子进程, 一个)         一个 V8 (一个 Platform), 所有 JS 都在这里
+ ├─ Broker isolate                  会话、当前桌面的服务、应用记录; 经 `acde_shell` 管合成器
+ ├─ desktop isolate                 桌面页面 + render 文档 + 光栅 + 自己的 Wayland 连接
+ ├─ <app>#<窗口> isolate × N        每个应用窗口一个, 只注入清单允许的 `acde:` 模块
+ └─ 共享的 Rust 状态                crates/runtime 的系统实现、窗口和应用表, 一份, 各 isolate 直接调
+原生程序                            普通 Wayland 客户端
+
+调试桌面 / 调试窗口:
+acde (一个进程)                     同上的 runtime (Broker / desktop / 应用各一个 isolate), 窗口是宿主的原生窗口, 没有合成器
+```
+
+- **一个 V8, 每个窗口一个 isolate**: 所有窗口 (包括桌面) 共用一个 V8 —— 同一个进程、同一个 Platform、同一份共享的 Rust 状态;
+  每个窗口 / 桌面 / Broker 是自己的 isolate, 因为只有 isolate 能让窗口之间的内存、生死、CPU 时间各管各的 (同一个 isolate 里的
+  context 共用一个堆和一个线程, 一个卡住全卡住).
+- **均衡**: 每个窗口拿到的资源是对等的, 谁也挤不掉谁.
+  - 内存: 每个 isolate 自己的堆上限 (清单 `heapMb`, 没给就用缺省值, 大家一样), 外部内存 (ArrayBuffer、render 文档、GPU 缓冲)
+    按 isolate 记账并报给它的 V8 堆; 超限终止这个 isolate.
+  - 生死: isolate 各自建、各自销毁; 一个死了只掉它的窗口, 别的 isolate 和共享状态不动.
+  - CPU: 每个 isolate 一个线程、同一优先级, 由内核公平调度; 按线程记每个 isolate 用掉的 CPU 时间; 单个任务超过上限 (卡死)
+    终止这个 isolate. 不允许某个 isolate 抬自己的优先级或占多个线程 (Worker 也算在它的账上).
+- **`acde:` 模块**: isolate 起来时按清单 capabilities 注入 (像 workerd 的 binding), 绑定在本线程直接调 Rust, 不序列化、不跨进程.
+  能力的限制 (fs 的 roots …) 在注入时绑进去, 不在调用时由 Broker 查. 没给的模块不注入, import 直接失败. 某个平台上没有的能力
+  (调试模式里没有原生程序的窗口、`acde:windows` 只管 acde 自己开的窗口 …) 同样不注入, 不给假的实现.
+- **共享状态**: 窗口表、应用表、会话这些跨窗口的状态是 runtime 里的 Rust 表, 各 isolate 直接读写; 要合成器动手的 (关窗口、
+  聚焦、隐藏、放置、快捷键 …) 经 `acde_shell` (AgentComputer) 或宿主窗口 (调试模式).
+- **桌面包服务** (assistant …): 在 Broker isolate 里 (或自己的 isolate); 别的 isolate 调它是进程内跨 isolate 调用 (结构化克隆,
+  经线程间通道), 像 workerd 的 service binding. 这是唯一的跨 isolate 调用, 只给 JS 写的服务用, 系统能力不走它.
+- **`acde_shell`**: 主进程起 runtime 时交给它的私有 Wayland 协议连接 (只有这条连接能绑定), 取代 Broker 现在直接调的 napi `Shell`
+  (launch / inject / windows / grant / hide / focus / close / shortcut / place / animate / screenshot / stats / quit / 事件). 这是平台
+  协议 (和任何 Wayland 客户端一样), 不是 `acde:` 模块的通道.
+- **系统调用限制在调用者自己身上**: 一个窗口 (包括桌面) 的 `acde:` 调用在它自己的 isolate 线程上执行, 出什么错只算它的:
+  - 异常回到调用者; 同步阻塞 (`spawnSync`、慢 I/O) 只卡它自己的线程; 内存记在它的账上.
+  - 每个注入的绑定在边界上 `catch_unwind`: Rust 侧 panic 变成调用者里的异常 (或终止这个 isolate), 不跨线程传播, 不 abort 进程.
+  - Broker 不替任何窗口执行系统调用 —— 现在 `#serve` 在 Broker 线程上替窗口调 fs / terminal / office / `spawnSync`, 一次错误调用
+    卡死或 panic 就带死 Broker, 而 Broker 现在和合成器同进程, 会话跟着黑屏. 这是要收回的第一笔债.
+  - 剩下的风险只有进程级的 (段错误、abort、被 OOM killer 杀): runtime 进程整个掉, 所有页面掉, 合成器和原生程序不动, 主进程按
+    策略重启 runtime (60 s 内 3 次为限). 所以共享的 Rust 状态里不写 `unsafe`, 绑定层不 `unwrap`.
+- **合成器和窗口分开**: 合成器 (含窗口表、焦点、grab、输入路由这些机制) 永远在主进程, 不跑 JS, 不执行任何窗口的系统调用;
+  窗口的放置策略、桌面 UI、服务都在 runtime. 不把合成器并进 runtime 来省掉 `acde_shell`.
+- **删掉**: `acde web` 子进程、port 帧 (`[u32 长度][u8 种类][结构化克隆]`)、`spawnWeb`、acde-host 的 `rpc.ts` / `remote.ts` 代理和
+  Broker `#serve` 里系统能力的分支、Broker 对 `Shell` 的 napi 直接调用.
+
+迁移顺序 (每步都能单独验):
+
+1. `acde_shell` 协议: 合成器侧实现现在 napi `Shell` 的方法和事件; Broker 先在主进程里改成经它调 (接口对 TS 不变).
+2. Broker 搬进 `acde runtime` 子进程: 主进程只剩合成器, 起 runtime 时交 `acde_shell` 和 Wayland 连接.
+3. web 从子进程改成 runtime 进程里的线程 + isolate: `spawnWeb` 对 TS 不变, port 换成进程内通道; 堆上限、外部内存记账、
+   CPU 时间和卡死检测按 isolate.
+4. 系统能力直接注入: fs / terminal / network / office / ime 在各 isolate 里绑定同一份 Rust 对象; 删掉 Broker 代理的这些分支.
+5. 窗口 / 应用 / 会话表进 Rust 共享表, `acde:windows` / `acde:apps` / `acde:window` / `acde:session` / `acde:desktops` 直接调.
+6. 桌面包服务改成跨 isolate 的进程内调用; 删掉 `rpc.ts` / `remote.ts` 和 port.
+7. 调试模式: crates/window 加宿主原生窗口的后端 (Windows / macOS / 别人的 Linux 桌面), crates/runtime 的系统能力按平台实现或
+   不注入; `acde desktop` / `acde app` 在三个平台上能起桌面和应用, `acde window` 删掉.
 
 ## 窗口模型 (split-window)
 
