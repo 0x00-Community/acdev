@@ -24,6 +24,7 @@ export class TextEntry {
   #last: TextInputState | null = null
   #checked = 0
   static readonly RECHECK_MS = 100
+  #inactive = false
   #composing: Element | null = null
   #preedit: HTMLElement | null = null
   #placeholder: { field: Element; value: string } | null = null
@@ -73,10 +74,6 @@ export class TextEntry {
     return element ?? this.#document.body
   }
 
-  key(target: Element, key: string, ctrl: boolean): void {
-    this.#editing.editKey(target as never, key, ctrl)
-  }
-
   set surfaceActive(active: boolean) {
     if (this.#inactive === !active) return
     this.#inactive = !active
@@ -85,8 +82,6 @@ export class TextEntry {
     this.#reported = null
     this.#last = null
   }
-
-  #inactive = false
 
   report(): void {
     if (!this.#ime || this.#inactive) return

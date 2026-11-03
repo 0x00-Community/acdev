@@ -57,7 +57,7 @@ export class Host {
       const ctrl = !!(modifiers.ctrl || modifiers.meta)
       const lower = key.toLowerCase()
       if (ctrl && (lower === 'c' || lower === 'x' || lower === 'v')) return void this.#text.clipboard(target as unknown as Element, lower).catch((error) => Host.report(error))
-      this.#text.key(target as unknown as Element, key, ctrl)
+      page.editing.editKey(target as never, key, ctrl)
     }
   }
 
@@ -86,7 +86,7 @@ export class Host {
     return true
   }
 
-  handle(events: readonly ShellEvent[]): void {
+  #handle(events: readonly ShellEvent[]): void {
     for (const event of events) {
       try {
         this.#one(event)
@@ -100,7 +100,7 @@ export class Host {
     const page = this.#page
     switch (event.type) {
       case 'frame':
-        return this.frame(event.time)
+        return this.#frame(event.time)
       case 'panelmove':
         return this.onPanelMove(event.id, [event.x, event.y, event.width, event.height])
       case 'close':
@@ -204,7 +204,7 @@ export class Host {
     }
   }
 
-  frame(time: number): void {
+  #frame(time: number): void {
     if (!this.#framed) {
       this.#framed = true
       StartupTimeline.mark('first frame')
@@ -240,7 +240,7 @@ export class Host {
         const event = this.#shellInput.normalize(raw)
         if (event) events.push(event)
       }
-      this.handle(events)
+      this.#handle(events)
       await surface.wait()
     }
   }

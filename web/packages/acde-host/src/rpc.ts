@@ -27,7 +27,7 @@ export class Rpc {
   #next = 1
   readonly #pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timed?: [string, number] }>()
   readonly #functions = new Map<number, (...args: unknown[]) => unknown>()
-  readonly #held = typeof FinalizationRegistry === 'function' ? new FinalizationRegistry<number>((fn) => this.#post({ rpc: 'release', fn })) : null
+  readonly #held = new FinalizationRegistry<number>((fn) => this.#post({ rpc: 'release', fn }))
   #server: RpcServer | null = null
 
   constructor(port: RpcPort) {
@@ -116,7 +116,7 @@ export class Rpc {
         const out = this.#out(args) as unknown[]
         this.#post({ rpc: 'invoke', fn, args: out, ...(out !== args ? { refs: true as const } : {}) })
       }
-      this.#held?.register(call, fn)
+      this.#held.register(call, fn)
       return call
     }
     return Rpc.#map(value, (item) => this.#in(item))
