@@ -104,6 +104,16 @@ fn napi_fatal_error(
   std::process::abort();
 }
 
+fn wrap_buffer<'s>(
+  scope: &mut v8::PinScope<'s, '_>,
+  env: &Env,
+  ab: v8::Local<'s, v8::ArrayBuffer>,
+) -> Option<v8::Local<'s, v8::Value>> {
+  let create_buffer = v8::Local::new(scope, &env.create_buffer);
+  let recv = v8::null(scope).into();
+  create_buffer.call(scope, recv, &[ab.into()])
+}
+
 #[napi_sym]
 fn napi_create_buffer<'s>(
   env: &'s mut Env,
@@ -117,9 +127,7 @@ fn napi_create_buffer<'s>(
 
   let ab = v8::ArrayBuffer::new(scope, length);
 
-  let create_buffer = v8::Local::new(scope, &env.create_buffer);
-  let recv = v8::null(scope).into();
-  let Some(buffer) = create_buffer.call(scope, recv, &[ab.into()]) else {
+  let Some(buffer) = wrap_buffer(scope, env, ab) else {
     return napi_generic_failure;
   };
 
@@ -159,9 +167,7 @@ fn napi_create_external_buffer<'s>(
   v8::callback_scope!(unsafe scope, env.context());
   let ab = v8::ArrayBuffer::with_backing_store(scope, &store.make_shared());
 
-  let create_buffer = v8::Local::new(scope, &env.create_buffer);
-  let recv = v8::null(scope).into();
-  let Some(buffer) = create_buffer.call(scope, recv, &[ab.into()]) else {
+  let Some(buffer) = wrap_buffer(scope, env, ab) else {
     return napi_generic_failure;
   };
 
@@ -186,9 +192,7 @@ fn napi_create_buffer_copy<'s>(
 
   let ab = v8::ArrayBuffer::new(scope, length);
 
-  let create_buffer = v8::Local::new(scope, &env.create_buffer);
-  let recv = v8::null(scope).into();
-  let Some(buffer) = create_buffer.call(scope, recv, &[ab.into()]) else {
+  let Some(buffer) = wrap_buffer(scope, env, ab) else {
     return napi_generic_failure;
   };
 
@@ -280,11 +284,25 @@ fn napi_get_node_version(
   napi_clear_last_error(env)
 }
 
+fn check_async_resource(
+  scope: &mut v8::PinScope,
+  resource: napi_value,
+  name: napi_value,
+) -> Result<(), napi_status> {
+  if let Some(v) = *resource
+    && v.to_object(scope).is_none()
+  {
+    return Err(napi_object_expected);
+  }
+  if name.and_then(|v| v.to_string(scope)).is_none() {
+    return Err(napi_string_expected);
+  }
+  Ok(())
+}
+
 struct AsyncWork {
   state: AtomicU8,
   env: *mut Env,
-  _async_resource: v8::Global<v8::Object>,
-  _async_resource_name: String,
   execute: napi_async_execute_callback,
   complete: Option<napi_async_complete_callback>,
   data: *mut c_void,
@@ -311,36 +329,21 @@ pub(crate) fn napi_create_async_work(
   check_arg!(env, execute);
   check_arg!(env, result);
 
-  let work = {
+  let checked = {
     v8::callback_scope!(unsafe scope, env.context());
-
-    let resource = if let Some(v) = *async_resource {
-      let Some(resource) = v.to_object(scope) else {
-        return napi_set_last_error(env, napi_object_expected);
-      };
-      resource
-    } else {
-      v8::Object::new(scope)
-    };
-
-    let Some(resource_name) =
-      async_resource_name.and_then(|v| v.to_string(scope))
-    else {
-      return napi_set_last_error(env, napi_string_expected);
-    };
-
-    let resource_name = resource_name.to_rust_string_lossy(scope);
-
-    Box::new(AsyncWork {
-      state: AtomicU8::new(AsyncWork::IDLE),
-      env: env_ptr,
-      _async_resource: v8::Global::new(scope, resource),
-      _async_resource_name: resource_name,
-      execute: execute.unwrap(),
-      complete,
-      data,
-    })
+    check_async_resource(scope, async_resource, async_resource_name)
   };
+  if let Err(status) = checked {
+    return napi_set_last_error(env, status);
+  }
+
+  let work = Box::new(AsyncWork {
+    state: AtomicU8::new(AsyncWork::IDLE),
+    env: env_ptr,
+    execute: execute.unwrap(),
+    complete,
+    data,
+  });
 
   unsafe {
     *result = Box::into_raw(work) as _;
@@ -488,8 +491,6 @@ struct TsFn {
   thread_finalize_cb: Option<napi_finalize>,
   context: *mut c_void,
   call_js_cb: napi_threadsafe_function_call_js,
-  _resource: v8::Global<v8::Object>,
-  _resource_name: String,
   is_closing: AtomicBool,
   is_closed: Arc<AtomicBool>,
   sender: V8CrossThreadTaskSpawner,
@@ -674,7 +675,7 @@ fn napi_create_threadsafe_function(
   }
   check_arg!(env, result);
 
-  let (func, resource, resource_name) = {
+  let func = {
     v8::callback_scope!(unsafe scope, env.context());
     let func = if let Some(value) = *func {
       let Ok(func) = v8::Local::<v8::Function>::try_from(value) else {
@@ -685,24 +686,12 @@ fn napi_create_threadsafe_function(
       check_arg!(env, call_js_cb);
       None
     };
-
-    let resource = if let Some(v) = *async_resource {
-      let Some(resource) = v.to_object(scope) else {
-        return napi_set_last_error(env, napi_object_expected);
-      };
-      resource
-    } else {
-      v8::Object::new(scope)
-    };
-    let resource = v8::Global::new(scope, resource);
-
-    let Some(resource_name) =
-      async_resource_name.and_then(|v| v.to_string(scope))
-    else {
-      return napi_set_last_error(env, napi_string_expected);
-    };
-    let resource_name = resource_name.to_rust_string_lossy(scope);
-    (func, resource, resource_name)
+    if let Err(status) =
+      check_async_resource(scope, async_resource, async_resource_name)
+    {
+      return napi_set_last_error(env, status);
+    }
+    func
   };
 
   let tsfn = Box::new(TsFn {
@@ -716,8 +705,6 @@ fn napi_create_threadsafe_function(
     thread_finalize_cb,
     context,
     call_js_cb: call_js_cb.unwrap_or(default_call_js_cb),
-    _resource: resource,
-    _resource_name: resource_name,
     is_closing: AtomicBool::new(false),
     is_closed: Arc::new(AtomicBool::new(false)),
     is_ref: AtomicBool::new(false),
