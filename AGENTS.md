@@ -1,24 +1,24 @@
 # acde-base
 
-> **⛔ 第一原则: 不许在任何层次上魔改 isolate 接口.**
+> **⛔ 第一原则: 不许在任何层次上魔改 web 接口.**
 >
-> - isolate 接口 (DOM、`window`、`fetch`、`localStorage`、事件、Web Audio、WebGPU …) 必须和浏览器**完全兼容**: 行为、签名、
+> - web 接口 (DOM、`window`、`fetch`、`localStorage`、事件、Web Audio、WebGPU …) 必须和浏览器**完全兼容**: 行为、签名、
 >   事件、错误都照标准. 不许给标准对象加私有方法 / 字段 / 事件, 不许改标准接口的语义, 不许为了 acde 方便改写标准行为.
 >   做不到兼容的就是缺口, 记成「还没有」, 不拿一个长得像的私有版本顶替.
-> - **全局只有两个**: `window` (isolate 兼容) 和 `globalThis` (node 兼容). 没有 `acde` 全局, 也不许再往全局上挂任何非标准的东西.
+> - **全局只有两个**: `window` (web 兼容) 和 `globalThis` (node 兼容). 没有 `acde` 全局, 也不许再往全局上挂任何非标准的东西.
 > - 系统接口只有一个入口: `acde:` 内置模块, 照 `node:fs` 的写法导入 (`import { fs } from 'acde:fs'`、
 >   `import { apps } from 'acde:apps'`、`import self from 'acde:window'` …; 类型在 SDK `@dopame/acde-api`). 清单的 capabilities
->   决定能导入哪些, 没开的导入直接失败. 文件、终端、网络、窗口管理、会话这类能力都走它, 不往 isolate 接口里塞, 也不让页面直接碰 napi.
+>   决定能导入哪些, 没开的导入直接失败. 文件、终端、网络、窗口管理、会话这类能力都走它, 不往 web 接口里塞, 也不让页面直接碰 napi.
 > - acde 的定位是一个运行时 (像 node / bun / workerd 之于 wrangler): 标准接口原样提供, 特殊能力只经 `acde:` 模块提供.
 >   标准 Node 不让页面直接碰系统调用, acde 偏要让: 桌面 (包括它的 React 组件) 直接 `import { fs } from 'acde:fs'` 读写文件,
 >   这正是 acde 存在的目的. 「魔改」只许发生在 `acde:` 这一层, 标准接口一个字不动.
 > - **`acde:` 模块是进程内注入, 不是 RPC**: 像 wrangler 拉起 workerd 时把 binding 注入 worker 那样, acde 在页面所在的进程里把
 >   `acde:` 模块直接注入页面的 V8, 调用直接进 Rust 原生实现 —— 不经 unix socket, 不经 IPC / 消息端口, 不转给别的进程代办.
 >   (已收回: 窗口 / 应用 / 合成器是 `natives.desk`, 在调用者自己的线程上直接调 crates/acde `desk/`; 只有桌面包的服务、和
->   Broker 暂时还替着的 builtin (打开文件、应用商店、session、desktops、inspect, 见「迁移顺序」5b-5d) 经服务通道去 Broker.)
+>   Broker 暂时还替着的 builtin (应用商店的 `refresh` / `install`, 见「迁移顺序」5b) 经服务通道去 Broker.)
 > - 兼容的是**标准接口**, 不是 Chromium: 渲染器是自研的 (Blitz 分叉 acrender, 没有 JS 引擎, 页面 JS 在 acde 自己的 V8 里),
 >   不搬 Chromium 那一套 —— 没有 devtools、远程调试端口、浏览器外壳、多余的进程和后台服务. 缺什么按标准补进自己的实现, 不引入浏览器内核.
-> - **现状差距很大**: acde-dopame 大量直接用 napi 导出做底层接口, isolate 接口层也有过非标准的扩展,
+> - **现状差距很大**: acde-dopame 大量直接用 napi 导出做底层接口, web 接口层也有过非标准的扩展,
 >   这些都是要收回的债, 不是可以照抄的先例; 新代码不许再加, 动到旧代码时往这个方向收. (已收回: `acde` 全局、`window` 上的
 >   `acde:*` 事件、`agentrt:open-app` 和 `__agentrtAsks`: 事件改成 `acde:` 模块上的 `on`, 见「通信」.)
 > - **目标 (在做, 见「运行时进程」)**: 所有窗口 (包括桌面) 共用一个 V8 (一个运行时进程), 每个窗口 / 桌面 / Broker 各一个
@@ -87,6 +87,23 @@ JS 线程 `acde-desktop` / `acde-window`, 栈 8 MiB, 自己的 V8 isolate 和事
 - ⚠ 已知 (渲染侧, 未修): crates/paint 的 `Gpu` 是进程全局的 (`OnceLock`), 第一条光栅化线程的设备; 之后每条光栅化线程又各开一个
   Vulkan 设备, 图片缓存却拿全局那份. 一个 isolate 结束再起 (桌面重起) 后新的光栅化线程在 wgpu 里 panic (`Cannot get TextureId`,
   `wgpu error`), 桌面反复重起到 3 次为止、会话结束. 2026-11-04 用超限的 ArrayBuffer 让桌面重起时复现.
+
+### 启动时选哪种 runtime (加载 JS 之前)
+
+会话类的启动 (`acde`、`acde --desktop`、`acde window`) 在主进程里先看在哪 (crates/acde `jsruntime.rs` `Runtime::choose`):
+
+- **AgentOS (Dopame)**: `/etc/os-release` 的 `NAME="Dopame"` (或 `LOGO=dopame` / `ID=agentos`), 且有 `/dev/jsruntime` (ackernel). 不起
+  `acde runtime` 子进程: `AC_JS_OPEN` 开一个 isolate (名字 `acde-session-<uid>`), 经它的通道 (SEQPACKET) 把会话交给系统的 runtime:
+  一条 JSON `{args, env, cwd}` 加 acde_shell 连接 (`SCM_RIGHTS`); 等 runtime 回 `{exit}` 和 isolate 的 `DEAD`; 收到 SIGINT / SIGTERM / SIGHUP
+  发 `{stop: true}`. runtime 死了 (内核重起它) 按崩溃重开 (60 s 内 3 次). 系统的 runtime 是 `acde jsruntime` (管理员用 `AC_JS_CONFIGURE`
+  配成 spawn 它): `AC_JS_REGISTER`, 收 `OPEN` 就 `AC_JS_ACCEPT`, 收会话的 hello, 把会话的环境设成进程的, 在一条线程上跑这个会话的 Broker
+  (`AC_JS_MIGRATE` 绑到这条线程), `CLOSE` / `KILL` / `stop` 给自己发 SIGTERM (Broker 的退出路径); 一次只接一个会话 (第二个 `EBUSY`),
+  会话结束就退出, 由内核起下一个. 桌面 / 窗口 isolate 还没各自 `AC_JS_CREATE` (只有 Broker 线程记在内核账上). ⚠ 没在 ackernel 上实测过.
+  AgentOS 但没有 `/dev/jsruntime`: 打一行 warn, 照下面自己起 runtime.
+- **别处**: 照旧起 `acde runtime` 子进程. 在别人的 Wayland 桌面里 (有 `WAYLAND_DISPLAY`, 没给 `ACDE_BACKEND`) 合成器用**嵌套后端**
+  (crates/shell `compositor/nested.rs`): 宿主的显示名存进 `ACDE_HOST_DISPLAY`, `WAYLAND_DISPLAY` 换成 acde 自己的 socket; 合成器在 GPU 上
+  离屏画进三块 GBM dmabuf, `acde-nested` 线程把它们经 linux-dmabuf 贴进宿主的一个 xdg_toplevel (固定尺寸 `ACDE_SIZE`, 默认 1280x800,
+  不经 CPU), 宿主的指针 / 键盘经 `inject` 进来, 关掉宿主窗口会话就结束. `ACDE_BACKEND=rdp` / `drm` 照旧可以强制.
 
 ### 运行时进程 (目标, 在做)
 
@@ -201,9 +218,17 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
      卡死检测也在 `Desk`. Broker 只起桌面.
    分步 (每步能单独起会话验):
    - 5a. (已做) `Desk` + `natives.desk`: 窗口表、合成器、事件; `acde:windows` / `acde:window` / 面板直接调; 应用窗口的起停在 Rust.
-   - 5b. `acde:apps` (清单、`launch` / `open`、`openPath` / `handlers` / `setDefault` 的 open.ts 搬进 Rust).
-   - 5c. `acde:session` / `acde:desktops` (换桌面经 `Desk` 通知 Broker).
-   - 5d. `acde:inspect`: 树直接读别的 isolate 的 render 文档 (`Dom::semantics` 线程安全), 点 / 输入经合成器 `inject` 和目标 isolate 的任务.
+   - 5b. `acde:apps`: (已做) `openPath` / `handlers` / `setDefault` (`desk/open.rs`, init 的 `modules` 里有 `files` 才有; open.ts 只剩 `acde applications` 写 desktop entry);
+     还没有: 扫包和清单 (`refresh` / `install`, 现在是 Broker 的 `#apps`).
+   - 5c. (已做) `acde:session` / `acde:desktops` (crates/acde `desk/session.rs`): 权限、`own`、systemctl 重启 / 关机 (15 秒)、改语言
+     (校验 `ll-RR`, 写 `$XDG_CONFIG_HOME/locale.conf`, 广播给所有 isolate)、桌面列表 (Broker 交给 `Desk` 的 `desktops`)、记住选择都在调用者线程上;
+     收尾经通知交给 Broker: `end {kind}` (结束会话)、`language {locale}` (之后起的程序继承)、`choose {id}` (换桌面和它的服务, 或交出会话).
+     init 的 `modules` 列出这个 isolate 拿到的这两个模块 (桌面全有, 窗口按清单的 `session` / `desktops`).
+   - 5d. (已做) `acde:inspect` (crates/acde `desk/inspect.rs`): 一个 runtime 一个 inspector (窗口 ref、AT-SPI 节点号、diff 基准),
+     桌面 (`acde:inspect`) 和桌面包的服务 (`ServiceContext.inspect`, Broker 经 `desk.inspect*`) 共用; 在调用者线程外的线程上跑. 窗口表、
+     遮挡、点击和按键 (`inject`, 键名表 `Keys`) 在 Rust 里; 页面的树和页面里的动作 (`point` / `type` / `focus` / `settle`) 经 `Ask::Inspect`
+     问那个 isolate (acde-host `pageinspect.ts`, 出错回 `{error}`); 没有 isolate 的窗口读 AT-SPI (`acde_runtime::Accessibility` 的
+     `tree_now` / `act_now`, 第一次用到时连, 自己的会话里 Broker 起服务时先连上).
 6. (已做) 桌面包服务改成跨 isolate 的进程内调用 (`natives.services` ↔ Broker 的 `desk.onService` / `servicePost`: 结构化克隆的字节,
    投进对方的事件循环; acde-host `binding.ts` 的 `ServiceBinding` 管调用号、错误和回调函数); `rpc.ts` / `remote.ts` 和 port 删了.
    init 的 `services` 是 Broker 交给 `Desk` 的 shape (`desk.look({services})`), `Desk` 按调用者的能力挑; 名字以 `#` 开头的
@@ -636,7 +661,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
 - **isolate 侧** (`pageinspect.ts`, rpc 服务 `inspect`): `tree`, `point(id)` (元素可点的一点: 不在视口里先 `scrollIntoView` 居中, 在中心和
   四个四分点上 `hitTest`, 命中它或它的子孙才算; 全被挡住时报挡住它的元素), `type(id, text, replace)` (focus 之后走输入法提交的那条路
   `Host.insertText`, 和用户打字一样发 beforeinput / input; replace 先全选), `focus(id)`.
-- **Broker** (`inspect.ts`, `Broker.inspect`): 窗口表来自 合成器的 `windows()` (桌面的面板算桌面的一部分, 不单列), 窗口的 ref 是
+- **引擎** (crates/acde `desk/inspect.rs`): 窗口表来自 合成器的 `windows()` (桌面的面板算桌面的一部分, 不单列), 窗口的 ref 是
   `w0` (桌面) 和 `w1`、`w2` … (第一次看到时发, 会话内不变), 元素是 `w3.12`. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?})` →
   `{text, windows, trees}`: text 先列窗口 (上面的在前: 类型、应用、标题、焦点 / 最小化 / 模式; 位置和尺寸只在 `windows` 里), 再列有焦点的窗口 (或指定的
   窗口 / 子树, `all` 是所有可见窗口) 的树 (`tree: false` 只列窗口); `find` 在所有可见窗口 (或指定的) 里找名字或值含这段文字的元素 (不分大小写,
@@ -666,7 +691,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
 
 ## 默认应用
 
-文件和文件夹用谁打开 (js/packages/acde-host `src/open.ts`, runtime `src/bus.rs`). 一个入口 `Opener.open(路径或 URI, {app?, select?})`, 四条路进来:
+文件和文件夹用谁打开 (crates/acde `desk/open.rs`, runtime `src/bus.rs`). 一个入口 `Desk::open_path(路径或 URI, {app?, select?})`, 在调用者线程上跑 (Broker 的两条走 `desk.openPath`), 四条路进来:
 桌面和有 `openFiles` 能力的应用调 `acde.openPath` (桌面在 `acde.apps` 上), 会话总线上的 `org.freedesktop.FileManager1`
 (浏览器下载的「在文件夹中显示」、编辑器的 reveal: `ShowFolders` / `ShowItems` / `ShowItemProperties`), acde 自己的
 `org.dopame.Acde1.Open(as uris, s app)` (`acde open [--app <id>] <路径|URI>...` 调它; 没有会话时退出码 3),
@@ -1513,7 +1538,7 @@ acde 的宿主代码, esbuild 打成 crates/acde 跑的两个 ES 模块 (运行�
 | `src/isolate.ts`, `src/host.ts` | isolate 线程: 文档、surface、acde-dom、页面; shell 输入 → DOM 事件, vblank → 页面的帧, 窗口事件 → `acde:windows` 的 `on` (`Notices`) |
 | `src/modules.ts`, `src/binding.ts`, `src/desk.ts` | isolate 里的 `acde:` 模块 (`natives.desk` 的, 和按 init 的 shape 建的服务代理); 服务通道上的调用 (函数作为引用跨过去, 对方丢掉或结束时释放); `natives.desk` / `sys.desk` 的类型 |
 | `src/keys.ts`, `src/text.ts`, `src/ime.ts`, `src/panel.ts` | 键码和修饰键、往输入框和 contenteditable 里输入 (acde-dom 的 `editing`)、剪贴板; 输入法 (每个键先给它, 只发变了的状态), 预编辑和候选框由页面画 |
-| `src/inspect.ts`, `src/pageinspect.ts` | 「看和操作桌面」: Broker 侧 (窗口、ref、文字、变化、act), isolate 侧 (语义树、点哪里、输入) |
+| `src/pageinspect.ts` | 「看和操作桌面」的页面一侧 (语义树、点哪里、输入、聚焦、等安静); 引擎在 crates/acde `desk/inspect.rs` |
 | `src/dnd.ts`, `src/session.ts` | 拖放 (进出别的窗口); `acde.session` (注销, 关机 / 重启只在自己的会话里) |
 | `src/pinned.ts` | 「钉住的面板」 |
 | `src/crashes.ts`, `src/log.ts` | 一段时间里崩了几次 (服务、isolate、后端的重启上限); `Log` (见「日志和计时」) |

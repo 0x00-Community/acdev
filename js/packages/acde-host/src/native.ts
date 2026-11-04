@@ -1,4 +1,3 @@
-import type { Accessibility } from './inspect'
 import type { DragIcon, DragInput } from './dnd'
 import type { ImeEvent, NativeIme } from './ime'
 
@@ -80,7 +79,6 @@ export interface Native {
   Network?: { open(): Promise<NativeNetwork> }
   Appearance?: { open(): Promise<NativeAppearance> }
   Greetd?: NativeGreetd
-  Accessibility?: { open(): Promise<Accessibility> }
   DesktopBus?: {
     open(handler: (request: BusRequest) => unknown): NativeDesktopBus
     send(uris: string[], app?: string | null): Promise<void>

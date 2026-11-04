@@ -1,0 +1,22 @@
+{
+  "name": "create-acde",
+  "version": "0.1.0",
+  "description": "npm create acde: a new acde app (or desktop) project, its dependencies installed, ready for `npm run dev`",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dopame-org/acde-base",
+    "directory": "npm/create-acde"
+  },
+  "type": "module",
+  "bin": {
+    "create-acde": "index.js"
+  },
+  "files": [
+    "index.js",
+    "templates"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

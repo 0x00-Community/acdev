@@ -4,7 +4,10 @@
 
 mod app;
 mod files;
+mod inspect;
 mod js;
+mod open;
+mod session;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -18,6 +21,9 @@ use acde_shell::{Notice, Session};
 use serde_json::{Value, json};
 
 pub use app::{App, Capabilities, FsCap, Look, LookChange};
+pub use inspect::{SnapshotOptions, Step};
+pub use open::OpenOptions;
+pub use session::End;
 pub use js::{broker_object, clear, install};
 
 use crate::isolate::{Grants, Handle, Place, Spec};
@@ -33,15 +39,15 @@ pub struct Failure {
 }
 
 impl Failure {
-    fn new(status: i32, code: &'static str, message: impl Into<String>) -> Self {
+    pub(super) fn new(status: i32, code: &'static str, message: impl Into<String>) -> Self {
         Self { message: message.into(), status: Some(status), code }
     }
 
-    fn refused(who: &str, what: &str) -> Self {
+    pub(super) fn refused(who: &str, what: &str) -> Self {
         Self::new(403, "forbidden", format!("{who} may not use {what} (not in its manifest's capabilities)"))
     }
 
-    fn missing(message: impl Into<String>) -> Self {
+    pub(super) fn missing(message: impl Into<String>) -> Self {
         Self::new(404, "not_found", message)
     }
 }
@@ -115,8 +121,8 @@ impl Ask {
 }
 
 #[derive(Default)]
-struct State {
-    look: Look,
+pub(super) struct State {
+    pub(super) look: Look,
     apps: Vec<(Arc<App>, bool)>,
     records: HashMap<u32, Record>,
     live: HashMap<u32, Live>,
@@ -145,6 +151,9 @@ pub struct Desk {
     broker: Sender<Msg>,
     next_window: AtomicU32,
     places: Mutex<Places>,
+    inspector: Mutex<inspect::Inspector>,
+    /// The AT-SPI connection, opened the first time a window no isolate draws is inspected (`None` inside: there is none).
+    accessibility: Mutex<Option<Option<Arc<acde_runtime::Accessibility>>>>,
 }
 
 impl Desk {
@@ -166,13 +175,15 @@ impl Desk {
             broker,
             next_window: AtomicU32::new(SURFACE_IDS),
             places: Mutex::new(places),
+            inspector: Mutex::default(),
+            accessibility: Mutex::new(None),
         });
         let weak = Arc::downgrade(&desk);
         std::thread::Builder::new().name("acde-desk".into()).spawn(move || Self::watch(&weak, &rx)).map_err(|e| e.to_string())?;
         Ok(desk)
     }
 
-    fn state(&self) -> MutexGuard<'_, State> {
+    pub(super) fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -219,7 +230,7 @@ impl Desk {
 
     /// Tells the Broker (its `desk.onNotice`): the session ending, the desktop's exit, an isolate's end (its service
     /// calls fail), apps starting and stopping.
-    fn to_broker(&self, notice: Value) {
+    pub(super) fn to_broker(&self, notice: Value) {
         _ = self.broker.send(Msg::Task(Box::new(move |scope| js::broker_notice(scope, notice))));
     }
 
@@ -414,6 +425,7 @@ impl Desk {
         let state = &mut *guard;
         let mut init = Self::init(state, Place::Desktop, "desktop", 0);
         init["services"] = state.look.shapes(None);
+        init["modules"] = Self::session_modules(None);
         init["resources"] = serde_json::to_value(&state.look.resources).unwrap_or_default();
         init["html"] = html.into();
         init["standalone"] = standalone.into();
@@ -448,6 +460,7 @@ impl Desk {
         init["width"] = (800.0 * scale).into();
         init["height"] = (600.0 * scale).into();
         init["services"] = state.look.shapes(Some(&app.capabilities));
+        init["modules"] = Self::session_modules(Some(&app.capabilities));
         init["resources"] = serde_json::to_value(state.look.resources_for(&app)).unwrap_or_default();
         init["app"] = app.raw.clone();
         init["theme"] = state.look.theme.clone().into();

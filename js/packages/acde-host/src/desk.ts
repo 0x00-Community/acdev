@@ -34,6 +34,26 @@ export interface IsolateDesk {
   notify(notification: Record<string, unknown>): void
   apps(): Promise<{ id: string; label: string; icon: string; script: string }[]>
   openApp(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
+  sessionOwn(): boolean
+  endSession(kind: 'logout' | 'reboot' | 'poweroff'): Promise<void>
+  setLanguage(tag: string): Promise<void>
+  desktops(): Promise<{ desktops: DesktopEntry[]; current: string }>
+  chooseDesktop(id: string, remember: boolean): Promise<void>
+  openPath(path: string, options: { app?: string; select?: boolean }): Promise<{ app: string; window: number }>
+  handlers(path: string): Promise<{ mime: string; handlers: { id: string; label: string; icon: string; default: boolean }[] }>
+  setDefault(mime: string, app: string): Promise<string>
+  inspectSnapshot(options: Record<string, unknown>): Promise<unknown>
+  inspectRun(steps: readonly { ref: string; action: string; text?: unknown }[]): Promise<{ ok: boolean; text: string }>
+  inspectOpen(name: string): Promise<{ ok: boolean; text: string }>
+}
+
+/** One of `desktops.list()`: a package's desktop, or another Wayland session. */
+export interface DesktopEntry {
+  readonly kind: 'acde' | 'session'
+  readonly id: string
+  readonly name: string
+  readonly description: string | null
+  readonly package: string | null
 }
 
 export type AskKind = 'beforeclose' | 'request' | 'menu' | 'inspect' | 'debug.eval' | 'debug.stats'
@@ -71,6 +91,9 @@ export interface LookChange {
   env?: [string, string][]
   storage?: boolean
   frame?: string | null
+  own?: boolean
+  standalone?: boolean
+  desktops?: { desktops: DesktopEntry[]; current: string }
 }
 
 export type BrokerNotice =
@@ -80,6 +103,9 @@ export type BrokerNotice =
   | { type: 'desktopshown' }
   | { type: 'isolateexit'; window: number }
   | { type: 'appstart' | 'appstop'; app: string }
+  | { type: 'end'; kind: 'logout' | 'reboot' | 'poweroff' }
+  | { type: 'language'; locale: string }
+  | { type: 'choose'; id: string }
 
 export interface ShellWindow {
   readonly id: number
@@ -147,5 +173,10 @@ export interface BrokerDesk {
   closeAll(): Promise<void>
   closeDesktop(): Promise<void>
   toDesktop(event: Record<string, unknown>): void
+  openPath(path: string, options?: { app?: string; select?: boolean }): Promise<{ app: string; window: number }>
+  inspectSnapshot(options: Record<string, unknown>): Promise<unknown>
+  inspectRun(steps: readonly { ref: string; action: string; text?: unknown }[]): Promise<{ ok: boolean; text: string }>
+  inspectOpen(name: string): Promise<{ ok: boolean; text: string }>
+  warmAccessibility(): void
   quit(): void
 }

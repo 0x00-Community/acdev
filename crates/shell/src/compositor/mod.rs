@@ -8,6 +8,7 @@ mod drm;
 mod env;
 mod handlers;
 mod dnd;
+mod nested;
 mod rdp;
 mod stacking;
 mod windows;
@@ -281,7 +282,8 @@ impl Compositor {
         let (mut backend, node) = match std::env::var("ACDE_BACKEND").as_deref() {
             Ok("drm") => drm::DrmTarget::start(&lh)?,
             Ok("rdp") => rdp::RdpTarget::start(&lh)?,
-            _ if nested => return Err("acde 在别的显示里 (WAYLAND_DISPLAY / DISPLAY 有值): 嵌套开发用 ACDE_BACKEND=rdp, 上机在没有显示的 tty 上跑".into()),
+            Ok("nested") => nested::NestedTarget::start(&lh)?,
+            _ if nested => nested::NestedTarget::start(&lh)?,
             _ => drm::DrmTarget::start(&lh)?,
         };
 
@@ -293,7 +295,7 @@ impl Compositor {
         dmabuf.create_global_with_default_feedback::<Compositor>(&dh, &feedback);
 
         let outputs: Vec<smithay::output::Output> = match &backend.target {
-            backend::Target::Rdp(_) => vec![backend.output.clone()],
+            backend::Target::Rdp(_) | backend::Target::Nested(_) => vec![backend.output.clone()],
             backend::Target::Drm(drm) => drm.outputs().cloned().collect(),
         };
         let mut space = Space::default();
@@ -427,6 +429,7 @@ impl Compositor {
         match self.backend.target {
             backend::Target::Drm(_) => self.render_drm(),
             backend::Target::Rdp(_) => self.render_rdp(),
+            backend::Target::Nested(_) => self.render_nested(),
         }
         if self.backend.presenting {
             self.cancel(|s| &mut s.frame_tick);

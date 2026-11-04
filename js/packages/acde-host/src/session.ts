@@ -3,7 +3,6 @@ import type { BrokerShell } from './broker'
 import { WaylandSessions, type ForeignSession } from './foreign'
 import { process } from './sys/process'
 import { Level, Log } from './log'
-import type { SessionLanguage } from './language'
 
 type SessionEnd = 'logout' | 'reboot' | 'poweroff' | 'handoff'
 
@@ -14,7 +13,6 @@ export class DesktopSession {
   #shell: Pick<BrokerShell, 'launch' | 'quit'> | null = null
   #ending: SessionEnd | null = null
   #children: () => number[] = () => []
-  language: SessionLanguage | null = null
 
   /** `children`: the pids of every program the session started (the desk keeps them), ended with it. */
   attach(shell: Pick<BrokerShell, 'launch' | 'quit'>, children: () => number[]): void {
@@ -37,20 +35,17 @@ export class DesktopSession {
     this.end('handoff')
   }
 
-  end(kind: SessionEnd): void {
-    if (kind === 'reboot' || kind === 'poweroff') {
-      if (!this.own) return void DesktopSession.#report(`${kind} asked for; nested, not done`)
-      const result = spawnSync('systemctl', [kind, '--no-wall'], 15000)
-      if (result.status !== 0) {
-        const message = (result.error?.message ?? result.stderr ?? '').trim() || `systemctl ${kind}: exit ${result.status}`
-        DesktopSession.#report(`${kind} refused: ${message}`, Level.Warn)
-        throw new Error(message)
-      }
-    }
+  /** Ends the session (the desk has already done what `acde:session` asked: systemd for reboot / power-off). */
+  finish(kind: SessionEnd): void {
     DesktopSession.#report(`session ${kind}`)
     this.#ending = kind
     this.terminate()
     this.#shell?.quit()
+  }
+
+  /** The greeter's logout after a login, and hand-offs: nothing to ask systemd. */
+  end(kind: 'logout' | 'handoff'): void {
+    this.finish(kind)
   }
 
   terminate(): void {
@@ -66,16 +61,5 @@ export class DesktopSession {
 
   static #report(line: string, level = Level.Info): void {
     Log.write(level, 'acde_host', line)
-  }
-
-  readonly api = {
-    own: (): boolean => this.own,
-    logout: (): void => this.end('logout'),
-    reboot: (): void => this.end('reboot'),
-    poweroff: (): void => this.end('poweroff'),
-    setLanguage: (tag: string): void => {
-      if (!this.language) throw Object.assign(new Error('acde.session.setLanguage: no session language here'), { status: 503 })
-      this.language.set(String(tag))
-    },
   }
 }

@@ -101,7 +101,11 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
       }
       case 'inspect': {
         const { method, args } = payload as { method: string; args: unknown[] }
-        return inspect.serve(method, args)
+        try {
+          return await inspect.serve(method, args)
+        } catch (error) {
+          return { error: String((error as Error)?.message ?? error) }
+        }
       }
       case 'debug.eval':
         return debug ? await (0, eval)(String(payload)) : null

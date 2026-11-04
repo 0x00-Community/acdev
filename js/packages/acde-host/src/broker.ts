@@ -1,6 +1,5 @@
 // The Broker: the runtime's main isolate. It scans the packages, runs the desktop package's services, starts the
-// desktop, and answers what is not yet the desk's own (opening files with their apps, the app store, native programs,
-// session, desktops, inspect). The windows, apps and the compositor are the desk's (crates/acde `desk/`): every
+// desktop, and answers what is not yet the desk's own (the app store: rescanning and installing packages). The windows, apps and the compositor are the desk's (crates/acde `desk/`): every
 // desktop and window isolate calls it directly, on its own thread; the Broker does not stand in for them.
 import { readFileSync } from './sys/fs'
 import { sys } from './sys/natives'
@@ -9,19 +8,17 @@ import { AppBackends } from './backend'
 import { ServiceBinding } from './binding'
 import { Crashes } from './crashes'
 import { PageBridge } from './bridge'
-import type { BrokerDesk, BrokerNotice, DeskRecord, InjectEvent, ServiceSpec, ShellWindow } from './desk'
-import { Opener, type OpenOptions } from './open'
+import type { BrokerDesk, BrokerNotice, DeskRecord, DesktopEntry, InjectEvent, ServiceSpec, ShellWindow } from './desk'
 import { StartupTimeline } from './timeline'
 import type { Native } from './native'
 import { Packages, type InstalledDesktop } from './packages'
 import { DesktopSession, type RunEnd } from './session'
-import { Inspect, type Accessibility } from './inspect'
 import { SessionLanguage, type Languages } from './language'
 import { Level, Log } from './log'
 import { process } from './sys/process'
 import { Modules } from './modules'
 
-/** The compositor as the Broker's helpers (inspect, session, main) use it: the desk's link. */
+/** The compositor as the Broker's helpers (session, main, debug) use it: the desk's link. */
 export interface BrokerShell {
   launch(argv: string[], options?: { cwd?: string; env?: Record<string, string> }): number
   focus(window: number): void
@@ -79,6 +76,8 @@ export interface IsolateInit {
   readonly request?: Record<string, unknown> | null
   readonly url?: string | null
   readonly sockets?: string
+  /** The `acde:` modules of the desk this isolate gets beyond windows and apps (`session`, `desktops`). */
+  readonly modules?: readonly string[]
 }
 
 export interface ServiceShape {
@@ -104,12 +103,9 @@ export class Broker {
   readonly shell: BrokerShell
   readonly apps: AppRegistry
   readonly bridge: PageBridge
-  readonly opener: Opener
   readonly session = new DesktopSession()
-  readonly language = new SessionLanguage((languages) => this.desk.look({ languages }))
+  readonly language = new SessionLanguage()
   readonly backends: AppBackends
-  readonly inspect: Inspect
-  #accessibility: Promise<Accessibility | null> | null = null
   readonly #options: BrokerOptions
   #current: InstalledDesktop
   readonly #bindings = new Map<number, ServiceBinding>()
@@ -143,6 +139,8 @@ export class Broker {
       storage: process.env['ACDE_STORAGE'] !== '',
       theme: this.#theme(),
       frame: options.desktop.frame,
+      own: options.session,
+      standalone: !!options.standalone,
     }) as BrokerDesk
     const desk = this.desk
     this.shell = {
@@ -161,59 +159,16 @@ export class Broker {
       this.#binding(window)
       this.#inbound.get(window)?.(message)
     })
-    this.opener = new Opener({
-      apps: () => this.apps.list().filter((app) => this.#available(app)),
-      locate: async (path) => {
-        const fs = this.bridge.value['fs'] as { locate(path: string): Promise<{ root: string; path: string }> } | undefined
-        return fs ? fs.locate(path).catch(() => null) : null
-      },
-      launch: (app, request) => this.#raise(this.launch(app, request)),
-    })
     this.session.own = options.session
     this.session.attach(this.shell, () => desk.children())
-    this.session.language = this.language
     this.backends = new AppBackends({
       resources: () => options.packages.resources(),
       wanted: (id) => desk.running(id),
     })
-    this.inspect = new Inspect({
-      shell: this.shell,
-      isolate: (id) => ({ call: (_service: string, method: string, args: readonly unknown[] = []) => desk.ask(id, 'inspect', { method, args }) }),
-      record: (id) => {
-        const r = desk.records().find((row) => row.id === id)
-        return r ? { page: r.page, app: r.app, title: r.title } : null
-      },
-      panel: (id) => desk.isPanel(id),
-      close: (id) => desk.closeWindow(id),
-      hide: (id, hidden) => desk.hide(id, hidden),
-      open: (name) => this.#openByName(name),
-      accessibility: () => this.accessibility(),
-      records: () => desk.records().map((r) => r.id),
-    })
-    this.bridge.services.inspect = this.inspect.api
+    this.bridge.services.inspect = Modules.inspect(desk)
     this.#publishApps()
+    this.desk.look({ desktops: this.#desktops() })
     StartupTimeline.mark('shell created')
-  }
-
-  accessibility(): Promise<Accessibility | null> {
-    if (this.#accessibility) return this.#accessibility
-    const native = this.native.Accessibility
-    this.#accessibility = native
-      ? native.open().catch((error: Error) => {
-          Log.write(Level.Warn, 'acde_host', `AT-SPI: ${error.message}; native windows have no semantics`)
-          return null
-        })
-      : Promise.resolve(null)
-    return this.#accessibility
-  }
-
-  async #openByName(name: string): Promise<string> {
-    const wanted = name.trim().toLowerCase()
-    const apps = this.#appList()
-    const app = apps.find((a) => a.id.toLowerCase() === wanted) ?? apps.find((a) => a.label.toLowerCase() === wanted) ?? apps.find((a) => a.label.toLowerCase().includes(wanted))
-    if (!app) throw Object.assign(new Error(`没有叫 ${name} 的应用 (有: ${apps.map((a) => a.label).join(', ')})`), { status: 404 })
-    this.#raise(this.launch(app.id))
-    return `打开了应用 ${app.label} (${app.id})`
   }
 
   setDark(dark: boolean): void {
@@ -225,38 +180,37 @@ export class Broker {
 
   async startServices(): Promise<void> {
     StartupTimeline.mark('services starting')
-    if (this.#options.session) void this.accessibility()
+    if (this.#options.session) this.desk.warmAccessibility()
     await this.bridge.start(this.native, this.#current, this.desk)
     this.#publishServices()
     StartupTimeline.mark('services started')
   }
 
-  readonly desktops = {
-    list: () => {
-      const { packages } = this.#options
-      return {
-        desktops: [
-          ...packages.desktops().map((d) => ({ kind: d.kind, id: d.id, name: d.name, description: d.description, package: d.package.name })),
-          ...packages.sessions().map((s) => ({ kind: s.kind, id: s.id, name: s.name, description: s.description, package: null })),
-        ],
-        current: this.#current.id,
-      }
-    },
-    choose: async (id: string, remember = false): Promise<void> => {
-      const next = this.#options.packages.find(String(id))
-      if (!next) throw Object.assign(new Error(`no desktop ${id}`), { status: 404 })
-      if (next.kind === 'session' && this.#options.standalone) throw Object.assign(new Error(`acde window: ${id} is not an acde desktop`), { status: 409 })
-      if (remember) Packages.remember(next.id)
-      if (next.kind === 'session') return this.session.handOff(next)
-      if (next.id === this.#current.id) return
-      Log.write(Level.Info, 'acde_host', `switching to desktop ${next.id}`)
-      await this.desk.closeDesktop()
-      this.#current = next
-      await this.bridge.startDesktop(next, this.native)
-      this.#publishServices()
-      this.desk.look({ theme: this.#theme(), frame: next.frame })
-      this.startDesktop()
-    },
+  /** What `desktops.list()` answers (the desk keeps it): the installed desktops and the other Wayland sessions. */
+  #desktops(): { desktops: DesktopEntry[]; current: string } {
+    const { packages } = this.#options
+    return {
+      desktops: [
+        ...packages.desktops().map((d) => ({ kind: d.kind, id: d.id, name: d.name, description: d.description, package: d.package.name })),
+        ...packages.sessions().map((s) => ({ kind: s.kind, id: s.id, name: s.name, description: s.description, package: null })),
+      ],
+      current: this.#current.id,
+    }
+  }
+
+  /** `desktops.choose`, once the desk has checked it: switch to that desktop, or hand the session to another one. */
+  async #choose(id: string): Promise<void> {
+    const next = this.#options.packages.find(String(id))
+    if (!next) return
+    if (next.kind === 'session') return this.session.handOff(next)
+    if (next.id === this.#current.id) return
+    Log.write(Level.Info, 'acde_host', `switching to desktop ${next.id}`)
+    await this.desk.closeDesktop()
+    this.#current = next
+    await this.bridge.startDesktop(next, this.native)
+    this.#publishServices()
+    this.desk.look({ theme: this.#theme(), frame: next.frame, desktops: this.#desktops() })
+    this.startDesktop()
   }
 
   get desktopId(): string {
@@ -323,6 +277,12 @@ export class Broker {
       }
       case 'appstop':
         return void this.backends.stop(notice.app)
+      case 'end':
+        return this.session.finish(notice.kind)
+      case 'language':
+        return this.language.adopt(notice.locale)
+      case 'choose':
+        return void this.#choose(notice.id).catch((error: Error) => Log.write(Level.Error, 'acde_host', `switching to ${notice.id}: ${error.message}`))
       case 'desktopexit': {
         if (notice.closing || this.#stopped) return
         const why = `exit ${notice.code}${notice.reason ? `, ${notice.reason}` : ''}`
@@ -345,14 +305,9 @@ export class Broker {
     return { window: this.desk.launch(appId, request, mode) }
   }
 
-  #raise(opened: { window: number }): { window: number } {
-    this.desk.raise(opened.window)
-    return opened
-  }
-
   async openFromBus(request: { kind: 'folders' | 'items' | 'properties' | 'open'; uris: string[]; app: string }): Promise<void> {
-    const options: OpenOptions = request.kind === 'open' ? (request.app ? { app: request.app } : {}) : { select: request.kind !== 'folders' }
-    for (const uri of request.uris) await this.opener.open(uri, options)
+    const options = request.kind === 'open' ? (request.app ? { app: request.app } : {}) : { select: request.kind !== 'folders' }
+    for (const uri of request.uris) await this.desk.openPath(uri, options)
   }
 
   #appList(): { id: string; label: string; icon: string; script: string }[] {
@@ -366,7 +321,7 @@ export class Broker {
   refreshApps(): { id: string; label: string; icon: string; script: string }[] {
     this.#options.packages.rescan()
     const changed = this.apps.reload(this.#options.packages)
-    this.desk.look({ resources: this.#options.packages.resources() })
+    this.desk.look({ resources: this.#options.packages.resources(), desktops: this.#desktops() })
     this.#publishApps()
     const apps = this.#appList()
     if (changed) this.desk.toDesktop({ type: 'appschanged', apps })
@@ -397,14 +352,6 @@ export class Broker {
   /** The builtins the Broker still serves, and the package's services: what a caller's place and manifest allow. */
   #builtins(): Record<string, Record<string, (...args: never[]) => unknown>> {
     return {
-      inspect: this.inspect.api,
-      session: this.session.api,
-      desktops: this.desktops,
-      [Modules.FILES]: {
-        openPath: (path: string, options?: OpenOptions) => this.opener.open(String(path), (options ?? {}) as OpenOptions),
-        handlers: (path: string) => this.opener.handlers(String(path)),
-        setDefault: (mime: string, app: string) => this.opener.setDefault(String(mime), String(app)),
-      },
       [Modules.STORE]: {
         refresh: () => this.refreshApps(),
         install: (dir: string) => this.installApps(String(dir)),
@@ -413,10 +360,6 @@ export class Broker {
   }
 
   static readonly #BUILTIN_CAPS: Readonly<Record<string, { capability: string; desktopOnly?: boolean }>> = {
-    inspect: { capability: 'inspect', desktopOnly: true },
-    session: { capability: 'session' },
-    desktops: { capability: 'desktops' },
-    [Modules.FILES]: { capability: 'openFiles' },
     [Modules.STORE]: { capability: 'store', desktopOnly: true },
   }
 

@@ -166,6 +166,17 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, desk: A
         "notify" => notify,
         "apps" => apps,
         "openApp" => open_app,
+        "sessionOwn" => session_own,
+        "endSession" => end_session,
+        "setLanguage" => set_language,
+        "desktops" => desktops,
+        "chooseDesktop" => choose_desktop,
+        "openPath" => open_path,
+        "handlers" => handlers,
+        "setDefault" => set_default,
+        "inspectSnapshot" => inspect_snapshot,
+        "inspectRun" => inspect_run,
+        "inspectOpen" => inspect_open,
     );
     bind::set(scope, natives, "desk", object.into());
     let services = v8::Object::new(scope);
@@ -477,6 +488,87 @@ fn open_app(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut r
     })
 }
 
+fn session_own(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, _me| rv.set_bool(desk.session_own()))
+}
+
+fn end_session(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let kind = bind::arg_string(scope, &args, 0);
+        let end = match super::End::try_from(kind.as_str()) {
+            Ok(end) => end,
+            Err(failure) => return resolved(scope, &mut rv, Err(failure)),
+        };
+        later(scope, &mut rv, move || desk.end_session(me, end).map(|()| Value::Null))
+    })
+}
+
+fn set_language(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let tag = bind::arg_string(scope, &args, 0);
+        resolved(scope, &mut rv, desk.set_language(me, &tag).map(|()| Value::Null))
+    })
+}
+
+fn desktops(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| resolved(scope, &mut rv, desk.desktops(me)))
+}
+
+fn choose_desktop(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let (id, remember) = (bind::arg_string(scope, &args, 0), bind::arg_bool(scope, &args, 1));
+        resolved(scope, &mut rv, desk.choose_desktop(me, &id, remember).map(|()| Value::Null))
+    })
+}
+
+fn open_path(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let target = bind::arg_string(scope, &args, 0);
+        let options: super::OpenOptions = arg(scope, &args, 1).unwrap_or_default();
+        later(scope, &mut rv, move || desk.open_path(Some(me), &target, options))
+    })
+}
+
+fn handlers(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let target = bind::arg_string(scope, &args, 0);
+        later(scope, &mut rv, move || desk.handlers(Some(me), &target))
+    })
+}
+
+fn set_default(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let (mime, app) = (bind::arg_string(scope, &args, 0), bind::arg_string(scope, &args, 1));
+        resolved(scope, &mut rv, desk.set_default(Some(me), &mime, &app).map(Value::from))
+    })
+}
+
+/// `acde:inspect` (only the desktop's): blocking, off the caller's loop.
+fn inspect_call(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, work: impl FnOnce(&Arc<Desk>) -> Done<Value> + Send + 'static) {
+    with_caller!(scope, |desk, me| later(scope, rv, move || {
+        desk.desktop_only(me, "acde.inspect")?;
+        work(&desk)
+    }))
+}
+
+fn inspect_snapshot(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let options: super::SnapshotOptions = arg(scope, &args, 0).unwrap_or_default();
+    inspect_call(scope, &mut rv, move |desk| desk.inspect_snapshot(options));
+}
+
+fn inspect_run(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let steps = arg::<Vec<super::Step>>(scope, &args, 0);
+    match steps {
+        Some(steps) => inspect_call(scope, &mut rv, move |desk| desk.inspect_run(steps)),
+        None => resolved(scope, &mut rv, Err(Failure::new(400, "bad_steps", "inspect: steps are [{ref, action, text?}]; action is click, double, right, hover, scroll, type, settext, focus, key, restore, minimize or close"))),
+    }
+}
+
+fn inspect_open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let name = bind::arg_string(scope, &args, 0);
+    inspect_call(scope, &mut rv, move |desk| desk.inspect_open(&name));
+}
+
 fn service_post(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     with_caller!(scope, |desk, me| {
         let Some(bytes) = crate::host::serialize_value(scope, args.get(0)) else { return };
@@ -551,6 +643,11 @@ pub fn broker_object(scope: &mut v8::PinScope, args: v8::FunctionCallbackArgumen
         "closeAll" => b_close_all,
         "closeDesktop" => b_close_desktop,
         "toDesktop" => b_to_desktop,
+        "openPath" => b_open_path,
+        "inspectSnapshot" => b_inspect_snapshot,
+        "inspectRun" => b_inspect_run,
+        "inspectOpen" => b_inspect_open,
+        "warmAccessibility" => b_warm_accessibility,
         "quit" => b_quit,
     );
     rv.set(object.into());
@@ -830,4 +927,39 @@ fn b_close_desktop(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, m
         desk.close_desktop();
         Ok(Value::Null)
     }))
+}
+
+/// The Broker's `openPath` (D-Bus `FileManager1`, `acde open`): no caller to check.
+fn b_open_path(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_broker!(scope, |desk| {
+        let target = bind::arg_string(scope, &args, 0);
+        let options: super::OpenOptions = arg(scope, &args, 1).unwrap_or_default();
+        later(scope, &mut rv, move || desk.open_path(None, &target, options))
+    })
+}
+
+/// The same inspector for the desktop package's services (`ServiceContext.inspect`), from the Broker.
+fn b_inspect_snapshot(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_broker!(scope, |desk| {
+        let options: super::SnapshotOptions = arg(scope, &args, 0).unwrap_or_default();
+        later(scope, &mut rv, move || desk.inspect_snapshot(options))
+    })
+}
+
+fn b_inspect_run(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_broker!(scope, |desk| match arg::<Vec<super::Step>>(scope, &args, 0) {
+        Some(steps) => later(scope, &mut rv, move || desk.inspect_run(steps)),
+        None => resolved(scope, &mut rv, Err(Failure::new(400, "bad_steps", "inspect: steps are [{ref, action, text?}]"))),
+    })
+}
+
+fn b_inspect_open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_broker!(scope, |desk| {
+        let name = bind::arg_string(scope, &args, 0);
+        later(scope, &mut rv, move || desk.inspect_open(&name))
+    })
+}
+
+fn b_warm_accessibility(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    with_broker!(scope, |desk| desk.warm_accessibility())
 }

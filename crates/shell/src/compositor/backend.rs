@@ -20,6 +20,7 @@ pub const CLEAR: [f32; 4] = [0.08, 0.08, 0.1, 1.0];
 pub enum Target {
     Drm(Box<super::drm::DrmTarget>),
     Rdp(Box<super::rdp::RdpTarget>),
+    Nested(Box<super::nested::NestedTarget>),
 }
 
 pub struct Backend {

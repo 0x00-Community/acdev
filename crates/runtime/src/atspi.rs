@@ -513,6 +513,24 @@ pub struct Accessibility {
     walker: Walker,
 }
 
+impl Accessibility {
+    /// Connects to the accessibility bus, for a caller on its own thread (crates/acde's inspect).
+    pub fn connect() -> std::result::Result<Self, String> {
+        async_io::block_on(Walker::open()).map(|walker| Self { walker }).map_err(|e| format!("no AT-SPI bus: {e}"))
+    }
+
+    /// The tree of `pid`'s window titled `title` as JSON, blocking; `None` when the program reports none.
+    pub fn tree_now(&self, pid: u32, title: Option<String>, limit: usize) -> std::result::Result<Option<String>, String> {
+        let tree = async_io::block_on(self.walker.tree(pid, title, limit.max(1))).map_err(|e| e.to_string())?;
+        Ok(tree.map(|(tree, _, _)| tree.to_string()))
+    }
+
+    /// Does `action` (click, focus, type, settext) on the node, blocking; whether the program did it.
+    pub fn act_now(&self, node: &str, action: &str, text: Option<String>) -> std::result::Result<bool, String> {
+        async_io::block_on(self.walker.act(node, action, text))
+    }
+}
+
 #[napi]
 impl Accessibility {
     #[napi(factory)]

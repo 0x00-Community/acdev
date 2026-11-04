@@ -180,8 +180,7 @@ export class WindowSelf {
 
 /** The `acde:` modules this isolate defines: the desk's, and a proxy per service its init names. */
 export class Modules {
-  /** Builtins the Broker still serves, not modules of their own: folded into `acde:apps`. */
-  static readonly FILES = '#files'
+  /** A builtin the Broker still serves, not a module of its own: folded into `acde:apps`. */
   static readonly STORE = '#apps'
   readonly value: Record<string, unknown> = {}
   readonly #binding: ServiceBinding
@@ -191,12 +190,30 @@ export class Modules {
     const proxies: Record<string, unknown> = {}
     for (const [service, shape] of Object.entries(init.services)) proxies[service] = this.#proxy(service, shape)
     for (const [name, proxy] of Object.entries(proxies)) if (!name.startsWith('#')) this.value[name] = proxy
-    const files = (proxies[Modules.FILES] ?? {}) as Record<string, unknown>
     const apps = {
       list: () => desk.apps(),
       launch: (app: string, request?: Record<string, unknown>) => desk.openApp(String(app), request ?? null),
       open: (app: string, request?: Record<string, unknown>) => desk.openApp(String(app), request ?? null),
     }
+    const modules = new Set(init.modules ?? [])
+    const files = modules.has('files')
+      ? {
+          openPath: (path: string, options?: { app?: string; select?: boolean }) => desk.openPath(String(path), options ?? {}),
+          handlers: (path: string) => desk.handlers(String(path)),
+          setDefault: (mime: string, app: string) => desk.setDefault(String(mime), String(app)),
+        }
+      : {}
+    if (modules.has('session')) {
+      this.value['session'] = {
+        own: () => desk.sessionOwn(),
+        logout: () => desk.endSession('logout'),
+        reboot: () => desk.endSession('reboot'),
+        poweroff: () => desk.endSession('poweroff'),
+        setLanguage: (tag: string) => desk.setLanguage(String(tag)),
+      }
+    }
+    if (modules.has('inspect')) this.value['inspect'] = Modules.inspect(desk)
+    if (modules.has('desktops')) this.value['desktops'] = { list: () => desk.desktops(), choose: (id: string, remember = false) => desk.chooseDesktop(String(id), remember === true) }
     if (init.place === 'desktop') {
       this.value['apps'] = { ...apps, ...files, ...((proxies[Modules.STORE] ?? {}) as object), on: windows.notices.for('apps', ['changed']) }
       this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification', 'screenshot', 'shortcut']) }
@@ -221,6 +238,16 @@ export class Modules {
         const shortcut = windows.notices.for('window', ['shortcut'])
         this.value['window'] = { ...api, on: (name: string, handler: (value?: unknown) => unknown) => (name === 'shortcut' ? shortcut(name, handler) : api.on(name as WindowEventName, handler)) }
       }
+    }
+  }
+
+  /** `acde:inspect` on the desk (crates/acde `desk/inspect.rs`); the Broker gives the package's services the same. */
+  static inspect(desk: Pick<IsolateDesk, 'inspectSnapshot' | 'inspectRun' | 'inspectOpen'>): Record<string, unknown> {
+    return {
+      snapshot: (options?: Record<string, unknown>) => desk.inspectSnapshot(options ?? {}),
+      act: (ref: string, action: string, arg?: string | number | null) => desk.inspectRun([{ ref: String(ref), action: String(action), text: arg ?? null }]),
+      run: (steps: readonly { ref: string; action: string; text?: unknown }[]) => desk.inspectRun(Array.isArray(steps) ? steps.map((s) => ({ ref: String(s?.ref ?? ''), action: String(s?.action ?? ''), text: s?.text ?? null })) : []),
+      open: (name: string) => desk.inspectOpen(String(name)),
     }
   }
 

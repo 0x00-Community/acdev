@@ -36,7 +36,57 @@ impl<'a> Supervisor<'a> {
         Self { args, compositor: None, crashes: VecDeque::new(), child: Arc::default(), stopping: Arc::default() }
     }
 
-    pub fn run(mut self) -> i32 {
+    pub fn run(self) -> i32 {
+        match crate::jsruntime::Runtime::choose() {
+            crate::jsruntime::Runtime::Shared => self.run_shared(),
+            crate::jsruntime::Runtime::Own => self.run_own(),
+        }
+    }
+
+    /// AgentOS: the session's runtime part is an isolate of the kernel's shared runtime (`/dev/jsruntime`); this
+    /// process keeps only the compositor. The runtime dying (the kernel restarts it) opens the session again, as a
+    /// crashed child would be restarted.
+    fn run_shared(mut self) -> i32 {
+        let (stop_read, stop_write) = match rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC) {
+            Ok(pipe) => pipe,
+            Err(e) => return self.fail(format!("stop pipe: {e}")),
+        };
+        self.on_signals(move || _ = rustix::io::write(&stop_write, b"s"));
+        let name = format!("acde-session-{}", rustix::process::getuid().as_raw());
+        let code = loop {
+            let (ours, theirs) = match UnixStream::pair() {
+                Ok(pair) => pair,
+                Err(e) => break self.fail(format!("acde_shell 连接: {e}")),
+            };
+            match &self.compositor {
+                Some(handle) => handle.connect(ours),
+                None => match Compositor::spawn(ours) {
+                    Ok(handle) => self.compositor = Some(handle),
+                    Err(e) => break self.fail(format!("合成器: {e}")),
+                },
+            }
+            let session = match crate::jsruntime::Session::open(&name) {
+                Ok(session) => session,
+                Err(e) => break self.fail(format!("/dev/jsruntime: AC_JS_OPEN: {e}")),
+            };
+            if let Err(e) = session.hand_over(self.args, &theirs) {
+                break self.fail(format!("/dev/jsruntime: 交给 runtime: {e}"));
+            }
+            drop(theirs);
+            log::info!("会话交给了系统的 jsruntime ({name})");
+            match session.wait(stop_read.as_fd()) {
+                crate::jsruntime::Ended::Exited(code) => break code,
+                crate::jsruntime::Ended::Died(errno) if self.restart() => log::warn!("系统的 jsruntime 断了 (errno {errno}), 重新打开"),
+                crate::jsruntime::Ended::Died(errno) => break self.fail(format!("系统的 jsruntime 断了 (errno {errno})")),
+            }
+        };
+        if let Some(mut handle) = self.compositor.take() {
+            handle.quit();
+        }
+        code
+    }
+
+    fn run_own(mut self) -> i32 {
         self.forward_signals();
         let code = loop {
             let (ours, theirs) = match UnixStream::pair() {
@@ -71,15 +121,27 @@ impl<'a> Supervisor<'a> {
     }
 
     fn forward_signals(&self) {
+        let child = self.child.clone();
+        self.on_signal_numbers(move |signal| {
+            let (Some(pid), Some(signal)) = (Pid::from_raw(child.load(Ordering::Acquire)), Signal::from_named_raw(signal)) else { return };
+            _ = kill_process(pid, signal);
+        });
+    }
+
+    fn on_signals(&self, f: impl Fn() + Send + 'static) {
+        self.on_signal_numbers(move |_| f());
+    }
+
+    /// SIGINT / SIGTERM / SIGHUP: the session is stopping; `f` passes it on to the runtime.
+    fn on_signal_numbers(&self, f: impl Fn(i32) + Send + 'static) {
         let Ok(mut signals) = Signals::new([SIGINT, SIGTERM, SIGHUP]) else {
             return log::warn!("收不到 SIGINT / SIGTERM / SIGHUP, 不转给 acde runtime");
         };
-        let (child, stopping) = (self.child.clone(), self.stopping.clone());
+        let stopping = self.stopping.clone();
         let started = std::thread::Builder::new().name("acde-signals".into()).spawn(move || {
             for signal in signals.forever() {
                 stopping.store(true, Ordering::Release);
-                let (Some(pid), Some(signal)) = (Pid::from_raw(child.load(Ordering::Acquire)), Signal::from_named_raw(signal)) else { continue };
-                _ = kill_process(pid, signal);
+                f(signal);
             }
         });
         if let Err(e) = started {

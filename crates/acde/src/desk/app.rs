@@ -101,6 +101,9 @@ pub struct App {
     pub frame: bool,
     /// The app's backend (started by the Broker when its first window opens); the desk only needs to know there is one.
     pub backend: Option<Value>,
+    /// What it opens (「默认应用」): MIME types, `type/*` too.
+    #[serde(default)]
+    pub mime_types: Vec<String>,
     /// The manifest as the Broker sent it: what a window's init carries as `app`.
     #[serde(skip)]
     pub raw: Value,
@@ -147,6 +150,31 @@ pub struct Resource {
     pub dirs: Vec<String>,
 }
 
+/// What a desktop in `desktops.list()` is: one of the packages' (acde) or another Wayland session (KDE …).
+#[derive(Deserialize, serde::Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DesktopKind {
+    #[default]
+    Acde,
+    Session,
+}
+
+#[derive(Deserialize, serde::Serialize, Clone, Default)]
+pub struct DesktopInfo {
+    pub kind: DesktopKind,
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub package: Option<String>,
+}
+
+/// `desktops.list()`: what is installed, and the current one.
+#[derive(Deserialize, serde::Serialize, Clone, Default)]
+pub struct Desktops {
+    pub desktops: Vec<DesktopInfo>,
+    pub current: String,
+}
+
 /// What every isolate's init carries; the Broker sets it (all at once at start, then the parts that change).
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -165,6 +193,11 @@ pub struct Look {
     pub storage: bool,
     /// The current desktop's window frame module (an own-origin path), if it has one.
     pub frame: Option<String>,
+    /// This acde is the login session (not nested in another desktop).
+    pub own: bool,
+    /// `acde window <app>`: one app, no desktop to hand the session to.
+    pub standalone: bool,
+    pub desktops: Desktops,
 }
 
 /// A partial update of [`Look`] from the Broker.
@@ -183,6 +216,9 @@ pub struct LookChange {
     pub env: Option<Vec<(String, String)>>,
     pub storage: Option<bool>,
     pub frame: Option<Option<String>>,
+    pub own: Option<bool>,
+    pub standalone: Option<bool>,
+    pub desktops: Option<Desktops>,
 }
 
 impl Look {
@@ -190,7 +226,7 @@ impl Look {
         macro_rules! take {
             ($($f:ident),*) => { $( if let Some(v) = c.$f { self.$f = v; } )* };
         }
-        take!(width, height, scale, reduced_motion, dark, languages, resources, services, theme, env, storage, frame);
+        take!(width, height, scale, reduced_motion, dark, languages, resources, services, theme, env, storage, frame, own, standalone, desktops);
     }
 
     /// The screen's logical size.

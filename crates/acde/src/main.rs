@@ -29,6 +29,8 @@ mod office;
 #[cfg(target_os = "linux")]
 mod offload;
 #[cfg(target_os = "linux")]
+mod jsruntime;
+#[cfg(target_os = "linux")]
 mod supervise;
 #[cfg(target_os = "linux")]
 mod terminal;
@@ -43,9 +45,20 @@ mod webgpu;
 #[global_allocator]
 static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+/// The session's display: its own Wayland socket. Inside another desktop (WAYLAND_DISPLAY set) acde shows itself in
+/// a window of that desktop (the nested backend), which is told the host's display as `ACDE_HOST_DISPLAY`.
 fn session_env() {
-    let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
-    let backend = std::env::var("ACDE_BACKEND").ok();
+    let host = std::env::var("WAYLAND_DISPLAY").ok().filter(|d| !d.is_empty());
+    let mut backend = std::env::var("ACDE_BACKEND").ok();
+    if backend.is_none() && std::env::var_os("ACDE_SOCKET").is_none() && let Some(host) = &host {
+        // SAFETY: still single-threaded, before anything reads the environment.
+        unsafe {
+            std::env::set_var("ACDE_HOST_DISPLAY", host);
+            std::env::set_var("ACDE_BACKEND", "nested");
+        }
+        backend = Some("nested".into());
+    }
+    let outer = host.is_some() || std::env::var_os("DISPLAY").is_some();
     if outer && backend.is_none() {
         return;
     }
@@ -94,6 +107,8 @@ fn main() {
         Some("desktops" | "sessions" | "applications" | "open") => sys::start(sys::Entry::Broker, &args[1..]),
         #[cfg(target_os = "linux")]
         Some("runtime") => sys::start(sys::Entry::Broker, &args[2..]),
+        #[cfg(target_os = "linux")]
+        Some("jsruntime") => jsruntime::serve(),
         _ => {
             session_env();
             session(&args[1..])

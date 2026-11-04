@@ -17,7 +17,9 @@ pub fn main(args: &[String]) -> i32 {
         eprintln!("acde app: no acde-app beside acde ({INSTALLED} or {SOURCE}); ACDE_APP_CLI names its cli.ts");
         return 1;
     };
-    let error = std::process::Command::new("bun").arg(&cli).args(args).exec();
+    // the npm package `acde` names the bun it depends on (ACDE_BUN); else bun on PATH
+    let bun = std::env::var_os("ACDE_BUN").unwrap_or_else(|| "bun".into());
+    let error = std::process::Command::new(bun).arg(&cli).args(args).exec();
     eprintln!("acde app: bun: {error} (acde app runs under bun)");
     1
 }
