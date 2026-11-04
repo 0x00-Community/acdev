@@ -174,16 +174,17 @@ dependencies = [
 [[package]]
 name = "acgpu"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=d95843cbd3ecbd4378fff55934cbe7bb814e7998#d95843cbd3ecbd4378fff55934cbe7bb814e7998"
+source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "acgpu-core",
  "acgpu-fallback",
+ "rustix 1.1.5",
 ]
 
 [[package]]
 name = "acgpu-core"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=d95843cbd3ecbd4378fff55934cbe7bb814e7998#d95843cbd3ecbd4378fff55934cbe7bb814e7998"
+source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "kurbo",
  "libc",
@@ -197,7 +198,7 @@ dependencies = [
 [[package]]
 name = "acgpu-fallback"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=d95843cbd3ecbd4378fff55934cbe7bb814e7998#d95843cbd3ecbd4378fff55934cbe7bb814e7998"
+source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "acgpu-core",
  "ash",

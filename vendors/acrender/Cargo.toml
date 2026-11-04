@@ -62,7 +62,7 @@ skrifa = { version = "0.44", default-features = false, features = [
 ] } # Should match parley and vello versions
 
 # acrender: the 2D scene is acgpu's (anyrender is gone); blitz paints straight into acgpu's PaintScene
-acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "d95843cbd3ecbd4378fff55934cbe7bb814e7998", default-features = false }
+acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "b87e29d72fdb292b7f4d8446ede6086e89589333", default-features = false }
 
 # Linebender + Fontations + SVG
 color = "0.3"
