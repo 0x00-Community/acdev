@@ -15,6 +15,7 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
     pub info: wgpu::AdapterInfo,
     shared: Arc<Shared>,
+    exporting: bool,
     polls: Mutex<usize>,
     polling: Condvar,
     poller: std::sync::Once,
@@ -33,10 +34,11 @@ thread_local! {
 }
 
 impl Gpu {
-    pub(crate) fn publish(gpu: Option<(wgpu::Device, wgpu::Queue, wgpu::AdapterInfo)>) -> Option<Arc<Gpu>> {
+    pub(crate) fn publish(gpu: Option<(wgpu::Device, wgpu::Queue, wgpu::AdapterInfo)>, exporting: bool) -> Option<Arc<Gpu>> {
         let gpu = gpu.map(|(device, queue, info)| {
             let gpu = Arc::new(Gpu {
-                shared: Shared::new(device.clone(), queue.clone()),
+                shared: if exporting { Shared::exporting(device.clone(), queue.clone()) } else { Shared::new(device.clone(), queue.clone()) },
+                exporting,
                 device,
                 queue,
                 info,
@@ -108,6 +110,10 @@ impl Gpu {
     }
 
     /// The GPU images made on this device (canvases a page can paint with).
+    pub fn exporting(&self) -> bool {
+        self.exporting
+    }
+
     pub fn images(&self) -> &Arc<acde_render::acgpu::fallback::ImageSet> {
         &self.shared.images
     }

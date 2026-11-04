@@ -62,7 +62,7 @@ web (crates/acde `web.rs` `spawnWeb`: runtime 里的一条 JS 线程 `acde`, 栈
 置停止并 `terminate_execution` (卡在 JS 里也停得下, 退出码 137); 线程 panic 只结束这个 web (退出码 134, 原因 `panic: …`);
 句柄的 `busyMs` (当前任务跑了多久, Broker 判卡死) 和 `cpuMs` (这条线程用掉的 CPU, `/proc/self/task/<tid>/schedstat`;
 `DebugApi.stats` 每个 web 带上). 段错误、abort 仍然带掉整个 runtime (主进程重起它). 里面是 crates/render 的文档、
-crates/paint (光栅化线程: 交给 acgpu, 今天是它的 Vulkan 回退 —— vello 画、filter / drop-shadow / backdrop 合成都在 acgpu 里) 和 crates/window
+crates/paint (光栅化线程: 交给 acgpu 的 `PageRaster`, 缺省是它的 Vulkan 回退画, `ACDE_PAGES=xe3` 时 Intel Xe3 上它自己的驱动先画 —— vello 画、filter / drop-shadow / backdrop 合成都在 acgpu 里) 和 crates/window
 (Wayland 客户端: xdg_toplevel + linux-dmabuf + `acde_window`, 输入 / 剪贴板 / 拖放 / frame). 它死掉只掉它的窗口.
 
 ### 运行时进程 (目标, 在做)
@@ -983,7 +983,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
   `ALLOW_CURSOR_PLANE_SCANOUT`): 带 T2 的 Intel Mac 上 2 倍缩放时, 走光标平面的光标只能走屏幕左上 1/4; 改成合成之后在
   那台 Mac 上验过, 光标走满全屏 (Xe3 + 4K HDMI 上 `ACDE_SCALE=2` 也一样). 其他环境变量: `ACDE_SOCKET`
   (Wayland socket 名), `ACDE_RENDER_NODE`,
-  调试用的 `ACDE_WEB_FULL` (每帧整张重画) / `ACDE_WEB_POLL` (不用信号量, 轮询) / `ACDE_SCANOUT=0` (DRM 上不把客户端缓冲直接放到主平面或叠加平面, 全部合成; 平面分配变了时打一行 info `平面 <输出>: …`, 查闪烁用). 日志见「日志和计时」.
+  调试用的 `ACDE_WEB_FULL` (每帧整张重画) / `ACDE_WEB_POLL` (不用信号量, 轮询) / `ACDE_SCANOUT=0` (DRM 上不把客户端缓冲直接放到主平面或叠加平面, 全部合成; 平面分配变了时打一行 info `平面 <输出>: …`, 查闪烁用) / `ACDE_PAGES=xe3` (网页图层先给 acgpu 的 Xe3 画, 见「依赖」里的 acgpu). 日志见「日志和计时」.
 
 ### GPU 与性能 (硬约束)
 
@@ -1136,9 +1136,14 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个 we
   不放它的拷贝 (没有 `vendors/acgpu`), 以 Rust crate 依赖它: git 依赖仓库根的 `acgpu` 包, 钉 rev (crates/render 和
   vendors/acrender 的 Cargo.toml). 网页图层画进 acgpu 的 2D 场景 (`acgpu::PaintScene` / `Scene` / `RenderCommand` / `Filter`):
   blitz-paint 和 crates/render 直接画进它, 没有 anyrender 这一层 (已删; 它画 SVG 的 anyrender_svg 搬成了 blitz-paint 的 `svg.rs`).
-  画出来是 acgpu 的事, 回退也归 acgpu: 谁来画由 `acgpu::Backend::pick(Capability::Pages)` 定, 今天是 Vulkan 回退
-  `acgpu::fallback` (feature `fallback-vulkan`, 缺省开; 关掉时 acgpu 驱动做不了的直接 panic). 整页的光栅和合成 (vello 渲染、
-  图层的滤镜 / 投影 / 毛玻璃、dma-buf 画布导入、sync_file) 都在 `acgpu::fallback` 的 `Raster` / `Composer` / `Device` 里;
+  画出来是 acgpu 的事, 回退也归 acgpu: crates/paint 把帧交给 `acgpu::PageRaster` (feature `xe3` + `fallback-vulkan`). 缺省网页图层全走
+  Vulkan 回退 `acgpu::fallback`; `ACDE_PAGES=xe3` 时光栅化线程打开 Xe3 (`Xe::open_first()`, 画布最大 3840x2160), 每个窗口的 pass 能在 Xe3 上画就由
+  acgpu 自己的 Xe3 驱动画, 画不了的 (`perf::raster` 的 `xe3 refused: …`) 归回退; 一帧一个 sync_file. Xe3 读的 GPU 图片要能导出成 dma-buf, 所以只有
+  打开时 render 的共享设备才是 `Shared::exporting`、WebGPU canvas 的纹理才用 `Exported::with_usage` (有额外 view format 时不导出); 线性的可导出
+  纹理会拖慢回退, 缺省不开. 还没切成缺省, 因为慢 (2026-11-04 本机 Xe3: 拖窗口时桌面页 32 fps, 回退 70.6; 一次光栅中位数 16 ms, 回退 3.5 ms;
+  一半在 CPU 上: 场景回放进 vello_cpu、粗光栅、打包). Xe3 画的和 vello_cpu 逐位相同是验收: crates/render 的 `tests/xe3.rs` (SVG 夹具) 和
+  `tests/replay.rs` 的 `recorded_pages_on_xe3_match_vello_cpu` (录下的桌面页), 没有 Xe3 的机器上跳过. 整页的光栅和合成 (vello 渲染、
+  图层的滤镜 / 投影 / 毛玻璃、dma-buf 画布导入、sync_file) 在回退里是 `acgpu::fallback` 的 `Raster` / `Composer` / `Device`;
   crates/paint 只剩线程、GBM 画布分配、损伤和区域、把 render 的帧拆成 `Part` (`plane.rs` 实现 acgpu 的 `Content`),
   canvas / WebGPU 纹理当场景里的图片是 acgpu 的 `GpuImage` (render 里叫 `CanvasImage`), `Overrides` 也是 acgpu 的. canvas 2D 的
   离屏光栅 (画、读回、写入、阴影) 是 acgpu 的 `Offscreen`; render `gpu.rs` 只剩共享设备的全局入口和几个转发函数.

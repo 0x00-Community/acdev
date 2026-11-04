@@ -133,3 +133,26 @@ fn icons_in_a_window_opened_after_hidden_are_drawn() {
     let stats = doc.stats().unwrap();
     assert_eq!((stats.panics, stats.paint_mismatches), (0, 0), "{stats:?}");
 }
+
+#[test]
+fn recorded_pages_on_xe3_match_vello_cpu() {
+    use acde_render::acgpu::xe::Xe;
+    use acde_render::acgpu::xe3::{Codegen, Context, CpuScene, Pages};
+    use acde_render::acgpu::{Gpu, Native};
+    let Ok(xe) = Xe::open_first() else {
+        eprintln!("no Xe3");
+        return;
+    };
+    let mut cx = Context::<Xe, Native>::new(&xe).unwrap();
+    let mut pages = Pages::new(&mut cx, &Codegen::default(), [1280, 800]).unwrap();
+    for name in ["editor-close", "open-browser"] {
+        let doc = Recording::load(name).replay().doc;
+        let scene = doc.scene();
+        let want = CpuScene::reference(scene.clone(), (1280, 800));
+        let got = pages.draw(&mut cx, scene, (1280, 800), &()).unwrap();
+        let differ = got.as_chunks::<4>().0.iter().zip(want.as_chunks::<4>().0).filter(|(g, w)| g != w).count();
+        let painted = want.as_chunks::<4>().0.iter().filter(|p| p[3] > 0).count();
+        eprintln!("{name}: {differ} of {painted} painted pixels differ");
+        assert_eq!(differ, 0, "{name}");
+    }
+}

@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use acde_render::acgpu::fallback::wgpu;
+use acde_render::acgpu::fallback::{Exported, wgpu};
 use acde_paint::{CanvasImage, Gpu};
 
 use super::{Id, Kind, Obj, Out, Ret, State, Texture, Throw, desc, enter, finish, json, report, with_state};
@@ -47,6 +47,13 @@ impl Context {
         {
             return self.images[i].clone();
         }
+        let usage = usage | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT;
+        let plain = gpu.exporting() && view_formats.iter().all(|f| *f == wgpu::TextureFormat::Rgba8Unorm);
+        if let Some((texture, exported)) = plain.then(|| Exported::with_usage(&gpu.device, size, usage).ok()).flatten() {
+            let image = CanvasImage::with_export(texture, Some(exported), gpu.images());
+            self.images.push(image.clone());
+            return image;
+        }
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("acde canvas"),
             size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
@@ -54,7 +61,7 @@ impl Context {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: usage | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage,
             view_formats,
         });
         let image = CanvasImage::new(texture, gpu.images());
