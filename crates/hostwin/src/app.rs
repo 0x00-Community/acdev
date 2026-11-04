@@ -162,6 +162,7 @@ impl App {
             scale: Some(scale),
             ..Default::default()
         });
+        crate::dev::connect(self.proxy.clone());
         let exit = self.proxy.clone();
         let spawned = std::thread::Builder::new()
             .name("acde".into())

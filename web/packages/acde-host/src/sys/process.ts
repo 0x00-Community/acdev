@@ -11,6 +11,9 @@ export const process = {
   get argv(): readonly string[] {
     return sys().argv
   },
+  get platform(): string {
+    return sys().platform
+  },
   exit(code = 0): never {
     return sys().exit(code)
   },

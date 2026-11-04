@@ -18,6 +18,7 @@ export interface WebThreadHandle {
 
 export interface SysNative {
   readonly argv: readonly string[]
+  readonly platform: string
   env(): Record<string, string>
   exit(code: number): never
   cwd(): string

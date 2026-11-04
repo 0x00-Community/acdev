@@ -8,6 +8,8 @@ license.workspace = true
 acde-model = { path = "../model" }
 acde-render = { path = "../render" }
 acde-log = { path = "../log" }
+acde-ipc = { path = "../ipc" }
+serde_json = "1"
 log = "0"
 winit = "0"
 arboard = { version = "3", default-features = false }

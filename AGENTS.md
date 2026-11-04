@@ -120,9 +120,13 @@ Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线�
 `acde dev` 先 install 再起它们. macOS 上起会话 (`acdert` 不带子命令也一样) 都走宿主窗口; Linux 上 `app` / `desktop` 子命令在别人的
 桌面里 (有 `WAYLAND_DISPLAY` / `DISPLAY`, 没设 `ACDE_BACKEND`) 走宿主窗口, 别的照旧是会话.
 
-`acde dev` 和 acdert 之间 (要做): IPC 封装成一层, unix 上 unix socket, Windows 上命名管道 (`CreateNamedPipe` / `ConnectNamedPipe`,
-客户端 `CreateFile` 打开, `ReadFile` / `WriteFile` 读写). acde 发 `reload <app>` (只重起这个应用的 isolate, 窗口留在原位;
-后端改了重起后端), acdert 把日志按应用回传; acdert 按目录直接加载工程的构建结果, 不经 install.
+`acde dev` 和 acdert 之间: IPC 是 crates/ipc (`acde-ipc`): unix 上 unix socket, Windows 上命名管道 (`CreateNamedPipeW` /
+`ConnectNamedPipe`, 客户端 `CreateFile` 打开, 忙时 `WaitNamedPipeW`, 读写就是 `ReadFile` / `WriteFile`), 一行一个 JSON. acde 是服务端
+(`ACDE_DEV` 是它的地址), acdert (hostwin 的 `acde-dev` 线程) 连上去, 先发 `{"type":"hello","pid"}`; 收 `{"type":"reload","app"?}`
+(推给 Broker 一个 `devreload`: 有 app 时关掉它所有窗口 (不问 `beforeclose`) 再打开, 位置由「窗口管理」记的 rect 摆回;
+没有 app 时重起 desktop web, 桌面服务不重起) 和 `{"type":"quit"}`; 连接断了 (acde 退出) acdert 就退出. 工程的构建结果经 `ACDE_PATH`
+(Windows 上用 `;` 分隔) 交给 acdert, 不装进包目录. 日志就是 acdert 的 stderr (acde 起它时继承). `ACDE_PATH` 的分隔、`process.platform`
+(`sys` 给的 `platform`, 和 Node 的值一样) 都按平台.
 
 ```
 AgentComputer:
@@ -1062,6 +1066,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/paint` | Rust | `acde-paint`: web 进程的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acgpu 打开的 wgpu 设备 |
 | `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
 | `crates/hostwin` | Rust | `acde-hostwin`: 调试模式的宿主原生窗口 (winit + wgpu surface + vello), Broker 的 `Shell` 和 web 的 `Surface` 的宿主版, 见「运行时进程」 |
+| `crates/ipc` | Rust | `acde-ipc`: 进程间的一条双向字节流 (unix socket / Windows 命名管道), `acde dev` 用 |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
 | `crates/acde-napi` | Rust | 用 rusty_v8 实现的 Node-API C 接口 (napi8), 让 runtime / shell 的 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` (deno_napi 0.191.0, MIT, 见 LICENSE-MIT): 任务派发换成嵌入方的, 去掉了旧式模块注册、async_hooks、callback scope、napi9+ 和 runtime / shell 链接不到的入口 (删掉后 `cargo build -p acdert` 照样链接成功的那些: Date、DataView、TypedArray、escapable handle scope、new_target、freeze / seal、detach、async cleanup hook、symbol、instanceof 等); cleanup hook 只检查参数, 不存 (Env 不析构, 本来就不会跑); 每个 async work 起一条 `acde-napi-work` 线程 (只有 shell 的 screenshot 用); `open` 把一个模块的导出注册进一个 context |

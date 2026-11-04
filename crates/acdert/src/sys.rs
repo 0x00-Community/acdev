@@ -165,6 +165,12 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         list.set_index(scope, i as u32, arg.into());
     }
     bind::set(scope, obj, "argv", list.into());
+    let platform = bind::string(scope, match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        os => os,
+    });
+    bind::set(scope, obj, "platform", platform.into());
     obj
 }
 

@@ -67,7 +67,7 @@ export class Packages {
   }
 
   static #dirs(): string[] {
-    const listed = (process.env['ACDE_PATH'] ?? '').split(':').filter(Boolean).map((dir) => resolve(dir))
+    const listed = (process.env['ACDE_PATH'] ?? '').split(process.platform === 'win32' ? ';' : ':').filter(Boolean).map((dir) => resolve(dir))
     const inRoots = xdgDirs('data', 'acde/packages').flatMap((root) => {
       try {
         return readdirSync(root).filter((name) => !name.startsWith('.')).sort().map((name) => join(root, name)).filter((dir) => !!stat(dir)?.isDirectory)

@@ -562,6 +562,8 @@ export class Broker {
         const to = event.title === 'app' && owner?.web ? owner.web : this.#desktop
         return to?.post({ type: 'events', events: [event] })
       }
+      case 'devreload':
+        return void this.devReload(event.key ?? null).catch((error: Error) => Log.write(Level.Error, 'acde_host', `acde dev: reload: ${error.message}`))
       case 'windowcloserequest':
         if (event.window === 0 || event.window === undefined) {
           this.#stopped = true
@@ -689,6 +691,21 @@ export class Broker {
 
   #available(app: AppManifest): boolean {
     return this.bridge.available(app.capabilities)
+  }
+
+  async devReload(app: string | null): Promise<void> {
+    if (app) {
+      this.refreshApps()
+      const open = [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app)
+      for (const record of open) await this.closeWeb(record.id, true)
+      if (open.length || this.#options.standalone === app) this.launch(app, null, 'free')
+      return
+    }
+    const old = this.#desktop
+    if (old) old.closing = true
+    this.#desktop = null
+    await old?.worker.terminate().catch(() => 0)
+    this.startDesktop()
   }
 
   async closeWeb(id: number, force = false): Promise<boolean> {

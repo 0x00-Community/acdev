@@ -22,13 +22,22 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 name = "acde-hostwin"
 version = "0.1.0"
 dependencies = [
+ "acde-ipc",
  "acde-log",
  "acde-model",
  "acde-render",
  "arboard",
  "log",
  "pollster",
+ "serde_json",
  "winit",
+]
+
+[[package]]
+name = "acde-ipc"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
