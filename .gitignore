@@ -1,0 +1,9 @@
+# build artifacts
+target
+node_modules
+dist
+__pycache__
+out
+
+# macos desktop files
+.DS_Store

@@ -1,0 +1,49 @@
+[package]
+name = "blitz-paint"
+description = "Paint a Blitz Document into acgpu's 2D scene"
+documentation = "https://docs.rs/blitz-paint"
+version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["svg"]
+tracing = ["dep:tracing"]
+# acrender: SVG painted by our svg.rs (was anyrender_svg): usvg with text, embedded raster images decoded by image
+svg = ["dep:usvg", "dep:image", "blitz-dom/svg"]
+font-embolden = []
+apple-font-embolden = []
+# Paint overlay scrollbar thumbs on scroll containers, and enable their
+# drag/hover interaction in blitz-dom (off by default while the feature
+# matures).
+scrollbars = ["blitz-dom/scrollbars"]
+
+[dependencies]
+# Blitz dependencies
+acgpu = { workspace = true }
+blitz-traits = { workspace = true }
+blitz-dom = { workspace = true }
+
+# Servo dependencies
+style = { workspace = true }
+
+# DioxusLabs dependencies
+taffy = { workspace = true }
+
+# Linebender + WGPU dependencies
+parley = { workspace = true, features = ["bytemuck"] }
+skrifa = { workspace = true }
+color = { workspace = true }
+peniko = { workspace = true }
+kurbo = { workspace = true }
+usvg = { workspace = true, optional = true, features = ["text", "memmap-fonts", "system-fonts"] }
+image = { workspace = true, optional = true, features = ["png", "gif", "jpeg", "webp"] }
+
+# Other dependencies
+bytemuck = { workspace = true }
+smallvec = { workspace = true }
+tracing = { workspace = true, optional = true }

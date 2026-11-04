@@ -1,0 +1,15 @@
+{
+  "name": "acde-greet",
+  "private": true,
+  "description": "acde as greetd's greeter (acde --greeter): pick a user and a desktop, log in into that desktop",
+  "acde": {
+    "desktops": [
+      {
+        "id": "greet",
+        "name": "登录",
+        "description": "Log in to this computer",
+        "entry": "index.html"
+      }
+    ]
+  }
+}

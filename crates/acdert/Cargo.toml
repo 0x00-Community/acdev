@@ -1,0 +1,44 @@
+[package]
+name = "acdert"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "acdert"
+path = "src/main.rs"
+
+[dependencies]
+v8 = "152"
+# ICU 78 data for V8's Intl (v8 152 is ICU 78)
+deno_core_icudata = "0"
+acde-napi = { path = "../acde-napi" }
+acde-render = { path = "../render" }
+url = "2"
+encoding_rs = "0"
+getrandom = "0"
+# sys.rs: package.json of node_modules packages; webgpu/: descriptors
+serde_json = "1"
+# sys.rs, child.rs, main.rs, supervise.rs: the socket lock, kill, uid, pre_exec of spawned children, waiting for acde runtime
+rustix = { version = "1", features = ["fs", "process", "stdio", "event", "thread"] }
+# sys.rs: SIGINT, SIGTERM and SIGHUP for the host's handlers
+signal-hook = "0.4"
+# logging: env_logger behind acde-log (written on its own thread), perf timings for the whole chain
+acde-log = { path = "../log" }
+log = "0.4"
+
+# runtime, shell (smithay) and their napi exports build on Linux only; elsewhere acde runs scripts without them
+# (development checks on a Mac)
+[target.'cfg(target_os = "linux")'.dependencies]
+tikv-jemallocator = "0.7"
+acde-runtime = { path = "../runtime" }
+acde-shell = { path = "../shell", features = ["napi"] }
+acde-window = { path = "../window" }
+acde-paint = { path = "../paint" }
+# WebGPU (webgpu/): descriptors come as JSON, read into wgpu-types (its serde names are WebGPU's)
+wgpu-types = { version = "30", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+pollster = "0.4"
+# sound (audio/): a web's graph and <audio>s rendered natively into a PipeWire stream, files decoded in pure Rust
+pipewire = { version = "0.10", features = ["v0_3_49"] }
+symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac", "aac", "isomp4"] }

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>登录</title>
+<link rel="stylesheet" href="/acde/brand/brand.css">
+<style>
+html, body { margin: 0; width: 100%; height: 100%; }
+body { display: flex; align-items: center; justify-content: center; background: var(--paper); color: var(--ink); font-family: sans-serif; }
+main { width: 420px; max-width: calc(100% - 48px); }
+.lockup { --h: 56px; justify-content: center; margin: 0 0 44px; }
+h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
+p.lead { margin: 0 0 22px; color: var(--muted); font-size: 14px; }
+ul { list-style: none; margin: 0; padding: 0; }
+li { margin: 0 0 10px; }
+button.user { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+button.user:hover, button.user:focus, button.user.on { border-color: var(--coral); outline: none; }
+.face { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(45deg, var(--pink), var(--coral) 60%, var(--orange)); color: #FFFFFF; font-weight: 600; }
+button.user strong { display: block; font-size: 15px; }
+button.user span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+form { display: flex; gap: 8px; margin: 4px 0 0; }
+input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); font: inherit; }
+input:focus { border-color: var(--coral); outline: none; }
+form button { padding: 10px 16px; border: none; border-radius: 10px; background: linear-gradient(45deg, var(--pink), var(--coral) 60%, var(--orange)); color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer; }
+form button:disabled { opacity: .5; cursor: default; }
+.row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 22px; }
+.row button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+.row button:hover, .row button:focus { border-color: var(--coral); color: var(--ink); outline: none; }
+h2 { margin: 26px 0 10px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.desks { display: flex; flex-wrap: wrap; gap: 8px; }
+button.desk { padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
+button.desk:hover, button.desk:focus { border-color: var(--coral); outline: none; }
+button.desk.on { border-color: var(--coral); box-shadow: inset 0 0 0 1px var(--coral); }
+.note { min-height: 20px; margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+.note.error { color: var(--error); }
+</style>
+</head>
+<body>
+<main>
+  <div class="lockup" role="img" aria-label="Dopame"><canvas></canvas></div>
+  <h1>登录</h1>
+  <p class="lead">选择账户和桌面, 输入密码.</p>
+  <ul id="list"></ul>
+  <section id="desktops" hidden>
+    <h2>桌面</h2>
+    <div class="desks" id="desks"></div>
+  </section>
+  <p class="note" id="note"></p>
+  <div class="row">
+    <button type="button" id="reboot">重启</button>
+    <button type="button" id="poweroff">关机</button>
+  </div>
+</main>
+<script type="module">
+import { lockup } from '/acde/brand/lockup.mjs'
+lockup(document.querySelector('.lockup'))
+const optional = (name) => import(`acde:${name}`).then((m) => m.default, () => undefined)
+const acde = { greeter: await optional('greeter'), session: await optional('session'), desktops: await optional('desktops') }
+const list = document.getElementById('list'), note = document.getElementById('note'), desks = document.getElementById('desks')
+const say = (text, error) => { note.textContent = text; note.className = error ? 'note error' : 'note' }
+const reason = (error) => {
+  const message = String(error?.message ?? error)
+  try { return JSON.parse(message).message || message } catch { return message }
+}
+let open = null   // the user whose password form is shown
+let desktop = null   // the desktop the login starts
+function pick(id) {
+  desktop = id
+  for (const b of desks.querySelectorAll('button.desk')) b.classList.toggle('on', b.dataset.id === id)
+}
+async function loadDesktops() {
+  const { desktops, current } = await acde.desktops.list()
+  const choices = desktops.filter((d) => d.id !== current)
+  if (!choices.length) throw new Error('这台电脑上没有装桌面.')
+  desks.replaceChildren(...choices.map((d) => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'desk'
+    b.dataset.id = d.id
+    b.textContent = d.name
+    b.title = d.description ?? ''
+    b.addEventListener('click', () => {
+      pick(d.id)
+      open?.querySelector('input')?.focus()
+    })
+    return b
+  }))
+  document.getElementById('desktops').hidden = choices.length < 2
+  return choices
+}
+let choices = []
+function preselect(user) {
+  // the desktop this user logged in to last (acde.greeter keeps it), else the first
+  const last = user?.desktop
+  pick(choices.some((d) => d.id === last) ? last : choices[0]?.id ?? null)
+}
+function form(user, li) {
+  open?.remove()
+  const f = document.createElement('form')
+  const input = document.createElement('input')
+  input.type = 'password'
+  input.placeholder = '密码'
+  input.autocomplete = 'off'
+  input.setAttribute('aria-label', `${user.fullName} 的密码`)
+  const go = document.createElement('button')
+  go.textContent = '登录'
+  f.append(input, go)
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    input.disabled = go.disabled = true
+    say('正在登录…')
+    try {
+      // greetd starts this user's acde once the greeter has gone (the page goes with it)
+      await acde.greeter.login(user.name, input.value, desktop)
+      say('正在进入…')
+    } catch (error) {
+      input.disabled = go.disabled = false
+      input.value = ''
+      input.focus()
+      say(`登录失败: ${reason(error)}`, true)
+    }
+  })
+  li.append(f)
+  open = f
+  input.focus()
+}
+try {
+  if (!acde?.greeter) throw new Error('acde.greeter is missing: this page runs in acde --greeter only')
+  choices = await loadDesktops()
+  preselect(null)
+  const users = await acde.greeter.users()
+  if (!users.length) say('这台电脑上没有可以登录的账户.', true)
+  list.replaceChildren(...users.map((user) => {
+    const li = document.createElement('li')
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'user'
+    const face = document.createElement('div')
+    face.className = 'face'
+    face.textContent = [...user.fullName][0]?.toUpperCase() ?? '?'
+    const text = document.createElement('div')
+    const name = document.createElement('strong')
+    name.textContent = user.fullName
+    const login = document.createElement('span')
+    login.textContent = user.name
+    text.append(name, login)
+    b.append(face, text)
+    b.addEventListener('click', () => {
+      for (const x of list.querySelectorAll('button.user')) x.classList.toggle('on', x === b)
+      preselect(user)
+      form(user, li)
+    })
+    li.append(b)
+    return li
+  }))
+  // one account: its password at once
+  if (users.length === 1) list.querySelector('button.user')?.click()
+} catch (error) {
+  say(String(error?.message ?? error), true)
+}
+for (const [kind, label] of [['reboot', '重启'], ['poweroff', '关机']]) {
+  const button = document.getElementById(kind)
+  button.addEventListener('click', async () => {
+    button.disabled = true
+    say(`正在${label}…`)
+    try {
+      if (!acde?.session) throw new Error('acde:session is missing')
+      await acde.session[kind]()
+    } catch (error) {
+      button.disabled = false
+      say(`没能${label}: ${reason(error)}`, true)
+    }
+  })
+}
+</script>
+</body>
+</html>
