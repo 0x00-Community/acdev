@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { resolve } from 'node:path'
+import { DevSession } from './dev.ts'
 import { AppPackage } from './package.ts'
 
 const USAGE = `usage: acde <command>
@@ -7,7 +8,7 @@ const USAGE = `usage: acde <command>
   check [dir]                                      acde.config.jsonc (or a package's manifest), as acdert reads it
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)
-  dev [dir] [--out DIR] [--app ID]                 install, then acdert app <app>, or acdert desktop <desktop>`
+  dev [dir] [--out DIR] [--app ID]                 build, run it in acdert (acdert desktop / app), rebuild and reload on changes`
 
 interface Args {
   readonly command: string
@@ -49,24 +50,21 @@ class Cli {
     }
     const pkg = new AppPackage(dir)
     if (command === 'check') return Cli.report(pkg) ? 0 : 1
-    const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
+    const out = resolve(pkg.dir, flags.get('out') ?? '.acde')
+    if (command === 'dev') {
+      const acdert = process.env['ACDERT'] || Bun.which('acdert')
+      if (!acdert) {
+        console.error('acde: no acdert (ACDERT, PATH)')
+        return 1
+      }
+      return await new DevSession(pkg, out, acdert).run(flags.get('app'))
+    }
+    const built = await pkg.build(out)
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
     console.log(`acde: ${pkg.project ? `built ${what} into ${built.dir}` : `ok: ${pkg.name} (${what})`}`)
     if (command === 'build') return 0
     console.log(`acde: installed ${built.id} in ${pkg.install(built)}`)
-    if (command === 'install') return 0
-    const app = flags.get('app')
-    const desktop = app === undefined ? built.desktops[0] : undefined
-    if (app !== undefined && !built.apps.includes(app)) throw new Error(`no app ${JSON.stringify(app)} here (${built.apps.join(', ')})`)
-    const target = desktop ?? app ?? built.apps[0]
-    if (target === undefined) throw new Error('nothing to run: no desktop and no app')
-    const acdert = process.env['ACDERT'] || Bun.which('acdert')
-    if (!acdert) {
-      console.error('acde: no acdert (ACDERT, PATH); it is installed, start it with acdert')
-      return 1
-    }
-    const args = desktop !== undefined ? ['desktop', desktop] : ['app', target]
-    return await Bun.spawn([acdert, ...args], { stdio: ['inherit', 'inherit', 'inherit'] }).exited
+    return 0
   }
 
   static report(pkg: AppPackage): boolean {

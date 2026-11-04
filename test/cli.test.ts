@@ -144,12 +144,12 @@ describe('acde install / dev', () => {
     expect(existsSync(join(dest, 'web/index.html'))).toBe(true)
   })
 
-  test('dev without acdert on PATH installs and fails', async () => {
-    const data = tmp()
-    const result = await cli(['dev', '--out', join(tmp(), 'out')], APP, { XDG_DATA_HOME: data, PATH: tmp() })
+  test('dev without acdert on PATH fails before building', async () => {
+    const out = join(tmp(), 'out')
+    const result = await cli(['dev', '--out', out], APP, { PATH: tmp() })
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('no acdert (ACDERT, PATH)')
-    expect(existsSync(join(data, 'acde/packages/hello-app/package.json'))).toBe(true)
+    expect(existsSync(out)).toBe(false)
   })
 })
 

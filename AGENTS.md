@@ -19,7 +19,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde check [目录]` | 按 acdert 读清单的方式查 (`@dopame/acde-api/manifest` 的 `Manifest.check`) |
 | `acde build [目录] [--out .acde]` | 构建成 acdert 认的包 (见下) |
 | `acde install [目录]` | build 之后装进 `$XDG_DATA_HOME/acde/packages/<id>` (手写的包: 指向工程目录的符号链接) |
-| `acde dev [目录] [--app ID]` | install 之后起 `acdert desktop <id>` (桌面工程) 或 `acdert app <id>` (应用); acdert 是 `ACDERT` 或 PATH 上的 `acdert` |
+| `acde dev [目录] [--app ID]` | 构建, 起 `acdert desktop <id>` (桌面工程) 或 `acdert app <id>` (应用), 构建结果经 `ACDE_PATH` 给它 (不装); 盯着工程目录, 改了就重新构建、发 `reload`; acdert 是 `ACDERT` 或 PATH 上的 `acdert` |
 
 另一种工程是手写的**包** (没有 `acde.config.*`, package.json 的 `acde` 有 `apps`): 不用构建, build 只校验, install 是符号链接.
 
@@ -73,16 +73,23 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
   `<sockets>/P.sock`), 清单 `package.json`; `acde install` 装进 `$XDG_DATA_HOME/acde/packages/<id>`; `acde dev`
   再 `acdert app <id>`. 开发时在 bun 下跑后端源码也用同一个 preload (`bun --preload <acde>/src/listen.ts server.ts`).
 
+## acde dev (`src/dev.ts`)
+
+- IPC: acde 在 `ACDE_DEV` 上听 (unix 上 `$TMPDIR/acde-dev-<pid>.sock`, Windows 上命名管道 `\\.\pipe\acde-dev-<pid>`, 都是
+  `node:net` 的 server), acdert 连上来; 协议见 acdert AGENTS.md 的「运行时进程」. acdert 的日志就在 acde 的终端里 (继承 stderr).
+- 盯着工程目录 (`fs.watch` recursive), 不看 `.acde`、`node_modules`、`.git` 和各框架的产物目录 (`dist`、`build`、`.next` …);
+  150 ms 内的改动合成一次; 构建中又改了, 构建完再来一次. 构建好了给每个应用发 `reload`, 有桌面再给桌面发一个 (Broker 只重开
+  开着的应用窗口). 构建失败只打一行, 窗口不动.
+- acdert 退出 acde 就退出 (退出码跟它); acde 退出 acdert 也退出 (连接断了).
+- 验过 (macOS): 模板应用改 `index.html`, 6 ms 构建完, 窗口在原位换成新页面.
+
 ## 要做
 
-1. `acde dev` 第一版 (现在): install 再起 acdert, 改了代码要重起.
-2. P1 (Linux): acdert 有了宿主窗口后端和控制管道之后, `acde dev` 用框架自己的 `build --watch` 构建到 `.acde/`, acdert 按目录加载
-   (不经 install); 构建完发 `reload <app>` (整页重载, 不做 HMR: 页面不能联网, dev server 的 WebSocket 连不上), 后端改了重起后端;
-   acdert 回传的日志按应用打印 (`tail`). 验收: KDE 和 Dopame OS 上 `acde new` → `acde dev` → 改代码 → 1 秒内重载.
-3. `acde.config.jsonc` 加 `compatibility_date` (运行时行为的版本), environments、vars / secrets、服务名 ↔ capability 的显式 binding.
-4. `acde types` (按 capabilities 生成只含允许的 `acde:` 模块的 d.ts)、`acde test` (bun test 跑在 acdert 的 isolate 里, `acdert run`)、
+1. 原地重新加载 (不关窗口, 只重起 isolate), 前端框架用它自己的 `build --watch` 而不是每次整个构建.
+2. `acde.config.jsonc` 加 `compatibility_date` (运行时行为的版本), environments、vars / secrets、服务名 ↔ capability 的显式 binding.
+3. `acde types` (按 capabilities 生成只含允许的 `acde:` 模块的 d.ts)、`acde test` (bun test 跑在 acdert 的 isolate 里, `acdert run`)、
    `acde deploy --to <主机>` (经 ssh 装到一台 Dopame OS 上), 包格式 + 签名 + 仓库之后 `acde publish`.
-5. 分发: npm 包 `acde` + `npm create acde`, 依赖按平台分的 acdert 二进制包 (`@dopame/acdert-<os>-<arch>`), 或 `bun build --compile` 成单个可执行文件.
+4. 分发: npm 包 `acde` + `npm create acde`, 依赖按平台分的 acdert 二进制包 (`@dopame/acdert-<os>-<arch>`), 或 `bun build --compile` 成单个可执行文件.
 
 ## 协作规则
 
