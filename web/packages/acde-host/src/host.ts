@@ -231,6 +231,13 @@ export class Host {
           this.onGrab({ kind: 'lost', reason: raw.title ?? 'denied' })
           continue
         }
+        if (raw.type === 'imecommit' || raw.type === 'imepreedit') {
+          this.#flushMove(events)
+          this.#handle(events.splice(0))
+          if (raw.type === 'imecommit') this.#text.commit(raw.key ?? '')
+          else this.#text.preedit(raw.key ?? '')
+          continue
+        }
         if (raw.type === 'pointermove') {
           if (!this.#move) surface.requestFrame()
           this.#move = raw

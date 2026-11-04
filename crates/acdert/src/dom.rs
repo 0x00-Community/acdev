@@ -12,12 +12,10 @@ thread_local! {
     static DOC: RefCell<Option<(acde_render::Document, Dom)>> = const { RefCell::new(None) };
 }
 
-#[cfg(target_os = "linux")]
 pub fn with_dom<R>(f: impl FnOnce(&Dom) -> R) -> Option<R> {
     DOC.with(|d| d.borrow().as_ref().map(|(_, dom)| f(dom)))
 }
 
-#[cfg(target_os = "linux")]
 pub fn render_handle() -> Option<acde_render::RenderHandle> {
     DOC.with(|d| d.borrow().as_ref().map(|(document, _)| document.handle()))
 }
@@ -294,7 +292,6 @@ fn keep_picture(scene: acde_render::acgpu::Scene) -> u32 {
     })
 }
 
-#[cfg(target_os = "linux")]
 pub fn take_picture(id: u32) -> Option<acde_render::acgpu::Scene> {
     PICTURE.with(|p| {
         let mut p = p.borrow_mut();

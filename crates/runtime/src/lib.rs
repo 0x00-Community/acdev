@@ -1,31 +1,45 @@
+#[cfg(target_os = "linux")]
 mod atspi;
+#[cfg(target_os = "linux")]
 mod bus;
 mod failure;
 mod fields;
 pub(crate) mod fs;
+#[cfg(target_os = "linux")]
 mod greetd;
 mod http;
+#[cfg(target_os = "linux")]
 mod ime;
 mod js;
+#[cfg(target_os = "linux")]
 mod network;
 mod office;
+#[cfg(target_os = "linux")]
 mod portal;
 mod pty;
 mod rt;
 mod sync;
 mod terminal;
 mod unixhttp;
+#[cfg(target_os = "linux")]
 mod voice;
+#[cfg(target_os = "linux")]
 pub use atspi::Accessibility;
+#[cfg(target_os = "linux")]
 pub use bus::DesktopBus;
+#[cfg(target_os = "linux")]
 pub use greetd::{GreetUser, Greetd};
+#[cfg(target_os = "linux")]
 pub use ime::{Ime, ImeCapability};
+#[cfg(target_os = "linux")]
 pub use network::{NetCall, Network, Networks};
 pub use office::{OfficeCall, OfficeService};
+#[cfg(target_os = "linux")]
 pub use portal::{Appearance, FileChooser};
 pub use fs::{FileBytes, Finder, FsCall, FsError, FsReply, Workspace};
 pub use terminal::Terminals;
 pub use unixhttp::{Deliver, Event as UnixEvent, UnixClient};
+#[cfg(target_os = "linux")]
 pub use voice::Voice;
 
 use napi::{Error, Result, Status};

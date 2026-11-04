@@ -23,7 +23,7 @@ blitz-traits = "=0.3.0-beta.4"
 # 和 blitz-dom (acrender) 用的同一份 stylo, 读 overflow / visibility
 stylo = "=0.22.0"
 # 网页图层画进 acgpu 的 2D 场景; 谁来画、离屏的 canvas 画在哪, 都由 acgpu 定 (今天是它的 Vulkan 回退 fallback-vulkan)
-acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "d95843cbd3ecbd4378fff55934cbe7bb814e7998" }
+acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "8b84f72d8559c3292c18bf56e6a0044a3f0081de" }
 # blitz-dom (acrender) 用的 parley, 取插入点几何
 parley = { version = "=0.12.0", default-features = false, features = ["std"] }
 # acgpu 场景用的 kurbo, 算脏区域的包围盒

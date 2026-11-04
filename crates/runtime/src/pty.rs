@@ -19,7 +19,9 @@ fn window(cols: u32, rows: u32) -> Result<Winsize, String> {
 
 pub(crate) fn spawn(command: &mut Command, cols: u32, rows: u32) -> Result<(OwnedFd, Child), String> {
     let size = window(cols, rows)?;
-    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).map_err(|e| os_error("openpt", e))?;
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | cloexec()).map_err(|e| os_error("openpt", e))?;
+    #[cfg(not(target_os = "linux"))]
+    rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC).map_err(|e| os_error("cloexec", e))?;
     grantpt(&master).map_err(|e| os_error("grantpt", e))?;
     unlockpt(&master).map_err(|e| os_error("unlockpt", e))?;
     let name = ptsname(&master, Vec::new()).map_err(|e| os_error("ptsname", e))?;
@@ -33,12 +35,35 @@ pub(crate) fn spawn(command: &mut Command, cols: u32, rows: u32) -> Result<(Owne
         command.pre_exec(|| {
             setsid()?;
             ioctl_tiocsctty(BorrowedFd::borrow_raw(0))?;
-            libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32);
+            close_inherited();
             Ok(())
         });
     }
     let child = command.spawn().map_err(|e| format!("{}: {e}", command.get_program().to_string_lossy()))?;
     Ok((master, child))
+}
+
+#[cfg(target_os = "linux")]
+fn cloexec() -> OpenptFlags {
+    OpenptFlags::CLOEXEC
+}
+
+#[cfg(not(target_os = "linux"))]
+fn cloexec() -> OpenptFlags {
+    OpenptFlags::empty()
+}
+
+#[cfg(target_os = "linux")]
+unsafe fn close_inherited() {
+    unsafe { libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) };
+}
+
+#[cfg(not(target_os = "linux"))]
+unsafe fn close_inherited() {
+    let top = unsafe { libc::getdtablesize() }.clamp(3, 65536);
+    for fd in 3..top {
+        unsafe { libc::close(fd) };
+    }
 }
 
 pub(crate) fn set_size(fd: impl AsFd, cols: u32, rows: u32) -> Result<(), String> {

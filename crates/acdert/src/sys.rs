@@ -486,8 +486,9 @@ pub fn start(entry: Entry, args: &[String]) -> i32 {
     crate::modules::set_loader(Rc::new(FileLoader));
     runtime.task(|scope| {
         let mut fields: Vec<(&str, v8::Local<v8::Value>)> = vec![("host", crate::host::object(scope).into()), ("sys", object(scope, args).into())];
-        #[cfg(target_os = "linux")]
-        fields.push(("native", crate::napi::exports(scope)));
+        let napi = crate::napi::exports(scope);
+        let native = if acde_hostwin::active() { crate::hostnative::exports(scope, Some(napi)) } else { napi };
+        fields.push(("native", native));
         if !globals {
             let natives = bind::object(scope, &fields);
             return boot_module(scope, &url, natives.into());

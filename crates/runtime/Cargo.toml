@@ -37,11 +37,16 @@ sha2 = "0.10"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 base64 = "0.22"
 rand = "0.9"
-# the web desktop's input method (fcitx5, else IBus) over D-Bus
-zbus = "5"
 # the Office app (app-office): Document Server JWTs and bridge tickets, blank documents
 hmac = "0.12"
 flate2 = "1"
 crc32fast = "1"
-# the voice input (voice/): the microphone through PipeWire, 16 kHz mono
+
+# Linux desktop services: D-Bus (input method, NetworkManager, portals, AT-SPI, the session bus) and PipeWire (voice)
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
 pipewire = { version = "0.10", features = ["v0_3_49"] }
+
+# macOS / Windows: OpenSSL built in, the program does not depend on one installed
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+openssl = { version = "0", features = ["vendored"] }

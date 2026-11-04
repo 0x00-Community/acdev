@@ -4,8 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use acde_window::Surface;
-use acde_window::{DragImage, Event};
+use crate::surface::{DragImage, Event, Surface};
 
 use crate::bind;
 use crate::rt::{self, Msg};
@@ -15,10 +14,13 @@ struct State {
     surface: Option<Surface>,
     waiting: Option<v8::Global<v8::PromiseResolver>>,
     armed: Arc<AtomicBool>,
+    #[cfg(target_os = "linux")]
     imes: HashMap<u32, (acde_runtime::Ime, v8::Global<v8::Function>)>,
+    #[cfg(target_os = "linux")]
     next: u32,
 }
 
+#[cfg(target_os = "linux")]
 impl State {
     fn id(&mut self) -> u32 {
         self.next = self.next.wrapping_add(1);
@@ -33,6 +35,9 @@ thread_local! {
 pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
     crate::methods!(scope, natives,
         "claimSurface" => claim_surface,
+    );
+    #[cfg(target_os = "linux")]
+    crate::methods!(scope, natives,
         "Ime" => ime_new,
     );
 }
@@ -65,10 +70,13 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         }
     })));
     let window = surface.window();
+    let hosted = surface.hosted();
     STATE.with(|s| s.borrow_mut().surface = Some(surface));
     let obj = v8::Object::new(scope);
     let window = v8::Integer::new_from_unsigned(scope, window);
     bind::set(scope, obj, "window", window.into());
+    let hosted = v8::Boolean::new(scope, hosted);
+    bind::set(scope, obj, "hosted", hosted.into());
     crate::methods!(scope, obj,
         "pump" => pump,
         "wait" => wait,
@@ -85,6 +93,8 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         "setClipboard" => set_clipboard,
         "readClipboard" => read_clipboard,
         "startDrag" => start_drag,
+        "setTitle" => set_title,
+        "setImeArea" => set_ime_area,
     );
     rv.set(obj.into());
 }
@@ -131,7 +141,7 @@ fn traced(events: &[Event]) {
     }
 }
 
-fn event_object<'s>(scope: &mut v8::PinScope<'s, '_>, event: Event) -> v8::Local<'s, v8::Object> {
+pub(crate) fn event_object<'s>(scope: &mut v8::PinScope<'s, '_>, event: Event) -> v8::Local<'s, v8::Object> {
     let mut fields: Vec<(&str, v8::Local<v8::Value>)> = vec![("type", bind::string(scope, &event.kind).into())];
     let numbers = [
         ("window", event.window.map(f64::from)),
@@ -277,6 +287,16 @@ fn release_grab(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _
     with_surface(scope, |surface| surface.request_grab(kind, false));
 }
 
+fn set_title(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let title = bind::arg_string(scope, &args, 0);
+    with_surface(scope, |surface| surface.set_title(&title));
+}
+
+fn set_ime_area(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let rect = [0, 1, 2, 3].map(|i| bind::arg_f64(scope, &args, i));
+    with_surface(scope, |surface| surface.set_ime_area(rect));
+}
+
 fn set_clipboard(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let text = bind::arg_string(scope, &args, 0);
     with_surface(scope, |surface| surface.set_clipboard(text));
@@ -316,6 +336,7 @@ fn start_drag<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackAr
     with_surface(scope, |surface| surface.start_drag(data, icon));
 }
 
+#[cfg(target_os = "linux")]
 fn ime_new(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
         return bind::throw_type_error(scope, "Ime: the callback is not a function");
@@ -341,6 +362,7 @@ fn ime_new(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
     rv.set(obj.into());
 }
 
+#[cfg(target_os = "linux")]
 fn ime_event(scope: &mut v8::PinScope, id: u32, json: &str) {
     let Some(callback) = STATE.with(|s| s.borrow().imes.get(&id).map(|(_, f)| f.clone())) else { return };
     let json = bind::string(scope, json);
@@ -348,14 +370,17 @@ fn ime_event(scope: &mut v8::PinScope, id: u32, json: &str) {
     bind::call(scope, callback, &[event]);
 }
 
+#[cfg(target_os = "linux")]
 type ImeResult = Result<Option<bool>, String>;
 
+#[cfg(target_os = "linux")]
 macro_rules! done {
     ($result:expr) => {
         $result.map(|()| None)
     };
 }
 
+#[cfg(target_os = "linux")]
 fn ime_methods(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, data: v8::Local<v8::Value>) {
     crate::methods!(scope, obj, data = data;
         "focusIn" => ime_focus_in,
@@ -372,18 +397,22 @@ fn ime_methods(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, data: v8::L
     );
 }
 
+#[cfg(target_os = "linux")]
 fn ime_focus_in(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |_, _, ime| done!(ime.focus_in()));
 }
 
+#[cfg(target_os = "linux")]
 fn ime_focus_out(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |_, _, ime| done!(ime.focus_out()));
 }
 
+#[cfg(target_os = "linux")]
 fn ime_reset(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |_, _, ime| done!(ime.reset()));
 }
 
+#[cfg(target_os = "linux")]
 fn ime_set_cursor_rect(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |s, a, ime| {
         let (x, y) = (bind::arg_f64(s, a, 0) as i32, bind::arg_f64(s, a, 1) as i32);
@@ -392,6 +421,7 @@ fn ime_set_cursor_rect(scope: &mut v8::PinScope, args: v8::FunctionCallbackArgum
     });
 }
 
+#[cfg(target_os = "linux")]
 fn ime_set_surrounding_text(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |s, a, ime| {
         let text = bind::arg_string(s, a, 0);
@@ -400,6 +430,7 @@ fn ime_set_surrounding_text(scope: &mut v8::PinScope, args: v8::FunctionCallback
     });
 }
 
+#[cfg(target_os = "linux")]
 fn ime_set_capability(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |s, a, ime| {
         let obj = v8::Local::<v8::Object>::try_from(a.get(0)).ok();
@@ -414,6 +445,7 @@ fn ime_set_capability(scope: &mut v8::PinScope, args: v8::FunctionCallbackArgume
     });
 }
 
+#[cfg(target_os = "linux")]
 fn ime_process_key(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |s, a, ime| {
         let (keysym, keycode, state) = (bind::arg_f64(s, a, 0) as u32, bind::arg_f64(s, a, 1) as u32, bind::arg_f64(s, a, 2) as u32);
@@ -422,18 +454,22 @@ fn ime_process_key(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments
     });
 }
 
+#[cfg(target_os = "linux")]
 fn ime_select_candidate(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |s, a, ime| done!(ime.select_candidate(bind::arg_f64(s, a, 0) as i32)));
 }
 
+#[cfg(target_os = "linux")]
 fn ime_prev_page(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |_, _, ime| done!(ime.prev_page()));
 }
 
+#[cfg(target_os = "linux")]
 fn ime_next_page(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, rv: v8::ReturnValue) {
     ime_call(scope, &args, rv, |_, _, ime| done!(ime.next_page()));
 }
 
+#[cfg(target_os = "linux")]
 fn ime_call(
     scope: &mut v8::PinScope,
     args: &v8::FunctionCallbackArguments,
@@ -450,6 +486,7 @@ fn ime_call(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn ime_close(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let id = args.data().uint32_value(scope).unwrap_or(0);
     let Some((ime, callback)) = STATE.with(|s| s.borrow_mut().imes.remove(&id)) else { return };

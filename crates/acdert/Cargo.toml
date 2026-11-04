@@ -14,6 +14,8 @@ v8 = "152"
 deno_core_icudata = "0"
 acde-napi = { path = "../acde-napi" }
 acde-render = { path = "../render" }
+acde-hostwin = { path = "../hostwin" }
+acde-runtime = { path = "../runtime" }
 url = "2"
 encoding_rs = "0"
 getrandom = "0"
@@ -31,7 +33,6 @@ log = "0.4"
 # (development checks on a Mac)
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = "0.7"
-acde-runtime = { path = "../runtime" }
 acde-shell = { path = "../shell", features = ["napi"] }
 acde-window = { path = "../window" }
 acde-paint = { path = "../paint" }

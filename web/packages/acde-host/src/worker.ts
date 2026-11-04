@@ -122,7 +122,12 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const served = htmlEntry && PageSource.isServer(init.app!.entry)
   const html = init.kind === 'desktop' ? (init.standalone ? standalone(init.standalone) : readFileSync(init.page!, 'utf8')) : served ? await PageSource.served(page.window as never, init.url ?? `${PageSource.ORIGIN}/`) : htmlPage ? PageSource.html(htmlPage, init.resources) : PageSource.window(init.app!, init.theme ?? '')
   await page.loadPage(html)
-  if (self && init.app!.frame !== false) {
+  if (surface.hosted) {
+    const title = (text: string) => surface.setTitle?.(text || (init.app?.label ?? init.name))
+    title(init.kind === 'desktop' ? init.name : (page.window.document.title ?? ''))
+    if (self) self.onTitle = title
+    if (app) app.onTitle = title
+  } else if (self && init.app!.frame !== false) {
     const frame = new WindowFrame(page as never, self.api, init.app!.label)
     self.onTitle = (title) => frame.title(title)
     if (app) app.onTitle = (title) => frame.title(title)

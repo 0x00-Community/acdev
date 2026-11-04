@@ -1,17 +1,14 @@
 #[cfg(target_os = "linux")]
 mod audio;
-#[cfg(target_os = "linux")]
 mod backend;
 mod bind;
 #[cfg(target_os = "linux")]
 mod child;
 mod dom;
 mod engine;
-#[cfg(target_os = "linux")]
 mod fs;
 mod host;
 mod modules;
-#[cfg(target_os = "linux")]
 mod napi;
 mod profile;
 mod rt;
@@ -21,14 +18,13 @@ mod web;
 mod network;
 #[cfg(target_os = "linux")]
 mod office;
-#[cfg(target_os = "linux")]
 mod offload;
 #[cfg(target_os = "linux")]
 mod supervise;
-#[cfg(target_os = "linux")]
 mod terminal;
-#[cfg(target_os = "linux")]
 mod webnative;
+mod surface;
+mod hostnative;
 #[cfg(target_os = "linux")]
 mod webgpu;
 
@@ -59,14 +55,24 @@ fn session_env() {
     }
 }
 
+fn hosted_session(args: &[String]) -> i32 {
+    let args = args.to_vec();
+    acde_hostwin::run(move || sys::start(sys::Entry::Broker, &args))
+}
+
 #[cfg(target_os = "linux")]
 fn session(args: &[String]) -> i32 {
+    let debug = matches!(args.first().map(String::as_str), Some("app" | "desktop"));
+    let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
+    if debug && outer && std::env::var_os("ACDE_BACKEND").is_none() {
+        return hosted_session(args);
+    }
     supervise::Supervisor::new(args).run()
 }
 
 #[cfg(not(target_os = "linux"))]
 fn session(args: &[String]) -> i32 {
-    sys::start(sys::Entry::Broker, args)
+    hosted_session(args)
 }
 
 fn free_socket(runtime: &std::path::Path, name: &str) -> bool {

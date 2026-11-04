@@ -5,10 +5,10 @@ use napi::bindgen_prelude::Unknown;
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi::{Env, Result};
 use napi_derive::napi;
-use rustix::event::{EventfdFlags, PollFd, PollFlags, Timespec, eventfd, poll};
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fs::{Access, OFlags, access, fcntl_setfl};
 use rustix::io::Errno;
-use rustix::process::{Pid, PidfdFlags, Signal, kill_process_group, pidfd_open};
+use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
@@ -97,7 +97,7 @@ struct Session {
     id: String,
     pid: u32,
     master: Mutex<Option<Arc<OwnedFd>>>,
-    wake: OwnedFd,
+    wake: Wake,
     state: Mutex<State>,
     home: String,
 }
@@ -110,7 +110,7 @@ impl Session {
         self.master.locked().clone()
     }
     fn wake(&self) {
-        _ = rustix::io::write(&self.wake, &1u64.to_ne_bytes());
+        self.wake.signal();
     }
 
     fn output(text: String) -> Value {
@@ -224,7 +224,7 @@ impl Io<'_> {
             let cwd = cwd.or((self.pidfd.is_none() && self.exited.is_none()).then(|| now + Duration::from_millis(100)));
             let next = deadlines.into_iter().flatten().chain(drain).chain(cwd).min();
             let timeout = next.and_then(|at| Timespec::try_from(at.saturating_duration_since(now).min(Duration::from_secs(60))).ok());
-            let wake = &self.session.wake;
+            let wake = &self.session.wake.read;
             let idle = PollFd::new(wake, PollFlags::empty());
             let events = PollFlags::IN | if pending_input { PollFlags::OUT } else { PollFlags::empty() };
             let mut fds = [
@@ -235,7 +235,7 @@ impl Io<'_> {
             _ = poll(&mut fds, timeout.as_ref());
             let [woken, exited, ready] = fds.map(|fd| fd.revents());
             if !woken.is_empty() {
-                _ = rustix::io::read(wake, &mut [0u8; 8]);
+                self.session.wake.drain();
             }
             if let Some(master) = &master {
                 if ready.contains(PollFlags::OUT) {
@@ -396,7 +396,7 @@ impl Terminals {
             Failure::http(500, format!("could not start the terminal: {reason}"))
         })?;
         _ = fcntl_setfl(&master, OFlags::NONBLOCK);
-        let wake = eventfd(0, EventfdFlags::NONBLOCK | EventfdFlags::CLOEXEC).map_err(Failure::internal)?;
+        let wake = Wake::new().map_err(Failure::internal)?;
         let pid = child.id();
         let session = Arc::new(Session {
             id: uuid::Uuid::new_v4().to_string(),
@@ -418,7 +418,7 @@ impl Terminals {
                     registry: &registry,
                     session: &session,
                     child,
-                    pidfd: Pid::from_raw(pid as i32).and_then(|pid| pidfd_open(pid, PidfdFlags::empty()).ok()),
+                    pidfd: pidfd(pid),
                     decoder: Utf8Stream::default(),
                     exited: None,
                     drained: false,
@@ -531,5 +531,45 @@ impl Drop for Terminals {
         if self.owner {
             self.close_all();
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pidfd(pid: u32) -> Option<OwnedFd> {
+    Pid::from_raw(pid as i32).and_then(|pid| rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).ok())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn pidfd(_: u32) -> Option<OwnedFd> {
+    None
+}
+
+struct Wake {
+    read: OwnedFd,
+    write: OwnedFd,
+}
+
+impl Wake {
+    #[cfg(target_os = "linux")]
+    fn new() -> std::io::Result<Self> {
+        let fd = rustix::event::eventfd(0, rustix::event::EventfdFlags::NONBLOCK | rustix::event::EventfdFlags::CLOEXEC)?;
+        Ok(Self { write: fd.try_clone()?, read: fd })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn new() -> std::io::Result<Self> {
+        let (read, write) = std::os::unix::net::UnixStream::pair()?;
+        read.set_nonblocking(true)?;
+        write.set_nonblocking(true)?;
+        Ok(Self { read: read.into(), write: write.into() })
+    }
+
+    fn signal(&self) {
+        _ = rustix::io::write(&self.write, &1u64.to_ne_bytes());
+    }
+
+    fn drain(&self) {
+        let mut buf = [0u8; 64];
+        while matches!(rustix::io::read(&self.read, &mut buf), Ok(n) if n > 0) {}
     }
 }

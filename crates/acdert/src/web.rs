@@ -55,34 +55,30 @@ impl Handle {
 struct Webs {
     next: u32,
     live: HashMap<u32, Handle>,
-    #[cfg(target_os = "linux")]
     system: System,
 }
 
-#[cfg(target_os = "linux")]
 #[derive(Default)]
 struct System {
     workspace: Option<acde_runtime::Workspace>,
     terminals: Option<acde_runtime::Terminals>,
+    #[cfg(target_os = "linux")]
     networks: acde_runtime::Networks,
+    #[cfg(target_os = "linux")]
     office: Option<acde_runtime::OfficeService>,
 }
 
-#[cfg(target_os = "linux")]
 #[derive(Default)]
 struct Grants {
     fs: Option<acde_runtime::Workspace>,
     terminal: Option<acde_runtime::Terminals>,
+    #[cfg(target_os = "linux")]
     network: Option<acde_runtime::Networks>,
+    #[cfg(target_os = "linux")]
     office: Option<acde_runtime::OfficeService>,
 }
 
-#[cfg(not(target_os = "linux"))]
-#[derive(Default)]
-struct Grants;
-
 impl Webs {
-    #[cfg(target_os = "linux")]
     fn grants(&mut self, scope: &mut v8::PinScope, wanted: v8::Local<v8::Value>) -> Grants {
         let Ok(wanted) = v8::Local::<v8::Object>::try_from(wanted) else { return Grants::default() };
         let fs = match bind::get(scope, wanted, "fs") {
@@ -91,25 +87,23 @@ impl Webs {
             _ => None,
         };
         let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
+        #[cfg(target_os = "linux")]
         let network = bind::get(scope, wanted, "network").is_some_and(|v| v.is_true());
+        #[cfg(target_os = "linux")]
         let office = bind::get(scope, wanted, "office").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         Grants {
             fs: fs.map(|roots| system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(roots)),
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
+            #[cfg(target_os = "linux")]
             network: network.then(|| system.networks.clone()),
+            #[cfg(target_os = "linux")]
             office: system.office.clone().filter(|_| office),
         }
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    fn grants(&mut self, _: &mut v8::PinScope, _: v8::Local<v8::Value>) -> Grants {
-        Grants
     }
 }
 
 impl Grants {
-    #[cfg(target_os = "linux")]
     fn install(self, scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
         if let Some(fs) = self.fs {
             crate::fs::install(scope, natives, fs);
@@ -117,16 +111,15 @@ impl Grants {
         if let Some(terminals) = self.terminal {
             crate::terminal::install(scope, natives, terminals);
         }
+        #[cfg(target_os = "linux")]
         if let Some(networks) = self.network {
             crate::network::install(scope, natives, networks);
         }
+        #[cfg(target_os = "linux")]
         if let Some(office) = self.office {
             crate::office::install(scope, natives, office);
         }
     }
-
-    #[cfg(not(target_os = "linux"))]
-    fn install(self, _: &mut v8::PinScope, _: v8::Local<v8::Object>) {}
 }
 
 thread_local! {
@@ -201,19 +194,19 @@ impl Spec {
         let stopping = Arc::new(AtomicBool::new(false));
         let guard = HeapGuard::install(&mut runtime, isolate.clone(), reason.clone(), stopping.clone());
         UPSTREAM.with(|u| *u.borrow_mut() = Some(upstream));
-        let tid = rustix::thread::gettid().as_raw_nonzero().get();
+        let tid = thread_id();
         _ = ready.send(Started { tx: runtime.lp.sender(), isolate, stopping: stopping.clone(), busy: runtime.lp.busy(), tid });
         let code = run_web(&mut runtime, self.init, &self.env, self.grants, &stopping);
         ON_MESSAGE.with(|m| *m.borrow_mut() = None);
         UPSTREAM.with(|u| *u.borrow_mut() = None);
+        crate::webnative::clear();
+        crate::backend::clear();
+        crate::fs::clear();
+        crate::terminal::clear();
         #[cfg(target_os = "linux")]
         {
             crate::webgpu::clear();
-            crate::webnative::clear();
             crate::audio::clear();
-            crate::backend::clear();
-            crate::fs::clear();
-            crate::terminal::clear();
             crate::network::clear();
             crate::office::clear();
         }
@@ -326,6 +319,16 @@ fn busy_ms(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
     rv.set_double(ms as f64);
 }
 
+#[cfg(target_os = "linux")]
+fn thread_id() -> i32 {
+    rustix::thread::gettid().as_raw_nonzero().get()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn thread_id() -> i32 {
+    0
+}
+
 fn cpu_ms(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     rv.set_double(with_handle(scope, &args, Handle::cpu_ms).unwrap_or(0.0));
 }
@@ -371,10 +374,10 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], g
         bind::set(scope, natives, "sys", sys.into());
         let create = v8::Function::new(scope, crate::dom::create_document).unwrap();
         bind::set(scope, natives, "createDocument", create.into());
+        crate::webnative::install(scope, natives);
+        grants.install(scope, natives);
         #[cfg(target_os = "linux")]
         {
-            crate::webnative::install(scope, natives);
-            grants.install(scope, natives);
             crate::webgpu::install(scope, natives);
             crate::audio::install(scope, natives);
         }
@@ -385,7 +388,6 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], g
         );
         bind::set(scope, natives, "port", port.into());
         if let Some(init) = crate::host::deserialize_bytes(scope, &init) {
-            #[cfg(target_os = "linux")]
             crate::backend::install(scope, natives, init);
             bind::set(scope, natives, "init", init);
         }

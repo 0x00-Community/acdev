@@ -26,7 +26,7 @@ import { process } from './sys/process'
 export interface BrokerShell {
   pump(): RawShellEvent[]
   onEvents(callback: () => void): void
-  grant(options?: { desktop?: boolean; window?: number; mode?: 'fullscreen' | 'free' | 'fixed' | 'pinned'; rect?: number[]; size?: readonly number[] }): { window: number; token: bigint }
+  grant(options?: { desktop?: boolean; hidden?: boolean; window?: number; mode?: 'fullscreen' | 'free' | 'fixed' | 'pinned'; rect?: number[]; size?: readonly number[] }): { window: number; token: bigint }
   place(window: number, x: number, y: number, width: number, height: number): void
   release(window: number): void
   focus(window: number): void
@@ -42,6 +42,7 @@ export interface BrokerShell {
   inject(event: { type: 'move' | 'motion' | 'down' | 'up' | 'wheel' | 'keydown' | 'keyup'; x?: number; y?: number; button?: number; dx?: number; dy?: number; source?: 'wheel' | 'finger' | 'continuous'; code?: number }): void
   quit(): void
   readonly socketName: string
+  readonly hosted?: boolean
 }
 
 export interface ShellWindow {
@@ -351,7 +352,7 @@ export class Broker {
   }
 
   startDesktop(): void {
-    const grant = this.shell.grant({ desktop: true })
+    const grant = this.shell.grant({ desktop: true, hidden: !!this.#options.standalone && this.shell.hosted === true })
     const { storageFile, standalone } = this.#options
     const init: WebInit = {
       kind: 'desktop',
@@ -374,7 +375,7 @@ export class Broker {
     this.#desktop = this.#spawn(init, this.#current.heapMb)
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
       try {
-        this.launch(standalone, null, 'fullscreen')
+        this.launch(standalone, null, this.shell.hosted ? 'free' : 'fullscreen')
       } catch (error) {
         Log.write(Level.Error, 'acde_host', `acdert app ${standalone}: ${(error as Error).message}`)
       }
@@ -561,6 +562,13 @@ export class Broker {
         const to = event.title === 'app' && owner?.web ? owner.web : this.#desktop
         return to?.post({ type: 'events', events: [event] })
       }
+      case 'windowcloserequest':
+        if (event.window === 0 || event.window === undefined) {
+          this.#stopped = true
+          this.#ended = 'exit'
+          return
+        }
+        return void this.closeWeb(event.window).catch(() => undefined)
       case 'close':
       case 'exit':
         this.#stopped = true

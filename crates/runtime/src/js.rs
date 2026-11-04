@@ -1,3 +1,5 @@
+#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+
 use napi::bindgen_prelude::{Either, FromNapiValue, Function, JsValuesTupleIntoVec, Promise, Unknown};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Env, JsValue, Result, Status};

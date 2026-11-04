@@ -83,17 +83,30 @@ acdert 是**一个**可执行文件, 在 Linux / Windows / macOS 上都能跑, �
 | 跑法 | 命令 | 平台 | 输出 | 合成器 |
 | --- | --- | --- | --- | --- |
 | **AgentComputer 会话** (真实运行环境, Dopame OS) | `acdert --desktop <id>` (登录页起) | Linux | 屏幕 (DRM/KMS) 或 RDP | acdert 自己 (主进程) |
-| **调试桌面** (`acde dev`) | `acdert desktop <id \| 目录>` | Linux / Windows / macOS, 在别人的桌面里 (也包括 Dopame OS 自己的会话里) | **一个**宿主原生窗口, 里面是整个桌面 | acdert 自己, 嵌在这个窗口里 |
-| **调试窗口** | `acdert app <id \| 目录>` | 同上 | 同上, 窗口里只有这个应用 | 同上 |
+| **调试桌面** (`acde dev`) | `acdert desktop <id \| 目录>` | Linux / Windows / macOS, 在别人的桌面里 (也包括 Dopame OS 自己的会话里) | 每个窗口一个宿主原生窗口, 桌面也是一个 (特殊的) | 宿主系统的 |
+| **调试窗口** | `acdert app <id \| 目录>` | 同上 | 只有这个应用的窗口 (桌面的窗口建了但不显示) | 同上 |
 
-调试模式不是 WebUI, 也不推流: 不开端口、不用浏览器, 和 Electron / Tauri 的开发窗口一样是一个原生窗口. 窗口里的桌面、面板、菜单、
-应用窗口都由 acdert 自己的合成器合成 (`CompositePlan` 照用), 合成器的输出是这个宿主窗口, 而不是 DRM / RDP:
+调试模式不是 WebUI, 也不推流: 不开端口、不用浏览器, 和 Tauri / Electron 一样, 每个窗口都是宿主系统的原生窗口, 装饰 (标题栏、
+边框) 也用宿主的 (acde-host 的窗框 `frame.ts` 不加, 标题经 surface 的 `setTitle` 给原生窗口). 桌面是一个特殊的窗口 (window 0):
+它的大小就是「屏幕」(`output`, `ACDE_SIZE` 或主显示器的 90% × 85%, 最大 1440 × 900), 别的窗口的坐标相对它的内容区原点;
+桌面的面板 (`pin`: 菜单栏、Dock、弹出层) 画在桌面窗口里 (不开单独的窗口). 只支持通用的东西: Dopame OS 特有的
+(合成器、登录页、NetworkManager、fcitx5、AT-SPI、PipeWire、greetd、交出会话) 不注入, 也不模拟.
 
-- Linux (Dopame OS 的会话里、KDE、GNOME …): 宿主窗口是外面合成器的一个 xdg_toplevel (smithay 的 winit 后端, 像 KWin 的嵌套模式);
-  里面的 web 照旧经 Wayland 连进 acdert 自己的合成器, 别的不变.
-- macOS / Windows: 没有 Wayland, 而且调试模式里所有窗口都是 acdert 自己的 isolate (没有原生客户端), 所以合成器是进程内的:
-  各 isolate 的画布在同一个 wgpu 设备 (Metal / DX12) 上, 合成器直接拿纹理合成到宿主窗口的 swapchain. 窗口管理模型
-  (crates/model 的 canvas / 窗口表 / plan) 要和 Wayland 传输分开, 多一种「进程内客户端 + 宿主窗口输出」的后端.
+实现是 crates/hostwin (`acde-hostwin`): winit 开窗口、收输入, wgpu 的 surface 上屏 (macOS Metal, Windows DX12 / Vulkan, Linux
+Vulkan), 页面由 vello 画进一张 Rgba8 纹理再拷到 surface (layers 的滤镜和 backdrop 还没做, 按顺序直接画). 主线程跑 winit 的事件循环,
+Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线程出帧. 对 acde-host 的接口和 Linux 一样:
+
+- Broker 的 `native.Shell.broker()` 换成 hostwin 的 `Shell` (crates/acdert `hostnative.rs`): grant / place / focus / hide / close /
+  windows / shortcut …, 对象上 `hosted: true`; `inject` / `screenshot` 没有. 窗口的关闭按钮发 `windowcloserequest`: 桌面的结束
+  会话, 别的走 `closeWeb` (先问 `beforeclose`).
+- web 的 `claimSurface` 拿到 hostwin 的 `Surface` (crates/acdert `surface.rs` 是 Wayland / 宿主两种的 enum), 另有 `hosted`、
+  `setTitle`、`setImeArea`. 输入: winit 的按键换成 evdev 码 (`keys.rs`), 输入法的 `Ime::Commit` / `Preedit` 是 `imecommit` /
+  `imepreedit` 事件 (acde-host 直接交给 `TextEntry`). 窗口被挡住 (macOS 的另一个 Space、最小化) 时这一帧不上屏, 等 winit 的
+  `Occluded(false)` 再把已经画好的那张纹理上屏, 不重画页面.
+- 系统能力: fs、terminal (pty; macOS 上没有 pidfd / eventfd / close_range, 换成轮询、socketpair、逐个 close)、应用后端的
+  unix socket 在所有 unix 上注入; network、office、IME、语音只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
+- 验证 (只在 macOS 上验, Windows / Linux 的宿主窗口只写不验): `ACDE_HOST_DUMP=<目录>` 让每个窗口每帧把画好的页面 (GPU 读回)
+  写成 `<目录>/<窗口 id>.png`; `ACDE_DEBUG_DIR` 照旧能在各 web 里求值. 不截屏.
 
 调试桌面和调试窗口只差两点:
 
@@ -103,11 +116,13 @@ acdert 是**一个**可执行文件, 在 Linux / Windows / macOS 上都能跑, �
   应用收自己窗口的事件 (`acde:window` 的 shortcut / request …).
 
 别的 (一个 V8、每个窗口一个 isolate、注入、均衡) 都一样. 调试模式不是浏览器外壳, 不带 devtools、远程调试端口 (见第一原则).
-现状: `acdert app <id>` (原来的 `acde window <app>`) 和 `acdert desktop <id|包目录>` (同 `--desktop`) 只认装好的包或包目录,
-还没有宿主窗口后端 (在别人的桌面里只能 `ACDE_BACKEND=rdp`); `acde dev` 先 install 再起它们.
+现状: `acdert app <id>` (原来的 `acde window <app>`) 和 `acdert desktop <id|包目录>` (同 `--desktop`) 只认装好的包或包目录;
+`acde dev` 先 install 再起它们. macOS 上起会话 (`acdert` 不带子命令也一样) 都走宿主窗口; Linux 上 `app` / `desktop` 子命令在别人的
+桌面里 (有 `WAYLAND_DISPLAY` / `DISPLAY`, 没设 `ACDE_BACKEND`) 走宿主窗口, 别的照旧是会话.
 
-`acde dev` 和 acdert 之间 (要做): acde 起 acdert 时给一条继承下来的管道 (不开端口), acde 发 `reload <app>` (只重起这个应用的
-isolate, 窗口留在原位; 后端改了重起后端), acdert 把日志按应用回传; acdert 按目录直接加载工程的构建结果, 不经 install.
+`acde dev` 和 acdert 之间 (要做): IPC 封装成一层, unix 上 unix socket, Windows 上命名管道 (`CreateNamedPipe` / `ConnectNamedPipe`,
+客户端 `CreateFile` 打开, `ReadFile` / `WriteFile` 读写). acde 发 `reload <app>` (只重起这个应用的 isolate, 窗口留在原位;
+后端改了重起后端), acdert 把日志按应用回传; acdert 按目录直接加载工程的构建结果, 不经 install.
 
 ```
 AgentComputer:
@@ -120,7 +135,7 @@ acdert runtime (子进程, 一个)       一个 V8 (一个 Platform), 所有 JS 
 原生程序                            普通 Wayland 客户端
 
 调试桌面 / 调试窗口:
-acdert (一个进程)                   同上的 runtime (Broker / desktop / 应用各一个 isolate) + 合成器, 输出是一个宿主原生窗口
+acdert (一个进程)                   同上的 runtime (Broker / desktop / 应用各一个 isolate), 每个窗口是宿主的原生窗口, 没有合成器
 ```
 
 - **一个 V8, 每个窗口一个 isolate**: 所有窗口 (包括桌面) 共用一个 V8 —— 同一个进程、同一个 Platform、同一份共享的 Rust 状态;
@@ -190,12 +205,10 @@ acdert (一个进程)                   同上的 runtime (Broker / desktop / �
      `Place`, Broker 不读写它).
 5. 窗口 / 应用 / 会话表进 Rust 共享表, `acde:windows` / `acde:apps` / `acde:window` / `acde:session` / `acde:desktops` 直接调.
 6. 桌面包服务改成跨 isolate 的进程内调用; 删掉 `rpc.ts` / `remote.ts` 和 port.
-7. 调试模式 (`acde dev` 用它), 分三段:
-   - P1 Linux: 合成器加嵌套在宿主窗口里的后端 (smithay winit), acdert 加控制管道和按目录加载. 验收: KDE 和 Dopame OS 上
-     `acde new` → `acde dev` → 改代码 → 窗口里的应用 1 秒内重载.
-   - P2 macOS: 进程内合成器 (Metal), Cocoa 的键鼠和输入法 (NSTextInputClient), acgpu 支持 Metal, fontique 用 CoreText;
-     crates/runtime 的系统能力按平台实现或不注入 (网络、AT-SPI、语音、起原生程序不注入; 声音 CoreAudio; 文件选择用原生对话框).
-   - P3 Windows: 同上, DX12、Win32、TSF, 终端用 ConPTY; rustix / zbus / ntex io_uring 换掉或不编进去.
+7. 调试模式 (`acde dev` 用它): 每个窗口一个宿主原生窗口 (crates/hostwin, 见上).
+   - (已做) macOS: Dopame 桌面、应用窗口、fs、终端都能用.
+   - Linux (只写): 同一份 hostwin (winit 的 Wayland / X11); `arboard` 的剪贴板.
+   - Windows (只写): rustix / pty / unix socket 这些 unix 的东西换成 Windows 的 (ConPTY、命名管道), 没有的不注入.
 
 ## 窗口模型 (split-window)
 
@@ -1048,6 +1061,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/acdert` | Rust | `acdert` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, web 线程 (`spawnWeb`), 把 render 的文档绑给 JS (见「宿主: crates/acdert」) |
 | `crates/paint` | Rust | `acde-paint`: web 进程的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acgpu 打开的 wgpu 设备 |
 | `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
+| `crates/hostwin` | Rust | `acde-hostwin`: 调试模式的宿主原生窗口 (winit + wgpu surface + vello), Broker 的 `Shell` 和 web 的 `Surface` 的宿主版, 见「运行时进程」 |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
 | `crates/acde-napi` | Rust | 用 rusty_v8 实现的 Node-API C 接口 (napi8), 让 runtime / shell 的 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` (deno_napi 0.191.0, MIT, 见 LICENSE-MIT): 任务派发换成嵌入方的, 去掉了旧式模块注册、async_hooks、callback scope、napi9+ 和 runtime / shell 链接不到的入口 (删掉后 `cargo build -p acdert` 照样链接成功的那些: Date、DataView、TypedArray、escapable handle scope、new_target、freeze / seal、detach、async cleanup hook、symbol、instanceof 等); cleanup hook 只检查参数, 不存 (Env 不析构, 本来就不会跑); 每个 async work 起一条 `acde-napi-work` 线程 (只有 shell 的 screenshot 用); `open` 把一个模块的导出注册进一个 context |
