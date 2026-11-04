@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/@dopame/acde-api/config.schema.json",
+  // 窗口应用: 普通网页 (index.html), 可选后端 server.ts. 系统能力从 acde:* 模块导入 (import { fs } from 'acde:fs'), 按 capabilities 给.
+  "type": "app",
+  "id": "{{id}}",
+  "label": "{{label}}",
+  "icon": "apps",
+  "entry": "index.html",
+  "capabilities": {}
+}

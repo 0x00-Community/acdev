@@ -1,0 +1,8 @@
+{
+  "name": "{{id}}",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@dopame/acde-api": "{{api}}"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/@dopame/acde-api/config.schema.json",
+  // 桌面: 一张满屏网页, 在所有窗口后面. 系统能力从 acde:* 模块导入; services 是跑在 acde 里的桌面服务 (名字 → 模块),
+  // apps 是这个桌面自带的窗口应用 (每个和 "type": "app" 的工程一样).
+  "type": "desktop",
+  "id": "{{id}}",
+  "label": "{{label}}",
+  "entry": "index.html",
+  "services": {},
+  "apps": []
+}
