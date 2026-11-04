@@ -1,6 +1,6 @@
 # Maintainer: Dopame <dopame@dopame.local>
 #
-# acde-base, the Dopame desktop base: a Wayland compositor (crates/shell) whose desktop is a web page rendered
+# acde-base, the Dopame desktop base: a Wayland compositor (crates/shell) whose desktop is a page rendered
 # natively (Blitz, crates/render), its JS in acde's own V8 host (crates/acde, no Node), with every system interface in
 # Rust (crates/runtime, through Node-API on V8), and the login screen. The desktops themselves come from desktop packages (acde-dopame,
 # ...) installed under /usr/share/acde/packages. Built from the commit this PKGBUILD belongs to (`git archive HEAD` of
@@ -8,7 +8,7 @@
 #
 # Installed layout:
 #   /usr/lib/acde/acde             the program: V8, runtime, render and shell in one binary
-#   /usr/lib/acde/app/             acde-host: dist/broker.js and dist/web.js (bundles), greet/ (the login screen:
+#   /usr/lib/acde/app/             acde-host: dist/broker.js and dist/isolate.js (bundles), greet/ (the login screen:
 #                                  `acde --greeter`, greetd's greeter; user, password and desktop on one page), brand/
 #                                  (the Dopame mark and wordmark, for it)
 #   /usr/lib/acde/acde-app/        what `acde app` (new / check / build / install / run) runs under bun (TypeScript sources)
@@ -25,7 +25,7 @@
 pkgname=acde-base
 pkgver=0.0.0
 pkgrel=1
-pkgdesc='Dopame desktop base: Wayland compositor with natively rendered web desktops, system API and login screen'
+pkgdesc='Dopame desktop base: Wayland compositor with natively rendered desktops, system API and login screen'
 arch=('x86_64' 'aarch64')
 url='https://github.com/dopamine-org/acde-base'
 license=('Apache-2.0')
@@ -34,7 +34,7 @@ depends=(
   'mesa' 'libdrm' 'libinput' 'seatd' 'systemd-libs' 'wayland' 'libxkbcommon'
   # TLS (ntex's, through OpenSSL): the RDP backend (ACDE_BACKEND=rdp) and NLA
   'openssl'
-  # the web layer is drawn on the GPU through Vulkan (vello), and only there: CPU devices (lavapipe) are refused, so the
+  # the page layer is drawn on the GPU through Vulkan (vello), and only there: CPU devices (lavapipe) are refused, so the
   # GPU's own driver is required (vulkan-intel, vulkan-radeon, nvidia-utils; the Dopame ISO lists them)
   'vulkan-icd-loader' 'vulkan-driver'
   # text: fontconfig and fonts for Latin and CJK
@@ -43,7 +43,7 @@ depends=(
   'adwaita-cursors'
   # system services the shell talks to over D-Bus: network, power, sessions, audio
   'dbus' 'networkmanager' 'upower' 'pipewire' 'wireplumber'
-  # input method for the web desktop's text fields (runtime's Ime, D-Bus) and native windows
+  # input method for the desktop's text fields (runtime's Ime, D-Bus) and native windows
   'fcitx5' 'fcitx5-chinese-addons' 'fcitx5-gtk' 'fcitx5-qt'
   # native programs the desktop starts: the default terminal, the web browser (a native window of its own: web
   # pages and the Office editor pages open there), the screen locker, opening files with their programs (Finder)
@@ -55,9 +55,9 @@ depends=(
 )
 optdepends=(
   'acde-dopame: the Dopame desktop and its apps'
-  'vulkan-intel: the web layer on Intel GPUs'
-  'vulkan-radeon: the web layer on AMD GPUs'
-  'nvidia-utils: the web layer on NVIDIA GPUs with the NVIDIA driver'
+  'vulkan-intel: the page layer on Intel GPUs'
+  'vulkan-radeon: the page layer on AMD GPUs'
+  'nvidia-utils: the page layer on NVIDIA GPUs with the NVIDIA driver'
   'plasma-workspace: KDE Plasma (its plasma.desktop Wayland session) on the login screen, started instead of acde'
   'docker: ONLYOFFICE Document Server for runtime Office (/usr/lib/acde/office-ds.sh)'
   'greetd: the login screen (`acde --greeter` as its greeter; greetd-agreety as the fallback)'
@@ -98,33 +98,33 @@ build() {
   export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=${srcdir}=/usr/src/acde"
   cargo build --locked --release -p acde
   # the bundles: bun only builds them (esbuild); nothing of bun is installed
-  cd web
+  cd js
   bun install --frozen-lockfile
   bun run --filter @dopame/acde-host bundle
 }
 
 check() {
   # the program starts and answers a command without a display: the Broker's bundle, the packages, the login screen
-  ACDE_APP="${srcdir}/acde/web/packages/acde-host/dist" ACDE_PATH= XDG_DATA_HOME="${srcdir}/check" \
-    "${srcdir}/target/release/acde" desktops --package "${srcdir}/acde/web/packages/acde-host/greet" | grep -q greet
+  ACDE_APP="${srcdir}/acde/js/packages/acde-host/dist" ACDE_PATH= XDG_DATA_HOME="${srcdir}/check" \
+    "${srcdir}/target/release/acde" desktops --package "${srcdir}/acde/js/packages/acde-host/greet" | grep -q greet
 }
 
 package() {
   install -Dm755 "${srcdir}/target/release/acde" "${pkgdir}/usr/lib/acde/acde"
-  local app="${srcdir}/acde/web/packages/acde-host"
-  install -Dm644 -t "${pkgdir}/usr/lib/acde/app/dist" "$app/dist/broker.js" "$app/dist/web.js"
+  local app="${srcdir}/acde/js/packages/acde-host"
+  install -Dm644 -t "${pkgdir}/usr/lib/acde/app/dist" "$app/dist/broker.js" "$app/dist/isolate.js"
   install -Dm644 -t "${pkgdir}/usr/lib/acde/app" "$app/package.json" "$app/LICENSE"
   cp -a -- "$app/greet" "${pkgdir}/usr/lib/acde/app/greet"
   cp -a -- "$app/brand" "${pkgdir}/usr/lib/acde/app/brand"
   # `acde app` runs acde-app's cli.ts under bun (beside the program: /usr/lib/acde/acde-app); `acde app new` points an
   # app's devDependency at the SDK beside it (/usr/lib/acde/acde-api)
-  local web="${srcdir}/acde/web/packages" dir
+  local js="${srcdir}/acde/js/packages" dir
   for dir in acde-app acde-api; do
-    install -Dm644 -t "${pkgdir}/usr/lib/acde/$dir" "$web/$dir/package.json"
-    cp -r --no-preserve=ownership -- "$web/$dir/src" "${pkgdir}/usr/lib/acde/$dir/src"
+    install -Dm644 -t "${pkgdir}/usr/lib/acde/$dir" "$js/$dir/package.json"
+    cp -r --no-preserve=ownership -- "$js/$dir/src" "${pkgdir}/usr/lib/acde/$dir/src"
   done
-  cp -r --no-preserve=ownership -- "$web/acde-app/templates" "${pkgdir}/usr/lib/acde/acde-app/templates"
-  install -Dm644 -t "${pkgdir}/usr/lib/acde/acde-api" "$web/acde-api/config.schema.json"
+  cp -r --no-preserve=ownership -- "$js/acde-app/templates" "${pkgdir}/usr/lib/acde/acde-app/templates"
+  install -Dm644 -t "${pkgdir}/usr/lib/acde/acde-api" "$js/acde-api/config.schema.json"
   install -dm755 "${pkgdir}/usr/share/acde/packages"
   install -Dm755 "${srcdir}/acde/packaging/office/office-ds.sh" "${pkgdir}/usr/lib/acde/office-ds.sh"
   install -Dm755 /dev/stdin "${pkgdir}/usr/bin/acde" <<'EOF'

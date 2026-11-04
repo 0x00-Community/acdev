@@ -1,0 +1,20 @@
+{
+  "name": "acde-js",
+  "private": true,
+  "description": "acde-base's TypeScript workspace: the host (packages/acde-host) and the types desktop packages are written against (packages/acde-api)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun run --filter \"*\" build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun run --filter \"*\" test"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "5.9.3"
+  },
+  "workspaces": ["packages/*"],
+  "trustedDependencies": [
+    "esbuild"
+  ]
+}

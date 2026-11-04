@@ -31,6 +31,34 @@ pub enum Injected {
     Key { code: u32, pressed: bool },
 }
 
+/// Where an injected wheel event comes from (smithay's `AxisSource` without the dependency).
+#[derive(Clone, Copy, Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WheelKind {
+    Wheel,
+    Finger,
+    Continuous,
+}
+
+impl Injected {
+    pub fn moved(x: f64, y: f64) -> Self {
+        Self::Move((x, y).into())
+    }
+
+    pub fn motion(dx: f64, dy: f64) -> Self {
+        Self::Motion((dx, dy).into())
+    }
+
+    pub fn wheel(dx: f64, dy: f64, kind: WheelKind) -> Self {
+        let source = match kind {
+            WheelKind::Wheel => AxisSource::Wheel,
+            WheelKind::Finger => AxisSource::Finger,
+            WheelKind::Continuous => AxisSource::Continuous,
+        };
+        Self::Wheel { delta: (dx, dy).into(), source }
+    }
+}
+
 pub(super) const WHEEL_STEP: f64 = 15.0;
 
 impl Compositor {

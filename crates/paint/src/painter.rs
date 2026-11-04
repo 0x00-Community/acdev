@@ -12,7 +12,7 @@ use smithay::reexports::gbm;
 use smithay::utils::{DeviceFd, Rectangle};
 
 use crate::plane::{Part, Pixels, Rect, Sheet};
-use crate::raster::{Done, Job, Pass, Raster, Ready};
+use crate::raster::{Done, Job, Lost, Pass, Raster, Ready};
 
 const FORMAT: Fourcc = Fourcc::Abgr8888;
 const PAD: u32 = 64;
@@ -61,6 +61,7 @@ pub struct Painter {
     done: mpsc::Receiver<Done>,
     allocator: GbmAllocator<DeviceFd>,
     ready: Ready,
+    lost: Lost,
     targets: HashMap<usize, Target>,
     inflight: Option<Inflight>,
     generation: u64,
@@ -115,20 +116,21 @@ impl Target {
 }
 
 impl Painter {
-    pub fn new(gbm: gbm::Device<DeviceFd>, waker: Ping) -> Result<Self, String> {
+    pub fn new(gbm: gbm::Device<DeviceFd>, waker: Ping, lost: Lost) -> Result<Self, String> {
         let (jobs, jobs_rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel();
         let ready = Ready::default();
-        Raster::spawn(jobs_rx, done_tx, ready.clone(), waker).map_err(|e| format!("光栅化线程: {e}"))?;
+        Raster::spawn(jobs_rx, done_tx, ready.clone(), lost.clone(), waker).map_err(|e| format!("光栅化线程: {e}"))?;
         Ok(Self {
             jobs,
             done,
             allocator: GbmAllocator::new(gbm, GbmBufferFlags::RENDERING),
             ready,
+            lost,
             targets: HashMap::new(),
             inflight: None,
             generation: 0,
-            full: std::env::var_os("ACDE_WEB_FULL").is_some(),
+            full: std::env::var_os("ACDE_PAGE_FULL").is_some(),
             dropped: false,
             frames: 0,
         })
@@ -140,6 +142,10 @@ impl Painter {
 
     pub fn busy(&self) -> bool {
         self.inflight.is_some()
+    }
+
+    pub fn lost(&self) -> bool {
+        self.lost.load(std::sync::atomic::Ordering::Acquire)
     }
 
     pub fn ready(&self) -> bool {

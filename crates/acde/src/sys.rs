@@ -149,12 +149,10 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         "run" => run,
         "getuid" => getuid,
         "onSignal" => on_signal,
-        "spawnWeb" => crate::web::spawn_web,
-        "openOffice" => crate::web::open_office,
-        "closeOffice" => crate::web::close_office,
     );
     #[cfg(target_os = "linux")]
     {
+        bind::method(scope, obj, "desk", crate::desk::broker_object);
         bind::method(scope, obj, "spawn", crate::child::spawn);
         bind::method(scope, obj, "write", crate::child::write);
         bind::method(scope, obj, "endInput", crate::child::end_input);
@@ -469,7 +467,7 @@ pub enum Entry {
 pub fn start(entry: Entry, args: &[String]) -> i32 {
     let (file, globals) = match entry {
         Entry::Script(file) => (PathBuf::from(file), true),
-        Entry::Broker => (crate::web::app_dir().join("broker.js"), false),
+        Entry::Broker => (app_dir().join("broker.js"), false),
     };
     let url = match std::fs::canonicalize(&file) {
         Ok(path) => url::Url::from_file_path(path).map(String::from).unwrap_or_default(),
@@ -482,7 +480,7 @@ pub fn start(entry: Entry, args: &[String]) -> i32 {
             return 1;
         }
     };
-    let mut runtime = rt::Runtime::new(None, "broker");
+    let mut runtime = rt::Runtime::new(None, None, "broker");
     crate::modules::set_loader(Rc::new(FileLoader));
     runtime.task(|scope| {
         let mut fields: Vec<(&str, v8::Local<v8::Value>)> = vec![("host", crate::host::object(scope).into()), ("sys", object(scope, args).into())];
@@ -519,3 +517,18 @@ fn boot_entry<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackAr
         rv.set(result);
     }
 }
+
+/// Where acde-host's bundles are: `ACDE_APP`, the installed `app/dist` beside the program, or the source tree's.
+pub fn app_dir() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("ACDE_APP") {
+        return std::path::PathBuf::from(dir);
+    }
+    let exe = std::env::current_exe().ok().and_then(|e| std::fs::canonicalize(e).ok()).unwrap_or_default();
+    let bin = exe.parent().map(std::path::PathBuf::from).unwrap_or_default();
+    let installed = bin.join("app/dist");
+    if installed.join("broker.js").is_file() {
+        return installed;
+    }
+    bin.join("../../js/packages/acde-host/dist")
+}
+

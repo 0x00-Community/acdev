@@ -190,11 +190,14 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn new(heap_mb: Option<usize>, name: &str) -> Self {
+    pub fn new(heap_mb: Option<usize>, budget: Option<&std::sync::Arc<crate::budget::Budget>>, name: &str) -> Self {
         crate::engine::init();
         let mut params = v8::CreateParams::default();
         if let Some(mb) = heap_mb {
             params = params.heap_limits(0, mb * 1024 * 1024);
+        }
+        if let Some(budget) = budget {
+            params = params.array_buffer_allocator(budget.allocator());
         }
         let mut isolate = v8::Isolate::new(params);
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
@@ -370,6 +373,11 @@ fn run_task<R>(scope: &mut v8::PinScope, f: impl FnOnce(&mut v8::PinScope) -> R)
         return result;
     }
     scope.perform_microtask_checkpoint();
+    if scope.is_execution_terminating() {
+        // Ended from outside (the desk closing it) while its microtasks ran: what that interrupted is not the page's error.
+        current().rejections.borrow_mut().clear();
+        return result;
+    }
     report_rejections(scope);
     let hook = started.map(|_| Instant::now());
     after_task(scope);
@@ -399,7 +407,7 @@ fn after_task(scope: &mut v8::PinScope) {
         let thrown = {
             v8::tc_scope!(let tc, scope);
             hook(tc);
-            tc.exception().map(|e| v8::Global::new(tc, e))
+            tc.exception().filter(|_| !tc.has_terminated()).map(|e| v8::Global::new(tc, e))
         };
         if let Some(exception) = thrown {
             let exception = v8::Local::new(scope, exception);
@@ -414,6 +422,9 @@ pub fn report(scope: &mut v8::PinScope, error: v8::Local<v8::Value>) {
 }
 
 fn report_to(scope: &mut v8::PinScope, error: v8::Local<v8::Value>, promise: Option<v8::Local<v8::Promise>>) {
+    if scope.is_execution_terminating() {
+        return;
+    }
     let lp = current();
     let reporter = lp.reporter.borrow().clone();
     if let Some(reporter) = reporter {

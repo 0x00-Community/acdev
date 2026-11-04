@@ -5,6 +5,16 @@ pub enum Scope {
     App,
 }
 
+impl Scope {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Scope::Session => "session",
+            Scope::Desktop => "desktop",
+            Scope::App => "app",
+        }
+    }
+}
+
 impl std::str::FromStr for Scope {
     type Err = String;
 

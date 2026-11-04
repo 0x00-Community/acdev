@@ -64,7 +64,7 @@ fn local_path(uri: &str) -> Option<String> {
     url::Url::parse(uri).ok()?.to_file_path().ok()?.into_os_string().into_string().ok()
 }
 
-#[napi]
+/// The xdg-desktop-portal FileChooser, for a desktop or window isolate's `files` (crates/acde `own.rs`).
 pub struct FileChooser {
     connection: Connection,
 }
@@ -97,48 +97,45 @@ impl FileChooser {
         Proxy::new(&connection, PORTAL, PORTAL_PATH, FILE_CHOOSER)?.get_property::<u32>("version")?;
         Ok(Self { connection })
     }
-}
 
-#[napi]
-impl FileChooser {
-    #[napi(factory)]
-    pub async fn open() -> Result<Self> {
-        blocking(|| Connection::session().and_then(Self::on).map_err(|e| failure("portal_unavailable", &format!("no FileChooser portal: {e}")))).await
+    fn open_request(&self, options: OpenOptions) -> zbus::Result<Option<Vec<String>>> {
+        let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
+        map.insert("multiple", Variant::from(options.multiple));
+        map.insert("directory", Variant::from(options.directory));
+        let list = filters(&options.filters);
+        if !list.is_empty() {
+            map.insert("filters", Variant::from(list));
+        }
+        self.request("OpenFile", &options.title, map)
     }
 
-    #[napi(ts_args_type = "options: { title?: string; multiple?: boolean; directory?: boolean; filters?: { name: string; globs?: string[]; mimes?: string[] }[] }")]
-    pub async fn open_file(&self, options: serde_json::Value) -> Result<Option<Vec<String>>> {
-        let options: OpenOptions = serde_json::from_value(options).map_err(|e| failure("bad_options", &e.to_string()))?;
-        let chooser = Self { connection: self.connection.clone() };
-        blocking(move || {
-            let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
-            map.insert("multiple", Variant::from(options.multiple));
-            map.insert("directory", Variant::from(options.directory));
-            let list = filters(&options.filters);
-            if !list.is_empty() {
-                map.insert("filters", Variant::from(list));
-            }
-            chooser.request("OpenFile", &options.title, map).map_err(bus)
-        })
-        .await
+    fn save_request(&self, options: SaveOptions) -> zbus::Result<Option<String>> {
+        let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
+        if !options.name.is_empty() {
+            map.insert("current_name", Variant::from(options.name.as_str()));
+        }
+        let list = filters(&options.filters);
+        if !list.is_empty() {
+            map.insert("filters", Variant::from(list));
+        }
+        Ok(self.request("SaveFile", &options.title, map)?.and_then(|paths| paths.into_iter().next()))
     }
 
-    #[napi(ts_args_type = "options: { title?: string; name?: string; filters?: { name: string; globs?: string[]; mimes?: string[] }[] }")]
-    pub async fn save_file(&self, options: serde_json::Value) -> Result<Option<String>> {
-        let options: SaveOptions = serde_json::from_value(options).map_err(|e| failure("bad_options", &e.to_string()))?;
-        let chooser = Self { connection: self.connection.clone() };
-        blocking(move || {
-            let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
-            if !options.name.is_empty() {
-                map.insert("current_name", Variant::from(options.name.as_str()));
-            }
-            let list = filters(&options.filters);
-            if !list.is_empty() {
-                map.insert("filters", Variant::from(list));
-            }
-            Ok(chooser.request("SaveFile", &options.title, map).map_err(bus)?.and_then(|paths| paths.into_iter().next()))
-        })
-        .await
+    /// The chooser on the session bus, for a caller on its own thread (a desktop or window isolate's `files`).
+    pub fn connect() -> std::result::Result<Self, String> {
+        Connection::session().and_then(Self::on).map_err(|e| format!("no FileChooser portal: {e}"))
+    }
+
+    /// OpenFile, blocking until the user answers; `None` when they cancelled.
+    pub fn pick_open(&self, options: serde_json::Value) -> std::result::Result<Option<Vec<String>>, String> {
+        let options: OpenOptions = serde_json::from_value(options).map_err(|e| e.to_string())?;
+        self.open_request(options).map_err(|e| e.to_string())
+    }
+
+    /// SaveFile, blocking until the user answers; `None` when they cancelled.
+    pub fn pick_save(&self, options: serde_json::Value) -> std::result::Result<Option<String>, String> {
+        let options: SaveOptions = serde_json::from_value(options).map_err(|e| e.to_string())?;
+        self.save_request(options).map_err(|e| e.to_string())
     }
 }
 

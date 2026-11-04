@@ -7,6 +7,7 @@ name = "acde"
 version = "0.1.0"
 dependencies = [
  "acde-log",
+ "acde-model",
  "acde-napi",
  "acde-paint",
  "acde-render",
@@ -139,11 +140,10 @@ dependencies = [
  "bitflags 2.13.2",
  "ironrdp-server",
  "log",
- "napi",
- "napi-derive",
  "ntex",
  "png",
  "rustix 1.1.5",
+ "serde",
  "smithay",
  "tracing",
  "wayland-backend",

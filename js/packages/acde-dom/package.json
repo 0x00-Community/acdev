@@ -1,0 +1,40 @@
+{
+  "name": "@dopame/acde-dom",
+  "version": "0.1.0",
+  "description": "The web platform of an acde web in JS: browser globals and the DOM over the render document (DomNative) and the engine's services (HostNative); no Node, no happy-dom",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dopamine-org/acde-base",
+    "directory": "js/packages/acde-dom"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts"
+  },
+  "files": [
+    "src",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.14",
+    "@types/node": "^26.6.5",
+    "@xterm/xterm": "6.0.0",
+    "dompurify": "3.3.3",
+    "esbuild": "^0.28.2",
+    "happy-dom": "20.14.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

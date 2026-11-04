@@ -1,0 +1,33 @@
+{
+  "name": "@dopame/acde-host",
+  "version": "0.1.0",
+  "description": "acde's host code in JS: the Broker (desktops, services, windows, the session) and each desktop or window isolate's side (its page in acde-dom, surface input); bundled for crates/acde, no Node",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dopamine-org/acde-base",
+    "directory": "js/packages/acde-host"
+  },
+  "acde": {
+    "assets": {
+      "/acde/brand/": [
+        "brand"
+      ]
+    }
+  },
+  "scripts": {
+    "bundle": "bun scripts/bundle.mjs",
+    "build": "bun scripts/bundle.mjs"
+  },
+  "dependencies": {
+    "@dopame/acde-app": "workspace:*",
+    "@dopame/acde-dom": "workspace:*"
+  },
+  "devDependencies": {
+    "@dopame/acde-api": "workspace:*",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2"
+  }
+}

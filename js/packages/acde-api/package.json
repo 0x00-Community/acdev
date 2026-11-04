@@ -1,0 +1,39 @@
+{
+  "name": "@dopame/acde-api",
+  "version": "0.1.0",
+  "description": "acde SDK: one devDependency makes a web app (React, Vue, Svelte, any Vite / Next.js / Nuxt / SvelteKit / Astro / Angular project) an acde app. Types of acde.config.jsonc, the manifest, the services and the acde:* modules; load() for optional acde:* modules; the Vite plugin (@dopame/acde-api/vite). The tools are acde app new / check / build / install / run",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dopamine-org/acde-base",
+    "directory": "js/packages/acde-api"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./vite": {
+      "types": "./src/vite.d.ts",
+      "default": "./src/vite.js"
+    },
+    "./config.schema.json": "./config.schema.json"
+  },
+  "files": [
+    "src",
+    "config.schema.json"
+  ],
+  "peerDependencies": {
+    "vite": ">=5"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

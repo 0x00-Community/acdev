@@ -26,6 +26,12 @@ pub fn render_handle() -> Option<acde_render::RenderHandle> {
 struct Assets(Vec<acde_render::Resource>);
 
 impl Assets {
+    fn holds(&self, path: &Path) -> bool {
+        let bundle = std::fs::canonicalize(crate::sys::app_dir()).ok();
+        let dirs = self.0.iter().flat_map(|r| r.dirs.iter()).filter_map(|d| std::fs::canonicalize(d).ok());
+        bundle.into_iter().chain(dirs).any(|dir| path.starts_with(dir))
+    }
+
     fn file(&self, url: &str) -> Option<PathBuf> {
         let parsed = url::Url::parse(url).ok()?;
         if parsed.origin().ascii_serialization() != ORIGIN {
@@ -72,9 +78,11 @@ fn percent(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-pub struct WebLoader;
+/// Modules of a desktop or window page: its own origin's assets, and `file:` only inside the installed assets'
+/// directories or acde's own bundle; nothing else on disk.
+pub struct PageLoader;
 
-impl Loader for WebLoader {
+impl Loader for PageLoader {
     fn resolve(&self, specifier: &str, referrer: &str) -> Result<String, String> {
         if referrer.starts_with("file:") {
             return crate::sys::FileLoader.resolve(specifier, referrer);
@@ -88,6 +96,10 @@ impl Loader for WebLoader {
 
     fn load(&self, url: &str) -> Result<String, String> {
         if url.starts_with("file:") {
+            let path = url::Url::parse(url).ok().and_then(|u| u.to_file_path().ok()).and_then(|p| std::fs::canonicalize(p).ok());
+            if !path.as_deref().is_some_and(|p| ASSETS.with(|a| a.borrow().holds(p))) {
+                return Err(format!("acde: module {url} is outside the installed packages' assets"));
+            }
             return crate::sys::FileLoader.load(url);
         }
         let file = asset_file(url).ok_or_else(|| format!("acde: module {url} is not a local file"))?;

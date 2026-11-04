@@ -36,7 +36,7 @@ use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
 use crate::panel::PanelView;
 use crate::protocol::{acde_window, acde_window_manager};
 
-static WEB_FPS: LazyLock<Option<f64>> = LazyLock::new(|| std::env::var("ACDE_WEB_FPS").ok().and_then(|v| v.parse::<f64>().ok()).filter(|f| *f > 0.0));
+static PAGE_FPS: LazyLock<Option<f64>> = LazyLock::new(|| std::env::var("ACDE_PAGE_FPS").ok().and_then(|v| v.parse::<f64>().ok()).filter(|f| *f > 0.0));
 
 const PANEL_WAIT: Duration = Duration::from_millis(200);
 const REFRESH_SLACK: f64 = 0.9;
@@ -70,6 +70,7 @@ pub struct Surface {
     events: Arc<Inbox>,
     commands: channel::Sender<Command>,
     thread: Option<std::thread::JoinHandle<()>>,
+    lost: acde_paint::Lost,
 }
 
 impl Surface {
@@ -78,10 +79,12 @@ impl Surface {
         let (commands, rx) = channel::channel();
         let (ready, ready_rx) = mpsc::sync_channel(1);
         let inbox = events.clone();
+        let lost = acde_paint::Lost::default();
+        let raster = lost.clone();
         let thread = std::thread::Builder::new()
             .name("acde-window".into())
             .spawn(move || {
-                if let Err(e) = App::run(token, render, inbox.clone(), rx, ready.clone()) {
+                if let Err(e) = App::run(token, render, inbox.clone(), rx, ready.clone(), raster) {
                     log::error!("窗口: {e}");
                     let _ = ready.send(Err(e));
                 }
@@ -89,11 +92,16 @@ impl Surface {
             })
             .map_err(|e| format!("窗口线程: {e}"))?;
         let window = ready_rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "窗口: 合成器没有确认这个窗口".to_string())??;
-        Ok(Self { window, events, commands, thread: Some(thread) })
+        Ok(Self { window, events, commands, thread: Some(thread), lost })
     }
 
     pub fn window(&self) -> u32 {
         self.window
+    }
+
+    /// The raster thread died: nothing more will be drawn, the isolate this surface is for is to end.
+    pub fn lost(&self) -> bool {
+        self.lost.load(std::sync::atomic::Ordering::Acquire)
     }
 
     pub fn pump(&self) -> Vec<Event> {
@@ -276,7 +284,7 @@ pub(crate) struct App {
 }
 
 impl App {
-    fn run(token: u64, render: acde_render::RenderHandle, events: Arc<Inbox>, commands: Channel<Command>, ready: mpsc::SyncSender<Result<u32, String>>) -> Result<(), String> {
+    fn run(token: u64, render: acde_render::RenderHandle, events: Arc<Inbox>, commands: Channel<Command>, ready: mpsc::SyncSender<Result<u32, String>>, lost: acde_paint::Lost) -> Result<(), String> {
         let conn = Connection::connect_to_env().map_err(|e| format!("连接合成器: {e}"))?;
         let (globals, queue) = registry_queue_init::<App>(&conn).map_err(|e| format!("registry: {e}"))?;
         let qh = queue.handle();
@@ -310,7 +318,7 @@ impl App {
                 }
             })
             .map_err(|e| e.to_string())?;
-        let painter = Painter::new(Self::gbm()?, paint_ping)?;
+        let painter = Painter::new(Self::gbm()?, paint_ping, lost.clone())?;
 
         let mut app = App {
             registry: RegistryState::new(&globals),
@@ -488,7 +496,7 @@ impl App {
     }
 
     fn interval(&self) -> Option<Duration> {
-        WEB_FPS.map(|fps| Duration::from_secs_f64(1.0 / fps)).or(self.refresh)
+        PAGE_FPS.map(|fps| Duration::from_secs_f64(1.0 / fps)).or(self.refresh)
     }
 
     pub(crate) fn note_refresh(&mut self) {
@@ -527,6 +535,10 @@ impl App {
     }
 
     fn on_painted(&mut self) {
+        if self.painter.lost() {
+            self.events.push(Event::named("rasterlost"));
+            return;
+        }
         self.tell_size();
         let Some(mut finished) = self.painter.finish() else {
             if self.painter.take_dropped() {

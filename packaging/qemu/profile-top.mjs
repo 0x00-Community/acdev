@@ -1,5 +1,5 @@
 // Self time per function in V8 CPU profiles written by acde with ACDE_PROFILE_DIR (see AGENTS.md "日志和计时").
-// Usage: bun packaging/qemu/profile-top.mjs [--top N] [--callers NAME] FILE.cpuprofile...   (several files of one web add up)
+// Usage: bun packaging/qemu/profile-top.mjs [--top N] [--callers NAME] FILE.cpuprofile...   (several files of one isolate add up)
 // --callers: where NAME's self time comes from (its callers, 4 frames up)
 import { readFileSync } from 'node:fs'
 

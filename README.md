@@ -14,7 +14,7 @@ acde (Agent Computer Desktop Environment): Linux 桌面的底座, 替代 KDE / G
 
 ```sh
 cargo build --release -p acde
-cd web && bun install && bun run build
+cd js && bun install && bun run build
 ACDE_PATH=<桌面包目录> ../target/release/acde --desktop dopame
 ```
 

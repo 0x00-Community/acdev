@@ -17,6 +17,7 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, office:
         "status" => status,
         "save" => save,
         "new" => create,
+        "writePage" => write_page,
     );
     bind::set(scope, natives, "office", object.into());
 }
@@ -27,7 +28,7 @@ pub fn clear() {
 
 fn send(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, call: OfficeCall) {
     let Some(office) = OFFICE.with(|o| o.borrow().clone()) else {
-        return bind::throw_error(scope, "acde.office: not given to this web");
+        return bind::throw_error(scope, "acde.office: not given to this isolate");
     };
     offload::run(scope, rv, "acde-office", move || office.call(call), settle);
 }
@@ -80,4 +81,42 @@ fn save(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
 fn create(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let body = body(scope, &args);
     send(scope, &mut rv, OfficeCall::New { body });
+}
+
+/// Where editor pages go: the browser snap reads only its own directory, so there when it is installed.
+fn page_dir() -> std::path::PathBuf {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let snap = home.join("snap/firefox/common");
+    if snap.is_dir() {
+        return snap.join("acde-office");
+    }
+    let base = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| home.join(".cache"));
+    base.join("acde/office")
+}
+
+/// `writePage(key, html)`: the Document Server editor page for one document, as a `file:` URL; pages older than an hour go.
+fn write_page(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    const STALE: std::time::Duration = std::time::Duration::from_secs(3600);
+    let key: String = bind::arg_string(scope, &args, 0).chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' }).collect();
+    let html = bind::arg_string(scope, &args, 1);
+    let dir = page_dir();
+    let written = (|| {
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+        for entry in std::fs::read_dir(&dir)?.flatten() {
+            let old = entry.path();
+            let stale = entry.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).is_some_and(|age| age > STALE);
+            if stale && old.extension().is_some_and(|e| e == "html") {
+                _ = std::fs::remove_file(old);
+            }
+        }
+        let file = dir.join(format!("{}.html", if key.is_empty() { "document" } else { &key }));
+        std::io::Write::write_all(&mut std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&file)?, html.as_bytes())?;
+        Ok::<_, std::io::Error>(file)
+    })();
+    match written.map(url::Url::from_file_path) {
+        Ok(Ok(url)) => rv.set(bind::string(scope, url.as_str()).into()),
+        Ok(Err(())) => bind::throw_error(scope, "office.writePage: not an absolute path"),
+        Err(e) => bind::throw_error(scope, &format!("office.writePage: {}: {e}", dir.display())),
+    }
 }

@@ -1,0 +1,33 @@
+{
+  "name": "@dopame/acde-app",
+  "version": "0.1.0",
+  "description": "What `acde app` runs (under bun): new, check, build, install and run an acde app package; the manifest checks the Broker uses too; the preload that puts a backend's every listen on a unix socket",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "sideEffects": ["./src/listen.ts"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dopamine-org/acde-base",
+    "directory": "js/packages/acde-app"
+  },
+  "engines": {
+    "bun": ">=1.4"
+  },
+  "exports": {
+    "./manifest": "./src/manifest.ts"
+  },
+  "files": [
+    "src",
+    "templates"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@dopame/acde-api": "workspace:*",
+    "@types/bun": "^1.4.4",
+    "typescript": "5.9.3"
+  }
+}

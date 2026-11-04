@@ -1,8 +1,6 @@
 pub mod compositor;
-#[cfg(feature = "napi")]
+#[cfg(feature = "link")]
 mod link;
-#[cfg(feature = "napi")]
-mod napi_shell;
 
-#[cfg(feature = "napi")]
-pub use napi_shell::Shell;
+#[cfg(feature = "link")]
+pub use link::{Link, Notice, Session};

@@ -1,7 +1,7 @@
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
 
-use crate::compositor::{Animate, CanvasInfo, Event, Grant, Inbox, Injected, Stats, WindowInfo};
+use crate::compositor::{Animate, CanvasInfo, Compositor, Grant, Handle, Injected, Stats, WindowInfo};
 
 mod protocol {
     #![allow(dead_code, non_upper_case_globals, non_camel_case_types, unused_imports, clippy::all)]
@@ -36,18 +36,99 @@ use protocol::acde_shell_list::{self, AcdeShellList};
 use protocol::acde_shell_result::{self, AcdeShellResult};
 use protocol::acde_shell_stats::{self, AcdeShellStats};
 
-const REPLY_WAIT: Duration = Duration::from_millis(500);
+pub(crate) const REPLY_WAIT: Duration = Duration::from_millis(500);
 
 pub struct Link {
     conn: Connection,
     shell: AcdeShell,
     qh: QueueHandle<Reader>,
-    stop: Option<OwnedFd>,
-    reader: Option<JoinHandle<()>>,
+    stop: Mutex<Option<OwnedFd>>,
+    reader: Mutex<Option<JoinHandle<()>>>,
 }
 
+/// Where the reader thread hands the compositor's events.
+pub type Sink = Box<dyn Fn(Notice) + Send>;
+
 struct Reader {
-    inbox: Arc<Inbox>,
+    sink: Sink,
+}
+
+/// What the compositor tells the runtime, typed as it comes off the wire.
+#[derive(Clone, Debug)]
+pub enum Notice {
+    Output { width: u32, height: u32, scale: f64 },
+    Open { window: u32, title: Option<String>, app_id: Option<String> },
+    Close { window: u32 },
+    Title { window: u32, title: Option<String>, app_id: Option<String> },
+    Fullscreen { window: u32, on: bool },
+    Minimize { window: u32 },
+    Activate { window: u32 },
+    Animated { window: u32 },
+    /// A registered shortcut was pressed; `scope` is where it was registered, `owner` the app window for app scope.
+    Shortcut { owner: u32, key: String, scope: Option<Scope> },
+    /// A window left the table; its last rect (canvas coordinates).
+    Gone { window: u32, rect: [i32; 4] },
+    MinSize { window: u32, width: u32, height: u32 },
+    Parent { window: u32, parent: Option<u32> },
+    Milestone { title: String, time_ms: f64 },
+    InputTarget { window: Option<u32>, x: f64, y: f64, button: u32 },
+    /// The connection ended (the compositor quit or died).
+    Exit,
+}
+
+/// The runtime's end of the session: the acde_shell link, and the compositor itself when it runs in this process.
+pub struct Session {
+    pub link: Link,
+    pub compositor: Option<Handle>,
+}
+
+impl Session {
+    const SHELL_FD: &str = "ACDE_SHELL_FD";
+
+    /// Takes the acde_shell connection the main process handed down (`ACDE_SHELL_FD`), or starts the compositor here.
+    pub fn open(sink: Sink) -> Result<Self, String> {
+        let (compositor, stream) = match std::env::var(Self::SHELL_FD) {
+            Ok(fd) => (None, Self::inherited(&fd)?),
+            Err(_) => {
+                let (client, server) = UnixStream::pair().map_err(|e| e.to_string())?;
+                (Some(Compositor::spawn(server)?), client)
+            }
+        };
+        Ok(Self { link: Link::connect(stream, sink)?, compositor })
+    }
+
+    /// The Wayland socket clients connect to.
+    pub fn socket_name(&self) -> String {
+        match &self.compositor {
+            Some(handle) => handle.socket_name().to_string_lossy().into_owned(),
+            None => std::env::var("WAYLAND_DISPLAY").unwrap_or_default(),
+        }
+    }
+
+    pub fn quit(&mut self) {
+        self.link.quit();
+        if let Some(handle) = self.compositor.as_mut() {
+            handle.quit();
+        }
+    }
+
+    fn inherited(fd: &str) -> Result<UnixStream, String> {
+        use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
+        use std::os::fd::{BorrowedFd, FromRawFd};
+        let raw: i32 = fd.parse().map_err(|_| format!("{}={fd}: 不是 fd", Self::SHELL_FD))?;
+        // SAFETY: an fd number above stdio that the parent left open for us; checked to be a socket before it is owned.
+        let borrowed = (raw > 2).then(|| unsafe { BorrowedFd::borrow_raw(raw) }).ok_or_else(|| format!("{}={fd}: 不是 fd", Self::SHELL_FD))?;
+        let flags = fcntl_getfd(borrowed).map_err(|e| format!("{}={fd}: {e}", Self::SHELL_FD))?;
+        if flags.contains(FdFlags::CLOEXEC) {
+            return Err(format!("{}={fd}: 已经被拿走了", Self::SHELL_FD));
+        }
+        if !rustix::fs::fstat(borrowed).is_ok_and(|s| rustix::fs::FileType::from_raw_mode(s.st_mode) == rustix::fs::FileType::Socket) {
+            return Err(format!("{}={fd}: 不是 socket", Self::SHELL_FD));
+        }
+        fcntl_setfd(borrowed, FdFlags::CLOEXEC).map_err(|e| format!("{}={fd}: {e}", Self::SHELL_FD))?;
+        // SAFETY: checked above; nothing else owns it (CLOEXEC marks it taken).
+        Ok(unsafe { OwnedFd::from_raw_fd(raw) }.into())
+    }
 }
 
 impl Reader {
@@ -78,24 +159,24 @@ struct ListReply {
 type Answer = Result<(u32, u32), String>;
 
 impl Link {
-    pub fn connect(stream: UnixStream, inbox: Arc<Inbox>) -> Result<Self, String> {
+    fn connect(stream: UnixStream, sink: Sink) -> Result<Self, String> {
         let conn = Connection::from_socket(stream).map_err(|e| format!("acde_shell: {e}"))?;
         let (globals, mut queue) = registry_queue_init::<Reader>(&conn).map_err(|e| format!("acde_shell registry: {e}"))?;
         let qh = queue.handle();
         let shell: AcdeShell = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("acde_shell: {e}"))?;
         conn.flush().map_err(|e| format!("acde_shell: {e}"))?;
         let (stopped, stop) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).map_err(|e| format!("acde_shell: {e}"))?;
-        let mut reader = Reader { inbox };
+        let mut reader = Reader { sink };
         let thread = std::thread::Builder::new()
             .name("acde-shell-link".into())
             .spawn(move || {
                 if let Err(e) = reader.run(&mut queue, &stopped) {
                     log::warn!("acde_shell 连接断了: {e}");
                 }
-                reader.inbox.push(Event::named("exit"));
+                (reader.sink)(Notice::Exit);
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { conn, shell, qh, stop: Some(stop), reader: Some(thread) })
+        Ok(Self { conn, shell, qh, stop: Mutex::new(Some(stop)), reader: Mutex::new(Some(thread)) })
     }
 
     fn sent(&self) {
@@ -223,9 +304,10 @@ impl Link {
         rx.recv_timeout(REPLY_WAIT).map_err(|e| e.to_string())?.map(|(pid, _)| pid)
     }
 
-    pub fn quit(&mut self) {
-        drop(self.stop.take());
-        if let Some(reader) = self.reader.take() {
+    /// Stops the reader thread, then asks the compositor to quit.
+    pub fn quit(&self) {
+        drop(self.stop.lock().ok().and_then(|mut s| s.take()));
+        if let Some(reader) = self.reader.lock().ok().and_then(|mut r| r.take()) {
             _ = reader.join();
         }
         self.shell.quit();
@@ -269,12 +351,12 @@ impl From<Scope> for WireScope {
     }
 }
 
-impl WireScope {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Session => "session",
-            Self::Desktop => "desktop",
-            Self::App => "app",
+impl From<WireScope> for Scope {
+    fn from(scope: WireScope) -> Self {
+        match scope {
+            WireScope::Session => Scope::Session,
+            WireScope::Desktop => Scope::Desktop,
+            WireScope::App => Scope::App,
         }
     }
 }
@@ -301,35 +383,26 @@ impl From<AxisSource> for WheelSource {
     }
 }
 
-impl From<acde_shell::Event> for Event {
-    fn from(event: acde_shell::Event) -> Self {
+impl Notice {
+    /// The event as a notice; `None` for a window event about no window (-1 on the wire).
+    fn of(event: acde_shell::Event) -> Option<Self> {
         use acde_shell::Event as E;
-        let on = |kind: &str, window: Option<u32>| Event { window, ..Event::named(kind) };
-        match event {
-            E::Output { width, height, scale } => Event { width: Some(width.into()), height: Some(height.into()), scale: Some(scale), ..Event::named("output") },
-            E::WindowOpen { window, title, app_id } => Event { title, app_id, ..on("windowopen", Some(window)) },
-            E::WindowClose { window } => on("windowclose", some(window)),
-            E::WindowTitle { window, title, app_id } => Event { title, app_id, ..on("windowtitle", some(window)) },
-            E::WindowFullscreen { window, fullscreen } => on(if fullscreen != 0 { "windowfullscreen" } else { "windowunfullscreen" }, Some(window)),
-            E::WindowMinimize { window } => on("windowminimize", some(window)),
-            E::WindowActivate { window } => on("windowactivate", some(window)),
-            E::WindowAnimated { window } => on("windowanimated", Some(window)),
-            E::Shortcut { owner, key, scope } => {
-                let title = scope.into_result().ok().map(|s| s.name().to_owned());
-                Event { key, title, ..on("shortcut", Some(owner)) }
-            }
-            E::WindowGone { window, x, y, width, height } => Event {
-                x: Some(x.into()),
-                y: Some(y.into()),
-                width: Some(width.into()),
-                height: Some(height.into()),
-                ..on("windowgone", some(window))
-            },
-            E::WindowMinSize { window, width, height } => Event { width: Some(width.into()), height: Some(height.into()), ..on("windowminsize", some(window)) },
-            E::WindowParent { window, parent } => Event { parent: some(parent), ..on("windowparent", Some(window)) },
-            E::Milestone { title, time_ms } => Event { title: Some(title), time: Some(time_ms), ..Event::named("milestone") },
-            E::InputTarget { window, x, y, button } => Event { x: Some(x), y: Some(y), button: Some(button), ..on("inputtarget", some(window)) },
-        }
+        Some(match event {
+            E::Output { width, height, scale } => Notice::Output { width: width as u32, height: height as u32, scale },
+            E::WindowOpen { window, title, app_id } => Notice::Open { window, title, app_id },
+            E::WindowClose { window } => Notice::Close { window: some(window)? },
+            E::WindowTitle { window, title, app_id } => Notice::Title { window: some(window)?, title, app_id },
+            E::WindowFullscreen { window, fullscreen } => Notice::Fullscreen { window, on: fullscreen != 0 },
+            E::WindowMinimize { window } => Notice::Minimize { window: some(window)? },
+            E::WindowActivate { window } => Notice::Activate { window: some(window)? },
+            E::WindowAnimated { window } => Notice::Animated { window },
+            E::Shortcut { owner, key, scope } => Notice::Shortcut { owner, key: key.unwrap_or_default(), scope: scope.into_result().ok().map(Scope::from) },
+            E::WindowGone { window, x, y, width, height } => Notice::Gone { window: some(window)?, rect: [x, y, width as i32, height as i32] },
+            E::WindowMinSize { window, width, height } => Notice::MinSize { window: some(window)?, width: width as u32, height: height as u32 },
+            E::WindowParent { window, parent } => Notice::Parent { window, parent: some(parent) },
+            E::Milestone { title, time_ms } => Notice::Milestone { title, time_ms },
+            E::InputTarget { window, x, y, button } => Notice::InputTarget { window: some(window), x, y, button },
+        })
     }
 }
 
@@ -339,7 +412,9 @@ impl Dispatch<WlRegistry, GlobalListContents> for Reader {
 
 impl Dispatch<AcdeShell, ()> for Reader {
     fn event(state: &mut Self, _: &AcdeShell, event: acde_shell::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        state.inbox.push(event.into());
+        if let Some(notice) = Notice::of(event) {
+            (state.sink)(notice);
+        }
     }
 }
 

@@ -17,7 +17,7 @@ pub use acde_shell::ShellEvent;
 mod grabs;
 pub use acde_window::Grant;
 mod input;
-pub use input::Injected;
+pub use input::{Injected, WheelKind};
 mod layers;
 mod lock;
 mod protocols;
@@ -30,8 +30,6 @@ use std::time::Duration;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-#[cfg(feature = "napi")]
-use napi_derive::napi;
 use smithay::desktop::{PopupManager, Space, Window};
 use smithay::input::{Seat, SeatState};
 use smithay::reexports::calloop::channel::{self, Channel};
@@ -52,7 +50,7 @@ pub use acde_model::{Event, Inbox};
 
 pub const SURFACE_IDS: u32 = 1 << 20;
 
-pub(crate) const BTN_LEFT: u32 = 0x110;
+pub const BTN_LEFT: u32 = 0x110;
 
 pub struct Extra(u32);
 
@@ -80,7 +78,6 @@ fn space_rect(rect: acde_model::Rect) -> Rectangle<i32, Logical> {
     Rectangle::new((rect.x as i32, rect.y as i32).into(), (rect.w.max(1.0) as i32, rect.h.max(1.0) as i32).into())
 }
 
-#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Default, Clone)]
 pub struct CanvasInfo {
     pub id: u32,
@@ -111,7 +108,6 @@ pub enum Command {
     Quit,
 }
 
-#[cfg_attr(feature = "napi", napi(object))]
 #[derive(Default, Clone)]
 pub struct Stats {
     pub frames: u32,

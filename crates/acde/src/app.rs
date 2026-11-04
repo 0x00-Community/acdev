@@ -2,7 +2,7 @@ use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 
 const INSTALLED: &str = "acde-app/src/cli.ts";
-const SOURCE: &str = "../../web/packages/acde-app/src/cli.ts";
+const SOURCE: &str = "../../js/packages/acde-app/src/cli.ts";
 
 fn locate() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok().and_then(|e| std::fs::canonicalize(e).ok())?;

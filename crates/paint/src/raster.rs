@@ -1,4 +1,4 @@
-//! The web process's raster thread: jobs from the painter go to acgpu's PageRaster, which draws each page on Xe3 when
+//! A desktop or window isolate's raster thread: jobs from the painter go to acgpu's PageRaster, which draws each page on Xe3 when
 //! it can and on the Vulkan fallback otherwise. acde keeps only the thread, the GBM canvases it hands over and the
 //! WebGPU device it publishes from acgpu's.
 
@@ -48,6 +48,9 @@ pub enum Job {
 
 pub type Ready = std::sync::Arc<std::sync::OnceLock<bool>>;
 
+/// Set when the raster thread died (a panic): the isolate it draws for ends; the rest of the runtime goes on.
+pub type Lost = std::sync::Arc<std::sync::atomic::AtomicBool>;
+
 pub type Done = Result<Option<OwnedFd>, String>;
 
 pub struct Raster<'d> {
@@ -69,7 +72,7 @@ impl<'d> Raster<'d> {
         log::info!("网页图层用 {} ({:?})", device.info.name, device.info.device_type);
         let published = (device.device.clone(), device.queue.clone(), device.info.clone());
         let started = std::time::Instant::now();
-        let vulkan = Vulkan::new(device, std::env::var_os("ACDE_WEB_POLL").is_some())?;
+        let vulkan = Vulkan::new(device, std::env::var_os("ACDE_PAGE_POLL").is_some())?;
         log::info!("vello 预热 {:.1}ms", acde_log::since_ms(started));
         let gpu = Gpu::publish(Some(published), xe.is_some());
         let images = gpu.as_ref().map_or_else(Default::default, |g| g.images().clone());
@@ -78,9 +81,9 @@ impl<'d> Raster<'d> {
         Ok(Self { pages, overrides: Overrides::from(images), gpu })
     }
 
-    pub fn spawn(jobs: mpsc::Receiver<Job>, done: mpsc::Sender<Done>, ready: Ready, waker: Ping) -> std::io::Result<()> {
+    pub fn spawn(jobs: mpsc::Receiver<Job>, done: mpsc::Sender<Done>, ready: Ready, lost: Lost, waker: Ping) -> std::io::Result<()> {
         acde_render::gpu::expect();
-        std::thread::Builder::new().name("acde-web".into()).spawn(move || {
+        std::thread::Builder::new().name("acde-raster".into()).spawn(move || {
             let xe = (Painter::chosen() == Painter::Xe3).then(|| Xe::open_first().inspect_err(|e| log::warn!("{}=xe3 但打不开 Xe3, 网页图层走 Vulkan: {e}", Painter::ENV)).ok()).flatten();
             let mut raster = match Raster::new(xe.as_ref()) {
                 Ok(raster) => raster,
@@ -94,10 +97,10 @@ impl<'d> Raster<'d> {
             };
             let _ = ready.set(true);
             waker.ping();
-            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| raster.run(waker, jobs, done))).is_err() {
-                log::error!("网页图层的光栅化线程 panic, 退出这个 web 进程");
-                acde_log::flush();
-                std::process::exit(101);
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| raster.run(waker.clone(), jobs, done))).is_err() {
+                log::error!("光栅化线程 panic, 结束它画的这个 isolate");
+                lost.store(true, std::sync::atomic::Ordering::Release);
+                waker.ping();
             }
         })?;
         Ok(())

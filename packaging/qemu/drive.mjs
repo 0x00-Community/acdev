@@ -1,13 +1,13 @@
-// What drive.sh runs inside a session's Broker (ACDE_DEBUG_DIR, web/packages/acde-host src/debug.ts): input through
-// shell's own routing (Shell.inject, the same path as real input), code in a web, and measurements. `run(api, argv)`
+// What drive.sh runs inside a session's Broker (ACDE_DEBUG_DIR, js/packages/acde-host src/debug.ts): input through
+// shell's own routing (Shell.inject, the same path as real input), code in an isolate, and measurements. `run(api, argv)`
 // answers one command line; its value is drive.sh's output (JSON).
 //   keys ctrl+space n i h a o space   evdev key names, `+` joins a chord, a capital letter is shifted
 //   type 'nihao'                      a-z A-Z 0-9 space and a few symbols as key presses
 //   move X Y | click [X Y] [right] | drag X1 Y1 X2 Y2 | wheel X Y DY   logical pixels
-//   eval WEB CODE                     CODE evaluated in WEB ("desktop", `<app>#<window>`), awaited
+//   eval NAME CODE                    CODE evaluated in the isolate NAME ("desktop", `<app>#<window>`), awaited
 //   windows                           the Broker's window table
 //   launch APP | close WINDOW         through the desktop's acde:apps / acde:windows
-//   stats [reset]                     shell's frame timings and render's per web, as they are
+//   stats [reset]                     shell's frame timings and render's per isolate, as they are
 //   screenshot PATH                   the main output drawn once off screen, saved as a PNG at PATH
 //   perf SCENARIO [SECONDS] [ARG]     a measurement (below); prints what changed over it
 
@@ -76,23 +76,23 @@ class Input {
   }
 }
 
-/** The desktop's windows, through its web. */
+/** The desktop's windows, through its isolate. */
 class Windows {
   constructor(api) {
     this.api = api
   }
 
   async screen() {
-    const [width, height] = await this.api.web('desktop', '[innerWidth, innerHeight]')
+    const [width, height] = await this.api.isolate('desktop', '[innerWidth, innerHeight]')
     return { width, height }
   }
 
   async launch(app) {
-    return this.api.web('desktop', `import("acde:apps").then(({ apps }) => apps.launch(${JSON.stringify(app)})).then((r) => r.window)`)
+    return this.api.isolate('desktop', `import("acde:apps").then(({ apps }) => apps.launch(${JSON.stringify(app)})).then((r) => r.window)`)
   }
 
   async close(id) {
-    return this.api.web('desktop', `import("acde:windows").then(({ windows }) => windows.close(${Number(id)}))`)
+    return this.api.isolate('desktop', `import("acde:windows").then(({ windows }) => windows.close(${Number(id)}))`)
   }
 
   /** where window `id` is on the screen (logical px, from the compositor's window table), null while it is not placed */
@@ -123,13 +123,13 @@ class Windows {
   }
 }
 
-/** What changes over a scenario: CPU per thread, shell's frames, render's per web. */
+/** What changes over a scenario: CPU per thread, shell's frames, render's per isolate. */
 class Measure {
   constructor(api) {
     this.api = api
   }
 
-  /** this process and every process under it (the web processes, apps' backends, native programs) */
+  /** this process and every process under it (apps' backends, native programs) */
   pids() {
     const self = this.api.readText('/proc/self/stat').split(' ')[0]
     const children = new Map()
@@ -154,7 +154,7 @@ class Measure {
     return Number(fields[11]) + Number(fields[12])
   }
 
-  /** clock ticks per thread name (`acde-web`, `acde-render`, ...), summed over threads of the same name in all the processes */
+  /** clock ticks per thread name (`acde-desktop`, `acde-window`, `acde-render`, ...), summed over threads of the same name in all the processes */
   threads(pids) {
     const ticks = {}
     for (const pid of pids) {
@@ -217,7 +217,7 @@ class Measure {
   async finish() {
     const seconds = (Date.now() - this.started) / 1000
     const shell = this.api.shell.stats()
-    const webs = await this.api.stats()
+    const isolates = await this.api.stats()
     const pids = this.pids()
     const ticks = this.threads(pids)
     const total = Object.entries(this.processes(pids)).reduce((sum, [pid, t]) => sum + t - (this.total[pid] ?? 0), 0)
@@ -232,16 +232,16 @@ class Measure {
       seconds: r(seconds),
       // acde and the processes under it, alive at the end (one that ended in between is not counted)
       cpuPercent: percent(total),
-      // threads alive at the end (a short-lived one, as `acde-web-cpu`, only counts in cpuPercent)
+      // threads alive at the end (a short-lived one, as `acde-pick`, only counts in cpuPercent)
       threads: Object.fromEntries(threads.slice(0, 10).map(([name, t]) => [name, percent(t)])),
       rssMb: this.rssMb(pids),
-      // the web processes rasterize their own frames: their timing is in the `perf::raster` log lines
+      // the desktop and window isolates rasterize their own frames: their timing is in the `perf::raster` log lines
       shell: {
         composedPerSecond: r((shell.frames - this.shell.frames) / seconds),
         compose: { p50: r(shell.composeP50, 2), p95: r(shell.composeP95, 2), max: r(shell.composeMax) },
       },
-      webs: Object.fromEntries(
-        Object.entries(webs).map(([name, s]) => [
+      isolates: Object.fromEntries(
+        Object.entries(isolates).map(([name, s]) => [
           name,
           s.error ? s : { frame: timing(s.frame), frameLocked: timing(s.frameLocked), resolve: timing(s.resolve), nodes: s.nodes, animating: s.animating },
         ]),
@@ -339,7 +339,7 @@ class Scenarios {
   }
 
   /** `count` stress windows repainting while a new files window (on top of them) is dragged: surfaces competing for
-   * the rasterizing thread (each web's frames per second show who got a turn) */
+   * the rasterizing thread (each isolate's frames per second show who got a turn) */
   async contend(seconds, count = 3) {
     const ids = []
     for (let n = 0; n < Number(count); n++) ids.push(await this.windows.launch('stress'))
@@ -394,7 +394,7 @@ export async function run(api, [command, ...args]) {
       api.shell.inject({ type: 'wheel', dx: 0, dy: Number(args[2]), source: 'wheel' })
       return true
     case 'eval':
-      return api.web(args[0], args.slice(1).join(' '))
+      return api.isolate(args[0], args.slice(1).join(' '))
     case 'windows':
       return api.broker.windows
     case 'launch':
@@ -404,7 +404,7 @@ export async function run(api, [command, ...args]) {
     case 'screenshot':
       return api.shell.screenshot(args[0])
     case 'stats':
-      return { shell: api.shell.stats(args[0] === 'reset'), webs: await api.stats(args[0] === 'reset') }
+      return { shell: api.shell.stats(args[0] === 'reset'), isolates: await api.stats(args[0] === 'reset') }
     case 'perf': {
       const [scenario, seconds = '10', arg] = args
       const scenarios = new Scenarios(api)

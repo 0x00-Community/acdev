@@ -32,7 +32,8 @@ log = "0.4"
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = "0.7"
 acde-runtime = { path = "../runtime" }
-acde-shell = { path = "../shell", features = ["napi"] }
+acde-shell = { path = "../shell", features = ["link"] }
+acde-model = { path = "../model" }
 acde-window = { path = "../window" }
 acde-paint = { path = "../paint" }
 # WebGPU (webgpu/): descriptors come as JSON, read into wgpu-types (its serde names are WebGPU's)

@@ -4,8 +4,11 @@ mod audio;
 #[cfg(target_os = "linux")]
 mod backend;
 mod bind;
+mod budget;
 #[cfg(target_os = "linux")]
 mod child;
+#[cfg(target_os = "linux")]
+mod desk;
 mod dom;
 mod engine;
 #[cfg(target_os = "linux")]
@@ -17,7 +20,8 @@ mod napi;
 mod profile;
 mod rt;
 mod sys;
-mod web;
+#[cfg(target_os = "linux")]
+mod isolate;
 #[cfg(target_os = "linux")]
 mod network;
 #[cfg(target_os = "linux")]
@@ -29,7 +33,9 @@ mod supervise;
 #[cfg(target_os = "linux")]
 mod terminal;
 #[cfg(target_os = "linux")]
-mod webnative;
+mod own;
+#[cfg(target_os = "linux")]
+mod surface;
 #[cfg(target_os = "linux")]
 mod webgpu;
 
