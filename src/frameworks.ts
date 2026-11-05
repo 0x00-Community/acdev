@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
+import { PackageManager } from './pm.ts'
 
 export interface Output {
   readonly web: string | null
@@ -35,7 +36,7 @@ export class Frameworks {
     { name: 'angular', label: 'Angular', detect: (deps) => deps.has('@angular/core') && deps.has('@angular/cli'), build: (b) => Frameworks.#angular(b) },
     { name: 'vite', label: 'Vite', detect: (deps) => deps.has('vite'), build: (b) => Frameworks.#vite(b) },
     { name: 'cra', label: 'Create React App', detect: (deps) => deps.has('react-scripts'), build: (b) => Frameworks.#script(b, ['react-scripts', 'build'], ['build']) },
-    { name: 'script', label: 'build script', detect: (_, b) => typeof Frameworks.#scripts(b)['build'] === 'string', build: (b) => Frameworks.#script(b, null, Frameworks.OUT_DIRS) },
+    { name: 'script', label: 'build script', detect: (_, b) => Frameworks.#ownBuild(b), build: (b) => Frameworks.#script(b, null, Frameworks.OUT_DIRS) },
   ]
 
   static detect(build: Pick<Build, 'dir' | 'pkg'>, wanted?: string): Framework | null {
@@ -51,7 +52,15 @@ export class Frameworks {
 
   static async install(dir: string): Promise<void> {
     if (Frameworks.#up(dir, 'node_modules')) return
-    await Frameworks.#spawn(dir, ['install'])
+    const pm = PackageManager.of(dir)
+    console.log(`acde: no node_modules: ${pm.name} install`)
+    const code = await Bun.spawn(pm.install, { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] }).exited
+    if (code !== 0) throw new Error(`${pm.name} install failed (exit ${code})`)
+  }
+
+  static #ownBuild(b: Pick<Build, 'pkg'>): boolean {
+    const build = Frameworks.#scripts(b)['build']
+    return typeof build === 'string' && !/(^|[\s;&|(])(acde|bunx acde|npx acde)\s/.test(`${build} `)
   }
 
   static #deps(pkg: Readonly<Record<string, unknown>>): Set<string> {
@@ -83,8 +92,8 @@ export class Frameworks {
   }
 
   static #tool(b: Build, name: string, args: readonly string[], env?: Record<string, string>): Promise<void> {
-    const bin = Frameworks.#up(b.dir, join('node_modules', '.bin', name))
-    if (!bin) throw new Error(`no ${name} in node_modules/.bin: run bun install first`)
+    const bin = PackageManager.bin(b.dir, name, Frameworks.#deps(b.pkg))
+    if (!bin) throw new Error(`no ${name} in node_modules: run ${PackageManager.of(b.dir).name} install first`)
     return Frameworks.#spawn(b.dir, ['--bun', bin, ...args], env)
   }
 

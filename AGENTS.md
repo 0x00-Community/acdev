@@ -4,7 +4,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 跑桌面和应用, Dopame OS 的会话就是它), acde 建工程、构建、装包, `acde dev` 拉起 acdert. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
 窗口模型) 以 acdert 的 AGENTS.md 为准, 这里只写工具.
 
-说明都在本文件里 (没有 README). full agentic. TypeScript, 跑在 bun 上 (没有 Node), 测试 `bun test`, 类型检查 `bun run typecheck`.
+说明都在本文件里 (没有 README). full agentic. TypeScript, 跑在 bun 上 (开发者机器上不必有 bun, 见「分发」), 测试 `bun test`, 类型检查 `bun run typecheck`.
 代码不写注释 (`//`, `/* */`, JSDoc 都不写), 要说明的写进本文件; 工具要读的指令 (`/// <reference>`、`@ts-expect-error`) 除外.
 
 ## 形态
@@ -21,41 +21,100 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde install [目录]` | build 之后装进 `$XDG_DATA_HOME/acde/packages/<id>` (手写的包: 指向工程目录的符号链接) |
 | `acde dev [目录] [--app ID]` | 构建, 起 `acdert desktop <id>` (桌面工程) 或 `acdert app <id>` (应用), 构建结果经 `ACDE_PATH` 给它 (不装); 盯着工程目录, 改了就重新构建、发 `reload`; acdert 是 `ACDERT` 或 PATH 上的 `acdert` |
 
-## 新建工程 (`acde new`, `bun create acde`)
+## 新建工程 (`acde new`, `npm create acde`)
 
-一行命令: `bun create acde` (或 `npm create acde`、`pnpm create acde`; 都解析到 `create-acde` 包) 或 `acde new`. 在终端里
-(stdin 和 stdout 都是 TTY, 没给 `--yes`) 像 `npm create vite` 一样逐项问 (@clack/prompts, `src/create.ts` 的 `Creator.ask`),
-命令行已给的不再问: 目录 (默认 `my-app`; 非空的、算不出 id 的当场提示; id 是目录名小写、非 `[a-z0-9-]` 换成 `-`)、做什么
-(窗口应用 / 桌面)、模板 (应用才问)、显示名 (默认 id)、要不要后端 (只有 html 问)、`bun install`、`git init` (不在 git 仓库里、
-有 git 才问; 再 `git add` + 首次提交, 没配 user.name / email 时提交跳过). Ctrl+C 退出码 130. 不在终端里时什么都不问: 目录必填,
-模板默认 html, 不装依赖、不建仓库 (要就给 `--install` / `--git`). 做完打出下一步 (`cd`、`bun install`、`acde dev`).
+一行命令, 用开发者已有的任何一个:
+
+| 已有 | 新建 | 开发 |
+| --- | --- | --- |
+| bun | `bun create acde` | `bun run dev` |
+| npm | `npm create acde@latest` | `npm run dev` |
+| pnpm | `pnpm create acde` | `pnpm dev` |
+| yarn | `yarn create acde` | `yarn dev` |
+| deno | `deno init --npm acde` | `deno task dev` |
+
+(框架模板的开发脚本叫 `acde:dev`, 见下.) 都解析到 `create-acde` 包, 它跑 `acde new`. 在终端里 (stdin 和 stdout 都是 TTY, 没给 `--yes`)
+像 `npm create vite` 一样逐项问 (@clack/prompts, `src/create.ts` 的 `Creator.ask`), 命令行已给的不再问: 目录 (默认 `my-app`;
+非空的、算不出 id 的当场提示; id 是目录名小写、非 `[a-z0-9-]` 换成 `-`)、做什么 (窗口应用 / 桌面)、模板 (应用才问)、显示名
+(默认 id)、要不要后端 (只有 html 问)、装不装依赖、`git init` (不在 git 仓库里、有 git 才问; 再 `git add` + 首次提交, 没配
+user.name / email 时提交跳过). Ctrl+C 退出码 0 (和 create-vite 一样, 包管理器不再报 "command failed"). 不在终端里时什么都不问:
+目录必填, 模板默认 html, 不装依赖、不建仓库 (要就给 `--install` / `--git`). 做完打出下一步 (`cd`、装依赖、开发脚本).
+
+**包管理器** (`src/pm.ts` `PackageManager`): 新工程用开发者跑命令的那个 —— 包管理器跑 `create-acde` 时都设
+`npm_config_user_agent` (bun / npm / pnpm / yarn / deno 开头); 没有时 (全局装的 `acde` 直接跑) 看启动脚本跑在哪个运行时上
+(`ACDE_HOST_RUNTIME`: node → npm, deno → deno, bun → bun); `--pm` 指定. 装依赖、脚手架的参数 (Next.js 的 `--use-<pm>`, Nuxt 的
+`--packageManager`)、打出的下一步都按它; yarn 的工程另写 `.yarnrc.yml` 的 `nodeLinker: node-modules` (PnP 下 bun 找不到依赖,
+框架的构建也不认). 已有的工程 (`acde build` 发现没有 node_modules 时) 按 lockfile 认 (`bun.lock`、`pnpm-lock.yaml`、`yarn.lock`、
+`package-lock.json`、`deno.lock`), 再看 package.json 的 `packageManager`. 框架的命令 (`next`、`astro` …) 不经 `node_modules/.bin`
+(pnpm 和 Deno 那里是 shell 脚本, bun 跑不了), 从依赖的 package.json 的 `bin` 找到 JS 文件, `bun --bun` 跑它.
+
+**新工程的 package.json**: 自带模板的 `scripts` 是 `dev` / `build` / `check` (`acde dev` …); 框架模板不动框架自己的脚本, 加
+`acde:dev` / `acde:build` / `acde:check`. devDependency `@dopame/acde-api`, 和 `acde` 自己 (像 wrangler: 版本跟着工程走; 只在
+acde 是发布出去的那份时加, 见「分发」). `build` 脚本调的是 acde 时不算「有 build 脚本的工程」(否则 `acde build` 调自己).
 
 | 模板 | 怎么来 |
 | --- | --- |
 | `html` | 自带 `templates/app` (加 `--backend` 再叠 `templates/backend`: `server.ts` 和取 `/api/hello` 的页面) |
 | `react` / `vue` / `svelte` / `solid` / `preact` / `vanilla` | `create-vite@latest --template <名>-ts --no-interactive --no-immediate` |
-| `next` | `create-next-app@latest --yes --ts --app --use-bun --skip-install --disable-git --no-agent-feedback` |
-| `nuxt` | `create-nuxt@latest --template minimal --no-install --no-gitInit --packageManager bun` |
+| `next` | `create-next-app@latest --yes --ts --app --use-<pm> --skip-install --disable-git --no-agent-feedback` (deno 用 `--use-npm`) |
+| `nuxt` | `create-nuxt@latest --template minimal --no-install --no-gitInit --packageManager <pm>` |
 | `sveltekit` | `sv@latest create --template minimal --types ts --no-add-ons --no-install` |
 | `astro` | `create-astro@latest --template minimal --no-install --no-git --no-ai --yes --skip-houston` |
 | `desktop` | 自带 `templates/desktop` |
 
-框架模板照 `npm create cloudflare` 的做法: 用框架自己的脚手架 (`bun x --bun <包>@latest`, 总是最新版; 不交互, stdin 关掉、
-带 `CI=1`, 输出收着, 失败时整段打出来), 然后 `AppPackage.adopt` 叠上 acde 的部分: `templates/framework/acde.config.jsonc`
-(没有 `entry`: 构建认框架)、devDependency `@dopame/acde-api`、`.gitignore` 加 `.acde/`; 不动框架自己的文件和脚本.
-加模板就是 `STARTERS` 加一项 (`scaffold` 返回命令行; 没有 `scaffold` 的是 `templates/<kind>`).
+框架模板照 `npm create cloudflare` 的做法: 用框架自己的脚手架 (`bun x --bun <包>@latest`, 用跑 acde 的那份 bun, 总是最新版;
+不交互, stdin 关掉、只给这一步带 `CI=1` (yarn 见到 `CI` 不许新建 lockfile, 装依赖那步不能带), 输出收着, 失败时整段打出来), 然后
+`AppPackage.adopt` 叠上 acde 的部分: `templates/framework/acde.config.jsonc` (没有 `entry`: 构建认框架)、上面的 package.json、
+`.gitignore` 加 `.acde/`; 不动框架自己的文件. 加模板就是 `STARTERS` 加一项 (`scaffold(dir, pm)` 返回命令行; 没有 `scaffold` 的是
+`templates/<kind>`).
 
-`create-acde` (`packages/create-acde/index.mjs`): Node 和 Bun 都能跑的几行 JS, 找到 Bun (没有就说去 https://bun.sh 装, 退出 1)
-和依赖的 `acde` 包 (找不到用同仓库的 `src/cli.ts`), `bun cli.ts new <参数>`. 还没上 npm: `acde` 包现在是 `private`, 依赖的
-`@dopame/acde-api` 也没上 npm, 要一起发 (见「要做」).
-
-验过 (macOS, 2026-11-05): 在 Ghostty 里跑 `acde new`, 用 AppleScript 按键 (`send key` / `input text`) 并读屏
-(`perform action "write_screen_file:copy,plain"`: 屏幕写进文件, 路径进剪贴板): React (装依赖 + git)、html + 后端 (不装依赖)、
-非空目录的提示、Ctrl+C. 11 个模板 `--yes --install` 全部建好并 `acde build` 通过 (Next / Nuxt / SvelteKit 是后端渲染);
-html + 后端的模板在 `acde dev` 里打开, 页面拿到了后端 `/api/hello` 的回答. 没验: 没装 Bun 时 `create-acde` 的提示
-(本机的 node 就是 bun), Windows / Linux.
+验过 (macOS, 2026-11-05): 在 Ghostty 里跑 `acde new` 和 `npm create acde@latest`, 用 AppleScript 按键 (`send key` / `input text`)
+并读屏 (`perform action "write_screen_file:copy,plain"`: 屏幕写进文件, 路径进剪贴板): React (装依赖 + git)、html + 后端、
+非空目录的提示、Ctrl+C. 11 个模板 `--yes --install` 全部建好并 `acde build` 通过 (Next / Nuxt / SvelteKit 是后端渲染). 五种入口见「分发」.
 
 另一种工程是手写的**包** (没有 `acde.config.*`, package.json 的 `acde` 有 `apps`): 不用构建, build 只校验, install 是符号链接.
+
+## 分发 (npm, 任何包管理器)
+
+只发 npm 一处: bun、npm、pnpm、yarn、deno 都从它装. 安装时不跑任何脚本 (pnpm 10+、npm 11、Deno 默认都不跑 postinstall), 二进制
+照 esbuild / biome 的做法放进按平台分的包, 由 `os` / `cpu` / `libc` 字段让包管理器只装本机那一个.
+
+| 包 | 内容 |
+| --- | --- |
+| `create-acde` | `packages/create-acde/index.mjs`: import `acde/launcher`, `run(['new', ...参数])` |
+| `acde` | `bin/acde.mjs` → `launcher.mjs`; `src/cli.js` (`src/cli.ts` 连同 @clack/prompts、acde-api 打成一个文件: Deno 跑 `npm:` 包时没有 node_modules, 运行时不能再解析依赖) 和它按文件用的 `src/listen.ts`、`src/sockets.ts`、`templates/`. `dependencies` 只有 `@dopame/acde-api` (精确版本; 新工程的 devDependency 取它的版本). `optionalDependencies`: 每个编出来的平台的 `@dopame/acdert-<平台>` (精确版本) 和 Bun 官方的 `@oven/bun-<平台>` (8 个, 含 musl; 版本是打包那份 bun 的). `preferUnplugged`: yarn PnP 下解压到磁盘 (PnP 的 ESM 读不了 zip 里的 `.mjs`, bun 也要真文件) |
+| `@dopame/acdert-<平台>` | `bin/acdert(.exe)` 和 `bin/app/dist/{broker,web}.js` (acdert 在自己旁边的 `app/dist` 找 host bundle); 平台: `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64` (`libc: glibc`)、`win32-arm64`、`win32-x64` |
+| `@dopame/acde-api` | acdert 仓库的 `web/packages/acde-api` 原样 |
+
+启动脚本 `launcher.mjs` 只用 `node:` 模块, Node / Deno / Bun 都能跑:
+- bun: 自己就跑在 bun 上用自己; 否则 `@oven/bun-<平台>` (经 `createRequire` 从 acde 的位置解析; 落在 zip 里的不算); 否则 PATH 上的
+  `bun`; 都没有就下载 (见下).
+- acdert: `ACDERT`; 否则 `@dopame/acdert-<平台>`; 否则 PATH 上的 `acdert`; `dev` 才需要, 都没有就下载; 这个平台没有包时报
+  「acdert has no build for <平台> yet」.
+- 下载 (可选依赖没装上: lockfile 是在别的平台上生成的、`--omit=optional`、yarn PnP): 从 `npm_config_registry` (默认
+  registry.npmjs.org) 取那个版本的元数据, 下 tarball, 按 `dist.integrity` 校验, 自己解 tar (gzip + ustar, 带权限位), 放进缓存
+  (`ACDE_CACHE_DIR`, 默认 macOS `~/Library/Caches/acde`、Linux `$XDG_CACHE_HOME/acde`、Windows `%LOCALAPPDATA%\acde\cache`) 的
+  `<包>@<版本>/`, 打一行说明.
+- 用那份 bun 跑 `src/cli.js` (没发布的仓库里是 `src/cli.ts`), PATH 最前面加上 bun 所在目录 (acdert 起应用后端用的就是 PATH 上的
+  `bun`), 设 `ACDERT`、`ACDE_HOST_RUNTIME`; SIGINT 父进程只吞掉 (终端已经发给整个进程组), SIGTERM / SIGHUP 转给子进程; 退出码跟它.
+- 「发布出去的那份」= package.json 有 `optionalDependencies` (只有打包脚本写): 这时新工程的依赖写 `^<版本>`, 并加 `acde`;
+  仓库里的 acde 照旧 `file:` 指向 acde-api, 不加 `acde`.
+
+打包: `bun scripts/pack.ts --acdert <平台>=<二进制> ... --host <acde-host dist> [--api <acde-api 目录>] [--version x.y.z]
+[--bun-version] [--out .npm] [--publish <仓库>]`: 在 `.npm/` 出各包的 tgz (`bun pm pack`), `--publish` 时用 PATH 上的 npm 发
+(仓库里已有那个版本的跳过). 发版走 acdert 仓库的 `.github/workflows/release.yml`: `v*` tag (或手动) 时六个平台各编一次 acdert
+和 host bundle, 再检出 acde 打包并发 npm. 要两个 secret: `DOPAME_READ_TOKEN` (读私有的 acgpu、acde), `NPM_TOKEN`. 编不过的平台
+(Windows 移植没做完之前的 win32) 不进 `optionalDependencies`, 其余照发.
+
+注意: yarn 4.18 (`npmMinimalAgeGate`, 1440 分钟) 和 Deno 2.9 (`minimumDependencyAge`, 24 小时) 默认不装发布不到一天的版本;
+首次发布后一天内这两条入口报「找不到 / 被隔离」, 之后每次发版它们晚一天拿到新版. 不绕开 (这是它们的供应链防护).
+Linux 的 acdert 动态链接 pipewire、libinput、libseat、gbm、drm、wayland、fontconfig、OpenSSL, 用户机器上要有这些库.
+
+验过 (macOS arm64, 2026-11-05, 本地 verdaccio 当仓库, 只发了 darwin-arm64; Node 26 / npm 11、pnpm 12、yarn 4.18、Deno 2.9、
+Bun 1.4, 除 bun 那条外 PATH 里没有 bun): npm (html + 后端)、pnpm (React)、yarn (Vue)、Deno (Astro)、bun (Next.js, PATH 里没有
+node) 各自建工程、装依赖、跑开发脚本, acdert 的窗口里页面都出来了 (html 的拿到了后端的回答, Next.js 是服务端渲染的); npm
+`--omit=optional` 时 bun 和 acdert 都从仓库下载进缓存, 照样跑起来; `npm i -g acde` 后 `acde new` 认成 npm; `npm create acde@latest`
+在 Ghostty 里交互和 Ctrl+C. 没验: 公网 npm (还没发), CI, 别的平台, yarn 1.
 
 ## 和 acdert 的契约
 
@@ -82,7 +141,7 @@ html + 后端的模板在 `acde dev` 里打开, 页面拿到了后端 `/api/hell
   没有这份配置时, package.json 的 `acde` 简写 (`id`、`label`、`web`、`server`、`backend` …, 没有 `apps`) 当作 app 读; 两样都没有
   也行: id 取 package.json 的 `name`, label 取 `displayName` / `productName`.
 - **框架** (`src/frameworks.ts`, app 的 `framework`, 默认 `auto`): 按 package.json 的依赖认, 用框架自己的构建, 不改用户
-  的配置文件; 没有 node_modules 时先 `bun install`; 构建工具一律 `bun --bun` 跑 (机器上没有 Node). 先认先得:
+  的配置文件; 没有 node_modules 时先用工程的包管理器装 (见「新建工程」); 构建工具一律 `bun --bun` 跑 (机器上可以没有 Node). 先认先得:
   | 依赖 | 怎么构建 | 产物 |
   | --- | --- | --- |
   | `next` | `next build`, 带 `NEXT_PRIVATE_STANDALONE=1` (配置里没写 `output` 时就是 standalone) | `.next/standalone` 是后端 (补上 `.next/static`、`public`); `output: 'export'` 时 `out/` 是静态页 |
@@ -123,7 +182,7 @@ html + 后端的模板在 `acde dev` 里打开, 页面拿到了后端 `/api/hell
 2. `acde.config.jsonc` 加 `compatibility_date` (运行时行为的版本), environments、vars / secrets、服务名 ↔ capability 的显式 binding.
 3. `acde types` (按 capabilities 生成只含允许的 `acde:` 模块的 d.ts)、`acde test` (bun test 跑在 acdert 的 isolate 里, `acdert run`)、
    `acde deploy --to <主机>` (经 ssh 装到一台 Dopame OS 上), 包格式 + 签名 + 仓库之后 `acde publish`.
-4. 分发: npm 包 `acde`、`create-acde` (已写, 见「新建工程」) 和 `@dopame/acde-api` 发上去, 依赖按平台分的 acdert 二进制包 (`@dopame/acdert-<os>-<arch>`), 或 `bun build --compile` 成单个可执行文件.
+4. 分发: 第一次发版 (见「分发」; 先在 npm 上建 `@dopame` 组织、占 `acde` / `create-acde`), Windows 移植之后 win32 的 acdert 才有.
 
 ## 协作规则
 

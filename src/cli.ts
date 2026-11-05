@@ -3,12 +3,13 @@ import { resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
+import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
 
 const USAGE = `usage: acde <command>
-  new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--yes]
+  new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--pm PM] [--yes]
                                                    a project; in a terminal it asks what is missing (--yes: ask nothing)
-                                                   T: ${STARTERS.map((s) => s.name).join(', ')}
+                                                   T: ${STARTERS.map((s) => s.name).join(', ')}; PM: bun, npm, pnpm, yarn, deno (default: the one running this)
   check [dir]                                      acde.config.jsonc (or a package's manifest), as acdert reads it
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)
@@ -22,7 +23,7 @@ interface Args {
 
 class Cli {
   static readonly COMMANDS = new Set(['new', 'check', 'build', 'install', 'dev'])
-  static readonly FLAGS = new Set(['out', 'id', 'label', 'app', 'template'])
+  static readonly FLAGS = new Set(['out', 'id', 'label', 'app', 'template', 'pm'])
   static readonly SWITCHES = new Set(['desktop', 'backend', 'install', 'git', 'yes'])
 
   static parse(argv: readonly string[]): Args {
@@ -77,6 +78,7 @@ class Cli {
       ...(flags.has('backend') && { backend: true }),
       ...(flags.has('install') && { install: true }),
       ...(flags.has('git') && { git: true }),
+      ...(flags.has('pm') && { pm: PackageManager.named(flags.get('pm')!).name }),
     }
     if (given.template !== undefined) Creator.starter(given.template)
     if (!interactive) {
@@ -87,7 +89,7 @@ class Cli {
       return 0
     }
     const options = await Creator.ask(given)
-    if (!options) return 130
+    if (!options) return 0
     const created = await Creator.create(options, true)
     const { errors, warnings } = created.pkg.check()
     for (const warning of warnings) p.log.warn(warning)

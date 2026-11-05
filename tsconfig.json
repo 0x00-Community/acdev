@@ -3,7 +3,9 @@
     "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
@@ -11,8 +13,20 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["bun"]
+    "types": [
+      "bun"
+    ],
+    "allowJs": true
   },
-  "include": ["src", "test"],
-  "exclude": ["test/fixtures"]
+  "include": [
+    "src",
+    "test",
+    "scripts",
+    "launcher.mjs",
+    "bin",
+    "packages"
+  ],
+  "exclude": [
+    "test/fixtures"
+  ]
 }

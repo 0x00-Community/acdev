@@ -10,13 +10,17 @@
     "url": "https://github.com/dopame-org/acde"
   },
   "engines": {
-    "bun": ">=1.4"
+    "node": ">=20"
   },
   "bin": {
-    "acde": "./src/cli.ts"
+    "acde": "./bin/acde.mjs"
   },
-  "sideEffects": ["./src/listen.ts"],
+  "sideEffects": [
+    "./src/listen.ts"
+  ],
   "files": [
+    "bin",
+    "launcher.mjs",
     "src",
     "templates"
   ],
@@ -31,5 +35,9 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "typescript": "5.9.3"
+  },
+  "exports": {
+    "./launcher": "./launcher.mjs",
+    "./package.json": "./package.json"
   }
 }
