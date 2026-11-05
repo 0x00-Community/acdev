@@ -108,13 +108,18 @@ acde 是发布出去的那份时加, 见「分发」). `build` 脚本调的是 a
 
 注意: yarn 4.18 (`npmMinimalAgeGate`, 1440 分钟) 和 Deno 2.9 (`minimumDependencyAge`, 24 小时) 默认不装发布不到一天的版本;
 首次发布后一天内这两条入口报「找不到 / 被隔离」, 之后每次发版它们晚一天拿到新版. 不绕开 (这是它们的供应链防护).
-Linux 的 acdert 动态链接 pipewire、libinput、libseat、gbm、drm、wayland、fontconfig、OpenSSL, 用户机器上要有这些库.
+Linux 的 acdert 动态链接 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire (普通桌面都有; libseat 是运行时
+dlopen 的, 没有也能起). glibc / musl 由启动脚本判断: Node 的 `process.report` 有 `glibcVersionRuntime` 就按它, 拿不到 (Deno、Bun)
+看 `/lib/ld-musl-*` 在不在.
 
 验过 (macOS arm64, 2026-11-05, 本地 verdaccio 当仓库, 只发了 darwin-arm64; Node 26 / npm 11、pnpm 12、yarn 4.18、Deno 2.9、
 Bun 1.4, 除 bun 那条外 PATH 里没有 bun): npm (html + 后端)、pnpm (React)、yarn (Vue)、Deno (Astro)、bun (Next.js, PATH 里没有
 node) 各自建工程、装依赖、跑开发脚本, acdert 的窗口里页面都出来了 (html 的拿到了后端的回答, Next.js 是服务端渲染的); npm
 `--omit=optional` 时 bun 和 acdert 都从仓库下载进缓存, 照样跑起来; `npm i -g acde` 后 `acde new` 认成 npm; `npm create acde@latest`
-在 Ghostty 里交互和 Ctrl+C. 没验: 公网 npm (还没发), CI, 别的平台, yarn 1.
+在 Ghostty 里交互和 Ctrl+C. Linux x86_64 glibc (CachyOS, 2026-11-05; geekom-1 编 acdert 并起 verdaccio, geekom-2 是没有 bun / node /
+seatd 的机器, 外层显示是 `kwin_wayland --virtual`): 同样五条 (npm html + 后端、pnpm React、yarn Vue、Deno Astro、只有 bun 没有 node
+的 Next.js) 和 `--omit=optional` 的下载都通过, 页面都在 acdert 的窗口里出来. 没验: 公网 npm (还没发), CI, Windows, macOS x64,
+Linux arm64 / musl, yarn 1.
 
 ## 和 acdert 的契约
 

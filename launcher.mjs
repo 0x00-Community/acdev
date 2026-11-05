@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { constants, homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
@@ -29,8 +29,19 @@ export const TARGETS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'
 export function target() {
   const base = `${process.platform}-${process.arch}`
   if (process.platform !== 'linux') return base
-  const glibc = process.report?.getReport?.()?.header?.glibcVersionRuntime
-  return glibc ? base : `${base}-musl`
+  return musl() ? `${base}-musl` : base
+}
+
+function musl() {
+  try {
+    const header = process.report?.getReport?.()?.header
+    if (header && 'glibcVersionRuntime' in header) return !header.glibcVersionRuntime
+  } catch {}
+  try {
+    return readdirSync('/lib').some((name) => name.startsWith('ld-musl-'))
+  } catch {
+    return false
+  }
 }
 
 export function runtime() {
