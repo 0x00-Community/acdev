@@ -54,7 +54,11 @@ export class DevSession {
     console.log(`acde: dev ${target.kind} ${target.id} (${built.dir}); 改了文件就重新构建、重新加载`)
     const child = Bun.spawn([this.acdert, target.kind, target.id], { env: { ...process.env, ACDE_DEV: endpoint, ACDE_PATH: paths }, stdio: ['inherit', 'inherit', 'inherit'] })
     const watcher = watch(this.pkg.dir, { recursive: true }, (_, file) => this.#changed(file === null ? null : String(file)))
+    const signals: [NodeJS.Signals, () => void][] = [['SIGINT', () => undefined]]
+    if (process.platform !== 'win32') for (const signal of ['SIGTERM', 'SIGHUP'] as const) signals.push([signal, () => child.kill(signal)])
+    for (const [signal, handler] of signals) process.on(signal, handler)
     const code = await child.exited
+    for (const [signal, handler] of signals) process.off(signal, handler)
     watcher.close()
     server.close()
     if (process.platform !== 'win32') rmSync(endpoint, { force: true })
