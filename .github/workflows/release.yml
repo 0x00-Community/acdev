@@ -1,0 +1,108 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: version to publish (x.y.z)
+        required: true
+      publish:
+        description: publish to npm
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: darwin-arm64, os: macos-15 }
+          - { target: darwin-x64, os: macos-15-intel }
+          - { target: linux-x64, os: ubuntu-24.04 }
+          - { target: linux-arm64, os: ubuntu-24.04-arm }
+          - { target: win32-x64, os: windows-2025 }
+          - { target: win32-arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: private git dependencies (acgpu)
+        shell: bash
+        run: git config --global url."https://x-access-token:${{ secrets.DOPAME_READ_TOKEN }}@github.com/".insteadOf "https://github.com/"
+      - name: system libraries
+        if: runner.os == 'Linux'
+        run: >
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libseat-dev libudev-dev
+          libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@v2
+      - name: host bundle
+        working-directory: web
+        run: bun install --frozen-lockfile && bun run build
+      - name: acdert
+        run: cargo build --release --locked -p acdert
+      - name: stage
+        shell: bash
+        run: |
+          mkdir -p out/host
+          cp target/release/acdert${{ startsWith(matrix.target, 'win32') && '.exe' || '' }} out/
+          cp web/packages/acde-host/dist/*.js out/host/
+      - uses: actions/upload-artifact@v5
+        with:
+          name: acdert-${{ matrix.target }}
+          path: out
+
+  npm:
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: acdert
+      - uses: actions/checkout@v5
+        with:
+          repository: dopame-org/acde
+          token: ${{ secrets.DOPAME_READ_TOKEN }}
+          path: acde
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: latest
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v6
+        with:
+          path: artifacts
+      - name: pack and publish
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ inputs.version || github.ref_name }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+        run: |
+          version=${VERSION#v}
+          root=$PWD
+          args=()
+          host=
+          for dir in artifacts/acdert-*; do
+            target=${dir#artifacts/acdert-}
+            exe=$(ls "$dir" | grep -E '^acdert(\.exe)?$')
+            args+=(--acdert "$target=$root/$dir/$exe")
+            host=$root/$dir/host
+          done
+          [ ${#args[@]} -gt 0 ] || { echo "no acdert was built"; exit 1; }
+          echo "targets: ${args[*]}"
+          cd acde && bun install --frozen-lockfile
+          if [ "$PUBLISH" = true ]; then publish=(--publish https://registry.npmjs.org/); else publish=(); fi
+          bun scripts/pack.ts --version "$version" --host "$host" "${args[@]}" "${publish[@]}"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: npm
+          path: acde/.npm/*.tgz

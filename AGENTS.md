@@ -1094,6 +1094,14 @@ acdert 找 bundle 的顺序: `$ACDE_APP`, 自己旁边的 `app/dist` (装好的�
 `target/release/acdert`; `CARGO_TARGET_DIR` 在别处时要设 `ACDE_APP`). 上机用 DRM/KMS + libinput (在没有显示的 tty 上跑);
 已有桌面里开发用 `ACDE_BACKEND=rdp` (见「web/packages/acde-host」的 Run).
 
+## 发版 (npm)
+
+`.github/workflows/release.yml`: 推 `v*` tag (或手动给版本) 时, 六个平台 (darwin-arm64 / x64、linux-arm64 / x64、win32-arm64 / x64)
+各编一次 `cargo build --release --locked -p acdert` 和 host bundle, 再检出 acde 仓库, 用它的 `scripts/pack.ts` 打成 npm 包
+(`@dopame/acdert-<平台>`: acdert 和旁边的 `app/dist`; `@dopame/acde-api`; `acde`; `create-acde`) 并发布. 包怎么分、开发者怎么装,
+见 acde 仓库 AGENTS.md 的「分发」. secret: `DOPAME_READ_TOKEN` (读私有的 acgpu 和 acde)、`NPM_TOKEN`. 某个平台编不过时其余照发, 那个
+平台不进 acde 的可选依赖 (Windows 移植做完之前就是 win32). 这个 workflow 还没跑过.
+
 ## 日志和计时
 
 所有 Rust crate 用 `log` 的宏, acde 启动时由 `crates/log` (`acde-log`) 装 env_logger: 过滤用 `RUST_LOG` (env_logger 的语法, 在默认的
