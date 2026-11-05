@@ -24,7 +24,7 @@ const BUNS = {
   'win32-x64': '@oven/bun-windows-x64',
 }
 
-export const TARGETS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']
+export const TARGETS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'linux-arm64-musl', 'linux-x64-musl', 'win32-arm64', 'win32-x64']
 
 export function target() {
   const base = `${process.platform}-${process.arch}`

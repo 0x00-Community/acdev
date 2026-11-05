@@ -51,7 +51,7 @@ for (const spec of values.acdert!) {
 if (binaries.size > 0 && !values.host) throw new Error('--host <acde-host dist> (broker.js, web.js)')
 
 for (const [target, binary] of binaries) {
-  const [os, cpu] = target.split('-') as [string, string]
+  const [os, cpu, libc] = target.split('-') as [string, string, string | undefined]
   const dir = join(stage, `acdert-${target}`)
   const exe = os === 'win32' ? 'acdert.exe' : 'acdert'
   mkdirSync(join(dir, 'bin', 'app', 'dist'), { recursive: true })
@@ -65,7 +65,7 @@ for (const [target, binary] of binaries) {
     ...COMMON,
     os: [os],
     cpu: [cpu],
-    ...(os === 'linux' && { libc: ['glibc'] }),
+    ...(os === 'linux' && { libc: [libc ?? 'glibc'] }),
     files: ['bin'],
     preferUnplugged: true,
   })

@@ -83,7 +83,7 @@ acde 是发布出去的那份时加, 见「分发」). `build` 脚本调的是 a
 | --- | --- |
 | `create-acde` | `packages/create-acde/index.mjs`: import `acde/launcher`, `run(['new', ...参数])` |
 | `acde` | `bin/acde.mjs` → `launcher.mjs`; `src/cli.js` (`src/cli.ts` 连同 @clack/prompts、acde-api 打成一个文件: Deno 跑 `npm:` 包时没有 node_modules, 运行时不能再解析依赖) 和它按文件用的 `src/listen.ts`、`src/sockets.ts`、`templates/`. `dependencies` 只有 `@dopame/acde-api` (精确版本; 新工程的 devDependency 取它的版本). `optionalDependencies`: 每个编出来的平台的 `@dopame/acdert-<平台>` (精确版本) 和 Bun 官方的 `@oven/bun-<平台>` (8 个, 含 musl; 版本是打包那份 bun 的). `preferUnplugged`: yarn PnP 下解压到磁盘 (PnP 的 ESM 读不了 zip 里的 `.mjs`, bun 也要真文件) |
-| `@dopame/acdert-<平台>` | `bin/acdert(.exe)` 和 `bin/app/dist/{broker,web}.js` (acdert 在自己旁边的 `app/dist` 找 host bundle); 平台: `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64` (`libc: glibc`)、`win32-arm64`、`win32-x64` |
+| `@dopame/acdert-<平台>` | `bin/acdert(.exe)` 和 `bin/app/dist/{broker,web}.js` (acdert 在自己旁边的 `app/dist` 找 host bundle); 平台: `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64` (`libc: glibc`)、`linux-arm64-musl`、`linux-x64-musl` (`libc: musl`; Alpine 上编, 动态链接 Alpine 的库)、`win32-arm64`、`win32-x64` |
 | `@dopame/acde-api` | acdert 仓库的 `web/packages/acde-api` 原样 |
 
 启动脚本 `launcher.mjs` 只用 `node:` 模块, Node / Deno / Bun 都能跑:
@@ -119,7 +119,9 @@ node) 各自建工程、装依赖、跑开发脚本, acdert 的窗口里页面�
 在 Ghostty 里交互和 Ctrl+C. Linux x86_64 glibc (CachyOS, 2026-11-05; geekom-1 编 acdert 并起 verdaccio, geekom-2 是没有 bun / node /
 seatd 的机器, 外层显示是 `kwin_wayland --virtual`): 同样五条 (npm html + 后端、pnpm React、yarn Vue、Deno Astro、只有 bun 没有 node
 的 Next.js) 和 `--omit=optional` 的下载都通过, 页面都在 acdert 的窗口里出来. 没验: 公网 npm (还没发), CI, Windows, macOS x64,
-Linux arm64 / musl, yarn 1.
+Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 的 `x86_64-unknown-linux-musl`,
+`-C target-feature=-crt-static`, rusty_v8 有 musl 的预编译库), 在另一个只有 Alpine 的 nodejs / npm 的容器里 (共享宿主的 Wayland socket 和
+`/dev/dri`) `npm create acde` 装上的是 `bun-linux-x64-musl` 和 `acdert-linux-x64-musl`, React 和 html + 后端都在窗口里出来, 后端有回答.
 
 ## 和 acdert 的契约
 
