@@ -27,6 +27,8 @@ jobs:
           - { target: darwin-x64, os: macos-15-intel }
           - { target: linux-x64, os: ubuntu-24.04 }
           - { target: linux-arm64, os: ubuntu-24.04-arm }
+          - { target: linux-x64-musl, os: ubuntu-24.04 }
+          - { target: linux-arm64-musl, os: ubuntu-24.04-arm }
           - { target: win32-x64, os: windows-2025 }
           - { target: win32-arm64, os: windows-11-arm }
     runs-on: ${{ matrix.os }}
@@ -35,20 +37,38 @@ jobs:
       - name: private git dependencies (acgpu)
         shell: bash
         run: git config --global url."https://x-access-token:${{ secrets.DOPAME_READ_TOKEN }}@github.com/".insteadOf "https://github.com/"
+      - name: acdert (musl, in Alpine)
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          mkdir -p out
+          docker run --rm -v "$PWD:/src" -w /src -e TOKEN="${{ secrets.DOPAME_READ_TOKEN }}" docker.io/library/alpine:edge sh -euc '
+            apk add --no-cache build-base clang clang-dev llvm-dev pkgconf git curl perl linux-headers \
+              openssl-dev libdrm-dev mesa-dev libinput-dev eudev-dev pipewire-dev wayland-dev libxkbcommon-dev \
+              fontconfig-dev freetype-dev zlib-dev zstd-dev rustup
+            rustup-init -y --profile minimal --default-toolchain stable --no-modify-path
+            git config --global url."https://x-access-token:$TOKEN@github.com/".insteadOf "https://github.com/"
+            CARGO_NET_GIT_FETCH_WITH_CLI=true RUSTFLAGS="-C target-feature=-crt-static" \
+              $HOME/.cargo/bin/cargo build --release --locked -p acdert --target-dir /src/target-musl
+            cp /src/target-musl/release/acdert /src/out/'
       - name: system libraries
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !endsWith(matrix.target, '-musl')
         run: >
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev
           libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !endsWith(matrix.target, '-musl') }}
       - uses: oven-sh/setup-bun@v2
+        if: ${{ !endsWith(matrix.target, '-musl') }}
       - name: host bundle
+        if: ${{ !endsWith(matrix.target, '-musl') }}
         working-directory: web
         run: bun install --frozen-lockfile && bun run build
       - name: acdert
+        if: ${{ !endsWith(matrix.target, '-musl') }}
         run: cargo build --release --locked -p acdert
       - name: stage
+        if: ${{ !endsWith(matrix.target, '-musl') }}
         shell: bash
         run: |
           mkdir -p out/host
@@ -95,9 +115,9 @@ jobs:
             target=${dir#artifacts/acdert-}
             exe=$(ls "$dir" | grep -E '^acdert(\.exe)?$')
             args+=(--acdert "$target=$root/$dir/$exe")
-            host=$root/$dir/host
+            [ -d "$dir/host" ] && host=$root/$dir/host
           done
-          [ ${#args[@]} -gt 0 ] || { echo "no acdert was built"; exit 1; }
+          [ ${#args[@]} -gt 0 ] && [ -n "$host" ] || { echo "no acdert or no host bundle was built"; exit 1; }
           echo "targets: ${args[*]}"
           cd acde && bun install --frozen-lockfile
           if [ "$PUBLISH" = true ]; then publish=(--publish https://registry.npmjs.org/); else publish=(); fi

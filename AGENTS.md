@@ -1096,8 +1096,9 @@ acdert 找 bundle 的顺序: `$ACDE_APP`, 自己旁边的 `app/dist` (装好的�
 
 ## 发版 (npm)
 
-`.github/workflows/release.yml`: 推 `v*` tag (或手动给版本) 时, 六个平台 (darwin-arm64 / x64、linux-arm64 / x64、win32-arm64 / x64)
-各编一次 `cargo build --release --locked -p acdert` 和 host bundle, 再检出 acde 仓库, 用它的 `scripts/pack.ts` 打成 npm 包
+`.github/workflows/release.yml`: 推 `v*` tag (或手动给版本) 时, 八个平台 (darwin-arm64 / x64、linux-arm64 / x64 (glibc)、
+linux-arm64-musl / x64-musl、win32-arm64 / x64) 各编一次 (musl 的在 runner 上 `docker run` 一个 Alpine edge: Alpine 的开发库 + rustup 的
+musl 工具链, `-C target-feature=-crt-static` 动态链接 Alpine 的库; rusty_v8 有 musl 的预编译库) `cargo build --release --locked -p acdert` 和 host bundle, 再检出 acde 仓库, 用它的 `scripts/pack.ts` 打成 npm 包
 (`@dopame/acdert-<平台>`: acdert 和旁边的 `app/dist`; `@dopame/acde-api`; `acde`; `create-acde`) 并发布. 包怎么分、开发者怎么装,
 见 acde 仓库 AGENTS.md 的「分发」. secret: `DOPAME_READ_TOKEN` (读私有的 acgpu 和 acde)、`NPM_TOKEN`. Linux 的 acdert 运行时要 libxkbcommon、gbm (mesa)、
 libudev、libinput、fontconfig、OpenSSL 3、pipewire (普通桌面都有; libseat 是 dlopen, 见 vendors/libseat-sys). 某个平台编不过时其余照发, 那个
