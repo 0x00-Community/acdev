@@ -1,13 +1,16 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
+#[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::sync::mpsc::{Sender, SyncSender, channel, sync_channel};
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use rustix::io::Errno;
+#[cfg(unix)]
 use rustix::process::{self, Signal};
 
 use crate::bind;
@@ -86,22 +89,13 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    let parent = process::getpid();
-    unsafe {
-        command.pre_exec(move || {
-            process::setsid()?;
-            process::set_parent_process_death_signal(Some(Signal::TERM))?;
-            if process::getppid() != Some(parent) {
-                return Err(Errno::SRCH.into());
-            }
-            Ok(())
-        });
-    }
+    detach(&mut command);
     let mut child = match fork(command) {
         Ok(child) => child,
         Err(e) => return bind::throw_error(scope, &format!("spawn {program}: {e}")),
     };
     let pid = child.id();
+    adopt(&child);
     _ = std::thread::Builder::new().name("acde-child-out".into()).spawn(move || {
         for line in std::io::BufReader::new(reader).split(b'\n') {
             let Ok(line) = line else { break };
@@ -138,7 +132,8 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
         if let Some(read) = read {
             _ = read.recv_timeout(Duration::from_secs(2));
         }
-        let (code, signal) = (status.and_then(|s| s.code()), status.and_then(|s| s.signal()));
+        let (code, signal) = (status.and_then(|s| s.code()), status.and_then(exit_signal));
+        forget(pid);
         _ = tx.send(Msg::Task(Box::new(move |scope| exited(scope, pid, code, signal))));
     });
     if let Err(e) = waiter {
@@ -189,4 +184,95 @@ fn exited(scope: &mut v8::PinScope, pid: u32, code: Option<i32>, signal: Option<
 
 fn text(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &str) -> Option<String> {
     bind::get(scope, obj, name).filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope))
+}
+
+static GROUPS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+fn forget(pid: u32) {
+    GROUPS.lock().unwrap_or_else(|e| e.into_inner()).retain(|p| *p != pid);
+}
+
+#[cfg(unix)]
+fn exit_signal(status: std::process::ExitStatus) -> Option<i32> {
+    status.signal()
+}
+
+#[cfg(not(unix))]
+fn exit_signal(_: std::process::ExitStatus) -> Option<i32> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn detach(command: &mut Command) {
+    let parent = process::getpid();
+    unsafe {
+        command.pre_exec(move || {
+            process::setsid()?;
+            process::set_parent_process_death_signal(Some(Signal::TERM))?;
+            if process::getppid() != Some(parent) {
+                return Err(Errno::SRCH.into());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn detach(command: &mut Command) {
+    unsafe {
+        command.pre_exec(|| {
+            process::setsid()?;
+            Ok(())
+        });
+    }
+}
+
+#[cfg(windows)]
+fn detach(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+}
+
+#[cfg(target_os = "linux")]
+fn adopt(_: &Child) {}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn adopt(child: &Child) {
+    GROUPS.lock().unwrap_or_else(|e| e.into_inner()).push(child.id());
+}
+
+#[cfg(windows)]
+fn adopt(child: &Child) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
+    };
+    struct Job(windows_sys::Win32::Foundation::HANDLE);
+    unsafe impl Send for Job {}
+    unsafe impl Sync for Job {}
+    static JOB: OnceLock<Option<Job>> = OnceLock::new();
+    let job = JOB.get_or_init(|| {
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return None;
+        }
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let size = std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
+        let set = unsafe { SetInformationJobObject(handle, JobObjectExtendedLimitInformation, (&raw const limits).cast(), size) };
+        (set != 0).then_some(Job(handle))
+    });
+    if let Some(job) = job {
+        unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle() as _) };
+    }
+}
+
+pub fn stop_all() {
+    #[cfg(all(unix, not(target_os = "linux")))]
+    for pid in std::mem::take(&mut *GROUPS.lock().unwrap_or_else(|e| e.into_inner())) {
+        if let Some(group) = process::Pid::from_raw(pid as i32) {
+            _ = process::kill_process_group(group, Signal::TERM);
+        }
+    }
 }

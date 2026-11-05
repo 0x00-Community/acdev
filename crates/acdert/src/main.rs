@@ -2,7 +2,6 @@
 mod audio;
 mod backend;
 mod bind;
-#[cfg(target_os = "linux")]
 mod child;
 mod dom;
 mod engine;
@@ -97,6 +96,7 @@ fn main() {
             session(&args[1..])
         }
     };
+    child::stop_all();
     acde_log::flush();
     std::process::exit(code);
 }

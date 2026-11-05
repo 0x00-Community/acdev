@@ -153,12 +153,9 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         "openOffice" => crate::web::open_office,
         "closeOffice" => crate::web::close_office,
     );
-    #[cfg(target_os = "linux")]
-    {
-        bind::method(scope, obj, "spawn", crate::child::spawn);
-        bind::method(scope, obj, "write", crate::child::write);
-        bind::method(scope, obj, "endInput", crate::child::end_input);
-    }
+    bind::method(scope, obj, "spawn", crate::child::spawn);
+    bind::method(scope, obj, "write", crate::child::write);
+    bind::method(scope, obj, "endInput", crate::child::end_input);
     let list = v8::Array::new(scope, argv.len() as i32);
     for (i, arg) in argv.iter().enumerate() {
         let arg = bind::string(scope, arg);

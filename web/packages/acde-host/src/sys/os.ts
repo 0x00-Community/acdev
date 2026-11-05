@@ -22,7 +22,10 @@ export function xdgDirs(kind: keyof typeof XDG_SYSTEM, sub: string, home = true)
 }
 
 export function runtimeDir(): string {
-  return process.env['XDG_RUNTIME_DIR'] || `/run/user/${process.getuid()}`
+  const set = process.env['XDG_RUNTIME_DIR']
+  if (set) return set
+  if (process.platform === 'linux') return `/run/user/${process.getuid()}`
+  return join(process.env['TMPDIR'] || process.env['TEMP'] || process.env['TMP'] || '/tmp', `acde-${process.getuid()}`)
 }
 
 export function userDir(name: 'PICTURES' | 'DOWNLOAD', fallback: string): string {

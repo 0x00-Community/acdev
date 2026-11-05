@@ -37,7 +37,7 @@ dependencies = [
 name = "acde-ipc"
 version = "0.1.0"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -208,6 +208,7 @@ dependencies = [
  "url",
  "v8",
  "wgpu-types",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
