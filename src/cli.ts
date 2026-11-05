@@ -1,10 +1,14 @@
 #!/usr/bin/env bun
 import { resolve } from 'node:path'
+import * as p from '@clack/prompts'
+import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
 import { AppPackage } from './package.ts'
 
 const USAGE = `usage: acde <command>
-  new <dir> [--desktop] [--id ID] [--label NAME]   a project: acde.config.jsonc ("type": "app", or "desktop")
+  new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--yes]
+                                                   a project; in a terminal it asks what is missing (--yes: ask nothing)
+                                                   T: ${STARTERS.map((s) => s.name).join(', ')}
   check [dir]                                      acde.config.jsonc (or a package's manifest), as acdert reads it
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)
@@ -18,8 +22,8 @@ interface Args {
 
 class Cli {
   static readonly COMMANDS = new Set(['new', 'check', 'build', 'install', 'dev'])
-  static readonly FLAGS = new Set(['out', 'id', 'label', 'app'])
-  static readonly SWITCHES = new Set(['desktop'])
+  static readonly FLAGS = new Set(['out', 'id', 'label', 'app', 'template'])
+  static readonly SWITCHES = new Set(['desktop', 'backend', 'install', 'git', 'yes'])
 
   static parse(argv: readonly string[]): Args {
     const [command = '', ...rest] = argv
@@ -36,18 +40,13 @@ class Cli {
       else if (rest[i + 1] !== undefined) flags.set(flag, rest[++i]!)
       else throw new Error(`--${flag} needs a value\n${USAGE}`)
     }
-    if (dirs.length > 1 || (command === 'new' && dirs.length === 0)) throw new Error(USAGE)
-    return { command, dir: dirs[0] ?? '.', flags }
+    if (dirs.length > 1) throw new Error(USAGE)
+    return { command, dir: dirs[0] ?? (command === 'new' ? '' : '.'), flags }
   }
 
   static async main(argv: readonly string[]): Promise<number> {
     const { command, dir, flags } = Cli.parse(argv)
-    if (command === 'new') {
-      const pkg = AppPackage.create(dir, flags.has('desktop') ? 'desktop' : 'app', flags.get('id'), flags.get('label'))
-      Cli.report(pkg)
-      console.log(`acde: ${pkg.dir}. 下一步: cd ${dir} && bun install && acde dev`)
-      return 0
-    }
+    if (command === 'new') return await Cli.create(dir, flags)
     const pkg = new AppPackage(dir)
     if (command === 'check') return Cli.report(pkg) ? 0 : 1
     const out = resolve(pkg.dir, flags.get('out') ?? '.acde')
@@ -65,6 +64,37 @@ class Cli {
     if (command === 'build') return 0
     console.log(`acde: installed ${built.id} in ${pkg.install(built)}`)
     return 0
+  }
+
+  static async create(dir: string, flags: ReadonlyMap<string, string>): Promise<number> {
+    const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
+    if (flags.has('desktop') && flags.has('template') && flags.get('template') !== 'desktop') throw new Error('--desktop and --template: one of them')
+    const given = {
+      ...(dir && { dir }),
+      ...((flags.get('template') ?? (flags.has('desktop') ? 'desktop' : undefined)) !== undefined && { template: flags.get('template') ?? 'desktop' }),
+      ...(flags.has('id') && { id: flags.get('id')! }),
+      ...(flags.has('label') && { label: flags.get('label')! }),
+      ...(flags.has('backend') && { backend: true }),
+      ...(flags.has('install') && { install: true }),
+      ...(flags.has('git') && { git: true }),
+    }
+    if (given.template !== undefined) Creator.starter(given.template)
+    if (!interactive) {
+      if (!given.dir) throw new Error(`new: a directory (or run it in a terminal to be asked)\n${USAGE}`)
+      const created = await Creator.create(given, false)
+      Cli.report(created.pkg)
+      console.log(`acde: ${created.starter.label} in ${created.pkg.dir}. next: ${Creator.next(created).join(' && ')}`)
+      return 0
+    }
+    const options = await Creator.ask(given)
+    if (!options) return 130
+    const created = await Creator.create(options, true)
+    const { errors, warnings } = created.pkg.check()
+    for (const warning of warnings) p.log.warn(warning)
+    for (const error of errors) p.log.error(error)
+    p.note(Creator.next(created).join('\n'), 'Next')
+    p.outro(`${created.starter.kind === 'desktop' ? 'Desktop' : `${created.starter.label} app`} ${JSON.stringify(created.pkg.name)} is ready`)
+    return errors.length === 0 ? 0 : 1
   }
 
   static report(pkg: AppPackage): boolean {

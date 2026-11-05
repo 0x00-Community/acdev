@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/@dopame/acde-api/config.schema.json",
+  // 窗口应用: {{framework}} 工程, acde build 用它自己的构建. 系统能力从 acde:* 模块导入 (import { fs } from 'acde:fs'), 按 capabilities 给.
+  "type": "app",
+  "id": "{{id}}",
+  "label": "{{label}}",
+  "icon": "apps",
+  "capabilities": {}
+}

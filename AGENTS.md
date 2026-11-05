@@ -15,11 +15,45 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 
 | 命令 | 做什么 |
 | --- | --- |
-| `acde new <目录> [--desktop] [--id ID] [--label 名字]` | 从 `templates/app` (普通网页 + `acde.config.jsonc`) 或 `templates/desktop` (一张桌面页) 建工程; devDependency `@dopame/acde-api` 指向 acde 装好的那份 (`file:<路径>`, `ACDE_API` 可以换成别的说明符) |
+| `acde new [目录] [--template T] [--id ID] [--label 名字] [--backend] [--install] [--git] [--yes]` | 新建工程, 见下面「新建工程」 |
 | `acde check [目录]` | 按 acdert 读清单的方式查 (`@dopame/acde-api/manifest` 的 `Manifest.check`) |
 | `acde build [目录] [--out .acde]` | 构建成 acdert 认的包 (见下) |
 | `acde install [目录]` | build 之后装进 `$XDG_DATA_HOME/acde/packages/<id>` (手写的包: 指向工程目录的符号链接) |
 | `acde dev [目录] [--app ID]` | 构建, 起 `acdert desktop <id>` (桌面工程) 或 `acdert app <id>` (应用), 构建结果经 `ACDE_PATH` 给它 (不装); 盯着工程目录, 改了就重新构建、发 `reload`; acdert 是 `ACDERT` 或 PATH 上的 `acdert` |
+
+## 新建工程 (`acde new`, `bun create acde`)
+
+一行命令: `bun create acde` (或 `npm create acde`、`pnpm create acde`; 都解析到 `create-acde` 包) 或 `acde new`. 在终端里
+(stdin 和 stdout 都是 TTY, 没给 `--yes`) 像 `npm create vite` 一样逐项问 (@clack/prompts, `src/create.ts` 的 `Creator.ask`),
+命令行已给的不再问: 目录 (默认 `my-app`; 非空的、算不出 id 的当场提示; id 是目录名小写、非 `[a-z0-9-]` 换成 `-`)、做什么
+(窗口应用 / 桌面)、模板 (应用才问)、显示名 (默认 id)、要不要后端 (只有 html 问)、`bun install`、`git init` (不在 git 仓库里、
+有 git 才问; 再 `git add` + 首次提交, 没配 user.name / email 时提交跳过). Ctrl+C 退出码 130. 不在终端里时什么都不问: 目录必填,
+模板默认 html, 不装依赖、不建仓库 (要就给 `--install` / `--git`). 做完打出下一步 (`cd`、`bun install`、`acde dev`).
+
+| 模板 | 怎么来 |
+| --- | --- |
+| `html` | 自带 `templates/app` (加 `--backend` 再叠 `templates/backend`: `server.ts` 和取 `/api/hello` 的页面) |
+| `react` / `vue` / `svelte` / `solid` / `preact` / `vanilla` | `create-vite@latest --template <名>-ts --no-interactive --no-immediate` |
+| `next` | `create-next-app@latest --yes --ts --app --use-bun --skip-install --disable-git --no-agent-feedback` |
+| `nuxt` | `create-nuxt@latest --template minimal --no-install --no-gitInit --packageManager bun` |
+| `sveltekit` | `sv@latest create --template minimal --types ts --no-add-ons --no-install` |
+| `astro` | `create-astro@latest --template minimal --no-install --no-git --no-ai --yes --skip-houston` |
+| `desktop` | 自带 `templates/desktop` |
+
+框架模板照 `npm create cloudflare` 的做法: 用框架自己的脚手架 (`bun x --bun <包>@latest`, 总是最新版; 不交互, stdin 关掉、
+带 `CI=1`, 输出收着, 失败时整段打出来), 然后 `AppPackage.adopt` 叠上 acde 的部分: `templates/framework/acde.config.jsonc`
+(没有 `entry`: 构建认框架)、devDependency `@dopame/acde-api`、`.gitignore` 加 `.acde/`; 不动框架自己的文件和脚本.
+加模板就是 `STARTERS` 加一项 (`scaffold` 返回命令行; 没有 `scaffold` 的是 `templates/<kind>`).
+
+`create-acde` (`packages/create-acde/index.mjs`): Node 和 Bun 都能跑的几行 JS, 找到 Bun (没有就说去 https://bun.sh 装, 退出 1)
+和依赖的 `acde` 包 (找不到用同仓库的 `src/cli.ts`), `bun cli.ts new <参数>`. 还没上 npm: `acde` 包现在是 `private`, 依赖的
+`@dopame/acde-api` 也没上 npm, 要一起发 (见「要做」).
+
+验过 (macOS, 2026-11-05): 在 Ghostty 里跑 `acde new`, 用 AppleScript 按键 (`send key` / `input text`) 并读屏
+(`perform action "write_screen_file:copy,plain"`: 屏幕写进文件, 路径进剪贴板): React (装依赖 + git)、html + 后端 (不装依赖)、
+非空目录的提示、Ctrl+C. 11 个模板 `--yes --install` 全部建好并 `acde build` 通过 (Next / Nuxt / SvelteKit 是后端渲染);
+html + 后端的模板在 `acde dev` 里打开, 页面拿到了后端 `/api/hello` 的回答. 没验: 没装 Bun 时 `create-acde` 的提示
+(本机的 node 就是 bun), Windows / Linux.
 
 另一种工程是手写的**包** (没有 `acde.config.*`, package.json 的 `acde` 有 `apps`): 不用构建, build 只校验, install 是符号链接.
 
@@ -89,7 +123,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 2. `acde.config.jsonc` 加 `compatibility_date` (运行时行为的版本), environments、vars / secrets、服务名 ↔ capability 的显式 binding.
 3. `acde types` (按 capabilities 生成只含允许的 `acde:` 模块的 d.ts)、`acde test` (bun test 跑在 acdert 的 isolate 里, `acdert run`)、
    `acde deploy --to <主机>` (经 ssh 装到一台 Dopame OS 上), 包格式 + 签名 + 仓库之后 `acde publish`.
-4. 分发: npm 包 `acde` + `npm create acde`, 依赖按平台分的 acdert 二进制包 (`@dopame/acdert-<os>-<arch>`), 或 `bun build --compile` 成单个可执行文件.
+4. 分发: npm 包 `acde`、`create-acde` (已写, 见「新建工程」) 和 `@dopame/acde-api` 发上去, 依赖按平台分的 acdert 二进制包 (`@dopame/acdert-<os>-<arch>`), 或 `bun build --compile` 成单个可执行文件.
 
 ## 协作规则
 

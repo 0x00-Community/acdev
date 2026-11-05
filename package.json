@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
+    "@clack/prompts": "^1.8.1",
     "@dopame/acde-api": "file:../acdert/web/packages/acde-api"
   },
   "devDependencies": {

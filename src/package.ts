@@ -30,24 +30,41 @@ export class AppPackage {
     this.name = this.project?.name ?? (typeof json.name === 'string' ? json.name : basename(this.dir))
   }
 
-  static create(dir: string, kind: (typeof AppPackage.KINDS)[number], id = basename(resolve(dir)), label = id, api = process.env['ACDE_API'] || `file:${AppPackage.API}`): AppPackage {
+  static create(dir: string, kind: (typeof AppPackage.KINDS)[number], id = basename(resolve(dir)), label = id, api = AppPackage.apiSpec(), layers: readonly string[] = []): AppPackage {
     if (existsSync(dir) && readdirSync(dir).some((name) => name !== '.git')) throw new Error(`${dir} is not empty`)
     if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error(`id ${JSON.stringify(id)}: lowercase letters, digits and -`)
-    const from = join(AppPackage.TEMPLATES, kind)
-    const copy = (rel: string) => {
-      for (const name of readdirSync(join(from, rel))) {
-        const source = join(from, rel, name)
-        if (statSync(source).isDirectory()) {
-          copy(join(rel, name))
-          continue
-        }
-        const file = join(dir, rel, name === 'gitignore' ? '.gitignore' : name)
-        mkdirSync(dirname(file), { recursive: true })
-        writeFileSync(file, readFileSync(source, 'utf8').replaceAll('{{id}}', id).replaceAll('{{label}}', label).replaceAll('{{api}}', api))
-      }
-    }
-    copy('')
+    for (const layer of [kind, ...layers]) AppPackage.#copy(join(AppPackage.TEMPLATES, layer), dir, { id, label, api })
     return new AppPackage(dir)
+  }
+
+  static adopt(dir: string, id: string, label: string, framework: string, api = AppPackage.apiSpec()): AppPackage {
+    const file = join(dir, 'package.json')
+    if (!existsSync(file)) throw new Error(`${framework} made no package.json in ${dir}`)
+    AppPackage.#copy(join(AppPackage.TEMPLATES, 'framework'), dir, { id, label, api, framework })
+    const json = JSON.parse(readFileSync(file, 'utf8')) as { devDependencies?: Record<string, string> }
+    json.devDependencies = { ...json.devDependencies, '@dopame/acde-api': api }
+    writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
+    const ignore = join(dir, '.gitignore')
+    const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
+    if (!/^\/?\.acde\/?$/m.test(ignored)) writeFileSync(ignore, `${ignored}${ignored && !ignored.endsWith('\n') ? '\n' : ''}.acde/\n`)
+    return new AppPackage(dir)
+  }
+
+  static apiSpec(): string {
+    return process.env['ACDE_API'] || `file:${AppPackage.API}`
+  }
+
+  static #copy(from: string, to: string, vars: Readonly<Record<string, string>>): void {
+    for (const name of readdirSync(from)) {
+      const source = join(from, name)
+      if (statSync(source).isDirectory()) {
+        AppPackage.#copy(source, join(to, name), vars)
+        continue
+      }
+      const file = join(to, name === 'gitignore' ? '.gitignore' : name)
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, readFileSync(source, 'utf8').replace(/\{\{(\w+)\}\}/g, (all, key: string) => vars[key] ?? all))
+    }
   }
 
   static check(dir: string, manifest: PackageManifest): Findings {

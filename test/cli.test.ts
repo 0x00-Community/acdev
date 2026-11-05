@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { AppPackage } from '../src/package.ts'
 import { appId } from '../src/sockets.ts'
 import { cleanup, env, tmp } from './helpers.ts'
 
@@ -206,6 +207,35 @@ describe('acde.config.jsonc', () => {
     expect((await cli(['new', '.', '--id', 'pomodoro'], dir)).code).toBe(0)
     writeFileSync(join(dir, 'stray'), '')
     expect((await cli(['new', '.', '--id', 'again'], dir)).stderr).toContain('is not empty')
+  })
+
+  test('new --template html --backend: the page answers from server.ts', async () => {
+    const dir = join(tmp(), 'with-api')
+    const made = await cli(['new', dir, '--template', 'html', '--backend', '--label', 'API'], tmp())
+    expect(made.code).toBe(0)
+    expect(made.stdout).toContain('next: cd ')
+    const out = join(tmp(), 'out')
+    expect((await cli(['build', '--out', out], dir)).code).toBe(0)
+    expect(JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0].backend).toEqual({ entry: '/app/with-api/backend/server.js', port: 3000 })
+    expect(JSON.parse(await answer(out, '/api/hello')).hello).toBe('API')
+  })
+
+  test('a framework project gets acde.config.jsonc, the SDK and .acde/ ignored', () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'made-by-vite', devDependencies: { vite: '^7.0.0' } }))
+    writeFileSync(join(dir, '.gitignore'), 'node_modules')
+    AppPackage.adopt(dir, 'made-by-vite', 'Vite App', 'React')
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    expect(Object.keys(pkg.devDependencies)).toEqual(['vite', '@dopame/acde-api'])
+    expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
+    expect(readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')).toContain('"label": "Vite App"')
+    AppPackage.adopt(dir, 'made-by-vite', 'Vite App', 'React')
+    expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
+  })
+
+  test('new: no directory and no terminal, or a template that does not exist', async () => {
+    expect((await cli(['new'], tmp())).stderr).toContain('new: a directory')
+    expect((await cli(['new', 'x', '--template', 'angular'], tmp())).stderr).toContain('template "angular": one of html, react')
   })
 
   test('check: a missing entry, a wrong type', async () => {
