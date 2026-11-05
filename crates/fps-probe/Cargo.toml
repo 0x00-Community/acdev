@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-memmap2 = "0.9"
+memmap2 = "0"
 rustix = { version = "1", features = ["event", "fs", "time"] }
-wayland-client = "0.31"
-wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+wayland-client = "0"
+wayland-protocols = { version = "0", features = ["client", "unstable"] }

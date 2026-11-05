@@ -41,7 +41,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    handle().spawn(contained(fut)).detach();
+    drop(handle().spawn(contained(fut)));
 }
 
 pub(crate) struct Task(futures_util::future::AbortHandle);
@@ -87,12 +87,11 @@ where
     let (abort, registration) = AbortHandle::new_pair();
     let _stop = Stop(abort);
     let (tx, rx) = async_channel::bounded(1);
-    ntex::rt::spawn(contained(async move {
+    drop(ntex::rt::spawn(contained(async move {
         if let Ok(output) = Abortable::new(make(), registration).await {
             _ = tx.try_send(output);
         }
-    }))
-    .detach();
+    })));
     rx.recv().await.ok()
 }
 
@@ -111,7 +110,7 @@ mod backend {
 
     unsafe impl AsyncRuntime for Backend {
         fn spawn(&self, task: AsyncRuntimeTask) -> Result<(), AsyncRuntimeRejection<AsyncRuntimeTask>> {
-            handle().spawn(task).detach();
+            drop(handle().spawn(task));
             Ok(())
         }
 

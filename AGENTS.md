@@ -1046,6 +1046,9 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 - 改 `crates/shell`、`crates/render`、`vendors/acrender` 或 `web/` 的提交, 先在这棵树编出来的 acde 上起一次会话
   (没有一键验收), 在提交信息里写明验了什么、没验什么.
 - 系统调用走 rustix (安全的封装), 不直接依赖 libc; rustix 没有的用专门的 crate: 信号处理器 signal-hook, 本地时间 jiff.
+- 依赖版本只写主版本号 (`x.y.z` 只写 `x`: `log = "0"`, `wgpu = "30"`), lock 里用最新的 (`cargo update`); 升级跨了 0.x 的次版本
+  (API 会变) 就跟着改代码. 例外只有 `=` 精确钉住的: 由 `[patch.crates-io]` 换成 `vendors/` 的 crate 和与之配套的 (blitz-*、stylo*、
+  parley、html5ever、cssparser), 写成 `"0"` 会让解析器挑 crates.io 上更新的版本而不用补丁.
 - 改了自己 crate 的依赖: 对应的 `Cargo.lock` 改动放在同一个提交里 (先确认 lock 的 diff 里只有自己的变化),
   提交前 `cargo build --release --locked -p acdert` 必须通过, main 任何时候都要能 `--locked` 编过. `web/bun.lock` 同理.
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits (`feat(shell): …`), 每行不超过 72 字符, 正文写原因和验证情况

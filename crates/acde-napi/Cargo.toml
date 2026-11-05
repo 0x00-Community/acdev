@@ -7,6 +7,6 @@ edition.workspace = true
 
 [dependencies]
 v8 = "152"
-log = "0.4"
+log = "0"
 napi_sym = "0"
 parking_lot = "0"

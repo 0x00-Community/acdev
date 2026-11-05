@@ -6,25 +6,25 @@ license.workspace = true
 
 [dependencies]
 # logging (the host installs env_logger through acde-log)
-log = "0.4"
+log = "0"
 # napi: 和 agentrt-rust/crates/napi 同版本
-napi = { version = "=3.14.2", default-features = false, features = ["napi8", "async-runtime", "serde-json"] }
-napi-derive = "=3.6.12"
+napi = { version = "3", default-features = false, features = ["napi8", "async-runtime", "serde-json"] }
+napi-derive = "3"
 # the pty, the terminal's poll loop, signals and process groups, O_NOFOLLOW
 rustix = { version = "1", features = ["event", "fs", "process", "pty", "termios"] }
 # pty.rs: close_range in the terminal shell's child (rustix has none), so it inherits no fd of the runtime
-libc = "0.2"
+libc = "0"
 # local time of the names of new Office documents
-jiff = "0.2"
+jiff = "0"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 # the executor (rt.rs; ntex picks io_uring, else polling, at run time), the HTTP/WebSocket client and servers
-ntex = { version = "4.4", features = ["openssl"] }
+ntex = { version = "4", features = ["openssl"] }
 # TLS of ntex's HTTP client (http.rs: a connector that verifies the peer)
-openssl = "0.10"
+openssl = "0"
 # executor-independent async pieces (channels, block_on)
 async-channel = "2"
 futures-lite = "2"
-futures-channel = "0.3"
+futures-channel = "0"
 # accepting on the servers' Unix sockets (ntex has no listener outside ntex-server)
 async-io = "2"
 uuid = { version = "1", features = ["v4"] }
@@ -33,19 +33,19 @@ serde = { version = "1", features = ["derive"] }
 icu_collator = "2"
 icu_locale_core = "2"
 url = "2"
-sha2 = "0.10"
-futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
-base64 = "0.22"
-rand = "0.9"
+sha2 = "0"
+futures-util = { version = "0", default-features = false, features = ["sink", "std"] }
+base64 = "0"
+rand = "0"
 # the Office app (app-office): Document Server JWTs and bridge tickets, blank documents
-hmac = "0.12"
+hmac = "0"
 flate2 = "1"
 crc32fast = "1"
 
 # Linux desktop services: D-Bus (input method, NetworkManager, portals, AT-SPI, the session bus) and PipeWire (voice)
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
-pipewire = { version = "0.10", features = ["v0_3_49"] }
+pipewire = { version = "0", features = ["v0_3_49"] }
 
 # macOS / Windows: OpenSSL built in, the program does not depend on one installed
 [target.'cfg(not(target_os = "linux"))'.dependencies]

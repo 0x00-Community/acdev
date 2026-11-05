@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-base64 = "0.22"
-data-url = "0.3"
+base64 = "0"
+data-url = "0"
 # blitz / acgpu 版本由这里钉死并 pub use, paint / window / acde 只经 acde_render 引用
 # complex-scripts: 中文/日文断行 (ICU4X 分词模型); floats: CSS float
 blitz-dom = { version = "=0.3.0-beta.4", default-features = false, features = [
@@ -27,18 +27,18 @@ acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "8b84f72d8559c3292c
 # blitz-dom (acrender) 用的 parley, 取插入点几何
 parley = { version = "=0.12.0", default-features = false, features = ["std"] }
 # acgpu 场景用的 kurbo, 算脏区域的包围盒
-kurbo = "0.13"
+kurbo = "0"
 # acgpu 场景用的 peniko, 看图层的合成方式 (region.rs)
-peniko = "0.6"
+peniko = "0"
 # canvas 的 toDataURL 编 PNG
-png = "0.18"
+png = "0"
 # 文字的字形坐标 (parley 和 acgpu 的 NormalizedCoord) 按位转, 和 blitz-paint 一样
 bytemuck = "1"
 # 文档锁: JS 线程和 render 线程共用文档 (MutexGuard::bump 让锁给等着的线程)
-parking_lot = "0.12"
+parking_lot = "0"
 # 日志和全链路计时: 帧的耗时, 输入到上屏的 Trace 跟着 Frame 走
 acde-log = { path = "../log" }
-log = "0.4"
+log = "0"
 # Dom 的 HTML 解析 (和 stylo 的 web_atoms 同版本; 自己的 TreeSink: scripting 开着、留 doctype、片段不挂到文档上)
 html5ever = "=0.40.1"
 # 和 blitz-dom 同版本: ElementState (:focus-visible / :active / :checked), matchMedia 的媒体查询解析
@@ -48,9 +48,9 @@ cssparser = "=0.38.0"
 
 [dev-dependencies]
 # tests/svg_fixtures.rs 把 SVG 文件读成 DOM 调用
-roxmltree = "0.21"
+roxmltree = "0"
 # tests/replay.rs 解压录下的 op 流 (已在依赖树里, 不新增下载)
-flate2 = "1.1"
+flate2 = "1"
 
 [features]
 # Blitz 把 resolve 里 style / construct / layout / paint_tree 各步耗时打到 stdout, 测性能用

@@ -2,7 +2,7 @@ use crate::sync::Locked;
 use crate::failure::{Failure, Outcome};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use std::{collections::HashMap, sync::Mutex};

@@ -9,5 +9,5 @@ napi = ["dep:napi", "dep:napi-derive"]
 
 [dependencies]
 acde-log = { path = "../log" }
-napi = { version = "=3.14.2", default-features = false, features = ["napi8"], optional = true }
-napi-derive = { version = "=3.6.12", optional = true }
+napi = { version = "3", default-features = false, features = ["napi8"], optional = true }
+napi-derive = { version = "3", optional = true }

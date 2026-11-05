@@ -24,25 +24,25 @@ serde_json = "1"
 # sys.rs, child.rs, main.rs, supervise.rs: the socket lock, kill, uid, pre_exec of spawned children, waiting for acde runtime
 rustix = { version = "1", features = ["fs", "process", "stdio", "event", "thread"] }
 # sys.rs: SIGINT, SIGTERM and SIGHUP for the host's handlers
-signal-hook = "0.4"
+signal-hook = "0"
 # logging: env_logger behind acde-log (written on its own thread), perf timings for the whole chain
 acde-log = { path = "../log" }
-log = "0.4"
+log = "0"
 
 # runtime, shell (smithay) and their napi exports build on Linux only; elsewhere acde runs scripts without them
 # (development checks on a Mac)
 [target.'cfg(target_os = "linux")'.dependencies]
-tikv-jemallocator = "0.7"
+tikv-jemallocator = "0"
 acde-shell = { path = "../shell", features = ["napi"] }
 acde-window = { path = "../window" }
 acde-paint = { path = "../paint" }
 # WebGPU (webgpu/): descriptors come as JSON, read into wgpu-types (its serde names are WebGPU's)
 wgpu-types = { version = "30", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
-pollster = "0.4"
+pollster = "0"
 # sound (audio/): a web's graph and <audio>s rendered natively into a PipeWire stream, files decoded in pure Rust
-pipewire = { version = "0.10", features = ["v0_3_49"] }
-symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac", "aac", "isomp4"] }
+pipewire = { version = "0", features = ["v0_3_49"] }
+symphonia = { version = "0", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac", "aac", "isomp4"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects"] }
+windows-sys = { version = "0", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects"] }

@@ -4,20 +4,20 @@ use std::collections::VecDeque;
 use std::io::Cursor;
 use std::sync::Arc;
 
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions};
+use symphonia::core::codecs::CodecParameters;
+use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, Track};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use symphonia::core::units::Time;
+use symphonia::core::units::{Time, TimeBase, Timestamp};
 
 use super::graph::{AudioData, Bus, QUANTUM, hermite};
 
 struct Opened {
     format: Box<dyn FormatReader>,
-    decoder: Box<dyn Decoder>,
+    decoder: Box<dyn AudioDecoder>,
     track: u32,
     rate: f64,
     channels: usize,
@@ -26,23 +26,23 @@ struct Opened {
 
 fn open(bytes: Arc<[u8]>) -> Result<Opened, String> {
     let source = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
-    let probed = symphonia::default::get_probe()
-        .format(&Hint::new(), source, &FormatOptions { enable_gapless: true, ..Default::default() }, &MetadataOptions::default())
+    let format = symphonia::default::get_probe()
+        .probe(&Hint::new(), source, FormatOptions::default(), MetadataOptions::default())
         .map_err(|e| format!("unsupported audio: {e}"))?;
-    let format = probed.format;
-    let track = format.tracks().iter().find(|t| t.codec_params.codec != CODEC_TYPE_NULL).ok_or("no audio track")?;
-    let params = &track.codec_params;
-    let decoder = symphonia::default::get_codecs().make(params, &DecoderOptions::default()).map_err(|e| format!("unsupported codec: {e}"))?;
+    let (track, params) = format
+        .tracks()
+        .iter()
+        .find_map(|t| match &t.codec_params {
+            Some(CodecParameters::Audio(p)) => Some((t, p)),
+            _ => None,
+        })
+        .ok_or("no audio track")?;
+    let decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(params, &AudioDecoderOptions::default().gapless(true))
+        .map_err(|e| format!("unsupported codec: {e}"))?;
     let rate = params.sample_rate.ok_or("no sample rate")? as f64;
-    let channels = params.channels.map_or(0, |c| c.count());
-    let duration = match (params.n_frames, params.time_base) {
-        (Some(n), Some(base)) => {
-            let t = base.calc_time(n);
-            Some(t.seconds as f64 + t.frac)
-        }
-        (Some(n), None) => Some(n as f64 / rate),
-        _ => None,
-    };
+    let channels = params.channels.as_ref().map_or(0, |c| c.count());
+    let duration = track.num_frames.map(|n| to_seconds(track.time_base, n as i64, rate));
     let track = track.id;
     Ok(Opened { format, decoder, track, rate, channels, duration })
 }
@@ -50,7 +50,8 @@ fn open(bytes: Arc<[u8]>) -> Result<Opened, String> {
 fn next(o: &mut Opened, out: &mut Vec<f32>, channels: &mut usize) -> Result<bool, String> {
     loop {
         let packet = match o.format.next_packet() {
-            Ok(packet) => packet,
+            Ok(Some(packet)) => packet,
+            Ok(None) => return Ok(false),
             Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
             Err(Error::ResetRequired) => {
                 o.decoder.reset();
@@ -58,17 +59,13 @@ fn next(o: &mut Opened, out: &mut Vec<f32>, channels: &mut usize) -> Result<bool
             }
             Err(e) => return Err(e.to_string()),
         };
-        if packet.track_id() != o.track {
+        if packet.track_id != o.track {
             continue;
         }
         match o.decoder.decode(&packet) {
             Ok(decoded) => {
-                let spec = *decoded.spec();
-                *channels = spec.channels.count();
-                let mut buffer = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
-                buffer.copy_interleaved_ref(decoded);
-                out.clear();
-                out.extend_from_slice(buffer.samples());
+                *channels = decoded.spec().channels().count();
+                decoded.copy_to_vec_interleaved(out);
                 return Ok(true);
             }
             Err(Error::DecodeError(_)) | Err(Error::IoError(_)) => continue,
@@ -160,23 +157,20 @@ impl MediaStream {
     }
 
     pub fn time(&self) -> f64 {
-        self.base + (self.played as f64 + self.frac) / self.rate
+        self.base + ((self.played + self.skip) as f64 + self.frac) / self.rate
     }
 
     pub fn seek(&mut self, seconds: f64) {
         let seconds = if self.duration.is_finite() { seconds.clamp(0.0, self.duration) } else { seconds.max(0.0) };
         self.reset_queue();
         self.skip = 0;
-        let to = SeekTo::Time { time: Time::from(seconds), track_id: Some(self.o.track) };
+        let time = Time::try_from_secs_f64(seconds).unwrap_or_default();
+        let to = SeekTo::Time { time, track_id: Some(self.o.track) };
         match self.o.format.seek(SeekMode::Accurate, to) {
             Ok(seeked) => {
                 self.o.decoder.reset();
-                let track = self.o.format.tracks().iter().find(|t| t.id == self.o.track);
-                let base = track.and_then(|t| t.codec_params.time_base);
-                let secs = |ts: u64| base.map_or(ts as f64 / self.rate, |b| {
-                    let t = b.calc_time(ts);
-                    t.seconds as f64 + t.frac
-                });
+                let base = track_of(&*self.o.format, self.o.track).and_then(|t| t.time_base);
+                let secs = |ts: Timestamp| to_seconds(base, ts.get(), self.rate);
                 let (actual, required) = (secs(seeked.actual_ts), secs(seeked.required_ts));
                 self.skip = ((required - actual).max(0.0) * self.rate).round() as u64;
                 self.base = actual;
@@ -254,22 +248,27 @@ impl MediaStream {
 
 fn scan_duration(bytes: Arc<[u8]>) -> Option<f64> {
     let mut o = open(bytes).ok()?;
-    let base = o.format.tracks().iter().find(|t| t.id == o.track)?.codec_params.time_base;
+    let base = track_of(&*o.format, o.track)?.time_base;
     let mut total: u64 = 0;
     loop {
         match o.format.next_packet() {
-            Ok(packet) if packet.track_id() == o.track => total += packet.dur,
-            Ok(_) => {}
-            Err(_) => break,
+            Ok(Some(packet)) if packet.track_id == o.track => total += packet.dur.get(),
+            Ok(Some(_)) => {}
+            Ok(None) | Err(_) => break,
         }
     }
-    Some(match base {
-        Some(b) => {
-            let t = b.calc_time(total);
-            t.seconds as f64 + t.frac
-        }
-        None => total as f64 / o.rate,
-    })
+    Some(to_seconds(base, total as i64, o.rate))
+}
+
+fn track_of(format: &dyn FormatReader, id: u32) -> Option<&Track> {
+    format.tracks().iter().find(|t| t.id == id)
+}
+
+fn to_seconds(base: Option<TimeBase>, ts: i64, rate: f64) -> f64 {
+    match base.and_then(|b| b.calc_time(Timestamp::new(ts))) {
+        Some(t) => t.as_secs_f64(),
+        None => ts as f64 / rate,
+    }
 }
 
 #[cfg(test)]

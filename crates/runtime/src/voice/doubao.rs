@@ -5,7 +5,7 @@ use futures_lite::future::or;
 use ntex::time::{Millis, Seconds};
 use ntex::util::Bytes;
 use ntex::ws::{Frame, Message, WsClient, WsClientConfig};
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 

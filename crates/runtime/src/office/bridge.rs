@@ -42,7 +42,7 @@ pub async fn serve(listener: async_io::Async<UnixListener>, handlers: Arc<dyn Ha
                 continue;
             };
             let handlers = Arc::clone(&handlers);
-            ntex::rt::spawn(async move { connection(io, handlers).await }).detach();
+            drop(ntex::rt::spawn(async move { connection(io, handlers).await }));
         }
     })
     .await;

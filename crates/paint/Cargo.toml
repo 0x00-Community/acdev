@@ -7,5 +7,5 @@ license.workspace = true
 [dependencies]
 acde-render = { path = "../render" }
 acde-log = { path = "../log" }
-log = "0.4"
-smithay = { version = "0.7.0", default-features = false, features = ["backend_gbm"] }
+log = "0"
+smithay = { version = "0", default-features = false, features = ["backend_gbm"] }
