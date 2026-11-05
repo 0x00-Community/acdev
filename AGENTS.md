@@ -1099,7 +1099,8 @@ acdert 找 bundle 的顺序: `$ACDE_APP`, 自己旁边的 `app/dist` (装好的�
 `.github/workflows/release.yml`: 推 `v*` tag (或手动给版本) 时, 六个平台 (darwin-arm64 / x64、linux-arm64 / x64、win32-arm64 / x64)
 各编一次 `cargo build --release --locked -p acdert` 和 host bundle, 再检出 acde 仓库, 用它的 `scripts/pack.ts` 打成 npm 包
 (`@dopame/acdert-<平台>`: acdert 和旁边的 `app/dist`; `@dopame/acde-api`; `acde`; `create-acde`) 并发布. 包怎么分、开发者怎么装,
-见 acde 仓库 AGENTS.md 的「分发」. secret: `DOPAME_READ_TOKEN` (读私有的 acgpu 和 acde)、`NPM_TOKEN`. 某个平台编不过时其余照发, 那个
+见 acde 仓库 AGENTS.md 的「分发」. secret: `DOPAME_READ_TOKEN` (读私有的 acgpu 和 acde)、`NPM_TOKEN`. Linux 的 acdert 运行时要 libxkbcommon、gbm (mesa)、
+libudev、libinput、fontconfig、OpenSSL 3、pipewire (普通桌面都有; libseat 是 dlopen, 见 vendors/libseat-sys). 某个平台编不过时其余照发, 那个
 平台不进 acde 的可选依赖 (Windows 移植做完之前就是 win32). 这个 workflow 还没跑过.
 
 ## 日志和计时
@@ -1170,6 +1171,7 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个 we
 | `vendors/stylo_atoms` | servo/stylo, + 一个 atom |
 | `vendors/vello` | linebender/vello (crates.io `vello` 0.11.0), + 改动 |
 | `vendors/ironrdp-server` | Devolutions/IronRDP, + 改动 (tokio → ntex, TLS 用 OpenSSL) |
+| `vendors/libseat-sys` | PolyMeilex/libseat-rs 的 `libseat-sys` 0.2.0, 改成运行时 dlopen |
 | `vendors/taffy` | DioxusLabs/taffy, git 提交 `4e59968`, 未改 |
 
 ### vendors/acrender
@@ -1310,6 +1312,14 @@ ironrdp-tokio 带进 reqwest), 这里改成跑在 ntex 上 (运行时 ntex 自�
 验证: `cd vendors/ironrdp-server && cargo clippy --all-targets --all-features` (跑完删掉生成的 `Cargo.lock`), Linux 上
 `cargo clippy --release -p ironrdp-server --all-targets` 和 `-p acde-shell`; 再用 RDP 后端起整个会话, FreeRDP (`xfreerdp3 /cert:ignore`,
 无显示时放在 Xvfb 里) 分别以 `ACDE_RDP_SECURITY=tls` 和 `nla` 连上: 出帧、键鼠到桌面、错的密码被拒之后对的照样能连、断开再连.
+
+### vendors/libseat-sys
+
+crates.io 的 `libseat-sys` 0.2.0 (smithay 的 `backend_session_libseat` 经 `libseat` crate 用它), 接口原样 (类型、常量、九个函数和
+`libseat_set_log_level`), 但不链接 libseat: 第一次调用时 dlopen `libseat.so.1` (libloading), 拿不到 (库不在、少符号) 时
+`libseat_open_seat` 返回空指针 (`libseat` crate 当成打不开座席报错), 别的函数回 -1 / 空. 为什么: libseat (seatd) 只有 Dopame 会话的
+合成器接管座席时要用, 普通桌面 (KDE、GNOME) 上通常没装; 链接它的话 acdert 在这些机器上根本起不来, 连调试窗口也开不了. 编译时也
+不再要 libseat 的开发包. 验证: Linux 上 `ldd target/release/acdert` 里没有 libseat, 在没装 seatd 的机器上 `acdert app` 开得出窗口.
 
 ## crates/render
 

@@ -1,0 +1,17 @@
+[package]
+edition = "2021"
+name = "libseat-sys"
+version = "0.2.0"
+authors = ["Poly <marynczak.bartlomiej@gmail.com>"]
+description = "libseat bindings, loaded at run time"
+license = "MIT"
+repository = "https://github.com/PolyMeilex/libseat-rs"
+
+[lib]
+name = "libseat_sys"
+path = "src/lib.rs"
+
+[dependencies]
+libloading = "0"
+
+[workspace]

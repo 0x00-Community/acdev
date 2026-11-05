@@ -39,7 +39,7 @@ jobs:
         if: runner.os == 'Linux'
         run: >
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libseat-dev libudev-dev
+          clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev
           libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: oven-sh/setup-bun@v2

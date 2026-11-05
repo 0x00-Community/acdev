@@ -14,3 +14,6 @@ log = "0"
 winit = "0"
 arboard = { version = "3", default-features = false }
 pollster = "0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
