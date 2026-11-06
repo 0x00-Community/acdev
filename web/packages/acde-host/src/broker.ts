@@ -1137,8 +1137,11 @@ export class Broker {
         return this.inspect.api.act(String(args['ref'] ?? ''), args['action'] as never, (args['arg'] ?? null) as string | number | null)
       case 'run':
         return this.inspect.api.run(args['steps'] as never)
+      case 'open':
+        if (typeof args['name'] !== 'string' || !args['name']) throw new Error('open: name is an app id or name')
+        return this.inspect.api.open(args['name'])
       default:
-        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run)`)
+        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open)`)
     }
   }
 

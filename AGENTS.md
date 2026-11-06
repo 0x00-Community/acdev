@@ -170,7 +170,7 @@ IPC: unix 上 unix socket, Windows 上命名管道, 一行一个 JSON. acde 是�
   - `webs` → `{webs: [{name, app, kind, window, title}]}`.
   - `eval {web, code}` → `{value}`: 和 `ACDE_DEBUG_DIR` 一样求值 (promise 等落定), 结构化克隆回来再 JSON (undefined 是 null, JSON 不了的回错).
   - `shot {web}` → `{png: <base64>, width, height}` (`Shell.capture`, 设备像素, 桌面的含面板).
-  - `snapshot` / `act` / `run` → `Broker.inspect.api` 的同名方法 (「看和操作桌面」).
+  - `snapshot` / `act` / `run` / `open {name}` → `Broker.inspect.api` 的同名方法 (「看和操作桌面」).
 
 **热重载** (acde 构建时不压缩, `NODE_ENV` 是 development). acde 比较构建前后的产物 (acde 仓库 `src/changes.ts`): 只有 `.css` / `.js` 变了、
 HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应用的窗口 (或桌面) 发 `devhot`, web (acde-host `devhot.ts`) 重读入口 HTML,
