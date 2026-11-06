@@ -1,5 +1,6 @@
 import { defineHandlers, Event, EventTarget, fire } from '../core/event'
 import { DOMException } from '../core/exception'
+import { deferred } from '../core/streams'
 import { getters, host, tag } from '../core/host'
 import type { Element } from './element'
 import { documentId, dom, ID, wrap } from './realm'
@@ -135,16 +136,6 @@ tag(AnimationPlaybackEvent)
 
 const running = new Set<Animation>()
 
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void; reject(error: unknown): void } {
-  let resolve!: (value: T) => void, reject!: (error: unknown) => void
-  const promise = new Promise<T>((a, b) => {
-    resolve = a
-    reject = b
-  })
-  promise.catch(() => {})
-  return { promise, resolve, reject }
-}
-
 export class Animation extends EventTarget {
   id = ''
   #effect: AnimationEffect | null = null
@@ -226,11 +217,11 @@ export class Animation extends EventTarget {
     if (target) restyle(target, this, restart)
   }
 
-  #schedule(): void {
+  #schedule(run = true): void {
     if (this.#timer) host.clearTimer(this.#timer)
     this.#timer = 0
     const end = this.#end()
-    if (!Number.isFinite(end) || this.#rate === 0) return
+    if (!run || !Number.isFinite(end) || this.#rate === 0) return
     const now = this.currentTime ?? 0
     const left = this.#rate > 0 ? (end - now) / this.#rate : now / -this.#rate
     this.#timer = host.setTimer(Math.max(0, left), () => {
@@ -299,8 +290,7 @@ export class Animation extends EventTarget {
     if (this.#state === 'paused') return
     this.#hold = this.currentTime ?? 0
     this.#start = null
-    if (this.#timer) host.clearTimer(this.#timer)
-    this.#timer = 0
+    this.#schedule(false)
     if (this.#state === 'idle' || this.#state === 'finished') running.add(this)
     this.#state = 'paused'
     this.#restyle(true)
@@ -308,16 +298,14 @@ export class Animation extends EventTarget {
 
   finish(): void {
     if (this.#rate === 0 || (this.#rate > 0 && !Number.isFinite(this.#end()))) throw new DOMException("Failed to execute 'finish' on 'Animation': Cannot finish Animation with an infinite target effect end.", 'InvalidStateError')
-    if (this.#timer) host.clearTimer(this.#timer)
-    this.#timer = 0
+    this.#schedule(false)
     this.#state = 'running'
     this.#complete(true)
   }
 
   cancel(): void {
     if (this.#state === 'idle') return
-    if (this.#timer) host.clearTimer(this.#timer)
-    this.#timer = 0
+    this.#schedule(false)
     this.#state = 'idle'
     this.#hold = null
     this.#start = null
