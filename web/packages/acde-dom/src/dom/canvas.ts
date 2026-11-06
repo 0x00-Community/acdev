@@ -274,8 +274,8 @@ export class CanvasContext2d {
       this.#changed(SHADOW)
     }
   }
-  #choice(key: 'cap' | 'join' | 'gco' | 'align' | 'baseline' | 'direction', values: readonly string[], v: string, bits: number): void {
-    if (values.includes(v) && v !== this.#state[key]) {
+  #set<K extends keyof State>(key: K, v: State[K], bits: number, valid: () => unknown): void {
+    if (v !== this.#state[key] && valid()) {
       this.#state[key] = v
       this.#changed(bits)
     }
@@ -314,58 +314,43 @@ export class CanvasContext2d {
     return this.#state.fill
   }
   set fillStyle(v: Style) {
-    if (v !== this.#state.fill && (typeof v === 'string' ? parseColor(v) : v instanceof CanvasGradient || v instanceof CanvasPattern)) {
-      this.#state.fill = v
-      this.#changed(FILL)
-    }
+    this.#set('fill', v, FILL, () => (typeof v === 'string' ? parseColor(v) : v instanceof CanvasGradient || v instanceof CanvasPattern))
   }
   get strokeStyle(): Style {
     return this.#state.stroke
   }
   set strokeStyle(v: Style) {
-    if (v !== this.#state.stroke && (typeof v === 'string' ? parseColor(v) : v instanceof CanvasGradient || v instanceof CanvasPattern)) {
-      this.#state.stroke = v
-      this.#changed(STROKE)
-    }
+    this.#set('stroke', v, STROKE, () => (typeof v === 'string' ? parseColor(v) : v instanceof CanvasGradient || v instanceof CanvasPattern))
   }
   get lineWidth(): number {
     return this.#state.lineWidth
   }
   set lineWidth(v: number) {
-    if (v > 0 && Number.isFinite(v) && v !== this.#state.lineWidth) {
-      this.#state.lineWidth = v
-      this.#changed(LINE_WIDTH)
-    }
+    this.#set('lineWidth', v, LINE_WIDTH, () => v > 0 && Number.isFinite(v))
   }
   get lineCap(): string {
     return this.#state.cap
   }
   set lineCap(v: string) {
-    this.#choice('cap', CAPS, v, LINE)
+    this.#set('cap', v, LINE, () => CAPS.includes(v))
   }
   get lineJoin(): string {
     return this.#state.join
   }
   set lineJoin(v: string) {
-    this.#choice('join', JOINS, v, LINE)
+    this.#set('join', v, LINE, () => JOINS.includes(v))
   }
   get miterLimit(): number {
     return this.#state.miter
   }
   set miterLimit(v: number) {
-    if (v > 0 && Number.isFinite(v) && v !== this.#state.miter) {
-      this.#state.miter = v
-      this.#changed(LINE)
-    }
+    this.#set('miter', v, LINE, () => v > 0 && Number.isFinite(v))
   }
   get lineDashOffset(): number {
     return this.#state.dashOffset
   }
   set lineDashOffset(v: number) {
-    if (Number.isFinite(v) && v !== this.#state.dashOffset) {
-      this.#state.dashOffset = v
-      this.#changed(DASH)
-    }
+    this.#set('dashOffset', v, DASH, () => Number.isFinite(v))
   }
   setLineDash(segments: number[]): void {
     if (segments.some((s) => !(s >= 0) || !Number.isFinite(s))) return
@@ -379,43 +364,37 @@ export class CanvasContext2d {
     return this.#state.alpha
   }
   set globalAlpha(v: number) {
-    if (v >= 0 && v <= 1 && v !== this.#state.alpha) {
-      this.#state.alpha = v
-      this.#changed(ALPHA)
-    }
+    this.#set('alpha', v, ALPHA, () => v >= 0 && v <= 1)
   }
   get globalCompositeOperation(): string {
     return this.#state.gco
   }
   set globalCompositeOperation(v: string) {
-    this.#choice('gco', COMPOSITES, v, GCO)
+    this.#set('gco', v, GCO, () => COMPOSITES.includes(v))
   }
   get font(): string {
     return this.#state.font
   }
   set font(v: string) {
-    if (typeof v === 'string' && v.trim() && v !== this.#state.font) {
-      this.#state.font = v
-      this.#changed(FONT)
-    }
+    this.#set('font', v, FONT, () => typeof v === 'string' && v.trim())
   }
   get textAlign(): string {
     return this.#state.align
   }
   set textAlign(v: string) {
-    this.#choice('align', ALIGNS, v, TEXT)
+    this.#set('align', v, TEXT, () => ALIGNS.includes(v))
   }
   get textBaseline(): string {
     return this.#state.baseline
   }
   set textBaseline(v: string) {
-    this.#choice('baseline', BASELINES, v, TEXT)
+    this.#set('baseline', v, TEXT, () => BASELINES.includes(v))
   }
   get direction(): string {
     return this.#state.direction
   }
   set direction(v: string) {
-    this.#choice('direction', DIRECTIONS, v, TEXT)
+    this.#set('direction', v, TEXT, () => DIRECTIONS.includes(v))
   }
 
   save(): void {
@@ -513,15 +492,8 @@ export class CanvasContext2d {
     this.#path(Sub.RoundRect, finite(x) && finite(y) && finite(w) && finite(h) && finite(tl) && finite(tr) && finite(br) && finite(bl))?.f(x).f(y).f(w).f(h).f(tl!).f(tr!).f(br!).f(bl!)
   }
 
-  fill(rule: unknown = 'nonzero', rule2?: string): void {
-    if (rule instanceof Path2D) {
-      this.#replay(rule)
-      return this.fill(rule2 ?? 'nonzero')
-    }
-    if (typeof rule !== 'string') return
-    this.#check()
-    this.#sync(NEEDS_FILL)
-    this.#cmd().u8(Sub.Fill).u8(rule === 'evenodd' ? 1 : 0)
+  fill(rule?: unknown, rule2?: string): void {
+    this.#area(Sub.Fill, NEEDS_FILL, rule, rule2)
   }
   stroke(path?: unknown): void {
     if (path instanceof Path2D) {
@@ -533,15 +505,18 @@ export class CanvasContext2d {
     this.#sync(NEEDS_STROKE)
     this.#cmd().u8(Sub.Stroke)
   }
-  clip(rule: unknown = 'nonzero', rule2?: string): void {
+  clip(rule?: unknown, rule2?: string): void {
+    this.#area(Sub.Clip, M, rule, rule2)
+  }
+  #area(sub: number, needs: number, rule: unknown = 'nonzero', rule2?: string): void {
     if (rule instanceof Path2D) {
       this.#replay(rule)
-      return this.clip(rule2 ?? 'nonzero')
+      rule = rule2 ?? 'nonzero'
     }
     if (typeof rule !== 'string') return
     this.#check()
-    this.#sync(M)
-    this.#cmd().u8(Sub.Clip).u8(rule === 'evenodd' ? 1 : 0)
+    this.#sync(needs)
+    this.#cmd().u8(sub).u8(rule === 'evenodd' ? 1 : 0)
   }
   fillRect(x: number, y: number, w: number, h: number): void {
     this.#rects(0, x, y, w, h)
@@ -778,7 +753,7 @@ class CanvasContexts {
 
 export const canvases = new CanvasContexts()
 
-type PathCommand = [string, ...number[]] | ['svg', string, ...number[]]
+type PathCommand = [string, ...unknown[]]
 
 export class Path2D {
   readonly [COMMANDS]: PathCommand[] = []
@@ -810,36 +785,11 @@ export class Path2D {
     }
   }
 
-  closePath(): void {
-    this[COMMANDS].push(['closePath'])
+  roundRect(x: number, y: number, w: number, h: number, radii: unknown = 0): void {
+    this[COMMANDS].push(['roundRect', x, y, w, h, Array.isArray(radii) ? [...radii] : radii])
   }
-  moveTo(x: number, y: number): void {
-    this[COMMANDS].push(['moveTo', x, y])
-  }
-  lineTo(x: number, y: number): void {
-    this[COMMANDS].push(['lineTo', x, y])
-  }
-  quadraticCurveTo(cx: number, cy: number, x: number, y: number): void {
-    this[COMMANDS].push(['quadraticCurveTo', cx, cy, x, y])
-  }
-  bezierCurveTo(a: number, b: number, c: number, d: number, x: number, y: number): void {
-    this[COMMANDS].push(['bezierCurveTo', a, b, c, d, x, y])
-  }
-  arc(x: number, y: number, r: number, a0: number, a1: number, ccw = false): void {
-    this[COMMANDS].push(['arc', x, y, r, a0, a1, ccw ? 1 : 0])
-  }
-  arcTo(x1: number, y1: number, x2: number, y2: number, r: number): void {
-    this[COMMANDS].push(['arcTo', x1, y1, x2, y2, r])
-  }
-  ellipse(x: number, y: number, rx: number, ry: number, rotation: number, a0: number, a1: number, ccw = false): void {
-    this[COMMANDS].push(['ellipse', x, y, rx, ry, rotation, a0, a1, ccw ? 1 : 0])
-  }
-  rect(x: number, y: number, w: number, h: number): void {
-    this[COMMANDS].push(['rect', x, y, w, h])
-  }
-  roundRect(x: number, y: number, w: number, h: number, r: number | number[] = 0): void {
-    const radii = Array.isArray(r) ? r : [r]
-    this[COMMANDS].push(['roundRect', x, y, w, h, ...radii])
-  }
+}
+for (const op of ['closePath', 'moveTo', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo', 'arc', 'arcTo', 'ellipse', 'rect']) {
+  Object.defineProperty(Path2D.prototype, op, { value(this: Path2D, ...args: unknown[]) { this[COMMANDS].push([op, ...args]) }, writable: true, enumerable: true, configurable: true })
 }
 tag(Path2D)
