@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -20,9 +20,19 @@ export class Sessions {
     return join(dir, `${pid}.json`)
   }
 
-  static write(session: Session, dir = Sessions.dir()): string {
+  static prepare(dir = Sessions.dir()): string {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     if (!Sessions.#mine(dir)) throw new Error(`${dir} belongs to another user`)
+    if (process.platform !== 'win32' && (statSync(dir).mode & 0o077) !== 0) chmodSync(dir, 0o700)
+    return dir
+  }
+
+  static socket(pid: number, dir = Sessions.dir()): string {
+    return join(dir, `${pid}.sock`)
+  }
+
+  static write(session: Session, dir = Sessions.dir()): string {
+    Sessions.prepare(dir)
     const file = Sessions.file(session.pid, dir)
     const scratch = `${file}.${process.pid}.tmp`
     writeFileSync(scratch, `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 })

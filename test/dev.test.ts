@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { join } from 'node:path'
 import { DevClient, DevServer, Lines, type Message } from '../src/ipc.ts'
@@ -59,6 +59,18 @@ describe('dev IPC: acde dev relays tool requests to the runtime', () => {
 
   afterEach(async () => {
     for (const s of servers.splice(0)) await s.close()
+  })
+
+  test.skipIf(process.platform === 'win32')('the socket can eval in pages, so only its owner may reach it', async () => {
+    const dir = join(tmp(), 'sessions')
+    mkdirSync(dir, { mode: 0o755 })
+    chmodSync(dir, 0o755)
+    const made = new DevServer({ endpoint: join(dir, 'dev.sock'), log: () => undefined })
+    await made.listen()
+    servers.push(made)
+    expect(statSync(dir).mode & 0o777).toBe(0o700)
+    expect(statSync(made.endpoint).mode & 0o777).toBe(0o600)
+    expect(DevServer.endpoint(4242)).toBe(join(Sessions.dir(), '4242.sock'))
   })
 
   test('ids are rewritten so tools never collide; each answer goes to the tool that asked, with its own id', async () => {

@@ -237,8 +237,10 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
     工程 / 包) 时把它当成又一个工程 (构建、盯着), 跑它的那个桌面 (它没有或有好几个桌面时报错); 否则是桌面 id. 每个工程构建进自己的
     `<工程>/.acde`, `--out` 只在一个工程时能给; `--app` 只在一个工程时有意义 (几个时报错: 应用都在桌面里, 从桌面开). 两个工程里有同一个
     应用 id 或桌面 id 时报错.
-- IPC (`src/ipc.ts` 的 `DevServer`): acde 在 `ACDE_DEV` 上听 (unix 上 `$TMPDIR/acde-dev-<pid>.sock`, Windows 上命名管道
-  `\\.\pipe\acde-dev-<pid>`, 都是 `node:net` 的 server), 一行一个 JSON (读的时候只在新到的那块里找换行, 几 MB 的截图也不慢).
+- IPC (`src/ipc.ts` 的 `DevServer`): acde 在 `ACDE_DEV` 上听 (unix 上 `$TMPDIR/acde-dev/<pid>.sock`, Windows 上命名管道
+  `\\.\pipe\acde-dev-<pid>`, 都是 `node:net` 的 server). 这条 IPC 能在页面里求值 (`eval`), 所以 unix 上 socket 放在会话目录里:
+  目录 0700 且属于自己 (`Sessions.prepare`, 不是自己的就报错, 权限松了收紧), socket 听上之后 chmod 0600; 不放在 `$TMPDIR` 根上
+  (Linux 上是大家共用的 `/tmp`, umask 宽时同组的人能连上来). 一行一个 JSON (读的时候只在新到的那块里找换行, 几 MB 的截图也不慢).
   连上来的每一方第一行是 `hello`, 带 `role`:
   - `runtime` (acdert hostwin 的 `acde-dev` 线程, `{"type":"hello","role":"runtime","pid"}`); 没有 `role` 的 `hello` 是改这个协议之前的
     acdert, 也算 runtime (`reload` / `quit` 照发), 但它不认 `request` (只在日志里打一行 warn), 所以工具的请求不转给它, 当场回错:

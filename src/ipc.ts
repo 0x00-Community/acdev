@@ -1,7 +1,7 @@
-import { rmSync } from 'node:fs'
+import { chmodSync, rmSync } from 'node:fs'
 import net from 'node:net'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname } from 'node:path'
+import { Sessions } from './sessions.ts'
 
 export type Message = Readonly<Record<string, unknown>>
 
@@ -85,7 +85,7 @@ export class DevServer {
   }
 
   static endpoint(pid = process.pid): string {
-    return process.platform === 'win32' ? `\\\\.\\pipe\\acde-dev-${pid}` : join(tmpdir(), `acde-dev-${pid}.sock`)
+    return process.platform === 'win32' ? `\\\\.\\pipe\\acde-dev-${pid}` : Sessions.socket(pid)
   }
 
   get runtime(): { readonly pid: number | null; readonly legacy: boolean } | null {
@@ -93,7 +93,11 @@ export class DevServer {
   }
 
   async listen(): Promise<void> {
-    if (process.platform !== 'win32') rmSync(this.endpoint, { force: true })
+    const unix = process.platform !== 'win32'
+    if (unix) {
+      Sessions.prepare(dirname(this.endpoint))
+      rmSync(this.endpoint, { force: true })
+    }
     await new Promise<void>((resolve, reject) => {
       this.#server.once('error', reject)
       this.#server.listen(this.endpoint, () => {
@@ -101,6 +105,7 @@ export class DevServer {
         resolve()
       })
     })
+    if (unix) chmodSync(this.endpoint, 0o600)
   }
 
   async close(): Promise<void> {
