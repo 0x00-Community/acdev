@@ -5,4 +5,4 @@ mod panel;
 mod protocol;
 
 pub use acde_model::{Event, Inbox, Waker};
-pub use client::{DragImage, Surface};
+pub use client::Surface;

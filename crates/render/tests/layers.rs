@@ -25,7 +25,7 @@ impl Page {
         let doc = Doc::new((400.0 * scale) as u32, (200.0 * scale) as u32, scale, &Options::default()).unwrap();
         doc.add_stylesheet(CSS).unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         let handle = doc.handle();
         Self { doc, handle, body }
     }
@@ -55,7 +55,7 @@ fn raster(size: (u32, u32), scenes: Vec<Scene>) -> Vec<u8> {
     for scene in scenes {
         all.append_scene(scene, Default::default());
     }
-    acde_render::gpu::rasterize(all, size, Default::default())
+    common::rasterize(all, size)
 }
 
 fn near(a: f64, b: f64) -> bool {
@@ -106,9 +106,9 @@ fn segments_compose_to_the_whole_scene() {
     page.div("shadow");
     let frame = page.frame();
     assert_eq!(frame.plane.layers.len(), 3);
-    assert!(frame.plane.scene().commands.is_empty());
+    assert!(frame.plane.drawing.scene().commands.is_empty());
     let whole = raster(frame.size, vec![page.doc.scene()]);
-    let parts = raster(frame.size, frame.plane.layers.iter().map(|l| l.scene()).collect());
+    let parts = raster(frame.size, frame.plane.layers.iter().map(|l| l.drawing.scene()).collect());
     let differing = whole.chunks(4).zip(parts.chunks(4)).filter(|(a, b)| a != b).count();
     assert_eq!(differing, 0);
 }

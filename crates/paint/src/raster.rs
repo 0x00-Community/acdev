@@ -1,13 +1,11 @@
 use std::os::fd::OwnedFd;
 use std::sync::mpsc;
 
-use acde_gpu::{Device, Dmabuf as GpuDmabuf, Raster as Pages, Scene};
-use acde_render::gpu::Overrides;
+use acde_gpu::{Device, Dmabuf as GpuDmabuf, Gpu, Overrides, Raster as Pages, Scene};
 use smithay::backend::allocator::Buffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::reexports::calloop::ping::Ping;
 
-use crate::gpu::Gpu;
 use crate::plane::Content;
 
 const IDLE_TRIM: std::time::Duration = std::time::Duration::from_secs(2);
@@ -41,17 +39,17 @@ impl Raster {
     pub fn new() -> Result<Self, String> {
         let device = Device::open()?;
         log::info!("网页图层用 {} ({:?})", device.info.name, device.info.device_type);
-        let published = (device.device.clone(), device.queue.clone(), device.info.clone());
+        let published = Gpu::new(device.device.clone(), device.queue.clone(), device.info.clone());
         let started = std::time::Instant::now();
         let pages = Pages::new(device, std::env::var_os("ACDE_WEB_POLL").is_some())?;
         log::info!("vello 预热 {:.1}ms", acde_log::since_ms(started));
         let gpu = Gpu::publish(Some(published));
-        let images = gpu.as_ref().map_or_else(Default::default, |g| g.images().clone());
+        let images = gpu.as_ref().map_or_else(Default::default, |g| g.images.clone());
         Ok(Self { pages, overrides: Overrides::from(images), gpu })
     }
 
     pub fn spawn(jobs: mpsc::Receiver<Job>, done: mpsc::Sender<Done>, ready: Ready, waker: Ping) -> std::io::Result<()> {
-        acde_render::gpu::expect();
+        Gpu::expect();
         std::thread::Builder::new().name("acde-web".into()).spawn(move || {
             let mut raster = match Self::new() {
                 Ok(raster) => raster,
@@ -113,9 +111,7 @@ impl Raster {
     fn draw(&mut self, passes: Vec<Pass>) -> Done {
         let started = std::time::Instant::now();
         let count = passes.len();
-        let unlocked = std::sync::Mutex::new(());
-        let lock = self.gpu.as_ref().map_or(&unlocked, |g| g.submit_mutex());
-        let submitted = self.pages.draw(passes, &mut self.overrides, lock)?;
+        let submitted = self.pages.draw(passes, &mut self.overrides, self.gpu.as_deref())?;
         log::debug!(
             target: "perf::raster",
             "job surfaces={count} wait={:.3} record={:.3} ms={:.3}",

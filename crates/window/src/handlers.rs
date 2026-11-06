@@ -55,7 +55,7 @@ impl CompositorHandler for App {
         for trace in self.presenting.drain(..) {
             trace.presented(self.window_id);
         }
-        if self.want_frame || self.animating {
+        if self.pacer.want_frame || self.pacer.animating {
             self.pace();
             self.ask_frame();
         }

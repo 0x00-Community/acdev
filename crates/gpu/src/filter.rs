@@ -24,13 +24,9 @@ impl Filter {
         self.expansion
     }
 
-    pub fn bounds_expansion(&self, transform: &Affine) -> Rect {
-        transform.transform_rect_bbox(self.expansion)
-    }
-
     pub fn linear_bounds_expansion(&self, transform: &Affine) -> Rect {
         let [a, b, c, d, _, _] = transform.as_coeffs();
-        self.bounds_expansion(&Affine::new([a, b, c, d, 0.0, 0.0]))
+        Affine::new([a, b, c, d, 0.0, 0.0]).transform_rect_bbox(self.expansion)
     }
 }
 

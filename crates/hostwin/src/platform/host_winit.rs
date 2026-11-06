@@ -7,7 +7,6 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
-use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
 use super::{Cmd, Handler, HostEvent, LINE, Monitor};
@@ -78,23 +77,6 @@ pub(crate) fn run(handler: Box<dyn Handler>) -> Result<i32, String> {
     }
 }
 
-fn mods(state: ModifiersState) -> u8 {
-    let mut mods = 0;
-    if state.control_key() {
-        mods |= Combo::CTRL;
-    }
-    if state.alt_key() {
-        mods |= Combo::ALT;
-    }
-    if state.shift_key() {
-        mods |= Combo::SHIFT;
-    }
-    if state.super_key() {
-        mods |= Combo::SUPER;
-    }
-    mods
-}
-
 impl Loop {
     fn emit(&mut self, el: &ActiveEventLoop, event: HostEvent) {
         let Some(host) = &self.host else { return };
@@ -163,7 +145,10 @@ impl ApplicationHandler<Cmd> for Loop {
                 MouseScrollDelta::LineDelta(dx, dy) => HostEvent::Wheel(-f64::from(dx) * LINE, -f64::from(dy) * LINE),
                 MouseScrollDelta::PixelDelta(p) => HostEvent::Wheel(-p.x / scale, -p.y / scale),
             },
-            WindowEvent::ModifiersChanged(m) => HostEvent::Modifiers(mods(m.state())),
+            WindowEvent::ModifiersChanged(m) => {
+                let s = m.state();
+                HostEvent::Modifiers(Combo::mods(s.control_key(), s.alt_key(), s.shift_key(), s.super_key()))
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 let Some(evdev) = keys::winit_key(event.physical_key) else {
                     return;

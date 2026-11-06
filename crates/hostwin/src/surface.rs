@@ -2,19 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
-use acde_model::{Event, Inbox, Waker};
+use acde_model::{Event, Inbox, Mode, Waker};
+use acde_render::SurfaceCommand;
 
 use crate::app::server;
 use crate::platform::{self, Cmd};
 use crate::present::Presenter;
-use crate::shell::Mode;
-
-pub struct DragImage {
-    pub width: u32,
-    pub height: u32,
-    pub scene: acde_gpu::Scene,
-    pub hotspot: (i32, i32),
-}
 
 pub(crate) enum Msg {
     Wake,
@@ -102,15 +95,12 @@ impl Surface {
             let (scale, refresh, unfocused) = (state.screen[2], state.refresh, state.focus.is_none());
             let entry = state.entries.get_mut(&id).ok_or("claimSurface: 窗口没了")?;
             entry.frame = if entry.desktop || entry.panel { 0.0 } else { f64::from(frame) };
-            let bar = entry.bar();
-            let entry = state.entries.get(&id).ok_or("claimSurface: 窗口没了")?;
-            let size = state.content(entry);
-            let entry = state.entries.get_mut(&id).ok_or("claimSurface: 窗口没了")?;
             entry.inbox = Some(inbox.clone());
             entry.link = Some(link.clone());
             entry.opened = true;
             let focus = !entry.hidden && (!entry.desktop || unfocused);
-            (id, size, scale, refresh, focus, bar)
+            let bar = entry.bar();
+            (id, state.content(&state.entries[&id]), scale, refresh, focus, bar)
         };
         let wake = link.clone();
         render.set_waker(Box::new(move || wake.send(Msg::Wake)));
@@ -150,29 +140,39 @@ impl Surface {
         self.inbox.set_waker(waker);
     }
 
-    pub fn request_frame(&self) {
-        self.link.send(Msg::Frame);
-    }
-
-    pub fn set_clipboard(&self, text: String) {
-        platform::clipboard_set(text);
-    }
-
-    pub fn read_clipboard(&self, reply: Box<dyn FnOnce(String) + Send>) {
-        reply(platform::clipboard_get());
-    }
-
-    pub fn start_drag(&self, _: HashMap<String, String>, _: Option<DragImage>) {
-        self.inbox.push(Event { kind: "dragend".into(), button: Some(0), ..Default::default() });
-    }
-
-    pub fn request_mode(&self, mode: u32) {
-        if let Some(mode) = Mode::from_code(mode) {
-            set_mode(self.window, mode);
+    pub fn send(&self, command: SurfaceCommand) {
+        use SurfaceCommand as C;
+        match command {
+            C::RequestFrame => self.link.send(Msg::Frame),
+            C::SetClipboard(text) => platform::clipboard_set(text),
+            C::ReadClipboard(reply) => reply(platform::clipboard_get()),
+            C::StartDrag(..) => self.inbox.push(Event { kind: "dragend".into(), button: Some(0), ..Default::default() }),
+            C::Mode(mode) => {
+                if let Ok(mode) = Mode::try_from(mode) {
+                    set_mode(self.window, mode);
+                }
+            }
+            C::GrabHint(rect, edges) => self.set_grab_hint(rect, edges),
+            C::Backdrop(..) => {}
+            C::Activate => {
+                if let Some(server) = server() {
+                    server.activate(self.window);
+                }
+            }
+            C::Grab(kind, true) => {
+                let name = if kind == 2 { "keyboard" } else { "pointer" };
+                self.inbox.push(Event { kind: "grab".into(), key: Some(name.into()), code: Some(1), ..Default::default() });
+            }
+            C::Grab(_, false) => {}
+            C::OpenPanel { id, token, rect } => self.open_panel(id, token, rect),
+            C::PlacePanel { id, rect, input } => self.place_panel(id, rect, input),
+            C::ClosePanel(id) => self.close_panel(id),
+            C::Title(title) => self.set_title(&title),
+            C::ImeArea(rect) => self.set_ime_area(rect),
         }
     }
 
-    pub fn set_grab_hint(&self, [x, y, w, h]: [i32; 4], edges: u32) {
+    fn set_grab_hint(&self, [x, y, w, h]: [i32; 4], edges: u32) {
         let Some(server) = server() else { return };
         let mut state = server.state();
         let Some(entry) = state.entries.get_mut(&self.window) else { return };
@@ -183,27 +183,11 @@ impl Surface {
         }
     }
 
-    pub fn set_backdrop(&self, _: [i32; 4], _: [f64; 4]) {}
-
-    pub fn request_activate(&self) {
-        if let Some(server) = server() {
-            server.activate(self.window);
-        }
-    }
-
-    pub fn request_grab(&self, kind: u32, on: bool) {
-        if !on {
-            return;
-        }
-        let name = if kind == 2 { "keyboard" } else { "pointer" };
-        self.inbox.push(Event { kind: "grab".into(), key: Some(name.into()), code: Some(1), ..Default::default() });
-    }
-
     fn panels(&self) -> std::sync::MutexGuard<'_, HashMap<u32, u32>> {
         self.panels.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub fn open_panel(&self, id: u32, token: u64, rect: [i32; 4]) {
+    fn open_panel(&self, id: u32, token: u64, rect: [i32; 4]) {
         let Some(server) = server() else { return };
         self.close_panel(id);
         let panel = {
@@ -221,7 +205,7 @@ impl Surface {
         server.relayout();
     }
 
-    pub fn place_panel(&self, id: u32, rect: [i32; 4], input: [i32; 4]) {
+    fn place_panel(&self, id: u32, rect: [i32; 4], input: [i32; 4]) {
         let Some(server) = server() else { return };
         let Some(panel) = self.panels().get(&id).copied() else { return };
         if let Some(e) = server.state().entries.get_mut(&panel) {
@@ -231,7 +215,7 @@ impl Surface {
         server.relayout();
     }
 
-    pub fn close_panel(&self, id: u32) {
+    fn close_panel(&self, id: u32) {
         let Some(panel) = self.panels().remove(&id) else { return };
         self.link.send(Msg::Panel(id, None));
         if let Some(server) = server() {
@@ -245,7 +229,7 @@ impl Surface {
         (0.0, frame.unwrap_or(0.0))
     }
 
-    pub fn set_title(&self, title: &str) {
+    fn set_title(&self, title: &str) {
         let Some(server) = server() else { return };
         let framed = match server.state().entries.get_mut(&self.window) {
             Some(e) => {
@@ -262,7 +246,7 @@ impl Surface {
         }
     }
 
-    pub fn set_ime_area(&self, [x, y, w, h]: [f64; 4]) {
+    fn set_ime_area(&self, [x, y, w, h]: [f64; 4]) {
         let Some(server) = server() else { return };
         let origin = {
             let state = server.state();

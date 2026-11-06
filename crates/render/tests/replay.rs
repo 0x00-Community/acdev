@@ -82,10 +82,10 @@ impl Player {
                 2 => created(&mut self.ids, doc.create_text(str_(&mut b))),
                 3 => {
                     let id = self.id(u32_(&mut b));
-                    doc.set_attribute(id, str_(&mut b), str_(&mut b))
+                    doc.set_attribute(id, str_(&mut b), str_(&mut b)).map(drop)
                 }
-                4 => doc.remove_attribute(self.id(u32_(&mut b)), str_(&mut b)),
-                5 => doc.set_text(self.id(u32_(&mut b)), str_(&mut b)),
+                4 => doc.remove_attribute(self.id(u32_(&mut b)), str_(&mut b)).map(drop),
+                5 => doc.set_data(self.id(u32_(&mut b)), str_(&mut b)),
                 6 => doc.append_child(self.id(u32_(&mut b)), self.id(u32_(&mut b))),
                 7 => {
                     let (parent, child, reference) = (u32_(&mut b), u32_(&mut b), u32_(&mut b));
@@ -118,7 +118,7 @@ impl Player {
 
 #[test]
 fn closing_the_editor_leaves_no_removed_boxes() {
-    let stats = Recording::load("editor-close").replay().doc.stats().unwrap();
+    let stats = Recording::load("editor-close").replay().doc.stats();
     assert_eq!((stats.panics, stats.paint_mismatches), (0, 0), "{stats:?}");
 }
 
@@ -126,10 +126,10 @@ fn closing_the_editor_leaves_no_removed_boxes() {
 fn icons_in_a_window_opened_after_hidden_are_drawn() {
     let Replayed { doc, ids } = Recording::load("open-browser").replay();
     for (id, what) in [(2499, "title icon"), (576, "address bar lock")] {
-        let capture = doc.capture(ids[id], None).unwrap();
+        let capture = doc.capture(ids[id], 0.0).unwrap();
         let drawn = capture.as_ref().map_or(0, |c| c.pixels().chunks(4).filter(|p| p[3] > 64).count());
         assert!(drawn > 8, "{what} (node {id}) draws {drawn} pixels");
     }
-    let stats = doc.stats().unwrap();
+    let stats = doc.stats();
     assert_eq!((stats.panics, stats.paint_mismatches), (0, 0), "{stats:?}");
 }

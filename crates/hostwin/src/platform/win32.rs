@@ -247,19 +247,7 @@ impl Win {
 
     fn mods(&self) {
         let down = |vk: u16| unsafe { GetKeyState(i32::from(vk)) } < 0;
-        let mut mods = 0;
-        if down(VK_CONTROL) {
-            mods |= Combo::CTRL;
-        }
-        if down(VK_MENU) {
-            mods |= Combo::ALT;
-        }
-        if down(VK_SHIFT) {
-            mods |= Combo::SHIFT;
-        }
-        if down(VK_LWIN) || down(VK_RWIN) {
-            mods |= Combo::SUPER;
-        }
+        let mods = Combo::mods(down(VK_CONTROL), down(VK_MENU), down(VK_SHIFT), down(VK_LWIN) || down(VK_RWIN));
         if self.mods.replace(mods) != mods {
             self.emit(HostEvent::Modifiers(mods));
         }

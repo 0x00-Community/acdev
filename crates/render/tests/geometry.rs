@@ -14,7 +14,7 @@ impl Page {
         doc.add_stylesheet("html, body { margin: 0; height: 100%; font: 20px monospace; }").unwrap();
         doc.add_stylesheet(css).unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         Self { doc, body }
     }
 
@@ -26,7 +26,7 @@ impl Page {
     }
 
     fn hit(&self, x: f64, y: f64) -> Option<u32> {
-        self.doc.hit_test(x as f32, y as f32).unwrap()
+        self.doc.hit_test(x, y)
     }
 
     fn center(r: Rect) -> (f64, f64) {
@@ -97,7 +97,7 @@ fn caret_under_scaled_ancestor() {
     let pr = page.doc.rect(p).unwrap();
     assert!((c0.x - pr.x).abs() < 0.6 && c0.height > 30.0, "{c0:?} {pr:?}");
     let w = c1.x - c0.x;
-    let at = page.doc.caret_from_point((c1.x + w * 0.25) as f32, (c1.y + c1.height / 2.0) as f32).unwrap().unwrap();
+    let at = page.doc.caret_from_point(c1.x + w * 0.25, c1.y + c1.height / 2.0).unwrap();
     assert_eq!((at.node, at.offset), (t, 1));
 }
 
@@ -117,7 +117,7 @@ fn metrics_ignore_transform() {
     assert!(m.scroll_height >= 300.0, "{m:?}");
     page.doc.scroll_by(b, 0.0, 40.0).unwrap();
     assert_eq!(page.doc.metrics(b).unwrap().scroll_top, 40.0);
-    page.doc.hit_test(5.0, 5.0).unwrap();
+    page.doc.hit_test(5.0, 5.0);
     assert!(page.doc.rect(b).unwrap().width > 300.0);
 }
 
@@ -130,7 +130,7 @@ fn caret_from_point_ignores_text_under_singular_transform() {
     let shown = page.el("p", page.body, "shown");
     let text = page.doc.create_text("visible").unwrap();
     page.doc.append_child(shown, text).unwrap();
-    let at = page.doc.caret_from_point(5.0, 5.0).unwrap().unwrap();
+    let at = page.doc.caret_from_point(5.0, 5.0).unwrap();
     assert_eq!(at.node, text);
 }
 
@@ -204,7 +204,7 @@ fn prefers_reduced_motion_follows_the_option() {
         let doc = Doc::new(800, 600, 1.0, &Options { reduced_motion: reduced, ..Default::default() }).unwrap();
         doc.add_stylesheet("#dot { width: 10px; height: 10px; } @media (prefers-reduced-motion: reduce) { #dot { width: 30px; } }").unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         let dot = doc.create_element("div").unwrap();
         doc.set_attribute(dot, "id", "dot").unwrap();
         doc.append_child(body, dot).unwrap();
@@ -220,7 +220,7 @@ fn prefers_color_scheme_follows_the_option_and_set_dark() {
         let doc = Doc::new(800, 600, 1.0, &Options { dark, ..Default::default() }).unwrap();
         doc.add_stylesheet("#dot { width: 10px; height: 10px; } @media (prefers-color-scheme: dark) { #dot { width: 30px; } }").unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         let dot = doc.create_element("div").unwrap();
         doc.set_attribute(dot, "id", "dot").unwrap();
         doc.append_child(body, dot).unwrap();

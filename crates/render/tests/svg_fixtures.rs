@@ -17,7 +17,7 @@ impl Page {
         doc.add_stylesheet("html, body { margin: 0; background: #fff; } svg { display: block; width: 80px; height: 80px; margin: 8px; overflow: hidden; }")
             .unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         let page = Page { doc };
         let xml = roxmltree::Document::parse(source).ok()?;
         let svg = page.element(xml.root_element(), body);
@@ -47,7 +47,7 @@ impl Page {
     }
 
     fn raster(&self) -> Vec<u8> {
-        acde_render::gpu::rasterize(self.doc.scene(), (SIZE, SIZE), Default::default())
+        common::rasterize(self.doc.scene(), (SIZE, SIZE))
     }
 }
 

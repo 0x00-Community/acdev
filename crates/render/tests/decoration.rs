@@ -1,5 +1,7 @@
-use acde_render::acde_gpu::RenderCommand;
+use acde_gpu::RenderCommand;
 use acde_render::{Bar, Decoration, FrameButton};
+
+mod common;
 
 fn bar(title: &str, width: f64, scale: f64) -> Bar {
     Bar { title: title.into(), width, height: 32.0, scale }
@@ -7,7 +9,7 @@ fn bar(title: &str, width: f64, scale: f64) -> Bar {
 
 fn pixels(bar: &Bar) -> (Vec<u8>, u32) {
     let (w, h) = bar.pixels();
-    (acde_render::gpu::rasterize(Decoration::new().scene(bar), (w, h), Default::default()), w)
+    (common::rasterize(Decoration::new().scene(bar), (w, h)), w)
 }
 
 fn rgb((pixels, width): &(Vec<u8>, u32), x: f64, y: f64) -> [u8; 3] {

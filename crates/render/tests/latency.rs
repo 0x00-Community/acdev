@@ -13,7 +13,7 @@ fn latency() {
     )
     .unwrap();
     let body = doc.create_element("body").unwrap();
-    doc.append_child(doc.root().unwrap(), body).unwrap();
+    doc.append_child(0, body).unwrap();
     let mut cells = vec![];
     for r in 0..110 {
         let row = doc.create_element("div").unwrap();
@@ -57,6 +57,6 @@ fn latency() {
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     ticker.join().unwrap();
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let st = doc.stats().unwrap();
+    let st = doc.stats();
     eprintln!("metrics latency ms: p50 {:.3} p95 {:.3} max {:.3}; resolve {:.2}ms paint {:.2}ms", lat[200], lat[380], lat[399], st.resolve_ms, st.paint_ms);
 }

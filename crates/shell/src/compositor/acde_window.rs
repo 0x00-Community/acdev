@@ -21,7 +21,7 @@ mod generated {
     wayland_scanner::generate_server_code!("../model/protocol/acde-window.xml");
 }
 
-pub use generated::acde_window::{AcdeWindow, GrabKind as WireGrab, GrabLostReason as WireLost, Mode as WireMode};
+pub use generated::acde_window::{AcdeWindow, GrabKind as WireGrab, GrabLostReason as WireLost};
 pub use generated::acde_window_manager::AcdeWindowManager;
 
 #[derive(Clone, Copy, Debug)]
@@ -123,7 +123,7 @@ impl Dispatch<AcdeWindow, WindowRequests> for Compositor {
                     state.focus_window(Some(&window));
                 }
             }
-            Request::RequestMode { mode } => state.request_mode(surface, mode.into_result().ok()),
+            Request::RequestMode { mode } => state.request_mode(surface, acde_model::Mode::try_from(mode).ok()),
             Request::SetGrabHint { x, y, width, height, edges } => state.hints(surface, |h| {
                 if width <= 0 || height <= 0 {
                     h.grab.clear();
@@ -137,46 +137,15 @@ impl Dispatch<AcdeWindow, WindowRequests> for Compositor {
             }
             Request::RequestGrab { kind } => {
                 if let Ok(kind) = kind.into_result() {
-                    state.request_grab(surface, resource, kind.into());
+                    state.request_grab(surface, resource, kind);
                 }
             }
             Request::ReleaseGrab { kind } => {
                 if let Ok(kind) = kind.into_result() {
-                    state.release_grab(surface, kind.into());
+                    state.release_grab(surface, kind);
                 }
             }
             Request::Destroy => {}
-        }
-    }
-}
-
-impl From<acde_model::Mode> for WireMode {
-    fn from(mode: acde_model::Mode) -> Self {
-        match mode {
-            acde_model::Mode::Fullscreen => Self::Fullscreen,
-            acde_model::Mode::Free => Self::Free,
-            acde_model::Mode::Fixed => Self::Fixed,
-            acde_model::Mode::Pinned => Self::Pinned,
-        }
-    }
-}
-
-impl From<WireMode> for acde_model::Mode {
-    fn from(mode: WireMode) -> Self {
-        match mode {
-            WireMode::Fullscreen => Self::Fullscreen,
-            WireMode::Free => Self::Free,
-            WireMode::Fixed => Self::Fixed,
-            WireMode::Pinned => Self::Pinned,
-        }
-    }
-}
-
-impl From<WireGrab> for super::grabs::GrabKind {
-    fn from(kind: WireGrab) -> Self {
-        match kind {
-            WireGrab::Pointer => Self::Pointer,
-            _ => Self::Keyboard,
         }
     }
 }
@@ -191,9 +160,9 @@ impl Compositor {
         self.backend.damaged();
     }
 
-    fn request_mode(&mut self, surface: &WlSurface, mode: Option<WireMode>) {
+    fn request_mode(&mut self, surface: &WlSurface, mode: Option<acde_model::Mode>) {
         let (Some(window), Some(mode)) = (self.window_of(surface), mode) else { return };
         let Some(id) = Self::window_id(&window) else { return };
-        self.set_mode_managed(id, mode.into());
+        self.set_mode_managed(id, mode);
     }
 }

@@ -27,7 +27,7 @@ fn page(dir: &std::path::Path) -> (Doc, u32, u32, u32) {
     doc.append_child(body, p).unwrap();
     doc.append_child(html, head).unwrap();
     doc.append_child(html, body).unwrap();
-    doc.append_child(doc.root().unwrap(), html).unwrap();
+    doc.append_child(0, html).unwrap();
     doc.commit();
     (doc, link, css, h1)
 }
@@ -43,7 +43,7 @@ fn swapped_stylesheets_relayout() {
     let before = doc.rect(h1).unwrap().height;
     let p_before = doc.rect(p).unwrap().height;
     doc.set_attribute(link, "href", "/b.css").unwrap();
-    doc.set_text(css, "h1 { font-size: 22px; margin: 0 } p { font-size: 30px }").unwrap();
+    doc.set_data(css, "h1 { font-size: 22px; margin: 0 } p { font-size: 30px }").unwrap();
     doc.commit();
     doc.sync();
     let after = doc.rect(h1).unwrap().height;

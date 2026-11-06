@@ -1,8 +1,8 @@
-use acde_render::acde_gpu::RenderCommand;
+use acde_gpu::RenderCommand;
 use acde_render::{Options, Rect};
 
 mod common;
-use common::Doc;
+use common::{Doc, near};
 
 const W: u32 = 480;
 const H: u32 = 320;
@@ -18,12 +18,8 @@ fn rect(doc: &Doc, id: &str) -> Rect {
     doc.rect(doc.dom.get_element_by_id(id)).unwrap()
 }
 
-fn near(a: f64, b: f64) -> bool {
-    (a - b).abs() < 0.6
-}
-
 fn pixels(doc: &Doc) -> Vec<u8> {
-    acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default())
+    common::rasterize(doc.scene(), (W, H))
 }
 
 fn rgb(pixels: &[u8], x: f64, y: f64) -> [u8; 3] {
@@ -152,12 +148,12 @@ fn the_gap_follows_the_legend_when_it_changes() {
     let before = rect(&doc, "l");
     pixels(&doc);
     let text = doc.dom.first_child(doc.dom.get_element_by_id("l")).unwrap();
-    doc.set_text(text, "A much longer title").unwrap();
+    doc.set_data(text, "A much longer title").unwrap();
     doc.commit();
     let (f, l) = (rect(&doc, "f"), rect(&doc, "l"));
     assert!(l.width > before.width + 50.0, "{before:?} {l:?}");
     let px = pixels(&doc);
-    assert_eq!(doc.stats().unwrap().paint_mismatches, 0, "incremental frame differs from a full recording");
+    assert_eq!(doc.stats().paint_mismatches, 0, "incremental frame differs from a full recording");
     let red = |p: [u8; 3]| p[0] > 200 && p[1] < 60 && p[2] < 60;
     let mid = l.y + l.height / 2.0;
     assert!(!red(rgb(&px, l.x + l.width - 4.0, mid)), "no border behind the longer legend");
