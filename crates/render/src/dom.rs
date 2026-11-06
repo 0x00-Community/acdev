@@ -74,12 +74,34 @@ impl Dom {
         self.shared.call(&self.wake, f)
     }
 
+    fn on<T>(&self, id: u32, f: impl FnOnce(&mut Engine, NodeId) -> T) -> Result<T> {
+        self.read(|e| e.n(id).map(|node| f(e, node)))
+    }
+
     fn write<T>(&self, f: impl FnOnce(&mut Engine) -> Result<T>) -> Result<T> {
         self.write_if(None, f, |_| true)
     }
 
+    fn update(&self, f: impl FnOnce(&mut Engine)) -> Result<()> {
+        self.write(|e| {
+            f(e);
+            Ok(())
+        })
+    }
+
     fn write_at<T>(&self, targets: &[u32], f: impl FnOnce(&mut Engine) -> Result<T>) -> Result<T> {
         self.write_if(Some(targets), f, |_| true)
+    }
+
+    fn edit<T>(&self, id: u32, f: impl FnOnce(&mut Engine, NodeId) -> T) -> Result<T> {
+        self.write_at(&[id], |e| e.n(id).map(|node| f(e, node)))
+    }
+
+    fn create(&self, f: impl FnOnce(&mut Engine) -> Result<NodeId>) -> Result<u32> {
+        self.write_at(&[], |e| {
+            let node = f(e)?;
+            Ok(e.fresh(node))
+        })
     }
 
     fn write_changed(&self, targets: &[u32], f: impl FnOnce(&mut Engine) -> Result<bool>) -> Result<bool> {
@@ -133,10 +155,7 @@ impl Dom {
     }
 
     pub fn parse_document(&self, html: &str) -> Result<()> {
-        self.write(|e| {
-            e.parse_document(html);
-            Ok(())
-        })
+        self.update(|e| e.parse_document(html))
     }
 
     pub fn viewport(&self) -> Viewport {
@@ -149,89 +168,47 @@ impl Dom {
     }
 
     pub fn resize(&self, width: u32, height: u32, scale: f32) {
-        _ = self.write(|e| {
-            e.resize(width, height, scale);
-            Ok(())
-        });
-    }
-
-    pub fn set_reduced_motion(&self, on: bool) {
-        _ = self.write(|e| {
-            e.set_reduced_motion(on);
-            Ok(())
-        });
+        _ = self.update(|e| e.resize(width, height, scale));
     }
 
     pub fn set_dark(&self, on: bool) {
-        _ = self.write(|e| {
-            e.set_dark(on);
-            Ok(())
-        });
+        _ = self.update(|e| e.set_dark(on));
     }
 
     pub fn node_type(&self, id: u32) -> Result<NodeType> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.kind(node))
-        })
+        self.on(id, |e, n| e.kind(n))
     }
 
     pub fn parent(&self, id: u32) -> Result<u32> {
-        self.read(|e| {
-            let parent = e.node(id)?.parent;
-            Ok(e.out(parent))
-        })
+        self.read(|e| Ok(e.out(e.node(id)?.parent)))
     }
 
     pub fn ancestors(&self, id: u32) -> Result<Vec<u32>> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            let chain = e.ancestors(node);
-            Ok(e.outs(chain.into_iter().skip(1)))
-        })
+        self.on(id, |e, n| e.outs(e.ancestors(n).into_iter().skip(1)))
     }
 
     pub fn first_child(&self, id: u32) -> Result<u32> {
-        self.read(|e| {
-            let child = e.node(id)?.children.first().copied();
-            Ok(e.out(child))
-        })
+        self.read(|e| Ok(e.out(e.node(id)?.children.first().copied())))
     }
 
     pub fn last_child(&self, id: u32) -> Result<u32> {
-        self.read(|e| {
-            let child = e.node(id)?.children.last().copied();
-            Ok(e.out(child))
-        })
+        self.read(|e| Ok(e.out(e.node(id)?.children.last().copied())))
     }
 
     pub fn next_sibling(&self, id: u32) -> Result<u32> {
-        self.read(|e| {
-            let sibling = e.sibling(e.n(id)?, 1);
-            Ok(e.out(sibling))
-        })
+        self.read(|e| Ok(e.out(e.sibling(e.n(id)?, 1))))
     }
 
     pub fn previous_sibling(&self, id: u32) -> Result<u32> {
-        self.read(|e| {
-            let sibling = e.sibling(e.n(id)?, -1);
-            Ok(e.out(sibling))
-        })
+        self.read(|e| Ok(e.out(e.sibling(e.n(id)?, -1))))
     }
 
     pub fn child_nodes(&self, id: u32) -> Result<Vec<u32>> {
-        self.read(|e| {
-            let children = e.node(id)?.children.to_vec();
-            Ok(e.outs(children))
-        })
+        self.read(|e| Ok(e.outs(e.node(id)?.children.to_vec())))
     }
 
     pub fn children(&self, id: u32) -> Result<Vec<u32>> {
-        self.read(|e| {
-            let n = e.node(id)?;
-            let children: Vec<NodeId> = n.children.iter().copied().filter(|&c| e.doc.get_node(c).is_some_and(|c| e.kind(c.id) == NodeType::Element)).collect();
-            Ok(e.outs(children))
-        })
+        self.read(|e| Ok(e.outs(e.node(id)?.children.iter().copied().filter(|&c| e.kind(c) == NodeType::Element).collect::<Vec<_>>())))
     }
 
     pub fn child_count(&self, id: u32) -> Result<u32> {
@@ -239,64 +216,42 @@ impl Dom {
     }
 
     pub fn is_connected(&self, id: u32) -> Result<bool> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.connected(node))
-        })
+        self.on(id, |e, n| e.connected(n))
     }
 
     pub fn compare_document_position(&self, a: u32, b: u32) -> Result<u16> {
-        self.read(|e| {
-            let (a, b) = (e.n(a)?, e.n(b)?);
-            Ok(e.compare(a, b))
-        })
+        self.read(|e| Ok(e.compare(e.n(a)?, e.n(b)?)))
     }
 
     pub fn create_element(&self, ns: Ns, local_name: &str) -> Result<u32> {
         if !valid_element_name(local_name) {
             return Err(fail("InvalidCharacterError", format!("'{local_name}' is not a valid element name")));
         }
-        self.write_at(&[], |e| {
-            let node = e.tree().create_element(namespace(ns), local_name);
-            Ok(e.fresh(node))
-        })
+        self.create(|e| Ok(e.tree().create_element(namespace(ns), local_name)))
     }
 
     pub fn create_text(&self, data: &str) -> Result<u32> {
-        self.write_at(&[], |e| {
-            let node = e.tree().m.create_text_node(data);
-            Ok(e.fresh(node))
-        })
+        self.create(|e| Ok(e.tree().m.create_text_node(data)))
     }
 
     pub fn create_comment(&self, data: &str) -> Result<u32> {
-        self.write_at(&[], |e| {
-            let node = e.tree().m.create_comment_node(data);
-            Ok(e.fresh(node))
-        })
+        self.create(|e| Ok(e.tree().m.create_comment_node(data)))
     }
 
     pub fn create_fragment(&self) -> Result<u32> {
-        self.write_at(&[], |e| {
-            let node = e.new_fragment();
-            Ok(e.fresh(node))
-        })
+        self.create(|e| Ok(e.new_fragment()))
     }
 
     pub fn create_document_type(&self, name: &str, public_id: &str, system_id: &str) -> Result<u32> {
-        self.write_at(&[], |e| {
+        self.create(|e| {
             let node = e.tree().m.create_comment_node("");
             e.ids.doctypes.insert(node, Doctype { name: name.into(), public_id: public_id.into(), system_id: system_id.into() });
-            Ok(e.fresh(node))
+            Ok(node)
         })
     }
 
     pub fn clone(&self, id: u32, deep: bool) -> Result<u32> {
-        self.write_at(&[], |e| {
-            let node = e.n(id)?;
-            let copy = e.clone_node(node, deep)?;
-            Ok(e.fresh(copy))
-        })
+        self.create(|e| e.clone_node(e.n(id)?, deep))
     }
 
     pub fn insert_before(&self, parent: u32, child: u32, reference: u32) -> Result<()> {
@@ -307,13 +262,11 @@ impl Dom {
     }
 
     pub fn remove(&self, child: u32) -> Result<()> {
-        self.write_at(&[child], |e| {
-            let node = e.n(child)?;
+        self.edit(child, |e, node| {
             if e.doc.get_node(node).is_some_and(|n| n.parent.is_some()) {
                 e.tree().m.remove_node(node);
                 e.collect(&[node]);
             }
-            Ok(())
         })
     }
 
@@ -335,10 +288,7 @@ impl Dom {
     }
 
     pub fn get_attribute(&self, id: u32, name: &str) -> Result<Option<String>> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.find_attribute(node, name)?.map(|(_, v)| v))
-        })
+        self.read(|e| Ok(e.find_attribute(e.n(id)?, name)?.map(|(_, v)| v)))
     }
 
     pub fn set_attribute(&self, id: u32, name: &str, value: &str) -> Result<bool> {
@@ -353,17 +303,11 @@ impl Dom {
     }
 
     pub fn has_attribute(&self, id: u32, name: &str) -> Result<bool> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.find_attribute(node, name)?.is_some())
-        })
+        self.read(|e| Ok(e.find_attribute(e.n(id)?, name)?.is_some()))
     }
 
     pub fn attributes(&self, id: u32) -> Result<Vec<String>> {
-        self.read(|e| {
-            let element = e.element(id)?;
-            Ok(element.attrs().iter().flat_map(|a| [qualified(&a.name), a.value.clone()]).collect())
-        })
+        self.read(|e| Ok(e.element(id)?.attrs().iter().flat_map(|a| [qualified(&a.name), a.value.clone()]).collect()))
     }
 
     pub fn id(&self, id: u32) -> Result<String> {
@@ -376,8 +320,7 @@ impl Dom {
 
     pub fn document_type(&self, id: u32) -> Result<(String, String, String)> {
         self.read(|e| {
-            let node = e.n(id)?;
-            let d = e.ids.doctypes.get(&node).ok_or_else(|| fail("InvalidNodeTypeError", "not a doctype"))?;
+            let d = e.ids.doctypes.get(&e.n(id)?).ok_or_else(|| fail("InvalidNodeTypeError", "not a doctype"))?;
             Ok((d.name.clone(), d.public_id.clone(), d.system_id.clone()))
         })
     }
@@ -394,11 +337,7 @@ impl Dom {
     }
 
     pub fn set_data(&self, id: u32, data: &str) -> Result<()> {
-        self.write_at(&[id], |e| {
-            let node = e.n(id)?;
-            e.set_data(node, data);
-            Ok(())
-        })
+        self.edit(id, |e, n| e.set_data(n, data))
     }
 
     pub fn text_content(&self, id: u32) -> Result<String> {
@@ -414,216 +353,138 @@ impl Dom {
     }
 
     pub fn set_text_content(&self, id: u32, text: &str) -> Result<()> {
-        self.write_at(&[id], |e| {
-            let node = e.n(id)?;
-            match e.kind(node) {
-                NodeType::Element | NodeType::DocumentFragment => {
-                    let text = (!text.is_empty()).then(|| e.tree().m.create_text_node(text));
-                    let nodes: Vec<NodeId> = text.into_iter().collect();
-                    e.replace_children(node, &nodes)
-                }
-                NodeType::Text | NodeType::Comment => {
-                    e.set_data(node, text);
-                    Ok(())
-                }
-                NodeType::Document | NodeType::DocumentType => Ok(()),
+        self.edit(id, |e, node| match e.kind(node) {
+            NodeType::Element | NodeType::DocumentFragment => {
+                let text = (!text.is_empty()).then(|| e.tree().m.create_text_node(text));
+                let nodes: Vec<NodeId> = text.into_iter().collect();
+                e.replace_children(node, &nodes)
             }
+            NodeType::Text | NodeType::Comment => {
+                e.set_data(node, text);
+                Ok(())
+            }
+            NodeType::Document | NodeType::DocumentType => Ok(()),
         })
+        .flatten()
     }
 
     pub fn inner_text(&self, id: u32) -> Result<String> {
-        self.read(|e| {
-            let node = e.n(id)?;
+        self.on(id, |e, n| {
             e.resolved();
-            Ok(e.inner_text(node))
+            e.inner_text(n)
         })
     }
 
     pub fn inner_html(&self, id: u32) -> Result<String> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(Serializer { doc: &e.doc, ids: &e.ids }.inner(node))
-        })
+        self.on(id, |e, n| Serializer { doc: &e.doc, ids: &e.ids }.inner(n))
     }
 
     pub fn outer_html(&self, id: u32) -> Result<String> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(Serializer { doc: &e.doc, ids: &e.ids }.outer(node))
-        })
+        self.on(id, |e, n| Serializer { doc: &e.doc, ids: &e.ids }.outer(n))
     }
 
     pub fn parse_fragment(&self, context: u32, html: &str) -> Result<u32> {
-        self.write_at(&[], |e| {
-            let context = e.n(context)?;
-            let fragment = e.parse_fragment(context, html);
-            Ok(e.fresh(fragment))
-        })
+        self.create(|e| Ok(e.parse_fragment(e.n(context)?, html)))
     }
 
     pub fn template_content(&self, id: u32) -> Result<u32> {
-        self.write_at(&[id], |e| {
-            let node = e.n(id)?;
+        self.edit(id, |e, node| {
             e.element(id)?;
             let content = e.tree().m.template_contents(node);
             e.ids.templates.insert(content, node);
             Ok(e.ids.id_of(content))
         })
+        .flatten()
     }
 
     pub fn query_selector(&self, root: u32, selector: &str) -> Result<u32> {
         self.read(|e| {
-            let root = e.n(root)?;
-            let found = e.doc.query_selector_in(root, selector).map_err(|_| bad_selector(selector))?;
+            let found = e.doc.query_selector_in(e.n(root)?, selector).map_err(|_| bad_selector(selector))?;
             Ok(e.out(found))
         })
     }
 
     pub fn query_selector_all(&self, root: u32, selector: &str) -> Result<Vec<u32>> {
         self.read(|e| {
-            let root = e.n(root)?;
-            let found = e.doc.query_selector_all_in(root, selector).map_err(|_| bad_selector(selector))?;
+            let found = e.doc.query_selector_all_in(e.n(root)?, selector).map_err(|_| bad_selector(selector))?;
             Ok(e.outs(found))
         })
     }
 
     pub fn matches(&self, id: u32, selector: &str) -> Result<bool> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            e.doc.matches_selector(node, selector).map_err(|_| bad_selector(selector))
-        })
+        self.read(|e| e.doc.matches_selector(e.n(id)?, selector).map_err(|_| bad_selector(selector)))
     }
 
     pub fn closest(&self, id: u32, selector: &str) -> Result<u32> {
         self.read(|e| {
-            let node = e.n(id)?;
-            let found = e.doc.closest(node, selector).map_err(|_| bad_selector(selector))?;
+            let found = e.doc.closest(e.n(id)?, selector).map_err(|_| bad_selector(selector))?;
             Ok(e.out(found))
         })
     }
 
     pub fn get_element_by_id(&self, id: &str) -> u32 {
-        self.read(|e| {
-            let found = e.doc.get_element_by_id(id);
-            Ok(e.out(found))
-        })
-        .unwrap_or(NONE)
+        self.read(|e| Ok(e.out(e.doc.get_element_by_id(id)))).unwrap_or(NONE)
     }
 
     pub fn get_elements_by_class_name(&self, root: u32, class_names: &str) -> Result<Vec<u32>> {
-        self.read(|e| {
-            let root = e.n(root)?;
-            let wanted: Vec<&str> = class_names.split_ascii_whitespace().collect();
-            if wanted.is_empty() {
-                return Ok(Vec::new());
-            }
-            let found: Vec<NodeId> = e
-                .descendants(root)
-                .into_iter()
-                .filter(|&d| {
-                    e.doc
-                        .get_node(d)
-                        .and_then(|n| n.element_data())
-                        .is_some_and(|el| !is_fragment_name(&el.name) && wanted.iter().all(|w| el.classes.iter().any(|c| &**c == *w)))
-                })
-                .collect();
-            Ok(e.outs(found))
-        })
+        let wanted: Vec<&str> = class_names.split_ascii_whitespace().collect();
+        self.elements(root, |el| !wanted.is_empty() && wanted.iter().all(|w| el.classes.iter().any(|c| &**c == *w)))
     }
 
     pub fn get_elements_by_tag_name(&self, root: u32, qualified_name: &str) -> Result<Vec<u32>> {
-        self.read(|e| {
-            let root = e.n(root)?;
-            let lower = qualified_name.to_ascii_lowercase();
+        let lower = qualified_name.to_ascii_lowercase();
+        self.elements(root, |el| qualified_name == "*" || qualified(&el.name) == if el.name.ns == ns!(html) { lower.as_str() } else { qualified_name })
+    }
+
+    fn elements(&self, root: u32, keep: impl Fn(&blitz_dom::ElementData) -> bool) -> Result<Vec<u32>> {
+        self.on(root, |e, root| {
             let found: Vec<NodeId> = e
                 .descendants(root)
                 .into_iter()
-                .filter(|&d| {
-                    e.doc.get_node(d).and_then(|n| n.element_data()).is_some_and(|el| {
-                        if is_fragment_name(&el.name) {
-                            return false;
-                        }
-                        let name = qualified(&el.name);
-                        qualified_name == "*"
-                            || match el.name.ns == ns!(html) {
-                                true => name == lower,
-                                false => name == qualified_name,
-                            }
-                    })
-                })
+                .filter(|&d| e.doc.get_node(d).and_then(|n| n.element_data()).is_some_and(|el| !is_fragment_name(&el.name) && keep(el)))
                 .collect();
-            Ok(e.outs(found))
+            e.outs(found)
         })
     }
 
     pub fn value(&self, id: u32) -> Result<String> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.value(node))
-        })
+        self.on(id, |e, n| e.value(n))
     }
 
     pub fn set_value(&self, id: u32, value: &str) -> Result<()> {
-        self.write_at(&[id], |e| {
-            let node = e.n(id)?;
-            e.set_value(id, node, value)
-        })
+        self.edit(id, |e, n| e.set_value(id, n, value)).flatten()
     }
 
     pub fn checked(&self, id: u32) -> Result<bool> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.checked(node))
-        })
+        self.on(id, |e, n| e.checked(n))
     }
 
     pub fn set_checked(&self, id: u32, checked: bool) -> Result<()> {
-        self.write_at(&[id], |e| {
-            let node = e.n(id)?;
-            e.set_checked(node, checked);
-            Ok(())
-        })
+        self.edit(id, |e, n| e.set_checked(n, checked))
     }
 
     pub fn selected_index(&self, id: u32) -> Result<i32> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.selected_index(node))
-        })
+        self.on(id, |e, n| e.selected_index(n))
     }
 
     pub fn set_selected_index(&self, id: u32, index: i32) -> Result<()> {
-        self.write_at(&[id], |e| {
-            let node = e.n(id)?;
+        self.edit(id, |e, node| {
             let count = e.options(node).len() as i32;
             let index = if (0..count).contains(&index) { index } else { -1 };
             e.ids.forms.entry(node).or_default().selected = Some(index);
-            Ok(())
         })
     }
 
     pub fn set_selection_range(&self, id: u32, start: u32, end: u32) -> Result<()> {
-        self.write_at(&[id], |e| {
-            let node = e.n(id)?;
-            e.set_selection_range(node, start, end);
-            Ok(())
-        })
+        self.edit(id, |e, n| e.set_selection_range(n, start, end))
     }
 
     pub fn set_focus(&self, id: u32, visible: bool) -> Result<()> {
-        self.write(|e| {
-            let node = e.maybe(id)?;
-            e.set_focus(node, visible);
-            Ok(())
-        })
+        self.write(|e| e.maybe(id).map(|n| e.set_focus(n, visible)))
     }
 
     pub fn set_active(&self, id: u32) -> Result<()> {
-        self.write(|e| {
-            let node = e.maybe(id)?;
-            e.set_active(node);
-            Ok(())
-        })
+        self.write(|e| e.maybe(id).map(|n| e.set_active(n)))
     }
 
     pub fn set_selection(&self, anchor: u32, anchor_offset: u32, focus: u32, focus_offset: u32) -> Result<()> {
@@ -639,32 +500,18 @@ impl Dom {
     }
 
     pub fn rect(&self, id: u32) -> Result<Quad> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            let doc = e.resolved();
-            Ok(Geometry { doc }.client_rect(node).map_or([0.0; 4], quad))
-        })
+        self.on(id, |e, n| Geometry { doc: e.resolved() }.client_rect(n).map_or([0.0; 4], quad))
     }
 
     pub fn client_rects(&self, id: u32) -> Result<Vec<Quad>> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            let doc = e.resolved();
-            let n = doc.get_node(node).filter(|n| n.is_element() && n.flags.is_in_document());
-            let Some(_) = n else { return Ok(Vec::new()) };
-            let geometry = Geometry { doc };
-            if geometry.hidden(doc.get_node(node).expect("checked above")) {
-                return Ok(Vec::new());
-            }
-            Ok(doc.node_client_rects(node).into_iter().map(|r| quad(geometry.map(node, r.into()))).collect())
+        self.on(id, |e, node| {
+            let Some(geometry) = shown(e.resolved(), node) else { return Vec::new() };
+            geometry.doc.node_client_rects(node).into_iter().map(|r| quad(geometry.map(node, r.into()))).collect()
         })
     }
 
     pub fn metrics(&self, id: u32) -> Result<Option<Metrics>> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.dom_metrics(node))
-        })
+        self.on(id, Engine::dom_metrics)
     }
 
     pub fn hit_test(&self, x: f64, y: f64) -> Option<u32> {
@@ -693,28 +540,22 @@ impl Dom {
     }
 
     pub fn computed_style(&self, id: u32, pseudo: &str, property: &str) -> Result<String> {
-        self.read(|e| {
-            let node = e.n(id)?;
+        self.on(id, |e, node| {
             e.resolved();
-            Ok(e.styled(node, pseudo).map(|n| e.doc.resolved_style_value(n, property)).unwrap_or_default())
+            e.styled(node, pseudo).map(|n| e.doc.resolved_style_value(n, property)).unwrap_or_default()
         })
     }
 
     pub fn computed_style_all(&self, id: u32, pseudo: &str) -> Result<Vec<String>> {
-        self.read(|e| {
-            let node = e.n(id)?;
+        self.on(id, |e, node| {
             e.resolved();
-            let Some(target) = e.styled(node, pseudo) else { return Ok(Vec::new()) };
-            Ok(blitz_dom::resolved_style_property_names().iter().flat_map(|&name| [name.to_owned(), e.doc.resolved_style_value(target, name)]).collect())
+            let Some(target) = e.styled(node, pseudo) else { return Vec::new() };
+            blitz_dom::resolved_style_property_names().iter().flat_map(|&name| [name.to_owned(), e.doc.resolved_style_value(target, name)]).collect()
         })
     }
 
     pub fn caret_rect(&self, id: u32, offset: u32) -> Result<Quad> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            let doc = e.resolved();
-            Ok(Caret { doc }.rect(node, offset).map_or([0.0; 4], quad))
-        })
+        self.on(id, |e, n| Caret { doc: e.resolved() }.rect(n, offset).map_or([0.0; 4], quad))
     }
 
     pub fn caret_from_point(&self, x: f64, y: f64) -> Option<CaretPosition> {
@@ -727,11 +568,7 @@ impl Dom {
     }
 
     pub fn text_rects(&self, id: u32, start: u32, end: u32) -> Result<Vec<Quad>> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            let doc = e.resolved();
-            Ok(Caret { doc }.text_rects(node, start, end).map(|rects| rects.into_iter().map(quad).collect()).unwrap_or_default())
-        })
+        self.on(id, |e, n| Caret { doc: e.resolved() }.text_rects(n, start, end).map(|rects| rects.into_iter().map(quad).collect()).unwrap_or_default())
     }
 
     pub fn match_media(&self, query: &str) -> bool {
@@ -739,11 +576,7 @@ impl Dom {
     }
 
     pub fn scroll_to(&self, id: u32, left: f64, top: f64, smooth: bool) -> Result<()> {
-        self.write(|e| {
-            let node = e.n(id)?;
-            e.scroll_to(node, left, top, smooth);
-            Ok(())
-        })
+        self.write(|e| e.n(id).map(|n| e.scroll_to(n, left, top, smooth)))
     }
 
     pub fn take_scrolled(&self) -> Vec<u32> {
@@ -751,12 +584,11 @@ impl Dom {
     }
 
     pub fn image_state(&self, id: u32) -> Result<[f64; 3]> {
-        self.read(|e| {
-            let node = e.n(id)?;
+        self.on(id, |e, node| {
             e.doc.handle_messages();
             let (width, height, state, _) = Engine::image(&e.doc, node);
             let state = if state == NO_SRC { FAILED } else { state };
-            Ok([width, height, f64::from(state)])
+            [width, height, f64::from(state)]
         })
     }
 
@@ -779,67 +611,45 @@ impl Dom {
     }
 
     pub fn measure_text(&self, id: u32, font: &str, text: &str) -> Result<TextMetrics> {
-        self.read(|e| {
-            e.n(id)?;
-            Ok(Canvas::measure(&mut e.doc, font, text))
-        })
+        self.on(id, |e, _| Canvas::measure(&mut e.doc, font, text))
     }
 
     pub fn to_data_url(&self, id: u32, _type: &str) -> Result<String> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(e.with_canvas(id, node, |c| c.data_url().unwrap_or_else(|| "data:,".into())))
-        })
+        self.on(id, |e, node| e.with_canvas(id, node, |c| c.data_url().unwrap_or_else(|| "data:,".into())))
     }
 
     pub fn get_image_data(&self, id: u32, x: f64, y: f64, width: f64, height: f64) -> Result<Vec<u8>> {
-        self.read(|e| {
-            let node = e.n(id)?;
+        self.on(id, |e, node| {
             if ![x, y, width, height].iter().all(|v| v.is_finite()) || (width * height).abs() > f64::from(crate::canvas::MAX_SIDE).powi(2) {
                 return Err(fail("IndexSizeError", "getImageData: bad rectangle"));
             }
             Ok(e.with_canvas(id, node, |c| c.image_data(kurbo::Rect::new(x, y, x + width, y + height))))
         })
+        .flatten()
     }
 
     pub fn capture(&self, id: u32, scale: f64) -> Result<Option<Capture>> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            Ok(Capture::of(e.resolved(), node, scale))
-        })
+        self.on(id, |e, n| Capture::of(e.resolved(), n, scale))
     }
 
     pub fn set_panel(&self, id: u32, rect: Option<[f64; 4]>) -> Result<()> {
-        self.write(|e| {
-            let node = e.n(id)?;
-            e.set_panel(node, id, rect);
-            Ok(())
-        })
+        self.write(|e| e.n(id).map(|n| e.set_panel(n, id, rect)))
     }
 
     pub fn pin(&self, id: u32) -> Result<()> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            e.ids.pin(node, true);
-            Ok(())
-        })
+        self.on(id, |e, n| e.ids.pin(n, true))
     }
 
     pub fn unpin(&self, id: u32) -> Result<()> {
         self.touched();
-        self.read(|e| {
-            let node = e.n(id)?;
-            e.ids.pin(node, false);
-            e.ids.unpinned.push(node);
-            Ok(())
+        self.on(id, |e, n| {
+            e.ids.pin(n, false);
+            e.ids.unpinned.push(n);
         })
     }
 
     pub fn pinned_in(&self, root: u32) -> Result<Vec<u32>> {
-        self.read(|e| {
-            let root = e.n(root)?;
-            Ok(e.subtree(root).into_iter().filter(|&n| e.ids.pinned(n)).filter_map(|n| e.ids.handle(n)).collect())
-        })
+        self.on(root, |e, root| e.subtree(root).into_iter().filter(|&n| e.ids.pinned(n)).filter_map(|n| e.ids.handle(n)).collect())
     }
 
     pub fn input(&self, trace: acde_log::Trace) {
@@ -888,8 +698,7 @@ impl Dom {
     }
 
     pub fn describe(&self, id: u32) -> Result<(NodeType, Ns, bool, String)> {
-        self.read(|e| {
-            let node = e.n(id)?;
+        self.on(id, |e, node| {
             let node_type = e.kind(node);
             let (namespace, local_name) = match node_type {
                 NodeType::Element => match e.doc.get_node(node).and_then(|n| n.element_data()) {
@@ -900,12 +709,12 @@ impl Dom {
             };
             let connected = e.connected(node);
             e.ids.pin(node, true);
-            Ok((node_type, namespace, connected, local_name))
+            (node_type, namespace, connected, local_name)
         })
     }
 
     pub fn parse_inert(&self, html: &str) -> Result<u32> {
-        self.write_at(&[], |e| {
+        self.create(|e| {
             let holder = e.new_fragment();
             let parsed = {
                 let mut tree = e.tree();
@@ -913,7 +722,7 @@ impl Dom {
             };
             e.adopt(parsed);
             e.register(holder);
-            Ok(e.fresh(holder))
+            Ok(holder)
         })
     }
 
@@ -922,27 +731,19 @@ impl Dom {
     }
 
     pub fn sheet_rule_count(&self, id: u32) -> Result<Option<u32>> {
-        self.read(|e| {
-            let node = e.n(id)?;
-            if !e.connected(node) {
-                return Ok(None);
-            }
-            Ok(e.doc.stylesheet_rule_count(node, &[]).map(|n| n as u32))
-        })
+        self.on(id, |e, node| e.connected(node).then(|| e.doc.stylesheet_rule_count(node, &[])).flatten().map(|n| n as u32))
     }
 
     pub fn sheet_rule(&self, id: u32, index: u32) -> Result<String> {
         self.read(|e| {
-            let node = e.n(id)?;
-            e.doc.stylesheet_rule_info(node, &[index as usize]).map(|info| info.css_text).ok_or_else(|| fail("IndexSizeError", format!("no rule {index}")))
+            e.doc.stylesheet_rule_info(e.n(id)?, &[index as usize]).map(|info| info.css_text).ok_or_else(|| fail("IndexSizeError", format!("no rule {index}")))
         })
     }
 
     pub fn sheet_insert_rule(&self, id: u32, rule: &str, index: u32) -> Result<u32> {
         self.write(|e| {
-            let node = e.n(id)?;
             e.doc
-                .stylesheet_insert_rule(node, &[], rule, index as usize)
+                .stylesheet_insert_rule(e.n(id)?, &[], rule, index as usize)
                 .map(|at| at as u32)
                 .map_err(|err| fail(err.dom_exception_name(), format!("cannot insert '{rule}' at {index}")))
         })
@@ -950,14 +751,18 @@ impl Dom {
 
     pub fn sheet_delete_rule(&self, id: u32, index: u32) -> Result<()> {
         self.write(|e| {
-            let node = e.n(id)?;
-            e.doc.stylesheet_delete_rule(node, &[], index as usize).map_err(|err| fail(err.dom_exception_name(), format!("cannot delete rule {index}")))
+            e.doc.stylesheet_delete_rule(e.n(id)?, &[], index as usize).map_err(|err| fail(err.dom_exception_name(), format!("cannot delete rule {index}")))
         })
     }
 }
 
 fn bad_selector(selector: &str) -> Error {
     fail("SyntaxError", format!("'{selector}' is not a valid selector"))
+}
+
+fn shown(doc: &BaseDocument, node: NodeId) -> Option<Geometry<'_>> {
+    let geometry = Geometry { doc };
+    doc.get_node(node).filter(|n| n.is_element() && n.flags.is_in_document() && !geometry.hidden(n)).map(|_| geometry)
 }
 
 fn quad(r: crate::Rect) -> Quad {
@@ -1734,12 +1539,8 @@ impl Engine {
     }
 
     fn dom_metrics(&mut self, node: NodeId) -> Option<Metrics> {
-        let doc = self.resolved();
-        let n = doc.get_node(node).filter(|n| n.is_element() && n.flags.is_in_document())?;
-        let geometry = Geometry { doc };
-        if geometry.hidden(n) {
-            return None;
-        }
+        let geometry = shown(self.resolved(), node)?;
+        let doc = geometry.doc;
         let mut m = geometry.metrics(node)?;
         let parent = geometry.offset_parent(node);
         if doc.try_root_element().is_some_and(|r| r.id == node) {

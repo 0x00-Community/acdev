@@ -129,13 +129,6 @@ impl Engine {
         self.touch();
     }
 
-    pub(crate) fn set_reduced_motion(&mut self, on: bool) {
-        let mut viewport = self.doc.viewport().clone();
-        viewport.reduced_motion = on;
-        self.doc.set_viewport(viewport);
-        self.touch();
-    }
-
     pub(crate) fn set_dark(&mut self, on: bool) {
         let scheme = if on { ColorScheme::Dark } else { ColorScheme::Light };
         if self.doc.viewport().color_scheme == scheme {
