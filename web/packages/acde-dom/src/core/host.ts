@@ -44,3 +44,26 @@ export function getters(target: object, table: Record<string, unknown>): void {
     Object.defineProperty(target, name, { get: typeof value === 'function' ? (value as () => unknown) : () => value, enumerable: true, configurable: true })
   }
 }
+
+export function listClass<T>(name: string) {
+  const cls = {
+    [name]: class {
+      readonly #items: T[]
+      constructor(items: T[] = []) {
+        this.#items = items
+        items.forEach((value, i) => Object.defineProperty(this, i, { value, enumerable: true }))
+      }
+      get length(): number {
+        return this.#items.length
+      }
+      item(index: number): T | null {
+        return this.#items[index] ?? null
+      }
+      [Symbol.iterator](): IterableIterator<T> {
+        return this.#items[Symbol.iterator]()
+      }
+    },
+  }[name]!
+  tag(cls, name)
+  return cls
+}

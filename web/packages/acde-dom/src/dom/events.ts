@@ -1,6 +1,6 @@
 import { File } from '../core/blob'
 import { eventPath, hooks, type Event, Event as BaseEvent, type EventInit, type EventTarget } from '../core/event'
-import { constants, G, queueTask, tag } from '../core/host'
+import { constants, G, listClass, queueTask, tag } from '../core/host'
 import { NodeType } from '../native'
 import { Element, flags, handlerOf, handlerSet } from './element'
 import { metricsOf, rectOf, rootScroll } from './layout'
@@ -307,23 +307,8 @@ tag(BeforeUnloadEvent)
 export const MediaQueryListEvent = simpleEvent('MediaQueryListEvent', { media: '', matches: false })
 export const SecurityPolicyViolationEvent = simpleEvent('SecurityPolicyViolationEvent', {})
 
-export class FileList {
-  readonly #files: File[]
-  constructor(files: File[] = []) {
-    this.#files = files
-    for (let i = 0; i < files.length; i++) Object.defineProperty(this, i, { value: files[i], enumerable: true })
-  }
-  get length(): number {
-    return this.#files.length
-  }
-  item(index: number): File | null {
-    return this.#files[index] ?? null
-  }
-  [Symbol.iterator](): IterableIterator<File> {
-    return this.#files[Symbol.iterator]()
-  }
-}
-tag(FileList)
+export const FileList = listClass<File>('FileList')
+export type FileList = InstanceType<typeof FileList>
 
 export class DataTransferItem {
   readonly #value: string | File

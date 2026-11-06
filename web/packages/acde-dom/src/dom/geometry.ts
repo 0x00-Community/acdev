@@ -1,5 +1,5 @@
 import { DOMException } from '../core/exception'
-import { tag } from '../core/host'
+import { listClass, tag } from '../core/host'
 
 const X = Symbol('x')
 const Y = Symbol('y')
@@ -88,23 +88,8 @@ export class DOMRect extends DOMRectReadOnly {
 }
 tag(DOMRect)
 
-export class DOMRectList {
-  readonly #rects: DOMRect[]
-  constructor(rects: DOMRect[]) {
-    this.#rects = rects
-    for (let i = 0; i < rects.length; i++) Object.defineProperty(this, i, { value: rects[i], enumerable: true })
-  }
-  get length(): number {
-    return this.#rects.length
-  }
-  item(index: number): DOMRect | null {
-    return this.#rects[index] ?? null
-  }
-  [Symbol.iterator](): IterableIterator<DOMRect> {
-    return this.#rects[Symbol.iterator]()
-  }
-}
-tag(DOMRectList)
+export const DOMRectList = listClass<DOMRect>('DOMRectList')
+export type DOMRectList = InstanceType<typeof DOMRectList>
 
 export function rectList(values: Float64Array): DOMRectList {
   const rects: DOMRect[] = []

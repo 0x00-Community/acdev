@@ -1,6 +1,6 @@
 import { DOMException } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { getters, host, queueTask, tag } from '../core/host'
+import { getters, host, listClass, queueTask, tag } from '../core/host'
 import { File } from '../core/blob'
 import { NONE } from '../native'
 import { ACTIVATION, FileList, SubmitEvent } from './events'
@@ -813,28 +813,16 @@ export interface HTMLButtonElement extends ConstraintValidation {}
 
 const LISTED = 'button, fieldset, input, object, output, select, textarea'
 
-export class RadioNodeList {
-  readonly #nodes: Element[]
-  constructor(nodes: Element[]) {
-    this.#nodes = nodes
-    nodes.forEach((n, i) => Object.defineProperty(this, i, { value: n, enumerable: true }))
-  }
-  get length(): number {
-    return this.#nodes.length
-  }
-  item(index: number): Element | null {
-    return this.#nodes[index] ?? null
+export class RadioNodeList extends listClass<Element>('RadioNodeList') {
+  #radio(test: (input: HTMLInputElement) => boolean): HTMLInputElement | undefined {
+    return [...this].find((n) => n[LOCAL] === 'input' && (n as unknown as HTMLInputElement).type === 'radio' && test(n as unknown as HTMLInputElement)) as HTMLInputElement | undefined
   }
   get value(): string {
-    const checked = this.#nodes.find((n) => n[LOCAL] === 'input' && (n as unknown as HTMLInputElement).type === 'radio' && (n as unknown as HTMLInputElement).checked)
-    return checked ? (checked as unknown as HTMLInputElement).value : ''
+    return this.#radio((n) => n.checked)?.value ?? ''
   }
   set value(value: string) {
-    const radio = this.#nodes.find((n) => n[LOCAL] === 'input' && (n as unknown as HTMLInputElement).type === 'radio' && (n as unknown as HTMLInputElement).value === String(value))
-    if (radio) (radio as unknown as HTMLInputElement).checked = true
-  }
-  [Symbol.iterator](): IterableIterator<Element> {
-    return this.#nodes[Symbol.iterator]()
+    const radio = this.#radio((n) => n.value === String(value))
+    if (radio) radio.checked = true
   }
 }
 tag(RadioNodeList)

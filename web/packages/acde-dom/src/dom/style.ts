@@ -1,5 +1,5 @@
 import { DOMException, guard } from '../core/exception'
-import { getters, tag } from '../core/host'
+import { getters, listClass, tag } from '../core/host'
 import { setAttribute, type Element } from './element'
 import { computedStyleOf } from './layout'
 import { changed, dom, ID, version } from './realm'
@@ -428,23 +428,8 @@ export class CSSStyleSheet {
 getters(CSSStyleSheet.prototype, { type: 'text/css', href: null, title: null, parentStyleSheet: null, ownerRule: null })
 tag(CSSStyleSheet)
 
-export class StyleSheetList {
-  readonly #sheets: CSSStyleSheet[]
-  constructor(sheets: CSSStyleSheet[]) {
-    this.#sheets = sheets
-    for (let i = 0; i < sheets.length; i++) Object.defineProperty(this, i, { value: sheets[i], enumerable: true })
-  }
-  get length(): number {
-    return this.#sheets.length
-  }
-  item(index: number): CSSStyleSheet | null {
-    return this.#sheets[index] ?? null
-  }
-  [Symbol.iterator](): IterableIterator<CSSStyleSheet> {
-    return this.#sheets[Symbol.iterator]()
-  }
-}
-tag(StyleSheetList)
+export const StyleSheetList = listClass<CSSStyleSheet>('StyleSheetList')
+export type StyleSheetList = InstanceType<typeof StyleSheetList>
 
 export const CSS = {
   escape(value: string): string {
