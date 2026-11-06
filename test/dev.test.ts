@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DevClient, DevServer, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
+import { Format } from '../src/driver/format.ts'
 import { Tools } from '../src/tools.ts'
 import { cleanup, env, tmp } from './helpers.ts'
 
@@ -234,7 +235,7 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
   })
 
   test('tools: the webs table and the default PNG name', () => {
-    expect(Tools.table([{ name: 'desktop', app: null, kind: 'desktop', window: 0, title: 'Dopame' }, { name: 'vault#1048576', app: 'vault', kind: 'app', window: 1048576, title: '文库' }])).toBe(
+    expect(Format.webs([{ name: 'desktop', app: null, kind: 'desktop', window: 0, title: 'Dopame' }, { name: 'vault#1048576', app: 'vault', kind: 'app', window: 1048576, title: '文库' }])).toBe(
       ['NAME           KIND     APP    WINDOW   TITLE', 'desktop        desktop  -      0        Dopame', 'vault#1048576  app      vault  1048576  文库'].join('\n'),
     )
     expect(Tools.fileFor('vault#1048576')).toBe('vault#1048576.png')

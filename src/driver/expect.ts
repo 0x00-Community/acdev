@@ -1,5 +1,5 @@
 import type { InspectNode } from '@dopame/acde-api'
-import { Locator, type TextMatch, type Timeout } from './locator.ts'
+import { Locator, type Source, type TextMatch, type Timeout } from './locator.ts'
 import { Poll } from './poll.ts'
 import type { AppWindow } from './window.ts'
 
@@ -41,11 +41,17 @@ export class LocatorAssertions {
   }
 
   toHaveText(expected: TextMatch, options: Timeout & { readonly exact?: boolean } = {}): Promise<void> {
-    return this.#one(`have text ${LocatorAssertions.#text(expected)}`, options, (n) => ({ pass: Locator.matches(n.name ?? '', expected, options.exact ?? typeof expected === 'string'), saw: `text ${JSON.stringify(n.name ?? '')}` }))
+    return this.#one(`have text ${LocatorAssertions.#text(expected)}`, options, async (n, source) => {
+      const text = await Locator.text(source, n)
+      return { pass: Locator.matches(text, expected, options.exact ?? typeof expected === 'string'), saw: `text ${JSON.stringify(text)}` }
+    })
   }
 
   toContainText(expected: TextMatch, options: Timeout = {}): Promise<void> {
-    return this.#one(`contain text ${LocatorAssertions.#text(expected)}`, options, (n) => ({ pass: Locator.matches(n.name ?? '', expected), saw: `text ${JSON.stringify(n.name ?? '')}` }))
+    return this.#one(`contain text ${LocatorAssertions.#text(expected)}`, options, async (n, source) => {
+      const text = await Locator.text(source, n)
+      return { pass: Locator.matches(text, expected), saw: `text ${JSON.stringify(text)}` }
+    })
   }
 
   toHaveValue(expected: TextMatch, options: Timeout = {}): Promise<void> {
@@ -72,13 +78,16 @@ export class LocatorAssertions {
     return this.toHaveState('focused', options)
   }
 
-  #nodes(what: string, options: Timeout, check: (nodes: readonly InspectNode[]) => Check): Promise<void> {
-    return LocatorAssertions.poll(`${this.#locator.describe()} to ${this.#negated ? 'not ' : ''}${what}`, this.#timeout(options), this.#negated, async () => check((await this.#locator.resolve()).nodes))
+  #nodes(what: string, options: Timeout, check: (nodes: readonly InspectNode[], source: Source) => Check | Promise<Check>): Promise<void> {
+    return LocatorAssertions.poll(`${this.#locator.describe()} to ${this.#negated ? 'not ' : ''}${what}`, this.#timeout(options), this.#negated, async () => {
+      const { nodes, source } = await this.#locator.resolve()
+      return check(nodes, source)
+    })
   }
 
-  #one(what: string, options: Timeout, check: (node: InspectNode) => Check): Promise<void> {
-    return this.#nodes(what, options, (nodes) => {
-      if (nodes.length === 1) return check(nodes[0]!)
+  #one(what: string, options: Timeout, check: (node: InspectNode, source: Source) => Check | Promise<Check>): Promise<void> {
+    return this.#nodes(what, options, (nodes, source) => {
+      if (nodes.length === 1) return check(nodes[0]!, source)
       return { pass: null, saw: nodes.length === 0 ? 'no element' : `${nodes.length} elements:\n${nodes.slice(0, 10).map((n) => `  - ${Locator.line(n)}`).join('\n')}` }
     })
   }

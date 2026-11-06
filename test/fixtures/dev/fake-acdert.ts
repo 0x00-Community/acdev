@@ -155,7 +155,8 @@ function webs() {
   return windows.map((w) => ({ name: names[w.id]!, app: w.app, kind: w.kind === 'desktop' ? 'desktop' : 'app', window: w.id, title: w.kind === 'desktop' ? 'Desk' : w.title }))
 }
 
-record({ argv: process.argv.slice(2), path: process.env['ACDE_PATH'] ?? null, headless: process.env['ACDE_HEADLESS'] ?? null })
+const ISOLATION = ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'ACDE_STORAGE', 'ACDE_SIZE', 'ACDE_COLOR_SCHEME', 'ACDE_REDUCED_MOTION', 'ACDE_AUTOSTART']
+record({ argv: process.argv.slice(2), path: process.env['ACDE_PATH'] ?? null, headless: process.env['ACDE_HEADLESS'] ?? null, env: Object.fromEntries(ISOLATION.map((k) => [k, process.env[k] ?? null])) })
 console.error('[alpha#7] js: fake acdert is up')
 const socket = net.connect(process.env['ACDE_DEV']!)
 const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`)
@@ -209,6 +210,8 @@ function answer(m: Record<string, unknown>): void {
     case 'screen':
       writeFileSync(String(m['path']), Buffer.from(PNG, 'base64'))
       return void ok({ width: 1, height: 1, path: m['path'] })
+    case 'choose':
+      return void (m['folder'] === null || (typeof m['folder'] === 'string' && m['folder'].startsWith('/')) ? ok({ folder: m['folder'] }) : fail('choose: folder is an absolute path, or null to cancel'))
     case 'emulate':
       if (m['colorScheme'] !== undefined) dark = m['colorScheme'] === 'dark'
       if (m['reducedMotion'] !== undefined) reduced = m['reducedMotion'] === true

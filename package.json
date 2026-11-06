@@ -21,6 +21,7 @@
   "files": [
     "bin",
     "launcher.mjs",
+    "launcher.d.mts",
     "src",
     "templates"
   ],
@@ -40,8 +41,12 @@
     "typescript": "5.9.3"
   },
   "exports": {
-    "./launcher": "./launcher.mjs",
+    "./launcher": {
+      "types": "./launcher.d.mts",
+      "default": "./launcher.mjs"
+    },
     "./driver": "./src/driver/index.ts",
+    "./test": "./src/e2e/index.ts",
     "./package.json": "./package.json"
   }
 }

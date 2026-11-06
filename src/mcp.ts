@@ -7,7 +7,7 @@ import { Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import { Locator } from './driver/locator.ts'
 import { Poll } from './driver/poll.ts'
 import { Sessions } from './sessions.ts'
-import { Tools } from './tools.ts'
+import { Format } from './driver/format.ts'
 
 const ACTIONS = ['click', 'double', 'right', 'hover', 'type', 'settext', 'key', 'scroll', 'focus', 'close', 'minimize', 'restore'] as const
 
@@ -18,7 +18,7 @@ const INSTRUCTIONS = `acde: see and drive the desktop and apps of an acde dev se
 - Elements scrolled out of view are left out unless offscreen is set; act scrolls an element into view before using it. query finds elements by CSS selector (also [data-testid=…]) and gives refs act takes.
 - open launches an app by id or name. screenshot shows a window's pixels, or target "screen" the whole screen with every window (snapshot cannot tell colour, layout or overlap). eval runs JavaScript in a page and returns JSON. wait_for waits for a text to appear or go.
 - console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource requests (status, size, time, error); both answer next, pass it as since to read only newer entries. emulate switches the colour scheme or reduced motion. logs is the raw output of an acde dev that start ran.
-- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work).`
+- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's folder chooser then needs choose_folder first.`
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 
@@ -114,7 +114,7 @@ export class Mcp {
     s.registerTool(
       'webs',
       { description: 'The pages acdert runs: NAME (app#window, or desktop), KIND, APP, WINDOW number, TITLE.', inputSchema: z.object({}), annotations: look },
-      () => this.#safe(async () => Mcp.#text(Tools.table(await (await this.#acde()).webs()))),
+      () => this.#safe(async () => Mcp.#text(Format.webs(await (await this.#acde()).webs()))),
     )
 
     s.registerTool(
@@ -262,7 +262,7 @@ export class Mcp {
         }),
         annotations: look,
       },
-      (args) => this.#safe(async () => Mcp.#entries(await (await this.#acde()).console(args), Tools.consoleLine)),
+      (args) => this.#safe(async () => Mcp.#entries(await (await this.#acde()).console(args), Format.console)),
     )
 
     s.registerTool(
@@ -277,7 +277,7 @@ export class Mcp {
         }),
         annotations: look,
       },
-      (args) => this.#safe(async () => Mcp.#entries(await (await this.#acde()).network(args), Tools.requestLine)),
+      (args) => this.#safe(async () => Mcp.#entries(await (await this.#acde()).network(args), Format.request)),
     )
 
     s.registerTool(
@@ -297,6 +297,25 @@ export class Mcp {
             ...(args.reducedMotion !== undefined && { reducedMotion: args.reducedMotion === 'system' ? null : args.reducedMotion === 'reduce' }),
           })
           return Mcp.#text(`colour scheme ${state.colorScheme}${state.emulated ? ' (emulated)' : ''}, reduced motion ${state.reducedMotion ? 'on' : 'off'}`)
+        }),
+    )
+
+    s.registerTool(
+      'choose_folder',
+      {
+        description: 'Answer the next folder chooser a page opens (showDirectoryPicker) without showing it: a folder, or cancel. Without a host window (headless) a chooser fails unless answered first.',
+        inputSchema: z.object({
+          path: z.string().optional().describe('the folder, relative to the working directory'),
+          cancel: z.boolean().optional().describe('answer as if the user cancelled'),
+        }),
+        annotations: drive,
+      },
+      (args) =>
+        this.#safe(async () => {
+          if ((args.path === undefined) === (args.cancel !== true)) throw new Error('choose_folder: give a path, or cancel: true')
+          const folder = args.cancel ? null : resolve(this.#cwd, args.path!)
+          await (await this.#acde()).chooseFolder(folder)
+          return Mcp.#text(folder === null ? 'the next folder chooser will be cancelled' : `the next folder chooser will answer ${folder}`)
         }),
     )
 
@@ -372,7 +391,7 @@ export class Mcp {
     this.#launched = acde
     this.#pinned = acde.session.pid
     const what = `${acde.session.desktop ? `desktop ${acde.session.desktop}` : `app ${acde.session.apps.join(', ')}`}${args.headless ? ' without a window (headless)' : ''}`
-    return Mcp.#text(`acde dev ${acde.session.pid} runs ${what} (${acde.session.dirs.join(', ')})\n\n${Tools.table(await acde.webs())}`)
+    return Mcp.#text(`acde dev ${acde.session.pid} runs ${what} (${acde.session.dirs.join(', ')})\n\n${Format.webs(await acde.webs())}`)
   }
 
   async #stop(): Promise<Result> {

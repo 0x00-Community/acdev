@@ -22,6 +22,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde dev [目录...] [--out DIR] [--app ID] [--desktop ID\|目录] [--headless]` | 构建, 起 acdert (`--headless`: 不开宿主窗口) (一个工程: `acdert desktop <id>` (桌面工程) 或 `acdert app <id>`; 几个工程或给了 `--desktop`: 都放进一个桌面), 构建结果经 `ACDE_PATH` 给它 (不装); 盯着工程目录, 哪个改了就只重新构建它、发 `reload`; acdert 从哪儿来见「分发」. 见下面「acde dev」 |
 | `acde webs` / `eval <web> <代码\|->` / `shot <web> [-o 文件]` / `inspect [--window W] [--find 文字] [--all] [--offscreen]` / `act <ref> <动作> [参数]` / `console` / `network` / `screen [-o 文件]` (都可加 `--session <pid>`) | 看和操作一个正在跑的 `acde dev` 里的页面 (给 agent 和开发者用), 见下面「开发工具」 |
 | `acde mcp [--session <pid>]` | stdio 上的 MCP 服务, 同一套工具加上自己起 `acde dev` (`start` / `stop` / `logs`), 给 agent 用 (`claude mcp add acde -- acde mcp`), 见下面「MCP」 |
+| `acde test [目录\|文件...] [--headed] [-t 名字] [--desktop ID\|目录] [--timeout MS] [--bail]` | 跑 e2e 测试 (`*.e2e.ts`, 从 `acde/test` 导入): 每个测试一个新的、隔离的 `acde dev` (默认 headless), 失败的留下截图、语义树、console、网络和输出, 见下面「e2e 测试」 |
 | `import { Acde, expect } from 'acde/driver'` | 测试和脚本用的 driver: 起或连上 `acde dev`, 按角色 / 文字找控件、自动等待、断言, 见下面「driver」 |
 
 ## 新建工程 (`acde new`, `npm create acde`)
@@ -106,7 +107,8 @@ user.name / email 时提交跳过). Ctrl+C 退出码 0 (和 create-vite 一样, 
 | 包 | 内容 |
 | --- | --- |
 | `create-acde` | `packages/create-acde/index.mjs`: import `acde/launcher`, `run(['new', ...参数])` |
-| `acde` | `bin/acde.mjs` → `launcher.mjs`; `src/cli.js` (`src/cli.ts` 连同 @clack/prompts、acde-api 打成一个文件: Deno 跑 `npm:` 包时没有 node_modules, 运行时不能再解析依赖) 和它按文件用的 `src/listen.ts`、`src/sockets.ts`、`templates/`; `acde/driver` 是源码原样 (`src/driver/`、`src/ipc.ts`、`src/sessions.ts`, TypeScript, 只在 bun 上跑, 类型跟着源码走). `dependencies` 只有 `@dopame/acde-api` (精确版本; 新工程的 devDependency 取它的版本). `optionalDependencies`: 每个编出来的平台的 `@dopame/acdert-<平台>` (精确版本) 和 Bun 官方的 `@oven/bun-<平台>` (8 个, 含 musl; 版本是打包那份 bun 的). `preferUnplugged`: yarn PnP 下解压到磁盘 (PnP 的 ESM 读不了 zip 里的 `.mjs`, bun 也要真文件) |
+| `acde` | `bin/acde.mjs` → `launcher.mjs`; `src/cli.js` (`src/cli.ts` 连同 @clack/prompts、acde-api 打成一个文件: Deno 跑 `npm:` 包时没有 node_modules, 运行时不能再解析依赖) 和它按文件用的 `src/listen.ts`、`src/sockets.ts`、`templates/`; `acde/driver` 和 `acde/test` 是源码原样 (`src/driver/`、`src/e2e/`、`src/ipc.ts`、`src/sessions.ts`、`src/configs.ts`, TypeScript, 只在 bun 上跑,
+类型跟着源码走); `acde/launcher` 的类型是手写的 `launcher.d.mts` (`exports` 的 `types`; 外面的工程没有 `allowJs`). `dependencies` 只有 `@dopame/acde-api` (精确版本; 新工程的 devDependency 取它的版本). `optionalDependencies`: 每个编出来的平台的 `@dopame/acdert-<平台>` (精确版本) 和 Bun 官方的 `@oven/bun-<平台>` (8 个, 含 musl; 版本是打包那份 bun 的). `preferUnplugged`: yarn PnP 下解压到磁盘 (PnP 的 ESM 读不了 zip 里的 `.mjs`, bun 也要真文件) |
 | `@dopame/acdert-<平台>` | `bin/acdert(.exe)` 和 `bin/app/dist/{broker,web}.js` (acdert 在自己旁边的 `app/dist` 找 host bundle); 平台: `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64` (`libc: glibc`)、`linux-arm64-musl`、`linux-x64-musl` (`libc: musl`; Alpine 上编, 动态链接 Alpine 的库)、`win32-arm64`、`win32-x64` |
 | `@dopame/acde-api` | acdert 仓库的 `web/packages/acde-api` 原样 |
 
@@ -314,7 +316,9 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   120 s). 底层操作和 op 一一对应: `webs()`、`evaluate(web, code)`、`screenshot(web, {path?})` (`{png: Buffer, width, height, path}`)、
   `snapshot(options)`、`windows()` (`snapshot {tree: false}`)、`act(ref, action, arg?)`、`run(steps)`、`query({selector, window?, ref?, limit?})`、
   `console({web?, since?, limit?, level?})` / `network({web?, since?, limit?, failed?})` (`{entries, next, dropped}`, 条目见 acdert 的 dev IPC)、
-  `screen({path?})` (整屏; 不给 path 时写进临时目录读回再删, `path` 是 null)、`emulate({colorScheme?, reducedMotion?})`; `open(name)` 发 `open`, 再等一个新窗口
+  `screen({path?})` (整屏; 不给 path 时写进临时目录读回再删, `path` 是 null)、`emulate({colorScheme?, reducedMotion?})`、`chooseFolder(路径 | null)`
+  (相对路径按当前目录; 事先答复下一次选文件夹, null 是取消); `evaluate` 的返回类型是 `NoInfer<T>` (不然 `expect(await w.evaluate(…))` 会按
+  `expect` 的第一个重载被推成 `Locator`); `open(name)` 发 `open`, 再等一个新窗口
   (同 app 的优先, 否则有焦点的) 出来, 回它的 `AppWindow`, 失败抛 `ActError`. `close()` 断开; launch 的还 SIGTERM `acde dev` (10 秒后 SIGKILL).
   `timeout` (默认 5000 ms) 是下面所有等待的默认值. `closed` 在 IPC 断了以后为 true.
 - **`AppWindow`** (`window.ts`, `acde.window('ledger' | 'w3' | {ref?, id?, app?, title?})`、`acde.desktop`): 每次用到时按条件在窗口表里找
@@ -329,7 +333,8 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   `locator(css)`: 第一步在整个窗口、之后在前一步每个结果下面问 acdert 的 `query`, 只要 `visible` 的; `getByTestId(id)` 是
   `locator('[data-testid="id"]')`. CSS 找到的元素不一定在语义树里 (没有角色的 div), 在它下面再按角色 / 文字找时用 `snapshot {ref}` 取它的子树.
   链起来的查询在前一步结果的后代里找; `filter({hasText?, hasNotText?})` 看元素自己和后代的名字 / 值; `nth(i)` (负数从后数) / `first()` /
-  `last()`. 结果按文档顺序、不重复. 动作 (`click({button?, clickCount?})`、`dblclick`、`hover`、`fill` (settext)、`type`、`press`、`focus`、
+  `last()`. 结果按文档顺序、不重复. 元素的「文字」(`text()`、`toHaveText`、`toContainText`) 是它的名字, 没有名字的容器 (`status`、`timer`、
+  `generic` …) 是下面各元素的名字连起来 (有名字的元素不再往下拆). 动作 (`click({button?, clickCount?})`、`dblclick`、`hover`、`fill` (settext)、`type`、`press`、`focus`、
   `scroll(dy)`) 先等**恰好一个**元素匹配 (多个时报错并列出前 10 个: 严格, 不猜), click / fill / type 还等它没有 `disabled`, 再 `act`;
   `act` 回 `ok: false` (被挡住、没有可点的点) 时重试到超时, 最后抛 `ActError` (带 acdert 的原话). 读: `count()`、`isVisible()`、`all()`、
   `node()`、`ref()`、`name()`、`value()`、`states()`、`waitFor({state: 'visible' | 'hidden'})`.
@@ -374,6 +379,7 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 | `query {selector, window?, ref?, limit?}` | `Acde.query`, 一行一个元素 `- <role> "<名字>" … [ref] <tag>` (不可见的加 `[hidden]`), 多于 limit 的说还有几个 |
 | `console {web?, level?, since?, limit?}` / `network {web?, failed?, since?, limit?}` | 第一行 `next: <n>`, 下面是和 `acde console` / `acde network` 一样的行 |
 | `emulate {colorScheme?: light \| dark \| system, reducedMotion?: reduce \| no-preference \| system}` | `Acde.emulate` (system 是 null) |
+| `choose_folder {path? \| cancel?}` | `Acde.chooseFolder`: 事先答复页面下一次的选文件夹 (headless 时页面要选文件夹必须先答复) |
 | `act {ref, action, arg?}` / `run {steps}` | `act().text` / `run().text`, `ok: false` 时是 `isError`; action 是 acde-api 的 `InspectAction` |
 | `open {app}` | `Acde.open`, 回新窗口的 ref、标题和它的 snapshot |
 | `screenshot {target?, path?}` | image 内容 (PNG, 设备像素) 加一行尺寸; target 是 screen (整屏)、窗口 ref、web 名、应用 id 或 desktop, 默认有焦点的窗口; `path` 相对工作目录 |
@@ -388,12 +394,48 @@ launch / attach、填写、自动等待、严格匹配的报错、filter / nth�
 起不来时带输出的报错; MCP 用 `@modelcontextprotocol/client` 经 stdio 调每个工具 (参数校验、没有会话、`start` 两次、`--session` 连别处的会话、
 客户端断开后 `start` 起的 `acde dev` 停了).
 
+## e2e 测试 (`acde test`, `acde/test`, `src/e2e/`)
+
+测试文件叫 `*.e2e.ts` (也认 `.tsx` / `.js` / `.mjs` / `.mts`; bun 默认的 `*.test.ts` 匹配不到它, 工程里普通的 `bun test` 不会起 acdert),
+用 bun test 的写法, 从 `acde/test` 导入:
+
+```ts
+import { expect, test } from 'acde/test'
+
+test('记一笔', async ({ app, acde, home }) => {
+  await app!.getByRole('textbox', { name: '金额' }).fill('42.5')
+  await expect(app!.getByRole('button', { name: '修改：餐饮 42.50' })).toBeVisible()
+})
+```
+
+- **`test(name, body, timeout?)`** (`index.ts` `E2eRun`): 包一层 bun 的 `test` (`test.only` / `skip` / `todo` / `if` 一样), 每个测试自己起一个
+  `acde dev` (`Acde.launch`), 跑完关掉, 测试之间什么都不共享. 隔离: 新的临时目录当 `HOME` 和 `XDG_CONFIG_HOME` / `DATA` / `STATE` / `CACHE`
+  (测试完删掉), `ACDE_STORAGE` 为空, `ACDE_SIZE=1280x800`, 浅色, 减少动画, 不跑 autostart; 一个工程时构建进 `<工程>/.acde/test` (和开着的
+  `acde dev` 的 `.acde` 不打架). 给 body 的: `acde` (`Acde`)、`app` (应用工程是它的窗口, 桌面工程是 null, 用 `acde.open`)、`home` (隔离的
+  HOME, 测试自己放文件用)、`settings`. `expect` 认 `Locator` / `AppWindow` (driver 的, 会重试), 别的值交给 bun 的 `expect`; driver 的东西都从这里
+  再导出, 还有 `describe` / `beforeAll` / `afterAll` / `beforeEach` / `afterEach`.
+- **失败时** (body 抛错、断言不过、起不来): 在 `<results>/<文件>/<测试名>/` 留下 `error.txt`、`output.log` (acde dev 和 acdert 的输出)、`screen.png`
+  (整屏)、`snapshot.txt` (所有窗口, 含滚出去的)、`console.txt`、`network.txt` (哪一样拿不到就写 `<名字>.error.txt`), 把「saved … in <目录>」接在
+  错误信息后面. 名字里的 `/\:*?"<>|` 和空白换成 `-`; 同名的测试加 `-2` …
+- **`acde test`** (`runner.ts` `TestRunner`): 参数是工程目录 (往下找 `*.e2e.*`, 不看 node_modules、.acde、构建产物) 或测试文件 (它所属的工程是往上
+  第一个有 `acde.config.*` 的目录), 默认当前目录. 每个文件一个 `bun test <文件> --timeout <ms>` 子进程 (cwd 是工程, bun 是跑 acde 的那个, 环境加
+  `cliEnv`), 设置经环境变量传过去 (`settings.ts` `E2e`: `ACDE_TEST_DIRS` / `DESKTOP` / `HEADLESS` / `RESULTS` / `FILE` / `TIMEOUT`); 直接
+  `bun test x.e2e.ts` 时按当前目录找工程、headless、结果放 `<工程>/.acde/test-results`. 开始前清掉每个工程的 `.acde/test-results`. 默认
+  headless (`--headed` 开窗口), 每个测试 60 s (`--timeout`), `-t` 是 bun 的 `--test-name-pattern`, `--desktop` 让每个测试在那个桌面里跑, `--bail`
+  第一个失败的文件后停. 最后一行 `acde test: N files, P passed, F failed: …`, 有失败时说现场在哪, 退出码 1.
+- 测试 (`test/e2e.test.ts`): 测试替身上两个文件 (一个过、一个故意不过) 经真的 `acde test` 跑: 只跑 `*.e2e.ts`、每个测试一个 headless 的
+  `acde dev` (四个都是不同的隔离目录, 环境变量对)、构建进 `.acde/test`、失败的留下六个文件和原话、`--headed`、`-t`、单个文件、`--bail`、用错时的说明.
+- 验过 (macOS arm64, 2026-11-06, 真的 acdert, headless): Demo 四个应用的 8 个测试 (`bun run e2e`) 连跑两遍都过, 每遍约 12 s; 记账 (`status`
+  提示条的文字来自子元素)、番茄待办 (`timer` 倒计时在走)、笔记 (搜索、删除再撤销)、文库 (`chooseFolder` 预先答复选文件夹, 打开库、跟双链、
+  后退、按标签搜; 取消时停在选库页); `--headed` 和 `-t` 也对. 第一次跑时两个失败都靠留下的 `screen.png` / `snapshot.txt` 找到原因 (提示条
+  已经消失; `timer` 没有名字). 打包后装进一个新工程, `bunx acde test` 跑一个计数器页面的测试 (`getByTestId`、console) 过了.
+
 ## 要做
 
 1. 原地重新加载 (不关窗口, 只重起 isolate), 前端框架用它自己的 `build --watch` 而不是每次整个构建.
 2. `acde.config.jsonc` 加 `compatibility_date` (运行时行为的版本), environments、vars / secrets、服务名 ↔ capability 的显式 binding.
-3. `acde types` (按 capabilities 生成只含允许的 `acde:` 模块的 d.ts)、`acde test` (bun test 跑在 acdert 的 isolate 里, `acdert run`; e2e: 用
-   driver 起隔离的 `acde dev`: 临时的 `XDG_*`、空的 `ACDE_STORAGE`、固定的 `ACDE_SIZE` / 配色 / reduced motion, 失败时留截图、语义树和日志)、
+3. `acde types` (按 capabilities 生成只含允许的 `acde:` 模块的 d.ts)、单元测试跑在 acdert 的 isolate 里 (`acdert run`; e2e 已经有了, 见上)、
+   e2e 的截图比对 (要容差: 不同 GPU 的光栅化有差别)、
    `acde deploy --to <主机>` (经 ssh 装到一台 Dopame OS 上), 包格式 + 签名 + 仓库之后 `acde publish`.
 4. 分发: 第一次发版 (见「分发」; 先在 npm 上建 `@dopame` 组织、占 `acde` / `create-acde`), Windows 移植之后 win32 的 acdert 才有.
 

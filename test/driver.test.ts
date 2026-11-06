@@ -47,6 +47,14 @@ describe('Locator.match', () => {
     check(await refs([{ kind: 'role', role: 'list', options: {} }, { kind: 'role', role: 'listitem', options: {} }])).toEqual(['w1.2', 'w1.5'])
   })
 
+  test('text: the name, or for a nameless container the names under it', async () => {
+    const status = node('w1.30', 'status', undefined, [node('w1.31', 'text', 'Saved'), node('w1.32', 'generic', undefined, [node('w1.33', 'text', 'just now')])])
+    check(await Locator.text(source, status)).toBe('Saved just now')
+    check(await Locator.text(source, tree[0]!)).toBe('Tasks')
+    check(await Locator.text(source, card)).toBe('Card')
+    check(await Locator.text(source, { ref: 'w1.40', role: 'generic', tag: 'div', visible: true } as InspectMatch)).toBe('Inside the card')
+  })
+
   test('CSS: asked of acdert in the window or under each match; what it finds is searched by role through its own subtree', async () => {
     queried.length = 0
     check(await refs([{ kind: 'css', selector: '.card' }])).toEqual(['w1.20'])
@@ -137,6 +145,9 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       const screen = await acde.screen()
       check([screen.png.subarray(1, 4).toString(), screen.width, screen.path]).toEqual(['PNG', 1, null])
       check((await acde.screen({ path: join(s.root, 'screen.png') })).path).toBe(join(s.root, 'screen.png'))
+      await acde.chooseFolder(s.root)
+      await acde.chooseFolder(null)
+      check(await acde.chooseFolder('relative').then(() => 'resolved')).toBe('resolved')
       check(await acde.emulate({ colorScheme: 'dark', reducedMotion: true })).toEqual({ colorScheme: 'dark', emulated: true, reducedMotion: true })
 
       check(acde.logs!.tail(100).text).toContain('[alpha#7] js: fake acdert is up')

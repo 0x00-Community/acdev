@@ -29,7 +29,7 @@ describe('acde mcp', () => {
     const { client, call } = await connect(s.project, s.env)
     try {
       const tools = (await client.listTools()).tools
-      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'wait_for', 'webs'])
+      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'choose_folder', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'wait_for', 'webs'])
       expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
 
       const none = await call('webs')
@@ -79,6 +79,9 @@ describe('acde mcp', () => {
       expect((await call('console')).text).toBe('next: 3\n   1 log    alpha#7  alpha ready\n   2 info   alpha#7  added Buy milk')
       expect((await call('console', { since: 3 })).text).toBe('next: 3\n(nothing)')
       expect((await call('network', { web: 'alpha' })).text).toBe('next: 2\n   1 POST   201 http://acde.local/api/tasks  (fetch 2 B 3 ms) alpha#7')
+      expect((await call('choose_folder', { path: 'pick' })).text).toBe(`the next folder chooser will answer ${join(s.project, 'pick')}`)
+      expect((await call('choose_folder', { cancel: true })).text).toBe('the next folder chooser will be cancelled')
+      expect((await call('choose_folder', {})).error).toBe(true)
       expect((await call('emulate', { colorScheme: 'dark' })).text).toBe('colour scheme dark (emulated), reduced motion off')
       expect((await call('emulate', { colorScheme: 'system', reducedMotion: 'reduce' })).text).toBe('colour scheme light, reduced motion on')
       expect(JSON.parse((await call('eval', { code: '1', target: 'desktop' })).text)).toEqual({ web: 'desktop', code: '1' })

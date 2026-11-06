@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { AcdeConfig, AppConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
 import acdeVite from '@dopame/acde-api/vite'
+import { CONFIGS } from './configs.ts'
 import { Frameworks, type Output } from './frameworks.ts'
 import { appId } from './sockets.ts'
 
@@ -46,7 +47,7 @@ interface Legacy {
 }
 
 export class Project {
-  static readonly CONFIGS = ['acde.config.jsonc', 'acde.config.json']
+  static readonly CONFIGS = CONFIGS
 
   readonly dir: string
   readonly name: string

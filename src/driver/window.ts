@@ -116,7 +116,7 @@ export class AppWindow implements Scope {
     return (await this.acde.webOf((await this.info()).id)).name
   }
 
-  async evaluate<T = unknown>(code: string): Promise<T> {
+  async evaluate<T = unknown>(code: string): Promise<NoInfer<T>> {
     return this.acde.evaluate<T>(await this.web(), code)
   }
 

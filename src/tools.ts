@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import type { InspectAction } from '@dopame/acde-api'
-import { Acde, type ActResult, type ConsoleEntry, type ConsoleLevel, type DevPage, type RequestEntry, type Web } from './driver/acde.ts'
+import { Acde, type ActResult, type ConsoleLevel, type DevPage } from './driver/acde.ts'
+import { Format } from './driver/format.ts'
 
 export class Tools {
   static readonly COMMANDS = new Set(['webs', 'eval', 'shot', 'inspect', 'act', 'console', 'network', 'screen'])
@@ -13,7 +14,7 @@ export class Tools {
     try {
       switch (command) {
         case 'webs':
-          console.log(Tools.table(await acde.webs()))
+          console.log(Format.webs(await acde.webs()))
           return 0
         case 'eval':
           console.log(JSON.stringify((await acde.evaluate(args[0]!, args[1] === '-' ? await Bun.stdin.text() : args[1]!)) ?? null, null, 2))
@@ -30,11 +31,11 @@ export class Tools {
           const level = flags.get('level')
           if (level !== undefined && !Tools.LEVELS.has(level)) throw new Error(`--level ${level}: one of ${[...Tools.LEVELS].join(', ')}`)
           const options = { ...(flags.has('web') && { web: flags.get('web')! }), ...(level !== undefined && { level: level as ConsoleLevel | 'errors' }) }
-          return await Tools.#follow(flags.has('follow'), (since) => acde.console({ ...options, ...(since && { since }) }), Tools.consoleLine)
+          return await Tools.#follow(flags.has('follow'), (since) => acde.console({ ...options, ...(since && { since }) }), Format.console)
         }
         case 'network': {
           const options = { ...(flags.has('web') && { web: flags.get('web')! }), ...(flags.has('failed') && { failed: true }) }
-          return await Tools.#follow(flags.has('follow'), (since) => acde.network({ ...options, ...(since && { since }) }), Tools.requestLine)
+          return await Tools.#follow(flags.has('follow'), (since) => acde.network({ ...options, ...(since && { since }) }), Format.request)
         }
         case 'screen':
           console.log((await acde.screen({ path: resolve(flags.get('output') ?? 'screen.png') })).path)
@@ -47,18 +48,6 @@ export class Tools {
     }
   }
 
-  static consoleLine(e: ConsoleEntry): string {
-    const kind = e.kind === 'console' ? e.level : e.kind === 'error' ? 'ERROR' : 'REJECT'
-    return `${String(e.seq).padStart(4)} ${kind.padEnd(6)} ${e.web}  ${e.text}`
-  }
-
-  static requestLine(e: RequestEntry): string {
-    const status = e.error !== null ? 'ERR' : e.status === null ? '...' : String(e.status)
-    const size = e.responseBytes === null ? '' : ` ${e.responseBytes} B`
-    const ms = e.ms === null ? '' : ` ${Math.round(e.ms)} ms`
-    return `${String(e.seq).padStart(4)} ${e.method.padEnd(6)} ${status.padEnd(3)} ${e.url}  (${e.kind}${size}${ms}${e.error !== null ? `; ${e.error}` : ''}) ${e.web}`
-  }
-
   static async #follow<T>(follow: boolean, read: (since: number) => Promise<DevPage<T>>, line: (entry: T) => string): Promise<number> {
     let since = 0
     for (;;) {
@@ -69,12 +58,6 @@ export class Tools {
       if (!follow) return 0
       await Bun.sleep(Tools.FOLLOW_MS)
     }
-  }
-
-  static table(webs: readonly Web[]): string {
-    const rows = [['NAME', 'KIND', 'APP', 'WINDOW', 'TITLE'], ...webs.map((w) => [w.name, w.kind, w.app ?? '-', String(w.window), w.title ?? ''])]
-    const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)))
-    return rows.map((r) => r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]!))).join('  ').trimEnd()).join('\n')
   }
 
   static fileFor(web: string): string {

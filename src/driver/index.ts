@@ -20,6 +20,7 @@ export {
   type Step,
   type Web,
 } from './acde.ts'
+export { Format } from './format.ts'
 export { AssertionError, expect, LocatorAssertions, WindowAssertions } from './expect.ts'
 export { Locator, type FilterOptions, type Query, type RoleOptions, type Source, type TextMatch, type TextOptions, type Timeout } from './locator.ts'
 export { Logs, type LogLine, type LogSlice } from './logs.ts'

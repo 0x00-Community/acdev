@@ -56,6 +56,7 @@ export type Query =
 export interface Resolved {
   readonly window: InspectWindow | null
   readonly nodes: readonly InspectNode[]
+  readonly source: Source
 }
 
 const STATES = ['checked', 'disabled', 'selected', 'expanded', 'pressed', 'focused'] as const
@@ -111,7 +112,25 @@ export class Locator {
 
   async resolve(): Promise<Resolved> {
     const tree = await this.scope.tree()
-    return { window: tree.window, nodes: tree.window === null ? [] : await Locator.match(tree.source, this.#queries) }
+    return { window: tree.window, nodes: tree.window === null ? [] : await Locator.match(tree.source, this.#queries), source: tree.source }
+  }
+
+  async text(options: Timeout = {}): Promise<string> {
+    const { node, source } = await this.#one(options.timeout, () => null)
+    return Locator.text(source, node)
+  }
+
+  static async text(source: Source, node: InspectNode): Promise<string> {
+    if (node.name) return node.name
+    const parts: string[] = []
+    const walk = (list: readonly InspectNode[]) => {
+      for (const n of list) {
+        if (n.name) parts.push(n.name)
+        else walk(n.children ?? [])
+      }
+    }
+    walk(await source.children(node))
+    return Locator.normalize(parts.join(' '))
   }
 
   async count(): Promise<number> {
@@ -265,13 +284,13 @@ export class Locator {
     return `${node.role}${node.name ? ` ${JSON.stringify(node.name)}` : ''}${value}${(node.states ?? []).map((s) => ` [${s}]`).join('')} [${node.ref}]`
   }
 
-  async #one(timeout: number | undefined, ready: (node: InspectNode) => string | null): Promise<{ node: InspectNode; window: InspectWindow }> {
+  async #one(timeout: number | undefined, ready: (node: InspectNode) => string | null): Promise<{ node: InspectNode; window: InspectWindow; source: Source }> {
     const ms = this.#timeout(timeout)
     let why = 'no element matches'
     return Poll.until(
       ms,
       async () => {
-        const { window, nodes } = await this.resolve()
+        const { window, nodes, source } = await this.resolve()
         if (window === null) {
           why = `${this.scope.describe()} is not open`
           return null
@@ -289,7 +308,7 @@ export class Locator {
           why = not
           return null
         }
-        return { node: nodes[0]!, window }
+        return { node: nodes[0]!, window, source }
       },
       () => `${this.describe()}: ${why} (waited ${ms} ms)`,
     )

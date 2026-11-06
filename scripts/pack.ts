@@ -77,9 +77,9 @@ tarballs.push(await pack(values.api!))
 
 const acde = join(stage, 'acde')
 mkdirSync(join(acde, 'src'), { recursive: true })
-for (const path of ['bin', 'templates', 'launcher.mjs', 'LICENSE']) cpSync(join(ROOT, path), join(acde, path), { recursive: true })
-for (const name of ['listen.ts', 'sockets.ts', 'ipc.ts', 'sessions.ts']) copyFileSync(join(ROOT, 'src', name), join(acde, 'src', name))
-cpSync(join(ROOT, 'src', 'driver'), join(acde, 'src', 'driver'), { recursive: true })
+for (const path of ['bin', 'templates', 'launcher.mjs', 'launcher.d.mts', 'LICENSE']) cpSync(join(ROOT, path), join(acde, path), { recursive: true })
+for (const name of ['listen.ts', 'sockets.ts', 'ipc.ts', 'sessions.ts', 'configs.ts']) copyFileSync(join(ROOT, 'src', name), join(acde, 'src', name))
+for (const dir of ['driver', 'e2e']) cpSync(join(ROOT, 'src', dir), join(acde, 'src', dir), { recursive: true })
 const bundled = await Bun.build({ entrypoints: [join(ROOT, 'src/cli.ts')], outdir: join(acde, 'src'), target: 'bun', format: 'esm', naming: { entry: 'cli.js' }, minify: { syntax: true, whitespace: false, identifiers: false }, external: ['acde/launcher'] })
 if (!bundled.success) throw new AggregateError(bundled.logs, 'bundling src/cli.ts failed')
 write(acde, {
@@ -92,7 +92,7 @@ write(acde, {
   bin: SELF.bin,
   exports: SELF.exports,
   preferUnplugged: true,
-  files: ['bin', 'launcher.mjs', 'src', 'templates'],
+  files: ['bin', 'launcher.mjs', 'launcher.d.mts', 'src', 'templates'],
   dependencies: { '@dopame/acde-api': api.version },
   optionalDependencies: {
     ...Object.fromEntries([...binaries.keys()].map((t) => [acdertPackage(t), version])),

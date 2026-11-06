@@ -20,9 +20,10 @@ export class Logs {
   follow(stream: ReadableStream<Uint8Array>, name: LogLine['stream']): void {
     void (async () => {
       const decoder = new TextDecoder()
+      const reader = stream.getReader()
       let rest = ''
-      for await (const chunk of stream) {
-        const parts = (rest + decoder.decode(chunk, { stream: true })).split('\n')
+      for (let read = await reader.read(); !read.done; read = await reader.read()) {
+        const parts = (rest + decoder.decode(read.value, { stream: true })).split('\n')
         rest = parts.pop()!
         for (const text of parts) this.push(name, text)
       }

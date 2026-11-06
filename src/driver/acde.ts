@@ -280,7 +280,7 @@ export class Acde {
     return webs
   }
 
-  async evaluate<T = unknown>(web: string, code: string): Promise<T> {
+  async evaluate<T = unknown>(web: string, code: string): Promise<NoInfer<T>> {
     return ((await this.#request('eval', { web, code })) as { value: T }).value
   }
 
@@ -326,6 +326,10 @@ export class Acde {
 
   async emulate(options: Emulation): Promise<{ colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean }> {
     return (await this.#request('emulate', { ...options })) as { colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean }
+  }
+
+  async chooseFolder(folder: string | null): Promise<void> {
+    await this.#request('choose', { folder: folder === null ? null : resolve(folder) })
   }
 
   async windows(): Promise<InspectWindow[]> {

@@ -4,6 +4,7 @@ import * as p from '@clack/prompts'
 import { requireAcdert } from 'acde/launcher'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
+import { TestRunner } from './e2e/runner.ts'
 import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
@@ -30,6 +31,10 @@ const USAGE = `usage: acde <command>
   console [--web W] [--level L] [--follow]         pages' console.* and uncaught errors (L: log info warn error debug errors)
   network [--web W] [--failed] [--follow]          pages' fetch / XHR / WebSocket / EventSource requests and how they ended
   screen [-o FILE]                                 a PNG of the whole screen, every window composed (default ./screen.png)
+  test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail]
+                                                   run the e2e tests (*.e2e.ts, import from acde/test): each test gets a fresh,
+                                                   isolated acde dev (headless unless --headed); what a failing test left goes
+                                                   to <project>/.acde/test-results
   mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run acde dev itself);
                                                    for agents: claude mcp add acde -- acde mcp`
 
@@ -61,8 +66,9 @@ class Cli {
     network: { args: [0, 0], flags: ['session', 'web'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
     mcp: { args: [0, 0], flags: ['session'] },
+    test: { args: [0, Infinity], flags: ['desktop', 'test-name-pattern', 'timeout'], switches: ['headed', 'bail'] },
   }
-  static readonly SHORT: Readonly<Record<string, string>> = { o: 'output' }
+  static readonly SHORT: Readonly<Record<string, string>> = { o: 'output', t: 'test-name-pattern' }
 
   static parse(argv: readonly string[]): Args {
     const [command = '', ...rest] = argv
@@ -96,6 +102,18 @@ class Cli {
   static async main(argv: readonly string[]): Promise<number> {
     const { command, args, flags } = Cli.parse(argv)
     if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
+    if (command === 'test') {
+      const timeout = flags.has('timeout') ? Number(flags.get('timeout')) : undefined
+      if (timeout !== undefined && !(Number.isInteger(timeout) && timeout > 0)) throw new Error(`--timeout ${flags.get('timeout')}: milliseconds per test`)
+      return await TestRunner.run({
+        targets: args,
+        ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
+        ...(flags.has('headed') && { headed: true }),
+        ...(flags.has('bail') && { bail: true }),
+        ...(flags.has('test-name-pattern') && { pattern: flags.get('test-name-pattern')! }),
+        ...(timeout !== undefined && { timeout }),
+      })
+    }
     if (command === 'mcp') return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)
     if (command === 'dev') {
