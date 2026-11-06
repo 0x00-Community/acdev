@@ -1,4 +1,3 @@
-#[cfg(target_os = "linux")]
 mod audio;
 mod backend;
 mod bind;

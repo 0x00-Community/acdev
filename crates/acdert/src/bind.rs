@@ -159,7 +159,6 @@ pub fn arg_f64(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i
     args.get(i).number_value(scope).unwrap_or(f64::NAN)
 }
 
-#[cfg(target_os = "linux")]
 pub fn arg_u32(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> u32 {
     let n = arg_f64(scope, args, i);
     if n.is_finite() && n >= 0.0 { n as u32 } else { 0 }
@@ -217,7 +216,6 @@ pub fn uint32_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[u32]) -> v8::L
     v8::Uint32Array::new(scope, buffer, 0, data.len()).expect("acdert: Uint32Array")
 }
 
-#[cfg(target_os = "linux")]
 pub fn float32_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[f32]) -> v8::Local<'s, v8::Float32Array> {
     let buffer = array_buffer(scope, data);
     v8::Float32Array::new(scope, buffer, 0, data.len()).expect("acdert: Float32Array")

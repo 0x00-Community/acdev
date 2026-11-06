@@ -203,10 +203,10 @@ impl Spec {
         crate::backend::clear();
         crate::fs::clear();
         crate::terminal::clear();
+        crate::audio::clear();
         #[cfg(target_os = "linux")]
         {
             crate::webgpu::clear();
-            crate::audio::clear();
             crate::network::clear();
             crate::office::clear();
         }
@@ -369,10 +369,8 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], g
         crate::webnative::install(scope, natives);
         grants.install(scope, natives);
         #[cfg(target_os = "linux")]
-        {
-            crate::webgpu::install(scope, natives);
-            crate::audio::install(scope, natives);
-        }
+        crate::webgpu::install(scope, natives);
+        crate::audio::install(scope, natives);
         let port = v8::Object::new(scope);
         crate::methods!(scope, port,
             "post" => post_to_broker,

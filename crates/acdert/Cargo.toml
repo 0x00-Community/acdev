@@ -25,6 +25,8 @@ serde_json = "1"
 rustix = { version = "1", features = ["fs", "process", "stdio", "event", "thread"] }
 # sys.rs: SIGINT, SIGTERM and SIGHUP for the host's handlers
 signal-hook = "0"
+# sound (audio/): files decoded in pure Rust; the output is PipeWire on Linux, cpal elsewhere
+symphonia = { version = "0", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac", "aac", "isomp4"] }
 # logging: env_logger behind acde-log (written on its own thread), perf timings for the whole chain
 acde-log = { path = "../log" }
 log = "0"
@@ -42,9 +44,12 @@ acde-paint = { path = "../paint" }
 wgpu-types = { version = "30", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 pollster = "0"
-# sound (audio/): a web's graph and <audio>s rendered natively into a PipeWire stream, files decoded in pure Rust
+# sound (audio/): a web's graph and <audio>s rendered natively into a PipeWire stream
 pipewire = { version = "0", features = ["v0_3_49"] }
-symphonia = { version = "0", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac", "aac", "isomp4"] }
+
+# sound (audio/output_cpal.rs): CoreAudio on macOS, WASAPI on Windows
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+cpal = "0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects"] }

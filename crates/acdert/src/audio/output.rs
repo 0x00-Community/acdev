@@ -5,13 +5,15 @@ use std::sync::OnceLock;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "linux")]
 use pipewire as pw;
+#[cfg(target_os = "linux")]
 use pw::spa;
 
 use super::mixer::{Cmd, Mixer, RATE};
 use crate::rt::Msg;
 
-const IDLE: Duration = Duration::from_secs(3);
+pub const IDLE: Duration = Duration::from_secs(3);
 
 pub enum Ctl {
     Open { web: u64, name: String, notify: mpsc::Sender<Msg> },
@@ -21,6 +23,7 @@ pub enum Ctl {
 }
 
 enum Sender {
+    #[cfg(target_os = "linux")]
     Pw(pw::channel::Sender<Ctl>),
     Std(mpsc::Sender<Ctl>),
 }
@@ -29,6 +32,7 @@ static OUTPUT: OnceLock<Option<Sender>> = OnceLock::new();
 
 pub fn send(ctl: Ctl) -> bool {
     match OUTPUT.get_or_init(start) {
+        #[cfg(target_os = "linux")]
         Some(Sender::Pw(tx)) => tx.send(ctl).is_ok(),
         Some(Sender::Std(tx)) => tx.send(ctl).is_ok(),
         None => false,
@@ -41,6 +45,7 @@ fn start() -> Option<Sender> {
         if std::env::var("ACDE_AUDIO").is_ok_and(|v| v == "null") {
             log::info!("ACDE_AUDIO=null, sound plays nowhere");
         } else {
+            #[cfg(target_os = "linux")]
             match PwOutput::new() {
                 Ok((output, sender)) => {
                     _ = tx.send(Sender::Pw(sender));
@@ -48,6 +53,16 @@ fn start() -> Option<Sender> {
                     return;
                 }
                 Err(e) => log::warn!("no PipeWire ({e}): sound plays nowhere"),
+            }
+            #[cfg(not(target_os = "linux"))]
+            match super::output_cpal::Device::open() {
+                Ok(device) => {
+                    let (stx, srx) = mpsc::channel();
+                    _ = tx.send(Sender::Std(stx.clone()));
+                    device.run(stx, srx);
+                    return;
+                }
+                Err(e) => log::warn!("no sound output ({e}): sound plays nowhere"),
             }
         }
         let (stx, srx) = mpsc::channel();
@@ -68,7 +83,7 @@ struct Web<O> {
     out: Option<O>,
 }
 
-fn deliver(mixer: &mut Mixer, notify: &mpsc::Sender<Msg>) {
+pub fn deliver(mixer: &mut Mixer, notify: &mpsc::Sender<Msg>) {
     let notes = mixer.take_notes();
     if !notes.is_empty() {
         _ = notify.send(Msg::Task(Box::new(move |scope| super::deliver(scope, notes))));
@@ -77,7 +92,10 @@ fn deliver(mixer: &mut Mixer, notify: &mpsc::Sender<Msg>) {
 
 fn command<O>(web: &mut Web<O>, cmd: Cmd) -> bool {
     let rendering = web.out.is_some();
-    let mut mixer = web.mixer.borrow_mut();
+    apply(&mut web.mixer.borrow_mut(), rendering, cmd)
+}
+
+pub fn apply(mixer: &mut Mixer, rendering: bool, cmd: Cmd) -> bool {
     if !rendering {
         mixer.catch_up();
     }
@@ -92,6 +110,7 @@ fn command<O>(web: &mut Web<O>, cmd: Cmd) -> bool {
     !rendering && mixer.active()
 }
 
+#[cfg(target_os = "linux")]
 struct PwOutput {
     main: pw::main_loop::MainLoopRc,
     _context: pw::context::ContextRc,
@@ -100,11 +119,13 @@ struct PwOutput {
     tx: pw::channel::Sender<Ctl>,
 }
 
+#[cfg(target_os = "linux")]
 struct PwStream {
     _listener: pw::stream::StreamListener<Process>,
     _stream: pw::stream::StreamRc,
 }
 
+#[cfg(target_os = "linux")]
 struct Process {
     web: u64,
     mixer: Rc<RefCell<Mixer>>,
@@ -115,6 +136,7 @@ struct Process {
     idle_sent: bool,
 }
 
+#[cfg(target_os = "linux")]
 impl Process {
     fn process(&mut self, stream: &pw::stream::Stream) {
         let Some(mut buffer) = stream.dequeue_buffer() else { return };
@@ -152,6 +174,7 @@ impl Process {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl PwOutput {
     fn new() -> Result<(PwOutput, pw::channel::Sender<Ctl>), pw::Error> {
         pw::init();
@@ -206,6 +229,7 @@ impl PwOutput {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn pw_stream(core: &pw::core::CoreRc, ctl: &pw::channel::Sender<Ctl>, id: u64, web: &Web<PwStream>) -> Result<PwStream, pw::Error> {
     let props = pw::properties::properties! {
         *pw::keys::MEDIA_TYPE => "Audio",
@@ -268,6 +292,7 @@ fn null_loop(rx: mpsc::Receiver<Ctl>) {
                 if let Some(web) = webs.get_mut(&id)
                     && command(web, cmd)
                 {
+                    log::debug!("[{}] sound renders into nothing", web.name);
                     web.mixer.borrow_mut().set_rendering(true);
                     web.out = Some(NullOut { start: Instant::now(), rendered: 0, idle: 0 });
                 }

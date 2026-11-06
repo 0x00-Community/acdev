@@ -124,7 +124,7 @@ Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线�
   (`keys::us_text`, Shift 取上档), 这样 `period`、大写字母和真按键一样有 `key`. 中文等不经键盘的字走 `acde:inspect` 的 `type`
   (页面里输入法提交那条路), 不经注入.
 - 系统能力: fs、terminal (pty; macOS 上没有 pidfd / eventfd / close_range, 换成轮询、socketpair、逐个 close)、应用后端的
-  unix socket 在所有 unix 上注入; network、office、IME、语音只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
+  unix socket 在所有 unix 上注入; 声音 (`Audio` / `AudioContext`) 到处都有 (输出见「网页应用」); network、office、IME、语音只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
 - 验证 (只在 macOS 上验, Windows / Linux 的宿主窗口只写不验): `ACDE_HOST_DUMP=<目录>` 让每个窗口每帧把画好的页面 (GPU 读回)
   写成 `<目录>/<窗口 id>.png`; `ACDE_DEBUG_DIR` 照旧能在各 web 里求值. 不截屏.
   - 验过 (2026-11-06, macOS 26, M3 Pro): dev IPC 的请求. 一个 bun 脚本当 `acde dev` 的服务端 (unix socket, 起 acdert 时给
@@ -135,6 +135,11 @@ Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线�
   - 验过 (2026-11-06, macOS 26, M3 Pro): 通知. `acdert app ledger` 里页面 `new Notification(…)` 走了 osascript (退出码 0, 没有
     warn); `acdert desktop dopame` 里同一句由桌面的 `on('notification')` 收到 (`桌面收到 / desktop path / ledger`). 未验证: 横幅
     真的出现在屏幕上 (没有人看), Linux 的 `org.freedesktop.Notifications` (只写, 在 macOS 上编译不到), Windows (没有).
+  - 验过 (2026-11-06, macOS 26, M3 Pro): 声音. `acdert app ledger` 里 `AudioContext` + 440 Hz `OscillatorNode` → `GainNode(0.02)`
+    → destination: 日志 `sound: MacBook Pro Speakers (CoreAudio host), 44100 Hz, 2 channels`, `state` 是 running, 1.5 秒墙上时间里
+    `currentTime` 走了 1.47 ~ 1.51 秒 (渲染时时钟按设备取走的帧走, 所以帧确实被取走了), `stop()` 之后 `ended` 来了; 三次里一次
+    cpal 报了一次 underrun (warn). 重采样器有单元测试 (`output_cpal.rs`). 未验证: 听到的声音 (没有人听), `<audio>` 在 macOS 上
+    出声, 设备不是 f32 或换默认设备时, Windows (WASAPI 只写); Linux 的 PipeWire 路径只是挪了 `#[cfg]`, 没在 Linux 上重编.
   - 验过 (2026-11-06, macOS 26, M3 Pro): 注入. `acdert app ledger` 和 `acdert desktop dopame` (Demo 的 ledger) 里经 `ACDE_DEBUG_DIR`
     调 `broker.inspect.api`: `open('ledger')`、click「收入」、click 金额框、`key '1 2 8 period 5'`、`type '年终奖 bonus'` (中文)、
     click「奖金」、click「记一笔收入」, 页面里记下了 `+128.50 奖金 年终奖 bonus` (eval 读 DOM, `ACDE_HOST_DUMP` 的 PNG 也是);
@@ -899,7 +904,13 @@ Vite 插件, 清单校验, 见「web/packages/acde-api」), acde 依赖它. 原�
     是纯文本, 不转义, 转了会把 `&amp;` 原样显示出来), body 在服务端 `GetCapabilities` 报 `body-markup` 时把 `& < > " '` 转成实体,
     不报时原样.
   - Windows 还没有 (`notify` 抛错, 页面那边记一行). 都不行时照旧给桌面; 窗口隐藏 / 显示是 `visibilitychange`; `navigator.language` 跟会话的语言; `screen.width` / `height` (和 `avail*`) 是主输出的逻辑尺寸 (Broker 放进 init 的 `screen`, 输出变了发 `{type: 'screen'}`), `innerWidth` 才是窗口自己的. 声音: `Audio` /
-  `AudioContext` 由 crates/acdert 经 PipeWire 播放 (acde-dom `src/audio/`). 还没有: indexedDB, Web Worker, `crypto.subtle`,
+  `AudioContext` 由 crates/acdert 播放 (acde-dom `src/audio/`; Rust 在 `crates/acdert/src/audio/`: 图和 `<audio>` 的解码 (symphonia)
+  在所有平台上一样, 每个 web 一个 48 kHz 立体声 f32 的 `Mixer`, 线程 `acde-audio` 管输出). 输出: Linux 是 PipeWire 的流
+  (`output.rs`, 每个出声的 web 一个节点 `acde.<web 名>`); macOS / Windows 是 cpal 的默认输出设备 (`output_cpal.rs`, CoreAudio /
+  WASAPI): 用设备当前的采样率和声道数 (不改设备的采样率: cpal 按请求的采样率会去改硬件的 nominal rate, 影响别的程序), 混音器的
+  48 kHz 在回调里用 4 点 Hermite 插值重采样到设备的采样率, 左右声道写进前两个声道 (多的写 0, 单声道取平均); 设备要 f32. 两边
+  一样: 页面开始出声时建流, 3 秒没有声音 (`Mixer::active` 为 false) 就关掉流, 时钟回到墙上时间; 没有设备 (或 `ACDE_AUDIO=null`)
+  时照样按墙上时间渲染、丢掉 (`null_loop`), `currentTime` 和 `ended` 照常. 还没有: indexedDB, Web Worker, `crypto.subtle`,
   OffscreenCanvas / createImageBitmap, 全屏和指针锁定, 页面直接联网 (经后端取), `:target`.
 - **后端**: acde-host `src/backend.ts` 起 `bun --preload acde-listen.js server.js`, 应用第一个窗口打开时起, 最后一个窗口关掉和
   会话结束时停 (SIGTERM 给它的进程组, 3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起 (到它的窗口都关掉为止). 进程由

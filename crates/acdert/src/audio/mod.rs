@@ -2,6 +2,8 @@ mod decode;
 mod graph;
 mod mixer;
 mod output;
+#[cfg(not(target_os = "linux"))]
+mod output_cpal;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
