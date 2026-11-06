@@ -888,9 +888,17 @@ Vite 插件, 清单校验, 见「web/packages/acde-api」), acde 依赖它. 原�
   `showSaveFilePicker` 走 xdg-desktop-portal 的 FileChooser (runtime `portal.rs`); `Notification` 转给桌面
   (`acde:desktop` 的 `on('notification')`), 前提是有桌面看得见它: desktop web 在跑、窗口表里桌面 (window 0) 没有隐藏.
   没有 (调试窗口 `acdert app` 的桌面建了但不显示; 桌面正在重起) 而 Shell 有 `notify` (宿主窗口) 时发系统通知 (标题、正文、
-  应用名作副标题; hostwin `notify.rs`): macOS 用 `/usr/bin/osascript` 的 `display notification` (参数经 `argv` 传, 不拼脚本;
-  acdert 不是 .app, 没有 bundle, `UNUserNotificationCenter` 用不了; 通知算在「脚本编辑器」名下, 系统设置里关了它就看不到),
-  Linux 用会话总线上的 `org.freedesktop.Notifications.Notify`, Windows 还没有 (`notify` 抛错, 页面那边记一行); 都不行时照旧给桌面; 窗口隐藏 / 显示是 `visibilitychange`; `navigator.language` 跟会话的语言; `screen.width` / `height` (和 `avail*`) 是主输出的逻辑尺寸 (Broker 放进 init 的 `screen`, 输出变了发 `{type: 'screen'}`), `innerWidth` 才是窗口自己的. 声音: `Audio` /
+  应用名; hostwin `notify.rs`). 标题、正文、应用名都是页面给的, 当不可信的数据:
+  - macOS: `/usr/bin/osascript -l JavaScript -e <固定的脚本>` 调 Standard Additions 的 `displayNotification` (副标题是应用名).
+    三段文字只经环境变量 `ACDE_NOTIFY_TITLE` / `ACDE_NOTIFY_BODY` / `ACDE_NOTIFY_SUBTITLE` 交给脚本 (脚本用 `NSProcessInfo` 读,
+    Unicode 原样; NUL 去掉), 命令行上没有任何页面给的字符串: 放进 argv 会被 osascript 的选项解析当成 `-e` / `-l` (页面能执行任意
+    AppleScript), 拼进脚本要转义. 测试 (`notify.rs`) 用以 `-e`、`-l` 开头、带引号、反斜杠、换行的文字查 argv 不变、读回一致.
+    acdert 不是 .app, 没有 bundle, `UNUserNotificationCenter` 用不了 (`NSUserNotificationCenter` 也要 bundle id); 通知算在
+    「脚本编辑器」名下, 系统设置里关了它就看不到.
+  - Linux: 会话总线上的 `org.freedesktop.Notifications`: `app_name` 固定是 `acde`, summary 是 `<应用名>: <标题>` (规范里 summary
+    是纯文本, 不转义, 转了会把 `&amp;` 原样显示出来), body 在服务端 `GetCapabilities` 报 `body-markup` 时把 `& < > " '` 转成实体,
+    不报时原样.
+  - Windows 还没有 (`notify` 抛错, 页面那边记一行). 都不行时照旧给桌面; 窗口隐藏 / 显示是 `visibilitychange`; `navigator.language` 跟会话的语言; `screen.width` / `height` (和 `avail*`) 是主输出的逻辑尺寸 (Broker 放进 init 的 `screen`, 输出变了发 `{type: 'screen'}`), `innerWidth` 才是窗口自己的. 声音: `Audio` /
   `AudioContext` 由 crates/acdert 经 PipeWire 播放 (acde-dom `src/audio/`). 还没有: indexedDB, Web Worker, `crypto.subtle`,
   OffscreenCanvas / createImageBitmap, 全屏和指针锁定, 页面直接联网 (经后端取), `:target`.
 - **后端**: acde-host `src/backend.ts` 起 `bun --preload acde-listen.js server.js`, 应用第一个窗口打开时起, 最后一个窗口关掉和
