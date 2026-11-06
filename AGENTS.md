@@ -1544,7 +1544,7 @@ acde 的宿主代码, esbuild 打成 crates/acde 跑的两个 ES 模块 (运行�
 | `src/crashes.ts`, `src/log.ts` | 一段时间里崩了几次 (服务、isolate、后端的重启上限); `Log` (见「日志和计时」) |
 | `src/apppage.ts`, `src/pagecalls.ts`, `src/downloads.ts`, `src/backend.ts` | 「网页应用」: HTML 入口、页面的浏览器调用、下载、应用后端 |
 | `src/storage.ts`, `src/places.ts`, `src/office.ts`, `src/autostart.ts`, `src/desktopentry.ts`, `src/debug.ts`, `src/timeline.ts`, `src/page.ts`, `src/native.ts`, `src/sys/` | localStorage 文件; 应用窗口的位置 (「窗口管理」); Document Server 的编辑页; XDG autostart; 读 .desktop 文件 (autostart、外部会话、原生程序共用); `ACDE_DEBUG_DIR`; 启动标记; 窗口 的文档; crates/acde 给的原生接口 (`sys/` 用 node 风格的名字包了一层, XDG 目录在 `sys/os.ts`) |
-| `greet/`, `brand/` | 登录页 (`--greeter`, 见「桌面包」的登录页); 它的品牌: `mark.mjs` 和 `art.mjs` 是 agentos 仓库 `branding/` 的原样拷贝 (母版, 只在那边改; 几何从设计稿 `dopamine_01.ai` 抽出来), `lockup.mjs` 用 `drawLockup` 在一块 `<canvas>` 上按 devicePixelRatio 画整个 lockup (标志、设计稿的字形、四角星; resize、配色变了重画, 字色取 `.lockup` 的 `color`), `brand.css` 是配色 (浅色 / `prefers-color-scheme: dark`); 包清单的 `assets` 把它挂在 `/acde/brand/` |
+| `greet/`, `brand/` | 登录页 (`--greeter`, 见「桌面包」的登录页); 它的品牌: `mark.mjs` 和 `art.mjs` 是 agentos 仓库 `branding/` 的原样拷贝 (母版, 只在那边改; 几何从设计稿 `dopame_logo_1103.ai` 抽出来), `lockup.mjs` 用 `drawLockup` 在一块 `<canvas>` 上按 devicePixelRatio 画整个 lockup (标志、设计稿的字形、四角星; resize、配色变了重画, 字色取 `.lockup` 的 `color`), `brand.css` 是配色 (浅色 / `prefers-color-scheme: dark`); 包清单的 `assets` 把它挂在 `/acde/brand/` |
 | `scripts/bundle.mjs`, `scripts/fake-ds.ts`, `tests/fixtures/stress-app` | 打 `dist/` (压空白和语法, 保留名字, source map); 替身 Document Server (`bun scripts/fake-ds.ts`); `drive.sh perf stress` 用的应用 |
 
 #### Run
