@@ -1,4 +1,4 @@
-import { host, report, tag } from '../core/host'
+import { guarded, host, tag } from '../core/host'
 import { dom, existing, ID, wrap, type Wrapper } from './realm'
 
 interface MutationObserverInit {
@@ -90,11 +90,7 @@ export class MutationObserver {
       const records = observer.#records
       if (records.length === 0) return
       observer.#records = []
-      try {
-        observer.#callback.call(observer, records, observer)
-      } catch (error) {
-        report(error)
-      }
+      guarded(() => observer.#callback.call(observer, records, observer))
     }
   }
 

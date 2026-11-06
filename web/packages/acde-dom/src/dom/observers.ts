@@ -1,4 +1,4 @@
-import { host, report, tag } from '../core/host'
+import { guarded, host, tag } from '../core/host'
 import type { Metrics } from '../native'
 import type { Element } from './element'
 import { frames } from './env'
@@ -56,11 +56,7 @@ export class ResizeObserver {
         entries.push(new ResizeObserverEntry(target, new DOMRectReadOnly(sizes.padding[0], sizes.padding[1], sizes.content[0], sizes.content[1]), [{ inlineSize: sizes.border[0], blockSize: sizes.border[1] }], [content], [{ inlineSize: Math.round(sizes.content[0] * scale), blockSize: Math.round(sizes.content[1] * scale) }]))
       }
       if (entries.length === 0) return
-      try {
-        observer.#callback.call(observer, entries, observer)
-      } catch (error) {
-        report(error)
-      }
+      guarded(() => observer.#callback.call(observer, entries, observer))
     }
   }
 
@@ -183,11 +179,7 @@ export class IntersectionObserver {
         entries.push(new IntersectionObserverEntry(time, root, box, inter, intersecting, ratio, target))
       }
       if (entries.length === 0) return
-      try {
-        observer.#callback.call(observer, entries, observer)
-      } catch (error) {
-        report(error)
-      }
+      guarded(() => observer.#callback.call(observer, entries, observer))
     }
   }
 

@@ -7,6 +7,7 @@ import { computedStyleOf, metricGetters, metricsOf, rectOf } from './layout'
 import { attributeObservers, observing, recordAttribute } from './mutation'
 import { ChildNodeMixin, insert, mixin, Node, ParentNodeMixin, remove, replaceAll, Text, type DocumentFragment } from './node'
 import { bodyId, changed, CONNECTED as CONNECTED_KEY, dom, ID, moved, wrap } from './realm'
+import { string } from './reflect'
 
 export const LOCAL = Symbol('localName')
 export const NS = Symbol('namespace')
@@ -127,12 +128,6 @@ export class Element extends Node {
     setAttribute(this, 'class', String(value))
   }
 
-  get slot(): string {
-    return dom.getAttribute(this[ID], 'slot') ?? ''
-  }
-  set slot(value: string) {
-    setAttribute(this, 'slot', String(value))
-  }
 
   get attributes(): NamedNodeMap {
     const map = (this[ATTRIBUTE_MAP] ??= new NamedNodeMap(this))
@@ -296,8 +291,7 @@ export class Element extends Node {
   }
 
   scrollTo(x?: number | ScrollToOptions, y?: number): void {
-    if (typeof x === 'object' && x !== null) scrollElement(this, x.left ?? null, x.top ?? null, x.behavior === 'smooth')
-    else scrollElement(this, Number(x ?? 0), Number(y ?? 0), false)
+    scrollElement(this, ...scrollArgs(x, y))
   }
 
   scroll(x?: number | ScrollToOptions, y?: number): void {
@@ -307,8 +301,8 @@ export class Element extends Node {
   scrollBy(x?: number | ScrollToOptions, y?: number): void {
     const m = metricsOf(this[ID])
     if (!m) return
-    if (typeof x === 'object' && x !== null) scrollElement(this, m.scrollLeft + (x.left ?? 0), m.scrollTop + (x.top ?? 0), x.behavior === 'smooth')
-    else scrollElement(this, m.scrollLeft + Number(x ?? 0), m.scrollTop + Number(y ?? 0), false)
+    const [dx, dy, smooth] = scrollArgs(x, y, true)
+    scrollElement(this, m.scrollLeft + dx!, m.scrollTop + dy!, smooth)
   }
 
   scrollIntoView(arg?: boolean | ScrollIntoViewOptions): void {
@@ -336,13 +330,14 @@ export class Element extends Node {
   }
 }
 getters(Element.prototype, { prefix: null, assignedSlot: null })
+string(Element.prototype, 'slot')
 mixin(Element, ParentNodeMixin)
 mixin(Element, ChildNodeMixin)
 metricGetters(Element.prototype, { clientTop: 'clientTop', clientLeft: 'clientLeft', clientWidth: 'clientWidth', clientHeight: 'clientHeight', scrollWidth: 'scrollWidth', scrollHeight: 'scrollHeight' })
 tag(Element)
 export interface Element extends ParentNodeMixin, ChildNodeMixin {}
 
-interface ScrollToOptions {
+export interface ScrollToOptions {
   left?: number
   top?: number
   behavior?: string
@@ -382,28 +377,17 @@ function setInnerHTML(element: Element, html: string): void {
 }
 
 function adjacent(element: Element, where: string, node: Node): boolean {
-  switch (where) {
-    case 'beforebegin': {
-      const parent = element.parentNode
-      if (!parent) return false
-      insert(parent, node, element)
-      return true
-    }
-    case 'afterbegin':
-      insert(element, node, element.firstChild)
-      return true
-    case 'beforeend':
-      insert(element, node, null)
-      return true
-    case 'afterend': {
-      const parent = element.parentNode
-      if (!parent) return false
-      insert(parent, node, element.nextSibling)
-      return true
-    }
-    default:
-      throw new DOMException(`The value provided ('${where}') is not one of 'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'.`, 'SyntaxError')
-  }
+  const inside = where === 'afterbegin' || where === 'beforeend'
+  if (!inside && where !== 'beforebegin' && where !== 'afterend') throw new DOMException(`The value provided ('${where}') is not one of 'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'.`, 'SyntaxError')
+  const parent = inside ? element : element.parentNode
+  if (!parent) return false
+  insert(parent, node, where === 'beforebegin' ? element : where === 'afterbegin' ? element.firstChild : where === 'afterend' ? element.nextSibling : null)
+  return true
+}
+
+export function scrollArgs(x?: number | ScrollToOptions, y?: number, by = false): [number | null, number | null, boolean] {
+  if (typeof x === 'object' && x !== null) return [x.left ?? (by ? 0 : null), x.top ?? (by ? 0 : null), x.behavior === 'smooth']
+  return [Number(x ?? 0), Number(y ?? 0), false]
 }
 
 export function scrollElement(element: Element, left: number | null, top: number | null, smooth: boolean): void {

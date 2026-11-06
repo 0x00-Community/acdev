@@ -14,6 +14,14 @@ export function setReport(fn: (error: unknown) => void): void {
   report = fn
 }
 
+export function guarded(fn: () => void): void {
+  try {
+    fn()
+  } catch (error) {
+    report(error)
+  }
+}
+
 export function globals(global: object, values: Record<string, unknown>): void {
   for (const name of Object.keys(values)) Object.defineProperty(global, name, { value: values[name], writable: true, configurable: true, enumerable: false })
 }

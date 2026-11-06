@@ -2,11 +2,16 @@ import { defineHandlers } from '../core/event'
 import { getters, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { Element, HANDLER_TYPES, setAttribute } from './element'
-import { DOMMatrix, DOMPoint, DOMRect, svgTransform } from './geometry'
+import { DOMMatrix, DOMPoint, DOMQuad, DOMRect, svgTransform } from './geometry'
 import { HTMLOrSVGElementMixin, svgClasses, svgFallback } from './html'
 import { metricsOf, rectOf } from './layout'
 import { elementById, mixin } from './node'
 import { dom, ID, wrap } from './realm'
+
+function viewBox(id: number): [number, number, number, number] | null {
+  const box = (dom.getAttribute(id, 'viewBox') ?? '').trim().split(/[\s,]+/).map(Number)
+  return box.length === 4 && box.every(Number.isFinite) ? (box as [number, number, number, number]) : null
+}
 
 export class SVGAnimatedString {
   constructor(
@@ -138,9 +143,9 @@ function viewportMatrix(svg: number): DOMMatrix {
   const x = r[0]! + (metrics?.clientLeft ?? 0), y = r[1]! + (metrics?.clientTop ?? 0)
   const width = metrics?.clientWidth ?? r[2]!, height = metrics?.clientHeight ?? r[3]!
   const m = new DOMMatrix().translateSelf(x, y)
-  const box = (dom.getAttribute(svg, 'viewBox') ?? '').trim().split(/[\s,]+/).map(Number)
-  if (box.length !== 4 || box.some((v) => !Number.isFinite(v)) || !(box[2]! > 0) || !(box[3]! > 0)) return m
-  const [vx, vy, vw, vh] = box as [number, number, number, number]
+  const box = viewBox(svg)
+  if (!box || !(box[2] > 0) || !(box[3] > 0)) return m
+  const [vx, vy, vw, vh] = box
   let sx = width / vw, sy = height / vh
   let tx = 0, ty = 0
   const aspect = (dom.getAttribute(svg, 'preserveAspectRatio') ?? 'xMidYMid meet').trim()
@@ -197,10 +202,8 @@ export class SVGGraphicsElement extends SVGElement {
     const r = rectOf(this[ID])
     if (!r[2] && !r[3]) return new DOMRect()
     const inverse = screenCTM(this[ID]).inverse()
-    const corners = [[r[0]!, r[1]!], [r[0]! + r[2]!, r[1]!], [r[0]!, r[1]! + r[3]!], [r[0]! + r[2]!, r[1]! + r[3]!]].map(([x, y]) => new DOMPoint(x, y).matrixTransform(inverse))
-    const xs = corners.map((p) => p.x), ys = corners.map((p) => p.y)
-    const x = Math.min(...xs), y = Math.min(...ys)
-    return new DOMRect(x, y, Math.max(...xs) - x, Math.max(...ys) - y)
+    const p = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(inverse)
+    return new DOMQuad(p(r[0]!, r[1]!), p(r[0]! + r[2]!, r[1]!), p(r[0]! + r[2]!, r[1]! + r[3]!), p(r[0]!, r[1]! + r[3]!)).getBounds()
   }
 
   get farthestViewportElement(): SVGElement | null {
@@ -264,8 +267,8 @@ export class SVGSVGElement extends SVGGraphicsElement {
     return elementById(this[ID], String(id))
   }
   get viewBox(): { baseVal: DOMRect | null; animVal: DOMRect | null } {
-    const box = (dom.getAttribute(this[ID], 'viewBox') ?? '').trim().split(/[\s,]+/).map(Number)
-    const rect = box.length === 4 && box.every(Number.isFinite) ? new DOMRect(box[0], box[1], box[2], box[3]) : null
+    const box = viewBox(this[ID])
+    const rect = box && new DOMRect(...box)
     return { baseVal: rect, animVal: rect }
   }
   get width(): { baseVal: { value: number }; animVal: { value: number } } {

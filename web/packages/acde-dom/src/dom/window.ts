@@ -6,7 +6,7 @@ import { objectUrls, URL } from '../core/url'
 import { Blob } from '../core/blob'
 import { NONE, NodeType } from '../native'
 import type { Element } from './element'
-import { scrollElement } from './element'
+import { scrollArgs, scrollElement, type ScrollToOptions } from './element'
 import { env, frames, resolveUrl } from './env'
 import { HashChangeEvent, MediaQueryListEvent, PopStateEvent } from './events'
 import { HANDLER_TYPES } from './element'
@@ -544,15 +544,8 @@ function scrollViewport(x: number | null, y: number | null, smooth: boolean): vo
   if (root) scrollElement(root, x, y, smooth)
 }
 
-interface ScrollOptions {
-  left?: number
-  top?: number
-  behavior?: string
-}
-
-function scrollWindow(x?: number | ScrollOptions, y?: number): void {
-  if (typeof x === 'object' && x) scrollViewport(x.left ?? null, x.top ?? null, x.behavior === 'smooth')
-  else scrollViewport(Number(x ?? 0), Number(y ?? 0), false)
+function scrollWindow(x?: number | ScrollToOptions, y?: number): void {
+  scrollViewport(...scrollArgs(x, y))
 }
 
 interface WindowParts {
@@ -638,10 +631,9 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
     FileSystemWritableFileStream,
     scroll: scrollWindow,
     scrollTo: scrollWindow,
-    scrollBy: (x?: number | ScrollOptions, y?: number) => {
-      const dx = typeof x === 'object' && x ? (x.left ?? 0) : Number(x ?? 0)
-      const dy = typeof x === 'object' && x ? (x.top ?? 0) : Number(y ?? 0)
-      scrollViewport(rootScroll(0) + dx, rootScroll(1) + dy, typeof x === 'object' && x?.behavior === 'smooth')
+    scrollBy: (x?: number | ScrollToOptions, y?: number) => {
+      const [dx, dy, smooth] = scrollArgs(x, y, true)
+      scrollViewport(rootScroll(0) + dx!, rootScroll(1) + dy!, smooth)
     },
     postMessage: (message: unknown, _origin?: unknown) => {
       const data = structuredClone(message)
