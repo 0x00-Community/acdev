@@ -30,15 +30,20 @@ jobs:
           - { triple: x86_64-pc-windows-msvc, os: windows-2025, exe: .exe }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: system libraries
         if: runner.os == 'Linux'
         run: >
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev
           libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev
-      - uses: ilammy/setup-nasm@v1
+      - name: nasm
         if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/nasm.zip" https://www.nasm.us/pub/nasm/releasebuilds/3.02/win64/nasm-3.02-win64.zip
+          7z x -y -o"$RUNNER_TEMP" "$RUNNER_TEMP/nasm.zip" > /dev/null
+          cygpath -w "$RUNNER_TEMP/nasm-3.02" >> "$GITHUB_PATH"
       - name: python for stylo
         if: runner.os == 'Windows'
         shell: bash
@@ -53,7 +58,7 @@ jobs:
         run: |
           mkdir -p out
           cp target/${{ matrix.triple }}/debug/acdert${{ matrix.exe }} out/acdert-${{ matrix.triple }}${{ matrix.exe }}
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: acdert-${{ matrix.triple }}
           path: out
@@ -61,7 +66,7 @@ jobs:
   host:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - name: host bundle
         working-directory: web
@@ -71,7 +76,7 @@ jobs:
           mkdir -p out/app
           cp -r web/packages/acde-host/dist web/packages/acde-host/brand web/packages/acde-host/greet web/packages/acde-host/package.json out/app/
           rm -f out/app/dist/*.map
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: host
           path: out
@@ -81,7 +86,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: GitHub release
@@ -99,17 +104,17 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           repository: dopame-org/acde
           token: ${{ secrets.DOPAME_READ_TOKEN }}
           path: acde
       - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: latest
           registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: pack and publish
@@ -131,7 +136,7 @@ jobs:
           cd acde && bun install --frozen-lockfile
           if [ "$PUBLISH" = true ]; then publish=(--publish https://registry.npmjs.org/); else publish=(); fi
           bun scripts/pack.ts --version "$VERSION" --host "$root/artifacts/host/app/dist" "${args[@]}" "${publish[@]}"
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: npm
           path: acde/.npm/*.tgz
