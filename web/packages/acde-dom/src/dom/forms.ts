@@ -158,10 +158,9 @@ class ConstraintValidation {
     return willValidate(this as unknown as Element)
   }
   get validationMessage(): string {
-    const self = this as unknown as Element
-    const custom = (self as unknown as { [CUSTOM_VALIDITY]?: string })[CUSTOM_VALIDITY]
+    const custom = (this as { [CUSTOM_VALIDITY]?: string })[CUSTOM_VALIDITY]
     if (custom) return custom
-    const v = validity(self)
+    const v = validity(this as unknown as Element)
     return v.valueMissing ? 'Please fill out this field.' : v.typeMismatch ? 'Please enter a valid value.' : v.patternMismatch ? 'Please match the requested format.' : v.tooShort ? 'Please lengthen this text.' : v.rangeUnderflow || v.rangeOverflow ? 'Value out of range.' : ''
   }
   setCustomValidity(this: Element, message: string): void {
