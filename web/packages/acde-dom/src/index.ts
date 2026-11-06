@@ -42,7 +42,6 @@ export { installBackendTransport, type BackendTransport, type Header as BackendH
 
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly url: string
-  readonly reducedMotion?: boolean
   readonly localStorage?: Readonly<Record<string, string>> | null
   readonly onStorageChange?: (entries: Record<string, string>) => void
   readonly logNetwork?: boolean
