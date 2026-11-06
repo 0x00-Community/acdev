@@ -1,6 +1,6 @@
 import { DOMException } from '../core/exception'
 import { defineHandlers, Event, EventTarget, fire } from '../core/event'
-import { host, tag } from '../core/host'
+import { getters, host, illegal, KEY, tag } from '../core/host'
 import type { AudioNative } from '../native'
 
 let native: AudioNative | null = null
@@ -13,21 +13,14 @@ export function audioNative(): AudioNative | null {
 
 export const mediaEvents = { ended: (_media: number): void => {} }
 
-const KEY = Symbol('key')
 const ID = Symbol('id')
 const UPLOAD = Symbol('upload')
-const START = Symbol('start')
 const SET_STATE = Symbol('setState')
 
 const playing = new Map<number, AudioScheduledSourceNode>()
-const live = new Set<BaseAudioContext>()
 const releasedNodes = new FinalizationRegistry<number>((id) => native?.release(id))
 const releasedBuffers = new FinalizationRegistry<number>((id) => native?.releaseBuffer(id))
 const warned = new Set<string>()
-
-function illegal(token: unknown): void {
-  if (token !== KEY) throw new TypeError('Illegal constructor')
-}
 
 function finite(what: string, value: unknown): number {
   const n = Number(value)
@@ -214,22 +207,19 @@ class AudioNode extends EventTarget {
 }
 tag(AudioNode)
 
-class AudioDestinationNode extends AudioNode {
-  get maxChannelCount(): number {
-    return 2
-  }
-}
+class AudioDestinationNode extends AudioNode {}
+getters(AudioDestinationNode.prototype, { maxChannelCount: 2 })
 tag(AudioDestinationNode)
 
-function param(node: AudioNode, index: number, defaultValue: number, min = -3.4028234663852886e38, max = 3.4028234663852886e38): AudioParam {
-  return new AudioParam(KEY, node, index, defaultValue, min, max)
-}
+type ParamSpec = [name: string, value: number, min?: number, max?: number]
 
-function initParams(options: Record<string, unknown> | undefined, params: Record<string, AudioParam>): void {
-  if (!options) return
-  for (const [name, p] of Object.entries(params)) {
-    if (options[name] !== undefined) p.value = Number(options[name])
-  }
+function params(node: AudioNode, options: object | undefined, specs: ParamSpec[]): AudioParam[] {
+  return specs.map(([name, value, min = -3.4028234663852886e38, max = 3.4028234663852886e38], i) => {
+    const p = new AudioParam(KEY, node, i, value, min, max)
+    const given = (options as Record<string, unknown> | undefined)?.[name]
+    if (given !== undefined) p.value = Number(given)
+    return p
+  })
 }
 
 class AudioScheduledSourceNode extends AudioNode {
@@ -239,23 +229,18 @@ class AudioScheduledSourceNode extends AudioNode {
     super(token, context, kind, 0, 1)
   }
 
-  start(when = 0, ..._rest: unknown[]): void {
+  start(when = 0, offset = 0, duration = -1): void {
     if (this.#started) throw new DOMException("Failed to execute 'start' on 'AudioScheduledSourceNode': cannot call start more than once.", 'InvalidStateError')
     const at = time('start', when)
     this.#started = true
     playing.set(this[ID], this)
-    this[START](at)
-  }
-
-  [START](when: number): void {
-    native?.start(this[ID], when, 0, -1)
+    native?.start(this[ID], at, offset, duration)
   }
 
   stop(when = 0): void {
     if (!this.#started) throw new DOMException("Failed to execute 'stop' on 'AudioScheduledSourceNode': cannot call stop without calling start first.", 'InvalidStateError')
     native?.stop(this[ID], time('stop', when))
   }
-
 }
 defineHandlers(AudioScheduledSourceNode.prototype, ['ended'])
 tag(AudioScheduledSourceNode)
@@ -271,9 +256,7 @@ class OscillatorNode extends AudioScheduledSourceNode {
     checkContext(context)
     super(KEY, context, Kind.Oscillator)
     const nyquist = context.sampleRate / 2
-    this.frequency = param(this, 0, 440, -nyquist, nyquist)
-    this.detune = param(this, 1, 0, -153600, 153600)
-    initParams(options as Record<string, unknown>, { frequency: this.frequency, detune: this.detune })
+    ;[this.frequency, this.detune] = params(this, options, [['frequency', 440, -nyquist, nyquist], ['detune', 0, -153600, 153600]]) as [AudioParam, AudioParam]
     if (options?.periodicWave) this.setPeriodicWave(options.periodicWave)
     else if (options?.type !== undefined) this.type = options.type
   }
@@ -306,42 +289,6 @@ class PeriodicWave {
 }
 tag(PeriodicWave)
 
-class GainNode extends AudioNode {
-  readonly gain: AudioParam
-
-  constructor(context: BaseAudioContext, options?: { gain?: number }) {
-    checkContext(context)
-    super(KEY, context, Kind.Gain)
-    this.gain = param(this, 0, 1)
-    initParams(options as Record<string, unknown>, { gain: this.gain })
-  }
-}
-tag(GainNode)
-
-class StereoPannerNode extends AudioNode {
-  readonly pan: AudioParam
-
-  constructor(context: BaseAudioContext, options?: { pan?: number }) {
-    checkContext(context)
-    super(KEY, context, Kind.StereoPanner)
-    this.pan = param(this, 0, 0, -1, 1)
-    initParams(options as Record<string, unknown>, { pan: this.pan })
-  }
-}
-tag(StereoPannerNode)
-
-class ConstantSourceNode extends AudioScheduledSourceNode {
-  readonly offset: AudioParam
-
-  constructor(context: BaseAudioContext, options?: { offset?: number }) {
-    checkContext(context)
-    super(KEY, context, Kind.ConstantSource)
-    this.offset = param(this, 0, 1)
-    initParams(options as Record<string, unknown>, { offset: this.offset })
-  }
-}
-tag(ConstantSourceNode)
-
 export class AudioBufferSourceNode extends AudioScheduledSourceNode {
   readonly playbackRate: AudioParam
   readonly detune: AudioParam
@@ -349,14 +296,11 @@ export class AudioBufferSourceNode extends AudioScheduledSourceNode {
   #loop = false
   #loopStart = 0
   #loopEnd = 0
-  #started = false
 
   constructor(context: BaseAudioContext, options?: { buffer?: AudioBuffer | null; playbackRate?: number; detune?: number; loop?: boolean; loopStart?: number; loopEnd?: number }) {
     checkContext(context)
     super(KEY, context, Kind.BufferSource)
-    this.playbackRate = param(this, 0, 1)
-    this.detune = param(this, 1, 0)
-    initParams(options as Record<string, unknown>, { playbackRate: this.playbackRate, detune: this.detune })
+    ;[this.playbackRate, this.detune] = params(this, options, [['playbackRate', 1], ['detune', 0]]) as [AudioParam, AudioParam]
     if (options?.buffer) this.buffer = options.buffer
     if (options?.loop !== undefined) this.loop = !!options.loop
     if (options?.loopStart !== undefined) this.loopStart = Number(options.loopStart)
@@ -369,7 +313,7 @@ export class AudioBufferSourceNode extends AudioScheduledSourceNode {
   set buffer(value: AudioBuffer | null) {
     if (value !== null && !(value instanceof AudioBuffer)) throw new TypeError("Failed to set the 'buffer' property on 'AudioBufferSourceNode': The provided value is not of type 'AudioBuffer'.")
     this.#buffer = value
-    if (this.#started) native?.setBuffer(this[ID], value ? value[UPLOAD]() : 0)
+    if (playing.has(this[ID])) native?.setBuffer(this[ID], value ? value[UPLOAD]() : 0)
   }
 
   get loop(): boolean {
@@ -401,18 +345,8 @@ export class AudioBufferSourceNode extends AudioScheduledSourceNode {
   override start(when = 0, offset = 0, duration?: number): void {
     const o = time('start', offset)
     const d = duration === undefined ? -1 : time('start', duration)
-    this.#offset = o
-    this.#duration = d
-    super.start(when)
-  }
-
-  #offset = 0
-  #duration = -1
-
-  override [START](when: number): void {
-    this.#started = true
     if (this.#buffer) native?.setBuffer(this[ID], this.#buffer[UPLOAD]())
-    native?.start(this[ID], when, this.#offset, this.#duration)
+    super.start(when, o, d)
   }
 }
 tag(AudioBufferSourceNode)
@@ -423,20 +357,15 @@ function warnOnce(what: string, message: string): void {
   host.print(1, `acde-dom: ${message}`)
 }
 
-type PassThrough = new (context: BaseAudioContext, options?: Record<string, unknown>) => AudioNode
+type NodeClass = new (context: BaseAudioContext, options?: object) => AudioNode
 
-function passThrough(name: string, params: [string, number, number?, number?][], extra?: (node: AudioNode) => void): PassThrough {
-  const cls = class extends AudioNode {
-    constructor(context: BaseAudioContext, options?: Record<string, unknown>) {
+function nodeClass(name: string, kind: Kind, specs: ParamSpec[], extra?: (node: AudioNode) => void, Base: typeof AudioNode = AudioNode): NodeClass {
+  const cls = class extends Base {
+    constructor(context: BaseAudioContext, options?: object) {
       checkContext(context)
-      super(KEY, context, Kind.Through)
-      warnOnce(name, `${name} is not rendered yet: its input passes through unchanged`)
-      const made: Record<string, AudioParam> = {}
-      params.forEach(([key, value, min, max], i) => {
-        made[key] = param(this, i, value, min, max)
-        Object.defineProperty(this, key, { value: made[key], enumerable: true })
-      })
-      initParams(options, made)
+      super(KEY, context, kind)
+      if (kind === Kind.Through) warnOnce(name, `${name} is not rendered yet: its input passes through unchanged`)
+      params(this, options, specs).forEach((p, i) => Object.defineProperty(this, specs[i]![0], { value: p, enumerable: true }))
       extra?.(this)
     }
   }
@@ -445,37 +374,38 @@ function passThrough(name: string, params: [string, number, number?, number?][],
   return cls
 }
 
-const BiquadFilterNode = passThrough('BiquadFilterNode', [['frequency', 350, 0, 24000], ['detune', 0], ['Q', 1], ['gain', 0]], (node) => {
-  let type = 'lowpass'
-  Object.defineProperty(node, 'type', { get: () => type, set: (v: string) => { type = String(v) }, enumerable: true })
+function field(node: object, name: string, value: unknown, coerce?: (value: unknown) => unknown): void {
+  Object.defineProperty(node, name, { get: () => value, set: coerce && ((v: unknown) => void (value = coerce(v))), enumerable: true })
+}
+
+const same = (value: unknown) => value
+const GainNode = nodeClass('GainNode', Kind.Gain, [['gain', 1]])
+const StereoPannerNode = nodeClass('StereoPannerNode', Kind.StereoPanner, [['pan', 0, -1, 1]])
+const ConstantSourceNode = nodeClass('ConstantSourceNode', Kind.ConstantSource, [['offset', 1]], undefined, AudioScheduledSourceNode as typeof AudioNode)
+const BiquadFilterNode = nodeClass('BiquadFilterNode', Kind.Through, [['frequency', 350, 0, 24000], ['detune', 0], ['Q', 1], ['gain', 0]], (node) => {
+  field(node, 'type', 'lowpass', String)
   Object.defineProperty(node, 'getFrequencyResponse', { value: (_f: Float32Array, mag: Float32Array, phase: Float32Array) => { mag.fill(1); phase.fill(0) } })
 })
-const DynamicsCompressorNode = passThrough('DynamicsCompressorNode', [['threshold', -24, -100, 0], ['knee', 30, 0, 40], ['ratio', 12, 1, 20], ['attack', 0.003, 0, 1], ['release', 0.25, 0, 1]], (node) => {
-  Object.defineProperty(node, 'reduction', { get: () => 0, enumerable: true })
+const DynamicsCompressorNode = nodeClass('DynamicsCompressorNode', Kind.Through, [['threshold', -24, -100, 0], ['knee', 30, 0, 40], ['ratio', 12, 1, 20], ['attack', 0.003, 0, 1], ['release', 0.25, 0, 1]], (node) => field(node, 'reduction', 0))
+const DelayNode = nodeClass('DelayNode', Kind.Through, [['delayTime', 0, 0, 180]])
+const WaveShaperNode = nodeClass('WaveShaperNode', Kind.Through, [], (node) => {
+  field(node, 'curve', null, same)
+  field(node, 'oversample', 'none', String)
 })
-const DelayNode = passThrough('DelayNode', [['delayTime', 0, 0, 180]])
-const WaveShaperNode = passThrough('WaveShaperNode', [], (node) => {
-  let curve: Float32Array | null = null
-  let oversample = 'none'
-  Object.defineProperty(node, 'curve', { get: () => curve, set: (v: Float32Array | null) => { curve = v }, enumerable: true })
-  Object.defineProperty(node, 'oversample', { get: () => oversample, set: (v: string) => { oversample = String(v) }, enumerable: true })
+const ConvolverNode = nodeClass('ConvolverNode', Kind.Through, [], (node) => {
+  field(node, 'buffer', null, same)
+  field(node, 'normalize', true, Boolean)
 })
-const ConvolverNode = passThrough('ConvolverNode', [], (node) => {
-  let buffer: AudioBuffer | null = null
-  let normalize = true
-  Object.defineProperty(node, 'buffer', { get: () => buffer, set: (v: AudioBuffer | null) => { buffer = v }, enumerable: true })
-  Object.defineProperty(node, 'normalize', { get: () => normalize, set: (v: boolean) => { normalize = !!v }, enumerable: true })
-})
-const AnalyserNode = passThrough('AnalyserNode', [], (node) => {
-  let fftSize = 2048
-  const fields: Record<string, number> = { minDecibels: -100, maxDecibels: -30, smoothingTimeConstant: 0.8 }
-  Object.defineProperty(node, 'fftSize', { get: () => fftSize, set: (v: number) => { fftSize = Number(v) }, enumerable: true })
-  Object.defineProperty(node, 'frequencyBinCount', { get: () => fftSize / 2, enumerable: true })
-  for (const key of Object.keys(fields)) Object.defineProperty(node, key, { get: () => fields[key], set: (v: number) => { fields[key] = Number(v) }, enumerable: true })
-  Object.defineProperty(node, 'getFloatFrequencyData', { value: (a: Float32Array) => a.fill(-Infinity) })
-  Object.defineProperty(node, 'getByteFrequencyData', { value: (a: Uint8Array) => a.fill(0) })
-  Object.defineProperty(node, 'getFloatTimeDomainData', { value: (a: Float32Array) => a.fill(0) })
-  Object.defineProperty(node, 'getByteTimeDomainData', { value: (a: Uint8Array) => a.fill(128) })
+const AnalyserNode = nodeClass('AnalyserNode', Kind.Through, [], (node) => {
+  field(node, 'fftSize', 2048, Number)
+  Object.defineProperty(node, 'frequencyBinCount', { get: () => (node as unknown as { fftSize: number }).fftSize / 2, enumerable: true })
+  for (const [key, value] of [['minDecibels', -100], ['maxDecibels', -30], ['smoothingTimeConstant', 0.8]] as const) field(node, key, value, Number)
+  Object.defineProperties(node, {
+    getFloatFrequencyData: { value: (a: Float32Array) => a.fill(-Infinity) },
+    getByteFrequencyData: { value: (a: Uint8Array) => a.fill(0) },
+    getFloatTimeDomainData: { value: (a: Float32Array) => a.fill(0) },
+    getByteTimeDomainData: { value: (a: Uint8Array) => a.fill(128) },
+  })
 })
 
 function checkContext(context: unknown): void {
@@ -576,7 +506,6 @@ export class BaseAudioContext extends EventTarget {
     const destination = newId()
     native.createContext(this[ID], destination)
     this.#destination = new AudioDestinationNode(KEY, this, 0, 1, 0, destination)
-    live.add(this)
   }
 
   get sampleRate(): number {
@@ -592,22 +521,15 @@ export class BaseAudioContext extends EventTarget {
   get destination(): AudioDestinationNode {
     return this.#destination
   }
-  get listener(): object {
-    return {}
-  }
-  get audioWorklet(): undefined {
-    return undefined
-  }
 
   [SET_STATE](state: 'suspended' | 'running' | 'closed'): void {
     if (state === this.#state) return
     if (this.#state === 'running') this.#frozen = this.currentTime
     this.#state = state
-    if (state === 'closed') live.delete(this)
     host.setTimer(0, () => fire(this, new Event('statechange')))
   }
 
-  createGain(): GainNode {
+  createGain(): AudioNode {
     return new GainNode(this)
   }
   createOscillator(): OscillatorNode {
@@ -616,10 +538,10 @@ export class BaseAudioContext extends EventTarget {
   createBufferSource(): AudioBufferSourceNode {
     return new AudioBufferSourceNode(this)
   }
-  createStereoPanner(): StereoPannerNode {
+  createStereoPanner(): AudioNode {
     return new StereoPannerNode(this)
   }
-  createConstantSource(): ConstantSourceNode {
+  createConstantSource(): AudioNode {
     return new ConstantSourceNode(this)
   }
   createBiquadFilter(): AudioNode {
@@ -680,6 +602,7 @@ export class BaseAudioContext extends EventTarget {
     )
   }
 }
+getters(BaseAudioContext.prototype, { listener: () => ({}), audioWorklet: undefined })
 defineHandlers(BaseAudioContext.prototype, ['statechange'])
 tag(BaseAudioContext)
 
@@ -693,9 +616,6 @@ export class AudioContext extends BaseAudioContext {
   }
   get outputLatency(): number {
     return 1024 / this.sampleRate
-  }
-  get sinkId(): string {
-    return ''
   }
 
   resume(): Promise<void> {
@@ -737,6 +657,7 @@ export class AudioContext extends BaseAudioContext {
     throw new DOMException('MediaStreamAudioDestinationNode is not supported', 'NotSupportedError')
   }
 }
+getters(AudioContext.prototype, { sinkId: '' })
 tag(AudioContext)
 
 export function installAudio(audio: AudioNative): Record<string, unknown> {
@@ -752,7 +673,7 @@ export function installAudio(audio: AudioNative): Record<string, unknown> {
     }
   })
   return {
-    AudioContext, webkitAudioContext: AudioContext, BaseAudioContext, AudioNode, AudioParam, AudioDestinationNode, AudioScheduledSourceNode,
+    AudioContext, BaseAudioContext, AudioNode, AudioParam, AudioDestinationNode, AudioScheduledSourceNode,
     OscillatorNode, GainNode, AudioBufferSourceNode, StereoPannerNode, ConstantSourceNode, AudioBuffer, PeriodicWave,
     BiquadFilterNode, DynamicsCompressorNode, DelayNode, WaveShaperNode, ConvolverNode, AnalyserNode,
   }

@@ -22,8 +22,9 @@ tag(PerformanceMark)
 export class PerformanceMeasure extends PerformanceEntry {}
 tag(PerformanceMeasure)
 
+const MAX = 1000
+
 export class Performance extends EventTarget {
-  static readonly MAX = 1000
   #entries: PerformanceEntry[] = []
 
   now(): number {
@@ -64,7 +65,7 @@ export class Performance extends EventTarget {
 
   #add(entry: PerformanceEntry): void {
     this.#entries.push(entry)
-    if (this.#entries.length > 2 * Performance.MAX) this.#entries = this.#entries.slice(-Performance.MAX)
+    if (this.#entries.length > 2 * MAX) this.#entries = this.#entries.slice(-MAX)
   }
 
   getEntries(): PerformanceEntry[] {

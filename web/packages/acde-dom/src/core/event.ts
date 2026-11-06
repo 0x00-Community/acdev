@@ -1,5 +1,5 @@
 import { DOMException } from './exception'
-import { G, host, report, tag } from './host'
+import { constants, G, host, report, tag } from './host'
 
 const enum Phase {
   None = 0,
@@ -32,6 +32,7 @@ export const hooks = {
   activation: null as null | ((event: Event, path: readonly EventTarget[]) => { run(): void; cancel(): void } | null),
   compile: null as null | ((target: EventTarget, type: string, source: string) => ((event: Event) => unknown) | null),
   passiveDefault: null as null | ((target: EventTarget, type: string) => boolean),
+  inline: null as null | ((target: EventTarget, type: string, set: boolean) => void),
 }
 
 let currentEvent: Event | undefined
@@ -51,11 +52,6 @@ let dispatch: (target: EventTarget, event: Event) => boolean
 let invoke: (target: EventTarget, event: Event, capture: boolean) => void
 
 export class Event {
-  static readonly NONE = 0
-  static readonly CAPTURING_PHASE = 1
-  static readonly AT_TARGET = 2
-  static readonly BUBBLING_PHASE = 3
-
   #type: string
   #bubbles: boolean
   #cancelable: boolean
@@ -230,9 +226,7 @@ export class Event {
     this.#cancelable = !!cancelable
   }
 }
-for (const [name, value] of [['NONE', 0], ['CAPTURING_PHASE', 1], ['AT_TARGET', 2], ['BUBBLING_PHASE', 3]] as const) {
-  Object.defineProperty(Event.prototype, name, { value, enumerable: true })
-}
+constants(Event, { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 })
 tag(Event)
 
 function call(target: EventTarget, listener: Listener, event: Event): void {
@@ -354,9 +348,11 @@ export function defineHandlers(proto: object, types: readonly string[]): void {
   for (const type of types) {
     Object.defineProperty(proto, `on${type}`, {
       get(this: EventTarget) {
+        hooks.inline?.(this ?? G, type, false)
         return getHandler(this ?? G, type)
       },
       set(this: EventTarget, value: unknown) {
+        hooks.inline?.(this ?? G, type, true)
         setHandler(this ?? G, type, typeof value === 'function' || (value !== null && typeof value === 'object') ? value : null)
       },
       enumerable: true,

@@ -1,5 +1,5 @@
 import { DOMException, guard } from '../core/exception'
-import { tag } from '../core/host'
+import { constants, getters, listClass, tag } from '../core/host'
 import { setAttribute, type Element } from './element'
 import { computedStyleOf } from './layout'
 import { changed, dom, ID, version } from './realm'
@@ -202,14 +202,11 @@ export class CSSStyleDeclaration {
     this.setProperty('float', value)
   }
 
-  get parentRule(): null {
-    return null
-  }
-
   *[Symbol.iterator](): IterableIterator<string> {
     yield* nameList(this)
   }
 }
+getters(CSSStyleDeclaration.prototype, { parentRule: null })
 tag(CSSStyleDeclaration)
 
 export function inlineStyle(element: Element): CSSStyleDeclaration {
@@ -228,11 +225,6 @@ function freeStyle(text: string): CSSStyleDeclaration {
 }
 
 export class CSSRule {
-  static readonly STYLE_RULE = 1
-  static readonly IMPORT_RULE = 3
-  static readonly MEDIA_RULE = 4
-  static readonly FONT_FACE_RULE = 5
-  static readonly KEYFRAMES_RULE = 7
   constructor(
     readonly cssText: string,
     readonly parentStyleSheet: CSSStyleSheet | null,
@@ -253,6 +245,7 @@ export class CSSRule {
     return freeStyle(open < 0 ? '' : this.cssText.slice(open + 1, this.cssText.lastIndexOf('}')))
   }
 }
+constants(CSSRule, { STYLE_RULE: 1, IMPORT_RULE: 3, MEDIA_RULE: 4, FONT_FACE_RULE: 5, KEYFRAMES_RULE: 7 })
 tag(CSSRule)
 export class CSSStyleRule extends CSSRule {}
 tag(CSSStyleRule)
@@ -346,23 +339,8 @@ export class CSSStyleSheet {
   get ownerNode(): Element | null {
     return this.#owner
   }
-  get type(): string {
-    return 'text/css'
-  }
-  get href(): string | null {
-    return null
-  }
-  get title(): string | null {
-    return null
-  }
   get media(): { mediaText: string; length: number } {
     return { mediaText: '', length: 0 }
-  }
-  get parentStyleSheet(): null {
-    return null
-  }
-  get ownerRule(): null {
-    return null
   }
 
   #native(): number {
@@ -443,25 +421,11 @@ export class CSSStyleSheet {
     if (this.#owner) (this.#owner as unknown as { textContent: string }).textContent = this.#rules.join('\n')
   }
 }
+getters(CSSStyleSheet.prototype, { type: 'text/css', href: null, title: null, parentStyleSheet: null, ownerRule: null })
 tag(CSSStyleSheet)
 
-export class StyleSheetList {
-  readonly #sheets: CSSStyleSheet[]
-  constructor(sheets: CSSStyleSheet[]) {
-    this.#sheets = sheets
-    for (let i = 0; i < sheets.length; i++) Object.defineProperty(this, i, { value: sheets[i], enumerable: true })
-  }
-  get length(): number {
-    return this.#sheets.length
-  }
-  item(index: number): CSSStyleSheet | null {
-    return this.#sheets[index] ?? null
-  }
-  [Symbol.iterator](): IterableIterator<CSSStyleSheet> {
-    return this.#sheets[Symbol.iterator]()
-  }
-}
-tag(StyleSheetList)
+export const StyleSheetList = listClass<CSSStyleSheet>('StyleSheetList')
+export type StyleSheetList = InstanceType<typeof StyleSheetList>
 
 export const CSS = {
   escape(value: string): string {

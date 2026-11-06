@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb } from './harness.ts'
+import { page } from './harness.ts'
 
 const PAGE = '<!doctype html><html><body><a id="frag" href="#part">to part</a><div style="height:3000px"></div><h2 id="part">Part</h2></body></html>'
 
 test('links: a fragment moves location.hash (hashchange); other URLs and new windows go to the host', async () => {
-  const web = createWeb()
-  await web.internals.loadPage(PAGE)
+  using web = await page(PAGE)
   const navigated: [string, string][] = []
   web.internals.env.navigate = (url, target) => void navigated.push([url, target])
   web.run(`globalThis.out = []; addEventListener('hashchange', (e) => out.push(new URL(e.newURL).hash))
@@ -21,12 +20,10 @@ test('links: a fragment moves location.hash (hashchange); other URLs and new win
     ['http://acde.local/other/page.html', '_self'],
     ['https://example.com/x', '_blank'],
   ])
-  web.close()
 })
 
 test('links: <a download>, blob: and data: URLs are saved through the host (the blob taken at the click)', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const saved: { url: string; name: string; text?: string }[] = []
   const pending: Promise<void>[] = []
   web.internals.env.download = (request) => {
@@ -46,7 +43,6 @@ test('links: <a download>, blob: and data: URLs are saved through the host (the 
     { url: 'http://acde.local/app/x/report.pdf', name: '' },
     { url: 'blob:http://acde.local/ID', name: '', text: 'x' },
   ])
-  web.close()
 })
 
 type Node = Uint8Array | 'dir' | 'link'
@@ -90,8 +86,7 @@ function chooser(answer: { open?: string[] | null; save?: string | null; directo
 }
 
 test('<input type=file>: activation opens the chooser; the picked files are its files (input, change, FormData)', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><form><input id="f" type="file" name="doc" accept=".png,image/jpeg" multiple></form></body></html>')
+  using web = await page('<!doctype html><html><body><form><input id="f" type="file" name="doc" accept=".png,image/jpeg" multiple></form></body></html>')
   const files = new Map([['/home/u/a.png', new TextEncoder().encode('PNG')], ['/home/u/b.txt', new TextEncoder().encode('hello')]])
   const c = chooser({ open: ['/home/u/a.png', '/home/u/b.txt'] }, files)
   web.internals.env.files = c.files
@@ -107,12 +102,10 @@ test('<input type=file>: activation opens the chooser; the picked files are its 
   assert.deepEqual(web.json('out'), ['input', 'change', 2, 'a.png', 'image/png', 'text/plain', 'C:\\fakepath\\a.png', 'hello', 'a.png,b.txt'])
   web.run(`document.getElementById('f').value = ''; out = [document.getElementById('f').files.length]`)
   assert.deepEqual(web.json('out'), [0])
-  web.close()
 })
 
 test('<input type=file>: a cancelled chooser (or none) fires cancel and keeps the files; showPicker opens it too', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><input id="f" type="file"></body></html>')
+  using web = await page('<!doctype html><html><body><input id="f" type="file"></body></html>')
   web.run(`globalThis.out = []; const f = document.getElementById('f')
     f.addEventListener('cancel', () => out.push('cancel')); f.addEventListener('change', () => out.push('change'))
     f.click()`)
@@ -124,12 +117,10 @@ test('<input type=file>: a cancelled chooser (or none) fires cancel and keeps th
   await web.wait(5)
   assert.deepEqual(web.json('out'), ['cancel'])
   assert.equal(c.asked.length, 1)
-  web.close()
 })
 
 test('showOpenFilePicker / showSaveFilePicker: handles over the picked files; cancelled is an AbortError', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const files = new Map([['/home/u/notes.md', new TextEncoder().encode('# notes')]])
   const c = chooser({ open: ['/home/u/notes.md'], save: '/home/u/out.json' }, files)
   web.internals.env.files = c.files
@@ -150,12 +141,10 @@ test('showOpenFilePicker / showSaveFilePicker: handles over the picked files; ca
   web.run(`out = []; showOpenFilePicker().catch((e) => out.push(e.name, e instanceof DOMException))`)
   await web.wait(5)
   assert.deepEqual(web.json('out'), ['AbortError', true])
-  web.close()
 })
 
 test('showDirectoryPicker: a directory handle over the picked folder (entries, get, create, remove, resolve); cancelled is an AbortError', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const enc = (text: string) => new TextEncoder().encode(text)
   const files = new Map<string, Node>([['/home/u/Notes', 'dir'], ['/home/u/Notes/a.md', enc('# a')], ['/home/u/Notes/sub', 'dir'], ['/home/u/Notes/sub/b.md', enc('b')], ['/home/u/Notes/link', 'link']])
   const c = chooser({ directory: '/home/u/Notes' }, files)
@@ -218,12 +207,10 @@ test('showDirectoryPicker: a directory handle over the picked folder (entries, g
   web.run(`out = []; showDirectoryPicker().catch((e) => out.push(e.name, e instanceof DOMException))`)
   await web.wait(5)
   assert.deepEqual(web.json('out'), ['AbortError', true])
-  web.close()
 })
 
 test('Notification: granted where the host shows them; the page gets show', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const shown: unknown[] = []
   web.internals.env.notify = (notification) => void shown.push(notification)
   web.run(`globalThis.out = [Notification.permission]
@@ -233,12 +220,10 @@ test('Notification: granted where the host shows them; the page gets show', asyn
   await web.wait(5)
   assert.deepEqual(web.json('out'), ['granted', 'granted', 'show'])
   assert.deepEqual(JSON.parse(JSON.stringify(shown)), [{ title: 'Build done', body: '3 files', icon: 'http://acde.local/icon.png', tag: 'build' }])
-  web.close()
 })
 
 test('beforeunload: preventDefault, a returnValue or an answering onbeforeunload cancel it', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const fire = () => web.run<boolean>(`dispatchEvent(new BeforeUnloadEvent('beforeunload', { cancelable: true }))`)
   assert.equal(fire(), true)
   web.run(`globalThis.h = (e) => { e.returnValue = 'unsaved' }; addEventListener('beforeunload', h)`)
@@ -250,24 +235,20 @@ test('beforeunload: preventDefault, a returnValue or an answering onbeforeunload
   web.run(`addEventListener('beforeunload', (e) => e.preventDefault(), { once: true })`)
   assert.equal(fire(), false)
   assert.equal(web.run(`new BeforeUnloadEvent('beforeunload').returnValue`), '')
-  web.close()
 })
 
 test('visibility follows the host (document.hidden, visibilitychange); navigator.language from the options', async () => {
-  const web = createWeb({ language: 'en-US', languages: ['en-US', 'en'] })
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page('<!doctype html><html><body></body></html>', { language: 'en-US', languages: ['en-US', 'en'] })
   web.run(`globalThis.out = []; document.addEventListener('visibilitychange', () => out.push(document.visibilityState, document.hidden))`)
   web.internals.setVisible(false)
   web.internals.setVisible(false)
   web.internals.setVisible(true)
   assert.deepEqual(web.json('out'), ['hidden', true, 'visible', false])
   assert.deepEqual(web.json('[navigator.language, navigator.languages]'), ['en-US', ['en-US', 'en']])
-  web.close()
 })
 
 test('live tag collections, location after pushState, validity, anchors, constants and canvas setters', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><img id="i"><form id="f"><input id="x" required></form></body></html>')
+  using web = await page('<!doctype html><html><body><img id="i"><form id="f"><input id="x" required></form></body></html>')
   web.run(`const imgs = document.images, tags = document.getElementsByTagName('img')
     const before = [imgs.length, tags.length]
     document.getElementById('i').setAttribute('alt', 'a')
@@ -299,12 +280,10 @@ test('live tag collections, location after pushState, validity, anchors, constan
     link: ['http://acde.local/p?z', '?z', 'link', true, '', false, 'n', true, true, 3],
     canvas: ['round', 0, 3],
   })
-  web.close()
 })
 
 test('MediaQueryList: a list without change listeners is no longer watched', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   web.run(`globalThis.out = []
     const mq = matchMedia('(min-width: 1px)')
     const f = () => out.push('change')
@@ -314,27 +293,22 @@ test('MediaQueryList: a list without change listeners is no longer watched', asy
     mq.onchange = null`)
   web.internals.mediaChanged()
   assert.deepEqual(web.json('out'), [])
-  web.close()
 })
 
 test('navigator languages follow the session: languagechange on window', async () => {
-  const web = createWeb({ language: 'en-US', languages: ['en-US', 'en'] })
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page('<!doctype html><html><body></body></html>', { language: 'en-US', languages: ['en-US', 'en'] })
   web.run(`globalThis.seen = []; addEventListener('languagechange', (e) => seen.push([e.type, e.bubbles, navigator.language, navigator.languages.join()]))`)
   web.internals.setLanguages({ language: 'zh-CN', languages: ['zh-CN', 'zh'] })
   web.internals.setLanguages({ language: 'zh-CN', languages: ['zh-CN', 'zh'] })
   assert.deepEqual(web.json(`seen`), [['languagechange', false, 'zh-CN', 'zh-CN,zh']])
-  web.close()
 })
 
 test('canvas: setting width or height resets the 2d state right away, not at the next draw', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   web.run(`const c = document.createElement('canvas'); const ctx = c.getContext('2d')
     ctx.fillStyle = '#ff0000'; ctx.lineWidth = 4; ctx.fillRect(0, 0, 1, 1)
     c.width = 640; const reset = [ctx.fillStyle, ctx.lineWidth]
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 640, 150)
     globalThis.out = [...reset, ctx.fillStyle]`)
   assert.deepEqual(web.json('out'), ['#000000', 1, '#ffffff'])
-  web.close()
 })

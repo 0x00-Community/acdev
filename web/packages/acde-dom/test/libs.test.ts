@@ -1,17 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import vm from 'node:vm'
-import { bundle, createWeb, type Web } from './harness.ts'
+import { bundle, page, type Web } from './harness.ts'
 
 async function libsWeb(): Promise<Web> {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="editor"></div><div id="term"></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="editor"></div><div id="term"></div></body></html>')
   vm.runInContext(bundle('test/fixtures/libs.ts', '__libs', { 'process.env.NODE_ENV': '"production"' }), web.context, { filename: 'libs.js' })
   return web
 }
 
 test('CodeMirror 6 in a shadow root: mounts, styles itself, edits by transaction and by key', async () => {
-  const web = await libsWeb()
+  using web = await libsWeb()
   web.run(`
     const host = document.getElementById('editor')
     const root = host.attachShadow({ mode: 'open' })
@@ -41,11 +40,10 @@ test('CodeMirror 6 in a shadow root: mounts, styles itself, edits by transaction
   assert.equal(web.run('view.hasFocus'), true)
   web.run('view.destroy()')
   assert.deepEqual(web.host.errors.map(String), [])
-  web.close()
 })
 
 test('xterm.js opens, writes and takes keys', async () => {
-  const web = await libsWeb()
+  using web = await libsWeb()
   web.run(`
     globalThis.term = new Terminal({ cols: 40, rows: 10 })
     globalThis.typed = []
@@ -65,11 +63,10 @@ test('xterm.js opens, writes and takes keys', async () => {
   assert.deepEqual(web.json('typed'), ['x'])
   web.run('term.dispose()')
   assert.deepEqual(web.host.errors.map(String), [])
-  web.close()
 })
 
 test('DOMPurify is supported and sanitizes into an inert document', async () => {
-  const web = await libsWeb()
+  using web = await libsWeb()
   const result = web.json(`(() => {
     const purify = DOMPurify(window)
     const fragment = purify.sanitize('<b>ok</b><img src="x" onerror="window.pwned = 1"><script>window.pwned = 2</script>', { RETURN_DOM_FRAGMENT: true })
@@ -80,5 +77,4 @@ test('DOMPurify is supported and sanitizes into an inert document', async () => 
   await web.wait(5)
   web.frame()
   assert.equal(web.run('window.pwned ?? null'), null)
-  web.close()
 })

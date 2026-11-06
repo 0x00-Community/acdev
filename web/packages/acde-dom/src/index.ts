@@ -14,7 +14,7 @@ import { CanvasContext2d, CanvasGradient, CanvasPattern, canvases, ImageData, Pa
 import { CustomElementRegistry } from './dom/custom'
 import * as editing from './dom/editing'
 import { Document, DOMImplementation, DOMParser, documentState, FontFace, FontFaceSet, HTMLDocument, XMLDocument, XMLSerializer } from './dom/document'
-import { Attr, DOMStringMap, DOMTokenList, Element, flags, handlerOf, LOCAL, NamedNodeMap } from './dom/element'
+import { Attr, DOMStringMap, DOMTokenList, Element, flags, LOCAL, NamedNodeMap } from './dom/element'
 import { env, frames } from './dom/env'
 import * as events from './dom/events'
 import { focus } from './dom/focus'
@@ -37,8 +37,7 @@ import * as svg from './dom/svg'
 import { NodeFilter, NodeIterator, TreeWalker } from './dom/traversal'
 import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, Storage, storage, STORAGE_CHANGED, storageEntries, VisualViewport, Window, type NavigatorOptions } from './dom/window'
 
-export type { AudioNative, DomNative, DomStats, GpuNative, HostNative, PhaseTiming } from './native'
-export { installCore } from './core/index'
+export type { AudioNative, DomNative, GpuNative, HostNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
 
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
@@ -150,9 +149,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       else {
         let target = existing(id) as Element | undefined
         if (!target && flags.inlineHandlers && dom.hasAttribute(id, 'onscroll')) target = wrap<Element>(id)!
-        if (!target) continue
-        if (flags.inlineHandlers) handlerOf(target, 'scroll')
-        fire(target, new Event('scroll'))
+        if (target) fire(target, new Event('scroll'))
       }
     }
   }
@@ -269,33 +266,37 @@ function extendElements(input: Input): void {
 }
 
 function legacyFactories(): Record<string, unknown> {
-  function Image(this: unknown, width?: number, height?: number) {
-    if (!new.target) throw new TypeError("Failed to construct 'Image': Please use the 'new' operator.")
-    const img = createHtml('img')
-    if (width !== undefined) img.setAttribute('width', String(width))
-    if (height !== undefined) img.setAttribute('height', String(height))
-    return img
+  const factory = (name: string, proto: object, make: (...args: any[]) => Element) => {
+    const F = function (...args: unknown[]) {
+      if (!new.target) throw new TypeError(`Failed to construct '${name}': Please use the 'new' operator.`)
+      return make(...args)
+    }
+    Object.defineProperty(F, 'name', { value: name })
+    F.prototype = proto
+    return F
   }
-  Image.prototype = media.HTMLImageElement.prototype
-  function Option(this: unknown, text?: string, value?: string, defaultSelected?: boolean, selected?: boolean) {
-    if (!new.target) throw new TypeError("Failed to construct 'Option': Please use the 'new' operator.")
-    const option = createHtml('option') as unknown as forms.HTMLOptionElement
-    if (text !== undefined) option.textContent = String(text)
-    if (value !== undefined) option.setAttribute('value', String(value))
-    if (defaultSelected) option.setAttribute('selected', '')
-    if (selected) option.selected = true
-    return option
+  return {
+    Image: factory('Image', media.HTMLImageElement.prototype, (width?: number, height?: number) => {
+      const img = createHtml('img')
+      if (width !== undefined) img.setAttribute('width', String(width))
+      if (height !== undefined) img.setAttribute('height', String(height))
+      return img
+    }),
+    Option: factory('Option', forms.HTMLOptionElement.prototype, (text?: string, value?: string, defaultSelected?: boolean, selected?: boolean) => {
+      const option = createHtml('option') as unknown as forms.HTMLOptionElement
+      if (text !== undefined) option.textContent = String(text)
+      if (value !== undefined) option.setAttribute('value', String(value))
+      if (defaultSelected) option.setAttribute('selected', '')
+      if (selected) option.selected = true
+      return option
+    }),
+    Audio: factory('Audio', media.HTMLAudioElement.prototype, (src?: string) => {
+      const audio = createHtml('audio')
+      audio.setAttribute('preload', 'auto')
+      if (src !== undefined) audio.setAttribute('src', String(src))
+      return audio
+    }),
   }
-  Option.prototype = forms.HTMLOptionElement.prototype
-  function Audio(this: unknown, src?: string) {
-    if (!new.target) throw new TypeError("Failed to construct 'Audio': Please use the 'new' operator.")
-    const audio = createHtml('audio')
-    audio.setAttribute('preload', 'auto')
-    if (src !== undefined) audio.setAttribute('src', String(src))
-    return audio
-  }
-  Audio.prototype = media.HTMLAudioElement.prototype
-  return { Image, Option, Audio }
 }
 
 function interfaces(): Record<string, unknown> {

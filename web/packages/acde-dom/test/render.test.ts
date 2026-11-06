@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb } from './harness.ts'
+import { page } from './harness.ts'
 
 test("a <style>'s sheet is render's: insertRule styles the page, the text stays, document.styleSheets lists it", async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><head><style>p { margin: 0 }</style></head><body><p id="p">x</p></body></html>')
+  using web = await page('<!doctype html><html><head><style>p { margin: 0 }</style></head><body><p id="p">x</p></body></html>')
   const result = web.json(`(() => {
     const parsed = document.querySelector('style')
     const style = document.createElement('style')
@@ -30,12 +29,10 @@ test("a <style>'s sheet is render's: insertRule styles the page, the text stays,
     texts: ['p { color: rgb(255, 0, 0); }', '.x { color: blue; }'], syntax: 'SyntaxError', index: 'IndexSizeError', text: '',
     sheets: 2, parsedRules: 1, listed: true,
   })
-  web.close()
 })
 
 test('canvas colours are parsed by render: every CSS name and syntax, invalid ones ignored', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><canvas id="c" width="10" height="10"></canvas></body></html>')
+  using web = await page('<!doctype html><html><body><canvas id="c" width="10" height="10"></canvas></body></html>')
   const result = web.json(`(() => {
     const ctx = document.getElementById('c').getContext('2d')
     const seen = []
@@ -58,12 +55,10 @@ test('canvas colours are parsed by render: every CSS name and syntax, invalid on
   }
   assert.deepEqual(fills, [[0, 0, 139, 255], [102, 51, 153, 255], [255, 0, 0, 255]])
   assert.equal(web.dom.calls.get('parseColor'), 4, 'one native parse per distinct colour')
-  web.close()
 })
 
 test("DOMParser parses a whole page with render's HTML parser (head, body, doctype, <html> attributes)", async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const result = web.json(`(() => {
     const doc = new DOMParser().parseFromString('<!doctype html><html lang="fr"><head><title>T</title><style>p{}</style></head><body class="b"><p>a</p><!-- </body> --><p>b</p></body></html>', 'text/html')
     const bare = new DOMParser().parseFromString('<p>only</p>', 'text/html')
@@ -77,5 +72,4 @@ test("DOMParser parses a whole page with render's HTML parser (head, body, docty
     title: 'T', lang: 'fr', doctype: 'html', head: '<title>T</title><style>p{}</style>', body: '<p>a</p><!-- </body> --><p>b</p>', bodyClass: 'b',
     connected: false, scripts: false, bare: '<p>only</p>', bareHead: true, live: 0,
   })
-  web.close()
 })

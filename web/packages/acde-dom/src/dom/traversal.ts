@@ -83,14 +83,16 @@ export class TreeWalker extends Traversal {
     return this.root[ID]
   }
 
+  #move(node: number): Node {
+    this.#current = node
+    return wrap<Node>(node)!
+  }
+
   parentNode(): Node | null {
     let node = this.#current
     while (node !== NONE && node !== this.#rootId()) {
       node = dom.parent(node)
-      if (node !== NONE && this.accept(node) === NodeFilter.FILTER_ACCEPT) {
-        this.#current = node
-        return wrap<Node>(node)
-      }
+      if (node !== NONE && this.accept(node) === NodeFilter.FILTER_ACCEPT) return this.#move(node)
     }
     return null
   }
@@ -99,10 +101,7 @@ export class TreeWalker extends Traversal {
     let node = first ? dom.firstChild(this.#current) : dom.lastChild(this.#current)
     while (node !== NONE) {
       const result = this.accept(node)
-      if (result === NodeFilter.FILTER_ACCEPT) {
-        this.#current = node
-        return wrap<Node>(node)
-      }
+      if (result === NodeFilter.FILTER_ACCEPT) return this.#move(node)
       if (result === NodeFilter.FILTER_SKIP) {
         const child = first ? dom.firstChild(node) : dom.lastChild(node)
         if (child !== NONE) {
@@ -140,10 +139,7 @@ export class TreeWalker extends Traversal {
       while (sibling !== NONE) {
         node = sibling
         const result = this.accept(node)
-        if (result === NodeFilter.FILTER_ACCEPT) {
-          this.#current = node
-          return wrap<Node>(node)
-        }
+        if (result === NodeFilter.FILTER_ACCEPT) return this.#move(node)
         sibling = next ? dom.firstChild(node) : dom.lastChild(node)
         if (result === NodeFilter.FILTER_REJECT || sibling === NONE) sibling = next ? dom.nextSibling(node) : dom.previousSibling(node)
       }
@@ -172,20 +168,14 @@ export class TreeWalker extends Traversal {
           node = dom.lastChild(node)
           result = this.accept(node)
         }
-        if (result === NodeFilter.FILTER_ACCEPT) {
-          this.#current = node
-          return wrap<Node>(node)
-        }
+        if (result === NodeFilter.FILTER_ACCEPT) return this.#move(node)
         sibling = dom.previousSibling(node)
       }
       if (node === this.#rootId()) return null
       const parent = dom.parent(node)
       if (parent === NONE) return null
       node = parent
-      if (this.accept(node) === NodeFilter.FILTER_ACCEPT) {
-        this.#current = node
-        return wrap<Node>(node)
-      }
+      if (this.accept(node) === NodeFilter.FILTER_ACCEPT) return this.#move(node)
     }
     return null
   }
@@ -199,10 +189,7 @@ export class TreeWalker extends Traversal {
         if (child === NONE) break
         node = child
         result = this.accept(node)
-        if (result === NodeFilter.FILTER_ACCEPT) {
-          this.#current = node
-          return wrap<Node>(node)
-        }
+        if (result === NodeFilter.FILTER_ACCEPT) return this.#move(node)
       }
       let sibling = NONE
       let temp = node
@@ -217,10 +204,7 @@ export class TreeWalker extends Traversal {
       }
       if (temp === NONE) return null
       result = this.accept(node)
-      if (result === NodeFilter.FILTER_ACCEPT) {
-        this.#current = node
-        return wrap<Node>(node)
-      }
+      if (result === NodeFilter.FILTER_ACCEPT) return this.#move(node)
     }
   }
 }
@@ -260,36 +244,28 @@ export class NodeIterator extends Traversal {
     return node
   }
 
-  nextNode(): Node | null {
+  #step(forward: boolean): Node | null {
     let node = this.#reference
     let before = this.#before
     for (;;) {
-      if (!before) {
-        node = this.#following(node)
+      if (before !== forward) {
+        node = forward ? this.#following(node) : this.#preceding(node)
         if (node === NONE) return null
-      } else before = false
+      } else before = !forward
       if (this.accept(node) === NodeFilter.FILTER_ACCEPT) {
         this.#reference = node
-        this.#before = false
+        this.#before = !forward
         return wrap<Node>(node)
       }
     }
   }
 
+  nextNode(): Node | null {
+    return this.#step(true)
+  }
+
   previousNode(): Node | null {
-    let node = this.#reference
-    let before = this.#before
-    for (;;) {
-      if (before) {
-        node = this.#preceding(node)
-        if (node === NONE) return null
-      } else before = true
-      if (this.accept(node) === NodeFilter.FILTER_ACCEPT) {
-        this.#reference = node
-        this.#before = true
-        return wrap<Node>(node)
-      }
-    }
+    return this.#step(false)
   }
 
   detach(): void {}

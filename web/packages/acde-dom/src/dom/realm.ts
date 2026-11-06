@@ -84,13 +84,8 @@ export function existing(id: number): Wrapper | undefined {
 
 export function wrap<T = Wrapper>(id: number): T | null {
   if (id < 0) return null
-  let node = strong.get(id)
+  const node = existing(id)
   if (node) return node as T
-  const ref = weak.get(id)
-  if (ref) {
-    node = ref.deref()
-    if (node) return node as T
-  }
   const [type, ns, connected, local] = dom.describe(id)
   return construct(classes.of(type, ns, local), id, connected) as T
 }

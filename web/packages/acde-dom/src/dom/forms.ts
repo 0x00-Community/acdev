@@ -1,13 +1,13 @@
 import { DOMException } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { host, queueTask, tag } from '../core/host'
+import { getters, host, listClass, queueTask, tag } from '../core/host'
 import { File } from '../core/blob'
 import { NONE } from '../native'
-import { ACTIVATION, FileList, SubmitEvent } from './events'
+import { ACTIVATION, activation, FileList, SubmitEvent } from './events'
 import { ATTRIBUTE_CHANGED, LOCAL, setAttribute, tokenList, type Element, type DOMTokenList } from './element'
 import { env, resolveUrl } from './env'
 import { focusable, setFocus } from './focus'
-import { HTMLElement, registerHtml } from './html'
+import { HTMLElement, register } from './html'
 import { acceptFilters, readPicked } from './picker'
 import { cssString, HTMLCollection, liveCollection, mixin, staticNodeList, type Node, type NodeList } from './node'
 import { bool, long, string, url } from './reflect'
@@ -74,15 +74,6 @@ export class ValidityState {
   static {
     validityOwner = (state) => state.#owner
   }
-  get tooLong(): boolean {
-    return false
-  }
-  get stepMismatch(): boolean {
-    return false
-  }
-  get badInput(): boolean {
-    return false
-  }
   get customError(): boolean {
     return !!(this.#owner as unknown as { [CUSTOM_VALIDITY]?: string })[CUSTOM_VALIDITY]
   }
@@ -91,6 +82,7 @@ export class ValidityState {
     return !(VALIDITY.some((key) => v[key]) || this.customError)
   }
 }
+getters(ValidityState.prototype, { tooLong: false, stepMismatch: false, badInput: false })
 for (const key of VALIDITY) {
   Object.defineProperty(ValidityState.prototype, key, {
     get(this: ValidityState) {
@@ -160,18 +152,15 @@ function willValidate(element: Element): boolean {
 
 class ConstraintValidation {
   get validity(): ValidityState {
-    const self = this as unknown as Element
-    return new ValidityState(self)
+    return new ValidityState(this as unknown as Element)
   }
   get willValidate(): boolean {
-    const self = this as unknown as Element
-    return willValidate(self)
+    return willValidate(this as unknown as Element)
   }
   get validationMessage(): string {
-    const self = this as unknown as Element
-    const custom = (self as unknown as { [CUSTOM_VALIDITY]?: string })[CUSTOM_VALIDITY]
+    const custom = (this as { [CUSTOM_VALIDITY]?: string })[CUSTOM_VALIDITY]
     if (custom) return custom
-    const v = validity(self)
+    const v = validity(this as unknown as Element)
     return v.valueMissing ? 'Please fill out this field.' : v.typeMismatch ? 'Please enter a valid value.' : v.patternMismatch ? 'Please match the requested format.' : v.tooShort ? 'Please lengthen this text.' : v.rangeUnderflow || v.rangeOverflow ? 'Value out of range.' : ''
   }
   setCustomValidity(this: Element, message: string): void {
@@ -186,12 +175,10 @@ class ConstraintValidation {
     return (this as unknown as ConstraintValidation).checkValidity.call(this)
   }
   get form(): HTMLFormElement | null {
-    const self = this as unknown as Element
-    return formOwner(self)
+    return formOwner(this as unknown as Element)
   }
   get labels(): NodeList {
-    const self = this as unknown as Element
-    return labelsOf(self)
+    return labelsOf(this as unknown as Element)
   }
 }
 
@@ -236,38 +223,37 @@ function valueChanged(field: Field): void {
   ;(field as unknown as { [SELECTION]?: Selection })[SELECTION] = { start: length, end: length, direction: 'none' }
 }
 
+function currentSelection(field: unknown): Selection | null {
+  return selectable(field as Field) ? fieldSelection(field as Field) : null
+}
+
+function changeableSelection(field: unknown): Selection {
+  const s = currentSelection(field)
+  if (!s) throw new DOMException(`The input element's type ('${(field as HTMLInputElement).type}') does not support selection.`, 'InvalidStateError')
+  return s
+}
+
 class TextSelection {
   get selectionStart(): number | null {
-    const self = this as unknown as Field
-    if (!selectable(self)) return null
-    return fieldSelection(self).start
+    return currentSelection(this)?.start ?? null
   }
   set selectionStart(value: number) {
-    const self = this as unknown as Field
-    if (!selectable(self)) throw new DOMException(`The input element's type ('${(self as HTMLInputElement).type}') does not support selection.`, 'InvalidStateError')
-    const s = fieldSelection(self)
-    setSelection(self, value, Math.max(value, s.end), s.direction)
+    const s = changeableSelection(this)
+    setSelection(this as unknown as Field, value, Math.max(value, s.end), s.direction)
   }
   get selectionEnd(): number | null {
-    const self = this as unknown as Field
-    if (!selectable(self)) return null
-    return fieldSelection(self).end
+    return currentSelection(this)?.end ?? null
   }
   set selectionEnd(value: number) {
-    const self = this as unknown as Field
-    if (!selectable(self)) throw new DOMException(`The input element's type ('${(self as HTMLInputElement).type}') does not support selection.`, 'InvalidStateError')
-    const s = fieldSelection(self)
-    setSelection(self, Math.min(s.start, value), value, s.direction)
+    const s = changeableSelection(this)
+    setSelection(this as unknown as Field, Math.min(s.start, value), value, s.direction)
   }
   get selectionDirection(): string | null {
-    const self = this as unknown as Field
-    if (!selectable(self)) return null
-    return fieldSelection(self).direction
+    return currentSelection(this)?.direction ?? null
   }
   set selectionDirection(value: string) {
-    const self = this as unknown as Field
-    const s = fieldSelection(self)
-    setSelection(self, s.start, s.end, value)
+    const s = fieldSelection(this as unknown as Field)
+    setSelection(this as unknown as Field, s.start, s.end, value)
   }
   setSelectionRange(this: Field, start: number, end: number, direction?: string): void {
     if (!selectable(this)) throw new DOMException(`Failed to execute 'setSelectionRange' on 'HTMLInputElement': The input element's type ('${(this as HTMLInputElement).type}') does not support selection.`, 'InvalidStateError')
@@ -360,6 +346,11 @@ function setFiles(input: HTMLInputElement, files: File[]): void {
 
 const picking = new WeakSet<object>()
 
+function fireChange(target: Element): void {
+  fire(target, new Event('input', { bubbles: true, composed: true }))
+  fire(target, new Event('change', { bubbles: true }))
+}
+
 function pickFiles(input: HTMLInputElement): void {
   if (picking.has(input)) return
   const chooser = env.files
@@ -372,8 +363,7 @@ function pickFiles(input: HTMLInputElement): void {
     .then(async (picked) => {
       if (!picked || picked.length === 0) return cancel()
       setFiles(input, await Promise.all(picked.map(readPicked)))
-      fire(input, new Event('input', { bubbles: true, composed: true }))
-      fire(input, new Event('change', { bubbles: true }))
+      fireChange(input)
     })
     .catch((error: unknown) => {
       host.print(1, `acde-dom: file chooser: ${(error as Error)?.message ?? String(error)}`)
@@ -511,17 +501,13 @@ export class HTMLInputElement extends HTMLElement {
   [ACTIVATION](): { run(): void; cancel(): void } | null {
     if (disabledControl(this)) return null
     const type = this.type
-    if (type === 'file') return { run: () => pickFiles(this), cancel: () => {} }
+    if (type === 'file') return activation(() => pickFiles(this))
     if (type === 'checkbox') {
       const was = this.checked, wasIndeterminate = this.indeterminate
       setChecked(this, !was)
       this.indeterminate = false
       return {
-        run: () => {
-          if (!this.isConnected) return
-          fire(this, new Event('input', { bubbles: true, composed: true }))
-          fire(this, new Event('change', { bubbles: true }))
-        },
+        run: () => this.isConnected && fireChange(this),
         cancel: () => {
           setChecked(this, was)
           this.indeterminate = wasIndeterminate
@@ -533,11 +519,7 @@ export class HTMLInputElement extends HTMLElement {
       const previous = was ? NONE : (radioGroup(this).find((id) => id !== this[ID] && dom.checked(id)) ?? NONE)
       setChecked(this, true)
       return {
-        run: () => {
-          if (was || !this.isConnected) return
-          fire(this, new Event('input', { bubbles: true, composed: true }))
-          fire(this, new Event('change', { bubbles: true }))
-        },
+        run: () => !was && this.isConnected && fireChange(this),
         cancel: () => {
           if (was) return
           setChecked(this, false)
@@ -545,8 +527,8 @@ export class HTMLInputElement extends HTMLElement {
         },
       }
     }
-    if (type === 'submit' || type === 'image') return { run: () => this.form?.requestSubmit(this), cancel: () => {} }
-    if (type === 'reset') return { run: () => this.form?.reset(), cancel: () => {} }
+    if (type === 'submit' || type === 'image') return activation(() => this.form?.requestSubmit(this))
+    if (type === 'reset') return activation(() => this.form?.reset())
     return null
   }
 
@@ -568,13 +550,10 @@ long(HTMLInputElement.prototype, 'height', 0)
 url(HTMLInputElement.prototype, 'src')
 mixin(HTMLInputElement, ConstraintValidation)
 mixin(HTMLInputElement, TextSelection)
-tag(HTMLInputElement)
+register(HTMLInputElement, 'input')
 export interface HTMLInputElement extends ConstraintValidation, TextSelection {}
 
 export class HTMLTextAreaElement extends HTMLElement {
-  get type(): string {
-    return 'textarea'
-  }
   get value(): string {
     return dom.value(this[ID])
   }
@@ -594,6 +573,7 @@ export class HTMLTextAreaElement extends HTMLElement {
     return this.value.length
   }
 }
+getters(HTMLTextAreaElement.prototype, { type: 'textarea' })
 for (const name of ['name', 'placeholder', 'autocomplete', 'wrap', 'dirName']) string(HTMLTextAreaElement.prototype, name, name.toLowerCase())
 for (const name of ['disabled', 'required', 'readOnly']) bool(HTMLTextAreaElement.prototype, name, name.toLowerCase())
 long(HTMLTextAreaElement.prototype, 'maxLength', -1, 'maxlength', 0)
@@ -602,7 +582,7 @@ long(HTMLTextAreaElement.prototype, 'rows', 2, 'rows', 1)
 long(HTMLTextAreaElement.prototype, 'cols', 20, 'cols', 1)
 mixin(HTMLTextAreaElement, ConstraintValidation)
 mixin(HTMLTextAreaElement, TextSelection)
-tag(HTMLTextAreaElement)
+register(HTMLTextAreaElement, 'textarea')
 export interface HTMLTextAreaElement extends ConstraintValidation, TextSelection {}
 
 const SELECT = Symbol('select')
@@ -685,15 +665,7 @@ export class HTMLSelectElement extends HTMLElement {
   }
   set value(value: string) {
     const text = String(value)
-    const ids = optionIds(this[ID])
-    let found = -1
-    for (let i = 0; i < ids.length; i++) {
-      if (wrap<HTMLOptionElement>(ids[i]!)!.value === text) {
-        found = i
-        break
-      }
-    }
-    this.selectedIndex = found
+    this.selectedIndex = optionIds(this[ID]).findIndex((id) => wrap<HTMLOptionElement>(id)!.value === text)
   }
 
   get selectedOptions(): HTMLCollection {
@@ -718,7 +690,7 @@ for (const name of ['name', 'autocomplete']) string(HTMLSelectElement.prototype,
 for (const name of ['disabled', 'required', 'multiple']) bool(HTMLSelectElement.prototype, name)
 long(HTMLSelectElement.prototype, 'size', 0, 'size', 0)
 mixin(HTMLSelectElement, ConstraintValidation)
-tag(HTMLSelectElement)
+register(HTMLSelectElement, 'select')
 export interface HTMLSelectElement extends ConstraintValidation {}
 
 function ownerSelect(option: number): number {
@@ -791,12 +763,12 @@ export class HTMLOptionElement extends HTMLElement {
   }
 }
 bool(HTMLOptionElement.prototype, 'disabled')
-tag(HTMLOptionElement)
+register(HTMLOptionElement, 'option')
 
 export class HTMLOptGroupElement extends HTMLElement {}
 bool(HTMLOptGroupElement.prototype, 'disabled')
 string(HTMLOptGroupElement.prototype, 'label')
-tag(HTMLOptGroupElement)
+register(HTMLOptGroupElement, 'optgroup')
 
 export class HTMLButtonElement extends HTMLElement {
   get type(): string {
@@ -810,41 +782,29 @@ export class HTMLButtonElement extends HTMLElement {
   [ACTIVATION](): { run(): void; cancel(): void } | null {
     if (disabledControl(this)) return null
     const type = this.type
-    if (type === 'submit') return { run: () => this.form?.requestSubmit(this), cancel: () => {} }
-    if (type === 'reset') return { run: () => this.form?.reset(), cancel: () => {} }
-    return { run: () => {}, cancel: () => {} }
+    if (type === 'submit') return activation(() => this.form?.requestSubmit(this))
+    if (type === 'reset') return activation(() => this.form?.reset())
+    return activation(() => {})
   }
 }
 for (const name of ['name', 'value', 'formAction', 'formEnctype', 'formMethod', 'formTarget', 'popoverTargetAction', 'command']) string(HTMLButtonElement.prototype, name, name.toLowerCase())
 for (const name of ['disabled', 'formNoValidate']) bool(HTMLButtonElement.prototype, name, name.toLowerCase())
 mixin(HTMLButtonElement, ConstraintValidation)
-tag(HTMLButtonElement)
+register(HTMLButtonElement, 'button')
 export interface HTMLButtonElement extends ConstraintValidation {}
 
 const LISTED = 'button, fieldset, input, object, output, select, textarea'
 
-export class RadioNodeList {
-  readonly #nodes: Element[]
-  constructor(nodes: Element[]) {
-    this.#nodes = nodes
-    nodes.forEach((n, i) => Object.defineProperty(this, i, { value: n, enumerable: true }))
-  }
-  get length(): number {
-    return this.#nodes.length
-  }
-  item(index: number): Element | null {
-    return this.#nodes[index] ?? null
+export class RadioNodeList extends listClass<Element>('RadioNodeList') {
+  #radio(test: (input: HTMLInputElement) => boolean): HTMLInputElement | undefined {
+    return [...this].find((n) => n[LOCAL] === 'input' && (n as unknown as HTMLInputElement).type === 'radio' && test(n as unknown as HTMLInputElement)) as HTMLInputElement | undefined
   }
   get value(): string {
-    const checked = this.#nodes.find((n) => n[LOCAL] === 'input' && (n as unknown as HTMLInputElement).type === 'radio' && (n as unknown as HTMLInputElement).checked)
-    return checked ? (checked as unknown as HTMLInputElement).value : ''
+    return this.#radio((n) => n.checked)?.value ?? ''
   }
   set value(value: string) {
-    const radio = this.#nodes.find((n) => n[LOCAL] === 'input' && (n as unknown as HTMLInputElement).type === 'radio' && (n as unknown as HTMLInputElement).value === String(value))
-    if (radio) (radio as unknown as HTMLInputElement).checked = true
-  }
-  [Symbol.iterator](): IterableIterator<Element> {
-    return this.#nodes[Symbol.iterator]()
+    const radio = this.#radio((n) => n.value === String(value))
+    if (radio) radio.checked = true
   }
 }
 tag(RadioNodeList)
@@ -966,7 +926,7 @@ export class HTMLFormElement extends HTMLElement {
 for (const name of ['name', 'target', 'acceptCharset', 'autocomplete', 'rel']) string(HTMLFormElement.prototype, name, name === 'acceptCharset' ? 'accept-charset' : name.toLowerCase())
 for (const name of ['enctype', 'encoding']) string(HTMLFormElement.prototype, name, 'enctype')
 bool(HTMLFormElement.prototype, 'noValidate', 'novalidate')
-tag(HTMLFormElement)
+register(HTMLFormElement, 'form')
 
 const LABELABLE = 'button, input:not([type="hidden" i]), meter, output, progress, select, textarea'
 
@@ -997,30 +957,25 @@ export class HTMLLabelElement extends HTMLElement {
     const target = event.target as Node | null
     if (!control || (target && control.contains(target))) return null
     if (target && target !== this && (target as unknown as Element)[ID] !== undefined && dom.closest((target as unknown as Element)[ID], 'a[href], button, input, select, textarea, label') !== this[ID]) return null
-    return {
-      run: () => {
-        if (focusable(control[ID])) setFocus(control)
-        if (control[LOCAL] !== 'textarea' && !(control[LOCAL] === 'input' && SELECTABLE.has((control as unknown as HTMLInputElement).type))) control.click()
-      },
-      cancel: () => {},
-    }
+    return activation(() => {
+      if (focusable(control[ID])) setFocus(control)
+      if (control[LOCAL] !== 'textarea' && !(control[LOCAL] === 'input' && SELECTABLE.has((control as unknown as HTMLInputElement).type))) control.click()
+    })
   }
 }
-tag(HTMLLabelElement)
+register(HTMLLabelElement, 'label')
 
 export class HTMLFieldSetElement extends HTMLElement {
-  get type(): string {
-    return 'fieldset'
-  }
   get elements(): HTMLCollection {
     const id = this[ID]
     return liveCollection(() => dom.querySelectorAll(id, LISTED), HTMLFormControlsCollection)
   }
 }
+getters(HTMLFieldSetElement.prototype, { type: 'fieldset' })
 bool(HTMLFieldSetElement.prototype, 'disabled')
 string(HTMLFieldSetElement.prototype, 'name')
 mixin(HTMLFieldSetElement, ConstraintValidation)
-tag(HTMLFieldSetElement)
+register(HTMLFieldSetElement, 'fieldset')
 
 export class HTMLLegendElement extends HTMLElement {
   get form(): HTMLFormElement | null {
@@ -1029,13 +984,10 @@ export class HTMLLegendElement extends HTMLElement {
   }
 }
 string(HTMLLegendElement.prototype, 'align')
-tag(HTMLLegendElement)
+register(HTMLLegendElement, 'legend')
 
 export class HTMLOutputElement extends HTMLElement {
   #default: string | null = null
-  get type(): string {
-    return 'output'
-  }
   get value(): string {
     return dom.textContent(this[ID])
   }
@@ -1054,33 +1006,34 @@ export class HTMLOutputElement extends HTMLElement {
     return tokenList(this, Symbol.for('acde.htmlFor'), 'for')
   }
 }
+getters(HTMLOutputElement.prototype, { type: 'output' })
 string(HTMLOutputElement.prototype, 'name')
 mixin(HTMLOutputElement, ConstraintValidation)
-tag(HTMLOutputElement)
+register(HTMLOutputElement, 'output')
+
+function numberSetters(cls: { prototype: object }, names: readonly string[]): void {
+  for (const name of names) {
+    const get = Object.getOwnPropertyDescriptor(cls.prototype, name)!.get
+    Object.defineProperty(cls.prototype, name, { get, set(this: Element, v: unknown) { setAttribute(this, name, String(Number(v))) }, configurable: true })
+  }
+}
 
 export class HTMLProgressElement extends HTMLElement {
   get value(): number {
     const v = parseFloat(dom.getAttribute(this[ID], 'value') ?? '')
     return Number.isFinite(v) && v > 0 ? Math.min(v, this.max) : 0
   }
-  set value(value: number) {
-    setAttribute(this, 'value', String(Number(value)))
-  }
   get max(): number {
     const v = parseFloat(dom.getAttribute(this[ID], 'max') ?? '')
     return Number.isFinite(v) && v > 0 ? v : 1
   }
-  set max(value: number) {
-    setAttribute(this, 'max', String(Number(value)))
-  }
   get position(): number {
     return dom.hasAttribute(this[ID], 'value') ? this.value / this.max : -1
   }
-  get labels(): NodeList {
-    return labelsOf(this)
-  }
 }
-tag(HTMLProgressElement)
+numberSetters(HTMLProgressElement, ['value', 'max'])
+mixin(HTMLProgressElement, ConstraintValidation, ['labels'])
+register(HTMLProgressElement, 'progress')
 
 export class HTMLMeterElement extends HTMLElement {
   #num(name: string, fallback: number): number {
@@ -1090,58 +1043,26 @@ export class HTMLMeterElement extends HTMLElement {
   get min(): number {
     return this.#num('min', 0)
   }
-  set min(v: number) {
-    setAttribute(this, 'min', String(Number(v)))
-  }
   get max(): number {
     return Math.max(this.min, this.#num('max', 1))
-  }
-  set max(v: number) {
-    setAttribute(this, 'max', String(Number(v)))
   }
   get value(): number {
     return Math.min(Math.max(this.#num('value', 0), this.min), this.max)
   }
-  set value(v: number) {
-    setAttribute(this, 'value', String(Number(v)))
-  }
   get low(): number {
     return Math.min(Math.max(this.#num('low', this.min), this.min), this.max)
-  }
-  set low(v: number) {
-    setAttribute(this, 'low', String(Number(v)))
   }
   get high(): number {
     return Math.min(Math.max(this.#num('high', this.max), this.low), this.max)
   }
-  set high(v: number) {
-    setAttribute(this, 'high', String(Number(v)))
-  }
   get optimum(): number {
     return Math.min(Math.max(this.#num('optimum', (this.min + this.max) / 2), this.min), this.max)
   }
-  set optimum(v: number) {
-    setAttribute(this, 'optimum', String(Number(v)))
-  }
-  get labels(): NodeList {
-    return labelsOf(this)
-  }
 }
-tag(HTMLMeterElement)
+numberSetters(HTMLMeterElement, ['min', 'max', 'value', 'low', 'high', 'optimum'])
+mixin(HTMLMeterElement, ConstraintValidation, ['labels'])
+register(HTMLMeterElement, 'meter')
 
-registerHtml(HTMLInputElement, 'input')
-registerHtml(HTMLTextAreaElement, 'textarea')
-registerHtml(HTMLSelectElement, 'select')
-registerHtml(HTMLOptionElement, 'option')
-registerHtml(HTMLOptGroupElement, 'optgroup')
-registerHtml(HTMLButtonElement, 'button')
-registerHtml(HTMLFormElement, 'form')
-registerHtml(HTMLLabelElement, 'label')
-registerHtml(HTMLFieldSetElement, 'fieldset')
-registerHtml(HTMLLegendElement, 'legend')
-registerHtml(HTMLOutputElement, 'output')
-registerHtml(HTMLProgressElement, 'progress')
-registerHtml(HTMLMeterElement, 'meter')
 
 type Entry = [string, string | File]
 

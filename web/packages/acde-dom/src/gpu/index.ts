@@ -1,5 +1,5 @@
 import { defineHandlers, Event, EventTarget, fire } from '../core/event'
-import { DOMException, guard } from '../core/exception'
+import { DOMException, guard, nativeException } from '../core/exception'
 import { base64 } from '../core/encoding'
 import { host, tag } from '../core/host'
 import type { GpuAdapterInfo, GpuNative } from '../native'
@@ -8,11 +8,6 @@ import { colorOf, GPUComputePassEncoder, GPURenderBundleEncoder, GPURenderPassEn
 let native: GpuNative = null as unknown as GpuNative
 
 const dropped = new FinalizationRegistry<number>((id) => native.drop(id))
-
-function exception(message: string): DOMException {
-  const m = /^(\w+Error): ([\s\S]*)$/.exec(message)
-  return m ? new DOMException(m[2], m[1]) : new DOMException(message, 'OperationError')
-}
 
 type Dict = Record<string, any>
 
@@ -35,8 +30,8 @@ function origin(o: any): Dict {
   return { x: o.x ?? 0, y: o.y ?? 0, z: o.z ?? 0 }
 }
 
-const texelTexture = (d: Dict): Dict => ({ texture: idOf(d.texture), mipLevel: d.mipLevel ?? 0, origin: origin(d.origin), aspect: d.aspect ?? 'all' })
-const texelBuffer = (d: Dict): Dict => ({ buffer: idOf(d.buffer), offset: d.offset ?? 0, bytesPerRow: d.bytesPerRow, rowsPerImage: d.rowsPerImage })
+const texelTexture = (d: Dict): Dict => ({ texture: idOf(d.texture), mipLevel: d.mipLevel, origin: d.origin && origin(d.origin), aspect: d.aspect })
+const texelBuffer = (d: Dict): Dict => ({ buffer: idOf(d.buffer), offset: d.offset, bytesPerRow: d.bytesPerRow, rowsPerImage: d.rowsPerImage })
 const stage = (d: Dict): Dict => ({ module: idOf(d.module), entryPoint: d.entryPoint, constants: d.constants ?? {} })
 const viewOf = (v: unknown): number => (v instanceof GPUTexture ? idOf(v.createView()) : idOf(v))
 
@@ -77,18 +72,12 @@ class GPUSupportedLimits {
 tag(GPUSupportedLimits)
 
 class GPUAdapterInfo {
-  readonly vendor: string
-  readonly architecture: string
-  readonly device: string
-  readonly description: string
-  readonly subgroupMinSize = 4
-  readonly subgroupMaxSize = 128
-  readonly isFallbackAdapter = false
-  constructor(info: GpuAdapterInfo) {
-    this.vendor = info.vendor
-    this.architecture = info.architecture
-    this.device = info.device
-    this.description = info.description
+  declare readonly vendor: string
+  declare readonly architecture: string
+  declare readonly device: string
+  declare readonly description: string
+  constructor({ vendor, architecture, device, description }: GpuAdapterInfo) {
+    Object.assign(this, { vendor, architecture, device, description, subgroupMinSize: 4, subgroupMaxSize: 128, isFallbackAdapter: false })
   }
 }
 tag(GPUAdapterInfo)
@@ -132,29 +121,13 @@ class GPUUncapturedErrorEvent extends Event {
 tag(GPUUncapturedErrorEvent)
 
 class GPUDeviceLostInfo {
-  readonly reason: string
-  readonly message: string
-  constructor(reason: string, message: string) {
-    this.reason = reason
-    this.message = message
-  }
+  constructor(readonly reason: string, readonly message: string) {}
 }
 tag(GPUDeviceLostInfo)
 
 class GPUCompilationMessage {
-  readonly message: string
-  readonly type: string
-  readonly lineNum: number
-  readonly linePos: number
-  readonly offset: number
-  readonly length: number
   constructor(m: { message: string; type: string; lineNum: number; linePos: number; offset: number; length: number }) {
-    this.message = m.message
-    this.type = m.type
-    this.lineNum = m.lineNum
-    this.linePos = m.linePos
-    this.offset = m.offset
-    this.length = m.length
+    Object.assign(this, m)
   }
 }
 tag(GPUCompilationMessage)
@@ -186,7 +159,6 @@ class GPUBuffer extends Base {
   readonly size: number
   readonly usage: number
   #state: 'unmapped' | 'pending' | 'mapped' = 'unmapped'
-  #mapping: { offset: number; size: number; write: boolean } | null = null
   #ranges: [number, ArrayBuffer][] = []
   #pending: Promise<void> | null = null
 
@@ -194,10 +166,7 @@ class GPUBuffer extends Base {
     super(device, id, d.label)
     this.size = Number(d.size)
     this.usage = Number(d.usage)
-    if (d.mappedAtCreation) {
-      this.#state = 'mapped'
-      this.#mapping = { offset: 0, size: this.size, write: true }
-    }
+    if (d.mappedAtCreation) this.#state = 'mapped'
   }
 
   get mapState(): string {
@@ -215,17 +184,16 @@ class GPUBuffer extends Base {
       this.#pending = null
       if (failure !== null) {
         this.#state = 'unmapped'
-        throw exception(failure)
+        throw nativeException(failure, 'OperationError')
       }
       this.#state = 'mapped'
-      this.#mapping = { offset, size: length, write: (mode & 2) !== 0 }
     })
     this.#pending = pending
     return pending
   }
 
   getMappedRange(offset = 0, size?: number): ArrayBuffer {
-    if (this.#state !== 'mapped' || !this.#mapping) throw new DOMException('The buffer is not mapped', 'OperationError')
+    if (this.#state !== 'mapped') throw new DOMException('The buffer is not mapped', 'OperationError')
     const length = size ?? Math.max(0, this.size - offset)
     for (const [at, range] of this.#ranges) {
       if (offset < at + range.byteLength && at < offset + length) throw new DOMException('The range overlaps one already returned', 'OperationError')
@@ -241,7 +209,6 @@ class GPUBuffer extends Base {
     for (const [at, range] of this.#ranges) written.push(at, range)
     native.unmap(this[DEVICE][ID], this[ID], written)
     this.#ranges = []
-    this.#mapping = null
     this.#state = 'unmapped'
   }
 
@@ -340,7 +307,7 @@ class GPUCommandEncoder extends Base {
     const json = JSON.stringify({
       label: d.label,
       colorAttachments: Array.from((d.colorAttachments ?? []) as Iterable<Dict | null>, (a) =>
-        a ? { view: viewOf(a.view), depthSlice: a.depthSlice, resolveTarget: a.resolveTarget ? viewOf(a.resolveTarget) : undefined, clearValue: a.clearValue === undefined ? [0, 0, 0, 0] : colorOf(a.clearValue), loadOp: a.loadOp, storeOp: a.storeOp } : null,
+        a ? { view: viewOf(a.view), depthSlice: a.depthSlice, resolveTarget: a.resolveTarget ? viewOf(a.resolveTarget) : undefined, clearValue: a.clearValue === undefined ? undefined : colorOf(a.clearValue), loadOp: a.loadOp, storeOp: a.storeOp } : null,
       ),
       depthStencilAttachment: d.depthStencilAttachment ? { ...d.depthStencilAttachment, view: viewOf(d.depthStencilAttachment.view) } : undefined,
       occlusionQuerySet: d.occlusionQuerySet ? idOf(d.occlusionQuerySet) : undefined,
@@ -426,7 +393,7 @@ class GPUQueue extends Base {
   }
 
   writeTexture(destination: Dict, data: ArrayBufferView | ArrayBuffer, layout: Dict, size: unknown): void {
-    const json = JSON.stringify({ destination: texelTexture(destination), layout: { offset: layout.offset ?? 0, bytesPerRow: layout.bytesPerRow, rowsPerImage: layout.rowsPerImage }, size: extent(size) })
+    const json = JSON.stringify({ destination: texelTexture(destination), layout: { offset: layout.offset, bytesPerRow: layout.bytesPerRow, rowsPerImage: layout.rowsPerImage }, size: extent(size) })
     native.writeTexture(this[DEVICE][ID], json, data)
   }
 
@@ -677,9 +644,9 @@ export class GPUCanvasContext {
   configure(d: Dict): void {
     const device = d.device as GPUDevice
     if (!(device instanceof GPUDevice)) throw new TypeError('configure: device is not a GPUDevice')
-    const json = JSON.stringify({ format: d.format, usage: d.usage ?? 0x10, alphaMode: d.alphaMode ?? 'opaque', viewFormats: d.viewFormats ? Array.from(d.viewFormats as Iterable<string>) : [] })
-    guard(() => native.configure(this.#node, device[ID], json))
-    this.#config = { ...d, usage: d.usage ?? 0x10, alphaMode: d.alphaMode ?? 'opaque', viewFormats: d.viewFormats ?? [], colorSpace: d.colorSpace ?? 'srgb', toneMapping: d.toneMapping ?? { mode: 'standard' } }
+    const config: Dict = { ...d, usage: d.usage ?? 0x10, alphaMode: d.alphaMode ?? 'opaque', viewFormats: Array.from((d.viewFormats ?? []) as Iterable<string>), colorSpace: d.colorSpace ?? 'srgb', toneMapping: d.toneMapping ?? { mode: 'standard' } }
+    guard(() => native.configure(this.#node, device[ID], JSON.stringify({ format: config.format, usage: config.usage, alphaMode: config.alphaMode, viewFormats: config.viewFormats })))
+    this.#config = config
     this.#texture = null
   }
 

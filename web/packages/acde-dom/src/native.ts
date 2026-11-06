@@ -49,7 +49,6 @@ export interface DomNative {
   ancestors(id: number): Uint32Array
   describe(id: number): [NodeType, Ns, boolean, string]
   resize?(width: number, height: number, scale: number): void
-  setReducedMotion?(on: boolean): void
   setDark?(on: boolean): void
   compareDocumentPosition(a: number, b: number): number
 

@@ -1,8 +1,8 @@
 import { DOMException, guard } from '../core/exception'
 import { BUILD_PATH, EventTarget, type Event } from '../core/event'
-import { tag } from '../core/host'
+import { constants, getters, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
-import { characterDataObservers, childListObservers, observing, recordCharacterData, recordChildList, recordLists, type Observers } from './mutation'
+import { characterDataObservers, childListObservers, observing, recordCharacterData, recordChildList, type Observers } from './mutation'
 import { adopt, attach, changed, CONNECTED, constructing, detach, documentId, dom, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper } from './realm'
 import type { Document } from './document'
 import type { Element } from './element'
@@ -155,7 +155,6 @@ export function staticNodeListOfIds(ids: Uint32Array): NodeList {
   return staticNodeList(nodes)
 }
 
-recordLists.make = (nodes) => staticNodeList(nodes as Node[])
 
 export class HTMLCollection extends LiveList {
   protected ids(): Uint32Array {
@@ -346,24 +345,6 @@ export function replaceData(node: CharacterData, offset: number, count: number, 
 }
 
 export class Node extends EventTarget implements Wrapper {
-  static readonly ELEMENT_NODE = 1
-  static readonly ATTRIBUTE_NODE = 2
-  static readonly TEXT_NODE = 3
-  static readonly CDATA_SECTION_NODE = 4
-  static readonly ENTITY_REFERENCE_NODE = 5
-  static readonly ENTITY_NODE = 6
-  static readonly PROCESSING_INSTRUCTION_NODE = 7
-  static readonly COMMENT_NODE = 8
-  static readonly DOCUMENT_NODE = 9
-  static readonly DOCUMENT_TYPE_NODE = 10
-  static readonly DOCUMENT_FRAGMENT_NODE = 11
-  static readonly NOTATION_NODE = 12
-  static readonly DOCUMENT_POSITION_DISCONNECTED = 1
-  static readonly DOCUMENT_POSITION_PRECEDING = 2
-  static readonly DOCUMENT_POSITION_FOLLOWING = 4
-  static readonly DOCUMENT_POSITION_CONTAINS = 8
-  static readonly DOCUMENT_POSITION_CONTAINED_BY = 16
-  static readonly DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 32
 
   declare [ID]: number
   declare [CONNECTED]: boolean
@@ -453,7 +434,7 @@ export class Node extends EventTarget implements Wrapper {
     if (other === null || other === undefined) return false
     if (!(other instanceof Node)) throw new TypeError("Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'.")
     if (other === this) return true
-    return (dom.compareDocumentPosition(this[ID], other[ID]) & Node.DOCUMENT_POSITION_CONTAINED_BY) !== 0
+    return (dom.compareDocumentPosition(this[ID], other[ID]) & 16) !== 0
   }
 
   compareDocumentPosition(other: Node): number {
@@ -567,9 +548,7 @@ export class Node extends EventTarget implements Wrapper {
     pathHooks.build(this, event, path)
   }
 }
-for (const [name, value] of Object.entries(Node)) {
-  Object.defineProperty(Node.prototype, name, { value, enumerable: true })
-}
+constants(Node, { ELEMENT_NODE: 1, ATTRIBUTE_NODE: 2, TEXT_NODE: 3, CDATA_SECTION_NODE: 4, ENTITY_REFERENCE_NODE: 5, ENTITY_NODE: 6, PROCESSING_INSTRUCTION_NODE: 7, COMMENT_NODE: 8, DOCUMENT_NODE: 9, DOCUMENT_TYPE_NODE: 10, DOCUMENT_FRAGMENT_NODE: 11, NOTATION_NODE: 12, DOCUMENT_POSITION_DISCONNECTED: 1, DOCUMENT_POSITION_PRECEDING: 2, DOCUMENT_POSITION_FOLLOWING: 4, DOCUMENT_POSITION_CONTAINS: 8, DOCUMENT_POSITION_CONTAINED_BY: 16, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC: 32 })
 tag(Node)
 
 function equalElements(a: number, b: number): boolean {
@@ -602,6 +581,16 @@ export function setTextContent(node: Node, text: string): void {
   }
 }
 
+function elementFrom(id: number, forward: boolean): Element | null {
+  while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = forward ? dom.nextSibling(id) : dom.previousSibling(id)
+  return wrap<Element>(id)
+}
+
+function viable(ref: Node | null, nodes: unknown[], forward: boolean): Node | null {
+  while (ref && nodes.includes(ref)) ref = forward ? ref.nextSibling : ref.previousSibling
+  return ref
+}
+
 export class ParentNodeMixin {
   get children(): HTMLCollection {
     const self = this as unknown as Node & { [CHILDREN]?: HTMLCollection }
@@ -614,22 +603,15 @@ export class ParentNodeMixin {
   }
 
   get firstElementChild(): Element | null {
-    const self = this as unknown as Node
-    let id = dom.firstChild(self[ID])
-    while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = dom.nextSibling(id)
-    return wrap<Element>(id)
+    return elementFrom(dom.firstChild((this as unknown as Node)[ID]), true)
   }
 
   get lastElementChild(): Element | null {
-    const self = this as unknown as Node
-    let id = dom.lastChild(self[ID])
-    while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = dom.previousSibling(id)
-    return wrap<Element>(id)
+    return elementFrom(dom.lastChild((this as unknown as Node)[ID]), false)
   }
 
   get childElementCount(): number {
-    const self = this as unknown as Node
-    return dom.children(self[ID]).length
+    return dom.children((this as unknown as Node)[ID]).length
   }
 
   append(this: Node, ...nodes: unknown[]): void {
@@ -678,8 +660,7 @@ export class ChildNodeMixin {
   before(this: Node, ...nodes: unknown[]): void {
     const parent = this.parentNode
     if (!parent) return
-    let ref: Node | null = this.previousSibling
-    while (ref && nodes.includes(ref)) ref = ref.previousSibling
+    const ref = viable(this.previousSibling, nodes, false)
     const node = convertNodes(nodes)
     if (node) insert(parent, node, ref ? ref.nextSibling : parent.firstChild)
   }
@@ -687,8 +668,7 @@ export class ChildNodeMixin {
   after(this: Node, ...nodes: unknown[]): void {
     const parent = this.parentNode
     if (!parent) return
-    let ref: Node | null = this.nextSibling
-    while (ref && nodes.includes(ref)) ref = ref.nextSibling
+    const ref = viable(this.nextSibling, nodes, true)
     const node = convertNodes(nodes)
     if (node) insert(parent, node, ref)
   }
@@ -696,8 +676,7 @@ export class ChildNodeMixin {
   replaceWith(this: Node, ...nodes: unknown[]): void {
     const parent = this.parentNode
     if (!parent) return
-    let ref: Node | null = this.nextSibling
-    while (ref && nodes.includes(ref)) ref = ref.nextSibling
+    const ref = viable(this.nextSibling, nodes, true)
     const node = convertNodes(nodes)
     if (dom.parent(this[ID]) === parent[ID]) remove(this)
     if (node) insert(parent, node, ref)
@@ -708,17 +687,11 @@ export class ChildNodeMixin {
   }
 
   get previousElementSibling(): Element | null {
-    const self = this as unknown as Node
-    let id = dom.previousSibling(self[ID])
-    while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = dom.previousSibling(id)
-    return wrap<Element>(id)
+    return elementFrom(dom.previousSibling((this as unknown as Node)[ID]), false)
   }
 
   get nextElementSibling(): Element | null {
-    const self = this as unknown as Node
-    let id = dom.nextSibling(self[ID])
-    while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = dom.nextSibling(id)
-    return wrap<Element>(id)
+    return elementFrom(dom.nextSibling((this as unknown as Node)[ID]), true)
   }
 }
 
@@ -730,26 +703,7 @@ export function mixin(target: { prototype: object }, source: { prototype: object
 }
 
 export class CharacterData extends Node {
-  get data(): string {
-    return dom.data(this[ID])
-  }
-  set data(value: string) {
-    replaceData(this, 0, Infinity, value === null ? '' : String(value))
-  }
-
-  override get nodeValue(): string {
-    return dom.data(this[ID])
-  }
-  override set nodeValue(value: string | null) {
-    replaceData(this, 0, Infinity, value === null ? '' : String(value))
-  }
-
-  override get textContent(): string {
-    return dom.data(this[ID])
-  }
-  override set textContent(value: string | null) {
-    replaceData(this, 0, Infinity, value === null ? '' : String(value))
-  }
+  declare data: string
 
   get length(): number {
     return dom.data(this[ID]).length
@@ -778,6 +732,18 @@ export class CharacterData extends Node {
     replaceData(this, Number(offset) >>> 0, Number(count) >>> 0, String(data))
   }
 }
+for (const name of ['data', 'nodeValue', 'textContent']) {
+  Object.defineProperty(CharacterData.prototype, name, {
+    get(this: CharacterData) {
+      return dom.data(this[ID])
+    },
+    set(this: CharacterData, value: unknown) {
+      replaceData(this, 0, Infinity, value === null ? '' : String(value))
+    },
+    enumerable: true,
+    configurable: true,
+  })
+}
 mixin(CharacterData, ChildNodeMixin)
 tag(CharacterData)
 export interface CharacterData extends ChildNodeMixin {}
@@ -804,10 +770,6 @@ export class Text extends CharacterData {
     return text
   }
 
-  get assignedSlot(): null {
-    return null
-  }
-
   splitText(offset: number): Text {
     const data = this.data
     if (offset > data.length) throw new DOMException(`The offset ${offset} is larger than the Text node's length.`, 'IndexSizeError')
@@ -821,6 +783,7 @@ export class Text extends CharacterData {
     return tail
   }
 }
+getters(Text.prototype, { assignedSlot: null })
 tag(Text)
 
 export class CDATASection extends Text {}
@@ -842,11 +805,8 @@ export class Comment extends CharacterData {
 }
 tag(Comment)
 
-export class ProcessingInstruction extends CharacterData {
-  get target(): string {
-    return ''
-  }
-}
+export class ProcessingInstruction extends CharacterData {}
+getters(ProcessingInstruction.prototype, { target: '' })
 tag(ProcessingInstruction)
 
 export class DocumentType extends Node {

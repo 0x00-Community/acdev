@@ -1,14 +1,18 @@
 import { File } from '../core/blob'
 import { eventPath, hooks, type Event, Event as BaseEvent, type EventInit, type EventTarget } from '../core/event'
-import { G, queueTask, tag } from '../core/host'
+import { constants, G, listClass, queueTask, tag } from '../core/host'
 import { NodeType } from '../native'
-import { flags, handlerOf, type Element } from './element'
+import { Element, flags, handlerOf, handlerSet } from './element'
 import { metricsOf, rectOf, rootScroll } from './layout'
 import { pathHooks, type Node } from './node'
 import { documentId, dom, existing, ID, wrap, type Wrapper } from './realm'
 
 export const SHADOW_ROOT = Symbol('shadowRoot')
 export const ACTIVATION = Symbol('activation')
+
+export function activation(run: () => void): { run(): void; cancel(): void } {
+  return { run, cancel: () => {} }
+}
 
 type Activatable = { [ACTIVATION]?: (event: Event) => { run(): void; cancel(): void } | null }
 
@@ -71,6 +75,12 @@ hooks.compile = (target, _type, source) => {
   }
 }
 
+hooks.inline = (target, type, set) => {
+  if (!(target instanceof Element)) return
+  if (set) handlerSet(target, type)
+  else handlerOf(target, type)
+}
+
 hooks.passiveDefault = (target, type) => {
   if (type !== 'wheel' && type !== 'mousewheel' && type !== 'touchstart' && type !== 'touchmove') return false
   if (target === (G as unknown as EventTarget)) return true
@@ -83,108 +93,55 @@ hooks.passiveDefault = (target, type) => {
   return parent === documentId || (parent >= 0 && dom.nodeType(parent) === NodeType.Element && dom.localName(parent) === 'html' && dom.parent(parent) === documentId)
 }
 
-interface UIEventInit extends EventInit {
-  view?: unknown
-  detail?: number
-  which?: number
+const INIT = Symbol('init')
+
+type Init = Record<string, unknown>
+
+function initFields(cls: { prototype: object }, fields: Init): void {
+  for (const [name, fallback] of Object.entries(fields)) {
+    const coerce = typeof fallback === 'number' ? Number : typeof fallback === 'boolean' ? Boolean : typeof fallback === 'string' ? String : (v: unknown) => v
+    Object.defineProperty(cls.prototype, name, {
+      get(this: UIEvent) {
+        const value = this[INIT][name]
+        return value === undefined || value === null ? fallback : coerce(value)
+      },
+      enumerable: true,
+      configurable: true,
+    })
+  }
 }
 
 export class UIEvent extends BaseEvent {
-  readonly #view: unknown
-  readonly #detail: number
-  readonly #which: number
+  readonly [INIT]: Init
 
-  constructor(type: string, init?: UIEventInit | null) {
+  constructor(type: string, init?: (EventInit & Init) | null) {
     super(type, init)
-    this.#view = init?.view ?? null
-    this.#detail = Number(init?.detail ?? 0)
-    this.#which = Number(init?.which ?? 0)
+    this[INIT] = init ?? {}
   }
 
-  get view(): unknown {
-    return this.#view
-  }
-  get detail(): number {
-    return this.#detail
-  }
-  get which(): number {
-    return this.#which
-  }
   initUIEvent(type: string, bubbles?: boolean, cancelable?: boolean): void {
     this.initEvent(type, bubbles, cancelable)
   }
 }
+initFields(UIEvent, { view: null, detail: 0, which: 0 })
 tag(UIEvent)
 
-interface FocusEventInit extends UIEventInit {
-  relatedTarget?: EventTarget | null
-}
-
-export class FocusEvent extends UIEvent {
-  readonly #related: EventTarget | null
-  constructor(type: string, init?: FocusEventInit | null) {
-    super(type, init)
-    this.#related = init?.relatedTarget ?? null
-  }
-  get relatedTarget(): EventTarget | null {
-    return this.#related
-  }
-}
+export class FocusEvent extends UIEvent {}
+initFields(FocusEvent, { relatedTarget: null })
 tag(FocusEvent)
 
-interface ModifierInit {
-  ctrlKey?: boolean
-  shiftKey?: boolean
-  altKey?: boolean
-  metaKey?: boolean
-  modifierAltGraph?: boolean
-  modifierCapsLock?: boolean
-}
+const MODIFIERS: Record<string, string> = { Control: 'ctrlKey', Shift: 'shiftKey', Alt: 'altKey', Meta: 'metaKey', AltGraph: 'modifierAltGraph', CapsLock: 'modifierCapsLock' }
 
-interface MouseEventInit extends UIEventInit, ModifierInit {
-  screenX?: number
-  screenY?: number
-  clientX?: number
-  clientY?: number
-  button?: number
-  buttons?: number
-  relatedTarget?: EventTarget | null
-  movementX?: number
-  movementY?: number
-}
-
-function modifier(init: ModifierInit | null | undefined, key: string): boolean {
-  switch (key) {
-    case 'Control': return !!init?.ctrlKey
-    case 'Shift': return !!init?.shiftKey
-    case 'Alt': return !!init?.altKey
-    case 'Meta': return !!init?.metaKey
-    case 'AltGraph': return !!init?.modifierAltGraph
-    case 'CapsLock': return !!init?.modifierCapsLock
-    default: return false
-  }
+function modifier(init: Init, key: string): boolean {
+  return Object.hasOwn(MODIFIERS, key) && !!init[MODIFIERS[key]!]
 }
 
 export class MouseEvent extends UIEvent {
-  readonly #init: MouseEventInit
+  declare readonly clientX: number
+  declare readonly clientY: number
+  declare readonly button: number
+  declare readonly relatedTarget: EventTarget | null
 
-  constructor(type: string, init?: MouseEventInit | null) {
-    super(type, init)
-    this.#init = init ?? {}
-  }
-
-  get screenX(): number {
-    return Number(this.#init.screenX ?? 0)
-  }
-  get screenY(): number {
-    return Number(this.#init.screenY ?? 0)
-  }
-  get clientX(): number {
-    return Number(this.#init.clientX ?? 0)
-  }
-  get clientY(): number {
-    return Number(this.#init.clientY ?? 0)
-  }
   get x(): number {
     return this.clientX
   }
@@ -209,50 +166,24 @@ export class MouseEvent extends UIEvent {
   get layerY(): number {
     return this.offsetY
   }
-  get movementX(): number {
-    return Number(this.#init.movementX ?? 0)
-  }
-  get movementY(): number {
-    return Number(this.#init.movementY ?? 0)
-  }
-  get ctrlKey(): boolean {
-    return !!this.#init.ctrlKey
-  }
-  get shiftKey(): boolean {
-    return !!this.#init.shiftKey
-  }
-  get altKey(): boolean {
-    return !!this.#init.altKey
-  }
-  get metaKey(): boolean {
-    return !!this.#init.metaKey
-  }
-  get button(): number {
-    return Number(this.#init.button ?? 0)
-  }
-  get buttons(): number {
-    return Number(this.#init.buttons ?? 0)
-  }
-  get relatedTarget(): EventTarget | null {
-    return this.#init.relatedTarget ?? null
-  }
   get fromElement(): EventTarget | null {
     return this.type === 'mouseover' ? this.relatedTarget : this.type === 'mouseout' ? this.target : null
   }
   get toElement(): EventTarget | null {
     return this.type === 'mouseout' ? this.relatedTarget : this.type === 'mouseover' ? this.target : null
   }
-  override get which(): number {
+  get which(): number {
     return this.button + 1
   }
   getModifierState(key: string): boolean {
-    return modifier(this.#init, key)
+    return modifier(this[INIT], key)
   }
   initMouseEvent(type: string, bubbles?: boolean, cancelable?: boolean, _view?: unknown, detail?: number, screenX?: number, screenY?: number, clientX?: number, clientY?: number, ctrlKey?: boolean, altKey?: boolean, shiftKey?: boolean, metaKey?: boolean, button?: number, relatedTarget?: EventTarget | null): void {
     this.initEvent(type, bubbles, cancelable)
-    Object.assign(this.#init, { detail, screenX, screenY, clientX, clientY, ctrlKey, altKey, shiftKey, metaKey, button, relatedTarget })
+    Object.assign(this[INIT], { detail, screenX, screenY, clientX, clientY, ctrlKey, altKey, shiftKey, metaKey, button, relatedTarget })
   }
 }
+initFields(MouseEvent, { screenX: 0, screenY: 0, clientX: 0, clientY: 0, movementX: 0, movementY: 0, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, button: 0, buttons: 0, relatedTarget: null })
 tag(MouseEvent)
 
 function targetOrigin(target: EventTarget | null, axis: 0 | 1): number {
@@ -263,55 +194,7 @@ function targetOrigin(target: EventTarget | null, axis: 0 | 1): number {
   return r[axis]! + (m ? (axis === 0 ? m.clientLeft : m.clientTop) : 0)
 }
 
-interface PointerEventInit extends MouseEventInit {
-  pointerId?: number
-  width?: number
-  height?: number
-  pressure?: number
-  tangentialPressure?: number
-  tiltX?: number
-  tiltY?: number
-  twist?: number
-  pointerType?: string
-  isPrimary?: boolean
-}
-
 export class PointerEvent extends MouseEvent {
-  readonly #p: PointerEventInit
-  constructor(type: string, init?: PointerEventInit | null) {
-    super(type, init)
-    this.#p = init ?? {}
-  }
-  get pointerId(): number {
-    return Number(this.#p.pointerId ?? 0)
-  }
-  get width(): number {
-    return Number(this.#p.width ?? 1)
-  }
-  get height(): number {
-    return Number(this.#p.height ?? 1)
-  }
-  get pressure(): number {
-    return Number(this.#p.pressure ?? 0)
-  }
-  get tangentialPressure(): number {
-    return Number(this.#p.tangentialPressure ?? 0)
-  }
-  get tiltX(): number {
-    return Number(this.#p.tiltX ?? 0)
-  }
-  get tiltY(): number {
-    return Number(this.#p.tiltY ?? 0)
-  }
-  get twist(): number {
-    return Number(this.#p.twist ?? 0)
-  }
-  get pointerType(): string {
-    return String(this.#p.pointerType ?? '')
-  }
-  get isPrimary(): boolean {
-    return !!this.#p.isPrimary
-  }
   getCoalescedEvents(): PointerEvent[] {
     return [this]
   }
@@ -319,36 +202,12 @@ export class PointerEvent extends MouseEvent {
     return []
   }
 }
+initFields(PointerEvent, { pointerId: 0, width: 1, height: 1, pressure: 0, tangentialPressure: 0, tiltX: 0, tiltY: 0, twist: 0, pointerType: '', isPrimary: false })
 tag(PointerEvent)
 
-interface WheelEventInit extends MouseEventInit {
-  deltaX?: number
-  deltaY?: number
-  deltaZ?: number
-  deltaMode?: number
-}
-
 export class WheelEvent extends MouseEvent {
-  static readonly DOM_DELTA_PIXEL = 0
-  static readonly DOM_DELTA_LINE = 1
-  static readonly DOM_DELTA_PAGE = 2
-  readonly #w: WheelEventInit
-  constructor(type: string, init?: WheelEventInit | null) {
-    super(type, init)
-    this.#w = init ?? {}
-  }
-  get deltaX(): number {
-    return Number(this.#w.deltaX ?? 0)
-  }
-  get deltaY(): number {
-    return Number(this.#w.deltaY ?? 0)
-  }
-  get deltaZ(): number {
-    return Number(this.#w.deltaZ ?? 0)
-  }
-  get deltaMode(): number {
-    return Number(this.#w.deltaMode ?? 0)
-  }
+  declare readonly deltaX: number
+  declare readonly deltaY: number
   get wheelDeltaX(): number {
     return Math.round(-this.deltaX * 1.2)
   }
@@ -359,123 +218,41 @@ export class WheelEvent extends MouseEvent {
     return this.wheelDeltaY
   }
 }
+initFields(WheelEvent, { deltaX: 0, deltaY: 0, deltaZ: 0, deltaMode: 0 })
+constants(WheelEvent, { DOM_DELTA_PIXEL: 0, DOM_DELTA_LINE: 1, DOM_DELTA_PAGE: 2 })
 tag(WheelEvent)
 
-interface KeyboardEventInit extends UIEventInit, ModifierInit {
-  key?: string
-  code?: string
-  location?: number
-  repeat?: boolean
-  isComposing?: boolean
-  charCode?: number
-  keyCode?: number
-}
-
 export class KeyboardEvent extends UIEvent {
-  static readonly DOM_KEY_LOCATION_STANDARD = 0
-  static readonly DOM_KEY_LOCATION_LEFT = 1
-  static readonly DOM_KEY_LOCATION_RIGHT = 2
-  static readonly DOM_KEY_LOCATION_NUMPAD = 3
-  readonly #k: KeyboardEventInit
-  constructor(type: string, init?: KeyboardEventInit | null) {
-    super(type, init)
-    this.#k = init ?? {}
-  }
-  get key(): string {
-    return String(this.#k.key ?? '')
-  }
-  get code(): string {
-    return String(this.#k.code ?? '')
-  }
-  get location(): number {
-    return Number(this.#k.location ?? 0)
-  }
-  get repeat(): boolean {
-    return !!this.#k.repeat
-  }
-  get isComposing(): boolean {
-    return !!this.#k.isComposing
-  }
-  get ctrlKey(): boolean {
-    return !!this.#k.ctrlKey
-  }
-  get shiftKey(): boolean {
-    return !!this.#k.shiftKey
-  }
-  get altKey(): boolean {
-    return !!this.#k.altKey
-  }
-  get metaKey(): boolean {
-    return !!this.#k.metaKey
-  }
-  get charCode(): number {
-    return Number(this.#k.charCode ?? 0)
-  }
-  get keyCode(): number {
-    return Number(this.#k.keyCode ?? 0)
-  }
-  override get which(): number {
-    return Number(this.#k.which ?? this.#k.keyCode ?? this.#k.charCode ?? 0)
+  get which(): number {
+    const k = this[INIT]
+    return Number(k.which ?? k.keyCode ?? k.charCode ?? 0)
   }
   getModifierState(key: string): boolean {
-    return modifier(this.#k, key)
+    return modifier(this[INIT], key)
   }
   initKeyboardEvent(type: string, bubbles?: boolean, cancelable?: boolean, _view?: unknown, key?: string, location?: number, ctrlKey?: boolean, altKey?: boolean, shiftKey?: boolean, metaKey?: boolean): void {
     this.initEvent(type, bubbles, cancelable)
-    Object.assign(this.#k, { key, location, ctrlKey, altKey, shiftKey, metaKey })
+    Object.assign(this[INIT], { key, location, ctrlKey, altKey, shiftKey, metaKey })
   }
 }
-for (const [name, value] of Object.entries(KeyboardEvent)) {
-  Object.defineProperty(KeyboardEvent.prototype, name, { value, enumerable: true })
-}
+initFields(KeyboardEvent, { key: '', code: '', location: 0, repeat: false, isComposing: false, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, charCode: 0, keyCode: 0 })
+constants(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LEFT: 1, DOM_KEY_LOCATION_RIGHT: 2, DOM_KEY_LOCATION_NUMPAD: 3 })
 tag(KeyboardEvent)
 
-export class CompositionEvent extends UIEvent {
-  readonly #data: string
-  constructor(type: string, init?: UIEventInit & { data?: string } | null) {
-    super(type, init)
-    this.#data = String(init?.data ?? '')
-  }
-  get data(): string {
-    return this.#data
-  }
-}
+export class CompositionEvent extends UIEvent {}
+initFields(CompositionEvent, { data: '' })
 tag(CompositionEvent)
 
 export class InputEvent extends UIEvent {
-  readonly #i: { data?: string | null; inputType?: string; isComposing?: boolean; dataTransfer?: DataTransfer | null; targetRanges?: unknown[] }
-  constructor(type: string, init?: UIEventInit & { data?: string | null; inputType?: string; isComposing?: boolean; dataTransfer?: DataTransfer | null; targetRanges?: unknown[] } | null) {
-    super(type, init)
-    this.#i = init ?? {}
-  }
-  get data(): string | null {
-    return this.#i.data ?? null
-  }
-  get inputType(): string {
-    return String(this.#i.inputType ?? '')
-  }
-  get isComposing(): boolean {
-    return !!this.#i.isComposing
-  }
-  get dataTransfer(): DataTransfer | null {
-    return this.#i.dataTransfer ?? null
-  }
   getTargetRanges(): unknown[] {
-    return [...(this.#i.targetRanges ?? [])]
+    return [...((this[INIT].targetRanges as unknown[] | undefined) ?? [])]
   }
 }
+initFields(InputEvent, { data: null, inputType: '', isComposing: false, dataTransfer: null })
 tag(InputEvent)
 
-export class DragEvent extends MouseEvent {
-  readonly #transfer: DataTransfer | null
-  constructor(type: string, init?: MouseEventInit & { dataTransfer?: DataTransfer | null } | null) {
-    super(type, init)
-    this.#transfer = init?.dataTransfer ?? null
-  }
-  get dataTransfer(): DataTransfer | null {
-    return this.#transfer
-  }
-}
+export class DragEvent extends MouseEvent {}
+initFields(DragEvent, { dataTransfer: null })
 tag(DragEvent)
 
 export class ClipboardEvent extends BaseEvent {
@@ -534,23 +311,8 @@ tag(BeforeUnloadEvent)
 export const MediaQueryListEvent = simpleEvent('MediaQueryListEvent', { media: '', matches: false })
 export const SecurityPolicyViolationEvent = simpleEvent('SecurityPolicyViolationEvent', {})
 
-export class FileList {
-  readonly #files: File[]
-  constructor(files: File[] = []) {
-    this.#files = files
-    for (let i = 0; i < files.length; i++) Object.defineProperty(this, i, { value: files[i], enumerable: true })
-  }
-  get length(): number {
-    return this.#files.length
-  }
-  item(index: number): File | null {
-    return this.#files[index] ?? null
-  }
-  [Symbol.iterator](): IterableIterator<File> {
-    return this.#files[Symbol.iterator]()
-  }
-}
-tag(FileList)
+export const FileList = listClass<File>('FileList')
+export type FileList = InstanceType<typeof FileList>
 
 export class DataTransferItem {
   readonly #value: string | File

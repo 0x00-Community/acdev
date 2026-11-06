@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb, type Web } from './harness.ts'
+import { page, type Web } from './harness.ts'
 
 async function collect(web: Web): Promise<void> {
   for (let i = 0; i < 3; i++) {
@@ -10,8 +10,7 @@ async function collect(web: Web): Promise<void> {
 }
 
 test('one wrapper per node; expandos and listeners of connected nodes survive GC', { skip: typeof globalThis.gc !== 'function' && 'needs --expose-gc' }, async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="keep"><span>x</span></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="keep"><span>x</span></div></body></html>')
   web.run(`
     const keep = document.getElementById('keep')
     keep.__reactFiber$abc = { tag: 5 }
@@ -28,12 +27,10 @@ test('one wrapper per node; expandos and listeners of connected nodes survive GC
   assert.equal(web.run('document.getElementById("keep") === document.body.firstChild'), true)
   web.run('document.querySelector("#keep span").dispatchEvent(new Event("ping", { bubbles: true }))')
   assert.equal(web.run('pinged'), 1)
-  web.close()
 })
 
 test('detached wrappers nobody holds are collected and their nodes freed; held ones stay', { skip: typeof globalThis.gc !== 'function' && 'needs --expose-gc' }, async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><ul id="list"></ul></body></html>')
+  using web = await page('<!doctype html><html><body><ul id="list"></ul></body></html>')
   const before = web.internals.stats()
   web.run(`
     for (let i = 0; i < 500; i++) { const d = document.createElement('div'); d.textContent = 'x' + i }
@@ -55,12 +52,10 @@ test('detached wrappers nobody holds are collected and their nodes freed; held o
   assert.equal(web.run('held.firstChild.localName'), 'i')
   web.run('document.body.appendChild(held)')
   assert.equal(web.run('document.querySelector("section i") === held.firstChild'), true)
-  web.close()
 })
 
 test('moving between connected and detached keeps the same wrapper', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="a"><b id="b">b</b></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="a"><b id="b">b</b></div></body></html>')
   const same = web.run(`(() => {
     const b = document.getElementById('b')
     b.tag = 1
@@ -73,5 +68,4 @@ test('moving between connected and detached keeps the same wrapper', async () =>
     return detached && b.isConnected && document.getElementById('b') === b && b.tag === 1 && parent.id === 'a'
   })()`)
   assert.equal(same, true)
-  web.close()
 })

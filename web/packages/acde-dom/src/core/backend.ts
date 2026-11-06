@@ -14,9 +14,9 @@ export type WsEvent =
 
 export interface BackendTransport {
   readonly port: number
-  request(port: number, method: string, path: string, headers: Header[], body: Uint8Array | null, onEvent: (event: HttpEvent) => void): number | Promise<number>
+  request(port: number, method: string, path: string, headers: Header[], body: Uint8Array | null, onEvent: (event: HttpEvent) => void): number
   abort(id: number): unknown
-  websocket(port: number, path: string, headers: Header[], protocols: string[], onEvent: (event: WsEvent) => void): number | Promise<number>
+  websocket(port: number, path: string, headers: Header[], protocols: string[], onEvent: (event: WsEvent) => void): number
   send(id: number, data: string | Uint8Array): unknown
   close(id: number, code?: number, reason?: string): unknown
 }

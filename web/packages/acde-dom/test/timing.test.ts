@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb } from './harness.ts'
+import { page } from './harness.ts'
 
 test('timers, microtasks and animation frames run in browser order', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   web.run(`
     globalThis.log = []
     setTimeout(() => log.push('timeout 10'), 10)
@@ -33,12 +32,10 @@ test('timers, microtasks and animation frames run in browser order', async () =>
   assert.ok(log.indexOf('raf next frame') > log.indexOf('raf 2'))
   assert.ok(log.includes('timeout 10') && log.includes('interval 2') && !log.includes('interval 3'))
   assert.ok(!log.includes('cancelled') && !log.includes('dropped'))
-  web.close()
 })
 
 test('frame order: scroll events, rAF, ResizeObserver, IntersectionObserver; image load events', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="scroller" data-scroll-height="1000"><div id="box"></div></div><img id="img"></body></html>')
+  using web = await page('<!doctype html><html><body><div id="scroller" data-scroll-height="1000"><div id="box"></div></div><img id="img"></body></html>')
   const id = (sel: string) => web.internals.idOf(web.run(`document.querySelector('${sel}')`))
   web.dom.boxes.set(id('#scroller'), { x: 0, y: 0, width: 300, height: 200 })
   web.dom.boxes.set(id('#box'), { x: 0, y: 100, width: 100, height: 50 })
@@ -67,12 +64,10 @@ test('frame order: scroll events, rAF, ResizeObserver, IntersectionObserver; ima
   web.run('log.length = 0')
   web.frame()
   assert.deepEqual(web.json('log'), [])
-  web.close()
 })
 
 test('Web Animations: animate() runs its clock; finished, onfinish, cancel, getAnimations', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="a"></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="a"></div></body></html>')
   web.run(`
     globalThis.log = []
     const a = document.getElementById('a')
@@ -86,12 +81,10 @@ test('Web Animations: animate() runs its clock; finished, onfinish, cancel, getA
   `)
   await web.wait(30)
   assert.deepEqual(web.json('log'), ['running running 1 1', 'cancelled idle', 'onfinish finished', 'finished'])
-  web.close()
 })
 
 test('Web Animations run as CSS animations: @keyframes rules and the inline animation lists', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><head></head><body><div id="a" style="color: red; animation: spin 1s"></div></body></html>')
+  using web = await page('<!doctype html><html><head></head><body><div id="a" style="color: red; animation: spin 1s"></div></body></html>')
   const result = web.json<{ style: string; before: string; rules: string[] }>(`(() => {
     const a = document.getElementById('a')
     a.animate([{ transform: 'scale(.8)', boxShadow: '0 0 1px red', marginBottom: '2px' }, { transform: 'scale(1.1)', offset: .5, easing: 'ease-in' }, { transform: 'none' }],
@@ -121,12 +114,10 @@ test('Web Animations run as CSS animations: @keyframes rules and the inline anim
   const rule = (name: string) => result.rules.find((r) => r.startsWith(`@keyframes ${name} `))
   assert.equal(rule(names[0]!), `@keyframes ${names[0]} { 0% { transform: scale(.8); box-shadow: 0 0 1px red; margin-bottom: 2px; } 50% { transform: scale(1.1); animation-timing-function: ease-in; } 100% { transform: none; } }`)
   assert.equal(rule(names[1]!), `@keyframes ${names[1]} { 0% { opacity: 0; } 100% { opacity: 1; } }`)
-  web.close()
 })
 
 test('Web Animations lifecycle on the inline style: pause, finish, fill, commitStyles, cancel, reverse, rule cleanup', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><head></head><body><div id="a" style="color: red; animation: spin 1s"></div><div id="b"></div></body></html>')
+  using web = await page('<!doctype html><html><head></head><body><div id="a" style="color: red; animation: spin 1s"></div><div id="b"></div></body></html>')
   web.run(`
     globalThis.log = []
     globalThis.$ = (id) => document.getElementById(id)
@@ -183,5 +174,4 @@ test('Web Animations lifecycle on the inline style: pause, finish, fill, commitS
   assert.ok((reversed[10] as number) > 0, 'rules are dropped later, not one by one')
   assert.deepEqual(reversed.slice(11), ['finished', '-500ms', 'forwards'])
   assert.deepEqual(cleaned, [])
-  web.close()
 })

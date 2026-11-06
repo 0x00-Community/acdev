@@ -1,4 +1,5 @@
 import { setAttribute, type Element } from './element'
+import { URL } from '../core/url'
 import { resolveUrl } from './env'
 import { dom, ID } from './realm'
 
@@ -51,4 +52,24 @@ export function url(proto: Proto, prop: string, attr = prop.toLowerCase()): void
   }, function (value) {
     setAttribute(this, attr, String(value))
   })
+}
+
+export function urlParts(proto: Proto, parts: readonly string[], read: (self: never) => URL | null, write: (self: never, url: URL) => void): void {
+  for (const part of parts) {
+    Object.defineProperty(proto, part, {
+      get(this: never) {
+        const u = read(this)
+        return u ? u[part as 'href'] : ''
+      },
+      set: part === 'origin' ? undefined : function (this: never, value: unknown) {
+        const u = read(this)
+        if (!u) return
+        const next = new URL(u.href)
+        next[part as 'href'] = String(value)
+        write(this, next)
+      },
+      enumerable: true,
+      configurable: true,
+    })
+  }
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb, type Web } from './harness.ts'
+import { createWeb, page, type Web } from './harness.ts'
 
 const FAKE = `(() => {
   const backend = globalThis.backend = { calls: [], aborted: [], sent: [], closed: [], connections: 0 }
@@ -34,7 +34,7 @@ const FAKE = `(() => {
         else later(1, () => { on({ type: 'head', status: 200, statusText: 'OK', headers: [['content-type', 'text/event-stream; charset=utf-8']] }); on({ type: 'chunk', data: enc.encode('data: again ' + call.headers['last-event-id'] + '\\n\\n') }) })
       } else if (p === '/not-events') answer(on, 200, [['content-type', 'text/html']], ['<p>'])
       else answer(on, 404, [['content-type', 'text/plain']], ['not found: ' + path])
-      return Promise.resolve(id)
+      return id
     },
     abort(id) { backend.aborted.push(id) },
     websocket(port, path, headers, protocols, on) {
@@ -43,7 +43,7 @@ const FAKE = `(() => {
       backend.sockets ??= {}
       backend.sockets[id] = on
       later(1, () => on({ type: 'open', protocol: protocols[0] ?? '', extensions: '' }))
-      return Promise.resolve(id)
+      return id
     },
     send(id, data) {
       backend.sent.push(typeof data === 'string' ? data : [...data])
@@ -66,7 +66,7 @@ async function webWithBackend(): Promise<Web> {
 }
 
 test('backend routing: assets stay assets, same-origin and loopback URLs reach the backend, other hosts are refused', async () => {
-  const web = await webWithBackend()
+  using web = await webWithBackend()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = {}
     const asset = await fetch('/app/demo/index.js')
@@ -102,11 +102,10 @@ test('backend routing: assets stay assets, same-origin and loopback URLs reach t
     fail: [true, 'Failed to fetch', 'connect: no such file'],
   })
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('backend responses stream: chunks as they come, clone, pipeThrough, abort', async () => {
-  const web = await webWithBackend()
+  using web = await webWithBackend()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = {}
     const r = await fetch('/stream')
@@ -150,11 +149,10 @@ test('backend responses stream: chunks as they come, clone, pipeThrough, abort',
     early: 'AbortError',
   })
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('redirects are followed (303 → GET), cookies are kept and sent, Set-Cookie is not shown', async () => {
-  const web = await webWithBackend()
+  using web = await webWithBackend()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = {}
     const r = await fetch('/redirect', { method: 'POST', body: 'x' })
@@ -183,11 +181,10 @@ test('redirects are followed (303 → GET), cookies are kept and sent, Set-Cooki
     after: 'lang=zh',
   })
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('XMLHttpRequest to the backend: states, progress, headers, response types, errors', async () => {
-  const web = await webWithBackend()
+  using web = await webWithBackend()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = {}
     const run = (setup) => new Promise((resolve) => {
@@ -218,11 +215,10 @@ test('XMLHttpRequest to the backend: states, progress, headers, response types, 
     sync: 'NetworkError',
   })
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('WebSocket to the backend: open, text and binary messages, close; refused without a backend route', async () => {
-  const web = await webWithBackend()
+  using web = await webWithBackend()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = {}
     const ws = new WebSocket('/ws?room=1', ['chat', 'v2'])
@@ -270,11 +266,10 @@ test('WebSocket to the backend: open, text and binary messages, close; refused w
     port: [9000, '/live'],
   })
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('EventSource from the backend: events, types, ids, retry, reconnect with Last-Event-ID, close', async () => {
-  const web = await webWithBackend()
+  using web = await webWithBackend()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = { log: [] }
     const es = new EventSource('/events')
@@ -297,12 +292,10 @@ test('EventSource from the backend: events, types, ids, retry, reconnect with La
     bad: 2,
   })
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('without a backend transport nothing changes: non-asset requests are refused, WebSocket and EventSource fail', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = []
     for (const [url, init] of [['/api/x', { method: 'POST', body: 'x' }], ['http://localhost:3000/api'], ['/missing']]) {
@@ -316,12 +309,10 @@ test('without a backend transport nothing changes: non-asset requests are refuse
   })()`)
   assert.deepEqual(JSON.parse(result), [true, true, true, ['error', 1006], 2])
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('streams: tee, pipeTo through a TransformStream, ReadableStream.from, async iteration, errors, Blob.stream', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = {}
     const all = async (stream) => { const got = []; for await (const c of stream) got.push(c); return got }
@@ -358,11 +349,10 @@ test('streams: tee, pipeTo through a TransformStream, ReadableStream.from, async
     response: 'from stream',
   })
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('Set-Cookie values stay apart; formData parses forms', async () => {
-  const web = createWeb()
+  using web = createWeb()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = []
     const h = new Headers([['Set-Cookie', 'a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT'], ['set-cookie', 'b=2'], ['x-one', '1']])
@@ -383,5 +373,4 @@ test('Set-Cookie values stay apart; formData parses forms', async () => {
     '1', 'two',
     '值', 'f.txt', 'text/plain', 'file body',
   ])
-  web.close()
 })

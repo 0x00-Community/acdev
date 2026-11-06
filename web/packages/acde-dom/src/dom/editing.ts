@@ -2,6 +2,7 @@ import { fire } from '../core/event'
 import { NONE, NodeType } from '../native'
 import { LOCAL, noteMarkup, type Element } from './element'
 import { InputEvent } from './events'
+import { EDITING_HOST } from './focus'
 import { fieldSelection, replaceFieldText, setFieldSelection, type TextField } from './forms'
 import type { HTMLElement } from './html'
 import { Text } from './node'
@@ -9,7 +10,6 @@ import { getSelection, type Range } from './range'
 import { dom, ID, wrap } from './realm'
 
 const TEXT_TYPES = new Set(['text', 'search', 'url', 'email', 'password', 'tel', 'number'])
-const EDITING_HOST = '[contenteditable=""],[contenteditable="true" i],[contenteditable="plaintext-only" i]'
 
 export function textField(target: Element): TextField | null {
   if (target[LOCAL] === 'textarea') return target as unknown as TextField

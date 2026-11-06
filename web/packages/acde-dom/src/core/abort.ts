@@ -1,18 +1,16 @@
 import { defineHandlers, Event, EventTarget, fire } from './event'
 import { DOMException } from './exception'
-import { host, tag } from './host'
+import { host, illegal, KEY, tag } from './host'
 
 let signalAbort: (signal: AbortSignal, reason: unknown) => void
-let makeSignal: () => AbortSignal
-let constructing = false
 
 export class AbortSignal extends EventTarget {
   #aborted = false
   #reason: unknown = undefined
   #dependents: WeakRef<AbortSignal>[] | null = null
 
-  constructor() {
-    if (!constructing) throw new TypeError('Illegal constructor')
+  constructor(...key: unknown[]) {
+    illegal(key[0])
     super()
   }
 
@@ -27,14 +25,6 @@ export class AbortSignal extends EventTarget {
         if (dependent) signalAbort(dependent, signal.#reason)
       }
       signal.#dependents = null
-    }
-    makeSignal = () => {
-      constructing = true
-      try {
-        return new AbortSignal()
-      } finally {
-        constructing = false
-      }
     }
   }
 
@@ -51,19 +41,19 @@ export class AbortSignal extends EventTarget {
   }
 
   static abort(reason?: unknown): AbortSignal {
-    const signal = makeSignal()
+    const signal = new AbortSignal(KEY)
     signalAbort(signal, reason)
     return signal
   }
 
   static timeout(ms: number): AbortSignal {
-    const signal = makeSignal()
+    const signal = new AbortSignal(KEY)
     host.setTimer(Math.max(0, Number(ms) || 0), () => signalAbort(signal, new DOMException('signal timed out', 'TimeoutError')), false)
     return signal
   }
 
   static any(signals: Iterable<AbortSignal>): AbortSignal {
-    const signal = makeSignal()
+    const signal = new AbortSignal(KEY)
     for (const source of signals) {
       if (source.aborted) {
         signalAbort(signal, source.reason)
@@ -78,7 +68,7 @@ defineHandlers(AbortSignal.prototype, ['abort'])
 tag(AbortSignal)
 
 export class AbortController {
-  readonly #signal = makeSignal()
+  readonly #signal = new AbortSignal(KEY)
 
   get signal(): AbortSignal {
     return this.#signal

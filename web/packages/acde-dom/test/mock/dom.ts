@@ -30,10 +30,8 @@ export class MockDom implements DomNative {
   #loaded: number[] = []
   readonly canvasCommands = new Map<number, Uint8Array[]>()
   focus = { id: NONE, visible: false }
-  active = NONE
   selection = [NONE, 0, NONE, 0]
   selectionRanges = new Map<number, [number, number]>()
-  commits = 0
   view = { width: 1280, height: 800, scale: 1 }
   media: Record<string, string> = {}
 
@@ -368,8 +366,7 @@ export class MockDom implements DomNative {
   setFocus(id: number, visible: boolean): void {
     this.focus = { id, visible }
   }
-  setActive(id: number): void {
-    this.active = id
+  setActive(_id: number): void {
   }
   setSelection(anchorNode: number, anchorOffset: number, focusNode: number, focusOffset: number): void {
     this.selection = [anchorNode, anchorOffset, focusNode, focusOffset]
@@ -561,7 +558,6 @@ export class MockDom implements DomNative {
   }
 
   commit(): void {
-    this.commits++
     for (const id of this.#created) {
       const node = this.#nodes.get(id)
       if (node && !this.pinned.has(id)) this._maybeFree(node)
@@ -576,11 +572,5 @@ export class MockDom implements DomNative {
 
   node(id: number): HNode {
     return this._node(id)
-  }
-
-  get callCount(): number {
-    let n = 0
-    for (const v of this.calls.values()) n += v
-    return n
   }
 }

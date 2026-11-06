@@ -1,16 +1,16 @@
 import { DOMException } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { host, tag } from '../core/host'
+import { constants, getters, host, tag } from '../core/host'
 import { Blob } from '../core/blob'
 import { unbase64 } from '../core/encoding'
 import { fetch } from '../core/net'
 import { audioNative, mediaEvents } from '../audio/index'
 import { contexts as gpuContexts, type GPUCanvasContext } from '../gpu/index'
 import { canvases, type CanvasContext2d, type CanvasElement } from './canvas'
-import { ATTRIBUTE_CHANGED, flags, handlerOf, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
+import { ATTRIBUTE_CHANGED, flags, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
 import { frames, resolveUrl } from './env'
-import { HTMLElement, registerHtml } from './html'
-import { metricsOf } from './layout'
+import { HTMLElement, register } from './html'
+import { metricGetters, metricsOf } from './layout'
 import { bool, long, nullable, string, url } from './reflect'
 import { dom, existing, ID, wrap } from './realm'
 
@@ -66,12 +66,6 @@ export class HTMLImageElement extends HTMLElement {
     setAttribute(this, 'height', String(Math.trunc(Number(value)) || 0))
   }
 
-  get x(): number {
-    return metricsOf(this[ID])?.offsetLeft ?? 0
-  }
-  get y(): number {
-    return metricsOf(this[ID])?.offsetTop ?? 0
-  }
 
   decode(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -107,7 +101,8 @@ string(HTMLImageElement.prototype, 'referrerPolicy', 'referrerpolicy')
 bool(HTMLImageElement.prototype, 'isMap', 'ismap')
 long(HTMLImageElement.prototype, 'hspace', 0)
 long(HTMLImageElement.prototype, 'vspace', 0)
-tag(HTMLImageElement)
+metricGetters(HTMLImageElement.prototype, { x: 'offsetLeft', y: 'offsetTop' })
+register(HTMLImageElement, 'img')
 
 export function deliverLoads(): boolean {
   const done = dom.takeLoaded()
@@ -123,10 +118,6 @@ export function deliverLoads(): boolean {
     let target = existing(id) as Element | undefined
     if (!target && flags.inlineHandlers && (dom.hasAttribute(id, 'onload') || dom.hasAttribute(id, 'onerror'))) target = wrap<Element>(id)!
     if (!target) continue
-    if (flags.inlineHandlers) {
-      handlerOf(target, 'load')
-      handlerOf(target, 'error')
-    }
     fire(target, new Event(state === ImageState.Loaded ? 'load' : 'error'))
   }
   return loading.size > 0
@@ -186,17 +177,11 @@ export class HTMLCanvasElement extends HTMLElement {
     throw new DOMException('captureStream is not supported', 'NotSupportedError')
   }
 }
-tag(HTMLCanvasElement)
+register(HTMLCanvasElement, 'canvas')
 
 const SANDBOX = Symbol('sandbox')
 
 export class HTMLIFrameElement extends HTMLElement {
-  get contentWindow(): null {
-    return null
-  }
-  get contentDocument(): null {
-    return null
-  }
   get sandbox(): DOMTokenList {
     return tokenList(this, SANDBOX, 'sandbox', ['allow-downloads', 'allow-forms', 'allow-modals', 'allow-orientation-lock', 'allow-pointer-lock', 'allow-popups', 'allow-popups-to-escape-sandbox', 'allow-presentation', 'allow-same-origin', 'allow-scripts', 'allow-top-navigation', 'allow-top-navigation-by-user-activation'])
   }
@@ -204,22 +189,16 @@ export class HTMLIFrameElement extends HTMLElement {
     return null
   }
 }
+getters(HTMLIFrameElement.prototype, { contentWindow: null, contentDocument: null })
 string(HTMLIFrameElement.prototype, 'src')
 for (const name of ['srcdoc', 'name', 'allow', 'width', 'height', 'loading', 'referrerPolicy', 'align', 'scrolling', 'frameBorder']) string(HTMLIFrameElement.prototype, name, name.toLowerCase())
 bool(HTMLIFrameElement.prototype, 'allowFullscreen', 'allowfullscreen')
-tag(HTMLIFrameElement)
+register(HTMLIFrameElement, 'iframe')
 
 export class MediaError {
-  static readonly MEDIA_ERR_ABORTED = 1
-  static readonly MEDIA_ERR_NETWORK = 2
-  static readonly MEDIA_ERR_DECODE = 3
-  static readonly MEDIA_ERR_SRC_NOT_SUPPORTED = 4
-  readonly MEDIA_ERR_ABORTED = 1
-  readonly MEDIA_ERR_NETWORK = 2
-  readonly MEDIA_ERR_DECODE = 3
-  readonly MEDIA_ERR_SRC_NOT_SUPPORTED = 4
   constructor(readonly code: number, readonly message: string) {}
 }
+constants(MediaError, { MEDIA_ERR_ABORTED: 1, MEDIA_ERR_NETWORK: 2, MEDIA_ERR_DECODE: 3, MEDIA_ERR_SRC_NOT_SUPPORTED: 4 })
 tag(MediaError)
 
 const playingMedia = new Map<number, HTMLMediaElement>()
@@ -232,15 +211,6 @@ const ENDED = Symbol('ended')
 const timeRanges = (end: number) => ({ length: end > 0 ? 1 : 0, start: () => 0, end: () => end })
 
 export class HTMLMediaElement extends HTMLElement {
-  static readonly NETWORK_EMPTY = 0
-  static readonly NETWORK_IDLE = 1
-  static readonly NETWORK_LOADING = 2
-  static readonly NETWORK_NO_SOURCE = 3
-  static readonly HAVE_NOTHING = 0
-  static readonly HAVE_METADATA = 1
-  static readonly HAVE_CURRENT_DATA = 2
-  static readonly HAVE_FUTURE_DATA = 3
-  static readonly HAVE_ENOUGH_DATA = 4
   declare loop: boolean
   declare autoplay: boolean
   defaultPlaybackRate = 1
@@ -262,10 +232,7 @@ export class HTMLMediaElement extends HTMLElement {
   #timer = 0
 
   #emit(type: string): void {
-    host.setTimer(0, () => {
-      if (flags.inlineHandlers) handlerOf(this as unknown as Element, type)
-      fire(this, new Event(type))
-    })
+    host.setTimer(0, () => fire(this, new Event(type)))
   }
 
   [PLAYS](): boolean {
@@ -404,9 +371,6 @@ export class HTMLMediaElement extends HTMLElement {
   get currentSrc(): string {
     return this.#ready > 0 || this.#loading ? this.#source() : ''
   }
-  get seeking(): boolean {
-    return false
-  }
 
   get currentTime(): number {
     const native = audioNative()
@@ -473,9 +437,6 @@ export class HTMLMediaElement extends HTMLElement {
   get played(): { length: number; start(): number; end(): number } {
     return timeRanges(0)
   }
-  get textTracks(): unknown[] {
-    return []
-  }
 
   play(): Promise<void> {
     if (!this[PLAYS]()) return Promise.reject(new DOMException('Video playback is not supported', 'NotSupportedError'))
@@ -538,22 +499,18 @@ export class HTMLMediaElement extends HTMLElement {
     else if (name === 'loop' && this.#media) audioNative()?.media(this.#media, 4, value === null ? 0 : 1)
   }
 }
+getters(HTMLMediaElement.prototype, { seeking: false, textTracks: () => [] })
 url(HTMLMediaElement.prototype, 'src')
 string(HTMLMediaElement.prototype, 'preload')
 nullable(HTMLMediaElement.prototype, 'crossOrigin', 'crossorigin')
 for (const name of ['autoplay', 'loop', 'controls']) bool(HTMLMediaElement.prototype, name)
 bool(HTMLMediaElement.prototype, 'defaultMuted', 'muted')
+constants(HTMLMediaElement, { NETWORK_EMPTY: 0, NETWORK_IDLE: 1, NETWORK_LOADING: 2, NETWORK_NO_SOURCE: 3, HAVE_NOTHING: 0, HAVE_METADATA: 1, HAVE_CURRENT_DATA: 2, HAVE_FUTURE_DATA: 3, HAVE_ENOUGH_DATA: 4 })
 tag(HTMLMediaElement)
 
 mediaEvents.ended = (media) => playingMedia.get(media)?.[ENDED]()
 
 export class HTMLVideoElement extends HTMLMediaElement {
-  get videoWidth(): number {
-    return 0
-  }
-  get videoHeight(): number {
-    return 0
-  }
   getVideoPlaybackQuality(): object {
     return { totalVideoFrames: 0, droppedVideoFrames: 0, corruptedVideoFrames: 0, creationTime: 0 }
   }
@@ -561,16 +518,12 @@ export class HTMLVideoElement extends HTMLMediaElement {
     return false
   }
 }
+getters(HTMLVideoElement.prototype, { videoWidth: 0, videoHeight: 0 })
 for (const name of ['width', 'height']) long(HTMLVideoElement.prototype, name, 0)
 url(HTMLVideoElement.prototype, 'poster')
 bool(HTMLVideoElement.prototype, 'playsInline', 'playsinline')
-tag(HTMLVideoElement)
+register(HTMLVideoElement, 'video')
 
 export class HTMLAudioElement extends HTMLMediaElement {}
-tag(HTMLAudioElement)
+register(HTMLAudioElement, 'audio')
 
-registerHtml(HTMLImageElement, 'img')
-registerHtml(HTMLCanvasElement, 'canvas')
-registerHtml(HTMLIFrameElement, 'iframe')
-registerHtml(HTMLVideoElement, 'video')
-registerHtml(HTMLAudioElement, 'audio')

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb } from './harness.ts'
+import { createWeb, page } from './harness.ts'
 
 test('form controls: value / defaultValue, checked and radio groups, select, selection, validity, FormData, reset', async () => {
-  const web = createWeb()
+  using web = createWeb()
   await web.internals.loadPage(`<!doctype html><html><body><form id="f">
     <input id="t" name="t" value="start" maxlength="5" required>
     <input id="r1" type="radio" name="g" value="1" checked><input id="r2" type="radio" name="g" value="2">
@@ -45,12 +45,10 @@ test('form controls: value / defaultValue, checked and radio groups, select, sel
     reset: ['start', true, 'b', 'hello'],
   })
   assert.deepEqual(web.dom.selectionRanges.get(web.internals.idOf(web.run('document.getElementById("t")'))), [1, 3])
-  web.close()
 })
 
 test('focus: focus() / blur(), focus events with relatedTarget, activeElement, fixup on removal, tabIndex', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><input id="a"><button id="b">b</button><div id="d">plain</div><div id="t" tabindex="0">t</div></body></html>')
+  using web = await page('<!doctype html><html><body><input id="a"><button id="b">b</button><div id="d">plain</div><div id="t" tabindex="0">t</div></body></html>')
   const result = web.json(`(() => {
     const log = []
     for (const type of ['focus', 'blur', 'focusin', 'focusout']) document.addEventListener(type, (e) => log.push(type + ':' + e.target.id + '<' + (e.relatedTarget && e.relatedTarget.id)), true)
@@ -71,12 +69,10 @@ test('focus: focus() / blur(), focus events with relatedTarget, activeElement, f
     notFocusable: 'b', tab: 't', afterRemoval: true, active: 'BODY', hasFocus: true,
   })
   assert.equal(web.dom.focus.id, -1)
-  web.close()
 })
 
 test('Range and Selection: boundaries, toString, extract / delete / insert, live updates, selectionchange', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><p id="p">Hello <b>big</b> world</p></body></html>')
+  using web = await page('<!doctype html><html><body><p id="p">Hello <b>big</b> world</p></body></html>')
   const result = web.json(`(() => {
     const p = document.getElementById('p')
     const hello = p.firstChild, world = p.lastChild
@@ -117,11 +113,10 @@ test('Range and Selection: boundaries, toString, extract / delete / insert, live
   web.run('getSelection().collapse(document.body, 1)')
   await web.wait(5)
   assert.equal(web.run('changes'), 1, 'one selectionchange per turn')
-  web.close()
 })
 
 test('editing: keys and execCommand share one path; beforeinput cancels typing, not execCommand', async () => {
-  const web = createWeb()
+  using web = createWeb()
   await web.internals.loadPage(`<!doctype html><html><body>
     <input id="t" value="abc"><input id="m" type="email" value="a@b"><textarea id="ta">x</textarea>
     <div id="ed" contenteditable="true">hello</div>
@@ -193,5 +188,4 @@ test('editing: keys and execCommand share one path; beforeinput cancels typing, 
       ['ed', 'input', 'deleteContentForward', null, true],
     ],
   ])
-  web.close()
 })
