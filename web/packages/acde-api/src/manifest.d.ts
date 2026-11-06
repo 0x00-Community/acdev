@@ -1,3 +1,7 @@
+import type { IconName } from './validate'
+
+export type { IconName }
+
 export interface PackageManifest {
   readonly desktops?: readonly DesktopManifest[]
   readonly apps?: readonly AppManifest[]
@@ -17,7 +21,7 @@ export interface DesktopManifest {
 export interface AppManifest {
   readonly id: string
   readonly label: string
-  readonly icon: string
+  readonly icon: IconName | (string & {})
   readonly entry: string
   readonly capabilities?: Capabilities
   readonly heapMb?: number

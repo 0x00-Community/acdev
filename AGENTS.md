@@ -623,7 +623,7 @@ acdert 是一个 Rust 可执行文件, 内嵌 V8 (rusty_v8, crate `v8`); 页面�
 ```json
 "acde": {
   "desktops": [{ "id": "dopame", "name": "Dopame", "entry": "dist/ui/desktop/index.html", "services": ["assistant"] }],
-  "apps": [{ "id": "term", "label": "终端", "icon": "terminal", "entry": "/ui/terminal/term.js", "capabilities": { "terminal": true } }],
+  "apps": [{ "id": "term", "label": "终端", "icon": "term", "entry": "/ui/terminal/term.js", "capabilities": { "terminal": true } }],
   "assets": { "/ui/": ["dist/ui"] },
   "services": [{ "name": "assistant", "module": "dist/services/assistant.js" }]
 }
@@ -632,7 +632,8 @@ acdert 是一个 Rust 可执行文件, 内嵌 V8 (rusty_v8, crate `v8`); 页面�
 - **desktops**: 桌面. `entry` 是包里的 HTML 文件, 由 desktop web 加载, 满屏, 在所有窗口后面. 用前端三件套写就行;
   系统能力从 `acde:` 模块导入 (`acde:fs`, `acde:windows`, `acde:apps`, `acde:desktops` …; 桌面全都有). `heapMb`: desktop web 的
   V8 堆上限 (默认 1024, 最小 32).
-- **apps**: 应用. `entry` 是同源 URL, 指向一个默认导出 `WindowApp` 的模块; `capabilities` 决定它能导入哪些 `acde:` 模块.
+- **apps**: 应用. `entry` 是同源 URL, 指向一个默认导出 `WindowApp` 的模块; `capabilities` 决定它能导入哪些 `acde:` 模块;
+  `icon` 见「desktop web / window web」的应用清单.
 - **assets**: 同源 URL 前缀 → 包里的目录. 页面和应用的脚本、样式、图片都从这里来.
 - **services**: 在主线程 (Broker) 跑的 ES 模块, 默认导出 `ServiceFactory`. 桌面启动时启动 (默认包里全部, 或桌面的
   `services` 列出的), 桌面结束时关闭; 它返回的命名空间挂在 `acde.<名字>` 上, 应用要在 capabilities 里写上服务名才能调.
@@ -947,6 +948,15 @@ FIFO 上). 原来的 `preview` (文字最多 256 KiB, 多了 `truncated`) 和 `w
   slots、open、openFiles、session、desktops (`acde:session` / `acde:desktops`, 本来只给桌面; 系统设置这类应用要), 其余的键是服务名,
   如 `assistant`)、`mimeTypes` (「默认应用」)、`heapMb` (默认 256, 最小 32)、`size` (窗口的默认尺寸 `[宽, 高]`, 逻辑像素, 默认 800x600)、
   `multiple`、`frame` (默认 true: acde-host 画标题栏, 见「窗框」)、`backend`. acdert 自己不带应用 (只有登录页一个桌面); 应用都来自桌面包 (acde-dopame) 或第三方包.
+  `icon` 二选一: (1) 图标名, SDK 导出的 `ICON_NAMES` (`@dopame/acde-api/manifest`, 类型 `IconName`) 之一, 就是 Dopame 的 art 引擎
+  (acde-dopame `uikit/src/engines/art.ts` 的 `APPS`, 按它的顺序) 认识的名字: files、browser、editor、office、term、projects、dash、
+  team、dopa、settings、store、app (通用的那个)、timer、cards、list、chart、calc、music、video、photo、paint、game、chat、mail、
+  calendar、code、book、map、weather; 加名字要两边一起改. (2) 图片: 清单里是 assets 前缀下的同源 URL, 以 `.svg` / `.png` 结尾 (`/app/<id>/icon.svg`);
+  `acde.config.jsonc` 里是相对工程目录的路径, acde build 把它拷进 `web/` 再写成这样的 URL. 运行时不解释它, 原样经 `acde.apps.list()`
+  和 `windowopen` 的 `icon` 交给桌面 (图片在 desktop web 的同源资源里, 桌面用 `<img>` 画). 别的值 Broker 照收,
+  `Manifest.check` 警告 (Dopame 画通用图标). 验过 (2026-11-06, macOS): acde-api 的 `bun test` (名字、图片、找不到的图片、别的值、
+  schema 的 `examples` 和 `ICON_NAMES` 一致). 未验证: Dopame 的启动器 / Dock 用 `<img>` 画图片图标 (acde-dopame 那边改),
+  acde build 拷图片 (acde 仓库).
 - **沙箱**: 每个 web 是独立的 V8 isolate, 页面和 web 的宿主代码 (acde-host 的 web.js) 在同一个 realm 里, 拿到的只有裁剪过的
   `acde`. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口: `sys` (整个 acde 进程的环境变量、读写文件、`spawn` / `run` / `kill`)、
   它的 surface、输入法, 还能 import `file:` 模块. 每个 web 是自己的进程 (环境只有 Broker 给的那些, 会话结束随 PDEATHSIG 一起走),
@@ -970,8 +980,9 @@ Vite 插件, 清单校验, 见「web/packages/acde-api」), acde 依赖它. 原�
 
 - **校验只有一份**: `web/packages/acde-api/src/validate.ts` (`@dopame/acde-api/manifest`, TypeScript 源码, 给 bun 和打包工具) 的
   `Manifest` —— `Manifest.app` 是 Broker 读应用清单用的同一段 (acde-host `apps.ts` / `packages.ts` 导入, 打进 broker.js),
-  `Manifest.check` 再加上只有工具 (acde 的 `check` / `build`) 才查的: 资源目录在不在、`entry` / `backend.entry` 落不落在某个 assets 前缀的目录里、id 重复、heapMb 太小、不认识的 capability
-  (警告: 得有同名的桌面服务).
+  `Manifest.check` 再加上只有工具 (acde 的 `check` / `build`) 才查的: 资源目录在不在、`entry` / `backend.entry` / 图片 `icon`
+  落不落在某个 assets 前缀的目录里 (错误)、id 重复、heapMb 太小、不认识的 capability (警告: 得有同名的桌面服务)、`icon` 既不是
+  `ICON_NAMES` 里的名字也不是图片 URL (警告).
 
 普通网页应用 (`index.html` + 任意框架 + 可选的后端) 不改代码就是 acde 的窗口应用. 页面由 acdert 的 V8 和 render 跑
 (没有浏览器); 后端是 acdert 起的 bun 进程 (任意 Bun / Node 框架: Hono, Express, Fastify …).
@@ -1647,7 +1658,8 @@ SDK: 桌面包和应用写代码时依据的类型, 唯一对外发布的 JS 包
 `src/page.d.ts` (`AcdePage`: 各个 `acde:` 模块的值, `WindowApp`, Finder 的数据), `src/config.d.ts` (`AcdeConfig`:
 `acde.config.jsonc`, 同样的 JSON schema 是 `config.schema.json`, 包导出 `./config.schema.json`), `src/modules.d.ts` (`acde:<名字>`
 模块的声明, 每个导出同名的值和 default; 桌面服务的名字落到 `acde:*`; 用 `/// <reference types="@dopame/acde-api" />` 或 tsconfig 的
-`types` 引入); `src/validate.ts` (导出 `./manifest`) 是清单校验 (「网页应用」), Broker 和 acde CLI 共用. 还没上 npm: acde 仓库
+`types` 引入); `src/validate.ts` (导出 `./manifest`) 是清单校验 (「网页应用」) 和图标名表 `ICON_NAMES` (`IconName` 由它推出,
+`manifest.d.ts` / `config.d.ts` 的 `icon` 引用它), Broker 和 acde CLI 共用; 测试 `test/validate.test.ts` (`bun test`). 还没上 npm: acde 仓库
 用 `file:../acdert/web/packages/acde-api` 依赖它 (两个仓库并排检出), `acde new` 让应用的 devDependency 指向 acde 装好的那份;
 acde-dopame 仍拷一份 (`scripts/sync-acde-api.sh`).
 

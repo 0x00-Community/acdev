@@ -1,4 +1,4 @@
-import type { Capabilities } from './manifest'
+import type { Capabilities, IconName } from './manifest'
 
 export type AcdeConfig = AppConfig | DesktopConfig
 
@@ -12,7 +12,7 @@ export interface ConfigCommon {
 export interface WindowAppConfig {
   readonly id?: string
   readonly label?: string
-  readonly icon?: string
+  readonly icon?: IconName | (string & {})
   readonly entry?: string
   readonly capabilities?: Capabilities
   readonly heapMb?: number

@@ -26,6 +26,9 @@
     "src",
     "config.schema.json"
   ],
+  "scripts": {
+    "test": "bun test"
+  },
   "peerDependencies": {
     "vite": ">=5"
   },

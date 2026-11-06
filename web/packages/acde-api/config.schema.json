@@ -32,8 +32,7 @@
           "type": "string"
         },
         "icon": {
-          "type": "string",
-          "description": "Material Symbols 名字"
+          "$ref": "#/$defs/icon"
         },
         "entry": {
           "type": "string",
@@ -233,8 +232,7 @@
                 "type": "string"
               },
               "icon": {
-                "type": "string",
-                "description": "Material Symbols 名字"
+                "$ref": "#/$defs/icon"
               },
               "entry": {
                 "type": "string",
@@ -366,5 +364,44 @@
       ],
       "additionalProperties": false
     }
-  ]
+  ],
+  "$defs": {
+    "icon": {
+      "type": "string",
+      "minLength": 1,
+      "description": "图标: Dopame 的图标名 (@dopame/acde-api/manifest 的 ICON_NAMES 之一: files, browser, editor, office, term, projects, dash, team, dopa, settings, store, app, timer, cards, list, chart, calc, music, video, photo, paint, game, chat, mail, calendar, code, book, map, weather), 或工程里的一张图片 (.svg / .png, 相对工程目录, acde build 拷进包里); 别的值 acde check 警告",
+      "examples": [
+        "files",
+        "browser",
+        "editor",
+        "office",
+        "term",
+        "projects",
+        "dash",
+        "team",
+        "dopa",
+        "settings",
+        "store",
+        "app",
+        "timer",
+        "cards",
+        "list",
+        "chart",
+        "calc",
+        "music",
+        "video",
+        "photo",
+        "paint",
+        "game",
+        "chat",
+        "mail",
+        "calendar",
+        "code",
+        "book",
+        "map",
+        "weather",
+        "icon.svg"
+      ]
+    }
+  }
 }

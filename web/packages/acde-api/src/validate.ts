@@ -2,6 +2,10 @@ import type { AppManifest as AppEntry, Capabilities, PackageManifest } from './i
 
 export type { Capabilities, PackageManifest } from './index.js'
 
+export const ICON_NAMES = ['files', 'browser', 'editor', 'office', 'term', 'projects', 'dash', 'team', 'dopa', 'settings', 'store', 'app', 'timer', 'cards', 'list', 'chart', 'calc', 'music', 'video', 'photo', 'paint', 'game', 'chat', 'mail', 'calendar', 'code', 'book', 'map', 'weather'] as const
+
+export type IconName = (typeof ICON_NAMES)[number]
+
 export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & { readonly backend: AppBackend | null; readonly size: readonly [number, number] | null }
 
 export interface AppBackend {
@@ -19,6 +23,16 @@ export class Manifest {
   static readonly MIN_HEAP_MB = 32
   static readonly CAPABILITIES: ReadonlySet<string> = new Set(['fs', 'terminal', 'office', 'launch', 'slots', 'open', 'openFiles', 'session', 'desktops'])
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
+  static readonly #ICON_NAMES: ReadonlySet<string> = new Set(ICON_NAMES)
+  static readonly #ICON_IMAGE = /^\/(?!\/)[^\s\0?#]*\.(svg|png)$/i
+
+  static iconName(icon: string): icon is IconName {
+    return Manifest.#ICON_NAMES.has(icon)
+  }
+
+  static iconImage(icon: string): boolean {
+    return Manifest.#ICON_IMAGE.test(icon)
+  }
 
   static heapMb(value: unknown, fallback: number): number {
     const mb = Number(value)
@@ -65,6 +79,11 @@ export class Manifest {
       seen.add(app.id)
       if (!app.entry.endsWith('/') && !resolve(app.entry)) errors.push(`${at}: entry ${JSON.stringify(app.entry)} is in no assets directory`)
       if (app.backend && !resolve(app.backend.entry)) errors.push(`${at}: backend.entry ${JSON.stringify(app.backend.entry)} is in no assets directory`)
+      if (Manifest.iconImage(app.icon)) {
+        if (!resolve(app.icon)) errors.push(`${at}: icon ${JSON.stringify(app.icon)} is in no assets directory`)
+      } else if (!Manifest.iconName(app.icon)) {
+        warnings.push(`${at}: icon ${JSON.stringify(app.icon)} is neither an icon name (${ICON_NAMES.join(', ')}) nor an image (.svg or .png) under the assets, such as /app/${app.id}/icon.svg`)
+      }
       if (raw.heapMb !== undefined && Manifest.heapMb(raw.heapMb, 0) === 0) warnings.push(`${at}: heapMb below ${Manifest.MIN_HEAP_MB} is ignored (${Manifest.HEAP_MB} then)`)
       for (const name of Object.keys(app.capabilities).filter((k) => !Manifest.CAPABILITIES.has(k))) {
         warnings.push(`${at}: capability ${JSON.stringify(name)} is not acde's: a desktop service of that name must be running`)
