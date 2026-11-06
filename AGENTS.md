@@ -1007,7 +1007,7 @@ Vite 插件, 清单校验, 见「web/packages/acde-api」), acde 依赖它. 原�
 - **校验只有一份**: `web/packages/acde-api/src/validate.ts` (`@dopame/acde-api/manifest`, TypeScript 源码, 给 bun 和打包工具) 的
   `Manifest` —— `Manifest.app` 是 Broker 读应用清单用的同一段 (acde-host `apps.ts` / `packages.ts` 导入, 打进 broker.js),
   `Manifest.check` 再加上只有工具 (acde 的 `check` / `build`) 才查的: 资源目录在不在、`entry` / `backend.entry` / 图片 `icon`
-  落不落在某个 assets 前缀的目录里 (错误)、id 重复、heapMb 太小、不认识的 capability (警告: 得有同名的桌面服务)、`icon` 既不是
+  落不落在某个 assets 前缀的目录里 (错误)、id 重复、heapMb 太小、不认识的 capability (警告: 得有同名的桌面服务; 同一个包的 `services` 里就有这个名字时不警告, `network` 是 acde 自己的)、`icon` 既不是
   `ICON_NAMES` 里的名字也不是图片 URL (警告).
 
 普通网页应用 (`index.html` + 任意框架 + 可选的后端) 不改代码就是 acde 的窗口应用. 页面由 acdert 的 V8 和 render 跑

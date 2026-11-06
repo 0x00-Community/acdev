@@ -40,6 +40,7 @@ export interface AppBackend {
 export interface Capabilities {
   readonly fs?: boolean | { readonly roots: readonly string[] }
   readonly terminal?: boolean
+  readonly network?: boolean
   readonly office?: boolean
   readonly launch?: boolean
   readonly slots?: boolean

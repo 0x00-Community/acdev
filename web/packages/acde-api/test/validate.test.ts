@@ -47,3 +47,15 @@ test('the config schema offers the same names', () => {
   const schema = JSON.parse(readFileSync(new URL('../config.schema.json', import.meta.url), 'utf8')) as { $defs: { icon: { examples: string[] } } }
   assert.deepEqual(schema.$defs.icon.examples.filter((e) => !e.includes('.')), [...ICON_NAMES])
 })
+
+test('capabilities: acde modules and the package\'s own services are known; other names warn', () => {
+  const manifest: PackageManifest = {
+    apps: [{ id: 'demo', label: 'Demo', icon: 'app', entry: '/app/demo/index.html', capabilities: { fs: true, network: true, desk: true, weather: true } }],
+    assets: { '/app/demo/': ['web'] },
+    services: [{ name: 'desk', module: 'dist/services/desk.js' }],
+  }
+  assert.deepEqual(Manifest.check(manifest, () => true, (url) => assets.has(url)), {
+    errors: [],
+    warnings: ['app "demo": capability "weather" is not acde\'s: a desktop service of that name must be running'],
+  })
+})

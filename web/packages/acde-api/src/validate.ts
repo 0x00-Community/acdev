@@ -21,7 +21,7 @@ export interface Findings {
 export class Manifest {
   static readonly HEAP_MB = 256
   static readonly MIN_HEAP_MB = 32
-  static readonly CAPABILITIES: ReadonlySet<string> = new Set(['fs', 'terminal', 'office', 'launch', 'slots', 'open', 'openFiles', 'session', 'desktops'])
+  static readonly CAPABILITIES: ReadonlySet<string> = new Set(['fs', 'terminal', 'network', 'office', 'launch', 'slots', 'open', 'openFiles', 'session', 'desktops'])
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
   static readonly #ICON_NAMES: ReadonlySet<string> = new Set(ICON_NAMES)
   static readonly #ICON_IMAGE = /^\/(?!\/)[^\s\0?#]*\.(svg|png)$/i
@@ -67,6 +67,7 @@ export class Manifest {
       if (!prefix.startsWith('/') || !prefix.endsWith('/')) errors.push(`assets ${JSON.stringify(prefix)}: a prefix is /…/`)
       for (const dir of dirs.filter((d) => !isDir(d))) errors.push(`assets ${JSON.stringify(prefix)}: no directory ${JSON.stringify(dir)}`)
     }
+    const services = new Set((manifest.services ?? []).map((service) => service.name))
     const seen = new Set<string>()
     for (const raw of apps) {
       const app = Manifest.app(raw)
@@ -85,7 +86,7 @@ export class Manifest {
         warnings.push(`${at}: icon ${JSON.stringify(app.icon)} is neither an icon name (${ICON_NAMES.join(', ')}) nor an image (.svg or .png) under the assets, such as /app/${app.id}/icon.svg`)
       }
       if (raw.heapMb !== undefined && Manifest.heapMb(raw.heapMb, 0) === 0) warnings.push(`${at}: heapMb below ${Manifest.MIN_HEAP_MB} is ignored (${Manifest.HEAP_MB} then)`)
-      for (const name of Object.keys(app.capabilities).filter((k) => !Manifest.CAPABILITIES.has(k))) {
+      for (const name of Object.keys(app.capabilities).filter((k) => !Manifest.CAPABILITIES.has(k) && !services.has(k))) {
         warnings.push(`${at}: capability ${JSON.stringify(name)} is not acde's: a desktop service of that name must be running`)
       }
     }
