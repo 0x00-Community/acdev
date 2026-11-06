@@ -22,6 +22,8 @@ pub fn exports<'s>(
     crate::methods!(scope, shell,
         "broker" => broker,
     );
+    let hosted = v8::Boolean::new(scope, true);
+    bind::set(scope, shell, "hosted", hosted.into());
     bind::set(scope, obj, "Shell", shell.into());
     obj.into()
 }

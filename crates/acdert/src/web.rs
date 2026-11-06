@@ -243,14 +243,6 @@ pub fn close_office(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-pub fn open_office(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    rv.set(bind::string(scope, "no office on this platform").into());
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn close_office(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {}
-
 pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let name = bind::arg_string(scope, &args, 0);
     let Some(init) = crate::host::serialize_value(scope, args.get(1)) else { return };

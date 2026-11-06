@@ -64,8 +64,9 @@ class Main {
   static readonly AUTOSTART_WAIT = 5000
   static readonly CLOSE_WAIT = 3000
 
-  static session(): boolean {
+  static session(native: Native): boolean {
     const { env } = process
+    if (native.Shell.hosted) return false
     if (env['ACDE_BACKEND'] === 'drm') return true
     if (env['ACDE_BACKEND'] === 'rdp') return false
     return !env['DISPLAY'] && !env['WAYLAND_DISPLAY']
@@ -240,14 +241,14 @@ class Main {
       Log.write(Level.Info, 'acde_host', `${desktop.id} chosen: handing the session over (${desktop.argv.join(' ')}), ${file}, exit ${WaylandSessions.HANDOFF_EXIT}`)
       return WaylandSessions.HANDOFF_EXIT
     }
-    if (Main.session() && !args.flag('greeter') && !standalone) Main.remember(desktop.id)
+    if (Main.session(native) && !args.flag('greeter') && !standalone) Main.remember(desktop.id)
     const [width, height] = (args.string('size') ?? '1440x900').split('x').map(Number) as [number, number]
     const scale = Number(args.string('scale') ?? '1')
     return Main.broker(native, args, packages, desktop, width, height, scale, standalone)
   }
 
   static async broker(native: Native, args: Args, packages: Packages, desktop: InstalledDesktop, width: number, height: number, scale: number, standalone: string | null): Promise<number> {
-    const session = Main.session(), greeter = args.flag('greeter')
+    const session = Main.session(native), greeter = args.flag('greeter')
     const fixed = Appearance.fixed()
     const broker = new Broker(native, {
       packages,
@@ -269,6 +270,7 @@ class Main {
     broker.startDesktop()
     Log.write(Level.Info, 'acde_host', `broker started, the desktop web is loading (${(performance.now() - started).toFixed(0)}ms)`)
     const shell = broker.shell
+    if (shell.hosted) Log.write(Level.Debug, 'acde_host', `host windows on ${process.platform}: not an acde session, so no fcitx5, AT-SPI, XDG autostart or session bus names`)
     if (session && !greeter) {
       try {
         shell.launch(['fcitx5', '-d', '--replace'])

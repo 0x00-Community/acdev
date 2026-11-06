@@ -91,7 +91,10 @@ acdert 是**一个**可执行文件, 在 Linux / Windows / macOS 上都能跑, �
 边框) 也用宿主的 (acde-host 的窗框 `frame.ts` 不加, 标题经 surface 的 `setTitle` 给原生窗口). 桌面是一个特殊的窗口 (window 0):
 它的大小就是「屏幕」(`output`, `ACDE_SIZE` 或主显示器的 90% × 85%, 最大 1440 × 900), 别的窗口的坐标相对它的内容区原点;
 桌面的面板 (`pin`: 菜单栏、Dock、弹出层) 画在桌面窗口里 (不开单独的窗口). 只支持通用的东西: Dopame OS 特有的
-(合成器、登录页、NetworkManager、fcitx5、AT-SPI、PipeWire、greetd、交出会话) 不注入, 也不模拟.
+(合成器、登录页、NetworkManager、fcitx5、AT-SPI、greetd、交出会话) 不注入, 也不模拟, 也不去试: 宿主窗口的 `native.Shell` 带
+`hosted: true`, acde-host `Main.session` 见到它就不算「自己的会话」(不管有没有 `DISPLAY` / `WAYLAND_DISPLAY`; macOS 上本来两个都
+没有), 于是不起 fcitx5、不开 AT-SPI、不跑 XDG autostart、不拿会话总线上的名字、不记登录选的桌面, 启动时只打一行 debug
+`host windows on <platform>: not an acde session, …`; 平台上根本没有的能力 (office、network 这些只在 Linux 编进去的) 不注入, 也不 warn.
 
 实现是 crates/hostwin (`acde-hostwin`): winit 开窗口、收输入, wgpu 的 surface 上屏 (macOS Metal, Windows DX12 / Vulkan, Linux
 Vulkan), 页面由 vello 画进一张 Rgba8 纹理再拷到 surface (layers 的滤镜和 backdrop 还没做, 按顺序直接画). 主线程跑 winit 的事件循环,
@@ -196,7 +199,8 @@ acdert (一个进程)                   同上的 runtime (Broker / desktop / �
      Rust sink, 第一次挂时才开始盯 PropertiesChanged). crates/acdert `network.rs` 绑成 `natives.network`, `watch` 的状态投回这个 web
      的事件循环. 连接活到 runtime 退出 (不在 drop 时关: 关了盯信号的线程退出时 zbus 会报 remove match rule 失败).
    - office: crates/runtime `OfficeService` (Document Server 的会话、令牌和桥接 socket, 一个 runtime 只能有一个, 文件走 web 共用的
-     `Workspace`). Broker 起服务时调 `sys.openOffice()` 开它 (失败的原因打一行 warn, 要 office 的应用就算不可用),
+     `Workspace`). Broker 起服务时调 `sys.openOffice()` 开它 (失败的原因打一行 warn, 要 office 的应用就算不可用; 只有 Linux 的
+     `sys` 有 `openOffice` / `closeOffice`, 别的平台不试, 只打一行 debug `office: none on <platform>`),
      结束时 `sys.closeOffice()`; napi `Office` 删了. crates/acdert `office.rs` 绑成 `natives.office` (server / state / status / save /
      new), web 的 `acde:office` 再加上 `editorPage` (`office.ts` 的 `OfficePage.write`, 纯 JS 写编辑页文件, 在 web 自己里跑).
    - 调用都在 crates/acdert `offload.rs`: 每次一条线程做阻塞的活, promise 在这个 web 的事件循环上落定; 失败是带 `code` (和 `status`)
@@ -1503,7 +1507,7 @@ acdert 的宿主代码, esbuild 打成 crates/acdert 跑的两个 ES 模块 (运
 
 | 文件 | 做什么 |
 | --- | --- |
-| `src/main.ts` | 命令行 (下面); 起 Broker、fcitx5 (自己的会话)、`--launch` 的程序、XDG autostart (desktop web 第一帧 (经 `page.shown`) 之后 300 ms, 5 秒兜底; 登录页上不起) |
+| `src/main.ts` | 命令行 (下面); 起 Broker、fcitx5 (自己的会话, 宿主窗口不算)、`--launch` 的程序、XDG autostart (desktop web 第一帧 (经 `page.shown`) 之后 300 ms, 5 秒兜底; 登录页上不起) |
 | `src/broker.ts` | 主线程: `Shell.broker()`、服务、窗口表、起 window web、关闭和崩溃、看门狗、重起 desktop web; 按清单检查每个调用 |
 | `src/bridge.ts`, `src/services.ts` | 给 web 的接口: runtime 的 `Finder` / `Office` / `Terminals` / `Network` (Terminals 和 Network 并行打开, 之后 Finder, 有它才开 Office; 打不开的去掉并在日志里说一行), 桌面包的服务 (按清单顺序挂上, 同名先到先得, acde 自己的名字保留) |
 | `src/packages.ts`, `src/apps.ts` | 包发现、桌面、应用清单、启动哪个桌面、会话项 |

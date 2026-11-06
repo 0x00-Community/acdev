@@ -3,6 +3,7 @@ import { sys } from './sys/natives'
 import type { InstalledDesktop } from './packages'
 import { DesktopServices } from './services'
 import { Level, Log } from './log'
+import { process } from './sys/process'
 
 export class PageBridge {
   readonly #closers: (() => unknown)[] = []
@@ -40,11 +41,12 @@ export class PageBridge {
     ])
     const fs = native.Finder ? await optional('fs', () => new native.Finder!()) : null
     if (fs) this.value['fs'] = fs
-    const failed = sys().openOffice()
+    const failed = sys().openOffice?.()
     if (failed === null) {
       this.#office = true
-      this.#closers.unshift(() => sys().closeOffice())
-    } else Log.write(Level.Warn, 'acde_host', `office unavailable: ${failed}`)
+      this.#closers.unshift(() => sys().closeOffice?.())
+    } else if (failed === undefined) Log.write(Level.Debug, 'acde_host', `office: none on ${process.platform}, apps that need it are unavailable`)
+    else Log.write(Level.Warn, 'acde_host', `office unavailable: ${failed}`)
     if (terminal) {
       this.value['terminal'] = terminal
       this.#closers.unshift(() => terminal.closeAll())

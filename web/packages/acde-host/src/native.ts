@@ -78,7 +78,7 @@ export interface NativeSurface {
 export type Shell = Pick<NativeSurface, 'setClipboard' | 'readClipboard'>
 
 export interface Native {
-  Shell: { broker(options?: { title?: string }): BrokerShell }
+  Shell: { broker(options?: { title?: string }): BrokerShell; readonly hosted?: boolean }
   Finder?: new () => object
   Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   Terminals?: new () => { closeAll(): void }

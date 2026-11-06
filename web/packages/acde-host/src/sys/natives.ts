@@ -44,8 +44,8 @@ export interface SysNative {
   write?(pid: number, text: string): boolean
   endInput?(pid: number): void
   spawnWeb(name: string, init: unknown, heapMb: number, env: Record<string, string>, onMessage: (message: unknown) => void, onExit: (code: number, reason: string | null) => void, grants: WebGrants): WebThreadHandle
-  openOffice(): string | null
-  closeOffice(): void
+  openOffice?(): string | null
+  closeOffice?(): void
 }
 
 export interface WebGrants {
