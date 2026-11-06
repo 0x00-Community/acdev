@@ -18,16 +18,11 @@ interface PointerOptions {
   readonly button?: number
   readonly modifiers?: Modifiers
   readonly target?: number | null
-  readonly pointerType?: string
-  readonly pointerId?: number
 }
 
 interface KeyOptions {
   readonly modifiers?: Modifiers
   readonly repeat?: boolean
-  readonly keyCode?: number
-  readonly location?: number
-  readonly isComposing?: boolean
 }
 
 const FOCUSABLE = 'a[href],area[href],button,input,select,textarea,iframe,summary,[tabindex],[contenteditable]'
@@ -77,7 +72,7 @@ export class Input {
 
   #init(x: number, y: number, options: PointerOptions, button = 0) {
     const movementX = x - this.#last.x, movementY = y - this.#last.y
-    return { clientX: x, clientY: y, screenX: x, screenY: y, movementX, movementY, button, buttons: this.#buttons, pointerId: options.pointerId ?? 1, pointerType: options.pointerType ?? 'mouse', isPrimary: true, width: 1, height: 1, pressure: this.#buttons ? 0.5 : 0, ...mods(options.modifiers) }
+    return { clientX: x, clientY: y, screenX: x, screenY: y, movementX, movementY, button, buttons: this.#buttons, pointerId: 1, pointerType: 'mouse', isPrimary: true, width: 1, height: 1, pressure: this.#buttons ? 0.5 : 0, ...mods(options.modifiers) }
   }
 
   #pointer(target: Element, type: string, init: Record<string, unknown>, detail = 0): boolean {
@@ -184,16 +179,16 @@ export class Input {
     if (count === 2) this.#fire(common, 'dblclick', { ...init, detail: 2 })
   }
 
-  wheel(x: number, y: number, deltaX: number, deltaY: number, options: PointerOptions & { deltaMode?: number } = {}): boolean {
+  wheel(x: number, y: number, deltaX: number, deltaY: number, options: PointerOptions = {}): boolean {
     const target = this.elementAt(options.target, x, y)
-    return this.#fire(target, 'wheel', { ...this.#init(x, y, options), deltaX, deltaY, deltaMode: options.deltaMode ?? 0 }, WheelEvent as never)
+    return this.#fire(target, 'wheel', { ...this.#init(x, y, options), deltaX, deltaY }, WheelEvent as never)
   }
 
   key(type: 'keydown' | 'keyup', key: string, code: string, options: KeyOptions = {}): boolean {
     focus.modality = 'keyboard'
     const target = focusedElement() ?? wrap<{ body: Element | null }>(documentId)!.body ?? this.elementAt(null, 0, 0)
-    const keyCode = options.keyCode ?? keyCodeOf(key)
-    const init = { key, code, keyCode, which: keyCode, repeat: !!options.repeat, location: options.location ?? 0, isComposing: !!options.isComposing, ...mods(options.modifiers) }
+    const keyCode = keyCodeOf(key)
+    const init = { key, code, keyCode, which: keyCode, repeat: !!options.repeat, ...mods(options.modifiers) }
     if (!this.#fire(target, type, init, KeyboardEvent as never)) return false
     if (type !== 'keydown') return true
     if (key === 'Tab' && !options.modifiers?.ctrl && !options.modifiers?.alt && !options.modifiers?.meta) {
