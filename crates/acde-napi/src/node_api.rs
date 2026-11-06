@@ -101,15 +101,9 @@ fn napi_create_buffer<'s>(env: &'s mut Env, length: usize, data: *mut *mut c_voi
         return napi_generic_failure;
     };
 
-    if !data.is_null() {
-        unsafe {
-            *data = get_array_buffer_ptr(ab);
-        }
-    }
+    put_opt!(data, get_array_buffer_ptr(ab));
 
-    unsafe {
-        *result = buffer.into();
-    }
+    put!(result, buffer.into());
 
     napi_ok
 }
@@ -134,9 +128,7 @@ fn napi_create_external_buffer<'s>(
         return napi_generic_failure;
     };
 
-    unsafe {
-        *result = buffer.into();
-    }
+    put!(result, buffer.into());
 
     napi_ok
 }
@@ -158,30 +150,15 @@ fn napi_create_buffer_copy<'s>(env: &'s mut Env, length: usize, data: *mut c_voi
         std::ptr::copy(data, ptr, length);
     }
 
-    if !result_data.is_null() {
-        unsafe {
-            *result_data = ptr;
-        }
-    }
+    put_opt!(result_data, ptr);
 
-    unsafe {
-        *result = buffer.into();
-    }
+    put!(result, buffer.into());
 
     napi_ok
 }
 
-#[napi_sym]
-fn napi_is_buffer(env: *mut Env, value: napi_value, result: *mut bool) -> napi_status {
-    let env = check_env!(env);
-    check_arg!(env, value);
-    check_arg!(env, result);
-
-    unsafe {
-        *result = value.unwrap().is_array_buffer_view();
-    }
-
-    napi_clear_last_error(env)
+napi_is! {
+    napi_is_buffer is_array_buffer_view;
 }
 
 #[napi_sym]
@@ -193,17 +170,9 @@ fn napi_get_buffer_info(env: *mut Env, value: napi_value, data: *mut *mut c_void
         return napi_set_last_error(env, napi_invalid_arg);
     };
 
-    if !data.is_null() {
-        unsafe {
-            *data = ta.data();
-        }
-    }
+    put_opt!(data, ta.data());
 
-    if !length.is_null() {
-        unsafe {
-            *length = ta.byte_length();
-        }
-    }
+    put_opt!(length, ta.byte_length());
 
     napi_clear_last_error(env)
 }
@@ -215,9 +184,7 @@ fn napi_get_node_version(env: *mut Env, result: *mut *const napi_node_version) -
 
     const NODE_VERSION: napi_node_version = napi_node_version { major: 24, minor: 0, patch: 0, release: c"acde".as_ptr() };
 
-    unsafe {
-        *result = &NODE_VERSION as *const napi_node_version;
-    }
+    put!(result, &NODE_VERSION as *const napi_node_version);
 
     napi_clear_last_error(env)
 }
@@ -273,9 +240,7 @@ pub(crate) fn napi_create_async_work(
 
     let work = Box::new(AsyncWork { state: AtomicU8::new(AsyncWork::IDLE), env: env_ptr, execute: execute.unwrap(), complete, data });
 
-    unsafe {
-        *result = Box::into_raw(work) as _;
-    }
+    put!(result, Box::into_raw(work) as _);
 
     napi_clear_last_error(env)
 }
@@ -570,9 +535,7 @@ fn napi_create_threadsafe_function(
 
     tsfn.ref_();
 
-    unsafe {
-        *result = Box::into_raw(tsfn) as _;
-    }
+    put!(result, Box::into_raw(tsfn) as _);
 
     napi_clear_last_error(env)
 }

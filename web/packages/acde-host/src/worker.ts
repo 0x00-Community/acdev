@@ -12,10 +12,10 @@ import { PageCalls, type FolderPicker } from './pagecalls'
 import { PageInspect } from './pageinspect'
 import { Pinned } from './pinned'
 import { RemoteBridge, WindowList, WindowSelf } from './remote'
-import { Rpc, type RpcPort } from './rpc'
+import { Rpc } from './rpc'
 import { StorageFile } from './storage'
 import { OfficePage } from './office'
-import { readFileSync } from './sys/fs'
+import { readFileSync, readTextOr } from './sys/fs'
 import { bindNatives, type Natives } from './sys/natives'
 import { process } from './sys/process'
 import { StartupTimeline } from './timeline'
@@ -43,11 +43,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
   bindNatives(natives)
   const { host, port, init } = natives
   Host.label = init.name
-  const listeners: ((message: unknown) => void)[] = []
-  port.onMessage((message) => {
-    for (const listener of listeners) listener(message)
-  })
-  const brokerPort: RpcPort = { postMessage: (message) => port.post(message), on: (_event, listener) => listeners.push(listener) }
 
   const dom = natives.createDocument(init.width, init.height, init.scale, { resources: init.resources, reducedMotion: init.reducedMotion === true, dark: init.dark === true })
   const surface = natives.claimSurface(init.token, { frame: init.kind === 'window' ? Frame.height(init.app) : 0 })
@@ -66,7 +61,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const page = install(globalThis, dom, host, {
     url: (htmlEntry ? init.url : undefined) ?? `${PageSource.ORIGIN}/`,
     ...init.languages,
-    reducedMotion: init.reducedMotion === true,
     localStorage: storage?.read() ?? null,
     onStorageChange: storage ? (entries) => storage.changed(entries) : undefined,
     gpu: natives.gpu,
@@ -79,7 +73,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     else page.reportError(error)
   })
 
-  const rpc = new Rpc(brokerPort)
+  const rpc = new Rpc((message) => port.post(message))
   const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null) : null
   const windows = new WindowList(rpc)
   const bridge = new RemoteBridge(rpc, init, self, windows)
@@ -95,15 +89,23 @@ export default async function boot(natives: WebNatives): Promise<void> {
     if (service === 'debug' && method === 'stats' && debug) return dom.stats(Boolean(args[0]))
     throw new Error(`${init.name} serves no ${service}.${method}`)
   })
-  listeners.push((message) => {
-    if (Rpc.handles(message)) return
-    const m = message as { type?: string; events?: unknown[]; dark?: boolean; language?: string; languages?: string[]; width?: number; height?: number }
-    if (m.type === 'events' && Array.isArray(m.events)) web.deliver(m.events as never)
-    if (m.type === 'screen' && m.width && m.height) page.setScreen({ width: m.width, height: m.height })
-    if (m.type === 'languages') page.setLanguages({ language: m.language, languages: m.languages })
-    if (m.type === 'colorscheme') {
-      dom.setDark?.(m.dark === true)
-      page.mediaChanged()
+  let devhot = (): void => {}
+  port.onMessage((message) => {
+    if (rpc.receive(message)) return
+    const m = message as { type?: string; dark?: boolean; language?: string; languages?: string[]; width?: number; height?: number }
+    switch (m.type) {
+      case 'screen':
+        if (m.width && m.height) page.setScreen({ width: m.width, height: m.height })
+        return
+      case 'languages':
+        return page.setLanguages({ language: m.language, languages: m.languages })
+      case 'colorscheme':
+        dom.setDark?.(m.dark === true)
+        return page.mediaChanged()
+      case 'devhot':
+        return devhot()
+      default:
+        web.deliver([m] as never)
     }
   })
   if (self) {
@@ -146,17 +148,12 @@ export default async function boot(natives: WebNatives): Promise<void> {
         read: (src) => {
           const path = new URL(src, PageSource.ORIGIN).pathname
           const file = PageSource.file(path, init.resources ?? [])
-          try {
-            return file ? readFileSync(file, 'utf8') : null
-          } catch {
-            return null
-          }
+          return file ? readTextOr(file, null) : null
         },
         liveEdit: (url, source) => (host.liveEdit ? host.liveEdit(url, source) : 'no live edit here'),
       }, html)
     : null
-  listeners.push((message) => {
-    if ((message as { type?: string }).type !== 'devhot') return
+  devhot = () => {
     let why: string | null = 'no page source to reread'
     try {
       if (hot && reread) why = hot.apply(reread())
@@ -165,7 +162,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     }
     Log.write(Level.Info, 'acde_host', `[${init.name}] acde dev: ${why === null ? 'hot swapped in place' : `reloading (${why})`}`)
     if (why !== null) void rpc.call('page', 'devreload').catch(() => undefined)
-  })
+  }
   title(page.window.document.title ?? '')
   if (self) self.onTitle = title
   if (app) app.onTitle = title

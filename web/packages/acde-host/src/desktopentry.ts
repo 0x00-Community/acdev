@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, stat } from './sys/fs'
+import { readDirOr, readTextOr, stat } from './sys/fs'
 import { isAbsolute, join } from './sys/path'
 import { process } from './sys/process'
 
@@ -44,30 +44,31 @@ export class DesktopEntry {
   }
 
   static read(file: string): DesktopEntry | null {
-    try {
-      return new DesktopEntry(file, readFileSync(file, 'utf8'))
-    } catch {
-      return null
-    }
+    const text = readTextOr(file, null)
+    return text === null ? null : new DesktopEntry(file, text)
   }
 
   static files(dirs: readonly string[]): { name: string; file: string }[] {
     const seen = new Set<string>()
     const out: { name: string; file: string }[] = []
     for (const dir of dirs) {
-      let names: string[]
-      try {
-        names = readdirSync(dir).filter((name) => name.endsWith('.desktop')).sort()
-      } catch {
-        continue
-      }
-      for (const name of names) {
+      for (const name of readDirOr(dir).filter((name) => name.endsWith('.desktop')).sort()) {
         if (seen.has(name)) continue
         seen.add(name)
         out.push({ name, file: join(dir, name) })
       }
     }
     return out
+  }
+
+  shownIn(desktops: readonly string[]): boolean {
+    const only = this.list('OnlyShowIn')
+    return (!only.length || only.some((d) => desktops.includes(d))) && !this.list('NotShowIn').some((d) => desktops.includes(d))
+  }
+
+  runnable(): string[] | null {
+    const tryExec = this.string('TryExec')
+    return tryExec && !DesktopEntry.executable(tryExec) ? null : this.exec()
   }
 
   get application(): boolean {

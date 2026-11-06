@@ -1,7 +1,6 @@
-import { readFileSync } from './sys/fs'
+import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
-import { WebThread } from './sys/worker'
-import type { WebGrants } from './sys/natives'
+import { sys, type WebGrants, type WebThreadHandle } from './sys/natives'
 import { AppRegistry, type AppManifest, type Capabilities } from './apps'
 import { AppBackends } from './backend'
 import { Crashes } from './crashes'
@@ -57,7 +56,7 @@ export interface WebInfo {
   readonly title: string
 }
 
-export interface ShellWindow {
+interface ShellWindow {
   readonly id: number
   readonly window?: number
   readonly canvas: number
@@ -139,13 +138,19 @@ class Web {
   closing = false
   reloading = false
   readonly owns = new Map<number, number>()
+  readonly thread: WebThreadHandle
+  readonly #exited: Promise<number>
 
-  constructor(readonly kind: 'desktop' | 'window', readonly name: string, readonly window: number, readonly worker: WebThread, readonly app: AppManifest | null) {
-    this.rpc = new Rpc(worker)
+  constructor(readonly kind: 'desktop' | 'window', readonly name: string, readonly window: number, readonly app: AppManifest | null, spawn: (onMessage: (message: unknown) => void, onExit: (code: number) => void) => WebThreadHandle) {
+    let exit!: (code: number) => void
+    this.#exited = new Promise((resolve) => (exit = resolve))
+    this.rpc = new Rpc((message) => this.thread.post(message))
+    this.thread = spawn((message) => this.rpc.receive(message), exit)
   }
 
-  post(message: unknown): void {
-    this.worker.postMessage(message)
+  terminate(): Promise<number> {
+    this.thread.terminate()
+    return this.#exited
   }
 }
 
@@ -180,7 +185,7 @@ export class Broker {
   readonly natives = new NativeApps()
   readonly session = new DesktopSession()
   readonly language = new SessionLanguage((languages) => {
-    for (const web of this.#webs()) web.post({ type: 'languages', ...languages })
+    for (const web of this.#webs()) web.thread.post({ type: 'languages', ...languages })
   })
   readonly backends: AppBackends
   readonly inspect: Inspect
@@ -280,7 +285,7 @@ export class Broker {
     if (this.#dark === dark) return
     this.#dark = dark
     Log.write(Level.Info, 'acde_host', `color scheme: ${dark ? 'dark' : 'light'}`)
-    for (const web of this.#webs()) web.post({ type: 'colorscheme', dark })
+    for (const web of this.#webs()) web.thread.post({ type: 'colorscheme', dark })
   }
 
   #events(): Promise<void> {
@@ -323,13 +328,7 @@ export class Broker {
       if (next.kind === 'session') return this.session.handOff(next)
       if (next.id === this.#current.id) return
       Log.write(Level.Info, 'acde_host', `switching to desktop ${next.id}`)
-      const old = this.#desktop
-      if (old) old.closing = true
-      this.#desktop = null
-      await old?.worker.terminate().catch(() => 0)
-      this.#current = next
-      await this.bridge.startDesktop(next, this.native)
-      this.startDesktop()
+      await this.#replaceDesktop(this.#desktop, next)
     },
   }
 
@@ -362,7 +361,7 @@ export class Broker {
     for (const web of webs) web.closing = true
     this.#keepPlaces()
     this.#desktop = null
-    await Promise.all([...webs.map((web) => web.worker.terminate().catch(() => 0)), this.backends.stopAll()])
+    await Promise.all([...webs.map((web) => web.terminate().catch(() => 0)), this.backends.stopAll()])
     await this.bridge.close()
   }
 
@@ -430,8 +429,13 @@ export class Broker {
   }
 
   #spawn(init: WebInit, heapMb: number): Web {
-    const worker = new WebThread({ name: init.name, init, env: { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }, heapMb, grants: Broker.#grants(init.app?.id ?? null, init.app?.capabilities ?? null), onExit: (code, reason) => this.#exited(web, code, reason) })
-    const web = new Web(init.kind, init.name, init.window, worker, init.app ?? null)
+    const env = { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }
+    const grants = Broker.#grants(init.app?.id ?? null, init.app?.capabilities ?? null)
+    const web: Web = new Web(init.kind, init.name, init.window, init.app ?? null, (onMessage, exit) =>
+      sys().spawnWeb(init.name, init, heapMb, env, onMessage, (code, reason) => {
+        this.#exited(web, code, reason)
+        exit(code)
+      }, grants))
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     return web
   }
@@ -453,11 +457,7 @@ export class Broker {
     const id = this.#current.id
     let theme = this.#themes.get(id)
     if (theme === undefined) {
-      try {
-        theme = /:root\s*\{[^}]*\}/.exec(readFileSync(this.#current.html, 'utf8'))?.[0] ?? ''
-      } catch {
-        theme = ''
-      }
+      theme = /:root\s*\{[^}]*\}/.exec(readTextOr(this.#current.html, ''))?.[0] ?? ''
       this.#themes.set(id, theme)
     }
     return theme
@@ -545,7 +545,7 @@ export class Broker {
   #watch(): void {
     for (const web of this.#webs()) {
       if (web.closing) continue
-      const busy = web.worker.busyMs() >= Broker.HANG_MS
+      const busy = web.thread.busyMs() >= Broker.HANG_MS
       if (web.hung && !busy) {
         web.hung = false
         this.#toDesktop({ type: 'windowresponsive', window: web.window })
@@ -569,7 +569,7 @@ export class Broker {
           const was = this.#screen()
           this.#output = { width: event.width, height: event.height, scale: event.scale ?? this.#output.scale }
           const screen = this.#screen()
-          if (screen.width !== was.width || screen.height !== was.height) for (const web of this.#webs()) web.post({ type: 'screen', ...screen })
+          if (screen.width !== was.width || screen.height !== was.height) for (const web of this.#webs()) web.thread.post({ type: 'screen', ...screen })
         }
         return
       case 'milestone':
@@ -577,7 +577,7 @@ export class Broker {
       case 'shortcut': {
         const owner = event.window === undefined ? undefined : this.#windows.get(event.window)
         const to = event.title === 'app' && owner?.web ? owner.web : this.#desktop
-        return to?.post({ type: 'events', events: [event] })
+        return to?.thread.post(event)
       }
       case 'devreload':
         return void this.devReload(event.key ?? null, event.title === 'hot').catch((error: Error) => Log.write(Level.Error, 'acde_host', `acde dev: reload: ${error.message}`))
@@ -606,7 +606,7 @@ export class Broker {
       this.#windows.set(event.window, opened)
       if (claim) {
         claim.web.owns.set(event.window, claim.pid)
-        return claim.web.post({ type: 'events', events: [event] })
+        return claim.web.thread.post(event)
       }
       return this.#toDesktop(event)
     }
@@ -619,7 +619,7 @@ export class Broker {
       this.#windows.delete(event.window)
       record.owner?.owns.delete(event.window)
     }
-    if (record.owner) record.owner.post({ type: 'events', events: [event] })
+    if (record.owner) record.owner.thread.post(event)
     else this.#toDesktop(event)
   }
 
@@ -645,7 +645,7 @@ export class Broker {
   }
 
   #toDesktop(event: Record<string, unknown> | RawShellEvent): void {
-    this.#desktop?.post({ type: 'events', events: [event] })
+    this.#desktop?.thread.post(event)
   }
 
   #announce(record: WindowRecord): void {
@@ -721,7 +721,7 @@ export class Broker {
   async devReload(app: string | null, hot = false): Promise<void> {
     if (hot) {
       const webs = app ? [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app).map((r) => r.web) : [this.#desktop]
-      for (const web of webs) web?.post({ type: 'devhot' })
+      for (const web of webs) web?.thread.post({ type: 'devhot' })
       return
     }
     if (app) {
@@ -736,16 +736,19 @@ export class Broker {
     const old = this.#desktop
     const state = await Broker.#snapshot(old)
     if (state) this.#devStates.set('', state)
+    await this.#replaceDesktop(old)
+  }
+
+  async #replaceDesktop(old: Web | null, next?: InstalledDesktop): Promise<void> {
     if (old) old.closing = true
     this.#desktop = null
-    await old?.worker.terminate().catch(() => 0)
+    await old?.terminate().catch(() => 0)
+    if (next) await this.bridge.startDesktop((this.#current = next), this.native)
     this.startDesktop()
   }
 
   static async #snapshot(web: Web | null): Promise<unknown> {
-    if (!web || web.closing) return null
-    const timeout = new Promise<null>((resolve) => unref(setTimeout(() => resolve(null), Broker.DEV_STATE_MS)))
-    return Promise.race([web.rpc.call('dev', 'state', []).catch(() => null), timeout])
+    return !web || web.closing ? null : within(web.rpc.call('dev', 'state', []).catch(() => null), Broker.DEV_STATE_MS, null)
   }
 
   #takeDevState(key: string): unknown {
@@ -764,7 +767,7 @@ export class Broker {
     }
     if (web) {
       web.closing = true
-      await web.worker.terminate()
+      await web.terminate()
     } else {
       this.#forget(record)
     }
@@ -859,7 +862,6 @@ export class Broker {
       return call(...args)
     }
     if (caps && !this.#allowed(caps, service)) throw Broker.#refused(web, `acde.${service}`)
-    if (Broker.#LOCAL.has(service)) throw new Error(`acde.${service} is bound in the web itself, not served by the Broker`)
     const target = this.bridge.value[service] as Record<string, (...a: unknown[]) => unknown> | ((...a: unknown[]) => unknown) | undefined
     if (!target) throw Object.assign(new Error(`acde.${service} is not running`), { status: 503 })
     if (method === '' && typeof target === 'function') return target(...args)
@@ -980,7 +982,7 @@ export class Broker {
         if (url !== null && !url.startsWith(`${PageSource.ORIGIN}/`)) return false
         if (url !== null) record.url = url
         web.reloading = true
-        void web.worker.terminate().catch(() => 0)
+        void web.terminate().catch(() => 0)
         return true
       }
       case 'openUrl': {
@@ -1060,12 +1062,8 @@ export class Broker {
   #chooser: Promise<NativeFileChooser | null> | null = null
   #chooserWarned = false
 
-  debugEval(name: string, code: string): Promise<unknown> {
-    try {
-      return this.#web(name).rpc.call('debug', 'eval', [code])
-    } catch (error) {
-      return Promise.reject(error)
-    }
+  async debugEval(name: string, code: string): Promise<unknown> {
+    return this.#web(name).rpc.call('debug', 'eval', [code])
   }
 
   webs(): WebInfo[] {
@@ -1147,7 +1145,7 @@ export class Broker {
   async debugStats(reset = false): Promise<Record<string, unknown>> {
     const webs = this.#webs()
     const stats = await Promise.all(webs.map((w) => w.rpc.call('debug', 'stats', [reset]).catch((e: Error) => ({ error: e.message }))))
-    return Object.fromEntries(webs.map((w, i) => [w.name, { ...(stats[i] as object), cpuMs: w.worker.cpuMs() }]))
+    return Object.fromEntries(webs.map((w, i) => [w.name, { ...(stats[i] as object), cpuMs: w.thread.cpuMs() }]))
   }
 
   get windows(): { id: number; kind: string; app: string | null; title: string | null; running: boolean }[] {

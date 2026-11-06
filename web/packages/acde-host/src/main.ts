@@ -8,7 +8,7 @@ import { WaylandSessions } from './foreign'
 import { DesktopEntries } from './open'
 import { Packages, type InstalledDesktop } from './packages'
 import { AppRegistry } from './apps'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from './sys/fs'
+import { mkdirSync, readFileSync, writeFileSync } from './sys/fs'
 import { bindNatives, type Natives } from './sys/natives'
 import { xdgHome } from './sys/os'
 import { dirname, join, resolve } from './sys/path'
@@ -124,29 +124,7 @@ class Main {
   static storageFile(desktop: string): string | null {
     const set = process.env['ACDE_STORAGE']
     if (set !== undefined) return set || null
-    const dir = join(xdgHome('config'), 'acde', 'storage')
-    const file = join(dir, `${desktop}.json`)
-    for (const [before, now] of Object.entries(Packages.RENAMED)) {
-      const old = join(dir, `${before}.json`)
-      if (now !== desktop || existsSync(file) || !existsSync(old)) continue
-      try {
-        renameSync(old, file)
-        Log.write(Level.Info, 'acde_host', `desktop ${before} is now ${now}: its page storage moved to ${file}`)
-      } catch (error) {
-        Log.write(Level.Warn, 'acde_host', `desktop ${before} is now ${now}: ${old} not moved: ${(error as Error).message}`)
-      }
-    }
-    return file
-  }
-
-  static remember(id: string): void {
-    const file = Packages.rememberFile()
-    try {
-      if (existsSync(file) && readFileSync(file, 'utf8').trim() === id) return
-      Packages.remember(id)
-    } catch (error) {
-      Log.write(Level.Warn, 'acde_host', `${file} not written: ${(error as Error).message}`)
-    }
+    return join(xdgHome('config'), 'acde', 'storage', `${desktop}.json`)
   }
 
   static async open(native: Native, argv: string[]): Promise<number> {
@@ -241,7 +219,13 @@ class Main {
       Log.write(Level.Info, 'acde_host', `${desktop.id} chosen: handing the session over (${desktop.argv.join(' ')}), ${file}, exit ${WaylandSessions.HANDOFF_EXIT}`)
       return WaylandSessions.HANDOFF_EXIT
     }
-    if (Main.session(native) && !args.flag('greeter') && !standalone) Main.remember(desktop.id)
+    if (Main.session(native) && !args.flag('greeter') && !standalone) {
+      try {
+        Packages.remember(desktop.id)
+      } catch (error) {
+        Log.write(Level.Warn, 'acde_host', `${Packages.rememberFile()} not written: ${(error as Error).message}`)
+      }
+    }
     const [width, height] = (args.string('size') ?? '1440x900').split('x').map(Number) as [number, number]
     const scale = Number(args.string('scale') ?? '1')
     return Main.broker(native, args, packages, desktop, width, height, scale, standalone)

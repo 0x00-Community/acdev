@@ -5,6 +5,42 @@
 #![allow(clippy::undocumented_unsafe_blocks, reason = "pervasive FFI unsafe blocks throughout NAPI implementation")]
 #![allow(clippy::missing_safety_doc, reason = "Node-API entry points, called by addons")]
 
+macro_rules! put {
+    ($ptr:expr, $value:expr) => {
+        unsafe { *$ptr = $value }
+    };
+}
+
+macro_rules! put_opt {
+    ($ptr:expr, $value:expr) => {
+        if !$ptr.is_null() {
+            put!($ptr, $value)
+        }
+    };
+}
+
+macro_rules! object {
+    ($scope:expr, $value:expr) => {
+        match $value.and_then(|o| o.to_object($scope)) {
+            Some(object) => object,
+            None => return napi_object_expected,
+        }
+    };
+}
+
+macro_rules! napi_is {
+    ($($name:ident $test:ident;)*) => {$(
+        #[napi_sym]
+        fn $name(env: *mut Env, value: napi_value, result: *mut bool) -> napi_status {
+            let env = check_env!(env);
+            check_arg!(env, value);
+            check_arg!(env, result);
+            put!(result, value.unwrap().$test());
+            napi_clear_last_error(env)
+        }
+    )*};
+}
+
 pub mod js_native_api;
 pub mod node_api;
 pub mod util;
@@ -98,18 +134,9 @@ pub const napi_array_expected: napi_status = 8;
 pub const napi_generic_failure: napi_status = 9;
 pub const napi_pending_exception: napi_status = 10;
 pub const napi_cancelled: napi_status = 11;
-pub const napi_escape_called_twice: napi_status = 12;
-pub const napi_handle_scope_mismatch: napi_status = 13;
-pub const napi_callback_scope_mismatch: napi_status = 14;
 pub const napi_queue_full: napi_status = 15;
 pub const napi_closing: napi_status = 16;
 pub const napi_bigint_expected: napi_status = 17;
-pub const napi_date_expected: napi_status = 18;
-pub const napi_arraybuffer_expected: napi_status = 19;
-pub const napi_detachable_arraybuffer_expected: napi_status = 20;
-pub const napi_would_deadlock: napi_status = 21;
-pub const napi_no_external_buffers_allowed: napi_status = 22;
-pub const napi_cannot_run_js: napi_status = 23;
 
 pub static ERROR_MESSAGES: &[&CStr] = &[
     c"",

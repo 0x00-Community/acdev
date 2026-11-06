@@ -1,10 +1,5 @@
 import { Level, Log } from './log'
 
-export interface RpcPort {
-  postMessage(message: unknown): void
-  on(event: 'message', listener: (message: unknown) => void): unknown
-}
-
 type RpcMessage =
   | { rpc: 'call'; id: number; service: string; method: string; args: unknown[]; refs?: true }
   | { rpc: 'result'; id: number; value?: unknown; error?: RemoteError; refs?: true }
@@ -23,22 +18,25 @@ const PERF = 'perf::rpc'
 type RpcServer = (service: string, method: string, args: unknown[]) => unknown
 
 export class Rpc {
-  readonly #port: RpcPort
+  readonly #post: (message: RpcMessage) => void
   #next = 1
   readonly #pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timed?: [string, number] }>()
   readonly #functions = new Map<number, (...args: unknown[]) => unknown>()
   readonly #held = new FinalizationRegistry<number>((fn) => this.#post({ rpc: 'release', fn }))
   #server: RpcServer | null = null
 
-  constructor(port: RpcPort) {
-    this.#port = port
-    port.on('message', (message) => {
-      if (Rpc.handles(message)) void this.#receive(message as RpcMessage)
-    })
+  constructor(post: (message: unknown) => void) {
+    this.#post = post
   }
 
-  static handles(message: unknown): boolean {
-    return typeof message === 'object' && message !== null && 'rpc' in message
+  receive(message: unknown): boolean {
+    if (typeof message !== 'object' || message === null || !('rpc' in message)) return false
+    void this.#receive(message as RpcMessage)
+    return true
+  }
+
+  static calls<const N extends string>(rpc: () => Rpc, service: string, ...names: N[]): Record<N, (...args: unknown[]) => Promise<unknown>> {
+    return Object.fromEntries(names.map((name) => [name, (...args: unknown[]) => rpc().call(service, name, args)])) as Record<N, (...args: unknown[]) => Promise<unknown>>
   }
 
   serve(server: RpcServer): void {
@@ -94,10 +92,6 @@ export class Rpc {
     } catch (error) {
       this.#post({ rpc: 'result', id: message.id, error: Rpc.#remote(error) })
     }
-  }
-
-  #post(message: RpcMessage): void {
-    this.#port.postMessage(message)
   }
 
   #out(value: unknown): unknown {

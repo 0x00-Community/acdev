@@ -2,7 +2,7 @@ import type { AppMenu, NativeWindow, WindowApp, WindowEdge, WindowEventName, Win
 import type { ServiceShape, WebInit, WireMenu } from './broker'
 import { Level, Log } from './log'
 import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
-import type { Rpc } from './rpc'
+import { Rpc } from './rpc'
 
 class Notices {
   readonly #handlers = new Map<string, Set<(detail: unknown) => void>>()
@@ -110,9 +110,7 @@ export class WindowSelf {
     mount: (app: WindowApp) => this.#mount(app),
     setTitle: this.host.setTitle,
     setMenus: this.host.setMenus,
-    close: () => this.#rpc.call('window', 'close'),
-    minimize: () => this.#rpc.call('window', 'minimize'),
-    requestAttention: () => this.#rpc.call('window', 'requestAttention'),
+    ...Rpc.calls(() => this.#rpc, 'window', 'close', 'minimize', 'requestAttention', 'shortcut', 'unshortcut'),
     requestMode: (mode: WindowMode) => this.#surface.requestMode(mode),
     setGrabHint: (rect: WindowRect, edges: readonly WindowEdge[] = []) =>
       this.#surface.setGrabHint(rect.x, rect.y, rect.width, rect.height, edges.reduce((bits, e) => bits | WindowSelf.#EDGES[e], 0)),
@@ -122,8 +120,6 @@ export class WindowSelf {
     },
     requestActivate: () => this.#surface.requestActivate(),
     requestGrab: (kind: 'pointer' | 'keyboard') => this.#surface.requestGrab(kind),
-    shortcut: (combo: string) => this.#rpc.call('window', 'shortcut', [combo]),
-    unshortcut: (combo: string) => this.#rpc.call('window', 'unshortcut', [combo]),
     releaseGrab: (kind: 'pointer' | 'keyboard') => this.#surface.releaseGrab(kind),
     on: (name: WindowEventName, handler: (value?: unknown) => unknown) => {
       const set = this.#handlers.get(name) ?? new Set()
@@ -194,39 +190,12 @@ export class RemoteBridge {
   constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList) {
     this.#rpc = rpc
     for (const [service, shape] of Object.entries(init.services)) this.value[service] = this.#proxy(service, shape)
-    const apps = {
-      list: () => rpc.call('apps', 'list'),
-      launch: (app: string, request?: Record<string, unknown>) => rpc.call('apps', 'launch', [app, request ?? null]),
-      open: (app: string, request?: Record<string, unknown>) => rpc.call('apps', 'open', [app, request ?? null]),
-    }
-    const files = {
-      openPath: (path: string, options?: { app?: string; select?: boolean }) => rpc.call('apps', 'openPath', [path, options ?? {}]),
-      handlers: (path: string) => rpc.call('apps', 'handlers', [path]),
-      setDefault: (mime: string, handler: string) => rpc.call('apps', 'setDefault', [mime, handler]),
-    }
+    const apps = Rpc.calls(() => rpc, 'apps', 'list', 'launch', 'open')
+    const files = Rpc.calls(() => rpc, 'apps', 'openPath', 'handlers', 'setDefault')
     if (init.kind === 'desktop') {
-      this.value['apps'] = {
-        ...apps,
-        ...files,
-        on: windows.notices.for('apps', ['changed']),
-        refresh: () => rpc.call('apps', 'refresh'),
-        install: (dir: string) => rpc.call('apps', 'install', [dir]),
-        natives: () => rpc.call('apps', 'natives'),
-        runNative: (id: string) => rpc.call('apps', 'runNative', [id]),
-      }
+      this.value['apps'] = { ...apps, ...files, ...Rpc.calls(() => rpc, 'apps', 'refresh', 'install', 'natives', 'runNative'), on: windows.notices.for('apps', ['changed']) }
       this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification', 'screenshot', 'shortcut']) }
-      this.value['windows'] = {
-        ...windows.api,
-        kill: (id: number) => rpc.call('windows', 'kill', [id]),
-        focus: (id: number) => rpc.call('windows', 'focus', [id]),
-        hide: (id: number) => rpc.call('windows', 'hide', [id]),
-        show: (id: number) => rpc.call('windows', 'show', [id]),
-        invokeMenu: (id: number, menu: string, item: string) => rpc.call('windows', 'invokeMenu', [id, menu, item]),
-        stats: () => rpc.call('windows', 'stats'),
-        animate: (id: number, options: Record<string, unknown>) => rpc.call('windows', 'animate', [id, options]),
-        shortcut: (combo: string, scope: 'session' | 'desktop' = 'desktop') => rpc.call('windows', 'shortcut', [combo, scope]),
-        unshortcut: (combo: string, scope: 'session' | 'desktop' = 'desktop') => rpc.call('windows', 'unshortcut', [combo, scope]),
-      }
+      this.value['windows'] = { ...windows.api, ...Rpc.calls(() => rpc, 'windows', 'kill', 'focus', 'hide', 'show', 'invokeMenu', 'stats', 'animate', 'shortcut', 'unshortcut') }
     } else {
       this.value['windows'] = windows.api
       this.value['open'] = apps.open
