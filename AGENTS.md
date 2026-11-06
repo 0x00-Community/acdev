@@ -172,6 +172,18 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   `Bun.listen` / `export default {fetch}` / `net`、`http`、`https`、`tls`、`http2` 的 `listen(P)` 都换成
   `<sockets>/P.sock`), 清单 `package.json`; `acde install` 装进 `$XDG_DATA_HOME/acde/packages/<id>`; `acde dev`
   再 `acdert app <id>`. 开发时在 bun 下跑后端源码也用同一个 preload (`bun --preload <acde>/src/listen.ts server.ts`).
+- **`public/`** (`Project.#public`, Bun.build 的插件 `acde-public`): `public` 目录 (配置的 `public`) 原样复制进工程自己的应用的
+  `web/` 和桌面页的 `desktop/` (桌面里的应用不复制). 以 `/` 开头的引用落到 public 里时:
+  - HTML 里的 (`<link rel="icon" href="/favicon.svg">`): 照常打包 (带 hash 的文件名, `/app/<id>/` 下).
+  - CSS 的 `url(/fonts/x.woff2)` (像 Vite: public 里的文件按根路径引用): 工程自己的应用 (HTML 入口) 原样留着这个 URL —— 运行时
+    应用目录也挂在 `/` 下 (acdert「网页应用」), public 已经复制进 `web/`; 桌面页、桌面里的应用和模块入口的应用不挂在 `/` 下,
+    这时照打包处理 (Bun 1.4 把 CSS 引用的资源都内联成 `data:` URL).
+  - 哪儿都没有 (public 里没有, 也不是磁盘上的绝对路径) 时构建失败, 说清楚是哪个文件里的哪个 URL、public 里缺哪个文件
+    (`/fonts/x.woff2 in src/style.css: there is no public/fonts/x.woff2 (a URL starting with / is a file in public/)`).
+  Bun 1.4.0 的毛病 (不是 acde 的): 同一个资源同时被 HTML (`<img src="./a.svg">`) 和 CSS (`url(./a.svg)`) 引用时, CSS 里内联了,
+  HTML 里的引用原样留下、文件也不出, 运行时那张图是坏的; 测试的 fixture 因此让 HTML 和 CSS 引用不同的文件.
+  验过 (macOS, 2026-11-06): fixture `test/fixtures/app` 的 `src/style.css` 用 `url('/fonts/fixture.woff2')`, 构建出的 CSS 里还是这个
+  URL、`web/fonts/fixture.woff2` 在; 桌面工程里桌面页和它的应用引用 `url(/wall.svg)` 都打包了; 不存在的文件报上面的错 (`bun test`).
 
 ## acde dev (`src/dev.ts`)
 

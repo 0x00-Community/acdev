@@ -1,1 +1,2 @@
-h1.ready { background: url(./logo.svg) no-repeat right / 1em; font: 600 24px system-ui; }
+@font-face { font-family: Fixture; src: url('/fonts/fixture.woff2') format('woff2'); }
+h1.ready { background: url(./mark.svg) no-repeat right / 1em; font: 600 24px Fixture, system-ui; }

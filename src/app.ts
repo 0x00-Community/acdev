@@ -1,6 +1,6 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { AcdeConfig, AppConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
 import acdeVite from '@dopame/acde-api/vite'
 import { Frameworks, type Output } from './frameworks.ts'
@@ -260,11 +260,7 @@ export class Project {
           {
             name: 'acde-public',
             setup: (build) => {
-              build.onResolve({ filter: /^\// }, (args) => {
-                if (existsSync(args.path) || !args.path.startsWith(this.dir + '/')) return undefined
-                const file = join(publicDir, relative(this.dir, args.path))
-                return existsSync(file) ? { path: file } : undefined
-              })
+              build.onResolve({ filter: /^(?:\/|[A-Za-z]:[\\/])/ }, (args) => this.#public(args.path, args.importer, publicDir, own && html && this.config.type === 'app'))
             },
           },
         ],
@@ -276,6 +272,19 @@ export class Project {
     }
     if (own && existsSync(publicDir)) cpSync(publicDir, out, { recursive: true, force: false, errorOnExist: false })
     return page
+  }
+
+  #public(path: string, importer: string, publicDir: string, rooted: boolean): { path: string; external?: boolean } | undefined {
+    const clean = path.replace(/[?#].*$/s, '')
+    if (existsSync(clean)) return undefined
+    const inProject = clean.startsWith(this.dir + sep)
+    const css = /\.css$/i.test(importer)
+    if (!inProject && !css) return undefined
+    const rel = inProject ? relative(this.dir, clean) : clean.slice(1)
+    const file = join(publicDir, rel)
+    if (existsSync(file) && statSync(file).isFile()) return css && !inProject && rooted ? { path, external: true } : { path: file }
+    const shown = relative(this.dir, publicDir) || '.'
+    throw new Error(`/${rel.split(sep).join('/')} in ${relative(this.dir, importer) || importer}: there is no ${join(shown, rel)} (a URL starting with / is a file in ${shown}/)`)
   }
 
   static async #backend(entry: string, out: string): Promise<void> {

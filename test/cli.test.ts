@@ -90,6 +90,12 @@ describe('acde build', () => {
 
   test('public/ is copied as it is', () => {
     expect(existsSync(join(out, 'web/favicon.svg'))).toBe(true)
+    expect(existsSync(join(out, 'web/fonts/fixture.woff2'))).toBe(true)
+  })
+
+  test('CSS url(/...) into public/ stays that URL (the app directory is also at /)', () => {
+    const css = readdirSync(join(out, 'web')).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, 'web', f), 'utf8')).join('\n')
+    expect(css).toContain('url(/fonts/fixture.woff2)')
   })
 
   test('backend/server.js is one ES module for Bun, the preload beside it', () => {
@@ -245,6 +251,54 @@ describe('acde.config.jsonc', () => {
     expect((await cli(['check'], dir)).stderr).toContain('no index.html (entry in acde.config.jsonc)')
     writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "widget" }')
     expect((await cli(['check'], dir)).stderr).toContain('"type" is "app" (a window app) or "desktop"')
+  })
+})
+
+describe('public/', () => {
+  function project(files: Record<string, string | Buffer>): string {
+    const dir = tmp()
+    for (const [name, data] of Object.entries(files)) {
+      mkdirSync(join(dir, name, '..'), { recursive: true })
+      writeFileSync(join(dir, name), data)
+    }
+    return dir
+  }
+
+  test('CSS url(/...) that is nowhere: the error names the file and public/', async () => {
+    const dir = project({
+      'package.json': '{"name": "lost-font"}',
+      'index.html': '<!doctype html><link rel="stylesheet" href="./style.css"><p>x</p>',
+      'style.css': "@font-face { font-family: X; src: url('/fonts/gone.woff2'); }",
+    })
+    const result = await cli(['build', '--out', join(dir, '.acde')], dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('/fonts/gone.woff2 in style.css: there is no public/fonts/gone.woff2')
+  })
+
+  test('an HTML reference to /x that is nowhere names public/ too', async () => {
+    const dir = project({ 'package.json': '{"name": "lost-icon"}', 'index.html': '<!doctype html><link rel="icon" href="/gone.svg"><p>x</p>' })
+    const result = await cli(['build', '--out', join(dir, '.acde')], dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('/gone.svg in index.html: there is no public/gone.svg')
+  })
+
+  test('a desktop page and its apps: CSS url(/...) into public/ is bundled (no / mount there)', async () => {
+    const dir = project({
+      'acde.config.jsonc': JSON.stringify({ type: 'desktop', id: 'deck', apps: [{ id: 'cards', label: 'Cards', entry: 'cards.html', backend: false }] }),
+      'index.html': '<!doctype html><link rel="stylesheet" href="./desk.css"><p>desk</p>',
+      'desk.css': 'body { background: url(/wall.svg); }',
+      'cards.html': '<!doctype html><link rel="stylesheet" href="./desk.css"><p>cards</p>',
+      'public/wall.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    })
+    const out = join(dir, '.acde')
+    const result = await cli(['build', '--out', out], dir)
+    expect(result.stderr).toBe('')
+    expect(result.code).toBe(0)
+    const css = (web: string) => readdirSync(join(out, web)).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, web, f), 'utf8')).join('')
+    for (const [web, prefix] of [['desktop', '/desktop/deck/'], ['apps/cards/web', '/app/cards/']] as const) {
+      expect(css(web)).not.toContain('url(/wall.svg)')
+      expect(css(web)).toMatch(new RegExp(`url\\((?:data:image/svg|${prefix}wall-)`))
+    }
   })
 })
 
