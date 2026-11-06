@@ -30,6 +30,7 @@ export interface Web {
   endTask(): void
   wait(ms?: number): Promise<void>
   close(): void
+  [Symbol.dispose](): void
 }
 
 export function createWeb(options: Partial<InstallOptions> = {}): Web {
@@ -54,7 +55,22 @@ export function createWeb(options: Partial<InstallOptions> = {}): Web {
     endTask: () => internals.endTask(),
     wait: (ms = 0) => new Promise((resolve) => setTimeout(() => setImmediate(resolve), ms)),
     close: () => host.dispose(),
+    [Symbol.dispose]: () => host.dispose(),
   }
+}
+
+export async function page(html = '<!doctype html><html><body></body></html>', options: Partial<InstallOptions> = {}): Promise<Web> {
+  const web = createWeb(options)
+  await web.internals.loadPage(html)
+  return web
+}
+
+export function callsOf(web: Web, code: string): Map<string, number> {
+  const before = new Map(web.dom.calls)
+  web.run(code)
+  const out = new Map<string, number>()
+  for (const [name, n] of web.dom.calls) if (n !== (before.get(name) ?? 0)) out.set(name, n - (before.get(name) ?? 0))
+  return out
 }
 
 export function loadReact(web: Web): void {

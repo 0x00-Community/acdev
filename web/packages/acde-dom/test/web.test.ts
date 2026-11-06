@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import vm from 'node:vm'
-import { bundle, createWeb } from './harness.ts'
+import { bundle, createWeb, page } from './harness.ts'
 import { MockHost } from './mock/host.ts'
 
 test('fetch and XMLHttpRequest: same-origin assets only, data: and blob: URLs; the rest is refused', async () => {
-  const web = createWeb()
+  using web = createWeb()
   web.host.assets.set('/ui/data.json', '{"a":1}')
   await web.internals.loadPage('<!doctype html><html><body></body></html>')
   const result = await web.run<Promise<string>>(`(async () => {
@@ -26,12 +26,11 @@ test('fetch and XMLHttpRequest: same-origin assets only, data: and blob: URLs; t
     return JSON.stringify(out)
   })()`)
   assert.deepEqual(JSON.parse(result), [true, 200, 'application/json', '{"a":1}', 'hi', 'blob body', true, true, 200, 1, 'AbortError'])
-  web.close()
 })
 
 test('storage, location / history, matchMedia, navigator, screen, viewport', async () => {
   const changes: Record<string, string>[] = []
-  const web = createWeb({ url: 'http://acde.local/index.html#desk', localStorage: { theme: 'dark' }, onStorageChange: (entries) => changes.push({ ...entries }) })
+  using web = createWeb({ url: 'http://acde.local/index.html#desk', localStorage: { theme: 'dark' }, onStorageChange: (entries) => changes.push({ ...entries }) })
   web.dom.media['prefers-reduced-motion'] = 'reduce'
   await web.internals.loadPage('<!doctype html><html><body></body></html>')
   const result = web.json(`(() => {
@@ -75,12 +74,10 @@ test('storage, location / history, matchMedia, navigator, screen, viewport', asy
   web.dom.view = { width: 800, height: 600, scale: 2 }
   web.internals.resize()
   assert.deepEqual(web.json('[resized, innerWidth, devicePixelRatio]'), [1, 800, 2])
-  web.close()
 })
 
 test('encoding, URL, structuredClone, crypto, atob, MessageChannel, AbortSignal.timeout, console', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const result = await web.run<Promise<string>>(`(async () => {
     const out = []
     const bytes = new TextEncoder().encode('héllo 你好')
@@ -105,12 +102,10 @@ test('encoding, URL, structuredClone, crypto, atob, MessageChannel, AbortSignal.
   })()`)
   assert.deepEqual(JSON.parse(result), [13, 'héllo 你好', 'héllo 你好', 'http://acde.local/ui/a/b?x=3&y=2#h', '2', 'a=b+c', 2, 0, 4, 36, 'aGk=', 'hi', 1, 'TimeoutError'])
   assert.deepEqual(web.host.logs, [[0, 'logged x 5 { k: [ 1 ] }'], [1, '<body>']])
-  web.close()
 })
 
 test('canvas 2D commands reach render in page order; measureText; Path2D', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><canvas id="c" width="100" height="50"></canvas></body></html>')
+  using web = await page('<!doctype html><html><body><canvas id="c" width="100" height="50"></canvas></body></html>')
   web.run(`
     const ctx = document.getElementById('c').getContext('2d')
     ctx.fillStyle = '#ff0000'
@@ -128,12 +123,10 @@ test('canvas 2D commands reach render in page order; measureText; Path2D', async
   assert.ok(commands.length >= 2, 'the run before the other canvas drew went first')
   assert.equal(web.run('width'), 18)
   assert.equal(web.run('webgl'), null)
-  web.close()
 })
 
 test('attachShadow is a flattened root: CodeMirror-style use works', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="host"></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="host"></div></body></html>')
   const result = web.json(`(() => {
     const host = document.getElementById('host')
     const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
@@ -154,12 +147,10 @@ test('attachShadow is a flattened root: CodeMirror-style use works', async () =>
     }
   })()`)
   assert.deepEqual(result, { same: true, nodeType: 11, host: true, kids: 3, active: true, selection: true, origin: true, adopted: false, isRoot: true, editable: true })
-  web.close()
 })
 
 test('custom elements: define, create, upgrade, callbacks', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><x-early id="early"></x-early></body></html>')
+  using web = await page('<!doctype html><html><body><x-early id="early"></x-early></body></html>')
   const result = web.json(`(() => {
     const log = []
     const early = document.getElementById('early')
@@ -178,7 +169,6 @@ test('custom elements: define, create, upgrade, callbacks', async () => {
     return { upgraded, log, fresh: fresh instanceof XEl, byNew: byNew.localName, get: customElements.get('x-early') === XEl }
   })()`)
   assert.deepEqual(result, { upgraded: true, log: ['connected early', 'mode null>a', 'connected fresh'], fresh: true, byNew: 'x-early', get: true })
-  web.close()
 })
 
 test('installCore gives the Broker isolate the web globals without a DOM', () => {
@@ -197,8 +187,7 @@ test('installCore gives the Broker isolate the web globals without a DOM', () =>
 })
 
 test('alert goes to the host when it takes it; Notification is denied and fires error', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const alerts: string[] = []
   web.internals.env.alert = (message) => void alerts.push(message)
   web.run(`alert('saved'); alert()`)
@@ -210,12 +199,10 @@ test('alert goes to the host when it takes it; Notification is denied and fires 
     out.push(Notification.permission, String(n))`)
   await web.wait(5)
   assert.deepEqual(web.json<string[]>('out').sort(), ['[object Notification]', 'callback denied', 'denied', 'error hi there', 'promise denied'])
-  web.close()
 })
 
 test('Path2D strings go to render as they are, with addPath transforms composed', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><canvas id="c" width="100" height="50"></canvas></body></html>')
+  using web = await page('<!doctype html><html><body><canvas id="c" width="100" height="50"></canvas></body></html>')
   web.run(`
     const ctx = document.getElementById('c').getContext('2d')
     const outer = new Path2D()
@@ -232,5 +219,4 @@ test('Path2D strings go to render as they are, with addPath transforms composed'
   assert.ok(at > 5 && bytes[at - 5] === 31 && bytes.readUInt32LE(at - 4) === d.length, 'opcode 31, then the string')
   const m = [0, 1, 2, 3, 4, 5].map((i) => bytes.readFloatLE(at + d.length + i * 4))
   assert.deepEqual(m, [2, 0, 0, 2, 6, 3])
-  web.close()
 })

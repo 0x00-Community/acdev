@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb } from './harness.ts'
+import { page } from './harness.ts'
 
 test('MutationObserver: childList, attributes with old values and filters, characterData, subtree, takeRecords, microtask delivery', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="host"><p id="p">one</p></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="host"><p id="p">one</p></div></body></html>')
   web.run(`
     globalThis.records = []
     const host = document.getElementById('host')
@@ -51,12 +50,10 @@ test('MutationObserver: childList, attributes with old values and filters, chara
   assert.deepEqual(later, [['childList', 2, 2]])
   await web.wait()
   assert.deepEqual(web.json('records'), [])
-  web.close()
 })
 
 test('textContent and replaceChildren and fragments produce one record each', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><ul id="l"><li>a</li><li>b</li></ul></body></html>')
+  using web = await page('<!doctype html><html><body><ul id="l"><li>a</li><li>b</li></ul></body></html>')
   web.run(`
     globalThis.seen = []
     const l = document.getElementById('l')
@@ -69,5 +66,4 @@ test('textContent and replaceChildren and fragments produce one record each', as
   `)
   await web.wait()
   assert.deepEqual(web.json('seen'), ['UL +2 -0', 'UL +1 -4', 'UL +2 -1'])
-  web.close()
 })

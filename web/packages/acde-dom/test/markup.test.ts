@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb } from './harness.ts'
+import { page } from './harness.ts'
 
 test('innerHTML / outerHTML / insertAdjacentHTML / template round trips', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="box"></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="box"></div></body></html>')
   const result = web.json(`(() => {
     const box = document.getElementById('box')
     const html = '<p class="a">x <b>y</b></p><!--c--><svg viewBox="0 0 1 1"><path d="M0 0"></path></svg>'
@@ -29,12 +28,10 @@ test('innerHTML / outerHTML / insertAdjacentHTML / template round trips', async 
     round: true, svgNs: 'http://www.w3.org/2000/svg', svgClass: true, path: true, kinds: [1, 8, 1], order: ['span', 'em', 'h2', 'svg', 'span'],
     fromTemplate: 2, cloned: 2, inBox: true, made: '<div class="card"><i>k</i></div>', isElement: true, text: 'et',
   })
-  web.close()
 })
 
 test('classList, dataset, style, attributes, reflection', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="d" class="a b" data-user-id="7" style="width: min(860px, 60%); color: red"></div><a id="a" href="/x?y=1#z">l</a></body></html>')
+  using web = await page('<!doctype html><html><body><div id="d" class="a b" data-user-id="7" style="width: min(860px, 60%); color: red"></div><a id="a" href="/x?y=1#z">l</a></body></html>')
   const result = web.json(`(() => {
     const d = document.getElementById('d')
     d.classList.add('c'); d.classList.remove('a'); d.classList.toggle('b'); const t = d.classList.toggle('z', true)
@@ -57,12 +54,10 @@ test('classList, dataset, style, attributes, reflection', async () => {
     href: 'http://acde.local/x?y=1#z', hash: '#z', pathname: '/x', hidden: true,
     attrs: ['id', 'class', 'style', 'data-foo-bar', 'hidden', 'title', 'tabindex'], tabIndex: 2, aTab: 0, divTab: -1,
   })
-  web.close()
 })
 
 test('tree operations: before/after/replaceWith, cloneNode, contains, compareDocumentPosition, normalize, live lists', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><ol id="o"><li id="one">1</li><li id="two">2</li></ol></body></html>')
+  using web = await page('<!doctype html><html><body><ol id="o"><li id="one">1</li><li id="two">2</li></ol></body></html>')
   const result = web.json(`(() => {
     const o = document.getElementById('o'), one = document.getElementById('one'), two = document.getElementById('two')
     const kids = o.children, nodes = o.childNodes
@@ -83,12 +78,10 @@ test('tree operations: before/after/replaceWith, cloneNode, contains, compareDoc
   assert.deepEqual(error, [true, 'HierarchyRequestError'])
   const syntax = web.json(`(() => { try { document.querySelector('a[') } catch (e) { return [e instanceof DOMException, e.name] } })()`)
   assert.deepEqual(syntax, [true, 'SyntaxError'])
-  web.close()
 })
 
 test('DOMParser and createHTMLDocument give inert documents; XMLSerializer', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  using web = await page()
   const result = web.json(`(() => {
     const doc = new DOMParser().parseFromString('<p id="x">hi <img src=x onerror="window.pwned = 1"></p>', 'text/html')
     const p = doc.getElementById('x')
@@ -101,5 +94,4 @@ test('DOMParser and createHTMLDocument give inert documents; XMLSerializer', asy
     return { text: p.textContent, inBody: p.parentNode === doc.body, title: imp.title, bodyKids: imp.body.childNodes.length, seen, imported: document.body.innerHTML, svg: new XMLSerializer().serializeToString(Object.assign(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))), docType: doc.nodeType, connected: p.isConnected }
   })()`)
   assert.deepEqual(result, { text: 'hi ', inBody: true, title: 't', bodyKids: 0, seen: ['BODY', 'P', '#text', 'IMG'], imported: '<p id="x">hi <img src="x" onerror="window.pwned = 1"></p>', svg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>', docType: 9, connected: false })
-  web.close()
 })

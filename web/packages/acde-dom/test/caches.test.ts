@@ -1,18 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb, type Web } from './harness.ts'
-
-function callsOf(web: Web, code: string): Map<string, number> {
-  const before = new Map(web.dom.calls)
-  web.run(code)
-  const out = new Map<string, number>()
-  for (const [name, n] of web.dom.calls) if (n !== (before.get(name) ?? 0)) out.set(name, n - (before.get(name) ?? 0))
-  return out
-}
+import { callsOf, page } from './harness.ts'
 
 test('child lists are re-read only when children come or go, not when attributes or text change', async () => {
-  const web = createWeb()
-  await web.internals.loadPage(`<!doctype html><html><body><ul id="l">${'<li>x</li>'.repeat(200)}</ul></body></html>`)
+  using web = await page(`<!doctype html><html><body><ul id="l">${'<li>x</li>'.repeat(200)}</ul></body></html>`)
   const calls = callsOf(web, `
     const list = document.getElementById('l')
     for (let i = 0; i < list.childNodes.length; i++) list.childNodes[i].setAttribute('data-i', String(i))
@@ -24,12 +15,10 @@ test('child lists are re-read only when children come or go, not when attributes
   assert.equal(calls.get('querySelector') ?? 0, 0)
   assert.equal(web.run('document.getElementById("l").childNodes[199].getAttribute("data-i")'), '199')
   assert.equal(web.run('const l = document.getElementById("l"); l.append(document.createElement("li")); l.childNodes.length + " " + l.children.length'), '201 201')
-  web.close()
 })
 
 test('style.setProperty reads the attribute only after a mutation; computed values are kept until something changes', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="d" style="color: red"></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="d" style="color: red"></div></body></html>')
   const set = callsOf(web, `
     const d = document.getElementById('d')
     for (let i = 0; i < 50; i++) d.style.transform = 'translateX(' + i + 'px)'
@@ -46,12 +35,10 @@ test('style.setProperty reads the attribute only after a mutation; computed valu
   const after = callsOf(web, `document.getElementById('d').style.color = 'blue'; globalThis.c3 = getComputedStyle(document.getElementById('d')).color`)
   assert.equal(after.get('computedStyle'), 1)
   assert.equal(web.run('c3'), 'blue')
-  web.close()
 })
 
 test('live ranges move with the tree; ranges in text cost unrelated mutations nothing', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="a"><b>1</b><b>2</b><b>3</b></div><p id="t">text</p></body></html>')
+  using web = await page('<!doctype html><html><body><div id="a"><b>1</b><b>2</b><b>3</b></div><p id="t">text</p></body></html>')
   const result = web.json(`(() => {
     const a = document.getElementById('a')
     const r = document.createRange()
@@ -84,12 +71,10 @@ test('live ranges move with the tree; ranges in text cost unrelated mutations no
   `)
   assert.equal(calls.get('childNodes') ?? 0, 0)
   assert.equal(calls.get('parent') ?? 0, 0)
-  web.close()
 })
 
 test('Range contents across levels: toString, cloneContents, extractContents, deleteContents', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="r"><p>ab<i>cd</i>ef</p><p>gh</p><p>i<b>jk</b>l</p></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="r"><p>ab<i>cd</i>ef</p><p>gh</p><p>i<b>jk</b>l</p></div></body></html>')
   const result = web.json(`(() => {
     const root = document.getElementById('r')
     const make = () => {
@@ -122,12 +107,10 @@ test('Range contents across levels: toString, cloneContents, extractContents, de
     collapsed: [true, true, 1],
     afterDelete: '<p>ab<i>c</i></p><p><b>k</b>l</p>',
   })
-  web.close()
 })
 
 test('MutationObserver: a subtree record names its target even when the page never held it; no observer, no record work', async () => {
-  const web = createWeb()
-  await web.internals.loadPage('<!doctype html><html><body><div id="o"><p><span id="s"></span></p></div><div id="x"></div></body></html>')
+  using web = await page('<!doctype html><html><body><div id="o"><p><span id="s"></span></p></div><div id="x"></div></body></html>')
   const result = await web.run<Promise<string[]>>(`(async () => {
     const out = []
     new MutationObserver((records) => { for (const r of records) out.push(r.type + ' ' + r.target.nodeName + ' -' + r.removedNodes.length + ' +' + r.addedNodes.length) }).observe(document.getElementById('o'), { childList: true, subtree: true })
@@ -137,5 +120,4 @@ test('MutationObserver: a subtree record names its target even when the page nev
     return out
   })()`)
   assert.deepEqual(JSON.parse(JSON.stringify(result)), ['childList P -1 +0'])
-  web.close()
 })

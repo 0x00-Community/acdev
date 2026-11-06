@@ -573,10 +573,4 @@ export class MockDom implements DomNative {
   node(id: number): HNode {
     return this._node(id)
   }
-
-  get callCount(): number {
-    let n = 0
-    for (const v of this.calls.values()) n += v
-    return n
-  }
 }

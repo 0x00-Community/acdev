@@ -1,18 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createWeb, loadReact, type Web } from './harness.ts'
+import { loadReact, page, type Web } from './harness.ts'
 
 const PAGE = '<!doctype html><html><head></head><body><div id="root"></div></body></html>'
 
 async function reactWeb(): Promise<Web> {
-  const web = createWeb()
-  await web.internals.loadPage(PAGE)
+  using web = await page(PAGE)
   loadReact(web)
   return web
 }
 
 test('React 19 createRoot renders, updates state from event handlers, unmounts', async () => {
-  const web = await reactWeb()
+  using web = await reactWeb()
   web.run(`
     const h = React.createElement
     globalThis.log = []
@@ -59,11 +58,10 @@ test('React 19 createRoot renders, updates state from event handlers, unmounts',
   web.run('React.act(() => root.unmount())')
   assert.equal(web.run('document.getElementById("root").childNodes.length'), 0)
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('React renders through its scheduler (MessageChannel) without act', async () => {
-  const web = await reactWeb()
+  using web = await reactWeb()
   web.run(`
     globalThis.IS_REACT_ACT_ENVIRONMENT = false
     const h = React.createElement
@@ -77,11 +75,10 @@ test('React renders through its scheduler (MessageChannel) without act', async (
   for (let i = 0; i < 20 && web.run<number>('document.querySelectorAll("li").length') !== 2; i++) await web.wait(5)
   assert.equal(web.run('[...document.querySelectorAll("li")].map((li) => li.textContent).join()'), 'c,a')
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
 
 test('React portals, refs and many nodes', async () => {
-  const web = await reactWeb()
+  using web = await reactWeb()
   web.run(`
     const h = React.createElement
     globalThis.refs = {}
@@ -100,5 +97,4 @@ test('React portals, refs and many nodes', async () => {
   assert.equal(web.run('document.getElementById("portal").parentNode === document.body'), true)
   assert.equal(web.run('Object.keys(document.querySelector("section")).some((k) => k.startsWith("__reactFiber$"))'), true)
   assert.deepEqual(web.host.errors, [])
-  web.close()
 })
