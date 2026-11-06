@@ -11,6 +11,7 @@ peniko = "0"
 vello = { version = "0", default-features = false, features = ["wgpu"] }
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 pollster = "0"
+log = "0"
 
 [target.'cfg(windows)'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["dx12", "static-dxc"] }

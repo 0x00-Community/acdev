@@ -58,7 +58,7 @@ impl WaitFrame for RenderHandle {
 }
 
 pub fn rasterize(scene: acde_gpu::Scene, size: (u32, u32)) -> Vec<u8> {
-    acde_render::gpu::rasterize(scene, size, Default::default())
+    acde_render::gpu::rasterize(scene, size)
 }
 
 pub fn near(a: f64, b: f64) -> bool {

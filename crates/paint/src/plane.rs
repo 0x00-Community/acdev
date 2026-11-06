@@ -5,35 +5,16 @@ use acde_gpu::{Backdrop, Effect, Px, Shadow};
 
 pub type Rect = Rectangle<i32, BufferCoord>;
 
-pub trait Pixels {
-    fn covering(rect: [f32; 4]) -> Self;
-    fn xywh(&self) -> [u32; 4];
-    fn damaged(r: &acde_render::Rect) -> Self;
-    fn grown(&self, m: i32) -> Self;
-    fn px(&self) -> Px;
+pub(crate) fn rect(p: Px) -> Rect {
+    Rect::new((p.x, p.y).into(), (p.w, p.h).into())
 }
 
-impl Pixels for Rect {
-    fn covering([x, y, w, h]: [f32; 4]) -> Self {
-        let (x0, y0) = (x.floor() as i32, y.floor() as i32);
-        Rect::new((x0, y0).into(), ((x + w).ceil() as i32 - x0, (y + h).ceil() as i32 - y0).into())
-    }
+pub(crate) fn px(r: &Rect) -> Px {
+    Px { x: r.loc.x, y: r.loc.y, w: r.size.w, h: r.size.h }
+}
 
-    fn xywh(&self) -> [u32; 4] {
-        [self.loc.x, self.loc.y, self.size.w, self.size.h].map(|v| v.max(0) as u32)
-    }
-
-    fn damaged(r: &acde_render::Rect) -> Self {
-        Self::covering([r.x as f32 - 1.0, r.y as f32 - 1.0, r.width as f32 + 2.0, r.height as f32 + 2.0])
-    }
-
-    fn grown(&self, m: i32) -> Self {
-        Rect::new((self.loc.x - m, self.loc.y - m).into(), (self.size.w + 2 * m, self.size.h + 2 * m).into())
-    }
-
-    fn px(&self) -> Px {
-        Px { x: self.loc.x, y: self.loc.y, w: self.size.w, h: self.size.h }
-    }
+fn damaged(r: &acde_render::Rect) -> Px {
+    Px::covering([r.x as f32 - 1.0, r.y as f32 - 1.0, r.width as f32 + 2.0, r.height as f32 + 2.0])
 }
 
 pub type Part = acde_gpu::Part<Content>;
@@ -49,8 +30,8 @@ impl acde_gpu::Content for Content {
         let [x, y, w, h] = rect.xywh().map(f64::from);
         let rect = acde_gpu::vello::kurbo::Rect::new(x, y, x + w, y + h);
         match self {
-            Self::Plane(plane) => plane.scene_for(rect),
-            Self::Layer(layer) => layer.scene_for(rect),
+            Self::Plane(plane) => plane.drawing.scene_for(rect),
+            Self::Layer(layer) => layer.drawing.scene_for(rect),
             Self::Scene(scene) => scene.clone(),
         }
     }
@@ -81,9 +62,9 @@ impl Content {
                 FilterEffect::ColorMatrix(m) => effect.matrix(m.0),
             }
         }
-        let cover = |r: &acde_gpu::vello::kurbo::Rect| Rect::damaged(&(*r).into());
-        let bounds = Some(layer.filter.as_ref().map_or_else(|| layer.bounds.as_ref().map_or_else(Rect::default, cover), |f| cover(&f.bounds)));
-        Part { content: Content::Layer(Box::new(layer)), backdrop, shadows, effect, bounds: bounds.map(|b| b.px()) }
+        let cover = |r: &acde_gpu::vello::kurbo::Rect| damaged(&(*r).into());
+        let bounds = layer.filter.as_ref().map_or_else(|| layer.bounds.as_ref().map_or_else(Px::default, cover), |f| cover(&f.bounds));
+        Part { backdrop, shadows, effect, ..Part::plain(Content::Layer(Box::new(layer)), Some(bounds)) }
     }
 }
 
@@ -93,19 +74,17 @@ pub struct Sheet {
 }
 
 impl Sheet {
-    pub fn whole(scene: Scene, (w, h): (u32, u32)) -> Self {
-        let all = Rect::from_size((w as i32, h as i32).into());
-        let part = Part { content: Content::Scene(scene), backdrop: None, shadows: Vec::new(), effect: Effect::default(), bounds: Some(all.px()) };
-        Self { parts: vec![part], damage: vec![all] }
+    pub fn whole(scene: Scene, size: (u32, u32)) -> Self {
+        Self { parts: vec![Part::plain(Content::Scene(scene), Some(Px::sized(size)))], damage: vec![rect(Px::sized(size))] }
     }
 }
 
 impl From<acde_render::Plane> for Sheet {
     fn from(plane: acde_render::Plane) -> Self {
-        let damage = plane.damage_rects.iter().filter(|d| d.width > 0.0 && d.height > 0.0).map(Rect::damaged).collect();
-        let bounds = plane.bounds.as_ref().map(|b| Rect::damaged(b).px());
+        let damage = plane.damage_rects.iter().filter(|d| d.width > 0.0 && d.height > 0.0).map(|d| rect(damaged(d))).collect();
+        let bounds = plane.bounds.as_ref().map(damaged);
         let parts = if plane.layers.is_empty() {
-            vec![Part { content: Content::Plane(Box::new(plane)), backdrop: None, shadows: Vec::new(), effect: Effect::default(), bounds }]
+            vec![Part::plain(Content::Plane(Box::new(plane)), bounds)]
         } else {
             plane.layers.into_iter().map(Content::part).collect()
         };

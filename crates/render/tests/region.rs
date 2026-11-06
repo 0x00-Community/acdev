@@ -112,14 +112,14 @@ fn frame_scene_for_matches_whole_scene() {
     let (_doc, handle) = page(false);
     let f = frame(&handle);
     assert!(f.plane.layers.is_empty());
-    let whole = raster(f.plane.scene());
+    let whole = raster(f.plane.drawing.scene());
     let mut kept = 0;
     for r in rects(50) {
-        let part = f.plane.scene_for(r);
+        let part = f.plane.drawing.scene_for(r);
         kept += part.commands.len();
         assert_eq!(differing(&whole, &raster(part), r), 0, "{r:?}");
     }
-    eprintln!("whole scene {} commands, scene_for kept {} on average", f.plane.scene().commands.len(), kept / 50);
+    eprintln!("whole scene {} commands, scene_for kept {} on average", f.plane.drawing.scene().commands.len(), kept / 50);
 }
 
 #[test]
@@ -128,9 +128,9 @@ fn layer_scene_for_matches_each_layer() {
     let f = frame(&handle);
     assert!(!f.plane.layers.is_empty());
     for (i, layer) in f.plane.layers.iter().enumerate() {
-        let whole = raster(layer.scene());
+        let whole = raster(layer.drawing.scene());
         for r in rects(50) {
-            assert_eq!(differing(&whole, &raster(layer.scene_for(r)), r), 0, "layer {i} {r:?}");
+            assert_eq!(differing(&whole, &raster(layer.drawing.scene_for(r)), r), 0, "layer {i} {r:?}");
         }
     }
 }
@@ -143,7 +143,7 @@ fn scene_for_is_cheap() {
     let start = Instant::now();
     for r in &rs {
         for layer in &f.plane.layers {
-            std::hint::black_box(layer.scene_for(*r));
+            std::hint::black_box(layer.drawing.scene_for(*r));
         }
     }
     let per = start.elapsed().as_secs_f64() * 1e3 / (rs.len() * f.plane.layers.len()) as f64;

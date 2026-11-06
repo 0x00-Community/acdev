@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
+use acde_gpu::Gpu;
 use acde_gpu::wgpu;
-use acde_paint::Gpu;
 
 use crate::bind;
 use crate::rt::{self, Msg};
@@ -350,7 +350,7 @@ pub fn clear() {
     }
     drop(state);
     ERRORS.with(|e| *e.borrow_mut() = Errors::default());
-    acde_paint::set_error_sink(None);
+    acde_gpu::set_error_sink(None);
 }
 
 fn adapter_ready(scope: &mut v8::PinScope, gpu: Option<Arc<Gpu>>) {
@@ -360,7 +360,7 @@ fn adapter_ready(scope: &mut v8::PinScope, gpu: Option<Arc<Gpu>>) {
             if let Some(gpu) = &gpu {
                 let tx = rt::current().sender();
                 ERRORS.with(|e| e.borrow_mut().tx = Some(tx.clone()));
-                acde_paint::set_error_sink(Some(Box::new(sink)));
+                acde_gpu::set_error_sink(Some(Box::new(sink)));
                 s.lost_listener = Some(gpu.on_lost(move |message| {
                     let message = message.to_owned();
                     _ = tx.send(Msg::Task(Box::new(move |scope| all_lost(scope, &message))));

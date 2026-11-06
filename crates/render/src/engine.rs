@@ -182,7 +182,7 @@ impl Engine {
 
     pub(crate) fn scene(&mut self) -> acde_gpu::Scene {
         self.resolved();
-        self.paint().0.to_scene(acde_gpu::Scene::new().tolerance)
+        self.paint().0.to_scene(acde_gpu::Scene::TOLERANCE)
     }
 
     fn paint(&mut self) -> (Commands, Vec<(u32, kurbo::Rect, Commands)>) {
@@ -303,7 +303,7 @@ impl Engine {
     fn plane(&mut self, commands: Commands, scale: f64, viewport: kurbo::Rect) -> Plane {
         let start = Instant::now();
         let (rects, by_fragment, missed) =
-            self.damage.update(&commands, acde_gpu::Scene::new().tolerance, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
+            self.damage.update(&commands, acde_gpu::Scene::TOLERANCE, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
         self.stats.damage_mismatches += u32::from(missed);
         self.stats.damage_by_fragment += u32::from(by_fragment);
         self.stats.damage_ms = acde_log::since_ms(start);
@@ -317,7 +317,7 @@ impl Engine {
         let size = (rect.width().round().max(1.0) as u32, rect.height().round().max(1.0) as u32);
         let viewport = kurbo::Rect::new(0.0, 0.0, size.0.into(), size.1.into());
         let damage = self.panel_damage.entry(id).or_default();
-        let (rects, _, _) = damage.update(&commands, acde_gpu::Scene::new().tolerance, viewport, None, true);
+        let (rects, _, _) = damage.update(&commands, acde_gpu::Scene::TOLERANCE, viewport, None, true);
         let extent = damage
             .kinds()
             .iter()

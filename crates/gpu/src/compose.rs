@@ -1,5 +1,48 @@
 use std::collections::HashMap;
 
+use crate::ColorMatrix;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Px {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+impl Px {
+    pub fn sized((w, h): (u32, u32)) -> Self {
+        Self { x: 0, y: 0, w: w as i32, h: h as i32 }
+    }
+
+    pub fn covering([x, y, w, h]: [f32; 4]) -> Self {
+        let (x0, y0) = (x.floor() as i32, y.floor() as i32);
+        Self { x: x0, y: y0, w: (x + w).ceil() as i32 - x0, h: (y + h).ceil() as i32 - y0 }
+    }
+
+    pub fn grown(self, m: i32) -> Self {
+        Self { x: self.x - m, y: self.y - m, w: self.w + 2 * m, h: self.h + 2 * m }
+    }
+
+    pub fn intersection(self, o: Self) -> Option<Self> {
+        let (x0, y0) = (self.x.max(o.x), self.y.max(o.y));
+        let (x1, y1) = ((self.x + self.w).min(o.x + o.w), (self.y + self.h).min(o.y + o.h));
+        (x1 > x0 && y1 > y0).then_some(Self { x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
+    }
+
+    pub fn overlaps(self, o: Self) -> bool {
+        self.intersection(o).is_some()
+    }
+
+    pub fn xywh(self) -> [u32; 4] {
+        [self.x, self.y, self.w, self.h].map(|v| v.max(0) as u32)
+    }
+
+    fn of([x, y, w, h]: [u32; 4]) -> Self {
+        Self { x: x as i32, y: y as i32, w: w as i32, h: h as i32 }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Backdrop {
     pub rect: [f32; 4],
@@ -24,8 +67,6 @@ pub struct Effect {
 }
 
 impl Effect {
-    const IDENTITY: [f32; 20] = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
-
     pub fn is_none(&self) -> bool {
         self.blur <= 0.0 && self.matrix.is_none()
     }
@@ -35,7 +76,7 @@ impl Effect {
     }
 
     pub fn matrix(&mut self, m: [f32; 20]) {
-        let a = self.matrix.unwrap_or(Self::IDENTITY);
+        let a = self.matrix.unwrap_or(ColorMatrix::IDENTITY.0);
         self.matrix = Some(std::array::from_fn(|k| {
             let (i, j) = (k / 5, k % 5);
             (0..4).map(|t| m[i * 5 + t] * a[t * 5 + j]).sum::<f32>() + if j == 4 { m[i * 5 + 4] } else { 0.0 }
@@ -43,7 +84,7 @@ impl Effect {
     }
 
     fn columns(&self) -> ([f32; 16], [f32; 4]) {
-        let m = self.matrix.unwrap_or(Self::IDENTITY);
+        let m = self.matrix.unwrap_or(ColorMatrix::IDENTITY.0);
         (std::array::from_fn(|k| m[(k % 4) * 5 + k / 4]), [m[4], m[9], m[14], m[19]])
     }
 }
@@ -254,19 +295,9 @@ impl Composer {
 
     pub fn layer_view(&mut self, size: (u32, u32)) -> wgpu::TextureView {
         if self.layer.as_ref().is_none_or(|(s, _, _)| *s != size) {
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("acde layer"),
-                size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: FORMAT,
-                usage: wgpu::TextureUsages::STORAGE_BINDING
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_SRC
-                    | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
+            let usage =
+                wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST;
+            let texture = crate::texture(&self.device, size, usage, "acde layer");
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             self.layer = Some((size, texture, view));
         }
@@ -371,20 +402,8 @@ impl Composer {
         }
     }
 
-    pub fn clear(encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView) {
-        let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("acde clear"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: canvas,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+    pub fn clear(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView) {
+        self.pass(encoder, canvas, true, &[]);
     }
 
     fn region(rect: [f32; 4], size: wgpu::Extent3d) -> Option<[u32; 4]> {
@@ -400,19 +419,11 @@ impl Composer {
         if !self.textures.contains_key(&(w, h, levels)) {
             let chain: Vec<(wgpu::Texture, wgpu::TextureView)> = (0..=levels)
                 .map(|i| {
-                    let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some("acde blur"),
-                        size: wgpu::Extent3d { width: (w >> i).max(1), height: (h >> i).max(1), depth_or_array_layers: 1 },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: FORMAT,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                            | wgpu::TextureUsages::TEXTURE_BINDING
-                            | wgpu::TextureUsages::COPY_DST
-                            | wgpu::TextureUsages::COPY_SRC,
-                        view_formats: &[],
-                    });
+                    let usage = wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC;
+                    let texture = crate::texture(&self.device, ((w >> i).max(1), (h >> i).max(1)), usage, "acde blur");
                     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
                     (texture, view)
                 })
@@ -499,13 +510,9 @@ impl Composer {
         }
         let rect = [x as f32, y as f32, w as f32, h as f32];
         let Some(shifted) = Self::region([rect[0] + s.dx, rect[1] + s.dy, rect[2], rect[3]], layer.size()) else { return };
-        let (x0, y0) = (shifted[0].max(clip[0]), shifted[1].max(clip[1]));
-        let (x1, y1) = ((shifted[0] + shifted[2]).min(clip[0] + clip[2]), (shifted[1] + shifted[3]).min(clip[1] + clip[3]));
-        if x1 <= x0 || y1 <= y0 {
-            return;
-        }
+        let Some(scissor) = Px::of(shifted).intersection(Px::of(clip)) else { return };
         let blurred = self.blur(encoder, &layer, [0, 0, w, h], s.blur);
         let params = Params { rect, shift: [s.dx, s.dy], color: s.color, ..Default::default() };
-        self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Shadow, src: &blurred, params, scissor: Some([x0, y0, x1 - x0, y1 - y0]) }]);
+        self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Shadow, src: &blurred, params, scissor: Some(scissor.xywh()) }]);
     }
 }

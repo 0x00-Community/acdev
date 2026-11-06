@@ -106,9 +106,9 @@ fn segments_compose_to_the_whole_scene() {
     page.div("shadow");
     let frame = page.frame();
     assert_eq!(frame.plane.layers.len(), 3);
-    assert!(frame.plane.scene().commands.is_empty());
+    assert!(frame.plane.drawing.scene().commands.is_empty());
     let whole = raster(frame.size, vec![page.doc.scene()]);
-    let parts = raster(frame.size, frame.plane.layers.iter().map(|l| l.scene()).collect());
+    let parts = raster(frame.size, frame.plane.layers.iter().map(|l| l.drawing.scene()).collect());
     let differing = whole.chunks(4).zip(parts.chunks(4)).filter(|(a, b)| a != b).count();
     assert_eq!(differing, 0);
 }

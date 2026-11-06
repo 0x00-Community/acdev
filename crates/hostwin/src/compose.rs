@@ -35,7 +35,6 @@ fn fs_quad(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
 }
 ";
 
-const SLOT: u64 = 256;
 const DUMP_DELAY: Duration = Duration::from_millis(300);
 const BACKGROUND: wgpu::Color = wgpu::Color { r: 0.12, g: 0.12, b: 0.13, a: 1.0 };
 
@@ -85,7 +84,19 @@ impl Compositor {
 
 struct Bound {
     page: Arc<Page>,
+    place: wgpu::Buffer,
     bind: wgpu::BindGroup,
+}
+
+pub(crate) fn drain<T>(rx: &mpsc::Receiver<T>, wait: Option<Duration>) -> Option<Vec<T>> {
+    let first = match wait {
+        Some(wait) => match rx.recv_timeout(wait) {
+            Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+            got => got.ok(),
+        },
+        None => Some(rx.recv().ok()?),
+    };
+    Some(first.into_iter().chain(std::iter::from_fn(|| rx.try_recv().ok())).collect())
 }
 
 struct Thread {
@@ -96,8 +107,6 @@ struct Thread {
     layout: wgpu::BindGroupLayout,
     dump: Option<(PathBuf, wgpu::RenderPipeline)>,
     dump_at: Option<Instant>,
-    places: wgpu::Buffer,
-    slots: u64,
     pages: HashMap<u32, Bound>,
 }
 
@@ -127,9 +136,9 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: wgpu::Surface<'static>, size: (u32, 
     };
     {
         let _lock = gpu.shared.submit_lock();
-        surface.configure(gpu.device(), &config);
+        surface.configure(&gpu.shared.device, &config);
     }
-    let device = gpu.device();
+    let device = &gpu.shared.device;
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("acde compose"),
         entries: &[
@@ -146,7 +155,7 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: wgpu::Surface<'static>, size: (u32, 
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
                 visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: true, min_binding_size: wgpu::BufferSize::new(32) },
+                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: wgpu::BufferSize::new(32) },
                 count: None,
             },
         ],
@@ -157,10 +166,8 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: wgpu::Surface<'static>, size: (u32, 
     let pipeline = make_pipeline(device, &pipeline_layout, &module, format);
     let dump =
         std::env::var_os("ACDE_HOST_DUMP").map(|dir| (PathBuf::from(dir), make_pipeline(device, &pipeline_layout, &module, wgpu::TextureFormat::Rgba8Unorm)));
-    let slots = 8;
-    let places = places(device, slots);
     let (tx, rx) = mpsc::channel();
-    let mut thread = Thread { gpu, surface, config, pipeline, layout, dump, dump_at: None, places, slots, pages: HashMap::new() };
+    let mut thread = Thread { gpu, surface, config, pipeline, layout, dump, dump_at: None, pages: HashMap::new() };
     let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(move || thread.run(&rx)).map_err(|e| format!("合成线程: {e}"))?;
     Ok((Compositor(tx), handle))
 }
@@ -184,41 +191,17 @@ fn make_pipeline(device: &wgpu::Device, layout: &wgpu::PipelineLayout, module: &
     })
 }
 
-fn places(device: &wgpu::Device, slots: u64) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("acde compose places"),
-        size: slots * SLOT,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
-}
-
 impl Thread {
     fn run(&mut self, rx: &mpsc::Receiver<Msg>) {
-        loop {
-            let first = match self.dump_at {
-                Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
-                    Ok(msg) => Some(msg),
-                    Err(mpsc::RecvTimeoutError::Timeout) => None,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
-                },
-                None => match rx.recv() {
-                    Ok(msg) => Some(msg),
-                    Err(_) => return,
-                },
-            };
-            if first.is_none() {
+        while let Some(msgs) = drain(rx, self.dump_at.map(|at| at.saturating_duration_since(Instant::now()))) {
+            if msgs.is_empty() {
                 self.dump_at = None;
                 self.dump();
                 continue;
             }
-            let mut dirty = false;
-            for msg in first.into_iter().chain(std::iter::from_fn(|| rx.try_recv().ok())) {
+            for msg in msgs {
                 match msg {
-                    Msg::Page(id, page) => {
-                        let bind = self.bind(&page);
-                        self.pages.insert(id, Bound { page, bind });
-                    }
+                    Msg::Page(id, page) => _ = self.pages.insert(id, self.bind(page)),
                     Msg::Remove(id) => _ = self.pages.remove(&id),
                     Msg::Dirty => {}
                     Msg::Resized(w, h) => {
@@ -230,61 +213,45 @@ impl Thread {
                     }
                     Msg::Stop => return,
                 }
-                dirty = true;
             }
-            if dirty {
-                self.draw();
-            }
+            self.draw();
         }
     }
 
-    fn bind(&self, page: &Page) -> wgpu::BindGroup {
-        self.gpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
+    fn bind(&self, page: Arc<Page>) -> Bound {
+        let device = &self.gpu.shared.device;
+        let place = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("acde compose place"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("acde compose page"),
             layout: &self.layout,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&page.view) },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &self.places, offset: 0, size: wgpu::BufferSize::new(32) }),
-                },
+                wgpu::BindGroupEntry { binding: 1, resource: place.as_entire_binding() },
             ],
-        })
+        });
+        Bound { page, place, bind }
     }
 
-    fn rebind(&mut self) {
-        let binds: Vec<(u32, wgpu::BindGroup)> = self.pages.iter().map(|(&id, b)| (id, self.bind(&b.page))).collect();
-        for (id, bind) in binds {
-            if let Some(bound) = self.pages.get_mut(&id) {
-                bound.bind = bind;
-            }
-        }
-    }
-
-    fn prepare(&mut self) -> Option<Vec<u32>> {
+    fn prepare(&self) -> Option<Vec<u32>> {
         let server = server()?;
         let (layers, scale) = {
             let state = server.state();
             (state.layers(), state.screen[2])
         };
         let shown: Vec<&Layer> = layers.iter().filter(|l| self.pages.contains_key(&l.id)).collect();
-        if shown.len() as u64 > self.slots {
-            self.slots = (shown.len() as u64).next_power_of_two();
-            self.places = places(self.gpu.device(), self.slots);
-            self.rebind();
-        }
         let screen = [self.config.width as f32, self.config.height as f32];
-        let mut bytes = vec![0u8; (self.slots * SLOT) as usize];
-        for (i, layer) in shown.iter().enumerate() {
-            let page = &self.pages[&layer.id].page;
+        for layer in &shown {
+            let bound = &self.pages[&layer.id];
             let origin = [(layer.rect[0] * scale).round() as f32, (layer.rect[1] * scale).round() as f32];
-            let values = [screen[0], screen[1], origin[0], origin[1], page.size.0 as f32, page.size.1 as f32, 0.0, 0.0];
-            let at = i * SLOT as usize;
-            for (j, v) in values.iter().enumerate() {
-                bytes[at + j * 4..at + j * 4 + 4].copy_from_slice(&v.to_ne_bytes());
-            }
+            let values = [screen[0], screen[1], origin[0], origin[1], bound.page.size.0 as f32, bound.page.size.1 as f32, 0.0, 0.0];
+            let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+            self.gpu.shared.queue.write_buffer(&bound.place, 0, &bytes);
         }
-        self.gpu.queue().write_buffer(&self.places, 0, &bytes);
         Some(shown.iter().map(|l| l.id).collect())
     }
 
@@ -303,15 +270,15 @@ impl Thread {
             multiview_mask: None,
         });
         pass.set_pipeline(pipeline);
-        for (i, id) in ids.iter().enumerate() {
-            pass.set_bind_group(0, &self.pages[id].bind, &[(i as u64 * SLOT) as u32]);
+        for id in ids {
+            pass.set_bind_group(0, &self.pages[id].bind, &[]);
             pass.draw(0..4, 0..1);
         }
     }
 
     fn configure(&self) {
         let _lock = self.gpu.shared.submit_lock();
-        self.surface.configure(self.gpu.device(), &self.config);
+        self.surface.configure(&self.gpu.shared.device, &self.config);
     }
 
     fn draw(&mut self) {
@@ -326,13 +293,10 @@ impl Thread {
             _ => return,
         };
         let target = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = gpu.device().create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde compose") });
+        let mut encoder = gpu.shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde compose") });
         self.pass(&mut encoder, &target, &self.pipeline, &ids);
-        {
-            let _lock = gpu.shared.submit_lock();
-            gpu.queue().submit([encoder.finish()]);
-        }
-        gpu.queue().present(texture);
+        gpu.shared.submit([encoder.finish()]);
+        gpu.shared.queue.present(texture);
         if let Some(server) = server() {
             server.state().frames += 1;
         }
@@ -346,23 +310,12 @@ impl Thread {
         let Some((dir, pipeline)) = &self.dump else { return };
         let gpu = self.gpu.clone();
         let (w, h) = (self.config.width, self.config.height);
-        let texture = gpu.device().create_texture(&wgpu::TextureDescriptor {
-            label: Some("acde compose dump"),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+        let usage = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC;
+        let texture = acde_gpu::texture(&gpu.shared.device, (w, h), usage, "acde compose dump");
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = gpu.device().create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde compose dump") });
+        let mut encoder = gpu.shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde compose dump") });
         self.pass(&mut encoder, &view, pipeline, &ids);
-        {
-            let _lock = gpu.shared.submit_lock();
-            gpu.queue().submit([encoder.finish()]);
-        }
+        gpu.shared.submit([encoder.finish()]);
         let written =
             gpu.shared.read(&texture, [0, 0, w, h]).and_then(|rgba| acde_render::encode_png(w, h, &rgba).ok_or_else(|| "png".to_owned())).and_then(|png| {
                 let _ = std::fs::create_dir_all(dir);

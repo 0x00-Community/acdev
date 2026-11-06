@@ -5,9 +5,9 @@ use blitz_dom::NodeId;
 use blitz_paint::{Change, PaintCache, Run};
 use kurbo::{Affine, Rect, Shape};
 
-use crate::Plane;
 use crate::commands::Commands;
 use crate::layers::Split;
+use crate::{Drawing, Plane};
 
 const PAD: f64 = 2.0;
 
@@ -361,14 +361,20 @@ impl Damage {
 
 impl Damage {
     pub(crate) fn plane(&mut self, commands: Commands, rects: Vec<Rect>, scale: f64, viewport: Rect) -> Plane {
-        let tolerance = acde_gpu::Scene::new().tolerance;
+        let tolerance = acde_gpu::Scene::TOLERANCE;
         let union = rects.iter().copied().reduce(|x, y| x.union(y)).unwrap_or(Rect::ZERO);
         let bounds = Damage::content_bounds(self.kinds(), self.draw(), viewport).map(crate::Rect::from);
         let (commands, layers, draw) = match Split::layers(commands, tolerance, self.kinds(), self.draw(), scale, viewport) {
             Ok(layers) => (Commands::default(), layers, Vec::new()),
             Err(commands) => (commands, Vec::new(), self.draw().to_vec()),
         };
-        Plane { commands, tolerance, layers, damage: union.into(), damage_rects: rects.into_iter().map(crate::Rect::from).collect(), bounds, draw }
+        Plane {
+            drawing: Drawing { commands, tolerance, draw },
+            layers,
+            damage: union.into(),
+            damage_rects: rects.into_iter().map(crate::Rect::from).collect(),
+            bounds,
+        }
     }
 }
 
