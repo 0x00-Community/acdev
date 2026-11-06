@@ -33,10 +33,10 @@ sha2 = "0"
 futures-util = { version = "0", default-features = false, features = ["sink", "std"] }
 base64 = "0"
 rand = "0"
-# the Office app (app-office): Document Server JWTs and bridge tickets, blank documents
+# the Office app (app-office): Document Server JWTs and bridge tickets
 hmac = "0"
+# gzip of the speech recognition device registration
 flate2 = "1"
-crc32fast = "1"
 
 # Linux desktop services: D-Bus (input method, NetworkManager, portals, AT-SPI, the session bus) and PipeWire (voice)
 [target.'cfg(target_os = "linux")'.dependencies]
