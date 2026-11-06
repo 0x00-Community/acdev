@@ -2,15 +2,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use acde_gpu::{Images, Overrides, VelloScene, vello, wgpu};
-use acde_gpu::{PaintScene, Scene};
+use acde_gpu::{Overrides, Scene, Vello, vello, wgpu};
 use acde_model::{Event, Inbox};
 use acde_render::{Bar, Decoration, Plane, RenderHandle};
 use vello::kurbo::Affine;
 use vello::peniko::Color;
 
 use crate::app::server;
-use crate::compose::Page;
+use crate::compose::{Page, drain};
 use crate::gpu::Gpu;
 use crate::surface::{Msg, Shot};
 
@@ -18,8 +17,7 @@ const DEFAULT_HZ: f64 = 60.0;
 
 pub(crate) struct Presenter {
     gpu: Arc<Gpu>,
-    vello: vello::Renderer,
-    scene: vello::Scene,
+    vello: Vello,
     overrides: Overrides,
     render: RenderHandle,
     inbox: Arc<Inbox>,
@@ -50,9 +48,7 @@ impl Presenter {
         render: RenderHandle,
         inbox: Arc<Inbox>,
     ) -> Result<Self, String> {
-        let options =
-            vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None };
-        let vello = vello::Renderer::new(gpu.device(), options).map_err(|e| format!("vello: {e}"))?;
+        let vello = Vello::new(&gpu.shared.device, &gpu.shared.queue)?;
         let overrides = Overrides::from(gpu.shared.images.clone());
         let hz = refresh.filter(|hz| *hz > 1.0).unwrap_or(DEFAULT_HZ);
         let interval = std::env::var("ACDE_WEB_FPS")
@@ -63,7 +59,6 @@ impl Presenter {
         Ok(Self {
             gpu,
             vello,
-            scene: vello::Scene::new(),
             overrides,
             render,
             inbox,
@@ -85,20 +80,9 @@ impl Presenter {
 
     pub fn run(&mut self, rx: &mpsc::Receiver<Msg>) {
         self.tell_size();
-        loop {
-            let first = match self.wait() {
-                Some(wait) => match rx.recv_timeout(wait) {
-                    Ok(msg) => Some(msg),
-                    Err(mpsc::RecvTimeoutError::Timeout) => None,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                },
-                None => match rx.recv() {
-                    Ok(msg) => Some(msg),
-                    Err(_) => break,
-                },
-            };
+        while let Some(msgs) = drain(rx, self.wait()) {
             let mut stop = false;
-            for msg in first.into_iter().chain(std::iter::from_fn(|| rx.try_recv().ok())) {
+            for msg in msgs {
                 stop |= self.handle(msg);
             }
             if stop {
@@ -186,8 +170,11 @@ impl Presenter {
         self.inbox.push(Event { kind: "resize".into(), width: Some(f64::from(w)), height: Some(f64::from(h)), scale: Some(self.scale), ..Default::default() });
     }
 
-    fn scenes(plane: &Plane, place: Affine) -> Vec<(Scene, Affine)> {
-        if plane.layers.is_empty() { vec![(plane.scene(), place)] } else { plane.layers.iter().map(|l| (l.scene(), place)).collect() }
+    fn scenes(plane: &Plane) -> Vec<(Scene, Affine)> {
+        match plane.layers.is_empty() {
+            true => vec![(plane.drawing.scene(), Affine::IDENTITY)],
+            false => plane.layers.iter().map(|l| (l.drawing.scene(), Affine::IDENTITY)).collect(),
+        }
     }
 
     fn paint(&mut self) {
@@ -198,11 +185,11 @@ impl Presenter {
         }
         self.animating = frame.animating;
         let started = Instant::now();
-        let (main, size) = self.framed(Self::scenes(&frame.plane, Affine::IDENTITY));
+        let (main, size) = self.framed(Self::scenes(&frame.plane));
         let mut result = self.draw(self.id, size, main, Color::WHITE);
         for panel in &frame.panels {
             let Some(&window) = self.panels.get(&panel.id) else { continue };
-            let scenes = Self::scenes(&panel.plane, Affine::IDENTITY);
+            let scenes = Self::scenes(&panel.plane);
             let size = (panel.size.0.max(1), panel.size.1.max(1));
             result = result.and(self.draw(window, size, scenes, Color::TRANSPARENT));
         }
@@ -237,7 +224,8 @@ impl Presenter {
         if let Some(page) = self.targets.get(&window).filter(|p| p.size == size) {
             return page.view.clone();
         }
-        let texture = self.gpu.page_texture(size);
+        let usage = wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC;
+        let texture = acde_gpu::texture(&self.gpu.shared.device, size, usage, "acde host page");
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let page = Arc::new(Page { size, view: view.clone(), texture });
         if let Some(compositor) = server().and_then(|s| s.compositor()) {
@@ -249,26 +237,6 @@ impl Presenter {
 
     fn draw(&mut self, window: u32, size: (u32, u32), scenes: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
         let view = self.target(window, size);
-        self.overrides.forget(&mut self.vello);
-        self.scene.reset();
-        {
-            let vello = &mut self.vello;
-            let overrides = &mut self.overrides;
-            let mut target = VelloScene::from(&mut self.scene);
-            for (scene, place) in scenes {
-                overrides.apply(vello, &scene);
-                target.append_scene(scene, place);
-            }
-        }
-        VelloScene::keep_atlas(&mut self.scene);
-        let params = vello::RenderParams { base_color: base, width: size.0, height: size.1, antialiasing_method: vello::AaConfig::Area };
-        let gpu = self.gpu.clone();
-        {
-            let _lock = gpu.shared.submit_lock();
-            self.vello.render_to_texture(gpu.device(), gpu.queue(), &self.scene, &view, &params).map_err(|e| format!("vello: {e}"))?;
-        }
-        self.scene.reset();
-        self.overrides.submitted();
-        Ok(())
+        self.vello.render(scenes, &mut self.overrides, &view, size, base, Some(&self.gpu.shared))
     }
 }

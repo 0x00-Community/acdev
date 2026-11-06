@@ -8,12 +8,27 @@ use acde_gpu::{LayerCommand, RenderCommand};
 use kurbo::{Affine, BezPath, PathEl, Rect, Shape};
 
 use crate::commands::{Builder, Commands};
-use crate::damage::{Damage, Kind, draw_bounds};
+use crate::damage::{Damage, Kind};
+
+#[derive(Default)]
+pub struct Drawing {
+    pub commands: Commands,
+    pub tolerance: f64,
+    pub(crate) draw: Vec<Rect>,
+}
+
+impl Drawing {
+    pub fn scene_for(&self, rect: Rect) -> Scene {
+        crate::region::scene_for(&self.commands, &self.draw, self.tolerance, rect)
+    }
+
+    pub fn scene(&self) -> Scene {
+        self.commands.to_scene(self.tolerance)
+    }
+}
 
 pub struct Layer {
-    commands: Commands,
-    tolerance: f64,
-    draw: Vec<Rect>,
+    pub drawing: Drawing,
     pub bounds: Option<Rect>,
     pub backdrop: Option<Backdrop>,
     pub filter: Option<LayerFilter>,
@@ -82,16 +97,6 @@ pub struct LayerFilter {
     pub scale: f64,
 }
 
-impl Layer {
-    pub fn scene_for(&self, rect: Rect) -> Scene {
-        crate::region::scene_for(&self.commands, &self.draw, self.tolerance, rect)
-    }
-
-    pub fn scene(&self) -> Scene {
-        self.commands.to_scene(self.tolerance)
-    }
-}
-
 enum Pushed {
     At(usize),
     Own(Box<RenderCommand>),
@@ -143,9 +148,8 @@ impl<'a> Split<'a> {
             device,
             viewport,
         };
-        for (i, (command, t)) in commands.iter().enumerate() {
-            split.this = draw.get(i).copied().unwrap_or_else(|| draw_bounds(command, t));
-            split.this_kind = kinds.get(i).copied().unwrap_or_else(|| Kind::of(command, t));
+        for ((i, (command, t)), (&this, &kind)) in commands.iter().enumerate().zip(draw.iter().zip(kinds)) {
+            (split.this, split.this_kind) = (this, kind);
             split.command(i, command, t);
         }
         split.cut();
@@ -270,7 +274,7 @@ impl<'a> Split<'a> {
         let (backdrop, filter) = (self.backdrop.take(), self.filter.take());
         if draws || backdrop.is_some() {
             let bounds = Damage::content_bounds(&kinds, &draw, self.viewport);
-            self.layers.push(Layer { commands, tolerance: self.tolerance, draw, bounds, backdrop, filter });
+            self.layers.push(Layer { drawing: Drawing { commands, tolerance: self.tolerance, draw }, bounds, backdrop, filter });
         }
     }
 

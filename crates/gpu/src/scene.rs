@@ -256,15 +256,11 @@ impl Scene {
     pub fn new() -> Self {
         Self::default()
     }
-
-    pub fn with_tolerance(tolerance: f64) -> Self {
-        Self { tolerance, commands: Vec::new() }
-    }
 }
 
 impl Default for Scene {
     fn default() -> Self {
-        Self::with_tolerance(Self::TOLERANCE)
+        Self { tolerance: Self::TOLERANCE, commands: Vec::new() }
     }
 }
 

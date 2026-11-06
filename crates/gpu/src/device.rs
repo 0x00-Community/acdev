@@ -33,16 +33,9 @@ pub struct Device {
 
 impl Device {
     pub fn open() -> Result<Self, String> {
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor { backends: crate::BACKEND, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() });
-        let mut adapters: Vec<_> =
-            pollster::block_on(instance.enumerate_adapters(crate::BACKEND)).into_iter().filter(|a| a.get_info().device_type != wgpu::DeviceType::Cpu).collect();
-        adapters.sort_by_key(|a| match a.get_info().device_type {
-            wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu => 0,
-            _ => 1,
-        });
         let mut errors = Vec::new();
-        let (adapter, device, queue) = adapters
+        let (adapter, device, queue) = crate::adapters()
+            .1
             .into_iter()
             .find_map(|adapter| match Self::open_adapter(&adapter) {
                 Ok((device, queue)) => Some((adapter, device, queue)),

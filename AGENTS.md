@@ -131,7 +131,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理; `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync). 页面里
   layers 的滤镜和 backdrop 还没做, 按顺序直接画.
 - **GPU**: `gpu.rs` 只开 `acde_gpu::BACKEND` 一个后端 (Windows DX12、macOS Metal、Linux Vulkan), 不要 CPU 设备; `WGPU_VALIDATION` /
-  `WGPU_DEBUG` 照 wgpu 的环境变量. 所有 `surface.configure` 和提交都拿 `Shared::submit_lock`.
+  `WGPU_DEBUG` 照 wgpu 的环境变量. 所有 `surface.configure` 和提交都拿 `acde_gpu::Gpu::submit_lock`.
 - **坐标**: 宿主窗口的内容区就是「屏幕」(`output`: `ACDE_SIZE`, 否则主显示器的 90% × 85%, 最大 1440 × 900), 窗口表的 rect 是它里面的
   逻辑坐标. 宿主窗口改尺寸 / 换缩放时桌面和全屏窗口跟着改, 发 `output`.
 - **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner), 给它焦点、提前,
@@ -405,13 +405,13 @@ FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel`
   `hit_test` 返回节点 id; `caret_rect` / `caret_from_point` / `text_rects` (偏移是 UTF-16).
 - 出帧 (物理像素): `RenderHandle {tick(now_ms), frame(), scroll_at, pointer, commit, invalidate, set_waker}`. CSS 动画的时钟是单调墙上时间,
   tick 只对齐到 vblank. `Frame {plane, panels, size, animating, commit, trace}`: plane 是整页 (含画布背景, 不含面板); `panels` 是
-  `Dom::set_panel` 钉住的元素 `Panel {id, size, plane, extent}`. `Plane {commands, tolerance, layers, damage, damage_rects (最多 8 块), bounds}`;
-  layers 是有 backdrop-filter / filter 时切成的段, 每段 `{scene, bounds, backdrop, filter}`: backdrop 先处理画布上已画的那块再画这段, filter
+  `Dom::set_panel` 钉住的元素 `Panel {id, size, plane, extent}`. `Plane {drawing, layers, damage, damage_rects (最多 8 块), bounds}`;
+  layers 是有 backdrop-filter / filter 时切成的段, 每段 `{drawing, bounds, backdrop, filter}` (`Drawing` 出 `scene` / `scene_for`): backdrop 先处理画布上已画的那块再画这段, filter
   先画进临时纹理再合成. 光栅化方 (acde-gpu) 做 backdrop 的 blur / saturate / brightness 和 filter 的 drop-shadow、模糊、颜色矩阵, 别的滤镜忽略.
 - `Dom::capture(id, scale)`: 单独录一个元素 (拖动图标), 单边超过 2048 缩小; JS 拿 `picture` 编号 (`dom.rs`, 每个 web 留最后一个).
-- canvas 2D (acde-dom `dom/canvas.ts` 编成命令流, `Dom::canvas`): 要像素的都在 GPU 上 (render `gpu.rs`, 用光栅化方 `gpu::install` 的设备):
-  超过 20000 条命令 (`ACDE_CANVAS_MAX_COMMANDS`) 画成纹理再接着记, canvas 当图片源是 `CanvasImage`, `shadowBlur` 用 `blur.wgsl`,
-  `getImageData` / `toDataURL` 同步读回. 提交都拿 `Shared::submit_lock`.
+- canvas 2D (acde-dom `dom/canvas.ts` 编成命令流, `Dom::canvas`): 要像素的都在 GPU 上 (render `gpu.rs`, 用 `acde_gpu::Gpu::publish` 登记的设备):
+  超过 20000 条命令 (`ACDE_CANVAS_MAX_COMMANDS`) 画成纹理再接着记, canvas 当图片源是 `GpuImage`, `shadowBlur` 用 `blur.wgsl`,
+  `getImageData` / `toDataURL` 同步读回. 提交都拿 `Gpu::submit_lock`.
 - 选项 `default_lang` (默认 zh-Hans, 选 CJK 地区变体)、`reduced_motion`、`dark` (事后用 `set_dark` / `set_reduced_motion` 改). `<iframe>` 不加载
   (`skip_iframe_content`), 只是空盒子. 增量录制见 vendors/acrender; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
   64 MB. 所有入口 `catch_unwind`.
@@ -454,7 +454,7 @@ FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel`
   合成器自己 (GLES) 不在此列.
 - **不依赖 acgpu, 不带专用驱动**: 只经标准图形接口 (wgpu), 每个 OS 只编一个后端: Windows DX12、Linux Vulkan、macOS Metal
   (`acde_gpu::BACKEND`). crates/gpu (`acde-gpu`) 是 2D 场景 (`PaintScene` / `Scene` / `RenderCommand` / `Filter`, blitz-paint 和 render 直接
-  画进它) 和渲染器 (vello: `Raster` / `Composer` / `Device` / `Offscreen`, `GpuImage`, Linux 上 dma-buf 画布导入和 sync_file); crates/paint
+  画进它) 和渲染器 (vello: `Vello` / `Raster` / `Composer` / `Device` / `Offscreen`, `Gpu` (设备登记, 唯一一份), `GpuImage`, Linux 上 dma-buf 画布导入和 sync_file); crates/paint
   只剩线程、GBM 画布、损伤和区域、把帧拆成 `Part` (`plane.rs`).
 - Windows DX12 的着色器编译器是静态链接的 DXC (wgpu `static-dxc`, mach-dxcompiler 的预编译库): 不用 FXC (FXC 编的 vello 着色器约 10 秒后
   `DXGI_ERROR_DEVICE_REMOVED`), 不用 dxcompiler.dll.
@@ -718,7 +718,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 ## crates/render 的已知问题和测试数据
 
 - canvas 的 `createPattern` 在第一次用时才取来源的位图 (规范是创建那一刻).
-- vello 0.11 没有图片的场景把图集当 1x1 重建、已上传的图片画空; 每个场景垫一块 1x1 渐变绕开 (acde-gpu `VelloScene::keep_atlas`), 升级 vello 时看
+- vello 0.11 没有图片的场景把图集当 1x1 重建、已上传的图片画空; 每个场景垫一块 1x1 渐变绕开 (acde-gpu `Vello::render`), 升级 vello 时看
   上游修了没有.
 - `ACDE_PAINT_VERIFY=1` 下机器忙时 `tests/damage.rs` 偶发等帧超时, 单独重跑都过.
 - `tests/fixtures/replay/*.ops.gz` 是旧 acde-host 的 DOM 操作流 (`tests/replay.rs` 回放, 格式见它), `svg/*.svg` 是简单 SVG 的对比用例, 元素的特殊渲染

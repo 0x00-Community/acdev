@@ -23,7 +23,7 @@ fn near(a: f64, b: f64) -> bool {
 }
 
 fn pixels(doc: &Doc) -> Vec<u8> {
-    acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default())
+    acde_render::gpu::rasterize(doc.scene(), (W, H))
 }
 
 fn rgb(pixels: &[u8], x: f64, y: f64) -> [u8; 3] {

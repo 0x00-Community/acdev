@@ -11,7 +11,7 @@ use smithay::reexports::calloop::ping::Ping;
 use smithay::reexports::gbm;
 use smithay::utils::{DeviceFd, Rectangle};
 
-use crate::plane::{Part, Pixels, Rect, Sheet};
+use crate::plane::{self, Part, Rect, Sheet};
 use crate::raster::{Done, Job, Pass, Raster, Ready};
 
 const FORMAT: Fourcc = Fourcc::Abgr8888;
@@ -71,7 +71,7 @@ pub struct Painter {
 
 impl Target {
     fn backdrop_reads(parts: &[Part], full: Rect) -> Vec<Rect> {
-        parts.iter().filter_map(|p| p.backdrop.map(|b| Rect::covering(b.rect))).filter_map(|r| r.intersection(full)).collect()
+        parts.iter().filter_map(|p| p.backdrop.map(|b| plane::rect(acde_gpu::Px::covering(b.rect)))).filter_map(|r| r.intersection(full)).collect()
     }
 
     fn add(regions: &mut Vec<Rect>, r: Rect) -> bool {
@@ -195,7 +195,7 @@ impl Painter {
             log::trace!("网页重画 plane={plane} parts={} damage={damage:?} regions={targets:?}", sheet.parts.len());
             target.canvases[next].held = true;
             target.stale = false;
-            let regions = targets.as_ref().map(|t| t.iter().map(Pixels::px).collect());
+            let regions = targets.as_ref().map(|t| t.iter().map(plane::px).collect());
             passes.push(Pass { plane, size, parts: sheet.parts, next, targets: regions });
             drawn.push(Drawn { plane, canvas: next, frame, generation: target.generation, size, damage });
         }

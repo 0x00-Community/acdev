@@ -1,21 +1,52 @@
 use std::sync::Arc;
 
-use crate::{Filter, Glyph, NormalizedCoord, PaintRef, PaintScene};
+use crate::{Filter, Glyph, Gpu, NormalizedCoord, Overrides, PaintRef, PaintScene, Scene};
 use kurbo::{Affine, Rect, Shape, Stroke, Vec2};
 use peniko::{BlendMode, BrushRef, Color, Fill, FontData, StyleRef};
 
-pub struct VelloScene<'s>(pub &'s mut vello::Scene);
+struct VelloScene<'s>(&'s mut vello::Scene);
 
-impl<'s> From<&'s mut vello::Scene> for VelloScene<'s> {
-    fn from(scene: &'s mut vello::Scene) -> Self {
-        Self(scene)
-    }
+pub struct Vello {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    renderer: vello::Renderer,
+    scene: vello::Scene,
 }
 
-impl VelloScene<'_> {
-    pub fn keep_atlas(scene: &mut vello::Scene) {
+impl Vello {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, String> {
+        let options =
+            vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None };
+        let renderer = vello::Renderer::new(device, options).map_err(|e| format!("vello: {e}"))?;
+        Ok(Self { device: device.clone(), queue: queue.clone(), renderer, scene: vello::Scene::new() })
+    }
+
+    pub fn render(
+        &mut self,
+        scenes: impl IntoIterator<Item = (Scene, Affine)>,
+        overrides: &mut Overrides,
+        target: &wgpu::TextureView,
+        (width, height): (u32, u32),
+        base: Color,
+        lock: Option<&Gpu>,
+    ) -> Result<(), String> {
+        overrides.forget(&mut self.renderer);
+        self.scene.reset();
+        for (scene, place) in scenes {
+            overrides.apply(&mut self.renderer, &scene);
+            VelloScene(&mut self.scene).append_scene(scene, place);
+        }
         let clear = peniko::Gradient::new_linear((0.0, 0.0), (1.0, 0.0)).with_stops([Color::TRANSPARENT, Color::TRANSPARENT]);
-        scene.fill(Fill::NonZero, Affine::IDENTITY, &clear, None, &Rect::new(0.0, 0.0, 1.0, 1.0));
+        self.scene.fill(Fill::NonZero, Affine::IDENTITY, &clear, None, &Rect::new(0.0, 0.0, 1.0, 1.0));
+        let params = vello::RenderParams { base_color: base, width, height, antialiasing_method: vello::AaConfig::Area };
+        let rendered = {
+            let _lock = lock.map(Gpu::submit_lock);
+            self.renderer.render_to_texture(&self.device, &self.queue, &self.scene, target, &params)
+        };
+        self.scene.reset();
+        rendered.map_err(|e| format!("vello: {e}"))?;
+        overrides.submitted();
+        Ok(())
     }
 }
 

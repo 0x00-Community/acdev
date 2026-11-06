@@ -1,13 +1,13 @@
 use std::f64::consts::TAU;
 use std::sync::Arc;
 
-use acde_gpu::{PaintScene, Scene};
+use acde_gpu::{GpuImage, PaintScene, Scene};
 use blitz_dom::BaseDocument;
 use kurbo::{Affine, BezPath, Cap, Join, PathEl, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2};
 use peniko::{BlendMode, Color, Compose, Fill, Gradient, Mix};
 
 use crate::error::{Error, Result};
-use crate::gpu::{self, CanvasImage};
+use crate::gpu;
 
 const MAX_COMMANDS: usize = 20_000;
 pub(crate) const MAX_SIDE: u32 = 4096;
@@ -125,7 +125,7 @@ pub(crate) struct Canvas {
     state: State,
     stack: Vec<State>,
     path: BezPath,
-    bitmap: std::cell::OnceCell<Option<Arc<CanvasImage>>>,
+    bitmap: std::cell::OnceCell<Option<Arc<GpuImage>>>,
 }
 
 struct Reader<'a> {
@@ -305,7 +305,7 @@ impl Canvas {
         Some(format!("data:image/png;base64,{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, png)))
     }
 
-    fn render(&self) -> Option<Arc<CanvasImage>> {
+    fn render(&self) -> Option<Arc<GpuImage>> {
         let (w, h) = (self.size.0 as u32, self.size.1 as u32);
         if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE {
             return None;
@@ -313,7 +313,7 @@ impl Canvas {
         gpu::draw(Arc::unwrap_or_clone(self.picture()), (w, h), Affine::IDENTITY)
     }
 
-    fn bitmap(&self) -> Option<Arc<CanvasImage>> {
+    fn bitmap(&self) -> Option<Arc<GpuImage>> {
         self.bitmap.get_or_init(|| self.render()).clone()
     }
 
@@ -891,7 +891,7 @@ impl Canvas {
         }
     }
 
-    fn restart(&mut self, image: Arc<CanvasImage>) {
+    fn restart(&mut self, image: Arc<GpuImage>) {
         let mut scene = Scene::new();
         scene.draw_image(image.brush().as_ref(), Affine::IDENTITY);
         for (path, rule) in &self.state.clips {

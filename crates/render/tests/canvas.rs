@@ -60,7 +60,7 @@ impl Page {
     }
 
     fn pixels(&self) -> Vec<u8> {
-        acde_render::gpu::rasterize(self.doc.scene(), (W, H), Default::default())
+        acde_render::gpu::rasterize(self.doc.scene(), (W, H))
     }
 
     fn at(px: &[u8], x: u32, y: u32) -> [u8; 4] {

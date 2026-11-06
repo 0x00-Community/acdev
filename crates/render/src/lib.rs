@@ -26,7 +26,7 @@ pub use decoration::{Bar, Decoration, FrameButton};
 pub use dom::{Dom, NONE, NodeType, Ns, Quad, Viewport};
 pub use error::{Error, Result};
 pub use geometry::Metrics;
-pub use layers::{Backdrop, Layer, LayerFilter};
+pub use layers::{Backdrop, Drawing, Layer, LayerFilter};
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -171,10 +171,10 @@ impl Frame {
     pub fn whole(&self) -> acde_gpu::Scene {
         let plane = &self.plane;
         let commands = match plane.layers.is_empty() {
-            true => plane.commands.to_vec(),
-            false => plane.layers.iter().flat_map(|l| l.scene().commands).collect(),
+            true => plane.drawing.commands.to_vec(),
+            false => plane.layers.iter().flat_map(|l| l.drawing.scene().commands).collect(),
         };
-        acde_gpu::Scene { tolerance: plane.tolerance, commands }
+        acde_gpu::Scene { tolerance: plane.drawing.tolerance, commands }
     }
 }
 
@@ -187,13 +187,11 @@ pub struct Panel {
 
 #[derive(Default)]
 pub struct Plane {
-    pub commands: Commands,
-    pub tolerance: f64,
+    pub drawing: Drawing,
     pub layers: Vec<Layer>,
     pub damage: Rect,
     pub damage_rects: Vec<Rect>,
     pub bounds: Option<Rect>,
-    draw: Vec<kurbo::Rect>,
 }
 
 impl Plane {
@@ -203,14 +201,6 @@ impl Plane {
         if self.damage_rects.len() > 8 {
             self.damage_rects = vec![self.damage];
         }
-    }
-
-    pub fn scene_for(&self, rect: kurbo::Rect) -> acde_gpu::Scene {
-        region::scene_for(&self.commands, &self.draw, self.tolerance, rect)
-    }
-
-    pub fn scene(&self) -> acde_gpu::Scene {
-        self.commands.to_scene(self.tolerance)
     }
 }
 

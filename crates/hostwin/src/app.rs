@@ -133,7 +133,7 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
             return 1;
         }
     };
-    acde_render::gpu::install(Some(gpu.shared.clone()));
+    acde_gpu::Gpu::publish(Some(gpu.shared.clone()));
     let server = Server { proxy: OnceLock::new(), compositor: OnceLock::new(), state: Mutex::new(State::default()), broker: Arc::new(Inbox::default()), gpu };
     if SERVER.set(server).is_err() {
         log::error!("宿主窗口: 已经起过了");

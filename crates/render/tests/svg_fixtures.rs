@@ -47,7 +47,7 @@ impl Page {
     }
 
     fn raster(&self) -> Vec<u8> {
-        acde_render::gpu::rasterize(self.doc.scene(), (SIZE, SIZE), Default::default())
+        acde_render::gpu::rasterize(self.doc.scene(), (SIZE, SIZE))
     }
 }
 

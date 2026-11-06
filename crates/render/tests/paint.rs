@@ -7,7 +7,7 @@ const W: u32 = 120;
 const H: u32 = 80;
 
 fn red_pixels(doc: &Doc) -> usize {
-    let rgba = acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default());
+    let rgba = acde_render::gpu::rasterize(doc.scene(), (W, H));
     rgba.chunks(4).filter(|p| p[0] > 200 && p[1] < 80 && p[2] < 80).count()
 }
 
@@ -55,7 +55,7 @@ fn data_url_image_is_loaded() {
 }
 
 fn pixels(doc: &Doc) -> Vec<u8> {
-    acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default())
+    acde_render::gpu::rasterize(doc.scene(), (W, H))
 }
 
 #[test]

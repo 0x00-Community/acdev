@@ -29,7 +29,7 @@ impl Page {
     }
 
     fn count(&self, x0: u32, y0: u32, x1: u32, y1: u32) -> (usize, usize) {
-        let rgba = acde_render::gpu::rasterize(self.doc.scene(), (W, H), Default::default());
+        let rgba = acde_render::gpu::rasterize(self.doc.scene(), (W, H));
         let (mut dark, mut red) = (0, 0);
         for y in y0..y1 {
             for x in x0..x1 {

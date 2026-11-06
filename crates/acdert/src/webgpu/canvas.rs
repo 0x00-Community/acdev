@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use acde_gpu::wgpu;
-use acde_paint::{CanvasImage, Gpu};
+use acde_gpu::{Gpu, GpuImage};
 
 use super::{Id, Kind, Obj, Out, Ret, State, Texture, Throw, desc, enter, finish, json, report, with_state};
 use crate::bind;
@@ -17,16 +17,16 @@ pub struct Context {
     usage: wgpu::TextureUsages,
     premultiplied: bool,
     view_formats: Vec<wgpu::TextureFormat>,
-    images: Vec<Arc<CanvasImage>>,
+    images: Vec<Arc<GpuImage>>,
     page: Option<(wgpu::Texture, wgpu::BindGroup)>,
     current: Option<Current>,
-    front: Option<Arc<CanvasImage>>,
+    front: Option<Arc<GpuImage>>,
 }
 
 struct Current {
     id: Id,
     texture: wgpu::Texture,
-    image: Option<Arc<CanvasImage>>,
+    image: Option<Arc<GpuImage>>,
     clear: bool,
 }
 
@@ -35,9 +35,9 @@ impl Context {
         self.format == wgpu::TextureFormat::Rgba8Unorm && !self.premultiplied
     }
 
-    fn free_image(&mut self, gpu: &Gpu, size: (u32, u32), usage: wgpu::TextureUsages, view_formats: &[wgpu::TextureFormat]) -> Arc<CanvasImage> {
+    fn free_image(&mut self, gpu: &Gpu, size: (u32, u32), usage: wgpu::TextureUsages, view_formats: &[wgpu::TextureFormat]) -> Arc<GpuImage> {
         self.images.retain(|i| (i.texture.width(), i.texture.height()) == size || Arc::strong_count(i) > 1);
-        let front = |i: &Arc<CanvasImage>| self.front.as_ref().is_some_and(|f| Arc::ptr_eq(f, i));
+        let front = |i: &Arc<GpuImage>| self.front.as_ref().is_some_and(|f| Arc::ptr_eq(f, i));
         let free = self.images.iter().position(|i| (i.texture.width(), i.texture.height()) == size && !front(i) && (Arc::strong_count(i) == 1 || i.copied()));
         if let Some(i) = free {
             return self.images[i].clone();
@@ -57,7 +57,7 @@ impl Context {
             usage: usage | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats,
         });
-        let image = CanvasImage::new(texture, gpu.images());
+        let image = GpuImage::new(texture, &gpu.images);
         self.images.push(image.clone());
         image
     }
@@ -280,7 +280,7 @@ super::natives! {
 
     "present" => fn present(scope, args) {
         let node = bind::arg_u32(scope, &args, 0);
-        let shown = with_state(|s| -> Result<Option<Arc<CanvasImage>>, Throw> {
+        let shown = with_state(|s| -> Result<Option<Arc<GpuImage>>, Throw> {
             let gpu = s.gpu()?;
             let Some(c) = s.canvases.get_mut(&node) else { return Ok(None) };
             let Some(current) = c.current.take() else { return Ok(None) };

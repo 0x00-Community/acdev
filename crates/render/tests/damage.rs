@@ -33,7 +33,7 @@ struct Check {
 
 impl Check {
     fn raster(scene: Scene) -> Vec<u8> {
-        acde_render::gpu::rasterize(scene, (W, H), Default::default())
+        acde_render::gpu::rasterize(scene, (W, H))
     }
 
     fn frame(&self) -> Frame {
