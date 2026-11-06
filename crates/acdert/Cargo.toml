@@ -28,6 +28,8 @@ signal-hook = "0"
 # logging: env_logger behind acde-log (written on its own thread), perf timings for the whole chain
 acde-log = { path = "../log" }
 log = "0"
+# hostnative.rs: the dev IPC's shot carries the PNG as base64
+base64 = "0"
 
 # runtime, shell (smithay) and their napi exports build on Linux only; elsewhere acde runs scripts without them
 # (development checks on a Mac)

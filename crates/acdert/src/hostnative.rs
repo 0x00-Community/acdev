@@ -63,6 +63,8 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "setMode" => set_mode,
         "raise" => raise,
         "quit" => quit,
+        "capture" => capture,
+        "devRespond" => dev_respond,
     );
     let name = bind::string(scope, "");
     bind::set(scope, obj, "socketName", name.into());
@@ -348,6 +350,44 @@ fn inject(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
     match injected(scope, args.get(0)) {
         Ok(event) => _ = with(scope, |shell| shell.inject(event)),
         Err(e) => bind::throw_error(scope, &e),
+    }
+}
+
+fn capture(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let window = bind::arg_f64(scope, &args, 0) as u32;
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    crate::offload::run(scope, &mut rv, "acde-capture", move || Shell::open().ok_or_else(|| "Shell: not open".to_owned()).and_then(|shell| shell.capture(window)), settle_capture);
+}
+
+fn settle_capture(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, shot: Result<acde_hostwin::Shot, String>) {
+    use base64::Engine;
+    match shot {
+        Ok(shot) => {
+            let width = num(scope, f64::from(shot.width));
+            let height = num(scope, f64::from(shot.height));
+            let png = bind::string(scope, &base64::engine::general_purpose::STANDARD.encode(&shot.png));
+            let obj = bind::object(scope, &[("width", width), ("height", height), ("png", png.into())]);
+            resolver.resolve(scope, obj.into());
+        }
+        Err(e) => {
+            let error = crate::offload::failure(scope, &format!("capture: {e}"), None, "capture");
+            resolver.reject(scope, error);
+        }
+    }
+}
+
+fn dev_respond(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let id = bind::arg_f64(scope, &args, 0);
+    if !id.is_finite() || id.fract() != 0.0 {
+        return bind::throw_type_error(scope, "devRespond: the id is an integer");
+    }
+    let ok = bind::arg_bool(scope, &args, 1);
+    let payload = bind::arg_string(scope, &args, 2);
+    let result = if ok { Ok(payload.as_str()) } else { Err(payload.as_str()) };
+    if let Some(Err(e)) = with(scope, |shell| shell.dev_respond(id as i64, result)) {
+        bind::throw_error(scope, &e);
     }
 }
 

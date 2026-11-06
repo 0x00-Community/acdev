@@ -1,4 +1,4 @@
-import type { Broker, BrokerShell } from './broker'
+import type { Broker, BrokerShell, WebInfo } from './broker'
 import { readdirSync, readFileSync, renameSync, writeFileSync } from './sys/fs'
 import { join } from './sys/path'
 import { pathToFileURL } from './sys/url'
@@ -8,6 +8,7 @@ interface DebugApi {
   readonly broker: Broker
   readonly shell: BrokerShell
   web(name: string, code: string): Promise<unknown>
+  webs(): WebInfo[]
   stats(reset?: boolean): Promise<Record<string, unknown>>
   sleep(ms: number): Promise<void>
   readText(path: string): string
@@ -22,6 +23,7 @@ export class DebugDir {
       broker,
       shell: broker.shell,
       web: (web, code) => broker.debugEval(web, code),
+      webs: () => broker.webs(),
       stats: (reset) => broker.debugStats(reset),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       readText: (path) => readFileSync(path, 'utf8'),

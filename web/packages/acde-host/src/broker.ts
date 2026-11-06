@@ -41,8 +41,18 @@ export interface BrokerShell {
   unshortcut(combo: string, scope: 'session' | 'desktop' | 'app', owner: number): void
   inject(event: { type: 'move' | 'motion' | 'down' | 'up' | 'wheel' | 'keydown' | 'keyup'; x?: number; y?: number; button?: number; dx?: number; dy?: number; source?: 'wheel' | 'finger' | 'continuous'; code?: number }): void
   quit(): void
+  capture?(window: number): Promise<{ width: number; height: number; png: string }>
+  devRespond?(id: number, ok: boolean, payload: string): void
   readonly socketName: string
   readonly hosted?: boolean
+}
+
+export interface WebInfo {
+  readonly name: string
+  readonly app: string | null
+  readonly kind: 'desktop' | 'app'
+  readonly window: number
+  readonly title: string
 }
 
 export interface ShellWindow {
@@ -564,6 +574,8 @@ export class Broker {
       }
       case 'devreload':
         return void this.devReload(event.key ?? null).catch((error: Error) => Log.write(Level.Error, 'acde_host', `acde dev: reload: ${error.message}`))
+      case 'devrequest':
+        return void this.#devRequest(event.key ?? '')
       case 'windowcloserequest':
         if (event.window === 0 || event.window === undefined) {
           this.#stopped = true
@@ -1010,10 +1022,87 @@ export class Broker {
   #chooserWarned = false
 
   debugEval(name: string, code: string): Promise<unknown> {
+    try {
+      return this.#web(name).rpc.call('debug', 'eval', [code])
+    } catch (error) {
+      return Promise.reject(error)
+    }
+  }
+
+  webs(): WebInfo[] {
+    return this.#webs().map((web) => {
+      const record = web.kind === 'window' ? this.#windows.get(web.window) : undefined
+      return {
+        name: web.name,
+        app: web.app?.id ?? null,
+        kind: web.kind === 'desktop' ? 'desktop' : 'app',
+        window: web.window,
+        title: web.kind === 'desktop' ? this.#current.name : (record?.title ?? web.app?.label ?? web.name),
+      }
+    })
+  }
+
+  #web(name: string): Web {
     const webs = this.#webs()
-    const web = webs.find((w) => w.name === name)
-    if (!web) return Promise.reject(new Error(`no web ${name} (${webs.map((w) => w.name).join(', ')})`))
-    return web.rpc.call('debug', 'eval', [code])
+    const wanted = String(name)
+    const web = webs.find((w) => w.name === wanted) ?? (wanted === 'desktop' ? this.#desktop : null) ?? webs.filter((w) => w.app?.id === wanted).sort((a, b) => a.window - b.window)[0]
+    if (!web) throw Object.assign(new Error(`no web ${wanted} (webs: ${webs.map((w) => w.name).join(', ') || 'none'}; a web name, an app id or desktop)`), { status: 404 })
+    return web
+  }
+
+  async #devRequest(line: string): Promise<void> {
+    let id: number | null = null
+    let ok = true
+    let payload: string
+    try {
+      const request = JSON.parse(line) as Record<string, unknown> & { id: number; op: string }
+      id = request.id
+      payload = JSON.stringify(await this.#devOp(request))
+    } catch (error) {
+      ok = false
+      payload = (error as Error)?.message ?? String(error)
+    }
+    if (id === null) return Log.write(Level.Warn, 'acde_host', `acde dev: not a request: ${line.slice(0, 200)}`)
+    try {
+      this.shell.devRespond?.(id, ok, payload)
+    } catch (error) {
+      Log.write(Level.Warn, 'acde_host', `acde dev: response ${id}: ${(error as Error).message}`)
+    }
+  }
+
+  async #devOp(request: Record<string, unknown> & { op: string }): Promise<unknown> {
+    const { type: _type, id: _id, op, ...args } = request
+    switch (op) {
+      case 'webs':
+        return { webs: this.webs() }
+      case 'eval': {
+        if (typeof args['code'] !== 'string') throw new Error('eval: code is a string')
+        let value: unknown
+        try {
+          value = await this.#web(String(args['web'] ?? 'desktop')).rpc.call('debug', 'eval', [args['code']])
+        } catch (error) {
+          throw new Error(error instanceof Error ? `${error.name}: ${error.message}` : String(error))
+        }
+        try {
+          return { value: JSON.parse(JSON.stringify(value) ?? 'null') as unknown }
+        } catch (error) {
+          throw new Error(`eval: the value is not JSON: ${(error as Error).message}`)
+        }
+      }
+      case 'shot': {
+        const web = this.#web(String(args['web'] ?? 'desktop'))
+        if (!this.shell.capture) throw new Error('shot: this backend cannot read a window back (host windows only)')
+        return this.shell.capture(web.window)
+      }
+      case 'snapshot':
+        return this.inspect.api.snapshot(args)
+      case 'act':
+        return this.inspect.api.act(String(args['ref'] ?? ''), args['action'] as never, (args['arg'] ?? null) as string | number | null)
+      case 'run':
+        return this.inspect.api.run(args['steps'] as never)
+      default:
+        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run)`)
+    }
   }
 
   async debugStats(reset = false): Promise<Record<string, unknown>> {

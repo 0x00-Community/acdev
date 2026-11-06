@@ -193,6 +193,7 @@ dependencies = [
  "acde-runtime",
  "acde-shell",
  "acde-window",
+ "base64 0.22.1",
  "deno_core_icudata",
  "encoding_rs",
  "getrandom 0.4.3",

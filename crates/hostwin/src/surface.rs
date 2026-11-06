@@ -24,7 +24,14 @@ pub(crate) enum Msg {
     Resized(u32, u32, f64),
     Panel(u32, Option<[f64; 4]>),
     Redraw,
+    Capture(mpsc::SyncSender<Result<Shot, String>>),
     Stop,
+}
+
+pub struct Shot {
+    pub width: u32,
+    pub height: u32,
+    pub png: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -44,6 +51,12 @@ impl Link {
     }
 
     pub fn place(&self, _: [f64; 4]) {}
+
+    pub fn capture(&self, wait: Duration) -> Result<Shot, String> {
+        let (reply, got) = mpsc::sync_channel(1);
+        self.0.send(Msg::Capture(reply)).map_err(|_| "the window is gone".to_owned())?;
+        got.recv_timeout(wait).map_err(|_| "the window did not answer".to_owned())?
+    }
 }
 
 pub struct Surface {

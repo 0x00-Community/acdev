@@ -101,7 +101,7 @@ Vulkan), 页面由 vello 画进一张 Rgba8 纹理再拷到 surface (layers 的�
 Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线程出帧. 对 acde-host 的接口和 Linux 一样:
 
 - Broker 的 `native.Shell.broker()` 换成 hostwin 的 `Shell` (crates/acdert `hostnative.rs`): grant / place / focus / hide / close /
-  windows / shortcut / inject …, 对象上 `hosted: true`; `screenshot` 没有. 窗口的关闭按钮发 `windowcloserequest`: 桌面的结束
+  windows / shortcut / inject …, 另有 `capture(window)` 和 `devRespond(id, ok, payload)` (dev IPC 用, 见下), 对象上 `hosted: true`; `screenshot` 没有. 窗口的关闭按钮发 `windowcloserequest`: 桌面的结束
   会话, 别的走 `closeWeb` (先问 `beforeclose`).
 - web 的 `claimSurface` 拿到 hostwin 的 `Surface` (crates/acdert `surface.rs` 是 Wayland / 宿主两种的 enum), 另有 `hosted`、
   `setTitle`、`setImeArea`. 输入: winit 的按键换成 evdev 码 (`keys.rs`), 输入法的 `Ime::Commit` / `Preedit` 是 `imecommit` /
@@ -127,6 +127,11 @@ Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线�
   unix socket 在所有 unix 上注入; network、office、IME、语音只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
 - 验证 (只在 macOS 上验, Windows / Linux 的宿主窗口只写不验): `ACDE_HOST_DUMP=<目录>` 让每个窗口每帧把画好的页面 (GPU 读回)
   写成 `<目录>/<窗口 id>.png`; `ACDE_DEBUG_DIR` 照旧能在各 web 里求值. 不截屏.
+  - 验过 (2026-11-06, macOS 26, M3 Pro): dev IPC 的请求. 一个 bun 脚本当 `acde dev` 的服务端 (unix socket, 起 acdert 时给
+    `ACDE_DEV`, 没有 `ACDE_DEBUG_DIR`), 在 `acdert app ledger` 和 `acdert desktop dopame` 上: hello 带 `role: "runtime"`; `webs`;
+    `eval` (标题、promise、undefined → null、抛错、BigInt 回错、没有这个 web 回错并列出名字); 不认识的 op 回错; `shot` 写出的
+    PNG (ledger 2002×1362, 桌面 2722×1670) 和窗口一致; `snapshot {find}` → `act click` → `run [key '7 7', type '中文']` 之后
+    eval 读到输入框的值 `77中文`; 三个并发请求各回一次. 未验证: 真的 acde CLI (同时在写) 接上来.
   - 验过 (2026-11-06, macOS 26, M3 Pro): 注入. `acdert app ledger` 和 `acdert desktop dopame` (Demo 的 ledger) 里经 `ACDE_DEBUG_DIR`
     调 `broker.inspect.api`: `open('ledger')`、click「收入」、click 金额框、`key '1 2 8 period 5'`、`type '年终奖 bonus'` (中文)、
     click「奖金」、click「记一笔收入」, 页面里记下了 `+128.50 奖金 年终奖 bonus` (eval 读 DOM, `ACDE_HOST_DUMP` 的 PNG 也是);
@@ -147,9 +152,27 @@ Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线�
 
 `acde dev` 和 acdert 之间: IPC 是 crates/ipc (`acde-ipc`): unix 上 unix socket, Windows 上命名管道 (`CreateNamedPipeW` /
 `ConnectNamedPipe`, 客户端 `CreateFile` 打开, 忙时 `WaitNamedPipeW`, 读写就是 `ReadFile` / `WriteFile`), 一行一个 JSON. acde 是服务端
-(`ACDE_DEV` 是它的地址), acdert (hostwin 的 `acde-dev` 线程) 连上去, 先发 `{"type":"hello","pid"}`; 收 `{"type":"reload","app"?}`
+(`ACDE_DEV` 是它的地址), acdert (hostwin 的 `acde-dev` 线程) 连上去, 先发 `{"type":"hello","role":"runtime","pid"}` (acde 那边
+别的连接是 `role: "tool"` 的 `acde eval|shot|webs|inspect|act`, 它们的请求由 acde 改写 id 后转给 runtime); 收 `{"type":"reload","app"?}`
 (推给 Broker 一个 `devreload`: 有 app 时关掉它所有窗口 (不问 `beforeclose`) 再打开, 位置由「窗口管理」记的 rect 摆回;
-没有 app 时重起 desktop web, 桌面服务不重起) 和 `{"type":"quit"}`; 连接断了 (acde 退出) acdert 就退出. 工程的构建结果经 `ACDE_PATH`
+没有 app 时重起 desktop web, 桌面服务不重起)、`{"type":"quit"}` 和请求 `{"type":"request","id":<整数>,"op", …参数}`;
+连接断了 (acde 退出) acdert 就退出.
+
+请求 (给 agent 和 `acde` 的工具用, 契约和 acde 仓库一致): `acde-dev` 线程记下等回答的 id (重复的 id、没有整数 id 的只打 warn,
+没有 `op` 的直接回错), 把整行作为 `devrequest` 事件 (`key`) 推给 Broker; Broker (`broker.ts` `#devRequest`) 做完后调宿主
+`Shell.devRespond(id, ok, payload)`, 线程写出 `{"type":"response","id","ok":true,"result":<JSON>}` 或
+`{"type":"response","id","ok":false,"error":"<文字>"}` —— 每个请求恰好一个回答 (不在等的 id 拒绝再回, 超时由 acde 那边管: 30 秒).
+op (`web` 是 web 的名字 (`ledger#1048576`)、应用 id (那个应用 window 号最小的 web) 或 `desktop`):
+- `webs` → `{webs: [{name, app, kind: 'desktop' | 'app', window, title}]}` (`Broker.webs()`; 桌面的 title 是桌面的名字, 应用的是窗口标题).
+- `eval {web, code}` → `{value}`: 在那个 web 里和 `ACDE_DEBUG_DIR` 一样求值 (间接 eval, promise 等它落定), 值结构化克隆回 Broker,
+  再 JSON (undefined 是 null; BigInt 这类 JSON 不了的回错 `eval: the value is not JSON: …`); 页面抛的错回 `<name>: <message>`.
+  `ACDE_DEV` 设了时 web 的 debug eval 就开着 (`worker.ts`, 和 `ACDE_DEBUG_DIR` 一样).
+- `shot {web}` → `{png: <base64>, width, height}`: 宿主 `Shell.capture(window)` (crates/hostwin: 给那个窗口的出帧线程发
+  `Msg::Capture`, 它把当前的页面纹理 GPU 读回、编成 PNG, 和 `ACDE_HOST_DUMP` 同一段 `Presenter::capture`; 一条 `acde-capture`
+  线程等, 最多 10 秒; base64 在 Rust 里编). 设备像素; 桌面的含面板 (面板画在桌面纹理里); 窗口还没出过帧时回错. 合成器的
+  `Shell` 没有 `capture`, 那里回错.
+- `snapshot {…}` / `act {ref, action, arg?}` / `run {steps}` → `Broker.inspect.api` 的同名方法 (见「看和操作桌面」), 参数是请求里
+  除了 `type` / `id` / `op` 以外的字段. 工程的构建结果经 `ACDE_PATH`
 (Windows 上用 `;` 分隔) 交给 acdert, 不装进包目录. 日志就是 acdert 的 stderr (acde 起它时继承). `ACDE_PATH` 的分隔、`process.platform`
 (`sys` 给的 `platform`, 和 Node 的值一样) 都按平台.
 
@@ -1590,7 +1613,8 @@ xdg-desktop-portal Settings 的 `org.freedesktop.appearance` `color-scheme` (run
 Unicode 键和剪贴板、跟着客户端改尺寸、多个客户端.
 
 **调试运行中的会话** (`ACDE_DEBUG_DIR=<目录>`): 放进去的每个 `<name>.mjs` 由 Broker import, 默认导出被调用, 参数是 `DebugApi`
-(`src/debug.ts`): `broker`, `shell` (`inject`, `stats` …), `web(name, code)` (在一个 web 里求值, 结果结构化克隆回来), `stats(reset?)`,
+(`src/debug.ts`): `broker`, `shell` (`inject`, `stats` …), `web(name, code)` (在一个 web 里求值, 结果结构化克隆回来; name 也可以是
+应用 id 或 `desktop`), `webs()` (所有 web 的 `{name, app, kind, window, title}`, 同 dev IPC 的 `webs`), `stats(reset?)`,
 `sleep`, `readText`, `readDir`. 结果写到 `<name>.out`. `packaging/qemu/drive.sh` 是它的命令行.
 
 #### 启动标记

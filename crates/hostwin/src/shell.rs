@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use acde_model::{Binding, Combo, Event, Inbox, Scope, Shortcuts, Waker};
 
 use crate::app::{Cmd, server};
-use crate::surface::Link;
+use crate::surface::{Link, Shot};
+
+const CAPTURE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub const FIRST_WEB: u32 = 1 << 20;
 const DEFAULT_SIZE: [f64; 2] = [800.0, 600.0];
@@ -295,6 +297,22 @@ impl Shell {
 
     pub fn inject(&self, event: Injected) {
         server().expect("hostwin").send(Cmd::Inject(event));
+    }
+
+    pub fn capture(&self, window: u32) -> Result<Shot, String> {
+        let link = self
+            .state()
+            .entries
+            .get(&window)
+            .ok_or_else(|| format!("no window {window}"))?
+            .link
+            .clone()
+            .ok_or_else(|| format!("window {window} has no page"))?;
+        link.capture(CAPTURE_WAIT)
+    }
+
+    pub fn dev_respond(&self, id: i64, result: Result<&str, &str>) -> Result<(), String> {
+        crate::dev::respond(id, result)
     }
 
     pub fn quit(&self) {

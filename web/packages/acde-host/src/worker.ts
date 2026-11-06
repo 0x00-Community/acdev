@@ -79,7 +79,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const bridge = new RemoteBridge(rpc, init, self, windows)
   if (init.kind === 'window' && init.app?.backend && natives.backend) installBackendTransport({ ...natives.backend, port: init.app.backend.port })
   const web = new Host(page, dom, init.scale, natives.Ime, windows)
-  const debug = !!natives.env['ACDE_DEBUG_DIR']
+  const debug = !!natives.env['ACDE_DEBUG_DIR'] || !!natives.env['ACDE_DEV']
   const inspect = new PageInspect(page, dom, web)
   rpc.serve(async (service, method, args) => {
     if (service === 'window' && self) return self.serve(method, args)

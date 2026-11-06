@@ -11,7 +11,7 @@ use winit::window::Window;
 
 use crate::app::{Opened, server};
 use crate::gpu::Gpu;
-use crate::surface::Msg;
+use crate::surface::{Msg, Shot};
 
 const DEFAULT_HZ: f64 = 60.0;
 const RETRY: Duration = Duration::from_millis(100);
@@ -197,6 +197,9 @@ impl Presenter {
                 self.dirty = true;
             }
             Msg::Redraw => self.show(),
+            Msg::Capture(reply) => {
+                let _ = reply.send(self.capture());
+            }
             Msg::Stop => return true,
         }
         false
@@ -303,19 +306,22 @@ impl Presenter {
         log::debug!(target: "perf::raster", "surface ms={:.3}", acde_log::since_ms(started));
     }
 
-    fn dump(&self, (w, h): (u32, u32)) {
-        let (Some(dir), Some(page)) = (&self.dump, &self.page) else {
+    fn capture(&self) -> Result<Shot, String> {
+        let page = self.page.as_ref().ok_or("the window has not drawn a frame yet")?;
+        let (width, height) = page.size;
+        let rgba = self.gpu.shared.read(&page.texture, [0, 0, width, height])?;
+        let png = acde_render::encode_png(width, height, &rgba).ok_or("png encoding failed")?;
+        Ok(Shot { width, height, png })
+    }
+
+    fn dump(&self) {
+        let Some(dir) = &self.dump else {
             return;
         };
-        let written = self
-            .gpu
-            .shared
-            .read(&page.texture, [0, 0, w, h])
-            .and_then(|rgba| acde_render::encode_png(w, h, &rgba).ok_or_else(|| "png".to_owned()))
-            .and_then(|png| {
-                let _ = std::fs::create_dir_all(dir);
-                std::fs::write(dir.join(format!("{}.png", self.id)), png).map_err(|e| e.to_string())
-            });
+        let written = self.capture().and_then(|shot| {
+            let _ = std::fs::create_dir_all(dir);
+            std::fs::write(dir.join(format!("{}.png", self.id)), shot.png).map_err(|e| e.to_string())
+        });
         if let Err(e) = written {
             log::warn!("ACDE_HOST_DUMP: {e}");
         }
@@ -361,7 +367,7 @@ impl Presenter {
         }
         self.scene.reset();
         self.overrides.submitted();
-        self.dump(size);
+        self.dump();
         self.show();
         Ok(())
     }
