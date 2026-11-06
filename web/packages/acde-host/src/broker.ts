@@ -123,6 +123,7 @@ export interface WebInit {
   readonly request?: Record<string, unknown> | null
   readonly url?: string | null
   readonly sockets?: string
+  readonly devState?: unknown
 }
 
 export interface ServiceShape {
@@ -166,6 +167,7 @@ interface WindowRecord {
 export class Broker {
   static readonly HANG_MS = 5000
   static readonly CLOSE_WAIT_MS = 3000
+  static readonly DEV_STATE_MS = 500
   static readonly RESTARTS = 3
   static readonly SYNC = ['session.own'] as const
   static readonly BROWSER = 'browser'
@@ -197,6 +199,7 @@ export class Broker {
   #stopped = false
   #dark: boolean
   #ended: RunEnd = 'signal'
+  #devStates = new Map<string, unknown>()
   #wake: (() => void) | null = null
   #signal: AbortSignal | null = null
   onDesktopShown: () => void = () => {}
@@ -364,7 +367,7 @@ export class Broker {
   }
 
   startDesktop(): void {
-    const grant = this.shell.grant({ desktop: true, hidden: !!this.#options.standalone && this.shell.hosted === true })
+    const grant = this.shell.grant({ desktop: true })
     const { storageFile, standalone } = this.#options
     const init: WebInit = {
       kind: 'desktop',
@@ -382,7 +385,8 @@ export class Broker {
       resources: this.#resources(),
       page: this.#current.html,
       storageFile: storageFile(this.#current.id),
-      standalone,
+      standalone: this.#current.id === Packages.BARE ? standalone : null,
+      devState: this.#takeDevState(''),
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
@@ -395,7 +399,7 @@ export class Broker {
     for (const record of this.#windows.values()) this.#announce(record)
   }
 
-  #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode, size: Frame.windowSize(record.app!, this.shell.hosted === true) }).token): void {
+  #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode, size: Frame.windowSize(record.app!) }).token): void {
     const app = record.app!
     this.#placed.set(record.id, app.id)
     const init: WebInit = {
@@ -418,6 +422,7 @@ export class Broker {
       request: record.request ?? null,
       url: record.url ?? null,
       ...(app.backend && { sockets: AppBackends.socketDir(app.id) }),
+      devState: this.#takeDevState(app.id),
     }
     record.request = null
     record.web = this.#spawn(init, app.heapMb)
@@ -575,13 +580,13 @@ export class Broker {
         return to?.post({ type: 'events', events: [event] })
       }
       case 'devreload':
-        return void this.devReload(event.key ?? null).catch((error: Error) => Log.write(Level.Error, 'acde_host', `acde dev: reload: ${error.message}`))
+        return void this.devReload(event.key ?? null, event.title === 'hot').catch((error: Error) => Log.write(Level.Error, 'acde_host', `acde dev: reload: ${error.message}`))
       case 'devrequest':
         return void this.#devRequest(event.key ?? '')
       case 'windowcloserequest':
         if (event.window === 0 || event.window === undefined) {
           this.#stopped = true
-          this.#ended = 'exit'
+          this.#ended = 'close'
           return
         }
         return void this.closeWeb(event.window).catch(() => undefined)
@@ -665,7 +670,7 @@ export class Broker {
       }
     }
     const rect = mode === 'free' && !this.#running(appId) ? this.#places.get(appId, this.#screen()) : null
-    const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app, this.shell.hosted === true) }) })
+    const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app) }) })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], request, mode }
     this.#windows.set(record.id, record)
     this.#spawnWindow(record, grant.token)
@@ -713,19 +718,40 @@ export class Broker {
     return this.bridge.available(app.capabilities)
   }
 
-  async devReload(app: string | null): Promise<void> {
+  async devReload(app: string | null, hot = false): Promise<void> {
+    if (hot) {
+      const webs = app ? [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app).map((r) => r.web) : [this.#desktop]
+      for (const web of webs) web?.post({ type: 'devhot' })
+      return
+    }
     if (app) {
       this.refreshApps()
       const open = [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app)
+      const state = await Broker.#snapshot(open[0]?.web ?? null)
+      if (state) this.#devStates.set(app, state)
       for (const record of open) await this.closeWeb(record.id, true)
       if (open.length || this.#options.standalone === app) this.launch(app, null, 'free')
       return
     }
     const old = this.#desktop
+    const state = await Broker.#snapshot(old)
+    if (state) this.#devStates.set('', state)
     if (old) old.closing = true
     this.#desktop = null
     await old?.worker.terminate().catch(() => 0)
     this.startDesktop()
+  }
+
+  static async #snapshot(web: Web | null): Promise<unknown> {
+    if (!web || web.closing) return null
+    const timeout = new Promise<null>((resolve) => unref(setTimeout(() => resolve(null), Broker.DEV_STATE_MS)))
+    return Promise.race([web.rpc.call('dev', 'state', []).catch(() => null), timeout])
+  }
+
+  #takeDevState(key: string): unknown {
+    const state = this.#devStates.get(key)
+    this.#devStates.delete(key)
+    return state
   }
 
   async closeWeb(id: number, force = false): Promise<boolean> {
@@ -984,6 +1010,9 @@ export class Broker {
       case 'shown':
         if (web === this.#desktop) this.onDesktopShown()
         return
+      case 'devreload':
+        if (web !== this.#desktop && !web.app) return
+        return this.devReload(web === this.#desktop ? null : web.app!.id)
       case 'open':
       case 'save': {
         const options = (args[0] ?? {}) as Record<string, unknown>

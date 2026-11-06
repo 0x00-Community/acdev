@@ -26,7 +26,7 @@ impl OfficeSettings {
 
     pub fn from_env() -> Outcome<Self> {
         let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = std::env::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
         let document_server = Self::origin(&var("AGENTRT_OFFICE_DS_URL").unwrap_or_else(|| DEFAULT_DOCUMENT_SERVER.into()), "AGENTRT_OFFICE_DS_URL")?;
         let bridge_url = Self::origin(&var("AGENTRT_OFFICE_BRIDGE_URL").unwrap_or_else(|| DEFAULT_BRIDGE_URL.into()), "AGENTRT_OFFICE_BRIDGE_URL")?;
         let runtime = var("XDG_RUNTIME_DIR").unwrap_or_else(|| {

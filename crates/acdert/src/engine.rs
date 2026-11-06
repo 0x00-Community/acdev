@@ -57,6 +57,9 @@ pub fn init() {
         v8::icu::set_common_data_78(deno_core_icudata::ICU_DATA).expect("acdert: ICU data");
         v8::icu::set_default_locale("zh-Hans");
         v8::V8::set_flags_from_string("--js-float16array --js-explicit-resource-management");
+        if std::env::var_os("ACDE_DEV").is_some() {
+            v8::V8::set_flags_from_string("--inspector-live-edit");
+        }
         let threads = std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(4).min(4);
         let platform = v8::new_custom_platform(threads, false, false, Platform).make_shared();
         v8::V8::initialize_platform(platform);

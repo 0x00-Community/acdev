@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 
-use acde_render::acgpu::fallback::wgpu;
+use acde_gpu::wgpu;
 use serde::Deserialize;
 use wgpu::{
     AddressMode, BlendFactor, BlendOperation, CompareFunction, Face, FilterMode, FrontFace, IndexFormat, MipmapFilterMode, PrimitiveTopology, SamplerBindingType,

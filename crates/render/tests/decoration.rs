@@ -1,4 +1,4 @@
-use acde_render::acgpu::RenderCommand;
+use acde_render::acde_gpu::RenderCommand;
 use acde_render::{Bar, Decoration, FrameButton};
 
 fn bar(title: &str, width: f64, scale: f64) -> Bar {

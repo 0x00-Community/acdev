@@ -61,6 +61,7 @@ struct Webs {
 #[derive(Default)]
 struct System {
     workspace: Option<acde_runtime::Workspace>,
+    #[cfg(unix)]
     terminals: Option<acde_runtime::Terminals>,
     #[cfg(target_os = "linux")]
     networks: acde_runtime::Networks,
@@ -72,6 +73,7 @@ struct System {
 struct Grants {
     fs: Option<acde_runtime::Workspace>,
     picker: crate::picker::Picker,
+    #[cfg(unix)]
     terminal: Option<acde_runtime::Terminals>,
     #[cfg(target_os = "linux")]
     network: Option<acde_runtime::Networks>,
@@ -88,6 +90,7 @@ impl Webs {
             _ => None,
         };
         let app = bind::get(scope, wanted, "app").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
+        #[cfg(unix)]
         let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let network = bind::get(scope, wanted, "network").is_some_and(|v| v.is_true());
@@ -99,6 +102,7 @@ impl Webs {
         Grants {
             fs: fs.map(|roots| workspace.scoped(roots, app.as_deref())),
             picker,
+            #[cfg(unix)]
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
             #[cfg(target_os = "linux")]
             network: network.then(|| system.networks.clone()),
@@ -114,6 +118,7 @@ impl Grants {
             crate::fs::install(scope, natives, fs);
         }
         crate::picker::install(scope, natives, self.picker);
+        #[cfg(unix)]
         if let Some(terminals) = self.terminal {
             crate::terminal::install(scope, natives, terminals);
         }
@@ -209,6 +214,7 @@ impl Spec {
         crate::backend::clear();
         crate::fs::clear();
         crate::picker::clear();
+        #[cfg(unix)]
         crate::terminal::clear();
         crate::audio::clear();
         #[cfg(target_os = "linux")]

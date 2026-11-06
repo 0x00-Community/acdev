@@ -1,12 +1,14 @@
 use ntex::io::Io;
 use std::io;
 
+#[cfg(target_os = "linux")]
 pub(crate) fn tls() -> Result<openssl::ssl::SslConnector, openssl::error::ErrorStack> {
     let mut ssl = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls())?;
     _ = ssl.set_alpn_protos(b"\x08http/1.1");
     Ok(ssl.build())
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn client() -> ntex::client::Client {
     thread_local! {
         static CLIENT: ntex::client::Client = ntex::client::Client::builder().openssl(tls().expect("acde runtime: OpenSSL")).build(ntex::SharedCfg::default());
@@ -202,6 +204,7 @@ async fn read(io: &Io, buffer: &mut [u8]) -> io::Result<usize> {
     }
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) async fn take(io: &Io, raw: &mut Vec<u8>) -> io::Result<bool> {
     loop {
         let moved = io.with_read_dst(|buf| {

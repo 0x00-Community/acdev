@@ -60,7 +60,7 @@ impl Doc {
         self.document.sync()
     }
 
-    pub fn scene(&self) -> acde_render::acgpu::Scene {
+    pub fn scene(&self) -> acde_gpu::Scene {
         self.document.scene()
     }
 

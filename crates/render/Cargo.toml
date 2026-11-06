@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 base64 = "0"
 data-url = "0"
-# blitz / acgpu 版本由这里钉死并 pub use, paint / window / acde 只经 acde_render 引用
+# blitz 版本由这里钉死并 pub use, paint / window / acde 只经 acde_render 引用
 # complex-scripts: 中文/日文断行 (ICU4X 分词模型); floats: CSS float
 blitz-dom = { version = "=0.3.0-beta.4", default-features = false, features = [
     "svg",
@@ -22,17 +22,16 @@ blitz-paint = { version = "=0.3.0-beta.4", features = ["scrollbars"] }
 blitz-traits = "=0.3.0-beta.4"
 # 和 blitz-dom (acrender) 用的同一份 stylo, 读 overflow / visibility
 stylo = "=0.22.0"
-# 网页图层画进 acgpu 的 2D 场景; 谁来画、离屏的 canvas 画在哪, 都由 acgpu 定 (今天是它的 Vulkan 回退 fallback-vulkan)
-acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "8b84f72d8559c3292c18bf56e6a0044a3f0081de" }
+acde-gpu = { path = "../gpu" }
 # blitz-dom (acrender) 用的 parley, 取插入点几何
 parley = { version = "=0.12.0", default-features = false, features = ["std"] }
-# acgpu 场景用的 kurbo, 算脏区域的包围盒
+# 2D 场景用的 kurbo, 算脏区域的包围盒
 kurbo = "0"
-# acgpu 场景用的 peniko, 看图层的合成方式 (region.rs)
+# 2D 场景用的 peniko, 看图层的合成方式 (region.rs)
 peniko = "0"
 # canvas 的 toDataURL 编 PNG
 png = "0"
-# 文字的字形坐标 (parley 和 acgpu 的 NormalizedCoord) 按位转, 和 blitz-paint 一样
+# 文字的字形坐标 (parley 和 acde-gpu 的 NormalizedCoord) 按位转, 和 blitz-paint 一样
 bytemuck = "1"
 # 文档锁: JS 线程和 render 线程共用文档 (MutexGuard::bump 让锁给等着的线程)
 parking_lot = "0"

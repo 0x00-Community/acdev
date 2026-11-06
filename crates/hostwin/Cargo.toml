@@ -7,13 +7,20 @@ license.workspace = true
 [dependencies]
 acde-model = { path = "../model" }
 acde-render = { path = "../render" }
+acde-gpu = { path = "../gpu" }
 acde-log = { path = "../log" }
 acde-ipc = { path = "../ipc" }
 serde_json = "1"
 log = "0"
+pollster = "0"
+url = "2"
+
+[target.'cfg(not(windows))'.dependencies]
 winit = "0"
 arboard = { version = "3", default-features = false }
-pollster = "0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Com", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_HiDpi", "Win32_UI_Input_Ime", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }

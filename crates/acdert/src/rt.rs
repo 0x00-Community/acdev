@@ -226,7 +226,8 @@ impl Runtime {
             v8::scope!(let scope, &mut isolate);
             let context = v8::Context::new(scope, Default::default());
             let scope = &mut v8::ContextScope::new(scope, context);
-            crate::profile::start(scope, name);
+            crate::inspector::start(scope, name);
+            crate::profile::start(name);
             v8::Global::new(scope, context)
         };
         Runtime { context, lp, isolate }
@@ -339,6 +340,7 @@ impl Runtime {
 impl Drop for Runtime {
     fn drop(&mut self) {
         crate::profile::stop();
+        crate::inspector::stop();
         crate::engine::unregister(isolate_ptr(&mut self.isolate));
         LOOP.with(|l| *l.borrow_mut() = None);
     }

@@ -147,7 +147,6 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         "stderr" => stderr,
         "kill" => kill,
         "run" => run,
-        "getuid" => getuid,
         "onSignal" => on_signal,
         "spawnWeb" => crate::web::spawn_web,
     );
@@ -156,6 +155,8 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         "openOffice" => crate::web::open_office,
         "closeOffice" => crate::web::close_office,
     );
+    #[cfg(unix)]
+    bind::method(scope, obj, "getuid", getuid);
     bind::method(scope, obj, "spawn", crate::child::spawn);
     bind::method(scope, obj, "write", crate::child::write);
     bind::method(scope, obj, "endInput", crate::child::end_input);
@@ -196,7 +197,7 @@ fn cwd(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::R
 }
 
 fn homedir(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+    let home = std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned());
     rv.set(bind::string(scope, &home).into());
 }
 
@@ -251,12 +252,18 @@ fn exists(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
 }
 
 fn stat(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    use std::os::unix::fs::PermissionsExt;
     let path = bind::arg_string(scope, &args, 0);
     let Ok(meta) = std::fs::metadata(&path) else {
         return rv.set_null();
     };
     let link = std::fs::symlink_metadata(&path).map(|m| m.file_type().is_symlink()).unwrap_or(false);
+    let mode = cfg_select! {
+        unix => {{
+            use std::os::unix::fs::PermissionsExt;
+            meta.permissions().mode()
+        }}
+        _ => if meta.permissions().readonly() { 0o444 } else { 0o666 },
+    };
     let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0);
     let fields = [
         ("isFile", v8::Boolean::new(scope, meta.is_file()).into()),
@@ -264,7 +271,7 @@ fn stat(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
         ("isSymbolicLink", v8::Boolean::new(scope, link).into()),
         ("size", v8::Number::new(scope, meta.len() as f64).into()),
         ("mtimeMs", v8::Number::new(scope, mtime).into()),
-        ("mode", v8::Number::new(scope, meta.permissions().mode() as f64).into()),
+        ("mode", v8::Number::new(scope, mode as f64).into()),
     ];
     rv.set(bind::object(scope, &fields).into());
 }
@@ -315,9 +322,20 @@ fn remove(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
 }
 
 fn chmod(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    use std::os::unix::fs::PermissionsExt;
     let mode = bind::arg_f64(scope, &args, 1) as u32;
-    with_path(scope, &args, |_, path| std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)));
+    with_path(scope, &args, |_, path| {
+        cfg_select! {
+            unix => {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            }
+            _ => {
+                let mut permissions = std::fs::metadata(path)?.permissions();
+                permissions.set_readonly(mode & 0o200 == 0);
+                std::fs::set_permissions(path, permissions)
+            }
+        }
+    });
 }
 
 fn realpath(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -341,6 +359,26 @@ fn stderr(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
     _ = std::io::stderr().write_all(text.as_bytes());
 }
 
+#[cfg(windows)]
+fn kill(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, TerminateProcess};
+    let raw = bind::arg_f64(scope, &args, 0) as i64;
+    let test = bind::arg_string(scope, &args, 1) == "0";
+    let pid = u32::try_from(raw.unsigned_abs()).unwrap_or(0);
+    let access = if test { PROCESS_QUERY_LIMITED_INFORMATION } else { PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE };
+    let handle = if pid == 0 || raw == -1 { std::ptr::null_mut() } else { unsafe { OpenProcess(access, 0, pid) } };
+    if handle.is_null() {
+        return rv.set_bool(false);
+    }
+    let mut code = 0;
+    let alive = unsafe { GetExitCodeProcess(handle, &mut code) } != 0 && code == STILL_ACTIVE as u32;
+    let sent = alive && (test || unsafe { TerminateProcess(handle, 1) } != 0);
+    unsafe { CloseHandle(handle) };
+    rv.set_bool(sent);
+}
+
+#[cfg(unix)]
 fn kill(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     use rustix::process::{Pid, Signal, kill_process, kill_process_group, test_kill_process, test_kill_process_group};
     let raw = bind::arg_f64(scope, &args, 0) as i32;
@@ -419,6 +457,7 @@ fn wait_output(mut child: std::process::Child, timeout_ms: f64) -> (Option<i32>,
     (status, String::from_utf8_lossy(&o).into_owned(), String::from_utf8_lossy(&e).into_owned())
 }
 
+#[cfg(unix)]
 fn getuid(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     rv.set_uint32(rustix::process::getuid().as_raw());
 }
@@ -431,6 +470,7 @@ fn on_signal(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v
     signals::listen(rt::current().sender(), callback);
 }
 
+#[cfg(unix)]
 mod signals {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::Sender;
@@ -464,6 +504,44 @@ mod signals {
                 })));
             }
         });
+    }
+}
+
+#[cfg(windows)]
+mod signals {
+    use std::sync::mpsc::Sender;
+    use std::sync::{Arc, Mutex};
+
+    use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, SetConsoleCtrlHandler};
+
+    use crate::rt::Msg;
+
+    static LISTENER: Mutex<Option<(Sender<Msg>, Arc<crate::bind::SendFunction>)>> = Mutex::new(None);
+
+    pub fn listen(loop_tx: Sender<Msg>, callback: v8::Global<v8::Function>) {
+        let mut listener = LISTENER.lock().unwrap_or_else(|e| e.into_inner());
+        if listener.is_some() {
+            return;
+        }
+        *listener = Some((loop_tx, Arc::new(crate::bind::SendFunction(callback))));
+        unsafe { SetConsoleCtrlHandler(Some(handler), 1) };
+    }
+
+    unsafe extern "system" fn handler(event: u32) -> i32 {
+        let name = match event {
+            CTRL_C_EVENT => "SIGINT",
+            CTRL_BREAK_EVENT => "SIGBREAK",
+            CTRL_CLOSE_EVENT => "SIGHUP",
+            _ => return 0,
+        };
+        let Some((loop_tx, callback)) = LISTENER.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+            return 0;
+        };
+        let sent = loop_tx.send(Msg::Task(Box::new(move |scope| {
+            let name = crate::bind::string(scope, name);
+            crate::bind::call(scope, &callback.0, &[name.into()]);
+        })));
+        i32::from(sent.is_ok())
     }
 }
 

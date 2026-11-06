@@ -1,20 +1,18 @@
 use std::collections::HashMap;
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
-use std::time::Duration;
 
 use acde_model::{Event, Inbox, Waker};
 
-use crate::app::{Cmd, server};
+use crate::app::server;
+use crate::platform::{self, Cmd};
 use crate::present::Presenter;
 use crate::shell::Mode;
-
-const OPEN_WAIT: Duration = Duration::from_secs(10);
 
 pub struct DragImage {
     pub width: u32,
     pub height: u32,
-    pub scene: acde_render::acgpu::Scene,
+    pub scene: acde_gpu::Scene,
     pub hotspot: (i32, i32),
 }
 
@@ -22,8 +20,8 @@ pub(crate) enum Msg {
     Wake,
     Frame,
     Resized(u32, u32, f64),
-    Panel(u32, Option<[f64; 4]>),
-    Redraw,
+    Panel(u32, Option<u32>),
+    Title(String),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
     Stop,
 }
@@ -46,13 +44,7 @@ impl Link {
         self.send(Msg::Resized(width, height, scale));
     }
 
-    pub fn redraw(&self) {
-        self.send(Msg::Redraw);
-    }
-
-    pub fn place(&self, _: [f64; 4]) {}
-
-    pub fn capture(&self, wait: Duration) -> Result<Shot, String> {
+    pub fn capture(&self, wait: std::time::Duration) -> Result<Shot, String> {
         let (reply, got) = mpsc::sync_channel(1);
         self.0.send(Msg::Capture(reply)).map_err(|_| "the window is gone".to_owned())?;
         got.recv_timeout(wait).map_err(|_| "the window did not answer".to_owned())?
@@ -63,71 +55,63 @@ pub struct Surface {
     window: u32,
     inbox: Arc<Inbox>,
     link: Link,
+    panels: Mutex<HashMap<u32, u32>>,
     thread: Option<JoinHandle<()>>,
 }
 
 pub(crate) fn set_mode(id: u32, mode: Mode) {
     let Some(server) = server() else { return };
-    let mut state = server.state();
-    let Some(entry) = state.entries.get_mut(&id) else {
-        return;
-    };
-    if entry.desktop || entry.mode == mode {
-        return;
-    }
-    let was = entry.mode;
-    if mode == Mode::Fullscreen {
-        entry.before_fullscreen = Some(entry.rect);
-    }
-    entry.mode = mode;
-    let restore = if was == Mode::Fullscreen {
-        entry.before_fullscreen.take()
-    } else {
-        None
-    };
-    drop(state);
-    if mode == Mode::Fullscreen {
-        server.send(Cmd::Fullscreen(id, true));
-        server.broker.push(Event {
-            kind: "windowfullscreen".into(),
-            window: Some(id),
-            ..Default::default()
-        });
-    } else if was == Mode::Fullscreen {
-        server.send(Cmd::Fullscreen(id, false));
-        if let Some(rect) = restore {
-            server.send(Cmd::Place(id, rect));
+    let (was, rect) = {
+        let mut state = server.state();
+        let [sw, sh, _] = state.screen;
+        let Some(entry) = state.entries.get_mut(&id) else { return };
+        if entry.desktop || entry.mode == mode {
+            return;
         }
-        server.broker.push(Event {
-            kind: "windowunfullscreen".into(),
-            window: Some(id),
-            ..Default::default()
-        });
+        let was = entry.mode;
+        entry.mode = mode;
+        let rect = if mode == Mode::Fullscreen {
+            entry.before_fullscreen = Some(entry.rect);
+            Some([0.0, 0.0, sw, sh])
+        } else if was == Mode::Fullscreen {
+            entry.before_fullscreen.take()
+        } else {
+            None
+        };
+        (was, rect)
+    };
+    if let Some(rect) = rect {
+        server.set_rect(id, rect);
+    }
+    if mode == Mode::Fullscreen {
+        server.broker.push(Event { kind: "windowfullscreen".into(), window: Some(id), ..Default::default() });
+    } else if was == Mode::Fullscreen {
+        server.broker.push(Event { kind: "windowunfullscreen".into(), window: Some(id), ..Default::default() });
     }
 }
 
 impl Surface {
-    pub fn claim(token: u64, render: acde_render::RenderHandle) -> Result<Self, String> {
+    pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32) -> Result<Self, String> {
         let server = server().ok_or("claimSurface: 没有宿主窗口")?;
         let inbox = Arc::new(Inbox::default());
         let (tx, rx) = mpsc::channel();
         let link = Link(tx);
-        let window = {
+        let (window, size, scale, refresh, focus, bar) = {
             let mut state = server.state();
-            let id = state
-                .tokens
-                .remove(&token)
-                .ok_or("claimSurface: 令牌不对, 或者用过了")?;
+            let id = state.tokens.remove(&token).ok_or("claimSurface: 令牌不对, 或者用过了")?;
+            let (scale, refresh, unfocused) = (state.screen[2], state.refresh, state.focus.is_none());
+            let entry = state.entries.get_mut(&id).ok_or("claimSurface: 窗口没了")?;
+            entry.frame = if entry.desktop || entry.panel { 0.0 } else { f64::from(frame) };
+            let bar = entry.bar();
+            let entry = state.entries.get(&id).ok_or("claimSurface: 窗口没了")?;
+            let size = state.content(entry);
             let entry = state.entries.get_mut(&id).ok_or("claimSurface: 窗口没了")?;
             entry.inbox = Some(inbox.clone());
             entry.link = Some(link.clone());
-            id
+            entry.opened = true;
+            let focus = !entry.hidden && (!entry.desktop || unfocused);
+            (id, size, scale, refresh, focus, bar)
         };
-        let (reply, got) = mpsc::sync_channel(1);
-        server.send(Cmd::Open { id: window, reply });
-        let opened = got
-            .recv_timeout(OPEN_WAIT)
-            .map_err(|_| "claimSurface: 宿主窗口没有开出来".to_owned())??;
         let wake = link.clone();
         render.set_waker(Box::new(move || wake.send(Msg::Wake)));
         let gpu = server.gpu.clone();
@@ -135,19 +119,19 @@ impl Surface {
         let thread = std::thread::Builder::new()
             .name(format!("acde-host-{window}"))
             .spawn(move || {
-                match Presenter::new(window, gpu, opened, render, events.clone()) {
-                    Ok(mut presenter) => presenter.run(rx),
+                match Presenter::new(window, gpu, size, scale, refresh, bar, render, events.clone()) {
+                    Ok(mut presenter) => presenter.run(&rx),
                     Err(e) => log::error!("窗口 {window}: {e}"),
                 }
                 events.push(Event::named("exit"));
             })
             .map_err(|e| format!("窗口线程: {e}"))?;
-        Ok(Self {
-            window,
-            inbox,
-            link,
-            thread: Some(thread),
-        })
+        if focus {
+            server.activate(window);
+        } else {
+            server.relayout();
+        }
+        Ok(Self { window, inbox, link, panels: Mutex::new(HashMap::new()), thread: Some(thread) })
     }
 
     pub fn window(&self) -> u32 {
@@ -171,25 +155,15 @@ impl Surface {
     }
 
     pub fn set_clipboard(&self, text: String) {
-        match arboard::Clipboard::new().and_then(|mut c| c.set_text(text)) {
-            Ok(()) => {}
-            Err(e) => log::warn!("剪贴板: {e}"),
-        }
+        platform::clipboard_set(text);
     }
 
     pub fn read_clipboard(&self, reply: Box<dyn FnOnce(String) + Send>) {
-        let text = arboard::Clipboard::new()
-            .and_then(|mut c| c.get_text())
-            .unwrap_or_default();
-        reply(text);
+        reply(platform::clipboard_get());
     }
 
     pub fn start_drag(&self, _: HashMap<String, String>, _: Option<DragImage>) {
-        self.inbox.push(Event {
-            kind: "dragend".into(),
-            button: Some(0),
-            ..Default::default()
-        });
+        self.inbox.push(Event { kind: "dragend".into(), button: Some(0), ..Default::default() });
     }
 
     pub fn request_mode(&self, mode: u32) {
@@ -201,9 +175,7 @@ impl Surface {
     pub fn set_grab_hint(&self, [x, y, w, h]: [i32; 4], edges: u32) {
         let Some(server) = server() else { return };
         let mut state = server.state();
-        let Some(entry) = state.entries.get_mut(&self.window) else {
-            return;
-        };
+        let Some(entry) = state.entries.get_mut(&self.window) else { return };
         if w <= 0 || h <= 0 {
             entry.hints.clear();
         } else {
@@ -215,8 +187,7 @@ impl Surface {
 
     pub fn request_activate(&self) {
         if let Some(server) = server() {
-            server.state().raise(self.window);
-            server.send(Cmd::Focus(self.window));
+            server.activate(self.window);
         }
     }
 
@@ -225,46 +196,83 @@ impl Surface {
             return;
         }
         let name = if kind == 2 { "keyboard" } else { "pointer" };
-        self.inbox.push(Event {
-            kind: "grab".into(),
-            key: Some(name.into()),
-            code: Some(1),
-            ..Default::default()
-        });
+        self.inbox.push(Event { kind: "grab".into(), key: Some(name.into()), code: Some(1), ..Default::default() });
+    }
+
+    fn panels(&self) -> std::sync::MutexGuard<'_, HashMap<u32, u32>> {
+        self.panels.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn open_panel(&self, id: u32, token: u64, rect: [i32; 4]) {
-        if let Some(server) = server() {
+        let Some(server) = server() else { return };
+        self.close_panel(id);
+        let panel = {
             let mut state = server.state();
-            if let Some(panel) = state.tokens.remove(&token)
-                && let Some(e) = state.entries.get_mut(&panel)
-            {
-                e.rect = rect.map(f64::from);
-                e.opened = true;
-            }
-        }
-        self.link.send(Msg::Panel(id, Some(rect.map(f64::from))));
+            let Some(panel) = state.tokens.remove(&token) else { return };
+            let Some(e) = state.entries.get_mut(&panel) else { return };
+            e.rect = rect.map(f64::from);
+            e.opened = true;
+            e.panel = true;
+            e.owner = Some(self.window);
+            panel
+        };
+        self.panels().insert(id, panel);
+        self.link.send(Msg::Panel(id, Some(panel)));
+        server.relayout();
     }
 
-    pub fn place_panel(&self, id: u32, rect: [i32; 4], _: [i32; 4]) {
-        self.link.send(Msg::Panel(id, Some(rect.map(f64::from))));
+    pub fn place_panel(&self, id: u32, rect: [i32; 4], input: [i32; 4]) {
+        let Some(server) = server() else { return };
+        let Some(panel) = self.panels().get(&id).copied() else { return };
+        if let Some(e) = server.state().entries.get_mut(&panel) {
+            e.input = Some(input.map(f64::from));
+            e.rect = rect.map(f64::from);
+        }
+        server.relayout();
     }
 
     pub fn close_panel(&self, id: u32) {
+        let Some(panel) = self.panels().remove(&id) else { return };
         self.link.send(Msg::Panel(id, None));
+        if let Some(server) = server() {
+            server.state().entries.remove(&panel);
+            server.relayout();
+        }
+    }
+
+    pub fn content_offset(&self) -> (f64, f64) {
+        let frame = server().and_then(|s| s.state().entries.get(&self.window).map(|e| e.frame));
+        (0.0, frame.unwrap_or(0.0))
     }
 
     pub fn set_title(&self, title: &str) {
         let Some(server) = server() else { return };
-        if let Some(e) = server.state().entries.get_mut(&self.window) {
-            e.title = title.to_owned();
+        let framed = match server.state().entries.get_mut(&self.window) {
+            Some(e) => {
+                e.title = title.to_owned();
+                e.frame > 0.0
+            }
+            None => false,
+        };
+        if framed {
+            self.link.send(Msg::Title(title.to_owned()));
         }
-        server.send(Cmd::Title(self.window, title.to_owned()));
+        if self.window == 0 {
+            server.send(Cmd::Title(title.to_owned()));
+        }
     }
 
-    pub fn set_ime_area(&self, rect: [f64; 4]) {
-        if let Some(server) = server() {
-            server.send(Cmd::ImeArea(self.window, rect));
+    pub fn set_ime_area(&self, [x, y, w, h]: [f64; 4]) {
+        let Some(server) = server() else { return };
+        let origin = {
+            let state = server.state();
+            if state.focus != Some(self.window) {
+                return;
+            }
+            state.entries.get(&self.window).map(|e| [e.rect[0], e.rect[1] + e.frame])
+        };
+        if let Some([ox, oy]) = origin {
+            server.send(Cmd::ImeArea([ox + x, oy + y, w, h]));
         }
     }
 }
@@ -276,29 +284,35 @@ impl Drop for Surface {
             let _ = thread.join();
         }
         let Some(server) = server() else { return };
-        let gone = {
+        let panels: Vec<u32> = self.panels().drain().map(|(_, w)| w).collect();
+        let (gone, focused) = {
             let mut state = server.state();
             state.tokens.retain(|_, w| *w != self.window);
             state.shortcuts.forget(self.window);
-            if state.focus == Some(self.window) {
+            for panel in &panels {
+                state.entries.remove(panel);
+            }
+            let focused = state.focus == Some(self.window);
+            if focused {
                 state.focus = None;
             }
-            state.entries.remove(&self.window)
+            (state.entries.remove(&self.window), focused)
         };
-        server.send(Cmd::Close(self.window));
+        if let Some(compositor) = server.compositor() {
+            compositor.remove(self.window);
+            for panel in panels {
+                compositor.remove(panel);
+            }
+        }
+        if focused {
+            server.focus_top();
+        }
+        server.relayout();
         let Some(entry) = gone else { return };
         if entry.desktop || entry.panel || entry.mode == Mode::Pinned {
             return;
         }
         let [x, y, w, h] = entry.before_fullscreen.unwrap_or(entry.rect);
-        server.broker.push(Event {
-            kind: "windowgone".into(),
-            window: Some(self.window),
-            x: Some(x),
-            y: Some(y),
-            width: Some(w),
-            height: Some(h),
-            ..Default::default()
-        });
+        server.broker.push(Event { kind: "windowgone".into(), window: Some(self.window), x: Some(x), y: Some(y), width: Some(w), height: Some(h), ..Default::default() });
     }
 }

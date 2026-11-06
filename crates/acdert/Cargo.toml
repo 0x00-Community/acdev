@@ -14,6 +14,7 @@ v8 = "152"
 deno_core_icudata = "0"
 acde-napi = { path = "../acde-napi" }
 acde-render = { path = "../render" }
+acde-gpu = { path = "../gpu" }
 acde-hostwin = { path = "../hostwin" }
 acde-runtime = { path = "../runtime" }
 url = "2"
@@ -52,4 +53,4 @@ pipewire = { version = "0", features = ["v0_3_49"] }
 cpal = "0"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects"] }
+windows-sys = { version = "0", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Console"] }

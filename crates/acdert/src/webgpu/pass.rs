@@ -1,4 +1,4 @@
-use acde_render::acgpu::fallback::wgpu;
+use acde_gpu::wgpu;
 use wgpu::util::RenderEncoder;
 
 use super::{Id, Kind, State, desc, report};

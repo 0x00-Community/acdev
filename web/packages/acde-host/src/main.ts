@@ -66,7 +66,7 @@ class Main {
 
   static session(native: Native): boolean {
     const { env } = process
-    if (native.Shell.hosted) return false
+    if (process.platform !== 'linux' || native.Shell.hosted) return false
     if (env['ACDE_BACKEND'] === 'drm') return true
     if (env['ACDE_BACKEND'] === 'rdp') return false
     return !env['DISPLAY'] && !env['WAYLAND_DISPLAY']

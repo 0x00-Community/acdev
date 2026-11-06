@@ -190,6 +190,7 @@ export interface HostNative {
   runScript(source: string, url: string): unknown
 
   readAsset(url: string): Uint8Array | null
+  liveEdit?(url: string, source: string): string | undefined
   addImportMap?(imports: [string, string][], scopes: [string, [string, string][]][]): void
 
   encodeUtf8(text: string): Uint8Array

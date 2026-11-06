@@ -186,9 +186,9 @@ impl Engine {
         }
     }
 
-    pub(crate) fn scene(&mut self) -> acgpu::Scene {
+    pub(crate) fn scene(&mut self) -> acde_gpu::Scene {
         self.resolved();
-        self.paint().0.to_scene(acgpu::Scene::new().tolerance)
+        self.paint().0.to_scene(acde_gpu::Scene::new().tolerance)
     }
 
     fn paint(&mut self) -> (Commands, Vec<(u32, kurbo::Rect, Commands)>) {
@@ -196,7 +196,7 @@ impl Engine {
         let (width, height) = viewport.window_size;
         let scale = viewport.scale_f64();
         let start = Instant::now();
-        let mut loose = acgpu::Scene::new();
+        let mut loose = acde_gpu::Scene::new();
         let mut pieces = Vec::new();
         let pinned: std::collections::HashSet<NodeId> = self.panels.iter().map(|p| p.0).collect();
         let painted = blitz_paint::paint_scene_cached(&mut loose, &mut pieces, &mut self.doc, (scale, width, height), &mut self.paint_cache, true, &pinned);
@@ -216,7 +216,7 @@ impl Engine {
         self.stats.paint_ms = acde_log::since_ms(start);
         let mut from_cache = true;
         if self.verify {
-            let mut reference = acgpu::Scene::new();
+            let mut reference = acde_gpu::Scene::new();
             blitz_paint::paint_scene_reference(&mut reference, &mut self.doc, (scale, width, height), true, &pinned);
             let scene = commands.to_scene(reference.tolerance);
             if let Some(m) = Mismatch::find(&scene, &reference, &self.paint_cache) {
@@ -311,7 +311,7 @@ impl Engine {
 
     fn plane(&mut self, commands: Commands, scale: f64, viewport: kurbo::Rect) -> Plane {
         let start = Instant::now();
-        let (rects, by_fragment, missed) = self.damage.update(&commands, acgpu::Scene::new().tolerance, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
+        let (rects, by_fragment, missed) = self.damage.update(&commands, acde_gpu::Scene::new().tolerance, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
         self.stats.damage_mismatches += u32::from(missed);
         self.stats.damage_by_fragment += u32::from(by_fragment);
         self.stats.damage_ms = acde_log::since_ms(start);
@@ -325,7 +325,7 @@ impl Engine {
         let size = (rect.width().round().max(1.0) as u32, rect.height().round().max(1.0) as u32);
         let viewport = kurbo::Rect::new(0.0, 0.0, size.0.into(), size.1.into());
         let damage = self.panel_damage.entry(id).or_default();
-        let (rects, _, _) = damage.update(&commands, acgpu::Scene::new().tolerance, viewport, None, true);
+        let (rects, _, _) = damage.update(&commands, acde_gpu::Scene::new().tolerance, viewport, None, true);
         let extent = damage.kinds().iter().zip(damage.draw()).filter(|(k, r)| **k == crate::damage::Kind::Draw && r.area() > 0.0).map(|(_, r)| *r).reduce(|a, b| a.union(b)).map(Rect::from);
         Panel { id, size, plane: damage.plane(commands, rects, scale, viewport), extent }
     }

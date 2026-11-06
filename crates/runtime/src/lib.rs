@@ -3,6 +3,7 @@ mod atspi;
 #[cfg(target_os = "linux")]
 mod bus;
 mod failure;
+#[cfg(target_os = "linux")]
 mod fields;
 pub(crate) mod fs;
 #[cfg(target_os = "linux")]
@@ -13,12 +14,15 @@ mod ime;
 mod js;
 #[cfg(target_os = "linux")]
 mod network;
+#[cfg(target_os = "linux")]
 mod office;
 #[cfg(target_os = "linux")]
 mod portal;
+#[cfg(unix)]
 mod pty;
 mod rt;
 mod sync;
+#[cfg(unix)]
 mod terminal;
 mod unixhttp;
 #[cfg(target_os = "linux")]
@@ -33,10 +37,12 @@ pub use greetd::{GreetUser, Greetd};
 pub use ime::{Ime, ImeCapability};
 #[cfg(target_os = "linux")]
 pub use network::{NetCall, Network, Networks};
+#[cfg(target_os = "linux")]
 pub use office::{OfficeCall, OfficeService};
 #[cfg(target_os = "linux")]
 pub use portal::{Appearance, FileChooser, choose_folder};
 pub use fs::{ChildKind, FileBytes, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
+#[cfg(unix)]
 pub use terminal::Terminals;
 pub use unixhttp::{Deliver, Event as UnixEvent, UnixClient};
 #[cfg(target_os = "linux")]
@@ -52,6 +58,7 @@ fn failure(code: &str, message: &str) -> Error {
     )
 }
 
+#[cfg(target_os = "linux")]
 fn unix_now() -> std::time::Duration {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
 }

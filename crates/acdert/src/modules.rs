@@ -162,7 +162,7 @@ fn compile<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str, source: &str) -> Opt
         return Some(module);
     }
     let name = v8::String::new(scope, url)?;
-    let text = v8::String::new(scope, source)?;
+    let text = v8::String::new(scope, &crate::inspector::module_source(source))?;
     let origin = v8::ScriptOrigin::new(scope, name.into(), 0, 0, false, -1, None, false, false, true, None);
     let mut source = v8::script_compiler::Source::new(text, Some(&origin));
     let module = v8::script_compiler::compile_module(scope, &mut source)?;

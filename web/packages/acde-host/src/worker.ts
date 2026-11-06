@@ -4,6 +4,9 @@ import { Frame } from './frame'
 import { Host } from './host'
 import type { ImeEvent, NativeIme } from './ime'
 import type { NativeSurface } from './native'
+import { DevHot } from './devhot'
+import { DevState, type DevSnapshot } from './devstate'
+import { Level, Log } from './log'
 import { PageSource } from './page'
 import { PageCalls, type FolderPicker } from './pagecalls'
 import { PageInspect } from './pageinspect'
@@ -87,6 +90,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   rpc.serve(async (service, method, args) => {
     if (service === 'window' && self) return self.serve(method, args)
     if (service === 'inspect') return inspect.serve(method, args)
+    if (service === 'dev' && method === 'state' && natives.env['ACDE_DEV']) return DevState.capture(page.window as never)
     if (service === 'debug' && method === 'eval' && debug) return await (0, eval)(String(args[0]))
     if (service === 'debug' && method === 'stats' && debug) return dom.stats(Boolean(args[0]))
     throw new Error(`${init.name} serves no ${service}.${method}`)
@@ -131,7 +135,38 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const served = htmlEntry && PageSource.isServer(init.app!.entry)
   const html = init.kind === 'desktop' ? (init.standalone ? standalone(init.standalone) : readFileSync(init.page!, 'utf8')) : served ? await PageSource.served(page.window as never, init.url ?? `${PageSource.ORIGIN}/`) : htmlPage ? PageSource.html(htmlPage, init.resources) : PageSource.window(init.app!, init.theme ?? '')
   await page.loadPage(html)
-  title(init.kind === 'desktop' ? '' : (page.window.document.title ?? ''))
+  if (init.devState) {
+    DevState.restore(page.window as never, init.devState as DevSnapshot, (restored, missed) =>
+      Log.write(Level.Info, 'acde_host', `[${init.name}] acde dev: state restored (${restored} kept${missed ? `, ${missed} not found` : ''})`),
+    )
+  }
+  const reread = !natives.env['ACDE_DEV'] ? null : init.kind === 'desktop' ? (init.standalone ? null : () => readFileSync(init.page!, 'utf8')) : !served && htmlPage ? () => PageSource.html(htmlPage, init.resources) : null
+  const hot = reread
+    ? new DevHot(page.window.document as never, (page.window as never as { DOMParser: ConstructorParameters<typeof DevHot>[1] }).DOMParser, page.window.location.href, {
+        read: (src) => {
+          const path = new URL(src, PageSource.ORIGIN).pathname
+          const file = PageSource.file(path, init.resources ?? [])
+          try {
+            return file ? readFileSync(file, 'utf8') : null
+          } catch {
+            return null
+          }
+        },
+        liveEdit: (url, source) => (host.liveEdit ? host.liveEdit(url, source) : 'no live edit here'),
+      }, html)
+    : null
+  listeners.push((message) => {
+    if ((message as { type?: string }).type !== 'devhot') return
+    let why: string | null = 'no page source to reread'
+    try {
+      if (hot && reread) why = hot.apply(reread())
+    } catch (error) {
+      why = (error as Error).message
+    }
+    Log.write(Level.Info, 'acde_host', `[${init.name}] acde dev: ${why === null ? 'hot swapped in place' : `reloading (${why})`}`)
+    if (why !== null) void rpc.call('page', 'devreload').catch(() => undefined)
+  })
+  title(page.window.document.title ?? '')
   if (self) self.onTitle = title
   if (app) app.onTitle = title
   app?.loaded(htmlEntry)

@@ -1,5 +1,4 @@
 use napi::Status;
-use rustix::io::Errno as OsErrno;
 use serde::Serialize;
 use std::io;
 
@@ -9,6 +8,7 @@ pub(crate) enum Code {
     HttpError,
     InvalidRequest,
     InternalError,
+    #[cfg(unix)]
     #[serde(untagged)]
     Service(String),
 }
@@ -85,9 +85,11 @@ impl Failure {
         self.errno = errno;
         self
     }
+    #[cfg(target_os = "linux")]
     pub fn token_refused(message: &str) -> Self {
         Self::new(403, Code::Service("token_refused".into()), message)
     }
+    #[cfg(target_os = "linux")]
     pub fn office_config(message: impl Into<String>) -> Self {
         Self::new(503, Code::Service("office_config".into()), message)
     }
@@ -105,22 +107,32 @@ impl Failure {
 
 impl From<io::Error> for Failure {
     fn from(error: io::Error) -> Self {
-        let mapped = match OsErrno::from_io_error(&error) {
-            Some(OsErrno::NOENT) => (404, "no such file or directory"),
-            Some(OsErrno::ACCESS) => (403, "permission denied"),
-            Some(OsErrno::PERM) => (403, "operation not permitted"),
-            Some(OsErrno::EXIST) => (409, "already exists"),
-            Some(OsErrno::NOTEMPTY) => return Self::http(409, "directory is not empty").with(Errno::NotEmpty),
-            Some(OsErrno::NOTDIR) => (400, "not a directory"),
-            Some(OsErrno::ISDIR) => (400, "is a directory"),
-            Some(OsErrno::LOOP) => (400, "refusing to follow a symlink"),
-            Some(OsErrno::NAMETOOLONG) => (400, "name too long"),
-            Some(OsErrno::XDEV) => (400, "cannot move across filesystems"),
-            Some(OsErrno::NOSPC) => (507, "no space left on device"),
-            Some(OsErrno::ROFS) => (403, "read-only filesystem"),
+        use io::ErrorKind as Kind;
+        let mapped = match error.kind() {
+            Kind::NotFound => (404, "no such file or directory"),
+            Kind::PermissionDenied => (403, "permission denied"),
+            Kind::AlreadyExists => (409, "already exists"),
+            Kind::DirectoryNotEmpty => return Self::http(409, "directory is not empty").with(Errno::NotEmpty),
+            Kind::NotADirectory => (400, "not a directory"),
+            Kind::IsADirectory => (400, "is a directory"),
+            Kind::InvalidFilename => (400, "invalid file name"),
+            Kind::CrossesDevices => (400, "cannot move across filesystems"),
+            Kind::StorageFull => (507, "no space left on device"),
+            Kind::ReadOnlyFilesystem => (403, "read-only filesystem"),
+            _ if symlink_loop(&error) => (400, "refusing to follow a symlink"),
             _ => return Self::internal(error),
         };
         Self::http(mapped.0, mapped.1)
+    }
+}
+
+fn symlink_loop(error: &io::Error) -> bool {
+    cfg_select! {
+        unix => rustix::io::Errno::from_io_error(error) == Some(rustix::io::Errno::LOOP),
+        _ => {
+            _ = error;
+            false
+        }
     }
 }
 
@@ -133,9 +145,10 @@ impl From<Failure> for napi::Error {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use rustix::io::Errno as OsErrno;
 
     fn errno(code: i32) -> (u16, &'static str, String) {
         let failure = Failure::from(io::Error::from_raw_os_error(code));

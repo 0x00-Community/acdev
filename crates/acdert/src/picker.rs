@@ -51,19 +51,14 @@ impl Picker {
     }
 }
 
-#[cfg(target_os = "linux")]
-fn choose_folder(title: &str, _window: Option<u32>) -> Result<Option<String>, String> {
-    acde_runtime::choose_folder(title)
-}
-
-#[cfg(target_os = "macos")]
 fn choose_folder(title: &str, window: Option<u32>) -> Result<Option<String>, String> {
-    acde_hostwin::choose_folder(window, title).map(|picked| picked.map(|path| path.to_string_lossy().into_owned()))
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn choose_folder(_title: &str, _window: Option<u32>) -> Result<Option<String>, String> {
-    Err("no folder chooser on this platform".into())
+    cfg_select! {
+        target_os = "linux" => {
+            _ = window;
+            acde_runtime::choose_folder(title)
+        }
+        _ => acde_hostwin::choose_folder(window, title).map(|picked| picked.map(|path| path.to_string_lossy().into_owned())),
+    }
 }
 
 thread_local! {

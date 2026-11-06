@@ -154,7 +154,7 @@ impl Tree<'_> {
     }
 
     pub(crate) fn canvas_image(&mut self, id: u32, image: Option<peniko::ImageData>) -> Result<()> {
-        use acgpu::PaintScene;
+        use acde_gpu::PaintScene;
         let node = self.canvas_node(id)?;
         self.ids.canvases.remove(&id);
         let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) else {
@@ -164,9 +164,9 @@ impl Tree<'_> {
         };
         let (width, height) = crate::canvas::Canvas::size_of(self.m.doc, node);
         let fit = kurbo::Affine::scale_non_uniform(width / f64::from(image.width), height / f64::from(image.height));
-        let mut picture = acgpu::Scene::new();
+        let mut picture = acde_gpu::Scene::new();
         let brush = peniko::ImageBrush { image, sampler: peniko::ImageSampler::default() };
-        picture.fill(peniko::Fill::NonZero, kurbo::Affine::IDENTITY, &acgpu::Paint::Image(brush), Some(fit), &kurbo::Rect::new(0.0, 0.0, width, height));
+        picture.fill(peniko::Fill::NonZero, kurbo::Affine::IDENTITY, &acde_gpu::Paint::Image(brush), Some(fit), &kurbo::Rect::new(0.0, 0.0, width, height));
         self.ids.gpu_canvases.insert(id);
         self.m.doc.set_canvas_picture(node, Some(std::sync::Arc::new(picture)));
         Ok(())

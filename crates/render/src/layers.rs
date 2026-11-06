@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use acgpu::Filter;
-use acgpu::Scene;
-use acgpu::FilterEffect;
-use acgpu::ColorMatrix;
-use acgpu::{LayerCommand, RenderCommand};
+use acde_gpu::Filter;
+use acde_gpu::Scene;
+use acde_gpu::FilterEffect;
+use acde_gpu::ColorMatrix;
+use acde_gpu::{LayerCommand, RenderCommand};
 use kurbo::{Affine, BezPath, PathEl, Rect, Shape};
 
 use crate::commands::{Builder, Commands};

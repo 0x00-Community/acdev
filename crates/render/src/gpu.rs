@@ -1,14 +1,13 @@
-//! The GPU canvases and captures draw with: acgpu's (`acgpu::fallback`) shared device, GPU images and off-screen drawing.
 //! The web process's raster thread installs its device ([`install`]); without one (tests), the first use opens one.
 
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use acgpu::Scene;
-use acgpu::fallback::Offscreen;
+use acde_gpu::Scene;
+use acde_gpu::Offscreen;
 use kurbo::Affine;
 
-pub use acgpu::fallback::{GpuImage as CanvasImage, Overrides, Shared};
+pub use acde_gpu::{GpuImage as CanvasImage, Overrides, Shared};
 
 const WAIT: Duration = Duration::from_secs(10);
 

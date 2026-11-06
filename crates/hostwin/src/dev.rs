@@ -3,9 +3,9 @@ use std::io::Write;
 use std::sync::Mutex;
 
 use acde_model::Event;
-use winit::event_loop::EventLoopProxy;
 
-use crate::app::{Cmd, server};
+use crate::app::server;
+use crate::platform::{Cmd, Proxy};
 
 struct Link {
     writer: Box<dyn Write + Send>,
@@ -18,7 +18,7 @@ fn link() -> std::sync::MutexGuard<'static, Option<Link>> {
     LINK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-pub(crate) fn connect(proxy: EventLoopProxy<Cmd>) {
+pub(crate) fn connect(proxy: Proxy) {
     let Ok(endpoint) = std::env::var("ACDE_DEV") else { return };
     let spawned = std::thread::Builder::new().name("acde-dev".into()).spawn(move || {
         let stream = match acde_ipc::connect(&endpoint) {
@@ -42,7 +42,7 @@ pub(crate) fn connect(proxy: EventLoopProxy<Cmd>) {
         }
         *link() = None;
         log::info!("acde dev 断开了, 结束");
-        let _ = proxy.send_event(Cmd::Exit(0));
+        proxy.send(Cmd::Exit(0));
     });
     if let Err(e) = spawned {
         log::error!("acde dev 线程: {e}");
@@ -95,7 +95,7 @@ fn request(message: &serde_json::Value, line: &str) {
     server.broker.push(Event { kind: "devrequest".into(), key: Some(line.to_owned()), ..Default::default() });
 }
 
-fn handle(line: &str, proxy: &EventLoopProxy<Cmd>) {
+fn handle(line: &str, proxy: &Proxy) {
     let Ok(message) = serde_json::from_str::<serde_json::Value>(line) else {
         log::warn!("acde dev: 看不懂 {line}");
         return;
@@ -103,14 +103,15 @@ fn handle(line: &str, proxy: &EventLoopProxy<Cmd>) {
     match message.get("type").and_then(|t| t.as_str()) {
         Some("reload") => {
             let app = message.get("app").and_then(|a| a.as_str()).map(str::to_owned);
-            log::info!("acde dev: 重新加载 {}", app.as_deref().unwrap_or("桌面"));
+            let hot = message.get("hot").and_then(|s| s.as_bool()).unwrap_or(false);
+            log::info!("acde dev: {} {}", if hot { "热替换" } else { "重新加载" }, app.as_deref().unwrap_or("桌面"));
             if let Some(server) = server() {
-                server.broker.push(Event { kind: "devreload".into(), key: app, ..Default::default() });
+                server.broker.push(Event { kind: "devreload".into(), key: app, title: hot.then(|| "hot".into()), ..Default::default() });
             }
         }
         Some("request") => request(&message, line),
         Some("quit") => {
-            let _ = proxy.send_event(Cmd::Exit(0));
+            proxy.send(Cmd::Exit(0));
         }
         other => log::warn!("acde dev: 没有 {other:?} 这种消息"),
     }

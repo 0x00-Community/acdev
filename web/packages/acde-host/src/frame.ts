@@ -8,8 +8,8 @@ export class Frame {
     return app && app.frame !== false ? Frame.HEIGHT : 0
   }
 
-  static windowSize(app: Pick<AppManifest, 'frame' | 'size'>, hosted: boolean): readonly [number, number] {
+  static windowSize(app: Pick<AppManifest, 'frame' | 'size'>): readonly [number, number] {
     const [width, height] = app.size ?? Frame.#SIZE
-    return [width, height + (hosted ? 0 : Frame.height(app))]
+    return [width, height + Frame.height(app)]
   }
 }

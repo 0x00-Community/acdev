@@ -1,5 +1,5 @@
-use acgpu::Scene;
-use acgpu::RenderCommand;
+use acde_gpu::Scene;
+use acde_gpu::RenderCommand;
 use kurbo::{Affine, Rect, Shape};
 use peniko::Compose;
 

@@ -272,7 +272,7 @@ impl Shared {
     }
 
     fn locate(&self, owner: Option<&str>, path: &str) -> Outcome<Value> {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = std::env::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
         let expanded = match path.strip_prefix('~') {
             Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
             _ => path.to_owned(),
@@ -346,6 +346,7 @@ impl Workspace {
         Ok(self.shared.grants.add(owner, path)?)
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) fn shared_fs(&self) -> Arc<Shared> {
         Arc::clone(&self.shared)
     }

@@ -28,6 +28,7 @@ export interface InstalledDesktop {
 
 export class Packages {
   static readonly HEAP_MB = 1024
+  static readonly BARE = 'window'
   static readonly RENAMED: Readonly<Record<string, string>> = { dopamine: 'dopame' }
 
   static get HOST(): string {
@@ -68,14 +69,16 @@ export class Packages {
 
   static #dirs(): string[] {
     const listed = (process.env['ACDE_PATH'] ?? '').split(process.platform === 'win32' ? ';' : ':').filter(Boolean).map((dir) => resolve(dir))
-    const inRoots = xdgDirs('data', 'acde/packages').flatMap((root) => {
-      try {
-        return readdirSync(root).filter((name) => !name.startsWith('.')).sort().map((name) => join(root, name)).filter((dir) => !!stat(dir)?.isDirectory)
-      } catch {
-        return []
-      }
-    })
-    return [...listed, ...inRoots]
+    const inRoots = xdgDirs('data', 'acde/packages').flatMap((root) => Packages.#within(root))
+    return [...listed, ...inRoots, ...Packages.#within(join(Packages.HOST, 'packages'))]
+  }
+
+  static #within(root: string): string[] {
+    try {
+      return readdirSync(root).filter((name) => !name.startsWith('.')).sort().map((name) => join(root, name)).filter((dir) => !!stat(dir)?.isDirectory)
+    } catch {
+      return []
+    }
   }
 
   static #read(dir: string): InstalledPackage | null {
@@ -112,7 +115,7 @@ export class Packages {
 
   bare(): InstalledDesktop {
     const pkg = this.packages.find((p) => p.dir === Packages.HOST) ?? { dir: Packages.HOST, name: '@dopame/acde-host', manifest: {} }
-    return { kind: 'acde', id: 'window', name: 'acdert app', description: null, package: pkg, html: '', services: [], heapMb: Packages.HEAP_MB }
+    return { kind: 'acde', id: Packages.BARE, name: 'acdert app', description: null, package: pkg, html: '', services: [], heapMb: Packages.HEAP_MB }
   }
 
   sessions(): ForeignSession[] {

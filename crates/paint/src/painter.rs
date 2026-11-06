@@ -250,7 +250,7 @@ impl Painter {
         self.dropped = true;
     }
 
-    pub fn icon(&mut self, scene: acde_render::acgpu::Scene, (w, h): (u32, u32)) -> Result<Dmabuf, String> {
+    pub fn icon(&mut self, scene: acde_gpu::Scene, (w, h): (u32, u32)) -> Result<Dmabuf, String> {
         if self.failed() {
             return Err("网页图层不可用".to_string());
         }

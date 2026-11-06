@@ -387,7 +387,7 @@ impl Terminals {
         if self.registry.sessions().len() >= MAX_TERMINALS {
             return Err(Failure::http(429, format!("at most {MAX_TERMINALS} terminals")));
         }
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+        let home = std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned());
         let file = Self::login_shell();
         let mut command = std::process::Command::new(&file);
         command.arg("-l").envs([("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]).current_dir(&home);

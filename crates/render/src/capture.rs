@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use acgpu::{PaintScene, Scene};
+use acde_gpu::{PaintScene, Scene};
 use blitz_dom::{BaseDocument, NodeId};
 use kurbo::{Affine, Rect};
 
@@ -27,7 +27,7 @@ impl Capture {
         let doc_scale = doc.viewport().scale_f64();
         let wanted = if scale.is_finite() && scale > 0.0 { scale } else { doc_scale };
         let zoom = Affine::scale(wanted / doc_scale);
-        let mut scene = acgpu::Scene::new();
+        let mut scene = acde_gpu::Scene::new();
         blitz_paint::paint_element(&mut scene, doc, node, doc_scale, zoom);
         let everywhere = Rect::new(-1e9, -1e9, 1e9, 1e9);
         let bounds = Damage::painted_bounds(&scene.commands, everywhere)?.expand();

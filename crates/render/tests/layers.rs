@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use acde_render::acgpu::FilterEffect;
-use acde_render::acgpu::{PaintScene, Scene};
+use acde_gpu::FilterEffect;
+use acde_gpu::{PaintScene, Scene};
 use acde_render::{Frame, Options};
 
 mod common;

@@ -1,111 +1,109 @@
-use winit::keyboard::{KeyCode, PhysicalKey};
-
-const KEYS: &[(KeyCode, u32, &str)] = &[
-    (KeyCode::Escape, 1, "escape"),
-    (KeyCode::Digit1, 2, "1"),
-    (KeyCode::Digit2, 3, "2"),
-    (KeyCode::Digit3, 4, "3"),
-    (KeyCode::Digit4, 5, "4"),
-    (KeyCode::Digit5, 6, "5"),
-    (KeyCode::Digit6, 7, "6"),
-    (KeyCode::Digit7, 8, "7"),
-    (KeyCode::Digit8, 9, "8"),
-    (KeyCode::Digit9, 10, "9"),
-    (KeyCode::Digit0, 11, "0"),
-    (KeyCode::Minus, 12, "minus"),
-    (KeyCode::Equal, 13, "equal"),
-    (KeyCode::Backspace, 14, "backspace"),
-    (KeyCode::Tab, 15, "tab"),
-    (KeyCode::KeyQ, 16, "q"),
-    (KeyCode::KeyW, 17, "w"),
-    (KeyCode::KeyE, 18, "e"),
-    (KeyCode::KeyR, 19, "r"),
-    (KeyCode::KeyT, 20, "t"),
-    (KeyCode::KeyY, 21, "y"),
-    (KeyCode::KeyU, 22, "u"),
-    (KeyCode::KeyI, 23, "i"),
-    (KeyCode::KeyO, 24, "o"),
-    (KeyCode::KeyP, 25, "p"),
-    (KeyCode::BracketLeft, 26, "bracketleft"),
-    (KeyCode::BracketRight, 27, "bracketright"),
-    (KeyCode::Enter, 28, "return"),
-    (KeyCode::ControlLeft, 29, "control_l"),
-    (KeyCode::KeyA, 30, "a"),
-    (KeyCode::KeyS, 31, "s"),
-    (KeyCode::KeyD, 32, "d"),
-    (KeyCode::KeyF, 33, "f"),
-    (KeyCode::KeyG, 34, "g"),
-    (KeyCode::KeyH, 35, "h"),
-    (KeyCode::KeyJ, 36, "j"),
-    (KeyCode::KeyK, 37, "k"),
-    (KeyCode::KeyL, 38, "l"),
-    (KeyCode::Semicolon, 39, "semicolon"),
-    (KeyCode::Quote, 40, "apostrophe"),
-    (KeyCode::Backquote, 41, "grave"),
-    (KeyCode::ShiftLeft, 42, "shift_l"),
-    (KeyCode::Backslash, 43, "backslash"),
-    (KeyCode::KeyZ, 44, "z"),
-    (KeyCode::KeyX, 45, "x"),
-    (KeyCode::KeyC, 46, "c"),
-    (KeyCode::KeyV, 47, "v"),
-    (KeyCode::KeyB, 48, "b"),
-    (KeyCode::KeyN, 49, "n"),
-    (KeyCode::KeyM, 50, "m"),
-    (KeyCode::Comma, 51, "comma"),
-    (KeyCode::Period, 52, "period"),
-    (KeyCode::Slash, 53, "slash"),
-    (KeyCode::ShiftRight, 54, "shift_r"),
-    (KeyCode::NumpadMultiply, 55, "kp_multiply"),
-    (KeyCode::AltLeft, 56, "alt_l"),
-    (KeyCode::Space, 57, "space"),
-    (KeyCode::CapsLock, 58, "caps_lock"),
-    (KeyCode::F1, 59, "f1"),
-    (KeyCode::F2, 60, "f2"),
-    (KeyCode::F3, 61, "f3"),
-    (KeyCode::F4, 62, "f4"),
-    (KeyCode::F5, 63, "f5"),
-    (KeyCode::F6, 64, "f6"),
-    (KeyCode::F7, 65, "f7"),
-    (KeyCode::F8, 66, "f8"),
-    (KeyCode::F9, 67, "f9"),
-    (KeyCode::F10, 68, "f10"),
-    (KeyCode::NumLock, 69, "num_lock"),
-    (KeyCode::ScrollLock, 70, "scroll_lock"),
-    (KeyCode::Numpad7, 71, "kp_7"),
-    (KeyCode::Numpad8, 72, "kp_8"),
-    (KeyCode::Numpad9, 73, "kp_9"),
-    (KeyCode::NumpadSubtract, 74, "kp_subtract"),
-    (KeyCode::Numpad4, 75, "kp_4"),
-    (KeyCode::Numpad5, 76, "kp_5"),
-    (KeyCode::Numpad6, 77, "kp_6"),
-    (KeyCode::NumpadAdd, 78, "kp_add"),
-    (KeyCode::Numpad1, 79, "kp_1"),
-    (KeyCode::Numpad2, 80, "kp_2"),
-    (KeyCode::Numpad3, 81, "kp_3"),
-    (KeyCode::Numpad0, 82, "kp_0"),
-    (KeyCode::NumpadDecimal, 83, "kp_decimal"),
-    (KeyCode::IntlBackslash, 86, "less"),
-    (KeyCode::F11, 87, "f11"),
-    (KeyCode::F12, 88, "f12"),
-    (KeyCode::NumpadEnter, 96, "kp_enter"),
-    (KeyCode::ControlRight, 97, "control_r"),
-    (KeyCode::NumpadDivide, 98, "kp_divide"),
-    (KeyCode::PrintScreen, 99, "print"),
-    (KeyCode::AltRight, 100, "alt_r"),
-    (KeyCode::Home, 102, "home"),
-    (KeyCode::ArrowUp, 103, "up"),
-    (KeyCode::PageUp, 104, "prior"),
-    (KeyCode::ArrowLeft, 105, "left"),
-    (KeyCode::ArrowRight, 106, "right"),
-    (KeyCode::End, 107, "end"),
-    (KeyCode::ArrowDown, 108, "down"),
-    (KeyCode::PageDown, 109, "next"),
-    (KeyCode::Insert, 110, "insert"),
-    (KeyCode::Delete, 111, "delete"),
-    (KeyCode::Pause, 119, "pause"),
-    (KeyCode::SuperLeft, 125, "super_l"),
-    (KeyCode::SuperRight, 126, "super_r"),
-    (KeyCode::ContextMenu, 127, "menu"),
+const NAMES: &[(u32, &str)] = &[
+    (1, "escape"),
+    (2, "1"),
+    (3, "2"),
+    (4, "3"),
+    (5, "4"),
+    (6, "5"),
+    (7, "6"),
+    (8, "7"),
+    (9, "8"),
+    (10, "9"),
+    (11, "0"),
+    (12, "minus"),
+    (13, "equal"),
+    (14, "backspace"),
+    (15, "tab"),
+    (16, "q"),
+    (17, "w"),
+    (18, "e"),
+    (19, "r"),
+    (20, "t"),
+    (21, "y"),
+    (22, "u"),
+    (23, "i"),
+    (24, "o"),
+    (25, "p"),
+    (26, "bracketleft"),
+    (27, "bracketright"),
+    (28, "return"),
+    (29, "control_l"),
+    (30, "a"),
+    (31, "s"),
+    (32, "d"),
+    (33, "f"),
+    (34, "g"),
+    (35, "h"),
+    (36, "j"),
+    (37, "k"),
+    (38, "l"),
+    (39, "semicolon"),
+    (40, "apostrophe"),
+    (41, "grave"),
+    (42, "shift_l"),
+    (43, "backslash"),
+    (44, "z"),
+    (45, "x"),
+    (46, "c"),
+    (47, "v"),
+    (48, "b"),
+    (49, "n"),
+    (50, "m"),
+    (51, "comma"),
+    (52, "period"),
+    (53, "slash"),
+    (54, "shift_r"),
+    (55, "kp_multiply"),
+    (56, "alt_l"),
+    (57, "space"),
+    (58, "caps_lock"),
+    (59, "f1"),
+    (60, "f2"),
+    (61, "f3"),
+    (62, "f4"),
+    (63, "f5"),
+    (64, "f6"),
+    (65, "f7"),
+    (66, "f8"),
+    (67, "f9"),
+    (68, "f10"),
+    (69, "num_lock"),
+    (70, "scroll_lock"),
+    (71, "kp_7"),
+    (72, "kp_8"),
+    (73, "kp_9"),
+    (74, "kp_subtract"),
+    (75, "kp_4"),
+    (76, "kp_5"),
+    (77, "kp_6"),
+    (78, "kp_add"),
+    (79, "kp_1"),
+    (80, "kp_2"),
+    (81, "kp_3"),
+    (82, "kp_0"),
+    (83, "kp_decimal"),
+    (86, "less"),
+    (87, "f11"),
+    (88, "f12"),
+    (96, "kp_enter"),
+    (97, "control_r"),
+    (98, "kp_divide"),
+    (99, "print"),
+    (100, "alt_r"),
+    (102, "home"),
+    (103, "up"),
+    (104, "prior"),
+    (105, "left"),
+    (106, "right"),
+    (107, "end"),
+    (108, "down"),
+    (109, "next"),
+    (110, "insert"),
+    (111, "delete"),
+    (119, "pause"),
+    (125, "super_l"),
+    (126, "super_r"),
+    (127, "menu"),
 ];
 
 const ALIASES: &[(&str, &str)] = &[
@@ -119,31 +117,11 @@ const ALIASES: &[(&str, &str)] = &[
     ("printscreen", "print"),
 ];
 
-pub(crate) struct Key {
-    pub evdev: u32,
-}
-
-pub(crate) fn key(physical: PhysicalKey) -> Option<Key> {
-    let PhysicalKey::Code(code) = physical else {
-        return None;
-    };
-    KEYS.iter()
-        .find(|(c, ..)| *c == code)
-        .map(|&(_, evdev, _)| Key { evdev })
-}
-
 pub(crate) fn by_name(name: &str) -> Option<u32> {
     let lower = name.to_ascii_lowercase();
-    let name = ALIASES
-        .iter()
-        .find(|(a, _)| *a == lower)
-        .map_or(lower.as_str(), |(_, n)| n);
-    KEYS.iter()
-        .find(|(_, _, n)| *n == name)
-        .map(|&(_, evdev, _)| evdev)
+    let name = ALIASES.iter().find(|(a, _)| *a == lower).map_or(lower.as_str(), |(_, n)| n);
+    NAMES.iter().find(|(_, n)| *n == name).map(|&(evdev, _)| evdev)
 }
-
-pub(crate) const BUTTON_LEFT: u32 = 0x110;
 
 const US: &[(u32, char, char)] = &[
     (2, '1', '!'),
@@ -189,10 +167,7 @@ pub(crate) fn us_text(evdev: u32, shift: bool) -> Option<String> {
     if let Some(&(_, plain, shifted)) = US.iter().find(|(code, ..)| *code == evdev) {
         return Some(if shift { shifted } else { plain }.to_string());
     }
-    let letter = KEYS
-        .iter()
-        .find(|(_, code, name)| *code == evdev && name.len() == 1 && name.as_bytes()[0].is_ascii_lowercase())
-        .map(|(_, _, name)| *name)?;
+    let letter = NAMES.iter().find(|(code, name)| *code == evdev && name.len() == 1 && name.as_bytes()[0].is_ascii_lowercase()).map(|(_, name)| *name)?;
     Some(if shift { letter.to_ascii_uppercase() } else { letter.to_owned() })
 }
 
@@ -211,14 +186,170 @@ pub(crate) fn is_modifier(evdev: u32) -> bool {
     matches!(evdev, 29 | 42 | 54 | 56 | 97 | 100 | 125 | 126)
 }
 
-pub(crate) fn mouse_button(button: winit::event::MouseButton) -> u32 {
+pub(crate) const BUTTON_LEFT: u32 = 0x110;
+pub(crate) const BUTTON_RIGHT: u32 = 0x111;
+pub(crate) const BUTTON_MIDDLE: u32 = 0x112;
+pub(crate) const BUTTON_BACK: u32 = 0x113;
+pub(crate) const BUTTON_FORWARD: u32 = 0x114;
+
+#[cfg(windows)]
+pub(crate) fn scancode(code: u32, extended: bool) -> Option<u32> {
+    if !extended {
+        return match code {
+            0x45 => Some(119),
+            1..=0x58 => Some(code),
+            _ => None,
+        };
+    }
+    Some(match code {
+        0x45 => 69,
+        0x1c => 96,
+        0x1d => 97,
+        0x35 => 98,
+        0x37 => 99,
+        0x38 => 100,
+        0x47 => 102,
+        0x48 => 103,
+        0x49 => 104,
+        0x4b => 105,
+        0x4d => 106,
+        0x4f => 107,
+        0x50 => 108,
+        0x51 => 109,
+        0x52 => 110,
+        0x53 => 111,
+        0x5b => 125,
+        0x5c => 126,
+        0x5d => 127,
+        _ => return None,
+    })
+}
+
+#[cfg(not(windows))]
+pub(crate) fn winit_key(physical: winit::keyboard::PhysicalKey) -> Option<u32> {
+    use winit::keyboard::{KeyCode, PhysicalKey};
+    const CODES: &[(KeyCode, u32)] = &[
+        (KeyCode::Escape, 1),
+        (KeyCode::Digit1, 2),
+        (KeyCode::Digit2, 3),
+        (KeyCode::Digit3, 4),
+        (KeyCode::Digit4, 5),
+        (KeyCode::Digit5, 6),
+        (KeyCode::Digit6, 7),
+        (KeyCode::Digit7, 8),
+        (KeyCode::Digit8, 9),
+        (KeyCode::Digit9, 10),
+        (KeyCode::Digit0, 11),
+        (KeyCode::Minus, 12),
+        (KeyCode::Equal, 13),
+        (KeyCode::Backspace, 14),
+        (KeyCode::Tab, 15),
+        (KeyCode::KeyQ, 16),
+        (KeyCode::KeyW, 17),
+        (KeyCode::KeyE, 18),
+        (KeyCode::KeyR, 19),
+        (KeyCode::KeyT, 20),
+        (KeyCode::KeyY, 21),
+        (KeyCode::KeyU, 22),
+        (KeyCode::KeyI, 23),
+        (KeyCode::KeyO, 24),
+        (KeyCode::KeyP, 25),
+        (KeyCode::BracketLeft, 26),
+        (KeyCode::BracketRight, 27),
+        (KeyCode::Enter, 28),
+        (KeyCode::ControlLeft, 29),
+        (KeyCode::KeyA, 30),
+        (KeyCode::KeyS, 31),
+        (KeyCode::KeyD, 32),
+        (KeyCode::KeyF, 33),
+        (KeyCode::KeyG, 34),
+        (KeyCode::KeyH, 35),
+        (KeyCode::KeyJ, 36),
+        (KeyCode::KeyK, 37),
+        (KeyCode::KeyL, 38),
+        (KeyCode::Semicolon, 39),
+        (KeyCode::Quote, 40),
+        (KeyCode::Backquote, 41),
+        (KeyCode::ShiftLeft, 42),
+        (KeyCode::Backslash, 43),
+        (KeyCode::KeyZ, 44),
+        (KeyCode::KeyX, 45),
+        (KeyCode::KeyC, 46),
+        (KeyCode::KeyV, 47),
+        (KeyCode::KeyB, 48),
+        (KeyCode::KeyN, 49),
+        (KeyCode::KeyM, 50),
+        (KeyCode::Comma, 51),
+        (KeyCode::Period, 52),
+        (KeyCode::Slash, 53),
+        (KeyCode::ShiftRight, 54),
+        (KeyCode::NumpadMultiply, 55),
+        (KeyCode::AltLeft, 56),
+        (KeyCode::Space, 57),
+        (KeyCode::CapsLock, 58),
+        (KeyCode::F1, 59),
+        (KeyCode::F2, 60),
+        (KeyCode::F3, 61),
+        (KeyCode::F4, 62),
+        (KeyCode::F5, 63),
+        (KeyCode::F6, 64),
+        (KeyCode::F7, 65),
+        (KeyCode::F8, 66),
+        (KeyCode::F9, 67),
+        (KeyCode::F10, 68),
+        (KeyCode::NumLock, 69),
+        (KeyCode::ScrollLock, 70),
+        (KeyCode::Numpad7, 71),
+        (KeyCode::Numpad8, 72),
+        (KeyCode::Numpad9, 73),
+        (KeyCode::NumpadSubtract, 74),
+        (KeyCode::Numpad4, 75),
+        (KeyCode::Numpad5, 76),
+        (KeyCode::Numpad6, 77),
+        (KeyCode::NumpadAdd, 78),
+        (KeyCode::Numpad1, 79),
+        (KeyCode::Numpad2, 80),
+        (KeyCode::Numpad3, 81),
+        (KeyCode::Numpad0, 82),
+        (KeyCode::NumpadDecimal, 83),
+        (KeyCode::IntlBackslash, 86),
+        (KeyCode::F11, 87),
+        (KeyCode::F12, 88),
+        (KeyCode::NumpadEnter, 96),
+        (KeyCode::ControlRight, 97),
+        (KeyCode::NumpadDivide, 98),
+        (KeyCode::PrintScreen, 99),
+        (KeyCode::AltRight, 100),
+        (KeyCode::Home, 102),
+        (KeyCode::ArrowUp, 103),
+        (KeyCode::PageUp, 104),
+        (KeyCode::ArrowLeft, 105),
+        (KeyCode::ArrowRight, 106),
+        (KeyCode::End, 107),
+        (KeyCode::ArrowDown, 108),
+        (KeyCode::PageDown, 109),
+        (KeyCode::Insert, 110),
+        (KeyCode::Delete, 111),
+        (KeyCode::Pause, 119),
+        (KeyCode::SuperLeft, 125),
+        (KeyCode::SuperRight, 126),
+        (KeyCode::ContextMenu, 127),
+    ];
+    let PhysicalKey::Code(code) = physical else {
+        return None;
+    };
+    CODES.iter().find(|(c, _)| *c == code).map(|&(_, evdev)| evdev)
+}
+
+#[cfg(not(windows))]
+pub(crate) fn winit_button(button: winit::event::MouseButton) -> u32 {
     use winit::event::MouseButton;
     match button {
         MouseButton::Left => BUTTON_LEFT,
-        MouseButton::Right => 0x111,
-        MouseButton::Middle => 0x112,
-        MouseButton::Back => 0x113,
-        MouseButton::Forward => 0x114,
-        MouseButton::Other(n) => 0x110 + u32::from(n),
+        MouseButton::Right => BUTTON_RIGHT,
+        MouseButton::Middle => BUTTON_MIDDLE,
+        MouseButton::Back => BUTTON_BACK,
+        MouseButton::Forward => BUTTON_FORWARD,
+        MouseButton::Other(n) => BUTTON_LEFT + u32::from(n),
     }
 }

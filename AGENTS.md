@@ -71,7 +71,7 @@ web (crates/acdert `web.rs` `spawnWeb`: runtime 里的一条 JS 线程 `acde`, �
 置停止并 `terminate_execution` (卡在 JS 里也停得下, 退出码 137); 线程 panic 只结束这个 web (退出码 134, 原因 `panic: …`);
 句柄的 `busyMs` (当前任务跑了多久, Broker 判卡死) 和 `cpuMs` (这条线程用掉的 CPU, `/proc/self/task/<tid>/schedstat`;
 `DebugApi.stats` 每个 web 带上). 段错误、abort 仍然带掉整个 runtime (主进程重起它). 里面是 crates/render 的文档、
-crates/paint (光栅化线程: 交给 acgpu, 今天是它的 Vulkan 回退 —— vello 画、filter / drop-shadow / backdrop 合成都在 acgpu 里) 和 crates/window
+crates/paint (光栅化线程: 交给 crates/gpu —— vello 画、filter / drop-shadow / backdrop 合成都在 acde-gpu 里) 和 crates/window
 (Wayland 客户端: xdg_toplevel + linux-dmabuf + `acde_window`, 输入 / 剪贴板 / 拖放 / frame). 它死掉只掉它的窗口.
 
 ### 运行时进程 (目标, 在做)
@@ -97,8 +97,8 @@ acdert 是**一个**可执行文件, 在 Linux / Windows / macOS 上都能跑, �
 没有), 于是不起 fcitx5、不开 AT-SPI、不跑 XDG autostart、不拿会话总线上的名字、不记登录选的桌面, 启动时只打一行 debug
 `host windows on <platform>: not an acde session, …`; 平台上根本没有的能力 (office、network 这些只在 Linux 编进去的) 不注入, 也不 warn.
 
-实现是 crates/hostwin (`acde-hostwin`): winit 开窗口、收输入, wgpu 的 surface 上屏 (macOS Metal, Windows DX12 / Vulkan, Linux
-Vulkan), 页面由 vello 画进一张 Rgba8 纹理再拷到 surface (layers 的滤镜和 backdrop 还没做, 按顺序直接画). 主线程跑 winit 的事件循环,
+实现是 crates/hostwin (`acde-hostwin`): winit 开窗口、收输入, wgpu 的 surface 上屏 (每个系统只用一个后端: macOS Metal, Windows DX12, Linux
+Vulkan; `acde_gpu::BACKEND`), 页面由 vello 画进一张 Rgba8 纹理再拷到 surface (layers 的滤镜和 backdrop 还没做, 按顺序直接画). 主线程跑 winit 的事件循环,
 Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线程出帧. 对 acde-host 的接口和 Linux 一样:
 
 - Broker 的 `native.Shell.broker()` 换成 hostwin 的 `Shell` (crates/acdert `hostnative.rs`): grant / place / focus / hide / close /
@@ -126,9 +126,9 @@ Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线�
   (页面里输入法提交那条路), 不经注入.
 - 系统能力: fs、terminal (pty; macOS 上没有 pidfd / eventfd / close_range, 换成轮询、socketpair、逐个 close)、应用后端的
   unix socket 在所有 unix 上注入; 声音 (`Audio` / `AudioContext`) 到处都有 (输出见「网页应用」); network、office、IME、语音只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
-  `showDirectoryPicker` 的选择器: macOS 上是 hostwin 在主线程开的 `NSOpenPanel` sheet (`chooser.rs`, objc2-app-kit), Linux 上照旧是
-  portal, Windows 上还没有 (`AbortError`), 见「文件 (`acde:fs`)」.
-- 验证 (只在 macOS 上验, Windows / Linux 的宿主窗口只写不验): `ACDE_HOST_DUMP=<目录>` 让每个窗口每帧把画好的页面 (GPU 读回)
+  `showDirectoryPicker` 的选择器: macOS 上是 hostwin 在主线程开的 `NSOpenPanel` sheet (`chooser.rs`, objc2-app-kit), Windows 上是
+  `SHBrowseForFolderW` (`platform/win32.rs`), Linux 上照旧是 portal, 见「文件 (`acde:fs`)」.
+  - 验证 (macOS 和 Windows 11 LTSC x64 上验, Linux 的宿主窗口只写不验): `ACDE_HOST_DUMP=<目录>` 让每个窗口每帧把画好的页面 (GPU 读回)
   写成 `<目录>/<窗口 id>.png`; `ACDE_DEBUG_DIR` 照旧能在各 web 里求值. 不截屏.
   - 验过 (2026-11-06, macOS 26, M3 Pro): dev IPC 的请求. 一个 bun 脚本当 `acde dev` 的服务端 (unix socket, 起 acdert 时给
     `ACDE_DEV`, 没有 `ACDE_DEBUG_DIR`), 在 `acdert app ledger` 和 `acdert desktop dopame` 上: hello 带 `role: "runtime"`; `webs`;
@@ -166,7 +166,7 @@ Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线�
 (`ACDE_DEV` 是它的地址), acdert (hostwin 的 `acde-dev` 线程) 连上去, 先发 `{"type":"hello","role":"runtime","pid"}` (acde 那边
 别的连接是 `role: "tool"` 的 `acde eval|shot|webs|inspect|act`, 它们的请求由 acde 改写 id 后转给 runtime); 收 `{"type":"reload","app"?}`
 (推给 Broker 一个 `devreload`: 有 app 时关掉它所有窗口 (不问 `beforeclose`) 再打开, 位置由「窗口管理」记的 rect 摆回;
-没有 app 时重起 desktop web, 桌面服务不重起)、`{"type":"quit"}` 和请求 `{"type":"request","id":<整数>,"op", …参数}`;
+没有 app 时重起 desktop web, 桌面服务不重起; 带 `"hot": true` 时先试热替换, 见下)、`{"type":"quit"}` 和请求 `{"type":"request","id":<整数>,"op", …参数}`;
 连接断了 (acde 退出) acdert 就退出.
 
 请求 (给 agent 和 `acde` 的工具用, 契约和 acde 仓库一致): `acde-dev` 线程记下等回答的 id (重复的 id、没有整数 id 的只打 warn,
@@ -186,6 +186,27 @@ op (`web` 是 web 的名字 (`ledger#1048576`)、应用 id (那个应用 window 
   除了 `type` / `id` / `op` 以外的字段. 工程的构建结果经 `ACDE_PATH`
 (Windows 上用 `;` 分隔) 交给 acdert, 不装进包目录. 日志就是 acdert 的 stderr (acde 起它时继承). `ACDE_PATH` 的分隔、`process.platform`
 (`sys` 给的 `platform`, 和 Node 的值一样) 都按平台.
+
+热重载分三档 (对照 makepad: 它的 DSL 就地替换 / Relax JIT 改函数体 / 保留状态重启; 我们的页面是 web, 构建只是 bun 打包, 不需要编译器).
+acde dev 构建时不压缩 (`minify` 关, `NODE_ENV` / `import.meta.env.MODE` 是 development, Vite 也是), 否则改一个函数会连带顶层的名字一起变.
+acde 比较构建前后的产物 (acde 仓库 `src/changes.ts`): 完全没变不发; 变的只有 `.css` / `.js`, 而且 `.html` 去掉 `<style>`、
+`<link rel=stylesheet>` 和 `<script>` 的 `src` 之后一样, 发 `{"type":"reload","app"?,"hot":true}`, 否则发普通的 reload. Broker 收到 hot 给那个
+应用的窗口 (或桌面) 发 `devhot`, web (acde-host `devhot.ts`, 只在有 `ACDE_DEV` 时建) 重新读入口 HTML, 先查能不能热替换, 都能才动手:
+
+1. 样式就地换: 按顺序把新旧两份 HTML 里的 `<style>` / `<link rel=stylesheet>` 和页面里对应的元素对上 (页面自己后加的不动),
+   `<style>` 换文字, `<link>` 换 `href` (加 `acde-dev=<n>` 让 render 重读同名文件, 本地资源按路径找, 查询串不管).
+2. JS 改函数体就地换: 按位置把 `<script src>` 配对, 内容变了的 module 脚本经 V8 inspector 的 `Debugger.setScriptSource`
+   (crates/acdert `inspector.rs`; 有 `ACDE_DEV` 时每个 isolate 一个 inspector session, 起来就 `Debugger.enable` 记下 URL → scriptId,
+   V8 带 `--inspector-live-edit`; 脚本的 URL 还是第一次加载时的那个) 换掉源码. 已有的闭包 (事件处理函数 …) 下次调用就是新代码, 但不会
+   自动重画 (React 这类要等下一次渲染). V8 拒绝的退回整页重载: 改了模块顶层代码 (`BlockedByTopLevelEsModuleChange`)、函数正在栈上、
+   生成器在跑; classic 脚本变了也整页重载 (V8 不拒绝它的顶层改动, 但跑过的顶层不会重跑).
+3. 整页重载时保留状态 (所有 reload, 不只是 hot 退回来的): Broker 关窗口之前问旧页面要快照 (`dev.state`, 最多等 0.5 秒;
+   acde-host `devstate.ts`): 表单值 (勾选框是 checked, file / hidden 不记)、窗口和滚动容器的滚动位置 (前 3000 个元素里找)、焦点和选区;
+   元素用 id 或从 body 起的 `nth-child` 路径认. 新页面加载完放回去, 0 / 50 / 200 / 600 / 1500 ms 各试一次 (页面可能异步渲染);
+   值是用原型上的 setter 写再发 `input` / `change` (受控输入框这类按事件同步状态), 勾选框用 `click()`.
+
+对不上 (页面本身变了、脚本或样式表的个数变了、后端渲染的页面、模块入口的应用) 就整页重载 (`page.devreload`). 在 macOS 上量过:
+构建 3 ~ 7 ms; 换样式 1 ~ 2 ms, 换函数体约 11 ms (收到到换完); 整页重载到状态放回约 26 ms.
 
 ```
 AgentComputer:
@@ -273,7 +294,9 @@ acdert (一个进程)                   同上的 runtime (Broker / desktop / �
 7. 调试模式 (`acde dev` 用它): 每个窗口一个宿主原生窗口 (crates/hostwin, 见上).
    - (已做) macOS: Dopame 桌面、应用窗口、fs、终端都能用.
    - Linux (只写): 同一份 hostwin (winit 的 Wayland / X11); `arboard` 的剪贴板.
-   - Windows (只写): rustix / pty / unix socket 这些 unix 的东西换成 Windows 的 (ConPTY、命名管道), 没有的不注入.
+   - (已做) Windows 11 x64: Dopame 桌面和 `acde dev` 的应用窗口能用. rustix / pty / unix socket 这些 unix 的东西换成 Windows 的
+     (ConPTY、命名管道), 没有的不注入. DX12 的着色器编译器是静态链进去的 DXC (wgpu `static-dxc`): 没有它时 wgpu 退回 FXC,
+     vello 的着色器被编坏, 几秒后设备丢失 (`DXGI_ERROR_DEVICE_REMOVED`). win32-arm64 暂时不管 (没有静态 DXC 的预编译库).
 
 ## 窗口模型 (split-window)
 
@@ -902,8 +925,11 @@ FIFO 上). 原来的 `preview` (文字最多 256 KiB, 多了 `truncated`) 和 `w
     Broker 给新窗口定尺寸时加上它. 画法 (颜色、按钮、字) 在 render 的 `Decoration`.
   - 清单 `frame: false` 的应用没有这个子 surface, 页面就是整个窗口, 自己画标题栏 (自己调 `setGrabHint`). 桌面和面板没有窗框.
     全屏时窗框照旧在 (第三个按钮回到 `free`).
-  - **调试模式**用宿主的装饰 (`frame: false` 也一样), `frame` 参数不理, `contentOffset` 是 `[0, 0]`; 页面的视口同样只是内容区, 所以同一个
-    页面在两种跑法里布局一样, 清单的 `size` 在两边都是页面的尺寸.
+  - **调试模式** (crates/hostwin, 一个宿主窗口里合成桌面和所有窗口) 同样在页面外画: 窗口表的 rect 含窗框, 页面拿到 rect 减去窗框的高;
+    出帧线程 (`present.rs` `framed`) 把 `Decoration` 的场景和下移了窗框高度的页面画进同一张纹理, 合成器仍只看到一层. 命中
+    (`shell.rs` `Hit.bar`) 落在窗框上时页面收不到指针; 按钮由 `app.rs` 判断 (按下和松开在同一个按钮上) 发 `framebutton`; 标题栏和四边的
+    grab hint 由 `Entry::grab_hints` 合成 (页面的下移窗框高度, 窗框的在后面优先). `contentOffset` 是 `[0, H]`, 输入法候选框也加上 `H`.
+    清单的 `size` 在两种跑法里都是页面的尺寸.
   - 验过 (2026-11-06, macOS M3 Pro): render `tests/decoration.rs` (背景、按钮颜色和位置、底线、标题居中和截断, 1x / 2x, 按钮命中) 和光栅化出来
     的截图; crates/window 的单元测试 (内容区尺寸、grab hint 的合成和平移、backdrop 的平移) 和 clippy 在 Docker 的 Alpine (aarch64) 里跑过,
     `cargo clippy -p acdert` 也在那里编过; 调试窗口 (`acdert app`) 里 `frame` 为 true / false 的应用: `<html>` 没有 style、只有 head 和
@@ -1244,7 +1270,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
   `onSubmittedWorkDone` 就全排到 GPU 做完之后. 所以每帧的路径上不用 `Wait`.
   `toDataURL` / `copyExternalImageToTexture` 同步读回; `toBlob` 异步读回, PNG 在单独的线程上编码 (crates/acdert, 用 render 的
   `encode_png`). 背压: 两批 present 没做完 (超过 1 秒的不算) 时这次 vblank 不跑 rAF 回调. 当时只在 Lima 的 lavapipe 上验过, 真 GPU 上没验过.
-- WebGL: 还没有. 要做 (用户定, 2026-11-03): `webgl` / `webgl2` / `webgpu` 三种 canvas 3D 上下文都由 acgpu 实现 (acgpu docs/roadmap.md「canvas 3D」), 接口照 web 标准. Canvas 2D 由 render 画
+- WebGL: 还没有. 要做 (用户定, 2026-11-03): `webgl` / `webgl2` / `webgpu` 三种 canvas 3D 上下文接口照 web 标准, 只经 wgpu 实现 (不依赖 acgpu). Canvas 2D 由 render 画
   (acde-dom `src/dom/canvas.ts` 编成命令流, 经 `Dom::canvas` 交给 render; `Path2D` 的 SVG 路径字符串连同 addPath 的变换原样
   送过去, render 用 kurbo 解析, 出错时画出错之前的部分). 一张 canvas 攒的命令超过 20000 条时 render 把它
   在 GPU 上画成一张纹理再接着记 (`ACDE_CANVAS_MAX_COMMANDS`, 0 不限).
@@ -1271,8 +1297,8 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 - 依赖版本只写主版本号 (`x.y.z` 只写 `x`: `log = "0"`, `wgpu = "30"`), lock 里用最新的 (`cargo update`); 升级跨了 0.x 的次版本
   (API 会变) 就跟着改代码. 例外只有 `=` 精确钉住的: 由 `[patch.crates-io]` 换成 `vendors/` 的 crate 和与之配套的 (blitz-*、stylo*、
   parley、html5ever、cssparser), 写成 `"0"` 会让解析器挑 crates.io 上更新的版本而不用补丁.
-- 改了自己 crate 的依赖: 对应的 `Cargo.lock` 改动放在同一个提交里 (先确认 lock 的 diff 里只有自己的变化),
-  提交前 `cargo build --release --locked -p acdert` 必须通过, main 任何时候都要能 `--locked` 编过. `web/bun.lock` 同理.
+- `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新. 改了依赖, 提交前 `cargo build --release -p acdert` 必须通过.
+  `web/bun.lock` 照旧进 git, 改了依赖时它的改动放在同一个提交里.
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits (`feat(shell): …`), 每行不超过 72 字符, 正文写原因和验证情况
   (性能数字注明负载), 不加 Co-Authored-By.
 - 汇报时分开写「已验证 / 未验证」.
@@ -1288,10 +1314,11 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/render` | Rust | Blitz 原生 web 渲染 |
 | `crates/runtime` | Rust | 系统接口的 napi 导出. 异步执行器 `src/rt.rs`: 线程 `acde-rt` 上一个 ntex System (运行时 ntex 自己选: io_uring, 不行用 polling), 也是 napi 的 `async-runtime` 后端, 阻塞活进它的线程池; HTTP / WebSocket 用 ntex, TLS 用 OpenSSL, 不用 tokio; 唯一起的子进程是终端的 shell (`std::process`, 一条 `terminal-<pid>` 线程用 pidfd 等它). 检查在 `tests/`, 用编好的 acde 跑 (`acdert run`, 不要 Node): `tests/run.sh <acde> tests/<x>-check.mjs` (fs-copyin、terminal), 输入法 `tests/ime-check.sh` (在私有 D-Bus 和 fcitx5 上跑 `src/ime.rs` 里 ignored 的 Rust 测试; `Ime` 不是 napi 导出, 只由 crates/acdert `webnative.rs` 绑给 web), `tests/portal-check.sh <acde>`; 临时目录在 `$ACDE_CHECK_TMP` (默认 `$TMPDIR`) |
 | `crates/acdert` | Rust | `acdert` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, web 线程 (`spawnWeb`), 把 render 的文档绑给 JS (见「宿主: crates/acdert」) |
-| `crates/paint` | Rust | `acde-paint`: web 进程的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acgpu 打开的 wgpu 设备 |
+| `crates/paint` | Rust | `acde-paint`: web 进程的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acde-gpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acde-gpu 打开的 wgpu 设备 |
 | `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window`、窗框的子 surface (`decoration.rs`) |
 | `crates/hostwin` | Rust | `acde-hostwin`: 调试模式的宿主原生窗口 (winit + wgpu surface + vello), Broker 的 `Shell` 和 web 的 `Surface` 的宿主版, 见「运行时进程」 |
 | `crates/ipc` | Rust | `acde-ipc`: 进程间的一条双向字节流 (unix socket / Windows 命名管道), `acde dev` 用 |
+| `crates/gpu` | Rust | `acde-gpu`: 2D 场景 (`PaintScene` / `Scene` / `Filter`) 和它的渲染器 (vello on wgpu: 光栅、图层合成、离屏、Linux 上 dma-buf 画布), 只用标准图形接口, 每个平台只编一个后端 (`acde_gpu::BACKEND`: Windows DX12、Linux Vulkan、macOS Metal; wgpu / vello 的默认 feature 关掉, 没有别的后端和切换开关), 见「vendors」开头 |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
 | `crates/acde-napi` | Rust | 用 rusty_v8 实现的 Node-API C 接口 (napi8), 让 runtime / shell 的 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` (deno_napi 0.191.0, MIT, 见 LICENSE-MIT): 任务派发换成嵌入方的, 去掉了旧式模块注册、async_hooks、callback scope、napi9+ 和 runtime / shell 链接不到的入口 (删掉后 `cargo build -p acdert` 照样链接成功的那些: Date、DataView、TypedArray、escapable handle scope、new_target、freeze / seal、detach、async cleanup hook、symbol、instanceof 等); cleanup hook 只检查参数, 不存 (Env 不析构, 本来就不会跑); 每个 async work 起一条 `acde-napi-work` 线程 (只有 shell 的 screenshot 用); `open` 把一个模块的导出注册进一个 context |
@@ -1312,6 +1339,10 @@ cd web && bun install && bun run build       # packages/acde-host/dist/{broker,w
 ACDE_PATH=<acde-dopame 的包目录> ../target/release/acdert --desktop dopame  # 起这个桌面
 ```
 
+Windows (x64) 要 VS 2022 17.11 以上 (MSVC 14.41+) 的 C++ 工具和 ATL 组件 (`Microsoft.VisualStudio.Component.VC.ATL`): 静态 DXC 的预编译库
+要新版 STL 的 `__std_*` 和 `atls.lib`, v142 (14.29) 链接不了. `WGPU_VALIDATION=1` / `WGPU_DEBUG=1` 打开 D3D12 的调试层 (要装
+「图形工具」可选功能).
+
 acdert 找 bundle 的顺序: `$ACDE_APP`, 自己旁边的 `app/dist` (装好的包), `<exe>/../../web/packages/acde-host/dist` (仓库里的
 `target/release/acdert`; `CARGO_TARGET_DIR` 在别处时要设 `ACDE_APP`). 上机用 DRM/KMS + libinput (在没有显示的 tty 上跑);
 已有桌面里开发用 `ACDE_BACKEND=rdp` (见「web/packages/acde-host」的 Run).
@@ -1320,9 +1351,9 @@ acdert 找 bundle 的顺序: `$ACDE_APP`, 自己旁边的 `app/dist` (装好的�
 
 `.github/workflows/release.yml`: 推 `v*` tag (或手动给版本) 时, 八个平台 (darwin-arm64 / x64、linux-arm64 / x64 (glibc)、
 linux-arm64-musl / x64-musl、win32-arm64 / x64) 各编一次 (musl 的在 runner 上 `docker run` 一个 Alpine edge: Alpine 的开发库 + rustup 的
-musl 工具链, `-C target-feature=-crt-static` 动态链接 Alpine 的库; rusty_v8 有 musl 的预编译库) `cargo build --release --locked -p acdert` 和 host bundle, 再检出 acde 仓库, 用它的 `scripts/pack.ts` 打成 npm 包
+musl 工具链, `-C target-feature=-crt-static` 动态链接 Alpine 的库; rusty_v8 有 musl 的预编译库) `cargo build --release -p acdert` 和 host bundle, 再检出 acde 仓库, 用它的 `scripts/pack.ts` 打成 npm 包
 (`@dopame/acdert-<平台>`: acdert 和旁边的 `app/dist`; `@dopame/acde-api`; `acde`; `create-acde`) 并发布. 包怎么分、开发者怎么装,
-见 acde 仓库 AGENTS.md 的「分发」. secret: `DOPAME_READ_TOKEN` (读私有的 acgpu 和 acde)、`NPM_TOKEN`. Linux 的 acdert 运行时要 libxkbcommon、gbm (mesa)、
+见 acde 仓库 AGENTS.md 的「分发」. secret: `DOPAME_READ_TOKEN` (读私有的 acde)、`NPM_TOKEN`. Linux 的 acdert 运行时要 libxkbcommon、gbm (mesa)、
 libudev、libinput、fontconfig、OpenSSL 3、pipewire (普通桌面都有; libseat 是 dlopen, 见 vendors/libseat-sys). 某个平台编不过时其余照发, 那个
 平台不进 acde 的可选依赖 (Windows 移植做完之前就是 win32). 这个 workflow 还没跑过.
 
@@ -1373,26 +1404,23 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个 we
 
 ## vendors
 
-- **依赖的来源只有两处**: crates.io 和这里的 `vendors/` (Cargo.lock 里没有 git 来源, 构建不需要 GitHub). 不在 crates.io 上的依赖
+- **依赖的来源只有两处**: crates.io 和这里的 `vendors/` (没有 git 来源, 构建不需要 GitHub). 不在 crates.io 上的依赖
   拷进这里, 不用 git 依赖. 访问 crates.io 慢的机器在自己的 `$CARGO_HOME/config.toml` 里换镜像 (不进仓库), 国内用 rsproxy:
   `[source.crates-io] replace-with = "rsproxy-sparse"` 加 `[source.rsproxy-sparse] registry = "sparse+https://rsproxy.cn/index/"`;
   bun 用 `BUN_CONFIG_REGISTRY=https://registry.npmmirror.com`.
 - 都是直接放在本仓库里的源码 (没有 submodule, 不带上游历史): 直接在这里改, 改动处加 `acrender:` (ironrdp-server 是 `acde:`)
   注释, 下面的表同步更新; 升级上游时把这些改动重新打上去. 有 `Cargo.toml` 的末尾加了空的 `[workspace]`, 根 `Cargo.toml` 用
   `[patch.crates-io]` 替换上游 (crate 名不改).
-- **acgpu 是依赖, 不进本仓库** (用户定, 2026-11-02 / 11-03): 我们自己的 GPU 用户态驱动 acgpu (dopame-org/acgpu) 是独立仓库, 这里
-  不放它的拷贝 (没有 `vendors/acgpu`), 以 Rust crate 依赖它: git 依赖仓库根的 `acgpu` 包, 钉 rev (crates/render 和
-  vendors/acrender 的 Cargo.toml). 网页图层画进 acgpu 的 2D 场景 (`acgpu::PaintScene` / `Scene` / `RenderCommand` / `Filter`):
+- **不依赖 acgpu, 不带任何专用驱动** (用户定, 2026-11-06): acdert 只经标准图形接口画 (wgpu: Vulkan / Metal / DX12), acgpu 这类
+  驱动在系统图形栈下面, 不是运行时的依赖. 2D 场景和它的渲染器在 crates/gpu (`acde-gpu`, 从 acgpu `8b84f72` 的 core `scene.rs` /
+  `filter.rs` 和 fallback 搬来, 去掉了选驱动的 `Backend` / `Capability`): 场景 (`PaintScene` / `Scene` / `RenderCommand` / `Filter`),
   blitz-paint 和 crates/render 直接画进它, 没有 anyrender 这一层 (已删; 它画 SVG 的 anyrender_svg 搬成了 blitz-paint 的 `svg.rs`).
-  画出来是 acgpu 的事, 回退也归 acgpu: 谁来画由 `acgpu::Backend::pick(Capability::Pages)` 定, 今天是 Vulkan 回退
-  `acgpu::fallback` (feature `fallback-vulkan`, 缺省开; 关掉时 acgpu 驱动做不了的直接 panic). 整页的光栅和合成 (vello 渲染、
-  图层的滤镜 / 投影 / 毛玻璃、dma-buf 画布导入、sync_file) 都在 `acgpu::fallback` 的 `Raster` / `Composer` / `Device` 里;
-  crates/paint 只剩线程、GBM 画布分配、损伤和区域、把 render 的帧拆成 `Part` (`plane.rs` 实现 acgpu 的 `Content`),
-  canvas / WebGPU 纹理当场景里的图片是 acgpu 的 `GpuImage` (render 里叫 `CanvasImage`), `Overrides` 也是 acgpu 的. canvas 2D 的
-  离屏光栅 (画、读回、写入、阴影) 是 acgpu 的 `Offscreen`; render `gpu.rs` 只剩共享设备的全局入口和几个转发函数.
-  改 acgpu 的场景接口就是改 acde 的接口: 先在 acgpu 提交推送, 再在这里改 rev.
+  整页的光栅和合成 (vello 渲染、图层的滤镜 / 投影 / 毛玻璃, Linux 上 dma-buf 画布导入和 sync_file: `Raster` / `Composer` / `Device`,
+  走 Vulkan 的外部内存扩展) 也在 acde-gpu; crates/paint 只剩线程、GBM 画布分配、损伤和区域、把 render 的帧拆成 `Part`
+  (`plane.rs` 实现 `Content`). canvas / WebGPU 纹理当场景里的图片是 `GpuImage` (render 里叫 `CanvasImage`), canvas 2D 的离屏光栅
+  (画、读回、写入、阴影) 是 `Offscreen`; render `gpu.rs` 只剩共享设备的全局入口和几个转发函数.
 
-版本看各目录的 `Cargo.toml` 和根 `Cargo.lock`.
+版本看各目录的 `Cargo.toml`.
 
 | 目录 | 上游 |
 | --- | --- |
@@ -1472,13 +1500,15 @@ crates/render 另开 blitz-paint 的 `scrollbars` 和 blitz-dom 的 `floats`; �
 | `src/document.rs` `geometry_generation`, `memory` / `MemoryStats` | 公开几何代数; 文档留着的东西的大小 | 查内存增长 (几何代数原来给命中盒子用, 现在没有使用方) |
 | `src/document.rs` `create_node`, `forget_layout_child` | 不再记 `changed_nodes`; 删节点时从布局父节点 / 包含块的子节点列表里去掉 | 上游无限增长; 旧 key 让 taffy panic |
 | `src/mutator.rs` `flush`, `document.rs` `add_stylesheet_for_node` | 跳过同一批里已经删掉的节点 | render 线程 panic |
+| `src/document.rs` `add_stylesheet_for_node` / `tree_order` | 新的样式表按文档顺序插进 stylist (原来按节点 id) | `<link>` 换了 `href` 节点 id 不变, 按 id 排会排到后建的 `<style>` 前面, 层叠顺序错 |
+| `src/mutator.rs` `flush` | 只有在文档里的 `<style>` 才加样式表 (DOMParser / template / 没插进文档的不加; 插进文档时 `process_added_subtree` 再加) | 原来 `<style>` 的文字一变就加, DOMParser 解析出来的页面的样式作用到当前页面 |
 | `src/document.rs` `repair_after_panic` | panic 之后去掉对已删节点的引用, 全部标成要重新样式、构造、布局 | 否则之后每次 resolve 都再 panic |
 | `src/layout/damage.rs` `repaint_inline_root`, `clear_damage_and_dirty_flags` | 行内元素自己的损伤让 inline root 的 paint_epoch 加一; `display: none` 子树的构造损伤留着不清 | span 只改颜色时片段照旧复用; 以 hidden 启动的窗口里 SVG 从没构造过 |
 | `src/document.rs` `physical_unrounded_geometry` | 只减包含块的滚动偏移, 不减自己的 | 滚动容器自己的 rect 跟着自己的滚动走 |
 | `src/stylo_device.rs`, blitz-traits `shell.rs` `Viewport.reduced_motion` | `Viewport` 多一个 `reduced_motion`, 变了算设备变化, 建 stylo 设备时设上 | `prefers-reduced-motion` |
 | blitz-paint `src/render.rs` 开头 | `scrollbars` 下补上 `Color` / `Stroke` 的 import | 上游这段代码 feature 关着, 没编过 |
 | 删掉的 | `src/events/`、`form.rs`、`debug.rs`、blitz-traits `devtools.rs` (Blitz 自己的输入、表单、devtools); parallel-construct (rayon); `<canvas src=数字>` 自定义绘制源; CSS 光标 (`stylo_to_cursor_icon.rs`, cursor-icon); custom-widget (`node/custom_widget.rs` 和它在 mutator / 布局 / 绘制里的分支) | acde 自己处理输入和光标, 文档单线程用, 没有绘制源接口和自定义控件 |
-| `assets/default.css` | `::placeholder` 默认颜色是 54% 的 currentcolor | 和 Firefox 一致 |
+| `assets/default.css` | `::placeholder` 默认颜色是 54% 的 currentcolor; input / textarea / select / button 默认黑字 | 和 Firefox 一致; 否则表单控件继承页面的颜色, 深色页面上白底白字 |
 | `src/layout/fieldset.rs` (新), `layout/mod.rs` (`dispatch_child_layout`、`child_ids` 一族、`get_core_container_style`), `layout/construct.rs` (`classify_flow_children`、`collect_complex_layout_children`), `node/node.rs` (`layout_style`、`taffy_display`), stylo_taffy `wrapper.rs` (`LegendBand`、`IS_FIELDSET`) | HTML 的 fieldset / legend 渲染: fieldset 是 flow-root; rendered legend (第一个不浮动、不绝对定位的 `legend` 子元素) 不论 display 都是块级、直接的布局子节点, 不进 fieldset 自己的 block / flex / grid, 按内容框收缩 (auto margin 照常), 盒子居中压在上边框上; 上边框占的地方取边框宽和 legend margin 盒高的大者, 内容从它下面开始, content-box 的定高把多出来的还回去 (border-box 不变). 不另建匿名 fieldset content box: fieldset 自己的算法排内容时 `child_ids` 跳过 legend、容器样式的上边框换成那块地方 (几何一样, 规范把 fieldset 的 padding 和 display 都给了那个盒子). 不做: 竖排、legend 不受 fieldset 的 overflow 裁剪、`align` 属性、百分比 / calc 定高的退还 | 上游把 legend 当普通子元素: flex 的 fieldset 里它和内容排成一行, 块的 fieldset 里它在边框里面 |
 | `src/layout/list.rs` | outside 的列表标记按 `white-space: pre` 排 (不折叠、不换行) | `::marker` 的 UA 样式是 pre; 上游把 "1. " 末尾的空格折叠掉, 编号贴着文字 (`1.第一项`) |
 
@@ -1564,7 +1594,7 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 
 - canvas 的图案 (createPattern) 在第一次用它画时取来源的位图, 规范是 createPattern 那一刻 (host 在来源之后又变了时会重发样式).
 - vello 0.11 (vello_encoding `Resolver::resolve`): 没有图片的场景把图集当 1x1 重建, 已上传的图片仍标成已上传, 之后贴图画空;
-  一帧渲染多次时触发, 每个场景垫一块 1x1 渐变绕开 (7376f11; 现在是 acgpu 的 `VelloScene::keep_atlas`). 升级 vello 时看上游修了没有.
+  一帧渲染多次时触发, 每个场景垫一块 1x1 渐变绕开 (7376f11; 现在是 acde-gpu 的 `VelloScene::keep_atlas`). 升级 vello 时看上游修了没有.
 - `ACDE_PAINT_VERIFY=1 cargo test -p acde-render` 在机器忙时偶发 `tests/damage.rs` `damage_covers_every_changed_pixel` 等帧超过
   5 秒 ("no frame"), 单独重跑都过.
 

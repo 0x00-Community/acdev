@@ -2,13 +2,12 @@ use super::path::NodePath;
 use crate::failure::{Errno, Failure, Outcome};
 use icu_collator::{Collator, CollatorBorrowed, options::CollatorOptions};
 use icu_locale_core::Locale;
-use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, DirBuilder, File, Metadata, OpenOptions},
     io::{ErrorKind, Read, Write},
-    os::unix::fs::{DirBuilderExt, FileExt, MetadataExt, OpenOptionsExt},
     path::Path,
+    time::UNIX_EPOCH,
 };
 
 const MAX_ENTRIES: usize = 5000;
@@ -142,7 +141,7 @@ pub trait ModifiedMs {
 }
 impl ModifiedMs for Metadata {
     fn modified_ms(&self) -> i64 {
-        (self.mtime() as f64 * 1e3 + self.mtime_nsec() as f64 / 1e6).floor() as i64
+        self.modified().ok().and_then(|at| at.duration_since(UNIX_EPOCH).ok()).map_or(0, |since| since.as_millis() as i64)
     }
 }
 
@@ -207,7 +206,7 @@ pub struct WorkspaceFs {
 
 impl WorkspaceFs {
     pub fn new() -> Self {
-        Self { collator: Self::collator(), home: std::env::var("HOME").unwrap_or_else(|_| "/".into()) }
+        Self { collator: Self::collator(), home: std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned()) }
     }
 
     fn collator() -> CollatorBorrowed<'static> {
@@ -250,7 +249,7 @@ impl WorkspaceFs {
     pub fn desktop(&self) -> Outcome<String> {
         let desktop = self.user_dir("DESKTOP", "Desktop");
         if !Path::new(&desktop).exists() {
-            DirBuilder::new().recursive(true).mode(0o755).create(&desktop)?;
+            DirBuilder::new().recursive(true).create(&desktop)?;
         }
         Ok(desktop)
     }
@@ -347,15 +346,12 @@ impl WorkspaceFs {
         if !fs::metadata(&real)?.is_dir() {
             return Err(Failure::invalid("not a directory"));
         }
-        let mut names: Vec<_> = fs::read_dir(&real)?
-            .map(|entry| entry.map(|e| e.file_name()))
-            .collect::<std::io::Result<_>>()?;
-        names.sort();
-        let names: Vec<String> = names
-            .iter()
-            .map(|name| name.to_string_lossy().into_owned())
-            .filter(|name| hidden || !name.starts_with('.'))
+        let mut names: Vec<String> = fs::read_dir(&real)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| hidden || !Self::is_hidden(entry))
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
+        names.sort();
         let mut entries = names
             .iter()
             .take(MAX_ENTRIES)
@@ -368,8 +364,42 @@ impl WorkspaceFs {
         Ok(Listing { root, path: relative, entries, truncated: names.len() > MAX_ENTRIES })
     }
 
+    fn is_hidden(entry: &fs::DirEntry) -> bool {
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            return true;
+        }
+        cfg_select! {
+            windows => {
+                use std::os::windows::fs::MetadataExt;
+                use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM};
+                entry.metadata().is_ok_and(|m| m.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0)
+            }
+            _ => false,
+        }
+    }
+
     fn open_nofollow(real: &str) -> std::io::Result<File> {
-        OpenOptions::new().read(true).custom_flags(OFlags::NOFOLLOW.bits() as i32).open(real)
+        Self::no_follow(OpenOptions::new().read(true), real, false)
+    }
+
+    fn no_follow(options: &mut OpenOptions, path: impl AsRef<Path>, nonblock: bool) -> std::io::Result<File> {
+        cfg_select! {
+            unix => {
+                use rustix::fs::OFlags;
+                use std::os::unix::fs::OpenOptionsExt;
+                let flags = if nonblock { OFlags::NOFOLLOW | OFlags::NONBLOCK } else { OFlags::NOFOLLOW };
+                options.custom_flags(flags.bits() as i32).mode(0o644).open(path)
+            }
+            windows => {
+                use std::os::windows::fs::OpenOptionsExt;
+                _ = nonblock;
+                let file = options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT).open(path)?;
+                if file.metadata()?.file_type().is_symlink() {
+                    return Err(std::io::Error::other("refusing to follow a symlink"));
+                }
+                Ok(file)
+            }
+        }
     }
 
     pub fn preview_in(root: &FinderRoot, relative: &str) -> Outcome<FinderPreview> {
@@ -392,9 +422,9 @@ impl WorkspaceFs {
             let kind = if size <= MAX_RAW_BYTES { PreviewKind::Image } else { PreviewKind::TooLarge };
             return Ok(preview(kind, None, None));
         }
-        let file = Self::open_nofollow(&real)?;
+        let mut file = Self::open_nofollow(&real)?;
         let mut buffer = vec![0; size.min(MAX_PREVIEW_BYTES) as usize];
-        let read = file.read_at(&mut buffer, 0)?;
+        let read = file.read(&mut buffer)?;
         buffer.truncate(read);
         if buffer.contains(&0) {
             return Ok(preview(PreviewKind::Binary, None, None));
@@ -418,7 +448,7 @@ impl WorkspaceFs {
         if !fs::metadata(&real)?.is_file() {
             return Err(Failure::invalid("not a regular file"));
         }
-        let file = OpenOptions::new().read(true).custom_flags((OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32).open(&real)?;
+        let file = Self::no_follow(OpenOptions::new().read(true), &real, true)?;
         let info = file.metadata()?;
         if !info.is_file() {
             return Err(Failure::invalid("not a regular file"));
@@ -465,13 +495,13 @@ impl WorkspaceFs {
         }
         let Resolved { absolute, .. } = Self::resolve(root, relative, false)?;
         let mut open = OpenOptions::new();
-        open.write(true).custom_flags((OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32).mode(0o644);
+        open.write(true);
         match (options.create, options.if_modified_ms) {
             (Create::New, _) => open.create_new(true),
             (Create::Always, None) => open.create(true),
             _ => &mut open,
         };
-        let mut file = open.open(&absolute).map_err(|error| match (error.kind(), options.create, options.if_modified_ms) {
+        let mut file = Self::no_follow(&mut open, &absolute, true).map_err(|error| match (error.kind(), options.create, options.if_modified_ms) {
             (ErrorKind::AlreadyExists, ..) => Failure::exists("file already exists"),
             (ErrorKind::NotFound, _, Some(_)) => Failure::conflict("file no longer exists or is not a regular file"),
             _ => error.into(),
@@ -497,7 +527,7 @@ impl WorkspaceFs {
             true => Self::make_dirs(root, relative)?,
             false => {
                 let Resolved { absolute, .. } = Self::resolve(root, relative, false)?;
-                DirBuilder::new().mode(0o755).create(&absolute)?;
+                DirBuilder::new().create(&absolute)?;
                 absolute
             }
         };
@@ -535,8 +565,8 @@ impl WorkspaceFs {
             Err(error) if error.kind() == ErrorKind::NotFound => {
                 let made = match create {
                     None | Some(ChildKind::Other) => return Ok(None),
-                    Some(ChildKind::File) => OpenOptions::new().write(true).create_new(true).custom_flags(OFlags::NOFOLLOW.bits() as i32).mode(0o644).open(&absolute).map(drop),
-                    Some(ChildKind::Directory) => DirBuilder::new().mode(0o755).create(&absolute),
+                    Some(ChildKind::File) => Self::no_follow(OpenOptions::new().write(true).create_new(true), &absolute, false).map(drop),
+                    Some(ChildKind::Directory) => DirBuilder::new().create(&absolute),
                 };
                 match made {
                     Ok(()) => Ok(create),
@@ -590,7 +620,7 @@ impl WorkspaceFs {
                     }
                 }
                 Ok(_) => return Err(blocked()),
-                Err(error) if error.kind() == ErrorKind::NotFound => match DirBuilder::new().mode(0o755).create(&at) {
+                Err(error) if error.kind() == ErrorKind::NotFound => match DirBuilder::new().create(&at) {
                     Ok(()) => {}
                     Err(error) if error.kind() == ErrorKind::AlreadyExists && fs::metadata(&at).is_ok_and(|info| info.is_dir()) => {}
                     Err(error) => return Err(error.into()),
@@ -618,12 +648,12 @@ impl WorkspaceFs {
             _ => return Err(Failure::conflict("file no longer exists or is not a regular file")),
         }
         let mut options = OpenOptions::new();
-        options.write(true).custom_flags(OFlags::NOFOLLOW.bits() as i32).mode(0o644);
+        options.write(true);
         match current {
             Some(_) => options.truncate(true),
             None => options.create_new(true),
         };
-        let mut file = options.open(&absolute)?;
+        let mut file = Self::no_follow(&mut options, &absolute, false)?;
         file.write_all(content.as_bytes())?;
         file.sync_all()?;
         drop(file);
@@ -659,7 +689,7 @@ impl WorkspaceFs {
         for n in 1..10_000 {
             let candidate = Self::numbered(&name, n);
             let target = absolute.join(&candidate);
-            let created = OpenOptions::new().write(true).create_new(true).custom_flags(OFlags::NOFOLLOW.bits() as i32).mode(0o644).open(&target);
+            let created = Self::no_follow(OpenOptions::new().write(true).create_new(true), &target, false);
             let mut file = match created {
                 Ok(file) => file,
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -702,7 +732,7 @@ impl WorkspaceFs {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;

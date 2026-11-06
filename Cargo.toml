@@ -29,3 +29,6 @@ vello = { path = "vendors/vello" }
 ironrdp-server = { path = "vendors/ironrdp-server" }
 # libseat 运行时 dlopen, 机器上没有 libseat 也能起 (见 AGENTS.md 的 vendors/libseat-sys)
 libseat-sys = { path = "vendors/libseat-sys" }
+# 不依赖 winapi (见 AGENTS.md 的 vendors/fslock、vendors/async-dnssd)
+fslock = { path = "vendors/fslock" }
+async-dnssd = { path = "vendors/async-dnssd" }

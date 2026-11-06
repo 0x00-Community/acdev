@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use acde_model::{Binding, Combo, Event, Inbox, Scope, Shortcuts, Waker};
 
-use crate::app::{Cmd, server};
+use crate::app::server;
+use crate::compose::Layer;
+use crate::platform::Cmd;
 use crate::surface::{Link, Shot};
 
 const CAPTURE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -95,6 +97,48 @@ pub(crate) struct Entry {
     pub inbox: Option<Arc<Inbox>>,
     pub link: Option<Link>,
     pub hints: Vec<([f64; 4], u32)>,
+    pub owner: Option<u32>,
+    pub input: Option<[f64; 4]>,
+    pub frame: f64,
+}
+
+pub(crate) struct Hit {
+    pub entry: u32,
+    pub target: u32,
+    pub origin: [f64; 2],
+    pub bar: bool,
+}
+
+const EDGE: f64 = 4.0;
+const CORNER: f64 = 10.0;
+
+impl Entry {
+    pub fn grab_hints(&self) -> Vec<([f64; 4], u32)> {
+        let top = self.frame;
+        let mut hints: Vec<([f64; 4], u32)> = self.hints.iter().map(|&([x, y, w, h], edges)| ([x, y + top, w, h], edges)).collect();
+        let [_, _, w, h] = self.rect;
+        if top <= 0.0 {
+            return hints;
+        }
+        let buttons = acde_render::Decoration::BUTTONS;
+        let (e, c) = (EDGE, CORNER);
+        hints.extend([
+            ([buttons, 0.0, w - buttons, top], 0),
+            ([0.0, 0.0, w, e], 1),
+            ([0.0, h - e, w, e], 2),
+            ([0.0, 0.0, e, h], 4),
+            ([w - e, 0.0, e, h], 8),
+            ([0.0, 0.0, c, c], 1 | 4),
+            ([w - c, 0.0, c, c], 1 | 8),
+            ([0.0, h - c, c, c], 2 | 4),
+            ([w - c, h - c, c, c], 2 | 8),
+        ]);
+        hints
+    }
+
+    pub fn bar(&self) -> acde_render::Bar {
+        acde_render::Bar { title: self.title.clone(), width: self.rect[2], height: self.frame, scale: 1.0 }
+    }
 }
 
 #[derive(Default)]
@@ -107,7 +151,7 @@ pub(crate) struct State {
     pub shortcuts: Shortcuts,
     pub names: HashMap<Combo, String>,
     pub screen: [f64; 3],
-    pub origin: [f64; 2],
+    pub refresh: Option<f64>,
     pub frames: u64,
 }
 
@@ -118,6 +162,51 @@ impl State {
         if let Some(e) = self.entries.get_mut(&id) {
             e.z = z;
         }
+    }
+
+    fn rank(id: u32, e: &Entry) -> (u8, u64) {
+        if id == 0 {
+            (0, 0)
+        } else if e.panel || e.mode == Mode::Pinned {
+            (2, e.z)
+        } else {
+            (1, e.z)
+        }
+    }
+
+    pub fn layers(&self) -> Vec<Layer> {
+        let mut shown: Vec<(&u32, &Entry)> = self.entries.iter().filter(|(_, e)| e.opened && !e.hidden).collect();
+        shown.sort_by_key(|(id, e)| Self::rank(**id, e));
+        shown.into_iter().map(|(&id, e)| Layer { id, rect: e.rect }).collect()
+    }
+
+    pub fn hit(&self, x: f64, y: f64) -> Option<Hit> {
+        let inside = |[rx, ry, rw, rh]: [f64; 4]| x >= rx && y >= ry && x < rx + rw && y < ry + rh;
+        self.layers().into_iter().rev().find_map(|layer| {
+            let e = self.entries.get(&layer.id)?;
+            let [rx, ry, ..] = e.rect;
+            let area = match e.input {
+                Some([ix, iy, iw, ih]) => [rx + ix, ry + iy, iw, ih],
+                None => e.rect,
+            };
+            if !inside(area) {
+                return None;
+            }
+            Some(match e.owner {
+                Some(owner) => Hit { entry: layer.id, target: owner, origin: [0.0, 0.0], bar: false },
+                None => Hit { entry: layer.id, target: layer.id, origin: [rx, ry + e.frame], bar: y < ry + e.frame },
+            })
+        })
+    }
+
+    pub fn pixels(&self, rect: [f64; 4]) -> (u32, u32) {
+        let scale = self.screen[2];
+        (((rect[2] * scale).round() as u32).max(1), ((rect[3] * scale).round() as u32).max(1))
+    }
+
+    pub fn content(&self, e: &Entry) -> (u32, u32) {
+        let [x, y, w, h] = e.rect;
+        self.pixels([x, y, w, (h - e.frame).max(1.0)])
     }
 
     pub fn inbox(&self, id: u32) -> Option<Arc<Inbox>> {
@@ -216,6 +305,9 @@ impl Shell {
             inbox: None,
             link: None,
             hints: Vec::new(),
+            owner: None,
+            input: None,
+            frame: 0.0,
         });
         entry.mode = mode;
         if placed || !entry.opened {
@@ -248,17 +340,8 @@ impl Shell {
             Mode::Fixed => [rect[0], rect[1], entry.rect[2], entry.rect[3]],
             _ => rect,
         };
-        entry.rect = rect;
-        let panel = entry.panel;
-        let link = entry.link.clone();
         drop(state);
-        if panel {
-            return;
-        }
-        if let Some(link) = link {
-            link.place(rect);
-        }
-        server().expect("hostwin").send(Cmd::Place(window, rect));
+        server().expect("hostwin").set_rect(window, rect);
     }
 
     pub fn set_mode(&self, window: u32, mode: Mode) {
@@ -266,13 +349,10 @@ impl Shell {
     }
 
     pub fn focus(&self, window: u32) {
-        let mut state = self.state();
-        if let Some(e) = state.entries.get_mut(&window) {
+        if let Some(e) = self.state().entries.get_mut(&window) {
             e.hidden = false;
         }
-        state.raise(window);
-        drop(state);
-        server().expect("hostwin").send(Cmd::Focus(window));
+        server().expect("hostwin").activate(window);
     }
 
     pub fn hide(&self, window: u32, hidden: bool) {
@@ -281,11 +361,15 @@ impl Shell {
             return;
         };
         e.hidden = hidden;
+        let focused = state.focus == Some(window);
         drop(state);
-        server().expect("hostwin").send(Cmd::Hide(window, hidden));
+        let server = server().expect("hostwin");
         if !hidden {
             self.focus(window);
+        } else if focused {
+            server.focus_top();
         }
+        server.relayout();
     }
 
     pub fn close(&self, window: u32) {

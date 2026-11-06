@@ -326,3 +326,15 @@ test('navigator languages follow the session: languagechange on window', async (
   assert.deepEqual(web.json(`seen`), [['languagechange', false, 'zh-CN', 'zh-CN,zh']])
   web.close()
 })
+
+test('canvas: setting width or height resets the 2d state right away, not at the next draw', async () => {
+  const web = createWeb()
+  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  web.run(`const c = document.createElement('canvas'); const ctx = c.getContext('2d')
+    ctx.fillStyle = '#ff0000'; ctx.lineWidth = 4; ctx.fillRect(0, 0, 1, 1)
+    c.width = 640; const reset = [ctx.fillStyle, ctx.lineWidth]
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 640, 150)
+    globalThis.out = [...reset, ctx.fillStyle]`)
+  assert.deepEqual(web.json('out'), ['#000000', 1, '#ffffff'])
+  web.close()
+})

@@ -5,7 +5,7 @@ pub use acde_hostwin::{Event, Waker};
 pub struct DragImage {
     pub width: u32,
     pub height: u32,
-    pub scene: acde_render::acgpu::Scene,
+    pub scene: acde_gpu::Scene,
     pub hotspot: (i32, i32),
 }
 
@@ -28,7 +28,7 @@ macro_rules! each {
 impl Surface {
     pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32) -> Result<Self, String> {
         if acde_hostwin::active() {
-            return acde_hostwin::Surface::claim(token, render).map(Surface::Host);
+            return acde_hostwin::Surface::claim(token, render, frame).map(Surface::Host);
         }
         #[cfg(target_os = "linux")]
         return acde_window::Surface::claim(token, render, frame).map(Surface::Wayland);
@@ -50,7 +50,7 @@ impl Surface {
         match self {
             #[cfg(target_os = "linux")]
             Surface::Wayland(s) => s.content_offset(),
-            Surface::Host(_) => (0.0, 0.0),
+            Surface::Host(s) => s.content_offset(),
         }
     }
 

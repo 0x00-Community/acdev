@@ -1,9 +1,12 @@
 mod app;
+#[cfg(not(windows))]
 mod chooser;
+mod compose;
 mod dev;
 mod gpu;
 mod keys;
 mod notify;
+mod platform;
 mod present;
 mod shell;
 mod surface;
@@ -20,9 +23,9 @@ pub fn active() -> bool {
     app::server().is_some()
 }
 
-pub fn choose_folder(window: Option<u32>, title: &str) -> Result<Option<std::path::PathBuf>, String> {
+pub fn choose_folder(_window: Option<u32>, title: &str) -> Result<Option<std::path::PathBuf>, String> {
     let server = app::server().ok_or("no host windows")?;
     let (reply, picked) = std::sync::mpsc::sync_channel(1);
-    server.send(app::Cmd::ChooseFolder { window, title: title.to_owned(), reply });
+    server.send(platform::Cmd::ChooseFolder { title: title.to_owned(), reply });
     picked.recv().map_err(|_| "the folder chooser closed without an answer".to_owned())?
 }

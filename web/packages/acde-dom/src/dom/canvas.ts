@@ -641,7 +641,11 @@ export class CanvasContext2d {
   #check(): void {
     const { width, height } = this.canvas
     if (width === this.#size[0] && height === this.#size[1]) return
-    this.#size = [width, height]
+    this.resized()
+  }
+
+  resized(): void {
+    this.#size = [this.canvas.width, this.canvas.height]
     this.#state = CanvasContext2d.#initial()
     this.#stack = []
     this.#sent = { dirty: ALL, fill: -1, stroke: -1 }
@@ -734,6 +738,10 @@ class CanvasContexts {
 
   has(canvas: CanvasElement): boolean {
     return this.#contexts.has(canvas)
+  }
+
+  resized(canvas: CanvasElement): void {
+    this.#contexts.get(canvas)?.resized()
   }
 
   writing(context: CanvasContext2d): void {

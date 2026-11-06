@@ -1,12 +1,7 @@
-//! The web process's raster thread: jobs from the painter go to acgpu, which draws the pages (on the Vulkan fallback
-//! until acgpu's own drivers draw pages). acde keeps only the thread, the GBM canvases it hands over and the WebGPU
-//! device it publishes from acgpu's.
-
 use std::os::fd::OwnedFd;
 use std::sync::mpsc;
 
-use acde_render::acgpu::fallback::{self, Device, Dmabuf as AcgpuDmabuf, Raster as Pages};
-use acde_render::acgpu::{Backend, Capability, Scene};
+use acde_gpu::{Device, Dmabuf as GpuDmabuf, Raster as Pages, Scene};
 use acde_render::gpu::Overrides;
 use smithay::backend::allocator::Buffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -17,7 +12,7 @@ use crate::plane::Content;
 
 const IDLE_TRIM: std::time::Duration = std::time::Duration::from_secs(2);
 
-pub type Pass = fallback::Pass<Content>;
+pub type Pass = acde_gpu::Pass<Content>;
 
 pub enum Job {
     Canvases(usize, Vec<Dmabuf>, (u32, u32)),
@@ -37,18 +32,13 @@ pub struct Raster {
 }
 
 impl Raster {
-    /// smithay's dma-buf as acgpu takes it (its first plane).
-    fn plane(dmabuf: &Dmabuf) -> Option<AcgpuDmabuf<'_>> {
+    fn plane(dmabuf: &Dmabuf) -> Option<GpuDmabuf<'_>> {
         let fd = dmabuf.handles().next()?;
         let stride = dmabuf.strides().next().unwrap_or(dmabuf.width() * 4);
-        Some(AcgpuDmabuf { fd, offset: dmabuf.offsets().next().unwrap_or(0), stride, modifier: dmabuf.format().modifier.into() })
+        Some(GpuDmabuf { fd, offset: dmabuf.offsets().next().unwrap_or(0), stride, modifier: dmabuf.format().modifier.into() })
     }
 
     pub fn new() -> Result<Self, String> {
-        // who draws pages is acgpu's call: today its Vulkan fallback (built without it, this panics)
-        match Backend::pick(Capability::Pages) {
-            Backend::Vulkan => {}
-        }
         let device = Device::open()?;
         log::info!("网页图层用 {} ({:?})", device.info.name, device.info.device_type);
         let published = (device.device.clone(), device.queue.clone(), device.info.clone());
@@ -99,7 +89,7 @@ impl Raster {
             };
             match job {
                 Job::Canvases(plane, dmabufs, size) => {
-                    let planes: Vec<AcgpuDmabuf<'_>> = dmabufs.iter().filter_map(Self::plane).collect();
+                    let planes: Vec<GpuDmabuf<'_>> = dmabufs.iter().filter_map(Self::plane).collect();
                     for e in self.pages.canvases(plane, &planes, size).into_iter().filter_map(Result::err) {
                         log::warn!("网页画布导入 Vulkan: {e}");
                     }

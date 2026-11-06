@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 acde-render = { path = "../render" }
+acde-gpu = { path = "../gpu" }
 acde-log = { path = "../log" }
 log = "0"
 smithay = { version = "0", default-features = false, features = ["backend_gbm"] }

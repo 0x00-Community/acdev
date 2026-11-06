@@ -61,6 +61,7 @@ where
     Task(abort)
 }
 
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn block_on<F>(fut: F) -> Option<F::Output>
 where
     F: Future + Send + 'static,

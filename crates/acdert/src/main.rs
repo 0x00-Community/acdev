@@ -8,6 +8,7 @@ mod fs;
 mod host;
 mod modules;
 mod napi;
+mod inspector;
 mod profile;
 mod rt;
 mod sys;
@@ -20,6 +21,7 @@ mod offload;
 mod picker;
 #[cfg(target_os = "linux")]
 mod supervise;
+#[cfg(unix)]
 mod terminal;
 mod webnative;
 mod surface;
@@ -31,6 +33,7 @@ mod webgpu;
 #[global_allocator]
 static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+#[cfg(target_os = "linux")]
 fn session_env() {
     let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
     let backend = std::env::var("ACDE_BACKEND").ok();
@@ -74,6 +77,7 @@ fn session(args: &[String]) -> i32 {
     hosted_session(args)
 }
 
+#[cfg(target_os = "linux")]
 fn free_socket(runtime: &std::path::Path, name: &str) -> bool {
     use rustix::fs::{FlockOperation, flock};
     let lock = runtime.join(format!("{name}.lock"));
@@ -92,6 +96,7 @@ fn main() {
         #[cfg(target_os = "linux")]
         Some("runtime") => sys::start(sys::Entry::Broker, &args[2..]),
         _ => {
+            #[cfg(target_os = "linux")]
             session_env();
             session(&args[1..])
         }

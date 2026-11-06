@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use acde_render::acgpu::Scene;
+use acde_gpu::Scene;
 use acde_render::{Frame, Options, Rect};
 
 mod common;

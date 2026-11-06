@@ -1,13 +1,11 @@
-use std::path::PathBuf;
-use std::sync::mpsc::SyncSender;
-
 use winit::window::Window;
 
-pub(crate) type Reply = SyncSender<Result<Option<PathBuf>, String>>;
+use crate::platform::FolderReply as Reply;
 
 #[cfg(target_os = "macos")]
 pub(crate) fn folder(parent: Option<&Window>, title: &str, reply: Reply) {
     use std::cell::Cell;
+    use std::path::PathBuf;
 
     use block2::RcBlock;
     use objc2::MainThreadMarker;

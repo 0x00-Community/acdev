@@ -149,6 +149,11 @@ export class HTMLCanvasElement extends HTMLElement {
     setAttribute(this, 'height', String(Math.max(0, Math.trunc(Number(value)) || 0)))
   }
 
+  override [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
+    super[ATTRIBUTE_CHANGED](name, value)
+    if (name === 'width' || name === 'height') canvases.resized(this as unknown as CanvasElement)
+  }
+
   getContext(type: string, _options?: unknown): CanvasContext2d | GPUCanvasContext | null {
     const kind = String(type)
     if (kind === '2d') return gpuContexts.has(this) ? null : canvases.context(this as unknown as CanvasElement)
