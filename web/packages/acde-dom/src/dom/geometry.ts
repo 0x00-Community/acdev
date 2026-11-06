@@ -1,91 +1,68 @@
 import { DOMException } from '../core/exception'
 import { listClass, tag } from '../core/host'
 
-const X = Symbol('x')
-const Y = Symbol('y')
-const WIDTH = Symbol('width')
-const HEIGHT = Symbol('height')
+const RECT = Symbol('rect')
 const POINT = Symbol('point')
 const M = Symbol('matrix')
 const IS_2D = Symbol('is2D')
 
+type Tuple = typeof RECT | typeof POINT | typeof M
+
+function tuple(cls: { prototype: object }, key: Tuple, names: Record<string, number>, writable: boolean): void {
+  for (const [name, i] of Object.entries(names)) {
+    Object.defineProperty(cls.prototype, name, {
+      get(this: Record<Tuple, number[]>) {
+        return this[key][i]
+      },
+      set: writable ? function (this: Record<Tuple, number[]>, v: number) { this[key][i] = +v } : undefined,
+      enumerable: true,
+      configurable: true,
+    })
+  }
+}
+
 export class DOMRectReadOnly {
-  protected [X]: number
-  protected [Y]: number
-  protected [WIDTH]: number
-  protected [HEIGHT]: number
+  protected [RECT]: number[]
+  declare readonly x: number
+  declare readonly y: number
+  declare readonly width: number
+  declare readonly height: number
 
   constructor(x = 0, y = 0, width = 0, height = 0) {
-    this[X] = +x
-    this[Y] = +y
-    this[WIDTH] = +width
-    this[HEIGHT] = +height
+    this[RECT] = [+x, +y, +width, +height]
   }
 
   static fromRect(rect?: { x?: number; y?: number; width?: number; height?: number }): DOMRectReadOnly {
     return new this(rect?.x, rect?.y, rect?.width, rect?.height)
   }
 
-  get x(): number {
-    return this[X]
-  }
-  get y(): number {
-    return this[Y]
-  }
-  get width(): number {
-    return this[WIDTH]
-  }
-  get height(): number {
-    return this[HEIGHT]
-  }
   get left(): number {
-    return Math.min(this[X], this[X] + this[WIDTH])
+    return Math.min(this.x, this.x + this.width)
   }
   get right(): number {
-    return Math.max(this[X], this[X] + this[WIDTH])
+    return Math.max(this.x, this.x + this.width)
   }
   get top(): number {
-    return Math.min(this[Y], this[Y] + this[HEIGHT])
+    return Math.min(this.y, this.y + this.height)
   }
   get bottom(): number {
-    return Math.max(this[Y], this[Y] + this[HEIGHT])
+    return Math.max(this.y, this.y + this.height)
   }
 
   toJSON(): object {
     return { x: this.x, y: this.y, width: this.width, height: this.height, top: this.top, right: this.right, bottom: this.bottom, left: this.left }
   }
 }
+const RECT_NAMES = { x: 0, y: 1, width: 2, height: 3 }
+tuple(DOMRectReadOnly, RECT, RECT_NAMES, false)
 tag(DOMRectReadOnly)
 
 export class DOMRect extends DOMRectReadOnly {
   static override fromRect(rect?: { x?: number; y?: number; width?: number; height?: number }): DOMRect {
     return new DOMRect(rect?.x, rect?.y, rect?.width, rect?.height)
   }
-  override get x(): number {
-    return this[X]
-  }
-  override set x(v: number) {
-    this[X] = +v
-  }
-  override get y(): number {
-    return this[Y]
-  }
-  override set y(v: number) {
-    this[Y] = +v
-  }
-  override get width(): number {
-    return this[WIDTH]
-  }
-  override set width(v: number) {
-    this[WIDTH] = +v
-  }
-  override get height(): number {
-    return this[HEIGHT]
-  }
-  override set height(v: number) {
-    this[HEIGHT] = +v
-  }
 }
+tuple(DOMRect, RECT, RECT_NAMES, true)
 tag(DOMRect)
 
 export const DOMRectList = listClass<DOMRect>('DOMRectList')
@@ -99,6 +76,10 @@ export function rectList(values: Float64Array): DOMRectList {
 
 export class DOMPointReadOnly {
   protected [POINT]: [number, number, number, number]
+  declare readonly x: number
+  declare readonly y: number
+  declare readonly z: number
+  declare readonly w: number
 
   constructor(x = 0, y = 0, z = 0, w = 1) {
     this[POINT] = [+x, +y, +z, +w]
@@ -106,19 +87,6 @@ export class DOMPointReadOnly {
 
   static fromPoint(p?: { x?: number; y?: number; z?: number; w?: number }): DOMPointReadOnly {
     return new this(p?.x, p?.y, p?.z, p?.w)
-  }
-
-  get x(): number {
-    return this[POINT][0]
-  }
-  get y(): number {
-    return this[POINT][1]
-  }
-  get z(): number {
-    return this[POINT][2]
-  }
-  get w(): number {
-    return this[POINT][3]
   }
 
   matrixTransform(matrix?: DOMMatrixInit): DOMPoint {
@@ -132,37 +100,16 @@ export class DOMPointReadOnly {
     return { x: this.x, y: this.y, z: this.z, w: this.w }
   }
 }
+const POINT_NAMES = { x: 0, y: 1, z: 2, w: 3 }
+tuple(DOMPointReadOnly, POINT, POINT_NAMES, false)
 tag(DOMPointReadOnly)
 
 export class DOMPoint extends DOMPointReadOnly {
   static override fromPoint(p?: { x?: number; y?: number; z?: number; w?: number }): DOMPoint {
     return new DOMPoint(p?.x, p?.y, p?.z, p?.w)
   }
-  override get x(): number {
-    return this[POINT][0]
-  }
-  override set x(v: number) {
-    this[POINT][0] = +v
-  }
-  override get y(): number {
-    return this[POINT][1]
-  }
-  override set y(v: number) {
-    this[POINT][1] = +v
-  }
-  override get z(): number {
-    return this[POINT][2]
-  }
-  override set z(v: number) {
-    this[POINT][2] = +v
-  }
-  override get w(): number {
-    return this[POINT][3]
-  }
-  override set w(v: number) {
-    this[POINT][3] = +v
-  }
 }
+tuple(DOMPoint, POINT, POINT_NAMES, true)
 tag(DOMPoint)
 
 export class DOMQuad {
@@ -311,10 +258,17 @@ export function svgTransform(text: string): DOMMatrix {
   return matrix
 }
 
-const NAMES = ['m11', 'm12', 'm13', 'm14', 'm21', 'm22', 'm23', 'm24', 'm31', 'm32', 'm33', 'm34', 'm41', 'm42', 'm43', 'm44'] as const
+const MATRIX: Record<string, number> = { a: 0, b: 1, c: 4, d: 5, e: 12, f: 13 }
+;['m11', 'm12', 'm13', 'm14', 'm21', 'm22', 'm23', 'm24', 'm31', 'm32', 'm33', 'm34', 'm41', 'm42', 'm43', 'm44'].forEach((name, i) => (MATRIX[name] = i))
 
 export class DOMMatrixReadOnly {
   [M]: M16
+  declare readonly a: number
+  declare readonly b: number
+  declare readonly c: number
+  declare readonly d: number
+  declare readonly e: number
+  declare readonly f: number
   protected [IS_2D]: boolean
 
   constructor(init?: string | number[] | Float32Array | Float64Array) {
@@ -374,24 +328,6 @@ export class DOMMatrixReadOnly {
     return new DOMMatrix(array)
   }
 
-  get a(): number {
-    return this[M][0]!
-  }
-  get b(): number {
-    return this[M][1]!
-  }
-  get c(): number {
-    return this[M][4]!
-  }
-  get d(): number {
-    return this[M][5]!
-  }
-  get e(): number {
-    return this[M][12]!
-  }
-  get f(): number {
-    return this[M][13]!
-  }
   get is2D(): boolean {
     return this[IS_2D]
   }
@@ -449,16 +385,14 @@ export class DOMMatrixReadOnly {
   }
 
   toJSON(): object {
-    const out: Record<string, number | boolean> = { a: this.a, b: this.b, c: this.c, d: this.d, e: this.e, f: this.f, is2D: this.is2D, isIdentity: this.isIdentity }
-    NAMES.forEach((name, i) => (out[name] = this[M][i]!))
-    return out
+    return { ...Object.fromEntries(Object.entries(MATRIX).map(([name, i]) => [name, this[M][i]])), is2D: this.is2D, isIdentity: this.isIdentity }
   }
 
   toString(): string {
-    return this[IS_2D] ? `matrix(${[this.a, this.b, this.c, this.d, this.e, this.f].join(', ')})` : `matrix3d(${this[M].join(', ')})`
+    return this[IS_2D] ? `matrix(${[0, 1, 4, 5, 12, 13].map((i) => this[M][i]).join(', ')})` : `matrix3d(${this[M].join(', ')})`
   }
 }
-NAMES.forEach((name, i) => Object.defineProperty(DOMMatrixReadOnly.prototype, name, { get(this: DOMMatrixReadOnly) { return this[M][i] }, enumerable: true, configurable: true }))
+tuple(DOMMatrixReadOnly, M, MATRIX, false)
 tag(DOMMatrixReadOnly)
 
 export class DOMMatrix extends DOMMatrixReadOnly {
@@ -546,10 +480,7 @@ export class DOMMatrix extends DOMMatrixReadOnly {
     return this
   }
 }
-for (const [name, i] of [['a', 0], ['b', 1], ['c', 4], ['d', 5], ['e', 12], ['f', 13]] as const) {
-  Object.defineProperty(DOMMatrix.prototype, name, { get(this: DOMMatrix) { return this[M][i] }, set(this: DOMMatrix, v: number) { this[M][i] = +v }, enumerable: true, configurable: true })
-}
-NAMES.forEach((name, i) => Object.defineProperty(DOMMatrix.prototype, name, { get(this: DOMMatrix) { return this[M][i] }, set(this: DOMMatrix, v: number) { this[M][i] = +v }, enumerable: true, configurable: true }))
+tuple(DOMMatrix, M, MATRIX, true)
 tag(DOMMatrix)
 
 function invert(m: M16): M16 | null {
