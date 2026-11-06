@@ -1,6 +1,3 @@
-use std::path::PathBuf;
-use std::sync::mpsc::Sender;
-
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::gles::GlesTexture;
@@ -11,21 +8,7 @@ use super::Compositor;
 use super::backend::CLEAR;
 
 impl Compositor {
-    pub fn screenshot(&mut self, path: PathBuf, reply: Sender<Result<(u32, u32), String>>) {
-        let result = self.capture();
-        match result {
-            Ok((w, h, rgba)) => {
-                std::thread::spawn(move || {
-                    let _ = reply.send(Self::write_png(&path, w, h, &rgba).map(|()| (w, h)));
-                });
-            }
-            Err(e) => {
-                let _ = reply.send(Err(e));
-            }
-        }
-    }
-
-    fn capture(&mut self) -> Result<(u32, u32, Vec<u8>), String> {
+    pub(super) fn capture(&mut self) -> Result<(u32, u32, Vec<u8>), String> {
         let output = self.backend.output.clone();
         let mode = output.current_mode().ok_or("输出没有模式")?;
         let scale = output.current_scale().fractional_scale();
@@ -44,7 +27,7 @@ impl Compositor {
         Ok((u32::try_from(size.w).unwrap_or(0), u32::try_from(size.h).unwrap_or(0), rgba))
     }
 
-    fn write_png(path: &std::path::Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
+    pub(super) fn write_png(path: &std::path::Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
         let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), w, h);
         encoder.set_color(png::ColorType::Rgba);

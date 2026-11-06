@@ -4,12 +4,11 @@ use std::os::unix::net::UnixStream;
 use std::process::{Command as Process, Stdio};
 use std::sync::Arc;
 
-use acde_model::{Easing, Mode, Scope};
-use smithay::backend::input::AxisSource;
+use acde_model::{Easing, Injected, Mode, Scope, WheelSource};
 use smithay::reexports::calloop::channel;
 use smithay::reexports::wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
-use super::{Animate, Command, Compositor, Grant, Injected, handlers::ClientState};
+use super::{Animate, Compositor, Grant, handlers::ClientState};
 
 mod generated {
     #![allow(dead_code, non_camel_case_types, unused_unsafe, unused_variables, non_upper_case_globals, non_snake_case, unused_imports, clippy::all)]
@@ -28,7 +27,7 @@ mod generated {
     wayland_scanner::generate_server_code!("../model/protocol/acde-shell.xml");
 }
 
-use generated::acde_shell::{AcdeShell, Animated, Easing as WireEasing, Mode as WireMode, Request, Scope as WireScope, WheelSource};
+use generated::acde_shell::{AcdeShell, Animated, Request};
 use generated::acde_shell_list::AcdeShellList;
 use generated::acde_shell_result::AcdeShellResult;
 use generated::acde_shell_stats::AcdeShellStats;
@@ -83,14 +82,8 @@ impl ShellLink {
     }
 }
 
-trait Wire {
-    fn wire(self) -> i32;
-}
-
-impl Wire for Option<u32> {
-    fn wire(self) -> i32 {
-        self.and_then(|v| i32::try_from(v).ok()).unwrap_or(-1)
-    }
+fn wire(v: Option<u32>) -> i32 {
+    v.and_then(|v| i32::try_from(v).ok()).unwrap_or(-1)
 }
 
 impl ShellEvent {
@@ -98,82 +91,18 @@ impl ShellEvent {
         match self.clone() {
             Self::Output { width, height, scale } => shell.output(width, height, scale),
             Self::WindowOpen { window, title, app_id } => shell.window_open(window, title, app_id),
-            Self::WindowClose(window) => shell.window_close(window.wire()),
-            Self::WindowTitle { window, title, app_id } => shell.window_title(window.wire(), title, app_id),
+            Self::WindowClose(window) => shell.window_close(wire(window)),
+            Self::WindowTitle { window, title, app_id } => shell.window_title(wire(window), title, app_id),
             Self::WindowFullscreen { window, fullscreen } => shell.window_fullscreen(window, fullscreen.into()),
-            Self::WindowMinimize(window) => shell.window_minimize(window.wire()),
-            Self::WindowActivate(window) => shell.window_activate(window.wire()),
+            Self::WindowMinimize(window) => shell.window_minimize(wire(window)),
+            Self::WindowActivate(window) => shell.window_activate(wire(window)),
             Self::WindowAnimated(window) => shell.window_animated(window),
-            Self::Shortcut { owner, key, scope } => shell.shortcut(owner, key, scope.into()),
-            Self::WindowGone { window, rect: [x, y, w, h] } => shell.window_gone(window.wire(), x, y, w, h),
-            Self::WindowMinSize { window, width, height } => shell.window_min_size(window.wire(), width, height),
-            Self::WindowParent { window, parent } => shell.window_parent(window, parent.wire()),
+            Self::Shortcut { owner, key, scope } => shell.shortcut(owner, key, scope as u32),
+            Self::WindowGone { window, rect: [x, y, w, h] } => shell.window_gone(wire(window), x, y, w, h),
+            Self::WindowMinSize { window, width, height } => shell.window_min_size(wire(window), width, height),
+            Self::WindowParent { window, parent } => shell.window_parent(window, wire(parent)),
             Self::Milestone { title, ms } => shell.milestone(title.into(), ms),
-            Self::InputTarget { window, x, y, button } => shell.input_target(window.wire(), x, y, button),
-        }
-    }
-}
-
-impl From<Mode> for WireMode {
-    fn from(mode: Mode) -> Self {
-        match mode {
-            Mode::Fullscreen => Self::Fullscreen,
-            Mode::Free => Self::Free,
-            Mode::Fixed => Self::Fixed,
-            Mode::Pinned => Self::Pinned,
-        }
-    }
-}
-
-impl From<WireMode> for Mode {
-    fn from(mode: WireMode) -> Self {
-        match mode {
-            WireMode::Fullscreen => Self::Fullscreen,
-            WireMode::Free => Self::Free,
-            WireMode::Fixed => Self::Fixed,
-            WireMode::Pinned => Self::Pinned,
-        }
-    }
-}
-
-impl From<Scope> for WireScope {
-    fn from(scope: Scope) -> Self {
-        match scope {
-            Scope::Session => Self::Session,
-            Scope::Desktop => Self::Desktop,
-            Scope::App => Self::App,
-        }
-    }
-}
-
-impl From<WireScope> for Scope {
-    fn from(scope: WireScope) -> Self {
-        match scope {
-            WireScope::Session => Self::Session,
-            WireScope::Desktop => Self::Desktop,
-            WireScope::App => Self::App,
-        }
-    }
-}
-
-impl From<WireEasing> for Easing {
-    fn from(easing: WireEasing) -> Self {
-        match easing {
-            WireEasing::Linear => Self::Linear,
-            WireEasing::Ease => Self::Ease,
-            WireEasing::EaseIn => Self::EaseIn,
-            WireEasing::EaseOut => Self::EaseOut,
-            WireEasing::EaseInOut => Self::EaseInOut,
-        }
-    }
-}
-
-impl From<WheelSource> for AxisSource {
-    fn from(source: WheelSource) -> Self {
-        match source {
-            WheelSource::Wheel => Self::Wheel,
-            WheelSource::Finger => Self::Finger,
-            WheelSource::Continuous => Self::Continuous,
+            Self::InputTarget { window, x, y, button } => shell.input_target(wire(window), x, y, button),
         }
     }
 }
@@ -205,8 +134,10 @@ impl Compositor {
     }
 
     fn shell_screenshot(&mut self, path: String, reply: AcdeShellResult) {
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.on_command(Command::Screenshot(path.into(), tx));
+        let (w, h, rgba) = match self.capture() {
+            Ok(shot) => shot,
+            Err(e) => return reply.failed(e),
+        };
         let (to_loop, from_thread) = channel::channel();
         let inserted = self.loop_handle.insert_source(from_thread, move |event, _, _| {
             if let channel::Event::Msg(result) = event {
@@ -215,12 +146,8 @@ impl Compositor {
         });
         if let Err(e) = inserted {
             log::warn!("acde_shell.screenshot: {e}");
-            return;
         }
-        std::thread::spawn(move || {
-            let result = rx.recv().unwrap_or_else(|_| Err("截屏没有结果".into()));
-            let _ = to_loop.send(result);
-        });
+        std::thread::spawn(move || _ = to_loop.send(Self::write_png(path.as_ref(), w, h, &rgba).map(|()| (w, h))));
     }
 
     fn answer(reply: &AcdeShellResult, result: Result<(u32, u32), String>) {
@@ -230,65 +157,64 @@ impl Compositor {
         }
     }
 
+    fn list_windows(&self, callback: &AcdeShellList) {
+        let Some(canvas) = self.canvas.and_then(|c| self.table.canvas(c)) else { return };
+        for (&id, &managed) in self.native_ids.iter().chain(&self.extras) {
+            let Some(w) = self.table.window(managed) else { continue };
+            let z = canvas.z.iter().position(|&x| x == managed).map_or(-1, |p| p as i32);
+            let surface = self.window(id).and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()));
+            let window = surface.as_ref().and_then(Self::bound).map(|g| g.id);
+            let pid = surface.and_then(|s| s.client()).and_then(|c| c.get_credentials(&self.display).ok()).and_then(|c| u32::try_from(c.pid).ok());
+            let (r, focus, hidden) = (w.rect, canvas.focus == Some(managed), self.hidden.contains(&id));
+            callback.window(id, wire(window), 0, w.mode as u32, r.x as i32, r.y as i32, r.w as u32, r.h as u32, z, focus.into(), hidden.into(), wire(pid));
+        }
+    }
+
     fn shell_request(&mut self, request: Request, data_init: &mut DataInit<'_, Self>) {
-        let command = match request {
+        match request {
             Request::Grant { token_hi, token_lo, window, desktop, mode, x, y, width, height, size_width, size_height } => {
                 let token = (u64::from(token_hi) << 32) | u64::from(token_lo);
-                let mode = mode.into_result().map_or(Mode::Free, Mode::from);
+                let mode = Mode::try_from(mode).unwrap_or(Mode::Free);
                 let rect = (width > 0 && height > 0).then_some([x, y, width, height]);
                 let size = (size_width > 0 && size_height > 0).then_some([size_width, size_height]);
-                Command::Grant(token, Grant { id: window, desktop: desktop != 0, mode, rect, size })
+                self.grants.insert(token, Grant { id: window, desktop: desktop != 0, mode, rect, size });
             }
-            Request::Release { window } => Command::Release(window),
-            Request::Focus { window } => Command::Focus(window),
-            Request::Hide { window, hidden } => Command::Hide { window, hidden: hidden != 0 },
-            Request::Close { window } => Command::Close(window),
-            Request::Place { window, x, y, width, height } => Command::Place { window, x, y, width, height },
-            Request::Raise { window, above } => Command::Raise { window, above: u32::try_from(above).ok() },
-            Request::SetMode { window, mode } => {
-                let Ok(mode) = mode.into_result() else { return };
-                Command::SetMode { window, mode: mode.into() }
+            Request::Release { window } => self.grants.retain(|_, g| g.id != window),
+            Request::Focus { window } => {
+                if let Some(window) = self.window(window) {
+                    self.focus_window(Some(&window));
+                }
             }
+            Request::Hide { window, hidden } => self.hide(window, hidden != 0),
+            Request::Close { window } => {
+                if let Some(toplevel) = self.window(window).as_ref().and_then(|w| w.toplevel()) {
+                    toplevel.send_close();
+                }
+            }
+            Request::Place { window, x, y, width, height } => self.place_managed(window, x, y, width, height),
             Request::List { callback } => {
                 let callback = data_init.init(callback, ());
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.on_command(Command::List(tx));
-                let (windows, canvases) = rx.try_recv().ok().unwrap_or_default();
-                for w in windows {
-                    let mode = w.mode.into();
-                    callback.window(w.id, w.window.wire(), w.canvas, mode, w.x, w.y, w.width, w.height, w.z, w.focus.into(), w.hidden.into(), w.pid.wire());
-                }
-                for c in canvases {
-                    callback.canvas(c.id, c.x, c.y, c.width, c.height, c.scale);
-                }
+                self.list_windows(&callback);
                 callback.done();
-                return;
             }
             Request::Stats { reset, callback } => {
-                let callback = data_init.init(callback, ());
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.on_command(Command::Stats(reset != 0, tx));
-                let s = rx.try_recv().ok().unwrap_or_default();
-                callback.done(s.frames, s.compose_p50, s.compose_p95, s.compose_max, s.plans, s.direct);
-                return;
+                let s = self.stats(reset != 0);
+                data_init.init(callback, ()).done(s.frames, s.compose_p50, s.compose_p95, s.compose_max, s.plans, s.direct);
             }
             Request::Screenshot { path, callback } => {
                 let callback = data_init.init(callback, ());
                 self.shell_screenshot(path, callback);
-                return;
             }
-            Request::InjectMove { x, y } => Command::Inject(Injected::Move((x, y).into())),
-            Request::InjectMotion { dx, dy } => Command::Inject(Injected::Motion((dx, dy).into())),
-            Request::InjectButton { button, pressed } => Command::Inject(Injected::Button { button, pressed: pressed != 0 }),
+            Request::InjectMove { x, y } => self.inject(Injected::Move(x, y)),
+            Request::InjectMotion { dx, dy } => self.inject(Injected::Motion(dx, dy)),
+            Request::InjectButton { button, pressed } => self.inject(Injected::Button { button, pressed: pressed != 0 }),
             Request::InjectWheel { dx, dy, source } => {
-                let source = source.into_result().map_or(AxisSource::Wheel, AxisSource::from);
-                Command::Inject(Injected::Wheel { delta: (dx, dy).into(), source })
+                self.inject(Injected::Wheel { dx, dy, source: WheelSource::try_from(source).unwrap_or(WheelSource::Wheel) })
             }
-            Request::InjectKey { code, pressed } => Command::Inject(Injected::Key { code, pressed: pressed != 0 }),
+            Request::InjectKey { code, pressed } => self.inject(Injected::Key { code, pressed: pressed != 0 }),
             Request::Animate { window, given, opacity, scale, dx, dy, duration_ms, delay_ms, easing } => {
                 let given = given.into_result().unwrap_or(Animated::empty());
                 let pick = |flag: Animated, v: f64| given.contains(flag).then_some(v);
-                let easing = given.contains(Animated::Easing).then(|| easing.into_result().ok().map(Easing::from)).flatten();
                 let spec = Animate {
                     opacity: pick(Animated::Opacity, opacity),
                     scale: pick(Animated::Scale, scale),
@@ -296,21 +222,19 @@ impl Compositor {
                     dy: pick(Animated::Dy, dy),
                     duration_ms: duration_ms.into(),
                     delay_ms: delay_ms.into(),
-                    easing,
+                    easing: given.contains(Animated::Easing).then(|| Easing::try_from(easing).ok()).flatten(),
                 };
-                Command::Animate(window, spec)
+                self.animate(window, spec);
             }
             Request::Shortcut { combo, scope, owner, callback } => {
                 let callback = data_init.init(callback, ());
-                let Ok(scope) = scope.into_result() else { return callback.failed("acde_shell.shortcut: 不认识的 scope".into()) };
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.on_command(Command::Shortcut { combo, scope: scope.into(), owner, reply: tx });
-                Self::answer(&callback, rx.try_recv().ok().unwrap_or_else(|| Err("快捷键没有结果".into())).map(|()| (0, 0)));
-                return;
+                let Ok(scope) = Scope::try_from(scope) else { return callback.failed("acde_shell.shortcut: 不认识的 scope".into()) };
+                Self::answer(&callback, self.register_shortcut(&combo, scope, owner).map(|()| (0, 0)));
             }
             Request::Unshortcut { combo, scope, owner } => {
-                let Ok(scope) = scope.into_result() else { return };
-                Command::Unshortcut { combo, scope: scope.into(), owner }
+                if let Ok(scope) = Scope::try_from(scope) {
+                    self.unregister_shortcut(&combo, scope, owner);
+                }
             }
             Request::Launch { argv, cwd, env, callback } => {
                 let callback = data_init.init(callback, ());
@@ -319,11 +243,9 @@ impl Compositor {
                 let env: Vec<(String, String)> =
                     strings(&env).into_iter().filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.to_owned(), v.to_owned()))).collect();
                 Self::answer(&callback, self.launch(&strings(&argv), &cwd, &env).map(|pid| (pid, 0)).map_err(|e| e.to_string()));
-                return;
             }
-            Request::Quit => Command::Quit,
-        };
-        self.on_command(command);
+            Request::Quit => self.quit(),
+        }
     }
 }
 

@@ -1,10 +1,49 @@
+macro_rules! wire {
+    ($(#[$m:meta])* $what:literal $name:ident { $($(#[$vm:meta])* $v:ident = $s:literal),* $(,)? }) => {
+        $(#[$m])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(u32)]
+        pub enum $name {
+            $($(#[$vm])* $v),*
+        }
+
+        impl $name {
+            pub const ALL: &[Self] = &[$(Self::$v),*];
+
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$v => $s),*
+                }
+            }
+        }
+
+        impl TryFrom<u32> for $name {
+            type Error = u32;
+
+            fn try_from(v: u32) -> Result<Self, u32> {
+                Self::ALL.get(v as usize).copied().ok_or(v)
+            }
+        }
+
+        impl std::str::FromStr for $name {
+            type Err = String;
+
+            fn from_str(s: &str) -> Result<Self, String> {
+                Self::ALL.iter().copied().find(|v| v.as_str() == s).ok_or_else(|| format!(concat!("unknown ", $what, " {}"), s))
+            }
+        }
+    };
+}
+
 mod event;
 mod motion;
+mod pace;
 mod plan;
 mod shortcut;
 
 pub use event::*;
 pub use motion::*;
+pub use pace::Pacer;
 pub use plan::*;
 pub use shortcut::*;
 
@@ -68,26 +107,42 @@ impl Rect {
         let (x, y) = (self.x.floor(), self.y.floor());
         Rect::new(x, y, self.right().ceil() - x, self.bottom().ceil() - y)
     }
+
+    pub fn dragged(&self, edges: u32, dx: f64, dy: f64, (min_w, min_h): (f64, f64)) -> Rect {
+        let mut r = *self;
+        if edges == 0 {
+            return r.translate(dx, dy);
+        }
+        if edges & edge::LEFT != 0 {
+            let dx = dx.min(r.w - min_w);
+            r.x += dx;
+            r.w -= dx;
+        }
+        if edges & edge::RIGHT != 0 {
+            r.w = (r.w + dx).max(min_w);
+        }
+        if edges & edge::TOP != 0 {
+            let dy = dy.min(r.h - min_h);
+            r.y += dy;
+            r.h -= dy;
+        }
+        if edges & edge::BOTTOM != 0 {
+            r.h = (r.h + dy).max(min_h);
+        }
+        r
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Fullscreen,
-    Free,
-    Fixed,
-    Pinned,
+pub mod edge {
+    pub const TOP: u32 = 1;
+    pub const BOTTOM: u32 = 2;
+    pub const LEFT: u32 = 4;
+    pub const RIGHT: u32 = 8;
 }
+
+wire!(#[derive(Default)] "mode" Mode { Fullscreen = "fullscreen", #[default] Free = "free", Fixed = "fixed", Pinned = "pinned" });
 
 impl Mode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Mode::Fullscreen => "fullscreen",
-            Mode::Free => "free",
-            Mode::Fixed => "fixed",
-            Mode::Pinned => "pinned",
-        }
-    }
-
     pub fn can_move(self) -> bool {
         matches!(self, Mode::Free | Mode::Fixed)
     }
@@ -97,16 +152,51 @@ impl Mode {
     }
 }
 
-impl std::str::FromStr for Mode {
-    type Err = String;
+wire!("source" WheelSource { Wheel = "wheel", Finger = "finger", Continuous = "continuous" });
 
-    fn from_str(s: &str) -> Result<Self, String> {
-        Ok(match s {
-            "fullscreen" => Mode::Fullscreen,
-            "free" => Mode::Free,
-            "fixed" => Mode::Fixed,
-            "pinned" => Mode::Pinned,
-            other => return Err(format!("unknown mode {other}")),
+pub const BTN_LEFT: u32 = 0x110;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Injected {
+    Move(f64, f64),
+    Motion(f64, f64),
+    Button { button: u32, pressed: bool },
+    Wheel { dx: f64, dy: f64, source: WheelSource },
+    Key { code: u32, pressed: bool },
+}
+
+#[cfg_attr(feature = "napi", napi_derive::napi(object))]
+#[derive(Default)]
+pub struct InjectEvent {
+    #[cfg_attr(feature = "napi", napi(js_name = "type"))]
+    pub kind: String,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub button: Option<u32>,
+    pub dx: Option<f64>,
+    pub dy: Option<f64>,
+    pub source: Option<String>,
+    pub code: Option<u32>,
+}
+
+impl TryFrom<InjectEvent> for Injected {
+    type Error = String;
+
+    fn try_from(e: InjectEvent) -> Result<Self, String> {
+        let need = |v: Option<f64>, name: &str| v.ok_or_else(|| format!("inject {}: 缺 {name}", e.kind));
+        Ok(match e.kind.as_str() {
+            "move" => Injected::Move(need(e.x, "x")?, need(e.y, "y")?),
+            "motion" => Injected::Motion(need(e.dx, "dx")?, need(e.dy, "dy")?),
+            "down" | "up" => Injected::Button { button: e.button.unwrap_or(BTN_LEFT), pressed: e.kind == "down" },
+            "wheel" => {
+                let source = match e.source.as_deref() {
+                    None => WheelSource::Wheel,
+                    Some(s) => s.parse().map_err(|_| format!("inject wheel: 不认识的 source {s}"))?,
+                };
+                Injected::Wheel { dx: e.dx.unwrap_or(0.0), dy: e.dy.unwrap_or(0.0), source }
+            }
+            "keydown" | "keyup" => Injected::Key { code: e.code.ok_or_else(|| format!("inject {}: 缺 code", e.kind))?, pressed: e.kind == "keydown" },
+            other => return Err(format!("inject: 不认识的 type {other}")),
         })
     }
 }
@@ -145,7 +235,6 @@ pub enum Error {
     UnknownCanvas,
     UnknownWindow,
     NotOnCanvas,
-    NotAbove,
     ModeRefusesMove,
     ModeRefusesResize,
     EmptyRect,
@@ -157,7 +246,6 @@ impl fmt::Display for Error {
             Error::UnknownCanvas => "unknown canvas",
             Error::UnknownWindow => "unknown window",
             Error::NotOnCanvas => "window is on another canvas",
-            Error::NotAbove => "the window to raise above is not on this canvas",
             Error::ModeRefusesMove => "this mode does not move",
             Error::ModeRefusesResize => "this mode does not resize",
             Error::EmptyRect => "empty rect",
@@ -185,10 +273,6 @@ impl WindowTable {
 
     pub fn canvas(&self, id: CanvasId) -> Option<&Canvas> {
         self.canvases.get(&id)
-    }
-
-    pub fn canvases(&self) -> impl Iterator<Item = &Canvas> {
-        self.canvases.values()
     }
 
     pub fn window(&self, id: WindowId) -> Option<&Window> {
@@ -305,23 +389,6 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn raise(&mut self, id: WindowId, above: Option<WindowId>) -> Result<(), Error> {
-        let canvas = self.windows.get(&id).ok_or(Error::UnknownWindow)?.canvas;
-        let z = &mut self.canvases.get_mut(&canvas).ok_or(Error::UnknownCanvas)?.z;
-        if above.is_some_and(|a| a == id || !z.contains(&a)) {
-            return Err(Error::NotAbove);
-        }
-        z.retain(|&x| x != id);
-        match above {
-            Some(a) => {
-                let at = z.iter().position(|&x| x == a).expect("checked above") + 1;
-                z.insert(at, id);
-            }
-            None => z.push(id),
-        }
-        Ok(())
-    }
-
     pub fn lower(&mut self, id: WindowId) -> Result<(), Error> {
         let canvas = self.windows.get(&id).ok_or(Error::UnknownWindow)?.canvas;
         let z = &mut self.canvases.get_mut(&canvas).ok_or(Error::UnknownCanvas)?.z;
@@ -351,12 +418,6 @@ impl WindowTable {
         }
         c.focus = id;
         Ok(())
-    }
-
-    pub fn can_direct(&self, id: WindowId, opaque: bool, effects: bool, opacity: f32, identity: bool, buffer_ok: bool) -> bool {
-        let Some(w) = self.window(id) else { return false };
-        let Some(c) = self.canvas(w.canvas) else { return false };
-        opaque && !effects && opacity == 1.0 && identity && buffer_ok && w.rect.covers(&c.rect)
     }
 }
 
@@ -419,20 +480,6 @@ mod tests {
     }
 
     #[test]
-    fn raise_orders_the_z_list() {
-        let (mut t, c) = table();
-        let a = t.create(c, Mode::Free, Rect::new(0.0, 0.0, 10.0, 10.0)).unwrap();
-        let b = t.create(c, Mode::Free, Rect::new(0.0, 0.0, 10.0, 10.0)).unwrap();
-        let d = t.create(c, Mode::Free, Rect::new(0.0, 0.0, 10.0, 10.0)).unwrap();
-        assert_eq!(t.canvas(c).unwrap().z, vec![a, b, d]);
-        t.raise(a, Some(b)).unwrap();
-        assert_eq!(t.canvas(c).unwrap().z, vec![b, a, d]);
-        t.raise(b, None).unwrap();
-        assert_eq!(t.canvas(c).unwrap().z, vec![a, d, b]);
-        assert_eq!(t.raise(a, Some(a)), Err(Error::NotAbove));
-    }
-
-    #[test]
     fn focus_is_per_canvas() {
         let (mut t, c) = table();
         let w = t.create(c, Mode::Free, Rect::new(0.0, 0.0, 10.0, 10.0)).unwrap();
@@ -469,22 +516,6 @@ mod tests {
         assert_eq!(d.len(), 2);
         assert!(d.contains(&Rect::new(0.0, 0.0, 20.0, 20.0)));
         assert!(d.contains(&Rect::new(80.0, 0.0, 20.0, 20.0)));
-    }
-
-    #[test]
-    fn direct_needs_one_opaque_fullscreen_window() {
-        let (mut t, c) = table();
-        let w = t.create(c, Mode::Fullscreen, Rect::new(0.0, 0.0, 1.0, 1.0)).unwrap();
-        assert!(t.can_direct(w, true, false, 1.0, true, true));
-        assert!(!t.can_direct(w, false, false, 1.0, true, true));
-        assert!(!t.can_direct(w, true, true, 1.0, true, true));
-        assert!(!t.can_direct(w, true, false, 0.5, true, true));
-        assert!(!t.can_direct(w, true, false, 1.0, false, true));
-        assert!(!t.can_direct(w, true, false, 1.0, true, false));
-        t.place(w, 0.0, 0.0).ok();
-        t.set_mode(w, Mode::Free).unwrap();
-        t.resize(w, 50.0, 50.0).unwrap();
-        assert!(!t.can_direct(w, true, false, 1.0, true, true));
     }
 
     fn input(w: WindowId, opaque: bool, rect: Rect) -> Input {
@@ -565,19 +596,19 @@ mod tests {
         let mut s = Shortcuts::default();
         let combo = Combo { mods: Combo::CTRL, key: 20 };
         let b = |scope, owner| Binding { combo, scope, owner };
-        assert!(s.register(b(Scope::Desktop, 1)).is_ok());
-        assert!(s.register(b(Scope::Desktop, 2)).is_err());
-        assert!(s.register(b(Scope::App, 7)).is_ok());
-        assert!(s.register(b(Scope::App, 7)).is_ok());
-        assert!(s.register(b(Scope::App, 8)).is_ok());
-        assert!(s.register(b(Scope::Session, 0)).is_err());
+        assert!(s.register(b(Scope::Desktop, 1), "").is_ok());
+        assert!(s.register(b(Scope::Desktop, 2), "").is_err());
+        assert!(s.register(b(Scope::App, 7), "").is_ok());
+        assert!(s.register(b(Scope::App, 7), "").is_ok());
+        assert!(s.register(b(Scope::App, 8), "").is_ok());
+        assert!(s.register(b(Scope::Session, 0), "").is_err());
         assert_eq!(s.find(combo, Some(8)).map(|b| b.owner), Some(8));
         assert_eq!(s.find(combo, Some(3)).map(|b| b.scope), Some(Scope::Desktop));
         s.forget(8);
         assert_eq!(s.find(combo, Some(8)).map(|b| b.scope), Some(Scope::Desktop));
         let other = Combo { mods: Combo::ALT, key: 20 };
-        assert!(s.register(Binding { combo: other, scope: Scope::Session, owner: 0 }).is_ok());
-        assert!(s.register(Binding { combo: other, scope: Scope::App, owner: 9 }).is_err());
+        assert!(s.register(Binding { combo: other, scope: Scope::Session, owner: 0 }, "").is_ok());
+        assert!(s.register(Binding { combo: other, scope: Scope::App, owner: 9 }, "").is_err());
     }
 
     #[test]

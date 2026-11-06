@@ -1,13 +1,8 @@
 use std::collections::HashMap;
 
 pub use acde_hostwin::{Event, Waker};
-
-pub struct DragImage {
-    pub width: u32,
-    pub height: u32,
-    pub scene: acde_gpu::Scene,
-    pub hotspot: (i32, i32),
-}
+pub use acde_render::DragImage;
+use acde_render::SurfaceCommand as C;
 
 pub enum Surface {
     #[cfg(target_os = "linux")]
@@ -23,6 +18,14 @@ macro_rules! each {
             Surface::Host($s) => $body,
         }
     };
+}
+
+macro_rules! commands {
+    ($($name:ident($($arg:ident: $t:ty),*) => $command:expr;)*) => {$(
+        pub fn $name(&self, $($arg: $t),*) {
+            each!(self, s => s.send($command))
+        }
+    )*};
 }
 
 impl Surface {
@@ -47,11 +50,7 @@ impl Surface {
     }
 
     pub fn content_offset(&self) -> (f64, f64) {
-        match self {
-            #[cfg(target_os = "linux")]
-            Surface::Wayland(s) => s.content_offset(),
-            Surface::Host(s) => s.content_offset(),
-        }
+        each!(self, s => s.content_offset())
     }
 
     pub fn pump(&self) -> Vec<Event> {
@@ -66,75 +65,20 @@ impl Surface {
         each!(self, s => s.set_waker(waker))
     }
 
-    pub fn request_frame(&self) {
-        each!(self, s => s.request_frame())
-    }
-
-    pub fn set_clipboard(&self, text: String) {
-        each!(self, s => s.set_clipboard(text))
-    }
-
-    pub fn read_clipboard(&self, reply: Box<dyn FnOnce(String) + Send>) {
-        each!(self, s => s.read_clipboard(reply))
-    }
-
-    pub fn start_drag(&self, data: HashMap<String, String>, icon: Option<DragImage>) {
-        match self {
-            #[cfg(target_os = "linux")]
-            Surface::Wayland(s) => {
-                s.start_drag(data, icon.map(|i| acde_window::DragImage { width: i.width, height: i.height, scene: i.scene, hotspot: i.hotspot }))
-            }
-            Surface::Host(s) => {
-                s.start_drag(data, icon.map(|i| acde_hostwin::DragImage { width: i.width, height: i.height, scene: i.scene, hotspot: i.hotspot }))
-            }
-        }
-    }
-
-    pub fn request_mode(&self, mode: u32) {
-        each!(self, s => s.request_mode(mode))
-    }
-
-    pub fn set_grab_hint(&self, rect: [i32; 4], edges: u32) {
-        each!(self, s => s.set_grab_hint(rect, edges))
-    }
-
-    pub fn set_backdrop(&self, rect: [i32; 4], effect: [f64; 4]) {
-        each!(self, s => s.set_backdrop(rect, effect))
-    }
-
-    pub fn request_activate(&self) {
-        each!(self, s => s.request_activate())
-    }
-
-    pub fn request_grab(&self, kind: u32, on: bool) {
-        each!(self, s => s.request_grab(kind, on))
-    }
-
-    pub fn open_panel(&self, id: u32, token: u64, rect: [i32; 4]) {
-        each!(self, s => s.open_panel(id, token, rect))
-    }
-
-    pub fn place_panel(&self, id: u32, rect: [i32; 4], input: [i32; 4]) {
-        each!(self, s => s.place_panel(id, rect, input))
-    }
-
-    pub fn close_panel(&self, id: u32) {
-        each!(self, s => s.close_panel(id))
-    }
-
-    pub fn set_title(&self, title: &str) {
-        match self {
-            #[cfg(target_os = "linux")]
-            Surface::Wayland(s) => s.set_title(title.to_owned()),
-            Surface::Host(s) => s.set_title(title),
-        }
-    }
-
-    pub fn set_ime_area(&self, rect: [f64; 4]) {
-        match self {
-            #[cfg(target_os = "linux")]
-            Surface::Wayland(_) => {}
-            Surface::Host(s) => s.set_ime_area(rect),
-        }
+    commands! {
+        request_frame() => C::RequestFrame;
+        set_clipboard(text: String) => C::SetClipboard(text);
+        read_clipboard(reply: Box<dyn FnOnce(String) + Send>) => C::ReadClipboard(reply);
+        start_drag(data: HashMap<String, String>, icon: Option<DragImage>) => C::StartDrag(data, icon);
+        request_mode(mode: u32) => C::Mode(mode);
+        set_grab_hint(rect: [i32; 4], edges: u32) => C::GrabHint(rect, edges);
+        set_backdrop(rect: [i32; 4], effect: [f64; 4]) => C::Backdrop(rect, effect);
+        request_activate() => C::Activate;
+        request_grab(kind: u32, on: bool) => C::Grab(kind, on);
+        open_panel(id: u32, token: u64, rect: [i32; 4]) => C::OpenPanel { id, token, rect };
+        place_panel(id: u32, rect: [i32; 4], input: [i32; 4]) => C::PlacePanel { id, rect, input };
+        close_panel(id: u32) => C::ClosePanel(id);
+        set_title(title: &str) => C::Title(title.to_owned());
+        set_ime_area(rect: [f64; 4]) => C::ImeArea(rect);
     }
 }

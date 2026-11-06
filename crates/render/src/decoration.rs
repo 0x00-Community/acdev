@@ -14,6 +14,15 @@ pub enum FrameButton {
 impl FrameButton {
     pub const ALL: [FrameButton; 3] = [FrameButton::Close, FrameButton::Minimize, FrameButton::Fullscreen];
 
+    pub fn key(self, fullscreen: bool) -> &'static str {
+        match self {
+            FrameButton::Close => "close",
+            FrameButton::Minimize => "minimize",
+            FrameButton::Fullscreen if fullscreen => "restore",
+            FrameButton::Fullscreen => "fullscreen",
+        }
+    }
+
     fn index(self) -> usize {
         match self {
             FrameButton::Close => 0,
@@ -44,6 +53,24 @@ pub struct Bar {
 }
 
 impl Bar {
+    const EDGE: f64 = 4.0;
+    const CORNER: f64 = 10.0;
+
+    pub fn grab_hints(w: f64, h: f64, top: f64) -> [([f64; 4], u32); 9] {
+        let (b, e, c) = (Decoration::BUTTONS, Self::EDGE, Self::CORNER);
+        [
+            ([b, 0.0, w - b, top], 0),
+            ([0.0, 0.0, w, e], 1),
+            ([0.0, h - e, w, e], 2),
+            ([0.0, 0.0, e, h], 4),
+            ([w - e, 0.0, e, h], 8),
+            ([0.0, 0.0, c, c], 1 | 4),
+            ([w - c, 0.0, c, c], 1 | 8),
+            ([0.0, h - c, c, c], 2 | 4),
+            ([w - c, h - c, c, c], 2 | 8),
+        ]
+    }
+
     pub fn pixels(&self) -> (u32, u32) {
         ((self.width * self.scale).round().max(1.0) as u32, (self.height * self.scale).round().max(1.0) as u32)
     }

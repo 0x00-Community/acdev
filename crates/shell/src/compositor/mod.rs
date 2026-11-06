@@ -17,7 +17,6 @@ pub use acde_shell::ShellEvent;
 mod grabs;
 pub use acde_window::Grant;
 mod input;
-pub use input::Injected;
 mod layers;
 mod lock;
 mod protocols;
@@ -52,25 +51,7 @@ pub use acde_model::{Event, Inbox};
 
 pub const SURFACE_IDS: u32 = 1 << 20;
 
-pub(crate) const BTN_LEFT: u32 = 0x110;
-
 pub struct Extra(u32);
-
-#[derive(Clone)]
-pub struct WindowInfo {
-    pub id: u32,
-    pub window: Option<u32>,
-    pub canvas: u32,
-    pub mode: acde_model::Mode,
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    pub z: i32,
-    pub focus: bool,
-    pub hidden: bool,
-    pub pid: Option<u32>,
-}
 
 fn table_rect(rect: Rectangle<i32, Logical>) -> acde_model::Rect {
     acde_model::Rect::new(rect.loc.x as f64, rect.loc.y as f64, rect.size.w.max(1) as f64, rect.size.h.max(1) as f64)
@@ -80,33 +61,7 @@ fn space_rect(rect: acde_model::Rect) -> Rectangle<i32, Logical> {
     Rectangle::new((rect.x as i32, rect.y as i32).into(), (rect.w.max(1.0) as i32, rect.h.max(1.0) as i32).into())
 }
 
-#[cfg_attr(feature = "napi", napi(object))]
-#[derive(Default, Clone)]
-pub struct CanvasInfo {
-    pub id: u32,
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    pub scale: f64,
-}
-
 pub enum Command {
-    Focus(u32),
-    Hide { window: u32, hidden: bool },
-    Close(u32),
-    Place { window: u32, x: i32, y: i32, width: i32, height: i32 },
-    Raise { window: u32, above: Option<u32> },
-    SetMode { window: u32, mode: acde_model::Mode },
-    List(mpsc::Sender<(Vec<WindowInfo>, Vec<CanvasInfo>)>),
-    Grant(u64, Grant),
-    Release(u32),
-    Stats(bool, mpsc::Sender<Stats>),
-    Screenshot(std::path::PathBuf, mpsc::Sender<Result<(u32, u32), String>>),
-    Inject(input::Injected),
-    Animate(u32, Animate),
-    Shortcut { combo: String, scope: acde_model::Scope, owner: u32, reply: mpsc::Sender<Result<(), String>> },
-    Unshortcut { combo: String, scope: acde_model::Scope, owner: u32 },
     Connect(UnixStream),
     Quit,
 }
@@ -243,7 +198,6 @@ pub struct Compositor {
     pub effects: effects::Effects,
     pub grabs: grabs::InputGrabs,
     pub shortcuts: acde_model::Shortcuts,
-    shortcut_names: std::collections::HashMap<acde_model::Combo, String>,
     held_keys: std::collections::HashSet<u32>,
     pub loop_handle: smithay::reexports::calloop::LoopHandle<'static, Self>,
     next_window: u32,
@@ -371,7 +325,6 @@ impl Compositor {
             effects: Default::default(),
             grabs: Default::default(),
             shortcuts: Default::default(),
-            shortcut_names: Default::default(),
             held_keys: Default::default(),
             loop_handle: lh.clone(),
             next_window: 1,
@@ -590,13 +543,6 @@ impl Compositor {
         self.backend.damaged();
     }
 
-    fn raise_managed(&mut self, id: u32, above: Option<u32>) {
-        let Some(window) = self.managed(id) else { return };
-        let above = above.and_then(|a| self.managed(a));
-        let _ = self.table.raise(window, above);
-        self.backend.damaged();
-    }
-
     pub(crate) fn set_mode_managed(&mut self, id: u32, mode: acde_model::Mode) {
         let (Some(managed), Some(window)) = (self.managed(id), self.window(id)) else { return };
         let was = self.table.window(managed).map(|w| w.mode);
@@ -626,102 +572,28 @@ impl Compositor {
         if let Some(surface) = window.toplevel().map(|t| t.wl_surface().clone())
             && let Some(resource) = Self::acde_resource(&surface)
         {
-            resource.mode(mode.into());
+            resource.mode(mode as u32);
         }
         self.backend.damaged();
     }
 
-    fn manage_list(&self) -> (Vec<WindowInfo>, Vec<CanvasInfo>) {
-        let mut windows = Vec::new();
-        if let Some(canvas) = self.canvas {
-            for (&id, &managed) in self.native_ids.iter().chain(&self.extras) {
-                let Some(w) = self.table.window(managed) else { continue };
-                let z = self.table.canvas(canvas).and_then(|c| c.z.iter().position(|&x| x == managed)).map_or(-1, |p| p as i32);
-                let focus = self.table.canvas(canvas).and_then(|c| c.focus) == Some(managed);
-                let surface = self.window(id).and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()));
-                let window = surface.as_ref().and_then(Self::bound).map(|g| g.id);
-                let pid = surface
-                    .and_then(|s| smithay::reexports::wayland_server::Resource::client(&s))
-                    .and_then(|c| c.get_credentials(&self.display).ok())
-                    .and_then(|c| u32::try_from(c.pid).ok());
-                windows.push(WindowInfo {
-                    id,
-                    window,
-                    canvas: 0,
-                    mode: w.mode,
-                    x: w.rect.x as i32,
-                    y: w.rect.y as i32,
-                    width: w.rect.w as u32,
-                    height: w.rect.h as u32,
-                    z,
-                    focus,
-                    hidden: self.hidden.contains(&id),
-                    pid,
-                });
-            }
-        }
-        let canvases = self
-            .table
-            .canvases()
-            .map(|c| CanvasInfo { id: 0, x: c.rect.x as i32, y: c.rect.y as i32, width: c.rect.w as u32, height: c.rect.h as u32, scale: c.scale })
-            .collect();
-        (windows, canvases)
-    }
-
-    fn on_command(&mut self, command: Command) {
-        match command {
-            Command::Place { window, x, y, width, height } => self.place_managed(window, x, y, width, height),
-            Command::Raise { window, above } => self.raise_managed(window, above),
-            Command::SetMode { window, mode } => self.set_mode_managed(window, mode),
-            Command::List(reply) => {
-                let _ = reply.send(self.manage_list());
-            }
-            Command::Focus(id) => {
-                if let Some(window) = self.window(id) {
-                    self.focus_window(Some(&window));
-                }
-            }
-            Command::Hide { window, hidden } => self.hide(window, hidden),
-            Command::Close(id) => {
-                let Some(window) = self.window(id) else { return };
-                if let Some(toplevel) = window.toplevel() {
-                    toplevel.send_close();
-                }
-            }
-            Command::Grant(token, grant) => {
-                self.grants.insert(token, grant);
-            }
-            Command::Release(id) => self.grants.retain(|_, g| g.id != id),
-            Command::Stats(reset, reply) => {
-                let _ = reply.send(self.stats(reset));
-            }
-            Command::Screenshot(path, reply) => self.screenshot(path, reply),
-            Command::Inject(event) => self.inject(event),
-            Command::Animate(window, spec) => self.animate(window, spec),
-            Command::Shortcut { combo, scope, owner, reply } => {
-                let _ = reply.send(self.register_shortcut(&combo, scope, owner));
-            }
-            Command::Unshortcut { combo, scope, owner } => self.unregister_shortcut(&combo, scope, owner),
-            Command::Connect(stream) => {
-                if let Err(e) = self.insert_shell_client(stream) {
-                    log::warn!("{e}");
-                }
-            }
-            Command::Quit => {
-                self.clear_session_env();
-                self.signal.stop();
-            }
-        }
+    fn quit(&mut self) {
+        self.clear_session_env();
+        self.signal.stop();
     }
 
     fn on_channel(&mut self, event: channel::Event<Command>) {
         match event {
-            channel::Event::Msg(command) => self.on_command(command),
+            channel::Event::Msg(Command::Connect(stream)) => {
+                if let Err(e) = self.insert_shell_client(stream) {
+                    log::warn!("{e}");
+                }
+            }
+            channel::Event::Msg(Command::Quit) => self.quit(),
             channel::Event::Closed => self.signal.stop(),
         }
     }
 }
-
 impl Compositor {
     pub fn place(&mut self, window: &Window, rect: Rectangle<i32, Logical>) {
         use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State;

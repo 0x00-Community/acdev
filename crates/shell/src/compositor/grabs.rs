@@ -10,11 +10,7 @@ use smithay::utils::{Logical, Point, Rectangle, Serial};
 use super::Compositor;
 use super::acde_window::{AcdeWindow, WireGrab, WireLost};
 
-pub(super) const TOP: u32 = 1;
-pub(super) const BOTTOM: u32 = 2;
-pub(super) const LEFT: u32 = 4;
-pub(super) const RIGHT: u32 = 8;
-const MIN: (i32, i32) = (96, 64);
+const MIN: (f64, f64) = (96.0, 64.0);
 
 pub struct Drag {
     start: GrabStartData<Compositor>,
@@ -25,28 +21,9 @@ pub struct Drag {
 
 impl Drag {
     fn target(&self, delta: Point<i32, Logical>) -> Rectangle<i32, Logical> {
-        let mut r = self.initial;
-        if self.edges == 0 {
-            r.loc += delta;
-            return r;
-        }
-        if self.edges & LEFT != 0 {
-            let dx = delta.x.min(r.size.w - MIN.0);
-            r.loc.x += dx;
-            r.size.w -= dx;
-        }
-        if self.edges & RIGHT != 0 {
-            r.size.w = (r.size.w + delta.x).max(MIN.0);
-        }
-        if self.edges & TOP != 0 {
-            let dy = delta.y.min(r.size.h - MIN.1);
-            r.loc.y += dy;
-            r.size.h -= dy;
-        }
-        if self.edges & BOTTOM != 0 {
-            r.size.h = (r.size.h + delta.y).max(MIN.1);
-        }
-        r
+        let (loc, size) = (self.initial.loc, self.initial.size);
+        let r = acde_model::Rect::new(loc.x.into(), loc.y.into(), size.w.into(), size.h.into()).dragged(self.edges, delta.x.into(), delta.y.into(), MIN);
+        Rectangle::new((r.x as i32, r.y as i32).into(), (r.w as i32, r.h as i32).into())
     }
 }
 
@@ -153,19 +130,6 @@ impl Compositor {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum GrabKind {
-    Pointer,
-    Keyboard,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Lost {
-    Esc,
-    OtherWindow,
-    Focus,
-}
-
 #[derive(Clone)]
 pub struct Holder {
     pub surface: WlSurface,
@@ -179,15 +143,15 @@ pub struct InputGrabs {
 }
 
 impl InputGrabs {
-    fn slot(&mut self, kind: GrabKind) -> &mut Option<Holder> {
+    fn slot(&mut self, kind: WireGrab) -> &mut Option<Holder> {
         match kind {
-            GrabKind::Pointer => &mut self.pointer,
-            GrabKind::Keyboard => &mut self.keyboard,
+            WireGrab::Pointer => &mut self.pointer,
+            WireGrab::Keyboard => &mut self.keyboard,
         }
     }
 
     fn alive(&mut self) {
-        for kind in [GrabKind::Pointer, GrabKind::Keyboard] {
+        for kind in [WireGrab::Pointer, WireGrab::Keyboard] {
             let slot = self.slot(kind);
             if slot.as_ref().is_some_and(|h| !h.surface.is_alive()) {
                 *slot = None;
@@ -201,56 +165,37 @@ impl InputGrabs {
     }
 }
 
-impl From<GrabKind> for WireGrab {
-    fn from(kind: GrabKind) -> Self {
-        match kind {
-            GrabKind::Pointer => WireGrab::Pointer,
-            GrabKind::Keyboard => WireGrab::Keyboard,
-        }
-    }
-}
-
-impl From<Lost> for WireLost {
-    fn from(lost: Lost) -> Self {
-        match lost {
-            Lost::Esc => WireLost::Esc,
-            Lost::OtherWindow => WireLost::OtherWindow,
-            Lost::Focus => WireLost::FocusLost,
-        }
-    }
-}
-
 impl Compositor {
-    pub fn request_grab(&mut self, surface: &WlSurface, resource: &AcdeWindow, kind: GrabKind) {
+    pub fn request_grab(&mut self, surface: &WlSurface, resource: &AcdeWindow, kind: WireGrab) {
         self.grabs.alive();
-        let framework = kind == GrabKind::Pointer && self.pointer().is_grabbed();
+        let framework = kind == WireGrab::Pointer && self.pointer().is_grabbed();
         let taken = self.grabs.slot(kind).as_ref().is_some_and(|h| h.surface != *surface);
         let window = self.window_of(surface);
         let granted = !framework && !taken && window.is_some() && !self.lock.locked();
         if granted {
             *self.grabs.slot(kind) = Some(Holder { surface: surface.clone(), resource: resource.clone() });
-            if kind == GrabKind::Keyboard {
+            if kind == WireGrab::Keyboard {
                 self.focus_window(window.as_ref());
             }
         }
-        resource.grab(u32::from(granted), kind.into());
+        resource.grab(u32::from(granted), kind);
     }
 
-    pub fn release_grab(&mut self, surface: &WlSurface, kind: GrabKind) {
+    pub fn release_grab(&mut self, surface: &WlSurface, kind: WireGrab) {
         let slot = self.grabs.slot(kind);
         if slot.as_ref().is_some_and(|h| h.surface == *surface) {
             *slot = None;
         }
     }
 
-    pub fn lose_grabs(&mut self, reason: Lost) {
+    pub fn lose_grabs(&mut self, reason: WireLost) {
         self.grabs.alive();
         let mut told = Vec::new();
-        for kind in [GrabKind::Pointer, GrabKind::Keyboard] {
+        for kind in [WireGrab::Pointer, WireGrab::Keyboard] {
             if let Some(holder) = self.grabs.slot(kind).take()
                 && !told.contains(&holder.surface)
             {
-                holder.resource.grab_lost(reason.into());
+                holder.resource.grab_lost(reason);
                 told.push(holder.surface);
             }
         }

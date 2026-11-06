@@ -427,7 +427,7 @@ FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel`
   wlr-layer-shell、ext-session-lock、idle、text-input-v3 + input-method-v2 + virtual-keyboard、keyboard-shortcuts-inhibit、xdg-output.
   第三方的 popup 和 layer-shell surface 在表里是 `pinned`. maximize 不理.
 - Broker 侧: `Shell.broker()`; `onEvents(cb)` / `pump()`; `grant({desktop?, window?, mode?, rect?, size?})` → `{window, token}` (随机 64 位令牌,
-  客户端在 `acde_window.bind` 里交回一次); `release`、`place`、`raise`、`setMode`、`windows()`、`canvases()`、`animate`、`shortcut` / `unshortcut`
+  客户端在 `acde_window.bind` 里交回一次); `release`、`place`、`windows()`、`animate`、`shortcut` / `unshortcut`
   (冲突抛错)、`focus`、`hide`、`close`、`quit` (等合成器线程拆完, 最多 3 秒)、`socketName`、`launch(argv, {cwd, env})`、`stats(reset?)`、
   `screenshot(path)`、`inject(...)`.
 - web 侧: `claimSurface(token, {frame?})` (crates/acdert `webnative.rs` → crates/window `Surface::claim`: 连上合成器、开 toplevel、bind 令牌;

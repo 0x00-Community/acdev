@@ -1,17 +1,17 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use acde_model::{Combo, Event, Inbox};
+use acde_model::{Combo, Event, Inbox, Injected, Mode, Rect};
 use acde_render::FrameButton;
 
 use crate::compose::{self, Compositor};
 use crate::gpu::Gpu;
 use crate::keys;
 use crate::platform::{self, Cmd, Handler, Host, HostEvent, Monitor, Proxy};
-use crate::shell::{Injected, Mode, State};
+use crate::shell::State;
 
 const DESKTOP: [f64; 2] = [1440.0, 900.0];
-const MIN_SIZE: [f64; 2] = [160.0, 100.0];
+const MIN_SIZE: (f64, f64) = (160.0, 100.0);
 
 pub(crate) struct Server {
     proxy: OnceLock<Proxy>,
@@ -112,6 +112,7 @@ struct Drag {
     rect: [f64; 4],
 }
 
+#[derive(Default)]
 struct App {
     main: Option<Main>,
     pointer: (f64, f64),
@@ -139,18 +140,7 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
         log::error!("宿主窗口: 已经起过了");
         return 1;
     }
-    let app = App {
-        main: Some(Box::new(main)),
-        pointer: (0.0, 0.0),
-        hover: None,
-        capture: None,
-        pressed: HashSet::new(),
-        drag: None,
-        modifiers: 0,
-        injected_mods: 0,
-        swallowed: HashSet::new(),
-        frame_press: None,
-    };
+    let app = App { main: Some(Box::new(main)), ..App::default() };
     let code = match platform::run(Box::new(app)) {
         Ok(code) => code,
         Err(e) => {
@@ -293,7 +283,7 @@ impl App {
             Injected::Move(x, y) => self.moved(server, x, y),
             Injected::Motion(dx, dy) => self.moved(server, self.pointer.0 + dx, self.pointer.1 + dy),
             Injected::Button { button, pressed } => self.button(server, button, pressed),
-            Injected::Wheel(dx, dy) => self.wheel(server, dx, dy),
+            Injected::Wheel { dx, dy, .. } => self.wheel(server, dx, dy),
             Injected::Key { code, pressed } => {
                 let bit = keys::combo_bit(code);
                 if pressed {
@@ -351,28 +341,9 @@ impl App {
     }
 
     fn dragged(drag: &Drag, (x, y): (f64, f64)) -> [f64; 4] {
-        let (dx, dy) = (x - drag.start.0, y - drag.start.1);
-        let [mut rx, mut ry, mut rw, mut rh] = drag.rect;
-        if drag.edges == 0 {
-            return [rx + dx, ry + dy, rw, rh];
-        }
-        if drag.edges & 8 != 0 {
-            rw = (rw + dx).max(MIN_SIZE[0]);
-        }
-        if drag.edges & 2 != 0 {
-            rh = (rh + dy).max(MIN_SIZE[1]);
-        }
-        if drag.edges & 4 != 0 {
-            let w = (rw - dx).max(MIN_SIZE[0]);
-            rx += rw - w;
-            rw = w;
-        }
-        if drag.edges & 1 != 0 {
-            let h = (rh - dy).max(MIN_SIZE[1]);
-            ry += rh - h;
-            rh = h;
-        }
-        [rx, ry, rw, rh]
+        let [rx, ry, rw, rh] = drag.rect;
+        let r = Rect::new(rx, ry, rw, rh).dragged(drag.edges, x - drag.start.0, y - drag.start.1, MIN_SIZE);
+        [r.x, r.y, r.w, r.h]
     }
 
     fn frame_button(&self, server: &Server, id: u32) -> Option<FrameButton> {
@@ -403,7 +374,7 @@ impl App {
             if self.pressed.is_empty() {
                 let hit = server.state().hit(x, y);
                 let Some(hit) = hit else { return };
-                server.activate(if hit.target == hit.entry { hit.entry } else { hit.target });
+                server.activate(hit.target);
                 if button == keys::BUTTON_LEFT
                     && let Some(drag) = self.grab(server, hit.entry)
                 {
@@ -432,13 +403,7 @@ impl App {
             {
                 if self.frame_button(server, id) == Some(pressed) {
                     let fullscreen = server.state().entries.get(&id).is_some_and(|e| e.mode == Mode::Fullscreen);
-                    let key = match pressed {
-                        FrameButton::Close => "close",
-                        FrameButton::Minimize => "minimize",
-                        FrameButton::Fullscreen if fullscreen => "restore",
-                        FrameButton::Fullscreen => "fullscreen",
-                    };
-                    server.event(id, Event { kind: "framebutton".into(), key: Some(key.into()), ..Default::default() });
+                    server.event(id, Event { kind: "framebutton".into(), key: Some(pressed.key(fullscreen).into()), ..Default::default() });
                 }
                 return;
             }
@@ -466,13 +431,8 @@ impl App {
         let state = server.state();
         let combo = Combo { mods: self.modifiers | self.injected_mods, key: evdev };
         let binding = state.shortcuts.find(combo, state.focus)?;
-        let name = state.names.get(&combo).cloned().unwrap_or_default();
-        let scope = match binding.scope {
-            acde_model::Scope::Session => "session",
-            acde_model::Scope::Desktop => "desktop",
-            acde_model::Scope::App => "app",
-        };
-        Some(Event { kind: "shortcut".into(), window: Some(binding.owner), key: Some(name), title: Some(scope.into()), ..Default::default() })
+        let name = state.shortcuts.name(combo).unwrap_or_default().to_owned();
+        Some(Event { kind: "shortcut".into(), window: Some(binding.owner), key: Some(name), title: Some(binding.scope.as_str().into()), ..Default::default() })
     }
 
     fn key(&mut self, server: &Server, evdev: u32, pressed: bool, text: Option<String>) {

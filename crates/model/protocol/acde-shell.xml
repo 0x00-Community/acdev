@@ -53,7 +53,7 @@
       <arg name="token_lo" type="uint"/>
       <arg name="window" type="uint"/>
       <arg name="desktop" type="uint"/>
-      <arg name="mode" type="uint" enum="mode"/>
+      <arg name="mode" type="uint"/>
       <arg name="x" type="int"/>
       <arg name="y" type="int"/>
       <arg name="width" type="int" summary="0: no rect"/>
@@ -85,16 +85,6 @@
       <arg name="y" type="int"/>
       <arg name="width" type="int"/>
       <arg name="height" type="int"/>
-    </request>
-
-    <request name="raise">
-      <arg name="window" type="uint"/>
-      <arg name="above" type="int"/>
-    </request>
-
-    <request name="set_mode">
-      <arg name="window" type="uint"/>
-      <arg name="mode" type="uint" enum="mode"/>
     </request>
 
     <request name="list">
@@ -129,7 +119,7 @@
     <request name="inject_wheel">
       <arg name="dx" type="fixed"/>
       <arg name="dy" type="fixed"/>
-      <arg name="source" type="uint" enum="wheel_source"/>
+      <arg name="source" type="uint"/>
     </request>
 
     <request name="inject_key">
@@ -146,19 +136,19 @@
       <arg name="dy" type="fixed"/>
       <arg name="duration_ms" type="uint"/>
       <arg name="delay_ms" type="uint"/>
-      <arg name="easing" type="uint" enum="easing"/>
+      <arg name="easing" type="uint"/>
     </request>
 
     <request name="shortcut">
       <arg name="combo" type="string"/>
-      <arg name="scope" type="uint" enum="scope"/>
+      <arg name="scope" type="uint"/>
       <arg name="owner" type="uint"/>
       <arg name="callback" type="new_id" interface="acde_shell_result"/>
     </request>
 
     <request name="unshortcut">
       <arg name="combo" type="string"/>
-      <arg name="scope" type="uint" enum="scope"/>
+      <arg name="scope" type="uint"/>
       <arg name="owner" type="uint"/>
     </request>
 
@@ -218,7 +208,7 @@
     <event name="shortcut">
       <arg name="owner" type="uint"/>
       <arg name="key" type="string" allow-null="true"/>
-      <arg name="scope" type="uint" enum="scope"/>
+      <arg name="scope" type="uint"/>
     </event>
 
     <event name="window_gone">
@@ -254,13 +244,13 @@
   </interface>
 
   <interface name="acde_shell_list" version="1">
-    <description summary="the reply of acde_shell.list: the windows, the canvases, then done (and gone)"/>
+    <description summary="the reply of acde_shell.list: the windows, then done (and gone)"/>
 
     <event name="window">
       <arg name="id" type="uint"/>
       <arg name="window" type="int"/>
       <arg name="canvas" type="uint"/>
-      <arg name="mode" type="uint" enum="acde_shell.mode"/>
+      <arg name="mode" type="uint"/>
       <arg name="x" type="int"/>
       <arg name="y" type="int"/>
       <arg name="width" type="uint"/>
@@ -269,15 +259,6 @@
       <arg name="focus" type="uint"/>
       <arg name="hidden" type="uint"/>
       <arg name="pid" type="int"/>
-    </event>
-
-    <event name="canvas">
-      <arg name="id" type="uint"/>
-      <arg name="x" type="int"/>
-      <arg name="y" type="int"/>
-      <arg name="width" type="uint"/>
-      <arg name="height" type="uint"/>
-      <arg name="scale" type="fixed"/>
     </event>
 
     <event name="done" type="destructor"/>

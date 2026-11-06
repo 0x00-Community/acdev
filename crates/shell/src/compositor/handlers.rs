@@ -434,7 +434,7 @@ impl Compositor {
         let modal = window.and_then(|w| self.modal_target(w));
         let window = modal.as_ref().or(window);
         if !self.grab_holds(window) {
-            self.lose_grabs(super::grabs::Lost::Focus);
+            self.lose_grabs(super::acde_window::WireLost::FocusLost);
         }
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         if let Some(window) = window {

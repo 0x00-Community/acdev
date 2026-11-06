@@ -3,7 +3,7 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use acde_model::{Binding, Combo, Event, Inbox, Scope, Shortcuts, Waker};
+use acde_model::{Binding, Combo, Event, Inbox, Injected, Mode, Scope, Shortcuts, Waker};
 
 use crate::app::server;
 use crate::compose::Layer;
@@ -14,54 +14,6 @@ const CAPTURE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub const FIRST_WEB: u32 = 1 << 20;
 const DEFAULT_SIZE: [f64; 2] = [800.0, 600.0];
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Fullscreen,
-    Free,
-    Fixed,
-    Pinned,
-}
-
-impl Mode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Mode::Fullscreen => "fullscreen",
-            Mode::Free => "free",
-            Mode::Fixed => "fixed",
-            Mode::Pinned => "pinned",
-        }
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        Some(match text {
-            "fullscreen" => Mode::Fullscreen,
-            "free" => Mode::Free,
-            "fixed" => Mode::Fixed,
-            "pinned" => Mode::Pinned,
-            _ => return None,
-        })
-    }
-
-    pub fn from_code(code: u32) -> Option<Self> {
-        Some(match code {
-            0 => Mode::Fullscreen,
-            1 => Mode::Free,
-            2 => Mode::Fixed,
-            3 => Mode::Pinned,
-            _ => return None,
-        })
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Injected {
-    Move(f64, f64),
-    Motion(f64, f64),
-    Button { button: u32, pressed: bool },
-    Wheel(f64, f64),
-    Key { code: u32, pressed: bool },
-}
 
 #[derive(Default)]
 pub struct Grant {
@@ -83,6 +35,7 @@ pub struct WindowInfo {
     pub hidden: bool,
 }
 
+#[derive(Default)]
 pub(crate) struct Entry {
     pub desktop: bool,
     pub panel: bool,
@@ -109,30 +62,13 @@ pub(crate) struct Hit {
     pub bar: bool,
 }
 
-const EDGE: f64 = 4.0;
-const CORNER: f64 = 10.0;
-
 impl Entry {
     pub fn grab_hints(&self) -> Vec<([f64; 4], u32)> {
         let top = self.frame;
         let mut hints: Vec<([f64; 4], u32)> = self.hints.iter().map(|&([x, y, w, h], edges)| ([x, y + top, w, h], edges)).collect();
-        let [_, _, w, h] = self.rect;
-        if top <= 0.0 {
-            return hints;
+        if top > 0.0 {
+            hints.extend(acde_render::Bar::grab_hints(self.rect[2], self.rect[3], top));
         }
-        let buttons = acde_render::Decoration::BUTTONS;
-        let (e, c) = (EDGE, CORNER);
-        hints.extend([
-            ([buttons, 0.0, w - buttons, top], 0),
-            ([0.0, 0.0, w, e], 1),
-            ([0.0, h - e, w, e], 2),
-            ([0.0, 0.0, e, h], 4),
-            ([w - e, 0.0, e, h], 8),
-            ([0.0, 0.0, c, c], 1 | 4),
-            ([w - c, 0.0, c, c], 1 | 8),
-            ([0.0, h - c, c, c], 2 | 4),
-            ([w - c, h - c, c, c], 2 | 8),
-        ]);
         hints
     }
 
@@ -149,7 +85,6 @@ pub(crate) struct State {
     pub focus: Option<u32>,
     pub z: u64,
     pub shortcuts: Shortcuts,
-    pub names: HashMap<Combo, String>,
     pub screen: [f64; 3],
     pub refresh: Option<f64>,
     pub frames: u64,
@@ -227,10 +162,6 @@ impl State {
     }
 }
 
-pub(crate) fn key_code(name: &str) -> Option<u32> {
-    crate::keys::by_name(name)
-}
-
 pub struct Shell(());
 
 impl Shell {
@@ -275,24 +206,8 @@ impl Shell {
         let token = State::token();
         state.tokens.insert(token, id);
         let panel = mode == Mode::Pinned && !grant.desktop;
-        let entry = state.entries.entry(id).or_insert_with(|| Entry {
-            desktop: grant.desktop,
-            panel,
-            mode,
-            rect,
-            placed,
-            before_fullscreen: None,
-            title: String::new(),
-            hidden: grant.hidden,
-            opened: false,
-            z: 0,
-            inbox: None,
-            link: None,
-            hints: Vec::new(),
-            owner: None,
-            input: None,
-            frame: 0.0,
-        });
+        let entry =
+            state.entries.entry(id).or_insert_with(|| Entry { desktop: grant.desktop, panel, mode, rect, placed, hidden: grant.hidden, ..Entry::default() });
         entry.mode = mode;
         if placed || !entry.opened {
             entry.rect = rect;
@@ -322,10 +237,6 @@ impl Shell {
         };
         drop(state);
         server().expect("hostwin").set_rect(window, rect);
-    }
-
-    pub fn set_mode(&self, window: u32, mode: Mode) {
-        crate::surface::set_mode(window, mode);
     }
 
     pub fn focus(&self, window: u32) {
@@ -375,14 +286,6 @@ impl Shell {
         link.capture(CAPTURE_WAIT)
     }
 
-    pub fn notify(&self, title: &str, body: &str, subtitle: &str) -> Result<(), String> {
-        crate::notify::show(title, body, subtitle)
-    }
-
-    pub fn dev_respond(&self, id: i64, result: Result<&str, &str>) -> Result<(), String> {
-        crate::dev::respond(id, result)
-    }
-
     pub fn quit(&self) {
         server().expect("hostwin").send(Cmd::Exit(0));
     }
@@ -399,19 +302,13 @@ impl Shell {
         list
     }
 
-    pub fn screen(&self) -> [f64; 3] {
-        self.state().screen
-    }
-
     pub fn shortcut(&self, text: &str, scope: &str, owner: u32, on: bool) -> Result<(), String> {
-        let combo = Combo::parse(text, key_code)?;
+        let combo = Combo::parse(text, crate::keys::by_name)?;
         let scope: Scope = scope.parse()?;
         let mut state = self.state();
         let binding = Binding { combo, scope, owner };
         if on {
-            state.shortcuts.register(binding).map_err(|e| e.to_string())?;
-            state.names.insert(combo, text.to_owned());
-            Ok(())
+            state.shortcuts.register(binding, text).map_err(|e| e.to_string())
         } else {
             state.shortcuts.unregister(combo, scope, owner);
             Ok(())

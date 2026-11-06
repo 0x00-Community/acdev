@@ -186,7 +186,7 @@ pub(crate) fn is_modifier(evdev: u32) -> bool {
     matches!(evdev, 29 | 42 | 54 | 56 | 97 | 100 | 125 | 126)
 }
 
-pub(crate) const BUTTON_LEFT: u32 = 0x110;
+pub(crate) use acde_model::BTN_LEFT as BUTTON_LEFT;
 pub(crate) const BUTTON_RIGHT: u32 = 0x111;
 pub(crate) const BUTTON_MIDDLE: u32 = 0x112;
 pub(crate) const BUTTON_BACK: u32 = 0x113;

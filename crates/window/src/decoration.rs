@@ -1,4 +1,4 @@
-use acde_model::Event;
+use acde_model::{BTN_LEFT, Event};
 use acde_paint::{Drawn, Sheet};
 use acde_render::{Bar, Decoration, FrameButton};
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind};
@@ -12,8 +12,6 @@ use crate::client::{App, Buffers, Data, show};
 use crate::protocol::acde_window::Edges;
 
 pub(crate) const PLANE: usize = usize::MAX;
-const EDGE: i32 = 4;
-const CORNER: i32 = 10;
 
 pub(crate) struct DecorationView {
     pub(crate) surface: wl_surface::WlSurface,
@@ -151,21 +149,13 @@ impl App {
                 self.serial = serial;
                 let pressed = deco.pressed.take().filter(|_| button == BTN_LEFT);
                 if let Some(button) = pressed.filter(|&p| bar.button_at(event.position.0, event.position.1) == Some(p)) {
-                    let key = match button {
-                        FrameButton::Close => "close",
-                        FrameButton::Minimize => "minimize",
-                        FrameButton::Fullscreen if deco.fullscreen => "restore",
-                        FrameButton::Fullscreen => "fullscreen",
-                    };
-                    self.events.push(Event { kind: "framebutton".into(), key: Some(key.into()), ..Default::default() });
+                    self.events.push(Event { kind: "framebutton".into(), key: Some(button.key(deco.fullscreen).into()), ..Default::default() });
                 }
             }
         }
         true
     }
 }
-
-const BTN_LEFT: u32 = 0x110;
 
 fn content_size((w, h): (u32, u32), top: u32) -> (u32, u32) {
     (w, h.saturating_sub(top).max(1))
@@ -174,23 +164,10 @@ fn content_size((w, h): (u32, u32), top: u32) -> (u32, u32) {
 fn grab_hints((w, h): (u32, u32), top: u32, page: &[([i32; 4], u32)]) -> Vec<([i32; 4], Edges)> {
     let top = top as i32;
     let mut hints: Vec<([i32; 4], Edges)> = page.iter().map(|&([x, y, w, h], edges)| ([x, y + top, w, h], Edges::from_bits_truncate(edges))).collect();
-    let (w, h) = (w as i32, h as i32);
-    if top == 0 || w <= 0 || h <= 0 {
-        return hints;
+    if top != 0 && w > 0 && h > 0 {
+        let frame = Bar::grab_hints(w.into(), h.into(), top.into());
+        hints.extend(frame.map(|(r, edges)| (r.map(|v| v as i32), Edges::from_bits_truncate(edges))));
     }
-    let buttons = Decoration::BUTTONS as i32;
-    let (e, c) = (EDGE, CORNER);
-    hints.extend([
-        ([buttons, 0, w - buttons, top], Edges::empty()),
-        ([0, 0, w, e], Edges::Top),
-        ([0, h - e, w, e], Edges::Bottom),
-        ([0, 0, e, h], Edges::Left),
-        ([w - e, 0, e, h], Edges::Right),
-        ([0, 0, c, c], Edges::Top | Edges::Left),
-        ([w - c, 0, c, c], Edges::Top | Edges::Right),
-        ([0, h - c, c, c], Edges::Bottom | Edges::Left),
-        ([w - c, h - c, c, c], Edges::Bottom | Edges::Right),
-    ]);
     hints
 }
 

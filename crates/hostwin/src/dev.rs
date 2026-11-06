@@ -55,7 +55,7 @@ fn write(line: &str) -> Result<(), String> {
     acde_ipc::send(&mut link.writer, line).map_err(|e| format!("acde dev: {e}"))
 }
 
-pub(crate) fn respond(id: i64, result: Result<&str, &str>) -> Result<(), String> {
+pub fn respond(id: i64, result: Result<&str, &str>) -> Result<(), String> {
     let line = match result {
         Ok(json) => format!(r#"{{"type":"response","id":{id},"ok":true,"result":{json}}}"#),
         Err(message) => {
