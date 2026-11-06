@@ -10,7 +10,7 @@ fn page() -> (Doc, u32) {
     let options = Options { resources: Some(vec![Resource { prefix: "/fonts/".into(), dirs: vec![assets.into()] }]), ..Options::default() };
     let doc = Doc::new(400, 300, 1.0, &options).unwrap();
     let body = doc.create_element("body").unwrap();
-    doc.append_child(doc.root().unwrap(), body).unwrap();
+    doc.append_child(0, body).unwrap();
     (doc, body)
 }
 
@@ -22,7 +22,7 @@ fn settle_for(doc: &Doc, at_most: Duration, done: impl Fn(&acde_render::Stats) -
     let start = Instant::now();
     loop {
         doc.scene();
-        let s = doc.stats().unwrap();
+        let s = doc.stats();
         if done(&s) || start.elapsed() > at_most {
             return s;
         }

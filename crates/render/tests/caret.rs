@@ -1,7 +1,7 @@
 use acde_render::{Options, Rect};
 
 mod common;
-use common::Doc;
+use common::{Doc, near};
 
 struct Page {
     doc: Doc,
@@ -13,7 +13,7 @@ impl Page {
         let doc = Doc::new((400.0 * scale) as u32, (300.0 * scale) as u32, scale, &Options::default()).unwrap();
         doc.add_stylesheet("html, body { margin: 0; } body { font: 20px monospace; } p { margin: 10px 30px; }").unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         Self { doc, body }
     }
 
@@ -33,10 +33,6 @@ impl Page {
     fn caret(&self, id: u32, offset: u32) -> Rect {
         self.doc.caret_rect(id, offset).unwrap()
     }
-}
-
-fn near(a: f64, b: f64) -> bool {
-    (a - b).abs() < 0.6
 }
 
 #[test]
@@ -129,7 +125,7 @@ use acde_render::CaretPosition;
 
 impl Page {
     fn at(&self, x: f64, y: f64) -> Option<CaretPosition> {
-        self.doc.caret_from_point(x as f32, y as f32).unwrap()
+        self.doc.caret_from_point(x, y)
     }
 }
 

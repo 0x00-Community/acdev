@@ -29,7 +29,7 @@ fn page(effects: bool) -> (Doc, common::Handle) {
     let doc = Doc::new(W, H, 1.0, &Options::default()).unwrap();
     doc.add_stylesheet(CSS).unwrap();
     let body = doc.create_element("body").unwrap();
-    doc.append_child(doc.root().unwrap(), body).unwrap();
+    doc.append_child(0, body).unwrap();
     let el = |parent: u32, class: &str, style: &str, text: Option<&str>| {
         let n = doc.create_element("div").unwrap();
         doc.set_attribute(n, "class", class).unwrap();
@@ -82,7 +82,7 @@ fn frame(handle: &common::Handle) -> Frame {
 }
 
 fn raster(scene: Scene) -> Vec<u8> {
-    acde_render::gpu::rasterize(scene, (W, H), Default::default())
+    common::rasterize(scene, (W, H))
 }
 
 fn rects(n: usize) -> Vec<Rect> {

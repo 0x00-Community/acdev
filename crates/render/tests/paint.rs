@@ -7,7 +7,7 @@ const W: u32 = 120;
 const H: u32 = 80;
 
 fn red_pixels(doc: &Doc) -> usize {
-    let rgba = acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default());
+    let rgba = common::rasterize(doc.scene(), (W, H));
     rgba.chunks(4).filter(|p| p[0] > 200 && p[1] < 80 && p[2] < 80).count()
 }
 
@@ -15,7 +15,7 @@ fn page(css: &str, div: bool) -> Doc {
     let doc = Doc::new(W, H, 1.0, &Options::default()).unwrap();
     doc.add_stylesheet(css).unwrap();
     let body = doc.create_element("body").unwrap();
-    doc.append_child(doc.root().unwrap(), body).unwrap();
+    doc.append_child(0, body).unwrap();
     if div {
         let d = doc.create_element("div").unwrap();
         doc.set_attribute(d, "class", "bg").unwrap();
@@ -55,7 +55,7 @@ fn data_url_image_is_loaded() {
 }
 
 fn pixels(doc: &Doc) -> Vec<u8> {
-    acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default())
+    common::rasterize(doc.scene(), (W, H))
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn empty_input_paints_its_placeholder() {
         if let Some(v) = value {
             doc.set_attribute(input, "value", v).unwrap();
         }
-        doc.append_child(doc.root().unwrap(), input).unwrap();
+        doc.append_child(0, input).unwrap();
         let px = pixels(&doc);
         let count = |f: &dyn Fn(&[u8]) -> bool| px.chunks(4).filter(|p| f(p)).count();
         (count(&|p| p[0] > 200 && p[1] < 80 && p[2] < 80), count(&|p| p[2] > 200 && p[0] < 80), count(&|p| p[0] > 200 && p[1] > 90 && p[1] < 200 && p[2] < 200))
@@ -123,7 +123,7 @@ fn inline_padding_takes_space_and_rounds_the_background() {
     )
     .unwrap();
     let body = doc.create_element("body").unwrap();
-    doc.append_child(doc.root().unwrap(), body).unwrap();
+    doc.append_child(0, body).unwrap();
     let line = |class: &str| {
         let div = doc.create_element("div").unwrap();
         doc.append_child(body, div).unwrap();
@@ -161,7 +161,7 @@ fn inline_percent_padding_and_border_sides() {
     )
     .unwrap();
     let body = doc.create_element("body").unwrap();
-    doc.append_child(doc.root().unwrap(), body).unwrap();
+    doc.append_child(0, body).unwrap();
     let div = doc.create_element("div").unwrap();
     doc.append_child(body, div).unwrap();
     let k = doc.create_element("span").unwrap();

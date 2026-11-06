@@ -15,7 +15,7 @@ impl Page {
             .unwrap();
         doc.add_stylesheet(css).unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         Self { doc, body }
     }
 
@@ -26,7 +26,7 @@ impl Page {
         n
     }
 
-    fn capture(&self, id: u32, scale: Option<f64>) -> Option<Capture> {
+    fn capture(&self, id: u32, scale: f64) -> Option<Capture> {
         self.doc.capture(id, scale).unwrap()
     }
 }
@@ -35,7 +35,7 @@ impl Page {
 fn solid_box_is_its_border_box() {
     let page = Page::new("");
     let el = page.el(page.body, "box");
-    let c = page.capture(el, None).unwrap();
+    let c = page.capture(el, 0.0).unwrap();
     assert_eq!((c.x, c.y, c.width, c.height), (10.0, 30.0, 40.0, 20.0));
     assert_eq!((c.pixel_width, c.pixel_height, c.scale), (40, 20, 1.0));
     let rgba = c.pixels();
@@ -47,7 +47,7 @@ fn solid_box_is_its_border_box() {
 fn opacity_gives_straight_alpha() {
     let page = Page::new(".box { opacity: .5; }");
     let el = page.el(page.body, "box");
-    let [r, g, b, a] = page.capture(el, None).unwrap().pixel(20, 10);
+    let [r, g, b, a] = page.capture(el, 0.0).unwrap().pixel(20, 10);
     assert_eq!((r, g, b), (255, 0, 0));
     assert!(a.abs_diff(128) <= 1, "alpha {a}");
 }
@@ -57,7 +57,7 @@ fn ancestor_transform_and_opacity_are_left_out() {
     let page = Page::new(".outer { transform: scale(3); opacity: .2; }");
     let outer = page.el(page.body, "outer");
     let el = page.el(outer, "box");
-    let c = page.capture(el, None).unwrap();
+    let c = page.capture(el, 0.0).unwrap();
     assert_eq!((c.pixel_width, c.pixel_height), (40, 20));
     assert_eq!(c.pixel(20, 10), [255, 0, 0, 255]);
 }
@@ -66,7 +66,7 @@ fn ancestor_transform_and_opacity_are_left_out() {
 fn shadow_is_part_of_the_bounds() {
     let page = Page::new(".box { box-shadow: 8px 0 0 #00f; }");
     let el = page.el(page.body, "box");
-    let c = page.capture(el, None).unwrap();
+    let c = page.capture(el, 0.0).unwrap();
     assert_eq!((c.x, c.y, c.width, c.height), (10.0, 30.0, 48.0, 20.0));
     assert_eq!(c.pixel(45, 10), [0, 0, 255, 255]);
 }
@@ -75,12 +75,12 @@ fn shadow_is_part_of_the_bounds() {
 fn scale_and_size_cap() {
     let page = Page::new(".wide { width: 3000px; }");
     let el = page.el(page.body, "box");
-    let c = page.capture(el, Some(2.0)).unwrap();
+    let c = page.capture(el, 2.0).unwrap();
     assert_eq!((c.pixel_width, c.pixel_height, c.scale), (80, 40, 2.0));
     assert_eq!((c.width, c.height), (40.0, 20.0));
 
     let wide = page.el(page.body, "box wide");
-    let c = page.capture(wide, None).unwrap();
+    let c = page.capture(wide, 0.0).unwrap();
     assert_eq!(c.pixel_width, 2048);
     assert!((c.scale - 2048.0 / 3000.0).abs() < 1e-9, "{}", c.scale);
     assert_eq!(c.width, 3000.0);
@@ -91,7 +91,7 @@ fn nothing_painted_is_none() {
     let page = Page::new(".gone { display: none; } .hidden { visibility: hidden; } .empty { background: none; }");
     for class in ["box gone", "box hidden", "box empty"] {
         let el = page.el(page.body, class);
-        assert!(page.capture(el, None).is_none(), "{class}");
+        assert!(page.capture(el, 0.0).is_none(), "{class}");
     }
 }
 
@@ -105,11 +105,11 @@ fn file_row_timing() {
     let name = page.el(row, "name");
     let text = page.doc.create_text("季度报告-Q3-final-version-包含所有附件和图表的完整版本.docx").unwrap();
     page.doc.append_child(name, text).unwrap();
-    page.capture(row, None).unwrap();
+    page.capture(row, 0.0).unwrap();
     let start = std::time::Instant::now();
     let n = 20;
     for _ in 0..n {
-        page.capture(row, Some(2.0)).unwrap();
+        page.capture(row, 2.0).unwrap();
     }
     eprintln!("capture 420x36 @2x: {:.2} ms each", start.elapsed().as_secs_f64() * 1e3 / f64::from(n));
 }

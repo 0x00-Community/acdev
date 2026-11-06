@@ -33,7 +33,7 @@ struct Check {
 
 impl Check {
     fn raster(scene: Scene) -> Vec<u8> {
-        acde_render::gpu::rasterize(scene, (W, H), Default::default())
+        common::rasterize(scene, (W, H))
     }
 
     fn frame(&self) -> Frame {
@@ -64,11 +64,11 @@ impl Check {
             eprintln!("{what}: no frame");
             return (Rect::default(), Vec::new());
         };
-        let (mut damage, mut rects) = (common::damage(&frame), rects_of(&frame));
+        let (mut damage, mut rects) = (frame.plane.damage, rects_of(&frame));
         while frame.commit < seq {
             frame = self.frame();
-            if common::damage(&frame).width > 0.0 {
-                let (a, b) = (damage, common::damage(&frame));
+            if frame.plane.damage.width > 0.0 {
+                let (a, b) = (damage, frame.plane.damage);
                 damage = match a.width > 0.0 {
                     false => b,
                     true => {
@@ -113,7 +113,7 @@ fn damage_covers_every_changed_pixel() {
     let handle = doc.handle();
     let mut c = Check { doc, handle, last: vec![0; (W * H * 4) as usize] };
     c.doc.add_stylesheet(CSS).unwrap();
-    let body = c.el("body", c.doc.root().unwrap(), "");
+    let body = c.el("body", 0, "");
     let bar = c.el("div", body, "bar");
     let tabs: Vec<u32> = (0..4).map(|_| c.el("div", bar, "")).collect();
     let p = c.el("p", body, "");
@@ -132,7 +132,7 @@ fn damage_covers_every_changed_pixel() {
     let first = c.step("first frame");
     assert_eq!((first.width, first.height), (f64::from(W), f64::from(H)));
 
-    c.doc.set_text(text, "hello DAMAGE!!").unwrap();
+    c.doc.set_data(text, "hello DAMAGE!!").unwrap();
     assert!(small(c.step("text")));
 
     c.doc.set_attribute(p2, "class", "hot").unwrap();
@@ -157,7 +157,7 @@ fn damage_covers_every_changed_pixel() {
     c.doc.set_attribute(blurred, "style", "margin-left: 10px").unwrap();
     assert!(small(c.step("inside blur")));
 
-    c.doc.set_text(text, "far apart").unwrap();
+    c.doc.set_data(text, "far apart").unwrap();
     c.handle.pointer(395.0, 295.0);
     let (union, rects) = c.step_rects("two far apart changes");
     let area: f64 = rects.iter().map(|r| r.width * r.height).sum();
@@ -180,7 +180,7 @@ fn reordering_overlapping_boxes_is_damage() {
          .a.up { z-index: 3 }",
         )
         .unwrap();
-    let body = c.el("body", c.doc.root().unwrap(), "");
+    let body = c.el("body", 0, "");
     let a = c.el("div", body, "a");
     c.el("div", body, "b");
     c.step("first frame");

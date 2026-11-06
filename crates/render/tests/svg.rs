@@ -15,7 +15,7 @@ impl Page {
         let doc = Doc::new(W, H, 1.0, &Options::default()).unwrap();
         doc.add_stylesheet(css).unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         Self { doc }
     }
 
@@ -29,7 +29,7 @@ impl Page {
     }
 
     fn count(&self, x0: u32, y0: u32, x1: u32, y1: u32) -> (usize, usize) {
-        let rgba = acde_render::gpu::rasterize(self.doc.scene(), (W, H), Default::default());
+        let rgba = common::rasterize(self.doc.scene(), (W, H));
         let (mut dark, mut red) = (0, 0);
         for y in y0..y1 {
             for x in x0..x1 {
@@ -51,7 +51,7 @@ const CSS: &str = "html, body { margin: 0; background: #fff; } :root { --mono: m
 #[test]
 fn class_rules_reach_svg_children() {
     let page = Page::new(CSS);
-    let root = page.doc.root().unwrap();
+    let root = 0;
     let body = page.doc.create_element("div").unwrap();
     page.doc.set_attribute(body, "class", "ic").unwrap();
     page.doc.append_child(root, body).unwrap();
@@ -65,7 +65,7 @@ fn class_rules_reach_svg_children() {
 #[test]
 fn text_with_var_font_is_drawn() {
     let page = Page::new(CSS);
-    let root = page.doc.root().unwrap();
+    let root = 0;
     let svg = page.svg(root, "svg", &[("viewBox", "0 0 100 100")]);
     let text = page.svg(svg, "text", &[("x", "50"), ("y", "60"), ("text-anchor", "middle"), ("fill", "#000"), ("style", "font: 700 40px var(--mono)")]);
     let t = page.doc.create_text("{}").unwrap();
@@ -77,7 +77,7 @@ fn text_with_var_font_is_drawn() {
 #[test]
 fn current_color_stroke_from_css() {
     let page = Page::new(CSS);
-    let root = page.doc.root().unwrap();
+    let root = 0;
     let div = page.doc.create_element("div").unwrap();
     page.doc.set_attribute(div, "class", "cc").unwrap();
     page.doc.append_child(root, div).unwrap();
@@ -93,7 +93,7 @@ fn spread_box_shadow_follows_border_radius() {
         "html, body { margin: 0; background: #fff; }
         #d { position: absolute; left: 40px; top: 40px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 10px #f00; }",
     );
-    let root = page.doc.root().unwrap();
+    let root = 0;
     let d = page.doc.create_element("div").unwrap();
     page.doc.set_attribute(d, "id", "d").unwrap();
     page.doc.append_child(root, d).unwrap();
@@ -111,7 +111,7 @@ fn animation_none_clears_animated_value() {
         #d { position: absolute; left: 0; top: 0; width: 50px; height: 50px; background: #fff; animation: p 2s infinite; }
         #d.off { animation: none; }",
     );
-    let root = page.doc.root().unwrap();
+    let root = 0;
     let d = page.doc.create_element("div").unwrap();
     page.doc.set_attribute(d, "id", "d").unwrap();
     page.doc.append_child(root, d).unwrap();
@@ -126,7 +126,7 @@ fn css_geometry_on_svg_rect() {
         "html, body { margin: 0; background: #fff; } svg { position: absolute; top: 0; width: 100px; height: 100px; }
          .g { x: 10px; y: 20px; width: calc(100% - 20px); height: 30%; fill: #f00; }",
     );
-    let root = page.doc.root().unwrap();
+    let root = 0;
     let svg = page.svg(root, "svg", &[("viewBox", "0 0 100 100")]);
     page.svg(svg, "rect", &[("class", "g")]);
     let (_, red) = page.count(0, 0, 100, 100);
@@ -137,7 +137,7 @@ fn css_geometry_on_svg_rect() {
 #[test]
 fn zero_sized_shapes_are_skipped() {
     let page = Page::new(CSS);
-    let root = page.doc.root().unwrap();
+    let root = 0;
     let svg = page.svg(root, "svg", &[("viewBox", "0 0 100 100")]);
     page.svg(svg, "circle", &[("cx", "50"), ("cy", "50"), ("fill", "#00f")]);
     page.svg(svg, "rect", &[("x", "10"), ("y", "10"), ("width", "0"), ("height", "50"), ("fill", "#00f")]);
@@ -149,7 +149,7 @@ fn zero_sized_shapes_are_skipped() {
 #[test]
 fn changing_a_path_inside_an_svg_redraws_it() {
     let page = Page::new(CSS);
-    let root = page.doc.root().unwrap();
+    let root = 0;
     let svg = page.svg(root, "svg", &[("viewBox", "0 0 100 100"), ("class", "ic")]);
     let path = page.svg(svg, "path", &[("d", "M0 0H50V50H0Z"), ("fill", "#f00")]);
     let left = |page: &Page| page.count(0, 0, 50, 50).1;

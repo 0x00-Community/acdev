@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use acde_render::{Frame, Options};
+use acde_render::Options;
 
 mod common;
-use common::{Doc, Handle};
+use common::{Doc, WaitFrame};
 
 struct Page {
     doc: Doc,
@@ -17,7 +17,7 @@ impl Page {
         let doc = Doc::new(800, 600, 2.0, &Options::default()).unwrap();
         doc.add_stylesheet(css).unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         Self { doc, body }
     }
 
@@ -26,23 +26,6 @@ impl Page {
         self.doc.set_attribute(id, "class", class).unwrap();
         self.doc.append_child(parent, id).unwrap();
         id
-    }
-}
-
-trait WaitFrame {
-    fn wait_frame(&self) -> Frame;
-}
-
-impl WaitFrame for Handle {
-    fn wait_frame(&self) -> Frame {
-        let start = Instant::now();
-        loop {
-            if let Some(frame) = self.frame() {
-                return frame;
-            }
-            assert!(start.elapsed() < Duration::from_secs(5), "no frame");
-            std::thread::sleep(Duration::from_millis(1));
-        }
     }
 }
 
@@ -95,7 +78,6 @@ fn transition_runs_on_compositor_ticks_while_js_is_blocked() {
     assert!(wakes.load(Ordering::SeqCst) >= 61);
     assert_eq!(page.doc.rect(mover).unwrap().x.round(), 100.0);
     handle.tick(2000.0);
-    page.doc.root().unwrap();
     assert!(handle.frame().is_none());
 }
 
@@ -142,7 +124,7 @@ fn panic_on_render_thread_is_an_error_not_an_abort() {
     doc.set_attribute(link, "rel", "stylesheet").unwrap();
     doc.set_attribute(link, "href", "/x.css").unwrap();
     doc.append_child(head, link).unwrap();
-    let error = doc.append_child(doc.root().unwrap(), head).unwrap_err();
+    let error = doc.append_child(0, head).unwrap_err();
     assert!(error.0.contains("panicked"), "{error}");
     assert!(doc.create_element("div").is_ok());
 }
@@ -160,7 +142,7 @@ fn release_drops_subtree_and_ids_stay_unique() {
     assert!(page.doc.rect(frame).unwrap_err().0.contains("released"));
     page.doc.release(child).unwrap();
     assert!(page.doc.release(9999).is_err());
-    assert!(page.doc.release(page.doc.root().unwrap()).is_err());
+    assert!(page.doc.release(0).is_err());
     assert!(page.doc.create_element("div").unwrap() > frame);
 }
 
@@ -226,13 +208,13 @@ fn queries_do_not_resolve_every_time_while_animating() {
     );
     let spin = page.div(page.body, "spin");
     page.doc.rect(spin).unwrap();
-    let before = page.doc.stats().unwrap().resolves;
+    let before = page.doc.stats().resolves;
     let start = Instant::now();
     for _ in 0..200 {
         page.doc.metrics(spin).unwrap();
     }
     let elapsed = start.elapsed().as_secs_f64();
-    let resolves = page.doc.stats().unwrap().resolves - before;
+    let resolves = page.doc.stats().resolves - before;
     assert!(f64::from(resolves) <= elapsed * 60.0 + 2.0, "{resolves} resolves in {elapsed:.3}s");
     std::thread::sleep(Duration::from_millis(100));
     assert!(page.doc.rect(spin).unwrap().x > 0.0);
@@ -284,7 +266,7 @@ fn paused_and_undisplayed_animations_do_not_keep_ticking() {
     let handle = page.doc.handle();
     handle.commit();
     assert!(!handle.wait_frame().animating);
-    assert!(!page.doc.stats().unwrap().animating);
+    assert!(!page.doc.stats().animating);
     page.doc.set_attribute(rect, "class", "dash on").unwrap();
     handle.commit();
     assert!(handle.wait_frame().animating);

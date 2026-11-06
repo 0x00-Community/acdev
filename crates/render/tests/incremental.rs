@@ -22,7 +22,7 @@ impl Page {
         let doc = Doc::new(400, 300, 1.0, &options).unwrap();
         doc.add_stylesheet(CSS).unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         Self { doc, body }
     }
 
@@ -39,7 +39,7 @@ impl Page {
 
     fn frame(&self, label: &str) -> Stats {
         self.doc.scene();
-        let stats = self.doc.stats().unwrap();
+        let stats = self.doc.stats();
         assert_eq!(stats.paint_mismatches, 0, "{label}: incremental frame differs from a full recording");
         stats
     }
@@ -94,7 +94,7 @@ fn text_edited_in_place() {
     page.frame("first");
     page.frame("second");
     for (i, text) in ["after", "after!", "a much longer text than before"].into_iter().enumerate() {
-        page.doc.set_text(t, text).unwrap();
+        page.doc.set_data(t, text).unwrap();
         page.frame(&format!("set_text #{i}"));
     }
 }
@@ -150,7 +150,7 @@ fn image_arrival_and_resize() {
         page.frame(&format!("waiting for the image, frame {i}"));
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    page.doc.resize(320, 240, 2.0).unwrap();
+    page.doc.resize(320, 240, 2.0);
     page.frame("resized and rescaled");
 }
 
@@ -165,7 +165,7 @@ fn damage_by_fragment_covers_full_diff() {
             assert!(start.elapsed() < std::time::Duration::from_secs(5), "{label}: no frame");
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
-        let s = page.doc.stats().unwrap();
+        let s = page.doc.stats();
         assert_eq!(s.paint_mismatches, 0, "{label}: paint");
         assert_eq!(s.damage_mismatches, 0, "{label}: damage");
         s
@@ -174,12 +174,12 @@ fn damage_by_fragment_covers_full_diff() {
     frame("first");
     type Step<'a> = (&'a str, Box<dyn Fn() + 'a>);
     let steps: [Step; 8] = [
-        ("text", Box::new(|| page.doc.set_attribute(text, "style", "color: red").unwrap())),
-        ("class", Box::new(|| page.doc.set_attribute(a, "class", "card moved").unwrap())),
-        ("opacity layer", Box::new(|| page.doc.set_attribute(b, "style", "background: #fee").unwrap())),
+        ("text", Box::new(|| page.doc.set_attribute(text, "style", "color: red").map(drop).unwrap())),
+        ("class", Box::new(|| page.doc.set_attribute(a, "class", "card moved").map(drop).unwrap())),
+        ("opacity layer", Box::new(|| page.doc.set_attribute(b, "style", "background: #fee").map(drop).unwrap())),
         ("scroll", Box::new(|| page.doc.scroll_by(scroller, 0.0, 20.0).unwrap())),
-        ("svg attribute", Box::new(|| page.doc.set_attribute(circle, "fill", "#0a0").unwrap())),
-        ("becomes a stacking context", Box::new(|| page.doc.set_attribute(a, "class", "card fade").unwrap())),
+        ("svg attribute", Box::new(|| page.doc.set_attribute(circle, "fill", "#0a0").map(drop).unwrap())),
+        ("becomes a stacking context", Box::new(|| page.doc.set_attribute(a, "class", "card fade").map(drop).unwrap())),
         ("svg removed", Box::new(|| page.doc.remove(svg).unwrap())),
         ("card removed", Box::new(|| page.doc.remove(a).unwrap())),
     ];
@@ -187,7 +187,7 @@ fn damage_by_fragment_covers_full_diff() {
         step();
         frame(label);
     }
-    let s = page.doc.stats().unwrap();
+    let s = page.doc.stats();
     assert!(s.damage_by_fragment >= steps.len() as u32, "{s:?}");
 }
 
@@ -216,7 +216,7 @@ fn animated_scale_with_positioned_children() {
         while handle.frame().is_none() && start.elapsed() < std::time::Duration::from_millis(200) {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
-        let s = page.doc.stats().unwrap();
+        let s = page.doc.stats();
         assert_eq!(s.paint_mismatches, 0, "frame {i}");
     }
 }
@@ -288,7 +288,7 @@ fn offsets_follow_a_scaled_ancestor() {
         while handle.frame().is_none() && start.elapsed() < std::time::Duration::from_millis(200) {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
-        let s = page.doc.stats().unwrap();
+        let s = page.doc.stats();
         assert_eq!(s.paint_mismatches, 0, "{label}");
         s
     };

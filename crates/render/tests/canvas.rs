@@ -51,7 +51,7 @@ impl Page {
         let doc = Doc::new(W, H, 1.0, &Options::default()).unwrap();
         doc.add_stylesheet("html, body { margin: 0; background: #fff } canvas { display: block }").unwrap();
         let body = doc.create_element("body").unwrap();
-        doc.append_child(doc.root().unwrap(), body).unwrap();
+        doc.append_child(0, body).unwrap();
         let canvas = doc.create_element("canvas").unwrap();
         doc.set_attribute(canvas, "width", "100").unwrap();
         doc.set_attribute(canvas, "height", "50").unwrap();
@@ -60,7 +60,7 @@ impl Page {
     }
 
     fn pixels(&self) -> Vec<u8> {
-        acde_render::gpu::rasterize(self.doc.scene(), (W, H), Default::default())
+        common::rasterize(self.doc.scene(), (W, H))
     }
 
     fn at(px: &[u8], x: u32, y: u32) -> [u8; 4] {
@@ -189,7 +189,7 @@ fn text_is_drawn_and_measured_like_dom_text() {
     doc.set_attribute(span, "style", "font: 20px monospace; position: absolute").unwrap();
     let text = doc.create_text("MMMM").unwrap();
     doc.append_child(span, text).unwrap();
-    doc.append_child(doc.root().unwrap(), span).unwrap();
+    doc.append_child(0, span).unwrap();
     let dom = doc.rect(span).unwrap().width;
     assert!((metrics.width - dom).abs() < 1.0, "canvas {} vs DOM {dom}", metrics.width);
     assert!(metrics.font_bounding_box_ascent > 10.0 && metrics.font_bounding_box_descent > 2.0, "{metrics:?}");
@@ -199,7 +199,7 @@ fn text_is_drawn_and_measured_like_dom_text() {
 fn to_data_url_is_a_png() {
     let page = Page::new();
     Ops::default().fill_style(RED).fill_rect(0.0, 0.0, 10.0, 10.0).apply(&page.doc, page.canvas);
-    let url = page.doc.to_data_url(page.canvas).unwrap();
+    let url = page.doc.to_data_url(page.canvas, "image/png").unwrap();
     assert!(url.starts_with("data:image/png;base64,iVBORw0KGgo"), "{}", &url[..40.min(url.len())]);
 }
 
@@ -223,7 +223,7 @@ fn canvas_damage_only_when_its_picture_changes() {
     assert!(same.plane.damage_rects.is_empty());
     draw(60.0);
     let moved = frame(handle.commit());
-    let d = common::damage(&moved);
+    let d = moved.plane.damage;
     assert!(d.width > 0.0 && d.x + d.width <= 103.0 && d.y + d.height <= 53.0, "{d:?}");
 }
 
