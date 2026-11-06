@@ -22,6 +22,7 @@ pub enum Errno {
     Conflict,
     NotEmpty,
     Fbig,
+    Ilseq,
     NoSpc,
     Io,
 }
@@ -36,6 +37,7 @@ impl Errno {
             Self::Conflict => "ECONFLICT",
             Self::NotEmpty => "ENOTEMPTY",
             Self::Fbig => "EFBIG",
+            Self::Ilseq => "EILSEQ",
             Self::NoSpc => "ENOSPC",
             Self::Io => "EIO",
         }

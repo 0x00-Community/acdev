@@ -35,11 +35,37 @@ export interface FileBytes {
   readonly data: Uint8Array
 }
 
-export type AcdeFsErrorCode = 'EINVAL' | 'EACCES' | 'ENOENT' | 'EEXIST' | 'ECONFLICT' | 'ENOTEMPTY' | 'EFBIG' | 'ENOSPC' | 'EIO'
+export type AcdeFsErrorCode = 'EINVAL' | 'EACCES' | 'ENOENT' | 'EEXIST' | 'ECONFLICT' | 'ENOTEMPTY' | 'EFBIG' | 'EILSEQ' | 'ENOSPC' | 'EIO'
 
 export interface AcdeFsError extends Error {
   readonly status: number
   readonly code: AcdeFsErrorCode
+}
+
+export interface FinderStat extends FinderEntry {
+  path: string
+}
+
+export interface FileText {
+  readonly text: string
+  readonly modifiedMs: number
+  readonly size: number
+}
+
+export interface FileData {
+  readonly data: Uint8Array
+  readonly modifiedMs: number
+  readonly size: number
+}
+
+export interface WriteFileOptions {
+  ifModifiedMs?: number
+  create?: 'new' | 'always' | 'never'
+  mkdirs?: boolean
+}
+
+export interface MkdirOptions {
+  recursive?: boolean
 }
 
 export interface AcdeFs {
@@ -50,7 +76,11 @@ export interface AcdeFs {
   preview(root: string, path: string): Promise<FinderPreview>
   download(root: string, path: string): Promise<FileBytes>
   place(root: string, path?: string, file?: string): Promise<unknown>
-  mkdir(root: string, path: string): Promise<FinderEntry>
+  mkdir(root: string, path: string, options?: MkdirOptions): Promise<FinderEntry>
+  stat(root: string, path: string): Promise<FinderStat>
+  readText(root: string, path: string): Promise<FileText>
+  readBytes(root: string, path: string): Promise<FileData>
+  writeFile(root: string, path: string, data: string | Uint8Array, options?: WriteFileOptions): Promise<FinderEntry>
   write(root: string, path: string, content: string, expectedModifiedMs: string): Promise<FinderEntry>
   copyIn?(root: string, dir: string, source: string): Promise<FinderEntry>
   rename(root: string, from: string, to: string): Promise<FinderEntry>

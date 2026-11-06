@@ -769,16 +769,39 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
 | `EINVAL` | 400 | 参数不对、路径出 root、不是文件 / 不是文件夹、符号链接 |
 | `EACCES` | 403 | 清单没给这个 root (`this app may not use the files of …`)、系统不让 (权限、只读文件系统) |
 | `ENOENT` | 404 | 不存在 |
-| `EEXIST` | 409 | 已经有了 (`already exists`、`write(…, 'new')` 时文件已在、改名的目标、没有空的副本名) |
-| `ECONFLICT` | 409 | 打开之后被别人改了 / 没了 (`write` 的 `expectedModifiedMs` 对不上) |
+| `EEXIST` | 409 | 已经有了 (`already exists`、`write(…, 'new')` / `writeFile` 的 `create: 'new'` 时文件已在、改名的目标、没有空的副本名) |
+| `ECONFLICT` | 409 | 打开之后被别人改了 / 没了 (`write` 的 `expectedModifiedMs`、`writeFile` 的 `ifModifiedMs` 对不上) |
 | `ENOTEMPTY` | 409 | 删非空的文件夹 |
 | `EFBIG` | 413 | 超过上限 |
+| `EILSEQ` | 400 | `readText` 读到的不是 UTF-8 |
 | `ENOSPC` | 507 | 磁盘满 |
 | `EIO` | 500 | 别的 (细节进日志, message 是 `Runtime server operation failed`) |
 
 `code` 由造 `Failure` 的地方定 (`Failure::exists` / `conflict` / `with`; 没指定时按 status 取上表的默认, io 错误按 errno), 409 的
-`EEXIST` / `ECONFLICT` / `ENOTEMPTY` 因此分得开. 契约 (dx 计划 Contract B) 列的是 `ENOTEMPTY` / `ENOSPC` 以外的七个, 这两个原来算
+`EEXIST` / `ECONFLICT` / `ENOTEMPTY` 因此分得开. 契约 (dx 计划 Contract B) 列的是 `ENOTEMPTY` / `ENOSPC` 以外的那些, 这两个原来算
 `EIO`, 现在给了准确的名字. 只有 `acde:fs` 是这个形状; Broker 自己的 napi `Finder` (和别的 napi 导出) 照旧: message 是失败的 JSON.
+
+**文件级的调用** (给编辑器、笔记这类应用; 规则和别的调用一样: 先在 root 里 `resolve`, 读写都 `O_NOFOLLOW | O_NONBLOCK` 打开, 不会卡在
+FIFO 上). 原来的 `preview` (文字最多 256 KiB, 多了 `truncated`) 和 `write` (最多 384 KiB, `expectedModifiedMs` 是字符串或 `'new'`) 不变.
+
+- `stat(root, path)` → `FinderEntry & { path }`: 和 `list` 的项一样 (lstat: 符号链接报 `symlink` 和 `target`), `path` 是规范化后的
+  相对路径 (root 本身是 `''`, `name` 是 root 文件夹的名字). 不存在 `ENOENT`, 经符号链接出 root `EINVAL`.
+- `readText(root, path)` → `{ text, modifiedMs, size }`: 整个文件, 最多 64 MiB (和 `download` 同一个上限, 多了 `EFBIG`); 不是合法的
+  UTF-8 是 `EILSEQ`; 开头的 BOM 原样留着 (像 node 的 `readFile(…, 'utf8')`, 不像 `preview` 去掉). `modifiedMs` / `size` 是读的那个
+  打开的文件的 (fstat), 交给 `writeFile` 的 `ifModifiedMs` 正好.
+- `readBytes(root, path)` → `{ data: Uint8Array, modifiedMs, size }`: 同上, 不解码.
+- `writeFile(root, path, data, options?)` → `FinderEntry`: `data` 是字符串 (按 UTF-8 写) 或 `Uint8Array` (别的 ArrayBufferView 和
+  ArrayBuffer 也收), 最多 64 MiB (`EFBIG`), 别的类型 `EINVAL`. `options`:
+  `create` — `'always'` (默认: 没有就建, 有就覆盖)、`'new'` (只建新的, 已在 `EEXIST`, `O_EXCL`)、`'never'` (只改已有的, 不在 `ENOENT`);
+  `ifModifiedMs` — 文件现在的 `modifiedMs` 必须等于它, 不等或文件没了是 `ECONFLICT` (和 `create: 'new'` 一起给是 `EINVAL`);
+  `mkdirs` — 先建缺的父文件夹 (同 `mkdir` 的 `recursive`). 写在原文件上: 打开 (不截断) → fstat 比 `ifModifiedMs` → 截断写入 → fsync,
+  所以 inode、权限、硬链接都不变, 比较和写的是同一个文件; 不是先写临时文件再改名 (写到一半断电会留下半个文件). 目标是符号链接
+  或不是普通文件 (文件夹、FIFO …) 是 `EINVAL`. 新文件 0644.
+- `mkdir(root, path, options?)`: 没有 `recursive` 和原来一样 (已在 `EEXIST`, 父文件夹不在 `EINVAL`); `recursive: true` 从 root 起
+  逐级建 (0755), 已经是文件夹的算成功 (整条都在也成功), 中间一级是 root 里的符号链接时跟着走 (落到 root 外 `EINVAL`), 某一级是文件:
+  最后一级 `EEXIST`, 中间的 `EINVAL` (`not a directory`). 返回最后一级的 `FinderEntry`.
+
+选项对象由 binding 用 `JSON.stringify` 交给 runtime, 在 Rust 里按类型读 (`serde`), 类型不对是 `EINVAL`, 不认识的键不管.
 
 ## desktop web / window web
 

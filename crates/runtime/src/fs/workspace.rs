@@ -1,12 +1,12 @@
 use super::path::NodePath;
-use crate::failure::{Failure, Outcome};
+use crate::failure::{Errno, Failure, Outcome};
 use icu_collator::{Collator, CollatorBorrowed, options::CollatorOptions};
 use icu_locale_core::Locale;
 use rustix::fs::OFlags;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, DirBuilder, File, Metadata, OpenOptions},
-    io::Write,
+    io::{ErrorKind, Read, Write},
     os::unix::fs::{DirBuilderExt, FileExt, MetadataExt, OpenOptionsExt},
     path::Path,
 };
@@ -90,6 +90,43 @@ pub struct Listing {
     pub path: String,
     pub entries: Vec<FinderEntry>,
     pub truncated: bool,
+}
+
+#[derive(Serialize)]
+pub struct Stat {
+    #[serde(flatten)]
+    pub entry: FinderEntry,
+    pub path: String,
+}
+
+pub struct Contents {
+    pub data: Vec<u8>,
+    pub modified_ms: i64,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Create {
+    #[default]
+    Always,
+    New,
+    Never,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteOptions {
+    #[serde(default)]
+    pub create: Create,
+    pub if_modified_ms: Option<f64>,
+    #[serde(default)]
+    pub mkdirs: bool,
+}
+
+#[derive(Default, Deserialize)]
+pub struct MkdirOptions {
+    #[serde(default)]
+    pub recursive: bool,
 }
 
 pub struct Resolved {
@@ -219,7 +256,7 @@ impl WorkspaceFs {
         fs::canonicalize(path).map(|real| real.to_string_lossy().into_owned())
     }
 
-    pub fn resolve(root: &FinderRoot, relative: &str, must_exist: bool) -> Outcome<Resolved> {
+    fn clean(relative: &str) -> Outcome<String> {
         if relative.contains('\0') || relative.is_absolute() {
             return Err(Failure::invalid("path must be relative to the workspace"));
         }
@@ -229,11 +266,19 @@ impl WorkspaceFs {
         if clean == ".." || clean.starts_with("../") {
             return Err(Failure::invalid("path escapes the workspace"));
         }
+        Ok(clean.to_owned())
+    }
+
+    fn inside(real_root: &str, path: &str) -> bool {
+        path == real_root || path.strip_prefix(real_root).is_some_and(|rest| rest.starts_with('/'))
+    }
+
+    pub fn resolve(root: &FinderRoot, relative: &str, must_exist: bool) -> Outcome<Resolved> {
+        let clean = Self::clean(relative)?;
+        let clean = clean.as_str();
         let absolute = if clean == "." { root.path.clone() } else { root.path.join(clean) };
         let real_root = Self::realpath(&root.path)?;
-        let inside = |path: &str| {
-            path == real_root || path.strip_prefix(real_root.as_str()).is_some_and(|rest| rest.starts_with('/'))
-        };
+        let inside = |path: &str| Self::inside(&real_root, path);
         let mut real = absolute.clone();
         if must_exist {
             real = Self::realpath(&absolute).map_err(|_| Failure::http(404, "no such file or directory"))?;
@@ -331,23 +376,137 @@ impl WorkspaceFs {
     }
 
     pub fn raw_in(root: &FinderRoot, relative: &str) -> Outcome<(String, Vec<u8>)> {
+        let (absolute, contents) = Self::contents(root, relative)?;
+        Ok((absolute.basename().to_owned(), contents.data))
+    }
+
+    fn contents(root: &FinderRoot, relative: &str) -> Outcome<(String, Contents)> {
         let Resolved { absolute, real, .. } = Self::resolve(root, relative, true)?;
-        let info = fs::metadata(&real)?;
+        if !fs::metadata(&real)?.is_file() {
+            return Err(Failure::invalid("not a regular file"));
+        }
+        let file = OpenOptions::new().read(true).custom_flags((OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32).open(&real)?;
+        let info = file.metadata()?;
         if !info.is_file() {
             return Err(Failure::invalid("not a regular file"));
         }
+        let too_large = || Failure::http(413, "file exceeds 64 MiB");
         if info.len() > MAX_RAW_BYTES {
-            return Err(Failure::http(413, "file exceeds 64 MiB"));
+            return Err(too_large());
         }
-        let mut data = Vec::new();
-        std::io::Read::read_to_end(&mut Self::open_nofollow(&real)?, &mut data)?;
-        Ok((absolute.basename().to_owned(), data))
+        let mut data = Vec::with_capacity(info.len() as usize);
+        file.take(MAX_RAW_BYTES + 1).read_to_end(&mut data)?;
+        if data.len() as u64 > MAX_RAW_BYTES {
+            return Err(too_large());
+        }
+        Ok((absolute, Contents { data, modified_ms: info.modified_ms() }))
     }
 
-    pub fn mkdir(&self, root_path: &str, relative: &str) -> Outcome<FinderEntry> {
-        let Resolved { absolute, .. } = self.resolve_at(root_path, relative, false)?;
-        DirBuilder::new().mode(0o755).create(&absolute)?;
+    pub fn stat_in(root: &FinderRoot, relative: &str) -> Outcome<Stat> {
+        let Resolved { absolute, relative, .. } = Self::resolve(root, relative, true)?;
+        Ok(Stat { entry: FinderEntry::read(&absolute, absolute.basename())?, path: relative })
+    }
+
+    pub fn read_bytes_in(root: &FinderRoot, relative: &str) -> Outcome<Contents> {
+        Self::contents(root, relative).map(|(_, contents)| contents)
+    }
+
+    pub fn read_text_in(root: &FinderRoot, relative: &str) -> Outcome<(String, i64)> {
+        let Contents { data, modified_ms } = Self::read_bytes_in(root, relative)?;
+        let text = String::from_utf8(data).map_err(|_| Failure::invalid("file is not valid UTF-8 text").with(Errno::Ilseq))?;
+        Ok((text, modified_ms))
+    }
+
+    pub fn write_file_in(root: &FinderRoot, relative: &str, data: &[u8], options: &WriteOptions) -> Outcome<FinderEntry> {
+        if data.len() as u64 > MAX_RAW_BYTES {
+            return Err(Failure::http(413, "content exceeds 64 MiB"));
+        }
+        if options.create == Create::New && options.if_modified_ms.is_some() {
+            return Err(Failure::invalid("ifModifiedMs cannot go with create: 'new'"));
+        }
+        if options.mkdirs && options.create != Create::Never {
+            let parent = Self::clean(relative)?.dirname().to_owned();
+            if parent != "." {
+                Self::make_dirs(root, &parent)?;
+            }
+        }
+        let Resolved { absolute, .. } = Self::resolve(root, relative, false)?;
+        let mut open = OpenOptions::new();
+        open.write(true).custom_flags((OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32).mode(0o644);
+        match (options.create, options.if_modified_ms) {
+            (Create::New, _) => open.create_new(true),
+            (Create::Always, None) => open.create(true),
+            _ => &mut open,
+        };
+        let mut file = open.open(&absolute).map_err(|error| match (error.kind(), options.create, options.if_modified_ms) {
+            (ErrorKind::AlreadyExists, ..) => Failure::exists("file already exists"),
+            (ErrorKind::NotFound, _, Some(_)) => Failure::conflict("file no longer exists or is not a regular file"),
+            _ => error.into(),
+        })?;
+        let info = file.metadata()?;
+        if !info.is_file() {
+            return Err(Failure::invalid("not a regular file"));
+        }
+        if let Some(expected) = options.if_modified_ms
+            && info.modified_ms() as f64 != expected
+        {
+            return Err(Failure::conflict("file changed since it was opened; reload before saving"));
+        }
+        file.set_len(0)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+        drop(file);
         FinderEntry::read(&absolute, absolute.basename())
+    }
+
+    pub fn mkdir_in(root: &FinderRoot, relative: &str, options: &MkdirOptions) -> Outcome<FinderEntry> {
+        let absolute = match options.recursive {
+            true => Self::make_dirs(root, relative)?,
+            false => {
+                let Resolved { absolute, .. } = Self::resolve(root, relative, false)?;
+                DirBuilder::new().mode(0o755).create(&absolute)?;
+                absolute
+            }
+        };
+        FinderEntry::read(&absolute, absolute.basename())
+    }
+
+    fn make_dirs(root: &FinderRoot, relative: &str) -> Outcome<String> {
+        let clean = Self::clean(relative)?;
+        let real_root = Self::realpath(&root.path)?;
+        let mut at = root.path.clone();
+        if clean == "." {
+            return Ok(at);
+        }
+        let parts: Vec<&str> = clean.split('/').collect();
+        for (index, part) in parts.iter().enumerate() {
+            at = at.join(part);
+            let last = index + 1 == parts.len();
+            let blocked = || match last {
+                true => Failure::exists("a file with that name already exists"),
+                false => Failure::invalid("not a directory"),
+            };
+            match fs::symlink_metadata(&at) {
+                Ok(info) if info.is_dir() => {}
+                Ok(info) if info.file_type().is_symlink() => {
+                    let real = Self::realpath(&at).map_err(|_| Failure::invalid("a symlink on the path points nowhere"))?;
+                    if !Self::inside(&real_root, &real) {
+                        return Err(Failure::invalid("path leaves the workspace through a symlink"));
+                    }
+                    if !fs::metadata(&real)?.is_dir() {
+                        return Err(blocked());
+                    }
+                }
+                Ok(_) => return Err(blocked()),
+                Err(error) if error.kind() == ErrorKind::NotFound => match DirBuilder::new().mode(0o755).create(&at) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists && fs::metadata(&at).is_ok_and(|info| info.is_dir()) => {}
+                    Err(error) => return Err(error.into()),
+                },
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(at)
     }
 
     pub fn write(&self, root_path: &str, relative: &str, content: &str, expected: &str) -> Outcome<FinderEntry> {
@@ -453,5 +612,177 @@ impl WorkspaceFs {
 
     fn resolve_at(&self, root_path: &str, relative: &str, must_exist: bool) -> Outcome<Resolved> {
         Self::resolve(&self.root(root_path)?, relative, must_exist)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    struct Scratch {
+        dir: String,
+        root: FinderRoot,
+    }
+
+    impl Scratch {
+        fn new() -> Self {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let base = std::env::temp_dir().join(format!("acde-ws-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            let dir = base.to_string_lossy().into_owned();
+            fs::create_dir_all(dir.join("root")).unwrap();
+            let root = FinderRoot { path: dir.join("root"), label: "root".into(), source: RootSource::Default, mode: RootMode::Writable, reason: None, exists: true };
+            Self { dir, root }
+        }
+
+        fn at(&self, relative: &str) -> String {
+            self.root.path.join(relative)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            _ = fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn code<T>(outcome: Outcome<T>) -> (u16, &'static str) {
+        match outcome {
+            Ok(_) => (0, "ok"),
+            Err(failure) => (failure.status, failure.errno.as_str()),
+        }
+    }
+
+    fn write(options: &str) -> WriteOptions {
+        serde_json::from_str(options).unwrap()
+    }
+
+    #[test]
+    fn stat_reports_the_entry_and_its_clean_path() {
+        let s = Scratch::new();
+        fs::create_dir(s.at("notes")).unwrap();
+        fs::write(s.at("notes/a.md"), "hello").unwrap();
+        symlink("a.md", s.at("notes/link.md")).unwrap();
+        let stat = WorkspaceFs::stat_in(&s.root, "notes/./a.md").unwrap();
+        assert_eq!((stat.path.as_str(), stat.entry.name.as_str(), stat.entry.size), ("notes/a.md", "a.md", 5));
+        assert!(stat.entry.kind == EntryKind::File);
+        let link = WorkspaceFs::stat_in(&s.root, "notes/link.md").unwrap();
+        assert!(link.entry.kind == EntryKind::Symlink && link.entry.target.as_deref() == Some("a.md"));
+        let root = WorkspaceFs::stat_in(&s.root, "").unwrap();
+        assert!(root.path.is_empty() && root.entry.kind == EntryKind::Directory && root.entry.name == "root");
+        assert_eq!(code(WorkspaceFs::stat_in(&s.root, "nope")), (404, "ENOENT"));
+        assert_eq!(code(WorkspaceFs::stat_in(&s.root, "../")), (400, "EINVAL"));
+    }
+
+    #[test]
+    fn reads_follow_the_root_rules() {
+        let s = Scratch::new();
+        fs::write(s.dir.join("secret"), "outside").unwrap();
+        symlink(s.dir.join("secret"), s.at("out")).unwrap();
+        fs::create_dir(s.at("dir")).unwrap();
+        assert_eq!(code(WorkspaceFs::read_text_in(&s.root, "out")), (400, "EINVAL"));
+        assert_eq!(code(WorkspaceFs::read_bytes_in(&s.root, "/etc/hosts")), (400, "EINVAL"));
+        assert_eq!(code(WorkspaceFs::read_text_in(&s.root, "dir")), (400, "EINVAL"));
+        assert_eq!(code(WorkspaceFs::read_text_in(&s.root, "missing")), (404, "ENOENT"));
+    }
+
+    #[test]
+    fn read_text_is_the_whole_file_beyond_the_preview() {
+        let s = Scratch::new();
+        let big = format!("\u{feff}{}", "é".repeat(200 * 1024));
+        fs::write(s.at("big.txt"), &big).unwrap();
+        let (text, modified) = WorkspaceFs::read_text_in(&s.root, "big.txt").unwrap();
+        assert_eq!(text.len(), big.len());
+        assert!(text == big && text.len() as u64 > MAX_PREVIEW_BYTES);
+        assert_eq!(modified, fs::metadata(s.at("big.txt")).unwrap().modified_ms());
+        fs::write(s.at("bad.txt"), [b'a', 0xff, b'b']).unwrap();
+        assert_eq!(code(WorkspaceFs::read_text_in(&s.root, "bad.txt")), (400, "EILSEQ"));
+        let bytes = WorkspaceFs::read_bytes_in(&s.root, "bad.txt").unwrap();
+        assert_eq!(bytes.data, [b'a', 0xff, b'b']);
+    }
+
+    #[test]
+    fn reads_stop_at_the_raw_limit() {
+        let s = Scratch::new();
+        let file = File::create(s.at("huge.bin")).unwrap();
+        file.set_len(MAX_RAW_BYTES + 1).unwrap();
+        assert_eq!(code(WorkspaceFs::read_bytes_in(&s.root, "huge.bin")), (413, "EFBIG"));
+        let data = vec![0u8; MAX_RAW_BYTES as usize + 1];
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "x.bin", &data, &WriteOptions::default())), (413, "EFBIG"));
+        assert!(!Path::new(&s.at("x.bin")).exists());
+    }
+
+    #[test]
+    fn write_file_creates_overwrites_and_detects_conflicts() {
+        let s = Scratch::new();
+        let entry = WorkspaceFs::write_file_in(&s.root, "a.bin", &[0, 1, 2, 255], &WriteOptions::default()).unwrap();
+        assert_eq!((entry.name.as_str(), entry.size), ("a.bin", 4));
+        assert_eq!(fs::read(s.at("a.bin")).unwrap(), [0, 1, 2, 255]);
+        let entry = WorkspaceFs::write_file_in(&s.root, "a.bin", b"xy", &WriteOptions::default()).unwrap();
+        assert_eq!((entry.size, fs::read(s.at("a.bin")).unwrap()), (2, b"xy".to_vec()));
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "a.bin", b"z", &write(r#"{"create":"new"}"#))), (409, "EEXIST"));
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "b.bin", b"z", &write(r#"{"create":"never"}"#))), (404, "ENOENT"));
+        assert!(!Path::new(&s.at("b.bin")).exists());
+        let now = entry.modified_ms;
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "a.bin", b"z", &write(&format!(r#"{{"ifModifiedMs":{}}}"#, now - 1000)))), (409, "ECONFLICT"));
+        assert_eq!(fs::read(s.at("a.bin")).unwrap(), b"xy");
+        let ok = WorkspaceFs::write_file_in(&s.root, "a.bin", b"saved", &write(&format!(r#"{{"ifModifiedMs":{now},"create":"never"}}"#))).unwrap();
+        assert_eq!(ok.size, 5);
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "gone.bin", b"z", &write(r#"{"ifModifiedMs":1}"#))), (409, "ECONFLICT"));
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "c.bin", b"z", &write(r#"{"ifModifiedMs":1,"create":"new"}"#))), (400, "EINVAL"));
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "", b"z", &WriteOptions::default())), (400, "EINVAL"));
+    }
+
+    #[test]
+    fn write_file_keeps_the_inode_and_refuses_links_and_folders() {
+        let s = Scratch::new();
+        fs::write(s.at("keep.txt"), "old").unwrap();
+        let inode = fs::metadata(s.at("keep.txt")).unwrap().ino();
+        WorkspaceFs::write_file_in(&s.root, "keep.txt", b"new", &WriteOptions::default()).unwrap();
+        assert_eq!(fs::metadata(s.at("keep.txt")).unwrap().ino(), inode);
+        fs::write(s.dir.join("secret"), "outside").unwrap();
+        symlink(s.dir.join("secret"), s.at("link")).unwrap();
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "link", b"x", &WriteOptions::default())), (400, "EINVAL"));
+        assert_eq!(fs::read_to_string(s.dir.join("secret")).unwrap(), "outside");
+        fs::create_dir(s.at("folder")).unwrap();
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "folder", b"x", &WriteOptions::default())), (400, "EINVAL"));
+        symlink(&s.dir, s.at("away")).unwrap();
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "away/x", b"x", &WriteOptions::default())), (400, "EINVAL"));
+        assert!(!Path::new(&s.dir.join("x")).exists());
+    }
+
+    #[test]
+    fn write_file_mkdirs_creates_the_parents() {
+        let s = Scratch::new();
+        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "a/b/c.md", b"x", &WriteOptions::default())), (400, "EINVAL"));
+        WorkspaceFs::write_file_in(&s.root, "a/b/c.md", b"x", &write(r#"{"mkdirs":true}"#)).unwrap();
+        assert_eq!(fs::read(s.at("a/b/c.md")).unwrap(), b"x");
+        assert!(serde_json::from_str::<WriteOptions>(r#"{"create":"sometimes"}"#).is_err());
+        assert!(serde_json::from_str::<WriteOptions>(r#"{"ifModifiedMs":"12"}"#).is_err());
+        assert!(serde_json::from_str::<WriteOptions>(r#"{"other":1}"#).is_ok());
+    }
+
+    #[test]
+    fn mkdir_recursive() {
+        let s = Scratch::new();
+        let recursive = MkdirOptions { recursive: true };
+        assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "x/y", &MkdirOptions::default())), (400, "EINVAL"));
+        let entry = WorkspaceFs::mkdir_in(&s.root, "x/y/z", &recursive).unwrap();
+        assert!(entry.name == "z" && entry.kind == EntryKind::Directory);
+        assert!(Path::new(&s.at("x/y/z")).is_dir());
+        assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "x/y/z", &recursive)), (0, "ok"));
+        assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "x/y/z", &MkdirOptions::default())), (409, "EEXIST"));
+        assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "", &recursive)), (0, "ok"));
+        fs::write(s.at("x/file"), "").unwrap();
+        assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "x/file", &recursive)), (409, "EEXIST"));
+        assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "x/file/deeper", &recursive)), (400, "EINVAL"));
+        symlink(s.at("x"), s.at("inside")).unwrap();
+        WorkspaceFs::mkdir_in(&s.root, "inside/w", &recursive).unwrap();
+        assert!(Path::new(&s.at("x/w")).is_dir());
+        symlink(&s.dir, s.at("away")).unwrap();
+        assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "away/w", &recursive)), (400, "EINVAL"));
+        assert!(!Path::new(&s.dir.join("w")).exists());
+        assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "../w", &recursive)), (400, "EINVAL"));
     }
 }

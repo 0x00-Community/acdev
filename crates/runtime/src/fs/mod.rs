@@ -2,7 +2,7 @@ pub(crate) mod path;
 pub(crate) mod workspace;
 
 use path::NodePath;
-use workspace::{FinderEntry, FinderPreview, FinderRoot, WorkspaceFs};
+use workspace::{Contents, FinderEntry, FinderPreview, FinderRoot, MkdirOptions, WorkspaceFs, WriteOptions};
 
 use crate::blocking;
 use crate::failure::{Failure, Outcome};
@@ -135,7 +135,11 @@ pub enum FsCall {
     Locate { path: String },
     OpenPath { root: String, path: String },
     Place { root: String, path: Option<String>, file: Option<String> },
-    Mkdir { root: String, path: String },
+    Mkdir { root: String, path: String, options: Option<Value> },
+    Stat { root: String, path: String },
+    ReadText { root: String, path: String },
+    ReadBytes { root: String, path: String },
+    WriteFile { root: String, path: String, data: Option<Vec<u8>>, options: Option<Value> },
     Write { root: String, path: String, content: Option<String>, expected_modified_ms: String },
     CopyIn { root: String, dir: String, source: String },
     Rename { root: String, from: String, to: String },
@@ -145,6 +149,8 @@ pub enum FsCall {
 pub enum FsReply {
     Json(Value),
     File { name: String, data: Vec<u8> },
+    Text { text: String, modified_ms: i64, size: u64 },
+    Bytes { data: Vec<u8>, modified_ms: i64 },
 }
 
 pub struct FsError {
@@ -170,6 +176,10 @@ impl FsCall {
             | Self::OpenPath { root, .. }
             | Self::Place { root, .. }
             | Self::Mkdir { root, .. }
+            | Self::Stat { root, .. }
+            | Self::ReadText { root, .. }
+            | Self::ReadBytes { root, .. }
+            | Self::WriteFile { root, .. }
             | Self::Write { root, .. }
             | Self::CopyIn { root, .. }
             | Self::Rename { root, .. }
@@ -195,7 +205,24 @@ impl Shared {
             FsCall::Locate { path } => json(self.locate(&path)),
             FsCall::OpenPath { root, path } => json(self.open_path(&root, &path)),
             FsCall::Place { root, path, file } => json(self.set_place(root, path, file).json()),
-            FsCall::Mkdir { root, path } => json(self.fs.mkdir(&root, &path).json()),
+            FsCall::Mkdir { root, path, options } => {
+                let options: MkdirOptions = options_of("mkdir", options)?;
+                json(WorkspaceFs::mkdir_in(&self.fs.root(&root)?, &path, &options).json())
+            }
+            FsCall::Stat { root, path } => json(WorkspaceFs::stat_in(&self.fs.root(&root)?, &path).json()),
+            FsCall::ReadText { root, path } => {
+                let (text, modified_ms) = WorkspaceFs::read_text_in(&self.fs.root(&root)?, &path)?;
+                Ok(FsReply::Text { size: text.len() as u64, text, modified_ms })
+            }
+            FsCall::ReadBytes { root, path } => {
+                let Contents { data, modified_ms } = WorkspaceFs::read_bytes_in(&self.fs.root(&root)?, &path)?;
+                Ok(FsReply::Bytes { data, modified_ms })
+            }
+            FsCall::WriteFile { root, path, data, options } => {
+                let options: WriteOptions = options_of("writeFile", options)?;
+                let data = data.ok_or_else(|| Failure::invalid("data must be a string or a Uint8Array"))?;
+                json(WorkspaceFs::write_file_in(&self.fs.root(&root)?, &path, &data, &options).json())
+            }
             FsCall::Write { root, path, content, expected_modified_ms } => json(self.fs.write(&root, &path, content.as_deref().unwrap_or(""), &expected_modified_ms).json()),
             FsCall::CopyIn { root, dir, source } => json(self.fs.copy_in(&root, &dir, &source).json()),
             FsCall::Rename { root, from, to } => json(self.fs.rename(&root, &from, &to).json()),
@@ -249,6 +276,13 @@ impl Shared {
         *self.place.locked() = place.clone();
         place.save();
         Ok(place)
+    }
+}
+
+fn options_of<T: Default + serde::de::DeserializeOwned>(method: &str, options: Option<Value>) -> Outcome<T> {
+    match options {
+        None | Some(Value::Null) => Ok(T::default()),
+        Some(value) => serde_json::from_value(value).map_err(|error| Failure::invalid(format!("{method} options: {error}"))),
     }
 }
 
@@ -307,7 +341,7 @@ impl Finder {
     async fn json(&self, call: FsCall) -> Result<Value> {
         match self.run(call).await? {
             FsReply::Json(value) => Ok(value),
-            FsReply::File { .. } => Err(Failure::internal("a file where JSON was expected").into()),
+            _ => Err(Failure::internal("a file where JSON was expected").into()),
         }
     }
 
@@ -335,7 +369,7 @@ impl Finder {
     pub async fn download(&self, root: String, path: String) -> Result<FileBytes> {
         match self.run(FsCall::Download { root, path }).await? {
             FsReply::File { name, data } => Ok(FileBytes { name, content_type: FsReply::OCTETS.to_owned(), data: data.into() }),
-            FsReply::Json(_) => Err(Failure::internal("JSON where a file was expected").into()),
+            _ => Err(Failure::internal("JSON where a file was expected").into()),
         }
     }
     #[napi]
@@ -352,7 +386,7 @@ impl Finder {
     }
     #[napi]
     pub async fn mkdir(&self, root: String, path: String) -> Result<Value> {
-        self.json(FsCall::Mkdir { root, path }).await
+        self.json(FsCall::Mkdir { root, path, options: None }).await
     }
     #[napi]
     pub async fn write(&self, root: String, path: String, content: Option<String>, expected_modified_ms: String) -> Result<Value> {
