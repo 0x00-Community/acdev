@@ -1,5 +1,5 @@
 import { defineHandlers } from '../core/event'
-import { getters, tag } from '../core/host'
+import { constants, getters, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { Element, HANDLER_TYPES, setAttribute } from './element'
 import { DOMMatrix, DOMPoint, DOMQuad, DOMRect, svgTransform } from './geometry'
@@ -57,14 +57,13 @@ Object.defineProperty(SVGElement.prototype, 'className', {
 })
 
 export class SVGTransform {
-  static readonly SVG_TRANSFORM_UNKNOWN = 0
-  static readonly SVG_TRANSFORM_MATRIX = 1
   constructor(readonly matrix: DOMMatrix) {}
   setMatrix(matrix: DOMMatrix): void {
     ;(this as { matrix: DOMMatrix }).matrix = DOMMatrix.fromMatrix(matrix)
   }
 }
 getters(SVGTransform.prototype, { type: 1, angle: 0 })
+constants(SVGTransform, { SVG_TRANSFORM_UNKNOWN: 0, SVG_TRANSFORM_MATRIX: 1 })
 tag(SVGTransform)
 
 export class SVGTransformList {

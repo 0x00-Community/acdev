@@ -1,5 +1,5 @@
 import { DOMException, guard } from '../core/exception'
-import { getters, listClass, tag } from '../core/host'
+import { constants, getters, listClass, tag } from '../core/host'
 import { setAttribute, type Element } from './element'
 import { computedStyleOf } from './layout'
 import { changed, dom, ID, version } from './realm'
@@ -225,11 +225,6 @@ function freeStyle(text: string): CSSStyleDeclaration {
 }
 
 export class CSSRule {
-  static readonly STYLE_RULE = 1
-  static readonly IMPORT_RULE = 3
-  static readonly MEDIA_RULE = 4
-  static readonly FONT_FACE_RULE = 5
-  static readonly KEYFRAMES_RULE = 7
   constructor(
     readonly cssText: string,
     readonly parentStyleSheet: CSSStyleSheet | null,
@@ -250,6 +245,7 @@ export class CSSRule {
     return freeStyle(open < 0 ? '' : this.cssText.slice(open + 1, this.cssText.lastIndexOf('}')))
   }
 }
+constants(CSSRule, { STYLE_RULE: 1, IMPORT_RULE: 3, MEDIA_RULE: 4, FONT_FACE_RULE: 5, KEYFRAMES_RULE: 7 })
 tag(CSSRule)
 export class CSSStyleRule extends CSSRule {}
 tag(CSSStyleRule)
