@@ -365,6 +365,11 @@ export class Broker {
 
   static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office'])
 
+  addService(name: string, target: unknown): void {
+    this.bridge.value[name] = target
+    this.#publishServices()
+  }
+
   #publishServices(): void {
     const services: ServiceSpec[] = []
     for (const [name, target] of Object.entries(this.bridge.value)) {

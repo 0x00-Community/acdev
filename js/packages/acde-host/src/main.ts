@@ -262,7 +262,7 @@ class Main {
     const started = performance.now()
     const scheme = fixed === null ? Appearance.follow(native, (dark) => broker.setDark(dark)) : null
     await broker.startServices()
-    if (greeter) broker.bridge.value['greeter'] = Main.greeter(native, broker, packages)
+    if (greeter) broker.addService('greeter', Main.greeter(native, broker, packages))
     if (scheme) await within(scheme, Math.max(0, Appearance.WAIT_MS - (performance.now() - started)), undefined)
     broker.startDesktop()
     Log.write(Level.Info, 'acde_host', `broker started, the desktop is loading (${(performance.now() - started).toFixed(0)}ms)`)
