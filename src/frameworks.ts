@@ -60,7 +60,7 @@ export class Frameworks {
 
   static #ownBuild(b: Pick<Build, 'pkg'>): boolean {
     const build = Frameworks.#scripts(b)['build']
-    return typeof build === 'string' && !/(^|[\s;&|(])(acde|bunx acde|npx acde)\s/.test(`${build} `)
+    return typeof build === 'string' && !/(^|[\s;&|(/])(acde|acde\.mjs|bunx acde|npx acde)\s/.test(`${build} `)
   }
 
   static #deps(pkg: Readonly<Record<string, unknown>>): Set<string> {

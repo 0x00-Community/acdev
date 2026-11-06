@@ -158,11 +158,13 @@ export class Creator {
     let pkg: AppPackage
     if (starter.scaffold) {
       await step(`${starter.label}: its own scaffolding`, [starter.scaffold(dir, pm.name)], undefined, { CI: '1' })
-      pkg = AppPackage.adopt(dir, id, label, starter.label)
+      pkg = AppPackage.adopt(dir, id, label, starter.label, pm.name)
     } else {
-      pkg = AppPackage.create(dir, starter.kind, id, label, undefined, options.backend ? ['backend'] : [])
+      pkg = AppPackage.create(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
     }
     AppPackage.prepare(dir, pm)
+    const registration = AppPackage.registration(pm.name)
+    if (registration) await step(`bun link (registers this acde checkout for "acde": "link:acde")`, [registration], AppPackage.ROOT)
     if (options.install) await step(`${pm.name} install`, [pm.install], dir)
     if (options.git && !Creator.#inRepo(dir)) {
       await step('git init', [['git', 'init', '--quiet'], ['git', 'add', '--all']], dir)

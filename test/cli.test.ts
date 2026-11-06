@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { AppPackage } from '../src/package.ts'
 import { appId } from '../src/sockets.ts'
 import { cleanup, env, tmp } from './helpers.ts'
@@ -234,12 +234,13 @@ describe('acde.config.jsonc', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'made-by-vite', devDependencies: { vite: '^7.0.0' } }))
     writeFileSync(join(dir, '.gitignore'), 'node_modules')
-    AppPackage.adopt(dir, 'made-by-vite', 'Vite App', 'React')
+    AppPackage.adopt(dir, 'made-by-vite', 'Vite App', 'React', 'npm')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    expect(Object.keys(pkg.devDependencies)).toEqual(['vite', '@dopame/acde-api'])
+    expect(Object.keys(pkg.devDependencies)).toEqual(['vite', '@dopame/acde-api', 'acde'])
+    expect(pkg.scripts).toEqual({ 'acde:dev': 'acde dev', 'acde:build': 'acde build', 'acde:check': 'acde check' })
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
     expect(readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')).toContain('"label": "Vite App"')
-    AppPackage.adopt(dir, 'made-by-vite', 'Vite App', 'React')
+    AppPackage.adopt(dir, 'made-by-vite', 'Vite App', 'React', 'npm')
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
   })
 
@@ -256,6 +257,71 @@ describe('acde.config.jsonc', () => {
     writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "widget" }')
     expect((await cli(['check'], dir)).stderr).toContain('"type" is "app" (a window app) or "desktop"')
   })
+})
+
+describe('a project made by acde from its checkout', () => {
+  const API = realpathSync(join(import.meta.dir, '../../acdert/web/packages/acde-api'))
+  const ROOT = realpathSync(join(import.meta.dir, '..'))
+
+  function tools(names: readonly string[]): string {
+    const bin = tmp()
+    for (const name of names) {
+      const found = name === 'bun' ? process.execPath : Bun.which(name)
+      if (!found) throw new Error(`${name} is not on PATH`)
+      writeFileSync(join(bin, name), `#!/bin/sh\nexec ${JSON.stringify(realpathSync(found))} "$@"\n`, { mode: 0o755 })
+    }
+    return bin
+  }
+
+  async function run(argv: string[], cwd: string, path: string, extra: Record<string, string> = {}) {
+    const child = Bun.spawn(argv, { cwd, env: env({ PATH: `${path}:/usr/bin:/bin`, npm_config_user_agent: '', ...extra }), stdout: 'pipe', stderr: 'pipe' })
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
+    return { code, out: stdout + stderr }
+  }
+
+  test('the SDK and acde are relative paths; each package manager gets the protocol that links acde', () => {
+    const dir = realpathSync(tmp())
+    const rel = (to: string) => relative(dir, to)
+    expect(AppPackage.wiring(dir, 'bun')).toEqual({ devDependencies: { '@dopame/acde-api': `file:${rel(API)}`, acde: 'link:acde' }, command: 'acde' })
+    expect(AppPackage.registration('bun')).toEqual([process.execPath, 'link'])
+    expect(AppPackage.registration('npm')).toBeNull()
+    expect(AppPackage.wiring(dir, 'npm').devDependencies['acde']).toBe(`file:${rel(ROOT)}`)
+    expect(AppPackage.wiring(dir, 'pnpm').devDependencies['acde']).toBe(`link:${rel(ROOT)}`)
+    expect(AppPackage.wiring(dir, 'yarn')).toEqual({ devDependencies: { '@dopame/acde-api': `file:${rel(API)}`, acde: `portal:${rel(ROOT)}` }, resolutions: { '@dopame/acde-api': `file:${rel(API)}` }, command: 'acde' })
+    expect(AppPackage.wiring(dir, 'deno')).toEqual({ devDependencies: { '@dopame/acde-api': `file:${rel(API)}`, acde: `file:${rel(ROOT)}` }, command: 'deno run -A node_modules/acde/bin/acde.mjs' })
+    expect(rel(API)).toStartWith('..')
+  })
+
+  test('bun: acde new registers the checkout (bun link); bun install && bun run build, nothing by hand, no acde or node on PATH', async () => {
+    const global = { BUN_INSTALL: tmp() }
+    const dir = join(tmp(), 'by-bun')
+    expect((await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), global)).code).toBe(0)
+    expect(realpathSync(join(global.BUN_INSTALL, 'install/global/node_modules/acde'))).toBe(ROOT)
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    expect(pkg.devDependencies['acde']).toBe('link:acde')
+    const path = tools(['bun'])
+    const installed = await run([process.execPath, 'install'], dir, path, global)
+    expect(installed.code, installed.out).toBe(0)
+    const built = await run([process.execPath, 'run', 'build'], dir, path, global)
+    expect(built.out).toContain('built app by-bun')
+    expect(built.code).toBe(0)
+    expect(existsSync(join(dir, '.acde/web/index.html'))).toBe(true)
+    expect(lstatSync(join(dir, 'node_modules/acde')).isSymbolicLink()).toBe(true)
+  })
+
+  for (const pm of ['npm', 'pnpm'] as const) {
+    test.skipIf(!Bun.which(pm) || !Bun.which('node'))(`${pm}: install, run build`, async () => {
+      const dir = join(tmp(), `by-${pm}`)
+      expect((await cli(['new', dir, '--pm', pm, '--yes'], tmp())).code).toBe(0)
+      const path = tools([pm, 'node', 'bun'])
+      const installed = await run([pm, 'install'], dir, path)
+      expect(installed.code, installed.out).toBe(0)
+      const built = await run([pm, 'run', 'build'], dir, path)
+      expect(built.out).toContain(`built app by-${pm}`)
+      expect(built.code).toBe(0)
+      expect(realpathSync(join(dir, 'node_modules/acde'))).toBe(ROOT)
+    })
+  }
 })
 
 describe('public/ and icons', () => {

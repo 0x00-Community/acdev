@@ -48,9 +48,30 @@ user.name / email 时提交跳过). Ctrl+C 退出码 0 (和 create-vite 一样, 
 `package-lock.json`、`deno.lock`), 再看 package.json 的 `packageManager`. 框架的命令 (`next`、`astro` …) 不经 `node_modules/.bin`
 (pnpm 和 Deno 那里是 shell 脚本, bun 跑不了), 从依赖的 package.json 的 `bin` 找到 JS 文件, `bun --bun` 跑它.
 
-**新工程的 package.json**: 自带模板的 `scripts` 是 `dev` / `build` / `check` (`acde dev` …); 框架模板不动框架自己的脚本, 加
-`acde:dev` / `acde:build` / `acde:check`. devDependency `@dopame/acde-api`, 和 `acde` 自己 (像 wrangler: 版本跟着工程走; 只在
-acde 是发布出去的那份时加, 见「分发」). `build` 脚本调的是 acde 时不算「有 build 脚本的工程」(否则 `acde build` 调自己).
+**新工程的 package.json** (`AppPackage.wire` / `wiring`): 自带模板的 `scripts` 是 `dev` / `build` / `check` (`acde dev` …); 框架模板不动
+框架自己的脚本, 加 `acde:dev` / `acde:build` / `acde:check`. devDependencies 是 `@dopame/acde-api` 和 `acde` 自己 (像 wrangler: 版本
+跟着工程走, 脚本里的 `acde` 就是工程自己的那份, 不靠 PATH). `build` 脚本调的是 acde (`acde`、`bunx acde`、`npx acde`、`…/acde.mjs`)
+时不算「有 build 脚本的工程」(否则 `acde build` 调自己).
+
+- 发布出去的那份 acde (见「分发」): 两个都写 `^<版本>`.
+- 没发布的 (从 git 检出跑的 acde): 工程里不写绝对路径 (挪了目录、换了机器还能用), 都相对工程目录 (两边先 realpath, macOS 的
+  `/tmp` 是 `/private/tmp`), 指向这份检出: `@dopame/acde-api` 是 `file:<相对路径>` (acde 自己的 package.json 里 `file:` 指向的
+  acdert 检出 `web/packages/acde-api`, 不是 acde 的 node_modules 里那份拷贝; `ACDE_API` 照旧能整个换掉). `acde` 按包管理器选能「链接
+  到检出、还把 bin 接上」的写法 (都实测过, 见下面「验过」):
+
+  | 包管理器 | `acde` | 为什么 |
+  | --- | --- | --- |
+  | bun | `link:acde`, `acde new` 时在检出里跑一次 `bun link` (登记到 bun 的全局链接表, `$BUN_INSTALL/install/global/node_modules/acde`, 幂等, 10 ms) | bun 的 `file:` 目录依赖是拷贝, 拷完按工程目录 (不是 acde 的目录) 解析 acde 自己的 `file:../acdert/…` 依赖, 失败; bun 的 `link:<路径>` 不是相对工程的路径, 是相对全局链接目录解析的 (深度碰巧够时才对), 不能用 |
+  | npm | `file:<相对路径>` | npm 对工程外的目录依赖建符号链接、不装它的依赖 (检出自己有 node_modules); npm 不认 `link:` |
+  | pnpm | `link:<相对路径>` | 符号链接, 改检出立刻生效; pnpm 的 `file:` 是把整个目录注入成一份拷贝 (旧了要重装) |
+  | yarn (2+, `nodeLinker: node-modules`) | `portal:<相对路径>`, 另加 `resolutions` 把 `@dopame/acde-api` 定成工程的那条 `file:` | `link:` 不接 bin; `portal:` 接 bin, 但它要解析 acde 自己的依赖, acde 的 `@dopame/acde-api` (相对 acde 的 `file:`) 和工程的那份是两个 locator, 链接时冲突 (YN0071), `resolutions` 让两边是同一份. yarn 1 不支持 `portal:` (acde 本来也只按 yarn 2+ 做) |
+  | deno | `file:<相对路径>`, 脚本写成 `deno run -A node_modules/acde/bin/acde.mjs <命令>` | deno 给本地目录依赖建了 `node_modules/acde` 链接, 但不建 `node_modules/.bin` (`links` 也一样), `deno task` 找不到 `acde` |
+
+  验过 (macOS, 2026-11-06; PATH 里只有各包管理器和 node / bun, 没有全局的 `acde`): bun 1.4.0 (`bun test`: `BUN_INSTALL` 指向临时目录,
+  `acde new --pm bun` 后 `bun install && bun run build`, PATH 里连 node 都没有; 另手动 React 模板 `bun run acde:build`)、npm 11.16 和
+  pnpm 10.23 (`bun test`: 装依赖、`run build`, `node_modules/acde` 指到检出)、yarn 4.18.1 (手动: `yarn set version berry` 后
+  `yarn install && yarn build`)、deno 2.7.12 (手动: html 模板 `deno install && deno task build`; React 模板的脚本对) 都构建出了包.
+  bun 的 `file:` / `link:<路径>`、npm 的 `link:`、yarn 的 `link:` 和不加 `resolutions` 的 `portal:`、deno 的 `links` 也都试过, 都不行 (原因见表).
 
 | 模板 | 怎么来 |
 | --- | --- |
@@ -105,8 +126,8 @@ acde 是发布出去的那份时加, 见「分发」). `build` 脚本调的是 a
   `<包>@<版本>/`, 打一行说明.
 - 用那份 bun 跑 `src/cli.js` (没发布的仓库里是 `src/cli.ts`), PATH 最前面加上 bun 所在目录 (acdert 起应用后端用的就是 PATH 上的
   `bun`), 设 `ACDERT`、`ACDE_HOST_RUNTIME`; SIGINT 父进程只吞掉 (终端已经发给整个进程组), SIGTERM / SIGHUP 转给子进程; 退出码跟它.
-- 「发布出去的那份」= package.json 有 `optionalDependencies` (只有打包脚本写): 这时新工程的依赖写 `^<版本>`, 并加 `acde`;
-  仓库里的 acde 照旧 `file:` 指向 acde-api, 不加 `acde`.
+- 「发布出去的那份」= package.json 有 `optionalDependencies` (只有打包脚本写): 这时新工程的依赖写 `^<版本>`; 仓库里的 acde 写相对
+  路径链接到这份检出 (见「新工程的 package.json」).
 
 打包: `bun scripts/pack.ts --acdert <平台>=<二进制> ... --host <acde-host dist> [--api <acde-api 目录>] [--version x.y.z]
 [--bun-version] [--out .npm] [--publish <仓库>]`: 在 `.npm/` 出各包的 tgz (`bun pm pack`), `--publish` 时用 PATH 上的 npm 发
