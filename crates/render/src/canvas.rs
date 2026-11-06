@@ -4,14 +4,13 @@ use std::sync::Arc;
 use acde_gpu::{PaintScene, Scene};
 use blitz_dom::BaseDocument;
 use kurbo::{Affine, BezPath, Cap, Join, PathEl, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2};
-use peniko::{BlendMode, Color, Compose, Fill, Gradient, Mix};
+use peniko::{BlendMode, Color, Compose, Fill, Gradient, Mix, StyleRef};
 
 use crate::error::{Error, Result};
 use crate::gpu::{self, CanvasImage};
 
 const MAX_COMMANDS: usize = 20_000;
 pub(crate) const MAX_SIDE: u32 = 4096;
-const TOLERANCE: f64 = 0.1;
 
 pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::new();
@@ -233,7 +232,7 @@ impl Style {
             3 => Rect::new(0.0, 0.0, w, h),
             _ => return None,
         };
-        let mut path = rect.to_path(TOLERANCE);
+        let mut path = rect.to_path(Scene::TOLERANCE);
         path.apply_affine(user * p.matrix);
         Some(path)
     }
@@ -445,14 +444,14 @@ impl Canvas {
                 }
                 28 => {
                     let [x, y, w, h] = r.fs::<4>()?;
-                    self.append(Rect::new(x, y, x + w, y + h).path_elements(TOLERANCE));
+                    self.append(Rect::new(x, y, x + w, y + h).path_elements(Scene::TOLERANCE));
                     self.path.move_to(self.state.transform * Point::new(x, y));
                 }
                 29 => {
                     let [x, y, w, h, tl, tr, br, bl] = r.fs::<8>()?;
                     let rect = Rect::new(x, y, x + w, y + h).abs();
                     let shape = RoundedRect::from_rect(rect, RoundedRectRadii::new(tl, tr, br, bl));
-                    self.append(shape.path_elements(TOLERANCE));
+                    self.append(shape.path_elements(Scene::TOLERANCE));
                     self.path.move_to(self.state.transform * Point::new(x, y));
                 }
                 30 => self.path.close_path(),
@@ -484,7 +483,7 @@ impl Canvas {
                 43 => {
                     let kind = r.u8()?;
                     let [x, y, w, h] = r.fs::<4>()?;
-                    let mut rect = BezPath::from_vec(Rect::new(x, y, x + w, y + h).path_elements(TOLERANCE).collect());
+                    let mut rect = Rect::new(x, y, x + w, y + h).to_path(Scene::TOLERANCE);
                     rect.apply_affine(self.state.transform);
                     match kind {
                         0 => self.fill(&rect, Fill::NonZero),
@@ -632,20 +631,12 @@ impl Canvas {
         };
         let arc = kurbo::Arc::new(center, Vec2::new(radii.0, radii.1), a0, sweep, rotation);
         let start = self.state.transform
-            * arc.path_elements(TOLERANCE).next().map_or(center, |el| match el {
+            * arc.path_elements(Scene::TOLERANCE).next().map_or(center, |el| match el {
                 PathEl::MoveTo(p) => p,
                 _ => center,
             });
         self.line_to(start);
-        let t = self.state.transform;
-        for el in arc.append_iter(TOLERANCE) {
-            match el {
-                PathEl::LineTo(p) => self.path.line_to(t * p),
-                PathEl::QuadTo(a, b) => self.path.quad_to(t * a, t * b),
-                PathEl::CurveTo(a, b, c) => self.path.curve_to(t * a, t * b, t * c),
-                _ => {}
-            }
-        }
+        self.append(arc.append_iter(Scene::TOLERANCE));
     }
 
     fn arc_to(&mut self, p1: Point, p2: Point, radius: f64) {
@@ -843,6 +834,7 @@ impl Canvas {
         let (brush, clip) = (paint.brush(Affine::IDENTITY), paint.clip(self.state.transform));
         let paint = paint.paint;
         let style = self.state.stroke.clone();
+        let glyph_style = if stroke { StyleRef::Stroke(&style) } else { StyleRef::Fill(Fill::NonZero) };
         let height = f64::from(line.metrics().line_height);
         let bounds = transform.transform_rect_bbox(Rect::new(0.0, 0.0, width, height)).inflate(style.width, style.width);
         self.layered(bounds, |s| {
@@ -852,11 +844,7 @@ impl Canvas {
                     let glyphs = run.positioned_glyphs().map(|g| acde_gpu::Glyph { id: g.id as _, x: g.x, y: g.y });
                     let r = run.run();
                     let coords: &[i16] = bytemuck::cast_slice(r.normalized_coords());
-                    let fill = Fill::NonZero;
-                    match stroke {
-                        true => s.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, &style, &paint, 1.0, transform, brush, glyphs),
-                        false => s.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, fill, &paint, 1.0, transform, brush, glyphs),
-                    }
+                    s.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, glyph_style, &paint, 1.0, transform, brush, glyphs);
                 }
             })
         });
