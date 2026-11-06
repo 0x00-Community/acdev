@@ -532,12 +532,12 @@ title: scope}`)、`window_gone`、`window_min_size`、`window_parent`、`milesto
 6. (已做) 后端: `CompositePlan` (遮挡剔除、damage ≤ 8 块、`Route::Direct` 判定)、合成器做的跨窗口 backdrop (GLES Kawase)、
    合成器级 opacity / transform 的 transition (合成器的 `animate`)、grab 状态机、全局快捷键注册表 (合成器的 `shortcut`)、模态组、
    keyboard-shortcuts-inhibit、动画中的窗口按变换后的位置命中. `Route::Direct` 只计数 (上 plane 由 smithay 判断).
-   本机 Xe3 + HDMI 180 Hz 的 DRM 上验过: 出帧 180 fps, 毛玻璃、动画位置和 RDP 一致; 全屏 fps-probe (XRGB, smithay 当整块不透明)
+   本机 Xe3 + HDMI 180 Hz 的 DRM 上验过: 出帧 180 fps, 毛玻璃、动画位置和 RDP 一致; 全屏的 XRGB 客户端 (smithay 当整块不透明)
    盖住桌面时计划只剩一层, 每帧都判 `Direct`.
 
 ### 验收
 
-每步 `cargo test --release -p acde-render` (`ACDE_PAINT_VERIFY=1` 再跑一遍) 加在真机上起一次会话, 和 fps-probe 比出帧.
+每步 `cargo test --release -p acde-render` (`ACDE_PAINT_VERIFY=1` 再跑一遍) 加在真机上起一次会话.
 用例: 窗口表里只有四种模式, 没有 role / layer / popup; 只挪位置时只有新旧两块脏; `pinned` 窗口盖在 `free` 窗口上; 菜单跨两个
 窗口; blur 窗口背后的内容变了只有 blur 区域脏; `kill -9` 一个客户端, 合成器和别的客户端不动, 它自己的窗口全掉 (`windowclose`
 照发); 输入到上屏
@@ -1106,7 +1106,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
   末尾加 Co-Authored-By.
 - 汇报时分开写「已验证 / 未验证」.
 - 输出诊断用 `log` 的宏 (`log::warn!` …, 计时见「日志和计时」), 不用 `eprintln!`; acde-host 用 `src/log.ts` 的 `Log`. 例外: 测试、命令行的用法和结果
-  (stdout)、fps-probe (独立的程序).
+  (stdout).
 - 除了根目录给人看的 README.md 简介, 说明都写在本文件里, 子目录不放 README 或 AGENTS.md.
 
 ## 目录
@@ -1122,7 +1122,6 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
 | `crates/acde-napi` | Rust | 用 rusty_v8 实现的 Node-API C 接口 (napi8), 让 runtime / shell 的 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` (deno_napi 0.191.0, MIT, 见 LICENSE-MIT): 任务派发换成嵌入方的, 去掉了旧式模块注册、async_hooks、callback scope、napi9+ 和 runtime / shell 链接不到的入口 (删掉后 `cargo build -p acde` 照样链接成功的那些: Date、DataView、TypedArray、escapable handle scope、new_target、freeze / seal、detach、async cleanup hook、symbol、instanceof 等); cleanup hook 只检查参数, 不存 (Env 不析构, 本来就不会跑); 每个 async work 起一条 `acde-napi-work` 线程 (只有 shell 的 screenshot 用); `open` 把一个模块的导出注册进一个 context |
-| `crates/fps-probe` | Rust | 量合成器出帧的 Wayland 客户端, 和 KDE 对比用 (见「crates/fps-probe」) |
 | `js/packages/acde-host` | TypeScript | `acde` 的 JS 部分: Broker (主线程) 和每个 isolate 线程的宿主, 包发现, 桌面服务, 登录页 (`greet/`) |
 | `js/packages/acde-dom` | TypeScript | isolate 里的浏览器全局对象和 DOM (包着 render 的文档) |
 | `js/packages/acde-api` | TypeScript | `@dopame/acde-api`: SDK, 桌面包和应用的接口类型 (唯一对外发布的 JS 包) |
@@ -1379,26 +1378,6 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
   (CodeMirror)、关掉 (旧版 panic 的那一批); `open-browser`: 开机进桌面、从 Dock 打开浏览器. 测试里写死的节点 id 是录制时分配的.
 - `svg/*.svg`: os-v2 运行时 DOM 里所有不同的 `<svg>`, 给 "简单 SVG 跳过 usvg" 做逐像素对比. 是页面 DOM 的原样, 不带页面 CSS
   (render 实际拿到的是带计算样式序列化后的内容), 只当结构参考.
-
-## crates/fps-probe
-
-和 KDE (KWin) 比出帧用的普通 Wayland 客户端 (wayland-client; 只要 wl_shm、xdg-shell、wp_presentation, 有 xdg-decoration 就要服务端
-装饰), 不依赖 acde 的任何东西, 任何 Wayland 合成器上都能跑. 开一个窗口 (默认 640x360), 每个 frame 回调画一帧整窗都在变的动画
-(shm, 整个 buffer 报损坏), 每帧要 presentation feedback; 每秒往 stdout 打一行 JSON, 关窗口或 `--seconds N` 到了时再打一行
-`"summary": true` 的总数. 只在 Linux 上编 (`cargo build --release -p fps-probe`).
-
-`fps-probe [--seconds N] [--size WxH] [--label 名字] [--fullscreen]`. 字段: `fps` (每秒上屏几帧)、`callbacksPerSecond`、`refreshHz`
-(合成器报的刷新率)、`intervalMs` (相邻两次上屏的间隔, mean / p50 / p95 / p99 / max)、`missedVblanks` (有 vblank 序号时按序号,
-否则按间隔除以刷新周期取整; 刷新本身慢了 (间隔一直略大于周期) 时数不出来, 看 `intervalMs`)、`latencyMs` (commit 到上屏)、
-`discarded`、`flags` (`vsync` / `hwClock` / `zeroCopy` 各几帧)、`desktop` (`XDG_CURRENT_DESKTOP`).
-
-对比: 同一台机器、同一个显示器, 分别登录 KDE Plasma 和 acde, 在会话里的终端跑 `fps-probe --seconds 30 --label kde` /
-`--label acde`, 期间做同样的事 (闲着、拖别的窗口、开关应用、播视频), 比两边的 summary.
-- 量的是合成器把一个窗口送上屏的节奏. acde 的网页图层 (桌面、网页窗口) 自己跟不上时合成器照常出帧, 屏幕上是上一帧网页,
-  这里看不出来; 要配上 `drive.sh perf` 的 `webs` 和 `shell.raster`.
-- acde 的 wp_presentation 时间是处理 vblank 时的时钟 (`hwClock` 为 0), KWin 在 DRM 上是硬件时间戳.
-- 无显示器时也能跑 (KWin `kwin_wayland --virtual --socket <名字>`, acde `ACDE_BACKEND=rdp ACDE_SOCKET=<名字>`), 但刷新是各自的
-  软件定时器 (实测 KWin virtual 60fps, acde 的 RDP 后端约 57fps), 只能验程序本身, 不能拿来比.
 
 ## packaging/arch
 
