@@ -1,6 +1,6 @@
 type Parser = new () => { parseFromString(html: string, type: string): Document }
 
-export interface DevHotIo {
+interface DevHotIo {
   read(src: string): string | null
   liveEdit(url: string, source: string): string | undefined
 }

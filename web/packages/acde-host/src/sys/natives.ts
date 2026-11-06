@@ -16,7 +16,7 @@ export interface WebThreadHandle {
   cpuMs(): number
 }
 
-export interface SysNative {
+interface SysNative {
   readonly argv: readonly string[]
   readonly platform: string
   env(): Record<string, string>

@@ -195,7 +195,7 @@ export class Inspect {
     }
     if (!last) return { ok: false, text: said.join('\n') }
     if (failed && steps.length > 1) said.push('(后面的步骤没做)')
-    await this.#arrive(opening)
+    await Inspect.#until(() => [...this.#opening()].every((id) => opening.has(id)))
     const windows = this.windows()
     const moved = Inspect.#shape(windows) !== before
     if (moved) {
@@ -210,8 +210,7 @@ export class Inspect {
     try {
       const before = Inspect.#shape(this.windows())
       const opened = await this.#host.open(name)
-      const started = Date.now()
-      while (Inspect.#shape(this.windows()) === before && Date.now() - started < Inspect.OPEN_MS) await Inspect.#sleep(100)
+      await Inspect.#until(() => Inspect.#shape(this.windows()) !== before)
       const focused = this.windows().find((w) => w.focus && !w.hidden)
       if (focused) await this.#settle(focused)
       const after = await this.snapshot({})
@@ -251,13 +250,9 @@ export class Inspect {
     return new Set(this.#host.records().filter((id) => !shown.has(id)))
   }
 
-  async #arrive(before: ReadonlySet<number>): Promise<void> {
+  static async #until(done: () => boolean): Promise<void> {
     const started = Date.now()
-    for (;;) {
-      const waiting = [...this.#opening()].filter((id) => !before.has(id))
-      if (!waiting.length || Date.now() - started >= Inspect.OPEN_MS) return
-      await Inspect.#sleep(100)
-    }
+    while (!done() && Date.now() - started < Inspect.OPEN_MS) await Inspect.#sleep(100)
   }
 
   async #windowAct(window: InspectWindow, action: InspectAction, arg: string | number | null): Promise<ActResult> {
@@ -425,18 +420,7 @@ export class Inspect {
     const rpc = this.#host.web(window.id)
     if (!rpc) return { nodes: [], notes: ['(页面没在运行)'] }
     const tree = (await rpc.call('inspect', 'tree', [node ?? -1, limit])) as PageTree
-    const [ox, oy] = window.rect
-    const convert = (n: PageNode): InspectNode => ({
-      ref: `${window.ref}.${n.id}`,
-      role: n.role,
-      ...(n.name ? { name: n.name } : {}),
-      ...(n.value !== undefined ? { value: n.value } : {}),
-      ...(n.states?.length ? { states: n.states } : {}),
-      ...(n.level ? { level: n.level } : {}),
-      rect: [n.rect[0] + ox, n.rect[1] + oy, n.rect[2], n.rect[3]],
-      ...(n.more ? { more: n.more } : {}),
-      ...(n.children?.length ? { children: n.children.map(convert) } : {}),
-    })
+    const convert = (n: PageNode): InspectNode => Inspect.#node(window, n.id, n, n.states, n.rect, (n.children ?? []).map(convert))
     const notes: string[] = []
     if (tree.hidden) notes.push(`(可见范围外还有 ${tree.hidden} 个元素没列出; scroll 再看)`)
     if (tree.truncated) notes.push(`(元素太多, 只列了 ${limit} 个; look 某个 ref 看它下面)`)
@@ -453,7 +437,6 @@ export class Inspect {
     let aliases = this.#native.get(window.id)
     if (!aliases) this.#native.set(window.id, (aliases = { byKey: new Map(), byNumber: new Map(), next: 1 }))
     const table = aliases
-    const [ox, oy] = window.rect
     const convert = (n: NativeNode): InspectNode[] => {
       let number = table.byKey.get(n.id)
       if (number === undefined) {
@@ -464,18 +447,24 @@ export class Inspect {
       const children = (n.children ?? []).flatMap(convert)
       if (Inspect.GENERIC.has(n.role) && !n.name && !n.more) return children
       const states = [...(n.states ?? []), ...(n.actions?.length && !['button', 'link', 'menuitem', 'checkbox', 'radio', 'tab'].includes(n.role) ? ['clickable'] : [])]
-      return [{
-        ref: `${window.ref}.${number}`,
-        role: n.role,
-        ...(n.name ? { name: n.name } : {}),
-        ...(n.value !== undefined ? { value: n.value } : {}),
-        ...(states.length ? { states } : {}),
-        ...(n.rect ? { rect: [n.rect[0] + ox, n.rect[1] + oy, n.rect[2], n.rect[3]] as const } : {}),
-        ...(n.more ? { more: n.more } : {}),
-        ...(children.length ? { children } : {}),
-      }]
+      return [Inspect.#node(window, number, n, states, n.rect, children)]
     }
     return { nodes: (root.children ?? []).flatMap(convert), notes: [] }
+  }
+
+  static #node(window: InspectWindow, id: number, n: { role: string; name?: string; value?: string; level?: number; more?: number }, states: readonly string[] | undefined, rect: readonly [number, number, number, number] | null | undefined, children: InspectNode[]): InspectNode {
+    const [ox, oy] = window.rect
+    return {
+      ref: `${window.ref}.${id}`,
+      role: n.role,
+      ...(n.name ? { name: n.name } : {}),
+      ...(n.value !== undefined ? { value: n.value } : {}),
+      ...(states?.length ? { states } : {}),
+      ...(n.level ? { level: n.level } : {}),
+      ...(rect ? { rect: [rect[0] + ox, rect[1] + oy, rect[2], rect[3]] as const } : {}),
+      ...(n.more ? { more: n.more } : {}),
+      ...(children.length ? { children } : {}),
+    }
   }
 
   #ref(id: number): string {
