@@ -104,11 +104,20 @@ pub enum ParamOp {
     CancelAndHold(f64),
 }
 
+pub enum NodeOp {
+    Param(usize, ParamOp),
+    Wave(Wave),
+    Buffer(Option<Arc<AudioData>>),
+    Loop { looping: bool, start: f64, end: f64 },
+    Start { when: f64, offset: f64, duration: Option<f64> },
+    Stop(f64),
+    Release,
+}
+
 #[derive(Clone, Debug)]
 enum EventKind {
     Set,
-    Linear,
-    Exponential,
+    Ramp(bool),
     Target(f64),
     Curve(Arc<[f32]>, f64),
 }
@@ -132,8 +141,7 @@ impl Event {
 #[derive(Clone, Debug)]
 enum Curve {
     Const(f32),
-    Linear { t0: f64, v0: f32, t1: f64, v1: f32 },
-    Exponential { t0: f64, v0: f32, t1: f64, v1: f32 },
+    Ramp { t0: f64, v0: f32, t1: f64, v1: f32, exponential: bool },
     Target { t0: f64, v0: f32, target: f32, tc: f64 },
     Values { t0: f64, duration: f64, values: Arc<[f32]> },
 }
@@ -142,22 +150,16 @@ impl Curve {
     fn at(&self, t: f64) -> f32 {
         match self {
             Curve::Const(v) => *v,
-            Curve::Linear { t0, v0, t1, v1 } => {
+            Curve::Ramp { t0, v0, t1, v1, exponential } => {
                 if t1 <= t0 {
                     return *v1;
                 }
-                let k = ((t - t0) / (t1 - t0)).clamp(0.0, 1.0);
-                (*v0 as f64 + (*v1 as f64 - *v0 as f64) * k) as f32
-            }
-            Curve::Exponential { t0, v0, t1, v1 } => {
-                if t1 <= t0 {
-                    return *v1;
-                }
-                if *v0 == 0.0 || (*v0 > 0.0) != (*v1 > 0.0) {
+                if *exponential && (*v0 == 0.0 || (*v0 > 0.0) != (*v1 > 0.0)) {
                     return *v0;
                 }
                 let k = ((t - t0) / (t1 - t0)).clamp(0.0, 1.0);
-                (*v0 as f64 * (*v1 as f64 / *v0 as f64).powf(k)) as f32
+                let (v0, v1) = (*v0 as f64, *v1 as f64);
+                (if *exponential { v0 * (v1 / v0).powf(k) } else { v0 + (v1 - v0) * k }) as f32
             }
             Curve::Target { t0, v0, target, tc } => {
                 if *tc <= 0.0 {
@@ -210,18 +212,12 @@ impl Param {
         let mut prev: Option<(f64, f32)> = None;
         for e in &self.events {
             match &e.kind {
-                EventKind::Linear | EventKind::Exponential => {
-                    match prev {
-                        Some((t0, v0)) => {
-                            let curve = if matches!(e.kind, EventKind::Linear) {
-                                Curve::Linear { t0, v0, t1: e.time, v1: e.value }
-                            } else {
-                                Curve::Exponential { t0, v0, t1: e.time, v1: e.value }
-                            };
-                            self.segs.push(Seg { end: e.time, curve });
-                        }
-                        None => self.segs.push(Seg { end: e.time, curve: hold.clone() }),
-                    }
+                EventKind::Ramp(exponential) => {
+                    let curve = match prev {
+                        Some((t0, v0)) => Curve::Ramp { t0, v0, t1: e.time, v1: e.value, exponential: *exponential },
+                        None => hold.clone(),
+                    };
+                    self.segs.push(Seg { end: e.time, curve });
                     hold = Curve::Const(e.value);
                     prev = Some((e.time, e.value));
                 }
@@ -273,7 +269,7 @@ impl Param {
                     let current = self.at(now);
                     self.insert(Event { time: now.min(t), value: current, kind: EventKind::Set });
                 }
-                let kind = if matches!(op, ParamOp::Linear(..)) { EventKind::Linear } else { EventKind::Exponential };
+                let kind = EventKind::Ramp(matches!(op, ParamOp::Exponential(..)));
                 self.insert(Event { time: t, value: v, kind });
             }
             ParamOp::Target(v, t, tc) => self.insert(Event { time: t, value: v, kind: EventKind::Target(tc) }),
@@ -297,8 +293,7 @@ impl Param {
                     last.kind = EventKind::Curve(kept.into(), t - last.time);
                 } else {
                     let kind = match cut {
-                        Some(EventKind::Linear) => EventKind::Linear,
-                        Some(EventKind::Exponential) => EventKind::Exponential,
+                        Some(EventKind::Ramp(exponential)) => EventKind::Ramp(exponential),
                         _ => EventKind::Set,
                     };
                     self.insert(Event { time: t, value: held, kind });
@@ -517,32 +512,35 @@ impl Graph {
         self.order_dirty = true;
     }
 
-    pub fn param(&mut self, node: u32, i: usize, op: ParamOp) {
+    pub fn node(&mut self, id: u32, op: NodeOp) {
         let now = self.now();
-        if let Some(node) = self.nodes.get_mut(&node)
-            && i < node.param_count()
-        {
-            node.params[i].apply(op, now);
-        }
-    }
-
-    pub fn set_wave(&mut self, node: u32, wave: Wave) {
-        if let Some(node) = self.nodes.get_mut(&node) {
-            node.wave = wave;
-        }
-    }
-
-    pub fn set_buffer(&mut self, node: u32, data: Option<Arc<AudioData>>) {
-        if let Some(node) = self.nodes.get_mut(&node) {
-            node.buf.data = data;
-        }
-    }
-
-    pub fn set_loop(&mut self, node: u32, looping: bool, start: f64, end: f64) {
-        if let Some(node) = self.nodes.get_mut(&node) {
-            node.buf.looping = looping;
-            node.buf.loop_start = start;
-            node.buf.loop_end = end;
+        let frame = match op {
+            NodeOp::Start { when, .. } | NodeOp::Stop(when) => self.frame_at(when),
+            _ => 0,
+        };
+        let Some(node) = self.nodes.get_mut(&id) else { return };
+        match op {
+            NodeOp::Param(i, op) => {
+                if i < node.param_count() {
+                    node.params[i].apply(op, now);
+                }
+            }
+            NodeOp::Wave(wave) => node.wave = wave,
+            NodeOp::Buffer(data) => node.buf.data = data,
+            NodeOp::Loop { looping, start, end } => (node.buf.looping, node.buf.loop_start, node.buf.loop_end) = (looping, start, end),
+            NodeOp::Start { offset, duration, .. } => {
+                if node.kind.is_source() && node.src.start.is_none() {
+                    node.src.start = Some(frame);
+                    node.buf.offset = offset.max(0.0);
+                    node.buf.duration = duration.filter(|d| d.is_finite() && *d >= 0.0);
+                }
+            }
+            NodeOp::Stop(_) => {
+                if node.kind.is_source() {
+                    node.src.stop = Some(frame);
+                }
+            }
+            NodeOp::Release => node.released = true,
         }
     }
 
@@ -553,33 +551,6 @@ impl Graph {
         let x = when * self.rate;
         let frame = if (x - x.round()).abs() < 1e-6 { x.round() } else { x.ceil() };
         (frame as u64).max(self.frame)
-    }
-
-    pub fn start(&mut self, node: u32, when: f64, offset: f64, duration: Option<f64>) {
-        let frame = self.frame_at(when);
-        if let Some(node) = self.nodes.get_mut(&node)
-            && node.kind.is_source()
-            && node.src.start.is_none()
-        {
-            node.src.start = Some(frame);
-            node.buf.offset = offset.max(0.0);
-            node.buf.duration = duration.filter(|d| d.is_finite() && *d >= 0.0);
-        }
-    }
-
-    pub fn stop(&mut self, node: u32, when: f64) {
-        let frame = self.frame_at(when);
-        if let Some(node) = self.nodes.get_mut(&node)
-            && node.kind.is_source()
-        {
-            node.src.stop = Some(frame);
-        }
-    }
-
-    pub fn release(&mut self, node: u32) {
-        if let Some(node) = self.nodes.get_mut(&node) {
-            node.released = true;
-        }
     }
 
     pub fn active(&self) -> bool {
@@ -714,55 +685,50 @@ impl Graph {
         let rate = self.rate;
         let input = &self.input;
         let values = &self.values;
+        let range = node.playing_range(frame);
+        node.silent = if node.kind.is_source() { range.is_none() } else { empty };
+        let (from, to) = range.unwrap_or_default();
         match node.kind {
+            _ if node.silent => {}
             Kind::Destination | Kind::Through => {
-                node.silent = empty;
-                if !empty {
-                    node.out = *input;
-                    node.mono = mono;
-                }
+                node.out = *input;
+                node.mono = mono;
             }
             Kind::Gain => {
-                node.silent = empty;
-                if !empty {
-                    node.mono = mono;
-                    for c in 0..if mono { 1 } else { 2 } {
-                        for i in 0..QUANTUM {
-                            node.out[c][i] = input[c][i] * values[0][i];
-                        }
+                node.mono = mono;
+                for c in 0..if mono { 1 } else { 2 } {
+                    for i in 0..QUANTUM {
+                        node.out[c][i] = input[c][i] * values[0][i];
                     }
                 }
             }
             Kind::StereoPanner => {
-                node.silent = empty;
-                if !empty {
-                    node.mono = false;
-                    let half_pi = std::f32::consts::FRAC_PI_2;
-                    for i in 0..QUANTUM {
-                        let pan = values[0][i];
-                        if mono {
-                            let x = (pan + 1.0) * 0.5;
-                            node.out[0][i] = input[0][i] * (x * half_pi).cos();
-                            node.out[1][i] = input[0][i] * (x * half_pi).sin();
-                        } else if pan <= 0.0 {
-                            let x = pan + 1.0;
-                            node.out[0][i] = input[0][i] + input[1][i] * (x * half_pi).cos();
-                            node.out[1][i] = input[1][i] * (x * half_pi).sin();
-                        } else {
-                            let x = pan;
-                            node.out[0][i] = input[0][i] * (x * half_pi).cos();
-                            node.out[1][i] = input[1][i] + input[0][i] * (x * half_pi).sin();
-                        }
+                node.mono = false;
+                let half_pi = std::f32::consts::FRAC_PI_2;
+                for i in 0..QUANTUM {
+                    let pan = values[0][i];
+                    if mono {
+                        let x = (pan + 1.0) * 0.5;
+                        node.out[0][i] = input[0][i] * (x * half_pi).cos();
+                        node.out[1][i] = input[0][i] * (x * half_pi).sin();
+                    } else if pan <= 0.0 {
+                        let x = pan + 1.0;
+                        node.out[0][i] = input[0][i] + input[1][i] * (x * half_pi).cos();
+                        node.out[1][i] = input[1][i] * (x * half_pi).sin();
+                    } else {
+                        let x = pan;
+                        node.out[0][i] = input[0][i] * (x * half_pi).cos();
+                        node.out[1][i] = input[1][i] + input[0][i] * (x * half_pi).sin();
                     }
                 }
             }
-            Kind::Oscillator => {
-                let range = node.playing_range(frame);
-                node.silent = range.is_none();
+            Kind::Oscillator | Kind::ConstantSource => {
                 node.mono = true;
-                if let Some((from, to)) = range {
-                    node.out[0][..from].fill(0.0);
-                    node.out[0][to..].fill(0.0);
+                node.out[0][..from].fill(0.0);
+                node.out[0][to..].fill(0.0);
+                if node.kind == Kind::ConstantSource {
+                    node.out[0][from..to].copy_from_slice(&values[0][from..to]);
+                } else {
                     for i in from..to {
                         let detune = values[1][i];
                         let f = if detune == 0.0 { values[0][i] as f64 } else { values[0][i] as f64 * (detune as f64 / 1200.0).exp2() };
@@ -773,22 +739,8 @@ impl Graph {
                     }
                 }
             }
-            Kind::ConstantSource => {
-                let range = node.playing_range(frame);
-                node.silent = range.is_none();
-                node.mono = true;
-                if let Some((from, to)) = range {
-                    node.out[0][..from].fill(0.0);
-                    node.out[0][to..].fill(0.0);
-                    node.out[0][from..to].copy_from_slice(&values[0][from..to]);
-                }
-            }
             Kind::BufferSource => {
-                let range = node.playing_range(frame);
-                node.silent = range.is_none();
-                if let Some((from, to)) = range
-                    && play_buffer(node, from, to, rate, values)
-                {
+                if play_buffer(node, from, to, rate, values) {
                     node.src.ended = true;
                 }
             }
@@ -939,9 +891,9 @@ mod tests {
         g.add(3, Kind::Gain, Arc::default());
         g.connect(2, 3, None);
         g.connect(3, 1, None);
-        g.param(3, 0, ParamOp::Value(0.5));
-        g.param(2, 0, ParamOp::Value(1000.0));
-        g.start(2, 0.0, 0.0, None);
+        g.node(3, NodeOp::Param(0, ParamOp::Value(0.5)));
+        g.node(2, NodeOp::Param(0, ParamOp::Value(1000.0)));
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
         let out = render(&mut g, 375);
         let f = frequency(&out, RATE);
         assert!((f - 1000.0).abs() <= 2.0, "{f}");
@@ -967,10 +919,10 @@ mod tests {
         for wave in [Wave::Square, Wave::Sawtooth, Wave::Triangle] {
             let mut g = Graph::new(RATE, 1);
             g.add(2, Kind::Oscillator, Arc::default());
-            g.set_wave(2, wave);
-            g.param(2, 0, ParamOp::Value(441.0));
+            g.node(2, NodeOp::Wave(wave));
+            g.node(2, NodeOp::Param(0, ParamOp::Value(441.0)));
             g.connect(2, 1, None);
-            g.start(2, 0.0, 0.0, None);
+            g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
             let out = render(&mut g, 375);
             let f = frequency(&out, RATE);
             assert!((f - 441.0).abs() <= 2.0, "{wave:?} {f}");
@@ -982,8 +934,8 @@ mod tests {
         let mut g = Graph::new(RATE, 1);
         g.add(2, Kind::ConstantSource, Arc::default());
         g.connect(2, 1, None);
-        g.start(2, 100.0 / RATE, 0.0, None);
-        g.stop(2, 300.0 / RATE);
+        g.node(2, NodeOp::Start { when: 100.0 / RATE, offset: 0.0, duration: None });
+        g.node(2, NodeOp::Stop(300.0 / RATE));
         let mut ended = Vec::new();
         let mut all = Vec::new();
         for _ in 0..4 {
@@ -1090,14 +1042,14 @@ mod tests {
         let mut g = Graph::new(RATE, 1);
         g.add(2, Kind::Oscillator, Arc::default());
         g.add(3, Kind::Gain, Arc::default());
-        g.param(2, 0, ParamOp::Value(880.0));
-        g.param(3, 0, ParamOp::SetAt(0.0, 0.0));
-        g.param(3, 0, ParamOp::Linear(1.0, 0.01));
-        g.param(3, 0, ParamOp::Exponential(0.001, 0.2));
+        g.node(2, NodeOp::Param(0, ParamOp::Value(880.0)));
+        g.node(3, NodeOp::Param(0, ParamOp::SetAt(0.0, 0.0)));
+        g.node(3, NodeOp::Param(0, ParamOp::Linear(1.0, 0.01)));
+        g.node(3, NodeOp::Param(0, ParamOp::Exponential(0.001, 0.2)));
         g.connect(2, 3, None);
         g.connect(3, 1, None);
-        g.start(2, 0.0, 0.0, None);
-        g.stop(2, 0.25);
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
+        g.node(2, NodeOp::Stop(0.25));
         let out = render(&mut g, 120);
         let window = |t: f64| peak(&out[(t * RATE) as usize..((t + 0.005) * RATE) as usize]);
         assert!(window(0.0) < 0.6, "attack {}", window(0.0));
@@ -1117,9 +1069,9 @@ mod tests {
         let data = Arc::new(AudioData { rate, channels: vec![samples] });
         let mut g = Graph::new(RATE, 1);
         g.add(2, Kind::BufferSource, Arc::default());
-        g.set_buffer(2, Some(data.clone()));
+        g.node(2, NodeOp::Buffer(Some(data.clone())));
         g.connect(2, 1, None);
-        g.start(2, 0.0, 0.0, None);
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
         let mut ended = Vec::new();
         let mut all = Vec::new();
         for _ in 0..60 {
@@ -1135,11 +1087,11 @@ mod tests {
 
         let mut g = Graph::new(RATE, 1);
         g.add(2, Kind::BufferSource, Arc::default());
-        g.set_buffer(2, Some(data));
-        g.set_loop(2, true, 0.0, 0.0);
-        g.param(2, 0, ParamOp::Value(2.0));
+        g.node(2, NodeOp::Buffer(Some(data)));
+        g.node(2, NodeOp::Loop { looping: true, start: 0.0, end: 0.0 });
+        g.node(2, NodeOp::Param(0, ParamOp::Value(2.0)));
         g.connect(2, 1, None);
-        g.start(2, 0.0, 0.0, None);
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
         let out = render(&mut g, 375);
         let f = frequency(&out, RATE);
         assert!((f - 200.0).abs() < 3.0, "{f}");
@@ -1153,13 +1105,13 @@ mod tests {
         g.add(3, Kind::StereoPanner, Arc::default());
         g.connect(2, 3, None);
         g.connect(3, 1, None);
-        g.param(3, 0, ParamOp::Value(1.0));
-        g.start(2, 0.0, 0.0, None);
+        g.node(3, NodeOp::Param(0, ParamOp::Value(1.0)));
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
         let mut out = [[0.0; QUANTUM]; 2];
         g.render(&mut out, &mut Vec::new());
         assert!(out[0][5].abs() < 1e-6);
         assert!((out[1][5] - 1.0).abs() < 1e-6);
-        g.param(3, 0, ParamOp::Value(0.0));
+        g.node(3, NodeOp::Param(0, ParamOp::Value(0.0)));
         let mut out = [[0.0; QUANTUM]; 2];
         g.render(&mut out, &mut Vec::new());
         assert!((out[0][5] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
@@ -1171,13 +1123,13 @@ mod tests {
         g.add(2, Kind::ConstantSource, Arc::default());
         g.add(3, Kind::ConstantSource, Arc::default());
         g.add(4, Kind::Gain, Arc::default());
-        g.param(3, 0, ParamOp::Value(0.25));
-        g.param(4, 0, ParamOp::Value(0.5));
+        g.node(3, NodeOp::Param(0, ParamOp::Value(0.25)));
+        g.node(4, NodeOp::Param(0, ParamOp::Value(0.5)));
         g.connect(2, 4, None);
         g.connect(3, 4, Some(0));
         g.connect(4, 1, None);
-        g.start(2, 0.0, 0.0, None);
-        g.start(3, 0.0, 0.0, None);
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
+        g.node(3, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
         let mut out = [[0.0; QUANTUM]; 2];
         g.render(&mut out, &mut Vec::new());
         assert!((out[0][0] - 0.75).abs() < 1e-6);
@@ -1191,9 +1143,9 @@ mod tests {
         g.add(3, Kind::Gain, Arc::default());
         g.connect(2, 3, None);
         g.connect(3, 1, None);
-        g.start(2, 0.0, 0.0, None);
-        g.stop(2, 0.01);
-        g.release(3);
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
+        g.node(2, NodeOp::Stop(0.01));
+        g.node(3, NodeOp::Release);
         render(&mut g, 2);
         assert!(g.has(3), "still fed");
         render(&mut g, 4);
@@ -1211,8 +1163,8 @@ mod tests {
         g.connect(2, 3, None);
         g.connect(3, 2, None);
         g.connect(3, 1, None);
-        g.param(3, 0, ParamOp::Value(0.5));
-        g.start(4, 0.0, 0.0, None);
+        g.node(3, NodeOp::Param(0, ParamOp::Value(0.5)));
+        g.node(4, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
         render(&mut g, 10);
     }
 }

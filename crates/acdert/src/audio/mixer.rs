@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::decode::MediaStream;
-use super::graph::{AudioData, Bus, Graph, Kind, ParamOp, QUANTUM, Shared, Wave};
+use super::graph::{Bus, Graph, Kind, NodeOp, QUANTUM, Shared};
 
 pub const RATE: f64 = 48000.0;
 
@@ -36,13 +36,7 @@ pub enum Cmd {
     CreateNode { ctx: u32, node: u32, kind: Kind, shared: Arc<Shared> },
     Connect { from: u32, to: u32, param: i32 },
     Disconnect { from: u32, to: i64, param: i32 },
-    Param { node: u32, param: usize, op: ParamOp },
-    Wave { node: u32, wave: Wave },
-    Buffer { node: u32, data: Option<Arc<AudioData>> },
-    Loop { node: u32, looping: bool, start: f64, end: f64 },
-    Start { node: u32, when: f64, offset: f64, duration: Option<f64> },
-    Stop { node: u32, when: f64 },
-    Release { node: u32 },
+    Node { node: u32, op: NodeOp },
     AddMedia { media: u32, stream: Box<MediaStream>, time: Arc<AtomicU64> },
     Media { media: u32, op: MediaOp },
     CloseMedia { media: u32 },
@@ -144,39 +138,9 @@ impl Mixer {
                     graph.disconnect(from, u32::try_from(to).ok(), usize::try_from(param).ok());
                 }
             }
-            Cmd::Param { node, param, op } => {
+            Cmd::Node { node, op } => {
                 if let Some(graph) = self.graph_of(node) {
-                    graph.param(node, param, op);
-                }
-            }
-            Cmd::Wave { node, wave } => {
-                if let Some(graph) = self.graph_of(node) {
-                    graph.set_wave(node, wave);
-                }
-            }
-            Cmd::Buffer { node, data } => {
-                if let Some(graph) = self.graph_of(node) {
-                    graph.set_buffer(node, data);
-                }
-            }
-            Cmd::Loop { node, looping, start, end } => {
-                if let Some(graph) = self.graph_of(node) {
-                    graph.set_loop(node, looping, start, end);
-                }
-            }
-            Cmd::Start { node, when, offset, duration } => {
-                if let Some(graph) = self.graph_of(node) {
-                    graph.start(node, when, offset, duration);
-                }
-            }
-            Cmd::Stop { node, when } => {
-                if let Some(graph) = self.graph_of(node) {
-                    graph.stop(node, when);
-                }
-            }
-            Cmd::Release { node } => {
-                if let Some(graph) = self.graph_of(node) {
-                    graph.release(node);
+                    graph.node(node, op);
                 }
             }
             Cmd::AddMedia { media, stream, time } => {
@@ -290,6 +254,7 @@ impl Mixer {
 mod tests {
     use super::*;
     use crate::audio::decode::tests::wav;
+    use crate::audio::graph::ParamOp;
 
     fn mixer_with_beep() -> (Mixer, Arc<Clock>) {
         let mut m = Mixer::default();
@@ -299,9 +264,9 @@ mod tests {
         m.apply(Cmd::CreateNode { ctx: 1, node: 4, kind: Kind::Gain, shared: Arc::default() });
         m.apply(Cmd::Connect { from: 3, to: 4, param: -1 });
         m.apply(Cmd::Connect { from: 4, to: 2, param: -1 });
-        m.apply(Cmd::Param { node: 4, param: 0, op: ParamOp::Value(0.25) });
-        m.apply(Cmd::Start { node: 3, when: 0.0, offset: 0.0, duration: None });
-        m.apply(Cmd::Stop { node: 3, when: 0.1 });
+        m.apply(Cmd::Node { node: 4, op: NodeOp::Param(0, ParamOp::Value(0.25)) });
+        m.apply(Cmd::Node { node: 3, op: NodeOp::Start { when: 0.0, offset: 0.0, duration: None } });
+        m.apply(Cmd::Node { node: 3, op: NodeOp::Stop(0.1) });
         (m, clock)
     }
 
