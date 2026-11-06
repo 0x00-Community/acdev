@@ -63,12 +63,7 @@ function compare(a: number, ao: number, b: number, bo: number): Position {
 }
 
 function ordered(a: number, ao: number, b: number, ancestor: boolean): Position {
-  if (ancestor) {
-    const ancestors = dom.ancestors(b)
-    const at = ancestors.indexOf(a)
-    const child = at <= 0 ? b : ancestors[at - 1]!
-    if (dom.childNodes(a).indexOf(child) < ao) return Position.After
-  }
+  if (ancestor && dom.childNodes(a).indexOf(childToward(a, b)) < ao) return Position.After
   return Position.Before
 }
 
@@ -211,7 +206,6 @@ function changed(range: Range): void {
 }
 
 export class Range extends AbstractRange {
-
   constructor() {
     const document = wrap<Node>(documentId)!
     super(document, 0, document, 0)
@@ -238,24 +232,16 @@ export class Range extends AbstractRange {
   setStart(node: Node, offset: number): void {
     const o = Number(offset) >>> 0
     checkPoint(node, o, 'setStart')
-    if (root(node[ID]) !== root(this[END_NODE][ID]) || compare(node[ID], o, this[END_NODE][ID], this[END_OFFSET]) === Position.After) {
-      this[END_NODE] = node
-      this[END_OFFSET] = o
-    }
-    this[START_NODE] = node
-    this[START_OFFSET] = o
+    if (root(node[ID]) !== root(this[END_NODE][ID]) || compare(node[ID], o, this[END_NODE][ID], this[END_OFFSET]) === Position.After) setBoundary(this, false, node, o)
+    setBoundary(this, true, node, o)
     changed(this)
   }
 
   setEnd(node: Node, offset: number): void {
     const o = Number(offset) >>> 0
     checkPoint(node, o, 'setEnd')
-    if (root(node[ID]) !== root(this[START_NODE][ID]) || compare(node[ID], o, this[START_NODE][ID], this[START_OFFSET]) === Position.Before) {
-      this[START_NODE] = node
-      this[START_OFFSET] = o
-    }
-    this[END_NODE] = node
-    this[END_OFFSET] = o
+    if (root(node[ID]) !== root(this[START_NODE][ID]) || compare(node[ID], o, this[START_NODE][ID], this[START_OFFSET]) === Position.Before) setBoundary(this, true, node, o)
+    setBoundary(this, false, node, o)
     changed(this)
   }
 
@@ -279,32 +265,23 @@ export class Range extends AbstractRange {
   }
 
   collapse(toStart = false): void {
-    if (toStart) {
-      this[END_NODE] = this[START_NODE]
-      this[END_OFFSET] = this[START_OFFSET]
-    } else {
-      this[START_NODE] = this[END_NODE]
-      this[START_OFFSET] = this[END_OFFSET]
-    }
+    if (toStart) setBoundary(this, false, this[START_NODE], this[START_OFFSET])
+    else setBoundary(this, true, this[END_NODE], this[END_OFFSET])
     changed(this)
   }
 
   selectNode(node: Node): void {
     const parent = this.#parentOf(node, 'selectNode')
     const index = indexOf(node)
-    this[START_NODE] = parent
-    this[START_OFFSET] = index
-    this[END_NODE] = parent
-    this[END_OFFSET] = index + 1
+    setBoundary(this, true, parent, index)
+    setBoundary(this, false, parent, index + 1)
     changed(this)
   }
 
   selectNodeContents(node: Node): void {
     if (node.nodeType === NodeType.DocumentType) throw new DOMException("Failed to execute 'selectNodeContents' on 'Range': The node provided is of type 'DocumentType'.", 'InvalidNodeTypeError')
-    this[START_NODE] = node
-    this[START_OFFSET] = 0
-    this[END_NODE] = node
-    this[END_OFFSET] = nodeLength(node)
+    setBoundary(this, true, node, 0)
+    setBoundary(this, false, node, nodeLength(node))
     changed(this)
   }
 
@@ -435,11 +412,21 @@ export class Range extends AbstractRange {
     const fragment = new DocumentFragment()
     if (this.collapsed) return fragment
     const sc = this[START_NODE], so = this[START_OFFSET], ec = this[END_NODE], eo = this[END_OFFSET]
-    if (sc === ec && isCharacterData(sc)) {
-      const clone = sc.cloneNode(false) as CharacterData
-      clone.data = dom.data(sc[ID]).slice(so, eo)
+    const partial = (node: Node, a: Node, ao: number, b: Node, bo: number) => {
+      const clone = node.cloneNode(false)
       fragment.appendChild(clone)
-      if (move) (sc as CharacterData).replaceData(so, eo - so, '')
+      if (isCharacterData(node)) {
+        ;(clone as CharacterData).data = dom.data(node[ID]).slice(ao, bo)
+        if (move) (node as CharacterData).replaceData(ao, bo - ao, '')
+        return
+      }
+      const sub = unlistedRange()
+      setBoundary(sub, true, a, ao)
+      setBoundary(sub, false, b, bo)
+      clone.appendChild(sub.#extract(move))
+    }
+    if (sc === ec && isCharacterData(sc)) {
+      partial(sc, sc, so, ec, eo)
       return fragment
     }
     const common = commonAncestor(sc[ID], ec[ID])
@@ -457,37 +444,9 @@ export class Range extends AbstractRange {
       newNode = wrap<Node>(common)!
       newOffset = firstAt + 1
     }
-    if (firstPartial) {
-      if (isCharacterData(firstPartial)) {
-        const clone = firstPartial.cloneNode(false) as CharacterData
-        clone.data = dom.data(sc[ID]).slice(so)
-        fragment.appendChild(clone)
-        if (move) (sc as CharacterData).replaceData(so, nodeLength(sc) - so, '')
-      } else {
-        const clone = firstPartial.cloneNode(false)
-        fragment.appendChild(clone)
-        const sub = unlistedRange()
-        setBoundary(sub, true, sc, so)
-        setBoundary(sub, false, firstPartial, nodeLength(firstPartial))
-        clone.appendChild(sub.#extract(move))
-      }
-    }
+    if (firstPartial) partial(firstPartial, sc, so, firstPartial, nodeLength(firstPartial))
     for (const node of contained) fragment.appendChild(move ? node : node.cloneNode(true))
-    if (lastPartial) {
-      if (isCharacterData(lastPartial)) {
-        const clone = lastPartial.cloneNode(false) as CharacterData
-        clone.data = dom.data(ec[ID]).slice(0, eo)
-        fragment.appendChild(clone)
-        if (move) (ec as CharacterData).replaceData(0, eo, '')
-      } else {
-        const clone = lastPartial.cloneNode(false)
-        fragment.appendChild(clone)
-        const sub = unlistedRange()
-        setBoundary(sub, true, lastPartial, 0)
-        setBoundary(sub, false, ec, eo)
-        clone.appendChild(sub.#extract(move))
-      }
-    }
+    if (lastPartial) partial(lastPartial, lastPartial, 0, ec, eo)
     if (move) {
       this[START_NODE] = this[END_NODE] = newNode
       this[START_OFFSET] = this[END_OFFSET] = newOffset
@@ -513,10 +472,7 @@ export class Range extends AbstractRange {
     const index = ref ? indexOf(ref) : nodeLength(parent)
     const added = node.nodeType === NodeType.DocumentFragment ? nodeLength(node) : 1
     insert(parent, node, ref)
-    if (this.collapsed) {
-      this[END_NODE] = parent
-      this[END_OFFSET] = index + added
-    }
+    if (this.collapsed) setBoundary(this, false, parent, index + added)
     changed(this)
   }
 
@@ -550,24 +506,15 @@ export class Range extends AbstractRange {
       return rects
     }
     if (isText(sc)) push(dom.textRects(sc[ID], this[START_OFFSET], nodeLength(sc)))
-    const walk = (id: number) => {
-      for (let child = dom.firstChild(id); child !== NONE; child = dom.nextSibling(child)) {
-        const type = dom.nodeType(child)
-        if (type === NodeType.Text) push(dom.textRects(child, 0, dom.data(child).length))
-        else if (type === NodeType.Element) {
-          rects.push(rectOf(child))
-          walk(child)
-        }
-      }
-    }
-    for (const id of this.#contained()) {
+    const visit = (id: number) => {
       const type = dom.nodeType(id)
       if (type === NodeType.Text) push(dom.textRects(id, 0, dom.data(id).length))
       else if (type === NodeType.Element) {
         rects.push(rectOf(id))
-        walk(id)
+        for (let child = dom.firstChild(id); child !== NONE; child = dom.nextSibling(child)) visit(child)
       }
     }
+    for (const id of this.#contained()) visit(id)
     if (isText(ec)) push(dom.textRects(ec[ID], 0, this[END_OFFSET]))
     if (rects.length === 0 && sc.nodeType === NodeType.Element) {
       const child = dom.childNodes(sc[ID])[this[START_OFFSET]]
