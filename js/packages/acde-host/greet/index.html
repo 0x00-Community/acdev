@@ -5,34 +5,43 @@
 <title>登录</title>
 <link rel="stylesheet" href="/acde/brand/brand.css">
 <style>
-html, body { margin: 0; width: 100%; height: 100%; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
 body { display: flex; align-items: center; justify-content: center; background: var(--paper); color: var(--ink); font-family: sans-serif; }
-main { width: 420px; max-width: calc(100% - 48px); }
-.lockup { --h: 56px; justify-content: center; margin: 0 0 44px; }
+main { display: flex; flex-direction: column; width: 420px; max-width: calc(100% - 48px); max-height: calc(100% - 48px); }
+main.many { width: 680px; }
+main > * { flex: none; }
+.lockup { --h: clamp(28px, 7vh, 56px); justify-content: center; margin: 0 0 clamp(12px, 5vh, 44px); }
 h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
-p.lead { margin: 0 0 22px; color: var(--muted); font-size: 14px; }
-ul { list-style: none; margin: 0; padding: 0; }
-li { margin: 0 0 10px; }
+p.lead { margin: 0 0 clamp(10px, 2.5vh, 22px); color: var(--muted); font-size: 14px; }
+ul { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; list-style: none; margin: 0; padding: 2px; }
+main.many ul { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+li { margin: 0; min-width: 0; }
 button.user { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+main.many button.user { gap: 10px; padding: 8px 10px; border-radius: 12px; }
 button.user:hover, button.user:focus, button.user.on { border-color: var(--coral); outline: none; }
-.face { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(45deg, var(--pink), var(--coral) 60%, var(--orange)); color: #FFFFFF; font-weight: 600; }
-button.user strong { display: block; font-size: 15px; }
-button.user span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-form { display: flex; gap: 8px; margin: 4px 0 0; }
-input { flex: 1; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); font: inherit; }
+.face { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(45deg, var(--pink), var(--coral) 60%, var(--orange)); color: #FFFFFF; font-weight: 600; }
+main.many .face { width: 30px; height: 30px; font-size: 14px; }
+button.user > div:last-child { min-width: 0; }
+button.user strong, button.user span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+button.user strong { font-size: 15px; }
+button.user span { margin-top: 2px; color: var(--muted); font-size: 12px; }
+form { display: flex; gap: 8px; margin: 12px 0 0; }
+input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); font: inherit; }
 input:focus { border-color: var(--coral); outline: none; }
 form button { padding: 10px 16px; border: none; border-radius: 10px; background: linear-gradient(45deg, var(--pink), var(--coral) 60%, var(--orange)); color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer; }
 form button:disabled { opacity: .5; cursor: default; }
-.row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 22px; }
+.row { display: flex; gap: 8px; justify-content: flex-end; margin-top: clamp(10px, 2.5vh, 22px); }
 .row button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .row button:hover, .row button:focus { border-color: var(--coral); color: var(--ink); outline: none; }
-h2 { margin: 26px 0 10px; color: var(--muted); font-size: 13px; font-weight: 500; }
+h2 { margin: clamp(12px, 3vh, 26px) 0 10px; color: var(--muted); font-size: 13px; font-weight: 500; }
 .desks { display: flex; flex-wrap: wrap; gap: 8px; }
 button.desk { padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
 button.desk:hover, button.desk:focus { border-color: var(--coral); outline: none; }
 button.desk.on { border-color: var(--coral); box-shadow: inset 0 0 0 1px var(--coral); }
 .note { min-height: 20px; margin: 10px 0 0; color: var(--muted); font-size: 13px; }
 .note.error { color: var(--error); }
+@media (max-width: 760px) { main.many ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-height: 600px) { p.lead { display: none; } h1 { margin-bottom: 10px; font-size: 18px; } }
 </style>
 </head>
 <body>
@@ -41,6 +50,7 @@ button.desk.on { border-color: var(--coral); box-shadow: inset 0 0 0 1px var(--c
   <h1>登录</h1>
   <p class="lead">选择账户和桌面, 输入密码.</p>
   <ul id="list"></ul>
+  <div id="login"></div>
   <section id="desktops" hidden>
     <h2>桌面</h2>
     <div class="desks" id="desks"></div>
@@ -56,7 +66,7 @@ import { lockup } from '/acde/brand/lockup.mjs'
 lockup(document.querySelector('.lockup'))
 const optional = (name) => import(`acde:${name}`).then((m) => m.default, () => undefined)
 const acde = { greeter: await optional('greeter'), session: await optional('session'), desktops: await optional('desktops') }
-const list = document.getElementById('list'), note = document.getElementById('note'), desks = document.getElementById('desks')
+const list = document.getElementById('list'), slot = document.getElementById('login'), note = document.getElementById('note'), desks = document.getElementById('desks')
 const say = (text, error) => { note.textContent = text; note.className = error ? 'note error' : 'note' }
 const reason = (error) => {
   const message = String(error?.message ?? error)
@@ -94,7 +104,7 @@ function preselect(user) {
   const last = user?.desktop
   pick(choices.some((d) => d.id === last) ? last : choices[0]?.id ?? null)
 }
-function form(user, li) {
+function form(user, b) {
   open?.remove()
   const f = document.createElement('form')
   const input = document.createElement('input')
@@ -120,8 +130,9 @@ function form(user, li) {
       say(`登录失败: ${reason(error)}`, true)
     }
   })
-  li.append(f)
+  slot.append(f)
   open = f
+  b.scrollIntoView({ block: 'nearest' })
   input.focus()
 }
 try {
@@ -129,6 +140,7 @@ try {
   choices = await loadDesktops()
   preselect(null)
   const users = await acde.greeter.users()
+  document.querySelector('main').classList.toggle('many', users.length > 4)
   if (!users.length) say('这台电脑上没有可以登录的账户.', true)
   list.replaceChildren(...users.map((user) => {
     const li = document.createElement('li')
@@ -148,7 +160,7 @@ try {
     b.addEventListener('click', () => {
       for (const x of list.querySelectorAll('button.user')) x.classList.toggle('on', x === b)
       preselect(user)
-      form(user, li)
+      form(user, b)
     })
     li.append(b)
     return li
