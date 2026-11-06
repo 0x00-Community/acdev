@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use acde_hostwin::{Grant, Injected, Mode, Shell};
+use acde_hostwin::{Grant, InjectEvent, Injected, Shell};
 
 use crate::bind;
 use crate::rt::{self, Msg};
@@ -50,13 +50,10 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "screenshot" => screenshot,
         "stats" => stats,
         "windows" => windows,
-        "canvases" => canvases,
         "animate" => animate,
         "shortcut" => shortcut,
         "unshortcut" => unshortcut,
         "inject" => inject,
-        "setMode" => set_mode,
-        "raise" => raise,
         "quit" => quit,
         "capture" => capture,
         "devRespond" => dev_respond,
@@ -113,7 +110,7 @@ fn grant(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: 
         wanted.desktop = bind::get(scope, options, "desktop").is_some_and(|v| v.boolean_value(scope));
         wanted.hidden = bind::get(scope, options, "hidden").is_some_and(|v| v.boolean_value(scope));
         wanted.window = bind::get(scope, options, "window").and_then(|v| v.number_value(scope)).filter(|n| n.is_finite()).map(|n| n as u32);
-        wanted.mode = bind::get(scope, options, "mode").filter(|v| v.is_string()).and_then(|v| Mode::parse(&v.to_rust_string_lossy(scope)));
+        wanted.mode = bind::get(scope, options, "mode").filter(|v| v.is_string()).and_then(|v| v.to_rust_string_lossy(scope).parse().ok());
         let rect = bind::get(scope, options, "rect");
         wanted.rect = numbers(scope, rect).and_then(|r| <[f64; 4]>::try_from(r).ok());
         let size = bind::get(scope, options, "size");
@@ -134,38 +131,21 @@ fn place(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::R
     with(scope, |shell| shell.place(window, rect));
 }
 
-fn release(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let window = bind::arg_f64(scope, &args, 0) as u32;
-    with(scope, |shell| shell.release(window));
+macro_rules! by_window {
+    ($($name:ident),*) => {$(
+        fn $name(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+            let window = bind::arg_f64(scope, &args, 0) as u32;
+            with(scope, |shell| shell.$name(window));
+        }
+    )*};
 }
 
-fn focus(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let window = bind::arg_f64(scope, &args, 0) as u32;
-    with(scope, |shell| shell.focus(window));
-}
-
-fn raise(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let window = bind::arg_f64(scope, &args, 0) as u32;
-    with(scope, |shell| shell.focus(window));
-}
+by_window!(release, focus, close, animate);
 
 fn hide(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let window = bind::arg_f64(scope, &args, 0) as u32;
     let hidden = bind::arg_bool(scope, &args, 1);
     with(scope, |shell| shell.hide(window, hidden));
-}
-
-fn close(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let window = bind::arg_f64(scope, &args, 0) as u32;
-    with(scope, |shell| shell.close(window));
-}
-
-fn set_mode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let window = bind::arg_f64(scope, &args, 0) as u32;
-    let Some(mode) = Mode::parse(&bind::arg_string(scope, &args, 1)) else {
-        return bind::throw_type_error(scope, "setMode: no such mode");
-    };
-    with(scope, |shell| shell.set_mode(window, mode));
 }
 
 fn launch(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -242,28 +222,6 @@ fn num<'s>(scope: &mut v8::PinScope<'s, '_>, value: f64) -> v8::Local<'s, v8::Va
     v8::Number::new(scope, value).into()
 }
 
-fn canvases(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some([w, h, scale]) = with(scope, Shell::screen) else {
-        return;
-    };
-    let id = v8::Number::new(scope, 0.0);
-    let zero = v8::Number::new(scope, 0.0);
-    let width = v8::Number::new(scope, w);
-    let height = v8::Number::new(scope, h);
-    let scale = v8::Number::new(scope, scale);
-    let canvas = bind::object(
-        scope,
-        &[("id", id.into()), ("x", zero.into()), ("y", zero.into()), ("width", width.into()), ("height", height.into()), ("scale", scale.into())],
-    );
-    let array = v8::Array::new_with_elements(scope, &[canvas.into()]);
-    rv.set(array.into());
-}
-
-fn animate(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let window = bind::arg_f64(scope, &args, 0) as u32;
-    with(scope, |shell| shell.animate(window));
-}
-
 fn shortcut_call(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, on: bool) {
     let combo = bind::arg_string(scope, args, 0);
     let kind = bind::arg_string(scope, args, 1);
@@ -281,31 +239,15 @@ fn unshortcut(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: 
     shortcut_call(scope, &args, false);
 }
 
-const BTN_LEFT: u32 = 0x110;
-
 fn injected(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Result<Injected, String> {
     let options = v8::Local::<v8::Object>::try_from(value).map_err(|_| "inject: not an object".to_owned())?;
     let kind = bind::get(scope, options, "type").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope)).unwrap_or_default();
+    let source = bind::get(scope, options, "source").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
     let mut number =
         |name: &str| bind::get(scope, options, name).filter(|v| !v.is_null_or_undefined()).and_then(|v| v.number_value(scope)).filter(|n| n.is_finite());
     let (x, y, dx, dy) = (number("x"), number("y"), number("dx"), number("dy"));
-    let (button, code) = (number("button"), number("code"));
-    let source = bind::get(scope, options, "source").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
-    let need = |v: Option<f64>, name: &str| v.ok_or_else(|| format!("inject {kind}: 缺 {name}"));
-    Ok(match kind.as_str() {
-        "move" => Injected::Move(need(x, "x")?, need(y, "y")?),
-        "motion" => Injected::Motion(need(dx, "dx")?, need(dy, "dy")?),
-        "down" | "up" => Injected::Button { button: button.map_or(BTN_LEFT, |b| b as u32), pressed: kind == "down" },
-        "wheel" => {
-            match source.as_deref() {
-                None | Some("wheel" | "finger" | "continuous") => {}
-                Some(other) => return Err(format!("inject wheel: 不认识的 source {other}")),
-            }
-            Injected::Wheel(dx.unwrap_or(0.0), dy.unwrap_or(0.0))
-        }
-        "keydown" | "keyup" => Injected::Key { code: need(code, "code")? as u32, pressed: kind == "keydown" },
-        other => return Err(format!("inject: 不认识的 type {other}")),
-    })
+    let (button, code) = (number("button").map(|b| b as u32), number("code").map(|c| c as u32));
+    Injected::try_from(InjectEvent { kind, x, y, button, dx, dy, source, code })
 }
 
 fn inject(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
@@ -354,7 +296,7 @@ fn dev_respond(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _:
     let ok = bind::arg_bool(scope, &args, 1);
     let payload = bind::arg_string(scope, &args, 2);
     let result = if ok { Ok(payload.as_str()) } else { Err(payload.as_str()) };
-    if let Some(Err(e)) = with(scope, |shell| shell.dev_respond(id as i64, result)) {
+    if let Some(Err(e)) = with(scope, |_| acde_hostwin::dev_respond(id as i64, result)) {
         bind::throw_error(scope, &e);
     }
 }
@@ -363,7 +305,7 @@ fn notify(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
     let title = bind::arg_string(scope, &args, 0);
     let body = bind::arg_string(scope, &args, 1);
     let subtitle = bind::arg_string(scope, &args, 2);
-    if let Some(Err(e)) = with(scope, |shell| shell.notify(&title, &body, &subtitle)) {
+    if let Some(Err(e)) = with(scope, |_| acde_hostwin::notify(&title, &body, &subtitle)) {
         bind::throw_error(scope, &e);
     }
 }

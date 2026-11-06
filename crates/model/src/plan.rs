@@ -110,7 +110,8 @@ impl CompositePlan {
         let route = match (&layers[..], inputs.iter().find(|i| layers.first().is_some_and(|l| l.window == i.window))) {
             ([only], Some(input)) => {
                 let opaque = input.opaque.iter().any(|o| o.translate(only.dst.x, only.dst.y).covers(&only.dst));
-                match table.can_direct(only.window, opaque, only.effect.is_some(), only.look.opacity, only.look.is_identity(), input.direct_buffer) {
+                let fills = table.window(only.window).is_some_and(|w| table.canvas(w.canvas).is_some_and(|c| w.rect.covers(&c.rect)));
+                match opaque && fills && only.effect.is_none() && only.look.opacity == 1.0 && only.look.is_identity() && input.direct_buffer {
                     true => Route::Direct,
                     false => Route::Composite,
                 }

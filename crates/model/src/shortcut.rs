@@ -1,22 +1,4 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Scope {
-    Session,
-    Desktop,
-    App,
-}
-
-impl std::str::FromStr for Scope {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        Ok(match s {
-            "session" => Scope::Session,
-            "desktop" => Scope::Desktop,
-            "app" => Scope::App,
-            other => return Err(format!("unknown scope {other}")),
-        })
-    }
-}
+wire!("scope" Scope { Session = "session", Desktop = "desktop", App = "app" });
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Combo {
@@ -29,6 +11,10 @@ impl Combo {
     pub const ALT: u8 = 2;
     pub const SHIFT: u8 = 4;
     pub const SUPER: u8 = 8;
+
+    pub fn mods(ctrl: bool, alt: bool, shift: bool, logo: bool) -> u8 {
+        [(ctrl, Self::CTRL), (alt, Self::ALT), (shift, Self::SHIFT), (logo, Self::SUPER)].into_iter().filter(|(on, _)| *on).fold(0, |a, (_, bit)| a | bit)
+    }
 
     pub fn parse(text: &str, key: impl Fn(&str) -> Option<u32>) -> Result<Self, String> {
         let mut combo = Combo::default();
@@ -67,10 +53,15 @@ impl std::fmt::Display for Taken {
 #[derive(Default)]
 pub struct Shortcuts {
     bindings: Vec<Binding>,
+    names: std::collections::HashMap<Combo, String>,
 }
 
 impl Shortcuts {
-    pub fn register(&mut self, new: Binding) -> Result<(), Taken> {
+    pub fn name(&self, combo: Combo) -> Option<&str> {
+        self.names.get(&combo).map(String::as_str)
+    }
+
+    pub fn register(&mut self, new: Binding, name: &str) -> Result<(), Taken> {
         let clash = self.bindings.iter().find(|b| {
             b.combo == new.combo
                 && match (b.scope, new.scope) {
@@ -80,13 +71,12 @@ impl Shortcuts {
                 }
         });
         match clash {
-            Some(b) if *b == new => Ok(()),
-            Some(b) => Err(Taken(*b)),
-            None => {
-                self.bindings.push(new);
-                Ok(())
-            }
+            Some(b) if *b != new => return Err(Taken(*b)),
+            Some(_) => {}
+            None => self.bindings.push(new),
         }
+        self.names.insert(new.combo, name.to_owned());
+        Ok(())
     }
 
     pub fn unregister(&mut self, combo: Combo, scope: Scope, owner: u32) {

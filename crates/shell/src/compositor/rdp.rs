@@ -9,7 +9,6 @@ use ironrdp_server::{
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::drm::DrmNode;
 use smithay::backend::egl::{EGLContext, EGLDisplay};
-use smithay::backend::input::AxisSource;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{Bind, ExportMem, Offscreen};
@@ -18,11 +17,12 @@ use smithay::reexports::calloop::LoopHandle;
 use smithay::reexports::calloop::channel::{self, Channel, Sender};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::gbm;
-use smithay::utils::{DeviceFd, Point, Rectangle};
+use smithay::utils::{DeviceFd, Rectangle};
 
 use super::Compositor;
 use super::backend::{Backend, CLEAR, Target};
-use super::input::{Injected, WHEEL_STEP};
+use super::input::WHEEL_STEP;
+use acde_model::{BTN_LEFT, Injected, WheelSource};
 
 const REFRESH_MHZ: i32 = 60_000;
 
@@ -299,14 +299,14 @@ impl RdpServerInputHandler for Input {
 
     fn mouse(&mut self, event: MouseEvent) {
         let button = |button, pressed| Injected::Button { button, pressed };
-        let wheel = |dx: f64, dy: f64| Injected::Wheel { delta: Point::from((dx, dy)), source: AxisSource::Wheel };
+        let wheel = |dx: f64, dy: f64| Injected::Wheel { dx, dy, source: WheelSource::Wheel };
         let event = match event {
             MouseEvent::Move { x, y } => {
-                Injected::Move(Point::from((f64::from(x.min(self.size.width.saturating_sub(1))), f64::from(y.min(self.size.height.saturating_sub(1))))))
+                Injected::Move(f64::from(x.min(self.size.width.saturating_sub(1))), f64::from(y.min(self.size.height.saturating_sub(1))))
             }
-            MouseEvent::RelMove { x, y } => Injected::Motion(Point::from((f64::from(x), f64::from(y)))),
-            MouseEvent::LeftPressed => button(super::BTN_LEFT, true),
-            MouseEvent::LeftReleased => button(super::BTN_LEFT, false),
+            MouseEvent::RelMove { x, y } => Injected::Motion(f64::from(x), f64::from(y)),
+            MouseEvent::LeftPressed => button(BTN_LEFT, true),
+            MouseEvent::LeftReleased => button(BTN_LEFT, false),
             MouseEvent::RightPressed => button(Self::BTN_RIGHT, true),
             MouseEvent::RightReleased => button(Self::BTN_RIGHT, false),
             MouseEvent::MiddlePressed => button(Self::BTN_MIDDLE, true),

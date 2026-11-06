@@ -26,7 +26,7 @@ fn osascript(action: &str, title: &str, body: &str, subtitle: &str) -> std::proc
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn show(title: &str, body: &str, subtitle: &str) -> Result<(), String> {
+pub fn show(title: &str, body: &str, subtitle: &str) -> Result<(), String> {
     use std::process::Stdio;
     let child = osascript(SHOW, title, body, subtitle)
         .stdin(Stdio::null())
@@ -69,7 +69,7 @@ fn freedesktop_text(title: &str, body: &str, label: &str, markup: bool) -> (Stri
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn show(title: &str, body: &str, label: &str) -> Result<(), String> {
+pub fn show(title: &str, body: &str, label: &str) -> Result<(), String> {
     use std::collections::HashMap;
     const NAME: &str = "org.freedesktop.Notifications";
     const PATH: &str = "/org/freedesktop/Notifications";
@@ -94,7 +94,7 @@ pub(crate) fn show(title: &str, body: &str, label: &str) -> Result<(), String> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub(crate) fn show(_: &str, _: &str, _: &str) -> Result<(), String> {
+pub fn show(_: &str, _: &str, _: &str) -> Result<(), String> {
     Err(format!("no native notifications on {}", std::env::consts::OS))
 }
 

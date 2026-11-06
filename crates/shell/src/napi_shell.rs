@@ -7,8 +7,11 @@ use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi::{Env, Error, Result, Status, Task};
 use napi_derive::napi;
 
-use crate::compositor::{Animate, BTN_LEFT, CanvasInfo, Compositor, Event, Grant, Handle, Inbox, Injected, SURFACE_IDS, Stats, WindowInfo};
+use acde_model::{InjectEvent, Injected};
+
+use crate::compositor::{Animate, Compositor, Event, Handle, Inbox, SURFACE_IDS, Stats};
 use crate::link::Link;
+use crate::link::protocol::acde_shell::Animated;
 
 #[napi]
 pub struct Shell {
@@ -32,45 +35,6 @@ pub struct GrantOptions {
 pub struct SurfaceGrant {
     pub window: u32,
     pub token: BigInt,
-}
-
-#[napi(object)]
-pub struct InjectEvent {
-    #[napi(js_name = "type")]
-    pub kind: String,
-    pub x: Option<f64>,
-    pub y: Option<f64>,
-    pub button: Option<u32>,
-    pub dx: Option<f64>,
-    pub dy: Option<f64>,
-    pub source: Option<String>,
-    pub code: Option<u32>,
-}
-
-impl TryFrom<InjectEvent> for Injected {
-    type Error = Error;
-
-    fn try_from(e: InjectEvent) -> Result<Self> {
-        let need = |v: Option<f64>, name: &str| v.ok_or_else(|| napi_error(format!("inject {}: 缺 {name}", e.kind)));
-        let code = || e.code.ok_or_else(|| napi_error(format!("inject {}: 缺 code", e.kind)));
-        Ok(match e.kind.as_str() {
-            "move" => Self::Move((need(e.x, "x")?, need(e.y, "y")?).into()),
-            "motion" => Self::Motion((need(e.dx, "dx")?, need(e.dy, "dy")?).into()),
-            "down" | "up" => Self::Button { button: e.button.unwrap_or(BTN_LEFT), pressed: e.kind == "down" },
-            "wheel" => {
-                use smithay::backend::input::AxisSource;
-                let source = match e.source.as_deref() {
-                    None | Some("wheel") => AxisSource::Wheel,
-                    Some("finger") => AxisSource::Finger,
-                    Some("continuous") => AxisSource::Continuous,
-                    Some(other) => return Err(napi_error(format!("inject wheel: 不认识的 source {other}"))),
-                };
-                Self::Wheel { delta: (e.dx.unwrap_or(0.0), e.dy.unwrap_or(0.0)).into(), source }
-            }
-            "keydown" | "keyup" => Self::Key { code: code()?, pressed: e.kind == "keydown" },
-            other => return Err(napi_error(format!("inject: 不认识的 type {other}"))),
-        })
-    }
 }
 
 #[napi(object)]
@@ -143,13 +107,15 @@ impl Shell {
         let token = hasher.finish();
         let rect = options.rect.as_deref().and_then(|r| <[i32; 4]>::try_from(r).ok()).filter(|r| r[2] > 0 && r[3] > 0);
         let size = options.size.as_deref().and_then(|s| <[i32; 2]>::try_from(s).ok()).filter(|s| s[0] > 0 && s[1] > 0);
-        self.link.grant(token, Grant { id, desktop, mode, rect, size });
+        let [x, y, w, h] = rect.unwrap_or_default();
+        let [sw, sh] = size.unwrap_or_default();
+        self.link.send(|s| s.grant((token >> 32) as u32, token as u32, id, desktop.into(), mode as u32, x, y, w, h, sw, sh));
         Ok(SurfaceGrant { window: id, token: BigInt::from(token) })
     }
 
     #[napi]
     pub fn release(&self, window: u32) {
-        self.link.release(window);
+        self.link.send(|s| s.release(window));
     }
 
     #[napi(getter)]
@@ -177,7 +143,18 @@ impl Shell {
     #[napi]
     pub fn launch(&self, argv: Vec<String>, options: Option<LaunchOptions>) -> Result<u32> {
         let (cwd, env) = options.map_or((None, None), |o| (o.cwd, o.env));
-        self.link.launch(&argv, cwd.as_deref(), env.iter().flatten()).map_err(napi_error)
+        let mut args = Vec::new();
+        for a in &argv {
+            args.extend_from_slice(a.as_bytes());
+            args.push(0);
+        }
+        let mut vars = Vec::new();
+        for (k, v) in env.iter().flatten() {
+            vars.extend_from_slice(format!("{k}={v}").as_bytes());
+            vars.push(0);
+        }
+        let cwd = cwd.unwrap_or_default();
+        self.link.wait(|s, tx| _ = s.launch(args, cwd, vars, &self.link.qh, tx)).map(|(pid, _)| pid).map_err(napi_error)
     }
 
     #[napi]
@@ -187,72 +164,72 @@ impl Shell {
 
     #[napi(ts_return_type = "Promise<{ width: number, height: number }>")]
     pub fn screenshot(&self, path: String) -> AsyncTask<Screenshot> {
-        AsyncTask::new(Screenshot { rx: self.link.screenshot(path) })
+        AsyncTask::new(Screenshot { rx: self.link.answer(|s, tx| _ = s.screenshot(path, &self.link.qh, tx)) })
     }
 
     #[napi]
     pub fn focus(&self, window: u32) {
-        self.link.focus(window);
+        self.link.send(|s| s.focus(window));
     }
 
     #[napi]
     pub fn hide(&self, window: u32, hidden: bool) {
-        self.link.hide(window, hidden);
+        self.link.send(|s| s.hide(window, hidden.into()));
     }
 
     #[napi]
     pub fn close(&self, window: u32) {
-        self.link.close(window);
+        self.link.send(|s| s.close(window));
     }
 
     #[napi]
     pub fn place(&self, window: u32, x: i32, y: i32, width: i32, height: i32) {
-        self.link.place(window, [x, y, width, height]);
-    }
-
-    #[napi]
-    pub fn raise(&self, window: u32, above: Option<u32>) {
-        self.link.raise(window, above);
-    }
-
-    #[napi]
-    pub fn set_mode(&self, window: u32, mode: String) -> Result<()> {
-        self.link.set_mode(window, mode.parse().map_err(napi_error)?);
-        Ok(())
+        self.link.send(|s| s.place(window, x, y, width, height));
     }
 
     #[napi]
     pub fn windows(&self) -> Vec<WindowRow> {
-        self.link.list().0.into_iter().map(WindowRow::from).collect()
-    }
-
-    #[napi]
-    pub fn canvases(&self) -> Vec<CanvasInfo> {
-        self.link.list().1
+        self.link.list()
     }
 
     #[napi]
     pub fn inject(&self, event: InjectEvent) -> Result<()> {
-        self.link.inject(event.try_into()?);
+        let event = Injected::try_from(event).map_err(napi_error)?;
+        self.link.send(|s| match event {
+            Injected::Move(x, y) => s.inject_move(x, y),
+            Injected::Motion(dx, dy) => s.inject_motion(dx, dy),
+            Injected::Button { button, pressed } => s.inject_button(button, pressed.into()),
+            Injected::Wheel { dx, dy, source } => s.inject_wheel(dx, dy, source as u32),
+            Injected::Key { code, pressed } => s.inject_key(code, pressed.into()),
+        });
         Ok(())
     }
 
     #[napi]
     pub fn animate(&self, window: u32, options: AnimateOptions) -> Result<()> {
-        self.link.animate(window, options.try_into()?);
+        let a = Animate::try_from(options)?;
+        let mut given = Animated::empty();
+        let mut take = |flag: Animated, v: Option<f64>| {
+            given.set(flag, v.is_some());
+            v.unwrap_or(0.0)
+        };
+        let (opacity, scale, dx, dy) = (take(Animated::Opacity, a.opacity), take(Animated::Scale, a.scale), take(Animated::Dx, a.dx), take(Animated::Dy, a.dy));
+        given.set(Animated::Easing, a.easing.is_some());
+        let easing = a.easing.unwrap_or(acde_model::Easing::Ease) as u32;
+        self.link.send(|s| s.animate(window, given, opacity, scale, dx, dy, a.duration_ms as u32, a.delay_ms as u32, easing));
         Ok(())
     }
 
     #[napi]
     pub fn shortcut(&self, combo: String, scope: String, owner: u32) -> Result<()> {
-        let scope = scope.parse().map_err(napi_error)?;
-        self.link.shortcut(combo, scope, owner).map_err(napi_error)
+        let scope: acde_model::Scope = scope.parse().map_err(napi_error)?;
+        self.link.wait(|s, tx| _ = s.shortcut(combo, scope as u32, owner, &self.link.qh, tx)).map(drop).map_err(napi_error)
     }
 
     #[napi]
     pub fn unshortcut(&self, combo: String, scope: String, owner: u32) -> Result<()> {
-        let scope = scope.parse().map_err(napi_error)?;
-        self.link.unshortcut(combo, scope, owner);
+        let scope: acde_model::Scope = scope.parse().map_err(napi_error)?;
+        self.link.send(|s| s.unshortcut(combo, scope as u32, owner));
         Ok(())
     }
 
@@ -299,25 +276,6 @@ pub struct WindowRow {
     pub focus: bool,
     pub hidden: bool,
     pub pid: Option<u32>,
-}
-
-impl From<WindowInfo> for WindowRow {
-    fn from(w: WindowInfo) -> Self {
-        Self {
-            id: w.id,
-            window: w.window,
-            canvas: w.canvas,
-            mode: w.mode.as_str().into(),
-            x: w.x,
-            y: w.y,
-            width: w.width,
-            height: w.height,
-            z: w.z,
-            focus: w.focus,
-            hidden: w.hidden,
-            pid: w.pid,
-        }
-    }
 }
 
 #[napi(object)]

@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::os::fd::OwnedFd;
-use std::sync::{Arc, LazyLock, mpsc};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
-use acde_model::{Event, Inbox, Waker};
+use acde_model::{Event, Inbox, Pacer, Waker};
 use acde_paint::{Drawn, Painter, Sheet};
+use acde_render::{DragImage, SurfaceCommand};
 use smithay::backend::allocator::Buffer as _;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::reexports::calloop::channel::{self, Channel};
@@ -38,41 +39,15 @@ use crate::decoration::{self, DecorationView};
 use crate::panel::PanelView;
 use crate::protocol::{acde_window, acde_window_manager};
 
-static WEB_FPS: LazyLock<Option<f64>> = LazyLock::new(|| std::env::var("ACDE_WEB_FPS").ok().and_then(|v| v.parse::<f64>().ok()).filter(|f| *f > 0.0));
-
 const PANEL_WAIT: Duration = Duration::from_millis(200);
 const REFRESH_SLACK: f64 = 0.9;
 pub(crate) const TEXT: [&str; 3] = ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING"];
-
-pub struct DragImage {
-    pub width: u32,
-    pub height: u32,
-    pub scene: acde_gpu::Scene,
-    pub hotspot: (i32, i32),
-}
-
-enum Command {
-    RequestFrame,
-    SetClipboard(String),
-    ReadClipboard(Box<dyn FnOnce(String) + Send>),
-    StartDrag(HashMap<String, String>, Option<DragImage>),
-    Mode(u32),
-    GrabHint([i32; 4], u32),
-    Backdrop([i32; 4], [f64; 4]),
-    Activate,
-    Grab(u32, bool),
-    OpenPanel { id: u32, token: u64, rect: [i32; 4] },
-    PlacePanel { id: u32, rect: [i32; 4], input: [i32; 4] },
-    ClosePanel(u32),
-    Title(String),
-    Quit,
-}
 
 pub struct Surface {
     window: u32,
     frame: u32,
     events: Arc<Inbox>,
-    commands: channel::Sender<Command>,
+    commands: channel::Sender<Option<SurfaceCommand>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -104,10 +79,6 @@ impl Surface {
         (0.0, f64::from(self.frame))
     }
 
-    pub fn set_title(&self, title: String) {
-        let _ = self.commands.send(Command::Title(title));
-    }
-
     pub fn pump(&self) -> Vec<Event> {
         self.events.drain()
     }
@@ -120,59 +91,15 @@ impl Surface {
         self.events.set_waker(waker);
     }
 
-    pub fn request_frame(&self) {
-        let _ = self.commands.send(Command::RequestFrame);
-    }
-
-    pub fn set_clipboard(&self, text: String) {
-        let _ = self.commands.send(Command::SetClipboard(text));
-    }
-
-    pub fn read_clipboard(&self, reply: Box<dyn FnOnce(String) + Send>) {
-        let _ = self.commands.send(Command::ReadClipboard(reply));
-    }
-
-    pub fn start_drag(&self, data: HashMap<String, String>, icon: Option<DragImage>) {
-        let _ = self.commands.send(Command::StartDrag(data, icon));
-    }
-
-    pub fn request_mode(&self, mode: u32) {
-        let _ = self.commands.send(Command::Mode(mode));
-    }
-
-    pub fn set_grab_hint(&self, rect: [i32; 4], edges: u32) {
-        let _ = self.commands.send(Command::GrabHint(rect, edges));
-    }
-
-    pub fn set_backdrop(&self, rect: [i32; 4], effect: [f64; 4]) {
-        let _ = self.commands.send(Command::Backdrop(rect, effect));
-    }
-
-    pub fn request_activate(&self) {
-        let _ = self.commands.send(Command::Activate);
-    }
-
-    pub fn request_grab(&self, kind: u32, on: bool) {
-        let _ = self.commands.send(Command::Grab(kind, on));
-    }
-
-    pub fn open_panel(&self, id: u32, token: u64, rect: [i32; 4]) {
-        let _ = self.commands.send(Command::OpenPanel { id, token, rect });
-    }
-
-    pub fn place_panel(&self, id: u32, rect: [i32; 4], input: [i32; 4]) {
-        let _ = self.commands.send(Command::PlacePanel { id, rect, input });
-    }
-
-    pub fn close_panel(&self, id: u32) {
-        let _ = self.commands.send(Command::ClosePanel(id));
+    pub fn send(&self, command: SurfaceCommand) {
+        let _ = self.commands.send(Some(command));
     }
 }
 
 impl Drop for Surface {
     fn drop(&mut self) {
         self.events.set_waker(None);
-        let _ = self.commands.send(Command::Quit);
+        let _ = self.commands.send(None);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -259,12 +186,10 @@ pub(crate) struct App {
     pub(crate) signal: LoopSignal,
     pub(crate) logical: (u32, u32),
     pub(crate) scale: f64,
-    pub(crate) told: Option<(u32, u32, f64)>,
     pub(crate) configured: bool,
     pub(crate) active: bool,
     pub(crate) dirty: bool,
-    pub(crate) animating: bool,
-    pub(crate) want_frame: bool,
+    pub(crate) pacer: Pacer,
     pub(crate) frame_pending: bool,
     pub(crate) pointer: Option<wl_pointer::WlPointer>,
     pub(crate) keyboard: Option<wl_keyboard::WlKeyboard>,
@@ -280,10 +205,8 @@ pub(crate) struct App {
     pub(crate) unshown: Option<acde_render::Frame>,
     pub(crate) unshown_since: Option<std::time::Instant>,
     pub(crate) fences: u64,
-    pub(crate) last_tick: Option<std::time::Instant>,
     pub(crate) tick_timer: Option<smithay::reexports::calloop::RegistrationToken>,
     pub(crate) outputs: smithay_client_toolkit::output::OutputState,
-    pub(crate) refresh: Option<Duration>,
     pub(crate) shape: Option<wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1>,
     pub(crate) fractional_scale: bool,
     pub(crate) window_id: u32,
@@ -297,7 +220,7 @@ impl App {
         render: acde_render::RenderHandle,
         frame: u32,
         events: Arc<Inbox>,
-        commands: Channel<Command>,
+        commands: Channel<Option<SurfaceCommand>>,
         ready: mpsc::SyncSender<Result<u32, String>>,
     ) -> Result<(), String> {
         let conn = Connection::connect_to_env().map_err(|e| format!("连接合成器: {e}"))?;
@@ -371,12 +294,10 @@ impl App {
             signal: lp.get_signal(),
             logical: (0, 0),
             scale: 1.0,
-            told: None,
             configured: false,
             active: false,
             dirty: false,
-            animating: false,
-            want_frame: false,
+            pacer: Pacer::new(None),
             frame_pending: false,
             pointer: None,
             keyboard: None,
@@ -392,10 +313,8 @@ impl App {
             unshown: None,
             unshown_since: None,
             fences: 0,
-            last_tick: None,
             tick_timer: None,
             outputs: smithay_client_toolkit::output::OutputState::new(&globals, &qh),
-            refresh: None,
             shape: None,
             fractional_scale: false,
             window_id: 0,
@@ -460,12 +379,8 @@ impl App {
         if !self.configured {
             return;
         }
-        let (w, h) = self.physical();
-        if self.told == Some((w, h, self.scale)) {
-            return;
-        }
-        self.told = Some((w, h, self.scale));
-        self.events.push(Event { kind: "resize".into(), width: Some(w.into()), height: Some(h.into()), scale: Some(self.scale), ..Default::default() });
+        let size = self.physical();
+        self.pacer.tell_size(&self.events, size, self.scale);
     }
 
     fn on_render(&mut self) {
@@ -489,7 +404,7 @@ impl App {
                 log::warn!("网页窗口: {e}");
             }
         }
-        if self.animating {
+        if self.pacer.animating {
             self.ask_frame();
         }
     }
@@ -526,7 +441,7 @@ impl App {
         if frame.commit == 0 {
             return None;
         }
-        self.animating = frame.animating;
+        self.pacer.animating = frame.animating;
         self.escapes(&frame.panels);
         let backdrops = Self::backdrops(&frame.panels);
         let mut sheets = vec![(0, Sheet::from(frame.plane), frame.size)];
@@ -540,10 +455,6 @@ impl App {
         Some((sheets, frame.trace, backdrops))
     }
 
-    fn interval(&self) -> Option<Duration> {
-        WEB_FPS.map(|fps| Duration::from_secs_f64(1.0 / fps)).or(self.refresh)
-    }
-
     pub(crate) fn note_refresh(&mut self) {
         let fastest = self
             .outputs
@@ -553,16 +464,19 @@ impl App {
             .filter(|m| m.current && m.refresh_rate > 0)
             .map(|m| m.refresh_rate)
             .max();
-        self.refresh = fastest.map(|mhz| Duration::from_secs_f64(REFRESH_SLACK * 1000.0 / f64::from(mhz)));
+        self.pacer.set_refresh(fastest.map(|mhz| Duration::from_secs_f64(REFRESH_SLACK * 1000.0 / f64::from(mhz))));
     }
 
     pub(crate) fn pace(&mut self) {
-        if !(self.want_frame || self.animating) || self.tick_timer.is_some() || self.painter.busy() {
+        if self.tick_timer.is_some() || self.painter.busy() {
             return;
         }
-        let wait = self.interval().map_or(Duration::ZERO, |i| i.saturating_sub(self.last_tick.map_or(i, |t| t.elapsed())));
+        let Some(wait) = self.pacer.wait() else { return };
         if wait.is_zero() {
-            return self.tick();
+            if let Some(now) = self.pacer.tick(&self.events) {
+                self.render.tick(now);
+            }
+            return;
         }
         let timer = smithay::reexports::calloop::timer::Timer::from_duration(wait);
         self.tick_timer = self
@@ -573,17 +487,6 @@ impl App {
                 smithay::reexports::calloop::timer::TimeoutAction::Drop
             })
             .ok();
-    }
-
-    fn tick(&mut self) {
-        let now = acde_log::now_ms();
-        self.last_tick = Some(std::time::Instant::now());
-        if std::mem::take(&mut self.want_frame) {
-            self.events.push(Event { kind: "frame".into(), time: Some(now), ..Default::default() });
-        }
-        if self.animating {
-            self.render.tick(now);
-        }
     }
 
     fn on_painted(&mut self) {
@@ -655,7 +558,7 @@ impl App {
         let surface = self.surface().clone();
         show(&surface, &self.viewport, &buffer, &drawn, self.scale);
         self.painter.hold(0, drawn.canvas, true);
-        if !self.frame_pending && (self.animating || self.want_frame || trace.is_some()) {
+        if !self.frame_pending && (self.pacer.animating || self.pacer.want_frame || trace.is_some()) {
             self.frame_pending = true;
             surface.frame(&self.qh, smithay_client_toolkit::compositor::FrameCallbackData(surface.clone()));
         }
@@ -727,35 +630,37 @@ impl App {
         surface.commit();
     }
 
-    fn on_command(&mut self, command: Command) {
+    fn on_command(&mut self, command: Option<SurfaceCommand>) {
+        use SurfaceCommand as C;
         match command {
-            Command::RequestFrame => {
-                self.want_frame = true;
+            None => self.signal.stop(),
+            Some(C::RequestFrame) => {
+                self.pacer.want_frame = true;
                 self.ask_frame();
             }
-            Command::SetClipboard(text) => self.set_clipboard(text),
-            Command::ReadClipboard(reply) => self.read_clipboard(reply),
-            Command::StartDrag(data, icon) => self.start_drag(data, icon),
-            Command::Mode(mode) => match acde_window::Mode::try_from(mode) {
-                Ok(mode) => self.acde.request_mode(mode),
-                Err(()) => log::warn!("窗口模式 {mode} 不存在"),
+            Some(C::SetClipboard(text)) => self.set_clipboard(text),
+            Some(C::ReadClipboard(reply)) => self.read_clipboard(reply),
+            Some(C::StartDrag(data, icon)) => self.start_drag(data, icon),
+            Some(C::Mode(mode)) => match acde_model::Mode::try_from(mode) {
+                Ok(mode) => self.acde.request_mode(mode as u32),
+                Err(_) => log::warn!("窗口模式 {mode} 不存在"),
             },
-            Command::GrabHint(rect, edges) => self.set_page_hint(rect, edges),
-            Command::Backdrop(rect, [radius, blur, saturate, brightness]) => {
+            Some(C::GrabHint(rect, edges)) => self.set_page_hint(rect, edges),
+            Some(C::Backdrop(rect, [radius, blur, saturate, brightness])) => {
                 let [x, y, w, h] = self.page_backdrop(rect);
                 self.acde.set_backdrop(x, y, w, h, radius, blur, saturate, brightness);
             }
-            Command::Activate => self.acde.request_activate(),
-            Command::Grab(kind, on) => match (acde_window::GrabKind::try_from(kind), on) {
+            Some(C::Activate) => self.acde.request_activate(),
+            Some(C::Grab(kind, on)) => match (acde_window::GrabKind::try_from(kind), on) {
                 (Ok(kind), true) => self.acde.request_grab(kind),
                 (Ok(kind), false) => self.acde.release_grab(kind),
                 (Err(()), _) => log::warn!("grab 种类 {kind} 不存在"),
             },
-            Command::OpenPanel { id, token, rect } => self.open_panel(id, token, rect),
-            Command::PlacePanel { id, rect, input } => self.place_panel(id, rect, input),
-            Command::ClosePanel(id) => self.close_panel(id),
-            Command::Title(title) => self.set_title(title),
-            Command::Quit => self.signal.stop(),
+            Some(C::OpenPanel { id, token, rect }) => self.open_panel(id, token, rect),
+            Some(C::PlacePanel { id, rect, input }) => self.place_panel(id, rect, input),
+            Some(C::ClosePanel(id)) => self.close_panel(id),
+            Some(C::Title(title)) => self.set_title(title),
+            Some(C::ImeArea(_)) => {}
         }
     }
 

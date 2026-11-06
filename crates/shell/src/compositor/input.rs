@@ -10,10 +10,10 @@ use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_cons
 
 use smithay::input::keyboard::keysyms;
 
-use acde_model::{Binding, Combo, Scope};
-use smithay::input::keyboard::{ModifiersState, xkb};
+use acde_model::{Binding, Combo, Injected, Scope, WheelSource};
+use smithay::input::keyboard::xkb;
 
-use super::grabs::Lost;
+use super::acde_window::WireLost;
 use super::{Compositor, ShellEvent};
 
 enum Key {
@@ -21,14 +21,6 @@ enum Key {
     Esc,
     Shortcut(Binding),
     Held,
-}
-
-pub enum Injected {
-    Move(Point<f64, Logical>),
-    Motion(Point<f64, Logical>),
-    Button { button: u32, pressed: bool },
-    Wheel { delta: Point<f64, Logical>, source: AxisSource },
-    Key { code: u32, pressed: bool },
 }
 
 pub(super) const WHEEL_STEP: f64 = 15.0;
@@ -75,23 +67,29 @@ impl Compositor {
         self.activity();
         let time = self.start.elapsed().as_millis() as u32;
         match event {
-            Injected::Move(pos) => {
-                let pos = self.clamp_to_outputs(pos);
+            Injected::Move(x, y) => {
+                let pos = self.clamp_to_outputs((x, y).into());
                 let delta = pos - self.pointer().current_location();
                 self.pointer_moved(pos, delta, delta, u64::from(time) * 1000, time);
             }
-            Injected::Motion(delta) => {
+            Injected::Motion(dx, dy) => {
+                let delta = (dx, dy).into();
                 let pos = self.clamp_to_outputs(self.pointer().current_location() + delta);
                 self.pointer_moved(pos, delta, delta, u64::from(time) * 1000, time);
             }
             Injected::Button { button, pressed } => self.on_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, time),
-            Injected::Wheel { delta, source } => {
-                let mut frame = AxisFrame::new(time).source(source);
-                for (axis, value) in [(Axis::Horizontal, delta.x), (Axis::Vertical, delta.y)] {
+            Injected::Wheel { dx, dy, source } => {
+                let axis_source = match source {
+                    WheelSource::Wheel => AxisSource::Wheel,
+                    WheelSource::Finger => AxisSource::Finger,
+                    WheelSource::Continuous => AxisSource::Continuous,
+                };
+                let mut frame = AxisFrame::new(time).source(axis_source);
+                for (axis, value) in [(Axis::Horizontal, dx), (Axis::Vertical, dy)] {
                     frame = match (value != 0.0, source) {
-                        (true, AxisSource::Wheel) => frame.value(axis, value).v120(axis, (value / WHEEL_STEP * 120.0) as i32),
+                        (true, WheelSource::Wheel) => frame.value(axis, value).v120(axis, (value / WHEEL_STEP * 120.0) as i32),
                         (true, _) => frame.value(axis, value),
-                        (false, AxisSource::Finger) if delta == Point::default() => frame.stop(axis),
+                        (false, WheelSource::Finger) if dx == 0.0 && dy == 0.0 => frame.stop(axis),
                         (false, _) => frame,
                     };
                 }
@@ -116,7 +114,7 @@ impl Compositor {
         }
         let serial = SERIAL_COUNTER.next_serial();
         if pressed && self.grabs.any() && !self.grab_holds(window.as_ref()) {
-            self.lose_grabs(Lost::OtherWindow);
+            self.lose_grabs(WireLost::OtherWindow);
         }
         if pressed {
             if pointer.is_grabbed() {
@@ -213,7 +211,11 @@ impl Compositor {
                 return FilterResult::Intercept(Key::Esc);
             }
             let key = handle.raw_latin_sym_or_raw_current_sym().map_or(sym, |k| k.raw());
-            match state_.shortcuts.find(Combo { mods: Self::mods(mods), key }, focused).filter(|b| !inhibited || b.scope == Scope::Session) {
+            match state_
+                .shortcuts
+                .find(Combo { mods: Combo::mods(mods.ctrl, mods.alt, mods.shift, mods.logo), key }, focused)
+                .filter(|b| !inhibited || b.scope == Scope::Session)
+            {
                 Some(binding) => {
                     state_.held_keys.insert(keycode);
                     FilterResult::Intercept(Key::Shortcut(binding))
@@ -223,20 +225,13 @@ impl Compositor {
         });
         match action {
             Some(Key::Vt(vt)) => self.change_vt(vt),
-            Some(Key::Esc) => self.lose_grabs(Lost::Esc),
+            Some(Key::Esc) => self.lose_grabs(WireLost::Esc),
             Some(Key::Shortcut(binding)) => {
-                let name = self.shortcut_names.get(&binding.combo).cloned();
+                let name = self.shortcuts.name(binding.combo).map(str::to_owned);
                 self.emit(ShellEvent::Shortcut { owner: binding.owner, key: name, scope: binding.scope });
             }
             Some(Key::Held) | None => {}
         }
-    }
-
-    fn mods(m: &ModifiersState) -> u8 {
-        [(m.ctrl, Combo::CTRL), (m.alt, Combo::ALT), (m.shift, Combo::SHIFT), (m.logo, Combo::SUPER)]
-            .into_iter()
-            .filter(|(on, _)| *on)
-            .fold(0, |a, (_, bit)| a | bit)
     }
 
     fn combo(text: &str) -> Result<Combo, String> {
@@ -245,9 +240,7 @@ impl Compositor {
 
     pub fn register_shortcut(&mut self, text: &str, scope: Scope, owner: u32) -> Result<(), String> {
         let combo = Self::combo(text)?;
-        self.shortcuts.register(Binding { combo, scope, owner }).map_err(|e| format!("{text}: {e}"))?;
-        self.shortcut_names.insert(combo, text.to_owned());
-        Ok(())
+        self.shortcuts.register(Binding { combo, scope, owner }, text).map_err(|e| format!("{text}: {e}"))
     }
 
     pub fn unregister_shortcut(&mut self, text: &str, scope: Scope, owner: u32) {

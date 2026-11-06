@@ -14,6 +14,7 @@ mod net;
 mod parse;
 mod region;
 mod serialize;
+mod surface;
 mod tree;
 mod verify;
 
@@ -27,6 +28,7 @@ pub use dom::{Dom, NONE, NodeType, Ns, Quad, Viewport};
 pub use error::{Error, Result};
 pub use geometry::Metrics;
 pub use layers::{Backdrop, Drawing, Layer, LayerFilter};
+pub use surface::{DragImage, SurfaceCommand};
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

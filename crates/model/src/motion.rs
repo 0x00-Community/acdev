@@ -41,29 +41,7 @@ impl Look {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Easing {
-    Linear,
-    Ease,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
-}
-
-impl std::str::FromStr for Easing {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        Ok(match s {
-            "linear" => Easing::Linear,
-            "ease" => Easing::Ease,
-            "ease-in" => Easing::EaseIn,
-            "ease-out" => Easing::EaseOut,
-            "ease-in-out" => Easing::EaseInOut,
-            other => return Err(format!("unknown easing {other}")),
-        })
-    }
-}
+wire!("easing" Easing { Linear = "linear", Ease = "ease", EaseIn = "ease-in", EaseOut = "ease-out", EaseInOut = "ease-in-out" });
 
 impl Easing {
     fn points(self) -> [f64; 4] {

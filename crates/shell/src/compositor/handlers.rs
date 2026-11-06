@@ -391,7 +391,7 @@ impl Compositor {
     ) -> smithay::utils::Point<i32, smithay::utils::Logical> {
         let screen = self.space.output_geometry(&self.backend.output).unwrap_or_default();
         let over = parent.and_then(|p| Some(smithay::utils::Rectangle::new(self.space.element_location(p)?, p.geometry().size))).unwrap_or(screen);
-        let cascade = if parent.is_some() { 0 } else { (self.native_ids.len() as i32 % 8) * 32 };
+        let cascade = if parent.is_some() { 0 } else { (self.natives as i32 % 8) * 32 };
         let loc = over.loc + smithay::utils::Point::from(((over.size.w - size.w) / 2 + cascade, (over.size.h - size.h) / 2 + cascade));
         (
             loc.x.clamp(screen.loc.x, (screen.loc.x + screen.size.w - size.w).max(screen.loc.x)),
@@ -434,7 +434,7 @@ impl Compositor {
         let modal = window.and_then(|w| self.modal_target(w));
         let window = modal.as_ref().or(window);
         if !self.grab_holds(window) {
-            self.lose_grabs(super::grabs::Lost::Focus);
+            self.lose_grabs(super::acde_window::WireLost::FocusLost);
         }
         let serial = smithay::utils::SERIAL_COUNTER.next_serial();
         if let Some(window) = window {

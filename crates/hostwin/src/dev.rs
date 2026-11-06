@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::io::Write;
+use std::io::{self, BufRead, BufReader, Write};
 use std::sync::Mutex;
 
 use acde_model::Event;
@@ -18,10 +18,40 @@ fn link() -> std::sync::MutexGuard<'static, Option<Link>> {
     LINK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+#[cfg(unix)]
+fn open(name: &str) -> io::Result<std::os::unix::net::UnixStream> {
+    std::os::unix::net::UnixStream::connect(name)
+}
+
+#[cfg(windows)]
+fn open(name: &str) -> io::Result<std::fs::File> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::ERROR_PIPE_BUSY;
+    use windows_sys::Win32::System::Pipes::WaitNamedPipeW;
+    loop {
+        match std::fs::OpenOptions::new().read(true).write(true).open(name) {
+            Ok(file) => return Ok(file),
+            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
+                let wide: Vec<u16> = std::ffi::OsStr::new(name).encode_wide().chain(Some(0)).collect();
+                if unsafe { WaitNamedPipeW(wide.as_ptr(), 5000) } == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn send(writer: &mut dyn Write, line: &str) -> io::Result<()> {
+    writer.write_all(line.as_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.flush()
+}
+
 pub(crate) fn connect(proxy: Proxy) {
     let Ok(endpoint) = std::env::var("ACDE_DEV") else { return };
     let spawned = std::thread::Builder::new().name("acde-dev".into()).spawn(move || {
-        let stream = match acde_ipc::connect(&endpoint) {
+        let stream = match open(&endpoint) {
             Ok(s) => s,
             Err(e) => {
                 log::error!("acde dev: 连不上 {endpoint}: {e}");
@@ -36,9 +66,11 @@ pub(crate) fn connect(proxy: Proxy) {
         if let Err(e) = write(&hello) {
             log::error!("acde dev: hello: {e}");
         }
-        let mut lines = acde_ipc::Lines::new(stream);
-        while let Ok(Some(line)) = lines.next_line() {
-            handle(&line, &proxy);
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        while reader.read_line(&mut line).is_ok_and(|n| n > 0) {
+            handle(line.trim_end_matches(['\r', '\n']), &proxy);
+            line.clear();
         }
         *link() = None;
         log::info!("acde dev 断开了, 结束");
@@ -52,10 +84,10 @@ pub(crate) fn connect(proxy: Proxy) {
 fn write(line: &str) -> Result<(), String> {
     let mut link = link();
     let link = link.as_mut().ok_or("acde dev: not connected")?;
-    acde_ipc::send(&mut link.writer, line).map_err(|e| format!("acde dev: {e}"))
+    send(&mut link.writer, line).map_err(|e| format!("acde dev: {e}"))
 }
 
-pub(crate) fn respond(id: i64, result: Result<&str, &str>) -> Result<(), String> {
+pub fn respond(id: i64, result: Result<&str, &str>) -> Result<(), String> {
     let line = match result {
         Ok(json) => format!(r#"{{"type":"response","id":{id},"ok":true,"result":{json}}}"#),
         Err(message) => {
@@ -71,7 +103,7 @@ pub(crate) fn respond(id: i64, result: Result<&str, &str>) -> Result<(), String>
     if !link.pending.remove(&id) {
         return Err(format!("acde dev: request {id} is not waiting for a response"));
     }
-    acde_ipc::send(&mut link.writer, &line).map_err(|e| format!("acde dev: {e}"))
+    send(&mut link.writer, &line).map_err(|e| format!("acde dev: {e}"))
 }
 
 fn request(message: &serde_json::Value, line: &str) {

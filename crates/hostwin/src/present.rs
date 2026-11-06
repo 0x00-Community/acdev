@@ -3,7 +3,7 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use acde_gpu::{Overrides, Scene, Vello, vello, wgpu};
-use acde_model::{Event, Inbox};
+use acde_model::{Inbox, Pacer};
 use acde_render::{Bar, Decoration, Plane, RenderHandle};
 use vello::kurbo::Affine;
 use vello::peniko::Color;
@@ -26,12 +26,8 @@ pub(crate) struct Presenter {
     scale: f64,
     panels: HashMap<u32, u32>,
     targets: HashMap<u32, Arc<Page>>,
-    want_frame: bool,
-    animating: bool,
+    pacer: Pacer,
     dirty: bool,
-    last_tick: Option<Instant>,
-    interval: Duration,
-    told: Option<(u32, u32, u64)>,
     bar: Bar,
     decoration: Option<Decoration>,
 }
@@ -51,11 +47,6 @@ impl Presenter {
         let vello = Vello::new(&gpu.shared.device, &gpu.shared.queue)?;
         let overrides = Overrides::from(gpu.shared.images.clone());
         let hz = refresh.filter(|hz| *hz > 1.0).unwrap_or(DEFAULT_HZ);
-        let interval = std::env::var("ACDE_WEB_FPS")
-            .ok()
-            .and_then(|f| f.parse::<f64>().ok())
-            .filter(|f| *f > 0.0)
-            .map_or(Duration::from_secs_f64(0.9 / hz), |fps| Duration::from_secs_f64(1.0 / fps));
         Ok(Self {
             gpu,
             vello,
@@ -67,20 +58,16 @@ impl Presenter {
             scale,
             panels: HashMap::new(),
             targets: HashMap::new(),
-            want_frame: false,
-            animating: false,
+            pacer: Pacer::new(Some(Duration::from_secs_f64(0.9 / hz))),
             dirty: true,
-            last_tick: None,
-            interval,
-            told: None,
             decoration: (bar.height > 0.0).then(Decoration::new),
             bar,
         })
     }
 
     pub fn run(&mut self, rx: &mpsc::Receiver<Msg>) {
-        self.tell_size();
-        while let Some(msgs) = drain(rx, self.wait()) {
+        self.pacer.tell_size(&self.inbox, self.size, self.scale);
+        while let Some(msgs) = drain(rx, self.pacer.wait()) {
             let mut stop = false;
             for msg in msgs {
                 stop |= self.handle(msg);
@@ -88,8 +75,10 @@ impl Presenter {
             if stop {
                 break;
             }
-            if self.due() {
-                self.tick();
+            if self.pacer.wait() == Some(Duration::ZERO)
+                && let Some(now) = self.pacer.tick(&self.inbox)
+            {
+                self.render.tick(now);
             }
             if self.dirty {
                 self.paint();
@@ -105,11 +94,11 @@ impl Presenter {
     fn handle(&mut self, msg: Msg) -> bool {
         match msg {
             Msg::Wake => self.dirty = true,
-            Msg::Frame => self.want_frame = true,
+            Msg::Frame => self.pacer.want_frame = true,
             Msg::Resized(width, height, scale) => {
                 self.size = (width.max(1), height.max(1));
                 self.scale = scale;
-                self.tell_size();
+                self.pacer.tell_size(&self.inbox, self.size, self.scale);
                 self.render.invalidate();
                 self.dirty = true;
             }
@@ -141,35 +130,6 @@ impl Presenter {
         false
     }
 
-    fn wait(&self) -> Option<Duration> {
-        (self.want_frame || self.animating).then(|| self.last_tick.map_or(Duration::ZERO, |t| self.interval.saturating_sub(t.elapsed())))
-    }
-
-    fn due(&self) -> bool {
-        (self.want_frame || self.animating) && self.last_tick.is_none_or(|t| t.elapsed() >= self.interval)
-    }
-
-    fn tick(&mut self) {
-        let now = acde_log::now_ms();
-        self.last_tick = Some(Instant::now());
-        if std::mem::take(&mut self.want_frame) {
-            self.inbox.push(Event { kind: "frame".into(), time: Some(now), ..Default::default() });
-        }
-        if self.animating {
-            self.render.tick(now);
-        }
-    }
-
-    fn tell_size(&mut self) {
-        let (w, h) = self.size;
-        let told = (w, h, self.scale.to_bits());
-        if self.told == Some(told) {
-            return;
-        }
-        self.told = Some(told);
-        self.inbox.push(Event { kind: "resize".into(), width: Some(f64::from(w)), height: Some(f64::from(h)), scale: Some(self.scale), ..Default::default() });
-    }
-
     fn scenes(plane: &Plane) -> Vec<(Scene, Affine)> {
         match plane.layers.is_empty() {
             true => vec![(plane.drawing.scene(), Affine::IDENTITY)],
@@ -183,7 +143,7 @@ impl Presenter {
         if frame.commit == 0 {
             return;
         }
-        self.animating = frame.animating;
+        self.pacer.animating = frame.animating;
         let started = Instant::now();
         let (main, size) = self.framed(Self::scenes(&frame.plane));
         let mut result = self.draw(self.id, size, main, Color::WHITE);

@@ -5,7 +5,7 @@ pub(crate) type FolderReply = std::sync::mpsc::SyncSender<Result<Option<PathBuf>
 pub(crate) enum Cmd {
     Title(String),
     ImeArea([f64; 4]),
-    Inject(crate::shell::Injected),
+    Inject(acde_model::Injected),
     ChooseFolder { title: String, reply: FolderReply },
     Exit(i32),
 }

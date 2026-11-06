@@ -155,7 +155,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 
 ## acde dev
 
-IPC 是 crates/ipc (`acde-ipc`): unix 上 unix socket, Windows 上命名管道, 一行一个 JSON. acde 是服务端 (`ACDE_DEV` 是地址), acdert
+IPC: unix 上 unix socket, Windows 上命名管道, 一行一个 JSON. acde 是服务端 (`ACDE_DEV` 是地址), acdert
 (hostwin 的 `acde-dev` 线程, `dev.rs`) 连上去先发 `{"type":"hello","role":"runtime","pid"}`. 连接断了 acdert 就退出. 工程的构建结果经
 `ACDE_PATH` (Windows 用 `;` 分隔) 交给 acdert, 不装进包目录; 日志就是 acdert 的 stderr.
 
@@ -427,7 +427,7 @@ FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel`
   wlr-layer-shell、ext-session-lock、idle、text-input-v3 + input-method-v2 + virtual-keyboard、keyboard-shortcuts-inhibit、xdg-output.
   第三方的 popup 和 layer-shell surface 在表里是 `pinned`. maximize 不理.
 - Broker 侧: `Shell.broker()`; `onEvents(cb)` / `pump()`; `grant({desktop?, window?, mode?, rect?, size?})` → `{window, token}` (随机 64 位令牌,
-  客户端在 `acde_window.bind` 里交回一次); `release`、`place`、`raise`、`setMode`、`windows()`、`canvases()`、`animate`、`shortcut` / `unshortcut`
+  客户端在 `acde_window.bind` 里交回一次); `release`、`place`、`windows()`、`animate`、`shortcut` / `unshortcut`
   (冲突抛错)、`focus`、`hide`、`close`、`quit` (等合成器线程拆完, 最多 3 秒)、`socketName`、`launch(argv, {cwd, env})`、`stats(reset?)`、
   `screenshot(path)`、`inject(...)`.
 - web 侧: `claimSurface(token, {frame?})` (crates/acdert `webnative.rs` → crates/window `Surface::claim`: 连上合成器、开 toplevel、bind 令牌;
@@ -586,7 +586,6 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/window` | `acde-window`: 会话里 web 的 Wayland 客户端 (sctk): toplevel、dmabuf、输入、剪贴板、拖放、`acde_window`、窗框子 surface |
 | `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `tests/run.sh <acdert> tests/<x>-check.mjs`、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` |
 | `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
-| `crates/ipc` | `acde-ipc`: unix socket / Windows 命名管道上的一行一个 JSON (`acde dev`) |
 | `crates/log` | `acde-log`: 日志和计时 |
 | `crates/acde-napi` | rusty_v8 实现的 Node-API (napi8), 让 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` 0.191.0 (MIT, LICENSE-MIT), 去掉了用不到的入口 |
 | `web/packages/acde-host` | acdert 的 JS: Broker 和每个 web 的宿主, 包发现, 桌面服务, 登录页 |

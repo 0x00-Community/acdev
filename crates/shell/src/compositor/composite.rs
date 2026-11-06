@@ -60,7 +60,7 @@ impl Compositor {
     }
 
     pub fn animate(&mut self, window: u32, spec: Animate) {
-        let Some(managed) = self.native_ids.get(&window).or_else(|| self.extras.get(&window)).copied() else { return };
+        let Some(managed) = self.managed(window) else { return };
         let from = self.motion.look(managed);
         let to = Look {
             opacity: spec.opacity.map_or(from.opacity, |o| o.clamp(0.0, 1.0) as f32),

@@ -84,7 +84,7 @@ impl Cursor {
     }
 
     pub fn for_edges(edges: u32) -> CursorIcon {
-        use super::grabs::{BOTTOM, LEFT, RIGHT, TOP};
+        use acde_model::edge::{BOTTOM, LEFT, RIGHT, TOP};
         match (edges & (TOP | BOTTOM), edges & (LEFT | RIGHT)) {
             (0, 0) => CursorIcon::Grabbing,
             (TOP, LEFT) => CursorIcon::NwResize,
