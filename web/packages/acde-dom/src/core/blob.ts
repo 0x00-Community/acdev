@@ -1,7 +1,7 @@
 import { defineHandlers, Event, EventTarget, fire, ProgressEvent } from './event'
 import { DOMException } from './exception'
 import { base64, bytesOf, concat, latin1, TextDecoder } from './encoding'
-import { host, tag } from './host'
+import { constants, host, tag } from './host'
 import { streamOfBytes, type ReadableStream } from './streams'
 
 type BlobPart = Blob | ArrayBuffer | ArrayBufferView | string
@@ -82,9 +82,6 @@ export class File extends Blob {
 tag(File)
 
 export class FileReader extends EventTarget {
-  static readonly EMPTY = 0
-  static readonly LOADING = 1
-  static readonly DONE = 2
   readyState = 0
   result: string | ArrayBuffer | null = null
   error: DOMException | null = null
@@ -133,4 +130,5 @@ export class FileReader extends EventTarget {
   }
 }
 defineHandlers(FileReader.prototype, ['loadstart', 'progress', 'load', 'abort', 'error', 'loadend'])
+constants(FileReader, { EMPTY: 0, LOADING: 1, DONE: 2 })
 tag(FileReader)

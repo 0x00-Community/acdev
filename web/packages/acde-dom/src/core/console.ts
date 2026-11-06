@@ -54,7 +54,7 @@ function inspect(value: unknown, depth = 2, seen: Set<object> = new Set()): stri
   }
 }
 
-export function format(args: readonly unknown[]): string {
+function format(args: readonly unknown[]): string {
   if (args.length === 0) return ''
   const first = args[0]
   let i = 1

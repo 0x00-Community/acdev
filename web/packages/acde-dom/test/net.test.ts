@@ -34,7 +34,7 @@ const FAKE = `(() => {
         else later(1, () => { on({ type: 'head', status: 200, statusText: 'OK', headers: [['content-type', 'text/event-stream; charset=utf-8']] }); on({ type: 'chunk', data: enc.encode('data: again ' + call.headers['last-event-id'] + '\\n\\n') }) })
       } else if (p === '/not-events') answer(on, 200, [['content-type', 'text/html']], ['<p>'])
       else answer(on, 404, [['content-type', 'text/plain']], ['not found: ' + path])
-      return Promise.resolve(id)
+      return id
     },
     abort(id) { backend.aborted.push(id) },
     websocket(port, path, headers, protocols, on) {
@@ -43,7 +43,7 @@ const FAKE = `(() => {
       backend.sockets ??= {}
       backend.sockets[id] = on
       later(1, () => on({ type: 'open', protocol: protocols[0] ?? '', extensions: '' }))
-      return Promise.resolve(id)
+      return id
     },
     send(id, data) {
       backend.sent.push(typeof data === 'string' ? data : [...data])

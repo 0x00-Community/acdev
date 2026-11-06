@@ -1,5 +1,5 @@
 import { DOMException } from './exception'
-import { G, host, report, tag } from './host'
+import { constants, G, host, report, tag } from './host'
 
 const enum Phase {
   None = 0,
@@ -51,11 +51,6 @@ let dispatch: (target: EventTarget, event: Event) => boolean
 let invoke: (target: EventTarget, event: Event, capture: boolean) => void
 
 export class Event {
-  static readonly NONE = 0
-  static readonly CAPTURING_PHASE = 1
-  static readonly AT_TARGET = 2
-  static readonly BUBBLING_PHASE = 3
-
   #type: string
   #bubbles: boolean
   #cancelable: boolean
@@ -230,9 +225,7 @@ export class Event {
     this.#cancelable = !!cancelable
   }
 }
-for (const [name, value] of [['NONE', 0], ['CAPTURING_PHASE', 1], ['AT_TARGET', 2], ['BUBBLING_PHASE', 3]] as const) {
-  Object.defineProperty(Event.prototype, name, { value, enumerable: true })
-}
+constants(Event, { NONE: 0, CAPTURING_PHASE: 1, AT_TARGET: 2, BUBBLING_PHASE: 3 })
 tag(Event)
 
 function call(target: EventTarget, listener: Listener, event: Event): void {

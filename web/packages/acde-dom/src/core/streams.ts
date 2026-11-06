@@ -1,6 +1,6 @@
 import { AbortController, type AbortSignal } from './abort'
-import { concat, TextDecoder, TextEncoder } from './encoding'
-import { tag } from './host'
+import { bytesOf, concat, TextDecoder, TextEncoder } from './encoding'
+import { illegal, KEY, tag } from './host'
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -9,7 +9,7 @@ interface Deferred<T> {
   settled: boolean
 }
 
-function deferred<T>(): Deferred<T> {
+export function deferred<T>(): Deferred<T> {
   const d = { settled: false } as Deferred<T>
   d.promise = new Promise<T>((resolve, reject) => {
     d.resolve = (value) => {
@@ -45,12 +45,6 @@ function strategy<T>(given: Strategy<T> | undefined, fallback: number): { hwm: n
   if (Number.isNaN(hwm) || hwm < 0) throw new RangeError('The highWaterMark of a queuing strategy must be a non-negative number')
   const size = given?.size
   return { hwm, size: size ? (chunk) => Number(size(chunk)) : () => 1 }
-}
-
-const KEY = Symbol('acde-streams')
-
-function illegal(token: unknown): void {
-  if (token !== KEY) throw new TypeError('Illegal constructor')
 }
 
 interface UnderlyingSource<R> {
@@ -189,6 +183,10 @@ export class ReadableStreamDefaultController<R = unknown> {
 }
 tag(ReadableStreamDefaultController)
 
+function readerReleased(): TypeError {
+  return new TypeError('This readable stream reader has been released')
+}
+
 export class ReadableStreamDefaultReader<R = unknown> {
   #stream: ReadableStream<R> | null
   #closed: Deferred<undefined>
@@ -209,7 +207,7 @@ export class ReadableStreamDefaultReader<R = unknown> {
   }
 
   read(): Promise<ReadResult<R>> {
-    if (!this.#stream) return Promise.reject(new TypeError('This readable stream reader has been released'))
+    if (!this.#stream) return Promise.reject(readerReleased())
     const s = rs(this.#stream)
     s.disturbed = true
     if (s.state === 'closed') return Promise.resolve({ value: undefined, done: true })
@@ -230,7 +228,7 @@ export class ReadableStreamDefaultReader<R = unknown> {
   releaseLock(): void {
     if (!this.#stream) return
     const s = rs(this.#stream)
-    const released = new TypeError('This readable stream reader has been released')
+    const released = readerReleased()
     for (const read of s.reads.splice(0)) read.reject(released)
     if (this.#closed.settled) this.#closed = deferred()
     this.#closed.reject(released)
@@ -240,7 +238,7 @@ export class ReadableStreamDefaultReader<R = unknown> {
   }
 
   cancel(reason?: unknown): Promise<undefined> {
-    if (!this.#stream) return Promise.reject(new TypeError('This readable stream reader has been released'))
+    if (!this.#stream) return Promise.reject(readerReleased())
     return cancelStream(rs(this.#stream), reason)
   }
 }
@@ -440,12 +438,8 @@ export async function readAllBytes(stream: ReadableStream<any>): Promise<Uint8Ar
     for (;;) {
       const { value, done } = await reader.read()
       if (done) break
-      let part: Uint8Array
-      if (typeof value === 'string') part = encoder.encode(value)
-      else if (ArrayBuffer.isView(value)) part = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-      else if (value instanceof ArrayBuffer) part = new Uint8Array(value)
-      else throw new TypeError('The body stream gave a chunk that is not a Uint8Array')
-      parts.push(part)
+      if (value === null || value === undefined) throw new TypeError('The body stream gave a chunk that is not a Uint8Array')
+      parts.push(typeof value === 'string' ? encoder.encode(value) : bytesOf(value))
     }
   } finally {
     reader.releaseLock()
@@ -513,6 +507,11 @@ function advance(s: WriteState<any>): void {
   if (!head) return
   s.total -= head.size
   s.busy = true
+  const fail = (error: unknown) => {
+    s.busy = false
+    head.done.reject(error)
+    failWritable(s, error)
+  }
   if (head.chunk === CLOSE) {
     attempt(() => s.sink.close?.call(s.sink)).then(() => {
       s.busy = false
@@ -520,11 +519,7 @@ function advance(s: WriteState<any>): void {
       s.state = 'closed'
       head.done.resolve(undefined)
       s.closed.resolve(undefined)
-    }, (error) => {
-      s.busy = false
-      head.done.reject(error)
-      failWritable(s, error)
-    })
+    }, fail)
     return
   }
   attempt(() => s.sink.write?.call(s.sink, head.chunk, s.controller)).then(() => {
@@ -532,11 +527,7 @@ function advance(s: WriteState<any>): void {
     head.done.resolve(undefined)
     backpressure(s)
     advance(s)
-  }, (error) => {
-    s.busy = false
-    head.done.reject(error)
-    failWritable(s, error)
-  })
+  }, fail)
 }
 
 export class WritableStreamDefaultController {
@@ -576,12 +567,16 @@ export class WritableStreamDefaultWriter<W = unknown> {
     return ws(this.#stream)
   }
 
+  #held(fn: (s: WriteState<W>) => Promise<undefined>): Promise<undefined> {
+    return this.#stream ? fn(ws(this.#stream)) : Promise.reject(writerReleased())
+  }
+
   get closed(): Promise<undefined> {
-    return this.#stream ? ws(this.#stream).closed.promise : Promise.reject(writerReleased())
+    return this.#held((s) => s.closed.promise)
   }
 
   get ready(): Promise<undefined> {
-    return this.#stream ? ws(this.#stream).ready.promise : Promise.reject(writerReleased())
+    return this.#held((s) => s.ready.promise)
   }
 
   get desiredSize(): number | null {
@@ -589,33 +584,31 @@ export class WritableStreamDefaultWriter<W = unknown> {
   }
 
   write(chunk: W): Promise<undefined> {
-    if (!this.#stream) return Promise.reject(writerReleased())
-    const s = ws(this.#stream)
-    if (s.state === 'errored') return Promise.reject(s.error)
-    if (s.state === 'closed' || s.closeRequested) return Promise.reject(new TypeError('Cannot write to a closing or closed stream'))
-    let size: number
-    try {
-      size = s.size(chunk)
-    } catch (error) {
-      failWritable(s, error)
-      return Promise.reject(error)
-    }
-    const done = deferred<undefined>()
-    s.queue.push({ chunk, size, done })
-    s.total += size
-    backpressure(s)
-    advance(s)
-    return done.promise
+    return this.#held((s) => {
+      if (s.state === 'errored') return Promise.reject(s.error)
+      if (s.state === 'closed' || s.closeRequested) return Promise.reject(new TypeError('Cannot write to a closing or closed stream'))
+      let size: number
+      try {
+        size = s.size(chunk)
+      } catch (error) {
+        failWritable(s, error)
+        return Promise.reject(error)
+      }
+      const done = deferred<undefined>()
+      s.queue.push({ chunk, size, done })
+      s.total += size
+      backpressure(s)
+      advance(s)
+      return done.promise
+    })
   }
 
   close(): Promise<undefined> {
-    if (!this.#stream) return Promise.reject(writerReleased())
-    return closeWritable(ws(this.#stream))
+    return this.#held(closeWritable)
   }
 
   abort(reason?: unknown): Promise<undefined> {
-    if (!this.#stream) return Promise.reject(writerReleased())
-    return abortWritable(ws(this.#stream), reason)
+    return this.#held((s) => abortWritable(s, reason))
   }
 
   releaseLock(): void {

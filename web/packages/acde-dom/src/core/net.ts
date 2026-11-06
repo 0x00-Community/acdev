@@ -3,7 +3,7 @@ import { backendTarget, cookies, requestHeaders, type BackendTarget, type Header
 import { bytesOf, concat, TextDecoder, unbase64 } from './encoding'
 import { CloseEvent, defineHandlers, Event, EventTarget, fire, MessageEvent, ProgressEvent } from './event'
 import { DOMException } from './exception'
-import { G, host, tag } from './host'
+import { constants, G, host, tag } from './host'
 import { isDisturbed, readAllBytes, ReadableStream, streamOfBytes, type ReadableStreamDefaultController } from './streams'
 import { objectUrls, URL, URLSearchParams } from './url'
 
@@ -29,71 +29,47 @@ export function typeOfName(name: string): string {
   return TYPES[ext] ?? ''
 }
 
-function routeKey(method: string, url: string): string {
+const warned = new Set<string>()
+
+function warnOnce(method: string, url: string, what: string): void {
+  let key: string
   try {
-    return `${method} ${new URL(url).pathname}`
+    key = `${method} ${new URL(url).pathname}`
   } catch {
-    return `${method} ${url}`
+    key = `${method} ${url}`
   }
+  if (!net.log || warned.has(`${key}\n${what}`)) return
+  warned.add(`${key}\n${what}`)
+  host.print(1, `acde-dom: ${key}: ${what}`)
 }
-
-const refused = new Set<string>()
-
-function miss(method: string, url: string): void {
-  const key = routeKey(method, url)
-  if (refused.has(key)) return
-  refused.add(key)
-  if (net.log) host.print(1, `acde-dom: ${key}: no network; refused`)
-}
-
-const failures = new Set<string>()
 
 function backendFailed(method: string, url: string, message: string): void {
-  const key = routeKey(method, url)
-  if (failures.has(key) || !net.log) return
-  failures.add(key)
-  host.print(1, `acde-dom: ${key}: the app's backend: ${message}`)
+  warnOnce(method, url, `the app's backend: ${message}`)
 }
 
 type Loaded = { bytes: Uint8Array; type: string }
+type Routed = { target: BackendTarget } | { asset: Loaded } | null
 
-function asset(url: URL): Loaded | null {
-  const bytes = host.readAsset(url.href)
-  return bytes && { bytes, type: typeOfName(url.pathname) || 'application/octet-stream' }
-}
-
-function load(url: string, method: string): Loaded | null {
-  if (url.startsWith('data:')) {
-    const comma = url.indexOf(',')
-    if (comma < 0) return null
-    const meta = url.slice(5, comma)
-    const body = url.slice(comma + 1)
-    const base64 = /;base64$/i.test(meta)
-    const bytes = base64 ? unbase64(decodeURIComponent(body)) : host.encodeUtf8(decodeURIComponent(body))
-    return bytes ? { bytes, type: meta.replace(/;base64$/i, '') || 'text/plain;charset=US-ASCII' } : null
-  }
+function inline(url: string): Loaded | null {
   if (url.startsWith('blob:')) {
     const blob = objectUrls.get(url)
     return blob instanceof Blob ? { bytes: blobBytes(blob), type: blob.type } : null
   }
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return null
-  }
-  const own = new URL(net.base())
-  if (parsed.origin !== own.origin || (method !== 'GET' && method !== 'HEAD')) {
-    miss(method, url)
-    return null
-  }
-  const found = asset(parsed)
-  if (!found) miss(method, url)
-  return found
+  const comma = url.indexOf(',')
+  if (comma < 0) return null
+  const meta = url.slice(5, comma)
+  const body = url.slice(comma + 1)
+  const base64 = /;base64$/i.test(meta)
+  const bytes = base64 ? unbase64(decodeURIComponent(body)) : host.encodeUtf8(decodeURIComponent(body))
+  return bytes ? { bytes, type: meta.replace(/;base64$/i, '') || 'text/plain;charset=US-ASCII' } : null
 }
 
-function backendRoute(url: string, method: string, connection = false): { target: BackendTarget } | { asset: Loaded } | null {
-  if (!transport || url.startsWith('data:') || url.startsWith('blob:')) return null
+function route(url: string, method: string): Routed {
+  const connection = method === 'WS' || method === 'SSE'
+  if (!connection && (url.startsWith('data:') || url.startsWith('blob:'))) {
+    const found = inline(url)
+    return found && { asset: found }
+  }
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -101,13 +77,18 @@ function backendRoute(url: string, method: string, connection = false): { target
     return null
   }
   const own = new URL(net.base())
-  const target = backendTarget(parsed, own)
-  if (!target) return null
   if (!connection && parsed.origin === own.origin && (method === 'GET' || method === 'HEAD')) {
-    const found = asset(parsed)
-    if (found) return { asset: found }
+    const bytes = host.readAsset(parsed.href)
+    if (bytes) return { asset: { bytes, type: typeOfName(parsed.pathname) || 'application/octet-stream' } }
   }
-  return { target }
+  const target = backendTarget(parsed, own)
+  if (target) return { target }
+  warnOnce(method, url, 'no network; refused')
+  return null
+}
+
+function assetHead(found: Loaded): Header[] {
+  return [['content-length', String(found.bytes.length)], ['content-type', found.type]]
 }
 
 type HeadersInit = Headers | Record<string, string> | Iterable<readonly [string, string]>
@@ -470,7 +451,7 @@ interface ExchangeRequest {
 function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHandlers): () => void {
   const backend = transport!
   const withCookies = request.credentials !== 'omit'
-  let current: Promise<number> | null = null
+  let current: number | null = null
   let finished = false
   let redirects = 0
   const fail = (message: string): void => {
@@ -478,12 +459,13 @@ function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHa
     finished = true
     on.error(message)
   }
-  const stop = (id: Promise<number> | null): void => {
-    id?.then((n) => backend.abort(n)).catch(() => undefined)
+  const stop = (id: number | null): void => {
+    if (id !== null) backend.abort(id)
   }
   const send = (target: BackendTarget, url: string, method: string, pageHeaders: Iterable<readonly [string, string]>, body: Uint8Array | null): void => {
     const headers = requestHeaders(pageHeaders, target, { origin: method !== 'GET' && method !== 'HEAD', cookies: withCookies })
     if (!headers.some(([n]) => n.toLowerCase() === 'accept')) headers.push(['accept', '*/*'])
+    let mine: number | null = null
     const onEvent = (event: HttpEvent): void => {
       if (finished || current !== mine) return
       switch (event.type) {
@@ -508,13 +490,12 @@ function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHa
           const toGet = (event.status === 303 && method !== 'HEAD') || ((event.status === 301 || event.status === 302) && method === 'POST')
           const nextMethod = toGet ? 'GET' : method
           const nextHeaders = toGet ? [...pageHeaders].filter(([n]) => !BODY_HEADERS.has(n.toLowerCase())) : pageHeaders
-          const routed = backendRoute(next, nextMethod)
+          const routed = route(next, nextMethod)
           if (routed && 'target' in routed) return send(routed.target, next, nextMethod, nextHeaders, toGet ? null : body)
-          const found = routed ? routed.asset : load(next, nextMethod)
-          if (!found) return fail(`redirected to ${next}, which is not the app's`)
+          if (!routed) return fail(`redirected to ${next}, which is not the app's`)
           finished = true
-          on.head({ status: 200, statusText: 'OK', headers: [['content-length', String(found.bytes.length)], ['content-type', found.type]], url: next, redirected: true })
-          if (nextMethod !== 'HEAD') on.chunk(found.bytes)
+          on.head({ status: 200, statusText: 'OK', headers: assetHead(routed.asset), url: next, redirected: true })
+          if (nextMethod !== 'HEAD') on.chunk(routed.asset.bytes)
           on.end()
           return
         }
@@ -527,11 +508,11 @@ function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHa
           return fail(event.message)
       }
     }
-    const mine: Promise<number> = Promise.resolve().then(() => backend.request(target.port, method, target.path, headers, body, onEvent))
-    current = mine
-    mine.catch((error: unknown) => {
-      if (current === mine) fail(String((error as Error)?.message ?? error))
-    })
+    try {
+      current = mine = backend.request(target.port, method, target.path, headers, body, onEvent)
+    } catch (error) {
+      host.queueMicrotask(() => fail(String((error as Error)?.message ?? error)))
+    }
   }
   send(first, request.url, request.method, request.headers, request.body)
   return () => {
@@ -548,7 +529,7 @@ function aborted(signal: SignalLike): unknown {
 }
 
 function assetResponse(request: Request, found: Loaded): Response {
-  const response = new Response(request.method === 'HEAD' ? null : found.bytes, { status: 200, statusText: 'OK', headers: { 'content-type': found.type, 'content-length': String(found.bytes.length) } })
+  const response = new Response(request.method === 'HEAD' ? null : found.bytes, { status: 200, statusText: 'OK', headers: assetHead(found) })
   response.url = request.url
   return response
 }
@@ -622,14 +603,13 @@ export function fetch(input: string | URL | Request, init?: RequestInit): Promis
   }
   const signal = request.signal as SignalLike | null
   if (signal?.aborted) return Promise.reject(aborted(signal))
-  const routed = backendRoute(request.url, request.method)
+  const routed = route(request.url, request.method)
   if (routed && 'target' in routed) return fetchBackend(request, routed.target, signal)
   return new Promise((resolve, reject) => {
     host.setTimer(0, () => {
       if (signal?.aborted) return reject(aborted(signal))
-      const found = routed ? routed.asset : load(request.url, request.method)
-      if (!found) return reject(new TypeError('Failed to fetch'))
-      resolve(assetResponse(request, found))
+      if (!routed) return reject(new TypeError('Failed to fetch'))
+      resolve(assetResponse(request, routed.asset))
     })
   })
 }
@@ -642,11 +622,6 @@ export class XMLHttpRequestUpload extends XMLHttpRequestEventTarget {}
 tag(XMLHttpRequestUpload)
 
 export class XMLHttpRequest extends XMLHttpRequestEventTarget {
-  static readonly UNSENT = 0
-  static readonly OPENED = 1
-  static readonly HEADERS_RECEIVED = 2
-  static readonly LOADING = 3
-  static readonly DONE = 4
   readyState = 0
   status = 0
   statusText = ''
@@ -695,7 +670,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
   send(body?: BodyInit): void {
     if (this.readyState !== 1) throw new DOMException("Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED.", 'InvalidStateError')
     const token = ++this.#sent
-    const routed = backendRoute(this.#url, this.#method)
+    const routed = route(this.#url, this.#method)
     if (routed && 'target' in routed) {
       if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': synchronous requests to the app's backend are not supported ('${this.#url}').`, 'NetworkError')
       fire(this, new ProgressEvent('loadstart'))
@@ -703,7 +678,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
     }
     const finish = () => {
       if (token !== this.#sent) return
-      const found = routed ? routed.asset : load(this.#url, this.#method)
+      const found = routed?.asset
       if (!found) {
         this.#state(4)
         if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': Failed to load '${this.#url}'.`, 'NetworkError')
@@ -713,7 +688,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
       }
       this.#bytes = found.bytes
       this.#type = found.type
-      this.#responseHeaders = [['content-length', String(found.bytes.length)], ['content-type', found.type]]
+      this.#responseHeaders = assetHead(found)
       this.status = 200
       this.statusText = 'OK'
       this.responseURL = this.#url
@@ -854,15 +829,12 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
   }
 }
 defineHandlers(XMLHttpRequest.prototype, ['readystatechange'])
+constants(XMLHttpRequest, { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 })
 tag(XMLHttpRequest)
 
 const WS_STATES = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 } as const
 
 export class WebSocket extends EventTarget {
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSING = 2
-  static readonly CLOSED = 3
   readonly url: string
   readyState = 0
   protocol = ''
@@ -870,7 +842,7 @@ export class WebSocket extends EventTarget {
   bufferedAmount = 0
   readonly withCredentials = false
   #binaryType: 'blob' | 'arraybuffer' = 'blob'
-  #id: Promise<number> | null = null
+  #id: number | null = null
   #finished = false
   readonly #origin: string
 
@@ -889,9 +861,8 @@ export class WebSocket extends EventTarget {
     this.#origin = parsed.origin
     const list = protocols === undefined ? [] : typeof protocols === 'string' ? [protocols] : [...protocols].map(String)
     if (new Set(list).size !== list.length) throw new DOMException("Failed to construct 'WebSocket': The subprotocol is duplicated.", 'SyntaxError')
-    const routed = backendRoute(this.url, 'GET', true)
+    const routed = route(this.url, 'WS')
     if (!routed || !('target' in routed)) {
-      miss('WS', this.url)
       host.setTimer(0, () => this.#finish(1006, '', false))
       return
     }
@@ -899,8 +870,7 @@ export class WebSocket extends EventTarget {
   }
 
   #connect(target: BackendTarget, protocols: string[]): void {
-    const backend = transport!
-      const headers = requestHeaders([], target, { origin: true, cookies: true })
+    const headers = requestHeaders([], target, { origin: true, cookies: true })
     const onEvent = (event: WsEvent): void => {
       if (this.#finished) return
       switch (event.type) {
@@ -929,11 +899,12 @@ export class WebSocket extends EventTarget {
           return this.#finish(1006, '', false)
       }
     }
-    this.#id = Promise.resolve().then(() => backend.websocket(target.port, target.path, headers, protocols, onEvent))
-    this.#id.catch((error: unknown) => {
+    try {
+      this.#id = transport!.websocket(target.port, target.path, headers, protocols, onEvent)
+    } catch (error) {
       backendFailed('WS', this.url, String((error as Error)?.message ?? error))
-      this.#finish(1006, '', false)
-    })
+      host.queueMicrotask(() => this.#finish(1006, '', false))
+    }
   }
 
   #finish(code: number, reason: string, wasClean: boolean): void {
@@ -958,11 +929,11 @@ export class WebSocket extends EventTarget {
     else if (data instanceof Blob) payload = blobBytes(data).slice()
     else if (typeof data === 'object' && data !== null) payload = bytesOf(data as ArrayBuffer).slice()
     else payload = String(data)
-    if (this.readyState !== WS_STATES.OPEN || !this.#id) {
+    if (this.readyState !== WS_STATES.OPEN || this.#id === null) {
       this.bufferedAmount += typeof payload === 'string' ? host.encodeUtf8(payload).length : payload.length
       return
     }
-    this.#id.then((id) => transport?.send(id, payload)).catch(() => undefined)
+    transport?.send(this.#id, payload)
   }
 
   close(code?: number, reason?: string): void {
@@ -972,22 +943,21 @@ export class WebSocket extends EventTarget {
     }
     if (reason !== undefined && host.encodeUtf8(String(reason)).length > 123) throw new DOMException("Failed to execute 'close' on 'WebSocket': The close reason must not be greater than 123 UTF-8 bytes.", 'SyntaxError')
     if (this.readyState === WS_STATES.CLOSING || this.readyState === WS_STATES.CLOSED) return
-    if (!this.#id) {
+    if (this.#id === null) {
       this.readyState = WS_STATES.CLOSED
       return
     }
     this.readyState = WS_STATES.CLOSING
-    this.#id.then((id) => transport?.close(id, code, reason === undefined ? undefined : String(reason))).catch(() => undefined)
+    transport?.close(this.#id, code, reason === undefined ? undefined : String(reason))
   }
 }
-Object.defineProperties(WebSocket.prototype, Object.fromEntries(Object.entries(WS_STATES).map(([k, v]) => [k, { value: v, enumerable: true }])))
+constants(WebSocket, WS_STATES)
 defineHandlers(WebSocket.prototype, ['open', 'message', 'error', 'close'])
 tag(WebSocket)
 
+const ES_STATES = { CONNECTING: 0, OPEN: 1, CLOSED: 2 } as const
+
 export class EventSource extends EventTarget {
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSED = 2
   readonly url: string
   readonly withCredentials: boolean
   readyState = 0
@@ -1005,11 +975,10 @@ export class EventSource extends EventTarget {
       throw new DOMException(`Failed to construct 'EventSource': Cannot open an EventSource to '${String(url)}'. The URL is invalid.`, 'SyntaxError')
     }
     this.withCredentials = !!init?.withCredentials
-    const routed = backendRoute(this.url, 'GET', true)
+    const routed = route(this.url, 'SSE')
     if (!routed || !('target' in routed)) {
-      miss('SSE', this.url)
       host.setTimer(0, () => {
-        this.readyState = EventSource.CLOSED
+        this.readyState = ES_STATES.CLOSED
         fire(this, new Event('error'))
       })
       return
@@ -1035,7 +1004,7 @@ export class EventSource extends EventTarget {
       const event = new MessageEvent(type || 'message', { data: data.endsWith('\n') ? data.slice(0, -1) : data, origin, lastEventId: this.#lastId })
       data = ''
       type = ''
-      if (this.readyState !== EventSource.CLOSED) fire(this, event)
+      if (this.readyState !== ES_STATES.CLOSED) fire(this, event)
     }
     const line = (text: string): void => {
       if (!text) return dispatch()
@@ -1065,7 +1034,7 @@ export class EventSource extends EventTarget {
         if (stop === cr && cr === buffer.length - 1 && !end) break
         line(buffer.slice(at, stop))
         at = stop + (stop === cr && buffer[cr + 1] === '\n' ? 2 : 1)
-        if (this.readyState === EventSource.CLOSED) return
+        if (this.readyState === ES_STATES.CLOSED) return
       }
       buffer = buffer.slice(at)
     }
@@ -1073,20 +1042,20 @@ export class EventSource extends EventTarget {
     if (this.#lastId) headers.push(['last-event-id', this.#lastId])
     this.#stop = exchange(this.#target!, { url: this.url, method: 'GET', headers, body: null, redirect: 'follow', credentials: this.withCredentials ? 'include' : 'same-origin' }, {
       head: (head) => {
-        if (this.readyState === EventSource.CLOSED) return
+        if (this.readyState === ES_STATES.CLOSED) return
         const contentType = headerOf(head.headers, 'content-type') ?? ''
         if (head.status !== 200 || !/^text\/event-stream\s*(;|$)/i.test(contentType)) {
           backendFailed('SSE', this.url, `status ${head.status}, ${contentType || 'no content type'}`)
           return this.#fail()
         }
-        this.readyState = EventSource.OPEN
+        this.readyState = ES_STATES.OPEN
         fire(this, new Event('open'))
       },
       chunk: (bytes) => {
-        if (this.readyState === EventSource.OPEN) feed(decoder.decode(bytes, { stream: true }), false)
+        if (this.readyState === ES_STATES.OPEN) feed(decoder.decode(bytes, { stream: true }), false)
       },
       end: () => {
-        if (this.readyState === EventSource.OPEN) feed(decoder.decode(), true)
+        if (this.readyState === ES_STATES.OPEN) feed(decoder.decode(), true)
         this.#reconnect()
       },
       error: (message) => {
@@ -1098,31 +1067,31 @@ export class EventSource extends EventTarget {
 
   #reconnect(): void {
     this.#stop = null
-    if (this.readyState === EventSource.CLOSED) return
-    this.readyState = EventSource.CONNECTING
+    if (this.readyState === ES_STATES.CLOSED) return
+    this.readyState = ES_STATES.CONNECTING
     fire(this, new Event('error'))
-    if (this.readyState === EventSource.CLOSED) return
+    if (this.readyState === ES_STATES.CLOSED) return
     this.#timer = host.setTimer(this.#retry, () => {
       this.#timer = 0
-      if (this.readyState === EventSource.CONNECTING) this.#connect()
+      if (this.readyState === ES_STATES.CONNECTING) this.#connect()
     })
   }
 
   #fail(): void {
     this.#stop?.()
     this.#stop = null
-    this.readyState = EventSource.CLOSED
+    this.readyState = ES_STATES.CLOSED
     fire(this, new Event('error'))
   }
 
   close(): void {
-    this.readyState = EventSource.CLOSED
+    this.readyState = ES_STATES.CLOSED
     this.#stop?.()
     this.#stop = null
     if (this.#timer) host.clearTimer(this.#timer)
     this.#timer = 0
   }
 }
-Object.defineProperties(EventSource.prototype, { CONNECTING: { value: 0, enumerable: true }, OPEN: { value: 1, enumerable: true }, CLOSED: { value: 2, enumerable: true } })
+constants(EventSource, ES_STATES)
 defineHandlers(EventSource.prototype, ['open', 'message', 'error'])
 tag(EventSource)

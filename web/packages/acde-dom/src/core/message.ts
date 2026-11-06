@@ -1,6 +1,6 @@
 import { defineHandlers, EventTarget, fire, MessageEvent } from './event'
 import { DOMException } from './exception'
-import { host, report, tag } from './host'
+import { host, illegal, KEY, report, tag } from './host'
 
 export function structuredClone<T>(value: T, options?: { transfer?: unknown[] }): T {
   void options
@@ -16,8 +16,6 @@ export function structuredClone<T>(value: T, options?: { transfer?: unknown[] })
 }
 
 let entangle: (a: MessagePort, b: MessagePort) => void
-let makePort: () => MessagePort
-let constructing = false
 let receive: (port: MessagePort, data: unknown) => void
 
 export class MessagePort extends EventTarget {
@@ -26,8 +24,8 @@ export class MessagePort extends EventTarget {
   #closed = false
   #queue: unknown[] = []
 
-  constructor() {
-    if (!constructing) throw new TypeError('Illegal constructor')
+  constructor(...key: unknown[]) {
+    illegal(key[0])
     super()
   }
 
@@ -35,14 +33,6 @@ export class MessagePort extends EventTarget {
     entangle = (a, b) => {
       a.#other = b
       b.#other = a
-    }
-    makePort = () => {
-      constructing = true
-      try {
-        return new MessagePort()
-      } finally {
-        constructing = false
-      }
     }
     receive = (port, data) => {
       if (port.#closed) return
@@ -96,8 +86,8 @@ defineHandlers(MessagePort.prototype, ['messageerror'])
 tag(MessagePort)
 
 export class MessageChannel {
-  readonly port1 = makePort()
-  readonly port2 = makePort()
+  readonly port1 = new MessagePort(KEY)
+  readonly port2 = new MessagePort(KEY)
 
   constructor() {
     entangle(this.port1, this.port2)
