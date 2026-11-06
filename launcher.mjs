@@ -189,17 +189,23 @@ export async function findAcdert(needed, root = ROOT) {
   return process.env.ACDERT || locateAcdert(root).found
 }
 
+export function cliFile() {
+  return ['cli.js', 'cli.ts'].map((name) => join(ROOT, 'src', name)).find((file) => existsSync(file))
+}
+
+export function cliEnv(bun, env = process.env) {
+  return {
+    ...env,
+    PATH: `${dirname(bun)}${delimiter}${env.PATH || ''}`,
+    ACDE_HOST_RUNTIME: env.ACDE_HOST_RUNTIME || runtime(),
+  }
+}
+
 export async function run(args) {
   const bun = await findBun()
   const acdert = await findAcdert(args[0] === 'dev')
-  const env = {
-    ...process.env,
-    PATH: `${dirname(bun)}${delimiter}${process.env.PATH || ''}`,
-    ACDE_HOST_RUNTIME: process.env.ACDE_HOST_RUNTIME || runtime(),
-    ...(acdert && { ACDERT: acdert }),
-  }
-  const cli = ['cli.js', 'cli.ts'].map((name) => join(ROOT, 'src', name)).find((file) => existsSync(file))
-  const child = spawn(bun, [cli, ...args], { stdio: 'inherit', env })
+  const env = { ...cliEnv(bun), ...(acdert && { ACDERT: acdert }) }
+  const child = spawn(bun, [cliFile(), ...args], { stdio: 'inherit', env })
   process.on('SIGINT', () => {})
   if (!WINDOWS) for (const signal of ['SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal))
   return new Promise((done) => {

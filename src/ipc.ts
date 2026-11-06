@@ -240,6 +240,7 @@ export class DevServer {
 export class DevClient {
   static readonly TIMEOUT_MS = DevServer.TIMEOUT_MS + 5_000
 
+  readonly closed: Promise<void>
   readonly #socket: net.Socket
   readonly #waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   #next = 1
@@ -247,6 +248,7 @@ export class DevClient {
 
   private constructor(socket: net.Socket) {
     this.#socket = socket
+    this.closed = new Promise((resolve) => socket.once('close', () => resolve()))
     Lines.read(socket, (message) => this.#response(message))
     socket.on('close', () => this.#fail(this.#closed ?? new Error('acde dev closed the connection')))
     socket.on('error', (error) => {

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Subprocess } from 'bun'
 
@@ -73,4 +73,19 @@ export function inetSockets(pid: number): string[] | null {
     return found
   }
   return null
+}
+
+const FAKE_ACDERT = join(import.meta.dir, 'fixtures/dev/fake-acdert.ts')
+
+export function standIn(): { root: string; env: Record<string, string>; project: string } {
+  const root = tmp()
+  const log = join(root, 'fake.log')
+  const acdert = join(root, 'acdert')
+  writeFileSync(log, '')
+  writeFileSync(acdert, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_ACDERT)} "$@"\n`, { mode: 0o755 })
+  const project = join(root, 'alpha')
+  mkdirSync(project)
+  writeFileSync(join(project, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'alpha' }))
+  writeFileSync(join(project, 'index.html'), '<!doctype html><title>Alpha</title><p>alpha</p>')
+  return { root, project: realpathSync(project), env: env({ TMPDIR: root, XDG_RUNTIME_DIR: root, ACDERT: acdert, FAKE_ACDERT_LOG: log }) }
 }

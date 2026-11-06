@@ -1,0 +1,6 @@
+export { Acde, ActError, type ActResult, type AttachOptions, type LaunchOptions, type Shot, type Snapshot, type SnapshotOptions, type Step, type Web } from './acde.ts'
+export { AssertionError, expect, LocatorAssertions, WindowAssertions } from './expect.ts'
+export { Locator, type FilterOptions, type RoleOptions, type TextMatch, type TextOptions, type Timeout } from './locator.ts'
+export { Logs, type LogLine, type LogSlice } from './logs.ts'
+export { AppWindow, type WindowMatch } from './window.ts'
+export type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'

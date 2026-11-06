@@ -3,12 +3,118 @@ import net from 'node:net'
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
 const legacy = process.env['FAKE_ACDERT_LEGACY'] === '1'
+const ADD_DELAY_MS = 300
+
+interface Node {
+  ref: string
+  role: string
+  name?: string
+  value?: string
+  states?: string[]
+  children?: Node[]
+}
+
+interface Win {
+  ref: string
+  id: number
+  kind: 'desktop' | 'web'
+  app: string | null
+  title: string | null
+  focus: boolean
+  hidden: boolean
+}
+
+const windows: Win[] = [
+  { ref: 'w0', id: 0, kind: 'desktop', app: null, title: null, focus: false, hidden: false },
+  { ref: 'w1', id: 7, kind: 'web', app: 'alpha', title: 'Alpha', focus: true, hidden: false },
+]
+const tasks: { name: string; done: boolean }[] = []
+let draft = ''
 
 function record(entry: object): void {
   appendFileSync(process.env['FAKE_ACDERT_LOG']!, `${JSON.stringify(entry)}\n`)
 }
 
+function tree(win: Win): Node[] {
+  if (win.kind === 'desktop') return [{ ref: 'w0.1', role: 'button', name: 'Start' }]
+  if (win.app !== 'alpha') return [{ ref: `${win.ref}.1`, role: 'heading', name: win.title ?? '' }]
+  return [
+    { ref: 'w1.2', role: 'textbox', name: 'New task', value: draft },
+    { ref: 'w1.3', role: 'button', name: 'Add', ...(draft ? {} : { states: ['disabled'] }) },
+    {
+      ref: 'w1.4',
+      role: 'list',
+      name: 'Tasks',
+      children: tasks.map((t, i) => ({
+        ref: `w1.${10 + i * 3}`,
+        role: 'listitem',
+        name: t.name,
+        children: [
+          { ref: `w1.${11 + i * 3}`, role: 'text', name: t.name },
+          { ref: `w1.${12 + i * 3}`, role: 'checkbox', name: `Done: ${t.name}`, ...(t.done ? { states: ['checked'] } : {}) },
+        ],
+      })),
+    },
+    { ref: 'w1.5', role: 'text', name: `${tasks.length} tasks` },
+  ]
+}
+
+function find(nodes: Node[], needle: string): Node[] {
+  const walk = (n: Node): Node | null => {
+    if ([n.name, n.value].some((s) => s?.toLowerCase().includes(needle))) return n
+    const children = (n.children ?? []).map(walk).filter((c): c is Node => c !== null)
+    return children.length ? { ...n, children } : null
+  }
+  return nodes.map(walk).filter((n): n is Node => n !== null)
+}
+
+function snapshot(m: Record<string, unknown>) {
+  const text = `snapshot ${JSON.stringify({ window: m['window'] ?? null, find: m['find'] ?? null, all: m['all'] ?? false })}`
+  if (m['tree'] === false) return { text, windows, trees: {} }
+  const wanted = typeof m['window'] === 'string' ? windows.filter((w) => w.ref === m['window']) : m['all'] || m['find'] ? windows.filter((w) => !w.hidden) : windows.filter((w) => w.focus)
+  const trees: Record<string, Node[]> = {}
+  for (const w of wanted) {
+    const nodes = typeof m['find'] === 'string' ? find(tree(w), m['find'].toLowerCase()) : tree(w)
+    if (typeof m['find'] !== 'string' || nodes.length) trees[w.ref] = nodes
+  }
+  return { text, windows, trees }
+}
+
+function act(ref: string, action: string, arg: unknown): { ok: boolean; text: string } {
+  const text = `${action} ${ref} ${JSON.stringify(arg ?? null)}`
+  if (action === 'fail') return { ok: false, text }
+  if (ref === 'w1.2' && action === 'settext') draft = String(arg ?? '')
+  if (ref === 'w1.2' && action === 'type') draft += String(arg ?? '')
+  if (ref === 'w1.3' && action === 'click') {
+    if (!draft) return { ok: false, text: 'w1.3 is disabled' }
+    const name = draft
+    draft = ''
+    setTimeout(() => tasks.push({ name, done: false }), ADD_DELAY_MS)
+  }
+  const checkbox = /^w1\.(\d+)$/.exec(ref)
+  if (checkbox && action === 'click' && Number(checkbox[1]) >= 12 && (Number(checkbox[1]) - 12) % 3 === 0) {
+    const task = tasks[(Number(checkbox[1]) - 12) / 3]
+    if (task) task.done = !task.done
+  }
+  const win = windows.find((w) => w.ref === ref)
+  if (win && action === 'close') windows.splice(windows.indexOf(win), 1)
+  return { ok: true, text }
+}
+
+function open(name: string): { ok: boolean; text: string } {
+  if (name !== 'beta') return { ok: false, text: `no app ${name}` }
+  for (const w of windows) w.focus = false
+  windows.push({ ref: `w${windows.length}`, id: 8, kind: 'web', app: 'beta', title: 'Beta', focus: true, hidden: false })
+  return { ok: true, text: 'opened beta' }
+}
+
+function webs() {
+  const names: Record<number, string> = { 0: 'desktop', 7: 'alpha#7', 8: 'beta#8' }
+  return windows.map((w) => ({ name: names[w.id]!, app: w.app, kind: w.kind === 'desktop' ? 'desktop' : 'app', window: w.id, title: w.kind === 'desktop' ? 'Desk' : w.title }))
+}
+
 record({ argv: process.argv.slice(2), path: process.env['ACDE_PATH'] ?? null })
+console.error('[alpha#7] js: fake acdert is up')
 const socket = net.connect(process.env['ACDE_DEV']!)
 const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`)
 socket.on('connect', () => send({ type: 'hello', ...(!legacy && { role: 'runtime' }), pid: process.pid }))
@@ -32,15 +138,26 @@ function answer(m: Record<string, unknown>): void {
   const fail = (error: string) => send({ type: 'response', id: m['id'], ok: false, error })
   switch (m['op']) {
     case 'webs':
-      return void ok({ webs: [{ name: 'desktop', app: null, kind: 'desktop', window: 0, title: 'Desk' }, { name: 'alpha#7', app: 'alpha', kind: 'app', window: 7, title: 'Alpha' }] })
+      return void ok({ webs: webs() })
     case 'eval':
       return void (m['web'] === 'nope' ? fail('no web "nope"') : ok({ value: { web: m['web'], code: m['code'] } }))
     case 'shot':
       return void ok({ png: PNG, width: 1, height: 1 })
     case 'snapshot':
-      return void ok({ text: `snapshot ${JSON.stringify({ window: m['window'] ?? null, find: m['find'] ?? null, all: m['all'] ?? false })}`, windows: [], trees: {} })
+      return void ok(snapshot(m))
     case 'act':
-      return void ok({ ok: m['action'] !== 'fail', text: `${m['action']} ${m['ref']} ${JSON.stringify(m['arg'] ?? null)}` })
+      return void ok(act(String(m['ref']), String(m['action']), m['arg']))
+    case 'run': {
+      const said: string[] = []
+      for (const step of m['steps'] as { ref: string; action: string; text: unknown }[]) {
+        const done = act(step.ref, step.action, step.text)
+        said.push(done.text)
+        if (!done.ok) return void ok({ ok: false, text: said.join('\n') })
+      }
+      return void ok({ ok: true, text: said.join('\n') })
+    }
+    case 'open':
+      return void ok(open(String(m['name'])))
     case 'slow':
       return
     default:

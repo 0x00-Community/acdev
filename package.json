@@ -30,14 +30,18 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
-    "@dopame/acde-api": "file:../acdert/web/packages/acde-api"
+    "@dopame/acde-api": "file:../acdert/web/packages/acde-api",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
     "@types/bun": "^1.4.4",
     "typescript": "5.9.3"
   },
   "exports": {
     "./launcher": "./launcher.mjs",
+    "./driver": "./src/driver/index.ts",
     "./package.json": "./package.json"
   }
 }

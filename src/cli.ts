@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import { resolve } from 'node:path'
 import * as p from '@clack/prompts'
-import { requireAcdert } from '../launcher.mjs'
+import { requireAcdert } from 'acde/launcher'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
+import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
 import { Tools } from './tools.ts'
@@ -24,7 +25,9 @@ const USAGE = `usage: acde <command>
   eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop), print the JSON
   shot <web> [-o FILE]                             a PNG of the web's window (default ./<web>.png), print its path
   inspect [--window W] [--find TEXT] [--all]       the desktop as text (acde:inspect snapshot)
-  act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed`
+  act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed
+  mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run acde dev itself);
+                                                   for agents: claude mcp add acde -- acde mcp`
 
 interface Spec {
   readonly args: readonly [number, number]
@@ -50,6 +53,7 @@ class Cli {
     shot: { args: [1, 1], flags: ['session', 'output'] },
     inspect: { args: [0, 0], flags: ['session', 'window', 'find'], switches: ['all'] },
     act: { args: [2, 3], flags: ['session'] },
+    mcp: { args: [0, 0], flags: ['session'] },
   }
   static readonly SHORT: Readonly<Record<string, string>> = { o: 'output' }
 
@@ -85,6 +89,7 @@ class Cli {
   static async main(argv: readonly string[]): Promise<number> {
     const { command, args, flags } = Cli.parse(argv)
     if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
+    if (command === 'mcp') return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)
     if (command === 'dev') {
       const session = new DevSession({ dirs: args, ...(flags.has('out') && { out: flags.get('out')! }), ...(flags.has('app') && { app: flags.get('app')! }), ...(flags.has('desktop') && { desktop: flags.get('desktop')! }), acdert: await requireAcdert() })

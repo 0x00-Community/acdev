@@ -1,0 +1,109 @@
+import { afterAll, describe, expect, test } from 'bun:test'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { Client } from '@modelcontextprotocol/client'
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
+import { Acde } from '../src/driver/index.ts'
+import { cleanup, standIn } from './helpers.ts'
+
+const CLI = join(import.meta.dir, '../src/cli.ts')
+
+afterAll(cleanup)
+
+type Block = { type: string; text?: string; data?: string; mimeType?: string }
+
+async function connect(cwd: string, env: Record<string, string>, args: string[] = []) {
+  const transport = new StdioClientTransport({ command: process.execPath, args: [CLI, 'mcp', ...args], cwd, env, stderr: 'pipe' })
+  const client = new Client({ name: 'acde-test', version: '0.0.0' })
+  await client.connect(transport)
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const result = (await client.callTool({ name, arguments: args })) as { content: Block[]; isError?: boolean }
+    return { error: result.isError === true, text: result.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n'), content: result.content }
+  }
+  return { client, call }
+}
+
+describe('acde mcp', () => {
+  test('lists its tools; start runs acde dev here; the tools drive it; logs; stop', async () => {
+    const s = standIn()
+    const { client, call } = await connect(s.project, s.env)
+    try {
+      const tools = (await client.listTools()).tools
+      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'eval', 'logs', 'open', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'wait_for', 'webs'])
+      expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
+
+      const none = await call('webs')
+      expect(none.error).toBe(true)
+      expect(none.text).toContain('no acde dev is running')
+      expect((await call('logs')).error).toBe(true)
+
+      const started = await call('start')
+      expect(started.error).toBe(false)
+      expect(started.text).toMatch(/^acde dev \d+ runs app alpha \(/)
+      expect(started.text).toContain('alpha#7  app      alpha  7       Alpha')
+      expect((await call('start')).text).toContain('stop it first')
+      expect((await call('sessions')).text).toMatch(/^\* \d+  app alpha  .*\[started here\]/)
+
+      expect((await call('snapshot', { find: 'Add', all: true })).text).toBe('snapshot {"window":null,"find":"Add","all":true}')
+      expect((await call('act', { ref: 'w1.2', action: 'settext', arg: 'Buy milk' })).text).toBe('settext w1.2 "Buy milk"')
+      const invalid = await call('act', { ref: 'w1.2', action: 'explode' })
+      expect(invalid.error).toBe(true)
+      expect(invalid.text).toContain('action')
+      const ran = await call('run', { steps: [{ ref: 'w1.3', action: 'click' }] })
+      expect(ran.error).toBe(false)
+      expect(ran.text).toBe('click w1.3 null')
+
+      const waited = await call('wait_for', { text: 'Buy milk', timeout_ms: 3000 })
+      expect(waited.error).toBe(false)
+      expect((await call('wait_for', { text: 'Nothing like this', timeout_ms: 200 })).text).toStartWith('waited 200 ms: "Nothing like this" did not appear')
+      expect((await call('wait_for', { text: 'Nothing like this', gone: true })).text).toBe('"Nothing like this" is gone')
+
+      const opened = await call('open', { app: 'beta' })
+      expect(opened.text).toStartWith('opened beta: w2 "Beta"')
+      expect((await call('open', { app: 'nope' })).error).toBe(true)
+
+      const shot = await call('screenshot', { path: 'shot.png' })
+      expect(shot.content[0]).toMatchObject({ type: 'image', mimeType: 'image/png' })
+      expect(shot.text).toBe(`beta#8: 1x1, written to ${join(s.project, 'shot.png')}`)
+      expect(readFileSync(join(s.project, 'shot.png')).subarray(1, 4).toString()).toBe('PNG')
+      expect((await call('screenshot', { target: 'w1' })).text).toStartWith('alpha#7: 1x1')
+
+      expect(JSON.parse((await call('eval', { code: 'document.title' })).text)).toEqual({ web: 'beta#8', code: 'document.title' })
+      expect(JSON.parse((await call('eval', { code: '1', target: 'desktop' })).text)).toEqual({ web: 'desktop', code: '1' })
+
+      const logs = await call('logs', { grep: 'fake acdert' })
+      expect(logs.text).toMatch(/^next: \d+\n\[alpha#7\] js: fake acdert is up$/)
+      const next = Number(/^next: (\d+)/.exec(logs.text)![1])
+      expect((await call('logs', { since: next })).text).toBe(`next: ${next}\n(no lines)`)
+
+      const stopped = await call('stop')
+      expect(stopped.text).toMatch(/^stopped acde dev \d+$/)
+      expect((await call('webs')).error).toBe(true)
+    } finally {
+      await client.close()
+    }
+  }, 60_000)
+
+  test('attaches to an acde dev running elsewhere, and stops what it started when the client goes', async () => {
+    const s = standIn()
+    const outside = await Acde.launch({ cwd: s.project, env: s.env })
+    try {
+      const { client, call } = await connect('/', s.env, ['--session', String(outside.session.pid)])
+      expect((await call('webs')).text).toContain('alpha#7')
+      const logs = await call('logs')
+      expect(logs.error).toBe(true)
+      expect(logs.text).toContain('started elsewhere')
+      await client.close()
+    } finally {
+      await outside.close()
+    }
+
+    const { client, call } = await connect(s.project, s.env)
+    const started = await call('start')
+    const pid = Number(/^acde dev (\d+)/.exec(started.text)![1])
+    await client.close()
+    const sessions = join(s.root, 'acde-dev')
+    for (let i = 0; i < 100 && existsSync(join(sessions, `${pid}.json`)); i++) await Bun.sleep(50)
+    expect(existsSync(join(sessions, `${pid}.json`))).toBe(false)
+  }, 60_000)
+})

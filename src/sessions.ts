@@ -16,7 +16,8 @@ export class Sessions {
     const runtime = env['XDG_RUNTIME_DIR']
     if (runtime && isAbsolute(runtime)) return join(runtime, 'acde-dev')
     const uid = process.getuid?.()
-    return join(tmpdir(), uid === undefined ? 'acde-dev' : `acde-dev-${uid}`)
+    const tmp = env['TMPDIR'] && isAbsolute(env['TMPDIR']) ? env['TMPDIR'].replace(/(.)[\\/]+$/, '$1') : tmpdir()
+    return join(tmp, uid === undefined ? 'acde-dev' : `acde-dev-${uid}`)
   }
 
   static file(pid: number, dir = Sessions.dir()): string {

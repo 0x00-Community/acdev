@@ -1,39 +1,34 @@
-import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { DevClient } from './ipc.ts'
-import { Sessions, type Session } from './sessions.ts'
-
-interface Web {
-  readonly name: string
-  readonly app: string | null
-  readonly kind: string
-  readonly window: number
-  readonly title: string | null
-}
+import type { InspectAction } from '@dopame/acde-api'
+import { Acde, type ActResult, type Web } from './driver/acde.ts'
 
 export class Tools {
   static readonly COMMANDS = new Set(['webs', 'eval', 'shot', 'inspect', 'act'])
 
   static async run(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Promise<number> {
-    const session = Sessions.pick(Sessions.list(), process.cwd(), Tools.#pid(flags.get('session')))
-    const client = await Tools.#connect(session)
+    const session = Tools.pid(flags.get('session'))
+    const acde = await Acde.attach(session === undefined ? {} : { session })
     try {
       switch (command) {
         case 'webs':
-          return Tools.#webs(await client.request('webs'))
+          console.log(Tools.table(await acde.webs()))
+          return 0
         case 'eval':
-          return Tools.#eval(await client.request('eval', { web: args[0]!, code: args[1] === '-' ? await Bun.stdin.text() : args[1]! }))
+          console.log(JSON.stringify((await acde.evaluate(args[0]!, args[1] === '-' ? await Bun.stdin.text() : args[1]!)) ?? null, null, 2))
+          return 0
         case 'shot':
-          return Tools.#shot(args[0]!, flags.get('output'), await client.request('shot', { web: args[0]! }))
+          console.log((await acde.screenshot(args[0]!, { path: resolve(flags.get('output') ?? Tools.fileFor(args[0]!)) })).path)
+          return 0
         case 'inspect':
-          return Tools.#text(await client.request('snapshot', { ...(flags.has('window') && { window: flags.get('window') }), ...(flags.has('find') && { find: flags.get('find') }), ...(flags.has('all') && { all: true }) }))
+          console.log((await acde.snapshot({ ...(flags.has('window') && { window: flags.get('window')! }), ...(flags.has('find') && { find: flags.get('find')! }), ...(flags.has('all') && { all: true }) })).text)
+          return 0
         case 'act':
-          return Tools.#text(await client.request('act', { ref: args[0]!, action: args[1]!, ...(args[2] !== undefined && { arg: args[2] }) }))
+          return Tools.#acted(await acde.act(args[0]!, args[1]! as InspectAction, args[2]))
         default:
           throw new Error(`no tool ${command}`)
       }
     } finally {
-      client.close()
+      await acde.close()
     }
   }
 
@@ -47,51 +42,17 @@ export class Tools {
     return `${web.replace(/[<>:"/\\|?*\s]+/g, '-')}.png`
   }
 
-  static #pid(value: string | undefined): number | undefined {
+  static pid(value: string): number
+  static pid(value: string | undefined): number | undefined
+  static pid(value: string | undefined): number | undefined {
     if (value === undefined) return undefined
     const pid = Number(value)
     if (!Number.isInteger(pid) || pid <= 0) throw new Error(`--session ${value}: the process id of an acde dev`)
     return pid
   }
 
-  static async #connect(session: Session): Promise<DevClient> {
-    try {
-      return await DevClient.connect(session.endpoint)
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ECONNREFUSED' || code === 'ENOENT') {
-        Sessions.remove(session.pid)
-        throw new Error(`acde dev ${session.pid} is gone (nothing answers on ${session.endpoint})`)
-      }
-      throw error
-    }
-  }
-
-  static #webs(result: unknown): number {
-    const webs = (result as { webs?: Web[] } | null)?.webs
-    if (!Array.isArray(webs)) throw new Error(`acdert answered webs with ${JSON.stringify(result)}`)
-    console.log(Tools.table(webs))
-    return 0
-  }
-
-  static #eval(result: unknown): number {
-    console.log(JSON.stringify((result as { value?: unknown } | null)?.value ?? null, null, 2))
-    return 0
-  }
-
-  static #shot(web: string, output: string | undefined, result: unknown): number {
-    const png = (result as { png?: unknown } | null)?.png
-    if (typeof png !== 'string') throw new Error(`acdert answered shot with no png`)
-    const file = resolve(output ?? Tools.fileFor(web))
-    writeFileSync(file, Buffer.from(png, 'base64'))
-    console.log(file)
-    return 0
-  }
-
-  static #text(result: unknown): number {
-    const answer = result as { text?: unknown; ok?: unknown } | null
-    if (typeof answer?.text !== 'string') throw new Error(`acdert answered with ${JSON.stringify(result)}`)
-    console.log(answer.text)
-    return answer.ok === false ? 1 : 0
+  static #acted(result: ActResult): number {
+    console.log(result.text)
+    return result.ok ? 0 : 1
   }
 }
