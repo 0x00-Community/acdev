@@ -40,7 +40,6 @@ base64 = "0"
 tikv-jemallocator = "0"
 acde-shell = { path = "../shell", features = ["napi"] }
 acde-window = { path = "../window" }
-acde-paint = { path = "../paint" }
 # WebGPU (webgpu/): descriptors come as JSON, read into wgpu-types (its serde names are WebGPU's)
 wgpu-types = { version = "30", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
