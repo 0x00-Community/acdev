@@ -1,7 +1,8 @@
 import { installCore, type CoreOptions } from './core/index'
-import { inspectHooks } from './core/console'
+import { describe, inspectHooks } from './core/console'
 import { CustomEvent, ErrorEvent, Event, fire, PromiseRejectionEvent, type EventTarget } from './core/event'
 import { globals, host, report, setReport } from './core/host'
+import { observer, type PageErrorKind } from './core/observe'
 import { EventSource, fetch, Headers, net, Request, Response, WebSocket, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net'
 import { ReadableStream, ReadableStreamDefaultController, ReadableStreamDefaultReader, TextDecoderStream, TextEncoderStream, TransformStream, TransformStreamDefaultController, WritableStream, WritableStreamDefaultController, WritableStreamDefaultWriter } from './core/streams'
 import { objectUrlOrigin, URL } from './core/url'
@@ -39,6 +40,7 @@ import { Clipboard, framesPending, History, installWindow, Location, MediaDevice
 
 export type { AudioNative, DomNative, GpuNative, HostNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
+export { observe, type ConsoleLevel, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
 
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly url: string
@@ -74,6 +76,15 @@ export interface WebInternals {
 
 let installed: WebInternals | null = null
 
+function errorText(error: unknown): string {
+  const e = error as { stack?: unknown; name?: unknown; message?: unknown } | null
+  if (typeof e === 'object' && e !== null) {
+    if (typeof e.stack === 'string' && e.stack) return e.stack
+    if (typeof e.message === 'string') return `${typeof e.name === 'string' ? e.name : 'Error'}: ${e.message}`
+  }
+  return describe(error)
+}
+
 export function install(global: typeof globalThis, domNative: DomNative, hostNative: HostNative, options: InstallOptions): WebInternals {
   if (installed) throw new Error('acde-dom is installed in this context already')
   installCore(global, hostNative, options)
@@ -85,13 +96,17 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   readViewport()
   if (options.screen) Object.assign(screenSize, options.screen)
 
+  const unhandled = (kind: PageErrorKind, error: unknown) => {
+    host.reportError(error)
+    observer?.error?.(kind, errorText(error))
+  }
   let reporting = false
   const reportError = (error: unknown) => {
-    if (reporting) return host.reportError(error)
+    if (reporting) return unhandled('error', error)
     reporting = true
     try {
       const message = error instanceof Error ? error.message : String(error)
-      if (fire(global as unknown as EventTarget, new ErrorEvent('error', { message, error, cancelable: true }))) host.reportError(error)
+      if (fire(global as unknown as EventTarget, new ErrorEvent('error', { message, error, cancelable: true }))) unhandled('error', error)
     } finally {
       reporting = false
     }
@@ -218,9 +233,9 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     reportError,
     unhandledRejection(promise, reason) {
       const event = new PromiseRejectionEvent('unhandledrejection', { promise, reason, cancelable: true })
-      const unhandled = fire(global as unknown as EventTarget, event)
-      if (unhandled) host.reportError(reason)
-      return unhandled
+      const missed = fire(global as unknown as EventTarget, event)
+      if (missed) unhandled('rejection', reason)
+      return missed
     },
     stats: wrapperStats,
   }

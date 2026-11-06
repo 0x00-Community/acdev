@@ -50,6 +50,7 @@ export interface DomNative {
   describe(id: number): [NodeType, Ns, boolean, string]
   resize?(width: number, height: number, scale: number): void
   setDark?(on: boolean): void
+  setReducedMotion?(on: boolean): void
   compareDocumentPosition(a: number, b: number): number
 
   createElement(ns: Ns, localName: string): number
@@ -141,7 +142,7 @@ export interface DomNative {
 
   commit(): void
 
-  semantics?(root: number, limit: number): string
+  semantics?(root: number, limit: number, offscreen?: boolean): string
 
   stats(reset?: boolean): DomStats
 }

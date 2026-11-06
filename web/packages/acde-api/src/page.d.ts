@@ -228,13 +228,19 @@ export interface InspectWindow {
   readonly pid: number | null
 }
 
+export interface InspectMatch extends InspectNode {
+  readonly tag: string
+  readonly visible: boolean
+}
+
 export type InspectAction = 'click' | 'double' | 'right' | 'hover' | 'type' | 'settext' | 'key' | 'scroll' | 'focus' | 'close' | 'minimize' | 'restore'
 
 export interface AcdeInspect {
-  snapshot(options?: { window?: string; ref?: string; all?: boolean; diff?: boolean; limit?: number; find?: string; tree?: boolean }): Promise<{ text: string; windows: InspectWindow[]; trees: Record<string, InspectNode[]> }>
+  snapshot(options?: { window?: string; ref?: string; all?: boolean; diff?: boolean; limit?: number; find?: string; tree?: boolean; offscreen?: boolean }): Promise<{ text: string; windows: InspectWindow[]; trees: Record<string, InspectNode[]> }>
   act(ref: string, action: InspectAction, arg?: string | number | null): Promise<{ ok: boolean; text: string }>
   run(steps: readonly { ref: string; action: InspectAction; text?: string | number | null }[]): Promise<{ ok: boolean; text: string }>
   open(name: string): Promise<{ ok: boolean; text: string }>
+  query(options: { selector: string; window?: string; ref?: string; limit?: number }): Promise<{ window: string; count: number; nodes: InspectMatch[] }>
 }
 
 export interface AppMenuItem {

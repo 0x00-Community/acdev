@@ -61,10 +61,11 @@ struct Walk<'a> {
     focus: Option<NodeId>,
     budget: usize,
     hidden: usize,
+    offscreen: bool,
 }
 
 impl Dom {
-    pub fn semantics(&self, root: u32, limit: u32) -> crate::Result<String> {
+    pub fn semantics(&self, root: u32, limit: u32, offscreen: bool) -> crate::Result<String> {
         self.read(|e| {
             let root = match root {
                 super::NONE => e.doc.try_root_element().map(|r| r.id),
@@ -76,7 +77,8 @@ impl Dom {
                 let viewport = e.doc.viewport();
                 let scale = viewport.scale_f64();
                 let screen = kurbo::Rect::new(0.0, 0.0, f64::from(viewport.window_size.0) / scale, f64::from(viewport.window_size.1) / scale);
-                let mut walk = Walk { e, geometry: Geometry { doc: &e.doc }, focus: e.doc.get_focussed_node_id(), budget: limit.max(1) as usize, hidden: 0 };
+                let mut walk =
+                    Walk { e, geometry: Geometry { doc: &e.doc }, focus: e.doc.get_focussed_node_id(), budget: limit.max(1) as usize, hidden: 0, offscreen };
                 tree.nodes = walk.element(root, screen, &mut tree.truncated);
                 tree.hidden = walk.hidden;
                 number(&mut tree.nodes, &mut |n| e.ids.id_of(n));
@@ -170,7 +172,7 @@ impl<'a> Walk<'a> {
         let rect = self.geometry.client_rect(id).unwrap_or_default();
         let sized = rect.width > 0.0 && rect.height > 0.0;
         let visible = kurbo::Rect::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height).intersect(clip);
-        if sized && visible.is_zero_area() {
+        if sized && visible.is_zero_area() && !self.offscreen {
             self.hidden += 1;
             return Vec::new();
         }

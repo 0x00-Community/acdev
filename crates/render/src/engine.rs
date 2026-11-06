@@ -140,6 +140,16 @@ impl Engine {
         self.touch();
     }
 
+    pub(crate) fn set_reduced_motion(&mut self, on: bool) {
+        if self.doc.viewport().reduced_motion == on {
+            return;
+        }
+        let mut viewport = self.doc.viewport().clone();
+        viewport.reduced_motion = on;
+        self.doc.set_viewport(viewport);
+        self.touch();
+    }
+
     fn malloc_bytes() -> f64 {
         #[cfg(all(target_os = "linux", target_env = "gnu"))]
         {

@@ -1,4 +1,5 @@
 import { host } from './host'
+import { observer, type ConsoleLevel } from './observe'
 
 const enum Level {
   Log = 0,
@@ -8,6 +9,12 @@ const enum Level {
 }
 
 type Console = Record<string, (...args: never[]) => void>
+
+const NAMES: Readonly<Record<Level, ConsoleLevel>> = { [Level.Log]: 'log', [Level.Warn]: 'warn', [Level.Error]: 'error', [Level.Debug]: 'debug' }
+
+export function describe(value: unknown): string {
+  return typeof value === 'string' ? value : inspect(value)
+}
 
 export const inspectHooks = { node: null as null | ((value: object) => string | null) }
 
@@ -82,14 +89,16 @@ export function createConsole(): Console {
   let indent = ''
   const counts = new Map<string, number>()
   const times = new Map<string, number>()
-  const print = (level: Level, args: readonly unknown[]) => {
+  const print = (level: Level, args: readonly unknown[], name: ConsoleLevel = NAMES[level]) => {
     const text = format(args)
-    host.print(level, indent ? text.replace(/^/gm, indent) : text)
+    const shown = indent ? text.replace(/^/gm, indent) : text
+    host.print(level, shown)
+    observer?.console?.(name, shown)
   }
   const noop = () => {}
   const console = {
     log: (...args: unknown[]) => print(Level.Log, args),
-    info: (...args: unknown[]) => print(Level.Log, args),
+    info: (...args: unknown[]) => print(Level.Log, args, 'info'),
     debug: (...args: unknown[]) => print(Level.Debug, args),
     warn: (...args: unknown[]) => print(Level.Warn, args),
     error: (...args: unknown[]) => print(Level.Error, args),

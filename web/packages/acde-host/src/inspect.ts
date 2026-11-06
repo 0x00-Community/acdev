@@ -1,7 +1,7 @@
-import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectAction, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import type { BrokerShell } from './broker'
 import { keyCode } from './keys'
-import type { PageNode, PagePoint, PageTree } from './pageinspect'
+import type { PageNode, PagePoint, PageQuery, PageTree } from './pageinspect'
 import type { Rpc } from './rpc'
 
 export interface NativeAccessibility {
@@ -29,6 +29,20 @@ interface SnapshotOptions {
   readonly limit?: number
   readonly find?: string
   readonly tree?: boolean
+  readonly offscreen?: boolean
+}
+
+interface QueryOptions {
+  readonly selector: string
+  readonly window?: string
+  readonly ref?: string
+  readonly limit?: number
+}
+
+interface Query {
+  readonly window: string
+  readonly count: number
+  readonly nodes: readonly InspectMatch[]
 }
 
 interface Snapshot {
@@ -97,6 +111,7 @@ export class Inspect {
     run: (steps: readonly InspectStep[]): Promise<ActResult> =>
       this.run(Array.isArray(steps) ? steps.map((s) => ({ ref: String(s?.ref ?? ''), action: s?.action, text: s?.text ?? null })) : []),
     open: (name: string): Promise<ActResult> => this.open(String(name)),
+    query: (options: QueryOptions): Promise<Query> => this.query(options),
   }
 
   windows(): InspectWindow[] {
@@ -145,7 +160,7 @@ export class Inspect {
     const lines: string[] = same ? ['窗口没变.'] : ['窗口 (上面的在前):', ...headers]
     const trees: Record<string, readonly InspectNode[]> = {}
     for (const window of targets) {
-      const { nodes, notes } = await this.#tree(window, parsed?.node ?? null, limit)
+      const { nodes, notes } = await this.#tree(window, parsed?.node ?? null, limit, options.offscreen === true)
       const under = parsed?.node != null ? ` (${options.ref} 以下)` : ''
       if (find) {
         const found = Inspect.#find(nodes, find)
@@ -167,7 +182,7 @@ export class Inspect {
       else lines.push(...(body.length ? body.map(([, line]) => line) : ['(空)']))
       lines.push(...notes)
     }
-    if (find && !Object.keys(trees).length) lines.push('', `没找到含 ${JSON.stringify(options.find!.trim())} 的元素 (可见范围外的找不到; scroll 或换个窗口再找)`)
+    if (find && !Object.keys(trees).length) lines.push('', `没找到含 ${JSON.stringify(options.find!.trim())} 的元素${options.offscreen ? '' : ' (可见范围外的找不到; scroll 或加 offscreen, 或换个窗口再找)'}`)
     return { text: lines.join('\n'), windows, trees }
   }
 
@@ -414,12 +429,30 @@ export class Inspect {
     }
   }
 
-  async #tree(window: InspectWindow, node: number | null, limit: number): Promise<{ nodes: InspectNode[]; notes: string[] }> {
+  async query(options: QueryOptions): Promise<Query> {
+    const selector = String(options?.selector ?? '').trim()
+    if (!selector) throw Object.assign(new Error('query: 要一个 CSS 选择器'), { status: 400 })
+    const parsed = options.ref ? Inspect.#parse(options.ref) : null
+    if (options.ref && !parsed) throw Object.assign(new Error(`看不懂 ref ${options.ref} (应该像 w3 或 w3.12)`), { status: 400 })
+    const windows = this.windows()
+    const wanted = parsed ? `w${parsed.window}` : options.window
+    const window = wanted ? windows.find((w) => w.ref === wanted) : (windows.find((w) => w.focus && !w.hidden) ?? windows.find((w) => w.kind === 'desktop'))
+    if (!window) throw Object.assign(new Error(wanted ? `没有窗口 ${wanted}` : '没有窗口'), { status: 404 })
+    if (window.kind === 'native') throw Object.assign(new Error(`${window.ref} 是原生窗口, 只能在网页里用 CSS 选择器`), { status: 400 })
+    const rpc = this.#host.web(window.id)
+    if (!rpc) throw Object.assign(new Error(`${window.ref} 的页面没在运行`), { status: 409 })
+    const limit = Math.max(1, Math.min(Number(options.limit) || Inspect.LIMIT, Inspect.FIND_LIMIT))
+    const found = (await rpc.call('inspect', 'query', [selector, parsed?.node ?? -1, limit])) as PageQuery
+    const nodes = found.nodes.map((n): InspectMatch => ({ ...Inspect.#node(window, n.id, n, n.states, n.rect, []), tag: n.tag, visible: n.visible }))
+    return { window: window.ref, count: found.count, nodes }
+  }
+
+  async #tree(window: InspectWindow, node: number | null, limit: number, offscreen = false): Promise<{ nodes: InspectNode[]; notes: string[] }> {
     if (window.hidden) return { nodes: [], notes: ['(最小化了; act 它 restore 再看)'] }
     if (window.kind === 'native') return this.#nativeTree(window, limit)
     const rpc = this.#host.web(window.id)
     if (!rpc) return { nodes: [], notes: ['(页面没在运行)'] }
-    const tree = (await rpc.call('inspect', 'tree', [node ?? -1, limit])) as PageTree
+    const tree = (await rpc.call('inspect', 'tree', [node ?? -1, limit, offscreen])) as PageTree
     const convert = (n: PageNode): InspectNode => Inspect.#node(window, n.id, n, n.states, n.rect, (n.children ?? []).map(convert))
     const notes: string[] = []
     if (tree.hidden) notes.push(`(可见范围外还有 ${tree.hidden} 个元素没列出; scroll 再看)`)

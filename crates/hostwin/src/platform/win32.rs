@@ -80,13 +80,13 @@ pub(crate) struct Host {
     ime_area: Cell<Option<RECT>>,
 }
 
-impl Host {
-    pub fn set_title(&self, title: &str) {
+impl super::Host for Host {
+    fn set_title(&self, title: &str) {
         let title = wide(title);
         unsafe { SetWindowTextW(self.hwnd, title.as_ptr()) };
     }
 
-    pub fn set_ime_area(&self, [x, y, w, h]: [f64; 4]) {
+    fn set_ime_area(&self, [x, y, w, h]: [f64; 4]) {
         let s = self.scale.get();
         let (left, top, right, bottom) = ((x * s) as i32, (y * s) as i32, ((x + w.max(1.0)) * s) as i32, ((y + h.max(1.0)) * s) as i32);
         self.ime_area.set(Some(RECT { left, top, right, bottom }));
@@ -104,7 +104,7 @@ impl Host {
         }
     }
 
-    pub fn surface(&self, instance: &wgpu::Instance) -> Result<wgpu::Surface<'static>, String> {
+    fn surface(&self, instance: &wgpu::Instance) -> Result<Option<wgpu::Surface<'static>>, String> {
         let hwnd = NonZeroIsize::new(self.hwnd as isize).ok_or("没有窗口")?;
         let mut handle = rwh::Win32WindowHandle::new(hwnd);
         handle.hinstance = NonZeroIsize::new(self.hinstance);
@@ -112,10 +112,10 @@ impl Host {
             raw_display_handle: Some(rwh::RawDisplayHandle::Windows(rwh::WindowsDisplayHandle::new())),
             raw_window_handle: rwh::RawWindowHandle::Win32(handle),
         };
-        unsafe { instance.create_surface_unsafe(target) }.map_err(|e| e.to_string())
+        unsafe { instance.create_surface_unsafe(target) }.map(Some).map_err(|e| e.to_string())
     }
 
-    pub fn choose_folder(&self, title: &str, reply: super::FolderReply) {
+    fn choose_folder(&self, title: &str, reply: super::FolderReply) {
         let title = wide(title);
         let mut name = [0u16; 260];
         let info = BROWSEINFOW {
@@ -140,7 +140,7 @@ impl Host {
         let _ = reply.send(Ok(picked));
     }
 
-    pub fn exit(&self, code: i32) {
+    fn exit(&self, code: i32) {
         self.exit.set(Some(code));
     }
 }
@@ -559,7 +559,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
         composing: Cell::new(false),
     });
     let size = win.client_size();
-    win.handler.borrow_mut().started(&win.host, proxy, monitor, size, scale);
+    win.handler.borrow_mut().started(&win.host, super::Proxy::Native(proxy), monitor, size, scale);
     WIN.with(|w| *w.borrow_mut() = Some(win.clone()));
     if let Some(code) = win.host.exit.take() {
         win.close(code);

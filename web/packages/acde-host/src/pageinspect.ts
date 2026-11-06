@@ -21,6 +21,16 @@ export interface PageTree {
   readonly height: number
 }
 
+export interface PageMatch extends PageNode {
+  readonly tag: string
+  readonly visible: boolean
+}
+
+export interface PageQuery {
+  readonly count: number
+  readonly nodes: readonly PageMatch[]
+}
+
 export type PagePoint = { readonly x: number; readonly y: number } | { readonly error: string }
 
 type Field = HTMLInputElement | HTMLTextAreaElement
@@ -38,7 +48,9 @@ export class PageInspect {
   serve(method: string, args: unknown[]): unknown {
     switch (method) {
       case 'tree':
-        return this.tree(Number(args[0] ?? -1), Number(args[1] ?? PageInspect.LIMIT))
+        return this.tree(Number(args[0] ?? -1), Number(args[1] ?? PageInspect.LIMIT), args[2] === true)
+      case 'query':
+        return this.query(String(args[0] ?? ''), Number(args[1] ?? -1), Number(args[2] ?? PageInspect.LIMIT))
       case 'point':
         return this.point(Number(args[0]))
       case 'type':
@@ -52,17 +64,50 @@ export class PageInspect {
     }
   }
 
-  tree(root: number, limit: number): PageTree {
+  tree(root: number, limit: number, offscreen = false): PageTree {
     if (!this.dom.semantics) throw new Error('this acde has no semantics')
-    const parsed = JSON.parse(this.dom.semantics(root < 0 ? -1 : root, limit)) as Omit<PageTree, 'width' | 'height'>
+    const parsed = JSON.parse(this.dom.semantics(root < 0 ? -1 : root, limit, offscreen)) as Omit<PageTree, 'width' | 'height'>
     const window = this.page.window as unknown as Window
+    return { ...parsed, nodes: parsed.nodes.map((n) => this.#moved(n)), width: window.innerWidth, height: window.innerHeight }
+  }
+
+  query(selector: string, within: number, limit: number): PageQuery {
+    if (!this.dom.semantics) throw new Error('this acde has no semantics')
+    const document = this.page.document as unknown as Document
+    const root: ParentNode | null = within >= 0 ? this.#element(within) : document
+    if (!root) throw new Error(`元素 ${within} 不在了`)
+    let found: Element[]
+    try {
+      found = [...root.querySelectorAll(selector)]
+    } catch (error) {
+      throw new Error(`选择器 ${JSON.stringify(selector)} 不对: ${(error as Error)?.message ?? error}`)
+    }
+    return { count: found.length, nodes: found.slice(0, Math.max(1, limit)).map((element) => this.#match(element)) }
+  }
+
+  #match(element: Element): PageMatch {
+    const id = this.page.idOf(element)
+    const tree = JSON.parse(this.dom.semantics!(id, 1, true)) as { nodes: PageNode[] }
+    const own = tree.nodes.length === 1 && tree.nodes[0]!.id === id ? tree.nodes[0]! : null
+    const box = element.getBoundingClientRect()
+    const style = (this.page.window as unknown as Window).getComputedStyle(element)
+    const visible = box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity || '1') > 0
+    const rect: [number, number, number, number] = [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)]
+    const text = (element.getAttribute('aria-label') || element.getAttribute('title') || element.textContent || '').replace(/\s+/g, ' ').trim()
+    const base: PageNode = own
+      ? { id, role: own.role, ...(own.name && { name: own.name }), ...(own.value !== undefined && { value: own.value }), ...(own.states && { states: own.states }), ...(own.level && { level: own.level }), rect }
+      : { id, role: 'generic', ...(text && { name: text.length > 120 ? `${text.slice(0, 120)}…` : text }), rect }
+    return { ...this.#moved(base), tag: element.localName, visible }
+  }
+
+  #moved(node: PageNode): PageNode {
     const [dx, dy] = this.offset
-    const moved = (node: PageNode): PageNode => ({
+    if (!dx && !dy) return node
+    return {
       ...node,
       rect: [node.rect[0] + dx, node.rect[1] + dy, node.rect[2], node.rect[3]],
-      ...(node.children ? { children: node.children.map(moved) } : {}),
-    })
-    return { ...parsed, nodes: dx || dy ? parsed.nodes.map(moved) : parsed.nodes, width: window.innerWidth, height: window.innerHeight }
+      ...(node.children ? { children: node.children.map((c) => this.#moved(c)) } : {}),
+    }
   }
 
   point(id: number): PagePoint {

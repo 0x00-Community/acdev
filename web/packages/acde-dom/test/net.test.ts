@@ -374,3 +374,67 @@ test('Set-Cookie values stay apart; formData parses forms', async () => {
     '值', 'f.txt', 'text/plain', 'file body',
   ])
 })
+
+test('observe: console lines, page errors and every request with its outcome reach the observer', async () => {
+  using web = await webWithBackend()
+  web.run(`globalThis.seen = []
+    __acdeDom.observe({
+      console: (level, text) => seen.push(['console', level, text.split('\\n')[0]]),
+      error: (kind, text) => seen.push([kind, text.split('\\n')[0]]),
+      request: (e) => seen.push(['request', e.phase, ...(e.phase === 'start' ? [e.kind, e.method, e.url.replace(location.origin, ''), e.bytes] : e.phase === 'response' ? [e.status] : e.phase === 'end' ? [e.bytes] : [e.message])]),
+    })`)
+  await web.run<Promise<void>>(`(async () => {
+    console.log('hello %s', 'there')
+    console.info('fyi')
+    console.warn('careful', { n: 1 })
+    console.error(new Error('boom'))
+    await (await fetch('/app/demo/index.js')).text()
+    await (await fetch('/api/echo', { method: 'POST', body: 'abc' })).text()
+    await (await fetch('/missing')).text()
+    try { await fetch('/fail') } catch {}
+    try { await fetch('https://example.com/x') } catch {}
+    await (await fetch('/nothing-here')).text()
+    await new Promise((resolve) => { const x = new XMLHttpRequest(); x.open('GET', '/stream'); x.onloadend = resolve; x.send() })
+    const ws = new WebSocket('/socket')
+    await new Promise((resolve) => (ws.onopen = resolve))
+    ws.send('ping')
+    await new Promise((resolve) => (ws.onmessage = resolve))
+    ws.close()
+    await new Promise((resolve) => (ws.onclose = resolve))
+    setTimeout(() => { throw new TypeError('late') })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  })()`)
+  web.internals.unhandledRejection(Promise.resolve(), new RangeError('nobody waits'))
+  web.run(`__acdeDom.observe(null); console.log('not seen')`)
+  const seen = JSON.parse(web.run<string>('JSON.stringify(seen)')) as unknown[][]
+  assert.deepEqual(seen.filter((e) => e[0] === 'console'), [
+    ['console', 'log', 'hello there'],
+    ['console', 'info', 'fyi'],
+    ['console', 'warn', 'careful { n: 1 }'],
+    ['console', 'error', 'Error: boom'],
+  ])
+  const echo = seen.filter((e) => e[0] === 'request')[5]![2]
+  assert.deepEqual(seen.filter((e) => e[0] === 'request').map((e) => e.slice(1)), [
+    ['start', 'fetch', 'GET', '/app/demo/index.js', 0], ['response', 200], ['end', 9],
+    ['start', 'fetch', 'POST', '/api/echo', 3], ['response', 200], ['end', echo],
+    ['start', 'fetch', 'GET', '/missing', 0], ['response', 404], ['end', 'not found: /missing'.length],
+    ['start', 'fetch', 'GET', '/fail', 0], ['error', 'connect: no such file'],
+    ['start', 'fetch', 'GET', 'https://example.com/x', 0], ['error', "not the app's: a page reaches its own files and its own backend only"],
+    ['start', 'fetch', 'GET', '/nothing-here', 0], ['response', 404], ['end', 'not found: /nothing-here'.length],
+    ['start', 'xhr', 'GET', '/stream', 0], ['response', 200], ['end', 3],
+    ['start', 'websocket', 'GET', 'ws://acde.local/socket', 0], ['response', 101], ['end', 'echo:ping'.length],
+  ])
+  assert.deepEqual(seen.filter((e) => e[0] === 'error' || e[0] === 'rejection'), [['error', 'TypeError: late'], ['rejection', 'RangeError: nobody waits']])
+})
+
+test('observe: without a backend, a missing file of the app and another host fail with different reasons', async () => {
+  using web = await page()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const seen = []
+    __acdeDom.observe({ request: (e) => e.phase === 'error' && seen.push(e.message) })
+    for (const url of ['/nope.json', 'https://example.com/x']) { try { await fetch(url) } catch {} }
+    __acdeDom.observe(null)
+    return JSON.stringify(seen)
+  })()`)
+  assert.deepEqual(JSON.parse(result), ['no such file in the app, and no backend to ask', "not the app's: a page reaches its own files and its own backend only"])
+})

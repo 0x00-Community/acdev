@@ -286,6 +286,10 @@ impl Shell {
         link.capture(CAPTURE_WAIT)
     }
 
+    pub fn screenshot(&self, path: std::path::PathBuf) -> Result<(u32, u32), String> {
+        server().expect("hostwin").compositor().ok_or("the compositor has not started")?.screenshot(path)
+    }
+
     pub fn quit(&self) {
         server().expect("hostwin").send(Cmd::Exit(0));
     }

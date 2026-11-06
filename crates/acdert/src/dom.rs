@@ -570,8 +570,8 @@ natives! {
     "pinnedIn" => fn pinned_in(scope, args, dom) { let id = id(scope, &args, 0); dom.pinned_in(id).map(Ids) }
     "commit" => fn commit(scope, args, dom) { dom.commit(); Ok(()) }
     "semantics" => fn semantics(scope, args, dom) {
-        let (id, limit) = (id(scope, &args, 0), f(scope, &args, 1));
-        dom.semantics(id, if limit.is_finite() && limit >= 1.0 { limit as u32 } else { 600 })
+        let (id, limit, offscreen) = (id(scope, &args, 0), f(scope, &args, 1), bind::arg_bool(scope, &args, 2));
+        dom.semantics(id, if limit.is_finite() && limit >= 1.0 { limit as u32 } else { 600 }, offscreen)
     }
     "stats" => fn stats(scope, args, dom) {
         let stats = dom.stats();
@@ -587,6 +587,10 @@ natives! {
     }
     "setDark" => fn set_dark(scope, args, dom) {
         dom.set_dark(bind::arg_bool(scope, &args, 0));
+        Ok(())
+    }
+    "setReducedMotion" => fn set_reduced_motion(scope, args, dom) {
+        dom.set_reduced_motion(bind::arg_bool(scope, &args, 0));
         Ok(())
     }
 }

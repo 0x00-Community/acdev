@@ -175,6 +175,10 @@ impl Dom {
         _ = self.update(|e| e.set_dark(on));
     }
 
+    pub fn set_reduced_motion(&self, on: bool) {
+        _ = self.update(|e| e.set_reduced_motion(on));
+    }
+
     pub fn node_type(&self, id: u32) -> Result<NodeType> {
         self.on(id, |e, n| e.kind(n))
     }

@@ -163,15 +163,33 @@ fn launch(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv:
     }
 }
 
-fn screenshot(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some(resolver) = v8::PromiseResolver::new(scope) else {
+fn screenshot(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let path = std::path::PathBuf::from(bind::arg_string(scope, &args, 0));
+    if with(scope, |_| ()).is_none() {
         return;
-    };
-    let promise = resolver.get_promise(scope);
-    let message = bind::string(scope, "screenshot: not in host windows");
-    let error = v8::Exception::error(scope, message);
-    resolver.reject(scope, error);
-    rv.set(promise.into());
+    }
+    crate::offload::run(
+        scope,
+        &mut rv,
+        "acde-screenshot",
+        move || Shell::open().ok_or_else(|| "Shell: not open".to_owned()).and_then(|shell| shell.screenshot(path)),
+        settle_screenshot,
+    );
+}
+
+fn settle_screenshot(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, done: Result<(u32, u32), String>) {
+    match done {
+        Ok((width, height)) => {
+            let width = num(scope, f64::from(width));
+            let height = num(scope, f64::from(height));
+            let obj = bind::object(scope, &[("width", width), ("height", height)]);
+            resolver.resolve(scope, obj.into());
+        }
+        Err(e) => {
+            let error = crate::offload::failure(scope, &format!("screenshot: {e}"), None, "screenshot");
+            resolver.reject(scope, error);
+        }
+    }
 }
 
 fn stats(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {

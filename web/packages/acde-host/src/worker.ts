@@ -1,4 +1,4 @@
-import { install, installBackendTransport, type AudioNative, type BackendTransport, type DomNative, type GpuNative, type HostNative } from '@dopame/acde-dom'
+import { install, installBackendTransport, observe, type AudioNative, type BackendTransport, type DomNative, type GpuNative, type HostNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
 import { Frame } from './frame'
 import { Host } from './host'
@@ -67,6 +67,13 @@ export default async function boot(natives: WebNatives): Promise<void> {
     audio: natives.audio,
     ...(init.screen && { screen: init.screen }),
   })
+  if (natives.env['ACDE_DEV']) {
+    observe({
+      console: (level, text) => port.post({ devlog: 'console', time: Log.clock(), level, text }),
+      error: (kind, text) => port.post({ devlog: 'error', time: Log.clock(), kind, text }),
+      request: (event) => port.post({ devlog: 'request', time: Log.clock(), event }),
+    })
+  }
   host.onTaskEnd(() => page.endTask())
   host.setReporter((error, promise) => {
     if (promise) page.unhandledRejection(promise, error)
@@ -92,7 +99,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   let devhot = (): void => {}
   port.onMessage((message) => {
     if (rpc.receive(message)) return
-    const m = message as { type?: string; dark?: boolean; language?: string; languages?: string[]; width?: number; height?: number }
+    const m = message as { type?: string; dark?: boolean; reduced?: boolean; language?: string; languages?: string[]; width?: number; height?: number }
     switch (m.type) {
       case 'screen':
         if (m.width && m.height) page.setScreen({ width: m.width, height: m.height })
@@ -101,6 +108,9 @@ export default async function boot(natives: WebNatives): Promise<void> {
         return page.setLanguages({ language: m.language, languages: m.languages })
       case 'colorscheme':
         dom.setDark?.(m.dark === true)
+        return page.mediaChanged()
+      case 'motion':
+        dom.setReducedMotion?.(m.reduced === true)
         return page.mediaChanged()
       case 'devhot':
         return devhot()

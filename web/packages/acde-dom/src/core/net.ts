@@ -1,5 +1,6 @@
 import { Blob, blobBytes } from './blob'
 import { backendTarget, cookies, requestHeaders, type BackendTarget, type Header, type HttpEvent, type WsEvent, transport } from './backend'
+import { Tracked, type RequestKind } from './observe'
 import { bytesOf, concat, TextDecoder, unbase64 } from './encoding'
 import { CloseEvent, defineHandlers, Event, EventTarget, fire, MessageEvent, ProgressEvent } from './event'
 import { DOMException } from './exception'
@@ -49,6 +50,14 @@ function backendFailed(method: string, url: string, message: string): void {
 
 type Loaded = { bytes: Uint8Array; type: string }
 type Routed = { target: BackendTarget } | { asset: Loaded } | null
+
+function unreachable(url: string): string {
+  try {
+    if (new URL(url).origin === new URL(net.base()).origin) return 'no such file in the app, and no backend to ask'
+  } catch {
+  }
+  return "not the app's: a page reaches its own files and its own backend only"
+}
 
 function inline(url: string): Loaded | null {
   if (url.startsWith('blob:')) {
@@ -448,8 +457,32 @@ interface ExchangeRequest {
   readonly credentials: string
 }
 
-function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHandlers): () => void {
+function tracking(tracked: Tracked | null, given: ExchangeHandlers): ExchangeHandlers {
+  if (!tracked) return given
+  return {
+    head(head) {
+      tracked.response(head.status, head.statusText)
+      given.head(head)
+    },
+    chunk(data) {
+      tracked.received(data.length)
+      given.chunk(data)
+    },
+    end() {
+      tracked.end()
+      given.end()
+    },
+    error(message) {
+      tracked.error(message)
+      given.error(message)
+    },
+  }
+}
+
+function exchange(first: BackendTarget, request: ExchangeRequest, given: ExchangeHandlers, kind: RequestKind): () => void {
   const backend = transport!
+  const tracked = Tracked.start(kind, request.method, request.url, request.body?.length ?? 0)
+  const on = tracking(tracked, given)
   const withCookies = request.credentials !== 'omit'
   let current: number | null = null
   let finished = false
@@ -518,6 +551,7 @@ function exchange(first: BackendTarget, request: ExchangeRequest, on: ExchangeHa
   return () => {
     if (finished) return
     finished = true
+    tracked?.error('aborted')
     stop(current)
   }
 }
@@ -582,7 +616,7 @@ async function fetchBackend(request: Request, target: BackendTarget, signal: Sig
         if (!response) reject(error)
         else controller?.error(error)
       },
-    })
+    }, 'fetch')
     const onAbort = (): void => {
       abort()
       settle()
@@ -605,10 +639,19 @@ export function fetch(input: string | URL | Request, init?: RequestInit): Promis
   if (signal?.aborted) return Promise.reject(aborted(signal))
   const routed = route(request.url, request.method)
   if (routed && 'target' in routed) return fetchBackend(request, routed.target, signal)
+  const tracked = Tracked.start('fetch', request.method, request.url)
   return new Promise((resolve, reject) => {
     host.setTimer(0, () => {
-      if (signal?.aborted) return reject(aborted(signal))
-      if (!routed) return reject(new TypeError('Failed to fetch'))
+      if (signal?.aborted) {
+        tracked?.error('aborted')
+        return reject(aborted(signal))
+      }
+      if (!routed) {
+        tracked?.error(unreachable(request.url))
+        return reject(new TypeError('Failed to fetch'))
+      }
+      tracked?.response(200, 'OK')
+      tracked?.end(routed.asset.bytes.length)
       resolve(assetResponse(request, routed.asset))
     })
   })
@@ -676,16 +719,20 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
       fire(this, new ProgressEvent('loadstart'))
       return this.#backend(routed.target, token, body)
     }
+    const tracked = Tracked.start('xhr', this.#method, this.#url)
     const finish = () => {
-      if (token !== this.#sent) return
+      if (token !== this.#sent) return tracked?.error('aborted')
       const found = routed?.asset
       if (!found) {
+        tracked?.error(unreachable(this.#url))
         this.#state(4)
         if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': Failed to load '${this.#url}'.`, 'NetworkError')
         fire(this, new ProgressEvent('error'))
         fire(this, new ProgressEvent('loadend'))
         return
       }
+      tracked?.response(200, 'OK')
+      tracked?.end(found.bytes.length)
       this.#bytes = found.bytes
       this.#type = found.type
       this.#responseHeaders = assetHead(found)
@@ -752,7 +799,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
         error: () => {
           if (live()) finish('error')
         },
-      })
+      }, 'xhr')
       if (this.timeout > 0) {
         host.setTimer(this.timeout, () => {
           if (!live() || this.readyState === 4) return
@@ -841,6 +888,7 @@ export class WebSocket extends EventTarget {
   #binaryType: 'blob' | 'arraybuffer' = 'blob'
   #id: number | null = null
   #finished = false
+  #tracked: Tracked | null = null
   readonly #origin: string
 
   constructor(url: string | URL, protocols?: string | Iterable<string>) {
@@ -858,8 +906,10 @@ export class WebSocket extends EventTarget {
     this.#origin = parsed.origin
     const list = protocols === undefined ? [] : typeof protocols === 'string' ? [protocols] : [...protocols].map(String)
     if (new Set(list).size !== list.length) throw new DOMException("Failed to construct 'WebSocket': The subprotocol is duplicated.", 'SyntaxError')
+    this.#tracked = Tracked.start('websocket', 'GET', this.url)
     const routed = route(this.url, 'WS')
     if (!routed || !('target' in routed)) {
+      this.#tracked?.error(unreachable(this.url))
       host.setTimer(0, () => this.#finish(1006, '', false))
       return
     }
@@ -876,10 +926,12 @@ export class WebSocket extends EventTarget {
           this.readyState = WS_STATES.OPEN
           this.protocol = event.protocol ?? ''
           this.extensions = event.extensions ?? ''
+          this.#tracked?.response(101, 'Switching Protocols')
           fire(this, new Event('open'))
           return
         case 'message': {
           if (this.readyState !== WS_STATES.OPEN) return
+          this.#tracked?.received(event.text !== undefined ? event.text.length : (event.data?.length ?? 0))
           let data: unknown
           if (event.text !== undefined) data = event.text
           else {
@@ -893,6 +945,7 @@ export class WebSocket extends EventTarget {
           return this.#finish(event.code ?? 1005, event.reason ?? '', !!event.wasClean)
         case 'error':
           backendFailed('WS', this.url, event.message)
+          this.#tracked?.error(event.message)
           return this.#finish(1006, '', false)
       }
     }
@@ -900,6 +953,7 @@ export class WebSocket extends EventTarget {
       this.#id = transport!.websocket(target.port, target.path, headers, protocols, onEvent)
     } catch (error) {
       backendFailed('WS', this.url, String((error as Error)?.message ?? error))
+      this.#tracked?.error(String((error as Error)?.message ?? error))
       host.queueMicrotask(() => this.#finish(1006, '', false))
     }
   }
@@ -907,6 +961,8 @@ export class WebSocket extends EventTarget {
   #finish(code: number, reason: string, wasClean: boolean): void {
     if (this.#finished) return
     this.#finished = true
+    if (wasClean) this.#tracked?.end()
+    else this.#tracked?.error(`closed ${code}${reason ? ` ${reason}` : ''}`)
     this.readyState = WS_STATES.CLOSED
     if (!wasClean) fire(this, new Event('error'))
     fire(this, new CloseEvent('close', { code, reason, wasClean }))
@@ -1059,7 +1115,7 @@ export class EventSource extends EventTarget {
         backendFailed('SSE', this.url, message)
         this.#reconnect()
       },
-    })
+    }, 'eventsource')
   }
 
   #reconnect(): void {

@@ -165,7 +165,7 @@ impl Handler for App {
         size_from_env().unwrap_or_else(|| monitor.map_or(DESKTOP, |m| [DESKTOP[0].min(m.size[0] * 0.9), DESKTOP[1].min(m.size[1] * 0.85)]))
     }
 
-    fn started(&mut self, host: &Host, proxy: Proxy, monitor: Option<Monitor>, size: (u32, u32), scale: f64) {
+    fn started(&mut self, host: &dyn Host, proxy: Proxy, monitor: Option<Monitor>, size: (u32, u32), scale: f64) {
         let Some(main) = self.main.take() else { return };
         let server = server().expect("hostwin");
         {
@@ -206,7 +206,7 @@ impl Handler for App {
         }
     }
 
-    fn event(&mut self, host: &Host, event: HostEvent) {
+    fn event(&mut self, host: &dyn Host, event: HostEvent) {
         let Some(server) = server() else { return };
         match event {
             HostEvent::Resized { size, scale } => self.resized(server, size, scale),

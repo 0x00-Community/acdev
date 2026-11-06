@@ -26,24 +26,24 @@ pub(crate) struct Host {
     exit: Cell<Option<i32>>,
 }
 
-impl Host {
-    pub fn set_title(&self, title: &str) {
+impl super::Host for Host {
+    fn set_title(&self, title: &str) {
         self.window.set_title(title);
     }
 
-    pub fn set_ime_area(&self, [x, y, w, h]: [f64; 4]) {
+    fn set_ime_area(&self, [x, y, w, h]: [f64; 4]) {
         self.window.set_ime_cursor_area(LogicalPosition::new(x, y), LogicalSize::new(w.max(1.0), h.max(1.0)));
     }
 
-    pub fn surface(&self, instance: &wgpu::Instance) -> Result<wgpu::Surface<'static>, String> {
-        instance.create_surface(self.window.clone()).map_err(|e| e.to_string())
+    fn surface(&self, instance: &wgpu::Instance) -> Result<Option<wgpu::Surface<'static>>, String> {
+        instance.create_surface(self.window.clone()).map(Some).map_err(|e| e.to_string())
     }
 
-    pub fn choose_folder(&self, title: &str, reply: super::FolderReply) {
+    fn choose_folder(&self, title: &str, reply: super::FolderReply) {
         crate::chooser::folder(Some(&self.window), title, reply);
     }
 
-    pub fn exit(&self, code: i32) {
+    fn exit(&self, code: i32) {
         self.exit.set(Some(code));
     }
 }
@@ -112,7 +112,7 @@ impl ApplicationHandler<Cmd> for Loop {
         let size = window.inner_size();
         let scale = window.scale_factor();
         let host = Host { window, exit: Cell::new(None) };
-        self.handler.started(&host, Proxy(self.proxy.clone()), monitor, (size.width.max(1), size.height.max(1)), scale);
+        self.handler.started(&host, super::Proxy::Native(Proxy(self.proxy.clone())), monitor, (size.width.max(1), size.height.max(1)), scale);
         if let Some(code) = host.exit.take() {
             self.code = code;
             el.exit();

@@ -33,7 +33,7 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 | **调试窗口** | `acdert app <id \| 包目录>` | 同上 | 同上, 桌面建了但不显示, 应用铺满 | 同上 |
 
 选哪种 (crates/acdert `main.rs`): macOS / Windows 一律宿主窗口; Linux 上 `app` / `desktop` 在别人的桌面里 (有 `WAYLAND_DISPLAY` /
-`DISPLAY`, 没设 `ACDE_BACKEND`) 走宿主窗口, 别的是会话. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
+`DISPLAY`, 或设了 `ACDE_HEADLESS`; 没设 `ACDE_BACKEND`) 走宿主窗口, 别的是会话. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
 
 调试桌面和调试窗口只差权限 (桌面拿桌面的模块和服务, 应用只拿清单给的) 和收的事件 (`acde:windows` / `acde:desktop` 的事件 vs.
 `acde:window` 的). 宿主窗口的 `native.Shell` 带 `hosted: true`, acde-host `Main.session` 见到它就不算「自己的会话」: 不起 fcitx5、
@@ -146,10 +146,18 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   四角 10 px 改大小, 由 `Entry::grab_hints` 和页面的 hint (下移窗框高度) 合成, 窗框的优先. `contentOffset` 是 `[0, H]`, 输入法候选框也加 `H`.
 - **注入** (`Shell.inject`): `Cmd::Inject` 到主线程, 和真输入走同一段代码 (命中、拖动、快捷键); 注入的修饰键和真的合起来匹配; 按键带 US 布局
   的字符 (`keys::us_text`). 中文等走 `acde:inspect` 的 `type`, 不经注入.
-- **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG, 最多等 10 秒), `notify` (`notify.rs`: macOS osascript, Linux
-  `org.freedesktop.Notifications`, Windows 没有), `devRespond`, `screen`, `shortcut`, `windows`, `launch`. `animate` 直接回
-  `windowanimated`, `requestGrab` 一律授予, `setBackdrop` 不做, 没有 `screenshot`. 宿主窗口的关闭按钮发 `windowcloserequest`: 桌面的结束会话.
-  `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png`.
+- **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG, 最多等 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
+  画进一张离屏的 `Rgba8Unorm` 纹理, 读回编 PNG 写到 path, 回 `{width, height}`, 和会话的 `Shell.screenshot` 同一个接口; 最多等 10 秒),
+  `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`, Windows 没有), `devRespond`, `screen`, `shortcut`, `windows`,
+  `launch`. `animate` 直接回 `windowanimated`, `requestGrab` 一律授予, `setBackdrop` 不做. 宿主窗口的关闭按钮发 `windowcloserequest`:
+  桌面的结束会话. `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png` (和 `screenshot` 同一段).
+- **不显示 (`ACDE_HEADLESS=1`)**: 平台层在运行时二选一 (`platform.rs`: `Host` 是 trait, `Proxy` 是 enum; 原生的 win32 / winit 和
+  `platform/headless.rs`). headless 不开窗口: 主线程只收 `Cmd` (`Exit` 时退出), 屏幕是 `ACDE_SIZE` (否则 1440 × 900) 乘 `ACDE_SCALE`
+  (0.5–4, 默认 1), 起来就算宿主窗口有焦点. 合成器没有 surface: 不出画面、不数 `frames`, 但页面照常出帧 (出帧线程的节奏不靠宿主窗口),
+  `capture` / `screenshot` / `ACDE_HOST_DUMP` 照常读回. 注入和真窗口走同一段 (`App::inject`). 只在 headless 下不同的: 剪贴板是进程里的一份
+  (不碰系统剪贴板), 选文件夹直接回错, 系统通知只写一行 info 日志 (不弹出), 标题和输入法区域不做. 仍然要 GPU (「GPU 与性能」: 网页只在
+  GPU 上画, 不认 lavapipe): 能在有 Metal 的 macOS 机器 (含 GitHub 的 macOS runner, 没验) 或有 GPU 的 Linux / Windows 上无人值守地跑, 不能在
+  没有 GPU 的 Linux CI 上跑. Linux 上设了它就算「在别人的桌面里」, 不要 `WAYLAND_DISPLAY` / `DISPLAY`.
 - **系统能力**: fs、选文件夹、声音、剪贴板到处都有; terminal 和应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
   WebGPU 只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
 
@@ -170,7 +178,23 @@ IPC: unix 上 unix socket, Windows 上命名管道, 一行一个 JSON. acde 是�
   - `webs` → `{webs: [{name, app, kind, window, title}]}`.
   - `eval {web, code}` → `{value}`: 和 `ACDE_DEBUG_DIR` 一样求值 (promise 等落定), 结构化克隆回来再 JSON (undefined 是 null, JSON 不了的回错).
   - `shot {web}` → `{png: <base64>, width, height}` (`Shell.capture`, 设备像素, 桌面的含面板).
-  - `snapshot` / `act` / `run` / `open {name}` → `Broker.inspect.api` 的同名方法 (「看和操作桌面」).
+  - `snapshot` / `act` / `run` / `open {name}` / `query {selector, window?, ref?, limit?}` → `Broker.inspect.api` 的同名方法 (「看和操作桌面」).
+  - `console {web?, since?, limit?, level?}` → `{entries, next, dropped}`: 页面的 `console.*` 和没人接的错误 (`devlog.ts`, 见下), `level` 是
+    log / info / warn / error / debug, 或 errors (console.error 和错误); `web` 是 web 名、应用 id 或 desktop; `since` 是上次的 `next`, `dropped`
+    是 since 之后已经丢掉的条数. 条目 `{seq, time (ms, 和日志同一个零点), web, app, kind: console | error | rejection, level, text}`.
+  - `network {web?, since?, limit?, failed?}` → 同样的形状, 条目 `{seq, time, web, app, id, kind: fetch | xhr | websocket | eventsource, method,
+    url, requestBytes, status, statusText, responseBytes, ms, error, done}`; `failed` 只要出错的和 status ≥ 400 的.
+  - `screen {path}` → `Shell.screenshot(path)` 加 `path` (绝对路径; 整个屏幕, 所有窗口合在一起).
+  - `emulate {colorScheme?: light | dark | null, reducedMotion?: boolean | null}` → `{colorScheme, emulated, reducedMotion}`: 所有页面 (和以后
+    开的) 的 `prefers-color-scheme` / `prefers-reduced-motion` (CSS 和 `matchMedia`); null 回到系统的 (portal / `ACDE_COLOR_SCHEME` /
+    `ACDE_REDUCED_MOTION`). 模拟配色时系统配色的变化只记下, 回到系统时再生效.
+- **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
+  (照打日志之外) 报 `console(level, text)`; 没人接的 `error` / `unhandledrejection` (交给 `host.reportError` 的那些) 报 `error(kind, text)`
+  (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认); `fetch` / XHR / EventSource (都经 `exchange`, 加上本地资源和够不着的地址)
+  和 WebSocket 报 `request`: start → response (WebSocket 是 101) → end (收到的字节) 或 error (中止是 `aborted`; 够不着时说清是「应用里没有这个
+  文件, 也没有后端」还是「不是这个应用的地址」). 页面 (`worker.ts`) 把它们单向 `port.post` 成 `{devlog, time, …}` 给 Broker (不是 rpc,
+  页面重启、崩溃了记录还在); Broker 的 `DevLog` 两种各留最后 5000 条、文字最长 16 KB, 请求按 web + id 合成一条, web 没了时还开着的记成
+  `the page went away`.
 
 **热重载** (acde 构建时不压缩, `NODE_ENV` 是 development). acde 比较构建前后的产物 (acde 仓库 `src/changes.ts`): 只有 `.css` / `.js` 变了、
 HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应用的窗口 (或桌面) 发 `devhot`, web (acde-host `devhot.ts`) 重读入口 HTML,
@@ -376,14 +400,18 @@ FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel`
 - **网页的树** (render `Dom::semantics(root, limit)`, `dom/semantics.rs`): 节点 `{id, role, name?, value?, states?, level?, rect, children?}`, id 是
   render 的节点 id (ref 跨次稳定). 角色按 `role` 属性 / 标签, 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label / alt / 文字, 最多
   120 字; 剪掉不可见的子树, 没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600).
-- **web 侧** (`pageinspect.ts`): `tree`、`point(id)` (元素可点的一点: 先 `scrollIntoView`, 在中心和四个四分点上 `hitTest`, 全被挡时报挡住的
+- **web 侧** (`pageinspect.ts`): `tree(root, limit, offscreen)` (`offscreen` 时不剪掉滚到可见范围外的子树, 不可见的照样剪)、`query(selector, within,
+  limit)` (`querySelectorAll`, 每个元素再用 `semantics(id, 1, true)` 取它自己的角色名字状态, 没有语义的给 `generic` 和 aria-label / title / 文字,
+  加 `tag` 和 `visible`: 有大小、不是 hidden / display:none / 透明)、`point(id)` (元素可点的一点: 先 `scrollIntoView`, 在中心和四个四分点上 `hitTest`, 全被挡时报挡住的
   元素)、`type(id, text, replace)` (走输入法提交那条路 `Host.insertText`)、`focus(id)`, 坐标加 `contentOffset`.
-- **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?})` →
+- **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
   `{text, windows, trees}`: 先列窗口, 再列焦点窗口 (或指定的) 的树, 一行一个节点 `- button "新建文件夹" [pressed] [w1.52]`; `find` 只给名字或
   值含这段文字的元素和祖先; `diff` 只给变了的行 (`+` / `~` / `-`), 变化超过六成整个重列. `act(ref, action, arg)` → `{ok, text}`: 做完等页面安静
   (200 ms 没有 DOM 变化, 最多 3 秒; 原生窗口 0.4 秒), 窗口表或焦点变了先等新焦点窗口安静. `run(steps)` 依次做, 失败就停. 动作: click /
   double / right / hover / scroll 按 `point` 的屏幕坐标经 `Shell.inject` 发 (被盖住时先提前目标窗口); type / settext 走 web 的 `type`;
-  key (`"ctrl+a backspace"`) 先 focus 再注入. 窗口 ref 能 focus / restore / minimize / close / key. `open(name)` 按 id、名字找应用或原生程序起它.
+  key (`"ctrl+a backspace"`) 先 focus 再注入. 窗口 ref 能 focus / restore / minimize / close / key. `open(name)` 按 id、名字找应用或原生程序起它. `query({selector, window?, ref?, limit?})` →
+  `{window, count, nodes}`: 在窗口 (默认焦点窗口) 或某个元素下按 CSS 选择器找, 节点是 `InspectMatch` (`InspectNode` 加 `tag`、`visible`), ref
+  能直接给 act (不在语义树里的元素也行: `point` 按 render 节点 id 找元素).
 - **原生窗口** (runtime `atspi.rs`, napi `Accessibility`, Linux 会话): 读 AT-SPI2. 起服务时把 `org.a11y.Status.IsEnabled` 设成 true; GTK3 总上报,
   Qt 要开关为 true 且在真的显示平台上. `tree(pid, title, limit)` 按 pid 找应用、按标题挑顶层窗口, 角色规范成 ARIA 风格; act 先试 AT-SPI 的
   Action / EditableText / GrabFocus, 不行按坐标. 检查 `crates/runtime/tests/atspi-check.sh`.
@@ -411,7 +439,8 @@ FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel`
 - canvas 2D (acde-dom `dom/canvas.ts` 编成命令流, `Dom::canvas`): 要像素的都在 GPU 上 (render `gpu.rs`, 用 `acde_gpu::Gpu::publish` 登记的设备):
   超过 20000 条命令 (`ACDE_CANVAS_MAX_COMMANDS`) 画成纹理再接着记, canvas 当图片源是 `GpuImage`, `shadowBlur` 用 `blur.wgsl`,
   `getImageData` / `toDataURL` 同步读回. 提交都拿 `Gpu::submit_lock`.
-- 选项 `default_lang` (默认 zh-Hans, 选 CJK 地区变体)、`reduced_motion`、`dark` (事后用 `set_dark` 改). `<iframe>` 不加载
+- 选项 `default_lang` (默认 zh-Hans, 选 CJK 地区变体)、`reduced_motion`、`dark` (事后用 `set_reduced_motion` / `set_dark` 改, 都只改
+  viewport, 媒体查询和 `matchMedia` 跟着变). `semantics(root, limit, offscreen)`: offscreen 时不按可见范围剪. `<iframe>` 不加载
   (`skip_iframe_content`), 只是空盒子. 增量录制见 vendors/acrender; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
   64 MB. 所有入口 `catch_unwind`.
 - 窗框 (`decoration.rs`): `Decoration::scene(&Bar {title, width, height, scale})` → 物理像素的场景 (背景 #f4f2f7, 三个 12 px 圆点, 标题居中截断);
@@ -502,7 +531,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 
 环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (桌面的 localStorage 文件, 默认 `$XDG_CONFIG_HOME/acde/storage/<desktop>.json`, 空: 只在
 内存)、`ACDE_REDUCED_MOTION=1/0`、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
-`ACDE_DEV`、`ACDE_HOST_DUMP`、`ACDE_AUDIO=null`; shell 的见上.
+`ACDE_DEV`、`ACDE_HOST_DUMP`、`ACDE_HEADLESS=1`、`ACDE_SCALE` (headless 的缩放)、`ACDE_AUDIO=null`; shell 的见上.
 
 - **配色** (`appearance.ts`): `ACDE_COLOR_SCHEME`, 否则 portal 的 `org.freedesktop.appearance` `color-scheme`, 变了发给所有 web (`matchMedia` 发 change).
   **语言** (`language.ts`): 按 `LANGUAGE` / `LC_ALL` / `LC_MESSAGES` / `LANG`; `acde:session` 的 `setLanguage(tag)` 写 `locale.conf` 并发 `languagechange`.

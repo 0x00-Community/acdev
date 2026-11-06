@@ -15,6 +15,7 @@ import type { Native, NativeFileChooser, RawShellEvent } from './native'
 import { Packages, type InstalledDesktop } from './packages'
 import { Rpc } from './rpc'
 import { DesktopSession, type RunEnd } from './session'
+import { DevLog } from './devlog'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage, type Languages } from './language'
 import { StorageFile } from './storage'
@@ -139,13 +140,16 @@ class Web {
   reloading = false
   readonly owns = new Map<number, number>()
   readonly thread: WebThreadHandle
+  onPost: ((message: unknown) => void) | null = null
   readonly #exited: Promise<number>
 
   constructor(readonly kind: 'desktop' | 'window', readonly name: string, readonly window: number, readonly app: AppManifest | null, spawn: (onMessage: (message: unknown) => void, onExit: (code: number) => void) => WebThreadHandle) {
     let exit!: (code: number) => void
     this.#exited = new Promise((resolve) => (exit = resolve))
     this.rpc = new Rpc((message) => this.thread.post(message))
-    this.thread = spawn((message) => this.rpc.receive(message), exit)
+    this.thread = spawn((message) => {
+      if (!this.rpc.receive(message)) this.onPost?.(message)
+    }, exit)
   }
 
   terminate(): Promise<number> {
@@ -203,6 +207,10 @@ export class Broker {
   readonly #themes = new Map<string, string>()
   #stopped = false
   #dark: boolean
+  #systemDark: boolean
+  #emulatedDark: boolean | null = null
+  #reducedMotion: boolean | null
+  readonly devlog = new DevLog()
   #ended: RunEnd = 'signal'
   #devStates = new Map<string, unknown>()
   #wake: (() => void) | null = null
@@ -213,6 +221,8 @@ export class Broker {
     this.native = native
     this.#options = options
     this.#dark = options.dark
+    this.#systemDark = options.dark
+    this.#reducedMotion = options.reducedMotion
     this.#current = options.desktop
     this.apps = new AppRegistry(options.packages)
     this.bridge = new PageBridge()
@@ -282,9 +292,32 @@ export class Broker {
   }
 
   setDark(dark: boolean): void {
+    this.#systemDark = dark
+    this.#applyDark()
+  }
+
+  emulate(options: { readonly colorScheme?: 'light' | 'dark' | null; readonly reducedMotion?: boolean | null }): { colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean } {
+    if (options.colorScheme !== undefined) {
+      if (options.colorScheme !== null && options.colorScheme !== 'light' && options.colorScheme !== 'dark') throw Object.assign(new Error(`emulate: colorScheme is light, dark or null, not ${JSON.stringify(options.colorScheme)}`), { status: 400 })
+      this.#emulatedDark = options.colorScheme === null ? null : options.colorScheme === 'dark'
+      this.#applyDark()
+    }
+    if (options.reducedMotion !== undefined) {
+      const reduced = options.reducedMotion === null ? this.#options.reducedMotion : options.reducedMotion === true
+      if (reduced !== this.#reducedMotion) {
+        this.#reducedMotion = reduced
+        Log.write(Level.Info, 'acde_host', `reduced motion: ${reduced === true}`)
+        for (const web of this.#webs()) web.thread.post({ type: 'motion', reduced: reduced === true })
+      }
+    }
+    return { colorScheme: this.#dark ? 'dark' : 'light', emulated: this.#emulatedDark !== null, reducedMotion: this.#reducedMotion === true }
+  }
+
+  #applyDark(): void {
+    const dark = this.#emulatedDark ?? this.#systemDark
     if (this.#dark === dark) return
     this.#dark = dark
-    Log.write(Level.Info, 'acde_host', `color scheme: ${dark ? 'dark' : 'light'}`)
+    Log.write(Level.Info, 'acde_host', `color scheme: ${dark ? 'dark' : 'light'}${this.#emulatedDark === null ? '' : ' (emulated)'}`)
     for (const web of this.#webs()) web.thread.post({ type: 'colorscheme', dark })
   }
 
@@ -377,7 +410,7 @@ export class Broker {
       height: this.#output.height,
       scale: this.#output.scale,
       screen: this.#screen(),
-      reducedMotion: this.#options.reducedMotion,
+      reducedMotion: this.#reducedMotion,
       dark: this.#dark,
       languages: this.language.current,
       services: this.#shapes(null),
@@ -410,7 +443,7 @@ export class Broker {
       height: 600 * this.#output.scale,
       scale: this.#output.scale,
       screen: this.#screen(),
-      reducedMotion: this.#options.reducedMotion,
+      reducedMotion: this.#reducedMotion,
       dark: this.#dark,
       languages: this.language.current,
       services: this.#shapes(app.capabilities),
@@ -437,6 +470,9 @@ export class Broker {
         exit(code)
       }, grants))
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
+    web.onPost = (message) => {
+      if (DevLog.isPost(message)) this.devlog.take({ name: web.name, app: web.app?.id ?? null }, message)
+    }
     return web
   }
 
@@ -473,6 +509,7 @@ export class Broker {
 
   #exited(web: Web, code: number, reason: string | null): void {
     web.rpc.fail('acde: the web stopped')
+    this.devlog.gone(web.name)
     if (this.#stopped && web.closing) return
     if (web.kind === 'desktop') {
       if (this.#desktop !== web) return
@@ -1140,9 +1177,29 @@ export class Broker {
       case 'open':
         if (typeof args['name'] !== 'string' || !args['name']) throw new Error('open: name is an app id or name')
         return this.inspect.api.open(args['name'])
+      case 'query':
+        return this.inspect.api.query(args as never)
+      case 'console':
+        return this.devlog.console(Broker.#devQuery(args, { level: args['level'] as never }))
+      case 'network':
+        return this.devlog.requests(Broker.#devQuery(args, { failed: args['failed'] === true }))
+      case 'screen': {
+        if (typeof args['path'] !== 'string' || !args['path'].startsWith('/')) throw new Error('screen: path is an absolute file path for the PNG')
+        const size = await this.shell.screenshot(args['path'])
+        return { ...size, path: args['path'] }
+      }
+      case 'emulate':
+        return this.emulate(args as never)
       default:
-        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open)`)
+        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate)`)
     }
+  }
+
+  static #devQuery<T extends object>(args: Record<string, unknown>, extra: T): { web?: string; since?: number; limit?: number } & T {
+    const number = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+    const since = number(args['since'])
+    const limit = number(args['limit'])
+    return { ...(typeof args['web'] === 'string' && { web: args['web'] }), ...(since !== undefined && { since }), ...(limit !== undefined && { limit }), ...extra }
   }
 
   async debugStats(reset = false): Promise<Record<string, unknown>> {

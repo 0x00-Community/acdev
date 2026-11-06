@@ -35,7 +35,7 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[cfg(target_os = "linux")]
 fn session_env() {
-    let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
+    let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some() || acde_hostwin::headless();
     let backend = std::env::var("ACDE_BACKEND").ok();
     if outer && backend.is_none() {
         return;
@@ -65,7 +65,7 @@ fn hosted_session(args: &[String]) -> i32 {
 #[cfg(target_os = "linux")]
 fn session(args: &[String]) -> i32 {
     let debug = matches!(args.first().map(String::as_str), Some("app" | "desktop"));
-    let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
+    let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some() || acde_hostwin::headless();
     if debug && outer && std::env::var_os("ACDE_BACKEND").is_none() {
         return hosted_session(args);
     }
