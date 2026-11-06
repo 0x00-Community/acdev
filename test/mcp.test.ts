@@ -29,7 +29,7 @@ describe('acde mcp', () => {
     const { client, call } = await connect(s.project, s.env)
     try {
       const tools = (await client.listTools()).tools
-      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'eval', 'logs', 'open', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'wait_for', 'webs'])
+      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'wait_for', 'webs'])
       expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
 
       const none = await call('webs')
@@ -69,6 +69,18 @@ describe('acde mcp', () => {
       expect((await call('screenshot', { target: 'w1' })).text).toStartWith('alpha#7: 1x1')
 
       expect(JSON.parse((await call('eval', { code: 'document.title' })).text)).toEqual({ web: 'beta#8', code: 'document.title' })
+
+      const screen = await call('screenshot', { target: 'screen' })
+      expect(screen.content[0]).toMatchObject({ type: 'image', mimeType: 'image/png' })
+      expect(screen.text).toBe('screen: 1x1')
+      expect((await call('query', { selector: '[data-testid="add"]', window: 'w1' })).text).toBe('1 in w1:\n- button "Add" [disabled] [w1.3] <button>')
+      expect((await call('query', { selector: '.ghost', window: 'w1' })).text).toBe('1 in w1:\n- generic [w1.99] <div> [hidden]')
+      expect((await call('query', { selector: 'nav', window: 'w1' })).text).toBe('nothing in w1 matches "nav"')
+      expect((await call('console')).text).toBe('next: 3\n   1 log    alpha#7  alpha ready\n   2 info   alpha#7  added Buy milk')
+      expect((await call('console', { since: 3 })).text).toBe('next: 3\n(nothing)')
+      expect((await call('network', { web: 'alpha' })).text).toBe('next: 2\n   1 POST   201 http://acde.local/api/tasks  (fetch 2 B 3 ms) alpha#7')
+      expect((await call('emulate', { colorScheme: 'dark' })).text).toBe('colour scheme dark (emulated), reduced motion off')
+      expect((await call('emulate', { colorScheme: 'system', reducedMotion: 'reduce' })).text).toBe('colour scheme light, reduced motion on')
       expect(JSON.parse((await call('eval', { code: '1', target: 'desktop' })).text)).toEqual({ web: 'desktop', code: '1' })
 
       const logs = await call('logs', { grep: 'fake acdert' })

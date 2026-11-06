@@ -16,16 +16,20 @@ const USAGE = `usage: acde <command>
   check [dir]                                      acde.config.jsonc (or a package's manifest), as acdert reads it
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)
-  dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR]
+  dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless]
                                                    build, run in acdert, rebuild and reload what changed; one project: its
                                                    desktop or app; several or --desktop: all in that desktop (default: the
-                                                   desktop project among them, else dopame)
+                                                   desktop project among them, else dopame); --headless: no host window
  with an acde dev running (the one whose projects hold this directory, or --session PID):
   webs                                             the webs (windows' pages) acdert runs
   eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop), print the JSON
   shot <web> [-o FILE]                             a PNG of the web's window (default ./<web>.png), print its path
-  inspect [--window W] [--find TEXT] [--all]       the desktop as text (acde:inspect snapshot)
+  inspect [--window W] [--find TEXT] [--all] [--offscreen]
+                                                   the desktop as text (acde:inspect snapshot); --offscreen: scrolled-out too
   act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed
+  console [--web W] [--level L] [--follow]         pages' console.* and uncaught errors (L: log info warn error debug errors)
+  network [--web W] [--failed] [--follow]          pages' fetch / XHR / WebSocket / EventSource requests and how they ended
+  screen [-o FILE]                                 a PNG of the whole screen, every window composed (default ./screen.png)
   mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run acde dev itself);
                                                    for agents: claude mcp add acde -- acde mcp`
 
@@ -47,12 +51,15 @@ class Cli {
     check: { args: [0, 1] },
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
-    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'] },
+    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
     webs: { args: [0, 0], flags: ['session'] },
     eval: { args: [2, 2], flags: ['session'] },
     shot: { args: [1, 1], flags: ['session', 'output'] },
-    inspect: { args: [0, 0], flags: ['session', 'window', 'find'], switches: ['all'] },
+    inspect: { args: [0, 0], flags: ['session', 'window', 'find'], switches: ['all', 'offscreen'] },
     act: { args: [2, 3], flags: ['session'] },
+    console: { args: [0, 0], flags: ['session', 'web', 'level'], switches: ['follow'] },
+    network: { args: [0, 0], flags: ['session', 'web'], switches: ['follow', 'failed'] },
+    screen: { args: [0, 0], flags: ['session', 'output'] },
     mcp: { args: [0, 0], flags: ['session'] },
   }
   static readonly SHORT: Readonly<Record<string, string>> = { o: 'output' }
@@ -92,7 +99,7 @@ class Cli {
     if (command === 'mcp') return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)
     if (command === 'dev') {
-      const session = new DevSession({ dirs: args, ...(flags.has('out') && { out: flags.get('out')! }), ...(flags.has('app') && { app: flags.get('app')! }), ...(flags.has('desktop') && { desktop: flags.get('desktop')! }), acdert: await requireAcdert() })
+      const session = new DevSession({ dirs: args, ...(flags.has('out') && { out: flags.get('out')! }), ...(flags.has('app') && { app: flags.get('app')! }), ...(flags.has('desktop') && { desktop: flags.get('desktop')! }), ...(flags.has('headless') && { headless: true }), acdert: await requireAcdert() })
       return await session.run()
     }
     const pkg = new AppPackage(args[0] ?? '.')

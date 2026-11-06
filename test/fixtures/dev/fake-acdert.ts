@@ -1,4 +1,4 @@
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
@@ -30,6 +30,39 @@ const windows: Win[] = [
 ]
 const tasks: { name: string; done: boolean }[] = []
 let draft = ''
+const consoleLog: object[] = [{ seq: 1, time: 10, web: 'alpha#7', app: 'alpha', kind: 'console', level: 'log', text: 'alpha ready' }]
+const requests: object[] = []
+let dark = false
+let reduced = false
+
+function page<T extends { seq: number; web: string; app: string | null }>(all: T[], m: Record<string, unknown>, keep: (e: T) => boolean = () => true) {
+  const since = Number(m['since'] ?? 0)
+  const entries = all.filter((e) => e.seq >= since && (m['web'] === undefined || e.web === m['web'] || e.app === m['web']) && keep(e))
+  return { entries, next: all.length + 1, dropped: 0 }
+}
+
+function byRef(nodes: Node[], ref: string): Node | null {
+  for (const n of nodes) {
+    if (n.ref === ref) return n
+    const found = byRef(n.children ?? [], ref)
+    if (found) return found
+  }
+  return null
+}
+
+function query(m: Record<string, unknown>) {
+  const nodes = tree(windows.find((w) => w.ref === (m['window'] ?? 'w1'))!)
+  const within = typeof m['ref'] === 'string' ? byRef(nodes, m['ref']) : null
+  const all: Node[] = []
+  const walk = (list: Node[]) => list.forEach((n) => (all.push(n), walk(n.children ?? [])))
+  walk(within ? (within.children ?? []) : nodes)
+  const tags: Record<string, string> = { textbox: 'input', button: 'button', list: 'ul', listitem: 'li', checkbox: 'input', text: 'span' }
+  const pick = (role: string) => all.filter((n) => n.role === role)
+  const selector = String(m['selector'])
+  const found =
+    selector === '[data-testid="add"]' ? pick('button') : selector === 'li' ? pick('listitem') : selector === 'input[type=checkbox]' ? pick('checkbox') : selector === '.ghost' ? [{ ref: 'w1.99', role: 'generic' }] : []
+  return { window: m['window'] ?? 'w1', count: found.length, nodes: found.map(({ children: _c, ...n }) => ({ ...n, tag: tags[n.role] ?? 'div', visible: n.ref !== 'w1.99' })) }
+}
 
 function record(entry: object): void {
   appendFileSync(process.env['FAKE_ACDERT_LOG']!, `${JSON.stringify(entry)}\n`)
@@ -73,6 +106,11 @@ function snapshot(m: Record<string, unknown>) {
   if (m['tree'] === false) return { text, windows, trees: {} }
   const wanted = typeof m['window'] === 'string' ? windows.filter((w) => w.ref === m['window']) : m['all'] || m['find'] ? windows.filter((w) => !w.hidden) : windows.filter((w) => w.focus)
   const trees: Record<string, Node[]> = {}
+  if (typeof m['ref'] === 'string') {
+    const w = windows.find((x) => (m['ref'] as string).startsWith(`${x.ref}.`))!
+    const node = byRef(tree(w), m['ref'])
+    return { text, windows, trees: { [w.ref]: node ? [node] : [] } }
+  }
   for (const w of wanted) {
     const nodes = typeof m['find'] === 'string' ? find(tree(w), m['find'].toLowerCase()) : tree(w)
     if (typeof m['find'] !== 'string' || nodes.length) trees[w.ref] = nodes
@@ -89,7 +127,11 @@ function act(ref: string, action: string, arg: unknown): { ok: boolean; text: st
     if (!draft) return { ok: false, text: 'w1.3 is disabled' }
     const name = draft
     draft = ''
-    setTimeout(() => tasks.push({ name, done: false }), ADD_DELAY_MS)
+    setTimeout(() => {
+      tasks.push({ name, done: false })
+      consoleLog.push({ seq: consoleLog.length + 1, time: 20, web: 'alpha#7', app: 'alpha', kind: name === 'boom' ? 'error' : 'console', level: name === 'boom' ? 'error' : 'info', text: name === 'boom' ? 'Error: boom' : `added ${name}` })
+      requests.push({ seq: requests.length + 1, time: 20, web: 'alpha#7', app: 'alpha', id: requests.length + 1, kind: 'fetch', method: 'POST', url: 'http://acde.local/api/tasks', requestBytes: name.length, status: name === 'boom' ? 500 : 201, statusText: '', responseBytes: 2, ms: 3, error: null, done: true })
+    }, ADD_DELAY_MS)
   }
   const checkbox = /^w1\.(\d+)$/.exec(ref)
   if (checkbox && action === 'click' && Number(checkbox[1]) >= 12 && (Number(checkbox[1]) - 12) % 3 === 0) {
@@ -113,7 +155,7 @@ function webs() {
   return windows.map((w) => ({ name: names[w.id]!, app: w.app, kind: w.kind === 'desktop' ? 'desktop' : 'app', window: w.id, title: w.kind === 'desktop' ? 'Desk' : w.title }))
 }
 
-record({ argv: process.argv.slice(2), path: process.env['ACDE_PATH'] ?? null })
+record({ argv: process.argv.slice(2), path: process.env['ACDE_PATH'] ?? null, headless: process.env['ACDE_HEADLESS'] ?? null })
 console.error('[alpha#7] js: fake acdert is up')
 const socket = net.connect(process.env['ACDE_DEV']!)
 const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`)
@@ -158,6 +200,19 @@ function answer(m: Record<string, unknown>): void {
     }
     case 'open':
       return void ok(open(String(m['name'])))
+    case 'query':
+      return void ok(query(m))
+    case 'console':
+      return void ok(page(consoleLog as never[], m, (e: { level: string }) => m['level'] === undefined || (m['level'] === 'errors' ? e.level === 'error' : e.level === m['level'])))
+    case 'network':
+      return void ok(page(requests as never[], m, (e: { status: number }) => !m['failed'] || e.status >= 400))
+    case 'screen':
+      writeFileSync(String(m['path']), Buffer.from(PNG, 'base64'))
+      return void ok({ width: 1, height: 1, path: m['path'] })
+    case 'emulate':
+      if (m['colorScheme'] !== undefined) dark = m['colorScheme'] === 'dark'
+      if (m['reducedMotion'] !== undefined) reduced = m['reducedMotion'] === true
+      return void ok({ colorScheme: dark ? 'dark' : 'light', emulated: m['colorScheme'] !== null && m['colorScheme'] !== undefined, reducedMotion: reduced })
     case 'slow':
       return
     default:

@@ -19,8 +19,8 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde check [目录]` | 按 acdert 读清单的方式查 (`@dopame/acde-api/manifest` 的 `Manifest.check`) |
 | `acde build [目录] [--out .acde]` | 构建成 acdert 认的包 (见下) |
 | `acde install [目录]` | build 之后装进 `$XDG_DATA_HOME/acde/packages/<id>` (手写的包: 指向工程目录的符号链接) |
-| `acde dev [目录...] [--out DIR] [--app ID] [--desktop ID\|目录]` | 构建, 起 acdert (一个工程: `acdert desktop <id>` (桌面工程) 或 `acdert app <id>`; 几个工程或给了 `--desktop`: 都放进一个桌面), 构建结果经 `ACDE_PATH` 给它 (不装); 盯着工程目录, 哪个改了就只重新构建它、发 `reload`; acdert 从哪儿来见「分发」. 见下面「acde dev」 |
-| `acde webs` / `eval <web> <代码\|->` / `shot <web> [-o 文件]` / `inspect [--window W] [--find 文字] [--all]` / `act <ref> <动作> [参数]` (都可加 `--session <pid>`) | 看和操作一个正在跑的 `acde dev` 里的页面 (给 agent 和开发者用), 见下面「开发工具」 |
+| `acde dev [目录...] [--out DIR] [--app ID] [--desktop ID\|目录] [--headless]` | 构建, 起 acdert (`--headless`: 不开宿主窗口) (一个工程: `acdert desktop <id>` (桌面工程) 或 `acdert app <id>`; 几个工程或给了 `--desktop`: 都放进一个桌面), 构建结果经 `ACDE_PATH` 给它 (不装); 盯着工程目录, 哪个改了就只重新构建它、发 `reload`; acdert 从哪儿来见「分发」. 见下面「acde dev」 |
+| `acde webs` / `eval <web> <代码\|->` / `shot <web> [-o 文件]` / `inspect [--window W] [--find 文字] [--all] [--offscreen]` / `act <ref> <动作> [参数]` / `console` / `network` / `screen [-o 文件]` (都可加 `--session <pid>`) | 看和操作一个正在跑的 `acde dev` 里的页面 (给 agent 和开发者用), 见下面「开发工具」 |
 | `acde mcp [--session <pid>]` | stdio 上的 MCP 服务, 同一套工具加上自己起 `acde dev` (`start` / `stop` / `logs`), 给 agent 用 (`claude mcp add acde -- acde mcp`), 见下面「MCP」 |
 | `import { Acde, expect } from 'acde/driver'` | 测试和脚本用的 driver: 起或连上 `acde dev`, 按角色 / 文字找控件、自动等待、断言, 见下面「driver」 |
 
@@ -232,7 +232,8 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 
 ## acde dev (`src/dev.ts`)
 
-- `acde dev [目录...] [--out DIR] [--app ID] [--desktop ID|目录]` (`DevSession`; 不给目录是 `.`, 同一个目录给两次算一个):
+- `acde dev [目录...] [--out DIR] [--app ID] [--desktop ID|目录] [--headless]` (`DevSession`; 不给目录是 `.`, 同一个目录给两次算一个;
+  `--headless` 给 acdert 设 `ACDE_HEADLESS=1`: 不开宿主窗口, 页面、输入、截图都照常, 见 acdert AGENTS.md「宿主窗口」):
   - 一个工程、没有 `--desktop`: 和以前一样, 桌面工程起 `acdert desktop <它的 id>`, 应用起 `acdert app <id>` (`--app` 挑桌面工程里的
     哪个应用, 或几个应用里的哪个). `--out` 是构建目录 (相对工程目录, 默认 `.acde`).
   - 几个工程, 或给了 `--desktop`: 全部构建 (一个接一个: `Project` 构建时 `chdir` 进工程目录, 不能并行), `ACDE_PATH` 是所有构建结果
@@ -260,9 +261,9 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   `error` 以 `timed out` 开头 (说清楚是 acdert 没连上还是没回答哪个 op); runtime 断了, 已经发出去的回「acdert disconnected before answering」;
   acde dev 停的时候回「acde dev is stopping」; 晚到的回答 (超时以后) 丢掉; 工具断了, 它的请求作废. 工具发来的不是 `request` 的行 (带 id 时)
   回错. op 和它们的结果是 acdert 的事 (见 acdert AGENTS.md「运行时进程」的 dev IPC): `webs`、`eval {web, code}`、`shot {web}`、
-  `snapshot {...}`、`act {ref, action, arg?}`、`run {steps}`、`open {name}`.
+  `snapshot {...}`、`act {ref, action, arg?}`、`run {steps}`、`open {name}`、`query {...}`、`console {...}`、`network {...}`、`screen {path}`、`emulate {...}`.
 - 会话文件 (`src/sessions.ts`): 每个 `acde dev` 在 IPC 起来后写 `<会话目录>/<pid>.json`
-  `{"pid","endpoint","dirs":[工程目录 (realpath)],"apps":[应用 id],"desktop":桌面 id|null (调试窗口是 null),"started":毫秒}`, 每次重新构建
+  `{"pid","endpoint","dirs":[工程目录 (realpath)],"apps":[应用 id],"desktop":桌面 id|null (调试窗口是 null),"headless":布尔,"started":毫秒}`, 每次重新构建
   后重写 (应用可能变了), 退出时 (acdert 退出、SIGTERM / SIGHUP 转给 acdert 之后、起 acdert 失败) 删掉. 先写临时文件再 rename (读的一方
   不会读到半个). 文件 0600; 列会话时只认会话目录里自己的普通文件 (`lstat`, 不跟链接). 写不了只打一行警告, dev 照跑.
 - 盯着每个工程目录 (`fs.watch` recursive, 一个工程一个), 不看 `.acde`、`node_modules`、`.git` 和各框架的产物目录 (`dist`、`build`、`.next` …),
@@ -294,8 +295,11 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 | `acde webs` | `webs` | 表格: NAME (`vault#1048576`, 桌面是 `desktop`)、KIND、APP、WINDOW、TITLE |
 | `acde eval <web> <代码\|->` | `eval {web, code}` | 值的 JSON (缩进两格; `undefined` 是 `null`). `web` 是 web 名、应用 id (它的第一个 web) 或 `desktop`; `-` 从 stdin 读代码 (以 `--` 开头的代码放在 `--` 后面) |
 | `acde shot <web> [-o 文件]` | `shot {web}` | 把 PNG (设备像素) 写进文件 (默认当前目录的 `<web>.png`, 名字里 `/\:*?"<>\|` 和空白换成 `-`), 打出绝对路径 |
-| `acde inspect [--window W] [--find 文字] [--all]` | `snapshot {window?, find?, all?}` | `snapshot().text` (acdert「看和操作桌面」) |
+| `acde inspect [--window W] [--find 文字] [--all] [--offscreen]` | `snapshot {window?, find?, all?, offscreen?}` | `snapshot().text` (acdert「看和操作桌面」) |
 | `acde act <ref> <动作> [参数]` | `act {ref, action, arg?}` | `act().text`; `ok` 是 false 时退出码 1 |
+| `acde console [--web W] [--level L] [--follow]` | `console {web?, level?, since?}` | 一行一条 `<seq> <level\|ERROR\|REJECT> <web>  <文字>`; L 是 log / info / warn / error / debug / errors; `--follow` 每 0.5 秒接着读 (带上次的 `next`), 到 Ctrl+C |
+| `acde network [--web W] [--failed] [--follow]` | `network {web?, failed?, since?}` | 一行一个请求 `<seq> <方法> <状态\|ERR\|...> <URL>  (<kind> <字节> <ms>; <错误>) <web>` |
+| `acde screen [-o 文件]` | `screen {path}` | 整个屏幕 (所有窗口合成) 的 PNG 写进文件 (默认 `./screen.png`), 打出绝对路径 |
 
 出错 (acdert 回 `ok:false`、超时、旧 acdert、没有会话) 打 `acde: <原因>`, 退出码 1. 客户端 (`DevClient`) 自己也等 35 s 兜底 (acde dev 没回答时).
 
@@ -304,19 +308,26 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 给 e2e 测试、脚本和 `acde mcp` 用的库, 只经 `acde dev` 的 IPC (和开发工具同一条, 作为 `tool` 连上), 不开端口. 只在 bun 上跑.
 
 - **`Acde`** (`acde.ts`): `Acde.attach({session?, cwd?, env?, timeout?})` 按「开发工具」的规则挑会话 (`env` 里的 `XDG_RUNTIME_DIR` /
-  `TMPDIR` 决定会话目录); `Acde.launch({dirs?, desktop?, app?, out?, cwd?, env?, timeout?, startTimeout?})` 自己起 `acde dev` (bun 直接跑
+  `TMPDIR` 决定会话目录); `Acde.launch({dirs?, desktop?, app?, out?, cwd?, env?, headless?, timeout?, startTimeout?})` 自己起 `acde dev` (bun 直接跑
   `cliFile()`, 输出接进 `logs`, 等会话文件出现 (pid 是子进程的) 再等 `ready()`: 窗口表不空、`webs` 里每个页面的窗口都在窗口表里 (acdert 先回答
   `webs`, 窗口过一会儿才进窗口表, 只等 `webs` 的话紧接着的 snapshot 是空的); 子进程先退出时报错并带上它最后的输出; 默认等
   120 s). 底层操作和 op 一一对应: `webs()`、`evaluate(web, code)`、`screenshot(web, {path?})` (`{png: Buffer, width, height, path}`)、
-  `snapshot(options)`、`windows()` (`snapshot {tree: false}`)、`act(ref, action, arg?)`、`run(steps)`; `open(name)` 发 `open`, 再等一个新窗口
+  `snapshot(options)`、`windows()` (`snapshot {tree: false}`)、`act(ref, action, arg?)`、`run(steps)`、`query({selector, window?, ref?, limit?})`、
+  `console({web?, since?, limit?, level?})` / `network({web?, since?, limit?, failed?})` (`{entries, next, dropped}`, 条目见 acdert 的 dev IPC)、
+  `screen({path?})` (整屏; 不给 path 时写进临时目录读回再删, `path` 是 null)、`emulate({colorScheme?, reducedMotion?})`; `open(name)` 发 `open`, 再等一个新窗口
   (同 app 的优先, 否则有焦点的) 出来, 回它的 `AppWindow`, 失败抛 `ActError`. `close()` 断开; launch 的还 SIGTERM `acde dev` (10 秒后 SIGKILL).
   `timeout` (默认 5000 ms) 是下面所有等待的默认值. `closed` 在 IPC 断了以后为 true.
 - **`AppWindow`** (`window.ts`, `acde.window('ledger' | 'w3' | {ref?, id?, app?, title?})`、`acde.desktop`): 每次用到时按条件在窗口表里找
-  (找不到就等到超时, 找到好几个报错让人按 ref / id 挑), 所以重新加载换了窗口也跟得上. `getByRole` / `getByText` / `locator({hasText})`、
-  `snapshot()`、`evaluate`、`screenshot`、`press(keys)`、`focus` / `minimize` / `restore`、`close()` (等它真的没了)、`waitFor({state: 'open' | 'closed'})`.
-- **`Locator`** (`locator.ts`): 一串查询, 每次都在窗口最新的语义树 (`snapshot {window, limit: 3000}` 的 `trees`) 上重新求, 不缓存 ref.
+  (找不到就等到超时, 找到好几个报错让人按 ref / id 挑), 所以重新加载换了窗口也跟得上. `getByRole` / `getByText` / `locator(css)` / `getByTestId(id)`、
+  `snapshot()`、`evaluate`、`screenshot`、`console()` / `network()` (只要这个窗口的页面)、`press(keys)`、`focus` / `minimize` / `restore`、
+  `close()` (等它真的没了)、`waitFor({state: 'open' | 'closed'})`.
+- **`Locator`** (`locator.ts`): 一串查询, 每次都在窗口最新的语义树 (`snapshot {window, limit: 3000, offscreen: true}` 的 `trees`: 滚到可见范围外的
+  也在, 动作时 acdert 先 `scrollIntoView`) 上重新求, 不缓存 ref. 求值是异步的 (`Locator.match(source, queries)`, `Source` 是语义树加两个回调:
+  `children(node)` 取一个元素下面的子树, `query(selector, within)` 问 acdert 的 `query`), 测试里换成假的 `Source`.
   `getByRole(role, {name?, exact?, checked?, disabled?, selected?, expanded?, pressed?, focused?, level?})`: 角色相等; 名字默认是忽略大小写的
   子串 (空白合并), `exact` 时全等, 也可以是 RegExp. `getByText(text, {exact?})`: 名字含这段文字的元素里最里面的那些 (祖先和它都含时只要它).
+  `locator(css)`: 第一步在整个窗口、之后在前一步每个结果下面问 acdert 的 `query`, 只要 `visible` 的; `getByTestId(id)` 是
+  `locator('[data-testid="id"]')`. CSS 找到的元素不一定在语义树里 (没有角色的 div), 在它下面再按角色 / 文字找时用 `snapshot {ref}` 取它的子树.
   链起来的查询在前一步结果的后代里找; `filter({hasText?, hasNotText?})` 看元素自己和后代的名字 / 值; `nth(i)` (负数从后数) / `first()` /
   `last()`. 结果按文档顺序、不重复. 动作 (`click({button?, clickCount?})`、`dblclick`、`hover`、`fill` (settext)、`type`、`press`、`focus`、
   `scroll(dy)`) 先等**恰好一个**元素匹配 (多个时报错并列出前 10 个: 严格, 不猜), click / fill / type 还等它没有 `disabled`, 再 `act`;
@@ -328,8 +339,7 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   「expected <locator> to <什么> within N ms; saw <最后看到的>」. 要一个元素的断言在零个或好几个时既不算过也不算不过, 一直等.
 - **`Logs`** (`logs.ts`): launch 的 `acde dev` (和它起的 acdert, stdio 接在它上面) 的 stdout / stderr, 一行一条, 编号递增, 留最后 5000 行.
   `tail(n, {grep?})`、`since(seq, {grep?, limit?})` (回 `next` 和 `dropped`). 页面的 `console.*` 和页面错误就在这里 (acdert 的日志行).
-- 限制 (在 acdert 那边): 语义树只有可见范围内的元素 (先 `scroll`); 没有 CSS 选择器 / `data-testid`; console 和网络还没有结构化的接口
-  (只能从 `logs` 里看, `console.*` 的行是 `<ms> I acde js: …`, 不带是哪个页面); 截图只有一个窗口的页面. `getByText` 找的是语义树里的名字,
+- 限制 (在 acdert 那边): 透明 (`opacity: 0`) 的元素算不可见 (比如悬停才显示的按钮, 先 `hover` 它的行); `getByText` 找的是语义树里的名字,
   不是 DOM 文字: 有 `aria-label` 的按钮里的文字不单独出现 (照无障碍树的规则; ledger 的明细按钮 `修改：交通 42.50` 里的备注找不到),
   这种要按角色和名字找, 或 `evaluate` 读 DOM.
 - 验过 (macOS arm64, 2026-11-06, acdert main 重新编的 release + 加了 `open` 的 host bundle, 临时的 `XDG_*` 和空的 `ACDE_STORAGE`):
@@ -339,6 +349,14 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   `console.log` / `console.error` 出现在 `logs`. MCP: 经 stdio 客户端在 ledger 目录里 `start` → `snapshot {find}` → `act settext` →
   `eval` → `wait_for` → `screenshot` (image) → `logs` → `stop`; Demo 里 `bunx acde mcp` 列出 12 个工具, `import 'acde/driver'` 能用;
   `bun scripts/pack.ts` 打出的包装进别的工程后 `acde/driver` 和 `acde mcp` 都能用. 没验: Linux、Windows (命名管道); 原生窗口 (AT-SPI).
+- 验过 (同日晚些, acdert 加了 headless / query / console / network / screen / emulate 之后): `Acde.launch({headless: true})` 起 ledger
+  (屏幕 1280x800, 约 2.8 s 就绪, 没有窗口出来, 日志有「不显示 (ACDE_HEADLESS)」); `locator('input.num')` 填金额连记 14 笔, 屏幕上的语义树
+  只有 5 笔, `getByRole(…)` 数出 14 笔, 点滚出去的第 1 笔: acdert 先滚过去再点, 表单变成「修改这一笔」、金额 1.00; 页面的
+  `console.log` / `warn` 和 `setTimeout` 里抛的 TypeError 进了 `console()`, `fetch` 本地文件 (200, 400 B)、缺的文件和别的主机 (两种原因不同)
+  进了 `network()`; `emulate` 深色 + 减少动画后 `matchMedia` 两个都变 true, 整屏截图是深色的 ledger 摆在桌面中间, 回到 system 都变回去.
+  MCP (经 stdio 客户端) `start {headless}` → `query input.num` → `act settext` → `eval` (console.error + fetch 缺的文件) → `console {level:
+  errors}` / `network {failed}` 各一条 → `emulate` → `screenshot {target: screen}` (1440x900) → `stop`; 同一个会话上 `acde console` /
+  `network` / `screen` 也对.
 
 ## MCP (`acde mcp`, `src/mcp.ts`)
 
@@ -350,18 +368,22 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 | 工具 | 做什么 |
 | --- | --- |
 | `sessions {use?}` | 列会话 (`*` 是正在用的, `[started here]` 是 `start` 起的); `use` 钉住一个 pid |
-| `start {dirs?, desktop?, app?}` / `stop` | 在工作目录里 `Acde.launch` / 停掉它; 已经起了一个时 `start` 报错 |
+| `start {dirs?, desktop?, app?, headless?}` / `stop` | 在工作目录里 `Acde.launch` / 停掉它; 已经起了一个时 `start` 报错 |
 | `webs` | 开发工具的表格 |
-| `snapshot {window?, ref?, find?, all?, diff?, limit?}` | `snapshot().text` |
+| `snapshot {window?, ref?, find?, all?, diff?, limit?, offscreen?}` | `snapshot().text` |
+| `query {selector, window?, ref?, limit?}` | `Acde.query`, 一行一个元素 `- <role> "<名字>" … [ref] <tag>` (不可见的加 `[hidden]`), 多于 limit 的说还有几个 |
+| `console {web?, level?, since?, limit?}` / `network {web?, failed?, since?, limit?}` | 第一行 `next: <n>`, 下面是和 `acde console` / `acde network` 一样的行 |
+| `emulate {colorScheme?: light \| dark \| system, reducedMotion?: reduce \| no-preference \| system}` | `Acde.emulate` (system 是 null) |
 | `act {ref, action, arg?}` / `run {steps}` | `act().text` / `run().text`, `ok: false` 时是 `isError`; action 是 acde-api 的 `InspectAction` |
 | `open {app}` | `Acde.open`, 回新窗口的 ref、标题和它的 snapshot |
-| `screenshot {target?, path?}` | image 内容 (PNG, 设备像素) 加一行尺寸; target 是窗口 ref、web 名、应用 id 或 desktop, 默认有焦点的窗口; `path` 相对工作目录 |
+| `screenshot {target?, path?}` | image 内容 (PNG, 设备像素) 加一行尺寸; target 是 screen (整屏)、窗口 ref、web 名、应用 id 或 desktop, 默认有焦点的窗口; `path` 相对工作目录 |
 | `eval {code, target?}` | 值的 JSON; target 同上 |
 | `wait_for {text, gone?, window?, timeout_ms?}` | 轮询 `snapshot {find}` 直到出现 (或 `gone` 时直到没有), 默认 5000 ms |
-| `logs {tail?, since?, grep?}` | `start` 起的会话的输出 (默认最后 100 行; `grep` 是忽略大小写的正则), 第一行 `next: <n>` 给下次的 `since`; 别处起的会话报错说输出在那个终端里 |
+| `logs {tail?, since?, grep?}` | `start` 起的会话的原始输出 (页面的 console 和请求用上面的 `console` / `network`) (默认最后 100 行; `grep` 是忽略大小写的正则), 第一行 `next: <n>` 给下次的 `since`; 别处起的会话报错说输出在那个终端里 |
 
 测试 (`test/driver.test.ts`、`test/mcp.test.ts`): `test/fixtures/dev/fake-acdert.ts` 现在是个有状态的小应用 (输入框、`Add` 在输入框空时
-`disabled`、点了 300 ms 后才出现的列表项和复选框、`open beta` 开第二个窗口、`run`), 经真的 `acde dev` 跑: `Locator.match` 的规则; driver 的
+`disabled`、点了 300 ms 后才出现的列表项和复选框 (同时记一条 console 和一个 POST)、`open beta` 开第二个窗口、`run`、几个固定的 CSS 选择器、
+`snapshot {ref}`、`screen`、`emulate`、记下 `ACDE_HEADLESS`), 经真的 `acde dev` 跑: `Locator.match` 的规则 (含 CSS 和它下面的子树); driver 的
 launch / attach、填写、自动等待、严格匹配的报错、filter / nth、断言的超时和原话、open / close、截图写文件、logs、关掉后会话文件删了、
 起不来时带输出的报错; MCP 用 `@modelcontextprotocol/client` 经 stdio 调每个工具 (参数校验、没有会话、`start` 两次、`--session` 连别处的会话、
 客户端断开后 `start` 起的 `acde dev` 停了).

@@ -1,8 +1,8 @@
 import { afterAll, describe, expect as check, test } from 'bun:test'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { InspectNode } from '@dopame/acde-api'
-import { Acde, ActError, AssertionError, expect, Locator } from '../src/driver/index.ts'
+import type { InspectMatch, InspectNode } from '@dopame/acde-api'
+import { Acde, ActError, AssertionError, expect, Locator, type Query, type Source } from '../src/driver/index.ts'
 import { Sessions } from '../src/sessions.ts'
 import { cleanup, standIn } from './helpers.ts'
 
@@ -15,23 +15,46 @@ describe('Locator.match', () => {
     node('w1.8', 'button', 'Save'),
     node('w1.9', 'button', 'Save as…'),
   ]
-  const refs = (queries: Parameters<typeof Locator.match>[1]) => Locator.match(tree, queries).map((n) => n.ref)
+  const card: InspectMatch = { ref: 'w1.20', role: 'generic', name: 'Card', tag: 'div', visible: true }
+  const queried: string[] = []
+  const source: Source = {
+    nodes: tree,
+    children: async (n) => ('tag' in n ? [node('w1.21', 'button', 'Inside the card')] : (n.children ?? [])),
+    query: async (selector, within) => {
+      queried.push(`${selector}${within ? ` in ${within.ref}` : ''}`)
+      if (selector === '.card') return [card]
+      if (selector === 'input' && within) return within.ref === 'w1.2' ? [{ ...node('w1.4', 'checkbox', 'Done', undefined, ['checked']), tag: 'input', visible: true }] : []
+      return []
+    },
+  }
+  const refs = async (queries: readonly Query[]) => (await Locator.match(source, queries)).map((n) => n.ref)
 
-  test('role and name: a substring ignoring case, exact, a RegExp; states and nesting', () => {
-    check(refs([{ kind: 'role', role: 'button', options: { name: 'save' } }])).toEqual(['w1.8', 'w1.9'])
-    check(refs([{ kind: 'role', role: 'button', options: { name: 'Save', exact: true } }])).toEqual(['w1.8'])
-    check(refs([{ kind: 'role', role: 'button', options: { name: /as/ } }])).toEqual(['w1.9'])
-    check(refs([{ kind: 'role', role: 'checkbox', options: { checked: true } }])).toEqual(['w1.4'])
-    check(refs([{ kind: 'role', role: 'checkbox', options: { checked: false } }])).toEqual(['w1.7'])
+  test('role and name: a substring ignoring case, exact, a RegExp; states and nesting', async () => {
+    check(await refs([{ kind: 'role', role: 'button', options: { name: 'save' } }])).toEqual(['w1.8', 'w1.9'])
+    check(await refs([{ kind: 'role', role: 'button', options: { name: 'Save', exact: true } }])).toEqual(['w1.8'])
+    check(await refs([{ kind: 'role', role: 'button', options: { name: /as/ } }])).toEqual(['w1.9'])
+    check(await refs([{ kind: 'role', role: 'checkbox', options: { checked: true } }])).toEqual(['w1.4'])
+    check(await refs([{ kind: 'role', role: 'checkbox', options: { checked: false } }])).toEqual(['w1.7'])
   })
 
-  test('text matches the innermost element; chaining looks under the matches; filter and nth pick among them', () => {
-    check(refs([{ kind: 'text', text: 'Buy milk', options: {} }])).toEqual(['w1.3'])
-    check(refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'role', role: 'checkbox', options: {} }])).toEqual(['w1.4', 'w1.7'])
-    check(refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'filter', options: { hasText: 'dog' } }, { kind: 'role', role: 'checkbox', options: {} }])).toEqual(['w1.7'])
-    check(refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'filter', options: { hasNotText: 'dog' } }])).toEqual(['w1.2'])
-    check(refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'nth', index: -1 }])).toEqual(['w1.5'])
-    check(refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'nth', index: 5 }])).toEqual([])
+  test('text matches the innermost element; chaining looks under the matches; filter and nth pick among them', async () => {
+    check(await refs([{ kind: 'text', text: 'Buy milk', options: {} }])).toEqual(['w1.3'])
+    check(await refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'role', role: 'checkbox', options: {} }])).toEqual(['w1.4', 'w1.7'])
+    check(await refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'filter', options: { hasText: 'dog' } }, { kind: 'role', role: 'checkbox', options: {} }])).toEqual(['w1.7'])
+    check(await refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'filter', options: { hasNotText: 'dog' } }])).toEqual(['w1.2'])
+    check(await refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'nth', index: -1 }])).toEqual(['w1.5'])
+    check(await refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'nth', index: 5 }])).toEqual([])
+    check(await refs([{ kind: 'role', role: 'list', options: {} }, { kind: 'role', role: 'listitem', options: {} }])).toEqual(['w1.2', 'w1.5'])
+  })
+
+  test('CSS: asked of acdert in the window or under each match; what it finds is searched by role through its own subtree', async () => {
+    queried.length = 0
+    check(await refs([{ kind: 'css', selector: '.card' }])).toEqual(['w1.20'])
+    check(await refs([{ kind: 'css', selector: '.card' }, { kind: 'role', role: 'button', options: {} }])).toEqual(['w1.21'])
+    check(await refs([{ kind: 'css', selector: '.card' }, { kind: 'filter', options: { hasText: 'inside' } }])).toEqual(['w1.20'])
+    check(await refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'css', selector: 'input' }])).toEqual(['w1.4'])
+    check(queried).toEqual(['.card', '.card', '.card', 'input in w1.2', 'input in w1.5'])
+    check(Locator.testId('a"b\\c')).toBe('[data-testid="a\\"b\\\\c"]')
   })
 })
 
@@ -100,6 +123,22 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       await beta.close()
       await expect(beta).not.toBeOpen()
 
+      const added = await alpha.getByTestId('add').count()
+      check(added).toBe(1)
+      await expect(alpha.locator('li')).toHaveCount(2)
+      await expect(alpha.locator('li').filter({ hasText: 'dog' }).locator('input[type=checkbox]')).toBeChecked()
+      await expect(alpha.locator('.ghost')).toBeHidden()
+
+      const logged = await alpha.console()
+      check(logged.entries.map((e) => e.text)).toEqual(['alpha ready', 'added Buy milk', 'added Walk the dog'])
+      check((await acde.console({ level: 'info', since: 3 })).entries.map((e) => e.text)).toEqual(['added Walk the dog'])
+      check((await alpha.network()).entries.map((e) => `${e.method} ${e.status} ${e.url}`)).toEqual(['POST 201 http://acde.local/api/tasks', 'POST 201 http://acde.local/api/tasks'])
+      check((await acde.network({ failed: true })).entries).toEqual([])
+      const screen = await acde.screen()
+      check([screen.png.subarray(1, 4).toString(), screen.width, screen.path]).toEqual(['PNG', 1, null])
+      check((await acde.screen({ path: join(s.root, 'screen.png') })).path).toBe(join(s.root, 'screen.png'))
+      check(await acde.emulate({ colorScheme: 'dark', reducedMotion: true })).toEqual({ colorScheme: 'dark', emulated: true, reducedMotion: true })
+
       check(acde.logs!.tail(100).text).toContain('[alpha#7] js: fake acdert is up')
       check(acde.logs!.tail(100, { grep: /^acde: dev app alpha/ }).lines.length).toBe(1)
       const next = acde.logs!.next
@@ -111,6 +150,19 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     check(existsSync(sessions) ? readdirSync(sessions) : []).toEqual([])
     check(Sessions.list(sessions)).toEqual([])
   }, 60_000)
+
+  test('headless: acde dev --headless runs acdert with ACDE_HEADLESS=1 and says so in its session', async () => {
+    const s = standIn()
+    const acde = await Acde.launch({ cwd: s.project, env: s.env, headless: true })
+    try {
+      check(acde.session.headless).toBe(true)
+      check(Sessions.describe(acde.session)).toContain('app alpha (headless)')
+      const started = readFileSync(s.env['FAKE_ACDERT_LOG']!, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { headless?: string | null })[0]!
+      check(started.headless).toBe('1')
+    } finally {
+      await acde.close()
+    }
+  }, 30_000)
 
   test('a launch that fails says why, with the output of acde dev', async () => {
     const s = standIn()

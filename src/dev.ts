@@ -18,6 +18,7 @@ export interface DevOptions {
   readonly out?: string
   readonly app?: string
   readonly desktop?: string
+  readonly headless?: boolean
   readonly acdert: string
 }
 
@@ -36,6 +37,7 @@ export class DevSession {
   readonly #desktop: Unit | string | null
   readonly #app: string | undefined
   readonly #acdert: string
+  readonly #headless: boolean
   readonly #server: DevServer
   readonly #dirty = new Set<Unit>()
   readonly #started = Date.now()
@@ -51,6 +53,7 @@ export class DevSession {
     if (options.app !== undefined && this.multiple) throw new Error('--app picks the window of one project; with several projects or --desktop, every app runs in the desktop')
     this.#app = options.app
     this.#acdert = options.acdert
+    this.#headless = options.headless === true
     this.#server = server
   }
 
@@ -121,8 +124,9 @@ export class DevSession {
       this.#publish()
       const paths = [...new Set(this.#units.map((u) => u.built!.dir)), process.env['ACDE_PATH']].filter(Boolean).join(delimiter)
       const what = this.#units.map((u) => `${u.pkg.name} (${u.built!.dir})`).join(', ')
-      console.log(`acde: dev ${target.kind} ${target.id}: ${what}; 改了文件就重新构建、重新加载`)
-      const child = Bun.spawn([this.#acdert, target.kind, target.id], { env: { ...process.env, ACDE_DEV: this.#server.endpoint, ACDE_PATH: paths }, stdio: ['inherit', 'inherit', 'inherit'] })
+      console.log(`acde: dev ${target.kind} ${target.id}${this.#headless ? ' (headless)' : ''}: ${what}; 改了文件就重新构建、重新加载`)
+      const env = { ...process.env, ACDE_DEV: this.#server.endpoint, ACDE_PATH: paths, ...(this.#headless && { ACDE_HEADLESS: '1' }) }
+      const child = Bun.spawn([this.#acdert, target.kind, target.id], { env, stdio: ['inherit', 'inherit', 'inherit'] })
       for (const unit of this.#units) unit.watcher = watch(unit.pkg.dir, { recursive: true }, (_, file) => this.#changed(unit, file === null ? null : String(file)))
       watchers.push(...this.#units.map((u) => u.watcher!))
       signals.push(['SIGINT', () => undefined])
@@ -146,6 +150,7 @@ export class DevSession {
         dirs: this.#units.map((u) => u.pkg.dir),
         apps: [...new Set(this.#units.flatMap((u) => u.built?.apps ?? []))],
         desktop: this.#shown,
+        headless: this.#headless,
         started: this.#started,
       })
     } catch (error) {

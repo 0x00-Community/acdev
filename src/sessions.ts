@@ -8,6 +8,7 @@ export interface Session {
   readonly dirs: readonly string[]
   readonly apps: readonly string[]
   readonly desktop: string | null
+  readonly headless?: boolean
   readonly started: number
 }
 
@@ -97,7 +98,7 @@ export class Sessions {
   }
 
   static describe(session: Session): string {
-    const what = session.desktop ? `desktop ${session.desktop}` : `app ${session.apps.join(', ')}`
+    const what = `${session.desktop ? `desktop ${session.desktop}` : `app ${session.apps.join(', ')}`}${session.headless ? ' (headless)' : ''}`
     return `${session.pid}  ${what}  ${session.dirs.join(', ')}  (since ${new Date(session.started).toLocaleTimeString()})`
   }
 
@@ -109,7 +110,7 @@ export class Sessions {
     try {
       const json = JSON.parse(readFileSync(file, 'utf8')) as Partial<Session>
       if (typeof json.pid !== 'number' || typeof json.endpoint !== 'string' || !Array.isArray(json.dirs)) return null
-      return { pid: json.pid, endpoint: json.endpoint, dirs: json.dirs, apps: Array.isArray(json.apps) ? json.apps : [], desktop: typeof json.desktop === 'string' ? json.desktop : null, started: Number(json.started) || 0 }
+      return { pid: json.pid, endpoint: json.endpoint, dirs: json.dirs, apps: Array.isArray(json.apps) ? json.apps : [], desktop: typeof json.desktop === 'string' ? json.desktop : null, headless: json.headless === true, started: Number(json.started) || 0 }
     } catch {
       return null
     }

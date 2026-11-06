@@ -2,7 +2,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Subprocess } from 'bun'
-import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
+import { readFileSync as readBytes, rmSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import type { InspectAction, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import { cliEnv, cliFile, findBun } from 'acde/launcher'
 import { DevClient } from '../ipc.ts'
 import { Sessions, type Session } from '../sessions.ts'
@@ -33,6 +35,82 @@ export interface SnapshotOptions {
   readonly limit?: number
   readonly find?: string
   readonly tree?: boolean
+  readonly offscreen?: boolean
+}
+
+export interface QueryOptions {
+  readonly selector: string
+  readonly window?: string
+  readonly ref?: string
+  readonly limit?: number
+}
+
+export interface QueryResult {
+  readonly window: string
+  readonly count: number
+  readonly nodes: readonly InspectMatch[]
+}
+
+export type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
+
+export interface ConsoleEntry {
+  readonly seq: number
+  readonly time: number
+  readonly web: string
+  readonly app: string | null
+  readonly kind: 'console' | 'error' | 'rejection'
+  readonly level: ConsoleLevel
+  readonly text: string
+}
+
+export interface RequestEntry {
+  readonly seq: number
+  readonly time: number
+  readonly web: string
+  readonly app: string | null
+  readonly id: number
+  readonly kind: 'fetch' | 'xhr' | 'websocket' | 'eventsource'
+  readonly method: string
+  readonly url: string
+  readonly requestBytes: number
+  readonly status: number | null
+  readonly statusText: string | null
+  readonly responseBytes: number | null
+  readonly ms: number | null
+  readonly error: string | null
+  readonly done: boolean
+}
+
+export interface DevPage<T> {
+  readonly entries: readonly T[]
+  readonly next: number
+  readonly dropped: number
+}
+
+export interface ConsoleOptions {
+  readonly web?: string
+  readonly since?: number
+  readonly limit?: number
+  readonly level?: ConsoleLevel | 'errors'
+}
+
+export interface NetworkOptions {
+  readonly web?: string
+  readonly since?: number
+  readonly limit?: number
+  readonly failed?: boolean
+}
+
+export interface Emulation {
+  readonly colorScheme?: 'light' | 'dark' | null
+  readonly reducedMotion?: boolean | null
+}
+
+export interface ScreenShot {
+  readonly png: Buffer
+  readonly width: number
+  readonly height: number
+  readonly path: string | null
 }
 
 export interface Snapshot {
@@ -66,6 +144,7 @@ export interface LaunchOptions {
   readonly out?: string
   readonly cwd?: string
   readonly env?: Readonly<Record<string, string>>
+  readonly headless?: boolean
   readonly timeout?: number
   readonly startTimeout?: number
 }
@@ -118,6 +197,7 @@ export class Acde {
       ...(options.desktop !== undefined ? ['--desktop', options.desktop] : []),
       ...(options.app !== undefined ? ['--app', options.app] : []),
       ...(options.out !== undefined ? ['--out', options.out] : []),
+      ...(options.headless ? ['--headless'] : []),
     ]
     const child = Bun.spawn(argv, { cwd, env: cliEnv(bun, { ...process.env, ...options.env }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
     const logs = new Logs()
@@ -219,6 +299,35 @@ export class Acde {
     return { text: answer.text, windows: answer.windows ?? [], trees: answer.trees ?? {} }
   }
 
+  async query(options: QueryOptions): Promise<QueryResult> {
+    const answer = (await this.#request('query', { ...options })) as QueryResult | null
+    if (!Array.isArray(answer?.nodes)) throw new Error('acdert answered query without nodes')
+    return answer
+  }
+
+  async console(options: ConsoleOptions = {}): Promise<DevPage<ConsoleEntry>> {
+    return Acde.#page<ConsoleEntry>('console', await this.#request('console', { ...options }))
+  }
+
+  async network(options: NetworkOptions = {}): Promise<DevPage<RequestEntry>> {
+    return Acde.#page<RequestEntry>('network', await this.#request('network', { ...options }))
+  }
+
+  async screen(options: { readonly path?: string } = {}): Promise<ScreenShot> {
+    const scratch = options.path === undefined ? mkdtempSync(join(tmpdir(), 'acde-screen-')) : null
+    const path = options.path === undefined ? join(scratch!, 'screen.png') : resolve(options.path)
+    try {
+      const answer = (await this.#request('screen', { path })) as { width?: unknown; height?: unknown } | null
+      return { png: readBytes(path), width: Number(answer?.width) || 0, height: Number(answer?.height) || 0, path: scratch === null ? path : null }
+    } finally {
+      if (scratch !== null) rmSync(scratch, { recursive: true, force: true })
+    }
+  }
+
+  async emulate(options: Emulation): Promise<{ colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean }> {
+    return (await this.#request('emulate', { ...options })) as { colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean }
+  }
+
   async windows(): Promise<InspectWindow[]> {
     return [...(await this.snapshot({ tree: false })).windows]
   }
@@ -263,6 +372,12 @@ export class Acde {
   async #request(op: string, args: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
     if (this.#closed) throw new Error(`acde dev ${this.session.pid} is no longer connected`)
     return this.#client.request(op, args)
+  }
+
+  static #page<T>(op: string, answer: unknown): DevPage<T> {
+    const page = answer as DevPage<T> | null
+    if (!Array.isArray(page?.entries)) throw new Error(`acdert answered ${op} without entries`)
+    return page
   }
 
   static #result(answer: unknown): ActResult {

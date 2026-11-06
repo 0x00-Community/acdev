@@ -29,9 +29,15 @@ export interface Timeout {
   readonly timeout?: number
 }
 
+export interface Source {
+  readonly nodes: readonly InspectNode[]
+  children(node: InspectNode): Promise<readonly InspectNode[]>
+  query(selector: string, within: InspectNode | null): Promise<readonly InspectNode[]>
+}
+
 export interface Tree {
   readonly window: InspectWindow | null
-  readonly nodes: readonly InspectNode[]
+  readonly source: Source
 }
 
 export interface Scope {
@@ -40,9 +46,10 @@ export interface Scope {
   describe(): string
 }
 
-type Query =
+export type Query =
   | { readonly kind: 'role'; readonly role: string; readonly options: RoleOptions }
   | { readonly kind: 'text'; readonly text: TextMatch; readonly options: TextOptions }
+  | { readonly kind: 'css'; readonly selector: string }
   | { readonly kind: 'filter'; readonly options: FilterOptions }
   | { readonly kind: 'nth'; readonly index: number }
 
@@ -68,6 +75,14 @@ export class Locator {
 
   getByText(text: TextMatch, options: TextOptions = {}): Locator {
     return new Locator(this.scope, [...this.#queries, { kind: 'text', text, options }])
+  }
+
+  locator(selector: string): Locator {
+    return new Locator(this.scope, [...this.#queries, { kind: 'css', selector }])
+  }
+
+  getByTestId(id: string): Locator {
+    return this.locator(Locator.testId(id))
   }
 
   filter(options: FilterOptions): Locator {
@@ -96,7 +111,7 @@ export class Locator {
 
   async resolve(): Promise<Resolved> {
     const tree = await this.scope.tree()
-    return { window: tree.window, nodes: Locator.match(tree.nodes, this.#queries) }
+    return { window: tree.window, nodes: tree.window === null ? [] : await Locator.match(tree.source, this.#queries) }
   }
 
   async count(): Promise<number> {
@@ -176,35 +191,61 @@ export class Locator {
     return this.#act('scroll', dy, options.timeout, false)
   }
 
-  static match(nodes: readonly InspectNode[], queries: readonly Query[]): InspectNode[] {
+  static async match(source: Source, queries: readonly Query[]): Promise<InspectNode[]> {
     let set: InspectNode[] | null = null
     for (const query of queries) {
-      if (query.kind === 'nth') {
-        const pool: InspectNode[] = set ?? Locator.#flat(nodes)
-        const picked = query.index < 0 ? pool[pool.length + query.index] : pool[query.index]
-        set = picked ? [picked] : []
-        continue
-      }
-      if (query.kind === 'filter') {
-        set = (set ?? Locator.#flat(nodes)).filter((n) => Locator.#filter(n, query.options))
-        continue
-      }
-      const hit = (n: InspectNode) => Locator.#hit(n, query)
-      const within = set === null ? nodes : set.flatMap((n) => n.children ?? [])
-      const found = new Set<string>()
-      const walk = (list: readonly InspectNode[]): boolean => {
-        let any = false
-        for (const n of list) {
-          const below = walk(n.children ?? [])
-          if (hit(n) && !(query.kind === 'text' && below)) found.add(n.ref)
-          any ||= below || hit(n)
+      switch (query.kind) {
+        case 'nth': {
+          const pool: InspectNode[] = set ?? Locator.#flat(source.nodes)
+          const picked = query.index < 0 ? pool[pool.length + query.index] : pool[query.index]
+          set = picked ? [picked] : []
+          break
         }
-        return any
+        case 'filter': {
+          const pool: InspectNode[] = set ?? Locator.#flat(source.nodes)
+          const kept: InspectNode[] = []
+          for (const n of pool) if (Locator.#filter(await Locator.#texts(source, n), query.options)) kept.push(n)
+          set = kept
+          break
+        }
+        case 'css': {
+          const found = set === null ? [...(await source.query(query.selector, null))] : (await Promise.all(set.map((n) => source.query(query.selector, n)))).flat()
+          set = Locator.#unique(found)
+          break
+        }
+        default: {
+          const roots = set === null ? [source.nodes] : await Promise.all(set.map((n) => source.children(n)))
+          set = Locator.#unique(roots.flatMap((list) => Locator.#search(list, query)))
+        }
       }
-      walk(within)
-      set = Locator.#flat(nodes).filter((n) => found.has(n.ref))
     }
     return set ?? []
+  }
+
+  static testId(id: string): string {
+    return `[data-testid="${id.replace(/["\\]/g, (c) => `\\${c}`)}"]`
+  }
+
+  static #search(list: readonly InspectNode[], query: Query): InspectNode[] {
+    const out: InspectNode[] = []
+    const walk = (nodes: readonly InspectNode[]): boolean => {
+      let any = false
+      for (const n of nodes) {
+        const at = out.length
+        const below = walk(n.children ?? [])
+        const hit = Locator.#hit(n, query)
+        if (hit && !(query.kind === 'text' && below)) out.splice(at, 0, n)
+        any ||= below || hit
+      }
+      return any
+    }
+    walk(list)
+    return out
+  }
+
+  static #unique(nodes: readonly InspectNode[]): InspectNode[] {
+    const seen = new Set<string>()
+    return nodes.filter((n) => !seen.has(n.ref) && !!seen.add(n.ref))
   }
 
   static normalize(text: string): string {
@@ -279,15 +320,15 @@ export class Locator {
     return STATES.every((s) => o[s] === undefined || (n.states ?? []).includes(s) === o[s])
   }
 
-  static #filter(n: InspectNode, options: FilterOptions): boolean {
-    const texts = Locator.#texts(n)
+  static #filter(texts: readonly string[], options: FilterOptions): boolean {
     if (options.hasText !== undefined && !texts.some((t) => Locator.matches(t, options.hasText!))) return false
     if (options.hasNotText !== undefined && texts.some((t) => Locator.matches(t, options.hasNotText!))) return false
     return true
   }
 
-  static #texts(n: InspectNode): string[] {
-    return [n.name, n.value, ...(n.children ?? []).flatMap((c) => Locator.#texts(c))].filter((t): t is string => t !== undefined)
+  static async #texts(source: Source, n: InspectNode): Promise<string[]> {
+    const all = (list: readonly InspectNode[]): string[] => list.flatMap((c) => [c.name, c.value, ...all(c.children ?? [])]).filter((t): t is string => t !== undefined)
+    return [n.name, n.value, ...all(await source.children(n))].filter((t): t is string => t !== undefined)
   }
 
   static #flat(nodes: readonly InspectNode[]): InspectNode[] {
@@ -315,6 +356,8 @@ export class Locator {
         return `getByRole(${JSON.stringify(q.role)}${options(q.options)})`
       case 'text':
         return `getByText(${text(q.text)}${options(q.options)})`
+      case 'css':
+        return `locator(${JSON.stringify(q.selector)})`
       case 'filter':
         return `filter(${options(q.options).slice(2)})`
       case 'nth':

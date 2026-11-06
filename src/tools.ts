@@ -1,9 +1,11 @@
 import { resolve } from 'node:path'
 import type { InspectAction } from '@dopame/acde-api'
-import { Acde, type ActResult, type Web } from './driver/acde.ts'
+import { Acde, type ActResult, type ConsoleEntry, type ConsoleLevel, type DevPage, type RequestEntry, type Web } from './driver/acde.ts'
 
 export class Tools {
-  static readonly COMMANDS = new Set(['webs', 'eval', 'shot', 'inspect', 'act'])
+  static readonly COMMANDS = new Set(['webs', 'eval', 'shot', 'inspect', 'act', 'console', 'network', 'screen'])
+  static readonly FOLLOW_MS = 500
+  static readonly LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug', 'errors'])
 
   static async run(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Promise<number> {
     const session = Tools.pid(flags.get('session'))
@@ -20,15 +22,52 @@ export class Tools {
           console.log((await acde.screenshot(args[0]!, { path: resolve(flags.get('output') ?? Tools.fileFor(args[0]!)) })).path)
           return 0
         case 'inspect':
-          console.log((await acde.snapshot({ ...(flags.has('window') && { window: flags.get('window')! }), ...(flags.has('find') && { find: flags.get('find')! }), ...(flags.has('all') && { all: true }) })).text)
+          console.log((await acde.snapshot({ ...(flags.has('window') && { window: flags.get('window')! }), ...(flags.has('find') && { find: flags.get('find')! }), ...(flags.has('all') && { all: true }), ...(flags.has('offscreen') && { offscreen: true }) })).text)
           return 0
         case 'act':
           return Tools.#acted(await acde.act(args[0]!, args[1]! as InspectAction, args[2]))
+        case 'console': {
+          const level = flags.get('level')
+          if (level !== undefined && !Tools.LEVELS.has(level)) throw new Error(`--level ${level}: one of ${[...Tools.LEVELS].join(', ')}`)
+          const options = { ...(flags.has('web') && { web: flags.get('web')! }), ...(level !== undefined && { level: level as ConsoleLevel | 'errors' }) }
+          return await Tools.#follow(flags.has('follow'), (since) => acde.console({ ...options, ...(since && { since }) }), Tools.consoleLine)
+        }
+        case 'network': {
+          const options = { ...(flags.has('web') && { web: flags.get('web')! }), ...(flags.has('failed') && { failed: true }) }
+          return await Tools.#follow(flags.has('follow'), (since) => acde.network({ ...options, ...(since && { since }) }), Tools.requestLine)
+        }
+        case 'screen':
+          console.log((await acde.screen({ path: resolve(flags.get('output') ?? 'screen.png') })).path)
+          return 0
         default:
           throw new Error(`no tool ${command}`)
       }
     } finally {
       await acde.close()
+    }
+  }
+
+  static consoleLine(e: ConsoleEntry): string {
+    const kind = e.kind === 'console' ? e.level : e.kind === 'error' ? 'ERROR' : 'REJECT'
+    return `${String(e.seq).padStart(4)} ${kind.padEnd(6)} ${e.web}  ${e.text}`
+  }
+
+  static requestLine(e: RequestEntry): string {
+    const status = e.error !== null ? 'ERR' : e.status === null ? '...' : String(e.status)
+    const size = e.responseBytes === null ? '' : ` ${e.responseBytes} B`
+    const ms = e.ms === null ? '' : ` ${Math.round(e.ms)} ms`
+    return `${String(e.seq).padStart(4)} ${e.method.padEnd(6)} ${status.padEnd(3)} ${e.url}  (${e.kind}${size}${ms}${e.error !== null ? `; ${e.error}` : ''}) ${e.web}`
+  }
+
+  static async #follow<T>(follow: boolean, read: (since: number) => Promise<DevPage<T>>, line: (entry: T) => string): Promise<number> {
+    let since = 0
+    for (;;) {
+      const page = await read(since)
+      if (page.dropped) console.log(`… ${page.dropped} older entries were dropped`)
+      for (const entry of page.entries) console.log(line(entry))
+      since = page.next
+      if (!follow) return 0
+      await Bun.sleep(Tools.FOLLOW_MS)
     }
   }
 

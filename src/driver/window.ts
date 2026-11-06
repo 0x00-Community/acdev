@@ -1,6 +1,6 @@
-import type { InspectAction, InspectWindow } from '@dopame/acde-api'
-import { ActError, type Acde, type ActResult, type Shot } from './acde.ts'
-import { Locator, type FilterOptions, type RoleOptions, type Scope, type TextMatch, type TextOptions, type Timeout, type Tree } from './locator.ts'
+import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
+import { ActError, type Acde, type ActResult, type ConsoleEntry, type ConsoleOptions, type DevPage, type NetworkOptions, type RequestEntry, type Shot } from './acde.ts'
+import { Locator, type RoleOptions, type Scope, type Source, type TextMatch, type TextOptions, type Timeout, type Tree } from './locator.ts'
 import { Poll } from './poll.ts'
 
 export interface WindowMatch {
@@ -67,9 +67,21 @@ export class AppWindow implements Scope {
 
   async tree(): Promise<Tree> {
     const window = await this.find()
-    if (window === null) return { window: null, nodes: [] }
-    const snapshot = await this.acde.snapshot({ window: window.ref, limit: 3000 })
-    return { window, nodes: snapshot.trees[window.ref] ?? [] }
+    if (window === null) return { window: null, source: { nodes: [], children: async () => [], query: async () => [] } }
+    return { window, source: await AppWindow.source(this.acde, window.ref) }
+  }
+
+  static async source(acde: Acde, ref: string): Promise<Source> {
+    const snapshot = await acde.snapshot({ window: ref, limit: 3000, offscreen: true })
+    return {
+      nodes: snapshot.trees[ref] ?? [],
+      children: async (node: InspectNode) => {
+        if (!('tag' in node)) return node.children ?? []
+        const under = (await acde.snapshot({ ref: node.ref, limit: 3000, offscreen: true })).trees[ref] ?? []
+        return under.length === 1 && under[0]!.ref === node.ref ? (under[0]!.children ?? []) : under
+      },
+      query: async (selector: string, within: InspectNode | null) => (await acde.query({ window: ref, selector, ...(within && { ref: within.ref }) })).nodes.filter((n) => n.visible),
+    }
   }
 
   getByRole(role: string, options: RoleOptions = {}): Locator {
@@ -80,8 +92,20 @@ export class AppWindow implements Scope {
     return new Locator(this, [{ kind: 'text', text, options }])
   }
 
-  locator(options: FilterOptions = {}): Locator {
-    return new Locator(this, [{ kind: 'filter', options }])
+  locator(selector: string): Locator {
+    return new Locator(this, [{ kind: 'css', selector }])
+  }
+
+  getByTestId(id: string): Locator {
+    return this.locator(Locator.testId(id))
+  }
+
+  async console(options: Omit<ConsoleOptions, 'web'> = {}): Promise<DevPage<ConsoleEntry>> {
+    return this.acde.console({ ...options, web: await this.web() })
+  }
+
+  async network(options: Omit<NetworkOptions, 'web'> = {}): Promise<DevPage<RequestEntry>> {
+    return this.acde.network({ ...options, web: await this.web() })
   }
 
   async snapshot(options: { readonly find?: string; readonly diff?: boolean } = {}): Promise<string> {

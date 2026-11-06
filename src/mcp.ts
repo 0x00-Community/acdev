@@ -3,7 +3,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { Acde, type ActResult } from './driver/acde.ts'
+import { Acde, type ActResult, type DevPage } from './driver/acde.ts'
+import { Locator } from './driver/locator.ts'
 import { Poll } from './driver/poll.ts'
 import { Sessions } from './sessions.ts'
 import { Tools } from './tools.ts'
@@ -14,7 +15,10 @@ const INSTRUCTIONS = `acde: see and drive the desktop and apps of an acde dev se
 - A session: the acde dev whose projects hold the working directory is used. If none runs, call start (it runs acde dev here and keeps its output for logs); sessions lists them and pins one.
 - Look with snapshot: windows first (w0 is the desktop, w1, w2 … the others), then the focused window's elements, one per line with a ref like [w3.12]. find narrows to elements whose name or value contains a text; window picks a window; all lists every window.
 - Act with act / run on those refs (click, type, settext, key "ctrl+a backspace", scroll, …). The answer waits for the page to settle and ends with what changed in the window, so another snapshot is rarely needed. Refs stay valid while the page lives; after a reload take a new snapshot.
-- open launches an app by id or name. screenshot shows a window's pixels (snapshot cannot tell colour, layout or overlap). eval runs JavaScript in a page and returns JSON. wait_for waits for a text to appear or go. logs is the output of acde dev and acdert (console.* of pages is in there, target js, and page errors) for a session started with start.`
+- Elements scrolled out of view are left out unless offscreen is set; act scrolls an element into view before using it. query finds elements by CSS selector (also [data-testid=…]) and gives refs act takes.
+- open launches an app by id or name. screenshot shows a window's pixels, or target "screen" the whole screen with every window (snapshot cannot tell colour, layout or overlap). eval runs JavaScript in a page and returns JSON. wait_for waits for a text to appear or go.
+- console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource requests (status, size, time, error); both answer next, pass it as since to read only newer entries. emulate switches the colour scheme or reduced motion. logs is the raw output of an acde dev that start ran.
+- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work).`
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 
@@ -94,6 +98,7 @@ export class Mcp {
           dirs: z.array(z.string()).optional().describe('project directories, relative to the working directory (default: the working directory)'),
           desktop: z.string().optional().describe('a desktop id or a desktop project directory: run every project inside that desktop'),
           app: z.string().optional().describe('with one project holding several apps, which one to open'),
+          headless: z.boolean().optional().describe('no host window on screen; pages, input and screenshots work the same'),
         }),
         annotations: drive,
       },
@@ -123,6 +128,7 @@ export class Mcp {
           all: z.boolean().optional().describe('list every visible window, not only the focused one'),
           diff: z.boolean().optional().describe('only what changed since the last snapshot of that window (+ added, ~ changed, - gone)'),
           limit: z.number().int().min(20).max(3000).optional().describe('most elements per window (default 600)'),
+          offscreen: z.boolean().optional().describe('also list elements scrolled out of view'),
         }),
         annotations: look,
       },
@@ -174,9 +180,9 @@ export class Mcp {
     s.registerTool(
       'screenshot',
       {
-        description: "A PNG of one window's page in device pixels (the desktop's includes its panels). Default: the focused window.",
+        description: "A PNG in device pixels of one window's page (the desktop's includes its panels), or of the whole screen with every window composed (target screen). Default: the focused window.",
         inputSchema: z.object({
-          target: z.string().optional().describe('a window ref (w3), a web name (ledger#1048576), an app id, or desktop'),
+          target: z.string().optional().describe('screen, a window ref (w3), a web name (ledger#1048576), an app id, or desktop'),
           path: z.string().optional().describe('also write the PNG to this file (relative to the working directory)'),
         }),
         annotations: look,
@@ -184,8 +190,9 @@ export class Mcp {
       (args) =>
         this.#safe(async () => {
           const acde = await this.#acde()
-          const web = await this.#web(acde, args.target)
-          const shot = await acde.screenshot(web, args.path === undefined ? {} : { path: resolve(this.#cwd, args.path) })
+          const path = args.path === undefined ? {} : { path: resolve(this.#cwd, args.path) }
+          const web = args.target === 'screen' ? 'screen' : await this.#web(acde, args.target)
+          const shot = web === 'screen' ? await acde.screen(path) : await acde.screenshot(web, path)
           return { content: [{ type: 'image', data: shot.png.toString('base64'), mimeType: 'image/png' }, { type: 'text', text: `${web}: ${shot.width}x${shot.height}${shot.path ? `, written to ${shot.path}` : ''}` }] }
         }),
     )
@@ -220,6 +227,77 @@ export class Mcp {
         annotations: look,
       },
       (args) => this.#safe(async () => this.#waitFor(args)),
+    )
+
+    s.registerTool(
+      'query',
+      {
+        description: 'Find elements by CSS selector in a window (default: the focused one), or under an element ref; one line per element with its role, name, tag and ref ([hidden] when not rendered). The refs work with act.',
+        inputSchema: z.object({
+          selector: z.string().min(1).describe('a CSS selector, e.g. form input[type=email] or [data-testid="save"]'),
+          window: z.string().optional().describe('a window ref (w3)'),
+          ref: z.string().optional().describe('an element ref (w3.12): search only under it'),
+          limit: z.number().int().min(1).max(3000).optional().describe('most elements (default 600)'),
+        }),
+        annotations: look,
+      },
+      (args) =>
+        this.#safe(async () => {
+          const found = await (await this.#acde()).query(args)
+          const lines = found.nodes.map((n) => `- ${Locator.line(n)} <${n.tag}>${n.visible ? '' : ' [hidden]'}`)
+          const more = found.count > found.nodes.length ? `\n(${found.count - found.nodes.length} more not listed)` : ''
+          return Mcp.#text(found.count ? `${found.count} in ${found.window}:\n${lines.join('\n')}${more}` : `nothing in ${found.window} matches ${JSON.stringify(args.selector)}`)
+        }),
+    )
+
+    s.registerTool(
+      'console',
+      {
+        description: "The pages' console.* lines and uncaught errors / unhandled rejections, oldest first, with the page each came from. next is what to pass as since to read only newer ones.",
+        inputSchema: z.object({
+          web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
+          level: z.enum(['log', 'info', 'warn', 'error', 'debug', 'errors']).optional().describe('errors: console.error and uncaught errors'),
+          since: z.number().int().min(1).optional(),
+          limit: z.number().int().min(1).max(5000).optional().describe('the newest this many (default 500)'),
+        }),
+        annotations: look,
+      },
+      (args) => this.#safe(async () => Mcp.#entries(await (await this.#acde()).console(args), Tools.consoleLine)),
+    )
+
+    s.registerTool(
+      'network',
+      {
+        description: "The pages' requests (fetch, XHR, WebSocket, EventSource): method, status (ERR when it failed, ... while open), URL, kind, response size, time, error, page. next is what to pass as since.",
+        inputSchema: z.object({
+          web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
+          failed: z.boolean().optional().describe('only failed requests and status 400 or more'),
+          since: z.number().int().min(1).optional(),
+          limit: z.number().int().min(1).max(5000).optional().describe('the newest this many (default 500)'),
+        }),
+        annotations: look,
+      },
+      (args) => this.#safe(async () => Mcp.#entries(await (await this.#acde()).network(args), Tools.requestLine)),
+    )
+
+    s.registerTool(
+      'emulate',
+      {
+        description: 'Switch the colour scheme (prefers-color-scheme) or reduced motion (prefers-reduced-motion) for every page; system goes back to what the system says.',
+        inputSchema: z.object({
+          colorScheme: z.enum(['light', 'dark', 'system']).optional(),
+          reducedMotion: z.enum(['reduce', 'no-preference', 'system']).optional(),
+        }),
+        annotations: drive,
+      },
+      (args) =>
+        this.#safe(async () => {
+          const state = await (await this.#acde()).emulate({
+            ...(args.colorScheme !== undefined && { colorScheme: args.colorScheme === 'system' ? null : args.colorScheme }),
+            ...(args.reducedMotion !== undefined && { reducedMotion: args.reducedMotion === 'system' ? null : args.reducedMotion === 'reduce' }),
+          })
+          return Mcp.#text(`colour scheme ${state.colorScheme}${state.emulated ? ' (emulated)' : ''}, reduced motion ${state.reducedMotion ? 'on' : 'off'}`)
+        }),
     )
 
     s.registerTool(
@@ -282,17 +360,18 @@ export class Mcp {
     }
   }
 
-  async #start(args: { dirs?: string[] | undefined; desktop?: string | undefined; app?: string | undefined }): Promise<Result> {
+  async #start(args: { dirs?: string[] | undefined; desktop?: string | undefined; app?: string | undefined; headless?: boolean | undefined }): Promise<Result> {
     if (this.#launched && !this.#launched.closed) throw new Error(`acde dev ${this.#launched.session.pid} started here is running; stop it first`)
     const acde = await Acde.launch({
       cwd: this.#cwd,
       ...(args.dirs !== undefined && { dirs: args.dirs }),
       ...(args.desktop !== undefined && { desktop: args.desktop }),
       ...(args.app !== undefined && { app: args.app }),
+      ...(args.headless === true && { headless: true }),
     })
     this.#launched = acde
     this.#pinned = acde.session.pid
-    const what = acde.session.desktop ? `desktop ${acde.session.desktop}` : `app ${acde.session.apps.join(', ')}`
+    const what = `${acde.session.desktop ? `desktop ${acde.session.desktop}` : `app ${acde.session.apps.join(', ')}`}${args.headless ? ' without a window (headless)' : ''}`
     return Mcp.#text(`acde dev ${acde.session.pid} runs ${what} (${acde.session.dirs.join(', ')})\n\n${Tools.table(await acde.webs())}`)
   }
 
@@ -337,6 +416,11 @@ export class Mcp {
     } catch (error) {
       return { content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }], isError: true }
     }
+  }
+
+  static #entries<T>(page: DevPage<T>, line: (entry: T) => string): Result {
+    const head = `next: ${page.next}${page.dropped ? ` (${page.dropped} older entries were dropped)` : ''}`
+    return Mcp.#text(page.entries.length ? `${head}\n${page.entries.map(line).join('\n')}` : `${head}\n(nothing)`)
   }
 
   static #acted(result: ActResult): Result {
