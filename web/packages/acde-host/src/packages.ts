@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, stat, writeFileSync } from './sys/fs'
+import { existsSync, mkdirSync, readDirOr, readdirSync, readFileSync, readTextOr, renameSync, rmSync, stat, writeFileSync } from './sys/fs'
 import { xdgDirs, xdgHome } from './sys/os'
 import { dirname, isAbsolute, join, resolve } from './sys/path'
 import { fileURLToPath } from './sys/url'
@@ -29,7 +29,6 @@ export interface InstalledDesktop {
 export class Packages {
   static readonly HEAP_MB = 1024
   static readonly BARE = 'window'
-  static readonly RENAMED: Readonly<Record<string, string>> = { dopamine: 'dopame' }
 
   static get HOST(): string {
     return join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -74,11 +73,7 @@ export class Packages {
   }
 
   static #within(root: string): string[] {
-    try {
-      return readdirSync(root).filter((name) => !name.startsWith('.')).sort().map((name) => join(root, name)).filter((dir) => !!stat(dir)?.isDirectory)
-    } catch {
-      return []
-    }
+    return readDirOr(root).filter((name) => !name.startsWith('.')).sort().map((name) => join(root, name)).filter((dir) => !!stat(dir)?.isDirectory)
   }
 
   static #read(dir: string): InstalledPackage | null {
@@ -186,14 +181,14 @@ export class Packages {
 
   static remember(id: string): void {
     const file = Packages.rememberFile()
+    if (readTextOr(file, null)?.trim() === id) return
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, `${id}\n`)
   }
 
   choose(wanted: string | null, foreign = true, quiet = false): InstalledDesktop | ForeignSession {
-    const warn = quiet ? () => {} : Packages.#warn
     const find = (id: string) => {
-      const found = this.find(Object.hasOwn(Packages.RENAMED, id) ? Packages.RENAMED[id]! : id) ?? this.find(id)
+      const found = this.find(id)
       return found && (foreign || found.kind === 'acde') ? found : null
     }
     if (wanted) {
@@ -204,25 +199,12 @@ export class Packages {
       if (inDir) return inDir
       throw new Error(`no desktop ${wanted}: not an installed desktop's id nor a package directory with one (acde desktops lists them)`)
     }
-    const remembered = (() => {
-      try {
-        return readFileSync(Packages.rememberFile(), 'utf8').trim()
-      } catch {
-        return null
-      }
-    })()
+    const remembered = readTextOr(Packages.rememberFile(), null)?.trim()
     for (const [id, where] of [[process.env['ACDE_DESKTOP'], 'ACDE_DESKTOP'], [remembered, Packages.rememberFile()]] as const) {
       if (!id) continue
       const found = find(id)
-      if (found && found.id !== id && id === remembered) {
-        try {
-          Packages.remember(found.id)
-        } catch (error) {
-          warn(`${Packages.rememberFile()}: desktop ${id} is now ${found.id}, not rewritten: ${(error as Error).message}`)
-        }
-      }
       if (found) return found
-      warn(`${where} names desktop ${id}, which is not installed${this.find(id) ? ' as an acde desktop' : ''}`)
+      if (!quiet) Packages.#warn(`${where} names desktop ${id}, which is not installed${this.find(id) ? ' as an acde desktop' : ''}`)
     }
     const first = this.desktops()[0] ?? (foreign ? this.#sessions[0] : undefined)
     if (first) return first

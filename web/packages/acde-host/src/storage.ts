@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from './sys/fs'
+import { mkdirSync, readTextOr, renameSync, writeFileSync } from './sys/fs'
 import { xdgHome } from './sys/os'
 import { dirname, join } from './sys/path'
 import { process } from './sys/process'
@@ -20,12 +20,8 @@ export class StorageFile {
   }
 
   read(): Record<string, string> | null {
-    let text: string
-    try {
-      text = readFileSync(this.#path, 'utf8')
-    } catch {
-      return null
-    }
+    const text = readTextOr(this.#path, null)
+    if (text === null) return null
     try {
       const saved = JSON.parse(text) as Record<string, unknown>
       return Object.fromEntries(Object.entries(saved).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))

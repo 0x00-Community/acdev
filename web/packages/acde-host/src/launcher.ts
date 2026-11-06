@@ -1,7 +1,7 @@
 import type { NativeApp } from '@dopame/acde-api'
 import { DesktopEntry } from './desktopentry'
 import { DesktopEntries } from './open'
-import { readFileSync, stat } from './sys/fs'
+import { readTextOr, stat } from './sys/fs'
 import { homedir, xdgDirs } from './sys/os'
 import { isAbsolute, join } from './sys/path'
 import { process } from './sys/process'
@@ -48,13 +48,8 @@ export class NativeApps {
   }
 
   static #shown(entry: DesktopEntry, desktops: readonly string[]): boolean {
-    if (!entry.application || entry.flag('Hidden') || entry.flag('NoDisplay') || entry.flag('Terminal')) return false
-    const only = entry.list('OnlyShowIn')
-    if (only.length && !only.some((d) => desktops.includes(d))) return false
-    if (entry.list('NotShowIn').some((d) => desktops.includes(d))) return false
-    const tryExec = entry.string('TryExec')
-    if (tryExec && !DesktopEntry.executable(tryExec)) return false
-    const argv = entry.exec()
+    if (!entry.application || entry.flag('Hidden') || entry.flag('NoDisplay') || entry.flag('Terminal') || !entry.shownIn(desktops)) return false
+    const argv = entry.runnable()
     return !!argv && DesktopEntry.executable(argv[0]!)
   }
 
@@ -74,14 +69,7 @@ export class NativeApps {
   static #themes(): string[] {
     const bases = [join(process.env['HOME'] || homedir(), '.icons'), ...xdgDirs('data', 'icons')]
     return NativeApps.#THEMES.flatMap((theme) => {
-      let text: string | null = null
-      for (const base of bases) {
-        try {
-          text = readFileSync(join(base, theme, 'index.theme'), 'utf8')
-          break
-        } catch {
-        }
-      }
+      const text = bases.reduce<string | null>((found, base) => found ?? readTextOr(join(base, theme, 'index.theme'), null), null)
       if (text === null) return []
       const groups = DesktopEntry.groups(text)
       const dirs = (groups.get('Icon Theme')?.get('Directories') ?? '').split(',').map((d) => d.trim()).flatMap((dir) => {

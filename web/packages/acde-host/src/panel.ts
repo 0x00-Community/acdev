@@ -1,4 +1,5 @@
 import type { ImePanelEvent } from './ime'
+import { PageSource } from './page'
 
 interface ImePanelActions {
   select(index: number): void
@@ -29,44 +30,26 @@ export class ImePanel {
     if (!event.preedit && !event.auxUp && !event.auxDown && event.candidates.length === 0) return this.hide()
     const panel = (this.#element ??= this.#create())
     const doc = this.#document
-    const line = (cls: string, text: string) => {
-      const e = doc.createElement('div')
-      e.className = cls
-      e.textContent = text
-      e.setAttribute('style', 'font-size:13px;color:var(--acde-ime-dim, #6E6977)')
-      return e
-    }
+    const element = (tag: string, className: string, style: string | null, text?: string) => PageSource.element(doc, tag, className, style, text)
+    const line = (cls: string, text: string) => element('div', cls, 'font-size:13px;color:var(--acde-ime-dim, #6E6977)', text)
     const parts: HTMLElement[] = []
     const top = [event.auxUp, event.preedit].filter(Boolean).join(' ')
     if (top) parts.push(line('ime-aux', top))
     if (event.candidates.length) {
-      const row = doc.createElement('div')
-      row.className = 'ime-list'
       const vertical = event.layout === 'vertical'
-      row.setAttribute('style', `display:flex;flex-direction:${vertical ? 'column' : 'row'};gap:2px;align-items:${vertical ? 'stretch' : 'center'}`)
+      const row = element('div', 'ime-list', `display:flex;flex-direction:${vertical ? 'column' : 'row'};gap:2px;align-items:${vertical ? 'stretch' : 'center'}`)
       event.candidates.forEach((candidate, index) => {
         const on = index === event.highlight
-        const item = doc.createElement('div')
-        item.className = on ? 'ime-cand on' : 'ime-cand'
+        const item = element('div', on ? 'ime-cand on' : 'ime-cand', `display:flex;gap:4px;align-items:baseline;padding:2px 8px;border-radius:7px;cursor:default;${on ? 'background:var(--acde-ime-accent, #8B5CF6);color:#fff' : ''}`)
         item.dataset['index'] = String(index)
-        item.setAttribute('style', `display:flex;gap:4px;align-items:baseline;padding:2px 8px;border-radius:7px;cursor:default;${on ? 'background:var(--acde-ime-accent, #8B5CF6);color:#fff' : ''}`)
-        const label = doc.createElement('span')
-        label.className = 'ime-label'
-        label.textContent = candidate.label.replace(/[.．、]\s*$/, '')
-        label.setAttribute('style', `font-size:12px;${on ? 'opacity:.8' : 'color:var(--acde-ime-dim, #6E6977)'}`)
-        const text = doc.createElement('span')
-        text.className = 'ime-text'
-        text.textContent = candidate.text
-        item.append(label, text)
+        const label = element('span', 'ime-label', `font-size:12px;${on ? 'opacity:.8' : 'color:var(--acde-ime-dim, #6E6977)'}`, candidate.label.replace(/[.．、]\s*$/, ''))
+        item.append(label, element('span', 'ime-text', null, candidate.text))
         row.append(item)
       })
       if (event.hasPrev || event.hasNext) {
         for (const [next, glyph, can] of [[false, '‹', event.hasPrev], [true, '›', event.hasNext]] as const) {
-          const arrow = doc.createElement('div')
-          arrow.className = 'ime-page'
+          const arrow = element('div', 'ime-page', `padding:0 6px;font-size:17px;${can ? '' : 'opacity:.3'}`, glyph)
           arrow.dataset['page'] = next ? 'next' : 'prev'
-          arrow.textContent = glyph
-          arrow.setAttribute('style', `padding:0 6px;font-size:17px;${can ? '' : 'opacity:.3'}`)
           row.append(arrow)
         }
       }

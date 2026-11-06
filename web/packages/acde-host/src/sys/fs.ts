@@ -10,6 +10,22 @@ export function readFileSync(path: string, encoding?: unknown): string | Uint8Ar
   return encoding ? sys().readText(path) : sys().readFile(path)
 }
 
+export function readTextOr<T>(path: string, fallback: T): string | T {
+  try {
+    return sys().readText(path)
+  } catch {
+    return fallback
+  }
+}
+
+export function readDirOr(path: string): string[] {
+  try {
+    return sys().readDir(path)
+  } catch {
+    return []
+  }
+}
+
 export function writeFileSync(path: string, data: string | Uint8Array, options?: { mode?: number }): void {
   sys().writeFile(path, data)
   if (options?.mode !== undefined) sys().chmod(path, options.mode)

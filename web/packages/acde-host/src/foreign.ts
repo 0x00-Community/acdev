@@ -35,11 +35,8 @@ export class WaylandSessions {
     if (/^acde(rt)?(-|$)/.test(base) || !/^[\w.+@-]+$/.test(base)) return null
     const entry = new DesktopEntry(file, text)
     if (!entry.application || entry.flag('Hidden') || entry.flag('NoDisplay')) return null
-    const argv = entry.exec()
-    if (!argv || /^acde(rt)?$/.test(basename(argv[0]!))) return null
-    const tryExec = entry.string('TryExec')
-    if (tryExec && !DesktopEntry.executable(tryExec)) return null
-    if (!DesktopEntry.executable(argv[0]!)) return null
+    const argv = entry.runnable()
+    if (!argv || /^acde(rt)?$/.test(basename(argv[0]!)) || !DesktopEntry.executable(argv[0]!)) return null
     const desktopNames = entry.list('DesktopNames')
     return {
       kind: 'session',

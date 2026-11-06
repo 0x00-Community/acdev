@@ -33,13 +33,7 @@ export class Autostart {
   static #entry(file: string): AutostartEntry | null {
     const entry = DesktopEntry.read(file)
     if (!entry?.application || entry.flag('Hidden') || entry.string('X-GNOME-Autostart-enabled') === 'false') return null
-    const desktops = (process.env['XDG_CURRENT_DESKTOP'] || 'acde').split(':')
-    const only = entry.list('OnlyShowIn'), not = entry.list('NotShowIn')
-    if (only.length && !only.some((d) => desktops.includes(d))) return null
-    if (not.some((d) => desktops.includes(d))) return null
-    const tryExec = entry.string('TryExec')
-    if (tryExec && !DesktopEntry.executable(tryExec)) return null
-    const argv = entry.exec()
+    const argv = entry.shownIn((process.env['XDG_CURRENT_DESKTOP'] || 'acde').split(':')) ? entry.runnable() : null
     if (!argv) return null
     const cwd = entry.string('Path')
     return { file, name: entry.string('Name') ?? file, argv, ...(cwd ? { cwd } : {}) }

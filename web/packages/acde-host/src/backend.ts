@@ -1,7 +1,7 @@
 import type { AppManifest } from './apps'
 import { Crashes } from './crashes'
 import { PageSource } from './page'
-import { mkdirSync, readdirSync, rmSync, stat } from './sys/fs'
+import { mkdirSync, readDirOr, rmSync, stat } from './sys/fs'
 import { sys } from './sys/natives'
 import { runtimeDir, xdgHome } from './sys/os'
 import { dirname, join } from './sys/path'
@@ -142,12 +142,6 @@ export class AppBackends {
   }
 
   static #removeSockets(dir: string): void {
-    let names: string[]
-    try {
-      names = readdirSync(dir)
-    } catch {
-      return
-    }
-    for (const name of names) if (name.endsWith('.sock')) rmSync(join(dir, name), { force: true })
+    for (const name of readDirOr(dir)) if (name.endsWith('.sock')) rmSync(join(dir, name), { force: true })
   }
 }

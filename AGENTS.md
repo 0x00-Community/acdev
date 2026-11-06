@@ -207,8 +207,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 不列 acde 自己的、`Hidden` / `NoDisplay`、程序找不到的.
 
 **启动哪个桌面**: `--desktop <id|包目录>`, 否则 `ACDE_DESKTOP`, 否则上次进的 (`$XDG_STATE_HOME/acde/desktop`; `--greeter` 和 `app` /
-`desktop` 子命令不记), 否则第一个 acde 桌面, 否则第一个外部会话. `acdert app` 没有桌面时用空的 (`Packages.bare`). 改名的桌面
-(`Packages.RENAMED`: `dopamine` → `dopame`) 先找新 id, 记住的旧 id 改写成新的, 旧的页面存储文件改名过去.
+`desktop` 子命令不记), 否则第一个 acde 桌面, 否则第一个外部会话. `acdert app` 没有桌面时用空的 (`Packages.bare`).
 桌面经 `acde.desktops.choose(id, remember)` 换桌面.
 
 **交出会话**: 选中外部会话时写交接文件 `$XDG_RUNTIME_DIR/acde/exec` (第一行是单引号引起来的 argv, 之后 `XDG_CURRENT_DESKTOP` /

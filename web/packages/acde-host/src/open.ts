@@ -2,7 +2,7 @@ import type { OpenHandler } from '@dopame/acde-api'
 import type { AppManifest } from './apps'
 import { DesktopEntry } from './desktopentry'
 import { spawnSync } from './sys/child_process'
-import { existsSync, mkdirSync, readFileSync, stat, writeFileSync } from './sys/fs'
+import { existsSync, mkdirSync, readTextOr, stat, writeFileSync } from './sys/fs'
 import { xdgDirs, xdgHome } from './sys/os'
 import { basename, dirname, isAbsolute, join, normalize } from './sys/path'
 import { fileURLToPath, pathToFileURL } from './sys/url'
@@ -66,12 +66,8 @@ class MimeApps {
 
   static defaultFor(mime: string, installed: (id: string) => boolean): string | null {
     for (const list of MimeApps.#lists()) {
-      let text: string
-      try {
-        text = readFileSync(list, 'utf8')
-      } catch {
-        continue
-      }
+      const text = readTextOr(list, null)
+      if (text === null) continue
       const ids = DesktopEntry.group(text, 'Default Applications').get(mime) ?? ''
       for (const id of ids.split(';').map((id) => id.trim()).filter(Boolean)) if (installed(id)) return id
     }
@@ -90,11 +86,7 @@ class MimeApps {
 
   static setDefault(mime: string, id: string): string {
     const file = join(xdgHome('config'), `${MimeApps.DESKTOP}-mimeapps.list`)
-    let text = ''
-    try {
-      text = readFileSync(file, 'utf8')
-    } catch {
-    }
+    const text = readTextOr(file, '')
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, MimeApps.#withDefault(text, mime, id))
     return file

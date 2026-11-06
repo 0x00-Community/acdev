@@ -97,12 +97,7 @@ export class WebAppPage {
     const document = this.#page.document as unknown as Document
     const parent = document.body ?? document.documentElement
     if (message === undefined || !parent) return
-    const element = (tag: string, style: string, text?: string) => {
-      const el = document.createElement(tag)
-      el.setAttribute('style', style)
-      if (text !== undefined) el.textContent = text
-      return el
-    }
+    const element = (tag: string, style: string, text?: string) => PageSource.element(document, tag, null, style, text)
     const overlay = element('div', 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.28);font:14px/1.5 system-ui,sans-serif')
     overlay.setAttribute('data-acde-alert', '')
     overlay.setAttribute('role', 'alertdialog')

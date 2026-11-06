@@ -4,6 +4,14 @@ import { dirname, join, normalize } from './sys/path'
 export class PageSource {
   static readonly ORIGIN = 'http://acde.local'
 
+  static element(document: Document, tag: string, className: string | null, style: string | null, text?: string): HTMLElement {
+    const element = document.createElement(tag)
+    if (className) element.className = className
+    if (style) element.setAttribute('style', style)
+    if (text !== undefined) element.textContent = text
+    return element
+  }
+
   static escape(text: string): string {
     return text.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
   }
