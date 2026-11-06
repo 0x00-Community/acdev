@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use acde_render::{Dom, NONE};
 
-use crate::bind;
+use crate::bind::{self, IntoJs};
 use crate::modules::Loader;
 
 const ORIGIN: &str = "http://acde.local";
@@ -78,7 +78,7 @@ impl Loader for WebLoader {
             return crate::sys::FileLoader.resolve(specifier, referrer);
         }
         let base = url::Url::parse(referrer).or_else(|_| url::Url::parse(&format!("{ORIGIN}/"))).map_err(|e| e.to_string())?;
-        if !(specifier.starts_with("./") || specifier.starts_with("../") || specifier.starts_with('/') || url::Url::parse(specifier).is_ok()) {
+        if !crate::modules::url_like(specifier) {
             return Err(format!("acdert: bare module specifier '{specifier}' in {referrer} (pages import URLs)"));
         }
         base.join(specifier).map(String::from).map_err(|e| format!("acdert: {specifier}: {e}"))
@@ -161,24 +161,8 @@ fn f(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> 
 
 struct Id(u32);
 
-trait IntoJs {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value>;
-}
-
-impl IntoJs for () {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        v8::undefined(scope).into()
-    }
-}
-
-impl IntoJs for bool {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        v8::Boolean::new(scope, self).into()
-    }
-}
-
-impl IntoJs for Id {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+impl<'s> IntoJs<'s> for Id {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
         match self.0 {
             NONE => v8::Integer::new(scope, -1).into(),
             id => v8::Integer::new_from_unsigned(scope, id).into(),
@@ -186,55 +170,16 @@ impl IntoJs for Id {
     }
 }
 
-macro_rules! numbers {
-    ($($t:ty),*) => {$(
-        impl IntoJs for $t {
-            fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-                v8::Number::new(scope, self as f64).into()
-            }
-        }
-    )*};
-}
-numbers!(u32, i32, u16, f64);
-
-impl IntoJs for String {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        bind::string(scope, &self).into()
-    }
-}
-
-impl<T: IntoJs> IntoJs for Option<T> {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        match self {
-            Some(v) => v.js(scope),
-            None => v8::null(scope).into(),
-        }
-    }
-}
-
 struct Ids(Vec<u32>);
 
-impl IntoJs for Ids {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+impl<'s> IntoJs<'s> for Ids {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
         bind::uint32_array(scope, &self.0).into()
     }
 }
 
-impl IntoJs for Vec<String> {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let items: Vec<v8::Local<v8::Value>> = self.iter().map(|t| bind::string(scope, t).into()).collect();
-        v8::Array::new_with_elements(scope, &items).into()
-    }
-}
-
-impl IntoJs for Vec<u8> {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        bind::uint8_array(scope, self).into()
-    }
-}
-
-impl IntoJs for (acde_render::NodeType, acde_render::Ns, bool, String) {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+impl<'s> IntoJs<'s> for (acde_render::NodeType, acde_render::Ns, bool, String) {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
         let items = [
             v8::Integer::new(scope, self.0 as i32).into(),
             v8::Integer::new(scope, self.1 as i32).into(),
@@ -247,42 +192,36 @@ impl IntoJs for (acde_render::NodeType, acde_render::Ns, bool, String) {
 
 struct Floats(Vec<f64>);
 
-impl IntoJs for Floats {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+impl<'s> IntoJs<'s> for Floats {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
         bind::float64_array(scope, &self.0).into()
     }
 }
 
-impl IntoJs for acde_render::Metrics {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let n = |scope: &mut v8::PinScope<'s, '_>, v: f64| -> v8::Local<'s, v8::Value> { v8::Number::new(scope, v).into() };
-        let fields = [
-            ("offsetLeft", n(scope, self.offset_left)),
-            ("offsetTop", n(scope, self.offset_top)),
-            ("offsetWidth", n(scope, self.offset_width)),
-            ("offsetHeight", n(scope, self.offset_height)),
-            ("offsetParent", Id(self.offset_parent.unwrap_or(NONE)).js(scope)),
-            ("clientLeft", n(scope, self.client_left)),
-            ("clientTop", n(scope, self.client_top)),
-            ("clientWidth", n(scope, self.client_width)),
-            ("clientHeight", n(scope, self.client_height)),
-            ("scrollLeft", n(scope, self.scroll_left)),
-            ("scrollTop", n(scope, self.scroll_top)),
-            ("scrollWidth", n(scope, self.scroll_width)),
-            ("scrollHeight", n(scope, self.scroll_height)),
-        ];
-        bind::object(scope, &fields).into()
+impl<'s> IntoJs<'s> for acde_render::Metrics {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        crate::js_object!(scope, {
+            "offsetLeft" => self.offset_left,
+            "offsetTop" => self.offset_top,
+            "offsetWidth" => self.offset_width,
+            "offsetHeight" => self.offset_height,
+            "offsetParent" => Id(self.offset_parent.unwrap_or(NONE)),
+            "clientLeft" => self.client_left,
+            "clientTop" => self.client_top,
+            "clientWidth" => self.client_width,
+            "clientHeight" => self.client_height,
+            "scrollLeft" => self.scroll_left,
+            "scrollTop" => self.scroll_top,
+            "scrollWidth" => self.scroll_width,
+            "scrollHeight" => self.scroll_height,
+        })
+        .into()
     }
 }
 
-impl IntoJs for acde_render::Viewport {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let fields = [
-            ("width", v8::Number::new(scope, self.width).into()),
-            ("height", v8::Number::new(scope, self.height).into()),
-            ("scale", v8::Number::new(scope, self.scale).into()),
-        ];
-        bind::object(scope, &fields).into()
+impl<'s> IntoJs<'s> for acde_render::Viewport {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        crate::js_object!(scope, {"width" => self.width, "height" => self.height, "scale" => self.scale}).into()
     }
 }
 
@@ -313,61 +252,53 @@ pub fn take_picture(id: u32) -> Option<acde_gpu::Scene> {
     })
 }
 
-impl IntoJs for acde_render::Capture {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let n = |scope: &mut v8::PinScope<'s, '_>, v: f64| -> v8::Local<'s, v8::Value> { v8::Number::new(scope, v).into() };
-        let fields = [
-            ("x", n(scope, self.x)),
-            ("y", n(scope, self.y)),
-            ("width", n(scope, self.width)),
-            ("height", n(scope, self.height)),
-            ("pixelWidth", n(scope, self.pixel_width as f64)),
-            ("pixelHeight", n(scope, self.pixel_height as f64)),
-            ("scale", n(scope, self.scale)),
-            ("picture", n(scope, f64::from(keep_picture(self.scene)))),
-        ];
-        bind::object(scope, &fields).into()
+impl<'s> IntoJs<'s> for acde_render::Capture {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        crate::js_object!(scope, {
+            "x" => self.x,
+            "y" => self.y,
+            "width" => self.width,
+            "height" => self.height,
+            "pixelWidth" => self.pixel_width as f64,
+            "pixelHeight" => self.pixel_height as f64,
+            "scale" => self.scale,
+            "picture" => keep_picture(self.scene),
+        })
+        .into()
     }
 }
 
-impl IntoJs for acde_render::Timing {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let fields = [
-            ("count", v8::Number::new(scope, f64::from(self.count)).into()),
-            ("totalMs", v8::Number::new(scope, self.total_ms).into()),
-            ("maxMs", v8::Number::new(scope, self.max_ms).into()),
-        ];
-        bind::object(scope, &fields).into()
+impl<'s> IntoJs<'s> for acde_render::Timing {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        crate::js_object!(scope, {"count" => self.count as f64, "totalMs" => self.total_ms, "maxMs" => self.max_ms}).into()
     }
 }
 
-impl IntoJs for acde_render::Stats {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let n = |scope: &mut v8::PinScope<'s, '_>, v: f64| -> v8::Local<'s, v8::Value> { v8::Number::new(scope, v).into() };
-        let fields = [
-            ("resolve", self.resolve.js(scope)),
-            ("frame", self.frame.js(scope)),
-            ("frameLocked", self.frame_locked.js(scope)),
-            ("resolveMs", n(scope, self.resolve_ms)),
-            ("paintMs", n(scope, self.paint_ms)),
-            ("damageMs", n(scope, self.damage_ms)),
-            ("layersMs", n(scope, self.layers_ms)),
-            ("fragmentsRecorded", n(scope, f64::from(self.fragments_recorded))),
-            ("fragmentsReused", n(scope, f64::from(self.fragments_reused))),
-            ("animating", self.animating.js(scope)),
-            ("nodes", n(scope, f64::from(self.nodes))),
-            ("images", n(scope, f64::from(self.images))),
-            ("imageBytes", n(scope, self.image_bytes)),
-            ("mallocBytes", n(scope, self.malloc_bytes)),
-        ];
-        bind::object(scope, &fields).into()
+impl<'s> IntoJs<'s> for acde_render::Stats {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        crate::js_object!(scope, {
+            "resolve" => self.resolve,
+            "frame" => self.frame,
+            "frameLocked" => self.frame_locked,
+            "resolveMs" => self.resolve_ms,
+            "paintMs" => self.paint_ms,
+            "damageMs" => self.damage_ms,
+            "layersMs" => self.layers_ms,
+            "fragmentsRecorded" => self.fragments_recorded as f64,
+            "fragmentsReused" => self.fragments_reused as f64,
+            "animating" => self.animating,
+            "nodes" => self.nodes as f64,
+            "images" => self.images as f64,
+            "imageBytes" => self.image_bytes,
+            "mallocBytes" => self.malloc_bytes,
+        })
+        .into()
     }
 }
 
-impl IntoJs for acde_render::CaretPosition {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let fields = [("node", Id(self.node).js(scope)), ("offset", v8::Number::new(scope, self.offset as f64).into())];
-        bind::object(scope, &fields).into()
+impl<'s> IntoJs<'s> for acde_render::CaretPosition {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        crate::js_object!(scope, {"node" => Id(self.node), "offset" => self.offset as f64}).into()
     }
 }
 
@@ -383,7 +314,7 @@ macro_rules! natives {
                     Some(result)
                 });
                 match result {
-                    Some(Ok(value)) => rv.set(IntoJs::js(value, $scope)),
+                    Some(Ok(value)) => rv.set(value.js($scope)),
                     Some(Err(e)) => bind::throw_error($scope, &e.to_string()),
                     None => bind::throw_error($scope, "InvalidStateError: no document"),
                 }

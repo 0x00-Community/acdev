@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 #[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
@@ -13,7 +13,7 @@ use rustix::io::Errno;
 #[cfg(unix)]
 use rustix::process::{self, Signal};
 
-use crate::bind;
+use crate::bind::{self, IntoJs};
 use crate::rt::{self, Msg};
 
 struct Spawned {
@@ -60,8 +60,8 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     let Ok(on_exit) = v8::Local::<v8::Function>::try_from(args.get(2)) else {
         return bind::throw_type_error(scope, "spawn: onExit is not a function");
     };
-    let cwd = text(scope, options, "cwd");
-    let prefix = text(scope, options, "prefix").unwrap_or_default();
+    let cwd = bind::get_string(scope, options, "cwd");
+    let prefix = bind::get_string(scope, options, "prefix").unwrap_or_default();
     let on_stdout = bind::get(scope, options, "onStdout").and_then(|f| v8::Local::<v8::Function>::try_from(f).ok());
     let stdin = bind::get(scope, options, "stdin").is_some_and(|v| v.is_true());
     let env = match bind::get(scope, options, "env") {
@@ -96,12 +96,7 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     };
     let pid = child.id();
     adopt(&child);
-    _ = std::thread::Builder::new().name("acde-child-out".into()).spawn(move || {
-        for line in std::io::BufReader::new(reader).split(b'\n') {
-            let Ok(line) = line else { break };
-            log::info!("{prefix}{}", String::from_utf8_lossy(&line));
-        }
-    });
+    _ = each_line(reader, move |line| log::info!("{prefix}{line}"));
     let tx = rt::current().sender();
     let input = child.stdin.take().map(|mut input| {
         let (feed, fed) = channel::<Vec<u8>>();
@@ -117,13 +112,9 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     let read = lines.map(|lines| {
         let (done, read) = sync_channel::<()>(1);
         let tx = tx.clone();
-        _ = std::thread::Builder::new().name("acde-child-out".into()).spawn(move || {
-            for line in std::io::BufReader::new(lines).split(b'\n') {
-                let Ok(line) = line else { break };
-                let line = String::from_utf8_lossy(&line).into_owned();
-                _ = tx.send(Msg::Task(Box::new(move |scope| stdout_line(scope, pid, &line))));
-            }
-            _ = done.send(());
+        _ = each_line(lines, move |line| {
+            let _done = &done;
+            _ = tx.send(Msg::Task(Box::new(move |scope| stdout_line(scope, pid, &line))));
         });
         read
     });
@@ -132,7 +123,16 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
         if let Some(read) = read {
             _ = read.recv_timeout(Duration::from_secs(2));
         }
-        let (code, signal) = (status.and_then(|s| s.code()), status.and_then(exit_signal));
+        let signal = status.and_then(|s| {
+            cfg_select! {
+                unix => s.signal(),
+                _ => {
+                    _ = s;
+                    None
+                }
+            }
+        });
+        let code = status.and_then(|s| s.code());
         forget(pid);
         _ = tx.send(Msg::Task(Box::new(move |scope| exited(scope, pid, code, signal))));
     });
@@ -144,6 +144,15 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     CHILDREN.with(|c| c.borrow_mut().insert(pid, Spawned { on_exit, on_stdout, input }));
     rt::current().keep_alive(true);
     rv.set_uint32(pid);
+}
+
+fn each_line(from: impl Read + Send + 'static, mut each: impl FnMut(String) + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new().name("acde-child-out".into()).spawn(move || {
+        for line in std::io::BufReader::new(from).split(b'\n') {
+            let Ok(line) = line else { break };
+            each(String::from_utf8_lossy(&line).into_owned());
+        }
+    })
 }
 
 fn stdout_line(scope: &mut v8::PinScope, pid: u32, line: &str) {
@@ -171,35 +180,14 @@ pub fn end_input(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
 fn exited(scope: &mut v8::PinScope, pid: u32, code: Option<i32>, signal: Option<i32>) {
     let Some(child) = CHILDREN.with(|c| c.borrow_mut().remove(&pid)) else { return };
     rt::current().keep_alive(false);
-    let code: v8::Local<v8::Value> = match code {
-        Some(code) => v8::Integer::new(scope, code).into(),
-        None => v8::null(scope).into(),
-    };
-    let signal: v8::Local<v8::Value> = match signal {
-        Some(signal) => v8::Integer::new(scope, signal).into(),
-        None => v8::null(scope).into(),
-    };
+    let (code, signal) = (code.js(scope), signal.js(scope));
     bind::call(scope, child.on_exit, &[code, signal]);
-}
-
-fn text(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &str) -> Option<String> {
-    bind::get(scope, obj, name).filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope))
 }
 
 static GROUPS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 
 fn forget(pid: u32) {
     GROUPS.lock().unwrap_or_else(|e| e.into_inner()).retain(|p| *p != pid);
-}
-
-#[cfg(unix)]
-fn exit_signal(status: std::process::ExitStatus) -> Option<i32> {
-    status.signal()
-}
-
-#[cfg(not(unix))]
-fn exit_signal(_: std::process::ExitStatus) -> Option<i32> {
-    None
 }
 
 #[cfg(target_os = "linux")]

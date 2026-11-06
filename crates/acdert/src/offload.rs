@@ -1,5 +1,11 @@
+use std::cell::RefCell;
+
 use crate::bind;
 use crate::rt::{self, Msg};
+
+thread_local! {
+    static CALLBACKS: RefCell<bind::Slab<v8::Global<v8::Function>>> = RefCell::default();
+}
 
 pub type Settle<T> = fn(&mut v8::PinScope, v8::Local<v8::PromiseResolver>, T);
 
@@ -23,6 +29,45 @@ pub fn run<T: Send + 'static>(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue
         return bind::throw_error(scope, &format!("{thread}: {e}"));
     }
     rv.set(promise.into());
+}
+
+pub fn settle_json<const NULL_IS_UNDEFINED: bool>(
+    scope: &mut v8::PinScope,
+    resolver: v8::Local<v8::PromiseResolver>,
+    reply: Result<serde_json::Value, String>,
+) {
+    match reply {
+        Ok(serde_json::Value::Null) if NULL_IS_UNDEFINED => {
+            let undefined = v8::undefined(scope).into();
+            resolver.resolve(scope, undefined);
+        }
+        Ok(value) => {
+            let value = json(scope, &value);
+            resolver.resolve(scope, value);
+        }
+        Err(message) => {
+            let thrown = failure(scope, &message, None, "GenericFailure");
+            resolver.reject(scope, thrown);
+        }
+    };
+}
+
+pub fn json_sink(scope: &mut v8::PinScope, callback: v8::Local<v8::Function>) -> impl Fn(serde_json::Value) -> bool + Send + Sync + 'static {
+    let token = CALLBACKS.with(|c| c.borrow_mut().add(v8::Global::new(scope, callback)));
+    let tx = rt::current().sender();
+    move |value| {
+        let deliver = move |scope: &mut v8::PinScope| {
+            let Some(callback) = CALLBACKS.with(|c| c.borrow().get(&token).cloned()) else { return };
+            let value = json(scope, &value);
+            bind::call(scope, &callback, &[value]);
+        };
+        tx.send(Msg::Task(Box::new(deliver))).is_ok()
+    }
+}
+
+pub fn clear() {
+    let callbacks = CALLBACKS.with(|c| std::mem::take(&mut *c.borrow_mut()));
+    drop(callbacks);
 }
 
 pub fn json<'s>(scope: &mut v8::PinScope<'s, '_>, value: &serde_json::Value) -> v8::Local<'s, v8::Value> {

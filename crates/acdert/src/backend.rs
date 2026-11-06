@@ -1,11 +1,10 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use acde_runtime::{Deliver, UnixClient, UnixEvent as Event};
 
-use crate::bind;
+use crate::bind::{self, IntoJs};
 use crate::rt::{self, Msg};
 
 struct Open {
@@ -18,8 +17,7 @@ struct Open {
 struct State {
     sockets: PathBuf,
     client: Option<UnixClient>,
-    open: HashMap<u32, Open>,
-    next: u32,
+    open: bind::Slab<Open>,
 }
 
 thread_local! {
@@ -28,7 +26,7 @@ thread_local! {
 
 pub fn install<'s>(scope: &mut v8::PinScope<'s, '_>, natives: v8::Local<'s, v8::Object>, init: v8::Local<'s, v8::Value>) {
     let Ok(init) = v8::Local::<v8::Object>::try_from(init) else { return };
-    let Some(sockets) = bind::get(scope, init, "sockets").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope)) else { return };
+    let Some(sockets) = bind::get_string(scope, init, "sockets") else { return };
     if !Path::new(&sockets).is_absolute() {
         return;
     }
@@ -74,11 +72,7 @@ fn open(
     let Ok(on_event) = v8::Local::<v8::Function>::try_from(on_event) else {
         return bind::throw_type_error(scope, "acde.backend: onEvent is not a function");
     };
-    let id = STATE.with(|s| {
-        let mut s = s.borrow_mut();
-        s.next = s.next.wrapping_add(1).max(1);
-        s.next
-    });
+    let id = STATE.with(|s| s.borrow_mut().open.next_id());
     let tx = rt::current().sender();
     let deliver: Deliver = Arc::new(move |event, taken| {
         tx.send(Msg::Task(Box::new(move |scope| {
@@ -89,7 +83,7 @@ fn open(
     });
     let started = STATE.with(|s| {
         let mut s = s.borrow_mut();
-        let client = s.client.get_or_insert_with(UnixClient::new);
+        let client = s.client.get_or_insert_with(UnixClient::default);
         start(client, deliver)
     });
     match started {
@@ -194,43 +188,19 @@ fn dispatch(scope: &mut v8::PinScope, id: u32, event: Event) {
         Some(callback)
     });
     let Some(callback) = callback else { return };
-    let kind = match &event {
-        Event::Head { .. } => "head",
-        Event::Chunk(_) => "chunk",
-        Event::End => "end",
-        Event::Open { .. } => "open",
-        Event::Text(_) | Event::Binary(_) => "message",
-        Event::Close { .. } => "close",
-        Event::Error(_) => "error",
-    };
-    let mut fields: Vec<(&str, v8::Local<v8::Value>)> = vec![("type", bind::string(scope, kind).into())];
-    match event {
+    let obj = match event {
         Event::Head { status, status_text, headers } => {
-            let pairs: Vec<v8::Local<v8::Value>> = headers
-                .iter()
-                .map(|(name, value)| {
-                    let pair = [bind::string(scope, name).into(), bind::string(scope, value).into()];
-                    v8::Array::new_with_elements(scope, &pair).into()
-                })
-                .collect();
-            fields.push(("status", v8::Integer::new(scope, status.into()).into()));
-            fields.push(("statusText", bind::string(scope, &status_text).into()));
-            fields.push(("headers", v8::Array::new_with_elements(scope, &pairs).into()));
+            let pairs: Vec<v8::Local<v8::Value>> = headers.into_iter().map(|(name, value)| vec![name, value].js(scope)).collect();
+            let headers = v8::Array::new_with_elements(scope, &pairs);
+            crate::js_object!(scope, {"type" => "head", "status" => status, "statusText" => status_text, "headers" => headers})
         }
-        Event::Chunk(data) | Event::Binary(data) => fields.push(("data", bind::uint8_array(scope, data).into())),
-        Event::Text(text) => fields.push(("text", bind::string(scope, &text).into())),
-        Event::Open { protocol, extensions } => {
-            fields.push(("protocol", bind::string(scope, &protocol).into()));
-            fields.push(("extensions", bind::string(scope, &extensions).into()));
-        }
-        Event::Close { code, reason, clean } => {
-            fields.push(("code", v8::Integer::new(scope, code.into()).into()));
-            fields.push(("reason", bind::string(scope, &reason).into()));
-            fields.push(("wasClean", v8::Boolean::new(scope, clean).into()));
-        }
-        Event::Error(message) => fields.push(("message", bind::string(scope, &message).into())),
-        Event::End => {}
-    }
-    let obj = bind::object(scope, &fields);
+        Event::Chunk(data) => crate::js_object!(scope, {"type" => "chunk", "data" => data}),
+        Event::End => crate::js_object!(scope, {"type" => "end"}),
+        Event::Open { protocol, extensions } => crate::js_object!(scope, {"type" => "open", "protocol" => protocol, "extensions" => extensions}),
+        Event::Text(text) => crate::js_object!(scope, {"type" => "message", "text" => text}),
+        Event::Binary(data) => crate::js_object!(scope, {"type" => "message", "data" => data}),
+        Event::Close { code, reason, clean } => crate::js_object!(scope, {"type" => "close", "code" => code, "reason" => reason, "wasClean" => clean}),
+        Event::Error(message) => crate::js_object!(scope, {"type" => "error", "message" => message}),
+    };
     bind::call(scope, callback, &[obj.into()]);
 }

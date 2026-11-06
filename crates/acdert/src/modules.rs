@@ -63,18 +63,11 @@ pub fn add_import_map(imports: Specifiers, scopes: Vec<(String, Specifiers)>) {
     });
 }
 
-fn url_like(specifier: &str) -> bool {
+pub fn url_like(specifier: &str) -> bool {
     specifier.starts_with("./") || specifier.starts_with("../") || specifier.starts_with('/') || url::Url::parse(specifier).is_ok()
 }
 
 fn mapped(loader: &dyn Loader, specifier: &str, referrer: &str) -> Result<String, String> {
-    let empty = IMPORT_MAP.with(|m| {
-        let m = m.borrow();
-        m.imports.is_empty() && m.scopes.is_empty()
-    });
-    if empty {
-        return loader.resolve(specifier, referrer);
-    }
     let key = if url_like(specifier) { loader.resolve(specifier, referrer)? } else { specifier.to_owned() };
     match IMPORT_MAP.with(|m| m.borrow().lookup(&key, referrer)) {
         Some(found) => Ok(found),
@@ -296,7 +289,7 @@ pub fn dynamic_import<'s>(
         Ok(url) => import(scope, &url),
         Err(e) => {
             let resolver = v8::PromiseResolver::new(scope)?;
-            let message = v8::String::new(scope, &e)?;
+            let message = crate::bind::string(scope, &e);
             let error = v8::Exception::type_error(scope, message);
             resolver.reject(scope, error);
             Some(resolver.get_promise(scope))

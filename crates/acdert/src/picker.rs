@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use acde_runtime::{ChildKind, FsError, PickedFolders, Workspace};
+use acde_runtime::{EntryKind, FsError, PickedFolders, Workspace};
 
 use crate::{bind, offload};
 
@@ -12,8 +12,8 @@ pub struct Picker {
 
 enum Reply {
     Path(Option<String>),
-    Entries(Vec<(String, ChildKind)>),
-    Kind(Option<ChildKind>),
+    Entries(Vec<(String, EntryKind)>),
+    Kind(Option<EntryKind>),
     Removed(bool),
     Read(Option<(Vec<u8>, i64)>),
     Done,
@@ -79,10 +79,6 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, picker:
     bind::set(scope, natives, "picker", object.into());
 }
 
-pub fn clear() {
-    PICKER.with(|p| p.borrow_mut().take());
-}
-
 fn run(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, work: impl FnOnce(Picker) -> Answer + Send + 'static) {
     let Some(picker) = PICKER.with(|p| p.borrow().clone()) else {
         return bind::throw_error(scope, "picker: not given to this web");
@@ -90,10 +86,10 @@ fn run(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, work: impl FnOnce(Pic
     offload::run(scope, rv, "acde-picker", move || work(picker), settle);
 }
 
-fn kind(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<ChildKind> {
+fn kind(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<EntryKind> {
     match value.is_string().then(|| value.to_rust_string_lossy(scope)).as_deref() {
-        Some("file") => Some(ChildKind::File),
-        Some("directory") => Some(ChildKind::Directory),
+        Some("file") => Some(EntryKind::File),
+        Some("directory") => Some(EntryKind::Directory),
         _ => None,
     }
 }
@@ -146,19 +142,13 @@ fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, an
         Ok(Reply::Done) => v8::undefined(scope).into(),
         Ok(Reply::Entries(children)) => {
             let list = v8::Array::new(scope, 0);
-            for (name, kind) in children.into_iter().filter(|(_, kind)| *kind != ChildKind::Other) {
-                let name = bind::string(scope, &name).into();
-                let kind = bind::string(scope, kind.as_str()).into();
-                let entry = bind::object(scope, &[("name", name), ("kind", kind)]);
+            for (name, kind) in children.into_iter().filter(|(_, kind)| matches!(kind, EntryKind::File | EntryKind::Directory)) {
+                let entry = crate::js_object!(scope, {"name" => name, "kind" => kind.as_str()});
                 list.set_index(scope, list.length(), entry.into());
             }
             list.into()
         }
-        Ok(Reply::Read(Some((data, modified_ms)))) => {
-            let data = bind::uint8_array(scope, data).into();
-            let modified = v8::Number::new(scope, modified_ms as f64).into();
-            bind::object(scope, &[("bytes", data), ("lastModified", modified)]).into()
-        }
+        Ok(Reply::Read(Some((data, modified_ms)))) => crate::js_object!(scope, {"bytes" => data, "lastModified" => modified_ms}).into(),
         Err(Failed::Chooser(message)) => {
             let text = bind::string(scope, &message);
             let error = v8::Exception::error(scope, text);

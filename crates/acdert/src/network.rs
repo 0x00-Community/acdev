@@ -1,24 +1,15 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use acde_runtime::{NetCall, Networks};
 
-use crate::rt::{self, Msg};
 use crate::{bind, offload};
 
-#[derive(Default)]
-struct State {
-    networks: Option<Networks>,
-    watchers: HashMap<u32, v8::Global<v8::Function>>,
-    next: u32,
-}
-
 thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State::default());
+    static NETWORKS: RefCell<Option<Networks>> = const { RefCell::new(None) };
 }
 
 pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, networks: Networks) {
-    STATE.with(|s| s.borrow_mut().networks = Some(networks));
+    NETWORKS.with(|n| *n.borrow_mut() = Some(networks));
     let network = v8::Object::new(scope);
     crate::methods!(scope, network,
         "state" => state,
@@ -32,13 +23,8 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, network
     bind::set(scope, natives, "network", network.into());
 }
 
-pub fn clear() {
-    let state = STATE.with(|s| std::mem::take(&mut *s.borrow_mut()));
-    drop(state);
-}
-
 fn networks(scope: &mut v8::PinScope) -> Option<Networks> {
-    let networks = STATE.with(|s| s.borrow().networks.clone());
+    let networks = NETWORKS.with(|n| n.borrow().clone());
     if networks.is_none() {
         bind::throw_error(scope, "acde.network: not given to this web");
     }
@@ -47,24 +33,7 @@ fn networks(scope: &mut v8::PinScope) -> Option<Networks> {
 
 fn send(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, call: NetCall) {
     let Some(networks) = networks(scope) else { return };
-    offload::run(scope, rv, "acde-network", move || networks.call(call), settle);
-}
-
-fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, reply: Result<serde_json::Value, String>) {
-    match reply {
-        Ok(serde_json::Value::Null) => {
-            let undefined = v8::undefined(scope).into();
-            resolver.resolve(scope, undefined);
-        }
-        Ok(value) => {
-            let value = offload::json(scope, &value);
-            resolver.resolve(scope, value);
-        }
-        Err(message) => {
-            let thrown = offload::failure(scope, &message, None, "GenericFailure");
-            resolver.reject(scope, thrown);
-        }
-    }
+    offload::run(scope, rv, "acde-network", move || networks.call(call), offload::settle_json::<true>);
 }
 
 fn state(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -102,17 +71,8 @@ fn watch(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::R
         return bind::throw_type_error(scope, "acde.network.watch: the callback is not a function");
     };
     let Some(networks) = networks(scope) else { return };
-    let callback = v8::Global::new(scope, callback);
-    let token = STATE.with(|s| {
-        let mut s = s.borrow_mut();
-        let token = s.next.wrapping_add(1).max(1);
-        s.next = token;
-        s.watchers.insert(token, callback);
-        token
-    });
-    let tx = rt::current().sender();
+    let sink = offload::json_sink(scope, callback);
     let started = std::thread::Builder::new().name("acde-network".into()).spawn(move || {
-        let sink = move |state: serde_json::Value| tx.send(Msg::Task(Box::new(move |scope| deliver(scope, token, &state)))).is_ok();
         if let Err(e) = networks.listen(sink) {
             log::warn!("acde.network.watch: {e}");
         }
@@ -120,10 +80,4 @@ fn watch(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::R
     if let Err(e) = started {
         bind::throw_error(scope, &format!("acde.network.watch: {e}"));
     }
-}
-
-fn deliver(scope: &mut v8::PinScope, token: u32, state: &serde_json::Value) {
-    let Some(callback) = STATE.with(|s| s.borrow().watchers.get(&token).cloned()) else { return };
-    let value = offload::json(scope, state);
-    bind::call(scope, &callback, &[value]);
 }
