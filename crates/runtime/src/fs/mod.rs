@@ -6,14 +6,13 @@ pub(crate) mod workspace;
 use grants::Grants;
 use path::NodePath;
 pub use picked::PickedFolders;
-pub use workspace::ChildKind;
+pub use workspace::EntryKind;
 use workspace::{Contents, FinderEntry, FinderPreview, FinderRoot, MkdirOptions, WorkspaceFs, WriteOptions};
 
 use crate::blocking;
 use crate::failure::{Failure, Outcome};
 use crate::sync::Locked;
 use napi::Result;
-use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,12 +45,7 @@ impl Place {
 
     fn save(&self) {
         let Some(file) = Self::file() else { return };
-        let tmp = file.with_extension("json.tmp");
-        let written = file.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| {
-            std::fs::write(&tmp, serde_json::to_vec(self).unwrap_or_default())?;
-            std::fs::rename(&tmp, &file)
-        });
-        if let Err(error) = written {
+        if let Err(error) = crate::write_state(&file, &serde_json::to_vec(self).unwrap_or_default(), 0o644) {
             log::warn!("remembering the Finder's place in {}: {error}", file.display());
         }
     }
@@ -132,13 +126,6 @@ impl Shared {
         }
         Ok(state)
     }
-}
-
-#[napi(object)]
-pub struct FileBytes {
-    pub name: String,
-    pub content_type: String,
-    pub data: Buffer,
 }
 
 pub enum FsCall {
@@ -279,12 +266,13 @@ impl Shared {
             return Err(Failure::invalid("path must be absolute (or ~/…), or give root and path"));
         }
         let clean = expanded.normalize();
-        let inside = |root: &str| clean == root || clean.starts_with(&if root.ends_with('/') { root.to_owned() } else { format!("{root}/") });
-        let mut roots: Vec<FinderRoot> = self.roots(owner)?.into_iter().filter(|r| inside(&r.path)).collect();
-        roots.sort_by_key(|r| std::cmp::Reverse(r.path.len()));
-        let root = roots.into_iter().next().ok_or_else(|| Failure::http(404, "not inside any workspace the Finder lists"))?;
-        let relative = clean.strip_prefix(root.path.as_str()).unwrap_or("").trim_start_matches('/').to_owned();
-        Ok(serde_json::json!({"root": root.path, "path": relative}))
+        let roots = self.roots(owner)?;
+        let (root, relative) = roots
+            .iter()
+            .filter_map(|root| Some((root, clean.within(&root.path)?)))
+            .max_by_key(|(root, _)| root.path.len())
+            .ok_or_else(|| Failure::http(404, "not inside any workspace the Finder lists"))?;
+        Ok(serde_json::json!({"root": root.path, "path": relative.trim_start_matches('/')}))
     }
 
     fn open_path(&self, workspace: &FinderRoot, path: &str) -> Outcome<Value> {
@@ -382,76 +370,10 @@ impl Finder {
         Self { shared: Arc::new(Shared::new()) }
     }
 
-    async fn run(&self, call: FsCall) -> Result<FsReply> {
-        let shared = Arc::clone(&self.shared);
-        blocking(move || shared.call(call, None).map_err(Into::into)).await
-    }
-
-    async fn json(&self, call: FsCall) -> Result<Value> {
-        match self.run(call).await? {
-            FsReply::Json(value) => Ok(value),
-            _ => Err(Failure::internal("a file where JSON was expected").into()),
-        }
-    }
-
-    #[napi]
-    pub async fn state(&self) -> Result<Value> {
-        self.json(FsCall::State).await
-    }
-    #[napi]
-    pub async fn roots(&self) -> Result<Value> {
-        self.json(FsCall::Roots).await
-    }
-    #[napi]
-    pub async fn desktop(&self) -> Result<Value> {
-        self.json(FsCall::Desktop).await
-    }
-    #[napi]
-    pub async fn list(&self, root: String, path: Option<String>, hidden: Option<bool>) -> Result<Value> {
-        self.json(FsCall::List { root, path, hidden }).await
-    }
-    #[napi]
-    pub async fn preview(&self, root: String, path: String) -> Result<Value> {
-        self.json(FsCall::Preview { root, path }).await
-    }
-    #[napi]
-    pub async fn download(&self, root: String, path: String) -> Result<FileBytes> {
-        match self.run(FsCall::Download { root, path }).await? {
-            FsReply::File { name, data } => Ok(FileBytes { name, content_type: FsReply::OCTETS.to_owned(), data: data.into() }),
-            _ => Err(Failure::internal("JSON where a file was expected").into()),
-        }
-    }
     #[napi]
     pub async fn locate(&self, path: String) -> Result<Value> {
-        self.json(FsCall::Locate { path }).await
-    }
-    #[napi]
-    pub async fn open_path(&self, root: String, path: String) -> Result<Value> {
-        self.json(FsCall::OpenPath { root, path }).await
-    }
-    #[napi]
-    pub async fn place(&self, root: String, path: Option<String>, file: Option<String>) -> Result<Value> {
-        self.json(FsCall::Place { root, path, file }).await
-    }
-    #[napi]
-    pub async fn mkdir(&self, root: String, path: String) -> Result<Value> {
-        self.json(FsCall::Mkdir { root, path, options: None }).await
-    }
-    #[napi]
-    pub async fn write(&self, root: String, path: String, content: Option<String>, expected_modified_ms: String) -> Result<Value> {
-        self.json(FsCall::Write { root, path, content, expected_modified_ms }).await
-    }
-    #[napi]
-    pub async fn copy_in(&self, root: String, dir: String, source: String) -> Result<Value> {
-        self.json(FsCall::CopyIn { root, dir, source }).await
-    }
-    #[napi]
-    pub async fn rename(&self, root: String, from: String, to: String) -> Result<Value> {
-        self.json(FsCall::Rename { root, from, to }).await
-    }
-    #[napi(js_name = "delete")]
-    pub async fn remove(&self, root: String, path: String) -> Result<Value> {
-        self.json(FsCall::Delete { root, path }).await
+        let shared = Arc::clone(&self.shared);
+        blocking(move || Ok(shared.locate(None, &path)?)).await
     }
 }
 

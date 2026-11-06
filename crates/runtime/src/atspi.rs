@@ -638,6 +638,10 @@ impl Walker {
     }
 }
 
+async fn walk<T: Send + 'static, F: std::future::Future<Output = T>>(work: impl FnOnce() -> F + Send + 'static) -> Result<T> {
+    blocking(move || Ok(async_io::block_on(work()))).await
+}
+
 #[napi]
 pub struct Accessibility {
     walker: Walker,
@@ -647,35 +651,25 @@ pub struct Accessibility {
 impl Accessibility {
     #[napi(factory)]
     pub async fn open() -> Result<Self> {
-        blocking(|| {
-            let walker = async_io::block_on(Walker::open()).map_err(|e| failure("a11y_unavailable", &format!("no AT-SPI bus: {e}")))?;
-            Ok(Self { walker })
-        })
-        .await
+        let walker = walk(Walker::open).await?.map_err(|e| failure("a11y_unavailable", &format!("no AT-SPI bus: {e}")))?;
+        Ok(Self { walker })
     }
 
     #[napi]
     pub async fn tree(&self, pid: u32, title: Option<String>, limit: u32) -> Result<Option<String>> {
-        let walker = self.walker.clone();
-        blocking(move || {
-            let started = Instant::now();
-            let tree = async_io::block_on(walker.tree(pid, title, limit.max(1) as usize)).map_err(|e| failure("a11y_failed", &e.to_string()))?;
-            let Some((tree, nodes, cache)) = tree else { return Ok(None) };
-            log::debug!(target: "perf::a11y", "tree pid={pid} nodes={nodes} cache={} ms={:.1}", cache as u8, started.elapsed().as_secs_f64() * 1000.0);
-            Ok(Some(tree.to_string()))
-        })
-        .await
+        let (started, walker) = (Instant::now(), self.walker.clone());
+        let tree =
+            walk(move || async move { walker.tree(pid, title, limit.max(1) as usize).await }).await?.map_err(|e| failure("a11y_failed", &e.to_string()))?;
+        let Some((tree, nodes, cache)) = tree else { return Ok(None) };
+        log::debug!(target: "perf::a11y", "tree pid={pid} nodes={nodes} cache={} ms={:.1}", cache as u8, started.elapsed().as_secs_f64() * 1000.0);
+        Ok(Some(tree.to_string()))
     }
 
     #[napi]
     pub async fn act(&self, node: String, action: String, text: Option<String>) -> Result<bool> {
-        let walker = self.walker.clone();
-        blocking(move || {
-            let started = Instant::now();
-            let done = async_io::block_on(walker.act(&node, &action, text)).map_err(|e| failure("invalid_request", &e))?;
-            log::debug!(target: "perf::a11y", "act {action} done={} ms={:.1}", done as u8, started.elapsed().as_secs_f64() * 1000.0);
-            Ok(done)
-        })
-        .await
+        let (started, walker, what) = (Instant::now(), self.walker.clone(), action.clone());
+        let done = walk(move || async move { walker.act(&node, &what, text).await }).await?.map_err(|e| failure("invalid_request", &e))?;
+        log::debug!(target: "perf::a11y", "act {action} done={} ms={:.1}", done as u8, started.elapsed().as_secs_f64() * 1000.0);
+        Ok(done)
     }
 }

@@ -1,20 +1,9 @@
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BlankKind {
     Docx,
     Xlsx,
     Pptx,
-}
-
-impl TryFrom<&str> for BlankKind {
-    type Error = ();
-    fn try_from(kind: &str) -> Result<Self, ()> {
-        match kind {
-            "docx" => Ok(Self::Docx),
-            "xlsx" => Ok(Self::Xlsx),
-            "pptx" => Ok(Self::Pptx),
-            _ => Err(()),
-        }
-    }
 }
 
 impl BlankKind {

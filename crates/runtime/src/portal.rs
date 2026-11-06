@@ -6,6 +6,8 @@ use napi::{Env, Result};
 use napi_derive::napi;
 use serde::Deserialize;
 use zbus::blocking::{Connection, MessageIterator, Proxy};
+
+type Options<'a> = HashMap<&'static str, Variant<'a>>;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value as Variant};
 
 use crate::js::{Watch, notify};
@@ -60,6 +62,15 @@ fn filters(list: &[Filter]) -> Vec<(String, Vec<(u32, String)>)> {
         .collect()
 }
 
+fn options<'a>(pairs: impl IntoIterator<Item = (&'static str, Variant<'a>)>, list: &[Filter]) -> Options<'a> {
+    let mut map: Options<'a> = pairs.into_iter().collect();
+    let list = filters(list);
+    if !list.is_empty() {
+        map.insert("filters", Variant::from(list));
+    }
+    map
+}
+
 fn local_path(uri: &str) -> Option<String> {
     url::Url::parse(uri).ok()?.to_file_path().ok()?.into_os_string().into_string().ok()
 }
@@ -70,11 +81,10 @@ pub struct FileChooser {
 }
 
 impl FileChooser {
-    fn request(&self, method: &str, title: &str, mut options: HashMap<&str, Variant<'_>>) -> zbus::Result<Option<Vec<String>>> {
+    fn request(&self, method: &str, title: &str, mut options: Options<'_>) -> zbus::Result<Option<Vec<String>>> {
         let token = format!("acde{}_{}", std::process::id(), TOKENS.fetch_add(1, Ordering::Relaxed));
         options.insert("handle_token", Variant::from(token));
-        let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(REQUEST)?.member("Response")?.build();
-        let signals = MessageIterator::for_match_rule(rule, &self.connection, Some(16))?;
+        let signals = crate::bus::signals(&self.connection, |b| b.interface(REQUEST)?.member("Response"))?;
         let proxy = Proxy::new(&self.connection, PORTAL, PORTAL_PATH, FILE_CHOOSER)?;
         let handle: OwnedObjectPath = proxy.call(method, &("", title, options))?;
         for message in signals {
@@ -99,9 +109,7 @@ impl FileChooser {
     }
 
     fn folder(&self, title: &str) -> zbus::Result<Option<String>> {
-        let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
-        map.insert("multiple", Variant::from(false));
-        map.insert("directory", Variant::from(true));
+        let map = options([("multiple", Variant::from(false)), ("directory", Variant::from(true))], &[]);
         Ok(self.request("OpenFile", title, map)?.and_then(|paths| paths.into_iter().next()))
     }
 }
@@ -125,17 +133,8 @@ impl FileChooser {
     pub async fn open_file(&self, options: serde_json::Value) -> Result<Option<Vec<String>>> {
         let options: OpenOptions = serde_json::from_value(options).map_err(|e| failure("bad_options", &e.to_string()))?;
         let chooser = Self { connection: self.connection.clone() };
-        blocking(move || {
-            let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
-            map.insert("multiple", Variant::from(options.multiple));
-            map.insert("directory", Variant::from(options.directory));
-            let list = filters(&options.filters);
-            if !list.is_empty() {
-                map.insert("filters", Variant::from(list));
-            }
-            chooser.request("OpenFile", &options.title, map).map_err(bus)
-        })
-        .await
+        let map = [("multiple", Variant::from(options.multiple)), ("directory", Variant::from(options.directory))];
+        blocking(move || chooser.request("OpenFile", &options.title, self::options(map, &options.filters)).map_err(bus)).await
     }
 
     #[napi(ts_args_type = "options: { title?: string; name?: string; filters?: { name: string; globs?: string[]; mimes?: string[] }[] }")]
@@ -143,15 +142,8 @@ impl FileChooser {
         let options: SaveOptions = serde_json::from_value(options).map_err(|e| failure("bad_options", &e.to_string()))?;
         let chooser = Self { connection: self.connection.clone() };
         blocking(move || {
-            let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
-            if !options.name.is_empty() {
-                map.insert("current_name", Variant::from(options.name.as_str()));
-            }
-            let list = filters(&options.filters);
-            if !list.is_empty() {
-                map.insert("filters", Variant::from(list));
-            }
-            Ok(chooser.request("SaveFile", &options.title, map).map_err(bus)?.and_then(|paths| paths.into_iter().next()))
+            let name = (!options.name.is_empty()).then(|| ("current_name", Variant::from(options.name.as_str())));
+            Ok(chooser.request("SaveFile", &options.title, self::options(name, &options.filters)).map_err(bus)?.and_then(|paths| paths.into_iter().next()))
         })
         .await
     }
@@ -182,8 +174,7 @@ impl Appearance {
     }
 
     fn changes(connection: &Connection) -> zbus::Result<MessageIterator> {
-        let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).path(PORTAL_PATH)?.interface(SETTINGS)?.member("SettingChanged")?.build();
-        MessageIterator::for_match_rule(rule, connection, Some(16))
+        crate::bus::signals(connection, |b| b.path(PORTAL_PATH)?.interface(SETTINGS)?.member("SettingChanged"))
     }
 
     fn on(connection: Connection) -> Self {
@@ -208,19 +199,16 @@ impl Appearance {
     pub fn watch(&self, env: Env, callback: Unknown<'_>) -> Result<()> {
         self.watch.watch(&env, callback, |sink| {
             let signals = Self::changes(&self.connection).map_err(bus)?;
-            std::thread::Builder::new()
-                .name("acde-appearance".into())
-                .spawn(move || {
-                    for message in signals {
-                        let Ok(message) = message else { break };
-                        let Ok((namespace, key, value)) = message.body().deserialize::<(String, String, OwnedValue)>() else { continue };
-                        if namespace == APPEARANCE && key == COLOR_SCHEME {
-                            notify(&sink, dark_scheme(&value));
-                        }
-                    }
-                })
-                .map(drop)
-                .map_err(|e| napi::Error::from_reason(e.to_string()))
+            let listened = crate::bus::listen("acde-appearance", signals, move |message| {
+                if let Ok((namespace, key, value)) = message.body().deserialize::<(String, String, OwnedValue)>()
+                    && namespace == APPEARANCE
+                    && key == COLOR_SCHEME
+                {
+                    notify(&sink, dark_scheme(&value));
+                }
+                true
+            });
+            listened.map_err(|e| napi::Error::from_reason(e.to_string()))
         })
     }
 }
@@ -320,20 +308,13 @@ mod tests {
             .build()
             .unwrap();
         let chooser = FileChooser::on(connect()).unwrap();
-        let open = |title: &str, multiple: bool, list: &[Filter]| {
-            let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
-            map.insert("multiple", Variant::from(multiple));
-            if !list.is_empty() {
-                map.insert("filters", Variant::from(filters(list)));
-            }
-            chooser.request("OpenFile", title, map).unwrap()
-        };
+        let open =
+            |title: &str, multiple: bool, list: &[Filter]| chooser.request("OpenFile", title, options([("multiple", Variant::from(multiple))], list)).unwrap();
         let images = [Filter { name: "Images".into(), globs: vec!["*.png".into()], mimes: vec!["image/jpeg".into()] }];
         assert_eq!(open("Pick", false, &images), Some(vec!["/tmp/picked/a b.txt".to_string()]));
         assert_eq!(open("Pick", true, &[]), Some(vec!["/tmp/picked/a b.txt".to_string(), "/tmp/picked/你.png".to_string()]));
         assert_eq!(open("cancel", true, &[]), None);
-        let mut save: HashMap<&str, Variant<'_>> = HashMap::new();
-        save.insert("current_name", Variant::from("out.json"));
+        let save = options([("current_name", Variant::from("out.json"))], &[]);
         assert_eq!(chooser.request("SaveFile", "Save", save).unwrap(), Some(vec!["/tmp/picked/out.json".to_string()]));
         assert_eq!(chooser.folder("Folder").unwrap(), Some("/tmp/picked/a b.txt".to_string()));
         assert_eq!(chooser.folder("cancel").unwrap(), None);

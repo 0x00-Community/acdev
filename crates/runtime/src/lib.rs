@@ -3,8 +3,6 @@ mod atspi;
 #[cfg(target_os = "linux")]
 mod bus;
 mod failure;
-#[cfg(target_os = "linux")]
-mod fields;
 pub(crate) mod fs;
 #[cfg(target_os = "linux")]
 mod greetd;
@@ -31,13 +29,13 @@ mod voice;
 pub use atspi::Accessibility;
 #[cfg(target_os = "linux")]
 pub use bus::DesktopBus;
-pub use fs::{ChildKind, FileBytes, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
+pub use fs::{EntryKind, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
 #[cfg(target_os = "linux")]
 pub use greetd::{GreetUser, Greetd};
 #[cfg(target_os = "linux")]
 pub use ime::{Ime, ImeCapability};
 #[cfg(target_os = "linux")]
-pub use network::{NetCall, Network, Networks};
+pub use network::{NetCall, Networks};
 #[cfg(target_os = "linux")]
 pub use office::{OfficeCall, OfficeService};
 #[cfg(target_os = "linux")]
@@ -66,6 +64,24 @@ fn state_file(name: &str) -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".local/state")))?;
     Some(state.join("acde").join(name))
+}
+
+fn write_state(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    cfg_select! {
+        unix => { std::os::unix::fs::OpenOptionsExt::mode(&mut options, mode); }
+        _ => { _ = mode; }
+    }
+    let mut out = options.open(&tmp)?;
+    out.write_all(bytes)?;
+    out.sync_all()?;
+    std::fs::rename(tmp, path)
 }
 
 async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {

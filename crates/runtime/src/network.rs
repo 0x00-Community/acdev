@@ -2,17 +2,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-use napi::bindgen_prelude::Unknown;
-use napi::{Env, Result};
-use napi_derive::napi;
+use napi::Result;
 use serde_json::{Value, json};
-use zbus::blocking::{Connection, MessageIterator, Proxy};
+use zbus::blocking::{Connection, Proxy};
 use zbus::proxy::CacheProperties;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value as Variant};
 
-use crate::js::{Watch, notify};
+use crate::failure;
 use crate::sync::Locked;
-use crate::{blocking, failure};
 
 const NM: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";
@@ -325,73 +322,6 @@ impl Nm {
     }
 }
 
-#[napi]
-pub struct Network {
-    nm: Nm,
-    watch: Watch<Value>,
-}
-
-impl Drop for Network {
-    fn drop(&mut self) {
-        _ = self.nm.connection.clone().close();
-    }
-}
-
-#[napi]
-impl Network {
-    #[napi(factory)]
-    pub async fn open() -> Result<Self> {
-        blocking(|| Ok(Self { nm: Nm::open()?, watch: Watch::default() })).await
-    }
-
-    #[napi]
-    pub async fn state(&self) -> Result<Value> {
-        let nm = self.nm.clone();
-        blocking(move || nm.state().map_err(bus)).await
-    }
-
-    #[napi]
-    pub async fn networks(&self, scan: Option<bool>) -> Result<Value> {
-        let nm = self.nm.clone();
-        blocking(move || {
-            if scan.unwrap_or(false) {
-                nm.scan().map_err(bus)?;
-            }
-            nm.networks().map_err(bus)
-        })
-        .await
-    }
-
-    #[napi]
-    pub async fn connect(&self, ssid: String, password: Option<String>) -> Result<()> {
-        let nm = self.nm.clone();
-        blocking(move || nm.join(&ssid, password.as_deref())).await
-    }
-
-    #[napi]
-    pub async fn activate(&self, iface: String) -> Result<()> {
-        let nm = self.nm.clone();
-        blocking(move || nm.activate(&iface)).await
-    }
-
-    #[napi]
-    pub async fn disconnect(&self, iface: String) -> Result<()> {
-        let nm = self.nm.clone();
-        blocking(move || nm.disconnect(&iface)).await
-    }
-
-    #[napi]
-    pub async fn set_wifi_enabled(&self, on: bool) -> Result<()> {
-        let nm = self.nm.clone();
-        blocking(move || nm.set_wifi_enabled(on)).await
-    }
-
-    #[napi(ts_args_type = "callback: (state: unknown) => void")]
-    pub fn watch(&self, env: Env, callback: Unknown<'_>) -> Result<()> {
-        self.watch.watch(&env, callback, |sink| self.nm.start_watching(move |state| notify(&sink, state)))
-    }
-}
-
 impl Nm {
     fn open() -> Result<Self> {
         let connection = Connection::system().map_err(|e| failure("network_unavailable", &e.to_string()))?;
@@ -419,42 +349,20 @@ impl Nm {
     }
 
     fn start_watching(&self, notify: impl Fn(Value) + Send + 'static) -> Result<()> {
-        let rule = zbus::MatchRule::builder()
-            .msg_type(zbus::message::Type::Signal)
-            .sender(NM)
-            .and_then(|b| b.path_namespace(NM_PATH))
-            .and_then(|b| b.interface(PROPERTIES))
-            .and_then(|b| b.member("PropertiesChanged"))
-            .map_err(bus)?
-            .build();
-        let signals = MessageIterator::for_match_rule(rule, &self.connection, None).map_err(bus)?;
+        let signals = crate::bus::signals(&self.connection, |b| b.sender(NM)?.path_namespace(NM_PATH)?.interface(PROPERTIES)?.member("PropertiesChanged"))
+            .map_err(bus)?;
         let (tx, rx) = mpsc::channel::<()>();
-        let spawn = |name: &str, f: Box<dyn FnOnce() + Send>| {
-            std::thread::Builder::new().name(name.into()).spawn(f).map(drop).map_err(|e| napi::Error::from_reason(e.to_string()))
-        };
-        spawn(
-            "acde-network",
-            Box::new(move || {
-                for message in signals {
-                    if message.is_err() || tx.send(()).is_err() {
-                        break;
-                    }
-                }
-            }),
-        )?;
+        crate::bus::listen("acde-network", signals, move |_| tx.send(()).is_ok()).map_err(|e| napi::Error::from_reason(e.to_string()))?;
         let nm = self.clone();
-        spawn(
-            "acde-network-state",
-            Box::new(move || {
-                while rx.recv().is_ok() {
-                    while rx.recv_timeout(SETTLE).is_ok() {}
-                    if let Ok(state) = nm.state() {
-                        notify(state);
-                    }
+        let watching = std::thread::Builder::new().name("acde-network-state".into()).spawn(move || {
+            while rx.recv().is_ok() {
+                while rx.recv_timeout(SETTLE).is_ok() {}
+                if let Ok(state) = nm.state() {
+                    notify(state);
                 }
-            }),
-        )?;
-        Ok(())
+            }
+        });
+        watching.map(drop).map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 }
 

@@ -54,21 +54,11 @@ pub struct SaveResult {
     pub conflict: bool,
 }
 
-pub struct OfficeFiles {
-    finder: Arc<Finder>,
-}
+pub struct OfficeFiles(pub Arc<Finder>);
 
 impl OfficeFiles {
     fn stamp() -> String {
         jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::system()).strftime("%m-%d %H-%M").to_string()
-    }
-
-    pub fn new(finder: Arc<Finder>) -> Self {
-        Self { finder }
-    }
-
-    fn fs(&self) -> &WorkspaceFs {
-        &self.finder.fs
     }
 
     pub fn extension(path: &str) -> String {
@@ -81,11 +71,11 @@ impl OfficeFiles {
     }
 
     pub fn roots(&self) -> Outcome<Vec<FinderRoot>> {
-        self.fs().roots()
+        self.0.fs.roots()
     }
 
     pub fn file(&self, root_path: &str, relative: &str) -> Outcome<OfficeFile> {
-        Self::file_in(self.fs().root(root_path)?, relative)
+        Self::file_in(self.0.fs.root(root_path)?, relative)
     }
 
     pub fn file_in(root: FinderRoot, relative: &str) -> Outcome<OfficeFile> {
@@ -122,7 +112,7 @@ impl OfficeFiles {
     }
 
     pub fn list_in(&self, root: FinderRoot, relative: &str) -> Outcome<(String, Vec<OfficeEntry>, bool)> {
-        let listing = self.fs().list_in(root, relative, false)?;
+        let listing = self.0.fs.list_in(root, relative, false)?;
         let entries = listing
             .entries
             .into_iter()
@@ -165,7 +155,7 @@ impl OfficeFiles {
         if base.is_empty() || base.contains(['/', '\\', '\0']) || base.starts_with('.') {
             return Err(Failure::invalid("invalid file name"));
         }
-        let root = self.fs().root(root_path)?;
+        let root = self.0.fs.root(root_path)?;
         let folder = WorkspaceFs::resolve(&root, directory, true)?;
         if !fs::metadata(&folder.real)?.is_dir() {
             return Err(Failure::invalid("not a directory"));
@@ -196,7 +186,7 @@ impl OfficeFiles {
     }
 
     pub fn save(&self, root_path: &str, relative: &str, data: &[u8], expected_ms: i64) -> Outcome<SaveResult> {
-        let root = self.fs().root(root_path)?;
+        let root = self.0.fs.root(root_path)?;
         let target = WorkspaceFs::resolve(&root, relative, false)?;
         let current = fs::symlink_metadata(&target.absolute).ok();
         if current.as_ref().is_some_and(|c| !c.is_file()) {

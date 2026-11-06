@@ -1,9 +1,8 @@
 use super::FsError;
 use super::path::NodePath;
-use super::workspace::{ChildKind, Contents, FinderRoot, WorkspaceFs, WriteOptions};
+use super::workspace::{Contents, EntryKind, FinderRoot, WorkspaceFs, WriteOptions};
 use crate::failure::{Errno, Failure, Outcome};
 use crate::sync::Locked;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Default)]
@@ -15,16 +14,7 @@ type Picked<T> = std::result::Result<T, FsError>;
 
 impl PickedFolders {
     pub fn add(&self, path: &str) -> Picked<String> {
-        if !path.is_absolute() {
-            return Err(Failure::invalid("a picked folder is an absolute path").into());
-        }
-        let path = match path.normalize() {
-            clean if clean.len() > 1 => clean.trim_end_matches('/').to_owned(),
-            clean => clean,
-        };
-        if !Path::new(&path).is_dir() {
-            return Err(Failure::invalid("a picked folder must be an existing folder").into());
-        }
+        let path = super::grants::folder(path, "picked")?;
         let mut roots = self.roots.locked();
         if !roots.iter().any(|root| root.path == path) {
             roots.push(WorkspaceFs::granted(&path));
@@ -34,26 +24,19 @@ impl PickedFolders {
 
     fn locate(&self, path: &str) -> Outcome<(FinderRoot, String)> {
         let roots = self.roots.locked();
-        let within = |root: &FinderRoot| -> Option<String> {
-            if root.path == path {
-                return Some(String::new());
-            }
-            let rest = if root.path == "/" { path.strip_prefix('/') } else { path.strip_prefix(root.path.as_str())?.strip_prefix('/') };
-            rest.map(str::to_owned)
-        };
         roots
             .iter()
-            .filter_map(|root| within(root).map(|relative| (root.clone(), relative)))
+            .filter_map(|root| path.within(&root.path).map(|relative| (root.clone(), relative.to_owned())))
             .max_by_key(|(root, _)| root.path.len())
             .ok_or_else(|| Failure::http(403, "not inside a folder the user picked"))
     }
 
-    pub fn entries(&self, dir: &str) -> Picked<Vec<(String, ChildKind)>> {
+    pub fn entries(&self, dir: &str) -> Picked<Vec<(String, EntryKind)>> {
         let (root, relative) = self.locate(dir)?;
         Ok(WorkspaceFs::children_in(&root, &relative)?)
     }
 
-    pub fn child(&self, dir: &str, name: &str, create: Option<ChildKind>) -> Picked<Option<ChildKind>> {
+    pub fn child(&self, dir: &str, name: &str, create: Option<EntryKind>) -> Picked<Option<EntryKind>> {
         let (root, relative) = self.locate(dir)?;
         Ok(WorkspaceFs::child_in(&root, &relative, name, create)?)
     }
@@ -83,6 +66,7 @@ impl PickedFolders {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+    use std::path::Path;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn scratch() -> String {
@@ -117,18 +101,18 @@ mod tests {
         let folders = PickedFolders::default();
         folders.add(&picked).unwrap();
         assert_eq!(folders.child(&picked, "a.txt", None).unwrap(), None);
-        assert_eq!(folders.child(&picked, "a.txt", Some(ChildKind::File)).unwrap(), Some(ChildKind::File));
-        assert_eq!(folders.child(&picked, "sub", Some(ChildKind::Directory)).unwrap(), Some(ChildKind::Directory));
-        assert_eq!(folders.child(&picked, "sub", Some(ChildKind::File)).unwrap(), Some(ChildKind::Directory));
+        assert_eq!(folders.child(&picked, "a.txt", Some(EntryKind::File)).unwrap(), Some(EntryKind::File));
+        assert_eq!(folders.child(&picked, "sub", Some(EntryKind::Directory)).unwrap(), Some(EntryKind::Directory));
+        assert_eq!(folders.child(&picked, "sub", Some(EntryKind::File)).unwrap(), Some(EntryKind::Directory));
         let sub = picked.join("sub");
-        assert_eq!(folders.child(&sub, "deep", Some(ChildKind::Directory)).unwrap(), Some(ChildKind::Directory));
+        assert_eq!(folders.child(&sub, "deep", Some(EntryKind::Directory)).unwrap(), Some(EntryKind::Directory));
         folders.write(&sub.join("deep/n.md"), b"# n").unwrap();
         let read = folders.read(&sub.join("deep/n.md")).unwrap().unwrap();
         assert_eq!(read.data, b"# n");
         assert!(folders.read(&sub.join("gone.md")).unwrap().is_none());
         let mut names = folders.entries(&picked).unwrap();
         names.sort_by(|a, b| a.0.cmp(&b.0));
-        assert_eq!(names, [("a.txt".to_string(), ChildKind::File), ("sub".to_string(), ChildKind::Directory)]);
+        assert_eq!(names, [("a.txt".to_string(), EntryKind::File), ("sub".to_string(), EntryKind::Directory)]);
         assert_eq!(code(folders.remove(&picked, "sub", false)), "ENOTEMPTY");
         assert!(folders.remove(&picked, "sub", true).unwrap());
         assert!(!folders.remove(&picked, "sub", true).unwrap());
@@ -145,9 +129,9 @@ mod tests {
         folders.add(&picked).unwrap();
         symlink(base.join("nowhere"), picked.join("dangling")).unwrap();
         symlink(&base, picked.join("out")).unwrap();
-        assert_eq!(folders.child(&picked, "dangling", Some(ChildKind::File)).unwrap(), Some(ChildKind::Other));
+        assert_eq!(folders.child(&picked, "dangling", Some(EntryKind::File)).unwrap(), Some(EntryKind::Symlink));
         assert!(!Path::new(&base.join("nowhere")).exists());
-        assert_eq!(folders.child(&picked, "out", None).unwrap(), Some(ChildKind::Other));
+        assert_eq!(folders.child(&picked, "out", None).unwrap(), Some(EntryKind::Symlink));
         assert_eq!(code(folders.entries(&picked.join("out"))), "EINVAL");
         assert_eq!(code(folders.write(&picked.join("out/x"), b"x")), "EINVAL");
         assert!(!Path::new(&base.join("x")).exists());

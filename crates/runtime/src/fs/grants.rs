@@ -42,13 +42,8 @@ impl Grants {
 
     fn save(&self, owner: &str, roots: &[String]) {
         let Some(file) = self.file(owner) else { return };
-        let tmp = file.with_extension("json.tmp");
         let text = serde_json::to_vec(&Saved { roots: roots.to_vec() }).unwrap_or_default();
-        let written = file.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| {
-            std::fs::write(&tmp, text)?;
-            std::fs::rename(&tmp, &file)
-        });
-        if let Err(error) = written {
+        if let Err(error) = crate::write_state(&file, &text, 0o644) {
             log::warn!("remembering the folders granted to {owner} in {}: {error}", file.display());
         }
     }
@@ -70,16 +65,7 @@ impl Grants {
         if !Self::valid_owner(owner) {
             return Err(Failure::invalid("folders are granted to an app"));
         }
-        if !path.is_absolute() {
-            return Err(Failure::invalid("a granted folder is an absolute path"));
-        }
-        let path = match path.normalize() {
-            clean if clean.len() > 1 => clean.trim_end_matches('/').to_owned(),
-            clean => clean,
-        };
-        if !Path::new(&path).is_dir() {
-            return Err(Failure::invalid("a granted folder must be an existing folder"));
-        }
+        let path = folder(path, "granted")?;
         self.with(owner, |roots| {
             if !roots.contains(&path) {
                 roots.push(path.clone());
@@ -103,6 +89,20 @@ impl Grants {
             Ok(())
         })
     }
+}
+
+pub fn folder(path: &str, what: &str) -> Outcome<String> {
+    if !path.is_absolute() {
+        return Err(Failure::invalid(format!("a {what} folder is an absolute path")));
+    }
+    let path = match path.normalize() {
+        clean if clean.len() > 1 => clean.trim_end_matches('/').to_owned(),
+        clean => clean,
+    };
+    if !Path::new(&path).is_dir() {
+        return Err(Failure::invalid(format!("a {what} folder must be an existing folder")));
+    }
+    Ok(path)
 }
 
 #[cfg(test)]

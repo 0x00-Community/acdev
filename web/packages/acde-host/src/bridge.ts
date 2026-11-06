@@ -12,7 +12,7 @@ export class PageBridge {
   #office = false
 
   available(caps: { fs?: unknown; terminal?: unknown; office?: unknown }): boolean {
-    return (!caps.fs || !!this.value['fs']) && (!caps.terminal || !!this.value['terminal']) && (!caps.office || this.#office)
+    return (!caps.fs || !!this.value['fs']) && (!caps.terminal || process.platform !== 'win32') && (!caps.office || this.#office)
   }
 
   async start(native: Native, desktop: InstalledDesktop): Promise<void> {
@@ -26,32 +26,17 @@ export class PageBridge {
   }
 
   async #open(native: Native): Promise<void> {
-    const optional = async <T>(name: string, open: () => Promise<T> | T): Promise<T | null> => {
-      try {
-        return await open()
-      } catch (error) {
-        Log.write(Level.Warn, 'acde_host', `${name} unavailable: ${(error as Error).message}`)
-        return null
-      }
+    try {
+      if (native.Finder) this.value['fs'] = new native.Finder()
+    } catch (error) {
+      Log.write(Level.Warn, 'acde_host', `fs unavailable: ${(error as Error).message}`)
     }
-    const { Terminals, Network } = native
-    const [terminal, network] = await Promise.all([
-      Terminals ? optional('terminal', () => new Terminals()) : null,
-      Network ? optional('network', () => Network.open()) : null,
-    ])
-    const fs = native.Finder ? await optional('fs', () => new native.Finder!()) : null
-    if (fs) this.value['fs'] = fs
     const failed = sys().openOffice?.()
     if (failed === null) {
       this.#office = true
       this.#closers.unshift(() => sys().closeOffice?.())
     } else if (failed === undefined) Log.write(Level.Debug, 'acde_host', `office: none on ${process.platform}, apps that need it are unavailable`)
     else Log.write(Level.Warn, 'acde_host', `office unavailable: ${failed}`)
-    if (terminal) {
-      this.value['terminal'] = terminal
-      this.#closers.unshift(() => terminal.closeAll())
-    }
-    if (network) this.value['network'] = network
   }
 
   async close(): Promise<void> {

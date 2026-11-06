@@ -68,7 +68,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **注入的系统能力** (`spawnWeb` 第 7 个参数 `{app, fs, terminal, network, office}`, Broker `#grants`: 桌面全给, 应用按清单): fs、terminal、
   network、office 和选文件夹在各 web 里绑定同一份 Rust 对象 (crates/acdert `fs.rs` / `terminal.rs` / `network.rs` / `office.rs` /
   `picker.rs`; 阻塞的活经 `offload.rs` 各起一条线程, promise 在这个 web 的事件循环上落定). 限制 (fs 的 roots) 在注入时绑进去, 没给的
-  `import('acde:<名字>')` 直接失败. Broker 自己 (桌面服务、`locate`、office) 用 napi 的 `Finder` / `Terminals` / `Network`, 是另一份.
+  `import('acde:<名字>')` 直接失败. Broker 自己只用 napi `Finder` 的 `locate` (「默认应用」), 是另一份.
   terminal (只在 unix) 的 pty 子进程 exec 前关掉 3 以上的所有 fd; network 第一次调用时连 NetworkManager; office 由 Broker 起服务时
   `sys.openOffice()` 开 (network / office 只在 Linux).
 - **还没做的**: 窗口 / 应用 / 会话表还在 Broker 的 JS 里 (`acde:windows` / `acde:apps` / `acde:window` / `acde:session` 经 RPC);
@@ -302,7 +302,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `[<app>#backend]`, `PR_SET_PDEATHSIG` (子进程都由 `acde-fork` 线程 fork). preload 把 listen 换成 unix socket (`$XDG_RUNTIME_DIR/acde/apps/<id>/`),
   指定端口的 UDP bind 拒绝; 原生扩展开的端口管不到.
 - **路由**: 页面的 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` 发往同源非资源路径或 `localhost:<port>` 时由这个 web 自己的线程发
-  (crates/acdert `backend.rs` → runtime `unixhttp.rs` `UnixClient`, I/O 在 `acde-rt` 线程), 只能连自己应用的 socket (`init.sockets`), 没出现或
+  (crates/acdert `backend.rs` → runtime `unixhttp.rs` `UnixClient`: ntex 的 HTTP / WebSocket 客户端, 连接是先连好的 unix socket, I/O 在 `acde-rt` 线程), 只能连自己应用的 socket (`init.sockets`), 没出现或
   拒绝连接时重试 10 秒. 别的地址不联网.
 - **语音输入** (runtime `src/voice/`, Linux): `listen(onEvent)` 从 PipeWire 默认输入录 16 kHz 单声道, 连豆包输入法的流式识别 (非官方接口,
   身份存 `$XDG_STATE_HOME/acde/doubao-ime.json`). 事件 `partial {text}`、结束时恰好一个 `final` 或 `error`; `stop(id)` 等定稿 (最多 10 秒), 60 秒自动停,
@@ -331,7 +331,7 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
 | `EIO` | 500 | 别的 (细节进日志) |
 
 `code` 由造 `Failure` 的地方定 (`exists` / `conflict` / `with`), 否则按 status; io 错误按 `io::ErrorKind` 映射 (unix 上另认 ELOOP). 只有
-`acde:fs` 是这个形状; napi `Finder` 的 message 照旧是失败的 JSON.
+`acde:fs` 是这个形状; napi `Finder.locate` 的 message 照旧是失败的 JSON.
 
 调用: `list` / `preview` (文字最多 256 KiB) / `write` (最多 384 KiB, `expectedModifiedMs` 是字符串或 `'new'`) / `mkdir` / `rename` / `remove` /
 `copyIn` …, 和文件级的:
@@ -584,7 +584,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/gpu` | `acde-gpu`: 2D 场景和 vello 渲染器, 每个 OS 一个 wgpu 后端 |
 | `crates/paint` | `acde-paint`: 会话里 web 的光栅化线程 (帧 → GBM dmabuf), WebGPU 和 canvas 共用的设备 |
 | `crates/window` | `acde-window`: 会话里 web 的 Wayland 客户端 (sctk): toplevel、dmabuf、输入、剪贴板、拖放、`acde_window`、窗框子 surface |
-| `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `tests/run.sh <acdert> tests/<x>-check.mjs`、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` |
+| `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty 上的终端、copyIn、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
 | `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
 | `crates/ipc` | `acde-ipc`: unix socket / Windows 命名管道上的一行一个 JSON (`acde dev`) |
 | `crates/log` | `acde-log`: 日志和计时 |

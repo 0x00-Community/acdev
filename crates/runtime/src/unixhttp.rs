@@ -1,25 +1,28 @@
-use crate::failure::{Failure, Outcome};
-use crate::http::{Body, Head, Incoming, Messages, Request};
+use crate::http::{Incoming, Messages};
 use crate::sync::Locked;
 use futures_channel::oneshot;
+use futures_util::{StreamExt, future::AbortHandle};
+use ntex::connect::{Connect, ConnectError};
+use ntex::http::{Method, header};
 use ntex::io::Io;
-use ntex::time::{Deadline, Millis};
-use ntex::ws::{CloseCode, CloseReason, Message};
+use ntex::service::fn_service;
+use ntex::time::{Deadline, Millis, Seconds};
+use ntex::url::Url;
+use ntex::ws::{CloseCode, CloseReason, Codec, Message, WsClient, WsClientConfig};
 use std::{
+    cell::{Cell, RefCell},
     collections::HashMap,
     future::{Future, poll_fn},
     pin::pin,
     sync::{
-        Arc, Mutex, Weak,
+        Arc, Mutex,
         atomic::{AtomicU32, Ordering},
     },
     task::Poll,
     time::{Duration, Instant},
 };
 
-const HEAD_LIMIT: u64 = 64 * 1024;
-const READ: usize = 64 * 1024;
-const HANDSHAKE: Duration = Duration::from_secs(30);
+const HANDSHAKE: Seconds = Seconds(30);
 const CLOSING: Duration = Duration::from_secs(5);
 const READY: Duration = Duration::from_secs(10);
 const RETRY: Duration = Duration::from_millis(50);
@@ -87,32 +90,41 @@ async fn connect(socket: &str) -> std::result::Result<Io, String> {
     }
 }
 
+thread_local! {
+    static DIALED: RefCell<HashMap<String, Io>> = RefCell::default();
+    static CLIENT: ntex::client::Client = ntex::client::Client::builder()
+        .connector(fn_service(async |connect: Connect<Url>| {
+            DIALED.with(|dialed| dialed.borrow_mut().remove(connect.host())).ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))
+        }))
+        .build(ntex::SharedCfg::new("acde-backend").add(ntex::client::ClientConfig::new().set_h1_connection_limit(0)));
+}
+
 fn is_token(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
 
-fn target(socket: &str, path: &str) -> Outcome<()> {
+fn target(socket: &str, path: &str) -> Result<(), String> {
     if !socket.starts_with('/') || socket.contains('\0') {
-        return Err(Failure::invalid("socket must be an absolute path"));
+        return Err("socket must be an absolute path".into());
     }
     if !path.starts_with('/') || !path.bytes().all(|b| b.is_ascii_graphic()) {
-        return Err(Failure::invalid("path must start with / and be visible ASCII (percent-encoded)"));
+        return Err("path must start with / and be visible ASCII (percent-encoded)".into());
     }
     Ok(())
 }
 
-fn headers(pairs: Vec<Vec<String>>, owned: &[&[&str]]) -> Outcome<(String, Vec<(String, String)>)> {
+fn headers(pairs: Vec<Vec<String>>, owned: &[&[&str]]) -> Result<(String, Vec<(String, String)>), String> {
     let mut host = "localhost".to_owned();
     let mut kept = Vec::with_capacity(pairs.len());
     for pair in pairs {
         let Ok([name, value]) = <[String; 2]>::try_from(pair) else {
-            return Err(Failure::invalid("a header must be [name, value]"));
+            return Err("a header must be [name, value]".into());
         };
         if !is_token(&name) {
-            return Err(Failure::invalid(format!("bad header name {name:?}")));
+            return Err(format!("bad header name {name:?}"));
         }
         if value.contains(['\r', '\n', '\0']) {
-            return Err(Failure::invalid(format!("bad value of header {name}")));
+            return Err(format!("bad value of header {name}"));
         }
         let lower = name.to_ascii_lowercase();
         if lower == "host" {
@@ -122,7 +134,7 @@ fn headers(pairs: Vec<Vec<String>>, owned: &[&[&str]]) -> Outcome<(String, Vec<(
         }
     }
     if host.is_empty() || !host.bytes().all(|b| b.is_ascii_graphic()) {
-        return Err(Failure::invalid("bad Host header"));
+        return Err("bad Host header".into());
     }
     Ok((host, kept))
 }
@@ -137,10 +149,10 @@ pub(crate) struct Exchange {
 }
 
 impl Exchange {
-    fn new(socket: String, method: String, path: String, pairs: Vec<Vec<String>>, body: Option<Vec<u8>>) -> Outcome<Self> {
+    fn new(socket: String, method: String, path: String, pairs: Vec<Vec<String>>, body: Option<Vec<u8>>) -> Result<Self, String> {
         target(&socket, &path)?;
         if !is_token(&method) {
-            return Err(Failure::invalid("method must be an HTTP token"));
+            return Err("method must be an HTTP token".into());
         }
         let (host, headers) = headers(pairs, &[FRAMING])?;
         Ok(Self { socket, method, path, host, headers, body })
@@ -152,50 +164,38 @@ impl Exchange {
         }
     }
 
-    async fn exchange(&self, events: &impl Events) -> std::result::Result<(), Stop> {
+    async fn exchange(self, events: &impl Events) -> std::result::Result<(), Stop> {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
         let io = connect(&self.socket).await?;
-        let request = Request {
-            method: &self.method,
-            path: &self.path,
-            host: &self.host,
-            headers: self.headers.iter().map(|(name, value)| (name.as_str(), value.clone())).collect(),
-            body: self.body.as_deref(),
-        };
-        let queued = io.encode_slice(&request.encode());
-        let send = async {
-            queued?;
-            io.flush(true).await
-        };
-        let receive = async {
-            let head = loop {
-                let head = Head::read(&io, HEAD_LIMIT).await?;
-                match head.status {
-                    101 => return Err(Stop::Failed("the server switched protocols".into())),
-                    100..=199 => continue,
-                    _ => break head,
-                }
-            };
-            let framing = head.framing(&self.method)?;
-            let Head { status, reason, headers } = head;
-            if !events.emit(Event::Head { status, status_text: reason, headers }).await {
-                return Err(Stop::Gone);
-            }
-            let (mut body, mut buffer) = (Body::new(framing), vec![0; READ]);
-            while let Some(read) = body.next(&io, &mut buffer).await? {
-                if !events.emit(Event::Chunk(buffer[..read].to_vec())).await {
-                    return Err(Stop::Gone);
-                }
-            }
-            if !events.emit(Event::End).await {
-                return Err(Stop::Gone);
-            }
-            Ok(())
-        };
-        let (sent, received) = futures_lite::future::zip(send, receive).await;
-        match (sent, received) {
-            (Err(error), Err(Stop::Failed(_))) => Err(Stop::Failed(format!("sending the request failed: {error}"))),
-            (_, received) => received,
+        let dialed = format!("c{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        DIALED.with(|d| d.borrow_mut().insert(dialed.clone(), io));
+        let client = CLIENT.with(Clone::clone);
+        let mut request = client.request(Method::from_bytes(self.method.as_bytes())?, format!("http://{dialed}{}", self.path));
+        request = request.force_close().timeout(Millis::ZERO).set_header(header::HOST, self.host.as_str());
+        for (name, value) in &self.headers {
+            request = request.header(name.as_str(), value.as_str());
         }
+        let sent = match self.body {
+            Some(body) => request.send_body(body).await,
+            None => request.send().await,
+        };
+        DIALED.with(|d| d.borrow_mut().remove(&dialed));
+        let mut response = sent?;
+        let status = response.status();
+        let headers = response.headers().iter().map(|(name, value)| (name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).trim().to_owned()));
+        let head = Event::Head { status: status.as_u16(), status_text: status.canonical_reason().unwrap_or_default().into(), headers: headers.collect() };
+        if !events.emit(head).await {
+            return Err(Stop::Gone);
+        }
+        while let Some(chunk) = response.next().await {
+            if !events.emit(Event::Chunk(chunk?.to_vec())).await {
+                return Err(Stop::Gone);
+            }
+        }
+        if !events.emit(Event::End).await {
+            return Err(Stop::Gone);
+        }
+        Ok(())
     }
 }
 
@@ -219,65 +219,34 @@ enum Step {
 }
 
 impl Upgrade {
-    fn new(socket: String, path: String, pairs: Vec<Vec<String>>, protocols: Vec<String>) -> Outcome<Self> {
+    fn new(socket: String, path: String, pairs: Vec<Vec<String>>, protocols: Vec<String>) -> Result<Self, String> {
         target(&socket, &path)?;
         let (host, headers) = headers(pairs, &[FRAMING, HANDSHAKE_HEADERS])?;
         for (i, protocol) in protocols.iter().enumerate() {
             if !is_token(protocol) || protocols[..i].contains(protocol) {
-                return Err(Failure::invalid(format!("bad or repeated protocol {protocol:?}")));
+                return Err(format!("bad or repeated protocol {protocol:?}"));
             }
         }
         Ok(Self { socket, path, host, headers, protocols })
     }
 
-    async fn handshake(&self) -> std::result::Result<(Io, String), String> {
-        let key = {
-            use base64::Engine;
-            base64::engine::general_purpose::STANDARD.encode(rand::random::<[u8; 16]>())
-        };
-        let mut headers = vec![
-            ("Connection", "Upgrade".to_owned()),
-            ("Upgrade", "websocket".to_owned()),
-            ("Sec-WebSocket-Version", "13".to_owned()),
-            ("Sec-WebSocket-Key", key.clone()),
-        ];
-        if !self.protocols.is_empty() {
-            headers.push(("Sec-WebSocket-Protocol", self.protocols.join(", ")));
+    async fn handshake(&self) -> std::result::Result<(Io, Codec, String), String> {
+        let io = Cell::new(Some(connect(&self.socket).await?));
+        let mut config = WsClientConfig::new().set_max_frame_size(Messages::FRAME).set_handshake_timeout(HANDSHAKE).set_protocols(&self.protocols);
+        config = config.and_then(|c| c.set_header(header::HOST, self.host.as_str()));
+        for (name, value) in &self.headers {
+            config = config.and_then(|c| c.set_header(name.as_str(), value.as_str()));
         }
-        headers.extend(self.headers.iter().map(|(name, value)| (name.as_str(), value.clone())));
-        let request = Request { method: "GET", path: &self.path, host: &self.host, headers, body: None };
-        let io = connect(&self.socket).await?;
-        let sent = io.encode_slice(&request.encode());
-        match sent {
-            Ok(()) => io.flush(true).await,
-            Err(error) => Err(error),
-        }
-        .map_err(|error| format!("sending the handshake failed: {error}"))?;
-        let head = Head::read(&io, HEAD_LIMIT).await.map_err(|error| format!("bad handshake response: {error}"))?;
-        if head.status != 101 {
-            return Err(format!("the server answered {} {} instead of switching to WebSocket", head.status, head.reason).trim_end().to_owned());
-        }
-        let has = |name: &str, token: &str| head.header(name).is_some_and(|value| value.split(',').any(|v| v.trim().eq_ignore_ascii_case(token)));
-        if !has("upgrade", "websocket") || !has("connection", "upgrade") {
-            return Err("the server's handshake has no Upgrade: websocket / Connection: Upgrade".into());
-        }
-        let accept = ntex::ws::hash_key(key.as_bytes()).map_err(|error| error.to_string())?;
-        if head.header("sec-websocket-accept") != Some(accept.as_str()) {
-            return Err("the server's Sec-WebSocket-Accept does not match the key".into());
-        }
-        let protocol = head.header("sec-websocket-protocol").unwrap_or_default().to_owned();
-        if !protocol.is_empty() && !self.protocols.contains(&protocol) {
-            return Err(format!("the server chose protocol {protocol:?}, which was not offered"));
-        }
-        if head.header("sec-websocket-extensions").is_some_and(|value| !value.trim().is_empty()) {
-            return Err("the server chose an extension that was not offered".into());
-        }
-        Ok((io, protocol))
+        let config = ntex::SharedCfg::new("acde-backend").add(config.map_err(|error| error.to_string())?);
+        let client = WsClient::new(format!("http://localhost{}", self.path), config)
+            .connector(fn_service(async move |_: Connect<Url>| io.take().ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))));
+        let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
+        let protocol = response.header(header::SEC_WEBSOCKET_PROTOCOL).map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
+        Ok((io, codec, protocol.unwrap_or_default()))
     }
 
     async fn run(self, commands: async_channel::Receiver<Command>, events: &impl Events) {
-        let opened = ntex::time::timeout(HANDSHAKE, self.handshake()).await.unwrap_or_else(|()| Err("the WebSocket handshake timed out".into()));
-        let (io, protocol) = match opened {
+        let (io, codec, protocol) = match self.handshake().await {
             Ok(opened) => opened,
             Err(message) => {
                 if events.emit(Event::Error(message)).await {
@@ -289,7 +258,6 @@ impl Upgrade {
         if !events.emit(Event::Open { protocol, extensions: String::new() }).await {
             return;
         }
-        let codec = Messages::codec();
         let mut messages = Messages::default();
         let mut commands = Some(commands);
         let mut deadline = Deadline::new(Millis::ZERO);
@@ -387,14 +355,14 @@ impl Upgrade {
     }
 }
 
-fn close_frame(code: Option<u32>, reason: Option<String>) -> Outcome<Option<CloseReason>> {
+fn close_frame(code: Option<u32>, reason: Option<String>) -> Result<Option<CloseReason>, String> {
     let reason = reason.unwrap_or_default();
     if reason.len() > 123 {
-        return Err(Failure::invalid("the close reason must be at most 123 bytes"));
+        return Err("the close reason must be at most 123 bytes".into());
     }
     let code = match code {
         Some(code) if code == 1000 || (3000..=4999).contains(&code) => code as u16,
-        Some(code) => return Err(Failure::invalid(format!("close code {code} is neither 1000 nor in 3000-4999"))),
+        Some(code) => return Err(format!("close code {code} is neither 1000 nor in 3000-4999")),
         None if reason.is_empty() => return Ok(None),
         None => 1000,
     };
@@ -402,72 +370,47 @@ fn close_frame(code: Option<u32>, reason: Option<String>) -> Outcome<Option<Clos
 }
 
 struct Connection {
-    task: crate::rt::Task,
+    task: AbortHandle,
     commands: Option<async_channel::Sender<Command>>,
 }
 
-pub(crate) struct Connections {
+#[derive(Default)]
+pub struct UnixClient {
     next: AtomicU32,
-    open: Mutex<HashMap<u32, Connection>>,
+    open: Arc<Mutex<HashMap<u32, Connection>>>,
 }
 
-impl Connections {
-    fn new() -> Arc<Self> {
-        Arc::new(Self { next: AtomicU32::new(1), open: Mutex::default() })
-    }
-
-    fn start<F>(self: &Arc<Self>, commands: Option<async_channel::Sender<Command>>, work: impl FnOnce() -> F + Send + 'static) -> u32
+impl UnixClient {
+    fn start<F>(&self, commands: Option<async_channel::Sender<Command>>, work: impl FnOnce() -> F + Send + 'static) -> u32
     where
         F: Future<Output = ()> + 'static,
     {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        let me: Weak<Self> = Arc::downgrade(self);
-        let mut open = self.open.locked();
+        let open = Arc::downgrade(&self.open);
+        let mut connections = self.open.locked();
         let task = crate::rt::spawn_abortable(async move {
             crate::rt::local(work).await;
-            if let Some(me) = me.upgrade() {
-                me.open.locked().remove(&id);
+            if let Some(open) = open.upgrade() {
+                open.locked().remove(&id);
             }
         });
-        open.insert(id, Connection { task, commands });
+        connections.insert(id, Connection { task, commands });
         id
     }
 
-    fn request(self: &Arc<Self>, exchange: Exchange, events: impl Events) -> u32 {
+    fn exchange(&self, exchange: Exchange, events: impl Events) -> u32 {
         self.start(None, move || async move { exchange.run(&events).await })
     }
 
-    fn websocket(self: &Arc<Self>, upgrade: Upgrade, events: impl Events) -> u32 {
+    fn upgrade(&self, upgrade: Upgrade, events: impl Events) -> u32 {
         let (commands, receiver) = async_channel::unbounded();
         self.start(Some(commands), move || async move { upgrade.run(receiver, &events).await })
-    }
-
-    fn abort(&self, id: u32) {
-        if let Some(connection) = self.open.locked().remove(&id) {
-            connection.task.abort();
-        }
     }
 
     fn command(&self, id: u32, command: Command) {
         if let Some(commands) = self.open.locked().get(&id).and_then(|c| c.commands.as_ref()) {
             commands.try_send(command).ok();
         }
-    }
-
-    fn abort_all(&self) {
-        for (_, connection) in self.open.locked().drain() {
-            connection.task.abort();
-        }
-    }
-}
-
-pub struct UnixClient {
-    connections: Arc<Connections>,
-}
-
-impl UnixClient {
-    pub fn new() -> Self {
-        Self { connections: Connections::new() }
     }
 
     pub fn request(
@@ -479,43 +422,38 @@ impl UnixClient {
         body: Option<Vec<u8>>,
         deliver: Deliver,
     ) -> Result<u32, String> {
-        let exchange = Exchange::new(socket, method, path, headers, body).map_err(|e| e.message)?;
-        Ok(self.connections.request(exchange, Delivered(deliver)))
-    }
-
-    pub fn abort(&self, id: u32) {
-        self.connections.abort(id);
+        Ok(self.exchange(Exchange::new(socket, method, path, headers, body)?, Delivered(deliver)))
     }
 
     pub fn websocket(&self, socket: String, path: String, headers: Vec<Vec<String>>, protocols: Vec<String>, deliver: Deliver) -> Result<u32, String> {
-        let upgrade = Upgrade::new(socket, path, headers, protocols).map_err(|e| e.message)?;
-        Ok(self.connections.websocket(upgrade, Delivered(deliver)))
+        Ok(self.upgrade(Upgrade::new(socket, path, headers, protocols)?, Delivered(deliver)))
+    }
+
+    pub fn abort(&self, id: u32) {
+        if let Some(connection) = self.open.locked().remove(&id) {
+            connection.task.abort();
+        }
     }
 
     pub fn send_text(&self, id: u32, text: String) {
-        self.connections.command(id, Command::Send(Message::Text(text.into())));
+        self.command(id, Command::Send(Message::Text(text.into())));
     }
 
     pub fn send_binary(&self, id: u32, data: Vec<u8>) {
-        self.connections.command(id, Command::Send(Message::Binary(data.into())));
+        self.command(id, Command::Send(Message::Binary(data.into())));
     }
 
     pub fn close(&self, id: u32, code: Option<u32>, reason: Option<String>) -> Result<(), String> {
-        let frame = close_frame(code, reason).map_err(|e| e.message)?;
-        self.connections.command(id, Command::Close(frame));
+        self.command(id, Command::Close(close_frame(code, reason)?));
         Ok(())
-    }
-}
-
-impl Default for UnixClient {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 impl Drop for UnixClient {
     fn drop(&mut self) {
-        self.connections.abort_all();
+        for (_, connection) in self.open.locked().drain() {
+            connection.task.abort();
+        }
     }
 }
 
@@ -550,7 +488,8 @@ mod tests {
             if line.is_empty() {
                 return (lines, reader);
             }
-            lines.push(line);
+            let lowered = line.split_once(':').filter(|_| !lines.is_empty()).map(|(name, value)| format!("{}:{value}", name.to_ascii_lowercase()));
+            lines.push(lowered.unwrap_or(line));
         }
     }
 
@@ -586,13 +525,14 @@ mod tests {
         let (socket, server) = serve("3000.sock", |mut stream| {
             let (lines, _) = read_head(&stream);
             assert_eq!(lines[0], "GET /api/x?y=1 HTTP/1.1");
-            assert!(lines.contains(&"Host: localhost".to_owned()), "{lines:?}");
-            assert!(lines.contains(&"Connection: close".to_owned()), "{lines:?}");
-            assert!(lines.contains(&"Accept: text/plain".to_owned()), "{lines:?}");
+            assert!(lines.contains(&"host: localhost".to_owned()), "{lines:?}");
+            assert!(lines.contains(&"connection: close".to_owned()), "{lines:?}");
+            assert!(lines.contains(&"accept: text/plain".to_owned()), "{lines:?}");
             stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Thing: a b\r\n\r\nhello").expect("answer");
         });
         let (sender, events) = channel();
-        Connections::new().request(request(&socket, "GET", "/api/x?y=1", &[("Accept", "text/plain")], None), sender);
+        let client = UnixClient::default();
+        client.exchange(request(&socket, "GET", "/api/x?y=1", &[("Accept", "text/plain")], None), sender);
         let Event::Head { status, status_text, headers } = next(&events) else { panic!("head first") };
         assert_eq!((status, status_text.as_str()), (200, "OK"));
         assert!(headers.contains(&("x-thing".into(), "a b".into())));
@@ -615,7 +555,8 @@ mod tests {
             stream.read_to_end(&mut rest).ok();
         });
         let (sender, events) = channel();
-        Connections::new().request(request(&socket, "GET", "/events", &[], None), sender);
+        let client = UnixClient::default();
+        client.exchange(request(&socket, "GET", "/events", &[], None), sender);
         assert!(matches!(next(&events), Event::Head { status: 200, .. }));
         assert_eq!(next(&events), Event::Chunk(b"data: first\n\n".to_vec()));
         go.send(()).expect("go");
@@ -629,8 +570,8 @@ mod tests {
         let (socket, server) = serve("8080.sock", |mut stream| {
             let (lines, mut reader) = read_head(&stream);
             assert_eq!(lines[0], "POST /api/echo HTTP/1.1");
-            assert!(lines.contains(&"Host: localhost:8080".to_owned()), "{lines:?}");
-            let length: usize = lines.iter().find_map(|l| l.strip_prefix("Content-Length: ")).expect("length").parse().expect("number");
+            assert!(lines.contains(&"host: localhost:8080".to_owned()), "{lines:?}");
+            let length: usize = lines.iter().find_map(|l| l.strip_prefix("content-length: ")).expect("length").parse().expect("number");
             let mut body = vec![0; length];
             reader.read_exact(&mut body).expect("body");
             stream.write_all(b"HTTP/1.1 201 Created\r\n\r\n").expect("head");
@@ -639,7 +580,8 @@ mod tests {
         let (sender, events) = channel();
         let mut exchange = request(&socket, "POST", "/api/echo", &[("Content-Type", "application/json")], Some(br#"{"a":1}"#));
         exchange.host = "localhost:8080".into();
-        Connections::new().request(exchange, sender);
+        let client = UnixClient::default();
+        client.exchange(exchange, sender);
         assert!(matches!(next(&events), Event::Head { status: 201, .. }));
         let mut body = Vec::new();
         loop {
@@ -662,9 +604,9 @@ mod tests {
             let mut rest = [0u8; 16];
             closed.send(stream.read(&mut rest).map(|n| n == 0).unwrap_or(true)).ok();
         });
-        let connections = Connections::new();
+        let connections = UnixClient::default();
         let (sender, events) = channel();
-        let id = connections.request(request(&socket, "GET", "/slow", &[], None), sender);
+        let id = connections.exchange(request(&socket, "GET", "/slow", &[], None), sender);
         assert!(matches!(next(&events), Event::Head { status: 200, .. }));
         connections.abort(id);
         assert!(seen.recv_timeout(Duration::from_secs(10)).expect("server saw the end"));
@@ -676,7 +618,8 @@ mod tests {
     #[test]
     fn missing_socket_is_an_error_event() {
         let (sender, events) = channel();
-        Connections::new().request(request("/nonexistent/acde/3000.sock", "GET", "/", &[], None), sender);
+        let client = UnixClient::default();
+        client.exchange(request("/nonexistent/acde/3000.sock", "GET", "/", &[], None), sender);
         let Event::Error(message) = next(&events) else { panic!("an error") };
         assert!(message.contains("/nonexistent/acde/3000.sock") && message.contains("No such file"), "{message}");
         assert!(recv(&events).is_none());
@@ -688,7 +631,8 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("scratch directory");
         let path = dir.join("3000.sock");
         let (sender, events) = channel();
-        Connections::new().request(request(&path.to_string_lossy(), "GET", "/", &[], None), sender);
+        let client = UnixClient::default();
+        client.exchange(request(&path.to_string_lossy(), "GET", "/", &[], None), sender);
         std::thread::sleep(Duration::from_millis(200));
         let listener = UnixListener::bind(&path).expect("bind");
         let server = std::thread::spawn(move || {
@@ -702,13 +646,43 @@ mod tests {
     }
 
     #[test]
+    fn many_streams_at_once() {
+        let dir = std::env::temp_dir().join(format!("acde-unixhttp-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).expect("scratch directory");
+        let path = dir.join("3000.sock");
+        let listener = UnixListener::bind(&path).expect("bind");
+        let server = std::thread::spawn(move || {
+            let accept = |_| {
+                let (mut stream, _) = listener.accept().expect("accept");
+                read_head(&stream);
+                stream.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n").expect("head");
+                stream
+            };
+            (0..12).map(accept).collect::<Vec<_>>()
+        });
+        let client = UnixClient::default();
+        let streams: Vec<Received> = (0..12)
+            .map(|_| {
+                let (sender, events) = channel();
+                client.exchange(request(&path.to_string_lossy(), "GET", "/events", &[], None), sender);
+                events
+            })
+            .collect();
+        for events in &streams {
+            assert!(matches!(next(events), Event::Head { status: 200, .. }));
+        }
+        drop(server.join().expect("server"));
+    }
+
+    #[test]
     fn early_end_is_an_error() {
         let (socket, server) = serve("2.sock", |mut stream| {
             read_head(&stream);
             stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc").expect("short");
         });
         let (sender, events) = channel();
-        Connections::new().request(request(&socket, "GET", "/", &[], None), sender);
+        let client = UnixClient::default();
+        client.exchange(request(&socket, "GET", "/", &[], None), sender);
         assert!(matches!(next(&events), Event::Head { status: 200, .. }));
         assert_eq!(next(&events), Event::Chunk(b"abc".to_vec()));
         assert!(matches!(next(&events), Event::Error(_)));
@@ -745,8 +719,8 @@ mod tests {
     fn accept(stream: &mut StdStream, protocol: Option<&str>) -> (Vec<String>, std::io::BufReader<StdStream>) {
         let (lines, reader) = read_head(stream);
         assert_eq!(lines[0], "GET /ws HTTP/1.1");
-        assert!(lines.contains(&"Upgrade: websocket".to_owned()), "{lines:?}");
-        let key = lines.iter().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ")).expect("key");
+        assert!(lines.contains(&"upgrade: websocket".to_owned()), "{lines:?}");
+        let key = lines.iter().find_map(|l| l.strip_prefix("sec-websocket-key: ")).expect("key");
         let accept = ntex::ws::hash_key(key.as_bytes()).expect("key");
         let protocol = protocol.map(|p| format!("Sec-WebSocket-Protocol: {p}\r\n")).unwrap_or_default();
         let answer =
@@ -759,8 +733,8 @@ mod tests {
     fn websocket_echo_and_client_close() {
         let (socket, server) = serve("3000.sock", |mut stream| {
             let (lines, mut reader) = accept(&mut stream, Some("v2"));
-            assert!(lines.contains(&"Origin: http://acde.local".to_owned()), "{lines:?}");
-            assert!(lines.contains(&"Sec-WebSocket-Protocol: chat, v2".to_owned()), "{lines:?}");
+            assert!(lines.contains(&"origin: http://acde.local".to_owned()), "{lines:?}");
+            assert!(lines.contains(&"sec-websocket-protocol: chat,v2".to_owned()), "{lines:?}");
             loop {
                 match frames::read(&mut reader, true) {
                     (true, opcode @ (1 | 2), data) => stream.write_all(&frames::write(true, opcode, &data, false)).expect("echo"),
@@ -772,9 +746,9 @@ mod tests {
                 }
             }
         });
-        let connections = Connections::new();
+        let connections = UnixClient::default();
         let (sender, events) = channel();
-        let id = connections.websocket(upgrade(&socket, &["chat", "v2"]), sender);
+        let id = connections.upgrade(upgrade(&socket, &["chat", "v2"]), sender);
         connections.command(id, Command::Send(Message::Text("hello 你好".into())));
         assert_eq!(next(&events), Event::Open { protocol: "v2".into(), extensions: String::new() });
         assert_eq!(next(&events), Event::Text("hello 你好".into()));
@@ -793,8 +767,8 @@ mod tests {
             let mut answer = Vec::new();
             let (lines, mut reader) = {
                 let (lines, reader) = read_head(&stream);
-                assert!(!lines.iter().any(|l| l.starts_with("Sec-WebSocket-Protocol")), "no protocol offered");
-                let key = lines.iter().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ")).expect("key");
+                assert!(!lines.iter().any(|l| l.starts_with("sec-websocket-protocol")), "no protocol offered");
+                let key = lines.iter().find_map(|l| l.strip_prefix("sec-websocket-key: ")).expect("key");
                 let accept = ntex::ws::hash_key(key.as_bytes()).expect("key");
                 answer.extend(
                     format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n")
@@ -816,7 +790,8 @@ mod tests {
             stream.shutdown(std::net::Shutdown::Both).ok();
         });
         let (sender, events) = channel();
-        Connections::new().websocket(upgrade(&socket, &[]), sender);
+        let client = UnixClient::default();
+        client.upgrade(upgrade(&socket, &[]), sender);
         assert_eq!(next(&events), Event::Open { protocol: String::new(), extensions: String::new() });
         assert_eq!(next(&events), Event::Text("fragmented ✓".into()));
         assert_eq!(next(&events), Event::Close { code: 4001, reason: "bye".into(), clean: true });
@@ -830,14 +805,16 @@ mod tests {
             stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").expect("answer");
         });
         let (sender, events) = channel();
-        Connections::new().websocket(upgrade(&socket, &[]), sender);
+        let client = UnixClient::default();
+        client.upgrade(upgrade(&socket, &[]), sender);
         let Event::Error(message) = next(&events) else { panic!("an error") };
         assert!(message.contains("404"), "{message}");
         assert_eq!(next(&events), Event::Close { code: 1006, reason: String::new(), clean: false });
         server.join().expect("server");
 
         let (sender, events) = channel();
-        Connections::new().websocket(upgrade("/nonexistent/acde/1.sock", &[]), sender);
+        let client = UnixClient::default();
+        client.upgrade(upgrade("/nonexistent/acde/1.sock", &[]), sender);
         assert!(matches!(next(&events), Event::Error(message) if message.contains("No such file")));
         assert!(matches!(next(&events), Event::Close { code: 1006, clean: false, .. }));
     }
