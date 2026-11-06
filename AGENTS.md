@@ -1408,6 +1408,7 @@ crates/render 另开 blitz-paint 的 `scrollbars` 和 blitz-dom 的 `floats`; �
 | `src/render.rs` `draw_svg`, `draw_simple_svg`, `draw_svg_tree` | 有 `simple` 时画它的命令; usvg 树相对元素画再整体放置 | 见 blitz-dom 的 simple SVG; 位置不同结果不同 |
 | `src/text.rs` `stroke_text`, `Ellipsis`, `draw_ellipsis_marker`, `src/render.rs` `ellipsis` | `text-overflow: ellipsis` 和 line-clamp 的 "…" | 上游不支持 |
 | `src/render/gradient.rs` | 色标位置按规范修正; 超出渐变线的色标: 线性拉长渐变线, 径向 / 锥形夹回 | 上游画错 |
+| `src/render.rs` `fieldset_frame` / `element_cx`, `src/render/border.rs` `draw_border`, `src/cache.rs` `visit` | 有 rendered legend 的 fieldset: 背景、阴影和边框的框从穿过 legend 中线的边框上沿开始 (内容框不动), 边框在 legend 后面留空 (偶奇规则的裁剪); legend 算进 fieldset 片段的依赖 | 见 blitz-dom 的 fieldset |
 
 #### 文档 (blitz-dom)
 
@@ -1445,6 +1446,8 @@ crates/render 另开 blitz-paint 的 `scrollbars` 和 blitz-dom 的 `floats`; �
 | blitz-paint `src/render.rs` 开头 | `scrollbars` 下补上 `Color` / `Stroke` 的 import | 上游这段代码 feature 关着, 没编过 |
 | 删掉的 | `src/events/`、`form.rs`、`debug.rs`、blitz-traits `devtools.rs` (Blitz 自己的输入、表单、devtools); parallel-construct (rayon); `<canvas src=数字>` 自定义绘制源; CSS 光标 (`stylo_to_cursor_icon.rs`, cursor-icon); custom-widget (`node/custom_widget.rs` 和它在 mutator / 布局 / 绘制里的分支) | acde 自己处理输入和光标, 文档单线程用, 没有绘制源接口和自定义控件 |
 | `assets/default.css` | `::placeholder` 默认颜色是 54% 的 currentcolor | 和 Firefox 一致 |
+| `src/layout/fieldset.rs` (新), `layout/mod.rs` (`dispatch_child_layout`、`child_ids` 一族、`get_core_container_style`), `layout/construct.rs` (`classify_flow_children`、`collect_complex_layout_children`), `node/node.rs` (`layout_style`、`taffy_display`), stylo_taffy `wrapper.rs` (`LegendBand`、`IS_FIELDSET`) | HTML 的 fieldset / legend 渲染: fieldset 是 flow-root; rendered legend (第一个不浮动、不绝对定位的 `legend` 子元素) 不论 display 都是块级、直接的布局子节点, 不进 fieldset 自己的 block / flex / grid, 按内容框收缩 (auto margin 照常), 盒子居中压在上边框上; 上边框占的地方取边框宽和 legend margin 盒高的大者, 内容从它下面开始, content-box 的定高把多出来的还回去 (border-box 不变). 不另建匿名 fieldset content box: fieldset 自己的算法排内容时 `child_ids` 跳过 legend、容器样式的上边框换成那块地方 (几何一样, 规范把 fieldset 的 padding 和 display 都给了那个盒子). 不做: 竖排、legend 不受 fieldset 的 overflow 裁剪、`align` 属性、百分比 / calc 定高的退还 | 上游把 legend 当普通子元素: flex 的 fieldset 里它和内容排成一行, 块的 fieldset 里它在边框里面 |
+| `src/layout/list.rs` | outside 的列表标记按 `white-space: pre` 排 (不折叠、不换行) | `::marker` 的 UA 样式是 pre; 上游把 "1. " 末尾的空格折叠掉, 编号贴着文字 (`1.第一项`) |
 
 ### vendors/fontique
 
@@ -1541,6 +1544,11 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
   (CodeMirror)、关掉 (旧版 panic 的那一批); `open-browser`: 开机进桌面、从 Dock 打开浏览器. 测试里写死的节点 id 是录制时分配的.
 - `svg/*.svg`: os-v2 运行时 DOM 里所有不同的 `<svg>`, 给 "简单 SVG 跳过 usvg" 做逐像素对比. 是页面 DOM 的原样, 不带页面 CSS
   (render 实际拿到的是带计算样式序列化后的内容), 只当结构参考.
+
+HTML 元素的特殊渲染 (fieldset / legend、列表标记) 的用例在 `tests/elements.rs` (`parse_document` 整页, 量 rect, 必要时光栅化看像素,
+macOS 上也能跑). 验过 (2026-11-06, macOS M3 Pro): `cargo test --release -p acde-render` 全部 (读 `/proc` 的 `release_keeps_memory_flat`
+只能在 Linux 上跑) 和 `ACDE_PAINT_VERIFY=1` 再一遍, vendors/acrender 的五项检查; 调试窗口 (`acdert app`) 里起一个 flex / block / grid
+fieldset 和 `<ol>` 的页面看截图, 和改之前的截图比. 未验证: Linux 上跑这些测试 (只在 Docker 的 Alpine 里编译检查过, 那里没有 GPU 光栅化).
 
 ## crates/fps-probe
 
