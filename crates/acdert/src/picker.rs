@@ -52,6 +52,9 @@ impl Picker {
 }
 
 fn choose_folder(title: &str, window: Option<u32>) -> Result<Option<String>, String> {
+    if acde_hostwin::headless() {
+        return acde_hostwin::choose_folder(window, title).map(|picked| picked.map(|path| path.to_string_lossy().into_owned()));
+    }
     cfg_select! {
         target_os = "linux" => {
             _ = window;

@@ -45,6 +45,7 @@ export interface BrokerShell {
   capture?(window: number): Promise<{ width: number; height: number; png: string }>
   devRespond?(id: number, ok: boolean, payload: string): void
   notify?(title: string, body: string, subtitle: string): void
+  answerFolder?(path: string | null): void
   readonly socketName: string
   readonly hosted?: boolean
 }
@@ -1190,8 +1191,15 @@ export class Broker {
       }
       case 'emulate':
         return this.emulate(args as never)
+      case 'choose': {
+        const folder = args['folder']
+        if (folder !== null && (typeof folder !== 'string' || !folder.startsWith('/'))) throw new Error('choose: folder is an absolute path, or null to cancel')
+        if (!this.shell.answerFolder) throw new Error('choose: this backend asks the portal, it cannot be answered beforehand (host windows only)')
+        this.shell.answerFolder(folder)
+        return { folder }
+      }
       default:
-        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate)`)
+        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose)`)
     }
   }
 

@@ -36,7 +36,17 @@ pub fn active() -> bool {
     app::server().is_some()
 }
 
+static ANSWERS: std::sync::Mutex<std::collections::VecDeque<Option<std::path::PathBuf>>> = std::sync::Mutex::new(std::collections::VecDeque::new());
+
+pub fn answer_folder(answer: Option<std::path::PathBuf>) {
+    ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).push_back(answer);
+}
+
 pub fn choose_folder(_window: Option<u32>, title: &str) -> Result<Option<std::path::PathBuf>, String> {
+    if let Some(answer) = ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).pop_front() {
+        log::info!("选文件夹 {title:?}: 用事先给的答复 {answer:?}");
+        return Ok(answer);
+    }
     let server = app::server().ok_or("no host windows")?;
     let (reply, picked) = std::sync::mpsc::sync_channel(1);
     server.send(platform::Cmd::ChooseFolder { title: title.to_owned(), reply });

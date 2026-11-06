@@ -29,7 +29,7 @@ impl super::Host for Host {
     }
 
     fn choose_folder(&self, _: &str, reply: FolderReply) {
-        let _ = reply.send(Err("no folder chooser without a host window (ACDE_HEADLESS)".to_owned()));
+        let _ = reply.send(Err("no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand (acde dev op choose)".to_owned()));
     }
 
     fn exit(&self, code: i32) {

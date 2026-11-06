@@ -58,6 +58,7 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "capture" => capture,
         "devRespond" => dev_respond,
         "notify" => notify,
+        "answerFolder" => answer_folder,
     );
     let name = bind::string(scope, "");
     bind::set(scope, obj, "socketName", name.into());
@@ -326,6 +327,12 @@ fn notify(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
     if let Some(Err(e)) = with(scope, |_| acde_hostwin::notify(&title, &body, &subtitle)) {
         bind::throw_error(scope, &e);
     }
+}
+
+fn answer_folder(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let answer = args.get(0);
+    let path = (!answer.is_null_or_undefined()).then(|| std::path::PathBuf::from(bind::arg_string(scope, &args, 0)));
+    with(scope, |_| acde_hostwin::answer_folder(path));
 }
 
 fn quit(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
