@@ -23,8 +23,13 @@ const DEFINITION = Symbol('definition')
 const RESERVED = new Set(['annotation-xml', 'color-profile', 'font-face', 'font-face-src', 'font-face-uri', 'font-face-format', 'font-face-name', 'missing-glyph'])
 const VALID = /^[a-z][-.0-9_a-z·À-ÖØ-öø-ͽͿ-῿‌-‍‿-⁀⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�]*-[-.0-9_a-z·À-ÖØ-öø-ͽͿ-῿‌-‍‿-⁀⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�]*$/
 
-customHooks.nameOf = (ctor) => byCtor.get(ctor)?.name ?? null
-customHooks.classOf = (name) => byName.get(name)?.ctor ?? null
+export function customName(ctor: Function): string | null {
+  return byCtor.get(ctor)?.name ?? null
+}
+
+export function customClass(name: string): (new () => HTMLElement) | null {
+  return byName.get(name)?.ctor ?? null
+}
 
 function definitionOf(node: object): Definition | undefined {
   return (node as { [DEFINITION]?: Definition })[DEFINITION]

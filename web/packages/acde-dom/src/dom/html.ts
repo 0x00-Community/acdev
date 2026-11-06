@@ -4,6 +4,7 @@ import { G, getters, host, queueTask, tag } from '../core/host'
 import { URL } from '../core/url'
 import { NONE, NodeType, Ns } from '../native'
 import { ACTIVATION, activation, MouseEvent, ToggleEvent } from './events'
+import { customClass, customName } from './custom'
 import { ATTRIBUTE_CHANGED, dataset, Element, HANDLER_TYPES, LOCAL, NS, pendingElement, setAttribute, tokenList, type DOMStringMap, type DOMTokenList } from './element'
 import { resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
@@ -12,6 +13,7 @@ import { CharacterData, Comment, DocumentFragment, DocumentType, mixin, Node, re
 import { bool, long, nullable, string, url, urlParts } from './reflect'
 import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap } from './realm'
 import { CSSStyleSheet, inlineStyle, type CSSStyleDeclaration } from './style'
+import { followLink } from './window'
 
 const htmlClasses = new Map<string, new () => Element>()
 
@@ -20,11 +22,7 @@ export function register(cls: { prototype: object; name: string } & (new () => E
   tag(cls)
 }
 
-export const customHooks = {
-  nameOf: (_ctor: Function): string | null => null,
-  classOf: (_name: string): (new () => HTMLElement) | null => null,
-  upgrading: null as HTMLElement | null,
-}
+export const customHooks = { upgrading: null as HTMLElement | null }
 
 export class HTMLOrSVGElementMixin {
   get style(): CSSStyleDeclaration {
@@ -79,7 +77,7 @@ export class HTMLElement extends Element {
       return upgrade
     }
     if (!nodeConstructing()) {
-      const name = customHooks.nameOf(new.target)
+      const name = customName(new.target)
       if (!name) throw new TypeError('Illegal constructor')
       pendingElement.local = name
       pendingElement.ns = Ns.Html
@@ -626,7 +624,7 @@ export class HTMLAnchorElement extends HTMLElement {
   [ACTIVATION](): { run(): void; cancel(): void } | null {
     const href = dom.getAttribute(this[ID], 'href')
     if (href === null) return null
-    return activation(() => linkHooks.follow(resolveUrl(href), dom.getAttribute(this[ID], 'target') ?? '', dom.getAttribute(this[ID], 'download')))
+    return activation(() => followLink(resolveUrl(href), dom.getAttribute(this[ID], 'target') ?? '', dom.getAttribute(this[ID], 'download')))
   }
 }
 hyperlink(HTMLAnchorElement.prototype)
@@ -644,10 +642,6 @@ export class HTMLAreaElement extends HTMLElement {
 hyperlink(HTMLAreaElement.prototype)
 for (const name of ['target', 'rel', 'download', 'alt', 'coords', 'shape', 'ping']) string(HTMLAreaElement.prototype, name)
 register(HTMLAreaElement, 'area')
-
-export const linkHooks = {
-  follow: (_url: string, _target: string, _download: string | null) => {},
-}
 
 function textAlias(proto: object): void {
   Object.defineProperty(proto, 'text', {
@@ -698,7 +692,7 @@ export const svgFallback = { cls: null as unknown as new () => Element }
 function classOf(local: string): new () => Element {
   const known = htmlClasses.get(local)
   if (known) return known
-  const custom = local.includes('-') ? customHooks.classOf(local) : null
+  const custom = local.includes('-') ? customClass(local) : null
   if (custom) return custom
   return local.includes('-') ? HTMLElement : HTMLUnknownElement
 }

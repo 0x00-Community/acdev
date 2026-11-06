@@ -10,7 +10,6 @@ import { scrollArgs, scrollElement, type ScrollToOptions } from './element'
 import { env, frames, resolveUrl } from './env'
 import { HashChangeEvent, MediaQueryListEvent, PopStateEvent } from './events'
 import { HANDLER_TYPES } from './element'
-import { linkHooks } from './html'
 import { rootScroll } from './layout'
 import { FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemHandle, FileSystemWritableFileStream, showDirectoryPicker, showOpenFilePicker, showSaveFilePicker } from './picker'
 import { documentId, dom, rootElementId, wrap } from './realm'
@@ -91,7 +90,7 @@ function saveUrl(url: string, name: string): void {
   env.download({ url, name, ...(blob instanceof Blob ? { blob } : {}) })
 }
 
-function followLink(url: string, target: string, download: string | null): void {
+export function followLink(url: string, target: string, download: string | null): void {
   let next: URL
   try {
     next = new URL(url, env.url)
@@ -672,7 +671,6 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
     createImageBitmap: () => Promise.reject(new DOMException('createImageBitmap is not supported', 'NotSupportedError')),
   })
   defineHandlers(global, [...HANDLER_TYPES, ...WINDOW_HANDLERS])
-  linkHooks.follow = followLink
   entries.push({ url: env.url, state: null })
   index = 0
 }

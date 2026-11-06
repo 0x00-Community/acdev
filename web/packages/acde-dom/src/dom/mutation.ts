@@ -1,4 +1,5 @@
 import { guarded, host, tag } from '../core/host'
+import { staticNodeList, type Node, type NodeList } from './node'
 import { dom, existing, ID, wrap, type Wrapper } from './realm'
 
 interface MutationObserverInit {
@@ -44,8 +45,8 @@ export class MutationRecord {
   constructor(
     readonly type: 'childList' | 'attributes' | 'characterData',
     readonly target: object,
-    readonly addedNodes: NodeListLike,
-    readonly removedNodes: NodeListLike,
+    readonly addedNodes: NodeList,
+    readonly removedNodes: NodeList,
     readonly previousSibling: object | null,
     readonly nextSibling: object | null,
     readonly attributeName: string | null,
@@ -55,14 +56,6 @@ export class MutationRecord {
 }
 tag(MutationRecord)
 
-interface NodeListLike {
-  readonly length: number
-  item(index: number): object | null
-}
-
-export const recordLists = {
-  make: null as unknown as (nodes: readonly object[]) => NodeListLike,
-}
 
 let enqueue: (observer: MutationObserver, record: MutationRecord) => void
 let deliverOne: (observer: MutationObserver) => void
@@ -182,10 +175,10 @@ export function childListObservers(parent: number): Observers | null {
   return interested(parent, (o) => o.childList)
 }
 
-export function recordChildList(parent: number, observers: Observers, added: readonly object[], removed: readonly object[], previous: object | null, next: object | null): void {
+export function recordChildList(parent: number, observers: Observers, added: readonly Node[], removed: readonly Node[], previous: object | null, next: object | null): void {
   const target = wrap<object>(parent)!
-  const addedList = recordLists.make(added)
-  const removedList = recordLists.make(removed)
+  const addedList = staticNodeList(added)
+  const removedList = staticNodeList(removed)
   for (const observer of observers.keys()) enqueue(observer, new MutationRecord('childList', target, addedList, removedList, previous, next, null, null, null))
 }
 
@@ -197,7 +190,7 @@ export function attributeObservers(element: number, name: string): { observers: 
 }
 
 export function recordAttribute(target: object, interest: { observers: Observers }, name: string, oldValue: string | null): void {
-  const empty = recordLists.make([])
+  const empty = staticNodeList([])
   for (const [observer, options] of interest.observers) enqueue(observer, new MutationRecord('attributes', target, empty, empty, null, null, name, null, options.attributeOldValue ? oldValue : null))
 }
 
@@ -206,6 +199,6 @@ export function characterDataObservers(node: number): Observers | null {
 }
 
 export function recordCharacterData(target: object, observers: Observers, oldValue: string | null): void {
-  const empty = recordLists.make([])
+  const empty = staticNodeList([])
   for (const [observer, options] of observers) enqueue(observer, new MutationRecord('characterData', target, empty, empty, null, null, null, null, options.characterDataOldValue ? oldValue : null))
 }

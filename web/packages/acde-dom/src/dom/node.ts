@@ -2,7 +2,7 @@ import { DOMException, guard } from '../core/exception'
 import { BUILD_PATH, EventTarget, type Event } from '../core/event'
 import { constants, getters, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
-import { characterDataObservers, childListObservers, observing, recordCharacterData, recordChildList, recordLists, type Observers } from './mutation'
+import { characterDataObservers, childListObservers, observing, recordCharacterData, recordChildList, type Observers } from './mutation'
 import { adopt, attach, changed, CONNECTED, constructing, detach, documentId, dom, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper } from './realm'
 import type { Document } from './document'
 import type { Element } from './element'
@@ -155,7 +155,6 @@ export function staticNodeListOfIds(ids: Uint32Array): NodeList {
   return staticNodeList(nodes)
 }
 
-recordLists.make = (nodes) => staticNodeList(nodes as Node[])
 
 export class HTMLCollection extends LiveList {
   protected ids(): Uint32Array {
