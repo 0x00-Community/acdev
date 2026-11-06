@@ -1,6 +1,6 @@
 import { defineHandlers, Event, EventTarget, fire } from '../core/event'
 import { DOMException } from '../core/exception'
-import { host, tag } from '../core/host'
+import { getters, host, tag } from '../core/host'
 import type { Element } from './element'
 import { documentId, dom, ID, wrap } from './realm'
 import { declarationsOf, inlineStyle, propertyName, writeDeclarations } from './style'
@@ -206,12 +206,6 @@ export class Animation extends EventTarget {
   get playState(): string {
     return this.#state
   }
-  get pending(): boolean {
-    return false
-  }
-  get replaceState(): string {
-    return 'active'
-  }
   get ready(): Promise<Animation> {
     return this.#ready.promise
   }
@@ -366,6 +360,7 @@ export class Animation extends EventTarget {
     writeDeclarations(style, declarations)
   }
 }
+getters(Animation.prototype, { pending: false, replaceState: 'active' })
 defineHandlers(Animation.prototype, ['finish', 'cancel', 'remove'])
 tag(Animation)
 

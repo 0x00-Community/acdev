@@ -1,7 +1,7 @@
 import { Blob, File } from '../core/blob'
 import { bytesOf } from '../core/encoding'
 import { DOMException } from '../core/exception'
-import { host as native, tag } from '../core/host'
+import { getters, host as native, tag } from '../core/host'
 import { typeOfName } from '../core/net'
 import { env, type FileFilter, type PickedEntry, type PickedFile } from './env'
 
@@ -201,10 +201,6 @@ export class FileSystemWritableFileStream {
     this.#size = existing.length
   }
 
-  get locked(): boolean {
-    return false
-  }
-
   async write(data: unknown): Promise<void> {
     if (this.#closed) throw new TypeError('The stream is closed.')
     const params = data !== null && typeof data === 'object' && 'type' in (data as object) && typeof (data as { type: unknown }).type === 'string' && !(data instanceof Blob) ? (data as WriteParams) : ({ type: 'write', data } as WriteParams)
@@ -255,6 +251,7 @@ export class FileSystemWritableFileStream {
     this.#bytes = grown
   }
 }
+getters(FileSystemWritableFileStream.prototype, { locked: false })
 tag(FileSystemWritableFileStream)
 
 async function chunkBytes(data: unknown): Promise<Uint8Array> {

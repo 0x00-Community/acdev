@@ -1,5 +1,5 @@
 import { DOMException } from '../core/exception'
-import { tag } from '../core/host'
+import { getters, tag } from '../core/host'
 import { Ns } from '../native'
 import type { Element } from './element'
 import { LOCAL, NS } from './element'
@@ -27,15 +27,6 @@ export class ShadowRoot extends DocumentFragment {
   }
   get delegatesFocus(): boolean {
     return this[DELEGATES_FOCUS]
-  }
-  get slotAssignment(): string {
-    return 'named'
-  }
-  get clonable(): boolean {
-    return false
-  }
-  get serializable(): boolean {
-    return false
   }
   override get parentNode(): null {
     return null
@@ -68,14 +59,11 @@ export class ShadowRoot extends DocumentFragment {
     return (this[HOST].ownerDocument as unknown as { elementsFromPoint(x: number, y: number): Element[] }).elementsFromPoint(x, y)
   }
 
-  get styleSheets(): unknown[] {
-    return []
-  }
-
   getAnimations(): unknown[] {
     return []
   }
 }
+getters(ShadowRoot.prototype, { slotAssignment: 'named', clonable: false, serializable: false, styleSheets: () => [] })
 Object.defineProperty(ShadowRoot.prototype, CONNECTED, {
   get(this: ShadowRoot) {
     return this[HOST][CONNECTED]

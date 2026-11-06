@@ -1,6 +1,6 @@
 import { DOMException } from '../core/exception'
 import { defineHandlers, Event, EventTarget, fire } from '../core/event'
-import { host, illegal, KEY, tag } from '../core/host'
+import { getters, host, illegal, KEY, tag } from '../core/host'
 import type { AudioNative } from '../native'
 
 let native: AudioNative | null = null
@@ -207,11 +207,8 @@ class AudioNode extends EventTarget {
 }
 tag(AudioNode)
 
-class AudioDestinationNode extends AudioNode {
-  get maxChannelCount(): number {
-    return 2
-  }
-}
+class AudioDestinationNode extends AudioNode {}
+getters(AudioDestinationNode.prototype, { maxChannelCount: 2 })
 tag(AudioDestinationNode)
 
 type ParamSpec = [name: string, value: number, min?: number, max?: number]
@@ -524,12 +521,6 @@ export class BaseAudioContext extends EventTarget {
   get destination(): AudioDestinationNode {
     return this.#destination
   }
-  get listener(): object {
-    return {}
-  }
-  get audioWorklet(): undefined {
-    return undefined
-  }
 
   [SET_STATE](state: 'suspended' | 'running' | 'closed'): void {
     if (state === this.#state) return
@@ -611,6 +602,7 @@ export class BaseAudioContext extends EventTarget {
     )
   }
 }
+getters(BaseAudioContext.prototype, { listener: () => ({}), audioWorklet: undefined })
 defineHandlers(BaseAudioContext.prototype, ['statechange'])
 tag(BaseAudioContext)
 
@@ -624,9 +616,6 @@ export class AudioContext extends BaseAudioContext {
   }
   get outputLatency(): number {
     return 1024 / this.sampleRate
-  }
-  get sinkId(): string {
-    return ''
   }
 
   resume(): Promise<void> {
@@ -668,6 +657,7 @@ export class AudioContext extends BaseAudioContext {
     throw new DOMException('MediaStreamAudioDestinationNode is not supported', 'NotSupportedError')
   }
 }
+getters(AudioContext.prototype, { sinkId: '' })
 tag(AudioContext)
 
 export function installAudio(audio: AudioNative): Record<string, unknown> {

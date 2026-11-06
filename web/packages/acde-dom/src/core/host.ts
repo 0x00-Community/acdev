@@ -38,3 +38,9 @@ export const KEY = Symbol('key')
 export function illegal(token: unknown): void {
   if (token !== KEY) throw new TypeError('Illegal constructor')
 }
+
+export function getters(target: object, table: Record<string, unknown>): void {
+  for (const [name, value] of Object.entries(table)) {
+    Object.defineProperty(target, name, { get: typeof value === 'function' ? (value as () => unknown) : () => value, enumerable: true, configurable: true })
+  }
+}

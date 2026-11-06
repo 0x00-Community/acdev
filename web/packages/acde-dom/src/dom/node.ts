@@ -1,6 +1,6 @@
 import { DOMException, guard } from '../core/exception'
 import { BUILD_PATH, EventTarget, type Event } from '../core/event'
-import { tag } from '../core/host'
+import { getters, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { characterDataObservers, childListObservers, observing, recordCharacterData, recordChildList, recordLists, type Observers } from './mutation'
 import { adopt, attach, changed, CONNECTED, constructing, detach, documentId, dom, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper } from './realm'
@@ -804,10 +804,6 @@ export class Text extends CharacterData {
     return text
   }
 
-  get assignedSlot(): null {
-    return null
-  }
-
   splitText(offset: number): Text {
     const data = this.data
     if (offset > data.length) throw new DOMException(`The offset ${offset} is larger than the Text node's length.`, 'IndexSizeError')
@@ -821,6 +817,7 @@ export class Text extends CharacterData {
     return tail
   }
 }
+getters(Text.prototype, { assignedSlot: null })
 tag(Text)
 
 export class CDATASection extends Text {}
@@ -842,11 +839,8 @@ export class Comment extends CharacterData {
 }
 tag(Comment)
 
-export class ProcessingInstruction extends CharacterData {
-  get target(): string {
-    return ''
-  }
-}
+export class ProcessingInstruction extends CharacterData {}
+getters(ProcessingInstruction.prototype, { target: '' })
 tag(ProcessingInstruction)
 
 export class DocumentType extends Node {

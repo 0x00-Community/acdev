@@ -3,7 +3,7 @@ import { backendTarget, cookies, requestHeaders, type BackendTarget, type Header
 import { bytesOf, concat, TextDecoder, unbase64 } from './encoding'
 import { CloseEvent, defineHandlers, Event, EventTarget, fire, MessageEvent, ProgressEvent } from './event'
 import { DOMException } from './exception'
-import { constants, G, host, tag } from './host'
+import { constants, G, getters, host, tag } from './host'
 import { isDisturbed, readAllBytes, ReadableStream, streamOfBytes, type ReadableStreamDefaultController } from './streams'
 import { objectUrls, URL, URLSearchParams } from './url'
 
@@ -809,10 +809,6 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
     }
   }
 
-  get responseXML(): null {
-    return null
-  }
-
   getResponseHeader(name: string): string | null {
     if (this.readyState < 2 || !this.#responseHeaders) return null
     return headerOf(this.#responseHeaders, String(name).toLowerCase())
@@ -828,6 +824,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
     this.#type = String(type)
   }
 }
+getters(XMLHttpRequest.prototype, { responseXML: null })
 defineHandlers(XMLHttpRequest.prototype, ['readystatechange'])
 constants(XMLHttpRequest, { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 })
 tag(XMLHttpRequest)

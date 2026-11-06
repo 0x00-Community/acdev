@@ -1,7 +1,7 @@
 import { defineHandlers, Event, EventTarget, fire, ProgressEvent } from './event'
 import { DOMException } from './exception'
 import { base64, bytesOf, concat, latin1, TextDecoder } from './encoding'
-import { constants, host, tag } from './host'
+import { constants, getters, host, tag } from './host'
 import { streamOfBytes, type ReadableStream } from './streams'
 
 type BlobPart = Blob | ArrayBuffer | ArrayBufferView | string
@@ -74,11 +74,8 @@ export class File extends Blob {
   get lastModified(): number {
     return this.#lastModified
   }
-
-  get webkitRelativePath(): string {
-    return ''
-  }
 }
+getters(File.prototype, { webkitRelativePath: '' })
 tag(File)
 
 export class FileReader extends EventTarget {

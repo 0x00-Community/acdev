@@ -1,4 +1,4 @@
-import { tag } from '../core/host'
+import { getters, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { Element, setAttribute } from './element'
 import { DOMMatrix, DOMPoint, DOMRect, svgTransform } from './geometry'
@@ -54,16 +54,11 @@ export class SVGTransform {
   static readonly SVG_TRANSFORM_UNKNOWN = 0
   static readonly SVG_TRANSFORM_MATRIX = 1
   constructor(readonly matrix: DOMMatrix) {}
-  get type(): number {
-    return 1
-  }
-  get angle(): number {
-    return 0
-  }
   setMatrix(matrix: DOMMatrix): void {
     ;(this as { matrix: DOMMatrix }).matrix = DOMMatrix.fromMatrix(matrix)
   }
 }
+getters(SVGTransform.prototype, { type: 1, angle: 0 })
 tag(SVGTransform)
 
 export class SVGTransformList {
@@ -280,9 +275,6 @@ export class SVGSVGElement extends SVGGraphicsElement {
     const v = { value: metricsOf(this[ID])?.clientHeight ?? 0 }
     return { baseVal: v, animVal: v }
   }
-  get currentScale(): number {
-    return 1
-  }
   get currentTranslate(): DOMPoint {
     return new DOMPoint()
   }
@@ -302,6 +294,7 @@ export class SVGSVGElement extends SVGGraphicsElement {
   }
   setCurrentTime(): void {}
 }
+getters(SVGSVGElement.prototype, { currentScale: 1 })
 tag(SVGSVGElement)
 
 function svgClass(name: string, base: typeof SVGElement, ...locals: string[]): typeof SVGElement {

@@ -1,6 +1,6 @@
 import { DOMException } from '../core/exception'
 import { Event, fire, getHandler, setHandler } from '../core/event'
-import { G, host, queueTask, tag } from '../core/host'
+import { G, getters, host, queueTask, tag } from '../core/host'
 import { URL } from '../core/url'
 import { NONE, NodeType, Ns } from '../native'
 import { ACTIVATION, MouseEvent, ToggleEvent } from './events'
@@ -9,7 +9,7 @@ import { resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
 import { metricsOf } from './layout'
 import { CharacterData, Comment, DocumentFragment, DocumentType, mixin, Node, replaceAll, Text, type NodeList } from './node'
-import { bool, long, nullable, string, url } from './reflect'
+import { bool, long, nullable, string, url, urlParts } from './reflect'
 import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap } from './realm'
 import { CSSStyleSheet, inlineStyle, type CSSStyleDeclaration } from './style'
 
@@ -609,15 +609,13 @@ export class HTMLLinkElement extends HTMLElement {
   get relList(): DOMTokenList {
     return tokenList(this, REL_LIST, 'rel', ['stylesheet', 'preload', 'modulepreload', 'icon', 'alternate', 'prefetch', 'preconnect', 'dns-prefetch', 'manifest', 'next'])
   }
-  get sheet(): unknown {
-    return null
-  }
 
   override [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
     super[ATTRIBUTE_CHANGED](name, value)
     if ((name === 'href' || name === 'rel') && value !== null && this.isConnected) linkLoad(this)
   }
 }
+getters(HTMLLinkElement.prototype, { sheet: null })
 
 function linkLoad(link: HTMLLinkElement): void {
   const id = link[ID]
@@ -709,23 +707,7 @@ function hyperlink(proto: object): void {
     enumerable: true,
     configurable: true,
   })
-  for (const part of ['origin', 'protocol', 'username', 'password', 'host', 'hostname', 'port', 'pathname', 'search', 'hash'] as const) {
-    Object.defineProperty(proto, part, {
-      get(this: Element) {
-        const u = parsed(this)
-        return u ? u[part] : ''
-      },
-      set(this: Element, value: string) {
-        if (part === 'origin') return
-        const u = parsed(this)
-        if (!u) return
-        ;(u as unknown as Record<string, string>)[part] = String(value)
-        setAttribute(this, 'href', u.href)
-      },
-      enumerable: true,
-      configurable: true,
-    })
-  }
+  urlParts(proto, ['origin', 'protocol', 'username', 'password', 'host', 'hostname', 'port', 'pathname', 'search', 'hash'], parsed, (el: Element, u) => setAttribute(el, 'href', u.href))
 }
 
 const htmlClasses = new Map<string, new () => Element>()

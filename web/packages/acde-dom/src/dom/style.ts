@@ -1,5 +1,5 @@
 import { DOMException, guard } from '../core/exception'
-import { tag } from '../core/host'
+import { getters, tag } from '../core/host'
 import { setAttribute, type Element } from './element'
 import { computedStyleOf } from './layout'
 import { changed, dom, ID, version } from './realm'
@@ -202,14 +202,11 @@ export class CSSStyleDeclaration {
     this.setProperty('float', value)
   }
 
-  get parentRule(): null {
-    return null
-  }
-
   *[Symbol.iterator](): IterableIterator<string> {
     yield* nameList(this)
   }
 }
+getters(CSSStyleDeclaration.prototype, { parentRule: null })
 tag(CSSStyleDeclaration)
 
 export function inlineStyle(element: Element): CSSStyleDeclaration {
@@ -346,23 +343,8 @@ export class CSSStyleSheet {
   get ownerNode(): Element | null {
     return this.#owner
   }
-  get type(): string {
-    return 'text/css'
-  }
-  get href(): string | null {
-    return null
-  }
-  get title(): string | null {
-    return null
-  }
   get media(): { mediaText: string; length: number } {
     return { mediaText: '', length: 0 }
-  }
-  get parentStyleSheet(): null {
-    return null
-  }
-  get ownerRule(): null {
-    return null
   }
 
   #native(): number {
@@ -443,6 +425,7 @@ export class CSSStyleSheet {
     if (this.#owner) (this.#owner as unknown as { textContent: string }).textContent = this.#rules.join('\n')
   }
 }
+getters(CSSStyleSheet.prototype, { type: 'text/css', href: null, title: null, parentStyleSheet: null, ownerRule: null })
 tag(CSSStyleSheet)
 
 export class StyleSheetList {

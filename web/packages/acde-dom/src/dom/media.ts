@@ -1,6 +1,6 @@
 import { DOMException } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { host, tag } from '../core/host'
+import { getters, host, tag } from '../core/host'
 import { Blob } from '../core/blob'
 import { unbase64 } from '../core/encoding'
 import { fetch } from '../core/net'
@@ -187,12 +187,6 @@ tag(HTMLCanvasElement)
 const SANDBOX = Symbol('sandbox')
 
 export class HTMLIFrameElement extends HTMLElement {
-  get contentWindow(): null {
-    return null
-  }
-  get contentDocument(): null {
-    return null
-  }
   get sandbox(): DOMTokenList {
     return tokenList(this, SANDBOX, 'sandbox', ['allow-downloads', 'allow-forms', 'allow-modals', 'allow-orientation-lock', 'allow-pointer-lock', 'allow-popups', 'allow-popups-to-escape-sandbox', 'allow-presentation', 'allow-same-origin', 'allow-scripts', 'allow-top-navigation', 'allow-top-navigation-by-user-activation'])
   }
@@ -200,6 +194,7 @@ export class HTMLIFrameElement extends HTMLElement {
     return null
   }
 }
+getters(HTMLIFrameElement.prototype, { contentWindow: null, contentDocument: null })
 string(HTMLIFrameElement.prototype, 'src')
 for (const name of ['srcdoc', 'name', 'allow', 'width', 'height', 'loading', 'referrerPolicy', 'align', 'scrolling', 'frameBorder']) string(HTMLIFrameElement.prototype, name, name.toLowerCase())
 bool(HTMLIFrameElement.prototype, 'allowFullscreen', 'allowfullscreen')
@@ -397,9 +392,6 @@ export class HTMLMediaElement extends HTMLElement {
   get currentSrc(): string {
     return this.#ready > 0 || this.#loading ? this.#source() : ''
   }
-  get seeking(): boolean {
-    return false
-  }
 
   get currentTime(): number {
     const native = audioNative()
@@ -466,9 +458,6 @@ export class HTMLMediaElement extends HTMLElement {
   get played(): { length: number; start(): number; end(): number } {
     return timeRanges(0)
   }
-  get textTracks(): unknown[] {
-    return []
-  }
 
   play(): Promise<void> {
     if (!this[PLAYS]()) return Promise.reject(new DOMException('Video playback is not supported', 'NotSupportedError'))
@@ -531,6 +520,7 @@ export class HTMLMediaElement extends HTMLElement {
     else if (name === 'loop' && this.#media) audioNative()?.media(this.#media, 4, value === null ? 0 : 1)
   }
 }
+getters(HTMLMediaElement.prototype, { seeking: false, textTracks: () => [] })
 url(HTMLMediaElement.prototype, 'src')
 string(HTMLMediaElement.prototype, 'preload')
 nullable(HTMLMediaElement.prototype, 'crossOrigin', 'crossorigin')
@@ -541,12 +531,6 @@ tag(HTMLMediaElement)
 mediaEvents.ended = (media) => playingMedia.get(media)?.[ENDED]()
 
 export class HTMLVideoElement extends HTMLMediaElement {
-  get videoWidth(): number {
-    return 0
-  }
-  get videoHeight(): number {
-    return 0
-  }
   getVideoPlaybackQuality(): object {
     return { totalVideoFrames: 0, droppedVideoFrames: 0, corruptedVideoFrames: 0, creationTime: 0 }
   }
@@ -554,6 +538,7 @@ export class HTMLVideoElement extends HTMLMediaElement {
     return false
   }
 }
+getters(HTMLVideoElement.prototype, { videoWidth: 0, videoHeight: 0 })
 for (const name of ['width', 'height']) long(HTMLVideoElement.prototype, name, 0)
 url(HTMLVideoElement.prototype, 'poster')
 bool(HTMLVideoElement.prototype, 'playsInline', 'playsinline')

@@ -1,6 +1,6 @@
 import { DOMException } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { host, queueTask, tag } from '../core/host'
+import { getters, host, queueTask, tag } from '../core/host'
 import { File } from '../core/blob'
 import { NONE } from '../native'
 import { ACTIVATION, FileList, SubmitEvent } from './events'
@@ -74,15 +74,6 @@ export class ValidityState {
   static {
     validityOwner = (state) => state.#owner
   }
-  get tooLong(): boolean {
-    return false
-  }
-  get stepMismatch(): boolean {
-    return false
-  }
-  get badInput(): boolean {
-    return false
-  }
   get customError(): boolean {
     return !!(this.#owner as unknown as { [CUSTOM_VALIDITY]?: string })[CUSTOM_VALIDITY]
   }
@@ -91,6 +82,7 @@ export class ValidityState {
     return !(VALIDITY.some((key) => v[key]) || this.customError)
   }
 }
+getters(ValidityState.prototype, { tooLong: false, stepMismatch: false, badInput: false })
 for (const key of VALIDITY) {
   Object.defineProperty(ValidityState.prototype, key, {
     get(this: ValidityState) {
@@ -572,9 +564,6 @@ tag(HTMLInputElement)
 export interface HTMLInputElement extends ConstraintValidation, TextSelection {}
 
 export class HTMLTextAreaElement extends HTMLElement {
-  get type(): string {
-    return 'textarea'
-  }
   get value(): string {
     return dom.value(this[ID])
   }
@@ -594,6 +583,7 @@ export class HTMLTextAreaElement extends HTMLElement {
     return this.value.length
   }
 }
+getters(HTMLTextAreaElement.prototype, { type: 'textarea' })
 for (const name of ['name', 'placeholder', 'autocomplete', 'wrap', 'dirName']) string(HTMLTextAreaElement.prototype, name, name.toLowerCase())
 for (const name of ['disabled', 'required', 'readOnly']) bool(HTMLTextAreaElement.prototype, name, name.toLowerCase())
 long(HTMLTextAreaElement.prototype, 'maxLength', -1, 'maxlength', 0)
@@ -1009,14 +999,12 @@ export class HTMLLabelElement extends HTMLElement {
 tag(HTMLLabelElement)
 
 export class HTMLFieldSetElement extends HTMLElement {
-  get type(): string {
-    return 'fieldset'
-  }
   get elements(): HTMLCollection {
     const id = this[ID]
     return liveCollection(() => dom.querySelectorAll(id, LISTED), HTMLFormControlsCollection)
   }
 }
+getters(HTMLFieldSetElement.prototype, { type: 'fieldset' })
 bool(HTMLFieldSetElement.prototype, 'disabled')
 string(HTMLFieldSetElement.prototype, 'name')
 mixin(HTMLFieldSetElement, ConstraintValidation)
@@ -1033,9 +1021,6 @@ tag(HTMLLegendElement)
 
 export class HTMLOutputElement extends HTMLElement {
   #default: string | null = null
-  get type(): string {
-    return 'output'
-  }
   get value(): string {
     return dom.textContent(this[ID])
   }
@@ -1054,6 +1039,7 @@ export class HTMLOutputElement extends HTMLElement {
     return tokenList(this, Symbol.for('acde.htmlFor'), 'for')
   }
 }
+getters(HTMLOutputElement.prototype, { type: 'output' })
 string(HTMLOutputElement.prototype, 'name')
 mixin(HTMLOutputElement, ConstraintValidation)
 tag(HTMLOutputElement)

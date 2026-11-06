@@ -2,7 +2,7 @@ import { CustomEvent, Event, EventTarget } from '../core/event'
 import { URL } from '../core/url'
 import { cookies } from '../core/backend'
 import { DOMException, guard } from '../core/exception'
-import { G, tag } from '../core/host'
+import { G, getters, tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
 import { animationsOf, documentTimeline, type Animation } from './animation'
 import { Attr, Element, noteMarkup, setAttribute } from './element'
@@ -120,9 +120,6 @@ export class Document extends Node {
   get domain(): string {
     return new URL(env.url).hostname
   }
-  get referrer(): string {
-    return ''
-  }
   get origin(): string {
     return new URL(env.url).origin
   }
@@ -130,18 +127,6 @@ export class Document extends Node {
     const d = new Date()
     const two = (n: number) => String(n).padStart(2, '0')
     return `${two(d.getMonth() + 1)}/${two(d.getDate())}/${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
-  }
-  get characterSet(): string {
-    return 'UTF-8'
-  }
-  get charset(): string {
-    return 'UTF-8'
-  }
-  get inputEncoding(): string {
-    return 'UTF-8'
-  }
-  get contentType(): string {
-    return 'text/html'
   }
   get compatMode(): string {
     return this.doctype ? 'CSS1Compat' : 'BackCompat'
@@ -172,24 +157,6 @@ export class Document extends Node {
   }
   get scrollingElement(): Element | null {
     return this.documentElement
-  }
-  get fullscreenElement(): null {
-    return null
-  }
-  get fullscreenEnabled(): boolean {
-    return false
-  }
-  get fullscreen(): boolean {
-    return false
-  }
-  get pointerLockElement(): null {
-    return null
-  }
-  get pictureInPictureElement(): null {
-    return null
-  }
-  get pictureInPictureEnabled(): boolean {
-    return false
   }
   get currentScript(): Element | null {
     return this.#live ? documentState.currentScript : null
@@ -428,6 +395,7 @@ export class Document extends Node {
     return { updateCallbackDone: finished, ready: finished.then(() => Promise.reject(new DOMException('Transition was skipped', 'AbortError'))).catch(() => undefined), finished, skipTransition: () => {}, types: new Set() }
   }
 }
+getters(Document.prototype, { referrer: '', characterSet: 'UTF-8', charset: 'UTF-8', inputEncoding: 'UTF-8', contentType: 'text/html', fullscreenElement: null, fullscreenEnabled: false, fullscreen: false, pointerLockElement: null, pictureInPictureElement: null, pictureInPictureEnabled: false })
 mixin(Document, ParentNodeMixin)
 defineElementHandlers(Document.prototype)
 defineElementHandlers(Document.prototype, ['readystatechange', 'visibilitychange', 'fullscreenchange', 'fullscreenerror', 'pointerlockchange', 'pointerlockerror', 'freeze', 'resume'])
@@ -552,9 +520,6 @@ export class FontFaceSet extends EventTarget {
     this.ready = Promise.resolve(this)
   }
 
-  get status(): string {
-    return 'loaded'
-  }
   get size(): number {
     return this.#faces.size
   }
@@ -584,6 +549,7 @@ export class FontFaceSet extends EventTarget {
     return this.#faces.values()
   }
 }
+getters(FontFaceSet.prototype, { status: 'loaded' })
 tag(FontFaceSet)
 
 const fontFaces = new FontFaceSet()

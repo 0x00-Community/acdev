@@ -1,6 +1,6 @@
 import { DOMException, guard } from '../core/exception'
 import { getHandler, setHandler } from '../core/event'
-import { tag } from '../core/host'
+import { getters, tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
 import { DOMRect, rectList, type DOMRectList } from './geometry'
 import { computedStyleOf, metricsOf, rectOf } from './layout'
@@ -96,10 +96,6 @@ export class Element extends Node {
 
   get namespaceURI(): string | null {
     return NAMESPACES[this[NS]] ?? null
-  }
-
-  get prefix(): string | null {
-    return null
   }
 
   [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
@@ -356,11 +352,8 @@ export class Element extends Node {
   requestPointerLock(): Promise<void> {
     return Promise.reject(new DOMException('Pointer lock is not supported', 'NotSupportedError'))
   }
-
-  get assignedSlot(): null {
-    return null
-  }
 }
+getters(Element.prototype, { prefix: null, assignedSlot: null })
 mixin(Element, ParentNodeMixin)
 mixin(Element, ChildNodeMixin)
 tag(Element)
@@ -492,9 +485,6 @@ export class Attr {
     this.#value = value ?? ''
   }
 
-  get nodeType(): number {
-    return 2
-  }
   get nodeName(): string {
     return this.#name
   }
@@ -529,10 +519,8 @@ export class Attr {
   get ownerElement(): Element | null {
     return this.#element
   }
-  get specified(): boolean {
-    return true
-  }
 }
+getters(Attr.prototype, { nodeType: 2, specified: true })
 tag(Attr)
 
 let refreshAttributes: (map: NamedNodeMap) => void

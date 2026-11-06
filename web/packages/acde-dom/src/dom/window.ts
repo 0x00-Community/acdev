@@ -1,6 +1,6 @@
 import { defineHandlers, Event, EventTarget, fire, LISTENERS, windowEvent } from '../core/event'
 import { DOMException } from '../core/exception'
-import { G, globals, host, tag } from '../core/host'
+import { G, getters, globals, host, tag } from '../core/host'
 import { structuredClone } from '../core/message'
 import { objectUrls, URL } from '../core/url'
 import { Blob } from '../core/blob'
@@ -14,6 +14,7 @@ import { linkHooks } from './html'
 import { rootScroll } from './layout'
 import { FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemHandle, FileSystemWritableFileStream, showDirectoryPicker, showOpenFilePicker, showSaveFilePicker } from './picker'
 import { documentId, dom, rootElementId, wrap } from './realm'
+import { urlParts } from './reflect'
 import { computedStyle, type CSSStyleDeclaration } from './style'
 
 export const viewport = { width: 0, height: 0, scale: 1 }
@@ -125,53 +126,6 @@ export class Location {
   set href(value: string) {
     navigate(String(value), false)
   }
-  get origin(): string {
-    return here().origin
-  }
-  get protocol(): string {
-    return here().protocol
-  }
-  set protocol(_value: string) {}
-  get host(): string {
-    return here().host
-  }
-  set host(_value: string) {}
-  get hostname(): string {
-    return here().hostname
-  }
-  set hostname(_value: string) {}
-  get port(): string {
-    return here().port
-  }
-  set port(_value: string) {}
-  get pathname(): string {
-    return here().pathname
-  }
-  set pathname(value: string) {
-    const u = new URL(env.url)
-    u.pathname = String(value)
-    navigate(u.href, false)
-  }
-  get search(): string {
-    return here().search
-  }
-  set search(value: string) {
-    const u = new URL(env.url)
-    u.search = String(value)
-    navigate(u.href, false)
-  }
-  get hash(): string {
-    return here().hash
-  }
-  set hash(value: string) {
-    const u = new URL(env.url)
-    const v = String(value)
-    u.hash = v.startsWith('#') ? v.slice(1) : v
-    navigate(u.href, false)
-  }
-  get ancestorOrigins(): { length: number } {
-    return { length: 0 }
-  }
   assign(url: string): void {
     navigate(String(url), false)
   }
@@ -188,6 +142,8 @@ export class Location {
     return this
   }
 }
+urlParts(Location.prototype, ['origin', 'protocol', 'host', 'hostname', 'port', 'pathname', 'search', 'hash'], here, (_, u) => navigate(u.href, false))
+getters(Location.prototype, { ancestorOrigins: () => ({ length: 0 }) })
 tag(Location)
 
 export class History {
@@ -452,9 +408,6 @@ export class Notification extends EventTarget {
   static get permission(): string {
     return env.notify ? 'granted' : 'denied'
   }
-  static get maxActions(): number {
-    return 0
-  }
   static requestPermission(callback?: (permission: string) => void): Promise<string> {
     const permission = env.notify ? 'granted' : 'denied'
     if (typeof callback === 'function') host.setTimer(0, () => callback(permission))
@@ -483,6 +436,7 @@ export class Notification extends EventTarget {
   close(): void {}
 }
 defineHandlers(Notification.prototype, ['click', 'close', 'error', 'show'])
+getters(Notification, { maxActions: 0 })
 tag(Notification)
 
 export interface NavigatorOptions {
@@ -517,77 +471,20 @@ export class Navigator {
   get appVersion(): string {
     return this.userAgent.replace(/^Mozilla\//, '')
   }
-  get appName(): string {
-    return 'Netscape'
-  }
-  get appCodeName(): string {
-    return 'Mozilla'
-  }
-  get platform(): string {
-    return 'Linux x86_64'
-  }
-  get product(): string {
-    return 'Gecko'
-  }
-  get productSub(): string {
-    return '20030107'
-  }
-  get vendor(): string {
-    return ''
-  }
-  get vendorSub(): string {
-    return ''
-  }
   get language(): string {
     return navigatorLanguages.get(this)?.language ?? this.languages[0] ?? 'zh-CN'
   }
   get languages(): readonly string[] {
     return Object.freeze([...(navigatorLanguages.get(this)?.languages ?? ['zh-CN', 'zh', 'en'])])
   }
-  get onLine(): boolean {
-    return true
-  }
-  get cookieEnabled(): boolean {
-    return true
-  }
   get hardwareConcurrency(): number {
     return this.#options.hardwareConcurrency ?? 4
-  }
-  get deviceMemory(): number {
-    return 8
-  }
-  get maxTouchPoints(): number {
-    return 0
-  }
-  get pdfViewerEnabled(): boolean {
-    return false
-  }
-  get webdriver(): boolean {
-    return false
-  }
-  get doNotTrack(): null {
-    return null
   }
   get clipboard(): Clipboard {
     return this.#clipboard
   }
   get mediaDevices(): MediaDevices {
     return this.#media
-  }
-  get permissions(): { query(): Promise<{ state: string; onchange: null }> } {
-    return { query: () => Promise.resolve({ state: 'denied', onchange: null }) }
-  }
-  get storage(): { estimate(): Promise<{ quota: number; usage: number }>; persist(): Promise<boolean>; persisted(): Promise<boolean> } {
-    return { estimate: () => Promise.resolve({ quota: 0, usage: 0 }), persist: () => Promise.resolve(false), persisted: () => Promise.resolve(false) }
-  }
-  get userActivation(): { hasBeenActive: boolean; isActive: boolean } {
-    return { hasBeenActive: true, isActive: false }
-  }
-  get mimeTypes(): { length: number } {
-    return { length: 0 }
-  }
-  get plugins(): { length: number } {
-    return { length: 0 }
   }
   javaEnabled(): boolean {
     return false
@@ -608,77 +505,37 @@ export class Navigator {
     return []
   }
 }
+getters(Navigator.prototype, {
+  appName: 'Netscape', appCodeName: 'Mozilla', platform: 'Linux x86_64', product: 'Gecko', productSub: '20030107', vendor: '', vendorSub: '',
+  onLine: true, cookieEnabled: true, deviceMemory: 8, maxTouchPoints: 0, pdfViewerEnabled: false, webdriver: false, doNotTrack: null,
+  permissions: () => ({ query: () => Promise.resolve({ state: 'denied', onchange: null }) }),
+  storage: () => ({ estimate: () => Promise.resolve({ quota: 0, usage: 0 }), persist: () => Promise.resolve(false), persisted: () => Promise.resolve(false) }),
+  userActivation: () => ({ hasBeenActive: true, isActive: false }),
+  mimeTypes: () => ({ length: 0 }),
+  plugins: () => ({ length: 0 }),
+})
 tag(Navigator)
 
 export class ScreenOrientation extends EventTarget {
   get type(): string {
     return screenWidth() >= screenHeight() ? 'landscape-primary' : 'portrait-primary'
   }
-  get angle(): number {
-    return 0
-  }
   lock(): Promise<never> {
     return Promise.reject(new DOMException('Orientation lock is not supported', 'NotSupportedError'))
   }
   unlock(): void {}
 }
+getters(ScreenOrientation.prototype, { angle: 0 })
 tag(ScreenOrientation)
 
 export class Screen extends EventTarget {
   readonly orientation = new ScreenOrientation()
-  get width(): number {
-    return screenWidth()
-  }
-  get height(): number {
-    return screenHeight()
-  }
-  get availWidth(): number {
-    return screenWidth()
-  }
-  get availHeight(): number {
-    return screenHeight()
-  }
-  get availLeft(): number {
-    return 0
-  }
-  get availTop(): number {
-    return 0
-  }
-  get colorDepth(): number {
-    return 24
-  }
-  get pixelDepth(): number {
-    return 24
-  }
-  get isExtended(): boolean {
-    return false
-  }
 }
+getters(Screen.prototype, { width: screenWidth, height: screenHeight, availWidth: screenWidth, availHeight: screenHeight, availLeft: 0, availTop: 0, colorDepth: 24, pixelDepth: 24, isExtended: false })
 tag(Screen)
 
-export class VisualViewport extends EventTarget {
-  get width(): number {
-    return viewport.width
-  }
-  get height(): number {
-    return viewport.height
-  }
-  get offsetLeft(): number {
-    return 0
-  }
-  get offsetTop(): number {
-    return 0
-  }
-  get pageLeft(): number {
-    return rootScroll(0)
-  }
-  get pageTop(): number {
-    return rootScroll(1)
-  }
-  get scale(): number {
-    return 1
-  }
-}
+export class VisualViewport extends EventTarget {}
+getters(VisualViewport.prototype, { width: () => viewport.width, height: () => viewport.height, offsetLeft: 0, offsetTop: 0, pageLeft: () => rootScroll(0), pageTop: () => rootScroll(1), scale: 1 })
 defineHandlers(VisualViewport.prototype, ['resize', 'scroll', 'scrollend'])
 tag(VisualViewport)
 

@@ -1,5 +1,5 @@
 import { DOMException } from './exception'
-import { host, tag } from './host'
+import { getters, host, tag } from './host'
 
 type BufferSourceLike = ArrayBuffer | ArrayBufferView
 
@@ -11,10 +11,6 @@ export function bytesOf(input: BufferSourceLike | SharedArrayBuffer | null | und
 }
 
 export class TextEncoder {
-  get encoding(): string {
-    return 'utf-8'
-  }
-
   encode(input = ''): Uint8Array {
     return host.encodeUtf8(String(input))
   }
@@ -39,6 +35,7 @@ export class TextEncoder {
     return { read, written }
   }
 }
+getters(TextEncoder.prototype, { encoding: 'utf-8' })
 tag(TextEncoder)
 
 const LABELS: Record<string, string> = {

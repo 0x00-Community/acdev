@@ -1,6 +1,6 @@
 import { AbortController, type AbortSignal } from './abort'
 import { bytesOf, concat, TextDecoder, TextEncoder } from './encoding'
-import { illegal, KEY, tag } from './host'
+import { getters, illegal, KEY, tag } from './host'
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -809,9 +809,6 @@ export class TextEncoderStream {
     this.readable = t.readable
     this.writable = t.writable
   }
-
-  get encoding(): string {
-    return 'utf-8'
-  }
 }
+getters(TextEncoderStream.prototype, { encoding: 'utf-8' })
 tag(TextEncoderStream)
