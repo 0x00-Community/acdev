@@ -35,6 +35,13 @@ export interface FileBytes {
   readonly data: Uint8Array
 }
 
+export type AcdeFsErrorCode = 'EINVAL' | 'EACCES' | 'ENOENT' | 'EEXIST' | 'ECONFLICT' | 'ENOTEMPTY' | 'EFBIG' | 'ENOSPC' | 'EIO'
+
+export interface AcdeFsError extends Error {
+  readonly status: number
+  readonly code: AcdeFsErrorCode
+}
+
 export interface AcdeFs {
   state(): Promise<{ roots: FinderRoot[]; root: string | null; path: string; entries: FinderEntry[]; truncated: boolean; preview: FinderPreview | null; error: string | null }>
   roots(): Promise<FinderRoot[]>

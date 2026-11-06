@@ -147,9 +147,16 @@ pub enum FsReply {
     File { name: String, data: Vec<u8> },
 }
 
-pub enum FsError {
-    Refused(String),
-    Failed(String),
+pub struct FsError {
+    pub status: u16,
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl From<Failure> for FsError {
+    fn from(failure: Failure) -> Self {
+        Self { status: failure.status, code: failure.errno.as_str(), message: failure.message }
+    }
 }
 
 impl FsCall {
@@ -269,10 +276,13 @@ impl Workspace {
         if let Some(roots) = &self.roots {
             match call.scope() {
                 Some(root) if roots.iter().any(|r| r == root) => {}
-                what => return Err(FsError::Refused(format!("the files of {}", what.unwrap_or("its workspaces")))),
+                what => {
+                    let what = what.unwrap_or("its workspaces");
+                    return Err(Failure::http(403, format!("this app may not use the files of {what} (not in its manifest's capabilities)")).into());
+                }
             }
         }
-        self.shared.call(call).map_err(|failure| FsError::Failed(serde_json::to_string(&failure).unwrap_or(failure.message)))
+        self.shared.call(call).map_err(FsError::from)
     }
 }
 
@@ -364,4 +374,19 @@ impl Finder {
 
 impl FsReply {
     pub const OCTETS: &str = "application/octet-stream";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_root_outside_the_manifest_is_refused_with_eacces() {
+        let workspace = Workspace::new().scoped(Some(vec!["/allowed".into()]));
+        let Err(error) = workspace.call(FsCall::List { root: "/elsewhere".into(), path: None, hidden: None }) else { panic!("not refused") };
+        assert_eq!((error.status, error.code), (403, "EACCES"));
+        assert_eq!(error.message, "this app may not use the files of /elsewhere (not in its manifest's capabilities)");
+        let Err(error) = workspace.call(FsCall::State) else { panic!("not refused") };
+        assert_eq!((error.status, error.code), (403, "EACCES"));
+    }
 }

@@ -143,12 +143,8 @@ fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, re
             let file = bind::object(scope, &[("name", name), ("contentType", kind), ("data", data)]);
             resolver.resolve(scope, file.into());
         }
-        Err(FsError::Refused(what)) => {
-            let thrown = offload::failure(scope, &format!("this app may not use {what} (not in its manifest's capabilities)"), Some(403), "forbidden");
-            resolver.reject(scope, thrown);
-        }
-        Err(FsError::Failed(json)) => {
-            let thrown = offload::failure(scope, &json, None, "GenericFailure");
+        Err(FsError { status, code, message }) => {
+            let thrown = offload::failure(scope, &message, Some(i32::from(status)), code);
             resolver.reject(scope, thrown);
         }
     }

@@ -260,8 +260,8 @@ acdert (一个进程)                   同上的 runtime (Broker / desktop / �
    - fs: crates/runtime `Workspace` (Finder 的共享状态 + 这个 web 能用的 roots, `None` 是全部) 和 `FsCall` / `FsReply`, napi
      `Finder` 也是它的包装. Broker 线程第一次 `spawnWeb` 时建一份, 每个 web 按清单拿一个 `scoped` 的副本 (`{fs}`: `true` 是全部,
      roots 数组, `null` 是没有); roots 在 Rust 里查
-     (第一个参数: root, `locate` 是 path; 不带参数的 `state` / `roots` / `desktop` 在限了 roots 时拒绝), 拒绝是 `status 403`、
-     `code 'forbidden'` 的 Error, 别的失败和 napi 一样: message 是失败的 JSON, `code 'GenericFailure'`. crates/acdert `fs.rs` 把它
+     (第一个参数: root, `locate` 是 path; 不带参数的 `state` / `roots` / `desktop` 在限了 roots 时拒绝); 失败 (包括拒绝) 的形状见
+     「文件 (`acde:fs`)」: `message` 是人读的话, `status` 和 node 风格的 `code`. crates/acdert `fs.rs` 把它
      绑成 `natives.fs` (每次调用一条 `acde-fs` 线程, 结果投回这个 web 的事件循环), web 的 `acde:fs` 就是它. Broker 自己 (桌面服务、`locate`、office) 还用自己的 napi `Finder` (另一份
      `Place`, Broker 不读写它).
 5. 窗口 / 应用 / 会话表进 Rust 共享表, `acde:windows` / `acde:apps` / `acde:window` / `acde:session` / `acde:desktops` 直接调.
@@ -753,6 +753,32 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   `acde-mimeapps.list` (每个类型给第一个写了它的应用). 桌面包装进 `/usr/share/applications`.
 - **总线上的名字**只在自己的会话里拿 (`ACDE_BUS_NAMES=1/0` 强制; 嵌套跑时 FileManager1 是外面桌面的); 两个名字都允许被替换,
   后起的会话拿走. 不装 D-Bus activation 文件: 没有会话时不该为了打开一个文件夹起一个 acde.
+
+## 文件 (`acde:fs`)
+
+页面的 `acde:fs` 是 crates/acdert `fs.rs` 绑的 `natives.fs` (见「运行时进程」迁移顺序第 4 条), 实现在 crates/runtime `fs/`
+(`Workspace` → `Shared::call` → `WorkspaceFs`); 类型是 acde-api `page.d.ts` 的 `AcdeFs`. 每个调用的第一个参数是 root (`roots()` 里某项的
+`path`), 第二个是相对它的路径: 绝对路径、`..` 出 root、经符号链接出 root 都拒绝 (`WorkspaceFs::resolve`), root 本身不能被替换或删掉.
+
+**失败**: 每个被拒的调用 reject 一个 `Error` (acde-api `AcdeFsError`), 三个字段都来自 runtime 的 `Failure` (`failure.rs`), 不靠解析文字:
+`message` 是人读的英文 (`no such file or directory`, `file changed since it was opened; reload before saving` …, 不是 JSON),
+`status` 是 HTTP 式的数字, `code` 是 node 风格的:
+
+| `code` | `status` | 什么时候 |
+| --- | --- | --- |
+| `EINVAL` | 400 | 参数不对、路径出 root、不是文件 / 不是文件夹、符号链接 |
+| `EACCES` | 403 | 清单没给这个 root (`this app may not use the files of …`)、系统不让 (权限、只读文件系统) |
+| `ENOENT` | 404 | 不存在 |
+| `EEXIST` | 409 | 已经有了 (`already exists`、`write(…, 'new')` 时文件已在、改名的目标、没有空的副本名) |
+| `ECONFLICT` | 409 | 打开之后被别人改了 / 没了 (`write` 的 `expectedModifiedMs` 对不上) |
+| `ENOTEMPTY` | 409 | 删非空的文件夹 |
+| `EFBIG` | 413 | 超过上限 |
+| `ENOSPC` | 507 | 磁盘满 |
+| `EIO` | 500 | 别的 (细节进日志, message 是 `Runtime server operation failed`) |
+
+`code` 由造 `Failure` 的地方定 (`Failure::exists` / `conflict` / `with`; 没指定时按 status 取上表的默认, io 错误按 errno), 409 的
+`EEXIST` / `ECONFLICT` / `ENOTEMPTY` 因此分得开. 契约 (dx 计划 Contract B) 列的是 `ENOTEMPTY` / `ENOSPC` 以外的七个, 这两个原来算
+`EIO`, 现在给了准确的名字. 只有 `acde:fs` 是这个形状; Broker 自己的 napi `Finder` (和别的 napi 导出) 照旧: message 是失败的 JSON.
 
 ## desktop web / window web
 

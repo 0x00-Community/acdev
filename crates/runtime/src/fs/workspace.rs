@@ -357,14 +357,14 @@ impl WorkspaceFs {
         let Resolved { absolute, .. } = self.resolve_at(root_path, relative, false)?;
         let current = fs::symlink_metadata(&absolute).ok();
         match &current {
-            Some(_) if expected == "new" => return Err(Failure::http(409, "file already exists")),
+            Some(_) if expected == "new" => return Err(Failure::exists("file already exists")),
             None if expected == "new" => {}
             Some(info) if info.is_file() => {
                 if info.modified_ms().to_string() != expected {
-                    return Err(Failure::http(409, "file changed since it was opened; reload before saving"));
+                    return Err(Failure::conflict("file changed since it was opened; reload before saving"));
                 }
             }
-            _ => return Err(Failure::http(409, "file no longer exists or is not a regular file")),
+            _ => return Err(Failure::conflict("file no longer exists or is not a regular file")),
         }
         let mut options = OpenOptions::new();
         options.write(true).custom_flags(OFlags::NOFOLLOW.bits() as i32).mode(0o644);
@@ -421,7 +421,7 @@ impl WorkspaceFs {
             }
             return FinderEntry::read(&target, &candidate);
         }
-        Err(Failure::http(409, "no free name for the copy"))
+        Err(Failure::exists("no free name for the copy"))
     }
 
     pub fn rename(&self, root_path: &str, from: &str, to: &str) -> Outcome<FinderEntry> {
@@ -432,7 +432,7 @@ impl WorkspaceFs {
             return Err(Failure::invalid("the workspace root cannot be renamed"));
         }
         if fs::symlink_metadata(&target.absolute).is_ok() {
-            return Err(Failure::http(409, "target already exists"));
+            return Err(Failure::exists("target already exists"));
         }
         fs::rename(&source.absolute, &target.absolute)?;
         FinderEntry::read(&target.absolute, target.absolute.basename())
