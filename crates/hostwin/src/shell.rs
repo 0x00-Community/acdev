@@ -311,6 +311,10 @@ impl Shell {
         link.capture(CAPTURE_WAIT)
     }
 
+    pub fn notify(&self, title: &str, body: &str, subtitle: &str) -> Result<(), String> {
+        crate::notify::show(title, body, subtitle)
+    }
+
     pub fn dev_respond(&self, id: i64, result: Result<&str, &str>) -> Result<(), String> {
         crate::dev::respond(id, result)
     }

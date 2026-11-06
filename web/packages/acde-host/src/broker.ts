@@ -43,6 +43,7 @@ export interface BrokerShell {
   quit(): void
   capture?(window: number): Promise<{ width: number; height: number; png: string }>
   devRespond?(id: number, ok: boolean, payload: string): void
+  notify?(title: string, body: string, subtitle: string): void
   readonly socketName: string
   readonly hosted?: boolean
 }
@@ -631,6 +632,12 @@ export class Broker {
     this.#places.flush()
   }
 
+  #desktopShown(): boolean {
+    if (!this.#desktop) return false
+    const row = this.shell.windows().find((w) => (w.window ?? w.id) === 0)
+    return !!row && !row.hidden
+  }
+
   #toDesktop(event: Record<string, unknown> | RawShellEvent): void {
     this.#desktop?.post({ type: 'events', events: [event] })
   }
@@ -996,7 +1003,9 @@ export class Broker {
       case 'notify': {
         const n = (args[0] ?? {}) as Record<string, unknown>
         const icon = text(n['icon'], 256 * 1024)
-        this.#toDesktop({ type: 'notification', window: web.window, app: web.app?.id ?? null, label: web.app?.label ?? null, title: text(n['title'], 200), body: text(n['body'], 2000), icon: /^(data:image\/|http:\/\/acde\.local\/)/.test(icon) ? icon : '', tag: text(n['tag'], 200) })
+        const notice = { type: 'notification', window: web.window, app: web.app?.id ?? null, label: web.app?.label ?? null, title: text(n['title'], 200), body: text(n['body'], 2000), icon: /^(data:image\/|http:\/\/acde\.local\/)/.test(icon) ? icon : '', tag: text(n['tag'], 200) }
+        if (this.#desktopShown() || !this.shell.notify) this.#toDesktop(notice)
+        else this.shell.notify(notice.title, notice.body, notice.label ?? '')
         return true
       }
     }

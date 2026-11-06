@@ -65,6 +65,7 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "quit" => quit,
         "capture" => capture,
         "devRespond" => dev_respond,
+        "notify" => notify,
     );
     let name = bind::string(scope, "");
     bind::set(scope, obj, "socketName", name.into());
@@ -387,6 +388,15 @@ fn dev_respond(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _:
     let payload = bind::arg_string(scope, &args, 2);
     let result = if ok { Ok(payload.as_str()) } else { Err(payload.as_str()) };
     if let Some(Err(e)) = with(scope, |shell| shell.dev_respond(id as i64, result)) {
+        bind::throw_error(scope, &e);
+    }
+}
+
+fn notify(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let title = bind::arg_string(scope, &args, 0);
+    let body = bind::arg_string(scope, &args, 1);
+    let subtitle = bind::arg_string(scope, &args, 2);
+    if let Some(Err(e)) = with(scope, |shell| shell.notify(&title, &body, &subtitle)) {
         bind::throw_error(scope, &e);
     }
 }

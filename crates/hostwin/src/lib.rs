@@ -2,6 +2,7 @@ mod app;
 mod dev;
 mod gpu;
 mod keys;
+mod notify;
 mod present;
 mod shell;
 mod surface;

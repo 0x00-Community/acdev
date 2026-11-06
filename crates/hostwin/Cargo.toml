@@ -17,3 +17,5 @@ pollster = "0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+# notify.rs: native notifications through org.freedesktop.Notifications when no visible desktop shows them
+zbus = "5"
