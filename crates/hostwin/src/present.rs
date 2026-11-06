@@ -92,7 +92,10 @@ impl Presenter {
             alpha_mode,
             view_formats: vec![],
         };
-        surface.configure(gpu.device(), &config);
+        {
+            let _lock = gpu.shared.submit_lock();
+            surface.configure(gpu.device(), &config);
+        }
         let options = vello::RendererOptions {
             use_cpu: false,
             antialiasing_support: vello::AaSupport::area_only(),
@@ -181,7 +184,7 @@ impl Presenter {
                 if (width, height) != (self.config.width, self.config.height) {
                     self.config.width = width;
                     self.config.height = height;
-                    self.surface.configure(self.gpu.device(), &self.config);
+                    self.configure();
                 }
                 self.scale = scale;
                 self.tell_size();
@@ -203,6 +206,11 @@ impl Presenter {
             Msg::Stop => return true,
         }
         false
+    }
+
+    fn configure(&self) {
+        let _lock = self.gpu.shared.submit_lock();
+        self.surface.configure(self.gpu.device(), &self.config);
     }
 
     fn wait(&self) -> Option<Duration> {
@@ -383,7 +391,7 @@ impl Presenter {
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 log::debug!("窗口的 surface 过期, 重新配置");
-                self.surface.configure(gpu.device(), &self.config);
+                self.configure();
                 self.retry = Some(Instant::now());
                 return;
             }
