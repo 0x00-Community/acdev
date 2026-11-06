@@ -3,7 +3,7 @@ import type { TextInputState } from './text'
 import { Level, Log } from './log'
 
 export interface NativeIme {
-  readonly backend: 'fcitx5' | 'ibus'
+  readonly backend: 'fcitx5' | 'ibus' | 'host'
   focusIn(): void
   focusOut(): void
   reset(): void
@@ -55,6 +55,24 @@ export class InputMethod {
 
   constructor(open: () => NativeIme) {
     this.#open = open
+  }
+
+  static area(place: (rect: TextInputState['rect']) => void): InputMethod {
+    const none = () => undefined
+    return new InputMethod(() => ({
+      backend: 'host',
+      focusIn: none,
+      focusOut: none,
+      reset: none,
+      setCursorRect: (x, y, width, height) => place({ x, y, width, height }),
+      setSurroundingText: none,
+      setCapability: none,
+      processKey: () => false,
+      selectCandidate: none,
+      prevPage: none,
+      nextPage: none,
+      close: none,
+    }))
   }
 
   focus(state: TextInputState): void {

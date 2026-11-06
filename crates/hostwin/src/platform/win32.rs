@@ -11,7 +11,7 @@ use acde_gpu::wgpu;
 use wgpu::rwh;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
+    ClientToScreen, DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
     ValidateRect,
 };
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData};
@@ -22,7 +22,7 @@ use windows_sys::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForSystem, GetDpiForWindow, SetProcessDpiAwarenessContext,
 };
 use windows_sys::Win32::UI::Input::Ime::{
-    CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, GCS_COMPSTR, GCS_RESULTSTR, ISC_SHOWUICOMPOSITIONWINDOW, ImmGetCompositionStringW,
+    CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, GCS_COMPSTR, GCS_RESULTSTR, IMECHARPOSITION, IMR_QUERYCHARPOSITION, ISC_SHOWUICOMPOSITIONWINDOW, ImmGetCompositionStringW,
     ImmGetContext, ImmReleaseContext, ImmSetCandidateWindow, ImmSetCompositionWindow,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -35,7 +35,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, HTCLIENT, IDC_ARROW,
     LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassExW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
     SetCursor, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_APP, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
-    WM_DROPFILES, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
+    WM_DROPFILES, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_REQUEST, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
     WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
     WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
     WM_XBUTTONUP, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, XBUTTON1,
@@ -76,6 +76,7 @@ pub(crate) struct Host {
     hinstance: isize,
     scale: Cell<f64>,
     exit: Cell<Option<i32>>,
+    ime_area: Cell<Option<RECT>>,
 }
 
 impl Host {
@@ -87,6 +88,7 @@ impl Host {
     pub fn set_ime_area(&self, [x, y, w, h]: [f64; 4]) {
         let s = self.scale.get();
         let (left, top, right, bottom) = ((x * s) as i32, (y * s) as i32, ((x + w.max(1.0)) * s) as i32, ((y + h.max(1.0)) * s) as i32);
+        self.ime_area.set(Some(RECT { left, top, right, bottom }));
         unsafe {
             let imc = ImmGetContext(self.hwnd);
             if imc.is_null() {
@@ -215,6 +217,7 @@ struct Win {
     buttons: Cell<u32>,
     mods: Cell<u8>,
     surrogate: Cell<Option<u16>>,
+    composing: Cell<bool>,
 }
 
 thread_local! {
@@ -320,6 +323,25 @@ impl Win {
         let Some(evdev) = keys::scancode(code, extended) else { return };
         let text = if pressed { self.text() } else { None };
         self.emit(HostEvent::Key { evdev, pressed, text });
+    }
+
+    fn char_position(&self, lparam: LPARAM) -> LRESULT {
+        let Some(area) = self.host.ime_area.get() else { return 0 };
+        let hwnd = self.host.hwnd;
+        unsafe {
+            let position = &mut *(lparam as *mut IMECHARPOSITION);
+            let mut at = POINT { x: area.left, y: area.top };
+            ClientToScreen(hwnd, &mut at);
+            let mut client = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+            GetClientRect(hwnd, &mut client);
+            let (mut origin, mut corner) = (POINT { x: client.left, y: client.top }, POINT { x: client.right, y: client.bottom });
+            ClientToScreen(hwnd, &mut origin);
+            ClientToScreen(hwnd, &mut corner);
+            position.pt = at;
+            position.cLineHeight = (area.bottom - area.top).max(1) as u32;
+            position.rcDocument = RECT { left: origin.x, top: origin.y, right: corner.x, bottom: corner.y };
+        }
+        1
     }
 
     fn composition(&self, kind: u32) -> Option<String> {
@@ -441,16 +463,23 @@ impl Win {
                 if flags & GCS_RESULTSTR != 0
                     && let Some(text) = self.composition(GCS_RESULTSTR)
                 {
-                    self.emit(HostEvent::ImePreedit(String::new()));
+                    self.composing.set(false);
                     self.emit(HostEvent::ImeCommit(text));
                 }
-                if flags & GCS_COMPSTR != 0
-                    && let Some(text) = self.composition(GCS_COMPSTR)
-                {
-                    self.emit(HostEvent::ImePreedit(text));
+                if flags & GCS_COMPSTR != 0 {
+                    let text = self.composition(GCS_COMPSTR).unwrap_or_default();
+                    if !text.is_empty() || self.composing.get() {
+                        self.composing.set(!text.is_empty());
+                        self.emit(HostEvent::ImePreedit(text));
+                    }
                 }
             }
-            WM_IME_ENDCOMPOSITION => self.emit(HostEvent::ImePreedit(String::new())),
+            WM_IME_ENDCOMPOSITION => {
+                if self.composing.replace(false) {
+                    self.emit(HostEvent::ImePreedit(String::new()));
+                }
+            }
+            WM_IME_REQUEST if wparam as u32 == IMR_QUERYCHARPOSITION => return Some(self.char_position(lparam)),
             WM_DROPFILES => self.dropped(wparam as HDROP),
             WM_SETCURSOR => {
                 if (lparam & 0xffff) as u32 != HTCLIENT {
@@ -529,7 +558,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
     }
     unsafe { DragAcceptFiles(hwnd, 1) };
     let scale = f64::from(unsafe { GetDpiForWindow(hwnd) }.max(1)) / 96.0;
-    let host = Host { hwnd, hinstance: hinstance as isize, scale: Cell::new(scale), exit: Cell::new(None) };
+    let host = Host { hwnd, hinstance: hinstance as isize, scale: Cell::new(scale), exit: Cell::new(None), ime_area: Cell::new(None) };
     let proxy = Proxy(Arc::new(Queue { hwnd: hwnd as isize, cmds: Mutex::new(VecDeque::new()) }));
     let win = Rc::new(Win {
         host,
@@ -542,6 +571,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
         buttons: Cell::new(0),
         mods: Cell::new(0),
         surrogate: Cell::new(None),
+        composing: Cell::new(false),
     });
     let size = win.client_size();
     win.handler.borrow_mut().started(&win.host, proxy, monitor, size, scale);

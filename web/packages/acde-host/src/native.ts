@@ -76,7 +76,7 @@ export interface NativeSurface {
   closePanel(id: number): void
 }
 
-export type Shell = Pick<NativeSurface, 'setClipboard' | 'readClipboard'>
+export type Shell = Pick<NativeSurface, 'setClipboard' | 'readClipboard' | 'setImeArea'>
 
 export interface Native {
   Shell: { broker(options?: { title?: string }): BrokerShell; readonly hosted?: boolean }

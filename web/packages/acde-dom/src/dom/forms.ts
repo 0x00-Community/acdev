@@ -199,7 +199,10 @@ export function fieldSelection(field: Field): Selection {
   const holder = field as unknown as { [SELECTION]?: Selection }
   const length = field.value.length
   let s = holder[SELECTION]
-  if (!s) s = holder[SELECTION] = { start: length, end: length, direction: 'none' }
+  if (!s) {
+    s = holder[SELECTION] = { start: length, end: length, direction: 'none' }
+    dom.setSelectionRange(field[ID], length, length)
+  }
   if (s.end > length) s.end = length
   if (s.start > s.end) s.start = s.end
   return s

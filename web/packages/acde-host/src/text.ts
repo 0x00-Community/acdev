@@ -1,5 +1,5 @@
 import type { DomNative, WebInternals } from '@dopame/acde-dom'
-import type { ImePanelEvent, InputMethod } from './ime'
+import { InputMethod, type ImePanelEvent } from './ime'
 import { ImePanel } from './panel'
 import type { Shell } from './native'
 
@@ -46,6 +46,7 @@ export class TextEntry {
 
   attach(shell: Shell): void {
     this.#shell = shell
+    if (!this.#ime && shell.setImeArea) this.#ime = InputMethod.area((rect) => shell.setImeArea?.(rect.x, rect.y, rect.width, rect.height))
     this.#page.env.clipboard = {
       writeText: async (text: string) => void this.#shell?.setClipboard(String(text)),
       readText: async () => (await this.#shell?.readClipboard()) ?? '',
@@ -120,6 +121,7 @@ export class TextEntry {
   preedit(text: string): void {
     const target = this.active()
     if (!this.#editable(target)) return
+    if (!text && this.#composing !== target) return
     if (this.#composing !== target) {
       this.#composing = target
       this.#fire(target, 'compositionstart', '')
