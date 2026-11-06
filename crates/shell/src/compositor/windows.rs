@@ -26,10 +26,6 @@ impl Compositor {
         self.sync_parent(surface);
     }
 
-    fn window_of_managed(&self, managed: acde_model::WindowId) -> Option<Window> {
-        self.window(self.native_of(managed)?)
-    }
-
     pub fn sync_parent(&mut self, surface: &ToplevelSurface) {
         if let Some(window) = self.window_of(surface.wl_surface()) {
             self.sync_window_parent(&window);
@@ -47,7 +43,7 @@ impl Compositor {
         }
         let focused = self.seat.get_keyboard().and_then(|k| k.current_focus());
         let parent_focused =
-            parent.and_then(|p| self.window_of_managed(p)).and_then(|p| p.toplevel().map(|t| t.wl_surface().clone())).is_some_and(|p| Some(p) == focused);
+            parent.and_then(|p| self.window(p.0)).and_then(|p| p.toplevel().map(|t| t.wl_surface().clone())).is_some_and(|p| Some(p) == focused);
         if modal && parent_focused {
             self.focus_window(Some(window));
         }
@@ -55,12 +51,12 @@ impl Compositor {
 
     pub fn modal_target(&self, window: &Window) -> Option<Window> {
         let managed = self.managed_of(window)?;
-        self.window_of_managed(self.table.modal_child(managed)?)
+        self.window(self.table.modal_child(managed)?.0)
     }
 
     pub fn parent_window(&self, window: &Window) -> Option<Window> {
         let parent = self.table.window(self.managed_of(window)?)?.parent?;
-        self.window_of_managed(parent)
+        self.window(parent.0)
     }
 
     fn min_size_changed(&mut self, window: &Window, size: Size<i32, Logical>) {

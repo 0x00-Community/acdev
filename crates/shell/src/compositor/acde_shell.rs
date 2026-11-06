@@ -159,14 +159,27 @@ impl Compositor {
 
     fn list_windows(&self, callback: &AcdeShellList) {
         let Some(canvas) = self.canvas.and_then(|c| self.table.canvas(c)) else { return };
-        for (&id, &managed) in self.native_ids.iter().chain(&self.extras) {
+        for (z, &managed) in canvas.z.iter().enumerate() {
             let Some(w) = self.table.window(managed) else { continue };
-            let z = canvas.z.iter().position(|&x| x == managed).map_or(-1, |p| p as i32);
+            let id = managed.0;
             let surface = self.window(id).and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()));
             let window = surface.as_ref().and_then(Self::bound).map(|g| g.id);
             let pid = surface.and_then(|s| s.client()).and_then(|c| c.get_credentials(&self.display).ok()).and_then(|c| u32::try_from(c.pid).ok());
             let (r, focus, hidden) = (w.rect, canvas.focus == Some(managed), self.hidden.contains(&id));
-            callback.window(id, wire(window), 0, w.mode as u32, r.x as i32, r.y as i32, r.w as u32, r.h as u32, z, focus.into(), hidden.into(), wire(pid));
+            callback.window(
+                id,
+                wire(window),
+                0,
+                w.mode as u32,
+                r.x as i32,
+                r.y as i32,
+                r.w as u32,
+                r.h as u32,
+                z as i32,
+                focus.into(),
+                hidden.into(),
+                wire(pid),
+            );
         }
     }
 

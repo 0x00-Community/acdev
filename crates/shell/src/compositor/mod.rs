@@ -47,7 +47,7 @@ use smithay::wayland::shm::ShmState;
 
 pub use backend::Backend;
 
-pub use acde_model::{Event, Inbox};
+pub use acde_model::{Event, Inbox, WindowId};
 
 pub const SURFACE_IDS: u32 = 1 << 20;
 
@@ -176,8 +176,7 @@ pub struct Compositor {
     pub socket: OsString,
     pub table: acde_model::WindowTable,
     pub canvas: Option<acde_model::CanvasId>,
-    pub native_ids: std::collections::HashMap<u32, acde_model::WindowId>,
-    pub extras: std::collections::HashMap<u32, acde_model::WindowId>,
+    pub natives: usize,
     pub grants: std::collections::HashMap<u64, Grant>,
     pub pending: Vec<Window>,
     pub desktop: Option<u32>,
@@ -303,8 +302,7 @@ impl Compositor {
             socket: socket_name.clone(),
             table: Default::default(),
             canvas: None,
-            native_ids: Default::default(),
-            extras: Default::default(),
+            natives: 0,
             grants: Default::default(),
             pending: Vec::new(),
             desktop: None,
@@ -410,20 +408,16 @@ impl Compositor {
         window.user_data().get::<NativeId>().map(|id| id.0)
     }
 
-    fn managed(&self, id: u32) -> Option<acde_model::WindowId> {
-        self.native_ids.get(&id).copied()
+    fn managed(&self, id: u32) -> Option<WindowId> {
+        Some(WindowId(id)).filter(|m| self.table.window(*m).is_some())
     }
 
-    fn managed_of(&self, window: &Window) -> Option<acde_model::WindowId> {
+    fn managed_of(&self, window: &Window) -> Option<WindowId> {
         Self::window_id(window).and_then(|id| self.managed(id))
     }
 
     fn managed_window(&self, id: u32) -> Option<&acde_model::Window> {
-        self.table.window(self.managed(id)?)
-    }
-
-    fn native_of(&self, managed: acde_model::WindowId) -> Option<u32> {
-        self.native_ids.iter().find(|(_, m)| **m == managed).map(|(id, _)| *id)
+        self.table.window(WindowId(id))
     }
 
     fn next_window_id(&mut self) -> u32 {
@@ -445,13 +439,13 @@ impl Compositor {
     }
 
     pub(crate) fn native_enter(&mut self, window: &Window, id: u32, mode: acde_model::Mode) {
-        if self.native_ids.contains_key(&id) {
+        if self.managed(id).is_some() {
             self.native_sync(window, id);
             return;
         }
         let Some(canvas) = self.canvas else { return };
-        if let Ok(managed) = self.table.create(canvas, mode, table_rect(window.geometry())) {
-            self.native_ids.insert(id, managed);
+        if self.table.create(WindowId(id), canvas, mode, table_rect(window.geometry()), None).is_ok() {
+            self.natives += 1;
             self.sync_window_parent(window);
         }
     }
@@ -463,38 +457,40 @@ impl Compositor {
     }
 
     pub(crate) fn native_place(&mut self, id: u32, rect: Rectangle<i32, Logical>) {
-        let Some(managed) = self.managed(id) else { return };
-        let _ = self.table.set_rect(managed, table_rect(rect));
+        let _ = self.table.set_rect(WindowId(id), table_rect(rect));
     }
 
     pub(crate) fn extra_enter(&mut self, surface: &WlSurface, rect: Rectangle<i32, Logical>, parent: Option<u32>) {
         let Some(canvas) = self.canvas else { return };
         let parent = parent.and_then(|p| self.managed(p));
-        let Ok(managed) = self.table.create_child(canvas, acde_model::Mode::Pinned, table_rect(rect), parent) else { return };
-        let id = self.next_window_id();
-        self.extras.insert(id, managed);
+        let id = self.next_window;
+        if self.table.create(WindowId(id), canvas, acde_model::Mode::Pinned, table_rect(rect), parent).is_err() {
+            return;
+        }
+        self.next_window += 1;
         smithay::wayland::compositor::with_states(surface, |s| {
             s.data_map.insert_if_missing_threadsafe(|| Extra(id));
         });
     }
 
     pub(crate) fn extra_place(&mut self, surface: &WlSurface, rect: Rectangle<i32, Logical>) {
-        let Some(&managed) = Self::extra_id(surface).and_then(|id| self.extras.get(&id)) else { return };
-        let _ = self.table.set_rect(managed, table_rect(rect));
+        if let Some(id) = Self::extra_id(surface) {
+            let _ = self.table.set_rect(WindowId(id), table_rect(rect));
+        }
     }
 
     pub(crate) fn extra_leave(&mut self, surface: &WlSurface) {
-        if let Some(managed) = Self::extra_id(surface).and_then(|id| self.extras.remove(&id)) {
-            self.motion.forget(managed);
-            self.table.remove(managed);
+        if let Some(id) = Self::extra_id(surface).map(WindowId) {
+            self.motion.forget(id);
+            self.table.remove(id);
         }
     }
 
     pub(crate) fn native_leave(&mut self, id: u32) {
         self.shortcuts.forget(id);
-        if let Some(window) = self.native_ids.remove(&id) {
-            self.motion.forget(window);
-            self.table.remove(window);
+        if self.table.remove(WindowId(id)).is_some() {
+            self.natives -= 1;
+            self.motion.forget(WindowId(id));
         }
         if self.desktop == Some(id) {
             self.desktop = None;

@@ -18,7 +18,6 @@ use smithay::wayland::keyboard_shortcuts_inhibit::{KeyboardShortcutsInhibitHandl
 use smithay::wayland::pointer_constraints::{PointerConstraintsHandler, PointerConstraintsState, with_pointer_constraint};
 use smithay::wayland::pointer_gestures::PointerGesturesState;
 use smithay::wayland::relative_pointer::RelativePointerManagerState;
-use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::selection::primary_selection::{PrimarySelectionHandler, PrimarySelectionState};
 use smithay::wayland::shell::kde::decoration::{KdeDecorationHandler, KdeDecorationState};
 use smithay::wayland::shell::xdg::ToplevelSurface;
@@ -173,8 +172,7 @@ impl PointerConstraintsHandler for Compositor {
         if !active {
             return;
         }
-        let origin =
-            self.space.elements().find(|w| w.wl_surface().as_deref() == Some(surface)).and_then(|w| self.space.element_location(w)).unwrap_or_default();
+        let origin = self.window_of(surface).and_then(|w| self.space.element_location(&w)).unwrap_or_default();
         pointer.set_location(origin.to_f64() + location);
     }
 }
@@ -195,7 +193,7 @@ impl InputMethodHandler for Compositor {
     }
 
     fn parent_geometry(&self, parent: &WlSurface) -> Rectangle<i32, Logical> {
-        self.space.elements().find(|w| w.wl_surface().as_deref() == Some(parent)).map(|w| w.geometry()).unwrap_or_default()
+        self.window_of(parent).map(|w| w.geometry()).unwrap_or_default()
     }
 }
 

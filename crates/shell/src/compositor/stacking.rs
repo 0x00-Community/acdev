@@ -51,7 +51,7 @@ impl Compositor {
                     elements.insert(at, backdrop);
                 }
             }
-            let live: Vec<u32> = plan.layers.iter().filter(|l| l.effect.is_some()).filter_map(|l| self.native_of(l.window)).collect();
+            let live: Vec<u32> = plan.layers.iter().filter(|l| l.effect.is_some()).map(|l| l.window.0).collect();
             self.effects.retain(|id| live.contains(&id));
         }
         elements

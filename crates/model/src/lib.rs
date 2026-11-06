@@ -205,7 +205,7 @@ impl TryFrom<InjectEvent> for Injected {
 pub struct CanvasId(pub u64);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WindowId(pub u64);
+pub struct WindowId(pub u32);
 
 pub struct Canvas {
     pub id: CanvasId,
@@ -234,6 +234,7 @@ pub struct Window {
 pub enum Error {
     UnknownCanvas,
     UnknownWindow,
+    Taken,
     NotOnCanvas,
     ModeRefusesMove,
     ModeRefusesResize,
@@ -245,6 +246,7 @@ impl fmt::Display for Error {
         f.write_str(match self {
             Error::UnknownCanvas => "unknown canvas",
             Error::UnknownWindow => "unknown window",
+            Error::Taken => "the window id is taken",
             Error::NotOnCanvas => "window is on another canvas",
             Error::ModeRefusesMove => "this mode does not move",
             Error::ModeRefusesResize => "this mode does not resize",
@@ -260,7 +262,6 @@ pub struct WindowTable {
     canvases: BTreeMap<CanvasId, Canvas>,
     windows: BTreeMap<WindowId, Window>,
     next_canvas: u64,
-    next_window: u64,
 }
 
 impl WindowTable {
@@ -279,12 +280,11 @@ impl WindowTable {
         self.windows.get(&id)
     }
 
-    pub fn create(&mut self, canvas: CanvasId, mode: Mode, rect: Rect) -> Result<WindowId, Error> {
-        self.create_child(canvas, mode, rect, None)
-    }
-
-    pub fn create_child(&mut self, canvas: CanvasId, mode: Mode, rect: Rect, parent: Option<WindowId>) -> Result<WindowId, Error> {
+    pub fn create(&mut self, id: WindowId, canvas: CanvasId, mode: Mode, rect: Rect, parent: Option<WindowId>) -> Result<(), Error> {
         let c = self.canvases.get(&canvas).ok_or(Error::UnknownCanvas)?;
+        if self.windows.contains_key(&id) {
+            return Err(Error::Taken);
+        }
         if let Some(p) = parent
             && self.windows.get(&p).is_none_or(|w| w.canvas != canvas)
         {
@@ -297,11 +297,9 @@ impl WindowTable {
         if rect.is_empty() {
             return Err(Error::EmptyRect);
         }
-        self.next_window += 1;
-        let id = WindowId(self.next_window);
         self.windows.insert(id, Window { id, canvas, mode, rect, parent, modal: false });
         self.canvases.get_mut(&canvas).expect("checked above").z.push(id);
-        Ok(id)
+        Ok(())
     }
 
     pub fn remove(&mut self, id: WindowId) -> Option<Window> {
@@ -425,6 +423,12 @@ impl WindowTable {
 mod tests {
     use super::*;
 
+    fn add(t: &mut WindowTable, c: CanvasId, mode: Mode, rect: Rect) -> WindowId {
+        let id = WindowId(t.windows.len() as u32 + 1);
+        t.create(id, c, mode, rect, None).unwrap();
+        id
+    }
+
     fn table() -> (WindowTable, CanvasId) {
         let mut t = WindowTable::default();
         let c = t.add_canvas(Rect::new(0.0, 0.0, 100.0, 100.0), 2.0);
@@ -436,7 +440,7 @@ mod tests {
         let (mut t, c) = table();
         let canvas = t.canvas(c).unwrap();
         assert_eq!(canvas.physical(), Rect::new(0.0, 0.0, 200.0, 200.0));
-        let w = t.create(c, Mode::Free, Rect::new(10.0, 10.0, 20.0, 10.0)).unwrap();
+        let w = add(&mut t, c, Mode::Free, Rect::new(10.0, 10.0, 20.0, 10.0));
         let plan = CompositePlan::build(&t, &[input(w, false, Rect::default())], &[]);
         assert_eq!(plan.layer(w).unwrap().dst, Rect::new(20.0, 20.0, 40.0, 20.0));
     }
@@ -444,7 +448,7 @@ mod tests {
     #[test]
     fn fullscreen_fills_the_canvas() {
         let (mut t, c) = table();
-        let w = t.create(c, Mode::Fullscreen, Rect::new(1.0, 2.0, 3.0, 4.0)).unwrap();
+        let w = add(&mut t, c, Mode::Fullscreen, Rect::new(1.0, 2.0, 3.0, 4.0));
         assert_eq!(t.window(w).unwrap().rect, Rect::new(0.0, 0.0, 100.0, 100.0));
         assert!(!t.place(w, 5.0, 5.0).is_ok());
         assert!(!t.resize(w, 10.0, 10.0).is_ok());
@@ -455,7 +459,7 @@ mod tests {
     #[test]
     fn fixed_moves_but_does_not_resize() {
         let (mut t, c) = table();
-        let w = t.create(c, Mode::Fixed, Rect::new(0.0, 0.0, 10.0, 10.0)).unwrap();
+        let w = add(&mut t, c, Mode::Fixed, Rect::new(0.0, 0.0, 10.0, 10.0));
         assert!(t.place(w, 20.0, 20.0).is_ok());
         assert_eq!(t.resize(w, 30.0, 30.0), Err(Error::ModeRefusesResize));
         assert_eq!(t.window(w).unwrap().rect, Rect::new(20.0, 20.0, 10.0, 10.0));
@@ -464,7 +468,7 @@ mod tests {
     #[test]
     fn pinned_never_moves() {
         let (mut t, c) = table();
-        let w = t.create(c, Mode::Pinned, Rect::new(0.0, 0.0, 10.0, 10.0)).unwrap();
+        let w = add(&mut t, c, Mode::Pinned, Rect::new(0.0, 0.0, 10.0, 10.0));
         assert_eq!(t.place(w, 20.0, 20.0), Err(Error::ModeRefusesMove));
         assert_eq!(t.resize(w, 30.0, 30.0), Err(Error::ModeRefusesResize));
     }
@@ -472,7 +476,7 @@ mod tests {
     #[test]
     fn windows_may_exceed_the_canvas_and_are_clipped() {
         let (mut t, c) = table();
-        let w = t.create(c, Mode::Free, Rect::new(90.0, 10.0, 30.0, 10.0)).unwrap();
+        let w = add(&mut t, c, Mode::Free, Rect::new(90.0, 10.0, 30.0, 10.0));
         let shown = |t: &WindowTable| CompositePlan::build(t, &[input(w, false, Rect::default())], &[]).layer(w).map(|l| l.clip);
         assert_eq!(shown(&t), Some(Rect::new(180.0, 20.0, 20.0, 20.0)));
         t.place(w, 200.0, 0.0).unwrap();
@@ -482,7 +486,7 @@ mod tests {
     #[test]
     fn focus_is_per_canvas() {
         let (mut t, c) = table();
-        let w = t.create(c, Mode::Free, Rect::new(0.0, 0.0, 10.0, 10.0)).unwrap();
+        let w = add(&mut t, c, Mode::Free, Rect::new(0.0, 0.0, 10.0, 10.0));
         t.focus(c, Some(w)).unwrap();
         assert_eq!(t.canvas(c).unwrap().focus, Some(w));
         t.remove(w);
@@ -493,7 +497,7 @@ mod tests {
     #[test]
     fn damage_scales_and_clips_to_the_canvas() {
         let (mut t, c) = table();
-        let w = t.create(c, Mode::Free, Rect::new(50.0, 50.0, 20.0, 20.0)).unwrap();
+        let w = add(&mut t, c, Mode::Free, Rect::new(50.0, 50.0, 20.0, 20.0));
         let damaged = |t: &WindowTable, local: Rect| {
             let mut i = input(w, false, Rect::default());
             i.damage = vec![local];
@@ -507,7 +511,7 @@ mod tests {
     #[test]
     fn moving_merges_the_old_and_new_rects() {
         let (mut t, c) = table();
-        let w = t.create(c, Mode::Free, Rect::new(0.0, 0.0, 10.0, 10.0)).unwrap();
+        let w = add(&mut t, c, Mode::Free, Rect::new(0.0, 0.0, 10.0, 10.0));
         let old = t.window(w).unwrap().rect;
         t.place(w, 40.0, 0.0).unwrap();
         let mut i = input(w, false, Rect::default());
@@ -525,8 +529,8 @@ mod tests {
     #[test]
     fn plan_culls_what_opaque_windows_cover() {
         let (mut t, c) = table();
-        let below = t.create(c, Mode::Free, Rect::new(10.0, 10.0, 20.0, 20.0)).unwrap();
-        let top = t.create(c, Mode::Fullscreen, Rect::default()).unwrap();
+        let below = add(&mut t, c, Mode::Free, Rect::new(10.0, 10.0, 20.0, 20.0));
+        let top = add(&mut t, c, Mode::Fullscreen, Rect::default());
         let full = t.window(top).unwrap().rect;
         let mut inputs = vec![input(below, false, Rect::new(10.0, 10.0, 20.0, 20.0)), input(top, true, full)];
         inputs[0].damage = vec![Rect::new(0.0, 0.0, 4.0, 4.0)];
@@ -545,7 +549,7 @@ mod tests {
     #[test]
     fn plan_keeps_at_most_eight_damage_rects() {
         let (mut t, c) = table();
-        let w = t.create(c, Mode::Fullscreen, Rect::default()).unwrap();
+        let w = add(&mut t, c, Mode::Fullscreen, Rect::default());
         let mut i = input(w, false, Rect::default());
         i.damage = (0..20).map(|k| Rect::new(f64::from(k) * 10.0, 0.0, 2.0, 2.0)).collect();
         let plan = CompositePlan::build(&t, &[i], &[]);
@@ -559,8 +563,8 @@ mod tests {
     #[test]
     fn backdrop_redraws_when_what_is_under_it_changes() {
         let (mut t, c) = table();
-        let below = t.create(c, Mode::Fullscreen, Rect::default()).unwrap();
-        let glass = t.create(c, Mode::Free, Rect::new(10.0, 10.0, 40.0, 40.0)).unwrap();
+        let below = add(&mut t, c, Mode::Fullscreen, Rect::default());
+        let glass = add(&mut t, c, Mode::Free, Rect::new(10.0, 10.0, 40.0, 40.0));
         let mut under = input(below, true, Rect::default());
         under.damage = vec![Rect::new(30.0, 30.0, 2.0, 2.0)];
         let mut top = input(glass, false, Rect::default());
@@ -577,8 +581,8 @@ mod tests {
     #[test]
     fn backdrop_redraws_when_a_window_leaves_from_under_it() {
         let (mut t, c) = table();
-        let moving = t.create(c, Mode::Free, Rect::new(10.0, 10.0, 20.0, 20.0)).unwrap();
-        let glass = t.create(c, Mode::Free, Rect::new(0.0, 0.0, 50.0, 50.0)).unwrap();
+        let moving = add(&mut t, c, Mode::Free, Rect::new(10.0, 10.0, 20.0, 20.0));
+        let glass = add(&mut t, c, Mode::Free, Rect::new(0.0, 0.0, 50.0, 50.0));
         let old = t.window(moving).unwrap().rect;
         t.place(moving, 300.0, 0.0).unwrap();
         let mut under = input(moving, false, Rect::default());
@@ -626,9 +630,9 @@ mod tests {
     fn modal_children_take_the_parents_turn() {
         let (mut t, c) = table();
         let r = Rect::new(0.0, 0.0, 10.0, 10.0);
-        let parent = t.create(c, Mode::Free, r).unwrap();
-        let dialog = t.create(c, Mode::Free, r).unwrap();
-        let inner = t.create(c, Mode::Free, r).unwrap();
+        let parent = add(&mut t, c, Mode::Free, r);
+        let dialog = add(&mut t, c, Mode::Free, r);
+        let inner = add(&mut t, c, Mode::Free, r);
         assert_eq!(t.modal_child(parent), None);
         t.set_parent(dialog, Some(parent), false).unwrap();
         assert_eq!(t.modal_child(parent), None);
