@@ -19,7 +19,8 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde check [目录]` | 按 acdert 读清单的方式查 (`@dopame/acde-api/manifest` 的 `Manifest.check`) |
 | `acde build [目录] [--out .acde]` | 构建成 acdert 认的包 (见下) |
 | `acde install [目录]` | build 之后装进 `$XDG_DATA_HOME/acde/packages/<id>` (手写的包: 指向工程目录的符号链接) |
-| `acde dev [目录] [--app ID]` | 构建, 起 `acdert desktop <id>` (桌面工程) 或 `acdert app <id>` (应用), 构建结果经 `ACDE_PATH` 给它 (不装); 盯着工程目录, 改了就重新构建、发 `reload`; acdert 是 `ACDERT` 或 PATH 上的 `acdert` |
+| `acde dev [目录...] [--out DIR] [--app ID] [--desktop ID\|目录]` | 构建, 起 acdert (一个工程: `acdert desktop <id>` (桌面工程) 或 `acdert app <id>`; 几个工程或给了 `--desktop`: 都放进一个桌面), 构建结果经 `ACDE_PATH` 给它 (不装); 盯着工程目录, 哪个改了就只重新构建它、发 `reload`; acdert 从哪儿来见「分发」. 见下面「acde dev」 |
+| `acde webs` / `eval <web> <代码\|->` / `shot <web> [-o 文件]` / `inspect [--window W] [--find 文字] [--all]` / `act <ref> <动作> [参数]` (都可加 `--session <pid>`) | 看和操作一个正在跑的 `acde dev` 里的页面 (给 agent 和开发者用), 见下面「开发工具」 |
 
 ## 新建工程 (`acde new`, `npm create acde`)
 
@@ -226,13 +227,66 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 
 ## acde dev (`src/dev.ts`)
 
-- IPC: acde 在 `ACDE_DEV` 上听 (unix 上 `$TMPDIR/acde-dev-<pid>.sock`, Windows 上命名管道 `\\.\pipe\acde-dev-<pid>`, 都是
-  `node:net` 的 server), acdert 连上来; 协议见 acdert AGENTS.md 的「运行时进程」. acdert 的日志就在 acde 的终端里 (继承 stderr).
-- 盯着工程目录 (`fs.watch` recursive), 不看 `.acde`、`node_modules`、`.git` 和各框架的产物目录 (`dist`、`build`、`.next` …);
-  150 ms 内的改动合成一次; 构建中又改了, 构建完再来一次. 构建好了给每个应用发 `reload`, 有桌面再给桌面发一个 (Broker 只重开
-  开着的应用窗口). 构建失败只打一行, 窗口不动.
-- acdert 退出 acde 就退出 (退出码跟它); acde 退出 acdert 也退出 (连接断了).
-- 验过 (macOS): 模板应用改 `index.html`, 6 ms 构建完, 窗口在原位换成新页面.
+- `acde dev [目录...] [--out DIR] [--app ID] [--desktop ID|目录]` (`DevSession`; 不给目录是 `.`, 同一个目录给两次算一个):
+  - 一个工程、没有 `--desktop`: 和以前一样, 桌面工程起 `acdert desktop <它的 id>`, 应用起 `acdert app <id>` (`--app` 挑桌面工程里的
+    哪个应用, 或几个应用里的哪个). `--out` 是构建目录 (相对工程目录, 默认 `.acde`).
+  - 几个工程, 或给了 `--desktop`: 全部构建 (一个接一个: `Project` 构建时 `chdir` 进工程目录, 不能并行), `ACDE_PATH` 是所有构建结果
+    (手写的包就是它自己的目录) 加上继承的 `ACDE_PATH`, 起 `acdert desktop <D>`. D 是 `--desktop` 的值; 没给就是这些工程里那个桌面工程
+    的 id (有两个以上时报错, 要 `--desktop` 挑); 都不是桌面就是 `dopame` (acdert 发行时带着; 用仓库里的 acdert 时 Dopame 要在
+    `ACDE_PATH` 里或装好, 或者 `--desktop <acde-dopame 的 packages/dopame>`). `--desktop` 的值是目录 (含 `/`, 或当前目录下有这个名字的
+    工程 / 包) 时把它当成又一个工程 (构建、盯着), 跑它的那个桌面 (它没有或有好几个桌面时报错); 否则是桌面 id. 每个工程构建进自己的
+    `<工程>/.acde`, `--out` 只在一个工程时能给; `--app` 只在一个工程时有意义 (几个时报错: 应用都在桌面里, 从桌面开). 两个工程里有同一个
+    应用 id 或桌面 id 时报错.
+- IPC (`src/ipc.ts` 的 `DevServer`): acde 在 `ACDE_DEV` 上听 (unix 上 `$TMPDIR/acde-dev-<pid>.sock`, Windows 上命名管道
+  `\\.\pipe\acde-dev-<pid>`, 都是 `node:net` 的 server), 一行一个 JSON (读的时候只在新到的那块里找换行, 几 MB 的截图也不慢).
+  连上来的每一方第一行是 `hello`, 带 `role`:
+  - `runtime` (acdert hostwin 的 `acde-dev` 线程, `{"type":"hello","role":"runtime","pid"}`); 没有 `role` 的 `hello` 是改这个协议之前的
+    acdert, 也算 runtime (`reload` / `quit` 照发), 但它不认 `request` (只在日志里打一行 warn), 所以工具的请求不转给它, 当场回错:
+    「acdert (pid N) is older than the dev tools …」. 只要一个 runtime, 它连着时再来的 runtime 被关掉. 第一行不是 `hello` 的连接被关掉.
+  - `tool` (`acde webs` 这些命令, `{"type":"hello","role":"tool"}`), 可以有很多个.
+  acde → runtime: `{"type":"reload","app"?}`、`{"type":"quit"}`, 和转过去的请求. 工具发 `{"type":"request","id","op",...参数}`, acde 换一个
+  自己发的 id (从 1 递增, 所以几个工具的 id 撞不上) 转给 runtime; runtime 回 `{"type":"response","id","ok","result"|"error"}`, acde 把 id
+  换回来交给问的那个工具. 每个请求恰好一个回答: runtime 还没连上时请求先排着, 连上了再发; 30 s 没回答回 `ok:false`、
+  `error` 以 `timed out` 开头 (说清楚是 acdert 没连上还是没回答哪个 op); runtime 断了, 已经发出去的回「acdert disconnected before answering」;
+  acde dev 停的时候回「acde dev is stopping」; 晚到的回答 (超时以后) 丢掉; 工具断了, 它的请求作废. 工具发来的不是 `request` 的行 (带 id 时)
+  回错. op 和它们的结果是 acdert 的事 (见 acdert AGENTS.md「运行时进程」的 dev IPC): `webs`、`eval {web, code}`、`shot {web}`、
+  `snapshot {...}`、`act {ref, action, arg?}`、`run {steps}`.
+- 会话文件 (`src/sessions.ts`): 每个 `acde dev` 在 IPC 起来后写 `$TMPDIR/acde-dev/<pid>.json`
+  `{"pid","endpoint","dirs":[工程目录 (realpath)],"apps":[应用 id],"desktop":桌面 id|null (调试窗口是 null),"started":毫秒}`, 每次重新构建
+  后重写 (应用可能变了), 退出时 (acdert 退出、SIGTERM / SIGHUP 转给 acdert 之后、起 acdert 失败) 删掉. 先写临时文件再 rename (读的一方
+  不会读到半个). 目录 0700, 文件 0600; 目录或文件不是当前用户的就不用 (Linux 上 `/tmp` 是大家的). 写不了只打一行警告, dev 照跑.
+- 盯着每个工程目录 (`fs.watch` recursive, 一个工程一个), 不看 `.acde`、`node_modules`、`.git` 和各框架的产物目录 (`dist`、`build`、`.next` …),
+  也不看 `--out` 指到工程里面时的那个目录 (否则构建自己触发构建), 一个工程套在另一个里面时外面那个不管里面那个的改动. 每个工程 150 ms 内的
+  改动合成一次; 要重新构建的工程排队, 一次构建一个; 构建中又改了, 构建完再来一次. 只重新构建改了的那个工程, 构建好了给它的每个应用发
+  `reload`, 它就是正在跑的那个桌面时再给桌面发一个 (Broker 只重开开着的应用窗口). 构建失败只打一行 (几个工程时带工程名), 窗口不动.
+- acdert 退出 acde 就退出 (退出码跟它); acde 退出 acdert 也退出 (连接断了). SIGINT 只吞掉 (终端也发给了 acdert), SIGTERM / SIGHUP 转给 acdert.
+- 验过 (macOS): 模板应用改 `index.html`, 6 ms 构建完, 窗口在原位换成新页面. 2026-11-06, 用仓库里的 acdert (main, 还没有新的 dev IPC;
+  `ACDERT` 没设, 是旁边检出里找到的): `acde dev . ../todo-pomodoro --desktop <acde-dopame>/packages/dopame` (在 Demo 的 `apps/notes` 里)
+  起了 `acdert desktop dopame`, `ACDE_HOST_DUMP` 的桌面是 Dopame; 经 `ACDE_DEBUG_DIR` 和 acdert 的 `drive.sh launch` 在里面开了 notes 和
+  todo-pomodoro 两个窗口; 在 todo-pomodoro 里新建再删一个文件, 只有它重新构建 (31 ms)、只有它的窗口重开; 会话文件对; `acde webs` /
+  `eval` 0.03 s 内报「older than the dev tools」; SIGTERM 后 acdert 退出, 会话文件和 socket 都删了. 一个工程 (`todo-pomodoro`) 起的是
+  `acdert app todo-pomodoro`, 窗口出来了. `bun test` (`test/dev.test.ts`): 假的 runtime / 工具 socket 测转发 (id 改写、各回各的、出错、
+  先到的请求排队、超时、旧 acdert、runtime 断开、第二个 runtime、不是 hello / 不是 request、3 MB 的行), 会话文件 (写、列、死了的删、
+  按目录挑), 和一个假的 acdert (`test/fixtures/dev/fake-acdert.ts`, 照 Contract A 回答) 跑真的 `acde dev`: 几个工程、桌面工程、`--desktop <目录>`、
+  一个工程、旧 acdert、各种用错的参数, 以及经 CLI 的 `webs` / `eval` (含 stdin) / `shot` / `inspect` / `act` / `--session`.
+  没验: 新的 acdert (runtime 那边的 op 还没合进来) 下真的 `webs` / `eval` / `shot` / `inspect` / `act`; Windows (命名管道、`.exe`).
+
+## 开发工具 (`acde webs` / `eval` / `shot` / `inspect` / `act`, `src/tools.ts`)
+
+给 agent (和开发者) 看、操作 `acde dev` 里跑着的页面, 不开端口, 经 `acde dev` 的 IPC (见上) 交给 acdert. 先挑会话: `--session <pid>` 指定;
+否则 `$TMPDIR/acde-dev/` 里工程目录包含当前目录的那个 (几个都包含时取目录最深的; 还分不出就报错); 都不包含时只有一个会话就用它;
+否则报错并列出所有会话 (pid、桌面或应用、目录、开始时间). 列会话时 pid 已经死了的文件 (`kill(pid, 0)`) 删掉; 连不上 socket
+(`ECONNREFUSED` / `ENOENT`: pid 被别的进程重用了) 时删掉那个文件, 报「acde dev <pid> is gone」.
+
+| 命令 | 请求 | 打出 |
+| --- | --- | --- |
+| `acde webs` | `webs` | 表格: NAME (`vault#1048576`, 桌面是 `desktop`)、KIND、APP、WINDOW、TITLE |
+| `acde eval <web> <代码\|->` | `eval {web, code}` | 值的 JSON (缩进两格; `undefined` 是 `null`). `web` 是 web 名、应用 id (它的第一个 web) 或 `desktop`; `-` 从 stdin 读代码 (以 `--` 开头的代码放在 `--` 后面) |
+| `acde shot <web> [-o 文件]` | `shot {web}` | 把 PNG (设备像素) 写进文件 (默认当前目录的 `<web>.png`, 名字里 `/\:*?"<>\|` 和空白换成 `-`), 打出绝对路径 |
+| `acde inspect [--window W] [--find 文字] [--all]` | `snapshot {window?, find?, all?}` | `snapshot().text` (acdert「看和操作桌面」) |
+| `acde act <ref> <动作> [参数]` | `act {ref, action, arg?}` | `act().text`; `ok` 是 false 时退出码 1 |
+
+出错 (acdert 回 `ok:false`、超时、旧 acdert、没有会话) 打 `acde: <原因>`, 退出码 1. 客户端 (`DevClient`) 自己也等 35 s 兜底 (acde dev 没回答时).
 
 ## 要做
 

@@ -307,7 +307,7 @@ describe('a project made by acde from its checkout', () => {
     expect(built.code).toBe(0)
     expect(existsSync(join(dir, '.acde/web/index.html'))).toBe(true)
     expect(lstatSync(join(dir, 'node_modules/acde')).isSymbolicLink()).toBe(true)
-  })
+  }, 60_000)
 
   for (const pm of ['npm', 'pnpm'] as const) {
     test.skipIf(!Bun.which(pm) || !Bun.which('node'))(`${pm}: install, run build`, async () => {
@@ -320,7 +320,7 @@ describe('a project made by acde from its checkout', () => {
       expect(built.out).toContain(`built app by-${pm}`)
       expect(built.code).toBe(0)
       expect(realpathSync(join(dir, 'node_modules/acde'))).toBe(ROOT)
-    })
+    }, 60_000)
   }
 })
 

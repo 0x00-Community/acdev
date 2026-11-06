@@ -6,6 +6,7 @@ import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
+import { Tools } from './tools.ts'
 
 const USAGE = `usage: acde <command>
   new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--pm PM] [--yes]
@@ -14,49 +15,84 @@ const USAGE = `usage: acde <command>
   check [dir]                                      acde.config.jsonc (or a package's manifest), as acdert reads it
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)
-  dev [dir] [--out DIR] [--app ID]                 build, run it in acdert (acdert desktop / app), rebuild and reload on changes`
+  dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR]
+                                                   build, run in acdert, rebuild and reload what changed; one project: its
+                                                   desktop or app; several or --desktop: all in that desktop (default: the
+                                                   desktop project among them, else dopame)
+ with an acde dev running (the one whose projects hold this directory, or --session PID):
+  webs                                             the webs (windows' pages) acdert runs
+  eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop), print the JSON
+  shot <web> [-o FILE]                             a PNG of the web's window (default ./<web>.png), print its path
+  inspect [--window W] [--find TEXT] [--all]       the desktop as text (acde:inspect snapshot)
+  act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed`
+
+interface Spec {
+  readonly args: readonly [number, number]
+  readonly flags?: readonly string[]
+  readonly switches?: readonly string[]
+}
 
 interface Args {
   readonly command: string
-  readonly dir: string
+  readonly args: readonly string[]
   readonly flags: ReadonlyMap<string, string>
 }
 
 class Cli {
-  static readonly COMMANDS = new Set(['new', 'check', 'build', 'install', 'dev'])
-  static readonly FLAGS = new Set(['out', 'id', 'label', 'app', 'template', 'pm'])
-  static readonly SWITCHES = new Set(['desktop', 'backend', 'install', 'git', 'yes'])
+  static readonly SPECS: Readonly<Record<string, Spec>> = {
+    new: { args: [0, 1], flags: ['id', 'label', 'template', 'pm'], switches: ['desktop', 'backend', 'install', 'git', 'yes'] },
+    check: { args: [0, 1] },
+    build: { args: [0, 1], flags: ['out'] },
+    install: { args: [0, 1], flags: ['out'] },
+    dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'] },
+    webs: { args: [0, 0], flags: ['session'] },
+    eval: { args: [2, 2], flags: ['session'] },
+    shot: { args: [1, 1], flags: ['session', 'output'] },
+    inspect: { args: [0, 0], flags: ['session', 'window', 'find'], switches: ['all'] },
+    act: { args: [2, 3], flags: ['session'] },
+  }
+  static readonly SHORT: Readonly<Record<string, string>> = { o: 'output' }
 
   static parse(argv: readonly string[]): Args {
     const [command = '', ...rest] = argv
-    if (!Cli.COMMANDS.has(command)) throw new Error(USAGE)
+    const spec = Object.hasOwn(Cli.SPECS, command) ? Cli.SPECS[command]! : null
+    if (!spec) throw new Error(USAGE)
     const flags = new Map<string, string>()
-    const dirs: string[] = []
+    const args: string[] = []
+    let positional = false
     for (let i = 0; i < rest.length; i++) {
       const arg = rest[i]!
-      const [flag, inline] = arg.startsWith('--') ? arg.slice(2).split(/=(.*)/s, 2) : [undefined, undefined]
-      if (flag === undefined) dirs.push(arg)
-      else if (Cli.SWITCHES.has(flag) && inline === undefined) flags.set(flag, '')
-      else if (!Cli.FLAGS.has(flag)) throw new Error(`unknown argument ${arg}\n${USAGE}`)
+      if (positional || arg === '-' || !arg.startsWith('-') || (/^-[^-]/.test(arg) && !Object.hasOwn(Cli.SHORT, arg.slice(1)))) {
+        args.push(arg)
+        continue
+      }
+      if (arg === '--') {
+        positional = true
+        continue
+      }
+      const [flag, inline] = arg.startsWith('--') ? (arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined]) : [Cli.SHORT[arg.slice(1)]!, undefined]
+      if (spec.switches?.includes(flag) && inline === undefined) flags.set(flag, '')
+      else if (!spec.flags?.includes(flag)) throw new Error(`${command}: unknown argument ${arg}\n${USAGE}`)
       else if (inline !== undefined) flags.set(flag, inline)
       else if (rest[i + 1] !== undefined) flags.set(flag, rest[++i]!)
       else throw new Error(`--${flag} needs a value\n${USAGE}`)
     }
-    if (dirs.length > 1) throw new Error(USAGE)
-    return { command, dir: dirs[0] ?? (command === 'new' ? '' : '.'), flags }
+    const [min, max] = spec.args
+    if (args.length < min || args.length > max) throw new Error(`${command}: ${min === max ? min : `${min} to ${max}`} arguments, not ${args.length}\n${USAGE}`)
+    return { command, args, flags }
   }
 
   static async main(argv: readonly string[]): Promise<number> {
-    const { command, dir, flags } = Cli.parse(argv)
-    if (command === 'new') return await Cli.create(dir, flags)
-    const pkg = new AppPackage(dir)
-    if (command === 'check') return Cli.report(pkg) ? 0 : 1
-    const out = resolve(pkg.dir, flags.get('out') ?? '.acde')
+    const { command, args, flags } = Cli.parse(argv)
+    if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
+    if (command === 'new') return await Cli.create(args[0] ?? '', flags)
     if (command === 'dev') {
-      const acdert = await requireAcdert()
-      return await new DevSession(pkg, out, acdert).run(flags.get('app'))
+      const session = new DevSession({ dirs: args, ...(flags.has('out') && { out: flags.get('out')! }), ...(flags.has('app') && { app: flags.get('app')! }), ...(flags.has('desktop') && { desktop: flags.get('desktop')! }), acdert: await requireAcdert() })
+      return await session.run()
     }
-    const built = await pkg.build(out)
+    const pkg = new AppPackage(args[0] ?? '.')
+    if (command === 'check') return Cli.report(pkg) ? 0 : 1
+    const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
     console.log(`acde: ${pkg.project ? `built ${what} into ${built.dir}` : `ok: ${pkg.name} (${what})`}`)
     if (command === 'build') return 0
