@@ -129,18 +129,23 @@ class Measure {
     this.api = api
   }
 
+  /** a file under /proc (`readText`) or a directory (`readDir`); null when its process or thread has ended */
+  read(path, how = 'readText') {
+    try {
+      return this.api[how](path)
+    } catch {
+      return null
+    }
+  }
+
   /** this process and every process under it (the web processes, apps' backends, native programs) */
   pids() {
     const self = this.api.readText('/proc/self/stat').split(' ')[0]
     const children = new Map()
     for (const pid of this.api.readDir('/proc')) {
       if (!/^\d+$/.test(pid)) continue
-      let stat
-      try {
-        stat = this.api.readText(`/proc/${pid}/stat`)
-      } catch {
-        continue // the process ended
-      }
+      const stat = this.read(`/proc/${pid}/stat`)
+      if (stat === null) continue
       const ppid = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]
       children.set(ppid, [...(children.get(ppid) ?? []), pid])
     }
@@ -158,19 +163,9 @@ class Measure {
   threads(pids) {
     const ticks = {}
     for (const pid of pids) {
-      let tids
-      try {
-        tids = this.api.readDir(`/proc/${pid}/task`)
-      } catch {
-        continue // the process ended
-      }
-      for (const tid of tids) {
-        let stat
-        try {
-          stat = this.api.readText(`/proc/${pid}/task/${tid}/stat`)
-        } catch {
-          continue // the thread ended
-        }
+      for (const tid of this.read(`/proc/${pid}/task`, 'readDir') ?? []) {
+        const stat = this.read(`/proc/${pid}/task/${tid}/stat`)
+        if (stat === null) continue
         const name = stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')'))
         ticks[name] = (ticks[name] ?? 0) + Measure.ticks(stat)
       }
@@ -182,11 +177,8 @@ class Measure {
   processes(pids) {
     const ticks = {}
     for (const pid of pids) {
-      try {
-        ticks[pid] = Measure.ticks(this.api.readText(`/proc/${pid}/stat`))
-      } catch {
-        // the process ended
-      }
+      const stat = this.read(`/proc/${pid}/stat`)
+      if (stat !== null) ticks[pid] = Measure.ticks(stat)
     }
     return ticks
   }
@@ -194,12 +186,8 @@ class Measure {
   rssMb(pids) {
     let kb = 0
     for (const pid of pids) {
-      try {
-        const line = this.api.readText(`/proc/${pid}/status`).split('\n').find((l) => l.startsWith('VmRSS:'))
-        kb += Number(line?.split(/\s+/)[1] ?? 0)
-      } catch {
-        // the process ended
-      }
+      const line = this.read(`/proc/${pid}/status`)?.split('\n').find((l) => l.startsWith('VmRSS:'))
+      kb += Number(line?.split(/\s+/)[1] ?? 0)
     }
     return Math.round(kb / 1024)
   }
