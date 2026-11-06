@@ -237,10 +237,13 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
     工程 / 包) 时把它当成又一个工程 (构建、盯着), 跑它的那个桌面 (它没有或有好几个桌面时报错); 否则是桌面 id. 每个工程构建进自己的
     `<工程>/.acde`, `--out` 只在一个工程时能给; `--app` 只在一个工程时有意义 (几个时报错: 应用都在桌面里, 从桌面开). 两个工程里有同一个
     应用 id 或桌面 id 时报错.
-- IPC (`src/ipc.ts` 的 `DevServer`): acde 在 `ACDE_DEV` 上听 (unix 上 `$TMPDIR/acde-dev/<pid>.sock`, Windows 上命名管道
-  `\\.\pipe\acde-dev-<pid>`, 都是 `node:net` 的 server). 这条 IPC 能在页面里求值 (`eval`), 所以 unix 上 socket 放在会话目录里:
-  目录 0700 且属于自己 (`Sessions.prepare`, 不是自己的就报错, 权限松了收紧), socket 听上之后 chmod 0600; 不放在 `$TMPDIR` 根上
-  (Linux 上是大家共用的 `/tmp`, umask 宽时同组的人能连上来). 一行一个 JSON (读的时候只在新到的那块里找换行, 几 MB 的截图也不慢).
+- **会话目录** (`Sessions.dir`): `$XDG_RUNTIME_DIR/acde-dev` (设了且是绝对路径时; Linux 上它是每个用户自己的 0700 目录), 否则
+  `$TMPDIR/acde-dev-<uid>` (macOS 的 `$TMPDIR` 本来就是每个用户的; Linux 上退到大家共用的 `/tmp`, 名字带 uid 免得和别人的撞).
+  `Sessions.prepare` 建它 (0700) 后用 `lstat` 查: 是符号链接、不是目录、或不是自己的就报错不用 (别人在 `/tmp` 里先放一个指向别处的
+  链接时, 不会顺着链接改那边的权限、往那边写); 权限松了收紧成 0700. `/tmp` 有粘滞位, 建好以后别人删不掉、换不掉它.
+- IPC (`src/ipc.ts` 的 `DevServer`): acde 在 `ACDE_DEV` 上听 (unix 上 `<会话目录>/<pid>.sock`, Windows 上命名管道
+  `\\.\pipe\acde-dev-<pid>`, 都是 `node:net` 的 server). 这条 IPC 能在页面里求值 (`eval`), 所以 socket 只给自己: 放在会话目录里,
+  听上之后再 chmod 0600. 一行一个 JSON (读的时候只在新到的那块里找换行, 几 MB 的截图也不慢).
   连上来的每一方第一行是 `hello`, 带 `role`:
   - `runtime` (acdert hostwin 的 `acde-dev` 线程, `{"type":"hello","role":"runtime","pid"}`); 没有 `role` 的 `hello` 是改这个协议之前的
     acdert, 也算 runtime (`reload` / `quit` 照发), 但它不认 `request` (只在日志里打一行 warn), 所以工具的请求不转给它, 当场回错:
@@ -253,10 +256,10 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   acde dev 停的时候回「acde dev is stopping」; 晚到的回答 (超时以后) 丢掉; 工具断了, 它的请求作废. 工具发来的不是 `request` 的行 (带 id 时)
   回错. op 和它们的结果是 acdert 的事 (见 acdert AGENTS.md「运行时进程」的 dev IPC): `webs`、`eval {web, code}`、`shot {web}`、
   `snapshot {...}`、`act {ref, action, arg?}`、`run {steps}`.
-- 会话文件 (`src/sessions.ts`): 每个 `acde dev` 在 IPC 起来后写 `$TMPDIR/acde-dev/<pid>.json`
+- 会话文件 (`src/sessions.ts`): 每个 `acde dev` 在 IPC 起来后写 `<会话目录>/<pid>.json`
   `{"pid","endpoint","dirs":[工程目录 (realpath)],"apps":[应用 id],"desktop":桌面 id|null (调试窗口是 null),"started":毫秒}`, 每次重新构建
   后重写 (应用可能变了), 退出时 (acdert 退出、SIGTERM / SIGHUP 转给 acdert 之后、起 acdert 失败) 删掉. 先写临时文件再 rename (读的一方
-  不会读到半个). 目录 0700, 文件 0600; 目录或文件不是当前用户的就不用 (Linux 上 `/tmp` 是大家的). 写不了只打一行警告, dev 照跑.
+  不会读到半个). 文件 0600; 列会话时只认会话目录里自己的普通文件 (`lstat`, 不跟链接). 写不了只打一行警告, dev 照跑.
 - 盯着每个工程目录 (`fs.watch` recursive, 一个工程一个), 不看 `.acde`、`node_modules`、`.git` 和各框架的产物目录 (`dist`、`build`、`.next` …),
   也不看 `--out` 指到工程里面时的那个目录 (否则构建自己触发构建), 一个工程套在另一个里面时外面那个不管里面那个的改动. 每个工程 150 ms 内的
   改动合成一次; 要重新构建的工程排队, 一次构建一个; 构建中又改了, 构建完再来一次. 只重新构建改了的那个工程, 构建好了给它的每个应用发
@@ -276,7 +279,7 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 ## 开发工具 (`acde webs` / `eval` / `shot` / `inspect` / `act`, `src/tools.ts`)
 
 给 agent (和开发者) 看、操作 `acde dev` 里跑着的页面, 不开端口, 经 `acde dev` 的 IPC (见上) 交给 acdert. 先挑会话: `--session <pid>` 指定;
-否则 `$TMPDIR/acde-dev/` 里工程目录包含当前目录的那个 (几个都包含时取目录最深的; 还分不出就报错); 都不包含时只有一个会话就用它;
+否则会话目录里工程目录包含当前目录的那个 (几个都包含时取目录最深的; 还分不出就报错); 都不包含时只有一个会话就用它;
 否则报错并列出所有会话 (pid、桌面或应用、目录、开始时间). 列会话时 pid 已经死了的文件 (`kill(pid, 0)`) 删掉; 连不上 socket
 (`ECONNREFUSED` / `ENOENT`: pid 被别的进程重用了) 时删掉那个文件, 报「acde dev <pid> is gone」.
 

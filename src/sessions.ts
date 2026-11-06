@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, type Stats } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -12,8 +12,11 @@ export interface Session {
 }
 
 export class Sessions {
-  static dir(): string {
-    return join(tmpdir(), 'acde-dev')
+  static dir(env: NodeJS.ProcessEnv = process.env): string {
+    const runtime = env['XDG_RUNTIME_DIR']
+    if (runtime && isAbsolute(runtime)) return join(runtime, 'acde-dev')
+    const uid = process.getuid?.()
+    return join(tmpdir(), uid === undefined ? 'acde-dev' : `acde-dev-${uid}`)
   }
 
   static file(pid: number, dir = Sessions.dir()): string {
@@ -22,8 +25,11 @@ export class Sessions {
 
   static prepare(dir = Sessions.dir()): string {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
-    if (!Sessions.#mine(dir)) throw new Error(`${dir} belongs to another user`)
-    if (process.platform !== 'win32' && (statSync(dir).mode & 0o077) !== 0) chmodSync(dir, 0o700)
+    if (process.platform === 'win32') return dir
+    const info = lstatSync(dir)
+    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`${dir} is not a plain directory; remove it and run again`)
+    if (!Sessions.#owned(info)) throw new Error(`${dir} belongs to another user`)
+    if ((info.mode & 0o077) !== 0) chmodSync(dir, 0o700)
     return dir
   }
 
@@ -54,12 +60,12 @@ export class Sessions {
   }
 
   static list(dir = Sessions.dir()): Session[] {
-    if (!existsSync(dir) || !Sessions.#mine(dir)) return []
+    if (!existsSync(dir) || !Sessions.#plain(dir, 'directory')) return []
     const found: Session[] = []
     for (const name of readdirSync(dir)) {
       if (!/^\d+\.json$/.test(name)) continue
       const file = join(dir, name)
-      if (!Sessions.#mine(file)) continue
+      if (!Sessions.#plain(file, 'file')) continue
       const session = Sessions.#read(file)
       if (session && Sessions.alive(session.pid)) found.push(session)
       else rmSync(file, { force: true })
@@ -116,7 +122,13 @@ export class Sessions {
     }
   }
 
-  static #mine(path: string): boolean {
-    return process.platform === 'win32' || statSync(path).uid === process.getuid?.()
+  static #owned(info: Stats): boolean {
+    return process.platform === 'win32' || info.uid === process.getuid?.()
+  }
+
+  static #plain(path: string, kind: 'file' | 'directory'): boolean {
+    if (process.platform === 'win32') return true
+    const info = lstatSync(path)
+    return !info.isSymbolicLink() && (kind === 'file' ? info.isFile() : info.isDirectory()) && Sessions.#owned(info)
   }
 }

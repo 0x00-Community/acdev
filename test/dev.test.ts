@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DevClient, DevServer, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
@@ -71,6 +72,20 @@ describe('dev IPC: acde dev relays tool requests to the runtime', () => {
     expect(statSync(dir).mode & 0o777).toBe(0o700)
     expect(statSync(made.endpoint).mode & 0o777).toBe(0o600)
     expect(DevServer.endpoint(4242)).toBe(join(Sessions.dir(), '4242.sock'))
+  })
+
+  test.skipIf(process.platform === 'win32')('the session dir is per user and never followed through a symlink', () => {
+    expect(Sessions.dir({ XDG_RUNTIME_DIR: '/run/user/501' })).toBe('/run/user/501/acde-dev')
+    expect(Sessions.dir({ XDG_RUNTIME_DIR: 'relative' })).toBe(join(tmpdir(), `acde-dev-${process.getuid!()}`))
+    expect(Sessions.dir({})).toBe(join(tmpdir(), `acde-dev-${process.getuid!()}`))
+    const root = tmp()
+    const victim = join(root, 'victim')
+    mkdirSync(victim, { mode: 0o755 })
+    const planted = join(root, 'planted')
+    symlinkSync(victim, planted)
+    expect(() => Sessions.prepare(planted)).toThrow('not a plain directory')
+    expect(statSync(victim).mode & 0o777).toBe(0o755)
+    expect(Sessions.list(planted)).toEqual([])
   })
 
   test('ids are rewritten so tools never collide; each answer goes to the tool that asked, with its own id', async () => {
@@ -242,7 +257,7 @@ describe('acde dev with a stand-in acdert', () => {
     const acdert = join(root, 'acdert')
     writeFileSync(log, '')
     writeFileSync(acdert, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE)} "$@"\n`, { mode: 0o755 })
-    const vars = { TMPDIR: root, ACDERT: acdert, FAKE_ACDERT_LOG: log, ACDE_PATH: '/inherited', ...extra }
+    const vars = { TMPDIR: root, XDG_RUNTIME_DIR: root, ACDERT: acdert, FAKE_ACDERT_LOG: log, ACDE_PATH: '/inherited', ...extra }
     const child = Bun.spawn([process.execPath, CLI, 'dev', ...args], { cwd, env: env(vars), stdout: 'pipe', stderr: 'pipe' })
     const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]).then(([o, e]) => o + e)
     const entries = () =>
@@ -251,7 +266,7 @@ describe('acde dev with a stand-in acdert', () => {
         .filter(Boolean)
         .map((l) => JSON.parse(l) as { argv?: string[]; path?: string; got?: Message })
     const tool = async (argv: string[], from = cwd, stdin?: string) => {
-      const run = Bun.spawn([process.execPath, CLI, ...argv], { cwd: from, env: env({ TMPDIR: root }), stdin: stdin === undefined ? 'ignore' : new TextEncoder().encode(stdin), stdout: 'pipe', stderr: 'pipe' })
+      const run = Bun.spawn([process.execPath, CLI, ...argv], { cwd: from, env: env({ TMPDIR: root, XDG_RUNTIME_DIR: root }), stdin: stdin === undefined ? 'ignore' : new TextEncoder().encode(stdin), stdout: 'pipe', stderr: 'pipe' })
       const [code, stdout, stderr] = await Promise.all([run.exited, new Response(run.stdout).text(), new Response(run.stderr).text()])
       return { code, stdout, stderr }
     }
