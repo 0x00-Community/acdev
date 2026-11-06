@@ -10,6 +10,10 @@ import { documentId, dom, existing, ID, wrap, type Wrapper } from './realm'
 export const SHADOW_ROOT = Symbol('shadowRoot')
 export const ACTIVATION = Symbol('activation')
 
+export function activation(run: () => void): { run(): void; cancel(): void } {
+  return { run, cancel: () => {} }
+}
+
 type Activatable = { [ACTIVATION]?: (event: Event) => { run(): void; cancel(): void } | null }
 
 function isClick(event: Event): boolean {

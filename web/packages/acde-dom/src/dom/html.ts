@@ -3,7 +3,7 @@ import { defineHandlers, Event, fire } from '../core/event'
 import { G, getters, host, queueTask, tag } from '../core/host'
 import { URL } from '../core/url'
 import { NONE, NodeType, Ns } from '../native'
-import { ACTIVATION, MouseEvent, ToggleEvent } from './events'
+import { ACTIVATION, activation, MouseEvent, ToggleEvent } from './events'
 import { ATTRIBUTE_CHANGED, dataset, Element, HANDLER_TYPES, LOCAL, NS, pendingElement, setAttribute, tokenList, type DOMStringMap, type DOMTokenList } from './element'
 import { resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
@@ -28,17 +28,14 @@ export const customHooks = {
 
 export class HTMLOrSVGElementMixin {
   get style(): CSSStyleDeclaration {
-    const self = this as unknown as Element
-    return inlineStyle(self)
+    return inlineStyle(this as unknown as Element)
   }
   set style(value: string) {
-    const self = this as unknown as Element
-    setAttribute(self, 'style', String(value))
+    setAttribute(this as unknown as Element, 'style', String(value))
   }
 
   get dataset(): DOMStringMap {
-    const self = this as unknown as Element
-    return dataset(self)
+    return dataset(this as unknown as Element)
   }
 
   declare nonce: string
@@ -52,8 +49,7 @@ export class HTMLOrSVGElementMixin {
     return defaultFocusable(self) ? 0 : -1
   }
   set tabIndex(value: number) {
-    const self = this as unknown as Element
-    setAttribute(self, 'tabindex', String(Math.trunc(Number(value)) || 0))
+    setAttribute(this as unknown as Element, 'tabindex', String(Math.trunc(Number(value)) || 0))
   }
 
   focus(this: Element, options?: { preventScroll?: boolean; focusVisible?: boolean }): void {
@@ -491,13 +487,10 @@ function summaryActivation(this: HTMLElement): { run(): void; cancel(): void } |
   if (parent === NONE || dom.localName(parent) !== 'details') return null
   const first = dom.querySelector(parent, ':scope > summary')
   if (first !== this[ID]) return null
-  return {
-    run: () => {
-      const details = wrap<HTMLDetailsElement>(parent)!
-      ;(details as unknown as { open: boolean }).open = !(details as unknown as { open: boolean }).open
-    },
-    cancel: () => {},
-  }
+  return activation(() => {
+    const details = wrap<HTMLDetailsElement>(parent)! as unknown as { open: boolean }
+    details.open = !details.open
+  })
 }
 
 export class HTMLDialogElement extends HTMLElement {
@@ -633,7 +626,7 @@ export class HTMLAnchorElement extends HTMLElement {
   [ACTIVATION](): { run(): void; cancel(): void } | null {
     const href = dom.getAttribute(this[ID], 'href')
     if (href === null) return null
-    return { run: () => linkHooks.follow(resolveUrl(href), dom.getAttribute(this[ID], 'target') ?? '', dom.getAttribute(this[ID], 'download')), cancel: () => {} }
+    return activation(() => linkHooks.follow(resolveUrl(href), dom.getAttribute(this[ID], 'target') ?? '', dom.getAttribute(this[ID], 'download')))
   }
 }
 hyperlink(HTMLAnchorElement.prototype)

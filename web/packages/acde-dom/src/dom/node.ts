@@ -582,6 +582,16 @@ export function setTextContent(node: Node, text: string): void {
   }
 }
 
+function elementFrom(id: number, forward: boolean): Element | null {
+  while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = forward ? dom.nextSibling(id) : dom.previousSibling(id)
+  return wrap<Element>(id)
+}
+
+function viable(ref: Node | null, nodes: unknown[], forward: boolean): Node | null {
+  while (ref && nodes.includes(ref)) ref = forward ? ref.nextSibling : ref.previousSibling
+  return ref
+}
+
 export class ParentNodeMixin {
   get children(): HTMLCollection {
     const self = this as unknown as Node & { [CHILDREN]?: HTMLCollection }
@@ -594,22 +604,15 @@ export class ParentNodeMixin {
   }
 
   get firstElementChild(): Element | null {
-    const self = this as unknown as Node
-    let id = dom.firstChild(self[ID])
-    while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = dom.nextSibling(id)
-    return wrap<Element>(id)
+    return elementFrom(dom.firstChild((this as unknown as Node)[ID]), true)
   }
 
   get lastElementChild(): Element | null {
-    const self = this as unknown as Node
-    let id = dom.lastChild(self[ID])
-    while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = dom.previousSibling(id)
-    return wrap<Element>(id)
+    return elementFrom(dom.lastChild((this as unknown as Node)[ID]), false)
   }
 
   get childElementCount(): number {
-    const self = this as unknown as Node
-    return dom.children(self[ID]).length
+    return dom.children((this as unknown as Node)[ID]).length
   }
 
   append(this: Node, ...nodes: unknown[]): void {
@@ -658,8 +661,7 @@ export class ChildNodeMixin {
   before(this: Node, ...nodes: unknown[]): void {
     const parent = this.parentNode
     if (!parent) return
-    let ref: Node | null = this.previousSibling
-    while (ref && nodes.includes(ref)) ref = ref.previousSibling
+    const ref = viable(this.previousSibling, nodes, false)
     const node = convertNodes(nodes)
     if (node) insert(parent, node, ref ? ref.nextSibling : parent.firstChild)
   }
@@ -667,8 +669,7 @@ export class ChildNodeMixin {
   after(this: Node, ...nodes: unknown[]): void {
     const parent = this.parentNode
     if (!parent) return
-    let ref: Node | null = this.nextSibling
-    while (ref && nodes.includes(ref)) ref = ref.nextSibling
+    const ref = viable(this.nextSibling, nodes, true)
     const node = convertNodes(nodes)
     if (node) insert(parent, node, ref)
   }
@@ -676,8 +677,7 @@ export class ChildNodeMixin {
   replaceWith(this: Node, ...nodes: unknown[]): void {
     const parent = this.parentNode
     if (!parent) return
-    let ref: Node | null = this.nextSibling
-    while (ref && nodes.includes(ref)) ref = ref.nextSibling
+    const ref = viable(this.nextSibling, nodes, true)
     const node = convertNodes(nodes)
     if (dom.parent(this[ID]) === parent[ID]) remove(this)
     if (node) insert(parent, node, ref)
@@ -688,17 +688,11 @@ export class ChildNodeMixin {
   }
 
   get previousElementSibling(): Element | null {
-    const self = this as unknown as Node
-    let id = dom.previousSibling(self[ID])
-    while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = dom.previousSibling(id)
-    return wrap<Element>(id)
+    return elementFrom(dom.previousSibling((this as unknown as Node)[ID]), false)
   }
 
   get nextElementSibling(): Element | null {
-    const self = this as unknown as Node
-    let id = dom.nextSibling(self[ID])
-    while (id !== NONE && dom.nodeType(id) !== NodeType.Element) id = dom.nextSibling(id)
-    return wrap<Element>(id)
+    return elementFrom(dom.nextSibling((this as unknown as Node)[ID]), true)
   }
 }
 
@@ -710,26 +704,7 @@ export function mixin(target: { prototype: object }, source: { prototype: object
 }
 
 export class CharacterData extends Node {
-  get data(): string {
-    return dom.data(this[ID])
-  }
-  set data(value: string) {
-    replaceData(this, 0, Infinity, value === null ? '' : String(value))
-  }
-
-  override get nodeValue(): string {
-    return dom.data(this[ID])
-  }
-  override set nodeValue(value: string | null) {
-    replaceData(this, 0, Infinity, value === null ? '' : String(value))
-  }
-
-  override get textContent(): string {
-    return dom.data(this[ID])
-  }
-  override set textContent(value: string | null) {
-    replaceData(this, 0, Infinity, value === null ? '' : String(value))
-  }
+  declare data: string
 
   get length(): number {
     return dom.data(this[ID]).length
@@ -757,6 +732,18 @@ export class CharacterData extends Node {
   replaceData(offset: number, count: number, data: string): void {
     replaceData(this, Number(offset) >>> 0, Number(count) >>> 0, String(data))
   }
+}
+for (const name of ['data', 'nodeValue', 'textContent']) {
+  Object.defineProperty(CharacterData.prototype, name, {
+    get(this: CharacterData) {
+      return dom.data(this[ID])
+    },
+    set(this: CharacterData, value: unknown) {
+      replaceData(this, 0, Infinity, value === null ? '' : String(value))
+    },
+    enumerable: true,
+    configurable: true,
+  })
 }
 mixin(CharacterData, ChildNodeMixin)
 tag(CharacterData)
