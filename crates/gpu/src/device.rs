@@ -33,11 +33,10 @@ pub struct Device {
 
 impl Device {
     pub fn open() -> Result<Self, String> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: crate::BACKEND, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() });
-        let mut adapters: Vec<_> = pollster::block_on(instance.enumerate_adapters(crate::BACKEND))
-            .into_iter()
-            .filter(|a| a.get_info().device_type != wgpu::DeviceType::Cpu)
-            .collect();
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor { backends: crate::BACKEND, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() });
+        let mut adapters: Vec<_> =
+            pollster::block_on(instance.enumerate_adapters(crate::BACKEND)).into_iter().filter(|a| a.get_info().device_type != wgpu::DeviceType::Cpu).collect();
         adapters.sort_by_key(|a| match a.get_info().device_type {
             wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu => 0,
             _ => 1,
@@ -177,7 +176,11 @@ impl Device {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUses::STORAGE_READ_WRITE | wgpu::TextureUses::RESOURCE | wgpu::TextureUses::COPY_DST | wgpu::TextureUses::COPY_SRC | wgpu::TextureUses::COLOR_TARGET,
+                usage: wgpu::TextureUses::STORAGE_READ_WRITE
+                    | wgpu::TextureUses::RESOURCE
+                    | wgpu::TextureUses::COPY_DST
+                    | wgpu::TextureUses::COPY_SRC
+                    | wgpu::TextureUses::COLOR_TARGET,
                 memory_flags: wgpu::hal::MemoryFlags::empty(),
                 view_formats: vec![],
             };

@@ -104,10 +104,7 @@ fn rects(n: usize) -> Vec<Rect> {
 
 fn differing(a: &[u8], b: &[u8], r: Rect) -> usize {
     let (x0, y0, x1, y1) = (r.x0 as u32, r.y0 as u32, r.x1.ceil() as u32, r.y1.ceil() as u32);
-    (y0..y1.min(H))
-        .flat_map(|y| (x0..x1.min(W)).map(move |x| ((y * W + x) * 4) as usize))
-        .filter(|&i| (0..4).any(|k| a[i + k].abs_diff(b[i + k]) > 2))
-        .count()
+    (y0..y1.min(H)).flat_map(|y| (x0..x1.min(W)).map(move |x| ((y * W + x) * 4) as usize)).filter(|&i| (0..4).any(|k| a[i + k].abs_diff(b[i + k]) > 2)).count()
 }
 
 #[test]

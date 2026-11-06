@@ -4,8 +4,9 @@ use std::num::NonZeroU64;
 use acde_gpu::wgpu;
 use serde::Deserialize;
 use wgpu::{
-    AddressMode, BlendFactor, BlendOperation, CompareFunction, Face, FilterMode, FrontFace, IndexFormat, MipmapFilterMode, PrimitiveTopology, SamplerBindingType,
-    StencilOperation, StorageTextureAccess, TextureAspect, TextureDimension, TextureFormat, TextureViewDimension, VertexFormat, VertexStepMode,
+    AddressMode, BlendFactor, BlendOperation, CompareFunction, Face, FilterMode, FrontFace, IndexFormat, MipmapFilterMode, PrimitiveTopology,
+    SamplerBindingType, StencilOperation, StorageTextureAccess, TextureAspect, TextureDimension, TextureFormat, TextureViewDimension, VertexFormat,
+    VertexStepMode,
 };
 
 pub fn label(label: &Option<String>) -> Option<&str> {

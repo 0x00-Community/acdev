@@ -100,7 +100,8 @@ fn a_link_in_a_parsed_inert_document_does_not_reorder_the_page() {
     std::fs::write(dir.join("b.css"), "h1 { color: blue; font-size: 60px }").unwrap();
     let options = Options { resources: Some(vec![Resource { prefix: "/".into(), dirs: vec![dir.to_string_lossy().into_owned()] }]), ..Default::default() };
     let doc = Doc::new(400, 300, 1.0, &options).unwrap();
-    let page = "<!doctype html><html><head><style>h1 { margin: 0; font-size: 22px }</style><link rel=stylesheet href=/a.css></head><body><h1>hello</h1></body></html>";
+    let page =
+        "<!doctype html><html><head><style>h1 { margin: 0; font-size: 22px }</style><link rel=stylesheet href=/a.css></head><body><h1>hello</h1></body></html>";
     doc.dom.parse_document(page).unwrap();
     doc.commit();
     doc.sync();

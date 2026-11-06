@@ -3,7 +3,7 @@ use std::os::unix::net::UnixStream;
 
 use napi::Result;
 use napi_derive::napi;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::{blocking, failure};
 

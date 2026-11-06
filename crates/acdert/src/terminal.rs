@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use acde_runtime::Terminals;
 
-use crate::{bind, offload};
 use crate::rt::{self, Msg};
+use crate::{bind, offload};
 
 #[derive(Default)]
 struct State {

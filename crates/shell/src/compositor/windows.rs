@@ -40,12 +40,14 @@ impl Compositor {
         let Some(surface) = window.toplevel().cloned() else { return };
         let Some(managed) = self.managed_of(window) else { return };
         let parent = surface.parent().and_then(|p| self.window_of(&p)).and_then(|p| self.managed_of(&p));
-        let modal = with_states(surface.wl_surface(), |s| s.data_map.get::<XdgToplevelSurfaceData>().and_then(|d| d.lock().ok().map(|d| d.modal)).unwrap_or(false));
+        let modal =
+            with_states(surface.wl_surface(), |s| s.data_map.get::<XdgToplevelSurfaceData>().and_then(|d| d.lock().ok().map(|d| d.modal)).unwrap_or(false));
         if self.table.set_parent(managed, parent, modal).is_err() {
             return;
         }
         let focused = self.seat.get_keyboard().and_then(|k| k.current_focus());
-        let parent_focused = parent.and_then(|p| self.window_of_managed(p)).and_then(|p| p.toplevel().map(|t| t.wl_surface().clone())).is_some_and(|p| Some(p) == focused);
+        let parent_focused =
+            parent.and_then(|p| self.window_of_managed(p)).and_then(|p| p.toplevel().map(|t| t.wl_surface().clone())).is_some_and(|p| Some(p) == focused);
         if modal && parent_focused {
             self.focus_window(Some(window));
         }

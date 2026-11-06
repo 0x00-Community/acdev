@@ -31,6 +31,7 @@ mod voice;
 pub use atspi::Accessibility;
 #[cfg(target_os = "linux")]
 pub use bus::DesktopBus;
+pub use fs::{ChildKind, FileBytes, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
 #[cfg(target_os = "linux")]
 pub use greetd::{GreetUser, Greetd};
 #[cfg(target_os = "linux")]
@@ -41,7 +42,6 @@ pub use network::{NetCall, Network, Networks};
 pub use office::{OfficeCall, OfficeService};
 #[cfg(target_os = "linux")]
 pub use portal::{Appearance, FileChooser, choose_folder};
-pub use fs::{ChildKind, FileBytes, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
 #[cfg(unix)]
 pub use terminal::Terminals;
 pub use unixhttp::{Deliver, Event as UnixEvent, UnixClient};
@@ -52,10 +52,7 @@ use napi::{Error, Result, Status};
 use serde_json::json;
 
 fn failure(code: &str, message: &str) -> Error {
-    Error::new(
-        Status::GenericFailure,
-        json!({"code":code,"message":message}).to_string(),
-    )
+    Error::new(Status::GenericFailure, json!({"code":code,"message":message}).to_string())
 }
 
 #[cfg(target_os = "linux")]
@@ -71,15 +68,8 @@ fn state_file(name: &str) -> Option<std::path::PathBuf> {
     Some(state.join("acde").join(name))
 }
 
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T> + Send + 'static,
-) -> Result<T> {
-    rt::blocking(work).await.map_err(|_| {
-        failure(
-            "native_task_failed",
-            "native task did not complete; query the original operation",
-        )
-    })?
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    rt::blocking(work).await.map_err(|_| failure("native_task_failed", "native task did not complete; query the original operation"))?
 }
 
 #[cfg(test)]
@@ -89,7 +79,8 @@ fn private_bus(name: &str) -> Option<(std::process::Child, String, std::path::Pa
     std::fs::create_dir_all(&dir).ok()?;
     let config = dir.join("bus.conf");
     let policy = "<policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/><allow eavesdrop=\"true\"/><allow own=\"*\"/></policy>";
-    std::fs::write(&config, format!("<busconfig><type>session</type><listen>unix:dir={}</listen><auth>EXTERNAL</auth>{policy}</busconfig>", dir.display())).ok()?;
+    std::fs::write(&config, format!("<busconfig><type>session</type><listen>unix:dir={}</listen><auth>EXTERNAL</auth>{policy}</busconfig>", dir.display()))
+        .ok()?;
     let mut daemon = std::process::Command::new("dbus-daemon")
         .arg(format!("--config-file={}", config.display()))
         .arg("--print-address")

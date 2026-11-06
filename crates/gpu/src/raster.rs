@@ -83,7 +83,8 @@ pub struct Raster {
 
 impl Raster {
     pub fn new(device: Device, poll: bool) -> Result<Self, String> {
-        let options = vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None };
+        let options =
+            vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None };
         let vello = vello::Renderer::new(&device.device, options).map_err(|e| format!("vello: {e}"))?;
         let composer = Composer::new(&device.device, &device.queue);
         let mut raster = Self { device, vello, scene: vello::Scene::new(), composer, canvases: HashMap::new(), submits: VecDeque::new(), poll };
@@ -192,7 +193,12 @@ impl Raster {
             .collect()
     }
 
-    fn draw_pass<C: Content>(&mut self, encoder: &mut wgpu::CommandEncoder, Pass { plane, size, parts, next, targets }: Pass<C>, images: &mut impl Images) -> Result<(), String> {
+    fn draw_pass<C: Content>(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        Pass { plane, size, parts, next, targets }: Pass<C>,
+        images: &mut impl Images,
+    ) -> Result<(), String> {
         let full = Px::sized(size);
         let (_, canvas) = self.canvases.get(&plane).and_then(|c| c.get(next)?.clone()).ok_or("the canvas is not imported yet")?;
         let layer = self.composer.layer_view(size);

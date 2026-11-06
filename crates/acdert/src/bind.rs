@@ -30,7 +30,13 @@ pub fn method(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &str, 
     method_with(scope, obj, name, callback, None);
 }
 
-pub fn method_with(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &str, callback: impl v8::MapFnTo<v8::FunctionCallback>, data: Option<v8::Local<v8::Value>>) {
+pub fn method_with(
+    scope: &mut v8::PinScope,
+    obj: v8::Local<v8::Object>,
+    name: &str,
+    callback: impl v8::MapFnTo<v8::FunctionCallback>,
+    data: Option<v8::Local<v8::Value>>,
+) {
     let key = key(scope, name);
     let mut builder = v8::Function::builder(callback);
     if let Some(data) = data {
@@ -41,7 +47,11 @@ pub fn method_with(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &
     obj.set(scope, key.into(), function.into());
 }
 
-pub fn call<'s>(scope: &mut v8::PinScope<'s, '_>, function: impl v8::Handle<Data = v8::Function>, args: &[v8::Local<v8::Value>]) -> Option<v8::Local<'s, v8::Value>> {
+pub fn call<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    function: impl v8::Handle<Data = v8::Function>,
+    args: &[v8::Local<v8::Value>],
+) -> Option<v8::Local<'s, v8::Value>> {
     let function = v8::Local::new(scope, function);
     let recv = v8::undefined(scope);
     function.call(scope, recv.into(), args)
@@ -140,7 +150,12 @@ pub fn arg_string(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments
     value.to_rust_string_lossy(scope)
 }
 
-pub fn arg_str<'a, const N: usize>(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32, buffer: &'a mut [MaybeUninit<u8>; N]) -> Cow<'a, str> {
+pub fn arg_str<'a, const N: usize>(
+    scope: &mut v8::PinScope,
+    args: &v8::FunctionCallbackArguments,
+    i: i32,
+    buffer: &'a mut [MaybeUninit<u8>; N],
+) -> Cow<'a, str> {
     let value = args.get(i);
     if value.is_undefined() {
         return Cow::Borrowed("");

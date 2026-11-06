@@ -97,7 +97,9 @@ fn nothing_painted_is_none() {
 
 #[test]
 fn file_row_timing() {
-    let page = Page::new(".row { position: absolute; left: 0; top: 0; width: 420px; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: rgba(150, 92, 254, .12); font: 13px sans-serif; } .ic { width: 20px; height: 24px; border-radius: 4px; background: #b9a0e8; }");
+    let page = Page::new(
+        ".row { position: absolute; left: 0; top: 0; width: 420px; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: rgba(150, 92, 254, .12); font: 13px sans-serif; } .ic { width: 20px; height: 24px; border-radius: 4px; background: #b9a0e8; }",
+    );
     let row = page.el(page.body, "row");
     page.el(row, "ic");
     let name = page.el(row, "name");

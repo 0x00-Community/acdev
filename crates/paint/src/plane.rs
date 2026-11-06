@@ -74,7 +74,9 @@ impl Content {
         let mut effect = Effect::default();
         for (e, scale) in layer.filter.iter().flat_map(|f| f.filter.effects().iter().map(|e| (e, f.scale as f32))) {
             match e {
-                FilterEffect::DropShadow(d) => shadows.push(Shadow { dx: d.dx * scale, dy: d.dy * scale, blur: d.std_deviation * scale, color: d.color.components }),
+                FilterEffect::DropShadow(d) => {
+                    shadows.push(Shadow { dx: d.dx * scale, dy: d.dy * scale, blur: d.std_deviation * scale, color: d.color.components })
+                }
                 FilterEffect::GaussianBlur(g) => effect.blur(g.std_deviation * scale),
                 FilterEffect::ColorMatrix(m) => effect.matrix(m.0),
             }

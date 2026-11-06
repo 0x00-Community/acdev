@@ -6,28 +6,28 @@ mod dom;
 mod engine;
 mod fs;
 mod host;
+mod hostnative;
+mod inspector;
 mod modules;
 mod napi;
-mod inspector;
-mod profile;
-mod rt;
-mod sys;
-mod web;
 #[cfg(target_os = "linux")]
 mod network;
 #[cfg(target_os = "linux")]
 mod office;
 mod offload;
 mod picker;
+mod profile;
+mod rt;
 #[cfg(target_os = "linux")]
 mod supervise;
+mod surface;
+mod sys;
 #[cfg(unix)]
 mod terminal;
-mod webnative;
-mod surface;
-mod hostnative;
+mod web;
 #[cfg(target_os = "linux")]
 mod webgpu;
+mod webnative;
 
 #[cfg(target_os = "linux")]
 #[global_allocator]

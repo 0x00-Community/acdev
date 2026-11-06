@@ -172,7 +172,8 @@ impl Spec {
                 let (code, reason) = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(upstream, &ready))) {
                     Ok(ended) => ended,
                     Err(panic) => {
-                        let message = panic.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
+                        let message =
+                            panic.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
                         log::error!("[{name}] panic: {message}");
                         (Self::PANICKED, Some(format!("panic: {message}")))
                     }
@@ -193,7 +194,8 @@ impl Spec {
                 })));
             })
             .map_err(|e| format!("spawnWeb: {e}"))?;
-        let Started { tx, isolate, stopping, busy, tid } = started.recv_timeout(Self::START_WAIT).map_err(|_| "spawnWeb: the web thread did not start".to_owned())?;
+        let Started { tx, isolate, stopping, busy, tid } =
+            started.recv_timeout(Self::START_WAIT).map_err(|_| "spawnWeb: the web thread did not start".to_owned())?;
         Ok(Handle { tx, isolate, stopping, killed, busy, tid })
     }
 

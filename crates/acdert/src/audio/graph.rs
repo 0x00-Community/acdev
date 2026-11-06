@@ -657,11 +657,7 @@ impl Graph {
                 continue;
             }
             let fed = !node.inputs.is_empty() || node.param_inputs.iter().any(|l| !l.is_empty());
-            let done = if node.kind.is_source() {
-                node.src.ended || (node.released && node.src.start.is_none())
-            } else {
-                node.released && !fed
-            };
+            let done = if node.kind.is_source() { node.src.ended || (node.released && node.src.start.is_none()) } else { node.released && !fed };
             if done {
                 gone.push(id);
                 if node.kind.is_source() && node.src.ended {

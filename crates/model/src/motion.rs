@@ -32,7 +32,12 @@ impl Look {
 
     fn mix(&self, to: &Look, t: f64) -> Look {
         let lerp = |a: f64, b: f64| a + (b - a) * t;
-        Look { opacity: lerp(self.opacity.into(), to.opacity.into()) as f32, scale: lerp(self.scale, to.scale), dx: lerp(self.dx, to.dx), dy: lerp(self.dy, to.dy) }
+        Look {
+            opacity: lerp(self.opacity.into(), to.opacity.into()) as f32,
+            scale: lerp(self.scale, to.scale),
+            dx: lerp(self.dx, to.dx),
+            dy: lerp(self.dy, to.dy),
+        }
     }
 }
 

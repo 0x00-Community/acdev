@@ -3,16 +3,16 @@ mod capture;
 mod composite;
 mod effects;
 pub use composite::Animate;
+mod acde_shell;
+mod acde_window;
 mod cursor;
+mod dnd;
 mod drm;
 mod env;
 mod handlers;
-mod dnd;
 mod rdp;
 mod stacking;
 mod windows;
-mod acde_window;
-mod acde_shell;
 pub use acde_shell::ShellEvent;
 mod grabs;
 pub use acde_window::Grant;
@@ -26,8 +26,8 @@ mod timing;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc;
-use std::time::Duration;
 use std::thread::JoinHandle;
+use std::time::Duration;
 use std::time::Instant;
 
 #[cfg(feature = "napi")]
@@ -38,13 +38,13 @@ use smithay::reexports::calloop::channel::{self, Channel};
 use smithay::reexports::calloop::{LoopSignal, RegistrationToken};
 use smithay::reexports::wayland_server::DisplayHandle;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::utils::{Logical, Rectangle};
 use smithay::wayland::compositor::CompositorState;
 use smithay::wayland::dmabuf::DmabufState;
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::selection::data_device::DataDeviceState;
 use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shm::ShmState;
-use smithay::utils::{Logical, Rectangle};
 
 pub use backend::Backend;
 
@@ -265,11 +265,7 @@ impl Compositor {
         Ok(Handle { commands, socket, thread: Some(thread) })
     }
 
-    fn run(
-        commands: Channel<Command>,
-        shell: UnixStream,
-        ready: &mpsc::SyncSender<Result<OsString, String>>,
-    ) -> Result<(), String> {
+    fn run(commands: Channel<Command>, shell: UnixStream, ready: &mpsc::SyncSender<Result<OsString, String>>) -> Result<(), String> {
         use smithay::backend::renderer::{ImportDma, ImportEgl, ImportMemWl};
         use smithay::reexports::calloop::generic::Generic;
         use smithay::reexports::calloop::{EventLoop, Interest, Mode as LoopMode, PostAction};
@@ -605,7 +601,10 @@ impl Compositor {
         let (Some(managed), Some(window)) = (self.managed(id), self.window(id)) else { return };
         let was = self.table.window(managed).map(|w| w.mode);
         let full = acde_model::Mode::Fullscreen;
-        if mode == full && was != Some(full) && let Some(old) = self.space.element_geometry(&window) {
+        if mode == full
+            && was != Some(full)
+            && let Some(old) = self.space.element_geometry(&window)
+        {
             window.user_data().get_or_insert(|| handlers::Restore(std::cell::Cell::new(None))).0.set(Some(old));
         }
         if self.table.set_mode(managed, mode).is_err() {
@@ -641,7 +640,10 @@ impl Compositor {
                 let focus = self.table.canvas(canvas).and_then(|c| c.focus) == Some(managed);
                 let surface = self.window(id).and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()));
                 let window = surface.as_ref().and_then(Self::bound).map(|g| g.id);
-                let pid = surface.and_then(|s| smithay::reexports::wayland_server::Resource::client(&s)).and_then(|c| c.get_credentials(&self.display).ok()).and_then(|c| u32::try_from(c.pid).ok());
+                let pid = surface
+                    .and_then(|s| smithay::reexports::wayland_server::Resource::client(&s))
+                    .and_then(|c| c.get_credentials(&self.display).ok())
+                    .and_then(|c| u32::try_from(c.pid).ok());
                 windows.push(WindowInfo {
                     id,
                     window,
@@ -726,7 +728,9 @@ impl Compositor {
         let tiled = [State::TiledLeft, State::TiledRight, State::TiledTop, State::TiledBottom];
         let placed = self.space.element_location(window) == Some(rect.loc)
             && window.toplevel().is_none_or(|t| {
-                t.with_pending_state(|state| state.size == Some(rect.size) && (state.states.contains(State::Fullscreen) || tiled.iter().all(|s| state.states.contains(*s))))
+                t.with_pending_state(|state| {
+                    state.size == Some(rect.size) && (state.states.contains(State::Fullscreen) || tiled.iter().all(|s| state.states.contains(*s)))
+                })
             });
         if placed {
             if let Some(id) = Self::window_id(window) {
@@ -847,11 +851,15 @@ impl Compositor {
 
     pub fn idle_vblank(&mut self) {
         let frame = self.frame_duration();
-        self.after(|s| &mut s.frame_tick, frame, |state| {
-            if !state.backend.presenting {
-                state.on_vblank(None);
-            }
-        });
+        self.after(
+            |s| &mut s.frame_tick,
+            frame,
+            |state| {
+                if !state.backend.presenting {
+                    state.on_vblank(None);
+                }
+            },
+        );
     }
 
     pub fn milestone(&mut self, name: &'static str) {

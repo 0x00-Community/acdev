@@ -148,7 +148,14 @@ fn operands(op: u32, r: &Reader) -> usize {
     }
 }
 
-pub fn render(s: &mut State, encoder: &mut wgpu::CommandEncoder, device: Id, d: &desc::RenderPassDesc, commands: &[f64], strings: &[String]) -> Result<(), String> {
+pub fn render(
+    s: &mut State,
+    encoder: &mut wgpu::CommandEncoder,
+    device: Id,
+    d: &desc::RenderPassDesc,
+    commands: &[f64],
+    strings: &[String],
+) -> Result<(), String> {
     for attachment in d.color_attachments.iter().flatten() {
         if let Some(super::Obj::View(v)) = s.objects.get(&attachment.view) {
             let texture = v.texture;
@@ -176,7 +183,8 @@ pub fn render(s: &mut State, encoder: &mut wgpu::CommandEncoder, device: Id, d: 
             None => None,
         };
         let [r, g, b, alpha] = a.clear_value;
-        let ops = desc::ops(Some(&a.load_op), Some(&a.store_op), wgpu::Color { r, g, b, a: alpha }, false)?.ok_or("TypeError: a color attachment needs loadOp and storeOp")?;
+        let ops = desc::ops(Some(&a.load_op), Some(&a.store_op), wgpu::Color { r, g, b, a: alpha }, false)?
+            .ok_or("TypeError: a color attachment needs loadOp and storeOp")?;
         colors.push(Some(wgpu::RenderPassColorAttachment { view: &view.view, depth_slice: a.depth_slice, resolve_target, ops }));
     }
     let depth_stencil = match &d.depth_stencil_attachment {
@@ -312,7 +320,11 @@ pub fn bundle(s: &State, gpu: &acde_paint::Gpu, device: Id, d: &desc::RenderBund
     let mut encoder = gpu.device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
         label: desc::label(&d.label),
         color_formats: &d.color_formats,
-        depth_stencil: d.depth_stencil_format.map(|format| wgpu::RenderBundleDepthStencil { format, depth_read_only: d.depth_read_only, stencil_read_only: d.stencil_read_only }),
+        depth_stencil: d.depth_stencil_format.map(|format| wgpu::RenderBundleDepthStencil {
+            format,
+            depth_read_only: d.depth_read_only,
+            stencil_read_only: d.stencil_read_only,
+        }),
         sample_count: d.sample_count,
         multiview: None,
     });

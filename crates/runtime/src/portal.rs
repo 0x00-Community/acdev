@@ -119,7 +119,9 @@ impl FileChooser {
         blocking(|| Connection::session().and_then(Self::on).map_err(|e| failure("portal_unavailable", &format!("no FileChooser portal: {e}")))).await
     }
 
-    #[napi(ts_args_type = "options: { title?: string; multiple?: boolean; directory?: boolean; filters?: { name: string; globs?: string[]; mimes?: string[] }[] }")]
+    #[napi(
+        ts_args_type = "options: { title?: string; multiple?: boolean; directory?: boolean; filters?: { name: string; globs?: string[]; mimes?: string[] }[] }"
+    )]
     pub async fn open_file(&self, options: serde_json::Value) -> Result<Option<Vec<String>>> {
         let options: OpenOptions = serde_json::from_value(options).map_err(|e| failure("bad_options", &e.to_string()))?;
         let chooser = Self { connection: self.connection.clone() };
@@ -237,10 +239,19 @@ mod tests {
     }
 
     impl Stand {
-        async fn answer(&self, method: &str, header: zbus::message::Header<'_>, connection: &zbus::Connection, title: &str, mut options: HashMap<String, OwnedValue>) -> OwnedObjectPath {
+        async fn answer(
+            &self,
+            method: &str,
+            header: zbus::message::Header<'_>,
+            connection: &zbus::Connection,
+            title: &str,
+            mut options: HashMap<String, OwnedValue>,
+        ) -> OwnedObjectPath {
             let sender = header.sender().map(|s| s.to_string()).unwrap_or_default();
             let token = options.remove("handle_token").and_then(|v| String::try_from(v).ok()).unwrap_or_default();
-            let handle = OwnedObjectPath::try_from(format!("/org/freedesktop/portal/desktop/request/{}/{token}", sender.trim_start_matches(':').replace('.', "_"))).unwrap();
+            let handle =
+                OwnedObjectPath::try_from(format!("/org/freedesktop/portal/desktop/request/{}/{token}", sender.trim_start_matches(':').replace('.', "_")))
+                    .unwrap();
             let multiple = options.get("multiple").and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(false);
             let name = options.get("current_name").and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
             self.calls.lock().unwrap().push((method.into(), title.into(), options));
@@ -268,11 +279,25 @@ mod tests {
             4
         }
 
-        async fn open_file(&self, #[zbus(header)] header: zbus::message::Header<'_>, #[zbus(connection)] connection: &zbus::Connection, _parent: &str, title: &str, options: HashMap<String, OwnedValue>) -> OwnedObjectPath {
+        async fn open_file(
+            &self,
+            #[zbus(header)] header: zbus::message::Header<'_>,
+            #[zbus(connection)] connection: &zbus::Connection,
+            _parent: &str,
+            title: &str,
+            options: HashMap<String, OwnedValue>,
+        ) -> OwnedObjectPath {
             self.answer("OpenFile", header, connection, title, options).await
         }
 
-        async fn save_file(&self, #[zbus(header)] header: zbus::message::Header<'_>, #[zbus(connection)] connection: &zbus::Connection, _parent: &str, title: &str, options: HashMap<String, OwnedValue>) -> OwnedObjectPath {
+        async fn save_file(
+            &self,
+            #[zbus(header)] header: zbus::message::Header<'_>,
+            #[zbus(connection)] connection: &zbus::Connection,
+            _parent: &str,
+            title: &str,
+            options: HashMap<String, OwnedValue>,
+        ) -> OwnedObjectPath {
             self.answer("SaveFile", header, connection, title, options).await
         }
     }
@@ -314,7 +339,10 @@ mod tests {
         assert_eq!(chooser.folder("cancel").unwrap(), None);
         let calls = calls.lock().unwrap();
         let seen: Vec<(&str, &str)> = calls.iter().map(|(m, t, _)| (m.as_str(), t.as_str())).collect();
-        assert_eq!(seen, [("OpenFile", "Pick"), ("OpenFile", "Pick"), ("OpenFile", "cancel"), ("SaveFile", "Save"), ("OpenFile", "Folder"), ("OpenFile", "cancel")]);
+        assert_eq!(
+            seen,
+            [("OpenFile", "Pick"), ("OpenFile", "Pick"), ("OpenFile", "cancel"), ("SaveFile", "Save"), ("OpenFile", "Folder"), ("OpenFile", "cancel")]
+        );
         assert_eq!(calls[0].2["filters"].value_signature().to_string(), "a(sa(us))");
         assert_eq!(bool::try_from(calls[4].2["directory"].clone()).ok(), Some(true));
         _ = daemon.kill();
@@ -370,7 +398,9 @@ mod tests {
         scheme.store(1, Ordering::SeqCst);
         assert!(Appearance::read(&client).unwrap());
         let mut changes = Appearance::changes(&client).unwrap();
-        portal.emit_signal(None::<&str>, PORTAL_PATH, SETTINGS, "SettingChanged", &("org.gnome.desktop.interface", "gtk-theme", Variant::from("Adwaita"))).unwrap();
+        portal
+            .emit_signal(None::<&str>, PORTAL_PATH, SETTINGS, "SettingChanged", &("org.gnome.desktop.interface", "gtk-theme", Variant::from("Adwaita")))
+            .unwrap();
         portal.emit_signal(None::<&str>, PORTAL_PATH, SETTINGS, "SettingChanged", &(APPEARANCE, COLOR_SCHEME, Variant::from(1u32))).unwrap();
         let seen: Vec<(String, String, bool)> = changes
             .by_ref()
@@ -380,7 +410,10 @@ mod tests {
                 (namespace, key, dark_scheme(&value))
             })
             .collect();
-        assert_eq!(seen, [("org.gnome.desktop.interface".to_string(), "gtk-theme".to_string(), false), (APPEARANCE.to_string(), COLOR_SCHEME.to_string(), true)]);
+        assert_eq!(
+            seen,
+            [("org.gnome.desktop.interface".to_string(), "gtk-theme".to_string(), false), (APPEARANCE.to_string(), COLOR_SCHEME.to_string(), true)]
+        );
         _ = daemon.kill();
         _ = daemon.wait();
         _ = std::fs::remove_dir_all(dir);

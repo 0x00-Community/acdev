@@ -16,11 +16,7 @@ impl LocalNet {
     pub(crate) fn new(base: Url, resources: &[Resource], arrived: Arc<AtomicBool>) -> Self {
         let mut resources = resources.to_vec();
         resources.sort_by_key(|r| std::cmp::Reverse(r.prefix.len()));
-        Self {
-            base,
-            resources,
-            arrived,
-        }
+        Self { base, resources, arrived }
     }
 
     fn path(&self, url: &Url) -> Option<PathBuf> {
@@ -31,19 +27,12 @@ impl LocalNet {
             return None;
         }
         let path = url.path();
-        let (resource, rest) = self
-            .resources
-            .iter()
-            .find_map(|r| Some((r, path.strip_prefix(r.prefix.as_str())?)))?;
+        let (resource, rest) = self.resources.iter().find_map(|r| Some((r, path.strip_prefix(r.prefix.as_str())?)))?;
         let rest = Path::new(rest.trim_start_matches('/'));
         if !rest.components().all(|c| matches!(c, Component::Normal(_))) {
             return None;
         }
-        resource
-            .dirs
-            .iter()
-            .map(|d| Path::new(d).join(rest))
-            .find(|p| p.is_file())
+        resource.dirs.iter().map(|d| Path::new(d).join(rest)).find(|p| p.is_file())
     }
 }
 
@@ -57,9 +46,6 @@ impl NetProvider for LocalNet {
             log::warn!("not loaded: {}", request.url);
         }
         self.arrived.store(true, Ordering::Release);
-        handler.bytes(
-            request.url.to_string(),
-            Bytes::from(bytes.unwrap_or_default()),
-        );
+        handler.bytes(request.url.to_string(), Bytes::from(bytes.unwrap_or_default()));
     }
 }

@@ -4,8 +4,8 @@ use std::io::{BufRead, Write};
 #[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, OnceLock};
 use std::sync::mpsc::{Sender, SyncSender, channel, sync_channel};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
@@ -246,7 +246,8 @@ fn adopt(child: &Child) {
 fn adopt(child: &Child) {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, SetInformationJobObject,
     };
     struct Job(windows_sys::Win32::Foundation::HANDLE);
     unsafe impl Send for Job {}

@@ -267,7 +267,11 @@ fn settle(scope: &mut v8::PinScope, token: u32, result: Result<Fields, String>) 
     }
 }
 
-fn off_thread<T: Send + 'static>(name: &str, work: impl FnOnce() -> T + Send + 'static, done: impl FnOnce(&mut v8::PinScope, T) + Send + 'static) -> Result<(), String> {
+fn off_thread<T: Send + 'static>(
+    name: &str,
+    work: impl FnOnce() -> T + Send + 'static,
+    done: impl FnOnce(&mut v8::PinScope, T) + Send + 'static,
+) -> Result<(), String> {
     let tx = rt::current().sender();
     std::thread::Builder::new()
         .name(name.into())

@@ -8,9 +8,7 @@ const H: u32 = 80;
 
 fn red_pixels(doc: &Doc) -> usize {
     let rgba = acde_render::gpu::rasterize(doc.scene(), (W, H), Default::default());
-    rgba.chunks(4)
-        .filter(|p| p[0] > 200 && p[1] < 80 && p[2] < 80)
-        .count()
+    rgba.chunks(4).filter(|p| p[0] > 200 && p[1] < 80 && p[2] < 80).count()
 }
 
 fn page(css: &str, div: bool) -> Doc {
@@ -30,25 +28,12 @@ const STRIPES: &str = "repeating-linear-gradient(90deg, #f00 0 10px, #00f 10px 2
 
 #[test]
 fn body_background_image_is_painted() {
-    let on_div = page(
-        &format!(
-            "html, body {{ margin: 0; height: 100%; }} .bg {{ position: absolute; inset: 0; background: {STRIPES}; }}"
-        ),
-        true,
-    );
+    let on_div = page(&format!("html, body {{ margin: 0; height: 100%; }} .bg {{ position: absolute; inset: 0; background: {STRIPES}; }}"), true);
     let reference = red_pixels(&on_div);
     assert!(reference > 1000, "control: {reference}");
-    let on_body = page(
-        &format!(
-            "html, body {{ margin: 0; height: 100%; }} body {{ background: {STRIPES}, #fff; }}"
-        ),
-        false,
-    );
+    let on_body = page(&format!("html, body {{ margin: 0; height: 100%; }} body {{ background: {STRIPES}, #fff; }}"), false);
     let got = red_pixels(&on_body);
-    assert!(
-        got * 10 >= reference * 9,
-        "body background: {got} red px, expected about {reference}"
-    );
+    assert!(got * 10 >= reference * 9, "body background: {got} red px, expected about {reference}");
 }
 
 #[test]
@@ -124,10 +109,7 @@ fn gradient_stops_outside_the_line() {
         true,
     );
     assert_eq!(red_pixels(&masked), 0);
-    let wide = page(
-        "html, body { margin: 0 } .bg { position: absolute; inset: 0; background: linear-gradient(to right, #f00 -100%, #00f 200%) }",
-        true,
-    );
+    let wide = page("html, body { margin: 0 } .bg { position: absolute; inset: 0; background: linear-gradient(to right, #f00 -100%, #00f 200%) }", true);
     let [r, g, b, _] = at(&pixels(&wide), W / 2, H / 2);
     assert!((118..=138).contains(&r) && g < 8 && (118..=138).contains(&b), "{r} {g} {b}");
 }

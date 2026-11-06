@@ -145,7 +145,14 @@ impl Element for BackdropElement {
 }
 
 impl RenderElement<GlesRenderer> for BackdropElement {
-    fn draw(&self, frame: &mut GlesFrame<'_, '_>, src: Rectangle<f64, Buffer>, dst: Rectangle<i32, Physical>, damage: &[Rectangle<i32, Physical>], _: &[Rectangle<i32, Physical>]) -> Result<(), GlesError> {
+    fn draw(
+        &self,
+        frame: &mut GlesFrame<'_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, Physical>,
+        damage: &[Rectangle<i32, Physical>],
+        _: &[Rectangle<i32, Physical>],
+    ) -> Result<(), GlesError> {
         frame.render_texture_from_to(&self.texture, src, dst, damage, &[], Transform::Normal, 1.0, Some(&self.program), &self.uniforms)
     }
 }
@@ -213,7 +220,11 @@ impl Effects {
         };
         let levels = acde_model::blur_levels(b.blur);
         let margin = acde_model::blur_margin(levels);
-        let Some(region) = Rectangle::new(rect.loc - Point::from((margin, margin)), rect.size + Size::from((2 * margin, 2 * margin))).intersection(Rectangle::from_size(screen)) else { return Ok(None) };
+        let Some(region) = Rectangle::new(rect.loc - Point::from((margin, margin)), rect.size + Size::from((2 * margin, 2 * margin)))
+            .intersection(Rectangle::from_size(screen))
+        else {
+            return Ok(None);
+        };
         let Some((down, up, program)) = self.programs(renderer).map(|p| (p.down.clone(), p.up.clone(), p.backdrop.clone())) else { return Ok(None) };
         let buffer = |s: Size<i32, Physical>| Size::<i32, Buffer>::from((s.w.max(1), s.h.max(1)));
         let mut base: GlesTexture = renderer.create_buffer(Fourcc::Abgr8888, buffer(region.size))?;

@@ -5,7 +5,7 @@ use std::time::Duration;
 use napi::bindgen_prelude::Unknown;
 use napi::{Env, Result};
 use napi_derive::napi;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use zbus::blocking::{Connection, MessageIterator, Proxy};
 use zbus::proxy::CacheProperties;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value as Variant};
@@ -182,8 +182,7 @@ impl Nm {
         let paths: Vec<OwnedObjectPath> = self.proxy(SETTINGS_PATH, SETTINGS)?.call("ListConnections", &())?;
         let mut out = HashMap::new();
         for path in paths {
-            let settings: HashMap<String, HashMap<String, OwnedValue>> =
-                self.proxy(path.as_str(), SETTING)?.call("GetSettings", &())?;
+            let settings: HashMap<String, HashMap<String, OwnedValue>> = self.proxy(path.as_str(), SETTING)?.call("GetSettings", &())?;
             let ssid = settings.get("802-11-wireless").and_then(|w| w.get("ssid")).and_then(|v| Vec::<u8>::try_from(v.try_clone().ok()?).ok());
             if let Some(ssid) = ssid {
                 out.insert(String::from_utf8_lossy(&ssid).into_owned(), path);
@@ -303,8 +302,7 @@ impl Nm {
                 if let Some(password) = password {
                     settings.insert("802-11-wireless-security", HashMap::from([("key-mgmt", Variant::from("wpa-psk")), ("psk", Variant::from(password))]));
                 }
-                nm.call::<_, _, (OwnedObjectPath, OwnedObjectPath)>("AddAndActivateConnection", &(settings, &device, &ap.path))
-                    .map_err(bus)?;
+                nm.call::<_, _, (OwnedObjectPath, OwnedObjectPath)>("AddAndActivateConnection", &(settings, &device, &ap.path)).map_err(bus)?;
             }
         }
         Ok(())
@@ -313,10 +311,7 @@ impl Nm {
     fn activate(&self, iface: &str) -> Result<()> {
         let device = self.device_by_iface(iface)?;
         let none = ObjectPath::try_from("/").map_err(|e| bus(e.into()))?;
-        self.proxy(NM_PATH, NM)
-            .map_err(bus)?
-            .call::<_, _, OwnedObjectPath>("ActivateConnection", &(&none, &device, &none))
-            .map_err(bus)?;
+        self.proxy(NM_PATH, NM).map_err(bus)?.call::<_, _, OwnedObjectPath>("ActivateConnection", &(&none, &device, &none)).map_err(bus)?;
         Ok(())
     }
 

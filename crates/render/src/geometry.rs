@@ -43,10 +43,7 @@ impl Geometry<'_> {
             if let Some(t) = self.css_transform(n)
                 && let Some(origin) = self.doc.get_client_bounding_rect(n.id)
             {
-                m = Affine::translate((origin.x, origin.y))
-                    * t
-                    * Affine::translate((-origin.x, -origin.y))
-                    * m;
+                m = Affine::translate((origin.x, origin.y)) * t * Affine::translate((-origin.x, -origin.y)) * m;
             }
             current = n.containing_block().and_then(|p| self.doc.get_node(p));
         }
@@ -76,9 +73,7 @@ impl Geometry<'_> {
     pub(crate) fn hidden(&self, n: &Node) -> bool {
         let mut current = Some(n);
         while let Some(a) = current.filter(|a| a.is_element()) {
-            if a.primary_styles()
-                .is_none_or(|s| s.get_box().display.is_none())
-            {
+            if a.primary_styles().is_none_or(|s| s.get_box().display.is_none()) {
                 return true;
             }
             current = a.parent.and_then(|p| self.doc.get_node(p));
@@ -104,13 +99,8 @@ impl Geometry<'_> {
         let mut current = n.parent.and_then(|p| self.doc.get_node(p));
         while let Some(a) = current.filter(|a| a.is_element()) {
             let tag = a.element_data().map(|e| &*e.name.local);
-            let positioned = a
-                .primary_styles()
-                .is_some_and(|s| s.get_box().position != Position::Static);
-            if positioned
-                || tag == Some("body")
-                || (static_self && matches!(tag, Some("td" | "th" | "table")))
-            {
+            let positioned = a.primary_styles().is_some_and(|s| s.get_box().position != Position::Static);
+            if positioned || tag == Some("body") || (static_self && matches!(tag, Some("td" | "th" | "table"))) {
                 return Some(a.id);
             }
             current = a.parent.and_then(|p| self.doc.get_node(p));
@@ -125,17 +115,11 @@ impl Geometry<'_> {
         }
         let offset = self.doc.offset_rect(node)?;
         if !n.is_element() {
-            return Some(Metrics {
-                offset_left: offset.x,
-                offset_top: offset.y,
-                ..Default::default()
-            });
+            return Some(Metrics { offset_left: offset.x, offset_top: offset.y, ..Default::default() });
         }
         let l = n.final_layout();
-        let client_width =
-            f64::from(l.size.width - l.border.left - l.border.right - l.scrollbar_size.width);
-        let client_height =
-            f64::from(l.size.height - l.border.top - l.border.bottom - l.scrollbar_size.height);
+        let client_width = f64::from(l.size.width - l.border.left - l.border.right - l.scrollbar_size.width);
+        let client_height = f64::from(l.size.height - l.border.top - l.border.bottom - l.scrollbar_size.height);
         let scroll = n.scroll_offset();
         Some(Metrics {
             offset_left: offset.x,

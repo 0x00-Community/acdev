@@ -73,7 +73,15 @@ impl GlobalDispatch<AcdeWindowManager, ()> for Compositor {
 }
 
 impl Dispatch<AcdeWindowManager, ()> for Compositor {
-    fn request(_: &mut Self, _: &Client, _: &AcdeWindowManager, request: generated::acde_window_manager::Request, _: &(), _: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        _: &mut Self,
+        _: &Client,
+        _: &AcdeWindowManager,
+        request: generated::acde_window_manager::Request,
+        _: &(),
+        _: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         if let generated::acde_window_manager::Request::GetWindow { id, surface } = request {
             let window = data_init.init(id, WindowRequests { surface: surface.clone() });
             with_states(&surface, |s| {
@@ -86,7 +94,15 @@ impl Dispatch<AcdeWindowManager, ()> for Compositor {
 }
 
 impl Dispatch<AcdeWindow, WindowRequests> for Compositor {
-    fn request(state: &mut Self, _: &Client, resource: &AcdeWindow, request: generated::acde_window::Request, data: &WindowRequests, _: &DisplayHandle, _: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _: &Client,
+        resource: &AcdeWindow,
+        request: generated::acde_window::Request,
+        data: &WindowRequests,
+        _: &DisplayHandle,
+        _: &mut DataInit<'_, Self>,
+    ) {
         use generated::acde_window::Request;
         let surface = &data.surface;
         match request {

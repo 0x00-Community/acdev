@@ -1,10 +1,10 @@
 use std::cell::{Cell, RefCell};
-use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use acde_napi::{LocalTask, ScopeTask};

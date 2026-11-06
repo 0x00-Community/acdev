@@ -135,10 +135,7 @@ fn scroll_and_hover_from_compositor() {
 
 #[test]
 fn panic_on_render_thread_is_an_error_not_an_abort() {
-    let options = Options {
-        base_url: Some("data:text/css;base64,".into()),
-        ..Default::default()
-    };
+    let options = Options { base_url: Some("data:text/css;base64,".into()), ..Default::default() };
     let doc = Doc::new(100, 100, 1.0, &options).unwrap();
     let head = doc.create_element("head").unwrap();
     let link = doc.create_element("link").unwrap();
@@ -171,13 +168,7 @@ fn release_drops_subtree_and_ids_stay_unique() {
 fn release_keeps_memory_flat() {
     let rss = || {
         let statm = std::fs::read_to_string("/proc/self/statm").unwrap();
-        statm
-            .split_whitespace()
-            .nth(1)
-            .unwrap()
-            .parse::<u64>()
-            .unwrap()
-            * 4096
+        statm.split_whitespace().nth(1).unwrap().parse::<u64>().unwrap() * 4096
     };
     let page = Page::new(CSS);
     let round = |page: &Page| {
@@ -191,18 +182,13 @@ fn release_keeps_memory_flat() {
     let before = rss();
     (0..2000).for_each(|_| round(&page));
     let grown = rss().saturating_sub(before);
-    eprintln!(
-        "rss grew {} KiB over 2000 rounds (100k nodes)",
-        grown / 1024
-    );
+    eprintln!("rss grew {} KiB over 2000 rounds (100k nodes)", grown / 1024);
     assert!(grown < 16 << 20, "rss grew {grown} bytes");
 }
 
 #[test]
 fn transition_after_idle_has_intermediate_frames() {
-    let page = Page::new(
-        ".box { position: absolute; left: 0; top: 0; width: 10px; height: 10px; transition: left 600ms linear; } .box.moved { left: 300px; }",
-    );
+    let page = Page::new(".box { position: absolute; left: 0; top: 0; width: 10px; height: 10px; transition: left 600ms linear; } .box.moved { left: 300px; }");
     let b = page.div(page.body, "box");
     let handle = page.doc.handle();
     let start = Instant::now();
@@ -214,10 +200,7 @@ fn transition_after_idle_has_intermediate_frames() {
 
     page.doc.set_attribute(b, "class", "box moved").unwrap();
     handle.commit();
-    assert!(
-        handle.wait_frame().animating,
-        "the frame after the class change must be animating"
-    );
+    assert!(handle.wait_frame().animating, "the frame after the class change must be animating");
     let mut xs = Vec::new();
     loop {
         std::thread::sleep(Duration::from_millis(16));
@@ -237,8 +220,10 @@ fn transition_after_idle_has_intermediate_frames() {
 
 #[test]
 fn queries_do_not_resolve_every_time_while_animating() {
-    let page = Page::new("@keyframes spin { from { left: 0; } to { left: 100px; } }
-        .spin { position: absolute; width: 10px; height: 10px; animation: spin 1s infinite linear; }");
+    let page = Page::new(
+        "@keyframes spin { from { left: 0; } to { left: 100px; } }
+        .spin { position: absolute; width: 10px; height: 10px; animation: spin 1s infinite linear; }",
+    );
     let spin = page.div(page.body, "spin");
     page.doc.rect(spin).unwrap();
     let before = page.doc.stats().unwrap().resolves;
@@ -248,19 +233,14 @@ fn queries_do_not_resolve_every_time_while_animating() {
     }
     let elapsed = start.elapsed().as_secs_f64();
     let resolves = page.doc.stats().unwrap().resolves - before;
-    assert!(
-        f64::from(resolves) <= elapsed * 60.0 + 2.0,
-        "{resolves} resolves in {elapsed:.3}s"
-    );
+    assert!(f64::from(resolves) <= elapsed * 60.0 + 2.0, "{resolves} resolves in {elapsed:.3}s");
     std::thread::sleep(Duration::from_millis(100));
     assert!(page.doc.rect(spin).unwrap().x > 0.0);
 }
 
 #[test]
 fn offset_parent() {
-    let page = Page::new(
-        ".pos { position: relative; } .fixed { position: fixed; } .none { display: none; }",
-    );
+    let page = Page::new(".pos { position: relative; } .fixed { position: fixed; } .none { display: none; }");
     let pos = page.div(page.body, "pos");
     let inner = page.div(pos, "");
     let plain = page.div(page.body, "");
@@ -282,10 +262,7 @@ fn absolute_without_positioned_ancestor_has_body_as_offset_parent() {
     let page = Page::new(".abs { position: absolute; }");
     let wrap = page.div(page.body, "");
     let abs = page.div(wrap, "abs");
-    assert_eq!(
-        page.doc.metrics(abs).unwrap().offset_parent,
-        Some(page.body)
-    );
+    assert_eq!(page.doc.metrics(abs).unwrap().offset_parent, Some(page.body));
 }
 
 #[test]

@@ -257,9 +257,7 @@ impl Upgrade {
         if head.status != 101 {
             return Err(format!("the server answered {} {} instead of switching to WebSocket", head.status, head.reason).trim_end().to_owned());
         }
-        let has = |name: &str, token: &str| {
-            head.header(name).is_some_and(|value| value.split(',').any(|v| v.trim().eq_ignore_ascii_case(token)))
-        };
+        let has = |name: &str, token: &str| head.header(name).is_some_and(|value| value.split(',').any(|v| v.trim().eq_ignore_ascii_case(token)));
         if !has("upgrade", "websocket") || !has("connection", "upgrade") {
             return Err("the server's handshake has no Upgrade: websocket / Connection: Upgrade".into());
         }
@@ -472,7 +470,15 @@ impl UnixClient {
         Self { connections: Connections::new() }
     }
 
-    pub fn request(&self, socket: String, method: String, path: String, headers: Vec<Vec<String>>, body: Option<Vec<u8>>, deliver: Deliver) -> Result<u32, String> {
+    pub fn request(
+        &self,
+        socket: String,
+        method: String,
+        path: String,
+        headers: Vec<Vec<String>>,
+        body: Option<Vec<u8>>,
+        deliver: Deliver,
+    ) -> Result<u32, String> {
         let exchange = Exchange::new(socket, method, path, headers, body).map_err(|e| e.message)?;
         Ok(self.connections.request(exchange, Delivered(deliver)))
     }
@@ -743,7 +749,8 @@ mod tests {
         let key = lines.iter().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ")).expect("key");
         let accept = ntex::ws::hash_key(key.as_bytes()).expect("key");
         let protocol = protocol.map(|p| format!("Sec-WebSocket-Protocol: {p}\r\n")).unwrap_or_default();
-        let answer = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n{protocol}\r\n");
+        let answer =
+            format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n{protocol}\r\n");
         stream.write_all(answer.as_bytes()).expect("handshake");
         (lines, reader)
     }
@@ -789,7 +796,10 @@ mod tests {
                 assert!(!lines.iter().any(|l| l.starts_with("Sec-WebSocket-Protocol")), "no protocol offered");
                 let key = lines.iter().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ")).expect("key");
                 let accept = ntex::ws::hash_key(key.as_bytes()).expect("key");
-                answer.extend(format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n").into_bytes());
+                answer.extend(
+                    format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n")
+                        .into_bytes(),
+                );
                 (lines, reader)
             };
             assert_eq!(lines[0], "GET /ws HTTP/1.1");

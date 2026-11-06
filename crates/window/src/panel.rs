@@ -47,7 +47,20 @@ impl App {
         acde.bind((token >> 32) as u32, token as u32);
         let viewport = self.viewporter.get_viewport(window.wl_surface(), &self.qh, Data);
         window.commit();
-        self.panels.push(PanelView { id, window, acde, viewport, rect, input: None, buffers: Buffers::default(), configured: false, active: false, reported: None, backdrop: None, backdrops: std::collections::VecDeque::new() });
+        self.panels.push(PanelView {
+            id,
+            window,
+            acde,
+            viewport,
+            rect,
+            input: None,
+            buffers: Buffers::default(),
+            configured: false,
+            active: false,
+            reported: None,
+            backdrop: None,
+            backdrops: std::collections::VecDeque::new(),
+        });
     }
 
     pub(crate) fn place_panel(&mut self, id: u32, rect: [i32; 4], input: [i32; 4]) {
@@ -94,10 +107,19 @@ impl App {
         panels
             .iter()
             .map(|p| {
-                let backdrop = p.plane.layers.iter().filter_map(|l| l.backdrop.as_ref()).map(|b| {
-                    let r = b.bounds.intersect(b.clip);
-                    ([r.x0.floor() as i32, r.y0.floor() as i32, r.width().ceil().max(0.0) as i32, r.height().ceil().max(0.0) as i32], [b.radius(), b.blur(), f64::from(b.saturate()), f64::from(b.brightness())])
-                }).max_by_key(|([_, _, w, h], _)| w * h);
+                let backdrop = p
+                    .plane
+                    .layers
+                    .iter()
+                    .filter_map(|l| l.backdrop.as_ref())
+                    .map(|b| {
+                        let r = b.bounds.intersect(b.clip);
+                        (
+                            [r.x0.floor() as i32, r.y0.floor() as i32, r.width().ceil().max(0.0) as i32, r.height().ceil().max(0.0) as i32],
+                            [b.radius(), b.blur(), f64::from(b.saturate()), f64::from(b.brightness())],
+                        )
+                    })
+                    .max_by_key(|([_, _, w, h], _)| w * h);
                 (p.id, backdrop)
             })
             .collect()

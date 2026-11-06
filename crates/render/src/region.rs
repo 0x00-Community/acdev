@@ -1,5 +1,5 @@
-use acde_gpu::Scene;
 use acde_gpu::RenderCommand;
+use acde_gpu::Scene;
 use kurbo::{Affine, Rect, Shape};
 use peniko::Compose;
 
@@ -36,9 +36,7 @@ pub(crate) fn scene_for(commands: &Commands, draw: &[Rect], tolerance: f64, rect
                         (t * l.transform).transform_rect_bbox(l.clip.bounding_box()),
                         (l.filter.is_some(), l.backdrop_filter.is_some() || l.blend.compose != Compose::SrcOver),
                     ),
-                    RenderCommand::PushClipLayer(c) => {
-                        ((t * c.transform).transform_rect_bbox(c.clip.bounding_box()), (false, false))
-                    }
+                    RenderCommand::PushClipLayer(c) => ((t * c.transform).transform_rect_bbox(c.clip.bounding_box()), (false, false)),
                     _ => unreachable!(),
                 };
                 if !clip.overlaps(rect) {

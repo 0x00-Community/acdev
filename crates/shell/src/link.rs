@@ -306,7 +306,9 @@ impl From<acde_shell::Event> for Event {
         use acde_shell::Event as E;
         let on = |kind: &str, window: Option<u32>| Event { window, ..Event::named(kind) };
         match event {
-            E::Output { width, height, scale } => Event { width: Some(width.into()), height: Some(height.into()), scale: Some(scale), ..Event::named("output") },
+            E::Output { width, height, scale } => {
+                Event { width: Some(width.into()), height: Some(height.into()), scale: Some(scale), ..Event::named("output") }
+            }
             E::WindowOpen { window, title, app_id } => Event { title, app_id, ..on("windowopen", Some(window)) },
             E::WindowClose { window } => on("windowclose", some(window)),
             E::WindowTitle { window, title, app_id } => Event { title, app_id, ..on("windowtitle", some(window)) },
@@ -318,13 +320,9 @@ impl From<acde_shell::Event> for Event {
                 let title = scope.into_result().ok().map(|s| s.name().to_owned());
                 Event { key, title, ..on("shortcut", Some(owner)) }
             }
-            E::WindowGone { window, x, y, width, height } => Event {
-                x: Some(x.into()),
-                y: Some(y.into()),
-                width: Some(width.into()),
-                height: Some(height.into()),
-                ..on("windowgone", some(window))
-            },
+            E::WindowGone { window, x, y, width, height } => {
+                Event { x: Some(x.into()), y: Some(y.into()), width: Some(width.into()), height: Some(height.into()), ..on("windowgone", some(window)) }
+            }
             E::WindowMinSize { window, width, height } => Event { width: Some(width.into()), height: Some(height.into()), ..on("windowminsize", some(window)) },
             E::WindowParent { window, parent } => Event { parent: some(parent), ..on("windowparent", Some(window)) },
             E::Milestone { title, time_ms } => Event { title: Some(title), time: Some(time_ms), ..Event::named("milestone") },

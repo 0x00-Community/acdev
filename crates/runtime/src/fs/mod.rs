@@ -4,16 +4,16 @@ mod picked;
 pub(crate) mod workspace;
 
 use grants::Grants;
+use path::NodePath;
 pub use picked::PickedFolders;
 pub use workspace::ChildKind;
-use path::NodePath;
 use workspace::{Contents, FinderEntry, FinderPreview, FinderRoot, MkdirOptions, WorkspaceFs, WriteOptions};
 
 use crate::blocking;
 use crate::failure::{Failure, Outcome};
 use crate::sync::Locked;
-use napi::bindgen_prelude::Buffer;
 use napi::Result;
+use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -104,11 +104,7 @@ impl Shared {
         let (fs, place) = (&self.fs, self.place());
         let roots = self.roots(owner)?;
         let wanted = place.root.as_deref();
-        let root = roots
-            .iter()
-            .find(|item| Some(item.path.as_str()) == wanted)
-            .or_else(|| roots.first())
-            .cloned();
+        let root = roots.iter().find(|item| Some(item.path.as_str()) == wanted).or_else(|| roots.first()).cloned();
         let mut state = State {
             roots,
             root: root.as_ref().map(|root| root.path.clone()),
@@ -251,7 +247,9 @@ impl Shared {
                 let data = data.ok_or_else(|| Failure::invalid("data must be a string or a Uint8Array"))?;
                 json(WorkspaceFs::write_file_in(&root(&at)?, &path, &data, &options).json())
             }
-            FsCall::Write { root: at, path, content, expected_modified_ms } => json(WorkspaceFs::write_in(&root(&at)?, &path, content.as_deref().unwrap_or(""), &expected_modified_ms).json()),
+            FsCall::Write { root: at, path, content, expected_modified_ms } => {
+                json(WorkspaceFs::write_in(&root(&at)?, &path, content.as_deref().unwrap_or(""), &expected_modified_ms).json())
+            }
             FsCall::CopyIn { root: at, dir, source } => json(WorkspaceFs::copy_into(&root(&at)?, &dir, &source).json()),
             FsCall::Rename { root: at, from, to } => json(WorkspaceFs::rename_in(&root(&at)?, &from, &to).json()),
             FsCall::Delete { root: at, path } => {

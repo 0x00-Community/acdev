@@ -28,6 +28,7 @@ pub fn exports<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value>
         create_buffer: v8::Global::new(scope, create_buffer),
         report_error: v8::Global::new(scope, report_error),
     };
-    let register: acde_napi::napi_addon_register_func = unsafe { std::mem::transmute(napi_register_module_v1 as unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void) };
+    let register: acde_napi::napi_addon_register_func =
+        unsafe { std::mem::transmute(napi_register_module_v1 as unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void) };
     acde_napi::open(scope, embedder, register)
 }

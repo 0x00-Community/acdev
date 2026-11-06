@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use ironrdp_server::{
-    BitmapUpdate, Credentials, DesktopSize, ExactMatchCredentialValidator, DisplayUpdate, KeyboardEvent, MouseEvent, PixelFormat, RdpServer, RdpServerDisplay, RdpServerDisplayUpdates,
-    RdpServerInputHandler, TlsIdentityCtx,
+    BitmapUpdate, Credentials, DesktopSize, DisplayUpdate, ExactMatchCredentialValidator, KeyboardEvent, MouseEvent, PixelFormat, RdpServer, RdpServerDisplay,
+    RdpServerDisplayUpdates, RdpServerInputHandler, TlsIdentityCtx,
 };
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::drm::DrmNode;
@@ -14,15 +14,15 @@ use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{Bind, ExportMem, Offscreen};
 use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
+use smithay::reexports::calloop::LoopHandle;
 use smithay::reexports::calloop::channel::{self, Channel, Sender};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
-use smithay::reexports::calloop::LoopHandle;
 use smithay::reexports::gbm;
 use smithay::utils::{DeviceFd, Point, Rectangle};
 
+use super::Compositor;
 use super::backend::{Backend, CLEAR, Target};
 use super::input::{Injected, WHEEL_STEP};
-use super::Compositor;
 
 const REFRESH_MHZ: i32 = 60_000;
 
@@ -60,7 +60,8 @@ impl RdpTarget {
             .unwrap_or((1440, 900));
         let texture: GlesTexture = renderer.create_buffer(Fourcc::Abgr8888, (i32::from(w), i32::from(h)).into()).map_err(|e| format!("离屏纹理: {e}"))?;
         let mode = Mode { size: (i32::from(w), i32::from(h)).into(), refresh: REFRESH_MHZ };
-        let output = Output::new("acde".into(), PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "acde".into(), model: "RDP".into() });
+        let output =
+            Output::new("acde".into(), PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "acde".into(), model: "RDP".into() });
         output.change_current_state(Some(mode), None, None, Some((0, 0).into()));
         output.set_preferred(mode);
         let damage = OutputDamageTracker::from_output(&output);
@@ -158,7 +159,15 @@ impl Compositor {
         let height = NonZeroU16::new(u16::try_from(h).ok()?)?;
         let stride = NonZeroUsize::new(usize::from(width.get()) * 4)?;
         (data.len() >= stride.get() * usize::from(height.get())).then(|| {
-            DisplayUpdate::Bitmap(BitmapUpdate { x: u16::try_from(x).unwrap_or(0), y: u16::try_from(y).unwrap_or(0), width, height, format: PixelFormat::RgbX32, data: data.into(), stride })
+            DisplayUpdate::Bitmap(BitmapUpdate {
+                x: u16::try_from(x).unwrap_or(0),
+                y: u16::try_from(y).unwrap_or(0),
+                width,
+                height,
+                format: PixelFormat::RgbX32,
+                data: data.into(),
+                stride,
+            })
         })
     }
 }
@@ -292,7 +301,9 @@ impl RdpServerInputHandler for Input {
         let button = |button, pressed| Injected::Button { button, pressed };
         let wheel = |dx: f64, dy: f64| Injected::Wheel { delta: Point::from((dx, dy)), source: AxisSource::Wheel };
         let event = match event {
-            MouseEvent::Move { x, y } => Injected::Move(Point::from((f64::from(x.min(self.size.width.saturating_sub(1))), f64::from(y.min(self.size.height.saturating_sub(1)))))),
+            MouseEvent::Move { x, y } => {
+                Injected::Move(Point::from((f64::from(x.min(self.size.width.saturating_sub(1))), f64::from(y.min(self.size.height.saturating_sub(1))))))
+            }
             MouseEvent::RelMove { x, y } => Injected::Motion(Point::from((f64::from(x), f64::from(y)))),
             MouseEvent::LeftPressed => button(super::BTN_LEFT, true),
             MouseEvent::LeftReleased => button(super::BTN_LEFT, false),

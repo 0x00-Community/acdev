@@ -68,7 +68,13 @@ impl Compositor {
             dx: spec.dx.unwrap_or(from.dx),
             dy: spec.dy.unwrap_or(from.dy),
         };
-        let transition = Transition { from, to, start_ms: self.now_ms() + spec.delay_ms.max(0.0), duration_ms: spec.duration_ms.max(0.0), easing: spec.easing.unwrap_or(Easing::Ease) };
+        let transition = Transition {
+            from,
+            to,
+            start_ms: self.now_ms() + spec.delay_ms.max(0.0),
+            duration_ms: spec.duration_ms.max(0.0),
+            easing: spec.easing.unwrap_or(Easing::Ease),
+        };
         self.motion.transitions.insert(managed, (transition, window));
         self.backend.damaged();
     }
@@ -119,7 +125,9 @@ impl Compositor {
                 }
             }
             input.direct_buffer = s.elements.len() == 1 && s.elements.iter().all(|e| e.underlying_storage(&mut self.backend.renderer).is_some());
-            if let Some(([x, y, w, h], [radius, blur, saturate, brightness])) = s.window.toplevel().and_then(|t| Self::with_hints(t.wl_surface(), |h| h.backdrop)).flatten() {
+            if let Some(([x, y, w, h], [radius, blur, saturate, brightness])) =
+                s.window.toplevel().and_then(|t| Self::with_hints(t.wl_surface(), |h| h.backdrop)).flatten()
+            {
                 input.backdrop = Some(Effect::Backdrop {
                     rect: Rect::new(x.into(), y.into(), w.into(), h.into()),
                     radius: radius as f32,

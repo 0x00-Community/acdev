@@ -41,11 +41,9 @@ impl Kind {
                 filter: l.filter.is_some() || l.backdrop_filter.is_some(),
                 backdrop: l.backdrop_filter.is_some(),
             },
-            RenderCommand::PushClipLayer(c) => Kind::Push {
-                clip: (t * c.transform).transform_rect_bbox(c.clip.bounding_box()),
-                filter: false,
-                backdrop: false,
-            },
+            RenderCommand::PushClipLayer(c) => {
+                Kind::Push { clip: (t * c.transform).transform_rect_bbox(c.clip.bounding_box()), filter: false, backdrop: false }
+            }
             RenderCommand::PopLayer => Kind::Pop,
             _ => Kind::Draw,
         }
@@ -69,14 +67,7 @@ struct Layer {
 }
 
 impl Damage {
-    pub(crate) fn update(
-        &mut self,
-        b: &Commands,
-        tolerance: f64,
-        viewport: Rect,
-        cache: Option<&PaintCache>,
-        verify: bool,
-    ) -> (Vec<Rect>, bool, bool) {
+    pub(crate) fn update(&mut self, b: &Commands, tolerance: f64, viewport: Rect, cache: Option<&PaintCache>, verify: bool) -> (Vec<Rect>, bool, bool) {
         let given = cache;
         let sequence = std::mem::replace(&mut self.sequence, cache.map(PaintCache::sequence));
         let cache = cache.filter(|c| self.previous.is_some() && c.previous().is_some() && c.previous() == sequence);
@@ -90,13 +81,7 @@ impl Damage {
             Some(c) => Self::uncovered(c.runs(), b.len()).filter_map(|i| Some((i, Self::placed_at(b, i)?))).collect(),
             None => HashMap::new(),
         };
-        let previous = self.previous.replace(Previous {
-            kinds,
-            loose,
-            commands: verify.then(|| b.to_vec()),
-            viewport,
-            tolerance,
-        });
+        let previous = self.previous.replace(Previous { kinds, loose, commands: verify.then(|| b.to_vec()), viewport, tolerance });
         let new = self.previous.as_ref().expect("just stored");
         let Some(old) = previous else {
             return (vec![viewport], false, false);
@@ -210,29 +195,12 @@ impl Damage {
         self.previous.as_ref().map_or(&[], |p| &p.kinds)
     }
 
-    fn rects(
-        (a, b): (&[Kind], &[Kind]),
-        (da, db): (&[Rect], &[Rect]),
-        (ma, mb): (Vec<bool>, Vec<bool>),
-        viewport: Rect,
-    ) -> Vec<Rect> {
-        let mut rects: Vec<Rect> = [
-            Changed {
-                kinds: a,
-                draw: da,
-                mask: Some(&ma),
-                layers: true,
-            },
-            Changed {
-                kinds: b,
-                draw: db,
-                mask: Some(&mb),
-                layers: true,
-            },
-        ]
-        .iter()
-        .flat_map(|c| c.rects(viewport))
-        .collect();
+    fn rects((a, b): (&[Kind], &[Kind]), (da, db): (&[Rect], &[Rect]), (ma, mb): (Vec<bool>, Vec<bool>), viewport: Rect) -> Vec<Rect> {
+        let mut rects: Vec<Rect> =
+            [Changed { kinds: a, draw: da, mask: Some(&ma), layers: true }, Changed { kinds: b, draw: db, mask: Some(&mb), layers: true }]
+                .iter()
+                .flat_map(|c| c.rects(viewport))
+                .collect();
         let backdrops: Vec<Rect> = [a, b]
             .into_iter()
             .flatten()
@@ -241,16 +209,9 @@ impl Damage {
                 _ => None,
             })
             .collect();
-        let hit: Vec<Rect> = backdrops
-            .into_iter()
-            .filter(|r| rects.iter().any(|d| r.overlaps(*d)))
-            .collect();
+        let hit: Vec<Rect> = backdrops.into_iter().filter(|r| rects.iter().any(|d| r.overlaps(*d))).collect();
         rects.extend(hit);
-        Self::merge(rects)
-            .into_iter()
-            .map(|r| r.inflate(PAD, PAD).intersect(viewport))
-            .filter(|r| r.area() > 0.0)
-            .collect()
+        Self::merge(rects).into_iter().map(|r| r.inflate(PAD, PAD).intersect(viewport)).filter(|r| r.area() > 0.0).collect()
     }
 
     fn merge(rects: Vec<Rect>) -> Vec<Rect> {
@@ -263,11 +224,7 @@ impl Damage {
             out.push(r);
         }
         if out.len() > MAX_RECTS * 8 {
-            return out
-                .into_iter()
-                .reduce(|x, y| x.union(y))
-                .into_iter()
-                .collect();
+            return out.into_iter().reduce(|x, y| x.union(y)).into_iter().collect();
         }
         while out.len() > MAX_RECTS {
             let waste = |x: Rect, y: Rect| x.union(y).area() - x.area() - y.area();
@@ -281,11 +238,7 @@ impl Damage {
         out
     }
 
-    fn by_fragment(
-        cache: &PaintCache,
-        (old_len, old_loose): (usize, &HashMap<usize, RenderCommand>),
-        b: &Commands,
-    ) -> (Vec<bool>, Vec<bool>) {
+    fn by_fragment(cache: &PaintCache, (old_len, old_loose): (usize, &HashMap<usize, RenderCommand>), b: &Commands) -> (Vec<bool>, Vec<bool>) {
         let (mut ma, mut mb) = (vec![false; old_len], vec![false; b.len()]);
         let reordered = Self::reordered(cache);
         let mut diffs: HashMap<NodeId, (Vec<bool>, Vec<bool>)> = HashMap::new();
@@ -402,13 +355,7 @@ impl Damage {
     }
 
     fn bounds_of(kinds: &[Kind], draw: &[Rect], viewport: Rect) -> Option<Rect> {
-        Changed {
-            kinds,
-            draw,
-            mask: None,
-            layers: false,
-        }
-        .bounds(viewport)
+        Changed { kinds, draw, mask: None, layers: false }.bounds(viewport)
     }
 }
 
@@ -421,18 +368,9 @@ impl Damage {
             Ok(layers) => (Commands::default(), layers, Vec::new()),
             Err(commands) => (commands, Vec::new(), self.draw().to_vec()),
         };
-        Plane {
-            commands,
-            tolerance,
-            layers,
-            damage: union.into(),
-            damage_rects: rects.into_iter().map(crate::Rect::from).collect(),
-            bounds,
-            draw,
-        }
+        Plane { commands, tolerance, layers, damage: union.into(), damage_rects: rects.into_iter().map(crate::Rect::from).collect(), bounds, draw }
     }
 }
-
 
 impl Changed<'_> {
     fn bounds(&self, viewport: Rect) -> Option<Rect> {
@@ -440,10 +378,7 @@ impl Changed<'_> {
     }
 
     fn rects(&self, viewport: Rect) -> Vec<Rect> {
-        let mut stack = vec![Layer {
-            bounds: viewport,
-            filter: false,
-        }];
+        let mut stack = vec![Layer { bounds: viewport, filter: false }];
         let mut damage: Vec<Rect> = Vec::new();
         let mut add = |r: Rect| {
             if r.area() > 0.0 {
@@ -488,26 +423,13 @@ pub(crate) fn draw_bounds(command: &RenderCommand, t: Affine) -> Rect {
             (t * s.transform).transform_rect_bbox(s.shape.bounding_box().inflate(out, out))
         }
         RenderCommand::GlyphRun(g) => {
-            let (fs, bold) = (
-                f64::from(g.font_size),
-                g.embolden.x.abs().max(g.embolden.y.abs()),
-            );
-            let origins = g
-                .glyphs
-                .iter()
-                .map(|gl| Rect::new(gl.x.into(), gl.y.into(), gl.x.into(), gl.y.into()));
+            let (fs, bold) = (f64::from(g.font_size), g.embolden.x.abs().max(g.embolden.y.abs()));
+            let origins = g.glyphs.iter().map(|gl| Rect::new(gl.x.into(), gl.y.into(), gl.x.into(), gl.y.into()));
             let Some(origins) = origins.reduce(|a, b| a.union(b)) else {
                 return Rect::ZERO;
             };
-            let run = Rect::new(
-                origins.x0 - fs,
-                origins.y0 - 2.0 * fs,
-                origins.x1 + 2.0 * fs,
-                origins.y1 + fs,
-            );
-            let run = g
-                .glyph_transform
-                .map_or(run, |t| t.transform_rect_bbox(run));
+            let run = Rect::new(origins.x0 - fs, origins.y0 - 2.0 * fs, origins.x1 + 2.0 * fs, origins.y1 + fs);
+            let run = g.glyph_transform.map_or(run, |t| t.transform_rect_bbox(run));
             (t * g.transform).transform_rect_bbox(run.inflate(bold, bold))
         }
         RenderCommand::BoxShadow(b) => {
@@ -517,4 +439,3 @@ pub(crate) fn draw_bounds(command: &RenderCommand, t: Affine) -> Rect {
         _ => Rect::ZERO,
     }
 }
-

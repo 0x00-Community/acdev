@@ -89,7 +89,15 @@ impl TryFrom<AnimateOptions> for Animate {
 
     fn try_from(o: AnimateOptions) -> Result<Self> {
         let easing = o.easing.as_deref().map(str::parse).transpose().map_err(napi_error)?;
-        Ok(Animate { opacity: o.opacity, scale: o.scale, dx: o.dx, dy: o.dy, duration_ms: o.duration.unwrap_or(200.0), delay_ms: o.delay.unwrap_or(0.0), easing })
+        Ok(Animate {
+            opacity: o.opacity,
+            scale: o.scale,
+            dx: o.dx,
+            dy: o.dy,
+            duration_ms: o.duration.unwrap_or(200.0),
+            delay_ms: o.delay.unwrap_or(0.0),
+            easing,
+        })
     }
 }
 
@@ -295,7 +303,20 @@ pub struct WindowRow {
 
 impl From<WindowInfo> for WindowRow {
     fn from(w: WindowInfo) -> Self {
-        Self { id: w.id, window: w.window, canvas: w.canvas, mode: w.mode.as_str().into(), x: w.x, y: w.y, width: w.width, height: w.height, z: w.z, focus: w.focus, hidden: w.hidden, pid: w.pid }
+        Self {
+            id: w.id,
+            window: w.window,
+            canvas: w.canvas,
+            mode: w.mode.as_str().into(),
+            x: w.x,
+            y: w.y,
+            width: w.width,
+            height: w.height,
+            z: w.z,
+            focus: w.focus,
+            hidden: w.hidden,
+            pid: w.pid,
+        }
     }
 }
 

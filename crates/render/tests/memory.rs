@@ -7,10 +7,7 @@ use common::Doc;
 
 fn page() -> (Doc, u32) {
     let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/../../vendors/acrender/packages/blitz-dom/assets");
-    let options = Options {
-        resources: Some(vec![Resource { prefix: "/fonts/".into(), dirs: vec![assets.into()] }]),
-        ..Options::default()
-    };
+    let options = Options { resources: Some(vec![Resource { prefix: "/fonts/".into(), dirs: vec![assets.into()] }]), ..Options::default() };
     let doc = Doc::new(400, 300, 1.0, &options).unwrap();
     let body = doc.create_element("body").unwrap();
     doc.append_child(doc.root().unwrap(), body).unwrap();
@@ -57,7 +54,10 @@ fn image_cache_is_bounded() {
     let (doc, body) = page();
     for round in 0..300 {
         let img = doc.create_element("img").unwrap();
-        let svg = format!("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><rect width='8' height='8' fill='%23{:06x}'/></svg>", round * 4099);
+        let svg = format!(
+            "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><rect width='8' height='8' fill='%23{:06x}'/></svg>",
+            round * 4099
+        );
         doc.set_attribute(img, "src", &svg).unwrap();
         doc.append_child(body, img).unwrap();
         doc.scene();

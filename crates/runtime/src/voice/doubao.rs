@@ -77,11 +77,7 @@ async fn session(id: u32, ctl: async_channel::Receiver<Ctl>, emit: &impl Fn(Valu
         } else {
             or(
                 or(async { Step::Frame(asr.frames.recv().await) }, async {
-                    if finishing.is_some() {
-                        std::future::pending().await
-                    } else {
-                        Step::Pcm(pcm.recv().await.ok())
-                    }
+                    if finishing.is_some() { std::future::pending().await } else { Step::Pcm(pcm.recv().await.ok()) }
                 }),
                 or(async { Step::Ctl(ctl.recv().await.ok()) }, async {
                     ntex::time::sleep(wait).await;
@@ -455,7 +451,8 @@ fn tt_encrypt(gzip: &[u8]) -> Result<Vec<u8>, String> {
     let constant: Vec<u8> = (0..TT_CONSTANT.len()).step_by(2).filter_map(|i| u8::from_str_radix(&TT_CONSTANT[i..i + 2], 16).ok()).collect();
     let digest = openssl::sha::sha512(&[openssl::sha::sha512(&salt).as_slice(), &constant].concat());
     let payload = [openssl::sha::sha512(gzip).as_slice(), gzip].concat();
-    let sealed = openssl::symm::encrypt(openssl::symm::Cipher::aes_128_cbc(), &digest[..16], Some(&digest[16..32]), &payload).map_err(|error| error.to_string())?;
+    let sealed =
+        openssl::symm::encrypt(openssl::symm::Cipher::aes_128_cbc(), &digest[..16], Some(&digest[16..32]), &payload).map_err(|error| error.to_string())?;
     Ok([&[0x74, 0x63, 0x05, 0x10, 0x00, 0x00][..], &salt, &sealed].concat())
 }
 

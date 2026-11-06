@@ -46,19 +46,136 @@ const SENSITIVE: u32 = 24;
 const SHOWING: u32 = 25;
 
 const ROLES: [&str; 130] = [
-    "invalid", "accelerator label", "alert", "animation", "arrow", "calendar", "canvas", "check box", "check menu item", "color chooser",
-    "column header", "combo box", "date editor", "desktop icon", "desktop frame", "dial", "dialog", "directory pane", "drawing area", "file chooser",
-    "filler", "focus traversable", "font chooser", "frame", "glass pane", "html container", "icon", "image", "internal frame", "label",
-    "layered pane", "list", "list item", "menu", "menu bar", "menu item", "option pane", "page tab", "page tab list", "panel",
-    "password text", "popup menu", "progress bar", "push button", "radio button", "radio menu item", "root pane", "row header", "scroll bar", "scroll pane",
-    "separator", "slider", "spin button", "split pane", "status bar", "table", "table cell", "table column header", "table row header", "tearoff menu item",
-    "terminal", "text", "toggle button", "tool bar", "tool tip", "tree", "tree table", "unknown", "viewport", "window",
-    "extended", "header", "footer", "paragraph", "ruler", "application", "autocomplete", "editbar", "embedded", "entry",
-    "chart", "caption", "document frame", "heading", "page", "section", "redundant object", "form", "link", "input method window",
-    "table row", "tree item", "document spreadsheet", "document presentation", "document text", "document web", "document email", "comment", "list box", "grouping",
-    "image map", "notification", "info bar", "level bar", "title bar", "block quote", "audio", "video", "definition", "article",
-    "landmark", "log", "marquee", "math", "rating", "timer", "static", "math fraction", "math root", "subscript",
-    "superscript", "description list", "description term", "description value", "footnote", "content deletion", "content insertion", "mark", "suggestion", "push button menu",
+    "invalid",
+    "accelerator label",
+    "alert",
+    "animation",
+    "arrow",
+    "calendar",
+    "canvas",
+    "check box",
+    "check menu item",
+    "color chooser",
+    "column header",
+    "combo box",
+    "date editor",
+    "desktop icon",
+    "desktop frame",
+    "dial",
+    "dialog",
+    "directory pane",
+    "drawing area",
+    "file chooser",
+    "filler",
+    "focus traversable",
+    "font chooser",
+    "frame",
+    "glass pane",
+    "html container",
+    "icon",
+    "image",
+    "internal frame",
+    "label",
+    "layered pane",
+    "list",
+    "list item",
+    "menu",
+    "menu bar",
+    "menu item",
+    "option pane",
+    "page tab",
+    "page tab list",
+    "panel",
+    "password text",
+    "popup menu",
+    "progress bar",
+    "push button",
+    "radio button",
+    "radio menu item",
+    "root pane",
+    "row header",
+    "scroll bar",
+    "scroll pane",
+    "separator",
+    "slider",
+    "spin button",
+    "split pane",
+    "status bar",
+    "table",
+    "table cell",
+    "table column header",
+    "table row header",
+    "tearoff menu item",
+    "terminal",
+    "text",
+    "toggle button",
+    "tool bar",
+    "tool tip",
+    "tree",
+    "tree table",
+    "unknown",
+    "viewport",
+    "window",
+    "extended",
+    "header",
+    "footer",
+    "paragraph",
+    "ruler",
+    "application",
+    "autocomplete",
+    "editbar",
+    "embedded",
+    "entry",
+    "chart",
+    "caption",
+    "document frame",
+    "heading",
+    "page",
+    "section",
+    "redundant object",
+    "form",
+    "link",
+    "input method window",
+    "table row",
+    "tree item",
+    "document spreadsheet",
+    "document presentation",
+    "document text",
+    "document web",
+    "document email",
+    "comment",
+    "list box",
+    "grouping",
+    "image map",
+    "notification",
+    "info bar",
+    "level bar",
+    "title bar",
+    "block quote",
+    "audio",
+    "video",
+    "definition",
+    "article",
+    "landmark",
+    "log",
+    "marquee",
+    "math",
+    "rating",
+    "timer",
+    "static",
+    "math fraction",
+    "math root",
+    "subscript",
+    "superscript",
+    "description list",
+    "description term",
+    "description value",
+    "footnote",
+    "content deletion",
+    "content insertion",
+    "mark",
+    "suggestion",
+    "push button menu",
 ];
 
 type Wire = (String, OwnedObjectPath);
@@ -164,7 +281,20 @@ fn role(name: &str, in_tree: bool) -> String {
 fn control(role: &str) -> bool {
     matches!(
         role,
-        "button" | "checkbox" | "menuitemcheckbox" | "radio" | "menuitemradio" | "textbox" | "spinbutton" | "slider" | "combobox" | "menuitem" | "tab" | "link" | "listitem" | "treeitem"
+        "button"
+            | "checkbox"
+            | "menuitemcheckbox"
+            | "radio"
+            | "menuitemradio"
+            | "textbox"
+            | "spinbutton"
+            | "slider"
+            | "combobox"
+            | "menuitem"
+            | "tab"
+            | "link"
+            | "listitem"
+            | "treeitem"
     )
 }
 
@@ -260,10 +390,8 @@ impl Walker {
     }
 
     async fn pid(&self, bus: &str) -> Option<u32> {
-        let message = self
-            .message("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetConnectionUnixProcessID", &(bus,))
-            .await
-            .ok()?;
+        let message =
+            self.message("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetConnectionUnixProcessID", &(bus,)).await.ok()?;
         message.body().deserialize::<u32>().ok()
     }
 
@@ -353,13 +481,15 @@ impl Walker {
         let mut level = vec![root.clone()];
         while !level.is_empty() && seen.len() < limit {
             let open: Vec<Ref> = level.iter().filter(|r| known.get(*r).is_some_and(|i| i.children.is_none())).cloned().collect();
-            let found: Vec<Vec<Ref>> = stream::iter(open.iter().map(|r| async { self.children(r).await.unwrap_or_default() })).buffered(PARALLEL).collect().await;
+            let found: Vec<Vec<Ref>> =
+                stream::iter(open.iter().map(|r| async { self.children(r).await.unwrap_or_default() })).buffered(PARALLEL).collect().await;
             for (r, children) in open.iter().zip(found) {
                 if let Some(item) = known.get_mut(r) {
                     item.children = Some(children);
                 }
             }
-            let next: Vec<Ref> = level.iter().flat_map(|r| known.get(r).and_then(|i| i.children.clone()).unwrap_or_default()).filter(|r| !seen.contains(r)).collect();
+            let next: Vec<Ref> =
+                level.iter().flat_map(|r| known.get(r).and_then(|i| i.children.clone()).unwrap_or_default()).filter(|r| !seen.contains(r)).collect();
             let missing: Vec<Ref> = next.iter().filter(|r| !known.contains_key(*r)).cloned().collect();
             for (r, item) in missing.iter().zip(self.items(&missing).await) {
                 if let Some(item) = item {

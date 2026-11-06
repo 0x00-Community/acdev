@@ -56,10 +56,7 @@ impl Head {
         let status = parts.next().filter(|version| version.starts_with("HTTP/")).and(parts.next())?;
         let status = status.parse().ok().filter(|s| (100..1000).contains(s))?;
         let reason = parts.next().unwrap_or_default().to_owned();
-        let headers = lines
-            .filter_map(|line| line.split_once(':'))
-            .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_owned()))
-            .collect();
+        let headers = lines.filter_map(|line| line.split_once(':')).map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_owned())).collect();
         Some(Self { status, reason, headers })
     }
 

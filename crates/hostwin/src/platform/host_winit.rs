@@ -1,8 +1,8 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use acde_model::Combo;
 use acde_gpu::wgpu;
+use acde_model::Combo;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};

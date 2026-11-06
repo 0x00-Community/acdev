@@ -1,5 +1,5 @@
-use acde_gpu::Scene;
 use acde_gpu::RenderCommand;
+use acde_gpu::Scene;
 use blitz_dom::NodeId;
 use blitz_paint::PaintCache;
 use kurbo::Affine;
@@ -24,12 +24,7 @@ impl Mismatch {
             _ => true,
         })?;
         let show = |c: Option<&RenderCommand>| c.map_or_else(|| "(none)".into(), |c| format!("{c:?}"));
-        Some(Self {
-            index,
-            node: cache.owner(index),
-            cached: show(cached.commands.get(index)),
-            reference: show(reference.commands.get(index)),
-        })
+        Some(Self { index, node: cache.owner(index), cached: show(cached.commands.get(index)), reference: show(reference.commands.get(index)) })
     }
 
     fn same(a: &RenderCommand, b: &RenderCommand) -> bool {
@@ -69,9 +64,7 @@ impl Mismatch {
         while let Some(i) = rest.find(|ch: char| ch.is_ascii_digit()) {
             let prev = rest[..i].chars().last();
             let start = if prev == Some('-') { i - 1 } else { i };
-            let len = rest[i..]
-                .find(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == 'e' || ch == '-'))
-                .unwrap_or(rest.len() - i);
+            let len = rest[i..].find(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == 'e' || ch == '-')).unwrap_or(rest.len() - i);
             let token = &rest[start..i + len];
             match (prev.is_some_and(|p| p.is_alphanumeric() || p == '_'), token.parse::<f64>()) {
                 (false, Ok(v)) => {
@@ -113,15 +106,15 @@ mod tests {
             Affine::new([1.002670407295227, 0.0, 0.0, 1.002670407295227, 329.1721737384796, 306.7516521215439]),
             Rect::new(49.635179875940786, 59.281102644097125, 53.86006199418525, 63.50598475937482),
         );
-        let reference = layer(
-            Affine::IDENTITY,
-            Rect::new(378.94524057545146, 366.1964002692014, 383.1707232205451, 370.42188291132027),
-        );
+        let reference = layer(Affine::IDENTITY, Rect::new(378.94524057545146, 366.1964002692014, 383.1707232205451, 370.42188291132027));
         assert!(Mismatch::same(&cached, &reference));
-        let shifted = layer(Affine::translate((0.15, 0.0)), match &reference {
-            RenderCommand::PushLayer(l) => l.clip.bounding_box(),
-            _ => unreachable!(),
-        });
+        let shifted = layer(
+            Affine::translate((0.15, 0.0)),
+            match &reference {
+                RenderCommand::PushLayer(l) => l.clip.bounding_box(),
+                _ => unreachable!(),
+            },
+        );
         assert!(!Mismatch::same(&shifted, &reference));
     }
 }

@@ -96,7 +96,8 @@ impl Raster {
                 }
                 Job::Release(plane) => self.pages.release(plane),
                 Job::Icon { dmabuf, size, scene, reply } => {
-                    let drawn = Self::plane(&dmabuf).ok_or_else(|| "dmabuf 没有平面".to_string()).and_then(|d| self.pages.icon(d, size, scene, &mut self.overrides));
+                    let drawn =
+                        Self::plane(&dmabuf).ok_or_else(|| "dmabuf 没有平面".to_string()).and_then(|d| self.pages.icon(d, size, scene, &mut self.overrides));
                     let _ = reply.send(drawn);
                 }
                 Job::Draw(passes) => {

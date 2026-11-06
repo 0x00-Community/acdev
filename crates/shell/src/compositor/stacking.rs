@@ -1,7 +1,7 @@
 use acde_model::Look;
+use smithay::backend::renderer::element::surface::render_elements_from_surface_tree;
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement, RescaleRenderElement};
 use smithay::backend::renderer::element::{AsRenderElements, Kind};
-use smithay::backend::renderer::element::surface::render_elements_from_surface_tree;
 use smithay::desktop::{PopupManager, Window, layer_map_for_output};
 use smithay::output::Output;
 use smithay::utils::{Logical, Point, Rectangle};
@@ -62,7 +62,14 @@ impl Compositor {
             let managed = self.managed_of(w)?;
             self.table.canvas(self.canvas?)?.z.iter().position(|x| *x == managed)
         };
-        let mut windows: Vec<(Option<usize>, usize, Window)> = self.space.elements().rev().filter(|w| Self::window_id(w).is_none_or(|id| !self.hidden.contains(&id))).enumerate().map(|(i, w)| (z(w), i, w.clone())).collect();
+        let mut windows: Vec<(Option<usize>, usize, Window)> = self
+            .space
+            .elements()
+            .rev()
+            .filter(|w| Self::window_id(w).is_none_or(|id| !self.hidden.contains(&id)))
+            .enumerate()
+            .map(|(i, w)| (z(w), i, w.clone()))
+            .collect();
         windows.sort_by_key(|(z, i, _)| (std::cmp::Reverse(z.map_or(-1, |z| z as i64)), *i));
         windows.into_iter().map(|(_, _, w)| w).collect()
     }
@@ -70,12 +77,15 @@ impl Compositor {
     pub fn native_elements(&mut self, window: &Window, geometry: Rectangle<i32, Logical>, scale: f64, look: Look) -> Vec<Elements> {
         let Some(location) = self.space.element_location(window).map(|l| l - window.geometry().loc - geometry.loc) else { return Vec::new() };
         let at = location.to_physical_precise_round(scale);
-        let Some(toplevel) = window.toplevel() else { return AsRenderElements::render_elements::<Elements>(window, &mut self.backend.renderer, at, scale.into(), look.opacity) };
+        let Some(toplevel) = window.toplevel() else {
+            return AsRenderElements::render_elements::<Elements>(window, &mut self.backend.renderer, at, scale.into(), look.opacity);
+        };
         let surfaces = render_elements_from_surface_tree(&mut self.backend.renderer, toplevel.wl_surface(), at, scale, look.opacity, Kind::Unspecified);
         if look.is_identity() {
             return surfaces.into_iter().map(Elements::Surface).collect();
         }
-        let box_ = Rectangle::new(self.space.element_location(window).unwrap_or_default() - geometry.loc, window.geometry().size).to_physical_precise_round(scale);
+        let box_ =
+            Rectangle::new(self.space.element_location(window).unwrap_or_default() - geometry.loc, window.geometry().size).to_physical_precise_round(scale);
         let center = box_.loc + Point::from((box_.size.w / 2, box_.size.h / 2));
         let shift = Point::from(((look.dx * scale).round() as i32, (look.dy * scale).round() as i32));
         surfaces

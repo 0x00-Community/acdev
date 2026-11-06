@@ -11,13 +11,8 @@ thread_local! {
     static CALLBACK: RefCell<Option<v8::Global<v8::Function>>> = const { RefCell::new(None) };
 }
 
-pub fn exports<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    native: Option<v8::Local<'s, v8::Value>>,
-) -> v8::Local<'s, v8::Value> {
-    let obj = native
-        .and_then(|n| v8::Local::<v8::Object>::try_from(n).ok())
-        .unwrap_or_else(|| v8::Object::new(scope));
+pub fn exports<'s>(scope: &mut v8::PinScope<'s, '_>, native: Option<v8::Local<'s, v8::Value>>) -> v8::Local<'s, v8::Value> {
+    let obj = native.and_then(|n| v8::Local::<v8::Object>::try_from(n).ok()).unwrap_or_else(|| v8::Object::new(scope));
     let shell = v8::Object::new(scope);
     crate::methods!(scope, shell,
         "broker" => broker,
@@ -109,28 +104,16 @@ fn call_back(scope: &mut v8::PinScope) {
 
 fn numbers(scope: &mut v8::PinScope, value: Option<v8::Local<v8::Value>>) -> Option<Vec<f64>> {
     let array = v8::Local::<v8::Array>::try_from(value?).ok()?;
-    (0..array.length())
-        .map(|i| {
-            array
-                .get_index(scope, i)
-                .and_then(|v| v.number_value(scope))
-        })
-        .collect()
+    (0..array.length()).map(|i| array.get_index(scope, i).and_then(|v| v.number_value(scope))).collect()
 }
 
 fn grant(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let mut wanted = Grant::default();
     if let Ok(options) = v8::Local::<v8::Object>::try_from(args.get(0)) {
-        wanted.desktop =
-            bind::get(scope, options, "desktop").is_some_and(|v| v.boolean_value(scope));
+        wanted.desktop = bind::get(scope, options, "desktop").is_some_and(|v| v.boolean_value(scope));
         wanted.hidden = bind::get(scope, options, "hidden").is_some_and(|v| v.boolean_value(scope));
-        wanted.window = bind::get(scope, options, "window")
-            .and_then(|v| v.number_value(scope))
-            .filter(|n| n.is_finite())
-            .map(|n| n as u32);
-        wanted.mode = bind::get(scope, options, "mode")
-            .filter(|v| v.is_string())
-            .and_then(|v| Mode::parse(&v.to_rust_string_lossy(scope)));
+        wanted.window = bind::get(scope, options, "window").and_then(|v| v.number_value(scope)).filter(|n| n.is_finite()).map(|n| n as u32);
+        wanted.mode = bind::get(scope, options, "mode").filter(|v| v.is_string()).and_then(|v| Mode::parse(&v.to_rust_string_lossy(scope)));
         let rect = bind::get(scope, options, "rect");
         wanted.rect = numbers(scope, rect).and_then(|r| <[f64; 4]>::try_from(r).ok());
         let size = bind::get(scope, options, "size");
@@ -188,10 +171,7 @@ fn set_mode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8
 fn launch(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let argv = bind::strings(scope, args.get(0)).unwrap_or_default();
     let options = v8::Local::<v8::Object>::try_from(args.get(1)).ok();
-    let cwd = options
-        .and_then(|o| bind::get(scope, o, "cwd"))
-        .filter(|v| v.is_string())
-        .map(|v| v.to_rust_string_lossy(scope));
+    let cwd = options.and_then(|o| bind::get(scope, o, "cwd")).filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
     let env = match options.and_then(|o| bind::get(scope, o, "env")) {
         Some(env) => bind::own_string_pairs(scope, env),
         None => Vec::new(),
@@ -218,10 +198,7 @@ fn stats(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8:
     let Some(stats) = with(scope, Shell::stats) else {
         return;
     };
-    let fields: Vec<(&str, v8::Local<v8::Value>)> = stats
-        .into_iter()
-        .map(|(k, v)| (k, v8::Number::new(scope, v).into()))
-        .collect();
+    let fields: Vec<(&str, v8::Local<v8::Value>)> = stats.into_iter().map(|(k, v)| (k, v8::Number::new(scope, v).into())).collect();
     rv.set(bind::object(scope, &fields).into());
 }
 
@@ -236,12 +213,7 @@ fn windows(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v
         let window = num(scope, f64::from(w.id));
         let canvas = num(scope, 0.0);
         let mode = bind::string(scope, w.mode.as_str());
-        let [x, y, width, height] = [
-            num(scope, w.rect[0]),
-            num(scope, w.rect[1]),
-            num(scope, w.rect[2]),
-            num(scope, w.rect[3]),
-        ];
+        let [x, y, width, height] = [num(scope, w.rect[0]), num(scope, w.rect[1]), num(scope, w.rect[2]), num(scope, w.rect[3])];
         let z = num(scope, w.z as f64);
         let focus = v8::Boolean::new(scope, w.focus);
         let hidden = v8::Boolean::new(scope, w.hidden);
@@ -281,14 +253,7 @@ fn canvases(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: 
     let scale = v8::Number::new(scope, scale);
     let canvas = bind::object(
         scope,
-        &[
-            ("id", id.into()),
-            ("x", zero.into()),
-            ("y", zero.into()),
-            ("width", width.into()),
-            ("height", height.into()),
-            ("scale", scale.into()),
-        ],
+        &[("id", id.into()), ("x", zero.into()), ("y", zero.into()), ("width", width.into()), ("height", height.into()), ("scale", scale.into())],
     );
     let array = v8::Array::new_with_elements(scope, &[canvas.into()]);
     rv.set(array.into());
@@ -321,12 +286,8 @@ const BTN_LEFT: u32 = 0x110;
 fn injected(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Result<Injected, String> {
     let options = v8::Local::<v8::Object>::try_from(value).map_err(|_| "inject: not an object".to_owned())?;
     let kind = bind::get(scope, options, "type").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope)).unwrap_or_default();
-    let mut number = |name: &str| {
-        bind::get(scope, options, name)
-            .filter(|v| !v.is_null_or_undefined())
-            .and_then(|v| v.number_value(scope))
-            .filter(|n| n.is_finite())
-    };
+    let mut number =
+        |name: &str| bind::get(scope, options, name).filter(|v| !v.is_null_or_undefined()).and_then(|v| v.number_value(scope)).filter(|n| n.is_finite());
     let (x, y, dx, dy) = (number("x"), number("y"), number("dx"), number("dy"));
     let (button, code) = (number("button"), number("code"));
     let source = bind::get(scope, options, "source").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
@@ -359,7 +320,13 @@ fn capture(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
     if with(scope, |_| ()).is_none() {
         return;
     }
-    crate::offload::run(scope, &mut rv, "acde-capture", move || Shell::open().ok_or_else(|| "Shell: not open".to_owned()).and_then(|shell| shell.capture(window)), settle_capture);
+    crate::offload::run(
+        scope,
+        &mut rv,
+        "acde-capture",
+        move || Shell::open().ok_or_else(|| "Shell: not open".to_owned()).and_then(|shell| shell.capture(window)),
+        settle_capture,
+    );
 }
 
 fn settle_capture(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, shot: Result<acde_hostwin::Shot, String>) {

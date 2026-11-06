@@ -29,11 +29,28 @@ pub(crate) struct DecorationView {
 }
 
 impl DecorationView {
-    pub(crate) fn new(app_surface: &wl_surface::WlSurface, subcompositor: &SubcompositorState, viewporter: &wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter, height: u32, qh: &wayland_client::QueueHandle<App>) -> Self {
+    pub(crate) fn new(
+        app_surface: &wl_surface::WlSurface,
+        subcompositor: &SubcompositorState,
+        viewporter: &wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter,
+        height: u32,
+        qh: &wayland_client::QueueHandle<App>,
+    ) -> Self {
         let (subsurface, surface) = subcompositor.create_subsurface(app_surface.clone(), qh);
         subsurface.set_position(0, -(height as i32));
         let viewport = viewporter.get_viewport(&surface, qh, Data);
-        Self { surface, _subsurface: subsurface, viewport, buffers: Buffers::default(), height, title: String::new(), painter: Decoration::new(), drawn: None, fullscreen: false, pressed: None }
+        Self {
+            surface,
+            _subsurface: subsurface,
+            viewport,
+            buffers: Buffers::default(),
+            height,
+            title: String::new(),
+            painter: Decoration::new(),
+            drawn: None,
+            fullscreen: false,
+            pressed: None,
+        }
     }
 }
 

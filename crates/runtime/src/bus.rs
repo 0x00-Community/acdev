@@ -66,10 +66,7 @@ pub struct DesktopBus {
 
 impl DesktopBus {
     fn serve(connection: connection::Builder<'_>, handler: Handler) -> zbus::Result<Self> {
-        let connection = connection
-            .serve_at(FILE_MANAGER_PATH, FileManager { handler: handler.clone() })?
-            .serve_at(ACDE_PATH, Opener { handler })?
-            .build()?;
+        let connection = connection.serve_at(FILE_MANAGER_PATH, FileManager { handler: handler.clone() })?.serve_at(ACDE_PATH, Opener { handler })?.build()?;
         let mut owned = Vec::new();
         for name in [FILE_MANAGER, ACDE] {
             let flags = RequestNameFlags::ReplaceExisting | RequestNameFlags::AllowReplacement | RequestNameFlags::DoNotQueue;
@@ -115,7 +112,9 @@ impl DesktopBus {
         blocking(move || {
             let connection = Connection::session().map_err(|e| failure("bus_unavailable", &e.to_string()))?;
             Self::send_on(&connection, &uris, app.as_deref().unwrap_or("")).map_err(|e| match e {
-                zbus::Error::MethodError(name, message, _) if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" || name.as_str() == "org.freedesktop.DBus.Error.NameHasNoOwner" => {
+                zbus::Error::MethodError(name, message, _)
+                    if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" || name.as_str() == "org.freedesktop.DBus.Error.NameHasNoOwner" =>
+                {
                     failure("no_session", &message.unwrap_or_else(|| "no acde session on this bus".into()))
                 }
                 zbus::Error::MethodError(_, Some(message), _) => failure("open_failed", &message),
@@ -158,12 +157,15 @@ mod tests {
         let empty = files.call::<_, _, ()>("ShowFolders", &(Vec::<String>::new(), ""));
         assert!(empty.is_err());
         let seen = seen.lock().unwrap();
-        assert_eq!(*seen, [
-            json!({"kind": "items", "uris": ["file:///home/u/a%20b.txt"], "app": ""}),
-            json!({"kind": "folders", "uris": ["file:///home/u"], "app": ""}),
-            json!({"kind": "open", "uris": ["/home/u/c.md"], "app": "editor"}),
-            json!({"kind": "open", "uris": ["file:///refused"], "app": ""}),
-        ]);
+        assert_eq!(
+            *seen,
+            [
+                json!({"kind": "items", "uris": ["file:///home/u/a%20b.txt"], "app": ""}),
+                json!({"kind": "folders", "uris": ["file:///home/u"], "app": ""}),
+                json!({"kind": "open", "uris": ["/home/u/c.md"], "app": "editor"}),
+                json!({"kind": "open", "uris": ["file:///refused"], "app": ""}),
+            ]
+        );
         let other = DesktopBus::serve(builder(), Arc::new(|_| Box::pin(async { Ok(()) }))).unwrap();
         assert_eq!(other.owned, [FILE_MANAGER, ACDE]);
         _ = daemon.kill();

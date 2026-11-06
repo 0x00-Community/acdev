@@ -571,6 +571,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 - `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新. 改了依赖, 提交前 `cargo build --release -p acdert` 必须通过; clippy 要过.
   `web/bun.lock` 进 git, 改依赖时放在同一个提交里.
 - 诊断用 `log` 的宏, 不用 `eprintln!` (测试、命令行输出除外).
+- Rust 代码提交前 `cargo fmt --all` (根目录 `rustfmt.toml`: 宽 160, `use_small_heuristics = "Max"`; `vendors/` 不在 workspace 里, 不碰).
 
 ## 目录
 

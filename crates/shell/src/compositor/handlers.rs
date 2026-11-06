@@ -3,32 +3,27 @@ use smithay::backend::renderer::ImportDma;
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::desktop::{PopupKind, Window, WindowSurfaceType, find_popup_root_surface, get_popup_toplevel_coords};
 use smithay::input::{Seat, SeatHandler, SeatState};
+use smithay::reexports::calloop::Interest;
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::backend::ClientData;
 use smithay::reexports::wayland_server::protocol::{wl_buffer, wl_seat, wl_surface::WlSurface};
 use smithay::reexports::wayland_server::{Client, Resource};
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::utils::Serial;
 use smithay::wayland::buffer::BufferHandler;
-use smithay::reexports::calloop::Interest;
 use smithay::wayland::compositor::{
-    BufferAssignment, CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes, add_blocker,
-    add_pre_commit_hook, get_parent, is_sync_subsurface, with_states,
+    BufferAssignment, CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes, add_blocker, add_pre_commit_hook, get_parent,
+    is_sync_subsurface, with_states,
 };
 use smithay::wayland::dmabuf::get_dmabuf;
-use smithay::wayland::drm_syncobj::DrmSyncobjCachedState;
 use smithay::wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier};
+use smithay::wayland::drm_syncobj::DrmSyncobjCachedState;
 use smithay::wayland::output::OutputHandler;
+use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::selection::SelectionHandler;
 use smithay::wayland::selection::data_device::{DataDeviceHandler, DataDeviceState, set_data_device_focus};
-use smithay::wayland::shell::xdg::{
-    PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState, XdgToplevelSurfaceData,
-};
+use smithay::wayland::shell::xdg::{PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState, XdgToplevelSurfaceData};
 use smithay::wayland::shm::{ShmHandler, ShmState};
-use smithay::wayland::seat::WaylandFocus;
-use smithay::{
-    delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat, delegate_shm,
-    delegate_xdg_shell,
-};
+use smithay::{delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_output, delegate_seat, delegate_shm, delegate_xdg_shell};
 
 use super::{Compositor, NativeId, ShellEvent};
 
@@ -293,10 +288,7 @@ impl Compositor {
     fn initial_configure(&mut self, surface: &WlSurface) {
         if let Some(window) = self.window_of(surface) {
             let sent = with_states(surface, |states| {
-                states
-                    .data_map
-                    .get::<XdgToplevelSurfaceData>()
-                    .is_some_and(|d| d.lock().expect("xdg 数据锁").initial_configure_sent)
+                states.data_map.get::<XdgToplevelSurfaceData>().is_some_and(|d| d.lock().expect("xdg 数据锁").initial_configure_sent)
             });
             if !sent {
                 window.toplevel().expect("找到时已确认是 toplevel").send_configure();
@@ -381,7 +373,10 @@ impl Compositor {
 
     fn want_fullscreen(surface: &ToplevelSurface, on: bool) {
         with_states(surface.wl_surface(), |s| {
-            s.data_map.get_or_insert_threadsafe(|| WantsFullscreen(std::sync::atomic::AtomicBool::new(false))).0.store(on, std::sync::atomic::Ordering::Relaxed);
+            s.data_map
+                .get_or_insert_threadsafe(|| WantsFullscreen(std::sync::atomic::AtomicBool::new(false)))
+                .0
+                .store(on, std::sync::atomic::Ordering::Relaxed);
         });
     }
 
@@ -389,12 +384,20 @@ impl Compositor {
         with_states(surface.wl_surface(), |s| s.data_map.get::<WantsFullscreen>().is_some_and(|w| w.0.load(std::sync::atomic::Ordering::Relaxed)))
     }
 
-    fn landing(&self, size: smithay::utils::Size<i32, smithay::utils::Logical>, parent: Option<&Window>) -> smithay::utils::Point<i32, smithay::utils::Logical> {
+    fn landing(
+        &self,
+        size: smithay::utils::Size<i32, smithay::utils::Logical>,
+        parent: Option<&Window>,
+    ) -> smithay::utils::Point<i32, smithay::utils::Logical> {
         let screen = self.space.output_geometry(&self.backend.output).unwrap_or_default();
         let over = parent.and_then(|p| Some(smithay::utils::Rectangle::new(self.space.element_location(p)?, p.geometry().size))).unwrap_or(screen);
         let cascade = if parent.is_some() { 0 } else { (self.native_ids.len() as i32 % 8) * 32 };
         let loc = over.loc + smithay::utils::Point::from(((over.size.w - size.w) / 2 + cascade, (over.size.h - size.h) / 2 + cascade));
-        (loc.x.clamp(screen.loc.x, (screen.loc.x + screen.size.w - size.w).max(screen.loc.x)), loc.y.clamp(screen.loc.y, (screen.loc.y + screen.size.h - size.h).max(screen.loc.y))).into()
+        (
+            loc.x.clamp(screen.loc.x, (screen.loc.x + screen.size.w - size.w).max(screen.loc.x)),
+            loc.y.clamp(screen.loc.y, (screen.loc.y + screen.size.h - size.h).max(screen.loc.y)),
+        )
+            .into()
     }
 
     fn place_new(&mut self, window: &Window) {

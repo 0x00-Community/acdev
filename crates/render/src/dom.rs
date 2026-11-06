@@ -143,11 +143,7 @@ impl Dom {
         self.read(|e| {
             let v = e.doc.viewport();
             let scale = v.scale_f64();
-            Ok(Viewport {
-                width: f64::from(v.window_size.0) / scale,
-                height: f64::from(v.window_size.1) / scale,
-                scale,
-            })
+            Ok(Viewport { width: f64::from(v.window_size.0) / scale, height: f64::from(v.window_size.1) / scale, scale })
         })
         .unwrap_or(Viewport { width: 0.0, height: 0.0, scale: 1.0 })
     }
@@ -233,12 +229,7 @@ impl Dom {
     pub fn children(&self, id: u32) -> Result<Vec<u32>> {
         self.read(|e| {
             let n = e.node(id)?;
-            let children: Vec<NodeId> = n
-                .children
-                .iter()
-                .copied()
-                .filter(|&c| e.doc.get_node(c).is_some_and(|c| e.kind(c.id) == NodeType::Element))
-                .collect();
+            let children: Vec<NodeId> = n.children.iter().copied().filter(|&c| e.doc.get_node(c).is_some_and(|c| e.kind(c.id) == NodeType::Element)).collect();
             Ok(e.outs(children))
         })
     }
@@ -295,14 +286,7 @@ impl Dom {
     pub fn create_document_type(&self, name: &str, public_id: &str, system_id: &str) -> Result<u32> {
         self.write_at(&[], |e| {
             let node = e.tree().m.create_comment_node("");
-            e.ids.doctypes.insert(
-                node,
-                Doctype {
-                    name: name.into(),
-                    public_id: public_id.into(),
-                    system_id: system_id.into(),
-                },
-            );
+            e.ids.doctypes.insert(node, Doctype { name: name.into(), public_id: public_id.into(), system_id: system_id.into() });
             Ok(e.fresh(node))
         })
     }
@@ -347,9 +331,7 @@ impl Dom {
     }
 
     pub fn namespace(&self, id: u32) -> Result<Ns> {
-        self.read(|e| {
-            Ok(ns_of(&e.element(id)?.name))
-        })
+        self.read(|e| Ok(ns_of(&e.element(id)?.name)))
     }
 
     pub fn get_attribute(&self, id: u32, name: &str) -> Result<Option<String>> {
@@ -380,11 +362,7 @@ impl Dom {
     pub fn attributes(&self, id: u32) -> Result<Vec<String>> {
         self.read(|e| {
             let element = e.element(id)?;
-            Ok(element
-                .attrs()
-                .iter()
-                .flat_map(|a| [qualified(&a.name), a.value.clone()])
-                .collect())
+            Ok(element.attrs().iter().flat_map(|a| [qualified(&a.name), a.value.clone()]).collect())
         })
     }
 
@@ -543,9 +521,10 @@ impl Dom {
                 .descendants(root)
                 .into_iter()
                 .filter(|&d| {
-                    e.doc.get_node(d).and_then(|n| n.element_data()).is_some_and(|el| {
-                        !is_fragment_name(&el.name) && wanted.iter().all(|w| el.classes.iter().any(|c| &**c == *w))
-                    })
+                    e.doc
+                        .get_node(d)
+                        .and_then(|n| n.element_data())
+                        .is_some_and(|el| !is_fragment_name(&el.name) && wanted.iter().all(|w| el.classes.iter().any(|c| &**c == *w)))
                 })
                 .collect();
             Ok(e.outs(found))
@@ -677,11 +656,7 @@ impl Dom {
             if geometry.hidden(doc.get_node(node).expect("checked above")) {
                 return Ok(Vec::new());
             }
-            Ok(doc
-                .node_client_rects(node)
-                .into_iter()
-                .map(|r| quad(geometry.map(node, r.into())))
-                .collect())
+            Ok(doc.node_client_rects(node).into_iter().map(|r| quad(geometry.map(node, r.into()))).collect())
         })
     }
 
@@ -730,10 +705,7 @@ impl Dom {
             let node = e.n(id)?;
             e.resolved();
             let Some(target) = e.styled(node, pseudo) else { return Ok(Vec::new()) };
-            Ok(blitz_dom::resolved_style_property_names()
-                .iter()
-                .flat_map(|&name| [name.to_owned(), e.doc.resolved_style_value(target, name)])
-                .collect())
+            Ok(blitz_dom::resolved_style_property_names().iter().flat_map(|&name| [name.to_owned(), e.doc.resolved_style_value(target, name)]).collect())
         })
     }
 
@@ -748,10 +720,7 @@ impl Dom {
     pub fn caret_from_point(&self, x: f64, y: f64) -> Option<CaretPosition> {
         self.read(|e| {
             let found = Caret { doc: e.resolved() }.position_at(x as f32, y as f32);
-            Ok(found.map(|(node, offset)| CaretPosition {
-                node: e.ids.id_of(node),
-                offset,
-            }))
+            Ok(found.map(|(node, offset)| CaretPosition { node: e.ids.id_of(node), offset }))
         })
         .ok()
         .flatten()
@@ -761,10 +730,7 @@ impl Dom {
         self.read(|e| {
             let node = e.n(id)?;
             let doc = e.resolved();
-            Ok(Caret { doc }
-                .text_rects(node, start, end)
-                .map(|rects| rects.into_iter().map(quad).collect())
-                .unwrap_or_default())
+            Ok(Caret { doc }.text_rects(node, start, end).map(|rects| rects.into_iter().map(quad).collect()).unwrap_or_default())
         })
     }
 
@@ -872,11 +838,7 @@ impl Dom {
     pub fn pinned_in(&self, root: u32) -> Result<Vec<u32>> {
         self.read(|e| {
             let root = e.n(root)?;
-            Ok(e.subtree(root)
-                .into_iter()
-                .filter(|&n| e.ids.pinned(n))
-                .filter_map(|n| e.ids.handle(n))
-                .collect())
+            Ok(e.subtree(root).into_iter().filter(|&n| e.ids.pinned(n)).filter_map(|n| e.ids.handle(n)).collect())
         })
     }
 
@@ -904,7 +866,8 @@ impl Dom {
             }
             let seq = self.shared.commits.fetch_add(1, Ordering::Relaxed) + 1;
             e.committed = e.committed.max(seq);
-            e.trace = acde_log::Trace::earliest(e.trace, e.input.take().filter(|t| now - t.input < INPUT_TTL_MS).map(|t| acde_log::Trace { committed: now, ..t }));
+            e.trace =
+                acde_log::Trace::earliest(e.trace, e.input.take().filter(|t| now - t.input < INPUT_TTL_MS).map(|t| acde_log::Trace { committed: now, ..t }));
             e.want_present = true;
             Ok(true)
         });
@@ -971,10 +934,7 @@ impl Dom {
     pub fn sheet_rule(&self, id: u32, index: u32) -> Result<String> {
         self.read(|e| {
             let node = e.n(id)?;
-            e.doc
-                .stylesheet_rule_info(node, &[index as usize])
-                .map(|info| info.css_text)
-                .ok_or_else(|| fail("IndexSizeError", format!("no rule {index}")))
+            e.doc.stylesheet_rule_info(node, &[index as usize]).map(|info| info.css_text).ok_or_else(|| fail("IndexSizeError", format!("no rule {index}")))
         })
     }
 
@@ -991,9 +951,7 @@ impl Dom {
     pub fn sheet_delete_rule(&self, id: u32, index: u32) -> Result<()> {
         self.write(|e| {
             let node = e.n(id)?;
-            e.doc
-                .stylesheet_delete_rule(node, &[], index as usize)
-                .map_err(|err| fail(err.dom_exception_name(), format!("cannot delete rule {index}")))
+            e.doc.stylesheet_delete_rule(node, &[], index as usize).map_err(|err| fail(err.dom_exception_name(), format!("cannot delete rule {index}")))
         })
     }
 }
@@ -1023,9 +981,8 @@ fn valid_element_name(name: &str) -> bool {
     match first.is_ascii_alphabetic() {
         true => !name.contains(|c: char| c.is_ascii_whitespace() || matches!(c, '\0' | '/' | '>')),
         false => {
-            matches!(first, ':' | '_') || !first.is_ascii() && {
-                chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | ':' | '_') || !c.is_ascii())
-            }
+            matches!(first, ':' | '_')
+                || !first.is_ascii() && { chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | ':' | '_') || !c.is_ascii()) }
         }
     }
 }
@@ -1205,9 +1162,7 @@ impl Engine {
     }
 
     fn new_fragment(&mut self) -> NodeId {
-        self.tree()
-            .m
-            .create_element(QualName::new(None, ns!(html), FRAGMENT.into()), Vec::new())
+        self.tree().m.create_element(QualName::new(None, ns!(html), FRAGMENT.into()), Vec::new())
     }
 
     fn check_insert(&self, parent: NodeId, node: NodeId, child: Option<NodeId>) -> Result<()> {
@@ -1475,11 +1430,7 @@ impl Engine {
     }
 
     fn free(&mut self, root: NodeId) {
-        let contents: Vec<NodeId> = self
-            .subtree(root)
-            .into_iter()
-            .filter(|&n| self.ids.templates.contains_key(&n))
-            .collect();
+        let contents: Vec<NodeId> = self.subtree(root).into_iter().filter(|&n| self.ids.templates.contains_key(&n)).collect();
         if self.active.is_some_and(|a| self.tree_root(a) == root) {
             self.active = None;
         }
@@ -1494,10 +1445,7 @@ impl Engine {
 
     fn find_attribute(&self, node: NodeId, name: &str) -> Result<Option<(QualName, String)>> {
         let n = &self.doc.tree()[node];
-        let e = n
-            .element_data()
-            .filter(|_| n.is_element() && !is_fragment(n))
-            .ok_or_else(|| fail("InvalidNodeTypeError", "not an element"))?;
+        let e = n.element_data().filter(|_| n.is_element() && !is_fragment(n)).ok_or_else(|| fail("InvalidNodeTypeError", "not an element"))?;
         let name = match e.name.ns == ns!(html) {
             true => std::borrow::Cow::Owned(name.to_ascii_lowercase()),
             false => std::borrow::Cow::Borrowed(name),
@@ -1519,9 +1467,7 @@ impl Engine {
         let canvas = html && element.is_some_and(|e| &*e.name.local == "canvas");
         let qual = match existing {
             Some((qual, old))
-                if value == Some(&*old)
-                    && !matches!(&*qual.local, "value" | "style")
-                    && !(canvas && matches!(&*qual.local, "width" | "height")) =>
+                if value == Some(&*old) && !matches!(&*qual.local, "value" | "style") && !(canvas && matches!(&*qual.local, "width" | "height")) =>
             {
                 return Ok(false);
             }
@@ -1579,11 +1525,7 @@ impl Engine {
             Control::Select => {
                 let index = self.selected_index(node);
                 let options = self.options(node);
-                usize::try_from(index)
-                    .ok()
-                    .and_then(|i| options.get(i))
-                    .map(|&o| self.value(o))
-                    .unwrap_or_default()
+                usize::try_from(index).ok().and_then(|i| options.get(i)).map(|&o| self.value(o)).unwrap_or_default()
             }
             Control::Default if n.data.is_element_with_tag_name(&blitz_dom::local_name!("option")) => {
                 attr(blitz_dom::local_name!("value")).unwrap_or_else(|| collapse_whitespace(&n.text_content()))
@@ -1676,9 +1618,7 @@ impl Engine {
             return index;
         }
         let options = self.options(node);
-        let marked = options
-            .iter()
-            .rposition(|&o| self.doc.tree()[o].attr(blitz_dom::local_name!("selected")).is_some());
+        let marked = options.iter().rposition(|&o| self.doc.tree()[o].attr(blitz_dom::local_name!("selected")).is_some());
         match marked {
             Some(i) => i as i32,
             None if options.is_empty() => -1,
@@ -1719,8 +1659,7 @@ impl Engine {
     }
 
     fn set_selection_range(&mut self, node: NodeId, start: u32, end: u32) {
-        let Some(text) = self.doc.get_node(node).and_then(|n| n.element_data()?.text_input_data()).map(|t| t.editor.raw_text().to_owned())
-        else {
+        let Some(text) = self.doc.get_node(node).and_then(|n| n.element_data()?.text_input_data()).map(|t| t.editor.raw_text().to_owned()) else {
             return;
         };
         let (start, end) = (utf16_to_byte(&text, start), utf16_to_byte(&text, end));
@@ -1783,10 +1722,7 @@ impl Engine {
             return caret.layout_position(node, offset);
         }
         let texts = |from: &[NodeId]| -> Vec<NodeId> {
-            from.iter()
-                .flat_map(|&c| self.subtree(c))
-                .filter(|&d| self.doc.get_node(d).is_some_and(|d| d.is_text_node()))
-                .collect()
+            from.iter().flat_map(|&c| self.subtree(c)).filter(|&d| self.doc.get_node(d).is_some_and(|d| d.is_text_node())).collect()
         };
         let split = (offset as usize).min(n.children.len());
         if let Some(&first) = texts(&n.children[split..]).first() {
@@ -1964,9 +1900,7 @@ impl Engine {
             let Some(c) = self.doc.get_node(child) else { continue };
             match &c.data {
                 NodeData::Text(t) => {
-                    let visible = n
-                        .primary_styles()
-                        .is_some_and(|s| s.clone_visibility() == Visibility::Visible);
+                    let visible = n.primary_styles().is_some_and(|s| s.clone_visibility() == Visibility::Visible);
                     if !visible {
                         continue;
                     }

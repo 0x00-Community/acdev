@@ -26,11 +26,7 @@ pub(crate) fn folder(parent: Option<&Window>, title: &str, reply: Reply) {
     let shown = Cell::new(Some((panel.clone(), reply)));
     let handler = RcBlock::new(move |response: NSModalResponse| {
         let Some((panel, reply)) = shown.take() else { return };
-        let picked = (response == NSModalResponseOK)
-            .then(|| panel.URL())
-            .flatten()
-            .and_then(|url| url.path())
-            .map(|path| PathBuf::from(path.to_string()));
+        let picked = (response == NSModalResponseOK).then(|| panel.URL()).flatten().and_then(|url| url.path()).map(|path| PathBuf::from(path.to_string()));
         let _ = reply.send(Ok(picked));
     });
     let sheet_of = parent.and_then(|window| {

@@ -125,7 +125,15 @@ pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionC
     }
     ASSETS.with(|a| *a.borrow_mut() = Assets(resources.clone()));
     let name = Some(crate::rt::web_name());
-    let options = acde_render::Options { base_url: Some(format!("{ORIGIN}/")), resources: Some(resources), default_lang, reduced_motion, dark, name, ..Default::default() };
+    let options = acde_render::Options {
+        base_url: Some(format!("{ORIGIN}/")),
+        resources: Some(resources),
+        default_lang,
+        reduced_motion,
+        dark,
+        name,
+        ..Default::default()
+    };
     let document = match acde_render::Document::new(width, height, scale, &options) {
         Ok(document) => document,
         Err(e) => return bind::throw_error(scope, &format!("createDocument: {e}")),

@@ -258,9 +258,8 @@ fn character_data_and_text_content() {
 
 #[test]
 fn inner_text_follows_layout() {
-    let (_doc, dom) = page(
-        "<body><div id=a>one <span>two</span>\n   three<div>block</div><p>para</p><span style='display:none'>hidden</span>x<br>y</div></body>",
-    );
+    let (_doc, dom) =
+        page("<body><div id=a>one <span>two</span>\n   three<div>block</div><p>para</p><span style='display:none'>hidden</span>x<br>y</div></body>");
     assert_eq!(dom.inner_text(by_id(&dom, "a")).unwrap(), "one two three\nblock\n\npara\n\nx\ny");
 }
 
@@ -577,9 +576,7 @@ fn scrolling() {
 
 #[test]
 fn images() {
-    let (_doc, dom) = page(&format!(
-        "<body><img id=ok src='{PNG}'><img id=bad src='/nothing-here.png'><img id=none></body>"
-    ));
+    let (_doc, dom) = page(&format!("<body><img id=ok src='{PNG}'><img id=bad src='/nothing-here.png'><img id=none></body>"));
     let (ok, bad, none) = (by_id(&dom, "ok"), by_id(&dom, "bad"), by_id(&dom, "none"));
     let mut loaded = dom.take_loaded();
     loaded.sort();
@@ -603,9 +600,8 @@ fn images() {
 
 #[test]
 fn canvas_and_capture() {
-    let (_doc, dom) = page(
-        "<body style='margin:0'><canvas id=c width=20 height=10></canvas><div id=d style='width:30px;height:30px;background:blue'></div></body>",
-    );
+    let (_doc, dom) =
+        page("<body style='margin:0'><canvas id=c width=20 height=10></canvas><div id=d style='width:30px;height:30px;background:blue'></div></body>");
     let c = by_id(&dom, "c");
     let mut ops = vec![4u8, 0];
     [1.0f32, 0.0, 0.0, 1.0].iter().for_each(|v| ops.extend(v.to_le_bytes()));

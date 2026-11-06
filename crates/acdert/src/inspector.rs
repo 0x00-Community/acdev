@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use v8::UniquePtr;
-use v8::inspector::{Channel, ChannelImpl, StringBuffer, StringView, V8Inspector, V8InspectorClient, V8InspectorClientImpl, V8InspectorClientTrustLevel, V8InspectorSession};
+use v8::inspector::{
+    Channel, ChannelImpl, StringBuffer, StringView, V8Inspector, V8InspectorClient, V8InspectorClientImpl, V8InspectorClientTrustLevel, V8InspectorSession,
+};
 
 thread_local! {
     static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };

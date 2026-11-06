@@ -3,8 +3,8 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use acde_gpu::Scene;
 use acde_gpu::Offscreen;
+use acde_gpu::Scene;
 use kurbo::Affine;
 
 pub use acde_gpu::{GpuImage as CanvasImage, Overrides, Shared};

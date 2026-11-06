@@ -44,7 +44,9 @@ mod imp {
 
     use windows_sys::Win32::Foundation::{ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
-    use windows_sys::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, WaitNamedPipeW};
+    use windows_sys::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, WaitNamedPipeW,
+    };
 
     const BUFFER: u32 = 64 * 1024;
     const WAIT_MS: u32 = 5000;
@@ -81,7 +83,18 @@ mod imp {
         }
 
         pub fn accept(&self) -> io::Result<Stream> {
-            let handle = unsafe { CreateNamedPipeW(self.0.as_ptr(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, BUFFER, BUFFER, 0, std::ptr::null()) };
+            let handle = unsafe {
+                CreateNamedPipeW(
+                    self.0.as_ptr(),
+                    PIPE_ACCESS_DUPLEX,
+                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                    PIPE_UNLIMITED_INSTANCES,
+                    BUFFER,
+                    BUFFER,
+                    0,
+                    std::ptr::null(),
+                )
+            };
             if handle == INVALID_HANDLE_VALUE {
                 return Err(io::Error::last_os_error());
             }

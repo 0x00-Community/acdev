@@ -10,17 +10,8 @@ struct Page {
 
 impl Page {
     fn new(scale: f32) -> Self {
-        let doc = Doc::new(
-            (400.0 * scale) as u32,
-            (300.0 * scale) as u32,
-            scale,
-            &Options::default(),
-        )
-        .unwrap();
-        doc.add_stylesheet(
-            "html, body { margin: 0; } body { font: 20px monospace; } p { margin: 10px 30px; }",
-        )
-        .unwrap();
+        let doc = Doc::new((400.0 * scale) as u32, (300.0 * scale) as u32, scale, &Options::default()).unwrap();
+        doc.add_stylesheet("html, body { margin: 0; } body { font: 20px monospace; } p { margin: 10px 30px; }").unwrap();
         let body = doc.create_element("body").unwrap();
         doc.append_child(doc.root().unwrap(), body).unwrap();
         Self { doc, body }
@@ -59,10 +50,7 @@ fn monospace_offsets_advance_linearly_from_content_box() {
     assert!(near(c0.x, 30.0), "{c0:?}");
     assert!(c0.height > 15.0 && c0.y >= 9.0, "{c0:?}");
     for k in 2..=6 {
-        assert!(
-            near(page.caret(t, k).x, c0.x + f64::from(k) * w),
-            "offset {k}"
-        );
+        assert!(near(page.caret(t, k).x, c0.x + f64::from(k) * w), "offset {k}");
     }
     assert!(near(page.caret(t, 99).x, c0.x + 6.0 * w));
 }
@@ -87,21 +75,14 @@ fn collapsed_whitespace_br_and_wrapping() {
     let p = page.el("p", page.body, "");
     let t = page.text(p, "a     b");
     let w = page.caret(t, 1).x - page.caret(t, 0).x;
-    assert!(
-        near(page.caret(t, 6).x, page.caret(t, 0).x + 2.0 * w),
-        "{:?}",
-        page.caret(t, 6)
-    );
+    assert!(near(page.caret(t, 6).x, page.caret(t, 0).x + 2.0 * w), "{:?}", page.caret(t, 6));
 
     let q = page.el("p", page.body, "");
     let ab = page.text(q, "ab");
     page.el("br", q, "");
     let cd = page.text(q, "cd");
     let (top, next) = (page.caret(ab, 0), page.caret(cd, 0));
-    assert!(
-        near(next.x, top.x) && next.y > top.y + 10.0,
-        "{top:?} {next:?}"
-    );
+    assert!(near(next.x, top.x) && next.y > top.y + 10.0, "{top:?} {next:?}");
 
     let narrow = page.el("p", page.body, "width: 100px");
     let long = page.text(narrow, "aaaa bbbb cccc dddd");
@@ -117,10 +98,7 @@ fn scale_does_not_change_css_coordinates() {
         let t = page.text(p, "hello");
         page.caret(t, 3)
     });
-    assert!(
-        near(carets[0].x, carets[1].x) && near(carets[0].y, carets[1].y),
-        "{carets:?}"
-    );
+    assert!(near(carets[0].x, carets[1].x) && near(carets[0].y, carets[1].y), "{carets:?}");
 }
 
 #[test]
@@ -137,19 +115,12 @@ fn utf16_offsets() {
 #[test]
 fn input_value() {
     let page = Page::new(1.0);
-    let input = page.el(
-        "input",
-        page.body,
-        "position: absolute; left: 50px; top: 100px; width: 200px; font: 20px monospace",
-    );
+    let input = page.el("input", page.body, "position: absolute; left: 50px; top: 100px; width: 200px; font: 20px monospace");
     page.doc.set_attribute(input, "value", "hello").unwrap();
     let rect = page.doc.rect(input).unwrap();
     let (c0, c5) = (page.caret(input, 0), page.caret(input, 5));
     assert!(c0.x >= rect.x && c0.x < rect.x + 10.0, "{c0:?} in {rect:?}");
-    assert!(
-        c0.y >= rect.y && c0.y + c0.height <= rect.y + rect.height + 0.5,
-        "{c0:?} in {rect:?}"
-    );
+    assert!(c0.y >= rect.y && c0.y + c0.height <= rect.y + rect.height + 0.5, "{c0:?} in {rect:?}");
     let w = page.caret(input, 1).x - c0.x;
     assert!(w > 5.0 && near(c5.x, c0.x + 5.0 * w), "{c0:?} {c5:?}");
 }
@@ -192,10 +163,7 @@ fn text_rects_one_per_line() {
     let rects = page.doc.text_rects(t, 1, 4).unwrap();
     assert_eq!(rects.len(), 1, "{rects:?}");
     let (c1, c4) = (page.caret(t, 1), page.caret(t, 4));
-    assert!(
-        near(rects[0].x, c1.x) && near(rects[0].x + rects[0].width, c4.x),
-        "{rects:?}"
-    );
+    assert!(near(rects[0].x, c1.x) && near(rects[0].x + rects[0].width, c4.x), "{rects:?}");
     assert!(near(rects[0].y, c1.y) && near(rects[0].height, c1.height));
     let narrow = page.el("p", page.body, "width: 100px");
     let long = page.text(narrow, "aaaa bbbb cccc");

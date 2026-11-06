@@ -339,7 +339,11 @@ fn start_drag<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackAr
         let picture = number("picture").and_then(|id| crate::dom::take_picture(id as u32));
         let scene = match picture {
             Some(scene) => scene,
-            None => acde_render::Capture::bitmap(width, height, bind::get(scope, icon, "rgba").and_then(bind::bytes).filter(|b| b.len() == (width * height * 4) as usize)?),
+            None => acde_render::Capture::bitmap(
+                width,
+                height,
+                bind::get(scope, icon, "rgba").and_then(bind::bytes).filter(|b| b.len() == (width * height * 4) as usize)?,
+            ),
         };
         Some(DragImage { width, height, scene, hotspot })
     });

@@ -7,14 +7,14 @@ use blitz_dom::{BaseDocument, DocumentConfig, NodeId};
 use blitz_traits::net::Url;
 use blitz_traits::shell::{ColorScheme, Viewport};
 
-use crate::verify::Mismatch;
-use blitz_paint::PaintCache;
+use crate::canvas::Canvas;
 use crate::commands::Commands;
 use crate::damage::Damage;
 use crate::net::LocalNet;
 use crate::tree::{Ids, Tree};
-use crate::canvas::Canvas;
+use crate::verify::Mismatch;
 use crate::{Error, Frame, Options, Panel, Plane, Rect, Result, Stats};
+use blitz_paint::PaintCache;
 
 const FRAME: f64 = 1.0 / 60.0;
 
@@ -57,7 +57,10 @@ impl Engine {
         let net = LocalNet::new(base.clone(), resources, arrived.clone());
         let mut this = Self {
             doc: BaseDocument::new(DocumentConfig {
-                viewport: Some(Viewport { reduced_motion: options.reduced_motion, ..Viewport::new(width, height, scale, if options.dark { ColorScheme::Dark } else { ColorScheme::Light }) }),
+                viewport: Some(Viewport {
+                    reduced_motion: options.reduced_motion,
+                    ..Viewport::new(width, height, scale, if options.dark { ColorScheme::Dark } else { ColorScheme::Light })
+                }),
                 base_url: Some(base.into()),
                 net_provider: Some(Arc::new(net)),
                 skip_iframe_content: true,
@@ -76,9 +79,7 @@ impl Engine {
             paint_cache: PaintCache::default(),
             panels: Vec::new(),
             panel_damage: Default::default(),
-            verify: options
-                .verify_paint
-                .unwrap_or_else(|| std::env::var("ACDE_PAINT_VERIFY").is_ok_and(|v| v == "1")),
+            verify: options.verify_paint.unwrap_or_else(|| std::env::var("ACDE_PAINT_VERIFY").is_ok_and(|v| v == "1")),
             from_cache: false,
             committed: 0,
             uncommitted: false,
@@ -206,7 +207,11 @@ impl Engine {
             .iter()
             .map(|&(node, id, rect)| {
                 let shift = kurbo::Affine::translate((-rect.x0, -rect.y0));
-                let pieces = painted.iter().filter(|(n, _)| *n == node).flat_map(|(_, p)| p.iter().cloned()).map(|p| blitz_paint::Piece { transform: shift * p.transform, ..p });
+                let pieces = painted
+                    .iter()
+                    .filter(|(n, _)| *n == node)
+                    .flat_map(|(_, p)| p.iter().cloned())
+                    .map(|p| blitz_paint::Piece { transform: shift * p.transform, ..p });
                 (id, rect, Commands::new(Vec::new(), pieces.collect()))
             })
             .collect();
@@ -279,15 +284,8 @@ impl Engine {
         let viewport = self.doc.viewport_scroll();
         let mut scrolled = Vec::new();
         let changed = match hit {
-            Some(node) => self.doc.scroll_node_by_has_changed(
-                node,
-                -dx / scale,
-                -dy / scale,
-                |event| scrolled.push(event.target),
-            ),
-            None => self
-                .doc
-                .scroll_viewport_by_has_changed(-dx / scale, -dy / scale),
+            Some(node) => self.doc.scroll_node_by_has_changed(node, -dx / scale, -dy / scale, |event| scrolled.push(event.target)),
+            None => self.doc.scroll_viewport_by_has_changed(-dx / scale, -dy / scale),
         };
         if changed {
             self.dirty = true;
@@ -311,7 +309,8 @@ impl Engine {
 
     fn plane(&mut self, commands: Commands, scale: f64, viewport: kurbo::Rect) -> Plane {
         let start = Instant::now();
-        let (rects, by_fragment, missed) = self.damage.update(&commands, acde_gpu::Scene::new().tolerance, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
+        let (rects, by_fragment, missed) =
+            self.damage.update(&commands, acde_gpu::Scene::new().tolerance, viewport, self.from_cache.then_some(&self.paint_cache), self.verify);
         self.stats.damage_mismatches += u32::from(missed);
         self.stats.damage_by_fragment += u32::from(by_fragment);
         self.stats.damage_ms = acde_log::since_ms(start);
@@ -326,7 +325,14 @@ impl Engine {
         let viewport = kurbo::Rect::new(0.0, 0.0, size.0.into(), size.1.into());
         let damage = self.panel_damage.entry(id).or_default();
         let (rects, _, _) = damage.update(&commands, acde_gpu::Scene::new().tolerance, viewport, None, true);
-        let extent = damage.kinds().iter().zip(damage.draw()).filter(|(k, r)| **k == crate::damage::Kind::Draw && r.area() > 0.0).map(|(_, r)| *r).reduce(|a, b| a.union(b)).map(Rect::from);
+        let extent = damage
+            .kinds()
+            .iter()
+            .zip(damage.draw())
+            .filter(|(k, r)| **k == crate::damage::Kind::Draw && r.area() > 0.0)
+            .map(|(_, r)| *r)
+            .reduce(|a, b| a.union(b))
+            .map(Rect::from);
         Panel { id, size, plane: damage.plane(commands, rects, scale, viewport), extent }
     }
 
@@ -334,14 +340,7 @@ impl Engine {
         self.resolved();
         let (commands, panels) = self.paint();
         let scale = self.doc.viewport().scale_f64();
-        Painted {
-            commands,
-            panels,
-            scale,
-            size: self.doc.viewport().window_size,
-            animating: self.doc.is_animating(),
-            commit: self.committed,
-        }
+        Painted { commands, panels, scale, size: self.doc.viewport().window_size, animating: self.doc.is_animating(), commit: self.committed }
     }
 
     pub(crate) fn finish_frame(&mut self, painted: Painted) -> Frame {
@@ -350,22 +349,12 @@ impl Engine {
         let plane = self.plane(commands, scale, viewport);
         let panels = panels.into_iter().map(|p| self.panel(p, scale)).collect();
         let framed = acde_log::now_ms();
-        Frame {
-            plane,
-            panels,
-            size: (width, height),
-            animating,
-            commit,
-            trace: self.trace.take().map(|t| acde_log::Trace { framed, ..t }),
-        }
+        Frame { plane, panels, size: (width, height), animating, commit, trace: self.trace.take().map(|t| acde_log::Trace { framed, ..t }) }
     }
 
     pub(crate) fn tree(&mut self) -> Tree<'_> {
         self.touch();
-        Tree {
-            m: self.doc.mutate(),
-            ids: &mut self.ids,
-        }
+        Tree { m: self.doc.mutate(), ids: &mut self.ids }
     }
 
     pub(crate) fn touch(&mut self) {
@@ -420,10 +409,7 @@ struct Clock {
 
 impl Default for Clock {
     fn default() -> Self {
-        Self {
-            base: 0.0,
-            anchor: Instant::now(),
-        }
+        Self { base: 0.0, anchor: Instant::now() }
     }
 }
 

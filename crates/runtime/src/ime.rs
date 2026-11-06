@@ -34,11 +34,12 @@ struct Surrounding {
 impl Surrounding {
     fn chars(text: &str, units: usize) -> u32 {
         let mut seen = 0;
-        text.chars().take_while(|c| {
-            seen += c.len_utf16();
-            seen <= units
-        })
-        .count() as u32
+        text.chars()
+            .take_while(|c| {
+                seen += c.len_utf16();
+                seen <= units
+            })
+            .count() as u32
     }
     fn units(&self, offset: i32, length: u32) -> (i64, u64) {
         let chars: Vec<char> = self.text.chars().collect();
@@ -96,8 +97,7 @@ impl Quiet for Proxy<'_> {
         B: serde::Serialize + zbus::zvariant::DynamicType,
         R: for<'d> zbus::zvariant::DynamicDeserialize<'d>,
     {
-        self.call_with_flags(method, MethodFlags::NoAutoStart.into(), body)?
-            .ok_or_else(|| zbus::Error::Failure(format!("{method}: no reply")))
+        self.call_with_flags(method, MethodFlags::NoAutoStart.into(), body)?.ok_or_else(|| zbus::Error::Failure(format!("{method}: no reply")))
     }
     fn send<B>(&self, method: &str, body: &B) -> zbus::Result<()>
     where
@@ -182,8 +182,7 @@ impl Ime {
             (Backend::Fcitx, "UpdateClientSideUI") => {
                 type Texts = Vec<(String, i32)>;
                 type Panel = (Texts, i32, Texts, Texts, Vec<(String, String)>, i32, i32, bool, bool);
-                let (preedit, cursor, aux_up, aux_down, candidates, highlight, layout, prev, next): Panel =
-                    body.deserialize().ok()?;
+                let (preedit, cursor, aux_up, aux_down, candidates, highlight, layout, prev, next): Panel = body.deserialize().ok()?;
                 let joined = |texts: Texts| texts.into_iter().map(|(text, _)| text).collect::<String>();
                 let preedit = joined(preedit);
                 let cursor = if cursor < 0 { -1 } else { preedit.units_before(cursor as usize) as i64 };
@@ -192,8 +191,7 @@ impl Ime {
                     2 => "horizontal",
                     _ => "default",
                 };
-                let candidates: Vec<Value> =
-                    candidates.into_iter().map(|(label, text)| json!({"label": label, "text": text})).collect();
+                let candidates: Vec<Value> = candidates.into_iter().map(|(label, text)| json!({"label": label, "text": text})).collect();
                 Some(json!({"type": "panel", "preedit": preedit, "preeditCursor": cursor, "auxUp": joined(aux_up),
                     "auxDown": joined(aux_down), "candidates": candidates, "highlight": highlight, "layout": layout,
                     "hasPrev": prev, "hasNext": next}))

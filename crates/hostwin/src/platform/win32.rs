@@ -6,14 +6,15 @@ use std::ptr::{null, null_mut};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use acde_model::Combo;
 use acde_gpu::wgpu;
+use acde_model::Combo;
 use wgpu::rwh;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     ClientToScreen, DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
     ValidateRect,
 };
+use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
@@ -22,23 +23,23 @@ use windows_sys::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForSystem, GetDpiForWindow, SetProcessDpiAwarenessContext,
 };
 use windows_sys::Win32::UI::Input::Ime::{
-    CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, GCS_COMPSTR, GCS_RESULTSTR, IMECHARPOSITION, IMR_QUERYCHARPOSITION, ISC_SHOWUICOMPOSITIONWINDOW, ImmGetCompositionStringW,
-    ImmGetContext, ImmReleaseContext, ImmSetCandidateWindow, ImmSetCompositionWindow,
+    CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, GCS_COMPSTR, GCS_RESULTSTR, IMECHARPOSITION, IMR_QUERYCHARPOSITION, ISC_SHOWUICOMPOSITIONWINDOW,
+    ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext, ImmSetCandidateWindow, ImmSetCompositionWindow,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent, VK_CONTROL, VK_F4, VK_LWIN, VK_MENU, VK_PROCESSKEY,
-    VK_RWIN, VK_SHIFT,
+    GetKeyState, ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent, VK_CONTROL, VK_F4, VK_LWIN, VK_MENU, VK_PROCESSKEY, VK_RWIN, VK_SHIFT,
 };
-use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
-use windows_sys::Win32::UI::Shell::{BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW, DragAcceptFiles, DragFinish, DragQueryFileW, DragQueryPoint, HDROP, SHBrowseForFolderW, SHGetPathFromIDListW};
+use windows_sys::Win32::UI::Shell::{
+    BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW, DragAcceptFiles, DragFinish, DragQueryFileW, DragQueryPoint, HDROP, SHBrowseForFolderW,
+    SHGetPathFromIDListW,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, HTCLIENT, IDC_ARROW,
-    LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassExW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
-    SetCursor, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_APP, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
-    WM_DROPFILES, WM_ERASEBKGND, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_REQUEST, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-    WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
-    WM_XBUTTONUP, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, XBUTTON1,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, HTCLIENT, IDC_ARROW, LoadCursorW,
+    MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassExW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SetCursor, SetWindowPos,
+    SetWindowTextW, ShowWindow, TranslateMessage, WM_APP, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_ERASEBKGND, WM_IME_COMPOSITION,
+    WM_IME_ENDCOMPOSITION, WM_IME_REQUEST, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE,
+    WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, XBUTTON1,
 };
 
 use super::{Cmd, Handler, HostEvent, LINE, Monitor};
@@ -96,12 +97,8 @@ impl Host {
             }
             let composition = COMPOSITIONFORM { dwStyle: CFS_POINT, ptCurrentPos: POINT { x: left, y: top }, rcArea: RECT { left, top, right, bottom } };
             ImmSetCompositionWindow(imc, &composition);
-            let candidate = CANDIDATEFORM {
-                dwIndex: 0,
-                dwStyle: CFS_EXCLUDE,
-                ptCurrentPos: POINT { x: left, y: bottom },
-                rcArea: RECT { left, top, right, bottom },
-            };
+            let candidate =
+                CANDIDATEFORM { dwIndex: 0, dwStyle: CFS_EXCLUDE, ptCurrentPos: POINT { x: left, y: bottom }, rcArea: RECT { left, top, right, bottom } };
             ImmSetCandidateWindow(imc, &candidate);
             ImmReleaseContext(self.hwnd, imc);
         }
@@ -519,8 +516,8 @@ fn monitor() -> (Option<Monitor>, RECT, f64) {
             return (None, RECT { left: 0, top: 0, right: 0, bottom: 0 }, scale);
         }
         let mut mode = DEVMODEW { dmSize: size_of::<DEVMODEW>() as u16, ..Default::default() };
-        let refresh = (EnumDisplaySettingsW(null(), ENUM_CURRENT_SETTINGS, &mut mode) != 0 && mode.dmDisplayFrequency > 1)
-            .then(|| f64::from(mode.dmDisplayFrequency));
+        let refresh =
+            (EnumDisplaySettingsW(null(), ENUM_CURRENT_SETTINGS, &mut mode) != 0 && mode.dmDisplayFrequency > 1).then(|| f64::from(mode.dmDisplayFrequency));
         let work = info.rcWork;
         let size = [f64::from(work.right - work.left) / scale, f64::from(work.bottom - work.top) / scale];
         (Some(Monitor { size, refresh }), work, scale)

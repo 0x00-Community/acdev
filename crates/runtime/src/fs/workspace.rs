@@ -154,9 +154,7 @@ impl FinderEntry {
             kind,
             size: info.len(),
             modified_ms: info.modified_ms(),
-            target: (kind == EntryKind::Symlink).then(|| {
-                fs::read_link(absolute).map_or_else(|_| "?".into(), |t| t.to_string_lossy().into_owned())
-            }),
+            target: (kind == EntryKind::Symlink).then(|| fs::read_link(absolute).map_or_else(|_| "?".into(), |t| t.to_string_lossy().into_owned())),
         })
     }
 }
@@ -352,11 +350,7 @@ impl WorkspaceFs {
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        let mut entries = names
-            .iter()
-            .take(MAX_ENTRIES)
-            .map(|name| FinderEntry::read(&absolute.join(name), name))
-            .collect::<Outcome<Vec<_>>>()?;
+        let mut entries = names.iter().take(MAX_ENTRIES).map(|name| FinderEntry::read(&absolute.join(name), name)).collect::<Outcome<Vec<_>>>()?;
         entries.sort_by(|a, b| {
             let dir = |e: &FinderEntry| e.kind == EntryKind::Directory;
             dir(b).cmp(&dir(a)).then_with(|| self.collator.compare(&a.name, &b.name))
@@ -670,7 +664,10 @@ impl WorkspaceFs {
 
     pub fn copy_into(root: &FinderRoot, dir: &str, source: &str) -> Outcome<FinderEntry> {
         let source = match source.strip_prefix("file://") {
-            Some(rest) => url::Url::parse(&format!("file://{rest}")).ok().and_then(|u| u.to_file_path().ok()).ok_or_else(|| Failure::invalid("not a file:// URI of this machine"))?,
+            Some(rest) => url::Url::parse(&format!("file://{rest}"))
+                .ok()
+                .and_then(|u| u.to_file_path().ok())
+                .ok_or_else(|| Failure::invalid("not a file:// URI of this machine"))?,
             None => std::path::PathBuf::from(source),
         };
         if !source.is_absolute() {
@@ -749,7 +746,8 @@ mod tests {
             let base = std::env::temp_dir().join(format!("acde-ws-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
             let dir = base.to_string_lossy().into_owned();
             fs::create_dir_all(dir.join("root")).unwrap();
-            let root = FinderRoot { path: dir.join("root"), label: "root".into(), source: RootSource::Default, mode: RootMode::Writable, reason: None, exists: true };
+            let root =
+                FinderRoot { path: dir.join("root"), label: "root".into(), source: RootSource::Default, mode: RootMode::Writable, reason: None, exists: true };
             Self { dir, root }
         }
 

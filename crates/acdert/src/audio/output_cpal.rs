@@ -33,10 +33,9 @@ impl Device {
         let default = device.default_output_config().map_err(|e| format!("output config: {e}"))?;
         let (rate, channels) = (default.sample_rate(), default.channels());
         if default.sample_format() != cpal::SampleFormat::F32 {
-            let f32 = device
-                .supported_output_configs()
-                .map_err(|e| format!("output configs: {e}"))?
-                .any(|c| c.sample_format() == cpal::SampleFormat::F32 && c.channels() == channels && (c.min_sample_rate()..=c.max_sample_rate()).contains(&rate));
+            let f32 = device.supported_output_configs().map_err(|e| format!("output configs: {e}"))?.any(|c| {
+                c.sample_format() == cpal::SampleFormat::F32 && c.channels() == channels && (c.min_sample_rate()..=c.max_sample_rate()).contains(&rate)
+            });
             if !f32 {
                 return Err(format!("the output takes {} samples, not f32", default.sample_format()));
             }

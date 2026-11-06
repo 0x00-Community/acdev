@@ -61,9 +61,7 @@ impl Font {
                 "italic" | "oblique" => font.italic = true,
                 "bold" | "bolder" => font.weight = 700.0,
                 "lighter" => font.weight = 300.0,
-                w if w.parse::<f32>().is_ok_and(|n| (1.0..=1000.0).contains(&n)) && !w.contains('.') => {
-                    font.weight = w.parse().ok()?
-                }
+                w if w.parse::<f32>().is_ok_and(|n| (1.0..=1000.0).contains(&n)) && !w.contains('.') => font.weight = w.parse().ok()?,
                 size => {
                     let size = size.split('/').next()?;
                     let (number, unit) = size.split_at(size.find(|c: char| c.is_ascii_alphabetic() || c == '%')?);
@@ -263,15 +261,7 @@ impl Shadow {
 
 impl Canvas {
     pub(crate) fn new(size: (f64, f64)) -> Self {
-        Self {
-            size,
-            scene: Arc::new(Scene::new()),
-            closed: 0,
-            state: State::default(),
-            stack: Vec::new(),
-            path: BezPath::new(),
-            bitmap: Default::default(),
-        }
+        Self { size, scene: Arc::new(Scene::new()), closed: 0, state: State::default(), stack: Vec::new(), path: BezPath::new(), bitmap: Default::default() }
     }
 
     pub(crate) fn size(&self) -> (f64, f64) {
@@ -303,10 +293,7 @@ impl Canvas {
 
     pub(crate) fn size_of(doc: &BaseDocument, node: blitz_dom::NodeId) -> (f64, f64) {
         let attr = |name: &str, default: f64| {
-            doc.get_node(node)
-                .and_then(|n| n.attr(blitz_dom::LocalName::from(name)))
-                .and_then(|v| v.trim().parse::<u32>().ok())
-                .map_or(default, f64::from)
+            doc.get_node(node).and_then(|n| n.attr(blitz_dom::LocalName::from(name))).and_then(|v| v.trim().parse::<u32>().ok()).map_or(default, f64::from)
         };
         (attr("width", 300.0), attr("height", 150.0))
     }
@@ -337,12 +324,7 @@ impl Canvas {
         }
     }
 
-    pub(crate) fn run(
-        &mut self,
-        doc: &mut BaseDocument,
-        ops: &[u8],
-        source: &dyn Fn(&BaseDocument, u8, u32) -> Option<Source>,
-    ) -> Result<()> {
+    pub(crate) fn run(&mut self, doc: &mut BaseDocument, ops: &[u8], source: &dyn Fn(&BaseDocument, u8, u32) -> Option<Source>) -> Result<()> {
         if self.closed > 0 {
             let closed = std::mem::take(&mut self.closed);
             let commands = &mut self.scene().commands;
@@ -355,12 +337,7 @@ impl Canvas {
         result
     }
 
-    fn record(
-        &mut self,
-        doc: &mut BaseDocument,
-        ops: &[u8],
-        source: &dyn Fn(&BaseDocument, u8, u32) -> Option<Source>,
-    ) -> Result<()> {
+    fn record(&mut self, doc: &mut BaseDocument, ops: &[u8], source: &dyn Fn(&BaseDocument, u8, u32) -> Option<Source>) -> Result<()> {
         self.bitmap = Default::default();
         let mut r = Reader { buf: ops, pos: 0 };
         while r.pos < ops.len() {
@@ -547,11 +524,7 @@ impl Canvas {
         if let Ok(path) = BezPath::from_svg(d) {
             return path;
         }
-        let cuts: Vec<usize> = d
-            .char_indices()
-            .filter(|&(i, c)| i > 0 && c.is_ascii_alphabetic() && !matches!(c, 'e' | 'E'))
-            .map(|(i, _)| i)
-            .collect();
+        let cuts: Vec<usize> = d.char_indices().filter(|&(i, c)| i > 0 && c.is_ascii_alphabetic() && !matches!(c, 'e' | 'E')).map(|(i, _)| i).collect();
         let (mut lo, mut hi, mut best) = (0, cuts.len(), BezPath::new());
         while lo < hi {
             let mid = (lo + hi) / 2;
@@ -658,10 +631,11 @@ impl Canvas {
             true => -(a0 - a1).rem_euclid(TAU),
         };
         let arc = kurbo::Arc::new(center, Vec2::new(radii.0, radii.1), a0, sweep, rotation);
-        let start = self.state.transform * arc.path_elements(TOLERANCE).next().map_or(center, |el| match el {
-            PathEl::MoveTo(p) => p,
-            _ => center,
-        });
+        let start = self.state.transform
+            * arc.path_elements(TOLERANCE).next().map_or(center, |el| match el {
+                PathEl::MoveTo(p) => p,
+                _ => center,
+            });
         self.line_to(start);
         let t = self.state.transform;
         for el in arc.append_iter(TOLERANCE) {
@@ -747,9 +721,7 @@ impl Canvas {
         let style = self.state.fill.clone();
         let t = self.state.transform;
         let (brush, clip) = (style.brush(t), style.clip(t));
-        self.layered(path.bounding_box(), |s| {
-            Self::clipped(s, clip.as_ref(), |s| s.fill(rule, Affine::IDENTITY, &style.paint, brush, path))
-        });
+        self.layered(path.bounding_box(), |s| Self::clipped(s, clip.as_ref(), |s| s.fill(rule, Affine::IDENTITY, &style.paint, brush, path)));
     }
 
     fn stroke(&mut self, path: &BezPath) {
@@ -762,9 +734,7 @@ impl Canvas {
         let (style, stroke) = (self.state.stroke_paint.clone(), self.state.stroke.clone());
         let (brush, clip) = (style.brush(Affine::IDENTITY), style.clip(t));
         let reach = stroke.width * t.as_coeffs().iter().take(4).map(|c| c.abs()).fold(0.0, f64::max) * stroke.miter_limit.max(1.0);
-        self.layered(path.bounding_box().inflate(reach, reach), |s| {
-            Self::clipped(s, clip.as_ref(), |s| s.stroke(&stroke, t, &style.paint, brush, &user))
-        });
+        self.layered(path.bounding_box().inflate(reach, reach), |s| Self::clipped(s, clip.as_ref(), |s| s.stroke(&stroke, t, &style.paint, brush, &user)));
     }
 
     fn clipped(s: &mut Scene, clip: Option<&BezPath>, draw: impl FnOnce(&mut Scene)) {
@@ -787,7 +757,10 @@ impl Canvas {
         let extend = |on: bool| if on { peniko::Extend::Repeat } else { peniko::Extend::Pad };
         brush.sampler.x_extend = extend(matches!(repeat, 0 | 1));
         brush.sampler.y_extend = extend(matches!(repeat, 0 | 2));
-        Some(Style { paint: acde_gpu::Paint::Image(brush), pattern: Some(Pattern { size, matrix: if matrix.is_finite() { matrix } else { Default::default() }, repeat }) })
+        Some(Style {
+            paint: acde_gpu::Paint::Image(brush),
+            pattern: Some(Pattern { size, matrix: if matrix.is_finite() { matrix } else { Default::default() }, repeat }),
+        })
     }
 
     fn put_image_data(&mut self, data: &[u8], (w, h): (u32, u32), at: Point, dirty: Rect) {
@@ -864,29 +837,29 @@ impl Canvas {
             _ => 0.0,
         };
         let squeeze = if max.is_finite() && max > 0.0 && width > max { max / width } else { 1.0 };
-        let transform = self.state.transform
-            * Affine::translate((at.x, at.y))
-            * Affine::scale_non_uniform(squeeze, 1.0)
-            * Affine::translate((dx, dy - baseline));
+        let transform =
+            self.state.transform * Affine::translate((at.x, at.y)) * Affine::scale_non_uniform(squeeze, 1.0) * Affine::translate((dx, dy - baseline));
         let paint = if stroke { self.state.stroke_paint.clone() } else { self.state.fill.clone() };
         let (brush, clip) = (paint.brush(Affine::IDENTITY), paint.clip(self.state.transform));
         let paint = paint.paint;
         let style = self.state.stroke.clone();
         let height = f64::from(line.metrics().line_height);
         let bounds = transform.transform_rect_bbox(Rect::new(0.0, 0.0, width, height)).inflate(style.width, style.width);
-        self.layered(bounds, |s| Self::clipped(s, clip.as_ref(), |s| {
-            for item in line.items() {
-                let parley::PositionedLayoutItem::GlyphRun(run) = item else { continue };
-                let glyphs = run.positioned_glyphs().map(|g| acde_gpu::Glyph { id: g.id as _, x: g.x, y: g.y });
-                let r = run.run();
-                let coords: &[i16] = bytemuck::cast_slice(r.normalized_coords());
-                let fill = Fill::NonZero;
-                match stroke {
-                    true => s.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, &style, &paint, 1.0, transform, brush, glyphs),
-                    false => s.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, fill, &paint, 1.0, transform, brush, glyphs),
+        self.layered(bounds, |s| {
+            Self::clipped(s, clip.as_ref(), |s| {
+                for item in line.items() {
+                    let parley::PositionedLayoutItem::GlyphRun(run) = item else { continue };
+                    let glyphs = run.positioned_glyphs().map(|g| acde_gpu::Glyph { id: g.id as _, x: g.x, y: g.y });
+                    let r = run.run();
+                    let coords: &[i16] = bytemuck::cast_slice(r.normalized_coords());
+                    let fill = Fill::NonZero;
+                    match stroke {
+                        true => s.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, &style, &paint, 1.0, transform, brush, glyphs),
+                        false => s.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, fill, &paint, 1.0, transform, brush, glyphs),
+                    }
                 }
-            }
-        }));
+            })
+        });
     }
 
     fn draw_image(&mut self, src: &Source, from: Rect, to: Rect) {

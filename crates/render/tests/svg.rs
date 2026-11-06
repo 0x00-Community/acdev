@@ -56,17 +56,7 @@ fn class_rules_reach_svg_children() {
     page.doc.set_attribute(body, "class", "ic").unwrap();
     page.doc.append_child(root, body).unwrap();
     let svg = page.svg(body, "svg", &[("viewBox", "0 0 100 100")]);
-    page.svg(
-        svg,
-        "rect",
-        &[
-            ("class", "mo"),
-            ("x", "10"),
-            ("y", "10"),
-            ("width", "80"),
-            ("height", "80"),
-        ],
-    );
+    page.svg(svg, "rect", &[("class", "mo"), ("x", "10"), ("y", "10"), ("width", "80"), ("height", "80")]);
     let (dark, red) = page.count(0, 0, 100, 100);
     assert!(dark < 50, "rect filled black: {dark} dark px");
     assert!(red > 500, "no red stroke: {red}");
@@ -77,17 +67,7 @@ fn text_with_var_font_is_drawn() {
     let page = Page::new(CSS);
     let root = page.doc.root().unwrap();
     let svg = page.svg(root, "svg", &[("viewBox", "0 0 100 100")]);
-    let text = page.svg(
-        svg,
-        "text",
-        &[
-            ("x", "50"),
-            ("y", "60"),
-            ("text-anchor", "middle"),
-            ("fill", "#000"),
-            ("style", "font: 700 40px var(--mono)"),
-        ],
-    );
+    let text = page.svg(svg, "text", &[("x", "50"), ("y", "60"), ("text-anchor", "middle"), ("fill", "#000"), ("style", "font: 700 40px var(--mono)")]);
     let t = page.doc.create_text("{}").unwrap();
     page.doc.append_child(text, t).unwrap();
     let (dark, _) = page.count(0, 0, 100, 100);
@@ -102,25 +82,17 @@ fn current_color_stroke_from_css() {
     page.doc.set_attribute(div, "class", "cc").unwrap();
     page.doc.append_child(root, div).unwrap();
     let svg = page.svg(div, "svg", &[("viewBox", "0 0 100 100")]);
-    page.svg(
-        svg,
-        "rect",
-        &[
-            ("class", "mo"),
-            ("x", "10"),
-            ("y", "10"),
-            ("width", "80"),
-            ("height", "80"),
-        ],
-    );
+    page.svg(svg, "rect", &[("class", "mo"), ("x", "10"), ("y", "10"), ("width", "80"), ("height", "80")]);
     let (dark, red) = page.count(0, 0, 100, 100);
     assert!(dark < 50 && red > 500, "dark {dark} red {red}");
 }
 
 #[test]
 fn spread_box_shadow_follows_border_radius() {
-    let page = Page::new("html, body { margin: 0; background: #fff; }
-        #d { position: absolute; left: 40px; top: 40px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 10px #f00; }");
+    let page = Page::new(
+        "html, body { margin: 0; background: #fff; }
+        #d { position: absolute; left: 40px; top: 40px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 10px #f00; }",
+    );
     let root = page.doc.root().unwrap();
     let d = page.doc.create_element("div").unwrap();
     page.doc.set_attribute(d, "id", "d").unwrap();
@@ -133,21 +105,19 @@ fn spread_box_shadow_follows_border_radius() {
 
 #[test]
 fn animation_none_clears_animated_value() {
-    let page = Page::new("html, body { margin: 0; background: #fff; }
+    let page = Page::new(
+        "html, body { margin: 0; background: #fff; }
         @keyframes p { from { background: #f00; } to { background: #f00; } }
         #d { position: absolute; left: 0; top: 0; width: 50px; height: 50px; background: #fff; animation: p 2s infinite; }
-        #d.off { animation: none; }");
+        #d.off { animation: none; }",
+    );
     let root = page.doc.root().unwrap();
     let d = page.doc.create_element("div").unwrap();
     page.doc.set_attribute(d, "id", "d").unwrap();
     page.doc.append_child(root, d).unwrap();
     assert!(page.count(0, 0, 50, 50).1 > 2000, "animation not running");
     page.doc.set_attribute(d, "class", "off").unwrap();
-    assert_eq!(
-        page.count(0, 0, 50, 50).1,
-        0,
-        "animated value stayed after animation: none"
-    );
+    assert_eq!(page.count(0, 0, 50, 50).1, 0, "animated value stayed after animation: none");
 }
 
 #[test]
@@ -169,33 +139,9 @@ fn zero_sized_shapes_are_skipped() {
     let page = Page::new(CSS);
     let root = page.doc.root().unwrap();
     let svg = page.svg(root, "svg", &[("viewBox", "0 0 100 100")]);
-    page.svg(
-        svg,
-        "circle",
-        &[("cx", "50"), ("cy", "50"), ("fill", "#00f")],
-    );
-    page.svg(
-        svg,
-        "rect",
-        &[
-            ("x", "10"),
-            ("y", "10"),
-            ("width", "0"),
-            ("height", "50"),
-            ("fill", "#00f"),
-        ],
-    );
-    page.svg(
-        svg,
-        "rect",
-        &[
-            ("x", "10"),
-            ("y", "10"),
-            ("width", "20"),
-            ("height", "20"),
-            ("fill", "#f00"),
-        ],
-    );
+    page.svg(svg, "circle", &[("cx", "50"), ("cy", "50"), ("fill", "#00f")]);
+    page.svg(svg, "rect", &[("x", "10"), ("y", "10"), ("width", "0"), ("height", "50"), ("fill", "#00f")]);
+    page.svg(svg, "rect", &[("x", "10"), ("y", "10"), ("width", "20"), ("height", "20"), ("fill", "#f00")]);
     let (_, red) = page.count(0, 0, 100, 100);
     assert!((350..=450).contains(&red), "{red} red px");
 }

@@ -58,9 +58,7 @@ fn legend_of_a_flex_fieldset_sits_on_the_border_not_in_the_row() {
 
 #[test]
 fn legend_of_a_block_fieldset_is_above_the_content() {
-    let doc = page(&format!(
-        "{FIELDSET}<fieldset id=f><legend id=l>Title</legend><div class=item id=a></div></fieldset>"
-    ));
+    let doc = page(&format!("{FIELDSET}<fieldset id=f><legend id=l>Title</legend><div class=item id=a></div></fieldset>"));
     let (f, l, a) = (rect(&doc, "f"), rect(&doc, "l"), rect(&doc, "a"));
     assert!(near(l.y, f.y), "{l:?} {f:?}");
     assert!(l.width < 100.0, "the legend shrinks to fit: {l:?}");

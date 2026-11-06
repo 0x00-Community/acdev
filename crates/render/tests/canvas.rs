@@ -100,9 +100,14 @@ fn transform_scales_shapes_and_stroke_width() {
     let page = Page::new();
     Ops::default()
         .op(3, &[2.0, 0.0, 0.0, 2.0, 0.0, 0.0])
-        .op(5, &[]).u8(0).op_args(&RED)
+        .op(5, &[])
+        .u8(0)
+        .op_args(&RED)
         .op(6, &[2.0])
-        .op(20, &[]).op(21, &[5.0, 20.0]).op(22, &[45.0, 20.0]).op(41, &[])
+        .op(20, &[])
+        .op(21, &[5.0, 20.0])
+        .op(22, &[45.0, 20.0])
+        .op(41, &[])
         .apply(&page.doc, page.canvas);
     let px = page.pixels();
     let column: Vec<bool> = (35..46).map(|y| Page::red(&px, 50, y)).collect();
@@ -121,8 +126,12 @@ fn clear_clip_and_alpha() {
     assert_eq!(Page::reds(&page.pixels()), 0);
     Ops::default()
         .op(1, &[])
-        .op(20, &[]).op(28, &[0.0, 0.0, 50.0, 50.0]).op(42, &[]).u8(0)
-        .fill_style(RED).fill_rect(0.0, 0.0, 100.0, 50.0)
+        .op(20, &[])
+        .op(28, &[0.0, 0.0, 50.0, 50.0])
+        .op(42, &[])
+        .u8(0)
+        .fill_style(RED)
+        .fill_rect(0.0, 0.0, 100.0, 50.0)
         .op(2, &[])
         .fill_rect(90.0, 0.0, 10.0, 10.0)
         .apply(&page.doc, page.canvas);
@@ -315,9 +324,14 @@ fn svg_path_strings_with_their_transform() {
     Ops::default()
         .fill_style(RED)
         .op(20, &[])
-        .op(31, &[]).str("M10 10 h20 v20 h-20 z").op_args(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0])
-        .op(31, &[]).str("M0 0 L10 0 L10 10 L0 10 Z").op_args(&[2.0, 0.0, 0.0, 1.0, 60.0, 20.0])
-        .op(40, &[]).u8(0)
+        .op(31, &[])
+        .str("M10 10 h20 v20 h-20 z")
+        .op_args(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+        .op(31, &[])
+        .str("M0 0 L10 0 L10 10 L0 10 Z")
+        .op_args(&[2.0, 0.0, 0.0, 1.0, 60.0, 20.0])
+        .op(40, &[])
+        .u8(0)
         .apply(&page.doc, page.canvas);
     let px = page.pixels();
     assert!(Page::red(&px, 20, 20) && Page::red(&px, 78, 25) && !Page::red(&px, 35, 20) && !Page::red(&px, 82, 25));
@@ -327,8 +341,11 @@ fn svg_path_strings_with_their_transform() {
         .op(3, &[2.0, 0.0, 0.0, 2.0, 0.0, 0.0])
         .fill_style(RED)
         .op(20, &[])
-        .op(31, &[]).str("M5 5 h10 v10 h-10 z M30 5 h10 L v10").op_args(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0])
-        .op(40, &[]).u8(0)
+        .op(31, &[])
+        .str("M5 5 h10 v10 h-10 z M30 5 h10 L v10")
+        .op_args(&[1.0, 0.0, 0.0, 1.0, 0.0, 0.0])
+        .op(40, &[])
+        .u8(0)
         .apply(&page.doc, page.canvas);
     let px = page.pixels();
     assert!(Page::red(&px, 20, 20) && !Page::red(&px, 70, 20));

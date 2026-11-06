@@ -151,18 +151,17 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: wgpu::Surface<'static>, size: (u32, 
             },
         ],
     });
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("acde compose"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
+    let pipeline_layout =
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("acde compose"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("acde compose"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
     let pipeline = make_pipeline(device, &pipeline_layout, &module, format);
-    let dump = std::env::var_os("ACDE_HOST_DUMP").map(|dir| (PathBuf::from(dir), make_pipeline(device, &pipeline_layout, &module, wgpu::TextureFormat::Rgba8Unorm)));
+    let dump =
+        std::env::var_os("ACDE_HOST_DUMP").map(|dir| (PathBuf::from(dir), make_pipeline(device, &pipeline_layout, &module, wgpu::TextureFormat::Rgba8Unorm)));
     let slots = 8;
     let places = places(device, slots);
     let (tx, rx) = mpsc::channel();
     let mut thread = Thread { gpu, surface, config, pipeline, layout, dump, dump_at: None, places, slots, pages: HashMap::new() };
-    let handle = std::thread::Builder::new()
-        .name("acde-compose".into())
-        .spawn(move || thread.run(&rx))
-        .map_err(|e| format!("合成线程: {e}"))?;
+    let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(move || thread.run(&rx)).map_err(|e| format!("合成线程: {e}"))?;
     Ok((Compositor(tx), handle))
 }
 
@@ -364,11 +363,8 @@ impl Thread {
             let _lock = gpu.shared.submit_lock();
             gpu.queue().submit([encoder.finish()]);
         }
-        let written = gpu
-            .shared
-            .read(&texture, [0, 0, w, h])
-            .and_then(|rgba| acde_render::encode_png(w, h, &rgba).ok_or_else(|| "png".to_owned()))
-            .and_then(|png| {
+        let written =
+            gpu.shared.read(&texture, [0, 0, w, h]).and_then(|rgba| acde_render::encode_png(w, h, &rgba).ok_or_else(|| "png".to_owned())).and_then(|png| {
                 let _ = std::fs::create_dir_all(dir);
                 std::fs::write(dir.join("screen.png"), png).map_err(|e| e.to_string())
             });

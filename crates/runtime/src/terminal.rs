@@ -1,6 +1,6 @@
-use crate::sync::Locked;
 use crate::failure::{Code, Failure, Outcome};
 use crate::js::JsFn;
+use crate::sync::Locked;
 use napi::bindgen_prelude::Unknown;
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi::{Env, Result};
@@ -122,10 +122,7 @@ impl Session {
     }
 
     fn emit(&self, events: Vec<Value>) {
-        let events: Vec<Value> = events
-            .into_iter()
-            .filter(|e| e["type"] != "output" || e["data"].as_str().is_some_and(|d| !d.is_empty()))
-            .collect();
+        let events: Vec<Value> = events.into_iter().filter(|e| e["type"] != "output" || e["data"].as_str().is_some_and(|d| !d.is_empty())).collect();
         if events.is_empty() {
             return;
         }
@@ -136,10 +133,7 @@ impl Session {
                     state.backlog_units += Self::units(&event);
                     state.backlog.push_back(event);
                 }
-                while state.backlog_units > BACKLOG_UNITS
-                    && state.backlog.len() > 1
-                    && state.backlog[0]["type"] == "output"
-                {
+                while state.backlog_units > BACKLOG_UNITS && state.backlog.len() > 1 && state.backlog[0]["type"] == "output" {
                     let dropped = state.backlog.pop_front().unwrap_or_default();
                     state.backlog_units -= Self::units(&dropped);
                 }
@@ -403,10 +397,7 @@ impl Terminals {
             pid,
             master: Mutex::new(Some(Arc::new(master))),
             wake,
-            state: Mutex::new(State {
-                deadlines: Deadlines { removal: Some(Instant::now() + ATTACH), kill: None },
-                ..State::default()
-            }),
+            state: Mutex::new(State { deadlines: Deadlines { removal: Some(Instant::now() + ATTACH), kill: None }, ..State::default() }),
             home,
         });
         self.registry.sessions().insert(session.id.clone(), Arc::clone(&session));
@@ -445,7 +436,9 @@ impl Terminals {
         Ok(json!({"id": self.start(cols, rows)?}))
     }
 
-    #[napi(ts_args_type = "id: string, callback: (events: Array<{ type: 'output', data: string } | { type: 'cwd', path: string } | { type: 'exit', code: number | null, signal: number | null }>) => void")]
+    #[napi(
+        ts_args_type = "id: string, callback: (events: Array<{ type: 'output', data: string } | { type: 'cwd', path: string } | { type: 'exit', code: number | null, signal: number | null }>) => void"
+    )]
     pub fn subscribe(&self, env: Env, id: String, callback: Unknown) -> Result<()> {
         let callback = Listener::Js(JsFn::new(&env, callback)?);
         Ok(self.attach(&id, callback)?)

@@ -1,39 +1,39 @@
 use smithay::backend::drm::DrmDeviceFd;
+use smithay::desktop::{PopupKind, PopupManager};
 use smithay::input::pointer::PointerHandle;
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode;
+use smithay::reexports::wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration::{Mode as KdeMode, OrgKdeKwinServerDecoration};
+use smithay::reexports::wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration_manager::Mode as KdeDefaultMode;
 use smithay::reexports::wayland_server::DisplayHandle;
+use smithay::reexports::wayland_server::WEnum;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::utils::Rectangle;
 use smithay::utils::{DeviceFd, Logical, Point};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::drm_syncobj::{DrmSyncobjHandler, DrmSyncobjState, supports_syncobj_eventfd};
 use smithay::wayland::fractional_scale::{FractionalScaleHandler, FractionalScaleManagerState, with_fractional_scale};
+use smithay::wayland::input_method::{InputMethodHandler, InputMethodManagerState, PopupSurface as ImePopup};
+use smithay::wayland::keyboard_shortcuts_inhibit::{KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor};
 use smithay::wayland::pointer_constraints::{PointerConstraintsHandler, PointerConstraintsState, with_pointer_constraint};
 use smithay::wayland::pointer_gestures::PointerGesturesState;
 use smithay::wayland::relative_pointer::RelativePointerManagerState;
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::selection::primary_selection::{PrimarySelectionHandler, PrimarySelectionState};
-use smithay::wayland::shell::xdg::ToplevelSurface;
-use smithay::reexports::wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration::{Mode as KdeMode, OrgKdeKwinServerDecoration};
-use smithay::reexports::wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration_manager::Mode as KdeDefaultMode;
-use smithay::reexports::wayland_server::WEnum;
 use smithay::wayland::shell::kde::decoration::{KdeDecorationHandler, KdeDecorationState};
+use smithay::wayland::shell::xdg::ToplevelSurface;
 use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorationState};
-use smithay::wayland::single_pixel_buffer::SinglePixelBufferState;
-use smithay::wayland::viewporter::ViewporterState;
-use smithay::desktop::{PopupKind, PopupManager};
-use smithay::utils::Rectangle;
-use smithay::wayland::input_method::{InputMethodHandler, InputMethodManagerState, PopupSurface as ImePopup};
-use smithay::wayland::text_input::TextInputManagerState;
-use smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState;
-use smithay::wayland::keyboard_shortcuts_inhibit::{KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor};
 use smithay::wayland::shell::xdg::dialog::{XdgDialogHandler, XdgDialogState};
+use smithay::wayland::single_pixel_buffer::SinglePixelBufferState;
+use smithay::wayland::text_input::TextInputManagerState;
+use smithay::wayland::viewporter::ViewporterState;
+use smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState;
 use smithay::wayland::xdg_activation::{XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData};
 use smithay::{
-    delegate_cursor_shape, delegate_drm_syncobj, delegate_fractional_scale, delegate_pointer_constraints,
-    delegate_pointer_gestures, delegate_primary_selection, delegate_relative_pointer, delegate_single_pixel_buffer,
-    delegate_input_method_manager, delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager,
-    delegate_kde_decoration, delegate_keyboard_shortcuts_inhibit, delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_dialog,
+    delegate_cursor_shape, delegate_drm_syncobj, delegate_fractional_scale, delegate_input_method_manager, delegate_kde_decoration,
+    delegate_keyboard_shortcuts_inhibit, delegate_pointer_constraints, delegate_pointer_gestures, delegate_primary_selection, delegate_relative_pointer,
+    delegate_single_pixel_buffer, delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
+    delegate_xdg_decoration, delegate_xdg_dialog,
 };
 
 use super::Compositor;
@@ -173,12 +173,8 @@ impl PointerConstraintsHandler for Compositor {
         if !active {
             return;
         }
-        let origin = self
-            .space
-            .elements()
-            .find(|w| w.wl_surface().as_deref() == Some(surface))
-            .and_then(|w| self.space.element_location(w))
-            .unwrap_or_default();
+        let origin =
+            self.space.elements().find(|w| w.wl_surface().as_deref() == Some(surface)).and_then(|w| self.space.element_location(w)).unwrap_or_default();
         pointer.set_location(origin.to_f64() + location);
     }
 }
@@ -199,11 +195,7 @@ impl InputMethodHandler for Compositor {
     }
 
     fn parent_geometry(&self, parent: &WlSurface) -> Rectangle<i32, Logical> {
-        self.space
-            .elements()
-            .find(|w| w.wl_surface().as_deref() == Some(parent))
-            .map(|w| w.geometry())
-            .unwrap_or_default()
+        self.space.elements().find(|w| w.wl_surface().as_deref() == Some(parent)).map(|w| w.geometry()).unwrap_or_default()
     }
 }
 

@@ -1,5 +1,5 @@
-use crate::sync::Locked;
 use crate::failure::{Failure, Outcome};
+use crate::sync::Locked;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
 use hmac::{Hmac, KeyInit, Mac};

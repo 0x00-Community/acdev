@@ -100,18 +100,28 @@ impl Passes {
 
     fn new(gpu: &Gpu) -> Self {
         let device = &gpu.device;
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("acde canvas present"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
+        let module =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("acde canvas present"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("acde canvas present"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
                 count: None,
             }],
         });
-        let with_source = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("acde canvas present"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
-        let none = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("acde canvas present"), bind_group_layouts: &[], immediate_size: 0 });
+        let with_source = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("acde canvas present"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let none =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("acde canvas present"), bind_group_layouts: &[], immediate_size: 0 });
         let pipeline = |entry: &str, layout: &wgpu::PipelineLayout, write_mask: wgpu::ColorWrites| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("acde canvas present"),
@@ -144,7 +154,12 @@ fn pass(encoder: &mut wgpu::CommandEncoder, target: &wgpu::Texture, load: bool, 
     let load = if load { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) };
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("acde canvas"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load, store: wgpu::StoreOp::Store } })],
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+        })],
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
@@ -413,7 +428,10 @@ impl Readback {
         let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde canvas read") });
         encoder.copy_texture_to_buffer(
             texture.as_image_copy(),
-            wgpu::TexelCopyBufferInfo { buffer: &buffer, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(height) } },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(height) },
+            },
             texture.size(),
         );
         let index = gpu.submit([encoder.finish()]);

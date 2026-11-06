@@ -7,9 +7,9 @@ use smithay::desktop::utils::{
     update_surface_primary_scanout_output,
 };
 use smithay::input::pointer::CursorImageStatus;
-use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback::Kind;
 use smithay::reexports::calloop::RegistrationToken;
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback::Kind;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
 use smithay::utils::{Clock, Monotonic, Time};
@@ -176,10 +176,8 @@ impl Compositor {
                 waiting = true;
                 Self::note_client(&mut clients, surface);
             }
-            waiting |= surface_states
-                .data_map
-                .get::<CommitTimerBarrierStateUserData>()
-                .is_some_and(|t| t.lock().expect("commit timer 锁").next_deadline().is_some());
+            waiting |=
+                surface_states.data_map.get::<CommitTimerBarrierStateUserData>().is_some_and(|t| t.lock().expect("commit timer 锁").next_deadline().is_some());
         };
         for window in self.space.elements() {
             window.with_surfaces(&mut signal);

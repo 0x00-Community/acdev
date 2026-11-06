@@ -314,8 +314,10 @@ impl Compositor {
             }
             Request::Launch { argv, cwd, env, callback } => {
                 let callback = data_init.init(callback, ());
-                let strings = |bytes: &[u8]| bytes.split(|b| *b == 0).filter(|s| !s.is_empty()).map(|s| String::from_utf8_lossy(s).into_owned()).collect::<Vec<_>>();
-                let env: Vec<(String, String)> = strings(&env).into_iter().filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.to_owned(), v.to_owned()))).collect();
+                let strings =
+                    |bytes: &[u8]| bytes.split(|b| *b == 0).filter(|s| !s.is_empty()).map(|s| String::from_utf8_lossy(s).into_owned()).collect::<Vec<_>>();
+                let env: Vec<(String, String)> =
+                    strings(&env).into_iter().filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.to_owned(), v.to_owned()))).collect();
                 Self::answer(&callback, self.launch(&strings(&argv), &cwd, &env).map(|pid| (pid, 0)).map_err(|e| e.to_string()));
                 return;
             }
@@ -357,4 +359,3 @@ macro_rules! replies {
 }
 
 replies!(AcdeShellList, AcdeShellStats, AcdeShellResult);
-

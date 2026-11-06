@@ -85,19 +85,12 @@ impl Check {
             if a != b {
                 changed += 1;
                 let (x, y) = ((i as u32 % W) as f64 + 0.5, (i as u32 / W) as f64 + 0.5);
-                let inside =
-                    |r: &Rect| x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
-                assert!(
-                    rects.iter().any(inside),
-                    "{what}: pixel ({x}, {y}) changed outside damage {rects:?}"
-                );
+                let inside = |r: &Rect| x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+                assert!(rects.iter().any(inside), "{what}: pixel ({x}, {y}) changed outside damage {rects:?}");
                 assert!(inside(&damage));
             }
         }
-        eprintln!(
-            "{what}: {changed} px changed, damage {damage:?} in {} rects",
-            rects.len()
-        );
+        eprintln!("{what}: {changed} px changed, damage {damage:?} in {} rects", rects.len());
         self.last = now;
         (damage, rects)
     }
@@ -118,11 +111,7 @@ fn small(damage: Rect) -> bool {
 fn damage_covers_every_changed_pixel() {
     let doc = Doc::new(W, H, 1.0, &Options::default()).unwrap();
     let handle = doc.handle();
-    let mut c = Check {
-        doc,
-        handle,
-        last: vec![0; (W * H * 4) as usize],
-    };
+    let mut c = Check { doc, handle, last: vec![0; (W * H * 4) as usize] };
     c.doc.add_stylesheet(CSS).unwrap();
     let body = c.el("body", c.doc.root().unwrap(), "");
     let bar = c.el("div", body, "bar");
@@ -149,9 +138,7 @@ fn damage_covers_every_changed_pixel() {
     c.doc.set_attribute(p2, "class", "hot").unwrap();
     assert!(small(c.step("color")));
 
-    c.doc
-        .set_attribute(tabs[1], "style", "width: 80px")
-        .unwrap();
+    c.doc.set_attribute(tabs[1], "style", "width: 80px").unwrap();
     assert!(small(c.step("flex reflow")));
 
     c.handle.scroll_at(300.0, 100.0, 0.0, 25.0);
@@ -167,19 +154,14 @@ fn damage_covers_every_changed_pixel() {
         assert!(small(c.step("transition")));
     }
 
-    c.doc
-        .set_attribute(blurred, "style", "margin-left: 10px")
-        .unwrap();
+    c.doc.set_attribute(blurred, "style", "margin-left: 10px").unwrap();
     assert!(small(c.step("inside blur")));
 
     c.doc.set_text(text, "far apart").unwrap();
     c.handle.pointer(395.0, 295.0);
     let (union, rects) = c.step_rects("two far apart changes");
     let area: f64 = rects.iter().map(|r| r.width * r.height).sum();
-    assert!(
-        rects.len() >= 2 && area < union.width * union.height / 2.0,
-        "{rects:?} vs {union:?}"
-    );
+    assert!(rects.len() >= 2 && area < union.width * union.height / 2.0, "{rects:?} vs {union:?}");
 
     c.doc.set_attribute(p2, "class", "hot").unwrap();
     let none = c.step("no-op");
@@ -191,12 +173,13 @@ fn reordering_overlapping_boxes_is_damage() {
     let doc = Doc::new(W, H, 1.0, &Options::default()).unwrap();
     let handle = doc.handle();
     let mut c = Check { doc, handle, last: vec![0; (W * H * 4) as usize] };
-    c.doc.add_stylesheet(
-        "html, body { margin: 0 } .a, .b { position: absolute; width: 80px; height: 80px }
+    c.doc
+        .add_stylesheet(
+            "html, body { margin: 0 } .a, .b { position: absolute; width: 80px; height: 80px }
          .a { left: 20px; top: 20px; background: #f00; z-index: 1 } .b { left: 60px; top: 60px; background: #00f; z-index: 2 }
          .a.up { z-index: 3 }",
-    )
-    .unwrap();
+        )
+        .unwrap();
     let body = c.el("body", c.doc.root().unwrap(), "");
     let a = c.el("div", body, "a");
     c.el("div", body, "b");

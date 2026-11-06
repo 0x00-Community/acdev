@@ -142,7 +142,21 @@ impl MediaStream {
             None => scan_duration(bytes.clone()).unwrap_or(f64::NAN),
         };
         let (rate, channels) = (o.rate, o.channels);
-        let mut stream = MediaStream { bytes, o, rate, channels, duration, queue: VecDeque::new(), frac: 0.0, base: 0.0, played: 0, skip: 0, eof: false, pad: 0, packet: Vec::new() };
+        let mut stream = MediaStream {
+            bytes,
+            o,
+            rate,
+            channels,
+            duration,
+            queue: VecDeque::new(),
+            frac: 0.0,
+            base: 0.0,
+            played: 0,
+            skip: 0,
+            eof: false,
+            pad: 0,
+            packet: Vec::new(),
+        };
         stream.reset_queue();
         Ok(stream)
     }

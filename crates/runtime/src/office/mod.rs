@@ -6,11 +6,11 @@ mod sessions;
 mod settings;
 mod tokens;
 
-use crate::sync::Locked;
 use crate::failure::{Failure, Outcome};
 use crate::fields::Fields;
 use crate::fs::path::NodePath;
 use crate::js::JsText;
+use crate::sync::Locked;
 use blank::BlankKind;
 use bridge::Handlers;
 use docserver::DocumentServer;
@@ -69,9 +69,8 @@ impl Service {
         };
         let server = DocumentServer::new(&self.settings.document_server, credentials, problem);
         let url = server.url.clone();
-        let mut value = Service::wait(move || async move { server.status().await }).unwrap_or_else(|failure| {
-            json!({"ok": false, "url": url, "version": null, "problem": "unreachable", "message": failure.message})
-        });
+        let mut value = Service::wait(move || async move { server.status().await })
+            .unwrap_or_else(|failure| json!({"ok": false, "url": url, "version": null, "problem": "unreachable", "message": failure.message}));
         if value["ok"] == true
             && let Some(error) = self.bridge_error.locked().clone()
         {

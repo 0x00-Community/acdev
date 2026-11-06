@@ -216,24 +216,14 @@ impl State {
     fn token() -> u64 {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        std::collections::hash_map::RandomState::new().hash_one((n, acde_log::now_ms().to_bits()))
-            | 1
+        std::collections::hash_map::RandomState::new().hash_one((n, acde_log::now_ms().to_bits())) | 1
     }
 
     fn centered(&self, [w, h]: [f64; 2]) -> [f64; 4] {
         let [sw, sh, _] = self.screen;
-        let shown = self
-            .entries
-            .values()
-            .filter(|e| !e.desktop && !e.panel)
-            .count() as f64;
+        let shown = self.entries.values().filter(|e| !e.desktop && !e.panel).count() as f64;
         let (w, h) = (w.min(sw.max(320.0)), h.min(sh.max(240.0)));
-        [
-            ((sw - w) / 2.0 + shown * 32.0).max(0.0),
-            ((sh - h) / 2.0 + shown * 32.0).max(0.0),
-            w,
-            h,
-        ]
+        [((sw - w) / 2.0 + shown * 32.0).max(0.0), ((sh - h) / 2.0 + shown * 32.0).max(0.0), w, h]
     }
 }
 
@@ -274,19 +264,13 @@ impl Shell {
             state.next += 1;
             id
         };
-        let mode = grant.mode.unwrap_or(if grant.desktop {
-            Mode::Fullscreen
-        } else {
-            Mode::Free
-        });
+        let mode = grant.mode.unwrap_or(if grant.desktop { Mode::Fullscreen } else { Mode::Free });
         let placed = grant.rect.is_some();
         let rect = if grant.desktop {
             let [w, h, _] = state.screen;
             [0.0, 0.0, w, h]
         } else {
-            grant
-                .rect
-                .unwrap_or_else(|| state.centered(grant.size.unwrap_or(DEFAULT_SIZE)))
+            grant.rect.unwrap_or_else(|| state.centered(grant.size.unwrap_or(DEFAULT_SIZE)))
         };
         let token = State::token();
         state.tokens.insert(token, id);
@@ -321,11 +305,7 @@ impl Shell {
     pub fn release(&self, window: u32) {
         let mut state = self.state();
         state.tokens.retain(|_, w| *w != window);
-        if state
-            .entries
-            .get(&window)
-            .is_some_and(|e| !e.opened && e.link.is_none())
-        {
+        if state.entries.get(&window).is_some_and(|e| !e.opened && e.link.is_none()) {
             state.entries.remove(&window);
         }
     }
@@ -413,14 +393,7 @@ impl Shell {
             .entries
             .iter()
             .filter(|(_, e)| e.opened || e.panel)
-            .map(|(&id, e)| WindowInfo {
-                id,
-                mode: e.mode,
-                rect: e.rect,
-                z: e.z,
-                focus: state.focus == Some(id),
-                hidden: e.hidden,
-            })
+            .map(|(&id, e)| WindowInfo { id, mode: e.mode, rect: e.rect, z: e.z, focus: state.focus == Some(id), hidden: e.hidden })
             .collect();
         list.sort_by_key(|w| (w.id != 0, w.z));
         list
@@ -434,16 +407,9 @@ impl Shell {
         let combo = Combo::parse(text, key_code)?;
         let scope: Scope = scope.parse()?;
         let mut state = self.state();
-        let binding = Binding {
-            combo,
-            scope,
-            owner,
-        };
+        let binding = Binding { combo, scope, owner };
         if on {
-            state
-                .shortcuts
-                .register(binding)
-                .map_err(|e| e.to_string())?;
+            state.shortcuts.register(binding).map_err(|e| e.to_string())?;
             state.names.insert(combo, text.to_owned());
             Ok(())
         } else {
@@ -454,40 +420,22 @@ impl Shell {
 
     pub fn animate(&self, window: u32) {
         if let Some(s) = server() {
-            s.broker.push(Event {
-                kind: "windowanimated".into(),
-                window: Some(window),
-                ..Default::default()
-            });
+            s.broker.push(Event { kind: "windowanimated".into(), window: Some(window), ..Default::default() });
         }
     }
 
-    pub fn launch(
-        &self,
-        argv: &[String],
-        cwd: Option<&str>,
-        env: &[(String, String)],
-    ) -> Result<u32, String> {
+    pub fn launch(&self, argv: &[String], cwd: Option<&str>, env: &[(String, String)]) -> Result<u32, String> {
         let (program, args) = argv.split_first().ok_or("launch: no program")?;
         let mut command = std::process::Command::new(program);
         command.args(args).envs(env.iter().map(|(k, v)| (k, v)));
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }
-        command
-            .spawn()
-            .map(|child| child.id())
-            .map_err(|e| format!("launch {program}: {e}"))
+        command.spawn().map(|child| child.id()).map_err(|e| format!("launch {program}: {e}"))
     }
 
     pub fn stats(&self) -> Vec<(&'static str, f64)> {
         let state = self.state();
-        vec![
-            ("frames", state.frames as f64),
-            (
-                "windows",
-                state.entries.values().filter(|e| e.opened).count() as f64,
-            ),
-        ]
+        vec![("frames", state.frames as f64), ("windows", state.entries.values().filter(|e| e.opened).count() as f64)]
     }
 }

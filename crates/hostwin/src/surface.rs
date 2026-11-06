@@ -313,6 +313,14 @@ impl Drop for Surface {
             return;
         }
         let [x, y, w, h] = entry.before_fullscreen.unwrap_or(entry.rect);
-        server.broker.push(Event { kind: "windowgone".into(), window: Some(self.window), x: Some(x), y: Some(y), width: Some(w), height: Some(h), ..Default::default() });
+        server.broker.push(Event {
+            kind: "windowgone".into(),
+            window: Some(self.window),
+            x: Some(x),
+            y: Some(y),
+            width: Some(w),
+            height: Some(h),
+            ..Default::default()
+        });
     }
 }

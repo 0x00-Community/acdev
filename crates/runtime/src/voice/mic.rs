@@ -73,11 +73,10 @@ fn capture(id: u32, pcm: async_channel::Sender<Vec<u8>>, ready: async_channel::S
         let mut position = [0; spa::param::audio::MAX_CHANNELS];
         position[0] = spa::sys::SPA_AUDIO_CHANNEL_MONO;
         info.set_position(position);
-        let object = spa::pod::Value::Object(spa::pod::Object { type_: spa::sys::SPA_TYPE_OBJECT_Format, id: spa::sys::SPA_PARAM_EnumFormat, properties: info.into() });
-        let bytes = spa::pod::serialize::PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &object)
-            .map_err(|_| pw::Error::CreationFailed)?
-            .0
-            .into_inner();
+        let object =
+            spa::pod::Value::Object(spa::pod::Object { type_: spa::sys::SPA_TYPE_OBJECT_Format, id: spa::sys::SPA_PARAM_EnumFormat, properties: info.into() });
+        let bytes =
+            spa::pod::serialize::PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &object).map_err(|_| pw::Error::CreationFailed)?.0.into_inner();
         let pod = spa::pod::Pod::from_bytes(&bytes).ok_or(pw::Error::CreationFailed)?;
         stream.connect(spa::utils::Direction::Input, None, pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS, &mut [pod])?;
         let (quit, stop) = pw::channel::channel();

@@ -2,7 +2,8 @@ use std::io::Write;
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-const DEFAULT: &str = "warn,acdert=info,acde_log=info,acde_napi=info,acde_render=info,acde_runtime=info,acde_shell=info,acde_host=info,js=info,usvg=error,tracing::span=off";
+const DEFAULT: &str =
+    "warn,acdert=info,acde_log=info,acde_napi=info,acde_render=info,acde_runtime=info,acde_shell=info,acde_host=info,js=info,usvg=error,tracing::span=off";
 const LIMIT: usize = 8 << 20;
 
 static START: OnceLock<Instant> = OnceLock::new();

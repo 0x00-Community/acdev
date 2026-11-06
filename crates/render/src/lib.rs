@@ -1,7 +1,7 @@
 mod canvas;
 mod capture;
-mod commands;
 mod caret;
+mod commands;
 mod damage;
 mod decoration;
 mod dom;
@@ -65,23 +65,13 @@ pub struct Rect {
 
 impl From<kurbo::Rect> for Rect {
     fn from(r: kurbo::Rect) -> Self {
-        Self {
-            x: r.x0,
-            y: r.y0,
-            width: r.width(),
-            height: r.height(),
-        }
+        Self { x: r.x0, y: r.y0, width: r.width(), height: r.height() }
     }
 }
 
 impl From<BoundingRect> for Rect {
     fn from(r: BoundingRect) -> Self {
-        Self {
-            x: r.x,
-            y: r.y,
-            width: r.width,
-            height: r.height,
-        }
+        Self { x: r.x, y: r.y, width: r.width, height: r.height }
     }
 }
 
@@ -95,12 +85,7 @@ impl Rect {
                 let (x, y) = (self.x.min(o.x), self.y.min(o.y));
                 let right = (self.x + self.width).max(o.x + o.width);
                 let bottom = (self.y + self.height).max(o.y + o.height);
-                Rect {
-                    x,
-                    y,
-                    width: right - x,
-                    height: bottom - y,
-                }
+                Rect { x, y, width: right - x, height: bottom - y }
             }
         }
     }
@@ -347,12 +332,8 @@ impl Document {
         std::thread::Builder::new()
             .name("acde-render".into())
             .spawn(move || {
-                let engine = catch_unwind(AssertUnwindSafe(|| {
-                    Engine::new(width, height, scale, &options)
-                }))
-                .unwrap_or_else(|_| {
-                    Err(Error::new("render: panicked while creating the document"))
-                });
+                let engine = catch_unwind(AssertUnwindSafe(|| Engine::new(width, height, scale, &options)))
+                    .unwrap_or_else(|_| Err(Error::new("render: panicked while creating the document")));
                 match engine {
                     Ok(engine) => {
                         let shared = Arc::new(Shared {
@@ -371,24 +352,16 @@ impl Document {
                 }
             })
             .map_err(|e| Error::new(format!("render: spawn thread: {e}")))?;
-        let shared = started
-            .recv()
-            .map_err(|_| Error::new("render: thread exited"))??;
+        let shared = started.recv().map_err(|_| Error::new("render: thread exited"))??;
         Ok(Self { shared, wake })
     }
 
     pub fn dom(&self) -> Dom {
-        Dom {
-            shared: self.shared.clone(),
-            wake: self.wake.clone(),
-        }
+        Dom { shared: self.shared.clone(), wake: self.wake.clone() }
     }
 
     pub fn handle(&self) -> RenderHandle {
-        RenderHandle {
-            shared: self.shared.clone(),
-            wake: self.wake.clone(),
-        }
+        RenderHandle { shared: self.shared.clone(), wake: self.wake.clone() }
     }
 
     pub fn sync(&self) {
@@ -398,12 +371,10 @@ impl Document {
     }
 
     pub fn scene(&self) -> acde_gpu::Scene {
-        self.shared
-            .call(&self.wake, |engine| Ok(engine.scene()))
-            .unwrap_or_else(|e| {
-                log::error!("{e}");
-                acde_gpu::Scene::new()
-            })
+        self.shared.call(&self.wake, |engine| Ok(engine.scene())).unwrap_or_else(|e| {
+            log::error!("{e}");
+            acde_gpu::Scene::new()
+        })
     }
 }
 

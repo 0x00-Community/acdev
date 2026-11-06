@@ -188,10 +188,7 @@ impl PwOutput {
     fn run(self) {
         let PwOutput { main, _context, core, rx, tx } = self;
         let webs: RefCell<HashMap<u64, Web<PwStream>>> = RefCell::default();
-        let _errors = core
-            .add_listener_local()
-            .error(|id, _seq, res, message| log::warn!("PipeWire error {res} (object {id}): {message}"))
-            .register();
+        let _errors = core.add_listener_local().error(|id, _seq, res, message| log::warn!("PipeWire error {res} (object {id}): {message}")).register();
         let stream_core = core.clone();
         let _rx = rx.attach(main.loop_(), move |ctl| {
             let mut webs = webs.borrow_mut();
@@ -251,11 +248,9 @@ fn pw_stream(core: &pw::core::CoreRc, ctl: &pw::channel::Sender<Ctl>, id: u64, w
     position[0] = spa::sys::SPA_AUDIO_CHANNEL_FL;
     position[1] = spa::sys::SPA_AUDIO_CHANNEL_FR;
     info.set_position(position);
-    let object = spa::pod::Value::Object(spa::pod::Object { type_: spa::sys::SPA_TYPE_OBJECT_Format, id: spa::sys::SPA_PARAM_EnumFormat, properties: info.into() });
-    let bytes = spa::pod::serialize::PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &object)
-        .map_err(|_| pw::Error::CreationFailed)?
-        .0
-        .into_inner();
+    let object =
+        spa::pod::Value::Object(spa::pod::Object { type_: spa::sys::SPA_TYPE_OBJECT_Format, id: spa::sys::SPA_PARAM_EnumFormat, properties: info.into() });
+    let bytes = spa::pod::serialize::PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &object).map_err(|_| pw::Error::CreationFailed)?.0.into_inner();
     let pod = spa::pod::Pod::from_bytes(&bytes).ok_or(pw::Error::CreationFailed)?;
     stream.connect(spa::utils::Direction::Output, None, pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS, &mut [pod])?;
     Ok(PwStream { _listener: listener, _stream: stream })

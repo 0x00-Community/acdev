@@ -105,11 +105,7 @@ impl NodePath for str {
             }
         }
         match (start_dot, end) {
-            (Some(dot), Some(end))
-                if pre_dot != 0 && !(pre_dot == 1 && dot + 1 == end && dot == start_part + 1) =>
-            {
-                &self[dot..end]
-            }
+            (Some(dot), Some(end)) if pre_dot != 0 && !(pre_dot == 1 && dot + 1 == end && dot == start_part + 1) => &self[dot..end],
             _ => "",
         }
     }

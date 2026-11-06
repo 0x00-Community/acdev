@@ -2,14 +2,10 @@ use blitz_dom::{BaseDocument, Node, NodeData, NodeId, ns};
 
 use crate::tree::Ids;
 
-const VOID: &[&str] = &[
-    "area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input", "keygen", "link",
-    "meta", "param", "source", "track", "wbr",
-];
+const VOID: &[&str] =
+    &["area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input", "keygen", "link", "meta", "param", "source", "track", "wbr"];
 
-const RAW_TEXT: &[&str] = &[
-    "style", "script", "xmp", "iframe", "noembed", "noframes", "plaintext", "noscript",
-];
+const RAW_TEXT: &[&str] = &["style", "script", "xmp", "iframe", "noembed", "noframes", "plaintext", "noscript"];
 
 pub(crate) struct Serializer<'a> {
     pub(crate) doc: &'a BaseDocument,
@@ -44,9 +40,7 @@ impl Serializer<'_> {
             },
             None => n,
         };
-        let raw = n
-            .element_data()
-            .is_some_and(|e| e.name.ns == ns!(html) && RAW_TEXT.contains(&&*e.name.local));
+        let raw = n.element_data().is_some_and(|e| e.name.ns == ns!(html) && RAW_TEXT.contains(&&*e.name.local));
         for &child in &n.children {
             if let Some(c) = self.doc.get_node(child) {
                 self.node(c, Some(raw), out);
@@ -115,10 +109,7 @@ impl Serializer<'_> {
     }
 
     fn parent_raw(&self, n: &Node) -> bool {
-        n.parent
-            .and_then(|p| self.doc.get_node(p))
-            .and_then(|p| p.element_data())
-            .is_some_and(|e| e.name.ns == ns!(html) && RAW_TEXT.contains(&&*e.name.local))
+        n.parent.and_then(|p| self.doc.get_node(p)).and_then(|p| p.element_data()).is_some_and(|e| e.name.ns == ns!(html) && RAW_TEXT.contains(&&*e.name.local))
     }
 }
 

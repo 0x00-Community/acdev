@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use acde_model::{Event, Inbox};
 use acde_gpu::{Images, Overrides, VelloScene, vello, wgpu};
 use acde_gpu::{PaintScene, Scene};
+use acde_model::{Event, Inbox};
 use acde_render::{Bar, Decoration, Plane, RenderHandle};
 use vello::kurbo::Affine;
 use vello::peniko::Color;
@@ -40,8 +40,18 @@ pub(crate) struct Presenter {
 
 impl Presenter {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(id: u32, gpu: Arc<Gpu>, size: (u32, u32), scale: f64, refresh: Option<f64>, bar: Bar, render: RenderHandle, inbox: Arc<Inbox>) -> Result<Self, String> {
-        let options = vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None };
+    pub fn new(
+        id: u32,
+        gpu: Arc<Gpu>,
+        size: (u32, u32),
+        scale: f64,
+        refresh: Option<f64>,
+        bar: Bar,
+        render: RenderHandle,
+        inbox: Arc<Inbox>,
+    ) -> Result<Self, String> {
+        let options =
+            vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None };
         let vello = vello::Renderer::new(gpu.device(), options).map_err(|e| format!("vello: {e}"))?;
         let overrides = Overrides::from(gpu.shared.images.clone());
         let hz = refresh.filter(|hz| *hz > 1.0).unwrap_or(DEFAULT_HZ);
@@ -177,11 +187,7 @@ impl Presenter {
     }
 
     fn scenes(plane: &Plane, place: Affine) -> Vec<(Scene, Affine)> {
-        if plane.layers.is_empty() {
-            vec![(plane.scene(), place)]
-        } else {
-            plane.layers.iter().map(|l| (l.scene(), place)).collect()
-        }
+        if plane.layers.is_empty() { vec![(plane.scene(), place)] } else { plane.layers.iter().map(|l| (l.scene(), place)).collect() }
     }
 
     fn paint(&mut self) {

@@ -1,12 +1,12 @@
+use smithay::backend::input::PointerMotionEvent;
 use smithay::backend::input::{
-    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event as _, InputBackend, InputEvent, KeyState,
-    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event as _, InputBackend, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
+    PointerButtonEvent,
 };
 use smithay::input::keyboard::FilterResult;
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerHandle, RelativeMotionEvent};
-use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_constraint};
-use smithay::backend::input::PointerMotionEvent;
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
+use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_constraint};
 
 use smithay::input::keyboard::keysyms;
 
@@ -167,7 +167,9 @@ impl Compositor {
                 let size = smithay::wayland::compositor::with_states(&surface, |s| {
                     s.data_map.get::<smithay::backend::renderer::utils::RendererSurfaceStateUserData>().and_then(|d| d.lock().ok()?.surface_size())
                 });
-                let pos = size.map_or(pos, |size| (pos.x.clamp(origin.x, origin.x + f64::from(size.w) - 1.0), pos.y.clamp(origin.y, origin.y + f64::from(size.h) - 1.0)).into());
+                let pos = size.map_or(pos, |size| {
+                    (pos.x.clamp(origin.x, origin.x + f64::from(size.w) - 1.0), pos.y.clamp(origin.y, origin.y + f64::from(size.h) - 1.0)).into()
+                });
                 let under = Some((surface, origin));
                 pointer.motion(self, under, &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time });
             }
@@ -231,7 +233,10 @@ impl Compositor {
     }
 
     fn mods(m: &ModifiersState) -> u8 {
-        [(m.ctrl, Combo::CTRL), (m.alt, Combo::ALT), (m.shift, Combo::SHIFT), (m.logo, Combo::SUPER)].into_iter().filter(|(on, _)| *on).fold(0, |a, (_, bit)| a | bit)
+        [(m.ctrl, Combo::CTRL), (m.alt, Combo::ALT), (m.shift, Combo::SHIFT), (m.logo, Combo::SUPER)]
+            .into_iter()
+            .filter(|(on, _)| *on)
+            .fold(0, |a, (_, bit)| a | bit)
     }
 
     fn combo(text: &str) -> Result<Combo, String> {

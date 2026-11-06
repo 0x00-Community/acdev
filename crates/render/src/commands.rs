@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use acde_gpu::Scene;
 use acde_gpu::RenderCommand;
+use acde_gpu::Scene;
 use blitz_paint::Piece;
 use kurbo::Affine;
 

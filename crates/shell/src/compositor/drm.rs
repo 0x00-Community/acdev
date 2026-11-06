@@ -2,18 +2,18 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use smithay::backend::allocator::Fourcc;
+use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::FrameFlags;
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::output::{DrmOutput, DrmOutputManager, DrmOutputRenderElements};
-use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent, DrmNode, DrmSurface, NodeType};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
-use smithay::backend::renderer::element::{RenderElement, RenderElementStates, UnderlyingStorage};
-use smithay::backend::renderer::utils::Buffer;
 use smithay::backend::renderer::element::utils::select_dmabuf_feedback;
+use smithay::backend::renderer::element::{RenderElement, RenderElementStates, UnderlyingStorage};
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::utils::Buffer;
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::desktop::utils::{OutputPresentationFeedback, surface_primary_scanout_output};
@@ -27,8 +27,8 @@ use smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_li
 use smithay::utils::DeviceFd;
 use smithay::wayland::dmabuf::{DmabufFeedback, DmabufFeedbackBuilder};
 
-use super::backend::{Backend, CLEAR, Elements, Target};
 use super::Compositor;
+use super::backend::{Backend, CLEAR, Elements, Target};
 
 type Manager = DrmOutputManager<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, Option<OutputPresentationFeedback>, DrmDeviceFd>;
 type Surface = DrmOutput<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, Option<OutputPresentationFeedback>, DrmDeviceFd>;
@@ -58,7 +58,8 @@ struct ScreenFeedback {
 impl ScreenFeedback {
     fn new(display: DrmNode, render: DrmNode, render_formats: &FormatSet, surface: &DrmSurface) -> Option<Self> {
         let planes = surface.planes();
-        let scanout: FormatSet = planes.primary.iter().chain(&planes.overlay).flat_map(|p| p.formats.iter().copied()).filter(|f| render_formats.contains(f)).collect();
+        let scanout: FormatSet =
+            planes.primary.iter().chain(&planes.overlay).flat_map(|p| p.formats.iter().copied()).filter(|f| render_formats.contains(f)).collect();
         let builder = || DmabufFeedbackBuilder::new(render.dev_id(), render_formats.iter().copied());
         let built = (builder().build(), builder().add_preference_tranche(display.dev_id(), Some(TrancheFlags::Scanout), scanout).build());
         match built {
@@ -156,7 +157,8 @@ impl DrmTarget {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            let owned = session.open(path, OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK).map_err(|e| format!("打开 {}: {e}", path.display()))?;
+            let owned =
+                session.open(path, OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK).map_err(|e| format!("打开 {}: {e}", path.display()))?;
             let fd = DrmDeviceFd::new(DeviceFd::from(owned.try_clone().map_err(|e| format!("复制 DRM fd: {e}"))?));
             match DrmDevice::new(fd.clone(), true) {
                 Ok((drm, notifier)) => return Ok((fd, drm, notifier)),
@@ -210,7 +212,8 @@ impl Compositor {
         for screen in &mut drm.screens {
             screen.dirty |= dirty;
         }
-        let outputs: Vec<(usize, Output)> = drm.screens.iter().enumerate().filter(|(_, s)| s.dirty && !s.presenting).map(|(i, s)| (i, s.output.clone())).collect();
+        let outputs: Vec<(usize, Output)> =
+            drm.screens.iter().enumerate().filter(|(_, s)| s.dirty && !s.presenting).map(|(i, s)| (i, s.output.clone())).collect();
         let primary = self.backend.output.clone();
         for (index, output) in outputs {
             let elements = self.screen_elements(&output, true);
@@ -225,7 +228,8 @@ impl Compositor {
             };
             let states = match screen.surface.render_frame(&mut backend.renderer, &elements, CLEAR, flags) {
                 Ok(result) if !result.is_empty => {
-                    let planes = (matches!(result.primary_element, smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_)), result.overlay_elements.len());
+                    let planes =
+                        (matches!(result.primary_element, smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_)), result.overlay_elements.len());
                     if planes != screen.planes {
                         log::info!("平面 {}: 主平面{} 叠加平面 {} 个", output.name(), if planes.0 { "直扫客户端缓冲" } else { "合成" }, planes.1);
                         screen.planes = planes;
@@ -282,7 +286,9 @@ impl Compositor {
 
     fn send_dmabuf_feedback(&self, output: &Output, states: &RenderElementStates, feedback: &ScreenFeedback) {
         for window in self.space.elements() {
-            window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| select_dmabuf_feedback(surface, states, &feedback.render, &feedback.scanout));
+            window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
+                select_dmabuf_feedback(surface, states, &feedback.render, &feedback.scanout)
+            });
         }
     }
 

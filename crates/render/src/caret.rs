@@ -31,27 +31,15 @@ impl Inline<'_> {
     fn byte_of(&self, node: NodeId, units: u32) -> usize {
         let mut own = self.marks.iter().filter(|m| m.node == node);
         let last = own.clone().next_back().map(|m| m.byte);
-        own.find(|m| m.units >= units)
-            .map(|m| m.byte)
-            .or(last)
-            .unwrap_or_default()
+        own.find(|m| m.units >= units).map(|m| m.byte).or(last).unwrap_or_default()
     }
 
     fn position_of(&self, byte: usize) -> Option<(NodeId, u32)> {
         let i = self.marks.partition_point(|m| m.byte <= byte);
-        let exact = i
-            .checked_sub(1)
-            .and_then(|j| self.marks.get(j))
-            .filter(|m| m.byte == byte);
+        let exact = i.checked_sub(1).and_then(|j| self.marks.get(j)).filter(|m| m.byte == byte);
         let near = exact.or_else(|| {
-            let candidates = [
-                i.checked_sub(1).and_then(|j| self.marks.get(j)),
-                self.marks.get(i),
-            ];
-            candidates
-                .into_iter()
-                .flatten()
-                .min_by_key(|m| m.byte.abs_diff(byte))
+            let candidates = [i.checked_sub(1).and_then(|j| self.marks.get(j)), self.marks.get(i)];
+            candidates.into_iter().flatten().min_by_key(|m| m.byte.abs_diff(byte))
         })?;
         Some((near.node, near.units))
     }
@@ -99,44 +87,27 @@ impl<'a> Caret<'a> {
     }
 
     pub(crate) fn position_at(&self, x: f32, y: f32) -> Option<(NodeId, u32)> {
-        let hit = self
-            .doc
-            .hit(x, y)
-            .and_then(|h| self.doc.get_node(h.node_id));
-        let root = hit
-            .and_then(|n| n.inline_root_ancestor())
-            .filter(|r| self.has_text(r));
+        let hit = self.doc.hit(x, y).and_then(|h| self.doc.get_node(h.node_id));
+        let root = hit.and_then(|n| n.inline_root_ancestor()).filter(|r| self.has_text(r));
         let start = hit.unwrap_or(self.doc.root_element());
         let root = root.or_else(|| self.nearest_inline_root(start, x, y))?;
         let inline = self.inline_at(root)?;
         let (x, y) = Geometry { doc: self.doc }.unmap(root.id, x.into(), y.into())?;
         let (lx, ly) = (x - inline.origin.x, y - inline.origin.y);
         let (s, layout) = (inline.scale, inline.layout);
-        let byte = Selection::from_point(layout, (lx * s) as f32, (ly * s) as f32)
-            .focus()
-            .index();
+        let byte = Selection::from_point(layout, (lx * s) as f32, (ly * s) as f32).focus().index();
         inline.position_of(byte)
     }
 
     pub(crate) fn text_rects(&self, node: NodeId, start: u32, end: u32) -> Result<Vec<Rect>> {
         let inline = self.inline_of(self.node(node)?)?;
-        let (a, b) = (
-            inline.byte_of(node, start.min(end)),
-            inline.byte_of(node, start.max(end)),
-        );
+        let (a, b) = (inline.byte_of(node, start.min(end)), inline.byte_of(node, start.max(end)));
         if a == b {
             return Ok(vec![inline.cursor(a)]);
         }
         let layout = inline.layout;
-        let range = Selection::new(
-            Cursor::from_byte_index(layout, a, Affinity::Downstream),
-            Cursor::from_byte_index(layout, b, Affinity::Upstream),
-        );
-        Ok(range
-            .geometry(layout)
-            .into_iter()
-            .map(|(r, _)| inline.css(r))
-            .collect())
+        let range = Selection::new(Cursor::from_byte_index(layout, a, Affinity::Downstream), Cursor::from_byte_index(layout, b, Affinity::Upstream));
+        Ok(range.geometry(layout).into_iter().map(|(r, _)| inline.css(r)).collect())
     }
 
     pub(crate) fn layout_position(&self, node: NodeId, offset: u32) -> Option<(NodeId, usize)> {
@@ -145,16 +116,11 @@ impl<'a> Caret<'a> {
     }
 
     fn node(&self, node: NodeId) -> Result<&'a Node> {
-        self.doc
-            .get_node(node)
-            .ok_or_else(|| Error::new("node not found"))
+        self.doc.get_node(node).ok_or_else(|| Error::new("node not found"))
     }
 
     fn input(&self, n: &Node, offset: u32, input: &TextInputData) -> Result<Rect> {
-        let layout = input
-            .editor
-            .try_layout()
-            .ok_or_else(|| Error::new("input not laid out yet"))?;
+        let layout = input.editor.try_layout().ok_or_else(|| Error::new("input not laid out yet"))?;
         let byte = utf16_to_byte(input.editor.raw_text(), offset);
         let scale = self.doc.viewport().scale_f64();
         let mut origin = self.content_origin(n, n.text_input_v_centering_offset(scale));
@@ -163,24 +129,12 @@ impl<'a> Caret<'a> {
             false => origin.x -= f64::from(input.scroll_offset),
         }
         let (doc, root) = (self.doc, n.id);
-        Ok(Inline {
-            doc,
-            root,
-            layout,
-            origin,
-            scale,
-            marks: Vec::new(),
-        }
-        .cursor(byte))
+        Ok(Inline { doc, root, layout, origin, scale, marks: Vec::new() }.cursor(byte))
     }
 
     fn inline_of(&self, text: &'a Node) -> Result<Inline<'a>> {
-        let root = text.inline_root_ancestor().or_else(|| {
-            text.parent
-                .and_then(|p| self.doc.get_node(p)?.inline_root_ancestor())
-        });
-        root.and_then(|r| self.inline_at(r))
-            .ok_or_else(|| Error::new("text node is not laid out"))
+        let root = text.inline_root_ancestor().or_else(|| text.parent.and_then(|p| self.doc.get_node(p)?.inline_root_ancestor()));
+        root.and_then(|r| self.inline_at(r)).ok_or_else(|| Error::new("text node is not laid out"))
     }
 
     fn inline_at(&self, root: &'a Node) -> Option<Inline<'a>> {
@@ -207,9 +161,7 @@ impl<'a> Caret<'a> {
             let Some(n) = self.doc.get_node(id) else {
                 continue;
             };
-            let laid = n
-                .element_data()
-                .is_some_and(|e| e.inline_layout_data.is_some());
+            let laid = n.element_data().is_some_and(|e| e.inline_layout_data.is_some());
             if n.flags.is_inline_root() && laid && self.has_text(n) {
                 let geometry = Geometry { doc: self.doc };
                 let visible = geometry.unmap(id, x, y).is_some();
@@ -250,9 +202,7 @@ impl<'a> Caret<'a> {
                 out.push(id);
                 continue;
             }
-            let hidden = n
-                .primary_styles()
-                .is_some_and(|s| s.get_box().display.is_none());
+            let hidden = n.primary_styles().is_some_and(|s| s.get_box().display.is_none());
             if hidden || n.flags.is_inline_root() {
                 continue;
             }
@@ -262,9 +212,7 @@ impl<'a> Caret<'a> {
     }
 
     fn utf16_len(&self, id: NodeId) -> u32 {
-        self.doc.tree()[id]
-            .text_data()
-            .map_or(0, |t| t.content.encode_utf16().count() as u32)
+        self.doc.tree()[id].text_data().map_or(0, |t| t.content.encode_utf16().count() as u32)
     }
 
     fn align(&self, root: &Node, laid: &str) -> Vec<Mark> {
@@ -274,9 +222,7 @@ impl<'a> Caret<'a> {
         let find = |i: usize, c: char| {
             let same = |l: char| l == c || l.to_lowercase().eq(c.to_lowercase());
             let rest = laid[i.min(laid.len())..].iter().take(LOOKAHEAD);
-            rest.clone()
-                .position(|&(_, l)| same(l))
-                .map_or(i, |skip| i + skip)
+            rest.clone().position(|&(_, l)| same(l)).map_or(i, |skip| i + skip)
         };
         let mut marks = Vec::new();
         let mut i = 0;
@@ -288,11 +234,7 @@ impl<'a> Caret<'a> {
             for c in text.content.chars() {
                 let ws = c.is_whitespace();
                 let before = if ws { i } else { find(i, c) };
-                marks.push(Mark {
-                    byte: at(before),
-                    node,
-                    units,
-                });
+                marks.push(Mark { byte: at(before), node, units });
                 units += c.len_utf16() as u32;
                 if ws {
                     if laid.get(i).is_some_and(|(_, l)| l.is_whitespace()) {
@@ -302,11 +244,7 @@ impl<'a> Caret<'a> {
                     i = before + 1;
                 }
             }
-            marks.push(Mark {
-                byte: at(i),
-                node,
-                units,
-            });
+            marks.push(Mark { byte: at(i), node, units });
         }
         marks
     }

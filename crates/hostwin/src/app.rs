@@ -198,7 +198,13 @@ impl Handler for App {
             }
         }
         let _ = server.proxy.set(proxy.clone());
-        server.broker.push(Event { kind: "output".into(), width: Some(f64::from(size.0)), height: Some(f64::from(size.1)), scale: Some(scale), ..Default::default() });
+        server.broker.push(Event {
+            kind: "output".into(),
+            width: Some(f64::from(size.0)),
+            height: Some(f64::from(size.1)),
+            scale: Some(scale),
+            ..Default::default()
+        });
         crate::dev::connect(proxy.clone());
         let spawned = std::thread::Builder::new().name("acde".into()).stack_size(64 << 20).spawn(move || {
             let code = main();
@@ -273,7 +279,13 @@ impl App {
         for id in full {
             server.set_rect(id, [0.0, 0.0, screen[0], screen[1]]);
         }
-        server.broker.push(Event { kind: "output".into(), width: Some(f64::from(size.0)), height: Some(f64::from(size.1)), scale: Some(scale), ..Default::default() });
+        server.broker.push(Event {
+            kind: "output".into(),
+            width: Some(f64::from(size.0)),
+            height: Some(f64::from(size.1)),
+            scale: Some(scale),
+            ..Default::default()
+        });
     }
 
     fn inject(&mut self, server: &Server, event: Injected) {
@@ -435,7 +447,16 @@ impl App {
             }
         }
         let Some((target, [ox, oy])) = self.capture else { return };
-        server.event(target, Event { kind: (if pressed { "pointerdown" } else { "pointerup" }).into(), x: Some(x - ox), y: Some(y - oy), button: Some(button), ..Default::default() });
+        server.event(
+            target,
+            Event {
+                kind: (if pressed { "pointerdown" } else { "pointerup" }).into(),
+                x: Some(x - ox),
+                y: Some(y - oy),
+                button: Some(button),
+                ..Default::default()
+            },
+        );
         if self.pressed.is_empty() {
             self.capture = None;
         }

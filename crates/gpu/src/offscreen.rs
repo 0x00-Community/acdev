@@ -25,7 +25,8 @@ impl Shared {
     }
 
     pub fn open() -> Result<Arc<Self>, String> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: crate::BACKEND, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() });
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor { backends: crate::BACKEND, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() });
         let adapter = pollster::block_on(instance.enumerate_adapters(crate::BACKEND))
             .into_iter()
             .filter(|a| a.get_info().device_type != wgpu::DeviceType::Cpu)
@@ -86,7 +87,10 @@ impl Shared {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde read back") });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d { x, y, z: 0 }, aspect: wgpu::TextureAspect::All },
-            wgpu::TexelCopyBufferInfo { buffer: &buffer, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(stride), rows_per_image: Some(h) } },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(stride), rows_per_image: Some(h) },
+            },
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         let index = {
@@ -219,7 +223,12 @@ impl Images for Overrides {
                     self.copying.push((image, generation));
                 }
                 None => {
-                    let texture = wgpu::TexelCopyTextureInfoBase { texture: image.texture.clone(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All };
+                    let texture = wgpu::TexelCopyTextureInfoBase {
+                        texture: image.texture.clone(),
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    };
                     vello.override_image(&brush.image, Some(texture));
                     self.seen.insert(id, (generation, brush.image.width, brush.image.height));
                     self.copying.push((image, generation));
@@ -266,7 +275,8 @@ pub struct Offscreen {
 
 impl Offscreen {
     pub fn new(shared: Arc<Shared>) -> Result<Self, String> {
-        let options = vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None };
+        let options =
+            vello::RendererOptions { use_cpu: false, antialiasing_support: vello::AaSupport::area_only(), num_init_threads: None, pipeline_cache: None };
         let vello = vello::Renderer::new(&shared.device, options).map_err(|e| format!("vello: {e}"))?;
         let overrides = shared.images.clone().into();
         Ok(Self { shared, vello, scene: vello::Scene::new(), overrides, blur: None })
@@ -314,7 +324,10 @@ impl Offscreen {
     fn blur_pipeline(&mut self) -> &Blur {
         let device = &self.shared.device;
         self.blur.get_or_insert_with(|| {
-            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("acde shadow blur"), source: wgpu::ShaderSource::Wgsl(include_str!("blur.wgsl").into()) });
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("acde shadow blur"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("blur.wgsl").into()),
+            });
             let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("acde shadow blur"),
                 layout: None,
@@ -350,7 +363,12 @@ impl Offscreen {
             for v in dir {
                 bytes.extend_from_slice(&v.to_le_bytes());
             }
-            let params = device.create_buffer(&wgpu::BufferDescriptor { label: Some("acde shadow blur"), size: 32, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+            let params = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("acde shadow blur"),
+                size: 32,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
             self.shared.queue.write_buffer(&params, 0, &bytes);
             let input = from.create_view(&wgpu::TextureViewDescriptor::default());
             let output = to.create_view(&wgpu::TextureViewDescriptor::default());

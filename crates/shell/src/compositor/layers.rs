@@ -60,7 +60,8 @@ impl WlrLayerShellHandler for Compositor {
 
 impl Compositor {
     pub fn commit_layer(&mut self, surface: &WlSurface) {
-        let Some(output) = self.space.outputs().find(|o| layer_map_for_output(o).layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).is_some()).cloned() else {
+        let Some(output) = self.space.outputs().find(|o| layer_map_for_output(o).layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).is_some()).cloned()
+        else {
             return;
         };
         let geometry = {
@@ -72,7 +73,8 @@ impl Compositor {
             self.extra_place(surface, geometry);
         }
         let map = layer_map_for_output(&output);
-        let sent = with_states(surface, |states| states.data_map.get::<LayerSurfaceData>().is_some_and(|d| d.lock().expect("layer 数据锁").initial_configure_sent));
+        let sent =
+            with_states(surface, |states| states.data_map.get::<LayerSurfaceData>().is_some_and(|d| d.lock().expect("layer 数据锁").initial_configure_sent));
         if !sent && let Some(layer) = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
             layer.layer_surface().send_configure();
         }

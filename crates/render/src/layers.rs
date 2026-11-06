@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use acde_gpu::Filter;
-use acde_gpu::Scene;
-use acde_gpu::FilterEffect;
 use acde_gpu::ColorMatrix;
+use acde_gpu::Filter;
+use acde_gpu::FilterEffect;
+use acde_gpu::Scene;
 use acde_gpu::{LayerCommand, RenderCommand};
 use kurbo::{Affine, BezPath, PathEl, Rect, Shape};
 
@@ -57,15 +57,11 @@ impl Backdrop {
     }
 
     pub fn saturate(&self) -> f32 {
-        self.matrices()
-            .filter_map(|m| Self::amount(m, ColorMatrix::saturate, 1.0 - m[1] / 0.7152))
-            .product()
+        self.matrices().filter_map(|m| Self::amount(m, ColorMatrix::saturate, 1.0 - m[1] / 0.7152)).product()
     }
 
     pub fn brightness(&self) -> f32 {
-        self.matrices()
-            .filter_map(|m| Self::amount(m, ColorMatrix::brightness, m[0]))
-            .product()
+        self.matrices().filter_map(|m| Self::amount(m, ColorMatrix::brightness, m[0])).product()
     }
 
     fn matrices(&self) -> impl Iterator<Item = &[f32; 20]> {
@@ -76,12 +72,7 @@ impl Backdrop {
     }
 
     fn amount(m: &[f32; 20], build: fn(f32) -> ColorMatrix, guess: f32) -> Option<f32> {
-        build(guess)
-            .0
-            .iter()
-            .zip(m)
-            .all(|(a, b)| (a - b).abs() < 1e-3)
-            .then_some(guess)
+        build(guess).0.iter().zip(m).all(|(a, b)| (a - b).abs() < 1e-3).then_some(guess)
     }
 }
 
@@ -126,14 +117,7 @@ pub(crate) struct Split<'a> {
 }
 
 impl<'a> Split<'a> {
-    pub(crate) fn layers(
-        commands: Commands,
-        tolerance: f64,
-        kinds: &[Kind],
-        draw: &[Rect],
-        device: f64,
-        viewport: Rect,
-    ) -> Result<Vec<Layer>, Commands> {
+    pub(crate) fn layers(commands: Commands, tolerance: f64, kinds: &[Kind], draw: &[Rect], device: f64, viewport: Rect) -> Result<Vec<Layer>, Commands> {
         let effects = commands.iter().any(|(c, _)| match c {
             RenderCommand::PushLayer(l) => l.filter.is_some() || l.backdrop_filter.is_some(),
             _ => false,

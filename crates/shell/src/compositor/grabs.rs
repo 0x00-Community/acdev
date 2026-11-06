@@ -59,14 +59,26 @@ macro_rules! forward {
 }
 
 impl PointerGrab<Compositor> for Drag {
-    fn motion(&mut self, data: &mut Compositor, handle: &mut PointerInnerHandle<'_, Compositor>, _: Option<(WlSurface, Point<f64, Logical>)>, event: &MotionEvent) {
+    fn motion(
+        &mut self,
+        data: &mut Compositor,
+        handle: &mut PointerInnerHandle<'_, Compositor>,
+        _: Option<(WlSurface, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
         handle.motion(data, None, event);
         let delta = (event.location - self.start.location).to_i32_round();
         let rect = self.target(delta);
         data.place(&self.window, rect);
     }
 
-    fn relative_motion(&mut self, data: &mut Compositor, handle: &mut PointerInnerHandle<'_, Compositor>, _: Option<(WlSurface, Point<f64, Logical>)>, event: &RelativeMotionEvent) {
+    fn relative_motion(
+        &mut self,
+        data: &mut Compositor,
+        handle: &mut PointerInnerHandle<'_, Compositor>,
+        _: Option<(WlSurface, Point<f64, Logical>)>,
+        event: &RelativeMotionEvent,
+    ) {
         handle.relative_motion(data, None, event);
     }
 

@@ -7,8 +7,11 @@ use common::Doc;
 #[ignore = "benchmark, run explicitly"]
 fn latency() {
     let doc = Doc::new(1920, 1080, 1.0, &Options::default()).unwrap();
-    doc.add_stylesheet("html,body{margin:0} .r{display:flex;gap:4px;padding:2px} .c{flex:1;background:#eef;border-radius:3px;box-shadow:0 1px 3px #0003}
-      @keyframes p{from{opacity:1}to{opacity:.5}} .a{animation:p 1s infinite alternate}").unwrap();
+    doc.add_stylesheet(
+        "html,body{margin:0} .r{display:flex;gap:4px;padding:2px} .c{flex:1;background:#eef;border-radius:3px;box-shadow:0 1px 3px #0003}
+      @keyframes p{from{opacity:1}to{opacity:.5}} .a{animation:p 1s infinite alternate}",
+    )
+    .unwrap();
     let body = doc.create_element("body").unwrap();
     doc.append_child(doc.root().unwrap(), body).unwrap();
     let mut cells = vec![];
@@ -18,8 +21,7 @@ fn latency() {
         doc.append_child(body, row).unwrap();
         for k in 0..4 {
             let c = doc.create_element("span").unwrap();
-            doc.set_attribute(c, "class", if k == 0 && r % 10 == 0 { "c a" } else { "c" })
-                .unwrap();
+            doc.set_attribute(c, "class", if k == 0 && r % 10 == 0 { "c a" } else { "c" }).unwrap();
             doc.append_child(row, c).unwrap();
             let t = doc.create_text("cell text").unwrap();
             doc.append_child(c, t).unwrap();
@@ -56,8 +58,5 @@ fn latency() {
     ticker.join().unwrap();
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let st = doc.stats().unwrap();
-    eprintln!(
-        "metrics latency ms: p50 {:.3} p95 {:.3} max {:.3}; resolve {:.2}ms paint {:.2}ms",
-        lat[200], lat[380], lat[399], st.resolve_ms, st.paint_ms
-    );
+    eprintln!("metrics latency ms: p50 {:.3} p95 {:.3} max {:.3}; resolve {:.2}ms paint {:.2}ms", lat[200], lat[380], lat[399], st.resolve_ms, st.paint_ms);
 }

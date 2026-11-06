@@ -91,7 +91,15 @@ pub struct Mixer {
 
 impl Default for Mixer {
     fn default() -> Self {
-        Mixer { contexts: HashMap::new(), owner: HashMap::new(), media: HashMap::new(), notes: Vec::new(), bus: [[0.0; QUANTUM]; 2], pos: QUANTUM, ended: Vec::new() }
+        Mixer {
+            contexts: HashMap::new(),
+            owner: HashMap::new(),
+            media: HashMap::new(),
+            notes: Vec::new(),
+            bus: [[0.0; QUANTUM]; 2],
+            pos: QUANTUM,
+            ended: Vec::new(),
+        }
     }
 }
 

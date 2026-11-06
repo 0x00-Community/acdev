@@ -42,8 +42,7 @@ impl v8::PlatformImpl for Platform {
         delayed(isolate, task, delay);
     }
 
-    fn post_idle_task(&self, _isolate: *mut c_void, _task: v8::IdleTask) {
-    }
+    fn post_idle_task(&self, _isolate: *mut c_void, _task: v8::IdleTask) {}
 }
 
 fn delayed(isolate: *mut c_void, task: v8::Task, delay: f64) {

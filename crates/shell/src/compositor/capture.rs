@@ -32,11 +32,14 @@ impl Compositor {
         let elements = self.screen_elements(&output, matches!(self.backend.target, super::backend::Target::Drm(_)));
         let renderer = &mut self.backend.renderer;
         let size = mode.size;
-        let mut texture: GlesTexture = renderer.create_buffer(Fourcc::Abgr8888, size.to_logical(1).to_buffer(1, Transform::Normal)).map_err(|e| e.to_string())?;
+        let mut texture: GlesTexture =
+            renderer.create_buffer(Fourcc::Abgr8888, size.to_logical(1).to_buffer(1, Transform::Normal)).map_err(|e| e.to_string())?;
         let mut fb = renderer.bind(&mut texture).map_err(|e| e.to_string())?;
         let mut damage = OutputDamageTracker::new(size, scale, Transform::Normal);
         damage.render_output(renderer, &mut fb, 0, &elements, CLEAR).map_err(|e| e.to_string())?;
-        let mapping = renderer.copy_framebuffer(&fb, Rectangle::from_size(size.to_logical(1).to_buffer(1, Transform::Normal)), Fourcc::Abgr8888).map_err(|e| e.to_string())?;
+        let mapping = renderer
+            .copy_framebuffer(&fb, Rectangle::from_size(size.to_logical(1).to_buffer(1, Transform::Normal)), Fourcc::Abgr8888)
+            .map_err(|e| e.to_string())?;
         let rgba = renderer.map_texture(&mapping).map_err(|e| e.to_string())?.to_vec();
         Ok((u32::try_from(size.w).unwrap_or(0), u32::try_from(size.h).unwrap_or(0), rgba))
     }

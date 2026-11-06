@@ -11,8 +11,7 @@ struct Page {
 impl Page {
     fn new(css: &str) -> Self {
         let doc = Doc::new(800, 600, 1.0, &Options::default()).unwrap();
-        doc.add_stylesheet("html, body { margin: 0; height: 100%; font: 20px monospace; }")
-            .unwrap();
+        doc.add_stylesheet("html, body { margin: 0; height: 100%; font: 20px monospace; }").unwrap();
         doc.add_stylesheet(css).unwrap();
         let body = doc.create_element("body").unwrap();
         doc.append_child(doc.root().unwrap(), body).unwrap();
@@ -36,10 +35,7 @@ impl Page {
 }
 
 fn near(a: Rect, b: [f64; 4]) -> bool {
-    [a.x, a.y, a.width, a.height]
-        .iter()
-        .zip(b)
-        .all(|(x, y)| (x - y).abs() < 0.6)
+    [a.x, a.y, a.width, a.height].iter().zip(b).all(|(x, y)| (x - y).abs() < 0.6)
 }
 
 const STAGE: &str = "
@@ -59,19 +55,12 @@ fn singular_stage_is_not_hittable_and_scaled_stage_hits_window() {
     let spaces = page.el("div", stage, "spaces");
     let win = page.el("div", spaces, "win");
 
-    page.doc
-        .set_attribute(stage, "style", "transform: translate(0px, 0px) scale(0)")
-        .unwrap();
+    page.doc.set_attribute(stage, "style", "transform: translate(0px, 0px) scale(0)").unwrap();
     let hit = page.hit(200.0, 100.0);
-    assert!(
-        hit != Some(wallpaper) && hit != Some(win),
-        "scale(0) stage must not be hit: {hit:?}"
-    );
+    assert!(hit != Some(wallpaper) && hit != Some(win), "scale(0) stage must not be hit: {hit:?}");
     assert_eq!(page.doc.rect(win).unwrap().width, 0.0);
 
-    page.doc
-        .set_attribute(stage, "style", "transform: translate(100px, 50px) scale(2)")
-        .unwrap();
+    page.doc.set_attribute(stage, "style", "transform: translate(100px, 50px) scale(2)").unwrap();
     let r = page.doc.rect(win).unwrap();
     assert!(near(r, [300.0, 150.0, 400.0, 200.0]), "{r:?}");
     let (x, y) = Page::center(r);
@@ -89,15 +78,8 @@ fn rect_follows_rotation_and_nested_transforms() {
     let a = page.el("div", page.body, "a");
     let b = page.el("div", page.body, "b");
     let c = page.el("div", b, "c");
-    assert!(
-        near(page.doc.rect(a).unwrap(), [125.0, 75.0, 50.0, 100.0]),
-        "{:?}",
-        page.doc.rect(a)
-    );
-    assert!(near(
-        page.doc.rect(b).unwrap(),
-        [350.0, 150.0, 100.0, 100.0]
-    ));
+    assert!(near(page.doc.rect(a).unwrap(), [125.0, 75.0, 50.0, 100.0]), "{:?}", page.doc.rect(a));
+    assert!(near(page.doc.rect(b).unwrap(), [350.0, 150.0, 100.0, 100.0]));
     let rc = page.doc.rect(c).unwrap();
     assert!(near(rc, [400.0, 150.0, 50.0, 50.0]), "{rc:?}");
     let (x, y) = Page::center(rc);
@@ -106,28 +88,16 @@ fn rect_follows_rotation_and_nested_transforms() {
 
 #[test]
 fn caret_under_scaled_ancestor() {
-    let page = Page::new(
-        "#s { position: absolute; left: 0; top: 0; transform-origin: 0 0; transform: translate(50px, 20px) scale(2); }",
-    );
+    let page = Page::new("#s { position: absolute; left: 0; top: 0; transform-origin: 0 0; transform: translate(50px, 20px) scale(2); }");
     let s = page.el("div", page.body, "s");
     let p = page.el("p", s, "p");
     let t = page.doc.create_text("abcd").unwrap();
     page.doc.append_child(p, t).unwrap();
-    let (c0, c1) = (
-        page.doc.caret_rect(t, 0).unwrap(),
-        page.doc.caret_rect(t, 1).unwrap(),
-    );
+    let (c0, c1) = (page.doc.caret_rect(t, 0).unwrap(), page.doc.caret_rect(t, 1).unwrap());
     let pr = page.doc.rect(p).unwrap();
-    assert!(
-        (c0.x - pr.x).abs() < 0.6 && c0.height > 30.0,
-        "{c0:?} {pr:?}"
-    );
+    assert!((c0.x - pr.x).abs() < 0.6 && c0.height > 30.0, "{c0:?} {pr:?}");
     let w = c1.x - c0.x;
-    let at = page
-        .doc
-        .caret_from_point((c1.x + w * 0.25) as f32, (c1.y + c1.height / 2.0) as f32)
-        .unwrap()
-        .unwrap();
+    let at = page.doc.caret_from_point((c1.x + w * 0.25) as f32, (c1.y + c1.height / 2.0) as f32).unwrap().unwrap();
     assert_eq!((at.node, at.offset), (t, 1));
 }
 
@@ -141,10 +111,7 @@ fn metrics_ignore_transform() {
     let b = page.el("div", page.body, "box");
     page.el("div", b, "inner");
     let m = page.doc.metrics(b).unwrap();
-    assert_eq!(
-        (m.offset_left, m.offset_top, m.offset_width, m.offset_height),
-        (10.0, 20.0, 116.0, 76.0)
-    );
+    assert_eq!((m.offset_left, m.offset_top, m.offset_width, m.offset_height), (10.0, 20.0, 116.0, 76.0));
     assert_eq!((m.client_left, m.client_top), (3.0, 3.0));
     assert!(m.client_width <= 110.0 && m.client_width > 90.0, "{m:?}");
     assert!(m.scroll_height >= 300.0, "{m:?}");

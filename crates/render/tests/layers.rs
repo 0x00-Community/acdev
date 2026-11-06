@@ -22,13 +22,7 @@ struct Page {
 
 impl Page {
     fn new(scale: f32) -> Self {
-        let doc = Doc::new(
-            (400.0 * scale) as u32,
-            (200.0 * scale) as u32,
-            scale,
-            &Options::default(),
-        )
-        .unwrap();
+        let doc = Doc::new((400.0 * scale) as u32, (200.0 * scale) as u32, scale, &Options::default()).unwrap();
         doc.add_stylesheet(CSS).unwrap();
         let body = doc.create_element("body").unwrap();
         doc.append_child(doc.root().unwrap(), body).unwrap();
@@ -82,28 +76,14 @@ fn backdrop_card_splits_into_two_segments() {
     let frame = page.frame();
     assert_eq!(frame.plane.layers.len(), 2, "the page, then the card over a filtered backdrop");
     let b = frame.plane.layers[1].backdrop.as_ref().unwrap();
-    assert!(
-        near(b.bounds.x0, 100.0)
-            && near(b.bounds.y0, 80.0)
-            && near(b.bounds.width(), 400.0)
-            && near(b.bounds.height(), 240.0),
-        "{:?}",
-        b.bounds
-    );
+    assert!(near(b.bounds.x0, 100.0) && near(b.bounds.y0, 80.0) && near(b.bounds.width(), 400.0) && near(b.bounds.height(), 240.0), "{:?}", b.bounds);
     assert_eq!(b.scale, 2.0);
     let effects: Vec<&FilterEffect> = b.filter.effects().iter().collect();
-    assert!(
-        matches!(effects[0], FilterEffect::GaussianBlur(_)),
-        "{effects:?}"
-    );
+    assert!(matches!(effects[0], FilterEffect::GaussianBlur(_)), "{effects:?}");
     assert_eq!(effects.len(), 2, "blur + saturate: {effects:?}");
     assert!(near(b.radius(), 32.0), "radius {}", b.radius());
     assert!(near(b.blur(), 40.0), "blur {}", b.blur());
-    assert!(
-        (b.saturate() - 1.8).abs() < 1e-3,
-        "saturate {}",
-        b.saturate()
-    );
+    assert!((b.saturate() - 1.8).abs() < 1e-3, "saturate {}", b.saturate());
     assert_eq!(b.brightness(), 1.0);
 }
 
@@ -115,15 +95,8 @@ fn drop_shadow_element_is_its_own_segment() {
     let frame = page.frame();
     assert_eq!(frame.plane.layers.len(), 2, "the page, then the filtered element (nothing visible after it)");
     let f = frame.plane.layers[1].filter.as_ref().unwrap();
-    assert!(matches!(
-        f.filter.effects()[0],
-        FilterEffect::DropShadow(_)
-    ));
-    assert!(
-        f.bounds.x0 < 300.0 && f.bounds.y1 > 140.0 + 8.0,
-        "{:?}",
-        f.bounds
-    );
+    assert!(matches!(f.filter.effects()[0], FilterEffect::DropShadow(_)));
+    assert!(f.bounds.x0 < 300.0 && f.bounds.y1 > 140.0 + 8.0, "{:?}", f.bounds);
 }
 
 #[test]
@@ -135,14 +108,7 @@ fn segments_compose_to_the_whole_scene() {
     assert_eq!(frame.plane.layers.len(), 3);
     assert!(frame.plane.scene().commands.is_empty());
     let whole = raster(frame.size, vec![page.doc.scene()]);
-    let parts = raster(
-        frame.size,
-        frame.plane.layers.iter().map(|l| l.scene()).collect(),
-    );
-    let differing = whole
-        .chunks(4)
-        .zip(parts.chunks(4))
-        .filter(|(a, b)| a != b)
-        .count();
+    let parts = raster(frame.size, frame.plane.layers.iter().map(|l| l.scene()).collect());
+    let differing = whole.chunks(4).zip(parts.chunks(4)).filter(|(a, b)| a != b).count();
     assert_eq!(differing, 0);
 }

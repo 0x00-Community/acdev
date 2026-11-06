@@ -81,24 +81,12 @@ impl Surface {
     pub fn start_drag(&self, data: HashMap<String, String>, icon: Option<DragImage>) {
         match self {
             #[cfg(target_os = "linux")]
-            Surface::Wayland(s) => s.start_drag(
-                data,
-                icon.map(|i| acde_window::DragImage {
-                    width: i.width,
-                    height: i.height,
-                    scene: i.scene,
-                    hotspot: i.hotspot,
-                }),
-            ),
-            Surface::Host(s) => s.start_drag(
-                data,
-                icon.map(|i| acde_hostwin::DragImage {
-                    width: i.width,
-                    height: i.height,
-                    scene: i.scene,
-                    hotspot: i.hotspot,
-                }),
-            ),
+            Surface::Wayland(s) => {
+                s.start_drag(data, icon.map(|i| acde_window::DragImage { width: i.width, height: i.height, scene: i.scene, hotspot: i.hotspot }))
+            }
+            Surface::Host(s) => {
+                s.start_drag(data, icon.map(|i| acde_hostwin::DragImage { width: i.width, height: i.height, scene: i.scene, hotspot: i.hotspot }))
+            }
         }
     }
 

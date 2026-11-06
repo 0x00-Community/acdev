@@ -1,7 +1,7 @@
 use crate::failure::Failure;
 use crate::js::JsText;
-use serde_json::{Value, json};
 use ntex::io::Io;
+use serde_json::{Value, json};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::sync::Arc;
@@ -63,8 +63,7 @@ async fn read(io: &Io) -> Option<Request> {
     let mut lines = head.split("\r\n");
     let mut first = lines.next()?.split(' ');
     let (method, target) = (first.next()?.to_owned(), first.next()?.to_owned());
-    let headers: Vec<(String, String)> =
-        lines.filter_map(|l| l.split_once(':')).map(|(n, v)| (n.trim().to_ascii_lowercase(), v.trim().to_owned())).collect();
+    let headers: Vec<(String, String)> = lines.filter_map(|l| l.split_once(':')).map(|(n, v)| (n.trim().to_ascii_lowercase(), v.trim().to_owned())).collect();
     let header = |name: &str| headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone());
     let mut body = raw.split_off(head_end + 4);
     if let Some(length) = header("content-length").and_then(|l| l.parse::<usize>().ok()) {
@@ -105,11 +104,8 @@ async fn reply(io: &Io, status: u16, headers: &[(&str, String)], body: &[u8]) {
 
 async fn json(io: &Io, status: u16, value: Value) {
     let body = value.to_string();
-    let headers = [
-        ("Content-Type", "application/json; charset=utf-8".to_owned()),
-        ("Cache-Control", "no-store".to_owned()),
-        ("Content-Length", body.len().to_string()),
-    ];
+    let headers =
+        [("Content-Type", "application/json; charset=utf-8".to_owned()), ("Cache-Control", "no-store".to_owned()), ("Content-Length", body.len().to_string())];
     reply(io, status, &headers, body.as_bytes()).await;
 }
 
@@ -122,7 +118,13 @@ async fn connection(io: Io, handlers: Arc<dyn Handlers>) {
     let Some(request) = read(&io).await else { return };
     let file = ticket(&request.path, "/office/file/").map(str::to_owned);
     let callback = ticket(&request.path, "/office/callback/").map(str::to_owned);
-    let what = if file.is_some() { "/office/file" } else if callback.is_some() { "/office/callback" } else { request.path.as_str() };
+    let what = if file.is_some() {
+        "/office/file"
+    } else if callback.is_some() {
+        "/office/callback"
+    } else {
+        request.path.as_str()
+    };
     let what = what.to_owned();
     let method = request.method.clone();
     let outcome: Result<Option<(String, Vec<u8>)>, Failure> = match (file, callback, request.method.as_str()) {

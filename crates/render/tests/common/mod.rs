@@ -2,10 +2,7 @@
 
 use std::ops::Deref;
 
-use acde_render::{
-    Capture, CaretPosition, Document, Dom, Error, Metrics, NONE, Ns, Options, Rect, RenderHandle, Result,
-    Stats, TextMetrics,
-};
+use acde_render::{Capture, CaretPosition, Document, Dom, Error, Metrics, NONE, Ns, Options, Rect, RenderHandle, Result, Stats, TextMetrics};
 
 pub struct Doc {
     document: Document,

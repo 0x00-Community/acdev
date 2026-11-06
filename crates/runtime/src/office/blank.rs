@@ -146,7 +146,8 @@ impl Ooxml {
     }
 
     fn placeholder(id: u32, name: &str, ph: &str, boxed: Option<[u64; 4]>, text: Option<&str>) -> String {
-        let xfrm = boxed.map_or_else(String::new, |b| format!("<a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm>", b[0], b[1], b[2], b[3]));
+        let xfrm =
+            boxed.map_or_else(String::new, |b| format!("<a:xfrm><a:off x=\"{}\" y=\"{}\"/><a:ext cx=\"{}\" cy=\"{}\"/></a:xfrm>", b[0], b[1], b[2], b[3]));
         let body = text.map_or_else(
             || "<a:endParaRPr lang=\"zh-CN\" altLang=\"en-US\"/>".to_owned(),
             |t| format!("<a:r><a:rPr lang=\"zh-CN\" altLang=\"en-US\"/><a:t>{t}</a:t></a:r>"),
@@ -212,7 +213,10 @@ impl BlankKind {
         let attrs = Ooxml::pml();
         let (title, subtitle) = ("<p:ph type=\"ctrTitle\"/>", "<p:ph type=\"subTitle\" idx=\"1\"/>");
         let text = |size: u32, color: &str| {
-            format!("<a:lvl1pPr><a:defRPr sz=\"{size}\">{}<a:latin typeface=\"+mn-lt\"/><a:ea typeface=\"+mn-ea\"/><a:cs typeface=\"+mn-cs\"/></a:defRPr></a:lvl1pPr>", Ooxml::solid(color))
+            format!(
+                "<a:lvl1pPr><a:defRPr sz=\"{size}\">{}<a:latin typeface=\"+mn-lt\"/><a:ea typeface=\"+mn-ea\"/><a:cs typeface=\"+mn-cs\"/></a:defRPr></a:lvl1pPr>",
+                Ooxml::solid(color)
+            )
         };
         let tree = Ooxml::TREE;
         let master = format!(

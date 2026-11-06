@@ -155,13 +155,46 @@ fn intersect(a: Rect, b: Rect) -> Rect {
 const SKIPPED: [&str; 9] = ["script", "style", "template", "head", "meta", "link", "noscript", "title", "iframe"];
 
 const INTERACTIVE: [&str; 19] = [
-    "button", "link", "textbox", "searchbox", "checkbox", "radio", "combobox", "slider", "spinbutton", "switch", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "treeitem", "clickable", "listbox", "scrollbar",
+    "button",
+    "link",
+    "textbox",
+    "searchbox",
+    "checkbox",
+    "radio",
+    "combobox",
+    "slider",
+    "spinbutton",
+    "switch",
+    "tab",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "option",
+    "treeitem",
+    "clickable",
+    "listbox",
+    "scrollbar",
 ];
 
 const FROM_CONTENT: [&str; 17] = [
-    "button", "link", "heading", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "treeitem", "cell", "columnheader", "rowheader", "clickable", "checkbox", "radio", "switch", "tooltip",
+    "button",
+    "link",
+    "heading",
+    "tab",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "option",
+    "treeitem",
+    "cell",
+    "columnheader",
+    "rowheader",
+    "clickable",
+    "checkbox",
+    "radio",
+    "switch",
+    "tooltip",
 ];
-
 
 impl<'a> Walk<'a> {
     fn node(&self, id: NodeId) -> Option<&'a Node> {
@@ -236,7 +269,17 @@ impl<'a> Walk<'a> {
                             *name = collapse(name, NAME_MAX);
                         }
                     }
-                    _ => children.push(Sem { node: id, role: "text".into(), name: text, value: None, states: Vec::new(), rect, level: None, children: Vec::new(), more: 0 }),
+                    _ => children.push(Sem {
+                        node: id,
+                        role: "text".into(),
+                        name: text,
+                        value: None,
+                        states: Vec::new(),
+                        rect,
+                        level: None,
+                        children: Vec::new(),
+                        more: 0,
+                    }),
                 }
                 continue;
             }
@@ -353,10 +396,12 @@ impl<'a> Walk<'a> {
         if attr("aria-checked").as_deref() == Some("mixed") {
             states.push("mixed");
         }
-        let option_selected = tag == "option" && n.parent.is_some_and(|p| {
-            let select = self.e.ancestors(p).into_iter().find(|&a| self.node(a).is_some_and(|a| a.element_data().is_some_and(|e| &*e.name.local == "select")));
-            select.is_some_and(|s| usize::try_from(self.e.selected_index(s)).ok().and_then(|i| self.e.options(s).get(i).copied()) == Some(n.id))
-        });
+        let option_selected = tag == "option"
+            && n.parent.is_some_and(|p| {
+                let select =
+                    self.e.ancestors(p).into_iter().find(|&a| self.node(a).is_some_and(|a| a.element_data().is_some_and(|e| &*e.name.local == "select")));
+                select.is_some_and(|s| usize::try_from(self.e.selected_index(s)).ok().and_then(|i| self.e.options(s).get(i).copied()) == Some(n.id))
+            });
         if on("aria-selected") || option_selected {
             states.push("selected");
         }
@@ -446,10 +491,13 @@ impl<'a> Walk<'a> {
     fn label_of(&self, n: &Node, attr: &dyn Fn(&str) -> Option<String>) -> Option<String> {
         let by_for = attr("id").filter(|id| !id.is_empty()).and_then(|id| {
             self.e.descendants(self.e.doc.root_node().id).into_iter().find(|&d| {
-                self.node(d).and_then(|d| d.element_data()).is_some_and(|e| &*e.name.local == "label" && e.attrs().iter().any(|a| &*a.name.local == "for" && *a.value == id))
+                self.node(d)
+                    .and_then(|d| d.element_data())
+                    .is_some_and(|e| &*e.name.local == "label" && e.attrs().iter().any(|a| &*a.name.local == "for" && *a.value == id))
             })
         });
-        let wrapping = || self.e.ancestors(n.id).into_iter().skip(1).find(|&a| self.node(a).and_then(|a| a.element_data()).is_some_and(|e| &*e.name.local == "label"));
+        let wrapping =
+            || self.e.ancestors(n.id).into_iter().skip(1).find(|&a| self.node(a).and_then(|a| a.element_data()).is_some_and(|e| &*e.name.local == "label"));
         let label = by_for.or_else(wrapping)?;
         let text = collapse(&self.e.inner_text(label), NAME_MAX);
         (!text.is_empty()).then_some(text)

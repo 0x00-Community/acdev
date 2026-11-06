@@ -2,11 +2,11 @@ use std::borrow::Cow;
 use std::cell::{Ref, RefCell};
 
 use blitz_dom::{Attribute, DocumentMutator, NodeId, QualName};
+use html5ever::ParseOpts;
 use html5ever::interface::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
 use html5ever::tendril::{StrTendril, TendrilSink};
 use html5ever::tokenizer::TokenizerOpts;
 use html5ever::tree_builder::TreeBuilderOpts;
-use html5ever::ParseOpts;
 
 use crate::tree::Doctype;
 
@@ -55,11 +55,7 @@ pub(crate) fn fragment(m: &mut DocumentMutator<'_>, holder: NodeId, context: Nod
 
 impl<'a, 'd> Sink<'a, 'd> {
     fn new(m: &'a mut DocumentMutator<'d>, document: NodeId) -> Self {
-        Self {
-            m: RefCell::new(m),
-            document,
-            out: RefCell::default(),
-        }
+        Self { m: RefCell::new(m), document, out: RefCell::default() }
     }
 
     fn m(&self) -> std::cell::RefMut<'_, &'a mut DocumentMutator<'d>> {
@@ -67,13 +63,7 @@ impl<'a, 'd> Sink<'a, 'd> {
     }
 
     fn attrs(attrs: Vec<html5ever::Attribute>) -> Vec<Attribute> {
-        attrs
-            .into_iter()
-            .map(|a| Attribute {
-                name: a.name,
-                value: a.value.to_string(),
-            })
-            .collect()
+        attrs.into_iter().map(|a| Attribute { name: a.name, value: a.value.to_string() }).collect()
     }
 }
 
@@ -96,10 +86,7 @@ impl<'a, 'd> TreeSink for Sink<'a, 'd> {
     }
 
     fn elem_name<'e>(&'e self, target: &'e NodeId) -> Ref<'e, QualName> {
-        Ref::map(self.m.borrow(), |m| {
-            m.element_name(*target)
-                .expect("TreeSink::elem_name called on a node which is not an element")
-        })
+        Ref::map(self.m.borrow(), |m| m.element_name(*target).expect("TreeSink::elem_name called on a node which is not an element"))
     }
 
     fn create_element(&self, name: QualName, attrs: Vec<html5ever::Attribute>, _flags: ElementFlags) -> NodeId {
@@ -158,14 +145,7 @@ impl<'a, 'd> TreeSink for Sink<'a, 'd> {
         let mut m = self.m();
         let node = m.create_comment_node("");
         m.append_children(self.document, &[node]);
-        self.out.borrow_mut().doctypes.push((
-            node,
-            Doctype {
-                name: name.to_string(),
-                public_id: public_id.to_string(),
-                system_id: system_id.to_string(),
-            },
-        ));
+        self.out.borrow_mut().doctypes.push((node, Doctype { name: name.to_string(), public_id: public_id.to_string(), system_id: system_id.to_string() }));
     }
 
     fn get_template_contents(&self, target: &NodeId) -> NodeId {

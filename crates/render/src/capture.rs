@@ -73,7 +73,13 @@ impl Capture {
 
     pub fn bitmap(width: u32, height: u32, rgba: Vec<u8>) -> Scene {
         let mut scene = Scene::new();
-        let image = peniko::ImageData { data: peniko::Blob::new(Arc::new(rgba)), format: peniko::ImageFormat::Rgba8, alpha_type: peniko::ImageAlphaType::Alpha, width, height };
+        let image = peniko::ImageData {
+            data: peniko::Blob::new(Arc::new(rgba)),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::Alpha,
+            width,
+            height,
+        };
         scene.draw_image(peniko::ImageBrush { image, sampler: peniko::ImageSampler::default() }.as_ref(), Affine::IDENTITY);
         scene
     }

@@ -21,11 +21,7 @@ fn clean(text: &str) -> String {
 #[cfg(any(target_os = "macos", test))]
 fn osascript(action: &str, title: &str, body: &str, subtitle: &str) -> std::process::Command {
     let mut command = std::process::Command::new("/usr/bin/osascript");
-    command
-        .args(["-l", "JavaScript", "-e", &format!("{READ} {action}")])
-        .env(TITLE, clean(title))
-        .env(BODY, clean(body))
-        .env(SUBTITLE, clean(subtitle));
+    command.args(["-l", "JavaScript", "-e", &format!("{READ} {action}")]).env(TITLE, clean(title)).env(BODY, clean(body)).env(SUBTITLE, clean(subtitle));
     command
 }
 
@@ -87,8 +83,7 @@ pub(crate) fn show(title: &str, body: &str, label: &str) -> Result<(), String> {
                 let (summary, body) = freedesktop_text(&title, &body, &label, markup);
                 let hints: HashMap<&str, zbus::zvariant::Value> = HashMap::new();
                 let actions: Vec<&str> = Vec::new();
-                bus.call_method(Some(NAME), PATH, Some(NAME), "Notify", &("acde", 0u32, "", summary.as_str(), body.as_str(), actions, hints, -1i32))
-                    .map(|_| ())
+                bus.call_method(Some(NAME), PATH, Some(NAME), "Notify", &("acde", 0u32, "", summary.as_str(), body.as_str(), actions, hints, -1i32)).map(|_| ())
             });
             if let Err(e) = sent {
                 log::warn!("notification: {NAME}: {e}");

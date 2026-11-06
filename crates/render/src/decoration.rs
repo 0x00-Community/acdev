@@ -82,10 +82,8 @@ impl Decoration {
     const RING: Color = Color::from_rgba8(0, 0, 0, 46);
 
     pub fn new() -> Self {
-        let fonts = FontContext {
-            source_cache: SourceCache::new_shared(),
-            collection: Collection::new(CollectionOptions { shared: false, system_fonts: true }),
-        };
+        let fonts =
+            FontContext { source_cache: SourceCache::new_shared(), collection: Collection::new(CollectionOptions { shared: false, system_fonts: true }) };
         Self { fonts, layouts: LayoutContext::new() }
     }
 

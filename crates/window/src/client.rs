@@ -292,7 +292,14 @@ pub(crate) struct App {
 }
 
 impl App {
-    fn run(token: u64, render: acde_render::RenderHandle, frame: u32, events: Arc<Inbox>, commands: Channel<Command>, ready: mpsc::SyncSender<Result<u32, String>>) -> Result<(), String> {
+    fn run(
+        token: u64,
+        render: acde_render::RenderHandle,
+        frame: u32,
+        events: Arc<Inbox>,
+        commands: Channel<Command>,
+        ready: mpsc::SyncSender<Result<u32, String>>,
+    ) -> Result<(), String> {
         let conn = Connection::connect_to_env().map_err(|e| format!("连接合成器: {e}"))?;
         let (globals, queue) = registry_queue_init::<App>(&conn).map_err(|e| format!("registry: {e}"))?;
         let qh = queue.handle();
@@ -315,7 +322,8 @@ impl App {
         let decoration = match frame {
             0 => None,
             height => {
-                let subcompositor = SubcompositorState::bind(compositor.wl_compositor().clone(), &globals, &qh).map_err(|e| format!("wl_subcompositor: {e}"))?;
+                let subcompositor =
+                    SubcompositorState::bind(compositor.wl_compositor().clone(), &globals, &qh).map_err(|e| format!("wl_subcompositor: {e}"))?;
                 Some(DecorationView::new(window.wl_surface(), &subcompositor, &viewporter, height, &qh))
             }
         };
@@ -397,7 +405,8 @@ impl App {
         lp.run(None, &mut app, |app| {
             app.activity();
             app.settle_pointer();
-        }).map_err(|e| e.to_string())
+        })
+        .map_err(|e| e.to_string())
     }
 
     fn gbm() -> Result<smithay::reexports::gbm::Device<DeviceFd>, String> {
@@ -521,7 +530,13 @@ impl App {
         self.escapes(&frame.panels);
         let backdrops = Self::backdrops(&frame.panels);
         let mut sheets = vec![(0, Sheet::from(frame.plane), frame.size)];
-        sheets.extend(frame.panels.into_iter().filter(|p| self.panels.iter().any(|v| v.id == p.id && v.configured)).map(|p| (PanelView::plane(p.id), Sheet::from(p.plane), p.size)));
+        sheets.extend(
+            frame
+                .panels
+                .into_iter()
+                .filter(|p| self.panels.iter().any(|v| v.id == p.id && v.configured))
+                .map(|p| (PanelView::plane(p.id), Sheet::from(p.plane), p.size)),
+        );
         Some((sheets, frame.trace, backdrops))
     }
 
@@ -530,7 +545,14 @@ impl App {
     }
 
     pub(crate) fn note_refresh(&mut self) {
-        let fastest = self.outputs.outputs().filter_map(|o| self.outputs.info(&o)).flat_map(|i| i.modes).filter(|m| m.current && m.refresh_rate > 0).map(|m| m.refresh_rate).max();
+        let fastest = self
+            .outputs
+            .outputs()
+            .filter_map(|o| self.outputs.info(&o))
+            .flat_map(|i| i.modes)
+            .filter(|m| m.current && m.refresh_rate > 0)
+            .map(|m| m.refresh_rate)
+            .max();
         self.refresh = fastest.map(|mhz| Duration::from_secs_f64(REFRESH_SLACK * 1000.0 / f64::from(mhz)));
     }
 
@@ -685,7 +707,13 @@ impl App {
         for (i, (fd, (offset, stride))) in dmabuf.handles().zip(dmabuf.offsets().zip(dmabuf.strides())).enumerate() {
             params.add(fd, i as u32, offset, stride, modifier);
         }
-        let (buffer, _) = params.create_immed(dmabuf.width() as i32, dmabuf.height() as i32, dmabuf.format().code as u32, zwp_linux_buffer_params_v1::Flags::empty(), &self.qh);
+        let (buffer, _) = params.create_immed(
+            dmabuf.width() as i32,
+            dmabuf.height() as i32,
+            dmabuf.format().code as u32,
+            zwp_linux_buffer_params_v1::Flags::empty(),
+            &self.qh,
+        );
         Some(buffer)
     }
 

@@ -12,8 +12,28 @@ pub struct FileLoader;
 const CONDITIONS: [&str; 4] = ["acde", "import", "module", "default"];
 
 const BUILTINS: &[&str] = &[
-    "assert", "buffer", "child_process", "crypto", "events", "fs", "http", "https", "module", "net", "os", "path",
-    "process", "stream", "timers", "tls", "url", "util", "vm", "worker_threads", "zlib", "sqlite",
+    "assert",
+    "buffer",
+    "child_process",
+    "crypto",
+    "events",
+    "fs",
+    "http",
+    "https",
+    "module",
+    "net",
+    "os",
+    "path",
+    "process",
+    "stream",
+    "timers",
+    "tls",
+    "url",
+    "util",
+    "vm",
+    "worker_threads",
+    "zlib",
+    "sqlite",
 ];
 
 impl FileLoader {
@@ -166,11 +186,14 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         list.set_index(scope, i as u32, arg.into());
     }
     bind::set(scope, obj, "argv", list.into());
-    let platform = bind::string(scope, match std::env::consts::OS {
-        "macos" => "darwin",
-        "windows" => "win32",
-        os => os,
-    });
+    let platform = bind::string(
+        scope,
+        match std::env::consts::OS {
+            "macos" => "darwin",
+            "windows" => "win32",
+            os => os,
+        },
+    );
     bind::set(scope, obj, "platform", platform.into());
     obj
 }

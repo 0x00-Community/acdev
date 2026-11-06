@@ -18,7 +18,9 @@ use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::xdg::window::{Window, WindowConfigure, WindowHandler};
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{delegate_dispatch2, registry_handlers};
-use wayland_client::protocol::{wl_buffer, wl_data_device, wl_data_device_manager::DndAction, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface};
+use wayland_client::protocol::{
+    wl_buffer, wl_data_device, wl_data_device_manager::DndAction, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface,
+};
 use wayland_client::{Connection, QueueHandle};
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 use wayland_protocols::wp::fractional_scale::v1::client::{wp_fractional_scale_manager_v1, wp_fractional_scale_v1};
@@ -258,7 +260,8 @@ impl DataDeviceHandler for App {
 
     fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_device::WlDataDevice) {
         let (Some(offer), Some((x, y))) = (self.device.as_ref().and_then(|d| d.data().drag_offer()), self.over.take()) else { return };
-        let pipes: Vec<(String, OwnedFd)> = Self::mimes(&offer).into_iter().filter_map(|m| offer.receive(m.clone()).ok().map(|p| (m, OwnedFd::from(p)))).collect();
+        let pipes: Vec<(String, OwnedFd)> =
+            Self::mimes(&offer).into_iter().filter_map(|m| offer.receive(m.clone()).ok().map(|p| (m, OwnedFd::from(p)))).collect();
         let _ = self.conn.flush();
         let events = self.events.clone();
         let conn = self.conn.clone();
@@ -353,7 +356,14 @@ impl DmabufHandler for App {
         &mut self.dmabuf
     }
 
-    fn dmabuf_feedback(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1, _: DmabufFeedback) {}
+    fn dmabuf_feedback(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1,
+        _: DmabufFeedback,
+    ) {
+    }
 
     fn created(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, _: wl_buffer::WlBuffer) {}
 
@@ -412,11 +422,26 @@ impl Dispatch2<wp_viewport::WpViewport, App> for Data {
 }
 
 impl Dispatch2<wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1, App> for Data {
-    fn event(&self, _: &mut App, _: &wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1, _: wp_fractional_scale_manager_v1::Event, _: &Connection, _: &QueueHandle<App>) {}
+    fn event(
+        &self,
+        _: &mut App,
+        _: &wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1,
+        _: wp_fractional_scale_manager_v1::Event,
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
+    }
 }
 
 impl Dispatch2<wp_fractional_scale_v1::WpFractionalScaleV1, App> for Data {
-    fn event(&self, app: &mut App, _: &wp_fractional_scale_v1::WpFractionalScaleV1, event: wp_fractional_scale_v1::Event, _: &Connection, _: &QueueHandle<App>) {
+    fn event(
+        &self,
+        app: &mut App,
+        _: &wp_fractional_scale_v1::WpFractionalScaleV1,
+        event: wp_fractional_scale_v1::Event,
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
         if let wp_fractional_scale_v1::Event::PreferredScale { scale } = event {
             app.fractional_scale = true;
             let scale = f64::from(scale) / 120.0;
