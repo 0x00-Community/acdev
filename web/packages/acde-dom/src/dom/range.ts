@@ -1,6 +1,6 @@
 import { DOMException, guard } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { host, tag } from '../core/host'
+import { constants, host, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { DOMRect, DOMRectList } from './geometry'
 import { rectOf } from './layout'
@@ -211,10 +211,6 @@ function changed(range: Range): void {
 }
 
 export class Range extends AbstractRange {
-  static readonly START_TO_START = 0
-  static readonly START_TO_END = 1
-  static readonly END_TO_END = 2
-  static readonly END_TO_START = 3
 
   constructor() {
     const document = wrap<Node>(documentId)!
@@ -600,7 +596,7 @@ export class Range extends AbstractRange {
     return new DOMRect(x0, y0, x1 - x0, y1 - y0)
   }
 }
-for (const [name, value] of [['START_TO_START', 0], ['START_TO_END', 1], ['END_TO_END', 2], ['END_TO_START', 3]] as const) Object.defineProperty(Range.prototype, name, { value, enumerable: true })
+constants(Range, { START_TO_START: 0, START_TO_END: 1, END_TO_END: 2, END_TO_START: 3 })
 tag(Range)
 
 function isText(node: Node): boolean {

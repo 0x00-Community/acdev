@@ -1,6 +1,6 @@
 import { DOMException } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { getters, host, tag } from '../core/host'
+import { constants, getters, host, tag } from '../core/host'
 import { Blob } from '../core/blob'
 import { unbase64 } from '../core/encoding'
 import { fetch } from '../core/net'
@@ -196,16 +196,9 @@ bool(HTMLIFrameElement.prototype, 'allowFullscreen', 'allowfullscreen')
 register(HTMLIFrameElement, 'iframe')
 
 export class MediaError {
-  static readonly MEDIA_ERR_ABORTED = 1
-  static readonly MEDIA_ERR_NETWORK = 2
-  static readonly MEDIA_ERR_DECODE = 3
-  static readonly MEDIA_ERR_SRC_NOT_SUPPORTED = 4
-  readonly MEDIA_ERR_ABORTED = 1
-  readonly MEDIA_ERR_NETWORK = 2
-  readonly MEDIA_ERR_DECODE = 3
-  readonly MEDIA_ERR_SRC_NOT_SUPPORTED = 4
   constructor(readonly code: number, readonly message: string) {}
 }
+constants(MediaError, { MEDIA_ERR_ABORTED: 1, MEDIA_ERR_NETWORK: 2, MEDIA_ERR_DECODE: 3, MEDIA_ERR_SRC_NOT_SUPPORTED: 4 })
 tag(MediaError)
 
 const playingMedia = new Map<number, HTMLMediaElement>()
@@ -218,15 +211,6 @@ const ENDED = Symbol('ended')
 const timeRanges = (end: number) => ({ length: end > 0 ? 1 : 0, start: () => 0, end: () => end })
 
 export class HTMLMediaElement extends HTMLElement {
-  static readonly NETWORK_EMPTY = 0
-  static readonly NETWORK_IDLE = 1
-  static readonly NETWORK_LOADING = 2
-  static readonly NETWORK_NO_SOURCE = 3
-  static readonly HAVE_NOTHING = 0
-  static readonly HAVE_METADATA = 1
-  static readonly HAVE_CURRENT_DATA = 2
-  static readonly HAVE_FUTURE_DATA = 3
-  static readonly HAVE_ENOUGH_DATA = 4
   declare loop: boolean
   declare autoplay: boolean
   defaultPlaybackRate = 1
@@ -521,6 +505,7 @@ string(HTMLMediaElement.prototype, 'preload')
 nullable(HTMLMediaElement.prototype, 'crossOrigin', 'crossorigin')
 for (const name of ['autoplay', 'loop', 'controls']) bool(HTMLMediaElement.prototype, name)
 bool(HTMLMediaElement.prototype, 'defaultMuted', 'muted')
+constants(HTMLMediaElement, { NETWORK_EMPTY: 0, NETWORK_IDLE: 1, NETWORK_LOADING: 2, NETWORK_NO_SOURCE: 3, HAVE_NOTHING: 0, HAVE_METADATA: 1, HAVE_CURRENT_DATA: 2, HAVE_FUTURE_DATA: 3, HAVE_ENOUGH_DATA: 4 })
 tag(HTMLMediaElement)
 
 mediaEvents.ended = (media) => playingMedia.get(media)?.[ENDED]()

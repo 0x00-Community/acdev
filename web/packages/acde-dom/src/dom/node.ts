@@ -1,6 +1,6 @@
 import { DOMException, guard } from '../core/exception'
 import { BUILD_PATH, EventTarget, type Event } from '../core/event'
-import { getters, tag } from '../core/host'
+import { constants, getters, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
 import { characterDataObservers, childListObservers, observing, recordCharacterData, recordChildList, recordLists, type Observers } from './mutation'
 import { adopt, attach, changed, CONNECTED, constructing, detach, documentId, dom, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper } from './realm'
@@ -346,24 +346,6 @@ export function replaceData(node: CharacterData, offset: number, count: number, 
 }
 
 export class Node extends EventTarget implements Wrapper {
-  static readonly ELEMENT_NODE = 1
-  static readonly ATTRIBUTE_NODE = 2
-  static readonly TEXT_NODE = 3
-  static readonly CDATA_SECTION_NODE = 4
-  static readonly ENTITY_REFERENCE_NODE = 5
-  static readonly ENTITY_NODE = 6
-  static readonly PROCESSING_INSTRUCTION_NODE = 7
-  static readonly COMMENT_NODE = 8
-  static readonly DOCUMENT_NODE = 9
-  static readonly DOCUMENT_TYPE_NODE = 10
-  static readonly DOCUMENT_FRAGMENT_NODE = 11
-  static readonly NOTATION_NODE = 12
-  static readonly DOCUMENT_POSITION_DISCONNECTED = 1
-  static readonly DOCUMENT_POSITION_PRECEDING = 2
-  static readonly DOCUMENT_POSITION_FOLLOWING = 4
-  static readonly DOCUMENT_POSITION_CONTAINS = 8
-  static readonly DOCUMENT_POSITION_CONTAINED_BY = 16
-  static readonly DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 32
 
   declare [ID]: number
   declare [CONNECTED]: boolean
@@ -453,7 +435,7 @@ export class Node extends EventTarget implements Wrapper {
     if (other === null || other === undefined) return false
     if (!(other instanceof Node)) throw new TypeError("Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'.")
     if (other === this) return true
-    return (dom.compareDocumentPosition(this[ID], other[ID]) & Node.DOCUMENT_POSITION_CONTAINED_BY) !== 0
+    return (dom.compareDocumentPosition(this[ID], other[ID]) & 16) !== 0
   }
 
   compareDocumentPosition(other: Node): number {
@@ -567,9 +549,7 @@ export class Node extends EventTarget implements Wrapper {
     pathHooks.build(this, event, path)
   }
 }
-for (const [name, value] of Object.entries(Node)) {
-  Object.defineProperty(Node.prototype, name, { value, enumerable: true })
-}
+constants(Node, { ELEMENT_NODE: 1, ATTRIBUTE_NODE: 2, TEXT_NODE: 3, CDATA_SECTION_NODE: 4, ENTITY_REFERENCE_NODE: 5, ENTITY_NODE: 6, PROCESSING_INSTRUCTION_NODE: 7, COMMENT_NODE: 8, DOCUMENT_NODE: 9, DOCUMENT_TYPE_NODE: 10, DOCUMENT_FRAGMENT_NODE: 11, NOTATION_NODE: 12, DOCUMENT_POSITION_DISCONNECTED: 1, DOCUMENT_POSITION_PRECEDING: 2, DOCUMENT_POSITION_FOLLOWING: 4, DOCUMENT_POSITION_CONTAINS: 8, DOCUMENT_POSITION_CONTAINED_BY: 16, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC: 32 })
 tag(Node)
 
 function equalElements(a: number, b: number): boolean {
