@@ -88,7 +88,7 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + '
     rt::blocking(work).await.map_err(|_| failure("native_task_failed", "native task did not complete; query the original operation"))?
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 fn private_bus(name: &str) -> Option<(std::process::Child, String, std::path::PathBuf)> {
     use std::io::BufRead;
     let dir = std::env::temp_dir().join(format!("acde-{name}-test-{}", std::process::id()));
