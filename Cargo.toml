@@ -6,29 +6,30 @@ exclude = ["vendors"]
 [workspace.package]
 version = "0.0.2"
 edition = "2024"
-license = "Apache-2.0"
 repository = "https://github.com/dopame-org/acdert"
+license = "Apache-2.0"
 publish = false
-
-[profile.release]
-opt-level = "s"
-lto = "thin"
-strip = true
 
 # acrender: 我们的 Blitz 分叉 (vendors/acrender, 基于上游 main 独立维护), 整组 blitz crate 都用它
 [patch.crates-io]
+async-dnssd = { path = "vendors/async-dnssd" }
 blitz-dom = { path = "vendors/acrender/packages/blitz-dom" }
 blitz-paint = { path = "vendors/acrender/packages/blitz-paint" }
 blitz-traits = { path = "vendors/acrender/packages/blitz-traits" }
-parley = { path = "vendors/parley" }
 fontique = { path = "vendors/fontique" }
-stylo = { path = "vendors/stylo" }
-stylo_atoms = { path = "vendors/stylo_atoms" }
-vello = { path = "vendors/vello" }
+# 不依赖 winapi (见 AGENTS.md 的 vendors/fslock、vendors/async-dnssd)
+fslock = { path = "vendors/fslock" }
 # RDP 后端的服务端: 改成跑在 ntex 上 (没有 tokio / reqwest), TLS 用 OpenSSL (见 AGENTS.md 的 vendors/ironrdp-server)
 ironrdp-server = { path = "vendors/ironrdp-server" }
 # libseat 运行时 dlopen, 机器上没有 libseat 也能起 (见 AGENTS.md 的 vendors/libseat-sys)
 libseat-sys = { path = "vendors/libseat-sys" }
-# 不依赖 winapi (见 AGENTS.md 的 vendors/fslock、vendors/async-dnssd)
-fslock = { path = "vendors/fslock" }
-async-dnssd = { path = "vendors/async-dnssd" }
+parley = { path = "vendors/parley" }
+stylo = { path = "vendors/stylo" }
+stylo_atoms = { path = "vendors/stylo_atoms" }
+vello = { path = "vendors/vello" }
+
+[profile.release]
+opt-level = "s"
+debug = 0
+strip = true
+lto = "thin"
