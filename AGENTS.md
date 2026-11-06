@@ -515,12 +515,18 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 - **启动标记**: 每个里程碑一条 info (target `acde_host`) `启动: <标记> ms=<进程启动以来>`: Broker `shell created` / `services starting` /
   `services started` / `shell <里程碑>` / `autostart`; 每个 web `page load started` / `desktop loaded` (或 `loaded`) / `shell running` / `first frame`.
 
-## 发版 (npm)
+## 发版
 
-`.github/workflows/release.yml` (还没跑过): 推 `v*` tag 时每个平台 (darwin-arm64 / x64、linux-arm64 / x64、linux-*-musl (Alpine edge 容器,
-`-C target-feature=-crt-static`)、win32-x64、win32-arm64) 编 `acdert` 和 host bundle, 用 acde 仓库的 `scripts/pack.ts` 打成 npm 包
-(`@dopame/acdert-<平台>`、`@dopame/acde-api`、`acde`、`create-acde`) 发布. 某个平台编不过时其余照发 (win32-arm64 现在编不过). secret:
-`DOPAME_READ_TOKEN`、`NPM_TOKEN`. Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire.
+`.github/workflows/release.yml`, 三个平台各编一个 debug 的 `acdert` (`cargo build -p acdert --target <triple>`), 文件名是
+`acdert-<target triple>[.exe]`: `aarch64-apple-darwin` (macos-15)、`x86_64-unknown-linux-gnu` (ubuntu-24.04)、`x86_64-pc-windows-msvc`
+(windows-2025, 要 NASM 和 `PYTHON3`). host bundle 和平台无关, 单独打成 `acdert-host-<版本>.tar.gz` (`app/`: `dist`、`brand`、`greet`、
+`package.json`), 解压到 binary 旁边 (acdert 找 `<exe 所在目录>/app/dist`). 桌面包 (Dopame) 不在里面.
+
+- 推 `v*` tag: 建 GitHub prerelease, 附上三个 binary 和 host bundle. 不发 npm.
+- 手动触发 (`workflow_dispatch`, 填版本; 勾 `publish` 才真的发): 用 acde 仓库的 `scripts/pack.ts` 打 npm 包 (`@dopame/acdert-<平台>`、
+  `@dopame/acde-api`、`acde`、`create-acde`), secret `DOPAME_READ_TOKEN`、`NPM_TOKEN`.
+- 版本号: 根 `Cargo.toml` 的 `workspace.package.version` 和 `web/packages/*/package.json` 一起改, tag 是 `v<版本>`.
+- Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire.
 
 ## 日志和计时
 

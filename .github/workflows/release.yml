@@ -13,9 +13,11 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: never
-  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
 
 jobs:
   build:
@@ -23,70 +25,80 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: darwin-arm64, os: macos-15 }
-          - { target: darwin-x64, os: macos-15-intel }
-          - { target: linux-x64, os: ubuntu-24.04 }
-          - { target: linux-arm64, os: ubuntu-24.04-arm }
-          - { target: linux-x64-musl, os: ubuntu-24.04 }
-          - { target: linux-arm64-musl, os: ubuntu-24.04-arm }
-          - { target: win32-x64, os: windows-2025 }
-          - { target: win32-arm64, os: windows-11-arm }
+          - { triple: aarch64-apple-darwin, os: macos-15 }
+          - { triple: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
+          - { triple: x86_64-pc-windows-msvc, os: windows-2025, exe: .exe }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - name: private git dependencies (acgpu)
-        shell: bash
-        run: git config --global url."https://x-access-token:${{ secrets.DOPAME_READ_TOKEN }}@github.com/".insteadOf "https://github.com/"
-      - name: acdert (musl, in Alpine)
-        if: endsWith(matrix.target, '-musl')
-        run: |
-          mkdir -p out
-          docker run --rm -v "$PWD:/src" -w /src -e TOKEN="${{ secrets.DOPAME_READ_TOKEN }}" docker.io/library/alpine:edge sh -euc '
-            apk add --no-cache build-base clang clang-dev llvm-dev pkgconf git curl perl linux-headers \
-              openssl-dev libdrm-dev mesa-dev libinput-dev eudev-dev pipewire-dev wayland-dev libxkbcommon-dev \
-              fontconfig-dev freetype-dev zlib-dev zstd-dev rustup
-            rustup-init -y --profile minimal --default-toolchain stable --no-modify-path
-            git config --global url."https://x-access-token:$TOKEN@github.com/".insteadOf "https://github.com/"
-            CARGO_NET_GIT_FETCH_WITH_CLI=true RUSTFLAGS="-C target-feature=-crt-static" \
-              $HOME/.cargo/bin/cargo build --release --locked -p acdert --target-dir /src/target-musl
-            cp /src/target-musl/release/acdert /src/out/'
       - name: system libraries
-        if: runner.os == 'Linux' && !endsWith(matrix.target, '-musl')
+        if: runner.os == 'Linux'
         run: >
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev
           libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev
+      - uses: ilammy/setup-nasm@v1
+        if: runner.os == 'Windows'
+      - name: python for stylo
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "PYTHON3=$(cygpath -w "$(command -v python)")" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
-        if: ${{ !endsWith(matrix.target, '-musl') }}
-      - uses: oven-sh/setup-bun@v2
-        if: ${{ !endsWith(matrix.target, '-musl') }}
-      - name: host bundle
-        if: ${{ !endsWith(matrix.target, '-musl') }}
-        working-directory: web
-        run: bun install --frozen-lockfile && bun run build
-      - name: acdert
-        if: ${{ !endsWith(matrix.target, '-musl') }}
-        run: cargo build --release --locked -p acdert
+        with:
+          targets: ${{ matrix.triple }}
+      - name: acdert (debug)
+        run: cargo build -p acdert --target ${{ matrix.triple }}
       - name: stage
-        if: ${{ !endsWith(matrix.target, '-musl') }}
         shell: bash
         run: |
-          mkdir -p out/host
-          cp target/release/acdert${{ startsWith(matrix.target, 'win32') && '.exe' || '' }} out/
-          cp web/packages/acde-host/dist/*.js out/host/
+          mkdir -p out
+          cp target/${{ matrix.triple }}/debug/acdert${{ matrix.exe }} out/acdert-${{ matrix.triple }}${{ matrix.exe }}
       - uses: actions/upload-artifact@v5
         with:
-          name: acdert-${{ matrix.target }}
+          name: acdert-${{ matrix.triple }}
           path: out
 
-  npm:
-    needs: build
-    if: ${{ !cancelled() }}
+  host:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - name: host bundle
+        working-directory: web
+        run: bun install --frozen-lockfile && bun run build
+      - name: stage
+        run: |
+          mkdir -p out/app
+          cp -r web/packages/acde-host/dist web/packages/acde-host/brand web/packages/acde-host/greet web/packages/acde-host/package.json out/app/
+          rm -f out/app/dist/*.map
+      - uses: actions/upload-artifact@v5
         with:
-          path: acdert
+          name: host
+          path: out
+
+  release:
+    needs: [build, host]
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: artifacts
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          tar -C artifacts/host -czf "acdert-host-${TAG#v}.tar.gz" app
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG" \
+            --notes "Debug builds. Put the app/ directory from acdert-host-${TAG#v}.tar.gz next to the binary." \
+            artifacts/acdert-*/acdert-* "acdert-host-${TAG#v}.tar.gz"
+
+  npm:
+    needs: [build, host]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    steps:
       - uses: actions/checkout@v5
         with:
           repository: dopame-org/acde
@@ -104,24 +116,21 @@ jobs:
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ inputs.version || github.ref_name }}
-          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+          VERSION: ${{ inputs.version }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
-          version=${VERSION#v}
           root=$PWD
+          declare -A npm=([aarch64-apple-darwin]=darwin-arm64 [x86_64-unknown-linux-gnu]=linux-x64 [x86_64-pc-windows-msvc]=win32-x64)
           args=()
-          host=
           for dir in artifacts/acdert-*; do
-            target=${dir#artifacts/acdert-}
-            exe=$(ls "$dir" | grep -E '^acdert(\.exe)?$')
-            args+=(--acdert "$target=$root/$dir/$exe")
-            [ -d "$dir/host" ] && host=$root/$dir/host
+            triple=${dir#artifacts/acdert-}
+            exe=$(ls "$dir")
+            args+=(--acdert "${npm[$triple]}=$root/$dir/$exe")
           done
-          [ ${#args[@]} -gt 0 ] && [ -n "$host" ] || { echo "no acdert or no host bundle was built"; exit 1; }
-          echo "targets: ${args[*]}"
+          [ ${#args[@]} -gt 0 ] || { echo "no acdert was built"; exit 1; }
           cd acde && bun install --frozen-lockfile
           if [ "$PUBLISH" = true ]; then publish=(--publish https://registry.npmjs.org/); else publish=(); fi
-          bun scripts/pack.ts --version "$version" --host "$host" "${args[@]}" "${publish[@]}"
+          bun scripts/pack.ts --version "$VERSION" --host "$root/artifacts/host/app/dist" "${args[@]}" "${publish[@]}"
       - uses: actions/upload-artifact@v5
         with:
           name: npm
