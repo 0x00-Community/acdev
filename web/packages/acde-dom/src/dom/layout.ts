@@ -1,5 +1,5 @@
 import { NONE, type Metrics } from '../native'
-import { dom, layoutEpoch, rootElementId, version } from './realm'
+import { dom, ID, layoutEpoch, rootElementId, version } from './realm'
 
 let cachedVersion = -1
 let cachedEpoch = -1
@@ -28,6 +28,12 @@ export function metricsOf(id: number): Metrics | null {
   let m = metrics.get(id)
   if (m === undefined) metrics.set(id, (m = dom.metrics(id)))
   return m
+}
+
+export function metricGetters(proto: object, table: Record<string, keyof Metrics>): void {
+  for (const [name, key] of Object.entries(table)) {
+    Object.defineProperty(proto, name, { get(this: { [ID]: number }) { return metricsOf(this[ID])?.[key] ?? 0 }, enumerable: true, configurable: true })
+  }
 }
 
 export function computedStyleOf(id: number, pseudo: string, property: string): string {

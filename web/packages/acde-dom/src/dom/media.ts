@@ -10,7 +10,7 @@ import { canvases, type CanvasContext2d, type CanvasElement } from './canvas'
 import { ATTRIBUTE_CHANGED, flags, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
 import { frames, resolveUrl } from './env'
 import { HTMLElement, register } from './html'
-import { metricsOf } from './layout'
+import { metricGetters, metricsOf } from './layout'
 import { bool, long, nullable, string, url } from './reflect'
 import { dom, existing, ID, wrap } from './realm'
 
@@ -66,12 +66,6 @@ export class HTMLImageElement extends HTMLElement {
     setAttribute(this, 'height', String(Math.trunc(Number(value)) || 0))
   }
 
-  get x(): number {
-    return metricsOf(this[ID])?.offsetLeft ?? 0
-  }
-  get y(): number {
-    return metricsOf(this[ID])?.offsetTop ?? 0
-  }
 
   decode(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -107,6 +101,7 @@ string(HTMLImageElement.prototype, 'referrerPolicy', 'referrerpolicy')
 bool(HTMLImageElement.prototype, 'isMap', 'ismap')
 long(HTMLImageElement.prototype, 'hspace', 0)
 long(HTMLImageElement.prototype, 'vspace', 0)
+metricGetters(HTMLImageElement.prototype, { x: 'offsetLeft', y: 'offsetTop' })
 register(HTMLImageElement, 'img')
 
 export function deliverLoads(): boolean {

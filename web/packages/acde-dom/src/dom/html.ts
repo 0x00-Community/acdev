@@ -7,7 +7,7 @@ import { ACTIVATION, MouseEvent, ToggleEvent } from './events'
 import { ATTRIBUTE_CHANGED, dataset, Element, HANDLER_TYPES, LOCAL, NS, pendingElement, setAttribute, tokenList, type DOMStringMap, type DOMTokenList } from './element'
 import { resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
-import { metricsOf } from './layout'
+import { metricGetters, metricsOf } from './layout'
 import { CharacterData, Comment, DocumentFragment, DocumentType, mixin, Node, replaceAll, Text, type NodeList } from './node'
 import { bool, long, nullable, string, url, urlParts } from './reflect'
 import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap } from './realm'
@@ -177,18 +177,6 @@ export class HTMLElement extends Element {
     const m = metricsOf(this[ID])
     return m ? wrap<Element>(m.offsetParent) : null
   }
-  get offsetTop(): number {
-    return metricsOf(this[ID])?.offsetTop ?? 0
-  }
-  get offsetLeft(): number {
-    return metricsOf(this[ID])?.offsetLeft ?? 0
-  }
-  get offsetWidth(): number {
-    return metricsOf(this[ID])?.offsetWidth ?? 0
-  }
-  get offsetHeight(): number {
-    return metricsOf(this[ID])?.offsetHeight ?? 0
-  }
 
   click(): void {
     if (clicking.has(this) || (dom.hasAttribute(this[ID], 'disabled') && /^(button|input|select|textarea|fieldset|option|optgroup)$/.test(this[LOCAL]))) return
@@ -211,6 +199,7 @@ export class HTMLElement extends Element {
   }
 }
 mixin(HTMLElement, HTMLOrSVGElementMixin)
+metricGetters(HTMLElement.prototype, { offsetTop: 'offsetTop', offsetLeft: 'offsetLeft', offsetWidth: 'offsetWidth', offsetHeight: 'offsetHeight' })
 string(HTMLElement.prototype, 'title')
 string(HTMLElement.prototype, 'lang')
 string(HTMLElement.prototype, 'dir')

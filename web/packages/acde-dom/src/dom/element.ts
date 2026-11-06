@@ -3,7 +3,7 @@ import { getHandler, setHandler } from '../core/event'
 import { getters, tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
 import { DOMRect, rectList, type DOMRectList } from './geometry'
-import { computedStyleOf, metricsOf, rectOf } from './layout'
+import { computedStyleOf, metricGetters, metricsOf, rectOf } from './layout'
 import { attributeObservers, observing, recordAttribute } from './mutation'
 import { ChildNodeMixin, insert, mixin, Node, ParentNodeMixin, remove, replaceAll, Text, type DocumentFragment } from './node'
 import { bodyId, changed, CONNECTED as CONNECTED_KEY, dom, ID, moved, wrap } from './realm'
@@ -280,24 +280,6 @@ export class Element extends Node {
     return rectList(dom.clientRects(this[ID]))
   }
 
-  get clientTop(): number {
-    return metricsOf(this[ID])?.clientTop ?? 0
-  }
-  get clientLeft(): number {
-    return metricsOf(this[ID])?.clientLeft ?? 0
-  }
-  get clientWidth(): number {
-    return metricsOf(this[ID])?.clientWidth ?? 0
-  }
-  get clientHeight(): number {
-    return metricsOf(this[ID])?.clientHeight ?? 0
-  }
-  get scrollWidth(): number {
-    return metricsOf(this[ID])?.scrollWidth ?? 0
-  }
-  get scrollHeight(): number {
-    return metricsOf(this[ID])?.scrollHeight ?? 0
-  }
 
   get scrollTop(): number {
     return metricsOf(this[ID])?.scrollTop ?? 0
@@ -356,6 +338,7 @@ export class Element extends Node {
 getters(Element.prototype, { prefix: null, assignedSlot: null })
 mixin(Element, ParentNodeMixin)
 mixin(Element, ChildNodeMixin)
+metricGetters(Element.prototype, { clientTop: 'clientTop', clientLeft: 'clientLeft', clientWidth: 'clientWidth', clientHeight: 'clientHeight', scrollWidth: 'scrollWidth', scrollHeight: 'scrollHeight' })
 tag(Element)
 export interface Element extends ParentNodeMixin, ChildNodeMixin {}
 
