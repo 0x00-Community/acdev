@@ -44,6 +44,9 @@ html5ever = "=0.40.1"
 style_dom = { version = "=0.22.0", package = "stylo_dom" }
 style_traits = { version = "=0.22.0", package = "stylo_traits" }
 cssparser = "=0.38.0"
+# Dom::semantics 的 JSON
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
 # tests/svg_fixtures.rs 把 SVG 文件读成 DOM 调用

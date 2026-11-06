@@ -1,4 +1,5 @@
 use blitz_dom::{Node, NodeData, NodeId};
+use serde::Serialize;
 use style::computed_values::visibility::T as Visibility;
 
 use super::{Control, Dom};
@@ -10,16 +11,48 @@ const NAME_MAX: usize = 120;
 const VALUE_MAX: usize = 200;
 const CHILDREN_MAX: usize = 60;
 
+#[derive(Serialize)]
+struct Tree {
+    hidden: usize,
+    truncated: bool,
+    nodes: Vec<Sem>,
+}
+
+#[derive(Serialize)]
 struct Sem {
+    #[serde(skip)]
     node: NodeId,
+    id: u32,
     role: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     states: Vec<&'static str>,
-    rect: Rect,
+    #[serde(skip_serializing_if = "Option::is_none")]
     level: Option<u8>,
-    children: Vec<Sem>,
+    #[serde(serialize_with = "rounded")]
+    rect: Rect,
+    #[serde(skip_serializing_if = "is_zero")]
     more: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<Sem>,
+}
+
+fn rounded<S: serde::Serializer>(r: &Rect, s: S) -> Result<S::Ok, S::Error> {
+    [r.x, r.y, r.width, r.height].map(|v| v.round_ties_even() as i64).serialize(s)
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+fn number(list: &mut [Sem], ids: &mut dyn FnMut(NodeId) -> u32) {
+    for sem in list {
+        sem.id = ids(sem.node);
+        number(&mut sem.children, ids);
+    }
 }
 
 struct Walk<'a> {
@@ -34,93 +67,23 @@ impl Dom {
     pub fn semantics(&self, root: u32, limit: u32) -> crate::Result<String> {
         self.read(|e| {
             let root = match root {
-                super::NONE => match e.doc.try_root_element() {
-                    Some(r) => r.id,
-                    None => return Ok("{\"hidden\":0,\"truncated\":false,\"nodes\":[]}".into()),
-                },
-                id => e.n(id)?,
+                super::NONE => e.doc.try_root_element().map(|r| r.id),
+                id => Some(e.n(id)?),
             };
-            e.resolved();
-            let viewport = e.doc.viewport();
-            let scale = viewport.scale_f64();
-            let screen = Rect { x: 0.0, y: 0.0, width: f64::from(viewport.window_size.0) / scale, height: f64::from(viewport.window_size.1) / scale };
-            let mut walk = Walk { e, geometry: Geometry { doc: &e.doc }, focus: e.doc.get_focussed_node_id(), budget: limit.max(1) as usize, hidden: 0 };
-            let mut truncated = false;
-            let nodes = walk.element(root, screen, &mut truncated);
-            let hidden = walk.hidden;
-            let mut out = String::with_capacity(4096);
-            out.push_str(&format!("{{\"hidden\":{hidden},\"truncated\":{truncated},\"nodes\":"));
-            write_list(&nodes, &mut out, &mut |n| e.ids.id_of(n));
-            out.push('}');
-            Ok(out)
+            let mut tree = Tree { hidden: 0, truncated: false, nodes: Vec::new() };
+            if let Some(root) = root {
+                e.resolved();
+                let viewport = e.doc.viewport();
+                let scale = viewport.scale_f64();
+                let screen = kurbo::Rect::new(0.0, 0.0, f64::from(viewport.window_size.0) / scale, f64::from(viewport.window_size.1) / scale);
+                let mut walk = Walk { e, geometry: Geometry { doc: &e.doc }, focus: e.doc.get_focussed_node_id(), budget: limit.max(1) as usize, hidden: 0 };
+                tree.nodes = walk.element(root, screen, &mut tree.truncated);
+                tree.hidden = walk.hidden;
+                number(&mut tree.nodes, &mut |n| e.ids.id_of(n));
+            }
+            serde_json::to_string(&tree).map_err(|err| crate::Error::new(err.to_string()))
         })
     }
-}
-
-fn write_list(list: &[Sem], out: &mut String, ids: &mut dyn FnMut(NodeId) -> u32) {
-    out.push('[');
-    for (i, sem) in list.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        write_sem(sem, out, ids);
-    }
-    out.push(']');
-}
-
-fn write_sem(sem: &Sem, out: &mut String, ids: &mut dyn FnMut(NodeId) -> u32) {
-    out.push_str("{\"id\":");
-    out.push_str(&ids(sem.node).to_string());
-    out.push_str(",\"role\":");
-    string(&sem.role, out);
-    if !sem.name.is_empty() {
-        out.push_str(",\"name\":");
-        string(&sem.name, out);
-    }
-    if let Some(value) = &sem.value {
-        out.push_str(",\"value\":");
-        string(value, out);
-    }
-    if !sem.states.is_empty() {
-        out.push_str(",\"states\":[");
-        for (i, s) in sem.states.iter().enumerate() {
-            if i > 0 {
-                out.push(',');
-            }
-            string(s, out);
-        }
-        out.push(']');
-    }
-    if let Some(level) = sem.level {
-        out.push_str(",\"level\":");
-        out.push_str(&level.to_string());
-    }
-    let r = sem.rect;
-    out.push_str(&format!(",\"rect\":[{:.0},{:.0},{:.0},{:.0}]", r.x, r.y, r.width, r.height));
-    if sem.more > 0 {
-        out.push_str(",\"more\":");
-        out.push_str(&sem.more.to_string());
-    }
-    if !sem.children.is_empty() {
-        out.push_str(",\"children\":");
-        write_list(&sem.children, out, ids);
-    }
-    out.push('}');
-}
-
-fn string(text: &str, out: &mut String) {
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
 }
 
 fn collapse(text: &str, max: usize) -> String {
@@ -138,18 +101,6 @@ fn collapse(text: &str, max: usize) -> String {
         out = out.chars().take(max).collect::<String>() + "…";
     }
     out
-}
-
-fn intersects(a: Rect, b: Rect) -> bool {
-    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
-}
-
-fn intersect(a: Rect, b: Rect) -> Rect {
-    let x = a.x.max(b.x);
-    let y = a.y.max(b.y);
-    let right = (a.x + a.width).min(b.x + b.width);
-    let bottom = (a.y + a.height).min(b.y + b.height);
-    Rect { x, y, width: (right - x).max(0.0), height: (bottom - y).max(0.0) }
 }
 
 const SKIPPED: [&str; 9] = ["script", "style", "template", "head", "meta", "link", "noscript", "title", "iframe"];
@@ -201,7 +152,7 @@ impl<'a> Walk<'a> {
         self.e.doc.get_node(id)
     }
 
-    fn element(&mut self, id: NodeId, clip: Rect, truncated: &mut bool) -> Vec<Sem> {
+    fn element(&mut self, id: NodeId, clip: kurbo::Rect, truncated: &mut bool) -> Vec<Sem> {
         let Some(n) = self.node(id) else { return Vec::new() };
         let Some(e) = n.element_data() else { return Vec::new() };
         let tag = e.name.local.to_string();
@@ -218,7 +169,8 @@ impl<'a> Walk<'a> {
         }
         let rect = self.geometry.client_rect(id).unwrap_or_default();
         let sized = rect.width > 0.0 && rect.height > 0.0;
-        if sized && !intersects(rect, clip) {
+        let visible = kurbo::Rect::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height).intersect(clip);
+        if sized && visible.is_zero_area() {
             self.hidden += 1;
             return Vec::new();
         }
@@ -229,7 +181,7 @@ impl<'a> Walk<'a> {
         let resolved = |p: &str| self.e.doc.resolved_style_value(id, p);
         let overflow = [resolved("overflow-x"), resolved("overflow-y")];
         let clips = sized && overflow.iter().any(|o| o != "visible" && !o.is_empty());
-        let inner = if clips { intersect(clip, rect) } else { clip };
+        let inner = if clips { visible } else { clip };
         let role = self.role(n, &tag, &attr);
         let mut states = self.states(n, &tag, &attr, role.as_deref());
         if clips && overflow.iter().any(|o| o == "auto" || o == "scroll") {
@@ -271,6 +223,7 @@ impl<'a> Walk<'a> {
                     }
                     _ => children.push(Sem {
                         node: id,
+                        id: 0,
                         role: "text".into(),
                         name: text,
                         value: None,
@@ -316,7 +269,7 @@ impl<'a> Walk<'a> {
         if children.is_empty() && name.is_empty() && value.is_none() && more == 0 && !INTERACTIVE.contains(&role.as_str()) {
             return Vec::new();
         }
-        vec![Sem { node: id, role, name, value, states, rect: if sized { rect } else { Rect::default() }, level, children, more }]
+        vec![Sem { node: id, id: 0, role, name, value, states, rect: if sized { rect } else { Rect::default() }, level, children, more }]
     }
 
     fn role(&self, n: &Node, tag: &str, attr: &dyn Fn(&str) -> Option<String>) -> Option<String> {
