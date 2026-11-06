@@ -46,7 +46,7 @@ struct Api {
 fn api() -> Option<&'static Api> {
     static API: OnceLock<Option<Api>> = OnceLock::new();
     API.get_or_init(|| unsafe {
-        let lib = ["libseat.so.1", "libseat.so"].iter().find_map(|name| libloading::Library::new(name).ok())?;
+        let lib = ["libseat.so.1", "libseat.so"].into_iter().find_map(|name| libloading::Library::new(name).ok())?;
         Some(Api {
             open_seat: *lib.get(b"libseat_open_seat\0").ok()?,
             disable_seat: *lib.get(b"libseat_disable_seat\0").ok()?,
