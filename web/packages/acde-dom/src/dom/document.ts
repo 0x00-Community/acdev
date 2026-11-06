@@ -1,16 +1,16 @@
-import { CustomEvent, Event, EventTarget } from '../core/event'
+import { CustomEvent, defineHandlers, Event, EventTarget } from '../core/event'
 import { URL } from '../core/url'
 import { cookies } from '../core/backend'
 import { DOMException, guard } from '../core/exception'
 import { G, getters, tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
 import { animationsOf, documentTimeline, type Animation } from './animation'
-import { Attr, Element, noteMarkup, setAttribute } from './element'
+import { Attr, Element, HANDLER_TYPES, noteMarkup, setAttribute } from './element'
 import { env } from './env'
 import { ClipboardEvent, CompositionEvent, DragEvent, FocusEvent, InputEvent, KeyboardEvent, MouseEvent, PointerEvent, UIEvent, WheelEvent } from './events'
 import * as editing from './editing'
 import { focus, focusedElement } from './focus'
-import { createHtml, defineElementHandlers, documentClass, type HTMLElement } from './html'
+import { createHtml, documentClass, type HTMLElement } from './html'
 import { Comment, cssString, DocumentFragment, elementById, DocumentType, Node, ParentNodeMixin, baseHooks, HTMLCollection, liveCollection, mixin, type NodeList, staticNodeListOfIds, Text, cloneOf, remove } from './node'
 import { CaretPosition, getSelection, Range, type Selection } from './range'
 import { bodyId, childNamed, classes, construct, constructing, documentElementOf, documentId, dom, headId, ID, nodeConstructing, rootElementId, wrap } from './realm'
@@ -397,8 +397,7 @@ export class Document extends Node {
 }
 getters(Document.prototype, { referrer: '', characterSet: 'UTF-8', charset: 'UTF-8', inputEncoding: 'UTF-8', contentType: 'text/html', fullscreenElement: null, fullscreenEnabled: false, fullscreen: false, pointerLockElement: null, pictureInPictureElement: null, pictureInPictureEnabled: false })
 mixin(Document, ParentNodeMixin)
-defineElementHandlers(Document.prototype)
-defineElementHandlers(Document.prototype, ['readystatechange', 'visibilitychange', 'fullscreenchange', 'fullscreenerror', 'pointerlockchange', 'pointerlockerror', 'freeze', 'resume'])
+defineHandlers(Document.prototype, [...HANDLER_TYPES, 'readystatechange', 'visibilitychange', 'fullscreenchange', 'fullscreenerror', 'pointerlockchange', 'pointerlockerror', 'freeze', 'resume'])
 tag(Document)
 export interface Document extends ParentNodeMixin {}
 documentClass.cls = Document as never

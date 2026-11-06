@@ -1,8 +1,9 @@
+import { defineHandlers } from '../core/event'
 import { getters, tag } from '../core/host'
 import { NONE, NodeType } from '../native'
-import { Element, setAttribute } from './element'
+import { Element, HANDLER_TYPES, setAttribute } from './element'
 import { DOMMatrix, DOMPoint, DOMRect, svgTransform } from './geometry'
-import { defineElementHandlers, HTMLOrSVGElementMixin, svgClasses, svgFallback } from './html'
+import { HTMLOrSVGElementMixin, svgClasses, svgFallback } from './html'
 import { metricsOf, rectOf } from './layout'
 import { elementById, mixin } from './node'
 import { dom, ID, wrap } from './realm'
@@ -36,7 +37,7 @@ export class SVGElement extends Element {
   }
 }
 mixin(SVGElement, HTMLOrSVGElementMixin)
-defineElementHandlers(SVGElement.prototype)
+defineHandlers(SVGElement.prototype, HANDLER_TYPES)
 tag(SVGElement)
 export interface SVGElement extends HTMLOrSVGElementMixin {}
 Object.defineProperty(SVGElement.prototype, 'className', {

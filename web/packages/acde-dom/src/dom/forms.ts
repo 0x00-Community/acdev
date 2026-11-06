@@ -7,7 +7,7 @@ import { ACTIVATION, FileList, SubmitEvent } from './events'
 import { ATTRIBUTE_CHANGED, LOCAL, setAttribute, tokenList, type Element, type DOMTokenList } from './element'
 import { env, resolveUrl } from './env'
 import { focusable, setFocus } from './focus'
-import { HTMLElement, registerHtml } from './html'
+import { HTMLElement, register } from './html'
 import { acceptFilters, readPicked } from './picker'
 import { cssString, HTMLCollection, liveCollection, mixin, staticNodeList, type Node, type NodeList } from './node'
 import { bool, long, string, url } from './reflect'
@@ -560,7 +560,7 @@ long(HTMLInputElement.prototype, 'height', 0)
 url(HTMLInputElement.prototype, 'src')
 mixin(HTMLInputElement, ConstraintValidation)
 mixin(HTMLInputElement, TextSelection)
-tag(HTMLInputElement)
+register(HTMLInputElement, 'input')
 export interface HTMLInputElement extends ConstraintValidation, TextSelection {}
 
 export class HTMLTextAreaElement extends HTMLElement {
@@ -592,7 +592,7 @@ long(HTMLTextAreaElement.prototype, 'rows', 2, 'rows', 1)
 long(HTMLTextAreaElement.prototype, 'cols', 20, 'cols', 1)
 mixin(HTMLTextAreaElement, ConstraintValidation)
 mixin(HTMLTextAreaElement, TextSelection)
-tag(HTMLTextAreaElement)
+register(HTMLTextAreaElement, 'textarea')
 export interface HTMLTextAreaElement extends ConstraintValidation, TextSelection {}
 
 const SELECT = Symbol('select')
@@ -708,7 +708,7 @@ for (const name of ['name', 'autocomplete']) string(HTMLSelectElement.prototype,
 for (const name of ['disabled', 'required', 'multiple']) bool(HTMLSelectElement.prototype, name)
 long(HTMLSelectElement.prototype, 'size', 0, 'size', 0)
 mixin(HTMLSelectElement, ConstraintValidation)
-tag(HTMLSelectElement)
+register(HTMLSelectElement, 'select')
 export interface HTMLSelectElement extends ConstraintValidation {}
 
 function ownerSelect(option: number): number {
@@ -781,12 +781,12 @@ export class HTMLOptionElement extends HTMLElement {
   }
 }
 bool(HTMLOptionElement.prototype, 'disabled')
-tag(HTMLOptionElement)
+register(HTMLOptionElement, 'option')
 
 export class HTMLOptGroupElement extends HTMLElement {}
 bool(HTMLOptGroupElement.prototype, 'disabled')
 string(HTMLOptGroupElement.prototype, 'label')
-tag(HTMLOptGroupElement)
+register(HTMLOptGroupElement, 'optgroup')
 
 export class HTMLButtonElement extends HTMLElement {
   get type(): string {
@@ -808,7 +808,7 @@ export class HTMLButtonElement extends HTMLElement {
 for (const name of ['name', 'value', 'formAction', 'formEnctype', 'formMethod', 'formTarget', 'popoverTargetAction', 'command']) string(HTMLButtonElement.prototype, name, name.toLowerCase())
 for (const name of ['disabled', 'formNoValidate']) bool(HTMLButtonElement.prototype, name, name.toLowerCase())
 mixin(HTMLButtonElement, ConstraintValidation)
-tag(HTMLButtonElement)
+register(HTMLButtonElement, 'button')
 export interface HTMLButtonElement extends ConstraintValidation {}
 
 const LISTED = 'button, fieldset, input, object, output, select, textarea'
@@ -956,7 +956,7 @@ export class HTMLFormElement extends HTMLElement {
 for (const name of ['name', 'target', 'acceptCharset', 'autocomplete', 'rel']) string(HTMLFormElement.prototype, name, name === 'acceptCharset' ? 'accept-charset' : name.toLowerCase())
 for (const name of ['enctype', 'encoding']) string(HTMLFormElement.prototype, name, 'enctype')
 bool(HTMLFormElement.prototype, 'noValidate', 'novalidate')
-tag(HTMLFormElement)
+register(HTMLFormElement, 'form')
 
 const LABELABLE = 'button, input:not([type="hidden" i]), meter, output, progress, select, textarea'
 
@@ -996,7 +996,7 @@ export class HTMLLabelElement extends HTMLElement {
     }
   }
 }
-tag(HTMLLabelElement)
+register(HTMLLabelElement, 'label')
 
 export class HTMLFieldSetElement extends HTMLElement {
   get elements(): HTMLCollection {
@@ -1008,7 +1008,7 @@ getters(HTMLFieldSetElement.prototype, { type: 'fieldset' })
 bool(HTMLFieldSetElement.prototype, 'disabled')
 string(HTMLFieldSetElement.prototype, 'name')
 mixin(HTMLFieldSetElement, ConstraintValidation)
-tag(HTMLFieldSetElement)
+register(HTMLFieldSetElement, 'fieldset')
 
 export class HTMLLegendElement extends HTMLElement {
   get form(): HTMLFormElement | null {
@@ -1017,7 +1017,7 @@ export class HTMLLegendElement extends HTMLElement {
   }
 }
 string(HTMLLegendElement.prototype, 'align')
-tag(HTMLLegendElement)
+register(HTMLLegendElement, 'legend')
 
 export class HTMLOutputElement extends HTMLElement {
   #default: string | null = null
@@ -1042,7 +1042,7 @@ export class HTMLOutputElement extends HTMLElement {
 getters(HTMLOutputElement.prototype, { type: 'output' })
 string(HTMLOutputElement.prototype, 'name')
 mixin(HTMLOutputElement, ConstraintValidation)
-tag(HTMLOutputElement)
+register(HTMLOutputElement, 'output')
 
 export class HTMLProgressElement extends HTMLElement {
   get value(): number {
@@ -1066,7 +1066,7 @@ export class HTMLProgressElement extends HTMLElement {
     return labelsOf(this)
   }
 }
-tag(HTMLProgressElement)
+register(HTMLProgressElement, 'progress')
 
 export class HTMLMeterElement extends HTMLElement {
   #num(name: string, fallback: number): number {
@@ -1113,21 +1113,8 @@ export class HTMLMeterElement extends HTMLElement {
     return labelsOf(this)
   }
 }
-tag(HTMLMeterElement)
+register(HTMLMeterElement, 'meter')
 
-registerHtml(HTMLInputElement, 'input')
-registerHtml(HTMLTextAreaElement, 'textarea')
-registerHtml(HTMLSelectElement, 'select')
-registerHtml(HTMLOptionElement, 'option')
-registerHtml(HTMLOptGroupElement, 'optgroup')
-registerHtml(HTMLButtonElement, 'button')
-registerHtml(HTMLFormElement, 'form')
-registerHtml(HTMLLabelElement, 'label')
-registerHtml(HTMLFieldSetElement, 'fieldset')
-registerHtml(HTMLLegendElement, 'legend')
-registerHtml(HTMLOutputElement, 'output')
-registerHtml(HTMLProgressElement, 'progress')
-registerHtml(HTMLMeterElement, 'meter')
 
 type Entry = [string, string | File]
 

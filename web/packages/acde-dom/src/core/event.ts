@@ -32,6 +32,7 @@ export const hooks = {
   activation: null as null | ((event: Event, path: readonly EventTarget[]) => { run(): void; cancel(): void } | null),
   compile: null as null | ((target: EventTarget, type: string, source: string) => ((event: Event) => unknown) | null),
   passiveDefault: null as null | ((target: EventTarget, type: string) => boolean),
+  inline: null as null | ((target: EventTarget, type: string, set: boolean) => void),
 }
 
 let currentEvent: Event | undefined
@@ -347,9 +348,11 @@ export function defineHandlers(proto: object, types: readonly string[]): void {
   for (const type of types) {
     Object.defineProperty(proto, `on${type}`, {
       get(this: EventTarget) {
+        hooks.inline?.(this ?? G, type, false)
         return getHandler(this ?? G, type)
       },
       set(this: EventTarget, value: unknown) {
+        hooks.inline?.(this ?? G, type, true)
         setHandler(this ?? G, type, typeof value === 'function' || (value !== null && typeof value === 'object') ? value : null)
       },
       enumerable: true,

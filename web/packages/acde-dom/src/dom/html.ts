@@ -1,10 +1,10 @@
 import { DOMException } from '../core/exception'
-import { Event, fire, getHandler, setHandler } from '../core/event'
+import { defineHandlers, Event, fire } from '../core/event'
 import { G, getters, host, queueTask, tag } from '../core/host'
 import { URL } from '../core/url'
 import { NONE, NodeType, Ns } from '../native'
 import { ACTIVATION, MouseEvent, ToggleEvent } from './events'
-import { ATTRIBUTE_CHANGED, dataset, Element, HANDLER_TYPES, handlerOf, handlerSet, LOCAL, NS, pendingElement, setAttribute, tokenList, type DOMStringMap, type DOMTokenList } from './element'
+import { ATTRIBUTE_CHANGED, dataset, Element, HANDLER_TYPES, LOCAL, NS, pendingElement, setAttribute, tokenList, type DOMStringMap, type DOMTokenList } from './element'
 import { resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
 import { metricsOf } from './layout'
@@ -12,6 +12,13 @@ import { CharacterData, Comment, DocumentFragment, DocumentType, mixin, Node, re
 import { bool, long, nullable, string, url, urlParts } from './reflect'
 import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap } from './realm'
 import { CSSStyleSheet, inlineStyle, type CSSStyleDeclaration } from './style'
+
+const htmlClasses = new Map<string, new () => Element>()
+
+export function register(cls: { prototype: object; name: string } & (new () => Element), ...locals: string[]): void {
+  for (const local of locals) htmlClasses.set(local, cls)
+  tag(cls)
+}
 
 export const customHooks = {
   nameOf: (_ctor: Function): string | null => null,
@@ -213,27 +220,11 @@ string(HTMLElement.prototype, 'inputMode', 'inputmode')
 string(HTMLElement.prototype, 'enterKeyHint', 'enterkeyhint')
 nullable(HTMLElement.prototype, 'popover')
 bool(HTMLElement.prototype, 'inert')
-tag(HTMLElement)
 export interface HTMLElement extends HTMLOrSVGElementMixin {}
 
 const clicking = new WeakSet<Element>()
 
-export function defineElementHandlers(proto: object, types: readonly string[] = HANDLER_TYPES): void {
-  for (const type of types) {
-    Object.defineProperty(proto, `on${type}`, {
-      get(this: Element) {
-        return this instanceof Element ? handlerOf(this, type) : getHandler(this, type)
-      },
-      set(this: Element, value: unknown) {
-        if (this instanceof Element) handlerSet(this, type)
-        setHandler(this, type, typeof value === 'function' || (value !== null && typeof value === 'object') ? value : null)
-      },
-      enumerable: true,
-      configurable: true,
-    })
-  }
-}
-defineElementHandlers(HTMLElement.prototype)
+defineHandlers(HTMLElement.prototype, HANDLER_TYPES)
 
 function setInnerText(element: Element, text: string): void {
   const parts = text.replace(/\r\n?/g, '\n').split('\n')
@@ -250,74 +241,74 @@ function setInnerText(element: Element, text: string): void {
   replaceAll(element, [fragment], () => dom.replaceChildren(id, Uint32Array.of(fragment[ID])))
 }
 
-function simple(name: string, setup?: (proto: object) => void): typeof HTMLElement {
+function simple(name: string, locals: string, setup?: (proto: object) => void): typeof HTMLElement {
   const cls = { [name]: class extends HTMLElement {} }[name]!
   if (setup) setup(cls.prototype)
-  tag(cls, name)
+  register(cls, ...locals.split(' ').filter(Boolean))
   return cls
 }
 
-export const HTMLUnknownElement = simple('HTMLUnknownElement')
-export const HTMLDivElement = simple('HTMLDivElement', (p) => string(p, 'align'))
-export const HTMLSpanElement = simple('HTMLSpanElement')
-export const HTMLParagraphElement = simple('HTMLParagraphElement', (p) => string(p, 'align'))
-export const HTMLHeadingElement = simple('HTMLHeadingElement', (p) => string(p, 'align'))
-export const HTMLPreElement = simple('HTMLPreElement', (p) => long(p, 'width', 0))
-export const HTMLQuoteElement = simple('HTMLQuoteElement', (p) => url(p, 'cite'))
-export const HTMLBRElement = simple('HTMLBRElement', (p) => string(p, 'clear'))
-export const HTMLHRElement = simple('HTMLHRElement', (p) => {
+export const HTMLUnknownElement = simple('HTMLUnknownElement', '')
+export const HTMLDivElement = simple('HTMLDivElement', 'div', (p) => string(p, 'align'))
+export const HTMLSpanElement = simple('HTMLSpanElement', 'span')
+export const HTMLParagraphElement = simple('HTMLParagraphElement', 'p', (p) => string(p, 'align'))
+export const HTMLHeadingElement = simple('HTMLHeadingElement', 'h1 h2 h3 h4 h5 h6', (p) => string(p, 'align'))
+export const HTMLPreElement = simple('HTMLPreElement', 'pre listing xmp', (p) => long(p, 'width', 0))
+export const HTMLQuoteElement = simple('HTMLQuoteElement', 'blockquote q', (p) => url(p, 'cite'))
+export const HTMLBRElement = simple('HTMLBRElement', 'br', (p) => string(p, 'clear'))
+export const HTMLHRElement = simple('HTMLHRElement', 'hr', (p) => {
   string(p, 'align')
   string(p, 'color')
   string(p, 'size')
   string(p, 'width')
   bool(p, 'noShade', 'noshade')
 })
-export const HTMLUListElement = simple('HTMLUListElement', (p) => {
+export const HTMLUListElement = simple('HTMLUListElement', 'ul', (p) => {
   bool(p, 'compact')
   string(p, 'type')
 })
-export const HTMLOListElement = simple('HTMLOListElement', (p) => {
+export const HTMLOListElement = simple('HTMLOListElement', 'ol', (p) => {
   bool(p, 'reversed')
   long(p, 'start', 1)
   string(p, 'type')
 })
-export const HTMLLIElement = simple('HTMLLIElement', (p) => {
+export const HTMLLIElement = simple('HTMLLIElement', 'li', (p) => {
   long(p, 'value', 0)
   string(p, 'type')
 })
-export const HTMLDListElement = simple('HTMLDListElement', (p) => bool(p, 'compact'))
-export const HTMLModElement = simple('HTMLModElement', (p) => {
+export const HTMLDListElement = simple('HTMLDListElement', 'dl', (p) => bool(p, 'compact'))
+export const HTMLModElement = simple('HTMLModElement', 'ins del', (p) => {
   url(p, 'cite')
   string(p, 'dateTime', 'datetime')
 })
-export const HTMLTimeElement = simple('HTMLTimeElement', (p) => string(p, 'dateTime', 'datetime'))
-export const HTMLDataElement = simple('HTMLDataElement', (p) => string(p, 'value'))
-export const HTMLMenuElement = simple('HTMLMenuElement', (p) => bool(p, 'compact'))
-export const HTMLHeadElement = simple('HTMLHeadElement')
-export const HTMLHtmlElement = simple('HTMLHtmlElement', (p) => string(p, 'version'))
-export const HTMLBodyElement = simple('HTMLBodyElement', (p) => {
+export const HTMLTimeElement = simple('HTMLTimeElement', 'time', (p) => string(p, 'dateTime', 'datetime'))
+export const HTMLDataElement = simple('HTMLDataElement', 'data', (p) => string(p, 'value'))
+export const HTMLMenuElement = simple('HTMLMenuElement', 'menu', (p) => bool(p, 'compact'))
+export const HTMLHeadElement = simple('HTMLHeadElement', 'head')
+export const HTMLHtmlElement = simple('HTMLHtmlElement', 'html', (p) => string(p, 'version'))
+export const HTMLBodyElement = simple('HTMLBodyElement', 'body', (p) => {
   for (const name of ['text', 'link', 'vLink', 'aLink', 'bgColor', 'background']) string(p, name)
 })
-export const HTMLMetaElement = simple('HTMLMetaElement', (p) => {
+export const HTMLMetaElement = simple('HTMLMetaElement', 'meta', (p) => {
   string(p, 'name')
   string(p, 'content')
   string(p, 'httpEquiv', 'http-equiv')
   string(p, 'media')
   string(p, 'scheme')
 })
-export const HTMLBaseElement = simple('HTMLBaseElement', (p) => {
+export const HTMLBaseElement = simple('HTMLBaseElement', 'base', (p) => {
   url(p, 'href')
   string(p, 'target')
 })
-export const HTMLTitleElement = simple('HTMLTitleElement', textAlias)
-export const HTMLMapElement = simple('HTMLMapElement', (p) => string(p, 'name'))
-export const HTMLEmbedElement = simple('HTMLEmbedElement', (p) => {
+export const HTMLTitleElement = simple('HTMLTitleElement', 'title', textAlias)
+export const HTMLMapElement = simple('HTMLMapElement', 'map', (p) => string(p, 'name'))
+export const HTMLEmbedElement = simple('HTMLEmbedElement', 'embed', (p) => {
   url(p, 'src')
   string(p, 'type')
   string(p, 'width')
   string(p, 'height')
 })
-export const HTMLObjectElement = simple('HTMLObjectElement', (p) => {
+export const HTMLObjectElement = simple('HTMLObjectElement', 'object', (p) => {
   url(p, 'data')
   string(p, 'type')
   string(p, 'name')
@@ -326,12 +317,12 @@ export const HTMLObjectElement = simple('HTMLObjectElement', (p) => {
   Object.defineProperty(p, 'contentDocument', { get: () => null, enumerable: true, configurable: true })
   Object.defineProperty(p, 'contentWindow', { get: () => null, enumerable: true, configurable: true })
 })
-export const HTMLParamElement = simple('HTMLParamElement', (p) => {
+export const HTMLParamElement = simple('HTMLParamElement', 'param', (p) => {
   string(p, 'name')
   string(p, 'value')
 })
-export const HTMLPictureElement = simple('HTMLPictureElement')
-export const HTMLSourceElement = simple('HTMLSourceElement', (p) => {
+export const HTMLPictureElement = simple('HTMLPictureElement', 'picture')
+export const HTMLSourceElement = simple('HTMLSourceElement', 'source', (p) => {
   url(p, 'src')
   string(p, 'srcset')
   string(p, 'sizes')
@@ -340,16 +331,16 @@ export const HTMLSourceElement = simple('HTMLSourceElement', (p) => {
   long(p, 'width', 0)
   long(p, 'height', 0)
 })
-export const HTMLTrackElement = simple('HTMLTrackElement', (p) => {
+export const HTMLTrackElement = simple('HTMLTrackElement', 'track', (p) => {
   url(p, 'src')
   string(p, 'kind')
   string(p, 'srclang')
   string(p, 'label')
   bool(p, 'default')
 })
-export const HTMLTableCaptionElement = simple('HTMLTableCaptionElement', (p) => string(p, 'align'))
-export const HTMLTableColElement = simple('HTMLTableColElement', (p) => long(p, 'span', 1, 'span', 1))
-export const HTMLTableCellElement = simple('HTMLTableCellElement', (p) => {
+export const HTMLTableCaptionElement = simple('HTMLTableCaptionElement', 'caption', (p) => string(p, 'align'))
+export const HTMLTableColElement = simple('HTMLTableColElement', 'col colgroup', (p) => long(p, 'span', 1, 'span', 1))
+export const HTMLTableCellElement = simple('HTMLTableCellElement', 'td th', (p) => {
   long(p, 'colSpan', 1, 'colspan', 1)
   long(p, 'rowSpan', 1, 'rowspan', 0)
   string(p, 'headers')
@@ -372,11 +363,11 @@ export const HTMLTableCellElement = simple('HTMLTableCellElement', (p) => {
     configurable: true,
   })
 })
-export const HTMLSlotElement = simple('HTMLSlotElement', (p) => {
+export const HTMLSlotElement = simple('HTMLSlotElement', 'slot', (p) => {
   string(p, 'name')
   Object.assign(p, { assignedNodes: () => [], assignedElements: () => [], assign: () => {} })
 })
-export const HTMLDataListElement = simple('HTMLDataListElement', (p) => {
+export const HTMLDataListElement = simple('HTMLDataListElement', 'datalist', (p) => {
   Object.defineProperty(p, 'options', {
     get(this: Element) {
       return this.getElementsByTagName('option')
@@ -450,7 +441,7 @@ export class HTMLTableElement extends HTMLElement {
     ;(row as Element).remove()
   }
 }
-tag(HTMLTableElement)
+register(HTMLTableElement, 'table')
 
 export class HTMLTableSectionElement extends HTMLElement {
   get rows(): NodeList {
@@ -467,7 +458,7 @@ export class HTMLTableSectionElement extends HTMLElement {
     ;(rows.item(index === -1 ? rows.length - 1 : index) as Element | null)?.remove()
   }
 }
-tag(HTMLTableSectionElement)
+register(HTMLTableSectionElement, 'thead', 'tbody', 'tfoot')
 
 export class HTMLTableRowElement extends HTMLElement {
   get cells(): NodeList {
@@ -492,7 +483,7 @@ export class HTMLTableRowElement extends HTMLElement {
     ;(cells.item(index === -1 ? cells.length - 1 : index) as Element | null)?.remove()
   }
 }
-tag(HTMLTableRowElement)
+register(HTMLTableRowElement, 'tr')
 
 export class HTMLDetailsElement extends HTMLElement {
   override [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
@@ -504,7 +495,7 @@ export class HTMLDetailsElement extends HTMLElement {
 }
 bool(HTMLDetailsElement.prototype, 'open')
 string(HTMLDetailsElement.prototype, 'name')
-tag(HTMLDetailsElement)
+register(HTMLDetailsElement, 'details')
 
 function summaryActivation(this: HTMLElement): { run(): void; cancel(): void } | null {
   const parent = dom.parent(this[ID])
@@ -548,7 +539,7 @@ export class HTMLDialogElement extends HTMLElement {
   }
 }
 bool(HTMLDialogElement.prototype, 'open')
-tag(HTMLDialogElement)
+register(HTMLDialogElement, 'dialog')
 
 export class HTMLTemplateElement extends HTMLElement {
   get content(): DocumentFragment {
@@ -570,7 +561,7 @@ export class HTMLTemplateElement extends HTMLElement {
     return dom.getAttribute(this[ID], 'shadowrootmode') ?? ''
   }
 }
-tag(HTMLTemplateElement)
+register(HTMLTemplateElement, 'template')
 
 export class HTMLScriptElement extends HTMLElement {
   declare text: string
@@ -588,7 +579,7 @@ nullable(HTMLScriptElement.prototype, 'crossOrigin', 'crossorigin')
 string(HTMLScriptElement.prototype, 'integrity')
 string(HTMLScriptElement.prototype, 'charset')
 string(HTMLScriptElement.prototype, 'referrerPolicy', 'referrerpolicy')
-tag(HTMLScriptElement)
+register(HTMLScriptElement, 'script')
 
 export class HTMLStyleElement extends HTMLElement {
   #sheet: unknown = null
@@ -601,7 +592,7 @@ export class HTMLStyleElement extends HTMLElement {
 string(HTMLStyleElement.prototype, 'media')
 string(HTMLStyleElement.prototype, 'type')
 bool(HTMLStyleElement.prototype, 'disabled')
-tag(HTMLStyleElement)
+register(HTMLStyleElement, 'style')
 
 const REL_LIST = Symbol('relList')
 
@@ -640,7 +631,7 @@ string(HTMLLinkElement.prototype, 'sizes')
 string(HTMLLinkElement.prototype, 'integrity')
 nullable(HTMLLinkElement.prototype, 'crossOrigin', 'crossorigin')
 bool(HTMLLinkElement.prototype, 'disabled')
-tag(HTMLLinkElement)
+register(HTMLLinkElement, 'link')
 
 export class HTMLAnchorElement extends HTMLElement {
   declare readonly relList: DOMTokenList
@@ -660,7 +651,7 @@ hyperlink(HTMLAnchorElement.prototype)
 textAlias(HTMLAnchorElement.prototype)
 for (const name of ['target', 'rel', 'hreflang', 'type', 'ping', 'download', 'name', 'coords', 'shape', 'charset', 'rev']) string(HTMLAnchorElement.prototype, name)
 string(HTMLAnchorElement.prototype, 'referrerPolicy', 'referrerpolicy')
-tag(HTMLAnchorElement)
+register(HTMLAnchorElement, 'a')
 
 export class HTMLAreaElement extends HTMLElement {
   declare readonly relList: DOMTokenList
@@ -670,7 +661,7 @@ export class HTMLAreaElement extends HTMLElement {
 }
 hyperlink(HTMLAreaElement.prototype)
 for (const name of ['target', 'rel', 'download', 'alt', 'coords', 'shape', 'ping']) string(HTMLAreaElement.prototype, name)
-tag(HTMLAreaElement)
+register(HTMLAreaElement, 'area')
 
 export const linkHooks = {
   follow: (_url: string, _target: string, _download: string | null) => {},
@@ -710,60 +701,7 @@ function hyperlink(proto: object): void {
   urlParts(proto, ['origin', 'protocol', 'username', 'password', 'host', 'hostname', 'port', 'pathname', 'search', 'hash'], parsed, (el: Element, u) => setAttribute(el, 'href', u.href))
 }
 
-const htmlClasses = new Map<string, new () => Element>()
-
-export function registerHtml(cls: new () => Element, ...names: string[]): void {
-  for (const name of names) htmlClasses.set(name, cls)
-}
-
-registerHtml(HTMLDivElement, 'div')
-registerHtml(HTMLSpanElement, 'span')
-registerHtml(HTMLParagraphElement, 'p')
-registerHtml(HTMLHeadingElement, 'h1', 'h2', 'h3', 'h4', 'h5', 'h6')
-registerHtml(HTMLPreElement, 'pre', 'listing', 'xmp')
-registerHtml(HTMLQuoteElement, 'blockquote', 'q')
-registerHtml(HTMLBRElement, 'br')
-registerHtml(HTMLHRElement, 'hr')
-registerHtml(HTMLUListElement, 'ul')
-registerHtml(HTMLOListElement, 'ol')
-registerHtml(HTMLLIElement, 'li')
-registerHtml(HTMLDListElement, 'dl')
-registerHtml(HTMLModElement, 'ins', 'del')
-registerHtml(HTMLTimeElement, 'time')
-registerHtml(HTMLDataElement, 'data')
-registerHtml(HTMLMenuElement, 'menu')
-registerHtml(HTMLHeadElement, 'head')
-registerHtml(HTMLHtmlElement, 'html')
-registerHtml(HTMLBodyElement, 'body')
-registerHtml(HTMLMetaElement, 'meta')
-registerHtml(HTMLBaseElement, 'base')
-registerHtml(HTMLTitleElement, 'title')
-registerHtml(HTMLMapElement, 'map')
-registerHtml(HTMLEmbedElement, 'embed')
-registerHtml(HTMLObjectElement, 'object')
-registerHtml(HTMLParamElement, 'param')
-registerHtml(HTMLPictureElement, 'picture')
-registerHtml(HTMLSourceElement, 'source')
-registerHtml(HTMLTrackElement, 'track')
-registerHtml(HTMLTableElement, 'table')
-registerHtml(HTMLTableCaptionElement, 'caption')
-registerHtml(HTMLTableColElement, 'col', 'colgroup')
-registerHtml(HTMLTableSectionElement, 'thead', 'tbody', 'tfoot')
-registerHtml(HTMLTableRowElement, 'tr')
-registerHtml(HTMLTableCellElement, 'td', 'th')
-registerHtml(HTMLSlotElement, 'slot')
-registerHtml(HTMLDataListElement, 'datalist')
-registerHtml(HTMLDetailsElement, 'details')
-registerHtml(HTMLDialogElement, 'dialog')
-registerHtml(HTMLTemplateElement, 'template')
-registerHtml(HTMLScriptElement, 'script')
-registerHtml(HTMLStyleElement, 'style')
-registerHtml(HTMLLinkElement, 'link')
-registerHtml(HTMLAnchorElement, 'a')
-registerHtml(HTMLAreaElement, 'area')
-for (const name of ['abbr', 'acronym', 'address', 'article', 'aside', 'b', 'basefont', 'bdi', 'bdo', 'big', 'center', 'cite', 'code', 'dd', 'dfn', 'dt', 'em', 'figcaption', 'figure', 'footer', 'header', 'hgroup', 'i', 'kbd', 'main', 'mark', 'nav', 'nobr', 'noembed', 'noframes', 'noscript', 'plaintext', 'rb', 'rp', 'rt', 'rtc', 'ruby', 's', 'samp', 'search', 'section', 'small', 'strike', 'strong', 'sub', 'summary', 'sup', 'tt', 'u', 'var', 'wbr']) {
-  htmlClasses.set(name, HTMLElement)
-}
+register(HTMLElement, ...['abbr', 'acronym', 'address', 'article', 'aside', 'b', 'basefont', 'bdi', 'bdo', 'big', 'center', 'cite', 'code', 'dd', 'dfn', 'dt', 'em', 'figcaption', 'figure', 'footer', 'header', 'hgroup', 'i', 'kbd', 'main', 'mark', 'nav', 'nobr', 'noembed', 'noframes', 'noscript', 'plaintext', 'rb', 'rp', 'rt', 'rtc', 'ruby', 's', 'samp', 'search', 'section', 'small', 'strike', 'strong', 'sub', 'summary', 'sup', 'tt', 'u', 'var', 'wbr'])
 Object.defineProperty(HTMLElement.prototype, ACTIVATION, {
   value(this: HTMLElement) {
     return this[LOCAL] === 'summary' ? summaryActivation.call(this) : null
@@ -775,7 +713,7 @@ Object.defineProperty(HTMLElement.prototype, ACTIVATION, {
 export const svgClasses = new Map<string, new () => Element>()
 export const svgFallback = { cls: null as unknown as new () => Element }
 
-function htmlClass(local: string): new () => Element {
+function classOf(local: string): new () => Element {
   const known = htmlClasses.get(local)
   if (known) return known
   const custom = local.includes('-') ? customHooks.classOf(local) : null
@@ -788,7 +726,7 @@ classes.of = (type, ns, local) => {
     case NodeType.Element: {
       pendingElement.local = local
       pendingElement.ns = ns
-      if (ns === Ns.Html) return htmlClass(local)
+      if (ns === Ns.Html) return classOf(local)
       if (ns === Ns.Svg) return svgClasses.get(local) ?? svgFallback.cls
       return Element
     }
@@ -807,5 +745,5 @@ export function createHtml(local: string): HTMLElement {
   const id = dom.createElement(Ns.Html, local)
   pendingElement.local = local
   pendingElement.ns = Ns.Html
-  return construct(htmlClass(local), id) as HTMLElement
+  return construct(classOf(local), id) as HTMLElement
 }

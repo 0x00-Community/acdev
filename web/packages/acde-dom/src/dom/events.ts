@@ -2,7 +2,7 @@ import { File } from '../core/blob'
 import { eventPath, hooks, type Event, Event as BaseEvent, type EventInit, type EventTarget } from '../core/event'
 import { constants, G, queueTask, tag } from '../core/host'
 import { NodeType } from '../native'
-import { flags, handlerOf, type Element } from './element'
+import { Element, flags, handlerOf, handlerSet } from './element'
 import { metricsOf, rectOf, rootScroll } from './layout'
 import { pathHooks, type Node } from './node'
 import { documentId, dom, existing, ID, wrap, type Wrapper } from './realm'
@@ -69,6 +69,12 @@ hooks.compile = (target, _type, source) => {
   } catch {
     return null
   }
+}
+
+hooks.inline = (target, type, set) => {
+  if (!(target instanceof Element)) return
+  if (set) handlerSet(target, type)
+  else handlerOf(target, type)
 }
 
 hooks.passiveDefault = (target, type) => {

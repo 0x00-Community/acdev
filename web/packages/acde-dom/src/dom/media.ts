@@ -9,7 +9,7 @@ import { contexts as gpuContexts, type GPUCanvasContext } from '../gpu/index'
 import { canvases, type CanvasContext2d, type CanvasElement } from './canvas'
 import { ATTRIBUTE_CHANGED, flags, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
 import { frames, resolveUrl } from './env'
-import { HTMLElement, registerHtml } from './html'
+import { HTMLElement, register } from './html'
 import { metricsOf } from './layout'
 import { bool, long, nullable, string, url } from './reflect'
 import { dom, existing, ID, wrap } from './realm'
@@ -107,7 +107,7 @@ string(HTMLImageElement.prototype, 'referrerPolicy', 'referrerpolicy')
 bool(HTMLImageElement.prototype, 'isMap', 'ismap')
 long(HTMLImageElement.prototype, 'hspace', 0)
 long(HTMLImageElement.prototype, 'vspace', 0)
-tag(HTMLImageElement)
+register(HTMLImageElement, 'img')
 
 export function deliverLoads(): boolean {
   const done = dom.takeLoaded()
@@ -182,7 +182,7 @@ export class HTMLCanvasElement extends HTMLElement {
     throw new DOMException('captureStream is not supported', 'NotSupportedError')
   }
 }
-tag(HTMLCanvasElement)
+register(HTMLCanvasElement, 'canvas')
 
 const SANDBOX = Symbol('sandbox')
 
@@ -198,7 +198,7 @@ getters(HTMLIFrameElement.prototype, { contentWindow: null, contentDocument: nul
 string(HTMLIFrameElement.prototype, 'src')
 for (const name of ['srcdoc', 'name', 'allow', 'width', 'height', 'loading', 'referrerPolicy', 'align', 'scrolling', 'frameBorder']) string(HTMLIFrameElement.prototype, name, name.toLowerCase())
 bool(HTMLIFrameElement.prototype, 'allowFullscreen', 'allowfullscreen')
-tag(HTMLIFrameElement)
+register(HTMLIFrameElement, 'iframe')
 
 export class MediaError {
   static readonly MEDIA_ERR_ABORTED = 1
@@ -542,13 +542,8 @@ getters(HTMLVideoElement.prototype, { videoWidth: 0, videoHeight: 0 })
 for (const name of ['width', 'height']) long(HTMLVideoElement.prototype, name, 0)
 url(HTMLVideoElement.prototype, 'poster')
 bool(HTMLVideoElement.prototype, 'playsInline', 'playsinline')
-tag(HTMLVideoElement)
+register(HTMLVideoElement, 'video')
 
 export class HTMLAudioElement extends HTMLMediaElement {}
-tag(HTMLAudioElement)
+register(HTMLAudioElement, 'audio')
 
-registerHtml(HTMLImageElement, 'img')
-registerHtml(HTMLCanvasElement, 'canvas')
-registerHtml(HTMLIFrameElement, 'iframe')
-registerHtml(HTMLVideoElement, 'video')
-registerHtml(HTMLAudioElement, 'audio')
