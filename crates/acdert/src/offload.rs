@@ -31,6 +31,7 @@ pub fn run<T: Send + 'static>(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue
     rv.set(promise.into());
 }
 
+#[cfg(unix)]
 pub fn settle_json<const NULL_IS_UNDEFINED: bool>(
     scope: &mut v8::PinScope,
     resolver: v8::Local<v8::PromiseResolver>,
@@ -52,6 +53,7 @@ pub fn settle_json<const NULL_IS_UNDEFINED: bool>(
     };
 }
 
+#[cfg(unix)]
 pub fn json_sink(scope: &mut v8::PinScope, callback: v8::Local<v8::Function>) -> impl Fn(serde_json::Value) -> bool + Send + Sync + 'static {
     let token = CALLBACKS.with(|c| c.borrow_mut().add(v8::Global::new(scope, callback)));
     let tx = rt::current().sender();
