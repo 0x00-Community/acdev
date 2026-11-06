@@ -7,7 +7,7 @@ import { fetch } from '../core/net'
 import { audioNative, mediaEvents } from '../audio/index'
 import { contexts as gpuContexts, type GPUCanvasContext } from '../gpu/index'
 import { canvases, type CanvasContext2d, type CanvasElement } from './canvas'
-import { ATTRIBUTE_CHANGED, flags, handlerOf, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
+import { ATTRIBUTE_CHANGED, flags, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
 import { frames, resolveUrl } from './env'
 import { HTMLElement, registerHtml } from './html'
 import { metricsOf } from './layout'
@@ -123,10 +123,6 @@ export function deliverLoads(): boolean {
     let target = existing(id) as Element | undefined
     if (!target && flags.inlineHandlers && (dom.hasAttribute(id, 'onload') || dom.hasAttribute(id, 'onerror'))) target = wrap<Element>(id)!
     if (!target) continue
-    if (flags.inlineHandlers) {
-      handlerOf(target, 'load')
-      handlerOf(target, 'error')
-    }
     fire(target, new Event(state === ImageState.Loaded ? 'load' : 'error'))
   }
   return loading.size > 0
@@ -262,10 +258,7 @@ export class HTMLMediaElement extends HTMLElement {
   #timer = 0
 
   #emit(type: string): void {
-    host.setTimer(0, () => {
-      if (flags.inlineHandlers) handlerOf(this as unknown as Element, type)
-      fire(this, new Event(type))
-    })
+    host.setTimer(0, () => fire(this, new Event(type)))
   }
 
   [PLAYS](): boolean {
