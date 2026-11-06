@@ -30,11 +30,14 @@ constants(DOMException, Object.fromEntries(('INDEX_SIZE DOMSTRING_SIZE HIERARCHY
 
 const NATIVE = /^([A-Z][A-Za-z]*Error): ([\s\S]*)$/
 
+export function nativeException(message: string, fallback?: string): DOMException | null {
+  const m = NATIVE.exec(message)
+  if (m && (fallback || m[1]! in CODES)) return new DOMException(m[2], m[1])
+  return fallback ? new DOMException(message, fallback) : null
+}
+
 function domError(error: unknown): unknown {
-  if (error !== null && typeof error === 'object' && !(error instanceof DOMException) && typeof (error as Error).message === 'string') {
-    const m = NATIVE.exec((error as Error).message)
-    if (m && m[1]! in CODES) return new DOMException(m[2], m[1])
-  }
+  if (error !== null && typeof error === 'object' && !(error instanceof DOMException) && typeof (error as Error).message === 'string') return nativeException((error as Error).message) ?? error
   return error
 }
 

@@ -48,10 +48,12 @@ let ending: (encoding: Encoding) => Recorder | null
 abstract class Encoding {
   label: string
   readonly #rec = new Recorder()
+  readonly #submit: ((r: Recorder) => void) | undefined
   #ended = false
 
-  constructor(label: string) {
+  constructor(label: string, submit?: (r: Recorder) => void) {
     this.label = label
+    this.#submit = submit
   }
 
   static {
@@ -59,6 +61,7 @@ abstract class Encoding {
     ending = (encoding) => {
       if (encoding.#ended) return null
       encoding.#ended = true
+      encoding.#submit?.(encoding.#rec)
       return encoding.#rec
     }
   }
@@ -115,11 +118,8 @@ abstract class RenderEncoding extends Encoding {
 }
 
 export class GPURenderPassEncoder extends RenderEncoding {
-  readonly #submit: (r: Recorder) => void
-
   constructor(gpu: GpuNative, device: number, encoder: number, descriptor: string, label: string) {
-    super(label)
-    this.#submit = (r) => gpu.renderPass(device, encoder, descriptor, r.data, r.length, r.strings)
+    super(label, (r) => gpu.renderPass(device, encoder, descriptor, r.data, r.length, r.strings))
   }
 
   setViewport(x: number, y: number, width: number, height: number, minDepth: number, maxDepth: number): void {
@@ -153,18 +153,14 @@ export class GPURenderPassEncoder extends RenderEncoding {
   }
 
   end(): void {
-    const r = ending(this)
-    if (r) this.#submit(r)
+    ending(this)
   }
 }
 tag(GPURenderPassEncoder)
 
 export class GPUComputePassEncoder extends Encoding {
-  readonly #submit: (r: Recorder) => void
-
   constructor(gpu: GpuNative, device: number, encoder: number, descriptor: string, label: string) {
-    super(label)
-    this.#submit = (r) => gpu.computePass(device, encoder, descriptor, r.data, r.length, r.strings)
+    super(label, (r) => gpu.computePass(device, encoder, descriptor, r.data, r.length, r.strings))
   }
 
   setPipeline(pipeline: unknown): void {
@@ -180,8 +176,7 @@ export class GPUComputePassEncoder extends Encoding {
   }
 
   end(): void {
-    const r = ending(this)
-    if (r) this.#submit(r)
+    ending(this)
   }
 }
 tag(GPUComputePassEncoder)
