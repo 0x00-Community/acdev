@@ -839,6 +839,23 @@ FIFO 上). 原来的 `preview` (文字最多 256 KiB, 多了 `truncated`) 和 `w
   Broker 起 web 时在 `spawnWeb` 的 grants 里带上应用 id (`{app, fs, …}`), crates/acdert `web.rs` 给 `Workspace::scoped(roots, app)`
   和 `natives.picker`.
 
+验过 (2026-11-06, macOS M3 Pro, `acdert app vault` 带临时的 HOME 和 XDG 目录, 经 `ACDE_DEBUG_DIR` 在页面里调):
+- 失败的形状: `preview` 不存在的文件 `404 ENOENT`、`write(…, 'new')` 已在 `409 EEXIST`、旧的 `expectedModifiedMs` / 文件没了
+  `409 ECONFLICT`、`..` 和不是 root 的路径 `400 EINVAL`, message 都是人读的话. runtime 的单元测试: io 错误的 errno、409 的三种、
+  限了 roots 的拒绝是 `403 EACCES`.
+- 文件级的调用: `readText` 读回 400 KiB 的文件 (同一个文件 `preview` 是 `truncated`), `modifiedMs` 和 `writeFile` 返回的一样;
+  `writeFile` 写字节 (`mkdirs` + `create: 'new'`) 后 `readBytes` 读回、`stat`; `mkdir {recursive}` 两次都成功, 不带的第二次 `EEXIST`;
+  `EEXIST` / `ECONFLICT` / `ENOENT` (`create: 'never'`) / `EILSEQ` / 选项和数据类型不对 `EINVAL`. 单元测试 (临时目录): 64 MiB 上限、
+  经符号链接出 root、写不换 inode、`mkdir -p` 经过 root 里的链接.
+- 授给应用的文件夹: 事先写好 `grants/vault.json`, `roots()` 列出 `{label: 'Project', source: 'granted'}`, 能 `list` / `readText` /
+  `writeFile`, `..` 被拒; `revoke` 别的路径 `ENOENT`, 收回后文件变成 `{"roots":[]}`、再用是 `EINVAL`. 单元测试: 持久化、只在内存、
+  只给这个应用、限了 roots 的应用也能用、`PickedFolders` 不出选中的文件夹 (悬空链接不被写穿).
+- `showDirectoryPicker`: 页面里 `FileSystemDirectoryHandle` 是全局的构造函数, 名字和 toStringTag 对; 坏的 `mode` 是 `TypeError`;
+  调用后这个进程多出一个在屏幕上的窗口 (`CGWindowListCopyWindowInfo` 前后对比: 一个 sheet 大小的窗口), promise 一直等着. handle
+  的行为 (遍历、拿 / 建 / 删、权限、各种错误) 在 acde-dom 的测试里 (`test/webapi.test.ts`, 替身的 `env.files`) 验.
+- 未验证: 在 macOS 的面板里选或取消 (没有辅助功能权限, 点不了), 因此真实选择之后的授权和 handle 读写只经单元测试验过; Linux 的 portal
+  路径 (`choose_folder`、portal 替身测试里新加的断言) 这台机器上编不了也跑不了 (Linux 才编 `portal.rs`); Windows 没有选择器.
+
 ## desktop web / window web
 
 每个 web (一个 `acde web` 进程) 有自己的 DOM、CSS、JS 堆、render 文档 (线程) 和合成器 surface; 相互之间、和系统之间只通过 `acde`
