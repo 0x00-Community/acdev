@@ -47,20 +47,30 @@ impl Context {
         {
             return self.images[i].clone();
         }
-        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("acde canvas"),
-            size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: usage | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats,
-        });
+        let texture = texture(gpu, size, wgpu::TextureFormat::Rgba8Unorm, usage | wgpu::TextureUsages::COPY_SRC, view_formats);
         let image = GpuImage::new(texture, &gpu.images);
         self.images.push(image.clone());
         image
     }
+}
+
+fn texture(
+    gpu: &Gpu,
+    (width, height): (u32, u32),
+    format: wgpu::TextureFormat,
+    usage: wgpu::TextureUsages,
+    view_formats: &[wgpu::TextureFormat],
+) -> wgpu::Texture {
+    gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("acde canvas"),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: usage | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats,
+    })
 }
 
 struct Passes {
@@ -205,11 +215,7 @@ super::natives! {
         if !matches!(config.format, wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba16Float) {
             return Err(Throw::Type(format!("{:?} is not a canvas format (rgba8unorm, bgra8unorm, rgba16float)", config.format)));
         }
-        let premultiplied = match config.alpha_mode.as_str() {
-            "opaque" => false,
-            "premultiplied" => true,
-            other => return Err(Throw::Type(format!("'{other}' is not a GPUCanvasAlphaMode"))),
-        };
+        let premultiplied = config.alpha_mode == desc::AlphaMode::Premultiplied;
         let Some(usage) = wgpu::TextureUsages::from_bits(config.usage) else {
             return Err(Throw::Type(format!("invalid GPUTextureUsage {:#x}", config.usage)));
         };
@@ -249,16 +255,7 @@ super::natives! {
             } else {
                 let fits = c.page.as_ref().is_some_and(|(t, _)| (t.width(), t.height()) == size);
                 if !fits {
-                    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some("acde canvas"),
-                        size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: c.format,
-                        usage: c.usage | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-                        view_formats: &c.view_formats,
-                    });
+                    let texture = texture(&gpu, size, c.format, c.usage | wgpu::TextureUsages::TEXTURE_BINDING, &c.view_formats);
                     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
                     let passes = Passes::get(&gpu);
                     let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {

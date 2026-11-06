@@ -200,11 +200,22 @@ impl Throw {
 
 fn enter(device: Id) -> bool {
     ERRORS.with(|e| e.borrow_mut().current = device);
-    live(device)
+    alive(device)
 }
 
-fn live(device: Id) -> bool {
+fn alive(device: Id) -> bool {
     ERRORS.with(|e| e.borrow().devices.get(&device).is_some_and(|d| !d.lost))
+}
+
+fn live(device: Id) -> Result<Option<Arc<Gpu>>, Throw> {
+    if !enter(device) {
+        return Ok(None);
+    }
+    with_state(|s| s.gpu()).map(Some)
+}
+
+pub(crate) fn maybe<T>(id: Option<Id>, get: impl FnOnce(Id) -> Option<T>) -> Option<Option<T>> {
+    id.map_or(Some(None), |id| get(id).map(Some))
 }
 
 pub(crate) fn current_device() -> Id {
@@ -247,7 +258,7 @@ fn dispatch_errors(scope: &mut v8::PinScope) {
     let errors = ERRORS.with(|e| std::mem::take(&mut e.borrow_mut().uncaptured));
     for (device, error) in errors {
         let Some(callback) = STATE.with(|s| match s.borrow().objects.get(&device) {
-            Some(Obj::Device(d)) if live(device) => Some(d.on_error.clone()),
+            Some(Obj::Device(d)) if alive(device) => Some(d.on_error.clone()),
             _ => None,
         }) else {
             continue;
@@ -405,7 +416,6 @@ fn all_lost(scope: &mut v8::PinScope, message: &str) {
 
 fn adapter_info<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
     let Some(Some(gpu)) = with_state(|s| s.gpu.clone()) else { return v8::null(scope).into() };
-    let obj = v8::Object::new(scope);
     let vendor = match gpu.info.vendor {
         0x8086 => "intel",
         0x1002 | 0x1022 => "amd",
@@ -416,25 +426,20 @@ fn adapter_info<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value
         0x10005 => "mesa",
         _ => "",
     };
-    let description = format!("{} ({} {})", gpu.info.name, gpu.info.driver, gpu.info.driver_info);
-    for (name, value) in [("vendor", vendor), ("architecture", ""), ("device", ""), ("description", description.as_str())] {
-        let value = bind::string(scope, value);
-        bind::set(scope, obj, name, value.into());
-    }
     let features: Vec<&str> = (gpu.device.features() & wgpu::Features::all_webgpu_mask()).iter().filter_map(|f| f.as_str()).collect();
-    let list = v8::Array::new(scope, features.len() as i32);
-    for (i, name) in features.iter().enumerate() {
-        let name = bind::string(scope, name);
-        list.set_index(scope, i as u32, name.into());
-    }
-    bind::set(scope, obj, "features", list.into());
-    let limits = v8::Object::new(scope);
-    for (name, value) in limit_values(&gpu.device.limits()) {
-        let value = v8::Number::new(scope, value);
-        bind::set(scope, limits, name, value.into());
-    }
-    bind::set(scope, obj, "limits", limits.into());
-    obj.into()
+    let limits: serde_json::Map<String, serde_json::Value> =
+        limit_values(&gpu.device.limits()).into_iter().map(|(name, value)| (name.into(), value.into())).collect();
+    crate::offload::json(
+        scope,
+        &serde_json::json!({
+            "vendor": vendor,
+            "architecture": "",
+            "device": "",
+            "description": format!("{} ({} {})", gpu.info.name, gpu.info.driver, gpu.info.driver_info),
+            "features": features,
+            "limits": limits,
+        }),
+    )
 }
 
 fn limit_values(l: &wgpu::Limits) -> Vec<(&'static str, f64)> {
@@ -595,14 +600,7 @@ natives! {
         Ok(match popped {
             Some((true, _)) => Ret::Val(v8::null(scope).into()),
             Some((false, Some((_, None)))) => Ret::Val(v8::null(scope).into()),
-            Some((false, Some((_, Some(error))))) => {
-                let obj = v8::Object::new(scope);
-                let kind = bind::string(scope, error.kind.name());
-                bind::set(scope, obj, "kind", kind.into());
-                let message = bind::string(scope, &error.message);
-                bind::set(scope, obj, "message", message.into());
-                Ret::Val(obj.into())
-            }
+            Some((false, Some((_, Some(error))))) => Ret::Val(crate::offload::json(scope, &serde_json::json!({"kind": error.kind.name(), "message": error.message}))),
             _ => Ret::Undefined,
         })
     }
@@ -620,10 +618,7 @@ natives! {
     "createBuffer" => fn create_buffer(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::BufferDesc = json(scope, &args, 1)?;
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let Some(usage) = wgpu::BufferUsages::from_bits(desc.usage) else {
             report(device, Kind::Validation, format!("invalid GPUBufferUsage {:#x}", desc.usage));
             return Ok(0.into());
@@ -653,11 +648,10 @@ natives! {
         let failed = |scope: &mut v8::PinScope, message: &str| {
             settle(scope, token, Some(&format!("OperationError: {message}")));
         };
-        if !enter(device) {
+        let Some(gpu) = live(device)? else {
             failed(scope, "the device is lost");
             return Ok(Ret::Val(promise));
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        };
         let problem = with_state(|s| {
             let Some(Obj::Buffer(b)) = s.objects.get_mut(&id) else { return Some("invalid GPUBuffer".to_owned()) };
             if b.map != Map::Unmapped {
@@ -771,10 +765,7 @@ natives! {
 
     "writeBuffer" => fn write_buffer(scope, args) {
         let (device, id, offset) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1), bind::arg_u64(scope, &args, 2));
-        if !enter(device) {
-            return Ok(().into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(().into()) };
         let data = args.get(3);
         with_state(|s| {
             let Some(b) = s.buffer(device, id) else { return };
@@ -786,10 +777,7 @@ natives! {
     "createTexture" => fn create_texture(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::TextureDesc = json(scope, &args, 1)?;
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let Some(usage) = wgpu::TextureUsages::from_bits(desc.usage) else {
             report(device, Kind::Validation, format!("invalid GPUTextureUsage {:#x}", desc.usage));
             return Ok(0.into());
@@ -836,10 +824,7 @@ natives! {
     "createSampler" => fn create_sampler(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::SamplerDesc = json(scope, &args, 1)?;
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let sampler = gpu.device.create_sampler(&desc.wgpu());
         Ok(with_state(|s| s.insert(Obj::Sampler(sampler))).into())
     }
@@ -848,10 +833,7 @@ natives! {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::BindGroupLayoutDesc = json(scope, &args, 1)?;
         let entries = desc.entries.iter().map(desc::LayoutEntry::wgpu).collect::<Result<Vec<_>, _>>().map_err(Throw::from_message)?;
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let layout = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: desc::label(&desc.label), entries: &entries });
         Ok(with_state(|s| s.insert(Obj::BindGroupLayout(layout))).into())
     }
@@ -859,21 +841,9 @@ natives! {
     "createPipelineLayout" => fn create_pipeline_layout(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::PipelineLayoutDesc = json(scope, &args, 1)?;
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         Ok(with_state(|s| {
-            let mut layouts = Vec::with_capacity(desc.bind_group_layouts.len());
-            for id in &desc.bind_group_layouts {
-                layouts.push(match id {
-                    Some(id) => match s.bind_group_layout(device, *id) {
-                        Some(l) => Some(l),
-                        None => return 0,
-                    },
-                    None => None,
-                });
-            }
+            let Some(layouts) = desc.bind_group_layouts.iter().map(|id| maybe(*id, |id| s.bind_group_layout(device, id))).collect::<Option<Vec<_>>>() else { return 0 };
             let layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: desc::label(&desc.label), bind_group_layouts: &layouts, immediate_size: 0 });
             s.insert(Obj::PipelineLayout(layout))
         })
@@ -883,10 +853,7 @@ natives! {
     "createBindGroup" => fn create_bind_group(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::BindGroupDesc = json(scope, &args, 1)?;
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         Ok(with_state(|s| {
             let Some(layout) = s.bind_group_layout(device, desc.layout) else { return 0 };
             let mut entries = Vec::with_capacity(desc.entries.len());
@@ -923,10 +890,7 @@ natives! {
         let device = bind::arg_u32(scope, &args, 0);
         let code = bind::arg_string(scope, &args, 1);
         let label = Some(bind::arg_string(scope, &args, 2));
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let module = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor { label: desc::label(&label), source: wgpu::ShaderSource::Wgsl(code.into()) });
         let messages = pollster::block_on(module.get_compilation_info()).messages;
         Ok(with_state(|s| s.insert(Obj::Shader(Shader { module, messages }))).into())
@@ -944,42 +908,23 @@ natives! {
                         wgpu::CompilationMessageType::Warning => "warning",
                         wgpu::CompilationMessageType::Info => "info",
                     };
-                    let at = m.location.map(|l| [l.line_number, l.line_position, l.offset, l.length]).unwrap_or_default();
-                    (m.message.clone(), kind, at)
+                    let [line, position, offset, length] = m.location.map(|l| [l.line_number, l.line_position, l.offset, l.length]).unwrap_or_default();
+                    serde_json::json!({"message": m.message, "type": kind, "lineNum": line, "linePos": position, "offset": offset, "length": length})
                 })
                 .collect(),
             _ => Vec::new(),
         });
-        let list = v8::Array::new(scope, messages.len() as i32);
-        for (i, (message, kind, at)) in messages.into_iter().enumerate() {
-            let obj = v8::Object::new(scope);
-            let message = bind::string(scope, &message);
-            bind::set(scope, obj, "message", message.into());
-            let kind = bind::string(scope, kind);
-            bind::set(scope, obj, "type", kind.into());
-            for (name, value) in ["lineNum", "linePos", "offset", "length"].into_iter().zip(at) {
-                let value = v8::Number::new(scope, f64::from(value));
-                bind::set(scope, obj, name, value.into());
-            }
-            list.set_index(scope, i as u32, obj.into());
-        }
-        Ok(Ret::Val(list.into()))
+        Ok(Ret::Val(crate::offload::json(scope, &serde_json::Value::Array(messages))))
     }
 
     "createComputePipeline" => fn create_compute_pipeline(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::ComputePipelineDesc = json(scope, &args, 1)?;
         let is_async = bind::arg_bool(scope, &args, 2);
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let make = || {
             with_state(|s| {
-                let layout = match desc.layout {
-                    Some(id) => Some(s.pipeline_layout(device, id)?),
-                    None => None,
-                };
+                let layout = maybe(desc.layout, |id| s.pipeline_layout(device, id))?;
                 let module = &s.shader(device, desc.compute.module)?.module;
                 let constants = desc.compute.constants();
                 let pipeline = gpu.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -1001,41 +946,19 @@ natives! {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::RenderPipelineDesc = json(scope, &args, 1)?;
         let is_async = bind::arg_bool(scope, &args, 2);
-        let primitive = desc.primitive.wgpu().map_err(Throw::from_message)?;
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let make = || {
             with_state(|s| {
-                let layout = match desc.layout {
-                    Some(id) => Some(s.pipeline_layout(device, id)?),
-                    None => None,
-                };
-                let attributes: Vec<Vec<wgpu::VertexAttribute>> = desc
-                    .vertex
-                    .buffers
-                    .iter()
-                    .map(|b| {
-                        b.iter()
-                            .flat_map(|b| &b.attributes)
-                            .map(|a| wgpu::VertexAttribute { format: a.format, offset: a.offset, shader_location: a.shader_location })
-                            .collect()
-                    })
-                    .collect();
+                let layout = maybe(desc.layout, |id| s.pipeline_layout(device, id))?;
                 let buffers: Vec<Option<wgpu::VertexBufferLayout>> = desc
                     .vertex
                     .buffers
                     .iter()
-                    .zip(&attributes)
-                    .map(|(b, attributes)| b.as_ref().map(|b| wgpu::VertexBufferLayout { array_stride: b.array_stride, step_mode: b.step_mode, attributes }))
+                    .map(|b| b.as_ref().map(|b| wgpu::VertexBufferLayout { array_stride: b.array_stride, step_mode: b.step_mode, attributes: &b.attributes }))
                     .collect();
                 let vertex_module = &s.shader(device, desc.vertex.stage.module)?.module;
                 let vertex_constants = desc.vertex.stage.constants();
-                let fragment_module = match &desc.fragment {
-                    Some(f) => Some(&s.shader(device, f.stage.module)?.module),
-                    None => None,
-                };
+                let fragment_module = maybe(desc.fragment.as_ref().map(|f| f.stage.module), |id| s.shader(device, id).map(|sh| &sh.module))?;
                 let fragment_constants = desc.fragment.as_ref().map(|f| f.stage.constants()).unwrap_or_default();
                 let targets: Vec<Option<wgpu::ColorTargetState>> = desc.fragment.iter().flat_map(|f| &f.targets).map(|t| t.as_ref().map(desc::ColorTargetDesc::wgpu)).collect();
                 let fragment = desc.fragment.as_ref().zip(fragment_module).map(|(f, module)| wgpu::FragmentState {
@@ -1053,7 +976,7 @@ natives! {
                         compilation_options: wgpu::PipelineCompilationOptions { constants: &vertex_constants, zero_initialize_workgroup_memory: true },
                         buffers: &buffers,
                     },
-                    primitive,
+                    primitive: desc.primitive.wgpu(),
                     depth_stencil: desc.depth_stencil.as_ref().map(desc::DepthStencilDesc::wgpu),
                     multisample: wgpu::MultisampleState { count: desc.multisample.count, mask: desc.multisample.mask.into(), alpha_to_coverage_enabled: desc.multisample.alpha_to_coverage_enabled },
                     fragment,
@@ -1089,15 +1012,11 @@ natives! {
     "createQuerySet" => fn create_query_set(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::QuerySetDesc = json(scope, &args, 1)?;
-        let ty = match desc.kind.as_str() {
-            "occlusion" => wgpu::QueryType::Occlusion,
-            "timestamp" => wgpu::QueryType::Timestamp,
-            other => return Err(Throw::Type(format!("'{other}' is not a GPUQueryType"))),
+        let ty = match desc.kind {
+            desc::QueryType::Occlusion => wgpu::QueryType::Occlusion,
+            desc::QueryType::Timestamp => wgpu::QueryType::Timestamp,
         };
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let set = gpu.device.create_query_set(&wgpu::QuerySetDescriptor { label: desc::label(&desc.label), ty, count: desc.count });
         Ok(with_state(|s| s.insert(Obj::QuerySet(QuerySet { set, device }))).into())
     }
@@ -1115,10 +1034,7 @@ natives! {
     "createCommandEncoder" => fn create_command_encoder(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let label = Some(bind::arg_string(scope, &args, 1));
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         let encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: desc::label(&label) });
         Ok(with_state(|s| s.insert(Obj::Encoder(Some(encoder)))).into())
     }
@@ -1203,12 +1119,8 @@ natives! {
         let desc: desc::RenderPassDesc = json(scope, &args, 2)?;
         let commands = pass::commands(&args, 3, bind::arg_u32(scope, &args, 4));
         let strings = pass::strings(scope, &args, 5);
-        let mut problem = None;
-        encode(device, encoder, |s, e| problem = pass::render(s, e, device, &desc, &commands, &strings).err());
-        match problem {
-            Some(message) => Err(Throw::from_message(message)),
-            None => Ok(().into()),
-        }
+        encode(device, encoder, |s, e| pass::render(s, e, device, &desc, &commands, &strings));
+        Ok(().into())
     }
 
     "computePass" => fn compute_pass(scope, args) {
@@ -1245,10 +1157,7 @@ natives! {
         let desc: desc::RenderBundleDesc = json(scope, &args, 1)?;
         let commands = pass::commands(&args, 2, bind::arg_u32(scope, &args, 3));
         let strings = pass::strings(scope, &args, 4);
-        if !enter(device) {
-            return Ok(0.into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(0.into()) };
         Ok(with_state(|s| pass::bundle(s, &gpu, device, &desc, &commands, &strings).map(|b| s.insert(Obj::RenderBundle(b))).unwrap_or(0)).into())
     }
 
@@ -1260,10 +1169,7 @@ natives! {
                 ids.push(list.get_index(scope, i).and_then(|v| v.uint32_value(scope)).unwrap_or(0));
             }
         }
-        if !enter(device) {
-            return Ok(().into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(().into()) };
         let buffers = with_state(|s| {
             let usable = ids.iter().all(|id| matches!(s.objects.get(id), Some(Obj::CommandBuffer(Some(_)))));
             let buffers: Vec<_> = ids
@@ -1288,10 +1194,7 @@ natives! {
     "writeTexture" => fn write_texture(scope, args) {
         let device = bind::arg_u32(scope, &args, 0);
         let desc: desc::WriteTexture = json(scope, &args, 1)?;
-        if !enter(device) {
-            return Ok(().into());
-        }
-        let gpu = with_state(|s| s.gpu())?;
+        let Some(gpu) = live(device)? else { return Ok(().into()) };
         let data = args.get(2);
         with_state(|s| {
             canvas::touch_now(s, &gpu, desc.destination.texture);

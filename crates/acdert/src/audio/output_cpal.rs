@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use super::graph::hermite;
 use super::mixer::{Mixer, RATE};
-use super::output::{Ctl, IDLE, apply, deliver};
+use super::output::{Ctl, Idle, Web, control, deliver, lock};
 use crate::rt::Msg;
 
 const CHUNK: usize = 256;
@@ -13,17 +13,6 @@ const CHUNK: usize = 256;
 pub struct Device {
     device: cpal::Device,
     config: cpal::StreamConfig,
-}
-
-struct Web {
-    mixer: Arc<Mutex<Mixer>>,
-    notify: mpsc::Sender<Msg>,
-    name: String,
-    stream: Option<cpal::Stream>,
-}
-
-fn lock(mixer: &Mutex<Mixer>) -> MutexGuard<'_, Mixer> {
-    mixer.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Device {
@@ -46,40 +35,20 @@ impl Device {
     }
 
     pub fn run(self, ctl: mpsc::Sender<Ctl>, rx: mpsc::Receiver<Ctl>) {
-        let mut webs: HashMap<u64, Web> = HashMap::new();
+        let mut webs = HashMap::new();
         while let Ok(message) = rx.recv() {
-            match message {
-                Ctl::Open { web, name, notify } => {
-                    webs.insert(web, Web { mixer: Arc::default(), notify, name, stream: None });
-                }
-                Ctl::Cmd(id, cmd) => {
-                    let Some(web) = webs.get_mut(&id) else { continue };
-                    let start = apply(&mut lock(&web.mixer), web.stream.is_some(), cmd);
-                    if start {
-                        match self.stream(id, web, &ctl) {
-                            Ok(stream) => web.stream = Some(stream),
-                            Err(e) => log::warn!("[{}] no sound stream: {e}", web.name),
-                        }
-                    }
-                }
-                Ctl::Close(id) => {
-                    webs.remove(&id);
-                }
-                Ctl::Idle(id) => {
-                    if let Some(web) = webs.get_mut(&id)
-                        && web.stream.is_some()
-                        && !lock(&web.mixer).active()
-                    {
-                        web.stream = None;
-                        lock(&web.mixer).set_rendering(false);
-                    }
-                }
-            }
+            control(&mut webs, message, |id, web| self.stream(id, web, &ctl));
         }
     }
 
-    fn stream(&self, id: u64, web: &Web, ctl: &mpsc::Sender<Ctl>) -> Result<cpal::Stream, String> {
-        let mut feed = Feed::new(id, web.mixer.clone(), web.notify.clone(), ctl.clone(), usize::from(self.config.channels), f64::from(self.config.sample_rate));
+    fn stream(&self, id: u64, web: &Web<cpal::Stream>, ctl: &mpsc::Sender<Ctl>) -> Result<cpal::Stream, String> {
+        let mut feed = Feed {
+            mixer: web.mixer.clone(),
+            notify: web.notify.clone(),
+            ctl: ctl.clone(),
+            resampler: Resampler::new(usize::from(self.config.channels), RATE / f64::from(self.config.sample_rate)),
+            idle: Idle::new(id),
+        };
         let name = web.name.clone();
         let stream = self
             .device
@@ -99,21 +68,15 @@ impl Device {
     }
 }
 
-pub(super) struct Feed {
-    web: u64,
+struct Feed {
     mixer: Arc<Mutex<Mixer>>,
     notify: mpsc::Sender<Msg>,
     ctl: mpsc::Sender<Ctl>,
     resampler: Resampler,
-    idle: u64,
-    idle_sent: bool,
+    idle: Idle,
 }
 
 impl Feed {
-    fn new(web: u64, mixer: Arc<Mutex<Mixer>>, notify: mpsc::Sender<Msg>, ctl: mpsc::Sender<Ctl>, channels: usize, rate: f64) -> Feed {
-        Feed { web, mixer, notify, ctl, resampler: Resampler::new(channels, RATE / rate), idle: 0, idle_sent: false }
-    }
-
     fn fill(&mut self, out: &mut [f32]) {
         let Ok(mut mixer) = self.mixer.try_lock() else {
             out.fill(0.0);
@@ -121,16 +84,9 @@ impl Feed {
         };
         let pulled = self.resampler.fill(out, |chunk| mixer.render(chunk));
         deliver(&mut mixer, &self.notify);
-        if mixer.active() {
-            self.idle = 0;
-            self.idle_sent = false;
-        } else {
-            self.idle += pulled as u64;
-        }
+        let active = mixer.active();
         drop(mixer);
-        if !self.idle_sent && self.idle as f64 >= IDLE.as_secs_f64() * RATE {
-            self.idle_sent = self.ctl.send(Ctl::Idle(self.web)).is_ok();
-        }
+        self.idle.tick(active, pulled, |ctl| self.ctl.send(ctl).is_ok());
     }
 }
 

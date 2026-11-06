@@ -1,8 +1,7 @@
+#[cfg(target_os = "linux")]
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::OnceLock;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "linux")]
@@ -46,12 +45,8 @@ fn start() -> Option<Sender> {
             log::info!("ACDE_AUDIO=null, sound plays nowhere");
         } else {
             #[cfg(target_os = "linux")]
-            match PwOutput::new() {
-                Ok((output, sender)) => {
-                    _ = tx.send(Sender::Pw(sender));
-                    output.run();
-                    return;
-                }
+            match pw_run(&tx) {
+                Ok(()) => return,
                 Err(e) => log::warn!("no PipeWire ({e}): sound plays nowhere"),
             }
             #[cfg(not(target_os = "linux"))]
@@ -76,11 +71,15 @@ fn start() -> Option<Sender> {
     rx.recv_timeout(Duration::from_secs(5)).ok()
 }
 
-struct Web<O> {
-    mixer: Rc<RefCell<Mixer>>,
-    notify: mpsc::Sender<Msg>,
-    name: String,
+pub struct Web<O> {
+    pub mixer: Arc<Mutex<Mixer>>,
+    pub notify: mpsc::Sender<Msg>,
+    pub name: String,
     out: Option<O>,
+}
+
+pub fn lock(mixer: &Mutex<Mixer>) -> MutexGuard<'_, Mixer> {
+    mixer.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn deliver(mixer: &mut Mixer, notify: &mpsc::Sender<Msg>) {
@@ -88,11 +87,6 @@ pub fn deliver(mixer: &mut Mixer, notify: &mpsc::Sender<Msg>) {
     if !notes.is_empty() {
         _ = notify.send(Msg::Task(Box::new(move |scope| super::deliver(scope, notes))));
     }
-}
-
-fn command<O>(web: &mut Web<O>, cmd: Cmd) -> bool {
-    let rendering = web.out.is_some();
-    apply(&mut web.mixer.borrow_mut(), rendering, cmd)
 }
 
 pub fn apply(mixer: &mut Mixer, rendering: bool, cmd: Cmd) -> bool {
@@ -110,13 +104,61 @@ pub fn apply(mixer: &mut Mixer, rendering: bool, cmd: Cmd) -> bool {
     !rendering && mixer.active()
 }
 
-#[cfg(target_os = "linux")]
-struct PwOutput {
-    main: pw::main_loop::MainLoopRc,
-    _context: pw::context::ContextRc,
-    core: pw::core::CoreRc,
-    rx: pw::channel::Receiver<Ctl>,
-    tx: pw::channel::Sender<Ctl>,
+pub fn control<O>(webs: &mut HashMap<u64, Web<O>>, ctl: Ctl, open: impl FnOnce(u64, &Web<O>) -> Result<O, String>) {
+    match ctl {
+        Ctl::Open { web, name, notify } => {
+            webs.insert(web, Web { mixer: Arc::default(), notify, name, out: None });
+        }
+        Ctl::Cmd(id, cmd) => {
+            let Some(web) = webs.get_mut(&id) else { return };
+            let start = apply(&mut lock(&web.mixer), web.out.is_some(), cmd);
+            if start {
+                match open(id, web) {
+                    Ok(out) => {
+                        lock(&web.mixer).set_rendering(true);
+                        web.out = Some(out);
+                    }
+                    Err(e) => log::warn!("[{}] no sound stream: {e}", web.name),
+                }
+            }
+        }
+        Ctl::Close(id) => {
+            webs.remove(&id);
+        }
+        Ctl::Idle(id) => {
+            if let Some(web) = webs.get_mut(&id)
+                && web.out.is_some()
+                && !lock(&web.mixer).active()
+            {
+                web.out = None;
+                lock(&web.mixer).set_rendering(false);
+            }
+        }
+    }
+}
+
+pub struct Idle {
+    web: u64,
+    frames: u64,
+    sent: bool,
+}
+
+impl Idle {
+    pub fn new(web: u64) -> Idle {
+        Idle { web, frames: 0, sent: false }
+    }
+
+    pub fn tick(&mut self, active: bool, frames: usize, send: impl FnOnce(Ctl) -> bool) {
+        if active {
+            self.frames = 0;
+            self.sent = false;
+        } else {
+            self.frames += frames as u64;
+        }
+        if !self.sent && self.frames as f64 >= IDLE.as_secs_f64() * RATE {
+            self.sent = send(Ctl::Idle(self.web));
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -127,13 +169,11 @@ struct PwStream {
 
 #[cfg(target_os = "linux")]
 struct Process {
-    web: u64,
-    mixer: Rc<RefCell<Mixer>>,
+    mixer: Arc<Mutex<Mixer>>,
     notify: mpsc::Sender<Msg>,
     ctl: pw::channel::Sender<Ctl>,
     scratch: Vec<f32>,
-    idle: u64,
-    idle_sent: bool,
+    idle: Idle,
 }
 
 #[cfg(target_os = "linux")]
@@ -147,24 +187,18 @@ impl Process {
             let max = bytes.len() / 8;
             frames = if requested > 0 { requested.min(max) } else { max.min(1024) };
             self.scratch.resize(frames * 2, 0.0);
-            match self.mixer.try_borrow_mut() {
+            match self.mixer.try_lock() {
                 Ok(mut mixer) => {
                     mixer.render(&mut self.scratch);
                     deliver(&mut mixer, &self.notify);
-                    if mixer.active() {
-                        self.idle = 0;
-                        self.idle_sent = false;
-                    } else {
-                        self.idle += frames as u64;
-                    }
+                    let active = mixer.active();
+                    drop(mixer);
+                    self.idle.tick(active, frames, |ctl| self.ctl.send(ctl).is_ok());
                 }
                 Err(_) => self.scratch.fill(0.0),
             }
             for (out, v) in bytes[..frames * 8].as_chunks_mut::<4>().0.iter_mut().zip(&self.scratch) {
                 out.copy_from_slice(&v.to_le_bytes());
-            }
-            if !self.idle_sent && self.idle as f64 >= IDLE.as_secs_f64() * RATE {
-                self.idle_sent = self.ctl.send(Ctl::Idle(self.web)).is_ok();
             }
         }
         let chunk = data.chunk_mut();
@@ -175,55 +209,21 @@ impl Process {
 }
 
 #[cfg(target_os = "linux")]
-impl PwOutput {
-    fn new() -> Result<(PwOutput, pw::channel::Sender<Ctl>), pw::Error> {
-        pw::init();
-        let main = pw::main_loop::MainLoopRc::new(None)?;
-        let context = pw::context::ContextRc::new(&main, None)?;
-        let core = context.connect_rc(None)?;
-        let (tx, rx) = pw::channel::channel();
-        Ok((PwOutput { main, _context: context, core, rx, tx: tx.clone() }, tx))
-    }
-
-    fn run(self) {
-        let PwOutput { main, _context, core, rx, tx } = self;
-        let webs: RefCell<HashMap<u64, Web<PwStream>>> = RefCell::default();
-        let _errors = core.add_listener_local().error(|id, _seq, res, message| log::warn!("PipeWire error {res} (object {id}): {message}")).register();
-        let stream_core = core.clone();
-        let _rx = rx.attach(main.loop_(), move |ctl| {
-            let mut webs = webs.borrow_mut();
-            match ctl {
-                Ctl::Open { web, name, notify } => {
-                    webs.insert(web, Web { mixer: Rc::default(), notify, name, out: None });
-                }
-                Ctl::Cmd(id, cmd) => {
-                    let Some(web) = webs.get_mut(&id) else { return };
-                    if command(web, cmd) {
-                        match pw_stream(&stream_core, &tx, id, web) {
-                            Ok(stream) => {
-                                web.mixer.borrow_mut().set_rendering(true);
-                                web.out = Some(stream);
-                            }
-                            Err(e) => log::warn!("[{}] no stream: {e}", web.name),
-                        }
-                    }
-                }
-                Ctl::Close(id) => {
-                    webs.remove(&id);
-                }
-                Ctl::Idle(id) => {
-                    if let Some(web) = webs.get_mut(&id)
-                        && web.out.is_some()
-                        && !web.mixer.borrow().active()
-                    {
-                        web.out = None;
-                        web.mixer.borrow_mut().set_rendering(false);
-                    }
-                }
-            }
-        });
-        main.run();
-    }
+fn pw_run(ready: &mpsc::SyncSender<Sender>) -> Result<(), pw::Error> {
+    pw::init();
+    let main = pw::main_loop::MainLoopRc::new(None)?;
+    let context = pw::context::ContextRc::new(&main, None)?;
+    let core = context.connect_rc(None)?;
+    let (tx, rx) = pw::channel::channel();
+    _ = ready.send(Sender::Pw(tx.clone()));
+    let webs: RefCell<HashMap<u64, Web<PwStream>>> = RefCell::default();
+    let _errors = core.add_listener_local().error(|id, _seq, res, message| log::warn!("PipeWire error {res} (object {id}): {message}")).register();
+    let stream_core = core.clone();
+    let _rx = rx.attach(main.loop_(), move |ctl| {
+        control(&mut webs.borrow_mut(), ctl, |id, web| pw_stream(&stream_core, &tx, id, web).map_err(|e| e.to_string()));
+    });
+    main.run();
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -237,7 +237,7 @@ fn pw_stream(core: &pw::core::CoreRc, ctl: &pw::channel::Sender<Ctl>, id: u64, w
         *pw::keys::NODE_LATENCY => format!("512/{}", RATE as u32),
     };
     let stream = pw::stream::StreamRc::new(core.clone(), &web.name, props)?;
-    let process = Process { web: id, mixer: web.mixer.clone(), notify: web.notify.clone(), ctl: ctl.clone(), scratch: Vec::new(), idle: 0, idle_sent: false };
+    let process = Process { mixer: web.mixer.clone(), notify: web.notify.clone(), ctl: ctl.clone(), scratch: Vec::new(), idle: Idle::new(id) };
     let listener = stream.add_local_listener_with_user_data(process).process(|stream, p| p.process(stream)).register()?;
 
     let mut info = spa::param::audio::AudioInfoRaw::new();
@@ -267,39 +267,18 @@ fn null_loop(rx: mpsc::Receiver<Ctl>) {
     let mut scratch = vec![0.0f32; 2 * 1024];
     loop {
         let rendering = webs.values().any(|w| w.out.is_some());
-        let ctl = if rendering {
-            match rx.recv_timeout(Duration::from_millis(10)) {
-                Ok(ctl) => Some(ctl),
-                Err(mpsc::RecvTimeoutError::Timeout) => None,
-                Err(mpsc::RecvTimeoutError::Disconnected) => return,
-            }
-        } else {
-            match rx.recv() {
-                Ok(ctl) => Some(ctl),
-                Err(_) => return,
-            }
-        };
+        let ctl = if rendering { rx.recv_timeout(Duration::from_millis(10)) } else { rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected) };
         match ctl {
-            Some(Ctl::Open { web, name, notify }) => {
-                webs.insert(web, Web { mixer: Rc::default(), notify, name, out: None });
-            }
-            Some(Ctl::Cmd(id, cmd)) => {
-                if let Some(web) = webs.get_mut(&id)
-                    && command(web, cmd)
-                {
-                    log::debug!("[{}] sound renders into nothing", web.name);
-                    web.mixer.borrow_mut().set_rendering(true);
-                    web.out = Some(NullOut { start: Instant::now(), rendered: 0, idle: 0 });
-                }
-            }
-            Some(Ctl::Close(id)) => {
-                webs.remove(&id);
-            }
-            Some(Ctl::Idle(_)) | None => {}
+            Ok(ctl) => control(&mut webs, ctl, |_, web| {
+                log::debug!("[{}] sound renders into nothing", web.name);
+                Ok(NullOut { start: Instant::now(), rendered: 0, idle: 0 })
+            }),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
         }
         for web in webs.values_mut() {
             let Some(out) = &mut web.out else { continue };
-            let mut mixer = web.mixer.borrow_mut();
+            let mut mixer = lock(&web.mixer);
             let due = (out.start.elapsed().as_secs_f64() * RATE) as u64;
             while out.rendered < due {
                 let frames = (due - out.rendered).min(1024) as usize;
