@@ -14,6 +14,8 @@ export const focus = {
 const ALWAYS = new Set(['button', 'select', 'textarea', 'iframe', 'summary'])
 const TEXT_TYPES = new Set(['', 'text', 'search', 'url', 'email', 'password', 'tel', 'number', 'date', 'datetime-local', 'month', 'time', 'week'])
 
+export const EDITING_HOST = '[contenteditable=""],[contenteditable="true" i],[contenteditable="plaintext-only" i]'
+
 export function focusable(id: number): boolean {
   if (dom.nodeType(id) !== NodeType.Element) return false
   const local = dom.localName(id)
@@ -40,7 +42,7 @@ function isTextField(id: number): boolean {
   const local = dom.localName(id)
   if (local === 'textarea') return true
   if (local === 'input') return TEXT_TYPES.has((dom.getAttribute(id, 'type') ?? '').toLowerCase())
-  return dom.closest(id, '[contenteditable=""],[contenteditable="true" i],[contenteditable="plaintext-only" i]') !== NONE
+  return dom.closest(id, EDITING_HOST) !== NONE
 }
 
 export function focusedElement(): Element | null {
