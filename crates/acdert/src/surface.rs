@@ -26,12 +26,14 @@ macro_rules! each {
 }
 
 impl Surface {
-    pub fn claim(token: u64, render: acde_render::RenderHandle) -> Result<Self, String> {
+    pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32) -> Result<Self, String> {
         if acde_hostwin::active() {
             return acde_hostwin::Surface::claim(token, render).map(Surface::Host);
         }
         #[cfg(target_os = "linux")]
-        return acde_window::Surface::claim(token, render).map(Surface::Wayland);
+        return acde_window::Surface::claim(token, render, frame).map(Surface::Wayland);
+        #[cfg(not(target_os = "linux"))]
+        let _ = frame;
         #[cfg(not(target_os = "linux"))]
         Err("claimSurface: no windows here".into())
     }
@@ -42,6 +44,14 @@ impl Surface {
 
     pub fn window(&self) -> u32 {
         each!(self, s => s.window())
+    }
+
+    pub fn content_offset(&self) -> (f64, f64) {
+        match self {
+            #[cfg(target_os = "linux")]
+            Surface::Wayland(s) => s.content_offset(),
+            Surface::Host(_) => (0.0, 0.0),
+        }
     }
 
     pub fn pump(&self) -> Vec<Event> {
@@ -127,7 +137,7 @@ impl Surface {
     pub fn set_title(&self, title: &str) {
         match self {
             #[cfg(target_os = "linux")]
-            Surface::Wayland(_) => {}
+            Surface::Wayland(s) => s.set_title(title.to_owned()),
             Surface::Host(s) => s.set_title(title),
         }
     }

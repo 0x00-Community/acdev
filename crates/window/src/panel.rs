@@ -172,6 +172,10 @@ impl App {
         if let Some(index) = self.buffers.index_of(buffer, self.painter.generation(0)) {
             released.push((0, index));
         }
+        let plane = crate::decoration::PLANE;
+        if let Some(index) = self.decoration.as_ref().and_then(|d| d.buffers.index_of(buffer, self.painter.generation(plane))) {
+            released.push((plane, index));
+        }
         for panel in &self.panels {
             let plane = PanelView::plane(panel.id);
             if let Some(index) = panel.buffers.index_of(buffer, self.painter.generation(plane)) {

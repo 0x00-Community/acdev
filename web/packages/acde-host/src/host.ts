@@ -30,6 +30,7 @@ export class Host {
   onActivation: (active: boolean) => void = () => {}
   onPanelMove: (id: number, extent: readonly [number, number, number, number]) => void = () => {}
   onGrab: (event: { kind: string; granted?: boolean; reason?: string }) => void = () => {}
+  onFrameButton: (key: string) => void = () => {}
   onFirstFrame: () => void = () => {}
   #framed = false
 
@@ -229,6 +230,10 @@ export class Host {
         }
         if (raw.type === 'grablost') {
           this.onGrab({ kind: 'lost', reason: raw.title ?? 'denied' })
+          continue
+        }
+        if (raw.type === 'framebutton') {
+          this.onFrameButton(raw.key ?? '')
           continue
         }
         if (raw.type === 'imecommit' || raw.type === 'imepreedit') {

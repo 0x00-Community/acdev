@@ -1,6 +1,6 @@
 import { install, installBackendTransport, type AudioNative, type BackendTransport, type DomNative, type GpuNative, type HostNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
-import { WindowFrame } from './frame'
+import { Frame } from './frame'
 import { Host } from './host'
 import type { ImeEvent, NativeIme } from './ime'
 import type { NativeSurface } from './native'
@@ -24,7 +24,7 @@ interface WebNatives extends Natives {
   readonly init: WebInit
   readonly env: Record<string, string>
   createDocument(width: number, height: number, scale: number, options: { resources: { prefix: string; dirs: string[] }[]; reducedMotion: boolean; dark: boolean }): DomNative
-  claimSurface(token: bigint): NativeSurface
+  claimSurface(token: bigint, options?: { frame?: number }): NativeSurface
   readonly Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   readonly gpu?: GpuNative
   readonly audio?: AudioNative
@@ -47,7 +47,9 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const brokerPort: RpcPort = { postMessage: (message) => port.post(message), on: (_event, listener) => listeners.push(listener) }
 
   const dom = natives.createDocument(init.width, init.height, init.scale, { resources: init.resources, reducedMotion: init.reducedMotion === true, dark: init.dark === true })
-  const surface = natives.claimSurface(init.token)
+  const surface = natives.claimSurface(init.token, { frame: init.kind === 'window' ? Frame.height(init.app) : 0 })
+  const title = (text: string) => surface.setTitle(text || (init.app?.label ?? init.name))
+  title('')
   host.requestFrame = () => surface.requestFrame()
 
   const storage = init.storageFile ? new StorageFile(init.storageFile) : null
@@ -81,7 +83,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   if (init.kind === 'window' && init.app?.backend && natives.backend) installBackendTransport({ ...natives.backend, port: init.app.backend.port })
   const web = new Host(page, dom, init.scale, natives.Ime, windows)
   const debug = !!natives.env['ACDE_DEBUG_DIR'] || !!natives.env['ACDE_DEV']
-  const inspect = new PageInspect(page, dom, web)
+  const inspect = new PageInspect(page, dom, web, surface.contentOffset)
   rpc.serve(async (service, method, args) => {
     if (service === 'window' && self) return self.serve(method, args)
     if (service === 'inspect') return inspect.serve(method, args)
@@ -107,6 +109,12 @@ export default async function boot(natives: WebNatives): Promise<void> {
   new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, window: init.window, label: init.app?.label ?? '桌面' })
   web.onActivation = (active) => self?.emit(active ? 'activate' : 'deactivate')
   web.onGrab = (event) => self?.emit(event.kind === 'lost' ? 'grablost' : 'grab', event)
+  web.onFrameButton = (key) => {
+    if (!self) return
+    if (key === 'close') void self.api.close()
+    else if (key === 'minimize') void self.api.minimize()
+    else if (key === 'fullscreen' || key === 'restore') self.api.requestMode(key === 'fullscreen' ? 'fullscreen' : 'free')
+  }
   if (init.kind === 'desktop') {
     web.onFirstFrame = () => void rpc.call('page', 'shown').catch(() => undefined)
     const pinned = new Pinned(rpc, surface, dom, page as never)
@@ -123,17 +131,9 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const served = htmlEntry && PageSource.isServer(init.app!.entry)
   const html = init.kind === 'desktop' ? (init.standalone ? standalone(init.standalone) : readFileSync(init.page!, 'utf8')) : served ? await PageSource.served(page.window as never, init.url ?? `${PageSource.ORIGIN}/`) : htmlPage ? PageSource.html(htmlPage, init.resources) : PageSource.window(init.app!, init.theme ?? '')
   await page.loadPage(html)
-  if (surface.hosted) {
-    const title = (text: string) => surface.setTitle?.(text || (init.app?.label ?? init.name))
-    title(init.kind === 'desktop' ? init.name : (page.window.document.title ?? ''))
-    if (self) self.onTitle = title
-    if (app) app.onTitle = title
-  } else if (self && init.app!.frame !== false) {
-    const frame = new WindowFrame(page as never, self.api, init.app!.label)
-    self.onTitle = (title) => frame.title(title)
-    if (app) app.onTitle = (title) => frame.title(title)
-    frame.install()
-  }
+  title(init.kind === 'desktop' ? '' : (page.window.document.title ?? ''))
+  if (self) self.onTitle = title
+  if (app) app.onTitle = title
   app?.loaded(htmlEntry)
   StartupTimeline.mark(init.kind === 'desktop' ? 'desktop loaded' : 'loaded')
   await web.run(surface)

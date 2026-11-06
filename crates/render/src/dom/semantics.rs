@@ -152,7 +152,7 @@ fn intersect(a: Rect, b: Rect) -> Rect {
     Rect { x, y, width: (right - x).max(0.0), height: (bottom - y).max(0.0) }
 }
 
-const SKIPPED: [&str; 10] = ["script", "style", "template", "head", "meta", "link", "noscript", "title", "iframe", "acde-frame"];
+const SKIPPED: [&str; 9] = ["script", "style", "template", "head", "meta", "link", "noscript", "title", "iframe"];
 
 const INTERACTIVE: [&str; 19] = [
     "button", "link", "textbox", "searchbox", "checkbox", "radio", "combobox", "slider", "spinbutton", "switch", "tab", "menuitem", "menuitemcheckbox", "menuitemradio", "option", "treeitem", "clickable", "listbox", "scrollbar",

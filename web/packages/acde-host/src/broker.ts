@@ -7,6 +7,7 @@ import { AppBackends } from './backend'
 import { Crashes } from './crashes'
 import { PageBridge } from './bridge'
 import { Downloads } from './downloads'
+import { Frame } from './frame'
 import { Opener, type OpenOptions } from './open'
 import { NativeApps } from './launcher'
 import { PageSource } from './page'
@@ -394,7 +395,7 @@ export class Broker {
     for (const record of this.#windows.values()) this.#announce(record)
   }
 
-  #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode, ...(record.app?.size && { size: record.app.size }) }).token): void {
+  #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode, size: Frame.windowSize(record.app!, this.shell.hosted === true) }).token): void {
     const app = record.app!
     this.#placed.set(record.id, app.id)
     const init: WebInit = {
@@ -664,7 +665,7 @@ export class Broker {
       }
     }
     const rect = mode === 'free' && !this.#running(appId) ? this.#places.get(appId, this.#screen()) : null
-    const grant = this.shell.grant({ mode, ...(rect ? { rect } : app.size && { size: app.size }) })
+    const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app, this.shell.hosted === true) }) })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], request, mode }
     this.#windows.set(record.id, record)
     this.#spawnWindow(record, grant.token)

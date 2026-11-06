@@ -58,7 +58,13 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     let Some(render) = crate::dom::render_handle() else {
         return bind::throw_error(scope, "claimSurface: this web has no document yet");
     };
-    let surface = match Surface::claim(token, render) {
+    let frame = v8::Local::<v8::Object>::try_from(args.get(1))
+        .ok()
+        .and_then(|options| bind::get(scope, options, "frame"))
+        .and_then(|value| value.number_value(scope))
+        .filter(|height| height.is_finite() && *height >= 1.0)
+        .map_or(0, |height| height.round().min(f64::from(u16::MAX)) as u32);
+    let surface = match Surface::claim(token, render, frame) {
         Ok(surface) => surface,
         Err(e) => return bind::throw_error(scope, &e),
     };
@@ -71,12 +77,16 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     })));
     let window = surface.window();
     let hosted = surface.hosted();
+    let (offset_x, offset_y) = surface.content_offset();
     STATE.with(|s| s.borrow_mut().surface = Some(surface));
     let obj = v8::Object::new(scope);
     let window = v8::Integer::new_from_unsigned(scope, window);
     bind::set(scope, obj, "window", window.into());
     let hosted = v8::Boolean::new(scope, hosted);
     bind::set(scope, obj, "hosted", hosted.into());
+    let offset = [offset_x, offset_y].map(|v| v8::Number::new(scope, v).into());
+    let offset = v8::Array::new_with_elements(scope, &offset);
+    bind::set(scope, obj, "contentOffset", offset.into());
     crate::methods!(scope, obj,
         "pump" => pump,
         "wait" => wait,

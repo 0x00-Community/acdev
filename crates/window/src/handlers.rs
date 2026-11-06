@@ -94,6 +94,7 @@ impl WindowHandler for App {
         let size = (configure.new_size.0.map_or(self.logical.0, |v| v.get()), configure.new_size.1.map_or(self.logical.1, |v| v.get()));
         self.logical = if size.0 == 0 || size.1 == 0 { (800, 600) } else { size };
         self.configured = true;
+        self.decorate(configure.is_fullscreen());
         self.tell_size();
         self.active = configure.is_activated();
         self.paint();
@@ -147,6 +148,9 @@ impl SeatHandler for App {
 impl PointerHandler for App {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
         for event in events {
+            if self.decoration_pointer(event) {
+                continue;
+            }
             if let PointerEventKind::Leave { .. } = event.kind {
                 self.left = true;
                 continue;

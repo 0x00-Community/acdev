@@ -88,7 +88,8 @@ acdert 是**一个**可执行文件, 在 Linux / Windows / macOS 上都能跑, �
 | **调试窗口** | `acdert app <id \| 目录>` | 同上 | 只有这个应用的窗口 (桌面的窗口建了但不显示) | 同上 |
 
 调试模式不是 WebUI, 也不推流: 不开端口、不用浏览器, 和 Tauri / Electron 一样, 每个窗口都是宿主系统的原生窗口, 装饰 (标题栏、
-边框) 也用宿主的 (acde-host 的窗框 `frame.ts` 不加, 标题经 surface 的 `setTitle` 给原生窗口). 桌面是一个特殊的窗口 (window 0):
+边框) 也用宿主的 (会话里的窗框是 crates/window 画在页面外的子 surface, 见「desktop web / window web」的窗框; 两边的页面视口都只是
+内容区, 标题都经 surface 的 `setTitle`). 桌面是一个特殊的窗口 (window 0):
 它的大小就是「屏幕」(`output`, `ACDE_SIZE` 或主显示器的 90% × 85%, 最大 1440 × 900), 别的窗口的坐标相对它的内容区原点;
 桌面的面板 (`pin`: 菜单栏、Dock、弹出层) 画在桌面窗口里 (不开单独的窗口). 只支持通用的东西: Dopame OS 特有的
 (合成器、登录页、NetworkManager、fcitx5、AT-SPI、greetd、交出会话) 不注入, 也不模拟, 也不去试: 宿主窗口的 `native.Shell` 带
@@ -694,7 +695,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   / 链接 / 标题这类用里面的文字 (没有文字用子孙的 aria-label / alt / title), 最后 title; 最多 120 字. 值: 输入框 (密码是 `•••`)、
   select 选中的项、aria-valuenow / valuetext. 状态: focused (body / html 不算), checked, mixed, selected, expanded / collapsed,
   disabled, pressed, current, readonly, modal, scrollable. 剪掉: `display: none`, `visibility` 不是 visible, 透明度 0, aria-hidden,
-  inert, script / style / iframe 和 acde-host 的窗框; 落在视口或滚动容器裁剪外的整棵子树 (数进 `hidden`); 没有角色、名字、状态的
+  inert, script / style / iframe; 落在视口或滚动容器裁剪外的整棵子树 (数进 `hidden`); 没有角色、名字、状态的
   元素展开成它的子节点, 没有名字也没有子节点的非交互元素不出; 每个父节点最多 60 个子节点 (`more`), 全树最多 limit 个 (默认 600,
   `truncated`). 文字节点用所在元素的 id, 相邻的合成一行.
 - **web 侧** (`pageinspect.ts`, rpc 服务 `inspect`): `tree`, `point(id)` (元素可点的一点: 不在视口里先 `scrollIntoView` 居中, 在中心和
@@ -862,9 +863,10 @@ FIFO 上). 原来的 `preview` (文字最多 256 KiB, 多了 `truncated`) 和 `w
 每个 web (一个 `acde web` 进程) 有自己的 DOM、CSS、JS 堆、render 文档 (线程) 和合成器 surface; 相互之间、和系统之间只通过 `acde`
 调用, 由 Broker 按应用清单检查.
 
-- **渲染**: 每个 web 是一个进程, 一个 xdg_toplevel. 它自己光栅化 (crates/paint, 三块轮转的 GBM 画布), 画完经
-  linux-dmabuf 交给合成器, 合成器和原生窗口一样合成. 窗口 id 和原生窗口同一个空间 (桌面 0, web 窗口从 `1<<20` 起, Broker 发).
-  桌面是 canvas 里 z 最低的 `fullscreen` 窗口; 别的 web 窗口先是居中的 `free` 窗口 (尺寸是清单的 `size`, 默认 800x600, 不超过屏幕), 叠放以窗口表为准.
+- **渲染**: 每个 web 是一个进程, 一个 xdg_toplevel (应用窗口的 toplevel 上另有一个窗框的子 surface, 见下面「窗框」). 它自己光栅化
+  (crates/paint, 三块轮转的 GBM 画布), 画完经 linux-dmabuf 交给合成器, 合成器和原生窗口一样合成. 窗口 id 和原生窗口同一个空间
+  (桌面 0, web 窗口从 `1<<20` 起, Broker 发). 桌面是 canvas 里 z 最低的 `fullscreen` 窗口; 别的 web 窗口先是居中的 `free` 窗口
+  (页面的尺寸是清单的 `size`, 默认 800x600: Broker `grant` 时给有窗框的应用加上窗框的高度; 整个窗口不超过屏幕), 叠放以窗口表为准.
 - **输入**: 标准 Wayland: 合成器按窗口表的 z 找到指针下的窗口发 wl_pointer / wl_keyboard, web 进程 (crates/window) 转成
   shell 事件进队列; 滚轮的默认滚动和 :hover 在它自己的 render 线程上. 拖放和剪贴板走 data-device. pointermove 和浏览器一样
   对齐到帧 (acde-host `host.ts`): 只留最新的一个, 下一个 `frame` 或别的事件来之前才派发 (连同命中测试), 鼠标回报率再高, 页面每帧
@@ -878,14 +880,38 @@ FIFO 上). 原来的 `preview` (文字最多 256 KiB, 多了 `truncated`) 和 `w
   隐藏的窗口不画、不命中、不拿焦点 (藏起有焦点的窗口时焦点给剩下最上面的), 留在窗口表和 z 列表里, 显示时拿焦点; `windows()` 带 `hidden`.
   只有桌面能隐藏 / 显示 / 提到最前 (`acde.windows.hide` / `show` / `focus`); 应用的 `acde.window.minimize` 只是给桌面发
   `windowminimize`, 由桌面决定. 从应用外面打开到某个窗口 (`windowshow`) 时 Broker 先显示它、给它焦点. 隐藏后丢弃还没有.
-- **窗框** (acde-host `src/frame.ts`): 应用窗口默认由 acde-host 在窗口 web 里画一条标题栏, 应用不用改代码 (React、Vue、
-  任何编译成 html/js/css 的页面一样). 它是挂在 `<html>` 下 (不在 `<body>` 里) 的 `<acde-frame>`, 样式全是内联 `all: initial` 加
-  `!important`, 应用的 CSS 和 `body.innerHTML = ''` 碰不到; 被删掉或 `<html>` 的 style 被改掉时补回去. `<html>` 加上
-  `padding-top` (标题栏高 32 px) 和 `box-sizing: border-box; height: 100%`, 所以 `height: 100%` 的布局照常; `100vh` 仍是整个窗口,
-  会比内容区多 32 px. 标题是 `document.title` (HTML 入口) 或 `acde.window.setTitle`, 没有时用清单的 `label`; 左边关闭、最小化 (`acde.window.minimize`,
-  由桌面决定藏不藏) 和全屏 (`requestMode` 在 `fullscreen` 和 `free` 之间切). 拖动和改大小不经 JS: 标题栏
-  (按钮以外) 和四边四角是 `setGrabHint`, 窗口尺寸变了先清掉再重给. 清单 `frame: false` 的应用自己画 (自己调 `setGrabHint`),
-  不加这条.
+- **窗框**: 应用窗口默认有一条标题栏, 它**不在页面的文档里**, 应用不用改代码 (React、Vue、任何编译成 html/js/css 的页面一样),
+  也看不到它: `<html>` 和它的 style、DOM、`innerWidth` / `innerHeight`、`100vh`、`resize` 都只是内容区, 和浏览器里一样 (第一原则).
+  - **会话里** (crates/window `decoration.rs`): web 的 Wayland 客户端在主 surface (页面) 上开一个 `wl_subsurface` (同步模式, 位置
+    `(0, -H)`, `H` 是窗框高), 并 `xdg_surface.set_window_geometry(0, -H, W, 整高)`: 窗口表的 rect、configure 的尺寸、`windowgone`
+    的 rect、grab hint / backdrop 的坐标都是含窗框的整个窗口; 页面 (surface 的 `resize`) 拿到 `W × (整高 - H)`. 窗框的画面是 render 的
+    `Decoration` 画的场景 (见「组件契约」的 render), 和页面同一个光栅化任务、自己的画布 (plane `usize::MAX`), 只在标题、宽度、缩放
+    变了时重画; 换了它的缓冲先提交它、再提交一次主 surface (同步子 surface 的状态随父 surface 生效).
+  - **标题**: `document.title` (HTML 入口) 或 `acde.window.setTitle`, 没有时用清单的 `label`, 都经 surface 的 `setTitle` (调试模式里同一个
+    方法设宿主窗口的标题).
+  - **按钮** (左边关闭、最小化、全屏): 在 crates/window 里命中, 按下和松开在同一个按钮上时 surface 发 `framebutton {key}`: `close` /
+    `minimize` / `fullscreen` / `restore` (第三个按钮看 configure 的 fullscreen 状态: 全屏时是回到 `free`); acde-host 照旧调 `acde.window`
+    的 `close()` (先问 `beforeclose`)、`minimize()` (由桌面决定藏不藏)、`requestMode`. 窗框上的指针事件不进页面 (指针移进窗框时页面收到
+    `pointerleave`), 拖放只落在页面上.
+  - **拖动和改大小**不经 JS: crates/window 自己给 grab hint: 标题栏 (按钮区以外) 移动, 四边 4 px、四角 10 px 改尺寸 (整个窗口).
+    页面的 `setGrabHint` / `setBackdrop` 的 rect 是页面坐标 (内容区原点), crates/window 加上窗框高度再交给合成器; grab hint 由它合成一张
+    表发 (先清, 页面的, 再窗框的: 重叠处窗框优先), 页面清自己的不会清掉窗框的, 窗口尺寸变了窗框的那几块重给.
+  - **acde:inspect** 看不到窗框 (不在文档里; 关窗口、最小化是窗口 ref 的动作); web 侧 (`pageinspect.ts`) 把页面坐标加上内容区在
+    窗口里的偏移 (surface 的 `contentOffset`) 再交给 Broker, Broker 照旧加窗口的位置.
+  - **窗框高度**只有一处: acde-host `src/frame.ts` 的 `Frame.HEIGHT` (32): web 认领 surface 时交给它 (`claimSurface(token, {frame})`),
+    Broker 给新窗口定尺寸时加上它. 画法 (颜色、按钮、字) 在 render 的 `Decoration`.
+  - 清单 `frame: false` 的应用没有这个子 surface, 页面就是整个窗口, 自己画标题栏 (自己调 `setGrabHint`). 桌面和面板没有窗框.
+    全屏时窗框照旧在 (第三个按钮回到 `free`).
+  - **调试模式**用宿主的装饰 (`frame: false` 也一样), `frame` 参数不理, `contentOffset` 是 `[0, 0]`; 页面的视口同样只是内容区, 所以同一个
+    页面在两种跑法里布局一样, 清单的 `size` 在两边都是页面的尺寸.
+  - 验过 (2026-11-06, macOS M3 Pro): render `tests/decoration.rs` (背景、按钮颜色和位置、底线、标题居中和截断, 1x / 2x, 按钮命中) 和光栅化出来
+    的截图; crates/window 的单元测试 (内容区尺寸、grab hint 的合成和平移、backdrop 的平移) 和 clippy 在 Docker 的 Alpine (aarch64) 里跑过,
+    `cargo clippy -p acdert` 也在那里编过; 调试窗口 (`acdert app`) 里 `frame` 为 true / false 的应用: `<html>` 没有 style、只有 head 和
+    body, `innerHeight` = `100vh` = `html.clientHeight` = 清单的高, 贴底的 footer 在视口底边. 未验证 (要 Linux 会话, 这台 Mac 起不了):
+    子 surface 真的画在页面上面、按钮点了关 / 最小化 / 全屏、标题栏拖动和四边改尺寸、指针在窗框和页面之间进出、`acde:inspect` 的
+    `act` 点到元素、HiDPI / 分数缩放下窗框的清晰度. 在有 GPU 的 Linux 上验: `ACDE_BACKEND=rdp ACDE_DEBUG_DIR=<目录>` 起会话 (或真机 DRM),
+    `drive.sh launch <应用>` 后 `drive.sh screenshot` 看窗框, `drive.sh eval <应用>#<窗口> 'innerHeight'` 应等于清单的高, `drive.sh click`
+    点窗框上的三个圆点 (窗口 rect 的左上角加 (18 / 38 / 58, 16)), `drive.sh drag` 拖标题栏和右下角, 再 `frame: false` 的应用看没有窗框.
 - **钉住的面板** (桌面的 Dock、菜单栏、下拉菜单、弹出层): desktop web 的页面调 `acde.desktop.pin(element, {margin?})`
   (返回 `{update(), unpin()}`), 这个元素和它的子树就成了一个单独的 `pinned` 窗口, 在所有 `free` / `fixed` 窗口上面; 状态、
   事件、React 树都还在同一个文档里, 页面不用改结构. 链路: acde-host `src/pinned.ts` 量元素的 `getBoundingClientRect` (加
@@ -946,8 +972,8 @@ FIFO 上). 原来的 `preview` (文字最多 256 KiB, 多了 `truncated`) 和 `w
 - **应用清单**: 包的 `package.json` 里 `acde.apps` (类型 acde-api `manifest.d.ts`, 解析 acde-host `apps.ts`): `id`、`label`、`icon`、
   `entry` (默认导出 `WindowApp` 的模块, 或 HTML, 见「网页应用」)、`capabilities` (fs [可限 roots]、terminal、office、launch、
   slots、open、openFiles、session、desktops (`acde:session` / `acde:desktops`, 本来只给桌面; 系统设置这类应用要), 其余的键是服务名,
-  如 `assistant`)、`mimeTypes` (「默认应用」)、`heapMb` (默认 256, 最小 32)、`size` (窗口的默认尺寸 `[宽, 高]`, 逻辑像素, 默认 800x600)、
-  `multiple`、`frame` (默认 true: acde-host 画标题栏, 见「窗框」)、`backend`. acdert 自己不带应用 (只有登录页一个桌面); 应用都来自桌面包 (acde-dopame) 或第三方包.
+  如 `assistant`)、`mimeTypes` (「默认应用」)、`heapMb` (默认 256, 最小 32)、`size` (页面 (内容区) 的默认尺寸 `[宽, 高]`, 逻辑像素, 默认 800x600; 窗框另算)、
+  `multiple`、`frame` (默认 true: 会话里有窗框, 见「窗框」)、`backend`. acdert 自己不带应用 (只有登录页一个桌面); 应用都来自桌面包 (acde-dopame) 或第三方包.
   `icon` 二选一: (1) 图标名, SDK 导出的 `ICON_NAMES` (`@dopame/acde-api/manifest`, 类型 `IconName`) 之一, 就是 Dopame 的 art 引擎
   (acde-dopame `uikit/src/engines/art.ts` 的 `APPS`, 按它的顺序) 认识的名字: files、browser、editor、office、term、projects、dash、
   team、dopa、settings、store、app (通用的那个)、timer、cards、list、chart、calc、music、video、photo、paint、game、chat、mail、
@@ -1114,6 +1140,11 @@ Vite 插件, 清单校验, 见「web/packages/acde-api」), acde 依赖它. 原�
   `Dom::set_dark(on)` (JS `setDark`) 事后改配色, 变了才重新算样式, 和 `set_reduced_motion` 一样要 commit. 会话的配色怎么来见
   「web/packages/acde-host」的配色.
 - `<iframe>` 不渲染内容, 见下面「iframe 策略」. Blitz 文档开 `skip_iframe_content`: 不取 src / srcdoc、不建子文档.
+- 窗框的画面 (`decoration.rs`, 不是文档): `Decoration::new()` (自己的 parley 字体上下文, 系统字体) 和 `scene(&Bar {title, width, height,
+  scale})` → 物理像素的 acgpu 场景 (`Bar::pixels()` 是它的尺寸): 背景 #f4f2f7、底边 1 px rgba(0,0,0,.08)、关闭 / 最小化 / 全屏三个
+  12 px 圆点 (#ff5f57 / #febc2e / #28c840, 左边距 12、间隔 8, 0.5 px 的 rgba(0,0,0,.18) 内圈)、标题 (600 13px system-ui, 行高 1, 整条居中,
+  只占左右各 `Decoration::BUTTONS` (76) 之间, 放不下时按字符截断加 "…", 一个字也放不下就不画). `Bar::button_at(x, y)` (逻辑像素) 是
+  按钮的命中: 圆点中心左右各 10 px、整条的高度. crates/window 用它 (见「desktop web / window web」的窗框); 测试 `tests/decoration.rs`.
 
 ### shell (`crates/shell`, napi 类 `Shell`)
 
@@ -1137,10 +1168,11 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
   进程随后 `exit`, Mesa 的 atexit 清理和合成器线程同时释放会把堆弄坏); `socketName` (子进程的
   `WAYLAND_DISPLAY`); `launch(argv, {cwd, env})` (去掉 `DISPLAY`, 返回 pid); `stats(reset?)`;
   `screenshot(path)` (主输出离屏画一遍存 PNG); `inject(...)` (见下). 令牌是 Shell 里的一张表 (不是指针).
-- web 侧: natives 的 `claimSurface(token)` (crates/acdert `webnative.rs` → crates/window `Surface::claim`: 连上合成器, 开 toplevel,
-  `acde_window.bind(token)`, 等到窗口 id; 一条 `acde-window` 线程负责 Wayland 和光栅化) 给出这个 web 的 surface:
-  `pump`、`wait()` (队列非空时落定, 不占线程, 空闲时不醒)、`requestFrame`、`setClipboard`、`readClipboard(): Promise<string>`、
-  `startDrag(data, icon?)`、`window`. 文档的提交走 `Dom::commit`, 不走 surface.
+- web 侧: natives 的 `claimSurface(token, {frame?})` (crates/acdert `webnative.rs` → crates/window `Surface::claim`: 连上合成器, 开 toplevel,
+  `acde_window.bind(token)`, 等到窗口 id; 一条 `acde-window` 线程负责 Wayland 和光栅化; `frame` 是窗框高 (逻辑像素, 没给或 0 是没有窗框),
+  见「窗框」) 给出这个 web 的 surface: `pump`、`wait()` (队列非空时落定, 不占线程, 空闲时不醒)、`requestFrame`、`setClipboard`、
+  `readClipboard(): Promise<string>`、`startDrag(data, icon?)`、`setTitle(title)` (窗框的标题; 宿主窗口的标题)、`window`、`contentOffset`
+  (页面原点在窗口里的位置 `[x, y]`, 逻辑像素: 有窗框时 `[0, 高]`, 宿主窗口 `[0, 0]`). 文档的提交走 `Dom::commit`, 不走 surface.
 - 事件 (坐标是逻辑像素, button / code 是 evdev 码):
 
 | 事件 | 给谁 | 说明 |
@@ -1148,8 +1180,9 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
 | `pointermove` / `pointerdown` / `pointerup` / `wheel` `{x, y, button, deltaX, deltaY}` | web surface | web 进程从 wl_pointer 转来 (crates/window) |
 | `keydown` / `keyup` `{code, key}` | web surface | web 进程从 wl_keyboard 转来 (xkb 的修饰后字符) |
 | `activate` / `deactivate` | web surface | xdg_toplevel 的 activated 状态变了 |
+| `framebutton {key}` | web surface | 窗框的按钮点了 (按下和松开在同一个上): `close` / `minimize` / `fullscreen` / `restore`, 见「窗框」 |
 | `frame {time}` | web surface | 见上面「帧」 |
-| `resize {width, height, scale, software}` | web surface | configure 给的尺寸 (物理像素) 和 fractional-scale; software: 它的光栅化在 CPU 上 |
+| `resize {width, height, scale, software}` | web surface | 页面的尺寸 (物理像素: configure 给的窗口尺寸减去窗框) 和 fractional-scale; software: 它的光栅化在 CPU 上 |
 | `dndenter {x, y, mime}` / `dndmove` / `dndleave` / `dnddrop {x, y, data}` | 指针下的 web surface | 原生程序 (或别的 web) 拖进来; data 是 类型 → 文本, 松手时 shell 已经读好 (smithay 等不到 JS) |
 | `dragend {button}` | 发起拖动的 web | 1: 放到了原生窗口或别的 web 上 (不要再处理这次放下), 0: 没有 |
 | `output {width, height, scale}` | Broker | 主输出 |
@@ -1256,7 +1289,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/runtime` | Rust | 系统接口的 napi 导出. 异步执行器 `src/rt.rs`: 线程 `acde-rt` 上一个 ntex System (运行时 ntex 自己选: io_uring, 不行用 polling), 也是 napi 的 `async-runtime` 后端, 阻塞活进它的线程池; HTTP / WebSocket 用 ntex, TLS 用 OpenSSL, 不用 tokio; 唯一起的子进程是终端的 shell (`std::process`, 一条 `terminal-<pid>` 线程用 pidfd 等它). 检查在 `tests/`, 用编好的 acde 跑 (`acdert run`, 不要 Node): `tests/run.sh <acde> tests/<x>-check.mjs` (fs-copyin、terminal), 输入法 `tests/ime-check.sh` (在私有 D-Bus 和 fcitx5 上跑 `src/ime.rs` 里 ignored 的 Rust 测试; `Ime` 不是 napi 导出, 只由 crates/acdert `webnative.rs` 绑给 web), `tests/portal-check.sh <acde>`; 临时目录在 `$ACDE_CHECK_TMP` (默认 `$TMPDIR`) |
 | `crates/acdert` | Rust | `acdert` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, web 线程 (`spawnWeb`), 把 render 的文档绑给 JS (见「宿主: crates/acdert」) |
 | `crates/paint` | Rust | `acde-paint`: web 进程的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acgpu 打开的 wgpu 设备 |
-| `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
+| `crates/window` | Rust | `acde-window`: web 进程的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window`、窗框的子 surface (`decoration.rs`) |
 | `crates/hostwin` | Rust | `acde-hostwin`: 调试模式的宿主原生窗口 (winit + wgpu surface + vello), Broker 的 `Shell` 和 web 的 `Surface` 的宿主版, 见「运行时进程」 |
 | `crates/ipc` | Rust | `acde-ipc`: 进程间的一条双向字节流 (unix socket / Windows 命名管道), `acde dev` 用 |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
@@ -1711,7 +1744,7 @@ acdert 的宿主代码, esbuild 打成 crates/acdert 跑的两个 ES 模块 (运
 | `src/keys.ts`, `src/text.ts`, `src/ime.ts`, `src/panel.ts` | 键码和修饰键、往输入框和 contenteditable 里输入 (acde-dom 的 `editing`)、剪贴板; 输入法 (每个键先给它, 只发变了的状态), 预编辑和候选框由页面画 |
 | `src/inspect.ts`, `src/pageinspect.ts` | 「看和操作桌面」: Broker 侧 (窗口、ref、文字、变化、act), web 侧 (语义树、点哪里、输入) |
 | `src/dnd.ts`, `src/session.ts` | 拖放 (进出原生程序); `acde.session` (注销, 关机 / 重启只在自己的会话里) |
-| `src/frame.ts`, `src/pinned.ts` | 「窗框」; 「钉住的面板」 |
+| `src/frame.ts`, `src/pinned.ts` | 窗框高度 `Frame.HEIGHT` (「窗框」); 「钉住的面板」 |
 | `src/crashes.ts`, `src/log.ts` | 一段时间里崩了几次 (服务、web、后端的重启上限); `Log` (见「日志和计时」) |
 | `src/webapp.ts`, `src/pagecalls.ts`, `src/downloads.ts`, `src/backend.ts` | 「网页应用」: HTML 入口、页面的浏览器调用、下载、应用后端 |
 | `src/storage.ts`, `src/places.ts`, `src/office.ts`, `src/autostart.ts`, `src/desktopentry.ts`, `src/debug.ts`, `src/timeline.ts`, `src/page.ts`, `src/native.ts`, `src/sys/` | localStorage 文件; 应用窗口的位置 (「窗口管理」); Document Server 的编辑页; XDG autostart; 读 .desktop 文件 (autostart、外部会话、原生程序共用); `ACDE_DEBUG_DIR`; 启动标记; window web 的文档; crates/acdert 给的原生接口 (`sys/` 用 node 风格的名字包了一层, XDG 目录在 `sys/os.ts`) |

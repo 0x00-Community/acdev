@@ -32,6 +32,7 @@ export class PageInspect {
     readonly page: WebInternals,
     readonly dom: DomNative,
     readonly host: Host,
+    readonly offset: readonly [number, number],
   ) {}
 
   serve(method: string, args: unknown[]): unknown {
@@ -55,7 +56,13 @@ export class PageInspect {
     if (!this.dom.semantics) throw new Error('this acde has no semantics')
     const parsed = JSON.parse(this.dom.semantics(root < 0 ? -1 : root, limit)) as Omit<PageTree, 'width' | 'height'>
     const window = this.page.window as unknown as Window
-    return { ...parsed, width: window.innerWidth, height: window.innerHeight }
+    const [dx, dy] = this.offset
+    const moved = (node: PageNode): PageNode => ({
+      ...node,
+      rect: [node.rect[0] + dx, node.rect[1] + dy, node.rect[2], node.rect[3]],
+      ...(node.children ? { children: node.children.map(moved) } : {}),
+    })
+    return { ...parsed, nodes: dx || dy ? parsed.nodes.map(moved) : parsed.nodes, width: window.innerWidth, height: window.innerHeight }
   }
 
   point(id: number): PagePoint {
@@ -87,11 +94,15 @@ export class PageInspect {
     for (const [x, y] of points) {
       const hit = this.dom.hitTest(x, y)
       if (hit < 0) continue
-      if (this.#within(hit, element)) return { x: Math.round(x), y: Math.round(y) }
+      if (this.#within(hit, element)) return this.#windowPoint(x, y)
       covered = hit
     }
-    if (covered < 0) return { x: Math.round(points[0]![0]), y: Math.round(points[0]![1]) }
+    if (covered < 0) return this.#windowPoint(points[0]![0], points[0]![1])
     return { error: `被别的元素挡住了: ${this.#describe(covered)}` }
+  }
+
+  #windowPoint(x: number, y: number): PagePoint {
+    return { x: Math.round(x + this.offset[0]), y: Math.round(y + this.offset[1]) }
   }
 
   type(id: number, text: string, replace: boolean): { value: string | null } {

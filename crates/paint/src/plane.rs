@@ -43,6 +43,7 @@ pub type Part = acde_render::acgpu::fallback::Part<Content>;
 pub enum Content {
     Plane(Box<acde_render::Plane>),
     Layer(Box<acde_render::Layer>),
+    Scene(Scene),
 }
 
 impl acde_render::acgpu::fallback::Content for Content {
@@ -52,6 +53,7 @@ impl acde_render::acgpu::fallback::Content for Content {
         match self {
             Self::Plane(plane) => plane.scene_for(rect),
             Self::Layer(layer) => layer.scene_for(rect),
+            Self::Scene(scene) => scene.clone(),
         }
     }
 }
@@ -88,6 +90,14 @@ impl Content {
 pub struct Sheet {
     pub parts: Vec<Part>,
     pub damage: Vec<Rect>,
+}
+
+impl Sheet {
+    pub fn whole(scene: Scene, (w, h): (u32, u32)) -> Self {
+        let all = Rect::from_size((w as i32, h as i32).into());
+        let part = Part { content: Content::Scene(scene), backdrop: None, shadows: Vec::new(), effect: Effect::default(), bounds: Some(all.px()) };
+        Self { parts: vec![part], damage: vec![all] }
+    }
 }
 
 impl From<acde_render::Plane> for Sheet {

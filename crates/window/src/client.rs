@@ -26,6 +26,7 @@ use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::xdg::XdgShell;
 use smithay_client_toolkit::shell::xdg::window::{Window, WindowDecorations};
 use smithay_client_toolkit::shm::Shm;
+use smithay_client_toolkit::subcompositor::SubcompositorState;
 use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_buffer, wl_data_device_manager::DndAction, wl_keyboard, wl_pointer, wl_surface};
 use wayland_client::{Connection, Proxy, QueueHandle};
@@ -33,6 +34,7 @@ use wayland_protocols::wp::fractional_scale::v1::client::{wp_fractional_scale_ma
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1;
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
 
+use crate::decoration::{self, DecorationView};
 use crate::panel::PanelView;
 use crate::protocol::{acde_window, acde_window_manager};
 
@@ -62,18 +64,20 @@ enum Command {
     OpenPanel { id: u32, token: u64, rect: [i32; 4] },
     PlacePanel { id: u32, rect: [i32; 4], input: [i32; 4] },
     ClosePanel(u32),
+    Title(String),
     Quit,
 }
 
 pub struct Surface {
     window: u32,
+    frame: u32,
     events: Arc<Inbox>,
     commands: channel::Sender<Command>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Surface {
-    pub fn claim(token: u64, render: acde_render::RenderHandle) -> Result<Self, String> {
+    pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32) -> Result<Self, String> {
         let events = Arc::new(Inbox::default());
         let (commands, rx) = channel::channel();
         let (ready, ready_rx) = mpsc::sync_channel(1);
@@ -81,7 +85,7 @@ impl Surface {
         let thread = std::thread::Builder::new()
             .name("acde-window".into())
             .spawn(move || {
-                if let Err(e) = App::run(token, render, inbox.clone(), rx, ready.clone()) {
+                if let Err(e) = App::run(token, render, frame, inbox.clone(), rx, ready.clone()) {
                     log::error!("窗口: {e}");
                     let _ = ready.send(Err(e));
                 }
@@ -89,11 +93,19 @@ impl Surface {
             })
             .map_err(|e| format!("窗口线程: {e}"))?;
         let window = ready_rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "窗口: 合成器没有确认这个窗口".to_string())??;
-        Ok(Self { window, events, commands, thread: Some(thread) })
+        Ok(Self { window, frame, events, commands, thread: Some(thread) })
     }
 
     pub fn window(&self) -> u32 {
         self.window
+    }
+
+    pub fn content_offset(&self) -> (f64, f64) {
+        (0.0, f64::from(self.frame))
+    }
+
+    pub fn set_title(&self, title: String) {
+        let _ = self.commands.send(Command::Title(title));
     }
 
     pub fn pump(&self) -> Vec<Event> {
@@ -169,6 +181,8 @@ impl Drop for Surface {
 
 pub(crate) struct Data;
 
+type PageSheets = (Vec<(usize, Sheet, (u32, u32))>, Option<acde_log::Trace>, Vec<(u32, Option<crate::panel::Backdrop>)>);
+
 #[derive(Default)]
 pub(crate) struct Buffers {
     list: Vec<wl_buffer::WlBuffer>,
@@ -231,6 +245,8 @@ pub(crate) struct App {
     pub(crate) manager: acde_window_manager::AcdeWindowManager,
     pub(crate) viewporter: wp_viewporter::WpViewporter,
     pub(crate) panels: Vec<PanelView>,
+    pub(crate) decoration: Option<DecorationView>,
+    pub(crate) page_hints: Vec<([i32; 4], u32)>,
     pub(crate) told_active: bool,
     pub(crate) viewport: wp_viewport::WpViewport,
     pub(crate) _fractional: Option<wp_fractional_scale_v1::WpFractionalScaleV1>,
@@ -276,7 +292,7 @@ pub(crate) struct App {
 }
 
 impl App {
-    fn run(token: u64, render: acde_render::RenderHandle, events: Arc<Inbox>, commands: Channel<Command>, ready: mpsc::SyncSender<Result<u32, String>>) -> Result<(), String> {
+    fn run(token: u64, render: acde_render::RenderHandle, frame: u32, events: Arc<Inbox>, commands: Channel<Command>, ready: mpsc::SyncSender<Result<u32, String>>) -> Result<(), String> {
         let conn = Connection::connect_to_env().map_err(|e| format!("连接合成器: {e}"))?;
         let (globals, queue) = registry_queue_init::<App>(&conn).map_err(|e| format!("registry: {e}"))?;
         let qh = queue.handle();
@@ -296,6 +312,13 @@ impl App {
         acde.bind((token >> 32) as u32, token as u32);
         let viewport = viewporter.get_viewport(window.wl_surface(), &qh, Data);
         let fractional = fractional.map(|f| f.get_fractional_scale(window.wl_surface(), &qh, Data));
+        let decoration = match frame {
+            0 => None,
+            height => {
+                let subcompositor = SubcompositorState::bind(compositor.wl_compositor().clone(), &globals, &qh).map_err(|e| format!("wl_subcompositor: {e}"))?;
+                Some(DecorationView::new(window.wl_surface(), &subcompositor, &viewporter, height, &qh))
+            }
+        };
         window.commit();
 
         let (render_ping, render_source) = make_ping().map_err(|e| e.to_string())?;
@@ -326,6 +349,8 @@ impl App {
             manager,
             viewporter,
             panels: Vec::new(),
+            decoration,
+            page_hints: Vec::new(),
             told_active: false,
             viewport,
             _fractional: fractional,
@@ -418,7 +443,7 @@ impl App {
     }
 
     fn physical(&self) -> (u32, u32) {
-        let (w, h) = self.logical;
+        let (w, h) = self.content();
         ((f64::from(w) * self.scale).round() as u32, (f64::from(h) * self.scale).round() as u32)
     }
 
@@ -440,8 +465,29 @@ impl App {
     }
 
     pub(crate) fn paint(&mut self) {
-        if !self.dirty || !self.configured || !self.painter.ready() {
+        if !self.configured || !self.painter.ready() {
             return;
+        }
+        let page = self.page_sheets();
+        let decoration = self.decoration_sheet();
+        let Some((mut sheets, trace, backdrops)) = page.or_else(|| decoration.is_some().then(|| (Vec::new(), None, Vec::new()))) else { return };
+        sheets.extend(decoration);
+        match self.painter.draw(sheets, trace) {
+            Ok(Some(drawn)) => self.queue_backdrops(drawn, backdrops),
+            Ok(None) => {}
+            Err(e) => {
+                self.redraw_decoration();
+                log::warn!("网页窗口: {e}");
+            }
+        }
+        if self.animating {
+            self.ask_frame();
+        }
+    }
+
+    fn page_sheets(&mut self) -> Option<PageSheets> {
+        if !self.dirty {
+            return None;
         }
         let frame = match (self.render.frame(), self.unshown.take()) {
             (Some(mut frame), Some(old)) => {
@@ -449,7 +495,7 @@ impl App {
                 frame
             }
             (Some(frame), None) | (None, Some(frame)) => frame,
-            (None, None) => return,
+            (None, None) => return None,
         };
         self.dirty = false;
         if frame.panels.iter().any(|p| self.panels.iter().any(|v| v.id == p.id && !v.configured)) {
@@ -457,34 +503,26 @@ impl App {
             let since = *self.unshown_since.get_or_insert_with(std::time::Instant::now);
             if since.elapsed() < PANEL_WAIT {
                 self.unshown = Some(frame);
-                if !first {
-                    return;
+                if first {
+                    let _ = self.handle.insert_source(smithay::reexports::calloop::timer::Timer::from_duration(PANEL_WAIT), |_, _, app| {
+                        app.dirty = true;
+                        app.paint();
+                        smithay::reexports::calloop::timer::TimeoutAction::Drop
+                    });
                 }
-                let _ = self.handle.insert_source(smithay::reexports::calloop::timer::Timer::from_duration(PANEL_WAIT), |_, _, app| {
-                    app.dirty = true;
-                    app.paint();
-                    smithay::reexports::calloop::timer::TimeoutAction::Drop
-                });
-                return;
+                return None;
             }
         }
         self.unshown_since = None;
         if frame.commit == 0 {
-            return;
+            return None;
         }
         self.animating = frame.animating;
         self.escapes(&frame.panels);
         let backdrops = Self::backdrops(&frame.panels);
         let mut sheets = vec![(0, Sheet::from(frame.plane), frame.size)];
         sheets.extend(frame.panels.into_iter().filter(|p| self.panels.iter().any(|v| v.id == p.id && v.configured)).map(|p| (PanelView::plane(p.id), Sheet::from(p.plane), p.size)));
-        match self.painter.draw(sheets, frame.trace) {
-            Ok(Some(drawn)) => self.queue_backdrops(drawn, backdrops),
-            Ok(None) => {}
-            Err(e) => log::warn!("网页窗口: {e}"),
-        }
-        if self.animating {
-            self.ask_frame();
-        }
+        Some((sheets, frame.trace, backdrops))
     }
 
     fn interval(&self) -> Option<Duration> {
@@ -566,21 +604,25 @@ impl App {
 
     pub(crate) fn redraw(&mut self) {
         self.render.invalidate();
+        self.redraw_decoration();
         self.dirty = true;
         self.paint();
     }
 
     fn present(&mut self, finished: acde_paint::Finished) {
         let acde_paint::Finished { drawn, took, trace, .. } = finished;
-        let mut main = None;
+        let (mut main, mut framed) = (None, false);
         for d in drawn {
             match d.plane {
                 0 => main = Some(d),
+                decoration::PLANE => framed = self.present_decoration(d),
                 _ => self.present_panel(d),
             }
         }
-        if let Some(d) = main {
-            self.present_main(d, took, trace);
+        match main {
+            Some(d) => self.present_main(d, took, trace),
+            None if framed => self.surface().commit(),
+            None => {}
         }
         self.pace();
         self.paint();
@@ -607,6 +649,7 @@ impl App {
     fn buffers_mut(&mut self, plane: usize) -> Option<&mut Buffers> {
         match plane {
             0 => Some(&mut self.buffers),
+            decoration::PLANE => self.decoration.as_mut().map(|d| &mut d.buffers),
             _ => self.panels.iter_mut().find(|p| PanelView::plane(p.id) == plane).map(|p| &mut p.buffers),
         }
     }
@@ -669,8 +712,11 @@ impl App {
                 Ok(mode) => self.acde.request_mode(mode),
                 Err(()) => log::warn!("窗口模式 {mode} 不存在"),
             },
-            Command::GrabHint([x, y, w, h], edges) => self.acde.set_grab_hint(x, y, w, h, acde_window::Edges::from_bits_truncate(edges)),
-            Command::Backdrop([x, y, w, h], [radius, blur, saturate, brightness]) => self.acde.set_backdrop(x, y, w, h, radius, blur, saturate, brightness),
+            Command::GrabHint(rect, edges) => self.set_page_hint(rect, edges),
+            Command::Backdrop(rect, [radius, blur, saturate, brightness]) => {
+                let [x, y, w, h] = self.page_backdrop(rect);
+                self.acde.set_backdrop(x, y, w, h, radius, blur, saturate, brightness);
+            }
             Command::Activate => self.acde.request_activate(),
             Command::Grab(kind, on) => match (acde_window::GrabKind::try_from(kind), on) {
                 (Ok(kind), true) => self.acde.request_grab(kind),
@@ -680,6 +726,7 @@ impl App {
             Command::OpenPanel { id, token, rect } => self.open_panel(id, token, rect),
             Command::PlacePanel { id, rect, input } => self.place_panel(id, rect, input),
             Command::ClosePanel(id) => self.close_panel(id),
+            Command::Title(title) => self.set_title(title),
             Command::Quit => self.signal.stop(),
         }
     }

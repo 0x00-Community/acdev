@@ -1,4 +1,5 @@
 mod client;
+mod decoration;
 mod handlers;
 mod panel;
 mod protocol;

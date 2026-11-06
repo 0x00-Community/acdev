@@ -56,7 +56,8 @@ export interface RawShellEvent {
 export interface NativeSurface {
   readonly window: number
   readonly hosted?: boolean
-  setTitle?(title: string): void
+  readonly contentOffset: readonly [number, number]
+  setTitle(title: string): void
   setImeArea?(x: number, y: number, width: number, height: number): void
   pump(): RawShellEvent[]
   wait(): Promise<void>
