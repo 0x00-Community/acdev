@@ -5,6 +5,9 @@
   "private": true,
   "type": "module",
   "acde": {
-    "capabilities": { "fs": true }
+    "icon": "src/logo.svg",
+    "capabilities": {
+      "fs": true
+    }
   }
 }

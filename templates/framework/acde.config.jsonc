@@ -4,6 +4,7 @@
   "type": "app",
   "id": "{{id}}",
   "label": "{{label}}",
-  "icon": "apps",
+  // icon: 图标名 (app、timer、chart … 见 @dopame/acde-api) 或工程里的一张 .svg / .png (如 "icon.svg"), 构建时复制进包.
+  "icon": "app",
   "capabilities": {}
 }

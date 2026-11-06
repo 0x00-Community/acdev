@@ -147,6 +147,16 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   desktop 是 `desktop/` (`/desktop/<id>/`, 清单的 `entry` 是 `desktop/<页面>`)、`services/`、`apps/<id>/{web,backend}`.
   没有这份配置时, package.json 的 `acde` 简写 (`id`、`label`、`web`、`server`、`backend` …, 没有 `apps`) 当作 app 读; 两样都没有
   也行: id 取 package.json 的 `name`, label 取 `displayName` / `productName`.
+- **图标** (app 和桌面里每个应用的 `icon`, 清单的规则见 acdert AGENTS.md 和 SDK 的 `Manifest.check`): 一个图标名 (SDK
+  `@dopame/acde-api/manifest` 的 `ICON_NAMES`: `app`、`timer`、`chart` …; 不认识的名字由 `Manifest.check` 警告, acde 不另查), 或工程里的一张
+  图 (相对工程目录的路径; 含 `/`、`\` 或以 `.<扩展名>` 结尾的就当路径). 是路径时 `acde check` 和 `acde build` 都查: 文件要在, 扩展名是
+  `.svg` / `.png`, 内容也得是 (PNG 的文件头; SVG 是有 `<svg` 的文本), 不对就报 `icon "x" in acde.config.jsonc: <哪儿不对>`.
+  `acde build` 把它复制进这个应用的 `web/` (桌面里的应用是 `apps/<id>/web/`, 框架构建的也一样) 叫 `icon.svg` / `icon.png` (那里已有同名的
+  别的文件时用 `icon-<内容 hash 前 8 位>.<扩展名>`), 清单的 `icon` 写成同源的 URL `/app/<id>/icon.svg` (Dopame 桌面能读所有包的资源,
+  用 `<img>` 画). 没给是 `app`; 名字原样写进清单. 模板的 `acde.config.jsonc` 默认 `"icon": "app"`.
+  验过 (macOS, 2026-11-06, `bun test`): fixture `test/fixtures/app` 的 `"icon": "src/logo.svg"` 进了 `web/icon.svg`, 清单是
+  `/app/hello-app/icon.svg`; 桌面工程里应用的 `art/cards.png` 进了 `apps/cards/web/icon.png`; 名字 `timer` 原样; 文件不在、`.txt`、
+  假的 PNG、假的 SVG 在 check 和 build 都报错.
 - **框架** (`src/frameworks.ts`, app 的 `framework`, 默认 `auto`): 按 package.json 的依赖认, 用框架自己的构建, 不改用户
   的配置文件; 没有 node_modules 时先用工程的包管理器装 (见「新建工程」); 构建工具一律 `bun --bun` 跑 (机器上可以没有 Node). 先认先得:
   | 依赖 | 怎么构建 | 产物 |

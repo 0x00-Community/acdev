@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { AcdeConfig, AppConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
 import acdeVite from '@dopame/acde-api/vite'
 import { Frameworks, type Output } from './frameworks.ts'
@@ -30,6 +31,7 @@ interface BuiltPackage {
 const BACKENDS = ['server.ts', 'server.js', 'src/server.ts', 'src/server.js', 'server/index.ts', 'server/index.js', 'backend/index.ts', 'backend/index.js']
 const DEFAULT_PORT = 3000
 const BUN_OPTIONS = { target: 'bun', format: 'esm', splitting: false, minify: { syntax: true, whitespace: false, identifiers: false }, throw: false } as const
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 interface Legacy {
   readonly id?: string
@@ -102,6 +104,10 @@ export class Project {
     const need = (path: string | undefined, what: string) => {
       if (path !== undefined && !existsSync(resolve(this.dir, path))) errors.push(`no ${path} (${what} in ${this.from})`)
     }
+    const icon = (value: string | undefined, what: string) => {
+      const problem = value !== undefined && Project.isIconPath(value) ? this.#iconProblem(value) : null
+      if (problem) errors.push(`${what} ${JSON.stringify(value)} in ${this.from}: ${problem}`)
+    }
     try {
       this.id
     } catch (error) {
@@ -109,6 +115,7 @@ export class Project {
     }
     const config = this.config
     if (config.type === 'app') {
+      icon(config.icon, 'icon')
       try {
         if (this.framework) return errors
       } catch (error) {
@@ -120,7 +127,10 @@ export class Project {
     }
     need(config.entry ?? 'index.html', 'entry')
     for (const [name, module] of Object.entries(config.services ?? {})) need(module, `services.${name}`)
-    for (const app of config.apps ?? []) need(app.entry, `apps ${app.id}: entry`)
+    for (const app of config.apps ?? []) {
+      need(app.entry, `apps ${app.id}: entry`)
+      icon(app.icon, `apps ${app.id}: icon`)
+    }
     return errors
   }
 
@@ -158,7 +168,8 @@ export class Project {
       const scratch = mkdtempSync(join(tmpdir(), 'acde-'))
       try {
         const built = await framework.build({ dir: this.dir, pkg: this.pkg, scratch, vitePlugins: [acdeVite()] })
-        return Project.#manifestOf(config, id, await this.#place(built, config, out, base, assets))
+        const placed = await this.#place(built, config, out, base, assets)
+        return Project.#manifestOf(config, id, { ...placed, icon: this.#icon(config.icon, join(out, 'web'), base) })
       } finally {
         rmSync(scratch, { recursive: true, force: true })
       }
@@ -170,7 +181,7 @@ export class Project {
       assets[`${base}backend/`] = [`${dir}backend`]
     }
     assets[base] = [`${dir}web`]
-    return Project.#manifestOf(config, id, { entry: base + page, backend: server ? `${base}backend/server.js` : null })
+    return Project.#manifestOf(config, id, { entry: base + page, backend: server ? `${base}backend/server.js` : null, icon: this.#icon(config.icon, join(out, `${dir}web`), base) })
   }
 
   async #place(built: Output, config: WindowAppConfig, out: string, base: string, assets: Record<string, string[]>): Promise<{ entry: string; backend: string | null }> {
@@ -193,13 +204,13 @@ export class Project {
     return { entry: base + built.page!, backend: server ? `${base}backend/server.js` : null }
   }
 
-  static #manifestOf(config: WindowAppConfig, id: string, placed: { entry: string; backend: string | null }): BuiltApp {
+  static #manifestOf(config: WindowAppConfig, id: string, placed: { entry: string; backend: string | null; icon: string }): BuiltApp {
     const port = (config.backend ? config.backend.port : undefined) ?? DEFAULT_PORT
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`app ${id}: backend.port must be a port number, not ${String(port)}`)
     return {
       id,
       label: config.label ?? id,
-      icon: config.icon ?? 'app',
+      icon: placed.icon,
       entry: placed.entry,
       ...(config.capabilities && { capabilities: config.capabilities }),
       ...(config.heapMb !== undefined && { heapMb: config.heapMb }),
@@ -209,6 +220,35 @@ export class Project {
       ...(config.mimeTypes && { mimeTypes: config.mimeTypes }),
       ...(placed.backend && { backend: { entry: placed.backend, port } }),
     }
+  }
+
+  static isIconPath(icon: string): boolean {
+    return /[\\/]|\.[a-z0-9]+$/i.test(icon)
+  }
+
+  #iconProblem(icon: string): string | null {
+    const file = resolve(this.dir, icon)
+    if (!existsSync(file) || !statSync(file).isFile()) return 'no such file'
+    const ext = extname(file).toLowerCase()
+    if (ext !== '.svg' && ext !== '.png') return 'an icon image is .svg or .png'
+    const data = readFileSync(file)
+    if (ext === '.png' && !data.subarray(0, PNG.length).equals(PNG)) return 'not a PNG image'
+    if (ext === '.svg' && (data.includes(0) || !/<svg[\s>]/i.test(data.toString('utf8')))) return 'not an SVG image'
+    return null
+  }
+
+  #icon(icon: string | undefined, web: string, base: string): string {
+    if (icon === undefined) return 'app'
+    if (!Project.isIconPath(icon)) return icon
+    const problem = this.#iconProblem(icon)
+    if (problem) throw new Error(`icon ${JSON.stringify(icon)} in ${this.from}: ${problem}`)
+    const data = readFileSync(resolve(this.dir, icon))
+    const ext = extname(icon).toLowerCase()
+    const taken = (name: string) => existsSync(join(web, name)) && !readFileSync(join(web, name)).equals(data)
+    const name = taken(`icon${ext}`) ? `icon-${createHash('sha256').update(data).digest('hex').slice(0, 8)}${ext}` : `icon${ext}`
+    mkdirSync(web, { recursive: true })
+    writeFileSync(join(web, name), data)
+    return base + name
   }
 
   async #desktop(config: DesktopConfig, out: string, assets: Record<string, string[]>): Promise<DesktopManifest> {

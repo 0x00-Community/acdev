@@ -55,7 +55,7 @@ describe('acde build', () => {
           {
             id: 'hello-app',
             label: 'Hello',
-            icon: 'app',
+            icon: '/app/hello-app/icon.svg',
             entry: '/app/hello-app/index.html',
             capabilities: { fs: true },
             backend: { entry: '/app/hello-app/backend/server.js', port: 3000 },
@@ -96,6 +96,10 @@ describe('acde build', () => {
   test('CSS url(/...) into public/ stays that URL (the app directory is also at /)', () => {
     const css = readdirSync(join(out, 'web')).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, 'web', f), 'utf8')).join('\n')
     expect(css).toContain('url(/fonts/fixture.woff2)')
+  })
+
+  test('an icon path is copied into web/ and the manifest names its URL', () => {
+    expect(readFileSync(join(out, 'web/icon.svg'), 'utf8')).toBe(readFileSync(join(APP, 'src/logo.svg'), 'utf8'))
   })
 
   test('backend/server.js is one ES module for Bun, the preload beside it', () => {
@@ -169,7 +173,7 @@ describe('acde.config.jsonc', () => {
     expect((await cli(['check'], dir)).stdout).toContain('app (acde.config.jsonc)')
     expect((await cli(['install'], dir, { XDG_DATA_HOME: data })).code).toBe(0)
     const built = JSON.parse(readFileSync(join(data, 'acde/packages/hello/package.json'), 'utf8'))
-    expect(built.acde).toEqual({ apps: [{ id: 'hello', label: 'Hi', icon: 'apps', entry: '/app/hello/index.html', capabilities: {} }], assets: { '/app/hello/': ['web'] } })
+    expect(built.acde).toEqual({ apps: [{ id: 'hello', label: 'Hi', icon: 'app', entry: '/app/hello/index.html', capabilities: {} }], assets: { '/app/hello/': ['web'] } })
     expect(existsSync(join(data, 'acde/packages/hello/web/index.html'))).toBe(true)
   })
 
@@ -254,7 +258,9 @@ describe('acde.config.jsonc', () => {
   })
 })
 
-describe('public/', () => {
+describe('public/ and icons', () => {
+  const PNG_BYTES = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a1d1d1ff0000000049454e44ae426082', 'hex')
+
   function project(files: Record<string, string | Buffer>): string {
     const dir = tmp()
     for (const [name, data] of Object.entries(files)) {
@@ -284,11 +290,12 @@ describe('public/', () => {
 
   test('a desktop page and its apps: CSS url(/...) into public/ is bundled (no / mount there)', async () => {
     const dir = project({
-      'acde.config.jsonc': JSON.stringify({ type: 'desktop', id: 'deck', apps: [{ id: 'cards', label: 'Cards', entry: 'cards.html', backend: false }] }),
+      'acde.config.jsonc': JSON.stringify({ type: 'desktop', id: 'deck', apps: [{ id: 'cards', label: 'Cards', entry: 'cards.html', icon: 'art/cards.png', backend: false }] }),
       'index.html': '<!doctype html><link rel="stylesheet" href="./desk.css"><p>desk</p>',
       'desk.css': 'body { background: url(/wall.svg); }',
       'cards.html': '<!doctype html><link rel="stylesheet" href="./desk.css"><p>cards</p>',
       'public/wall.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>',
+      'art/cards.png': PNG_BYTES,
     })
     const out = join(dir, '.acde')
     const result = await cli(['build', '--out', out], dir)
@@ -298,6 +305,29 @@ describe('public/', () => {
     for (const [web, prefix] of [['desktop', '/desktop/deck/'], ['apps/cards/web', '/app/cards/']] as const) {
       expect(css(web)).not.toContain('url(/wall.svg)')
       expect(css(web)).toMatch(new RegExp(`url\\((?:data:image/svg|${prefix}wall-)`))
+    }
+    const built = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+    expect(built.acde.apps[0].icon).toBe('/app/cards/icon.png')
+    expect(readFileSync(join(out, 'apps/cards/web/icon.png')).equals(PNG_BYTES)).toBe(true)
+  })
+
+  test('an icon name stays a name; a missing or non-image icon file fails check and build', async () => {
+    const named = project({ 'package.json': JSON.stringify({ name: 'named', acde: { icon: 'timer' } }), 'index.html': '<!doctype html><p>x</p>' })
+    expect((await cli(['build', '--out', join(named, '.acde')], named)).code).toBe(0)
+    expect(JSON.parse(readFileSync(join(named, '.acde/package.json'), 'utf8')).acde.apps[0].icon).toBe('timer')
+    const cases: [string, Record<string, string | Buffer>, string][] = [
+      ['icons/none.svg', {}, 'no such file'],
+      ['icon.txt', { 'icon.txt': 'hi' }, 'an icon image is .svg or .png'],
+      ['fake.png', { 'fake.png': '<svg xmlns="http://www.w3.org/2000/svg"/>' }, 'not a PNG image'],
+      ['fake.svg', { 'fake.svg': PNG_BYTES }, 'not an SVG image'],
+    ]
+    for (const [icon, files, problem] of cases) {
+      const dir = project({ 'acde.config.jsonc': JSON.stringify({ type: 'app', id: 'iconic', icon }), 'index.html': '<!doctype html><p>x</p>', ...files })
+      const message = `icon ${JSON.stringify(icon)} in acde.config.jsonc: ${problem}`
+      expect((await cli(['check'], dir)).stderr).toContain(message)
+      const built = await cli(['build', '--out', join(dir, '.acde')], dir)
+      expect(built.code).toBe(1)
+      expect(built.stderr).toContain(message)
     }
   })
 })
