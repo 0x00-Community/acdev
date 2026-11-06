@@ -800,7 +800,7 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   无响应: Broker 读每个 web 循环当前任务跑了多久 (`busyMs`, 不靠心跳), 超过 5 秒报 `windowhang`, 回到循环报 `windowresponsive`;
   桌面可以强制关 (`kill`). desktop web 自己停了 Broker 重新起它 (一分钟最多 3 次), 窗口照常.
 - **调试**: `acdert app <id>` 只跑一个应用 (Broker 直接起它, `fullscreen`, 桌面只是底色); 每个 web 有名字 (`files#1048576`, 也是它
-  事件循环的名字, `perf::task` 日志带它), 报错带名字 (`acde: [files#1048576] page error: …` / `uncaught: …`); 运行中的会话用 `ACDE_DEBUG_DIR`
+  事件循环的名字, `perf::task` 日志带它), 报错带名字 (`[files#1048576] page error: …` / `[desktop] unhandled rejection: …`, 见「日志和计时」); 运行中的会话用 `ACDE_DEBUG_DIR`
   (「web/packages/acde-host」) 和 `packaging/qemu/drive.sh` 驱动和测量. 没有自动验收; 无显示器时用 `ACDE_BACKEND=rdp` 起整个会话.
 
 ## 网页应用 (SDK, 清单, 应用后端)
@@ -1113,6 +1113,15 @@ libudev、libinput、fontconfig、OpenSSL 3、pipewire (普通桌面都有; libs
 journald 卡住. 退出前和 panic 时 `acde_log::flush()` 把积压的写完. smithay 的 tracing 事件经 tracing 的 `log` feature 进同一个 logger.
 JS 里 `console.*` 是 target `js`, 页面错误和没接住的异常是 `js` 的 error; acde-host 用 `src/log.ts` (`Log.write`, `Log.enabled`
 缓存每个 target 开没开, `Log.clock()` 和 Rust 的 `acde_log::now_ms()` 同一个零点: 本进程启动, 所以同一个进程里的线程可比; web 和 Broker 同在 runtime 里, 时间可比).
+
+页面错误 (crates/acdert `host.rs` 的 `reportError`: 监听器、定时器、microtask 里抛的, 页面没 `preventDefault` 的 `error` /
+`unhandledrejection`) 和没有 reporter 时的兜底 (`rt.rs`: `uncaught` / `unhandled rejection`) 每行都以 isolate 的名字开头:
+`[files#1048576] page error: …`、`[desktop] …`、Broker 是 `[broker]` (所有 web 线程都叫 `acde`, 线程名分不出是谁). 内容: 有字符串
+`stack` 的值 (Error) 是它的 stack; 别的值 (`throw null`、`reject({code: 1})`、`throw 'x'`) 写成「类型 + 值」再注明不是 Error:
+`null (not an Error, so no stack)`、`string "x" …`、`Object {"code":1} …` (构造函数名 + JSON, 400 字截断; JSON 是 `{}` 时列出
+`name` / `message` / `type` / `code` / `reason` 里的原始值), 并补上位置: 同步抛出的是 V8 Message 的 `thrown at <url>:<行>:<列>`;
+被拒绝的 promise 在 V8 报「拒绝了、没有处理函数」的那一刻 (还在拒绝它的 JS 栈上) 记下最多 8 帧 `rejected at:`, 交给页面的
+reporter 时按值对上 (`rt::origin_of`). 监听器里抛的非 Error 值已经被 acde-dom 的 `catch` 接住, 没有位置.
 
 计时都是 debug 级、target `perf::<段>`, 平时关着 (一个原子读), `RUST_LOG=perf=debug` 打开全部 (或 `perf::rpc=debug` 只开一段).
 每行带 `ms=` 和别的 `键=值`; `packaging/qemu/perf-log.sh [日志文件]` (或从 stdin, 例如 `journalctl -b -t acdert -o cat`) 按种类汇总:

@@ -73,9 +73,11 @@ fn ref_timer(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v
 }
 
 fn report_error(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
-    let text = rt::describe(scope, args.get(0));
-    let lines: Vec<&str> = text.lines().take(8).collect();
-    log::error!(target: "js", "page error: {}", lines.join("\n  "));
+    let value = args.get(0);
+    let origin = rt::origin_of(scope, value);
+    let text = rt::describe_at(scope, value, origin.as_deref());
+    let lines: Vec<&str> = text.lines().take(10).collect();
+    log::error!(target: "js", "[{}] page error: {}", rt::web_name(), lines.join("\n  "));
 }
 
 fn print(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

@@ -48,7 +48,7 @@ impl Timers {
 
 type Hook = Rc<dyn Fn(&mut v8::PinScope)>;
 
-type Rejection = (v8::Global<v8::Promise>, v8::Global<v8::Value>);
+type Rejection = (v8::Global<v8::Promise>, v8::Global<v8::Value>, Option<String>);
 
 pub struct Loop {
     tx: Sender<Msg>,
@@ -62,6 +62,7 @@ pub struct Loop {
     hook_owed: Cell<bool>,
     busy: Arc<AtomicU64>,
     reporter: RefCell<Option<v8::Global<v8::Function>>>,
+    origins: RefCell<Vec<(v8::Global<v8::Value>, String)>>,
     exit: Cell<Option<i32>>,
     started: Instant,
     name: String,
@@ -215,6 +216,7 @@ impl Runtime {
             hook_owed: Cell::new(false),
             busy: Default::default(),
             reporter: Default::default(),
+            origins: Default::default(),
             exit: Cell::new(None),
             started: Instant::now(),
             name: name.to_owned(),
@@ -362,7 +364,9 @@ fn run_task<R>(scope: &mut v8::PinScope, f: impl FnOnce(&mut v8::PinScope) -> R)
         v8::tc_scope!(let tc, scope);
         let result = f(tc);
         if let Some(exception) = tc.exception().filter(|_| !tc.has_terminated()) {
-            report(tc, exception);
+            let message = tc.message();
+            let origin = thrown_at(tc, message, exception);
+            report_to(tc, exception, None, origin);
         }
         result
     };
@@ -385,9 +389,9 @@ fn run_task<R>(scope: &mut v8::PinScope, f: impl FnOnce(&mut v8::PinScope) -> R)
 fn report_rejections(scope: &mut v8::PinScope) {
     let lp = current();
     let rejections: Vec<_> = lp.rejections.borrow_mut().drain(..).collect();
-    for (promise, reason) in rejections {
+    for (promise, reason, origin) in rejections {
         let (promise, reason) = (v8::Local::new(scope, promise), v8::Local::new(scope, reason));
-        report_to(scope, reason, Some(promise));
+        report_to(scope, reason, Some(promise), origin);
     }
 }
 
@@ -399,46 +403,166 @@ fn after_task(scope: &mut v8::PinScope) {
         let thrown = {
             v8::tc_scope!(let tc, scope);
             hook(tc);
-            tc.exception().map(|e| v8::Global::new(tc, e))
+            let message = tc.message();
+            tc.exception().map(|e| (v8::Global::new(tc, e), thrown_at(tc, message, e)))
         };
-        if let Some(exception) = thrown {
+        if let Some((exception, origin)) = thrown {
             let exception = v8::Local::new(scope, exception);
-            report(scope, exception);
+            report_to(scope, exception, None, origin);
         }
         scope.perform_microtask_checkpoint();
     }
 }
 
 pub fn report(scope: &mut v8::PinScope, error: v8::Local<v8::Value>) {
-    report_to(scope, error, None);
+    report_to(scope, error, None, None);
 }
 
-fn report_to(scope: &mut v8::PinScope, error: v8::Local<v8::Value>, promise: Option<v8::Local<v8::Promise>>) {
+fn report_to(scope: &mut v8::PinScope, error: v8::Local<v8::Value>, promise: Option<v8::Local<v8::Promise>>, origin: Option<String>) {
     let lp = current();
     let reporter = lp.reporter.borrow().clone();
     if let Some(reporter) = reporter {
-        v8::tc_scope!(let tc, scope);
-        let args: Vec<v8::Local<v8::Value>> = match promise {
-            Some(promise) => vec![error, promise.into()],
-            None => vec![error],
+        if let Some(origin) = &origin {
+            lp.origins.borrow_mut().push((v8::Global::new(scope, error), origin.clone()));
+        }
+        let handled = {
+            v8::tc_scope!(let tc, scope);
+            let args: Vec<v8::Local<v8::Value>> = match promise {
+                Some(promise) => vec![error, promise.into()],
+                None => vec![error],
+            };
+            crate::bind::call(tc, &reporter, &args).is_some()
         };
-        if crate::bind::call(tc, &reporter, &args).is_some() {
+        if origin.is_some() {
+            lp.origins.borrow_mut().pop();
+        }
+        if handled {
             return;
         }
     }
-    log::error!(target: "js", "uncaught: {}", describe(scope, error));
+    let kind = if promise.is_some() { "unhandled rejection" } else { "uncaught" };
+    log::error!(target: "js", "[{}] {kind}: {}", lp.name, describe_at(scope, error, origin.as_deref()));
 }
 
+pub fn origin_of(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<String> {
+    let lp = current();
+    let origins = lp.origins.borrow();
+    origins.iter().rev().find(|(v, _)| v8::Local::new(scope, v).strict_equals(value)).map(|(_, o)| o.clone())
+}
+
+pub fn describe_at(scope: &mut v8::PinScope, value: v8::Local<v8::Value>, origin: Option<&str>) -> String {
+    let text = describe(scope, value);
+    match origin {
+        Some(origin) => format!("{text}\n{origin}"),
+        None => text,
+    }
+}
+
+const SHOWN: usize = 400;
+
 pub fn describe(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> String {
+    v8::tc_scope!(let tc, scope);
     if let Ok(object) = v8::Local::<v8::Object>::try_from(value) {
-        let key = v8::String::new(scope, "stack").unwrap();
-        if let Some(stack) = object.get(scope, key.into())
+        let key = v8::String::new(tc, "stack").unwrap();
+        if let Some(stack) = object.get(tc, key.into())
             && stack.is_string()
         {
-            return stack.to_rust_string_lossy(scope);
+            return stack.to_rust_string_lossy(tc);
+        }
+        tc.reset();
+    }
+    let shown = inspect(tc, value);
+    tc.reset();
+    format!("{shown} (not an Error, so no stack)")
+}
+
+fn clip(mut text: String) -> String {
+    if text.len() > SHOWN {
+        let mut end = SHOWN;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push('…');
+    }
+    text
+}
+
+fn json_text(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<String> {
+    v8::tc_scope!(let tc, scope);
+    let text = v8::json::stringify(tc, value).map(|s| s.to_rust_string_lossy(tc));
+    tc.reset();
+    text.filter(|t| t != "undefined")
+}
+
+fn inspect(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> String {
+    if value.is_null() || value.is_undefined() {
+        return value.to_rust_string_lossy(scope);
+    }
+    if let Ok(symbol) = v8::Local::<v8::Symbol>::try_from(value) {
+        let description = symbol.description(scope);
+        let description = if description.is_undefined() { String::new() } else { description.to_rust_string_lossy(scope) };
+        return format!("symbol Symbol({description})");
+    }
+    if value.is_string() {
+        return format!("string {}", clip(json_text(scope, value).unwrap_or_else(|| value.to_rust_string_lossy(scope))));
+    }
+    let kind = value.type_of(scope).to_rust_string_lossy(scope);
+    let Ok(object) = v8::Local::<v8::Object>::try_from(value) else {
+        return format!("{kind} {}", value.to_rust_string_lossy(scope));
+    };
+    if let Ok(function) = v8::Local::<v8::Function>::try_from(value) {
+        let name = function.get_name(scope).to_rust_string_lossy(scope);
+        return format!("function {}", if name.is_empty() { "(anonymous)" } else { &name });
+    }
+    let class = object.get_constructor_name().to_rust_string_lossy(scope);
+    let json = json_text(scope, value);
+    let mut extra = Vec::new();
+    for name in ["name", "message", "type", "code", "reason"] {
+        if json.as_deref().is_some_and(|j| j.contains(&format!("\"{name}\":"))) {
+            continue;
+        }
+        let key = v8::String::new(scope, name).unwrap();
+        let Some(field) = object.get(scope, key.into()) else { continue };
+        if field.is_string() || field.is_number() || field.is_boolean() {
+            let shown = json_text(scope, field).unwrap_or_else(|| field.to_rust_string_lossy(scope));
+            extra.push(format!("{name}: {shown}"));
         }
     }
-    value.to_rust_string_lossy(scope)
+    let body = match json {
+        Some(json) if json != "{}" || extra.is_empty() => json,
+        _ => format!("{{{}}}", std::mem::take(&mut extra).join(", ")),
+    };
+    let tail = if extra.is_empty() { String::new() } else { format!(" ({})", extra.join(", ")) };
+    clip(format!("{class} {body}{tail}"))
+}
+
+fn thrown_at(scope: &mut v8::PinScope, message: Option<v8::Local<v8::Message>>, exception: v8::Local<v8::Value>) -> Option<String> {
+    if exception.is_native_error() {
+        return None;
+    }
+    let message = message?;
+    let resource = message.get_script_resource_name(scope).map(|r| r.to_rust_string_lossy(scope)).unwrap_or_default();
+    let line = message.get_line_number(scope)?;
+    let column = message.get_start_column() + 1;
+    Some(format!("  thrown at {resource}:{line}:{column}"))
+}
+
+fn stack_here(scope: &mut v8::PinScope) -> Option<String> {
+    let trace = v8::StackTrace::current_stack_trace(scope, 8)?;
+    let frames: Vec<String> = (0..trace.get_frame_count())
+        .filter_map(|i| trace.get_frame(scope, i))
+        .map(|frame| {
+            let function = frame.get_function_name(scope).map(|f| f.to_rust_string_lossy(scope)).filter(|f| !f.is_empty());
+            let script = frame.get_script_name_or_source_url(scope).map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
+            let at = format!("{script}:{}:{}", frame.get_line_number(), frame.get_column());
+            match function {
+                Some(function) => format!("    at {function} ({at})"),
+                None => format!("    at {at}"),
+            }
+        })
+        .collect();
+    (!frames.is_empty()).then(|| format!("  rejected at:\n{}", frames.join("\n")))
 }
 
 extern "C" fn promise_reject(message: v8::PromiseRejectMessage) {
@@ -448,12 +572,13 @@ extern "C" fn promise_reject(message: v8::PromiseRejectMessage) {
     match message.get_event() {
         v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
             let reason = message.get_value().unwrap_or_else(|| v8::undefined(scope).into());
-            let entry = (v8::Global::new(scope, promise), v8::Global::new(scope, reason));
+            let origin = if reason.is_native_error() { None } else { stack_here(scope) };
+            let entry = (v8::Global::new(scope, promise), v8::Global::new(scope, reason), origin);
             lp.rejections.borrow_mut().push(entry);
         }
         v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject => {
             let promise = v8::Global::new(scope, promise);
-            lp.rejections.borrow_mut().retain(|(p, _)| *p != promise);
+            lp.rejections.borrow_mut().retain(|(p, _, _)| *p != promise);
         }
         _ => {}
     }
