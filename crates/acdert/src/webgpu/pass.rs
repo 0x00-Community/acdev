@@ -1,7 +1,7 @@
 use acde_gpu::wgpu;
 use wgpu::util::RenderEncoder;
 
-use super::{Id, Kind, State, desc, report};
+use super::{Id, Kind, State, desc, maybe, report};
 
 pub fn commands(args: &v8::FunctionCallbackArguments, i: i32, length: u32) -> Vec<f64> {
     let Ok(array) = v8::Local::<v8::Float64Array>::try_from(args.get(i)) else { return Vec::new() };
@@ -50,20 +50,73 @@ impl Reader<'_> {
     }
 }
 
+trait Pass {
+    fn bind(&mut self, index: u32, group: Option<&wgpu::BindGroup>, offsets: &[u32]);
+    fn debug(&mut self, op: u32, label: &str);
+}
+
+macro_rules! pass {
+    ($($ty:ty),*) => {$(
+        impl Pass for $ty {
+            fn bind(&mut self, index: u32, group: Option<&wgpu::BindGroup>, offsets: &[u32]) {
+                self.set_bind_group(index, group, offsets);
+            }
+
+            fn debug(&mut self, op: u32, label: &str) {
+                match op {
+                    16 => self.push_debug_group(label),
+                    17 => self.pop_debug_group(),
+                    _ => self.insert_debug_marker(label),
+                }
+            }
+        }
+    )*};
+}
+
+pass!(wgpu::RenderPass<'_>, wgpu::ComputePass<'_>);
+
+impl Pass for wgpu::RenderBundleEncoder<'_> {
+    fn bind(&mut self, index: u32, group: Option<&wgpu::BindGroup>, offsets: &[u32]) {
+        self.set_bind_group(index, group, offsets);
+    }
+
+    fn debug(&mut self, _: u32, _: &str) {}
+}
+
+fn shared(s: &State, device: Id, op: u32, r: &mut Reader, strings: &[String], pass: &mut impl Pass) -> bool {
+    match op {
+        2 => {
+            let (index, id, n) = (r.u32(), r.u32(), r.u32());
+            let offsets: Vec<u32> = (0..n).map(|_| r.u32()).collect();
+            if id == 0 {
+                pass.bind(index, None, &[]);
+            } else if let Some(g) = s.bind_group(device, id) {
+                pass.bind(index, Some(&g.group), &offsets);
+            }
+        }
+        16 | 18 => pass.debug(op, strings.get(r.u32() as usize).map_or("", String::as_str)),
+        17 => pass.debug(op, ""),
+        _ => return false,
+    }
+    true
+}
+
+fn timestamps<'a, T>(
+    s: &'a State,
+    device: Id,
+    t: &Option<desc::TimestampWritesDesc>,
+    make: impl FnOnce(&'a wgpu::QuerySet, Option<u32>, Option<u32>) -> T,
+) -> Option<Option<T>> {
+    let Some(t) = t else { return Some(None) };
+    let q = s.query_set(device, t.query_set)?;
+    Some(Some(make(&q.set, t.beginning_of_pass_write_index, t.end_of_pass_write_index)))
+}
+
 fn common<'a>(s: &'a State, device: Id, op: u32, r: &mut Reader, pass: &mut impl RenderEncoder<'a>) -> bool {
     match op {
         1 => {
             if let Some(p) = s.render_pipeline(device, r.u32()) {
                 pass.set_pipeline(p);
-            }
-        }
-        2 => {
-            let (index, id, n) = (r.u32(), r.u32(), r.u32());
-            let offsets: Vec<u32> = (0..n).map(|_| r.u32()).collect();
-            if id == 0 {
-                pass.set_bind_group(index, None, &[]);
-            } else if let Some(g) = s.bind_group(device, id) {
-                pass.set_bind_group(index, Some(&g.group), &offsets);
             }
         }
         3 => {
@@ -148,18 +201,11 @@ fn operands(op: u32, r: &Reader) -> usize {
     }
 }
 
-pub fn render(
-    s: &mut State,
-    encoder: &mut wgpu::CommandEncoder,
-    device: Id,
-    d: &desc::RenderPassDesc,
-    commands: &[f64],
-    strings: &[String],
-) -> Result<(), String> {
+pub fn render(s: &mut State, encoder: &mut wgpu::CommandEncoder, device: Id, d: &desc::RenderPassDesc, commands: &[f64], strings: &[String]) {
     for attachment in d.color_attachments.iter().flatten() {
         if let Some(super::Obj::View(v)) = s.objects.get(&attachment.view) {
             let texture = v.texture;
-            super::canvas::touch(s, encoder, texture, attachment.load_op == "clear");
+            super::canvas::touch(s, encoder, texture, attachment.load_op == desc::LoadOp::Clear);
         }
         if let Some(super::Obj::View(v)) = attachment.resolve_target.and_then(|id| s.objects.get(&id)) {
             let texture = v.texture;
@@ -174,47 +220,32 @@ pub fn render(
             colors.push(None);
             continue;
         };
-        let Some(view) = s.view(device, a.view) else { return Ok(()) };
-        let resolve_target = match a.resolve_target {
-            Some(id) => match s.view(device, id) {
-                Some(v) => Some(&v.view),
-                None => return Ok(()),
-            },
-            None => None,
-        };
+        let Some(view) = s.view(device, a.view) else { return };
+        let Some(resolve_target) = maybe(a.resolve_target, |id| s.view(device, id).map(|v| &v.view)) else { return };
         let [r, g, b, alpha] = a.clear_value;
-        let ops = desc::ops(Some(&a.load_op), Some(&a.store_op), wgpu::Color { r, g, b, a: alpha }, false)?
-            .ok_or("TypeError: a color attachment needs loadOp and storeOp")?;
+        let ops = desc::ops(a.load_op, a.store_op, wgpu::Color { r, g, b, a: alpha });
         colors.push(Some(wgpu::RenderPassColorAttachment { view: &view.view, depth_slice: a.depth_slice, resolve_target, ops }));
     }
     let depth_stencil = match &d.depth_stencil_attachment {
         Some(a) => {
-            let Some(view) = s.view(device, a.view) else { return Ok(()) };
+            let Some(view) = s.view(device, a.view) else { return };
             Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &view.view,
-                depth_ops: desc::ops(a.depth_load_op.as_deref(), a.depth_store_op.as_deref(), a.depth_clear_value.unwrap_or(0.0), a.depth_read_only)?,
-                stencil_ops: desc::ops(a.stencil_load_op.as_deref(), a.stencil_store_op.as_deref(), a.stencil_clear_value, a.stencil_read_only)?,
+                depth_ops: a
+                    .depth_load_op
+                    .zip(a.depth_store_op)
+                    .filter(|_| !a.depth_read_only)
+                    .map(|(l, o)| desc::ops(l, o, a.depth_clear_value.unwrap_or(0.0))),
+                stencil_ops: a.stencil_load_op.zip(a.stencil_store_op).filter(|_| !a.stencil_read_only).map(|(l, o)| desc::ops(l, o, a.stencil_clear_value)),
             })
         }
         None => None,
     };
-    let occlusion_query_set = match d.occlusion_query_set {
-        Some(id) => match s.query_set(device, id) {
-            Some(q) => Some(&q.set),
-            None => return Ok(()),
-        },
-        None => None,
-    };
-    let timestamp_writes = match &d.timestamp_writes {
-        Some(t) => match s.query_set(device, t.query_set) {
-            Some(q) => Some(wgpu::RenderPassTimestampWrites {
-                query_set: &q.set,
-                beginning_of_pass_write_index: t.beginning_of_pass_write_index,
-                end_of_pass_write_index: t.end_of_pass_write_index,
-            }),
-            None => return Ok(()),
-        },
-        None => None,
+    let Some(occlusion_query_set) = maybe(d.occlusion_query_set, |id| s.query_set(device, id).map(|q| &q.set)) else { return };
+    let Some(timestamp_writes) = timestamps(s, device, &d.timestamp_writes, |query_set, beginning_of_pass_write_index, end_of_pass_write_index| {
+        wgpu::RenderPassTimestampWrites { query_set, beginning_of_pass_write_index, end_of_pass_write_index }
+    }) else {
+        return;
     };
     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: desc::label(&d.label),
@@ -227,7 +258,7 @@ pub fn render(
     let mut r = Reader { commands, at: 0 };
     while !r.done() {
         let op = r.u32();
-        if common(s, device, op, &mut r, &mut pass) {
+        if common(s, device, op, &mut r, &mut pass) || shared(s, device, op, &mut r, strings, &mut pass) {
             continue;
         }
         match op {
@@ -251,48 +282,33 @@ pub fn render(
                 let bundles: Vec<&wgpu::RenderBundle> = (0..n).filter_map(|_| s.render_bundle(device, r.u32())).collect();
                 pass.execute_bundles(bundles);
             }
-            16 => pass.push_debug_group(strings.get(r.u32() as usize).map_or("", String::as_str)),
-            17 => pass.pop_debug_group(),
-            18 => pass.insert_debug_marker(strings.get(r.u32() as usize).map_or("", String::as_str)),
             other => {
                 report(device, Kind::Validation, format!("render pass: unknown command {other}"));
                 break;
             }
         }
     }
-    Ok(())
 }
 
 pub fn compute(s: &mut State, encoder: &mut wgpu::CommandEncoder, device: Id, d: &desc::ComputePassDesc, commands: &[f64], strings: &[String]) {
     touch_bind_groups(s, encoder, commands);
     let s = &*s;
-    let timestamp_writes = match &d.timestamp_writes {
-        Some(t) => match s.query_set(device, t.query_set) {
-            Some(q) => Some(wgpu::ComputePassTimestampWrites {
-                query_set: &q.set,
-                beginning_of_pass_write_index: t.beginning_of_pass_write_index,
-                end_of_pass_write_index: t.end_of_pass_write_index,
-            }),
-            None => return,
-        },
-        None => None,
+    let Some(timestamp_writes) = timestamps(s, device, &d.timestamp_writes, |query_set, beginning_of_pass_write_index, end_of_pass_write_index| {
+        wgpu::ComputePassTimestampWrites { query_set, beginning_of_pass_write_index, end_of_pass_write_index }
+    }) else {
+        return;
     };
     let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: desc::label(&d.label), timestamp_writes });
     let mut r = Reader { commands, at: 0 };
     while !r.done() {
-        match r.u32() {
+        let op = r.u32();
+        if shared(s, device, op, &mut r, strings, &mut pass) {
+            continue;
+        }
+        match op {
             1 => {
                 if let Some(p) = s.compute_pipeline(device, r.u32()) {
                     pass.set_pipeline(p);
-                }
-            }
-            2 => {
-                let (index, id, n) = (r.u32(), r.u32(), r.u32());
-                let offsets: Vec<u32> = (0..n).map(|_| r.u32()).collect();
-                if id == 0 {
-                    pass.set_bind_group(index, None, &[]);
-                } else if let Some(g) = s.bind_group(device, id) {
-                    pass.set_bind_group(index, Some(&g.group), &offsets);
                 }
             }
             19 => {
@@ -305,9 +321,6 @@ pub fn compute(s: &mut State, encoder: &mut wgpu::CommandEncoder, device: Id, d:
                     pass.dispatch_workgroups_indirect(&b.buffer, offset);
                 }
             }
-            16 => pass.push_debug_group(strings.get(r.u32() as usize).map_or("", String::as_str)),
-            17 => pass.pop_debug_group(),
-            18 => pass.insert_debug_marker(strings.get(r.u32() as usize).map_or("", String::as_str)),
             other => {
                 report(device, Kind::Validation, format!("compute pass: unknown command {other}"));
                 break;
@@ -331,16 +344,9 @@ pub fn bundle(s: &State, gpu: &acde_paint::Gpu, device: Id, d: &desc::RenderBund
     let mut r = Reader { commands, at: 0 };
     while !r.done() {
         let op = r.u32();
-        if common(s, device, op, &mut r, &mut encoder) {
-            continue;
-        }
-        match op {
-            16 | 18 => _ = strings.get(r.u32() as usize),
-            17 => {}
-            other => {
-                report(device, Kind::Validation, format!("render bundle: unknown command {other}"));
-                return None;
-            }
+        if !common(s, device, op, &mut r, &mut encoder) && !shared(s, device, op, &mut r, strings, &mut encoder) {
+            report(device, Kind::Validation, format!("render bundle: unknown command {op}"));
+            return None;
         }
     }
     Some(encoder.finish(&wgpu::RenderBundleDescriptor { label: desc::label(&d.label) }))

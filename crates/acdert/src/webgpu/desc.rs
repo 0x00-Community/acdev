@@ -5,8 +5,7 @@ use acde_gpu::wgpu;
 use serde::Deserialize;
 use wgpu::{
     AddressMode, BlendFactor, BlendOperation, CompareFunction, Face, FilterMode, FrontFace, IndexFormat, MipmapFilterMode, PrimitiveTopology,
-    SamplerBindingType, StencilOperation, StorageTextureAccess, TextureAspect, TextureDimension, TextureFormat, TextureViewDimension, VertexFormat,
-    VertexStepMode,
+    SamplerBindingType, StencilOperation, StorageTextureAccess, TextureAspect, TextureDimension, TextureFormat, TextureViewDimension, VertexStepMode,
 };
 
 pub fn label(label: &Option<String>) -> Option<&str> {
@@ -40,12 +39,10 @@ impl From<Extent> for wgpu::Extent3d {
 }
 
 #[derive(Deserialize, Clone, Copy, Default)]
+#[serde(default)]
 pub struct Origin {
-    #[serde(default)]
     pub x: u32,
-    #[serde(default)]
     pub y: u32,
-    #[serde(default)]
     pub z: u32,
 }
 
@@ -85,7 +82,7 @@ pub struct ViewDesc {
     pub format: Option<TextureFormat>,
     pub dimension: Option<TextureViewDimension>,
     pub usage: Option<u32>,
-    #[serde(default = "aspect_all")]
+    #[serde(default)]
     pub aspect: TextureAspect,
     #[serde(default)]
     pub base_mip_level: u32,
@@ -93,10 +90,6 @@ pub struct ViewDesc {
     #[serde(default)]
     pub base_array_layer: u32,
     pub array_layer_count: Option<u32>,
-}
-
-fn aspect_all() -> TextureAspect {
-    TextureAspect::All
 }
 
 impl ViewDesc {
@@ -119,17 +112,17 @@ impl ViewDesc {
 #[serde(rename_all = "camelCase")]
 pub struct SamplerDesc {
     pub label: Option<String>,
-    #[serde(default = "clamp")]
+    #[serde(default)]
     pub address_mode_u: AddressMode,
-    #[serde(default = "clamp")]
+    #[serde(default)]
     pub address_mode_v: AddressMode,
-    #[serde(default = "clamp")]
+    #[serde(default)]
     pub address_mode_w: AddressMode,
-    #[serde(default = "nearest")]
+    #[serde(default)]
     pub mag_filter: FilterMode,
-    #[serde(default = "nearest")]
+    #[serde(default)]
     pub min_filter: FilterMode,
-    #[serde(default = "mip_nearest")]
+    #[serde(default)]
     pub mipmap_filter: MipmapFilterMode,
     #[serde(default)]
     pub lod_min_clamp: f32,
@@ -140,15 +133,6 @@ pub struct SamplerDesc {
     pub max_anisotropy: u16,
 }
 
-fn clamp() -> AddressMode {
-    AddressMode::ClampToEdge
-}
-fn nearest() -> FilterMode {
-    FilterMode::Nearest
-}
-fn mip_nearest() -> MipmapFilterMode {
-    MipmapFilterMode::Nearest
-}
 fn lod_max() -> f32 {
     32.0
 }
@@ -197,16 +181,21 @@ pub struct LayoutEntry {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BufferLayout {
-    #[serde(rename = "type", default = "uniform")]
-    pub kind: String,
+    #[serde(rename = "type", default)]
+    pub kind: BufferType,
     #[serde(default)]
     pub has_dynamic_offset: bool,
     #[serde(default)]
     pub min_binding_size: u64,
 }
 
-fn uniform() -> String {
-    "uniform".into()
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum BufferType {
+    #[default]
+    Uniform,
+    Storage,
+    ReadOnlyStorage,
 }
 
 #[derive(Deserialize)]
@@ -222,19 +211,23 @@ fn filtering() -> SamplerBindingType {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextureLayout {
-    #[serde(default = "float")]
-    pub sample_type: String,
-    #[serde(default = "view_2d")]
+    #[serde(default)]
+    pub sample_type: SampleType,
+    #[serde(default)]
     pub view_dimension: TextureViewDimension,
     #[serde(default)]
     pub multisampled: bool,
 }
 
-fn float() -> String {
-    "float".into()
-}
-fn view_2d() -> TextureViewDimension {
-    TextureViewDimension::D2
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SampleType {
+    #[default]
+    Float,
+    UnfilterableFloat,
+    Depth,
+    Sint,
+    Uint,
 }
 
 #[derive(Deserialize)]
@@ -243,7 +236,7 @@ pub struct StorageTextureLayout {
     #[serde(default = "write_only")]
     pub access: StorageTextureAccess,
     pub format: TextureFormat,
-    #[serde(default = "view_2d")]
+    #[serde(default)]
     pub view_dimension: TextureViewDimension,
 }
 
@@ -254,23 +247,21 @@ fn write_only() -> StorageTextureAccess {
 impl LayoutEntry {
     pub fn wgpu(&self) -> Result<wgpu::BindGroupLayoutEntry, String> {
         let ty = if let Some(b) = &self.buffer {
-            let ty = match b.kind.as_str() {
-                "uniform" => wgpu::BufferBindingType::Uniform,
-                "storage" => wgpu::BufferBindingType::Storage { read_only: false },
-                "read-only-storage" => wgpu::BufferBindingType::Storage { read_only: true },
-                other => return Err(format!("TypeError: '{other}' is not a GPUBufferBindingType")),
+            let ty = match b.kind {
+                BufferType::Uniform => wgpu::BufferBindingType::Uniform,
+                BufferType::Storage => wgpu::BufferBindingType::Storage { read_only: false },
+                BufferType::ReadOnlyStorage => wgpu::BufferBindingType::Storage { read_only: true },
             };
             wgpu::BindingType::Buffer { ty, has_dynamic_offset: b.has_dynamic_offset, min_binding_size: NonZeroU64::new(b.min_binding_size) }
         } else if let Some(s) = &self.sampler {
             wgpu::BindingType::Sampler(s.kind)
         } else if let Some(t) = &self.texture {
-            let sample_type = match t.sample_type.as_str() {
-                "float" => wgpu::TextureSampleType::Float { filterable: true },
-                "unfilterable-float" => wgpu::TextureSampleType::Float { filterable: false },
-                "depth" => wgpu::TextureSampleType::Depth,
-                "sint" => wgpu::TextureSampleType::Sint,
-                "uint" => wgpu::TextureSampleType::Uint,
-                other => return Err(format!("TypeError: '{other}' is not a GPUTextureSampleType")),
+            let sample_type = match t.sample_type {
+                SampleType::Float => wgpu::TextureSampleType::Float { filterable: true },
+                SampleType::UnfilterableFloat => wgpu::TextureSampleType::Float { filterable: false },
+                SampleType::Depth => wgpu::TextureSampleType::Depth,
+                SampleType::Sint => wgpu::TextureSampleType::Sint,
+                SampleType::Uint => wgpu::TextureSampleType::Uint,
             };
             wgpu::BindingType::Texture { sample_type, view_dimension: t.view_dimension, multisampled: t.multisampled }
         } else if let Some(t) = &self.storage_texture {
@@ -365,62 +356,38 @@ pub struct VertexDesc {
 #[serde(rename_all = "camelCase")]
 pub struct VertexBufferDesc {
     pub array_stride: u64,
-    #[serde(default = "per_vertex")]
+    #[serde(default)]
     pub step_mode: VertexStepMode,
-    pub attributes: Vec<VertexAttributeDesc>,
+    pub attributes: Vec<wgpu::VertexAttribute>,
 }
 
-fn per_vertex() -> VertexStepMode {
-    VertexStepMode::Vertex
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VertexAttributeDesc {
-    pub format: VertexFormat,
-    pub offset: u64,
-    pub shader_location: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
 pub struct PrimitiveDesc {
-    #[serde(default = "triangles")]
     pub topology: PrimitiveTopology,
     pub strip_index_format: Option<IndexFormat>,
-    #[serde(default = "ccw")]
     pub front_face: FrontFace,
-    #[serde(default = "no_cull")]
-    pub cull_mode: String,
-    #[serde(default)]
+    pub cull_mode: CullMode,
     pub unclipped_depth: bool,
 }
 
-impl Default for PrimitiveDesc {
-    fn default() -> Self {
-        Self { topology: triangles(), strip_index_format: None, front_face: ccw(), cull_mode: no_cull(), unclipped_depth: false }
-    }
-}
-
-fn triangles() -> PrimitiveTopology {
-    PrimitiveTopology::TriangleList
-}
-fn ccw() -> FrontFace {
-    FrontFace::Ccw
-}
-fn no_cull() -> String {
-    "none".into()
+#[derive(Deserialize, Default, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum CullMode {
+    #[default]
+    None,
+    Front,
+    Back,
 }
 
 impl PrimitiveDesc {
-    pub fn wgpu(&self) -> Result<wgpu::PrimitiveState, String> {
-        let cull_mode = match self.cull_mode.as_str() {
-            "none" => None,
-            "front" => Some(Face::Front),
-            "back" => Some(Face::Back),
-            other => return Err(format!("TypeError: '{other}' is not a GPUCullMode")),
+    pub fn wgpu(&self) -> wgpu::PrimitiveState {
+        let cull_mode = match self.cull_mode {
+            CullMode::None => None,
+            CullMode::Front => Some(Face::Front),
+            CullMode::Back => Some(Face::Back),
         };
-        Ok(wgpu::PrimitiveState {
+        wgpu::PrimitiveState {
             topology: self.topology,
             strip_index_format: self.strip_index_format,
             front_face: self.front_face,
@@ -428,7 +395,7 @@ impl PrimitiveDesc {
             unclipped_depth: self.unclipped_depth,
             polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,
-        })
+        }
     }
 }
 
@@ -454,30 +421,13 @@ pub struct DepthStencilDesc {
     pub depth_bias_clamp: f32,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
 pub struct StencilFaceDesc {
-    #[serde(default = "always")]
     pub compare: CompareFunction,
-    #[serde(default = "keep")]
     pub fail_op: StencilOperation,
-    #[serde(default = "keep")]
     pub depth_fail_op: StencilOperation,
-    #[serde(default = "keep")]
     pub pass_op: StencilOperation,
-}
-
-impl Default for StencilFaceDesc {
-    fn default() -> Self {
-        Self { compare: always(), fail_op: keep(), depth_fail_op: keep(), pass_op: keep() }
-    }
-}
-
-fn always() -> CompareFunction {
-    CompareFunction::Always
-}
-fn keep() -> StencilOperation {
-    StencilOperation::Keep
 }
 
 impl StencilFaceDesc {
@@ -504,13 +454,10 @@ impl DepthStencilDesc {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct MultisampleDesc {
-    #[serde(default = "one")]
     pub count: u32,
-    #[serde(default = "all_bits")]
     pub mask: u32,
-    #[serde(default)]
     pub alpha_to_coverage_enabled: bool,
 }
 
@@ -550,7 +497,7 @@ pub struct BlendDesc {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlendComponentDesc {
-    #[serde(default = "add")]
+    #[serde(default)]
     pub operation: BlendOperation,
     #[serde(default = "factor_one")]
     pub src_factor: BlendFactor,
@@ -558,9 +505,6 @@ pub struct BlendComponentDesc {
     pub dst_factor: BlendFactor,
 }
 
-fn add() -> BlendOperation {
-    BlendOperation::Add
-}
 fn factor_one() -> BlendFactor {
     BlendFactor::One
 }
@@ -589,8 +533,15 @@ impl ColorTargetDesc {
 pub struct QuerySetDesc {
     pub label: Option<String>,
     #[serde(rename = "type")]
-    pub kind: String,
+    pub kind: QueryType,
     pub count: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QueryType {
+    Occlusion,
+    Timestamp,
 }
 
 #[derive(Deserialize)]
@@ -608,7 +559,7 @@ pub struct TextureCopy {
     pub mip_level: u32,
     #[serde(default)]
     pub origin: Origin,
-    #[serde(default = "aspect_all")]
+    #[serde(default)]
     pub aspect: TextureAspect,
 }
 
@@ -684,8 +635,22 @@ pub struct ColorAttachmentDesc {
     pub resolve_target: Option<u32>,
     #[serde(default)]
     pub clear_value: [f64; 4],
-    pub load_op: String,
-    pub store_op: String,
+    pub load_op: LoadOp,
+    pub store_op: StoreOp,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum LoadOp {
+    Clear,
+    Load,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum StoreOp {
+    Store,
+    Discard,
 }
 
 #[derive(Deserialize)]
@@ -693,14 +658,14 @@ pub struct ColorAttachmentDesc {
 pub struct DepthStencilAttachmentDesc {
     pub view: u32,
     pub depth_clear_value: Option<f32>,
-    pub depth_load_op: Option<String>,
-    pub depth_store_op: Option<String>,
+    pub depth_load_op: Option<LoadOp>,
+    pub depth_store_op: Option<StoreOp>,
     #[serde(default)]
     pub depth_read_only: bool,
     #[serde(default)]
     pub stencil_clear_value: u32,
-    pub stencil_load_op: Option<String>,
-    pub stencil_store_op: Option<String>,
+    pub stencil_load_op: Option<LoadOp>,
+    pub stencil_store_op: Option<StoreOp>,
     #[serde(default)]
     pub stencil_read_only: bool,
 }
@@ -734,22 +699,16 @@ pub struct RenderBundleDesc {
     pub stencil_read_only: bool,
 }
 
-pub fn ops<V: Copy>(load: Option<&str>, store: Option<&str>, clear: V, read_only: bool) -> Result<Option<wgpu::Operations<V>>, String> {
-    if read_only {
-        return Ok(None);
-    }
-    let (Some(load), Some(store)) = (load, store) else { return Ok(None) };
+pub fn ops<V>(load: LoadOp, store: StoreOp, clear: V) -> wgpu::Operations<V> {
     let load = match load {
-        "clear" => wgpu::LoadOp::Clear(clear),
-        "load" => wgpu::LoadOp::Load,
-        other => return Err(format!("TypeError: '{other}' is not a GPULoadOp")),
+        LoadOp::Clear => wgpu::LoadOp::Clear(clear),
+        LoadOp::Load => wgpu::LoadOp::Load,
     };
     let store = match store {
-        "store" => wgpu::StoreOp::Store,
-        "discard" => wgpu::StoreOp::Discard,
-        other => return Err(format!("TypeError: '{other}' is not a GPUStoreOp")),
+        StoreOp::Store => wgpu::StoreOp::Store,
+        StoreOp::Discard => wgpu::StoreOp::Discard,
     };
-    Ok(Some(wgpu::Operations { load, store }))
+    wgpu::Operations { load, store }
 }
 
 #[derive(Deserialize)]
@@ -758,8 +717,8 @@ pub struct CanvasConfig {
     pub format: TextureFormat,
     #[serde(default = "render_attachment")]
     pub usage: u32,
-    #[serde(default = "opaque")]
-    pub alpha_mode: String,
+    #[serde(default)]
+    pub alpha_mode: AlphaMode,
     #[serde(default)]
     pub view_formats: Vec<TextureFormat>,
 }
@@ -767,6 +726,10 @@ pub struct CanvasConfig {
 fn render_attachment() -> u32 {
     wgpu::TextureUsages::RENDER_ATTACHMENT.bits()
 }
-fn opaque() -> String {
-    "opaque".into()
+#[derive(Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AlphaMode {
+    #[default]
+    Opaque,
+    Premultiplied,
 }
