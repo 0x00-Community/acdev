@@ -732,7 +732,7 @@ impl WorkspaceFs {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{MetadataExt, symlink};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     struct Scratch {
