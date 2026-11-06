@@ -570,7 +570,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
   parley、html5ever、cssparser) 用 `=` 钉住.
 - `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新. 改了依赖, 提交前 `cargo build --release -p acdert` 必须通过; clippy 要过.
   `web/bun.lock` 进 git, 改依赖时放在同一个提交里.
-- 诊断用 `log` 的宏, 不用 `eprintln!` (测试、命令行输出、fps-probe 除外).
+- 诊断用 `log` 的宏, 不用 `eprintln!` (测试、命令行输出除外).
 
 ## 目录
 
@@ -588,7 +588,6 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/ipc` | `acde-ipc`: unix socket / Windows 命名管道上的一行一个 JSON (`acde dev`) |
 | `crates/log` | `acde-log`: 日志和计时 |
 | `crates/acde-napi` | rusty_v8 实现的 Node-API (napi8), 让 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` 0.191.0 (MIT, LICENSE-MIT), 去掉了用不到的入口 |
-| `crates/fps-probe` | 量合成器出帧的 Wayland 客户端 (Linux) |
 | `web/packages/acde-host` | acdert 的 JS: Broker 和每个 web 的宿主, 包发现, 桌面服务, 登录页 |
 | `web/packages/acde-dom` | web 里的浏览器全局对象和 DOM |
 | `web/packages/acde-api` | `@dopame/acde-api`: SDK (唯一对外发布的 JS 包) |
@@ -723,11 +722,6 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 - `ACDE_PAINT_VERIFY=1` 下机器忙时 `tests/damage.rs` 偶发等帧超时, 单独重跑都过.
 - `tests/fixtures/replay/*.ops.gz` 是旧 acde-host 的 DOM 操作流 (`tests/replay.rs` 回放, 格式见它), `svg/*.svg` 是简单 SVG 的对比用例, 元素的特殊渲染
   在 `tests/elements.rs`. `release_keeps_memory_flat` 只在 Linux 上跑.
-
-## crates/fps-probe
-
-和 KWin 比出帧的普通 Wayland 客户端 (Linux): `fps-probe [--seconds N] [--size WxH] [--label 名字] [--fullscreen]`, 每帧整窗动画, 每秒打一行 JSON
-(`fps`、`intervalMs`、`missedVblanks`、`latencyMs` …), 结束打 summary. 在 KDE 和 acde 会话里做同样的操作比 summary; 虚拟后端的刷新是软件定时器, 不能比.
 
 ## packaging/arch
 
