@@ -63,6 +63,7 @@ jobs:
         with:
           name: acdert-${{ matrix.triple }}
           path: out
+          retention-days: 1
 
   host:
     runs-on: ubuntu-24.04
@@ -81,6 +82,7 @@ jobs:
         with:
           name: host
           path: out
+          retention-days: 1
 
   release:
     needs: [build, host]
