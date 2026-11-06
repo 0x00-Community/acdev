@@ -79,7 +79,13 @@ const acde = join(stage, 'acde')
 mkdirSync(join(acde, 'src'), { recursive: true })
 for (const path of ['bin', 'templates', 'launcher.mjs', 'LICENSE']) cpSync(join(ROOT, path), join(acde, path), { recursive: true })
 for (const name of ['listen.ts', 'sockets.ts']) copyFileSync(join(ROOT, 'src', name), join(acde, 'src', name))
-const bundled = await Bun.build({ entrypoints: [join(ROOT, 'src/cli.ts')], outdir: join(acde, 'src'), target: 'bun', format: 'esm', naming: { entry: 'cli.js' }, minify: { syntax: true, whitespace: false, identifiers: false } })
+const launcher: Bun.BunPlugin = {
+  name: 'launcher',
+  setup: (build) => {
+    build.onResolve({ filter: /^\.\.\/launcher\.mjs$/ }, (args) => ({ path: args.path, external: true }))
+  },
+}
+const bundled = await Bun.build({ entrypoints: [join(ROOT, 'src/cli.ts')], outdir: join(acde, 'src'), target: 'bun', format: 'esm', naming: { entry: 'cli.js' }, minify: { syntax: true, whitespace: false, identifiers: false }, plugins: [launcher] })
 if (!bundled.success) throw new AggregateError(bundled.logs, 'bundling src/cli.ts failed')
 write(acde, {
   name: 'acde',

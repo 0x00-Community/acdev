@@ -89,8 +89,16 @@ acde 是发布出去的那份时加, 见「分发」). `build` 脚本调的是 a
 启动脚本 `launcher.mjs` 只用 `node:` 模块, Node / Deno / Bun 都能跑:
 - bun: 自己就跑在 bun 上用自己; 否则 `@oven/bun-<平台>` (经 `createRequire` 从 acde 的位置解析; 落在 zip 里的不算); 否则 PATH 上的
   `bun`; 都没有就下载 (见下).
-- acdert: `ACDERT`; 否则 `@dopame/acdert-<平台>`; 否则 PATH 上的 `acdert`; `dev` 才需要, 都没有就下载; 这个平台没有包时报
-  「acdert has no build for <平台> yet」.
+- acdert (`requireAcdert`; `acde dev` 自己 (`src/cli.ts`) 也调它, 直接 `bun src/cli.ts dev` 时一样): `ACDERT` (设了但文件不在时
+  直接报错, 不往下找; 不带路径分隔符的按 PATH 找); 否则 `@dopame/acdert-<平台>`; 否则 (只有没发布的仓库里的 acde) 旁边的 acdert
+  检出 —— 两个仓库并排检出 (见「和 acdert 的契约」), `<acde>/../acdert/target/release/acdert`, 再 `.../debug/acdert` (Windows 加
+  `.exe`; acdert 从 `<exe>/../../web/packages/acde-host/dist` 找 host bundle); 否则 PATH 上的 `acdert` (放在检出之后: 仓库里的
+  acde 和旁边的 acdert 是一起改的, PATH 上的可能是旧的发布版). `dev` 才需要, 都没有就下载 (发布出去的那份); 再没有就报错, 列出找过的
+  每个地方 (`ACDERT`、平台包、两个检出路径、PATH) 和怎么办 (`ACDERT=/path/to/acdert acde dev`、在旁边的检出里
+  `cargo build --release -p acdert`、放进 PATH); 这个平台没有包时开头是「acdert has no build for <平台> yet」. 打包时 `src/cli.js`
+  里对 `../launcher.mjs` 的 import 留作外部模块 (`scripts/pack.ts` 的插件; 打进去的话 `import.meta.url` 就成了 `src/cli.js` 的).
+  验过 (macOS, 2026-11-06): `test/launcher.test.ts` 用假的 acde 目录试 release / debug / PATH 的先后、发布的那份不找检出、找不到时的
+  报错、`ACDERT` 不存在; `bun scripts/pack.ts` 打出的 acde (没有 acdert 平台包) 在 PATH 里没有 acdert 时 `acde dev` 列出找过的地方.
 - 下载 (可选依赖没装上: lockfile 是在别的平台上生成的、`--omit=optional`、yarn PnP): 从 `npm_config_registry` (默认
   registry.npmjs.org) 取那个版本的元数据, 下 tarball, 按 `dist.integrity` 校验, 自己解 tar (gzip + ustar, 带权限位), 放进缓存
   (`ACDE_CACHE_DIR`, 默认 macOS `~/Library/Caches/acde`、Linux `$XDG_CACHE_HOME/acde`、Windows `%LOCALAPPDATA%\acde\cache`) 的

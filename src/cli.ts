@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { resolve } from 'node:path'
 import * as p from '@clack/prompts'
+import { requireAcdert } from '../launcher.mjs'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
 import { PackageManager } from './pm.ts'
@@ -52,11 +53,7 @@ class Cli {
     if (command === 'check') return Cli.report(pkg) ? 0 : 1
     const out = resolve(pkg.dir, flags.get('out') ?? '.acde')
     if (command === 'dev') {
-      const acdert = process.env['ACDERT'] || Bun.which('acdert')
-      if (!acdert) {
-        console.error('acde: no acdert (ACDERT, PATH)')
-        return 1
-      }
+      const acdert = await requireAcdert()
       return await new DevSession(pkg, out, acdert).run(flags.get('app'))
     }
     const built = await pkg.build(out)

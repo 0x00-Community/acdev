@@ -71,9 +71,9 @@ function which(name) {
   return null
 }
 
-function installed(pkg, file) {
+function installed(pkg, file, from = require) {
   try {
-    const path = require.resolve(`${pkg}/${file}`)
+    const path = from.resolve(`${pkg}/${file}`)
     return /\.zip[\\/]/.test(path) || !existsSync(path) ? null : path
   } catch {
     return null
@@ -150,18 +150,43 @@ export async function findBun() {
   throw new Error(`acde needs Bun and found none: install it (https://bun.sh)${pkg ? '' : `; Bun has no build for ${target()}`}`)
 }
 
-export async function findAcdert(needed) {
-  if (process.env.ACDERT) return process.env.ACDERT
+export function acdertCheckouts(root = ROOT) {
+  return ['release', 'debug'].map((profile) => join(root, '..', 'acdert', 'target', profile, `acdert${EXE}`))
+}
+
+function locateAcdert(root) {
+  const self = root === ROOT ? SELF : JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   const pkg = acdertPackage()
   const file = `bin/acdert${EXE}`
-  const local = installed(pkg, file)
-  if (local) return local
-  const onPath = which('acdert')
-  if (onPath) return onPath
-  const version = optional(pkg)
-  if (needed && version) return fetchPackage(pkg, version, file)
-  if (needed && SELF.optionalDependencies) throw new Error(`acdert has no build for ${target()} yet (acde ${SELF.version}); set ACDERT to an acdert you built`)
-  return null
+  const checkouts = self.optionalDependencies === undefined ? acdertCheckouts(root) : []
+  const found =
+    installed(pkg, file, root === ROOT ? require : createRequire(join(root, 'package.json'))) ??
+    checkouts.find((path) => existsSync(path)) ??
+    which('acdert')
+  return { self, pkg, file, checkouts, found }
+}
+
+export async function requireAcdert(root = ROOT) {
+  const set = process.env.ACDERT
+  if (set) {
+    if (existsSync(set)) return set
+    const named = /[\\/]/.test(set) ? null : which(set)
+    if (named) return named
+    throw new Error(`ACDERT=${set}: no such file; point ACDERT at an acdert binary, or unset it to let acde look for one`)
+  }
+  const { self, pkg, file, checkouts, found } = locateAcdert(root)
+  if (found) return found
+  const version = self.optionalDependencies?.[pkg]
+  if (version) return fetchPackage(pkg, version, file)
+  const looked = ['  ACDERT (not set)', `  ${pkg} (not installed)`, ...checkouts.map((path) => `  ${path} (not built)`), `  PATH (no acdert${EXE} in it)`]
+  const missing = self.optionalDependencies ? `acdert has no build for ${target()} yet (acde ${self.version})` : 'no acdert found'
+  const build = checkouts.length ? `, build the acdert checkout next to acde (cd ${join(root, '..', 'acdert')} && cargo build --release -p acdert)` : ''
+  throw new Error(`${missing}. Looked in:\n${looked.join('\n')}\nSet ACDERT to an acdert you built (ACDERT=/path/to/acdert acde dev)${build}, or put acdert on PATH`)
+}
+
+export async function findAcdert(needed, root = ROOT) {
+  if (needed) return requireAcdert(root)
+  return process.env.ACDERT || locateAcdert(root).found
 }
 
 export async function run(args) {
