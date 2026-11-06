@@ -1,4 +1,4 @@
-import type { AppManifest as AppEntry, Capabilities, PackageManifest } from './index.js'
+import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest } from './index.js'
 
 export type { Capabilities, PackageManifest } from './index.js'
 
@@ -6,12 +6,7 @@ export const ICON_NAMES = ['files', 'browser', 'editor', 'office', 'term', 'proj
 
 export type IconName = (typeof ICON_NAMES)[number]
 
-export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & { readonly backend: AppBackend | null; readonly size: readonly [number, number] | null }
-
-export interface AppBackend {
-  readonly entry: string
-  readonly port: number
-}
+export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & { readonly backend: Required<AppBackend> | null; readonly size: readonly [number, number] | null }
 
 export interface Findings {
   readonly errors: string[]
@@ -98,7 +93,7 @@ export class Manifest {
     return Array.isArray(raw) && raw.length === 2 && raw.every((n) => Number.isInteger(n) && n > 0) ? [raw[0], raw[1]] : undefined
   }
 
-  static #backend(raw: unknown): AppBackend | null | string {
+  static #backend(raw: unknown): Required<AppBackend> | null | string {
     if (raw === undefined || raw === null) return null
     if (typeof raw !== 'object' || Array.isArray(raw)) return 'backend must be an object {entry, port?}'
     const { entry, port = 3000 } = raw as { entry?: unknown; port?: unknown }

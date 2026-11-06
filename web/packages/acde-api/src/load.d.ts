@@ -1,21 +1,6 @@
 import type { AcdePage } from './page'
 
-export interface AcdeModules {
-  readonly fs: NonNullable<AcdePage['fs']>
-  readonly office: NonNullable<AcdePage['office']>
-  readonly terminal: NonNullable<AcdePage['terminal']>
-  readonly network: NonNullable<AcdePage['network']>
-  readonly windows: NonNullable<AcdePage['windows']>
-  readonly apps: NonNullable<AcdePage['apps']>
-  readonly desktop: NonNullable<AcdePage['desktop']>
-  readonly desktops: NonNullable<AcdePage['desktops']>
-  readonly session: NonNullable<AcdePage['session']>
-  readonly open: NonNullable<AcdePage['open']>
-  readonly openPath: NonNullable<AcdePage['openPath']>
-  readonly handlers: NonNullable<AcdePage['handlers']>
-  readonly setDefault: NonNullable<AcdePage['setDefault']>
-  readonly window: NonNullable<AcdePage['window']>
-}
+export type AcdeModules = { readonly [K in keyof AcdePage as string extends K ? never : number extends K ? never : K]-?: NonNullable<AcdePage[K]> }
 
 export function load<K extends keyof AcdeModules>(name: K): Promise<AcdeModules[K] | null>
 export function load(name: string): Promise<unknown>
