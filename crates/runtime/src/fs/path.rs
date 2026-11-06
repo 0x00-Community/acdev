@@ -5,6 +5,7 @@ pub trait NodePath {
     fn dirname(&self) -> &str;
     fn basename(&self) -> &str;
     fn extname(&self) -> &str;
+    fn within(&self, root: &str) -> Option<&str>;
 }
 
 impl NodePath for str {
@@ -39,6 +40,14 @@ impl NodePath for str {
             out.push('/');
         }
         if absolute { format!("/{out}") } else { out }
+    }
+
+    fn within(&self, root: &str) -> Option<&str> {
+        if self == root {
+            return Some("");
+        }
+        let rest = self.strip_prefix(root)?;
+        if root.ends_with('/') { Some(rest) } else { rest.strip_prefix('/') }
     }
 
     fn join(&self, other: &str) -> String {

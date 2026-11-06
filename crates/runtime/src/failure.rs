@@ -136,6 +136,12 @@ fn symlink_loop(error: &io::Error) -> bool {
     }
 }
 
+impl From<Failure> for String {
+    fn from(failure: Failure) -> Self {
+        serde_json::to_string(&failure).unwrap_or(failure.message)
+    }
+}
+
 impl From<Failure> for napi::Error {
     fn from(failure: Failure) -> Self {
         napi::Error::new(Status::GenericFailure, serde_json::to_string(&failure).unwrap_or(failure.message))

@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -22,24 +21,11 @@ pub fn app_dir() -> PathBuf {
     bin.join("../../web/packages/acde-host/dist")
 }
 
-struct Upstream {
-    broker: Sender<Msg>,
-    on_message: Arc<bind::SendFunction>,
-}
-
 struct Handle {
     tx: Sender<Msg>,
     isolate: v8::IsolateHandle,
     stopping: Arc<AtomicBool>,
     killed: Arc<AtomicBool>,
-    busy: Arc<AtomicU64>,
-    tid: i32,
-}
-
-struct Started {
-    tx: Sender<Msg>,
-    isolate: v8::IsolateHandle,
-    stopping: Arc<AtomicBool>,
     busy: Arc<AtomicU64>,
     tid: i32,
 }
@@ -53,8 +39,7 @@ impl Handle {
 
 #[derive(Default)]
 struct Webs {
-    next: u32,
-    live: HashMap<u32, Handle>,
+    live: bind::Slab<Handle>,
     system: System,
 }
 
@@ -89,7 +74,7 @@ impl Webs {
             Some(v) if v.is_array() => Some(Some(bind::strings(scope, v).unwrap_or_default())),
             _ => None,
         };
-        let app = bind::get(scope, wanted, "app").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
+        let app = bind::get_string(scope, wanted, "app");
         #[cfg(unix)]
         let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
@@ -135,7 +120,7 @@ impl Grants {
 
 thread_local! {
     static WEBS: RefCell<Webs> = RefCell::new(Webs::default());
-    static UPSTREAM: RefCell<Option<Upstream>> = const { RefCell::new(None) };
+    static UPSTREAM: RefCell<Option<(Sender<Msg>, Arc<bind::SendFunction>)>> = const { RefCell::new(None) };
     static ON_MESSAGE: RefCell<Option<v8::Global<v8::Function>>> = const { RefCell::new(None) };
 }
 
@@ -161,15 +146,14 @@ impl Spec {
 
     fn spawn(self, id: u32, on_message: Arc<bind::SendFunction>, on_exit: bind::SendFunction, broker: Sender<Msg>) -> Result<Handle, String> {
         let (ready, started) = std::sync::mpsc::sync_channel(1);
-        let killed = Arc::new(AtomicBool::new(false));
-        let dead = killed.clone();
+        let dead = Arc::new(AtomicBool::new(false));
         let name = self.name.clone();
         std::thread::Builder::new()
             .name("acde".into())
             .stack_size(Self::STACK)
             .spawn(move || {
-                let upstream = Upstream { broker: broker.clone(), on_message: on_message.clone() };
-                let (code, reason) = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(upstream, &ready))) {
+                UPSTREAM.with(|u| *u.borrow_mut() = Some((broker.clone(), on_message.clone())));
+                let (code, reason) = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(dead.clone(), &ready))) {
                     Ok(ended) => ended,
                     Err(panic) => {
                         let message =
@@ -194,37 +178,29 @@ impl Spec {
                 })));
             })
             .map_err(|e| format!("spawnWeb: {e}"))?;
-        let Started { tx, isolate, stopping, busy, tid } =
-            started.recv_timeout(Self::START_WAIT).map_err(|_| "spawnWeb: the web thread did not start".to_owned())?;
-        Ok(Handle { tx, isolate, stopping, killed, busy, tid })
+        started.recv_timeout(Self::START_WAIT).map_err(|_| "spawnWeb: the web thread did not start".to_owned())
     }
 
-    fn run(self, upstream: Upstream, ready: &std::sync::mpsc::SyncSender<Started>) -> (i32, Option<String>) {
+    fn run(self, killed: Arc<AtomicBool>, ready: &std::sync::mpsc::SyncSender<Handle>) -> (i32, Option<String>) {
         let heap = (self.heap_mb > 0.0).then_some(self.heap_mb as usize);
         let mut runtime = rt::Runtime::new(heap, &self.name);
         let isolate = runtime.isolate.thread_safe_handle();
         let reason = Arc::new(Mutex::new(None::<String>));
         let stopping = Arc::new(AtomicBool::new(false));
         let guard = HeapGuard::install(&mut runtime, isolate.clone(), reason.clone(), stopping.clone());
-        UPSTREAM.with(|u| *u.borrow_mut() = Some(upstream));
-        let tid = thread_id();
-        _ = ready.send(Started { tx: runtime.lp.sender(), isolate, stopping: stopping.clone(), busy: runtime.lp.busy(), tid });
+        let tid = cfg_select! {
+            target_os = "linux" => rustix::thread::gettid().as_raw_nonzero().get(),
+            _ => 0,
+        };
+        _ = ready.send(Handle { tx: runtime.lp.sender(), isolate, stopping: stopping.clone(), killed, busy: runtime.lp.busy(), tid });
         let code = run_web(&mut runtime, self.init, &self.env, self.grants, &stopping);
         ON_MESSAGE.with(|m| *m.borrow_mut() = None);
-        UPSTREAM.with(|u| *u.borrow_mut() = None);
         crate::webnative::clear();
         crate::backend::clear();
-        crate::fs::clear();
-        crate::picker::clear();
-        #[cfg(unix)]
-        crate::terminal::clear();
+        crate::offload::clear();
         crate::audio::clear();
         #[cfg(target_os = "linux")]
-        {
-            crate::webgpu::clear();
-            crate::network::clear();
-            crate::office::clear();
-        }
+        crate::webgpu::clear();
         bind::clear_promises();
         drop(runtime);
         drop(guard);
@@ -270,11 +246,7 @@ pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     let on_exit = bind::SendFunction(v8::Global::new(scope, on_exit));
     let broker = rt::current();
     let grants = WEBS.with(|w| w.borrow_mut().grants(scope, args.get(6)));
-    let id = WEBS.with(|w| {
-        let mut w = w.borrow_mut();
-        w.next = w.next.wrapping_add(1);
-        w.next
-    });
+    let id = WEBS.with(|w| w.borrow_mut().live.next_id());
     let handle = match (Spec { name, init, heap_mb, env, grants }).spawn(id, on_message, on_exit, broker.sender()) {
         Ok(handle) => handle,
         Err(e) => return bind::throw_error(scope, &e),
@@ -324,16 +296,6 @@ fn busy_ms(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
     })
     .unwrap_or(0);
     rv.set_double(ms as f64);
-}
-
-#[cfg(target_os = "linux")]
-fn thread_id() -> i32 {
-    rustix::thread::gettid().as_raw_nonzero().get()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn thread_id() -> i32 {
-    0
 }
 
 fn cpu_ms(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -414,11 +376,8 @@ fn own_env(_: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8
 
 fn post_to_broker(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let Some(bytes) = crate::host::serialize_value(scope, args.get(0)) else { return };
-    UPSTREAM.with(|u| {
-        let Some(up) = u.borrow().as_ref().map(|u| (u.broker.clone(), u.on_message.clone())) else { return };
-        let (broker, on_message) = up;
-        _ = broker.send(Msg::Task(Box::new(move |scope| call_with(scope, &on_message.0, &bytes))));
-    });
+    let Some((broker, on_message)) = UPSTREAM.with(|u| u.borrow().clone()) else { return };
+    _ = broker.send(Msg::Task(Box::new(move |scope| call_with(scope, &on_message.0, &bytes))));
 }
 
 fn set_on_message(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

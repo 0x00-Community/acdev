@@ -6,7 +6,7 @@ use napi::bindgen_prelude::Unknown;
 use napi::{Env, Result};
 use napi_derive::napi;
 use serde_json::{Value, json};
-use zbus::blocking::{Connection, Proxy, connection};
+use zbus::blocking::{Connection, MessageIterator, Proxy, connection};
 use zbus::fdo::{RequestNameFlags, RequestNameReply};
 
 use crate::js::JsFn;
@@ -123,6 +123,24 @@ impl DesktopBus {
         })
         .await
     }
+}
+
+type Rule = zbus::match_rule::Builder<'static>;
+
+pub(crate) fn signals(connection: &Connection, rule: impl FnOnce(Rule) -> zbus::Result<Rule>) -> zbus::Result<MessageIterator> {
+    let rule = rule(zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal))?.build();
+    MessageIterator::for_match_rule(rule, connection, Some(16))
+}
+
+pub(crate) fn listen(name: &str, signals: MessageIterator, mut each: impl FnMut(zbus::Message) -> bool + Send + 'static) -> std::io::Result<()> {
+    let spawned = std::thread::Builder::new().name(name.into()).spawn(move || {
+        for message in signals {
+            if !message.is_ok_and(&mut each) {
+                break;
+            }
+        }
+    });
+    spawned.map(drop)
 }
 
 #[cfg(test)]

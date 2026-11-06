@@ -18,11 +18,12 @@ enum Backend {
     Ibus,
 }
 
+#[derive(Default)]
 pub struct ImeCapability {
-    pub preedit: Option<bool>,
-    pub surrounding_text: Option<bool>,
-    pub password: Option<bool>,
-    pub client_panel: Option<bool>,
+    pub preedit: bool,
+    pub surrounding_text: bool,
+    pub password: bool,
+    pub client_panel: bool,
 }
 
 #[derive(Default)]
@@ -163,7 +164,7 @@ impl Ime {
             })
             .map_err(|e| e.to_string())?;
         let ime = Self { backend, context, surrounding };
-        ime.set_capability(ImeCapability { preedit: Some(true), surrounding_text: None, password: None, client_panel: None })?;
+        ime.set_capability(ImeCapability { preedit: true, ..ImeCapability::default() })?;
         Ok(ime)
     }
 
@@ -264,30 +265,29 @@ impl Ime {
     }
 
     pub fn set_capability(&self, capability: ImeCapability) -> Result<()> {
-        let on = |flag: Option<bool>| flag.unwrap_or(false);
         match self.backend {
             Backend::Fcitx => {
                 let mut flags = 0u64;
-                if on(capability.preedit) {
+                if capability.preedit {
                     flags |= (1 << 1) | (1 << 4);
                 }
-                if on(capability.password) {
+                if capability.password {
                     flags |= 1 << 3;
                 }
-                if on(capability.surrounding_text) {
+                if capability.surrounding_text {
                     flags |= 1 << 6;
                 }
-                if on(capability.client_panel) {
+                if capability.client_panel {
                     flags |= 1 << 39;
                 }
                 self.context.send("SetCapability", &(flags,)).bus()
             }
             Backend::Ibus => {
                 let mut flags = 1u32 << 3;
-                if on(capability.preedit) {
+                if capability.preedit {
                     flags |= 1;
                 }
-                if on(capability.surrounding_text) {
+                if capability.surrounding_text {
                     flags |= 1 << 5;
                 }
                 self.context.send("SetCapabilities", &(flags,)).bus()
@@ -417,7 +417,7 @@ mod tests {
     fn fcitx5_pinyin() {
         let s = Session::open();
         assert_eq!(s.ime.backend(), "fcitx5");
-        s.ime.set_capability(ImeCapability { preedit: Some(true), surrounding_text: Some(true), password: None, client_panel: None }).unwrap();
+        s.ime.set_capability(ImeCapability { preedit: true, surrounding_text: true, ..ImeCapability::default() }).unwrap();
         s.ime.focus_in().unwrap();
         s.ime.set_cursor_rect(100, 200, 2, 18).unwrap();
 

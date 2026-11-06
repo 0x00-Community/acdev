@@ -42,7 +42,7 @@ pub struct FinderRoot {
     pub exists: bool,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntryKind {
     Directory,
@@ -159,29 +159,13 @@ impl FinderEntry {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChildKind {
-    File,
-    Directory,
-    Other,
-}
-
-impl ChildKind {
+impl EntryKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::File => "file",
             Self::Directory => "directory",
+            Self::File => "file",
+            Self::Symlink => "symlink",
             Self::Other => "other",
-        }
-    }
-}
-
-impl From<fs::FileType> for ChildKind {
-    fn from(kind: fs::FileType) -> Self {
-        match () {
-            _ if kind.is_dir() => Self::Directory,
-            _ if kind.is_file() => Self::File,
-            _ => Self::Other,
         }
     }
 }
@@ -538,7 +522,7 @@ impl WorkspaceFs {
         })
     }
 
-    pub fn children_in(root: &FinderRoot, relative: &str) -> Outcome<Vec<(String, ChildKind)>> {
+    pub fn children_in(root: &FinderRoot, relative: &str) -> Outcome<Vec<(String, EntryKind)>> {
         let Resolved { real, .. } = Self::resolve(root, relative, true)?;
         if !fs::metadata(&real)?.is_dir() {
             return Err(Failure::invalid("not a directory"));
@@ -552,15 +536,15 @@ impl WorkspaceFs {
         Ok(children)
     }
 
-    pub fn child_in(root: &FinderRoot, dir: &str, name: &str, create: Option<ChildKind>) -> Outcome<Option<ChildKind>> {
+    pub fn child_in(root: &FinderRoot, dir: &str, name: &str, create: Option<EntryKind>) -> Outcome<Option<EntryKind>> {
         let Resolved { absolute, .. } = Self::resolve(root, &Self::child_path(dir, name)?, false)?;
         match fs::symlink_metadata(&absolute) {
             Ok(info) => Ok(Some(info.file_type().into())),
             Err(error) if error.kind() == ErrorKind::NotFound => {
                 let made = match create {
-                    None | Some(ChildKind::Other) => return Ok(None),
-                    Some(ChildKind::File) => Self::no_follow(OpenOptions::new().write(true).create_new(true), &absolute, false).map(drop),
-                    Some(ChildKind::Directory) => DirBuilder::new().create(&absolute),
+                    None | Some(EntryKind::Other | EntryKind::Symlink) => return Ok(None),
+                    Some(EntryKind::File) => Self::no_follow(OpenOptions::new().write(true).create_new(true), &absolute, false).map(drop),
+                    Some(EntryKind::Directory) => DirBuilder::new().create(&absolute),
                 };
                 match made {
                     Ok(()) => Ok(create),
@@ -629,29 +613,18 @@ impl WorkspaceFs {
         if content.len() > MAX_WRITE_BYTES {
             return Err(Failure::http(413, "content exceeds 384 KiB"));
         }
-        let Resolved { absolute, .. } = Self::resolve(root, relative, false)?;
-        let current = fs::symlink_metadata(&absolute).ok();
-        match &current {
-            Some(_) if expected == "new" => return Err(Failure::exists("file already exists")),
-            None if expected == "new" => {}
-            Some(info) if info.is_file() => {
-                if info.modified_ms().to_string() != expected {
-                    return Err(Failure::conflict("file changed since it was opened; reload before saving"));
+        let options = match expected {
+            "new" => WriteOptions { create: Create::New, ..WriteOptions::default() },
+            _ => {
+                let Resolved { absolute, .. } = Self::resolve(root, relative, false)?;
+                if !fs::symlink_metadata(&absolute).is_ok_and(|info| info.is_file()) {
+                    return Err(Failure::conflict("file no longer exists or is not a regular file"));
                 }
+                let expected = expected.parse::<i64>().map_err(|_| Failure::conflict("file changed since it was opened; reload before saving"))?;
+                WriteOptions { if_modified_ms: Some(expected as f64), ..WriteOptions::default() }
             }
-            _ => return Err(Failure::conflict("file no longer exists or is not a regular file")),
-        }
-        let mut options = OpenOptions::new();
-        options.write(true);
-        match current {
-            Some(_) => options.truncate(true),
-            None => options.create_new(true),
         };
-        let mut file = Self::no_follow(&mut options, &absolute, false)?;
-        file.write_all(content.as_bytes())?;
-        file.sync_all()?;
-        drop(file);
-        FinderEntry::read(&absolute, absolute.basename())
+        Self::write_file_in(root, relative, content.as_bytes(), &options)
     }
 
     pub fn numbered(name: &str, n: u32) -> String {
@@ -732,7 +705,7 @@ impl WorkspaceFs {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{MetadataExt, symlink};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     struct Scratch {
@@ -899,5 +872,42 @@ mod tests {
         assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "away/w", &recursive)), (400, "EINVAL"));
         assert!(!Path::new(&s.dir.join("w")).exists());
         assert_eq!(code(WorkspaceFs::mkdir_in(&s.root, "../w", &recursive)), (400, "EINVAL"));
+    }
+
+    #[test]
+    fn copy_into_keeps_or_numbers_the_name() {
+        let s = Scratch::new();
+        let src = s.dir.join("src dir");
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir(s.at("docs")).unwrap();
+        fs::write(s.at("docs/plain.txt"), "x").unwrap();
+        let image = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 255];
+        fs::write(src.join("截图 1.png"), image).unwrap();
+        fs::write(src.join(".env"), "A=1\n").unwrap();
+        fs::write(src.join("README"), "readme\n").unwrap();
+        let copy = |dir: &str, source: &str| WorkspaceFs::copy_into(&s.root, dir, source);
+        let entry = copy("docs", &src.join("截图 1.png")).unwrap();
+        assert_eq!((entry.name.as_str(), entry.kind, entry.size), ("截图 1.png", EntryKind::File, image.len() as u64));
+        assert_eq!(fs::read(s.at("docs/截图 1.png")).unwrap(), image);
+        let uri = url::Url::from_file_path(src.join("截图 1.png")).unwrap();
+        assert_eq!(copy("docs", uri.as_str()).unwrap().name, "截图 1 2.png");
+        assert_eq!(copy("docs", &src.join("截图 1.png")).unwrap().name, "截图 1 3.png");
+        for name in [".env", "README"] {
+            assert_eq!(copy("", &src.join(name)).unwrap().name, name);
+            assert_eq!(copy("", &src.join(name)).unwrap().name, format!("{name} 2"));
+        }
+        assert_eq!(fs::read_to_string(s.at("docs/plain.txt")).unwrap(), "x");
+        File::create(src.join("big.bin")).unwrap().set_len(70 << 20).unwrap();
+        assert_eq!(copy("", &src.join("big.bin")).unwrap().size, 70 << 20);
+        let failed = |outcome: Outcome<FinderEntry>| outcome.err().map(|f| (f.status, f.message));
+        let failed = |dir: &str, source: &str| failed(copy(dir, source));
+        assert_eq!(failed("", &src.join("nope.png")), Some((404, "source file not found".into())));
+        assert_eq!(failed("", &src), Some((400, "only regular files can be copied in".into())));
+        assert_eq!(failed("", "relative.png"), Some((400, "source must be an absolute path or a file:// URI".into())));
+        assert_eq!(failed("", "file://elsewhere/x.png"), Some((400, "not a file:// URI of this machine".into())));
+        assert_eq!(failed("docs/plain.txt", &src.join("README")), Some((400, "not a directory".into())));
+        assert_eq!(failed("../", &src.join("README")), Some((400, "path escapes the workspace".into())));
+        assert_eq!(failed("nope", &src.join("README")), Some((404, "no such file or directory".into())));
+        assert!(!Path::new(&s.at("nope")).exists());
     }
 }

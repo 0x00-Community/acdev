@@ -82,8 +82,6 @@ export interface Native {
   Shell: { broker(options?: { title?: string }): BrokerShell; readonly hosted?: boolean }
   Finder?: new () => object
   Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
-  Terminals?: new () => { closeAll(): void }
-  Network?: { open(): Promise<NativeNetwork> }
   Appearance?: { open(): Promise<NativeAppearance> }
   FileChooser?: { open(): Promise<NativeFileChooser> }
   Greetd?: NativeGreetd
@@ -92,16 +90,6 @@ export interface Native {
     open(handler: (request: BusRequest) => unknown): NativeDesktopBus
     send(uris: string[], app?: string | null): Promise<void>
   }
-}
-
-interface NativeNetwork {
-  state(): Promise<unknown>
-  networks(scan?: boolean): Promise<unknown>
-  connect(ssid: string, password?: string): Promise<void>
-  activate(iface: string): Promise<void>
-  disconnect(iface: string): Promise<void>
-  setWifiEnabled(on: boolean): Promise<void>
-  watch(callback: (state: unknown) => void): void
 }
 
 interface NativeAppearance {

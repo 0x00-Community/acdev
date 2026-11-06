@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use serde_json::Value;
 
-use crate::bind;
+use crate::bind::{self, IntoJs};
 use crate::modules::Loader;
 use crate::rt;
 
@@ -180,12 +180,8 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
     bind::method(scope, obj, "spawn", crate::child::spawn);
     bind::method(scope, obj, "write", crate::child::write);
     bind::method(scope, obj, "endInput", crate::child::end_input);
-    let list = v8::Array::new(scope, argv.len() as i32);
-    for (i, arg) in argv.iter().enumerate() {
-        let arg = bind::string(scope, arg);
-        list.set_index(scope, i as u32, arg.into());
-    }
-    bind::set(scope, obj, "argv", list.into());
+    let argv = argv.to_vec().js(scope);
+    bind::set(scope, obj, "argv", argv);
     let platform = bind::string(
         scope,
         match std::env::consts::OS {
@@ -236,12 +232,7 @@ fn with_path(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, f: 
             std::io::ErrorKind::IsADirectory => "EISDIR",
             _ => "EIO",
         };
-        let message = bind::string(scope, &format!("{code}: {path}: {e}"));
-        let error = v8::Exception::error(scope, message);
-        if let Ok(obj) = v8::Local::<v8::Object>::try_from(error) {
-            let code = bind::string(scope, code);
-            bind::set(scope, obj, "code", code.into());
-        }
+        let error = crate::offload::failure(scope, &format!("{code}: {path}: {e}"), None, code);
         scope.throw_exception(error);
     }
 }
@@ -288,27 +279,22 @@ fn stat(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
         _ => if meta.permissions().readonly() { 0o444 } else { 0o666 },
     };
     let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0);
-    let fields = [
-        ("isFile", v8::Boolean::new(scope, meta.is_file()).into()),
-        ("isDirectory", v8::Boolean::new(scope, meta.is_dir()).into()),
-        ("isSymbolicLink", v8::Boolean::new(scope, link).into()),
-        ("size", v8::Number::new(scope, meta.len() as f64).into()),
-        ("mtimeMs", v8::Number::new(scope, mtime).into()),
-        ("mode", v8::Number::new(scope, mode as f64).into()),
-    ];
-    rv.set(bind::object(scope, &fields).into());
+    let stat = crate::js_object!(scope, {
+        "isFile" => meta.is_file(),
+        "isDirectory" => meta.is_dir(),
+        "isSymbolicLink" => link,
+        "size" => meta.len(),
+        "mtimeMs" => mtime,
+        "mode" => mode,
+    });
+    rv.set(stat.into());
 }
 
 fn read_dir(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     with_path(scope, &args, |scope, path| {
         let mut names: Vec<String> = std::fs::read_dir(path)?.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         names.sort();
-        let list = v8::Array::new(scope, names.len() as i32);
-        for (i, name) in names.iter().enumerate() {
-            let name = bind::string(scope, name);
-            list.set_index(scope, i as u32, name.into());
-        }
-        rv.set(list.into());
+        rv.set(names.js(scope));
         Ok(())
     });
 }
@@ -442,12 +428,7 @@ fn run(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8
         Ok(child) => wait_output(child, timeout),
         Err(e) => (None, String::new(), e.to_string()),
     };
-    let status: v8::Local<v8::Value> = match status {
-        Some(code) => v8::Integer::new(scope, code).into(),
-        None => v8::null(scope).into(),
-    };
-    let fields = [("status", status), ("stdout", bind::string(scope, &stdout).into()), ("stderr", bind::string(scope, &stderr).into())];
-    rv.set(bind::object(scope, &fields).into());
+    rv.set(crate::js_object!(scope, {"status" => status, "stdout" => stdout, "stderr" => stderr}).into());
 }
 
 fn wait_output(mut child: std::process::Child, timeout_ms: f64) -> (Option<i32>, String, String) {
@@ -493,6 +474,13 @@ fn on_signal(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v
     signals::listen(rt::current().sender(), callback);
 }
 
+fn signalled(callback: std::sync::Arc<bind::SendFunction>, name: &'static str) -> rt::Msg {
+    rt::Msg::Task(Box::new(move |scope| {
+        let name = bind::string(scope, name);
+        bind::call(scope, &callback.0, &[name.into()]);
+    }))
+}
+
 #[cfg(unix)]
 mod signals {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -520,11 +508,7 @@ mod signals {
                     SIGHUP => "SIGHUP",
                     _ => "SIGTERM",
                 };
-                let callback = callback.clone();
-                _ = loop_tx.send(Msg::Task(Box::new(move |scope| {
-                    let name = crate::bind::string(scope, name);
-                    crate::bind::call(scope, &callback.0, &[name.into()]);
-                })));
+                _ = loop_tx.send(super::signalled(callback.clone(), name));
             }
         });
     }
@@ -560,11 +544,7 @@ mod signals {
         let Some((loop_tx, callback)) = LISTENER.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return 0;
         };
-        let sent = loop_tx.send(Msg::Task(Box::new(move |scope| {
-            let name = crate::bind::string(scope, name);
-            crate::bind::call(scope, &callback.0, &[name.into()]);
-        })));
-        i32::from(sent.is_ok())
+        i32::from(loop_tx.send(super::signalled(callback, name)).is_ok())
     }
 }
 

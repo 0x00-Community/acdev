@@ -20,16 +20,16 @@ const GUARD: &str = r#"(f) => (...args) => {
 
 type Settled = Either<String, Promise<String>>;
 
-pub struct JsFn<A: 'static + JsValuesTupleIntoVec, const Q: usize = 0> {
-    tsfn: ThreadsafeFunction<A, Settled, A, Status, false, true, Q>,
+pub struct JsFn<A: 'static + JsValuesTupleIntoVec> {
+    tsfn: ThreadsafeFunction<A, Settled, A, Status, false, true>,
 }
 
-impl<A: 'static + JsValuesTupleIntoVec, const Q: usize> JsFn<A, Q> {
+impl<A: 'static + JsValuesTupleIntoVec> JsFn<A> {
     pub fn new(env: &Env, function: Unknown) -> Result<Self> {
         let guard: Function<Unknown, Unknown> = env.run_script(GUARD)?;
         let wrapped = guard.call(function)?;
         let wrapped: Function<A, Settled> = unsafe { Function::from_napi_value(env.raw(), wrapped.raw())? };
-        let tsfn = wrapped.build_threadsafe_function::<A>().callee_handled::<false>().weak::<true>().max_queue_size::<Q>().build()?;
+        let tsfn = wrapped.build_threadsafe_function::<A>().callee_handled::<false>().weak::<true>().build()?;
         Ok(Self { tsfn })
     }
 

@@ -7,14 +7,18 @@ use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use std::{collections::HashMap, sync::Mutex};
 
-fn mac(key: &[u8], data: &[u8]) -> Vec<u8> {
+fn mac(key: &[u8], data: &[u8]) -> Hmac<Sha256> {
     let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC takes any key");
     mac.update(data);
-    mac.finalize().into_bytes().to_vec()
+    mac
 }
 
-fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+fn signature(key: &[u8], data: &str) -> String {
+    B64.encode(mac(key, data.as_bytes()).finalize().into_bytes())
+}
+
+fn verified(key: &[u8], data: &str, signature: &str) -> bool {
+    B64.decode(signature).is_ok_and(|signature| mac(key, data.as_bytes()).verify_slice(&signature).is_ok())
 }
 
 fn object(part: &str) -> Outcome<Map<String, Value>> {
@@ -38,10 +42,6 @@ impl Jwt {
         Self { secret: secret.as_bytes().to_vec() }
     }
 
-    fn sign_part(&self, data: &str) -> String {
-        B64.encode(mac(&self.secret, data.as_bytes()))
-    }
-
     pub fn sign(&self, claims: &Value, ttl_seconds: Option<u64>) -> String {
         let now = (now_ms() / 1000.0).floor() as u64;
         let mut body = claims.as_object().cloned().unwrap_or_default();
@@ -50,7 +50,7 @@ impl Jwt {
             body.insert("exp".into(), (now + ttl).into());
         }
         let unsigned = format!("{}.{}", B64.encode(json!({"alg": "HS256", "typ": "JWT"}).to_string()), B64.encode(Value::Object(body).to_string()));
-        format!("{unsigned}.{}", self.sign_part(&unsigned))
+        format!("{unsigned}.{}", signature(&self.secret, &unsigned))
     }
 
     pub fn verify(&self, token: &str) -> Outcome<Map<String, Value>> {
@@ -61,7 +61,7 @@ impl Jwt {
             return Err(Failure::token_refused("unexpected token algorithm"));
         }
         let signed = format!("{header_part}.{claims_part}");
-        if !same(&self.sign_part(&signed), signature) {
+        if !verified(&self.secret, &signed, signature) {
             return Err(Failure::token_refused("bad token signature"));
         }
         let now = now_ms() / 1000.0;
@@ -90,19 +90,11 @@ impl Jwt {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TicketKind {
     File,
     Callback,
-}
-
-impl TicketKind {
-    fn name(&self) -> &str {
-        match self {
-            Self::File => "file",
-            Self::Callback => "callback",
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -125,30 +117,26 @@ const CALLBACK_TTL_MS: f64 = 24.0 * 3_600_000.0;
 
 impl Tickets {
     pub fn new(secret: &str) -> Self {
-        Self { key: mac(secret.as_bytes(), b"agentrt-office/ticket/v1"), used: Mutex::default() }
-    }
-
-    fn sign(&self, body: &str) -> String {
-        B64.encode(mac(&self.key, body.as_bytes()))
+        Self { key: mac(secret.as_bytes(), b"agentrt-office/ticket/v1").finalize().into_bytes().to_vec(), used: Mutex::default() }
     }
 
     pub fn issue(&self, kind: TicketKind, root: &str, path: &str, key: &str, mtime_ms: i64) -> String {
         let ttl = if kind == TicketKind::File { FILE_TTL_MS } else { CALLBACK_TTL_MS };
         let nonce = B64.encode(rand::random::<[u8; 9]>());
-        let body = json!({"root": root, "path": path, "key": key, "mtimeMs": mtime_ms, "kind": kind.name(),
+        let body = json!({"root": root, "path": path, "key": key, "mtimeMs": mtime_ms, "kind": kind,
             "exp": now_ms() + ttl, "nonce": nonce});
         let body = B64.encode(body.to_string());
-        format!("{body}.{}", self.sign(&body))
+        format!("{body}.{}", signature(&self.key, &body))
     }
 
     pub fn read(&self, token: &str, kind: TicketKind) -> Outcome<Ticket> {
         let mut parts = token.split('.');
         let (Some(body), Some(signature), None) = (parts.next(), parts.next(), parts.next()) else { return Err(Failure::token_refused("bad ticket")) };
-        if body.is_empty() || signature.is_empty() || !same(&self.sign(body), signature) {
+        if body.is_empty() || signature.is_empty() || !verified(&self.key, body, signature) {
             return Err(Failure::token_refused("bad ticket"));
         }
         let value = object(body).map_err(|_| Failure::token_refused("bad ticket"))?;
-        if value.get("kind").and_then(Value::as_str) != Some(kind.name()) {
+        if value.get("kind") != Some(&json!(kind)) {
             return Err(Failure::token_refused("ticket is for another purpose"));
         }
         let exp = value.get("exp").and_then(Value::as_f64).ok_or_else(|| Failure::token_refused("ticket expired"))?;

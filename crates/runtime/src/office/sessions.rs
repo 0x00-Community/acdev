@@ -10,7 +10,8 @@ use std::{
 
 const IDLE: Duration = Duration::from_secs(24 * 3600);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SaveState {
     Open,
     Saving,
@@ -18,19 +19,6 @@ pub enum SaveState {
     Failed,
     Conflict,
     Closed,
-}
-
-impl SaveState {
-    fn name(&self) -> &str {
-        match self {
-            Self::Open => "open",
-            Self::Saving => "saving",
-            Self::Saved => "saved",
-            Self::Failed => "failed",
-            Self::Conflict => "conflict",
-            Self::Closed => "closed",
-        }
-    }
 }
 
 pub struct Session {
@@ -49,7 +37,7 @@ pub struct Session {
 
 impl Session {
     pub fn status(&self) -> Value {
-        json!({"key": self.key, "state": self.state.name(), "savedAt": self.saved_at, "expectedMs": self.expected_ms,
+        json!({"key": self.key, "state": self.state, "savedAt": self.saved_at, "expectedMs": self.expected_ms,
             "message": self.message, "conflictPath": self.conflict_path, "editors": self.editors})
     }
     pub fn touch(&mut self) {

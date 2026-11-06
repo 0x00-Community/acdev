@@ -1,10 +1,5 @@
 use crate::failure::{Code, Failure, Outcome};
-use crate::js::JsFn;
 use crate::sync::Locked;
-use napi::bindgen_prelude::Unknown;
-use napi::threadsafe_function::ThreadsafeFunctionCallMode;
-use napi::{Env, Result};
-use napi_derive::napi;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fs::{Access, OFlags, access, fcntl_setfl};
 use rustix::io::Errno;
@@ -19,6 +14,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+type Result<T> = std::result::Result<T, String>;
+
 const MAX_TERMINALS: usize = 8;
 const ATTACH: Duration = Duration::from_secs(15);
 const ENDED: Duration = Duration::from_secs(30);
@@ -31,22 +28,7 @@ const LINGER_BYTES: usize = 64 * 1024;
 const LINGER: Duration = Duration::from_millis(4);
 const MAX_INPUT_UNITS: usize = 64 * 1024;
 
-enum Listener {
-    Js(JsFn<Value, 16>),
-    Rust(Box<dyn Fn(Value) -> bool + Send + Sync>),
-}
-
-impl Listener {
-    fn notify(&self, events: Value) -> bool {
-        match self {
-            Self::Js(callback) => {
-                callback.notify(events, ThreadsafeFunctionCallMode::Blocking);
-                true
-            }
-            Self::Rust(sink) => sink(events),
-        }
-    }
-}
+type Listener = dyn Fn(Value) -> bool + Send + Sync;
 
 #[derive(Default)]
 struct Utf8Stream {
@@ -142,7 +124,7 @@ impl Session {
             state.listeners.clone()
         };
         let batch = Value::Array(events);
-        let gone: Vec<Arc<Listener>> = listeners.into_iter().filter(|listener| !listener.notify(batch.clone())).collect();
+        let gone: Vec<Arc<Listener>> = listeners.into_iter().filter(|listener| !listener(batch.clone())).collect();
         if !gone.is_empty() {
             self.state().listeners.retain(|l| !gone.iter().any(|g| Arc::ptr_eq(l, g)));
         }
@@ -353,7 +335,6 @@ impl Io<'_> {
     }
 }
 
-#[napi]
 pub struct Terminals {
     registry: Arc<Registry>,
     owner: bool,
@@ -423,28 +404,17 @@ impl Terminals {
     }
 }
 
-#[napi]
 impl Terminals {
-    #[napi(constructor)]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self { registry: Arc::new(Registry { sessions: Mutex::default() }), owner: true }
     }
 
-    #[napi]
     pub fn open(&self, cols: f64, rows: f64) -> Result<Value> {
         let (cols, rows) = Self::size(cols, rows)?;
         Ok(json!({"id": self.start(cols, rows)?}))
     }
 
-    #[napi(
-        ts_args_type = "id: string, callback: (events: Array<{ type: 'output', data: string } | { type: 'cwd', path: string } | { type: 'exit', code: number | null, signal: number | null }>) => void"
-    )]
-    pub fn subscribe(&self, env: Env, id: String, callback: Unknown) -> Result<()> {
-        let callback = Listener::Js(JsFn::new(&env, callback)?);
-        Ok(self.attach(&id, callback)?)
-    }
-
-    #[napi]
     pub fn input(&self, id: String, data: String) -> Result<Value> {
         if data.encode_utf16().count() > MAX_INPUT_UNITS {
             return Err(Failure::invalid("data must be a string of at most 65536 characters").into());
@@ -457,7 +427,6 @@ impl Terminals {
         Ok(json!({"ok": true}))
     }
 
-    #[napi]
     pub fn resize(&self, id: String, cols: f64, rows: f64) -> Result<Value> {
         let (c, r) = Self::size(cols, rows)?;
         let session = self.registry.get(&id)?;
@@ -467,7 +436,6 @@ impl Terminals {
         Ok(json!({"cols": c, "rows": r}))
     }
 
-    #[napi]
     pub fn close(&self, id: String) -> Value {
         if let Ok(session) = self.registry.get(&id) {
             self.registry.close(&session);
@@ -475,25 +443,18 @@ impl Terminals {
         json!({"closed": id})
     }
 
-    #[napi]
     pub fn close_all(&self) {
         let sessions: Vec<_> = self.registry.sessions().values().cloned().collect();
         for session in sessions {
             self.registry.close(&session);
         }
     }
-}
-
-impl Terminals {
-    pub fn listen(&self, id: &str, sink: impl Fn(Value) -> bool + Send + Sync + 'static) -> Result<()> {
-        Ok(self.attach(id, Listener::Rust(Box::new(sink)))?)
-    }
 
     pub fn shared(&self) -> Self {
         Self { registry: Arc::clone(&self.registry), owner: false }
     }
 
-    fn attach(&self, id: &str, listener: Listener) -> Outcome<()> {
+    pub fn listen(&self, id: &str, listener: impl Fn(Value) -> bool + Send + Sync + 'static) -> Result<()> {
         let session = self.registry.get(id)?;
         let ended = {
             let mut state = session.state();
@@ -501,7 +462,7 @@ impl Terminals {
             let backlog: Vec<Value> = state.backlog.drain(..).collect();
             state.backlog_units = 0;
             if !backlog.is_empty() {
-                listener.notify(Value::Array(backlog));
+                listener(Value::Array(backlog));
             }
             state.listeners.push(Arc::new(listener));
             state.ended
@@ -510,12 +471,6 @@ impl Terminals {
             self.registry.close(&session);
         }
         Ok(())
-    }
-}
-
-impl Default for Terminals {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -564,5 +519,155 @@ impl Wake {
     fn drain(&self) {
         let mut buf = [0u8; 64];
         while matches!(rustix::io::read(&self.read, &mut buf), Ok(n) if n > 0) {}
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    type Log = (String, Vec<Value>, Vec<usize>);
+
+    #[derive(Clone, Default)]
+    struct Seen(Arc<Mutex<Log>>);
+
+    impl Seen {
+        fn follow(terminals: &Terminals, id: &str) -> Self {
+            let seen = Self::default();
+            let sink = seen.clone();
+            let listened = terminals.listen(id, move |events| {
+                let mut log = sink.0.locked();
+                let mut size = 0;
+                for event in events.as_array().into_iter().flatten() {
+                    if event["type"] == "output" {
+                        let data = event["data"].as_str().unwrap_or_default();
+                        log.0.push_str(data);
+                        size += data.encode_utf16().count();
+                    }
+                    log.1.push(event.clone());
+                }
+                log.2.push(size);
+                true
+            });
+            listened.unwrap();
+            seen
+        }
+
+        fn until(&self, what: &str, within: Duration, done: impl Fn(&Log) -> bool) {
+            let end = Instant::now() + within;
+            while !done(&self.0.locked()) {
+                assert!(Instant::now() < end, "timed out waiting for {what}");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+
+        fn exited(&self) -> Value {
+            self.until("exit", Duration::from_secs(6), |log| log.1.iter().any(|e| e["type"] == "exit"));
+            self.0.locked().1.last().cloned().unwrap_or_default()
+        }
+    }
+
+    fn failed<T: std::fmt::Debug>(result: Result<T>) -> Value {
+        let mut failure: Value = serde_json::from_str(&result.unwrap_err()).unwrap();
+        failure.as_object_mut().unwrap().remove("retryable");
+        failure
+    }
+
+    fn invalid(message: &str) -> Value {
+        json!({"status": 400, "code": "invalid_request", "message": message})
+    }
+
+    fn missing() -> Value {
+        json!({"status": 404, "code": "http_error", "message": "no such terminal"})
+    }
+
+    fn open(t: &Terminals) -> String {
+        t.open(80.0, 24.0).unwrap()["id"].as_str().unwrap().to_owned()
+    }
+
+    const WAIT: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn a_session_on_a_real_pty() {
+        let t = Terminals::new();
+        assert_eq!(failed(t.open(1.0, 24.0)), invalid("cols must be an integer in [2, 1000]"));
+        assert_eq!(failed(t.open(80.0, 24.5)), invalid("rows must be an integer in [2, 1000]"));
+        assert_eq!(failed(t.open(80.0, 1001.0)), invalid("rows must be an integer in [2, 1000]"));
+        assert_eq!(failed(t.input("nope".into(), "x".into())), missing());
+        assert_eq!(failed(t.resize("nope".into(), 80.0, 24.0)), missing());
+        assert_eq!(failed(t.listen("nope", |_| true)), missing());
+        assert_eq!(t.close("nope".into()), json!({"closed": "nope"}));
+        let id = open(&t);
+        assert_eq!(id.len(), 36);
+        let s = Seen::follow(&t, &id);
+        assert_eq!(t.input(id.clone(), "echo he\"\"llo; pwd\n".into()).unwrap(), json!({"ok": true}));
+        let home = std::env::home_dir().unwrap().to_string_lossy().into_owned();
+        s.until("echo", WAIT, |log| log.0.contains("hello") && log.0.contains(&home));
+        s.until("cwd ~", WAIT, |log| log.1.iter().any(|e| e["type"] == "cwd" && e["path"] == "~"));
+        t.input(id.clone(), "cd /tmp\n".into()).unwrap();
+        s.until("cwd /tmp", WAIT, |log| log.1.iter().any(|e| e["type"] == "cwd" && e["path"] == "/tmp"));
+        assert_eq!(t.resize(id.clone(), 100.0, 30.0).unwrap(), json!({"cols": 100, "rows": 30}));
+        assert_eq!(failed(t.resize(id.clone(), 100.0, 1.0)), invalid("rows must be an integer in [2, 1000]"));
+        t.input(id.clone(), "stty size\n".into()).unwrap();
+        s.until("stty size", WAIT, |log| log.0.contains("30 100"));
+        t.input(id.clone(), "printf '\\xe4\\xb8'; sleep 0.3; printf '\\xad|\\n'\n".into()).unwrap();
+        s.until("split UTF-8 joined", WAIT, |log| log.0.contains("中|"));
+        assert!(!s.0.locked().0.contains('\u{fffd}'));
+        assert_eq!(failed(t.input(id.clone(), "x".repeat(65537))), invalid("data must be a string of at most 65536 characters"));
+        let before = s.0.locked().2.len();
+        t.input(id.clone(), "seq 1 200000; echo SEQ-$((1+1))-DONE\n".into()).unwrap();
+        s.until("seq output", Duration::from_secs(20), |log| log.0.contains("200000\r\nSEQ-2-DONE\r\n"));
+        let sizes = s.0.locked().2[before..].to_vec();
+        assert!(sizes.iter().sum::<usize>() / sizes.len() > 4096, "output is batched: {} callbacks", sizes.len());
+        t.input(id.clone(), "exit 7\n".into()).unwrap();
+        assert_eq!(s.exited(), json!({"type": "exit", "code": 7, "signal": null}));
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(failed(t.input(id, "x".into())), missing());
+    }
+
+    #[test]
+    fn backlog_signals_hang_up_and_limit() {
+        let t = Terminals::new();
+        let id = open(&t);
+        t.input(id.clone(), "echo early-$((6*7)); exit 3\n".into()).unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+        let s = Seen::follow(&t, &id);
+        assert_eq!(s.exited(), json!({"type": "exit", "code": 3, "signal": null}));
+        assert!(s.0.locked().0.contains("early-42"));
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(failed(t.input(id, "x".into())), missing());
+
+        let id = open(&t);
+        let s = Seen::follow(&t, &id);
+        t.input(id, "kill -9 $$\n".into()).unwrap();
+        assert_eq!(s.exited(), json!({"type": "exit", "code": null, "signal": 9}));
+
+        let id = open(&t);
+        let s = Seen::follow(&t, &id);
+        t.input(id.clone(), "trap '' HUP; echo TRAPPED; while :; do sleep 1; done\n".into()).unwrap();
+        s.until("trap set", WAIT, |log| log.0.contains("TRAPPED\r\n"));
+        let at = Instant::now();
+        assert_eq!(t.close(id.clone()), json!({"closed": &id}));
+        assert_eq!(failed(t.resize(id, 80.0, 24.0)), missing());
+        assert_eq!(s.exited(), json!({"type": "exit", "code": null, "signal": 9}));
+        assert!((2500..5000).contains(&at.elapsed().as_millis()), "SIGKILL about 3 s after the hang-up");
+
+        let ids: Vec<String> = (0..8).map(|_| open(&t)).collect();
+        assert_eq!(failed(t.open(80.0, 24.0)), json!({"status": 429, "code": "http_error", "message": "at most 8 terminals"}));
+        for id in ids {
+            t.close(id);
+        }
+        open(&t);
+        t.close_all();
+    }
+
+    #[test]
+    fn a_terminal_nobody_subscribes_to_goes_after_15_s() {
+        let t = Terminals::new();
+        let id = open(&t);
+        std::thread::sleep(Duration::from_secs(14));
+        assert_eq!(t.input(id.clone(), "true\n".into()).unwrap(), json!({"ok": true}));
+        std::thread::sleep(Duration::from_secs(2));
+        assert_eq!(failed(t.input(id, "x".into())), missing());
     }
 }

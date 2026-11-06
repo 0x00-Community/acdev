@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::collections::{BinaryHeap, VecDeque};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
@@ -24,17 +24,14 @@ enum Job {
 
 #[derive(Default)]
 struct Timers {
-    next: u32,
     queue: BinaryHeap<Reverse<(Instant, u32)>>,
-    live: HashMap<u32, Job>,
+    live: crate::bind::Slab<Job>,
 }
 
 impl Timers {
     fn add(&mut self, at: Instant, job: Job) -> u32 {
-        self.next = self.next.wrapping_add(1).max(1);
-        let id = self.next;
+        let id = self.live.add(job);
         self.queue.push(Reverse((at, id)));
-        self.live.insert(id, job);
         id
     }
 
@@ -294,10 +291,7 @@ impl Runtime {
             while let Ok(msg) = lp.rx.try_recv() {
                 self.message(msg);
             }
-            if lp.exit.get().is_some() {
-                continue;
-            }
-            if !lp.local.borrow().is_empty() {
+            if lp.exit.get().is_some() || !lp.local.borrow().is_empty() {
                 continue;
             }
             if stop() {
@@ -311,17 +305,11 @@ impl Runtime {
                 continue;
             }
             lp.busy.store(0, Ordering::Relaxed);
-            let wait = lp.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
-            let msg = match wait {
-                Some(wait) => match lp.rx.recv_timeout(wait) {
-                    Ok(msg) => msg,
-                    Err(RecvTimeoutError::Timeout) => continue,
-                    Err(RecvTimeoutError::Disconnected) => return 0,
-                },
-                None => match lp.rx.recv() {
-                    Ok(msg) => msg,
-                    Err(_) => return 0,
-                },
+            let wait = lp.next_deadline().map_or(Duration::MAX, |at| at.saturating_duration_since(Instant::now()));
+            let msg = match lp.rx.recv_timeout(wait) {
+                Ok(msg) => msg,
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => return 0,
             };
             self.message(msg);
         }

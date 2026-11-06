@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
+use std::ops::{Deref, DerefMut};
 
 #[macro_export]
 macro_rules! methods {
@@ -11,6 +12,161 @@ macro_rules! methods {
     ($scope:expr, $obj:expr, $($name:literal => $f:expr),* $(,)?) => {
         $( $crate::bind::method($scope, $obj, $name, $f); )*
     };
+}
+
+#[macro_export]
+macro_rules! js_object {
+    ($scope:expr, { $($key:literal => $value:expr),* $(,)? }) => {{
+        let fields = [$(($key, $crate::bind::IntoJs::js($value, &mut *$scope))),*];
+        $crate::bind::object($scope, &fields)
+    }};
+}
+
+pub trait IntoJs<'s> {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value>;
+}
+
+impl<'s, T> IntoJs<'s> for v8::Local<'s, T>
+where
+    v8::Local<'s, T>: Into<v8::Local<'s, v8::Value>>,
+{
+    fn js(self, _: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        self.into()
+    }
+}
+
+impl<'s> IntoJs<'s> for () {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        v8::undefined(scope).into()
+    }
+}
+
+impl<'s> IntoJs<'s> for bool {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        v8::Boolean::new(scope, self).into()
+    }
+}
+
+macro_rules! numbers {
+    ($($t:ty),*) => {$(
+        impl<'s> IntoJs<'s> for $t {
+            fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+                v8::Number::new(scope, self as f64).into()
+            }
+        }
+    )*};
+}
+numbers!(u16, u32, u64, i32, i64, usize, f64);
+
+impl<'s> IntoJs<'s> for &str {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        string(scope, self).into()
+    }
+}
+
+impl<'s> IntoJs<'s> for String {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        string(scope, &self).into()
+    }
+}
+
+impl<'s, T: IntoJs<'s>> IntoJs<'s> for Option<T> {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        match self {
+            Some(v) => v.js(scope),
+            None => v8::null(scope).into(),
+        }
+    }
+}
+
+impl<'s> IntoJs<'s> for Vec<String> {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        let items: Vec<v8::Local<v8::Value>> = self.iter().map(|t| string(scope, t).into()).collect();
+        v8::Array::new_with_elements(scope, &items).into()
+    }
+}
+
+impl<'s> IntoJs<'s> for Vec<u8> {
+    fn js(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
+        uint8_array(scope, self).into()
+    }
+}
+
+pub struct Slab<T> {
+    next: u32,
+    items: HashMap<u32, T>,
+}
+
+impl<T> Default for Slab<T> {
+    fn default() -> Self {
+        Self { next: 0, items: HashMap::new() }
+    }
+}
+
+impl<T> Slab<T> {
+    pub fn next_id(&mut self) -> u32 {
+        self.next = self.next.wrapping_add(1).max(1);
+        self.next
+    }
+
+    pub fn add(&mut self, item: T) -> u32 {
+        let id = self.next_id();
+        self.items.insert(id, item);
+        id
+    }
+}
+
+impl<T> Deref for Slab<T> {
+    type Target = HashMap<u32, T>;
+    fn deref(&self) -> &Self::Target {
+        &self.items
+    }
+}
+
+impl<T> DerefMut for Slab<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.items
+    }
+}
+
+pub struct Args<'a, 's, 'i, 'v> {
+    pub scope: &'a mut v8::PinScope<'s, 'i>,
+    pub args: &'a v8::FunctionCallbackArguments<'v>,
+}
+
+impl<'v> Args<'_, '_, '_, 'v> {
+    fn given(&self, i: usize) -> Option<v8::Local<'v, v8::Value>> {
+        let value = self.args.get(i32::try_from(i).ok()?);
+        (!value.is_null_or_undefined()).then_some(value)
+    }
+
+    pub fn text(&mut self, i: usize) -> Option<String> {
+        let value = self.given(i)?;
+        Some(value.to_rust_string_lossy(self.scope))
+    }
+
+    pub fn string(&mut self, i: usize) -> String {
+        self.text(i).unwrap_or_default()
+    }
+
+    pub fn flag(&mut self, i: usize) -> Option<bool> {
+        let value = self.given(i)?;
+        Some(value.boolean_value(self.scope))
+    }
+
+    pub fn data(&mut self, i: usize) -> Option<Vec<u8>> {
+        let value = self.given(i)?;
+        match value.is_string() {
+            true => Some(value.to_rust_string_lossy(self.scope).into_bytes()),
+            false => with_bytes(value, <[u8]>::to_vec),
+        }
+    }
+
+    pub fn json(&mut self, i: usize) -> Option<serde_json::Value> {
+        let value = self.given(i)?;
+        let text = v8::json::stringify(self.scope, value)?.to_rust_string_lossy(self.scope);
+        Some(serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text)))
+    }
 }
 
 pub struct SendFunction(pub v8::Global<v8::Function>);
@@ -83,34 +239,27 @@ pub fn own_string_pairs(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -
 }
 
 thread_local! {
-    static PROMISES: RefCell<(u32, HashMap<u32, v8::Global<v8::PromiseResolver>>)> = RefCell::new(Default::default());
+    static PROMISES: RefCell<Slab<v8::Global<v8::PromiseResolver>>> = RefCell::default();
 }
 
 pub fn promise<'s>(scope: &mut v8::PinScope<'s, '_>) -> Option<(u32, v8::Local<'s, v8::Promise>)> {
     let resolver = v8::PromiseResolver::new(scope)?;
     let promise = resolver.get_promise(scope);
     let resolver = v8::Global::new(scope, resolver);
-    let token = PROMISES.with(|p| {
-        let mut p = p.borrow_mut();
-        p.0 = p.0.wrapping_add(1).max(1);
-        let token = p.0;
-        p.1.insert(token, resolver);
-        token
-    });
-    Some((token, promise))
+    Some((PROMISES.with(|p| p.borrow_mut().add(resolver)), promise))
 }
 
 pub fn resolver<'s>(scope: &mut v8::PinScope<'s, '_>, token: u32) -> Option<v8::Local<'s, v8::PromiseResolver>> {
-    let resolver = PROMISES.with(|p| p.borrow_mut().1.remove(&token))?;
+    let resolver = PROMISES.with(|p| p.borrow_mut().remove(&token))?;
     Some(v8::Local::new(scope, resolver))
 }
 
 pub fn forget_promise(token: u32) {
-    PROMISES.with(|p| p.borrow_mut().1.remove(&token));
+    PROMISES.with(|p| p.borrow_mut().remove(&token));
 }
 
 pub fn clear_promises() {
-    let promises = PROMISES.with(|p| std::mem::take(&mut p.borrow_mut().1));
+    let promises = PROMISES.with(|p| std::mem::take(&mut *p.borrow_mut()));
     drop(promises);
 }
 
@@ -124,23 +273,20 @@ pub fn get<'s>(scope: &mut v8::PinScope<'s, '_>, obj: v8::Local<v8::Object>, nam
     obj.get(scope, key.into())
 }
 
-pub fn throw_error(scope: &mut v8::PinScope, message: &str) {
-    let message = string(scope, message);
-    let error = v8::Exception::error(scope, message);
-    scope.throw_exception(error);
+pub fn get_string(scope: &mut v8::PinScope, obj: v8::Local<v8::Object>, name: &str) -> Option<String> {
+    get(scope, obj, name).filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope))
 }
 
-pub fn throw_type_error(scope: &mut v8::PinScope, message: &str) {
-    let message = string(scope, message);
-    let error = v8::Exception::type_error(scope, message);
-    scope.throw_exception(error);
+macro_rules! throwers {
+    ($($name:ident => $make:ident),*) => {$(
+        pub fn $name(scope: &mut v8::PinScope, message: &str) {
+            let message = string(scope, message);
+            let error = v8::Exception::$make(scope, message);
+            scope.throw_exception(error);
+        }
+    )*};
 }
-
-pub fn throw_range_error(scope: &mut v8::PinScope, message: &str) {
-    let message = string(scope, message);
-    let error = v8::Exception::range_error(scope, message);
-    scope.throw_exception(error);
-}
+throwers!(throw_error => error, throw_type_error => type_error, throw_range_error => range_error);
 
 pub fn arg_string(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> String {
     let value = args.get(i);
@@ -226,20 +372,15 @@ fn array_buffer<'s, T: Copy>(scope: &mut v8::PinScope<'s, '_>, data: &[T]) -> v8
     buffer
 }
 
-pub fn uint32_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[u32]) -> v8::Local<'s, v8::Uint32Array> {
-    let buffer = array_buffer(scope, data);
-    v8::Uint32Array::new(scope, buffer, 0, data.len()).expect("acdert: Uint32Array")
+macro_rules! typed_arrays {
+    ($($name:ident: $t:ty => $array:ident),*) => {$(
+        pub fn $name<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[$t]) -> v8::Local<'s, v8::$array> {
+            let buffer = array_buffer(scope, data);
+            v8::$array::new(scope, buffer, 0, data.len()).expect(concat!("acdert: ", stringify!($array)))
+        }
+    )*};
 }
-
-pub fn float32_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[f32]) -> v8::Local<'s, v8::Float32Array> {
-    let buffer = array_buffer(scope, data);
-    v8::Float32Array::new(scope, buffer, 0, data.len()).expect("acdert: Float32Array")
-}
-
-pub fn float64_array<'s>(scope: &mut v8::PinScope<'s, '_>, data: &[f64]) -> v8::Local<'s, v8::Float64Array> {
-    let buffer = array_buffer(scope, data);
-    v8::Float64Array::new(scope, buffer, 0, data.len()).expect("acdert: Float64Array")
-}
+typed_arrays!(uint32_array: u32 => Uint32Array, float32_array: f32 => Float32Array, float64_array: f64 => Float64Array);
 
 pub fn run_script<'s>(scope: &mut v8::PinScope<'s, '_>, source: &str, url: &str) -> Option<v8::Local<'s, v8::Value>> {
     let name = string(scope, url);

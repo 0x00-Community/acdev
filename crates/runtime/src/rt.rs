@@ -44,21 +44,13 @@ where
     drop(handle().spawn(contained(fut)));
 }
 
-pub(crate) struct Task(futures_util::future::AbortHandle);
-
-impl Task {
-    pub(crate) fn abort(&self) {
-        self.0.abort();
-    }
-}
-
-pub(crate) fn spawn_abortable<F>(fut: F) -> Task
+pub(crate) fn spawn_abortable<F>(fut: F) -> AbortHandle
 where
     F: Future<Output = ()> + Send + 'static,
 {
     let (fut, abort) = futures_util::future::abortable(fut);
     spawn(fut);
-    Task(abort)
+    abort
 }
 
 #[cfg(any(target_os = "linux", test))]
