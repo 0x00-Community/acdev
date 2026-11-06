@@ -21,6 +21,7 @@ const IMAGES: [&str; 6] = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
 #[serde(rename_all = "snake_case")]
 pub enum RootMode {
     Writable,
+    Unavailable,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -29,6 +30,7 @@ pub enum RootSource {
     Desktop,
     Downloads,
     Default,
+    Granted,
 }
 
 #[derive(Clone, Serialize)]
@@ -160,6 +162,33 @@ impl FinderEntry {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChildKind {
+    File,
+    Directory,
+    Other,
+}
+
+impl ChildKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Directory => "directory",
+            Self::Other => "other",
+        }
+    }
+}
+
+impl From<fs::FileType> for ChildKind {
+    fn from(kind: fs::FileType) -> Self {
+        match () {
+            _ if kind.is_dir() => Self::Directory,
+            _ if kind.is_file() => Self::File,
+            _ => Self::Other,
+        }
+    }
+}
+
 impl From<fs::FileType> for EntryKind {
     fn from(kind: fs::FileType) -> Self {
         match () {
@@ -248,6 +277,22 @@ impl WorkspaceFs {
         Ok([root(desktop, "桌面", RootSource::Desktop)].into_iter().chain(down).chain(work).collect())
     }
 
+    pub fn granted(path: &str) -> FinderRoot {
+        let exists = Path::new(path).is_dir();
+        let label = match path.basename() {
+            "" => path,
+            name => name,
+        };
+        FinderRoot {
+            path: path.to_owned(),
+            label: label.to_owned(),
+            source: RootSource::Granted,
+            mode: if exists { RootMode::Writable } else { RootMode::Unavailable },
+            reason: (!exists).then(|| "the folder no longer exists".to_owned()),
+            exists,
+        }
+    }
+
     pub fn root(&self, path: &str) -> Outcome<FinderRoot> {
         self.roots()?.into_iter().find(|item| item.path == path).ok_or_else(|| Failure::invalid("not a Runtime workspace"))
     }
@@ -270,7 +315,7 @@ impl WorkspaceFs {
     }
 
     fn inside(real_root: &str, path: &str) -> bool {
-        path == real_root || path.strip_prefix(real_root).is_some_and(|rest| rest.starts_with('/'))
+        path == real_root || real_root == "/" || path.strip_prefix(real_root).is_some_and(|rest| rest.starts_with('/'))
     }
 
     pub fn resolve(root: &FinderRoot, relative: &str, must_exist: bool) -> Outcome<Resolved> {
@@ -295,10 +340,6 @@ impl WorkspaceFs {
         }
         let relative = if clean == "." { String::new() } else { clean.to_owned() };
         Ok(Resolved { absolute, real, relative })
-    }
-
-    pub fn list(&self, root_path: &str, relative: &str, hidden: bool) -> Outcome<Listing> {
-        self.list_in(self.root(root_path)?, relative, hidden)
     }
 
     pub fn list_in(&self, root: FinderRoot, relative: &str, hidden: bool) -> Outcome<Listing> {
@@ -329,10 +370,6 @@ impl WorkspaceFs {
 
     fn open_nofollow(real: &str) -> std::io::Result<File> {
         OpenOptions::new().read(true).custom_flags(OFlags::NOFOLLOW.bits() as i32).open(real)
-    }
-
-    pub fn preview(&self, root_path: &str, relative: &str) -> Outcome<FinderPreview> {
-        Self::preview_in(&self.root(root_path)?, relative)
     }
 
     pub fn preview_in(root: &FinderRoot, relative: &str) -> Outcome<FinderPreview> {
@@ -369,10 +406,6 @@ impl WorkspaceFs {
         };
         let content = content.strip_prefix('\u{feff}').map(str::to_owned).unwrap_or(content);
         Ok(preview(PreviewKind::Text, Some(content), Some(size > MAX_PREVIEW_BYTES)))
-    }
-
-    pub fn raw(&self, root_path: &str, relative: &str) -> Outcome<(String, Vec<u8>)> {
-        Self::raw_in(&self.root(root_path)?, relative)
     }
 
     pub fn raw_in(root: &FinderRoot, relative: &str) -> Outcome<(String, Vec<u8>)> {
@@ -471,6 +504,65 @@ impl WorkspaceFs {
         FinderEntry::read(&absolute, absolute.basename())
     }
 
+    fn child_path(dir: &str, name: &str) -> Outcome<String> {
+        if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\0']) {
+            return Err(Failure::invalid("not a valid file name"));
+        }
+        Ok(match Self::clean(dir)?.as_str() {
+            "." => name.to_owned(),
+            dir => format!("{dir}/{name}"),
+        })
+    }
+
+    pub fn children_in(root: &FinderRoot, relative: &str) -> Outcome<Vec<(String, ChildKind)>> {
+        let Resolved { real, .. } = Self::resolve(root, relative, true)?;
+        if !fs::metadata(&real)?.is_dir() {
+            return Err(Failure::invalid("not a directory"));
+        }
+        let mut children = Vec::new();
+        for entry in fs::read_dir(&real)? {
+            let entry = entry?;
+            let Ok(name) = entry.file_name().into_string() else { continue };
+            children.push((name, entry.file_type()?.into()));
+        }
+        Ok(children)
+    }
+
+    pub fn child_in(root: &FinderRoot, dir: &str, name: &str, create: Option<ChildKind>) -> Outcome<Option<ChildKind>> {
+        let Resolved { absolute, .. } = Self::resolve(root, &Self::child_path(dir, name)?, false)?;
+        match fs::symlink_metadata(&absolute) {
+            Ok(info) => Ok(Some(info.file_type().into())),
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                let made = match create {
+                    None | Some(ChildKind::Other) => return Ok(None),
+                    Some(ChildKind::File) => OpenOptions::new().write(true).create_new(true).custom_flags(OFlags::NOFOLLOW.bits() as i32).mode(0o644).open(&absolute).map(drop),
+                    Some(ChildKind::Directory) => DirBuilder::new().mode(0o755).create(&absolute),
+                };
+                match made {
+                    Ok(()) => Ok(create),
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(Some(fs::symlink_metadata(&absolute)?.file_type().into())),
+                    Err(error) => Err(error.into()),
+                }
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn remove_child_in(root: &FinderRoot, dir: &str, name: &str, recursive: bool) -> Outcome<bool> {
+        let Resolved { absolute, .. } = Self::resolve(root, &Self::child_path(dir, name)?, false)?;
+        let info = match fs::symlink_metadata(&absolute) {
+            Ok(info) => info,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        match (info.is_dir(), recursive) {
+            (true, true) => fs::remove_dir_all(&absolute)?,
+            (true, false) => fs::remove_dir(&absolute)?,
+            (false, _) => fs::remove_file(&absolute)?,
+        }
+        Ok(true)
+    }
+
     fn make_dirs(root: &FinderRoot, relative: &str) -> Outcome<String> {
         let clean = Self::clean(relative)?;
         let real_root = Self::realpath(&root.path)?;
@@ -509,11 +601,11 @@ impl WorkspaceFs {
         Ok(at)
     }
 
-    pub fn write(&self, root_path: &str, relative: &str, content: &str, expected: &str) -> Outcome<FinderEntry> {
+    pub fn write_in(root: &FinderRoot, relative: &str, content: &str, expected: &str) -> Outcome<FinderEntry> {
         if content.len() > MAX_WRITE_BYTES {
             return Err(Failure::http(413, "content exceeds 384 KiB"));
         }
-        let Resolved { absolute, .. } = self.resolve_at(root_path, relative, false)?;
+        let Resolved { absolute, .. } = Self::resolve(root, relative, false)?;
         let current = fs::symlink_metadata(&absolute).ok();
         match &current {
             Some(_) if expected == "new" => return Err(Failure::exists("file already exists")),
@@ -546,7 +638,7 @@ impl WorkspaceFs {
         format!("{} {n}{ext}", &name[..name.len() - ext.len()])
     }
 
-    pub fn copy_in(&self, root_path: &str, dir: &str, source: &str) -> Outcome<FinderEntry> {
+    pub fn copy_into(root: &FinderRoot, dir: &str, source: &str) -> Outcome<FinderEntry> {
         let source = match source.strip_prefix("file://") {
             Some(rest) => url::Url::parse(&format!("file://{rest}")).ok().and_then(|u| u.to_file_path().ok()).ok_or_else(|| Failure::invalid("not a file:// URI of this machine"))?,
             None => std::path::PathBuf::from(source),
@@ -558,7 +650,7 @@ impl WorkspaceFs {
         if !info.is_file() {
             return Err(Failure::invalid("only regular files can be copied in"));
         }
-        let Resolved { absolute, real, .. } = self.resolve_at(root_path, dir, true)?;
+        let Resolved { absolute, real, .. } = Self::resolve(root, dir, true)?;
         if !fs::metadata(&real)?.is_dir() {
             return Err(Failure::invalid("not a directory"));
         }
@@ -583,10 +675,9 @@ impl WorkspaceFs {
         Err(Failure::exists("no free name for the copy"))
     }
 
-    pub fn rename(&self, root_path: &str, from: &str, to: &str) -> Outcome<FinderEntry> {
-        let root = self.root(root_path)?;
-        let source = Self::resolve(&root, from, true)?;
-        let target = Self::resolve(&root, to, false)?;
+    pub fn rename_in(root: &FinderRoot, from: &str, to: &str) -> Outcome<FinderEntry> {
+        let source = Self::resolve(root, from, true)?;
+        let target = Self::resolve(root, to, false)?;
         if source.relative.is_empty() {
             return Err(Failure::invalid("the workspace root cannot be renamed"));
         }
@@ -597,8 +688,8 @@ impl WorkspaceFs {
         FinderEntry::read(&target.absolute, target.absolute.basename())
     }
 
-    pub fn remove(&self, root_path: &str, relative: &str) -> Outcome<()> {
-        let Resolved { absolute, relative, .. } = self.resolve_at(root_path, relative, false)?;
+    pub fn remove_in(root: &FinderRoot, relative: &str) -> Outcome<()> {
+        let Resolved { absolute, relative, .. } = Self::resolve(root, relative, false)?;
         if relative.is_empty() {
             return Err(Failure::invalid("the workspace root cannot be deleted"));
         }
@@ -608,10 +699,6 @@ impl WorkspaceFs {
             false => fs::remove_file(&absolute)?,
         }
         Ok(())
-    }
-
-    fn resolve_at(&self, root_path: &str, relative: &str, must_exist: bool) -> Outcome<Resolved> {
-        Self::resolve(&self.root(root_path)?, relative, must_exist)
     }
 }
 

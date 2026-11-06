@@ -49,15 +49,42 @@ test('links: <a download>, blob: and data: URLs are saved through the host (the 
   web.close()
 })
 
-function chooser(answer: { open?: string[] | null; save?: string | null }, files: Map<string, Uint8Array>) {
+type Node = Uint8Array | 'dir' | 'link'
+
+function chooser(answer: { open?: string[] | null; save?: string | null; directory?: string | null }, files: Map<string, Node>) {
   const asked: unknown[] = []
+  const name = (path: string) => path.split('/').pop()!
+  const kind = (node: Node | undefined) => (node === undefined ? null : node === 'dir' ? ('directory' as const) : node === 'link' ? ('other' as const) : ('file' as const))
+  const under = (dir: string) => [...files.keys()].filter((path) => path.startsWith(`${dir}/`))
   return {
     asked,
     files: {
-      open: async (options: unknown) => (asked.push(options), answer.open ? answer.open.map((path) => ({ name: path.split('/').pop()!, path })) : null),
-      save: async (options: unknown) => (asked.push(options), answer.save ? { name: answer.save.split('/').pop()!, path: answer.save } : null),
-      read: async (file: { path: string }) => ({ bytes: files.get(file.path) ?? new Uint8Array(0), lastModified: 1000 }),
+      open: async (options: unknown) => (asked.push(options), answer.open ? answer.open.map((path) => ({ name: name(path), path })) : null),
+      save: async (options: unknown) => (asked.push(options), answer.save ? { name: name(answer.save), path: answer.save } : null),
+      read: async (file: { path: string }) => {
+        const node = files.get(file.path)
+        return node instanceof Uint8Array ? { bytes: node, lastModified: 1000 } : null
+      },
       write: async (file: { path: string }, bytes: Uint8Array) => void files.set(file.path, bytes.slice()),
+      directory: async (options: unknown) => (asked.push(options), answer.directory ? { name: name(answer.directory), path: answer.directory } : null),
+      entries: async (dir: { path: string }) =>
+        under(dir.path)
+          .filter((path) => !path.slice(dir.path.length + 1).includes('/'))
+          .map((path) => ({ name: name(path), path, kind: kind(files.get(path))! })),
+      entry: async (dir: { path: string }, child: string, create: 'file' | 'directory' | null) => {
+        const path = `${dir.path}/${child}`
+        if (!files.has(path) && create) files.set(path, create === 'directory' ? 'dir' : new Uint8Array(0))
+        const found = kind(files.get(path))
+        return found ? { name: child, path, kind: found } : null
+      },
+      remove: async (dir: { path: string }, child: string, recursive: boolean) => {
+        const path = `${dir.path}/${child}`
+        if (!files.has(path)) return false
+        if (under(path).length && !recursive) throw Object.assign(new Error('directory is not empty'), { code: 'ENOTEMPTY' })
+        for (const inner of under(path)) files.delete(inner)
+        files.delete(path)
+        return true
+      },
     },
   }
 }
@@ -121,6 +148,74 @@ test('showOpenFilePicker / showSaveFilePicker: handles over the picked files; ca
   assert.deepEqual(JSON.parse(JSON.stringify(c.asked)), [{ multiple: false, directory: false, filters: [{ name: 'Markdown', globs: ['*.md'], mimes: ['text/markdown'] }] }, { name: 'out.json', filters: [] }])
   web.internals.env.files = null
   web.run(`out = []; showOpenFilePicker().catch((e) => out.push(e.name, e instanceof DOMException))`)
+  await web.wait(5)
+  assert.deepEqual(web.json('out'), ['AbortError', true])
+  web.close()
+})
+
+test('showDirectoryPicker: a directory handle over the picked folder (entries, get, create, remove, resolve); cancelled is an AbortError', async () => {
+  const web = createWeb()
+  await web.internals.loadPage('<!doctype html><html><body></body></html>')
+  const enc = (text: string) => new TextEncoder().encode(text)
+  const files = new Map<string, Node>([['/home/u/Notes', 'dir'], ['/home/u/Notes/a.md', enc('# a')], ['/home/u/Notes/sub', 'dir'], ['/home/u/Notes/sub/b.md', enc('b')], ['/home/u/Notes/link', 'link']])
+  const c = chooser({ directory: '/home/u/Notes' }, files)
+  web.internals.env.files = c.files
+  web.run(`globalThis.out = []; (async () => {
+    const dir = await showDirectoryPicker({ id: 'notes', mode: 'readwrite', startIn: 'documents' })
+    out.push(dir.kind, dir.name, dir instanceof FileSystemDirectoryHandle, dir instanceof FileSystemHandle, Object.prototype.toString.call(dir))
+    const seen = []
+    for await (const [name, handle] of dir) seen.push(name + ':' + handle.kind)
+    out.push(seen.sort().join())
+    const keys = []; for await (const key of dir.keys()) keys.push(key)
+    out.push(keys.sort().join())
+    const a = await dir.getFileHandle('a.md')
+    out.push(await (await a.getFile()).text())
+    const sub = await dir.getDirectoryHandle('sub')
+    out.push(JSON.stringify(await dir.resolve(await sub.getFileHandle('b.md'))), await dir.resolve(dir).then((r) => r.length), await sub.resolve(a))
+    const made = await dir.getFileHandle('new.txt', { create: true })
+    const w = await made.createWritable(); await w.write('fresh'); await w.close()
+    const deeper = await sub.getDirectoryHandle('deeper', { create: true })
+    out.push(deeper.kind, await made.isSameEntry(await dir.getFileHandle('new.txt')), await made.isSameEntry(a))
+    for (const [what, call] of [
+      ['missing', () => dir.getFileHandle('nope.md')],
+      ['file as dir', () => dir.getDirectoryHandle('a.md')],
+      ['dir as file', () => dir.getFileHandle('sub')],
+      ['link', () => dir.getFileHandle('link')],
+      ['bad name', () => dir.getFileHandle('../x')],
+      ['not empty', () => dir.removeEntry('sub')],
+      ['remove missing', () => dir.removeEntry('nope')],
+    ]) await call().then(() => out.push(what + ' ok'), (e) => out.push(what + ' ' + e.name))
+    await dir.removeEntry('sub', { recursive: true })
+    await dir.removeEntry('a.md')
+    out.push(await a.getFile().then(() => 'still', (e) => e.name))
+    out.push(await dir.queryPermission({ mode: 'readwrite' }))
+    const read = await showDirectoryPicker()
+    out.push(await read.queryPermission({ mode: 'readwrite' }), await read.requestPermission({ mode: 'readwrite' }), await read.queryPermission())
+    await read.getFileHandle('x.md', { create: true }).catch((e) => out.push('read-only create ' + e.name))
+    await (await read.getFileHandle('new.txt')).createWritable().catch((e) => out.push('read-only write ' + e.name))
+    await showDirectoryPicker({ mode: 'write' }).catch((e) => out.push('mode ' + e.name))
+    await showDirectoryPicker({ id: 'no spaces' }).catch((e) => out.push('id ' + e.name))
+  })().catch((e) => out.push('error ' + e.name + ' ' + e.message))`)
+  await web.wait(10)
+  assert.deepEqual(web.json('out'), [
+    'directory', 'Notes', true, true, '[object FileSystemDirectoryHandle]',
+    'a.md:file,sub:directory',
+    'a.md,sub',
+    '# a',
+    '["sub","b.md"]', 0, null,
+    'directory', true, false,
+    'missing NotFoundError', 'file as dir TypeMismatchError', 'dir as file TypeMismatchError', 'link TypeMismatchError', 'bad name TypeError', 'not empty InvalidModificationError', 'remove missing NotFoundError',
+    'NotFoundError',
+    'granted',
+    'prompt', 'denied', 'granted',
+    'read-only create NotAllowedError', 'read-only write NotAllowedError',
+    'mode TypeError', 'id TypeError',
+  ])
+  assert.equal(new TextDecoder().decode(files.get('/home/u/Notes/new.txt') as Uint8Array), 'fresh')
+  assert.deepEqual([...files.keys()].sort(), ['/home/u/Notes', '/home/u/Notes/link', '/home/u/Notes/new.txt'])
+  assert.deepEqual(JSON.parse(JSON.stringify(c.asked)), [{ mode: 'readwrite' }, { mode: 'read' }])
+  web.internals.env.files = null
+  web.run(`out = []; showDirectoryPicker().catch((e) => out.push(e.name, e instanceof DOMException))`)
   await web.wait(5)
   assert.deepEqual(web.json('out'), ['AbortError', true])
   web.close()

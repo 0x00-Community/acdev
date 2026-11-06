@@ -30,11 +30,19 @@ export interface FileFilter {
   readonly mimes: readonly string[]
 }
 
+export interface PickedEntry extends PickedFile {
+  readonly kind: 'file' | 'directory' | 'other'
+}
+
 export interface FileChooser {
   open(options: { readonly multiple: boolean; readonly directory: boolean; readonly filters: readonly FileFilter[]; readonly title?: string }): Promise<PickedFile[] | null>
   save(options: { readonly name: string; readonly filters: readonly FileFilter[]; readonly title?: string }): Promise<PickedFile | null>
-  read(file: PickedFile): Promise<{ bytes: Uint8Array; lastModified: number }>
+  read(file: PickedFile): Promise<{ bytes: Uint8Array; lastModified: number } | null>
   write(file: PickedFile, bytes: Uint8Array): Promise<void>
+  directory(options: { readonly mode: 'read' | 'readwrite' }): Promise<PickedFile | null>
+  entries(dir: PickedFile): Promise<PickedEntry[]>
+  entry(dir: PickedFile, name: string, create: 'file' | 'directory' | null): Promise<PickedEntry | null>
+  remove(dir: PickedFile, name: string, recursive: boolean): Promise<boolean>
 }
 
 export function resolveUrl(url: string): string {

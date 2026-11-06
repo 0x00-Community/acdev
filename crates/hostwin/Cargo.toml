@@ -19,3 +19,10 @@ pollster = "0"
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 # notify.rs: native notifications through org.freedesktop.Notifications when no visible desktop shows them
 zbus = "5"
+
+# chooser.rs: the folder chooser of showDirectoryPicker is AppKit's open panel, shown on the winit main thread
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSApplication", "NSOpenPanel", "NSSavePanel", "NSPanel", "NSWindow", "NSResponder", "NSView"] }

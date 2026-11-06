@@ -1,7 +1,7 @@
 export interface FinderRoot {
   path: string
   label: string
-  source: 'desktop' | 'downloads' | 'default' | 'task'
+  source: 'desktop' | 'downloads' | 'default' | 'task' | 'granted'
   mode: RootMode
   reason: string | null
   exists: boolean
@@ -87,6 +87,7 @@ export interface AcdeFs {
   delete(root: string, path: string): Promise<{ status: 'deleted'; path: string }>
   locate(path: string): Promise<{ root: string; path: string }>
   openPath(root: string, path: string): Promise<{ root: string; path: string; file: string }>
+  revoke(rootPath: string): Promise<void>
 }
 
 export interface AcdeOffice {

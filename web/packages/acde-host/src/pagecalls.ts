@@ -1,24 +1,43 @@
 import type { WebInternals } from '@dopame/acde-dom'
 import type { Rpc } from './rpc'
-import { readFileSync, stat, writeFileSync } from './sys/fs'
+import { existsSync, readFileSync, stat, writeFileSync } from './sys/fs'
 import { basename } from './sys/path'
 import { Level, Log } from './log'
 
 type Env = WebInternals['env']
 type Chooser = NonNullable<Env['files']>
 type Picked = { readonly name: string; readonly path: string }
+type Kind = 'file' | 'directory'
+
+export interface FolderPicker {
+  directory(title: string, window: number): Promise<string | null>
+  entries(dir: string): Promise<{ name: string; kind: Kind }[]>
+  entry(dir: string, name: string, create: Kind | null): Promise<Kind | 'other' | null>
+  remove(dir: string, name: string, recursive: boolean): Promise<boolean>
+  read(path: string): Promise<{ bytes: Uint8Array; lastModified: number } | null>
+  write(path: string, bytes: Uint8Array): Promise<void>
+}
+
+interface FolderSetup {
+  readonly picker: FolderPicker | null
+  readonly window: number
+  readonly label: string
+}
 
 export class PageCalls {
   readonly #rpc: Rpc
   readonly #name: string
   readonly #page: WebInternals
   readonly #granted = new Set<string>()
+  readonly #folders = new Set<string>()
+  readonly #setup: FolderSetup
   #warned = false
 
-  constructor(page: WebInternals, rpc: Rpc, name: string) {
+  constructor(page: WebInternals, rpc: Rpc, name: string, setup: FolderSetup) {
     this.#page = page
     this.#rpc = rpc
     this.#name = name
+    this.#setup = setup
     page.env.files = this.#chooser()
     page.env.download = (request) => void this.#download(request).catch((error: Error) => this.#log(`download of ${request.url.slice(0, 120)}: ${error.message}`))
     page.env.notify = (notification) => void this.#notify(notification).catch((error: Error) => this.#log(`notification: ${error.message}`))
@@ -33,6 +52,18 @@ export class PageCalls {
       if (!this.#granted.has(file.path)) throw new Error('not a file the user picked')
       return file.path
     }
+    const picker = this.#setup.picker
+    const inFolder = (path: string): FolderPicker | null => {
+      if (!picker) return null
+      for (const folder of this.#folders) if (path === folder || path.startsWith(folder === '/' ? '/' : `${folder}/`)) return picker
+      return null
+    }
+    const folder = (dir: Picked): FolderPicker => {
+      const found = inFolder(dir.path)
+      if (!found) throw new Error('not in a folder the user picked')
+      return found
+    }
+    const child = (dir: Picked, name: string): string => (dir.path === '/' ? `/${name}` : `${dir.path}/${name}`)
     return {
       open: async (options) => {
         const paths = await this.#ask('open', options)
@@ -42,12 +73,36 @@ export class PageCalls {
         const path = await this.#ask('save', options)
         return typeof path === 'string' && path ? grant(path) : null
       },
+      directory: async () => {
+        if (!picker) return null
+        try {
+          const path = await picker.directory(`${this.#setup.label}: 选择文件夹`, this.#setup.window)
+          if (!path) return null
+          this.#folders.add(path)
+          return { name: basename(path) || path, path }
+        } catch (error) {
+          if (!this.#warned) this.#log(`folder chooser: ${(error as Error).message}`)
+          this.#warned = true
+          return null
+        }
+      },
+      entries: async (dir) => (await folder(dir).entries(dir.path)).map(({ name, kind }) => ({ name, kind, path: child(dir, name) })),
+      entry: async (dir, name, create) => {
+        const kind = await folder(dir).entry(dir.path, name, create)
+        return kind ? { name, kind, path: child(dir, name) } : null
+      },
+      remove: (dir, name, recursive) => folder(dir).remove(dir.path, name, recursive),
       read: async (file) => {
+        const from = inFolder(file.path)
+        if (from) return from.read(file.path)
         const path = check(file)
+        if (!existsSync(path)) return null
         const bytes = readFileSync(path)
         return { bytes, lastModified: stat(path)?.mtimeMs ?? Date.now() }
       },
       write: async (file, bytes) => {
+        const to = inFolder(file.path)
+        if (to) return to.write(file.path, bytes)
         writeFileSync(check(file), bytes)
       },
     }

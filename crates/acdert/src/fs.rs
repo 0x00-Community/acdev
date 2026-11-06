@@ -24,10 +24,11 @@ enum Method {
     ReadText,
     ReadBytes,
     WriteFile,
+    Revoke,
 }
 
 impl Method {
-    const TABLE: [Method; 18] = [
+    const TABLE: [Method; 19] = [
         Method::State,
         Method::Roots,
         Method::Desktop,
@@ -46,6 +47,7 @@ impl Method {
         Method::ReadText,
         Method::ReadBytes,
         Method::WriteFile,
+        Method::Revoke,
     ];
 
     fn name(self) -> &'static str {
@@ -68,6 +70,7 @@ impl Method {
             Method::ReadText => "readText",
             Method::ReadBytes => "readBytes",
             Method::WriteFile => "writeFile",
+            Method::Revoke => "revoke",
         }
     }
 
@@ -91,6 +94,7 @@ impl Method {
             Method::ReadText => FsCall::ReadText { root: args.string(0), path: args.string(1) },
             Method::ReadBytes => FsCall::ReadBytes { root: args.string(0), path: args.string(1) },
             Method::WriteFile => FsCall::WriteFile { root: args.string(0), path: args.string(1), data: args.data(2), options: args.json(3) },
+            Method::Revoke => FsCall::Revoke { root: args.string(0) },
         }
     }
 }
@@ -181,6 +185,10 @@ fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, re
             let size = v8::Number::new(scope, size as f64).into();
             let read = bind::object(scope, &[("text", text), ("modifiedMs", modified), ("size", size)]);
             resolver.resolve(scope, read.into());
+        }
+        Ok(FsReply::Done) => {
+            let done = v8::undefined(scope).into();
+            resolver.resolve(scope, done);
         }
         Ok(FsReply::Bytes { data, modified_ms }) => {
             let size = v8::Number::new(scope, data.len() as f64).into();

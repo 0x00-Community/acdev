@@ -97,6 +97,19 @@ impl FileChooser {
         Proxy::new(&connection, PORTAL, PORTAL_PATH, FILE_CHOOSER)?.get_property::<u32>("version")?;
         Ok(Self { connection })
     }
+
+    fn folder(&self, title: &str) -> zbus::Result<Option<String>> {
+        let mut map: HashMap<&str, Variant<'_>> = HashMap::new();
+        map.insert("multiple", Variant::from(false));
+        map.insert("directory", Variant::from(true));
+        Ok(self.request("OpenFile", title, map)?.and_then(|paths| paths.into_iter().next()))
+    }
+}
+
+pub fn choose_folder(title: &str) -> std::result::Result<Option<String>, String> {
+    let connection = Connection::session().map_err(|e| format!("no session bus: {e}"))?;
+    let chooser = FileChooser::on(connection).map_err(|e| format!("no FileChooser portal: {e}"))?;
+    chooser.folder(title).map_err(|e| format!("FileChooser portal: {e}"))
 }
 
 #[napi]
@@ -297,10 +310,13 @@ mod tests {
         let mut save: HashMap<&str, Variant<'_>> = HashMap::new();
         save.insert("current_name", Variant::from("out.json"));
         assert_eq!(chooser.request("SaveFile", "Save", save).unwrap(), Some(vec!["/tmp/picked/out.json".to_string()]));
+        assert_eq!(chooser.folder("Folder").unwrap(), Some("/tmp/picked/a b.txt".to_string()));
+        assert_eq!(chooser.folder("cancel").unwrap(), None);
         let calls = calls.lock().unwrap();
         let seen: Vec<(&str, &str)> = calls.iter().map(|(m, t, _)| (m.as_str(), t.as_str())).collect();
-        assert_eq!(seen, [("OpenFile", "Pick"), ("OpenFile", "Pick"), ("OpenFile", "cancel"), ("SaveFile", "Save")]);
+        assert_eq!(seen, [("OpenFile", "Pick"), ("OpenFile", "Pick"), ("OpenFile", "cancel"), ("SaveFile", "Save"), ("OpenFile", "Folder"), ("OpenFile", "cancel")]);
         assert_eq!(calls[0].2["filters"].value_signature().to_string(), "a(sa(us))");
+        assert_eq!(bool::try_from(calls[4].2["directory"].clone()).ok(), Some(true));
         _ = daemon.kill();
         _ = daemon.wait();
         _ = std::fs::remove_dir_all(dir);

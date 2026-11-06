@@ -125,6 +125,8 @@ Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线�
   (页面里输入法提交那条路), 不经注入.
 - 系统能力: fs、terminal (pty; macOS 上没有 pidfd / eventfd / close_range, 换成轮询、socketpair、逐个 close)、应用后端的
   unix socket 在所有 unix 上注入; 声音 (`Audio` / `AudioContext`) 到处都有 (输出见「网页应用」); network、office、IME、语音只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
+  `showDirectoryPicker` 的选择器: macOS 上是 hostwin 在主线程开的 `NSOpenPanel` sheet (`chooser.rs`, objc2-app-kit), Linux 上照旧是
+  portal, Windows 上还没有 (`AbortError`), 见「文件 (`acde:fs`)」.
 - 验证 (只在 macOS 上验, Windows / Linux 的宿主窗口只写不验): `ACDE_HOST_DUMP=<目录>` 让每个窗口每帧把画好的页面 (GPU 读回)
   写成 `<目录>/<窗口 id>.png`; `ACDE_DEBUG_DIR` 照旧能在各 web 里求值. 不截屏.
   - 验过 (2026-11-06, macOS 26, M3 Pro): dev IPC 的请求. 一个 bun 脚本当 `acde dev` 的服务端 (unix socket, 起 acdert 时给
@@ -260,7 +262,8 @@ acdert (一个进程)                   同上的 runtime (Broker / desktop / �
    - fs: crates/runtime `Workspace` (Finder 的共享状态 + 这个 web 能用的 roots, `None` 是全部) 和 `FsCall` / `FsReply`, napi
      `Finder` 也是它的包装. Broker 线程第一次 `spawnWeb` 时建一份, 每个 web 按清单拿一个 `scoped` 的副本 (`{fs}`: `true` 是全部,
      roots 数组, `null` 是没有); roots 在 Rust 里查
-     (第一个参数: root, `locate` 是 path; 不带参数的 `state` / `roots` / `desktop` 在限了 roots 时拒绝); 失败 (包括拒绝) 的形状见
+     (第一个参数: root, `locate` 是 path; 用户授给这个应用的文件夹也算; 不带参数的 `state` / `desktop` 在限了 roots 时拒绝, `roots`
+     只列它能用的); 失败 (包括拒绝) 的形状见
      「文件 (`acde:fs`)」: `message` 是人读的话, `status` 和 node 风格的 `code`. crates/acdert `fs.rs` 把它
      绑成 `natives.fs` (每次调用一条 `acde-fs` 线程, 结果投回这个 web 的事件循环), web 的 `acde:fs` 就是它. Broker 自己 (桌面服务、`locate`、office) 还用自己的 napi `Finder` (另一份
      `Place`, Broker 不读写它).
@@ -744,7 +747,8 @@ ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服�
   `file` 是要选中的名字), 没有的拿 `{url}` (file:// 或链接). 不在任何 Finder 根里的文件, 交给能打开它的原生程序, 没有就报
   `outside_roots`. 原生程序用 `gio launch <它的 desktop entry> <路径>` 起.
 - **Finder 的根** (runtime `fs/workspace.rs`): 桌面文件夹、「下载」(`XDG_DOWNLOAD_DIR`, 否则 `~/Downloads`, 存在时: 下载完
-  「在文件夹中显示」总得能打开)、`~/agentos-work` (存在时). 最后看的位置记在
+  「在文件夹中显示」总得能打开)、`~/agentos-work` (存在时); 应用自己还多出用户经 `showDirectoryPicker` 授给它的文件夹 (见「文件
+  (`acde:fs`)」). 最后看的位置记在
   `$XDG_STATE_HOME/acde/finder-place.json`, 下次会话从那里开始.
 - **改默认**: `acde.setDefault(mime, 应用)` 写 `$XDG_CONFIG_HOME/acde-mimeapps.list` 的 `[Default Applications]` (别的组和行留着).
   只在 `XDG_CURRENT_DESKTOP=acde` 下生效, 不动 KDE 那边的设置. `acde.handlers(路径)` 列出能打开它的应用 (acde 的在前), 标出默认的.
@@ -802,6 +806,38 @@ FIFO 上). 原来的 `preview` (文字最多 256 KiB, 多了 `truncated`) 和 `w
   最后一级 `EEXIST`, 中间的 `EINVAL` (`not a directory`). 返回最后一级的 `FinderEntry`.
 
 选项对象由 binding 用 `JSON.stringify` 交给 runtime, 在 Rust 里按类型读 (`serde`), 类型不对是 `EINVAL`, 不认识的键不管.
+
+**选文件夹 (`showDirectoryPicker`) 和授给应用的文件夹**: 标准的 `window.showDirectoryPicker(options?)` → `FileSystemDirectoryHandle`
+(acde-dom `dom/picker.ts`), 和 Chromium 一样: `mode` (`'read'` 默认 / `'readwrite'`)、`id` (最多 32 个字母数字 `_` `-`)、`startIn`
+(常用目录名或一个 handle) 不合法是 `TypeError` (`id` / `startIn` 收下但不用); 用户取消、或这里没有选择器 (Linux 没有 portal、Windows、
+没有宿主窗口) 都是 `AbortError` (没有选择器时 web 打一行 warn). handle 有标准的 `kind` / `name` / `entries()` / `keys()` / `values()` /
+`[Symbol.asyncIterator]` / `getFileHandle(name, {create})` / `getDirectoryHandle(name, {create})` / `removeEntry(name, {recursive})` /
+`isSameEntry` / `resolve` / `queryPermission` / `requestPermission`; 文件的 handle 就是原来的 `FileSystemFileHandle` (`getFile`、
+`createWritable`). 名字是空的、`.`、`..`、带 `/` 是 `TypeError`; 不存在 `NotFoundError`; 类型不对 (要文件拿到文件夹, 反之) 是
+`TypeMismatchError`; 删非空的文件夹不带 `recursive` 是 `InvalidModificationError`; `mode: 'read'` 的 handle 要写 (`create`、
+`removeEntry`、`createWritable`) 是 `NotAllowedError`, `queryPermission({mode: 'readwrite'})` 是 `'prompt'`, `requestPermission` 不弹窗,
+是 `'denied'` (没有第二个确认框; `readwrite` 选的直接 `'granted'`). 符号链接和别的特殊文件不列出来, 按名字拿是 `TypeMismatchError`.
+没有 IndexedDB, handle 不能存下来, 只活到这个页面结束.
+
+- 链路: 页面 → acde-dom 的 `env.files` (acde-host `pagecalls.ts`) → crates/acdert `picker.rs` 绑给每个 web 的 `natives.picker`
+  (不是 `acde:` 模块, 页面拿不到; 不经 Broker 的 RPC). `directory(title, window)` 在 `acde-picker` 线程上开选择器: Linux 是 portal
+  FileChooser 的 `OpenFile` 带 `directory: true` (runtime `portal.rs` `choose_folder`, 每次连一次会话总线), macOS 是 AppKit 的
+  `NSOpenPanel` (只能选文件夹, 可以新建), 由 crates/hostwin 在 winit 的主线程上开 (`Cmd::ChooseFolder`, `chooser.rs`), 作为这个
+  窗口的 sheet (找不到窗口就单独开), 结果经通道交回; 别的平台没有.
+- handle 的读写在 Rust 里做 (runtime `fs/picked.rs` `PickedFolders`, 每个 web 一份, 只在内存): 选中的文件夹当作一个 root, 只认在
+  它下面的路径 (别的 `EACCES`), 和 `acde:fs` 一样经 `WorkspaceFs::resolve` (`children_in` / `child_in` / `remove_child_in` /
+  `read_bytes_in` / `write_file_in`): 新建用 `O_EXCL | O_NOFOLLOW`, 不经符号链接走出这个文件夹 (悬空的链接也不会被写穿), 读写一个
+  文件最多 64 MiB (多了 `InvalidStateError`), `removeEntry` 的 `recursive` 是 `remove_dir_all` (不跟符号链接).
+  `showOpenFilePicker` / `showSaveFilePicker` 拿到的文件照旧由 pagecalls 经 `sys` 读写.
+- **授给应用**: 选中之后, 这个文件夹同时授给调用它的应用 (`acde:fs` 的一个 root, 不需要页面再做什么): `roots()` 里多一项
+  `{source: 'granted', label: 文件夹名, mode: 'writable'}` (文件夹没了是 `exists: false`、`mode: 'unavailable'`), 别的调用都能用它,
+  规则和别的 root 一样. 要用它还得清单有 `fs` 能力 (`acde:fs` 才注入); 限了 roots 的应用 (`fs: {roots}`) 也能用授给它的文件夹.
+  只授给应用 (按清单的 id), 桌面选的不授 (桌面本来就有所有内置的 root). 记在 `$XDG_STATE_HOME/acde/grants/<应用 id>.json`
+  (`{"roots": [绝对路径 …]}`, runtime `fs/grants.rs`, 第一次用到这个应用时读), `ACDE_STORAGE` 为空时只在内存. 已经是内置 root 的
+  路径照样记下 (限了 roots 的应用要它), `roots()` 不重复列. `fs.revoke(rootPath)` 收回 (`Promise<void>`): 不是授给这个应用的是
+  `ENOENT`, 桌面调是 `EINVAL`; 收回之后页面手里已有的 handle 照样能用 (那是页面自己的授权, 和 Chromium 一样只活到页面结束).
+  Broker 起 web 时在 `spawnWeb` 的 grants 里带上应用 id (`{app, fs, …}`), crates/acdert `web.rs` 给 `Workspace::scoped(roots, app)`
+  和 `natives.picker`.
 
 ## desktop web / window web
 
@@ -939,7 +975,8 @@ Vite 插件, 清单校验, 见「web/packages/acde-api」), acde 依赖它. 原�
   (取消就留下); `localStorage` 每个应用一个文件 (`$XDG_CONFIG_HOME/acde/storage/app-<id>.json`); `alert` 画在窗口里
   (`confirm` / `prompt` 不阻塞, 返回 false / null); 链接: `#frag` 滚动, 同应用的页面换页, 外部 http(s) 交给浏览器应用,
   `<a download>` / blob: / data: 存进下载目录, 桌面经 `acde:desktop` 的 `on('download')` 收到; `<input type=file>` / `showOpenFilePicker` /
-  `showSaveFilePicker` 走 xdg-desktop-portal 的 FileChooser (runtime `portal.rs`); `Notification` 转给桌面
+  `showSaveFilePicker` 走 xdg-desktop-portal 的 FileChooser (runtime `portal.rs`, 经 Broker 的 `page.open` / `save`); `showDirectoryPicker`
+  见「文件 (`acde:fs`)」的选文件夹; `Notification` 转给桌面
   (`acde:desktop` 的 `on('notification')`), 前提是有桌面看得见它: desktop web 在跑、窗口表里桌面 (window 0) 没有隐藏.
   没有 (调试窗口 `acdert app` 的桌面建了但不显示; 桌面正在重起) 而 Shell 有 `notify` (宿主窗口) 时发系统通知 (标题、正文、
   应用名; hostwin `notify.rs`). 标题、正文、应用名都是页面给的, 当不可信的数据:

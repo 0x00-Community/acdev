@@ -71,6 +71,7 @@ struct System {
 #[derive(Default)]
 struct Grants {
     fs: Option<acde_runtime::Workspace>,
+    picker: crate::picker::Picker,
     terminal: Option<acde_runtime::Terminals>,
     #[cfg(target_os = "linux")]
     network: Option<acde_runtime::Networks>,
@@ -86,14 +87,18 @@ impl Webs {
             Some(v) if v.is_array() => Some(Some(bind::strings(scope, v).unwrap_or_default())),
             _ => None,
         };
+        let app = bind::get(scope, wanted, "app").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
         let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let network = bind::get(scope, wanted, "network").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let office = bind::get(scope, wanted, "office").is_some_and(|v| v.is_true());
         let system = &mut self.system;
+        let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
+        let picker = crate::picker::Picker::new(app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
         Grants {
-            fs: fs.map(|roots| system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(roots)),
+            fs: fs.map(|roots| workspace.scoped(roots, app.as_deref())),
+            picker,
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
             #[cfg(target_os = "linux")]
             network: network.then(|| system.networks.clone()),
@@ -108,6 +113,7 @@ impl Grants {
         if let Some(fs) = self.fs {
             crate::fs::install(scope, natives, fs);
         }
+        crate::picker::install(scope, natives, self.picker);
         if let Some(terminals) = self.terminal {
             crate::terminal::install(scope, natives, terminals);
         }
@@ -202,6 +208,7 @@ impl Spec {
         crate::webnative::clear();
         crate::backend::clear();
         crate::fs::clear();
+        crate::picker::clear();
         crate::terminal::clear();
         crate::audio::clear();
         #[cfg(target_os = "linux")]
@@ -226,7 +233,7 @@ pub fn open_office(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, m
         if system.office.is_some() {
             return Ok(());
         }
-        let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(None);
+        let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(None, None);
         system.office = Some(acde_runtime::OfficeService::open(&workspace)?);
         Ok::<(), String>(())
     });

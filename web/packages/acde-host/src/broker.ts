@@ -424,7 +424,7 @@ export class Broker {
   }
 
   #spawn(init: WebInit, heapMb: number): Web {
-    const worker = new WebThread({ name: init.name, init, env: { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }, heapMb, grants: Broker.#grants(init.app?.capabilities ?? null), onExit: (code, reason) => this.#exited(web, code, reason) })
+    const worker = new WebThread({ name: init.name, init, env: { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }, heapMb, grants: Broker.#grants(init.app?.id ?? null, init.app?.capabilities ?? null), onExit: (code, reason) => this.#exited(web, code, reason) })
     const web = new Web(init.kind, init.name, init.window, worker, init.app ?? null)
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     return web
@@ -432,10 +432,10 @@ export class Broker {
 
   static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office'])
 
-  static #grants(caps: Capabilities | null): WebGrants {
-    if (!caps) return { fs: true, terminal: true, network: true, office: true }
+  static #grants(app: string | null, caps: Capabilities | null): WebGrants {
+    if (!caps) return { app, fs: true, terminal: true, network: true, office: true }
     const fs = caps.fs
-    return { fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null, terminal: !!caps.terminal, network: !!caps.network, office: !!caps.office }
+    return { app, fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null, terminal: !!caps.terminal, network: !!caps.network, office: !!caps.office }
   }
 
   static #env(): Record<string, string> {

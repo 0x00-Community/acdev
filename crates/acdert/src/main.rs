@@ -17,6 +17,7 @@ mod network;
 #[cfg(target_os = "linux")]
 mod office;
 mod offload;
+mod picker;
 #[cfg(target_os = "linux")]
 mod supervise;
 mod terminal;

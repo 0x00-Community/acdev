@@ -30,6 +30,11 @@ pub(crate) enum Cmd {
     Fullscreen(u32, bool),
     ImeArea(u32, [f64; 4]),
     Inject(Injected),
+    ChooseFolder {
+        window: Option<u32>,
+        title: String,
+        reply: crate::chooser::Reply,
+    },
     Exit(i32),
 }
 
@@ -859,6 +864,10 @@ impl ApplicationHandler<Cmd> for App {
                         LogicalSize::new(w.max(1.0), h.max(1.0)),
                     );
                 }
+            }
+            Cmd::ChooseFolder { window, title, reply } => {
+                let parent = window.and_then(|id| self.windows.get(&id)).map(|w| &**w);
+                crate::chooser::folder(parent, &title, reply);
             }
             Cmd::Exit(code) => {
                 self.code = code;

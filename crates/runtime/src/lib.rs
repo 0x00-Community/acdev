@@ -35,8 +35,8 @@ pub use ime::{Ime, ImeCapability};
 pub use network::{NetCall, Network, Networks};
 pub use office::{OfficeCall, OfficeService};
 #[cfg(target_os = "linux")]
-pub use portal::{Appearance, FileChooser};
-pub use fs::{FileBytes, Finder, FsCall, FsError, FsReply, Workspace};
+pub use portal::{Appearance, FileChooser, choose_folder};
+pub use fs::{ChildKind, FileBytes, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
 pub use terminal::Terminals;
 pub use unixhttp::{Deliver, Event as UnixEvent, UnixClient};
 #[cfg(target_os = "linux")]

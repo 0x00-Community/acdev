@@ -5,7 +5,7 @@ import { Host } from './host'
 import type { ImeEvent, NativeIme } from './ime'
 import type { NativeSurface } from './native'
 import { PageSource } from './page'
-import { PageCalls } from './pagecalls'
+import { PageCalls, type FolderPicker } from './pagecalls'
 import { PageInspect } from './pageinspect'
 import { Pinned } from './pinned'
 import { RemoteBridge, WindowList, WindowSelf } from './remote'
@@ -33,6 +33,7 @@ interface WebNatives extends Natives {
   readonly terminal?: object
   readonly network?: object
   readonly office?: object
+  readonly picker?: FolderPicker
 }
 
 export default async function boot(natives: WebNatives): Promise<void> {
@@ -103,7 +104,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     self.emit('activate')
     self.onVisible = (visible) => page.setVisible(visible)
   }
-  new PageCalls(page, rpc, init.name)
+  new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, window: init.window, label: init.app?.label ?? '桌面' })
   web.onActivation = (active) => self?.emit(active ? 'activate' : 'deactivate')
   web.onGrab = (event) => self?.emit(event.kind === 'lost' ? 'grablost' : 'grab', event)
   if (init.kind === 'desktop') {

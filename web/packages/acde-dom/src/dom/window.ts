@@ -12,7 +12,7 @@ import { HashChangeEvent, MediaQueryListEvent, PopStateEvent } from './events'
 import { HANDLER_TYPES } from './element'
 import { linkHooks } from './html'
 import { rootScroll } from './layout'
-import { FileSystemFileHandle, FileSystemHandle, FileSystemWritableFileStream, showOpenFilePicker, showSaveFilePicker } from './picker'
+import { FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemHandle, FileSystemWritableFileStream, showDirectoryPicker, showOpenFilePicker, showSaveFilePicker } from './picker'
 import { documentId, dom, rootElementId, wrap } from './realm'
 import { computedStyle, type CSSStyleDeclaration } from './style'
 
@@ -774,8 +774,10 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
     Notification,
     showOpenFilePicker,
     showSaveFilePicker,
+    showDirectoryPicker,
     FileSystemHandle,
     FileSystemFileHandle,
+    FileSystemDirectoryHandle,
     FileSystemWritableFileStream,
     scroll: scrollWindow,
     scrollTo: scrollWindow,
