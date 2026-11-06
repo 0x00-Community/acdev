@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use acde_hostwin::{Grant, Mode, Shell};
+use acde_hostwin::{Grant, Injected, Mode, Shell};
 
 use crate::bind;
 use crate::rt::{self, Msg};
@@ -313,7 +313,43 @@ fn unshortcut(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: 
     shortcut_call(scope, &args, false);
 }
 
-fn inject(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {}
+const BTN_LEFT: u32 = 0x110;
+
+fn injected(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Result<Injected, String> {
+    let options = v8::Local::<v8::Object>::try_from(value).map_err(|_| "inject: not an object".to_owned())?;
+    let kind = bind::get(scope, options, "type").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope)).unwrap_or_default();
+    let mut number = |name: &str| {
+        bind::get(scope, options, name)
+            .filter(|v| !v.is_null_or_undefined())
+            .and_then(|v| v.number_value(scope))
+            .filter(|n| n.is_finite())
+    };
+    let (x, y, dx, dy) = (number("x"), number("y"), number("dx"), number("dy"));
+    let (button, code) = (number("button"), number("code"));
+    let source = bind::get(scope, options, "source").filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(scope));
+    let need = |v: Option<f64>, name: &str| v.ok_or_else(|| format!("inject {kind}: 缺 {name}"));
+    Ok(match kind.as_str() {
+        "move" => Injected::Move(need(x, "x")?, need(y, "y")?),
+        "motion" => Injected::Motion(need(dx, "dx")?, need(dy, "dy")?),
+        "down" | "up" => Injected::Button { button: button.map_or(BTN_LEFT, |b| b as u32), pressed: kind == "down" },
+        "wheel" => {
+            match source.as_deref() {
+                None | Some("wheel" | "finger" | "continuous") => {}
+                Some(other) => return Err(format!("inject wheel: 不认识的 source {other}")),
+            }
+            Injected::Wheel(dx.unwrap_or(0.0), dy.unwrap_or(0.0))
+        }
+        "keydown" | "keyup" => Injected::Key { code: need(code, "code")? as u32, pressed: kind == "keydown" },
+        other => return Err(format!("inject: 不认识的 type {other}")),
+    })
+}
+
+fn inject(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    match injected(scope, args.get(0)) {
+        Ok(event) => _ = with(scope, |shell| shell.inject(event)),
+        Err(e) => bind::throw_error(scope, &e),
+    }
+}
 
 fn quit(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     with(scope, Shell::quit);

@@ -7,7 +7,7 @@ mod shell;
 mod surface;
 
 pub use acde_model::{Event, Inbox, Waker};
-pub use shell::{Grant, Mode, Shell, WindowInfo};
+pub use shell::{Grant, Injected, Mode, Shell, WindowInfo};
 pub use surface::{DragImage, Surface};
 
 pub fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {

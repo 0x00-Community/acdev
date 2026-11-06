@@ -143,6 +143,70 @@ pub(crate) fn by_name(name: &str) -> Option<u32> {
         .map(|&(_, evdev, _)| evdev)
 }
 
+pub(crate) const BUTTON_LEFT: u32 = 0x110;
+
+const US: &[(u32, char, char)] = &[
+    (2, '1', '!'),
+    (3, '2', '@'),
+    (4, '3', '#'),
+    (5, '4', '$'),
+    (6, '5', '%'),
+    (7, '6', '^'),
+    (8, '7', '&'),
+    (9, '8', '*'),
+    (10, '9', '('),
+    (11, '0', ')'),
+    (12, '-', '_'),
+    (13, '=', '+'),
+    (26, '[', '{'),
+    (27, ']', '}'),
+    (39, ';', ':'),
+    (40, '\'', '"'),
+    (41, '`', '~'),
+    (43, '\\', '|'),
+    (51, ',', '<'),
+    (52, '.', '>'),
+    (53, '/', '?'),
+    (57, ' ', ' '),
+    (55, '*', '*'),
+    (71, '7', '7'),
+    (72, '8', '8'),
+    (73, '9', '9'),
+    (74, '-', '-'),
+    (75, '4', '4'),
+    (76, '5', '5'),
+    (77, '6', '6'),
+    (78, '+', '+'),
+    (79, '1', '1'),
+    (80, '2', '2'),
+    (81, '3', '3'),
+    (82, '0', '0'),
+    (83, '.', '.'),
+    (98, '/', '/'),
+];
+
+pub(crate) fn us_text(evdev: u32, shift: bool) -> Option<String> {
+    if let Some(&(_, plain, shifted)) = US.iter().find(|(code, ..)| *code == evdev) {
+        return Some(if shift { shifted } else { plain }.to_string());
+    }
+    let letter = KEYS
+        .iter()
+        .find(|(_, code, name)| *code == evdev && name.len() == 1 && name.as_bytes()[0].is_ascii_lowercase())
+        .map(|(_, _, name)| *name)?;
+    Some(if shift { letter.to_ascii_uppercase() } else { letter.to_owned() })
+}
+
+pub(crate) fn combo_bit(evdev: u32) -> u8 {
+    use acde_model::Combo;
+    match evdev {
+        29 | 97 => Combo::CTRL,
+        42 | 54 => Combo::SHIFT,
+        56 | 100 => Combo::ALT,
+        125 | 126 => Combo::SUPER,
+        _ => 0,
+    }
+}
+
 pub(crate) fn is_modifier(evdev: u32) -> bool {
     matches!(evdev, 29 | 42 | 54 | 56 | 97 | 100 | 125 | 126)
 }
@@ -150,7 +214,7 @@ pub(crate) fn is_modifier(evdev: u32) -> bool {
 pub(crate) fn mouse_button(button: winit::event::MouseButton) -> u32 {
     use winit::event::MouseButton;
     match button {
-        MouseButton::Left => 0x110,
+        MouseButton::Left => BUTTON_LEFT,
         MouseButton::Right => 0x111,
         MouseButton::Middle => 0x112,
         MouseButton::Back => 0x113,

@@ -101,16 +101,37 @@ Vulkan), 页面由 vello 画进一张 Rgba8 纹理再拷到 surface (layers 的�
 Broker 在 `acde` 线程 (栈 64 MiB), 每个窗口一个 `acde-host-<id>` 线程出帧. 对 acde-host 的接口和 Linux 一样:
 
 - Broker 的 `native.Shell.broker()` 换成 hostwin 的 `Shell` (crates/acdert `hostnative.rs`): grant / place / focus / hide / close /
-  windows / shortcut …, 对象上 `hosted: true`; `inject` / `screenshot` 没有. 窗口的关闭按钮发 `windowcloserequest`: 桌面的结束
+  windows / shortcut / inject …, 对象上 `hosted: true`; `screenshot` 没有. 窗口的关闭按钮发 `windowcloserequest`: 桌面的结束
   会话, 别的走 `closeWeb` (先问 `beforeclose`).
 - web 的 `claimSurface` 拿到 hostwin 的 `Surface` (crates/acdert `surface.rs` 是 Wayland / 宿主两种的 enum), 另有 `hosted`、
   `setTitle`、`setImeArea`. 输入: winit 的按键换成 evdev 码 (`keys.rs`), 输入法的 `Ime::Commit` / `Preedit` 是 `imecommit` /
   `imepreedit` 事件 (acde-host 直接交给 `TextEntry`). 窗口被挡住 (macOS 的另一个 Space、最小化) 时这一帧不上屏, 等 winit 的
   `Occluded(false)` 再把已经画好的那张纹理上屏, 不重画页面.
+- **坐标**: 窗口表里的 rect (`windows()`、`place`、`grant` 的 `rect`、`windowgone`) 是**内容区** (宿主的标题栏和边框不算),
+  相对桌面窗口内容区的原点; 桌面是 `[0, 0, 宽, 高]`. 开窗口和 `place` 时按这个窗口当下的 `inner_position - outer_position` (装饰的
+  偏移) 算出外框该放哪 (macOS 的 winit 建窗口时的位置本来就是内容区, 不用挪); `Moved` 记 `inner_position`. 和合成器一样, 所以
+  `acde:inspect` 的「窗口 rect + 页面里的点」就是注入用的屏幕坐标.
+- **焦点**: `focus` 是逻辑上的键盘焦点 (合成器里那个): 原生 `Focused(true)`、`Shell.focus` / `requestActivate`、注入的按下给出,
+  原生 `Focused(false)` (切到别的程序) 不清它, 只给页面发 `deactivate` (页面 blur, 像浏览器切走); 窗口关了清掉, 隐藏有焦点的窗口时
+  交给剩下最上面的可见窗口. 焦点换了才发 `windowactivate`, 页面 `activate` / `deactivate` 只在状态变了时发.
+- **注入输入** (`Shell.inject`, 参数和报错同合成器的 `inject`): 在主线程上走和 winit 真输入同一段代码 (`App::input`: pointermove /
+  按下抬起 (含 grab hint) / wheel / 键和快捷键). 屏幕坐标就是上面的坐标: `move` 按 z 序 (`state.z`, 跳过隐藏的窗口和面板 —— 面板画在
+  桌面窗口里) 找到内容区里包含这一点的窗口, 换算成它的局部坐标; 离开一个窗口时给它 `pointerleave`. `down` / `up` / `wheel` 在
+  当前注入的指针位置上; 按着键时指针被按下的那个窗口抓住 (隐式 grab, 像 Wayland), 移出去也发给它. 按下和真的点击一样: 给这个
+  窗口焦点、提到最前、并 `focus_window` 原生窗口 (会把 acdert 提到前台; 点桌面会让桌面窗口盖住应用窗口, 和真的点一样).
+  按下落在 grab hint 上时这次按下和抬起都不发给页面 (合成器开始拖动, 宿主没有真的鼠标可拖, 不拖). 键发给焦点窗口 (没有时给最上面
+  的可见窗口), 先过快捷键表 (注入的修饰键按下 / 抬起记在 `Pointer.mods`, 和 winit 的修饰键合起来匹配); 按下时带 US 布局的字符
+  (`keys::us_text`, Shift 取上档), 这样 `period`、大写字母和真按键一样有 `key`. 中文等不经键盘的字走 `acde:inspect` 的 `type`
+  (页面里输入法提交那条路), 不经注入.
 - 系统能力: fs、terminal (pty; macOS 上没有 pidfd / eventfd / close_range, 换成轮询、socketpair、逐个 close)、应用后端的
   unix socket 在所有 unix 上注入; network、office、IME、语音只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
 - 验证 (只在 macOS 上验, Windows / Linux 的宿主窗口只写不验): `ACDE_HOST_DUMP=<目录>` 让每个窗口每帧把画好的页面 (GPU 读回)
   写成 `<目录>/<窗口 id>.png`; `ACDE_DEBUG_DIR` 照旧能在各 web 里求值. 不截屏.
+  - 验过 (2026-11-06, macOS 26, M3 Pro): 注入. `acdert app ledger` 和 `acdert desktop dopame` (Demo 的 ledger) 里经 `ACDE_DEBUG_DIR`
+    调 `broker.inspect.api`: `open('ledger')`、click「收入」、click 金额框、`key '1 2 8 period 5'`、`type '年终奖 bonus'` (中文)、
+    click「奖金」、click「记一笔收入」, 页面里记下了 `+128.50 奖金 年终奖 bonus` (eval 读 DOM, `ACDE_HOST_DUMP` 的 PNG 也是);
+    scroll 回 ok; 点桌面菜单栏的按钮后焦点到了桌面. 未验证: Windows / Linux 的宿主窗口 (装饰偏移、`focus_window`), 多显示器 /
+    不同缩放, 注入的拖动 (按着 move) 在页面里的效果.
 
 调试桌面和调试窗口只差两点:
 

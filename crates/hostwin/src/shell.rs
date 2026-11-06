@@ -50,6 +50,15 @@ impl Mode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Injected {
+    Move(f64, f64),
+    Motion(f64, f64),
+    Button { button: u32, pressed: bool },
+    Wheel(f64, f64),
+    Key { code: u32, pressed: bool },
+}
+
 #[derive(Default)]
 pub struct Grant {
     pub desktop: bool,
@@ -282,6 +291,10 @@ impl Shell {
         if let Some(inbox) = inbox {
             inbox.push(Event::named("close"));
         }
+    }
+
+    pub fn inject(&self, event: Injected) {
+        server().expect("hostwin").send(Cmd::Inject(event));
     }
 
     pub fn quit(&self) {
