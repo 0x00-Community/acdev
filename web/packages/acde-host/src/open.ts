@@ -3,6 +3,7 @@ import type { AppManifest } from './apps'
 import { DesktopEntry } from './desktopentry'
 import { spawnSync } from './sys/child_process'
 import { existsSync, mkdirSync, readTextOr, stat, writeFileSync } from './sys/fs'
+import { sys } from './sys/natives'
 import { xdgDirs, xdgHome } from './sys/os'
 import { basename, dirname, isAbsolute, join, normalize } from './sys/path'
 import { fileURLToPath, pathToFileURL } from './sys/url'
@@ -227,6 +228,7 @@ export class Opener {
   }
 
   static #scheme(target: string): string | null {
+    if (sys().platform === 'win32' && /^[a-z]:[\\/]/i.test(target)) return null
     const scheme = /^([a-z][\w+.-]*):/i.exec(target)?.[1]?.toLowerCase() ?? null
     return scheme === 'file' ? null : scheme
   }

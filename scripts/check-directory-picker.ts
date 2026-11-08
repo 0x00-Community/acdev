@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, rename } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const artifacts = process.argv[2]
 assert.ok(artifacts, 'Run this check through scripts/check-directory-picker.sh')
@@ -15,11 +16,16 @@ await Promise.all([pkg, debug, home, state, readDir, writeDir].map((path) => mkd
 await Promise.all([
   Bun.write(join(readDir, 'fixture.txt'), 'selected folder'),
   Bun.write(join(pkg, 'package.json'), JSON.stringify({ name: 'picker-probe', acde: {
-    apps: [{ id: 'picker-probe', label: 'Picker Probe', icon: 'files',
-      entry: '/picker/app.html', capabilities: { fs: { roots: [] } } }],
+    apps: [
+      { id: 'picker-probe', label: 'Picker Probe', icon: 'files',
+        entry: '/picker/app.html', capabilities: { fs: { roots: [] }, openFiles: true } },
+      { id: 'picker-viewer', label: 'Picker Viewer', icon: 'files',
+        entry: '/picker/view.html', mimeTypes: ['text/plain', 'x-scheme-handler/https'] },
+    ],
     assets: { '/picker/': ['.'] },
   } })),
   Bun.write(join(pkg, 'app.html'), '<!doctype html><title>Picker Probe</title>'),
+  Bun.write(join(pkg, 'view.html'), '<!doctype html><title>Picker Viewer</title>'),
 ])
 
 const env = { ...process.env }
@@ -108,6 +114,24 @@ try {
   assert.equal(await Bun.file(join(writeDir, 'saved.txt')).text(), 'confirmed writable selection')
   console.log('Explicit read/write choice creates a file and persists only that directory')
   console.log('Locate resolves a file within the granted folder and refuses a sibling directory')
+
+  const file = join(writeDir, 'saved.txt')
+  const targets = [file, file.replaceAll('\\', '/'), pathToFileURL(file).href, 'https://example.invalid/test']
+  for (const [index, target] of targets.entries()) {
+    const source = `(async () => {
+      const { openPath } = await import('acde:openPath')
+      return openPath(${JSON.stringify(target)})
+    })()`
+    const result = await call<{ kind: string; id: string; window: number }>(`open-${index}`, `async (api) => {
+      const opened = await api.web(${JSON.stringify(app)}, ${JSON.stringify(source)})
+      api.broker.closeWeb(opened.window)
+      return opened
+    }`)
+    assert.equal(result.kind, 'acde')
+    assert.equal(result.id, 'picker-viewer')
+    assert.ok(result.window > 0)
+  }
+  console.log('Open dispatches native paths, file URLs and HTTPS URLs to their registered app')
 
   await call('close', `(api) => { setTimeout(() => api.broker.closeWeb(${id}), 100); return true }`)
   const timeout = new Promise<null>((done) => setTimeout(done, 8000, null).unref())
