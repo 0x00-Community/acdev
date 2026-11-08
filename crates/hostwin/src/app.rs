@@ -195,7 +195,7 @@ impl Handler for App {
             scale: Some(scale),
             ..Default::default()
         });
-        crate::dev::connect(proxy.clone());
+        crate::dev::listen(proxy.clone());
         let spawned = std::thread::Builder::new().name("acde".into()).stack_size(64 << 20).spawn(move || {
             let code = main();
             proxy.send(Cmd::Exit(code));
