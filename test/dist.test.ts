@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { which } from '../launcher.mjs'
+import { Runtime } from '../src/runtime.ts'
 import { cleanup, env, tmp } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
@@ -162,3 +164,89 @@ describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh',
     expect(found.stdout.trim()).toBe(join(realpathSync(home), '.acde', 'versions', '0.0.2', 'bin', 'acdert'))
   }, 30_000)
 })
+
+test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(
+  'Windows x64: install.ps1 and the installed CLI work in paths containing spaces',
+  async () => {
+    const root = tmp()
+    const out = join(root, 'windows distribution')
+    const host = join(root, 'host files')
+    const desktop = join(root, 'desktop package')
+    const acdert = join(root, 'acdert.exe')
+    const version = '0.0.2'
+    mkdirSync(host)
+    mkdirSync(join(desktop, 'dist'), { recursive: true })
+    writeFileSync(acdert, 'test runtime')
+    writeFileSync(join(host, 'broker.js'), '')
+    writeFileSync(join(host, 'web.js'), '')
+    writeFileSync(join(desktop, 'package.json'), '{"name":"test-desktop","acde":{"apps":[]}}')
+    writeFileSync(join(desktop, 'dist', 'index.html'), '<title>Desktop</title>')
+    const made = await run([
+      process.execPath, 'scripts/dist.ts', '--acdert', acdert, '--host', host, '--desktop', desktop,
+      '--api', join(ROOT, 'node_modules/@dopame/acde-api'), '--triple', 'x86_64-pc-windows-msvc',
+      '--out', out, '--version', version,
+    ], {})
+    expect(made.code, made.out).toBe(0)
+
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch(request) {
+        const file = Bun.file(join(out, new URL(request.url).pathname))
+        return file.exists().then((exists) => exists ? new Response(file) : new Response('not found', { status: 404 }))
+      },
+    })
+    const home = join(root, 'acde installation')
+    try {
+      const powershell = which('pwsh') ?? which('powershell')
+      expect(powershell).not.toBeNull()
+      const result = await run([
+        powershell!, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(out, 'install.ps1'),
+        '-NoModifyPath',
+      ], { ACDE_DIST: server.url.origin, ACDE_INSTALL: home }, root)
+      expect(result.code, result.out).toBe(0)
+    } finally {
+      server.stop(true)
+    }
+
+    const current = join(home, 'current')
+    expect(realpathSync(current)).toBe(realpathSync(join(home, 'versions', version)))
+    expect(readFileSync(join(current, 'bin', 'acdert.exe'), 'utf8')).toBe('test runtime')
+    expect(existsSync(join(current, 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
+    const shipped = join(current, 'bin', 'app', 'packages', 'desktop package', 'dist', 'index.html')
+    expect(readFileSync(shipped, 'utf8')).toBe('<title>Desktop</title>')
+
+    const launcher = pathToFileURL(join(current, 'lib', 'acde', 'launcher.mjs')).href
+    const found = await run([
+      process.execPath, '-e', `const m = await import(${JSON.stringify(launcher)}); console.log(m.requireAcdert())`,
+    ], { ACDE_INSTALL: join(root, 'missing') }, root)
+    expect(found.code, found.out).toBe(0)
+    expect(realpathSync(found.stdout.trim())).toBe(realpathSync(join(current, 'bin', 'acdert.exe')))
+
+    const shim = join(current, 'bin', 'acde.cmd')
+    const project = join(root, 'hello world')
+    const build = join(root, 'build output')
+    const path = [dirname(process.execPath), process.env['PATH']].join(delimiter)
+    for (const args of [
+      ['new', project, '--yes', '--id', 'hello', '--pm', 'bun'],
+      ['check', project],
+      ['build', project, '--out', build],
+    ]) {
+      const child = Runtime.spawn([shim, ...args], {
+        cwd: root, env: env({ ACDE_INSTALL: home, PATH: path }), stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''
+      child.process.stdout!.on('data', (chunk) => { output += chunk.toString() })
+      child.process.stderr!.on('data', (chunk) => { output += chunk.toString() })
+      expect(await child.exited, output).toBe(0)
+    }
+    expect(existsSync(join(build, 'web', 'index.html'))).toBe(true)
+    const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8'))
+    const api = manifest.devDependencies['@dopame/acde-api']
+    expect(api).toStartWith('file:')
+    expect(realpathSync(api.slice('file:'.length))).toBe(realpathSync(join(current, 'lib', 'acde-api')))
+  },
+  180_000,
+)
+
+afterAll(cleanup)
