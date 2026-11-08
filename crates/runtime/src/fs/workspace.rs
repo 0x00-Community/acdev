@@ -269,10 +269,7 @@ impl WorkspaceFs {
 
     pub fn granted(path: &str) -> FinderRoot {
         let exists = Path::new(path).is_dir();
-        let label = match path.basename() {
-            "" => path,
-            name => name,
-        };
+        let label = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
         FinderRoot {
             path: path.to_owned(),
             label: label.to_owned(),

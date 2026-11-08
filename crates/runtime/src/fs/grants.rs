@@ -1,4 +1,7 @@
+#[cfg(not(windows))]
 use super::path::NodePath;
+#[cfg(windows)]
+use super::path::windows_directory;
 use crate::failure::{Failure, Outcome};
 use crate::sync::Locked;
 use serde::{Deserialize, Serialize};
@@ -37,6 +40,9 @@ impl Grants {
     fn load(&self, owner: &str) -> Vec<String> {
         let Some(file) = self.file(owner) else { return Vec::new() };
         let saved: Saved = std::fs::read(&file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+        #[cfg(windows)]
+        return saved.roots.iter().filter_map(|path| native_folder(path)).collect();
+        #[cfg(not(windows))]
         saved.roots.into_iter().filter(|path| path.is_absolute()).collect()
     }
 
@@ -91,14 +97,23 @@ impl Grants {
     }
 }
 
-pub fn folder(path: &str, what: &str) -> Outcome<String> {
-    if !path.is_absolute() {
-        return Err(Failure::invalid(format!("a {what} folder is an absolute path")));
-    }
-    let path = match path.normalize() {
+#[cfg(windows)]
+fn native_folder(path: &str) -> Option<String> {
+    let path = windows_directory(path)?;
+    let trimmed = path.trim_end_matches(['\\', '/']);
+    Some(if Path::new(trimmed).is_absolute() { trimmed.to_owned() } else { path })
+}
+
+#[cfg(not(windows))]
+fn native_folder(path: &str) -> Option<String> {
+    path.is_absolute().then(|| match path.normalize() {
         clean if clean.len() > 1 => clean.trim_end_matches('/').to_owned(),
         clean => clean,
-    };
+    })
+}
+
+pub fn folder(path: &str, what: &str) -> Outcome<String> {
+    let path = native_folder(path).ok_or_else(|| Failure::invalid(format!("a {what} folder is an absolute path")))?;
     if !Path::new(&path).is_dir() {
         return Err(Failure::invalid(format!("a {what} folder must be an existing folder")));
     }

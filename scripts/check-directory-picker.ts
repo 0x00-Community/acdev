@@ -52,9 +52,6 @@ async function call<T>(name: string, source: string): Promise<T> {
   throw new Error(`Timed out waiting for ${name}`)
 }
 
-const choice = (path: string): string => process.platform === 'win32'
-  ? path.replace(/^[a-z]:/i, '').replaceAll('\\', '/')
-  : path
 const grant = join(state, 'acde', 'grants', 'picker-probe.json')
 
 try {
@@ -75,28 +72,31 @@ try {
   assert.equal(cancel, 'AbortError')
   assert.equal(await Bun.file(grant).exists(), false)
 
-  const read = await pick('read', choice(readDir), `(async () => {
+  const read = await pick('read', readDir, `(async () => {
     const handle = await showDirectoryPicker()
     const file = await (await handle.getFileHandle('fixture.txt')).getFile()
     const blocked = await handle.getFileHandle('blocked.txt', { create: true })
       .then(() => 'created', (error) => error.name)
     const { fs } = await import('acde:fs')
-    return { text: await file.text(), blocked, roots: await fs.roots() }
+    return { name: handle.name, text: await file.text(), blocked, roots: await fs.roots() }
   })()`)
-  assert.deepEqual(read, { text: 'selected folder', blocked: 'NotAllowedError', roots: [] })
+  assert.deepEqual(read, { name: 'read-only', text: 'selected folder', blocked: 'NotAllowedError', roots: [] })
   assert.equal(await Bun.file(grant).exists(), false, 'Read-only selection must not persist a writable grant')
   console.log('Read-only choice permits reading and leaves the grant table untouched')
 
-  const write = await pick('read-write', choice(writeDir), `(async () => {
+  const write = await pick('read-write', writeDir, `(async () => {
     const handle = await showDirectoryPicker({ mode: 'readwrite' })
     const writer = await (await handle.getFileHandle('saved.txt', { create: true })).createWritable()
     await writer.write('confirmed writable selection')
     await writer.close()
     const { fs } = await import('acde:fs')
-    return (await fs.roots()).map(({ path, mode }) => ({ path, mode }))
+    const roots = (await fs.roots()).map(({ path, label, mode }) => ({ path, label, mode }))
+    const sibling = await fs.readText(${JSON.stringify(readDir)}, 'fixture.txt')
+      .then(() => 'read', (error) => error.code)
+    return { roots, sibling }
   })()`)
-  assert.deepEqual(write, [{ path: choice(writeDir), mode: 'writable' }])
-  assert.deepEqual(await Bun.file(grant).json(), { roots: [choice(writeDir)] })
+  assert.deepEqual(write, { roots: [{ path: writeDir, label: 'read-write', mode: 'writable' }], sibling: 'EACCES' })
+  assert.deepEqual(await Bun.file(grant).json(), { roots: [writeDir] })
   assert.equal(await Bun.file(join(writeDir, 'saved.txt')).text(), 'confirmed writable selection')
   console.log('Explicit read/write choice creates a file and persists only that directory')
 
