@@ -48,9 +48,9 @@ rustix = { version = "1", features = ["event", "fs", "process", "pty", "termios"
 # pty.rs: close_range in the terminal shell's child (rustix has none), so it inherits no fd of the runtime
 libc = "0"
 
-# Windows: what std has no API for (not following a symlink when opening)
+# Windows: what std has no API for (not following a symlink when opening; a TLS chain whose root Windows has not downloaded yet)
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0", features = ["Win32_Security_Cryptography", "Win32_Storage_FileSystem"] }
 
 # macOS / Windows: OpenSSL built in, the program does not depend on one installed; the system's root certificates for it
 [target.'cfg(not(target_os = "linux"))'.dependencies]

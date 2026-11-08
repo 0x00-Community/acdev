@@ -168,7 +168,10 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   没有 GPU 的 Linux CI 上跑. Linux 上设了它就算「在别人的桌面里」, 不要 `WAYLAND_DISPLAY` / `DISPLAY`.
 - **系统能力**: fs、选文件夹、声音、剪贴板到处都有; terminal 和应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
   WebGPU 只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`), 它不带根证书: runtime `http.rs` 的 `tls()` 在那两处从系统证书库
-  (Keychain / Windows 证书存储, rustls-native-certs) 读进来; Linux 用系统的 OpenSSL 和它的证书目录.
+  (Keychain / Windows 证书存储, rustls-native-certs) 读进来; Linux 用系统的 OpenSSL 和它的证书目录. Windows 的证书库是按需下载的
+  (第三方根证书要等系统自己的 TLS 第一次用到才进库), 所以 Windows 上 OpenSSL 校验失败时 (`system_trusts`) 再把对方的证书链交给
+  `CertGetCertificateChain` + `CertVerifyCertificateChainPolicy` (SSL 策略, 带主机名) 验一次, 它会下载缺的根证书; 两边都不认才拒绝.
+  页面联网的 TLS 握手超时是 30 秒 (`tls_config`, ntex 默认 5 秒, 走代理的慢站点握不完).
 
 ## acde dev
 

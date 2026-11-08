@@ -270,7 +270,7 @@ impl Upgrade {
         for (name, value) in &self.headers {
             config = config.and_then(|c| c.set_header(name.as_str(), value.as_str()));
         }
-        let config = ntex::SharedCfg::new("acde-fetch").add(config.map_err(|error| error.to_string())?);
+        let config = ntex::SharedCfg::new("acde-fetch").add(config.map_err(|error| error.to_string())?).add(crate::http::tls_config());
         let (io, codec, response) = match &self.to {
             Dial::Socket(socket) => {
                 let io = Cell::new(Some(connect(socket).await?));

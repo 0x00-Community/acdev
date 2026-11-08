@@ -12,9 +12,58 @@ pub(crate) fn tls() -> Result<openssl::ssl::SslConnector, openssl::error::ErrorS
                     _ = store.add_cert(cert);
                 }
             }
+            #[cfg(windows)]
+            ssl.set_verify_callback(openssl::ssl::SslVerifyMode::PEER, |ok, ctx| ok || system_trusts(ctx));
         }
     }
     Ok(ssl.build())
+}
+
+#[cfg(windows)]
+fn system_trusts(ctx: &openssl::x509::X509StoreContextRef) -> bool {
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Security::Cryptography::*;
+    let ssl = openssl::x509::X509StoreContext::ssl_idx().ok().and_then(|index| ctx.ex_data(index));
+    let Some(host) = ssl.and_then(|ssl| ssl.servername(openssl::ssl::NameType::HOST_NAME)) else { return false };
+    let ders: Vec<Vec<u8>> = ctx.chain().into_iter().flatten().filter_map(|cert| cert.to_der().ok()).collect();
+    let Some((leaf, rest)) = ders.split_first() else { return false };
+    let mut name: Vec<u16> = host.encode_utf16().chain(Some(0)).collect();
+    let mut usage = [szOID_PKIX_KP_SERVER_AUTH as *mut u8];
+    let para = CERT_CHAIN_PARA {
+        cbSize: size_of::<CERT_CHAIN_PARA>() as u32,
+        RequestedUsage: CERT_USAGE_MATCH { dwType: USAGE_MATCH_TYPE_AND, Usage: CTL_USAGE { cUsageIdentifier: 1, rgpszUsageIdentifier: usage.as_mut_ptr() } },
+        ..Default::default()
+    };
+    let mut server = HTTPSPolicyCallbackData {
+        Anonymous: HTTPSPolicyCallbackData_0 { cbSize: size_of::<HTTPSPolicyCallbackData>() as u32 },
+        dwAuthType: AUTHTYPE_SERVER,
+        fdwChecks: 0,
+        pwszServerName: name.as_mut_ptr(),
+    };
+    let policy = CERT_CHAIN_POLICY_PARA { cbSize: size_of::<CERT_CHAIN_POLICY_PARA>() as u32, dwFlags: 0, pvExtraPolicyPara: (&raw mut server).cast() };
+    let mut status = CERT_CHAIN_POLICY_STATUS { cbSize: size_of::<CERT_CHAIN_POLICY_STATUS>() as u32, ..Default::default() };
+    let store = unsafe { CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, null()) };
+    if store.is_null() {
+        return false;
+    }
+    for der in rest {
+        unsafe { CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING, der.as_ptr(), der.len() as u32, CERT_STORE_ADD_ALWAYS, null_mut()) };
+    }
+    let cert = unsafe { CertCreateCertificateContext(X509_ASN_ENCODING, leaf.as_ptr(), leaf.len() as u32) };
+    let mut trusted = false;
+    if !cert.is_null() {
+        let mut chain = null_mut();
+        if unsafe { CertGetCertificateChain(null_mut(), cert, null(), store, &para, 0, null(), &mut chain) } != 0 {
+            trusted = unsafe { CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chain, &policy, &mut status) } != 0 && status.dwError == 0;
+            unsafe { CertFreeCertificateChain(chain) };
+        }
+        unsafe { CertFreeCertificateContext(cert) };
+    }
+    unsafe { CertCloseStore(store, 0) };
+    if trusted {
+        log::debug!("TLS: Windows verified {host}, whose root was not among the roots read at startup");
+    }
+    trusted
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -32,9 +81,13 @@ fn roots() -> &'static [Vec<u8>] {
     })
 }
 
+pub(crate) fn tls_config() -> ntex::tls::TlsConfig {
+    ntex::tls::TlsConfig::new().set_handshake_timeout(ntex::time::Seconds(30))
+}
+
 pub(crate) fn client() -> ntex::client::Client {
     thread_local! {
-        static CLIENT: ntex::client::Client = ntex::client::Client::builder().openssl(tls().expect("acde runtime: OpenSSL")).build(ntex::SharedCfg::default());
+        static CLIENT: ntex::client::Client = ntex::client::Client::builder().openssl(tls().expect("acde runtime: OpenSSL")).build(ntex::SharedCfg::new("acde-http").add(tls_config()));
     }
     CLIENT.with(Clone::clone)
 }
