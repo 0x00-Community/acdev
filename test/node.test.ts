@@ -9,6 +9,7 @@ import { Runtime } from '../src/runtime.ts'
 import { cleanup, env, inetSockets, line, tmp } from './helpers.ts'
 
 const FIXTURE = join(import.meta.dir, 'fixtures/fetch-backend')
+const WINDOWS = process.platform === 'win32'
 
 function realNode(): string | null {
   const candidates = [process.env['ACDE_TEST_NODE'], which('node')].filter((c): c is string => !!c)
@@ -20,8 +21,8 @@ function realNode(): string | null {
   return null
 }
 
-const NODE = realNode()
-if (!NODE) console.warn('no Node.js >= 22 (set ACDE_TEST_NODE, or put a real node first on PATH): the Node.js backend tests are skipped')
+const NODE = WINDOWS ? null : realNode()
+if (!WINDOWS && !NODE) console.warn('no Node.js >= 22; set ACDE_TEST_NODE or put a real node first on PATH')
 
 const children: Subprocess[] = []
 afterEach(async () => {
@@ -53,7 +54,7 @@ async function waitFor(socket: string, child: Subprocess<'ignore', 'pipe', 'pipe
   }
 }
 
-describe.skipIf(!NODE)('a built backend under node --import acde-listen.js', () => {
+describe.skipIf(!NODE)('a built Unix-socket backend under node --import acde-listen.js', () => {
   let out: string
   let sockets: string
   let socket: string
@@ -123,17 +124,20 @@ describe.skipIf(!NODE)('a built backend under node --import acde-listen.js', () 
     expect(await (await ask('/api/upgrade')).text()).toBe('false')
     expect((await ask('/nope')).status).toBe(404)
   })
-
-  test('the same files under bun --preload', async () => {
-    sockets = join(tmp(), 'sockets')
-    socket = join(sockets, '3000.sock')
-    child = run([process.execPath, '--preload', join(out, 'acde-listen.js'), join(out, 'server.js')], { ACDE_APP_SOCKETS: sockets })
-    await waitFor(socket, child)
-    expect(((await (await ask('/api/hello')).json()) as { runtime: string }).runtime).toBe('bun')
-  })
 })
 
-describe.skipIf(!NODE)('the preload on Node.js', () => {
+test('a built backend under bun --preload answers HTTP over a fresh socket', async () => {
+  const out = await build(join(FIXTURE, 'server.ts'))
+  const sockets = join(tmp(), 'sockets')
+  const socket = join(sockets, '3000.sock')
+  const argv = [process.execPath, '--preload', join(out, 'acde-listen.js'), join(out, 'server.js')]
+  const child = run(argv, { ACDE_APP_SOCKETS: sockets })
+  await waitFor(socket, child)
+  const answer = await fetch('http://acde.local/api/hello', { unix: socket })
+  expect(await answer.json()).toMatchObject({ hello: 'from a fetch handler', runtime: 'bun' })
+})
+
+describe.skipIf(!NODE)('the Unix-socket preload on Node.js', () => {
   test('node:http listen(4100, host) goes to 4100.sock', async () => {
     const out = await build(join(FIXTURE, 'http-server.js'))
     const sockets = join(tmp(), 'sockets')
@@ -167,7 +171,7 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
       mkdirSync(join(dir, name, '..'), { recursive: true })
       writeFileSync(join(dir, name), data)
     }
-    if (modules) symlinkSync(MODULES, join(dir, 'node_modules'))
+    if (modules) symlinkSync(MODULES, join(dir, 'node_modules'), WINDOWS ? 'junction' : 'dir')
     return dir
   }
 
@@ -183,7 +187,7 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
   test('the fixture app: /app/<id>/ URLs, public/ copied, CSS url(/x) into public/ kept, icon, backend and preload', async () => {
     const dir = tmp()
     cpSync(join(import.meta.dir, 'fixtures/app'), dir, { recursive: true })
-    symlinkSync(MODULES, join(dir, 'node_modules'))
+    symlinkSync(MODULES, join(dir, 'node_modules'), WINDOWS ? 'junction' : 'dir')
     const result = await build(dir)
     expect(result.stderr).toBe('')
     expect(result.code).toBe(0)
@@ -266,10 +270,10 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
   test('references to /x that are nowhere name the file and public/', async () => {
     const css = await build(project({ 'package.json': '{"name": "lost-font"}', 'index.html': '<!doctype html><link rel="stylesheet" href="./style.css"><p>x</p>', 'style.css': "@font-face { font-family: X; src: url('/fonts/gone.woff2'); }" }))
     expect(css.code).toBe(1)
-    expect(css.stderr).toContain('/fonts/gone.woff2 in style.css: there is no public/fonts/gone.woff2')
+    expect(css.stderr).toContain(`/fonts/gone.woff2 in style.css: there is no ${join('public/fonts/gone.woff2')}`)
     const html = await build(project({ 'package.json': '{"name": "lost-icon"}', 'index.html': '<!doctype html><link rel="icon" href="/gone.svg"><p>x</p>' }))
     expect(html.code).toBe(1)
-    expect(html.stderr).toContain('/gone.svg in index.html: there is no public/gone.svg')
+    expect(html.stderr).toContain(`/gone.svg in index.html: there is no ${join('public/gone.svg')}`)
   })
 
   test('no vite in the project: says how to add it with its package manager', async () => {
@@ -279,7 +283,7 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
     expect(result.stderr).toContain('this project builds with Vite on Node.js: add it with npm add -D vite')
   })
 
-  test('a fetch-style backend built by Vite answers under node --import (or bun --preload when there is no Node)', async () => {
+  test('a Vite-built backend answers under the platform-supported preload runtime', async () => {
     const dir = project({ 'package.json': '{"name": "api", "type": "module"}', 'index.html': '<!doctype html><p>x</p>' })
     cpSync(join(FIXTURE, 'server.ts'), join(dir, 'server.ts'))
     cpSync(join(FIXTURE, 'lib.ts'), join(dir, 'lib.ts'))
@@ -287,7 +291,10 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
     expect(result.code).toBe(0)
     const sockets = join(tmp(), 'sockets')
     const backend = join(result.out, 'backend')
-    const argv = NODE ? [NODE, '--import', pathToFileURL(join(backend, 'acde-listen.js')).href] : [process.execPath, '--preload', join(backend, 'acde-listen.js')]
+    const preload = join(backend, 'acde-listen.js')
+    const argv = NODE
+      ? [NODE, '--import', pathToFileURL(preload).href]
+      : [process.execPath, '--preload', preload]
     const child = run([...argv, join(backend, 'server.js')], { ACDE_APP_SOCKETS: sockets })
     await waitFor(join(sockets, '3000.sock'), child)
     const answer = (await (await fetch('http://acde.local/api/hello', { unix: join(sockets, '3000.sock') })).json()) as { hello: string; runtime: string }
