@@ -6,6 +6,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 
 说明都在本文件里 (没有 README). full agentic. TypeScript, 跑在开发者已有的 bun 或 Node.js (≥ 22) 上 (见「分发」), 测试 `bun test`, 类型检查 `bun run typecheck`.
 代码不写注释 (`//`, `/* */`, JSDoc 都不写), 要说明的写进本文件; 工具要读的指令 (`/// <reference>`、`@ts-expect-error`) 除外.
+闭源 (用户定, 2026-11-08): 代码是专有的 (根目录 `LICENSE`, package.json `"license": "UNLICENSED"`), 不发 npm 包, 仓库不公开.
 
 ## 形态
 

@@ -2,7 +2,7 @@
   "name": "acde",
   "version": "0.1.0",
   "description": "The acde developer CLI (wrangler to acdert's workerd): acde new / check / build / install / dev. Builds a web app (any framework) or a desktop into a package acdert runs; the preload that puts an app backend's every listen on a unix socket",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "type": "module",
   "private": true,
   "repository": {
