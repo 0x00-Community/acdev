@@ -115,21 +115,22 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - 一个工程、没有 `--desktop`: 桌面工程起 `acdert desktop <id>`, 应用起 `acdert app <id>` (`--app` 挑). 几个工程或给了 `--desktop`: 都构建进
   各自的 `.acde` (不许 `--out` / `--app`), 起 `acdert desktop <D>`: `--desktop` 的值, 否则其中唯一的桌面工程, 否则 `dopame` (全局装的带着).
   `--desktop` 的值像路径 (含 `/`、`.` / `..`) 或当前目录下有同名工程时当作又一个工程 (要恰好一个桌面). 两个工程有同一 id 报错.
-- 环境: `ACDE_PATH` (所有构建结果加继承的; 不装)、`ACDE_DEV` (IPC 地址)、`--headless` 时 `ACDE_HEADLESS=1`.
+- 环境: `ACDE_PATH` (所有构建结果加继承的; 不装)、`ACDE_DEV` (acdert 要听的地址)、`--headless` 时 `ACDE_HEADLESS=1`.
 - `fs.watch` 每个工程, 跳过 `SKIPPED` (`src/paths.ts`)、`--out` 目录和嵌在里面的别的工程; 150 ms 合并, 一次构建一个, 只重建改了的那个 (重读配置),
   给它的每个应用发 `reload {app}`, 它是在跑的桌面时再发 `reload`. 构建失败只打一行.
-- acdert 退出 acde 跟着退出 (退出码跟它), IPC 断了 acdert 也退出. SIGINT 吞掉 (终端也发给了 acdert), SIGTERM / SIGHUP 转给 acdert.
+- acdert 退出 acde 跟着退出 (退出码跟它), acde 的连接断了 acdert 也退出. SIGINT 吞掉 (终端也发给了 acdert), SIGTERM / SIGHUP 转给 acdert.
 - 会话目录 (`Sessions.dir`): `$XDG_RUNTIME_DIR/acde-dev`, 否则 `$TMPDIR/acde-dev-<uid>`; `prepare` 建成 0700 后 `lstat`, 是链接、不是目录、
   不是自己的就报错 (防 `/tmp` 里别人先放的链接). 会话文件 `<pid>.json` `{pid, endpoint, dirs, apps, desktop, headless, started}`: 起来后写、重建后重写、
   退出时删, 临时文件再 rename, 0600; 列的时候只认自己的普通文件, 删掉 pid 死了的.
-- IPC (`DevServer`): unix 上 `<会话目录>/<pid>.sock` (chmod 0600: 它能在页面里求值), Windows 上 `\\.\pipe\acde-dev-<pid>`. 一行一个 JSON, 第一行
-  `hello`: `role: 'runtime'` (acdert, 只要一个) 或 `'tool'`; 别的关掉. 工具的 `request` 换成 acde 自己递增的 id 转给 runtime, 回答换回原 id. 每个请求
-  恰好一个回答: 没连上时排队, 30 s 超时, runtime 断开、acde dev 停止都回错, 晚到的丢掉. op 见 acdert AGENTS.md 的「acde dev」.
+- dev IPC: **acdert 听, acde 不转发.** 地址 `DevClient.endpoint()`: unix 上 `<会话目录>/<pid>.sock` (acde 先 `prepare` 目录、删掉旧 socket;
+  acdert 设 0600: 它能在页面里求值), Windows 上 `\\.\pipe\acde-dev-<pid>`. acde dev 起了 acdert 后每 50 ms 重试连接 (`DevClient.reach`; 10 s 还连不上
+  就提示 acdert 太旧), 连上发 `{type: 'hello', role: 'dev'}` 再写会话文件, `reload` 走这条连接. 一行一个 JSON; 工具和 driver 各自直连 acdert 发
+  `{type: 'request', id, op, ...}`, 唯一的超时在 `DevClient` (30 s). op 见 acdert AGENTS.md 的「acde dev」.
 
 ## 开发工具、driver、MCP、e2e
 
-都以 `tool` 角色连 IPC. 挑会话 (`Sessions.pick`): `--session`; 否则 `dirs` 包含当前目录的 (取最深的); 否则只有一个会话时用它; 否则报错并列出.
-连不上 socket 时删掉会话文件, 报 `acde dev <pid> is gone`.
+都用 `DevClient` 直连会话的 `endpoint`. 挑会话 (`Sessions.pick`): `--session`; 否则 `dirs` 包含当前目录的 (取最深的); 否则只有一个会话时用它; 否则报错并列出.
+连不上 (`ECONNREFUSED` / `ENOENT`) 时删掉会话文件, 报 `acde dev <pid> is gone`.
 
 - **命令** (`src/tools.ts`): `webs` (表格)、`eval <web> <代码|->` (JSON; web 是 web 名、应用 id 或 `desktop`)、`shot <web> [-o]` / `screen [-o]`
   (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`)、`act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1)、
@@ -199,7 +200,7 @@ lib/acde-api/       acdert 的 web/packages/acde-api (不带 test/)
 
 `bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`launcher`、`runtime`、`listen`、`node` (打好的后端在 Node 上跑; 要
 `ACDE_TEST_NODE` 或 PATH 上真的 node ≥ 22, 没有就跳过)、`dev` / `driver` / `mcp` / `e2e` (都用 `test/fixtures/dev/fake-acdert.ts` 这个有状态的假
-acdert 跑真的 `acde dev`)、`dist` (假 acdert 打包、本地托管、跑 install.sh 和 `bin/acde`). 给包管理器搭 PATH 用符号链接, 不用 `exec` 的 sh 脚本:
+acdert (它听 `ACDE_DEV`) 跑真的 `acde dev`)、`dist` (假 acdert 打包、本地托管、跑 install.sh 和 `bin/acde`). 给包管理器搭 PATH 用符号链接, 不用 `exec` 的 sh 脚本:
 包了一层的 `node` 让 pnpm 不装 rolldown 的平台原生包.
 
 ## 要做
