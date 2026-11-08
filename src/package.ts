@@ -78,7 +78,7 @@ export class AppPackage {
         if (!AppPackage.#isLink(dest)) throw new Error(`${dest} exists and is not a link`)
         rmSync(dest)
       }
-      symlinkSync(this.dir, dest)
+      symlinkSync(this.dir, dest, process.platform === 'win32' ? 'junction' : 'dir')
       return dest
     }
     const next = `${dest}.new-${process.pid}`
