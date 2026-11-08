@@ -169,7 +169,7 @@ IPC: unix 上 unix socket, Windows 上命名管道, 一行一个 JSON. acde 是�
 
 收到的消息:
 
-- `{"type":"reload","app"?,"hot"?}` → Broker 的 `devreload`: 有 app 时关掉它所有窗口 (不问 `beforeclose`) 再按记住的 rect 打开, 没有 app 时
+- `{"type":"reload","app"?,"hot"?}` → Broker 的 `devreload`: 有 app 时关掉它所有窗口 (不问 `beforeclose`) 再按记住的 rect 打开 (清单的 `size` 变了时按新尺寸, 中心不动, 不超出屏幕), 没有 app 时
   重起 desktop web (服务不重起). `hot: true` 时先试热替换 (下面).
 - `{"type":"quit"}`.
 - `{"type":"request","id":<整数>,"op",…}` → 整行作为 `devrequest` 推给 Broker (`broker.ts` `#devRequest`), 做完调 `Shell.devRespond`, 写出

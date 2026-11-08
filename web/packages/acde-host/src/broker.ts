@@ -19,7 +19,7 @@ import { DevLog } from './devlog'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage, type Languages } from './language'
 import { StorageFile } from './storage'
-import { WindowPlaces } from './places'
+import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { basename } from './sys/path'
 import { process } from './sys/process'
@@ -696,7 +696,7 @@ export class Broker {
     }
   }
 
-  launch(appId: string, request: Record<string, unknown> | null = null, mode: 'fullscreen' | 'free' = 'free'): { window: number } {
+  launch(appId: string, request: Record<string, unknown> | null = null, mode: 'fullscreen' | 'free' = 'free', place: Rect | null = null): { window: number } {
     const app = this.apps.get(appId) ?? (this.refreshApps(), this.apps.get(appId))
     if (!app) throw Object.assign(new Error(`no app ${appId}`), { status: 404 })
     if (!this.#available(app)) throw Object.assign(new Error(`${app.label}: the system service it needs is not running`), { status: 503 })
@@ -707,7 +707,7 @@ export class Broker {
         return { window: running.id }
       }
     }
-    const rect = mode === 'free' && !this.#running(appId) ? this.#places.get(appId, this.#screen()) : null
+    const rect = mode !== 'free' || this.#running(appId) ? null : (place ?? this.#places.get(appId, this.#screen()))
     const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app) }) })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], request, mode }
     this.#windows.set(record.id, record)
@@ -763,12 +763,15 @@ export class Broker {
       return
     }
     if (app) {
+      const before = this.apps.get(app)
       this.refreshApps()
+      const after = this.apps.get(app)
       const open = [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app)
       const state = await Broker.#snapshot(open[0]?.web ?? null)
       if (state) this.#devStates.set(app, state)
+      const resized = before && after && String(Frame.windowSize(before)) !== String(Frame.windowSize(after)) ? this.#resizedPlace(open[0]?.id, after) : null
       for (const record of open) await this.closeWeb(record.id, true)
-      if (open.length || this.#options.standalone === app) this.launch(app, null, 'free')
+      if (open.length || this.#options.standalone === app) this.launch(app, null, 'free', resized)
       return
     }
     const old = this.#desktop
@@ -783,6 +786,18 @@ export class Broker {
     await old?.terminate().catch(() => 0)
     if (next) await this.bridge.startDesktop((this.#current = next), this.native)
     this.startDesktop()
+  }
+
+  #resizedPlace(window: number | undefined, app: AppManifest): Rect | null {
+    const row = window === undefined ? undefined : this.shell.windows().find((w) => (w.window ?? w.id) === window)
+    if (!row || row.mode !== 'free') return null
+    const screen = this.#screen()
+    const [w, h] = Frame.windowSize(app)
+    const width = Math.min(w, screen.width)
+    const height = Math.min(h, screen.height)
+    const x = Math.round(Math.min(Math.max(0, row.x + (row.width - width) / 2), screen.width - width))
+    const y = Math.round(Math.min(Math.max(0, row.y + (row.height - height) / 2), screen.height - height))
+    return [x, y, width, height]
   }
 
   static async #snapshot(web: Web | null): Promise<unknown> {
