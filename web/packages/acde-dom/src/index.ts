@@ -195,6 +195,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       if (framesPending() || loading) frames.request()
     },
     endTask() {
+      moved()
       canvases.flush()
       gpuContexts.present()
       if (storageDirty) {
