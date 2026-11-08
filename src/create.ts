@@ -1,8 +1,9 @@
 import * as p from '@clack/prompts'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { basename, relative, resolve } from 'node:path'
 import { AppPackage } from './package.ts'
-import { PackageManager, type PmName } from './pm.ts'
+import { PackageManager } from './pm.ts'
 
 export type Kind = 'app' | 'desktop'
 
@@ -11,7 +12,7 @@ export interface Starter {
   readonly label: string
   readonly hint: string
   readonly kind: Kind
-  readonly scaffold?: (dir: string, pm: PmName) => readonly string[]
+  readonly scaffold?: (dir: string, pm: PackageManager) => readonly string[]
 }
 
 export interface CreateOptions {
@@ -33,9 +34,7 @@ export interface Created {
   readonly pm: PackageManager
 }
 
-const X = [process.execPath, 'x', '--bun']
-
-const vite = (template: string) => (dir: string) => [...X, 'create-vite@latest', dir, '--template', template, '--no-interactive', '--no-immediate']
+const vite = (template: string) => (dir: string, pm: PackageManager) => pm.exec('create-vite@latest', [dir, '--template', template, '--no-interactive', '--no-immediate'])
 
 export const STARTERS: readonly Starter[] = [
   { name: 'html', label: 'HTML', hint: 'index.html + JS, an optional server.ts backend; no framework', kind: 'app' },
@@ -50,28 +49,28 @@ export const STARTERS: readonly Starter[] = [
     label: 'Next.js',
     hint: 'server rendering, App Router',
     kind: 'app',
-    scaffold: (dir, pm) => [...X, 'create-next-app@latest', dir, '--yes', '--ts', '--app', `--use-${pm === 'deno' ? 'npm' : pm}`, '--skip-install', '--disable-git', '--no-agent-feedback'],
+    scaffold: (dir, pm) => pm.exec('create-next-app@latest', [dir, '--yes', '--ts', '--app', `--use-${pm.name}`, '--skip-install', '--disable-git', '--no-agent-feedback']),
   },
   {
     name: 'nuxt',
     label: 'Nuxt',
     hint: 'server rendering',
     kind: 'app',
-    scaffold: (dir, pm) => [...X, 'create-nuxt@latest', dir, '--template', 'minimal', '--no-install', '--no-gitInit', '--packageManager', pm],
+    scaffold: (dir, pm) => pm.exec('create-nuxt@latest', [dir, '--template', 'minimal', '--no-install', '--no-gitInit', '--packageManager', pm.name]),
   },
   {
     name: 'sveltekit',
     label: 'SvelteKit',
     hint: 'server rendering',
     kind: 'app',
-    scaffold: (dir) => [...X, 'sv@latest', 'create', dir, '--template', 'minimal', '--types', 'ts', '--no-add-ons', '--no-install'],
+    scaffold: (dir, pm) => pm.exec('sv@latest', ['create', dir, '--template', 'minimal', '--types', 'ts', '--no-add-ons', '--no-install']),
   },
   {
     name: 'astro',
     label: 'Astro',
     hint: 'static pages',
     kind: 'app',
-    scaffold: (dir) => [...X, 'create-astro@latest', dir, '--template', 'minimal', '--no-install', '--no-git', '--no-ai', '--yes', '--skip-houston'],
+    scaffold: (dir, pm) => pm.exec('create-astro@latest', [dir, '--template', 'minimal', '--no-install', '--no-git', '--no-ai', '--yes', '--skip-houston']),
   },
   { name: 'desktop', label: 'Desktop', hint: 'a full-screen page behind every window, its services and apps', kind: 'desktop' },
 ]
@@ -136,7 +135,7 @@ export class Creator {
       const backend = given.backend ?? (starter.name === 'html' ? await answer(p.confirm({ message: 'Add a backend (server.ts, any Bun / Node server)?', initialValue: false })) : false)
       const pm = given.pm ? PackageManager.named(given.pm) : PackageManager.invoking()
       const install = given.install ?? (await answer(p.confirm({ message: `Install dependencies (${pm.name} install)?`, initialValue: true })))
-      const git = given.git ?? (Bun.which('git') && !Creator.#inRepo(dir) ? await answer(p.confirm({ message: 'Start a git repository?', initialValue: true })) : false)
+      const git = given.git ?? (PackageManager.which('git') && !Creator.#inRepo(dir) ? await answer(p.confirm({ message: 'Start a git repository?', initialValue: true })) : false)
       return { ...given, dir, template, label, backend, install, git, pm: pm.name }
     } catch (error) {
       if (!(error instanceof Cancelled)) throw error
@@ -157,19 +156,17 @@ export class Creator {
     const step = Creator.#steps(chatty)
     let pkg: AppPackage
     if (starter.scaffold) {
-      await step(`${starter.label}: its own scaffolding`, [starter.scaffold(dir, pm.name)], undefined, { CI: '1' })
-      pkg = AppPackage.adopt(dir, id, label, starter.label, pm.name)
+      await step(`${starter.label}: its own scaffolding`, [starter.scaffold(dir, pm)], undefined, { CI: '1' })
+      pkg = AppPackage.adopt(dir, id, label, starter.label)
     } else {
       pkg = AppPackage.create(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
     }
     AppPackage.prepare(dir, pm)
-    const registration = AppPackage.registration(pm.name)
-    if (registration) await step(`bun link (registers this acde checkout for "acde": "link:acde")`, [registration], AppPackage.ROOT)
     if (options.install) await step(`${pm.name} install`, [pm.install], dir)
     if (options.git && !Creator.#inRepo(dir)) {
       await step('git init', [['git', 'init', '--quiet'], ['git', 'add', '--all']], dir)
-      const commit = Bun.spawnSync(['git', 'commit', '--quiet', '--message', 'Initial commit (acde new)'], { cwd: dir, stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
-      if (chatty) p.log.step(commit.exitCode === 0 ? 'git commit' : 'git commit: skipped (no git user.name / user.email)')
+      const commit = spawnSync('git', ['commit', '--quiet', '--message', 'Initial commit (acde new)'], { cwd: dir, stdio: 'ignore' })
+      if (chatty) p.log.step(commit.status === 0 ? 'git commit' : 'git commit: skipped (no git user.name / user.email)')
     }
     return { pkg, dir, starter, installed: options.install === true, pm }
   }
@@ -190,16 +187,26 @@ export class Creator {
     }
   }
 
+  static #run(argv: readonly string[], cwd: string | undefined, env: NodeJS.ProcessEnv): Promise<{ code: number; output: string }> {
+    return new Promise((done) => {
+      const chunks: Buffer[] = []
+      const child = spawn(argv[0]!, argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+      child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
+      child.stderr.on('data', (chunk: Buffer) => chunks.push(chunk))
+      child.on('error', (error) => done({ code: 127, output: `${Buffer.concat(chunks).toString()}${error.message}` }))
+      child.on('close', (code, signal) => done({ code: code ?? (signal ? 128 : 1), output: Buffer.concat(chunks).toString() }))
+    })
+  }
+
   static #steps(chatty: boolean) {
     return async (title: string, commands: readonly (readonly string[])[], cwd?: string, env: Readonly<Record<string, string>> = {}): Promise<void> => {
       const spin = chatty ? p.spinner() : null
       spin?.start(title)
       for (const argv of commands) {
-        const child = Bun.spawn([...argv], { cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } })
-        const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
+        const { code, output } = await Creator.#run(argv, cwd, { ...process.env, ...env })
         if (code === 0) continue
         spin?.error(`${title} failed`)
-        throw new Error(`${argv.join(' ')} failed (exit ${code})\n${(out + err).trim()}`)
+        throw new Error(`${argv.join(' ')} failed (exit ${code})\n${output.trim()}`)
       }
       spin?.stop(title)
     }

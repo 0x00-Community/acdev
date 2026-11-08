@@ -13,7 +13,7 @@ import { Tools } from './tools.ts'
 const USAGE = `usage: acde <command>
   new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--pm PM] [--yes]
                                                    a project; in a terminal it asks what is missing (--yes: ask nothing)
-                                                   T: ${STARTERS.map((s) => s.name).join(', ')}; PM: bun, npm, pnpm, yarn, deno (default: the one running this)
+                                                   T: ${STARTERS.map((s) => s.name).join(', ')}; PM: bun, npm, pnpm, yarn (default: the one running this)
   check [dir]                                      acde.config.jsonc (or a package's manifest), as acdert reads it
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)

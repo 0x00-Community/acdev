@@ -197,7 +197,7 @@ export class ViteBundler extends Bundler {
       file = Runtime.resolve('vite', dir)
     } catch {
       const pm = PackageManager.of(dir).name
-      throw new Error(`this project builds with Vite on Node.js: add it with ${pm === 'deno' ? 'deno add -D npm:vite' : `${pm} add -D vite`}`)
+      throw new Error(`this project builds with Vite on Node.js: add it with ${pm} add -D vite`)
     }
     return (await import(pathToFileURL(file).href)) as Vite
   }

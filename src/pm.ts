@@ -1,21 +1,24 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 
-export type PmName = 'bun' | 'npm' | 'pnpm' | 'yarn' | 'deno'
+export type PmName = 'bun' | 'npm' | 'pnpm' | 'yarn'
 
 export class PackageManager {
-  static readonly NAMES: readonly PmName[] = ['bun', 'npm', 'pnpm', 'yarn', 'deno']
+  static readonly NAMES: readonly PmName[] = ['bun', 'npm', 'pnpm', 'yarn']
   static readonly LOCKS: readonly (readonly [string, PmName])[] = [
     ['bun.lock', 'bun'],
     ['bun.lockb', 'bun'],
     ['pnpm-lock.yaml', 'pnpm'],
     ['yarn.lock', 'yarn'],
     ['package-lock.json', 'npm'],
-    ['deno.lock', 'deno'],
   ]
-  static readonly RUNTIMES: Readonly<Record<string, PmName>> = { node: 'npm', deno: 'deno', bun: 'bun' }
+  static readonly RUNTIMES: Readonly<Record<string, PmName>> = { node: 'npm', bun: 'bun' }
 
-  constructor(readonly name: PmName) {}
+  readonly name: PmName
+
+  constructor(name: PmName) {
+    this.name = name
+  }
 
   static named(name: string): PackageManager {
     if (!(PackageManager.NAMES as readonly string[]).includes(name)) throw new Error(`package manager ${JSON.stringify(name)}: one of ${PackageManager.NAMES.join(', ')}`)
@@ -25,7 +28,8 @@ export class PackageManager {
   static invoking(): PackageManager {
     const agent = process.env['npm_config_user_agent']?.split(/[/ ]/, 1)[0] ?? ''
     if ((PackageManager.NAMES as readonly string[]).includes(agent)) return new PackageManager(agent as PmName)
-    return new PackageManager(PackageManager.RUNTIMES[process.env['ACDE_HOST_RUNTIME'] ?? ''] ?? 'bun')
+    const runtime = process.env['ACDE_HOST_RUNTIME'] || (process.versions['bun'] ? 'bun' : 'node')
+    return new PackageManager(PackageManager.RUNTIMES[runtime] ?? 'npm')
   }
 
   static of(dir: string): PackageManager {
@@ -46,26 +50,47 @@ export class PackageManager {
   }
 
   run(script: string): string[] {
-    if (this.name === 'deno') return ['deno', 'task', script]
     if (this.name === 'pnpm' || this.name === 'yarn') return [this.name, script]
     return [this.name, 'run', script]
   }
 
+  exec(pkg: string, args: readonly string[]): string[] {
+    if (this.name === 'bun') return [this.#bin(), 'x', '--bun', pkg, ...args]
+    if (this.name === 'npm') return [PackageManager.which('npx') ?? 'npx', '--yes', pkg, ...args]
+    return [this.#bin(), 'dlx', pkg, ...args]
+  }
+
   #bin(): string {
-    if (this.name === 'bun') return process.execPath
-    const found = Bun.which(this.name)
+    if (this.name === 'bun' && process.versions['bun']) return process.execPath
+    const found = PackageManager.which(this.name)
     if (!found) throw new Error(`${this.name} is not on PATH`)
     return found
   }
 
+  static which(name: string): string | null {
+    const windows = process.platform === 'win32'
+    for (const dir of (process.env['PATH'] ?? '').split(delimiter)) {
+      if (!dir) continue
+      for (const ext of windows ? ['.exe', '.cmd', ''] : ['']) {
+        const file = join(dir, name + ext)
+        if (existsSync(file)) return file
+      }
+    }
+    return null
+  }
+
+  static manifest(dir: string, dep: string): string | null {
+    for (let at = dir; ; at = dirname(at)) {
+      const file = join(at, 'node_modules', dep, 'package.json')
+      if (existsSync(file)) return realpathSync(file)
+      if (dirname(at) === at) return null
+    }
+  }
+
   static bin(dir: string, name: string, deps: ReadonlySet<string>): string | null {
     for (const dep of deps) {
-      let manifest: string
-      try {
-        manifest = Bun.resolveSync(`${dep}/package.json`, dir)
-      } catch {
-        continue
-      }
+      const manifest = PackageManager.manifest(dir, dep)
+      if (!manifest) continue
       const bin = (JSON.parse(readFileSync(manifest, 'utf8')) as { name?: string; bin?: unknown }).bin
       const rel = typeof bin === 'string' ? (dep.split('/').pop() === name ? bin : null) : bin && typeof bin === 'object' ? (bin as Record<string, unknown>)[name] : null
       if (typeof rel === 'string') return join(dirname(manifest), rel)

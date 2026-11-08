@@ -1,18 +1,17 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Manifest, type Findings, type PackageManifest } from '@dopame/acde-api/manifest'
+import { installDir, installed } from 'acde/launcher'
 import { install, packagesDir, Project } from './app.ts'
-import type { PackageManager, PmName } from './pm.ts'
+import { PackageManager, type PmName } from './pm.ts'
 
 interface SelfManifest {
   readonly version: string
   readonly dependencies?: Readonly<Record<string, string>>
-  readonly optionalDependencies?: Readonly<Record<string, string>>
 }
 
 export interface Wiring {
   readonly devDependencies: Readonly<Record<string, string>>
-  readonly resolutions?: Readonly<Record<string, string>>
   readonly command: string
 }
 
@@ -24,12 +23,12 @@ export interface Built {
 }
 
 export class AppPackage {
-  static readonly ROOT = realpathSync(join(import.meta.dir, '..'))
+  static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
   static readonly TEMPLATES = join(AppPackage.ROOT, 'templates')
   static readonly KINDS = ['app', 'desktop'] as const
   static readonly SELF = JSON.parse(readFileSync(join(AppPackage.ROOT, 'package.json'), 'utf8')) as SelfManifest
-  static readonly PUBLISHED = AppPackage.SELF.optionalDependencies !== undefined
-  static readonly LINKS: Readonly<Record<Exclude<PmName, 'bun'>, string>> = { npm: 'file:', pnpm: 'link:', yarn: 'portal:', deno: 'file:' }
+  static readonly INSTALLED = installed(AppPackage.ROOT)
+  static readonly VITE = '^8'
 
   readonly dir: string
   readonly name: string
@@ -50,15 +49,15 @@ export class AppPackage {
     if (existsSync(dir) && readdirSync(dir).some((name) => name !== '.git')) throw new Error(`${dir} is not empty`)
     if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error(`id ${JSON.stringify(id)}: lowercase letters, digits and -`)
     for (const layer of [kind, ...layers]) AppPackage.#copy(join(AppPackage.TEMPLATES, layer), dir, { id, label })
-    AppPackage.wire(dir, { dev: 'dev', build: 'build', check: 'check' }, pm)
+    AppPackage.wire(dir, { dev: 'dev', build: 'build', check: 'check' }, pm === 'bun' ? {} : { vite: AppPackage.VITE })
     return new AppPackage(dir)
   }
 
-  static adopt(dir: string, id: string, label: string, framework: string, pm: PmName): AppPackage {
+  static adopt(dir: string, id: string, label: string, framework: string): AppPackage {
     const file = join(dir, 'package.json')
     if (!existsSync(file)) throw new Error(`${framework} made no package.json in ${dir}`)
     AppPackage.#copy(join(AppPackage.TEMPLATES, 'framework'), dir, { id, label, framework })
-    AppPackage.wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' }, pm)
+    AppPackage.wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' })
     const ignore = join(dir, '.gitignore')
     const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
     if (!/^\/?\.acde\/?$/m.test(ignored)) writeFileSync(ignore, `${ignored}${ignored && !ignored.endsWith('\n') ? '\n' : ''}.acde/\n`)
@@ -66,10 +65,19 @@ export class AppPackage {
   }
 
   static apiDir(): string {
+    if (AppPackage.INSTALLED) {
+      const lib = dirname(AppPackage.ROOT)
+      const versions = dirname(dirname(lib))
+      const named = join(installDir(), 'current', 'lib')
+      const current = existsSync(named) && realpathSync(named) === lib ? named : join(dirname(versions), 'current', 'lib')
+      return basename(versions) === 'versions' && existsSync(join(current, 'acde-api', 'package.json')) ? join(current, 'acde-api') : join(lib, 'acde-api')
+    }
     const spec = AppPackage.SELF.dependencies?.['@dopame/acde-api']
     const checkout = spec?.startsWith('file:') ? resolve(AppPackage.ROOT, spec.slice('file:'.length)) : null
     if (checkout && existsSync(join(checkout, 'package.json'))) return realpathSync(checkout)
-    return realpathSync(dirname(Bun.resolveSync('@dopame/acde-api/package.json', AppPackage.ROOT)))
+    const found = PackageManager.manifest(AppPackage.ROOT, '@dopame/acde-api')
+    if (!found) throw new Error(`no @dopame/acde-api next to acde (${AppPackage.ROOT})`)
+    return dirname(found)
   }
 
   static local(protocol: string, from: string, to: string): string {
@@ -78,29 +86,17 @@ export class AppPackage {
     return `${protocol}${path.split(sep).join('/')}`
   }
 
-  static wiring(dir: string, pm: PmName): Wiring {
-    if (AppPackage.PUBLISHED) {
-      return { devDependencies: { '@dopame/acde-api': process.env['ACDE_API'] || `^${AppPackage.SELF.dependencies!['@dopame/acde-api']}`, acde: `^${AppPackage.SELF.version}` }, command: 'acde' }
-    }
-    const api = process.env['ACDE_API'] || AppPackage.local('file:', dir, AppPackage.apiDir())
-    return {
-      devDependencies: { '@dopame/acde-api': api, acde: pm === 'bun' ? 'link:acde' : AppPackage.local(AppPackage.LINKS[pm], dir, AppPackage.ROOT) },
-      ...(pm === 'yarn' && { resolutions: { '@dopame/acde-api': api } }),
-      command: pm === 'deno' ? 'deno run -A node_modules/acde/bin/acde.mjs' : 'acde',
-    }
+  static wiring(dir: string, extra: Readonly<Record<string, string>> = {}): Wiring {
+    const api = process.env['ACDE_API'] || (AppPackage.INSTALLED ? `file:${AppPackage.apiDir()}` : AppPackage.local('file:', dir, AppPackage.apiDir()))
+    return { devDependencies: { '@dopame/acde-api': api, ...extra }, command: 'acde' }
   }
 
-  static registration(pm: PmName): readonly string[] | null {
-    return !AppPackage.PUBLISHED && pm === 'bun' ? [process.execPath, 'link'] : null
-  }
-
-  static wire(dir: string, scripts: Readonly<Record<string, string>>, pm: PmName): void {
+  static wire(dir: string, scripts: Readonly<Record<string, string>>, extra: Readonly<Record<string, string>> = {}): void {
     const file = join(dir, 'package.json')
-    const json = JSON.parse(readFileSync(file, 'utf8')) as { scripts?: Record<string, string>; devDependencies?: Record<string, string>; resolutions?: Record<string, string> }
-    const wiring = AppPackage.wiring(dir, pm)
+    const json = JSON.parse(readFileSync(file, 'utf8')) as { scripts?: Record<string, string>; devDependencies?: Record<string, string>}
+    const wiring = AppPackage.wiring(dir, extra)
     json.scripts = { ...json.scripts, ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `${wiring.command} ${command}`])) }
     json.devDependencies = { ...json.devDependencies, ...wiring.devDependencies }
-    if (wiring.resolutions) json.resolutions = { ...json.resolutions, ...wiring.resolutions }
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   }
 

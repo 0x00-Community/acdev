@@ -10,7 +10,7 @@
     "url": "https://github.com/dopame-org/acde"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.3"
   },
   "bin": {
     "acde": "./bin/acde.mjs"
@@ -18,16 +18,10 @@
   "sideEffects": [
     "./src/listen.ts"
   ],
-  "files": [
-    "bin",
-    "launcher.mjs",
-    "launcher.d.mts",
-    "src",
-    "templates"
-  ],
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "dist": "bun scripts/dist.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
