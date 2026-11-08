@@ -2,7 +2,7 @@
   "name": "@dopame/acde-host",
   "version": "0.0.2",
   "description": "acde's host code in JS: the Broker (desktops, services, windows, the session) and each web's side (its page in acde-dom, shell input); bundled for crates/acdert, no Node",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "type": "module",
   "private": true,
   "repository": {

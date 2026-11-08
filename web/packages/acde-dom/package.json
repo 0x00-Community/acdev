@@ -2,7 +2,7 @@
   "name": "@dopame/acde-dom",
   "version": "0.0.2",
   "description": "The web platform of an acde web in JS: browser globals and the DOM over the render document (DomNative) and the engine's services (HostNative); no Node, no happy-dom",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
   "private": true,
@@ -19,8 +19,7 @@
     "./core": "./src/core/index.ts"
   },
   "files": [
-    "src",
-    "LICENSE"
+    "src"
   ],
   "scripts": {
     "test": "bun test"

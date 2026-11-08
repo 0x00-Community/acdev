@@ -2,7 +2,7 @@
   "name": "acde-web",
   "private": true,
   "description": "acdert's TypeScript workspace: the host (packages/acde-host) and the types desktop packages are written against (packages/acde-api)",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "build": "bun run --filter \"*\" build",

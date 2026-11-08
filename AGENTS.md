@@ -586,6 +586,8 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 
 ## 协作规则
 
+- 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`
+  (都 `publish = false`), 不发 npm 包, 仓库和 release 不公开. `vendors/` 和 crates/acde-napi 保留上游的许可证文件和版权行.
 - Rust 和 TypeScript 代码不写注释, 要说明的写进本文件. 例外: 版权和许可证行 (crates/acde-napi 的 Deno 版权)、工具指令 (`/// <reference>`,
   `@ts-expect-error`)、`vendors/` 改动处的 `acrender:` / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`

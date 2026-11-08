@@ -29,7 +29,7 @@ provides=('acde-base')
 conflicts=('acde-base')
 arch=('x86_64' 'aarch64')
 url='https://github.com/dopame-org/acdert'
-license=('Apache-2.0')
+license=('LicenseRef-Dopame')
 depends=(
   # compositor: DRM/KMS, GBM and EGL/GLES (mesa), input, seat, udev; Wayland clients only (no X server)
   'mesa' 'libdrm' 'libinput' 'seatd' 'systemd-libs' 'wayland' 'libxkbcommon'
@@ -114,7 +114,8 @@ package() {
   install -Dm755 "${srcdir}/target/release/acdert" "${pkgdir}/usr/lib/acdert/acdert"
   local app="${srcdir}/acdert/web/packages/acde-host"
   install -Dm644 -t "${pkgdir}/usr/lib/acdert/app/dist" "$app/dist/broker.js" "$app/dist/web.js"
-  install -Dm644 -t "${pkgdir}/usr/lib/acdert/app" "$app/package.json" "$app/LICENSE"
+  install -Dm644 -t "${pkgdir}/usr/lib/acdert/app" "$app/package.json"
+  install -Dm644 "${srcdir}/acdert/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   cp -a -- "$app/greet" "${pkgdir}/usr/lib/acdert/app/greet"
   cp -a -- "$app/brand" "${pkgdir}/usr/lib/acdert/app/brand"
   install -dm755 "${pkgdir}/usr/share/acde/packages"

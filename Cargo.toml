@@ -7,7 +7,6 @@ exclude = ["vendors"]
 version = "0.0.2"
 edition = "2024"
 repository = "https://github.com/dopame-org/acdert"
-license = "Apache-2.0"
 publish = false
 
 # acrender: 我们的 Blitz 分叉 (vendors/acrender, 基于上游 main 独立维护), 整组 blitz crate 都用它
