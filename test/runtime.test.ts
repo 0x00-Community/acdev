@@ -69,9 +69,16 @@ describe('Runtime.spawn / which', () => {
     const child = Runtime.spawn([process.execPath, '-e', 'setTimeout(() => {}, 10000)'], { stdio: 'ignore' })
     child.kill('SIGTERM')
     expect(await child.exited).toBe(143)
-    await expect(Runtime.spawn(['/no/such/program'], { stdio: 'ignore' }).exited).rejects.toThrow()
-    expect(which('sh')).toMatch(/\/sh$/)
-    expect(which('surely-not-a-program-acde')).toBeNull()
+    await expect(Runtime.spawn([join(tmp(), 'missing')], { stdio: 'ignore' }).exited).rejects.toThrow()
+  })
+
+  test('which searches PATH and recognizes Windows executable suffixes', () => {
+    const path = tmp()
+    const file = join(path, process.platform === 'win32' ? 'acde-tool.CMD' : 'acde-tool')
+    writeFileSync(file, '', { mode: 0o755 })
+    const env = { PATH: path, PATHEXT: '.EXE;.CMD' }
+    expect(which('acde-tool', env)).toBe(file)
+    expect(which('missing', env)).toBeNull()
   })
 })
 
