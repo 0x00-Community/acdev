@@ -534,8 +534,9 @@ cd web && bun install && bun run build         # packages/acde-host/dist/{broker
 ACDE_PATH=<acde-dopame 的包目录> ../target/release/acdert --desktop dopame
 ```
 
-acdert 找 bundle: `$ACDE_APP`, 自己旁边的 `app/dist`, `<exe>/../../web/packages/acde-host/dist` (仓库里; `CARGO_TARGET_DIR` 在别处时设
-`ACDE_APP`). 验证平台: macOS 和 Windows 11 LTSC x64 (宿主窗口); Linux 的会话在有 GPU 的真机上, Linux 的宿主窗口只写不验.
+`ACDE_APP` 指向直接包含 `broker.js` 和 `web.js` 的目录, 源码构建用 `web/packages/acde-host/dist` 的绝对路径. 未设置时,
+acdert 先查可执行文件旁的 `app/dist`, 再查 `<exe>/../../web/packages/acde-host/dist`. 若 `CARGO_TARGET_DIR` 在别处, 显式设置 `ACDE_APP`.
+验证平台: macOS 和 Windows 11 LTSC x64 (宿主窗口); Linux 的会话在有 GPU 的真机上, Linux 的宿主窗口只写不验.
 
 **Windows**: 只出一个 x64 binary, MSVC v143 编. 要 VS 2022 17.11 以上 (MSVC 14.41+) 的 C++ 工具和 ATL 组件
 (`Microsoft.VisualStudio.Component.VC.ATL`): 静态 DXC 的预编译库要新版 STL 的 `__std_*` 和 `atls.lib`, v142 链接不了, 不支持.
