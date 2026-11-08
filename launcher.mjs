@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = dirname(fileURLToPath(import.meta.url))
 const WINDOWS = process.platform === 'win32'
 const EXE = WINDOWS ? '.exe' : ''
-export const NODE_MAJOR = 22
+export const NODE_MINIMUM = [22, 3]
 
 export function runtime() {
   return process.versions.bun ? 'bun' : 'node'
@@ -93,8 +93,9 @@ export function cliEnv(exe, env = process.env) {
 
 function checkNode() {
   if (process.versions.bun) return
-  const major = Number(process.versions.node.split('.')[0])
-  if (major < NODE_MAJOR) throw new Error(`acde needs Node.js ${NODE_MAJOR} or newer (this is ${process.version}), or Bun (https://bun.sh)`)
+  const [major, minor] = process.versions.node.split('.').map(Number)
+  const [needMajor, needMinor] = NODE_MINIMUM
+  if (major < needMajor || (major === needMajor && minor < needMinor)) throw new Error(`acde needs Node.js ${NODE_MINIMUM.join('.')} or newer (this is ${process.version}), or Bun (https://bun.sh)`)
 }
 
 export function run(args) {

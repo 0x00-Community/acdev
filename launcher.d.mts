@@ -1,4 +1,4 @@
-export declare const NODE_MAJOR: number
+export declare const NODE_MINIMUM: readonly [number, number]
 export declare function runtime(): 'bun' | 'node'
 export declare function installDir(env?: Record<string, string | undefined>): string
 export declare function installed(root?: string): boolean

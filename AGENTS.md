@@ -158,7 +158,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 tarball 里一个目录就是一个版本的安装根:
 
 ```
-bin/acde            scripts/acde.sh: 有 bun 用 bun 跑 lib/acde/src/cli.js, 否则 node (大版本 ≥ 22)
+bin/acde            scripts/acde.sh: 有 bun 用 bun 跑 lib/acde/src/cli.js, 否则 node (≥ 22.3)
 bin/acde.cmd        Windows 代替 bin/acde: scripts/acde.cmd (CRLF), 同样的选法, node 要 ≥ 22.3
 bin/acdert[.exe]
 bin/app/dist/       acde-host 的 bundle (broker.js、web.js; acdert 找 <自己>/app/dist)
@@ -199,7 +199,7 @@ lib/acde-api/       acdert 的 web/packages/acde-api (不带 test/)
 ## 测试
 
 `bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`launcher`、`runtime`、`listen`、`node` (打好的后端在 Node 上跑; 要
-`ACDE_TEST_NODE` 或 PATH 上真的 node ≥ 22, 没有就跳过)、`dev` / `driver` / `mcp` / `e2e` (都用 `test/fixtures/dev/fake-acdert.ts` 这个有状态的假
+`ACDE_TEST_NODE` 或 PATH 上真的 node ≥ 22.3, 没有就跳过)、`dev` / `driver` / `mcp` / `e2e` (都用 `test/fixtures/dev/fake-acdert.ts` 这个有状态的假
 acdert (它听 `ACDE_DEV`) 跑真的 `acde dev`)、`dist` (假 acdert 打包、本地托管、跑 install.sh 和 `bin/acde`). 给包管理器搭 PATH 用符号链接, 不用 `exec` 的 sh 脚本:
 包了一层的 `node` 让 pnpm 不装 rolldown 的平台原生包.
 
