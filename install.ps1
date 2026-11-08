@@ -1,0 +1,146 @@
+#Requires -Version 5.1
+[CmdletBinding()]
+param(
+    [string]$Version = $env:ACDE_VERSION,
+    [switch]$NoModifyPath = [bool]$env:ACDE_NO_MODIFY_PATH
+)
+
+function Install-Acde {
+    [CmdletBinding()]
+    param(
+        [string]$Version,
+        [switch]$NoModifyPath
+    )
+
+    Set-StrictMode -Version 3.0
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+
+    $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'http://localhost:8787' }
+    $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acde' }
+
+    $shell = $PSVersionTable.PSVersion
+    $desktop = $PSVersionTable.PSEdition -ne 'Core'
+    if ($desktop) {
+        if ($shell -lt [version]'5.1') {
+            throw "acde: needs Windows PowerShell 5.1 or PowerShell 7.2+, this is $shell"
+        }
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+    } else {
+        if (-not $IsWindows) {
+            throw "acde: install.ps1 is for Windows; on macOS and Linux run: curl -fsSL $dist/install.sh | sh"
+        }
+        if ($shell -lt [version]'7.2') {
+            throw "acde: PowerShell $shell is out of support: use PowerShell 7.2+ or Windows PowerShell 5.1"
+        }
+        $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    }
+    $triple = switch ($arch) {
+        { $_ -in 'AMD64', 'X64' } { 'x86_64-pc-windows-msvc' }
+        default { throw "acde: there is no Windows build for $arch yet, only x64" }
+    }
+
+    function Save-Remote([string]$Uri, [string]$OutFile) {
+        try {
+            if ($desktop) {
+                Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
+            } else {
+                Invoke-WebRequest -Uri $Uri -OutFile $OutFile
+            }
+        } catch {
+            throw "acde: could not download ${Uri}: $($_.Exception.Message)"
+        }
+    }
+
+    $tar = Join-Path -Path $env:SystemRoot -ChildPath 'System32\tar.exe'
+    if (-not (Test-Path -LiteralPath $tar -PathType Leaf)) {
+        throw 'acde: needs tar.exe, which Windows 10 1803 and later ship'
+    }
+
+    $work = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("acde-install-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work | Out-Null
+    try {
+        if (-not $Version) {
+            $latest = Join-Path -Path $work -ChildPath 'latest'
+            Save-Remote "$dist/latest" $latest
+            $Version = (Get-Content -LiteralPath $latest -Raw).Trim()
+        }
+        if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "acde: bad version '$Version' (x.y.z)"
+        }
+        $name = "acde-$Version-$triple"
+        Write-Host "acde: installing $name from $dist"
+        $tarball = Join-Path -Path $work -ChildPath "$name.tar.gz"
+        $sums = Join-Path -Path $work -ChildPath 'SHA256SUMS'
+        Save-Remote "$dist/$Version/$name.tar.gz" $tarball
+        Save-Remote "$dist/$Version/SHA256SUMS" $sums
+
+        $want = $null
+        foreach ($line in Get-Content -LiteralPath $sums) {
+            $fields = $line.Trim() -split '\s+', 2
+            if ($fields.Count -eq 2 -and $fields[1].TrimStart('*') -eq "$name.tar.gz") {
+                $want = $fields[0].ToLowerInvariant()
+            }
+        }
+        if (-not $want) {
+            throw "acde: $name.tar.gz is not in SHA256SUMS"
+        }
+        $got = (Get-FileHash -LiteralPath $tarball -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($got -ne $want) {
+            throw "acde: checksum mismatch for ${name}.tar.gz: expected $want, got $got"
+        }
+
+        $unpacked = Join-Path -Path $work -ChildPath 'x'
+        New-Item -ItemType Directory -Path $unpacked | Out-Null
+        & $tar -xzf $tarball -C $unpacked
+        if ($LASTEXITCODE -ne 0) {
+            throw "acde: could not unpack $name.tar.gz (tar exit $LASTEXITCODE)"
+        }
+
+        $versions = Join-Path -Path $install -ChildPath 'versions'
+        $target = Join-Path -Path $versions -ChildPath $Version
+        New-Item -ItemType Directory -Path $versions -Force | Out-Null
+        if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Recurse -Force
+        }
+        Move-Item -LiteralPath (Join-Path -Path $unpacked -ChildPath $name) -Destination $target
+
+        $current = Join-Path -Path $install -ChildPath 'current'
+        $next = Join-Path -Path $install -ChildPath 'current.next'
+        if (Test-Path -LiteralPath $next) {
+            [System.IO.Directory]::Delete($next)
+        }
+        New-Item -ItemType Junction -Path $next -Target $target | Out-Null
+        if (Test-Path -LiteralPath $current) {
+            [System.IO.Directory]::Delete($current)
+        }
+        Rename-Item -LiteralPath $next -NewName 'current'
+    } finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $bin = Join-Path -Path $install -ChildPath 'current\bin'
+    if (-not $NoModifyPath) {
+        $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+        try {
+            $old = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            $entries = @($old -split ';' | Where-Object { $_ })
+            if ($entries -notcontains $bin) {
+                $key.SetValue('Path', (@($entries) + $bin) -join ';', [Microsoft.Win32.RegistryValueKind]::ExpandString)
+                Write-Host "acde: added $bin to your user PATH"
+            }
+        } finally {
+            $key.Close()
+        }
+        [Environment]::SetEnvironmentVariable('ACDE_INSTALL', $install, [EnvironmentVariableTarget]::User)
+        if (@($env:Path -split ';') -notcontains $bin) {
+            $env:Path = "$bin;$env:Path"
+        }
+    }
+
+    Write-Host "acde: installed acde and acdert $Version into $install"
+    Write-Host '  acde new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
+}
+
+Install-Acde -Version $Version -NoModifyPath:$NoModifyPath

@@ -57,6 +57,9 @@ done
 [ -n "${HOME:-}" ] || die "HOME is not set"
 
 os=$(uname -s)
+case $os in
+  MINGW* | MSYS* | CYGWIN*) die "this is Windows: in PowerShell run  irm $ACDE_DIST/install.ps1 | iex" ;;
+esac
 arch=$(uname -m)
 case $arch in
   arm64 | aarch64) arch=aarch64 ;;
@@ -79,7 +82,7 @@ case $os in
     done
     triple=$arch-unknown-linux-$libc
     ;;
-  *) die "unsupported system: $os (this installer is for macOS and Linux)" ;;
+  *) die "unsupported system: $os (this installer is for macOS, Linux and Windows)" ;;
 esac
 
 if command -v curl >/dev/null 2>&1; then
