@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { AcdeConfig, AppConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
 import acdeVite from '@dopame/acde-api/vite'
+import { Bundler, type PublicRules } from './bundler.ts'
 import { CONFIGS } from './configs.ts'
 import { Frameworks, type Output } from './frameworks.ts'
+import { Jsonc } from './runtime.ts'
 import { appId } from './sockets.ts'
 
 interface BuiltApp {
@@ -31,7 +33,6 @@ interface BuiltPackage {
 
 const BACKENDS = ['server.ts', 'server.js', 'src/server.ts', 'src/server.js', 'server/index.ts', 'server/index.js', 'backend/index.ts', 'backend/index.js']
 const DEFAULT_PORT = 3000
-const BUN_OPTIONS = { target: 'bun', format: 'esm', splitting: false, minify: { syntax: true, whitespace: false, identifiers: false }, throw: false } as const
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 interface Legacy {
@@ -55,6 +56,8 @@ export class Project {
   readonly from: string
   readonly config: AcdeConfig
   readonly pkg: Readonly<Record<string, unknown>>
+  readonly entryGiven: boolean
+  readonly #bundler: Bundler
 
   constructor(dir: string) {
     this.dir = realpathSync(resolve(dir))
@@ -65,12 +68,13 @@ export class Project {
     if (!found && !existsSync(file)) throw new Error(`no ${Project.CONFIGS[0]} or package.json in ${this.dir}`)
     const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
     if (found) {
-      const config = Bun.JSONC.parse(readFileSync(found, 'utf8')) as AcdeConfig
+      const config = Jsonc.parse(readFileSync(found, 'utf8')) as AcdeConfig
       if (typeof config !== 'object' || config === null || (config.type !== 'app' && config.type !== 'desktop')) {
         throw new Error(`${basename(found)}: "type" is "app" (a window app) or "desktop"`)
       }
       this.config = config
       this.from = basename(found)
+      this.entryGiven = config.entry !== undefined
     } else {
       const legacy = (pkg['acde'] ?? {}) as Legacy
       if (typeof legacy !== 'object' || legacy === null) throw new Error(`${file}: "acde" is not an object`)
@@ -83,15 +87,21 @@ export class Project {
         backend: backend === false ? false : { ...(server !== undefined && { entry: server }), ...(backend?.port !== undefined && { port: backend.port }) },
       }
       this.from = 'package.json'
+      this.entryGiven = web !== undefined
     }
     this.name = text(this.config.name) ?? text(pkg['name']) ?? basename(this.dir)
     this.version = text(this.config.version) ?? text(pkg['version']) ?? '0.0.0'
+    this.#bundler = Bundler.for(this.dir)
   }
 
   get framework(): string | null {
     const config = this.config
     if (config.type !== 'app') return null
-    return Frameworks.detect({ dir: this.dir, pkg: this.pkg }, config.framework)?.name ?? null
+    return Frameworks.detect(this.#detecting, config.framework)?.name ?? null
+  }
+
+  get #detecting(): { dir: string; pkg: Readonly<Record<string, unknown>>; entry: boolean } {
+    return { dir: this.dir, pkg: this.pkg, entry: this.entryGiven }
   }
 
   get id(): string {
@@ -152,7 +162,10 @@ export class Project {
       manifest.desktops = [await this.#desktop(config, out, assets)]
       for (const app of config.apps ?? []) manifest.apps.push(await this.#app(app, out, `apps/${app.id}/`, assets, false))
       const services = Object.entries(config.services ?? {})
-      if (services.length > 0) manifest.services = await Promise.all(services.map(([name, module]) => this.#service(name, module, out)))
+      if (services.length > 0) {
+        manifest.services = []
+        for (const [name, module] of services) manifest.services.push(await this.#service(name, module, out))
+      }
     }
     const built: BuiltPackage = { name: this.name, version: this.version, private: true, acde: { ...manifest, assets } }
     writeFileSync(join(out, 'package.json'), JSON.stringify(built, null, 2) + '\n')
@@ -162,13 +175,13 @@ export class Project {
   async #app(config: WindowAppConfig, out: string, dir: string, assets: Record<string, string[]>, own: boolean): Promise<BuiltApp> {
     const id = config.id!
     const base = `/app/${id}/`
-    const framework = own && this.config.type === 'app' ? Frameworks.detect({ dir: this.dir, pkg: this.pkg }, this.config.framework) : null
+    const framework = own && this.config.type === 'app' ? Frameworks.detect(this.#detecting, this.config.framework) : null
     if (framework) {
       console.log(`acde: ${framework.label}: building with its own tools`)
       await Frameworks.install(this.dir)
       const scratch = mkdtempSync(join(tmpdir(), 'acde-'))
       try {
-        const built = await framework.build({ dir: this.dir, pkg: this.pkg, scratch, vitePlugins: [acdeVite()] })
+        const built = await framework.build({ dir: this.dir, pkg: this.pkg, scratch, vitePlugins: [acdeVite()], bundler: this.#bundler })
         const placed = await this.#place(built, config, out, base, assets)
         return Project.#manifestOf(config, id, { ...placed, icon: this.#icon(config.icon, join(out, 'web'), base) })
       } finally {
@@ -178,7 +191,7 @@ export class Project {
     const page = await this.#web(resolve(this.dir, config.entry ?? 'index.html'), join(out, `${dir}web`), base, own)
     const server = this.#server(config.backend)
     if (server) {
-      await Project.#backend(server, join(out, `${dir}backend`))
+      await this.#backend(server, join(out, `${dir}backend`))
       assets[`${base}backend/`] = [`${dir}backend`]
     }
     assets[base] = [`${dir}web`]
@@ -193,13 +206,13 @@ export class Project {
     if (built.server) {
       const backend = join(out, 'backend')
       cpSync(built.server.dir, backend, { recursive: true, verbatimSymlinks: true })
-      await Project.#preload(dirname(join(backend, built.server.entry)))
+      await this.#bundler.preload(dirname(join(backend, built.server.entry)))
       assets[`${base}backend/`] = ['backend']
       return { entry: base, backend: `${base}backend/${built.server.entry}` }
     }
     const server = this.#server(config.backend)
     if (server) {
-      await Project.#backend(server, join(out, 'backend'))
+      await this.#backend(server, join(out, 'backend'))
       assets[`${base}backend/`] = ['backend']
     }
     return { entry: base + built.page!, backend: server ? `${base}backend/server.js` : null }
@@ -268,8 +281,7 @@ export class Project {
   }
 
   async #service(name: string, module: string, out: string): Promise<ServiceManifest> {
-    const result = await Bun.build({ entrypoints: [resolve(this.dir, module)], outdir: join(out, 'services'), target: 'browser', format: 'esm', minify: { syntax: true, whitespace: true, identifiers: false }, naming: { entry: `${name}.[ext]` }, throw: false })
-    Project.#check(`service ${name}`, result)
+    await this.#bundler.service(name, resolve(this.dir, module), join(out, 'services'), this.dir)
     return { name, module: `services/${name}.js` }
   }
 
@@ -280,74 +292,16 @@ export class Project {
   }
 
   async #web(entry: string, out: string, base: string, own: boolean): Promise<string> {
-    const html = /\.html?$/.test(entry)
-    const publicDir = join(this.dir, this.config.public ?? 'public')
-    const cwd = process.cwd()
-    process.chdir(this.dir)
-    let page = basename(entry)
-    try {
-      const result = await Bun.build({
-        entrypoints: [entry],
-        outdir: out,
-        target: 'browser',
-        external: ['acde:*'],
-        publicPath: base,
-        minify: true,
-        splitting: true,
-        throw: false,
-        ...(!html && { naming: { entry: '[name].[ext]' } }),
-        define: { 'process.env.NODE_ENV': '"production"', ...Project.#viteEnv() },
-        plugins: [
-          {
-            name: 'acde-public',
-            setup: (build) => {
-              build.onResolve({ filter: /^(?:\/|[A-Za-z]:[\\/])/ }, (args) => this.#public(args.path, args.importer, publicDir, own && html && this.config.type === 'app'))
-            },
-          },
-        ],
-      })
-      Project.#check('web', result)
-      if (!html) page = relative(out, result.outputs.find((o) => o.kind === 'entry-point')!.path)
-    } finally {
-      process.chdir(cwd)
-    }
-    if (own && existsSync(publicDir)) cpSync(publicDir, out, { recursive: true, force: false, errorOnExist: false })
+    const html = Bundler.isHtml(entry)
+    const rules: PublicRules = { dir: this.dir, publicDir: join(this.dir, this.config.public ?? 'public'), own, rooted: own && html && this.config.type === 'app' }
+    const page = await this.#bundler.web({ entry, out, base, rules })
+    if (own && existsSync(rules.publicDir)) cpSync(rules.publicDir, out, { recursive: true, force: false, errorOnExist: false })
     return page
   }
 
-  #public(path: string, importer: string, publicDir: string, rooted: boolean): { path: string; external?: boolean } | undefined {
-    const clean = path.replace(/[?#].*$/s, '')
-    if (existsSync(clean)) return undefined
-    const inProject = clean.startsWith(this.dir + sep)
-    const css = /\.css$/i.test(importer)
-    if (!inProject && !css) return undefined
-    const rel = inProject ? relative(this.dir, clean) : clean.slice(1)
-    const file = join(publicDir, rel)
-    if (existsSync(file) && statSync(file).isFile()) return css && !inProject && rooted ? { path, external: true } : { path: file }
-    const shown = relative(this.dir, publicDir) || '.'
-    throw new Error(`/${rel.split(sep).join('/')} in ${relative(this.dir, importer) || importer}: there is no ${join(shown, rel)} (a URL starting with / is a file in ${shown}/)`)
-  }
-
-  static async #backend(entry: string, out: string): Promise<void> {
-    Project.#check('backend', await Bun.build({ ...BUN_OPTIONS, outdir: out, entrypoints: [entry], naming: { entry: 'server.[ext]' } }))
-    await Project.#preload(out)
-  }
-
-  static async #preload(out: string): Promise<void> {
-    Project.#check('preload', await Bun.build({ ...BUN_OPTIONS, outdir: out, entrypoints: [join(import.meta.dir, 'listen.ts')], naming: { entry: 'acde-listen.[ext]' } }))
-  }
-
-  static #check(what: string, result: Bun.BuildOutput): void {
-    if (result.success) return
-    throw new AggregateError(result.logs, `${what}: ${result.logs.map((log) => String(log.message ?? log)).join('; ')}`)
-  }
-
-  static #viteEnv(): Record<string, string> {
-    const env: Record<string, unknown> = { MODE: 'production', DEV: false, PROD: true, SSR: false, BASE_URL: '/' }
-    for (const [key, value] of Object.entries(process.env)) if (key.startsWith('VITE_')) env[key] = value
-    const define: Record<string, string> = { 'import.meta.env': JSON.stringify(env) }
-    for (const [key, value] of Object.entries(env)) define[`import.meta.env.${key}`] = JSON.stringify(value)
-    return define
+  async #backend(entry: string, out: string): Promise<void> {
+    await this.#bundler.backend({ entry, out, dir: this.dir, splitting: false })
+    await this.#bundler.preload(out)
   }
 }
 

@@ -1,6 +1,9 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import type { Bundler } from './bundler.ts'
 import { PackageManager } from './pm.ts'
+import { Runtime } from './runtime.ts'
 
 export interface Output {
   readonly web: string | null
@@ -13,6 +16,13 @@ export interface Build {
   readonly pkg: Readonly<Record<string, unknown>>
   readonly scratch: string
   readonly vitePlugins: readonly unknown[]
+  readonly bundler: Bundler
+}
+
+export interface Detecting {
+  readonly dir: string
+  readonly pkg: Readonly<Record<string, unknown>>
+  readonly entry?: boolean
 }
 
 interface Framework {
@@ -39,7 +49,7 @@ export class Frameworks {
     { name: 'script', label: 'build script', detect: (_, b) => Frameworks.#ownBuild(b), build: (b) => Frameworks.#script(b, null, Frameworks.OUT_DIRS) },
   ]
 
-  static detect(build: Pick<Build, 'dir' | 'pkg'>, wanted?: string): Framework | null {
+  static detect(build: Detecting, wanted?: string): Framework | null {
     if (wanted === 'none') return null
     if (wanted && wanted !== 'auto') {
       const found = Frameworks.LIST.find((f) => f.name === wanted)
@@ -47,14 +57,14 @@ export class Frameworks {
       return found
     }
     const deps = Frameworks.#deps(build.pkg)
-    return Frameworks.LIST.find((f) => f.detect(deps, build as Build)) ?? null
+    return Frameworks.LIST.find((f) => !(f.name === 'vite' && build.entry) && f.detect(deps, build as Build)) ?? null
   }
 
   static async install(dir: string): Promise<void> {
     if (Frameworks.#up(dir, 'node_modules')) return
     const pm = PackageManager.of(dir)
     console.log(`acde: no node_modules: ${pm.name} install`)
-    const code = await Bun.spawn(pm.install, { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] }).exited
+    const code = await Runtime.spawn(pm.install, { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] }).exited
     if (code !== 0) throw new Error(`${pm.name} install failed (exit ${code})`)
   }
 
@@ -85,16 +95,15 @@ export class Frameworks {
     }
   }
 
-  static async #spawn(cwd: string, args: readonly string[], env: Record<string, string> = {}): Promise<void> {
-    const child = Bun.spawn([process.execPath, ...args], { cwd, env: { ...process.env, ...Frameworks.ENV, ...env }, stdio: ['ignore', 'inherit', 'inherit'] })
-    const code = await child.exited
-    if (code !== 0) throw new Error(`${args.join(' ')} failed (exit ${code})`)
+  static async #spawn(cwd: string, argv: readonly string[], env: Record<string, string> = {}): Promise<void> {
+    const code = await Runtime.spawn(argv, { cwd, env: { ...process.env, ...Frameworks.ENV, ...env }, stdio: ['ignore', 'inherit', 'inherit'] }).exited
+    if (code !== 0) throw new Error(`${argv.slice(1).join(' ')} failed (exit ${code})`)
   }
 
   static #tool(b: Build, name: string, args: readonly string[], env?: Record<string, string>): Promise<void> {
     const bin = PackageManager.bin(b.dir, name, Frameworks.#deps(b.pkg))
     if (!bin) throw new Error(`no ${name} in node_modules: run ${PackageManager.of(b.dir).name} install first`)
-    return Frameworks.#spawn(b.dir, ['--bun', bin, ...args], env)
+    return Frameworks.#spawn(b.dir, [process.execPath, ...(Runtime.bun ? ['--bun'] : []), bin, ...args], env)
   }
 
   static #page(dir: string): string | null {
@@ -128,7 +137,7 @@ export class Frameworks {
 
   static async #vite(b: Build): Promise<Output> {
     const out = join(b.scratch, 'vite')
-    const vite = (await import(Bun.resolveSync('vite', b.dir))) as { build(config: object): Promise<unknown> }
+    const vite = (await import(pathToFileURL(Runtime.resolve('vite', b.dir)).href)) as { build(config: object): Promise<unknown> }
     const cwd = process.cwd()
     process.chdir(b.dir)
     try {
@@ -141,7 +150,7 @@ export class Frameworks {
 
   static async #script(b: Build, tool: readonly string[] | null, dirs: readonly string[]): Promise<Output> {
     if (tool) await Frameworks.#tool(b, tool[0]!, tool.slice(1), { PUBLIC_URL: '/' })
-    else await Frameworks.#spawn(b.dir, ['--bun', 'run', 'build'])
+    else await Frameworks.#spawn(b.dir, Runtime.bun ? [process.execPath, '--bun', 'run', 'build'] : PackageManager.of(b.dir).run('build'))
     for (const dir of dirs) {
       const path = join(b.dir, dir)
       if (Frameworks.#isDir(path) && Frameworks.#page(path)) return { web: path, page: Frameworks.#page(path), server: null }
@@ -194,8 +203,8 @@ export class Frameworks {
     const web = join(b.scratch, 'sveltekit-web')
     mkdirSync(web, { recursive: true })
     if (Frameworks.#isDir(join(output, 'client'))) cpSync(join(output, 'client'), web, { recursive: true })
-    const launcher = `import { Server } from ${JSON.stringify(join(server, 'index.js'))}
-import { manifest } from ${JSON.stringify(join(server, manifest))}
+    const launcher = `import { Server } from ${JSON.stringify(pathToFileURL(join(server, 'index.js')).href)}
+import { manifest } from ${JSON.stringify(pathToFileURL(join(server, manifest)).href)}
 const server = new Server(manifest)
 await server.init({ env: process.env })
 export default {
@@ -214,7 +223,7 @@ export default {
     if (!existsSync(entry)) return Frameworks.#static(dist, 'astro build')
     const client = join(dist, 'client')
     const launcher = `process.env.HOST ??= 'localhost'
-await import(${JSON.stringify(entry)})
+await import(${JSON.stringify(pathToFileURL(entry).href)})
 `
     return { web: Frameworks.#isDir(client) ? client : null, page: null, server: await Frameworks.#launch(b, 'astro', launcher) }
   }
@@ -227,8 +236,8 @@ await import(${JSON.stringify(entry)})
     const server = join(build, 'server', 'index.js')
     if (!existsSync(server)) return Frameworks.#static(Frameworks.#isDir(client) ? client : build, `${tool} build`)
     const runtime = tool === 'remix' ? '@remix-run/node' : 'react-router'
-    const launcher = `import { createRequestHandler } from ${JSON.stringify(Bun.resolveSync(runtime, b.dir))}
-import * as build from ${JSON.stringify(server)}
+    const launcher = `import { createRequestHandler } from ${JSON.stringify(pathToFileURL(Runtime.resolve(runtime, b.dir)).href)}
+import * as build from ${JSON.stringify(pathToFileURL(server).href)}
 const handle = createRequestHandler(build, 'production')
 export default { port: Number(process.env.PORT) || 3000, fetch: (request) => handle(request) }
 `
@@ -253,10 +262,8 @@ export default { port: Number(process.env.PORT) || 3000, fetch: (request) => han
   static async #launch(b: Build, name: string, source: string): Promise<{ dir: string; entry: string }> {
     const dir = join(b.scratch, `${name}-server`)
     const file = join(b.scratch, `${name}-launcher.mjs`)
-    mkdirSync(dir, { recursive: true })
     writeFileSync(file, source)
-    const result = await Bun.build({ entrypoints: [file], outdir: dir, target: 'bun', format: 'esm', splitting: true, naming: { entry: 'server.[ext]', chunk: 'chunks/[name]-[hash].[ext]' }, throw: false })
-    if (!result.success) throw new AggregateError(result.logs, `${name} server: ${result.logs.map((log) => String(log.message ?? log)).join('; ')}`)
+    await b.bundler.backend({ entry: file, out: dir, dir: b.dir, splitting: true })
     return { dir, entry: 'server.js' }
   }
 }

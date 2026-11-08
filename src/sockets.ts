@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+const { join } = process.getBuiltinModule('node:path')
 
 export type Env = Readonly<Record<string, string | undefined>>
 

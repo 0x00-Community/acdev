@@ -3,6 +3,7 @@ import { delimiter, isAbsolute, relative, resolve, sep } from 'node:path'
 import { DevServer, type Message } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
+import { Runtime } from './runtime.ts'
 import { Sessions } from './sessions.ts'
 
 const IGNORED = new Set(['.acde', 'node_modules', '.git', 'dist', 'build', 'out', '.next', '.output', '.nuxt', '.svelte-kit', '.astro', '.turbo', '.cache'])
@@ -126,7 +127,7 @@ export class DevSession {
       const what = this.#units.map((u) => `${u.pkg.name} (${u.built!.dir})`).join(', ')
       console.log(`acde: dev ${target.kind} ${target.id}${this.#headless ? ' (headless)' : ''}: ${what}; 改了文件就重新构建、重新加载`)
       const env = { ...process.env, ACDE_DEV: this.#server.endpoint, ACDE_PATH: paths, ...(this.#headless && { ACDE_HEADLESS: '1' }) }
-      const child = Bun.spawn([this.#acdert, target.kind, target.id], { env, stdio: ['inherit', 'inherit', 'inherit'] })
+      const child = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio: 'inherit' })
       for (const unit of this.#units) unit.watcher = watch(unit.pkg.dir, { recursive: true }, (_, file) => this.#changed(unit, file === null ? null : String(file)))
       watchers.push(...this.#units.map((u) => u.watcher!))
       signals.push(['SIGINT', () => undefined])

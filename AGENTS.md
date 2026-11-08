@@ -165,13 +165,16 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 - 包: acdert 只认包 (package.json 的 `acde` 字段, 类型 `@dopame/acde-api` 的 `PackageManifest`); `acde.config.jsonc` 只在这里读.
 - 清单校验只有一份: `@dopame/acde-api/manifest` (acdert 仓库 `web/packages/acde-api/src/validate.ts`), Broker 读清单和 `acde check`
   用同一段. 还没上 npm: `package.json` 用 `file:../acdert/web/packages/acde-api`, 两个仓库要并排检出 (`~/Repos/acde`、`~/Repos/acdert`).
-- 后端的 listen preload (`src/listen.ts`) 在这里, 构建时打成包里的 `backend/acde-listen.js`, acdert 起后端时 `--preload` 它.
+- 后端的 listen preload (`src/listen.ts`) 在这里, 构建时打成包里的 `backend/acde-listen.js` (在后端入口旁边). acdert 起后端 (清单的
+  `backend.entry`, 下面记作 `<dir>/server.js`; cwd、环境照旧) 时: PATH 上有 `bun` 就 `bun --preload <dir>/acde-listen.js <dir>/server.js`,
+  否则 `node --import <dir>/acde-listen.js 的 file: URL> <dir>/server.js` (Node ≥ 22.3, 要 `process.getBuiltinModule`; `--import` 给 file: URL
+  (`pathToFileURL(…).href`): Windows 的盘符路径不是合法的模块说明符). 两种起法用的是同一份 `server.js` 和 `acde-listen.js`, 见「网页应用的工程」的后端.
 - 命令行: `acdert app <id>` / `acdert desktop <id|包目录>`.
 
 ## 网页应用的工程
 
 普通网页应用 (`index.html` + 任意框架 + 可选的后端) 不改代码就是 acde 的窗口应用. 页面由 acdert 的 V8 和 render 跑 (没有浏览器);
-后端是 acdert 起的 bun 进程. 都不开端口: 后端的 listen 换成 unix socket, 往外连照常.
+后端是 acdert 起的 bun 或 Node 进程. 都不开端口: 后端的 listen 换成 unix socket, 往外连照常.
 
 - **`acde.config.jsonc`** (照 wrangler.jsonc; 也认 `acde.config.json`; 类型 `AcdeConfig` 和 `config.schema.json` 在 SDK 里):
   工程根目录的这份配置声明工程是什么 —— `"type": "app"` 是一个窗口应用, `"type": "desktop"` 是一个桌面 (用户可以自己做桌面,
@@ -195,31 +198,74 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
   `/app/hello-app/icon.svg`; 桌面工程里应用的 `art/cards.png` 进了 `apps/cards/web/icon.png`; 名字 `timer` 原样; 文件不在、`.txt`、
   假的 PNG、假的 SVG 在 check 和 build 都报错.
 - **框架** (`src/frameworks.ts`, app 的 `framework`, 默认 `auto`): 按 package.json 的依赖认, 用框架自己的构建, 不改用户
-  的配置文件; 没有 node_modules 时先用工程的包管理器装 (见「新建工程」); 构建工具一律 `bun --bun` 跑 (机器上可以没有 Node). 先认先得:
+  的配置文件; 没有 node_modules 时先用工程的包管理器装 (见「新建工程」); 构建工具用跑 acde 的那个运行时跑: bun 上 `bun --bun <工具>`
+  (机器上可以没有 Node), Node 上 `node <工具>` (`process.execPath`), `build` 脚本在 Node 上是 `<包管理器> run build`. 配置写了 `entry`
+  时不认 Vite (依赖里有 vite 也是 acde 自己构建, 见下面「构建用什么」; html / desktop 模板在 npm / pnpm / yarn 下带着 vite 就是为此);
+  要框架构建就去掉 `entry` 或写 `"framework": "vite"`. 先认先得:
   | 依赖 | 怎么构建 | 产物 |
   | --- | --- | --- |
   | `next` | `next build`, 带 `NEXT_PRIVATE_STANDALONE=1` (配置里没写 `output` 时就是 standalone) | `.next/standalone` 是后端 (补上 `.next/static`、`public`); `output: 'export'` 时 `out/` 是静态页 |
   | `nuxt` | `nuxt build`, `NITRO_PRESET=node-server` | `.output` 是后端 (`server/index.mjs`), `.output/public` 是静态资源 |
-  | `@sveltejs/kit` | `vite build` | 不管 adapter: `.svelte-kit/output/server` 的 `Server` 包一层 `export default {fetch}`, Bun.build 打成后端; `client` 是静态资源 |
+  | `@sveltejs/kit` | `vite build` | 不管 adapter: `.svelte-kit/output/server` 的 `Server` 包一层 `export default {fetch}`, 照后端的规则打成后端 (bun 上 Bun.build, Node 上 Vite); `client` 是静态资源 |
   | `astro` | `astro build` | 默认 `dist/` 是静态页; 有 `dist/server/entry.mjs` (node adapter) 时它是后端, `dist/client` 是静态资源 |
   | `@react-router/dev` / `@remix-run/dev` | `react-router build` / `remix vite:build` | 有 `build/server/index.js` 时 `createRequestHandler` 包成后端, 否则 `build/client` 是静态页 |
   | `@angular/core` + `@angular/cli` | `ng build --base-href /` | `dist/**/browser/index.html`; 有 `server/server.mjs` 时它是后端 |
   | `vite` (React、Vue、Svelte、Solid、Preact …) | 进程内调工程自己的 vite 的 `build()`, 读它的 vite.config, 加上 `base: '/'`、`outDir` 和 SDK 的 Vite 插件 (`acde:*` 留作外部模块) | 静态页 |
   | `react-scripts` | `react-scripts build` | `build/` |
   | package.json 有 `build` 脚本 | `bun --bun run build` | `dist` / `build` / `out` / `www` / `.output/public` 里第一个有 HTML 的 |
-  都不是 (或 `"framework": "none"`): acde 自己用 Bun.build 打 `entry` (上面「产物」). 静态页的清单 `entry` 是 `/app/<id>/<页面>.html`,
+  都不是 (或 `"framework": "none"`): acde 自己打 `entry` (上面「产物」, 下面「构建用什么」). 静态页的清单 `entry` 是 `/app/<id>/<页面>.html`,
   `server.ts` 照旧是后端. 有后端渲染的, 清单 `entry` 是 `/app/<id>/` (以 `/` 结尾, 要有 `backend`): 窗口 web 的文档从后端取
   (见下面「清单」), 静态资源 (`_next/static` 这类) 放进 `web/` 由 render 直接读盘.
   验过 (macOS, 2026-11-02, 各框架官方模板的最新版): Vite + React、Vite + Vue 构建成静态页; Next.js 16、Nuxt 4、SvelteKit 3 构建成后端,
   bun 加 preload 起来后在 unix socket 上返回服务端渲染的 HTML, 不开 TCP 端口; Astro 7 构建成静态页. 还没在 acde 的窗口里打开过.
 - **开发**: 工程根目录 `acde.config.jsonc` 写 `"type": "app"` (见上); 要类型就加 devDependency `@dopame/acde-api`.
-  `acde build` 输出 `.acde/`: `web/` (HTML 入口打包, 所有 URL 在
-  `/app/<id>/` 下), `backend/server.js` (有 `server.ts` / `server.js` 等时; target bun 打成一个模块, npm 包打进去,
-  Bun 和 Node 自己的模块留作 import) 和它旁边的 `backend/acde-listen.js` (`src/listen.ts` 打包: 把 `Bun.serve` /
-  `Bun.listen` / `export default {fetch}` / `net`、`http`、`https`、`tls`、`http2` 的 `listen(P)` 都换成
-  `<sockets>/P.sock`), 清单 `package.json`; `acde install` 装进 `$XDG_DATA_HOME/acde/packages/<id>`; `acde dev`
-  再 `acdert app <id>`. 开发时在 bun 下跑后端源码也用同一个 preload (`bun --preload <acde>/src/listen.ts server.ts`).
-- **`public/`** (`Project.#public`, Bun.build 的插件 `acde-public`): `public` 目录 (配置的 `public`) 原样复制进工程自己的应用的
+  `acde build` 输出 `.acde/`: `web/` (HTML 入口打包, 所有 URL 在 `/app/<id>/` 下), `backend/` (有 `server.ts` / `server.js` 等时, 见下面
+  「后端」), 清单 `package.json`; `acde install` 装进 `$XDG_DATA_HOME/acde/packages/<id>`; `acde dev` 再 `acdert app <id>`.
+- **构建用什么** (`src/bundler.ts` 的 `Bundler`): acde 跑在 bun 上用 `Bun.build` (`BunBundler`); 跑在 Node 上用**工程自己的 Vite**
+  (`ViteBundler`: 从工程目录往上找 `node_modules/vite`, 按 import 条件解析 (`src/runtime.ts` 的 `Runtime.resolve`), 不打进 acde;
+  `configFile: false`, 不读工程的 vite.config, 规则和 bun 上一样; Vite 8 起用 `rolldownOptions`, 之前 `rollupOptions`). 工程里没有 vite
+  就报 `this project builds with Vite on Node.js: add it with <pm> add -D vite` (deno 是 `deno add -D npm:vite`). Node 上只在要打包时才找它:
+  Next / Nuxt / Angular 这类框架自己构建, 只要 preload (见「后端」), 用不到 Vite. `ACDE_BUNDLER=vite` 在 bun 上也用 Vite (测试和排查用;
+  `ACDE_BUNDLER=bun` 只在 bun 上可用). 两边产物的文件名不同 (Vite 的资源在 `assets/` 下, 小图内联成 `data:`), 规则相同:
+  - HTML 入口: `base` 是 `/app/<id>/` (桌面页 `/desktop/<id>/`), `acde:*` 留作外部模块 (SDK 的 Vite 插件), `process.env.NODE_ENV` 是
+    `"production"`, `import.meta.env` 照 Vite (bun 上 acde 自己 define 成一样的值, 带上 `VITE_*` 环境变量); 不注入 modulepreload.
+    不在工程根目录的页面 (`pages/main/page.html`) 也出成 `web/page.html` (和 Bun 一样只留文件名).
+  - 模块入口的应用 (默认导出 `WindowApp`): 出成 `<名字>.js`, 保留导出 (Vite 的 `preserveEntrySignatures`).
+  - 桌面服务: 一个文件 `services/<名>.js` (动态 import 也内联进去), 不压缩标识符 (Vite 上不压缩).
+- **后端** (`Bundler.backend`): `backend/server.js` 是一个 ES 模块, 打给 Node 的 target (bun 上 `Bun.build` `target: 'node'`, Node 上
+  Vite 的 SSR 构建、`ssr.noExternal: true`): npm 包打进去, Node 自己的模块和 `bun` / `bun:*` 留作 import (`bun:sqlite` 这类只在 bun 上能跑,
+  是用户的事). 入口不是用户的文件, 是 acde 生成的一层: `await import(用户的入口)`, 再 `export default` 它的默认导出; 默认导出有 `fetch`
+  (`export default { fetch }`, Bun / Workers 的写法, 模板 `templates/backend/server.ts` 就是) 且 preload 装了 `Symbol.for('acde.serve')`
+  时交给它. 旁边写 `backend/package.json` (`{"type": "module"}`: Node 认 `.js` 是 ESM, 不打 `MODULE_TYPELESS_PACKAGE_JSON` 警告).
+  preload `backend/acde-listen.js` (`src/listen.ts` 打包; bun 上 `Bun.build`, Node 上是打 acde 时就打好的文本: `src/listen-bundle.ts`
+  用 Bun 的宏 (`src/listen-macro.ts`, 打包时跑 `bun build src/listen.ts`) 内联进 `src/cli.js`, 发布出去的 acde 在 Node 上不靠打包工具出 preload):
+  - 里面没有 `import` / `export` (Node 内置模块都经 `process.getBuiltinModule` 取), 所以它既是合法的 CommonJS 也是合法的 ESM: 放在
+    `"type": "commonjs"` 的包里 (Next 的 standalone)、没写 type 的包里、ESM 包里都能 `--import`, 也能 `bun --preload`.
+  - 把 `Bun.serve` / `Bun.listen` / `net`、`http`、`https`、`tls`、`http2` 的 `listen(P)` 都换成 `<sockets>/P.sock` (P 没给时 `Bun.serve`
+    用 `BUN_PORT` / `PORT` / `NODE_PORT` / 3000); 指定端口的 UDP bind、在现成的 fd / handle 上 listen 拒绝 (`EACCES`).
+  - bun 上 `export default {fetch}` 由 bun 自己起 (经换过的 `Bun.serve`). Node 上 preload 在 `globalThis[Symbol.for('acde.serve')]` 放一个
+    函数, 上面那层入口调它: `node:http` 起一个服务 (`listen(port)`, port 是默认导出的 `port`, 否则同上; 有 `unix` 就听它, 有 `hostname`
+    就带上), 于是也落到 `<sockets>/P.sock`. 每个请求换成 WHATWG `Request` (URL 是 `http://<Host 头><路径>`, 头照原样、去掉逐跳的, body 是流,
+    `duplex: 'half'`, 客户端断开时 `signal` abort), 调 `fetch(request, server)` (`server` 只有 `upgrade()` (总是 false: Node 上没有 WebSocket
+    升级)、`requestIP()` (null)、`port`、`hostname`); 回的 `Response` 写回去: 状态和 statusText、头 (`set-cookie` 一条一条)、body 按块流过去
+    (等 `drain`, 客户端断开时 `cancel` 掉流), HEAD 不写 body. `fetch` 抛错 (有 `error` 处理函数时先交给它) 或没返回 `Response`: 打到 stderr,
+    回 500 `Internal Server Error` (头已经发出去了就断开连接).
+  开发时在 bun 下跑后端源码也用同一个 preload (`bun --preload <acde>/src/listen.ts server.ts`; 源码的 `export default {fetch}` 在 Node 上没有
+  那层入口, 不会起).
+  验过 (macOS arm64, 2026-11-08, Node 24.22.2 (`process.versions.bun` 是 undefined) / npm 11, Vite 8.3.6, bun 1.4.4; Node 上跑的是
+  `bun build src/cli.ts --target node` 打出的 `src/cli.js`, 另垫了一层只给验证用的补丁 (别人负责的 `pm.ts` / `package.ts` / `create.ts` 还在用
+  `Bun.which` / `Bun.resolveSync` / `import.meta.dir`)): html 模板 + `--backend` (`npm i -D vite`) 在 Node 上构建, `node --import
+  ./.acde/backend/acde-listen.js .acde/backend/server.js` 和 `bun --preload` 同一份文件, `curl --unix-socket <sockets>/3000.sock
+  http://x/api/hello` 都回了 JSON, lsof 看不到 TCP 端口; Vite React 模板 (create-vite, npm) 在 Node 上走框架构建; desktop 模板, 以及带服务、
+  HTML 应用、模块入口应用和 `url(/wall.svg)` 的桌面在 Node 上构建; Node 上 `acde dev --headless` (假 acdert) 构建、改文件后重新构建并发
+  `reload`, `acde eval <web> -` (stdin)、`webs`、`console --follow`, `acde mcp` 经 stdio 客户端 `start` (起的 `acde dev` 也在 Node 上) →
+  `webs` → `eval` → `logs` → `stop`, `acde test` 报需要 bun. `bun test`: `test/node.test.ts` (找到 Node ≥ 22 时: `ACDE_TEST_NODE` 或 PATH 上
+  不是 bun 的 `node`) 在 Node 上跑打好的 fetch 后端 (JSON、`$PORT`、30 万字节的 POST 流进流出、两条 `set-cookie`、分块的流、HEAD、抛错 500、
+  `upgrade` 为 false、404), `node:http` 的 listen, CommonJS 包里的 preload; `ACDE_BUNDLER=vite` 在 bun 上用 acde 自己的 vite (devDependency)
+  构建 fixture 应用、桌面 (服务、两种应用、public 的规则、`acde:*`)、子目录里的页面、两种找不到 `/x` 的报错、没有 vite 时的提示.
+  没验: Next / Nuxt / SvelteKit / Astro / React Router / Angular 在 Node 上 (`PackageManager.bin` 还没改完); acdert 用 node 起后端的那一侧;
+  Windows; Vite 7 及以前 (`rollupOptions` 那条路).
+- **`public/`** (`src/bundler.ts`: Bun.build 的插件 `acde-public`, Vite 上同名的插件): `public` 目录 (配置的 `public`) 原样复制进工程自己的应用的
   `web/` 和桌面页的 `desktop/` (桌面里的应用不复制). 以 `/` 开头的引用落到 public 里时:
   - HTML 里的 (`<link rel="icon" href="/favicon.svg">`): 照常打包 (带 hash 的文件名, `/app/<id>/` 下).
   - CSS 的 `url(/fonts/x.woff2)` (像 Vite: public 里的文件按根路径引用): 工程自己的应用 (HTML 入口) 原样留着这个 URL —— 运行时
@@ -227,6 +273,9 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
     这时照打包处理 (Bun 1.4 把 CSS 引用的资源都内联成 `data:` URL).
   - 哪儿都没有 (public 里没有, 也不是磁盘上的绝对路径) 时构建失败, 说清楚是哪个文件里的哪个 URL、public 里缺哪个文件
     (`/fonts/x.woff2 in src/style.css: there is no public/fonts/x.woff2 (a URL starting with / is a file in public/)`).
+  Vite 上: 告诉 Vite public 在哪 (`publicDir`, 不让它复制, acde 自己复制), 工程自己的应用 CSS 里的 public 引用经 `renderBuiltUrl` 写回 `/x`;
+  HTML 里的 public 引用在复制了 public 的地方 (工程自己的应用、桌面页) 是 `<base>x`, 别处 (桌面里的应用) 和该打包的 CSS 引用先改写成指向
+  public 里那个文件的相对路径, 由 Vite 当普通资源打包; 哪儿都没有时报同样的错.
   Bun 1.4.0 的毛病 (不是 acde 的): 同一个资源同时被 HTML (`<img src="./a.svg">`) 和 CSS (`url(./a.svg)`) 引用时, CSS 里内联了,
   HTML 里的引用原样留下、文件也不出, 运行时那张图是坏的; 测试的 fixture 因此让 HTML 和 CSS 引用不同的文件.
   验过 (macOS, 2026-11-06): fixture `test/fixtures/app` 的 `src/style.css` 用 `url('/fonts/fixture.woff2')`, 构建出的 CSS 里还是这个
@@ -307,11 +356,12 @@ Linux arm64, yarn 1. musl (同日): acdert 在 Alpine edge 容器里编 (rustup 
 
 ## driver (`acde/driver`, `src/driver/`)
 
-给 e2e 测试、脚本和 `acde mcp` 用的库, 只经 `acde dev` 的 IPC (和开发工具同一条, 作为 `tool` 连上), 不开端口. 只在 bun 上跑.
+给 e2e 测试、脚本和 `acde mcp` 用的库, 只经 `acde dev` 的 IPC (和开发工具同一条, 作为 `tool` 连上), 不开端口. 只用 `node:` 模块,
+bun 和 Node 上都能跑 (`acde/driver` 发布的是 TypeScript 源码, Node 上要经打包或 Node 自己的类型擦除; 打进 `src/cli.js` 的 `acde mcp` 不受影响).
 
 - **`Acde`** (`acde.ts`): `Acde.attach({session?, cwd?, env?, timeout?})` 按「开发工具」的规则挑会话 (`env` 里的 `XDG_RUNTIME_DIR` /
-  `TMPDIR` 决定会话目录); `Acde.launch({dirs?, desktop?, app?, out?, cwd?, env?, headless?, timeout?, startTimeout?})` 自己起 `acde dev` (bun 直接跑
-  `cliFile()`, 输出接进 `logs`, 等会话文件出现 (pid 是子进程的) 再等 `ready()`: 窗口表不空、`webs` 里每个页面的窗口都在窗口表里 (acdert 先回答
+  `TMPDIR` 决定会话目录); `Acde.launch({dirs?, desktop?, app?, out?, cwd?, env?, headless?, timeout?, startTimeout?})` 自己起 `acde dev` (跑它的那个运行时
+  (`process.execPath`, bun 或 node) 直接跑 `cliFile()`, 输出接进 `logs`, 等会话文件出现 (pid 是子进程的) 再等 `ready()`: 窗口表不空、`webs` 里每个页面的窗口都在窗口表里 (acdert 先回答
   `webs`, 窗口过一会儿才进窗口表, 只等 `webs` 的话紧接着的 snapshot 是空的); 子进程先退出时报错并带上它最后的输出; 默认等
   120 s). 底层操作和 op 一一对应: `webs()`、`evaluate(web, code)`、`screenshot(web, {path?})` (`{png: Buffer, width, height, path}`)、
   `snapshot(options)`、`windows()` (`snapshot {tree: false}`)、`act(ref, action, arg?)`、`run(steps)`、`query({selector, window?, ref?, limit?})`、
@@ -418,7 +468,8 @@ test('记一笔', async ({ app, acde, home }) => {
   (整屏)、`snapshot.txt` (所有窗口, 含滚出去的)、`console.txt`、`network.txt` (哪一样拿不到就写 `<名字>.error.txt`), 把「saved … in <目录>」接在
   错误信息后面. 名字里的 `/\:*?"<>|` 和空白换成 `-`; 同名的测试加 `-2` …
 - **`acde test`** (`runner.ts` `TestRunner`): 参数是工程目录 (往下找 `*.e2e.*`, 不看 node_modules、.acde、构建产物) 或测试文件 (它所属的工程是往上
-  第一个有 `acde.config.*` 的目录), 默认当前目录. 每个文件一个 `bun test <文件> --timeout <ms>` 子进程 (cwd 是工程, bun 是跑 acde 的那个, 环境加
+  第一个有 `acde.config.*` 的目录), 默认当前目录. 只在 bun 上: acde 跑在 Node 上时直接报 `acde test needs bun …`, 退出码 1. 每个文件一个
+  `bun test <文件> --timeout <ms>` 子进程 (cwd 是工程, bun 是跑 acde 的那个, 环境加
   `cliEnv`), 设置经环境变量传过去 (`settings.ts` `E2e`: `ACDE_TEST_DIRS` / `DESKTOP` / `HEADLESS` / `RESULTS` / `FILE` / `TIMEOUT`); 直接
   `bun test x.e2e.ts` 时按当前目录找工程、headless、结果放 `<工程>/.acde/test-results`. 开始前清掉每个工程的 `.acde/test-results`. 默认
   headless (`--headed` 开窗口), 每个测试 60 s (`--timeout`), `-t` 是 bun 的 `--test-name-pattern`, `--desktop` 让每个测试在那个桌面里跑, `--bail`

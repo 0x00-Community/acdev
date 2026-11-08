@@ -1,7 +1,9 @@
 import { resolve } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction } from '@dopame/acde-api'
 import { Acde, type ActResult, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
+import { Runtime } from './runtime.ts'
 
 export class Tools {
   static readonly COMMANDS = new Set(['webs', 'eval', 'shot', 'inspect', 'act', 'console', 'network', 'screen'])
@@ -17,7 +19,7 @@ export class Tools {
           console.log(Format.webs(await acde.webs()))
           return 0
         case 'eval':
-          console.log(JSON.stringify((await acde.evaluate(args[0]!, args[1] === '-' ? await Bun.stdin.text() : args[1]!)) ?? null, null, 2))
+          console.log(JSON.stringify((await acde.evaluate(args[0]!, args[1] === '-' ? await Runtime.readStdin() : args[1]!)) ?? null, null, 2))
           return 0
         case 'shot':
           console.log((await acde.screenshot(args[0]!, { path: resolve(flags.get('output') ?? Tools.fileFor(args[0]!)) })).path)
@@ -56,7 +58,7 @@ export class Tools {
       for (const entry of page.entries) console.log(line(entry))
       since = page.next
       if (!follow) return 0
-      await Bun.sleep(Tools.FOLLOW_MS)
+      await sleep(Tools.FOLLOW_MS)
     }
   }
 

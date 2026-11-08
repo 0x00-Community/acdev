@@ -1,6 +1,7 @@
 import { existsSync, rmSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
-import { cliEnv, findBun } from 'acde/launcher'
+import { cliEnv } from 'acde/launcher'
+import { Runtime } from '../runtime.ts'
 import { E2e } from './settings.ts'
 
 export interface RunnerOptions {
@@ -47,10 +48,11 @@ export class TestRunner {
   }
 
   static async run(options: RunnerOptions): Promise<number> {
+    if (!Runtime.bun) throw new Error('acde test needs bun (the tests run on bun test): install it from https://bun.sh, then run acde test again')
     const cwd = options.cwd ?? process.cwd()
     const suites = TestRunner.suites(options.targets, cwd)
     if (!suites.length) throw new Error(`no e2e tests (${TestRunner.PATTERN}) in ${(options.targets.length ? options.targets : ['.']).join(', ')}`)
-    const bun = await findBun()
+    const bun = process.execPath
     const cleaned = new Set<string>()
     const kept = new Set<string>()
     const failed: string[] = []
@@ -72,7 +74,7 @@ export class TestRunner {
       }
       const argv = [bun, 'test', suite.file, '--timeout', String(settings.timeout), ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : [])]
       console.log(`acde test: ${relative(cwd, suite.file) || suite.file}${settings.headless ? '' : ' (headed)'}`)
-      const child = Bun.spawn(argv, { cwd: suite.project, env: cliEnv(bun, { ...process.env, ...E2e.env(settings) }), stdio: ['inherit', 'inherit', 'inherit'] })
+      const child = Runtime.spawn(argv, { cwd: suite.project, env: cliEnv(bun, { ...process.env, ...E2e.env(settings) }), stdio: 'inherit' })
       const code = await child.exited
       ran++
       if (code !== 0) {
