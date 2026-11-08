@@ -221,9 +221,14 @@ impl Surface {
     fn place_panel(&self, id: u32, rect: [i32; 4], input: [i32; 4]) {
         let Some(server) = server() else { return };
         let Some(panel) = self.panels().get(&id).copied() else { return };
-        if let Some(e) = server.state().entries.get_mut(&panel) {
-            e.input = Some(input.map(f64::from));
-            e.rect = rect.map(f64::from);
+        {
+            let mut state = server.state();
+            let scale = state.screen[2];
+            let Some(e) = state.entries.get_mut(&panel) else { return };
+            e.pending = Some((rect.map(f64::from), input.map(f64::from)));
+            if !crate::shell::State::place_when_drawn(e, scale) {
+                return;
+            }
         }
         server.relayout();
     }

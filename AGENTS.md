@@ -136,6 +136,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **窗口之间的毛玻璃**: 钉住的面板里 backdrop-filter 最大的那块 (同 window crate 的 `Panel::backdrops`) 和页面的 `acde.window.setBackdrop`
   (窗口本地物理像素, 加窗框高度) 记在 `Entry.backdrop`. 合成器先把各层画进一张离屏画布, 画到带 backdrop 的层之前调 `Composer::backdrop`
   模糊画布上已经画好的部分, 最后把画布贴到 surface; `screenshot` 读的也是这张画布.
+- **面板挪位置等内容**: `placePanel` 的新 rect 先挂在 `Entry.pending`, 出帧线程画出这个尺寸 (差 1 px 以内) 的面板后才换上
+  (`State::place_when_drawn`; 已经画好了就立刻换). 不然新位置先生效、旧内容 (相对旧原点画的) 贴过去一帧, Dock 放大时整条往旁边跳一下.
 - **GPU**: `gpu.rs` 只开 `acde_gpu::BACKEND` 一个后端 (Windows DX12、macOS Metal、Linux Vulkan), 不要 CPU 设备; `WGPU_VALIDATION` /
   `WGPU_DEBUG` 照 wgpu 的环境变量. 所有 `surface.configure` 和提交都拿 `acde_gpu::Gpu::submit_lock`.
 - **坐标**: 宿主窗口的内容区就是「屏幕」(`output`: `ACDE_SIZE`, 否则主显示器的 90% × 85%, 最大 1440 × 900), 窗口表的 rect 是它里面的

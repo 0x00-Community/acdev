@@ -169,6 +169,7 @@ impl Presenter {
                 false => self.layered(window, size, &panel.plane.layers, 0, Vec::new(), Color::TRANSPARENT),
             });
             Self::backdrop(window, &panel.plane);
+            Self::drawn(window, size);
         }
         if let Err(e) = result {
             log::warn!("web window: {e}");
@@ -177,6 +178,16 @@ impl Presenter {
             compositor.dirty();
         }
         log::debug!(target: "perf::raster", "surface ms={:.3}", acde_log::since_ms(started));
+    }
+
+    fn drawn(window: u32, size: (u32, u32)) {
+        let Some(server) = server() else { return };
+        let mut state = server.state();
+        let scale = state.screen[2];
+        if let Some(entry) = state.entries.get_mut(&window) {
+            entry.drawn = size;
+            crate::shell::State::place_when_drawn(entry, scale);
+        }
     }
 
     fn backdrop(window: u32, plane: &Plane) {

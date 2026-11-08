@@ -54,6 +54,8 @@ pub(crate) struct Entry {
     pub input: Option<[f64; 4]>,
     pub frame: f64,
     pub backdrop: Option<([f64; 4], [f64; 4])>,
+    pub pending: Option<([f64; 4], [f64; 4])>,
+    pub drawn: (u32, u32),
 }
 
 pub(crate) struct Hit {
@@ -108,6 +110,18 @@ impl State {
         } else {
             (1, e.z)
         }
+    }
+
+    pub fn place_when_drawn(entry: &mut Entry, scale: f64) -> bool {
+        let Some((rect, input)) = entry.pending else { return false };
+        let size = ((rect[2] * scale).round() as u32, (rect[3] * scale).round() as u32);
+        if size.0.abs_diff(entry.drawn.0) > 1 || size.1.abs_diff(entry.drawn.1) > 1 {
+            return false;
+        }
+        entry.rect = rect;
+        entry.input = Some(input);
+        entry.pending = None;
+        true
     }
 
     pub fn layers(&self) -> Vec<Layer> {
