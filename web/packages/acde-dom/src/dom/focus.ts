@@ -7,6 +7,7 @@ import { dom, ID, lifecycle, wrap, type Wrapper } from './realm'
 
 export const focus = {
   id: NONE,
+  revision: 0,
   modality: 'pointer' as 'pointer' | 'keyboard',
   windowActive: true,
 }
@@ -58,6 +59,7 @@ export function setFocus(element: Element | null, visible?: boolean): void {
   }
   const old = previous === NONE ? null : wrap<Element>(previous)
   focus.id = next
+  focus.revision++
   dom.setFocus(next, next === NONE ? false : (visible ?? (focus.modality === 'keyboard' || isTextField(next))))
   if (old?.isConnected) {
     fire(old, new FocusEvent('blur', { relatedTarget: element }))
@@ -71,6 +73,7 @@ export function setFocus(element: Element | null, visible?: boolean): void {
 lifecycle.disconnected.push((node: Wrapper) => {
   if (node[ID] === focus.id) {
     focus.id = NONE
+    focus.revision++
     dom.setFocus(NONE, false)
   }
 })

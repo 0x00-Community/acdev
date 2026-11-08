@@ -5,6 +5,7 @@ import { NONE, NodeType } from '../native'
 import type { Element } from './element'
 import { KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from './events'
 import { focus, focusable, focusedElement, setFocus } from './focus'
+import { HTMLButtonElement } from './forms'
 import { dom, documentId, ID, moved, rootElementId, wrap } from './realm'
 
 export interface Modifiers {
@@ -51,6 +52,7 @@ export class Input {
   #hover: Element | null = null
   #path: Element[] = []
   #pressed: Element | null = null
+  #spacePress: number | null = null
   #buttons = 0
   #lastDown = { at: 0, x: 0, y: 0, count: 0 }
   #noCompat = false
@@ -187,10 +189,17 @@ export class Input {
   key(type: 'keydown' | 'keyup', key: string, code: string, options: KeyOptions = {}): boolean {
     focus.modality = 'keyboard'
     const target = focusedElement() ?? wrap<{ body: Element | null }>(documentId)!.body ?? this.elementAt(null, 0, 0)
+    const spacePress = this.#spacePress
+    if (key === ' ' && (type === 'keyup' || !options.repeat)) this.#spacePress = null
     const keyCode = keyCodeOf(key)
     const init = { key, code, keyCode, which: keyCode, repeat: !!options.repeat, ...mods(options.modifiers) }
     if (!this.#fire(target, type, init, KeyboardEvent as never)) return false
-    if (type !== 'keydown') return true
+    if (type === 'keyup') {
+      if (key === ' ' && spacePress === focus.revision && this.#keyboardButton(target)) {
+        this.#keyboardClick(target, options.modifiers)
+      }
+      return true
+    }
     if (key === 'Tab' && !options.modifiers?.ctrl && !options.modifiers?.alt && !options.modifiers?.meta) {
       this.tab(!!options.modifiers?.shift)
       return true
@@ -200,8 +209,18 @@ export class Input {
       const char = key.charCodeAt(0)
       if (!this.#fire(target, 'keypress', { ...init, keyCode: char, charCode: char, which: char }, KeyboardEvent as never)) return false
     }
+    if (key === 'Enter' && this.#keyboardButton(target)) this.#keyboardClick(target, options.modifiers)
+    if (key === ' ' && !options.repeat && this.#keyboardButton(target)) this.#spacePress = focus.revision
     this.onKeyDefault(target, key, options.modifiers ?? {})
     return true
+  }
+
+  #keyboardButton(target: Element): boolean {
+    return target instanceof HTMLButtonElement && focus.windowActive && focus.id === target[ID] && focusable(target[ID])
+  }
+
+  #keyboardClick(target: Element, modifiers: Modifiers | undefined): void {
+    this.#fire(target, 'click', { pointerId: -1, ...mods(modifiers) }, PointerEvent as never)
   }
 
   tab(back: boolean): void {

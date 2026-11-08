@@ -229,6 +229,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     setActive(active) {
       if (focus.windowActive === active) return
       focus.windowActive = active
+      focus.revision++
       fire(global as unknown as EventTarget, new events.FocusEvent(active ? 'focus' : 'blur'))
     },
     reportError,

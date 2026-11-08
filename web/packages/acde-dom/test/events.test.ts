@@ -153,3 +153,51 @@ test('input routing: hover, compat mouse events, click count, focus on press, ke
   assert.equal(web.run('document.activeElement.id'), 'btn')
   assert.equal(web.dom.focus.visible, true)
 })
+
+test('focused HTML buttons activate with Enter and Space', async () => {
+  using web = await page('<form><button id="btn">Submit</button><input id="other"></form>')
+  for (const name of ['btn', 'other']) {
+    const id = web.internals.idOf(web.run(`document.getElementById('${name}')`))
+    web.dom.boxes.set(id, { x: 0, y: 0, width: 80, height: 30 })
+  }
+  web.run(`
+    const btn = document.getElementById('btn'), other = document.getElementById('other')
+    const activations = []
+    btn.addEventListener('click', (e) => activations.push([e.type, e.detail, e.isTrusted, e.pointerId]))
+    btn.form.addEventListener('submit', (e) => { e.preventDefault(); activations.push([e.type, e.submitter.id]) })
+    btn.focus()
+  `)
+  const input = web.internals.input
+  const log = () => web.json('activations')
+  const clickAndSubmit = [['click', 0, true, -1], ['submit', 'btn']]
+  input.key('keydown', 'Enter', 'Enter')
+  assert.deepEqual(log(), clickAndSubmit)
+  input.key('keyup', 'Enter', 'Enter')
+  assert.deepEqual(log(), clickAndSubmit)
+  web.run('activations.length = 0')
+
+  input.key('keydown', ' ', 'Space')
+  input.key('keydown', ' ', 'Space', { repeat: true })
+  assert.deepEqual(log(), [])
+  input.key('keyup', ' ', 'Space')
+  input.key('keyup', ' ', 'Space')
+  assert.deepEqual(log(), clickAndSubmit)
+  web.run('activations.length = 0')
+
+  for (const [key, code] of [['Enter', 'Enter'], [' ', 'Space']] as const) {
+    web.run('btn.addEventListener("keydown", (e) => e.preventDefault(), { once: true })')
+    input.key('keydown', key, code)
+    input.key('keyup', key, code)
+  }
+  input.key('keydown', ' ', 'Space')
+  web.run('btn.addEventListener("keyup", (e) => e.preventDefault(), { once: true })')
+  input.key('keyup', ' ', 'Space')
+  input.key('keydown', ' ', 'Space')
+  web.run('other.focus(); btn.focus()')
+  input.key('keyup', ' ', 'Space')
+  input.key('keydown', ' ', 'Space')
+  web.run('btn.disabled = true')
+  input.key('keyup', ' ', 'Space')
+  input.key('keydown', 'Enter', 'Enter')
+  assert.deepEqual(log(), [])
+})
