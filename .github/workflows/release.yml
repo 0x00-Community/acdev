@@ -4,14 +4,6 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      version:
-        description: version to publish (x.y.z)
-        required: true
-      publish:
-        description: publish to npm
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -101,45 +93,3 @@ jobs:
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG" \
             --notes "Debug builds. Put the app/ directory from acdert-host-${TAG#v}.tar.gz next to the binary." \
             artifacts/acdert-*/acdert-* "acdert-host-${TAG#v}.tar.gz"
-
-  npm:
-    needs: [build, host]
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          repository: dopame-org/acde
-          token: ${{ secrets.DOPAME_READ_TOKEN }}
-          path: acde
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v7
-        with:
-          node-version: latest
-          registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-      - name: pack and publish
-        shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ inputs.version }}
-          PUBLISH: ${{ inputs.publish }}
-        run: |
-          root=$PWD
-          declare -A npm=([aarch64-apple-darwin]=darwin-arm64 [x86_64-unknown-linux-gnu]=linux-x64 [x86_64-pc-windows-msvc]=win32-x64)
-          args=()
-          for dir in artifacts/acdert-*; do
-            triple=${dir#artifacts/acdert-}
-            exe=$(ls "$dir")
-            args+=(--acdert "${npm[$triple]}=$root/$dir/$exe")
-          done
-          [ ${#args[@]} -gt 0 ] || { echo "no acdert was built"; exit 1; }
-          cd acde && bun install --frozen-lockfile
-          if [ "$PUBLISH" = true ]; then publish=(--publish https://registry.npmjs.org/); else publish=(); fi
-          bun scripts/pack.ts --version "$VERSION" --host "$root/artifacts/host/app/dist" "${args[@]}" "${publish[@]}"
-      - uses: actions/upload-artifact@v7
-        with:
-          name: npm
-          path: acde/.npm/*.tgz
