@@ -23,7 +23,7 @@ export interface DevOptions {
 }
 
 interface Unit {
-  readonly pkg: AppPackage
+  pkg: AppPackage
   readonly out: string
   built: Built | null
   timer?: ReturnType<typeof setTimeout>
@@ -196,6 +196,7 @@ export class DevSession {
     const started = performance.now()
     const who = this.#units.length > 1 ? `${unit.pkg.name}: ` : ''
     try {
+      unit.pkg = new AppPackage(unit.pkg.dir)
       const built = await unit.pkg.build(unit.out)
       unit.built = built
       console.log(`acde: ${who}重新构建好了 (${Math.round(performance.now() - started)} ms), 重新加载`)
