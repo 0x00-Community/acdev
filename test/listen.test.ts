@@ -7,6 +7,7 @@ import { cleanup, env, get, inetSockets, line, tmp } from './helpers.ts'
 
 const LISTEN = join(import.meta.dir, '../src/listen.ts')
 const FIXTURES = join(import.meta.dir, 'fixtures/listen')
+const WINDOWS = process.platform === 'win32'
 const children: Subprocess[] = []
 
 function start(fixture: string, extra: Record<string, string>): Subprocess<'ignore', 'pipe', 'pipe'> {
@@ -40,7 +41,7 @@ describe('listen on a port goes to <dir>/<port>.sock', () => {
     const child = start('bun-serve.ts', { ACDE_APP_SOCKETS: dir })
     expect(await line(child, 'ready')).toBe('ready 3000 http://localhost:3000/')
     expect(await get(join(dir, '3000.sock'))).toBe('bun-serve /p')
-    expect(statSync(dir).mode & 0o777).toBe(0o700)
+    if (!WINDOWS) expect(statSync(dir).mode & 0o777).toBe(0o700)
     noInet(child.pid)
   })
 
@@ -90,13 +91,13 @@ describe('listen on a port goes to <dir>/<port>.sock', () => {
     const child = start('bun-serve.ts', { XDG_RUNTIME_DIR: runtime, ACDE_APP_ID: 'demo' })
     await line(child, 'ready')
     expect(await get(join(runtime, 'acde/apps/demo/3000.sock'))).toBe('bun-serve /p')
-    expect(statSync(join(runtime, 'acde/apps/demo')).mode & 0o777).toBe(0o700)
+    if (!WINDOWS) expect(statSync(join(runtime, 'acde/apps/demo')).mode & 0o777).toBe(0o700)
     noInet(child.pid)
   })
 })
 
 describe('around the mapping', () => {
-  test('a stale socket file is replaced', async () => {
+  test.skipIf(WINDOWS)('a stale Unix backend socket file is replaced', async () => {
     const dir = join(tmp(), 'sockets')
     const first = start('bun-serve.ts', { ACDE_APP_SOCKETS: dir })
     await line(first, 'ready')
@@ -129,9 +130,12 @@ describe('around the mapping', () => {
   })
 
   test('socketDir / socketPath', () => {
-    expect(socketDir({ ACDE_APP_SOCKETS: '/s' })).toBe('/s')
-    expect(socketPath(3000, { XDG_RUNTIME_DIR: '/run/user/7', ACDE_APP_ID: 'notes' })).toBe('/run/user/7/acde/apps/notes/3000.sock')
-    expect(socketDir({ ACDE_APP_ID: 'notes' })).toBe(`/run/user/${process.getuid!()}/acde/apps/notes`)
+    const runtime = tmp()
+    const explicit = join(runtime, 'sockets')
+    expect(socketDir({ ACDE_APP_SOCKETS: explicit })).toBe(explicit)
+    expect(socketPath(3000, { XDG_RUNTIME_DIR: runtime, ACDE_APP_ID: 'notes' }))
+      .toBe(join(runtime, 'acde', 'apps', 'notes', '3000.sock'))
+    if (!WINDOWS) expect(socketDir({ ACDE_APP_ID: 'notes' })).toBe(`/run/user/${process.getuid!()}/acde/apps/notes`)
     expect(() => socketDir({ ACDE_APP_ID: '../x' })).toThrow()
   })
 })
