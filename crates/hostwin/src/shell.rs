@@ -53,6 +53,7 @@ pub(crate) struct Entry {
     pub owner: Option<u32>,
     pub input: Option<[f64; 4]>,
     pub frame: f64,
+    pub backdrop: Option<([f64; 4], [f64; 4])>,
 }
 
 pub(crate) struct Hit {
@@ -112,7 +113,7 @@ impl State {
     pub fn layers(&self) -> Vec<Layer> {
         let mut shown: Vec<(&u32, &Entry)> = self.entries.iter().filter(|(_, e)| e.opened && !e.hidden).collect();
         shown.sort_by_key(|(id, e)| Self::rank(**id, e));
-        shown.into_iter().map(|(&id, e)| Layer { id, rect: e.rect }).collect()
+        shown.into_iter().map(|(&id, e)| Layer { id, rect: e.rect, backdrop: e.backdrop }).collect()
     }
 
     pub fn hit(&self, x: f64, y: f64) -> Option<Hit> {

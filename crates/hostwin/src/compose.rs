@@ -31,7 +31,8 @@ fn vs_quad(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
 fn fs_quad(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     let size = vec2<i32>(textureDimensions(page));
     let p = clamp(vec2<i32>(floor(at.xy - place.origin)), vec2<i32>(0, 0), size - vec2<i32>(1, 1));
-    return textureLoad(page, p, 0);
+    let c = textureLoad(page, p, 0);
+    return select(c, vec4<f32>(c.rgb * c.a, c.a), place.pad.x > 0.5);
 }
 ";
 
@@ -44,11 +45,20 @@ pub(crate) struct Page {
     pub size: (u32, u32),
     pub view: wgpu::TextureView,
     pub texture: wgpu::Texture,
+    pub straight: std::sync::atomic::AtomicBool,
 }
 
 pub(crate) struct Layer {
     pub id: u32,
     pub rect: [f64; 4],
+    pub backdrop: Option<([f64; 4], [f64; 4])>,
+}
+
+struct Canvas {
+    size: (u32, u32),
+    texture: wgpu::Texture,
+    _place: wgpu::Buffer,
+    bind: wgpu::BindGroup,
 }
 
 type ShotReply = mpsc::SyncSender<Result<(u32, u32), String>>;
@@ -125,6 +135,8 @@ struct Thread {
     dump: Option<PathBuf>,
     dump_at: Option<Instant>,
     pages: HashMap<u32, Bound>,
+    composer: acde_gpu::Composer,
+    canvas: Option<Canvas>,
 }
 
 fn configuration(gpu: &Gpu, surface: &wgpu::Surface<'static>, size: (u32, u32)) -> Result<wgpu::SurfaceConfiguration, String> {
@@ -195,7 +207,8 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
     let dump = std::env::var_os("ACDE_HOST_DUMP").map(PathBuf::from);
     let (tx, rx) = mpsc::channel();
     let size = (size.0.max(1), size.1.max(1));
-    let mut thread = Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages: HashMap::new() };
+    let composer = acde_gpu::Composer::new(device, &gpu.shared.queue);
+    let mut thread = Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages: HashMap::new(), composer, canvas: None };
     let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(move || thread.run(&rx)).map_err(|e| format!("compose thread: {e}"))?;
     Ok((Compositor(tx), handle))
 }
@@ -209,7 +222,11 @@ fn make_pipeline(device: &wgpu::Device, layout: &wgpu::PipelineLayout, module: &
             module,
             entry_point: Some("fs_quad"),
             compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
         }),
         primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleStrip, ..Default::default() },
         depth_stencil: None,
@@ -265,7 +282,7 @@ impl Thread {
         Bound { page, place, bind }
     }
 
-    fn prepare(&self) -> Option<Vec<u32>> {
+    fn prepare(&self) -> Option<Vec<(u32, Option<acde_gpu::Backdrop>)>> {
         let server = server()?;
         let (layers, scale) = {
             let state = server.state();
@@ -276,21 +293,41 @@ impl Thread {
         for layer in &shown {
             let bound = &self.pages[&layer.id];
             let origin = [(layer.rect[0] * scale).round() as f32, (layer.rect[1] * scale).round() as f32];
-            let values = [screen[0], screen[1], origin[0], origin[1], bound.page.size.0 as f32, bound.page.size.1 as f32, 0.0, 0.0];
+            let straight = f32::from(u8::from(bound.page.straight.load(std::sync::atomic::Ordering::Relaxed)));
+            let values = [screen[0], screen[1], origin[0], origin[1], bound.page.size.0 as f32, bound.page.size.1 as f32, straight, 0.0];
             let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
             self.gpu.shared.queue.write_buffer(&bound.place, 0, &bytes);
         }
-        Some(shown.iter().map(|l| l.id).collect())
+        let backdrop = |layer: &Layer| {
+            let ([x, y, w, h], [radius, blur, saturate, brightness]) = layer.backdrop?;
+            let origin = [(layer.rect[0] * scale).round(), (layer.rect[1] * scale).round()];
+            let rect = [(origin[0] + x) as f32, (origin[1] + y) as f32, w as f32, h as f32];
+            (blur > 0.0 || saturate != 1.0 || brightness != 1.0).then_some(acde_gpu::Backdrop {
+                rect,
+                radius: radius as f32,
+                blur: blur as f32,
+                saturate: saturate as f32,
+                brightness: brightness as f32,
+            })
+        };
+        Some(shown.iter().map(|l| (l.id, backdrop(l))).collect())
     }
 
-    fn pass(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, pipeline: &wgpu::RenderPipeline, ids: &[u32]) {
+    fn pass<'a>(
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        pipeline: &wgpu::RenderPipeline,
+        clear: bool,
+        binds: impl IntoIterator<Item = &'a wgpu::BindGroup>,
+    ) {
+        let load = if clear { wgpu::LoadOp::Clear(BACKGROUND) } else { wgpu::LoadOp::Load };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("acde compose"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(BACKGROUND), store: wgpu::StoreOp::Store },
+                ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
@@ -298,10 +335,58 @@ impl Thread {
             multiview_mask: None,
         });
         pass.set_pipeline(pipeline);
-        for id in ids {
-            pass.set_bind_group(0, &self.pages[id].bind, &[]);
+        for bind in binds {
+            pass.set_bind_group(0, bind, &[]);
             pass.draw(0..4, 0..1);
         }
+    }
+
+    fn canvas(&mut self) -> wgpu::TextureView {
+        let size = self.size;
+        if self.canvas.as_ref().is_none_or(|c| c.size != size) {
+            let device = &self.gpu.shared.device;
+            let usage =
+                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST;
+            let texture = acde_gpu::texture(device, size, usage, "acde compose canvas");
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let place = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("acde compose canvas place"),
+                size: 32,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let screen = [size.0 as f32, size.1 as f32];
+            let values = [screen[0], screen[1], 0.0, 0.0, screen[0], screen[1], 0.0, 0.0];
+            let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+            self.gpu.shared.queue.write_buffer(&place, 0, &bytes);
+            let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("acde compose canvas"),
+                layout: &self.layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                    wgpu::BindGroupEntry { binding: 1, resource: place.as_entire_binding() },
+                ],
+            });
+            self.canvas = Some(Canvas { size, texture, _place: place, bind });
+        }
+        let canvas = self.canvas.as_ref().expect("made just above");
+        canvas.texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    fn compose(&mut self, encoder: &mut wgpu::CommandEncoder, layers: &[(u32, Option<acde_gpu::Backdrop>)]) -> wgpu::TextureView {
+        let canvas = self.canvas();
+        let mut from = 0;
+        let mut clear = true;
+        for (at, (_, backdrop)) in layers.iter().enumerate() {
+            let Some(backdrop) = backdrop else { continue };
+            Self::pass(encoder, &canvas, &self.offscreen, clear, layers[from..at].iter().map(|(id, _)| &self.pages[id].bind));
+            clear = false;
+            from = at;
+            self.composer.backdrop(encoder, &canvas, backdrop);
+        }
+        Self::pass(encoder, &canvas, &self.offscreen, clear, layers[from..].iter().map(|(id, _)| &self.pages[id].bind));
+        self.composer.flush();
+        canvas
     }
 
     fn configure(&mut self) {
@@ -330,30 +415,32 @@ impl Thread {
         };
         let target = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = gpu.shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde compose") });
-        self.pass(&mut encoder, &target, &output.pipeline, &ids);
+        self.compose(&mut encoder, &ids);
+        let (Some(output), Some(canvas)) = (&self.output, &self.canvas) else { return };
+        Self::pass(&mut encoder, &target, &output.pipeline, true, [&canvas.bind]);
         gpu.shared.submit([encoder.finish()]);
+        self.composer.end_frame();
         gpu.shared.queue.present(texture);
         if let Some(server) = server() {
             server.state().frames += 1;
         }
     }
 
-    fn png(&self) -> Result<(u32, u32, Vec<u8>, usize), String> {
+    fn png(&mut self) -> Result<(u32, u32, Vec<u8>, usize), String> {
         let ids = self.prepare().ok_or("hostwin is not running")?;
         let gpu = self.gpu.clone();
         let (w, h) = self.size;
-        let usage = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC;
-        let texture = acde_gpu::texture(&gpu.shared.device, (w, h), usage, "acde compose offscreen");
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = gpu.shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde compose offscreen") });
-        self.pass(&mut encoder, &view, &self.offscreen, &ids);
+        self.compose(&mut encoder, &ids);
         gpu.shared.submit([encoder.finish()]);
-        let rgba = gpu.shared.read(&texture, [0, 0, w, h])?;
+        self.composer.end_frame();
+        let texture = &self.canvas.as_ref().ok_or("no canvas")?.texture;
+        let rgba = gpu.shared.read(texture, [0, 0, w, h])?;
         let png = acde_render::encode_png(w, h, &rgba).ok_or("png encoding failed")?;
         Ok((w, h, png, ids.len()))
     }
 
-    fn screenshot(&self, path: &std::path::Path) -> Result<(u32, u32), String> {
+    fn screenshot(&mut self, path: &std::path::Path) -> Result<(u32, u32), String> {
         let (w, h, png, _) = self.png()?;
         std::fs::write(path, png).map_err(|e| format!("{}: {e}", path.display()))?;
         Ok((w, h))

@@ -153,7 +153,7 @@ impl Surface {
                 }
             }
             C::GrabHint(rect, edges) => self.set_grab_hint(rect, edges),
-            C::Backdrop(..) => {}
+            C::Backdrop(rect, effect) => self.set_backdrop(rect, effect),
             C::Activate => {
                 if let Some(server) = server() {
                     server.activate(self.window);
@@ -180,6 +180,19 @@ impl Surface {
             entry.hints.clear();
         } else {
             entry.hints.push(([x, y, w, h].map(f64::from), edges));
+        }
+    }
+
+    fn set_backdrop(&self, [x, y, w, h]: [i32; 4], effect: [f64; 4]) {
+        let Some(server) = server() else { return };
+        let mut state = server.state();
+        let scale = state.screen[2];
+        let Some(entry) = state.entries.get_mut(&self.window) else { return };
+        let top = (entry.frame * scale).round();
+        entry.backdrop = (w > 0 && h > 0).then(|| ([f64::from(x), f64::from(y) + top, f64::from(w), f64::from(h)], effect));
+        drop(state);
+        if let Some(compositor) = server.compositor() {
+            compositor.dirty();
         }
     }
 

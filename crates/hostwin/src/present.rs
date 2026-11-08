@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use acde_gpu::{Overrides, Scene, Vello, vello, wgpu};
+use acde_gpu::{Backdrop, Composer, Effect, FilterEffect, Overrides, Px, Scene, Shadow, Vello, vello, wgpu};
 use acde_model::{Inbox, Pacer};
-use acde_render::{Bar, Decoration, Plane, RenderHandle};
-use vello::kurbo::Affine;
+use acde_render::{Bar, Decoration, Layer, Plane, RenderHandle};
+use vello::kurbo::{Affine, Rect};
 use vello::peniko::Color;
 
 use crate::app::server;
@@ -18,6 +18,7 @@ const DEFAULT_HZ: f64 = 60.0;
 pub(crate) struct Presenter {
     gpu: Arc<Gpu>,
     vello: Vello,
+    composer: Composer,
     overrides: Overrides,
     render: RenderHandle,
     inbox: Arc<Inbox>,
@@ -26,6 +27,7 @@ pub(crate) struct Presenter {
     scale: f64,
     panels: HashMap<u32, u32>,
     targets: HashMap<u32, Arc<Page>>,
+    scratch: Option<((u32, u32), wgpu::Texture, wgpu::TextureView)>,
     pacer: Pacer,
     dirty: bool,
     bar: Bar,
@@ -45,11 +47,13 @@ impl Presenter {
         inbox: Arc<Inbox>,
     ) -> Result<Self, String> {
         let vello = Vello::new(&gpu.shared.device, &gpu.shared.queue)?;
+        let composer = Composer::new(&gpu.shared.device, &gpu.shared.queue);
         let overrides = Overrides::from(gpu.shared.images.clone());
         let hz = refresh.filter(|hz| *hz > 1.0).unwrap_or(DEFAULT_HZ);
         Ok(Self {
             gpu,
             vello,
+            composer,
             overrides,
             render,
             inbox,
@@ -58,6 +62,7 @@ impl Presenter {
             scale,
             panels: HashMap::new(),
             targets: HashMap::new(),
+            scratch: None,
             pacer: Pacer::new(Some(Duration::from_secs_f64(0.9 / hz))),
             dirty: true,
             decoration: (bar.height > 0.0).then(Decoration::new),
@@ -145,13 +150,25 @@ impl Presenter {
         }
         self.pacer.animating = frame.animating;
         let started = Instant::now();
-        let (main, size) = self.framed(Self::scenes(&frame.plane));
-        let mut result = self.draw(self.id, size, main, Color::WHITE);
+        let mut result = match frame.plane.layers.is_empty() {
+            true => {
+                let (main, size) = self.framed(Self::scenes(&frame.plane));
+                self.draw(self.id, size, main, Color::WHITE)
+            }
+            false => {
+                let (decoration, size) = self.framed(Vec::new());
+                let top = size.1 - self.size.1;
+                self.layered(self.id, size, &frame.plane.layers, top, decoration, Color::WHITE)
+            }
+        };
         for panel in &frame.panels {
             let Some(&window) = self.panels.get(&panel.id) else { continue };
-            let scenes = Self::scenes(&panel.plane);
             let size = (panel.size.0.max(1), panel.size.1.max(1));
-            result = result.and(self.draw(window, size, scenes, Color::TRANSPARENT));
+            result = result.and(match panel.plane.layers.is_empty() {
+                true => self.draw(window, size, Self::scenes(&panel.plane), Color::TRANSPARENT),
+                false => self.layered(window, size, &panel.plane.layers, 0, Vec::new(), Color::TRANSPARENT),
+            });
+            Self::backdrop(window, &panel.plane);
         }
         if let Err(e) = result {
             log::warn!("web window: {e}");
@@ -160,6 +177,26 @@ impl Presenter {
             compositor.dirty();
         }
         log::debug!(target: "perf::raster", "surface ms={:.3}", acde_log::since_ms(started));
+    }
+
+    fn backdrop(window: u32, plane: &Plane) {
+        let backdrop = plane
+            .layers
+            .iter()
+            .filter_map(|l| l.backdrop.as_ref())
+            .map(|b| {
+                let r = b.bounds.intersect(b.clip);
+                (
+                    [r.x0.floor(), r.y0.floor(), r.width().ceil().max(0.0), r.height().ceil().max(0.0)],
+                    [b.radius(), b.blur(), f64::from(b.saturate()), f64::from(b.brightness())],
+                )
+            })
+            .filter(|([.., w, h], _)| *w > 0.0 && *h > 0.0)
+            .max_by(|([.., aw, ah], _), ([.., bw, bh], _)| (aw * ah).total_cmp(&(bw * bh)));
+        let Some(server) = server() else { return };
+        if let Some(entry) = server.state().entries.get_mut(&window) {
+            entry.backdrop = backdrop;
+        }
     }
 
     fn framed(&mut self, page: Vec<(Scene, Affine)>) -> (Vec<(Scene, Affine)>, (u32, u32)) {
@@ -184,10 +221,14 @@ impl Presenter {
         if let Some(page) = self.targets.get(&window).filter(|p| p.size == size) {
             return page.view.clone();
         }
-        let usage = wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC;
+        let usage = wgpu::TextureUsages::STORAGE_BINDING
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST;
         let texture = acde_gpu::texture(&self.gpu.shared.device, size, usage, "acde host page");
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let page = Arc::new(Page { size, view: view.clone(), texture });
+        let page = Arc::new(Page { size, view: view.clone(), texture, straight: true.into() });
         if let Some(compositor) = server().and_then(|s| s.compositor()) {
             compositor.page(window, page.clone());
         }
@@ -197,6 +238,114 @@ impl Presenter {
 
     fn draw(&mut self, window: u32, size: (u32, u32), scenes: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
         let view = self.target(window, size);
+        self.straight(window, true);
         self.vello.render(scenes, &mut self.overrides, &view, size, base, Some(&self.gpu.shared))
+    }
+
+    fn straight(&self, window: u32, straight: bool) {
+        if let Some(page) = self.targets.get(&window) {
+            page.straight.store(straight, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    fn layered(&mut self, window: u32, size: (u32, u32), layers: &[Layer], top: u32, over: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
+        self.target(window, size);
+        let page = self.targets[&window].clone();
+        let view = self.scratch(size);
+        let shared = self.gpu.shared.clone();
+        self.vello.render([], &mut self.overrides, &view, size, base, Some(&shared))?;
+        let full = Px::sized(size);
+        let dy = f64::from(top);
+        let mut encoder = shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde host layers") });
+        for layer in layers {
+            let (backdrop, shadows, effect, bounds) = Self::part(layer, dy as f32);
+            if let Some(backdrop) = backdrop {
+                self.composer.backdrop(&mut encoder, &view, &backdrop);
+            }
+            let Some(drawn) = bounds.intersection(full) else { continue };
+            let [ox, oy, w, h] = drawn.xywh();
+            let (x, y) = (f64::from(ox), f64::from(oy));
+            let scene = layer.drawing.scene_for(Rect::new(x, y - dy, x + f64::from(w), y + f64::from(h) - dy));
+            if scene.commands.is_empty() {
+                continue;
+            }
+            self.flush(&mut encoder);
+            let canvas = self.composer.layer_view(size);
+            self.vello.render([(scene, Affine::translate((-x, dy - y)))], &mut self.overrides, &canvas, (w, h), Color::TRANSPARENT, Some(&shared))?;
+            for shadow in &shadows {
+                self.composer.shadow(&mut encoder, &view, shadow, drawn.xywh(), drawn.xywh());
+            }
+            match effect.is_none() {
+                true => self.composer.place(&mut encoder, &view, [ox, oy], drawn.xywh()),
+                false => self.composer.filtered(&mut encoder, &view, &effect, drawn.xywh(), drawn.xywh()),
+            }
+        }
+        if !over.is_empty() {
+            self.flush(&mut encoder);
+            let canvas = self.composer.layer_view(size);
+            self.vello.render(over, &mut self.overrides, &canvas, size, Color::TRANSPARENT, Some(&shared))?;
+            self.composer.place(&mut encoder, &view, [0, 0], full.xywh());
+        }
+        encoder.copy_texture_to_texture(
+            view.texture().as_image_copy(),
+            page.texture.as_image_copy(),
+            wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
+        );
+        self.flush(&mut encoder);
+        self.straight(window, false);
+        self.composer.end_frame();
+        Ok(())
+    }
+
+    fn scratch(&mut self, size: (u32, u32)) -> wgpu::TextureView {
+        if self.scratch.as_ref().is_none_or(|(s, ..)| *s != size) {
+            let usage = wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST;
+            let texture = acde_gpu::texture(&self.gpu.shared.device, size, usage, "acde host layers");
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            self.scratch = Some((size, texture, view));
+        }
+        self.scratch.as_ref().map(|(_, _, v)| v.clone()).expect("made just above")
+    }
+
+    fn flush(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        let shared = &self.gpu.shared;
+        self.composer.flush();
+        let done = std::mem::replace(encoder, shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde host layers") }));
+        shared.submit([done.finish()]);
+    }
+
+    fn part(layer: &Layer, dy: f32) -> (Option<Backdrop>, Vec<Shadow>, Effect, Px) {
+        let backdrop = layer.backdrop.as_ref().map(|b| {
+            let r = b.bounds.intersect(b.clip);
+            Backdrop {
+                rect: [r.x0 as f32, r.y0 as f32 + dy, r.width().max(0.0) as f32, r.height().max(0.0) as f32],
+                radius: b.radius() as f32,
+                blur: b.blur() as f32,
+                saturate: b.saturate(),
+                brightness: b.brightness(),
+            }
+        });
+        let mut shadows = Vec::new();
+        let mut effect = Effect::default();
+        for (e, scale) in layer.filter.iter().flat_map(|f| f.filter.effects().iter().map(|e| (e, f.scale as f32))) {
+            match e {
+                FilterEffect::DropShadow(d) => {
+                    shadows.push(Shadow { dx: d.dx * scale, dy: d.dy * scale, blur: d.std_deviation * scale, color: d.color.components })
+                }
+                FilterEffect::GaussianBlur(g) => effect.blur(g.std_deviation * scale),
+                FilterEffect::ColorMatrix(m) => effect.matrix(m.0),
+            }
+        }
+        let cover = |r: &Rect| Px::covering([r.x0 as f32 - 1.0, r.y0 as f32 - 1.0 + dy, r.width() as f32 + 2.0, r.height() as f32 + 2.0]);
+        let bounds = match (&layer.filter, &layer.bounds) {
+            (Some(f), _) => cover(&f.bounds),
+            (None, Some(b)) => cover(b),
+            (None, None) => Px::default(),
+        };
+        (backdrop, shadows, effect, bounds)
     }
 }
