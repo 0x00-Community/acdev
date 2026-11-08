@@ -550,6 +550,9 @@ D3D12 调试层 (要装「图形工具」可选功能). 没有: terminal、应�
 编好 acdert 和网页宿主后, 在有 GPU 的机器上用 `bash scripts/check-standalone.sh` 验证独立应用启动、重载、退出和服务清理.
 脚本以无窗口模式运行, 测试包和日志写到 `logs/standalone.*`.
 
+有图形会话的 Windows 上用 `bash scripts/audit-thread-progress.sh` 复查双窗口的 JavaScript 与出帧进展. 脚本会调整并关闭自己的宿主窗口,
+在 `logs/thread-audit.*` 保存运行时日志、线程采样、截图和各步骤用时.
+
 ### 命令
 
 ```sh
