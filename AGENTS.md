@@ -97,9 +97,9 @@ npm 是 `npx --yes`, pnpm / yarn 是 `dlx`; 总是最新版; 不交互, stdin �
 
 另一种工程是手写的**包** (没有 `acde.config.*`, package.json 的 `acde` 有 `apps`): 不用构建, build 只校验, install 是符号链接.
 
-## 分发 (`install.sh`)
+## 分发 (`install.sh` / `install.ps1`)
 
-只做一件事: 全局装 acde 和 acdert, 不经 npm, 不要 root. acdert 只管运行时; 构建用开发者机器上已有的 bun 或 Node.js (≥ 22) 和他们的包管理器,
+只做一件事: 全局装 acde 和 acdert, 不经 npm, 不要 root. Unix (macOS、Linux) 用 `install.sh`, Windows 用 `install.ps1` (用户定, 2026-11-08: 不指望用户装了 Git Bash). acdert 只管运行时; 构建用开发者机器上已有的 bun 或 Node.js (≥ 22) 和他们的包管理器,
 acde 不带也不下载 bun.
 
 ```sh
@@ -108,22 +108,32 @@ curl -fsSL http://localhost:8787/install.sh | sh -s -- --version 0.0.3 --no-modi
 sh install.sh [--version X.Y.Z] [--no-modify-path]
 ```
 
+```powershell
+irm http://localhost:8787/install.ps1 | iex                      # Windows PowerShell 5.1 或 PowerShell 7.2+
+$env:ACDE_VERSION='0.0.3'; $env:ACDE_NO_MODIFY_PATH='1'; irm http://localhost:8787/install.ps1 | iex
+& .\install.ps1 [-Version X.Y.Z] [-NoModifyPath]
+```
+
 下载的地方是 `ACDE_DIST` (默认 `http://localhost:8787`: 还没有域名、R2 和 GitHub 下载, 现在只在本机托管着测; 默认值是 `install.sh`
 开头的一个变量, 换成正式域名改那一行). 托管的目录 (`scripts/dist.ts` 的 `--out` 就是它, 原样放上去):
 
 ```
 install.sh
+install.ps1
 latest                                  最新的版本号, 一行
 <版本>/SHA256SUMS                       每行 `<sha256>  <文件名>`
-<版本>/acde-<版本>-<triple>.tar.gz      triple: aarch64 / x86_64 的 -apple-darwin、-unknown-linux-gnu、-unknown-linux-musl
+<版本>/acde-<版本>-<triple>.tar.gz      triple: aarch64 / x86_64 的 -apple-darwin、-unknown-linux-gnu、-unknown-linux-musl, 和 x86_64-pc-windows-msvc
 ```
 
 tarball 里是一个目录 `acde-<版本>-<triple>/`, 就是一个版本的安装根:
 
 ```
 bin/acde            POSIX sh: 有 bun 就 `bun lib/acde/src/cli.js`, 否则 node (先查大版本 ≥ 22, 不够就报错), 都没有就报错叫装 Bun 或 Node.js
-bin/acdert          运行时
+bin/acde.cmd        (Windows, 代替 bin/acde) 同样的选法: `where bun`, 否则 node (≥ 22.3), 跑 `%~dp0..\lib\acde\src\cli.js`
+bin/acdert          运行时 (Windows 是 acdert.exe)
 bin/app/dist/       acde-host 的 bundle (broker.js、web.js; acdert 在自己旁边的 app/dist 找, acdert `web.rs` 的 app_dir)
+bin/app/packages/   带着的桌面包 (Dopame: package.json 和 dist/, 不带 .map); acde-host 在 broker.js 的上一级 `packages/` 里找自带的桌面,
+                    所以 `acde dev` 的应用开在 Dopame 里, 不是空桌面
 lib/acde/           package.json (name acde、exports)、launcher.mjs、src/cli.js、src/listen.ts、src/sockets.ts、templates/,
                     和 driver / e2e 的源码 (src/driver/、src/e2e/ 和它们用到的 src/ipc.ts、src/sessions.ts、src/configs.ts、
                     src/paths.ts、src/runtime.ts, 只在 bun 上跑; `scripts/dist.ts` 的 `CARRIED`, 加了 import 要跟着加)
@@ -143,7 +153,19 @@ lib/acde-api/       acdert 仓库的 web/packages/acde-api 原样 (不带 test/)
 没有 `$ACDE_INSTALL/bin`、也没给 `--no-modify-path` 时, 按 `$SHELL` 往一个启动文件里加一次 (已有同一行就不加): zsh 是 `${ZDOTDIR:-$HOME}/.zshrc`,
 bash 是 `~/.bashrc` (macOS 再加 `~/.bash_profile`), fish 是 `~/.config/fish/conf.d/acde.fish` (`fish_add_path -g`), 别的是 `~/.profile`;
 写的是 `# acde` 加 `export PATH="$HOME/.acde/bin:$PATH"` (在 `$HOME` 下时写成 `$HOME/…`). 最后打出装了什么、要不要开新终端、机器上有没有
-bun / Node 22+, 和下一步 `acde new my-app`. 旧版本留在 `versions/` 里 (要删手动删).
+bun / Node 22+, 和下一步 `acde new my-app`. 旧版本留在 `versions/` 里 (要删手动删). Windows 的 Git Bash / MSYS 里跑它只报错, 叫去用 install.ps1.
+
+**install.ps1** (仓库根目录): 先认宿主 (`$PSVersionTable.PSEdition`): `Desktop` 是 Windows PowerShell, 要 5.1 (开 TLS 1.2,
+`Invoke-WebRequest -UseBasicParsing`, CPU 看 `PROCESSOR_ARCHITEW6432` / `PROCESSOR_ARCHITECTURE`); `Core` 是 PowerShell 7, 要 7.2+ (不带
+`-UseBasicParsing`, CPU 是 `RuntimeInformation.OSArchitecture`; 不在 Windows 上 (`$IsWindows` 假) 时叫去用 install.sh). 只有 x64 的包. 整个安装在一个
+函数里, 出错 `throw` 不 `exit` (`irm | iex` 时 `exit` 会关掉用户的终端); 参数 `-Version` / `-NoModifyPath`, `irm | iex` 时用 `ACDE_VERSION` /
+`ACDE_NO_MODIFY_PATH`. 下载、`SHA256SUMS` 校验 (`Get-FileHash`), 用系统的 `%SystemRoot%\System32\tar.exe` 解进临时目录, 搬成
+`$ACDE_INSTALL\versions\<版本>` (默认 `%USERPROFILE%\.acde`): 已有的同版本先整体改名挪开 (`<版本>.old-<guid>`; 改名失败才说「还在运行」, 什么都不动),
+新的搬进去后删旧的 (还被占着就留着, 下次安装清掉; `Remove-Item -Recurse` 删不掉占用的文件时连 `-ErrorAction Stop` 都不停, 所以不就地删).
+`current` 是目录联接 (junction, 不要管理员), 先建 `current.next` 再换上. PATH 加的是 `$ACDE_INSTALL\current\bin` (Windows 上 `bin` 不做成
+链接: `acde.cmd` 的 `%~dp0..` 按字面算, 经过链接的 bin 会算到安装根外面): 改注册表 `HKCU\Environment` 的 `Path` (按 `DoNotExpandEnvironmentNames`
+读, 写回 `REG_EXPAND_SZ`, 原来的 `%USERPROFILE%` 之类不被展开), 再 `SetEnvironmentVariable('ACDE_INSTALL', …, 'User')` (顺带广播
+`WM_SETTINGCHANGE`), 当前会话的 `$env:Path` 也加上, 装完同一个窗口就能用 `acde`.
 
 **launcher** (`launcher.mjs`, 只用 `node:` 模块; 类型是手写的 `launcher.d.mts`): 源码一律按包名自引用 `import … from 'acde/launcher'`.
 - `bin/acde.mjs` (检出里 `bun link` / `npm link` 接上的 `acde`) → `run(args)`: Node 低于 22 报错; 用 `cliRuntime()` 跑 `cliFile()`
@@ -156,12 +178,16 @@ bun / Node 22+, 和下一步 `acde new my-app`. 旧版本留在 `versions/` 里 
   自己这个版本的 `bin/acdert`; 否则 `$ACDE_INSTALL/bin/acdert` (默认 `~/.acde`; 和上一个是同一个文件时不重复列); 否则 PATH 上的 `acdert`.
   都没有就报错, 列出找过的每个地方和怎么办 (`ACDERT=/path/to/acdert acde dev`、在旁边的检出里 `cargo build --release -p acdert`, 全局装的是
   「重新装一次 acde」、放进 PATH).
-- 给 driver 和 `acde test` 的: `cliFile()` / `cliRuntime()` / `cliEnv(exe, env)`; 给源码的: `which(name)`.
+- 给 driver 和 `acde test` 的: `cliFile()` / `cliRuntime()` / `cliEnv(exe, env)`; 给源码的: `which(name)` (Windows 上只按 `PATHEXT` 的扩展名找:
+  `C:\Program Files\nodejs\npm` 是给 Git Bash 的 sh 脚本, 要的是 `npm.cmd`). Windows 上全局装的 acdert 在 `$ACDE_INSTALL\current\bin`.
+- `.cmd` / `.bat` (`src/runtime.ts` `Runtime.spawn`): Node 不许不经 shell 起它们, 而 `shell: true` 时参数只是拼起来、不加引号 (Node 24+ 还报
+  DEP0190), 所以自己把每一段加好引号拼成一条命令行, 只把它交给 shell.
 
-**打包**: `bun scripts/dist.ts --acdert <二进制> --host <acde-host dist> [--api <acde-api 目录>] --triple <rust triple> [--version x.y.z] [--out .dist]`
-(`--api` 默认旁边检出的; Windows 的 triple 拒绝: install.sh 是 sh) 出 `<out>/<版本>/acde-<版本>-<triple>.tar.gz`, 往 `<out>/<版本>/SHA256SUMS`
-里加 (或换掉同名的) 一行, 写 `<out>/latest`, 再把 `install.sh` 拷进 `<out>`. macOS 上 tar 带 `--no-xattrs --no-mac-metadata` 和
-`COPYFILE_DISABLE=1` (不出 `._` 文件). 发版流程 (acdert 仓库的 `.github/workflows/release.yml`, 原来是发 npm) 要改成各平台跑一次 dist.ts、
+**打包**: `bun scripts/dist.ts --acdert <二进制> --host <acde-host dist> [--api <acde-api 目录>] [--desktop <桌面包目录>] --triple <rust triple> [--version x.y.z] [--out .dist]`
+(`--api` 默认旁边检出的; `--desktop` 默认旁边 acde-dopame 检出的 `packages/dopame`, 要先在那边 `bun run build`; Windows 的 triple 放 `acde.cmd`
+(行尾换成 CRLF) 和 `acdert.exe`) 出 `<out>/<版本>/acde-<版本>-<triple>.tar.gz`, 往 `<out>/<版本>/SHA256SUMS`
+里加 (或换掉同名的) 一行, 写 `<out>/latest`, 再把 `install.sh` 和 `install.ps1` 拷进 `<out>`. macOS 上 tar 带 `--no-xattrs --no-mac-metadata` 和
+`COPYFILE_DISABLE=1` (不出 `._` 文件). 发版流程 (acdert 仓库的 `.github/workflows/release.yml`; 发 npm 的那段已经删了) 要改成各平台跑一次 dist.ts、
 把 `<out>` 合起来传到托管的地方; 还没改.
 
 Linux 的 acdert 动态链接 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire (普通桌面都有; libseat 是运行时
@@ -177,7 +203,15 @@ node 20 和都没有时的报错; 装好的 launcher 找到自己旁边的 acder
 --no-modify-path` (没有启动文件被改); 装好的 `acde` (bun) 打出用法, `acde new my-app --yes --pm bun` 后 `bun install && bun run build` 出包,
 `acde dev --headless` 用装好的 acdert 起来 (`acde webs` 列出桌面和 my-app). Node 24 (PATH 里没有 bun): `bin/acde` 选了 node, 用法照打,
 `acde new --pm npm --yes` 写出的 package.json 对 (`file:` 到 `current/lib/acde-api`、`vite: ^8`), `npm install` 给 acde-api 建了符号链接;
-之后 `acde new` / `acde build` 在 Node 上停在 `Bun is not defined` (`src/app.ts` 还在用 `Bun.JSONC` / `Bun.build`, CLI 搬到 Node 的那部分还没合进来).
+之后 `acde new` / `acde build` 在 Node 上停在 `Bun is not defined` (当时 CLI 搬到 Node 的那部分还没合进来; 合进来以后 Node 上也通了, 见下面 Windows).
+
+验过 (Win11 LTSC 24H2 虚拟机, geekom-2, 2026-11-08; 虚拟机里自己的 `localhost:8787` 托管 (bun 的静态服务), acdert 在虚拟机里 v143 release 编,
+Dopame 在虚拟机里 `bun run build`, dist.ts 也在虚拟机里打): Windows PowerShell 5.1 和 PowerShell 7.4.22 (最新 LTS, MSI 装的) 都
+`irm http://localhost:8787/install.ps1 | iex` 装上 (PATH 加一次、`%USERPROFILE%` 原样、`ACDE_INSTALL`、`current` 联接), 7.4 上连装两次 (PATH 不重复);
+`acde dev` 正在跑时重装: 旧版本挪开、新的装上, 旧的下次清掉. 新开的 cmd 里 `where acde` 是 `current\bin\acde.cmd`. bun 1.4.4: `acde new pomo --yes
+--template html --pm bun --install`, 计划任务 (/IT, 进交互会话) 里 `bun run dev`, 宿主窗口里是 Dopame 桌面和 pomo 的窗口, `acde webs` / `acde screen -o
+C:\…\x.png` 从 ssh (另一个会话) 经命名管道答得上. Node 26.13 (PATH 里拿掉 bun): `acde new pomo-node --pm npm --install` (vite 进了 devDependencies),
+`npm run dev` 起在 Dopame 里, 构建走 Vite (`assets/index-<hash>.js`), 改 `index.html` 81 ms 重建、`eval` 读到新内容. 没验: pnpm / yarn、框架模板、ARM64.
 没验: Linux (glibc / musl)、macOS x64、wget、真的域名; yarn.
 
 ## 和 acdert 的契约
