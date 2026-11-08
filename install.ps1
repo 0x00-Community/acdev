@@ -101,10 +101,20 @@ function Install-Acde {
         $versions = Join-Path -Path $install -ChildPath 'versions'
         $target = Join-Path -Path $versions -ChildPath $Version
         New-Item -ItemType Directory -Path $versions -Force | Out-Null
+        Get-ChildItem -LiteralPath $versions -Directory -Filter "*.old-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        $aside = $null
         if (Test-Path -LiteralPath $target) {
-            Remove-Item -LiteralPath $target -Recurse -Force
+            $aside = "$Version.old-" + [guid]::NewGuid().ToString('N')
+            try {
+                Rename-Item -LiteralPath $target -NewName $aside
+            } catch {
+                throw "acde: could not replace $target, a program in it is still running: stop acde dev (and acdert) and run the installer again"
+            }
         }
         Move-Item -LiteralPath (Join-Path -Path $unpacked -ChildPath $name) -Destination $target
+        if ($aside) {
+            Remove-Item -LiteralPath (Join-Path -Path $versions -ChildPath $aside) -Recurse -Force -ErrorAction SilentlyContinue
+        }
 
         $current = Join-Path -Path $install -ChildPath 'current'
         $next = Join-Path -Path $install -ChildPath 'current.next'
