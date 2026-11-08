@@ -164,7 +164,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 ## acde dev
 
 IPC: unix 上 unix socket, Windows 上命名管道, 一行一个 JSON. acde 是服务端 (`ACDE_DEV` 是地址), acdert
-(hostwin 的 `acde-dev` 线程, `dev.rs`) 连上去先发 `{"type":"hello","role":"runtime","pid"}`. 连接断了 acdert 就退出. 工程的构建结果经
+(hostwin 的 `acde-dev` 线程, `dev.rs`) 连上去先发 `{"type":"hello","role":"runtime","pid"}`. 连接断了 acdert 就退出. Windows 上读之前先
+`PeekNamedPipe`, 有数据才 `ReadFile`: 同一个同步句柄上挂着的读会让写 (回答) 一直等着. 工程的构建结果经
 `ACDE_PATH` (Windows 用 `;` 分隔) 交给 acdert, 不装进包目录; 日志就是 acdert 的 stderr.
 
 收到的消息:
