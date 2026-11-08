@@ -6,7 +6,12 @@ import { cleanup, tmp } from './helpers.ts'
 
 afterAll(cleanup)
 
-const EXE = process.platform === 'win32' ? '.exe' : ''
+const WINDOWS = process.platform === 'win32'
+const EXE = WINDOWS ? '.exe' : ''
+
+function globalRuntime(home: string): string {
+  return join(home, WINDOWS ? join('current', 'bin') : 'bin', `acdert${EXE}`)
+}
 
 function binary(path: string): string {
   mkdirSync(join(path, '..'), { recursive: true })
@@ -45,7 +50,12 @@ function install(): { home: string; version: string; root: string } {
 }
 
 describe('launcher: where acdert comes from', () => {
-  const saved = { ACDERT: process.env['ACDERT'], PATH: process.env['PATH'], ACDE_INSTALL: process.env['ACDE_INSTALL'] }
+  const saved = {
+    ACDERT: process.env['ACDERT'],
+    PATH: process.env['PATH'],
+    PATHEXT: process.env['PATHEXT'],
+    ACDE_INSTALL: process.env['ACDE_INSTALL'],
+  }
   let path: string
   let home: string
 
@@ -54,6 +64,7 @@ describe('launcher: where acdert comes from', () => {
     path = tmp()
     home = tmp()
     process.env['PATH'] = path
+    if (WINDOWS) process.env['PATHEXT'] = '.EXE'
     process.env['ACDE_INSTALL'] = home
   })
 
@@ -77,9 +88,9 @@ describe('launcher: where acdert comes from', () => {
 
   test('the sibling checkout, then the global install, then PATH', () => {
     const root = checkout()
-    const onPath = binary(join(path, `acdert${EXE}`))
+    const onPath = binary(join(path, WINDOWS ? 'acdert.EXE' : 'acdert'))
     expect(requireAcdert(root)).toBe(onPath)
-    const global = binary(join(home, 'bin', `acdert${EXE}`))
+    const global = binary(globalRuntime(home))
     expect(requireAcdert(root)).toBe(global)
     const [release] = acdertCheckouts(root) as [string]
     binary(release)
@@ -91,7 +102,7 @@ describe('launcher: where acdert comes from', () => {
     const [release, debug] = acdertCheckouts(root) as [string, string]
     const error = failure(root)
     expect(error).toStartWith('no acdert found. Looked in:\n  ACDERT (not set)\n')
-    for (const place of [release, debug, join(home, 'bin', `acdert${EXE}`), 'PATH']) expect(error).toContain(place)
+    for (const place of [release, debug, globalRuntime(home), 'PATH']) expect(error).toContain(place)
     expect(error).toContain('ACDERT=/path/to/acdert acde dev')
     expect(error).toContain('cargo build --release -p acdert')
   })
@@ -104,7 +115,7 @@ describe('launcher: where acdert comes from', () => {
     expect(error).toContain(join(at.version, 'lib', 'acde', '..', '..', 'bin', `acdert${EXE}`))
     expect(error).not.toContain('target')
     expect(error).toContain('install acde again')
-    const global = binary(join(home, 'bin', `acdert${EXE}`))
+    const global = binary(globalRuntime(home))
     expect(requireAcdert(at.root)).toBe(global)
     const own = binary(join(at.version, 'bin', `acdert${EXE}`))
     expect(requireAcdert(at.root)).toBe(join(at.root, '..', '..', 'bin', `acdert${EXE}`))
@@ -114,11 +125,14 @@ describe('launcher: where acdert comes from', () => {
   test('an installed acde reached through current/ lists its acdert once', () => {
     const at = install()
     process.env['ACDE_INSTALL'] = at.home
-    symlinkSync('versions/0.0.3', join(at.home, 'current'))
-    symlinkSync('current/bin', join(at.home, 'bin'))
     mkdirSync(join(at.version, 'bin'))
+    if (WINDOWS) symlinkSync(at.version, join(at.home, 'current'), 'junction')
+    else {
+      symlinkSync('versions/0.0.3', join(at.home, 'current'))
+      symlinkSync('current/bin', join(at.home, 'bin'))
+    }
     const error = failure(at.root)
-    expect(error!.match(/bin\/acdert/g)).toHaveLength(1)
+    expect(error!.split('\n').filter((line) => line.includes(join('bin', `acdert${EXE}`)))).toHaveLength(1)
   })
 
   test('ACDERT wins; one that does not exist is an error, not a silent fallback', () => {
