@@ -1,14 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { delimiter, join, relative, sep } from 'node:path'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
 import { PackageManager } from '../src/pm.ts'
+import { Runtime } from '../src/runtime.ts'
 import { cleanup, env, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 const APP = join(import.meta.dir, 'fixtures/app')
+const WINDOWS = process.platform === 'win32'
 
 async function cli(args: string[], cwd: string, extra: Record<string, string> = {}) {
   const child = Bun.spawn([process.execPath, CLI, ...args], { cwd, env: env(extra), stdout: 'pipe', stderr: 'pipe' })
@@ -219,7 +221,8 @@ describe('acde.config.jsonc', () => {
   test('new . in a fresh git checkout (only .git there)', async () => {
     const dir = tmp()
     mkdirSync(join(dir, '.git'))
-    expect((await cli(['new', '.', '--id', 'pomodoro'], dir)).code).toBe(0)
+    const created = await cli(['new', '.', '--id', 'pomodoro'], dir)
+    expect(created.code, created.stderr).toBe(0)
     writeFileSync(join(dir, 'stray'), '')
     expect((await cli(['new', '.', '--id', 'again'], dir)).stderr).toContain('is not empty')
   })
@@ -270,25 +273,42 @@ describe('a project made by acde from its checkout', () => {
 
   function tools(names: readonly string[]): string {
     const bin = tmp()
+    const entry = join(ROOT, 'bin/acde.mjs')
+    if (WINDOWS) {
+      writeFileSync(join(bin, 'acde.cmd'), `@echo off\r\n"${process.execPath}" "${entry}" %*\r\n`)
+      return bin
+    }
     for (const name of names) {
       const found = name === 'bun' ? process.execPath : which(name)
       if (!found) throw new Error(`${name} is not on PATH`)
       symlinkSync(realpathSync(found), join(bin, name))
     }
-    writeFileSync(join(bin, 'acde'), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(ROOT, 'bin/acde.mjs'))} "$@"\n`, { mode: 0o755 })
+    writeFileSync(
+      join(bin, 'acde'),
+      `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(entry)} "$@"\n`,
+      { mode: 0o755 },
+    )
     return bin
   }
 
   async function run(argv: string[], cwd: string, path: string, extra: Record<string, string> = {}) {
-    const child = Bun.spawn(argv, { cwd, env: env({ PATH: `${path}:/usr/bin:/bin`, npm_config_user_agent: '', ...extra }), stdout: 'pipe', stderr: 'pipe' })
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
-    return { code, out: stdout + stderr }
+    const basePath = WINDOWS && argv[0] !== process.execPath ? process.env['PATH'] : WINDOWS
+      ? join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32')
+      : '/usr/bin:/bin'
+    const child = Runtime.spawn([which(argv[0]!) ?? argv[0]!, ...argv.slice(1)], {
+      cwd, env: env({ PATH: [path, basePath].join(delimiter), npm_config_user_agent: '', ...extra }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    child.process.stdout!.on('data', (chunk) => { out += chunk.toString() })
+    child.process.stderr!.on('data', (chunk) => { out += chunk.toString() })
+    return { code: await child.exited, out }
   }
 
   test('the SDK is a relative file: path, scripts call acde from PATH, there is no acde dependency', () => {
-    const dir = realpathSync(tmp())
+    const dir = ROOT
     expect(Creator.INSTALLED).toBe(false)
-    expect(Creator.api(dir)).toBe(`file:${relative(dir, API)}`)
+    expect(Creator.api(dir)).toBe(`file:${relative(dir, API).split(sep).join('/')}`)
     expect(relative(dir, API)).toStartWith('..')
   })
 
@@ -316,7 +336,9 @@ describe('a project made by acde from its checkout', () => {
       process.env['ACDE_HOST_RUNTIME'] = 'node'
       expect(PackageManager.invoking().name).toBe('npm')
       expect(() => PackageManager.named('deno')).toThrow('one of bun, npm, pnpm, yarn')
-      expect(PackageManager.named('pnpm').exec('create-vite@latest', ['x'])).toEqual([expect.stringMatching(/pnpm$/), 'dlx', 'create-vite@latest', 'x'])
+      expect(PackageManager.named('pnpm').exec('create-vite@latest', ['x'])).toEqual([
+        expect.stringMatching(/(?:^|[/\\])pnpm(?:\.(?:exe|cmd|bat))?$/i), 'dlx', 'create-vite@latest', 'x',
+      ])
       expect(PackageManager.named('bun').exec('sv@latest', ['create'])).toEqual([process.execPath, 'x', '--bun', 'sv@latest', 'create'])
     } finally {
       for (const [key, value] of [['npm_config_user_agent', saved.agent], ['ACDE_HOST_RUNTIME', saved.runtime]] as const) {
@@ -374,14 +396,14 @@ describe('public/ and icons', () => {
     })
     const result = await cli(['build', '--out', join(dir, '.acde')], dir)
     expect(result.code).toBe(1)
-    expect(result.stderr).toContain('/fonts/gone.woff2 in style.css: there is no public/fonts/gone.woff2')
+    expect(result.stderr).toContain(`/fonts/gone.woff2 in style.css: there is no ${join('public/fonts/gone.woff2')}`)
   })
 
   test('an HTML reference to /x that is nowhere names public/ too', async () => {
     const dir = project({ 'package.json': '{"name": "lost-icon"}', 'index.html': '<!doctype html><link rel="icon" href="/gone.svg"><p>x</p>' })
     const result = await cli(['build', '--out', join(dir, '.acde')], dir)
     expect(result.code).toBe(1)
-    expect(result.stderr).toContain('/gone.svg in index.html: there is no public/gone.svg')
+    expect(result.stderr).toContain(`/gone.svg in index.html: there is no ${join('public/gone.svg')}`)
   })
 
   test('a desktop page and its apps: CSS url(/...) into public/ is bundled (no / mount there)', async () => {
