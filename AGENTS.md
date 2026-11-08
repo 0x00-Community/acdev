@@ -159,7 +159,7 @@ tarball 里一个目录就是一个版本的安装根:
 
 ```
 bin/acde            scripts/acde.sh: 有 bun 用 bun 跑 lib/acde/src/cli.js, 否则 node (≥ 22.3)
-bin/acde.cmd        Windows 代替 bin/acde: scripts/acde.cmd (CRLF), 同样的选法, node 要 ≥ 22.3
+bin/acde.cmd        Windows 代替 bin/acde: scripts/acde.cmd (CRLF), 同样的选法, node 要 ≥ 22.3; 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acde 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
 bin/acdert[.exe]
 bin/app/dist/       acde-host 的 bundle (broker.js、web.js; acdert 找 <自己>/app/dist)
 bin/app/packages/   Dopame 桌面包 (不带 .map); acde-host 在 broker.js 上一级的 packages/ 找自带的桌面
