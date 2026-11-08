@@ -23,8 +23,7 @@
     "test",
     "scripts",
     "launcher.mjs",
-    "bin",
-    "packages"
+    "bin"
   ],
   "exclude": [
     "test/fixtures"
