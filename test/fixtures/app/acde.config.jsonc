@@ -1,0 +1,8 @@
+{
+  "type": "app",
+  "label": "Hello",
+  "icon": "src/logo.svg",
+  "capabilities": {
+    "fs": true
+  }
+}

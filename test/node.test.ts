@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, 
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Subprocess } from 'bun'
+import { which } from '../launcher.mjs'
 import { BunBundler } from '../src/bundler.ts'
 import { Runtime } from '../src/runtime.ts'
 import { cleanup, env, inetSockets, line, tmp } from './helpers.ts'
@@ -10,7 +11,7 @@ import { cleanup, env, inetSockets, line, tmp } from './helpers.ts'
 const FIXTURE = join(import.meta.dir, 'fixtures/fetch-backend')
 
 function realNode(): string | null {
-  const candidates = [process.env['ACDE_TEST_NODE'], Runtime.which('node')].filter((c): c is string => !!c)
+  const candidates = [process.env['ACDE_TEST_NODE'], which('node')].filter((c): c is string => !!c)
   for (const node of candidates) {
     const probe = Bun.spawnSync([node, '-p', 'process.versions.bun ? "bun" : process.versions.node'])
     const version = probe.stdout.toString().trim()

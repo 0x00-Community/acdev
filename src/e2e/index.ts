@@ -130,7 +130,5 @@ export function expect(target: Locator): LocatorAssertions
 export function expect(target: AppWindow): WindowAssertions
 export function expect<T>(value: T): Matchers<T>
 export function expect(target: unknown): unknown {
-  if (target instanceof Locator) return expectUi(target)
-  if (target instanceof AppWindow) return expectUi(target)
-  return bunExpect(target)
+  return target instanceof Locator || target instanceof AppWindow ? expectUi(target) : bunExpect(target)
 }

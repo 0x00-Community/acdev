@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { CONFIGS } from '../configs.ts'
+import { slug, up } from '../paths.ts'
 
 export interface E2eSettings {
   readonly dirs: readonly string[]
@@ -47,13 +48,10 @@ export class E2e {
   }
 
   static project(from: string): string | null {
-    for (let dir = resolve(from); ; dir = dirname(dir)) {
-      if (existsSync(dir) && statSync(dir).isDirectory() && CONFIGS.some((name) => existsSync(join(dir, name)))) return dir
-      if (dirname(dir) === dir) return null
-    }
+    return up(resolve(from), (dir) => existsSync(dir) && statSync(dir).isDirectory() && CONFIGS.some((name) => existsSync(join(dir, name))) && dir)
   }
 
   static slug(text: string): string {
-    return text.replace(/[<>:"/\\|?*\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'test'
+    return slug(text).slice(0, 80) || 'test'
   }
 }

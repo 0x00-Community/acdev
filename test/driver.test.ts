@@ -71,7 +71,6 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     const s = standIn()
     const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })
     try {
-      check(acde.launched).toBe(true)
       check(acde.session.apps).toEqual(['alpha'])
       check((await acde.webs()).map((w) => w.name)).toEqual(['desktop', 'alpha#7'])
 

@@ -1,5 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
-import { delimiter, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { which } from 'acde/launcher'
+import { up } from './paths.ts'
 
 export type PmName = 'bun' | 'npm' | 'pnpm' | 'yarn'
 
@@ -33,16 +35,15 @@ export class PackageManager {
   }
 
   static of(dir: string): PackageManager {
-    for (let at = dir; ; at = dirname(at)) {
-      for (const [file, name] of PackageManager.LOCKS) if (existsSync(join(at, file))) return new PackageManager(name)
+    const name = up(dir, (at): PmName | null => {
+      for (const [file, name] of PackageManager.LOCKS) if (existsSync(join(at, file))) return name
       const pkg = join(at, 'package.json')
-      if (existsSync(pkg)) {
-        const field = (JSON.parse(readFileSync(pkg, 'utf8')) as { packageManager?: unknown }).packageManager
-        const name = typeof field === 'string' ? field.split('@', 1)[0]! : ''
-        if ((PackageManager.NAMES as readonly string[]).includes(name)) return new PackageManager(name as PmName)
-      }
-      if (dirname(at) === at) return PackageManager.invoking()
-    }
+      if (!existsSync(pkg)) return null
+      const field = (JSON.parse(readFileSync(pkg, 'utf8')) as { packageManager?: unknown }).packageManager
+      const named = typeof field === 'string' ? field.split('@', 1)[0]! : ''
+      return (PackageManager.NAMES as readonly string[]).includes(named) ? (named as PmName) : null
+    })
+    return name ? new PackageManager(name) : PackageManager.invoking()
   }
 
   get install(): string[] {
@@ -56,35 +57,20 @@ export class PackageManager {
 
   exec(pkg: string, args: readonly string[]): string[] {
     if (this.name === 'bun') return [this.#bin(), 'x', '--bun', pkg, ...args]
-    if (this.name === 'npm') return [PackageManager.which('npx') ?? 'npx', '--yes', pkg, ...args]
+    if (this.name === 'npm') return [which('npx') ?? 'npx', '--yes', pkg, ...args]
     return [this.#bin(), 'dlx', pkg, ...args]
   }
 
   #bin(): string {
     if (this.name === 'bun' && process.versions['bun']) return process.execPath
-    const found = PackageManager.which(this.name)
+    const found = which(this.name)
     if (!found) throw new Error(`${this.name} is not on PATH`)
     return found
   }
 
-  static which(name: string): string | null {
-    const windows = process.platform === 'win32'
-    for (const dir of (process.env['PATH'] ?? '').split(delimiter)) {
-      if (!dir) continue
-      for (const ext of windows ? ['.exe', '.cmd', ''] : ['']) {
-        const file = join(dir, name + ext)
-        if (existsSync(file)) return file
-      }
-    }
-    return null
-  }
-
   static manifest(dir: string, dep: string): string | null {
-    for (let at = dir; ; at = dirname(at)) {
-      const file = join(at, 'node_modules', dep, 'package.json')
-      if (existsSync(file)) return realpathSync(file)
-      if (dirname(at) === at) return null
-    }
+    const file = up(dir, (at) => existsSync(join(at, 'node_modules', dep, 'package.json')) && join(at, 'node_modules', dep, 'package.json'))
+    return file && realpathSync(file)
   }
 
   static bin(dir: string, name: string, deps: ReadonlySet<string>): string | null {
@@ -95,10 +81,10 @@ export class PackageManager {
       const rel = typeof bin === 'string' ? (dep.split('/').pop() === name ? bin : null) : bin && typeof bin === 'object' ? (bin as Record<string, unknown>)[name] : null
       if (typeof rel === 'string') return join(dirname(manifest), rel)
     }
-    for (let at = dir; ; at = dirname(at)) {
+    const link = up(dir, (at) => {
       const link = join(at, 'node_modules', '.bin', name)
-      if (existsSync(link) && lstatSync(link).isSymbolicLink()) return realpathSync(link)
-      if (dirname(at) === at) return null
-    }
+      return existsSync(link) && lstatSync(link).isSymbolicLink() && link
+    })
+    return link && realpathSync(link)
   }
 }

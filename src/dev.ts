@@ -1,12 +1,12 @@
 import { existsSync, statSync, watch, type FSWatcher } from 'node:fs'
-import { delimiter, isAbsolute, relative, resolve, sep } from 'node:path'
-import { DevServer, type Message } from './ipc.ts'
+import { delimiter, resolve } from 'node:path'
+import { DevServer } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
+import { contains, SKIPPED } from './paths.ts'
 import { Runtime } from './runtime.ts'
 import { Sessions } from './sessions.ts'
 
-const IGNORED = new Set(['.acde', 'node_modules', '.git', 'dist', 'build', 'out', '.next', '.output', '.nuxt', '.svelte-kit', '.astro', '.turbo', '.cache'])
 const SETTLE_MS = 150
 
 export interface Target {
@@ -162,19 +162,14 @@ export class DevSession {
   #changed(unit: Unit, file: string | null): void {
     if (file === null) return
     const path = resolve(unit.pkg.dir, file)
-    if (IGNORED.has(file.split(/[\\/]/)[0] ?? '')) return
-    if (DevSession.#inside(unit.out, path)) return
-    if (this.#units.some((other) => other !== unit && DevSession.#inside(unit.pkg.dir, other.pkg.dir) && DevSession.#inside(other.pkg.dir, path))) return
+    if (SKIPPED.has(file.split(/[\\/]/)[0] ?? '')) return
+    if (contains(unit.out, path)) return
+    if (this.#units.some((other) => other !== unit && contains(unit.pkg.dir, other.pkg.dir) && contains(other.pkg.dir, path))) return
     clearTimeout(unit.timer)
     unit.timer = setTimeout(() => {
       this.#dirty.add(unit)
       void this.#drain()
     }, SETTLE_MS)
-  }
-
-  static #inside(dir: string, path: string): boolean {
-    const rel = relative(dir, path)
-    return rel === '' || (!isAbsolute(rel) && rel.split(sep)[0] !== '..')
   }
 
   async #drain(): Promise<void> {
@@ -201,15 +196,11 @@ export class DevSession {
       const built = await unit.pkg.build(unit.out)
       unit.built = built
       console.log(`acde: ${who}rebuilt (${Math.round(performance.now() - started)} ms), reloading`)
-      for (const app of built.apps) this.send({ type: 'reload', app })
-      if (this.#shown !== null && built.desktops.includes(this.#shown)) this.send({ type: 'reload' })
+      for (const app of built.apps) this.#server.send({ type: 'reload', app })
+      if (this.#shown !== null && built.desktops.includes(this.#shown)) this.#server.send({ type: 'reload' })
       this.#publish()
     } catch (error) {
       console.error(`acde: ${who}build failed: ${error instanceof Error ? error.message : String(error)}`)
     }
-  }
-
-  send(message: Message): void {
-    this.#server.send(message)
   }
 }

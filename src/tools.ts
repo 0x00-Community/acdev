@@ -1,8 +1,9 @@
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction } from '@dopame/acde-api'
-import { Acde, type ActResult, type ConsoleLevel, type DevPage } from './driver/acde.ts'
+import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
+import { slug } from './paths.ts'
 import { Runtime } from './runtime.ts'
 
 export class Tools {
@@ -22,13 +23,17 @@ export class Tools {
           console.log(JSON.stringify((await acde.evaluate(args[0]!, args[1] === '-' ? await Runtime.readStdin() : args[1]!)) ?? null, null, 2))
           return 0
         case 'shot':
-          console.log((await acde.screenshot(args[0]!, { path: resolve(flags.get('output') ?? Tools.fileFor(args[0]!)) })).path)
+          console.log((await acde.screenshot(args[0]!, { path: resolve(flags.get('output') ?? `${slug(args[0]!)}.png`) })).path)
           return 0
         case 'inspect':
           console.log((await acde.snapshot({ ...(flags.has('window') && { window: flags.get('window')! }), ...(flags.has('find') && { find: flags.get('find')! }), ...(flags.has('all') && { all: true }), ...(flags.has('offscreen') && { offscreen: true }) })).text)
           return 0
-        case 'act':
-          return Tools.#acted(await acde.act(args[0]!, args[1]! as InspectAction, args[2]))
+        case 'act': {
+          if (!ACTIONS.includes(args[1] as InspectAction)) throw new Error(`act: ${args[1]} is not an action (${ACTIONS.join(', ')})`)
+          const result = await acde.act(args[0]!, args[1] as InspectAction, args[2])
+          console.log(result.text)
+          return result.ok ? 0 : 1
+        }
         case 'console': {
           const level = flags.get('level')
           if (level !== undefined && !Tools.LEVELS.has(level)) throw new Error(`--level ${level}: one of ${[...Tools.LEVELS].join(', ')}`)
@@ -62,10 +67,6 @@ export class Tools {
     }
   }
 
-  static fileFor(web: string): string {
-    return `${web.replace(/[<>:"/\\|?*\s]+/g, '-')}.png`
-  }
-
   static pid(value: string): number
   static pid(value: string | undefined): number | undefined
   static pid(value: string | undefined): number | undefined {
@@ -73,10 +74,5 @@ export class Tools {
     const pid = Number(value)
     if (!Number.isInteger(pid) || pid <= 0) throw new Error(`--session ${value}: the process id of an acde dev`)
     return pid
-  }
-
-  static #acted(result: ActResult): number {
-    console.log(result.text)
-    return result.ok ? 0 : 1
   }
 }

@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, type Stats } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
+import { contains } from './paths.ts'
 
 export interface Session {
   readonly pid: number
@@ -83,18 +84,13 @@ export class Sessions {
     }
     if (sessions.length === 0) throw new Error(`no acde dev is running (start one with acde dev; sessions are listed in ${Sessions.dir()})`)
     const here = Sessions.#real(cwd)
-    const depth = (session: Session) => Math.max(-1, ...session.dirs.filter((dir) => Sessions.contains(dir, here)).map((dir) => dir.length))
+    const depth = (session: Session) => Math.max(-1, ...session.dirs.filter((dir) => contains(dir, here)).map((dir) => dir.length))
     const deepest = Math.max(...sessions.map(depth))
     const matching = deepest < 0 ? [] : sessions.filter((s) => depth(s) === deepest)
     if (matching.length === 1) return matching[0]!
     if (matching.length === 0 && sessions.length === 1) return sessions[0]!
     const why = matching.length > 1 ? `several acde dev sessions run ${here}` : `no acde dev runs ${here}, and there are several`
     throw new Error(`${why}; pick one with --session <pid>${Sessions.#listing(matching.length > 1 ? matching : sessions)}`)
-  }
-
-  static contains(dir: string, path: string): boolean {
-    const rel = relative(dir, path)
-    return rel === '' || (!isAbsolute(rel) && rel.split(sep)[0] !== '..')
   }
 
   static describe(session: Session): string {

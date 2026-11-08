@@ -1,9 +1,13 @@
 import * as p from '@clack/prompts'
-import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
-import { basename, relative, resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { installDir, installed, which } from 'acde/launcher'
+import { Project } from './app.ts'
 import { AppPackage } from './package.ts'
-import { PackageManager } from './pm.ts'
+import { up } from './paths.ts'
+import { PackageManager, type PmName } from './pm.ts'
+import { Runtime } from './runtime.ts'
 
 export type Kind = 'app' | 'desktop'
 
@@ -76,7 +80,10 @@ export const STARTERS: readonly Starter[] = [
 ]
 
 export class Creator {
-  static readonly ID = /^[a-z0-9][a-z0-9-]*$/
+  static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
+  static readonly TEMPLATES = join(Creator.ROOT, 'templates')
+  static readonly INSTALLED = installed(Creator.ROOT)
+  static readonly VITE = '^8'
 
   static starter(name: string): Starter {
     const found = STARTERS.find((s) => s.name === name)
@@ -85,17 +92,14 @@ export class Creator {
   }
 
   static idOf(dir: string): string {
-    return basename(resolve(dir))
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, '-')
-      .replace(/^-+|-+$/g, '')
+    return Project.idOf(basename(resolve(dir))) ?? ''
   }
 
   static vacant(dir: string): string | undefined {
     if (!dir.trim()) return 'a directory, please'
     if (existsSync(dir) && readdirSync(dir).some((name) => name !== '.git')) return `${dir} is not empty`
     const id = Creator.idOf(dir)
-    if (!Creator.ID.test(id)) return `${JSON.stringify(id)} is no id: lowercase letters, digits and -`
+    if (!Project.ID.test(id)) return `${JSON.stringify(id)} is no id: lowercase letters, digits and -`
     return undefined
   }
 
@@ -135,7 +139,7 @@ export class Creator {
       const backend = given.backend ?? (starter.name === 'html' ? await answer(p.confirm({ message: 'Add a backend (server.ts, any Bun / Node server)?', initialValue: false })) : false)
       const pm = given.pm ? PackageManager.named(given.pm) : PackageManager.invoking()
       const install = given.install ?? (await answer(p.confirm({ message: `Install dependencies (${pm.name} install)?`, initialValue: true })))
-      const git = given.git ?? (PackageManager.which('git') && !Creator.#inRepo(dir) ? await answer(p.confirm({ message: 'Start a git repository?', initialValue: true })) : false)
+      const git = given.git ?? (which('git') && !Creator.#inRepo(dir) ? await answer(p.confirm({ message: 'Start a git repository?', initialValue: true })) : false)
       return { ...given, dir, template, label, backend, install, git, pm: pm.name }
     } catch (error) {
       if (!(error instanceof Cancelled)) throw error
@@ -151,17 +155,17 @@ export class Creator {
     const label = options.label || id
     const problem = Creator.vacant(dir)
     if (problem) throw new Error(problem)
-    if (!Creator.ID.test(id)) throw new Error(`id ${JSON.stringify(id)}: lowercase letters, digits and -`)
+    if (!Project.ID.test(id)) throw new Error(`id ${JSON.stringify(id)}: lowercase letters, digits and -`)
     const pm = options.pm ? PackageManager.named(options.pm) : PackageManager.invoking()
     const step = Creator.#steps(chatty)
-    let pkg: AppPackage
     if (starter.scaffold) {
       await step(`${starter.label}: its own scaffolding`, [starter.scaffold(dir, pm)], undefined, { CI: '1' })
-      pkg = AppPackage.adopt(dir, id, label, starter.label)
+      Creator.adopt(dir, id, label, starter.label)
     } else {
-      pkg = AppPackage.create(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
+      Creator.lay(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
     }
-    AppPackage.prepare(dir, pm)
+    if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml'))) writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+    const pkg = new AppPackage(dir)
     if (options.install) await step(`${pm.name} install`, [pm.install], dir)
     if (options.git && !Creator.#inRepo(dir)) {
       await step('git init', [['git', 'init', '--quiet'], ['git', 'add', '--all']], dir)
@@ -177,25 +181,76 @@ export class Creator {
     return [...(rel ? [`cd ${/\s/.test(rel) ? JSON.stringify(rel) : rel}`] : []), ...(created.installed ? [] : [`${pm.name} install`]), pm.run(created.starter.scaffold ? 'acde:dev' : 'dev').join(' ')]
   }
 
-  static #inRepo(dir: string): boolean {
-    let at = resolve(dir)
-    for (;;) {
-      if (existsSync(resolve(at, '.git'))) return true
-      const up = resolve(at, '..')
-      if (up === at) return false
-      at = up
+  static lay(dir: string, kind: Kind, pm: PmName, id: string, label: string, layers: readonly string[] = []): void {
+    for (const layer of [kind, ...layers]) Creator.#copy(join(Creator.TEMPLATES, layer), dir, { id, label })
+    Creator.#wire(dir, { dev: 'dev', build: 'build', check: 'check' }, pm === 'bun' ? {} : { vite: Creator.VITE })
+  }
+
+  static adopt(dir: string, id: string, label: string, framework: string): void {
+    if (!existsSync(join(dir, 'package.json'))) throw new Error(`${framework} made no package.json in ${dir}`)
+    Creator.#copy(join(Creator.TEMPLATES, 'framework'), dir, { id, label, framework })
+    Creator.#wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' })
+    const ignore = join(dir, '.gitignore')
+    const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
+    if (!/^\/?\.acde\/?$/m.test(ignored)) writeFileSync(ignore, `${ignored}${ignored && !ignored.endsWith('\n') ? '\n' : ''}.acde/\n`)
+  }
+
+  static api(dir: string): string {
+    const set = process.env['ACDE_API']
+    if (set) return set
+    const api = Creator.#apiDir()
+    if (Creator.INSTALLED) return `file:${api.split(sep).join('/')}`
+    const rel = relative(realpathSync(dir), api)
+    return `file:${(isAbsolute(rel) || rel.startsWith('.') ? rel : `./${rel}`).split(sep).join('/')}`
+  }
+
+  static #apiDir(): string {
+    const lib = dirname(Creator.ROOT)
+    if (Creator.INSTALLED) {
+      const current = join(installDir(), 'current', 'lib')
+      return existsSync(current) && realpathSync(current) === lib ? join(current, 'acde-api') : join(lib, 'acde-api')
+    }
+    const self = JSON.parse(readFileSync(join(Creator.ROOT, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+    const spec = self.dependencies['@dopame/acde-api'] ?? ''
+    if (!spec.startsWith('file:')) throw new Error(`acde's package.json: @dopame/acde-api is not a file: dependency (${spec})`)
+    return realpathSync(resolve(Creator.ROOT, spec.slice('file:'.length)))
+  }
+
+  static #wire(dir: string, scripts: Readonly<Record<string, string>>, extra: Readonly<Record<string, string>> = {}): void {
+    const file = join(dir, 'package.json')
+    const json = JSON.parse(readFileSync(file, 'utf8')) as { scripts?: Record<string, string>; devDependencies?: Record<string, string> }
+    json.scripts = { ...json.scripts, ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `acde ${command}`])) }
+    json.devDependencies = { ...json.devDependencies, '@dopame/acde-api': Creator.api(dir), ...extra }
+    writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
+  }
+
+  static #copy(from: string, to: string, vars: Readonly<Record<string, string>>): void {
+    for (const name of readdirSync(from)) {
+      const source = join(from, name)
+      if (statSync(source).isDirectory()) {
+        Creator.#copy(source, join(to, name), vars)
+        continue
+      }
+      const file = join(to, name === 'gitignore' ? '.gitignore' : name)
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, readFileSync(source, 'utf8').replace(/\{\{(\w+)\}\}/g, (all, key: string) => vars[key] ?? all))
     }
   }
 
-  static #run(argv: readonly string[], cwd: string | undefined, env: NodeJS.ProcessEnv): Promise<{ code: number; output: string }> {
-    return new Promise((done) => {
-      const chunks: Buffer[] = []
-      const child = spawn(argv[0]!, argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
-      child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
-      child.stderr.on('data', (chunk: Buffer) => chunks.push(chunk))
-      child.on('error', (error) => done({ code: 127, output: `${Buffer.concat(chunks).toString()}${error.message}` }))
-      child.on('close', (code, signal) => done({ code: code ?? (signal ? 128 : 1), output: Buffer.concat(chunks).toString() }))
-    })
+  static #inRepo(dir: string): boolean {
+    return up(resolve(dir), (at) => existsSync(join(at, '.git'))) !== null
+  }
+
+  static async #run(argv: readonly string[], cwd: string | undefined, env: NodeJS.ProcessEnv): Promise<{ code: number; output: string }> {
+    const chunks: Buffer[] = []
+    try {
+      const child = Runtime.spawn(argv, { ...(cwd !== undefined && { cwd }), env, stdio: ['ignore', 'pipe', 'pipe'] })
+      child.process.stdout!.on('data', (chunk: Buffer) => chunks.push(chunk))
+      child.process.stderr!.on('data', (chunk: Buffer) => chunks.push(chunk))
+      return { code: await child.exited, output: Buffer.concat(chunks).toString() }
+    } catch (error) {
+      return { code: 127, output: `${Buffer.concat(chunks).toString()}${(error as Error).message}` }
+    }
   }
 
   static #steps(chatty: boolean) {

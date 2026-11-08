@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PackageManager } from '../src/pm.ts'
+import { which } from '../launcher.mjs'
 import { cleanup, env, tmp } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
 const TRIPLE = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-${process.platform === 'darwin' ? 'apple-darwin' : 'unknown-linux-gnu'}`
-const FETCHER = PackageManager.which('curl') ?? PackageManager.which('wget')
+const FETCHER = which('curl') ?? which('wget')
 
 async function run(argv: string[], extra: Record<string, string>, cwd = ROOT) {
   const child = Bun.spawn(argv, { cwd, env: env(extra), stdout: 'pipe', stderr: 'pipe' })
@@ -67,7 +67,12 @@ describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh',
     const sum = createHash('sha256').update(readFileSync(tarball)).digest('hex')
     expect(readFileSync(join(out, '0.0.2', 'SHA256SUMS'), 'utf8')).toBe(`${sum}  ${name}.tar.gz\n`)
     expect(readFileSync(join(out, 'latest'), 'utf8')).toBe('0.0.2\n')
-    await expect(run([process.execPath, 'scripts/dist.ts', '--acdert', join(inputs, 'acdert'), '--host', join(inputs, 'host'), '--triple', 'x86_64-pc-windows-msvc', '--out', out], {})).resolves.toMatchObject({ code: 1 })
+    const windows = await run([process.execPath, 'scripts/dist.ts', '--acdert', join(inputs, 'acdert'), '--host', join(inputs, 'host'), '--triple', 'x86_64-pc-windows-msvc', '--version', '0.0.2', '--out', out], {})
+    expect(windows.code, windows.out).toBe(0)
+    const win = `acde-0.0.2-x86_64-pc-windows-msvc`
+    const winListed = (await run(['tar', '-tzf', join(out, '0.0.2', `${win}.tar.gz`)], {})).stdout.split('\n')
+    for (const path of ['bin/acde.cmd', 'bin/acdert.exe', 'lib/acde/src/cli.js']) expect(winListed).toContain(`${win}/${path}`)
+    expect(readFileSync(join(out, 'latest'), 'utf8')).toBe('0.0.2\n')
   })
 
   test('install.sh: latest into ~/.acde, current and bin links, PATH in .zshrc once', async () => {

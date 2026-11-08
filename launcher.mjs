@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { constants, homedir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,12 +21,15 @@ export function installed(root = ROOT) {
   return basename(dirname(root)) === 'lib' && existsSync(join(root, '..', 'acde-api', 'package.json'))
 }
 
-function which(name) {
-  for (const dir of (process.env.PATH || '').split(delimiter)) {
+export function which(name, env = process.env) {
+  const exts = WINDOWS ? ['', ...(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : ['']
+  for (const dir of (env.PATH || env.Path || '').split(delimiter)) {
     if (!dir) continue
-    for (const ext of WINDOWS ? ['.exe', '.cmd', ''] : ['']) {
+    for (const ext of exts) {
       const file = join(dir, name + ext)
-      if (existsSync(file)) return file
+      try {
+        if (statSync(file).isFile()) return file
+      } catch {}
     }
   }
   return null
@@ -52,12 +55,7 @@ function places(root) {
   }
 }
 
-function locateAcdert(root) {
-  const { checkouts, installs } = places(root)
-  return [...checkouts, ...installs].find((path) => existsSync(path)) ?? which('acdert')
-}
-
-export async function requireAcdert(root = ROOT) {
+export function requireAcdert(root = ROOT) {
   const set = process.env.ACDERT
   if (set) {
     if (existsSync(set)) return set
@@ -65,19 +63,14 @@ export async function requireAcdert(root = ROOT) {
     if (named) return named
     throw new Error(`ACDERT=${set}: no such file; point ACDERT at an acdert binary, or unset it to let acde look for one`)
   }
-  const found = locateAcdert(root)
-  if (found) return found
   const { checkouts, installs } = places(root)
+  const found = [...checkouts, ...installs].find((path) => existsSync(path)) ?? which('acdert')
+  if (found) return found
   const looked = ['  ACDERT (not set)', ...checkouts.map((path) => `  ${path} (not built)`), ...installs.map((path) => `  ${path} (not there)`), `  PATH (no acdert${EXE} in it)`]
   const fix = checkouts.length
     ? `, build the acdert checkout next to acde (cd ${join(root, '..', 'acdert')} && cargo build --release -p acdert)`
     : ', install acde again (it brings acdert along)'
   throw new Error(`no acdert found. Looked in:\n${looked.join('\n')}\nSet ACDERT to an acdert you built (ACDERT=/path/to/acdert acde dev)${fix}, or put acdert on PATH`)
-}
-
-export async function findAcdert(needed, root = ROOT) {
-  if (needed) return requireAcdert(root)
-  return process.env.ACDERT || locateAcdert(root)
 }
 
 export function cliFile(root = ROOT) {
@@ -88,13 +81,6 @@ export function cliRuntime(root = ROOT) {
   if (process.versions.bun) return process.execPath
   if (cliFile(root)?.endsWith('.ts')) return which('bun') ?? process.execPath
   return process.execPath
-}
-
-export async function findBun() {
-  if (process.versions.bun) return process.execPath
-  const found = which('bun')
-  if (found) return found
-  throw new Error('this needs Bun and there is none on PATH: install it (https://bun.sh)')
 }
 
 export function cliEnv(exe, env = process.env) {
@@ -111,12 +97,10 @@ function checkNode() {
   if (major < NODE_MAJOR) throw new Error(`acde needs Node.js ${NODE_MAJOR} or newer (this is ${process.version}), or Bun (https://bun.sh)`)
 }
 
-export async function run(args) {
+export function run(args) {
   checkNode()
   const exe = cliRuntime()
-  const acdert = await findAcdert(args[0] === 'dev')
-  const env = { ...cliEnv(exe), ...(acdert && { ACDERT: acdert }) }
-  const child = spawn(exe, [cliFile(), ...args], { stdio: 'inherit', env })
+  const child = spawn(exe, [cliFile(), ...args], { stdio: 'inherit', env: cliEnv(exe) })
   process.on('SIGINT', () => {})
   if (!WINDOWS) for (const signal of ['SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal))
   return new Promise((done) => {

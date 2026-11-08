@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { DevClient, DevServer, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
-import { Tools } from '../src/tools.ts'
+import { slug } from '../src/paths.ts'
 import { cleanup, env, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -101,7 +101,7 @@ describe('dev IPC: acde dev relays tool requests to the runtime', () => {
     for (const request of [...requests].reverse()) runtime.reply(request, { ok: true, result: { value: request['web'] } })
     expect(await first).toEqual({ value: 'a' })
     expect(await second).toEqual({ value: 'b' })
-    expect(s.runtime).toEqual({ pid: 4242, legacy: false })
+    expect(s.runtime).toEqual({ pid: 4242 })
     one.close()
     two.close()
   })
@@ -135,20 +135,6 @@ describe('dev IPC: acde dev relays tool requests to the runtime', () => {
     const tool = await DevClient.connect(s.endpoint)
     expect(tool.request('eval', { web: 'x', code: '1' })).rejects.toThrow(/^timed out: acdert did not answer "eval" within 0 s$/)
     await Bun.sleep(300)
-    tool.close()
-  })
-
-  test('an acdert from before the dev tools (hello without role) is the runtime, and requests fail at once, saying why', async () => {
-    const s = await server(60_000)
-    const runtime = await FakeRuntime.connect(s.endpoint, { pid: 77 })
-    const tool = await DevClient.connect(s.endpoint)
-    const started = Date.now()
-    expect(tool.request('webs')).rejects.toThrow('acdert (pid 77) is older than the dev tools')
-    await Bun.sleep(20)
-    expect(Date.now() - started).toBeLessThan(1_000)
-    expect(runtime.requests()).toEqual([])
-    expect(s.send({ type: 'reload', app: 'a' })).toBe(true)
-    await until('the reload', () => runtime.got.some((m) => m['type'] === 'reload'))
     tool.close()
   })
 
@@ -238,8 +224,8 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(Format.webs([{ name: 'desktop', app: null, kind: 'desktop', window: 0, title: 'Dopame' }, { name: 'vault#1048576', app: 'vault', kind: 'app', window: 1048576, title: '文库' }])).toBe(
       ['NAME           KIND     APP    WINDOW   TITLE', 'desktop        desktop  -      0        Dopame', 'vault#1048576  app      vault  1048576  文库'].join('\n'),
     )
-    expect(Tools.fileFor('vault#1048576')).toBe('vault#1048576.png')
-    expect(Tools.fileFor('a/b:c')).toBe('a-b-c.png')
+    expect(slug('vault#1048576')).toBe('vault#1048576')
+    expect(slug('a/b:c')).toBe('a-b-c')
   })
 })
 
@@ -371,21 +357,6 @@ describe('acde dev with a stand-in acdert', () => {
       alone.child.kill('SIGTERM')
     }
     await alone.child.exited
-  }, 30_000)
-
-  test('an acdert from before the dev tools: tools get a clear error at once', async () => {
-    const alpha = project(join(tmp(), 'alpha'), { type: 'app', id: 'alpha' })
-    const dev = start([], alpha, { FAKE_ACDERT_LEGACY: '1' })
-    try {
-      await until('the session', () => existsSync(join(dev.sessions, `${dev.child.pid}.json`)))
-      await until('the stand-in', () => dev.entries().find((e) => e.argv))
-      const result = await dev.tool(['webs'], alpha)
-      expect(result.code).toBe(1)
-      expect(result.stderr).toContain('is older than the dev tools')
-    } finally {
-      dev.child.kill('SIGTERM')
-    }
-    await dev.child.exited
   }, 30_000)
 
   test('mistakes: --out with several projects, --app with several, the same app twice, two desktops', async () => {

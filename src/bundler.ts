@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, sep } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 import acdeVite from '@dopame/acde-api/vite'
 import { PackageManager } from './pm.ts'
 import { Runtime } from './runtime.ts'
@@ -37,7 +37,6 @@ export class PublicError extends Error {
 type Built = { readonly success: boolean; readonly logs: readonly unknown[]; readonly outputs: readonly { readonly kind: string; readonly path: string }[] }
 
 export abstract class Bundler {
-  static readonly SRC = dirname(fileURLToPath(import.meta.url))
   static readonly SERVE = 'acde.serve'
 
   static for(dir: string, env: Readonly<Record<string, string | undefined>> = process.env): Bundler {
@@ -53,8 +52,13 @@ export abstract class Bundler {
 
   abstract web(job: WebJob): Promise<string>
   abstract service(name: string, entry: string, out: string, dir: string): Promise<void>
-  abstract preload(out: string): Promise<void>
   protected abstract server(job: BackendJob, wrapper: string): Promise<void>
+
+  async preload(out: string): Promise<void> {
+    const { LISTEN_JS } = await import('./listen-bundle.ts')
+    mkdirSync(out, { recursive: true })
+    writeFileSync(join(out, 'acde-listen.js'), LISTEN_JS)
+  }
 
   async backend(job: BackendJob): Promise<void> {
     const scratch = mkdtempSync(join(tmpdir(), 'acde-backend-'))
@@ -140,10 +144,6 @@ export class BunBundler extends Bundler {
       naming: { entry: 'server.[ext]', chunk: 'chunks/[name]-[hash].[ext]' },
     })
     Bundler.check('backend', result)
-  }
-
-  async preload(out: string): Promise<void> {
-    Bundler.check('preload', await Bun.build({ ...BunBundler.OPTIONS, target: 'node', splitting: false, outdir: out, entrypoints: [join(Bundler.SRC, 'listen.ts')], naming: { entry: 'acde-listen.[ext]' } }))
   }
 
   static #public(rules: PublicRules, path: string, importer: string): { path: string; external?: boolean } | undefined {
@@ -340,11 +340,5 @@ export class ViteBundler extends Bundler {
         },
       },
     })
-  }
-
-  async preload(out: string): Promise<void> {
-    const { LISTEN_JS } = await import('./listen-bundle.ts')
-    mkdirSync(out, { recursive: true })
-    writeFileSync(join(out, 'acde-listen.js'), LISTEN_JS)
   }
 }

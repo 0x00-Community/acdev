@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { acdertCheckouts, cliFile, cliRuntime, findAcdert, installed, requireAcdert } from '../launcher.mjs'
+import { acdertCheckouts, cliFile, cliRuntime, installed, requireAcdert } from '../launcher.mjs'
 import { cleanup, tmp } from './helpers.ts'
 
 afterAll(cleanup)
@@ -13,6 +13,15 @@ function binary(path: string): string {
   writeFileSync(path, '')
   chmodSync(path, 0o755)
   return path
+}
+
+function failure(root: string): string | null {
+  try {
+    requireAcdert(root)
+    return null
+  } catch (error) {
+    return (error as Error).message
+  }
 }
 
 function checkout(): string {
@@ -55,82 +64,71 @@ describe('launcher: where acdert comes from', () => {
     }
   })
 
-  test('a checkout finds the sibling acdert checkout: release first, then debug', async () => {
+  test('a checkout finds the sibling acdert checkout: release first, then debug', () => {
     const root = checkout()
     expect(installed(root)).toBe(false)
     const [release, debug] = acdertCheckouts(root) as [string, string]
     expect(release).toBe(join(root, '..', 'acdert', 'target', 'release', `acdert${EXE}`))
     binary(debug)
-    expect(await requireAcdert(root)).toBe(debug)
+    expect(requireAcdert(root)).toBe(debug)
     binary(release)
-    expect(await requireAcdert(root)).toBe(release)
+    expect(requireAcdert(root)).toBe(release)
   })
 
-  test('the sibling checkout, then the global install, then PATH', async () => {
+  test('the sibling checkout, then the global install, then PATH', () => {
     const root = checkout()
     const onPath = binary(join(path, `acdert${EXE}`))
-    expect(await requireAcdert(root)).toBe(onPath)
+    expect(requireAcdert(root)).toBe(onPath)
     const global = binary(join(home, 'bin', `acdert${EXE}`))
-    expect(await requireAcdert(root)).toBe(global)
+    expect(requireAcdert(root)).toBe(global)
     const [release] = acdertCheckouts(root) as [string]
     binary(release)
-    expect(await requireAcdert(root)).toBe(release)
+    expect(requireAcdert(root)).toBe(release)
   })
 
-  test('nothing anywhere: the error lists every place it looked and how to fix it', async () => {
+  test('nothing anywhere: the error lists every place it looked and how to fix it', () => {
     const root = checkout()
     const [release, debug] = acdertCheckouts(root) as [string, string]
-    const error = await requireAcdert(root).then(
-      () => null,
-      (e: Error) => e.message,
-    )
+    const error = failure(root)
     expect(error).toStartWith('no acdert found. Looked in:\n  ACDERT (not set)\n')
     for (const place of [release, debug, join(home, 'bin', `acdert${EXE}`), 'PATH']) expect(error).toContain(place)
     expect(error).toContain('ACDERT=/path/to/acdert acde dev')
     expect(error).toContain('cargo build --release -p acdert')
-    expect(await findAcdert(false, root)).toBeNull()
   })
 
-  test('an installed acde uses the acdert beside it and never looks for a checkout', async () => {
+  test('an installed acde uses the acdert beside it and never looks for a checkout', () => {
     const at = install()
     expect(installed(at.root)).toBe(true)
     binary(acdertCheckouts(at.root)[0]!)
-    const error = await requireAcdert(at.root).then(
-      () => null,
-      (e: Error) => e.message,
-    )
+    const error = failure(at.root)
     expect(error).toContain(join(at.version, 'lib', 'acde', '..', '..', 'bin', `acdert${EXE}`))
     expect(error).not.toContain('target')
     expect(error).toContain('install acde again')
     const global = binary(join(home, 'bin', `acdert${EXE}`))
-    expect(await requireAcdert(at.root)).toBe(global)
+    expect(requireAcdert(at.root)).toBe(global)
     const own = binary(join(at.version, 'bin', `acdert${EXE}`))
-    expect(await requireAcdert(at.root)).toBe(join(at.root, '..', '..', 'bin', `acdert${EXE}`))
+    expect(requireAcdert(at.root)).toBe(join(at.root, '..', '..', 'bin', `acdert${EXE}`))
     expect(own).toBe(join(at.version, 'bin', `acdert${EXE}`))
   })
 
-  test('an installed acde reached through current/ lists its acdert once', async () => {
+  test('an installed acde reached through current/ lists its acdert once', () => {
     const at = install()
     process.env['ACDE_INSTALL'] = at.home
     symlinkSync('versions/0.0.3', join(at.home, 'current'))
     symlinkSync('current/bin', join(at.home, 'bin'))
     mkdirSync(join(at.version, 'bin'))
-    const error = await requireAcdert(at.root).then(
-      () => null,
-      (e: Error) => e.message,
-    )
+    const error = failure(at.root)
     expect(error!.match(/bin\/acdert/g)).toHaveLength(1)
   })
 
-  test('ACDERT wins; one that does not exist is an error, not a silent fallback', async () => {
+  test('ACDERT wins; one that does not exist is an error, not a silent fallback', () => {
     const root = checkout()
     binary(acdertCheckouts(root)[0]!)
     const mine = binary(join(tmp(), 'mine', `acdert${EXE}`))
     process.env['ACDERT'] = mine
-    expect(await requireAcdert(root)).toBe(mine)
+    expect(requireAcdert(root)).toBe(mine)
     process.env['ACDERT'] = join(tmp(), 'gone')
-    await expect(requireAcdert(root)).rejects.toThrow(/^ACDERT=.*gone: no such file/)
-    expect(await findAcdert(false, root)).toBe(process.env['ACDERT'])
+    expect(failure(root)).toMatch(/^ACDERT=.*gone: no such file/)
   })
 })
 

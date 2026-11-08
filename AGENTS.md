@@ -51,17 +51,17 @@ Node → npm (`bin/acde` 有 bun 就用 bun, 所以机器上有 bun 时默认是
 `nodeLinker: node-modules` (PnP 下 bun 找不到依赖, 框架的构建也不认). 已有的工程 (`acde build` 发现没有 node_modules 时) 按 lockfile 认
 (`bun.lock`、`pnpm-lock.yaml`、`yarn.lock`、`package-lock.json`), 再看 package.json 的 `packageManager`. 框架的命令 (`next`、`astro` …)
 不经 `node_modules/.bin` (pnpm 那里是 shell 脚本), `PackageManager.bin` 往上找 `node_modules/<依赖>/package.json` 的 `bin` 拿到 JS 文件.
-`PackageManager.which` 按 PATH 找程序 (不用 `Bun.which`).
+按 PATH 找程序只有一份: `launcher.mjs` 的 `which` (Windows 上按 `PATHEXT`; 不用 `Bun.which`).
 
-**新工程的 package.json** (`AppPackage.wire` / `wiring`): 自带模板的 `scripts` 是 `dev` / `build` / `check` (`acde dev` …); 框架模板不动
+**新工程的 package.json** (`src/create.ts` 的 `Creator.lay` / `adopt`, SDK 的说明符是 `Creator.api`): 自带模板的 `scripts` 是 `dev` / `build` / `check` (`acde dev` …); 框架模板不动
 框架自己的脚本, 加 `acde:dev` / `acde:build` / `acde:check`. 脚本里的 `acde` 是 PATH 上的那个 (像 cargo 子命令, 不是工程的依赖; 工程里没有
 `acde` 依赖). devDependencies 只有 `@dopame/acde-api` (`ACDE_API` 照旧能整个换掉), 用 npm / pnpm / yarn 时自带的 html 和桌面模板另加
-`vite` (`AppPackage.VITE`, 只写大版本 `^8`): Node 上 acde 用工程自己的 Vite 构建它们 (bun 上用 Bun.build, 不加). `build` 脚本调的是
+`vite` (`Creator.VITE`, 只写大版本 `^8`): Node 上 acde 用工程自己的 Vite 构建它们 (bun 上用 Bun.build, 不加). `build` 脚本调的是
 acde (`acde`、`bunx acde`、`npx acde`、`…/acde.mjs`) 时不算「有 build 脚本的工程」(否则 `acde build` 调自己).
 
 - 全局装的 acde (`launcher.mjs` 的 `installed()`: 自己在 `lib/acde`, 旁边有 `lib/acde-api`): `@dopame/acde-api` 是
   `file:<$ACDE_INSTALL>/current/lib/acde-api`, 绝对路径 (acde-api 没上 npm, 没有版本号可写; 走 `current` 而不是某个版本的目录, 升级 acde
-  以后重新装依赖就是新的). npm 给它建符号链接, bun 和 pnpm 是拷一份. 挪了 `$ACDE_INSTALL` 或换了机器要改这一行. 上了 npm 以后改成版本号.
+  以后重新装依赖就是新的; `$ACDE_INSTALL/current` 指的不是跑着的这个版本时用这个版本自己的 `lib/acde-api`). npm 给它建符号链接, bun 和 pnpm 是拷一份. 挪了 `$ACDE_INSTALL` 或换了机器要改这一行. 上了 npm 以后改成版本号.
 - 从 git 检出跑的 acde: `@dopame/acde-api` 是 `file:<相对路径>` (两边先 realpath, macOS 的 `/tmp` 是 `/private/tmp`), 指向 acde 自己的
   package.json 里 `file:` 指的 acdert 检出 `web/packages/acde-api` (不是 node_modules 里那份拷贝). 脚本照样调 PATH 上的 `acde`: 开发 acde
   的人把检出放上 PATH (在检出里 `bun link` 或 `npm link`, 都按 package.json 的 `bin` 接上 `bin/acde.mjs`; 或者自己建个指向它的链接).
@@ -86,7 +86,7 @@ bun run build` 出包; pnpm 12 (node 是 bun) 同样装依赖、`pnpm run build`
 
 框架模板照 `npm create cloudflare` 的做法: 用框架自己的脚手架, 经工程的包管理器跑 (`PackageManager.exec`: bun 是 `bun x --bun <包>@latest`,
 npm 是 `npx --yes`, pnpm / yarn 是 `dlx`; 总是最新版; 不交互, stdin 关掉、只给这一步带 `CI=1` (yarn 见到 `CI` 不许新建 lockfile, 装依赖那步
-不能带), 输出收着, 失败时整段打出来), 然后 `AppPackage.adopt` 叠上 acde 的部分: `templates/framework/acde.config.jsonc` (没有 `entry`:
+不能带), 输出收着, 失败时整段打出来), 然后 `Creator.adopt` 叠上 acde 的部分: `templates/framework/acde.config.jsonc` (没有 `entry`:
 构建认框架)、上面的 package.json、`.gitignore` 加 `.acde/`; 不动框架自己的文件. 加模板就是 `STARTERS` 加一项 (`scaffold(dir, pm)` 返回
 命令行; 没有 `scaffold` 的是 `templates/<kind>`).
 
@@ -125,7 +125,8 @@ bin/acde            POSIX sh: 有 bun 就 `bun lib/acde/src/cli.js`, 否则 node
 bin/acdert          运行时
 bin/app/dist/       acde-host 的 bundle (broker.js、web.js; acdert 在自己旁边的 app/dist 找, acdert `web.rs` 的 app_dir)
 lib/acde/           package.json (name acde、exports)、launcher.mjs、src/cli.js、src/listen.ts、src/sockets.ts、templates/,
-                    和 driver / e2e 的源码 (src/driver/、src/e2e/、src/ipc.ts、src/sessions.ts、src/configs.ts, 只在 bun 上跑)
+                    和 driver / e2e 的源码 (src/driver/、src/e2e/ 和它们用到的 src/ipc.ts、src/sessions.ts、src/configs.ts、
+                    src/paths.ts、src/runtime.ts, 只在 bun 上跑; `scripts/dist.ts` 的 `CARRIED`, 加了 import 要跟着加)
 lib/acde-api/       acdert 仓库的 web/packages/acde-api 原样 (不带 test/)
 ```
 
@@ -147,16 +148,15 @@ bun / Node 22+, 和下一步 `acde new my-app`. 旧版本留在 `versions/` 里 
 **launcher** (`launcher.mjs`, 只用 `node:` 模块; 类型是手写的 `launcher.d.mts`): 源码一律按包名自引用 `import … from 'acde/launcher'`.
 - `bin/acde.mjs` (检出里 `bun link` / `npm link` 接上的 `acde`) → `run(args)`: Node 低于 22 报错; 用 `cliRuntime()` 跑 `cliFile()`
   (有 `src/cli.js` 用它, 否则 `src/cli.ts`; bun 上就是这份 bun, Node 上跑 cli.js 用这份 node, 只有 cli.ts 时用 PATH 上的 bun, 没有就 node),
-  环境是 `cliEnv(exe)` (PATH 前加运行时所在目录、`ACDE_HOST_RUNTIME`) 加上找到的 `ACDERT`; SIGINT 父进程只吞掉, SIGTERM / SIGHUP 转给子进程,
+  环境是 `cliEnv(exe)` (PATH 前加运行时所在目录、`ACDE_HOST_RUNTIME`); 不找 acdert (要它的 `acde dev` 自己找); SIGINT 父进程只吞掉, SIGTERM / SIGHUP 转给子进程,
   退出码跟它. 全局装的不经它: `bin/acde` 直接跑 cli.js.
 - acdert (`requireAcdert`; `acde dev` 自己 (`src/cli.ts`) 调它): `ACDERT` (设了但文件不在时直接报错, 不往下找; 不带路径分隔符的按 PATH 找);
   否则 (只有检出) 旁边的 acdert 检出 `<acde>/../acdert/target/release/acdert`, 再 `.../debug/acdert` (两个仓库并排检出, acdert 从
   `<exe>/../../web/packages/acde-host/dist` 找 host bundle; 放在 PATH 之前: 检出的 acde 和旁边的 acdert 是一起改的); 否则 (只有全局装的)
   自己这个版本的 `bin/acdert`; 否则 `$ACDE_INSTALL/bin/acdert` (默认 `~/.acde`; 和上一个是同一个文件时不重复列); 否则 PATH 上的 `acdert`.
   都没有就报错, 列出找过的每个地方和怎么办 (`ACDERT=/path/to/acdert acde dev`、在旁边的检出里 `cargo build --release -p acdert`, 全局装的是
-  「重新装一次 acde」、放进 PATH). `findAcdert(false)` 是不报错的版本.
-- 给 driver 和 `acde test` 的: `cliFile()` / `cliRuntime()` / `cliEnv(exe, env)`, 和 `findBun()` (bun 上是自己, 否则 PATH 上的 bun, 没有就报错;
-  只给还要 bun 的地方).
+  「重新装一次 acde」、放进 PATH).
+- 给 driver 和 `acde test` 的: `cliFile()` / `cliRuntime()` / `cliEnv(exe, env)`; 给源码的: `which(name)`.
 
 **打包**: `bun scripts/dist.ts --acdert <二进制> --host <acde-host dist> [--api <acde-api 目录>] --triple <rust triple> [--version x.y.z] [--out .dist]`
 (`--api` 默认旁边检出的; Windows 的 triple 拒绝: install.sh 是 sh) 出 `<out>/<版本>/acde-<版本>-<triple>.tar.gz`, 往 `<out>/<版本>/SHA256SUMS`
@@ -207,8 +207,9 @@ node 20 和都没有时的报错; 装好的 launcher 找到自己旁边的 acder
   (桌面自带的窗口应用, 每个和 app 的字段一样, `id` / `entry` 必填). 这份配置只在构建时读: `acde build` (`src/app.ts`
   的 `Project`) 把它变成包的 package.json 清单 (运行时只认清单, 见「桌面包」). 产物: app 是 `web/` (`/app/<id>/`)、`backend/`;
   desktop 是 `desktop/` (`/desktop/<id>/`, 清单的 `entry` 是 `desktop/<页面>`)、`services/`、`apps/<id>/{web,backend}`.
-  没有这份配置时, package.json 的 `acde` 简写 (`id`、`label`、`web`、`server`、`backend` …, 没有 `apps`) 当作 app 读; 两样都没有
-  也行: id 取 package.json 的 `name`, label 取 `displayName` / `productName`.
+  没有这份配置时 (也不是手写的包) 是一个默认的 app: 入口 `index.html`, 后端照常找, id 取 package.json 的 `name` (`Project.idOf`: 去掉
+  `@scope/`、小写、别的字符换成 `-`), label 取 `displayName` / `productName`. package.json 的 `acde` 字段只认手写的包 (有 `apps`), 以前的
+  简写 (`web`、`server`、`backend` …) 删了.
 - **图标** (app 和桌面里每个应用的 `icon`, 清单的规则见 acdert AGENTS.md 和 SDK 的 `Manifest.check`): 一个图标名 (SDK
   `@dopame/acde-api/manifest` 的 `ICON_NAMES`: `app`、`timer`、`chart` …; 不认识的名字由 `Manifest.check` 警告, acde 不另查), 或工程里的一张
   图 (相对工程目录的路径; 含 `/`、`\` 或以 `.<扩展名>` 结尾的就当路径). 是路径时 `acde check` 和 `acde build` 都查: 文件要在, 扩展名是
@@ -259,8 +260,9 @@ node 20 和都没有时的报错; 装好的 launcher 找到自己旁边的 acder
   是用户的事). 入口不是用户的文件, 是 acde 生成的一层: `await import(用户的入口)`, 再 `export default` 它的默认导出; 默认导出有 `fetch`
   (`export default { fetch }`, Bun / Workers 的写法, 模板 `templates/backend/server.ts` 就是) 且 preload 装了 `Symbol.for('acde.serve')`
   时交给它. 旁边写 `backend/package.json` (`{"type": "module"}`: Node 认 `.js` 是 ESM, 不打 `MODULE_TYPELESS_PACKAGE_JSON` 警告).
-  preload `backend/acde-listen.js` (`src/listen.ts` 打包; bun 上 `Bun.build`, Node 上是打 acde 时就打好的文本: `src/listen-bundle.ts`
-  用 Bun 的宏 (`src/listen-macro.ts`, 打包时跑 `bun build src/listen.ts`) 内联进 `src/cli.js`, 发布出去的 acde 在 Node 上不靠打包工具出 preload):
+  preload `backend/acde-listen.js` (`src/listen.ts` 打包, 两种打包工具都写同一份文本 (`Bundler.preload`): `src/listen-bundle.ts` 用 Bun 的宏
+  (`src/listen-macro.ts`, 跑 `bun build src/listen.ts`) 在打 acde 时内联进 `src/cli.js`, 从源码跑时在 bun 第一次 import 它时跑一次;
+  发布出去的 acde 在 Node 上不靠打包工具出 preload; 只有 Node、没有 bun 时从源码跑 acde 出不了 preload):
   - 里面没有 `import` / `export` (Node 内置模块都经 `process.getBuiltinModule` 取), 所以它既是合法的 CommonJS 也是合法的 ESM: 放在
     `"type": "commonjs"` 的包里 (Next 的 standalone)、没写 type 的包里、ESM 包里都能 `--import`, 也能 `bun --preload`.
   - 把 `Bun.serve` / `Bun.listen` / `net`、`http`、`https`、`tls`、`http2` 的 `listen(P)` 都换成 `<sockets>/P.sock` (P 没给时 `Bun.serve`
@@ -324,9 +326,8 @@ node 20 和都没有时的报错; 装好的 launcher 找到自己旁边的 acder
   `\\.\pipe\acde-dev-<pid>`, 都是 `node:net` 的 server). 这条 IPC 能在页面里求值 (`eval`), 所以 socket 只给自己: 放在会话目录里,
   听上之后再 chmod 0600. 一行一个 JSON (读的时候只在新到的那块里找换行, 几 MB 的截图也不慢).
   连上来的每一方第一行是 `hello`, 带 `role`:
-  - `runtime` (acdert hostwin 的 `acde-dev` 线程, `{"type":"hello","role":"runtime","pid"}`); 没有 `role` 的 `hello` 是改这个协议之前的
-    acdert, 也算 runtime (`reload` / `quit` 照发), 但它不认 `request` (只在日志里打一行 warn), 所以工具的请求不转给它, 当场回错:
-    「acdert (pid N) is older than the dev tools …」. 只要一个 runtime, 它连着时再来的 runtime 被关掉. 第一行不是 `hello` 的连接被关掉.
+  - `runtime` (acdert hostwin 的 `acde-dev` 线程, `{"type":"hello","role":"runtime","pid"}`). 只要一个 runtime, 它连着时再来的 runtime
+    被关掉. 第一行不是 `hello`、或 `role` 不是 `runtime` / `tool` 的连接被关掉 (没有 `role` 的旧 acdert 也是).
   - `tool` (`acde webs` 这些命令, `{"type":"hello","role":"tool"}`), 可以有很多个.
   acde → runtime: `{"type":"reload","app"?}`、`{"type":"quit"}`, 和转过去的请求. 工具发 `{"type":"request","id","op",...参数}`, acde 换一个
   自己发的 id (从 1 递增, 所以几个工具的 id 撞不上) 转给 runtime; runtime 回 `{"type":"response","id","ok","result"|"error"}`, acde 把 id
@@ -350,9 +351,9 @@ node 20 和都没有时的报错; 装好的 launcher 找到自己旁边的 acder
   todo-pomodoro 两个窗口; 在 todo-pomodoro 里新建再删一个文件, 只有它重新构建 (31 ms)、只有它的窗口重开; 会话文件对; `acde webs` /
   `eval` 0.03 s 内报「older than the dev tools」; SIGTERM 后 acdert 退出, 会话文件和 socket 都删了. 一个工程 (`todo-pomodoro`) 起的是
   `acdert app todo-pomodoro`, 窗口出来了. `bun test` (`test/dev.test.ts`): 假的 runtime / 工具 socket 测转发 (id 改写、各回各的、出错、
-  先到的请求排队、超时、旧 acdert、runtime 断开、第二个 runtime、不是 hello / 不是 request、3 MB 的行), 会话文件 (写、列、死了的删、
+  先到的请求排队、超时、runtime 断开、第二个 runtime、不是 hello / 不是 request、3 MB 的行), 会话文件 (写、列、死了的删、
   按目录挑), 和一个假的 acdert (`test/fixtures/dev/fake-acdert.ts`, 照 Contract A 回答) 跑真的 `acde dev`: 几个工程、桌面工程、`--desktop <目录>`、
-  一个工程、旧 acdert、各种用错的参数, 以及经 CLI 的 `webs` / `eval` (含 stdin) / `shot` / `inspect` / `act` / `--session`.
+  一个工程、各种用错的参数, 以及经 CLI 的 `webs` / `eval` (含 stdin) / `shot` / `inspect` / `act` / `--session`.
   没验: 新的 acdert (runtime 那边的 op 还没合进来) 下真的 `webs` / `eval` / `shot` / `inspect` / `act`; Windows (命名管道、`.exe`).
 
 ## 开发工具 (`acde webs` / `eval` / `shot` / `inspect` / `act`, `src/tools.ts`)
@@ -369,12 +370,12 @@ node 20 和都没有时的报错; 装好的 launcher 找到自己旁边的 acder
 | `acde eval <web> <代码\|->` | `eval {web, code}` | 值的 JSON (缩进两格; `undefined` 是 `null`). `web` 是 web 名、应用 id (它的第一个 web) 或 `desktop`; `-` 从 stdin 读代码 (以 `--` 开头的代码放在 `--` 后面) |
 | `acde shot <web> [-o 文件]` | `shot {web}` | 把 PNG (设备像素) 写进文件 (默认当前目录的 `<web>.png`, 名字里 `/\:*?"<>\|` 和空白换成 `-`), 打出绝对路径 |
 | `acde inspect [--window W] [--find 文字] [--all] [--offscreen]` | `snapshot {window?, find?, all?, offscreen?}` | `snapshot().text` (acdert「看和操作桌面」) |
-| `acde act <ref> <动作> [参数]` | `act {ref, action, arg?}` | `act().text`; `ok` 是 false 时退出码 1 |
+| `acde act <ref> <动作> [参数]` | `act {ref, action, arg?}` | `act().text`; `ok` 是 false 时退出码 1. 动作只认 driver 的 `ACTIONS` (MCP 的 `act` / `run` 也用它), 别的当场报错 |
 | `acde console [--web W] [--level L] [--follow]` | `console {web?, level?, since?}` | 一行一条 `<seq> <level\|ERROR\|REJECT> <web>  <文字>`; L 是 log / info / warn / error / debug / errors; `--follow` 每 0.5 秒接着读 (带上次的 `next`), 到 Ctrl+C |
 | `acde network [--web W] [--failed] [--follow]` | `network {web?, failed?, since?}` | 一行一个请求 `<seq> <方法> <状态\|ERR\|...> <URL>  (<kind> <字节> <ms>; <错误>) <web>` |
 | `acde screen [-o 文件]` | `screen {path}` | 整个屏幕 (所有窗口合成) 的 PNG 写进文件 (默认 `./screen.png`), 打出绝对路径 |
 
-出错 (acdert 回 `ok:false`、超时、旧 acdert、没有会话) 打 `acde: <原因>`, 退出码 1. 客户端 (`DevClient`) 自己也等 35 s 兜底 (acde dev 没回答时).
+出错 (acdert 回 `ok:false`、超时、没有会话) 打 `acde: <原因>`, 退出码 1. 客户端 (`DevClient`) 自己也等 35 s 兜底 (acde dev 没回答时).
 
 ## driver (`acde/driver`, `src/driver/`)
 

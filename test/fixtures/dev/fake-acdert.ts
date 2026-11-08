@@ -2,7 +2,6 @@ import { appendFileSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
-const legacy = process.env['FAKE_ACDERT_LEGACY'] === '1'
 const ADD_DELAY_MS = 300
 
 interface Node {
@@ -160,7 +159,7 @@ record({ argv: process.argv.slice(2), path: process.env['ACDE_PATH'] ?? null, he
 console.error('[alpha#7] js: fake acdert is up')
 const socket = net.connect(process.env['ACDE_DEV']!)
 const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`)
-socket.on('connect', () => send({ type: 'hello', ...(!legacy && { role: 'runtime' }), pid: process.pid }))
+socket.on('connect', () => send({ type: 'hello', role: 'runtime', pid: process.pid }))
 socket.on('close', () => process.exit(0))
 socket.setEncoding('utf8')
 let buffer = ''
@@ -171,7 +170,7 @@ socket.on('data', (chunk: string) => {
     buffer = buffer.slice(at + 1)
     record({ got: message })
     if (message['type'] === 'quit') process.exit(0)
-    if (message['type'] === 'request' && !legacy) answer(message)
+    if (message['type'] === 'request') answer(message)
   }
 })
 process.on('SIGTERM', () => process.exit(0))

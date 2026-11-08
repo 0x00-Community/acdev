@@ -1,15 +1,16 @@
 import { McpServer } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod'
+import type { InspectAction } from '@dopame/acde-api'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { Acde, type ActResult, type DevPage } from './driver/acde.ts'
+import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import { Locator } from './driver/locator.ts'
 import { Poll } from './driver/poll.ts'
 import { Sessions } from './sessions.ts'
 import { Format } from './driver/format.ts'
 
-const ACTIONS = ['click', 'double', 'right', 'hover', 'type', 'settext', 'key', 'scroll', 'focus', 'close', 'minimize', 'restore'] as const
+const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
 
 const INSTRUCTIONS = `acde: see and drive the desktop and apps of an acde dev session (acdert runs them; no browser, no devtools).
 - A session: the acde dev whose projects hold the working directory is used. If none runs, call start (it runs acde dev here and keeps its output for logs); sessions lists them and pins one.
@@ -48,7 +49,7 @@ export class Mcp {
   }
 
   static version(): string {
-    return (JSON.parse(readFileSync(join(Acde.root(), 'package.json'), 'utf8')) as { version: string }).version
+    return (JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { version: string }).version
   }
 
   static async serve(options: McpOptions = {}): Promise<number> {
@@ -142,7 +143,7 @@ export class Mcp {
           'Do one thing to a ref from snapshot. Element refs (w3.12): click, double, right, hover, scroll (arg: pixels, default 400), type (arg: text, appended through the input method), settext (arg: text, replaces the value), key (arg: keys like "ctrl+a backspace" or "Enter"), focus. Window refs (w3): focus, restore, minimize, close, key. Real input is injected; the answer waits for the page to settle and lists what changed.',
         inputSchema: z.object({
           ref: z.string().describe('w3 or w3.12'),
-          action: z.enum(ACTIONS),
+          action: ACTION,
           arg: z.union([z.string(), z.number()]).optional().describe('text for type / settext, keys for key, pixels for scroll'),
         }),
         annotations: drive,
@@ -155,7 +156,7 @@ export class Mcp {
       {
         description: 'Do several act steps in order, stopping at the first that fails; the answer lists what each did and what changed.',
         inputSchema: z.object({
-          steps: z.array(z.object({ ref: z.string(), action: z.enum(ACTIONS), arg: z.union([z.string(), z.number()]).optional() })).min(1),
+          steps: z.array(z.object({ ref: z.string(), action: ACTION, arg: z.union([z.string(), z.number()]).optional() })).min(1),
         }),
         annotations: drive,
       },

@@ -1,14 +1,12 @@
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
-import type { AcdeConfig, AppConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
-import acdeVite from '@dopame/acde-api/vite'
+import type { AcdeConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
 import { Bundler, type PublicRules } from './bundler.ts'
 import { CONFIGS } from './configs.ts'
 import { Frameworks, type Output } from './frameworks.ts'
 import { Jsonc } from './runtime.ts'
-import { appId } from './sockets.ts'
 
 interface BuiltApp {
   readonly id: string
@@ -35,20 +33,9 @@ const BACKENDS = ['server.ts', 'server.js', 'src/server.ts', 'src/server.js', 's
 const DEFAULT_PORT = 3000
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
-interface Legacy {
-  readonly id?: string
-  readonly label?: string
-  readonly icon?: string
-  readonly capabilities?: AppConfig['capabilities']
-  readonly heapMb?: number
-  readonly multiple?: boolean
-  readonly web?: string
-  readonly server?: string
-  readonly backend?: false | { readonly port?: number }
-}
-
 export class Project {
   static readonly CONFIGS = CONFIGS
+  static readonly ID = /^[a-z0-9][a-z0-9-]*$/
 
   readonly dir: string
   readonly name: string
@@ -74,21 +61,12 @@ export class Project {
       }
       this.config = config
       this.from = basename(found)
-      this.entryGiven = config.entry !== undefined
     } else {
-      const legacy = (pkg['acde'] ?? {}) as Legacy
-      if (typeof legacy !== 'object' || legacy === null) throw new Error(`${file}: "acde" is not an object`)
-      const { web, server, backend, ...app } = legacy
-      this.config = {
-        type: 'app',
-        ...app,
-        label: legacy.label ?? text(pkg['displayName']) ?? text(pkg['productName']),
-        entry: web ?? 'index.html',
-        backend: backend === false ? false : { ...(server !== undefined && { entry: server }), ...(backend?.port !== undefined && { port: backend.port }) },
-      }
+      const label = text(pkg['displayName']) ?? text(pkg['productName'])
+      this.config = { type: 'app', ...(label !== undefined && { label }) }
       this.from = 'package.json'
-      this.entryGiven = web !== undefined
     }
+    this.entryGiven = this.config.entry !== undefined
     this.name = text(this.config.name) ?? text(pkg['name']) ?? basename(this.dir)
     this.version = text(this.config.version) ?? text(pkg['version']) ?? '0.0.0'
     this.#bundler = Bundler.for(this.dir)
@@ -100,13 +78,23 @@ export class Project {
     return Frameworks.detect(this.#detecting, config.framework)?.name ?? null
   }
 
-  get #detecting(): { dir: string; pkg: Readonly<Record<string, unknown>>; entry: boolean } {
-    return { dir: this.dir, pkg: this.pkg, entry: this.entryGiven }
+  get #detecting(): { pkg: Readonly<Record<string, unknown>>; entry: boolean } {
+    return { pkg: this.pkg, entry: this.entryGiven }
+  }
+
+  static idOf(name: string): string | null {
+    const id = name
+      .replace(/^@[^/]*\//, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+    return id || null
   }
 
   get id(): string {
-    const id = this.config.id ?? appId(this.name)
-    if (!id || !/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error(`no usable id (${String(id)}): set "id" in ${this.from}`)
+    const id = this.config.id ?? Project.idOf(this.name)
+    if (!id || !Project.ID.test(id)) throw new Error(`no usable id (${String(id)}): set "id" in ${this.from}`)
     return id
   }
 
@@ -181,7 +169,7 @@ export class Project {
       await Frameworks.install(this.dir)
       const scratch = mkdtempSync(join(tmpdir(), 'acde-'))
       try {
-        const built = await framework.build({ dir: this.dir, pkg: this.pkg, scratch, vitePlugins: [acdeVite()], bundler: this.#bundler })
+        const built = await framework.build({ dir: this.dir, pkg: this.pkg, scratch, bundler: this.#bundler })
         const placed = await this.#place(built, config, out, base, assets)
         return Project.#manifestOf(config, id, { ...placed, icon: this.#icon(config.icon, join(out, 'web'), base) })
       } finally {
@@ -189,13 +177,9 @@ export class Project {
       }
     }
     const page = await this.#web(resolve(this.dir, config.entry ?? 'index.html'), join(out, `${dir}web`), base, own)
-    const server = this.#server(config.backend)
-    if (server) {
-      await this.#backend(server, join(out, `${dir}backend`))
-      assets[`${base}backend/`] = [`${dir}backend`]
-    }
+    const backend = await this.#ownBackend(config, out, dir, base, assets)
     assets[base] = [`${dir}web`]
-    return Project.#manifestOf(config, id, { entry: base + page, backend: server ? `${base}backend/server.js` : null, icon: this.#icon(config.icon, join(out, `${dir}web`), base) })
+    return Project.#manifestOf(config, id, { entry: base + page, backend, icon: this.#icon(config.icon, join(out, `${dir}web`), base) })
   }
 
   async #place(built: Output, config: WindowAppConfig, out: string, base: string, assets: Record<string, string[]>): Promise<{ entry: string; backend: string | null }> {
@@ -203,19 +187,22 @@ export class Project {
     mkdirSync(web, { recursive: true })
     if (built.web) cpSync(built.web, web, { recursive: true, verbatimSymlinks: true })
     assets[base] = ['web']
-    if (built.server) {
-      const backend = join(out, 'backend')
-      cpSync(built.server.dir, backend, { recursive: true, verbatimSymlinks: true })
-      await this.#bundler.preload(dirname(join(backend, built.server.entry)))
-      assets[`${base}backend/`] = ['backend']
-      return { entry: base, backend: `${base}backend/${built.server.entry}` }
-    }
+    if (!built.server) return { entry: base + built.page!, backend: await this.#ownBackend(config, out, '', base, assets) }
+    const backend = join(out, 'backend')
+    cpSync(built.server.dir, backend, { recursive: true, verbatimSymlinks: true })
+    await this.#bundler.preload(dirname(join(backend, built.server.entry)))
+    assets[`${base}backend/`] = ['backend']
+    return { entry: base, backend: `${base}backend/${built.server.entry}` }
+  }
+
+  async #ownBackend(config: WindowAppConfig, out: string, dir: string, base: string, assets: Record<string, string[]>): Promise<string | null> {
     const server = this.#server(config.backend)
-    if (server) {
-      await this.#backend(server, join(out, 'backend'))
-      assets[`${base}backend/`] = ['backend']
-    }
-    return { entry: base + built.page!, backend: server ? `${base}backend/server.js` : null }
+    if (!server) return null
+    const backend = join(out, `${dir}backend`)
+    await this.#bundler.backend({ entry: server, out: backend, dir: this.dir, splitting: false })
+    await this.#bundler.preload(backend)
+    assets[`${base}backend/`] = [`${dir}backend`]
+    return `${base}backend/server.js`
   }
 
   static #manifestOf(config: WindowAppConfig, id: string, placed: { entry: string; backend: string | null; icon: string }): BuiltApp {
@@ -254,8 +241,6 @@ export class Project {
   #icon(icon: string | undefined, web: string, base: string): string {
     if (icon === undefined) return 'app'
     if (!Project.isIconPath(icon)) return icon
-    const problem = this.#iconProblem(icon)
-    if (problem) throw new Error(`icon ${JSON.stringify(icon)} in ${this.from}: ${problem}`)
     const data = readFileSync(resolve(this.dir, icon))
     const ext = extname(icon).toLowerCase()
     const taken = (name: string) => existsSync(join(web, name)) && !readFileSync(join(web, name)).equals(data)
@@ -298,25 +283,4 @@ export class Project {
     if (own && existsSync(rules.publicDir)) cpSync(rules.publicDir, out, { recursive: true, force: false, errorOnExist: false })
     return page
   }
-
-  async #backend(entry: string, out: string): Promise<void> {
-    await this.#bundler.backend({ entry, out, dir: this.dir, splitting: false })
-    await this.#bundler.preload(out)
-  }
-}
-
-export function packagesDir(): string {
-  const set = process.env['XDG_DATA_HOME']
-  return join(set && isAbsolute(set) ? set : join(homedir(), '.local', 'share'), 'acde', 'packages')
-}
-
-export function install(out: string, id: string): string {
-  const dest = join(packagesDir(), id)
-  const next = `${dest}.new-${process.pid}`
-  mkdirSync(dirname(dest), { recursive: true })
-  rmSync(next, { recursive: true, force: true })
-  cpSync(out, next, { recursive: true })
-  rmSync(dest, { recursive: true, force: true })
-  renameSync(next, dest)
-  return dest
 }

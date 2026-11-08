@@ -56,7 +56,6 @@ interface Pending {
 interface Runtime {
   readonly socket: net.Socket
   readonly pid: number | null
-  readonly legacy: boolean
 }
 
 export interface DevServerOptions {
@@ -88,8 +87,8 @@ export class DevServer {
     return process.platform === 'win32' ? `\\\\.\\pipe\\acde-dev-${pid}` : Sessions.socket(pid)
   }
 
-  get runtime(): { readonly pid: number | null; readonly legacy: boolean } | null {
-    return this.#runtime && { pid: this.#runtime.pid, legacy: this.#runtime.legacy }
+  get runtime(): { readonly pid: number | null } | null {
+    return this.#runtime && { pid: this.#runtime.pid }
   }
 
   async listen(): Promise<void> {
@@ -153,7 +152,7 @@ export class DevServer {
       this.#tools.add(socket)
       return 'tool'
     }
-    if (message['role'] !== undefined && message['role'] !== 'runtime') {
+    if (message['role'] !== 'runtime') {
       this.#log(`dev IPC: unknown role ${JSON.stringify(message['role'])}`)
       socket.destroy()
       return null
@@ -164,7 +163,7 @@ export class DevServer {
       return null
     }
     const pid = typeof message['pid'] === 'number' ? message['pid'] : null
-    this.#runtime = { socket, pid, legacy: message['role'] === undefined }
+    this.#runtime = { socket, pid }
     for (const [id, pending] of this.#pending) if (!pending.sent) this.#forward(id, pending)
     return 'runtime'
   }
@@ -191,14 +190,8 @@ export class DevServer {
   }
 
   #forward(own: number, pending: Pending): void {
-    const runtime = this.#runtime!
-    if (runtime.legacy) {
-      const who = runtime.pid === null ? 'acdert' : `acdert (pid ${runtime.pid})`
-      this.#answer(own, pending, { ok: false, error: `${who} is older than the dev tools: its hello has no role and it ignores "${pending.op}"; build or install a newer acdert` })
-      return
-    }
     pending.sent = true
-    Lines.write(runtime.socket, { ...pending.message, id: own })
+    Lines.write(this.#runtime!.socket, { ...pending.message, id: own })
   }
 
   #fromRuntime(message: Message): void {

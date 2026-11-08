@@ -1,6 +1,7 @@
 import { existsSync, rmSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { cliEnv } from 'acde/launcher'
+import { SKIPPED } from '../paths.ts'
 import { Runtime } from '../runtime.ts'
 import { E2e } from './settings.ts'
 
@@ -21,7 +22,6 @@ interface Suite {
 
 export class TestRunner {
   static readonly PATTERN = '**/*.e2e.{ts,tsx,js,mjs,mts}'
-  static readonly SKIPPED = new Set(['node_modules', '.acde', '.git', 'dist', 'build', 'out', '.next', '.output', '.nuxt', '.svelte-kit', '.astro', '.turbo', '.cache'])
 
   static suites(targets: readonly string[], cwd: string): Suite[] {
     const suites: Suite[] = []
@@ -38,7 +38,7 @@ export class TestRunner {
       const project = E2e.project(path)
       if (!project) throw new Error(`${target}: not an acde project (no acde.config.jsonc here or above)`)
       const found = [...new Bun.Glob(TestRunner.PATTERN).scanSync({ cwd: path, onlyFiles: true, dot: false })]
-        .filter((file) => !file.split(/[\\/]/).some((part) => TestRunner.SKIPPED.has(part)))
+        .filter((file) => !file.split(/[\\/]/).some((part) => SKIPPED.has(part)))
         .sort()
         .map((file) => join(path, file))
       for (const file of found) suites.push({ file, project: E2e.project(file) ?? project })

@@ -1,7 +1,9 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { Bundler } from './bundler.ts'
+import acdeVite from '@dopame/acde-api/vite'
+import { ViteBundler, type Bundler } from './bundler.ts'
+import { up } from './paths.ts'
 import { PackageManager } from './pm.ts'
 import { Runtime } from './runtime.ts'
 
@@ -15,12 +17,10 @@ export interface Build {
   readonly dir: string
   readonly pkg: Readonly<Record<string, unknown>>
   readonly scratch: string
-  readonly vitePlugins: readonly unknown[]
   readonly bundler: Bundler
 }
 
 export interface Detecting {
-  readonly dir: string
   readonly pkg: Readonly<Record<string, unknown>>
   readonly entry?: boolean
 }
@@ -28,7 +28,7 @@ export interface Detecting {
 interface Framework {
   readonly name: string
   readonly label: string
-  detect(deps: ReadonlySet<string>, build: Build): boolean
+  detect(deps: ReadonlySet<string>, pkg: Readonly<Record<string, unknown>>): boolean
   build(build: Build): Promise<Output>
 }
 
@@ -46,7 +46,7 @@ export class Frameworks {
     { name: 'angular', label: 'Angular', detect: (deps) => deps.has('@angular/core') && deps.has('@angular/cli'), build: (b) => Frameworks.#angular(b) },
     { name: 'vite', label: 'Vite', detect: (deps) => deps.has('vite'), build: (b) => Frameworks.#vite(b) },
     { name: 'cra', label: 'Create React App', detect: (deps) => deps.has('react-scripts'), build: (b) => Frameworks.#script(b, ['react-scripts', 'build'], ['build']) },
-    { name: 'script', label: 'build script', detect: (_, b) => Frameworks.#ownBuild(b), build: (b) => Frameworks.#script(b, null, Frameworks.OUT_DIRS) },
+    { name: 'script', label: 'build script', detect: (_, pkg) => Frameworks.#ownBuild(pkg), build: (b) => Frameworks.#script(b, null, Frameworks.OUT_DIRS) },
   ]
 
   static detect(build: Detecting, wanted?: string): Framework | null {
@@ -57,19 +57,19 @@ export class Frameworks {
       return found
     }
     const deps = Frameworks.#deps(build.pkg)
-    return Frameworks.LIST.find((f) => !(f.name === 'vite' && build.entry) && f.detect(deps, build as Build)) ?? null
+    return Frameworks.LIST.find((f) => !(f.name === 'vite' && build.entry) && f.detect(deps, build.pkg)) ?? null
   }
 
   static async install(dir: string): Promise<void> {
-    if (Frameworks.#up(dir, 'node_modules')) return
+    if (up(dir, (at) => existsSync(join(at, 'node_modules')))) return
     const pm = PackageManager.of(dir)
     console.log(`acde: no node_modules: ${pm.name} install`)
     const code = await Runtime.spawn(pm.install, { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] }).exited
     if (code !== 0) throw new Error(`${pm.name} install failed (exit ${code})`)
   }
 
-  static #ownBuild(b: Pick<Build, 'pkg'>): boolean {
-    const build = Frameworks.#scripts(b)['build']
+  static #ownBuild(pkg: Readonly<Record<string, unknown>>): boolean {
+    const build = Frameworks.#scripts(pkg)['build']
     return typeof build === 'string' && !/(^|[\s;&|(/])(acde|acde\.mjs|bunx acde|npx acde)\s/.test(`${build} `)
   }
 
@@ -82,17 +82,9 @@ export class Frameworks {
     return names
   }
 
-  static #scripts(b: Pick<Build, 'pkg'>): Record<string, unknown> {
-    const scripts = b.pkg['scripts']
+  static #scripts(pkg: Readonly<Record<string, unknown>>): Record<string, unknown> {
+    const scripts = pkg['scripts']
     return scripts && typeof scripts === 'object' ? (scripts as Record<string, unknown>) : {}
-  }
-
-  static #up(dir: string, name: string): string | null {
-    for (let at = dir; ; at = dirname(at)) {
-      const path = join(at, name)
-      if (existsSync(path)) return path
-      if (dirname(at) === at) return null
-    }
   }
 
   static async #spawn(cwd: string, argv: readonly string[], env: Record<string, string> = {}): Promise<void> {
@@ -137,11 +129,11 @@ export class Frameworks {
 
   static async #vite(b: Build): Promise<Output> {
     const out = join(b.scratch, 'vite')
-    const vite = (await import(pathToFileURL(Runtime.resolve('vite', b.dir)).href)) as { build(config: object): Promise<unknown> }
+    const vite = await ViteBundler.load(b.dir)
     const cwd = process.cwd()
     process.chdir(b.dir)
     try {
-      await vite.build({ root: b.dir, base: '/', mode: 'production', logLevel: 'warn', plugins: [...b.vitePlugins], build: { outDir: out, emptyOutDir: true } })
+      await vite.build({ root: b.dir, base: '/', mode: 'production', logLevel: 'warn', plugins: [acdeVite()], build: { outDir: out, emptyOutDir: true } })
     } finally {
       process.chdir(cwd)
     }
@@ -153,7 +145,8 @@ export class Frameworks {
     else await Frameworks.#spawn(b.dir, Runtime.bun ? [process.execPath, '--bun', 'run', 'build'] : PackageManager.of(b.dir).run('build'))
     for (const dir of dirs) {
       const path = join(b.dir, dir)
-      if (Frameworks.#isDir(path) && Frameworks.#page(path)) return { web: path, page: Frameworks.#page(path), server: null }
+      const page = Frameworks.#isDir(path) ? Frameworks.#page(path) : null
+      if (page) return { web: path, page, server: null }
     }
     throw new Error(`the build made no page: no .html in ${dirs.join(', ')}`)
   }
@@ -187,7 +180,7 @@ export class Frameworks {
   static async #nuxt(b: Build): Promise<Output> {
     const output = join(b.dir, '.output')
     rmSync(output, { recursive: true, force: true })
-    await Frameworks.#tool(b, existsSync(join(b.dir, 'node_modules', '.bin', 'nuxt')) ? 'nuxt' : 'nuxi', ['build'], { NITRO_PRESET: 'node-server' })
+    await Frameworks.#tool(b, 'nuxt', ['build'], { NITRO_PRESET: 'node-server' })
     const entry = join(output, 'server', 'index.mjs')
     if (!existsSync(entry)) throw new Error('nuxt build: no .output/server/index.mjs')
     const web = join(output, 'public')

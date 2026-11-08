@@ -3,11 +3,5 @@
   "version": "1.2.3",
   "displayName": "Hello",
   "private": true,
-  "type": "module",
-  "acde": {
-    "icon": "src/logo.svg",
-    "capabilities": {
-      "fs": true
-    }
-  }
+  "type": "module"
 }

@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util'
 const ROOT = resolve(import.meta.dirname, '..')
 const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string; description: string; license: string; repository: object; exports: object; engines: object }
 const TRIPLES = ['aarch64-apple-darwin', 'x86_64-apple-darwin', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-musl', 'x86_64-unknown-linux-musl', 'x86_64-pc-windows-msvc']
-const CARRIED = ['listen.ts', 'sockets.ts', 'ipc.ts', 'sessions.ts', 'configs.ts']
+const CARRIED = ['listen.ts', 'sockets.ts', 'ipc.ts', 'sessions.ts', 'configs.ts', 'paths.ts', 'runtime.ts']
 
 const { values } = parseArgs({
   options: {
@@ -89,5 +89,5 @@ const lines = existsSync(sums) ? readFileSync(sums, 'utf8').split('\n').filter((
 writeFileSync(sums, `${[...lines, `${sum}  ${name}.tar.gz`].sort((a, b) => a.slice(66).localeCompare(b.slice(66))).join('\n')}\n`)
 writeFileSync(join(resolve(values.out!), 'latest'), `${version}\n`)
 copyFileSync(join(ROOT, 'install.sh'), join(resolve(values.out!), 'install.sh'))
-crlf(join(ROOT, 'install.cmd'), join(resolve(values.out!), 'install.cmd'))
+copyFileSync(join(ROOT, 'install.ps1'), join(resolve(values.out!), 'install.ps1'))
 console.log(`${tarball}\n${sum}`)

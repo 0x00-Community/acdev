@@ -1,4 +1,5 @@
 export {
+  ACTIONS,
   Acde,
   ActError,
   type ActResult,
@@ -13,7 +14,6 @@ export {
   type QueryOptions,
   type QueryResult,
   type RequestEntry,
-  type ScreenShot,
   type Shot,
   type Snapshot,
   type SnapshotOptions,

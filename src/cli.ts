@@ -52,7 +52,7 @@ interface Args {
 
 class Cli {
   static readonly SPECS: Readonly<Record<string, Spec>> = {
-    new: { args: [0, 1], flags: ['id', 'label', 'template', 'pm'], switches: ['desktop', 'backend', 'install', 'git', 'yes'] },
+    new: { args: [0, 1], flags: ['id', 'label', 'template', 'pm'], switches: ['backend', 'install', 'git', 'yes'] },
     check: { args: [0, 1] },
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
@@ -132,10 +132,9 @@ class Cli {
 
   static async create(dir: string, flags: ReadonlyMap<string, string>): Promise<number> {
     const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
-    if (flags.has('desktop') && flags.has('template') && flags.get('template') !== 'desktop') throw new Error('--desktop and --template: one of them')
     const given = {
       ...(dir && { dir }),
-      ...((flags.get('template') ?? (flags.has('desktop') ? 'desktop' : undefined)) !== undefined && { template: flags.get('template') ?? 'desktop' }),
+      ...(flags.has('template') && { template: flags.get('template')! }),
       ...(flags.has('id') && { id: flags.get('id')! }),
       ...(flags.has('label') && { label: flags.get('label')! }),
       ...(flags.has('backend') && { backend: true }),

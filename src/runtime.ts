@@ -1,9 +1,11 @@
 import { spawn as nodeSpawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { constants } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { join } from 'node:path'
+import { up } from './paths.ts'
+import type { Env } from './sockets.ts'
 
-export type Env = Readonly<Record<string, string | undefined>>
+export type { Env }
 
 export interface SpawnOptions {
   readonly cwd?: string
@@ -21,21 +23,6 @@ export interface Child {
 export class Runtime {
   static readonly bun = typeof process.versions['bun'] === 'string'
   static readonly CONDITIONS = ['node', 'import', 'module', 'default']
-
-  static which(name: string, env: Env = process.env): string | null {
-    const windows = process.platform === 'win32'
-    const exts = windows ? ['', ...(env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : ['']
-    for (const dir of (env['PATH'] ?? env['Path'] ?? '').split(delimiter)) {
-      if (!dir) continue
-      for (const ext of exts) {
-        const file = join(dir, name + ext)
-        try {
-          if (statSync(file).isFile()) return file
-        } catch {}
-      }
-    }
-    return null
-  }
 
   static spawn(argv: readonly string[], options: SpawnOptions = {}): Child {
     const [file, ...args] = argv
@@ -69,12 +56,9 @@ export class Runtime {
 
   static resolve(specifier: string, from: string): string {
     const [name, sub] = Runtime.#split(specifier)
-    for (let at = from; ; at = dirname(at)) {
-      const dir = join(at, 'node_modules', name)
-      const manifest = join(dir, 'package.json')
-      if (existsSync(manifest)) return realpathSync(Runtime.#entry(dir, JSON.parse(readFileSync(manifest, 'utf8')) as Record<string, unknown>, sub, specifier))
-      if (dirname(at) === at) throw new Error(`cannot find ${specifier} from ${from}`)
-    }
+    const dir = up(from, (at) => existsSync(join(at, 'node_modules', name, 'package.json')) && join(at, 'node_modules', name))
+    if (!dir) throw new Error(`cannot find ${specifier} from ${from}`)
+    return realpathSync(Runtime.#entry(dir, JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as Record<string, unknown>, sub, specifier))
   }
 
   static #split(specifier: string): [string, string] {

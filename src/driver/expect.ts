@@ -149,6 +149,7 @@ export class WindowAssertions {
 
 export function expect(target: Locator): LocatorAssertions
 export function expect(target: AppWindow): WindowAssertions
+export function expect(target: Locator | AppWindow): LocatorAssertions | WindowAssertions
 export function expect(target: Locator | AppWindow): LocatorAssertions | WindowAssertions {
   return target instanceof Locator ? new LocatorAssertions(target) : new WindowAssertions(target)
 }

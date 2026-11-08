@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { which } from '../launcher.mjs'
 import { Frameworks } from '../src/frameworks.ts'
 import { Jsonc, Runtime } from '../src/runtime.ts'
 import { cleanup, tmp } from './helpers.ts'
@@ -69,17 +70,17 @@ describe('Runtime.spawn / which', () => {
     child.kill('SIGTERM')
     expect(await child.exited).toBe(143)
     await expect(Runtime.spawn(['/no/such/program'], { stdio: 'ignore' }).exited).rejects.toThrow()
-    expect(Runtime.which('sh')).toMatch(/\/sh$/)
-    expect(Runtime.which('surely-not-a-program-acde')).toBeNull()
+    expect(which('sh')).toMatch(/\/sh$/)
+    expect(which('surely-not-a-program-acde')).toBeNull()
   })
 })
 
 describe('Frameworks.detect', () => {
   const pkg = { devDependencies: { vite: '8' } }
   test('vite is the framework unless the config names an entry (then acde builds it; on Node with that vite)', () => {
-    expect(Frameworks.detect({ dir: '/', pkg })?.name).toBe('vite')
-    expect(Frameworks.detect({ dir: '/', pkg, entry: true })).toBeNull()
-    expect(Frameworks.detect({ dir: '/', pkg, entry: true }, 'vite')?.name).toBe('vite')
-    expect(Frameworks.detect({ dir: '/', pkg: { dependencies: { next: '16', vite: '8' } }, entry: true })?.name).toBe('next')
+    expect(Frameworks.detect({ pkg })?.name).toBe('vite')
+    expect(Frameworks.detect({ pkg, entry: true })).toBeNull()
+    expect(Frameworks.detect({ pkg, entry: true }, 'vite')?.name).toBe('vite')
+    expect(Frameworks.detect({ pkg: { dependencies: { next: '16', vite: '8' } }, entry: true })?.name).toBe('next')
   })
 })

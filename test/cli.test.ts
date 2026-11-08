@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { AppPackage } from '../src/package.ts'
+import { which } from '../launcher.mjs'
+import { Project } from '../src/app.ts'
+import { Creator } from '../src/create.ts'
 import { PackageManager } from '../src/pm.ts'
-import { appId } from '../src/sockets.ts'
 import { cleanup, env, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -181,9 +182,9 @@ describe('acde.config.jsonc', () => {
     expect(existsSync(join(data, 'acde/packages/hello/web/index.html'))).toBe(true)
   })
 
-  test('new --desktop: builds a desktop, its services and its apps', async () => {
+  test('new --template desktop: builds a desktop, its services and its apps', async () => {
     const dir = join(tmp(), 'mine')
-    expect((await cli(['new', dir, '--desktop', '--label', '我的桌面'], tmp())).code).toBe(0)
+    expect((await cli(['new', dir, '--template', 'desktop', '--label', '我的桌面'], tmp())).code).toBe(0)
     writeFileSync(join(dir, 'clock.js'), 'export default () => ({ methods: { now: () => Date.now() } })\n')
     writeFileSync(join(dir, 'notes.html'), '<!doctype html><title>Notes</title><p>notes</p>\n')
     const config = readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')
@@ -238,13 +239,13 @@ describe('acde.config.jsonc', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'made-by-vite', devDependencies: { vite: '^7.0.0' } }))
     writeFileSync(join(dir, '.gitignore'), 'node_modules')
-    AppPackage.adopt(dir, 'made-by-vite', 'Vite App', 'React')
+    Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': AppPackage.wiring(dir).devDependencies['@dopame/acde-api'] })
+    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Creator.api(dir) })
     expect(pkg.scripts).toEqual({ 'acde:dev': 'acde dev', 'acde:build': 'acde build', 'acde:check': 'acde check' })
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
     expect(readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')).toContain('"label": "Vite App"')
-    AppPackage.adopt(dir, 'made-by-vite', 'Vite App', 'React')
+    Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
   })
 
@@ -270,7 +271,7 @@ describe('a project made by acde from its checkout', () => {
   function tools(names: readonly string[]): string {
     const bin = tmp()
     for (const name of names) {
-      const found = name === 'bun' ? process.execPath : PackageManager.which(name)
+      const found = name === 'bun' ? process.execPath : which(name)
       if (!found) throw new Error(`${name} is not on PATH`)
       symlinkSync(realpathSync(found), join(bin, name))
     }
@@ -286,16 +287,16 @@ describe('a project made by acde from its checkout', () => {
 
   test('the SDK is a relative file: path, scripts call acde from PATH, there is no acde dependency', () => {
     const dir = realpathSync(tmp())
-    expect(AppPackage.INSTALLED).toBe(false)
-    expect(AppPackage.wiring(dir)).toEqual({ devDependencies: { '@dopame/acde-api': `file:${relative(dir, API)}` }, command: 'acde' })
+    expect(Creator.INSTALLED).toBe(false)
+    expect(Creator.api(dir)).toBe(`file:${relative(dir, API)}`)
     expect(relative(dir, API)).toStartWith('..')
   })
 
   test('npm, pnpm and yarn projects get vite for the html and desktop templates, bun ones do not', () => {
-    for (const [pm, vite] of [['bun', undefined], ['npm', AppPackage.VITE], ['pnpm', AppPackage.VITE], ['yarn', AppPackage.VITE]] as const) {
-      for (const kind of AppPackage.KINDS) {
+    for (const [pm, vite] of [['bun', undefined], ['npm', Creator.VITE], ['pnpm', Creator.VITE], ['yarn', Creator.VITE]] as const) {
+      for (const kind of ['app', 'desktop'] as const) {
         const dir = join(tmp(), `${kind}-${pm}`)
-        AppPackage.create(dir, kind, pm)
+        Creator.lay(dir, kind, pm, `${kind}-${pm}`, `${kind}-${pm}`)
         const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
         expect(pkg.devDependencies['vite']).toBe(vite)
         expect(pkg.devDependencies['acde']).toBeUndefined()
@@ -339,7 +340,7 @@ describe('a project made by acde from its checkout', () => {
   }, 60_000)
 
   for (const pm of ['npm', 'pnpm'] as const) {
-    test.skipIf(!PackageManager.which(pm) || !PackageManager.which('node'))(`${pm}: install, run build`, async () => {
+    test.skipIf(!which(pm) || !which('node'))(`${pm}: install, run build`, async () => {
       const dir = join(tmp(), `by-${pm}`)
       expect((await cli(['new', dir, '--pm', pm, '--yes'], tmp())).code).toBe(0)
       const path = tools([pm, 'node', 'bun'])
@@ -407,7 +408,7 @@ describe('public/ and icons', () => {
   })
 
   test('an icon name stays a name; a missing or non-image icon file fails check and build', async () => {
-    const named = project({ 'package.json': JSON.stringify({ name: 'named', acde: { icon: 'timer' } }), 'index.html': '<!doctype html><p>x</p>' })
+    const named = project({ 'acde.config.jsonc': JSON.stringify({ type: 'app', id: 'named', icon: 'timer' }), 'index.html': '<!doctype html><p>x</p>' })
     expect((await cli(['build', '--out', join(named, '.acde')], named)).code).toBe(0)
     expect(JSON.parse(readFileSync(join(named, '.acde/package.json'), 'utf8')).acde.apps[0].icon).toBe('timer')
     const cases: [string, Record<string, string | Buffer>, string][] = [
@@ -443,8 +444,8 @@ describe('mistakes', () => {
   })
 
   test('ids from package names', () => {
-    expect(appId('@scope/My_App')).toBe('my-app')
-    expect(appId('notes')).toBe('notes')
-    expect(appId('@x/--')).toBeNull()
+    expect(Project.idOf('@scope/My_App')).toBe('my-app')
+    expect(Project.idOf('notes')).toBe('notes')
+    expect(Project.idOf('@x/--')).toBeNull()
   })
 })

@@ -16,13 +16,3 @@ export function socketDir(env: Env = process.env): string {
 export function socketPath(port: number, env: Env = process.env): string {
   return join(socketDir(env), `${port}.sock`)
 }
-
-export function appId(name: string): string | null {
-  const id = name
-    .replace(/^@[^/]*\//, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-  return id || null
-}

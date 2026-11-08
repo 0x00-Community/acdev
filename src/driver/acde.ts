@@ -1,9 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { readFileSync as readBytes, rmSync, mkdtempSync } from 'node:fs'
-import { setTimeout as sleep } from 'node:timers/promises'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import { cliEnv, cliFile } from 'acde/launcher'
 import { DevClient } from '../ipc.ts'
@@ -107,13 +105,6 @@ export interface Emulation {
   readonly reducedMotion?: boolean | null
 }
 
-export interface ScreenShot {
-  readonly png: Buffer
-  readonly width: number
-  readonly height: number
-  readonly path: string | null
-}
-
 export interface Snapshot {
   readonly text: string
   readonly windows: readonly InspectWindow[]
@@ -124,6 +115,8 @@ export interface ActResult {
   readonly ok: boolean
   readonly text: string
 }
+
+export const ACTIONS: readonly InspectAction[] = ['click', 'double', 'right', 'hover', 'type', 'settext', 'key', 'scroll', 'focus', 'close', 'minimize', 'restore']
 
 export interface Step {
   readonly ref: string
@@ -238,14 +231,6 @@ export class Acde {
     }
   }
 
-  static root(): string {
-    for (let dir = dirname(fileURLToPath(import.meta.url)); ; dir = dirname(dir)) {
-      const manifest = join(dir, 'package.json')
-      if (existsSync(manifest) && (JSON.parse(readFileSync(manifest, 'utf8')) as { name?: string }).name === 'acde') return dir
-      if (dirname(dir) === dir) throw new Error(`the acde package is not above ${fileURLToPath(import.meta.url)}`)
-    }
-  }
-
   static async #connect(session: Session): Promise<DevClient> {
     try {
       return await DevClient.connect(session.endpoint)
@@ -266,10 +251,6 @@ export class Acde {
 
   get closed(): boolean {
     return this.#closed
-  }
-
-  get launched(): boolean {
-    return this.#child !== null
   }
 
   get desktop(): AppWindow {
@@ -319,12 +300,12 @@ export class Acde {
     return Acde.#page<RequestEntry>('network', await this.#request('network', { ...options }))
   }
 
-  async screen(options: { readonly path?: string } = {}): Promise<ScreenShot> {
+  async screen(options: { readonly path?: string } = {}): Promise<Shot> {
     const scratch = options.path === undefined ? mkdtempSync(join(tmpdir(), 'acde-screen-')) : null
     const path = options.path === undefined ? join(scratch!, 'screen.png') : resolve(options.path)
     try {
       const answer = (await this.#request('screen', { path })) as { width?: unknown; height?: unknown } | null
-      return { png: readBytes(path), width: Number(answer?.width) || 0, height: Number(answer?.height) || 0, path: scratch === null ? path : null }
+      return { png: readFileSync(path), width: Number(answer?.width) || 0, height: Number(answer?.height) || 0, path: scratch === null ? path : null }
     } finally {
       if (scratch !== null) rmSync(scratch, { recursive: true, force: true })
     }
