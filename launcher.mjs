@@ -22,7 +22,7 @@ export function installed(root = ROOT) {
 }
 
 export function which(name, env = process.env) {
-  const exts = WINDOWS ? ['', ...(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : ['']
+  const exts = WINDOWS && !/\.[^\\/.]+$/.test(name) ? (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : ['']
   for (const dir of (env.PATH || env.Path || '').split(delimiter)) {
     if (!dir) continue
     for (const ext of exts) {

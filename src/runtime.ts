@@ -27,11 +27,12 @@ export class Runtime {
   static spawn(argv: readonly string[], options: SpawnOptions = {}): Child {
     const [file, ...args] = argv
     if (!file) throw new Error('nothing to run')
-    const child = nodeSpawn(file, args, {
+    const batch = process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)
+    const child = nodeSpawn(batch ? Runtime.#quote(file) : file, batch ? args.map(Runtime.#quote) : args, {
       ...(options.cwd !== undefined && { cwd: options.cwd }),
       env: Runtime.#env(options.env ?? process.env),
       stdio: options.stdio ?? 'inherit',
-      shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(file),
+      shell: batch,
     })
     const exited = new Promise<number>((resolve, reject) => {
       child.once('error', reject)
@@ -46,6 +47,10 @@ export class Runtime {
         if (child.exitCode === null && child.signalCode === null) child.kill(signal)
       },
     }
+  }
+
+  static #quote(arg: string): string {
+    return /^[\w\-.:\\/=@+]+$/.test(arg) ? arg : `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`
   }
 
   static async readStdin(): Promise<string> {

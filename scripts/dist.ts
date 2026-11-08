@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 const ROOT = resolve(import.meta.dirname, '..')
@@ -14,6 +14,7 @@ const { values } = parseArgs({
     acdert: { type: 'string' },
     host: { type: 'string' },
     api: { type: 'string', default: join(ROOT, '../acdert/web/packages/acde-api') },
+    desktop: { type: 'string', default: join(ROOT, '../acde-dopame/packages/dopame') },
     triple: { type: 'string' },
     version: { type: 'string', default: SELF.version },
     out: { type: 'string', default: join(ROOT, '.dist') },
@@ -28,6 +29,7 @@ function need(name: string, value: string | undefined, what: string): string {
 const acdert = resolve(need('acdert', values.acdert, 'the acdert binary'))
 const host = resolve(need('host', values.host, 'the acde-host dist directory (broker.js, web.js)'))
 const api = resolve(values.api!)
+const desktop = resolve(values.desktop!)
 const triple = need('triple', values.triple, `rust target triple: ${TRIPLES.join(', ')}`)
 const version = values.version!
 if (!TRIPLES.includes(triple)) throw new Error(`--triple ${triple}: one of ${TRIPLES.join(', ')}`)
@@ -37,6 +39,7 @@ if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`--versi
 if (!statSync(acdert).isFile()) throw new Error(`--acdert ${acdert}: not a file`)
 if (!existsSync(join(host, 'broker.js'))) throw new Error(`--host ${host}: no broker.js in it`)
 if (!existsSync(join(api, 'package.json'))) throw new Error(`--api ${api}: no package.json in it`)
+if (!existsSync(join(desktop, 'package.json')) || !existsSync(join(desktop, 'dist'))) throw new Error(`--desktop ${desktop}: a built desktop package (package.json and dist/), e.g. acde-dopame's packages/dopame after bun run build`)
 
 const name = `acde-${version}-${triple}`
 const dir = join(resolve(values.out!), version)
@@ -54,6 +57,10 @@ if (windows) {
   for (const file of ['acde', 'acdert']) chmodSync(join(top, 'bin', file), 0o755)
 }
 for (const file of readdirSync(host)) if (file.endsWith('.js')) copyFileSync(join(host, file), join(top, 'bin', 'app', 'dist', file))
+const shipped = join(top, 'bin', 'app', 'packages', basename(desktop))
+mkdirSync(shipped, { recursive: true })
+copyFileSync(join(desktop, 'package.json'), join(shipped, 'package.json'))
+cpSync(join(desktop, 'dist'), join(shipped, 'dist'), { recursive: true, filter: (from) => !from.endsWith('.map') })
 
 const lib = join(top, 'lib', 'acde')
 mkdirSync(join(lib, 'src'), { recursive: true })
