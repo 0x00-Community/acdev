@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Subprocess } from 'bun'
 
 const scratch: string[] = []
 
 export function tmp(): string {
-  const dir = mkdtempSync('/tmp/acde-test-')
+  const dir = mkdtempSync(join(tmpdir(), 'acde-test-'))
   scratch.push(dir)
   return dir
 }
