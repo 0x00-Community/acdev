@@ -47,7 +47,7 @@ curl -fsSL -o "%WORK%\%NAME%.tar.gz" "%ACDE_DIST%/%VERSION%/%NAME%.tar.gz" || (e
 curl -fsSL -o "%WORK%\SHA256SUMS" "%ACDE_DIST%/%VERSION%/SHA256SUMS" || (echo acde: could not download %ACDE_DIST%/%VERSION%/SHA256SUMS 1>&2 & goto fail)
 
 set "WANT="
-for /f "tokens=1,2" %%a in ('findstr /e /c:"  %NAME%.tar.gz" "%WORK%\SHA256SUMS"') do set "WANT=%%a"
+for /f "tokens=1,2" %%a in ('findstr /c:"%NAME%.tar.gz" "%WORK%\SHA256SUMS"') do if "%%b"=="%NAME%.tar.gz" set "WANT=%%a"
 if not defined WANT (echo acde: %NAME%.tar.gz is not in SHA256SUMS 1>&2 & goto fail)
 set "GOT="
 for /f "skip=1 delims=" %%h in ('certutil -hashfile "%WORK%\%NAME%.tar.gz" SHA256') do if not defined GOT set "GOT=%%h"
