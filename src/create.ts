@@ -231,7 +231,7 @@ export class Creator {
         Creator.#copy(source, join(to, name), vars)
         continue
       }
-      const file = join(to, name === 'gitignore' ? '.gitignore' : name)
+      const file = resolve(to, name === 'gitignore' ? '.gitignore' : name)
       mkdirSync(dirname(file), { recursive: true })
       writeFileSync(file, readFileSync(source, 'utf8').replace(/\{\{(\w+)\}\}/g, (all, key: string) => vars[key] ?? all))
     }
