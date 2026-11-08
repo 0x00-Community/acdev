@@ -4,7 +4,10 @@ mod picked;
 pub(crate) mod workspace;
 
 use grants::Grants;
+#[cfg(not(windows))]
 use path::NodePath;
+#[cfg(windows)]
+use path::windows_directory;
 pub use picked::PickedFolders;
 pub use workspace::EntryKind;
 use workspace::{Contents, FinderEntry, FinderPreview, FinderRoot, MkdirOptions, WorkspaceFs, WriteOptions};
@@ -174,8 +177,7 @@ impl From<Failure> for FsError {
 impl FsCall {
     fn scope(&self) -> Option<&str> {
         match self {
-            Self::State | Self::Roots | Self::Desktop | Self::Revoke { .. } => None,
-            Self::Locate { path } => Some(path),
+            Self::State | Self::Roots | Self::Desktop | Self::Locate { .. } | Self::Revoke { .. } => None,
             Self::List { root, .. }
             | Self::Preview { root, .. }
             | Self::Download { root, .. }
@@ -203,7 +205,7 @@ impl Shared {
         Self { fs: WorkspaceFs::new(), place: Mutex::new(Place::load()), grants }
     }
 
-    fn call(&self, call: FsCall, owner: Option<&str>) -> Outcome<FsReply> {
+    fn call(&self, call: FsCall, owner: Option<&str>, scope: Option<&dyn Fn(&str) -> bool>) -> Outcome<FsReply> {
         let json = |value: Outcome<Value>| value.map(FsReply::Json);
         let root = |path: &str| self.root(owner, path);
         match call {
@@ -213,7 +215,7 @@ impl Shared {
             FsCall::List { root: at, path, hidden } => json(self.fs.list_in(root(&at)?, path.as_deref().unwrap_or(""), hidden.unwrap_or(true)).json()),
             FsCall::Preview { root: at, path } => json(WorkspaceFs::preview_in(&root(&at)?, &path).json()),
             FsCall::Download { root: at, path } => WorkspaceFs::raw_in(&root(&at)?, &path).map(|(name, data)| FsReply::File { name, data }),
-            FsCall::Locate { path } => json(self.locate(owner, &path)),
+            FsCall::Locate { path } => json(self.locate(owner, &path, scope)),
             FsCall::OpenPath { root: at, path } => json(self.open_path(&root(&at)?, &path)),
             FsCall::Place { root: at, path, file } => json(self.set_place(&root(&at)?, path, file).json()),
             FsCall::Mkdir { root: at, path, options } => {
@@ -256,23 +258,37 @@ impl Shared {
         Ok(Desktop { root, entries: listing.entries, truncated: listing.truncated })
     }
 
-    fn locate(&self, owner: Option<&str>, path: &str) -> Outcome<Value> {
+    fn locate(&self, owner: Option<&str>, path: &str, scope: Option<&dyn Fn(&str) -> bool>) -> Outcome<Value> {
         let home = std::env::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
         let expanded = match path.strip_prefix('~') {
-            Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
+            Some(rest) if rest.is_empty() || rest.starts_with('/') || cfg!(windows) && rest.starts_with('\\') => {
+                format!("{home}{rest}")
+            }
             _ => path.to_owned(),
         };
-        if !expanded.is_absolute() {
-            return Err(Failure::invalid("path must be absolute (or ~/…), or give root and path"));
-        }
-        let clean = expanded.normalize();
+        #[cfg(windows)]
+        let clean = windows_directory(&expanded);
+        #[cfg(not(windows))]
+        let clean = expanded.is_absolute().then(|| expanded.normalize());
+        let clean = clean.ok_or_else(|| Failure::invalid("path must be absolute (or ~/…), or give root and path"))?;
+        #[cfg(windows)]
+        let relative = |root: &str| {
+            let relative = std::path::Path::new(&clean).strip_prefix(root).ok()?;
+            Some(relative.to_str()?.replace('\\', "/"))
+        };
+        #[cfg(not(windows))]
+        let relative = |root: &str| clean.within(root).map(|path| path.trim_start_matches('/').to_owned());
         let roots = self.roots(owner)?;
         let (root, relative) = roots
             .iter()
-            .filter_map(|root| Some((root, clean.within(&root.path)?)))
+            .filter(|root| scope.is_none_or(|allows| allows(&root.path)))
+            .filter_map(|root| relative(&root.path).map(|path| (root, path)))
             .max_by_key(|(root, _)| root.path.len())
-            .ok_or_else(|| Failure::http(404, "not inside any workspace the Finder lists"))?;
-        Ok(serde_json::json!({"root": root.path, "path": relative.trim_start_matches('/')}))
+            .ok_or_else(|| match scope {
+                Some(_) => Failure::http(403, "not inside a workspace allowed for this app"),
+                None => Failure::http(404, "not inside any workspace the Finder lists"),
+            })?;
+        Ok(serde_json::json!({"root": root.path, "path": relative}))
     }
 
     fn open_path(&self, workspace: &FinderRoot, path: &str) -> Outcome<Value> {
@@ -342,7 +358,7 @@ impl Workspace {
         if self.roots.is_some() {
             match call.scope() {
                 Some(root) if self.allows(root) => {}
-                None if matches!(call, FsCall::Roots | FsCall::Revoke { .. }) => {}
+                None if matches!(call, FsCall::Roots | FsCall::Locate { .. } | FsCall::Revoke { .. }) => {}
                 what => {
                     let what = what.unwrap_or("its workspaces");
                     return Err(Failure::http(403, format!("this app may not use the files of {what} (not in its manifest's capabilities)")).into());
@@ -353,7 +369,9 @@ impl Workspace {
             let roots: Outcome<Vec<FinderRoot>> = self.shared.roots(owner).map(|roots| roots.into_iter().filter(|root| self.allows(&root.path)).collect());
             return Ok(FsReply::Json(roots.json()?));
         }
-        Ok(self.shared.call(call, owner)?)
+        let allows = |root: &str| self.allows(root);
+        let scope = self.roots.as_ref().map(|_| &allows as &dyn Fn(&str) -> bool);
+        Ok(self.shared.call(call, owner, scope)?)
     }
 }
 
@@ -373,7 +391,7 @@ impl Finder {
     #[napi]
     pub async fn locate(&self, path: String) -> Result<Value> {
         let shared = Arc::clone(&self.shared);
-        blocking(move || Ok(shared.locate(None, &path)?)).await
+        blocking(move || Ok(shared.locate(None, &path, None)?)).await
     }
 }
 
@@ -401,6 +419,34 @@ mod tests {
             Ok(_) => Value::String("not json".into()),
             Err(error) => serde_json::json!({"status": error.status, "code": error.code}),
         }
+    }
+
+    #[test]
+    fn locate_returns_a_path_relative_to_an_allowed_root() {
+        let base = std::env::temp_dir().join(format!("acde-locate-{}", std::process::id()));
+        let root = base.join("Notes");
+        let file = root.join("folder").join("entry.txt");
+        let sibling = base.join("Notes Other").join("entry.txt");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
+        std::fs::write(&file, "inside").unwrap();
+        std::fs::write(&sibling, "outside").unwrap();
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let scoped = all.scoped(Some(vec![]), Some("locate-probe"));
+        let owner = all.scoped(None, Some("locate-probe"));
+        let other = all.scoped(Some(vec![]), Some("other"));
+        let root = scoped.grant(root.to_str().unwrap()).unwrap();
+        let locate = |workspace: &Workspace, path: &str| json(workspace.call(FsCall::Locate { path: path.to_owned() }));
+        let expected = serde_json::json!({"root": root, "path": "folder/entry.txt"});
+        assert_eq!(locate(&owner, file.to_str().unwrap()), expected);
+        assert_eq!(locate(&scoped, file.to_str().unwrap()), expected);
+        assert_eq!(locate(&scoped, &format!("{root}/folder/entry.txt")), expected);
+        assert_eq!(locate(&scoped, &root), serde_json::json!({"root": root, "path": ""}));
+        assert_eq!(locate(&scoped, sibling.to_str().unwrap())["code"], "EACCES");
+        assert_eq!(locate(&scoped, &format!("{root}/../Notes Other/entry.txt"))["code"], "EACCES");
+        assert_eq!(locate(&other, file.to_str().unwrap())["code"], "EACCES");
+        assert_eq!(locate(&owner, "relative/entry.txt")["code"], "EINVAL");
+        _ = std::fs::remove_dir_all(base);
     }
 
     #[test]

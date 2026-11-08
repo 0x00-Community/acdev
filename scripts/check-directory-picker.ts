@@ -93,12 +93,21 @@ try {
     const roots = (await fs.roots()).map(({ path, label, mode }) => ({ path, label, mode }))
     const sibling = await fs.readText(${JSON.stringify(readDir)}, 'fixture.txt')
       .then(() => 'read', (error) => error.code)
-    return { roots, sibling }
+    const location = await fs.locate(${JSON.stringify(join(writeDir, 'saved.txt'))})
+    const outside = await fs.locate(${JSON.stringify(join(readDir, 'fixture.txt'))})
+      .then(() => 'located', (error) => error.code)
+    return { roots, sibling, location, outside }
   })()`)
-  assert.deepEqual(write, { roots: [{ path: writeDir, label: 'read-write', mode: 'writable' }], sibling: 'EACCES' })
+  assert.deepEqual(write, {
+    roots: [{ path: writeDir, label: 'read-write', mode: 'writable' }],
+    sibling: 'EACCES',
+    location: { root: writeDir, path: 'saved.txt' },
+    outside: 'EACCES',
+  })
   assert.deepEqual(await Bun.file(grant).json(), { roots: [writeDir] })
   assert.equal(await Bun.file(join(writeDir, 'saved.txt')).text(), 'confirmed writable selection')
   console.log('Explicit read/write choice creates a file and persists only that directory')
+  console.log('Locate resolves a file within the granted folder and refuses a sibling directory')
 
   await call('close', `(api) => { setTimeout(() => api.broker.closeWeb(${id}), 100); return true }`)
   const timeout = new Promise<null>((done) => setTimeout(done, 8000, null).unref())
