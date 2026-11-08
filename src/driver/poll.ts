@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises'
+
 export class Poll {
   static readonly INTERVAL_MS = 100
 
@@ -10,7 +12,7 @@ export class Poll {
         const error = await fail()
         throw typeof error === 'string' ? new Error(error) : error
       }
-      await Bun.sleep(Math.min(Poll.INTERVAL_MS, Math.max(0, deadline - Date.now())))
+      await sleep(Math.min(Poll.INTERVAL_MS, Math.max(0, deadline - Date.now())))
     }
   }
 }

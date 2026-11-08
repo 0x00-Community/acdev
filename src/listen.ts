@@ -1,16 +1,22 @@
-import dgram from 'node:dgram'
-import { chmodSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs'
-import http from 'node:http'
-import https from 'node:https'
-import net from 'node:net'
-import { dirname } from 'node:path'
-import tls from 'node:tls'
+import type { Socket as UdpSocket } from 'node:dgram'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Server as NetServer } from 'node:net'
 import { socketPath } from './sockets.ts'
+
+const dgram = process.getBuiltinModule('node:dgram')
+const { chmodSync, lstatSync, mkdirSync, unlinkSync } = process.getBuiltinModule('node:fs')
+const http = process.getBuiltinModule('node:http')
+const https = process.getBuiltinModule('node:https')
+const net = process.getBuiltinModule('node:net')
+const { dirname } = process.getBuiltinModule('node:path')
+const { Readable } = process.getBuiltinModule('node:stream')
+const tls = process.getBuiltinModule('node:tls')
 
 type Fn = (...args: unknown[]) => unknown
 type Options = Record<PropertyKey, unknown>
 
 const INSTALLED = Symbol.for('acde.listen')
+const SERVE = Symbol.for('acde.serve')
 const live = new Set<string>()
 
 function toPort(value: unknown): number | undefined {
@@ -123,18 +129,18 @@ function patchListen(proto: object): void {
   patched.add(proto)
   const target = proto as { listen: Fn }
   const listen = target.listen
-  target.listen = function (this: net.Server, ...args: unknown[]) {
+  target.listen = function (this: NetServer, ...args: unknown[]) {
     const mapped = nodeArgs(args)
     if (!mapped) return listen.apply(this, args)
     const path = prepare(mapped.port)
-    const server = this as net.Server & { address: Fn }
+    const server = this as NetServer & { address: Fn }
     delete (server as Partial<typeof server>).address
     const address = server.address
     const host = mapped.host && net.isIP(mapped.host) ? mapped.host : '::'
     Object.defineProperty(server, 'address', {
       configurable: true,
       writable: true,
-      value: function (this: net.Server) {
+      value: function (this: NetServer) {
         const real = address.call(this)
         return real == null ? real : { address: host, family: net.isIPv6(host) ? 'IPv6' : 'IPv4', port: mapped.port }
       },
@@ -148,7 +154,7 @@ function patchListen(proto: object): void {
 function patchUdp(): void {
   const proto = dgram.Socket.prototype as unknown as { bind: Fn }
   const bind = proto.bind
-  proto.bind = function (this: dgram.Socket, ...args: unknown[]) {
+  proto.bind = function (this: UdpSocket, ...args: unknown[]) {
     const first = args[0]
     const port = first !== null && typeof first === 'object' ? (first as Options)['port'] : typeof first === 'function' ? 0 : first
     if (toPort(port)) refuse(`UDP bind to port ${String(port)}`)
@@ -156,9 +162,102 @@ function patchUdp(): void {
   }
 }
 
+interface FetchApp {
+  fetch(this: FetchApp, request: Request, server: object): unknown
+  error?(this: FetchApp, error: unknown): unknown
+  port?: unknown
+  hostname?: unknown
+  unix?: unknown
+}
+
+const HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'http2-settings', 'proxy-connection'])
+
+function toRequest(req: IncomingMessage, signal: AbortSignal): Request {
+  const headers = new Headers()
+  for (let i = 0; i + 1 < req.rawHeaders.length; i += 2) {
+    const name = req.rawHeaders[i]!
+    if (name.startsWith(':') || HOP.has(name.toLowerCase())) continue
+    try {
+      headers.append(name, req.rawHeaders[i + 1]!)
+    } catch {}
+  }
+  const method = req.method ?? 'GET'
+  const body = method === 'GET' || method === 'HEAD' ? null : (Readable.toWeb(req) as ReadableStream<Uint8Array>)
+  const init: RequestInit & { duplex?: 'half' } = { method, headers, signal, ...(body && { body, duplex: 'half' }) }
+  return new Request(new URL(req.url ?? '/', `http://${req.headers.host || 'localhost'}`).href, init)
+}
+
+async function send(response: Response, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const head: string[] = []
+  for (const [name, value] of response.headers) if (name !== 'set-cookie') head.push(name, value)
+  for (const cookie of response.headers.getSetCookie()) head.push('set-cookie', cookie)
+  res.writeHead(response.status, response.statusText || undefined, head)
+  if (!response.body || req.method === 'HEAD') {
+    res.end()
+    await response.body?.cancel().catch(() => undefined)
+    return
+  }
+  const reader = response.body.getReader()
+  res.once('close', () => {
+    if (!res.writableFinished) reader.cancel().catch(() => undefined)
+  })
+  const writable = () =>
+    new Promise<void>((resolve) => {
+      const done = () => {
+        res.off('drain', done)
+        res.off('close', done)
+        resolve()
+      }
+      res.on('drain', done)
+      res.on('close', done)
+    })
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done || res.destroyed) break
+    if (!res.write(value)) await writable()
+  }
+  if (!res.destroyed) res.end()
+}
+
+async function respond(app: FetchApp, server: object, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const aborted = new AbortController()
+  res.once('close', () => {
+    if (!res.writableFinished) aborted.abort()
+  })
+  try {
+    let response: unknown
+    try {
+      response = await app.fetch(toRequest(req, aborted.signal), server)
+    } catch (error) {
+      if (typeof app.error !== 'function') throw error
+      response = await app.error(error)
+    }
+    if (res.destroyed) return
+    if (!(response instanceof Response)) throw new TypeError(`acde: the fetch handler returned ${response === undefined ? 'nothing' : typeof response}, not a Response`)
+    await send(response, req, res)
+  } catch (error) {
+    console.error(error)
+    if (res.headersSent) res.destroy()
+    else res.writeHead(500, { 'content-type': 'text/plain' }).end('Internal Server Error')
+  }
+}
+
+function serve(app: FetchApp): object | undefined {
+  if (!app || typeof app.fetch !== 'function') return undefined
+  const env = process.env
+  const port = toPort(app.port) ?? toPort(env['BUN_PORT']) ?? toPort(env['PORT']) ?? toPort(env['NODE_PORT']) ?? 3000
+  const facade = { upgrade: () => false, requestIP: () => null, port, hostname: typeof app.hostname === 'string' ? app.hostname : 'localhost' }
+  const server = http.createServer((req, res) => void respond(app, facade, req, res))
+  if (typeof app.unix === 'string' && app.unix) server.listen(app.unix)
+  else if (typeof app.hostname === 'string' && app.hostname) server.listen(port, app.hostname)
+  else server.listen(port)
+  return server
+}
+
 const global = globalThis as Record<symbol, unknown>
 if (!global[INSTALLED]) {
   global[INSTALLED] = true
+  if (typeof Bun === 'undefined') global[SERVE] = serve
   patchBun()
   for (const Server of [net.Server, http.Server, https.Server, tls.Server]) patchListen(Server.prototype)
   patchUdp()

@@ -1,12 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Subprocess } from 'bun'
 import { readFileSync as readBytes, rmSync, mkdtempSync } from 'node:fs'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { tmpdir } from 'node:os'
 import type { InspectAction, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
-import { cliEnv, cliFile, findBun } from 'acde/launcher'
+import { cliEnv, cliFile } from 'acde/launcher'
 import { DevClient } from '../ipc.ts'
+import { Runtime, type Child } from '../runtime.ts'
 import { Sessions, type Session } from '../sessions.ts'
 import { Logs } from './logs.ts'
 import { Poll } from './poll.ts'
@@ -167,10 +168,10 @@ export class Acde {
   readonly logs: Logs | null
   timeout: number
   readonly #client: DevClient
-  readonly #child: Subprocess<'ignore', 'pipe', 'pipe'> | null
+  readonly #child: Child | null
   #closed = false
 
-  private constructor(session: Session, client: DevClient, child: Subprocess<'ignore', 'pipe', 'pipe'> | null, logs: Logs | null, timeout: number) {
+  private constructor(session: Session, client: DevClient, child: Child | null, logs: Logs | null, timeout: number) {
     this.session = session
     this.#client = client
     this.#child = child
@@ -188,9 +189,9 @@ export class Acde {
 
   static async launch(options: LaunchOptions = {}): Promise<Acde> {
     const cwd = resolve(options.cwd ?? process.cwd())
-    const bun = await findBun()
+    const runtime = process.execPath
     const argv = [
-      bun,
+      runtime,
       cliFile(),
       'dev',
       ...(options.dirs ?? []).map((dir) => resolve(cwd, dir)),
@@ -199,14 +200,19 @@ export class Acde {
       ...(options.out !== undefined ? ['--out', options.out] : []),
       ...(options.headless ? ['--headless'] : []),
     ]
-    const child = Bun.spawn(argv, { cwd, env: cliEnv(bun, { ...process.env, ...options.env }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+    const child = Runtime.spawn(argv, { cwd, env: cliEnv(runtime, { ...process.env, ...options.env }), stdio: ['ignore', 'pipe', 'pipe'] })
     const logs = new Logs()
-    logs.follow(child.stdout, 'stdout')
-    logs.follow(child.stderr, 'stderr')
+    logs.follow(child.process.stdout!, 'stdout')
+    logs.follow(child.process.stderr!, 'stderr')
     let exited: number | null = null
-    void child.exited.then((code) => {
-      exited = code
-    })
+    void child.exited.then(
+      (code) => {
+        exited = code
+      },
+      () => {
+        exited = -1
+      },
+    )
     const dir = Sessions.dir({ ...process.env, ...options.env })
     const limit = options.startTimeout ?? Acde.START_TIMEOUT_MS
     const deadline = Date.now() + limit
@@ -227,7 +233,7 @@ export class Acde {
       return acde
     } catch (error) {
       child.kill('SIGTERM')
-      await child.exited
+      await child.exited.catch(() => -1)
       throw error
     }
   }
@@ -366,10 +372,10 @@ export class Acde {
     const child = this.#child
     if (!child) return
     child.kill('SIGTERM')
-    const stopped = await Promise.race([child.exited, Bun.sleep(10_000).then(() => null)])
+    const stopped = await Promise.race([child.exited.catch(() => -1), sleep(10_000).then(() => null)])
     if (stopped === null) {
       child.kill('SIGKILL')
-      await child.exited
+      await child.exited.catch(() => -1)
     }
   }
 

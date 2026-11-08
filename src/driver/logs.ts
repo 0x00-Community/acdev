@@ -17,13 +17,12 @@ export class Logs {
   readonly #lines: LogLine[] = []
   #next = 1
 
-  follow(stream: ReadableStream<Uint8Array>, name: LogLine['stream']): void {
+  follow(stream: AsyncIterable<Uint8Array | string>, name: LogLine['stream']): void {
     void (async () => {
       const decoder = new TextDecoder()
-      const reader = stream.getReader()
       let rest = ''
-      for (let read = await reader.read(); !read.done; read = await reader.read()) {
-        const parts = (rest + decoder.decode(read.value, { stream: true })).split('\n')
+      for await (const chunk of stream) {
+        const parts = (rest + (typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }))).split('\n')
         rest = parts.pop()!
         for (const text of parts) this.push(name, text)
       }

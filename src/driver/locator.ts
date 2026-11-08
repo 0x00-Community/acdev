@@ -1,5 +1,6 @@
 import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
 import { ActError, type Acde, type ActResult } from './acde.ts'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { Poll } from './poll.ts'
 
 export type TextMatch = string | RegExp
@@ -322,7 +323,7 @@ export class Locator {
       const result = await this.scope.acde.act(node.ref, action, arg)
       if (result.ok) return result
       if (Date.now() >= deadline) throw new ActError(`${this.describe()}: ${action}`, result)
-      await Bun.sleep(Poll.INTERVAL_MS)
+      await sleep(Poll.INTERVAL_MS)
     }
   }
 

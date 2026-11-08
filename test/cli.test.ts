@@ -102,10 +102,13 @@ describe('acde build', () => {
     expect(readFileSync(join(out, 'web/icon.svg'), 'utf8')).toBe(readFileSync(join(APP, 'src/logo.svg'), 'utf8'))
   })
 
-  test('backend/server.js is one ES module for Bun, the preload beside it', () => {
+  test('backend/server.js is one ES module, the preload beside it, a package.json that says ESM', () => {
     expect(readFileSync(join(out, 'backend/server.js'), 'utf8')).toContain('Bun.serve(')
-    expect(readFileSync(join(out, 'backend/acde-listen.js'), 'utf8')).toContain('acde.listen')
-    expect(readdirSync(join(out, 'backend')).sort()).toEqual(['acde-listen.js', 'server.js'])
+    const preload = readFileSync(join(out, 'backend/acde-listen.js'), 'utf8')
+    expect(preload).toContain('acde.listen')
+    expect(preload).not.toMatch(/^\s*(import|export)\b/m)
+    expect(readdirSync(join(out, 'backend')).sort()).toEqual(['acde-listen.js', 'package.json', 'server.js'])
+    expect(JSON.parse(readFileSync(join(out, 'backend/package.json'), 'utf8'))).toEqual({ type: 'module' })
   })
 
   test('the built backend under its preload, as acde runs it, answers on <port>.sock', async () => {
