@@ -1,10 +1,10 @@
-import { existsSync, statSync, watch, type FSWatcher } from 'node:fs'
+import { existsSync, rmSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { delimiter, resolve } from 'node:path'
-import { DevServer } from './ipc.ts'
+import { DevClient } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
 import { contains, SKIPPED } from './paths.ts'
-import { Runtime } from './runtime.ts'
+import { Runtime, type Child } from './runtime.ts'
 import { Sessions } from './sessions.ts'
 
 const SETTLE_MS = 150
@@ -39,13 +39,14 @@ export class DevSession {
   readonly #app: string | undefined
   readonly #acdert: string
   readonly #headless: boolean
-  readonly #server: DevServer
+  readonly #endpoint = DevClient.endpoint()
+  #link: DevClient | null = null
   readonly #dirty = new Set<Unit>()
   readonly #started = Date.now()
   #building = false
   #shown: string | null = null
 
-  constructor(options: DevOptions, server = new DevServer()) {
+  constructor(options: DevOptions) {
     const packages = (options.dirs.length ? options.dirs : ['.']).map((dir) => new AppPackage(dir))
     if (options.out !== undefined && packages.length > 1) throw new Error('--out is for one project; with several, each builds into its own .acde')
     this.#units = []
@@ -55,7 +56,6 @@ export class DevSession {
     this.#app = options.app
     this.#acdert = options.acdert
     this.#headless = options.headless === true
-    this.#server = server
   }
 
   get multiple(): boolean {
@@ -118,28 +118,45 @@ export class DevSession {
     for (const unit of this.#units) unit.built = await unit.pkg.build(unit.out)
     const target = this.#plan()
     this.#shown = target.kind === 'desktop' ? target.id : null
-    await this.#server.listen()
+    DevClient.prepare(this.#endpoint)
     const watchers: FSWatcher[] = []
     const signals: [NodeJS.Signals, () => void][] = []
+    let child: Child | null = null
+    let running = false
     try {
-      this.#publish()
       const paths = [...new Set(this.#units.map((u) => u.built!.dir)), process.env['ACDE_PATH']].filter(Boolean).join(delimiter)
       const what = this.#units.map((u) => `${u.pkg.name} (${u.built!.dir})`).join(', ')
       console.log(`acde: dev ${target.kind} ${target.id}${this.#headless ? ' (headless)' : ''}: ${what}; rebuilding and reloading on change`)
-      const env = { ...process.env, ACDE_DEV: this.#server.endpoint, ACDE_PATH: paths, ...(this.#headless && { ACDE_HEADLESS: '1' }) }
-      const child = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio: 'inherit' })
+      const env = { ...process.env, ACDE_DEV: this.#endpoint, ACDE_PATH: paths, ...(this.#headless && { ACDE_HEADLESS: '1' }) }
+      const started = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio: 'inherit' })
+      child = started
+      running = true
+      void started.exited.finally(() => {
+        running = false
+      })
+      signals.push(['SIGINT', () => undefined])
+      if (process.platform !== 'win32') for (const signal of ['SIGTERM', 'SIGHUP'] as const) signals.push([signal, () => started.kill(signal)])
+      for (const [signal, handler] of signals) process.on(signal, handler)
+      this.#link = await DevClient.reach(
+        this.#endpoint,
+        () => running,
+        () => console.error(`acde: acdert has not opened ${this.#endpoint} after 10 s; an acdert older than acde dev never does (no reload, no acde webs / eval …): use a newer one`),
+      )
+      if (!this.#link) return await started.exited
+      this.#link.send({ type: 'hello', role: 'dev' })
+      this.#publish()
       for (const unit of this.#units) unit.watcher = watch(unit.pkg.dir, { recursive: true }, (_, file) => this.#changed(unit, file === null ? null : String(file)))
       watchers.push(...this.#units.map((u) => u.watcher!))
-      signals.push(['SIGINT', () => undefined])
-      if (process.platform !== 'win32') for (const signal of ['SIGTERM', 'SIGHUP'] as const) signals.push([signal, () => child.kill(signal)])
-      for (const [signal, handler] of signals) process.on(signal, handler)
-      return await child.exited
+      return await started.exited
     } finally {
+      if (running) child?.kill('SIGTERM')
       for (const [signal, handler] of signals) process.off(signal, handler)
       for (const watcher of watchers) watcher.close()
       for (const unit of this.#units) clearTimeout(unit.timer)
       Sessions.remove(process.pid)
-      await this.#server.close()
+      this.#link?.close()
+      this.#link = null
+      if (process.platform !== 'win32') rmSync(this.#endpoint, { force: true })
     }
   }
 
@@ -147,7 +164,7 @@ export class DevSession {
     try {
       Sessions.write({
         pid: process.pid,
-        endpoint: this.#server.endpoint,
+        endpoint: this.#endpoint,
         dirs: this.#units.map((u) => u.pkg.dir),
         apps: [...new Set(this.#units.flatMap((u) => u.built?.apps ?? []))],
         desktop: this.#shown,
@@ -196,9 +213,9 @@ export class DevSession {
       const built = await unit.pkg.build(unit.out)
       unit.built = built
       console.log(`acde: ${who}rebuilt (${Math.round(performance.now() - started)} ms), reloading`)
-      for (const app of built.apps) this.#server.send({ type: 'reload', app })
-      if (this.#shown !== null && built.desktops.includes(this.#shown)) this.#server.send({ type: 'reload' })
-      this.#publish()
+      for (const app of built.apps) this.#link?.send({ type: 'reload', app })
+      if (this.#shown !== null && built.desktops.includes(this.#shown)) this.#link?.send({ type: 'reload' })
+      if (this.#link) this.#publish()
     } catch (error) {
       console.error(`acde: ${who}build failed: ${error instanceof Error ? error.message : String(error)}`)
     }

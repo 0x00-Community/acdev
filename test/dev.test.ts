@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DevClient, DevServer, Lines, type Message } from '../src/ipc.ts'
+import { DevClient, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
 import { slug } from '../src/paths.ts'
@@ -24,55 +24,56 @@ async function until<T>(what: string, get: () => T | null | undefined | false, m
   }
 }
 
-class FakeRuntime {
+class FakeAcdert {
   readonly got: Message[] = []
-  readonly socket: net.Socket
+  readonly server: net.Server
+  readonly sockets: net.Socket[] = []
+  answer: (request: Message, socket: net.Socket) => void = () => undefined
 
-  private constructor(socket: net.Socket) {
-    this.socket = socket
-    Lines.read(socket, (message) => this.got.push(message))
+  constructor(readonly endpoint: string) {
+    this.server = net.createServer((socket) => {
+      this.sockets.push(socket)
+      Lines.read(socket, (message) => {
+        this.got.push(message)
+        if (message['type'] === 'request') this.answer(message, socket)
+      })
+    })
   }
 
-  static async connect(endpoint: string, hello: Record<string, unknown>): Promise<FakeRuntime> {
-    const socket = net.connect(endpoint)
-    await new Promise<void>((resolve, reject) => socket.once('connect', resolve).once('error', reject))
-    Lines.write(socket, { type: 'hello', ...hello })
-    return new FakeRuntime(socket)
+  listen(): Promise<this> {
+    return new Promise((resolve) => this.server.listen(this.endpoint, () => resolve(this)))
   }
 
-  requests(): Message[] {
-    return this.got.filter((m) => m['type'] === 'request')
-  }
-
-  reply(request: Message, answer: Record<string, unknown>): void {
-    Lines.write(this.socket, { type: 'response', id: request['id'], ...answer })
+  close(): Promise<void> {
+    for (const socket of this.sockets) socket.destroy()
+    return new Promise((resolve) => this.server.close(() => resolve()))
   }
 }
 
-describe('dev IPC: acde dev relays tool requests to the runtime', () => {
-  const servers: DevServer[] = []
+describe('dev IPC: tools and acde dev talk to acdert directly', () => {
+  const fakes: FakeAcdert[] = []
 
-  async function server(timeoutMs = 2_000): Promise<DevServer> {
-    const made = new DevServer({ endpoint: join(tmp(), 'dev.sock'), timeoutMs, log: () => undefined })
-    await made.listen()
-    servers.push(made)
-    return made
+  async function acdert(answer?: FakeAcdert['answer']): Promise<FakeAcdert> {
+    const fake = new FakeAcdert(join(tmp(), 'dev.sock'))
+    if (answer) fake.answer = answer
+    fakes.push(fake)
+    return fake.listen()
   }
 
   afterEach(async () => {
-    for (const s of servers.splice(0)) await s.close()
+    for (const fake of fakes.splice(0)) await fake.close()
   })
 
-  test.skipIf(process.platform === 'win32')('the socket can eval in pages, so only its owner may reach it', async () => {
+  test.skipIf(process.platform === 'win32')('acde dev prepares a private session dir and clears a stale socket before acdert listens', () => {
     const dir = join(tmp(), 'sessions')
     mkdirSync(dir, { mode: 0o755 })
     chmodSync(dir, 0o755)
-    const made = new DevServer({ endpoint: join(dir, 'dev.sock'), log: () => undefined })
-    await made.listen()
-    servers.push(made)
+    const endpoint = join(dir, 'dev.sock')
+    writeFileSync(endpoint, '')
+    DevClient.prepare(endpoint)
     expect(statSync(dir).mode & 0o777).toBe(0o700)
-    expect(statSync(made.endpoint).mode & 0o777).toBe(0o600)
-    expect(DevServer.endpoint(4242)).toBe(join(Sessions.dir(), '4242.sock'))
+    expect(existsSync(endpoint)).toBe(false)
+    expect(DevClient.endpoint(4242)).toBe(join(Sessions.dir(), '4242.sock'))
   })
 
   test.skipIf(process.platform === 'win32')('the session dir is per user and never followed through a symlink', () => {
@@ -89,100 +90,56 @@ describe('dev IPC: acde dev relays tool requests to the runtime', () => {
     expect(Sessions.list(planted)).toEqual([])
   })
 
-  test('ids are rewritten so tools never collide; each answer goes to the tool that asked, with its own id', async () => {
-    const s = await server()
-    const runtime = await FakeRuntime.connect(s.endpoint, { role: 'runtime', pid: 4242 })
-    const [one, two] = await Promise.all([DevClient.connect(s.endpoint), DevClient.connect(s.endpoint)])
-    const first = one.request('eval', { web: 'a', code: '1' })
-    const second = two.request('eval', { web: 'b', code: '2' })
-    const requests = await until('two requests', () => runtime.requests().length === 2 && runtime.requests())
-    expect(new Set(requests.map((r) => r['id'])).size).toBe(2)
-    expect(requests.map((r) => r['op'])).toEqual(['eval', 'eval'])
-    for (const request of [...requests].reverse()) runtime.reply(request, { ok: true, result: { value: request['web'] } })
-    expect(await first).toEqual({ value: 'a' })
+  test('each answer settles its own request; an error rejects it; no hello is sent', async () => {
+    const fake = await acdert((request, socket) =>
+      setTimeout(() => Lines.write(socket, request['web'] === 'gone' ? { type: 'response', id: request['id'], ok: false, error: 'no web "gone"' } : { type: 'response', id: request['id'], ok: true, result: { value: request['web'] } }), request['web'] === 'a' ? 30 : 0),
+    )
+    const tool = await DevClient.connect(fake.endpoint)
+    const first = tool.request('eval', { web: 'a', code: '1' })
+    const second = tool.request('eval', { web: 'b', code: '2' })
     expect(await second).toEqual({ value: 'b' })
-    expect(s.runtime).toEqual({ pid: 4242 })
-    one.close()
-    two.close()
-  })
-
-  test('an error from the runtime reaches the tool as a rejected request', async () => {
-    const s = await server()
-    const runtime = await FakeRuntime.connect(s.endpoint, { role: 'runtime', pid: 1 })
-    const tool = await DevClient.connect(s.endpoint)
-    const asked = tool.request('shot', { web: 'gone' })
-    const [request] = await until('a request', () => runtime.requests().length === 1 && runtime.requests())
-    runtime.reply(request!, { ok: false, error: 'no web "gone"' })
-    expect(asked).rejects.toThrow('no web "gone"')
+    expect(await first).toEqual({ value: 'a' })
+    expect(tool.request('shot', { web: 'gone' })).rejects.toThrow('no web "gone"')
+    await until('three requests', () => fake.got.length === 3)
+    expect(fake.got.map((m) => m['type'])).toEqual(['request', 'request', 'request'])
     tool.close()
   })
 
-  test('a request before acdert connects waits for it', async () => {
-    const s = await server()
-    const tool = await DevClient.connect(s.endpoint)
-    const asked = tool.request('webs')
-    await Bun.sleep(50)
-    const runtime = await FakeRuntime.connect(s.endpoint, { role: 'runtime', pid: 2 })
-    const [request] = await until('the queued request', () => runtime.requests().length === 1 && runtime.requests())
-    runtime.reply(request!, { ok: true, result: { webs: [] } })
-    expect(await asked).toEqual({ webs: [] })
-    tool.close()
+  test('reach: waits until acdert listens, sends nothing on its own; gives up once acdert is gone', async () => {
+    const endpoint = join(tmp(), 'late.sock')
+    let warned = 0
+    const reaching = DevClient.reach(endpoint, () => true, () => warned++, 50)
+    await Bun.sleep(150)
+    const fake = new FakeAcdert(endpoint)
+    fakes.push(fake)
+    await fake.listen()
+    const link = await reaching
+    expect(link).not.toBeNull()
+    expect(warned).toBe(1)
+    link!.send({ type: 'hello', role: 'dev' })
+    await until('the hello', () => fake.got.length === 1)
+    expect(fake.got).toEqual([{ type: 'hello', role: 'dev' }])
+    link!.close()
+    expect(await DevClient.reach(join(tmp(), 'never.sock'), () => false)).toBeNull()
   })
 
-  test('an acdert that never answers: "timed out" after the timeout', async () => {
-    const s = await server(150)
-    await FakeRuntime.connect(s.endpoint, { role: 'runtime', pid: 3 })
-    const tool = await DevClient.connect(s.endpoint)
+  test('an acdert that never answers: "timed out"; one that goes away fails what is waiting', async () => {
+    const fake = await acdert()
+    const tool = await DevClient.connect(fake.endpoint, 100)
     expect(tool.request('eval', { web: 'x', code: '1' })).rejects.toThrow(/^timed out: acdert did not answer "eval" within 0 s$/)
-    await Bun.sleep(300)
-    tool.close()
-  })
-
-  test('acdert going away answers what it was asked; a second runtime is refused', async () => {
-    const s = await server()
-    const runtime = await FakeRuntime.connect(s.endpoint, { role: 'runtime', pid: 5 })
-    const intruder = await FakeRuntime.connect(s.endpoint, { role: 'runtime', pid: 6 })
-    await until('the second runtime to be closed', () => intruder.socket.destroyed || intruder.socket.readyState === 'closed')
-    const tool = await DevClient.connect(s.endpoint)
+    await Bun.sleep(200)
     const asked = tool.request('snapshot', {})
-    await until('the request', () => runtime.requests().length === 1)
-    runtime.socket.destroy()
-    expect(asked).rejects.toThrow('acdert disconnected before answering "snapshot"')
-    await Bun.sleep(20)
-    expect(s.runtime).toBeNull()
-    tool.close()
-  })
-
-  test('a peer whose first line is not hello is closed; a tool line that is not a request gets an error', async () => {
-    const s = await server()
-    const rude = net.connect(s.endpoint)
-    await new Promise((resolve) => rude.once('connect', resolve))
-    Lines.write(rude, { type: 'request', id: 1, op: 'webs' })
-    await until('the rude peer to be closed', () => rude.destroyed || rude.readyState === 'closed')
-    const tool = net.connect(s.endpoint)
-    const got: Message[] = []
-    Lines.read(tool, (m) => got.push(m))
-    await new Promise((resolve) => tool.once('connect', resolve))
-    Lines.write(tool, { type: 'hello', role: 'tool' })
-    Lines.write(tool, { type: 'reload', id: 9 })
-    Lines.write(tool, { type: 'request', id: 10 })
-    await until('two answers', () => got.length === 2)
-    expect(got).toEqual([
-      { type: 'response', id: 9, ok: false, error: 'acde dev: "reload" is not a request' },
-      { type: 'response', id: 10, ok: false, error: 'acde dev: a request needs an "op"' },
-    ])
-    tool.destroy()
+    await until('the request', () => fake.got.length === 2)
+    for (const socket of fake.sockets) socket.destroy()
+    expect(asked).rejects.toThrow()
+    await tool.closed
   })
 
   test('long lines (a screenshot) arrive whole', async () => {
-    const s = await server()
-    const runtime = await FakeRuntime.connect(s.endpoint, { role: 'runtime', pid: 8 })
-    const tool = await DevClient.connect(s.endpoint)
-    const asked = tool.request('shot', { web: 'big' })
-    const [request] = await until('the request', () => runtime.requests().length === 1 && runtime.requests())
     const png = Buffer.alloc(3 * 1024 * 1024, 7).toString('base64')
-    runtime.reply(request!, { ok: true, result: { png, width: 1024, height: 768 } })
-    expect(((await asked) as { png: string }).png.length).toBe(png.length)
+    const fake = await acdert((request, socket) => Lines.write(socket, { type: 'response', id: request['id'], ok: true, result: { png, width: 1024, height: 768 } }))
+    const tool = await DevClient.connect(fake.endpoint)
+    expect(((await tool.request('shot', { web: 'big' })) as { png: string }).png.length).toBe(png.length)
     tool.close()
   })
 })
@@ -264,13 +221,15 @@ describe('acde dev with a stand-in acdert', () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const beta = project(join(base, 'beta'), { type: 'app', id: 'beta' })
-    const dev = start([alpha, beta], base)
+    const dev = start([alpha, beta], base, { FAKE_ACDERT_LISTEN_MS: '300' })
     try {
       const file = join(dev.sessions, `${dev.child.pid}.json`)
       await until('the session file', () => existsSync(file))
       const session = JSON.parse(readFileSync(file, 'utf8')) as Session
       expect(session).toMatchObject({ pid: dev.child.pid, dirs: [alpha, beta], apps: ['alpha', 'beta'], desktop: 'dopame' })
       expect(existsSync(session.endpoint)).toBe(true)
+      expect(statSync(session.endpoint).mode & 0o777).toBe(0o600)
+      expect(dev.entries().find((e) => e.got)?.got).toEqual({ type: 'hello', role: 'dev' })
       const started = await until('the stand-in', () => dev.entries().find((e) => e.argv))
       expect(started.argv).toEqual(['desktop', 'dopame'])
       expect(started.path).toBe([join(alpha, '.acde'), join(beta, '.acde'), '/inherited'].join(':'))
@@ -335,6 +294,7 @@ describe('acde dev with a stand-in acdert', () => {
       dev.child.kill('SIGTERM')
     }
     await dev.child.exited
+    expect(readdirSync(dev.sessions)).toEqual([])
   }, 30_000)
 
   test('--desktop <dir> adds that project and runs its desktop; one project alone is unchanged (acdert app <id>)', async () => {

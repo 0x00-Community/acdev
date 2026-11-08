@@ -1,4 +1,4 @@
-import { appendFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
@@ -157,25 +157,30 @@ function webs() {
 const ISOLATION = ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'ACDE_STORAGE', 'ACDE_SIZE', 'ACDE_COLOR_SCHEME', 'ACDE_REDUCED_MOTION', 'ACDE_AUTOSTART']
 record({ argv: process.argv.slice(2), path: process.env['ACDE_PATH'] ?? null, headless: process.env['ACDE_HEADLESS'] ?? null, env: Object.fromEntries(ISOLATION.map((k) => [k, process.env[k] ?? null])) })
 console.error('[alpha#7] js: fake acdert is up')
-const socket = net.connect(process.env['ACDE_DEV']!)
-const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`)
-socket.on('connect', () => send({ type: 'hello', role: 'runtime', pid: process.pid }))
-socket.on('close', () => process.exit(0))
-socket.setEncoding('utf8')
-let buffer = ''
-socket.on('data', (chunk: string) => {
-  buffer += chunk
-  for (let at = buffer.indexOf('\n'); at >= 0; at = buffer.indexOf('\n')) {
-    const message = JSON.parse(buffer.slice(0, at)) as Record<string, unknown>
-    buffer = buffer.slice(at + 1)
-    record({ got: message })
-    if (message['type'] === 'quit') process.exit(0)
-    if (message['type'] === 'request') answer(message)
-  }
+const endpoint = process.env['ACDE_DEV']!
+const server = net.createServer((socket) => {
+  const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`)
+  let owner = false
+  socket.on('error', () => undefined)
+  socket.on('close', () => owner && process.exit(0))
+  socket.setEncoding('utf8')
+  let buffer = ''
+  socket.on('data', (chunk: string) => {
+    buffer += chunk
+    for (let at = buffer.indexOf('\n'); at >= 0; at = buffer.indexOf('\n')) {
+      const message = JSON.parse(buffer.slice(0, at)) as Record<string, unknown>
+      buffer = buffer.slice(at + 1)
+      record({ got: message })
+      if (message['type'] === 'hello' && message['role'] === 'dev') owner = true
+      if (message['type'] === 'quit') process.exit(0)
+      if (message['type'] === 'request') answer(message, send)
+    }
+  })
 })
+setTimeout(() => server.listen(endpoint, () => chmodSync(endpoint, 0o600)), Number(process.env['FAKE_ACDERT_LISTEN_MS'] ?? 0))
 process.on('SIGTERM', () => process.exit(0))
 
-function answer(m: Record<string, unknown>): void {
+function answer(m: Record<string, unknown>, send: (message: object) => void): void {
   const ok = (result: unknown) => send({ type: 'response', id: m['id'], ok: true, result })
   const fail = (error: string) => send({ type: 'response', id: m['id'], ok: false, error })
   switch (m['op']) {
