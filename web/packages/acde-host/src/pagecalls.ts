@@ -10,7 +10,7 @@ type Picked = { readonly name: string; readonly path: string }
 type Kind = 'file' | 'directory'
 
 export interface FolderPicker {
-  directory(title: string, window: number): Promise<string | null>
+  directory(title: string, window: number, writable: boolean): Promise<string | null>
   entries(dir: string): Promise<{ name: string; kind: Kind }[]>
   entry(dir: string, name: string, create: Kind | null): Promise<Kind | 'other' | null>
   remove(dir: string, name: string, recursive: boolean): Promise<boolean>
@@ -73,10 +73,12 @@ export class PageCalls {
         const path = await this.#ask('save', options)
         return typeof path === 'string' && path ? grant(path) : null
       },
-      directory: async () => {
+      directory: async ({ mode }) => {
         if (!picker) return null
         try {
-          const path = await picker.directory(`${this.#setup.label}: 选择文件夹`, this.#setup.window)
+          const writable = mode === 'readwrite'
+          const prompt = writable ? '选择要授权读写的文件夹' : '选择要读取的文件夹'
+          const path = await picker.directory(`${this.#setup.label}: ${prompt}`, this.#setup.window, writable)
           if (!path) return null
           this.#folders.add(path)
           return { name: basename(path) || path, path }

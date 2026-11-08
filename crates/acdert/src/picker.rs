@@ -37,12 +37,13 @@ impl Picker {
         Self { grants, folders: PickedFolders::default() }
     }
 
-    fn directory(&self, title: &str, window: Option<u32>) -> Answer {
+    fn directory(&self, title: &str, window: Option<u32>, writable: bool) -> Answer {
         let Some(picked) = choose_folder(title, window).map_err(Failed::Chooser)? else {
             return Ok(Reply::Path(None));
         };
         let path = self.folders.add(&picked)?;
-        if let Some(grants) = &self.grants
+        if writable
+            && let Some(grants) = &self.grants
             && let Err(error) = grants.grant(&path)
         {
             log::warn!("granting the picked folder {path}: {}", error.message);
@@ -100,7 +101,8 @@ fn kind(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<EntryKi
 fn directory(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let title = bind::arg_string(scope, &args, 0);
     let window = args.get(1).is_number().then(|| args.get(1).uint32_value(scope)).flatten();
-    run(scope, &mut rv, move |picker| picker.directory(&title, window));
+    let writable = bind::arg_bool(scope, &args, 2);
+    run(scope, &mut rv, move |picker| picker.directory(&title, window, writable));
 }
 
 fn entries(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {

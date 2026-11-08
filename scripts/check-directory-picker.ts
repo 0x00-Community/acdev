@@ -1,0 +1,112 @@
+import assert from 'node:assert/strict'
+import { mkdir, rename } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+
+const artifacts = process.argv[2]
+assert.ok(artifacts, 'Run this check through scripts/check-directory-picker.sh')
+const run = resolve(artifacts)
+const pkg = join(run, 'package')
+const debug = join(run, 'debug')
+const home = join(run, 'home')
+const state = join(run, 'state')
+const readDir = join(run, 'read-only')
+const writeDir = join(run, 'read-write')
+await Promise.all([pkg, debug, home, state, readDir, writeDir].map((path) => mkdir(path, { recursive: true })))
+await Promise.all([
+  Bun.write(join(readDir, 'fixture.txt'), 'selected folder'),
+  Bun.write(join(pkg, 'package.json'), JSON.stringify({ name: 'picker-probe', acde: {
+    apps: [{ id: 'picker-probe', label: 'Picker Probe', icon: 'files',
+      entry: '/picker/app.html', capabilities: { fs: { roots: [] } } }],
+    assets: { '/picker/': ['.'] },
+  } })),
+  Bun.write(join(pkg, 'app.html'), '<!doctype html><title>Picker Probe</title>'),
+])
+
+const env = { ...process.env }
+delete env['ACDE_STORAGE']
+delete env['ACDE_BACKEND']
+delete env['ACDE_DEV']
+const binary = process.platform === 'win32' ? 'acdert.exe' : 'acdert'
+const runtime = env['ACDERT'] ?? resolve('target', 'release', binary)
+const host = env['ACDE_APP'] ?? resolve('web/packages/acde-host/dist')
+const child = Bun.spawn([runtime, 'app', 'picker-probe', '--seconds', '50'], {
+  env: { ...env, ACDE_APP: host, ACDE_PATH: pkg, ACDE_DEBUG_DIR: debug, ACDE_HEADLESS: '1',
+    HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, XDG_STATE_HOME: state },
+  stdout: Bun.file(join(run, 'runtime.stdout.log')),
+  stderr: Bun.file(join(run, 'runtime.stderr.log')),
+})
+
+async function call<T>(name: string, source: string): Promise<T> {
+  const base = join(debug, name)
+  await Bun.write(`${base}.tmp`, `export default ${source}`)
+  await rename(`${base}.tmp`, `${base}.mjs`)
+  const deadline = Date.now() + 12_000
+  while (Date.now() < deadline) {
+    const data = await Bun.file(`${base}.out`).json().catch(() => undefined) as
+      { error?: string; value: T } | undefined
+    if (data?.error) throw new Error(data.error)
+    if (data) return data.value
+    if (child.exitCode !== null) throw new Error(`acdert exited with ${child.exitCode} before ${name}`)
+    await Bun.sleep(50)
+  }
+  throw new Error(`Timed out waiting for ${name}`)
+}
+
+const choice = (path: string): string => process.platform === 'win32'
+  ? path.replace(/^[a-z]:/i, '').replaceAll('\\', '/')
+  : path
+const grant = join(state, 'acde', 'grants', 'picker-probe.json')
+
+try {
+  const id = await call<number>('wait-for-app', `async (api) => {
+    for (let tries = 0; tries < 40; tries++) {
+      const app = api.webs().find((web) => web.app === 'picker-probe')
+      if (app && await api.web(app.name, 'document.title').catch(() => '') === 'Picker Probe') return app.window
+      await api.sleep(100)
+    }
+    throw new Error('Picker app did not start')
+  }`)
+  const app = `picker-probe#${id}`
+  const pick = <T>(name: string, path: string | null, source: string): Promise<T> => call(name, `async (api) => {
+    api.shell.answerFolder(${JSON.stringify(path)})
+    return api.web(${JSON.stringify(app)}, ${JSON.stringify(source)})
+  }`)
+  const cancel = await pick('cancel', null, `showDirectoryPicker().then(() => 'selected', (error) => error.name)`)
+  assert.equal(cancel, 'AbortError')
+  assert.equal(await Bun.file(grant).exists(), false)
+
+  const read = await pick('read', choice(readDir), `(async () => {
+    const handle = await showDirectoryPicker()
+    const file = await (await handle.getFileHandle('fixture.txt')).getFile()
+    const blocked = await handle.getFileHandle('blocked.txt', { create: true })
+      .then(() => 'created', (error) => error.name)
+    const { fs } = await import('acde:fs')
+    return { text: await file.text(), blocked, roots: await fs.roots() }
+  })()`)
+  assert.deepEqual(read, { text: 'selected folder', blocked: 'NotAllowedError', roots: [] })
+  assert.equal(await Bun.file(grant).exists(), false, 'Read-only selection must not persist a writable grant')
+  console.log('Read-only choice permits reading and leaves the grant table untouched')
+
+  const write = await pick('read-write', choice(writeDir), `(async () => {
+    const handle = await showDirectoryPicker({ mode: 'readwrite' })
+    const writer = await (await handle.getFileHandle('saved.txt', { create: true })).createWritable()
+    await writer.write('confirmed writable selection')
+    await writer.close()
+    const { fs } = await import('acde:fs')
+    return (await fs.roots()).map(({ path, mode }) => ({ path, mode }))
+  })()`)
+  assert.deepEqual(write, [{ path: choice(writeDir), mode: 'writable' }])
+  assert.deepEqual(await Bun.file(grant).json(), { roots: [choice(writeDir)] })
+  assert.equal(await Bun.file(join(writeDir, 'saved.txt')).text(), 'confirmed writable selection')
+  console.log('Explicit read/write choice creates a file and persists only that directory')
+
+  await call('close', `(api) => { setTimeout(() => api.broker.closeWeb(${id}), 100); return true }`)
+  const timeout = new Promise<null>((done) => setTimeout(done, 8000, null).unref())
+  assert.equal(await Promise.race([child.exited, timeout]), 0)
+  const log = await Bun.file(join(run, 'runtime.stderr.log')).text()
+  assert.match(log, /选择要读取的文件夹/)
+  assert.match(log, /选择要授权读写的文件夹/)
+} finally {
+  if (child.exitCode === null) child.kill()
+  await child.exited
+}

@@ -412,7 +412,8 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 `env.files` → crates/acdert `picker.rs` 绑的 `natives.picker` (不是 `acde:` 模块). 选择器在 `acde-picker` 线程上开: Linux 是 portal
 FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel` sheet, Windows 是 `SHBrowseForFolderW`. handle 的读写在 runtime
 `fs/picked.rs` `PickedFolders` (每个 web 一份, 只在内存, 选中的文件夹当 root; 新建 `O_EXCL | O_NOFOLLOW`, 一个文件最多 64 MiB).
-选中的文件夹同时授给调用的应用 (`acde:fs` 多一个 root `{source: 'granted', label}`, 文件夹没了是 `mode: 'unavailable'`), 记在
+默认只读选择只给只读网页句柄. `mode: 'readwrite'` 的选择提示明确读写授权, 用户选中的文件夹同时授给调用的应用
+(`acde:fs` 多一个 root `{source: 'granted', label}`, 文件夹没了是 `mode: 'unavailable'`), 记在
 `$XDG_STATE_HOME/acde/grants/<应用 id>.json` (runtime `fs/grants.rs`; `ACDE_STORAGE` 为空时只在内存); 桌面选的不授. `fs.revoke(rootPath)`
 收回. Broker 起 web 时 grants 带应用 id, `web.rs` 给 `Workspace::scoped(roots, app)` 和 `natives.picker`.
 
