@@ -84,7 +84,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null) : null
   const windows = new WindowList(rpc)
   const bridge = new RemoteBridge(rpc, init, self, windows)
-  if (init.kind === 'window' && init.app?.backend && natives.backend) installBackendTransport({ ...natives.backend, port: init.app.backend.port })
+  if (natives.backend) installBackendTransport({ ...natives.backend, port: init.kind === 'window' && init.app?.backend ? init.app.backend.port : null })
   const web = new Host(page, dom, init.scale, natives.Ime, windows)
   const debug = !!natives.env['ACDE_DEBUG_DIR'] || !!natives.env['ACDE_DEV']
   const inspect = new PageInspect(page, dom, web, surface.contentOffset)

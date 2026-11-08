@@ -52,6 +52,7 @@ libc = "0"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0", features = ["Win32_Storage_FileSystem"] }
 
-# macOS / Windows: OpenSSL built in, the program does not depend on one installed
+# macOS / Windows: OpenSSL built in, the program does not depend on one installed; the system's root certificates for it
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 openssl = { version = "0", features = ["vendored"] }
+rustls-native-certs = "0"

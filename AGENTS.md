@@ -159,7 +159,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   GPU 上画, 不认 lavapipe): 能在有 Metal 的 macOS 机器 (含 GitHub 的 macOS runner, 没验) 或有 GPU 的 Linux / Windows 上无人值守地跑, 不能在
   没有 GPU 的 Linux CI 上跑. Linux 上设了它就算「在别人的桌面里」, 不要 `WAYLAND_DISPLAY` / `DISPLAY`.
 - **系统能力**: fs、选文件夹、声音、剪贴板到处都有; terminal 和应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
-  WebGPU 只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`).
+  WebGPU 只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`), 它不带根证书: runtime `http.rs` 的 `tls()` 在那两处从系统证书库
+  (Keychain / Windows 证书存储, rustls-native-certs) 读进来; Linux 用系统的 OpenSSL 和它的证书目录.
 
 ## acde dev
 
@@ -325,16 +326,27 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **声音**: `Audio` / `AudioContext` (acde-dom `src/audio/`, crates/acdert `audio/`): 解码 (symphonia) 和混音 (每个 web 一个 48 kHz 立体声 f32
   `Mixer`, 线程 `acde-audio`) 到处一样. 输出: Linux PipeWire (`output.rs`); macOS / Windows cpal 默认设备 (`output_cpal.rs`, 用设备当前的采样率,
   Hermite 重采样, 设备要 f32). 3 秒没声音关流; 没有设备 (或 `ACDE_AUDIO=null`) 按墙上时间渲染丢掉.
-- **还没有**: indexedDB、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、页面直接联网 (经后端取)、`:target`.
+- **还没有**: indexedDB、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
   `ACDE_APP_SOCKETS` / `PORT` / `NODE_ENV=production` + 会话的 HOME、PATH、LANG 等), 工作目录 `$XDG_DATA_HOME/acde/apps/<id>/`, 输出前缀
   `[<app>#backend]`, `PR_SET_PDEATHSIG` (子进程都由 `acde-fork` 线程 fork). preload 把 listen 换成 unix socket (`$XDG_RUNTIME_DIR/acde/apps/<id>/`),
   指定端口的 UDP bind 拒绝; 原生扩展开的端口管不到.
-- **路由**: 页面的 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` 发往同源非资源路径或 `localhost:<port>` 时由这个 web 自己的线程发
-  (crates/acdert `backend.rs` → runtime `unixhttp.rs` `UnixClient`: ntex 的 HTTP / WebSocket 客户端, 连接是先连好的 unix socket, I/O 在 `acde-rt` 线程), 只能连自己应用的 socket (`init.sockets`), 没出现或
-  拒绝连接时重试 10 秒. 别的地址不联网.
+- **路由**: 页面的 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` 都由这个 web 自己的线程发 (crates/acdert `backend.rs` 的 `natives.backend`,
+  每个 web 都有 → runtime `fetch.rs` `FetchClient`: ntex 的 HTTP / WebSocket 客户端, I/O 在 `acde-rt` 线程; acde-dom `core/net.ts` 的 `route`). 去哪:
+  - 同源非资源路径、有后端时的 `localhost:<port>` (和 127.0.0.1、[::1]、0.0.0.0) → 自己应用的 unix socket (`Dial::Socket`, `init.sockets`; 没出现或
+    拒绝连接时重试 10 秒). 没有后端的 web 同源非资源路径失败, `localhost` 走下面的网络.
+  - 别的主机 (`Dial::Url`, http / https / ws / wss) → 宿主的网络: 系统 DNS, TCP, https / wss 用 `http.rs` 的 `tls()` (只给 http/1.1 的 ALPN,
+    验证证书和主机名). 不经系统代理, 不自动解压 (不发 `Accept-Encoding`).
+  - 和浏览器一样的规则 (页面的源是 `http://acde.local`): 跨源请求带 `Origin`、`Referer: http://acde.local/`、`User-Agent`、`Accept-Language`;
+    CORS (acde-dom `core/cors.ts`): 简单请求之外先发 `OPTIONS` 预检 (不缓存), 回答要 2xx 且允许这个源、方法和头 (`*` 只在不带凭据时算,
+    `Authorization` 不归 `*`); 响应没有允许这个源 (带凭据时还要 `Access-Control-Allow-Credentials: true`) 就是网络错误 (`TypeError`, `cause`
+    以 `CORS:` 开头); 页面只看得到安全名单里的响应头和 `Access-Control-Expose-Headers` 列的. `Request.mode`: `no-cors` 只许 GET / HEAD / POST
+    和安全名单里的头, 回不透明响应 (status 0, type `opaque`, 没有头和 body); `same-origin` 不许跨源. 重定向照常跟 (每跳都查 CORS, 换到第三个源后
+    `Origin: null`). 跨源请求不带也不存 cookie (所有主机对 `acde.local` 都是第三方, 和 Safari 拦第三方 cookie 一样); 同源 (后端) 的 cookie 照旧.
+  - 被禁的请求头 (Host、Cookie、Origin、Referer、Accept-Encoding、`Sec-*`、`Proxy-*` …) 页面设了也不发. 同步 XHR 只给本地资源.
+  - 经典 `<script src>` 从别的主机取时不查 CORS (和浏览器一样, 不带 `crossorigin` 的脚本照样执行): `page.ts` 经 `net.ts` 的内部 `scriptSource`, 不是页面能用的接口.
 - **语音输入** (runtime `src/voice/`, Linux): `listen(onEvent)` 从 PipeWire 默认输入录 16 kHz 单声道, 连豆包输入法的流式识别 (非官方接口,
   身份存 `$XDG_STATE_HOME/acde/doubao-ime.json`). 事件 `partial {text}`、结束时恰好一个 `final` 或 `error`; `stop(id)` 等定稿 (最多 10 秒), 60 秒自动停,
   新的 `listen` 取消上一个. 日志 target `acde_runtime::voice` (识别出的文字不进日志). 没有麦克风时用 PipeWire 的 `module-pipe-source` 喂 PCM.

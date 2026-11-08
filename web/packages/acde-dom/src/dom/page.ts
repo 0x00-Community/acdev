@@ -1,5 +1,6 @@
 import { Event, fire, type EventTarget } from '../core/event'
 import { G, host, report } from '../core/host'
+import { scriptSource } from '../core/net'
 import { URL } from '../core/url'
 import { noteMarkup, type Element } from './element'
 import { env, resolveUrl } from './env'
@@ -47,9 +48,7 @@ function runImportMap(script: Script): void {
 async function classicSource(url: string): Promise<string> {
   const bytes = host.readAsset(url)
   if (bytes) return host.decode(bytes, 'utf-8', false, false)
-  const response = await (G as unknown as { fetch(url: string): Promise<{ ok: boolean; status: number; text(): Promise<string> }> }).fetch(url)
-  if (!response.ok) throw new Error(`<script src=${url}>: HTTP ${response.status}`)
-  return response.text()
+  return scriptSource(url)
 }
 
 let inlineCount = 0

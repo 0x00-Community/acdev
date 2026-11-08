@@ -1,5 +1,6 @@
 import { Blob, blobBytes } from './blob'
-import { backendTarget, cookies, requestHeaders, type BackendTarget, type Header, type HttpEvent, type WsEvent, transport } from './backend'
+import { allowedHeaders, backendTarget, cookies, dialOf, isRemote, requestHeaders, type Header, type HttpEvent, type RemoteTarget, type Target, type WsEvent, transport } from './backend'
+import { Cors } from './cors'
 import { Tracked, type RequestKind } from './observe'
 import { bytesOf, concat, TextDecoder, unbase64 } from './encoding'
 import { CloseEvent, defineHandlers, Event, EventTarget, fire, MessageEvent, ProgressEvent } from './event'
@@ -35,7 +36,8 @@ const warned = new Set<string>()
 function warnOnce(method: string, url: string, what: string): void {
   let key: string
   try {
-    key = `${method} ${new URL(url).pathname}`
+    const parsed = new URL(url)
+    key = `${method} ${parsed.origin === new URL(net.base()).origin ? '' : parsed.origin}${parsed.pathname}`
   } catch {
     key = `${method} ${url}`
   }
@@ -45,18 +47,38 @@ function warnOnce(method: string, url: string, what: string): void {
 }
 
 function backendFailed(method: string, url: string, message: string): void {
-  warnOnce(method, url, `the app's backend: ${message}`)
+  let target: Target | null = null
+  try {
+    target = backendTarget(new URL(url), new URL(net.base()))
+  } catch {
+  }
+  warnOnce(method, url, target && !isRemote(target) ? `the app's backend: ${message}` : message)
+}
+
+function quality(languages: readonly string[]): string {
+  return languages.map((tag, i) => (i ? `${tag};q=${Math.max(0.1, 1 - i * 0.1).toFixed(1)}` : tag)).join(',')
+}
+
+function browserHeaders(page: readonly Header[], accept: boolean): Header[] {
+  const out: Header[] = [...page]
+  const has = (name: string) => out.some(([n]) => n.toLowerCase() === name)
+  const navigator = G['navigator'] as { userAgent?: string; languages?: readonly string[] } | undefined
+  if (accept && !has('accept')) out.push(['accept', '*/*'])
+  if (!has('accept-language') && navigator?.languages?.length) out.push(['accept-language', quality(navigator.languages)])
+  if (!has('user-agent') && navigator?.userAgent) out.push(['user-agent', navigator.userAgent])
+  return out
 }
 
 type Loaded = { bytes: Uint8Array; type: string }
-type Routed = { target: BackendTarget } | { asset: Loaded } | null
+type Routed = { target: Target } | { asset: Loaded } | null
 
 function unreachable(url: string): string {
   try {
     if (new URL(url).origin === new URL(net.base()).origin) return 'no such file in the app, and no backend to ask'
   } catch {
   }
-  return "not the app's: a page reaches its own files and its own backend only"
+  return 'another host, and this page has no network'
+
 }
 
 function inline(url: string): Loaded | null {
@@ -345,7 +367,7 @@ export class Request extends Body {
   readonly method: string
   readonly headers: Headers
   readonly signal: unknown
-  readonly mode = 'cors'
+  readonly mode: string
   readonly credentials: string
   readonly cache: string
   readonly redirect: string
@@ -368,6 +390,9 @@ export class Request extends Body {
     this.cache = init?.cache ?? 'default'
     this.credentials = init?.credentials ?? base?.credentials ?? 'same-origin'
     this.redirect = init?.redirect ?? base?.redirect ?? 'follow'
+    this.mode = init?.mode ?? base?.mode ?? 'cors'
+    if (!['cors', 'no-cors', 'same-origin'].includes(this.mode)) throw new TypeError(`Failed to construct 'Request': Cannot construct a Request with a RequestInit whose mode member is set as '${this.mode}'.`)
+    if (this.mode === 'no-cors' && !Cors.simpleMethod(this.method)) throw new TypeError(`Failed to construct 'Request': '${this.method}' is unsupported in no-cors mode.`)
   }
 
   clone(): Request {
@@ -439,6 +464,7 @@ interface ExchangeHead {
   readonly headers: Header[]
   readonly url: string
   readonly redirected: boolean
+  readonly type: 'basic' | 'cors' | 'opaque'
 }
 
 interface ExchangeHandlers {
@@ -455,6 +481,7 @@ interface ExchangeRequest {
   readonly body: Uint8Array | null
   readonly redirect: string
   readonly credentials: string
+  readonly mode: string
 }
 
 function tracking(tracked: Tracked | null, given: ExchangeHandlers): ExchangeHandlers {
@@ -479,11 +506,14 @@ function tracking(tracked: Tracked | null, given: ExchangeHandlers): ExchangeHan
   }
 }
 
-function exchange(first: BackendTarget, request: ExchangeRequest, given: ExchangeHandlers, kind: RequestKind): () => void {
+function exchange(first: Target, request: ExchangeRequest, given: ExchangeHandlers, kind: RequestKind): () => void {
   const backend = transport!
   const tracked = Tracked.start(kind, request.method, request.url, request.body?.length ?? 0)
   const on = tracking(tracked, given)
   const withCookies = request.credentials !== 'omit'
+  const include = request.credentials === 'include'
+  const own = new URL(net.base()).origin
+  let origin = own
   let current: number | null = null
   let finished = false
   let redirects = 0
@@ -495,57 +525,120 @@ function exchange(first: BackendTarget, request: ExchangeRequest, given: Exchang
   const stop = (id: number | null): void => {
     if (id !== null) backend.abort(id)
   }
-  const send = (target: BackendTarget, url: string, method: string, pageHeaders: Iterable<readonly [string, string]>, body: Uint8Array | null): void => {
+  const blocked = (problem: string): void => fail(`CORS: ${problem}`)
+  const ask = (target: Target, method: string, headers: Header[], body: Uint8Array | null, onEvent: (event: HttpEvent) => void): number | null => {
+    const [to, path] = dialOf(target)
+    try {
+      return backend.request(to, method, path, headers, body, onEvent)
+    } catch (error) {
+      host.queueMicrotask(() => fail(String((error as Error)?.message ?? error)))
+      return null
+    }
+  }
+  const listen = (target: Target, url: string, method: string, pageHeaders: Iterable<readonly [string, string]>, body: Uint8Array | null, mine: () => number | null, tainting: 'basic' | 'cors' | 'opaque') => (event: HttpEvent): void => {
+    if (finished || current !== mine()) return
+    switch (event.type) {
+      case 'head': {
+        const all = event.headers ?? []
+        if (!isRemote(target) && withCookies) for (const [name, value] of all) if (name.toLowerCase() === 'set-cookie') cookies.store(value, target.path)
+        const location = headerOf(all, 'location')
+        const redirecting = REDIRECTS.has(event.status) && location !== null && request.redirect !== 'manual'
+        if (tainting === 'cors') {
+          const problem = Cors.check(all, origin, include)
+          if (problem) {
+            stop(current)
+            current = null
+            return blocked(problem)
+          }
+        }
+        if (!redirecting) {
+          if (tainting === 'opaque') {
+            stop(current)
+            current = null
+            finished = true
+            on.head({ status: 0, statusText: '', headers: [], url: '', redirected: false, type: 'opaque' })
+            on.end()
+            return
+          }
+          on.head({ status: event.status, statusText: event.statusText ?? '', headers: tainting === 'cors' ? Cors.exposed(all, include) : visibleHeaders(all), url, redirected: redirects > 0, type: tainting })
+          return
+        }
+        stop(current)
+        current = null
+        if (request.redirect === 'error') return fail(`redirected to ${location}`)
+        if (++redirects > 20) return fail('too many redirects')
+        let next: string
+        try {
+          next = new URL(location!, url).href
+        } catch {
+          return fail(`redirected to an invalid URL ${location}`)
+        }
+        const toGet = (event.status === 303 && method !== 'HEAD') || ((event.status === 301 || event.status === 302) && method === 'POST')
+        const nextMethod = toGet ? 'GET' : method
+        const nextHeaders = toGet ? [...pageHeaders].filter(([n]) => !BODY_HEADERS.has(n.toLowerCase())) : pageHeaders
+        const routed = route(next, nextMethod)
+        if (routed && 'target' in routed) {
+          if (isRemote(target) && isRemote(routed.target) && routed.target.origin !== target.origin) origin = 'null'
+          return send(routed.target, next, nextMethod, nextHeaders, toGet ? null : body)
+        }
+        if (!routed) return fail(`redirected to ${next}, which cannot be reached`)
+        finished = true
+        on.head({ status: 200, statusText: 'OK', headers: assetHead(routed.asset), url: next, redirected: true, type: 'basic' })
+        if (nextMethod !== 'HEAD') on.chunk(routed.asset.bytes)
+        on.end()
+        return
+      }
+      case 'chunk':
+        return on.chunk(event.data)
+      case 'end':
+        finished = true
+        return on.end()
+      case 'error':
+        return fail(event.message)
+    }
+  }
+  const remote = (target: RemoteTarget, url: string, method: string, pageHeaders: Iterable<readonly [string, string]>, body: Uint8Array | null): void => {
+    if (request.mode === 'same-origin') return fail(`mode 'same-origin' does not allow a request to ${target.origin}`)
+    const page = allowedHeaders(pageHeaders)
+    if (request.mode === 'script') {
+      let mine: number | null = null
+      current = mine = ask(target, method, browserHeaders(page, true).concat([['referer', `${own}/`]]), body, listen(target, url, method, pageHeaders, body, () => mine, 'basic'))
+      return
+    }
+    const unsafe = Cors.unsafeNames(page)
+    const simple = Cors.simpleMethod(method) && !unsafe.length
+    const opaque = request.mode === 'no-cors'
+    if (opaque && !simple) return fail("mode 'no-cors' allows only GET, HEAD and POST with CORS-safelisted headers")
+    const headers = browserHeaders(page, true)
+    if (!opaque || (method !== 'GET' && method !== 'HEAD')) headers.push(['origin', origin])
+    headers.push(['referer', `${own}/`])
+    const actual = (): void => {
+      let mine: number | null = null
+      current = mine = ask(target, method, headers, body, listen(target, url, method, pageHeaders, body, () => mine, opaque ? 'opaque' : 'cors'))
+    }
+    if (simple || opaque) return actual()
+    const preflight: Header[] = [['accept', '*/*'], ['origin', origin], ['access-control-request-method', method]]
+    if (unsafe.length) preflight.push(['access-control-request-headers', unsafe.join(',')])
+    let mine: number | null = null
+    const onPreflight = (event: HttpEvent): void => {
+      if (finished || current !== mine) return
+      if (event.type === 'error') return fail(event.message)
+      if (event.type !== 'head') return
+      stop(mine)
+      current = null
+      const all = event.headers ?? []
+      const problem = event.status < 200 || event.status > 299 ? `It does not have HTTP ok status (${event.status}).` : (Cors.check(all, origin, include) ?? Cors.preflight(all, method, unsafe, include))
+      if (problem) return blocked(`Response to preflight request doesn't pass access control check: ${problem}`)
+      actual()
+    }
+    current = mine = ask(target, 'OPTIONS', browserHeaders(preflight, false).concat([['referer', `${own}/`]]), null, onPreflight)
+  }
+  const send = (target: Target, url: string, method: string, pageHeaders: Iterable<readonly [string, string]>, body: Uint8Array | null): void => {
+    if (isRemote(target)) return remote(target, url, method, pageHeaders, body)
     const headers = requestHeaders(pageHeaders, target, { origin: method !== 'GET' && method !== 'HEAD', cookies: withCookies })
     if (!headers.some(([n]) => n.toLowerCase() === 'accept')) headers.push(['accept', '*/*'])
     let mine: number | null = null
-    const onEvent = (event: HttpEvent): void => {
-      if (finished || current !== mine) return
-      switch (event.type) {
-        case 'head': {
-          const all = event.headers ?? []
-          if (withCookies) for (const [name, value] of all) if (name.toLowerCase() === 'set-cookie') cookies.store(value, target.path)
-          const location = headerOf(all, 'location')
-          if (!REDIRECTS.has(event.status) || location === null || request.redirect === 'manual') {
-            on.head({ status: event.status, statusText: event.statusText ?? '', headers: visibleHeaders(all), url, redirected: redirects > 0 })
-            return
-          }
-          stop(mine)
-          current = null
-          if (request.redirect === 'error') return fail(`redirected to ${location}`)
-          if (++redirects > 20) return fail('too many redirects')
-          let next: string
-          try {
-            next = new URL(location, url).href
-          } catch {
-            return fail(`redirected to an invalid URL ${location}`)
-          }
-          const toGet = (event.status === 303 && method !== 'HEAD') || ((event.status === 301 || event.status === 302) && method === 'POST')
-          const nextMethod = toGet ? 'GET' : method
-          const nextHeaders = toGet ? [...pageHeaders].filter(([n]) => !BODY_HEADERS.has(n.toLowerCase())) : pageHeaders
-          const routed = route(next, nextMethod)
-          if (routed && 'target' in routed) return send(routed.target, next, nextMethod, nextHeaders, toGet ? null : body)
-          if (!routed) return fail(`redirected to ${next}, which is not the app's`)
-          finished = true
-          on.head({ status: 200, statusText: 'OK', headers: assetHead(routed.asset), url: next, redirected: true })
-          if (nextMethod !== 'HEAD') on.chunk(routed.asset.bytes)
-          on.end()
-          return
-        }
-        case 'chunk':
-          return on.chunk(event.data)
-        case 'end':
-          finished = true
-          return on.end()
-        case 'error':
-          return fail(event.message)
-      }
-    }
-    try {
-      current = mine = backend.request(target.port, method, target.path, headers, body, onEvent)
-    } catch (error) {
-      host.queueMicrotask(() => fail(String((error as Error)?.message ?? error)))
-    }
+    current = mine = ask(target, method, headers, body, listen(target, url, method, pageHeaders, body, () => mine, 'basic'))
   }
   send(first, request.url, request.method, request.headers, request.body)
   return () => {
@@ -568,15 +661,22 @@ function assetResponse(request: Request, found: Loaded): Response {
   return response
 }
 
-async function fetchBackend(request: Request, target: BackendTarget, signal: SignalLike | null): Promise<Response> {
+async function fetchBackend(request: Request, target: Target, signal: SignalLike | null, mode = request.mode): Promise<Response> {
   const body = request.method === 'GET' || request.method === 'HEAD' ? null : await request[SEND]()
   if (signal?.aborted) throw aborted(signal)
   return new Promise((resolve, reject) => {
     let controller: ReadableStreamDefaultController<Uint8Array> | null = null
     let response: Response | null = null
     const settle = (): void => signal?.removeEventListener?.('abort', onAbort)
-    const abort = exchange(target, { url: request.url, method: request.method, headers: request.headers, body, redirect: request.redirect, credentials: request.credentials }, {
+    const abort = exchange(target, { url: request.url, method: request.method, headers: request.headers, body, redirect: request.redirect, credentials: request.credentials, mode }, {
       head(head) {
+        if (head.type === 'opaque') {
+          settle()
+          response = new Response(null)
+          Object.defineProperty(response, 'status', { value: 0 })
+          Object.defineProperty(response, 'type', { value: 'opaque' })
+          return resolve(response)
+        }
         if (head.status < 200 || head.status > 599) {
           abort()
           settle()
@@ -592,6 +692,7 @@ async function fetchBackend(request: Request, target: BackendTarget, signal: Sig
         }, { highWaterMark: 0 })
         response = new Response(stream, { status: head.status, statusText: head.statusText, headers: head.headers })
         response.url = head.url
+        Object.defineProperty(response, 'type', { value: head.type })
         if (head.redirected) Object.defineProperty(response, 'redirected', { value: true })
         if (empty) settle()
         resolve(response)
@@ -626,6 +727,15 @@ async function fetchBackend(request: Request, target: BackendTarget, signal: Sig
     }
     signal?.addEventListener?.('abort', onAbort)
   })
+}
+
+export async function scriptSource(url: string): Promise<string> {
+  const routed = route(url, 'GET')
+  if (!routed) throw new Error(`<script src=${url}>: ${unreachable(url)}`)
+  if ('asset' in routed) return new TextDecoder().decode(routed.asset.bytes)
+  const response = await fetchBackend(new Request(url), routed.target, null, 'script')
+  if (!response.ok) throw new Error(`<script src=${url}>: HTTP ${response.status}`)
+  return response.text()
 }
 
 export function fetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
@@ -715,7 +825,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
     const token = ++this.#sent
     const routed = route(this.#url, this.#method)
     if (routed && 'target' in routed) {
-      if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': synchronous requests to the app's backend are not supported ('${this.#url}').`, 'NetworkError')
+      if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': synchronous requests to the app's backend or the network are not supported ('${this.#url}').`, 'NetworkError')
       fire(this, new ProgressEvent('loadstart'))
       return this.#backend(routed.target, token, body)
     }
@@ -751,13 +861,13 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
     host.setTimer(0, finish)
   }
 
-  #backend(target: BackendTarget, token: number, init: BodyInit): void {
+  #backend(target: Target, token: number, init: BodyInit): void {
     const { bytes, stream, type } = this.#method === 'GET' || this.#method === 'HEAD' ? { bytes: null, stream: null, type: null } : extractBody(init)
     if (type && !this.#headers.has('content-type')) this.#headers.set('content-type', type)
     const live = () => token === this.#sent
     let loaded = 0
     let total = 0
-    const finish = (event: 'load' | 'error' | 'timeout'): void => {
+    const finish = (event: 'load' | 'error' | 'timeout', message = 'the request failed'): void => {
       this.#stop = null
       this.#bytes = this.#joined()
       if (event !== 'load') {
@@ -765,7 +875,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
         this.statusText = ''
         this.#responseHeaders = null
         this.#bytes = null
-        if (event === 'error') backendFailed(this.#method, this.#url, 'the request failed')
+        if (event === 'error') backendFailed(this.#method, this.#url, message)
       }
       this.#state(4)
       const sizes = { lengthComputable: total > 0, loaded, total }
@@ -774,7 +884,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
     }
     const start = (sent: Uint8Array | null): void => {
       if (!live()) return
-      this.#stop = exchange(target, { url: this.#url, method: this.#method, headers: this.#headers, body: sent, redirect: 'follow', credentials: 'include' }, {
+      this.#stop = exchange(target, { url: this.#url, method: this.#method, headers: this.#headers, body: sent, redirect: 'follow', credentials: this.withCredentials ? 'include' : 'same-origin', mode: 'cors' }, {
         head: (head) => {
           if (!live()) return
           this.status = head.status
@@ -796,8 +906,8 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
         end: () => {
           if (live()) finish('load')
         },
-        error: () => {
-          if (live()) finish('error')
+        error: (message) => {
+          if (live()) finish('error', message)
         },
       }, 'xhr')
       if (this.timeout > 0) {
@@ -916,8 +1026,8 @@ export class WebSocket extends EventTarget {
     this.#connect(routed.target, list)
   }
 
-  #connect(target: BackendTarget, protocols: string[]): void {
-    const headers = requestHeaders([], target, { origin: true, cookies: true })
+  #connect(target: Target, protocols: string[]): void {
+    const headers = isRemote(target) ? browserHeaders([['origin', new URL(net.base()).origin]], false) : requestHeaders([], target, { origin: true, cookies: true })
     const onEvent = (event: WsEvent): void => {
       if (this.#finished) return
       switch (event.type) {
@@ -950,7 +1060,8 @@ export class WebSocket extends EventTarget {
       }
     }
     try {
-      this.#id = transport!.websocket(target.port, target.path, headers, protocols, onEvent)
+      const [to, path] = dialOf(target)
+      this.#id = transport!.websocket(to, path, headers, protocols, onEvent)
     } catch (error) {
       backendFailed('WS', this.url, String((error as Error)?.message ?? error))
       this.#tracked?.error(String((error as Error)?.message ?? error))
@@ -1014,7 +1125,7 @@ export class EventSource extends EventTarget {
   readonly url: string
   readonly withCredentials: boolean
   readyState = 0
-  #target: BackendTarget | null = null
+  #target: Target | null = null
   #lastId = ''
   #retry = 3000
   #stop: (() => void) | null = null
@@ -1093,7 +1204,7 @@ export class EventSource extends EventTarget {
     }
     const headers: [string, string][] = [['accept', 'text/event-stream'], ['cache-control', 'no-cache']]
     if (this.#lastId) headers.push(['last-event-id', this.#lastId])
-    this.#stop = exchange(this.#target!, { url: this.url, method: 'GET', headers, body: null, redirect: 'follow', credentials: this.withCredentials ? 'include' : 'same-origin' }, {
+    this.#stop = exchange(this.#target!, { url: this.url, method: 'GET', headers, body: null, redirect: 'follow', credentials: this.withCredentials ? 'include' : 'same-origin', mode: 'cors' }, {
       head: (head) => {
         if (this.readyState === ES_STATES.CLOSED) return
         const contentType = headerOf(head.headers, 'content-type') ?? ''

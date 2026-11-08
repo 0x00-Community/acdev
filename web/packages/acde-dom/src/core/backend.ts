@@ -13,10 +13,10 @@ export type WsEvent =
   | { type: 'error'; message: string }
 
 export interface BackendTransport {
-  readonly port: number
-  request(port: number, method: string, path: string, headers: Header[], body: Uint8Array | null, onEvent: (event: HttpEvent) => void): number
+  readonly port: number | null
+  request(to: number | string, method: string, path: string, headers: Header[], body: Uint8Array | null, onEvent: (event: HttpEvent) => void): number
   abort(id: number): unknown
-  websocket(port: number, path: string, headers: Header[], protocols: string[], onEvent: (event: WsEvent) => void): number
+  websocket(to: number | string, path: string, headers: Header[], protocols: string[], onEvent: (event: WsEvent) => void): number
   send(id: number, data: string | Uint8Array): unknown
   close(id: number, code?: number, reason?: string): unknown
 }
@@ -33,25 +33,57 @@ export interface BackendTarget {
   readonly host: string
 }
 
-type UrlParts = { readonly protocol: string; readonly host: string; readonly hostname: string; readonly port: string; readonly pathname: string; readonly search: string }
+export interface RemoteTarget {
+  readonly url: string
+  readonly origin: string
+}
+
+export type Target = BackendTarget | RemoteTarget
+
+export function isRemote(target: Target): target is RemoteTarget {
+  return 'url' in target
+}
+
+export function dialOf(target: Target): [to: number | string, path: string] {
+  return isRemote(target) ? [target.url, ''] : [target.port, target.path]
+}
+
+type UrlParts = { readonly protocol: string; readonly host: string; readonly hostname: string; readonly port: string; readonly pathname: string; readonly search: string; readonly origin: string; readonly href: string; readonly hash: string }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0'])
 const SECURE: Record<string, boolean> = { 'http:': false, 'ws:': false, 'https:': true, 'wss:': true }
 
-export function backendTarget(url: UrlParts, own: UrlParts): BackendTarget | null {
+export function backendTarget(url: UrlParts, own: UrlParts): Target | null {
   if (!transport || !(url.protocol in SECURE)) return null
   const path = (url.pathname || '/') + url.search
-  if (url.host === own.host && SECURE[url.protocol] === SECURE[own.protocol]) return { port: transport.port, path, host: 'localhost' }
-  if (!LOOPBACK.has(url.hostname.toLowerCase())) return null
-  const port = url.port ? Number(url.port) : SECURE[url.protocol] ? 443 : 80
-  return { port, path, host: url.port ? `localhost:${port}` : 'localhost' }
+  const backend = transport.port
+  if (url.hostname.toLowerCase() === own.hostname.toLowerCase()) {
+    return url.host === own.host && SECURE[url.protocol] === SECURE[own.protocol] && backend !== null ? { port: backend, path, host: 'localhost' } : null
+  }
+  if (backend !== null && LOOPBACK.has(url.hostname.toLowerCase())) {
+    const port = url.port ? Number(url.port) : SECURE[url.protocol] ? 443 : 80
+    return { port, path, host: url.port ? `localhost:${port}` : 'localhost' }
+  }
+  return { url: url.hash ? url.href.slice(0, -url.hash.length) : url.href, origin: url.origin }
 }
 
-const FORBIDDEN = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'upgrade', 'keep-alive', 'te', 'trailer', 'cookie', 'cookie2', 'origin', 'expect', 'proxy-connection', 'sec-websocket-key', 'sec-websocket-version', 'sec-websocket-extensions', 'sec-websocket-protocol'])
+const FORBIDDEN = new Set([
+  'host', 'connection', 'content-length', 'transfer-encoding', 'upgrade', 'keep-alive', 'te', 'trailer', 'cookie', 'cookie2', 'origin', 'expect', 'proxy-connection',
+  'accept-charset', 'accept-encoding', 'access-control-request-headers', 'access-control-request-method', 'date', 'dnt', 'referer', 'via',
+  'sec-websocket-key', 'sec-websocket-version', 'sec-websocket-extensions', 'sec-websocket-protocol',
+])
+
+export function allowedHeaders(page: Iterable<readonly [string, string]>): Header[] {
+  const out: Header[] = []
+  for (const [name, value] of page) {
+    const lower = name.toLowerCase()
+    if (!FORBIDDEN.has(lower) && !lower.startsWith('proxy-') && !lower.startsWith('sec-')) out.push([name, value])
+  }
+  return out
+}
 
 export function requestHeaders(page: Iterable<readonly [string, string]>, target: BackendTarget, options: { origin: boolean; cookies: boolean }): Header[] {
-  const out: Header[] = [['host', target.host]]
-  for (const [name, value] of page) if (!FORBIDDEN.has(name.toLowerCase()) && !name.toLowerCase().startsWith('proxy-') && !name.toLowerCase().startsWith('sec-')) out.push([name, value])
+  const out: Header[] = [['host', target.host], ...allowedHeaders(page)]
   if (options.origin) out.push(['origin', `http://${target.host}`])
   const cookie = options.cookies ? cookies.header(target.path) : ''
   if (cookie) out.push(['cookie', cookie])

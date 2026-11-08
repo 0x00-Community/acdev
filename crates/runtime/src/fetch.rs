@@ -4,7 +4,7 @@ use futures_channel::oneshot;
 use futures_util::{StreamExt, future::AbortHandle};
 use ntex::connect::{Connect, ConnectError};
 use ntex::http::{Method, header};
-use ntex::io::Io;
+use ntex::io::{Io, Sealed};
 use ntex::service::fn_service;
 use ntex::time::{Deadline, Millis, Seconds};
 use ntex::url::Url;
@@ -96,21 +96,45 @@ thread_local! {
         .connector(fn_service(async |connect: Connect<Url>| {
             DIALED.with(|dialed| dialed.borrow_mut().remove(connect.host())).ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))
         }))
-        .build(ntex::SharedCfg::new("acde-backend").add(ntex::client::ClientConfig::new().set_h1_connection_limit(0)));
+        .build(ntex::SharedCfg::new("acde-fetch").add(ntex::client::ClientConfig::new().set_h1_connection_limit(0)));
 }
 
 fn is_token(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
 
-fn target(socket: &str, path: &str) -> Result<(), String> {
-    if !socket.starts_with('/') || socket.contains('\0') {
-        return Err("socket must be an absolute path".into());
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Dial {
+    Socket(String),
+    Url(String),
+}
+
+impl Dial {
+    fn check(self, path: &str, schemes: &[&str]) -> Result<Self, String> {
+        match &self {
+            Self::Socket(socket) => {
+                if !socket.starts_with('/') || socket.contains('\0') {
+                    return Err("socket must be an absolute path".into());
+                }
+                if !path.starts_with('/') || !path.bytes().all(|b| b.is_ascii_graphic()) {
+                    return Err("path must start with / and be visible ASCII (percent-encoded)".into());
+                }
+                Ok(self)
+            }
+            Self::Url(url) => {
+                let parsed = url::Url::parse(url).map_err(|e| format!("bad URL {url:?}: {e}"))?;
+                if !schemes.contains(&parsed.scheme()) || parsed.host_str().is_none_or(str::is_empty) {
+                    return Err(format!("cannot reach {url:?}: the URL must be {} with a host", schemes.join(" or ")));
+                }
+                if !parsed.username().is_empty() || parsed.password().is_some() {
+                    return Err(format!("cannot reach {url:?}: credentials in the URL"));
+                }
+                let mut parsed = parsed;
+                parsed.set_fragment(None);
+                Ok(Self::Url(parsed.into()))
+            }
+        }
     }
-    if !path.starts_with('/') || !path.bytes().all(|b| b.is_ascii_graphic()) {
-        return Err("path must start with / and be visible ASCII (percent-encoded)".into());
-    }
-    Ok(())
 }
 
 fn headers(pairs: Vec<Vec<String>>, owned: &[&[&str]]) -> Result<(String, Vec<(String, String)>), String> {
@@ -140,7 +164,7 @@ fn headers(pairs: Vec<Vec<String>>, owned: &[&[&str]]) -> Result<(String, Vec<(S
 }
 
 pub(crate) struct Exchange {
-    socket: String,
+    to: Dial,
     method: String,
     path: String,
     host: String,
@@ -149,13 +173,13 @@ pub(crate) struct Exchange {
 }
 
 impl Exchange {
-    fn new(socket: String, method: String, path: String, pairs: Vec<Vec<String>>, body: Option<Vec<u8>>) -> Result<Self, String> {
-        target(&socket, &path)?;
+    fn new(to: Dial, method: String, path: String, pairs: Vec<Vec<String>>, body: Option<Vec<u8>>) -> Result<Self, String> {
+        let to = to.check(&path, &["http", "https"])?;
         if !is_token(&method) {
             return Err("method must be an HTTP token".into());
         }
         let (host, headers) = headers(pairs, &[FRAMING])?;
-        Ok(Self { socket, method, path, host, headers, body })
+        Ok(Self { to, method, path, host, headers, body })
     }
 
     async fn run(self, events: &impl Events) {
@@ -166,12 +190,18 @@ impl Exchange {
 
     async fn exchange(self, events: &impl Events) -> std::result::Result<(), Stop> {
         static NEXT: AtomicU32 = AtomicU32::new(0);
-        let io = connect(&self.socket).await?;
-        let dialed = format!("c{}", NEXT.fetch_add(1, Ordering::Relaxed));
-        DIALED.with(|d| d.borrow_mut().insert(dialed.clone(), io));
-        let client = CLIENT.with(Clone::clone);
-        let mut request = client.request(Method::from_bytes(self.method.as_bytes())?, format!("http://{dialed}{}", self.path));
-        request = request.force_close().timeout(Millis::ZERO).set_header(header::HOST, self.host.as_str());
+        let method = Method::from_bytes(self.method.as_bytes())?;
+        let (mut request, dialed) = match &self.to {
+            Dial::Socket(socket) => {
+                let io = connect(socket).await?;
+                let dialed = format!("c{}", NEXT.fetch_add(1, Ordering::Relaxed));
+                DIALED.with(|d| d.borrow_mut().insert(dialed.clone(), io));
+                let request = CLIENT.with(Clone::clone).request(method, format!("http://{dialed}{}", self.path));
+                (request.force_close().set_header(header::HOST, self.host.as_str()), Some(dialed))
+            }
+            Dial::Url(url) => (crate::http::client().request(method, url.as_str()).no_decompress(), None),
+        };
+        request = request.timeout(Millis::ZERO);
         for (name, value) in &self.headers {
             request = request.header(name.as_str(), value.as_str());
         }
@@ -179,7 +209,9 @@ impl Exchange {
             Some(body) => request.send_body(body).await,
             None => request.send().await,
         };
-        DIALED.with(|d| d.borrow_mut().remove(&dialed));
+        if let Some(dialed) = dialed {
+            DIALED.with(|d| d.borrow_mut().remove(&dialed));
+        }
         let mut response = sent?;
         let status = response.status();
         let headers = response.headers().iter().map(|(name, value)| (name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).trim().to_owned()));
@@ -200,7 +232,7 @@ impl Exchange {
 }
 
 pub(crate) struct Upgrade {
-    socket: String,
+    to: Dial,
     path: String,
     host: String,
     headers: Vec<(String, String)>,
@@ -219,28 +251,45 @@ enum Step {
 }
 
 impl Upgrade {
-    fn new(socket: String, path: String, pairs: Vec<Vec<String>>, protocols: Vec<String>) -> Result<Self, String> {
-        target(&socket, &path)?;
+    fn new(to: Dial, path: String, pairs: Vec<Vec<String>>, protocols: Vec<String>) -> Result<Self, String> {
+        let to = to.check(&path, &["ws", "wss"])?;
         let (host, headers) = headers(pairs, &[FRAMING, HANDSHAKE_HEADERS])?;
         for (i, protocol) in protocols.iter().enumerate() {
             if !is_token(protocol) || protocols[..i].contains(protocol) {
                 return Err(format!("bad or repeated protocol {protocol:?}"));
             }
         }
-        Ok(Self { socket, path, host, headers, protocols })
+        Ok(Self { to, path, host, headers, protocols })
     }
 
-    async fn handshake(&self) -> std::result::Result<(Io, Codec, String), String> {
-        let io = Cell::new(Some(connect(&self.socket).await?));
+    async fn handshake(&self) -> std::result::Result<(Io<Sealed>, Codec, String), String> {
         let mut config = WsClientConfig::new().set_max_frame_size(Messages::FRAME).set_handshake_timeout(HANDSHAKE).set_protocols(&self.protocols);
-        config = config.and_then(|c| c.set_header(header::HOST, self.host.as_str()));
+        if matches!(self.to, Dial::Socket(_)) {
+            config = config.and_then(|c| c.set_header(header::HOST, self.host.as_str()));
+        }
         for (name, value) in &self.headers {
             config = config.and_then(|c| c.set_header(name.as_str(), value.as_str()));
         }
-        let config = ntex::SharedCfg::new("acde-backend").add(config.map_err(|error| error.to_string())?);
-        let client = WsClient::new(format!("http://localhost{}", self.path), config)
-            .connector(fn_service(async move |_: Connect<Url>| io.take().ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))));
-        let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
+        let config = ntex::SharedCfg::new("acde-fetch").add(config.map_err(|error| error.to_string())?);
+        let (io, codec, response) = match &self.to {
+            Dial::Socket(socket) => {
+                let io = Cell::new(Some(connect(socket).await?));
+                let client = WsClient::new(format!("http://localhost{}", self.path), config)
+                    .connector(fn_service(async move |_: Connect<Url>| io.take().ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))));
+                let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
+                (io.seal(), codec, response)
+            }
+            Dial::Url(url) if url.starts_with("wss:") => {
+                let tls = crate::http::tls().map_err(|error| error.to_string())?;
+                let client = WsClient::new(url.as_str(), config).openssl(tls);
+                let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
+                (io.seal(), codec, response)
+            }
+            Dial::Url(url) => {
+                let (io, codec, response) = WsClient::new(url.as_str(), config).connect().await.map_err(|error| error.to_string())?.into_inner();
+                (io.seal(), codec, response)
+            }
+        };
         let protocol = response.header(header::SEC_WEBSOCKET_PROTOCOL).map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
         Ok((io, codec, protocol.unwrap_or_default()))
     }
@@ -375,12 +424,12 @@ struct Connection {
 }
 
 #[derive(Default)]
-pub struct UnixClient {
+pub struct FetchClient {
     next: AtomicU32,
     open: Arc<Mutex<HashMap<u32, Connection>>>,
 }
 
-impl UnixClient {
+impl FetchClient {
     fn start<F>(&self, commands: Option<async_channel::Sender<Command>>, work: impl FnOnce() -> F + Send + 'static) -> u32
     where
         F: Future<Output = ()> + 'static,
@@ -413,20 +462,12 @@ impl UnixClient {
         }
     }
 
-    pub fn request(
-        &self,
-        socket: String,
-        method: String,
-        path: String,
-        headers: Vec<Vec<String>>,
-        body: Option<Vec<u8>>,
-        deliver: Deliver,
-    ) -> Result<u32, String> {
-        Ok(self.exchange(Exchange::new(socket, method, path, headers, body)?, Delivered(deliver)))
+    pub fn request(&self, to: Dial, method: String, path: String, headers: Vec<Vec<String>>, body: Option<Vec<u8>>, deliver: Deliver) -> Result<u32, String> {
+        Ok(self.exchange(Exchange::new(to, method, path, headers, body)?, Delivered(deliver)))
     }
 
-    pub fn websocket(&self, socket: String, path: String, headers: Vec<Vec<String>>, protocols: Vec<String>, deliver: Deliver) -> Result<u32, String> {
-        Ok(self.upgrade(Upgrade::new(socket, path, headers, protocols)?, Delivered(deliver)))
+    pub fn websocket(&self, to: Dial, path: String, headers: Vec<Vec<String>>, protocols: Vec<String>, deliver: Deliver) -> Result<u32, String> {
+        Ok(self.upgrade(Upgrade::new(to, path, headers, protocols)?, Delivered(deliver)))
     }
 
     pub fn abort(&self, id: u32) {
@@ -449,7 +490,7 @@ impl UnixClient {
     }
 }
 
-impl Drop for UnixClient {
+impl Drop for FetchClient {
     fn drop(&mut self) {
         for (_, connection) in self.open.locked().drain() {
             connection.task.abort();
@@ -467,7 +508,7 @@ mod tests {
     use std::time::Duration;
 
     fn serve(name: &str, answer: impl FnOnce(StdStream) + Send + 'static) -> (String, std::thread::JoinHandle<()>) {
-        let dir = std::env::temp_dir().join(format!("acde-unixhttp-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("scratch directory");
         let path: PathBuf = dir.join(name);
         let listener = UnixListener::bind(&path).expect("bind");
@@ -495,7 +536,7 @@ mod tests {
 
     fn request(socket: &str, method: &str, path: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Exchange {
         Exchange {
-            socket: socket.into(),
+            to: Dial::Socket(socket.into()),
             method: method.into(),
             path: path.into(),
             host: "localhost".into(),
@@ -531,7 +572,7 @@ mod tests {
             stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nX-Thing: a b\r\n\r\nhello").expect("answer");
         });
         let (sender, events) = channel();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.exchange(request(&socket, "GET", "/api/x?y=1", &[("Accept", "text/plain")], None), sender);
         let Event::Head { status, status_text, headers } = next(&events) else { panic!("head first") };
         assert_eq!((status, status_text.as_str()), (200, "OK"));
@@ -540,6 +581,61 @@ mod tests {
         assert_eq!(next(&events), Event::End);
         assert!(recv(&events).is_none(), "nothing after end");
         server.join().expect("server");
+    }
+
+    #[test]
+    fn remote_url_over_tcp() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("address").port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut reader = std::io::BufReader::new(stream.try_clone().expect("clone"));
+            let mut lines = Vec::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).expect("request line");
+                let line = line.trim_end().to_ascii_lowercase();
+                if line.is_empty() {
+                    break;
+                }
+                lines.push(line);
+            }
+            let mut body = [0u8; 2];
+            reader.read_exact(&mut body).expect("body");
+            assert_eq!(lines[0], "post /x?y=1 http/1.1");
+            assert!(lines.contains(&format!("host: 127.0.0.1:{port}")), "{lines:?}");
+            assert!(lines.contains(&"origin: http://acde.local".to_owned()), "{lines:?}");
+            assert_eq!(&body, b"hi");
+            stream.write_all(b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").expect("answer");
+        });
+        let exchange = Exchange::new(
+            Dial::Url(format!("http://127.0.0.1:{port}/x?y=1#frag")),
+            "POST".into(),
+            String::new(),
+            vec![vec!["Origin".into(), "http://acde.local".into()]],
+            Some(b"hi".to_vec()),
+        )
+        .expect("a valid request");
+        let (sender, events) = channel();
+        let client = FetchClient::default();
+        client.exchange(exchange, sender);
+        let Event::Head { status, .. } = next(&events) else { panic!("head first") };
+        assert_eq!(status, 201);
+        assert_eq!(next(&events), Event::Chunk(b"ok".to_vec()));
+        assert_eq!(next(&events), Event::End);
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn remote_urls_are_checked() {
+        let exchange = |url: &str| Exchange::new(Dial::Url(url.into()), "GET".into(), String::new(), vec![], None).err();
+        assert!(exchange("ftp://example.com/x").is_some());
+        assert!(exchange("http://user:pw@example.com/").is_some());
+        assert!(exchange("not a url").is_some());
+        assert!(exchange("https://example.com/a b").is_none());
+        let upgrade = |url: &str| Upgrade::new(Dial::Url(url.into()), String::new(), vec![], vec![]).err();
+        assert!(upgrade("https://example.com/ws").is_some());
+        assert!(upgrade("wss://example.com/ws").is_none());
     }
 
     #[test]
@@ -555,7 +651,7 @@ mod tests {
             stream.read_to_end(&mut rest).ok();
         });
         let (sender, events) = channel();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.exchange(request(&socket, "GET", "/events", &[], None), sender);
         assert!(matches!(next(&events), Event::Head { status: 200, .. }));
         assert_eq!(next(&events), Event::Chunk(b"data: first\n\n".to_vec()));
@@ -580,7 +676,7 @@ mod tests {
         let (sender, events) = channel();
         let mut exchange = request(&socket, "POST", "/api/echo", &[("Content-Type", "application/json")], Some(br#"{"a":1}"#));
         exchange.host = "localhost:8080".into();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.exchange(exchange, sender);
         assert!(matches!(next(&events), Event::Head { status: 201, .. }));
         let mut body = Vec::new();
@@ -604,7 +700,7 @@ mod tests {
             let mut rest = [0u8; 16];
             closed.send(stream.read(&mut rest).map(|n| n == 0).unwrap_or(true)).ok();
         });
-        let connections = UnixClient::default();
+        let connections = FetchClient::default();
         let (sender, events) = channel();
         let id = connections.exchange(request(&socket, "GET", "/slow", &[], None), sender);
         assert!(matches!(next(&events), Event::Head { status: 200, .. }));
@@ -618,7 +714,7 @@ mod tests {
     #[test]
     fn missing_socket_is_an_error_event() {
         let (sender, events) = channel();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.exchange(request("/nonexistent/acde/3000.sock", "GET", "/", &[], None), sender);
         let Event::Error(message) = next(&events) else { panic!("an error") };
         assert!(message.contains("/nonexistent/acde/3000.sock") && message.contains("No such file"), "{message}");
@@ -627,11 +723,11 @@ mod tests {
 
     #[test]
     fn socket_bound_later_is_waited_for() {
-        let dir = std::env::temp_dir().join(format!("acde-unixhttp-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("scratch directory");
         let path = dir.join("3000.sock");
         let (sender, events) = channel();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.exchange(request(&path.to_string_lossy(), "GET", "/", &[], None), sender);
         std::thread::sleep(Duration::from_millis(200));
         let listener = UnixListener::bind(&path).expect("bind");
@@ -647,7 +743,7 @@ mod tests {
 
     #[test]
     fn many_streams_at_once() {
-        let dir = std::env::temp_dir().join(format!("acde-unixhttp-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("scratch directory");
         let path = dir.join("3000.sock");
         let listener = UnixListener::bind(&path).expect("bind");
@@ -660,7 +756,7 @@ mod tests {
             };
             (0..12).map(accept).collect::<Vec<_>>()
         });
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         let streams: Vec<Received> = (0..12)
             .map(|_| {
                 let (sender, events) = channel();
@@ -681,7 +777,7 @@ mod tests {
             stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc").expect("short");
         });
         let (sender, events) = channel();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.exchange(request(&socket, "GET", "/", &[], None), sender);
         assert!(matches!(next(&events), Event::Head { status: 200, .. }));
         assert_eq!(next(&events), Event::Chunk(b"abc".to_vec()));
@@ -691,7 +787,7 @@ mod tests {
 
     #[test]
     fn options_are_checked() {
-        let options = |headers: Vec<Vec<String>>, path: &str| Exchange::new("/run/x.sock".into(), "GET".into(), path.into(), headers, None);
+        let options = |headers: Vec<Vec<String>>, path: &str| Exchange::new(Dial::Socket("/run/x.sock".into()), "GET".into(), path.into(), headers, None);
         let pair = |n: &str, v: &str| vec![n.to_owned(), v.to_owned()];
         assert!(options(vec![pair("Bad Name", "x")], "/").is_err());
         assert!(options(vec![pair("X", "a\r\nInjected: 1")], "/").is_err());
@@ -708,7 +804,7 @@ mod tests {
 
     fn upgrade(socket: &str, protocols: &[&str]) -> Upgrade {
         Upgrade {
-            socket: socket.into(),
+            to: Dial::Socket(socket.into()),
             path: "/ws".into(),
             host: "localhost".into(),
             headers: vec![("Origin".into(), "http://acde.local".into())],
@@ -746,7 +842,7 @@ mod tests {
                 }
             }
         });
-        let connections = UnixClient::default();
+        let connections = FetchClient::default();
         let (sender, events) = channel();
         let id = connections.upgrade(upgrade(&socket, &["chat", "v2"]), sender);
         connections.command(id, Command::Send(Message::Text("hello 你好".into())));
@@ -790,7 +886,7 @@ mod tests {
             stream.shutdown(std::net::Shutdown::Both).ok();
         });
         let (sender, events) = channel();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.upgrade(upgrade(&socket, &[]), sender);
         assert_eq!(next(&events), Event::Open { protocol: String::new(), extensions: String::new() });
         assert_eq!(next(&events), Event::Text("fragmented ✓".into()));
@@ -805,7 +901,7 @@ mod tests {
             stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").expect("answer");
         });
         let (sender, events) = channel();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.upgrade(upgrade(&socket, &[]), sender);
         let Event::Error(message) = next(&events) else { panic!("an error") };
         assert!(message.contains("404"), "{message}");
@@ -813,7 +909,7 @@ mod tests {
         server.join().expect("server");
 
         let (sender, events) = channel();
-        let client = UnixClient::default();
+        let client = FetchClient::default();
         client.upgrade(upgrade("/nonexistent/acde/1.sock", &[]), sender);
         assert!(matches!(next(&events), Event::Error(message) if message.contains("No such file")));
         assert!(matches!(next(&events), Event::Close { code: 1006, clean: false, .. }));

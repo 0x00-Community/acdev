@@ -19,6 +19,22 @@ const FAKE = `(() => {
     port: 3000,
     request(port, method, path, headers, body, on) {
       const id = next++
+      if (typeof port === 'string') {
+        const call = { id, url: port, method, headers: Object.fromEntries(headers), body: body ? dec.decode(body) : null }
+        backend.calls.push(call)
+        const echo = JSON.stringify(call)
+        const any = ['access-control-allow-origin', '*']
+        const p = new URL(port).pathname
+        if (p === '/open') answer(on, 200, [any, ['access-control-expose-headers', 'x-shown'], ['x-shown', '1'], ['x-hidden', '1'], ['set-cookie', 'a=1'], ['content-type', 'application/json']], [echo])
+        else if (p === '/preflight' && method === 'OPTIONS') answer(on, 204, [any, ['access-control-allow-methods', 'PUT, DELETE'], ['access-control-allow-headers', 'authorization, x-a, content-type']], [])
+        else if (p === '/wild' && method === 'OPTIONS') answer(on, 204, [any, ['access-control-allow-methods', '*'], ['access-control-allow-headers', '*']], [])
+        else if (p === '/preflight' || p === '/wild') answer(on, 200, [any, ['content-type', 'application/json']], [echo])
+        else if (p === '/creds') answer(on, 200, [['access-control-allow-origin', 'http://acde.local'], ['access-control-allow-credentials', 'true']], ['ok'])
+        else if (p === '/hop') answer(on, 302, [any, ['location', 'https://other.example.com/open']], [])
+        else if (p === '/lib.js') answer(on, 200, [['content-type', 'text/javascript']], ['globalThis.libLoaded = (globalThis.libLoaded ?? 0) + 1'])
+        else answer(on, 404, [['content-type', 'text/plain']], ['nope'])
+        return id
+      }
       const call = { id, port, method, path, headers: Object.fromEntries(headers), body: body ? dec.decode(body) : null }
       backend.calls.push(call)
       const p = path.split('?')[0]
@@ -244,8 +260,10 @@ test('WebSocket to the backend: open, text and binary messages, close; refused w
     out.closing = ws.readyState
     out.close = await closed
     out.errors = events
-    const other = new WebSocket('ws://example.com/x')
-    out.refused = await new Promise((resolve) => { const seen = []; other.onerror = () => seen.push('error'); other.onclose = (e) => resolve([...seen, e.code, other.readyState]) })
+    const other = new WebSocket('wss://example.com/x#no'.replace('#no', ''))
+    await new Promise((resolve) => { other.onopen = resolve })
+    const remote = backend.calls.at(-1)
+    out.remote = [remote.port, remote.path, remote.headers.origin, remote.headers.host ?? null, remote.headers.cookie ?? null]
     const port = new WebSocket('ws://127.0.0.1:9000/live')
     await new Promise((resolve) => { port.onopen = resolve })
     out.port = [backend.calls.at(-1).port, backend.calls.at(-1).path]
@@ -262,10 +280,79 @@ test('WebSocket to the backend: open, text and binary messages, close; refused w
     closing: 2,
     close: [1000, 'bye', true, 3],
     errors: [],
-    refused: ['error', 1006, 3],
+    remote: ['wss://example.com/x', '', 'http://acde.local', null, null],
     port: [9000, '/live'],
   })
   assert.deepEqual(web.host.errors, [])
+})
+
+test('network: other hosts are reached with CORS: preflight, credentials, exposed headers, no-cors, redirects', async () => {
+  using web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const out = {}
+    const calls = () => backend.calls.filter((c) => c.url)
+    const open = await fetch('https://api.example.com/open?q=1#frag', { headers: { 'Content-Type': 'text/plain', Cookie: 'no', 'Accept-Encoding': 'br' } })
+    const sent = await open.json()
+    out.open = [open.status, open.type, open.headers.get('x-shown'), open.headers.get('x-hidden'), open.headers.get('set-cookie'), open.headers.get('content-type')]
+    out.sent = [sent.url, sent.method, sent.headers.origin, sent.headers.referer, sent.headers.accept, sent.headers.cookie ?? null, sent.headers['accept-encoding'] ?? null, sent.headers.host ?? null, !!sent.headers['user-agent']]
+    out.calls = calls().length
+    const put = await (await fetch('https://api.example.com/preflight', { method: 'PUT', body: '{}', headers: { Authorization: 'Bearer t', 'X-A': '1', 'Content-Type': 'application/json' } })).json()
+    const options = calls().at(-2)
+    out.preflight = [options.method, options.headers['access-control-request-method'], options.headers['access-control-request-headers'], options.headers.authorization ?? null, put.method, put.headers.authorization, put.body]
+    try { await fetch('https://api.example.com/preflight', { method: 'PATCH' }); out.patch = 'fetched?' } catch (e) { out.patch = [e instanceof TypeError, e.cause] }
+    const before = calls().length
+    try { await fetch('https://api.example.com/wild', { headers: { Authorization: 'x' } }); out.wild = 'fetched?' } catch (e) { out.wild = [e instanceof TypeError, calls().length - before] }
+    out.wildOther = (await (await fetch('https://api.example.com/wild', { method: 'DELETE', headers: { 'X-B': '2' } })).json()).method
+    try { await fetch('https://api.example.com/closed'); out.closed = 'fetched?' } catch (e) { out.closed = e.cause }
+    try { await fetch('https://api.example.com/open', { credentials: 'include' }); out.include = 'fetched?' } catch (e) { out.include = e.cause.slice(0, 40) }
+    out.creds = await (await fetch('https://api.example.com/creds', { credentials: 'include' })).text()
+    const opaque = await fetch('https://api.example.com/closed', { mode: 'no-cors' })
+    out.opaque = [opaque.status, opaque.type, opaque.ok, [...opaque.headers].length, opaque.body, calls().at(-1).headers.origin ?? null]
+    try { await fetch('https://api.example.com/open', { mode: 'same-origin' }); out.same = 'fetched?' } catch (e) { out.same = e instanceof TypeError }
+    try { new Request('https://api.example.com/open', { mode: 'no-cors', method: 'PUT' }); out.noCorsPut = 'made?' } catch (e) { out.noCorsPut = e instanceof TypeError }
+    const hop = await fetch('https://api.example.com/hop')
+    out.hop = [hop.url, hop.redirected, calls().at(-1).headers.origin]
+    const xhr = new XMLHttpRequest()
+    xhr.open('GET', 'https://api.example.com/open')
+    await new Promise((resolve) => { xhr.onloadend = resolve; xhr.send() })
+    out.xhr = [xhr.status, xhr.getResponseHeader('x-shown'), xhr.getResponseHeader('x-hidden'), xhr.getAllResponseHeaders().includes('set-cookie')]
+    const plain = await (await fetch('http://192.168.1.5:8080/open')).json()
+    out.plain = plain.url
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), {
+    open: [200, 'cors', '1', null, null, 'application/json'],
+    sent: ['https://api.example.com/open?q=1', 'GET', 'http://acde.local', 'http://acde.local/', '*/*', null, null, null, true],
+    calls: 1,
+    preflight: ['OPTIONS', 'PUT', 'authorization,content-type,x-a', null, 'PUT', 'Bearer t', '{}'],
+    patch: [true, "CORS: Response to preflight request doesn't pass access control check: Method PATCH is not allowed by Access-Control-Allow-Methods in preflight response."],
+    wild: [true, 1],
+    wildOther: 'DELETE',
+    closed: "CORS: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+    include: "CORS: The value of the 'Access-Control-A",
+    creds: 'ok',
+    opaque: [0, 'opaque', false, 0, null, null],
+    same: true,
+    noCorsPut: true,
+    hop: ['https://other.example.com/open', true, 'null'],
+    xhr: [200, '1', null, false],
+    plain: 'http://192.168.1.5:8080/open',
+  })
+})
+
+test('a classic script from another host runs without CORS, while fetch of it is blocked', async () => {
+  using web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const script = document.createElement('script')
+    script.src = 'https://cdn.example.com/lib.js'
+    const loaded = new Promise((resolve) => { script.onload = () => resolve('load'); script.onerror = () => resolve('error') })
+    document.body.appendChild(script)
+    const event = await loaded
+    let fetched
+    try { await fetch('https://cdn.example.com/lib.js'); fetched = 'fetched?' } catch (e) { fetched = e instanceof TypeError }
+    return JSON.stringify([event, globalThis.libLoaded, fetched, backend.calls.filter((c) => c.url)[0].headers.origin ?? null])
+  })()`)
+  assert.deepEqual(JSON.parse(result), ['load', 1, true, null])
 })
 
 test('EventSource from the backend: events, types, ids, retry, reconnect with Last-Event-ID, close', async () => {
@@ -419,7 +506,7 @@ test('observe: console lines, page errors and every request with its outcome rea
     ['start', 'fetch', 'POST', '/api/echo', 3], ['response', 200], ['end', echo],
     ['start', 'fetch', 'GET', '/missing', 0], ['response', 404], ['end', 'not found: /missing'.length],
     ['start', 'fetch', 'GET', '/fail', 0], ['error', 'connect: no such file'],
-    ['start', 'fetch', 'GET', 'https://example.com/x', 0], ['error', "not the app's: a page reaches its own files and its own backend only"],
+    ['start', 'fetch', 'GET', 'https://example.com/x', 0], ['error', "CORS: No 'Access-Control-Allow-Origin' header is present on the requested resource."],
     ['start', 'fetch', 'GET', '/nothing-here', 0], ['response', 404], ['end', 'not found: /nothing-here'.length],
     ['start', 'xhr', 'GET', '/stream', 0], ['response', 200], ['end', 3],
     ['start', 'websocket', 'GET', 'ws://acde.local/socket', 0], ['response', 101], ['end', 'echo:ping'.length],
@@ -436,5 +523,5 @@ test('observe: without a backend, a missing file of the app and another host fai
     __acdeDom.observe(null)
     return JSON.stringify(seen)
   })()`)
-  assert.deepEqual(JSON.parse(result), ['no such file in the app, and no backend to ask', "not the app's: a page reaches its own files and its own backend only"])
+  assert.deepEqual(JSON.parse(result), ['no such file in the app, and no backend to ask', 'another host, and this page has no network'])
 })

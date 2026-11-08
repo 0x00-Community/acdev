@@ -1,8 +1,8 @@
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use acde_runtime::{Deliver, UnixClient, UnixEvent as Event};
+use acde_runtime::{Deliver, Dial, FetchClient, FetchEvent as Event};
 
 use crate::bind::{self, IntoJs};
 use crate::rt::{self, Msg};
@@ -15,8 +15,8 @@ struct Open {
 
 #[derive(Default)]
 struct State {
-    sockets: PathBuf,
-    client: Option<UnixClient>,
+    sockets: Option<PathBuf>,
+    client: Option<FetchClient>,
     open: bind::Slab<Open>,
 }
 
@@ -25,12 +25,9 @@ thread_local! {
 }
 
 pub fn install<'s>(scope: &mut v8::PinScope<'s, '_>, natives: v8::Local<'s, v8::Object>, init: v8::Local<'s, v8::Value>) {
-    let Ok(init) = v8::Local::<v8::Object>::try_from(init) else { return };
-    let Some(sockets) = bind::get_string(scope, init, "sockets") else { return };
-    if !Path::new(&sockets).is_absolute() {
-        return;
-    }
-    STATE.with(|s| s.borrow_mut().sockets = PathBuf::from(sockets));
+    let sockets = v8::Local::<v8::Object>::try_from(init).ok().and_then(|init| bind::get_string(scope, init, "sockets"));
+    let sockets = sockets.map(PathBuf::from).filter(|dir| dir.is_absolute());
+    STATE.with(|s| s.borrow_mut().sockets = sockets);
     let backend = v8::Object::new(scope);
     crate::methods!(scope, backend,
         "request" => request,
@@ -47,14 +44,20 @@ pub fn clear() {
     drop(state);
 }
 
-fn socket(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> Option<String> {
+fn dial(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> Option<Dial> {
+    if args.get(i).is_string() {
+        return Some(Dial::Url(bind::arg_string(scope, args, i)));
+    }
     let port = bind::arg_f64(scope, args, i);
     if !(0.0..=65535.0).contains(&port) || port.fract() != 0.0 {
         bind::throw_range_error(scope, "acde.backend: a port is 0 to 65535");
         return None;
     }
-    let sockets = STATE.with(|s| s.borrow().sockets.clone());
-    Some(sockets.join(format!("{port}.sock")).to_string_lossy().into_owned())
+    let Some(sockets) = STATE.with(|s| s.borrow().sockets.clone()) else {
+        bind::throw_type_error(scope, "acde.backend: this app has no backend");
+        return None;
+    };
+    Some(Dial::Socket(sockets.join(format!("{port}.sock")).to_string_lossy().into_owned()))
 }
 
 fn headers(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<Vec<Vec<String>>> {
@@ -67,7 +70,7 @@ fn open(
     on_event: v8::Local<v8::Value>,
     websocket: bool,
     rv: &mut v8::ReturnValue,
-    start: impl FnOnce(&UnixClient, Deliver) -> Result<u32, String>,
+    start: impl FnOnce(&FetchClient, Deliver) -> Result<u32, String>,
 ) {
     let Ok(on_event) = v8::Local::<v8::Function>::try_from(on_event) else {
         return bind::throw_type_error(scope, "acde.backend: onEvent is not a function");
@@ -83,7 +86,7 @@ fn open(
     });
     let started = STATE.with(|s| {
         let mut s = s.borrow_mut();
-        let client = s.client.get_or_insert_with(UnixClient::default);
+        let client = s.client.get_or_insert_with(FetchClient::default);
         start(client, deliver)
     });
     match started {
@@ -97,7 +100,7 @@ fn open(
 }
 
 fn request(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some(socket) = socket(scope, &args, 0) else { return };
+    let Some(to) = dial(scope, &args, 0) else { return };
     let method = bind::arg_string(scope, &args, 1);
     let path = bind::arg_string(scope, &args, 2);
     let Some(headers) = headers(scope, args.get(3)) else {
@@ -112,11 +115,11 @@ fn request(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
             None => return bind::throw_type_error(scope, "acde.backend: the body is a Uint8Array or null"),
         }
     };
-    open(scope, args.get(5), false, &mut rv, |client, deliver| client.request(socket, method, path, headers, body, deliver));
+    open(scope, args.get(5), false, &mut rv, |client, deliver| client.request(to, method, path, headers, body, deliver));
 }
 
 fn websocket(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some(socket) = socket(scope, &args, 0) else { return };
+    let Some(to) = dial(scope, &args, 0) else { return };
     let path = bind::arg_string(scope, &args, 1);
     let Some(headers) = headers(scope, args.get(2)) else {
         return bind::throw_type_error(scope, "acde.backend: headers are [name, value] pairs");
@@ -124,7 +127,7 @@ fn websocket(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     let Some(protocols) = bind::strings(scope, args.get(3)) else {
         return bind::throw_type_error(scope, "acde.backend: protocols are strings");
     };
-    open(scope, args.get(4), true, &mut rv, |client, deliver| client.websocket(socket, path, headers, protocols, deliver));
+    open(scope, args.get(4), true, &mut rv, |client, deliver| client.websocket(to, path, headers, protocols, deliver));
 }
 
 fn connection(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, websocket: bool) -> Option<u32> {

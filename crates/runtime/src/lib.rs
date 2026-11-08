@@ -3,6 +3,7 @@ mod atspi;
 #[cfg(target_os = "linux")]
 mod bus;
 mod failure;
+mod fetch;
 pub(crate) mod fs;
 #[cfg(target_os = "linux")]
 mod greetd;
@@ -22,13 +23,13 @@ mod rt;
 mod sync;
 #[cfg(unix)]
 mod terminal;
-mod unixhttp;
 #[cfg(target_os = "linux")]
 mod voice;
 #[cfg(target_os = "linux")]
 pub use atspi::Accessibility;
 #[cfg(target_os = "linux")]
 pub use bus::DesktopBus;
+pub use fetch::{Deliver, Dial, Event as FetchEvent, FetchClient};
 pub use fs::{EntryKind, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
 #[cfg(target_os = "linux")]
 pub use greetd::{GreetUser, Greetd};
@@ -42,7 +43,6 @@ pub use office::{OfficeCall, OfficeService};
 pub use portal::{Appearance, FileChooser, choose_folder};
 #[cfg(unix)]
 pub use terminal::Terminals;
-pub use unixhttp::{Deliver, Event as UnixEvent, UnixClient};
 #[cfg(target_os = "linux")]
 pub use voice::Voice;
 

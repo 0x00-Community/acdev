@@ -1,13 +1,37 @@
 use ntex::io::Io;
 
-#[cfg(target_os = "linux")]
 pub(crate) fn tls() -> Result<openssl::ssl::SslConnector, openssl::error::ErrorStack> {
     let mut ssl = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls())?;
     _ = ssl.set_alpn_protos(b"\x08http/1.1");
+    cfg_select! {
+        target_os = "linux" => {}
+        _ => {
+            let store = ssl.cert_store_mut();
+            for der in roots() {
+                if let Ok(cert) = openssl::x509::X509::from_der(der) {
+                    _ = store.add_cert(cert);
+                }
+            }
+        }
+    }
     Ok(ssl.build())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "linux"))]
+fn roots() -> &'static [Vec<u8>] {
+    static ROOTS: std::sync::OnceLock<Vec<Vec<u8>>> = std::sync::OnceLock::new();
+    ROOTS.get_or_init(|| {
+        let found = rustls_native_certs::load_native_certs();
+        for error in &found.errors {
+            log::warn!("TLS: reading the system's root certificates: {error}");
+        }
+        if found.certs.is_empty() {
+            log::error!("TLS: the system has no root certificates, so no HTTPS server can be verified");
+        }
+        found.certs.iter().map(|cert| cert.as_ref().to_vec()).collect()
+    })
+}
+
 pub(crate) fn client() -> ntex::client::Client {
     thread_local! {
         static CLIENT: ntex::client::Client = ntex::client::Client::builder().openssl(tls().expect("acde runtime: OpenSSL")).build(ntex::SharedCfg::default());
@@ -50,7 +74,7 @@ impl Messages {
     pub(crate) const FRAME: usize = 16 << 20;
     const MESSAGE: usize = 64 << 20;
 
-    pub(crate) async fn next(&mut self, io: &Io, codec: &ntex::ws::Codec) -> Result<Option<Incoming>, String> {
+    pub(crate) async fn next<F>(&mut self, io: &Io<F>, codec: &ntex::ws::Codec) -> Result<Option<Incoming>, String> {
         use ntex::ws::{Frame, Item};
         let frame = loop {
             if let Some(frame) = io.decode(codec).map_err(|e| e.to_string())? {
