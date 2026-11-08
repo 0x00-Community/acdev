@@ -87,7 +87,7 @@ export class AppPackage {
   }
 
   static wiring(dir: string, extra: Readonly<Record<string, string>> = {}): Wiring {
-    const api = process.env['ACDE_API'] || (AppPackage.INSTALLED ? `file:${AppPackage.apiDir()}` : AppPackage.local('file:', dir, AppPackage.apiDir()))
+    const api = process.env['ACDE_API'] || (AppPackage.INSTALLED ? `file:${AppPackage.apiDir().split(sep).join('/')}` : AppPackage.local('file:', dir, AppPackage.apiDir()))
     return { devDependencies: { '@dopame/acde-api': api, ...extra }, command: 'acde' }
   }
 

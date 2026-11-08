@@ -38,7 +38,7 @@ export function acdertCheckouts(root = ROOT) {
 
 function places(root) {
   const own = installed(root) ? [join(root, '..', '..', 'bin', `acdert${EXE}`)] : []
-  const global = join(installDir(), 'bin', `acdert${EXE}`)
+  const global = join(installDir(), WINDOWS ? join('current', 'bin') : 'bin', `acdert${EXE}`)
   const real = (path) => {
     try {
       return join(realpathSync(dirname(path)), basename(path))

@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string; description: string; license: string; repository: object; exports: object; engines: object }
-const TRIPLES = ['aarch64-apple-darwin', 'x86_64-apple-darwin', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-musl', 'x86_64-unknown-linux-musl']
+const TRIPLES = ['aarch64-apple-darwin', 'x86_64-apple-darwin', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-musl', 'x86_64-unknown-linux-musl', 'x86_64-pc-windows-msvc']
 const CARRIED = ['listen.ts', 'sockets.ts', 'ipc.ts', 'sessions.ts', 'configs.ts']
 
 const { values } = parseArgs({
@@ -30,7 +30,9 @@ const host = resolve(need('host', values.host, 'the acde-host dist directory (br
 const api = resolve(values.api!)
 const triple = need('triple', values.triple, `rust target triple: ${TRIPLES.join(', ')}`)
 const version = values.version!
-if (!TRIPLES.includes(triple)) throw new Error(`--triple ${triple}: one of ${TRIPLES.join(', ')} (install.sh is POSIX sh, there is no Windows build)`)
+if (!TRIPLES.includes(triple)) throw new Error(`--triple ${triple}: one of ${TRIPLES.join(', ')}`)
+const windows = triple.endsWith('-windows-msvc')
+const crlf = (from: string, to: string) => writeFileSync(to, readFileSync(from, 'utf8').replace(/\r?\n/g, '\r\n'))
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`--version ${version}: x.y.z`)
 if (!statSync(acdert).isFile()) throw new Error(`--acdert ${acdert}: not a file`)
 if (!existsSync(join(host, 'broker.js'))) throw new Error(`--host ${host}: no broker.js in it`)
@@ -43,9 +45,14 @@ const top = join(stage, name)
 rmSync(stage, { recursive: true, force: true })
 
 mkdirSync(join(top, 'bin', 'app', 'dist'), { recursive: true })
-copyFileSync(join(ROOT, 'scripts', 'acde.sh'), join(top, 'bin', 'acde'))
-copyFileSync(acdert, join(top, 'bin', 'acdert'))
-for (const file of ['acde', 'acdert']) chmodSync(join(top, 'bin', file), 0o755)
+if (windows) {
+  crlf(join(ROOT, 'scripts', 'acde.cmd'), join(top, 'bin', 'acde.cmd'))
+  copyFileSync(acdert, join(top, 'bin', 'acdert.exe'))
+} else {
+  copyFileSync(join(ROOT, 'scripts', 'acde.sh'), join(top, 'bin', 'acde'))
+  copyFileSync(acdert, join(top, 'bin', 'acdert'))
+  for (const file of ['acde', 'acdert']) chmodSync(join(top, 'bin', file), 0o755)
+}
 for (const file of readdirSync(host)) if (file.endsWith('.js')) copyFileSync(join(host, file), join(top, 'bin', 'app', 'dist', file))
 
 const lib = join(top, 'lib', 'acde')
@@ -82,4 +89,5 @@ const lines = existsSync(sums) ? readFileSync(sums, 'utf8').split('\n').filter((
 writeFileSync(sums, `${[...lines, `${sum}  ${name}.tar.gz`].sort((a, b) => a.slice(66).localeCompare(b.slice(66))).join('\n')}\n`)
 writeFileSync(join(resolve(values.out!), 'latest'), `${version}\n`)
 copyFileSync(join(ROOT, 'install.sh'), join(resolve(values.out!), 'install.sh'))
+crlf(join(ROOT, 'install.cmd'), join(resolve(values.out!), 'install.cmd'))
 console.log(`${tarball}\n${sum}`)
