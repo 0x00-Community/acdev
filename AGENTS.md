@@ -372,6 +372,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOWNLOAD_DIR` 或 `~/Downloads`, 存在时)、`~/agentos-work` (存在时), 加上用户授给
 这个应用的文件夹. Windows 上隐藏和系统属性的文件按隐藏文件算. 最后看的位置记在 `$XDG_STATE_HOME/acde/finder-place.json`.
 
+工作区内的相对路径用 `/` 分隔. Windows 上拒绝反斜杠、数据流分隔符、保留设备名和以空格或点结尾的名称;
+判断解析后的路径是否在 root 内时按系统路径组件比较.
+
 **失败**: reject 一个 `Error` (`AcdeFsError`), 字段来自 runtime `failure.rs` 的 `Failure`: `message` 人读的英文, `status`, node 风格的 `code`:
 
 | `code` | `status` | 什么时候 |

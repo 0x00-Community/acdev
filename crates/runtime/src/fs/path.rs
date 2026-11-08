@@ -8,6 +8,18 @@ pub trait NodePath {
     fn within(&self, root: &str) -> Option<&str>;
 }
 
+#[cfg(windows)]
+pub(super) fn windows_file_name(name: &str) -> bool {
+    if name.ends_with([' ', '.']) || name.contains(['\\', ':']) {
+        return false;
+    }
+    let device = name.split('.').next().unwrap_or_default().trim_end_matches(' ').to_ascii_uppercase();
+    let named_device = matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$");
+    let port = device.strip_prefix("COM").or_else(|| device.strip_prefix("LPT"));
+    let reserved_ports = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "¹", "²", "³"];
+    !named_device && !port.is_some_and(|number| reserved_ports.contains(&number))
+}
+
 impl NodePath for str {
     fn is_absolute(&self) -> bool {
         self.starts_with('/')

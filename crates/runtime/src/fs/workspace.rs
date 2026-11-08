@@ -286,6 +286,10 @@ impl WorkspaceFs {
         if relative.contains('\0') || relative.is_absolute() {
             return Err(Failure::invalid("path must be relative to the workspace"));
         }
+        #[cfg(windows)]
+        if relative.split('/').any(|name| !matches!(name, "" | "." | "..") && !super::path::windows_file_name(name)) {
+            return Err(Failure::invalid("not a valid workspace-relative Windows path"));
+        }
         let normal = if relative.is_empty() { "." } else { relative }.normalize();
         let clean = normal.trim_end_matches('/');
         let clean = if clean.is_empty() { "." } else { clean };
@@ -296,7 +300,7 @@ impl WorkspaceFs {
     }
 
     fn inside(real_root: &str, path: &str) -> bool {
-        path == real_root || real_root == "/" || path.strip_prefix(real_root).is_some_and(|rest| rest.starts_with('/'))
+        Path::new(path).starts_with(real_root)
     }
 
     pub fn resolve(root: &FinderRoot, relative: &str, must_exist: bool) -> Outcome<Resolved> {
@@ -701,6 +705,10 @@ impl WorkspaceFs {
         Ok(())
     }
 }
+
+#[cfg(all(test, windows))]
+#[path = "workspace_windows.rs"]
+mod windows_tests;
 
 #[cfg(all(test, unix))]
 mod tests {
