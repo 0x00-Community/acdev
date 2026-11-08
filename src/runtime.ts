@@ -27,13 +27,15 @@ export class Runtime {
   static spawn(argv: readonly string[], options: SpawnOptions = {}): Child {
     const [file, ...args] = argv
     if (!file) throw new Error('nothing to run')
-    const batch = process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)
-    const child = nodeSpawn(batch ? Runtime.#quote(file) : file, batch ? args.map(Runtime.#quote) : args, {
+    const settings = {
       ...(options.cwd !== undefined && { cwd: options.cwd }),
       env: Runtime.#env(options.env ?? process.env),
       stdio: options.stdio ?? 'inherit',
-      shell: batch,
-    })
+    }
+    const child =
+      process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)
+        ? nodeSpawn([file, ...args].map(Runtime.#quote).join(' '), { ...settings, shell: true })
+        : nodeSpawn(file, args, settings)
     const exited = new Promise<number>((resolve, reject) => {
       child.once('error', reject)
       child.once('close', (code, signal) => resolve(code ?? 128 + (signal ? (constants.signals[signal] ?? 0) : 0)))
