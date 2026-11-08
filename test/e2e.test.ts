@@ -6,6 +6,8 @@ import { cleanup, standIn } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 const MODULE = join(import.meta.dir, '../src/e2e/index.ts')
+const BROKEN = join('e2e', 'broken.e2e.ts')
+const TASKS = join('e2e', 'tasks.e2e.ts')
 
 afterAll(cleanup)
 
@@ -56,17 +58,17 @@ describe('acde test', () => {
     const s = project()
     const run = await acdeTest(s, [])
     expect(run.code).toBe(1)
-    expect(run.out).toContain('acde test: e2e/broken.e2e.ts\n')
-    expect(run.out).toContain('acde test: e2e/tasks.e2e.ts\n')
-    expect(run.out).toContain('acde test: 2 files, 1 passed, 1 failed: e2e/broken.e2e.ts')
+    expect(run.out).toContain(`acde test: ${BROKEN}\n`)
+    expect(run.out).toContain(`acde test: ${TASKS}\n`)
+    expect(run.out).toContain(`acde test: 2 files, 1 passed, 1 failed: ${BROKEN}`)
     expect(run.out).not.toContain('acde test ran a unit test')
     expect(run.out).toContain('expected window(app "alpha").getByText("Nowhere") to be visible within 200 ms; saw no element')
     expect(run.started.length).toBe(4)
     for (const started of run.started) {
       expect(started.headless).toBe('1')
       expect(started.env).toMatchObject({ ACDE_STORAGE: '', ACDE_SIZE: E2e.SIZE, ACDE_COLOR_SCHEME: 'light', ACDE_REDUCED_MOTION: '1', ACDE_AUTOSTART: '0' })
-      expect(started.env!['XDG_CONFIG_HOME']).toMatch(/acde-test-[^/]+\/config$/)
-      expect(started.env!['HOME']).toMatch(/acde-test-[^/]+\/home$/)
+      expect(started.env!['XDG_CONFIG_HOME']).toMatch(/acde-test-[^/\\]+[/\\]config$/)
+      expect(started.env!['HOME']).toMatch(/acde-test-[^/\\]+[/\\]home$/)
     }
     expect(new Set(run.started.map((e) => e.env!['XDG_CONFIG_HOME'])).size).toBe(4)
     expect(run.started[0]!.argv).toEqual(['app', 'alpha'])
@@ -82,13 +84,13 @@ describe('acde test', () => {
 
   test('--headed, -t, a file, --bail; mistakes are explained', async () => {
     const s = project()
-    const one = await acdeTest(s, ['e2e/tasks.e2e.ts', '--headed', '-t', 'adds'])
+    const one = await acdeTest(s, [TASKS, '--headed', '-t', 'adds'])
     expect(one.code).toBe(0)
-    expect(one.out).toContain('acde test: e2e/tasks.e2e.ts (headed)')
+    expect(one.out).toContain(`acde test: ${TASKS} (headed)`)
     expect(one.out).toContain('acde test: 1 file, 1 passed, 0 failed')
     expect(one.started.map((e) => e.headless)).toEqual([null])
     const bail = await acdeTest(s, ['--bail'])
-    expect(bail.out).toContain('acde test: 1 file, 0 passed, 1 failed, 1 not run (--bail): e2e/broken.e2e.ts')
+    expect(bail.out).toContain(`acde test: 1 file, 0 passed, 1 failed, 1 not run (--bail): ${BROKEN}`)
     expect((await acdeTest(s, ['unit.test.ts'])).out).toContain('unit.test.ts: an e2e test file is named *.e2e.ts')
     expect((await acdeTest(s, ['nope'])).out).toContain('acde: nope: no such file or directory')
     mkdirSync(join(s.root, 'empty'))

@@ -103,7 +103,7 @@ describe('acde mcp', () => {
     const s = standIn()
     const outside = await Acde.launch({ cwd: s.project, env: s.env })
     try {
-      const { client, call } = await connect('/', s.env, ['--session', String(outside.session.pid)])
+      const { client, call } = await connect(s.root, s.env, ['--session', String(outside.session.pid)])
       expect((await call('webs')).text).toContain('alpha#7')
       const logs = await call('logs')
       expect(logs.error).toBe(true)

@@ -1,5 +1,6 @@
 import { appendFileSync, chmodSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
+import { isAbsolute } from 'node:path'
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
 const ADD_DELAY_MS = 300
@@ -177,7 +178,11 @@ const server = net.createServer((socket) => {
     }
   })
 })
-setTimeout(() => server.listen(endpoint, () => chmodSync(endpoint, 0o600)), Number(process.env['FAKE_ACDERT_LISTEN_MS'] ?? 0))
+setTimeout(() => {
+  server.listen(endpoint, () => {
+    if (process.platform !== 'win32') chmodSync(endpoint, 0o600)
+  })
+}, Number(process.env['FAKE_ACDERT_LISTEN_MS'] ?? 0))
 process.on('SIGTERM', () => process.exit(0))
 
 function answer(m: Record<string, unknown>, send: (message: object) => void): void {
@@ -214,8 +219,11 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     case 'screen':
       writeFileSync(String(m['path']), Buffer.from(PNG, 'base64'))
       return void ok({ width: 1, height: 1, path: m['path'] })
-    case 'choose':
-      return void (m['folder'] === null || (typeof m['folder'] === 'string' && m['folder'].startsWith('/')) ? ok({ folder: m['folder'] }) : fail('choose: folder is an absolute path, or null to cancel'))
+    case 'choose': {
+      const folder = m['folder']
+      if (folder === null || (typeof folder === 'string' && isAbsolute(folder))) return void ok({ folder })
+      return void fail('choose: folder is an absolute path, or null to cancel')
+    }
     case 'emulate':
       if (m['colorScheme'] !== undefined) dark = m['colorScheme'] === 'dark'
       if (m['reducedMotion'] !== undefined) reduced = m['reducedMotion'] === true

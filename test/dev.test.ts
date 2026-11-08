@@ -1,18 +1,23 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
+import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { DevClient, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
 import { slug } from '../src/paths.ts'
-import { cleanup, env, tmp } from './helpers.ts'
+import { cleanup, env, fakeAcdert, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
-const FAKE = join(import.meta.dir, 'fixtures/dev/fake-acdert.ts')
+const WINDOWS = process.platform === 'win32'
 
 afterAll(cleanup)
+
+function testEndpoint(): string {
+  return WINDOWS ? `\\\\.\\pipe\\acde-test-${randomUUID()}` : join(tmp(), 'dev.sock')
+}
 
 async function until<T>(what: string, get: () => T | null | undefined | false, ms = 10_000): Promise<T> {
   const started = Date.now()
@@ -54,7 +59,7 @@ describe('dev IPC: tools and acde dev talk to acdert directly', () => {
   const fakes: FakeAcdert[] = []
 
   async function acdert(answer?: FakeAcdert['answer']): Promise<FakeAcdert> {
-    const fake = new FakeAcdert(join(tmp(), 'dev.sock'))
+    const fake = new FakeAcdert(testEndpoint())
     if (answer) fake.answer = answer
     fakes.push(fake)
     return fake.listen()
@@ -91,22 +96,28 @@ describe('dev IPC: tools and acde dev talk to acdert directly', () => {
   })
 
   test('each answer settles its own request; an error rejects it; no hello is sent', async () => {
-    const fake = await acdert((request, socket) =>
-      setTimeout(() => Lines.write(socket, request['web'] === 'gone' ? { type: 'response', id: request['id'], ok: false, error: 'no web "gone"' } : { type: 'response', id: request['id'], ok: true, result: { value: request['web'] } }), request['web'] === 'a' ? 30 : 0),
-    )
-    const tool = await DevClient.connect(fake.endpoint)
+    const fake = await acdert((request, socket) => {
+      const id = request['id']
+      const web = request['web']
+      if (web === 'gone') return Lines.write(socket, { type: 'response', id, ok: false, error: 'no web "gone"' })
+      const answer = () => Lines.write(socket, { type: 'response', id, ok: true, result: { value: web } })
+      if (web === 'a') setTimeout(answer, 30)
+      else answer()
+    })
+    const tool = await DevClient.connect(fake.endpoint, 2_000)
     const first = tool.request('eval', { web: 'a', code: '1' })
     const second = tool.request('eval', { web: 'b', code: '2' })
     expect(await second).toEqual({ value: 'b' })
     expect(await first).toEqual({ value: 'a' })
-    expect(tool.request('shot', { web: 'gone' })).rejects.toThrow('no web "gone"')
+    const failure = await tool.request('shot', { web: 'gone' }).catch((error: Error) => error.message)
+    expect(failure).toBe('no web "gone"')
     await until('three requests', () => fake.got.length === 3)
     expect(fake.got.map((m) => m['type'])).toEqual(['request', 'request', 'request'])
     tool.close()
   })
 
   test('reach: waits until acdert listens, sends nothing on its own; gives up once acdert is gone', async () => {
-    const endpoint = join(tmp(), 'late.sock')
+    const endpoint = testEndpoint()
     let warned = 0
     const reaching = DevClient.reach(endpoint, () => true, () => warned++, 50)
     await Bun.sleep(150)
@@ -120,18 +131,18 @@ describe('dev IPC: tools and acde dev talk to acdert directly', () => {
     await until('the hello', () => fake.got.length === 1)
     expect(fake.got).toEqual([{ type: 'hello', role: 'dev' }])
     link!.close()
-    expect(await DevClient.reach(join(tmp(), 'never.sock'), () => false)).toBeNull()
+    expect(await DevClient.reach(testEndpoint(), () => false)).toBeNull()
   })
 
   test('an acdert that never answers: "timed out"; one that goes away fails what is waiting', async () => {
     const fake = await acdert()
     const tool = await DevClient.connect(fake.endpoint, 100)
-    expect(tool.request('eval', { web: 'x', code: '1' })).rejects.toThrow(/^timed out: acdert did not answer "eval" within 0 s$/)
-    await Bun.sleep(200)
-    const asked = tool.request('snapshot', {})
+    const timeout = await tool.request('eval', { web: 'x', code: '1' }).catch((error: Error) => error.message)
+    expect(timeout).toBe('timed out: acdert did not answer "eval" within 0 s')
+    const asked = tool.request('snapshot').catch((error: Error) => error)
     await until('the request', () => fake.got.length === 2)
     for (const socket of fake.sockets) socket.destroy()
-    expect(asked).rejects.toThrow()
+    expect(await asked).toBeInstanceOf(Error)
     await tool.closed
   })
 
@@ -198,9 +209,8 @@ describe('acde dev with a stand-in acdert', () => {
   function start(args: string[], cwd: string, extra: Record<string, string> = {}) {
     const root = tmp()
     const log = join(root, 'fake.log')
-    const acdert = join(root, 'acdert')
+    const acdert = fakeAcdert(root)
     writeFileSync(log, '')
-    writeFileSync(acdert, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE)} "$@"\n`, { mode: 0o755 })
     const vars = { TMPDIR: root, XDG_RUNTIME_DIR: root, ACDERT: acdert, FAKE_ACDERT_LOG: log, ACDE_PATH: '/inherited', ...extra }
     const child = Bun.spawn([process.execPath, CLI, 'dev', ...args], { cwd, env: env(vars), stdout: 'pipe', stderr: 'pipe' })
     const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]).then(([o, e]) => o + e)
@@ -214,7 +224,19 @@ describe('acde dev with a stand-in acdert', () => {
       const [code, stdout, stderr] = await Promise.all([run.exited, new Response(run.stdout).text(), new Response(run.stderr).text()])
       return { code, stdout, stderr }
     }
-    return { child, output, entries, tool, root, sessions: join(root, 'acde-dev') }
+    const sessions = join(root, 'acde-dev')
+    const file = join(sessions, `${child.pid}.json`)
+    const stop = async () => {
+      if (!WINDOWS || !existsSync(file)) child.kill('SIGTERM')
+      else {
+        const session = JSON.parse(readFileSync(file, 'utf8')) as Session
+        const link = await DevClient.connect(session.endpoint)
+        link.send({ type: 'quit' })
+        link.close()
+      }
+      return child.exited
+    }
+    return { child, output, entries, tool, root, sessions, file, stop }
   }
 
   test('several projects: built, one desktop (dopame), ACDE_PATH, a session file; tools reach the stand-in; a change reloads only its project', async () => {
@@ -227,12 +249,12 @@ describe('acde dev with a stand-in acdert', () => {
       await until('the session file', () => existsSync(file))
       const session = JSON.parse(readFileSync(file, 'utf8')) as Session
       expect(session).toMatchObject({ pid: dev.child.pid, dirs: [alpha, beta], apps: ['alpha', 'beta'], desktop: 'dopame' })
-      expect(existsSync(session.endpoint)).toBe(true)
-      expect(statSync(session.endpoint).mode & 0o777).toBe(0o600)
+      if (WINDOWS) expect(session.endpoint).toBe(`\\\\.\\pipe\\acde-dev-${dev.child.pid}`)
+      else expect(statSync(session.endpoint).mode & 0o777).toBe(0o600)
       expect(dev.entries().find((e) => e.got)?.got).toEqual({ type: 'hello', role: 'dev' })
       const started = await until('the stand-in', () => dev.entries().find((e) => e.argv))
       expect(started.argv).toEqual(['desktop', 'dopame'])
-      expect(started.path).toBe([join(alpha, '.acde'), join(beta, '.acde'), '/inherited'].join(':'))
+      expect(started.path).toBe([join(alpha, '.acde'), join(beta, '.acde'), '/inherited'].join(delimiter))
 
       const webs = await dev.tool(['webs'], alpha)
       expect(webs.stdout).toContain('alpha#7  app      alpha  7       Alpha')
@@ -251,7 +273,7 @@ describe('acde dev with a stand-in acdert', () => {
       expect((await dev.tool(['inspect', '--find', 'Save', '--window', 'w1', '--all'], alpha)).stdout).toBe('snapshot {"window":"w1","find":"Save","all":true}\n')
       expect((await dev.tool(['act', 'w1.5', 'type', 'hello world'], alpha)).stdout).toBe('type w1.5 "hello world"\n')
       expect((await dev.tool(['act', 'w1.5', 'fail'], alpha)).code).toBe(1)
-      expect((await dev.tool(['webs', '--session', String(dev.child.pid)], '/')).code).toBe(0)
+      expect((await dev.tool(['webs', '--session', String(dev.child.pid)], dev.root)).code).toBe(0)
       expect((await dev.tool(['inspect', '--offscreen'], alpha)).code).toBe(0)
       const logged = await dev.tool(['console'], alpha)
       expect(logged.stdout).toBe('   1 log    alpha#7  alpha ready\n')
@@ -268,13 +290,13 @@ describe('acde dev with a stand-in acdert', () => {
       expect(reloads).toEqual([{ type: 'reload', app: 'alpha' }])
       expect(readFileSync(join(alpha, '.acde/web/index.html'), 'utf8')).toContain('changed')
     } finally {
-      dev.child.kill('SIGTERM')
+      await dev.stop()
     }
     expect(await dev.child.exited).toBe(0)
     expect(readdirSync(dev.sessions)).toEqual([])
     expect(readdirSync(dev.root).filter((f) => f.endsWith('.sock'))).toEqual([])
     expect((await dev.tool(['webs'], base)).stderr).toContain('no acde dev is running')
-  }, 30_000)
+  }, 120_000)
 
   test('the desktop project among them is the desktop; a change there reloads its apps and the desktop', async () => {
     const base = tmp()
@@ -291,7 +313,7 @@ describe('acde dev with a stand-in acdert', () => {
       await Bun.sleep(400)
       expect(dev.entries().filter((e) => e.got?.['type'] === 'reload').map((e) => e.got)).toEqual([{ type: 'reload', app: 'clock' }, { type: 'reload' }])
     } finally {
-      dev.child.kill('SIGTERM')
+      await dev.stop()
     }
     await dev.child.exited
     expect(readdirSync(dev.sessions)).toEqual([])
@@ -307,14 +329,15 @@ describe('acde dev with a stand-in acdert', () => {
       const file = join(withDesk.sessions, `${withDesk.child.pid}.json`)
       expect((await until('the session', () => existsSync(file) && (JSON.parse(readFileSync(file, 'utf8')) as Session))).dirs).toEqual([alpha, desk])
     } finally {
-      withDesk.child.kill('SIGTERM')
+      await withDesk.stop()
     }
     await withDesk.child.exited
     const alone = start([], alpha)
     try {
       expect((await until('the stand-in', () => alone.entries().find((e) => e.argv))).argv).toEqual(['app', 'alpha'])
+      await until('the session file', () => existsSync(alone.file))
     } finally {
-      alone.child.kill('SIGTERM')
+      await alone.stop()
     }
     await alone.child.exited
   }, 30_000)

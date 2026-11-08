@@ -78,12 +78,21 @@ export function inetSockets(pid: number): string[] | null {
 
 const FAKE_ACDERT = join(import.meta.dir, 'fixtures/dev/fake-acdert.ts')
 
+export function fakeAcdert(root: string): string {
+  const windows = process.platform === 'win32'
+  const acdert = join(root, windows ? 'acdert.cmd' : 'acdert')
+  const script = windows
+    ? `@echo off\r\n"${process.execPath}" "${FAKE_ACDERT}" %*\r\n`
+    : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_ACDERT)} "$@"\n`
+  writeFileSync(acdert, script, { mode: 0o755 })
+  return acdert
+}
+
 export function standIn(): { root: string; env: Record<string, string>; project: string } {
   const root = tmp()
   const log = join(root, 'fake.log')
-  const acdert = join(root, 'acdert')
+  const acdert = fakeAcdert(root)
   writeFileSync(log, '')
-  writeFileSync(acdert, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_ACDERT)} "$@"\n`, { mode: 0o755 })
   const project = join(root, 'alpha')
   mkdirSync(project)
   writeFileSync(join(project, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'alpha' }))
