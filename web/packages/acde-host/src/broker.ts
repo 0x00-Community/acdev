@@ -198,6 +198,7 @@ export class Broker {
   readonly #options: BrokerOptions
   #current: InstalledDesktop
   #desktop: Web | null = null
+  #standaloneWindow: number | null = null
   readonly #windows = new Map<number, WindowRecord>()
   readonly #panels = new Set<number>()
   readonly #places = new WindowPlaces()
@@ -400,8 +401,19 @@ export class Broker {
   }
 
   startDesktop(): void {
-    const grant = this.shell.grant({ desktop: true })
     const { storageFile, standalone } = this.#options
+    if (standalone && this.shell.hosted) {
+      if (this.#standaloneWindow === null && !this.#stopped) {
+        try {
+          this.#standaloneWindow = this.launch(standalone, null, 'fullscreen').window
+        } catch (error) {
+          Log.write(Level.Error, 'acde_host', `acdert app ${standalone}: ${(error as Error).message}`)
+          this.#end('exit')
+        }
+      }
+      return
+    }
+    const grant = this.shell.grant({ desktop: true })
     const init: WebInit = {
       kind: 'desktop',
       name: 'desktop',
@@ -424,7 +436,7 @@ export class Broker {
     this.#desktop = this.#spawn(init, this.#current.heapMb)
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
       try {
-        this.launch(standalone, null, this.shell.hosted ? 'free' : 'fullscreen')
+        this.launch(standalone, null, 'fullscreen')
       } catch (error) {
         Log.write(Level.Error, 'acde_host', `acdert app ${standalone}: ${(error as Error).message}`)
       }
@@ -538,15 +550,22 @@ export class Broker {
       this.#toDesktop({ type: 'windowcrash', window: record.id, reason: reason ?? (code === 0 ? 'exit' : `exit ${code}`) })
       Log.write(Level.Warn, 'acde_host', `[${web.name}] stopped (${reason ?? `exit ${code}`})`)
     }
-    this.#forget(record)
+    this.#forget(record, web.closing ? 'close' : 'exit')
   }
 
-  #forget(record: WindowRecord): void {
+  #end(reason: RunEnd): void {
+    this.#stopped = true
+    this.#ended = reason
+    this.#poke()
+  }
+
+  #forget(record: WindowRecord, reason: RunEnd = 'close'): void {
     this.#windows.delete(record.id)
     this.shell.release(record.id)
     unref(setTimeout(() => !this.#windows.has(record.id) && this.#placed.delete(record.id), Broker.CLOSE_WAIT_MS))
     this.#toDesktop({ type: 'windowclose', window: record.id })
     if (record.app?.backend && !this.#running(record.app.id)) void this.backends.stop(record.app.id)
+    if (record.id === this.#standaloneWindow && !this.#stopped) this.#end(reason)
   }
 
   #running(appId: string): WindowRecord | undefined {
@@ -767,7 +786,27 @@ export class Broker {
       this.refreshApps()
       const after = this.apps.get(app)
       const open = [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app)
-      const state = await Broker.#snapshot(open[0]?.web ?? null)
+      const primary = open.find((record) => record.id === this.#standaloneWindow)
+      const web = (primary ?? open[0])?.web ?? null
+      const state = await Broker.#snapshot(web)
+      if (primary) {
+        if (this.#stopped || !web || primary.web !== web || web.closing || web.reloading) return
+        if (!after || !this.#available(after)) {
+          Log.write(
+            Level.Error, 'acde_host', `acdert app ${app}: the app or a required system service is no longer available`,
+          )
+          this.#end('exit')
+          return
+        }
+        if (state) this.#devStates.set(app, state)
+        const backend = primary.app?.backend ? this.backends.stop(app) : undefined
+        primary.app = after
+        web.reloading = true
+        await web.terminate()
+        await backend
+        if (!this.#stopped && primary.app === after) this.backends.start(after)
+        return
+      }
       if (state) this.#devStates.set(app, state)
       const resized = before && after && String(Frame.windowSize(before)) !== String(Frame.windowSize(after)) ? this.#resizedPlace(open[0]?.id, after) : null
       for (const record of open) await this.closeWeb(record.id, true)

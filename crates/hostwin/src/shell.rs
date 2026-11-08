@@ -212,7 +212,7 @@ impl Shell {
         };
         let mode = grant.mode.unwrap_or(if grant.desktop { Mode::Fullscreen } else { Mode::Free });
         let placed = grant.rect.is_some();
-        let rect = if grant.desktop {
+        let rect = if mode == Mode::Fullscreen {
             let [w, h, _] = state.screen;
             [0.0, 0.0, w, h]
         } else {

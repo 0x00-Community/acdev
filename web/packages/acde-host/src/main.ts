@@ -252,8 +252,8 @@ class Main {
     if (greeter) broker.bridge.value['greeter'] = Main.greeter(native, broker, packages)
     if (scheme) await within(scheme, Math.max(0, Appearance.WAIT_MS - (performance.now() - started)), undefined)
     broker.startDesktop()
-    Log.write(Level.Info, 'acde_host', `broker started, the desktop web is loading (${(performance.now() - started).toFixed(0)}ms)`)
     const shell = broker.shell
+    Log.write(Level.Info, 'acde_host', `broker started (${(performance.now() - started).toFixed(0)}ms)`)
     if (shell.hosted) Log.write(Level.Debug, 'acde_host', `host windows on ${process.platform}: not an acde session, so no fcitx5, AT-SPI, XDG autostart or session bus names`)
     if (session && !greeter) {
       try {
@@ -297,7 +297,7 @@ class Main {
     bus?.close()
     if (session) broker.session.terminate()
     await within(broker.close(), Main.CLOSE_WAIT, undefined)
-    shell.quit()
+    if (!shell.hosted) shell.quit()
     return code
   }
 }

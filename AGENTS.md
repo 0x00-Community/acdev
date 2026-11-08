@@ -30,14 +30,17 @@ crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境�
 | --- | --- | --- | --- | --- |
 | **会话** (Dopame OS) | `acdert --desktop <id>` (登录页起) | Linux | 屏幕 (DRM/KMS) 或 RDP | acdert 自己 (crates/shell) |
 | **调试桌面** (`acde dev`) | `acdert desktop <id \| 包目录>` | Linux / Windows / macOS, 在别人的桌面里 | **一个**宿主原生窗口, 里面合成桌面和所有窗口 | crates/hostwin |
-| **调试窗口** | `acdert app <id \| 包目录>` | 同上 | 同上, 桌面建了但不显示, 应用铺满 | 同上 |
+| **调试窗口** | `acdert app <id>` | 同上 | 一个宿主原生窗口, 所选应用铺满, 关闭该应用后退出 | 同上 |
 
 选哪种 (crates/acdert `main.rs`): macOS / Windows 一律宿主窗口; Linux 上 `app` / `desktop` 在别人的桌面里 (有 `WAYLAND_DISPLAY` /
 `DISPLAY`, 或设了 `ACDE_HEADLESS`; 没设 `ACDE_BACKEND`) 走宿主窗口, 别的是会话. 会话里只支持 Wayland: 没有 Xwayland, 只会 X11 的程序跑不了.
 
-调试桌面和调试窗口只差权限 (桌面拿桌面的模块和服务, 应用只拿清单给的) 和收的事件 (`acde:windows` / `acde:desktop` 的事件 vs.
-`acde:window` 的). 宿主窗口的 `native.Shell` 带 `hosted: true`, acde-host `Main.session` 见到它就不算「自己的会话」: 不起 fcitx5、
+调试桌面用桌面的模块、服务和 `acde:windows` / `acde:desktop` 事件. 调试窗口用清单授权的模块和 `acde:window` 事件.
+宿主窗口的 `native.Shell` 带 `hosted: true`, acde-host `Main.session` 见到它就不算「自己的会话」: 不起 fcitx5、
 不开 AT-SPI、不跑 XDG autostart、不拿会话总线名字、不记登录选的桌面. 平台上没有的能力不注入, 不给假的实现.
+
+宿主窗口的 `app` 模式从已安装的包发现应用, 按原规则选择桌面包来加载服务和资源, 并仅启动应用页面. 用 `app <id> --desktop <桌面 id 或包目录>`
+指定服务来源. 应用按清单取得能力; 需要桌面页面主动发布状态的功能在此模式下没有发布者. 应用的开发重载保留宿主窗口.
 
 ## 进程与线程
 
@@ -543,6 +546,9 @@ acdert 先查可执行文件旁的 `app/dist`, 再查 `<exe>/../../web/packages/
 CRT 静态链接 (`.cargo/config.toml` 的 `+crt-static`). arm64 暂不做 (没有静态 DXC 的预编译库). `WGPU_VALIDATION=1` / `WGPU_DEBUG=1` 打开
 D3D12 调试层 (要装「图形工具」可选功能). 没有: terminal、应用后端、通知、WebGPU、network / office / 语音. 依赖里不要 winapi
 (见 vendors 的 fslock、async-dnssd).
+
+编好 acdert 和网页宿主后, 在有 GPU 的机器上用 `bash scripts/check-standalone.sh` 验证独立应用启动、重载、退出和服务清理.
+脚本以无窗口模式运行, 测试包和日志写到 `logs/standalone.*`.
 
 ### 命令
 
