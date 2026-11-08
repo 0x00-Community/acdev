@@ -6,15 +6,51 @@ fn main() {
     }
     let sources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../acde-napi/src");
     println!("cargo:rerun-if-changed={}", sources.display());
-    let mut names = Vec::new();
-    for entry in std::fs::read_dir(&sources).expect("acde-napi sources") {
-        let path = entry.expect("acde-napi source").path();
-        if path.extension().is_none_or(|e| e != "rs") {
-            continue;
+    let texts: Vec<String> = std::fs::read_dir(&sources)
+        .expect("acde-napi sources")
+        .map(|entry| entry.expect("acde-napi source").path())
+        .filter(|path| path.extension().is_some_and(|e| e == "rs"))
+        .map(|path| std::fs::read_to_string(&path).expect("acde-napi source"))
+        .collect();
+    let ident = |text: &str| -> String { text.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect() };
+    let mut makers = Vec::new();
+    for text in &texts {
+        let mut maker: Option<String> = None;
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("macro_rules! ") {
+                maker = Some(ident(rest));
+            } else if line.trim() == "#[napi_sym]" {
+                if let Some(name) = maker.take() {
+                    makers.push(name);
+                }
+            } else if line == "}" {
+                maker = None;
+            }
         }
-        let text = std::fs::read_to_string(&path).expect("acde-napi source");
+    }
+    let mut names = Vec::new();
+    for text in &texts {
         let mut exported = false;
-        for line in text.lines().map(str::trim) {
+        let mut block = false;
+        for line in text.lines() {
+            if block {
+                if line == "}" {
+                    block = false;
+                } else if let Some(entry) = line.strip_prefix("    ").filter(|e| !e.starts_with(' ')) {
+                    let name = ident(entry);
+                    if name.starts_with("napi_") || name.starts_with("node_api_") {
+                        names.push(name);
+                    }
+                }
+                continue;
+            }
+            if let Some(called) = line.strip_suffix("! {")
+                && makers.iter().any(|m| m == called)
+            {
+                block = true;
+                continue;
+            }
+            let line = line.trim();
             if line == "#[napi_sym]" || line == "#[unsafe(no_mangle)]" {
                 exported = true;
                 continue;
@@ -24,8 +60,8 @@ fn main() {
             }
             exported = false;
             let Some((_, rest)) = line.split_once("fn ") else { continue };
-            let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-            if !name.is_empty() {
+            let name = ident(rest);
+            if !name.is_empty() && !name.starts_with('$') {
                 names.push(name);
             }
         }
