@@ -21,7 +21,7 @@ import { SessionLanguage, type Languages } from './language'
 import { StorageFile } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
-import { basename } from './sys/path'
+import { basename, isAbsolute } from './sys/path'
 import { process } from './sys/process'
 
 export interface BrokerShell {
@@ -1200,7 +1200,7 @@ export class Broker {
       case 'network':
         return this.devlog.requests(Broker.#devQuery(args, { failed: args['failed'] === true }))
       case 'screen': {
-        if (typeof args['path'] !== 'string' || !args['path'].startsWith('/')) throw new Error('screen: path is an absolute file path for the PNG')
+        if (typeof args['path'] !== 'string' || !isAbsolute(args['path'])) throw new Error('screen: path is an absolute file path for the PNG')
         const size = await this.shell.screenshot(args['path'])
         return { ...size, path: args['path'] }
       }
@@ -1208,7 +1208,7 @@ export class Broker {
         return this.emulate(args as never)
       case 'choose': {
         const folder = args['folder']
-        if (folder !== null && (typeof folder !== 'string' || !folder.startsWith('/'))) throw new Error('choose: folder is an absolute path, or null to cancel')
+        if (folder !== null && (typeof folder !== 'string' || !isAbsolute(folder))) throw new Error('choose: folder is an absolute path, or null to cancel')
         if (!this.shell.answerFolder) throw new Error('choose: this backend asks the portal, it cannot be answered beforehand (host windows only)')
         this.shell.answerFolder(folder)
         return { folder }
