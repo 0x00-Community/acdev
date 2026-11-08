@@ -161,13 +161,19 @@ export class Acde {
   readonly logs: Logs | null
   timeout: number
   readonly #client: DevClient
-  readonly #child: Child | null
+  readonly #owned: { readonly child: Child; readonly dir: string } | null
   #closed = false
 
-  private constructor(session: Session, client: DevClient, child: Child | null, logs: Logs | null, timeout: number) {
+  private constructor(
+    session: Session,
+    client: DevClient,
+    owned: { readonly child: Child; readonly dir: string } | null,
+    logs: Logs | null,
+    timeout: number,
+  ) {
     this.session = session
     this.#client = client
-    this.#child = child
+    this.#owned = owned
     this.logs = logs
     this.timeout = timeout
     client.closed.then(() => {
@@ -218,7 +224,8 @@ export class Acde {
         alive()
         return Sessions.list(dir).find((s) => s.pid === child.pid) ?? null
       }, late)
-      const acde = new Acde(session, await Acde.#connect(session), child, logs, options.timeout ?? Acde.TIMEOUT_MS)
+      const client = await Acde.#connect(session)
+      const acde = new Acde(session, client, { child, dir }, logs, options.timeout ?? Acde.TIMEOUT_MS)
       await Poll.until(Math.max(0, deadline - Date.now()), async () => {
         alive()
         return (await acde.ready()) || null
@@ -350,14 +357,15 @@ export class Acde {
 
   async close(): Promise<void> {
     this.#client.close()
-    const child = this.#child
-    if (!child) return
+    if (!this.#owned) return
+    const { child, dir } = this.#owned
     child.kill('SIGTERM')
     const stopped = await Promise.race([child.exited.catch(() => -1), sleep(10_000).then(() => null)])
     if (stopped === null) {
       child.kill('SIGKILL')
       await child.exited.catch(() => -1)
     }
+    Sessions.removeIfCurrent(this.session, dir)
   }
 
   async #request(op: string, args: Readonly<Record<string, unknown>> = {}): Promise<unknown> {

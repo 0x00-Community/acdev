@@ -53,6 +53,13 @@ export class Sessions {
     rmSync(Sessions.file(pid, dir), { force: true })
   }
 
+  static removeIfCurrent(session: Session, dir: string): void {
+    const current = Sessions.#read(Sessions.file(session.pid, dir))
+    if (current?.pid === session.pid && current.started === session.started && current.endpoint === session.endpoint) {
+      Sessions.remove(session.pid, dir)
+    }
+  }
+
   static alive(pid: number): boolean {
     try {
       process.kill(pid, 0)

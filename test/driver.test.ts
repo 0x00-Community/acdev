@@ -158,6 +158,9 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     }
     const sessions = join(s.root, 'acde-dev')
     check(existsSync(sessions) ? readdirSync(sessions) : []).toEqual([])
+    const replacement = Sessions.write({ ...acde.session, started: acde.session.started + 1 }, sessions)
+    await acde.close()
+    check(existsSync(replacement)).toBe(true)
     check(Sessions.list(sessions)).toEqual([])
   }, 60_000)
 
