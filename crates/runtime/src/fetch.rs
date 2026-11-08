@@ -501,12 +501,16 @@ impl Drop for FetchClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::http::frames;
     use std::io::{BufRead, Read, Write};
+    #[cfg(unix)]
     use std::os::unix::net::{UnixListener, UnixStream as StdStream};
+    #[cfg(unix)]
     use std::path::PathBuf;
     use std::time::Duration;
 
+    #[cfg(unix)]
     fn serve(name: &str, answer: impl FnOnce(StdStream) + Send + 'static) -> (String, std::thread::JoinHandle<()>) {
         let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("scratch directory");
@@ -519,6 +523,7 @@ mod tests {
         (path.to_string_lossy().into_owned(), server)
     }
 
+    #[cfg(unix)]
     fn read_head(stream: &StdStream) -> (Vec<String>, std::io::BufReader<StdStream>) {
         let mut reader = std::io::BufReader::new(stream.try_clone().expect("clone"));
         let mut lines = Vec::new();
@@ -534,6 +539,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn request(socket: &str, method: &str, path: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Exchange {
         Exchange {
             to: Dial::Socket(socket.into()),
@@ -562,6 +568,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn get_with_content_length() {
         let (socket, server) = serve("3000.sock", |mut stream| {
             let (lines, _) = read_head(&stream);
@@ -639,6 +646,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn chunked_body_arrives_in_pieces() {
         let (go, wait) = std::sync::mpsc::channel::<()>();
         let (socket, server) = serve("0.sock", move |mut stream| {
@@ -662,6 +670,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn post_body_and_read_to_close() {
         let (socket, server) = serve("8080.sock", |mut stream| {
             let (lines, mut reader) = read_head(&stream);
@@ -692,6 +701,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn abort_drops_the_connection() {
         let (closed, seen) = std::sync::mpsc::channel();
         let (socket, server) = serve("1.sock", move |mut stream| {
@@ -712,6 +722,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn missing_socket_is_an_error_event() {
         let (sender, events) = channel();
         let client = FetchClient::default();
@@ -722,6 +733,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn socket_bound_later_is_waited_for() {
         let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("scratch directory");
@@ -742,6 +754,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn many_streams_at_once() {
         let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("scratch directory");
@@ -771,6 +784,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn early_end_is_an_error() {
         let (socket, server) = serve("2.sock", |mut stream| {
             read_head(&stream);
@@ -802,6 +816,7 @@ mod tests {
         assert_eq!(close_frame(None, Some("bye".into())).expect("1000").map(|f| u16::from(f.code)), Some(1000));
     }
 
+    #[cfg(unix)]
     fn upgrade(socket: &str, protocols: &[&str]) -> Upgrade {
         Upgrade {
             to: Dial::Socket(socket.into()),
@@ -812,6 +827,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn accept(stream: &mut StdStream, protocol: Option<&str>) -> (Vec<String>, std::io::BufReader<StdStream>) {
         let (lines, reader) = read_head(stream);
         assert_eq!(lines[0], "GET /ws HTTP/1.1");
@@ -826,6 +842,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn websocket_echo_and_client_close() {
         let (socket, server) = serve("3000.sock", |mut stream| {
             let (lines, mut reader) = accept(&mut stream, Some("v2"));
@@ -858,6 +875,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn websocket_fragments_ping_and_server_close() {
         let (socket, server) = serve("4000.sock", |mut stream| {
             let mut answer = Vec::new();
@@ -895,6 +913,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn websocket_refused_and_missing() {
         let (socket, server) = serve("5000.sock", |mut stream| {
             read_head(&stream);
