@@ -163,18 +163,22 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 
 ## acde dev
 
-IPC: unix 上 unix socket, Windows 上命名管道, 一行一个 JSON. acde 是服务端 (`ACDE_DEV` 是地址), acdert
-(hostwin 的 `acde-dev` 线程, `dev.rs`) 连上去先发 `{"type":"hello","role":"runtime","pid"}`. 连接断了 acdert 就退出. Windows 上读之前先
-`PeekNamedPipe`, 有数据才 `ReadFile`: 同一个同步句柄上挂着的读会让写 (回答) 一直等着. 工程的构建结果经
+IPC: acdert 是服务端, 在 `ACDE_DEV` 上听 (hostwin `dev.rs`, 线程 `acde-dev`, 每条连接一条 `acde-dev-conn`), acde dev 和工具 (acde 的命令、
+MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址和 0700 的目录由 acde dev 定好、旧 socket 它先删, acdert bind 后设 0600,
+退出后 acde dev 删), Windows 上是命名管道服务端 (`FILE_FLAG_FIRST_PIPE_INSTANCE` 防别人抢先占名、`PIPE_REJECT_REMOTE_CLIENTS`、SDDL
+`D:P(A;;GA;;;OW)` 只给当前用户, 接一个再开下一个实例). 这条 IPC 能在页面里求值, 所以只给自己. 一行一个 JSON. 发 `{"type":"hello","role":"dev"}`
+的那条连接是 acde dev 的: 它断了 acdert 就退出; 别的 hello 忽略. Windows 上读之前先 `PeekNamedPipe`, 有数据才 `ReadFile`: 同一个同步句柄上
+挂着的读会让写 (回答) 一直等着. 工程的构建结果经
 `ACDE_PATH` (Windows 用 `;` 分隔) 交给 acdert, 不装进包目录; 日志就是 acdert 的 stderr.
 
-收到的消息:
+收到的消息 (`reload` / `quit` 哪条连接发都照做):
 
 - `{"type":"reload","app"?,"hot"?}` → Broker 的 `devreload`: 有 app 时关掉它所有窗口 (不问 `beforeclose`) 再按记住的 rect 打开 (清单的 `size` 变了时按新尺寸, 中心不动, 不超出屏幕), 没有 app 时
   重起 desktop web (服务不重起). `hot: true` 时先试热替换 (下面).
 - `{"type":"quit"}`.
-- `{"type":"request","id":<整数>,"op",…}` → 整行作为 `devrequest` 推给 Broker (`broker.ts` `#devRequest`), 做完调 `Shell.devRespond`, 写出
-  `{"type":"response","id","ok":true,"result"}` 或 `{…,"ok":false,"error":"<文字>"}`, 每个 id 恰好一次 (超时由 acde 管). `web` 参数是 web 名
+- `{"type":"request","id","op",…}` (id 是数字或字符串, 只在这条连接里有意义) → id 换成进程内递增的号, 整行作为 `devrequest` 推给 Broker
+  (`broker.ts` `#devRequest`), 做完调 `Shell.devRespond`, 按号找回连接、换回原 id 写出 `{"type":"response","id","ok":true,"result"}` 或
+  `{…,"ok":false,"error":"<文字>"}`, 每个请求恰好一次 (超时在工具一侧); 连接断了, 它还没回答的请求作废. `web` 参数是 web 名
   (`ledger#1048576`)、应用 id (window 号最小的那个 web) 或 `desktop`:
   - `webs` → `{webs: [{name, app, kind, window, title}]}`.
   - `eval {web, code}` → `{value}`: 和 `ACDE_DEBUG_DIR` 一样求值 (promise 等落定), 结构化克隆回来再 JSON (undefined 是 null, JSON 不了的回错).
