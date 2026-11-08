@@ -321,7 +321,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `Mixer`, 线程 `acde-audio`) 到处一样. 输出: Linux PipeWire (`output.rs`); macOS / Windows cpal 默认设备 (`output_cpal.rs`, 用设备当前的采样率,
   Hermite 重采样, 设备要 f32). 3 秒没声音关流; 没有设备 (或 `ACDE_AUDIO=null`) 按墙上时间渲染丢掉.
 - **还没有**: indexedDB、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、页面直接联网 (经后端取)、`:target`.
-- **后端** (acde-host `backend.ts`, unix): `bun --preload acde-listen.js server.js`, 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
+- **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
+  (Node ≥ 22.3; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
   `ACDE_APP_SOCKETS` / `PORT` / `NODE_ENV=production` + 会话的 HOME、PATH、LANG 等), 工作目录 `$XDG_DATA_HOME/acde/apps/<id>/`, 输出前缀
   `[<app>#backend]`, `PR_SET_PDEATHSIG` (子进程都由 `acde-fork` 线程 fork). preload 把 listen 换成 unix socket (`$XDG_RUNTIME_DIR/acde/apps/<id>/`),

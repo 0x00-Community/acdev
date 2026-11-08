@@ -65,6 +65,18 @@ export class AppBackends {
     if (!this.#spawn(running)) this.#running.delete(app.id)
   }
 
+  static argv(path: string | undefined, preload: string, server: string): string[] | null {
+    const find = (name: string) => {
+      for (const dir of (path ?? '').split(':')) if (dir && stat(join(dir, name))?.isFile) return join(dir, name)
+      return null
+    }
+    const bun = find('bun')
+    if (bun) return [bun, '--preload', preload, server]
+    const node = find('node')
+    if (node) return [node, '--import', new URL(`file://${preload}`).href, server]
+    return null
+  }
+
   #spawn(running: Running): boolean {
     const { app } = running
     const name = `${app.id}#backend`
@@ -79,13 +91,18 @@ export class AppBackends {
       AppBackends.#report(name, 'not started: this acde cannot start processes (not Linux)', Level.Warn)
       return false
     }
+    const argv = AppBackends.argv(process.env['PATH'], preload!, server)
+    if (!argv) {
+      AppBackends.#report(name, 'not started: neither bun nor node is on PATH', Level.Warn)
+      return false
+    }
     const data = AppBackends.#dataDir(app.id)
     const env: Record<string, string> = {}
     for (const key of AppBackends.ENV) if (process.env[key]) env[key] = process.env[key]!
     Object.assign(env, { ACDE_APP_ID: app.id, ACDE_APP_DATA: data, ACDE_APP_SOCKETS: running.sockets, PORT: String(app.backend!.port), NODE_ENV: 'production' })
     running.ended = new Promise((done) => (running.end = done))
     try {
-      running.pid = spawn(['bun', '--preload', preload!, server], { cwd: data, env, prefix: `[${name}] ` }, (code, signal) => this.#exited(running, code, signal))
+      running.pid = spawn(argv, { cwd: data, env, prefix: `[${name}] ` }, (code, signal) => this.#exited(running, code, signal))
     } catch (error) {
       running.end()
       AppBackends.#report(name, `not started: ${(error as Error).message}`, Level.Warn)
