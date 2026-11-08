@@ -72,3 +72,73 @@ fn junction_cannot_escape_on_read_or_recursive_create() {
     assert!(!outside.join("escaped").exists());
     assert_eq!(fs::read(outside.join("secret.txt")).unwrap(), b"outside");
 }
+
+#[test]
+fn windows_desktop_override_uses_native_paths_and_safe_fallback() {
+    let s = Scratch::new();
+    let home = s.path.join("profile");
+    let fallback = home.join("Desktop");
+    let selected = home.join("override");
+    for path in [&fallback, &selected] {
+        fs::create_dir_all(path).unwrap();
+        fs::write(path.join("fixture.txt"), "isolated desktop").unwrap();
+    }
+    let selected = selected.to_str().unwrap();
+    let forward_slash = selected.replace('\\', "/");
+    let fallback = fallback.to_str().unwrap();
+    let paths = [
+        (selected, selected),
+        (&forward_slash, selected),
+        ("$HOME/override", selected),
+        (r"$HOME\override", selected),
+        ("", fallback),
+        ("D:relative", fallback),
+        (r"\root-relative", fallback),
+        ("/", fallback),
+        (r"\\server", fallback),
+        (r"\\.\pipe\anything", fallback),
+        (r"\\?\C:\", fallback),
+        ("$HOME", fallback),
+    ];
+    for (input, expected) in paths {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "fs::workspace::windows_tests::desktop_override_child"])
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("XDG_STATE_HOME", &home)
+            .env("XDG_DESKTOP_DIR", input)
+            .env_remove("XDG_DOWNLOAD_DIR")
+            .env("ACDE_TEST_DESKTOP", expected)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "override {input:?}: {}", String::from_utf8_lossy(&output.stdout));
+    }
+}
+
+#[test]
+fn desktop_override_child() {
+    use crate::fs::{FsCall, FsReply, Workspace};
+
+    let Some(expected) = std::env::var_os("ACDE_TEST_DESKTOP") else { return };
+    let workspace = Workspace::new();
+    let FsReply::Json(roots) = workspace.call(FsCall::Roots).unwrap() else { panic!("expected roots") };
+    let root = roots[0]["path"].as_str().unwrap();
+    assert_eq!(Path::new(root), Path::new(&expected));
+    let read = FsCall::ReadText { root: root.to_owned(), path: "fixture.txt".into() };
+    let FsReply::Text { text, .. } = workspace.call(read).unwrap() else { panic!("expected desktop file") };
+    assert_eq!(text, "isolated desktop");
+}
+
+#[test]
+fn windows_desktop_override_distinguishes_disk_unc_and_device_paths() {
+    use super::super::path::windows_directory;
+
+    let accepted = [r"D:\", r"D:\desktop", "D:/desktop", r"\\server\share", "//server/share/desktop"];
+    for input in accepted {
+        assert_eq!(windows_directory(input).as_deref().map(Path::new), Some(Path::new(input)));
+    }
+    let rejected = [r"\\server", r"\\server\IPC$", r"\\server\pipe\desk", r"\\?\UNC\server\share"];
+    for input in rejected {
+        assert!(windows_directory(input).is_none(), "accepted {input:?}");
+    }
+}

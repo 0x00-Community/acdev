@@ -10,7 +10,7 @@ pub trait NodePath {
 
 #[cfg(windows)]
 pub(super) fn windows_file_name(name: &str) -> bool {
-    if name.ends_with([' ', '.']) || name.contains(['\\', ':']) {
+    if name.ends_with([' ', '.']) || name.bytes().any(|byte| byte < b' ' || b"\\/:<>\"|?*".contains(&byte)) {
         return false;
     }
     let device = name.split('.').next().unwrap_or_default().trim_end_matches(' ').to_ascii_uppercase();
@@ -18,6 +18,37 @@ pub(super) fn windows_file_name(name: &str) -> bool {
     let port = device.strip_prefix("COM").or_else(|| device.strip_prefix("LPT"));
     let reserved_ports = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "¹", "²", "³"];
     !named_device && !port.is_some_and(|number| reserved_ports.contains(&number))
+}
+
+#[cfg(windows)]
+pub(super) fn windows_directory(value: &str) -> Option<String> {
+    use std::path::{Component, Path, Prefix};
+
+    let path = Path::new(value);
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut parts = path.components();
+    match parts.next()? {
+        Component::Prefix(prefix) => match prefix.kind() {
+            Prefix::Disk(_) => {}
+            Prefix::UNC(server, share) => {
+                let (server, share) = (server.to_str()?, share.to_str()?);
+                if !windows_file_name(server) || !windows_file_name(share) {
+                    return None;
+                }
+                if share.eq_ignore_ascii_case("pipe") || share.eq_ignore_ascii_case("IPC$") {
+                    return None;
+                }
+            }
+            _ => return None,
+        },
+        _ => return None,
+    }
+    if parts.any(|part| matches!(part, Component::Normal(name) if !name.to_str().is_some_and(windows_file_name))) {
+        return None;
+    }
+    std::path::absolute(path).ok()?.into_os_string().into_string().ok()
 }
 
 impl NodePath for str {

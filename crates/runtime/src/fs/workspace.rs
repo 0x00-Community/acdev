@@ -217,15 +217,24 @@ impl WorkspaceFs {
                 (!value.is_empty()).then(|| value.to_owned())
             })
         });
-        let dir = dir.unwrap_or_else(|| format!("$HOME/{fallback}"));
+        let Some(dir) = dir else { return home.join(fallback) };
         let path = match dir.strip_prefix("$HOME") {
-            Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("{home}{rest}"),
+            Some(rest) if rest.is_empty() || rest.starts_with('/') || (cfg!(windows) && rest.starts_with('\\')) => {
+                format!("{home}{rest}")
+            }
             _ => dir,
         };
-        match path.is_absolute() && path.normalize() != home {
-            true => path.normalize(),
-            false => home.join(fallback),
-        }
+        let selected = cfg_select! {
+            windows => super::path::windows_directory(&path).filter(|dir| {
+                let same_spelling = super::path::windows_directory(home)
+                    .is_some_and(|home| dir.eq_ignore_ascii_case(&home));
+                let same_location = || fs::canonicalize(home).ok().zip(fs::canonicalize(dir).ok())
+                    .is_some_and(|(home, dir)| home == dir);
+                !same_spelling && !same_location()
+            }),
+            _ => path.is_absolute().then(|| path.normalize()).filter(|dir| dir != home),
+        };
+        selected.unwrap_or_else(|| home.join(fallback))
     }
 
     pub fn desktop(&self) -> Outcome<String> {
