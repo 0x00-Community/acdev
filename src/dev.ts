@@ -125,7 +125,7 @@ export class DevSession {
       this.#publish()
       const paths = [...new Set(this.#units.map((u) => u.built!.dir)), process.env['ACDE_PATH']].filter(Boolean).join(delimiter)
       const what = this.#units.map((u) => `${u.pkg.name} (${u.built!.dir})`).join(', ')
-      console.log(`acde: dev ${target.kind} ${target.id}${this.#headless ? ' (headless)' : ''}: ${what}; 改了文件就重新构建、重新加载`)
+      console.log(`acde: dev ${target.kind} ${target.id}${this.#headless ? ' (headless)' : ''}: ${what}; rebuilding and reloading on change`)
       const env = { ...process.env, ACDE_DEV: this.#server.endpoint, ACDE_PATH: paths, ...(this.#headless && { ACDE_HEADLESS: '1' }) }
       const child = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio: 'inherit' })
       for (const unit of this.#units) unit.watcher = watch(unit.pkg.dir, { recursive: true }, (_, file) => this.#changed(unit, file === null ? null : String(file)))
@@ -200,12 +200,12 @@ export class DevSession {
       unit.pkg = new AppPackage(unit.pkg.dir)
       const built = await unit.pkg.build(unit.out)
       unit.built = built
-      console.log(`acde: ${who}重新构建好了 (${Math.round(performance.now() - started)} ms), 重新加载`)
+      console.log(`acde: ${who}rebuilt (${Math.round(performance.now() - started)} ms), reloading`)
       for (const app of built.apps) this.send({ type: 'reload', app })
       if (this.#shown !== null && built.desktops.includes(this.#shown)) this.send({ type: 'reload' })
       this.#publish()
     } catch (error) {
-      console.error(`acde: ${who}构建失败: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`acde: ${who}build failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
