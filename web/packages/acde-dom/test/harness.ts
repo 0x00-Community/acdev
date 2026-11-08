@@ -19,6 +19,8 @@ export function bundle(entry: string, name: string, define: Record<string, strin
   return code
 }
 
+const domBundle = bundle('src/index.ts', '__acdeDom')
+
 export interface Web {
   readonly context: vm.Context
   readonly internals: WebInternals
@@ -38,7 +40,7 @@ export function createWeb(options: Partial<InstallOptions> = {}): Web {
   const host = new MockHost()
   const context = vm.createContext({})
   host.context = context
-  vm.runInContext(bundle('src/index.ts', '__acdeDom'), context, { filename: 'acde-dom.js' })
+  vm.runInContext(domBundle, context, { filename: 'acde-dom.js' })
   context['__args'] = [dom, host, { url: 'http://acde.local/', logNetwork: false, ...options }]
   const internals = vm.runInContext('__acdeDom.install(globalThis, ...globalThis.__args)', context) as WebInternals
   vm.runInContext('delete globalThis.__args', context)
