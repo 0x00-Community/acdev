@@ -88,7 +88,7 @@ impl Link {
             .name("acde-shell-link".into())
             .spawn(move || {
                 if let Err(e) = reader.run(&mut queue, &stopped) {
-                    log::warn!("acde_shell 连接断了: {e}");
+                    log::warn!("acde_shell connection lost: {e}");
                 }
                 reader.inbox.push(Event::named("exit"));
             })

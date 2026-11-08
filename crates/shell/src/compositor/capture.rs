@@ -10,7 +10,7 @@ use super::backend::CLEAR;
 impl Compositor {
     pub(super) fn capture(&mut self) -> Result<(u32, u32, Vec<u8>), String> {
         let output = self.backend.output.clone();
-        let mode = output.current_mode().ok_or("输出没有模式")?;
+        let mode = output.current_mode().ok_or("output has no mode")?;
         let scale = output.current_scale().fractional_scale();
         let elements = self.screen_elements(&output, matches!(self.backend.target, super::backend::Target::Drm(_)));
         let renderer = &mut self.backend.renderer;

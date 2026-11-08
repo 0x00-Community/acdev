@@ -368,7 +368,7 @@ impl DmabufHandler for App {
     fn created(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, _: wl_buffer::WlBuffer) {}
 
     fn failed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1) {
-        log::warn!("合成器拒绝了网页画布 (linux-dmabuf)");
+        log::warn!("the compositor rejected the web canvas (linux-dmabuf)");
     }
 
     fn released(&mut self, _: &Connection, _: &QueueHandle<Self>, buffer: &wl_buffer::WlBuffer) {

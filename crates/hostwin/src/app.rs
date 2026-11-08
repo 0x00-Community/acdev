@@ -130,21 +130,21 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
     let gpu = match Gpu::open() {
         Ok(g) => Arc::new(g),
         Err(e) => {
-            log::error!("网页图层不可用: {e}");
+            log::error!("web layer unavailable: {e}");
             return 1;
         }
     };
     acde_gpu::Gpu::publish(Some(gpu.shared.clone()));
     let server = Server { proxy: OnceLock::new(), compositor: OnceLock::new(), state: Mutex::new(State::default()), broker: Arc::new(Inbox::default()), gpu };
     if SERVER.set(server).is_err() {
-        log::error!("宿主窗口: 已经起过了");
+        log::error!("host window: already started");
         return 1;
     }
     let app = App { main: Some(Box::new(main)), ..App::default() };
     let code = match platform::run(Box::new(app)) {
         Ok(code) => code,
         Err(e) => {
-            log::error!("宿主窗口: {e}");
+            log::error!("host window: {e}");
             1
         }
     };
@@ -176,7 +176,7 @@ impl Handler for App {
         let surface = match host.surface(&server.gpu.instance) {
             Ok(surface) => surface,
             Err(e) => {
-                log::error!("宿主窗口的 surface: {e}");
+                log::error!("host window surface: {e}");
                 return host.exit(1);
             }
         };
@@ -201,7 +201,7 @@ impl Handler for App {
             proxy.send(Cmd::Exit(code));
         });
         if let Err(e) = spawned {
-            log::error!("Broker 线程: {e}");
+            log::error!("Broker thread: {e}");
             host.exit(1);
         }
     }

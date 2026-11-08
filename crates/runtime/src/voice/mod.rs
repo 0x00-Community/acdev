@@ -45,12 +45,12 @@ impl Voice {
             if let Some(old) = current.ctl.replace(tx)
                 && old.try_send(Ctl::Cancel).is_ok()
             {
-                log::info!("语音 #{}: 被新的录音取消", current.id);
+                log::info!("voice #{}: cancelled by a new recording", current.id);
             }
             current.id = current.id.wrapping_add(1);
             current.id
         };
-        log::info!("语音 #{id}: 开始录音");
+        log::info!("voice #{id}: recording");
         let current = self.current.clone();
         crate::rt::spawn(async move {
             crate::rt::local(move || doubao::run(id, rx, move |event| sink.notify(event, ThreadsafeFunctionCallMode::NonBlocking))).await;
@@ -67,9 +67,9 @@ impl Voice {
         let current = self.current.locked();
         let stopped = current.id == id && current.ctl.as_ref().is_some_and(|tx| tx.try_send(Ctl::Finish).is_ok());
         if stopped {
-            log::info!("语音 #{id}: 停止录音, 等识别结果");
+            log::info!("voice #{id}: stopped recording, waiting for the result");
         } else {
-            log::info!("语音 #{id}: 要停止, 但它已经结束了 (当前 #{})", current.id);
+            log::info!("voice #{id}: stop requested, but it already ended (current #{})", current.id);
         }
         stopped
     }

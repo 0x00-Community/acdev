@@ -248,14 +248,14 @@ impl Shell {
     fn inherited(fd: &str) -> std::result::Result<std::os::unix::net::UnixStream, String> {
         use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
         use std::os::fd::{BorrowedFd, FromRawFd, OwnedFd};
-        let raw: i32 = fd.parse().map_err(|_| format!("{}={fd}: 不是 fd", Self::SHELL_FD))?;
-        let borrowed = (raw > 2).then(|| unsafe { BorrowedFd::borrow_raw(raw) }).ok_or_else(|| format!("{}={fd}: 不是 fd", Self::SHELL_FD))?;
+        let raw: i32 = fd.parse().map_err(|_| format!("{}={fd}: not an fd", Self::SHELL_FD))?;
+        let borrowed = (raw > 2).then(|| unsafe { BorrowedFd::borrow_raw(raw) }).ok_or_else(|| format!("{}={fd}: not an fd", Self::SHELL_FD))?;
         let flags = fcntl_getfd(borrowed).map_err(|e| format!("{}={fd}: {e}", Self::SHELL_FD))?;
         if flags.contains(FdFlags::CLOEXEC) {
-            return Err(format!("{}={fd}: 已经被拿走了", Self::SHELL_FD));
+            return Err(format!("{}={fd}: already taken", Self::SHELL_FD));
         }
         if !rustix::fs::fstat(borrowed).is_ok_and(|s| rustix::fs::FileType::from_raw_mode(s.st_mode) == rustix::fs::FileType::Socket) {
-            return Err(format!("{}={fd}: 不是 socket", Self::SHELL_FD));
+            return Err(format!("{}={fd}: not a socket", Self::SHELL_FD));
         }
         fcntl_setfd(borrowed, FdFlags::CLOEXEC).map_err(|e| format!("{}={fd}: {e}", Self::SHELL_FD))?;
         Ok(unsafe { OwnedFd::from_raw_fd(raw) }.into())

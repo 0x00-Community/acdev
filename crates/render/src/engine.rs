@@ -231,7 +231,7 @@ impl Engine {
                 self.stats.paint_mismatches += 1;
                 let node = m.node.map(|n| (n, self.ids.handle(n)));
                 log::warn!(
-                    "增量录制和整页录制不一致: 第 {} 条命令 (片段 {node:?}, 共 {} / {} 条)\n  增量: {}\n  整页: {}",
+                    "incremental and full-page recording differ: command {} (fragment {node:?}, of {} / {})\n  incremental: {}\n  full page: {}",
                     m.index,
                     scene.commands.len(),
                     reference.commands.len(),

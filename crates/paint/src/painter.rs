@@ -119,7 +119,7 @@ impl Painter {
         let (jobs, jobs_rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel();
         let ready = Ready::default();
-        Raster::spawn(jobs_rx, done_tx, ready.clone(), waker).map_err(|e| format!("光栅化线程: {e}"))?;
+        Raster::spawn(jobs_rx, done_tx, ready.clone(), waker).map_err(|e| format!("raster thread: {e}"))?;
         Ok(Self {
             jobs,
             done,
@@ -192,7 +192,7 @@ impl Painter {
             let target = self.targets.get_mut(&plane).expect("ensured");
             let Some(next) = target.next() else { continue };
             let targets = damage.as_deref().filter(|_| !self.full).and_then(|d| target.region(next, &sheet.parts, d, full));
-            log::trace!("网页重画 plane={plane} parts={} damage={damage:?} regions={targets:?}", sheet.parts.len());
+            log::trace!("web repaint plane={plane} parts={} damage={damage:?} regions={targets:?}", sheet.parts.len());
             target.canvases[next].held = true;
             target.stale = false;
             let regions = targets.as_ref().map(|t| t.iter().map(plane::px).collect());
@@ -206,7 +206,7 @@ impl Painter {
             for d in &drawn {
                 self.discard(d);
             }
-            return Err("光栅化线程退出了".to_string());
+            return Err("raster thread exited".to_string());
         }
         self.frames = frame;
         self.inflight = Some(Inflight { drawn, started: Instant::now(), trace });
@@ -219,7 +219,7 @@ impl Painter {
         let fence = match done {
             Ok(fence) => fence,
             Err(e) => {
-                log::warn!("网页光栅化: {e}");
+                log::warn!("web raster: {e}");
                 for d in &inflight.drawn {
                     self.discard(d);
                 }
@@ -252,13 +252,13 @@ impl Painter {
 
     pub fn icon(&mut self, scene: acde_gpu::Scene, (w, h): (u32, u32)) -> Result<Dmabuf, String> {
         if self.failed() {
-            return Err("网页图层不可用".to_string());
+            return Err("web layer unavailable".to_string());
         }
-        let bo = self.allocator.create_buffer(w, h, FORMAT, &[Modifier::Linear]).map_err(|e| format!("GBM 分配: {e}"))?;
-        let dmabuf = bo.export().map_err(|e| format!("导出 dmabuf: {e}"))?;
+        let bo = self.allocator.create_buffer(w, h, FORMAT, &[Modifier::Linear]).map_err(|e| format!("GBM allocation: {e}"))?;
+        let dmabuf = bo.export().map_err(|e| format!("export dmabuf: {e}"))?;
         let (reply, answer) = mpsc::channel();
-        self.jobs.send(Job::Icon { dmabuf: dmabuf.clone(), size: (w, h), scene, reply }).map_err(|_| "光栅化线程退出了".to_string())?;
-        answer.recv_timeout(Duration::from_secs(3)).map_err(|_| "光栅化线程没有回应".to_string())??;
+        self.jobs.send(Job::Icon { dmabuf: dmabuf.clone(), size: (w, h), scene, reply }).map_err(|_| "raster thread exited".to_string())?;
+        answer.recv_timeout(Duration::from_secs(3)).map_err(|_| "raster thread did not answer".to_string())??;
         Ok(dmabuf)
     }
 
@@ -280,8 +280,8 @@ impl Painter {
         let (w, h) = Self::padded(size);
         let fresh = (0..CANVASES)
             .map(|_| {
-                let bo = self.allocator.create_buffer(w, h, FORMAT, &[Modifier::Linear]).map_err(|e| format!("GBM 分配: {e}"))?;
-                let dmabuf = bo.export().map_err(|e| format!("导出 dmabuf: {e}"))?;
+                let bo = self.allocator.create_buffer(w, h, FORMAT, &[Modifier::Linear]).map_err(|e| format!("GBM allocation: {e}"))?;
+                let dmabuf = bo.export().map_err(|e| format!("export dmabuf: {e}"))?;
                 Ok(Canvas { dmabuf, drawn: None, held: false })
             })
             .collect::<Result<Vec<_>, String>>()?;

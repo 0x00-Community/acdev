@@ -57,7 +57,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
     let scale = scale();
     let [w, h] = handler.size(None);
     let size = (((w * scale).round() as u32).max(1), ((h * scale).round() as u32).max(1));
-    log::info!("宿主窗口: 不显示 (ACDE_HEADLESS), 屏幕 {w}x{h}, 缩放 {scale}");
+    log::info!("host window: hidden (ACDE_HEADLESS), screen {w}x{h}, scale {scale}");
     handler.started(&host, super::Proxy::Headless(Proxy(tx)), None, size, scale);
     if let Some(code) = host.exit.take() {
         return Ok(code);

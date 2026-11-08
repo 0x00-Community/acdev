@@ -38,11 +38,11 @@ impl Raster {
 
     pub fn new() -> Result<Self, String> {
         let device = Device::open()?;
-        log::info!("网页图层用 {} ({:?})", device.info.name, device.info.device_type);
+        log::info!("web layer uses {} ({:?})", device.info.name, device.info.device_type);
         let published = Gpu::new(device.device.clone(), device.queue.clone(), device.info.clone());
         let started = std::time::Instant::now();
         let pages = Pages::new(device, std::env::var_os("ACDE_WEB_POLL").is_some())?;
-        log::info!("vello 预热 {:.1}ms", acde_log::since_ms(started));
+        log::info!("vello warm-up {:.1}ms", acde_log::since_ms(started));
         let gpu = Gpu::publish(Some(published));
         let images = gpu.as_ref().map_or_else(Default::default, |g| g.images.clone());
         Ok(Self { pages, overrides: Overrides::from(images), gpu })
@@ -54,7 +54,7 @@ impl Raster {
             let mut raster = match Self::new() {
                 Ok(raster) => raster,
                 Err(e) => {
-                    log::error!("网页图层不可用: {e}");
+                    log::error!("web layer unavailable: {e}");
                     Gpu::publish(None);
                     let _ = ready.set(false);
                     waker.ping();
@@ -64,7 +64,7 @@ impl Raster {
             let _ = ready.set(true);
             waker.ping();
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| raster.run(waker, jobs, done))).is_err() {
-                log::error!("网页图层的光栅化线程 panic, 退出这个 web 进程");
+                log::error!("web layer raster thread panicked, exiting this web process");
                 acde_log::flush();
                 std::process::exit(101);
             }
@@ -89,13 +89,14 @@ impl Raster {
                 Job::Canvases(plane, dmabufs, size) => {
                     let planes: Vec<GpuDmabuf<'_>> = dmabufs.iter().filter_map(Self::plane).collect();
                     for e in self.pages.canvases(plane, &planes, size).into_iter().filter_map(Result::err) {
-                        log::warn!("网页画布导入 Vulkan: {e}");
+                        log::warn!("import web canvas into Vulkan: {e}");
                     }
                 }
                 Job::Release(plane) => self.pages.release(plane),
                 Job::Icon { dmabuf, size, scene, reply } => {
-                    let drawn =
-                        Self::plane(&dmabuf).ok_or_else(|| "dmabuf 没有平面".to_string()).and_then(|d| self.pages.icon(d, size, scene, &mut self.overrides));
+                    let drawn = Self::plane(&dmabuf)
+                        .ok_or_else(|| "dmabuf has no planes".to_string())
+                        .and_then(|d| self.pages.icon(d, size, scene, &mut self.overrides));
                     let _ = reply.send(drawn);
                 }
                 Job::Draw(passes) => {

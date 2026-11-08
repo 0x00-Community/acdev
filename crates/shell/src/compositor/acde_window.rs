@@ -115,7 +115,7 @@ impl Dispatch<AcdeWindow, WindowRequests> for Compositor {
                         });
                         resource.window(grant.id);
                     }
-                    None => log::warn!("acde_window.bind: 令牌不对或已经用过了"),
+                    None => log::warn!("acde_window.bind: wrong or already used token"),
                 }
             }
             Request::RequestActivate => {

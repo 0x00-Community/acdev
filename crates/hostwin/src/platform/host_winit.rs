@@ -50,7 +50,7 @@ impl super::Host for Host {
 
 pub(crate) fn clipboard_set(text: String) {
     if let Err(e) = arboard::Clipboard::new().and_then(|mut c| c.set_text(text)) {
-        log::warn!("剪贴板: {e}");
+        log::warn!("clipboard: {e}");
     }
 }
 
@@ -103,7 +103,7 @@ impl ApplicationHandler<Cmd> for Loop {
         let window = match el.create_window(attrs) {
             Ok(window) => Arc::new(window),
             Err(e) => {
-                self.error = Some(format!("开窗口: {e}"));
+                self.error = Some(format!("open window: {e}"));
                 el.exit();
                 return;
             }

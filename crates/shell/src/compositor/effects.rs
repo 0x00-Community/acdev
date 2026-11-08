@@ -192,7 +192,7 @@ impl Effects {
                     backdrop: renderer.compile_custom_texture_shader(BACKDROP, &backdrop)?,
                 })
             })();
-            built.map_err(|e| log::warn!("backdrop 着色器编译失败, backdrop 不处理: {e}"))
+            built.map_err(|e| log::warn!("backdrop shader failed to compile, skipping backdrops: {e}"))
         });
         programs.as_ref().ok()
     }

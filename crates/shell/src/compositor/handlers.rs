@@ -41,7 +41,7 @@ impl CompositorHandler for Compositor {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
-        &client.get_data::<ClientState>().expect("我们插入的客户端都带 ClientState").compositor
+        &client.get_data::<ClientState>().expect("every client we insert has ClientState").compositor
     }
 
     fn new_surface(&mut self, surface: &WlSurface) {
@@ -288,10 +288,10 @@ impl Compositor {
     fn initial_configure(&mut self, surface: &WlSurface) {
         if let Some(window) = self.window_of(surface) {
             let sent = with_states(surface, |states| {
-                states.data_map.get::<XdgToplevelSurfaceData>().is_some_and(|d| d.lock().expect("xdg 数据锁").initial_configure_sent)
+                states.data_map.get::<XdgToplevelSurfaceData>().is_some_and(|d| d.lock().expect("xdg data lock").initial_configure_sent)
             });
             if !sent {
-                window.toplevel().expect("找到时已确认是 toplevel").send_configure();
+                window.toplevel().expect("checked to be a toplevel when found").send_configure();
             }
         }
         self.popups.commit(surface);
@@ -304,7 +304,7 @@ impl Compositor {
 
     fn names(surface: &WlSurface) -> (Option<String>, Option<String>) {
         with_states(surface, |states| {
-            let data = states.data_map.get::<XdgToplevelSurfaceData>().map(|d| d.lock().expect("xdg 数据锁"));
+            let data = states.data_map.get::<XdgToplevelSurfaceData>().map(|d| d.lock().expect("xdg data lock"));
             data.map_or((None, None), |d| (d.title.clone(), d.app_id.clone()))
         })
     }
@@ -363,7 +363,7 @@ impl Compositor {
                 self.focus_window(Some(&window));
                 let (title, app_id) = Self::names(&surface);
                 self.emit(ShellEvent::WindowOpen { window: id, title, app_id });
-                self.milestone("第一个原生窗口");
+                self.milestone("first native window");
                 if let Some(toplevel) = window.toplevel().filter(|t| Self::wants_fullscreen(t)).cloned() {
                     XdgShellHandler::fullscreen_request(self, toplevel, None);
                 }

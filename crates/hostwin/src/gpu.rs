@@ -11,7 +11,7 @@ pub(crate) struct Gpu {
 impl Gpu {
     pub fn open() -> Result<Self, String> {
         let (instance, adapter, shared) = acde_gpu::Gpu::open("acde host")?;
-        log::info!("网页图层用 {} ({:?}, {:?})", shared.info.name, shared.info.device_type, shared.info.backend);
+        log::info!("web layer uses {} ({:?}, {:?})", shared.info.name, shared.info.device_type, shared.info.backend);
         Ok(Self { instance, adapter, shared })
     }
 }

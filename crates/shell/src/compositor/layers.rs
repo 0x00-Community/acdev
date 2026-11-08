@@ -74,7 +74,7 @@ impl Compositor {
         }
         let map = layer_map_for_output(&output);
         let sent =
-            with_states(surface, |states| states.data_map.get::<LayerSurfaceData>().is_some_and(|d| d.lock().expect("layer 数据锁").initial_configure_sent));
+            with_states(surface, |states| states.data_map.get::<LayerSurfaceData>().is_some_and(|d| d.lock().expect("layer data lock").initial_configure_sent));
         if !sent && let Some(layer) = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
             layer.layer_surface().send_configure();
         }

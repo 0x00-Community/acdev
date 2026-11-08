@@ -31,12 +31,12 @@ pub(super) async fn run(id: u32, ctl: async_channel::Receiver<Ctl>, emit: impl F
     let audio = heard.bytes as f64 / f64::from(mic::RATE * 2);
     match result {
         Ok(Some(text)) => {
-            log::info!("语音 #{id}: 结束, 识别出 {} 个字; 用时 {took:.1} 秒, 收到 {audio:.1} 秒音频", text.chars().count());
+            log::info!("voice #{id}: finished, recognized {} chars; took {took:.1} s, received {audio:.1} s of audio", text.chars().count());
             emit(json!({"type": "final", "text": text}));
         }
-        Ok(None) => log::info!("语音 #{id}: 取消; 用时 {took:.1} 秒, 收到 {audio:.1} 秒音频"),
+        Ok(None) => log::info!("voice #{id}: cancelled; took {took:.1} s, received {audio:.1} s of audio"),
         Err(message) => {
-            log::warn!("语音 #{id}: 出错结束: {message}; 用时 {took:.1} 秒, 收到 {audio:.1} 秒音频");
+            log::warn!("voice #{id}: ended with error: {message}; took {took:.1} s, received {audio:.1} s of audio");
             emit(json!({"type": "error", "message": message}));
         }
     }
@@ -58,7 +58,7 @@ async fn session(id: u32, ctl: async_channel::Receiver<Ctl>, emit: &impl Fn(Valu
         match or(async { Ok(open.as_mut().await) }, async { Err(ctl.recv().await.ok()) }).await {
             Ok(asr) => {
                 let asr = asr?;
-                log::info!("语音 #{id}: 识别服务已连上 ({} ms)", opening.elapsed().as_millis());
+                log::info!("voice #{id}: recognition service connected ({} ms)", opening.elapsed().as_millis());
                 break asr;
             }
             Err(Some(Ctl::Finish)) => stop = true,
@@ -92,7 +92,7 @@ async fn session(id: u32, ctl: async_channel::Receiver<Ctl>, emit: &impl Fn(Valu
                 if let Some(gap) = heard.last.map(|last| now - last)
                     && gap > GAP
                 {
-                    log::warn!("语音 #{id}: 麦克风 {:.1} 秒没有送来音频", gap.as_secs_f64());
+                    log::warn!("voice #{id}: no audio from the microphone for {:.1} s", gap.as_secs_f64());
                 }
                 heard.last = Some(now);
                 heard.bytes += chunk.len();
@@ -105,10 +105,10 @@ async fn session(id: u32, ctl: async_channel::Receiver<Ctl>, emit: &impl Fn(Valu
             Step::Pcm(None) => return Err("the microphone stopped".into()),
             Step::Ctl(Some(Ctl::Finish)) | Step::Timeout if finishing.is_none() => {
                 if matches!(step, Step::Timeout) {
-                    log::info!("语音 #{id}: 录满 {} 秒, 自动停止", LIMIT.as_secs());
+                    log::info!("voice #{id}: reached {} s, stopping", LIMIT.as_secs());
                 }
                 if heard.last.is_none() {
-                    log::warn!("语音 #{id}: 麦克风一直没有送来音频");
+                    log::warn!("voice #{id}: the microphone never sent audio");
                 }
                 mic = None;
                 while let Ok(chunk) = pcm.try_recv() {

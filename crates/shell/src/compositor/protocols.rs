@@ -65,7 +65,7 @@ impl Protocols {
             .filter(supports_syncobj_eventfd)
             .map(|device| DrmSyncobjState::new::<Compositor>(dh, device));
         if syncobj.is_none() {
-            log::warn!("显式同步不可用 (没有 render node 或内核不支持 syncobj eventfd)");
+            log::warn!("explicit sync unavailable (no render node, or the kernel lacks syncobj eventfd)");
         }
         Self {
             primary_selection: PrimarySelectionState::new::<Compositor>(dh),
@@ -180,7 +180,7 @@ impl PointerConstraintsHandler for Compositor {
 impl InputMethodHandler for Compositor {
     fn new_popup(&mut self, surface: ImePopup) {
         if let Err(e) = self.popups.track_popup(PopupKind::from(surface)) {
-            log::warn!("输入法候选框: {e}");
+            log::warn!("input method popup: {e}");
         }
     }
 

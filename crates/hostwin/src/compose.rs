@@ -134,7 +134,7 @@ fn configuration(gpu: &Gpu, surface: &wgpu::Surface<'static>, size: (u32, u32)) 
         .find(|f| caps.formats.contains(f))
         .or_else(|| caps.formats.iter().copied().find(|f| !f.is_srgb()))
         .or_else(|| caps.formats.first().copied())
-        .ok_or("宿主窗口的 surface 没有可用的格式")?;
+        .ok_or("host window surface has no usable format")?;
     let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
         wgpu::CompositeAlphaMode::Opaque
     } else {
@@ -196,7 +196,7 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
     let (tx, rx) = mpsc::channel();
     let size = (size.0.max(1), size.1.max(1));
     let mut thread = Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages: HashMap::new() };
-    let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(move || thread.run(&rx)).map_err(|e| format!("合成线程: {e}"))?;
+    let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(move || thread.run(&rx)).map_err(|e| format!("compose thread: {e}"))?;
     Ok((Compositor(tx), handle))
 }
 

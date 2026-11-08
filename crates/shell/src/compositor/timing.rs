@@ -55,7 +55,7 @@ impl Compositor {
             f(state);
             TimeoutAction::Drop
         });
-        *slot(self) = inserted.inspect_err(|e| log::warn!("定时器: {e}")).ok();
+        *slot(self) = inserted.inspect_err(|e| log::warn!("timer: {e}")).ok();
         slot(self).is_some()
     }
 
@@ -74,7 +74,7 @@ impl Compositor {
         let mut clients = Vec::new();
         let mut signal = |surface: &WlSurface, states: &SurfaceData| {
             if let Some(timer) = states.data_map.get::<CommitTimerBarrierStateUserData>() {
-                timer.lock().expect("commit timer 锁").signal_until(frame_target);
+                timer.lock().expect("commit timer lock").signal_until(frame_target);
                 Self::note_client(&mut clients, surface);
             }
         };
@@ -153,7 +153,7 @@ impl Compositor {
     }
 
     pub fn on_vblank(&mut self, feedback: Option<OutputPresentationFeedback>) {
-        self.milestone("第一次 vblank");
+        self.milestone("first vblank");
         self.backend.presenting = false;
         self.presented(feedback);
         self.settle_overdue();
@@ -176,8 +176,10 @@ impl Compositor {
                 waiting = true;
                 Self::note_client(&mut clients, surface);
             }
-            waiting |=
-                surface_states.data_map.get::<CommitTimerBarrierStateUserData>().is_some_and(|t| t.lock().expect("commit timer 锁").next_deadline().is_some());
+            waiting |= surface_states
+                .data_map
+                .get::<CommitTimerBarrierStateUserData>()
+                .is_some_and(|t| t.lock().expect("commit timer lock").next_deadline().is_some());
         };
         for window in self.space.elements() {
             window.with_surfaces(&mut signal);

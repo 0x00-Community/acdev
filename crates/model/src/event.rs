@@ -45,7 +45,7 @@ pub struct Inbox {
 impl Inbox {
     pub fn push(&self, mut event: Event) {
         event.stamp.get_or_insert_with(acde_log::now_ms);
-        let mut queue = self.queue.lock().expect("事件队列锁");
+        let mut queue = self.queue.lock().expect("event queue lock");
         let was_empty = queue.is_empty();
         match queue.last_mut() {
             Some(last) if event.kind == "pointermove" && last.kind == "pointermove" => *last = Event { stamp: last.stamp, ..event },
@@ -58,22 +58,22 @@ impl Inbox {
     }
 
     pub fn drain(&self) -> Vec<Event> {
-        std::mem::take(&mut *self.queue.lock().expect("事件队列锁"))
+        std::mem::take(&mut *self.queue.lock().expect("event queue lock"))
     }
 
     pub fn is_empty(&self) -> bool {
-        self.queue.lock().expect("事件队列锁").is_empty()
+        self.queue.lock().expect("event queue lock").is_empty()
     }
 
     pub fn set_waker(&self, waker: Option<Waker>) {
-        *self.waker.lock().expect("事件队列锁") = waker;
-        if !self.queue.lock().expect("事件队列锁").is_empty() {
+        *self.waker.lock().expect("event queue lock") = waker;
+        if !self.queue.lock().expect("event queue lock").is_empty() {
             self.wake();
         }
     }
 
     fn wake(&self) {
-        let waker = self.waker.lock().expect("事件队列锁").clone();
+        let waker = self.waker.lock().expect("event queue lock").clone();
         if let Some(waker) = waker {
             waker();
         }

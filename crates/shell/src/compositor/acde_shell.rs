@@ -113,11 +113,14 @@ impl Compositor {
     }
 
     pub fn insert_shell_client(&mut self, stream: UnixStream) -> Result<(), String> {
-        self.display.insert_client(stream, Arc::new(ClientState { shell: true, ..Default::default() })).map(drop).map_err(|e| format!("acde_shell 连接: {e}"))
+        self.display
+            .insert_client(stream, Arc::new(ClientState { shell: true, ..Default::default() }))
+            .map(drop)
+            .map_err(|e| format!("acde_shell connection: {e}"))
     }
 
     pub fn launch(&self, argv: &[String], cwd: &str, env: &[(String, String)]) -> io::Result<u32> {
-        let (program, args) = argv.split_first().ok_or_else(|| io::Error::other("argv 为空"))?;
+        let (program, args) = argv.split_first().ok_or_else(|| io::Error::other("empty argv"))?;
         let mut process = Process::new(program);
         let out = std::io::stdout().as_fd().try_clone_to_owned()?;
         let err = std::io::stderr().as_fd().try_clone_to_owned()?;
@@ -241,7 +244,7 @@ impl Compositor {
             }
             Request::Shortcut { combo, scope, owner, callback } => {
                 let callback = data_init.init(callback, ());
-                let Ok(scope) = Scope::try_from(scope) else { return callback.failed("acde_shell.shortcut: 不认识的 scope".into()) };
+                let Ok(scope) = Scope::try_from(scope) else { return callback.failed("acde_shell.shortcut: unknown scope".into()) };
                 Self::answer(&callback, self.register_shortcut(&combo, scope, owner).map(|()| (0, 0)));
             }
             Request::Unshortcut { combo, scope, owner } => {

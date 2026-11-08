@@ -100,7 +100,7 @@ impl Compositor {
     }
 
     pub fn pointer(&self) -> PointerHandle<Self> {
-        self.seat.get_pointer().expect("seat 有 pointer")
+        self.seat.get_pointer().expect("seat has a pointer")
     }
 
     fn on_button(&mut self, button: u32, state: ButtonState, time: u32) {
@@ -187,7 +187,7 @@ impl Compositor {
     }
 
     fn on_key(&mut self, keycode: u32, state: KeyState, time: u32) {
-        let keyboard = self.seat.get_keyboard().expect("seat 有 keyboard");
+        let keyboard = self.seat.get_keyboard().expect("seat has a keyboard");
         let serial = SERIAL_COUNTER.next_serial();
         let focused = keyboard.current_focus().and_then(|s| Self::bound(&s)).map(|g| g.id);
         let inhibited = {

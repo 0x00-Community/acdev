@@ -61,13 +61,13 @@ impl Surface {
             .name("acde-window".into())
             .spawn(move || {
                 if let Err(e) = App::run(token, render, frame, inbox.clone(), rx, ready.clone()) {
-                    log::error!("窗口: {e}");
+                    log::error!("window: {e}");
                     let _ = ready.send(Err(e));
                 }
                 inbox.push(Event::named("exit"));
             })
-            .map_err(|e| format!("窗口线程: {e}"))?;
-        let window = ready_rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "窗口: 合成器没有确认这个窗口".to_string())??;
+            .map_err(|e| format!("window thread: {e}"))?;
+        let window = ready_rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "window: the compositor did not confirm this window".to_string())??;
         Ok(Self { window, frame, events, commands, thread: Some(thread) })
     }
 
@@ -223,7 +223,7 @@ impl App {
         commands: Channel<Option<SurfaceCommand>>,
         ready: mpsc::SyncSender<Result<u32, String>>,
     ) -> Result<(), String> {
-        let conn = Connection::connect_to_env().map_err(|e| format!("连接合成器: {e}"))?;
+        let conn = Connection::connect_to_env().map_err(|e| format!("connect to the compositor: {e}"))?;
         let (globals, queue) = registry_queue_init::<App>(&conn).map_err(|e| format!("registry: {e}"))?;
         let qh = queue.handle();
         let mut lp: EventLoop<'static, App> = EventLoop::try_new().map_err(|e| e.to_string())?;
@@ -342,18 +342,18 @@ impl App {
             match Self::gbm_at(&path).and_then(|device| Self::allocates(&device).map(|()| device).map_err(|e| format!("{path} {e}"))) {
                 Ok(device) => {
                     if !failed.is_empty() {
-                        log::info!("网页窗口用 {path} 分配画布 ({})", failed.join("; "));
+                        log::info!("web window allocates canvases on {path} ({})", failed.join("; "));
                     }
                     return Ok(device);
                 }
                 Err(e) => failed.push(e),
             }
         }
-        Err(if failed.is_empty() { "/dev/dri 里没有能用的设备".into() } else { failed.join("; ") })
+        Err(if failed.is_empty() { "no usable device in /dev/dri".into() } else { failed.join("; ") })
     }
 
     fn gbm_at(path: &str) -> Result<smithay::reexports::gbm::Device<DeviceFd>, String> {
-        let file = std::fs::OpenOptions::new().read(true).write(true).open(path).map_err(|e| format!("打开 {path}: {e}"))?;
+        let file = std::fs::OpenOptions::new().read(true).write(true).open(path).map_err(|e| format!("open {path}: {e}"))?;
         smithay::reexports::gbm::Device::new(DeviceFd::from(OwnedFd::from(file))).map_err(|e| format!("GBM {path}: {e}"))
     }
 
@@ -363,7 +363,7 @@ impl App {
         GbmAllocator::new(device.clone(), GbmBufferFlags::RENDERING)
             .create_buffer(64, 64, Fourcc::Abgr8888, &[Modifier::Linear])
             .map(drop)
-            .map_err(|e| format!("GBM 分配: {e}"))
+            .map_err(|e| format!("GBM allocation: {e}"))
     }
 
     fn surface(&self) -> &wl_surface::WlSurface {
@@ -401,7 +401,7 @@ impl App {
             Ok(None) => {}
             Err(e) => {
                 self.redraw_decoration();
-                log::warn!("网页窗口: {e}");
+                log::warn!("web window: {e}");
             }
         }
         if self.pacer.animating {
@@ -508,7 +508,7 @@ impl App {
                 Ok(PostAction::Remove)
             });
             let Err(e) = inserted else { return };
-            log::warn!("网页窗口 fence: {}", e.error);
+            log::warn!("web window fence: {}", e.error);
             let fence = e.inserted.unwrap();
             let mut fds = [rustix::event::PollFd::new(&fence, rustix::event::PollFlags::IN)];
             let _ = rustix::event::poll(&mut fds, Some(&rustix::event::Timespec { tv_sec: 1, tv_nsec: 0 }));
@@ -643,7 +643,7 @@ impl App {
             Some(C::StartDrag(data, icon)) => self.start_drag(data, icon),
             Some(C::Mode(mode)) => match acde_model::Mode::try_from(mode) {
                 Ok(mode) => self.acde.request_mode(mode as u32),
-                Err(_) => log::warn!("窗口模式 {mode} 不存在"),
+                Err(_) => log::warn!("no window mode {mode}"),
             },
             Some(C::GrabHint(rect, edges)) => self.set_page_hint(rect, edges),
             Some(C::Backdrop(rect, [radius, blur, saturate, brightness])) => {
@@ -654,7 +654,7 @@ impl App {
             Some(C::Grab(kind, on)) => match (acde_window::GrabKind::try_from(kind), on) {
                 (Ok(kind), true) => self.acde.request_grab(kind),
                 (Ok(kind), false) => self.acde.release_grab(kind),
-                (Err(()), _) => log::warn!("grab 种类 {kind} 不存在"),
+                (Err(()), _) => log::warn!("no grab kind {kind}"),
             },
             Some(C::OpenPanel { id, token, rect }) => self.open_panel(id, token, rect),
             Some(C::PlacePanel { id, rect, input }) => self.place_panel(id, rect, input),
@@ -705,7 +705,7 @@ impl App {
         if w == 0 || h == 0 {
             return None;
         }
-        let dmabuf = self.painter.icon(image.scene, (image.width, image.height)).inspect_err(|e| log::warn!("拖动图标: {e}")).ok()?;
+        let dmabuf = self.painter.icon(image.scene, (image.width, image.height)).inspect_err(|e| log::warn!("drag icon: {e}")).ok()?;
         let buffer = self.wl_buffer(&dmabuf)?;
         let surface = self.compositor.create_surface(&self.qh);
         surface.attach(Some(&buffer), 0, 0);

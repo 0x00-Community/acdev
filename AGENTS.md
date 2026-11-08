@@ -481,7 +481,7 @@ FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel`
 
 - **整条链路不许 CPU 拷像素、不许 GPU 回读**. 例外: RDP 后端 (回读损坏区域)、截屏 / capture、标准接口要同步给像素的 (`getImageData` /
   `toDataURL`).
-- **网页只在 GPU 上画**: 没有 CPU 光栅化, 不认 CPU 类型的设备 (lavapipe). 没有 GPU 时网页图层不可用 (日志 `网页图层不可用`), 页面不出帧.
+- **网页只在 GPU 上画**: 没有 CPU 光栅化, 不认 CPU 类型的设备 (lavapipe). 没有 GPU 时网页图层不可用 (日志 `web layer unavailable`), 页面不出帧.
   合成器自己 (GLES) 不在此列.
 - **不依赖 acgpu, 不带专用驱动**: 只经标准图形接口 (wgpu), 每个 OS 只编一个后端: Windows DX12、Linux Vulkan、macOS Metal
   (`acde_gpu::BACKEND`). crates/gpu (`acde-gpu`) 是 2D 场景 (`PaintScene` / `Scene` / `RenderCommand` / `Filter`, blitz-paint 和 render 直接
@@ -543,8 +543,8 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
   (默认 1440x900)、`ACDE_RDP_SECURITY` (tls / nla). 还没有: 光标形状、Unicode 键和剪贴板、跟着客户端改尺寸、多个客户端.
 - **调试运行中的会话** (`ACDE_DEBUG_DIR=<目录>`): 放进去的 `<name>.mjs` 由 Broker import, 默认导出拿 `DebugApi` (`debug.ts`: `broker`、`shell`、
   `web(name, code)`、`webs()`、`stats(reset?)`、`sleep`、`readText`、`readDir`), 结果写到 `<name>.out`. `ACDE_DEV` 设了时 web 的 debug eval 也开.
-- **启动标记**: 每个里程碑一条 info (target `acde_host`) `启动: <标记> ms=<进程启动以来>`: Broker `shell created` / `services starting` /
-  `services started` / `shell <里程碑>` / `autostart`; 每个 web `page load started` / `desktop loaded` (或 `loaded`) / `shell running` / `first frame`.
+- **启动标记**: 每个里程碑一条 info (target `acde_host`) `startup: <标记> ms=<进程启动以来>`: Broker `shell created` / `services starting` /
+  `services started` / `shell <里程碑>` (合成器的 `first commit` / `first vblank` / `first native window`) / `autostart`; 每个 web `page load started` / `desktop loaded` (或 `loaded`) / `shell running` / `first frame`.
 
 ## 发版
 

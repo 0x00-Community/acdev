@@ -198,14 +198,14 @@ export class Opener {
     const mime = select ? MimeTypes.DIRECTORY : MimeTypes.of(path)
     const natives = MimeApps.natives()
     let chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
-    if (!chosen) throw Object.assign(new Error(`没有能打开这种文件的应用 (${mime})`), { status: 404, code: 'no_app' })
+    if (!chosen) throw Object.assign(new Error(`no app can open this kind of file (${mime})`), { status: 404, code: 'no_app' })
     if (chosen.kind === 'acde') {
       const id = chosen.id
       const app = this.#host.apps().find((a) => a.id === id)!
       const request = await this.#request(app, path, isDir, select)
       if (request) return { ...chosen, window: this.#host.launch(app.id, request).window }
       const native = options.app ? null : natives.find((n) => MimeTypes.match(n.mimeTypes, mime))
-      if (!native) throw Object.assign(new Error(`${path} 不在「文件」能打开的位置 (桌面、下载、工作区)`), { status: 404, code: 'outside_roots' })
+      if (!native) throw Object.assign(new Error(`${path} is not in any finder root (desktop, downloads, workspace)`), { status: 404, code: 'outside_roots' })
       chosen = { kind: 'native', id: native.id }
     }
     const id = chosen.id
@@ -221,7 +221,7 @@ export class Opener {
     const app = chosen?.kind === 'acde' ? this.#host.apps().find((a) => a.id === chosen.id) : null
     if (app && !app.capabilities.fs) return { kind: 'acde', id: app.id, window: this.#host.launch(app.id, { url }).window }
     const native = chosen?.kind === 'native' ? natives.find((n) => n.id === chosen.id) : null
-    if (!native) throw Object.assign(new Error(`没有能打开 ${scheme}: 链接的应用`), { status: 404, code: 'no_app' })
+    if (!native) throw Object.assign(new Error(`no app can open ${scheme}: links`), { status: 404, code: 'no_app' })
     this.#host.spawn(['gio', 'launch', native.file, url])
     return { kind: 'native', id: native.id }
   }

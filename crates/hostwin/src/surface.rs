@@ -85,15 +85,15 @@ pub(crate) fn set_mode(id: u32, mode: Mode) {
 
 impl Surface {
     pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32) -> Result<Self, String> {
-        let server = server().ok_or("claimSurface: 没有宿主窗口")?;
+        let server = server().ok_or("claimSurface: no host window")?;
         let inbox = Arc::new(Inbox::default());
         let (tx, rx) = mpsc::channel();
         let link = Link(tx);
         let (window, size, scale, refresh, focus, bar) = {
             let mut state = server.state();
-            let id = state.tokens.remove(&token).ok_or("claimSurface: 令牌不对, 或者用过了")?;
+            let id = state.tokens.remove(&token).ok_or("claimSurface: wrong or already used token")?;
             let (scale, refresh, unfocused) = (state.screen[2], state.refresh, state.focus.is_none());
-            let entry = state.entries.get_mut(&id).ok_or("claimSurface: 窗口没了")?;
+            let entry = state.entries.get_mut(&id).ok_or("claimSurface: window is gone")?;
             entry.frame = if entry.desktop || entry.panel { 0.0 } else { f64::from(frame) };
             entry.inbox = Some(inbox.clone());
             entry.link = Some(link.clone());
@@ -111,11 +111,11 @@ impl Surface {
             .spawn(move || {
                 match Presenter::new(window, gpu, size, scale, refresh, bar, render, events.clone()) {
                     Ok(mut presenter) => presenter.run(&rx),
-                    Err(e) => log::error!("窗口 {window}: {e}"),
+                    Err(e) => log::error!("window {window}: {e}"),
                 }
                 events.push(Event::named("exit"));
             })
-            .map_err(|e| format!("窗口线程: {e}"))?;
+            .map_err(|e| format!("window thread: {e}"))?;
         if focus {
             server.activate(window);
         } else {

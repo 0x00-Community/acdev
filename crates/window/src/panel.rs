@@ -226,7 +226,7 @@ impl App {
             Ok(PostAction::Remove)
         });
         if let Err(e) = inserted {
-            log::warn!("网页画布等合成器读完: {e}");
+            log::warn!("web canvas waiting for the compositor to finish reading: {e}");
             self.painter.hold(plane, index, false);
         }
     }

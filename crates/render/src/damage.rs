@@ -103,13 +103,13 @@ impl Damage {
         };
         if log::log_enabled!(log::Level::Trace) {
             let reference = Self::rects(kinds, draws, Self::diff(a, b), viewport);
-            log::trace!("按片段 {rects:?}, 整帧逐条比 {reference:?}");
+            log::trace!("by fragment {rects:?}, whole frame command by command {reference:?}");
         }
         let Some((i, j)) = Self::unchanged_claims_fail(cache, a, b) else {
             return (rects, true, false);
         };
         log::warn!(
-            "按片段算脏区时说没变的命令变了: 这一帧第 {j} 条 (片段 {:?}) / 上一帧第 {i} 条\n  上一帧: {:?}\n  这一帧: {:?}",
+            "fragment damage said unchanged but the command changed: command {j} of this frame (fragment {:?}) / command {i} of the last frame\n  last frame: {:?}\n  this frame: {:?}",
             cache.owner(j),
             a.get(i),
             b.get(j),

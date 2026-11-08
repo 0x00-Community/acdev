@@ -22,7 +22,7 @@ pub fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
 
 pub fn notify(title: &str, body: &str, subtitle: &str) -> Result<(), String> {
     if platform::headless() {
-        log::info!("通知 (ACDE_HEADLESS, 不弹出): {title:?} {subtitle:?} {body:?}");
+        log::info!("notification (ACDE_HEADLESS, not shown): {title:?} {subtitle:?} {body:?}");
         return Ok(());
     }
     notify::show(title, body, subtitle)
@@ -44,7 +44,7 @@ pub fn answer_folder(answer: Option<std::path::PathBuf>) {
 
 pub fn choose_folder(_window: Option<u32>, title: &str) -> Result<Option<std::path::PathBuf>, String> {
     if let Some(answer) = ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).pop_front() {
-        log::info!("选文件夹 {title:?}: 用事先给的答复 {answer:?}");
+        log::info!("choose folder {title:?}: using the preset answer {answer:?}");
         return Ok(answer);
     }
     let server = app::server().ok_or("no host windows")?;

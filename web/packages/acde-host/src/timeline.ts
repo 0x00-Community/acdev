@@ -6,6 +6,6 @@ export class StartupTimeline {
   static mark(name: string): void {
     if (StartupTimeline.#seen.has(name)) return
     StartupTimeline.#seen.add(name)
-    Log.write(Level.Info, 'acde_host', `启动: ${name} ms=${Log.clock().toFixed(0)}`)
+    Log.write(Level.Info, 'acde_host', `startup: ${name} ms=${Log.clock().toFixed(0)}`)
   }
 }

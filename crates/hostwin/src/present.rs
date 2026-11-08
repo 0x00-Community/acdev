@@ -154,7 +154,7 @@ impl Presenter {
             result = result.and(self.draw(window, size, scenes, Color::TRANSPARENT));
         }
         if let Err(e) = result {
-            log::warn!("网页窗口: {e}");
+            log::warn!("web window: {e}");
         }
         if let Some(compositor) = server().and_then(|s| s.compositor()) {
             compositor.dirty();

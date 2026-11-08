@@ -183,7 +183,7 @@ impl TryFrom<InjectEvent> for Injected {
     type Error = String;
 
     fn try_from(e: InjectEvent) -> Result<Self, String> {
-        let need = |v: Option<f64>, name: &str| v.ok_or_else(|| format!("inject {}: 缺 {name}", e.kind));
+        let need = |v: Option<f64>, name: &str| v.ok_or_else(|| format!("inject {}: missing {name}", e.kind));
         Ok(match e.kind.as_str() {
             "move" => Injected::Move(need(e.x, "x")?, need(e.y, "y")?),
             "motion" => Injected::Motion(need(e.dx, "dx")?, need(e.dy, "dy")?),
@@ -191,12 +191,12 @@ impl TryFrom<InjectEvent> for Injected {
             "wheel" => {
                 let source = match e.source.as_deref() {
                     None => WheelSource::Wheel,
-                    Some(s) => s.parse().map_err(|_| format!("inject wheel: 不认识的 source {s}"))?,
+                    Some(s) => s.parse().map_err(|_| format!("inject wheel: unknown source {s}"))?,
                 };
                 Injected::Wheel { dx: e.dx.unwrap_or(0.0), dy: e.dy.unwrap_or(0.0), source }
             }
-            "keydown" | "keyup" => Injected::Key { code: e.code.ok_or_else(|| format!("inject {}: 缺 code", e.kind))?, pressed: e.kind == "keydown" },
-            other => return Err(format!("inject: 不认识的 type {other}")),
+            "keydown" | "keyup" => Injected::Key { code: e.code.ok_or_else(|| format!("inject {}: missing code", e.kind))?, pressed: e.kind == "keydown" },
+            other => return Err(format!("inject: unknown type {other}")),
         })
     }
 }

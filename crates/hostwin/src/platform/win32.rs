@@ -105,7 +105,7 @@ impl super::Host for Host {
     }
 
     fn surface(&self, instance: &wgpu::Instance) -> Result<Option<wgpu::Surface<'static>>, String> {
-        let hwnd = NonZeroIsize::new(self.hwnd as isize).ok_or("没有窗口")?;
+        let hwnd = NonZeroIsize::new(self.hwnd as isize).ok_or("no window")?;
         let mut handle = rwh::Win32WindowHandle::new(hwnd);
         handle.hinstance = NonZeroIsize::new(self.hinstance);
         let target = wgpu::SurfaceTargetUnsafe::RawHandle {
@@ -157,7 +157,7 @@ fn open_clipboard() -> bool {
 
 pub(crate) fn clipboard_set(text: String) {
     if !open_clipboard() {
-        log::warn!("剪贴板: 打不开");
+        log::warn!("clipboard: cannot open");
         return;
     }
     let data = wide(&text);
@@ -528,7 +528,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
         ..Default::default()
     };
     if unsafe { RegisterClassExW(&wc) } == 0 {
-        return Err(format!("注册窗口类: {}", std::io::Error::last_os_error()));
+        return Err(format!("register window class: {}", std::io::Error::last_os_error()));
     }
     let dpi = (scale * 96.0).round() as u32;
     let mut outer = RECT { left: 0, top: 0, right: (w * scale).round() as i32, bottom: (h * scale).round() as i32 };
@@ -539,7 +539,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
     let title = wide("acde");
     let hwnd = unsafe { CreateWindowExW(0, class.as_ptr(), title.as_ptr(), WS_OVERLAPPEDWINDOW, x, y, ow, oh, null_mut(), null_mut(), hinstance, null()) };
     if hwnd.is_null() {
-        return Err(format!("开窗口: {}", std::io::Error::last_os_error()));
+        return Err(format!("open window: {}", std::io::Error::last_os_error()));
     }
     unsafe { DragAcceptFiles(hwnd, 1) };
     let scale = f64::from(unsafe { GetDpiForWindow(hwnd) }.max(1)) / 96.0;

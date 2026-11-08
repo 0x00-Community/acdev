@@ -145,7 +145,7 @@ impl Handle {
         }
         match thread.is_finished() {
             true => _ = thread.join(),
-            false => log::warn!("合成器线程 {} 秒内没停下", QUIT_WAIT.as_secs()),
+            false => log::warn!("compositor thread did not stop within {} s", QUIT_WAIT.as_secs()),
         }
     }
 }
@@ -214,7 +214,7 @@ impl Compositor {
                 }
             })
             .map_err(|e| e.to_string())?;
-        let socket = ready_rx.recv().map_err(|_| "合成器线程启动失败".to_string())??;
+        let socket = ready_rx.recv().map_err(|_| "compositor thread failed to start".to_string())??;
         Ok(Handle { commands, socket, thread: Some(thread) })
     }
 
@@ -234,12 +234,12 @@ impl Compositor {
         let (mut backend, node) = match std::env::var("ACDE_BACKEND").as_deref() {
             Ok("drm") => drm::DrmTarget::start(&lh)?,
             Ok("rdp") => rdp::RdpTarget::start(&lh)?,
-            _ if nested => return Err("acde 在别的显示里 (WAYLAND_DISPLAY / DISPLAY 有值): 嵌套开发用 ACDE_BACKEND=rdp, 上机在没有显示的 tty 上跑".into()),
+            _ if nested => return Err("acde is inside another display (WAYLAND_DISPLAY / DISPLAY set): use ACDE_BACKEND=rdp for nested development, or run on a tty without a display".into()),
             _ => drm::DrmTarget::start(&lh)?,
         };
 
         if let Err(e) = backend.renderer.bind_wl_display(&dh) {
-            log::warn!("wl_drm 不可用: {e}");
+            log::warn!("wl_drm unavailable: {e}");
         }
         let feedback = DmabufFeedbackBuilder::new(node.dev_id(), backend.renderer.dmabuf_formats()).build().map_err(|e| format!("dmabuf feedback: {e}"))?;
         let mut dmabuf = DmabufState::new();
@@ -258,7 +258,7 @@ impl Compositor {
 
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&dh, "acde");
-        seat.add_keyboard(Default::default(), 200, 25).map_err(|e| format!("键盘: {e}"))?;
+        seat.add_keyboard(Default::default(), 200, 25).map_err(|e| format!("keyboard: {e}"))?;
         seat.add_pointer();
         let mut shm = ShmState::new::<Compositor>(&dh, vec![]);
         shm.update_formats(backend.renderer.shm_formats());
@@ -272,7 +272,7 @@ impl Compositor {
         let socket_name = socket.socket_name().to_os_string();
         lh.insert_source(socket, |stream, _, state| {
             if let Err(e) = state.display.insert_client(stream, std::sync::Arc::new(handlers::ClientState::default())) {
-                log::warn!("接入客户端失败: {e}");
+                log::warn!("failed to accept a client: {e}");
             }
         })
         .map_err(|e| e.to_string())?;
@@ -340,7 +340,7 @@ impl Compositor {
             let size = output.physical_properties().size;
             let scale = output.current_scale().fractional_scale();
             let mode = output.current_mode().map(|m| m.size).unwrap_or_default();
-            log::info!("输出 {}: {}x{} 物理 {}x{} mm 缩放 {scale} 位置 {loc:?}", output.name(), mode.w, mode.h, size.w, size.h);
+            log::info!("output {}: {}x{} physical {}x{} mm scale {scale} position {loc:?}", output.name(), mode.w, mode.h, size.w, size.h);
             x += (f64::from(mode.w) / scale).ceil() as i32;
         }
         Self::acde_window_global(&dh);
@@ -381,7 +381,7 @@ impl Compositor {
         }
         if self.backend.presenting {
             self.cancel(|s| &mut s.frame_tick);
-            self.milestone("第一帧提交");
+            self.milestone("first commit");
         }
         self.compose_ms.push(started.elapsed().as_secs_f64() * 1000.0);
         if self.motion.active() {
@@ -708,7 +708,7 @@ impl Compositor {
                 Ok(Some(_)) => return,
                 Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
                 Ok(None) => {
-                    log::warn!("{name} 3 秒没做完, 不等了");
+                    log::warn!("{name} not done after 3 s, not waiting");
                     std::thread::spawn(move || child.wait());
                     return;
                 }
@@ -733,7 +733,7 @@ impl Compositor {
     pub fn milestone(&mut self, name: &'static str) {
         if self.milestones.insert(name) {
             let ms = self.start.elapsed().as_secs_f64() * 1000.0;
-            log::info!("启动: {name} ms={:.0}", acde_log::now_ms());
+            log::info!("startup: {name} ms={:.0}", acde_log::now_ms());
             self.emit(ShellEvent::Milestone { title: name, ms });
         }
     }

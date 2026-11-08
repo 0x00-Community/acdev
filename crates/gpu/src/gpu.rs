@@ -106,7 +106,7 @@ impl Gpu {
         }));
         let weak = Arc::downgrade(&gpu);
         gpu.device.set_device_lost_callback(move |reason, message| {
-            log::error!("网页图层的 GPU 设备丢了 ({reason:?}): {message}");
+            log::error!("web layer GPU device lost ({reason:?}): {message}");
             if let Some(gpu) = weak.upgrade() {
                 for listener in lock(&gpu.lost).values() {
                     listener(&message);
@@ -239,7 +239,7 @@ impl Gpu {
         self.poller.call_once(|| {
             let gpu = self.clone();
             if let Err(e) = std::thread::Builder::new().name("acde-gpu-poll".into()).spawn(move || gpu.poll_forever()) {
-                log::error!("WebGPU poll 线程: {e}");
+                log::error!("WebGPU poll thread: {e}");
             }
         });
         *lock(&self.polls) += 1;

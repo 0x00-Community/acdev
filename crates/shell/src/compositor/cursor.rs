@@ -28,7 +28,7 @@ impl Default for Cursor {
         let size = std::env::var("XCURSOR_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(24);
         let mut cursor = Self { status: CursorImageStatus::default_named(), hover: None, drag: None, theme, size, images: HashMap::new() };
         if cursor.image(CursorIcon::Default).is_none() {
-            log::warn!("光标主题里没有箭头 (XCURSOR_THEME / XCURSOR_PATH, 缺 adwaita-cursors?): 不画默认光标");
+            log::warn!("cursor theme has no arrow (XCURSOR_THEME / XCURSOR_PATH, adwaita-cursors missing?): not drawing the default cursor");
         }
         cursor
     }
@@ -55,7 +55,7 @@ impl Cursor {
         if !self.images.contains_key(&icon) {
             let image = self.load(icon);
             if image.is_none() && icon != CursorIcon::Default {
-                log::debug!("光标主题里没有 {}: 画箭头", icon.name());
+                log::debug!("cursor theme has no {}: drawing the arrow", icon.name());
             }
             self.images.insert(icon, image);
         }
@@ -69,7 +69,7 @@ impl Cursor {
             (None, CursorImageStatus::Hidden) => return Vec::new(),
             (None, CursorImageStatus::Surface(surface)) => {
                 let hotspot = with_states(surface, |states| {
-                    states.data_map.get::<std::sync::Mutex<CursorImageAttributes>>().map(|a| a.lock().expect("光标属性锁").hotspot)
+                    states.data_map.get::<std::sync::Mutex<CursorImageAttributes>>().map(|a| a.lock().expect("cursor attributes lock").hotspot)
                 })
                 .unwrap_or_default();
                 let at = (pos - hotspot.to_f64()).to_physical(scale).to_i32_round();

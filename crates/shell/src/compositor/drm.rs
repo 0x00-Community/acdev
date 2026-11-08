@@ -83,15 +83,15 @@ pub struct DrmTarget {
 
 impl DrmTarget {
     pub fn start(lh: &LoopHandle<'static, Compositor>) -> Result<(Backend, DrmNode), String> {
-        let (mut session, notifier) = LibSeatSession::new().map_err(|e| format!("libseat 会话: {e}"))?;
+        let (mut session, notifier) = LibSeatSession::new().map_err(|e| format!("libseat session: {e}"))?;
         let seat = session.seat();
         let path = smithay::backend::udev::primary_gpu(&seat)
             .ok()
             .flatten()
             .or_else(|| smithay::backend::udev::all_gpus(&seat).ok()?.into_iter().next())
-            .ok_or("没有 GPU")?;
+            .ok_or("no GPU")?;
         let (fd, drm, notifier_drm) = Self::open_drm(&mut session, &path)?;
-        let node = DrmNode::from_file(&fd).map_err(|e| format!("DRM 节点: {e}"))?;
+        let node = DrmNode::from_file(&fd).map_err(|e| format!("DRM node: {e}"))?;
         let render_node = node.node_with_type(NodeType::Render).and_then(Result::ok).unwrap_or(node);
         let gbm = GbmDevice::new(fd).map_err(|e| format!("GBM: {e}"))?;
         let egl = unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|e| format!("EGL: {e}"))?;
@@ -127,14 +127,14 @@ impl DrmTarget {
             let planes = manager.device().planes(&crtc).ok();
             let surface = manager
                 .initialize_output::<GlesRenderer, Elements>(crtc, mode, &[conn.handle()], &output, planes, &mut renderer, &DrmOutputRenderElements::default())
-                .map_err(|e| format!("初始化输出 {}: {e}", output.name()))?;
+                .map_err(|e| format!("init output {}: {e}", output.name()))?;
             let feedback = surface.with_compositor(|c| ScreenFeedback::new(node, render_node, &render_formats, c.surface()));
             screens.push(Screen { crtc, output, surface, dirty: true, presenting: false, queued: None, feedback, sampled: Vec::new(), planes: (false, 0) });
         }
-        let primary = screens.first().map(|s| s.output.clone()).ok_or("没有已连接的显示器")?;
+        let primary = screens.first().map(|s| s.output.clone()).ok_or("no connected display")?;
 
         let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
-        libinput.udev_assign_seat(&seat).map_err(|()| "libinput 分配 seat 失败".to_string())?;
+        libinput.udev_assign_seat(&seat).map_err(|()| "libinput failed to assign the seat".to_string())?;
         lh.insert_source(LibinputInputBackend::new(libinput.clone()), |event, _, state| state.on_input(event)).map_err(|e| e.to_string())?;
         lh.insert_source(notifier_drm, |event, _, state| match event {
             DrmEvent::VBlank(crtc) => state.on_drm_vblank(crtc),
@@ -158,19 +158,19 @@ impl DrmTarget {
         loop {
             attempt += 1;
             let owned =
-                session.open(path, OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK).map_err(|e| format!("打开 {}: {e}", path.display()))?;
-            let fd = DrmDeviceFd::new(DeviceFd::from(owned.try_clone().map_err(|e| format!("复制 DRM fd: {e}"))?));
+                session.open(path, OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK).map_err(|e| format!("open {}: {e}", path.display()))?;
+            let fd = DrmDeviceFd::new(DeviceFd::from(owned.try_clone().map_err(|e| format!("duplicate DRM fd: {e}"))?));
             match DrmDevice::new(fd.clone(), true) {
                 Ok((drm, notifier)) => return Ok((fd, drm, notifier)),
                 Err(e) if attempt < TRIES => {
-                    log::warn!("DRM 设备 (第 {attempt} 次): {e}, 稍后重试");
+                    log::warn!("DRM device (attempt {attempt}): {e}, retrying");
                     drop(fd);
                     if let Err(e) = session.close(owned) {
-                        log::warn!("交还 DRM 设备: {e}");
+                        log::warn!("release DRM device: {e}");
                     }
                     std::thread::sleep(Duration::from_millis(500));
                 }
-                Err(e) => return Err(format!("DRM 设备: {e}")),
+                Err(e) => return Err(format!("DRM device: {e}")),
             }
         }
     }
@@ -231,7 +231,12 @@ impl Compositor {
                     let planes =
                         (matches!(result.primary_element, smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_)), result.overlay_elements.len());
                     if planes != screen.planes {
-                        log::info!("平面 {}: 主平面{} 叠加平面 {} 个", output.name(), if planes.0 { "直扫客户端缓冲" } else { "合成" }, planes.1);
+                        log::info!(
+                            "planes {}: primary {}, {} overlay",
+                            output.name(),
+                            if planes.0 { "scans out a client buffer" } else { "composited" },
+                            planes.1
+                        );
                         screen.planes = planes;
                     }
                     log::debug!(target: "perf::compose", "{} elements={} ms={:.3}", output.name(), elements.len(), acde_log::since_ms(started));
@@ -248,7 +253,7 @@ impl Compositor {
                     continue;
                 }
                 Err(e) => {
-                    log::warn!("渲染 {}: {e}", output.name());
+                    log::warn!("render {}: {e}", output.name());
                     screen.dirty = true;
                     drm.idle_vblank |= output == primary;
                     continue;
@@ -270,7 +275,7 @@ impl Compositor {
                     }
                 }
                 Err(e) => {
-                    log::warn!("排帧 {}: {e}", output.name());
+                    log::warn!("queue frame {}: {e}", output.name());
                     screen.dirty = true;
                     drm.idle_vblank |= output == primary;
                 }
@@ -324,7 +329,7 @@ impl Compositor {
     pub fn change_vt(&mut self, vt: i32) {
         let Target::Drm(drm) = &mut self.backend.target else { return };
         if let Err(e) = drm.session.change_vt(vt) {
-            log::warn!("切到 VT {vt}: {e}");
+            log::warn!("switch to VT {vt}: {e}");
         }
     }
 
@@ -333,7 +338,7 @@ impl Compositor {
         if drm.paused || !drm.screens.iter().any(|s| s.presenting && s.queued.is_some_and(|t| t.elapsed() > WATCHDOG)) {
             return;
         }
-        log::warn!("翻页超过 {WATCHDOG:?} 没完成 (待机唤醒?), 重置 DRM 状态");
+        log::warn!("page flip not done after {WATCHDOG:?} (resumed from sleep?), resetting DRM state");
         for screen in drm.screens.iter_mut().filter(|s| s.presenting) {
             let _ = screen.surface.frame_submitted();
         }
@@ -343,7 +348,7 @@ impl Compositor {
     fn reactivate_drm(&mut self) {
         let Target::Drm(drm) = &mut self.backend.target else { return };
         if let Err(e) = drm.manager.activate(false) {
-            log::warn!("DRM 恢复: {e}");
+            log::warn!("DRM resume: {e}");
         }
         for screen in &mut drm.screens {
             screen.surface.reset_buffers();
@@ -366,7 +371,7 @@ impl Compositor {
             SessionEvent::ActivateSession => {
                 drm.paused = false;
                 if drm.libinput.resume().is_err() {
-                    log::warn!("libinput 恢复失败");
+                    log::warn!("libinput resume failed");
                 }
                 self.reactivate_drm();
             }

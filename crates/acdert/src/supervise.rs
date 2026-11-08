@@ -41,7 +41,7 @@ impl<'a> Supervisor<'a> {
         let code = loop {
             let (ours, theirs) = match UnixStream::pair() {
                 Ok(pair) => pair,
-                Err(e) => break self.fail(format!("acde_shell 连接: {e}")),
+                Err(e) => break self.fail(format!("acde_shell connection: {e}")),
             };
             let pending = match &self.compositor {
                 Some(handle) => {
@@ -55,7 +55,7 @@ impl<'a> Supervisor<'a> {
                 Err(e) => break self.fail(format!("acdert runtime: {e}")),
             };
             match self.watch(child, pending) {
-                Ended::Crashed(code) if self.restart() => log::warn!("acdert runtime 崩了 ({code}), 重启"),
+                Ended::Crashed(code) if self.restart() => log::warn!("acdert runtime crashed ({code}), restarting"),
                 Ended::Crashed(code) | Ended::Exited(code) => break code,
             }
         };
@@ -72,7 +72,7 @@ impl<'a> Supervisor<'a> {
 
     fn forward_signals(&self) {
         let Ok(mut signals) = Signals::new([SIGINT, SIGTERM, SIGHUP]) else {
-            return log::warn!("收不到 SIGINT / SIGTERM / SIGHUP, 不转给 acde runtime");
+            return log::warn!("cannot catch SIGINT / SIGTERM / SIGHUP, not forwarding them to acde runtime");
         };
         let (child, stopping) = (self.child.clone(), self.stopping.clone());
         let started = std::thread::Builder::new().name("acde-signals".into()).spawn(move || {
@@ -83,7 +83,7 @@ impl<'a> Supervisor<'a> {
             }
         });
         if let Err(e) = started {
-            log::warn!("信号线程: {e}");
+            log::warn!("signal thread: {e}");
         }
     }
 
@@ -106,11 +106,11 @@ impl<'a> Supervisor<'a> {
     }
 
     fn watch(&mut self, mut child: Child, mut pending: Option<UnixStream>) -> Ended {
-        let pidfd = pidfd_open(Pid::from_child(&child), PidfdFlags::empty()).inspect_err(|e| log::warn!("pidfd: {e}, 合成器直接起")).ok();
+        let pidfd = pidfd_open(Pid::from_child(&child), PidfdFlags::empty()).inspect_err(|e| log::warn!("pidfd: {e}, starting the compositor right away")).ok();
         if let Some(stream) = pending.take_if(|ours| pidfd.as_ref().is_none_or(|pidfd| !Self::exited_first(pidfd, ours.as_fd()))) {
             match Compositor::spawn(stream) {
                 Ok(handle) => self.compositor = Some(handle),
-                Err(e) => log::error!("合成器: {e}"),
+                Err(e) => log::error!("compositor: {e}"),
             }
         }
         drop(pending);

@@ -54,7 +54,7 @@ pub(crate) fn connect(proxy: Proxy) {
         let stream = match open(&endpoint) {
             Ok(s) => s,
             Err(e) => {
-                log::error!("acde dev: 连不上 {endpoint}: {e}");
+                log::error!("acde dev: cannot connect to {endpoint}: {e}");
                 return;
             }
         };
@@ -73,11 +73,11 @@ pub(crate) fn connect(proxy: Proxy) {
             line.clear();
         }
         *link() = None;
-        log::info!("acde dev 断开了, 结束");
+        log::info!("acde dev disconnected, exiting");
         proxy.send(Cmd::Exit(0));
     });
     if let Err(e) = spawned {
-        log::error!("acde dev 线程: {e}");
+        log::error!("acde dev thread: {e}");
     }
 }
 
@@ -129,14 +129,14 @@ fn request(message: &serde_json::Value, line: &str) {
 
 fn handle(line: &str, proxy: &Proxy) {
     let Ok(message) = serde_json::from_str::<serde_json::Value>(line) else {
-        log::warn!("acde dev: 看不懂 {line}");
+        log::warn!("acde dev: unreadable message {line}");
         return;
     };
     match message.get("type").and_then(|t| t.as_str()) {
         Some("reload") => {
             let app = message.get("app").and_then(|a| a.as_str()).map(str::to_owned);
             let hot = message.get("hot").and_then(|s| s.as_bool()).unwrap_or(false);
-            log::info!("acde dev: {} {}", if hot { "热替换" } else { "重新加载" }, app.as_deref().unwrap_or("桌面"));
+            log::info!("acde dev: {} {}", if hot { "hot swap" } else { "reload" }, app.as_deref().unwrap_or("desktop"));
             if let Some(server) = server() {
                 server.broker.push(Event { kind: "devreload".into(), key: app, title: hot.then(|| "hot".into()), ..Default::default() });
             }
@@ -145,6 +145,6 @@ fn handle(line: &str, proxy: &Proxy) {
         Some("quit") => {
             proxy.send(Cmd::Exit(0));
         }
-        other => log::warn!("acde dev: 没有 {other:?} 这种消息"),
+        other => log::warn!("acde dev: unknown message type {other:?}"),
     }
 }

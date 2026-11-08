@@ -44,11 +44,11 @@ fn capture(id: u32, pcm: async_channel::Sender<Vec<u8>>, ready: async_channel::S
             .add_local_listener_with_user_data(pcm)
             .state_changed(move |_, _, old, state| {
                 match &state {
-                    pw::stream::StreamState::Error(error) => log::warn!("语音 #{id}: 麦克风出错: {error}"),
+                    pw::stream::StreamState::Error(error) => log::warn!("voice #{id}: microphone error: {error}"),
                     pw::stream::StreamState::Unconnected | pw::stream::StreamState::Paused if old == pw::stream::StreamState::Streaming => {
-                        log::warn!("语音 #{id}: 麦克风断了 ({old:?} -> {state:?}), 声卡掉线或被拔掉")
+                        log::warn!("voice #{id}: microphone dropped ({old:?} -> {state:?}), sound card lost or unplugged")
                     }
-                    _ => log::info!("语音 #{id}: 麦克风 {old:?} -> {state:?}"),
+                    _ => log::info!("voice #{id}: microphone {old:?} -> {state:?}"),
                 }
                 if let pw::stream::StreamState::Error(_) = state {
                     failed.close();
@@ -85,7 +85,7 @@ fn capture(id: u32, pcm: async_channel::Sender<Vec<u8>>, ready: async_channel::S
     let (main, _context, _core, _stream, _listener, quit, stop) = match started {
         Ok(started) => started,
         Err(error) => {
-            log::warn!("语音 #{id}: 打不开麦克风: PipeWire {error}");
+            log::warn!("voice #{id}: cannot open the microphone: PipeWire {error}");
             _ = ready.try_send(Err(format!("no microphone: PipeWire {error}")));
             return;
         }

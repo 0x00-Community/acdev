@@ -58,7 +58,8 @@ impl RdpTarget {
                 Some((w.trim().parse::<u16>().ok()?, h.trim().parse::<u16>().ok()?))
             })
             .unwrap_or((1440, 900));
-        let texture: GlesTexture = renderer.create_buffer(Fourcc::Abgr8888, (i32::from(w), i32::from(h)).into()).map_err(|e| format!("离屏纹理: {e}"))?;
+        let texture: GlesTexture =
+            renderer.create_buffer(Fourcc::Abgr8888, (i32::from(w), i32::from(h)).into()).map_err(|e| format!("offscreen texture: {e}"))?;
         let mode = Mode { size: (i32::from(w), i32::from(h)).into(), refresh: REFRESH_MHZ };
         let output =
             Output::new("acde".into(), PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "acde".into(), model: "RDP".into() });
@@ -99,7 +100,7 @@ impl Compositor {
         let elements = self.screen_elements(&output, false);
         let Backend { renderer, target, .. } = &mut self.backend;
         let Target::Rdp(rdp) = target else { return };
-        let sender = rdp.updates.lock().expect("rdp 锁").clone();
+        let sender = rdp.updates.lock().expect("rdp lock").clone();
         let age = usize::from(rdp.rendered);
         let started = std::time::Instant::now();
         let (states, updates) = {
@@ -107,7 +108,7 @@ impl Compositor {
             let result = match rdp.damage.render_output(renderer, &mut fb, age, &elements, CLEAR) {
                 Ok(r) => r,
                 Err(e) => {
-                    log::warn!("RDP 渲染失败: {e}");
+                    log::warn!("RDP render failed: {e}");
                     return;
                 }
             };
@@ -122,14 +123,14 @@ impl Compositor {
                 .filter_map(|r| r.intersection(Rectangle::from_size(size)))
                 .filter_map(|rect| {
                     let region = Rectangle::new((rect.loc.x, rect.loc.y).into(), (rect.size.w, rect.size.h).into());
-                    renderer.copy_framebuffer(&fb, region, Fourcc::Abgr8888).inspect_err(|e| log::warn!("RDP 读回失败: {e}")).ok().map(|m| (rect, m))
+                    renderer.copy_framebuffer(&fb, region, Fourcc::Abgr8888).inspect_err(|e| log::warn!("RDP readback failed: {e}")).ok().map(|m| (rect, m))
                 })
                 .collect();
             let mut updates = Vec::new();
             for (rect, mapping) in copies {
                 match renderer.map_texture(&mapping) {
                     Ok(data) => updates.extend(Self::bitmap(rect.loc.x, rect.loc.y, rect.size.w, rect.size.h, data.to_vec())),
-                    Err(e) => log::warn!("RDP 读回失败: {e}"),
+                    Err(e) => log::warn!("RDP readback failed: {e}"),
                 }
             }
             log::debug!(target: "perf::compose", "rdp elements={} rects={} ms={:.3}", elements.len(), rects.len(), acde_log::since_ms(started));
@@ -175,12 +176,12 @@ impl Compositor {
 fn spawn_server(w: u16, h: u16, updates: Updates, tx: Sender<Request>) -> Result<(), String> {
     let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
     let (Some(username), Some(password)) = (env("ACDE_RDP_USER"), env("ACDE_RDP_PASSWORD")) else {
-        return Err("RDP 后端要 ACDE_RDP_USER 和 ACDE_RDP_PASSWORD".into());
+        return Err("the RDP backend needs ACDE_RDP_USER and ACDE_RDP_PASSWORD".into());
     };
     let dir = env("XDG_CONFIG_HOME").map_or_else(|| PathBuf::from(env("HOME").unwrap_or_default()).join(".config"), PathBuf::from).join("agentos/rdp");
     let cert = env("ACDE_RDP_CERT").map_or_else(|| dir.join("cert.pem"), PathBuf::from);
     let key = env("ACDE_RDP_KEY").map_or_else(|| dir.join("key.pem"), PathBuf::from);
-    let identity = TlsIdentityCtx::init_from_paths(&cert, &key).map_err(|e| format!("RDP 证书 ({}): {e:#}", cert.display()))?;
+    let identity = TlsIdentityCtx::init_from_paths(&cert, &key).map_err(|e| format!("RDP certificate ({}): {e:#}", cert.display()))?;
     let acceptor = identity.make_acceptor().map_err(|e| format!("RDP TLS: {e:#}"))?;
     let addr: std::net::SocketAddr = env("ACDE_RDP_ADDR").unwrap_or_else(|| "0.0.0.0:3390".into()).parse().map_err(|e| format!("ACDE_RDP_ADDR: {e}"))?;
     let size = DesktopSize { width: w, height: h };
@@ -198,10 +199,10 @@ fn spawn_server(w: u16, h: u16, updates: Updates, tx: Sender<Request>) -> Result
                 .with_credential_validator(Some(Arc::new(ExactMatchCredentialValidator::new(credentials.clone()))))
                 .build();
             server.set_credentials(Some(credentials));
-            log::info!("RDP 服务在 {addr}");
+            log::info!("RDP server on {addr}");
             let system = ntex::rt::System::build().name("acde-rdp").build(ntex::rt::DefaultRuntime);
             if let Err(e) = system.block_on(async move { server.run().await }) {
-                log::warn!("RDP 服务停了: {e:#}");
+                log::warn!("RDP server stopped: {e:#}");
             }
         })
         .map_err(|e| e.to_string())?;
@@ -223,9 +224,9 @@ impl RdpServerDisplay for Display {
     async fn updates(&mut self) -> anyhow::Result<Box<dyn RdpServerDisplayUpdates>> {
         let (sender, receiver) = async_channel::unbounded();
         let _ = sender.try_send(DisplayUpdate::DefaultPointer);
-        *self.updates.lock().expect("rdp 锁") = Some(sender);
+        *self.updates.lock().expect("rdp lock") = Some(sender);
         let _ = self.tx.send(Request::Full);
-        log::info!("RDP 客户端连上了");
+        log::info!("RDP client connected");
         Ok(Box::new(UpdateStream { receiver }))
     }
 }
