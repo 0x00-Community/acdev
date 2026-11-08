@@ -42,6 +42,38 @@ fn open(name: &str) -> io::Result<std::fs::File> {
     }
 }
 
+#[cfg(unix)]
+fn reader(stream: std::os::unix::net::UnixStream) -> impl io::Read {
+    stream
+}
+
+#[cfg(windows)]
+fn reader(stream: std::fs::File) -> impl io::Read {
+    struct Polled(std::fs::File);
+    impl io::Read for Polled {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::Foundation::ERROR_BROKEN_PIPE;
+            use windows_sys::Win32::System::Pipes::PeekNamedPipe;
+            loop {
+                let mut available = 0u32;
+                let peeked =
+                    unsafe { PeekNamedPipe(self.0.as_raw_handle(), std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut available, std::ptr::null_mut()) };
+                if peeked == 0 {
+                    let error = io::Error::last_os_error();
+                    return if error.raw_os_error() == Some(ERROR_BROKEN_PIPE as i32) { Ok(0) } else { Err(error) };
+                }
+                if available > 0 {
+                    let n = buf.len().min(available as usize);
+                    return self.0.read(&mut buf[..n]);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+    }
+    Polled(stream)
+}
+
 fn send(writer: &mut dyn Write, line: &str) -> io::Result<()> {
     writer.write_all(line.as_bytes())?;
     writer.write_all(b"\n")?;
@@ -66,7 +98,7 @@ pub(crate) fn connect(proxy: Proxy) {
         if let Err(e) = write(&hello) {
             log::error!("acde dev: hello: {e}");
         }
-        let mut reader = BufReader::new(stream);
+        let mut reader = BufReader::new(reader(stream));
         let mut line = String::new();
         while reader.read_line(&mut line).is_ok_and(|n| n > 0) {
             handle(line.trim_end_matches(['\r', '\n']), &proxy);
