@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { gzipSync } from 'node:zlib'
 import {
-  chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync,
+  chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync,
+  writeFileSync,
 } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -20,6 +22,8 @@ const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
 const SDK_PIN = '0.0.5'
 const CLI = 'src/cli.ts'
 const SHARED = ['src/driver/index.ts', 'src/e2e/index.ts']
+const OBFUSCATION_SEED = 1
+const PINNED_TIME = new Date('2000-01-01T00:00:00Z')
 const OBFUSCATION = {
   compact: true,
   controlFlowFlattening: false,
@@ -29,6 +33,7 @@ const OBFUSCATION = {
   identifierNamesGenerator: 'hexadecimal' as const,
   renameGlobals: true,
   reservedStrings: ['getBuiltinModule'],
+  seed: OBFUSCATION_SEED,
   selfDefending: false,
   simplify: true,
   sourceMap: false,
@@ -83,6 +88,7 @@ declarations(join(lib, 'dist', 'types'))
 writeFileSync(join(lib, 'package.json'), `${JSON.stringify(published(), null, 2)}\n`)
 const skipped = (from: string) => !/[\\/](node_modules|test)$/.test(from)
 cpSync(api, join(top, 'lib', 'acde-api'), { recursive: true, filter: skipped })
+pinTimes(top)
 
 const leaking = shipLeaks(top)
 if (leaking.length > 0) {
@@ -91,14 +97,17 @@ if (leaking.length > 0) {
 }
 
 const tarball = join(dir, `${name}.tar.gz`)
+const plain = join(dir, `${name}.tar`)
 const systemRoot = process.env['SystemRoot'] ?? 'C:\\Windows'
 const tarExe = process.platform === 'win32' ? join(systemRoot, 'System32', 'tar.exe') : 'tar'
 const tarFlags = process.platform === 'darwin' ? ['--no-xattrs', '--no-mac-metadata'] : []
-const tar = spawnSync(tarExe, ['-czf', tarball, ...tarFlags, '-C', stage, name], {
+const tar = spawnSync(tarExe, ['-cf', plain, ...tarFlags, '-C', stage, name], {
   stdio: 'inherit',
   env: { ...process.env, COPYFILE_DISABLE: '1' },
 })
 if (tar.status !== 0) throw new Error(`tar for ${tarball} failed`)
+writeFileSync(tarball, gzipSync(readFileSync(plain), { level: 9 }))
+rmSync(plain, { force: true })
 rmSync(stage, { recursive: true, force: true })
 
 const sum = createHash('sha256').update(readFileSync(tarball)).digest('hex')
@@ -153,6 +162,11 @@ function declarations(outDir: string): void {
   const diagnostics = ts.getPreEmitDiagnostics(program)
   if (diagnostics.length > 0) throw new Error(ts.formatDiagnostics(diagnostics, formatHost))
   if (program.emit().emitSkipped) throw new Error('declaration emit skipped')
+}
+
+function pinTimes(path: string): void {
+  utimesSync(path, PINNED_TIME, PINNED_TIME)
+  if (statSync(path).isDirectory()) for (const entry of readdirSync(path)) pinTimes(join(path, entry))
 }
 
 function published() {
