@@ -1,6 +1,8 @@
 import type { OpenHandler } from '@dopame/acde-api'
 import type { AppManifest } from './apps'
 import { DesktopEntry } from './desktopentry'
+import { Level, Log } from './log'
+import { MimeDb } from './mimedb'
 import { spawnSync } from './sys/child_process'
 import { existsSync, mkdirSync, readTextOr, stat, writeFileSync } from './sys/fs'
 import { sys } from './sys/natives'
@@ -50,11 +52,41 @@ class MimeTypes {
     const gio = spawnSync('gio', ['info', '--attributes=standard::content-type', path], 3000)
     const fromGio = /standard::content-type:\s*(\S+)/.exec(gio.stdout ?? '')?.[1]
     if (gio.status === 0 && fromGio && MimeTypes.valid(fromGio)) return fromGio
-    const file = spawnSync('file', ['--brief', '--mime-type', path], 3000)
-    const fromFile = (file.stdout ?? '').trim()
-    if (file.status === 0 && MimeTypes.valid(fromFile) && fromFile !== 'application/octet-stream') return fromFile
+    const db = MimeTypes.#database()
+    const candidates = db ? db.candidates(basename(path)) : []
+    if (db && candidates.length === 1) return candidates[0]!
+    const sniffed = MimeTypes.#sniff(path)
+    if (db && candidates.length > 1) return MimeTypes.#pick(db, candidates, sniffed)
+    if (sniffed) return sniffed
     const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''
     return MimeTypes.#BY_NAME[ext] ?? 'application/octet-stream'
+  }
+
+  static #sniff(path: string): string | null {
+    const file = spawnSync('file', ['--brief', '--mime-type', path], 3000)
+    const sniffed = (file.stdout ?? '').trim()
+    return file.status === 0 && MimeTypes.valid(sniffed) && sniffed !== 'application/octet-stream' ? sniffed : null
+  }
+
+  static #pick(db: MimeDb, candidates: readonly string[], sniffed: string | null): string {
+    if (sniffed && candidates.includes(sniffed)) return sniffed
+    if (!sniffed) return candidates[0]!
+    const text = db.isText(sniffed)
+    return candidates.find((mime) => db.isText(mime) === text) ?? candidates[0]!
+  }
+
+  static #db: MimeDb | null | undefined
+
+  static #database(): MimeDb | null {
+    if (MimeTypes.#db !== undefined) return MimeTypes.#db
+    const macos = sys().platform === 'darwin' ? ['/opt/homebrew/share/mime', '/usr/local/share/mime', '/opt/local/share/mime'] : []
+    const dirs = [...new Set([...xdgDirs('data', 'mime'), ...macos])]
+    MimeTypes.#db = MimeDb.parse(dirs.map((dir) => ({ globs2: readTextOr(join(dir, 'globs2'), null), subclasses: readTextOr(join(dir, 'subclasses'), null) })))
+    if (!MimeTypes.#db) {
+      const hint = sys().platform === 'darwin' ? ' (brew install shared-mime-info)' : ''
+      Log.write(Level.Warn, 'acde_host', `no shared-mime-info database${hint}: file types come from file(1) and may differ from Dopame OS`)
+    }
+    return MimeTypes.#db
   }
 }
 

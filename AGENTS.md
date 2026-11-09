@@ -440,9 +440,17 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 的应用)、会话总线的 `org.freedesktop.FileManager1` (`ShowFolders` / `ShowItems` / `ShowItemProperties`)、`org.dopame.Acde1.Open`
 (`acdert open [--app <id>] <路径|URI>...`, 没有会话时退出码 3)、原生程序的 xdg-open (经装的 desktop entry 回到 `acdert open`).
 
-- **选应用**: 类型 (文件夹 `inode/directory`; 文件问 `gio info` / `file --mime-type` / 扩展名; 链接 `x-scheme-handler/<scheme>`) → 按 XDG
+- **选应用**: 类型 (文件夹 `inode/directory`; 链接 `x-scheme-handler/<scheme>`; 文件见下) → 按 XDG
   MIME Applications 规范读 mimeapps.list (每个目录先读 `acde-mimeapps.list`), `acde-<app>.desktop` 指 acde 应用; 没设过的用清单 `mimeTypes`
   写了它的第一个应用 (全名先于 `type/*`), 再没有用原生程序.
+- **文件的类型** (`MimeTypes.of`): 先问 `gio info` (Linux). 它给不出 MIME 时 (macOS 的 gio 回 UTI, 或没有 gio) 按 shared-mime-info 的
+  `mime/globs2` 匹配文件名 (`mimedb.ts`; XDG 数据目录, macOS 另加 Homebrew / MacPorts 的 `share/mime`; 每个进程读一次; `__NOGLOBS__` 照规范):
+  完整文件名先于通配, 再比权重、模式长度、区分大小写的优先. 打平时用 `file --mime-type`: 它是候选之一就用它, 否则挑和它一样是不是文本
+  (`text/*` 或经 `subclasses` 到 `text/plain`) 的那个, 和 gio 用 magic 消歧义一样. 一个也没匹配上用 `file`, 再用扩展名表. 这样 macOS 的
+  宿主窗口和 Dopame OS 得到同样的类型 (`.md` 是 `text/markdown`, 不是 `file` 说的 `text/plain`). 数据库不进包 (shared-mime-info 是 GPL),
+  没有时打一行 warn (macOS 提示 `brew install shared-mime-info`), 类型会和 Dopame OS 不一样. 测试 `acde-host/test/mimedb.test.ts`.
+- **macOS / Windows 的宿主窗口没有原生程序** (没有 XDG 的 `.desktop`): `natives()` 是空的, 要交给原生程序的那几条路回 `no_app` /
+  `outside_roots`, 和没装原生程序的 Dopame OS 一样, 不转给宿主系统的应用.
 - **交给应用**: 应用收 `request` (和 `acde.open` 同一个事件), 窗口提前 (桌面收 `windowshow`); 有 `fs` 的拿 `{root, path, file}`
   (`fs.locate`), 没有的拿 `{url}`. 不在任何根里的文件交给原生程序 (`gio launch`), 没有就报 `outside_roots`.
 - **改默认**: `acde.setDefault(mime, 应用)` 写 `$XDG_CONFIG_HOME/acde-mimeapps.list` (只在 `XDG_CURRENT_DESKTOP=acde` 下生效).
@@ -708,7 +716,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   编辑只有 `dom/editing.ts` 一份. 测试在 happy-dom 的 MockDom 上跑. 布局类的读 (rect、metrics、计算样式) 缓存到下一次写入、下一个指针事件 / 帧 / 滚动, 或这个任务结束 (CSS 过渡和动画在 render 线程上跑, JS 不知道, 下一个任务要重新读). Web Animations
   (`dom/animation.ts`): 关键帧变成 `@keyframes acde-animation-<n>` 规则加元素内联的 `animation-*`, 由 render 跑; 时间、事件、`finished` 在 JS
   里按 host 的时钟; 近似: easing 作用在每段关键帧上、endDelay 只算进结束时间、没有 composite.
-- **acde-host**: esbuild 打成 `dist/broker.js` (`src/main.ts`, Broker) 和 `dist/web.js` (`src/worker.ts`, 每个 web). 文件按本文的章节命名
+- **acde-host**: 测试 `bun test` (只测不碰原生接口的模块, 如 `mimedb.ts`). esbuild 打成 `dist/broker.js` (`src/main.ts`, Broker) 和 `dist/web.js` (`src/worker.ts`, 每个 web). 文件按本文的章节命名
   (`broker.ts`、`worker.ts` / `host.ts`、`remote.ts` / `rpc.ts`、`inspect.ts`、`devhot.ts` …); `sys/` 是原生接口的 node 风格包装. `greet/` 是登录页,
   `brand/` 的 `mark.mjs` / `art.mjs` 是 agentos 仓库 `branding/` 的原样拷贝 (只在那边改).
 
