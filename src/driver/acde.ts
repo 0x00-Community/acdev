@@ -177,6 +177,11 @@ export interface LaunchOptions {
   readonly startTimeout?: number
 }
 
+interface Launched {
+  readonly child: Child
+  readonly dir: string
+}
+
 export class ActError extends Error {
   readonly result: ActResult
 
@@ -196,13 +201,13 @@ export class Acde {
   readonly trace: Trace
   timeout: number
   readonly #client: DevClient
-  readonly #owned: { readonly child: Child; readonly dir: string } | null
+  readonly #owned: Launched | null
   #closed = false
 
   private constructor(
     session: Session,
     client: DevClient,
-    owned: { readonly child: Child; readonly dir: string } | null,
+    owned: Launched | null,
     logs: Logs | null,
     timeout: number,
   ) {
