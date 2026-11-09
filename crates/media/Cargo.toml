@@ -1,0 +1,27 @@
+[package]
+name = "acde-media"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+log = "0"
+
+# gst.rs: GStreamer decodes audio and video on Linux (LGPL, codecs are the system's plugins)
+[target.'cfg(target_os = "linux")'.dependencies]
+gstreamer = "0"
+gstreamer-app = "0"
+gstreamer-video = "0"
+gstreamer-audio = "0"
+# the bytes become a seekable GMemoryInputStream read by giostreamsrc, like a file
+gio = "0"
+
+# apple.rs: AVFoundation decodes on macOS (AVAssetReader, the data handed over by an AVAssetResourceLoader delegate)
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+dispatch2 = { version = "0", default-features = false, features = ["std", "objc2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSData", "NSDictionary", "NSError", "NSObject", "NSString", "NSURL", "NSValue"] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "objc2-core-foundation", "objc2-core-media", "objc2-core-video", "AVAsset", "AVAssetReader", "AVAssetReaderOutput", "AVAssetResourceLoader", "AVAssetTrack", "AVAsynchronousKeyValueLoading", "AVMediaFormat", "AVAudioSettings"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "objc2-core-video", "CMBase", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer", "CMTime", "CMTimeRange"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFBase", "CFDictionary", "CFNumber", "CFString"] }

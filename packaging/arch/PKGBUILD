@@ -53,6 +53,9 @@ depends=(
   'xdg-desktop-portal' 'xdg-desktop-portal-gtk'
   # apps' backends run on bun (acde-host backend.ts)
   'bun'
+  # <video> (crates/media gst.rs): GStreamer with the base / good plugins (MP4 and WebM demuxers, conversion, Opus,
+  # VP8 / VP9) and VA-API hardware decoding (H.264, HEVC, VP9, AV1 on the GPU)
+  'gstreamer' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugin-va'
 )
 optdepends=(
   'acde-dopame: the Dopame desktop and its apps'
@@ -62,6 +65,7 @@ optdepends=(
   'plasma-workspace: KDE Plasma (its plasma.desktop Wayland session) on the login screen, started instead of acdert'
   'docker: ONLYOFFICE Document Server for runtime Office (/usr/lib/acdert/office-ds.sh)'
   'greetd: the login screen (`acdert --greeter` as its greeter; greetd-agreety as the fallback)'
+  'gst-libav: software decoding of H.264, AAC and more for <video> (through ffmpeg, which Arch builds as GPL)'
 )
 makedepends=('git' 'rust' 'bun' 'clang' 'cmake' 'pkgconf' 'python')
 options=('!lto' '!debug')

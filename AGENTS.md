@@ -371,6 +371,20 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **声音**: `Audio` / `AudioContext` (acde-dom `src/audio/`, crates/acdert `audio/`): 解码 (symphonia) 和混音 (每个 web 一个 48 kHz 立体声 f32
   `Mixer`, 线程 `acde-audio`) 到处一样. 输出: Linux PipeWire (`output.rs`); macOS / Windows cpal 默认设备 (`output_cpal.rs`, 用设备当前的采样率,
   Hermite 重采样, 设备要 f32). 3 秒没声音关流; 没有设备 (或 `ACDE_AUDIO=null`) 按墙上时间渲染丢掉.
+- **视频** (crates/media `acde-media`): 用系统的框架解码, 不随包带编解码器 (用户定, 2026-11-09; acdert 闭源, 不链接 GPL 的 ffmpeg).
+  - `Player::open(bytes)` 探出 `Info {duration, width, height, audio, video}`, 每个轨一条读线程 (`acde-video` / `acde-video-audio`) 各自往
+    有界队列里解: 视频 RGBA 帧 (领先 4 帧), 音频 48 kHz 立体声 f32 交错 (领先半秒). 两个轨分开读, 不会一个轨满了卡住解封装器让另一个轨饿死.
+    `seek(t)`: 清队列, 两条线程都停下后由最后一条重启解码器. 消费方拉: `take_audio` (混音器线程)、`frame_at(t)` (取到时间的最后一帧,
+    更早的丢掉)、`first_frame` (等第一帧, 给海报帧和尺寸).
+  - Linux `gst.rs`: `giostreamsrc` 读内存里的字节 (`GMemoryInputStream`, 能随机读, 和文件一样) → `decodebin3` → 视频
+    `videoconvert ! videoflip video-direction=auto ! videoconvert` 成 RGBA (旋转标签在这里转正), 音频 `audioconvert ! audioresample` 成
+    F32LE 48 kHz 立体声, 各进一个 `appsink` (不按时钟, 最多 2 个缓冲). 等 `StreamsSelected` 列出的轨都接上、预滚完才报 Info. seek 是
+    FLUSH | ACCURATE, 目标前的帧和样本丢掉. 运行时要 gst-plugins-base / gst-plugins-good (MP4、WebM 解封装, Opus, VP8 / VP9) 和
+    gst-plugin-va (硬解); H.264 / AAC 的软解是 gst-libav (经 Arch 的 GPL ffmpeg), Arch 包里是可选依赖.
+  - macOS `apple.rs`: `AVURLAsset` 的数据由 `AVAssetResourceLoader` 代理 (`AcdeMediaLoader`) 从内存按字节范围给, `AVAssetReader` 解出
+    BGRA 帧 (拷出时换成 RGBA, 按轨道的 `preferredTransform` 转 90 / 180 / 270 度) 和 LPCM; 每个输出各自一把锁; seek 是取消旧的
+    reader 按时间范围新建. AVFoundation 只认 MP4 / QuickTime: WebM 在 macOS 上打不开 (Safari 自己解析 WebM, 这里没有).
+  - 帧现在在 CPU 内存里, 送进 GPU 要上传一次; 硬解的零拷贝 (Linux dmabuf、macOS IOSurface) 还没有.
 - **网页存储** (crates/storage `acde-storage`, crates/acdert `storage.rs`, acde-dom `src/storage/`): 所有 web 都是同一个进程里的线程, 存储按
   **分区**放在进程里共享: 每个应用一个 (`app-<id>`), 每个桌面一个 (`desktop-<id>`), 登录页 `greeter` (只在内存). Broker 在 `#spawn` 时把
   `{key, dir, legacy}` 作为 grant 交给 web (acde-host `storage.ts` `StoragePlaces`), Rust 用 `Lease` 引用分区, 最后一个 web 退出时写盘并放掉;
@@ -855,6 +869,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty 上的终端、copyIn、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
 | `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
 | `crates/log` | `acde-log`: 日志和计时 |
+| `crates/media` | `acde-media`: 解码音视频 (Linux GStreamer, macOS AVFoundation; 见「视频」). 检查: `cargo test --release -p acde-media` (`tests/fixtures` 是 ffmpeg 命令行生成的 1 秒小片段) |
 | `crates/storage` | `acde-storage`: 网页存储的分区和 SQLite (见「网页存储」). 检查: `cargo test --release -p acde-storage` |
 | `crates/acde-napi` | rusty_v8 实现的 Node-API (napi8), 让 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` 0.191.0 (MIT, LICENSE-MIT), 去掉了用不到的入口 |
 | `web/packages/acde-host` | acdert 的 JS: Broker 和每个 web 的宿主, 包发现, 桌面服务, 登录页 |
