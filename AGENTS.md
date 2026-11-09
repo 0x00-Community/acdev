@@ -142,7 +142,8 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - **通道模式** (`src/channel.ts`, Windows 上的 Node; 帧和信用见下面「Windows 后端契约」): 只在 Node 上且 `ACDE_APP_CHANNEL=fd` 时
   (`channelMode`; bun 不看它, 照常走套接字). 这时 `listen(P)` 不真正监听: 把 server 登记到端口 P, 下一个 tick 发 `listening`,
   `address()` 给 P, `listening` 为真; `close()` 注销后照原型方法关 (回调不报 `ERR_SERVER_NOT_RUNNING`), `signal` 中止同样注销;
-  同一端口第二次 listen 发 `EADDRINUSE`. 第一次登记时用 `net.Socket` 打开 fd 3 (读) 和 fd 4 (写): libuv 在 Windows 上把匿名管道的阻塞读
+  同一端口第二次 listen 发 `EADDRINUSE`. 应用显式 `listen` 一个路径 (含命名管道 `\\.\pipe\…`) 照原样放行: 那是应用自己开的端点,
+  不在契约范围内, 契约只管 `listen(P)` 的端口. 第一次登记时用 `net.Socket` 打开 fd 3 (读) 和 fd 4 (写): libuv 在 Windows 上把匿名管道的阻塞读
   放进系统线程池, unix 上是 epoll, 都不占 libuv 线程池 (`fs.read` 会一直占一个, `UV_THREADPOOL_SIZE=1` 时文件操作全卡住, 测试里有这条).
   没有登记的 server 也没有在途流时 fd 3 `unref`, 应用关掉 server 后进程照常退出. fd 3 读到头或出错 (运行时没了)、帧超过 64 KiB 时
   所有流按 RST 失败, stderr 打一行后 `exit(0)`.
