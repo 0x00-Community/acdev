@@ -3,7 +3,7 @@ import { process } from '../sys/process'
 import type { AppManifest, Capabilities } from '../apps'
 import type { OpenCaller } from '../open'
 import { Rpc } from '../rpc'
-import { Tiers, type WebTier } from './tier'
+import { Tiers, type WebTier } from './access/tier'
 
 export class Web {
   readonly rpc: Rpc

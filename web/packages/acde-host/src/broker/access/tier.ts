@@ -1,5 +1,5 @@
 import { Manifest, SHELL_MODULES, type ShellModule } from '@dopame/acde-api/manifest'
-import type { AppManifest, AppOrigin } from '../apps'
+import type { AppManifest, AppOrigin } from '../../apps'
 
 export interface WebTier {
   readonly level: number

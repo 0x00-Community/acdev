@@ -4,7 +4,7 @@ import type { Languages } from '../language'
 import type { RawShellEvent } from '../native'
 import type { InstalledDesktop, Packages } from '../packages'
 import type { StoragePlace } from '../storage'
-import type { WebTier } from './tier'
+import type { WebTier } from './access/tier'
 import type { Web } from './web'
 
 export interface BrokerShell {

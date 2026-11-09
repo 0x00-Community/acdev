@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { Family, type FamilyCaller, type FamilyWindow } from '../src/broker/family.ts'
+import { Family, type FamilyCaller, type FamilyWindow } from '../src/broker/access/family.ts'
 
 const windows = new Map<number, FamilyWindow>([
   [7, { kind: 'web', appId: 'notes' }],

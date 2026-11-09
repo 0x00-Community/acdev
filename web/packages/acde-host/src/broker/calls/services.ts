@@ -1,8 +1,8 @@
-import type { Capabilities } from '../apps'
-import type { PageBridge } from '../bridge'
-import { Tiers, type WebTier } from './tier'
-import type { ServiceShape } from './types'
-import { Web } from './web'
+import type { Capabilities } from '../../apps'
+import type { PageBridge } from '../../bridge'
+import { Tiers, type WebTier } from '../access/tier'
+import type { ServiceShape } from '../types'
+import { Web } from '../web'
 
 type Builtins = Record<'inspect' | 'session' | 'desktops', Record<string, (...args: never[]) => unknown>>
 

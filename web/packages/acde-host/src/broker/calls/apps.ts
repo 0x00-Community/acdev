@@ -1,8 +1,8 @@
-import type { NativeApps } from '../launcher'
-import type { Opener, OpenOptions } from '../open'
-import { Family, type FamilyWindow, type WindowFamily } from './family'
-import type { BrokerShell } from './types'
-import { Web } from './web'
+import type { NativeApps } from '../../launcher'
+import type { Opener, OpenOptions } from '../../open'
+import { Family, type FamilyWindow, type WindowFamily } from '../access/family'
+import type { BrokerShell } from '../types'
+import { Web } from '../web'
 
 interface ListedApp {
   readonly id: string

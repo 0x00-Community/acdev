@@ -1,9 +1,9 @@
-import type { Native, NativeFileChooser } from '../native'
-import { Downloads } from '../downloads'
-import { Level, Log } from '../log'
-import { basename } from '../sys/path'
-import type { BrokerShell } from './types'
-import { Web } from './web'
+import type { Native, NativeFileChooser } from '../../native'
+import { Downloads } from '../../downloads'
+import { Level, Log } from '../../log'
+import { basename } from '../../sys/path'
+import type { BrokerShell } from '../types'
+import { Web } from '../web'
 
 export interface PageHost {
   readonly native: Native

@@ -1,7 +1,7 @@
-import { Level, Log } from '../log'
-import { PageSource } from '../page'
-import type { AnimateOptions, BrokerShell, WindowRecord, WireMenu } from './types'
-import { Web } from './web'
+import { Level, Log } from '../../log'
+import { PageSource } from '../../page'
+import type { AnimateOptions, BrokerShell, WindowRecord, WireMenu } from '../types'
+import { Web } from '../web'
 
 export interface WindowsHost {
   readonly shell: BrokerShell
