@@ -20,6 +20,7 @@
     "./src/listen.ts"
   ],
   "scripts": {
+    "acde": "bun bin/acde.mjs",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",
     "dist": "bun scripts/dist.ts"
