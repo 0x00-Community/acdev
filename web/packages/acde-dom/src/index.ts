@@ -10,6 +10,7 @@ import type { AudioNative, DomNative, GpuNative, HostNative, StorageNative } fro
 import { installStorage, Storage } from './storage/webstorage'
 import { idbTaskEnded, installIndexedDB } from './storage/idb/idb'
 import { StorageManager } from './storage/manager'
+import { installCaches } from './storage/cache'
 import { contexts as gpuContexts, installGpu } from './gpu/index'
 import { installAudio } from './audio/index'
 import { NodeType } from './native'
@@ -140,6 +141,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   globals(global, { fetch })
   globals(global, installIndexedDB(options.storage?.idb))
   globals(global, { StorageManager })
+  globals(global, installCaches(options.storage?.caches))
   if (options.gpu) globals(global, installGpu(global, options.gpu, externalPixels))
   if (options.audio) globals(global, installAudio(options.audio))
   inspectHooks.node = (value) => {

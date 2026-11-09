@@ -1,3 +1,4 @@
+pub mod caches;
 mod cookies;
 mod db;
 pub mod idb;
@@ -23,6 +24,7 @@ pub struct Partition {
     local: OnceLock<Arc<LocalArea>>,
     idb: OnceLock<idb::Idb>,
     cookies: OnceLock<Arc<CookieJar>>,
+    caches: OnceLock<caches::CacheStore>,
 }
 
 impl Partition {
@@ -41,7 +43,7 @@ impl Partition {
     pub fn files_dir(&self) -> PathBuf {
         match &self.place.dir {
             Some(dir) => dir.clone(),
-            None => std::env::temp_dir().join(format!("acde-storage-{}", std::process::id())).join(&self.place.key),
+            None => memory_root().map_or_else(|| PathBuf::from("/nonexistent"), |root| root.join(&self.place.key)),
         }
     }
 
@@ -49,6 +51,10 @@ impl Partition {
         let dir = self.files_dir();
         let memory = if self.place.dir.is_some() { 0 } else { self.local.get().map_or(0, |local| local.used() as u64 * 2) };
         (quota::usage(&dir) + memory, quota::quota(&dir))
+    }
+
+    pub fn caches(&self) -> &caches::CacheStore {
+        self.caches.get_or_init(|| caches::CacheStore::open(self.place.dir.as_deref()))
     }
 
     pub fn cookies(&self) -> &Arc<CookieJar> {
@@ -93,7 +99,13 @@ impl Lease {
     pub fn open(place: Place) -> Lease {
         let mut all = partitions();
         let entry = all.get_or_insert_with(HashMap::new).entry(place.key.clone()).or_insert_with(|| Entry {
-            partition: Arc::new(Partition { place: place.clone(), local: OnceLock::new(), idb: OnceLock::new(), cookies: OnceLock::new() }),
+            partition: Arc::new(Partition {
+                place: place.clone(),
+                local: OnceLock::new(),
+                idb: OnceLock::new(),
+                cookies: OnceLock::new(),
+                caches: OnceLock::new(),
+            }),
             leases: 0,
         });
         if entry.partition.place != place {
@@ -136,6 +148,34 @@ impl Drop for Lease {
     }
 }
 
+static MEMORY_ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn memory_root() -> Option<&'static Path> {
+    MEMORY_ROOT
+        .get_or_init(|| {
+            use std::hash::{BuildHasher, Hasher};
+            let base = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(std::env::temp_dir);
+            for _ in 0..8 {
+                let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+                hasher.write_u32(std::process::id());
+                let dir = base.join(format!("acde-storage-{}-{:016x}", std::process::id(), hasher.finish()));
+                let mut builder = std::fs::DirBuilder::new();
+                #[cfg(unix)]
+                std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+                match builder.create(&dir) {
+                    Ok(()) => return Some(dir),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => {
+                        log::warn!("storage: no private folder for in-memory storage under {} ({e})", base.display());
+                        return None;
+                    }
+                }
+            }
+            None
+        })
+        .as_deref()
+}
+
 pub fn now_ms() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
@@ -145,6 +185,9 @@ pub fn flush_all() {
     for entry in all.iter().flat_map(HashMap::values) {
         entry.partition.flush();
         entry.partition.forget_memory_files();
+    }
+    if let Some(Some(root)) = MEMORY_ROOT.get() {
+        _ = std::fs::remove_dir_all(root);
     }
 }
 
@@ -194,5 +237,21 @@ mod tests {
         drop(b);
         let c = Lease::open(place);
         assert_eq!(c.local().get(&text("k")), Some(text("v")));
+    }
+}
+
+#[cfg(test)]
+mod memory_root_tests {
+    #[test]
+    fn the_private_folder_is_fresh_and_only_for_us() {
+        let root = super::memory_root().expect("a private folder");
+        assert!(root.file_name().unwrap().to_string_lossy().starts_with(&format!("acde-storage-{}-", std::process::id())));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = std::fs::symlink_metadata(root).unwrap();
+            assert!(meta.is_dir());
+            assert_eq!(meta.permissions().mode() & 0o777, 0o700);
+        }
     }
 }

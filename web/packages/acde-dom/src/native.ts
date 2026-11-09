@@ -309,9 +309,37 @@ export interface StorageNative {
   readonly local: StorageAreaNative
   readonly idb?: IdbNative
   readonly cookies?: CookieNative
+  readonly caches?: CacheNative
   estimate?(): Promise<{ usage: number; quota: number }>
   privateDirectory?(): string
   onChange(callback: (key: string | null, oldValue: string | null, newValue: string | null, url: string) => void): void
+}
+
+export interface CacheQueryNative {
+  readonly url: string
+  readonly method: string
+  readonly headers: [string, string][]
+  readonly ignoreSearch: boolean
+  readonly ignoreMethod: boolean
+  readonly ignoreVary: boolean
+}
+
+export interface CacheEntryNative {
+  readonly url: string
+  readonly method: string
+  readonly requestHeaders: [string, string][]
+  readonly response: string
+  readonly responseHeaders: [string, string][]
+  readonly body: Uint8Array
+}
+
+export interface CacheNative {
+  names(): Promise<string[]>
+  has(name: string): Promise<boolean>
+  open(name: string): Promise<number>
+  delete(name: string): Promise<boolean>
+  query(cache: number | null, query: CacheQueryNative | null, first: boolean): Promise<CacheEntryNative[]>
+  batch(cache: number, operations: ({ type: 'put'; entry: CacheEntryNative } | { type: 'delete'; query: CacheQueryNative })[]): Promise<boolean[]>
 }
 
 export interface CookieNative {

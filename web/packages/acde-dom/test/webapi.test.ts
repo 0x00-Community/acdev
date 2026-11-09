@@ -327,3 +327,16 @@ test('navigator.storage: getDirectory() is a read-write root named "" from the p
   assert.deepEqual(JSON.parse(JSON.stringify(out)), ['', 'directory', 'granted', 'private', true, true, '{"usage":0,"quota":0}', true])
   assert.equal(new TextDecoder().decode(files.get('/opfs/a.txt') as Uint8Array), 'private')
 })
+
+test('fetch bodies: a null body is never used, reading locks the stream, clone keeps error responses, credentials in URLs throw', async () => {
+  using web = await page()
+  const out = await web.run<Promise<unknown>>(`(async () => {
+    const empty = new Response(null); await empty.text()
+    const full = new Response('x'); await full.text()
+    const error = Response.error().clone()
+    let credentials = 'made'
+    try { new Request('https://user:pw@example.com/') } catch (e) { credentials = e.constructor.name }
+    return JSON.stringify([empty.bodyUsed, full.bodyUsed, full.body.locked, error.status, error.type, credentials])
+  })()`)
+  assert.deepEqual(JSON.parse(out as string), [false, true, true, 0, 'error', 'TypeError'])
+})

@@ -267,12 +267,11 @@ class Body {
 
   async #consume(): Promise<Uint8Array> {
     if (this.bodyUsed) throw new TypeError('Failed to execute: body stream already read')
+    const stream = this.body
+    if (!stream) return new Uint8Array(0)
+    if (stream.locked) throw new TypeError('Failed to execute: body stream is locked')
     this.#used = true
-    if (this.#stream) {
-      if (this.#stream.locked) throw new TypeError('Failed to execute: body stream is locked')
-      return readAllBytes(this.#stream)
-    }
-    return this.#bytes ?? new Uint8Array(0)
+    return readAllBytes(stream, true)
   }
 
   [SEND](): Promise<Uint8Array | null> {
@@ -382,7 +381,9 @@ export class Request extends Body {
     const { bytes, stream, type } = extractBody(init?.body)
     const inherited = init?.body === undefined && base ? base.bodyForClone() : null
     super(inherited ? inherited.bytes : bytes, inherited ? inherited.stream : stream)
-    this.url = base ? base.url : new URL(String(input), net.base()).href
+    const parsed = base ? null : new URL(String(input), net.base())
+    if (parsed && (parsed.username || parsed.password)) throw new TypeError(`Failed to construct 'Request': Request cannot be constructed from a URL that includes credentials: ${String(input)}`)
+    this.url = base ? base.url : parsed!.href
     this.method = String(init?.method ?? base?.method ?? 'GET').toUpperCase()
     this.headers = new Headers(init?.headers ?? base?.headers)
     if (type && !this.headers.has('content-type')) this.headers.set('content-type', type)
@@ -429,7 +430,10 @@ export class Response extends Body {
   clone(): Response {
     if (this.bodyUsed) throw new TypeError("Failed to execute 'clone' on 'Response': Response body is already used")
     const { bytes, stream } = this.bodyForClone()
-    const copy = new Response(stream ?? bytes, { status: this.status, statusText: this.statusText, headers: this.headers })
+    const inRange = this.status >= 200 && this.status <= 599
+    const copy = new Response(stream ?? bytes, { status: inRange ? this.status : 200, statusText: this.statusText, headers: this.headers })
+    if (!inRange) Object.defineProperty(copy, 'status', { value: this.status })
+    if (this.type !== 'default') Object.defineProperty(copy, 'type', { value: this.type })
     copy.url = this.url
     if (this.redirected) Object.defineProperty(copy, 'redirected', { value: true })
     return copy
