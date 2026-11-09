@@ -15,6 +15,8 @@ export interface WindowAppConfig {
   readonly icon?: IconName | (string & {})
   readonly entry?: string
   readonly capabilities?: Capabilities
+  readonly optional?: readonly string[]
+  readonly services?: readonly string[]
   readonly heapMb?: number
   readonly size?: readonly [number, number]
   readonly multiple?: boolean

@@ -550,5 +550,6 @@ export interface AcdePage {
   readonly handlers?: AcdeOpenFiles['handlers']
   readonly setDefault?: AcdeOpenFiles['setDefault']
   readonly window?: AcdeWindow
+  readonly capabilities?: import('./capabilities').AcdeCapabilities
   readonly [service: string]: unknown
 }

@@ -36,6 +36,8 @@ export interface AppManifest {
   readonly frame?: boolean
   readonly mimeTypes?: readonly string[]
   readonly backend?: AppBackend
+  readonly optional?: readonly string[]
+  readonly services?: readonly string[]
 }
 
 export interface AppBackend {

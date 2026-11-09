@@ -148,6 +148,20 @@
           "additionalProperties": true,
           "description": "acde 的能力; 别的键是桌面服务的名字"
         },
+        "optional": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "capabilities 里可以缺的几项 (每项也要写在 capabilities 里); 其余都是必需的, 缺了应用不进列表、启动时被拒"
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "用到的桌面服务名 (照旧 import acde:<名字>); 不能用系统模块的名字"
+        },
         "heapMb": {
           "type": "number",
           "minimum": 32
@@ -357,6 +371,20 @@
                 },
                 "additionalProperties": true,
                 "description": "acde 的能力; 别的键是桌面服务的名字"
+              },
+              "optional": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "capabilities 里可以缺的几项 (每项也要写在 capabilities 里); 其余都是必需的, 缺了应用不进列表、启动时被拒"
+              },
+              "services": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "用到的桌面服务名 (照旧 import acde:<名字>); 不能用系统模块的名字"
               },
               "heapMb": {
                 "type": "number",

@@ -38,6 +38,10 @@ declare module 'acde:window' {
   const self: import('../types/page').AcdeWindow
   export { self as window, self as default }
 }
+declare module 'acde:capabilities' {
+  const capabilities: import('../types/capabilities').AcdeCapabilities
+  export { capabilities, capabilities as default }
+}
 declare module 'acde:*' {
   const service: unknown
   export default service

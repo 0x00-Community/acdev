@@ -66,6 +66,10 @@ declare module 'acde:window' {
   const self: import('@dopame/acde-api').AcdeModules['window']
   export { self as window, self as default }
 }
+declare module 'acde:capabilities' {
+  const capabilities: import('@dopame/acde-api').AcdeModules['capabilities']
+  export { capabilities, capabilities as default }
+}
 declare module 'acde:*' {
   const service: unknown
   export default service

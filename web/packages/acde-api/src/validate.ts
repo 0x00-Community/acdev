@@ -2,7 +2,9 @@ import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest
 import { API_LEVEL } from './runtime/level.js'
 
 export type { Capabilities, PackageManifest } from './types/manifest.js'
+export type { CapabilityState, CapabilityStatus, PlatformSupport, RunningMode, WindowFeatures } from './types/capabilities.js'
 export { API_LEVEL }
+export { PLATFORM_SUPPORT, RUNNING_MODES, platformSupport } from './runtime/platforms.js'
 
 export const ICON_NAMES = [
   'files',
@@ -44,6 +46,10 @@ export const APP_MODULES = ['launch', 'apps', 'open', 'openPath', 'handlers', 'w
 
 export type ShellModule = (typeof SHELL_MODULES)[number]
 
+export const SYSTEM_CAPABILITIES = ['fs', 'terminal', 'network', 'office', 'launch', 'slots', 'open', 'openFiles', 'camera', 'microphone'] as const
+
+export const RESERVED_NAMES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...SHELL_MODULES, ...APP_MODULES, 'capabilities'])
+
 export interface DesktopServiceGrant {
   readonly name: string
   readonly modules: ShellModule[]
@@ -62,19 +68,7 @@ export interface Findings {
 export class Manifest {
   static readonly HEAP_MB = 256
   static readonly MIN_HEAP_MB = 32
-  static readonly CAPABILITIES: ReadonlySet<string> = new Set([
-    'fs',
-    'terminal',
-    'network',
-    'office',
-    'launch',
-    'slots',
-    'open',
-    'openFiles',
-    'camera',
-    'microphone',
-    ...SHELL_MODULES,
-  ])
+  static readonly CAPABILITIES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...SHELL_MODULES])
   static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
   static readonly #ICON_NAMES: ReadonlySet<string> = new Set(ICON_NAMES)
@@ -151,6 +145,10 @@ export class Manifest {
     const mimeTypes = (types as string[] | undefined) ?? []
     const size = Manifest.#size(field('size'))
     if (size === undefined) return `app ${id}: size must be [width, height] in whole logical pixels`
+    const services = Manifest.#services(field('services'))
+    if (typeof services === 'string') return `app ${id}: ${services}`
+    const optional = Manifest.#optional(field('optional'), capabilities)
+    if (typeof optional === 'string') return `app ${id}: ${optional}`
     return {
       id,
       label,
@@ -163,7 +161,13 @@ export class Manifest {
       mimeTypes,
       backend,
       size,
+      optional,
+      services,
     }
+  }
+
+  static reserved(name: string): string | null {
+    return RESERVED_NAMES.has(name) ? `service ${JSON.stringify(name)} has the name of a system module (acde:${name}); system module names are reserved` : null
   }
 
   static check(
@@ -186,6 +190,10 @@ export class Manifest {
         errors.push(`assets ${JSON.stringify(prefix)}: no directory ${JSON.stringify(dir)}`)
     }
     const services = new Set((manifest.services ?? []).map((service) => service.name))
+    for (const name of services) {
+      const reserved = Manifest.reserved(name)
+      if (reserved) errors.push(reserved)
+    }
     for (const desktop of manifest.desktops ?? []) {
       const at = `desktop ${JSON.stringify(desktop?.id)}`
       const grants = Manifest.desktopServices(desktop?.services)
@@ -224,15 +232,33 @@ export class Manifest {
         for (const name of Manifest.shellModules(app.capabilities))
           shellFindings.push(`${at}: acde:${name} is a shell module: only apps of a desktop package (system apps) may declare it`)
       }
-      for (const name of Object.keys(app.capabilities).filter(
-        (k) => !Manifest.CAPABILITIES.has(k) && !services.has(k),
-      )) {
-        warnings.push(
-          `${at}: capability ${JSON.stringify(name)} is not acde's: a desktop service of that name must be running`,
-        )
+      for (const name of Object.keys(app.capabilities).filter((k) => !Manifest.CAPABILITIES.has(k))) {
+        if (services.has(name))
+          warnings.push(
+            `${at}: capability ${JSON.stringify(name)} is a desktop service: move it to services (deprecated under capabilities)`,
+          )
+        else shellFindings.push(`${at}: capability ${JSON.stringify(name)} is not a system capability; list desktop services under services`)
       }
     }
     return findings
+  }
+
+  static #services(raw: unknown): string[] | string {
+    if (raw === undefined || raw === null) return []
+    if (!Array.isArray(raw) || raw.some((name) => typeof name !== 'string' || !name)) return 'services lists desktop service names'
+    for (const name of raw as string[]) {
+      const reserved = Manifest.reserved(name)
+      if (reserved) return reserved
+    }
+    return [...(raw as string[])]
+  }
+
+  static #optional(raw: unknown, capabilities: Capabilities): string[] | string {
+    if (raw === undefined || raw === null) return []
+    if (!Array.isArray(raw) || raw.some((name) => typeof name !== 'string' || !name)) return 'optional lists capability names'
+    const missing = (raw as string[]).find((name) => !capabilities[name])
+    if (missing) return `optional ${JSON.stringify(missing)} is not in capabilities (optional lists declared capabilities that the app can run without)`
+    return [...(raw as string[])]
   }
 
   static #size(raw: unknown): readonly [number, number] | null | undefined {
