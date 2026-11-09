@@ -568,8 +568,12 @@ function equalElements(a: number, b: number): boolean {
 
 export const baseHooks = { url: () => '' }
 
+export const clonedHooks: ((clone: Node) => void)[] = []
+
 export function cloneOf(node: Node, deep: boolean): Node {
-  return wrap<Node>(guard(() => dom.clone(node[ID], deep)))!
+  const clone = wrap<Node>(guard(() => dom.clone(node[ID], deep)))!
+  for (const hook of clonedHooks) hook(clone)
+  return clone
 }
 
 export function setTextContent(node: Node, text: string): void {

@@ -363,7 +363,7 @@ function qualified(namespace: string | null, name: string): string {
 }
 
 export const parsedHooks: ((container: Node) => void)[] = []
-function parsed(container: Node): void {
+export function parsed(container: Node): void {
   for (const hook of parsedHooks) hook(container)
 }
 

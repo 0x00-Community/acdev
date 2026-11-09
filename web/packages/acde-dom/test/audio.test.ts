@@ -14,6 +14,7 @@ function fakeAudio() {
     calls.push({ name, args })
   }
   const media = new Map<number, number>()
+  const presents: number[] = []
   const native = {
     sampleRate: 48000,
     onEvent(fn: (kind: number, id: number) => void) {
@@ -57,10 +58,24 @@ function fakeAudio() {
     },
     mediaTime: (id: number) => media.get(id) ?? 0,
     closeMedia: record('closeMedia'),
+    videoTypes: ['video/mp4'],
+    openVideo(id: number, node: number, bytes: Uint8Array) {
+      calls.push({ name: 'openVideo', args: [id, node, bytes.length] })
+      if (bytes[0] !== 0x52) return Promise.reject(new Error('unsupported video'))
+      media.set(id, 0)
+      return Promise.resolve({ duration: 3, width: 64, height: 48, audio: 1 })
+    },
+    present(id: number) {
+      calls.push({ name: 'present', args: [id] })
+      return presents.shift() ?? 0
+    },
+    videoSize: () => [96, 72],
+    clearVideo: record('clearVideo'),
   }
   return {
     native,
     calls,
+    presents,
     named: (name: string) => calls.filter((c) => c.name === name).map((c) => c.args),
     emit: (kind: number, id: number) => callback?.(kind, id),
   }
@@ -273,5 +288,81 @@ test('without native audio: no AudioContext, play() rejects NotSupportedError', 
   const w = createWeb()
   assert.equal(w.run('typeof AudioContext'), 'undefined')
   assert.equal(await w.run<Promise<string>>(`new Audio(${JSON.stringify(WAV)}).play().catch((e) => e.name)`), 'NotSupportedError')
+  w.close()
+})
+
+const LISTEN = (id: string) => `
+  globalThis.events = []
+  for (const type of ['loadstart', 'suspend', 'durationchange', 'resize', 'loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough', 'play', 'playing', 'pause', 'error', 'emptied'])
+    document.getElementById(${JSON.stringify(id)}).addEventListener(type, () => events.push(type))
+`
+
+test('a parsed <video src> loads by itself, and knows its size by loadedmetadata without a resize event', async () => {
+  const { web: w, audio } = web()
+  w.run(`document.body.innerHTML = '<video id="v" src="${WAV}"></video>'; ${LISTEN('v')}; globalThis.v = document.getElementById('v')`)
+  await w.wait(20)
+  const [[, node]] = audio.named('openVideo') as [[number, number]]
+  assert.equal(node, w.internals.idOf(w.run('v')))
+  assert.deepEqual(w.json('events'), ['loadstart', 'durationchange', 'loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough'])
+  assert.deepEqual(w.json('[v.videoWidth, v.videoHeight, v.readyState, v.duration]'), [64, 48, 4, 3])
+  w.close()
+})
+
+test('a playing video shows a frame each animation frame; a new frame size fires resize', async () => {
+  const { web: w, audio } = web()
+  w.run(`document.body.innerHTML = '<video id="v" src="${WAV}"></video>'; ${LISTEN('v')}; globalThis.v = document.getElementById('v')`)
+  await w.wait(20)
+  w.run('globalThis.played = v.play().then(() => "ok", (e) => e.name)')
+  assert.equal(await w.run<Promise<string>>('played'), 'ok')
+  audio.presents.push(1, 2)
+  w.frame()
+  w.frame()
+  await w.wait(5)
+  assert.ok(audio.named('present').length >= 2)
+  assert.deepEqual(w.json('[v.videoWidth, v.videoHeight, v.getVideoPlaybackQuality().totalVideoFrames]'), [96, 72, 3])
+  assert.ok(w.json<string[]>('events').includes('resize'))
+  w.run('v.removeAttribute("src"); v.load()')
+  assert.deepEqual(w.json('[v.videoWidth, v.videoHeight, v.readyState]'), [0, 0, 0])
+  assert.equal(audio.named('clearVideo').at(-1)?.[0], w.internals.idOf(w.run('v')))
+  w.close()
+})
+
+test('preload=none: the element waits for play() before it fetches', async () => {
+  const { web: w, audio } = web()
+  w.run(`document.body.innerHTML = '<audio id="a" preload="none" src="${WAV}"></audio>'; ${LISTEN('a')}; globalThis.a = document.getElementById('a')`)
+  await w.wait(20)
+  assert.equal(audio.named('openMedia').length, 0)
+  assert.deepEqual(w.json('events'), ['loadstart', 'suspend'])
+  assert.equal(w.run('a.networkState'), 1)
+  assert.equal(await w.run<Promise<string>>('a.play().then(() => "ok", (e) => e.name)'), 'ok')
+  assert.equal(audio.named('openMedia').length, 1)
+  w.close()
+})
+
+test('a cloned or imported <video src> loads too; canPlayType knows the native containers', async () => {
+  const { web: w, audio } = web()
+  w.run(`
+    const t = document.createElement('template')
+    t.innerHTML = '<div><video src="${WAV}"></video></div>'
+    document.body.append(document.importNode(t.content, true), t.content.firstChild.firstChild.cloneNode())
+  `)
+  await w.wait(20)
+  assert.equal(audio.named('openVideo').length, 2)
+  assert.deepEqual(w.json('["video/mp4", "video/mp4; codecs=avc1", "video/webm", "audio/mpeg"].map((t) => document.createElement("video").canPlayType(t))'), ['maybe', 'maybe', '', 'maybe'])
+  w.close()
+})
+
+test('a playing media element taken out of the document pauses; moving it does not', async () => {
+  const { web: w } = web()
+  w.run(`document.body.innerHTML = '<div id="d"><video id="v" src="${WAV}"></video></div><p id="p"></p>'; ${LISTEN('v')}; globalThis.v = document.getElementById('v')`)
+  await w.wait(20)
+  assert.equal(await w.run<Promise<string>>('v.play().then(() => "ok", (e) => e.name)'), 'ok')
+  w.run('document.getElementById("p").append(v)')
+  await w.wait(5)
+  assert.equal(w.run('v.paused'), false)
+  w.run('v.remove()')
+  await w.wait(5)
+  assert.equal(w.run('v.paused'), true)
+  assert.ok(w.json<string[]>('events').includes('pause'))
   w.close()
 })

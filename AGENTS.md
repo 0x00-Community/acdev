@@ -388,6 +388,18 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     网络; 数据由 `AVAssetResourceLoader` 代理 (`AcdeMediaLoader`) 从内存按字节范围给, `AVAssetReader` 解出
     BGRA 帧 (拷出时换成 RGBA, 按轨道的 `preferredTransform` 转 90 / 180 / 270 度) 和 LPCM; 每个输出各自一把锁; seek 是取消旧的
     reader 按时间范围新建. AVFoundation 只认 MP4 / QuickTime: WebM 在 macOS 上打不开 (Safari 自己解析 WebM, 这里没有).
+  - `<video>` (acde-dom `dom/media.ts` `HTMLVideoElement`, crates/acdert `audio/mod.rs` `openVideo` / `present`, `audio/video.rs`): 和
+    `<audio>` 共用 `HTMLMediaElement` 和混音器. `openVideo` 在线程 `acde-video` 里开 `Player`、等第一帧, 再把 `VideoSound` 交给这个 web 的
+    混音器 (`Cmd::AddMedia`, 混音器的 `MediaSource`): 有声音时媒体时间跟着放出去的声音走 (解码跟不上就停在那里等), 没声音或声音轨先完了
+    按混音器的时间走, 到 `duration` 就结束 (`ended`). 帧在页面的动画帧里交 (`presentVideos`, 在播或刚 seek 的视频才要帧): `present`
+    取到媒体时间为止的最后一帧 (seek 后先交新位置的第一帧, 看 `Player::epoch`), 写进每个视频一张的 `GpuImage` (`Gpu::write`, 渲染时
+    vello 按 generation 拷), 交给 render `Dom::video_image`: 节点的画面 (帧像素坐标, blitz 按 `object-fit` / `object-position` 放进内容框,
+    UA 样式 `object-fit: contain`) 加固有尺寸 (`set_video_size`, 变了重排; 没有帧时是 300×150). `videoWidth` / `videoHeight` 在
+    `loadedmetadata` 时就有; 之后帧尺寸变了发 `resize` (`readyState` 是 `HAVE_NOTHING` 时不发, 照标准). `canPlayType` 按 `acde_media::TYPES`
+    (平台能开的容器). 换源 / 去掉 `src` 清掉画面 (`clearVideo`); 播放器释放 (`Player` 的 drop) 在单独线程里停解码器, 不卡混音器和 JS.
+  - 解析出来的 (`loadPage`、`innerHTML` / `outerHTML` / `insertAdjacentHTML`) 和克隆出来的 (`cloneNode` / `importNode`) `<video>` /
+    `<audio>` 有 `src` 或 `<source>` 就自己开始加载 (标准: 设了 `src` 就跑加载算法), `preload="none"` 且没有 `autoplay` 时发 `loadstart` 和
+    `suspend` 后停在 `NETWORK_IDLE`, 等 `play()` 再取. 还没有: 海报图 (`poster`)、`seeked` 等到新位置的帧画出来再发、文字轨、MSE.
   - 帧现在在 CPU 内存里, 送进 GPU 要上传一次; 硬解的零拷贝 (Linux dmabuf、macOS IOSurface) 还没有.
 - **网页存储** (crates/storage `acde-storage`, crates/acdert `storage.rs`, acde-dom `src/storage/`): 所有 web 都是同一个进程里的线程, 存储按
   **分区**放在进程里共享: 每个应用一个 (`app-<id>`), 每个桌面一个 (`desktop-<id>`), 登录页 `greeter` (只在内存). Broker 在 `#spawn` 时把

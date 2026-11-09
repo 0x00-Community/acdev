@@ -18,6 +18,8 @@ acde-hostwin = { path = "../hostwin" }
 acde-runtime = { path = "../runtime" }
 # web storage (storage.rs): localStorage shared by the webs of one app or desktop, kept in SQLite
 acde-storage = { path = "../storage" }
+# <video> (audio/video.rs): decoding through GStreamer (Linux) or AVFoundation (macOS)
+acde-media = { path = "../media" }
 url = "2"
 encoding_rs = "0"
 getrandom = "0"

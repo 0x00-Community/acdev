@@ -29,7 +29,7 @@ import * as html from './dom/html'
 import { createHtml, HTMLElement } from './dom/html'
 import { Input } from './dom/input'
 import * as media from './dom/media'
-import { deliverLoads } from './dom/media'
+import { deliverLoads, presentVideos } from './dom/media'
 import { MutationObserver, MutationRecord } from './dom/mutation'
 import { CDATASection, CharacterData, Comment, DocumentFragment, DocumentType, HTMLCollection, Node, NodeList, ProcessingInstruction, Text } from './dom/node'
 import { deliverObservations, IntersectionObserver, IntersectionObserverEntry, ResizeObserver, ResizeObserverEntry, watching } from './dom/observers'
@@ -190,11 +190,12 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
         report(error)
       }
       const loading = deliverLoads()
+      const playing = presentVideos()
       canvases.flush()
       gpuContexts.present()
       frameVersion = version
       dom.commit()
-      if (framesPending() || loading) frames.request()
+      if (framesPending() || loading || playing) frames.request()
     },
     endTask() {
       idbTaskEnded()

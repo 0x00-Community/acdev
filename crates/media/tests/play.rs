@@ -114,3 +114,31 @@ fn playlists_and_other_containers_that_point_elsewhere_are_refused() {
         assert!(Player::open(Arc::from(bytes)).is_err(), "{}", String::from_utf8_lossy(bytes));
     }
 }
+
+#[test]
+fn frames_follow_the_picture_and_a_seek_lands_on_the_new_one() {
+    let player = Player::open(fixture("two-colours.mp4")).unwrap();
+    let first = player.first_frame(Duration::from_secs(5)).expect("a first frame");
+    let [r, g, b] = centre(&first);
+    assert!(near(r, 0xcc) && near(g, 0x33) && near(b, 0x33), "colour at 0: {r:x} {g:x} {b:x}");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut later = None;
+    while later.is_none() && Instant::now() < deadline {
+        later = player.frame_at(0.8).filter(|f| f.time >= 0.5);
+        if later.is_none() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    let [r, g, b] = centre(&later.expect("a frame after half a second"));
+    assert!(near(r, 0x33) && near(g, 0xcc) && near(b, 0x33), "colour at 0.8: {r:x} {g:x} {b:x}");
+    player.seek(0.2);
+    let back = player.first_frame(Duration::from_secs(5)).expect("a frame after seeking back");
+    let [r, g, b] = centre(&back);
+    assert!(back.time < 0.5 && near(r, 0xcc) && near(g, 0x33), "frame at {} colour {r:x} {g:x} {b:x}", back.time);
+    let epoch = player.epoch();
+    player.seek(0.7);
+    assert_eq!(player.epoch(), epoch + 1);
+    let ahead = player.first_frame(Duration::from_secs(5)).expect("a frame after seeking ahead");
+    let [r, g, b] = centre(&ahead);
+    assert!(ahead.time >= 0.5 && near(r, 0x33) && near(g, 0xcc), "frame at {} colour {r:x} {g:x} {b:x}", ahead.time);
+}

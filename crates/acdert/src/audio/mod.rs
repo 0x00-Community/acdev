@@ -4,17 +4,26 @@ mod mixer;
 mod output;
 #[cfg(not(target_os = "linux"))]
 mod output_cpal;
+pub mod video;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use crate::bind::{self, arg_bool, arg_f64, arg_u32};
 use crate::{offload, rt};
 use graph::{AudioData, Kind, NodeOp, ParamOp, Shared, Wave};
 use mixer::{Clock, Cmd, MediaOp, Note, RATE};
 use output::Ctl;
+use video::{Picture, VideoSound};
+
+struct Video {
+    player: Arc<acde_media::Player>,
+    picture: Picture,
+    epoch: u64,
+}
 
 #[derive(Default)]
 struct State {
@@ -24,6 +33,7 @@ struct State {
     nodes: HashMap<u32, Arc<Shared>>,
     buffers: HashMap<u32, Arc<AudioData>>,
     media: HashMap<u32, Arc<AtomicU64>>,
+    videos: HashMap<u32, Video>,
 }
 
 thread_local! {
@@ -60,6 +70,12 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
     let audio = v8::Object::new(scope);
     let rate = v8::Number::new(scope, RATE);
     bind::set(scope, audio, "sampleRate", rate.into());
+    let types = v8::Array::new(scope, acde_media::TYPES.len() as i32);
+    for (i, kind) in acde_media::TYPES.iter().enumerate() {
+        let kind = bind::string(scope, kind);
+        types.set_index(scope, i as u32, kind.into());
+    }
+    bind::set(scope, audio, "videoTypes", types.into());
     crate::methods!(scope, audio,
         "onEvent" => on_event,
         "createContext" => create_context,
@@ -86,6 +102,10 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
         "media" => media,
         "mediaTime" => media_time,
         "closeMedia" => close_media,
+        "openVideo" => open_video,
+        "present" => present,
+        "videoSize" => video_size,
+        "clearVideo" => clear_video,
     );
     bind::set(scope, natives, "audio", audio.into());
 }
@@ -157,7 +177,10 @@ senders! {
     };
     close_media(s, a) => {
         let media = arg_u32(s, &a, 0);
-        with_state(|state| state.media.remove(&media));
+        with_state(|state| {
+            state.media.remove(&media);
+            state.videos.remove(&media);
+        });
         Cmd::CloseMedia { media }
     };
 }
@@ -319,13 +342,20 @@ fn open_media(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
     let time = Arc::new(AtomicU64::new(0f64.to_bits()));
     with_state(|s| s.media.insert(media, time.clone()));
     let bytes: Arc<[u8]> = bytes.into();
-    let open = move || -> Result<Fields, String> {
-        let stream = decode::MediaStream::open(bytes)?;
-        let fields: Fields = [("duration", stream.duration), ("sampleRate", stream.rate), ("numberOfChannels", stream.channels as f64)];
-        output::send(Ctl::Cmd(web, Cmd::AddMedia { media, stream: Box::new(stream), time }));
-        Ok(fields)
+    let open = move || -> (u32, Result<Fields, String>) {
+        let opened = decode::MediaStream::open(bytes).map(|stream| {
+            let fields: Fields = [("duration", stream.duration), ("sampleRate", stream.rate), ("numberOfChannels", stream.channels as f64)];
+            output::send(Ctl::Cmd(web, Cmd::AddMedia { media, stream: Box::new(stream), time }));
+            fields
+        });
+        (media, opened)
     };
-    offload::run(scope, &mut rv, "acde-decode", open, settle);
+    offload::run(scope, &mut rv, "acde-decode", open, |scope, resolver, (media, result)| {
+        if result.is_ok() && !with_state(|s| s.media.contains_key(&media)) {
+            send(Cmd::CloseMedia { media });
+        }
+        settle(scope, resolver, result);
+    });
 }
 
 fn media(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
@@ -354,4 +384,108 @@ fn media_time(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
     let media = bind::arg_u32(scope, &args, 0);
     let seconds = with_state(|s| s.media.get(&media).map_or(0.0, |t| f64::from_bits(t.load(Ordering::Acquire))));
     rv.set_double(seconds);
+}
+
+struct Open {
+    media: u32,
+    node: u32,
+    player: Arc<acde_media::Player>,
+    gpu: Option<Arc<acde_gpu::Gpu>>,
+    first: Option<acde_media::Frame>,
+    epoch: u64,
+}
+
+fn open_video(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let (media, node) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
+    let Some(bytes) = bind::bytes(args.get(2)) else {
+        return bind::throw_type_error(scope, "audio.openVideo: not bytes");
+    };
+    let Some(web) = web() else {
+        return bind::throw_error(scope, "NotSupportedError: no audio output");
+    };
+    let time = Arc::new(AtomicU64::new(0f64.to_bits()));
+    with_state(|s| s.media.insert(media, time.clone()));
+    let bytes: Arc<[u8]> = bytes.into();
+    let open = move || -> Result<Open, String> {
+        let player = Arc::new(acde_media::Player::open(bytes)?);
+        let video = player.info().video;
+        let epoch = player.epoch();
+        let first = if video { player.first_frame(Duration::from_secs(10)) } else { None };
+        if let Some(e) = player.error() {
+            return Err(e);
+        }
+        let gpu = if video { acde_gpu::Gpu::shared() } else { None };
+        output::send(Ctl::Cmd(web, Cmd::AddMedia { media, stream: Box::new(VideoSound::new(player.clone())), time }));
+        Ok(Open { media, node, player, gpu, first, epoch })
+    };
+    offload::run(scope, &mut rv, "acde-video", open, opened);
+}
+
+fn opened(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, result: Result<Open, String>) {
+    let result = result.map(|open| {
+        let info = open.player.info().clone();
+        let mut picture = Picture::new(open.node, open.gpu);
+        let live = with_state(|s| s.media.contains_key(&open.media));
+        if !live {
+            send(Cmd::CloseMedia { media: open.media });
+        } else if let Some(frame) = open.first {
+            picture.show(frame);
+        }
+        let (width, height) = if info.video { picture.size.unwrap_or((info.width, info.height)) } else { (0, 0) };
+        if live {
+            with_state(|s| s.videos.insert(open.media, Video { player: open.player, picture, epoch: open.epoch }));
+        }
+        [("duration", info.duration), ("width", f64::from(width)), ("height", f64::from(height)), ("audio", f64::from(u8::from(info.audio)))]
+    });
+    match result {
+        Ok(fields) => {
+            let fields: Vec<(&str, v8::Local<v8::Value>)> = fields.iter().map(|&(name, value)| (name, v8::Number::new(scope, value).into())).collect();
+            let obj = bind::object(scope, &fields);
+            resolver.resolve(scope, obj.into());
+        }
+        Err(message) => {
+            let message = bind::string(scope, &message);
+            let error = v8::Exception::error(scope, message);
+            resolver.reject(scope, error);
+        }
+    }
+}
+
+fn present(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let media = bind::arg_u32(scope, &args, 0);
+    let shown = with_state(|s| {
+        let time = s.media.get(&media).map(|t| f64::from_bits(t.load(Ordering::Acquire)))?;
+        let video = s.videos.get_mut(&media)?;
+        let epoch = video.player.epoch();
+        let frame = if epoch != video.epoch {
+            let frame = video.player.first_frame(Duration::ZERO);
+            if frame.is_some() {
+                video.epoch = epoch;
+            }
+            frame
+        } else {
+            video.player.frame_at(time)
+        };
+        Some(video.picture.show(frame?))
+    });
+    rv.set_int32(match shown {
+        Some(true) => 2,
+        Some(false) => 1,
+        None => 0,
+    });
+}
+
+fn video_size(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let media = bind::arg_u32(scope, &args, 0);
+    let (width, height) = with_state(|s| s.videos.get(&media).and_then(|v| v.picture.size)).unwrap_or((0, 0));
+    let list = v8::Array::new(scope, 2);
+    let (width, height) = (v8::Integer::new_from_unsigned(scope, width), v8::Integer::new_from_unsigned(scope, height));
+    list.set_index(scope, 0, width.into());
+    list.set_index(scope, 1, height.into());
+    rv.set(list.into());
+}
+
+fn clear_video(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let node = bind::arg_u32(scope, &args, 0);
+    Picture::new(node, None).clear();
 }

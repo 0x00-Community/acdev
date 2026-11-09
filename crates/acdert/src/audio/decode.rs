@@ -228,7 +228,7 @@ impl MediaStream {
         self.queue.len() > self.pad + 1
     }
 
-    pub fn render(&mut self, out: &mut Bus, out_rate: f64, speed: f64, gain: f32, looping: bool) -> bool {
+    pub fn play(&mut self, out: &mut Bus, out_rate: f64, speed: f64, gain: f32, looping: bool) -> bool {
         let step = speed.max(0.0) * self.rate / out_rate;
         for i in 0..QUANTUM {
             if !self.fill() {
@@ -282,6 +282,20 @@ fn to_seconds(base: Option<TimeBase>, ts: i64, rate: f64) -> f64 {
     match base.and_then(|b| b.calc_time(Timestamp::new(ts))) {
         Some(t) => t.as_secs_f64(),
         None => ts as f64 / rate,
+    }
+}
+
+impl super::mixer::MediaSource for MediaStream {
+    fn time(&self) -> f64 {
+        MediaStream::time(self)
+    }
+
+    fn seek(&mut self, seconds: f64) {
+        MediaStream::seek(self, seconds);
+    }
+
+    fn render(&mut self, out: &mut Bus, out_rate: f64, speed: f64, gain: f32, looping: bool) -> bool {
+        self.play(out, out_rate, speed, gain, looping)
     }
 }
 
@@ -347,7 +361,7 @@ pub(crate) mod tests {
         let mut ended = false;
         while !ended && samples.len() < 60000 {
             let mut out = [[0.0; QUANTUM]; 2];
-            ended = s.render(&mut out, 48000.0, 1.0, 1.0, false);
+            ended = s.play(&mut out, 48000.0, 1.0, 1.0, false);
             samples.extend_from_slice(&out[0]);
         }
         assert!(ended);
@@ -358,7 +372,7 @@ pub(crate) mod tests {
         s.seek(0.5);
         assert!((s.time() - 0.5).abs() < 0.01, "{}", s.time());
         let mut out = [[0.0; QUANTUM]; 2];
-        assert!(!s.render(&mut out, 48000.0, 2.0, 1.0, false));
+        assert!(!s.play(&mut out, 48000.0, 2.0, 1.0, false));
         assert!((s.time() - (0.5 + 2.0 * QUANTUM as f64 / 48000.0)).abs() < 0.01, "{}", s.time());
     }
 }

@@ -10,6 +10,14 @@ use std::time::Duration;
 pub const RATE: u32 = 48_000;
 pub const CHANNELS: usize = 2;
 
+#[cfg(target_os = "macos")]
+pub const TYPES: &[&str] = &["video/mp4", "video/quicktime", "video/x-m4v", "audio/mp4", "audio/x-m4a"];
+#[cfg(target_os = "linux")]
+pub const TYPES: &[&str] =
+    &["video/mp4", "video/quicktime", "video/x-m4v", "audio/mp4", "audio/x-m4a", "video/webm", "audio/webm", "video/ogg", "video/x-matroska"];
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub const TYPES: &[&str] = &[];
+
 const AUDIO_AHEAD: usize = RATE as usize * CHANNELS / 2;
 const VIDEO_AHEAD: usize = 4;
 
@@ -131,6 +139,10 @@ impl Player {
         self.shared.wake.notify_all();
     }
 
+    pub fn epoch(&self) -> u64 {
+        lock(&self.shared.state).epoch
+    }
+
     pub fn audio_time(&self) -> f64 {
         lock(&self.shared.state).audio_time
     }
@@ -208,9 +220,16 @@ impl Drop for Player {
             state.stop = true;
             self.shared.wake.notify_all();
         }
-        self.shared.backend.stop();
-        for thread in self.threads.drain(..) {
-            _ = thread.join();
+        let (shared, threads) = (self.shared.clone(), std::mem::take(&mut self.threads));
+        let stopping = std::thread::Builder::new().name("acde-video-stop".into()).spawn(move || {
+            shared.backend.stop();
+            for thread in threads {
+                _ = thread.join();
+            }
+        });
+        if let Err(e) = stopping {
+            log::warn!("media: stopping inline ({e})");
+            self.shared.backend.stop();
         }
     }
 }

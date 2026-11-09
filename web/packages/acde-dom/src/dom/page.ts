@@ -2,7 +2,8 @@ import { Event, fire, type EventTarget } from '../core/event'
 import { G, host, report } from '../core/host'
 import { scriptSource } from '../core/net'
 import { URL } from '../core/url'
-import { noteMarkup, type Element } from './element'
+import { noteMarkup, parsed, type Element } from './element'
+import type { Node } from './node'
 import { env, resolveUrl } from './env'
 import { documentState } from './document'
 import { HTMLScriptElement } from './html'
@@ -108,6 +109,7 @@ export async function loadPage(html: string): Promise<void> {
   dom.parseDocument(html)
   treeChanged()
   roots()
+  parsed(wrap<Node>(documentId)!)
   const scripts = [...dom.querySelectorAll(documentId, 'script')].map((id) => wrap<Script>(id)!)
   for (const script of scripts) script[STARTED] = true
   for (const script of scripts) if (kind(script) === 'importmap') runImportMap(script)

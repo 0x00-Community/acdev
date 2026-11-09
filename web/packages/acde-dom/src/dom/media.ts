@@ -5,14 +5,16 @@ import { Blob } from '../core/blob'
 import { unbase64 } from '../core/encoding'
 import { fetch } from '../core/net'
 import { audioNative, mediaEvents } from '../audio/index'
+import { NodeType, type AudioNative } from '../native'
 import { contexts as gpuContexts, type GPUCanvasContext } from '../gpu/index'
 import { canvases, type CanvasContext2d, type CanvasElement } from './canvas'
-import { ATTRIBUTE_CHANGED, flags, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
+import { ATTRIBUTE_CHANGED, flags, parsedHooks, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
+import { clonedHooks, type Node } from './node'
 import { frames, resolveUrl } from './env'
 import { HTMLElement, register } from './html'
 import { metricGetters, metricsOf } from './layout'
 import { bool, long, nullable, string, url } from './reflect'
-import { dom, existing, ID, wrap } from './realm'
+import { dom, existing, ID, lifecycle, wrap } from './realm'
 
 export const loading = new Set<number>()
 
@@ -207,6 +209,14 @@ const PLAYABLE = /^audio\/(wav|wave|x-wav|vnd\.wave|mpeg|mp3|x-mp3|mpeg3|ogg|vor
 let nextMedia = 1 << 24
 const PLAYS = Symbol('plays')
 const ENDED = Symbol('ended')
+const OPEN = Symbol('open')
+const RUNNING = Symbol('running')
+const SEEKED = Symbol('seeked')
+const RESET = Symbol('reset')
+const CREATED = Symbol('created')
+const OPENED = Symbol('opened')
+
+type Opened = { duration: number; width?: number; height?: number }
 
 const timeRanges = (end: number) => ({ length: end > 0 ? 1 : 0, start: () => 0, end: () => end })
 
@@ -216,6 +226,8 @@ export class HTMLMediaElement extends HTMLElement {
   defaultPlaybackRate = 1
   preservesPitch = true
   #media = 0
+  #opening = 0
+  #suspended = false
   #generation = 0
   #loading = false
   #ready = 0
@@ -239,6 +251,22 @@ export class HTMLMediaElement extends HTMLElement {
     return true
   }
 
+  [OPEN](native: AudioNative, media: number, bytes: Uint8Array): Promise<Opened> {
+    return native.openMedia(media, bytes)
+  }
+
+  [OPENED](_media: number, _info: Opened): void {}
+
+  [RUNNING](_media: number, _running: boolean): void {}
+
+  [SEEKED](_media: number): void {}
+
+  [RESET](): void {}
+
+  [CREATED](): void {
+    if (this.#network === 0 && !this.#loading && !this.#media && this.#source()) this.#load()
+  }
+
   #source(): string {
     const src = dom.getAttribute(this[ID], 'src')
     if (src) return resolveUrl(src)
@@ -256,15 +284,20 @@ export class HTMLMediaElement extends HTMLElement {
     return this.muted ? 0 : this.#volume
   }
 
-  #load(): void {
+  #load(wanted = false): void {
     const native = audioNative()
     const generation = ++this.#generation
+    this.#suspended = false
     if (this.#media) {
       native?.closeMedia(this.#media)
       closedMedia.unregister(this)
       playingMedia.delete(this.#media)
+      this[RUNNING](this.#media, false)
       this.#media = 0
     }
+    if (this.#opening) native?.closeMedia(this.#opening)
+    this.#opening = 0
+    this[RESET]()
     if (this.#network !== 0) this.#emit('emptied')
     this.#ready = 0
     this.#ended = false
@@ -278,11 +311,25 @@ export class HTMLMediaElement extends HTMLElement {
       this.#loading = false
       return
     }
+    this.#emit('loadstart')
+    if (!wanted && !this.autoplay && dom.getAttribute(this[ID], 'preload')?.trim().toLowerCase() === 'none') {
+      this.#network = 1
+      this.#loading = false
+      this.#suspended = true
+      this.#emit('suspend')
+      return
+    }
+    this.#fetch(generation, url)
+  }
+
+  #fetch(generation: number, url: string): void {
+    const native = audioNative()
+    this.#suspended = false
     this.#network = 2
     this.#loading = true
-    this.#emit('loadstart')
     const fail = (code: number, message: string) => {
       if (generation !== this.#generation) return
+      this.#opening = 0
       this.#loading = false
       this.#network = 3
       this.#error = new MediaError(code, message)
@@ -291,29 +338,37 @@ export class HTMLMediaElement extends HTMLElement {
     }
     if (!native) return fail(4, 'Media playback is not supported')
     const media = nextMedia++
+    this.#opening = media
     fetch(url)
       .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(`HTTP ${response.status}`))))
       .then(
-        (bytes) =>
-          native.openMedia(media, new Uint8Array(bytes)).then(
+        (bytes) => {
+          if (generation !== this.#generation) return
+          return this[OPEN](native, media, new Uint8Array(bytes)).then(
             (info) => {
               if (generation !== this.#generation) return native.closeMedia(media)
+              this.#opening = 0
               this.#media = media
               closedMedia.register(this, media, this)
               this.#loading = false
               this.#network = 1
               this.#ready = 4
               this.#duration = info.duration
+              this[OPENED](media, info)
               native.media(media, 3, this.#gain())
               if (this.loop) native.media(media, 4, 1)
               if (this.#rate !== 1) native.media(media, 5, this.#rate)
-              if (this.#position > 0) native.media(media, 2, this.#position)
+              if (this.#position > 0) {
+                native.media(media, 2, this.#position)
+                this[SEEKED](media)
+              }
               for (const type of ['durationchange', 'loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough']) this.#emit(type)
               if (!this.#paused) this.#start()
               else if (this.autoplay) void this.play().catch(() => {})
             },
             (error: unknown) => fail(4, String((error as Error)?.message ?? error)),
-          ),
+          )
+        },
         (error: unknown) => fail(2, String((error as Error)?.message ?? error)),
       )
   }
@@ -323,6 +378,7 @@ export class HTMLMediaElement extends HTMLElement {
     if (!native || !this.#media) return
     native.media(this.#media, 0, 0)
     playingMedia.set(this.#media, this)
+    this[RUNNING](this.#media, true)
     this.#emit('playing')
     this.#settle(null)
     this.#stopTimer()
@@ -340,6 +396,7 @@ export class HTMLMediaElement extends HTMLElement {
 
   [ENDED](): void {
     playingMedia.delete(this.#media)
+    this[RUNNING](this.#media, false)
     this.#stopTimer()
     this.#ended = true
     this.#emit('timeupdate')
@@ -383,6 +440,7 @@ export class HTMLMediaElement extends HTMLElement {
     this.#ended = false
     if (this.#media) {
       audioNative()?.media(this.#media, 2, this.#position)
+      this[SEEKED](this.#media)
       for (const type of ['seeking', 'timeupdate', 'seeked']) this.#emit(type)
     }
   }
@@ -443,8 +501,10 @@ export class HTMLMediaElement extends HTMLElement {
     if (!audioNative()) return Promise.reject(new DOMException('Media playback is not supported', 'NotSupportedError'))
     if (this.#error?.code === 4 || this.#error?.code === 2) return Promise.reject(new DOMException(`The element has no supported sources: ${this.#error.message}`, 'NotSupportedError'))
     if (!this.#media && !this.#loading) {
-      if (!this.#source()) return Promise.reject(new DOMException('The element has no supported sources.', 'NotSupportedError'))
-      this.#load()
+      const url = this.#source()
+      if (!url) return Promise.reject(new DOMException('The element has no supported sources.', 'NotSupportedError'))
+      if (this.#suspended) this.#fetch(this.#generation, url)
+      else this.#load(true)
     }
     if (this.ended) this.currentTime = 0
     const promise = new Promise<void>((resolve, reject) => this.#pending.push({ resolve, reject }))
@@ -464,6 +524,7 @@ export class HTMLMediaElement extends HTMLElement {
     if (this.#media) {
       audioNative()?.media(this.#media, 1, 0)
       playingMedia.delete(this.#media)
+      this[RUNNING](this.#media, false)
     }
     this.#stopTimer()
     this.#emit('timeupdate')
@@ -510,15 +571,122 @@ tag(HTMLMediaElement)
 
 mediaEvents.ended = (media) => playingMedia.get(media)?.[ENDED]()
 
-export class HTMLVideoElement extends HTMLMediaElement {
-  getVideoPlaybackQuality(): object {
-    return { totalVideoFrames: 0, droppedVideoFrames: 0, corruptedVideoFrames: 0, creationTime: 0 }
-  }
-  override [PLAYS](): boolean {
-    return false
+function created(root: Node, withRoot: boolean): void {
+  const type = root.nodeType
+  if (type !== NodeType.Element && type !== NodeType.Document && type !== NodeType.DocumentFragment) return
+  const id = root[ID]
+  const ids = [...dom.querySelectorAll(id, 'video, audio')]
+  if (withRoot && root instanceof HTMLMediaElement) ids.unshift(id)
+  for (const media of ids) {
+    const element = wrap<HTMLMediaElement>(media)
+    if (element instanceof HTMLMediaElement) element[CREATED]()
   }
 }
-getters(HTMLVideoElement.prototype, { videoWidth: 0, videoHeight: 0 })
+parsedHooks.push((container) => created(container, false))
+clonedHooks.push((clone) => created(clone, true))
+lifecycle.disconnected.push((node) => {
+  if (!(node instanceof HTMLMediaElement)) return
+  void Promise.resolve().then(() => {
+    if (!node.isConnected) node.pause()
+  })
+})
+
+const videos = new Map<number, HTMLVideoElement>()
+const PRESENT = Symbol('present')
+
+export function presentVideos(): boolean {
+  if (videos.size === 0) return false
+  let more = false
+  for (const [media, video] of videos) more = video[PRESENT](media) || more
+  return more
+}
+
+export class HTMLVideoElement extends HTMLMediaElement {
+  #width = 0
+  #height = 0
+  #running = false
+  #seeking = false
+  #frames = 0
+
+  get videoWidth(): number {
+    return this.#width
+  }
+
+  get videoHeight(): number {
+    return this.#height
+  }
+
+  getVideoPlaybackQuality(): object {
+    return { totalVideoFrames: this.#frames, droppedVideoFrames: 0, corruptedVideoFrames: 0, creationTime: host.now() }
+  }
+
+  override [PLAYS](): boolean {
+    return typeof audioNative()?.openVideo === 'function'
+  }
+
+  override [OPEN](native: AudioNative, media: number, bytes: Uint8Array): Promise<Opened> {
+    return native.openVideo(media, this[ID], bytes)
+  }
+
+  override [OPENED](media: number, info: Opened): void {
+    this.#frames = info.width ? 1 : 0
+    this.#width = info.width ?? 0
+    this.#height = info.height ?? 0
+    videos.set(media, this)
+  }
+
+  override [RUNNING](media: number, running: boolean): void {
+    this.#running = running
+    this.#want(media)
+  }
+
+  override [SEEKED](media: number): void {
+    this.#seeking = true
+    this.#want(media)
+  }
+
+  override [RESET](): void {
+    for (const [media, video] of videos) if (video === this) videos.delete(media)
+    this.#running = this.#seeking = false
+    this.#frames = 0
+    audioNative()?.clearVideo(this[ID])
+    this.#width = this.#height = 0
+  }
+
+  [PRESENT](media: number): boolean {
+    const native = audioNative()
+    if (!native) return false
+    const shown = native.present(media)
+    if (shown > 0) {
+      this.#frames++
+      this.#seeking = false
+    }
+    if (shown === 2) {
+      const [width, height] = native.videoSize(media)
+      this.#resize(width, height)
+    }
+    return this.#running || this.#seeking
+  }
+
+  #want(media: number): void {
+    if (videos.get(media) !== this) return
+    if (this.#running || this.#seeking) frames.request()
+  }
+
+  #resize(width: number, height: number): void {
+    if (width === this.#width && height === this.#height) return
+    this.#width = width
+    this.#height = height
+    if (this.readyState > 0) host.setTimer(0, () => fire(this, new Event('resize')))
+  }
+
+  override canPlayType(type: string): string {
+    if (!this[PLAYS]()) return ''
+    const mime = String(type).split(';')[0]!.trim().toLowerCase()
+    if (audioNative()?.videoTypes.includes(mime)) return 'maybe'
+    return super.canPlayType(type)
+  }
+}
 for (const name of ['width', 'height']) long(HTMLVideoElement.prototype, name, 0)
 url(HTMLVideoElement.prototype, 'poster')
 bool(HTMLVideoElement.prototype, 'playsInline', 'playsinline')
