@@ -48,6 +48,14 @@ export type ShellModule = (typeof SHELL_MODULES)[number]
 
 export const SYSTEM_CAPABILITIES = ['fs', 'terminal', 'network', 'office', 'launch', 'slots', 'open', 'openFiles', 'camera', 'microphone'] as const
 
+export const CAPABILITY_MODULES = ['fs', 'terminal', 'network', 'office'] as const
+
+export interface ImportRule {
+  readonly allowed: boolean
+  readonly missing: string | null
+  readonly reason: string | null
+}
+
 export const RESERVED_NAMES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...SHELL_MODULES, ...APP_MODULES, 'capabilities'])
 
 export interface DesktopServiceGrant {
@@ -164,6 +172,27 @@ export class Manifest {
       optional,
       services,
     }
+  }
+
+  static importRule(name: string, app: AppManifest | null, origin: { readonly system: boolean }): ImportRule {
+    const allowed: ImportRule = { allowed: true, missing: null, reason: null }
+    if (!app) return allowed
+    const caps = app.capabilities
+    const declared = `the capabilities of ${app.label}`
+    const refuse = (missing: string | null, reason: string): ImportRule => ({ allowed: false, missing, reason })
+    if (Manifest.#SHELL.has(name)) {
+      if (!origin.system) {
+        const why = `only the desktop, its services and system apps may import it, and ${app.label} is not a system app`
+        return refuse(null, `acde:${name} is a shell module: ${why}`)
+      }
+      return caps[name] ? allowed : refuse(name, `acde:${name} is a shell module: declare "${name}" in ${declared}`)
+    }
+    if (name === 'launch') return caps.launch || caps.slots ? allowed : refuse('launch', `acde:launch needs "launch" or "slots" in ${declared}`)
+    if (name === 'openPath' || name === 'handlers') return caps.openFiles ? allowed : refuse('openFiles', `acde:${name} needs "openFiles" in ${declared}`)
+    if ((CAPABILITY_MODULES as readonly string[]).includes(name)) return caps[name] ? allowed : refuse(name, `acde:${name} needs "${name}" in ${declared}`)
+    if ((APP_MODULES as readonly string[]).includes(name) || name === 'capabilities') return allowed
+    if (app.services.includes(name) || caps[name]) return allowed
+    return refuse(name, `acde:${name} is a desktop service: list "${name}" in the services of ${app.label}`)
   }
 
   static reserved(name: string): string | null {

@@ -6,6 +6,7 @@ export interface ConfigCommon {
   readonly $schema?: string
   readonly name?: string
   readonly version?: string
+  readonly apiLevel?: number
   readonly public?: string
 }
 

@@ -17,6 +17,11 @@
         "version": {
           "type": "string"
         },
+        "apiLevel": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "契约级别 (SDK 的 API_LEVEL); 不写时 acde build 写入当前级别"
+        },
         "public": {
           "type": "string",
           "description": "原样复制的静态文件目录, 默认 public"
@@ -228,6 +233,11 @@
         },
         "version": {
           "type": "string"
+        },
+        "apiLevel": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "契约级别 (SDK 的 API_LEVEL); 不写时 acde build 写入当前级别"
         },
         "public": {
           "type": "string",

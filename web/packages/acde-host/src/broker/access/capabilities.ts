@@ -1,5 +1,6 @@
 import {
   API_LEVEL,
+  CAPABILITY_MODULES,
   Manifest,
   SHELL_MODULES,
   platformSupport,
@@ -34,7 +35,6 @@ export class CapabilityCheck {
     'shell-only': 'shell only',
     denied: 'denied by the user',
   }
-  static readonly #MODULES = ['fs', 'terminal', 'network', 'office'] as const
   static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
   static readonly #NO_FEATURES: WindowFeatures = { backdrop: 'unsupported' }
   readonly #host: CapabilityHost
@@ -90,7 +90,8 @@ export class CapabilityCheck {
 
   refusedModules(app: AppManifest, origin: AppOrigin): Record<string, string> {
     const refused: Record<string, string> = {}
-    for (const name of CapabilityCheck.#MODULES) {
+    for (const name of CAPABILITY_MODULES) {
+      if (!Manifest.importRule(name, app, origin).allowed) continue
       const status = this.status(name, app, origin)
       if (status.state !== 'available' && status.state !== 'not-declared') refused[`acde:${name}`] = `acde:${name}: "${name}" is ${status.reason}`
     }

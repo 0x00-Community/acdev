@@ -1,4 +1,4 @@
-import { Manifest, SHELL_MODULES, type ShellModule } from '@dopame/acde-api/manifest'
+import { CAPABILITY_MODULES, Manifest, SHELL_MODULES, type ShellModule } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../apps'
 import type { CapabilitySnapshot } from './capabilities'
 
@@ -12,7 +12,7 @@ export interface WebTier {
 export class Tiers {
   static readonly LEGACY: WebTier = { level: 0, shell: [], refused: {} }
   static readonly DESKTOP: WebTier = { level: 1, shell: [...SHELL_MODULES], refused: {} }
-  static readonly #CAPABILITY_MODULES = ['fs', 'terminal', 'network', 'office'] as const
+  static readonly #GATED = [...SHELL_MODULES, 'launch', 'openPath', 'handlers', ...CAPABILITY_MODULES]
   static readonly #EVENTS: ReadonlyMap<string, ShellModule> = new Map([
     ['appschanged', 'packages'],
     ['download', 'desktop'],
@@ -21,19 +21,12 @@ export class Tiers {
 
   static app(app: AppManifest, origin: AppOrigin): WebTier {
     if (origin.level < 1) return Tiers.LEGACY
-    const caps = app.capabilities
-    const declared = `the capabilities of ${app.label}`
-    const shell = origin.system ? Manifest.shellModules(caps) : []
+    const shell = origin.system ? Manifest.shellModules(app.capabilities) : []
     const refused: Record<string, string> = {}
-    for (const name of SHELL_MODULES) {
-      if (shell.includes(name)) continue
-      refused[`acde:${name}`] = origin.system
-        ? `acde:${name} is a shell module: declare "${name}" in ${declared}`
-        : `acde:${name} is a shell module: only the desktop, its services and system apps may import it, and ${app.label} is not a system app`
+    for (const name of Tiers.#GATED) {
+      const rule = Manifest.importRule(name, app, origin)
+      if (!rule.allowed) refused[`acde:${name}`] = rule.reason!
     }
-    if (!caps.launch && !caps.slots) refused['acde:launch'] = `acde:launch needs "launch" or "slots" in ${declared}`
-    if (!caps.openFiles) for (const name of ['openPath', 'handlers']) refused[`acde:${name}`] = `acde:${name} needs "openFiles" in ${declared}`
-    for (const name of Tiers.#CAPABILITY_MODULES) if (!caps[name]) refused[`acde:${name}`] = `acde:${name} needs "${name}" in ${declared}`
     return { level: origin.level, shell, refused }
   }
 
