@@ -1,10 +1,14 @@
 use acde_gpu::RenderCommand;
-use acde_render::{Bar, Decoration, FrameButton};
+use acde_render::{Bar, Decoration, FrameButton, FrameStyle};
 
 mod common;
 
 fn bar(title: &str, width: f64, scale: f64) -> Bar {
-    Bar { title: title.into(), width, height: 32.0, scale }
+    Bar { title: title.into(), width, height: 32.0, scale, style: FrameStyle::Mac, fullscreen: false }
+}
+
+fn windows(title: &str, width: f64, scale: f64) -> Bar {
+    Bar { style: FrameStyle::Windows, ..bar(title, width, scale) }
 }
 
 fn pixels(bar: &Bar) -> (Vec<u8>, u32) {
@@ -78,4 +82,63 @@ fn buttons_are_hit_in_their_slots_only() {
     assert_eq!(b.button_at(150.0, 16.0), None);
     assert_eq!(b.button_at(18.0, 32.0), None);
     assert_eq!(b.button_at(18.0, -1.0), None);
+}
+
+#[test]
+fn the_style_comes_from_its_name_or_the_platform() {
+    assert_eq!(FrameStyle::parse(Some("mac")), FrameStyle::Mac);
+    assert_eq!(FrameStyle::parse(Some("windows")), FrameStyle::Windows);
+    let native = if cfg!(windows) { FrameStyle::Windows } else { FrameStyle::Mac };
+    assert_eq!(FrameStyle::parse(None), native);
+    assert_eq!(FrameStyle::parse(Some("gnome")), native);
+}
+
+#[test]
+fn windows_buttons_sit_on_the_right_as_minimize_maximize_close() {
+    let b = windows("x", 400.0, 2.0);
+    assert_eq!(b.button_at(400.0 - 138.0, 16.0), Some(FrameButton::Minimize));
+    assert_eq!(b.button_at(400.0 - 93.0, 1.0), Some(FrameButton::Minimize));
+    assert_eq!(b.button_at(400.0 - 92.0, 16.0), Some(FrameButton::Fullscreen));
+    assert_eq!(b.button_at(400.0 - 46.0, 31.0), Some(FrameButton::Close));
+    assert_eq!(b.button_at(399.0, 16.0), Some(FrameButton::Close));
+    assert_eq!(b.button_at(400.0 - 139.0, 16.0), None);
+    assert_eq!(b.button_at(18.0, 16.0), None);
+    assert_eq!(b.button_at(399.0, 32.0), None);
+}
+
+#[test]
+fn windows_bar_draws_glyphs_not_dots_and_a_left_title() {
+    for scale in [1.0, 2.0] {
+        let b = windows("", 300.0, scale);
+        let px = pixels(&b);
+        assert_eq!(rgb(&px, 18.0 * scale, 16.0 * scale), [0xf4, 0xf2, 0xf7], "no traffic lights");
+        let ink = |x: f64, y: f64| rgb(&px, x * scale, y * scale)[0] < 0xc0;
+        let close = 300.0 - 23.0;
+        assert!(ink(close - 0.5, 15.5) || ink(close, 16.0) || ink(close - 1.0, 15.0), "the close cross");
+        assert!(ink(300.0 - 69.0 - 4.5, 11.5), "the maximize square's top edge");
+        assert!(!ink(300.0 - 69.0, 16.0), "the maximize square is hollow");
+    }
+    let runs = glyph_runs(&windows("Notes", 400.0, 1.0));
+    assert!(!runs.is_empty());
+    assert!(runs[0].0 >= 11.0 && runs[0].0 < 20.0, "{runs:?}");
+    let title = "A very long window title that cannot possibly fit in a narrow window";
+    let narrow = glyph_runs(&windows(title, 260.0, 1.0));
+    let end = narrow.last().map(|(x, _)| *x).unwrap_or(0.0);
+    assert!(end < 260.0 - 138.0, "{narrow:?}");
+}
+
+#[test]
+fn windows_maximize_turns_into_restore_when_fullscreen() {
+    let corner = |b: &Bar| rgb(&pixels(b), 226.0, 11.0)[0] < 0xc0;
+    assert!(corner(&windows("", 300.0, 1.0)), "maximize: one square from the glyph's corner");
+    assert!(!corner(&Bar { fullscreen: true, ..windows("", 300.0, 1.0) }), "restore: two squares, the corner left open");
+    assert_eq!(FrameButton::Fullscreen.key(true), "restore");
+}
+
+#[test]
+fn windows_grab_hints_leave_the_buttons_on_the_right() {
+    let hints = FrameStyle::Windows.grab_hints(640.0, 480.0, 32.0);
+    assert_eq!(hints[0], ([0.0, 0.0, 640.0 - 138.0, 32.0], 0));
+    let mac = FrameStyle::Mac.grab_hints(640.0, 480.0, 32.0);
+    assert_eq!(mac[0], ([76.0, 0.0, 564.0, 32.0], 0));
 }

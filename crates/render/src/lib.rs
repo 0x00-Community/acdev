@@ -23,7 +23,7 @@ pub use blitz_paint;
 pub use canvas::encode_png;
 pub use capture::Capture;
 pub use commands::Commands;
-pub use decoration::{Bar, Decoration, FrameButton};
+pub use decoration::{Bar, Decoration, FrameButton, FrameStyle};
 pub use dom::{Dom, NONE, NodeType, Ns, Quad, Viewport};
 pub use error::{Error, Result};
 pub use geometry::Metrics;

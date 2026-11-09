@@ -77,7 +77,14 @@ impl Entry {
     }
 
     pub fn bar(&self) -> acde_render::Bar {
-        acde_render::Bar { title: self.title.clone(), width: self.rect[2], height: self.frame, scale: 1.0 }
+        acde_render::Bar {
+            title: self.title.clone(),
+            width: self.rect[2],
+            height: self.frame,
+            scale: 1.0,
+            style: acde_render::FrameStyle::current(),
+            fullscreen: self.mode == Mode::Fullscreen,
+        }
     }
 }
 

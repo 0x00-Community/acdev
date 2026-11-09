@@ -137,6 +137,11 @@ impl Presenter {
                 self.render.invalidate();
                 self.dirty = true;
             }
+            Msg::Fullscreen(fullscreen) => {
+                self.bar.fullscreen = fullscreen;
+                self.render.invalidate();
+                self.dirty = true;
+            }
             Msg::Capture(reply) => self.captures.push((reply, Instant::now() + crate::shell::CAPTURE_WAIT)),
             Msg::Stop => return true,
         }
