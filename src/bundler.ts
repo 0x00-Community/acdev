@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import acdeVite from '@dopame/acde-api/vite'
 import { PackageManager } from './pm.ts'
 import { Runtime } from './runtime.ts'
@@ -55,9 +55,18 @@ export abstract class Bundler {
   protected abstract server(job: BackendJob, wrapper: string): Promise<void>
 
   async preload(out: string): Promise<void> {
-    const { LISTEN_JS } = await import('./listen-bundle.ts')
+    const fromSource = import.meta.url.endsWith('.ts')
+    const text = fromSource ? await Bundler.#sourcePreload() : (await import('./listen-bundle.ts')).LISTEN_JS
     mkdirSync(out, { recursive: true })
-    writeFileSync(join(out, 'acde-listen.js'), LISTEN_JS)
+    writeFileSync(join(out, 'acde-listen.js'), text)
+  }
+
+  static async #sourcePreload(): Promise<string> {
+    const entry = join(dirname(fileURLToPath(import.meta.url)), 'listen.ts')
+    const built = await Bun.build({ entrypoints: [entry], target: 'node', format: 'esm', minify: { syntax: true } })
+    const [output] = built.outputs
+    if (!built.success || !output) throw new Error(`bundling src/listen.ts failed: ${built.logs.join('\n')}`)
+    return output.text()
   }
 
   async backend(job: BackendJob): Promise<void> {

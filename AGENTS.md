@@ -52,7 +52,8 @@ acde 还没有“启动已构建应用”的命令（`acde install` 只装包，
   按 import 条件从工程目录解析包用 `Runtime.resolve`, 不用 `Bun.resolveSync`.
 - 打包: bun 上 `Bun.build`, Node 上工程自己的 Vite (见「构建」). `acde test` / `acde/test` 只在 bun 上.
 - 后端 preload 的文本 (`src/listen-bundle.ts`) 是 Bun 宏 (`src/listen-macro.ts`, `bun build src/listen.ts`) 打 `cli.js` 时内联的; 从源码跑时
-  bun 第一次 import 时跑宏, 只有 Node 时从源码跑出不了 preload (发布的不受影响).
+  (`Bundler.preload` 看 `import.meta.url` 是 `.ts`) 不经宏, 在进程内 `Bun.build` 同样的选项 (产物逐字相同; 宏里不许调 `Bun.build`, 而 Windows
+  上 bun 起子进程前几次要几秒, 每次 `acde build` 都多等这一下), 只有 Node 时从源码跑出不了 preload (发布的不受影响).
 
 ## acde new (`src/create.ts`, `src/pm.ts`)
 
