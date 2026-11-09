@@ -1,4 +1,4 @@
-//! `acde:inspect` (AGENTS.md「看和操作桌面」): the screen as a text tree an agent reads, and acting on its refs. One
+//! `acde:inspect` (AGENTS.md「看和操作桌面」): the screen as a text tree a harness reads, and acting on its refs. One
 //! inspector for the runtime (the desktop and the package's services share its window refs and diff baselines), run
 //! on the caller's thread off its loop. A window's tree is its page's (asked of that isolate: its document and its JS
 //! for where to click, typing, focus, settling) or, for a window no isolate draws, AT-SPI's. Clicks and keys go
@@ -25,7 +25,7 @@ const ASK_WAIT: Duration = Duration::from_secs(10);
 const GENERIC: [&str; 15] = ["generic", "filler", "panel", "section", "unknown", "redundant-object", "split-pane", "layered-pane", "scroll-pane", "viewport", "internal-frame", "root-pane", "glass-pane", "option-pane", "window"];
 const PRESSABLE: [&str; 6] = ["button", "link", "menuitem", "checkbox", "radio", "tab"];
 
-/// What an agent does to a ref.
+/// What a harness does to a ref.
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Action {
@@ -224,7 +224,7 @@ impl TryFrom<&str> for Target {
     }
 }
 
-/// Key names as agents write them (`ctrl+a backspace`) to evdev codes.
+/// Key names as harnesses write them (`ctrl+a backspace`) to evdev codes.
 struct Keys;
 
 impl Keys {

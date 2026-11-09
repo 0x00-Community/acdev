@@ -112,7 +112,7 @@ acde 产出**一个**可执行文件, 在 Linux / Windows / macOS 上都能跑, 
 
 | 跑法 | 命令 | 平台 | 窗口 | 合成器 |
 | --- | --- | --- | --- | --- |
-| **AgentComputer 会话** (真实运行环境) | `acde --desktop <id>` (登录页起) | Linux | 合成器的 Wayland 客户端 (xdg_toplevel) | acde 自己 (主进程) |
+| **HarnessComputer 会话** (真实运行环境) | `acde --desktop <id>` (登录页起) | Linux | 合成器的 Wayland 客户端 (xdg_toplevel) | acde 自己 (主进程) |
 | **调试桌面** | `acde desktop [<id> \| 目录]` | Linux / Windows / macOS, 在别人的桌面里 | 宿主系统的原生窗口 | 宿主系统的 |
 | **调试窗口** | `acde app [<id> \| 目录]` | 同上 | 同上 | 同上 |
 
@@ -128,7 +128,7 @@ acde 产出**一个**可执行文件, 在 Linux / Windows / macOS 上都能跑, 
 工程的工具子命令 (`acde app new / check / build / install`) 照旧. 现在的 `acde window <app>` 由 `acde app <id>` 取代.
 
 ```
-AgentComputer:
+HarnessComputer:
 acde (主进程)                       合成器 (crates/shell) + 窗口管理 + 输入 / 外设. 没有 V8, 不跑 JS
 acde runtime (子进程, 一个)         一个 V8 (一个 Platform), 所有 JS 都在这里
  ├─ Broker isolate                  会话、当前桌面的服务、应用记录; 经 `acde_shell` 管合成器
@@ -154,7 +154,7 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
   能力的限制 (fs 的 roots …) 在注入时绑进去, 不在调用时由 Broker 查. 没给的模块不注入, import 直接失败. 某个平台上没有的能力
   (调试模式里只有 acde 自己开的窗口 …) 同样不注入, 不给假的实现.
 - **共享状态**: 窗口表、应用表、会话这些跨窗口的状态是 runtime 里的 Rust 表, 各 isolate 直接读写; 要合成器动手的 (关窗口、
-  聚焦、隐藏、放置、快捷键 …) 经 `acde_shell` (AgentComputer) 或宿主窗口 (调试模式).
+  聚焦、隐藏、放置、快捷键 …) 经 `acde_shell` (HarnessComputer) 或宿主窗口 (调试模式).
 - **桌面包服务** (assistant …): 在 Broker isolate 里 (或自己的 isolate); 别的 isolate 调它是进程内跨 isolate 调用 (结构化克隆,
   经线程间通道), 像 workerd 的 service binding. 这是唯一的跨 isolate 调用, 只给 JS 写的服务用, 系统能力不走它.
 - **`acde_shell`**: 主进程起 runtime 时交给它的私有 Wayland 协议连接 (只有这条连接能绑定); runtime 里由 `Desk` 持有 (crates/shell
@@ -644,7 +644,7 @@ greeter; fontconfig 的缓存也在这里), 写不了只打 warn. 自动登录 (
 
 ## 看和操作桌面 (`acde:inspect`)
 
-给 agent (Dopame 的总管) 用的: 不截图, 把屏幕变成一棵文字的语义树 (照 Android 的无障碍树 / Playwright 的 aria snapshot), agent 按
+给 harness (Dopame 的总管) 用的: 不截图, 把屏幕变成一棵文字的语义树 (照 Android 的无障碍树 / Playwright 的 aria snapshot), harness 按
 ref 点击、输入、按键. 只有桌面 (`acde.inspect`) 和桌面包的服务 (`ServiceContext.inspect`) 拿得到; 网页接口不动.
 
 - **网页的树** (render `Dom::semantics(root, limit)`, `crates/render/src/dom/semantics.rs`, JS `DomNative.semantics`): 拿一次文档锁,
@@ -1034,7 +1034,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
 
 - 注入输入 `inject({type, x, y, button, dx, dy, source, code})`: type 是 `move` (绝对) / `motion` (相对, 像真鼠标, 锁鼠标时
   指针不动) / `down` / `up` / `wheel` / `keydown` / `keyup`; wheel 的 source 是 `wheel` / `finger` (dx dy 都为 0 表示手指离开) /
-  `continuous`. 和真实输入同一条路由, 只在合成器内部, 不碰真实设备. 给验收和 agent 操作窗口用.
+  `continuous`. 和真实输入同一条路由, 只在合成器内部, 不碰真实设备. 给验收和 harness 操作窗口用.
 - 第一帧网页等 JS 第一次 commit 才上屏 (可以先建 Shell 再加载页面). HiDPI: 输出的缩放默认是整数, 按显示器 EDID 的物理宽度算 DPI, 取 `floor(DPI / 96 + 0.3)` (1 到 3; 没有物理尺寸时, 例如 RDP 后端, 是 1; 27 寸 4K 是 2), `ACDE_SCALE` 指定时用它 (可以是分数). 启动时每块输出打一行 `输出 <名字>: <分辨率> 物理 <宽>x<高> mm 缩放 <s> 位置 <x, y>`,
   多块输出按逻辑宽度 (分辨率除以缩放) 从左往右排. 光标一律合成进画面, 不用 DRM 光标平面 (`render_frame` 不给
   `ALLOW_CURSOR_PLANE_SCANOUT`): 带 T2 的 Intel Mac 上 2 倍缩放时, 走光标平面的光标只能走屏幕左上 1/4; 改成合成之后在
@@ -1166,7 +1166,7 @@ JS 里 `console.*` 是 target `js`, 页面错误和没接住的异常是 `js` �
 | `perf::rpc` | acde-host | isolate 侧 `call <服务>.<方法> error= ms=` (往返), Broker 侧 `serve <服务>.<方法> ms=` (处理) |
 
 桌面包服务起的进程 (`ctx.spawn`) 的 stderr 逐行进 acde 的日志 (前缀 `[<服务名>]`); 它们按同样格式打的 `perf::<名字>` 行 (例如
-acde-dopame 的 `perf::assistant` / `perf::agent`) `perf-log.sh` 照样汇总. 会话的 `RUST_LOG` 由服务自己决定传不传.
+acde-dopame 的 `perf::assistant` / `perf::harness`) `perf-log.sh` 照样汇总. 会话的 `RUST_LOG` 由服务自己决定传不传.
 
 输入到上屏的 Trace (`acde_log::Trace`, 时间都是 `now_ms`): isolate收到 Wayland 输入、放进事件队列时盖时间 (`Event.stamp`, crates/model `Inbox`), isolate 取走时 crates/acde
 记 `pumped` 并交给 render (`Dom::input`), 下一次改了文档的 `commit` 记 `committed` (1 秒内没有改文档的 commit 就丢掉), 出帧时记 `framed`
