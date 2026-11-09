@@ -65,11 +65,13 @@ jobs:
           fi
           mkdir -p in/sdk/unpacked
           tar -xzf "in/sdk/$name" -C in/sdk/unpacked
-          test -f in/sdk/unpacked/acde-api/package.json
-          test -f in/sdk/unpacked/acde-api/src/index.js
+          test "$(ls in/sdk/unpacked)" = package
+          test -f in/sdk/unpacked/package/package.json
+          test -f in/sdk/unpacked/package/src/index.js
+          test -f in/sdk/unpacked/package/src/validate.js
           mkdir -p "$GITHUB_WORKSPACE/acdert/web/packages"
           rm -rf "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
-          mv in/sdk/unpacked/acde-api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
+          mv in/sdk/unpacked/package "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
       - name: the placed SDK is the pinned one, at the path package.json names
         working-directory: acde
         run: |
