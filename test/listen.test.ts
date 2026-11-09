@@ -1,8 +1,8 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Subprocess } from 'bun'
-import { socketDir, socketPath } from '../src/sockets.ts'
+import { socketDir, socketPath, WINDOWS_PATH_MAX } from '../src/sockets.ts'
 import { cleanup, env, get, inetSockets, line, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const LISTEN = join(import.meta.dir, '../src/listen.ts')
@@ -92,6 +92,52 @@ describe('listen on a port goes to <dir>/<port>.sock', () => {
     expect(await get(join(runtime, 'acde/apps/demo/3000.sock'))).toBe('bun-serve /p')
     if (!WINDOWS) expect(statSync(join(runtime, 'acde/apps/demo')).mode & 0o777).toBe(0o700)
     noInet(child.pid)
+  })
+})
+
+describe('Bun in the Windows socket mode: ACDE_APP_SOCKETS with ACDE_APP_CONTROL=fd', () => {
+  const windowsEnv = (dir: string) => ({ ACDE_APP_SOCKETS: dir, ACDE_APP_CONTROL: 'fd', ACDE_APP_CHANNEL: 'fd' })
+
+  test('Bun.serve binds <dir>/<port>.sock unmodified, even if ACDE_APP_CHANNEL is set', async () => {
+    const dir = join(tmp(), 'sockets')
+    const child = start('bun-serve.ts', windowsEnv(dir))
+    expect(await line(child, 'ready')).toBe('ready 3000 http://localhost:3000/')
+    expect(await get(join(dir, '3000.sock'))).toBe('bun-serve /p')
+    noInet(child.pid)
+  })
+
+  test('node:http under bun binds in the directory too', async () => {
+    const dir = join(tmp(), 'sockets')
+    const child = start('node-http.ts', windowsEnv(dir))
+    expect(await line(child, 'ready')).toBe('ready 3000')
+    expect(await get(join(dir, '3000.sock'), '/q')).toBe('node-http /q')
+  })
+
+  const notWindows = skipping(!WINDOWS, 'the socket directory ACL: Windows only')
+  test.skipIf(notWindows)('the preload leaves the ACL of the socket directory alone', async () => {
+    const dir = join(tmp(), 'sockets')
+    mkdirSync(dir)
+    const acl = () => Bun.spawnSync(['icacls', dir]).stdout.toString()
+    const mine = `${process.env['USERNAME']}:(OI)(CI)F`
+    expect(Bun.spawnSync(['icacls', dir, '/inheritance:r', '/grant:r', mine]).exitCode).toBe(0)
+    const before = acl()
+    const child = start('bun-serve.ts', windowsEnv(dir))
+    await line(child, 'ready')
+    expect(await get(join(dir, '3000.sock'))).toBe('bun-serve /p')
+    expect(acl()).toBe(before)
+  })
+
+  test('Windows socket paths', () => {
+    expect(socketPath(3000, { ACDE_APP_SOCKETS: 'C:\\R\\a1b2' }, 'win32')).toBe('C:\\R\\a1b2\\3000.sock')
+    expect(socketPath(3000, { XDG_RUNTIME_DIR: 'C:\\R', ACDE_APP_ID: 'notes' }, 'win32'))
+      .toBe('C:\\R\\acde\\apps\\notes\\3000.sock')
+    expect(() => socketDir({ ACDE_APP_ID: 'notes' }, 'win32')).toThrow('on Windows the runtime names the directory')
+    const fits = `C:\\${'d'.repeat(WINDOWS_PATH_MAX - 'C:\\\\65535.sock'.length)}`
+    expect(socketPath(65535, { ACDE_APP_SOCKETS: fits }, 'win32')).toHaveLength(WINDOWS_PATH_MAX)
+    expect(() => socketPath(65535, { ACDE_APP_SOCKETS: `${fits}d` }, 'win32')).toThrow('Windows allows 107')
+    expect(socketPath(65535, { ACDE_APP_SOCKETS: `/${'d'.repeat(200)}` }, 'linux')).toHaveLength(212)
+    expect(socketPath(3000, { ACDE_APP_ID: 'notes' }, 'linux'))
+      .toBe(`/run/user/${process.getuid?.() ?? 0}/acde/apps/notes/3000.sock`)
   })
 })
 

@@ -132,6 +132,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - 没有 `import` / `export` (内置模块经 `process.getBuiltinModule`), 既是 CJS 也是 ESM: `"type": "commonjs"` 的包里 (Next standalone) 也能 `--import`.
 - `Bun.serve` / `Bun.listen` / `net`、`http`、`https`、`tls`、`http2` 的 `listen(P)` 换成 `<sockets>/P.sock` (`src/sockets.ts`: `ACDE_APP_SOCKETS`, 或
   `$XDG_RUNTIME_DIR/acde/apps/<ACDE_APP_ID>`; P 没给时 `BUN_PORT` / `PORT` / `NODE_PORT` / 3000); 指定端口的 UDP bind、在现成 fd 上 listen 抛 `EACCES`.
+- Windows 上的套接字模式 (bun 总是它, 见「Windows 后端契约」): 同样换成 `<ACDE_APP_SOCKETS>\P.sock`, `Bun.serve` 照原样 bind (AF_UNIX),
+  `ACDE_APP_CHANNEL` 不看. 目录由运行时建好并设 ACL, 预加载只在缺目录时 `mkdir`, Windows 上不 `chmod`. 路径超过 107 字节 (AF_UNIX 的
+  `sun_path` 上限) 时抛 `ENAMETOOLONG` 说清楚; Windows 上没有 `ACDE_APP_SOCKETS` 时要 `XDG_RUNTIME_DIR`, 不猜 `/run/user`.
+  `ACDE_APP_CONTROL=fd` 的控制帧目前不读 (acde#6). unix 不变.
 - Node 上 `export default {fetch}`: `acde.serve` 用 `node:http` 起服务, 请求换成 WHATWG `Request` (流式 body, 断开时 abort), `server` 只有
   `upgrade()` (false, 没有 WebSocket 升级)、`requestIP()` (null)、`port`、`hostname`; `Response` 流式写回; 抛错回 500.
 - 开发时: `bun --preload <acde>/src/listen.ts server.ts`.
@@ -275,7 +279,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 - 后端: acdert 在 PATH 上有 bun 时 `bun --preload <dir>/acde-listen.js <entry>`, 否则 `node --import <acde-listen.js 的 file: URL> <entry>` (Windows
   盘符路径不是合法的模块说明符). `acde dev` 给 acdert 设 `ACDE_RUNTIME` (`bun` / `node`, acde 自己跑在哪个上), `node` 时 acdert 先找 node. 没有 `acde-listen.js` 的旧包不起.
 - **Windows 后端契约** (2026-11-09 定, 和 acdert AGENTS.md「网页应用」的「Windows 后端契约」是同一份, 两边一起发版; 预加载的通道模式
-  已实现 (acde#4, 见「preload」), 套接字模式见 acde#5, 优雅停止见 acde#6; 运行时一侧见 acdert#23、#24、#25).
+  和套接字模式已实现 (acde#4、#5, 见「preload」), 优雅停止见 acde#6; 运行时一侧见 acdert#23、#24、#25).
   不变量: 后端运行期间没有 TCP 监听、没有命名管道, 套接字文件只有 SYSTEM 和当前用户能开; macOS / Linux 不变.
   - **两种模式**: node 走**通道模式**, 环境 `ACDE_APP_CHANNEL=fd`, 不设 `ACDE_APP_SOCKETS` (Node 在 Windows 上不能用文件系统 AF_UNIX);
     bun 走**套接字模式**, 环境 `ACDE_APP_SOCKETS=<本代目录>` 加 `ACDE_APP_CONTROL=fd`, 不设 `ACDE_APP_CHANNEL`. 其余变量同 unix.

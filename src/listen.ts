@@ -42,7 +42,7 @@ function prepare(port: number): string {
   const path = socketPath(port)
   const dir = dirname(path)
   mkdirSync(dir, { recursive: true, mode: 0o700 })
-  chmodSync(dir, 0o700)
+  if (process.platform !== 'win32') chmodSync(dir, 0o700)
   if (!live.has(path)) {
     try {
       if (lstatSync(path).isSocket()) unlinkSync(path)
