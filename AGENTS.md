@@ -447,7 +447,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   (`types: [{accept: {'image/png': ['.png']}}]` 只显示 .png). 只有没有扩展名的过滤器 (只有 MIME) 退回 All files, 因为 Windows 没有完整的 MIME 到扩展名表;
   一项扩展名换不了 (`*`、`report-*`、含 `;`) 也整体退回 All files, 不藏起页面接受的文件 (宁可多给不能少给, 和 macOS 同一规则).
 - 验收: 无头 `bash scripts/file-chooser/check-file-chooser.sh` 用 `choose` 的预设答复 (`answerOpen` / `answerSave`) 检查打开多选、取消、无答复时失败、
-  保存写入句柄、保存取消. 真对话框: `pwsh -NoProfile -ExecutionPolicy Bypass -File D:\Projects\AgentComputercdert\scriptsile-choosereal-dialog-acceptance.ps1`
+  保存写入句柄、保存取消. 真对话框: `pwsh -NoProfile -ExecutionPolicy Bypass -File D:\Projects\AgentComputer\acdert\scripts\file-chooser\real-dialog-acceptance.ps1`
   (有界面的桌面, 会打开真的打开/保存对话框). 它用 dev 管道 (`ACDE_DEV`) 点探针页面的按钮、读结果行, 用 UI Automation 找到宿主窗口拥有的对话框
   (文件名框的值不对外暴露, 所以路径经剪贴板 Ctrl+V 贴进去, 确认 Enter, 取消 Esc; 每次按键前核对前台窗口是对话框, 否则不输入), 检查列表项和保存结果, 截图和
   `summary.json` 写到 `logs/file-chooser-real.<时间戳>`. 人工探针 (`scripts/file-chooser/manual-file-chooser.ts`) 仍可用, 不带参数时新建
@@ -640,10 +640,17 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 `.github/workflows/release.yml`, 三个平台各编一个 debug 的 `acdert` (`cargo build -p acdert --target <triple>`), 文件名是
 `acdert-<target triple>[.exe]`: `aarch64-apple-darwin` (macos-15)、`x86_64-unknown-linux-gnu` (ubuntu-24.04)、`x86_64-pc-windows-msvc`
 (windows-2025, 要 NASM 和 `PYTHON3`). host bundle 和平台无关, 单独打成 `acdert-host-<版本>.tar.gz` (`app/`: `dist`、`brand`、`greet`、
-`package.json`), 解压到 binary 旁边 (acdert 找 `<exe 所在目录>/app/dist`). 桌面包 (Dopame) 不在里面.
+`package.json`, `LICENSE`), 解压到 binary 旁边 (acdert 找 `<exe 所在目录>/app/dist`). 桌面包 (Dopame) 不在里面.
+  host bundle 用 release 构建 (`bun run --filter @dopame/acde-host build:release`, 写到 `web/packages/acde-host/dist-release/`): 标识符压缩, 没有
+  source map 也没有 `sourceMappingURL`, 再过一遍 javascript-obfuscator 的轻量预设 (`scripts/release-options.mjs`: 只重命名标识符和字符串数组, 不做
+  控制流平坦化、死代码注入、自我保护和调试保护, 它们每个 web 线程都要付运行时代价). `scripts/check-release.mjs` 是泄漏检查: 有 map、
+  `sourcesContent`、`sourceMappingURL`、`sourceURL`, 或除 `broker.js` / `web.js` 外多出文件就失败. release workflow 的 host job 用它, 并检查
+  整个 artifact 里没有 `.map` / `.ts`. 开发构建 (`bun run --filter @dopame/acde-host build`, `dist/`) 不变: 可读、带 map, `acde dev` 用它.
+  `LICENSE` (专有许可) 随 tarball 和 GitHub release 发布. 启动和帧的数字见下面 acde-host 一条 (`scripts/release-perf/bench.sh`).
 
 - 推 `v*` tag: 建 GitHub prerelease, 附上三个 binary 和 host bundle. 手动触发 (`workflow_dispatch`) 只编, 不建 release.
-- npm 上只发 `@dopame/acde-api` (用户定, 2026-11-09; npm 组织 `dopame`), 只发压缩后的构建, 见下面 web/packages 的 acde-api. 别的包不发,
+- npm 上只发 `@dopame/acde-api` (用户定, 2026-11-09; npm 组织 `dopame`), 只发压缩后的构建, 见下面 web/packages 的 acde-api. 它不做混淆 (决定, 2026-11-09:
+  它的 `.d.ts` 是公共接口, 混淆只增加调试难度, 收益低). 别的包不发,
   开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`. release 成功后 `npm-build` 检查 tag 和 acde-api 的版本一致、npm 上还没有这个版本,
   构建 `dist/` 交给 `npm` job; `npm` 经 trusted publishing (OIDC, npm 上配的是 `dopame-org/acdert` 的 `release.yml`) 发布, 不存 token.
   拿 `id-token: write` 的 `npm` job 只用 GitHub 自己的 action (setup-node、download-artifact), bun 等第三方的只在没有这个权限的 `npm-build` 里.
@@ -735,7 +742,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   编辑只有 `dom/editing.ts` 一份. 测试在 happy-dom 的 MockDom 上跑. 布局类的读 (rect、metrics、计算样式) 缓存到下一次写入、下一个指针事件 / 帧 / 滚动, 或这个任务结束 (CSS 过渡和动画在 render 线程上跑, JS 不知道, 下一个任务要重新读). Web Animations
   (`dom/animation.ts`): 关键帧变成 `@keyframes acde-animation-<n>` 规则加元素内联的 `animation-*`, 由 render 跑; 时间、事件、`finished` 在 JS
   里按 host 的时钟; 近似: easing 作用在每段关键帧上、endDelay 只算进结束时间、没有 composite.
-- **acde-host**: 测试 `bun test` (只测不碰原生接口的模块, 如 `mimedb.ts`). esbuild 打成 `dist/broker.js` (`src/main.ts`, Broker) 和 `dist/web.js` (`src/worker.ts`, 每个 web). 文件按本文的章节命名
+- **acde-host**: 测试 `bun test` (只测不碰原生接口的模块, 如 `mimedb.ts`). esbuild 打成 `dist/broker.js` (`src/main.ts`, Broker) 和 `dist/web.js` (`src/worker.ts`, 每个 web). release 构建 (`build:release`, `dist-release/`) 的压缩、混淆、泄漏检查见「发版」. 基准 `bash scripts/release-perf/bench.sh` (Windows, 无头, 每边 5 轮中位数): 加载到 `shell running` 开发 1106 ms、release 941 ms; DOM 和布局负载 95 ms 对 107 ms; 纯 JS 负载 29.3 ms 对 29.4 ms. 多一层字符串数组混淆时加载慢约 470 ms, 所以预设不用它. 文件按本文的章节命名
   (`broker.ts`、`worker.ts` / `host.ts`、`remote.ts` / `rpc.ts`、`inspect.ts`、`devhot.ts` …); `sys/` 是原生接口的 node 风格包装. `greet/` 是登录页,
   `brand/` 的 `mark.mjs` / `art.mjs` 是 agentos 仓库 `branding/` 的原样拷贝 (只在那边改).
 
