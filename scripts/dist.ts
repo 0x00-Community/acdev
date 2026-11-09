@@ -20,11 +20,8 @@ const TRIPLES = [
   'aarch64-apple-darwin', 'x86_64-apple-darwin', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu',
   'aarch64-unknown-linux-musl', 'x86_64-unknown-linux-musl', 'x86_64-pc-windows-msvc',
 ]
-const BUNDLES: { entry: string; file: string; target: 'node' | 'bun' }[] = [
-  { entry: 'src/cli.ts', file: 'cli.js', target: 'node' },
-  { entry: 'src/driver/index.ts', file: 'driver.js', target: 'node' },
-  { entry: 'src/e2e/index.ts', file: 'test.js', target: 'bun' },
-]
+const CLI = 'src/cli.ts'
+const SHARED = ['src/driver/index.ts', 'src/e2e/index.ts']
 const OBFUSCATION = {
   compact: true,
   controlFlowFlattening: false,
@@ -114,8 +111,9 @@ for (const path of ['templates', 'LICENSE', 'launcher.d.mts']) {
   cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 }
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
-for (const { entry, file, target } of BUNDLES) await bundle(entry, join(lib, 'dist'), file, target)
-await bundle('launcher.mjs', lib, 'launcher.mjs', 'node')
+await bundle([CLI], join(lib, 'dist'), 'cli.js', 'node')
+await bundle(SHARED, join(lib, 'dist'), undefined, 'bun')
+await bundle(['launcher.mjs'], lib, 'launcher.mjs', 'node')
 declarations(join(lib, 'dist', 'types'))
 writeFileSync(join(lib, 'package.json'), `${JSON.stringify(published(), null, 2)}\n`)
 const skipped = (from: string) => !/[\\/](node_modules|test)$/.test(from)
@@ -150,21 +148,28 @@ copyFileSync(join(ROOT, 'install.sh'), join(out, 'install.sh'))
 copyFileSync(join(ROOT, 'install.ps1'), join(out, 'install.ps1'))
 console.log(`${tarball}\n${sum}`)
 
-async function bundle(entry: string, outdir: string, file: string, target: 'node' | 'bun'): Promise<void> {
+async function bundle(
+  entries: string[], outdir: string, file: string | undefined, target: 'node' | 'bun',
+): Promise<void> {
+  const shared = entries.length > 1
   const built = await Bun.build({
-    entrypoints: [join(ROOT, entry)],
+    entrypoints: entries.map((entry) => join(ROOT, entry)),
     outdir,
     target,
     format: 'esm',
-    naming: { entry: file },
+    splitting: shared,
+    root: shared ? join(ROOT, 'src') : ROOT,
+    naming: shared ? { entry: '[dir]/[name].js', chunk: 'chunk-[hash].js' } : { entry: file! },
     minify: true,
     sourcemap: 'none',
     external: ['acde/launcher'],
   })
-  if (!built.success) throw new AggregateError(built.logs, `bundling ${entry} failed`)
-  const path = join(outdir, file)
-  const minified = readFileSync(path, 'utf8').replace(/^#!.*\n(\/\/ @bun.*\n)?/, '')
-  writeFileSync(path, JavaScriptObfuscator.obfuscate(minified, OBFUSCATION).getObfuscatedCode())
+  if (!built.success) throw new AggregateError(built.logs, `bundling ${entries.join(', ')} failed`)
+  for (const output of built.outputs) {
+    if (output.kind !== 'entry-point' && output.kind !== 'chunk') continue
+    const minified = (await output.text()).replace(/^#!.*\n(\/\/ @bun.*\n)?/, '')
+    writeFileSync(output.path, JavaScriptObfuscator.obfuscate(minified, OBFUSCATION).getObfuscatedCode())
+  }
 }
 
 function declarations(outDir: string): void {
@@ -201,8 +206,8 @@ function published() {
     engines: SELF.engines,
     exports: {
       './launcher': { types: './launcher.d.mts', default: './launcher.mjs' },
-      './driver': { types: './dist/types/driver/index.d.ts', default: './dist/driver.js' },
-      './test': { types: './dist/types/e2e/index.d.ts', default: './dist/test.js' },
+      './driver': { types: './dist/types/driver/index.d.ts', default: './dist/driver/index.js' },
+      './test': { types: './dist/types/e2e/index.d.ts', default: './dist/e2e/index.js' },
       './package.json': './package.json',
     },
   }

@@ -1,8 +1,8 @@
 import { afterAll, describe, expect as check, test } from 'bun:test'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InspectMatch, InspectNode } from '@dopame/acde-api'
-import { Acde, ActError, AssertionError, expect, Locator, type Query, type Source } from '../src/driver/index.ts'
+import { Acde, ActError, AssertionError, expect, Locator, Png, Screenshots, type Query, type Source } from '../src/driver/index.ts'
 import { Sessions } from '../src/sessions.ts'
 import { cleanup, standIn } from './helpers.ts'
 
@@ -20,9 +20,11 @@ describe('Locator.match', () => {
   const source: Source = {
     nodes: tree,
     children: async (n) => ('tag' in n ? [node('w1.21', 'button', 'Inside the card')] : (n.children ?? [])),
-    query: async (selector, within) => {
+    query: async (selector, within, attributes) => {
       queried.push(`${selector}${within ? ` in ${within.ref}` : ''}`)
       if (selector === '.card') return [card]
+      if (selector === '[placeholder]' && attributes?.[0] === 'placeholder') return [{ ...node('w1.50', 'textbox', 'Search'), tag: 'input', visible: true, attributes: { placeholder: 'Find a task' } }, { ...node('w1.51', 'textbox', 'Note'), tag: 'textarea', visible: true, attributes: { placeholder: 'Write a note' } }]
+      if (selector.startsWith('img[alt]') && attributes?.[0] === 'alt') return [{ ...node('w1.52', 'img', 'Logo'), tag: 'img', visible: true, attributes: { alt: 'Company logo' } }]
       if (selector === 'input' && within) return within.ref === 'w1.2' ? [{ ...node('w1.4', 'checkbox', 'Done', undefined, ['checked']), tag: 'input', visible: true }] : []
       return []
     },
@@ -63,6 +65,18 @@ describe('Locator.match', () => {
     check(await refs([{ kind: 'role', role: 'listitem', options: {} }, { kind: 'css', selector: 'input' }])).toEqual(['w1.4'])
     check(queried).toEqual(['.card', '.card', '.card', 'input in w1.2', 'input in w1.5'])
     check(Locator.testId('a"b\\c')).toBe('[data-testid="a\\"b\\\\c"]')
+  })
+
+  test('label: form fields by their accessible name only; placeholder, title and alt by the attribute acdert reads back', async () => {
+    const fields = { ...source, nodes: [...tree, node('w1.60', 'textbox', 'Email'), node('w1.61', 'heading', 'Email'), node('w1.62', 'checkbox', 'Remember me')] }
+    const pick = async (queries: readonly Query[]) => (await Locator.match(fields, queries)).map((n) => n.ref)
+    check(await pick([{ kind: 'label', text: 'email', options: {} }])).toEqual(['w1.60'])
+    check(await pick([{ kind: 'label', text: /remember/i, options: {} }])).toEqual(['w1.62'])
+    check(await pick([{ kind: 'label', text: 'Done', options: { exact: true } }])).toEqual(['w1.4', 'w1.7'])
+    check(await pick([{ kind: 'attr', name: 'placeholder', text: 'task', options: {} }])).toEqual(['w1.50'])
+    check(await pick([{ kind: 'attr', name: 'placeholder', text: /^write/i, options: {} }])).toEqual(['w1.51'])
+    check(await pick([{ kind: 'attr', name: 'placeholder', text: 'Find', options: { exact: true } }])).toEqual([])
+    check(await pick([{ kind: 'attr', name: 'alt', text: 'logo', options: {} }])).toEqual(['w1.52'])
   })
 })
 
@@ -155,6 +169,11 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       await acde.chooseSaveFile(null)
       check(await acde.emulate({ colorScheme: 'dark', reducedMotion: true })).toEqual({ colorScheme: 'dark', emulated: true, reducedMotion: true })
 
+      check(acde.trace.text()).toContain('window(app "alpha").getByRole("textbox", { name: "New task" }).fill("Buy")')
+      check(acde.trace.steps.find((step) => step.title.startsWith('expect window(app "alpha").getByText("Nothing here") to be visible'))?.ok).toBe(false)
+      check(acde.trace.steps.find((step) => step.title === 'open("beta")')?.ok).toBe(true)
+      check(acde.trace.steps.filter((step) => step.title.startsWith('act(')).length).toBe(0)
+
       check(acde.logs!.tail(100).text).toContain('[alpha#7] js: fake acdert is up')
       check(acde.logs!.tail(100, { grep: /^acde: dev app alpha/ }).lines.length).toBe(1)
       const next = acde.logs!.next
@@ -168,6 +187,98 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     await acde.close()
     check(existsSync(replacement)).toBe(true)
     check(Sessions.list(sessions)).toEqual([])
+  }, 60_000)
+
+  test('select, check, drag, label / placeholder / title locators, attributes, routes and waits, clipboard, element pictures and screenshot baselines', async () => {
+    const s = standIn()
+    const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })
+    try {
+      const alpha = acde.window('alpha')
+      const priority = alpha.getByLabel('Priority')
+      await expect(priority).toHaveValue('low')
+      check((await priority.selectOption('high')).text).toBe('selected ["high"]')
+      await expect(priority).toHaveValue('high')
+      const wrong = await priority.selectOption(['low', 'high'], { timeout: 300 }).catch((e: Error) => e)
+      check(wrong).toBeInstanceOf(ActError)
+      check((wrong as Error).message).toContain('no option ["low","high"]')
+
+      const field = alpha.getByPlaceholder('needs doing')
+      await expect(field).toHaveAttribute('placeholder', 'What needs doing?')
+      await expect(field).toHaveAttribute('placeholder')
+      await expect(alpha.getByTitle('Add a task')).toHaveText('Add')
+      await expect(alpha.getByLabel('New task')).toHaveAttribute('placeholder', /doing/)
+      const noTitle = await expect(field).toHaveAttribute('title', undefined, { timeout: 200 }).catch((e: Error) => e.message)
+      check(noTitle).toBe('expected window(app "alpha").getByPlaceholder("needs doing") to have attribute title within 200 ms; saw no title')
+
+      const id = await acde.route('/api/tasks', { status: 202, json: { ok: true } }, { times: 1 })
+      check(id).toBe(1)
+      const posted = acde.waitForRequest('/api/tasks', { method: 'post' })
+      const logged = acde.waitForConsole(/^added Buy/)
+      await field.fill('Buy milk')
+      await alpha.getByRole('button', { name: 'Add' }).click()
+      const request = await posted
+      check([request.status, request.mocked]).toEqual([202, true])
+      check((await logged).text).toBe('added Buy milk')
+      check(await acde.waitForRequest('**/nowhere', { timeout: 200 }).catch((e: Error) => e.message)).toBe('waitForRequest: no request to "**/nowhere" within 200 ms')
+      await field.fill('Walk the dog')
+      await alpha.getByRole('button', { name: 'Add' }).click()
+      await expect(alpha.getByRole('listitem')).toHaveCount(2)
+      check((await alpha.network()).entries.map((e) => `${e.status}${e.mocked ? ' mocked' : ''}`)).toEqual(['202 mocked', '201'])
+      check(await acde.unroute()).toEqual({ removed: 1, left: 0 })
+      check(Acde.urlMatcher('/api/*')('http://acde.local/api/tasks?x=1')).toBe(true)
+      check(Acde.urlMatcher('/api/*')('http://acde.local/api/tasks/7')).toBe(false)
+      check(Acde.urlMatcher('/api/tasks')('http://acde.local/api/tasks?x=1')).toBe(false)
+      check(Acde.urlMatcher('https://example.com/**')('https://example.com/a/b')).toBe(true)
+      check(Acde.urlMatcher(/tasks$/g)('http://acde.local/api/tasks')).toBe(true)
+
+      const box = alpha.getByRole('checkbox', { name: 'Done: Walk the dog' })
+      await box.check()
+      await expect(box).toBeChecked()
+      await box.check()
+      await expect(box).toBeChecked()
+      await box.setChecked(false)
+      await expect(box).not.toBeChecked()
+      await box.uncheck()
+      await expect(box).not.toBeChecked()
+
+      const items = alpha.getByRole('listitem')
+      check((await items.last().dragTo(items.first())).ok).toBe(true)
+      check(await items.first().name()).toBe('Walk the dog')
+      const badDrag = await items.first().dragTo(alpha.getByRole('button', { name: 'Add' }), { timeout: 300 }).catch((e: Error) => e.message)
+      check(badDrag).toContain('cannot drag w1.10 onto w1.3')
+
+      await acde.setClipboard('copied text')
+      check(await acde.clipboard()).toBe('copied text')
+
+      const whole = Png.decode((await alpha.screenshot()).png)
+      check([whole.width, whole.height]).toEqual([8, 6])
+      check(Array.from(whole.data.subarray(0, 8))).toEqual([255, 0, 0, 255, 255, 0, 0, 255])
+      const part = await alpha.getByRole('textbox', { name: 'New task' }).screenshot({ path: join(s.root, 'field.png') })
+      check([part.width, part.height]).toEqual([4, 1])
+      check(Png.decode(readFileSync(join(s.root, 'field.png'))).width).toBe(4)
+      const masked = Png.decode((await alpha.screenshot({ mask: [alpha.getByRole('button', { name: 'Add' })] })).png)
+      check(Array.from(masked.data.subarray((1 * 8 + 4) * 4, (1 * 8 + 4) * 4 + 4))).toEqual([...Screenshots.MASK])
+
+      const baseline = join(s.root, 'shots', 'alpha.png')
+      await expect(alpha).toHaveScreenshot(baseline)
+      check(Png.decode(readFileSync(baseline)).width).toBe(8)
+      await expect(alpha).toHaveScreenshot(baseline)
+      await field.fill('Third')
+      await alpha.getByRole('button', { name: 'Add' }).click()
+      await expect(items).toHaveCount(3)
+      const changed = await expect(alpha).toHaveScreenshot(baseline, { timeout: 500 }).catch((e: Error) => e)
+      check(changed).toBeInstanceOf(AssertionError)
+      check((changed as Error).message).toContain(`expected window(app "alpha") to match screenshot ${baseline}: 1 pixel differs`)
+      check(readdirSync(join(s.root, 'shots')).sort()).toEqual(['alpha-actual.png', 'alpha-diff.png', 'alpha-expected.png', 'alpha.png'])
+      await expect(alpha).toHaveScreenshot(baseline, { maxDiffPixels: 1 })
+      await expect(alpha).toHaveScreenshot(baseline, { maxDiffPixelRatio: 0.03 })
+      check(await Promise.resolve().then(() => expect(alpha).not.toHaveScreenshot(baseline)).catch((e: Error) => e.message)).toBe('toHaveScreenshot cannot be negated')
+      mkdirSync(join(s.root, 'ci'))
+      const missing = await expect(alpha.getByRole('button', { name: 'Add' })).toHaveScreenshot(join(s.root, 'ci', 'add'), { timeout: 300 }).catch((e: Error) => e.message)
+      check(process.env['CI'] ? missing : 'skipped').toBe(process.env['CI'] ? `expected window(app "alpha").getByRole("button", { name: "Add" }) to match screenshot ${join(s.root, 'ci', 'add.png')}, but there is no such file (CI is set, so acde does not write it; run acde test --update-screenshots and commit it)` : 'skipped')
+    } finally {
+      await acde.close()
+    }
   }, 60_000)
 
   test('headless: acde dev --headless runs acdert with ACDE_HEADLESS=1 and says so in its session', async () => {

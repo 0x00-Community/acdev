@@ -1,11 +1,12 @@
 import { test as bunTest, expect as bunExpect, type Matchers } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { Acde } from '../driver/acde.ts'
 import { expect as expectUi, type LocatorAssertions, type WindowAssertions } from '../driver/expect.ts'
 import { Format } from '../driver/format.ts'
 import { Locator } from '../driver/locator.ts'
+import { Screenshots } from '../driver/screenshot.ts'
 import { AppWindow } from '../driver/window.ts'
 import { E2e, type E2eSettings } from './settings.ts'
 
@@ -54,8 +55,16 @@ export class E2eRun {
     return seen ? `${base}-${seen + 1}` : base
   }
 
+  static screenshots(settings: E2eSettings): string {
+    const file = settings.file !== null ? resolve(settings.dirs[0]!, settings.file) : Bun.main
+    return join(dirname(file), '__screenshots__', basename(file))
+  }
+
   static async run(name: string, body: Body, settings: E2eSettings = E2e.read()): Promise<void> {
     const home = mkdtempSync(join(tmpdir(), 'acde-test-'))
+    const results = E2eRun.results(settings, name)
+    rmSync(results, { recursive: true, force: true })
+    Screenshots.context = { dir: E2eRun.screenshots(settings), results, update: settings.update, ci: !!process.env['CI'], test: name }
     let acde: Acde | null = null
     try {
       const one = settings.dirs.length === 1 && settings.desktop === null
@@ -67,21 +76,22 @@ export class E2eRun {
         ...(one && { out: join('.acde', 'test') }),
         cwd: settings.dirs[0]!,
       })
+      acde.trace.screenshots = settings.trace
       const app = acde.session.desktop === null && acde.session.apps[0] !== undefined ? acde.window(acde.session.apps[0]) : null
       await body({ acde, app, home: join(home, 'home'), settings })
+      if (settings.trace) console.log(`acde test: trace of ${JSON.stringify(name)}: ${acde.trace.write(results, name).map((f) => join(results, f))[0]}`)
     } catch (error) {
-      const dir = E2eRun.results(settings, name)
-      const saved = await E2eRun.keep(acde, error, dir)
+      const saved = await E2eRun.keep(acde, error, results, name)
       if (error instanceof Error) error.message += `\n\n${saved}`
       throw error
     } finally {
+      Screenshots.context = null
       await acde?.close()
       rmSync(home, { recursive: true, force: true })
     }
   }
 
-  static async keep(acde: Acde | null, error: unknown, dir: string): Promise<string> {
-    rmSync(dir, { recursive: true, force: true })
+  static async keep(acde: Acde | null, error: unknown, dir: string, name = basename(dir)): Promise<string> {
     mkdirSync(dir, { recursive: true })
     const wrote: string[] = []
     const write = (file: string, text: string) => {
@@ -105,6 +115,7 @@ export class E2eRun {
         }
       }
     }
+    if (acde) wrote.push(...acde.trace.write(dir, name))
     return `acde test: saved ${wrote.join(', ')} in ${dir}`
   }
 }

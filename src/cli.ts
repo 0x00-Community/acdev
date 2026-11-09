@@ -32,10 +32,11 @@ const USAGE = `usage: acde <command>
   console [--web W] [--level L] [--follow]         pages' console.* and uncaught errors (L: log info warn error debug errors)
   network [--web W] [--failed] [--follow]          pages' fetch / XHR / WebSocket / EventSource requests and how they ended
   screen [-o FILE]                                 a PNG of the whole screen, every window composed (default ./screen.png)
-  test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail]
+  test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
                                                    run the e2e tests (*.e2e.ts, import from acde/test): each test gets a fresh,
                                                    isolated acde dev (headless unless --headed); what a failing test left goes
-                                                   to <project>/.acde/test-results
+                                                   to <project>/.acde/test-results (--trace: a screenshot after every step and
+                                                   trace.html for every test); -u / --update-screenshots rewrites the baselines
   mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run acde dev itself);
                                                    for agents: claude mcp add acde -- acde mcp`
 
@@ -67,9 +68,9 @@ class Cli {
     network: { args: [0, 0], flags: ['session', 'web'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
     mcp: { args: [0, 0], flags: ['session'] },
-    test: { args: [0, Infinity], flags: ['desktop', 'test-name-pattern', 'timeout'], switches: ['headed', 'bail'] },
+    test: { args: [0, Infinity], flags: ['desktop', 'test-name-pattern', 'timeout'], switches: ['headed', 'bail', 'trace', 'update-screenshots'] },
   }
-  static readonly SHORT: Readonly<Record<string, string>> = { o: 'output', t: 'test-name-pattern' }
+  static readonly SHORT: Readonly<Record<string, string>> = { o: 'output', t: 'test-name-pattern', u: 'update-screenshots' }
 
   static parse(argv: readonly string[]): Args {
     const [command = '', ...rest] = argv
@@ -113,6 +114,8 @@ class Cli {
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
         ...(flags.has('headed') && { headed: true }),
         ...(flags.has('bail') && { bail: true }),
+        ...(flags.has('trace') && { trace: true }),
+        ...(flags.has('update-screenshots') && { update: true }),
         ...(flags.has('test-name-pattern') && { pattern: flags.get('test-name-pattern')! }),
         ...(timeout !== undefined && { timeout }),
       })

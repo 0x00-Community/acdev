@@ -7,7 +7,7 @@ import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { which } from '../launcher.mjs'
 import { Runtime } from '../src/runtime.ts'
-import { cleanup, env, tmp } from './helpers.ts'
+import { cleanup, env, standIn, tmp } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
 const TRIPLE = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-` +
@@ -79,12 +79,13 @@ describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh',
     const listed = (await run(['tar', '-tzf', tarball], {})).stdout.split('\n')
     for (const path of [
       'bin/acde', 'bin/acdert', 'bin/app/dist/broker.js', 'bin/app/dist/web.js', 'lib/acde/package.json',
-      'lib/acde/launcher.mjs', 'lib/acde/dist/cli.js', 'lib/acde/dist/driver.js', 'lib/acde/dist/test.js',
+      'lib/acde/launcher.mjs', 'lib/acde/dist/cli.js', 'lib/acde/dist/driver/index.js', 'lib/acde/dist/e2e/index.js',
       'lib/acde/dist/types/driver/index.d.ts', 'lib/acde/templates/app/index.html', 'lib/acde-api/package.json',
       'lib/acde-api/src/index.js',
     ]) {
       expect(listed).toContain(`${name}/${path}`)
     }
+    expect(listed.some((path) => /\/lib\/acde\/dist\/chunk-\w+\.js$/.test(path))).toBe(true)
     expect(listed.some((path) => path.endsWith('.js.map') || path.includes('/._'))).toBe(false)
     const sources = listed.filter((path) => /\/lib\/acde(-api)?\/(src|test)\//.test(path))
     expect(sources.every((path) => /\/lib\/acde-api\/src\/[^/]+\.(js|d\.ts)$/.test(path))).toBe(true)
@@ -213,6 +214,32 @@ describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh',
     })
     expect(found.stdout.trim()).toBe(join(realpathSync(home), '.acde', 'versions', '0.0.2', 'bin', 'acdert'))
   }, 30_000)
+
+  test('a project without an acde dependency runs acde/test from the install', async () => {
+    const home = tmp()
+    expect((await install(home, ['--no-modify-path'])).code).toBe(0)
+    const s = standIn()
+    mkdirSync(join(s.project, 'e2e'))
+    writeFileSync(join(s.project, 'e2e', 'installed.e2e.ts'), `import { test, expect } from 'acde/test'
+import { Acde } from 'acde/driver'
+import { fileURLToPath } from 'node:url'
+
+test('runs from the install', async ({ acde }) => {
+  expect(acde).toBeInstanceOf(Acde)
+  const driver = ${JSON.stringify(join('.acde', 'versions', '0.0.2', 'lib', 'acde', 'dist', 'driver', 'index.js'))}
+  expect(fileURLToPath(import.meta.resolve('acde/driver'))).toContain(driver)
+  expect((await acde.webs()).length).toBe(2)
+})
+`)
+    const tools = tmp()
+    symlinkSync(process.execPath, join(tools, 'bun'))
+    const ran = await run([join(home, '.acde', 'bin', 'acde'), 'test'], {
+      ...s.env, PATH: `${tools}:/usr/bin:/bin`,
+    }, s.project)
+    expect(ran.code, ran.out).toBe(0)
+    expect(ran.out).toContain('acde test: 1 file, 1 passed, 0 failed')
+    expect(existsSync(join(s.project, 'node_modules'))).toBe(false)
+  }, 60_000)
 })
 
 test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(
@@ -272,8 +299,8 @@ test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(
     const entries = join(current, 'lib', 'acde', 'dist')
     const exported = await run([process.execPath, '-e', `
       const names = async (file) => Object.keys(await import(file)).sort().join(',')
-      console.log(await names(${JSON.stringify(join(entries, 'driver.js'))}))
-      console.log(await names(${JSON.stringify(join(entries, 'test.js'))}))
+      console.log(await names(${JSON.stringify(join(entries, 'driver', 'index.js'))}))
+      console.log(await names(${JSON.stringify(join(entries, 'e2e', 'index.js'))}))
     `], {}, root)
     expect(exported.code, exported.out).toBe(0)
     const [driver, test] = exported.stdout.trim().split('\n')

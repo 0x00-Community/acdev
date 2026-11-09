@@ -11,6 +11,7 @@ import { Sessions } from './sessions.ts'
 import { Format } from './driver/format.ts'
 
 const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
+const ARG = z.union([z.string(), z.number(), z.array(z.string())])
 
 const INSTRUCTIONS = `acde: see and drive the desktop and apps of an acde dev session (acdert runs them; no browser, no devtools).
 - A session: the acde dev whose projects hold the working directory is used. If none runs, call start (it runs acde dev here and keeps its output for logs); sessions lists them and pins one.
@@ -19,6 +20,8 @@ const INSTRUCTIONS = `acde: see and drive the desktop and apps of an acde dev se
 - Elements scrolled out of view are left out unless offscreen is set; act scrolls an element into view before using it. query finds elements by CSS selector (also [data-testid=…]) and gives refs act takes.
 - open launches an app by id or name. screenshot shows a window's pixels, or target "screen" the whole screen with every window (snapshot cannot tell colour, layout or overlap). eval runs JavaScript in a page and returns JSON. wait_for waits for a text to appear or go.
 - console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource requests (status, size, time, error); both answer next, pass it as since to read only newer entries. emulate switches the colour scheme or reduced motion. logs is the raw output of an acde dev that start ran.
+- act drag moves an element onto another ref (pointer drags and HTML5 drag and drop, also into another window); act select picks options of a <select> by value or text.
+- route fakes the response (or a failure) of a page's fetch / XHR whose URL matches, so a test or an agent can try states the backend does not give; unroute takes them away. clipboard reads or writes the clipboard the pages see (headless sessions only, unless the user agrees to system: true).
 - start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's folder, open or save chooser then needs choose_folder, choose_files or choose_save_file first.`
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -140,11 +143,11 @@ export class Mcp {
       'act',
       {
         description:
-          'Do one thing to a ref from snapshot. Element refs (w3.12): click, double, right, hover, scroll (arg: pixels, default 400), type (arg: text, appended through the input method), settext (arg: text, replaces the value), key (arg: keys like "ctrl+a backspace" or "Enter"), focus. Window refs (w3): focus, restore, minimize, close, key. Real input is injected; the answer waits for the page to settle and lists what changed.',
+          'Do one thing to a ref from snapshot. Element refs (w3.12): click, double, right, hover, scroll (arg: pixels, default 400), type (arg: text, appended through the input method), settext (arg: text, replaces the value), key (arg: keys like "ctrl+a backspace" or "Enter"), focus, drag (arg: the ref to drop on, an element or a window, also in another window), select (arg: an option\'s value or text of a <select>, or a list of them for a multiple one). Window refs (w3): focus, restore, minimize, close, key. Real input is injected; the answer waits for the page to settle and lists what changed.',
         inputSchema: z.object({
           ref: z.string().describe('w3 or w3.12'),
           action: ACTION,
-          arg: z.union([z.string(), z.number()]).optional().describe('text for type / settext, keys for key, pixels for scroll'),
+          arg: ARG.optional().describe('text for type / settext, keys for key, pixels for scroll, the target ref for drag, option(s) for select'),
         }),
         annotations: drive,
       },
@@ -156,7 +159,7 @@ export class Mcp {
       {
         description: 'Do several act steps in order, stopping at the first that fails; the answer lists what each did and what changed.',
         inputSchema: z.object({
-          steps: z.array(z.object({ ref: z.string(), action: ACTION, arg: z.union([z.string(), z.number()]).optional() })).min(1),
+          steps: z.array(z.object({ ref: z.string(), action: ACTION, arg: ARG.optional() })).min(1),
         }),
         annotations: drive,
       },
@@ -355,6 +358,68 @@ export class Mcp {
           const file = args.cancel ? null : resolve(this.#cwd, args.path!)
           await (await this.#acde()).chooseSaveFile(file)
           return Mcp.#text(file === null ? 'the next save chooser will be cancelled' : `the next save chooser will answer ${file}`)
+        }),
+    )
+
+    s.registerTool(
+      'route',
+      {
+        description: 'Fake what a page gets for its fetch / XHR to a URL (instead of the app\'s files, its backend or the network), or make those requests fail. Later routes win; each answers id for unroute. WebSocket and EventSource are not routed.',
+        inputSchema: z.object({
+          url: z.string().describe('a glob: ** is anything, * anything but /; one starting with / matches path and query ("/api/todos*"), others the whole URL ("https://api.example.com/**")'),
+          regex: z.boolean().optional().describe('url is a regular expression instead of a glob'),
+          method: z.string().optional().describe('only this HTTP method'),
+          target: z.string().optional().describe('only this page: a web name, an app id or desktop'),
+          times: z.number().int().min(1).optional().describe('remove the route after this many requests'),
+          status: z.number().int().min(200).max(599).optional().describe('HTTP status (default 200)'),
+          headers: z.record(z.string(), z.string()).optional(),
+          body: z.string().optional().describe('the response body as text'),
+          json: z.unknown().optional().describe('the response body as JSON (sets content-type)'),
+          abort: z.union([z.boolean(), z.string()]).optional().describe('fail the request instead (true, or the error text)'),
+        }),
+        annotations: drive,
+      },
+      (args) =>
+        this.#safe(async () => {
+          const url = args.regex ? new RegExp(args.url) : args.url
+          const response = args.abort !== undefined && args.abort !== false
+            ? { abort: args.abort }
+            : { ...(args.status !== undefined && { status: args.status }), ...(args.headers && { headers: args.headers }), ...(args.body !== undefined && { body: args.body }), ...(args.json !== undefined && { json: args.json }) }
+          const id = await (await this.#acde()).route(url, response, { ...(args.method && { method: args.method }), ...(args.target && { web: args.target }), ...(args.times && { times: args.times }) })
+          return Mcp.#text(`route ${id}: ${args.method ?? 'any method'} ${url instanceof RegExp ? String(url) : url} → ${'abort' in response ? `fails (${response.abort === true ? 'aborted' : response.abort})` : `${args.status ?? 200}`}${args.times ? `, ${args.times} time${args.times === 1 ? '' : 's'}` : ''}`)
+        }),
+    )
+
+    s.registerTool(
+      'unroute',
+      {
+        description: 'Take a route away by id, or all of them.',
+        inputSchema: z.object({ id: z.number().int().optional().describe('the id route answered; leave out to remove every route') }),
+        annotations: drive,
+      },
+      (args) =>
+        this.#safe(async () => {
+          const done = await (await this.#acde()).unroute(args.id)
+          return Mcp.#text(`removed ${done.removed} route${done.removed === 1 ? '' : 's'}, ${done.left} left`)
+        }),
+    )
+
+    s.registerTool(
+      'clipboard',
+      {
+        description: 'Read the clipboard the pages see, or write text to it first. A headless session keeps a clipboard of its own; with a window on screen it is the user\'s system clipboard, which may hold their private data, so there it needs system: true (ask the user first).',
+        inputSchema: z.object({
+          text: z.string().optional().describe('write this first'),
+          system: z.boolean().optional().describe('allow touching the user\'s system clipboard (sessions with a window)'),
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      },
+      (args) =>
+        this.#safe(async () => {
+          const acde = await this.#acde()
+          if (!acde.session.headless && args.system !== true) throw new Error(`clipboard: acde dev ${acde.session.pid} has a window on screen, so its clipboard is the user's system clipboard; ask the user, then call again with system: true (or use a session started with headless: true)`)
+          if (args.text !== undefined) await acde.setClipboard(args.text)
+          return Mcp.#text(JSON.stringify(await acde.clipboard()))
         }),
     )
 

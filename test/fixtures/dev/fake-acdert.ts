@@ -1,6 +1,7 @@
 import { appendFileSync, chmodSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { isAbsolute } from 'node:path'
+import { Png } from '../../../src/driver/png.ts'
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
 const ADD_DELAY_MS = 300
@@ -11,6 +12,7 @@ interface Node {
   name?: string
   value?: string
   states?: string[]
+  rect?: [number, number, number, number]
   children?: Node[]
 }
 
@@ -20,16 +22,22 @@ interface Win {
   kind: 'desktop' | 'web'
   app: string | null
   title: string | null
+  rect: [number, number, number, number]
   focus: boolean
   hidden: boolean
 }
 
 const windows: Win[] = [
-  { ref: 'w0', id: 0, kind: 'desktop', app: null, title: null, focus: false, hidden: false },
-  { ref: 'w1', id: 7, kind: 'web', app: 'alpha', title: 'Alpha', focus: true, hidden: false },
+  { ref: 'w0', id: 0, kind: 'desktop', app: null, title: null, rect: [0, 0, 16, 12], focus: false, hidden: false },
+  { ref: 'w1', id: 7, kind: 'web', app: 'alpha', title: 'Alpha', rect: [4, 2, 8, 6], focus: true, hidden: false },
 ]
 const tasks: { name: string; done: boolean }[] = []
 let draft = ''
+let priority = 'low'
+let clipboard = ''
+const routes: { id: number; url: unknown; status: number; times: number | null }[] = []
+let nextRoute = 1
+const ATTRIBUTES: Record<string, Record<string, string>> = { 'w1.2': { placeholder: 'What needs doing?' }, 'w1.3': { title: 'Add a task' } }
 const consoleLog: object[] = [{ seq: 1, time: 10, web: 'alpha#7', app: 'alpha', kind: 'console', level: 'log', text: 'alpha ready' }]
 const requests: object[] = []
 let dark = false
@@ -59,9 +67,23 @@ function query(m: Record<string, unknown>) {
   const tags: Record<string, string> = { textbox: 'input', button: 'button', list: 'ul', listitem: 'li', checkbox: 'input', text: 'span' }
   const pick = (role: string) => all.filter((n) => n.role === role)
   const selector = String(m['selector'])
+  const has = (name: string) => all.filter((n) => ATTRIBUTES[n.ref]?.[name] !== undefined)
   const found =
-    selector === '[data-testid="add"]' ? pick('button') : selector === 'li' ? pick('listitem') : selector === 'input[type=checkbox]' ? pick('checkbox') : selector === '.ghost' ? [{ ref: 'w1.99', role: 'generic' }] : []
-  return { window: m['window'] ?? 'w1', count: found.length, nodes: found.map(({ children: _c, ...n }) => ({ ...n, tag: tags[n.role] ?? 'div', visible: n.ref !== 'w1.99' })) }
+    selector === '[data-testid="add"]' ? pick('button') : selector === 'li' ? pick('listitem') : selector === 'input[type=checkbox]' ? pick('checkbox') : selector === '.ghost' ? [{ ref: 'w1.99', role: 'generic' }]
+    : selector === '[placeholder]' ? has('placeholder') : selector === '[title]' ? has('title') : selector === '*' ? all : []
+  const attributes = Array.isArray(m['attributes']) ? (m['attributes'] as string[]) : []
+  return {
+    window: m['window'] ?? 'w1',
+    count: found.length,
+    nodes: found.map(({ children: _c, ...n }) => ({ ...n, tag: tags[n.role] ?? 'div', visible: n.ref !== 'w1.99', ...(attributes.length && { attributes: Object.fromEntries(attributes.map((a) => [a, ATTRIBUTES[n.ref]?.[a] ?? null])) }) })),
+  }
+}
+
+function picture(win: Win): Buffer {
+  const [, , width, height] = win.rect
+  const data = new Uint8Array(width * height * 4).fill(255)
+  for (let i = 0; i < Math.min(tasks.length, width); i++) data.set([255, 0, 0, 255], i * 4)
+  return Png.encode({ width, height, data })
 }
 
 function record(entry: object): void {
@@ -72,8 +94,9 @@ function tree(win: Win): Node[] {
   if (win.kind === 'desktop') return [{ ref: 'w0.1', role: 'button', name: 'Start' }]
   if (win.app !== 'alpha') return [{ ref: `${win.ref}.1`, role: 'heading', name: win.title ?? '' }]
   return [
-    { ref: 'w1.2', role: 'textbox', name: 'New task', value: draft },
-    { ref: 'w1.3', role: 'button', name: 'Add', ...(draft ? {} : { states: ['disabled'] }) },
+    { ref: 'w1.2', role: 'textbox', name: 'New task', value: draft, rect: [4, 3, 4, 1] },
+    { ref: 'w1.3', role: 'button', name: 'Add', rect: [8, 3, 2, 1], ...(draft ? {} : { states: ['disabled'] }) },
+    { ref: 'w1.6', role: 'combobox', name: 'Priority', value: priority, rect: [4, 4, 4, 1] },
     {
       ref: 'w1.4',
       role: 'list',
@@ -88,7 +111,7 @@ function tree(win: Win): Node[] {
         ],
       })),
     },
-    { ref: 'w1.5', role: 'text', name: `${tasks.length} tasks` },
+    { ref: 'w1.5', role: 'text', name: `${tasks.length} tasks`, rect: [4, 6, 8, 1] },
   ]
 }
 
@@ -121,6 +144,22 @@ function snapshot(m: Record<string, unknown>) {
 function act(ref: string, action: string, arg: unknown): { ok: boolean; text: string } {
   const text = `${action} ${ref} ${JSON.stringify(arg ?? null)}`
   if (action === 'fail') return { ok: false, text }
+  if (action === 'select') {
+    const values = Array.isArray(arg) ? arg : [arg]
+    if (ref !== 'w1.6') return { ok: false, text: 'not a <select>' }
+    if (values.length !== 1 || !['low', 'high'].includes(String(values[0]))) return { ok: false, text: `no option ${JSON.stringify(values)}` }
+    priority = String(values[0])
+    return { ok: true, text: `selected ${JSON.stringify([priority])}` }
+  }
+  if (action === 'drag') {
+    const from = /^w1\.(\d+)$/.exec(ref)
+    const to = /^w1\.(\d+)$/.exec(String(arg ?? ''))
+    const index = (m: RegExpExecArray | null) => (m && Number(m[1]) >= 10 && (Number(m[1]) - 10) % 3 === 0 ? (Number(m[1]) - 10) / 3 : -1)
+    const [a, b] = [index(from), index(to)]
+    if (a < 0 || b < 0 || !tasks[a] || !tasks[b]) return { ok: false, text: `cannot drag ${ref} onto ${String(arg)}` }
+    tasks.splice(b, 0, ...tasks.splice(a, 1))
+    return { ok: true, text }
+  }
   if (ref === 'w1.2' && action === 'settext') draft = String(arg ?? '')
   if (ref === 'w1.2' && action === 'type') draft += String(arg ?? '')
   if (ref === 'w1.3' && action === 'click') {
@@ -130,7 +169,9 @@ function act(ref: string, action: string, arg: unknown): { ok: boolean; text: st
     setTimeout(() => {
       tasks.push({ name, done: false })
       consoleLog.push({ seq: consoleLog.length + 1, time: 20, web: 'alpha#7', app: 'alpha', kind: name === 'boom' ? 'error' : 'console', level: name === 'boom' ? 'error' : 'info', text: name === 'boom' ? 'Error: boom' : `added ${name}` })
-      requests.push({ seq: requests.length + 1, time: 20, web: 'alpha#7', app: 'alpha', id: requests.length + 1, kind: 'fetch', method: 'POST', url: 'http://acde.local/api/tasks', requestBytes: name.length, status: name === 'boom' ? 500 : 201, statusText: '', responseBytes: 2, ms: 3, error: null, done: true })
+      const route = [...routes].reverse().find((r) => r.url === '/api/tasks' && r.times !== 0)
+      if (route && route.times !== null) route.times--
+      requests.push({ seq: requests.length + 1, time: 20, web: 'alpha#7', app: 'alpha', id: requests.length + 1, kind: 'fetch', method: 'POST', url: 'http://acde.local/api/tasks', requestBytes: name.length, status: route ? route.status : name === 'boom' ? 500 : 201, statusText: '', responseBytes: 2, ms: 3, error: null, done: true, ...(route && { mocked: true }) })
     }, ADD_DELAY_MS)
   }
   const checkbox = /^w1\.(\d+)$/.exec(ref)
@@ -146,7 +187,7 @@ function act(ref: string, action: string, arg: unknown): { ok: boolean; text: st
 function open(name: string): { ok: boolean; text: string } {
   if (name !== 'beta') return { ok: false, text: `no app ${name}` }
   for (const w of windows) w.focus = false
-  windows.push({ ref: `w${windows.length}`, id: 8, kind: 'web', app: 'beta', title: 'Beta', focus: true, hidden: false })
+  windows.push({ ref: `w${windows.length}`, id: 8, kind: 'web', app: 'beta', title: 'Beta', rect: [2, 2, 3, 3], focus: true, hidden: false })
   return { ok: true, text: 'opened beta' }
 }
 
@@ -193,8 +234,11 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       return void ok({ webs: webs() })
     case 'eval':
       return void (m['web'] === 'nope' ? fail('no web "nope"') : ok({ value: { web: m['web'], code: m['code'] } }))
-    case 'shot':
-      return void ok({ png: PNG, width: 1, height: 1 })
+    case 'shot': {
+      const win = windows.find((w) => webs().some((x) => x.name === m['web'] && x.window === w.id))
+      if (!win) return void ok({ png: PNG, width: 1, height: 1 })
+      return void ok({ png: picture(win).toString('base64'), width: win.rect[2], height: win.rect[3] })
+    }
     case 'snapshot':
       return void ok(snapshot(m))
     case 'act':
@@ -233,6 +277,21 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       if (m['colorScheme'] !== undefined) dark = m['colorScheme'] === 'dark'
       if (m['reducedMotion'] !== undefined) reduced = m['reducedMotion'] === true
       return void ok({ colorScheme: dark ? 'dark' : 'light', emulated: m['colorScheme'] !== null && m['colorScheme'] !== undefined, reducedMotion: reduced })
+    case 'route': {
+      if (typeof m['url'] !== 'string' && typeof (m['url'] as { regex?: unknown } | undefined)?.regex !== 'string') return void fail('route: url is a glob or { regex, flags }')
+      const id = nextRoute++
+      routes.push({ id, url: m['url'], status: Number(m['status'] ?? 200), times: typeof m['times'] === 'number' ? m['times'] : null })
+      return void ok({ id })
+    }
+    case 'unroute': {
+      const before = routes.length
+      if (m['route'] === undefined) routes.length = 0
+      else routes.splice(0, routes.length, ...routes.filter((r) => r.id !== m['route']))
+      return void ok({ removed: before - routes.length, left: routes.length })
+    }
+    case 'clipboard':
+      if (typeof m['text'] === 'string') clipboard = m['text']
+      return void ok({ text: clipboard })
     case 'slow':
       return
     default:
