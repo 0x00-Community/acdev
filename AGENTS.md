@@ -775,9 +775,10 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
   `LICENSE` (专有许可) 随 tarball 和 GitHub release 发布. 启动和帧的数字见下面 acde-host 一条 (`scripts/release-perf/bench.sh`).
 
 - 发版 = 单独提交改版本号 (根 `Cargo.toml` 与 `web/packages/*/package.json` 一起改, 再 `bun install` 刷新 `web/bun.lock`) 并合入 `main`, 然后在 Actions 手动运行 release:
-  预演 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=false` (只构建检查, 不打标签、不上传); 正式发布 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=true`.
+  预演 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=false` (只构建检查, 不打标签、不上传; `-f commit=<sha>` 可选, 留空用运行的提交);
+  正式发布 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=true -f commit=<sha>` (`commit` 必填, 可以是短 SHA, 必须是 `origin/main` 的头或它的祖先).
   不再手动打 `v*` 标签, 工作流也不由 push 或标签触发 (先有标签后构建失败会留下半成品). 正式发布只允许在 `main` 上运行.
-- 正式发布的顺序 (同一个工作流, 任何一步失败就停在那里): 判断版本 (`plan`: 源码里的版本必须一致; 标签已存在于另一个提交则失败并说明; 在同一个提交上则续跑) →
+- 正式发布的顺序 (同一个工作流, 任何一步失败就停在那里): 判断版本 (`plan`: 先把 `commit` 解析成完整 SHA 并打印, 版本和标签都从这个提交读取, 所有 job 都 checkout 它; 源码里的版本必须一致; 标签已存在于另一个提交则失败并说明; 在同一个提交上则续跑) →
   构建、host、stage、泄漏检查 → `upload` 把版本目录传到 AWS S3 桶 `dopame-pkgs` 的 `acdert/<版本>/` 并逐个校验 → `tag` 在通过的提交上建注释标签 `v<版本>` →
   `release` 建 GitHub 预发布 → `latest` 最后更新 `acdert/latest.json` 并让 CloudFront `E3ET3L14ALFOXX` 失效 `/acdert/latest.json` 与 `/acdert/<版本>/*`.
   所以上传失败 (如权限问题) 不会留下标签. `upload` 对已存在的对象: sha256 元数据一致则跳过, 不一致或缺元数据则拒绝覆盖 (上一次留下的对象要先人工清理).
