@@ -420,6 +420,31 @@ export interface IdbNative {
   renameIndex(db: number, tx: number, op: number, index: number, name: string): void
 }
 
+export interface CaptureDevice {
+  readonly deviceId: string
+  readonly kind: 'audioinput' | 'videoinput'
+  readonly label: string
+  readonly groupId: string
+  readonly facingMode: string | null
+  readonly modes: readonly (readonly [number, number, number])[]
+  readonly channelCount: number
+}
+
+export interface CaptureOpened extends CaptureDevice {
+  readonly source: number
+  readonly width: number
+  readonly height: number
+  readonly frameRate: number
+}
+
+export interface CaptureNative {
+  devices(full: boolean): Promise<CaptureDevice[]>
+  permission(kind: 'camera' | 'microphone'): 'granted' | 'denied' | 'prompt'
+  open(kind: 'audioinput' | 'videoinput', deviceId: string, width: number, height: number, frameRate: number): Promise<CaptureOpened>
+  close(source: number): void
+  onEnded(callback: (source: number, reason: string) => void): void
+}
+
 export interface AudioNative {
   readonly sampleRate: number
   onEvent(callback: (kind: number, id: number) => void): void
@@ -452,4 +477,7 @@ export interface AudioNative {
   videoSize(media: number): [number, number]
   clearVideo(node: number): void
   readonly videoTypes: readonly string[]
+  openStream(media: number, node: number, videoSource: number, audioSource: number): { duration: number; width: number; height: number; audio: number }
+  streamEnabled(media: number, enabled: boolean): void
+  streamNode(node: number, source: number): void
 }

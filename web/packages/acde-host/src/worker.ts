@@ -1,4 +1,4 @@
-import { install, installBackendTransport, observe, type AudioNative, type BackendTransport, type DomNative, type GpuNative, type HostNative, type StorageNative } from '@dopame/acde-dom'
+import { install, installBackendTransport, observe, type AudioNative, type BackendTransport, type CaptureNative, type DomNative, type GpuNative, type HostNative, type StorageNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
 import { Frame } from './frame'
 import { Host } from './host'
@@ -31,6 +31,7 @@ interface WebNatives extends Natives {
   readonly Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   readonly gpu?: GpuNative
   readonly audio?: AudioNative
+  readonly capture?: CaptureNative
   readonly storage?: StorageNative
   readonly backend?: Omit<BackendTransport, 'port'>
   readonly fs?: object
@@ -64,6 +65,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     ...(natives.storage && { storage: natives.storage }),
     gpu: natives.gpu,
     audio: natives.audio,
+    ...(natives.capture && { capture: natives.capture }),
     ...(init.screen && { screen: init.screen }),
   })
   const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null

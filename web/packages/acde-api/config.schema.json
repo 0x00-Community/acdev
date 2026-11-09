@@ -115,6 +115,14 @@
             "desktops": {
               "type": "boolean",
               "description": "acde:desktops (列出 / 切换桌面)"
+            },
+            "camera": {
+              "type": "boolean",
+              "description": "navigator.mediaDevices.getUserMedia 的摄像头 (还要系统同意: macOS 隐私设置)"
+            },
+            "microphone": {
+              "type": "boolean",
+              "description": "navigator.mediaDevices.getUserMedia 的麦克风 (还要系统同意: macOS 隐私设置)"
             }
           },
           "additionalProperties": true,
@@ -297,6 +305,14 @@
                   "desktops": {
                     "type": "boolean",
                     "description": "acde:desktops (列出 / 切换桌面)"
+                  },
+                  "camera": {
+                    "type": "boolean",
+                    "description": "navigator.mediaDevices.getUserMedia 的摄像头 (还要系统同意: macOS 隐私设置)"
+                  },
+                  "microphone": {
+                    "type": "boolean",
+                    "description": "navigator.mediaDevices.getUserMedia 的麦克风 (还要系统同意: macOS 隐私设置)"
                   }
                 },
                 "additionalProperties": true,

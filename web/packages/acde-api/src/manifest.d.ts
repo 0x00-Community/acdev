@@ -48,6 +48,8 @@ export interface Capabilities {
   readonly openFiles?: boolean
   readonly session?: boolean
   readonly desktops?: boolean
+  readonly camera?: boolean
+  readonly microphone?: boolean
   readonly [service: string]: unknown
 }
 

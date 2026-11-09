@@ -324,7 +324,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **原生应用** (`launcher.ts`, 只有桌面能调): `acde.apps.natives()` 列可见的 `.desktop` (`{id, name, comment, icon (绝对路径, 按 hicolor /
   breeze / Adwaita 找), keywords, wmClass}`, 缓存到 applications 目录的 mtime 变了), `runNative(id)` 用 `gio launch` 起.
 - **应用清单** (`acde.apps`, 解析 acde-host `apps.ts`, 校验 acde-api `validate.ts`): `id`、`label`、`icon`、`entry` (默认导出 `WindowApp` 的
-  模块, 或 HTML)、`capabilities` (fs [可限 roots]、terminal、office、launch、slots、open、openFiles、session、desktops, 其余键是服务名)、
+  模块, 或 HTML)、`capabilities` (fs [可限 roots]、terminal、office、launch、slots、open、openFiles、session、desktops、camera、microphone, 其余键是服务名)、
   `mimeTypes`、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
   `icon` 是 `ICON_NAMES` (`@dopame/acde-api/manifest`, 和 Dopame art 引擎 `APPS` 的名字一致, 加名字两边一起改) 之一, 或 assets 下以
   `.svg` / `.png` 结尾的同源 URL; 运行时原样交给桌面 (`acde.apps.list()`、`windowopen` 的 `icon`).
@@ -403,6 +403,35 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `<audio>` 有 `src` 或 `<source>` 就自己开始加载 (标准: 设了 `src` 就跑加载算法), `preload="none"` 且没有 `autoplay` 时发 `loadstart` 和
     `suspend` 后停在 `NETWORK_IDLE`, 等 `play()` 再取. 还没有: 海报图 (`poster`)、`seeked` 等到新位置的帧画出来再发、文字轨、MSE.
   - 帧现在在 CPU 内存里, 送进 GPU 要上传一次; 硬解的零拷贝 (Linux dmabuf、macOS IOSurface) 还没有.
+- **摄像头和麦克风** (`getUserMedia`; crates/media `capture/`, crates/acdert `capture.rs` / `audio/live.rs`, acde-dom `src/media/stream.ts`):
+  - 权限 (用户定, 2026-11-09): 清单 `capabilities` 写了 `camera` / `microphone` 的应用才拿得到 (Broker `#grants` → web 的 grant →
+    `natives.capture` 只装给有的 web, 桌面两个都有); 没写的: `getUserMedia` `NotAllowedError`、`enumerateDevices` 不列这一类、
+    `navigator.permissions.query` 是 `denied`. 写了以后唯一的询问是系统的: macOS TCC (`AVCaptureDevice requestAccess`, 第一次 `getUserMedia`
+    时弹; acdert 二进制的 `__TEXT,__info_plist` 段带 `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`, 见 crates/acdert
+    `build.rs`; 从终端起时 TCC 记在终端名下); Linux 本机程序直接读 PipeWire / V4L2, 没有系统询问. acde 自己不画询问框.
+    `navigator.permissions` 是真的 `Permissions` / `PermissionStatus` (camera / microphone 取清单和系统的状态, 系统答应后发 `change`).
+  - 设备 (`acde_media::capture`): Linux 用 GStreamer `DeviceMonitor` (`Audio/Source`、`Video/Source`, PipeWire / V4L2 提供者, 去掉
+    输出的 monitor), 打开用设备自己的元素 (`create_element`), 摄像头按选中的模式 (设备 caps 和宽高帧率的交集) 解成 RGBA, 麦克风转成
+    48 kHz 立体声 f32; macOS 用 `AVCaptureDeviceDiscoverySession` 和 `AVCaptureSession` (视频 BGRA → RGBA, 音频 LPCM f32), 会话在自己的
+    线程里开关, 每 250 ms 看设备还连着没有. 摄像头只留最新一帧 (带序号), 麦克风写进 2 秒的环, 每个读者 (`Tap`) 从它创建时开始读, 落后太多跳到
+    最近. 设备没了 / 出错 (`on_end`) → 这个设备的轨道都 `ended`. `deviceId` / `groupId` 是按应用加盐的散列, 跨应用对不上.
+  - 页面 (`stream.ts`): `getUserMedia` 照标准的 SelectSettings 选设备和模式 (必需的 exact / min / max 过滤, `advanced` 依次收窄, ideal 按
+    fitness distance 取最小), 都不行 `OverconstrainedError` (带 `constraint`); 选好后才问系统, 再开. 支持的约束: deviceId、groupId、
+    facingMode、resizeMode (只有 `none`: 不缩放, 只给设备原生的模式)、width、height、aspectRatio、frameRate、sampleRate (48000)、
+    sampleSize (32)、channelCount、echoCancellation / autoGainControl / noiseSuppression (只有 false: 不做处理). 同一设备的轨道
+    (clone) 共用一个打开的源, 最后一个 `stop()` 才关; `applyConstraints` 要换模式时重开设备, 只换这个轨道. `enumerateDevices` 返回
+    `InputDeviceInfo` (`getCapabilities`), 系统还没答应的一类只给一个空 id / 空 label 的条目 (标准的隐私规则).
+  - 播放: `video.srcObject = stream` (`audio` 元素只放声音) → `openStream`: 画面每个动画帧取摄像头的最新一帧 (和 `<video>` 文件一样进
+    `GpuImage`), 声音是混音器里的 `LiveSound` (没有声音轨时只走时钟, `currentTime` 照样走); 时长 `Infinity`, 不能 seek, `currentSrc` 是
+    空串; 轨道 `enabled = false`: 画面黑、声音静; 轨道结束 / 换源时重开, 流里没有活的轨道了发 `ended`. Web Audio
+    `createMediaStreamSource` (图里的 `Kind::Stream` 节点, 读 id 最小的音频轨, 轨道停用 / 结束时断开). 实时读取保持 20 ms 左右的延迟,
+    积压超过 100 ms 就丢掉旧的.
+  - 测试: `ACDE_CAPTURE=fake` 换成假设备 (像 Chrome 的 fake media device): 一个麦克风 (440 Hz, 0.25) 和一个摄像头 (320x240 / 640x480 /
+    1280x720 @30, 蓝底 `#2080e0` 上一条每秒扫过的白条), 同一 group; `acde_media::capture::fake::unplug` 模拟拔掉. Linux 上没有摄像头时可以
+    `gst-launch-1.0 videotestsrc is-live=true ! video/x-raw,format=I420,width=640,height=480,framerate=30/1 ! pipewiresink mode=provide
+    "stream-properties=props,media.class=Video/Source,media.role=Camera"` 做一个 PipeWire 摄像头.
+  - 还没有: `devicechange` (不监视插拔)、`getDisplayMedia` (录屏)、`MediaRecorder`、`createMediaStreamDestination`、回声消除等处理、
+    `resizeMode: crop-and-scale`、轨道的 `mute` / `unmute` (系统暂停时).
 - **网页存储** (crates/storage `acde-storage`, crates/acdert `storage.rs`, acde-dom `src/storage/`): 所有 web 都是同一个进程里的线程, 存储按
   **分区**放在进程里共享: 每个应用一个 (`app-<id>`), 每个桌面一个 (`desktop-<id>`), 登录页 `greeter` (只在内存). Broker 在 `#spawn` 时把
   `{key, dir, legacy}` 作为 grant 交给 web (acde-host `storage.ts` `StoragePlaces`), Rust 用 `Lease` 引用分区, 最后一个 web 退出时写盘并放掉;
@@ -921,7 +950,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty 上的终端、copyIn、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
 | `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
 | `crates/log` | `acde-log`: 日志和计时 |
-| `crates/media` | `acde-media`: 解码音视频 (Linux GStreamer, macOS AVFoundation; 见「视频」). 检查: `cargo test --release -p acde-media` (`tests/fixtures` 是 ffmpeg 命令行生成的 1 秒小片段) |
+| `crates/media` | `acde-media`: 解码音视频, 读摄像头和麦克风 (Linux GStreamer, macOS AVFoundation; 见「视频」「摄像头和麦克风」). 检查: `cargo test --release -p acde-media` (`tests/fixtures` 是 ffmpeg 命令行生成的 1 秒小片段; `tests/capture.rs` 用假设备; `tests/devices.rs` 里 `--ignored` 的列出 / 读真设备、在 macOS 上问权限) |
 | `crates/storage` | `acde-storage`: 网页存储的分区和 SQLite (见「网页存储」). 检查: `cargo test --release -p acde-storage` |
 | `crates/acde-napi` | rusty_v8 实现的 Node-API (napi8), 让 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` 0.191.0 (MIT, LICENSE-MIT), 去掉了用不到的入口 |
 | `web/packages/acde-host` | acdert 的 JS: Broker 和每个 web 的宿主, 包发现, 桌面服务, 登录页 |

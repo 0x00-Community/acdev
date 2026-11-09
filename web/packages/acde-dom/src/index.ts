@@ -6,7 +6,7 @@ import { observer, type PageErrorKind } from './core/observe'
 import { EventSource, fetch, Headers, net, Request, Response, WebSocket, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net'
 import { ReadableStream, ReadableStreamDefaultController, ReadableStreamDefaultReader, TextDecoderStream, TextEncoderStream, TransformStream, TransformStreamDefaultController, WritableStream, WritableStreamDefaultController, WritableStreamDefaultWriter } from './core/streams'
 import { objectUrlOrigin, URL } from './core/url'
-import type { AudioNative, DomNative, GpuNative, HostNative, StorageNative } from './native'
+import type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageNative } from './native'
 import { installStorage, Storage } from './storage/webstorage'
 import { idbTaskEnded, installIndexedDB } from './storage/idb/idb'
 import { StorageManager } from './storage/manager'
@@ -30,6 +30,7 @@ import { createHtml, HTMLElement } from './dom/html'
 import { Input } from './dom/input'
 import * as media from './dom/media'
 import { deliverLoads, presentVideos } from './dom/media'
+import { InputDeviceInfo, installCapture, MediaDeviceInfo, MediaDevices, MediaStream, MediaStreamTrack, OverconstrainedError, Permissions, PermissionStatus } from './media/stream'
 import { MutationObserver, MutationRecord } from './dom/mutation'
 import { CDATASection, CharacterData, Comment, DocumentFragment, DocumentType, HTMLCollection, Node, NodeList, ProcessingInstruction, Text } from './dom/node'
 import { deliverObservations, IntersectionObserver, IntersectionObserverEntry, ResizeObserver, ResizeObserverEntry, watching } from './dom/observers'
@@ -40,9 +41,9 @@ import { attachShadow, shadowRootOf, ShadowRoot } from './dom/shadow'
 import { CSS, CSSRule, CSSRuleList, CSSStyleDeclaration, CSSStyleRule, CSSStyleSheet, StyleSheetList } from './dom/style'
 import * as svg from './dom/svg'
 import { NodeFilter, NodeIterator, TreeWalker } from './dom/traversal'
-import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, setNavigatorStorage, VisualViewport, Window, type NavigatorOptions } from './dom/window'
+import { Clipboard, framesPending, History, installWindow, Location, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, setNavigatorStorage, VisualViewport, Window, type NavigatorOptions } from './dom/window'
 
-export type { AudioNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
+export type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
 export { observe, type ConsoleLevel, type MockReply, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
 
@@ -52,6 +53,7 @@ export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly logNetwork?: boolean
   readonly gpu?: GpuNative
   readonly audio?: AudioNative
+  readonly capture?: CaptureNative
   readonly screen?: { width: number; height: number }
 }
 
@@ -144,6 +146,8 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   globals(global, installCaches(options.storage?.caches))
   if (options.gpu) globals(global, installGpu(global, options.gpu, externalPixels))
   if (options.audio) globals(global, installAudio(options.audio))
+  installCapture(options.capture)
+  globals(global, { MediaStream, MediaStreamTrack, MediaDeviceInfo, InputDeviceInfo, OverconstrainedError, Permissions, PermissionStatus })
   inspectHooks.node = (value) => {
     if (!(value instanceof Node)) return null
     if (value instanceof Element) {

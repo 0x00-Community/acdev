@@ -60,6 +60,8 @@ export class Manifest {
     'openFiles',
     'session',
     'desktops',
+    'camera',
+    'microphone',
   ])
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
   static readonly #ICON_NAMES: ReadonlySet<string> = new Set(ICON_NAMES)

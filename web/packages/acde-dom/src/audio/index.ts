@@ -2,6 +2,7 @@ import { DOMException } from '../core/exception'
 import { defineHandlers, Event, EventTarget, fire } from '../core/event'
 import { getters, host, illegal, KEY, tag } from '../core/host'
 import type { AudioNative } from '../native'
+import { MediaStream, trackSource, watchTrack } from '../media/stream'
 
 let native: AudioNative | null = null
 let nextId = 1
@@ -143,6 +144,7 @@ const enum Kind {
   StereoPanner = 4,
   ConstantSource = 5,
   Through = 6,
+  Stream = 7,
 }
 
 class AudioNode extends EventTarget {
@@ -244,6 +246,30 @@ class AudioScheduledSourceNode extends AudioNode {
 }
 defineHandlers(AudioScheduledSourceNode.prototype, ['ended'])
 tag(AudioScheduledSourceNode)
+
+export class MediaStreamAudioSourceNode extends AudioNode {
+  readonly #stream: MediaStream
+
+  constructor(context: AudioContext, options: { mediaStream: MediaStream }) {
+    if (!(context instanceof AudioContext)) throw new TypeError("Failed to construct 'MediaStreamAudioSourceNode': parameter 1 is not of type 'AudioContext'.")
+    const stream = options?.mediaStream
+    if (!(stream instanceof MediaStream)) throw new TypeError("Failed to construct 'MediaStreamAudioSourceNode': member mediaStream is not of type 'MediaStream'.")
+    const tracks = stream.getAudioTracks().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    const track = tracks[0]
+    if (!track) throw new DOMException("Failed to construct 'MediaStreamAudioSourceNode': MediaStream has no audio track", 'InvalidStateError')
+    super(KEY, context, Kind.Stream, 0, 1)
+    this.#stream = stream
+    const node = this[ID]
+    const bind = () => native?.streamNode(node, track.readyState === 'live' && track.enabled ? trackSource(track) : 0)
+    bind()
+    watchTrack(track, bind)
+  }
+
+  get mediaStream(): MediaStream {
+    return this.#stream
+  }
+}
+tag(MediaStreamAudioSourceNode)
 
 const WAVES = ['sine', 'square', 'sawtooth', 'triangle']
 
@@ -650,8 +676,8 @@ export class AudioContext extends BaseAudioContext {
   createMediaElementSource(): never {
     throw new DOMException('MediaElementAudioSourceNode is not supported', 'NotSupportedError')
   }
-  createMediaStreamSource(): never {
-    throw new DOMException('MediaStreamAudioSourceNode is not supported', 'NotSupportedError')
+  createMediaStreamSource(mediaStream: MediaStream): MediaStreamAudioSourceNode {
+    return new MediaStreamAudioSourceNode(this, { mediaStream })
   }
   createMediaStreamDestination(): never {
     throw new DOMException('MediaStreamAudioDestinationNode is not supported', 'NotSupportedError')
@@ -675,6 +701,6 @@ export function installAudio(audio: AudioNative): Record<string, unknown> {
   return {
     AudioContext, BaseAudioContext, AudioNode, AudioParam, AudioDestinationNode, AudioScheduledSourceNode,
     OscillatorNode, GainNode, AudioBufferSourceNode, StereoPannerNode, ConstantSourceNode, AudioBuffer, PeriodicWave,
-    BiquadFilterNode, DynamicsCompressorNode, DelayNode, WaveShaperNode, ConvolverNode, AnalyserNode,
+    BiquadFilterNode, DynamicsCompressorNode, DelayNode, WaveShaperNode, ConvolverNode, AnalyserNode, MediaStreamAudioSourceNode,
   }
 }

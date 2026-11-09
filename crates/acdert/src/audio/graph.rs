@@ -39,6 +39,7 @@ pub enum Kind {
     StereoPanner,
     ConstantSource,
     Through,
+    Stream,
 }
 
 impl Kind {
@@ -50,6 +51,7 @@ impl Kind {
             4 => Kind::StereoPanner,
             5 => Kind::ConstantSource,
             6 => Kind::Through,
+            7 => Kind::Stream,
             _ => return None,
         })
     }
@@ -68,7 +70,7 @@ impl Kind {
             Kind::BufferSource => [(1.0, f32::MIN, f32::MAX), (0.0, f32::MIN, f32::MAX)],
             Kind::StereoPanner => [(0.0, -1.0, 1.0), none],
             Kind::ConstantSource => [(1.0, f32::MIN, f32::MAX), none],
-            Kind::Destination | Kind::Through => [none, none],
+            Kind::Destination | Kind::Through | Kind::Stream => [none, none],
         }
     }
 }
@@ -112,6 +114,7 @@ pub enum NodeOp {
     Start { when: f64, offset: f64, duration: Option<f64> },
     Stop(f64),
     Release,
+    Stream(Option<Box<super::live::LiveTap>>),
 }
 
 #[derive(Clone, Debug)]
@@ -381,6 +384,7 @@ struct Node {
     wave: Wave,
     phase: f64,
     buf: Buffer,
+    stream: Option<Box<super::live::LiveTap>>,
 }
 
 impl Node {
@@ -403,6 +407,7 @@ impl Node {
             wave: Wave::Sine,
             phase: 0.0,
             buf: Buffer { data: None, pos: None, offset: 0.0, duration: None, played: 0.0, looping: false, loop_start: 0.0, loop_end: 0.0 },
+            stream: None,
         }
     }
 
@@ -410,7 +415,7 @@ impl Node {
         match self.kind {
             Kind::Oscillator | Kind::BufferSource => 2,
             Kind::Gain | Kind::StereoPanner | Kind::ConstantSource => 1,
-            Kind::Destination | Kind::Through => 0,
+            Kind::Destination | Kind::Through | Kind::Stream => 0,
         }
     }
 
@@ -541,6 +546,11 @@ impl Graph {
                 }
             }
             NodeOp::Release => node.released = true,
+            NodeOp::Stream(tap) => {
+                if node.kind == Kind::Stream {
+                    node.stream = tap;
+                }
+            }
         }
     }
 
@@ -554,7 +564,7 @@ impl Graph {
     }
 
     pub fn active(&self) -> bool {
-        self.nodes.values().any(|n| n.kind.is_source() && n.src.start.is_some() && !n.src.ended)
+        self.nodes.values().any(|n| (n.kind.is_source() && n.src.start.is_some() && !n.src.ended) || (n.kind == Kind::Stream && n.stream.is_some()))
     }
 
     #[cfg(test)]
@@ -686,13 +696,24 @@ impl Graph {
         let input = &self.input;
         let values = &self.values;
         let range = node.playing_range(frame);
-        node.silent = if node.kind.is_source() { range.is_none() } else { empty };
+        node.silent = match node.kind {
+            Kind::Stream => node.stream.is_none(),
+            kind if kind.is_source() => range.is_none(),
+            _ => empty,
+        };
         let (from, to) = range.unwrap_or_default();
         match node.kind {
             _ if node.silent => {}
             Kind::Destination | Kind::Through => {
                 node.out = *input;
                 node.mono = mono;
+            }
+            Kind::Stream => {
+                node.mono = false;
+                node.out = [[0.0; QUANTUM]; 2];
+                if let Some(tap) = &mut node.stream {
+                    tap.read(&mut node.out, 1.0);
+                }
             }
             Kind::Gain => {
                 node.mono = mono;

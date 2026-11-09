@@ -50,7 +50,7 @@ test('the config schema offers the same names', () => {
 
 test('capabilities: acde modules and the package\'s own services are known; other names warn', () => {
   const manifest: PackageManifest = {
-    apps: [{ id: 'demo', label: 'Demo', icon: 'app', entry: '/app/demo/index.html', capabilities: { fs: true, network: true, desk: true, weather: true } }],
+    apps: [{ id: 'demo', label: 'Demo', icon: 'app', entry: '/app/demo/index.html', capabilities: { fs: true, network: true, camera: true, microphone: true, desk: true, weather: true } }],
     assets: { '/app/demo/': ['web'] },
     services: [{ name: 'desk', module: 'dist/services/desk.js' }],
   }
