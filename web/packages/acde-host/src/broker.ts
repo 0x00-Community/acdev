@@ -27,6 +27,7 @@ import { PageCalls, PanelCalls } from './broker/page'
 import { WindowCalls } from './broker/windows'
 import { ServiceCalls } from './broker/services'
 import { AppCalls } from './broker/apps'
+import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -66,10 +67,7 @@ export class Broker {
   readonly #desktopCrashes = new Crashes(Broker.RESTARTS)
   readonly #themes = new Map<string, string>()
   #stopped = false
-  #dark: boolean
-  #systemDark: boolean
-  #emulatedDark: boolean | null = null
-  #reducedMotion: boolean | null
+  readonly #preferences: Preferences
   readonly devlog = new DevLog()
   readonly #dev: DevRequests
   #ended: RunEnd = 'signal'
@@ -81,9 +79,9 @@ export class Broker {
   constructor(native: Native, options: BrokerOptions) {
     this.native = native
     this.#options = options
-    this.#dark = options.dark
-    this.#systemDark = options.dark
-    this.#reducedMotion = options.reducedMotion
+    this.#preferences = new Preferences(options.dark, options.reducedMotion, (message) => {
+      for (const web of this.#webs()) web.thread.post(message)
+    })
     this.#current = options.desktop
     this.apps = new AppRegistry(options.packages)
     this.bridge = new PageBridge()
@@ -195,33 +193,11 @@ export class Broker {
   }
 
   setDark(dark: boolean): void {
-    this.#systemDark = dark
-    this.#applyDark()
+    this.#preferences.setDark(dark)
   }
 
-  emulate(options: { readonly colorScheme?: 'light' | 'dark' | null; readonly reducedMotion?: boolean | null }): { colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean } {
-    if (options.colorScheme !== undefined) {
-      if (options.colorScheme !== null && options.colorScheme !== 'light' && options.colorScheme !== 'dark') throw Object.assign(new Error(`emulate: colorScheme is light, dark or null, not ${JSON.stringify(options.colorScheme)}`), { status: 400 })
-      this.#emulatedDark = options.colorScheme === null ? null : options.colorScheme === 'dark'
-      this.#applyDark()
-    }
-    if (options.reducedMotion !== undefined) {
-      const reduced = options.reducedMotion === null ? this.#options.reducedMotion : options.reducedMotion === true
-      if (reduced !== this.#reducedMotion) {
-        this.#reducedMotion = reduced
-        Log.write(Level.Info, 'acde_host', `reduced motion: ${reduced === true}`)
-        for (const web of this.#webs()) web.thread.post({ type: 'motion', reduced: reduced === true })
-      }
-    }
-    return { colorScheme: this.#dark ? 'dark' : 'light', emulated: this.#emulatedDark !== null, reducedMotion: this.#reducedMotion === true }
-  }
-
-  #applyDark(): void {
-    const dark = this.#emulatedDark ?? this.#systemDark
-    if (this.#dark === dark) return
-    this.#dark = dark
-    Log.write(Level.Info, 'acde_host', `color scheme: ${dark ? 'dark' : 'light'}${this.#emulatedDark === null ? '' : ' (emulated)'}`)
-    for (const web of this.#webs()) web.thread.post({ type: 'colorscheme', dark })
+  emulate(options: Emulation): Emulated {
+    return this.#preferences.emulate(options)
   }
 
   #events(): Promise<void> {
@@ -324,8 +300,8 @@ export class Broker {
       height: this.#output.height,
       scale: this.#output.scale,
       screen: this.#screen(),
-      reducedMotion: this.#reducedMotion,
-      dark: this.#dark,
+      reducedMotion: this.#preferences.reducedMotion,
+      dark: this.#preferences.dark,
       languages: this.language.current,
       services: this.#services.shapes(null),
       resources: this.#resources(),
@@ -357,8 +333,8 @@ export class Broker {
       height: 600 * this.#output.scale,
       scale: this.#output.scale,
       screen: this.#screen(),
-      reducedMotion: this.#reducedMotion,
-      dark: this.#dark,
+      reducedMotion: this.#preferences.reducedMotion,
+      dark: this.#preferences.dark,
       languages: this.language.current,
       services: this.#services.shapes(app.capabilities),
       resources: PageSource.isHtml(app.entry) ? PageSource.rooted(app.entry, this.#resources()) : this.#resources(),
