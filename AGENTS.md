@@ -811,7 +811,8 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 - 正式发布的顺序 (同一个工作流, 任何一步失败就停在那里): 判断版本 (`plan`: 先把 `commit` 解析成完整 SHA 并打印, 版本和标签都从这个提交读取, 所有 job 都 checkout 它; 源码里的版本必须一致; 标签已存在于另一个提交则失败并说明; 在同一个提交上则续跑) →
   构建、host、stage、泄漏检查 → `upload` 把版本目录传到 AWS S3 桶 `dopame-pkgs` 的 `acdert/<版本>/` 并逐个校验 → `tag` 在通过的提交上建注释标签 `v<版本>` →
   `release` 建 GitHub 预发布 → `latest` 最后更新 `acdert/latest.json` 并让 CloudFront `E3ET3L14ALFOXX` 失效 `/acdert/latest.json` 与 `/acdert/<版本>/*`.
-  所以上传失败 (如权限问题) 不会留下标签. `upload` 对已存在的对象: sha256 元数据一致则跳过, 不一致或缺元数据则拒绝覆盖 (上一次留下的对象要先人工清理).
+  所以上传失败 (如权限问题) 不会留下标签. 并发: 准备阶段 (plan、build 每个 triple、host、stage) 各有自己的组 (`release-prepare-<publish|rehearsal>-<ref>-<job>`),
+  新的预演只取消旧运行里的同一个 job; 同一次运行的并行 job 不能共用一个组 (会互相取消, 只剩一个在跑). 发布阶段的 job 按 needs 串行, 共用 `release-publish`, 不取消. `upload` 对已存在的对象: sha256 元数据一致则跳过, 不一致或缺元数据则拒绝覆盖 (上一次留下的对象要先人工清理).
   版本目录是三个 binary、host bundle (`app/` 和 `LICENSE`)、`LICENSE`、`acde-api-<版本>.tar.gz` (SDK 发布构建的 `package/` 布局, acde 按 `package/` 解包) 和 `SHA256SUMS`;
   `acdert/latest.json` (`{version, tag, commit, base, files}`, 不缓存) 指向最新的一版; 下载地址 `https://pkgs.dopame.ai/acdert/<版本>/<文件>`. 版本目录的缓存头是一年 `immutable`.
   凭证走 GitHub OIDC, 不存密钥: IAM 角色 `dopame-acdert-release` 只能读写 `dopame-pkgs/acdert/*`、失效那个 distribution. 它的信任策略目前只允许 `refs/tags/v*`;

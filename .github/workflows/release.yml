@@ -22,7 +22,7 @@ jobs:
   plan:
     runs-on: ubuntu-24.04
     concurrency:
-      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
+      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}-plan
       cancel-in-progress: ${{ !inputs.publish }}
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
@@ -49,7 +49,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.result == 'success' }}
     concurrency:
-      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
+      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}-build-${{ matrix.triple }}
       cancel-in-progress: ${{ !inputs.publish }}
     strategy:
       fail-fast: false
@@ -132,7 +132,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.result == 'success' }}
     concurrency:
-      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
+      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}-host
       cancel-in-progress: ${{ !inputs.publish }}
     runs-on: ubuntu-24.04
     steps:
@@ -164,7 +164,7 @@ jobs:
     needs: [plan, build, host]
     if: ${{ needs.plan.result == 'success' && needs.build.result == 'success' && needs.host.result == 'success' }}
     concurrency:
-      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
+      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}-stage
       cancel-in-progress: ${{ !inputs.publish }}
     runs-on: ubuntu-24.04
     env:
