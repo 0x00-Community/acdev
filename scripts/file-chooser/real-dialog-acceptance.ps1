@@ -55,7 +55,8 @@ $acdert = Join-Path $repo 'target\release\acdert.exe'
 
 $envBefore = @{}
 $envSet = @{
-    ACDE_DEV = "\\.\pipe\$pipeName"; ACDE_PATH = $pkg; ACDE_APP = (Join-Path $repo 'web\packages\acde-host\dist')
+    ACDE_DEV = "\\.\pipe\$pipeName"; ACDE_PATH = $pkg
+    ACDE_APP = $(if ($env:ACDE_APP) { $env:ACDE_APP } else { Join-Path $repo 'web\packages\acde-host\dist' })
     HOME = $homeDir; USERPROFILE = $homeDir; XDG_CONFIG_HOME = $homeDir; XDG_DATA_HOME = $homeDir; XDG_STATE_HOME = (Join-Path $Run 'state')
 }
 $envRemove = @('ACDE_HEADLESS', 'ACDE_STORAGE', 'ACDE_BACKEND')
