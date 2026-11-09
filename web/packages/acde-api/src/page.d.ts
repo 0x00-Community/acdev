@@ -230,15 +230,39 @@ export interface NativeApp {
   readonly wmClass: string | null
 }
 
-export interface AcdeApps extends AcdeOpenFiles {
+export interface AcdeAppList {
   on?(type: 'changed', handler: (event: { readonly apps?: readonly DesktopApp[] }) => void): () => boolean
   list(): Promise<DesktopApp[]>
-  launch(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
   open(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
+}
+
+export interface AcdeApps extends AcdeAppList, AcdeOpenFiles {
+  launch(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
   refresh(): Promise<DesktopApp[]>
   install(dir: string): Promise<{ id: string; dir: string; apps: DesktopApp[] }>
   natives(): Promise<NativeApp[]>
   runNative(id: string): Promise<number>
+}
+
+export interface AcdePackages {
+  on(type: 'changed', handler: (event: { readonly apps?: readonly DesktopApp[] }) => void): () => boolean
+  refresh(): Promise<DesktopApp[]>
+  install(dir: string): Promise<{ id: string; dir: string; apps: DesktopApp[] }>
+  natives(): Promise<NativeApp[]>
+  runNative(id: string): Promise<number>
+}
+
+export interface LaunchOptions {
+  readonly cwd?: string
+  readonly env?: Readonly<Record<string, string>>
+}
+
+export interface AcdeLaunch {
+  start(argv: readonly string[], options?: LaunchOptions): Promise<number>
+  embed(argv: readonly string[], options?: LaunchOptions): Promise<number>
+  close(window: number): Promise<boolean>
+  list(): NativeWindow[]
+  on(type: WindowsEventType, handler: (event: WindowsEvent) => void): () => boolean
 }
 
 export interface DesktopInfo {
@@ -495,6 +519,8 @@ export interface AcdePage {
   readonly network?: AcdeNetwork
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
+  readonly launch?: AcdeLaunch
+  readonly packages?: AcdePackages
   readonly desktop?: AcdeDesktop
   readonly desktops?: AcdeDesktops
   readonly session?: AcdeSession

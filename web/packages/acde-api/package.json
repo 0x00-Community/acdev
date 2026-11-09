@@ -16,6 +16,14 @@
       "types": "./src/index.d.ts",
       "default": "./src/index.js"
     },
+    "./app": {
+      "types": "./src/app.d.ts",
+      "default": "./src/index.js"
+    },
+    "./shell": {
+      "types": "./src/shell.d.ts",
+      "default": "./src/index.js"
+    },
     "./vite": {
       "types": "./src/vite.d.ts",
       "default": "./src/vite.js"

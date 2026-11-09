@@ -1,7 +1,7 @@
-import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest } from './index.js'
+import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest } from './manifest.js'
 import { API_LEVEL } from './level.js'
 
-export type { Capabilities, PackageManifest } from './index.js'
+export type { Capabilities, PackageManifest } from './manifest.js'
 export { API_LEVEL }
 
 export const ICON_NAMES = [
@@ -38,6 +38,17 @@ export const ICON_NAMES = [
 
 export type IconName = (typeof ICON_NAMES)[number]
 
+export const SHELL_MODULES = ['windows', 'packages', 'session', 'desktops', 'inspect', 'desktop', 'setDefault'] as const
+
+export const APP_MODULES = ['launch', 'apps', 'open', 'openPath', 'handlers', 'window'] as const
+
+export type ShellModule = (typeof SHELL_MODULES)[number]
+
+export interface DesktopServiceGrant {
+  readonly name: string
+  readonly modules: ShellModule[]
+}
+
 export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & {
   readonly backend: Required<AppBackend> | null
   readonly size: readonly [number, number] | null
@@ -60,11 +71,11 @@ export class Manifest {
     'slots',
     'open',
     'openFiles',
-    'session',
-    'desktops',
     'camera',
     'microphone',
+    ...SHELL_MODULES,
   ])
+  static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
   static readonly #ICON_NAMES: ReadonlySet<string> = new Set(ICON_NAMES)
   static readonly #ICON_IMAGE = /^\/(?!\/)[^\s\0?#]*\.(svg|png)$/i
@@ -80,6 +91,28 @@ export class Manifest {
   static apiLevel(raw: unknown): number | null | string {
     if (raw === undefined) return null
     return Number.isInteger(raw) && (raw as number) > 0 ? (raw as number) : 'acde.apiLevel must be a positive whole number (the contract level)'
+  }
+
+  static shellModules(caps: Capabilities): ShellModule[] {
+    return SHELL_MODULES.filter((name) => !!caps[name])
+  }
+
+  static desktopServices(raw: unknown): DesktopServiceGrant[] | null | string {
+    if (raw === undefined || raw === null) return null
+    if (!Array.isArray(raw)) return 'services lists service names or {name, modules}'
+    const grants: DesktopServiceGrant[] = []
+    for (const entry of raw as unknown[]) {
+      if (typeof entry === 'string' && entry) {
+        grants.push({ name: entry, modules: [] })
+        continue
+      }
+      const { name, modules = [] } = (typeof entry === 'object' && entry !== null ? entry : {}) as { name?: unknown; modules?: unknown }
+      if (typeof name !== 'string' || !name) return 'services lists service names or {name, modules}'
+      if (!Array.isArray(modules) || modules.some((m) => !Manifest.#SHELL.has(m)))
+        return `service ${JSON.stringify(name)}: modules lists shell modules (${SHELL_MODULES.join(', ')})`
+      grants.push({ name, modules: [...(modules as ShellModule[])] })
+    }
+    return grants
   }
 
   static refusal(level: number): string | null {
@@ -153,6 +186,16 @@ export class Manifest {
         errors.push(`assets ${JSON.stringify(prefix)}: no directory ${JSON.stringify(dir)}`)
     }
     const services = new Set((manifest.services ?? []).map((service) => service.name))
+    for (const desktop of manifest.desktops ?? []) {
+      const at = `desktop ${JSON.stringify(desktop?.id)}`
+      const grants = Manifest.desktopServices(desktop?.services)
+      if (typeof grants === 'string') errors.push(`${at}: ${grants}`)
+      for (const grant of Array.isArray(grants) ? grants : []) {
+        if (!services.has(grant.name)) warnings.push(`${at}: no service ${JSON.stringify(grant.name)} in acde.services`)
+      }
+    }
+    const system = (manifest.desktops ?? []).length > 0
+    const shellFindings = typeof level === 'number' ? errors : warnings
     const seen = new Set<string>()
     for (const raw of apps) {
       const app = Manifest.app(raw)
@@ -177,6 +220,10 @@ export class Manifest {
       }
       if (raw.heapMb !== undefined && Manifest.heapMb(raw.heapMb, 0) === 0)
         warnings.push(`${at}: heapMb below ${Manifest.MIN_HEAP_MB} is ignored (${Manifest.HEAP_MB} then)`)
+      if (!system) {
+        for (const name of Manifest.shellModules(app.capabilities))
+          shellFindings.push(`${at}: acde:${name} is a shell module: only apps of a desktop package (system apps) may declare it`)
+      }
       for (const name of Object.keys(app.capabilities).filter(
         (k) => !Manifest.CAPABILITIES.has(k) && !services.has(k),
       )) {

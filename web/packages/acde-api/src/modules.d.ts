@@ -18,6 +18,14 @@ declare module 'acde:windows' {
   const windows: import('@dopame/acde-api').AcdeModules['windows']
   export { windows, windows as default }
 }
+declare module 'acde:launch' {
+  const launch: import('@dopame/acde-api').AcdeModules['launch']
+  export { launch, launch as default }
+}
+declare module 'acde:packages' {
+  const packages: import('@dopame/acde-api').AcdeModules['packages']
+  export { packages, packages as default }
+}
 declare module 'acde:apps' {
   const apps: import('@dopame/acde-api').AcdeModules['apps']
   export { apps, apps as default }

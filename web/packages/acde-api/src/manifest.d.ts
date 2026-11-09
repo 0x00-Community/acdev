@@ -1,6 +1,6 @@
-import type { IconName } from './validate'
+import type { IconName, ShellModule } from './validate'
 
-export type { IconName }
+export type { IconName, ShellModule }
 
 export interface PackageManifest {
   readonly apiLevel?: number
@@ -15,8 +15,13 @@ export interface DesktopManifest {
   readonly name: string
   readonly description?: string
   readonly entry: string
-  readonly services?: readonly string[]
+  readonly services?: readonly (string | DesktopService)[]
   readonly heapMb?: number
+}
+
+export interface DesktopService {
+  readonly name: string
+  readonly modules?: readonly ShellModule[]
 }
 
 export interface AppManifest {
@@ -47,8 +52,13 @@ export interface Capabilities {
   readonly slots?: boolean
   readonly open?: boolean | readonly string[]
   readonly openFiles?: boolean
+  readonly windows?: boolean
+  readonly packages?: boolean
   readonly session?: boolean
   readonly desktops?: boolean
+  readonly inspect?: boolean
+  readonly desktop?: boolean
+  readonly setDefault?: boolean
   readonly camera?: boolean
   readonly microphone?: boolean
   readonly [service: string]: unknown
