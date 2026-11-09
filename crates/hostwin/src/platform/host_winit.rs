@@ -43,6 +43,14 @@ impl super::Host for Host {
         crate::chooser::folder(Some(&self.window), title, reply);
     }
 
+    fn open_files(&self, request: crate::OpenRequest, reply: super::FilesReply) {
+        crate::chooser::open(Some(&self.window), &request, reply);
+    }
+
+    fn save_file(&self, request: crate::SaveRequest, reply: super::FolderReply) {
+        crate::chooser::save(Some(&self.window), &request, reply);
+    }
+
     fn exit(&self, code: i32) {
         self.exit.set(Some(code));
     }

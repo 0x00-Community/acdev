@@ -37,8 +37,8 @@ impl Picker {
         Self { grants, folders: PickedFolders::default() }
     }
 
-    fn directory(&self, title: &str, window: Option<u32>, writable: bool) -> Answer {
-        let Some(picked) = choose_folder(title, window).map_err(Failed::Chooser)? else {
+    fn directory(&self, title: &str, writable: bool) -> Answer {
+        let Some(picked) = crate::chooser::folder(title).map_err(Failed::Chooser)? else {
             return Ok(Reply::Path(None));
         };
         let path = self.folders.add(&picked)?;
@@ -49,19 +49,6 @@ impl Picker {
             log::warn!("granting the picked folder {path}: {}", error.message);
         }
         Ok(Reply::Path(Some(path)))
-    }
-}
-
-fn choose_folder(title: &str, window: Option<u32>) -> Result<Option<String>, String> {
-    if acde_hostwin::headless() {
-        return acde_hostwin::choose_folder(window, title).map(|picked| picked.map(|path| path.to_string_lossy().into_owned()));
-    }
-    cfg_select! {
-        target_os = "linux" => {
-            _ = window;
-            acde_runtime::choose_folder(title)
-        }
-        _ => acde_hostwin::choose_folder(window, title).map(|picked| picked.map(|path| path.to_string_lossy().into_owned())),
     }
 }
 
@@ -100,9 +87,8 @@ fn kind(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<EntryKi
 
 fn directory(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let title = bind::arg_string(scope, &args, 0);
-    let window = args.get(1).is_number().then(|| args.get(1).uint32_value(scope)).flatten();
-    let writable = bind::arg_bool(scope, &args, 2);
-    run(scope, &mut rv, move |picker| picker.directory(&title, window, writable));
+    let writable = bind::arg_bool(scope, &args, 1);
+    run(scope, &mut rv, move |picker| picker.directory(&title, writable));
 }
 
 fn entries(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {

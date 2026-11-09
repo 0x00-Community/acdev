@@ -2,6 +2,7 @@ mod audio;
 mod backend;
 mod bind;
 mod child;
+mod chooser;
 mod dom;
 mod engine;
 mod fs;

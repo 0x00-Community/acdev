@@ -30,9 +30,9 @@ fn bus(error: zbus::Error) -> napi::Error {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct Filter {
-    name: String,
-    globs: Vec<String>,
-    mimes: Vec<String>,
+    pub name: String,
+    pub globs: Vec<String>,
+    pub mimes: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -109,15 +109,39 @@ impl FileChooser {
     }
 
     fn folder(&self, title: &str) -> zbus::Result<Option<String>> {
-        let map = options([("multiple", Variant::from(false)), ("directory", Variant::from(true))], &[]);
-        Ok(self.request("OpenFile", title, map)?.and_then(|paths| paths.into_iter().next()))
+        Ok(self.ask_open(title, false, true, &[])?.and_then(|paths| paths.into_iter().next()))
+    }
+
+    fn ask_open(&self, title: &str, multiple: bool, directory: bool, filters: &[Filter]) -> zbus::Result<Option<Vec<String>>> {
+        let map = options([("multiple", Variant::from(multiple)), ("directory", Variant::from(directory))], filters);
+        self.request("OpenFile", title, map)
+    }
+
+    fn ask_save(&self, title: &str, name: &str, filters: &[Filter]) -> zbus::Result<Option<String>> {
+        let name = (!name.is_empty()).then(|| ("current_name", Variant::from(name)));
+        Ok(self.request("SaveFile", title, options(name, filters))?.and_then(|paths| paths.into_iter().next()))
+    }
+
+    fn session() -> std::result::Result<Self, String> {
+        let connection = Connection::session().map_err(|e| format!("no session bus: {e}"))?;
+        Self::on(connection).map_err(|e| format!("no FileChooser portal: {e}"))
     }
 }
 
+fn asked<T>(answer: zbus::Result<T>) -> std::result::Result<T, String> {
+    answer.map_err(|e| format!("FileChooser portal: {e}"))
+}
+
 pub fn choose_folder(title: &str) -> std::result::Result<Option<String>, String> {
-    let connection = Connection::session().map_err(|e| format!("no session bus: {e}"))?;
-    let chooser = FileChooser::on(connection).map_err(|e| format!("no FileChooser portal: {e}"))?;
-    chooser.folder(title).map_err(|e| format!("FileChooser portal: {e}"))
+    asked(FileChooser::session()?.folder(title))
+}
+
+pub fn open_files(title: &str, multiple: bool, directory: bool, filters: &[Filter]) -> std::result::Result<Option<Vec<String>>, String> {
+    asked(FileChooser::session()?.ask_open(title, multiple, directory, filters))
+}
+
+pub fn save_file(title: &str, name: &str, filters: &[Filter]) -> std::result::Result<Option<String>, String> {
+    asked(FileChooser::session()?.ask_save(title, name, filters))
 }
 
 #[napi]
@@ -133,19 +157,14 @@ impl FileChooser {
     pub async fn open_file(&self, options: serde_json::Value) -> Result<Option<Vec<String>>> {
         let options: OpenOptions = serde_json::from_value(options).map_err(|e| failure("bad_options", &e.to_string()))?;
         let chooser = Self { connection: self.connection.clone() };
-        let map = [("multiple", Variant::from(options.multiple)), ("directory", Variant::from(options.directory))];
-        blocking(move || chooser.request("OpenFile", &options.title, self::options(map, &options.filters)).map_err(bus)).await
+        blocking(move || chooser.ask_open(&options.title, options.multiple, options.directory, &options.filters).map_err(bus)).await
     }
 
     #[napi(ts_args_type = "options: { title?: string; name?: string; filters?: { name: string; globs?: string[]; mimes?: string[] }[] }")]
     pub async fn save_file(&self, options: serde_json::Value) -> Result<Option<String>> {
         let options: SaveOptions = serde_json::from_value(options).map_err(|e| failure("bad_options", &e.to_string()))?;
         let chooser = Self { connection: self.connection.clone() };
-        blocking(move || {
-            let name = (!options.name.is_empty()).then(|| ("current_name", Variant::from(options.name.as_str())));
-            Ok(chooser.request("SaveFile", &options.title, self::options(name, &options.filters)).map_err(bus)?.and_then(|paths| paths.into_iter().next()))
-        })
-        .await
+        blocking(move || chooser.ask_save(&options.title, &options.name, &options.filters).map_err(bus)).await
     }
 }
 
@@ -316,16 +335,31 @@ mod tests {
         assert_eq!(open("cancel", true, &[]), None);
         let save = options([("current_name", Variant::from("out.json"))], &[]);
         assert_eq!(chooser.request("SaveFile", "Save", save).unwrap(), Some(vec!["/tmp/picked/out.json".to_string()]));
+        assert_eq!(chooser.ask_open("Pick", true, false, &images).unwrap(), Some(vec!["/tmp/picked/a b.txt".to_string(), "/tmp/picked/你.png".to_string()]));
+        assert_eq!(chooser.ask_save("Save", "notes.txt", &images).unwrap(), Some("/tmp/picked/notes.txt".to_string()));
+        assert_eq!(chooser.ask_save("cancel", "notes.txt", &[]).unwrap(), None);
         assert_eq!(chooser.folder("Folder").unwrap(), Some("/tmp/picked/a b.txt".to_string()));
         assert_eq!(chooser.folder("cancel").unwrap(), None);
         let calls = calls.lock().unwrap();
         let seen: Vec<(&str, &str)> = calls.iter().map(|(m, t, _)| (m.as_str(), t.as_str())).collect();
         assert_eq!(
             seen,
-            [("OpenFile", "Pick"), ("OpenFile", "Pick"), ("OpenFile", "cancel"), ("SaveFile", "Save"), ("OpenFile", "Folder"), ("OpenFile", "cancel")]
+            [
+                ("OpenFile", "Pick"),
+                ("OpenFile", "Pick"),
+                ("OpenFile", "cancel"),
+                ("SaveFile", "Save"),
+                ("OpenFile", "Pick"),
+                ("SaveFile", "Save"),
+                ("SaveFile", "cancel"),
+                ("OpenFile", "Folder"),
+                ("OpenFile", "cancel")
+            ]
         );
         assert_eq!(calls[0].2["filters"].value_signature().to_string(), "a(sa(us))");
-        assert_eq!(bool::try_from(calls[4].2["directory"].clone()).ok(), Some(true));
+        assert_eq!(calls[5].2["filters"].value_signature().to_string(), "a(sa(us))");
+        assert!(!calls[6].2.contains_key("filters"));
+        assert_eq!(bool::try_from(calls[7].2["directory"].clone()).ok(), Some(true));
         _ = daemon.kill();
         _ = daemon.wait();
         _ = std::fs::remove_dir_all(dir);

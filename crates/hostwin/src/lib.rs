@@ -36,19 +36,87 @@ pub fn active() -> bool {
     app::server().is_some()
 }
 
-static ANSWERS: std::sync::Mutex<std::collections::VecDeque<Option<std::path::PathBuf>>> = std::sync::Mutex::new(std::collections::VecDeque::new());
-
-pub fn answer_folder(answer: Option<std::path::PathBuf>) {
-    ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).push_back(answer);
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileFilter {
+    pub name: String,
+    pub globs: Vec<String>,
+    pub mimes: Vec<String>,
 }
 
-pub fn choose_folder(_window: Option<u32>, title: &str) -> Result<Option<std::path::PathBuf>, String> {
-    if let Some(answer) = ANSWERS.lock().unwrap_or_else(|e| e.into_inner()).pop_front() {
-        log::info!("choose folder {title:?}: using the preset answer {answer:?}");
-        return Ok(answer);
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OpenRequest {
+    pub title: String,
+    pub multiple: bool,
+    pub directory: bool,
+    pub filters: Vec<FileFilter>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SaveRequest {
+    pub title: String,
+    pub name: String,
+    pub filters: Vec<FileFilter>,
+}
+
+struct Answers<T>(std::sync::Mutex<std::collections::VecDeque<Option<T>>>);
+
+impl<T> Answers<T> {
+    const fn new() -> Self {
+        Self(std::sync::Mutex::new(std::collections::VecDeque::new()))
     }
+
+    fn push(&self, answer: Option<T>) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).push_back(answer);
+    }
+
+    fn take(&self) -> Option<Option<T>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).pop_front()
+    }
+}
+
+static FOLDERS: Answers<std::path::PathBuf> = Answers::new();
+static OPENED: Answers<Vec<std::path::PathBuf>> = Answers::new();
+static SAVED: Answers<std::path::PathBuf> = Answers::new();
+
+pub fn answer_folder(answer: Option<std::path::PathBuf>) {
+    FOLDERS.push(answer);
+}
+
+pub fn answer_open(answer: Option<Vec<std::path::PathBuf>>) {
+    OPENED.push(answer);
+}
+
+pub fn answer_save(answer: Option<std::path::PathBuf>) {
+    SAVED.push(answer);
+}
+
+pub fn preset_folder() -> Option<Option<std::path::PathBuf>> {
+    FOLDERS.take()
+}
+
+pub fn preset_open() -> Option<Option<Vec<std::path::PathBuf>>> {
+    OPENED.take()
+}
+
+pub fn preset_save() -> Option<Option<std::path::PathBuf>> {
+    SAVED.take()
+}
+
+fn ask<T>(cmd: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, String>>) -> platform::Cmd, what: &str) -> Result<T, String> {
     let server = app::server().ok_or("no host windows")?;
-    let (reply, picked) = std::sync::mpsc::sync_channel(1);
-    server.send(platform::Cmd::ChooseFolder { title: title.to_owned(), reply });
-    picked.recv().map_err(|_| "the folder chooser closed without an answer".to_owned())?
+    let (reply, answer) = std::sync::mpsc::sync_channel(1);
+    server.send(cmd(reply));
+    answer.recv().map_err(|_| format!("the {what} chooser closed without an answer"))?
+}
+
+pub fn choose_folder(title: &str) -> Result<Option<std::path::PathBuf>, String> {
+    ask(|reply| platform::Cmd::ChooseFolder { title: title.to_owned(), reply }, "folder")
+}
+
+pub fn open_files(request: OpenRequest) -> Result<Option<Vec<std::path::PathBuf>>, String> {
+    ask(|reply| platform::Cmd::OpenFiles { request, reply }, "file")
+}
+
+pub fn save_file(request: SaveRequest) -> Result<Option<std::path::PathBuf>, String> {
+    ask(|reply| platform::Cmd::SaveFile { request, reply }, "save")
 }
