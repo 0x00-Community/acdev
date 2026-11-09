@@ -1,7 +1,7 @@
 import type { Socket as UdpSocket } from 'node:dgram'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Server as NetServer } from 'node:net'
-import { CHANNEL_MARK, channelMode, serveChannel, unserveChannel } from './channel.ts'
+import { CHANNEL_MARK, channelMode, controlMode, serveChannel, serveControl, unserveChannel } from './channel.ts'
 import { socketPath } from './sockets.ts'
 
 const dgram = process.getBuiltinModule('node:dgram')
@@ -53,6 +53,10 @@ function prepare(port: number): string {
   return path
 }
 
+function controlled(stop: () => unknown): () => void {
+  return controlMode(process.env, typeof Bun !== 'undefined') ? serveControl(stop) : () => undefined
+}
+
 function onSocket(options: object, path: string): Options {
   const mapped: Options = Object.create(options)
   for (const key of ['port', 'hostname', 'host', 'reusePort', 'ipv6Only']) mapped[key] = undefined
@@ -80,8 +84,10 @@ function onUnix(original: Fn, fallback: () => number): Fn {
     const server = original.call(Bun, onSocket(options, path), ...args.slice(1)) as Options
     live.add(path)
     const stop = server['stop'] as Fn
+    const release = controlled(() => (server['stop'] as Fn)())
     server['stop'] = function (...rest: unknown[]) {
       live.delete(path)
+      release()
       return stop.apply(server, rest)
     }
     return looksBound(server, port, options['hostname'] as string | undefined)
@@ -200,7 +206,11 @@ function patchListen(proto: object): void {
         return real == null ? real : { address: host, family: net.isIPv6(host) ? 'IPv6' : 'IPv4', port: mapped.port }
       },
     })
-    server.once('listening', () => live.add(path))
+    server.once('listening', () => {
+      live.add(path)
+      const release = controlled(() => new Promise((done) => server.close(done)))
+      server.once('close', release)
+    })
     server.once('close', () => live.delete(path))
     return listen.call(this, { ...mapped.options, path }, ...mapped.cb)
   }

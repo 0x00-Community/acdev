@@ -372,3 +372,71 @@ export function unserveChannel(port: number): void {
   accepts.delete(port)
   hold()
 }
+
+const stoppers = new Set<Stop>()
+let control: { readonly close: () => void } | null = null
+let controlLost = false
+
+function lost(error: unknown): void {
+  process.stderr.write(`acde: the control channel failed (${(error as Error).message}); not reading it\n`)
+  control?.close()
+  control = null
+  controlLost = true
+}
+
+function onControl(): (chunk: Buffer) => void {
+  const decoder = new Decoder()
+  return (chunk) => {
+    for (const { type, stream } of decoder.push(chunk)) {
+      if (type !== SHUTDOWN || stream !== 0 || quitting) continue
+      quitting = true
+      const stopping = [...stoppers].map(async (stop) => await stop())
+      void Promise.allSettled(stopping).then(() => process.exit(0))
+    }
+  }
+}
+
+function readControl(): NonNullable<typeof control> {
+  const receive = onControl()
+  if (typeof Bun !== 'undefined') {
+    const reader = Bun.file(3).stream().getReader()
+    void (async () => {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) return
+        receive(Buffer.from(value))
+      }
+    })().catch(lost)
+    return { close: () => void reader.cancel().catch(() => undefined) }
+  }
+  const input = new net.Socket({ fd: 3, readable: true, writable: false })
+  input.on('data', (chunk: Buffer) => {
+    try {
+      receive(chunk)
+    } catch (error) {
+      lost(error)
+    }
+  })
+  input.on('error', lost)
+  return { close: () => input.destroy() }
+}
+
+export function controlMode(env: Readonly<Record<string, string | undefined>>, bun: boolean): boolean {
+  return !channelMode(env, bun) && env['ACDE_APP_CONTROL'] === 'fd'
+}
+
+export function serveControl(stop: Stop): () => void {
+  stoppers.add(stop)
+  if (!control && !controlLost) {
+    try {
+      control = readControl()
+    } catch (error) {
+      lost(error)
+    }
+  }
+  return () => {
+    if (!stoppers.delete(stop) || stoppers.size > 0 || quitting) return
+    control?.close()
+    control = null
+  }
+}

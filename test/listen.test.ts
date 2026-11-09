@@ -1,7 +1,10 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Writable } from 'node:stream'
 import type { Subprocess } from 'bun'
+import { encode, SHUTDOWN } from '../src/channel.ts'
 import { socketDir, socketPath, WINDOWS_PATH_MAX } from '../src/sockets.ts'
 import { cleanup, env, get, inetSockets, line, skipping, tmp, WINDOWS } from './helpers.ts'
 
@@ -26,10 +29,17 @@ function noInet(pid: number): void {
   else expect(inet).toEqual([])
 }
 
+const controlled: ChildProcess[] = []
+
 afterEach(async () => {
   for (const child of children.splice(0)) {
     child.kill()
     await child.exited
+  }
+  for (const child of controlled.splice(0)) {
+    if (child.exitCode !== null || child.signalCode !== null) continue
+    child.kill()
+    await new Promise((resolve) => child.once('exit', resolve))
   }
 })
 afterAll(cleanup)
@@ -139,6 +149,59 @@ describe('Bun in the Windows socket mode: ACDE_APP_SOCKETS with ACDE_APP_CONTROL
     expect(socketPath(3000, { ACDE_APP_ID: 'notes' }, 'linux'))
       .toBe(`/run/user/${process.getuid?.() ?? 0}/acde/apps/notes/3000.sock`)
   })
+})
+
+describe('Bun in the Windows socket mode: SHUTDOWN on the control channel (fd 3)', () => {
+  function startControlled(dir: string) {
+    const child = spawn(process.execPath, ['--preload', LISTEN, join(FIXTURES, 'bun-shutdown.ts')], {
+      env: env({ ACDE_APP_SOCKETS: dir, ACDE_APP_CONTROL: 'fd' }),
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
+    })
+    controlled.push(child)
+    let out = ''
+    let err = ''
+    const wakers: (() => void)[] = []
+    child.stdout!.on('data', (chunk: Buffer) => {
+      out += chunk.toString()
+      for (const wake of wakers.splice(0)) wake()
+    })
+    child.stderr!.on('data', (chunk: Buffer) => void (err += chunk.toString()))
+    const exited = new Promise<number | null>((resolve) =>
+      child.once('exit', (code) => {
+        resolve(code)
+        for (const wake of wakers.splice(0)) wake()
+      }),
+    )
+    const printed = async (text: string) => {
+      while (!out.split('\n').some((l) => l.trim() === text)) {
+        if (child.exitCode !== null) throw new Error(`exited before "${text}": ${out} ${err}`)
+        await new Promise<void>((resolve) => wakers.push(resolve))
+      }
+    }
+    const shutdown = () => (child.stdio[3] as Writable).write(encode(SHUTDOWN, 0))
+    return { exited, printed, shutdown }
+  }
+
+  test('the request in flight completes, every server stops, the process exits 0', async () => {
+    const dir = join(tmp(), 'sockets')
+    const backend = startControlled(dir)
+    await backend.printed('ready')
+    expect(await get(join(dir, '3001.sock'))).toBe('node')
+    const slow = get(join(dir, '3000.sock'), '/slow')
+    await backend.printed('slow started')
+    backend.shutdown()
+    expect(await slow).toBe('slow done')
+    await backend.printed('node closed')
+    expect(await backend.exited).toBe(0)
+  }, 30_000)
+
+  test('the control channel does not keep the process alive once the app stops its servers', async () => {
+    const dir = join(tmp(), 'sockets')
+    const backend = startControlled(dir)
+    await backend.printed('ready')
+    expect(await get(join(dir, '3000.sock'), '/stop')).toBe('stopping')
+    expect(await backend.exited).toBe(0)
+  }, 30_000)
 })
 
 describe('around the mapping', () => {
