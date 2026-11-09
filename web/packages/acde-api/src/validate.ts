@@ -154,6 +154,8 @@ export class Manifest {
     const mimeTypes = (types as string[] | undefined) ?? []
     const schemes = Manifest.#schemes(field('schemes'))
     if (typeof schemes === 'string') return `app ${id}: ${schemes}`
+    const requests = Manifest.#requests(field('requests'))
+    if (typeof requests === 'string') return `app ${id}: ${requests}`
     const size = Manifest.#size(field('size'))
     if (size === undefined) return `app ${id}: size must be [width, height] in whole logical pixels`
     const services = Manifest.#services(field('services'))
@@ -171,6 +173,7 @@ export class Manifest {
       frame: field('frame') !== false,
       mimeTypes,
       schemes,
+      requests,
       backend,
       size,
       optional,
@@ -274,6 +277,16 @@ export class Manifest {
       }
     }
     return findings
+  }
+
+  static readonly SYSTEM_REQUESTS: readonly string[] = ['open-file', 'open-link']
+
+  static #requests(raw: unknown): string[] | string {
+    if (raw === undefined || raw === null) return []
+    const valid = (s: unknown) => typeof s === 'string' && /^[a-z][a-z0-9-]*$/.test(s) && !Manifest.SYSTEM_REQUESTS.includes(s)
+    const system = Manifest.SYSTEM_REQUESTS.join(' and ')
+    if (!Array.isArray(raw) || !raw.every(valid)) return `requests lists private request kinds (lower-case words such as task); ${system} are system requests`
+    return [...(raw as string[])]
   }
 
   static #schemes(raw: unknown): string[] | string {

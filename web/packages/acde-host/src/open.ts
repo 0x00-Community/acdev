@@ -266,6 +266,10 @@ export class Opener {
     return typeof request === 'object' && request !== null && (kind === 'open-file' || kind === 'open-link')
   }
 
+  app(id: string): AppManifest | undefined {
+    return this.#host.apps().find((a) => a.id === id)
+  }
+
   async request(request: SystemRequestLike, target: string | null, caller: OpenCaller | null): Promise<Opened> {
     const text = String(request.url ?? request.path ?? '')
     const app = target === null ? null : this.#host.apps().find((a) => a.id === target)

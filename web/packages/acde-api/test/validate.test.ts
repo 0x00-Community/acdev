@@ -147,3 +147,11 @@ test('schemes: lower-case URL schemes the app opens links for', () => {
     assert.match(String(app(bad)), /schemes/, JSON.stringify(bad))
   }
 })
+test('requests: the private request kinds an app accepts', () => {
+  const app = (requests: unknown) => Manifest.app({ id: 'board', label: 'Board', icon: 'app', entry: '/app/board/index.html', requests })
+  assert.deepEqual((app(['task', 'add-note']) as { requests: readonly string[] }).requests, ['task', 'add-note'])
+  assert.deepEqual((app(undefined) as { requests: readonly string[] }).requests, [])
+  for (const bad of [['Task'], ['open-file'], ['open-link'], [''], ['a b'], 'task', [1]]) {
+    assert.match(String(app(bad)), /requests/, JSON.stringify(bad))
+  }
+})

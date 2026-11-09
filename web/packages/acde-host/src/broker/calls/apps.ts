@@ -62,7 +62,11 @@ export class AppCalls {
       const open = caps?.open
       if (!desktop && !(open === true || (Array.isArray(open) && open.includes(appId)))) throw Web.refused(web, `open ${appId}`)
       const caller = { desktop, appId: web.app?.id ?? null, label: web.app?.label ?? web.kind }
-      return this.#host.launch(appId, request ?? null, Family.of(options, caller, (id) => this.#host.record(id)))
+      const kind = (request as { kind?: unknown } | undefined)?.kind
+      const target = this.#host.opener.app(appId)
+      if (method === 'open' && typeof kind === 'string' && target?.requests.length && !target.requests.includes(kind)) {
+        throw Object.assign(new Error(`${appId} does not accept ${kind} requests (its manifest's requests)`), { status: 409, code: 'not_accepted' })
+      }      return this.#host.launch(appId, request ?? null, Family.of(options, caller, (id) => this.#host.record(id)))
     }
     throw new Error(`acde.apps has no ${method}`)
   }

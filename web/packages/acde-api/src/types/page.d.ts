@@ -253,6 +253,13 @@ export interface OpenLinkRequest {
 
 export type SystemRequest = OpenFileRequest | OpenLinkRequest
 
+export interface AppRequest {
+  readonly kind: string
+  readonly [field: string]: unknown
+}
+
+export type WindowRequest = SystemRequest | AppRequest
+
 export interface Opened {
   readonly kind: 'acde' | 'native'
   readonly id: string
@@ -262,6 +269,7 @@ export interface Opened {
 export interface AcdeOpen {
   (request: SystemRequest): Promise<Opened>
   (app: string, request: SystemRequest): Promise<Opened>
+  (app: string, request: AppRequest, options?: OpenWindowOptions): Promise<{ window: number }>
   (app: string, request?: Record<string, unknown> | null, options?: OpenWindowOptions): Promise<{ window: number }>
 }
 
@@ -509,7 +517,7 @@ export interface AcdeWindow {
   shortcut(combo: string): Promise<void>
   unshortcut(combo: string): Promise<void>
   on(name: 'beforeclose', handler: () => boolean | void | Promise<boolean | void>): () => boolean
-  on(name: 'request', handler: (request: SystemRequest | Record<string, unknown>) => void): () => boolean
+  on(name: 'request', handler: (request: WindowRequest | Record<string, unknown>) => void): () => boolean
   on(name: 'suspend', handler: () => unknown): () => boolean
   on(name: 'resume', handler: (state: unknown) => void): () => boolean
   on(name: 'activate' | 'deactivate', handler: () => void): () => boolean
