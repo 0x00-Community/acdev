@@ -14,6 +14,11 @@ const server = createServer(async (req, res) => {
     return res.end()
   }
   if (url.pathname === '/fs') return res.end((await readFile(new URL(import.meta.url))).length > 0 ? 'fs ok' : 'empty')
+  if (url.pathname === '/slow') {
+    console.log('slow started')
+    await new Promise((ok) => setTimeout(ok, 500))
+    return res.end('slow done')
+  }
   if (url.pathname === '/close') return server.close((error) => res.end(error ? error.message : 'closed'))
   res.statusCode = 404
   res.end()

@@ -19,13 +19,15 @@ function harness(ports: number[] = [3000]) {
   const sent: Frame[] = []
   const decoder = new Decoder()
   const sockets: ChannelSocket[] = []
+  const shutdowns: number[] = []
   const mux = new Mux({
     write: (frame) => void sent.push(...decoder.push(frame)),
     lookup: (p) => (ports.includes(p) ? (socket) => void sockets.push(socket) : undefined),
+    shutdown: () => void shutdowns.push(mux.active),
   })
   const feed = (type: number, stream: number, payload?: Uint8Array) => mux.receive(encode(type, stream, payload))
   const take = () => sent.splice(0)
-  return { mux, sockets, feed, take }
+  return { mux, sockets, shutdowns, feed, take }
 }
 
 describe('channel frames', () => {
@@ -102,6 +104,23 @@ describe('channel streams', () => {
     feed(SHUTDOWN, 0)
     feed(99, 1, Buffer.from('future'))
     expect(take().map((f) => [f.type, f.stream])).toEqual([[RST, 7], [RST, 8]])
+  })
+
+  test('SHUTDOWN asks once to stop; open streams go on, a later OPEN is reset', async () => {
+    const { sockets, shutdowns, feed, take } = harness()
+    feed(OPEN, 1, port(3000))
+    feed(SHUTDOWN, 5)
+    expect(shutdowns).toEqual([])
+    feed(SHUTDOWN, 0)
+    feed(SHUTDOWN, 0)
+    expect(shutdowns).toEqual([1])
+    feed(OPEN, 2, port(3000))
+    expect(sockets).toHaveLength(1)
+    const reset = take().map((f) => [f.type, f.stream, f.payload.toString()])
+    expect(reset).toEqual([[RST, 2, 'the backend is shutting down']])
+    sockets[0]!.end('bye')
+    await tick()
+    expect(take().map((f) => [f.type, f.stream, f.payload.toString()])).toEqual([[DATA, 1, 'bye'], [FIN, 1, '']])
   })
 
   test('writes are cut into DATA frames of at most 64 KiB', async () => {
@@ -229,6 +248,8 @@ interface Remote {
 class FakeRuntime {
   readonly child: ChildProcess
   readonly stderr: string[] = []
+  #stdout = ''
+  readonly #printers: (() => void)[] = []
   readonly #to: Writable
   readonly #decoder = new Decoder()
   readonly #streams = new Map<number, Remote>()
@@ -242,6 +263,20 @@ class FakeRuntime {
       for (const frame of this.#decoder.push(chunk)) this.#frame(frame)
     })
     child.stderr!.on('data', (chunk: Buffer) => this.stderr.push(chunk.toString()))
+    child.stdout!.on('data', (chunk: Buffer) => {
+      this.#stdout += chunk.toString()
+      for (const wake of this.#printers.splice(0)) wake()
+    })
+  }
+
+  async printed(text: string): Promise<void> {
+    while (!this.#stdout.split('\n').some((l) => l.trim() === text)) {
+      await new Promise<void>((resolve) => this.#printers.push(resolve))
+    }
+  }
+
+  shutdown(): void {
+    this.#to.write(encode(SHUTDOWN, 0))
   }
 
   open(p: number): number {
@@ -422,5 +457,33 @@ describe.skipIf(!NODE)('a node backend served from the channel (fd 3 in, fd 4 ou
     ;(second.child.stdio[3] as Writable).end()
     expect(await ended).toBe(0)
     expect(second.stderr.join('')).toContain('the backend channel closed (end of input)')
+  }, 30_000)
+
+  test('SHUTDOWN: the request in flight completes, a later OPEN is reset, the process exits 0', async () => {
+    const runtime = await start()
+    const exited = new Promise((resolve) => runtime.child.once('exit', resolve))
+    const slow = runtime.request('/slow')
+    await runtime.printed('slow started')
+    runtime.shutdown()
+    await runtime.printed('closed')
+    const late = runtime.open(3000)
+    expect((await slow).body.toString()).toBe('slow done')
+    expect((await runtime.done(late)).rst).toBe('the backend is shutting down')
+    expect(await exited).toBe(0)
+  }, 30_000)
+
+  test('SHUTDOWN closes idle keep-alive connections and busy ones once the response is out', async () => {
+    const runtime = await start()
+    const exited = new Promise((resolve) => runtime.child.once('exit', resolve))
+    const idle = runtime.open(3000)
+    await runtime.send(idle, Buffer.from('GET /hello HTTP/1.1\r\nHost: app\r\n\r\n'))
+    expect(await runtime.until(idle, 'hello')).toEndWith('hello')
+    const busy = runtime.open(3000)
+    await runtime.send(busy, Buffer.from('GET /slow HTTP/1.1\r\nHost: app\r\n\r\n'))
+    await runtime.printed('slow started')
+    runtime.shutdown()
+    expect((await runtime.done(idle)).rst).toBeNull()
+    expect((await runtime.done(busy)).text).toEndWith('slow done')
+    expect(await exited).toBe(0)
   }, 30_000)
 })

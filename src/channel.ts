@@ -64,6 +64,7 @@ export interface MuxOptions {
   readonly write: (frame: Buffer) => void
   readonly lookup: (port: number) => Accept | undefined
   readonly changed?: () => void
+  readonly shutdown?: () => void
 }
 
 export class Mux {
@@ -71,6 +72,7 @@ export class Mux {
   readonly #decoder = new Decoder()
   readonly #streams = new Map<number, ChannelSocket>()
   readonly #draining = new Set<number>()
+  #closing = false
 
   constructor(options: MuxOptions) {
     this.#options = options
@@ -103,7 +105,9 @@ export class Mux {
     const stream = this.#streams.get(id)
     switch (type) {
       case OPEN:
-        if (!stream && !this.#draining.has(id) && id !== 0) this.#open(id, payload)
+        if (stream || this.#draining.has(id) || id === 0) return
+        if (this.#closing) this.send(RST, id, Buffer.from('the backend is shutting down'))
+        else this.#open(id, payload)
         return
       case DATA:
         if (stream) stream.received(payload)
@@ -119,6 +123,11 @@ export class Mux {
         return
       case WINDOW:
         if (stream && payload.length === 4) stream.grant(payload.readUInt32BE(0))
+        return
+      case SHUTDOWN:
+        if (id !== 0 || this.#closing) return
+        this.#closing = true
+        this.#options.shutdown?.()
         return
     }
   }
@@ -301,8 +310,11 @@ export class ChannelSocket extends Duplex {
   }
 }
 
-const accepts = new Map<number, Accept>()
-let channel: { readonly mux: Mux; readonly input: NetSocket } | null = null
+type Stop = () => unknown
+
+const accepts = new Map<number, { readonly accept: Accept; readonly stop: Stop }>()
+let channel: { readonly mux: Mux; readonly input: NetSocket; readonly output: NetSocket } | null = null
+let quitting = false
 
 function gone(reason: string): never {
   channel?.mux.close(reason)
@@ -312,15 +324,25 @@ function gone(reason: string): never {
 
 function hold(): void {
   if (!channel) return
-  if (accepts.size > 0 || channel.mux.active > 0) channel.input.ref()
+  if (quitting && accepts.size === 0 && channel.mux.active === 0) {
+    const { output } = channel
+    channel = null
+    output.end(() => process.exit(0))
+  } else if (accepts.size > 0 || channel.mux.active > 0) channel.input.ref()
   else channel.input.unref()
+}
+
+function shutdown(): void {
+  quitting = true
+  for (const { stop } of [...accepts.values()]) stop()
+  hold()
 }
 
 function open(): NonNullable<typeof channel> {
   const input = new net.Socket({ fd: 3, readable: true, writable: false })
   const output = new net.Socket({ fd: 4, readable: false, writable: true })
   const write = (frame: Buffer) => void output.write(frame)
-  const mux = new Mux({ write, lookup: (port) => accepts.get(port), changed: hold })
+  const mux = new Mux({ write, lookup: (port) => accepts.get(port)?.accept, changed: hold, shutdown })
   input.on('data', (chunk: Buffer) => {
     try {
       mux.receive(chunk)
@@ -331,16 +353,16 @@ function open(): NonNullable<typeof channel> {
   input.on('end', () => gone('end of input'))
   input.on('error', (error) => gone(error.message))
   output.on('error', (error) => gone(error.message))
-  return { mux, input }
+  return { mux, input, output }
 }
 
 export function channelMode(env: Readonly<Record<string, string | undefined>>, bun: boolean): boolean {
   return !bun && env['ACDE_APP_CHANNEL'] === 'fd'
 }
 
-export function serveChannel(port: number, accept: Accept): boolean {
+export function serveChannel(port: number, accept: Accept, stop: Stop): boolean {
   if (accepts.has(port)) return false
-  accepts.set(port, accept)
+  accepts.set(port, { accept, stop })
   channel ??= open()
   hold()
   return true

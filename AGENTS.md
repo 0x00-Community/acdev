@@ -152,7 +152,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   写出的数据按对方信用切成至多 64 KiB 的 DATA, 信用用完就停, 收到 WINDOW 续发; `end()` 在数据发完后发 FIN. 收到的 DATA 交给 server
   读走 (`_read`) 后攒够 32 KiB 回一个 WINDOW; 超出给过的信用、FIN 之后再来 DATA 都回 RST 并让连接以错误结束. 对方 RST: 连接以
   `ECONNRESET` 出错, 不回帧. 带错误的 `destroy` 发 RST; 不带错误的 `destroy` (keep-alive 超时、`Connection: close` 之后) 补发 FIN,
-  流号留到对方的 FIN 再了结, 这期间对方的 DATA 回 RST (像 TCP 关闭后收到数据). SHUTDOWN 和不认识的类型目前忽略 (优雅停止是 acde#6).
+  流号留到对方的 FIN 再了结, 这期间对方的 DATA 回 RST (像 TCP 关闭后收到数据). 不认识的类型忽略.
+- **SHUTDOWN** (流号 0, 别的流号忽略, 只认第一个): 之后的 OPEN 回 RST `the backend is shutting down`; 对每个登记的 server 调
+  `close()` (`http.Server` 的 `close` 顺带关掉空闲的 keep-alive 连接, 在途的回完响应后关); 没有登记的 server 也没有在途流时
+  `end` fd 4 再 `exit(0)`. 应用别的句柄 (定时器、数据库连接) 不拦着退出.
 - 构建出的 `acde-listen.js` 含 `acde-listen-channel/1` (`CHANNEL_MARK`, 也是 `Symbol.for('acde.listen')` 的值), 运行时据此判断支持通道.
 
 ## acde dev (`src/dev.ts`, `src/ipc.ts`, `src/sessions.ts`)

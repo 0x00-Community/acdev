@@ -135,7 +135,7 @@ function listenChannel(server: NetServer, mapped: Mapped): NetServer {
   const { port } = mapped
   const host = mapped.host && net.isIP(mapped.host) ? mapped.host : '::'
   for (const cb of mapped.cb) server.once('listening', cb as () => void)
-  if (!serveChannel(port, (socket) => void server.emit('connection', socket))) {
+  if (!serveChannel(port, (socket) => void server.emit('connection', socket), () => server.close())) {
     const message = `acde: listen EADDRINUSE: port ${port} is already served`
     const taken = Object.assign(new Error(message), { code: 'EADDRINUSE' })
     process.nextTick(() => server.emit('error', taken))
