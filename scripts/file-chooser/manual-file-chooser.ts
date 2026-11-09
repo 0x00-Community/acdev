@@ -1,9 +1,9 @@
 import { mkdir, rename } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
-const artifacts = process.argv[2]
-if (!artifacts) throw new Error('Run this through scripts/manual-file-chooser.sh')
-const run = resolve(artifacts)
+const flags = new Set(process.argv.slice(2).filter((arg) => arg.startsWith('--')))
+const given = process.argv.slice(2).find((arg) => !arg.startsWith('--'))
+const run = given ? resolve(given) : resolve('logs', `manual-file-chooser.${Date.now()}`)
 const pkg = join(run, 'package')
 const home = join(run, 'home')
 const state = join(run, 'state')
@@ -14,6 +14,10 @@ await Promise.all([pkg, home, state, sample, ...profileFolders.map((name) => joi
 await Bun.write(join(sample, 'notes.txt'), 'plain text sample')
 await Bun.write(join(sample, 'picture.png'), 'not really a png, only a name for the filter test')
 await Bun.write(join(sample, 'data.csv'), 'a,b\n1,2\n')
+const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d])
+await Bun.write(join(sample, '流萤合照.png'), pngBytes)
+await Bun.write(join(sample, '屏幕截图 1.png'), pngBytes)
+await mkdir(join(run, 'saved'), { recursive: true })
 await Bun.write(join(pkg, 'package.json'), JSON.stringify({ name: 'manual-file-chooser', acde: {
   apps: [
     { id: 'manual-file-chooser', label: 'Manual File Chooser', icon: 'files',
@@ -28,13 +32,19 @@ await Bun.write(join(pkg, 'index.html'), `<!doctype html>
 <h2>File chooser check (click each button, then check the result line)</h2>
 <p><button id="one">Open one file</button> <button id="many">Open several files</button></p>
 <p><label>Accept .png and .jpg only: <input id="png" type="file" accept=".png,.jpg"></label></p>
+<p><button id="pngtype">Open with type png (MIME + .png)</button></p>
 <p><button id="save">Save a text file</button></p>
 <p id="result">Nothing chosen yet.</p>
 <script>
 const show = (text) => { document.getElementById('result').textContent = text }
 const describe = async (handles) => {
   const parts = []
-  for (const handle of handles) parts.push(handle.name + ': ' + (await (await handle.getFile()).text()).slice(0, 40))
+  for (const handle of handles) {
+    const file = await handle.getFile()
+    const text = /\.(txt|csv|md|log|json)$/i.test(file.name)
+    const shown = text ? JSON.stringify((await file.text()).slice(0, 40)) : file.size + ' bytes, ' + (file.type || 'unknown type')
+    parts.push(file.name + ': ' + shown)
+  }
   return parts.join(' | ')
 }
 document.getElementById('one').onclick = async () => {
@@ -46,6 +56,10 @@ document.getElementById('many').onclick = async () => {
 document.getElementById('png').onchange = (event) => {
   const names = [...event.target.files].map((file) => file.name)
   show('Input accept: ' + (names.length ? names.join(', ') : 'nothing'))
+}
+document.getElementById('pngtype').onclick = async () => {
+  const types = [{ description: 'PNG', accept: { 'image/png': ['.png'] } }]
+  try { show('Open png type: ' + await describe(await showOpenFilePicker({ types }))) } catch (e) { show('Open png type ended: ' + e.name) }
 }
 document.getElementById('save').onclick = async () => {
   try {
@@ -67,7 +81,7 @@ delete env['ACDE_STORAGE']
 delete env['ACDE_BACKEND']
 delete env['ACDE_DEV']
 console.log(`Sample files for the open dialogs: ${sample}`)
-if (process.argv.includes('--prepare-only')) {
+if (flags.has('--prepare-only')) {
   console.log(`Prepared without starting the window: ${run}`)
   process.exit(0)
 }
