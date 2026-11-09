@@ -34,6 +34,7 @@ struct Running {
 }
 
 static RUNNING: LazyLock<Mutex<HashMap<u32, Arc<Running>>>> = LazyLock::new(Mutex::default);
+static FINISHING: Mutex<()> = Mutex::new(());
 
 thread_local! {
     static EXITS: RefCell<HashMap<u32, v8::Global<v8::Function>>> = RefCell::default();
@@ -65,6 +66,7 @@ fn supports_channel(preload: &std::path::Path) -> bool {
 }
 
 fn finish(pid: u32) {
+    let _finishing = FINISHING.lock().unwrap_or_else(|e| e.into_inner());
     let Some(running) = running().remove(&pid) else { return };
     channel::unregister(&running.app, running.generation);
     running.mux.close("the backend has exited");
@@ -222,4 +224,5 @@ pub fn stop_all() {
         _ = backend.process.wait(Some(2000));
         finish(pid);
     }
+    drop(FINISHING.lock().unwrap_or_else(|e| e.into_inner()));
 }

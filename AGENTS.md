@@ -524,7 +524,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     单向匿名管道两根, 因为双工管道要有名字. 通道模式上面跑全部帧; 套接字模式只跑控制帧 (SHUTDOWN, 帧格式同下), 数据走 AF_UNIX. 运行时一侧一条线程阻塞写、一条阻塞读, 和 ntex 的 `IoStream` 之间只经互斥锁和 waker.
     Broker 用的原生接口多两个只在 Windows 有的: `sys.spawnBackend(argv, {cwd, env, prefix, app, mode, preload}, onExit)` (两种模式都用它, mode 是
     `'channel'` / `'sockets'`; 传输变量和 `SystemRoot`、`TEMP`、`LOCALAPPDATA` 等 Windows 程序要的变量由运行时补) 和 `sys.stopBackend(pid, ms)`.
-    acde-host `backend.ts` 有它们就走这条路, node 是通道模式, bun 是套接字模式. acdert 退出时 `child::stop_all` 终止还在的后端并删本代目录.
+    acde-host `backend.ts` 有它们就走这条路, node 是通道模式, bun 是套接字模式. acdert 退出时 `child::stop_all` 终止还在的后端并删本代目录;
+    等待线程正在收尾的后端 (末窗关闭先发了 SHUTDOWN, 进程刚退出, 目录可能还要重试删除) 也等它收尾完 (`FINISHING` 锁) 再退出, 不留目录.
   - **通道帧** (大端): `type u8 | stream u32 | length u32 | payload`, 头 9 字节, payload 最多 64 KiB. 类型: OPEN 1 (运行时开一条流, payload 是
     u16 逻辑端口, 即 `listen(P)` 的 P)、DATA 2 (字节, 运行时按 16 KiB 分块)、FIN 3 (这一方向写完, 半关闭)、RST 4 (中止这条流, payload 是 UTF-8
     原因)、WINDOW 5 (payload u32, 给对方追加的信用字节数)、SHUTDOWN 6 (流号 0, 无 payload, 运行时请后端优雅退出). 流号由运行时分配, 不复用;

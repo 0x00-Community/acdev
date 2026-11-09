@@ -217,6 +217,30 @@ fn stop_all_ends_backends_and_removes_their_directories() {
     assert!(!running().contains_key(&pid));
 }
 
+#[test]
+fn stop_all_waits_for_a_backend_that_is_being_finished() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let dir = std::env::temp_dir().join(format!("acde-finishing-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let held = std::fs::OpenOptions::new().write(true).create(true).share_mode(0).open(dir.join("3000.sock")).expect("held");
+    let Some(backend) = started_with("setInterval(() => {}, 1000)", "finishing.test", Some(dir.clone())) else {
+        return eprintln!("skipped: no node on PATH");
+    };
+    let pid = backend.process.pid;
+    running().insert(pid, backend.clone());
+    backend.process.terminate();
+    let finishing = std::thread::spawn(move || finish(pid));
+    std::thread::sleep(Duration::from_millis(150));
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        drop(held);
+    });
+    stop_all();
+    assert!(!dir.exists(), "stop_all returned before the directory was removed");
+    finishing.join().expect("finish");
+    release.join().expect("release");
+}
+
 fn read_dacl(path: &std::path::Path) -> std::io::Result<String> {
     use dir::{Local, from_wide, os_error, wide};
     use std::ptr::null_mut;
