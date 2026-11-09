@@ -79,6 +79,7 @@ impl Surface {
         open_panel(id: u32, token: u64, rect: [i32; 4]) => C::OpenPanel { id, token, rect };
         place_panel(id: u32, rect: [i32; 4], input: [i32; 4]) => C::PlacePanel { id, rect, input };
         close_panel(id: u32) => C::ClosePanel(id);
+        reserve_panel(id: u32, edge: u32, thickness: f64) => C::ReservePanel { id, edge, thickness };
         set_title(title: &str) => C::Title(title.to_owned());
         set_ime_area(rect: [f64; 4]) => C::ImeArea(rect);
     }

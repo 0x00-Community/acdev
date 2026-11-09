@@ -203,6 +203,7 @@ impl Surface {
             C::OpenPanel { id, token, rect } => self.open_panel(id, token, rect),
             C::PlacePanel { id, rect, input } => self.place_panel(id, rect, input),
             C::ClosePanel(id) => self.close_panel(id),
+            C::ReservePanel { id, edge, thickness } => self.reserve_panel(id, edge, thickness),
             C::Title(title) => self.set_title(&title),
             C::ImeArea(rect) => self.set_ime_area(rect),
         }
@@ -274,8 +275,20 @@ impl Surface {
         self.link.send(Msg::Panel(id, None));
         if let Some(server) = server() {
             server.state().entries.remove(&panel);
+            server.refill();
             server.relayout();
         }
+    }
+
+    fn reserve_panel(&self, id: u32, edge: u32, thickness: f64) {
+        let Some(server) = server() else { return };
+        let Some(panel) = self.panels().get(&id).copied() else { return };
+        let reserve = (edge != 0 && thickness > 0.0).then_some((edge, thickness));
+        match server.state().entries.get_mut(&panel) {
+            Some(e) if e.reserve != reserve => e.reserve = reserve,
+            _ => return,
+        }
+        server.refill();
     }
 
     pub fn content_offset(&self) -> (f64, f64) {

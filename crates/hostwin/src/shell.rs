@@ -61,6 +61,7 @@ pub(crate) struct Entry {
     pub parent: Option<u32>,
     pub modal: bool,
     pub input: Option<[f64; 4]>,
+    pub reserve: Option<(u32, f64)>,
     pub frame: f64,
     pub backdrop: Option<([f64; 4], [f64; 4])>,
     pub pending: Option<([f64; 4], [f64; 4])>,
@@ -112,6 +113,7 @@ pub(crate) struct State {
     pub screen: [f64; 3],
     pub refresh: Option<f64>,
     pub frames: u64,
+    pub work: Option<[f64; 4]>,
 }
 
 impl State {
@@ -276,7 +278,26 @@ impl State {
     }
 
     pub fn work_area(&self) -> [f64; 4] {
-        self.screen_rect()
+        let [mut x, mut y, mut w, mut h] = self.screen_rect();
+        for e in self.entries.values().filter(|e| e.panel && e.shown()) {
+            let Some((edge, t)) = e.reserve else { continue };
+            match edge {
+                acde_model::edge::TOP => (y, h) = (y + t, h - t),
+                acde_model::edge::BOTTOM => h -= t,
+                acde_model::edge::LEFT => (x, w) = (x + t, w - t),
+                acde_model::edge::RIGHT => w -= t,
+                _ => {}
+            }
+        }
+        [x, y, w.max(1.0), h.max(1.0)]
+    }
+
+    pub fn refill(&mut self) -> (Option<[f64; 4]>, Vec<u32>) {
+        let work = self.work_area();
+        let changed = (self.work != Some(work)).then_some(work);
+        self.work = Some(work);
+        let filled = self.entries.iter().filter(|(_, e)| e.state == WindowState::Filled && e.rect != work).map(|(&id, _)| id).collect();
+        (changed, filled)
     }
 
     pub fn change_state(&mut self, id: u32, to: Option<WindowState>) -> Option<Change> {
@@ -395,6 +416,7 @@ impl Shell {
         } else if focused {
             server.focus_top();
         }
+        server.refill();
         server.relayout();
     }
 
@@ -596,6 +618,32 @@ mod tests {
         assert!(apply(&mut s, fixed, Some(WindowState::Filled)).is_none());
         assert!(apply(&mut s, fixed, Some(WindowState::Fullscreen)).is_none());
         assert_eq!(s.entries[&fixed].rect, [10.0, 10.0, 100.0, 100.0]);
+    }
+
+    #[test]
+    fn panels_reserve_edges_of_the_work_area() {
+        let mut s = screen();
+        let top = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 0.0, 1000.0, 30.0]), ..Grant::default() });
+        let dock = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 0.0, 80.0, 800.0]), ..Grant::default() });
+        let plain = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 700.0, 1000.0, 100.0]), ..Grant::default() });
+        for id in [top, dock, plain] {
+            s.entries.get_mut(&id).expect("panel").panel = true;
+        }
+        s.entries.get_mut(&top).expect("top").reserve = Some((acde_model::edge::TOP, 30.0));
+        s.entries.get_mut(&dock).expect("dock").reserve = Some((acde_model::edge::LEFT, 80.0));
+        assert_eq!(s.work_area(), [80.0, 30.0, 920.0, 770.0]);
+        let w = open(&mut s, Grant { rect: Some([200.0, 200.0, 300.0, 200.0]), ..Grant::default() });
+        assert_eq!(apply(&mut s, w, Some(WindowState::Filled)), Some(WindowState::Filled));
+        assert_eq!(s.entries[&w].rect, [80.0, 30.0, 920.0, 770.0]);
+        assert_eq!(s.refill(), (Some([80.0, 30.0, 920.0, 770.0]), vec![]));
+        s.entries.get_mut(&dock).expect("dock").hidden = true;
+        assert_eq!(s.refill(), (Some([0.0, 30.0, 1000.0, 770.0]), vec![w]));
+        s.entries.get_mut(&dock).expect("dock").hidden = false;
+        s.entries.get_mut(&top).expect("top").reserve = Some((acde_model::edge::TOP, 50.0));
+        assert_eq!(s.refill(), (Some([80.0, 50.0, 920.0, 750.0]), vec![w]));
+        assert!(apply(&mut s, w, Some(WindowState::Fullscreen)).is_some());
+        assert_eq!(s.entries[&w].rect, [0.0, 0.0, 1000.0, 800.0]);
+        assert!(s.refill().1.is_empty());
     }
 
     #[test]

@@ -688,6 +688,7 @@ impl App {
             Some(C::OpenPanel { id, token, rect }) => self.open_panel(id, token, rect),
             Some(C::PlacePanel { id, rect, input }) => self.place_panel(id, rect, input),
             Some(C::ClosePanel(id)) => self.close_panel(id),
+            Some(C::ReservePanel { id, .. }) => log::debug!("panel {id}: the session has no work area yet"),
             Some(C::Title(title)) => self.set_title(title),
             Some(C::ImeArea(_)) => {}
         }

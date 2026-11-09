@@ -86,6 +86,16 @@ impl Server {
         }
     }
 
+    pub fn refill(&self) {
+        let (changed, filled) = self.state().refill();
+        let Some(work) = changed else { return };
+        for id in filled {
+            self.set_rect(id, work);
+        }
+        let [x, y, w, h] = work;
+        self.broker.push(Event { kind: "workarea".into(), x: Some(x), y: Some(y), width: Some(w), height: Some(h), ..Default::default() });
+    }
+
     pub fn set_rect(&self, id: u32, rect: [f64; 4]) {
         let resized = {
             let mut state = self.state();
@@ -196,6 +206,7 @@ impl Handler for App {
             }
         }
         let _ = server.proxy.set(proxy.clone());
+        server.refill();
         server.broker.push(Event {
             kind: "output".into(),
             width: Some(f64::from(size.0)),
