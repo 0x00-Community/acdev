@@ -1,7 +1,7 @@
 import { defineHandlers, Event, EventTarget, fire, LISTENERS, windowEvent } from '../core/event'
 import { DOMException } from '../core/exception'
 import { G, getters, globals, host, tag } from '../core/host'
-import { structuredClone } from '../core/message'
+import { structuredClone, transferList } from '../core/message'
 import { objectUrls, URL } from '../core/url'
 import { Blob } from '../core/blob'
 import { NONE, NodeType } from '../native'
@@ -380,6 +380,11 @@ export interface NavigatorOptions {
 }
 
 const navigatorLanguages = new WeakMap<Navigator, { language?: string; languages?: readonly string[] }>()
+const navigatorStorage = new WeakMap<Navigator, object>()
+
+export function setNavigatorStorage(navigator: Navigator, storage: object): void {
+  navigatorStorage.set(navigator, storage)
+}
 
 export function setNavigatorLanguages(navigator: Navigator, languages: { language?: string; languages?: readonly string[] }): boolean {
   const before = navigatorLanguages.get(navigator) ?? {}
@@ -416,6 +421,9 @@ export class Navigator {
   get clipboard(): Clipboard {
     return this.#clipboard
   }
+  get storage(): object | undefined {
+    return navigatorStorage.get(this)
+  }
   get mediaDevices(): MediaDevices {
     return this.#media
   }
@@ -442,7 +450,6 @@ getters(Navigator.prototype, {
   appName: 'Netscape', appCodeName: 'Mozilla', platform: 'Linux x86_64', product: 'Gecko', productSub: '20030107', vendor: '', vendorSub: '',
   onLine: true, cookieEnabled: true, deviceMemory: 8, maxTouchPoints: 0, pdfViewerEnabled: false, webdriver: false, doNotTrack: null,
   permissions: () => ({ query: () => Promise.resolve({ state: 'denied', onchange: null }) }),
-  storage: () => ({ estimate: () => Promise.resolve({ quota: 0, usage: 0 }), persist: () => Promise.resolve(false), persisted: () => Promise.resolve(false) }),
   userActivation: () => ({ hasBeenActive: true, isActive: false }),
   mimeTypes: () => ({ length: 0 }),
   plugins: () => ({ length: 0 }),
@@ -568,8 +575,8 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
       const [dx, dy, smooth] = scrollArgs(x, y, true)
       scrollViewport(rootScroll(0) + dx!, rootScroll(1) + dy!, smooth)
     },
-    postMessage: (message: unknown, _origin?: unknown) => {
-      const data = structuredClone(message)
+    postMessage: (message: unknown, origin?: unknown, transfer?: unknown) => {
+      const data = structuredClone(message, { transfer: transferList(typeof origin === 'object' && origin !== null ? origin : transfer) })
       host.setTimer(0, () => {
         const MessageEvent = G['MessageEvent'] as new (type: string, init: object) => Event
         fire(global as unknown as EventTarget, new MessageEvent('message', { data, origin: here().origin, source: global }))

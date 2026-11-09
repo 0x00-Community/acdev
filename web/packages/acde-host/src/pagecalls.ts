@@ -21,6 +21,7 @@ export interface FolderPicker {
 interface FolderSetup {
   readonly picker: FolderPicker | null
   readonly label: string
+  readonly privateDirectory: (() => string) | null
 }
 
 export class PageCalls {
@@ -86,6 +87,12 @@ export class PageCalls {
           this.#warned = true
           return null
         }
+      },
+      privateDirectory: () => {
+        if (!picker || !this.#setup.privateDirectory) return null
+        const path = this.#setup.privateDirectory()
+        this.#folders.add(path)
+        return { name: '', path }
       },
       entries: async (dir) => (await folder(dir).entries(dir.path)).map(({ name, kind }) => ({ name, kind, path: child(dir, name) })),
       entry: async (dir, name, create) => {

@@ -1,13 +1,15 @@
 import { installCore, type CoreOptions } from './core/index'
 import { describe, inspectHooks } from './core/console'
 import { CustomEvent, ErrorEvent, Event, fire, PromiseRejectionEvent, type EventTarget } from './core/event'
-import { globals, host, report, setReport } from './core/host'
+import { globals, host, KEY, report, setReport } from './core/host'
 import { observer, type PageErrorKind } from './core/observe'
 import { EventSource, fetch, Headers, net, Request, Response, WebSocket, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net'
 import { ReadableStream, ReadableStreamDefaultController, ReadableStreamDefaultReader, TextDecoderStream, TextEncoderStream, TransformStream, TransformStreamDefaultController, WritableStream, WritableStreamDefaultController, WritableStreamDefaultWriter } from './core/streams'
 import { objectUrlOrigin, URL } from './core/url'
 import type { AudioNative, DomNative, GpuNative, HostNative, StorageNative } from './native'
 import { installStorage, Storage } from './storage/webstorage'
+import { idbTaskEnded, installIndexedDB } from './storage/idb/idb'
+import { StorageManager } from './storage/manager'
 import { contexts as gpuContexts, installGpu } from './gpu/index'
 import { installAudio } from './audio/index'
 import { NodeType } from './native'
@@ -37,7 +39,7 @@ import { attachShadow, shadowRootOf, ShadowRoot } from './dom/shadow'
 import { CSS, CSSRule, CSSRuleList, CSSStyleDeclaration, CSSStyleRule, CSSStyleSheet, StyleSheetList } from './dom/style'
 import * as svg from './dom/svg'
 import { NodeFilter, NodeIterator, TreeWalker } from './dom/traversal'
-import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, VisualViewport, Window, type NavigatorOptions } from './dom/window'
+import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, setNavigatorStorage, VisualViewport, Window, type NavigatorOptions } from './dom/window'
 
 export type { AudioNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
@@ -120,6 +122,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
 
   extendElements(input)
   const navigator = new Navigator(options)
+  setNavigatorStorage(navigator, new StorageManager(KEY, options.storage))
   installWindow(global, {
     document,
     location: new Location(),
@@ -135,6 +138,8 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   globals(global, interfaces())
   globals(global, legacyFactories())
   globals(global, { fetch })
+  globals(global, installIndexedDB(options.storage?.idb))
+  globals(global, { StorageManager })
   if (options.gpu) globals(global, installGpu(global, options.gpu, externalPixels))
   if (options.audio) globals(global, installAudio(options.audio))
   inspectHooks.node = (value) => {
@@ -190,6 +195,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       if (framesPending() || loading) frames.request()
     },
     endTask() {
+      idbTaskEnded()
       moved()
       canvases.flush()
       gpuContexts.present()

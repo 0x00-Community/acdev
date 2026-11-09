@@ -206,7 +206,9 @@ impl Spec {
         crate::webnative::clear();
         crate::backend::clear();
         crate::offload::clear();
+        crate::idb::clear();
         crate::storage::clear();
+        crate::host::clear();
         crate::audio::clear();
         #[cfg(target_os = "linux")]
         crate::webgpu::clear();

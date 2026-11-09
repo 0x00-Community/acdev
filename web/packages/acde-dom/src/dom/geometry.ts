@@ -1,4 +1,5 @@
 import { DOMException } from '../core/exception'
+import { serializable } from '../core/clone'
 import { listClass, tag } from '../core/host'
 
 const RECT = Symbol('rect')
@@ -505,3 +506,19 @@ function invert(m: M16): M16 | null {
   if (!det) return null
   return inv.map((v: number) => v / det)
 }
+
+type Numbers = readonly number[]
+const point = (p: DOMPointReadOnly): number[] => [p.x, p.y, p.z, p.w]
+const rect = (r: DOMRectReadOnly): number[] => [r.x, r.y, r.width, r.height]
+const matrix = (m: DOMMatrixReadOnly): number[] => (m.is2D ? [m.a, m.b, m.c, m.d, m.e, m.f] : [...m.toFloat64Array()])
+serializable(DOMPoint, 'DOMPoint', point, (v) => new DOMPoint(...(v as Numbers)))
+serializable(DOMPointReadOnly, 'DOMPointReadOnly', point, (v) => new DOMPointReadOnly(...(v as Numbers)))
+serializable(DOMRect, 'DOMRect', rect, (v) => new DOMRect(...(v as Numbers)))
+serializable(DOMRectReadOnly, 'DOMRectReadOnly', rect, (v) => new DOMRectReadOnly(...(v as Numbers)))
+serializable(DOMQuad, 'DOMQuad', (q) => [q.p1, q.p2, q.p3, q.p4].flatMap(point), (v) => {
+  const n = v as Numbers
+  const at = (i: number) => ({ x: n[i]!, y: n[i + 1]!, z: n[i + 2]!, w: n[i + 3]! })
+  return new DOMQuad(at(0), at(4), at(8), at(12))
+})
+serializable(DOMMatrix, 'DOMMatrix', matrix, (v) => new DOMMatrix([...(v as Numbers)]))
+serializable(DOMMatrixReadOnly, 'DOMMatrixReadOnly', matrix, (v) => new DOMMatrixReadOnly([...(v as Numbers)]))

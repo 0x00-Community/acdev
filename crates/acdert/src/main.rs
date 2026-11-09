@@ -8,6 +8,7 @@ mod engine;
 mod fs;
 mod host;
 mod hostnative;
+mod idb;
 mod inspector;
 mod modules;
 mod napi;

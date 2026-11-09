@@ -31,6 +31,7 @@ pub fn place(scope: &mut v8::PinScope, wanted: v8::Local<v8::Object>) -> Option<
 
 pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, place: Place) {
     let lease = Lease::open(place);
+    let lease_clone = lease.clone();
     let tx = rt::current().sender();
     let subscription = lease.local().subscribe(move |change| {
         let change = change.clone();
@@ -49,8 +50,17 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, place: 
     );
     let storage = v8::Object::new(scope);
     bind::set(scope, storage, "local", local.into());
+    crate::idb::install(scope, storage, lease_clone);
+    let cookies = v8::Object::new(scope);
+    crate::methods!(scope, cookies,
+        "set" => set_cookie,
+        "matching" => matching_cookies,
+    );
+    bind::set(scope, storage, "cookies", cookies.into());
     crate::methods!(scope, storage,
         "onChange" => on_change,
+        "estimate" => estimate,
+        "privateDirectory" => private_directory,
     );
     bind::set(scope, natives, "storage", storage.into());
 }
@@ -152,4 +162,79 @@ fn deliver(scope: &mut v8::PinScope, change: Change) {
         bind::string(scope, &change.url).into(),
     ];
     bind::call(scope, &callback, &args);
+}
+
+fn with_jar<R>(scope: &mut v8::PinScope, f: impl FnOnce(&acde_storage::CookieJar) -> R) -> Option<R> {
+    let jar = STATE.with(|s| s.borrow().as_ref().map(|s| s.lease.cookies().clone()));
+    let Some(jar) = jar else {
+        bind::throw_error(scope, "storage: released");
+        return None;
+    };
+    Some(f(&jar))
+}
+
+fn set_cookie(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let name = bind::arg_string(scope, &args, 0);
+    let value = bind::arg_string(scope, &args, 1);
+    let path = bind::arg_string(scope, &args, 2);
+    let expires = args.get(3).number_value(scope).filter(|_| !args.get(3).is_null_or_undefined());
+    let http_only = args.get(4).boolean_value(scope);
+    let from_script = args.get(5).boolean_value(scope);
+    let cookie = acde_storage::NewCookie { name: &name, value: &value, path: &path, expires, http_only, from_script };
+    with_jar(scope, |jar| jar.set(cookie, acde_storage::now_ms()));
+}
+
+fn matching_cookies(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let path = bind::arg_string(scope, &args, 0);
+    let script = args.get(1).boolean_value(scope);
+    let Some(found) = with_jar(scope, |jar| jar.matching(&path, script, acde_storage::now_ms())) else { return };
+    let items: Vec<v8::Local<v8::Value>> = found
+        .iter()
+        .map(|(name, value)| {
+            let pair = [bind::string(scope, name).into(), bind::string(scope, value).into()];
+            v8::Array::new_with_elements(scope, &pair).into()
+        })
+        .collect();
+    rv.set(v8::Array::new_with_elements(scope, &items).into());
+}
+
+fn lease(scope: &mut v8::PinScope) -> Option<Lease> {
+    let lease = STATE.with(|s| s.borrow().as_ref().map(|s| s.lease.clone()));
+    if lease.is_none() {
+        bind::throw_error(scope, "storage: released");
+    }
+    lease
+}
+
+fn estimate(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(lease) = lease(scope) else { return };
+    crate::offload::run(
+        scope,
+        &mut rv,
+        "acde-storage-estimate",
+        move || lease.estimate(),
+        |scope, resolver, (usage, quota)| {
+            let value = crate::js_object!(scope, {"usage" => usage as f64, "quota" => quota as f64});
+            resolver.resolve(scope, value.into());
+        },
+    );
+}
+
+fn private_directory(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(lease) = lease(scope) else { return };
+    let dir = lease.files_dir().join("opfs");
+    let made = {
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&dir)
+    };
+    if let Err(e) = made {
+        return bind::throw_error(scope, &format!("UnknownError: the private folder {} cannot be made: {e}", dir.display()));
+    }
+    match crate::picker::adopt(&dir.to_string_lossy()) {
+        Ok(path) => rv.set(bind::string(scope, &path).into()),
+        Err(e) => bind::throw_error(scope, &format!("UnknownError: {e}")),
+    }
 }

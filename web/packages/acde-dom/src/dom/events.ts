@@ -1,4 +1,5 @@
 import { File } from '../core/blob'
+import { serializable } from '../core/clone'
 import { eventPath, hooks, type Event, Event as BaseEvent, type EventInit, type EventTarget } from '../core/event'
 import { constants, G, listClass, queueTask, tag } from '../core/host'
 import { NodeType } from '../native'
@@ -312,6 +313,7 @@ export const MediaQueryListEvent = simpleEvent('MediaQueryListEvent', { media: '
 export const SecurityPolicyViolationEvent = simpleEvent('SecurityPolicyViolationEvent', {})
 
 export const FileList = listClass<File>('FileList')
+serializable(FileList, 'FileList', (list) => [...list], (files) => new FileList([...files] as File[]))
 export type FileList = InstanceType<typeof FileList>
 
 export class DataTransferItem {

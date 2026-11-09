@@ -1,6 +1,7 @@
 import { DOMException } from '../core/exception'
 import { fire, type EventTarget } from '../core/event'
 import { tag } from '../core/host'
+import { useCookieJar } from '../core/backend'
 import { env } from '../dom/env'
 import { StorageEvent } from '../dom/events'
 import type { StorageAreaNative, StorageNative } from '../native'
@@ -147,6 +148,7 @@ export function storageOver(area: StorageAreaNative): Storage {
 }
 
 export function installStorage(window: EventTarget, native: StorageNative | undefined): { local: Storage; session: Storage } {
+  useCookieJar(native?.cookies)
   const local = storageOver(native?.local ?? new MemoryArea())
   const session = storageOver(new MemoryArea())
   native?.onChange((key, oldValue, newValue, url) => {

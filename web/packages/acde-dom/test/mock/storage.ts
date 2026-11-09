@@ -1,4 +1,4 @@
-import type { StorageAreaNative, StorageNative } from '../../src/native.ts'
+import type { CookieNative, StorageAreaNative, StorageNative } from '../../src/native.ts'
 
 type Listener = (key: string | null, oldValue: string | null, newValue: string | null, url: string) => void
 
@@ -30,6 +30,19 @@ export class MockStorage implements StorageNative {
       this.writes.push(['', null, url])
     },
     keys: () => [...this.items.keys()],
+  }
+
+  readonly jar: { name: string; value: string; path: string; expires: number | null; httpOnly: boolean }[] = []
+
+  readonly cookies: CookieNative = {
+    set: (name, value, path, expires, httpOnly, fromScript) => {
+      const at = this.jar.findIndex((c) => c.name === name && c.path === path)
+      if (fromScript && (httpOnly || (at >= 0 && this.jar[at]!.httpOnly))) return
+      if (at >= 0) this.jar.splice(at, 1)
+      if (expires !== null && expires <= Date.now()) return
+      this.jar.push({ name, value, path, expires, httpOnly })
+    },
+    matching: (path, script) => this.jar.filter((c) => !(script && c.httpOnly) && path.startsWith(c.path)).map((c): [string, string] => [c.name, c.value]),
   }
 
   onChange(callback: Listener): void {

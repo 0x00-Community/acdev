@@ -1,6 +1,10 @@
+mod cookies;
 mod db;
+pub mod idb;
 mod local;
+pub mod quota;
 
+pub use cookies::{Cookie, CookieJar, NewCookie};
 pub use local::{Change, LocalArea, QUOTA, QuotaExceeded, Subscription, Text};
 
 use std::collections::HashMap;
@@ -17,6 +21,8 @@ pub struct Place {
 pub struct Partition {
     place: Place,
     local: OnceLock<Arc<LocalArea>>,
+    idb: OnceLock<idb::Idb>,
+    cookies: OnceLock<Arc<CookieJar>>,
 }
 
 impl Partition {
@@ -30,6 +36,37 @@ impl Partition {
 
     pub fn local(&self) -> &Arc<LocalArea> {
         self.local.get_or_init(|| LocalArea::open(self.place.dir.as_deref(), self.place.legacy.as_deref()))
+    }
+
+    pub fn files_dir(&self) -> PathBuf {
+        match &self.place.dir {
+            Some(dir) => dir.clone(),
+            None => std::env::temp_dir().join(format!("acde-storage-{}", std::process::id())).join(&self.place.key),
+        }
+    }
+
+    pub fn estimate(&self) -> (u64, u64) {
+        let dir = self.files_dir();
+        let memory = if self.place.dir.is_some() { 0 } else { self.local.get().map_or(0, |local| local.used() as u64 * 2) };
+        (quota::usage(&dir) + memory, quota::quota(&dir))
+    }
+
+    pub fn cookies(&self) -> &Arc<CookieJar> {
+        self.cookies.get_or_init(|| CookieJar::open(self.place.dir.as_deref(), now_ms()))
+    }
+
+    pub fn idb_if_open(&self) -> Option<&idb::Idb> {
+        self.idb.get()
+    }
+
+    pub fn idb(&self) -> &idb::Idb {
+        self.idb.get_or_init(|| idb::Idb::open(self.place.dir.as_deref()))
+    }
+
+    fn forget_memory_files(&self) {
+        if self.place.dir.is_none() {
+            _ = std::fs::remove_dir_all(self.files_dir());
+        }
     }
 
     fn flush(&self) {
@@ -55,10 +92,10 @@ pub struct Lease(Arc<Partition>);
 impl Lease {
     pub fn open(place: Place) -> Lease {
         let mut all = partitions();
-        let entry = all
-            .get_or_insert_with(HashMap::new)
-            .entry(place.key.clone())
-            .or_insert_with(|| Entry { partition: Arc::new(Partition { place: place.clone(), local: OnceLock::new() }), leases: 0 });
+        let entry = all.get_or_insert_with(HashMap::new).entry(place.key.clone()).or_insert_with(|| Entry {
+            partition: Arc::new(Partition { place: place.clone(), local: OnceLock::new(), idb: OnceLock::new(), cookies: OnceLock::new() }),
+            leases: 0,
+        });
         if entry.partition.place != place {
             log::warn!("storage {:?}: already open at {:?}, not {:?}; using the open one", place.key, entry.partition.place.dir, place.dir);
         }
@@ -93,15 +130,21 @@ impl Drop for Lease {
         entry.leases -= 1;
         if entry.leases == 0 {
             entry.partition.flush();
+            entry.partition.forget_memory_files();
             map.remove(self.0.key());
         }
     }
+}
+
+pub fn now_ms() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
 pub fn flush_all() {
     let all = partitions();
     for entry in all.iter().flat_map(HashMap::values) {
         entry.partition.flush();
+        entry.partition.forget_memory_files();
     }
 }
 

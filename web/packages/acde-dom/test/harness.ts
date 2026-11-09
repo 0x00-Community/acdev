@@ -12,7 +12,7 @@ export function bundle(entry: string, name: string, define: Record<string, strin
   const key = `${entry}:${name}`
   let code = bundles.get(key)
   if (!code) {
-    const result = buildSync({ absWorkingDir: root, entryPoints: [entry], bundle: true, write: false, format: 'iife', globalName: name, platform: 'browser', target: 'es2023', define, logLevel: 'error' })
+    const result = buildSync({ absWorkingDir: root, entryPoints: [entry], bundle: true, write: false, format: 'iife', globalName: name, platform: 'browser', target: 'es2023', define, keepNames: true, logLevel: 'error' })
     code = result.outputFiles[0]!.text
     bundles.set(key, code)
   }

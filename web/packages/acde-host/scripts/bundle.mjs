@@ -18,6 +18,7 @@ await build({
   sourcemap: 'linked',
   minifyWhitespace: true,
   minifySyntax: true,
+  keepNames: true,
   legalComments: 'none',
   logLevel: 'info',
 })

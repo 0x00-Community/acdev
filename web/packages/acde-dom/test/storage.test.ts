@@ -97,3 +97,37 @@ test('without a native area localStorage still works, in memory', async () => {
   using web = await page()
   assert.deepEqual(web.json(`(() => { localStorage.setItem('a', 'b'); return [localStorage.getItem('a'), localStorage.length] })()`), ['b', 1])
 })
+
+test('document.cookie goes through the shared jar, so windows of one app see each other\'s cookies', async () => {
+  const storage = new MockStorage()
+  using a = await page(undefined, { storage })
+  using b = await page(undefined, { storage })
+  a.run(`document.cookie = 'theme=dark; max-age=3600'; document.cookie = 'gone=1; max-age=0'`)
+  assert.equal(b.run('document.cookie'), 'theme=dark')
+  b.run(`document.cookie = 'theme=; expires=Thu, 01 Jan 1970 00:00:00 GMT'`)
+  assert.equal(a.run('document.cookie'), '')
+  assert.ok(storage.jar.every((c) => c.name !== 'theme'))
+})
+
+test('IndexedDB interfaces expose exactly their IDL members', async () => {
+  using web = await page()
+  const members = web.json<Record<string, string[]>>(`Object.fromEntries(['IDBFactory', 'IDBDatabase', 'IDBTransaction', 'IDBObjectStore', 'IDBIndex', 'IDBCursor', 'IDBCursorWithValue', 'IDBKeyRange', 'IDBRequest', 'IDBOpenDBRequest', 'IDBVersionChangeEvent', 'IDBRecord', 'DOMStringList']
+    .map((name) => [name, Object.getOwnPropertyNames(globalThis[name].prototype).filter((m) => m !== 'constructor').sort()]))`)
+  const idl: Record<string, string[]> = {
+    IDBFactory: ['cmp', 'databases', 'deleteDatabase', 'open'],
+    IDBDatabase: ['close', 'createObjectStore', 'deleteObjectStore', 'name', 'objectStoreNames', 'onabort', 'onclose', 'onerror', 'onversionchange', 'transaction', 'version'],
+    IDBTransaction: ['abort', 'commit', 'db', 'durability', 'error', 'mode', 'objectStore', 'objectStoreNames', 'onabort', 'oncomplete', 'onerror'],
+    IDBObjectStore: ['add', 'autoIncrement', 'clear', 'count', 'createIndex', 'delete', 'deleteIndex', 'get', 'getAll', 'getAllKeys', 'getAllRecords', 'getKey', 'index', 'indexNames', 'keyPath', 'name', 'openCursor', 'openKeyCursor', 'put', 'transaction'],
+    IDBIndex: ['count', 'get', 'getAll', 'getAllKeys', 'getAllRecords', 'getKey', 'keyPath', 'multiEntry', 'name', 'objectStore', 'openCursor', 'openKeyCursor', 'unique'],
+    IDBCursor: ['advance', 'continue', 'continuePrimaryKey', 'delete', 'direction', 'key', 'primaryKey', 'request', 'source', 'update'],
+    IDBCursorWithValue: ['value'],
+    IDBKeyRange: ['includes', 'lower', 'lowerOpen', 'upper', 'upperOpen'],
+    IDBRequest: ['error', 'onerror', 'onsuccess', 'readyState', 'result', 'source', 'transaction'],
+    IDBOpenDBRequest: ['onblocked', 'onupgradeneeded'],
+    IDBVersionChangeEvent: ['newVersion', 'oldVersion'],
+    IDBRecord: ['key', 'primaryKey', 'value'],
+    DOMStringList: ['contains', 'item', 'length'],
+  }
+  assert.deepEqual(members, Object.fromEntries(Object.entries(idl).map(([name, list]) => [name, [...list].sort()])))
+  assert.deepEqual(web.json(`Object.getOwnPropertyNames(IDBKeyRange).filter((m) => !['length', 'name', 'prototype'].includes(m)).sort()`), ['bound', 'lowerBound', 'only', 'upperBound'])
+})

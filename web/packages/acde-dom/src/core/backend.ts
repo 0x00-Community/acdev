@@ -1,3 +1,4 @@
+import type { CookieNative } from '../native'
 export type Header = [name: string, value: string]
 
 export type HttpEvent =
@@ -118,6 +119,11 @@ function pathMatches(path: string, cookiePath: string): boolean {
 }
 
 let created = 0
+let shared: CookieNative | null = null
+
+export function useCookieJar(jar: CookieNative | undefined): void {
+  shared = jar ?? null
+}
 
 export const cookies = {
   jar: new Map<string, Cookie>(),
@@ -145,6 +151,7 @@ export const cookies = {
     }
     if (maxAge !== null) expires = maxAge <= 0 ? 0 : Date.now() + maxAge * 1000
     path ??= defaultPath(target)
+    if (shared) return shared.set(name, value, path, expires, httpOnly, script)
     const key = `${name}\n${path}`
     const old = cookies.jar.get(key)
     if (script && (httpOnly || old?.httpOnly)) return
@@ -157,6 +164,7 @@ export const cookies = {
 
   header(target: string, script = false): string {
     const path = pathOf(target) || '/'
+    if (shared) return shared.matching(path, script).map(([name, value]) => (name ? `${name}=${value}` : value)).join('; ')
     const now = Date.now()
     const out: Cookie[] = []
     for (const [key, cookie] of cookies.jar) {
