@@ -30,11 +30,17 @@ export interface BackendJob {
 export class PublicError extends Error {
   static of(rules: PublicRules, rel: string, importer: string): PublicError {
     const shown = relative(rules.dir, rules.publicDir) || '.'
-    return new PublicError(`/${rel.split(sep).join('/')} in ${relative(rules.dir, importer) || importer}: there is no ${join(shown, rel)} (a URL starting with / is a file in ${shown}/)`)
+    const where = relative(rules.dir, importer) || importer
+    return new PublicError(`/${rel.split(sep).join('/')} in ${where}: there is no ${join(shown, rel)} ` +
+      `(a URL starting with / is a file in ${shown}/)`)
   }
 }
 
-type Built = { readonly success: boolean; readonly logs: readonly unknown[]; readonly outputs: readonly { readonly kind: string; readonly path: string }[] }
+type Built = {
+  readonly success: boolean
+  readonly logs: readonly unknown[]
+  readonly outputs: readonly { readonly kind: string; readonly path: string }[]
+}
 
 export abstract class Bundler {
   static readonly SERVE = 'acde.serve'
@@ -93,7 +99,8 @@ if (typeof serve === "function" && main && typeof main.fetch === "function") ser
 
   static check(what: string, result: { readonly success: boolean; readonly logs: readonly unknown[] }): void {
     if (result.success) return
-    throw new AggregateError(result.logs, `${what}: ${result.logs.map((log) => String((log as { message?: unknown }).message ?? log)).join('; ')}`)
+    const said = result.logs.map((log) => String((log as { message?: unknown }).message ?? log))
+    throw new AggregateError(result.logs, `${what}: ${said.join('; ')}`)
   }
 
   static publicFile(rules: PublicRules, rel: string): string | null {
@@ -103,7 +110,9 @@ if (typeof serve === "function" && main && typeof main.fetch === "function") ser
 }
 
 export class BunBundler extends Bundler {
-  static readonly OPTIONS = { format: 'esm', minify: { syntax: true, whitespace: false, identifiers: false }, throw: false } as const
+  static readonly OPTIONS = {
+    format: 'esm', minify: { syntax: true, whitespace: false, identifiers: false }, throw: false,
+  } as const
 
   async web(job: WebJob): Promise<string> {
     const html = Bundler.isHtml(job.entry)
@@ -125,7 +134,8 @@ export class BunBundler extends Bundler {
           {
             name: 'acde-public',
             setup: (build) => {
-              build.onResolve({ filter: /^(?:\/|[A-Za-z]:[\\/])/ }, (args) => BunBundler.#public(job.rules, args.path, args.importer))
+              build.onResolve({ filter: /^(?:\/|[A-Za-z]:[\\/])/ }, (args) =>
+                BunBundler.#public(job.rules, args.path, args.importer))
             },
           },
         ],
@@ -138,7 +148,15 @@ export class BunBundler extends Bundler {
   }
 
   async service(name: string, entry: string, out: string): Promise<void> {
-    const result = await Bun.build({ entrypoints: [entry], outdir: out, target: 'browser', format: 'esm', minify: { syntax: true, whitespace: true, identifiers: false }, naming: { entry: `${name}.[ext]` }, throw: false })
+    const result = await Bun.build({
+      entrypoints: [entry],
+      outdir: out,
+      target: 'browser',
+      format: 'esm',
+      minify: { syntax: true, whitespace: true, identifiers: false },
+      naming: { entry: `${name}.[ext]` },
+      throw: false,
+    })
     Bundler.check(`service ${name}`, result)
   }
 
@@ -187,8 +205,17 @@ interface Chunk {
   readonly isEntry?: boolean
 }
 
+interface Loaded {
+  readonly vite: Vite
+  readonly options: 'rolldownOptions' | 'rollupOptions'
+  readonly single: Record<string, boolean>
+}
+
 export class ViteBundler extends Bundler {
-  static readonly CSS = /\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)|[?&]lang\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|&)/
+  static readonly CSS = new RegExp(
+    String.raw`\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)` +
+      String.raw`|[?&]lang\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|&)`,
+  )
   static readonly HTML_REF = /(\s(?:src|href)\s*=\s*)(["'])(\/(?!\/)[^"']*)\2/gi
   static readonly CSS_URL = /url\(\s*(["']?)(\/(?!\/)[^"')\s]*)\1\s*\)/g
 
@@ -211,11 +238,12 @@ export class ViteBundler extends Bundler {
     return (await import(pathToFileURL(file).href)) as Vite
   }
 
-  async #load(): Promise<{ vite: Vite; options: 'rolldownOptions' | 'rollupOptions'; single: Record<string, boolean> }> {
+  async #load(): Promise<Loaded> {
     this.#vite ??= ViteBundler.load(this.#dir)
     const vite = await this.#vite
     const rolldown = Number.parseInt(vite.version, 10) >= 8
-    return { vite, options: rolldown ? 'rolldownOptions' : 'rollupOptions', single: rolldown ? { codeSplitting: false } : { inlineDynamicImports: true } }
+    const single: Record<string, boolean> = rolldown ? { codeSplitting: false } : { inlineDynamicImports: true }
+    return { vite, options: rolldown ? 'rolldownOptions' : 'rollupOptions', single }
   }
 
   static #common(root: string): Record<string, unknown> {
@@ -239,7 +267,8 @@ export class ViteBundler extends Bundler {
       plugins: [acdeVite(), ViteBundler.#public(job.rules)],
       ...(job.rules.rooted && {
         experimental: {
-          renderBuiltUrl: (file: string, info: { type: string; hostType: string }) => (info.type === 'public' && info.hostType === 'css' ? `/${file}` : undefined),
+          renderBuiltUrl: (file: string, info: { type: string; hostType: string }) =>
+            (info.type === 'public' && info.hostType === 'css' ? `/${file}` : undefined),
         },
       }),
       build: {
@@ -247,7 +276,10 @@ export class ViteBundler extends Bundler {
         emptyOutDir: false,
         copyPublicDir: false,
         modulePreload: false,
-        [options]: { input: job.entry, ...(!html && { preserveEntrySignatures: 'exports-only', output: { entryFileNames: '[name].js' } }) },
+        [options]: {
+          input: job.entry,
+          ...(!html && { preserveEntrySignatures: 'exports-only', output: { entryFileNames: '[name].js' } }),
+        },
       },
     })
     if (!html) {
@@ -296,12 +328,14 @@ export class ViteBundler extends Bundler {
       enforce: 'pre',
       transformIndexHtml: {
         order: 'pre',
-        handler: (source: string, ctx: { filename: string }) => source.replace(ViteBundler.HTML_REF, (_, before: string, quote: string, url: string) => before + quote + html(url, ctx.filename) + quote),
+        handler: (source: string, ctx: { filename: string }) => source.replace(ViteBundler.HTML_REF,
+          (_, before: string, quote: string, url: string) => before + quote + html(url, ctx.filename) + quote),
       },
       transform: (code: string, id: string) => {
         if (!ViteBundler.CSS.test(id)) return null
         const file = id.replace(/[?#].*$/s, '')
-        const out = code.replace(ViteBundler.CSS_URL, (_, quote: string, url: string) => `url(${quote}${css(url, file)}${quote})`)
+        const out = code.replace(ViteBundler.CSS_URL,
+          (_, quote: string, url: string) => `url(${quote}${css(url, file)}${quote})`)
         return out === code ? null : { code: out, map: null }
       },
     }
@@ -325,7 +359,11 @@ export class ViteBundler extends Bundler {
         copyPublicDir: false,
         modulePreload: false,
         minify: false,
-        [options]: { input: entry, preserveEntrySignatures: 'strict', output: { format: 'es', entryFileNames: `${name}.js`, ...single } },
+        [options]: {
+          input: entry,
+          preserveEntrySignatures: 'strict',
+          output: { format: 'es', entryFileNames: `${name}.js`, ...single },
+        },
       },
     })
   }
@@ -345,7 +383,12 @@ export class ViteBundler extends Bundler {
         target: 'node22',
         [options]: {
           external: [/^bun(?::|$)/],
-          output: { format: 'es', entryFileNames: 'server.js', chunkFileNames: 'chunks/[name]-[hash].js', ...(!job.splitting && single) },
+          output: {
+            format: 'es',
+            entryFileNames: 'server.js',
+            chunkFileNames: 'chunks/[name]-[hash].js',
+            ...(!job.splitting && single),
+          },
         },
       },
     })
