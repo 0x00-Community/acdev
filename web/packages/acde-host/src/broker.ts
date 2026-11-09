@@ -1,7 +1,7 @@
 import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
 import { sys } from './sys/natives'
-import { AppRegistry, type AppManifest, type Capabilities } from './apps'
+import { AppRegistry, type AppManifest } from './apps'
 import { AppBackends } from './backend'
 import { Crashes } from './crashes'
 import { PageBridge } from './bridge'
@@ -20,11 +20,12 @@ import { StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { process } from './sys/process'
-import type { BrokerOptions, BrokerShell, ServiceShape, WebInfo, WebInit, WindowRecord } from './broker/types'
+import type { BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
 import { PageCalls, PanelCalls } from './broker/page'
 import { WindowCalls } from './broker/windows'
+import { ServiceCalls } from './broker/services'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -33,7 +34,6 @@ export class Broker {
   static readonly CLOSE_WAIT_MS = 3000
   static readonly DEV_STATE_MS = 500
   static readonly RESTARTS = 3
-  static readonly SYNC = ['session.own'] as const
 
   readonly native: Native
   readonly shell: BrokerShell
@@ -53,6 +53,7 @@ export class Broker {
   #desktop: Web | null = null
   #standaloneWindow: number | null = null
   readonly #windows = new Map<number, WindowRecord>()
+  readonly #services: ServiceCalls
   readonly #windowCalls: WindowCalls
   readonly #panelCalls: PanelCalls
   readonly #pageCalls: PageCalls
@@ -138,6 +139,10 @@ export class Broker {
       infos: () => this.webs(),
       web: (name) => this.#web(name),
       emulate: (options) => this.emulate(options),
+    })
+    this.#services = new ServiceCalls({
+      bridge: this.bridge,
+      builtins: () => ({ inspect: this.inspect.api, session: this.session.api, desktops: this.desktops }),
     })
     this.#windowCalls = new WindowCalls({
       shell: this.shell,
@@ -326,7 +331,7 @@ export class Broker {
       reducedMotion: this.#reducedMotion,
       dark: this.#dark,
       languages: this.language.current,
-      services: this.#shapes(null),
+      services: this.#services.shapes(null),
       resources: this.#resources(),
       page: this.#current.html,
       standalone: this.#current.id === Packages.BARE ? standalone : null,
@@ -359,7 +364,7 @@ export class Broker {
       reducedMotion: this.#reducedMotion,
       dark: this.#dark,
       languages: this.language.current,
-      services: this.#shapes(app.capabilities),
+      services: this.#services.shapes(app.capabilities),
       resources: PageSource.isHtml(app.entry) ? PageSource.rooted(app.entry, this.#resources()) : this.#resources(),
       app,
       theme: this.#theme(),
@@ -390,8 +395,6 @@ export class Broker {
     }
     return web
   }
-
-  static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office'])
 
   #theme(): string {
     const id = this.#current.id
@@ -767,53 +770,6 @@ export class Broker {
     return true
   }
 
-  #shapes(caps: Capabilities | null): Record<string, ServiceShape> {
-    const shapes: Record<string, ServiceShape> = {}
-    for (const [service, target] of Object.entries(this.bridge.value)) {
-      if (Broker.#LOCAL.has(service) || (caps && !this.#allowed(caps, service))) continue
-      shapes[service] = this.#shape(service, target)
-    }
-    for (const [service, api] of Object.entries(this.#builtins())) if (!caps || (service !== 'inspect' && caps[service])) shapes[service] = this.#shape(service, api)
-    return shapes
-  }
-
-  #builtins(): Record<'inspect' | 'session' | 'desktops', Record<string, (...args: never[]) => unknown>> {
-    return { inspect: this.inspect.api, session: this.session.api, desktops: this.desktops }
-  }
-
-  #shape(service: string, target: unknown): ServiceShape {
-    const methods = new Set<string>()
-    const values: Record<string, unknown> = {}
-    for (let o = target as object | null; o && o !== Object.prototype && o !== Function.prototype; o = Object.getPrototypeOf(o)) {
-      for (const key of Object.getOwnPropertyNames(o)) {
-        if (key === 'constructor' || methods.has(key) || key in values || (o === target && typeof target === 'function' && ['length', 'name', 'prototype', 'caller', 'arguments'].includes(key))) continue
-        let value: unknown
-        try {
-          value = (target as Record<string, unknown>)[key]
-        } catch {
-          continue
-        }
-        if (typeof value === 'function') methods.add(key)
-        else if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) values[key] = value
-      }
-    }
-    const sync: Record<string, unknown> = {}
-    for (const name of [...Broker.SYNC, ...this.bridge.services.sync]) {
-      const [owner, method] = name.split('.') as [string, string]
-      if (owner !== service || !methods.has(method)) continue
-      try {
-        sync[method] = (target as Record<string, () => unknown>)[method]!()
-      } catch {
-        sync[method] = null
-      }
-    }
-    return { methods: [...methods], values, sync, callable: typeof target === 'function' }
-  }
-
-  #allowed(caps: Capabilities, namespace: string): boolean {
-    return !!caps[this.bridge.services.capability.get(namespace) ?? namespace]
-  }
-
   async #serve(web: Web, service: string, method: string, args: unknown[]): Promise<unknown> {
     const desktop = web.kind === 'desktop'
     const caps = web.app?.capabilities ?? null
@@ -848,19 +804,7 @@ export class Broker {
     if (service === 'window') return this.#windowCalls.self(web, method, args)
     if (service === 'panel') return this.#panelCalls.call(web, method, args)
     if (service === 'page') return this.#pageCalls.call(web, method, args)
-    if (service === 'inspect' || service === 'session' || service === 'desktops') {
-      if (!desktop && (service === 'inspect' || !caps?.[service])) throw Web.refused(web, `acde.${service}`)
-      const call = (this.#builtins()[service] as Record<string, (...a: unknown[]) => unknown>)[method]
-      if (!call) throw new Error(`acde.${service} has no ${method}`)
-      return call(...args)
-    }
-    if (caps && !this.#allowed(caps, service)) throw Web.refused(web, `acde.${service}`)
-    const target = this.bridge.value[service] as Record<string, (...a: unknown[]) => unknown> | ((...a: unknown[]) => unknown) | undefined
-    if (!target) throw Object.assign(new Error(`acde.${service} is not running`), { status: 503 })
-    if (method === '' && typeof target === 'function') return target(...args)
-    const fn = (target as Record<string, (...a: unknown[]) => unknown>)[method]
-    if (typeof fn !== 'function') throw new Error(`acde.${service} has no ${method}`)
-    return fn.apply(target, args)
+    return this.#services.call(web, service, method, args)
   }
 
   async debugEval(name: string, code: string): Promise<unknown> {
