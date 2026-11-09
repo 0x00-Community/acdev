@@ -51,9 +51,11 @@ acde 还没有“启动已构建应用”的命令（`acde install` 只装包，
 - 按 PATH 找程序只有 `launcher.mjs` 的 `which` (Windows 上按 `PATHEXT`: `nodejs\npm` 是给 Git Bash 的 sh 脚本, 要 `npm.cmd`), 不用 `Bun.which`.
   按 import 条件从工程目录解析包用 `Runtime.resolve`, 不用 `Bun.resolveSync`.
 - 打包: bun 上 `Bun.build`, Node 上工程自己的 Vite (见「构建」). `acde test` / `acde/test` 只在 bun 上.
-- 后端 preload 的文本 (`src/listen-bundle.ts`) 是 Bun 宏 (`src/listen-macro.ts`, `bun build src/listen.ts`) 打 `cli.js` 时内联的; 从源码跑时
-  (`Bundler.preload` 看 `import.meta.url` 是 `.ts`) 不经宏, 在进程内 `Bun.build` 同样的选项 (产物逐字相同; 宏里不许调 `Bun.build`, 而 Windows
-  上 bun 起子进程前几次要几秒, 每次 `acde build` 都多等这一下), 只有 Node 时从源码跑出不了 preload (发布的不受影响).
+- 后端 preload 的文本由 `Bundler.buildPreload` 在进程内 `Bun.build` `src/listen.ts` 得到 (target node、esm、只压缩语法). 从源码跑时
+  (`Bundler.preload` 看 `import.meta.url` 是 `.ts`) 每次现打; 打 `cli.js` 等时 `scripts/dist.ts` 先打一次, 经 `define` 把
+  `ACDE_LISTEN_JSON` 换成它的 JSON 字面量, `src/listen-bundle.ts` 用 `JSON.parse` 还原. 不用宏也不起子进程: 宏里不许调 `Bun.build`,
+  起 `bun build` 子进程时父进程被杀会留下永不退出的子进程 (acde#12), Windows 上 bun 起子进程前几次还要等几秒. 只有 Node 时从源码跑出不了
+  preload (发布的不受影响).
 
 ## acde new (`src/create.ts`, `src/pm.ts`)
 
@@ -222,7 +224,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   模板之外的 `.ts` 源码; 覆盖整个包, 包括 `bin/app/**` (acde#7). 有就不出包.
 - **轻度混淆** (`javascript-obfuscator` 5.9.0, 精确钉住, 发版前至少两周): 在 `Bun.build` 的 `minify` 之后对 `dist/cli.js`、`dist/driver.js`、
   `dist/test.js`、`launcher.mjs` 做一遍: 标识符改名 (含顶层, `renameGlobals`) 和字符串数组 (base64). 不做控制流平坦化、死代码注入、自我防护
-  或调试保护, 不出 sourcemap. 导出名不变 (只改本地绑定, 别名保留). 预加载 `acde-listen.js` 不混淆: `src/listen-macro.ts` 返回 JSON 字符串、
+  或调试保护, 不出 sourcemap. 导出名不变 (只改本地绑定, 别名保留). 预加载 `acde-listen.js` 不混淆: `dist.ts` 把它的 JSON 文本 `define` 进去、
   `src/listen-bundle.ts` 用 `JSON.parse` 还原, 让它在 bundle 里是普通字符串字面量, `reservedStrings` 留下 `getBuiltinModule`. 预加载的源码
   是压缩后的普通 JS, 写进每个用户应用的后端目录 (混淆它没有保护价值, 它就跑在用户的应用里).
 - **发布** (`.github/workflows/release.yml`, 只能手动运行 `workflow_dispatch`): 协作者的工作流为基础, 合入以下要求. 版本以提交里的 `package.json` 为准, 标签 `v<版本>` 是注释标签, 由工作流打在该提交上 (不手动打标签; 推标签不触发任何工作流). 一个通用包 `acde-<版本>.tar.gz`, 只含命令行工具、模板、SDK 和 LICENSE, 不含 acdert 和 Dopame 桌面 (它们预装在 Dopame 虚拟机里, 不随 acde 公开).

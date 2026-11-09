@@ -1,3 +1,3 @@
-import { listenBundle } from './listen-macro.ts' with { type: 'macro' }
+declare const ACDE_LISTEN_JSON: string
 
-export const LISTEN_JS: string = JSON.parse(listenBundle())
+export const LISTEN_JS: string = JSON.parse(ACDE_LISTEN_JSON)

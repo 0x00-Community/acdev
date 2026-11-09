@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import JavaScriptObfuscator from 'javascript-obfuscator'
 import ts from 'typescript'
+import { Bundler } from '../src/bundler.ts'
 import { shipLeaks } from './shipped.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
@@ -81,6 +82,7 @@ writeFileSync(join(top, 'bin', 'acde.cmd'), cmd)
 for (const path of ['templates', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
+const preload = { ACDE_LISTEN_JSON: JSON.stringify(JSON.stringify(await Bundler.buildPreload())) }
 await bundle([CLI], join(lib, 'dist'), 'cli.js', 'node')
 await bundle(SHARED, join(lib, 'dist'), undefined, 'bun')
 await bundle(['launcher.mjs'], lib, 'launcher.mjs', 'node')
@@ -132,6 +134,7 @@ async function bundle(
     minify: true,
     sourcemap: 'none',
     external: ['acde/launcher'],
+    define: preload,
   })
   if (!built.success) throw new AggregateError(built.logs, `bundling ${entries.join(', ')} failed`)
   for (const output of built.outputs) {

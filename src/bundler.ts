@@ -62,12 +62,12 @@ export abstract class Bundler {
 
   async preload(out: string): Promise<void> {
     const fromSource = import.meta.url.endsWith('.ts')
-    const text = fromSource ? await Bundler.#sourcePreload() : (await import('./listen-bundle.ts')).LISTEN_JS
+    const text = fromSource ? await Bundler.buildPreload() : (await import('./listen-bundle.ts')).LISTEN_JS
     mkdirSync(out, { recursive: true })
     writeFileSync(join(out, 'acde-listen.js'), text)
   }
 
-  static async #sourcePreload(): Promise<string> {
+  static async buildPreload(): Promise<string> {
     const entry = join(dirname(fileURLToPath(import.meta.url)), 'listen.ts')
     const built = await Bun.build({ entrypoints: [entry], target: 'node', format: 'esm', minify: { syntax: true } })
     const [output] = built.outputs
