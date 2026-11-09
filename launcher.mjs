@@ -10,6 +10,10 @@ const EXE = WINDOWS ? '.exe' : ''
 export const NODE_MINIMUM = [22, 3]
 export const BUN_MINIMUM = [1, 4]
 
+export function packageRoot() {
+  return ROOT
+}
+
 export function runtime() {
   return process.versions.bun ? 'bun' : 'node'
 }

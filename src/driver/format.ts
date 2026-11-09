@@ -10,7 +10,7 @@ export class Format {
     const status = e.error !== null ? 'ERR' : e.status === null ? '...' : String(e.status)
     const size = e.responseBytes === null ? '' : ` ${e.responseBytes} B`
     const ms = e.ms === null ? '' : ` ${Math.round(e.ms)} ms`
-    return `${String(e.seq).padStart(4)} ${e.method.padEnd(6)} ${status.padEnd(3)} ${e.url}  (${e.kind}${size}${ms}${e.error !== null ? `; ${e.error}` : ''}) ${e.web}`
+    return `${String(e.seq).padStart(4)} ${e.method.padEnd(6)} ${status.padEnd(3)} ${e.url}  (${e.kind}${e.mocked ? ', mocked' : ''}${size}${ms}${e.error !== null ? `; ${e.error}` : ''}) ${e.web}`
   }
 
   static webs(webs: readonly Web[]): string {

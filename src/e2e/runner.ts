@@ -1,9 +1,11 @@
-import { existsSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import { cliEnv } from 'acde/launcher'
 import { SKIPPED } from '../paths.ts'
 import { Runtime } from '../runtime.ts'
 import { E2e } from './settings.ts'
+import { TestTsconfig } from './tsconfig.ts'
 
 export interface RunnerOptions {
   readonly targets: readonly string[]
@@ -11,6 +13,8 @@ export interface RunnerOptions {
   readonly headed?: boolean
   readonly pattern?: string
   readonly bail?: boolean
+  readonly trace?: boolean
+  readonly update?: boolean
   readonly timeout?: number
   readonly cwd?: string
 }
@@ -53,6 +57,25 @@ export class TestRunner {
     const suites = TestRunner.suites(options.targets, cwd)
     if (!suites.length) throw new Error(`no e2e tests (${TestRunner.PATTERN}) in ${(options.targets.length ? options.targets : ['.']).join(', ')}`)
     const bun = process.execPath
+    const scratch = mkdtempSync(join(tmpdir(), 'acde-test-run-'))
+    try {
+      return await TestRunner.#suites(suites, options, cwd, bun, scratch)
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
+    }
+  }
+
+  static async #suites(suites: readonly Suite[], options: RunnerOptions, cwd: string, bun: string, scratch: string): Promise<number> {
+    const tsconfigs = new Map<string, string>()
+    const tsconfig = (project: string) => {
+      let file = tsconfigs.get(project)
+      if (file === undefined) {
+        file = join(scratch, `tsconfig-${tsconfigs.size}.json`)
+        writeFileSync(file, `${JSON.stringify(TestTsconfig.build(project), null, 2)}\n`)
+        tsconfigs.set(project, file)
+      }
+      return file
+    }
     const cleaned = new Set<string>()
     const kept = new Set<string>()
     const failed: string[] = []
@@ -71,8 +94,10 @@ export class TestRunner {
         results,
         file: name,
         timeout: options.timeout ?? E2e.TIMEOUT_MS,
+        trace: options.trace === true,
+        update: options.update === true,
       }
-      const argv = [bun, 'test', suite.file, '--timeout', String(settings.timeout), ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : [])]
+      const argv = [bun, 'test', suite.file, '--tsconfig-override', tsconfig(suite.project), '--timeout', String(settings.timeout), ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : [])]
       console.log(`acde test: ${relative(cwd, suite.file) || suite.file}${settings.headless ? '' : ' (headed)'}`)
       const child = Runtime.spawn(argv, { cwd: suite.project, env: cliEnv(bun, { ...process.env, ...E2e.env(settings) }), stdio: 'inherit' })
       const code = await child.exited

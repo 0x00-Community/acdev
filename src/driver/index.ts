@@ -14,15 +14,23 @@ export {
   type QueryOptions,
   type QueryResult,
   type RequestEntry,
+  type RouteOptions,
+  type RouteResponse,
   type Shot,
   type Snapshot,
   type SnapshotOptions,
   type Step,
+  type UrlMatch,
+  type WaitConsoleOptions,
+  type WaitRequestOptions,
   type Web,
 } from './acde.ts'
 export { Format } from './format.ts'
-export { AssertionError, expect, LocatorAssertions, WindowAssertions } from './expect.ts'
+export { AssertionError, expect, LocatorAssertions, WindowAssertions, type ScreenshotAssertion } from './expect.ts'
 export { Locator, type FilterOptions, type Query, type RoleOptions, type Source, type TextMatch, type TextOptions, type Timeout } from './locator.ts'
 export { Logs, type LogLine, type LogSlice } from './logs.ts'
+export { Png, type Diff, type DiffOptions, type Image } from './png.ts'
+export { Screenshots, type Capturable, type Capture, type ScreenshotContext, type ScreenshotOptions } from './screenshot.ts'
+export { Trace, type TraceStep } from './trace.ts'
 export { AppWindow, type WindowMatch } from './window.ts'
-export type { InspectAction, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+export type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'

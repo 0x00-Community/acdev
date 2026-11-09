@@ -2,13 +2,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { InspectAction, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import { cliEnv, cliFile } from 'acde/launcher'
 import { DevClient } from '../ipc.ts'
 import { Runtime, type Child } from '../runtime.ts'
 import { Sessions, type Session } from '../sessions.ts'
 import { Logs } from './logs.ts'
 import { Poll } from './poll.ts'
+import { Trace } from './trace.ts'
 import { AppWindow, type WindowMatch } from './window.ts'
 
 export interface Web {
@@ -42,6 +43,7 @@ export interface QueryOptions {
   readonly window?: string
   readonly ref?: string
   readonly limit?: number
+  readonly attributes?: readonly string[]
 }
 
 export interface QueryResult {
@@ -78,6 +80,7 @@ export interface RequestEntry {
   readonly ms: number | null
   readonly error: string | null
   readonly done: boolean
+  readonly mocked?: true
 }
 
 export interface DevPage<T> {
@@ -116,12 +119,43 @@ export interface ActResult {
   readonly text: string
 }
 
-export const ACTIONS: readonly InspectAction[] = ['click', 'double', 'right', 'hover', 'type', 'settext', 'key', 'scroll', 'focus', 'close', 'minimize', 'restore']
+export const ACTIONS: readonly InspectAction[] = ['click', 'double', 'right', 'hover', 'drag', 'type', 'settext', 'select', 'key', 'scroll', 'focus', 'close', 'minimize', 'restore']
 
 export interface Step {
   readonly ref: string
   readonly action: InspectAction
-  readonly arg?: string | number | null
+  readonly arg?: InspectArg
+}
+
+export type UrlMatch = string | RegExp
+
+export type RouteResponse =
+  | {
+      readonly status?: number
+      readonly statusText?: string
+      readonly headers?: Readonly<Record<string, string>>
+      readonly contentType?: string
+      readonly body?: string | Uint8Array
+      readonly json?: unknown
+    }
+  | { readonly abort: true | string }
+
+export interface RouteOptions {
+  readonly method?: string
+  readonly web?: string
+  readonly times?: number
+}
+
+export interface WaitRequestOptions {
+  readonly method?: string
+  readonly web?: string
+  readonly timeout?: number
+}
+
+export interface WaitConsoleOptions {
+  readonly level?: ConsoleLevel | 'errors'
+  readonly web?: string
+  readonly timeout?: number
 }
 
 export interface AttachOptions {
@@ -159,6 +193,7 @@ export class Acde {
 
   readonly session: Session
   readonly logs: Logs | null
+  readonly trace: Trace
   timeout: number
   readonly #client: DevClient
   readonly #owned: { readonly child: Child; readonly dir: string } | null
@@ -176,6 +211,7 @@ export class Acde {
     this.#owned = owned
     this.logs = logs
     this.timeout = timeout
+    this.trace = new Trace(this)
     client.closed.then(() => {
       this.#closed = true
     })
@@ -319,34 +355,141 @@ export class Acde {
   }
 
   async emulate(options: Emulation): Promise<{ colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean }> {
-    return (await this.#request('emulate', { ...options })) as { colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean }
+    return this.trace.step(`emulate(${JSON.stringify(options)})`, async () => (await this.#request('emulate', { ...options })) as { colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean })
   }
 
   async chooseFolder(folder: string | null): Promise<void> {
-    await this.#request('choose', { folder: folder === null ? null : resolve(folder) })
+    const answer = folder === null ? null : resolve(folder)
+    await this.trace.step(`chooseFolder(${JSON.stringify(answer)})`, () => this.#request('choose', { folder: answer }))
   }
 
   async chooseFiles(files: string | readonly string[] | null): Promise<void> {
-    await this.#request('choose', { open: files === null ? null : (typeof files === 'string' ? [files] : files).map((file) => resolve(file)) })
+    const answer = files === null ? null : (typeof files === 'string' ? [files] : files).map((file) => resolve(file))
+    await this.trace.step(`chooseFiles(${JSON.stringify(answer)})`, () => this.#request('choose', { open: answer }))
   }
 
   async chooseSaveFile(file: string | null): Promise<void> {
-    await this.#request('choose', { save: file === null ? null : resolve(file) })
+    const answer = file === null ? null : resolve(file)
+    await this.trace.step(`chooseSaveFile(${JSON.stringify(answer)})`, () => this.#request('choose', { save: answer }))
+  }
+
+  async route(url: UrlMatch, response: RouteResponse, options: RouteOptions = {}): Promise<number> {
+    const args = { ...Acde.#routeUrl(url), ...Acde.#routeResponse(response), ...(options.method !== undefined && { method: options.method }), ...(options.web !== undefined && { web: options.web }), ...(options.times !== undefined && { times: options.times }) }
+    return this.trace.step(`route(${String(url instanceof RegExp ? url : JSON.stringify(url))})`, async () => {
+      const answer = (await this.#request('route', args)) as { id?: unknown } | null
+      if (typeof answer?.id !== 'number') throw new Error(`acdert answered route with ${JSON.stringify(answer)}`)
+      return answer.id
+    }, (id) => `route ${id}`)
+  }
+
+  async unroute(id?: number): Promise<{ removed: number; left: number }> {
+    return this.trace.step(`unroute(${id ?? ''})`, async () => (await this.#request('unroute', id === undefined ? {} : { route: id })) as { removed: number; left: number })
+  }
+
+  async clipboard(): Promise<string> {
+    return String(((await this.#request('clipboard')) as { text?: unknown } | null)?.text ?? '')
+  }
+
+  async setClipboard(text: string): Promise<void> {
+    await this.trace.step(`setClipboard(${JSON.stringify(text)})`, () => this.#request('clipboard', { text }))
+  }
+
+  async waitForRequest(url: UrlMatch, options: WaitRequestOptions = {}): Promise<RequestEntry> {
+    const since = (await this.network({ limit: 1 })).next
+    const matches = Acde.urlMatcher(url)
+    const method = options.method?.toUpperCase()
+    const ms = options.timeout ?? this.timeout
+    const what = `request to ${url instanceof RegExp ? String(url) : JSON.stringify(url)}${method ? ` (${method})` : ''}`
+    let open: RequestEntry | null = null
+    return Poll.until(ms, async () => {
+      const page = await this.network({ since, limit: 5000, ...(options.web !== undefined && { web: options.web }) })
+      const hit = page.entries.find((e) => (method === undefined || e.method === method) && matches(e.url))
+      open = hit ?? null
+      return hit?.done ? hit : null
+    }, () => `waitForRequest: ${open ? `the ${what} started but did not finish` : `no ${what}`} within ${ms} ms`)
+  }
+
+  async waitForConsole(text: string | RegExp, options: WaitConsoleOptions = {}): Promise<ConsoleEntry> {
+    const since = (await this.console({ limit: 1 })).next
+    const ms = options.timeout ?? this.timeout
+    const matches = (line: string) => (text instanceof RegExp ? text.test(line) : line.includes(text))
+    return Poll.until(ms, async () => {
+      const page = await this.console({ since, limit: 5000, ...(options.level !== undefined && { level: options.level }), ...(options.web !== undefined && { web: options.web }) })
+      return page.entries.find((e) => matches(e.text)) ?? null
+    }, () => `waitForConsole: no console line ${text instanceof RegExp ? String(text) : `containing ${JSON.stringify(text)}`}${options.level ? ` at ${options.level}` : ''} within ${ms} ms`)
+  }
+
+  static urlMatcher(url: UrlMatch): (href: string) => boolean {
+    if (url instanceof RegExp) return (href) => new RegExp(url.source, url.flags.replace(/[gy]/g, '')).test(href)
+    let source = ''
+    for (let i = 0; i < url.length; i++) {
+      const c = url[i]!
+      if (c === '*') {
+        if (url[i + 1] === '*') {
+          source += '.*'
+          i++
+        } else source += '[^/]*'
+      } else source += c.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    }
+    const glob = new RegExp(`^${source}$`)
+    if (!url.startsWith('/')) return (href) => glob.test(href)
+    return (href) => {
+      try {
+        const parsed = new URL(href)
+        return glob.test(`${parsed.pathname}${parsed.search}`)
+      } catch {
+        return false
+      }
+    }
+  }
+
+  static #routeUrl(url: UrlMatch): { url: string | { regex: string; flags: string } } {
+    return { url: url instanceof RegExp ? { regex: url.source, flags: url.flags.replace(/[gy]/g, '') } : url }
+  }
+
+  static #routeResponse(response: RouteResponse): Record<string, unknown> {
+    if ('abort' in response) return { abort: response.abort }
+    const headers: Record<string, string> = Object.fromEntries(Object.entries(response.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]))
+    let body: Uint8Array | null = null
+    if (response.json !== undefined) {
+      body = Buffer.from(JSON.stringify(response.json))
+      headers['content-type'] ??= 'application/json'
+    } else if (response.body !== undefined) {
+      body = typeof response.body === 'string' ? Buffer.from(response.body) : response.body
+      if (typeof response.body === 'string') headers['content-type'] ??= 'text/plain;charset=utf-8'
+    }
+    if (response.contentType !== undefined) headers['content-type'] = response.contentType
+    return {
+      ...(response.status !== undefined && { status: response.status }),
+      ...(response.statusText !== undefined && { statusText: response.statusText }),
+      headers,
+      ...(body !== null && { body: Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString('base64') }),
+    }
   }
 
   async windows(): Promise<InspectWindow[]> {
     return [...(await this.snapshot({ tree: false })).windows]
   }
 
-  async act(ref: string, action: InspectAction, arg?: string | number | null): Promise<ActResult> {
-    return Acde.#result(await this.#request('act', { ref, action, ...(arg !== undefined && arg !== null && { arg }) }))
+  async act(ref: string, action: InspectAction, arg?: InspectArg): Promise<ActResult> {
+    return this.trace.step(`act(${JSON.stringify(ref)}, ${JSON.stringify(action)}${arg === undefined || arg === null ? '' : `, ${JSON.stringify(arg)}`})`,
+      async () => Acde.#result(await this.#request('act', { ref, action, ...(arg !== undefined && arg !== null && { arg }) })), Acde.#said)
   }
 
   async run(steps: readonly Step[]): Promise<ActResult> {
-    return Acde.#result(await this.#request('run', { steps: steps.map((s) => ({ ref: s.ref, action: s.action, text: s.arg ?? null })) }))
+    return this.trace.step(`run(${steps.map((s) => `${s.ref} ${s.action}`).join(', ')})`,
+      async () => Acde.#result(await this.#request('run', { steps: steps.map((s) => ({ ref: s.ref, action: s.action, text: s.arg ?? null })) })), Acde.#said)
+  }
+
+  static #said(result: ActResult): string {
+    return `${result.ok ? '' : 'not done: '}${result.text.split('\n')[0] ?? ''}`
   }
 
   async open(name: string, options: { readonly timeout?: number } = {}): Promise<AppWindow> {
+    return this.trace.step(`open(${JSON.stringify(name)})`, () => this.#open(name, options))
+  }
+
+  async #open(name: string, options: { readonly timeout?: number }): Promise<AppWindow> {
     const before = new Set((await this.windows()).map((w) => w.id))
     const result = Acde.#result(await this.#request('open', { name }))
     if (!result.ok) throw new ActError(`open ${name}`, result)

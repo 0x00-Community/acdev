@@ -1,5 +1,6 @@
 export declare const NODE_MINIMUM: readonly [number, number]
 export declare const BUN_MINIMUM: readonly [number, number]
+export declare function packageRoot(): string
 export declare function runtime(): 'bun' | 'node'
 export declare function installDir(env?: Record<string, string | undefined>): string
 export declare function installed(root?: string): boolean

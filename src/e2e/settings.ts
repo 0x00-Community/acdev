@@ -10,6 +10,8 @@ export interface E2eSettings {
   readonly results: string
   readonly file: string | null
   readonly timeout: number
+  readonly trace: boolean
+  readonly update: boolean
 }
 
 export class E2e {
@@ -19,6 +21,8 @@ export class E2e {
   static readonly RESULTS = 'ACDE_TEST_RESULTS'
   static readonly FILE = 'ACDE_TEST_FILE'
   static readonly TIMEOUT = 'ACDE_TEST_TIMEOUT'
+  static readonly TRACE = 'ACDE_TEST_TRACE'
+  static readonly UPDATE = 'ACDE_TEST_UPDATE'
   static readonly TIMEOUT_MS = 60_000
   static readonly SIZE = '1280x800'
 
@@ -28,6 +32,8 @@ export class E2e {
       [E2e.HEADLESS]: settings.headless ? '1' : '0',
       [E2e.RESULTS]: settings.results,
       [E2e.TIMEOUT]: String(settings.timeout),
+      [E2e.TRACE]: settings.trace ? '1' : '0',
+      [E2e.UPDATE]: settings.update ? '1' : '0',
       ...(settings.desktop !== null && { [E2e.DESKTOP]: settings.desktop }),
       ...(settings.file !== null && { [E2e.FILE]: settings.file }),
     }
@@ -44,6 +50,8 @@ export class E2e {
       results: env[E2e.RESULTS] || join(dirs[0]!, '.acde', 'test-results'),
       file: env[E2e.FILE] || null,
       timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : E2e.TIMEOUT_MS,
+      trace: env[E2e.TRACE] === '1',
+      update: env[E2e.UPDATE] === '1',
     }
   }
 

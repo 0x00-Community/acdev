@@ -5,7 +5,7 @@ import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { which } from '../launcher.mjs'
 import { Runtime } from '../src/runtime.ts'
-import { cleanup, env, tmp } from './helpers.ts'
+import { cleanup, env, standIn, tmp } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
 const TRIPLE = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-${process.platform === 'darwin' ? 'apple-darwin' : 'unknown-linux-gnu'}`
@@ -176,6 +176,29 @@ describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh',
     const found = await run([process.execPath, '-e', `const m = await import(${JSON.stringify(launcher)}); console.log(await m.requireAcdert())`], { PATH: '/usr/bin:/bin', ACDE_INSTALL: join(tmp(), 'none') })
     expect(found.stdout.trim()).toBe(join(realpathSync(home), '.acde', 'versions', '0.0.2', 'bin', 'acdert'))
   }, 30_000)
+
+  test('the installed acde test resolves acde/test and acde/driver for a project that does not depend on acde', async () => {
+    const home = tmp()
+    expect((await install(home, ['--no-modify-path'])).code).toBe(0)
+    const s = standIn()
+    mkdirSync(join(s.project, 'e2e'))
+    writeFileSync(join(s.project, 'e2e', 'installed.e2e.ts'), `import { test, expect } from 'acde/test'
+import { Acde } from 'acde/driver'
+import { fileURLToPath } from 'node:url'
+
+test('runs from the install', async ({ acde }) => {
+  expect(acde).toBeInstanceOf(Acde)
+  expect(fileURLToPath(import.meta.resolve('acde/driver'))).toContain(${JSON.stringify(join('.acde', 'versions', '0.0.2', 'lib', 'acde', 'src', 'driver'))})
+  expect((await acde.webs()).length).toBe(2)
+})
+`)
+    const tools = tmp()
+    symlinkSync(process.execPath, join(tools, 'bun'))
+    const ran = await run([join(home, '.acde', 'bin', 'acde'), 'test'], { ...s.env, PATH: `${tools}:/usr/bin:/bin` }, s.project)
+    expect(ran.code, ran.out).toBe(0)
+    expect(ran.out).toContain('acde test: 1 file, 1 passed, 0 failed')
+    expect(existsSync(join(s.project, 'node_modules'))).toBe(false)
+  }, 60_000)
 })
 
 test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(

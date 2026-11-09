@@ -1,17 +1,19 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { E2e } from '../src/e2e/settings.ts'
+import { TestTsconfig } from '../src/e2e/tsconfig.ts'
+import { Png } from '../src/driver/png.ts'
 import { cleanup, standIn } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
-const MODULE = join(import.meta.dir, '../src/e2e/index.ts')
 const BROKEN = join('e2e', 'broken.e2e.ts')
 const TASKS = join('e2e', 'tasks.e2e.ts')
 
 afterAll(cleanup)
 
-const PASSING = `import { test, expect } from ${JSON.stringify(MODULE)}
+const PASSING = `import { test, expect } from 'acde/test'
 
 test('adds a task', async ({ app, home }) => {
   expect(home).toContain('acde-test-')
@@ -26,13 +28,15 @@ test('starts empty again', async ({ app }) => {
 })
 `
 
-const FAILING = `import { test, expect } from ${JSON.stringify(MODULE)}
+const FAILING = `import { test, expect } from 'acde/test'
+import { Acde } from 'acde/driver'
 
 test('looks for what is not there', async ({ app }) => {
   await expect(app!.getByText('Nowhere')).toBeVisible({ timeout: 200 })
 })
 
 test('fine', async ({ acde }) => {
+  expect(acde).toBeInstanceOf(Acde)
   expect((await acde.webs()).length).toBe(2)
 })
 `
@@ -73,8 +77,9 @@ describe('acde test', () => {
     expect(new Set(run.started.map((e) => e.env!['XDG_CONFIG_HOME'])).size).toBe(4)
     expect(run.started[0]!.argv).toEqual(['app', 'alpha'])
     const left = join(s.project, '.acde/test-results/e2e-broken/looks-for-what-is-not-there')
-    expect(run.out).toContain(`acde test: saved error.txt, output.log, screen.png, snapshot.txt, console.txt, network.txt in ${left}`)
-    expect(readdirSync(left).sort()).toEqual(['console.txt', 'error.txt', 'network.txt', 'output.log', 'screen.png', 'snapshot.txt'])
+    expect(run.out).toContain(`acde test: saved error.txt, output.log, screen.png, snapshot.txt, console.txt, network.txt, trace.txt in ${left}`)
+    expect(readdirSync(left).sort()).toEqual(['console.txt', 'error.txt', 'network.txt', 'output.log', 'screen.png', 'snapshot.txt', 'trace.txt'])
+    expect(readFileSync(join(left, 'trace.txt'), 'utf8')).toMatch(/^ {2}1 FAIL \+\d+\.\d\ds +\d+ ms {2}expect window\(app "alpha"\)\.getByText\("Nowhere"\) to be visible\n/)
     expect(readFileSync(join(left, 'error.txt'), 'utf8')).toContain('AssertionError: expected window(app "alpha").getByText("Nowhere")')
     expect(readFileSync(join(left, 'console.txt'), 'utf8')).toBe('   1 log    alpha#7  alpha ready\n')
     expect(readFileSync(join(left, 'screen.png')).subarray(1, 4).toString()).toBe('PNG')
@@ -98,4 +103,76 @@ describe('acde test', () => {
     expect((await acdeTest(s, [join(s.root, 'empty')])).out).toContain('acde: no e2e tests (**/*.e2e.{ts,tsx,js,mjs,mts})')
     expect((await acdeTest(s, ['--timeout', 'soon'])).out).toContain('--timeout soon: milliseconds per test')
   }, 120_000)
+
+  test('screenshot baselines: written next to the test the first time, compared after, rewritten with -u; --trace keeps every step', async () => {
+    const s = standIn()
+    mkdirSync(join(s.project, 'e2e'))
+    const file = join(s.project, 'e2e/look.e2e.ts')
+    const write = (tasks: number) =>
+      writeFileSync(file, `import { test, expect } from 'acde/test'
+
+test('the empty list', async ({ app }) => {
+  for (const name of ${JSON.stringify(Array.from({ length: tasks }, (_, i) => `task ${i}`))}) {
+    await app!.getByRole('textbox', { name: 'New task' }).fill(name)
+    await app!.getByRole('button', { name: 'Add' }).click()
+  }
+  await expect(app!.getByRole('listitem')).toHaveCount(${tasks})
+  await expect(app!).toHaveScreenshot({ timeout: 1000 })
+  await expect(app!.getByRole('textbox', { name: 'New task' })).toHaveScreenshot('field')
+})
+`)
+    write(0)
+    const baselines = join(s.project, 'e2e/__screenshots__/look.e2e.ts')
+    const first = await acdeTest(s, [])
+    expect(first.code).toBe(0)
+    expect(readdirSync(baselines).sort()).toEqual([`field-${process.platform}.png`, `the-empty-list-1-${process.platform}.png`])
+    expect(first.out).toContain(`acde: wrote screenshot ${join(baselines, `the-empty-list-1-${process.platform}.png`)}`)
+    expect(Png.decode(readFileSync(join(baselines, `field-${process.platform}.png`))).width).toBe(4)
+    expect((await acdeTest(s, [])).code).toBe(0)
+
+    write(2)
+    const changed = await acdeTest(s, [])
+    expect(changed.code).toBe(1)
+    expect(changed.out).toContain(`to match screenshot ${join(baselines, `the-empty-list-1-${process.platform}.png`)}: 2 pixels differ`)
+    const left = join(s.project, '.acde/test-results/e2e-look/the-empty-list')
+    expect(readdirSync(left)).toEqual(expect.arrayContaining(['the-empty-list-1-actual.png', 'the-empty-list-1-diff.png', 'the-empty-list-1-expected.png', 'trace.txt']))
+
+    const updated = await acdeTest(s, ['-u', '--trace'])
+    expect(updated.code).toBe(0)
+    expect(updated.out).toContain(`acde: updated screenshot ${join(baselines, `the-empty-list-1-${process.platform}.png`)}`)
+    expect(updated.out).toContain(`acde test: trace of "the empty list": ${join(left, 'trace.txt')}`)
+    expect(readdirSync(left).sort()).toEqual(['trace', 'trace.html', 'trace.txt'])
+    expect(readFileSync(join(left, 'trace.html'), 'utf8')).toContain('expect window(app &quot;alpha&quot;) to match screenshot the-empty-list-1')
+    expect(readdirSync(join(left, 'trace')).length).toBeGreaterThan(5)
+    expect((await acdeTest(s, [])).code).toBe(0)
+    expect(existsSync(left)).toBe(false)
+  }, 120_000)
+})
+
+describe('TestTsconfig', () => {
+  test('acde/test and acde/driver resolve to this acde; the project\'s own paths stay, through extends chains (relative, array, package) and JSONC', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'acde-tsconfig-')))
+    const at = (path: string, text: string) => {
+      mkdirSync(join(root, path, '..'), { recursive: true })
+      writeFileSync(join(root, path), text)
+    }
+    at('node_modules/@acme/tsconfig/package.json', '{"name":"@acme/tsconfig"}')
+    at('node_modules/@acme/tsconfig/tsconfig.json', '{"compilerOptions":{"paths":{"#lib/*":["./lib/*"]}}}')
+    at('base.json', '{\n  // shared\n  "compilerOptions": { "baseUrl": "src", "paths": { "@/*": ["./*"], }, },\n}')
+    at('other.json', '{"compilerOptions":{"paths":{"other":["./other.ts"]}}}')
+    at('app/tsconfig.json', '{"extends":["../other.json","../base"]}')
+    at('app/acde.config.jsonc', '{}')
+    at('pkg/tsconfig.json', '{"extends":"@acme/tsconfig"}')
+    at('lone/acde.config.jsonc', '{}')
+    const app = TestTsconfig.build(join(root, 'app')) as { extends: string; compilerOptions: { paths: Record<string, string[]> } }
+    expect(app.extends).toBe(join(root, 'app/tsconfig.json'))
+    expect(app.compilerOptions.paths['@/*']).toEqual([join(root, 'src/*')])
+    expect(app.compilerOptions.paths['other']).toBeUndefined()
+    expect(app.compilerOptions.paths['acde/test']).toEqual([TestTsconfig.MODULES['acde/test']!])
+    expect(app.compilerOptions.paths['acde/driver']).toEqual([join(import.meta.dir, '../src/driver/index.ts')])
+    expect(TestTsconfig.paths(join(root, 'pkg/tsconfig.json'))).toEqual({ '#lib/*': [join(root, 'node_modules/@acme/tsconfig/lib/*')] })
+    const lone = TestTsconfig.build(join(root, 'lone')) as { extends?: string; compilerOptions: { paths: Record<string, string[]> } }
+    expect(lone.extends).toBeUndefined()
+    expect(Object.keys(lone.compilerOptions.paths).sort()).toEqual(['acde/driver', 'acde/test'])
+  })
 })

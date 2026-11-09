@@ -29,7 +29,7 @@ describe('acde mcp', () => {
     const { client, call } = await connect(s.project, s.env)
     try {
       const tools = (await client.listTools()).tools
-      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'choose_files', 'choose_folder', 'choose_save_file', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'wait_for', 'webs'])
+      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute', 'wait_for', 'webs'])
       expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
 
       const none = await call('webs')
@@ -64,9 +64,9 @@ describe('acde mcp', () => {
 
       const shot = await call('screenshot', { path: 'shot.png' })
       expect(shot.content[0]).toMatchObject({ type: 'image', mimeType: 'image/png' })
-      expect(shot.text).toBe(`beta#8: 1x1, written to ${join(s.project, 'shot.png')}`)
+      expect(shot.text).toBe(`beta#8: 3x3, written to ${join(s.project, 'shot.png')}`)
       expect(readFileSync(join(s.project, 'shot.png')).subarray(1, 4).toString()).toBe('PNG')
-      expect((await call('screenshot', { target: 'w1' })).text).toStartWith('alpha#7: 1x1')
+      expect((await call('screenshot', { target: 'w1' })).text).toStartWith('alpha#7: 8x6')
 
       expect(JSON.parse((await call('eval', { code: 'document.title' })).text)).toEqual({ web: 'beta#8', code: 'document.title' })
 
@@ -88,6 +88,18 @@ describe('acde mcp', () => {
       expect((await call('choose_save_file', { path: 'out.txt' })).text).toBe(`the next save chooser will answer ${join(s.project, 'out.txt')}`)
       expect((await call('choose_save_file', { cancel: true })).text).toBe('the next save chooser will be cancelled')
       expect((await call('choose_save_file', {})).error).toBe(true)
+      expect((await call('route', { url: '/api/tasks', status: 503, times: 2 })).text).toBe('route 1: any method /api/tasks → 503, 2 times')
+      expect((await call('route', { url: 'tasks$', regex: true, method: 'POST', abort: 'offline' })).text).toBe('route 2: POST /tasks$/ → fails (offline)')
+      expect((await call('route', { url: '/x', json: { a: 1 } })).text).toBe('route 3: any method /x → 200')
+      expect((await call('unroute', { id: 2 })).text).toBe('removed 1 route, 2 left')
+      expect((await call('unroute', {})).text).toBe('removed 2 routes, 0 left')
+      const guarded = await call('clipboard', { text: 'hi' })
+      expect(guarded.error).toBe(true)
+      expect(guarded.text).toContain("has a window on screen, so its clipboard is the user's system clipboard")
+      expect((await call('clipboard', { text: 'hi', system: true })).text).toBe('"hi"')
+      expect((await call('clipboard', { system: true })).text).toBe('"hi"')
+      expect(tools.find((t) => t.name === 'clipboard')!.annotations).toMatchObject({ destructiveHint: true, openWorldHint: true })
+      expect((await call('act', { ref: 'w1.6', action: 'select', arg: ['high'] })).text).toContain('selected ["high"]')
       expect((await call('emulate', { colorScheme: 'dark' })).text).toBe('colour scheme dark (emulated), reduced motion off')
       expect((await call('emulate', { colorScheme: 'system', reducedMotion: 'reduce' })).text).toBe('colour scheme light, reduced motion on')
       expect(JSON.parse((await call('eval', { code: '1', target: 'desktop' })).text)).toEqual({ web: 'desktop', code: '1' })
@@ -120,8 +132,9 @@ describe('acde mcp', () => {
     }
 
     const { client, call } = await connect(s.project, s.env)
-    const started = await call('start')
+    const started = await call('start', { headless: true })
     const pid = Number(/^acde dev (\d+)/.exec(started.text)![1])
+    expect((await call('clipboard', { text: 'isolated' })).text).toBe('"isolated"')
     await client.close()
     const sessions = join(s.root, 'acde-dev')
     for (let i = 0; i < 100 && existsSync(join(sessions, `${pid}.json`)); i++) await Bun.sleep(50)

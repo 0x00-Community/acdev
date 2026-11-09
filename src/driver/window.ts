@@ -1,7 +1,9 @@
 import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
-import { ActError, type Acde, type ActResult, type ConsoleEntry, type ConsoleOptions, type DevPage, type NetworkOptions, type RequestEntry, type Shot } from './acde.ts'
+import { ActError, type Acde, type ActResult, type ConsoleEntry, type ConsoleOptions, type DevPage, type NetworkOptions, type RequestEntry, type RouteOptions, type RouteResponse, type Shot, type UrlMatch, type WaitConsoleOptions, type WaitRequestOptions } from './acde.ts'
 import { Locator, type RoleOptions, type Scope, type Source, type TextMatch, type TextOptions, type Timeout, type Tree } from './locator.ts'
+import { Png } from './png.ts'
 import { Poll } from './poll.ts'
+import { Screenshots, type Capture, type ScreenshotOptions } from './screenshot.ts'
 
 export interface WindowMatch {
   readonly ref?: string
@@ -80,7 +82,8 @@ export class AppWindow implements Scope {
         const under = (await acde.snapshot({ ref: node.ref, limit: 3000, offscreen: true })).trees[ref] ?? []
         return under.length === 1 && under[0]!.ref === node.ref ? (under[0]!.children ?? []) : under
       },
-      query: async (selector: string, within: InspectNode | null) => (await acde.query({ window: ref, selector, ...(within && { ref: within.ref }) })).nodes.filter((n) => n.visible),
+      query: async (selector: string, within: InspectNode | null, attributes?: readonly string[]) =>
+        (await acde.query({ window: ref, selector, limit: 3000, ...(within && { ref: within.ref }), ...(attributes?.length && { attributes }) })).nodes.filter((n) => n.visible),
     }
   }
 
@@ -98,6 +101,34 @@ export class AppWindow implements Scope {
 
   getByTestId(id: string): Locator {
     return this.locator(Locator.testId(id))
+  }
+
+  getByLabel(text: TextMatch, options: TextOptions = {}): Locator {
+    return new Locator(this, [{ kind: 'label', text, options }])
+  }
+
+  getByPlaceholder(text: TextMatch, options: TextOptions = {}): Locator {
+    return new Locator(this, [{ kind: 'attr', name: 'placeholder', text, options }])
+  }
+
+  getByTitle(text: TextMatch, options: TextOptions = {}): Locator {
+    return new Locator(this, [{ kind: 'attr', name: 'title', text, options }])
+  }
+
+  getByAltText(text: TextMatch, options: TextOptions = {}): Locator {
+    return new Locator(this, [{ kind: 'attr', name: 'alt', text, options }])
+  }
+
+  async route(url: UrlMatch, response: RouteResponse, options: Omit<RouteOptions, 'web'> = {}): Promise<number> {
+    return this.acde.route(url, response, { ...options, web: await this.web() })
+  }
+
+  async waitForRequest(url: UrlMatch, options: Omit<WaitRequestOptions, 'web'> = {}): Promise<RequestEntry> {
+    return this.acde.waitForRequest(url, { ...options, web: await this.web() })
+  }
+
+  async waitForConsole(text: string | RegExp, options: Omit<WaitConsoleOptions, 'web'> = {}): Promise<ConsoleEntry> {
+    return this.acde.waitForConsole(text, { ...options, web: await this.web() })
   }
 
   async console(options: Omit<ConsoleOptions, 'web'> = {}): Promise<DevPage<ConsoleEntry>> {
@@ -120,8 +151,23 @@ export class AppWindow implements Scope {
     return this.acde.evaluate<T>(await this.web(), code)
   }
 
-  async screenshot(options: { readonly path?: string } = {}): Promise<Shot> {
-    return this.acde.screenshot(await this.web(), options)
+  async screenshot(options: ScreenshotOptions = {}): Promise<Shot> {
+    if (!options.mask?.length) return this.acde.screenshot(await this.web(), options.path === undefined ? {} : { path: options.path })
+    const image = await Screenshots.window(await this.capture(), options.mask)
+    const png = Screenshots.save(image, options.path)
+    return { png, width: image.width, height: image.height, path: options.path ?? null }
+  }
+
+  async capture(): Promise<Capture> {
+    const window = await this.info()
+    const shot = await this.acde.screenshot((await this.acde.webOf(window.id)).name)
+    const image = Png.decode(shot.png)
+    return { image, window, scale: window.rect[2] > 0 ? image.width / window.rect[2] : 1 }
+  }
+
+  async rects(): Promise<readonly (readonly [number, number, number, number])[]> {
+    const window = await this.find()
+    return window ? [window.rect] : []
   }
 
   press(keys: string): Promise<ActResult> {
@@ -148,8 +194,10 @@ export class AppWindow implements Scope {
   }
 
   async #act(action: InspectAction, arg: string | null = null): Promise<ActResult> {
-    const result = await this.acde.act((await this.info()).ref, action, arg)
-    if (!result.ok) throw new ActError(`${this.describe()}: ${action}`, result)
-    return result
+    return this.acde.trace.step(`${this.describe()}.${action === 'key' ? 'press' : action}(${arg === null ? '' : JSON.stringify(arg)})`, async () => {
+      const result = await this.acde.act((await this.info()).ref, action, arg)
+      if (!result.ok) throw new ActError(`${this.describe()}: ${action}`, result)
+      return result
+    }, (result) => result.text.split('\n')[0] ?? '')
   }
 }
