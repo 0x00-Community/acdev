@@ -20,7 +20,8 @@ import { StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { process } from './sys/process'
-import type { BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
+import type { AnimateOptions, BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
+import type { ShellModule } from '@dopame/acde-api/manifest'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
 import { PageCalls, PanelCalls } from './broker/page'
@@ -132,6 +133,7 @@ export class Broker {
       records: () => [...this.#windows.keys()],
     })
     this.bridge.services.inspect = this.inspect.api
+    this.bridge.services.shell = (name) => this.#serviceModule(name)
     this.#dev = new DevRequests({
       shell: this.shell,
       inspect: this.inspect,
@@ -179,6 +181,44 @@ export class Broker {
       toDesktop: (event) => this.#toDesktop(event),
     })
     StartupTimeline.mark('shell created')
+  }
+
+  #serviceModule(name: ShellModule): object | null {
+    switch (name) {
+      case 'session':
+        return this.session.api
+      case 'desktops':
+        return this.desktops
+      case 'inspect':
+        return this.inspect.api
+      case 'setDefault':
+        return (mime: string, handler: string) => this.opener.setDefault(String(mime), String(handler))
+      case 'desktop':
+        return { apps: async () => ({ apps: this.#appList() }) }
+      case 'packages':
+        return {
+          refresh: () => this.refreshApps(),
+          install: (dir: string) => this.installApps(String(dir)),
+          natives: () => this.natives.list(),
+          runNative: (id: string) => {
+            const file = this.natives.file(String(id))
+            if (!file) throw Object.assign(new Error(`no native app ${String(id)}`), { status: 404 })
+            return this.shell.launch(['gio', 'launch', file])
+          },
+        }
+      case 'windows':
+        return {
+          list: () => this.windows,
+          focus: (id: number) => this.shell.focus(Number(id)),
+          hide: (id: number) => this.#hide(Number(id), true),
+          show: (id: number) => this.#hide(Number(id), false),
+          close: (id: number) => (this.#windows.get(Number(id))?.kind === 'web' ? this.closeWeb(Number(id)) : this.shell.close(Number(id))),
+          kill: (id: number) => this.closeWeb(Number(id), true),
+          stats: () => this.shell.stats(),
+          animate: (id: number, options: AnimateOptions) => this.shell.animate(Number(id), options ?? {}),
+        }
+    }
+    return null
   }
 
   accessibility(): Promise<NativeAccessibility | null> {

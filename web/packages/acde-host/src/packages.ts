@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readDirOr, readdirSync, readFileSync, readTextOr
 import { xdgDirs, xdgHome } from './sys/os'
 import { dirname, isAbsolute, join, resolve } from './sys/path'
 import { fileURLToPath } from './sys/url'
-import type { DesktopManifest, PackageManifest, ServiceManifest } from '@dopame/acde-api'
+import type { DesktopManifest, PackageManifest, ServiceManifest, ShellModule } from '@dopame/acde-api'
 import { process } from './sys/process'
 import { Manifest } from '@dopame/acde-api/manifest'
 import { DesktopEntry } from './desktopentry'
@@ -19,6 +19,10 @@ export interface RefusedPackage extends InstalledPackage {
   readonly reason: string
 }
 
+export interface InstalledService extends ServiceManifest {
+  readonly modules: readonly ShellModule[]
+}
+
 export interface InstalledDesktop {
   readonly kind: 'acde'
   readonly id: string
@@ -26,7 +30,7 @@ export interface InstalledDesktop {
   readonly description: string | null
   readonly package: InstalledPackage
   readonly html: string
-  readonly services: readonly ServiceManifest[]
+  readonly services: readonly InstalledService[]
   readonly heapMb: number
 }
 
@@ -121,7 +125,13 @@ export class Packages {
     const html = join(pkg.dir, entry)
     if (!existsSync(html)) return null
     const all = pkg.manifest.services ?? []
-    const wanted = Array.isArray(raw.services) ? all.filter((s) => raw.services!.includes(s.name)) : all
+    const grants = Manifest.desktopServices(raw.services)
+    if (typeof grants === 'string') Packages.#warn(`desktop ${id} in ${pkg.dir}: ${grants}; it starts no services`)
+    const granted = (name: string) => (grants === null ? [] : typeof grants === 'string' ? undefined : grants.find((g) => g.name === name)?.modules)
+    const wanted = all.flatMap((s) => {
+      const modules = granted(s.name)
+      return modules ? [{ ...s, modules }] : []
+    })
     return { kind: 'acde', id, name, description: text(raw.description), package: pkg, html, services: wanted, heapMb: Manifest.heapMb(raw.heapMb, Packages.HEAP_MB) }
   }
 

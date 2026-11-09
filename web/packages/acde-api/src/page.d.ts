@@ -512,6 +512,16 @@ export interface AcdeDesktop {
   ): () => boolean
 }
 
+export interface ShellModuleTypes {
+  readonly windows: AcdeWindows
+  readonly packages: AcdePackages
+  readonly session: AcdeSession
+  readonly desktops: AcdeDesktops
+  readonly inspect: AcdeInspect
+  readonly desktop: AcdeDesktop
+  readonly setDefault: AcdeOpenFiles['setDefault']
+}
+
 export interface AcdePage {
   readonly fs?: AcdeFs
   readonly office?: AcdeOffice

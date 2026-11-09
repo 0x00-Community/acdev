@@ -2,9 +2,10 @@ import { mkdirSync } from './sys/fs'
 import { xdgHome } from './sys/os'
 import { join } from './sys/path'
 import { pathToFileURL } from './sys/url'
-import type { ServiceFactory, ServiceInstance, ServiceProcess, SpawnOptions } from '@dopame/acde-api'
+import type { ServiceFactory, ServiceInstance, ServiceProcess, ShellModule, SpawnOptions } from '@dopame/acde-api'
+import { SHELL_MODULES } from '@dopame/acde-api/manifest'
 import type { Native } from './native'
-import type { InstalledDesktop } from './packages'
+import type { InstalledDesktop, InstalledService } from './packages'
 import { process, stopGroup } from './sys/process'
 import { Level, Log } from './log'
 import { sys } from './sys/natives'
@@ -54,6 +55,7 @@ export class DesktopServices {
   readonly capability = new Map<string, string>()
   readonly sync = new Set<string>()
   inspect: object | null = null
+  shell: ((name: ShellModule) => object | null) | null = null
 
   async start(desktop: InstalledDesktop, native: Native, value: Record<string, unknown>, before: Promise<unknown> = Promise.resolve()): Promise<void> {
     const state = xdgHome('state')
@@ -68,7 +70,18 @@ export class DesktopServices {
           if (typeof module.default !== 'function') throw new Error(`${service.module} has no default export function`)
           const dir = join(state, 'acde', owner, service.name)
           mkdirSync(dir, { recursive: true })
-          return { name: service.name, log, processes, instance: await module.default({ name: service.name, package: desktop.package.dir, state: dir, native: native as unknown as Record<string, unknown>, env: process.env, log, spawn, ...(this.inspect ? { inspect: this.inspect as never } : {}) }) }
+          const context = {
+            name: service.name,
+            package: desktop.package.dir,
+            state: dir,
+            native: native as unknown as Record<string, unknown>,
+            env: process.env,
+            log,
+            spawn,
+            import: ((specifier: string) => this.#import(service, specifier)) as never,
+            ...(this.inspect ? { inspect: this.inspect as never } : {}),
+          }
+          return { name: service.name, log, processes, instance: await module.default(context) }
         } catch (error) {
           log(`not started: ${(error as Error).stack ?? error}`)
           Processes.stop(processes)
@@ -90,6 +103,19 @@ export class DesktopServices {
       for (const sync of instance.sync ?? []) if (namespaces.includes(sync.split('.')[0]!)) this.sync.add(sync)
       this.#running.push({ name, instance, namespaces, processes })
     }
+  }
+
+  async #import(service: InstalledService, specifier: string): Promise<object> {
+    const name = String(specifier).replace(/^acde:/, '') as ShellModule
+    if (!SHELL_MODULES.includes(name)) {
+      throw new TypeError(`import(${specifier}): a service imports shell modules (${SHELL_MODULES.map((m) => `acde:${m}`).join(', ')})`)
+    }
+    if (!service.modules.includes(name)) {
+      throw new TypeError(`acde:${name} is a shell module: list it in the modules of service ${JSON.stringify(service.name)} in the desktop manifest`)
+    }
+    const value = this.shell?.(name)
+    if (!value) throw new TypeError(`acde:${name} is not available to services here`)
+    return { [name]: value, default: value }
   }
 
   async stop(value: Record<string, unknown>): Promise<void> {

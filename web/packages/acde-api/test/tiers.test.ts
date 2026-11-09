@@ -56,3 +56,17 @@ windows.list()
 `
   assert.deepEqual(errors('shell', code), [])
 })
+
+test('a service imports shell modules through its context, typed', () => {
+  const code = `
+import type { ServiceFactory } from ${JSON.stringify(join(src, 'shell.d.ts'))}
+export const factory: ServiceFactory = async (ctx) => {
+  const { session } = await ctx.import('acde:session')
+  const windows = (await ctx.import('acde:windows')).default
+  return { api: { probe: { own: () => session.own(), count: () => windows.list().length } } }
+}
+`
+  assert.deepEqual(errors('shell', code), [])
+  const context = `import type { ServiceContext } from ${JSON.stringify(join(src, 'shell.d.ts'))}\ndeclare const ctx: ServiceContext\n`
+  assert.ok(errors('shell', `${context}ctx.import('acde:fs')`).length > 0)
+})
