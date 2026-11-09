@@ -68,12 +68,8 @@ pub(crate) trait Host {
     fn set_ime_area(&self, area: [f64; 4]);
     fn surface(&self, instance: &acde_gpu::wgpu::Instance) -> Result<Option<acde_gpu::wgpu::Surface<'static>>, String>;
     fn choose_folder(&self, title: &str, reply: FolderReply);
-    fn open_files(&self, _request: OpenRequest, reply: FilesReply) {
-        let _ = reply.send(Err("no file chooser in host windows on this platform".to_owned()));
-    }
-    fn save_file(&self, _request: SaveRequest, reply: FolderReply) {
-        let _ = reply.send(Err("no file chooser in host windows on this platform".to_owned()));
-    }
+    fn open_files(&self, request: OpenRequest, reply: FilesReply);
+    fn save_file(&self, request: SaveRequest, reply: FolderReply);
     fn exit(&self, code: i32);
 }
 

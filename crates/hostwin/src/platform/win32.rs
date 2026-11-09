@@ -44,6 +44,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use super::{Cmd, Handler, HostEvent, LINE, Monitor};
 use crate::keys;
+use crate::{OpenRequest, SaveRequest};
+
+mod dialog;
 
 const WM_MOUSELEAVE: u32 = 0x02a3;
 const SIZE_MINIMIZED: usize = 1;
@@ -113,6 +116,14 @@ impl super::Host for Host {
             raw_window_handle: rwh::RawWindowHandle::Win32(handle),
         };
         unsafe { instance.create_surface_unsafe(target) }.map(Some).map_err(|e| e.to_string())
+    }
+
+    fn open_files(&self, request: OpenRequest, reply: super::FilesReply) {
+        let _ = reply.send(dialog::open(self.hwnd, &request));
+    }
+
+    fn save_file(&self, request: SaveRequest, reply: super::FolderReply) {
+        let _ = reply.send(dialog::save(self.hwnd, &request));
     }
 
     fn choose_folder(&self, title: &str, reply: super::FolderReply) {
