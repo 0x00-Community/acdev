@@ -1,6 +1,7 @@
 import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import { ActError, type Acde, type ActResult, type Shot } from './acde.ts'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { Modifiers, type Modifier } from './input.ts'
 import { Poll } from './poll.ts'
 import { Screenshots, type Capture, type ScreenshotOptions } from './screenshot.ts'
 
@@ -25,6 +26,8 @@ export interface TextOptions {
 export interface FilterOptions {
   readonly hasText?: TextMatch
   readonly hasNotText?: TextMatch
+  readonly has?: Locator
+  readonly hasNot?: Locator
 }
 
 export interface Timeout {
@@ -57,6 +60,8 @@ export type Query =
   | { readonly kind: 'attr'; readonly name: 'placeholder' | 'title' | 'alt'; readonly text: TextMatch; readonly options: TextOptions }
   | { readonly kind: 'filter'; readonly options: FilterOptions }
   | { readonly kind: 'nth'; readonly index: number }
+  | { readonly kind: 'or'; readonly alternatives: readonly (readonly Query[])[] }
+  | { readonly kind: 'and'; readonly queries: readonly Query[] }
 
 export interface Resolved {
   readonly window: InspectWindow | null
@@ -111,6 +116,18 @@ export class Locator {
 
   filter(options: FilterOptions): Locator {
     return new Locator(this.scope, [...this.#queries, { kind: 'filter', options }])
+  }
+
+  or(other: Locator): Locator {
+    return new Locator(this.scope, [{ kind: 'or', alternatives: [this.#queries, other.#queries] }])
+  }
+
+  and(other: Locator): Locator {
+    return new Locator(this.scope, [...this.#queries, { kind: 'and', queries: other.#queries }])
+  }
+
+  get queries(): readonly Query[] {
+    return this.#queries
   }
 
   nth(index: number): Locator {
@@ -180,7 +197,11 @@ export class Locator {
   }
 
   async isVisible(): Promise<boolean> {
-    return (await this.count()) > 0
+    return (await this.resolve()).nodes.some(Locator.visible)
+  }
+
+  static visible(node: InspectNode): boolean {
+    return !('visible' in node) || (node as InspectMatch).visible
   }
 
   async all(): Promise<Locator[]> {
@@ -213,24 +234,31 @@ export class Locator {
     await Poll.until(
       this.#timeout(options.timeout),
       async () => {
-        last = await this.count()
+        last = (await this.resolve()).nodes.filter(Locator.visible).length
         return (hidden ? last === 0 : last > 0) || null
       },
-      () => `${this.describe()}: still ${hidden ? `${last} element${last === 1 ? '' : 's'}` : 'no element'} after ${this.#timeout(options.timeout)} ms`,
+      () => `${this.describe()}: still ${hidden ? `${last} visible element${last === 1 ? '' : 's'}` : 'no visible element'} after ${this.#timeout(options.timeout)} ms`,
     )
   }
 
-  click(options: Timeout & { readonly button?: 'left' | 'right'; readonly clickCount?: 1 | 2 } = {}): Promise<ActResult> {
+  click(options: Timeout & { readonly button?: 'left' | 'right'; readonly clickCount?: 1 | 2; readonly modifiers?: readonly Modifier[] } = {}): Promise<ActResult> {
     const action = options.button === 'right' ? 'right' : options.clickCount === 2 ? 'double' : 'click'
-    return this.#step(`click(${options.button === 'right' ? "{ button: 'right' }" : options.clickCount === 2 ? '{ clickCount: 2 }' : ''})`, () => this.#act(action, null, options.timeout, true))
+    return this.#step(`click(${Locator.#args({ button: options.button === 'right' ? 'right' : undefined, clickCount: options.clickCount === 2 ? 2 : undefined, modifiers: options.modifiers })})`, () =>
+      this.#act(action, Modifiers.chord(options.modifiers), options.timeout, true),
+    )
   }
 
-  dblclick(options: Timeout = {}): Promise<ActResult> {
-    return this.#step('dblclick()', () => this.#act('double', null, options.timeout, true))
+  dblclick(options: Timeout & { readonly modifiers?: readonly Modifier[] } = {}): Promise<ActResult> {
+    return this.#step(`dblclick(${Locator.#args({ modifiers: options.modifiers })})`, () => this.#act('double', Modifiers.chord(options.modifiers), options.timeout, true))
   }
 
-  hover(options: Timeout = {}): Promise<ActResult> {
-    return this.#step('hover()', () => this.#act('hover', null, options.timeout, false))
+  hover(options: Timeout & { readonly modifiers?: readonly Modifier[] } = {}): Promise<ActResult> {
+    return this.#step(`hover(${Locator.#args({ modifiers: options.modifiers })})`, () => this.#act('hover', Modifiers.chord(options.modifiers), options.timeout, false))
+  }
+
+  static #args(options: Record<string, unknown>): string {
+    const parts = Object.entries(options).filter(([, v]) => v !== undefined && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    return parts.length ? `{ ${parts.join(', ')} }` : ''
   }
 
   fill(text: string, options: Timeout = {}): Promise<ActResult> {
@@ -280,7 +308,7 @@ export class Locator {
       for (;;) {
         const left = () => Math.max(0, deadline - Date.now())
         const to = (await target.#one(left(), () => null)).node.ref
-        const { node } = await this.#one(left(), (n) => (n.states?.includes('disabled') ? `${Locator.line(n)} is disabled` : null))
+        const { node } = await this.#one(left(), (n) => (!Locator.visible(n) ? `${Locator.line(n)} is hidden` : n.states?.includes('disabled') ? `${Locator.line(n)} is disabled` : null))
         const result = await this.scope.acde.act(node.ref, 'drag', to)
         if (result.ok) return result
         if (Date.now() >= deadline) throw new ActError(`${this.describe()}: drag to ${target.describe()}`, result)
@@ -308,7 +336,7 @@ export class Locator {
   async #setChecked(checked: boolean, timeout: number | undefined): Promise<void> {
     const ms = this.#timeout(timeout)
     const deadline = Date.now() + ms
-    const { node } = await this.#one(ms, (n) => (n.states?.includes('disabled') ? `${Locator.line(n)} is disabled` : null))
+    const { node } = await this.#one(ms, (n) => (!Locator.visible(n) ? `${Locator.line(n)} is hidden` : n.states?.includes('disabled') ? `${Locator.line(n)} is disabled` : null))
     if ((node.states ?? []).includes('checked') === checked) return
     await this.#act('click', null, Math.max(0, deadline - Date.now()), true)
     let now = false
@@ -340,8 +368,27 @@ export class Locator {
         case 'filter': {
           const pool: InspectNode[] = set ?? Locator.#flat(source.nodes)
           const kept: InspectNode[] = []
-          for (const n of pool) if (Locator.#filter(await Locator.#texts(source, n), query.options)) kept.push(n)
+          const { has, hasNot } = query.options
+          for (const n of pool) {
+            if (!Locator.#filter(await Locator.#texts(source, n), query.options)) continue
+            const inside = has || hasNot ? await Locator.#within(source, n) : null
+            if (has && !(await Locator.match(inside!, has.queries)).length) continue
+            if (hasNot && (await Locator.match(inside!, hasNot.queries)).length) continue
+            kept.push(n)
+          }
           set = kept
+          break
+        }
+        case 'or': {
+          const found: InspectNode[] = []
+          for (const alternative of query.alternatives) found.push(...(await Locator.match(source, alternative)))
+          const order = new Map(Locator.#flat(source.nodes).map((n, i) => [n.ref, i]))
+          set = Locator.#unique(found).sort((a, b) => (order.get(a.ref) ?? Infinity) - (order.get(b.ref) ?? Infinity))
+          break
+        }
+        case 'and': {
+          const both = new Set((await Locator.match(source, query.queries)).map((n) => n.ref))
+          set = (set ?? Locator.#flat(source.nodes)).filter((n) => both.has(n.ref))
           break
         }
         case 'css': {
@@ -362,6 +409,24 @@ export class Locator {
       }
     }
     return set ?? []
+  }
+
+  static async #within(source: Source, node: InspectNode): Promise<Source> {
+    return {
+      nodes: await source.children(node),
+      children: (n) => source.children(n),
+      query: (selector, within, attributes) => source.query(selector, within ?? node, attributes),
+    }
+  }
+
+  async evaluate<T = unknown, A = unknown>(fn: string | ((element: any, arg: A) => T | Promise<T>), arg?: A, options: Timeout = {}): Promise<Awaited<T>> {
+    return this.#step('evaluate()', async () => {
+      const { node, window } = await this.#one(options.timeout, () => null)
+      const id = Number(node.ref.split('.')[1])
+      if (!Number.isInteger(id)) throw new Error(`${this.describe()}: ${node.ref} is not an element of a page`)
+      const web = (await this.scope.acde.webOf(window.id)).name
+      return this.scope.acde.evaluateOn<Awaited<T>>(web, id, typeof fn === 'string' ? fn : fn.toString(), arg ?? null)
+    })
   }
 
   static testId(id: string): string {
@@ -402,11 +467,12 @@ export class Locator {
     return exact ? a === e : a.toLowerCase().includes(e.toLowerCase())
   }
 
-  static line(node: InspectNode): string {
+  static line(node: InspectNode, hidden = true): string {
     const value = node.value === undefined ? '' : `: ${JSON.stringify(node.value)}`
     const level = node.level ? ` [level=${node.level}]` : ''
     const states = (node.states ?? []).map((s) => ` [${s}]`).join('')
-    return `${node.role}${node.name ? ` ${JSON.stringify(node.name)}` : ''}${value}${level}${states} [${node.ref}]`
+    const mark = hidden && !Locator.visible(node) ? ' [hidden]' : ''
+    return `${node.role}${node.name ? ` ${JSON.stringify(node.name)}` : ''}${value}${level}${states}${mark} [${node.ref}]`
   }
 
   async #one(timeout: number | undefined, ready: (node: InspectNode) => string | null): Promise<{ node: InspectNode; window: InspectWindow; source: Source }> {
@@ -443,7 +509,7 @@ export class Locator {
     const ms = this.#timeout(timeout)
     const deadline = Date.now() + ms
     for (;;) {
-      const { node } = await this.#one(Math.max(0, deadline - Date.now()), (n) => (enabled && n.states?.includes('disabled') ? `${Locator.line(n)} is disabled` : null))
+      const { node } = await this.#one(Math.max(0, deadline - Date.now()), (n) => (!Locator.visible(n) ? `${Locator.line(n)} is hidden` : enabled && n.states?.includes('disabled') ? `${Locator.line(n)} is disabled` : null))
       const result = await this.scope.acde.act(node.ref, action, arg)
       if (result.ok) return result
       if (Date.now() >= deadline) throw new ActError(`${this.describe()}: ${action}`, result)
@@ -507,10 +573,18 @@ export class Locator {
         return `getByLabel(${text(q.text)}${options(q.options)})`
       case 'attr':
         return `${{ placeholder: 'getByPlaceholder', title: 'getByTitle', alt: 'getByAltText' }[q.name]}(${text(q.text)}${options(q.options)})`
-      case 'filter':
-        return `filter(${options(q.options).slice(2)})`
+      case 'filter': {
+        const { has, hasNot, ...text } = q.options
+        const plain = options(text)
+        const parts = [plain && plain.slice(4, -2), has && `has: ${has.describe()}`, hasNot && `hasNot: ${hasNot.describe()}`].filter(Boolean)
+        return `filter({ ${parts.join(', ')} })`
+      }
       case 'nth':
         return `nth(${q.index})`
+      case 'or':
+        return `or(${q.alternatives.map((a) => a.map((x) => Locator.#describe(x)).join('.')).join(' | ')})`
+      case 'and':
+        return `and(${q.queries.map((x) => Locator.#describe(x)).join('.')})`
     }
   }
 }

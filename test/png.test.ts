@@ -56,4 +56,17 @@ describe('Png', () => {
     expect(Png.diff(edge(90), edge(170), { antialiasing: true }).pixels).toBe(10)
     expect(() => Png.diff(white, image(9, 10, () => [0, 0, 0, 255]))).toThrow('the sizes differ: 10×10 against 9×10')
   })
+
+  test('animate: one PNG with every frame of the same size (APNG), the first as the default image', () => {
+    const frame = (rgba: [number, number, number, number]) => Png.encode({ width: 3, height: 2, data: new Uint8Array(Array.from({ length: 6 }, () => rgba).flat()) })
+    const big = Png.encode({ width: 4, height: 4, data: new Uint8Array(64) })
+    const apng = Png.animate([{ png: frame([255, 0, 0, 255]), ms: 100 }, { png: big, ms: 50 }, { png: frame([0, 0, 255, 255]), ms: 250 }])
+    const chunks = Png.chunks(apng)
+    const actl = chunks.find((c) => c.type === 'acTL')!.data
+    expect(actl.readUInt32BE(0)).toBe(2)
+    expect(chunks.filter((c) => c.type === 'fcTL').map((c) => c.data.readUInt16BE(20))).toEqual([100, 250])
+    expect(chunks.filter((c) => c.type === 'fdAT').map((c) => c.data.readUInt32BE(0))).toEqual([2])
+    const first = Png.decode(apng)
+    expect([first.width, first.height, ...first.data.slice(0, 4)]).toEqual([3, 2, 255, 0, 0, 255])
+  })
 })

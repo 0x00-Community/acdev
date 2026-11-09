@@ -323,6 +323,21 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   或多个时一直等; `toHaveAttribute` 在父元素下 `query('*')` 带属性找回自己. 语义树的限制在 acdert: `opacity: 0` 算不可见, `getByText` 找的是无障碍名字,
   `<select>` 下拉框是 `combobox` (值是选中项, 打开时下面有 `option`), 列表框是 `listbox` (看得见的行是 `option`); 选值用 `selectOption`
   (走 `act select`, 不经弹出的列表), `click()` 走真的输入, 会打开下拉列表.
+  CSS 找到的元素 (`locator`、`getByTestId`、`getByPlaceholder` …) 带 `visible`, 看不见的也算匹配 (和 Playwright 一样): `toBeVisible` /
+  `toBeHidden` / `isVisible` / `waitFor({state})` 看 `visible`, 动作等元素看得见 (`Locator.line` 标 `[hidden]`); 语义树里的都算看得见.
+  组合: `filter({hasText, hasNotText, has, hasNot})` (`has` / `hasNot` 是另一个 Locator, 在每个元素里面求, 它的 scope 不算)、`or(另一个)`
+  (两边的并集, 按文档顺序)、`and(另一个)` (交集). `locator.evaluate(函数或源码, arg)`: 在页面里以 `(元素, arg)` 调用 (`eval` 带 `node`).
+  断言还有 `toHaveClass` / `toHaveCSS(属性, 值)` (computed style) / `toHaveJSProperty` / `toBeEmpty` / `toBeEditable` / `toBeInViewport({ratio})`,
+  都是在页面里求值再比, 同样重试.
+  输入: `click` / `dblclick` / `hover` 收 `modifiers` (`Shift` / `Control` / `Alt` / `Meta` / `ControlOrMeta`), 变成 act 的 arg (`shift+ctrl`);
+  `ControlOrMeta` 在所有宿主上都是 `Control` (acdert 对页面呈现统一的 Linux 环境, 编辑快捷键是 Ctrl).
+  `AppWindow.mouse` (`move(x, y, {steps})` / `down` / `up` / `click(x, y, {button, clickCount, modifiers})` / `dblclick` / `wheel(dx, dy)`, 记着位置)
+  和 `keyboard` (`down` / `up` / `press("Control+a")` / `type` (有键的按键, 别的走 `text`) / `insertText`) 用页面的 CSS 坐标, 发 `input`.
+  `AppWindow.clock` (`clock.ts`): `install({time})` / `pauseAt` / `fastForward` / `runFor` / `resume` / `setFixedTime` / `setSystemTime` / `state`,
+  时间是 ms、Date 或日期字符串, 时长是 ms 或 `"mm:ss"` / `"hh:mm:ss"` (语义见 acdert 的 `clock`). 对话框: `answerDialog({accept, text})`
+  事先答复下一个, `waitForDialog({type})` (要在触发之前调用) / `dialogs()` 读 console 里的 `dialog` 条目. `addInitScript(code, {once})`
+  (按应用 id 登记, 重开也在)、`reload()` (先在页面里放个记号, 等新页面没有它且 `readyState` 是 complete)、`resize(w, h)` (等 `innerWidth` /
+  `innerHeight` 变过去)、`seedLocalStorage(键值)` (一次性的 init 脚本写进去再 reload; 不碰存储的文件格式).
 - **截图** (`png.ts`, `screenshot.ts`): `Png` 只用 `node:zlib`: 解所有颜色类型、位深、tRNS、Adam7 (16 位按 /257 取整到 8 位), 编 RGBA (Sub 滤波); `diff` 照
   pixelmatch (YIQ 距离, 阈值默认 0.2, 抗锯齿的边不算, 差的画红). 窗口截图含窗框, 比例是 PNG 宽 / 窗口宽; 元素截图按 rect 减窗口原点乘比例裁;
   `mask` 涂品红. `toHaveScreenshot(名字?, {maxDiffPixels, maxDiffPixelRatio, threshold, mask, timeout})`: 连拍到两张一样才比, 不过就重拍到超时;
@@ -330,7 +345,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   基线: acde test 里是测试文件旁的 `__screenshots__/<文件名>/<名字>-<平台>.png` (不给名字是 `<测试名>-<序号>`), 单用 driver 时名字要是 .png 路径.
 - **trace** (`trace.ts`): `acde.trace` 记每个动作和断言 (Locator / AppWindow 的方法、`expect`、`open`、`route`、`choose*` …; 嵌套的只记最外层) 的
   标题、耗时、结果; `screenshots` 开着时每步之后拍整屏. `write(dir)` 写 `trace.txt`, 有截图时再写 `trace.html` (自带的查看页) 和 `trace/NNN.png`.
-- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 25 个工具建在 driver 上 (含 `route` / `unroute` / `clipboard`, `act` 的 drag / select;
+- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 29 个工具建在 driver 上 (含 `route` / `unroute` / `clipboard`, `act` 的 drag / select,
+  `input` (原始鼠标键盘)、`clock`、`dialog` (答复下一个并列出已有的)、`resize`, 这四个在 `src/mcppage.ts` 的 `PageTools.register`, 经
+  `PageToolsHost` 用 `Mcp` 的会话和结果);
   `permissions` / `answer {allow, prompt? | app? + capability?}` / `revoke {app, capability}` 和命令行的批准命令共用 `Approvals`, `answer` / `revoke` 标成 destructive (`answer` 带 `allow: true` 时必须给 `app` 和 `capability`, 不认只给 id 或什么都不给: 批准替的是用户的回答, 而且决定是持久的, 所以批准了什么要写在这次调用里, 客户端问用户时看得见; 拒绝不要求)
   (它替用户做决定), `prompt` 和 `app` / `capability` 不能同时给; `query` 的输出是 `Format.matches`; `clipboard` 在有窗口的会话里碰的是用户的系统剪贴板, 要 `system: true` 才做, 标成 destructive / openWorld 让客户端先问) (`start` / `stop` / `logs` 是自己起 `acde dev` 的). stdout 只走协议.
   会话: 钉住的 (`--session`、`sessions {use}`), 否则 `start` 起的, 否则按工作目录挑 (每次调用前看 IPC 断没断). stdin 关闭或收到信号时停掉 `start`

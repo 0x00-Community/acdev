@@ -10,6 +10,7 @@ import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import { Poll } from './driver/poll.ts'
 import { Sessions } from './sessions.ts'
 import { Format } from './driver/format.ts'
+import { PageTools } from './mcppage.ts'
 
 const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
 const ARG = z.union([z.string(), z.number(), z.array(z.string())])
@@ -40,6 +41,10 @@ const INSTRUCTIONS = [
   `- route fakes the response (or a failure) of a page's fetch / XHR whose URL matches, so a test or an agent can try `
     + `states the backend does not give; unroute takes them away. clipboard reads or writes the clipboard the pages `
     + `see (headless sessions only, unless the user agrees to system: true).`,
+  `- input sends raw mouse / keyboard events at page coordinates (act click takes modifiers like "shift" as its `
+    + `arg). clock takes over a page's time (install, pause_at, fast_forward, run_for …) to test timers without `
+    + `waiting. dialog answers the next alert / confirm / prompt beforehand and lists those shown. resize sets a `
+    + `page's size.`,
   `- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's `
     + `folder, open or save chooser then needs choose_folder, choose_files or choose_save_file first.`,
   `- An app that needs the user's approval for a capability (terminal, network, camera, microphone, launch, slots, a `
@@ -53,7 +58,7 @@ const NAMING = 'name one with prompt, or with app and capability'
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 
-interface Result {
+export interface Result {
   [key: string]: unknown
   content: Content[]
   isError?: boolean
@@ -601,6 +606,16 @@ export class Mcp {
           return Mcp.#text(JSON.stringify(await acde.clipboard()))
         }),
     )
+
+    PageTools.register(s, {
+      page: async (target) => {
+        const acde = await this.#acde()
+        return { acde, web: await this.#web(acde, target) }
+      },
+      safe: (work) => this.#safe(work),
+      text: (text) => Mcp.#text(text),
+      acted: (result) => Mcp.#acted(result),
+    })
 
     s.registerTool(
       'logs',

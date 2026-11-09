@@ -18,7 +18,7 @@ export class Format {
 
   static matches(found: QueryResult, selector: string): string {
     if (!found.count) return `nothing in ${found.window} matches ${JSON.stringify(selector)}`
-    const lines = found.nodes.map((n) => `- ${Locator.line(n)} <${n.tag}>${n.visible ? '' : ' [hidden]'}`)
+    const lines = found.nodes.map((n) => `- ${Locator.line(n, false)} <${n.tag}>${n.visible ? '' : ' [hidden]'}`)
     const more = found.count > found.nodes.length ? `\n(${found.count - found.nodes.length} more not listed)` : ''
     return `${found.count} in ${found.window}:\n${lines.join('\n')}${more}`
   }

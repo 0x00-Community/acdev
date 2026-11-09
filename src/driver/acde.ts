@@ -12,6 +12,8 @@ import { PackageManager } from '../pm.ts'
 import { Runtime, type Child } from '../runtime.ts'
 import { Sessions, type Session } from '../sessions.ts'
 import { Logs } from './logs.ts'
+import type { ClockState } from './clock.ts'
+import type { InputEvent } from './input.ts'
 import { Poll } from './poll.ts'
 import { Trace } from './trace.ts'
 import { AppWindow, type WindowMatch } from './window.ts'
@@ -63,9 +65,26 @@ export interface ConsoleEntry {
   readonly time: number
   readonly web: string
   readonly app: string | null
-  readonly kind: 'console' | 'error' | 'rejection'
+  readonly kind: 'console' | 'error' | 'rejection' | 'dialog'
   readonly level: ConsoleLevel
   readonly text: string
+  readonly dialog?: Dialog
+}
+
+export type DialogType = 'alert' | 'confirm' | 'prompt'
+
+export interface Dialog {
+  readonly type: DialogType
+  readonly message: string
+  readonly defaultValue: string | null
+  readonly answered: boolean
+  readonly accept: boolean
+  readonly text: string | null
+}
+
+export interface DialogAnswer {
+  readonly accept?: boolean
+  readonly text?: string
 }
 
 export interface RequestEntry {
@@ -459,6 +478,10 @@ export class Acde {
     return ((await this.#request('eval', { web, code })) as { value: T }).value
   }
 
+  async evaluateOn<T = unknown>(web: string, node: number, fn: string, arg: unknown = null): Promise<NoInfer<T>> {
+    return ((await this.#request('eval', { web, node, code: fn, arg })) as { value: T }).value
+  }
+
   async screenshot(web: string, options: { readonly path?: string } = {}): Promise<Shot> {
     const answer = (await this.#request('shot', { web })) as { png?: unknown; width?: unknown; height?: unknown } | null
     if (typeof answer?.png !== 'string') throw new Error('acdert answered shot without a png')
@@ -663,6 +686,57 @@ export class Acde {
     })
   }
 
+  async addInitScript(code: string, options: { readonly web?: string; readonly once?: boolean } = {}): Promise<number> {
+    const args = { code, ...(options.web !== undefined && { web: options.web }), once: options.once === true }
+    const answer = (await this.#request('init', args)) as { id?: unknown } | null
+    if (typeof answer?.id !== 'number') throw new Error(`acdert answered init with ${JSON.stringify(answer)}`)
+    return answer.id
+  }
+
+  async removeInitScript(id?: number): Promise<{ removed: number; left: number }> {
+    return (await this.#request('uninit', id === undefined ? {} : { init: id })) as { removed: number; left: number }
+  }
+
+  async reload(web: string): Promise<void> {
+    await this.#request('reload', { web })
+  }
+
+  async resize(web: string, width: number, height: number): Promise<{ width: number; height: number }> {
+    return (await this.#request('resize', { web, width, height })) as { width: number; height: number }
+  }
+
+  async answerDialog(web: string, answer: DialogAnswer = {}): Promise<void> {
+    const args = { web, accept: answer.accept !== false, ...(answer.text !== undefined && { text: answer.text }) }
+    const step = `answerDialog(${JSON.stringify(web)}, ${JSON.stringify(answer)})`
+    await this.trace.step(step, () => this.#request('dialog', args))
+  }
+
+  async dialogs(options: { readonly web?: string } = {}): Promise<Dialog[]> {
+    const entries: ConsoleEntry[] = []
+    let since = 0
+    for (;;) {
+      const web = options.web !== undefined && { web: options.web }
+      const page = await this.console({ since, limit: 5000, level: 'info', ...web })
+      entries.push(...page.entries)
+      if (page.entries.length < 5000) break
+      since = page.next
+    }
+    return entries.flatMap((e) => (e.kind === 'dialog' && e.dialog ? [e.dialog] : []))
+  }
+
+  async waitForDialog(
+    options: { readonly web?: string; readonly type?: DialogType; readonly timeout?: number } = {},
+  ): Promise<Dialog> {
+    const since = (await this.console({ limit: 1 })).next
+    const ms = options.timeout ?? this.timeout
+    return Poll.until(ms, async () => {
+      const web = options.web !== undefined && { web: options.web }
+      const page = await this.console({ since, limit: 5000, level: 'info', ...web })
+      const wanted = (dialog: Dialog) => options.type === undefined || dialog.type === options.type
+      return page.entries.find((e) => e.kind === 'dialog' && e.dialog && wanted(e.dialog))?.dialog ?? null
+    }, () => `waitForDialog: no ${options.type ?? 'dialog'} within ${ms} ms`)
+  }
+
   static urlMatcher(url: UrlMatch): (href: string) => boolean {
     if (url instanceof RegExp) return (href) => new RegExp(url.source, url.flags.replace(/[gy]/g, '')).test(href)
     let source = ''
@@ -735,6 +809,16 @@ export class Acde {
   endedBy(ref: string): ActResult | null {
     if (!this.#client.ended || this.#closing || this.session.desktop !== null || !/^w\d+$/.test(ref)) return null
     return { ok: true, text: `closed ${ref}; acdert exited with it, so acde dev ${this.session.pid} ended`, ended: true }
+  }
+
+  async clock(web: string, request: Readonly<Record<string, unknown>>): Promise<ClockState> {
+    const state = (await this.#request('clock', { web, ...request })) as ClockState | null
+    if (typeof state?.installed !== 'boolean') throw new Error(`acdert answered clock with ${JSON.stringify(state)}`)
+    return state
+  }
+
+  async input(web: string, events: readonly InputEvent[]): Promise<ActResult> {
+    return Acde.#result(await this.#request('input', { web, events }))
   }
 
   async run(steps: readonly Step[]): Promise<ActResult> {

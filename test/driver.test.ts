@@ -2,7 +2,9 @@ import { afterAll, describe, expect as check, test } from 'bun:test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InspectMatch, InspectNode } from '@dopame/acde-api'
-import { Acde, ActError, AssertionError, expect, LaunchError, Locator, Png, Screenshots, type Query, type Source } from '../src/driver/index.ts'
+import {
+  Acde, ActError, AssertionError, Clock, expect, LaunchError, Locator, Modifiers, Png, Screenshots, type Query, type Source,
+} from '../src/driver/index.ts'
 import { Sessions } from '../src/sessions.ts'
 import { cleanup, standIn } from './helpers.ts'
 
@@ -85,6 +87,45 @@ describe('Locator.match', () => {
     check(await pick([{ kind: 'attr', name: 'placeholder', text: /^write/i, options: {} }])).toEqual(['w1.51'])
     check(await pick([{ kind: 'attr', name: 'placeholder', text: 'Find', options: { exact: true } }])).toEqual([])
     check(await pick([{ kind: 'attr', name: 'alt', text: 'logo', options: {} }])).toEqual(['w1.52'])
+  })
+})
+
+describe('Locator composition and input helpers', () => {
+  const node = (ref: string, role: string, name?: string, children?: InspectNode[], states?: string[]): InspectNode => ({ ref, role, ...(name !== undefined && { name }), ...(children && { children }), ...(states && { states }) })
+  const tree = [
+    node('w1.1', 'listitem', 'Buy milk', [node('w1.2', 'checkbox', 'Done', undefined, ['checked']), node('w1.3', 'button', 'Delete')]),
+    node('w1.4', 'listitem', 'Walk the dog', [node('w1.5', 'checkbox', 'Done'), node('w1.6', 'button', 'Delete')]),
+    node('w1.7', 'button', 'Save'),
+  ]
+  const source: Source = { nodes: tree, children: async (n) => n.children ?? [], query: async () => [] }
+  const scope = { acde: null as never, tree: async () => ({ window: null, source }), capture: async () => null as never, describe: () => 'window' }
+  const at = (queries: readonly Query[]) => Locator.match(source, queries).then((nodes) => nodes.map((n) => n.ref))
+  const items = new Locator(scope, [{ kind: 'role', role: 'listitem', options: {} }])
+
+  test('filter has / hasNot look under each element; or keeps document order; and intersects', async () => {
+    const done = new Locator(scope, [{ kind: 'role', role: 'checkbox', options: { checked: true } }])
+    check(await at(items.filter({ has: done }).queries)).toEqual(['w1.1'])
+    check(await at(items.filter({ hasNot: done }).queries)).toEqual(['w1.4'])
+    const save = new Locator(scope, [{ kind: 'role', role: 'button', options: { name: 'Save' } }])
+    check(await at(save.or(items).queries)).toEqual(['w1.1', 'w1.4', 'w1.7'])
+    const buttons = new Locator(scope, [{ kind: 'role', role: 'button', options: {} }])
+    check(await at(buttons.and(new Locator(scope, [{ kind: 'text', text: 'Delete', options: {} }])).queries)).toEqual(['w1.3', 'w1.6'])
+    check(items.filter({ hasText: 'milk', has: done }).describe()).toBe('window.getByRole("listitem").filter({ hasText: "milk", has: window.getByRole("checkbox", { checked: true }) })')
+    check(save.or(items).describe()).toBe('window.or(getByRole("button", { name: "Save" }) | getByRole("listitem"))')
+  })
+
+  test('clock times and durations; modifier chords', () => {
+    check(Clock.duration(1500)).toBe(1500)
+    check(Clock.duration('25:00')).toBe(1_500_000)
+    check(Clock.duration('01:00:05')).toBe(3_605_000)
+    check(() => Clock.duration('1h')).toThrow('not a duration')
+    check(Clock.time(new Date(5))).toBe(5)
+    check(Clock.time('2026-01-02T00:00:00Z')).toBe(Date.UTC(2026, 0, 2))
+    check(() => Clock.time('soon')).toThrow('not a time')
+    check(Modifiers.chord(['Shift', 'Control'])).toBe('shift+ctrl')
+    check(Modifiers.chord(['ControlOrMeta'])).toBe('ctrl')
+    check(Modifiers.chord([])).toBe(null)
+    check(() => Modifiers.chord(['Hyper' as never])).toThrow('unknown modifier')
   })
 })
 

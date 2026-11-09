@@ -63,9 +63,10 @@ describe('the skill', () => {
   })
 
   test('names every tool acde mcp has', () => {
-    const source = readFileSync(join(ROOT, 'src/mcp.ts'), 'utf8')
+    const source = ['src/mcp.ts', 'src/mcppage.ts'].map((file) => readFileSync(join(ROOT, file), 'utf8')).join('\n')
     const tools = [...source.matchAll(/registerTool\(\s*'([a-z_]+)'/g)].map((match) => match[1]!)
     expect(tools.length).toBeGreaterThan(10)
+    expect(tools).toContain('clock')
     const guide = readFileSync(join(SKILL, 'references/guide/mcp.md'), 'utf8')
     expect(tools.filter((tool) => !guide.includes(`\`${tool}\``))).toEqual([])
   })

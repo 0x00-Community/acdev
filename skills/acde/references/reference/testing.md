@@ -26,7 +26,7 @@ expect(value): bun:test Matchers
 
 **LocatorAssertions** (all support `.not` and accept `{timeout}`):
 
-`toBeVisible()` `toBeHidden()` `toHaveCount(n)` `toHaveText(text, {exact?})` `toContainText(text)` `toHaveValue(text)` `toHaveState(state)` `toBeChecked()` `toBeDisabled()` `toBeEnabled()` `toBeFocused()` `toHaveAttribute(name, value?)` `toHaveScreenshot(name?, options?)`
+`toBeVisible()` `toBeHidden()` `toHaveCount(n)` `toHaveText(text, {exact?})` `toContainText(text)` `toHaveValue(text)` `toHaveState(state)` `toBeChecked()` `toBeDisabled()` `toBeEnabled()` `toBeFocused()` `toHaveAttribute(name, value?)` `toHaveClass(text)` `toHaveCSS(property, text)` (the computed style) `toHaveJSProperty(name, value)` `toBeEmpty()` `toBeEditable()` `toBeInViewport({ratio?})` `toHaveScreenshot(name?, options?)`
 
 **WindowAssertions**: `toBeOpen()` `toHaveTitle(text)` `toHaveScreenshot(name?, options?)`
 
@@ -72,6 +72,15 @@ class Acde {
   clipboard(): Promise<string>
   setClipboard(text: string): Promise<void>
 
+  addInitScript(code: string, options?: { web?: string; once?: boolean }): Promise<number>
+  removeInitScript(id?: number): Promise<{ removed: number; left: number }>
+  reload(web: string): Promise<void>
+  resize(web: string, width: number, height: number): Promise<{ width: number; height: number }>
+  answerDialog(web: string, answer?: { accept?: boolean; text?: string }): Promise<void>
+  dialogs(options?: { web?: string }): Promise<Dialog[]>
+  waitForDialog(options?: { web?: string; type?: 'alert' | 'confirm' | 'prompt'; timeout?: number }): Promise<Dialog>
+  input(web: string, events: InputEvent[]): Promise<ActResult>
+
   permissions(): Promise<{ pending: PermissionPrompt[]; decisions: PermissionDecision[] }>
   waitForPrompt(match?: { app?: string; capability?: string; timeout?: number }): Promise<PermissionPrompt>
   allow(match?: { app?: string; capability?: string; timeout?: number }): Promise<PermissionPrompt>
@@ -101,6 +110,9 @@ interface ActResult {
 - `act` answers `ok: false` when the action was not done. In a session that runs a single app, closing the app's only window ends the session, by design: the `close` that did it resolves with `ok: true`, `ended: true` and the text `closed w1; acdert exited with it, so acde dev <pid> ended`; `closed` becomes true, and every later request rejects with `acde dev <pid> is no longer connected`. Any other request during which the runtime goes away rejects with `acdert closed the connection` (also a `close` in a desktop session, and a `run` whose steps close the window).
 - `choose*` answers, in advance, the **next** picker of that kind the page opens; `null` means the user cancelled; relative paths resolve against the current directory.
 - Call `waitFor*` before the action that triggers it.
+- `addInitScript` registers code that runs before a page's own scripts on every load (`once`: on the next load only); `web` is a page name or an app id, and without it every page runs the code. It returns an id for `removeInitScript`, which removes every script when no id is given.
+- `answerDialog` answers the page's next `alert` / `confirm` / `prompt` in advance: `accept: false` cancels, `text` is what a `prompt` answers. Without an answer `confirm` gives false and `prompt` null. `Dialog` is `{ type, message, defaultValue, answered, accept, text }`.
+- `input` sends raw events at page coordinates: `{ type: 'move' | 'down' | 'up' | 'wheel', x, y, button?, dx?, dy? }`, `{ type: 'keydown' | 'keyup', key }` and `{ type: 'text', text }`. `app.mouse` and `app.keyboard` are built on it.
 - Approval prompts (`PermissionPrompt` is `{ id, app, label, capability, reason: 'launch' | 'request' }`, `PermissionDecision` is `{ app, label, capability, decision: 'granted' | 'denied' }`): `allow` and `deny` wait for a prompt that matches (any prompt when nothing is given), answer it and return it; `waitForPrompt` only waits; `answer` answers a prompt you already have. Nothing answers a prompt by itself: an app whose required capability waits has no window until the test answers. `revoke` takes a decision back and returns whether there was one. See [Approvals in tests](../guide/testing.md#approvals).
 - `drop` drops files from the system onto a page (default: the middle of the desktop page; `web` picks a page, `x` and `y` a point in it). The page gets a standard `drop` event a moment after the call returns, so wait for what the page does with it.
 
@@ -135,6 +147,18 @@ class AppWindow {
   press(keys: string): Promise<ActResult>
   focus() / minimize() / restore() / close(): Promise<ActResult>
 
+  readonly mouse: Mouse
+  readonly keyboard: Keyboard
+  readonly clock: Clock
+
+  addInitScript(code: string, options?: { once?: boolean }): Promise<number>
+  reload(options?: { timeout?: number }): Promise<void>
+  resize(width: number, height: number, options?: { timeout?: number }): Promise<{ width: number; height: number }>
+  seedLocalStorage(entries: Record<string, string>, options?: { timeout?: number }): Promise<void>
+  answerDialog(answer?: { accept?: boolean; text?: string }): Promise<void>
+  dialogs(): Promise<Dialog[]>
+  waitForDialog(options?: { type?: 'alert' | 'confirm' | 'prompt'; timeout?: number }): Promise<Dialog>
+
   route / waitForRequest / waitForConsole / console / network  // as on Acde, scoped to this window
 }
 
@@ -147,6 +171,37 @@ interface RoleOptions {
 
 `AppWindow` looks itself up in the window table again on every use, so it keeps working if the window is closed and reopened.
 
+`reload()` waits until the new page has loaded; `resize()` sets the size of the page without the title bar and waits until `innerWidth` and `innerHeight` have it (a window that fills the screen resizes the host window, which Windows cannot do yet); `seedLocalStorage()` writes the entries before the page's scripts run, by reloading the page once.
+
+```ts
+class Mouse {
+  move(x: number, y: number, options?: { steps?: number }): Promise<ActResult>
+  down(options?: { button?: 'left' | 'right' | 'middle' }): Promise<ActResult>
+  up(options?: { button?: 'left' | 'right' | 'middle' }): Promise<ActResult>
+  click(x: number, y: number, options?: { button?; clickCount?: number; modifiers?: Modifier[] }): Promise<ActResult>
+  dblclick(x: number, y: number, options?: { button?; modifiers?: Modifier[] }): Promise<ActResult>
+  wheel(deltaX: number, deltaY: number): Promise<ActResult>
+}
+
+class Keyboard {
+  down(key: string) / up(key: string): Promise<ActResult>
+  press(keys: string): Promise<ActResult>       // "Enter", "Control+a"
+  type(text: string): Promise<ActResult>        // key presses; characters without a key are inserted as text
+  insertText(text: string): Promise<ActResult>  // as the input method commits it, no key events
+}
+
+class Clock {
+  install(options?: { time?: number | string | Date }): Promise<ClockState>
+  fastForward(duration: number | string) / runFor(duration: number | string): Promise<ClockState>
+  pauseAt(time) / setFixedTime(time) / setSystemTime(time): Promise<ClockState>
+  resume() / state(): Promise<ClockState>
+}
+
+type Modifier = 'Shift' | 'Control' | 'Alt' | 'Meta' | 'ControlOrMeta'
+```
+
+Coordinates are CSS pixels of the page, as `getBoundingClientRect()` gives them. `ControlOrMeta` is `Control` on every system. A time is milliseconds since 1970, a `Date` or a date string; a duration is milliseconds, `"mm:ss"` or `"hh:mm:ss"`. `ClockState` is `{ installed, paused, now, performanceNow, fixed, timers }`. `fastForward` fires each timer that is due once, `runFor` fires every timer at its own time; `setFixedTime` makes `Date` stand still while timers go on, `setSystemTime` moves `Date` only.
+
 `close()` waits until the window is gone. Closing the only window of a session that runs a single app ends the session: the call resolves with `ended: true` and a text that says so (see `act` under [Acde](#acde)), and the session takes no more requests. A test has no need to close that window, since its session ends with the test.
 
 ## Locator
@@ -154,7 +209,8 @@ interface RoleOptions {
 ```ts
 class Locator {
   getByRole / getByText / getByLabel / … / locator(...)   // search within this element
-  filter(options: { hasText?: string | RegExp; hasNotText?: string | RegExp }): Locator
+  filter(options: { hasText?: string | RegExp; hasNotText?: string | RegExp; has?: Locator; hasNot?: Locator }): Locator
+  or(other: Locator) / and(other: Locator): Locator
   nth(index: number) / first() / last(): Locator
 
   count(): Promise<number>
@@ -164,8 +220,10 @@ class Locator {
   text() / name() / value() / states() / ref() / node(): Promise<...>
   waitFor(options?: { state?: 'visible' | 'hidden'; timeout?: number }): Promise<void>
 
-  click(options?: { button?: 'left' | 'right'; clickCount?: 1 | 2; timeout?: number }): Promise<ActResult>
-  dblclick() / hover() / focus() / clear(): Promise<ActResult>
+  click(options?: { button?: 'left' | 'right'; clickCount?: 1 | 2; modifiers?: Modifier[]; timeout?: number }): Promise<ActResult>
+  dblclick(options?: { modifiers?: Modifier[] }) / hover(options?: { modifiers?: Modifier[] }): Promise<ActResult>
+  focus() / clear(): Promise<ActResult>
+  evaluate<T>(fn: string | ((element, arg) => T), arg?: unknown): Promise<T>
   fill(text: string) / type(text: string) / press(keys: string): Promise<ActResult>
   scroll(dy?: number): Promise<ActResult>
   selectOption(values: string | string[]): Promise<ActResult>
@@ -177,14 +235,17 @@ class Locator {
 
 When an action fails (`ok: false`), it is retried until the timeout, then `ActError` is thrown.
 
+`evaluate` calls the function in the page with the element and `arg` (JSON), and returns its JSON result; `fn` may also be the source of such a function.
+
 ### Semantic tree limitations
 
-Locators search the runtime's semantic tree, not the DOM:
+`getByRole`, `getByText` and `getByLabel` search the runtime's semantic tree, not the DOM:
 
-- Elements with `opacity: 0` count as invisible.
+- Elements with `opacity: 0` are not in it, so these locators do not find them.
 - `getByText` compares accessible names.
-- `<select>` can't be found by CSS (its box is 0 × 0); use `getByRole('combobox')` or `getByLabel`.
+
+CSS locators (`locator`, `getByTestId`, `getByPlaceholder`, `getByTitle`, `getByAltText`) search the DOM and also match elements that are not rendered; `toBeVisible`, `toBeHidden`, `isVisible()` and `waitFor({ state })` tell the two apart, and actions wait until the element is rendered.
 
 ## Png
 
-`Png.decode(bytes)`, `Png.encode(image)`, `Png.diff(actual, expected, {threshold})`: PNG encoding/decoding using only `node:zlib`, plus a pixelmatch-style comparison. The screenshot assertions are built on it.
+`Png.decode(bytes)`, `Png.encode(image)`, `Png.diff(actual, expected, {threshold})`: PNG encoding/decoding using only `node:zlib`, plus a pixelmatch-style comparison. The screenshot assertions are built on it. `Png.animate(frames)` joins PNGs of one size (`{ png, ms }` each) into an animated PNG; `Video.start(acde)` records the screen with it (`stop()`, then `write(path)`).

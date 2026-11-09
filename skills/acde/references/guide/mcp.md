@@ -34,12 +34,18 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | `choose_folder` / `choose_files` / `choose_save_file` | Answers the page's next file picker in advance |
 | `route` / `unroute` | Fakes responses to the page's requests, or makes them fail |
 | `clipboard` | Reads and writes the clipboard |
+| `input` | Sends raw mouse and keyboard events to a page, at page coordinates |
+| `clock` | Takes over a page's time: installs a fake clock, pauses it, moves it forward |
+| `dialog` | Answers the page's next `alert` / `confirm` / `prompt` in advance, and lists the dialogs it showed |
+| `resize` | Resizes a window so that its page has the given size |
 
 Which session is used: the pinned one; otherwise the one `start` launched; otherwise one picked by the working directory.
 
 An app that requires a capability the user must approve opens no window until its prompt is answered. `start` and `webs` then answer an empty table and a line per prompt, `notes waits for approval of fs.downloads: the answer tool allows or denies it`. `answer` takes `allow` (true or false). To allow, it must name the `app` and the `capability` that `permissions` lists, so the call states what is granted; to deny, the `prompt` id or the `app` and `capability` will do, and neither is needed when only one prompt waits. It stands in for the user's own answer, so the tool is marked as an action that needs confirmation: allow only what the user asked for or agreed to.
 
 Closing the only window of a session that runs a single app (`act` with `close` on `w1`) ends that session, by design. The call succeeds and its answer says so, `closed w1; acdert exited with it, so acde dev 4242 ended`. The next call fails and says that the session stopped (`the acde dev started here (pid 4242) stopped; last output: …` for a session `start` ran, `acde dev 4242 stopped; no acde dev is running (…)` for one started elsewhere). Run `start` again to go on. Any other action during which the runtime goes away fails with `acdert closed the connection`; so does a `run` whose steps close that window, since the answer to its steps is lost, so close it with `act`.
+
+`input`, `clock`, `dialog` and `resize` do for an agent what `app.mouse` / `app.keyboard`, `app.clock`, `app.answerDialog` and `app.resize` do in a test; see [Time, dialogs and page setup](testing.md#time-dialogs-and-page-setup). `clock` takes `action` (`install`, `pause_at`, `fast_forward`, `run_for`, `resume`, `set_fixed_time`, `set_system_time`, `state`) with a `time` (an ISO string or milliseconds since 1970) or a `duration` (milliseconds, `"mm:ss"` or `"hh:mm:ss"`). `dialog` without `accept` or `text` only lists.
 
 In a session with windows, `clipboard` touches **your system clipboard**, so the agent must pass `system: true` explicitly, and the tool is marked as an action that needs confirmation. Headless sessions have their own clipboard.
 
