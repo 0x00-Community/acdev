@@ -65,7 +65,10 @@ jobs:
           fi
           mkdir -p in/sdk/unpacked
           tar -xzf "in/sdk/$name" -C in/sdk/unpacked
-          test "$(ls in/sdk/unpacked)" = package
+          if [ "$(ls in/sdk/unpacked)" != package ]; then
+            echo "::error::$name must unpack to package/ (the npm layout), found: $(ls in/sdk/unpacked)"
+            exit 1
+          fi
           test -f in/sdk/unpacked/package/package.json
           test -f in/sdk/unpacked/package/src/index.js
           test -f in/sdk/unpacked/package/src/validate.js
