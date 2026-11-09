@@ -253,3 +253,36 @@ test('selecting text with the pointer: drag, double and triple press, Shift, and
   input.pointer('pointerup', 1000, 5)
   assert.equal(selected(), 'Hello brave new world', 'a cancelled selectstart does not select')
 })
+
+test('range inputs: pressing and dragging sets the value, keys step it; input while it moves, change when done', async () => {
+  using web = await page('<!doctype html><html><body><input type="range" id="r" min="0" max="10"><input type="range" id="off" disabled></body></html>')
+  const r = web.internals.idOf(web.run('document.getElementById("r")'))
+  web.dom.boxes.set(r, { x: 0, y: 0, width: 116, height: 16 })
+  web.run('globalThis.log = []; const r = document.getElementById("r"); for (const t of ["input", "change"]) r.addEventListener(t, () => log.push(t + ":" + r.value))')
+  const input = web.internals.input
+  input.pointer('pointerdown', 38, 8)
+  input.pointer('pointermove', 68, 8)
+  input.pointer('pointermove', 500, 8)
+  input.pointer('pointerup', 500, 8)
+  assert.deepEqual(web.json('log'), ['input:3', 'input:6', 'input:10', 'change:10'])
+  assert.equal(web.run('document.activeElement.id'), 'r')
+  web.run('log.length = 0')
+  input.key('keydown', 'ArrowLeft', 'ArrowLeft')
+  input.key('keydown', 'Home', 'Home')
+  input.key('keydown', 'Home', 'Home')
+  assert.deepEqual(web.json('log'), ['input:9', 'change:9', 'input:0', 'change:0'])
+})
+
+test('range inputs change their value the way the user does, past a page that tracks the value property (React)', async () => {
+  using web = await page('<!doctype html><html><body><input type="range" id="r" min="0" max="10" value="5"></body></html>')
+  const r = web.internals.idOf(web.run('document.getElementById("r")'))
+  web.dom.boxes.set(r, { x: 0, y: 0, width: 116, height: 16 })
+  web.run(`globalThis.log = []; const r = document.getElementById("r")
+    const own = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+    let tracked = r.value
+    Object.defineProperty(r, 'value', { configurable: true, get() { return own.get.call(this) }, set(v) { tracked = String(v); own.set.call(this, v) } })
+    r.addEventListener('input', () => log.push(r.value === tracked ? 'unchanged' : 'changed:' + r.value))`)
+  web.internals.input.pointer('pointerdown', 88, 8)
+  web.internals.input.pointer('pointerup', 88, 8)
+  assert.deepEqual(web.json('log'), ['changed:8'])
+})

@@ -8,6 +8,7 @@ import { focus, focusable, focusedElement, setFocus } from './focus'
 import { HTMLButtonElement } from './forms'
 import { SelectInput } from './select'
 import { PointerSelection } from './textselect'
+import { RangeInput } from './rangeinput'
 import { dom, documentId, ID, moved, rootElementId, wrap } from './realm'
 
 export interface Modifiers {
@@ -62,6 +63,7 @@ export class Input {
   capture: Element | null = null
   readonly selects = new SelectInput()
   readonly text = new PointerSelection()
+  readonly ranges = new RangeInput()
   onKeyDefault: (target: Element, key: string, modifiers: Modifiers) => void = () => {}
 
   elementAt(target: number | null | undefined, x: number, y: number, ignoreCapture = false): Element {
@@ -141,7 +143,10 @@ export class Input {
     const target = this.elementAt(options.target, x, y)
     const init = this.#init(x, y, options)
     this.#hoverTo(this.capture ? this.elementAt(options.target, x, y, true) : target, init)
-    if (this.#pointer(target, 'move', init) && this.text.dragging && this.#buttons & 1) this.text.move(x, y)
+    if (this.#pointer(target, 'move', init) && this.#buttons & 1) {
+      if (this.text.dragging) this.text.move(x, y)
+      if (this.ranges.dragging) this.ranges.move(x)
+    }
   }
 
   #down(x: number, y: number, options: PointerOptions): void {
@@ -162,6 +167,7 @@ export class Input {
       if (button === 0) {
         this.selects.pressed(target, x, y, options.modifiers ?? {})
         this.text.down(target, x, y, count, options.modifiers ?? {})
+        this.ranges.down(target, x)
       }
     }
     if (button === 2) this.#fire(target, 'contextmenu', init)
@@ -171,7 +177,10 @@ export class Input {
     const target = this.elementAt(options.target, x, y)
     const button = options.button ?? 0
     this.#buttons &= ~buttonBit(button)
-    if (button === 0) this.text.up()
+    if (button === 0) {
+      this.text.up()
+      this.ranges.up()
+    }
     const init = this.#init(x, y, options, button)
     this.#pointer(target, 'up', init, button === 0 ? this.#lastDown.count : 1)
     dom.setActive(NONE)
@@ -197,7 +206,10 @@ export class Input {
 
   #release(button: number): void {
     this.#buttons &= ~buttonBit(button)
-    if (button === 0) this.text.up()
+    if (button === 0) {
+      this.text.up()
+      this.ranges.up()
+    }
     this.#pressed = null
     dom.setActive(NONE)
   }
@@ -233,6 +245,7 @@ export class Input {
       if (!this.#fire(target, 'keypress', { ...init, keyCode: char, charCode: char, which: char }, KeyboardEvent as never)) return false
     }
     if (this.selects.keyDefault(target, key, options.modifiers ?? {})) return true
+    if (!ctrl && !options.modifiers?.alt && this.ranges.key(target, key)) return true
     if (key === 'Enter' && this.#keyboardButton(target)) this.#keyboardClick(target, options.modifiers)
     if (key === ' ' && !options.repeat && this.#keyboardButton(target)) this.#spacePress = focus.revision
     this.onKeyDefault(target, key, options.modifiers ?? {})

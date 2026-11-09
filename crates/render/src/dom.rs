@@ -1405,6 +1405,10 @@ impl Engine {
         for node in self.subtree(root) {
             let Some(e) = self.doc.get_node(node).and_then(|n| n.element_data()) else { continue };
             let html = e.name.ns == ns!(html);
+            if html && &*e.name.local == "input" {
+                self.show_form_state(node);
+                continue;
+            }
             if !(html && &*e.name.local == "img") {
                 continue;
             }
@@ -1644,7 +1648,7 @@ impl Engine {
             return;
         }
         match &*local {
-            "value" | "checked" => self.show_form_state(node),
+            "value" | "checked" | "min" | "max" | "step" | "type" => self.show_form_state(node),
             "src" => self.register(node),
             _ => {}
         }
@@ -1736,6 +1740,7 @@ impl Engine {
                 match kind.as_deref() {
                     None | Some("text" | "password" | "email" | "number" | "search" | "tel" | "url") => Control::Editor(false),
                     Some("checkbox" | "radio") => Control::Checkable,
+                    Some("range") => Control::Range,
                     Some("hidden" | "submit" | "reset" | "button" | "image") => Control::Default,
                     Some(_) => Control::Value,
                 }
@@ -1752,6 +1757,16 @@ impl Engine {
         match self.control(node) {
             Control::Editor(true) => dirty.unwrap_or_else(|| n.text_content()),
             Control::Editor(false) | Control::Value => dirty.or_else(|| attr(blitz_dom::local_name!("value"))).unwrap_or_default(),
+            Control::Range => {
+                let raw = dirty.or_else(|| attr(blitz_dom::local_name!("value")));
+                let range = RangeValue::new(
+                    n.attr(blitz_dom::local_name!("min")),
+                    n.attr(blitz_dom::local_name!("max")),
+                    n.attr(blitz_dom::local_name!("step")),
+                    raw.as_deref(),
+                );
+                number_string(range.value)
+            }
             Control::Checkable => attr(blitz_dom::local_name!("value")).unwrap_or_else(|| "on".into()),
             Control::Select => self.options(node).into_iter().find(|&o| self.selectedness(o)).map(|o| self.value(o)).unwrap_or_default(),
             Control::Default if n.data.is_element_with_tag_name(&blitz_dom::local_name!("option")) => {
@@ -1772,6 +1787,11 @@ impl Engine {
                 self.show_form_state(node);
             }
             Control::Value => self.ids.forms.entry(node).or_default().value = Some(value.to_owned()),
+            Control::Range => {
+                let sanitized = self.range_of(node, Some(value)).map(|r| number_string(r.value)).unwrap_or_default();
+                self.ids.forms.entry(node).or_default().value = Some(sanitized);
+                self.show_form_state(node);
+            }
             Control::Select => {
                 let index = self.options(node).iter().position(|&o| self.value(o) == value).map_or(-1, |i| i as i32);
                 self.set_selected_index(node, index);
@@ -1829,8 +1849,35 @@ impl Engine {
             .find(|&a| self.doc.get_node(a).is_some_and(|n| n.data.is_element_with_tag_name(&blitz_dom::local_name!("form"))))
     }
 
+    fn range_of(&self, node: NodeId, value: Option<&str>) -> Option<RangeValue> {
+        let e = self.doc.get_node(node).and_then(|n| n.element_data())?;
+        let attr = |name: &str| e.attrs().iter().find(|a| a.name.ns == ns!() && &*a.name.local == name).map(|a| a.value.as_str());
+        Some(RangeValue::new(attr("min"), attr("max"), attr("step"), value.or_else(|| attr("value"))))
+    }
+
     fn show_form_state(&mut self, node: NodeId) {
-        match self.control(node) {
+        let control = self.control(node);
+        if !matches!(control, Control::Range)
+            && let Some(e) = self.doc.get_node_mut(node).and_then(|n| n.element_data_mut())
+            && matches!(e.special_data, SpecialElementData::RangeInput(_))
+        {
+            e.special_data = SpecialElementData::None;
+            e.repaint();
+        }
+        match control {
+            Control::Range => {
+                let dirty = self.ids.forms.get(&node).and_then(|f| f.value.clone());
+                let Some(range) = self.range_of(node, dirty.as_deref()) else { return };
+                if dirty.is_some() {
+                    self.ids.forms.entry(node).or_default().value = Some(number_string(range.value));
+                }
+                let fraction = range.fraction();
+                let Some(e) = self.doc.get_node_mut(node).and_then(|n| n.element_data_mut()) else { return };
+                if e.range_input_fraction() != Some(fraction) {
+                    e.special_data = SpecialElementData::RangeInput(fraction);
+                    e.repaint();
+                }
+            }
             Control::Editor(multiline) => {
                 let Some(value) = self.ids.forms.get(&node).and_then(|f| f.value.clone()) else { return };
                 let Some(e) = self.doc.get_node_mut(node).and_then(|n| n.element_data_mut()) else { return };
@@ -2178,6 +2225,7 @@ impl Engine {
 enum Control {
     Editor(bool),
     Value,
+    Range,
     Checkable,
     Select,
     Default,
@@ -2223,4 +2271,92 @@ fn css_context(url: &style::stylesheets::UrlExtraData, rule: style::stylesheets:
         None,
         Default::default(),
     )
+}
+
+pub(crate) fn valid_float(text: &str) -> Option<f64> {
+    let bytes = text.as_bytes();
+    let mut i = usize::from(bytes.first() == Some(&b'-'));
+    let digits = |i: &mut usize| {
+        let start = *i;
+        while bytes.get(*i).is_some_and(u8::is_ascii_digit) {
+            *i += 1;
+        }
+        *i > start
+    };
+    let whole = digits(&mut i);
+    let fraction = bytes.get(i) == Some(&b'.') && {
+        i += 1;
+        digits(&mut i)
+    };
+    if !whole && !fraction {
+        return None;
+    }
+    if matches!(bytes.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(bytes.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        if !digits(&mut i) {
+            return None;
+        }
+    }
+    (i == bytes.len()).then(|| text.parse::<f64>().ok()).flatten().filter(|v| v.is_finite())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RangeValue {
+    pub(crate) min: f64,
+    pub(crate) max: f64,
+    pub(crate) value: f64,
+}
+
+impl RangeValue {
+    pub(crate) fn new(min: Option<&str>, max: Option<&str>, step: Option<&str>, value: Option<&str>) -> Self {
+        let places = |text: Option<&str>| text.and_then(|t| valid_float(t).map(|_| t)).map_or(0, decimal_places);
+        let precision = places(min).max(places(step));
+        let min = min.and_then(valid_float).unwrap_or(0.0);
+        let max = max.and_then(valid_float).unwrap_or(100.0).max(min);
+        let step = match step.map(str::trim) {
+            Some(s) if s.eq_ignore_ascii_case("any") => None,
+            Some(s) => Some(valid_float(s).filter(|v| *v > 0.0).unwrap_or(1.0)),
+            None => Some(1.0),
+        };
+        let fallback = min + (max - min) / 2.0;
+        let mut v = value.and_then(valid_float).unwrap_or(fallback).clamp(min, max);
+        if let Some(step) = step {
+            let scale = 10f64.powi(precision.min(15) as i32);
+            let (lo, hi, unit) = ((min * scale).round(), (max * scale + 1e-6).floor(), (step * scale).round().max(1.0));
+            let at = (v * scale).round();
+            let mut snapped = lo + ((at - lo) / unit + 0.5).floor() * unit;
+            if snapped > hi {
+                snapped = lo + ((hi - lo) / unit).floor() * unit;
+            }
+            v = snapped / scale;
+        }
+        Self { min, max, value: v }
+    }
+
+    pub(crate) fn fraction(&self) -> f64 {
+        match self.max > self.min {
+            true => (self.value - self.min) / (self.max - self.min),
+            false => 0.0,
+        }
+    }
+}
+
+pub(crate) fn number_string(value: f64) -> String {
+    if value == 0.0 {
+        return "0".into();
+    }
+    if value.fract() == 0.0 && value.abs() < 1e21 {
+        return format!("{value:.0}");
+    }
+    format!("{value}")
+}
+
+fn decimal_places(text: &str) -> usize {
+    let lower = text.to_ascii_lowercase();
+    let (mantissa, exponent) = lower.split_once('e').map_or((lower.as_str(), 0i64), |(m, e)| (m, e.parse().unwrap_or(0)));
+    let fraction = mantissa.split_once('.').map_or(0, |(_, f)| f.len()) as i64;
+    (fraction - exponent).max(0) as usize
 }

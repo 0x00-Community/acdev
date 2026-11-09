@@ -941,3 +941,28 @@ fn named_sections_are_regions_and_outputs_are_status() {
     assert_eq!(tree.matches("\"region\"").count(), 1, "{tree}");
     assert!(tree.contains("\"role\":\"status\""), "{tree}");
 }
+
+#[test]
+fn range_inputs_sanitize_their_value_and_paint_a_thumb() {
+    let (_doc, dom) = page(
+        "<body><input type=range id=a><input type=range id=b min=1.2 max=2.4 step=0.1 value=1.8><input type=range id=c min=0 max=10 step=3 value=10>\
+         <input type=range id=d min=5 max=1 value=7><input type=range id=e step=any value=33.3333></body>",
+    );
+    let value = |id: &str| dom.value(by_id(&dom, id)).unwrap();
+    assert_eq!(value("a"), "50");
+    assert_eq!(value("b"), "1.8");
+    assert_eq!(value("c"), "9", "the largest step value not above max");
+    assert_eq!(value("d"), "5", "max below min becomes min");
+    assert_eq!(value("e"), "33.3333");
+    let b = by_id(&dom, "b");
+    dom.set_value(b, "9").unwrap();
+    assert_eq!(value("b"), "2.4");
+    dom.set_value(b, "1.86").unwrap();
+    assert_eq!(value("b"), "1.9");
+    dom.set_value(b, "nonsense").unwrap();
+    assert_eq!(value("b"), "1.8");
+    dom.set_attribute(b, "max", "1.5").unwrap();
+    assert_eq!(value("b"), "1.5");
+    let r = dom.rect(by_id(&dom, "a")).unwrap();
+    assert_eq!((r[2], r[3]), (129.0, 16.0));
+}

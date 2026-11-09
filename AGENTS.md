@@ -558,6 +558,13 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `InvalidStateError`, 下拉框打开列表 (不查 transient activation: acde-dom 还没有用户激活的模型). 选项列表由 render 画在帧的最上面 (不在
   文档里, `Engine.picker`, 每帧按 select 的位置重排: 下面放得下放下面, 否则放空间大的一边并截短、能滚), 所以出不了窗口; 滚轮在列表上
   滚列表, 在外面先关掉列表.
+- **`<input type=range>`** (https://html.spec.whatwg.org/#range-state-(type=range)): 值的净化在 render (`dom.rs` `RangeValue`, `value` 和
+  `set_value` 都过它): min 默认 0、max 默认 100 (比 min 小时取 min)、step 默认 1 (`any` 不对齐)、无效值取中点, 夹到范围里再按 step 从 min 起
+  四舍五入对齐 (按 min / step 的小数位数用整数算, 和浏览器的十进制结果一样, 不出 1.8000000000000003), 超出 max 时取不超过 max 的最大一档;
+  `min` / `max` / `step` 改了时重新净化已有的值. 画 (blitz-paint `draw_range`, `SpecialElementData::RangeInput(比例)`): 灰色轨道、左边一段和
+  圆形滑块用 `accent-color` (`auto` 是文字颜色, 和复选框、单选框同一个 `accent_color`), 默认 `appearance: auto` (render 的 UA 样式表),
+  `appearance: none` 时不画; 默认 129 × 16. 交互 (acde-dom `dom/rangeinput.ts`): 按下 (没被取消) 按指针位置设值并跟着拖, 每次变发 `input`, 松开时和按下时不同发 `change`;
+  有焦点时 左 / 下 减一档、右 / 上 加一档、PageUp / PageDown 十分之一、Home / End 到两头, 各发 `input` 和 `change`.
 - **XML 文档和命名空间** (render `xml.rs` / `serialize.rs` 的 `XmlSerializer`, acde-dom `dom/namespaces.ts`): `DOMParser` 的 `application/xml`、
   `text/xml`、`application/xhtml+xml`、`image/svg+xml` 用自己的 XML 解析器 (XML 1.0 + Namespaces 1.0): 良构检查 (标签配对、只有一个根、属性
   不重复 (按原名和按命名空间 + 本地名)、名字字符、`--` / `]]>`、未声明的前缀、`xml` / `xmlns` 前缀的约束), 实体 (五个预定义的、字符引用、
@@ -1406,6 +1413,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 
 | 文件 | 改了什么 |
 | --- | --- |
+| `node/element.rs` `SpecialElementData::RangeInput`, blitz-paint `render/form_controls.rs` `draw_range` / `accent_color` | `<input type=range>` 画轨道和滑块 (`appearance: none` 时不画); 复选框、单选框和滑块的强调色都从 `accent_color` 取 |
 | `node/node.rs` `NodeFlags::IN_XML_DOCUMENT`, `stylo.rs` `is_html_element_in_html_document` | 上游写死 `true` (类型选择器和属性名全按小写比); 改成 HTML 命名空间且所属文档不是 XML 文档 (这个标记由 crates/render 在 adopt 时设). SVG 的 `linearGradient` 这类名字在 HTML 文档里也按原样比 |
 | `layout/damage.rs` `propagate_damage_flags` | 内联 `<svg>` 后代的损伤只重建这个 `<svg>`, 往上只传 REPAINT |
 | `mutator.rs` `set_attribute` / `clear_attribute` / `restyle_for_attribute`, `document.rs` `snapshot_attribute` | 只影响选择器的属性只重算元素自己 (快照让后代失效; 有 `:has()` / nth-of 时重算父子树); 值没变直接返回 |
