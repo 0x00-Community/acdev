@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -27,6 +27,7 @@ pub(crate) struct Presenter {
     scale: f64,
     panels: HashMap<u32, u32>,
     targets: HashMap<u32, Arc<Page>>,
+    unpublished: HashSet<u32>,
     captures: Vec<(mpsc::SyncSender<Result<Shot, String>>, Instant)>,
     scratch: Option<((u32, u32), wgpu::Texture, wgpu::TextureView)>,
     pacer: Pacer,
@@ -63,6 +64,7 @@ impl Presenter {
             scale,
             panels: HashMap::new(),
             targets: HashMap::new(),
+            unpublished: HashSet::new(),
             captures: Vec::new(),
             scratch: None,
             pacer: Pacer::new(Some(Duration::from_secs_f64(0.9 / hz))),
@@ -123,6 +125,7 @@ impl Presenter {
                     None => {
                         if let Some(window) = self.panels.remove(&dom) {
                             self.targets.remove(&window);
+                            self.unpublished.remove(&window);
                             if let Some(compositor) = server().and_then(|s| s.compositor()) {
                                 compositor.remove(window);
                             }
@@ -274,17 +277,26 @@ impl Presenter {
         let texture = acde_gpu::texture(&self.gpu.shared.device, size, usage, "acde host page");
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let page = Arc::new(Page { size, view: view.clone(), texture, straight: true.into() });
-        if let Some(compositor) = server().and_then(|s| s.compositor()) {
+        self.targets.insert(window, page);
+        self.unpublished.insert(window);
+        view
+    }
+
+    fn publish(&mut self, window: u32) {
+        if !self.unpublished.remove(&window) {
+            return;
+        }
+        if let (Some(compositor), Some(page)) = (server().and_then(|s| s.compositor()), self.targets.get(&window)) {
             compositor.page(window, page.clone());
         }
-        self.targets.insert(window, page);
-        view
     }
 
     fn draw(&mut self, window: u32, size: (u32, u32), scenes: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
         let view = self.target(window, size);
         self.straight(window, true);
-        self.vello.render(scenes, &mut self.overrides, &view, size, base, Some(&self.gpu.shared))
+        self.vello.render(scenes, &mut self.overrides, &view, size, base, Some(&self.gpu.shared))?;
+        self.publish(window);
+        Ok(())
     }
 
     fn straight(&self, window: u32, straight: bool) {
@@ -339,6 +351,7 @@ impl Presenter {
         self.flush(&mut encoder);
         self.straight(window, false);
         self.composer.end_frame();
+        self.publish(window);
         Ok(())
     }
 
