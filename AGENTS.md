@@ -196,6 +196,10 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   工作区经 `hostoutput` / `hostworkarea` 给 Broker (`broker/output.ts` `Outputs`), 只给这个窗口当 `acde:window.output`, 换显示器时变.
   页面经 `claimSurface` 的 `hostControls` 知道, `acde.window.hostControls` (加 `on('hostcontrols')`) 是每个窗口自己的值, 任何窗口都可能为真,
   本版本只有独立应用的主窗口为真. 别的窗口、完整桌面、headless 和 winit 的宿主照旧.
+  独立应用里宿主窗口的关闭按钮 (`windowcloserequest` 窗口 0) 先问主窗口的 `beforeclose` (同样最多等 3 秒), 拒绝时宿主留着; 完整桌面里照旧结束会话.
+  独立应用开的别的窗口 (`State.standalone` 之后 grant 的, `Entry.minimize` 为假) 保留运行时窗框, 照常挪、改尺寸、关, 但不能最小化 (没有 Dock 找回来):
+  窗框的最小化按钮画成灰的、按了没反应, 运行时拒绝变成 `minimized`, `acde.window.minimize()` 和 `acde.windows.requestState(id, 'minimized')`
+  以 `AcdeWindowError` (`code: 'unavailable'`, `status: 409`) 拒绝. `acde.window.minimizable` (加 `on('minimizable')`) 是每个窗口自己的值.
 - **不显示 (`ACDE_HEADLESS=1`)**: 平台层在运行时二选一 (`platform.rs`: `Host` 是 trait, `Proxy` 是 enum; 原生的 win32 / winit 和
   `platform/headless.rs`). headless 不开窗口: 主线程只收 `Cmd` (`Exit` 时退出), 屏幕是 `ACDE_SIZE` (否则 1440 × 900) 乘 `ACDE_SCALE`
   (0.5–4, 默认 1), 起来就算宿主窗口有焦点. 合成器没有 surface: 不出画面、不数 `frames`, 但页面照常出帧 (出帧线程的节奏不靠宿主窗口),
