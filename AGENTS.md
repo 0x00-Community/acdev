@@ -154,11 +154,11 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `console` / `network` (`--follow` 每 0.5 s 带 `next` 续读). 格式在 `src/driver/format.ts`. 出错 `acde: <原因>`, 退出码 1.
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块): `Acde.attach` / `Acde.launch` (用 `process.execPath` 跑 `cliFile()`, 输出进 `Logs`,
   等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdert 先答 `webs`, 窗口稍后进表; 默认 120 s; `close()` 时 SIGTERM, 10 s 后
-  SIGKILL). 方法和 op 一一对应 (`chooseFolder` 是 `choose`). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
+  SIGKILL). 方法和 op 一一对应 (`chooseFolder` / `chooseFiles` / `chooseSaveFile` 都是 `choose`, 分别给 `folder` / `open` / `save`; 相对路径按当前目录解析). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
   `AppWindow` 每次用到时在窗口表里重新找. `Locator` 每次在最新语义树 (`limit: 3000, offscreen: true`) 上重新求、不缓存 ref; 动作要**恰好一个**匹配
   (多个报错, 不猜), click / fill / type 还等不 `disabled`, `ok: false` 重试到超时再抛 `ActError`. `expect` 重试到超时 (默认 5 s), 要一个元素的断言在零个
   或多个时一直等. 语义树的限制在 acdert: `opacity: 0` 算不可见, `getByText` 找的是无障碍名字.
-- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 17 个工具建在 driver 上 (`start` / `stop` / `logs` 是自己起 `acde dev` 的). stdout 只走协议.
+- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 19 个工具建在 driver 上 (`start` / `stop` / `logs` 是自己起 `acde dev` 的). stdout 只走协议.
   会话: 钉住的 (`--session`、`sessions {use}`), 否则 `start` 起的, 否则按工作目录挑 (每次调用前看 IPC 断没断). stdin 关闭或收到信号时停掉 `start`
   起的. 工具出错回 `isError`, 不抛协议错误.
 - **e2e** (`src/e2e/`): 文件 `*.e2e.{ts,tsx,js,mjs,mts}` (普通 `bun test` 匹配不到, 不会起 acdert), 从 `acde/test` 导入. 每个测试一个新 `acde dev`

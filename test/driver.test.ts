@@ -147,6 +147,12 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       await acde.chooseFolder(s.root)
       await acde.chooseFolder(null)
       check(await acde.chooseFolder('relative').then(() => 'resolved')).toBe('resolved')
+      await acde.chooseFiles([join(s.root, 'a.txt'), 'relative.txt'])
+      await acde.chooseFiles('one.txt')
+      await acde.chooseFiles(null)
+      check(await acde.chooseFiles([]).then(() => 'resolved', (e: Error) => e.message)).toContain('choose: open')
+      await acde.chooseSaveFile('out.txt')
+      await acde.chooseSaveFile(null)
       check(await acde.emulate({ colorScheme: 'dark', reducedMotion: true })).toEqual({ colorScheme: 'dark', emulated: true, reducedMotion: true })
 
       check(acde.logs!.tail(100).text).toContain('[alpha#7] js: fake acdert is up')
