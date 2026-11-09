@@ -103,3 +103,14 @@ fn a_webm_plays_on_linux() {
 fn a_webm_is_refused_on_macos() {
     assert!(Player::open(fixture("clip.webm")).is_err());
 }
+
+#[test]
+fn playlists_and_other_containers_that_point_elsewhere_are_refused() {
+    for bytes in [
+        &b"#EXTM3U\n#EXTINF:1,\nfile:///etc/passwd\n"[..],
+        b"<?xml version=\"1.0\"?><MPD><BaseURL>file:///etc/</BaseURL></MPD>",
+        b"[playlist]\nFile1=file:///etc/passwd\n",
+    ] {
+        assert!(Player::open(Arc::from(bytes)).is_err(), "{}", String::from_utf8_lossy(bytes));
+    }
+}

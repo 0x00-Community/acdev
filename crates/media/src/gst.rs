@@ -30,6 +30,7 @@ pub(crate) struct Gst {
     video: Option<gst_app::AppSink>,
     audio: Option<gst_app::AppSink>,
     start: Mutex<f64>,
+    forbidden: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Drop for Gst {
@@ -81,87 +82,148 @@ fn bus_error(pipeline: &gst::Pipeline) -> Option<String> {
     None
 }
 
+fn demuxer(bytes: &[u8]) -> Result<&'static str, String> {
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        return Ok("qtdemux");
+    }
+    if bytes.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        return Ok("matroskademux");
+    }
+    if bytes.starts_with(b"OggS") {
+        return Ok("oggdemux");
+    }
+    Err("the bytes are not an MP4, QuickTime, WebM, Matroska or Ogg file".into())
+}
+
+type Sinks = Arc<Mutex<(Option<gst_app::AppSink>, Option<gst_app::AppSink>)>>;
+
+fn decoded(pipeline: &gst::Pipeline, sinks: &Sinks, pad: &gst::Pad) {
+    let caps = pad.current_caps().or_else(|| Some(pad.query_caps(None)));
+    let name = caps.as_ref().and_then(|c| c.structure(0)).map(|s| s.name().to_string()).unwrap_or_default();
+    let mut sinks = lock(sinks);
+    let made = if name.starts_with("video/") && sinks.0.is_none() {
+        let caps = gst_video::VideoCapsBuilder::new().format(gst_video::VideoFormat::Rgba).build();
+        branch(pipeline, &["videoconvert", "videoflip", "videoconvert"], caps).map(|(first, sink)| {
+            sinks.0 = Some(sink);
+            first
+        })
+    } else if name.starts_with("audio/") && sinks.1.is_none() {
+        let caps = gst::Caps::builder("audio/x-raw")
+            .field("format", "F32LE")
+            .field("layout", "interleaved")
+            .field("rate", RATE as i32)
+            .field("channels", CHANNELS as i32)
+            .build();
+        branch(pipeline, &["audioconvert", "audioresample", "audioconvert"], caps).map(|(first, sink)| {
+            sinks.1 = Some(sink);
+            first
+        })
+    } else {
+        return;
+    };
+    match made {
+        Ok(first) => {
+            if let Some(sink_pad) = first.static_pad("sink")
+                && let Err(e) = pad.link(&sink_pad)
+            {
+                log::warn!("media: a {name} track cannot be decoded: {e:?}");
+            }
+        }
+        Err(e) => log::warn!("media: a {name} track cannot be decoded: {e}"),
+    }
+}
+
 pub(crate) fn open(bytes: Arc<[u8]>) -> Result<(Box<dyn Backend>, Info), String> {
     init()?;
+    let demux = element(demuxer(&bytes)?)?;
     let pipeline = gst::Pipeline::new();
     let src = source(bytes)?;
-    let decode = element("decodebin3")?;
-    pipeline.add_many([&src, &decode]).map_err(|e| e.to_string())?;
-    src.link(&decode).map_err(|e| e.to_string())?;
-    let sinks: Arc<Mutex<(Option<gst_app::AppSink>, Option<gst_app::AppSink>)>> = Arc::default();
-    let added = sinks.clone();
-    let weak = pipeline.downgrade();
-    decode.connect_pad_added(move |_, pad| {
-        let Some(pipeline) = weak.upgrade() else { return };
-        let caps = pad.current_caps().or_else(|| Some(pad.query_caps(None)));
-        let name = caps.as_ref().and_then(|c| c.structure(0)).map(|s| s.name().to_string()).unwrap_or_default();
-        let mut sinks = lock(&added);
-        let made = if name.starts_with("video/") && sinks.0.is_none() {
-            let caps = gst_video::VideoCapsBuilder::new().format(gst_video::VideoFormat::Rgba).build();
-            branch(&pipeline, &["videoconvert", "videoflip", "videoconvert"], caps).map(|(first, sink)| {
-                sinks.0 = Some(sink);
-                first
-            })
-        } else if name.starts_with("audio/") && sinks.1.is_none() {
-            let caps = gst::Caps::builder("audio/x-raw")
-                .field("format", "F32LE")
-                .field("layout", "interleaved")
-                .field("rate", RATE as i32)
-                .field("channels", CHANNELS as i32)
-                .build();
-            branch(&pipeline, &["audioconvert", "audioresample", "audioconvert"], caps).map(|(first, sink)| {
-                sinks.1 = Some(sink);
-                first
-            })
-        } else {
-            return;
-        };
-        match made {
-            Ok(first) => {
-                if let Some(sink_pad) = first.static_pad("sink")
-                    && let Err(e) = pad.link(&sink_pad)
-                {
-                    log::warn!("media: a {name} track cannot be decoded: {e:?}");
-                }
-            }
-            Err(e) => log::warn!("media: a {name} track cannot be decoded: {e}"),
+    let forbidden = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = forbidden.clone();
+    let ours = src.clone();
+    pipeline.connect_deep_element_added(move |_, _, element| {
+        let source = element.factory().is_some_and(|f| f.klass().contains("Source"));
+        let reads_uris = element.dynamic_cast_ref::<gst::URIHandler>().is_some_and(|h| h.uri_type() == gst::URIType::Src);
+        if element != &ours && (source || reads_uris) {
+            log::warn!("media: refusing {} in a media pipeline (it could read other files or the network)", element.name());
+            flag.store(true, std::sync::atomic::Ordering::Release);
         }
     });
+    let queue = element("multiqueue")?;
+    pipeline.add_many([&src, &demux, &queue]).map_err(|e| e.to_string())?;
+    src.link(&demux).map_err(|e| e.to_string())?;
+    let sinks: Sinks = Arc::default();
+    let expected: Arc<Mutex<(bool, bool)>> = Arc::default();
+    let demuxed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let (weak, sinks, expected, queue) = (pipeline.downgrade(), sinks.clone(), expected.clone(), queue.clone());
+        demux.connect_pad_added(move |_, pad| {
+            let Some(pipeline) = weak.upgrade() else { return };
+            let caps = pad.current_caps().or_else(|| Some(pad.query_caps(None)));
+            let name = caps.as_ref().and_then(|c| c.structure(0)).map(|s| s.name().to_string()).unwrap_or_default();
+            let mut wanted = lock(&expected);
+            let video = name.starts_with("video/");
+            if !(video || name.starts_with("audio/")) || (video && wanted.0) || (!video && wanted.1) {
+                return;
+            }
+            let decode = match element("decodebin3") {
+                Ok(d) => d,
+                Err(e) => return log::warn!("media: {e}"),
+            };
+            let sinks = sinks.clone();
+            let weak = pipeline.downgrade();
+            decode.connect_pad_added(move |_, pad| {
+                if let Some(pipeline) = weak.upgrade() {
+                    decoded(&pipeline, &sinks, pad);
+                }
+            });
+            if pipeline.add(&decode).is_err() || decode.sync_state_with_parent().is_err() {
+                return log::warn!("media: no decoder for a {name} track");
+            }
+            let linked = queue.request_pad_simple("sink_%u").and_then(|queued| {
+                pad.link(&queued).ok()?;
+                let out = queue.static_pad(&queued.name().replace("sink", "src"))?;
+                out.link(&decode.static_pad("sink")?).ok()
+            });
+            match linked {
+                Some(_) => {
+                    if video {
+                        wanted.0 = true;
+                    } else {
+                        wanted.1 = true;
+                    }
+                }
+                _ => log::warn!("media: a {name} track cannot be decoded"),
+            }
+        });
+        let demuxed = demuxed.clone();
+        demux.connect_no_more_pads(move |_| demuxed.store(true, std::sync::atomic::Ordering::Release));
+    }
     pipeline.set_state(gst::State::Paused).map_err(|_| bus_error(&pipeline).unwrap_or_else(|| "GStreamer cannot read the file".into()))?;
     let bus = pipeline.bus().ok_or("no GStreamer bus")?;
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    let mut prerolled: Option<std::time::Instant> = None;
-    let mut wanted: Option<(bool, bool)> = None;
+    let mut prerolled = false;
     loop {
-        if let Some(at) = prerolled {
-            match wanted {
-                Some((want_video, want_audio)) => {
-                    let have = lock(&sinks);
-                    if have.0.is_some() >= want_video && have.1.is_some() >= want_audio {
-                        break;
-                    }
-                }
-                None if at.elapsed() > Duration::from_secs(1) => break,
-                None => {}
+        if forbidden.load(std::sync::atomic::Ordering::Acquire) {
+            _ = pipeline.set_state(gst::State::Null);
+            return Err("the file asks for other resources (a playlist or a reference), which acdert does not follow".into());
+        }
+        if prerolled && demuxed.load(std::sync::atomic::Ordering::Acquire) {
+            let (want_video, want_audio) = *lock(&expected);
+            let have = lock(&sinks);
+            if have.0.is_some() >= want_video && have.1.is_some() >= want_audio {
+                break;
             }
         }
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
-            if prerolled.is_some() {
-                break;
-            }
             _ = pipeline.set_state(gst::State::Null);
             return Err("GStreamer did not finish reading the file".into());
         }
-        let kinds = [gst::MessageType::AsyncDone, gst::MessageType::Error, gst::MessageType::StreamsSelected];
-        let Some(message) = bus.timed_pop_filtered(gst::ClockTime::from_mseconds(left.as_millis().min(100) as u64), &kinds) else { continue };
+        let kinds = [gst::MessageType::AsyncDone, gst::MessageType::Error];
+        let Some(message) = bus.timed_pop_filtered(gst::ClockTime::from_mseconds(left.as_millis().min(50) as u64), &kinds) else { continue };
         match message.view() {
-            gst::MessageView::AsyncDone(_) => prerolled = prerolled.or_else(|| Some(std::time::Instant::now())),
-            gst::MessageView::StreamsSelected(selected) => {
-                let streams: Vec<gst::Stream> = selected.streams().collect();
-                let has = |kind: gst::StreamType| streams.iter().any(|s| s.stream_type().contains(kind));
-                wanted = Some((has(gst::StreamType::VIDEO), has(gst::StreamType::AUDIO)));
-            }
+            gst::MessageView::AsyncDone(_) => prerolled = true,
             gst::MessageView::Error(e) => {
                 _ = pipeline.set_state(gst::State::Null);
                 return Err(format!("GStreamer cannot play the file: {}", e.error()));
@@ -183,11 +245,15 @@ pub(crate) fn open(bytes: Arc<[u8]>) -> Result<(Box<dyn Backend>, Info), String>
     let duration = pipeline.query_duration::<gst::ClockTime>().map_or(f64::NAN, |d| d.seconds_f64());
     pipeline.set_state(gst::State::Playing).map_err(|_| bus_error(&pipeline).unwrap_or_else(|| "GStreamer cannot start decoding".into()))?;
     let info = Info { duration, width, height, audio: audio.is_some(), video: video.is_some() };
-    Ok((Box::new(Gst { pipeline, video, audio, start: Mutex::new(0.0) }), info))
+    Ok((Box::new(Gst { pipeline, video, audio, start: Mutex::new(0.0), forbidden }), info))
 }
 
 impl Gst {
     fn pull(&self, sink: &gst_app::AppSink) -> Pull<gst::Sample> {
+        if self.forbidden.load(std::sync::atomic::Ordering::Acquire) {
+            _ = self.pipeline.set_state(gst::State::Null);
+            return Pull::Failed("the file asks for other resources, which acdert does not follow".into());
+        }
         if let Some(e) = bus_error(&self.pipeline) {
             return Pull::Failed(e);
         }

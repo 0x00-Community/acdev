@@ -8,8 +8,10 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
 use objc2_av_foundation::{
-    AVAssetReader, AVAssetReaderStatus, AVAssetReaderTrackOutput, AVAssetResourceLoader, AVAssetResourceLoaderDelegate, AVAssetResourceLoadingRequest,
-    AVAssetTrack, AVAsynchronousKeyValueLoading, AVMediaTypeAudio, AVMediaTypeVideo, AVURLAsset,
+    AVAssetReader, AVAssetReaderStatus, AVAssetReaderTrackOutput, AVAssetReferenceRestrictions, AVAssetResourceLoader, AVAssetResourceLoaderDelegate,
+    AVAssetResourceLoadingRequest, AVAssetTrack, AVAsynchronousKeyValueLoading, AVMediaTypeAudio, AVMediaTypeVideo, AVURLAsset,
+    AVURLAssetAllowsCellularAccessKey, AVURLAssetAllowsConstrainedNetworkAccessKey, AVURLAssetAllowsExpensiveNetworkAccessKey,
+    AVURLAssetReferenceRestrictionsKey,
 };
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeRange, kCMTimePositiveInfinity};
 use objc2_core_video::{
@@ -138,7 +140,16 @@ pub(crate) fn open(bytes: Arc<[u8]>) -> Result<(Box<dyn Backend>, Info), String>
     let loader = Loader::new(bytes, NSString::from_str(kind));
     let queue = DispatchQueue::new("acde.media.loader", None);
     let url = NSURL::URLWithString(&NSString::from_str("acde-media://media/source")).ok_or("no media URL")?;
-    let asset = unsafe { AVURLAsset::URLAssetWithURL_options(&url, None) };
+    let options = NSDictionary::from_retained_objects(
+        &[
+            unsafe { AVURLAssetReferenceRestrictionsKey },
+            unsafe { AVURLAssetAllowsCellularAccessKey },
+            unsafe { AVURLAssetAllowsExpensiveNetworkAccessKey },
+            unsafe { AVURLAssetAllowsConstrainedNetworkAccessKey },
+        ],
+        &[number(AVAssetReferenceRestrictions::ForbidAll.0 as f64), number(0), number(0), number(0)],
+    );
+    let asset = unsafe { AVURLAsset::URLAssetWithURL_options(&url, Some(&options)) };
     unsafe { asset.resourceLoader().setDelegate_queue(Some(ProtocolObject::from_ref(&*loader)), Some(&queue)) };
     let video_track = first_track(&asset, unsafe { AVMediaTypeVideo })?;
     let audio_track = first_track(&asset, unsafe { AVMediaTypeAudio })?;
