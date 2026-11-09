@@ -120,6 +120,9 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
+      - uses: oven-sh/setup-bun@v2
+      - name: web workspace (builds the acde-api SDK for its archive)
+        run: bun install --frozen-lockfile --cwd web
       - name: stage the release files (explicit allow-list; symbol artifacts are never read)
         shell: bash
         run: |

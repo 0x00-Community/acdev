@@ -24,6 +24,8 @@ cp "$repo/LICENSE" "$artifacts/host/LICENSE"
 
 "$here/stage.sh" "$artifacts" "$version" "$work/stage"
 echo "staged: $(ls -A "$work/stage" | tr '\n' ' ')"
+echo "sdk archive entries:"
+tar -tzf "$work/stage/acde-api-$version.tar.gz" | sed 's/^/  /'
 
 for leak in acdert.pdb acdert.dwp x.dSYM; do
   cp "$artifacts/symbols-x86_64-pc-windows-msvc/acdert.pdb" "$work/stage/$leak"
@@ -39,5 +41,31 @@ if "$here/check-stage.sh" "$work/stage" "$version" >/dev/null 2>&1; then
   exit 1
 fi
 rm -rf "$work/stage/extra-dir"
+
+sdk="$work/stage/acde-api-$version.tar.gz"
+good="$work/good-sdk.tgz"
+cp "$sdk" "$good"
+sdk_work="$work/poison"
+for variant in \
+  "src/validate.ts|export {}" \
+  "src/index.js.map|{}" \
+  "scripts/build.mjs|// build" \
+  "test/validate.test.ts|test" \
+  "src/index.js|//# sourceMappingURL=index.js.map"; do
+  name=${variant%%|*}
+  body=${variant#*|}
+  rm -rf "$sdk_work"
+  mkdir -p "$sdk_work"
+  tar -C "$sdk_work" -xzf "$good"
+  mkdir -p "$(dirname -- "$sdk_work/package/$name")"
+  printf '%s\n' "$body" >> "$sdk_work/package/$name"
+  tar -C "$sdk_work" -czf "$sdk" package
+  if "$here/check-stage.sh" "$work/stage" "$version" >/dev/null 2>&1; then
+    echo "FAIL: the check accepted $name in the sdk archive" >&2
+    exit 1
+  fi
+  cp "$good" "$sdk"
+done
+
 "$here/check-stage.sh" "$work/stage" "$version"
-echo "dry run passed: symbols never reached the staging, and the check rejects them"
+echo "dry run passed: symbols never reached the staging, the sdk archive holds only the published layout, and the check rejects leaks"
