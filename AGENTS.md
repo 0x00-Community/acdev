@@ -836,11 +836,18 @@ acdert 先查可执行文件旁的 `app/dist`, 再查 `<exe>/../../web/packages/
 **Windows**: 只出一个 x64 binary, MSVC v143 编. 要 VS 2022 17.11 以上 (MSVC 14.41+) 的 C++ 工具和 ATL 组件
 (`Microsoft.VisualStudio.Component.VC.ATL`): 静态 DXC 的预编译库要新版 STL 的 `__std_*` 和 `atls.lib`, v142 链接不了, 不支持.
 CRT 静态链接 (`.cargo/config.toml` 的 `+crt-static`). arm64 暂不做 (没有静态 DXC 的预编译库). `WGPU_VALIDATION=1` / `WGPU_DEBUG=1` 打开
-D3D12 调试层 (要装「图形工具」可选功能). 没有: terminal、应用后端、通知、WebGPU、network / office / 语音. 依赖里不要 winapi
+D3D12 调试层 (要装「图形工具」可选功能). 没有: terminal、通知、WebGPU、network / office / 语音. 依赖里不要 winapi
 (见 vendors 的 fslock、async-dnssd).
 
 编好 acdert 和网页宿主后, 在有 GPU 的机器上用 `bash scripts/check-standalone.sh` 验证独立应用启动、重载、退出和服务清理.
 脚本以无窗口模式运行, 测试包和日志写到 `logs/standalone.*`.
+
+Windows 上用 `bash scripts/check-backends.sh` 验收应用后端 (见「Windows 后端契约」). 测试包 (`scripts/backends/`) 有 Node、Bun 两个带后端的应用和一个旧预加载的;
+预加载从并排检出的 acde (`../acde/src/listen.ts`, 或设 `ACDE_SRC` / 直接给成品 `ACDE_LISTEN`) 现场打包. 每个后端: 页面跑 GET、带体 POST、分块、8 个并发、
+2 MiB 双向、WebSocket 文本和二进制 (Bun 另有 1 MiB 消息和发布订阅); acdert、后端和后端的子进程没有 TCP 监听、UDP 端点、名字带它们 pid 的新命名管道;
+Bun 的本代目录在默认 base 下, DACL 读回只有 SYSTEM 和当前用户, 启动时扫掉了预先放的残留目录; 杀后端后重起、子进程一起没了、旧目录删了、场景再跑一遍
+(WebSocket 重连); 经 Broker 停止 3 秒内 (SHUTDOWN) 结束、子进程和目录没了; 关窗后 acdert 退 0, 进程和本代目录都不在. 旧预加载的 node 不起, 打 warn.
+不设 `XDG_RUNTIME_DIR` (环境里有就沿用). 结果写到 `logs/backends.*/report.json`. 第二个本地账户打不开套接字目录这一项要手工验证, 脚本不做.
 
 有图形会话的 Windows 上用 `bash scripts/audit-thread-progress.sh` 复查双窗口的 JavaScript 与出帧进展. 脚本会调整并关闭自己的宿主窗口,
 在 `logs/thread-audit.*` 保存运行时日志、线程采样、截图和各步骤用时.
