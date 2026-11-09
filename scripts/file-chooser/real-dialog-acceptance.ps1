@@ -1,4 +1,4 @@
-param([string]$Run = '')
+﻿param([string]$Run = '')
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
