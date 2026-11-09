@@ -267,7 +267,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **desktops**: `entry` 是包里的 HTML, 满屏在所有窗口后面; 桌面拿全部 `acde:` 模块. `heapMb` 默认 1024, 最小 32.
 - **apps**: 见「应用清单」. **assets**: 同源 URL 前缀 → 包里的目录.
 - **services**: 在 Broker isolate 里跑的 ES 模块, 默认导出 `ServiceFactory` (只用 `ServiceContext` 和 web 标准接口). 随桌面起停; 应用要在
-  capabilities 里写服务名才能调. 重活放进 `ctx.spawn(argv, {cwd, env, onLine, onExit})` 起的进程 (`child.rs`: 自己的进程组, stderr 进日志加前缀
+  清单的 `services` 里写服务名才能调 (扩展期写在 capabilities 里的服务名照旧认, 第 1 级包记一行弃用 warn). 服务名不能用系统模块的名字 (`RESERVED_NAMES`). 重活放进 `ctx.spawn(argv, {cwd, env, onLine, onExit})` 起的进程 (`child.rs`: 自己的进程组, stderr 进日志加前缀
   `[<服务名>]`, 服务关闭后 SIGTERM, 3 秒后 SIGKILL).
   桌面清单的 `services` 项可以写成 `{name, modules}`, 列出这个服务能用的外壳模块; 服务经 `ctx.import('acde:<模块>')` 拿到 `{<模块>, default}`
   (Broker 侧的 `#serviceModule`), 没列的拒绝并说缺哪条声明. `ctx.inspect` 在扩展期保留.
@@ -345,8 +345,21 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **原生应用** (`launcher.ts`, 只有桌面能调): `acde.apps.natives()` 列可见的 `.desktop` (`{id, name, comment, icon (绝对路径, 按 hicolor /
   breeze / Adwaita 找), keywords, wmClass}`, 缓存到 applications 目录的 mtime 变了), `runNative(id)` 用 `gio launch` 起.
 - **应用清单** (`acde.apps`, 解析 acde-host `apps.ts`, 校验 acde-api `validate.ts`): `id`、`label`、`icon`、`entry` (默认导出 `WindowApp` 的
-  模块, 或 HTML)、`capabilities` (fs [可限 roots]、terminal、office、launch、slots、open、openFiles、session、desktops、camera、microphone, 其余键是服务名)、
+  模块, 或 HTML)、`capabilities` (只放系统能力: `SYSTEM_CAPABILITIES` 加外壳模块; 第 1 级包里不认识的名字是错误, 本包的服务名是弃用 warn)、
+  `optional` (capabilities 里可以缺的几项, 每项也要在 capabilities 里)、`services` (用到的桌面服务名, 不能是 `RESERVED_NAMES`)、
   `mimeTypes`、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
+- **必需与可选能力** (第 1 级包, `broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
+  必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
+  `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝, 批准做好之前不出现). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
+  `<label> needs "terminal" (unsupported on this platform)` (404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`). 可选的照常启动;
+  声明了但不可用的 fs / terminal / network / office 在 import 时报原因. 第 0 级包照旧只查 fs、terminal、office 和 slots.
+- **平台支持表** (SDK `src/runtime/platforms.js` 的 `PLATFORM_SUPPORT` / `platformSupport(platform, mode)`, 从包根和 `/manifest` 导出, 运行时、acde 的
+  平台检查和本文都以它为准): 按 `process.platform` × 运行方式 (`session` Linux 会话、`desktop` 完整桌面的宿主窗口、`standalone` 单应用宿主窗口) 给
+  `unsupported` (不支持的能力) 和窗口特性 `window.backdrop` (`full` / `approximated` / `unsupported`). 现在: Linux 宿主窗口缺 `slots`; Windows 缺
+  terminal、network、office、camera、microphone、slots; macOS 缺 network、office、slots; 窗口背景滤镜都是 `full`. Linux 会话和 macOS 的行没有实测.
+- **`acde:capabilities`** (总是注入所有 web, 桌面和应用窗口都有, 服务没有; 类型 `AcdeCapabilities`): `level` (SDK 的 `API_LEVEL`)、`platform`、`mode`、`window`
+  (窗口特性)、`get(name)` / `list()` (所有系统能力加声明的服务, `{name, kind, state, reason, optional}`)、`request(name)` (用户批准做好之前直接回当前
+  状态). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`, 模块在 web 里, 不经 rpc.
   `icon` 是 `ICON_NAMES` (`@dopame/acde-api/manifest`, 和 Dopame art 引擎 `APPS` 的名字一致, 加名字两边一起改) 之一, 或 assets 下以
   `.svg` / `.png` 结尾的同源 URL; 运行时原样交给桌面 (`acde.apps.list()`、`windowopen` 的 `icon`).
 - **沙箱**: 每个 web 是独立的 isolate, 页面和 acde-host 的 web.js 在同一个 realm. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口
