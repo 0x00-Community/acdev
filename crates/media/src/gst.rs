@@ -16,12 +16,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn init() -> Result<(), String> {
+pub(crate) fn init() -> Result<(), String> {
     static STARTED: OnceLock<Result<(), String>> = OnceLock::new();
     STARTED.get_or_init(|| gst::init().map_err(|e| format!("GStreamer cannot start: {e}"))).clone()
 }
 
-fn element(kind: &str) -> Result<gst::Element, String> {
+pub(crate) fn element(kind: &str) -> Result<gst::Element, String> {
     gst::ElementFactory::make(kind).build().map_err(|_| format!("the GStreamer element {kind} is missing (install gst-plugins-base / gst-plugins-good)"))
 }
 
@@ -248,6 +248,20 @@ pub(crate) fn open(bytes: Arc<[u8]>) -> Result<(Box<dyn Backend>, Info), String>
     Ok((Box::new(Gst { pipeline, video, audio, start: Mutex::new(0.0), forbidden }), info))
 }
 
+pub(crate) fn rgba(sample: &gst::Sample) -> Option<(u32, u32, Vec<u8>)> {
+    let (buffer, caps) = (sample.buffer()?, sample.caps()?);
+    let info = gst_video::VideoInfo::from_caps(caps).ok()?;
+    let frame = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info).ok()?;
+    let (w, h) = (info.width() as usize, info.height() as usize);
+    let stride = frame.info().stride()[0] as usize;
+    let plane = frame.plane_data(0).ok()?;
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        rgba.extend_from_slice(plane.get(y * stride..y * stride + w * 4)?);
+    }
+    Some((w as u32, h as u32, rgba))
+}
+
 impl Gst {
     fn pull(&self, sink: &gst_app::AppSink) -> Pull<gst::Sample> {
         if self.forbidden.load(std::sync::atomic::Ordering::Acquire) {
@@ -291,17 +305,8 @@ impl Backend for Gst {
             if time + 0.001 < *lock(&self.start) {
                 continue;
             }
-            let (Some(buffer), Some(caps)) = (sample.buffer(), sample.caps()) else { continue };
-            let Ok(info) = gst_video::VideoInfo::from_caps(caps) else { continue };
-            let Ok(frame) = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info) else { continue };
-            let (w, h) = (info.width() as usize, info.height() as usize);
-            let stride = frame.info().stride()[0] as usize;
-            let Ok(plane) = frame.plane_data(0) else { continue };
-            let mut rgba = Vec::with_capacity(w * h * 4);
-            for y in 0..h {
-                rgba.extend_from_slice(&plane[y * stride..y * stride + w * 4]);
-            }
-            return Pull::Item(Frame { time, width: w as u32, height: h as u32, rgba });
+            let Some((width, height, rgba)) = rgba(&sample) else { continue };
+            return Pull::Item(Frame { time, width, height, rgba });
         }
     }
 

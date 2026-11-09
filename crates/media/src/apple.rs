@@ -22,8 +22,8 @@ use objc2_foundation::{NSArray, NSData, NSDictionary, NSError, NSNumber, NSStrin
 
 use crate::{Backend, Frame, Info, Pcm, Pull, RATE};
 
-const BGRA: u32 = u32::from_be_bytes(*b"BGRA");
-const LINEAR_PCM: u32 = u32::from_be_bytes(*b"lpcm");
+pub(crate) const BGRA: u32 = u32::from_be_bytes(*b"BGRA");
+pub(crate) const LINEAR_PCM: u32 = u32::from_be_bytes(*b"lpcm");
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -70,7 +70,7 @@ fn container(bytes: &[u8]) -> Result<&'static str, String> {
 }
 
 #[derive(Clone, Copy)]
-enum Turn {
+pub(crate) enum Turn {
     None,
     Quarter,
     Half,
@@ -100,12 +100,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn number(value: impl Into<f64>) -> Retained<AnyObject> {
+pub(crate) fn number(value: impl Into<f64>) -> Retained<AnyObject> {
     let n = NSNumber::new_f64(value.into());
     Retained::into_super(Retained::into_super(Retained::into_super(n)))
 }
 
-fn settings(pairs: &[(&str, Retained<AnyObject>)]) -> Retained<NSDictionary<NSString, AnyObject>> {
+pub(crate) fn settings(pairs: &[(&str, Retained<AnyObject>)]) -> Retained<NSDictionary<NSString, AnyObject>> {
     let keys: Vec<Retained<NSString>> = pairs.iter().map(|(k, _)| NSString::from_str(k)).collect();
     let keys: Vec<&NSString> = keys.iter().map(|k| &**k).collect();
     let values: Vec<Retained<AnyObject>> = pairs.iter().map(|(_, v)| v.clone()).collect();
@@ -230,35 +230,50 @@ impl Apple {
     }
 
     fn frame(&self, sample: &CMSampleBuffer) -> Option<Frame> {
-        let time = seconds(unsafe { sample.presentation_time_stamp() });
-        let image = unsafe { sample.image_buffer() }?;
-        let pixels: &CVPixelBuffer = &image;
-        unsafe { CVPixelBufferLockBaseAddress(pixels, CVPixelBufferLockFlags::ReadOnly) };
-        let (w, h, stride) = (CVPixelBufferGetWidth(pixels), CVPixelBufferGetHeight(pixels), CVPixelBufferGetBytesPerRow(pixels));
-        let base = CVPixelBufferGetBaseAddress(pixels) as *const u8;
-        let frame = (!base.is_null()).then(|| {
-            let source = unsafe { std::slice::from_raw_parts(base, stride * h) };
-            let (out_w, out_h) = if matches!(self.turn, Turn::Quarter | Turn::ThreeQuarters) { (h, w) } else { (w, h) };
-            let mut rgba = vec![0u8; out_w * out_h * 4];
-            for y in 0..h {
-                let row = &source[y * stride..y * stride + w * 4];
-                for x in 0..w {
-                    let (ox, oy) = match self.turn {
-                        Turn::None => (x, y),
-                        Turn::Quarter => (h - 1 - y, x),
-                        Turn::Half => (w - 1 - x, h - 1 - y),
-                        Turn::ThreeQuarters => (y, w - 1 - x),
-                    };
-                    let px = &row[x * 4..x * 4 + 4];
-                    let at = (oy * out_w + ox) * 4;
-                    rgba[at..at + 4].copy_from_slice(&[px[2], px[1], px[0], px[3]]);
-                }
-            }
-            Frame { time, width: out_w as u32, height: out_h as u32, rgba }
-        });
-        unsafe { CVPixelBufferUnlockBaseAddress(pixels, CVPixelBufferLockFlags::ReadOnly) };
-        frame
+        frame(sample, self.turn)
     }
+}
+
+pub(crate) fn frame(sample: &CMSampleBuffer, turn: Turn) -> Option<Frame> {
+    let time = seconds(unsafe { sample.presentation_time_stamp() });
+    let image = unsafe { sample.image_buffer() }?;
+    let pixels: &CVPixelBuffer = &image;
+    unsafe { CVPixelBufferLockBaseAddress(pixels, CVPixelBufferLockFlags::ReadOnly) };
+    let (w, h, stride) = (CVPixelBufferGetWidth(pixels), CVPixelBufferGetHeight(pixels), CVPixelBufferGetBytesPerRow(pixels));
+    let base = CVPixelBufferGetBaseAddress(pixels) as *const u8;
+    let frame = (!base.is_null()).then(|| {
+        let source = unsafe { std::slice::from_raw_parts(base, stride * h) };
+        let (out_w, out_h) = if matches!(turn, Turn::Quarter | Turn::ThreeQuarters) { (h, w) } else { (w, h) };
+        let mut rgba = vec![0u8; out_w * out_h * 4];
+        for y in 0..h {
+            let row = &source[y * stride..y * stride + w * 4];
+            for x in 0..w {
+                let (ox, oy) = match turn {
+                    Turn::None => (x, y),
+                    Turn::Quarter => (h - 1 - y, x),
+                    Turn::Half => (w - 1 - x, h - 1 - y),
+                    Turn::ThreeQuarters => (y, w - 1 - x),
+                };
+                let px = &row[x * 4..x * 4 + 4];
+                let at = (oy * out_w + ox) * 4;
+                rgba[at..at + 4].copy_from_slice(&[px[2], px[1], px[0], px[3]]);
+            }
+        }
+        Frame { time, width: out_w as u32, height: out_h as u32, rgba }
+    });
+    unsafe { CVPixelBufferUnlockBaseAddress(pixels, CVPixelBufferLockFlags::ReadOnly) };
+    frame
+}
+
+pub(crate) fn lpcm(sample: &CMSampleBuffer) -> Result<Vec<f32>, String> {
+    let Some(block) = (unsafe { sample.data_buffer() }) else { return Ok(Vec::new()) };
+    let length = unsafe { block.data_length() };
+    let mut samples = vec![0f32; length / 4];
+    let status = unsafe { block.copy_data_bytes(0, samples.len() * 4, std::ptr::NonNull::new(samples.as_mut_ptr().cast()).expect("a vector's pointer")) };
+    if status != 0 {
+        return Err(format!("audio samples could not be read ({status})"));
+    }
+    Ok(samples)
 }
 
 impl Backend for Apple {
@@ -315,15 +330,11 @@ impl Backend for Apple {
         match self.sample(&self.audio) {
             Pull::Item(sample) => {
                 let time = seconds(unsafe { sample.presentation_time_stamp() });
-                let Some(block) = (unsafe { sample.data_buffer() }) else { return Pull::Wait };
-                let length = unsafe { block.data_length() };
-                let mut samples = vec![0f32; length / 4];
-                let status =
-                    unsafe { block.copy_data_bytes(0, samples.len() * 4, std::ptr::NonNull::new(samples.as_mut_ptr().cast()).expect("a vector's pointer")) };
-                if status != 0 {
-                    return Pull::Failed(format!("audio samples could not be read ({status})"));
+                match lpcm(&sample) {
+                    Ok(samples) if samples.is_empty() => Pull::Wait,
+                    Ok(samples) => Pull::Item(Pcm { time, samples }),
+                    Err(e) => Pull::Failed(e),
                 }
-                Pull::Item(Pcm { time, samples })
             }
             Pull::Wait => Pull::Wait,
             Pull::End => Pull::End,
