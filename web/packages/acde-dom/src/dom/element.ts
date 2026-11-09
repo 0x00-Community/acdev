@@ -8,6 +8,7 @@ import { attributeObservers, observing, recordAttribute } from './mutation'
 import { ChildNodeMixin, insert, mixin, Node, ParentNodeMixin, remove, replaceAll, Text, type DocumentFragment } from './node'
 import { bodyId, changed, CONNECTED as CONNECTED_KEY, dom, ID, moved, wrap } from './realm'
 import { string } from './reflect'
+import { inHtmlDocument, namespaceOf, nullable, validAttributeLocalName, validateAndExtract } from './namespaces'
 
 export const LOCAL = Symbol('localName')
 export const NS = Symbol('namespace')
@@ -15,8 +16,8 @@ export const ATTRIBUTE_CHANGED = Symbol('attributeChanged')
 const CLASS_LIST = Symbol('classList')
 const DATASET = Symbol('dataset')
 const ATTRIBUTE_MAP = Symbol('attributes')
-
-const NAMESPACES = ['http://www.w3.org/1999/xhtml', 'http://www.w3.org/2000/svg', 'http://www.w3.org/1998/Math/MathML'] as const
+const PREFIX = Symbol('prefix')
+const NAMESPACE_URI = Symbol('namespaceURI')
 
 export const pendingElement = { local: null as string | null, ns: Ns.Html as Ns }
 
@@ -50,7 +51,7 @@ export const customAttributes = {
 
 export function setAttribute(element: Element, name: string, value: string | null): void {
   const id = element[ID]
-  const key = element[NS] === Ns.Html ? name.toLowerCase() : name
+  const key = element[NS] === Ns.Html && inHtmlDocument(id) ? name.toLowerCase() : name
   const interest = observing() ? attributeObservers(id, key) : null
   let old: string | null = null
   if (interest && (interest.oldValue || value === null)) {
@@ -64,9 +65,42 @@ export function setAttribute(element: Element, name: string, value: string | nul
   if (custom !== undefined) customAttributes.after!(element, key, custom, value)
 }
 
+function setAttributeNamespaced(element: Element, namespace: string | null, prefix: string | null, local: string, value: string | null): void {
+  if (namespace === null) {
+    if (value !== null || dom.getAttributeNS(element[ID], '', local) !== null) setAttributeExact(element, local, prefix, value)
+    return
+  }
+  const id = element[ID]
+  const interest = observing() ? attributeObservers(id, local) : null
+  const old = interest ? dom.getAttributeNS(id, namespace, local) : null
+  if (value === null && interest && old === null) return
+  const done = value === null ? dom.removeAttributeNS(id, namespace, local) : guard(() => dom.setAttributeNS(id, namespace, prefix ?? '', local, value))
+  if (done) changed()
+  if (interest) recordAttribute(element, interest, local, old, namespace)
+}
+
+function setAttributeExact(element: Element, local: string, prefix: string | null, value: string | null): void {
+  const id = element[ID]
+  const interest = observing() ? attributeObservers(id, local) : null
+  const old = interest || value === null ? dom.getAttributeNS(id, '', local) : null
+  if (value === null && old === null) return
+  const custom = customAttributes.before?.(element, local)
+  const done = value === null ? dom.removeAttributeNS(id, '', local) : guard(() => dom.setAttributeNS(id, '', prefix ?? '', local, value))
+  if (done) changed()
+  element[ATTRIBUTE_CHANGED](local, value)
+  if (interest) recordAttribute(element, interest, local, old)
+  if (custom !== undefined) customAttributes.after!(element, local, custom, value)
+}
+
+function attributeKey(element: Element, name: string): string {
+  return element[NS] === Ns.Html && inHtmlDocument(element[ID]) ? name.toLowerCase() : name
+}
+
 export class Element extends Node {
   [LOCAL]: string;
   [NS]: Ns;
+  [PREFIX]: string | null | undefined = undefined;
+  [NAMESPACE_URI]: string | null | undefined = undefined;
   [CLASS_LIST]: DOMTokenList | null = null;
   [DATASET]: object | null = null;
   [ATTRIBUTE_MAP]: NamedNodeMap | null = null
@@ -92,11 +126,19 @@ export class Element extends Node {
   }
 
   get tagName(): string {
-    return this[NS] === Ns.Html ? this[LOCAL].toUpperCase() : this[LOCAL]
+    const prefix = this.prefix
+    const name = prefix === null ? this[LOCAL] : `${prefix}:${this[LOCAL]}`
+    return this[NS] === Ns.Html && inHtmlDocument(this[ID]) ? name.toUpperCase() : name
   }
 
   get namespaceURI(): string | null {
-    return NAMESPACES[this[NS]] ?? null
+    if (this[NAMESPACE_URI] === undefined) this[NAMESPACE_URI] = namespaceOf(this[ID])
+    return this[NAMESPACE_URI]
+  }
+
+  get prefix(): string | null {
+    if (this[PREFIX] === undefined) this[PREFIX] = nullable(dom.prefix(this[ID]))
+    return this[PREFIX]
   }
 
   [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
@@ -140,15 +182,16 @@ export class Element extends Node {
   }
 
   getAttributeNS(namespace: string | null, name: string): string | null {
-    return dom.getAttribute(this[ID], qualified(namespace, String(name)))
+    return dom.getAttributeNS(this[ID], nullable(namespace) ?? '', String(name))
   }
 
   setAttribute(name: string, value: string): void {
     setAttribute(this, String(name), String(value))
   }
 
-  setAttributeNS(_namespace: string | null, name: string, value: string): void {
-    setAttribute(this, String(name), String(value))
+  setAttributeNS(namespace: string | null, name: string, value: string): void {
+    const { namespace: ns, prefix, local } = validateAndExtract(namespace, String(name), 'attribute', "setAttributeNS' on 'Element")
+    setAttributeNamespaced(this, ns, prefix, local, String(value))
   }
 
   removeAttribute(name: string): void {
@@ -156,7 +199,7 @@ export class Element extends Node {
   }
 
   removeAttributeNS(namespace: string | null, name: string): void {
-    setAttribute(this, qualified(namespace, String(name)), null)
+    setAttributeNamespaced(this, nullable(namespace), null, String(name), null)
   }
 
   hasAttribute(name: string): boolean {
@@ -164,7 +207,7 @@ export class Element extends Node {
   }
 
   hasAttributeNS(namespace: string | null, name: string): boolean {
-    return dom.hasAttribute(this[ID], qualified(namespace, String(name)))
+    return dom.getAttributeNS(this[ID], nullable(namespace) ?? '', String(name)) !== null
   }
 
   hasAttributes(): boolean {
@@ -190,22 +233,45 @@ export class Element extends Node {
   }
 
   getAttributeNode(name: string): Attr | null {
-    const value = this.getAttribute(name)
-    return value === null ? null : new Attr(this, this[NS] === Ns.Html ? String(name).toLowerCase() : String(name))
+    const key = attributeKey(this, String(name))
+    const list = dom.attributesNS(this[ID])
+    for (let i = 0; i < list.length; i += 4) {
+      const qualified = list[i + 1] ? `${list[i + 1]}:${list[i + 2]}` : list[i + 2]!
+      if (qualified === key) return attrFor(this, list[i]!, list[i + 1]!, list[i + 2]!)
+    }
+    return null
   }
 
   getAttributeNodeNS(namespace: string | null, name: string): Attr | null {
-    return this.getAttributeNode(qualified(namespace, String(name)))
+    const ns = nullable(namespace) ?? '', local = String(name)
+    const list = dom.attributesNS(this[ID])
+    for (let i = 0; i < list.length; i += 4) {
+      if (list[i] === ns && list[i + 2] === local) return attrFor(this, list[i]!, list[i + 1]!, local)
+    }
+    return null
   }
 
   setAttributeNode(attr: Attr): Attr | null {
-    const old = this.getAttributeNode(attr.name)
-    setAttribute(this, attr.name, attr.value)
+    if (!(attr instanceof Attr)) throw new TypeError("Failed to execute 'setAttributeNode' on 'Element': parameter 1 is not of type 'Attr'.")
+    const owner = attr.ownerElement
+    if (owner !== null && owner !== this) throw new DOMException("Failed to execute 'setAttributeNode' on 'Element': The node provided is an attribute node that is already an attribute of another Element; attribute nodes must be explicitly cloned.", 'InUseAttributeError')
+    const old = this.getAttributeNodeNS(attr.namespaceURI, attr.localName)
+    if (old === attr) return attr
+    const value = attr.value
+    if (old) detachAttr(old)
+    setAttributeNamespaced(this, attr.namespaceURI, attr.prefix, attr.localName, value)
+    ownAttr(this, attr)
     return old
   }
 
+  setAttributeNodeNS(attr: Attr): Attr | null {
+    return this.setAttributeNode(attr)
+  }
+
   removeAttributeNode(attr: Attr): Attr {
-    setAttribute(this, attr.name, null)
+    if (!(attr instanceof Attr) || attr.ownerElement !== this) throw new DOMException("Failed to execute 'removeAttributeNode' on 'Element': The node provided is owned by another element.", 'NotFoundError')
+    detachAttr(attr)
+    setAttributeNamespaced(this, attr.namespaceURI, null, attr.localName, null)
     return attr
   }
 
@@ -329,7 +395,7 @@ export class Element extends Node {
     return Promise.reject(new DOMException('Pointer lock is not supported', 'NotSupportedError'))
   }
 }
-getters(Element.prototype, { prefix: null, assignedSlot: null })
+getters(Element.prototype, { assignedSlot: null })
 string(Element.prototype, 'slot')
 mixin(Element, ParentNodeMixin)
 mixin(Element, ChildNodeMixin)
@@ -354,12 +420,6 @@ function attributeNames(id: number): string[] {
   const names: string[] = []
   for (let i = 0; i < list.length; i += 2) names.push(list[i]!)
   return names
-}
-
-function qualified(namespace: string | null, name: string): string {
-  if (namespace === 'http://www.w3.org/1999/xlink' && !name.includes(':')) return `xlink:${name}`
-  if (namespace === 'http://www.w3.org/XML/1998/namespace' && !name.includes(':')) return `xml:${name}`
-  return name
 }
 
 export const parsedHooks: ((container: Node) => void)[] = []
@@ -441,61 +501,117 @@ function delta(where: string, offset: number, size: number, view: number): numbe
   }
 }
 
+const ATTRS = Symbol('attrs')
+
+function attrKey(namespace: string, local: string): string {
+  return `${namespace} ${local}`
+}
+
+function attrCache(element: Element): Map<string, Attr> {
+  const holder = element as unknown as { [ATTRS]?: Map<string, Attr> }
+  return (holder[ATTRS] ??= new Map())
+}
+
+function attrFor(element: Element, namespace: string, prefix: string, local: string): Attr {
+  const cache = attrCache(element)
+  const key = attrKey(namespace, local)
+  let attr = cache.get(key)
+  if (!attr || attr.ownerElement !== element) {
+    attr = new Attr(element, nullable(namespace), nullable(prefix), local)
+    cache.set(key, attr)
+  }
+  return attr
+}
+
+let ownAttr: (element: Element, attr: Attr) => void
+let detachAttr: (attr: Attr) => void
+
 export class Attr {
-  readonly #element: Element | null
-  readonly #name: string
+  #element: Element | null
+  readonly #namespace: string | null
+  readonly #prefix: string | null
+  readonly #local: string
   #value: string
 
-  constructor(element: Element | null, name: string, value?: string) {
+  constructor(element: Element | null, namespace: string | null, prefix: string | null, local: string, value = '') {
     this.#element = element
-    this.#name = name
-    this.#value = value ?? ''
+    this.#namespace = namespace
+    this.#prefix = prefix
+    this.#local = local
+    this.#value = value
+  }
+
+  static {
+    ownAttr = (element, attr) => {
+      attr.#element = element
+      attrCache(element).set(attrKey(attr.#namespace ?? '', attr.#local), attr)
+    }
+    detachAttr = (attr) => {
+      const element = attr.#element
+      if (!element) return
+      attr.#value = attr.value
+      attr.#element = null
+      attrCache(element).delete(attrKey(attr.#namespace ?? '', attr.#local))
+    }
   }
 
   get nodeName(): string {
-    return this.#name
+    return this.name
   }
   get name(): string {
-    return this.#name
+    return this.#prefix === null ? this.#local : `${this.#prefix}:${this.#local}`
   }
   get localName(): string {
-    const colon = this.#name.indexOf(':')
-    return colon < 0 ? this.#name : this.#name.slice(colon + 1)
+    return this.#local
   }
   get prefix(): string | null {
-    const colon = this.#name.indexOf(':')
-    return colon < 0 ? null : this.#name.slice(0, colon)
+    return this.#prefix
   }
   get namespaceURI(): string | null {
-    const prefix = this.prefix
-    return prefix === 'xlink' ? 'http://www.w3.org/1999/xlink' : prefix === 'xml' ? 'http://www.w3.org/XML/1998/namespace' : prefix === 'xmlns' ? 'http://www.w3.org/2000/xmlns/' : null
+    return this.#namespace
   }
   get value(): string {
-    return this.#element ? (this.#element.getAttribute(this.#name) ?? this.#value) : this.#value
+    if (!this.#element) return this.#value
+    return dom.getAttributeNS(this.#element[ID], this.#namespace ?? '', this.#local) ?? this.#value
   }
   set value(value: string) {
     this.#value = String(value)
-    if (this.#element) setAttribute(this.#element, this.#name, this.#value)
+    if (this.#element) setAttributeNamespaced(this.#element, this.#namespace, this.#prefix, this.#local, this.#value)
   }
   get nodeValue(): string {
     return this.value
   }
+  set nodeValue(value: string) {
+    this.value = value === null ? '' : value
+  }
   get textContent(): string {
     return this.value
   }
+  set textContent(value: string) {
+    this.value = value === null ? '' : value
+  }
   get ownerElement(): Element | null {
     return this.#element
+  }
+  get ownerDocument(): unknown {
+    return this.#element ? this.#element.ownerDocument : attrDocument.get(this) ?? null
   }
 }
 getters(Attr.prototype, { nodeType: 2, specified: true })
 tag(Attr)
 
+export const attrDocument = new WeakMap<Attr, unknown>()
+
+export function createAttr(namespace: string | null, prefix: string | null, local: string): Attr {
+  if (namespace === null && prefix === null && !validAttributeLocalName(local)) throw new DOMException(`Failed to execute 'createAttribute' on 'Document': The localName provided ('${local}') contains an invalid character.`, 'InvalidCharacterError')
+  return new Attr(null, namespace, prefix, local)
+}
+
 let refreshAttributes: (map: NamedNodeMap) => void
 
 export class NamedNodeMap {
   readonly #element: Element
-  #names: string[] = []
-  #attrs = new Map<string, Attr>()
+  #length = 0
 
   constructor(element: Element) {
     this.#element = element
@@ -503,19 +619,19 @@ export class NamedNodeMap {
 
   static {
     refreshAttributes = (map) => {
-      const names = attributeNames(map.#element[ID])
-      for (let i = names.length; i < map.#names.length; i++) delete (map as unknown as Record<number, Attr>)[i]
-      map.#names = names
-      for (let i = 0; i < names.length; i++) {
-        let attr = map.#attrs.get(names[i]!)
-        if (!attr) map.#attrs.set(names[i]!, (attr = new Attr(map.#element, names[i]!)))
+      const list = dom.attributesNS(map.#element[ID])
+      const length = list.length / 4
+      for (let i = length; i < map.#length; i++) delete (map as unknown as Record<number, Attr>)[i]
+      map.#length = length
+      for (let i = 0; i < length; i++) {
+        const attr = attrFor(map.#element, list[i * 4]!, list[i * 4 + 1]!, list[i * 4 + 2]!)
         Object.defineProperty(map, i, { value: attr, enumerable: true, configurable: true })
       }
     }
   }
 
   get length(): number {
-    return this.#names.length
+    return this.#length
   }
 
   item(index: number): Attr | null {
@@ -541,19 +657,17 @@ export class NamedNodeMap {
   removeNamedItem(name: string): Attr {
     const attr = this.#element.getAttributeNode(name)
     if (!attr) throw new DOMException(`Failed to execute 'removeNamedItem' on 'NamedNodeMap': No item with name '${name}' was found.`, 'NotFoundError')
-    this.#element.removeAttribute(name)
-    return attr
+    return this.#element.removeAttributeNode(attr)
   }
 
   removeNamedItemNS(namespace: string | null, name: string): Attr {
     const attr = this.getNamedItemNS(namespace, name)
     if (!attr) throw new DOMException(`Failed to execute 'removeNamedItemNS' on 'NamedNodeMap': No item with name '${name}' was found.`, 'NotFoundError')
-    this.#element.removeAttribute(attr.name)
-    return attr
+    return this.#element.removeAttributeNode(attr)
   }
 
   *[Symbol.iterator](): IterableIterator<Attr> {
-    for (let i = 0; i < this.#names.length; i++) yield this.item(i)!
+    for (let i = 0; i < this.#length; i++) yield this.item(i)!
   }
 }
 tag(NamedNodeMap)

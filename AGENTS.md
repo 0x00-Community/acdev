@@ -558,6 +558,24 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `InvalidStateError`, 下拉框打开列表 (不查 transient activation: acde-dom 还没有用户激活的模型). 选项列表由 render 画在帧的最上面 (不在
   文档里, `Engine.picker`, 每帧按 select 的位置重排: 下面放得下放下面, 否则放空间大的一边并截短、能滚), 所以出不了窗口; 滚轮在列表上
   滚列表, 在外面先关掉列表.
+- **XML 文档和命名空间** (render `xml.rs` / `serialize.rs` 的 `XmlSerializer`, acde-dom `dom/namespaces.ts`): `DOMParser` 的 `application/xml`、
+  `text/xml`、`application/xhtml+xml`、`image/svg+xml` 用自己的 XML 解析器 (XML 1.0 + Namespaces 1.0): 良构检查 (标签配对、只有一个根、属性
+  不重复 (按原名和按命名空间 + 本地名)、名字字符、`--` / `]]>`、未声明的前缀、`xml` / `xmlns` 前缀的约束), 实体 (五个预定义的、字符引用、
+  内部子集的一般实体 (替换文本按内容再解析, 不许递归, 展开上限 16 MB / 32 层)、外部实体不读; DOCTYPE 的公共标识是 HTML 规范列的那几个
+  XHTML / MathML 的就认 HTML 的命名字符引用; 有外部子集或参数实体引用且不是 standalone 时未声明的实体跳过, 否则是错), 换行规范化, 属性值
+  空白规范化. 不良构时文档只有一个 `parsererror` 元素 (命名空间 `http://www.mozilla.org/newlayout/xml/parsererror.xml`, 文字是原因和行列).
+  结果是 `Document` (接口照规范, `createDocument` 的才是 `XMLDocument`), `contentType` 是给的类型, URL 是页面的. 节点有 `CDATASection` 和
+  `ProcessingInstruction` (render 里是带标记的文本 / 注释节点, `Ids.cdata` / `Ids.pis`, 同 doctype 的做法). 元素和属性带任意命名空间和前缀
+  (`Ns::Other`, `namespace_uri` / `prefix` / `attributes_ns` / `*_attribute_ns`), `createElementNS` / `setAttributeNS` / `createAttributeNS`
+  照规范 validate and extract (`InvalidCharacterError` / `NamespaceError`), `lookupNamespaceURI` / `lookupPrefix` / `isDefaultNamespace` 照
+  locate a namespace. 每个节点有所属文档 (`Ids.owners`, 只记不是页面文档的, `Ids.documents` 记 DOMParser / `createDocument` /
+  `createHTMLDocument` / `new Document()` 的文档和类型): 插入时 adopt 到父节点的文档, `importNode` / `adoptNode` 改, `ownerDocument` 跟着;
+  属性名和 `getElementsByTagName` 只在 HTML 文档里的 HTML 元素上转小写, `tagName` 同理. XML 文档里元素的 `innerHTML` / `outerHTML` 用 XML
+  序列化 (require well-formed, 不良构抛 `InvalidStateError`), 赋值用 XML 片段解析 (上下文元素的命名空间声明都在作用域里, 出错 `SyntaxError`).
+  `XMLSerializer` 照 DOM Parsing 的 XML 序列化 (命名空间前缀表、`ns1` 生成前缀、空元素 `/>`), 和 WPT 记的浏览器行为一致的几处: 去掉没有命名空间的
+  `xmlns` 属性、命名空间相同的元素也保留显式的 `xmlns=""`、属性的命名空间没声明过时总是生成新前缀. WPT 2026-11-09 macOS: `domparsing`
+  147 → 223 / 2369 (`DOMParser-parseFromString-xml-parsererror` 23 / 23、`XMLSerializer-serializeToString` 29 / 33、实体、CDATA、往返全过;
+  剩下的大多是 `innerHTML` 的 Trusted Types、`createContextualFragment`、`positional-methods` 那批和 iframe), `dom/nodes` 见下.
 - **通知**: `Notification` 转给桌面 (`on('notification')`); 桌面没在显示时 (调试窗口) 由宿主窗口发系统通知 (hostwin `system/notify.rs`). 页面给的文字
   当不可信数据: macOS 用 `osascript -l JavaScript -e <固定脚本>`, 文字只经环境变量 `ACDE_NOTIFY_*` 传 (放进 argv 会被当成选项); Linux 走
   `org.freedesktop.Notifications` (body 只在服务端报 `body-markup` 时转实体). Windows 没有系统通知 (宿主 `Shell` 不绑定 `notify`): 平台表 win32
@@ -698,7 +716,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     目录, 分区放掉时删), 经 `natives.storage.privateDirectory()` 登记进这个 web 的 `PickedFolders` 和 `pagecalls.ts` 的文件夹表,
     返回名字是 `''` 的可读写 `FileSystemDirectoryHandle`. 内存分区的私有文件夹在 `$XDG_RUNTIME_DIR` (没有时用临时目录) 下新建的
     `acde-storage-<pid>-<随机>` (0700, 已有同名的就换名字, 不复用), 进程退出时删, 读写和 `showDirectoryPicker` 的同一套. `createSyncAccessHandle` 只在 worker 里, 没有.
-- **还没有**: `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
+- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /

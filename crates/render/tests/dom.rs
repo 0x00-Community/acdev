@@ -857,8 +857,8 @@ fn describe_is_type_namespace_connectedness_and_name() {
 #[test]
 fn parse_inert_is_a_whole_detached_page() {
     let (_doc, dom) = page("<!doctype html><html><body></body></html>");
-    let root = dom.parse_inert("<!doctype html><html lang=fr><head><title>T</title></head><body><p>a</p><!-- </body> --><p>b</p></body></html>").unwrap();
-    assert_eq!(dom.node_type(root).unwrap(), NodeType::DocumentFragment);
+    let root = dom.parse_inert("<!doctype html><html lang=fr><head><title>T</title></head><body><p>a</p><!-- </body> --><p>b</p></body></html>", "about:blank").unwrap();
+    assert_eq!(dom.node_type(root).unwrap(), NodeType::Document);
     assert!(!dom.is_connected(root).unwrap());
     let kids = dom.child_nodes(root).unwrap();
     assert_eq!(kids.len(), 2);

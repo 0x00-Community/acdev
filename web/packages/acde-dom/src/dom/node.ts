@@ -6,6 +6,7 @@ import { characterDataObservers, childListObservers, observing, recordCharacterD
 import { adopt, attach, changed, CONNECTED, constructing, detach, documentId, dom, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper } from './realm'
 import type { Document } from './document'
 import type { Element } from './element'
+import { documents, locateNamespace, lookupPrefixOf, namespaceOf, nullable } from './namespaces'
 
 export const ANY_PARENT = -2
 
@@ -384,7 +385,7 @@ export class Node extends EventTarget implements Wrapper {
   }
 
   get ownerDocument(): Document | null {
-    return wrap<Document>(documentId)
+    return wrap<Document>(documents.others ? dom.ownerDocument(this[ID]) : documentId)
   }
 
   get parentNode(): Node | null {
@@ -452,10 +453,15 @@ export class Node extends EventTarget implements Wrapper {
     if (other === this) return true
     if (this.nodeType !== other.nodeType) return false
     switch (this.nodeType) {
-      case NodeType.Element: return dom.outerHTML(this[ID]) === dom.outerHTML(other[ID]) || equalElements(this[ID], other[ID])
+      case NodeType.Element: return equalElements(this[ID], other[ID])
       case NodeType.Text:
+      case NodeType.CDataSection:
       case NodeType.Comment: return dom.data(this[ID]) === dom.data(other[ID])
-      case NodeType.DocumentType: return (this as unknown as DocumentType).name === (other as unknown as DocumentType).name
+      case NodeType.ProcessingInstruction: return dom.data(this[ID]) === dom.data(other[ID]) && dom.processingInstructionTarget(this[ID]) === dom.processingInstructionTarget(other[ID])
+      case NodeType.DocumentType: {
+        const a = dom.documentType(this[ID]), b = dom.documentType(other[ID])
+        return a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
+      }
       default: {
         const a = dom.childNodes(this[ID]), b = dom.childNodes(other[ID])
         return a.length === b.length && a.every((id, i) => wrap<Node>(id)!.isEqualNode(wrap<Node>(b[i]!)))
@@ -531,17 +537,15 @@ export class Node extends EventTarget implements Wrapper {
   }
 
   lookupNamespaceURI(prefix: string | null): string | null {
-    if (prefix === 'xml') return 'http://www.w3.org/XML/1998/namespace'
-    if (prefix === 'xmlns') return 'http://www.w3.org/2000/xmlns/'
-    return prefix ? null : 'http://www.w3.org/1999/xhtml'
+    return locateNamespace(this[ID], nullable(prefix))
   }
 
-  lookupPrefix(_namespace: string | null): string | null {
-    return null
+  lookupPrefix(namespace: string | null): string | null {
+    return lookupPrefixOf(this[ID], nullable(namespace))
   }
 
   isDefaultNamespace(namespace: string | null): boolean {
-    return namespace === 'http://www.w3.org/1999/xhtml'
+    return locateNamespace(this[ID], null) === nullable(namespace)
   }
 
   [BUILD_PATH](event: Event, path: EventTarget[]): void {
@@ -552,11 +556,11 @@ constants(Node, { ELEMENT_NODE: 1, ATTRIBUTE_NODE: 2, TEXT_NODE: 3, CDATA_SECTIO
 tag(Node)
 
 function equalElements(a: number, b: number): boolean {
-  if (dom.localName(a) !== dom.localName(b) || dom.namespace(a) !== dom.namespace(b)) return false
+  if (dom.localName(a) !== dom.localName(b) || namespaceOf(a) !== namespaceOf(b) || dom.prefix(a) !== dom.prefix(b)) return false
   const attrs = (id: number) => {
-    const list = dom.attributes(id)
+    const list = dom.attributesNS(id)
     const map = new Map<string, string>()
-    for (let i = 0; i < list.length; i += 2) map.set(list[i]!, list[i + 1]!)
+    for (let i = 0; i < list.length; i += 4) map.set(`${list[i]} ${list[i + 2]}`, list[i + 3]!)
     return map
   }
   const x = attrs(a), y = attrs(b)
@@ -580,7 +584,7 @@ export function setTextContent(node: Node, text: string): void {
   const type = node.nodeType
   if (type === NodeType.Element || type === NodeType.DocumentFragment) {
     replaceAll(node, [], () => dom.setTextContent(node[ID], text))
-  } else if (type === NodeType.Text || type === NodeType.Comment) {
+  } else if (type === NodeType.Text || type === NodeType.Comment || type === NodeType.CDataSection || type === NodeType.ProcessingInstruction) {
     replaceData(node as CharacterData, 0, Infinity, text)
   }
 }
@@ -648,8 +652,9 @@ export class ParentNodeMixin {
     return liveCollection(() => dom.getElementsByTagName(id, n), HTMLCollection, true)
   }
 
-  getElementsByTagNameNS(this: Node, _namespace: string | null, name: string): HTMLCollection {
-    return ParentNodeMixin.prototype.getElementsByTagName.call(this, name)
+  getElementsByTagNameNS(this: Node, namespace: string | null, name: string): HTMLCollection {
+    const id = this[ID], ns = namespace === '*' ? '*' : (nullable(namespace) ?? ''), local = String(name)
+    return liveCollection(() => dom.getElementsByTagNameNS(id, ns, local), HTMLCollection, true)
   }
 
   getElementsByClassName(this: Node, names: string): HTMLCollection {
@@ -790,7 +795,15 @@ export class Text extends CharacterData {
 getters(Text.prototype, { assignedSlot: null })
 tag(Text)
 
-export class CDATASection extends Text {}
+export class CDATASection extends Text {
+  override get nodeType(): number {
+    return NodeType.CDataSection
+  }
+
+  override get nodeName(): string {
+    return '#cdata-section'
+  }
+}
 tag(CDATASection)
 
 export class Comment extends CharacterData {
@@ -809,8 +822,19 @@ export class Comment extends CharacterData {
 }
 tag(Comment)
 
-export class ProcessingInstruction extends CharacterData {}
-getters(ProcessingInstruction.prototype, { target: '' })
+export class ProcessingInstruction extends CharacterData {
+  override get nodeType(): number {
+    return NodeType.ProcessingInstruction
+  }
+
+  override get nodeName(): string {
+    return this.target
+  }
+
+  get target(): string {
+    return dom.processingInstructionTarget(this[ID])
+  }
+}
 tag(ProcessingInstruction)
 
 export class DocumentType extends Node {

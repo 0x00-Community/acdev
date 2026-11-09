@@ -14,6 +14,8 @@ use crate::tree::Doctype;
 pub(crate) struct Parsed {
     pub(crate) doctypes: Vec<(NodeId, Doctype)>,
     pub(crate) templates: Vec<(NodeId, NodeId)>,
+    pub(crate) pis: Vec<(NodeId, String)>,
+    pub(crate) cdata: Vec<NodeId>,
 }
 
 struct Sink<'a, 'd> {
@@ -97,8 +99,10 @@ impl<'a, 'd> TreeSink for Sink<'a, 'd> {
         self.m().create_comment_node(&text)
     }
 
-    fn create_pi(&self, _target: StrTendril, _data: StrTendril) -> NodeId {
-        self.m().create_comment_node("")
+    fn create_pi(&self, target: StrTendril, data: StrTendril) -> NodeId {
+        let node = self.m().create_comment_node(&data);
+        self.out.borrow_mut().pis.push((node, target.to_string()));
+        node
     }
 
     fn append(&self, parent: &NodeId, child: NodeOrText<NodeId>) {

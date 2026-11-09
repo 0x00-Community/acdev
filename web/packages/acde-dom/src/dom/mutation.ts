@@ -189,9 +189,9 @@ export function attributeObservers(element: number, name: string): { observers: 
   return { observers, oldValue: false }
 }
 
-export function recordAttribute(target: object, interest: { observers: Observers }, name: string, oldValue: string | null): void {
+export function recordAttribute(target: object, interest: { observers: Observers }, name: string, oldValue: string | null, namespace: string | null = null): void {
   const empty = staticNodeList([])
-  for (const [observer, options] of interest.observers) enqueue(observer, new MutationRecord('attributes', target, empty, empty, null, null, name, null, options.attributeOldValue ? oldValue : null))
+  for (const [observer, options] of interest.observers) enqueue(observer, new MutationRecord('attributes', target, empty, empty, null, null, name, namespace, options.attributeOldValue ? oldValue : null))
 }
 
 export function characterDataObservers(node: number): Observers | null {

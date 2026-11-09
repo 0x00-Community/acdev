@@ -9,7 +9,7 @@ import { ATTRIBUTE_CHANGED, dataset, Element, HANDLER_TYPES, LOCAL, NS, pendingE
 import { resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
 import { metricGetters, metricsOf } from './layout'
-import { CharacterData, Comment, DocumentFragment, DocumentType, mixin, Node, replaceAll, Text, type NodeList } from './node'
+import { CDATASection, CharacterData, Comment, DocumentFragment, DocumentType, mixin, Node, ProcessingInstruction, replaceAll, Text, type NodeList } from './node'
 import { bool, long, nullable, string, url, urlParts } from './reflect'
 import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap } from './realm'
 import { CSSStyleSheet, inlineStyle, type CSSStyleDeclaration } from './style'
@@ -707,15 +707,17 @@ classes.of = (type, ns, local) => {
       return Element
     }
     case NodeType.Text: return Text as never
+    case NodeType.CDataSection: return CDATASection as never
+    case NodeType.ProcessingInstruction: return ProcessingInstruction as never
     case NodeType.Comment: return Comment as never
     case NodeType.DocumentFragment: return DocumentFragment as never
     case NodeType.DocumentType: return DocumentType as never
-    case NodeType.Document: return documentClass.cls as never
+    case NodeType.Document: return (local === 'xml' ? documentClass.xml : local === 'html' ? documentClass.html : documentClass.cls) as never
     default: return CharacterData as never
   }
 }
 
-export const documentClass = { cls: null as unknown as new () => Node }
+export const documentClass = { cls: null as unknown as new () => Node, html: null as unknown as new () => Node, xml: null as unknown as new () => Node }
 
 export function createHtml(local: string): HTMLElement {
   const id = dom.createElement(Ns.Html, local)

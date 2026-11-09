@@ -85,7 +85,7 @@ fn styles_in_a_parsed_inert_document_do_not_apply() {
     doc.sync();
     let h1 = doc.dom.query_selector(doc.dom.document(), "h1").unwrap();
     let before = doc.rect(h1).unwrap().height;
-    doc.dom.parse_inert("<!doctype html><html><head><style>h1 { font-size: 10px }</style></head><body></body></html>").unwrap();
+    doc.dom.parse_inert("<!doctype html><html><head><style>h1 { font-size: 10px }</style></head><body></body></html>", "about:blank").unwrap();
     doc.commit();
     doc.sync();
     let after = doc.rect(h1).unwrap().height;
@@ -108,7 +108,7 @@ fn a_link_in_a_parsed_inert_document_does_not_reorder_the_page() {
     let h1 = doc.dom.query_selector(doc.dom.document(), "h1").unwrap();
     let link = doc.dom.query_selector(doc.dom.document(), "link").unwrap();
     let before = doc.rect(h1).unwrap().height;
-    doc.dom.parse_inert(page).unwrap();
+    doc.dom.parse_inert(page, "about:blank").unwrap();
     doc.commit();
     doc.dom.set_attribute(link, "href", "/b.css?acde-dev=1").unwrap();
     doc.commit();

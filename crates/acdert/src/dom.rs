@@ -466,7 +466,10 @@ natives! {
         dom.parse_fragment(context, &html).map(Id)
     }
     "templateContent" => fn template_content(scope, args, dom) { let id = id(scope, &args, 0); dom.template_content(id).map(Id) }
-    "parseInert" => fn parse_inert(scope, args, dom) { text!(html = scope, args, 0); dom.parse_inert(&html).and_then(|id| pinned(dom, id)) }
+    "parseInert" => fn parse_inert(scope, args, dom) {
+        text!(html = scope, args, 0); text!(url = scope, args, 1);
+        dom.parse_inert(&html, &url).and_then(|id| pinned(dom, id))
+    }
     "querySelector" => fn query_selector(scope, args, dom) {
         let root = id(scope, &args, 0); text!(selector = scope, args, 1);
         dom.query_selector(root, &selector).map(Id)
@@ -488,6 +491,48 @@ natives! {
         let root = id(scope, &args, 0); text!(names = scope, args, 1);
         dom.get_elements_by_class_name(root, &names).map(Ids)
     }
+    "getElementsByTagNameNS" => fn get_elements_by_tag_name_ns(scope, args, dom) {
+        let root = id(scope, &args, 0); text!(namespace = scope, args, 1); text!(local = scope, args, 2);
+        dom.get_elements_by_tag_name_ns(root, &namespace, &local).map(Ids)
+    }
+    "createElementNS" => fn create_element_ns(scope, args, dom) {
+        text!(namespace = scope, args, 0); text!(prefix = scope, args, 1); text!(local = scope, args, 2);
+        dom.create_element_ns(&namespace, &prefix, &local).and_then(|id| pinned(dom, id))
+    }
+    "createCDATASection" => fn create_cdata(scope, args, dom) { text!(data = scope, args, 0); dom.create_cdata(&data).and_then(|id| pinned(dom, id)) }
+    "createProcessingInstruction" => fn create_processing_instruction(scope, args, dom) {
+        text!(target = scope, args, 0); text!(data = scope, args, 1);
+        dom.create_processing_instruction(&target, &data).and_then(|id| pinned(dom, id))
+    }
+    "processingInstructionTarget" => fn processing_instruction_target(scope, args, dom) { let id = id(scope, &args, 0); dom.processing_instruction_target(id) }
+    "createDocument" => fn create_document_node(scope, args, dom) {
+        text!(interface = scope, args, 0); text!(content_type = scope, args, 1); text!(url = scope, args, 2);
+        dom.create_document(&interface, &content_type, &url).and_then(|id| pinned(dom, id))
+    }
+    "documentInfo" => fn document_info(scope, args, dom) { let id = id(scope, &args, 0); dom.document_info(id).map(Vec::from) }
+    "parseXml" => fn parse_xml(scope, args, dom) {
+        text!(text = scope, args, 0); text!(content_type = scope, args, 1); text!(url = scope, args, 2);
+        dom.parse_xml(&text, &content_type, &url).and_then(|id| pinned(dom, id))
+    }
+    "ownerDocument" => fn owner_document(scope, args, dom) { let id = id(scope, &args, 0); dom.owner_document(id).map(Id) }
+    "adopt" => fn adopt(scope, args, dom) { let (id, doc) = (id(scope, &args, 0), id(scope, &args, 1)); dom.adopt(id, doc) }
+    "inHtmlDocument" => fn in_html_document(scope, args, dom) { let id = id(scope, &args, 0); dom.in_html_document(id) }
+    "namespaceURI" => fn namespace_uri(scope, args, dom) { let id = id(scope, &args, 0); dom.namespace_uri(id) }
+    "prefix" => fn prefix(scope, args, dom) { let id = id(scope, &args, 0); dom.prefix(id) }
+    "attributesNS" => fn attributes_ns(scope, args, dom) { let id = id(scope, &args, 0); dom.attributes_ns(id) }
+    "getAttributeNS" => fn get_attribute_ns(scope, args, dom) {
+        let id = id(scope, &args, 0); text!(namespace = scope, args, 1); text!(local = scope, args, 2);
+        dom.get_attribute_ns(id, &namespace, &local)
+    }
+    "setAttributeNS" => fn set_attribute_ns(scope, args, dom) {
+        let id = id(scope, &args, 0); text!(namespace = scope, args, 1); text!(prefix = scope, args, 2); text!(local = scope, args, 3); text!(value = scope, args, 4);
+        dom.set_attribute_ns(id, &namespace, &prefix, &local, &value)
+    }
+    "removeAttributeNS" => fn remove_attribute_ns(scope, args, dom) {
+        let id = id(scope, &args, 0); text!(namespace = scope, args, 1); text!(local = scope, args, 2);
+        dom.remove_attribute_ns(id, &namespace, &local)
+    }
+    "serializeXml" => fn serialize_xml(scope, args, dom) { let id = id(scope, &args, 0); dom.serialize_xml(id) }
     "getElementsByTagName" => fn get_elements_by_tag_name(scope, args, dom) {
         let root = id(scope, &args, 0); text!(name = scope, args, 1);
         dom.get_elements_by_tag_name(root, &name).map(Ids)
