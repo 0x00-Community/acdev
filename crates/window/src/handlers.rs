@@ -458,9 +458,5 @@ impl Dispatch2<wp_fractional_scale_v1::WpFractionalScaleV1, App> for Data {
 
 /// the local files of a dropped `text/uri-list`, which become one-shot copyIn grants for the window's app
 fn dropped_paths(uris: &str) -> Vec<std::path::PathBuf> {
-    uris.lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with("file://"))
-        .filter_map(|line| url::Url::parse(line).ok()?.to_file_path().ok())
-        .collect()
+    uris.lines().map(str::trim).filter(|line| line.starts_with("file://")).filter_map(|line| url::Url::parse(line).ok()?.to_file_path().ok()).collect()
 }
