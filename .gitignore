@@ -4,6 +4,7 @@ node_modules
 dist
 __pycache__
 out
+logs/
 
 # macos desktop files
 .DS_Store
