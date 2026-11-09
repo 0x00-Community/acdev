@@ -1,6 +1,7 @@
 import { appendFileSync, chmodSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { isAbsolute } from 'node:path'
+import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { Png } from '../../../src/driver/png.ts'
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
@@ -262,6 +263,12 @@ function webs() {
     window: w.id,
     title: w.kind === 'desktop' ? 'Desk' : w.title,
   }))
+}
+
+if (process.argv[2] === '--version') {
+  const level = process.env['FAKE_ACDERT_LEVEL'] ?? String(API_LEVEL)
+  console.log(level === 'none' ? 'acdert 0.0.5' : `acdert 0.0.0 (contract level ${level})`)
+  process.exit(0)
 }
 
 const ISOLATION = [

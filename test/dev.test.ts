@@ -6,6 +6,7 @@ import {
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { DevClient, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
@@ -417,6 +418,17 @@ describe('acde dev with a stand-in acdert', () => {
       await alone.stop()
     }
     await alone.child.exited
+  }, 30_000)
+
+  test('a runtime of another contract level: acde dev stops before starting it', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    for (const [level, runtime] of [[String(API_LEVEL + 1), API_LEVEL + 1], ['none', 0]] as const) {
+      const dev = start([], alpha, { FAKE_ACDERT_LEVEL: level })
+      expect(await dev.child.exited).toBe(1)
+      expect(await dev.output).toContain(`alpha: needs level ${API_LEVEL}, runtime is level ${runtime}`)
+      expect(dev.entries().filter((e) => e.argv)).toEqual([])
+    }
   }, 30_000)
 
   test('mistakes: --out with several projects, --app with several, the same app twice, two desktops', async () => {

@@ -8,6 +8,7 @@ import { Runtime, type Child } from './runtime.ts'
 import { Sessions } from './sessions.ts'
 
 const SETTLE_MS = 150
+const VERSION_MS = 10_000
 
 export interface Target {
   readonly kind: 'app' | 'desktop'
@@ -45,6 +46,7 @@ export class DevSession {
   readonly #started = Date.now()
   #building = false
   #shown: string | null = null
+  #level: number | null = null
 
   constructor(options: DevOptions) {
     const packages = (options.dirs.length ? options.dirs : ['.']).map((dir) => new AppPackage(dir))
@@ -131,9 +133,41 @@ export class DevSession {
     return { kind: 'desktop', id: desktops[0] ?? DevSession.DEFAULT_DESKTOP }
   }
 
+  static async runtimeLevel(acdert: string): Promise<{ level: number; said: string }> {
+    const child = Runtime.spawn([acdert, '--version'], { stdio: ['ignore', 'pipe', 'ignore'] })
+    let said = ''
+    child.process.stdout!.setEncoding('utf8').on('data', (chunk: string) => (said += chunk))
+    const timer = setTimeout(() => child.kill('SIGKILL'), VERSION_MS)
+    try {
+      await child.exited
+    } finally {
+      clearTimeout(timer)
+    }
+    const level = /\(contract level (\d+)\)/.exec(said)
+    return { level: level ? Number(level[1]) : 0, said: said.trim() }
+  }
+
+  static refusal(unit: { readonly pkg: AppPackage; readonly built: Built | null }, runtime: number): string | null {
+    const level = unit.built?.level ?? null
+    if (level === null || level === runtime) return null
+    return `${unit.pkg.name}: needs level ${level}, runtime is level ${runtime}`
+  }
+
+  async #checkLevels(): Promise<void> {
+    if (this.#units.every((u) => u.built?.level === null)) return
+    const { level, said } = await DevSession.runtimeLevel(this.#acdert)
+    this.#level = level
+    const refused = this.#units.map((u) => DevSession.refusal(u, level)).filter((r) => r !== null)
+    if (refused.length === 0) return
+    const why = level === 0 ? `\n${this.#acdert} --version says ${JSON.stringify(said)}, no contract level: ` +
+      'it is older than contract levels; use an acdert that has them' : ''
+    throw new Error(`${refused.join('\n')}${why}`)
+  }
+
   async run(): Promise<number> {
     for (const unit of this.#units) unit.built = await unit.pkg.build(unit.out)
     const target = this.#plan()
+    await this.#checkLevels()
     this.#shown = target.kind === 'desktop' ? target.id : null
     DevClient.prepare(this.#endpoint)
     const watchers: FSWatcher[] = []
@@ -257,6 +291,8 @@ export class DevSession {
     try {
       unit.pkg = new AppPackage(unit.pkg.dir)
       const built = await unit.pkg.build(unit.out)
+      const refused = this.#level === null ? null : DevSession.refusal({ pkg: unit.pkg, built }, this.#level)
+      if (refused) throw new Error(refused)
       unit.built = built
       console.log(`acde: ${who}rebuilt (${Math.round(performance.now() - started)} ms), reloading`)
       for (const app of built.apps) this.#link?.send({ type: 'reload', app })

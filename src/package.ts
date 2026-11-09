@@ -11,6 +11,7 @@ export interface Built {
   readonly id: string
   readonly desktops: readonly string[]
   readonly apps: readonly string[]
+  readonly level: number | null
 }
 
 export class AppPackage {
@@ -70,12 +71,19 @@ export class AppPackage {
       AppPackage.#throw(this.check())
       const apps = (this.manifest.apps ?? []).map((app) => app.id)
       const desktops = (this.manifest.desktops ?? []).map((d) => d.id)
-      return { dir: this.dir, id: this.name.replace(/^@[^/]*\//, ''), desktops, apps }
+      const level = AppPackage.#level(this.manifest)
+      return { dir: this.dir, id: this.name.replace(/^@[^/]*\//, ''), desktops, apps, level }
     }
     const built = await this.project!.build(out)
     AppPackage.#throw(AppPackage.check(out, built.acde))
     const desktops = (built.acde.desktops ?? []).map((d) => d.id)
-    return { dir: out, id: this.project!.id, desktops, apps: built.acde.apps.map((app) => app.id) }
+    const apps = built.acde.apps.map((app) => app.id)
+    return { dir: out, id: this.project!.id, desktops, apps, level: AppPackage.#level(built.acde) }
+  }
+
+  static #level(manifest: PackageManifest): number | null {
+    const level = Manifest.apiLevel(manifest.apiLevel)
+    return typeof level === 'number' ? level : null
   }
 
   install(built: Built): string {
