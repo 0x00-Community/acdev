@@ -146,7 +146,7 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     rv.set_uint32(pid);
 }
 
-fn each_line(from: impl Read + Send + 'static, mut each: impl FnMut(String) + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
+pub fn each_line(from: impl Read + Send + 'static, mut each: impl FnMut(String) + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new().name("acde-child-out".into()).spawn(move || {
         for line in std::io::BufReader::new(from).split(b'\n') {
             let Ok(line) = line else { break };

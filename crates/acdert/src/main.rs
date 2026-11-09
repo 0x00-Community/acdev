@@ -1,5 +1,7 @@
 mod audio;
 mod backend;
+#[cfg(windows)]
+mod backends;
 mod bind;
 mod caches;
 mod capture;
