@@ -27,6 +27,7 @@ pub(crate) struct Presenter {
     scale: f64,
     panels: HashMap<u32, u32>,
     targets: HashMap<u32, Arc<Page>>,
+    captures: Vec<(mpsc::SyncSender<Result<Shot, String>>, Instant)>,
     scratch: Option<((u32, u32), wgpu::Texture, wgpu::TextureView)>,
     pacer: Pacer,
     dirty: bool,
@@ -62,6 +63,7 @@ impl Presenter {
             scale,
             panels: HashMap::new(),
             targets: HashMap::new(),
+            captures: Vec::new(),
             scratch: None,
             pacer: Pacer::new(Some(Duration::from_secs_f64(0.9 / hz))),
             dirty: true,
@@ -72,7 +74,7 @@ impl Presenter {
 
     pub fn run(&mut self, rx: &mpsc::Receiver<Msg>) {
         self.pacer.tell_size(&self.inbox, self.size, self.scale);
-        while let Some(msgs) = drain(rx, self.pacer.wait()) {
+        while let Some(msgs) = drain(rx, self.wait()) {
             let mut stop = false;
             for msg in msgs {
                 stop |= self.handle(msg);
@@ -88,6 +90,10 @@ impl Presenter {
             if self.dirty {
                 self.paint();
             }
+            self.answer_captures();
+        }
+        for (reply, _) in self.captures.drain(..) {
+            let _ = reply.send(Err("the window is gone".to_owned()));
         }
         if let Some(compositor) = server().and_then(|s| s.compositor()) {
             for id in self.targets.keys() {
@@ -106,6 +112,10 @@ impl Presenter {
                 self.pacer.tell_size(&self.inbox, self.size, self.scale);
                 self.render.invalidate();
                 self.dirty = true;
+            }
+            Msg::Scroll(x, y, dx, dy) => {
+                let s = self.scale;
+                self.render.scroll_at((x * s) as f32, (y * s) as f32, dx * s, dy * s);
             }
             Msg::Panel(dom, window) => {
                 match window {
@@ -127,9 +137,7 @@ impl Presenter {
                 self.render.invalidate();
                 self.dirty = true;
             }
-            Msg::Capture(reply) => {
-                let _ = reply.send(self.capture());
-            }
+            Msg::Capture(reply) => self.captures.push((reply, Instant::now() + crate::shell::CAPTURE_WAIT)),
             Msg::Stop => return true,
         }
         false
@@ -218,6 +226,27 @@ impl Presenter {
         let mut scenes: Vec<(Scene, Affine)> = page.into_iter().map(|(scene, place)| (scene, down * place)).collect();
         scenes.push((decoration.scene(&bar), Affine::IDENTITY));
         (scenes, (self.size.0, self.size.1 + top))
+    }
+
+    fn wait(&self) -> Option<Duration> {
+        let capture = self.captures.iter().map(|(_, deadline)| deadline.saturating_duration_since(Instant::now())).min();
+        match (self.pacer.wait(), capture) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    fn answer_captures(&mut self) {
+        if self.captures.is_empty() {
+            return;
+        }
+        let drawn = self.targets.contains_key(&self.id);
+        let now = Instant::now();
+        let (due, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.captures).into_iter().partition(|(_, deadline)| drawn || *deadline <= now);
+        self.captures = waiting;
+        for (reply, _) in due {
+            let _ = reply.send(self.capture());
+        }
     }
 
     fn capture(&self) -> Result<Shot, String> {

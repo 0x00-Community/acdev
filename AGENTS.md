@@ -146,7 +146,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **坐标**: 宿主窗口的内容区就是「屏幕」(`output`: `ACDE_SIZE`, 否则主显示器的 90% × 85%, 最大 1440 × 900), 窗口表的 rect 是它里面的
   逻辑坐标. 宿主窗口改尺寸 / 换缩放时桌面和全屏窗口跟着改, 发 `output`.
 - **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner), 给它焦点、提前,
-  之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
+  之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 滚轮发 `wheel` 给指针下的窗口, 同时交给它的出帧线程
+  (`Msg::Scroll` → `RenderHandle::scroll_at`) 做默认滚动, 和会话里 crates/window 一样. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
   `deactivate`. 输入法是 `imepreedit` / `imecommit` 事件 (Windows: `WM_IME_COMPOSITION`, 上屏只发 commit, 只有在组字时结束才发空预编辑表示取消);
   候选框位置: 宿主窗口没有 fcitx, acde-host 的 `TextEntry` 用 `InputMethod.area` 把光标矩形交给 `setImeArea`, Windows 上同时设 IMM 的
   组字 / 候选窗口并回答 `WM_IME_REQUEST` 的 `IMR_QUERYCHARPOSITION` (微软拼音这类 TSF 输入法只问它). 拖进来的文件: 指针下的窗口收 `dndenter` + `dnddrop`, 同时记下这个窗口应用的一次性 copyIn 授权 (见「文件」);
@@ -161,7 +162,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   四角 10 px 改大小, 由 `Entry::grab_hints` 和页面的 hint (下移窗框高度) 合成, 窗框的优先. `contentOffset` 是 `[0, H]`, 输入法候选框也加 `H`.
 - **注入** (`Shell.inject`): `Cmd::Inject` 到主线程, 和真输入走同一段代码 (命中、拖动、快捷键); 注入的修饰键和真的合起来匹配; 按键带 US 布局
   的字符 (`keys::us_text`). 中文等走 `acde:inspect` 的 `type`, 不经注入.
-- **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG, 最多等 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
+- **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG; 还没画出第一帧时等到画出, 最多 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
   画进一张离屏的 `Rgba8Unorm` 纹理, 读回编 PNG 写到 path, 回 `{width, height}`, 和会话的 `Shell.screenshot` 同一个接口; 最多等 10 秒),
   `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`, Windows 没有), `devRespond`, `screen`, `shortcut`, `windows`,
   `launch`. `animate` 直接回 `windowanimated`, `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
@@ -833,6 +834,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `layout/fieldset.rs` (新), `layout/mod.rs`, `layout/construct.rs`, `node/node.rs`, stylo_taffy `wrapper.rs` | fieldset 是 flow-root; rendered legend 是块级的直接布局子节点, 居中压在上边框上, 上边框占 max(边框宽, legend 高); 不建匿名 content box. 不做竖排、`align`、百分比定高 |
 | `layout/list.rs` | outside 的列表标记按 `white-space: pre` 排 |
 | `assets/default.css` | `::placeholder` 54% currentcolor; 表单控件默认黑字 |
+| `scrolling.rs` `clamp_scroll_offsets`, `resolve.rs`, `document.rs` `scrolled_nodes` | 布局后把超出新滚动范围的偏移拉回来 (节点和视口; CSSOM View), 只看偏移不是 0 的节点; 上游内容变短后一直停在末尾之外, 顶上空着又滚不回去 |
 | `scrolling.rs` `clamp_scroll_offsets`, `resolve.rs`, `document.rs` `scrolled_nodes` | 布局后把超出新滚动范围的偏移拉回来 (节点和视口; CSSOM View), 只看偏移不是 0 的节点; 上游内容变短后一直停在末尾之外, 顶上空着又滚不回去 |
 | 删掉的 | `events/`、`form.rs`、`debug.rs`、devtools、parallel-construct、`<canvas src=数字>`、CSS 光标、custom-widget |
 
