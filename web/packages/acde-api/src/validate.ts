@@ -1,6 +1,8 @@
 import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest } from './index.js'
+import { API_LEVEL } from './level.js'
 
 export type { Capabilities, PackageManifest } from './index.js'
+export { API_LEVEL }
 
 export const ICON_NAMES = [
   'files',
@@ -75,6 +77,15 @@ export class Manifest {
     return Manifest.#ICON_IMAGE.test(icon)
   }
 
+  static apiLevel(raw: unknown): number | null | string {
+    if (raw === undefined) return null
+    return Number.isInteger(raw) && (raw as number) > 0 ? (raw as number) : 'acde.apiLevel must be a positive whole number (the contract level)'
+  }
+
+  static refusal(level: number): string | null {
+    return level === API_LEVEL ? null : `needs level ${level}, runtime is level ${API_LEVEL}`
+  }
+
   static heapMb(value: unknown, fallback: number): number {
     const mb = Number(value)
     return Number.isFinite(mb) && mb >= Manifest.MIN_HEAP_MB ? mb : fallback
@@ -130,6 +141,10 @@ export class Manifest {
     const findings: Findings = { errors: [], warnings: [] }
     const { errors, warnings } = findings
     const apps = manifest.apps ?? []
+    const level = Manifest.apiLevel(manifest.apiLevel)
+    if (level === null) warnings.push(`acde.apiLevel is missing: acdert still loads it as level 0 but will refuse it; declare apiLevel ${API_LEVEL}`)
+    else if (typeof level === 'string') errors.push(level)
+    else if (Manifest.refusal(level)) errors.push(`acde.apiLevel ${level}: ${Manifest.refusal(level)}`)
     if (apps.length === 0 && (manifest.desktops ?? []).length === 0) errors.push('acde.apps is empty: no app')
     for (const [prefix, dirs] of Object.entries(manifest.assets ?? {})) {
       if (!prefix.startsWith('/') || !prefix.endsWith('/'))

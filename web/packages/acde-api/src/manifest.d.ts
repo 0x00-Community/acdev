@@ -3,6 +3,7 @@ import type { IconName } from './validate'
 export type { IconName }
 
 export interface PackageManifest {
+  readonly apiLevel?: number
   readonly desktops?: readonly DesktopManifest[]
   readonly apps?: readonly AppManifest[]
   readonly assets?: Readonly<Record<string, readonly string[]>>
