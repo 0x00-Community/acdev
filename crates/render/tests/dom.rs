@@ -889,3 +889,27 @@ fn style_sheet_rules_style_the_page() {
     let detached = dom.create_element(Ns::Html, "style").unwrap();
     assert_eq!(dom.sheet_rule_count(detached).unwrap(), None);
 }
+
+#[test]
+fn a_scroll_box_whose_content_shrinks_is_scrolled_back_into_range() {
+    let (_doc, dom) = page(
+        "<body style='margin:0'><div id=box style='height:100px;overflow:auto'><div id=content style='height:400px'></div></div>\
+         <div id=tall style='height:2000px'></div></body>",
+    );
+    let (b, content, tall) = (by_id(&dom, "box"), by_id(&dom, "content"), by_id(&dom, "tall"));
+    dom.scroll_to(b, 0.0, 250.0, false).unwrap();
+    dom.scroll_to(dom.document(), 0.0, 1500.0, false).unwrap();
+    dom.take_scrolled();
+    dom.set_attribute(content, "style", "height:150px").unwrap();
+    dom.set_attribute(tall, "style", "height:100px").unwrap();
+    assert_eq!(dom.metrics(b).unwrap().unwrap().scroll_top, 50.0, "clamped to the new end");
+    let html = dom.children(dom.document()).unwrap()[0];
+    assert_eq!(dom.metrics(html).unwrap().unwrap().scroll_top, 0.0, "the viewport too");
+    let mut scrolled = dom.take_scrolled();
+    scrolled.sort();
+    let mut expected = vec![b, dom.document()];
+    expected.sort();
+    assert_eq!(scrolled, expected, "reported as scrolls");
+    dom.set_attribute(content, "style", "height:50px").unwrap();
+    assert_eq!(dom.metrics(b).unwrap().unwrap().scroll_top, 0.0);
+}
