@@ -345,7 +345,7 @@ export class Broker {
       theme: this.#theme(),
       request: record.request ?? null,
       url: record.url ?? null,
-      ...(app.backend && { sockets: AppBackends.socketDir(app.id) }),
+      ...(app.backend && AppBackends.webInit(app.id)),
       devState: this.#takeDevState(app.id),
       devRoutes: this.#dev.routesFor(`${app.id}#${record.id}`, app.id),
     }
