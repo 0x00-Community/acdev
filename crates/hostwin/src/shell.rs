@@ -83,11 +83,11 @@ pub(crate) struct Hit {
 }
 
 impl Entry {
-    pub fn grab_hints(&self) -> Vec<([f64; 4], u32)> {
+    pub fn grab_hints(&self, theme: &acde_render::FrameTheme) -> Vec<([f64; 4], u32)> {
         let top = self.frame;
         let mut hints: Vec<([f64; 4], u32)> = self.hints.iter().map(|&([x, y, w, h], edges)| ([x, y + top, w, h], edges)).collect();
         if top > 0.0 {
-            hints.extend(acde_render::Bar::grab_hints(self.rect[2], self.rect[3], top));
+            hints.extend(theme.grab_hints(self.rect[2], self.rect[3], top));
         }
         hints
     }
@@ -96,7 +96,7 @@ impl Entry {
         self.opened && !self.hidden && self.state.shown()
     }
 
-    pub fn bar(&self) -> acde_render::Bar {
+    pub fn bar(&self, theme: acde_render::FrameTheme, active: bool) -> acde_render::Bar {
         acde_render::Bar {
             title: self.title.clone(),
             width: self.rect[2],
@@ -104,6 +104,8 @@ impl Entry {
             scale: 1.0,
             style: acde_render::FrameStyle::current(),
             fullscreen: self.mode == Mode::Fullscreen || self.state == WindowState::Fullscreen,
+            theme,
+            active,
         }
     }
 }
@@ -122,6 +124,7 @@ pub(crate) struct State {
     pub work: Option<[f64; 4]>,
     pub double_click: DoubleClick,
     pub clicks: Clicks,
+    pub theme: acde_render::FrameTheme,
 }
 
 impl State {
@@ -277,7 +280,8 @@ impl State {
             return Press::Plain;
         };
         let (x, y) = (at[0] - e.rect[0], at[1] - e.rect[1]);
-        let edges = e.grab_hints().iter().rev().find(|([hx, hy, hw, hh], _)| x >= *hx && y >= *hy && x < hx + hw && y < hy + hh).map(|(_, edges)| *edges);
+        let edges =
+            e.grab_hints(&self.theme).iter().rev().find(|([hx, hy, hw, hh], _)| x >= *hx && y >= *hy && x < hx + hw && y < hy + hh).map(|(_, edges)| *edges);
         let title = edges == Some(0) && matches!(e.mode, Mode::Free | Mode::Fixed);
         let allowed = e.state.moves() && (e.mode == Mode::Free || (e.mode == Mode::Fixed && edges == Some(0)));
         let (mode, state, rect) = (e.mode, e.state, e.rect);
@@ -735,6 +739,22 @@ mod tests {
         let (desktop, _) = s.grant(Grant { desktop: true, ..Grant::default() });
         s.entries.get_mut(&desktop).expect("desktop").hints = vec![([0.0, 0.0, 1000.0, 800.0], 0)];
         assert!(matches!(double(&mut s, desktop, [10.0, 10.0], 4000.0), Press::Plain));
+    }
+
+    #[test]
+    fn the_theme_moves_the_title_area_with_the_buttons() {
+        let mut s = screen();
+        let settings = ClickSettings::default();
+        let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 400.0, 300.0]), ..Grant::default() });
+        s.entries.get_mut(&w).expect("framed").frame = 32.0;
+        s.theme = acde_render::FrameTheme { style: Some(acde_render::FrameStyle::Windows), side: Some(acde_render::ButtonSide::Right), ..Default::default() };
+        assert!(matches!(s.press(w, [120.0, 115.0], 0.0, settings), Press::Drag(0, _)));
+        assert!(matches!(s.press(w, [480.0, 115.0], 1000.0, settings), Press::Plain), "the close button");
+        assert_eq!(s.entries[&w].bar(s.theme, true).button_at(380.0, 15.0), Some(acde_render::FrameButton::Close));
+        s.theme.side = Some(acde_render::ButtonSide::Left);
+        assert!(matches!(s.press(w, [120.0, 115.0], 2000.0, settings), Press::Plain), "the buttons moved left");
+        assert!(matches!(s.press(w, [480.0, 115.0], 3000.0, settings), Press::Drag(0, _)));
+        assert_eq!(s.entries[&w].bar(s.theme, true).button_at(100.0, 15.0), Some(acde_render::FrameButton::Close));
     }
 
     #[test]

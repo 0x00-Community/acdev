@@ -34,11 +34,90 @@ impl FrameStyle {
         }
     }
 
+    pub fn side(self) -> ButtonSide {
+        match self {
+            FrameStyle::Mac => ButtonSide::Left,
+            FrameStyle::Windows => ButtonSide::Right,
+        }
+    }
+
+    pub fn align(self) -> TitleAlign {
+        match self {
+            FrameStyle::Mac => TitleAlign::Center,
+            FrameStyle::Windows => TitleAlign::Start,
+        }
+    }
+
     pub fn grab_hints(self, w: f64, h: f64, top: f64) -> [([f64; 4], u32); 9] {
+        FrameTheme { style: Some(self), ..FrameTheme::default() }.grab_hints(w, h, top)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ButtonSide {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TitleAlign {
+    Center,
+    Start,
+}
+
+pub type Rgba = [u8; 4];
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameColors {
+    pub background: Option<Rgba>,
+    pub title: Option<Rgba>,
+    pub line: Option<Rgba>,
+    pub buttons: Option<Rgba>,
+}
+
+impl FrameColors {
+    fn or(self, other: FrameColors) -> FrameColors {
+        FrameColors {
+            background: self.background.or(other.background),
+            title: self.title.or(other.title),
+            line: self.line.or(other.line),
+            buttons: self.buttons.or(other.buttons),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameTheme {
+    pub active: FrameColors,
+    pub inactive: FrameColors,
+    pub style: Option<FrameStyle>,
+    pub side: Option<ButtonSide>,
+    pub align: Option<TitleAlign>,
+}
+
+impl FrameTheme {
+    const DEFAULT: FrameColors =
+        FrameColors { background: Some([0xf4, 0xf2, 0xf7, 0xff]), title: Some([0x3a, 0x35, 0x42, 0xff]), line: Some([0, 0, 0, 20]), buttons: None };
+
+    pub fn style(&self) -> FrameStyle {
+        self.style.unwrap_or_else(FrameStyle::current)
+    }
+
+    pub fn side(&self) -> ButtonSide {
+        self.side.unwrap_or_else(|| self.style().side())
+    }
+
+    pub fn colors(&self, active: bool) -> FrameColors {
+        let chosen = if active { self.active } else { self.inactive.or(self.active) };
+        chosen.or(Self::DEFAULT)
+    }
+
+    pub fn grab_hints(&self, w: f64, h: f64, top: f64) -> [([f64; 4], u32); 9] {
         let (e, c) = (Bar::EDGE, Bar::CORNER);
-        let bar = match self {
-            FrameStyle::Mac => [self.reserved(), 0.0, w - self.reserved(), top],
-            FrameStyle::Windows => [0.0, 0.0, w - self.reserved(), top],
+        let reserved = self.style().reserved();
+        let bar = match self.side() {
+            ButtonSide::Left => [reserved, 0.0, w - reserved, top],
+            ButtonSide::Right => [0.0, 0.0, w - reserved, top],
         };
         [
             (bar, 0),
@@ -93,14 +172,18 @@ impl FrameButton {
         Decoration::PAD + Decoration::DOT / 2.0 + self.index() as f64 * (Decoration::DOT + Decoration::GAP)
     }
 
-    fn slot(self, style: FrameStyle, width: f64) -> (f64, f64) {
+    fn slot(self, style: FrameStyle, side: ButtonSide, width: f64) -> (f64, f64) {
+        let start = match side {
+            ButtonSide::Left => 0.0,
+            ButtonSide::Right => width - style.reserved(),
+        };
         match style {
             FrameStyle::Mac => {
                 let reach = (Decoration::DOT + Decoration::GAP) / 2.0;
-                (self.centre() - reach, self.centre() + reach)
+                (start + self.centre() - reach, start + self.centre() + reach)
             }
             FrameStyle::Windows => {
-                let x = width - style.reserved() + self.caption() as f64 * Decoration::CAPTION;
+                let x = start + self.caption() as f64 * Decoration::CAPTION;
                 (x, x + Decoration::CAPTION)
             }
         }
@@ -123,6 +206,8 @@ pub struct Bar {
     pub scale: f64,
     pub style: FrameStyle,
     pub fullscreen: bool,
+    pub theme: FrameTheme,
+    pub active: bool,
 }
 
 impl Bar {
@@ -131,6 +216,18 @@ impl Bar {
 
     pub fn grab_hints(w: f64, h: f64, top: f64) -> [([f64; 4], u32); 9] {
         FrameStyle::current().grab_hints(w, h, top)
+    }
+
+    fn style(&self) -> FrameStyle {
+        self.theme.style.unwrap_or(self.style)
+    }
+
+    fn side(&self) -> ButtonSide {
+        self.theme.side.unwrap_or_else(|| self.style().side())
+    }
+
+    fn align(&self) -> TitleAlign {
+        self.theme.align.unwrap_or_else(|| self.style().align())
     }
 
     pub fn pixels(&self) -> (u32, u32) {
@@ -142,7 +239,7 @@ impl Bar {
             return None;
         }
         FrameButton::ALL.into_iter().find(|b| {
-            let (from, to) = b.slot(self.style, self.width);
+            let (from, to) = b.slot(self.style(), self.side(), self.width);
             x >= from && x < to
         })
     }
@@ -169,9 +266,6 @@ impl Decoration {
     const FONT_SIZE: f32 = 13.0;
     const FAMILY: &'static str = "system-ui, sans-serif";
     const ELLIPSIS: &'static str = "…";
-    const BACKGROUND: Color = Color::from_rgb8(0xf4, 0xf2, 0xf7);
-    const TEXT: Color = Color::from_rgb8(0x3a, 0x35, 0x42);
-    const LINE: Color = Color::from_rgba8(0, 0, 0, 20);
     const RING: Color = Color::from_rgba8(0, 0, 0, 46);
 
     pub fn new() -> Self {
@@ -184,23 +278,27 @@ impl Decoration {
         let mut scene = Scene::new();
         let scale = Affine::scale(bar.scale);
         let (w, h) = (bar.width, bar.height);
-        scene.fill(Fill::NonZero, scale, Self::BACKGROUND, None, &Rect::new(0.0, 0.0, w, h));
-        scene.fill(Fill::NonZero, scale, Self::LINE, None, &Rect::new(0.0, h - 1.0, w, h));
+        let colors = bar.theme.colors(bar.active);
+        let paint = |rgba: Rgba| Color::from_rgba8(rgba[0], rgba[1], rgba[2], rgba[3]);
+        let text = colors.title.map_or(Color::TRANSPARENT, paint);
+        scene.fill(Fill::NonZero, scale, colors.background.map_or(Color::TRANSPARENT, paint), None, &Rect::new(0.0, 0.0, w, h));
+        scene.fill(Fill::NonZero, scale, colors.line.map_or(Color::TRANSPARENT, paint), None, &Rect::new(0.0, h - 1.0, w, h));
+        let (style, side) = (bar.style(), bar.side());
         for button in FrameButton::ALL {
-            match bar.style {
+            let (from, to) = button.slot(style, side, w);
+            match style {
                 FrameStyle::Mac => {
-                    let centre = (button.centre(), h / 2.0);
-                    scene.fill(Fill::NonZero, scale, button.color(), None, &Circle::new(centre, Self::DOT / 2.0));
+                    let centre = ((from + to) / 2.0, h / 2.0);
+                    scene.fill(Fill::NonZero, scale, colors.buttons.map_or_else(|| button.color(), paint), None, &Circle::new(centre, Self::DOT / 2.0));
                     scene.stroke(&Stroke::new(0.5), scale, Self::RING, None, &Circle::new(centre, Self::DOT / 2.0 - 0.25));
                 }
                 FrameStyle::Windows => {
-                    let (from, to) = button.slot(bar.style, w);
                     let glyph = Self::glyph(button, bar.fullscreen, ((from + to) / 2.0 - Self::GLYPH / 2.0).round(), ((h - Self::GLYPH) / 2.0).round());
-                    scene.stroke(&Stroke::new(1.0), scale, Self::TEXT, None, &glyph);
+                    scene.stroke(&Stroke::new(1.0), scale, colors.buttons.map_or(text, paint), None, &glyph);
                 }
             }
         }
-        self.title(&mut scene, bar);
+        self.title(&mut scene, bar, text);
         scene
     }
 
@@ -227,10 +325,12 @@ impl Decoration {
         path
     }
 
-    fn title(&mut self, scene: &mut Scene, bar: &Bar) {
-        let (left, right) = match bar.style {
-            FrameStyle::Mac => (Self::BUTTONS, Self::BUTTONS),
-            FrameStyle::Windows => (Self::PAD, bar.style.reserved() + Self::PAD),
+    fn title(&mut self, scene: &mut Scene, bar: &Bar, color: Color) {
+        let reserved = bar.style().reserved();
+        let (left, right) = match (bar.align(), bar.side()) {
+            (TitleAlign::Center, _) => (reserved, reserved),
+            (TitleAlign::Start, ButtonSide::Right) => (Self::PAD, reserved + Self::PAD),
+            (TitleAlign::Start, ButtonSide::Left) => (reserved + Self::PAD, Self::PAD),
         };
         let room = (bar.width - left - right) * bar.scale;
         if bar.title.is_empty() || room <= 0.0 {
@@ -253,9 +353,9 @@ impl Decoration {
             }
         }
         let Some(line) = layout.lines().next() else { return };
-        let x = match bar.style {
-            FrameStyle::Mac => (bar.width * bar.scale - f64::from(layout.width())) / 2.0,
-            FrameStyle::Windows => left * bar.scale,
+        let x = match bar.align() {
+            TitleAlign::Center => (bar.width * bar.scale - f64::from(layout.width())) / 2.0,
+            TitleAlign::Start => left * bar.scale,
         };
         let y = (bar.height * bar.scale - f64::from(line.metrics().line_height)) / 2.0;
         let transform = Affine::translate((x, y));
@@ -264,7 +364,7 @@ impl Decoration {
             let glyphs = run.positioned_glyphs().map(|g| Glyph { id: g.id as _, x: g.x, y: g.y });
             let r = run.run();
             let coords: &[i16] = bytemuck::cast_slice(r.normalized_coords());
-            scene.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, Fill::NonZero, Self::TEXT, 1.0, transform, None, glyphs);
+            scene.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, Fill::NonZero, color, 1.0, transform, None, glyphs);
         }
     }
 

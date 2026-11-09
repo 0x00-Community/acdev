@@ -85,6 +85,8 @@ impl App {
             scale: self.scale,
             style: FrameStyle::current(),
             fullscreen: deco.fullscreen,
+            theme: acde_render::FrameTheme::default(),
+            active: true,
         })
     }
 

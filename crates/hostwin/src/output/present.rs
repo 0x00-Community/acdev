@@ -145,6 +145,16 @@ impl Presenter {
                 self.render.invalidate();
                 self.dirty = true;
             }
+            Msg::Theme(theme) => {
+                self.bar.theme = theme;
+                self.render.invalidate();
+                self.dirty = true;
+            }
+            Msg::Active(active) => {
+                self.bar.active = active;
+                self.render.invalidate();
+                self.dirty = true;
+            }
             Msg::Capture(reply) => self.captures.push((reply, Instant::now() + crate::shell::CAPTURE_WAIT)),
             Msg::Stop => return true,
         }

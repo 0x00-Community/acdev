@@ -17,6 +17,8 @@ pub(crate) enum Msg {
     Panel(u32, Option<u32>),
     Title(String),
     Fullscreen(bool),
+    Theme(acde_render::FrameTheme),
+    Active(bool),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
     Stop,
 }
@@ -119,7 +121,7 @@ impl Surface {
         let (window, size, scale, refresh, focus, bar) = {
             let mut state = server.state();
             let id = state.tokens.remove(&token).ok_or("claimSurface: wrong or already used token")?;
-            let (scale, refresh, unfocused) = (state.screen[2], state.refresh, state.focus.is_none());
+            let (scale, refresh, unfocused, theme) = (state.screen[2], state.refresh, state.focus.is_none(), state.theme);
             let entry = state.entries.get_mut(&id).ok_or("claimSurface: window is gone")?;
             entry.frame = if entry.desktop || entry.panel { 0.0 } else { f64::from(frame) };
             entry.inbox = Some(inbox.clone());
@@ -127,7 +129,7 @@ impl Surface {
             entry.app = app;
             entry.opened = true;
             let focus = !entry.hidden && (!entry.desktop || unfocused);
-            let bar = entry.bar();
+            let bar = entry.bar(theme, false);
             (id, state.content(&state.entries[&id]), scale, refresh, focus, bar)
         };
         let wake = link.clone();
@@ -204,6 +206,11 @@ impl Surface {
             C::PlacePanel { id, rect, input } => self.place_panel(id, rect, input),
             C::ClosePanel(id) => self.close_panel(id),
             C::ReservePanel { id, edge, thickness } => self.reserve_panel(id, edge, thickness),
+            C::FrameTheme(theme) => {
+                if let Some(server) = server() {
+                    server.set_theme(theme);
+                }
+            }
             C::DoubleClick(action) => {
                 if let (Some(server), Ok(action)) = (server(), DoubleClick::try_from(action)) {
                     server.state().double_click = action;

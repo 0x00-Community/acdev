@@ -7,6 +7,7 @@ use acde_render::FrameButton;
 use crate::keys;
 use crate::output::compose::{self, Compositor};
 use crate::output::gpu::Gpu;
+use crate::output::surface::Msg;
 use crate::platform::{self, Cmd, Handler, Host, HostEvent, Monitor, Proxy};
 use crate::shell::{Press, State};
 
@@ -63,7 +64,14 @@ impl Server {
             if raise {
                 state.raise(id);
             }
-            (id, state.focus.replace(id))
+            let previous = state.focus.replace(id);
+            if previous != Some(id) {
+                if let Some(previous) = previous {
+                    Self::look(&state, previous, false);
+                }
+                Self::look(&state, id, true);
+            }
+            (id, previous)
         };
         if previous != Some(id) {
             if let Some(previous) = previous {
@@ -82,8 +90,31 @@ impl Server {
         };
         match top {
             Some(id) => self.activate(id),
-            None => self.state().focus = None,
+            None => {
+                let mut state = self.state();
+                if let Some(previous) = state.focus.take() {
+                    Self::look(&state, previous, false);
+                }
+            }
         }
+    }
+
+    fn look(state: &State, id: u32, active: bool) {
+        if let Some(link) = state.entries.get(&id).filter(|e| e.frame > 0.0).and_then(|e| e.link.as_ref()) {
+            link.send(Msg::Active(active));
+        }
+    }
+
+    pub fn set_theme(&self, theme: acde_render::FrameTheme) {
+        let links: Vec<_> = {
+            let mut state = self.state();
+            state.theme = theme;
+            state.entries.values().filter(|e| e.frame > 0.0).filter_map(|e| e.link.clone()).collect()
+        };
+        for link in links {
+            link.send(Msg::Theme(theme));
+        }
+        self.relayout();
     }
 
     pub fn refill(&self) {
@@ -449,7 +480,7 @@ impl App {
     fn frame_button(&self, server: &Server, id: u32) -> Option<FrameButton> {
         let state = server.state();
         let e = state.entries.get(&id)?;
-        (e.frame > 0.0).then(|| e.bar().button_at(self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1])).flatten()
+        (e.frame > 0.0).then(|| e.bar(state.theme, state.focus == Some(id)).button_at(self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1])).flatten()
     }
 
     fn left_press(&mut self, server: &Server, entry: u32) -> bool {

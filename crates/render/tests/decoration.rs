@@ -1,10 +1,10 @@
 use acde_gpu::RenderCommand;
-use acde_render::{Bar, Decoration, FrameButton, FrameStyle};
+use acde_render::{Bar, ButtonSide, Decoration, FrameButton, FrameColors, FrameStyle, FrameTheme, TitleAlign};
 
 mod common;
 
 fn bar(title: &str, width: f64, scale: f64) -> Bar {
-    Bar { title: title.into(), width, height: 32.0, scale, style: FrameStyle::Mac, fullscreen: false }
+    Bar { title: title.into(), width, height: 32.0, scale, style: FrameStyle::Mac, fullscreen: false, theme: FrameTheme::default(), active: true }
 }
 
 fn windows(title: &str, width: f64, scale: f64) -> Bar {
@@ -141,4 +141,51 @@ fn windows_grab_hints_leave_the_buttons_on_the_right() {
     assert_eq!(hints[0], ([0.0, 0.0, 640.0 - 138.0, 32.0], 0));
     let mac = FrameStyle::Mac.grab_hints(640.0, 480.0, 32.0);
     assert_eq!(mac[0], ([76.0, 0.0, 564.0, 32.0], 0));
+}
+
+fn themed(style: FrameStyle, theme: FrameTheme, active: bool) -> Bar {
+    Bar { style, theme, active, ..bar("", 300.0, 1.0) }
+}
+
+const DARK: FrameColors = FrameColors { background: Some([0x20, 0x22, 0x28, 0xff]), title: Some([0xee, 0xee, 0xee, 0xff]), line: None, buttons: None };
+
+#[test]
+fn a_theme_colours_the_bar_for_active_and_inactive_windows() {
+    let theme =
+        FrameTheme { active: DARK, inactive: FrameColors { background: Some([0x40, 0x40, 0x40, 0xff]), ..FrameColors::default() }, ..FrameTheme::default() };
+    assert_eq!(rgb(&pixels(&themed(FrameStyle::Mac, theme, true)), 150.0, 10.0), [0x20, 0x22, 0x28]);
+    assert_eq!(rgb(&pixels(&themed(FrameStyle::Mac, theme, false)), 150.0, 10.0), [0x40, 0x40, 0x40]);
+    let only_active = FrameTheme { active: DARK, ..FrameTheme::default() };
+    assert_eq!(rgb(&pixels(&themed(FrameStyle::Mac, only_active, false)), 150.0, 10.0), [0x20, 0x22, 0x28], "inactive falls back to active");
+    assert_eq!(rgb(&pixels(&themed(FrameStyle::Mac, FrameTheme::default(), false)), 150.0, 10.0), [0xf4, 0xf2, 0xf7], "no theme keeps today's look");
+    let glyphs = FrameTheme { active: FrameColors { buttons: Some([0xff, 0, 0, 0xff]), ..DARK }, ..FrameTheme::default() };
+    let px = pixels(&themed(FrameStyle::Windows, glyphs, true));
+    assert_eq!(rgb(&px, 300.0 - 69.0 - 4.5, 11.5), [0xff, 0, 0], "the button colour draws the glyphs");
+}
+
+#[test]
+fn the_theme_moves_the_buttons_and_their_hits() {
+    let right = FrameTheme { style: Some(FrameStyle::Mac), side: Some(ButtonSide::Right), ..FrameTheme::default() };
+    let b = themed(FrameStyle::Windows, right, true);
+    assert_eq!(b.button_at(300.0 - 76.0 + 18.0, 16.0), Some(FrameButton::Close));
+    assert_eq!(b.button_at(300.0 - 76.0 + 58.0, 16.0), Some(FrameButton::Fullscreen));
+    assert_eq!(b.button_at(18.0, 16.0), None);
+    assert_eq!(rgb(&pixels(&b), 300.0 - 76.0 + 18.0, 16.0), [0xff, 0x5f, 0x57], "the close dot is drawn where it is hit");
+    assert_eq!(right.grab_hints(640.0, 480.0, 32.0)[0], ([0.0, 0.0, 640.0 - 76.0, 32.0], 0));
+    let left = FrameTheme { style: Some(FrameStyle::Windows), side: Some(ButtonSide::Left), ..FrameTheme::default() };
+    let b = themed(FrameStyle::Mac, left, true);
+    assert_eq!(b.button_at(10.0, 16.0), Some(FrameButton::Minimize));
+    assert_eq!(b.button_at(100.0, 16.0), Some(FrameButton::Close));
+    assert_eq!(b.button_at(299.0, 16.0), None);
+    assert_eq!(left.grab_hints(640.0, 480.0, 32.0)[0], ([138.0, 0.0, 640.0 - 138.0, 32.0], 0));
+}
+
+#[test]
+fn the_theme_aligns_the_title() {
+    let start = FrameTheme { style: Some(FrameStyle::Mac), align: Some(TitleAlign::Start), ..FrameTheme::default() };
+    let runs = glyph_runs(&Bar { title: "Notes".into(), width: 400.0, ..themed(FrameStyle::Mac, start, true) });
+    assert!(runs[0].0 >= 76.0 + 11.0 && runs[0].0 < 76.0 + 20.0, "after the buttons on the left: {runs:?}");
+    let centre = FrameTheme { style: Some(FrameStyle::Windows), align: Some(TitleAlign::Center), ..FrameTheme::default() };
+    let runs = glyph_runs(&Bar { title: "Notes".into(), width: 400.0, ..themed(FrameStyle::Windows, centre, true) });
+    assert!(runs[0].0 > 160.0 && runs[0].0 < 200.0, "{runs:?}");
 }

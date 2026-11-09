@@ -94,6 +94,7 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         "closePanel" => close_panel,
         "reservePanel" => reserve_panel,
         "setDoubleClick" => set_double_click,
+        "setFrameTheme" => set_frame_theme,
         "setClipboard" => set_clipboard,
         "readClipboard" => read_clipboard,
         "startDrag" => start_drag,
@@ -292,6 +293,28 @@ fn set_double_click(scope: &mut v8::PinScope, args: v8::FunctionCallbackArgument
         }
         Err(e) => bind::throw_type_error(scope, &format!("setDoubleClick: {e}")),
     }
+}
+
+fn set_frame_theme(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    use acde_render::{ButtonSide, FrameColors, FrameStyle, FrameTheme, TitleAlign};
+    let color = |scope: &mut v8::PinScope, i: i32| {
+        let v = bind::arg_f64(scope, &args, i);
+        (0.0..=f64::from(u32::MAX)).contains(&v).then(|| (v as u32).to_be_bytes())
+    };
+    let mut colors = [FrameColors::default(); 2];
+    for (i, c) in colors.iter_mut().enumerate() {
+        let at = i as i32 * 4;
+        *c = FrameColors { background: color(scope, at), title: color(scope, at + 1), line: color(scope, at + 2), buttons: color(scope, at + 3) };
+    }
+    let pick = |scope: &mut v8::PinScope, i: i32| bind::arg_f64(scope, &args, i) as u32;
+    let theme = FrameTheme {
+        active: colors[0],
+        inactive: colors[1],
+        style: [None, Some(FrameStyle::Mac), Some(FrameStyle::Windows)].get(pick(scope, 8) as usize).copied().flatten(),
+        side: [None, Some(ButtonSide::Left), Some(ButtonSide::Right)].get(pick(scope, 9) as usize).copied().flatten(),
+        align: [None, Some(TitleAlign::Center), Some(TitleAlign::Start)].get(pick(scope, 10) as usize).copied().flatten(),
+    };
+    with_surface(scope, |surface| surface.set_frame_theme(theme));
 }
 
 fn request_activate(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

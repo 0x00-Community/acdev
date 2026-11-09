@@ -23,6 +23,7 @@ pub enum SurfaceCommand {
     ClosePanel(u32),
     ReservePanel { id: u32, edge: u32, thickness: f64 },
     DoubleClick(u32),
+    FrameTheme(crate::FrameTheme),
     Title(String),
     ImeArea([f64; 4]),
 }
