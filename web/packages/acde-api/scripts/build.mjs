@@ -33,7 +33,8 @@ await build({
 for (const name of declarations) await copyFile(join(src, name), join(outSrc, name))
 
 const tsconfig = ts.findConfigFile(root, ts.sys.fileExists, 'tsconfig.json')
-const parsed = ts.parseJsonConfigFileContent(ts.readConfigFile(tsconfig, ts.sys.readFile).config, ts.sys, dirname(tsconfig))
+const config = ts.readConfigFile(tsconfig, ts.sys.readFile).config
+const parsed = ts.parseJsonConfigFileContent(config, ts.sys, dirname(tsconfig))
 const typed = scripts.filter((name) => name.endsWith('.ts')).map((name) => join(src, name))
 const program = ts.createProgram(typed, {
   ...parsed.options,
@@ -47,12 +48,12 @@ const program = ts.createProgram(typed, {
 })
 const diagnostics = ts.getPreEmitDiagnostics(program)
 if (diagnostics.length > 0) {
-  console.error(ts.formatDiagnostics(diagnostics, { getCanonicalFileName: (f) => f, getCurrentDirectory: () => root, getNewLine: () => '\n' }))
+  const host = { getCanonicalFileName: (f) => f, getCurrentDirectory: () => root, getNewLine: () => '\n' }
+  console.error(ts.formatDiagnostics(diagnostics, host))
   process.exit(1)
 }
 const expected = new Set(typed.map((file) => join(outSrc, basename(file).replace(/\.ts$/, '.d.ts'))))
 const emitted = program.emit(undefined, (file, text) => {
-  // TypeScript reports forward slashes on Windows, join() gives backslashes
   if (!expected.has(resolve(file))) throw new Error(`unexpected declaration output ${file}`)
   ts.sys.writeFile(file, text)
 })
