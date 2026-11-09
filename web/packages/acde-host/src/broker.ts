@@ -26,6 +26,7 @@ import { DevRequests } from './broker/dev'
 import { PageCalls, PanelCalls } from './broker/page'
 import { WindowCalls } from './broker/windows'
 import { ServiceCalls } from './broker/services'
+import { AppCalls } from './broker/apps'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -53,6 +54,7 @@ export class Broker {
   #desktop: Web | null = null
   #standaloneWindow: number | null = null
   readonly #windows = new Map<number, WindowRecord>()
+  readonly #appCalls: AppCalls
   readonly #services: ServiceCalls
   readonly #windowCalls: WindowCalls
   readonly #panelCalls: PanelCalls
@@ -126,7 +128,7 @@ export class Broker {
       panel: (id) => this.#panelCalls.has(id),
       close: async (id) => (this.#windows.get(id)?.kind === 'web' ? this.closeWeb(id) : this.shell.close(id)),
       hide: (id, hidden) => this.#hide(id, hidden),
-      open: (name) => this.#openByName(name),
+      open: (name) => this.#appCalls.openByName(name),
       accessibility: () => this.accessibility(),
       records: () => [...this.#windows.keys()],
     })
@@ -139,6 +141,16 @@ export class Broker {
       infos: () => this.webs(),
       web: (name) => this.#web(name),
       emulate: (options) => this.emulate(options),
+    })
+    this.#appCalls = new AppCalls({
+      shell: this.shell,
+      natives: this.natives,
+      opener: this.opener,
+      list: () => this.#appList(),
+      refresh: () => this.refreshApps(),
+      install: (dir) => this.installApps(dir),
+      launch: (appId, request) => this.launch(appId, request),
+      raise: (opened) => this.#raise(opened),
     })
     this.#services = new ServiceCalls({
       bridge: this.bridge,
@@ -180,22 +192,6 @@ export class Broker {
         })
       : Promise.resolve(null)
     return this.#accessibility
-  }
-
-  async #openByName(name: string): Promise<string> {
-    const wanted = name.trim().toLowerCase()
-    const apps = this.#appList()
-    const app = apps.find((a) => a.id.toLowerCase() === wanted) ?? apps.find((a) => a.label.toLowerCase() === wanted) ?? apps.find((a) => a.label.toLowerCase().includes(wanted))
-    if (app) {
-      this.#raise(this.launch(app.id))
-      return `打开了应用 ${app.label} (${app.id})`
-    }
-    const natives = this.natives.list()
-    const native = natives.find((n) => n.id.toLowerCase() === wanted || n.id.toLowerCase() === `${wanted}.desktop`) ?? natives.find((n) => n.name.toLowerCase() === wanted) ?? natives.find((n) => n.name.toLowerCase().includes(wanted))
-    const file = native && this.natives.file(native.id)
-    if (!native || !file) throw Object.assign(new Error(`没有叫 ${name} 的应用 (acde 应用: ${apps.map((a) => a.label).join(', ')})`), { status: 404 })
-    this.shell.launch(['gio', 'launch', file])
-    return `起了原生程序 ${native.name} (${native.id})`
   }
 
   setDark(dark: boolean): void {
@@ -771,36 +767,8 @@ export class Broker {
   }
 
   async #serve(web: Web, service: string, method: string, args: unknown[]): Promise<unknown> {
-    const desktop = web.kind === 'desktop'
-    const caps = web.app?.capabilities ?? null
     if (service === 'windows') return this.#windowCalls.windows(web, method, args)
-    if (service === 'apps') {
-      if (method === 'list') return this.#appList()
-      if (method === 'refresh' || method === 'install') {
-        if (!desktop) throw Web.refused(web, `acde.apps.${method}`)
-        return method === 'refresh' ? this.refreshApps() : this.installApps(String(args[0]))
-      }
-      if (method === 'natives' || method === 'runNative') {
-        if (!desktop) throw Web.refused(web, `acde.apps.${method}`)
-        if (method === 'natives') return this.natives.list()
-        const file = this.natives.file(String(args[0]))
-        if (!file) throw Object.assign(new Error(`no native app ${String(args[0])}`), { status: 404 })
-        return this.shell.launch(['gio', 'launch', file])
-      }
-      if (method === 'openPath' || method === 'handlers' || method === 'setDefault') {
-        if (!desktop && !caps?.['openFiles']) throw Web.refused(web, 'opening files with their apps')
-        if (method === 'openPath') return this.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions, desktop ? null : Web.caller(web.app!))
-        if (method === 'handlers') return this.opener.handlers(String(args[0]))
-        return this.opener.setDefault(String(args[0]), String(args[1]))
-      }
-      if (method === 'launch' || method === 'open') {
-        const [appId, request] = args as [string, Record<string, unknown> | undefined]
-        const open = caps?.open
-        if (!desktop && !(open === true || (Array.isArray(open) && open.includes(appId)))) throw Web.refused(web, `open ${appId}`)
-        return this.launch(appId, request ?? null)
-      }
-      throw new Error(`acde.apps has no ${method}`)
-    }
+    if (service === 'apps') return this.#appCalls.call(web, method, args)
     if (service === 'window') return this.#windowCalls.self(web, method, args)
     if (service === 'panel') return this.#panelCalls.call(web, method, args)
     if (service === 'page') return this.#pageCalls.call(web, method, args)
