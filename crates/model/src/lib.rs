@@ -36,6 +36,7 @@ macro_rules! wire {
 }
 
 mod event;
+pub mod drop_grant;
 mod motion;
 mod pace;
 mod plan;
