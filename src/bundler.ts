@@ -173,7 +173,9 @@ export class BunBundler extends Bundler {
     Bundler.check('backend', result)
   }
 
-  static #public(rules: PublicRules, path: string, importer: string): { path: string; external?: boolean } | undefined {
+  static #public(
+    rules: PublicRules, path: string, importer: string,
+  ): { path: string; external?: boolean } | undefined {
     const clean = path.replace(/[?#].*$/s, '')
     if (existsSync(clean)) return undefined
     const inProject = clean.startsWith(rules.dir + sep)

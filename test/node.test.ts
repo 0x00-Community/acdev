@@ -53,7 +53,9 @@ function underNode(dir: string, entry: string): string[] {
 
 async function waitFor(socket: string, child: Subprocess<'ignore', 'pipe', 'pipe'>): Promise<void> {
   for (let i = 0; i < 400 && !existsSync(socket); i++) {
-    if (child.exitCode !== null) throw new Error(`exited ${child.exitCode}: ${await new Response(child.stderr).text()}`)
+    if (child.exitCode !== null) {
+      throw new Error(`exited ${child.exitCode}: ${await new Response(child.stderr).text()}`)
+    }
     await Bun.sleep(25)
   }
 }
@@ -82,7 +84,8 @@ describe.skipIf(!NODE)('a built Unix-socket backend under node --import acde-lis
     expect(answer.status).toBe(200)
     expect(answer.headers.get('content-type')).toContain('application/json')
     expect(await answer.json()).toEqual({
-      hello: 'from a fetch handler', url: 'http://acde.local/api/hello?x=1', method: 'GET', runtime: 'node', port: null,
+      hello: 'from a fetch handler', url: 'http://acde.local/api/hello?x=1', method: 'GET', runtime: 'node',
+      port: null,
     })
     const inet = inetSockets(child.pid)
     if (inet !== null) expect(inet).toEqual([])
@@ -224,7 +227,8 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
     expect(js).not.toContain('import.meta.env')
     expect(js).toContain('production')
     expect(existsSync(join(result.out, 'web/fonts/fixture.woff2'))).toBe(true)
-    expect(readFileSync(join(result.out, 'web/icon.svg'), 'utf8')).toBe(readFileSync(join(dir, 'src/logo.svg'), 'utf8'))
+    expect(readFileSync(join(result.out, 'web/icon.svg'), 'utf8'))
+      .toBe(readFileSync(join(dir, 'src/logo.svg'), 'utf8'))
     const manifest = JSON.parse(readFileSync(join(result.out, 'package.json'), 'utf8'))
     expect(manifest.acde.apps[0]).toMatchObject({
       id: 'hello-app',
