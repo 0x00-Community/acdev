@@ -20,6 +20,7 @@
   "scripts": {
     "bundle": "bun scripts/bundle.mjs",
     "build": "bun scripts/bundle.mjs",
+    "build:release": "bun scripts/bundle.mjs --release",
     "test": "bun test"
   },
   "dependencies": {
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "javascript-obfuscator": "^5.10.0"
   }
 }

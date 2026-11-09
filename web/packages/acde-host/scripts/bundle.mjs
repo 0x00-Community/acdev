@@ -1,23 +1,39 @@
-// acde-host's two bundles, what crates/acde runs: dist/broker.js (the Broker, src/main.ts) and dist/web.js (a web's
-// thread, src/worker.ts with acde-dom). ES modules for V8 itself: no Node, nothing external; workspace packages from
-// their sources (the `source` condition). Whitespace and syntax are minified (every web thread compiles web.js);
-// identifiers keep their names, so stack traces stay readable, and the source maps map back.
-//
-//   bun scripts/bundle.mjs         in the package directory (its `bundle` script)
 import { build } from 'esbuild'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import JavaScriptObfuscator from 'javascript-obfuscator'
+import { releaseObfuscation } from './release-options.mjs'
+import { checkRelease } from './check-release.mjs'
 
-await build({
-  entryPoints: { broker: 'src/main.ts', web: 'src/worker.ts' },
-  outdir: 'dist',
+const release = process.argv.includes('--release')
+const outdir = release ? 'dist-release' : 'dist'
+const entryPoints = { broker: 'src/main.ts', web: 'src/worker.ts' }
+const shared = {
+  entryPoints,
+  outdir,
   bundle: true,
   format: 'esm',
   platform: 'neutral',
   target: 'es2024',
   conditions: ['source'],
   mainFields: ['module', 'main'],
-  sourcemap: 'linked',
   minifyWhitespace: true,
   minifySyntax: true,
   legalComments: 'none',
   logLevel: 'info',
-})
+}
+
+if (!release) {
+  await build({ ...shared, sourcemap: 'linked' })
+} else {
+  await mkdir(outdir, { recursive: true })
+  await build({ ...shared, minifyIdentifiers: true, sourcemap: false })
+  for (const name of Object.keys(entryPoints)) {
+    const file = join(outdir, `${name}.js`)
+    const source = await readFile(file, 'utf8')
+    const result = JavaScriptObfuscator.obfuscate(source, releaseObfuscation)
+    await writeFile(file, result.getObfuscatedCode())
+    console.log(`obfuscated ${file} (${source.length} -> ${result.getObfuscatedCode().length} bytes)`)
+  }
+  await checkRelease(outdir)
+}
