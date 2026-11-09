@@ -119,7 +119,7 @@ jobs:
           mkdir -p "pkgs/$v"
           cp artifacts/acdert-*/acdert-* "pkgs/$v/"
           cp artifacts/host/LICENSE "pkgs/$v/"
-          tar -C artifacts/host -czf "pkgs/$v/acdert-host-$v.tar.gz" app
+          tar -C artifacts/host -czf "pkgs/$v/acdert-host-$v.tar.gz" app LICENSE
           (cd "pkgs/$v" && sha256sum -- * > SHA256SUMS)
           files=$(cd "pkgs/$v" && ls | jq -R . | jq -sc .)
           jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$GITHUB_SHA" --argjson files "$files" \

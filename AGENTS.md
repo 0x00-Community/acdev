@@ -666,7 +666,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
   `LICENSE` (专有许可) 随 tarball 和 GitHub release 发布. 启动和帧的数字见下面 acde-host 一条 (`scripts/release-perf/bench.sh`).
 
 - 推 `v*` tag: 建 GitHub prerelease, 附上三个 binary 和 host bundle. 手动触发 (`workflow_dispatch`) 只编, 不建 release.
-- 同一个 tag 也传到 AWS S3 桶 `dopame-pkgs` (`pkgs` job, 三个平台和 host 都编成功才传): `acdert/<版本>/` 放三个 binary、host bundle
+- 同一个 tag 也传到 AWS S3 桶 `dopame-pkgs` (`pkgs` job, 三个平台和 host 都编成功才传): `acdert/<版本>/` 放三个 binary、host bundle (`app/` 和 `LICENSE`)、`LICENSE` 单独一份
   和 `SHA256SUMS` (缓存一年, 不再改), `acdert/latest.json` (`{version, tag, commit, base, files}`, 不缓存) 指向最新的一版;
   下载地址 `https://pkgs.dopame.ai/acdert/<版本>/<文件>`. 传完让 CloudFront `E3ET3L14ALFOXX` 失效这两处. 凭证走 GitHub OIDC,
   不存密钥: IAM 角色 `dopame-acdert-release` 只信任本仓库的 `refs/tags/v*` (sub 是不可变形式
