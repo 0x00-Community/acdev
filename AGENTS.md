@@ -654,10 +654,19 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 
 ## 发版
 
-`.github/workflows/release.yml`, 三个平台各编一个 debug 的 `acdert` (`cargo build -p acdert --target <triple>`), 文件名是
+`.github/workflows/release.yml`, 三个平台各编一个 release 的 `acdert` (`cargo build --profile dist -p acdert --target <triple>`, 产物在 `target/<triple>/dist/`), 文件名是
 `acdert-<target triple>[.exe]`: `aarch64-apple-darwin` (macos-15)、`x86_64-unknown-linux-gnu` (ubuntu-24.04)、`x86_64-pc-windows-msvc`
 (windows-2025, 要 NASM 和 `PYTHON3`). host bundle 和平台无关, 单独打成 `acdert-host-<版本>.tar.gz` (`app/`: `dist`、`brand`、`greet`、
 `package.json`, `LICENSE`), 解压到 binary 旁边 (acdert 找 `<exe 所在目录>/app/dist`). 桌面包 (Dopame) 不在里面.
+- 二进制 (`dist` profile, 根 `Cargo.toml`, 继承 `release`): `debug = "line-tables-only"`、`split-debuginfo = "packed"`、`strip = "symbols"`. 发出去的 binary 不带符号.
+  分离的调试信息 (Windows `acdert.pdb`、Linux `acdert.dwp`、macOS `acdert.dSYM`) 只进 `symbols-<triple>` 的 Actions artifact (保留 30 天): 不上 GitHub release, 不进 pkgs.
+  本地 `release` profile 不变 (`strip = true`, 没有调试信息), `scripts/` 和基准都用它, 所以它留着.
+- Windows 的 PDB 路径: `.cargo/config.toml` 的 `/PDBALTPATH:%_PDB%` 让 exe 只记 PDB 的文件名 (MSVC 本来会写完整路径). CI 的 RUSTFLAGS 另加
+  `--remap-path-prefix`: cargo home、toolchain、workspace 分别映射成 `/cargo`、`/rustc`、`/src`, 去掉 registry 和 toolchain 路径里的用户名.
+- 发布清单: `stage` job 用 `scripts/release/stage.sh` 按固定清单组装 (三个 binary、host tarball、LICENSE). `scripts/release/check-stage.sh` 拒绝清单外的
+  文件, 目录, 以及 `.pdb` / `.dSYM` / `.dwp` / `.debug`; release 和 pkgs 上传前各跑一遍. release 和 pkgs 只下载 `release-stage` artifact,
+  不用通配. 本地演练 `bash scripts/release/dry-run.sh`: 放进假的 symbols, 检查必须拒绝, 清单里只有五个文件.
+- 缓存: build job 用 `Swatinem/rust-cache@v2` (pinned major). 带 `id-token` 的 job 不用第三方 action (`pkgs` 里的 aws-actions 是例外, 待定).
   host bundle 用 release 构建 (`bun run --filter @dopame/acde-host build:release`, 写到 `web/packages/acde-host/dist-release/`): 标识符压缩, 没有
   source map 也没有 `sourceMappingURL`, 再过一遍 javascript-obfuscator 的轻量预设 (`scripts/release-options.mjs`: 只重命名标识符和字符串数组, 不做
   控制流平坦化、死代码注入、自我保护和调试保护, 它们每个 web 线程都要付运行时代价). `scripts/check-release.mjs` 是泄漏检查: 有 map、
