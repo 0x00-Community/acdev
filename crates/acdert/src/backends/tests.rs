@@ -127,13 +127,14 @@ fn the_socket_directory_is_only_for_system_and_the_user() {
 
 #[test]
 fn socket_paths_fit_sun_path_and_old_generations_are_swept() {
-    assert_eq!(dir::base(Some(r"X:\run".as_ref()), Some(r"Y:\local".as_ref())), Some(PathBuf::from(r"X:\run\acde\b")));
-    assert_eq!(dir::base(Some("".as_ref()), Some(r"Y:\local".as_ref())), Some(PathBuf::from(r"Y:\local\acde\b")));
-    assert_eq!(dir::base(None, None), None);
+    let temp = PathBuf::from(r"Y:\Users\someone\AppData\Local\Temp");
+    assert_eq!(dir::base(Some(r"X:\run".as_ref()), &temp), PathBuf::from(r"X:\run\acde\b"));
+    assert_eq!(dir::base(Some("".as_ref()), &temp), temp.join(r"acde\b"));
+    assert_eq!(dir::base(None, &temp), temp.join(r"acde\b"));
     let name = dir::generation_name();
     let (pid, tag) = name.split_once('.').expect("pid.tag");
     assert_eq!((pid.parse::<u32>().ok(), tag.len()), (Some(std::process::id()), 6));
-    assert!(dir::fits(&PathBuf::from(r"C:\Users\someone\AppData\Local\acde\b\12345.abcdef")));
+    assert!(dir::fits(&PathBuf::from(r"C:\Users\someone\AppData\Local\Temp\acde\b\12345.abcdef")));
     assert!(!dir::fits(&PathBuf::from(format!(r"C:\{}", "x".repeat(94)))));
     assert!(dir::fits(&PathBuf::from(format!(r"C:\{}", "x".repeat(93)))));
 

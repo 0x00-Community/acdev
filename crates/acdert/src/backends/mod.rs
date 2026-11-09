@@ -86,8 +86,7 @@ fn remove(dir: &std::path::Path) {
 
 fn generation() -> Result<PathBuf, String> {
     static SWEPT: Once = Once::new();
-    let base = dir::base(std::env::var_os("XDG_RUNTIME_DIR").as_deref(), std::env::var_os("LOCALAPPDATA").as_deref())
-        .ok_or("neither XDG_RUNTIME_DIR nor LOCALAPPDATA is set")?;
+    let base = dir::base(std::env::var_os("XDG_RUNTIME_DIR").as_deref(), &std::env::temp_dir());
     std::fs::create_dir_all(&base).map_err(|e| format!("cannot create {}: {e}", base.display()))?;
     SWEPT.call_once(|| {
         for left in dir::sweep(&base, dir::alive) {

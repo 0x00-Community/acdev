@@ -74,9 +74,9 @@ pub fn create_protected(path: &Path, sddl: &str) -> io::Result<()> {
     Ok(())
 }
 
-pub fn base(xdg_runtime: Option<&OsStr>, local_app_data: Option<&OsStr>) -> Option<PathBuf> {
-    let root = xdg_runtime.filter(|dir| !dir.is_empty()).or(local_app_data.filter(|dir| !dir.is_empty()))?;
-    Some(Path::new(root).join("acde").join("b"))
+pub fn base(xdg_runtime: Option<&OsStr>, temp: &Path) -> PathBuf {
+    let root = xdg_runtime.filter(|dir| !dir.is_empty()).map_or(temp, Path::new);
+    root.join("acde").join("b")
 }
 
 pub fn fits(dir: &Path) -> bool {

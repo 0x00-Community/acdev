@@ -537,12 +537,13 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     支持通道的 `acde-listen.js` 含字符串 `acde-listen-channel/1`; 运行时起 node 前查这个标记, 没有就不起, 打 warn
     `not started: acde-listen.js does not support the Windows channel (built by an older acde: acde build it again)`.
   - **套接字目录**: 每一代 (每次起, 含崩溃后重起) 新建一个短目录 `<base>\<运行时 pid>.<6 位随机十六进制>`, base 是 `$XDG_RUNTIME_DIR\acde\b`,
-    没设时 `%LOCALAPPDATA%\acde\b`. 建目录时就带上受保护的 DACL (不先建后改): 只有 SYSTEM 和当前用户, 完全控制, 对象和容器继承, 关闭从上级继承
+    没设时用户临时目录下的 `acde\b` (`std::env::temp_dir()`, 即 `GetTempPath2W`: `%TMP%` / `%TEMP%`, 一般是 `%LOCALAPPDATA%\Temp`). 建目录时就带上受保护的 DACL (不先建后改): 只有 SYSTEM 和当前用户, 完全控制, 对象和容器继承, 关闭从上级继承
     (SDDL `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;<用户 SID>)`); 套接字文件继承它 (实测 `D:AI(A;ID;FA;;;<用户>)(A;ID;FA;;;SY)`). AF_UNIX 路径最多
     108 字节 (`sun_path`, UTF-8, 含结尾 NUL): 运行时用 `65535.sock` 算最长路径, 超了不起并打 warn. 停止后删掉本代目录; 运行时第一次起后端前删掉
     base 下 pid 已不在的目录 (崩溃留下的). 被杀的 Bun 会留下套接字文件, 同一路径再 `Bun.serve` 是 `EADDRINUSE`, 所以每代用新目录.
-    从 MSIX 打包应用 (例如 Claude 桌面版) 派生的进程写 `%APPDATA%` / `%LOCALAPPDATA%` 时被重定向到 `Packages\<包>\LocalCache`, 在那里建的
-    AF_UNIX 套接字连不上 (`WSAEINVAL` 10022, Bun 自己的客户端也一样), 也删不掉; `%TEMP%` 和用户目录外的路径不受影响. 这种环境下设 `XDG_RUNTIME_DIR`.
+    不用 `%LOCALAPPDATA%` 本身: 从 MSIX 打包应用 (例如 Claude 桌面版) 派生的进程 (含经 `Start-Process` / `cmd /c start` 再起的) 写
+    `%APPDATA%` / `%LOCALAPPDATA%` 时被重定向到 `Packages\<包>\LocalCache`, 在那里建的 AF_UNIX 套接字连不上 (Bun 自己的客户端也一样);
+    临时目录不被重定向. 实测 (2026-11-10): 普通进程 (不在包环境里) 两处都能连, 包环境里只有临时目录能连.
   - **运行时连接**: 套接字模式和 unix 同一段: `fetch.rs` 的 `ntex::rt::unix_connect` (Windows 上 ntex 的 IOCP 反应器用 socket2 建 AF_UNIX
     再 `ConnectEx`), 不用线程桥接; `Dial::check` 接受 Windows 的绝对路径. 通道模式经通道开流. web 初始化参数: 套接字模式照旧给 `sockets`
     (只表示有后端, 值是 base), 通道模式不给 `sockets`, 给 `channel: true` (`AppBackends.webInit`). Windows 上两种 web 都按 `init.app.id` 拨

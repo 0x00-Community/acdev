@@ -62,7 +62,7 @@ export class AppBackends {
     if (!AppBackends.windows) return { sockets: AppBackends.socketDir(id) }
     const argv = AppBackends.argv(AppBackends.env('PATH'), 'acde-listen.js', 'server.js', process.env['ACDE_RUNTIME'])
     if (argv && AppBackends.mode(argv) === 'channel') return { channel: true }
-    return { sockets: join(AppBackends.env('LOCALAPPDATA') ?? AppBackends.env('TEMP') ?? '', 'acde', 'b') }
+    return { sockets: join(AppBackends.env('XDG_RUNTIME_DIR') || AppBackends.env('TMP') || AppBackends.env('TEMP') || '', 'acde', 'b') }
   }
 
   static #dataDir(id: string): string {
