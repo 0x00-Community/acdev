@@ -187,7 +187,7 @@ fn copy_in_refuses_an_outside_drive_path() {
     let s = Scratch::new();
     let secret = outside_file(&s, "secret.txt", "outside secret");
     let app = copy_app(&s, "vault");
-    assert_eq!(copy(&app, &s, "", secret.to_str().unwrap()), Err((403, "EACCES")));
+    assert_eq!(copy(&app, &s, "", secret.to_str().unwrap()), Err((403, "EPERM")));
     assert!(!Path::new(&s.root.path).join("secret.txt").exists());
 }
 
@@ -197,7 +197,7 @@ fn copy_in_refuses_an_outside_file_url() {
     let secret = outside_file(&s, "secret.txt", "outside secret");
     let uri = url::Url::from_file_path(&secret).unwrap();
     let app = copy_app(&s, "vault");
-    assert_eq!(copy(&app, &s, "", uri.as_str()), Err((403, "EACCES")));
+    assert_eq!(copy(&app, &s, "", uri.as_str()), Err((403, "EPERM")));
     assert!(!Path::new(&s.root.path).join("secret.txt").exists());
 }
 
@@ -211,7 +211,7 @@ fn copy_in_refuses_a_junction_that_leaves_the_granted_folder() {
     make_junction(&link, &outside);
     let app = copy_app(&s, "vault");
     let through = link.join("secret.txt");
-    assert_eq!(copy(&app, &s, "", through.to_str().unwrap()), Err((403, "EACCES")));
+    assert_eq!(copy(&app, &s, "", through.to_str().unwrap()), Err((403, "EPERM")));
     assert!(!Path::new(&s.root.path).join("secret.txt").exists());
     assert_eq!(fs::read(outside.join("secret.txt")).unwrap(), b"outside");
 }
@@ -242,7 +242,7 @@ fn a_dropped_file_is_copied_once_for_the_app_it_was_dropped_on() {
     let copied = copy(&app, &s, "docs", dropped.to_str().unwrap()).unwrap();
     assert_eq!(copied["name"], "dropped.txt");
     assert_eq!(fs::read(Path::new(&s.root.path).join("docs/dropped.txt")).unwrap(), b"dropped contents");
-    assert_eq!(copy(&app, &s, "docs", dropped.to_str().unwrap()), Err((403, "EACCES")));
+    assert_eq!(copy(&app, &s, "docs", dropped.to_str().unwrap()), Err((403, "EPERM")));
 }
 
 #[test]
@@ -262,5 +262,5 @@ fn a_drop_for_another_app_does_not_open_the_source() {
     let dropped = outside_file(&s, "other.txt", "other contents");
     let app = copy_app(&s, "vault");
     acde_model::drop_grant::record(Some("other"), std::slice::from_ref(&dropped));
-    assert_eq!(copy(&app, &s, "", dropped.to_str().unwrap()), Err((403, "EACCES")));
+    assert_eq!(copy(&app, &s, "", dropped.to_str().unwrap()), Err((403, "EPERM")));
 }

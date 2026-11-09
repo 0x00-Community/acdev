@@ -384,6 +384,7 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 | --- | --- | --- |
 | `EINVAL` | 400 | 参数不对、出 root、类型不对、符号链接 |
 | `EACCES` | 403 | 清单没给这个 root、系统不让 |
+| `EPERM` | 403 | `copyIn` 的来源不在本应用可用的文件夹内又没有拖放授权, 或打开时被换掉 |
 | `ENOENT` | 404 | 不存在 |
 | `EEXIST` | 409 | 已经有了 |
 | `ECONFLICT` | 409 | 打开之后被改了 / 没了 (`expectedModifiedMs` / `ifModifiedMs` 对不上) |
@@ -409,7 +410,7 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 
 **`copyIn` 的来源** (`fs/copy_source.rs`): `copyIn(root, dir, source)` 的 source (绝对路径或 `file://`) 先按 realpath 解析 (跟随链接), 然后只接受两种:
 (a) 落在这个应用能用的某个根里 (清单的 roots 或 granted 文件夹, 同 `acde:fs` 的 `roots()`); (b) 等于宿主为这个应用记下的一次性拖放授权 (`acde_model::drop_grant`,
-绑定应用 id 和规范路径, 5 分钟内未用就过期, 第一次成功的 copyIn 消耗它, 失败则归还; 授权只管 copyIn, 不管直接读). 其余一律 403 / `EACCES`, 目标文件夹的检查不变.
+绑定应用 id 和规范路径, 5 分钟内未用就过期, 第一次成功的 copyIn 消耗它, 失败则归还; 授权只管 copyIn, 不管直接读). 其余一律 403 / `EPERM` (和系统拒绝的 `EACCES` 分开, 页面据此提示没有权限导入这个文件), 目标文件夹的检查不变.
 打开来源后再比对它的最终路径 (Windows `GetFinalPathNameByHandleW`, Linux `/proc/self/fd`), 中途被换成链接的来源被拒绝; macOS 等 unix 只在打开前后重新解析, 较弱, 未验证.
 拖放授权由宿主窗口的共用拖放入口 (`crates/hostwin/src/app.rs` `dropped`, Windows `WM_DROPFILES` 与 macOS/Linux winit 都经它) 记入. 应用 id 是 claimSurface 时该 web 的
 spawn 参数 (`grants.app`, Broker 决定), 桌面没有应用 id, 记在桌面名下. Linux 会话的拖放 (`crates/window` 的 `drop_performed`) 还没有接入, 那里拖入的文件 copyIn 会被拒绝 (失败关闭).

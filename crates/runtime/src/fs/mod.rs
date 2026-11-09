@@ -548,12 +548,12 @@ mod tests {
             json(app.call(call))
         };
         let uri = url::Url::from_file_path(&secret).unwrap();
-        assert_eq!(copy(secret.to_str().unwrap())["code"], "EACCES");
-        assert_eq!(copy(uri.as_str())["code"], "EACCES");
+        assert_eq!(copy(secret.to_str().unwrap())["code"], "EPERM");
+        assert_eq!(copy(uri.as_str())["code"], "EPERM");
         assert_eq!(copy(vault.join("inside.txt").to_str().unwrap())["name"], "inside.txt");
         acde_model::drop_grant::record(Some("copy-probe"), std::slice::from_ref(&secret));
         assert_eq!(copy(uri.as_str())["name"], "secret.txt");
-        assert_eq!(copy(uri.as_str())["code"], "EACCES");
+        assert_eq!(copy(uri.as_str())["code"], "EPERM");
         _ = std::fs::remove_dir_all(base);
     }
 }

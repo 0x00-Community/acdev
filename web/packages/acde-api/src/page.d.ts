@@ -35,7 +35,7 @@ export interface FileBytes {
   readonly data: Uint8Array
 }
 
-export type AcdeFsErrorCode = 'EINVAL' | 'EACCES' | 'ENOENT' | 'EEXIST' | 'ECONFLICT' | 'ENOTEMPTY' | 'EFBIG' | 'EILSEQ' | 'ENOSPC' | 'EIO'
+export type AcdeFsErrorCode = 'EINVAL' | 'EACCES' | 'EPERM' | 'ENOENT' | 'EEXIST' | 'ECONFLICT' | 'ENOTEMPTY' | 'EFBIG' | 'EILSEQ' | 'ENOSPC' | 'EIO'
 
 export interface AcdeFsError extends Error {
   readonly status: number

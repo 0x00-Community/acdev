@@ -17,6 +17,7 @@ pub(crate) enum Code {
 pub enum Errno {
     Inval,
     Acces,
+    Perm,
     Noent,
     Exist,
     Conflict,
@@ -32,6 +33,7 @@ impl Errno {
         match self {
             Self::Inval => "EINVAL",
             Self::Acces => "EACCES",
+            Self::Perm => "EPERM",
             Self::Noent => "ENOENT",
             Self::Exist => "EEXIST",
             Self::Conflict => "ECONFLICT",

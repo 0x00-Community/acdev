@@ -1,5 +1,5 @@
 use super::workspace::{FinderRoot, WorkspaceFs};
-use crate::failure::{Failure, Outcome};
+use crate::failure::{Errno, Failure, Outcome};
 use acde_model::drop_grant::{self, Claim};
 use std::fs::{self, File, OpenOptions};
 use std::io::ErrorKind;
@@ -37,7 +37,7 @@ pub(super) fn admit(allowed: &[FinderRoot], requested: &Path, owner: Option<&str
     }
     let file = WorkspaceFs::no_follow(OpenOptions::new().read(true), &real, true)?;
     if !opened_as(&file, &real) {
-        return Err(Failure::http(403, "the source changed while it was being opened"));
+        return Err(Failure::http(403, "the source changed while it was being opened").with(Errno::Perm));
     }
     let file_name = requested.file_name().ok_or_else(|| Failure::invalid("source has no file name"))?;
     let name = file_name.to_string_lossy().into_owned();
@@ -57,7 +57,7 @@ fn lexically_inside(allowed: &[FinderRoot], requested: &Path) -> bool {
 }
 
 fn refused() -> Failure {
-    Failure::http(403, "this app may copy in only files from its folders or files dropped onto its window")
+    Failure::http(403, "this app may copy in only files from its folders or files dropped onto its window").with(Errno::Perm)
 }
 
 fn opened_as(file: &File, real: &Path) -> bool {
