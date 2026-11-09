@@ -1551,6 +1551,10 @@ impl Engine {
             tree.ids.documents.insert(copy, info);
         } else if let Some(&owner) = tree.ids.owners.get(&node) {
             tree.ids.owners.insert(copy, owner);
+            let xml = tree.ids.documents.get(&owner).is_some_and(|info| info.xml);
+            if let Some(data) = tree.m.doc.get_node_mut(copy) {
+                data.flags.set(blitz_dom::node::NodeFlags::IN_XML_DOCUMENT, xml);
+            }
         }
         if let Some(form) = tree.ids.forms.get(&node).cloned() {
             tree.ids.forms.insert(copy, form);
@@ -1671,6 +1675,7 @@ impl Engine {
     }
 
     fn adopt_into(&mut self, node: NodeId, owner: Option<NodeId>) {
+        let xml = owner.and_then(|d| self.ids.documents.get(&d)).is_some_and(|info| info.xml);
         let mut stack = vec![node];
         while let Some(n) = stack.pop() {
             if !self.ids.documents.contains_key(&n) {
@@ -1678,6 +1683,9 @@ impl Engine {
                     Some(doc) => self.ids.owners.insert(n, doc),
                     None => self.ids.owners.remove(&n),
                 };
+            }
+            if let Some(data) = self.doc.get_node_mut(n) {
+                data.flags.set(blitz_dom::node::NodeFlags::IN_XML_DOCUMENT, xml);
             }
             if let Some(data) = self.doc.get_node(n) {
                 stack.extend(data.children.iter().copied());

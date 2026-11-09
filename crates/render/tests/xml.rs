@@ -90,7 +90,11 @@ fn xhtml_elements_are_html_elements() {
 fn entities_from_the_internal_subset() {
     let (_d, dom) = page();
     let doc = dom
-        .parse_xml(r#"<!DOCTYPE r [<!ENTITY who "World"><!ENTITY greet "Hello, &who;!"><!ENTITY b "<b>bold</b>">]><r a="&greet;">&greet; &b;</r>"#, "text/xml", "http://acde.local/")
+        .parse_xml(
+            r#"<!DOCTYPE r [<!ENTITY who "World"><!ENTITY greet "Hello, &who;!"><!ENTITY b "<b>bold</b>">]><r a="&greet;">&greet; &b;</r>"#,
+            "text/xml",
+            "http://acde.local/",
+        )
         .unwrap();
     let r = root(&dom, doc);
     assert_eq!(dom.get_attribute(r, "a").unwrap().as_deref(), Some("Hello, World!"));
@@ -164,4 +168,25 @@ fn insertion_adopts_into_the_parents_document() {
 
 fn error_name<T: std::fmt::Debug>(result: acde_render::Result<T>) -> String {
     result.unwrap_err().0.split(':').next().unwrap().to_owned()
+}
+
+#[test]
+fn selectors_match_in_xml_documents() {
+    let (_d, dom) = page();
+    let doc = dom.parse_xml("<Foo xmlns:x='urn:x'><bar>baz</bar><x:q/><aB><c/></aB></Foo>", "application/xml", "http://acde.local/").unwrap();
+    let root = root(&dom, doc);
+    assert_eq!(dom.query_selector(doc, "Foo").unwrap(), root);
+    assert_eq!(dom.query_selector_all(doc, "bar").unwrap().len(), 1);
+    assert_eq!(dom.query_selector_all(doc, "Foo bar").unwrap().len(), 1);
+    assert_eq!(dom.query_selector_all(doc, "aB *").unwrap().len(), 1);
+    assert_eq!(dom.query_selector_all(doc, "foo").unwrap().len(), 0, "type selectors are case-sensitive in XML documents");
+    assert_eq!(dom.query_selector_all(doc, "q").unwrap().len(), 1);
+    let copy = dom.clone(root, true).unwrap();
+    assert_eq!(dom.query_selector_all(copy, "aB").unwrap().len(), 1, "clones stay in the XML document");
+    let (_d2, page2) = (0, &dom);
+    page2.parse_document("<body><svg><linearGradient id=g /></svg><DIV id=d></DIV></body>").unwrap();
+    assert_eq!(page2.query_selector_all(page2.document(), "linearGradient").unwrap().len(), 1, "SVG names keep their case in HTML documents");
+    assert_eq!(page2.query_selector_all(page2.document(), "lineargradient").unwrap().len(), 0);
+    assert_eq!(page2.query_selector_all(page2.document(), "div").unwrap().len(), 1);
+    assert_eq!(page2.query_selector_all(page2.document(), "DIV").unwrap().len(), 1, "HTML names are case-insensitive in HTML documents");
 }
