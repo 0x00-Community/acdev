@@ -10,7 +10,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
-  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   build:
@@ -44,18 +43,49 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.triple }}
-      - name: acdert (debug)
-        run: cargo build -p acdert --target ${{ matrix.triple }}
-      - name: stage
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dist-${{ matrix.triple }}
+      - name: rustc flags (static CRT on Windows, paths remapped, PDB by file name)
         shell: bash
         run: |
-          mkdir -p out
-          cp target/${{ matrix.triple }}/debug/acdert${{ matrix.exe }} out/acdert-${{ matrix.triple }}${{ matrix.exe }}
+          cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+          sysroot=$(rustc --print sysroot)
+          workspace="$GITHUB_WORKSPACE"
+          flags=""
+          case "$(uname -s)" in
+            MINGW* | MSYS* | CYGWIN*)
+              cargo_home=$(cygpath -w "$cargo_home")
+              sysroot=$(cygpath -w "$sysroot")
+              workspace=$(cygpath -w "$workspace")
+              flags="-C target-feature=+crt-static -C link-arg=/PDBALTPATH:%_PDB%"
+              ;;
+          esac
+          flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$workspace=/src"
+          echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"
+      - name: "acdert (dist profile: release build, split debug information)"
+        run: cargo build --profile dist -p acdert --target ${{ matrix.triple }}
+      - name: stage binary and split debug information
+        shell: bash
+        run: |
+          dist=target/${{ matrix.triple }}/dist
+          mkdir -p out symbols
+          cp "$dist/acdert${{ matrix.exe }}" "out/acdert-${{ matrix.triple }}${{ matrix.exe }}"
+          for part in acdert.pdb acdert.dwp acdert.dSYM; do
+            if [ -e "$dist/$part" ]; then cp -R "$dist/$part" symbols/; fi
+          done
+          if [ -z "$(ls -A symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
+          ls -la out symbols
       - uses: actions/upload-artifact@v7
         with:
           name: acdert-${{ matrix.triple }}
           path: out
           retention-days: 1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: symbols-${{ matrix.triple }}
+          path: symbols
+          retention-days: 30
 
   host:
     runs-on: ubuntu-24.04
@@ -82,27 +112,54 @@ jobs:
           path: out
           retention-days: 1
 
-  release:
+  stage:
     needs: [build, host]
-    if: ${{ !cancelled() && github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
+      - name: stage the release files (explicit allow-list; symbol artifacts are never read)
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=dispatch; fi
+          scripts/release/stage.sh artifacts "$version" out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-stage
+          path: out
+          retention-days: 1
+
+  release:
+    needs: [stage]
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-stage
+          path: release-stage
+      - name: check the staging before upload
+        env:
+          TAG: ${{ github.ref_name }}
+        run: scripts/release/check-stage.sh release-stage "${TAG#v}"
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          tar -C artifacts/host -czf "acdert-host-${TAG#v}.tar.gz" app LICENSE
+          v=${TAG#v}
+          cd release-stage
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG" \
-            --notes "Debug builds. Put the app/ directory from acdert-host-${TAG#v}.tar.gz next to the binary." \
-            artifacts/acdert-*/acdert-* "acdert-host-${TAG#v}.tar.gz" artifacts/host/LICENSE
+            --notes "Release builds (split debug information is not attached). Put the app/ directory from acdert-host-$v.tar.gz next to the binary." \
+            "acdert-x86_64-unknown-linux-gnu" "acdert-aarch64-apple-darwin" "acdert-x86_64-pc-windows-msvc.exe" \
+            "acdert-host-$v.tar.gz" "LICENSE"
 
   pkgs:
-    needs: [build, host]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.build.result == 'success' && needs.host.result == 'success' }}
+    needs: [stage]
+    if: ${{ !cancelled() && github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -110,17 +167,20 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          path: artifacts
+          name: release-stage
+          path: release-stage
       - name: stage
         run: |
           v=${TAG#v}
+          scripts/release/check-stage.sh release-stage "$v"
           mkdir -p "pkgs/$v"
-          cp artifacts/acdert-*/acdert-* "pkgs/$v/"
-          cp artifacts/host/LICENSE "pkgs/$v/"
-          tar -C artifacts/host -czf "pkgs/$v/acdert-host-$v.tar.gz" app LICENSE
+          cp release-stage/acdert-x86_64-unknown-linux-gnu release-stage/acdert-aarch64-apple-darwin \
+            release-stage/acdert-x86_64-pc-windows-msvc.exe "release-stage/acdert-host-$v.tar.gz" release-stage/LICENSE "pkgs/$v/"
           (cd "pkgs/$v" && sha256sum -- * > SHA256SUMS)
+          scripts/release/check-stage.sh "pkgs/$v" "$v"
           files=$(cd "pkgs/$v" && ls | jq -R . | jq -sc .)
           jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$GITHUB_SHA" --argjson files "$files" \
             '{version: $version, tag: $tag, commit: $commit, base: "https://pkgs.dopame.ai/acdert/\($version)/", files: $files}' \
