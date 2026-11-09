@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
 use acde_model::{Event, Inbox, Mode, Waker};
-use acde_render::SurfaceCommand;
+use acde_render::{RenderHandle, SurfaceCommand};
 
 use crate::app::server;
 use crate::platform::{self, Cmd};
@@ -84,7 +84,7 @@ pub(crate) fn set_mode(id: u32, mode: Mode) {
 }
 
 impl Surface {
-    pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32) -> Result<Self, String> {
+    pub fn claim(token: u64, render: RenderHandle, frame: u32, app: Option<String>) -> Result<Self, String> {
         let server = server().ok_or("claimSurface: no host window")?;
         let inbox = Arc::new(Inbox::default());
         let (tx, rx) = mpsc::channel();
@@ -97,6 +97,7 @@ impl Surface {
             entry.frame = if entry.desktop || entry.panel { 0.0 } else { f64::from(frame) };
             entry.inbox = Some(inbox.clone());
             entry.link = Some(link.clone());
+            entry.app = app;
             entry.opened = true;
             let focus = !entry.hidden && (!entry.desktop || unfocused);
             let bar = entry.bar();

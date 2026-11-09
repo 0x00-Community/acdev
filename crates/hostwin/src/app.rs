@@ -245,6 +245,14 @@ impl Handler for App {
     }
 }
 
+fn drop_owner(state: &State, target: u32) -> Option<Option<String>> {
+    let entry = state.entries.get(&target)?;
+    match (entry.desktop, &entry.app) {
+        (true, _) => Some(None),
+        (false, app) => app.clone().map(Some),
+    }
+}
+
 impl App {
     fn resized(&mut self, server: &Server, size: (u32, u32), scale: f64) {
         let screen = [(f64::from(size.0) / scale).round(), (f64::from(size.1) / scale).round()];
@@ -453,6 +461,10 @@ impl App {
         let (x, y) = self.pointer;
         let hit = server.state().hit(x, y);
         let Some(hit) = hit else { return };
+        let owner = drop_owner(&server.state(), hit.target);
+        if let Some(app) = owner {
+            acde_model::drop_grant::record(app.as_deref(), paths);
+        }
         let (lx, ly) = (x - hit.origin[0], y - hit.origin[1]);
         let uris: Vec<String> = paths.iter().filter_map(|p| url::Url::from_file_path(p).ok()).map(String::from).collect();
         let plain: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();

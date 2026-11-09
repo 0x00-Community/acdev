@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 pub use acde_hostwin::{Event, Waker};
 pub use acde_render::DragImage;
-use acde_render::SurfaceCommand as C;
+use acde_render::{RenderHandle, SurfaceCommand as C};
 
 pub enum Surface {
     #[cfg(target_os = "linux")]
@@ -29,9 +29,9 @@ macro_rules! commands {
 }
 
 impl Surface {
-    pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32) -> Result<Self, String> {
+    pub fn claim(token: u64, render: RenderHandle, frame: u32, app: Option<String>) -> Result<Self, String> {
         if acde_hostwin::active() {
-            return acde_hostwin::Surface::claim(token, render, frame).map(Surface::Host);
+            return acde_hostwin::Surface::claim(token, render, frame, app).map(Surface::Host);
         }
         #[cfg(target_os = "linux")]
         return acde_window::Surface::claim(token, render, frame).map(Surface::Wayland);

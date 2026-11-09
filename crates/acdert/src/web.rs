@@ -56,6 +56,7 @@ struct System {
 
 #[derive(Default)]
 struct Grants {
+    app: Option<String>,
     fs: Option<acde_runtime::Workspace>,
     picker: crate::picker::Picker,
     #[cfg(unix)]
@@ -86,6 +87,7 @@ impl Webs {
         let picker = crate::picker::Picker::new(app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
         Grants {
             fs: fs.map(|roots| workspace.scoped(roots, app.as_deref())),
+            app,
             picker,
             #[cfg(unix)]
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
@@ -99,6 +101,7 @@ impl Webs {
 
 impl Grants {
     fn install(self, scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
+        crate::webnative::bind_app(self.app);
         if let Some(fs) = self.fs {
             crate::fs::install(scope, natives, fs);
         }

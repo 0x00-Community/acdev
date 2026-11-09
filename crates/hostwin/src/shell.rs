@@ -49,6 +49,7 @@ pub(crate) struct Entry {
     pub z: u64,
     pub inbox: Option<Arc<Inbox>>,
     pub link: Option<Link>,
+    pub app: Option<String>,
     pub hints: Vec<([f64; 4], u32)>,
     pub owner: Option<u32>,
     pub input: Option<[f64; 4]>,

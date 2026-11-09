@@ -11,6 +11,7 @@ use crate::rt::{self, Msg};
 
 #[derive(Default)]
 struct State {
+    app: Option<String>,
     surface: Option<Surface>,
     waiting: Option<v8::Global<v8::PromiseResolver>>,
     armed: Arc<AtomicBool>,
@@ -30,6 +31,10 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
     crate::methods!(scope, natives,
         "Ime" => ime::open,
     );
+}
+
+pub fn bind_app(app: Option<String>) {
+    STATE.with(|s| s.borrow_mut().app = app);
 }
 
 pub fn clear() {
@@ -54,7 +59,8 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         .and_then(|value| value.number_value(scope))
         .filter(|height| height.is_finite() && *height >= 1.0)
         .map_or(0, |height| height.round().min(f64::from(u16::MAX)) as u32);
-    let surface = match Surface::claim(token, render, frame) {
+    let app = STATE.with(|s| s.borrow().app.clone());
+    let surface = match Surface::claim(token, render, frame, app) {
         Ok(surface) => surface,
         Err(e) => return bind::throw_error(scope, &e),
     };
