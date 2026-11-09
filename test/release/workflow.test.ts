@@ -57,6 +57,22 @@ describe('release.yml', () => {
     expect(TEXT).not.toMatch(/\bdopame\.tar\.gz\b/)
   })
 
+  test('the SDK is placed where the file: dependency points, and checked before install', () => {
+    const steps = jobs['pkgs']!.steps.map((step) => step.name ?? '')
+    const placed = steps.indexOf("the SDK from npm, the same version as the tag's SDK")
+    const check = steps.indexOf('the placed SDK is the pinned one, at the path package.json names')
+    const install = steps.indexOf('install')
+    expect(placed).toBeGreaterThanOrEqual(0)
+    expect(placed).toBeLessThan(check)
+    expect(check).toBeLessThan(install)
+    expect(runs('pkgs')).toContain('file:../acdert/web/packages/acde-api')
+  })
+
+  test('the lockfile fetches every package from the default registry, not a mirror', () => {
+    const lock = readFileSync(join(import.meta.dir, '..', '..', 'bun.lock'), 'utf8')
+    expect(lock).not.toContain('mirrors.cloud.tencent.com')
+  })
+
   test('the package is one archive with no runtime, host or desktop in it', () => {
     expect(runs('pkgs')).toContain('bun scripts/dist.ts --api')
     expect(runs('pkgs')).not.toMatch(/--acdert|--host|--desktop|--triple/)
