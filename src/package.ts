@@ -9,6 +9,7 @@ import {
   type AppManifest, type Capabilities, type Findings, type PackageManifest, type RunningMode,
 } from '@dopame/acde-api/manifest'
 import { Project } from './app.ts'
+import { Imports, type ImportOwner } from './imports.ts'
 
 export interface PlatformReport {
   readonly modes: readonly RunningMode[]
@@ -55,14 +56,18 @@ export class AppPackage {
     return join(set && isAbsolute(set) ? set : join(homedir(), '.local', 'share'), 'acde', 'packages')
   }
 
+  static asset(dir: string, manifest: PackageManifest, url: string): string | null {
+    const [found] = Object.entries(manifest.assets ?? {})
+      .filter(([prefix]) => url.startsWith(prefix))
+      .sort(([a], [b]) => b.length - a.length)
+    if (!found) return null
+    const [prefix, dirs] = found
+    const files = dirs.map((d) => join(dir, d, url.slice(prefix.length)))
+    return files.find((file) => AppPackage.#isFile(file)) ?? null
+  }
+
   static check(dir: string, manifest: PackageManifest): Findings {
-    const assets = Object.entries(manifest.assets ?? {})
-    const resolveUrl = (url: string) =>
-      assets
-        .filter(([prefix]) => url.startsWith(prefix))
-        .sort(([a], [b]) => b.length - a.length)
-        .slice(0, 1)
-        .some(([prefix, dirs]) => dirs.some((d) => AppPackage.#isFile(join(dir, d, url.slice(prefix.length)))))
+    const resolveUrl = (url: string) => AppPackage.asset(dir, manifest, url) !== null
     const findings = Manifest.check(manifest, (d) => AppPackage.#isDir(join(dir, d)), resolveUrl)
     for (const desktop of manifest.desktops ?? []) {
       if (!AppPackage.#isFile(join(dir, desktop.entry)))
@@ -80,8 +85,49 @@ export class AppPackage {
   }
 
   check(): Findings {
-    if (this.manifest) return AppPackage.check(this.dir, this.manifest)
-    return { errors: this.project!.check(), warnings: [] }
+    const findings = this.manifest
+      ? AppPackage.check(this.dir, this.manifest)
+      : { errors: this.project!.check(), warnings: [] }
+    findings.errors.push(...this.imports())
+    return findings
+  }
+
+  imports(): string[] {
+    const errors: string[] = []
+    const owners: ImportOwner[] = []
+    const add = (raw: unknown, system: boolean, entries: readonly string[]) => {
+      const app = Manifest.app(raw)
+      if (typeof app === 'string') errors.push(app)
+      else owners.push({ app, system, entries })
+    }
+    if (this.manifest) {
+      const manifest = this.manifest
+      const system = (manifest.desktops ?? []).length > 0
+      for (const raw of manifest.apps ?? []) {
+        const entry = typeof raw?.entry === 'string' ? AppPackage.asset(this.dir, manifest, raw.entry) : null
+        add(raw, system, entry ? [entry] : [])
+      }
+      return [...errors, ...Imports.check(this.dir, owners, (url) => AppPackage.asset(this.dir, manifest, url))]
+    }
+    const project = this.project!
+    const config = project.config
+    const raw = (id: string, app: WindowAppConfig) =>
+      ({ ...app, id, label: app.label ?? id, icon: 'app', entry: `/app/${id}/index.html`, backend: undefined })
+    if (config.type === 'desktop') {
+      for (const app of config.apps ?? []) add(raw(app.id, app), true, [resolve(project.dir, app.entry)])
+    } else {
+      let id: string
+      let framework: string | null
+      try {
+        id = project.id
+        framework = project.framework
+      } catch {
+        return []
+      }
+      const entry = resolve(project.dir, config.entry ?? 'index.html')
+      add(raw(id, config), false, framework ? Imports.sources(project.dir) : [entry])
+    }
+    return [...errors, ...Imports.check(project.dir, owners, (url) => join(project.dir, url))]
   }
 
   platform(name: string): PlatformReport {
@@ -128,6 +174,7 @@ export class AppPackage {
       const level = AppPackage.#level(this.manifest)
       return { dir: this.dir, id: this.name.replace(/^@[^/]*\//, ''), desktops, apps, level }
     }
+    AppPackage.#throw({ errors: this.imports(), warnings: [] })
     const built = await this.project!.build(out)
     AppPackage.#throw(AppPackage.check(out, built.acde))
     const desktops = (built.acde.desktops ?? []).map((d) => d.id)

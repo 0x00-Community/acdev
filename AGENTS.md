@@ -16,8 +16,8 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | 命令 | 做什么 |
 | --- | --- |
 | `acde new [目录] [--template T] [--id] [--label] [--backend] [--install] [--git] [--pm PM] [--yes]` | 新建工程 |
-| `acde check [目录] [--platform P]` | 手写的包: `Manifest.check` 加入口文件; 有配置的工程: 查配置 (id、入口、图标、服务模块、框架); `--platform` 见下 |
-| `acde build [目录] [--out .acde]` | 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
+| `acde check [目录] [--platform P]` | 手写的包: `Manifest.check` 加入口文件; 有配置的工程: 查配置 (id、入口、图标、服务模块、框架); 都查 `acde:` 导入; `--platform` 见下 |
+| `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
 | `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless]` | 构建、起 acdert、改了就重新构建并 `reload` |
 | `acde webs` / `eval` / `shot` / `inspect` / `act` / `console` / `network` / `screen` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面 |
@@ -31,6 +31,18 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 (`capabilities` 里为真) 而该模式 `unsupported` 里有的能力: 不在 `optional` 里是错误 `<平台> (<模式>): app "<id>" requires <能力>, which this mode lacks`,
 在 `optional` 里是 `note:`. 工程读配置 (应用或桌面的 `apps`), 手写的包读 `Manifest.app` 解析后的清单. 平台数据只来自 SDK, CLI 不存一份.
 有错误时退出 1, 没有时打 `ok: <平台> (<模式>…): every required capability is there`.
+
+**`acde:` 导入** (`src/imports.ts`, `AppPackage.imports`): `acde check` 和 `acde build` (构建前, Bun 和 Vite 一样) 对每个应用找它入口可达的
+源码里对 `acde:` 的导入 (静态 `import` / `export … from`、字面量的动态 `import()`; `import type` 和注释不算), 交给 SDK 的
+`Manifest.importRule(名字, 应用清单, {system})` 判: 不许时报 `<文件>:<行>: app "<id>": <SDK 的原因>` (原因里有缺的声明). 许了的再用去掉
+`optional` 那些能力的清单判一次, 不许说明它只能经可选能力拿到, 报 `acde:<名字> is optional (…): reach it with load('<名字>') …`
+(可选能力只经 `@dopame/acde-api` 的 `load()`, 它不是字面量导入, 不查). 规则只来自 SDK, CLI 不存一份.
+- 谁的源码: 工程的应用从 `entry` (默认 `index.html`) 起; 框架应用 (没有单一入口) 是工程里除 `SKIPPED` 目录、e2e 文件、`.d.ts` 外的全部源码;
+  桌面工程是 `apps` 各自的 `entry`, 都是系统应用 (`system: true`); 手写的包按 `assets` 把应用的 `entry` URL 换成文件, 有 `desktops` 的包是系统应用.
+  桌面页 (`app` 为 null, 什么都许) 和桌面服务 (经 `ctx.import`, 按桌面清单的 `services` 授权) 不查.
+- 可达: HTML / `.vue` / `.svelte` / `.astro` 只看 `<script>` (和 astro 的 frontmatter), `src` 不带 `./` 的按相对路径; 跟相对路径和以 `/` 开头的
+  (工程根, 手写的包按 `assets`), 补 `.ts` 等扩展名和 `index.*`, `.js` 可落到同名 `.ts`; 包名、别名 (tsconfig `paths`) 不跟.
+- 词法是自带的小分词器 (字符串到行尾为止, 正则字面量按前一个记号猜), 不依赖 bun 或 Vite, 两个运行时上一样.
 
 ## 工程与工具目录
 
@@ -317,7 +329,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 
 ## 测试
 
-`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
+`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`imports` (`acde:` 导入: 分词, 第三方 / 系统应用、桌面页、
+服务、手写的包、框架应用; check 和 Bun / Vite 两种 build)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
 打好的 preload 在真的 node 上由测试扮演运行时, 用 `node:child_process` 的额外管道当 fd 3 / 4, 没有 node ≥ 22 就跳过这一半)、`node` (打好的后端在 Node 上跑; 要
 `ACDE_TEST_NODE` 或 PATH 上真的 node ≥ 22.3, 没有就跳过)、`dev` / `driver` / `mcp` / `e2e` (都用 `test/fixtures/dev/fake-acdert.ts` 这个有状态的假
 acdert (它听 `ACDE_DEV`) 跑真的 `acde dev`)、`dist` (假 acdert 打包、本地托管、跑 install.sh 和 `bin/acde`). 给包管理器搭 PATH 用符号链接, 不用 `exec` 的 sh 脚本:
