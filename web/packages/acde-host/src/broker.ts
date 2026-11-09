@@ -602,7 +602,7 @@ export class Broker {
 
   launch(appId: string, request: Record<string, unknown> | null = null, mode: 'fullscreen' | 'free' = 'free', place: Rect | null = null): { window: number } {
     const app = this.apps.get(appId) ?? (this.refreshApps(), this.apps.get(appId))
-    if (!app) throw Object.assign(new Error(`no app ${appId}`), { status: 404 })
+    if (!app) throw this.#missing(appId)
     if (!this.#available(app)) throw Object.assign(new Error(`${app.label}: the system service it needs is not running`), { status: 503 })
     if (!this.#runsHere(app)) throw Broker.#unsupported(app)
     if (!app.multiple) {
@@ -620,6 +620,12 @@ export class Broker {
     this.#announce(record)
     if (app.backend) this.backends.start(app)
     return { window: record.id }
+  }
+
+  #missing(appId: string): Error {
+    const refusal = this.apps.refusal(appId)
+    if (refusal) return Object.assign(new Error(`${appId}: ${refusal}`), { status: 409, code: 'api_level' })
+    return Object.assign(new Error(`no app ${appId}`), { status: 404 })
   }
 
   #raise(opened: { window: number }): { window: number } {

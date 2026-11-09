@@ -5,16 +5,20 @@ import { Level, Log } from './log'
 
 export type { AppManifest, Capabilities } from '@dopame/acde-api/manifest'
 
+type Installed = Pick<Packages, 'packages'> & Partial<Pick<Packages, 'refused'>>
+
 export class AppRegistry {
   readonly #apps = new Map<string, AppManifest>()
+  readonly #refused = new Map<string, string>()
 
-  constructor(packages: Pick<Packages, 'packages'>) {
+  constructor(packages: Installed) {
     this.reload(packages)
   }
 
-  reload(packages: Pick<Packages, 'packages'>): boolean {
+  reload(packages: Installed): boolean {
     const before = JSON.stringify(this.list())
     this.#apps.clear()
+    this.#refused.clear()
     for (const pkg of packages.packages) {
       for (const raw of pkg.manifest.apps ?? []) {
         const app = Manifest.app(raw)
@@ -23,11 +27,21 @@ export class AppRegistry {
         else this.#apps.set(app.id, app)
       }
     }
+    for (const pkg of packages.refused ?? []) {
+      for (const raw of pkg.manifest.apps ?? []) {
+        const id = (raw as { id?: unknown } | null)?.id
+        if (typeof id === 'string' && !this.#apps.has(id) && !this.#refused.has(id)) this.#refused.set(id, pkg.reason)
+      }
+    }
     return JSON.stringify(this.list()) !== before
   }
 
   get(id: string): AppManifest | null {
     return this.#apps.get(id) ?? null
+  }
+
+  refusal(id: string): string | null {
+    return this.#refused.get(id) ?? null
   }
 
   list(): AppManifest[] {

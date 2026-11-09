@@ -15,6 +15,10 @@ interface InstalledPackage {
   readonly manifest: PackageManifest
 }
 
+export interface RefusedPackage extends InstalledPackage {
+  readonly reason: string
+}
+
 export interface InstalledDesktop {
   readonly kind: 'acde'
   readonly id: string
@@ -35,6 +39,8 @@ export class Packages {
   }
 
   readonly packages: InstalledPackage[] = []
+  readonly refused: RefusedPackage[] = []
+  static readonly #noticed = new Set<string>()
   readonly #desktops = new Map<string, InstalledDesktop>()
   #sessions: ForeignSession[] = []
   readonly #extra: readonly string[]
@@ -46,12 +52,19 @@ export class Packages {
 
   rescan(): void {
     this.packages.length = 0
+    this.refused.length = 0
     this.#desktops.clear()
     this.#sessions = WaylandSessions.list()
     for (const dir of [Packages.HOST, ...this.#extra, ...Packages.#dirs()]) {
-      if (this.packages.some((p) => p.dir === dir)) continue
+      if (this.packages.some((p) => p.dir === dir) || this.refused.some((p) => p.dir === dir)) continue
       const found = Packages.#read(dir)
       if (!found) continue
+      const reason = dir === Packages.HOST ? null : Packages.#refusal(found)
+      if (reason) {
+        this.refused.push({ ...found, reason })
+        Packages.#notice(`${dir}: ${reason}; its apps and desktops are left out`)
+        continue
+      }
       this.packages.push(found)
       for (const raw of found.manifest.desktops ?? []) {
         const desktop = Packages.#desktop(found, raw)
@@ -64,6 +77,18 @@ export class Packages {
 
   static #warn(line: string): void {
     Log.write(Level.Warn, 'acde_host', line)
+  }
+
+  static #notice(line: string): void {
+    if (Packages.#noticed.has(line)) return
+    Packages.#noticed.add(line)
+    Packages.#warn(line)
+  }
+
+  static #refusal(pkg: InstalledPackage): string | null {
+    const level = Manifest.apiLevel(pkg.manifest.apiLevel)
+    if (level === null) Packages.#notice(`${pkg.dir}: no apiLevel; loaded as level 0 until acdert refuses level 0 packages`)
+    return level === null ? null : typeof level === 'string' ? level : Manifest.refusal(level)
   }
 
   static #dirs(): string[] {
@@ -197,6 +222,8 @@ export class Packages {
       const dir = resolve(wanted)
       const inDir = this.desktops().find((d) => d.package.dir === dir)
       if (inDir) return inDir
+      const refused = this.refused.find((p) => p.dir === dir || (p.manifest.desktops ?? []).some((d) => d?.id === wanted))
+      if (refused) throw new Error(`desktop ${wanted}: ${refused.reason}`)
       throw new Error(`no desktop ${wanted}: not an installed desktop's id nor a package directory with one (acde desktops lists them)`)
     }
     const remembered = readTextOr(Packages.rememberFile(), null)?.trim()
