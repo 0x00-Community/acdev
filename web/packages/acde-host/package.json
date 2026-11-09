@@ -19,7 +19,8 @@
   },
   "scripts": {
     "bundle": "bun scripts/bundle.mjs",
-    "build": "bun scripts/bundle.mjs"
+    "build": "bun scripts/bundle.mjs",
+    "test": "bun test"
   },
   "dependencies": {
     "@dopame/acde-api": "workspace:*",
