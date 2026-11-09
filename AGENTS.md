@@ -187,6 +187,15 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   见「默认应用」), `devRespond`, `screen`, `shortcut`, `windows`,
   `launch`. `animate` 直接回 `windowanimated`, `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
   桌面的结束会话. `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png` (和 `screenshot` 同一段).
+- **独立应用的主窗口用宿主的控件** (`acdert app`, 平台层 `Host::controls()` 为真时, 现在只有 Win32): Broker 给 `acdert app <id>` 起的那个窗口的
+  `grant` 带 `host: true`, 窗口表记 `Entry.host`. 它没有运行时的窗框 (`frame` 按 0), 宿主窗口自己的标题栏和按钮是唯一的一套; 标题交给宿主窗口.
+  它的状态落到宿主窗口上 (`request_state` 发 `Cmd::HostState`, `platform/win32/frame.rs`): 最小化是最小化宿主窗口, `filled` 是最大化 (平台工作区),
+  全屏是去掉边框铺满所在显示器 (记下样式和位置, 回去时还原), `normal` 还原. 用户在平台上做的 (任务栏最小化、`Win+Down`、Snap、标题栏最大化)
+  由 `WM_SIZE` 变成 `HostEvent::State`, 运行时照收并照常发 `state` / `windowstate`; Snap 后是 `normal` 加新尺寸. 页面的 grab hint 变成
+  `WM_NCHITTEST` 的结果 (没有 edges 是 `HTCAPTION`: 系统的拖动、Snap、双击最大化; 有 edges 是对应的改大小边框). 宿主窗口所在显示器的尺寸、缩放和
+  工作区经 `hostoutput` / `hostworkarea` 给 Broker (`broker/output.ts` `Outputs`), 只给这个窗口当 `acde:window.output`, 换显示器时变.
+  页面经 `claimSurface` 的 `hostControls` 知道, `acde.window.hostControls` (加 `on('hostcontrols')`) 是每个窗口自己的值, 任何窗口都可能为真,
+  本版本只有独立应用的主窗口为真. 别的窗口、完整桌面、headless 和 winit 的宿主照旧.
 - **不显示 (`ACDE_HEADLESS=1`)**: 平台层在运行时二选一 (`platform.rs`: `Host` 是 trait, `Proxy` 是 enum; 原生的 win32 / winit 和
   `platform/headless.rs`). headless 不开窗口: 主线程只收 `Cmd` (`Exit` 时退出), 屏幕是 `ACDE_SIZE` (否则 1440 × 900) 乘 `ACDE_SCALE`
   (0.5–4, 默认 1), 起来就算宿主窗口有焦点. 合成器没有 surface: 不出画面、不数 `frames`, 但页面照常出帧 (出帧线程的节奏不靠宿主窗口),
@@ -357,6 +366,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     状态由运行时决定, 页面没请求的变化 (桌面最小化、窗框按钮、给最小化的窗口焦点) 也发 `state`, 页面必须照事件更新自己, 不能只记自己请求过什么.
     `acde.window.output` 是窗口所在输出的 `{width, height, scale, workArea}` (逻辑像素), 变了发 `on('output')`; 合成的桌面里所有窗口一样
     (Broker 的 `screen` 消息带上 `scale`, `WebInit.workArea` 没给时是整个输出). 窗口位置只是相对当前输出的提示, 应用接口里没有绝对屏幕坐标.
+    `acde.window.hostControls` 为真时宿主 (平台) 提供窗口控件, 页面应藏起自己的最小化 / 最大化 / 关闭按钮.
     `requestActivate` 可能被拒或变成提醒用户 (attention), `requestGrab` 可能以 `denied` 拒绝, `animate` 可能立刻做完 (照样发 `windowanimated`).
     桌面 / 系统应用经 `acde.windows.requestState(id, state)` 改任何窗口 (不认识的状态 400, 会话里 501), 收 `on('state')`; `list()` 的行带 `state`,
     `acde:inspect` 的窗口 (driver 用的) 带 `state`.
