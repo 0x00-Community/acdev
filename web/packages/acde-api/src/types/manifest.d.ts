@@ -1,4 +1,4 @@
-import type { IconName, ShellModule } from './validate'
+import type { IconName, ShellModule } from '../validate'
 
 export type { IconName, ShellModule }
 

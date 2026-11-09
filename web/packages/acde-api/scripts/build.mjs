@@ -1,6 +1,6 @@
 import { build } from 'esbuild'
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
@@ -12,7 +12,7 @@ const outSrc = join(out, 'src')
 await rm(out, { recursive: true, force: true })
 await mkdir(outSrc, { recursive: true })
 
-const sources = await readdir(src)
+const sources = (await readdir(src, { recursive: true })).map((name) => name.split('\\').join('/')).filter((name) => /\.(js|ts)$/.test(name))
 const scripts = sources.filter((name) => (name.endsWith('.js') || name.endsWith('.ts')) && !name.endsWith('.d.ts'))
 const declarations = sources.filter((name) => name.endsWith('.d.ts'))
 
@@ -30,7 +30,10 @@ await build({
   logLevel: 'warning',
 })
 
-for (const name of declarations) await copyFile(join(src, name), join(outSrc, name))
+for (const name of declarations) {
+  await mkdir(dirname(join(outSrc, name)), { recursive: true })
+  await copyFile(join(src, name), join(outSrc, name))
+}
 
 const tsconfig = ts.findConfigFile(root, ts.sys.fileExists, 'tsconfig.json')
 const config = ts.readConfigFile(tsconfig, ts.sys.readFile).config
@@ -52,7 +55,7 @@ if (diagnostics.length > 0) {
   console.error(ts.formatDiagnostics(diagnostics, host))
   process.exit(1)
 }
-const expected = new Set(typed.map((file) => join(outSrc, basename(file).replace(/\.ts$/, '.d.ts'))))
+const expected = new Set(typed.map((file) => join(outSrc, relative(src, file).replace(/\.ts$/, '.d.ts'))))
 const emitted = program.emit(undefined, (file, text) => {
   if (!expected.has(resolve(file))) throw new Error(`unexpected declaration output ${file}`)
   ts.sys.writeFile(file, text)

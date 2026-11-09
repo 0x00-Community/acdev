@@ -1,7 +1,7 @@
-import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest } from './manifest.js'
-import { API_LEVEL } from './level.js'
+import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest } from './types/manifest.js'
+import { API_LEVEL } from './runtime/level.js'
 
-export type { Capabilities, PackageManifest } from './manifest.js'
+export type { Capabilities, PackageManifest } from './types/manifest.js'
 export { API_LEVEL }
 
 export const ICON_NAMES = [

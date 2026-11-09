@@ -1,2 +1,2 @@
-export { API_LEVEL } from './level.js'
-export { load } from './load.js'
+export { API_LEVEL } from './runtime/level.js'
+export { load } from './runtime/load.js'

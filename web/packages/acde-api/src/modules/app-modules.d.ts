@@ -1,41 +1,41 @@
 declare module 'acde:fs' {
-  const fs: import('./page').AcdeFs
+  const fs: import('../types/page').AcdeFs
   export { fs, fs as default }
 }
 declare module 'acde:office' {
-  const office: import('./page').AcdeOffice
+  const office: import('../types/page').AcdeOffice
   export { office, office as default }
 }
 declare module 'acde:terminal' {
-  const terminal: import('./page').AcdeTerminals
+  const terminal: import('../types/page').AcdeTerminals
   export { terminal, terminal as default }
 }
 declare module 'acde:network' {
-  const network: import('./page').AcdeNetwork
+  const network: import('../types/page').AcdeNetwork
   export { network, network as default }
 }
 declare module 'acde:launch' {
-  const launch: import('./page').AcdeLaunch
+  const launch: import('../types/page').AcdeLaunch
   export { launch, launch as default }
 }
 declare module 'acde:apps' {
-  const apps: import('./page').AcdeAppList
+  const apps: import('../types/page').AcdeAppList
   export { apps, apps as default }
 }
 declare module 'acde:open' {
-  const open: import('./page').AcdeOpen
+  const open: import('../types/page').AcdeOpen
   export { open, open as default }
 }
 declare module 'acde:openPath' {
-  const openPath: import('./page').AcdeOpenFiles['openPath']
+  const openPath: import('../types/page').AcdeOpenFiles['openPath']
   export { openPath, openPath as default }
 }
 declare module 'acde:handlers' {
-  const handlers: import('./page').AcdeOpenFiles['handlers']
+  const handlers: import('../types/page').AcdeOpenFiles['handlers']
   export { handlers, handlers as default }
 }
 declare module 'acde:window' {
-  const self: import('./page').AcdeWindow
+  const self: import('../types/page').AcdeWindow
   export { self as window, self as default }
 }
 declare module 'acde:*' {

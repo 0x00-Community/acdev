@@ -1,11 +1,11 @@
-/// <reference path="./app-modules.d.ts" />
-import type * as Page from './page'
+/// <reference path="./modules/app-modules.d.ts" />
+import type * as Page from './types/page'
 
-export type * from './manifest'
-export type * from './page'
-export type * from './service'
-export type * from './config'
-export { API_LEVEL } from './level'
+export type * from './types/manifest'
+export type * from './types/page'
+export type * from './types/service'
+export type * from './types/config'
+export { API_LEVEL } from './runtime/level'
 
 export interface AppModules {
   readonly fs: Page.AcdeFs

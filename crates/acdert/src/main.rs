@@ -92,7 +92,7 @@ fn free_socket(runtime: &std::path::Path, name: &str) -> bool {
     flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok()
 }
 
-const API_LEVEL: u32 = api_level(include_str!("../../../web/packages/acde-api/src/level.js"));
+const API_LEVEL: u32 = api_level(include_str!("../../../web/packages/acde-api/src/runtime/level.js"));
 
 const fn api_level(source: &str) -> u32 {
     let bytes = source.as_bytes();
@@ -106,7 +106,7 @@ const fn api_level(source: &str) -> u32 {
         }
         i += 1;
     }
-    assert!(level > 0, "acde-api src/level.js defines no positive API_LEVEL");
+    assert!(level > 0, "acde-api src/runtime/level.js defines no positive API_LEVEL");
     level
 }
 

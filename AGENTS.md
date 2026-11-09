@@ -276,7 +276,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 外部会话 (`src/foreign.ts`): `$XDG_DATA_DIRS/wayland-sessions/*.desktop`, id `session:<文件名>` (显示名去掉 "(Wayland)", KDE 的加 "KDE");
 不列 acde 自己的、`Hidden` / `NoDisplay`、程序找不到的.
 
-**契约级别** (`apiLevel`): 每个包清单的 `acde` 字段带一个整数 `apiLevel`, 运行时的级别只在 SDK `src/level.js` 的 `API_LEVEL` 定义 (acde-host 经
+**契约级别** (`apiLevel`): 每个包清单的 `acde` 字段带一个整数 `apiLevel`, 运行时的级别只在 SDK `src/runtime/level.js` 的 `API_LEVEL` 定义 (acde-host 经
 `@dopame/acde-api/manifest` 读, `acdert --version` 编译时从这个文件读). 级别不同或不是正整数的包 (`Packages.refused`) 不进应用列表、
 桌面列表和打开方式, 启动它的应用报 `<id>: needs level N, runtime is level M` (409, `api_level`), 选它的桌面同样报错. 没有 `apiLevel` 的包
 暂按第 0 级照常加载, 每个包记一行 warn; 本版本末尾的第 0 级移除之后拒绝. acde-host 自己的包不查.
@@ -1009,9 +1009,9 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 
 Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run test`; 测试是 `bun test`, 没有 Node).
 
-- **acde-api**: `API_LEVEL` (`src/level.js`, 契约级别, 包根和 `./manifest` 都导出)、`load(name)` (`src/load.js`: `import('acde:<name>')` 的默认导出, 拿不到时是 null; 说明符带 `@vite-ignore` 等)、
-  `@dopame/acde-api/vite` (build 时 `acde:*` 留作外部模块, dev 时换成会 reject 的替身); 声明 `manifest.d.ts` / `service.d.ts` / `page.d.ts` /
-  `config.d.ts` (+ `config.schema.json`) / `modules.d.ts`; `src/validate.ts` (导出 `./manifest`) 是清单校验和 `ICON_NAMES`, 测试
+- **acde-api**: 入口在 `src/` 顶层 (`index`、`app.d.ts` / `shell.d.ts`、`vite`、`validate.ts`), `src/types/` 是接口声明, `src/modules/` 是 `acde:*` 模块声明, `src/runtime/` 是运行时的 JS. `API_LEVEL` (`src/runtime/level.js`, 契约级别, 包根和 `./manifest` 都导出)、`load(name)` (`src/runtime/load.js`: `import('acde:<name>')` 的默认导出, 拿不到时是 null; 说明符带 `@vite-ignore` 等)、
+  `@dopame/acde-api/vite` (build 时 `acde:*` 留作外部模块, dev 时换成会 reject 的替身); 声明 `types/` 的 `manifest.d.ts` / `service.d.ts` / `page.d.ts` /
+  `config.d.ts` (+ `config.schema.json`) 和 `modules/`; `src/validate.ts` (导出 `./manifest`) 是清单校验和 `ICON_NAMES`, 测试
   `test/validate.test.ts`. acde 仓库用 `file:../acdert/web/packages/acde-api`, acde-dopame 拷一份 (`scripts/sync-acde-api.sh`).
   npm 上的 `@dopame/acde-api` 不是这个目录: 它的 package.json 是 `"private": true`, 防止把源码发出去. `bun run build` (`scripts/build.mjs`)
   生成 `dist/`, 发布的是 `dist/` (`cd dist && bunx npm publish`, 要 2FA): `.js` / `.ts` 用 esbuild 压缩 (标识符也压, 没有 source map,

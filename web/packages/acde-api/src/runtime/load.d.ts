@@ -1,4 +1,4 @@
-import type { AcdePage } from './page'
+import type { AcdePage } from '../types/page'
 
 export type AcdeModules = {
   readonly [K in keyof AcdePage as string extends K ? never : number extends K ? never : K]-?: NonNullable<AcdePage[K]>
