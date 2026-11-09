@@ -150,12 +150,20 @@ fn socket_paths_fit_sun_path_and_old_generations_are_swept() {
 }
 
 fn started(script: &str) -> Option<Arc<Running>> {
+    started_with(script, "stop.test", None)
+}
+
+fn started_with(script: &str, app: &str, sockets: Option<PathBuf>) -> Option<Arc<Running>> {
     let node = node()?;
     let env = environment(vec![], &[("ACDE_APP_CONTROL", "fd".into())], |k| std::env::var(k).ok());
     let args = vec!["-e".to_owned(), script.to_owned()];
     let started = process::start(&Spec { program: &node.to_string_lossy(), args: &args, cwd: None, env: &env }).expect("started");
     let mux = Mux::start(started.to_backend, started.from_backend).expect("mux");
-    Some(Arc::new(Running { app: "stop.test".into(), generation: 0, process: started.process, mux, sockets: None }))
+    let generation = match &sockets {
+        Some(dir) => channel::register(app, Route::Sockets(dir.clone())),
+        None => 0,
+    };
+    Some(Arc::new(Running { app: app.into(), generation, process: started.process, mux, sockets }))
 }
 
 #[test]
@@ -190,4 +198,20 @@ fn only_a_preload_with_the_channel_mark_starts_node() {
     assert!(!supports_channel(&dir.join("missing.js")));
     assert_eq!(OLD_PRELOAD, "acde-listen.js does not support the Windows channel (built by an older acde: acde build it again)");
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn stop_all_ends_backends_and_removes_their_directories() {
+    let dir = std::env::temp_dir().join(format!("acde-stop-all-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let Some(backend) = started_with("setInterval(() => {}, 1000)", "stop-all.test", Some(dir.clone())) else {
+        return eprintln!("skipped: no node on PATH");
+    };
+    let pid = backend.process.pid;
+    running().insert(pid, backend.clone());
+    stop_all();
+    assert!(backend.process.wait(Some(0)).is_some(), "the backend ended");
+    assert!(!dir.exists(), "its directory is gone");
+    assert!(channel::lookup("stop-all.test").is_none());
+    assert!(!running().contains_key(&pid));
 }

@@ -79,6 +79,7 @@ pub fn create_protected(path: &Path, sddl: &str) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub fn dacl(path: &Path) -> io::Result<String> {
     let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
     let status = unsafe {

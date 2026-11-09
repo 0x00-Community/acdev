@@ -258,6 +258,8 @@ fn adopt(child: &Child) {
 }
 
 pub fn stop_all() {
+    #[cfg(windows)]
+    crate::backends::stop_all();
     #[cfg(all(unix, not(target_os = "linux")))]
     for pid in std::mem::take(&mut *GROUPS.lock().unwrap_or_else(|e| e.into_inner())) {
         if let Some(group) = process::Pid::from_raw(pid as i32) {

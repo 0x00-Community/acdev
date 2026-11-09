@@ -215,3 +215,12 @@ pub fn stop(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut r
     }
     rv.set_bool(true);
 }
+
+pub fn stop_all() {
+    let left: Vec<(u32, Arc<Running>)> = running().iter().map(|(pid, backend)| (*pid, backend.clone())).collect();
+    for (pid, backend) in left {
+        backend.process.terminate();
+        _ = backend.process.wait(Some(2000));
+        finish(pid);
+    }
+}
