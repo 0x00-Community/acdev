@@ -173,6 +173,28 @@ impl Tree<'_> {
         Ok(())
     }
 
+    pub(crate) fn video_image(&mut self, id: u32, image: Option<peniko::ImageData>) -> Result<bool> {
+        use acde_gpu::PaintScene;
+        let node = self.ids.node(id)?;
+        if !self.m.doc.get_node(node).and_then(|n| n.element_data()).is_some_and(|e| &*e.name.local == "video") {
+            return Err(Error::new(format!("node {id} is not a <video>")));
+        }
+        let before = self.m.doc.video_size(node);
+        let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) else {
+            self.m.doc.set_canvas_picture(node, None);
+            self.m.doc.set_video_size(node, None);
+            return Ok(before.is_some());
+        };
+        let size = (image.width as f32, image.height as f32);
+        let rect = kurbo::Rect::new(0.0, 0.0, f64::from(image.width), f64::from(image.height));
+        let mut picture = acde_gpu::Scene::new();
+        let brush = peniko::ImageBrush { image, sampler: peniko::ImageSampler::default() };
+        picture.fill(peniko::Fill::NonZero, kurbo::Affine::IDENTITY, &acde_gpu::Paint::Image(brush), None, &rect);
+        self.m.doc.set_canvas_picture(node, Some(std::sync::Arc::new(picture)));
+        self.m.doc.set_video_size(node, Some(size));
+        Ok(before != Some(size))
+    }
+
     pub(crate) fn canvas(&mut self, id: u32, ops: &[u8]) -> Result<()> {
         use crate::canvas::{Canvas, Source};
         let node = self.canvas_node(id)?;
