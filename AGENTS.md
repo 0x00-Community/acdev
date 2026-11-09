@@ -168,9 +168,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 
 ## 分发 (`install.sh`, `install.ps1`, `scripts/dist.ts`)
 
-只有全局安装: acde 和 acdert 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认 `https://dopame.ai`, 两个脚本开头
-各一处; 末尾的 `/` 去掉). 公开站点经 CloudFront 提供 `/install.sh`、`/install.ps1`、`/latest`、`/<版本>/SHA256SUMS` 和
-`/<版本>/acde-<版本>-<triple>.tar.gz`; 归档是公开二进制, 放在另一个 S3 前缀下, 发布流水线还没建 (不在本仓库做). 本地托管目录就是 dist.ts 的 `--out`: `install.sh`、`install.ps1`、`latest` (版本号)、`<版本>/SHA256SUMS`、
+只有全局安装: acde 和 acdert 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认 `https://pkgs.dopame.ai/acde`,
+两个脚本开头各一处; 末尾的 `/` 去掉). 桶是 `dopame-pkgs`, 前缀 `acde/`, 由 CloudFront 经 `pkgs.dopame.ai` 提供:
+`acde/install.sh`、`acde/install.ps1`、`acde/latest`、`acde/<版本>/SHA256SUMS`、`acde/<版本>/acde-<版本>-<triple>.tar.gz`; 官网 `https://dopame.ai/install.*` 指向这里.
+发布由 `.github/workflows/release.yml` 完成 (见下). 本地托管目录就是 dist.ts 的 `--out`: `install.sh`、`install.ps1`、`latest` (版本号)、`<版本>/SHA256SUMS`、
 `<版本>/acde-<版本>-<triple>.tar.gz` (`{aarch64,x86_64}-{apple-darwin,unknown-linux-gnu,unknown-linux-musl}`、`x86_64-pc-windows-msvc`).
 
 tarball 里一个目录就是一个版本的安装根:
@@ -179,17 +180,32 @@ tarball 里一个目录就是一个版本的安装根:
 bin/acde            scripts/acde.sh 跑 lib/acde/dist/cli.js: bun ≥ 1.4 用 bun, 否则 node ≥ 22.3 用 node; 都不行时 bun 太旧提示更新 bun, 否则 node 太旧提示更新 node, 都没有提示装其中一个
 bin/acde.cmd        Windows 代替 bin/acde: scripts/acde.cmd (CRLF), 同样的选法和提示; 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acde 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
 bin/acdert[.exe]
-bin/app/dist/       acde-host 的 bundle (broker.js、web.js; acdert 找 <自己>/app/dist)
-bin/app/packages/   Dopame 桌面包 (不带 .map); acde-host 在 broker.js 上一级的 packages/ 找自带的桌面
-lib/acde/           package.json (exports, 与源码仓库不同: 指向 dist)、launcher.mjs (压缩)、launcher.d.mts、LICENSE、templates/ (用户起步模板, 含 .ts 是正常的)、
-                    dist/cli.js (压缩的 CLI bundle)、dist/driver.js、dist/test.js (acde/driver、acde/test 的压缩 bundle)、dist/types/**/*.d.ts (声明)
-lib/acde-api/       acdert 的 web/packages/acde-api/dist (构建后的: 压缩的 js、d.ts、package.json、config.schema.json; 没有 src/*.ts、test/)
+bin/app/            acdert-host 的 app/ 目录原样 (dist/broker.js、dist/web.js、brand/、greet/、package.json; 没有 .map); acdert 找 <自己>/app/dist
+bin/app/packages/   Dopame 桌面包 (不带 .map); 包的目录名是 acde-dopame 归档里的那一个
+LICENSE             专有 LICENSE, 归档顶层 (和 lib/acde/LICENSE 一样)
+lib/acde/           package.json (exports, 与源码仓库不同: 指向 dist)、launcher.mjs (压缩和轻度混淆)、launcher.d.mts、LICENSE、templates/ (用户起步模板, 含 .ts 是正常的)、
+                    dist/cli.js、dist/driver.js、dist/test.js (acde/driver、acde/test; 压缩和轻度混淆)、dist/types/**/*.d.ts (声明)
+lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、package.json、config.schema.json; 没有 src/*.ts、test/)
 ```
 
-- `bun scripts/dist.ts --acdert <二进制> --host <acde-host dist> --triple <triple> [--api] [--desktop] [--version] [--out .dist]` (`--api` 默认
-  `../acdert/web/packages/acde-api/dist`, 要先在 acdert 那边 `bun run build`; 没有构建产物或里面有 `.ts` 源码时报错. `--desktop` 默认
-  `../acde-dopame/packages/dopame`, 先在那边 `bun run build`). 归档前检查: 不许有 `lib/acde/src`、`lib/acde/test`、`.map`、`sourcesContent`、
-  `lib/` 下的 `sourceMappingURL`、模板之外的 `.ts` 源码 (`leaks()`), 有就不出包. Windows 主机上用系统的 `tar.exe` (Git 的 GNU tar 认不得 `C:`), 不管目标是哪个 triple. macOS 上 tar 带 `--no-xattrs
+- `bun scripts/dist.ts --acdert <二进制> --host <acdert-host 的 app/ 目录> --triple <triple> [--api] [--desktop] [--version] [--out .dist]`
+  (`--host` 必须有 `dist/broker.js`, 且 `package.json` 的 `version` 等于 `--version`, 否则说是别的发版而拒绝. `--api` 默认
+  `../acdert/web/packages/acde-api/dist`, 要先在 acdert 那边 `bun run build`; 没有构建产物或里面有 `.ts` 源码时报错. 发布时 `--api` 指向 npm 上
+  `@dopame/acde-api@<版本>` 解出的 `package/`. `--desktop` 默认 `../acde-dopame/packages/dopame`, 先在那边 `bun run build`). 归档前检查 (`leaks()`):
+  不许有 `lib/acde/src`、`lib/acde/test`、`bin/app/src`、`.map`、`sourcesContent`、任何 `.js`/`.mjs`/`.d.ts` 里的 `sourceMappingURL`、
+  模板之外的 `.ts` 源码; 覆盖整个包, 包括 `bin/app/**` (acde#7). 有就不出包.
+- **轻度混淆** (`javascript-obfuscator` 5.9.0, 精确钉住, 发版前至少两周): 在 `Bun.build` 的 `minify` 之后对 `dist/cli.js`、`dist/driver.js`、
+  `dist/test.js`、`launcher.mjs` 做一遍: 标识符改名 (含顶层, `renameGlobals`) 和字符串数组 (base64). 不做控制流平坦化、死代码注入、自我防护
+  或调试保护, 不出 sourcemap. 导出名不变 (只改本地绑定, 别名保留). 预加载 `acde-listen.js` 不混淆: `src/listen-macro.ts` 返回 JSON 字符串、
+  `src/listen-bundle.ts` 用 `JSON.parse` 还原, 让它在 bundle 里是普通字符串字面量, `reservedStrings` 留下 `getBuiltinModule`. 预加载的源码
+  是压缩后的普通 JS, 写进每个用户应用的后端目录 (混淆它没有保护价值, 它就跑在用户的应用里).
+- **发布** (`.github/workflows/release.yml`, `v*` 标签): `build` 任务 (无 OIDC 权限) 检查标签与 `package.json` 版本一致; 经
+  `pkgs.dopame.ai/acdert/<版本>/` 取三个 `acdert-<triple>[.exe]` 和 `acdert-host-<版本>.tar.gz`, 经 `pkgs.dopame.ai/acde-dopame/<版本>/` 取
+  `acde-dopame-<版本>.tar.gz`, 都用 `SHA256SUMS` 校验; `@dopame/acde-api@<版本>` 用 `npm pack` 放到 `../acdert/web/packages/acde-api`
+  (CLI 的 `file:` 依赖路径); 三个 triple 各跑一次 dist.ts; 解压 Linux 归档检查 `bin/acde` 能起 CLI; 上传成 artifact. `upload` 任务
+  (只有它有 `id-token: write`, 只用 GitHub 自己的 action, 用 `curl` 换 OIDC、`aws sts assume-role-with-web-identity` 取凭据) 角色
+  `RELEASE_ROLE_ARN` (一个环境变量), 桶 `dopame-pkgs`, 前缀 `acde/`: 版本目录已存在就失败, 版本目录不可变缓存, `latest` 和安装脚本不缓存; 最后失效
+  CloudFront `E3ET3L14ALFOXX` 的 `/acde/latest`、`/acde/install.*`、`/acde/<版本>/*`. `test/release.test.ts` 检查这些不变量. Windows 主机上用系统的 `tar.exe` (Git 的 GNU tar 认不得 `C:`), 不管目标是哪个 triple. macOS 上 tar 带 `--no-xattrs
   --no-mac-metadata` 和 `COPYFILE_DISABLE=1` (不出 `._`).
 - 压缩: `dist/cli.js`、`dist/driver.js` (target node)、`dist/test.js` (target bun, `bun:test` 留作外部) 和根上的 `launcher.mjs` 都是 `Bun.build` 的
   `minify: true`, 不出 sourcemap. 打完去掉 shebang 和随之加的 `// @bun`: 带它 bun 不转译、按 latin1 读, 非 ASCII 乱码. `acde/launcher` 留作外部
@@ -240,7 +256,7 @@ Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试�
 1. 热重载: acdert 已认 `reload {hot: true}` (见它的「acde dev」, 那里提到的 acde `src/changes.ts` 还没有), acde 只发普通 `reload`; 框架用自己的 `build --watch`.
 2. `acde.config.jsonc` 加 `compatibility_date`、environments、vars / secrets、服务名 ↔ capability 的显式 binding.
 3. `acde types` (按 capabilities 生成 d.ts)、单元测试跑在 acdert 的 isolate 里、e2e 截图比对、`acde deploy --to <主机>`、包签名和仓库之后 `acde publish`.
-4. 分发: 发布流水线 (域名已定为 dopame.ai, 经 CloudFront; 归档放另一个 S3 前缀; 等 AWS 权限和 acdert 三个以外的 triple 的构建); acdert 的发版流程改成各平台跑 dist.ts 再合起来上传; Windows ARM64.
+4. 分发: 流水线只覆盖三个 triple (acdert 目前只发这三个); 还差 `x86_64-apple-darwin`、`aarch64-unknown-linux-gnu` 和两个 musl, 以及 Windows ARM64.
 5. 用户工程没有 `acde` 依赖, `import 'acde/test'` / `'acde/driver'` 解析不到: 要 `acde test` 替它解析 (比如把安装的 `lib/` 放进解析路径).
 
 ## 协作规则
