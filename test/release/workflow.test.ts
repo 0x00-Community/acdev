@@ -70,10 +70,11 @@ describe('release.yml', () => {
   })
 
   test('upload, tag and latest need publish=true and every job they wait for to succeed', () => {
-    for (const job of ['upload', 'tag', 'latest']) {
-      expect(jobs[job]!.if).toContain('inputs.publish')
-      expect(jobs[job]!.if).toContain('success()')
+    const gates: Record<string, string> = { upload: 'guard', tag: 'upload', latest: 'tag' }
+    for (const [job, dependency] of Object.entries(gates)) {
+      expect(jobs[job]!.if).toBe(`\${{ inputs.publish && needs.${dependency}.result == 'success' }}`)
     }
+    expect(TEXT).not.toContain('success()')
     expect(jobs['plan']!.if).toBeUndefined()
     expect(jobs['pkgs']!.if).toBeUndefined()
     expect(jobs['guard']!.if).toBeUndefined()

@@ -244,7 +244,7 @@ jobs:
 
   upload:
     needs: [plan, guard]
-    if: ${{ inputs.publish && success() }}
+    if: ${{ inputs.publish && needs.guard.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -332,7 +332,7 @@ jobs:
 
   tag:
     needs: [plan, guard, upload]
-    if: ${{ inputs.publish && success() }}
+    if: ${{ inputs.publish && needs.upload.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -369,7 +369,7 @@ jobs:
 
   latest:
     needs: [plan, guard, tag]
-    if: ${{ inputs.publish && success() }}
+    if: ${{ inputs.publish && needs.tag.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
