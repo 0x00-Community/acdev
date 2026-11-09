@@ -31,6 +31,7 @@ export interface RequestEntry {
   ms: number | null
   error: string | null
   done: boolean
+  readonly mocked?: true
 }
 
 export interface DevQuery {
@@ -122,6 +123,7 @@ export class DevLog {
         ms: null,
         error: null,
         done: false,
+        ...(event.mocked && { mocked: true as const }),
       }
       this.#requests.push(entry)
       this.#open.set(key, entry)

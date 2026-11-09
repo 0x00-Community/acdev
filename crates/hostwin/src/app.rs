@@ -77,12 +77,7 @@ impl Server {
     pub fn focus_top(&self) {
         let top = {
             let state = self.state();
-            state
-                .layers()
-                .iter()
-                .rev()
-                .map(|l| l.id)
-                .find(|id| state.entries.get(id).is_some_and(|e| !e.panel && e.mode != Mode::Pinned))
+            state.layers().iter().rev().map(|l| l.id).find(|id| state.entries.get(id).is_some_and(|e| !e.panel && e.mode != Mode::Pinned))
         };
         match top {
             Some(id) => self.activate(id),
@@ -117,6 +112,12 @@ struct Drag {
     rect: [f64; 4],
 }
 
+struct DataDrag {
+    source: u32,
+    data: HashMap<String, String>,
+    over: Option<u32>,
+}
+
 #[derive(Default)]
 struct App {
     main: Option<Main>,
@@ -125,6 +126,7 @@ struct App {
     capture: Option<(u32, [f64; 2])>,
     pressed: HashSet<u32>,
     drag: Option<Drag>,
+    data_drag: Option<DataDrag>,
     modifiers: u8,
     injected_mods: u8,
     swallowed: HashSet<u32>,
@@ -140,13 +142,7 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
         }
     };
     acde_gpu::Gpu::publish(Some(gpu.shared.clone()));
-    let server = Server {
-        proxy: OnceLock::new(),
-        compositor: OnceLock::new(),
-        state: Mutex::new(State::default()),
-        broker: Arc::new(Inbox::default()),
-        gpu,
-    };
+    let server = Server { proxy: OnceLock::new(), compositor: OnceLock::new(), state: Mutex::new(State::default()), broker: Arc::new(Inbox::default()), gpu };
     if SERVER.set(server).is_err() {
         log::error!("host window: already started");
         return 1;
@@ -173,9 +169,7 @@ fn size_from_env() -> Option<[f64; 2]> {
 
 impl Handler for App {
     fn size(&mut self, monitor: Option<&Monitor>) -> [f64; 2] {
-        size_from_env().unwrap_or_else(|| {
-            monitor.map_or(DESKTOP, |m| [DESKTOP[0].min(m.size[0] * 0.9), DESKTOP[1].min(m.size[1] * 0.85)])
-        })
+        size_from_env().unwrap_or_else(|| monitor.map_or(DESKTOP, |m| [DESKTOP[0].min(m.size[0] * 0.9), DESKTOP[1].min(m.size[1] * 0.85)]))
     }
 
     fn started(&mut self, host: &dyn Host, proxy: Proxy, monitor: Option<Monitor>, size: (u32, u32), scale: f64) {
@@ -223,9 +217,7 @@ impl Handler for App {
         let Some(server) = server() else { return };
         match event {
             HostEvent::Resized { size, scale } => self.resized(server, size, scale),
-            HostEvent::CloseRequested => {
-                server.broker.push(Event { kind: "windowcloserequest".into(), window: Some(0), ..Default::default() })
-            }
+            HostEvent::CloseRequested => server.broker.push(Event { kind: "windowcloserequest".into(), window: Some(0), ..Default::default() }),
             HostEvent::Focused(focused) => {
                 let focus = server.state().focus;
                 if let Some(id) = focus {
@@ -247,17 +239,14 @@ impl Handler for App {
             HostEvent::Wheel(dx, dy) => self.wheel(server, dx, dy),
             HostEvent::Modifiers(mods) => self.modifiers = mods,
             HostEvent::Key { evdev, pressed, text } => self.key(server, evdev, pressed, text),
-            HostEvent::ImePreedit(text) => {
-                self.focused(server, Event { kind: "imepreedit".into(), key: Some(text), ..Default::default() })
-            }
-            HostEvent::ImeCommit(text) => {
-                self.focused(server, Event { kind: "imecommit".into(), key: Some(text), ..Default::default() })
-            }
+            HostEvent::ImePreedit(text) => self.focused(server, Event { kind: "imepreedit".into(), key: Some(text), ..Default::default() }),
+            HostEvent::ImeCommit(text) => self.focused(server, Event { kind: "imecommit".into(), key: Some(text), ..Default::default() }),
             HostEvent::Dropped(paths) => self.dropped(server, &paths),
             HostEvent::Redraw => server.relayout(),
             HostEvent::Cmd(Cmd::Title(title)) => host.set_title(&title),
             HostEvent::Cmd(Cmd::ImeArea(rect)) => host.set_ime_area(rect),
             HostEvent::Cmd(Cmd::Inject(event)) => self.inject(server, event),
+            HostEvent::Cmd(Cmd::StartDrag { window, data }) => self.start_data_drag(server, window, data),
             HostEvent::Cmd(Cmd::ChooseFolder { title, reply }) => host.choose_folder(&title, reply),
             HostEvent::Cmd(Cmd::OpenFiles { request, reply }) => host.open_files(request, reply),
             HostEvent::Cmd(Cmd::SaveFile { request, reply }) => host.save_file(request, reply),
@@ -281,19 +270,9 @@ impl App {
             let mut state = server.state();
             let rescaled = state.screen[2] != scale;
             state.screen = [screen[0], screen[1], scale];
-            let full: Vec<u32> = state
-                .entries
-                .iter()
-                .filter(|(id, e)| **id == 0 || e.mode == Mode::Fullscreen)
-                .map(|(&id, _)| id)
-                .collect();
+            let full: Vec<u32> = state.entries.iter().filter(|(id, e)| **id == 0 || e.mode == Mode::Fullscreen).map(|(&id, _)| id).collect();
             let links: Vec<_> = if rescaled {
-                state
-                    .entries
-                    .iter()
-                    .filter(|(_, e)| !e.panel)
-                    .filter_map(|(_, e)| e.link.clone().map(|l| (l, state.content(e))))
-                    .collect()
+                state.entries.iter().filter(|(_, e)| !e.panel).filter_map(|(_, e)| e.link.clone().map(|l| (l, state.content(e)))).collect()
             } else {
                 Vec::new()
             };
@@ -343,28 +322,12 @@ impl App {
         }
         if let Some((target, [ox, oy])) = self.target(server) {
             let (x, y) = self.pointer;
-            server.event(
-                target,
-                Event {
-                    kind: "wheel".into(),
-                    x: Some(x - ox),
-                    y: Some(y - oy),
-                    delta_x: Some(dx),
-                    delta_y: Some(dy),
-                    ..Default::default()
-                },
-            );
+            server.event(target, Event { kind: "wheel".into(), x: Some(x - ox), y: Some(y - oy), delta_x: Some(dx), delta_y: Some(dy), ..Default::default() });
         }
     }
 
     fn target(&self, server: &Server) -> Option<(u32, [f64; 2])> {
-        self.capture.or_else(|| {
-            server
-                .state()
-                .hit(self.pointer.0, self.pointer.1)
-                .filter(|hit| !hit.bar)
-                .map(|hit| (hit.target, hit.origin))
-        })
+        self.capture.or_else(|| server.state().hit(self.pointer.0, self.pointer.1).filter(|hit| !hit.bar).map(|hit| (hit.target, hit.origin)))
     }
 
     fn focused(&self, server: &Server, event: Event) {
@@ -392,10 +355,55 @@ impl App {
         {
             server.event(hover, Event::named("pointerleave"));
         }
-        server.event(
-            target,
-            Event { kind: "pointermove".into(), x: Some(x - ox), y: Some(y - oy), ..Default::default() },
-        );
+        server.event(target, Event { kind: "pointermove".into(), x: Some(x - ox), y: Some(y - oy), ..Default::default() });
+        self.data_drag_over(server);
+    }
+
+    fn start_data_drag(&mut self, server: &Server, window: u32, data: HashMap<String, String>) {
+        let pressing = self.pressed.contains(&keys::BUTTON_LEFT) && self.capture.is_some_and(|(target, _)| target == window);
+        if !pressing {
+            server.event(window, Event { kind: "dragend".into(), button: Some(0), ..Default::default() });
+            return;
+        }
+        self.data_drag = Some(DataDrag { source: window, data, over: None });
+        self.data_drag_over(server);
+    }
+
+    fn data_drag_over(&mut self, server: &Server) {
+        let Some(drag) = &mut self.data_drag else { return };
+        let (x, y) = self.pointer;
+        let hit = server.state().hit(x, y).filter(|hit| !hit.bar && hit.target != drag.source);
+        let now = hit.as_ref().map(|hit| hit.target);
+        if drag.over != now
+            && let Some(left) = drag.over.take()
+        {
+            server.event(left, Event::named("dndleave"));
+        }
+        let Some(hit) = hit else { return };
+        let (lx, ly) = (x - hit.origin[0], y - hit.origin[1]);
+        if drag.over.is_none() {
+            drag.over = Some(hit.target);
+            server.event(
+                hit.target,
+                Event { kind: "dndenter".into(), x: Some(lx), y: Some(ly), mime: Some(drag.data.keys().cloned().collect()), ..Default::default() },
+            );
+        } else {
+            server.event(hit.target, Event { kind: "dndmove".into(), x: Some(lx), y: Some(ly), ..Default::default() });
+        }
+    }
+
+    fn drop_data_drag(&mut self, server: &Server) -> bool {
+        let Some(drag) = self.data_drag.take() else { return false };
+        let Some(over) = drag.over else { return false };
+        let (x, y) = self.pointer;
+        let Some(hit) = server.state().hit(x, y).filter(|hit| hit.target == over) else {
+            server.event(over, Event::named("dndleave"));
+            return false;
+        };
+        server
+            .event(over, Event { kind: "dnddrop".into(), x: Some(x - hit.origin[0]), y: Some(y - hit.origin[1]), data: Some(drag.data), ..Default::default() });
+        server.event(drag.source, Event { kind: "dragend".into(), button: Some(1), ..Default::default() });
+        true
     }
 
     fn dragged(drag: &Drag, (x, y): (f64, f64)) -> [f64; 4] {
@@ -417,12 +425,7 @@ impl App {
             return None;
         }
         let (x, y) = (self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1]);
-        let edges = e
-            .grab_hints()
-            .iter()
-            .rev()
-            .find(|([hx, hy, hw, hh], _)| x >= *hx && y >= *hy && x < hx + hw && y < hy + hh)
-            .map(|(_, edges)| *edges)?;
+        let edges = e.grab_hints().iter().rev().find(|([hx, hy, hw, hh], _)| x >= *hx && y >= *hy && x < hx + hw && y < hy + hh).map(|(_, edges)| *edges)?;
         let allowed = match e.mode {
             Mode::Free => true,
             Mode::Fixed => edges == 0,
@@ -466,18 +469,17 @@ impl App {
             {
                 if self.frame_button(server, id) == Some(pressed) {
                     let fullscreen = server.state().entries.get(&id).is_some_and(|e| e.mode == Mode::Fullscreen);
-                    server.event(
-                        id,
-                        Event {
-                            kind: "framebutton".into(),
-                            key: Some(pressed.key(fullscreen).into()),
-                            ..Default::default()
-                        },
-                    );
+                    server.event(id, Event { kind: "framebutton".into(), key: Some(pressed.key(fullscreen).into()), ..Default::default() });
                 }
                 return;
             }
             if !self.pressed.remove(&button) {
+                return;
+            }
+            if button == keys::BUTTON_LEFT && self.drop_data_drag(server) {
+                if self.pressed.is_empty() {
+                    self.capture = None;
+                }
                 return;
             }
         }
@@ -502,13 +504,7 @@ impl App {
         let combo = Combo { mods: self.modifiers | self.injected_mods, key: evdev };
         let binding = state.shortcuts.find(combo, state.focus)?;
         let name = state.shortcuts.name(combo).unwrap_or_default().to_owned();
-        Some(Event {
-            kind: "shortcut".into(),
-            window: Some(binding.owner),
-            key: Some(name),
-            title: Some(binding.scope.as_str().into()),
-            ..Default::default()
-        })
+        Some(Event { kind: "shortcut".into(), window: Some(binding.owner), key: Some(name), title: Some(binding.scope.as_str().into()), ..Default::default() })
     }
 
     fn key(&mut self, server: &Server, evdev: u32, pressed: bool, text: Option<String>) {
@@ -522,15 +518,7 @@ impl App {
             return;
         }
         let text = text.filter(|t| t.chars().next().is_some_and(|c| !c.is_control()));
-        self.focused(
-            server,
-            Event {
-                kind: (if pressed { "keydown" } else { "keyup" }).into(),
-                code: Some(evdev),
-                key: text,
-                ..Default::default()
-            },
-        );
+        self.focused(server, Event { kind: (if pressed { "keydown" } else { "keyup" }).into(), code: Some(evdev), key: text, ..Default::default() });
     }
 
     fn dropped(&self, server: &Server, paths: &[std::path::PathBuf]) {
@@ -542,26 +530,10 @@ impl App {
             acde_model::drop_grant::record(app.as_deref(), paths);
         }
         let (lx, ly) = (x - hit.origin[0], y - hit.origin[1]);
-        let uris: Vec<String> =
-            paths.iter().filter_map(|p| url::Url::from_file_path(p).ok()).map(String::from).collect();
+        let uris: Vec<String> = paths.iter().filter_map(|p| url::Url::from_file_path(p).ok()).map(String::from).collect();
         let plain: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
-        let data = HashMap::from([
-            ("text/uri-list".to_owned(), uris.join("\r\n")),
-            ("text/plain".to_owned(), plain.join("\n")),
-        ]);
-        server.event(
-            hit.target,
-            Event {
-                kind: "dndenter".into(),
-                x: Some(lx),
-                y: Some(ly),
-                mime: Some(data.keys().cloned().collect()),
-                ..Default::default()
-            },
-        );
-        server.event(
-            hit.target,
-            Event { kind: "dnddrop".into(), x: Some(lx), y: Some(ly), data: Some(data), ..Default::default() },
-        );
+        let data = HashMap::from([("text/uri-list".to_owned(), uris.join("\r\n")), ("text/plain".to_owned(), plain.join("\n"))]);
+        server.event(hit.target, Event { kind: "dndenter".into(), x: Some(lx), y: Some(ly), mime: Some(data.keys().cloned().collect()), ..Default::default() });
+        server.event(hit.target, Event { kind: "dnddrop".into(), x: Some(lx), y: Some(ly), data: Some(data), ..Default::default() });
     }
 }

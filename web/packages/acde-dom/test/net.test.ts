@@ -514,6 +514,71 @@ test('observe: console lines, page errors and every request with its outcome rea
   assert.deepEqual(seen.filter((e) => e[0] === 'error' || e[0] === 'rejection'), [['error', 'TypeError: late'], ['rejection', 'RangeError: nobody waits']])
 })
 
+test('observe: route answers fetch and XHR in place of the app, its backend and the network, and marks them mocked', async () => {
+  using web = await webWithBackend()
+  const result = await web.run<Promise<string>>(`(async () => {
+    const starts = []
+    const bytes = (text) => new TextEncoder().encode(text)
+    __acdeDom.observe({
+      request: (e) => { if (e.phase === 'start') starts.push([e.kind, e.method, e.url.replace(location.origin, ''), e.mocked === true]) },
+      route: (kind, method, url) => {
+        if (url.endsWith('/api/echo') && method === 'POST') return { status: 201, statusText: 'Created', headers: [['content-type', 'application/json'], ['x-mock', kind]], body: bytes('{"ok":true}') }
+        if (url.startsWith('https://example.com/')) return { status: 200, statusText: 'OK', headers: [], body: bytes('remote') }
+        if (url.endsWith('/gone')) return { error: 'offline' }
+        if (url.endsWith('/empty')) return { status: 204, statusText: 'No Content', headers: [], body: bytes('dropped') }
+        return null
+      },
+    })
+    const out = []
+    const echo = await fetch('/api/echo', { method: 'POST', body: 'abc' })
+    out.push(echo.status, echo.statusText, echo.headers.get('x-mock'), await echo.json(), echo.url.replace(location.origin, ''))
+    out.push(await (await fetch('https://example.com/data')).text())
+    try { await fetch('/gone') } catch (e) { out.push(e.name, e.message, e.cause) }
+    const empty = await fetch('/empty')
+    out.push(empty.status, empty.body === null)
+    out.push(await (await fetch('/app/demo/index.js')).text())
+    out.push(await new Promise((resolve) => {
+      const x = new XMLHttpRequest()
+      x.open('POST', '/api/echo')
+      x.onload = () => resolve([x.status, x.statusText, x.getResponseHeader('content-type'), x.getResponseHeader('x-mock'), x.responseText])
+      x.send('abc')
+    }))
+    out.push(await new Promise((resolve) => {
+      const x = new XMLHttpRequest()
+      x.open('GET', '/gone')
+      x.onerror = () => resolve(['error', x.readyState, x.status])
+      x.send()
+    }))
+    const sync = new XMLHttpRequest()
+    sync.open('GET', 'https://example.com/sync', false)
+    sync.send()
+    out.push(sync.status, sync.responseText)
+    __acdeDom.observe(null)
+    out.push(starts)
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), [
+    201, 'Created', 'fetch', { ok: true }, '/api/echo',
+    'remote',
+    'TypeError', 'Failed to fetch', 'offline',
+    204, true,
+    'export {}',
+    [201, 'Created', 'application/json', 'xhr', '{"ok":true}'],
+    ['error', 4, 0],
+    200, 'remote',
+    [
+      ['fetch', 'POST', '/api/echo', true],
+      ['fetch', 'GET', 'https://example.com/data', true],
+      ['fetch', 'GET', '/gone', true],
+      ['fetch', 'GET', '/empty', true],
+      ['fetch', 'GET', '/app/demo/index.js', false],
+      ['xhr', 'POST', '/api/echo', true],
+      ['xhr', 'GET', '/gone', true],
+      ['xhr', 'GET', 'https://example.com/sync', true],
+    ],
+  ])
+})
+
 test('observe: without a backend, a missing file of the app and another host fail with different reasons', async () => {
   using web = await page()
   const result = await web.run<Promise<string>>(`(async () => {

@@ -5,6 +5,7 @@ import { Host } from './host'
 import type { ImeEvent, NativeIme } from './ime'
 import type { NativeSurface } from './native'
 import { DevHot } from './devhot'
+import { DevRoutes, type DevRoute } from './devroutes'
 import { DevState, type DevSnapshot } from './devstate'
 import { Level, Log } from './log'
 import { PageSource } from './page'
@@ -67,11 +68,13 @@ export default async function boot(natives: WebNatives): Promise<void> {
     audio: natives.audio,
     ...(init.screen && { screen: init.screen }),
   })
-  if (natives.env['ACDE_DEV']) {
+  const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null
+  if (routes) {
     observe({
       console: (level, text) => port.post({ devlog: 'console', time: Log.clock(), level, text }),
       error: (kind, text) => port.post({ devlog: 'error', time: Log.clock(), kind, text }),
       request: (event) => port.post({ devlog: 'request', time: Log.clock(), event }),
+      route: (_kind, method, url) => routes.match(method, url),
     })
   }
   host.onTaskEnd(() => page.endTask())
@@ -99,8 +102,10 @@ export default async function boot(natives: WebNatives): Promise<void> {
   let devhot = (): void => {}
   port.onMessage((message) => {
     if (rpc.receive(message)) return
-    const m = message as { type?: string; dark?: boolean; reduced?: boolean; language?: string; languages?: string[]; width?: number; height?: number }
+    const m = message as { type?: string; dark?: boolean; reduced?: boolean; language?: string; languages?: string[]; width?: number; height?: number; routes?: DevRoute[] }
     switch (m.type) {
+      case 'devroutes':
+        return routes?.set(m.routes ?? [])
       case 'screen':
         if (m.width && m.height) page.setScreen({ width: m.width, height: m.height })
         return

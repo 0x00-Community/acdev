@@ -173,8 +173,7 @@ pub(crate) fn event_object<'s>(scope: &mut v8::PinScope<'s, '_>, event: Event) -
         fields.push(("mime", v8::Array::new_with_elements(scope, &kinds).into()));
     }
     if let Some(data) = &event.data {
-        let texts: Vec<(&str, v8::Local<v8::Value>)> =
-            data.iter().map(|(kind, text)| (kind.as_str(), bind::string(scope, text).into())).collect();
+        let texts: Vec<(&str, v8::Local<v8::Value>)> = data.iter().map(|(kind, text)| (kind.as_str(), bind::string(scope, text).into())).collect();
         fields.push(("data", bind::object(scope, &texts).into()));
     }
     bind::object(scope, &fields)
@@ -325,8 +324,7 @@ fn clipboard_read(scope: &mut v8::PinScope, token: u32, text: &str) {
 fn start_drag<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, _: v8::ReturnValue) {
     let data: HashMap<String, String> = bind::own_string_pairs(scope, args.get(0)).into_iter().collect();
     let icon = v8::Local::<v8::Object>::try_from(args.get(1)).ok().and_then(|icon| {
-        let mut number =
-            |name: &str| bind::get(scope, icon, name).and_then(|v| v.number_value(scope)).filter(|n| n.is_finite());
+        let mut number = |name: &str| bind::get(scope, icon, name).and_then(|v| v.number_value(scope)).filter(|n| n.is_finite());
         let (width, height) = (number("width")? as u32, number("height")? as u32);
         let hotspot = (number("hotX").unwrap_or(0.0) as i32, number("hotY").unwrap_or(0.0) as i32);
         let picture = number("picture").and_then(|id| crate::dom::take_picture(id as u32));
@@ -335,9 +333,7 @@ fn start_drag<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackAr
             None => acde_render::Capture::bitmap(
                 width,
                 height,
-                bind::get(scope, icon, "rgba")
-                    .and_then(bind::bytes)
-                    .filter(|b| b.len() == (width * height * 4) as usize)?,
+                bind::get(scope, icon, "rgba").and_then(bind::bytes).filter(|b| b.len() == (width * height * 4) as usize)?,
             ),
         };
         Some(DragImage { width, height, scene, hotspot })

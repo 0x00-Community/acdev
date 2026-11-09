@@ -78,6 +78,14 @@ static FOLDERS: Answers<std::path::PathBuf> = Answers::new();
 static OPENED: Answers<Vec<std::path::PathBuf>> = Answers::new();
 static SAVED: Answers<std::path::PathBuf> = Answers::new();
 
+pub fn clipboard_text() -> String {
+    platform::clipboard_get()
+}
+
+pub fn set_clipboard_text(text: String) {
+    platform::clipboard_set(text);
+}
+
 pub fn answer_folder(answer: Option<std::path::PathBuf>) {
     FOLDERS.push(answer);
 }

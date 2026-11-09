@@ -69,8 +69,7 @@ pub(crate) struct Hit {
 impl Entry {
     pub fn grab_hints(&self) -> Vec<([f64; 4], u32)> {
         let top = self.frame;
-        let mut hints: Vec<([f64; 4], u32)> =
-            self.hints.iter().map(|&([x, y, w, h], edges)| ([x, y + top, w, h], edges)).collect();
+        let mut hints: Vec<([f64; 4], u32)> = self.hints.iter().map(|&([x, y, w, h], edges)| ([x, y + top, w, h], edges)).collect();
         if top > 0.0 {
             hints.extend(acde_render::Bar::grab_hints(self.rect[2], self.rect[3], top));
         }
@@ -223,15 +222,8 @@ impl Shell {
         let token = State::token();
         state.tokens.insert(token, id);
         let panel = mode == Mode::Pinned && !grant.desktop;
-        let entry = state.entries.entry(id).or_insert_with(|| Entry {
-            desktop: grant.desktop,
-            panel,
-            mode,
-            rect,
-            placed,
-            hidden: grant.hidden,
-            ..Entry::default()
-        });
+        let entry =
+            state.entries.entry(id).or_insert_with(|| Entry { desktop: grant.desktop, panel, mode, rect, placed, hidden: grant.hidden, ..Entry::default() });
         entry.mode = mode;
         if placed || !entry.opened {
             entry.rect = rect;
@@ -324,14 +316,7 @@ impl Shell {
             .entries
             .iter()
             .filter(|(_, e)| e.opened || e.panel)
-            .map(|(&id, e)| WindowInfo {
-                id,
-                mode: e.mode,
-                rect: e.rect,
-                z: e.z,
-                focus: state.focus == Some(id),
-                hidden: e.hidden,
-            })
+            .map(|(&id, e)| WindowInfo { id, mode: e.mode, rect: e.rect, z: e.z, focus: state.focus == Some(id), hidden: e.hidden })
             .collect();
         list.sort_by_key(|w| (w.id != 0, w.z));
         list

@@ -9,6 +9,7 @@ pub(crate) enum Cmd {
     Title(String),
     ImeArea([f64; 4]),
     Inject(acde_model::Injected),
+    StartDrag { window: u32, data: std::collections::HashMap<String, String> },
     ChooseFolder { title: String, reply: FolderReply },
     OpenFiles { request: OpenRequest, reply: FilesReply },
     SaveFile { request: SaveRequest, reply: FolderReply },
