@@ -1,4 +1,6 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync } from 'node:fs'
+import {
+  cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { Manifest, type Findings, type PackageManifest } from '@dopame/acde-api/manifest'
@@ -20,7 +22,9 @@ export class AppPackage {
   constructor(dir: string) {
     this.dir = realpathSync(resolve(dir))
     const file = join(this.dir, 'package.json')
-    const json = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { name?: unknown; acde?: { apps?: unknown } }) : {}
+    const json = existsSync(file)
+      ? (JSON.parse(readFileSync(file, 'utf8')) as { name?: unknown; acde?: { apps?: unknown } })
+      : {}
     const configured = Project.CONFIGS.some((name) => existsSync(join(this.dir, name)))
     this.manifest = !configured && Array.isArray(json.acde?.apps) ? (json.acde as PackageManifest) : null
     this.project = this.manifest ? null : new Project(this.dir)
@@ -42,10 +46,12 @@ export class AppPackage {
         .some(([prefix, dirs]) => dirs.some((d) => AppPackage.#isFile(join(dir, d, url.slice(prefix.length)))))
     const findings = Manifest.check(manifest, (d) => AppPackage.#isDir(join(dir, d)), resolveUrl)
     for (const desktop of manifest.desktops ?? []) {
-      if (!AppPackage.#isFile(join(dir, desktop.entry))) findings.errors.push(`desktop ${JSON.stringify(desktop.id)}: no entry ${desktop.entry}`)
+      if (!AppPackage.#isFile(join(dir, desktop.entry)))
+        findings.errors.push(`desktop ${JSON.stringify(desktop.id)}: no entry ${desktop.entry}`)
     }
     for (const service of manifest.services ?? []) {
-      if (!AppPackage.#isFile(join(dir, service.module))) findings.errors.push(`service ${JSON.stringify(service.name)}: no module ${service.module}`)
+      if (!AppPackage.#isFile(join(dir, service.module)))
+        findings.errors.push(`service ${JSON.stringify(service.name)}: no module ${service.module}`)
     }
     return findings
   }
@@ -63,11 +69,13 @@ export class AppPackage {
     if (this.manifest) {
       AppPackage.#throw(this.check())
       const apps = (this.manifest.apps ?? []).map((app) => app.id)
-      return { dir: this.dir, id: this.name.replace(/^@[^/]*\//, ''), desktops: (this.manifest.desktops ?? []).map((d) => d.id), apps }
+      const desktops = (this.manifest.desktops ?? []).map((d) => d.id)
+      return { dir: this.dir, id: this.name.replace(/^@[^/]*\//, ''), desktops, apps }
     }
     const built = await this.project!.build(out)
     AppPackage.#throw(AppPackage.check(out, built.acde))
-    return { dir: out, id: this.project!.id, desktops: (built.acde.desktops ?? []).map((d) => d.id), apps: built.acde.apps.map((app) => app.id) }
+    const desktops = (built.acde.desktops ?? []).map((d) => d.id)
+    return { dir: out, id: this.project!.id, desktops, apps: built.acde.apps.map((app) => app.id) }
   }
 
   install(built: Built): string {

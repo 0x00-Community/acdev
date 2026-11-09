@@ -37,15 +37,23 @@ let priority = 'low'
 let clipboard = ''
 const routes: { id: number; url: unknown; status: number; times: number | null }[] = []
 let nextRoute = 1
-const ATTRIBUTES: Record<string, Record<string, string>> = { 'w1.2': { placeholder: 'What needs doing?' }, 'w1.3': { title: 'Add a task' } }
-const consoleLog: object[] = [{ seq: 1, time: 10, web: 'alpha#7', app: 'alpha', kind: 'console', level: 'log', text: 'alpha ready' }]
+const ATTRIBUTES: Record<string, Record<string, string>> = {
+  'w1.2': { placeholder: 'What needs doing?' },
+  'w1.3': { title: 'Add a task' },
+}
+const consoleLog: object[] = [
+  { seq: 1, time: 10, web: 'alpha#7', app: 'alpha', kind: 'console', level: 'log', text: 'alpha ready' },
+]
 const requests: object[] = []
 let dark = false
 let reduced = false
 
-function page<T extends { seq: number; web: string; app: string | null }>(all: T[], m: Record<string, unknown>, keep: (e: T) => boolean = () => true) {
+function page<T extends { seq: number; web: string; app: string | null }>(
+  all: T[], m: Record<string, unknown>, keep: (e: T) => boolean = () => true,
+) {
   const since = Number(m['since'] ?? 0)
-  const entries = all.filter((e) => e.seq >= since && (m['web'] === undefined || e.web === m['web'] || e.app === m['web']) && keep(e))
+  const inWeb = (e: T) => m['web'] === undefined || e.web === m['web'] || e.app === m['web']
+  const entries = all.filter((e) => e.seq >= since && inWeb(e) && keep(e))
   return { entries, next: all.length + 1, dropped: 0 }
 }
 
@@ -64,18 +72,32 @@ function query(m: Record<string, unknown>) {
   const all: Node[] = []
   const walk = (list: Node[]) => list.forEach((n) => (all.push(n), walk(n.children ?? [])))
   walk(within ? (within.children ?? []) : nodes)
-  const tags: Record<string, string> = { textbox: 'input', button: 'button', list: 'ul', listitem: 'li', checkbox: 'input', text: 'span' }
+  const tags: Record<string, string> = {
+    textbox: 'input', button: 'button', list: 'ul', listitem: 'li', checkbox: 'input', text: 'span',
+  }
   const pick = (role: string) => all.filter((n) => n.role === role)
   const selector = String(m['selector'])
   const has = (name: string) => all.filter((n) => ATTRIBUTES[n.ref]?.[name] !== undefined)
   const found =
-    selector === '[data-testid="add"]' ? pick('button') : selector === 'li' ? pick('listitem') : selector === 'input[type=checkbox]' ? pick('checkbox') : selector === '.ghost' ? [{ ref: 'w1.99', role: 'generic' }]
-    : selector === '[placeholder]' ? has('placeholder') : selector === '[title]' ? has('title') : selector === '*' ? all : []
+    selector === '[data-testid="add"]' ? pick('button')
+    : selector === 'li' ? pick('listitem')
+    : selector === 'input[type=checkbox]' ? pick('checkbox')
+    : selector === '.ghost' ? [{ ref: 'w1.99', role: 'generic' }]
+    : selector === '[placeholder]' ? has('placeholder')
+    : selector === '[title]' ? has('title')
+    : selector === '*' ? all
+    : []
   const attributes = Array.isArray(m['attributes']) ? (m['attributes'] as string[]) : []
+  const attributesOf = (ref: string) => Object.fromEntries(attributes.map((a) => [a, ATTRIBUTES[ref]?.[a] ?? null]))
   return {
     window: m['window'] ?? 'w1',
     count: found.length,
-    nodes: found.map(({ children: _c, ...n }) => ({ ...n, tag: tags[n.role] ?? 'div', visible: n.ref !== 'w1.99', ...(attributes.length && { attributes: Object.fromEntries(attributes.map((a) => [a, ATTRIBUTES[n.ref]?.[a] ?? null])) }) })),
+    nodes: found.map(({ children: _c, ...n }) => ({
+      ...n,
+      tag: tags[n.role] ?? 'div',
+      visible: n.ref !== 'w1.99',
+      ...(attributes.length && { attributes: attributesOf(n.ref) }),
+    })),
   }
 }
 
@@ -107,7 +129,12 @@ function tree(win: Win): Node[] {
         name: t.name,
         children: [
           { ref: `w1.${11 + i * 3}`, role: 'text', name: t.name },
-          { ref: `w1.${12 + i * 3}`, role: 'checkbox', name: `Done: ${t.name}`, ...(t.done ? { states: ['checked'] } : {}) },
+          {
+            ref: `w1.${12 + i * 3}`,
+            role: 'checkbox',
+            name: `Done: ${t.name}`,
+            ...(t.done ? { states: ['checked'] } : {}),
+          },
         ],
       })),
     },
@@ -125,9 +152,13 @@ function find(nodes: Node[], needle: string): Node[] {
 }
 
 function snapshot(m: Record<string, unknown>) {
-  const text = `snapshot ${JSON.stringify({ window: m['window'] ?? null, find: m['find'] ?? null, all: m['all'] ?? false })}`
+  const asked = { window: m['window'] ?? null, find: m['find'] ?? null, all: m['all'] ?? false }
+  const text = `snapshot ${JSON.stringify(asked)}`
   if (m['tree'] === false) return { text, windows, trees: {} }
-  const wanted = typeof m['window'] === 'string' ? windows.filter((w) => w.ref === m['window']) : m['all'] || m['find'] ? windows.filter((w) => !w.hidden) : windows.filter((w) => w.focus)
+  const wanted =
+    typeof m['window'] === 'string' ? windows.filter((w) => w.ref === m['window'])
+    : m['all'] || m['find'] ? windows.filter((w) => !w.hidden)
+    : windows.filter((w) => w.focus)
   const trees: Record<string, Node[]> = {}
   if (typeof m['ref'] === 'string') {
     const w = windows.find((x) => (m['ref'] as string).startsWith(`${x.ref}.`))!
@@ -147,14 +178,16 @@ function act(ref: string, action: string, arg: unknown): { ok: boolean; text: st
   if (action === 'select') {
     const values = Array.isArray(arg) ? arg : [arg]
     if (ref !== 'w1.6') return { ok: false, text: 'not a <select>' }
-    if (values.length !== 1 || !['low', 'high'].includes(String(values[0]))) return { ok: false, text: `no option ${JSON.stringify(values)}` }
+    if (values.length !== 1 || !['low', 'high'].includes(String(values[0])))
+      return { ok: false, text: `no option ${JSON.stringify(values)}` }
     priority = String(values[0])
     return { ok: true, text: `selected ${JSON.stringify([priority])}` }
   }
   if (action === 'drag') {
     const from = /^w1\.(\d+)$/.exec(ref)
     const to = /^w1\.(\d+)$/.exec(String(arg ?? ''))
-    const index = (m: RegExpExecArray | null) => (m && Number(m[1]) >= 10 && (Number(m[1]) - 10) % 3 === 0 ? (Number(m[1]) - 10) / 3 : -1)
+    const index = (m: RegExpExecArray | null) =>
+      m && Number(m[1]) >= 10 && (Number(m[1]) - 10) % 3 === 0 ? (Number(m[1]) - 10) / 3 : -1
     const [a, b] = [index(from), index(to)]
     if (a < 0 || b < 0 || !tasks[a] || !tasks[b]) return { ok: false, text: `cannot drag ${ref} onto ${String(arg)}` }
     tasks.splice(b, 0, ...tasks.splice(a, 1))
@@ -168,10 +201,36 @@ function act(ref: string, action: string, arg: unknown): { ok: boolean; text: st
     draft = ''
     setTimeout(() => {
       tasks.push({ name, done: false })
-      consoleLog.push({ seq: consoleLog.length + 1, time: 20, web: 'alpha#7', app: 'alpha', kind: name === 'boom' ? 'error' : 'console', level: name === 'boom' ? 'error' : 'info', text: name === 'boom' ? 'Error: boom' : `added ${name}` })
+      const boom = name === 'boom'
+      consoleLog.push({
+        seq: consoleLog.length + 1,
+        time: 20,
+        web: 'alpha#7',
+        app: 'alpha',
+        kind: boom ? 'error' : 'console',
+        level: boom ? 'error' : 'info',
+        text: boom ? 'Error: boom' : `added ${name}`,
+      })
       const route = [...routes].reverse().find((r) => r.url === '/api/tasks' && r.times !== 0)
       if (route && route.times !== null) route.times--
-      requests.push({ seq: requests.length + 1, time: 20, web: 'alpha#7', app: 'alpha', id: requests.length + 1, kind: 'fetch', method: 'POST', url: 'http://acde.local/api/tasks', requestBytes: name.length, status: route ? route.status : name === 'boom' ? 500 : 201, statusText: '', responseBytes: 2, ms: 3, error: null, done: true, ...(route && { mocked: true }) })
+      requests.push({
+        seq: requests.length + 1,
+        time: 20,
+        web: 'alpha#7',
+        app: 'alpha',
+        id: requests.length + 1,
+        kind: 'fetch',
+        method: 'POST',
+        url: 'http://acde.local/api/tasks',
+        requestBytes: name.length,
+        status: route ? route.status : boom ? 500 : 201,
+        statusText: '',
+        responseBytes: 2,
+        ms: 3,
+        error: null,
+        done: true,
+        ...(route && { mocked: true }),
+      })
     }, ADD_DELAY_MS)
   }
   const checkbox = /^w1\.(\d+)$/.exec(ref)
@@ -187,17 +246,34 @@ function act(ref: string, action: string, arg: unknown): { ok: boolean; text: st
 function open(name: string): { ok: boolean; text: string } {
   if (name !== 'beta') return { ok: false, text: `no app ${name}` }
   for (const w of windows) w.focus = false
-  windows.push({ ref: `w${windows.length}`, id: 8, kind: 'web', app: 'beta', title: 'Beta', rect: [2, 2, 3, 3], focus: true, hidden: false })
+  windows.push({
+    ref: `w${windows.length}`, id: 8, kind: 'web', app: 'beta', title: 'Beta',
+    rect: [2, 2, 3, 3], focus: true, hidden: false,
+  })
   return { ok: true, text: 'opened beta' }
 }
 
 function webs() {
   const names: Record<number, string> = { 0: 'desktop', 7: 'alpha#7', 8: 'beta#8' }
-  return windows.map((w) => ({ name: names[w.id]!, app: w.app, kind: w.kind === 'desktop' ? 'desktop' : 'app', window: w.id, title: w.kind === 'desktop' ? 'Desk' : w.title }))
+  return windows.map((w) => ({
+    name: names[w.id]!,
+    app: w.app,
+    kind: w.kind === 'desktop' ? 'desktop' : 'app',
+    window: w.id,
+    title: w.kind === 'desktop' ? 'Desk' : w.title,
+  }))
 }
 
-const ISOLATION = ['HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'ACDE_STORAGE', 'ACDE_SIZE', 'ACDE_COLOR_SCHEME', 'ACDE_REDUCED_MOTION', 'ACDE_AUTOSTART']
-record({ argv: process.argv.slice(2), path: process.env['ACDE_PATH'] ?? null, headless: process.env['ACDE_HEADLESS'] ?? null, env: Object.fromEntries(ISOLATION.map((k) => [k, process.env[k] ?? null])) })
+const ISOLATION = [
+  'HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
+  'ACDE_STORAGE', 'ACDE_SIZE', 'ACDE_COLOR_SCHEME', 'ACDE_REDUCED_MOTION', 'ACDE_AUTOSTART',
+]
+record({
+  argv: process.argv.slice(2),
+  path: process.env['ACDE_PATH'] ?? null,
+  headless: process.env['ACDE_HEADLESS'] ?? null,
+  env: Object.fromEntries(ISOLATION.map((k) => [k, process.env[k] ?? null])),
+})
 console.error('[alpha#7] js: fake acdert is up')
 const endpoint = process.env['ACDE_DEV']!
 const server = net.createServer((socket) => {
@@ -257,7 +333,8 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     case 'query':
       return void ok(query(m))
     case 'console':
-      return void ok(page(consoleLog as never[], m, (e: { level: string }) => m['level'] === undefined || (m['level'] === 'errors' ? e.level === 'error' : e.level === m['level'])))
+      return void ok(page(consoleLog as never[], m, (e: { level: string }) =>
+        m['level'] === undefined || (m['level'] === 'errors' ? e.level === 'error' : e.level === m['level'])))
     case 'network':
       return void ok(page(requests as never[], m, (e: { status: number }) => !m['failed'] || e.status >= 400))
     case 'screen':
@@ -269,18 +346,25 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       const kind = kinds[0]!
       const answer = m[kind]
       const path = (value: unknown) => typeof value === 'string' && isAbsolute(value)
-      const valid = answer === null || (kind === 'open' ? Array.isArray(answer) && answer.length > 0 && answer.every(path) : path(answer))
+      const paths = (value: unknown) => Array.isArray(value) && value.length > 0 && value.every(path)
+      const valid = answer === null || (kind === 'open' ? paths(answer) : path(answer))
       if (valid) return void ok({ [kind]: answer })
       return void fail(`choose: ${kind} is not an absolute path, a list of them for open, or null to cancel`)
     }
     case 'emulate':
       if (m['colorScheme'] !== undefined) dark = m['colorScheme'] === 'dark'
       if (m['reducedMotion'] !== undefined) reduced = m['reducedMotion'] === true
-      return void ok({ colorScheme: dark ? 'dark' : 'light', emulated: m['colorScheme'] !== null && m['colorScheme'] !== undefined, reducedMotion: reduced })
+      return void ok({
+        colorScheme: dark ? 'dark' : 'light',
+        emulated: m['colorScheme'] !== null && m['colorScheme'] !== undefined,
+        reducedMotion: reduced,
+      })
     case 'route': {
-      if (typeof m['url'] !== 'string' && typeof (m['url'] as { regex?: unknown } | undefined)?.regex !== 'string') return void fail('route: url is a glob or { regex, flags }')
+      const regex = typeof (m['url'] as { regex?: unknown } | undefined)?.regex === 'string'
+      if (typeof m['url'] !== 'string' && !regex) return void fail('route: url is a glob or { regex, flags }')
       const id = nextRoute++
-      routes.push({ id, url: m['url'], status: Number(m['status'] ?? 200), times: typeof m['times'] === 'number' ? m['times'] : null })
+      const times = typeof m['times'] === 'number' ? m['times'] : null
+      routes.push({ id, url: m['url'], status: Number(m['status'] ?? 200), times })
       return void ok({ id })
     }
     case 'unroute': {

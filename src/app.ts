@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
-import type { AcdeConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
+import type {
+  AcdeConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig,
+} from '@dopame/acde-api'
 import { Bundler, type PublicRules } from './bundler.ts'
 import { CONFIGS } from './configs.ts'
 import { Frameworks, type Output } from './frameworks.ts'
@@ -26,10 +30,16 @@ interface BuiltPackage {
   readonly name: string
   readonly version: string
   readonly private: true
-  readonly acde: PackageManifest & { readonly apps: readonly BuiltApp[]; readonly assets: Readonly<Record<string, readonly string[]>> }
+  readonly acde: PackageManifest & {
+    readonly apps: readonly BuiltApp[]
+    readonly assets: Readonly<Record<string, readonly string[]>>
+  }
 }
 
-const BACKENDS = ['server.ts', 'server.js', 'src/server.ts', 'src/server.js', 'server/index.ts', 'server/index.js', 'backend/index.ts', 'backend/index.js']
+const BACKENDS = [
+  'server.ts', 'server.js', 'src/server.ts', 'src/server.js',
+  'server/index.ts', 'server/index.js', 'backend/index.ts', 'backend/index.js',
+]
 const DEFAULT_PORT = 3000
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
@@ -101,7 +111,8 @@ export class Project {
   check(): string[] {
     const errors: string[] = []
     const need = (path: string | undefined, what: string) => {
-      if (path !== undefined && !existsSync(resolve(this.dir, path))) errors.push(`no ${path} (${what} in ${this.from})`)
+      if (path !== undefined && !existsSync(resolve(this.dir, path)))
+        errors.push(`no ${path} (${what} in ${this.from})`)
     }
     const icon = (value: string | undefined, what: string) => {
       const problem = value !== undefined && Project.isIconPath(value) ? this.#iconProblem(value) : null
@@ -148,7 +159,8 @@ export class Project {
       manifest.apps.push(await this.#app({ ...config, id: this.id }, out, '', assets, true))
     } else {
       manifest.desktops = [await this.#desktop(config, out, assets)]
-      for (const app of config.apps ?? []) manifest.apps.push(await this.#app(app, out, `apps/${app.id}/`, assets, false))
+      for (const app of config.apps ?? [])
+        manifest.apps.push(await this.#app(app, out, `apps/${app.id}/`, assets, false))
       const services = Object.entries(config.services ?? {})
       if (services.length > 0) {
         manifest.services = []
@@ -160,10 +172,13 @@ export class Project {
     return built
   }
 
-  async #app(config: WindowAppConfig, out: string, dir: string, assets: Record<string, string[]>, own: boolean): Promise<BuiltApp> {
+  async #app(
+    config: WindowAppConfig, out: string, dir: string, assets: Record<string, string[]>, own: boolean,
+  ): Promise<BuiltApp> {
     const id = config.id!
     const base = `/app/${id}/`
-    const framework = own && this.config.type === 'app' ? Frameworks.detect(this.#detecting, this.config.framework) : null
+    const framework =
+      own && this.config.type === 'app' ? Frameworks.detect(this.#detecting, this.config.framework) : null
     if (framework) {
       console.log(`acde: ${framework.label}: building with its own tools`)
       await Frameworks.install(this.dir)
@@ -179,15 +194,19 @@ export class Project {
     const page = await this.#web(resolve(this.dir, config.entry ?? 'index.html'), join(out, `${dir}web`), base, own)
     const backend = await this.#ownBackend(config, out, dir, base, assets)
     assets[base] = [`${dir}web`]
-    return Project.#manifestOf(config, id, { entry: base + page, backend, icon: this.#icon(config.icon, join(out, `${dir}web`), base) })
+    const icon = this.#icon(config.icon, join(out, `${dir}web`), base)
+    return Project.#manifestOf(config, id, { entry: base + page, backend, icon })
   }
 
-  async #place(built: Output, config: WindowAppConfig, out: string, base: string, assets: Record<string, string[]>): Promise<{ entry: string; backend: string | null }> {
+  async #place(
+    built: Output, config: WindowAppConfig, out: string, base: string, assets: Record<string, string[]>,
+  ): Promise<{ entry: string; backend: string | null }> {
     const web = join(out, 'web')
     mkdirSync(web, { recursive: true })
     if (built.web) cpSync(built.web, web, { recursive: true, verbatimSymlinks: true })
     assets[base] = ['web']
-    if (!built.server) return { entry: base + built.page!, backend: await this.#ownBackend(config, out, '', base, assets) }
+    if (!built.server)
+      return { entry: base + built.page!, backend: await this.#ownBackend(config, out, '', base, assets) }
     const backend = join(out, 'backend')
     cpSync(built.server.dir, backend, { recursive: true, verbatimSymlinks: true })
     await this.#bundler.preload(dirname(join(backend, built.server.entry)))
@@ -195,7 +214,9 @@ export class Project {
     return { entry: base, backend: `${base}backend/${built.server.entry}` }
   }
 
-  async #ownBackend(config: WindowAppConfig, out: string, dir: string, base: string, assets: Record<string, string[]>): Promise<string | null> {
+  async #ownBackend(
+    config: WindowAppConfig, out: string, dir: string, base: string, assets: Record<string, string[]>,
+  ): Promise<string | null> {
     const server = this.#server(config.backend)
     if (!server) return null
     const backend = join(out, `${dir}backend`)
@@ -205,9 +226,12 @@ export class Project {
     return `${base}backend/server.js`
   }
 
-  static #manifestOf(config: WindowAppConfig, id: string, placed: { entry: string; backend: string | null; icon: string }): BuiltApp {
+  static #manifestOf(
+    config: WindowAppConfig, id: string, placed: { entry: string; backend: string | null; icon: string },
+  ): BuiltApp {
     const port = (config.backend ? config.backend.port : undefined) ?? DEFAULT_PORT
-    if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`app ${id}: backend.port must be a port number, not ${String(port)}`)
+    if (!Number.isInteger(port) || port < 0 || port > 65535)
+      throw new Error(`app ${id}: backend.port must be a port number, not ${String(port)}`)
     return {
       id,
       label: config.label ?? id,
@@ -244,7 +268,8 @@ export class Project {
     const data = readFileSync(resolve(this.dir, icon))
     const ext = extname(icon).toLowerCase()
     const taken = (name: string) => existsSync(join(web, name)) && !readFileSync(join(web, name)).equals(data)
-    const name = taken(`icon${ext}`) ? `icon-${createHash('sha256').update(data).digest('hex').slice(0, 8)}${ext}` : `icon${ext}`
+    const hash = () => createHash('sha256').update(data).digest('hex').slice(0, 8)
+    const name = taken(`icon${ext}`) ? `icon-${hash()}${ext}` : `icon${ext}`
     mkdirSync(web, { recursive: true })
     writeFileSync(join(web, name), data)
     return base + name
@@ -278,9 +303,15 @@ export class Project {
 
   async #web(entry: string, out: string, base: string, own: boolean): Promise<string> {
     const html = Bundler.isHtml(entry)
-    const rules: PublicRules = { dir: this.dir, publicDir: join(this.dir, this.config.public ?? 'public'), own, rooted: own && html && this.config.type === 'app' }
+    const rules: PublicRules = {
+      dir: this.dir,
+      publicDir: join(this.dir, this.config.public ?? 'public'),
+      own,
+      rooted: own && html && this.config.type === 'app',
+    }
     const page = await this.#bundler.web({ entry, out, base, rules })
-    if (own && existsSync(rules.publicDir)) cpSync(rules.publicDir, out, { recursive: true, force: false, errorOnExist: false })
+    if (own && existsSync(rules.publicDir))
+      cpSync(rules.publicDir, out, { recursive: true, force: false, errorOnExist: false })
     return page
   }
 }

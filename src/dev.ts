@@ -48,11 +48,19 @@ export class DevSession {
 
   constructor(options: DevOptions) {
     const packages = (options.dirs.length ? options.dirs : ['.']).map((dir) => new AppPackage(dir))
-    if (options.out !== undefined && packages.length > 1) throw new Error('--out is for one project; with several, each builds into its own .acde')
+    if (options.out !== undefined && packages.length > 1)
+      throw new Error('--out is for one project; with several, each builds into its own .acde')
     this.#units = []
-    for (const pkg of packages) if (!this.#units.some((u) => u.pkg.dir === pkg.dir)) this.#units.push({ pkg, out: resolve(pkg.dir, options.out ?? '.acde'), built: null })
+    for (const pkg of packages) {
+      if (this.#units.some((u) => u.pkg.dir === pkg.dir)) continue
+      this.#units.push({ pkg, out: resolve(pkg.dir, options.out ?? '.acde'), built: null })
+    }
     this.#desktop = options.desktop === undefined ? null : this.#desktopOf(options.desktop)
-    if (options.app !== undefined && this.multiple) throw new Error('--app picks the window of one project; with several projects or --desktop, every app runs in the desktop')
+    if (options.app !== undefined && this.multiple) {
+      throw new Error(
+        '--app picks the window of one project; with several projects or --desktop, every app runs in the desktop',
+      )
+    }
     this.#app = options.app
     this.#acdert = options.acdert
     this.#headless = options.headless === true
@@ -77,8 +85,12 @@ export class DevSession {
   #desktopOf(value: string): Unit | string {
     const dir = resolve(value)
     const pathy = /[\\/]/.test(value) || value === '.' || value === '..'
-    const project = existsSync(dir) && statSync(dir).isDirectory() && ['package.json', ...Project.CONFIGS].some((name) => existsSync(resolve(dir, name)))
-    if (pathy && !project) throw new Error(`--desktop ${value}: no project or package there (no package.json or ${Project.CONFIGS[0]})`)
+    const project =
+      existsSync(dir) &&
+      statSync(dir).isDirectory() &&
+      ['package.json', ...Project.CONFIGS].some((name) => existsSync(resolve(dir, name)))
+    if (pathy && !project)
+      throw new Error(`--desktop ${value}: no project or package there (no package.json or ${Project.CONFIGS[0]})`)
     if (!project) {
       if (!/^[\w-]+$/.test(value)) throw new Error(`--desktop ${value}: not a desktop id or a directory`)
       return value
@@ -96,7 +108,8 @@ export class DevSession {
     if (!this.multiple) return DevSession.target(built[0]!, this.#app)
     const owners = new Map<string, string>()
     for (const unit of this.#units) {
-      for (const id of [...unit.built!.apps.map((a) => `app ${a}`), ...unit.built!.desktops.map((d) => `desktop ${d}`)]) {
+      const ids = [...unit.built!.apps.map((a) => `app ${a}`), ...unit.built!.desktops.map((d) => `desktop ${d}`)]
+      for (const id of ids) {
         const other = owners.get(id)
         if (other !== undefined) throw new Error(`${id} is in both ${other} and ${unit.pkg.dir}`)
         owners.set(id, unit.pkg.dir)
@@ -106,8 +119,12 @@ export class DevSession {
     if (this.#desktop) {
       const ids = this.#desktop.built!.desktops
       if (ids.length === 1) return { kind: 'desktop', id: ids[0]! }
-      if (ids.length === 0) throw new Error(`--desktop ${this.#desktop.pkg.dir}: it has no desktop (apps ${this.#desktop.built!.apps.join(', ')})`)
-      throw new Error(`--desktop ${this.#desktop.pkg.dir} has several desktops (${ids.join(', ')}): pass the directory as a project and --desktop <id>`)
+      const dir = this.#desktop.pkg.dir
+      if (ids.length === 0)
+        throw new Error(`--desktop ${dir}: it has no desktop (apps ${this.#desktop.built!.apps.join(', ')})`)
+      throw new Error(
+        `--desktop ${dir} has several desktops (${ids.join(', ')}): pass the directory as a project and --desktop <id>`,
+      )
     }
     const desktops = built.flatMap((b) => b.desktops)
     if (desktops.length > 1) throw new Error(`several desktops (${desktops.join(', ')}): pick one with --desktop <id>`)
@@ -124,10 +141,19 @@ export class DevSession {
     let child: Child | null = null
     let running = false
     try {
-      const paths = [...new Set(this.#units.map((u) => u.built!.dir)), process.env['ACDE_PATH']].filter(Boolean).join(delimiter)
+      const paths = [...new Set(this.#units.map((u) => u.built!.dir)), process.env['ACDE_PATH']]
+        .filter(Boolean)
+        .join(delimiter)
       const what = this.#units.map((u) => `${u.pkg.name} (${u.built!.dir})`).join(', ')
-      console.log(`acde: dev ${target.kind} ${target.id}${this.#headless ? ' (headless)' : ''}: ${what}; rebuilding and reloading on change`)
-      const env = { ...process.env, ACDE_DEV: this.#endpoint, ACDE_PATH: paths, ACDE_RUNTIME: Runtime.bun ? 'bun' : 'node', ...(this.#headless && { ACDE_HEADLESS: '1' }) }
+      const headless = this.#headless ? ' (headless)' : ''
+      console.log(`acde: dev ${target.kind} ${target.id}${headless}: ${what}; rebuilding and reloading on change`)
+      const env = {
+        ...process.env,
+        ACDE_DEV: this.#endpoint,
+        ACDE_PATH: paths,
+        ACDE_RUNTIME: Runtime.bun ? 'bun' : 'node',
+        ...(this.#headless && { ACDE_HEADLESS: '1' }),
+      }
       const started = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio: 'inherit' })
       child = started
       running = true
@@ -135,17 +161,25 @@ export class DevSession {
         running = false
       })
       signals.push(['SIGINT', () => undefined])
-      if (process.platform !== 'win32') for (const signal of ['SIGTERM', 'SIGHUP'] as const) signals.push([signal, () => started.kill(signal)])
+      if (process.platform !== 'win32')
+        for (const signal of ['SIGTERM', 'SIGHUP'] as const) signals.push([signal, () => started.kill(signal)])
       for (const [signal, handler] of signals) process.on(signal, handler)
       this.#link = await DevClient.reach(
         this.#endpoint,
         () => running,
-        () => console.error(`acde: acdert has not opened ${this.#endpoint} after 10 s; an acdert older than acde dev never does (no reload, no acde webs / eval …): use a newer one`),
+        () =>
+          console.error(
+            `acde: acdert has not opened ${this.#endpoint} after 10 s; an acdert older than acde dev never does ` +
+              '(no reload, no acde webs / eval …): use a newer one',
+          ),
       )
       if (!this.#link) return await started.exited
       this.#link.send({ type: 'hello', role: 'dev' })
       this.#publish()
-      for (const unit of this.#units) unit.watcher = watch(unit.pkg.dir, { recursive: true }, (_, file) => this.#changed(unit, file === null ? null : String(file)))
+      for (const unit of this.#units) {
+        unit.watcher = watch(unit.pkg.dir, { recursive: true }, (_, file) =>
+          this.#changed(unit, file === null ? null : String(file)))
+      }
       watchers.push(...this.#units.map((u) => u.watcher!))
       return await started.exited
     } finally {
@@ -172,7 +206,8 @@ export class DevSession {
         started: this.#started,
       })
     } catch (error) {
-      console.error(`acde: acde webs / eval / shot / inspect / act will not find this session: ${error instanceof Error ? error.message : String(error)}`)
+      const reason = error instanceof Error ? error.message : String(error)
+      console.error(`acde: acde webs / eval / shot / inspect / act will not find this session: ${reason}`)
     }
   }
 
@@ -182,7 +217,9 @@ export class DevSession {
     if (file.split(/[\\/]/).some((part) => SKIPPED.has(part)) || E2E_FILE.test(file)) return
     if (DevSession.#directory(path)) return
     if (contains(unit.out, path)) return
-    if (this.#units.some((other) => other !== unit && contains(unit.pkg.dir, other.pkg.dir) && contains(other.pkg.dir, path))) return
+    const nested = (other: Unit) =>
+      other !== unit && contains(unit.pkg.dir, other.pkg.dir) && contains(other.pkg.dir, path)
+    if (this.#units.some(nested)) return
     clearTimeout(unit.timer)
     unit.timer = setTimeout(() => {
       this.#dirty.add(unit)
