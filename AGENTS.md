@@ -89,7 +89,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   窗口; 面板和菜单是 `pinned`, 永远在 `free` / `fixed` 上面. 标题栏、边框、阴影是客户端的内容 (客户端画), 不是框架的概念.
   第 1 级契约里模式只管能不能挪、改尺寸 (`free` / `fixed` / `pinned`, SDK `WindowMode` 不再有 `fullscreen`); 全屏是**窗口状态**.
 - **窗口状态** (crates/model `state.rs`: `WindowState` + `Restore`, 宿主窗口的 `Entry.state` / `restore`, `State::change_state`): `normal`、`minimized`、
-  `filled` (铺满工作区, 现在是整个输出, 工作区由钉住的面板决定之后改)、`fullscreen` (铺满输出); 隐藏仍是框架另一个状态. 每次变化都由运行时裁决:
+  `filled` (铺满工作区)、`fullscreen` (铺满输出); 隐藏仍是框架另一个状态. 每次变化都由运行时裁决:
   `fixed` 只能最小化, `pinned`、桌面和面板一律拒绝, 同一状态不算变化. 离开 `normal` 时记下原来的 rect, 进全屏时记下之前的状态 (`normal` 或 `filled`),
   最小化时记下之前的状态; 「回去」(`Restore::back`) 用它们, 所以 normal → filled → 全屏 → 回到 filled → normal 还是原来的 rect. 最小化的窗口不画、不命中,
   有焦点时焦点给下一个; 给它焦点 (`focus` / `show`) 就回到之前的状态. 每次变化给窗口自己发 `state {state, previous}`, 给 Broker 发
@@ -327,7 +327,12 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   窗口, 状态和 React 树还在同一个文档里. `pinned.ts` 量元素 (并上 render 报的绘制范围 `panelmove`), 要令牌 (`Shell.grant({mode: 'pinned', rect})`),
   再开一个 toplevel (crates/window `panel.rs`; 宿主窗口里是 owner 为桌面的表项), `Dom::set_panel` 让 render 单独画它 (`Frame.panels`). 输入区域只是
   元素的盒子 (`pointer-events: none` / 不可见时为空), 指针送回同一个文档; 主窗口或任一面板有焦点就算 `activate`. 元素变了 (ResizeObserver +
-  MutationObserver, 700 ms 后补量) 重新量, 量不到时 `hide`. backdrop-filter 转成 `set_backdrop`. 元素要是 stacking context, 不带祖先的裁剪和透明度.
+  MutationObserver, 700 ms 后补量) 重新量, 量不到时 `hide`. backdrop-filter 转成 `set_backdrop`.
+  `pin(element, {reserve: {edge, thickness?}})` 让面板在输出的一条边上占一条 (像 layer-shell 的 exclusive zone; 不给 thickness 时是从那条边到面板远端的距离,
+  跟着量的结果变), 经 surface 的 `reservePanel(id, edge, thickness)` 交给运行时. 宿主窗口 (`State::work_area`) 用输出减去显示着的面板占的边得到工作区,
+  面板隐藏、挪动、改尺寸、取消钉住或输出变了时重算 (`refill`): `filled` 的窗口跟着改 rect, 全屏不管工作区; 工作区变了给 Broker 发
+  `workarea {x, y, width, height}`, Broker (`broker/output.ts`) 把它放进发给每个 web 的 `screen` 消息和 `WebInit.screen.workArea`
+  (`acde:window.output.workArea`). 不写 reserve 的面板什么都不占. 一个宿主窗口就是一个输出; 会话里还没有工作区 (`reservePanel` 只记 debug 日志). 元素要是 stacking context, 不带祖先的裁剪和透明度.
 - **帧**: `requestFrame` 之后, 上一帧交出去就给下一帧, 两帧之间至少隔最快输出刷新周期的 0.9 倍; 页面没出新帧时退回 wl_surface 的
   frame 回调. `ACDE_WEB_FPS` 指定帧率.
 - **通信**: acde-host `remote.ts` 的 `RemoteBridge` 按 Broker 给的能力建代理 (注入的能力直接用 natives), `define` 登记成内置模块
