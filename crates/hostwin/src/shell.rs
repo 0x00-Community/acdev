@@ -23,6 +23,8 @@ pub struct Grant {
     pub mode: Option<Mode>,
     pub rect: Option<[f64; 4]>,
     pub size: Option<[f64; 2]>,
+    pub parent: Option<u32>,
+    pub modal: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +35,8 @@ pub struct WindowInfo {
     pub z: u64,
     pub focus: bool,
     pub hidden: bool,
+    pub parent: Option<u32>,
+    pub modal: bool,
 }
 
 #[derive(Default)]
@@ -52,6 +56,8 @@ pub(crate) struct Entry {
     pub app: Option<String>,
     pub hints: Vec<([f64; 4], u32)>,
     pub owner: Option<u32>,
+    pub parent: Option<u32>,
+    pub modal: bool,
     pub input: Option<[f64; 4]>,
     pub frame: f64,
     pub backdrop: Option<([f64; 4], [f64; 4])>,
@@ -64,6 +70,7 @@ pub(crate) struct Hit {
     pub target: u32,
     pub origin: [f64; 2],
     pub bar: bool,
+    pub blocked: bool,
 }
 
 impl Entry {
@@ -108,6 +115,97 @@ impl State {
         if let Some(e) = self.entries.get_mut(&id) {
             e.z = z;
         }
+        for child in self.descendants(id) {
+            self.z += 1;
+            let z = self.z;
+            if let Some(e) = self.entries.get_mut(&child) {
+                e.z = z;
+            }
+        }
+    }
+
+    fn descendants(&self, id: u32) -> Vec<u32> {
+        let mut found: Vec<u32> = Vec::new();
+        let mut next = vec![id];
+        while let Some(parent) = next.pop() {
+            for (&child, e) in &self.entries {
+                if e.parent == Some(parent) && child != id && !found.contains(&child) {
+                    found.push(child);
+                    next.push(child);
+                }
+            }
+        }
+        found.sort_by_key(|child| self.entries[child].z);
+        found
+    }
+
+    pub fn modal_child(&self, id: u32) -> Option<u32> {
+        let mut found = None;
+        let mut current = id;
+        for _ in 0..self.entries.len() {
+            let child = self
+                .entries
+                .iter()
+                .filter(|(_, e)| e.parent == Some(current) && e.modal && e.opened && !e.hidden)
+                .max_by_key(|(_, e)| e.z)
+                .map(|(&child, _)| child);
+            match child {
+                Some(child) if child != id => {
+                    found = Some(child);
+                    current = child;
+                }
+                _ => break,
+            }
+        }
+        found
+    }
+
+    pub fn forget(&mut self, id: u32) -> Option<Entry> {
+        let gone = self.entries.remove(&id)?;
+        for e in self.entries.values_mut().filter(|e| e.parent == Some(id)) {
+            e.parent = None;
+            e.modal = false;
+        }
+        Some(gone)
+    }
+
+    pub fn grant(&mut self, grant: Grant) -> (u32, u64) {
+        let id = if grant.desktop {
+            0
+        } else if let Some(w) = grant.window {
+            w
+        } else {
+            self.next = self.next.max(FIRST_WEB);
+            let id = self.next;
+            self.next += 1;
+            id
+        };
+        let parent = grant
+            .parent
+            .filter(|&p| p != id && !grant.desktop && self.entries.get(&p).is_some_and(|e| !e.desktop && !e.panel) && !self.descendants(id).contains(&p));
+        let mode = grant.mode.unwrap_or(if grant.desktop { Mode::Fullscreen } else { Mode::Free });
+        let placed = grant.rect.is_some();
+        let rect = if mode == Mode::Fullscreen {
+            let [w, h, _] = self.screen;
+            [0.0, 0.0, w, h]
+        } else {
+            let size = grant.size.unwrap_or(DEFAULT_SIZE);
+            grant.rect.unwrap_or_else(|| parent.map_or_else(|| self.centered(size), |p| self.over(p, size)))
+        };
+        let token = Self::token();
+        self.tokens.insert(token, id);
+        let panel = mode == Mode::Pinned && !grant.desktop;
+        let entry =
+            self.entries.entry(id).or_insert_with(|| Entry { desktop: grant.desktop, panel, mode, rect, placed, hidden: grant.hidden, ..Entry::default() });
+        entry.mode = mode;
+        entry.parent = parent;
+        entry.modal = grant.modal && parent.is_some();
+        if placed || !entry.opened {
+            entry.rect = rect;
+            entry.placed = placed;
+        }
+        self.raise(id);
+        (id, token)
     }
 
     fn rank(id: u32, e: &Entry) -> (u8, u64) {
@@ -150,9 +248,13 @@ impl State {
             if !inside(area) {
                 return None;
             }
-            Some(match e.owner {
-                Some(owner) => Hit { entry: layer.id, target: owner, origin: [0.0, 0.0], bar: false },
-                None => Hit { entry: layer.id, target: layer.id, origin: [rx, ry + e.frame], bar: y < ry + e.frame },
+            let hit = match e.owner {
+                Some(owner) => Hit { entry: layer.id, target: owner, origin: [0.0, 0.0], bar: false, blocked: false },
+                None => Hit { entry: layer.id, target: layer.id, origin: [rx, ry + e.frame], bar: y < ry + e.frame, blocked: false },
+            };
+            Some(match self.modal_child(hit.target) {
+                Some(modal) => Hit { entry: modal, target: modal, origin: [0.0, 0.0], bar: false, blocked: true },
+                None => hit,
             })
         })
     }
@@ -183,6 +285,13 @@ impl State {
         let (w, h) = (w.min(sw.max(320.0)), h.min(sh.max(240.0)));
         [((sw - w) / 2.0 + shown * 32.0).max(0.0), ((sh - h) / 2.0 + shown * 32.0).max(0.0), w, h]
     }
+
+    fn over(&self, parent: u32, [w, h]: [f64; 2]) -> [f64; 4] {
+        let [sw, sh, _] = self.screen;
+        let [px, py, pw, ph] = self.entries[&parent].rect;
+        let (w, h) = (w.min(sw.max(320.0)), h.min(sh.max(240.0)));
+        [(px + (pw - w) / 2.0).clamp(0.0, (sw - w).max(0.0)), (py + (ph - h) / 2.0).clamp(0.0, (sh - h).max(0.0)), w, h]
+    }
 }
 
 pub struct Shell(());
@@ -207,44 +316,14 @@ impl Shell {
     }
 
     pub fn grant(&self, grant: Grant) -> (u32, u64) {
-        let mut state = self.state();
-        let id = if grant.desktop {
-            0
-        } else if let Some(w) = grant.window {
-            w
-        } else {
-            state.next = state.next.max(FIRST_WEB);
-            let id = state.next;
-            state.next += 1;
-            id
-        };
-        let mode = grant.mode.unwrap_or(if grant.desktop { Mode::Fullscreen } else { Mode::Free });
-        let placed = grant.rect.is_some();
-        let rect = if mode == Mode::Fullscreen {
-            let [w, h, _] = state.screen;
-            [0.0, 0.0, w, h]
-        } else {
-            grant.rect.unwrap_or_else(|| state.centered(grant.size.unwrap_or(DEFAULT_SIZE)))
-        };
-        let token = State::token();
-        state.tokens.insert(token, id);
-        let panel = mode == Mode::Pinned && !grant.desktop;
-        let entry =
-            state.entries.entry(id).or_insert_with(|| Entry { desktop: grant.desktop, panel, mode, rect, placed, hidden: grant.hidden, ..Entry::default() });
-        entry.mode = mode;
-        if placed || !entry.opened {
-            entry.rect = rect;
-            entry.placed = placed;
-        }
-        state.raise(id);
-        (id, token)
+        self.state().grant(grant)
     }
 
     pub fn release(&self, window: u32) {
         let mut state = self.state();
         state.tokens.retain(|_, w| *w != window);
         if state.entries.get(&window).is_some_and(|e| !e.opened && e.link.is_none()) {
-            state.entries.remove(&window);
+            state.forget(window);
         }
     }
 
@@ -323,7 +402,16 @@ impl Shell {
             .entries
             .iter()
             .filter(|(_, e)| e.opened || e.panel)
-            .map(|(&id, e)| WindowInfo { id, mode: e.mode, rect: e.rect, z: e.z, focus: state.focus == Some(id), hidden: e.hidden })
+            .map(|(&id, e)| WindowInfo {
+                id,
+                mode: e.mode,
+                rect: e.rect,
+                z: e.z,
+                focus: state.focus == Some(id),
+                hidden: e.hidden,
+                parent: e.parent,
+                modal: e.modal,
+            })
             .collect();
         list.sort_by_key(|w| (w.id != 0, w.z));
         list
@@ -361,5 +449,86 @@ impl Shell {
     pub fn stats(&self) -> Vec<(&'static str, f64)> {
         let state = self.state();
         vec![("frames", state.frames as f64), ("windows", state.entries.values().filter(|e| e.opened).count() as f64)]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn screen() -> State {
+        State { screen: [1000.0, 800.0, 1.0], ..State::default() }
+    }
+
+    fn open(state: &mut State, grant: Grant) -> u32 {
+        let (id, _) = state.grant(grant);
+        state.entries.get_mut(&id).expect("granted").opened = true;
+        id
+    }
+
+    fn order(state: &State) -> Vec<u32> {
+        state.layers().iter().map(|l| l.id).collect()
+    }
+
+    #[test]
+    fn a_child_opens_over_its_parent_and_stays_above_it() {
+        let mut s = screen();
+        let parent = open(&mut s, Grant { rect: Some([100.0, 100.0, 600.0, 400.0]), ..Grant::default() });
+        let child = open(&mut s, Grant { parent: Some(parent), size: Some([200.0, 100.0]), ..Grant::default() });
+        let inner = open(&mut s, Grant { parent: Some(child), size: Some([100.0, 50.0]), ..Grant::default() });
+        assert_eq!(s.entries[&child].parent, Some(parent));
+        assert_eq!(s.entries[&child].rect, [300.0, 250.0, 200.0, 100.0]);
+        assert_eq!(s.entries[&inner].rect, [350.0, 275.0, 100.0, 50.0]);
+        let other = open(&mut s, Grant::default());
+        assert_eq!(order(&s), vec![parent, child, inner, other]);
+        s.raise(parent);
+        assert_eq!(order(&s), vec![other, parent, child, inner]);
+        s.raise(other);
+        s.raise(child);
+        assert_eq!(order(&s), vec![parent, other, child, inner]);
+    }
+
+    #[test]
+    fn a_modal_child_takes_its_parents_input() {
+        let mut s = screen();
+        let parent = open(&mut s, Grant { rect: Some([0.0, 0.0, 600.0, 400.0]), ..Grant::default() });
+        let plain = open(&mut s, Grant { parent: Some(parent), rect: Some([400.0, 300.0, 100.0, 50.0]), ..Grant::default() });
+        assert_eq!(s.modal_child(parent), None);
+        let hit = s.hit(10.0, 10.0).expect("parent");
+        assert_eq!((hit.target, hit.blocked), (parent, false));
+        let dialog = open(&mut s, Grant { parent: Some(parent), modal: true, rect: Some([200.0, 150.0, 200.0, 100.0]), ..Grant::default() });
+        let inner = open(&mut s, Grant { parent: Some(dialog), modal: true, rect: Some([250.0, 175.0, 50.0, 50.0]), ..Grant::default() });
+        assert_eq!(s.modal_child(parent), Some(inner));
+        assert_eq!(s.modal_child(dialog), Some(inner));
+        assert_eq!(s.modal_child(plain), None);
+        let hit = s.hit(10.0, 10.0).expect("blocked parent");
+        assert_eq!((hit.target, hit.blocked), (inner, true));
+        let hit = s.hit(210.0, 160.0).expect("blocked dialog");
+        assert_eq!((hit.target, hit.blocked), (inner, true));
+        let hit = s.hit(260.0, 180.0).expect("inner");
+        assert_eq!((hit.target, hit.blocked), (inner, false));
+        let hit = s.hit(410.0, 310.0).expect("plain child");
+        assert_eq!((hit.target, hit.blocked), (plain, false));
+        s.entries.get_mut(&inner).expect("inner").hidden = true;
+        assert_eq!(s.modal_child(parent), Some(dialog));
+        assert!(s.forget(dialog).is_some());
+        assert_eq!(s.modal_child(parent), None);
+        assert_eq!((s.entries[&inner].parent, s.entries[&inner].modal), (None, false));
+        assert_eq!(s.hit(10.0, 10.0).map(|h| (h.target, h.blocked)), Some((parent, false)));
+    }
+
+    #[test]
+    fn a_parent_must_be_another_open_window() {
+        let mut s = screen();
+        let (desktop, _) = s.grant(Grant { desktop: true, ..Grant::default() });
+        let lone = open(&mut s, Grant { parent: Some(999), modal: true, ..Grant::default() });
+        assert_eq!((s.entries[&lone].parent, s.entries[&lone].modal), (None, false));
+        let on_desktop = open(&mut s, Grant { parent: Some(desktop), ..Grant::default() });
+        assert_eq!(s.entries[&on_desktop].parent, None);
+        let child = open(&mut s, Grant { parent: Some(lone), ..Grant::default() });
+        open(&mut s, Grant { window: Some(lone), parent: Some(child), ..Grant::default() });
+        assert_eq!(s.entries[&lone].parent, None);
+        open(&mut s, Grant { window: Some(lone), parent: Some(lone), ..Grant::default() });
+        assert_eq!(s.entries[&lone].parent, None);
     }
 }

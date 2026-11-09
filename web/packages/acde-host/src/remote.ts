@@ -105,6 +105,10 @@ export class WindowSelf {
     },
   }
 
+  get id(): number {
+    return this.#surface.window
+  }
+
   readonly api = {
     host: this.host,
     mount: (app: WindowApp) => this.#mount(app),
@@ -235,7 +239,7 @@ export class RemoteBridge {
     const shortcut = windows.notices.for('window', ['shortcut'])
     const on = (name: string, handler: (value?: unknown) => unknown) =>
       name === 'shortcut' ? shortcut(name, handler) : api.on(name as WindowEventName, handler)
-    return { ...api, on }
+    return { ...api, id: self.id, on }
   }
 
   define(host: { defineModule(url: string, exports: object): void; refuseModule?(url: string, reason: string): void }): void {

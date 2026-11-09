@@ -350,7 +350,8 @@ impl Compositor {
             Some(grant) => {
                 let [w, h] = grant.size.unwrap_or([800, 600]);
                 let size = smithay::utils::Size::from((w.min(screen.size.w), h.min(screen.size.h)));
-                let loc = self.landing(size, None);
+                let parent = grant.parent.and_then(|p| self.window(p));
+                let loc = self.landing(size, parent.as_ref());
                 self.space.map_element(window.clone(), loc, false);
                 self.native_enter(&window, id, grant.mode);
                 self.place(&window, smithay::utils::Rectangle::new(loc, size));
@@ -451,6 +452,9 @@ impl Compositor {
             keyboard.set_focus(self, focus, serial);
         }
         self.native_focus(window);
+        if let Some(window) = window {
+            self.raise_children(window);
+        }
     }
 
     pub fn surface_under(
@@ -472,13 +476,18 @@ impl Compositor {
                 surface.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
             })
         };
-        layer_under(&[Layer::Overlay, Layer::Top])
-            .or_else(|| {
-                self.window_under(pos).and_then(|(window, location)| {
-                    window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL).map(|(surface, p)| (surface, (p + location).to_f64()))
-                })
-            })
-            .or_else(|| layer_under(&[Layer::Bottom, Layer::Background]))
+        if let Some(hit) = layer_under(&[Layer::Overlay, Layer::Top]) {
+            return Some(hit);
+        }
+        if let Some((window, location)) = self.window_under(pos) {
+            if self.modal_target(&window).is_some() {
+                return None;
+            }
+            if let Some((surface, p)) = window.surface_under(pos - location.to_f64(), WindowSurfaceType::ALL) {
+                return Some((surface, (p + location).to_f64()));
+            }
+        }
+        layer_under(&[Layer::Bottom, Layer::Background])
     }
 }
 

@@ -92,11 +92,11 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **`CompositePlan`** (crates/model `plan.rs`, shell `compositor/composite.rs`): `{damage (最多 8 块), route: Composite | Direct, layers:
   [{window, dst, clip, look, effect, redraw}]}`, 不透明的上层剔除下面. backdrop (`set_backdrop`) 只在下面的损伤碰到时重算, 呈现层 (shell
   `effects.rs`, GLES) 双 Kawase 模糊 + 圆角 + 饱和度 + 亮度, 按窗口缓存, 着色器编不出时降级. `Direct` 现在只计数, 上 plane 由 smithay 判断.
-- **窗口管理** (框架裁决, 客户端只能请求): 新窗口居中、按窗口数错开 32 像素, 有父窗口的在父窗口上方. 只有 `free` 改尺寸. 点进一个窗口: 拿焦点
-  并提到它那一层最前. 隐藏是框架状态 (不画、不命中、不拿焦点). `animate {opacity, scale, dx, dy, duration, delay, easing}` 由合成器每帧插值,
+- **窗口管理** (框架裁决, 客户端只能请求): 新窗口居中、按窗口数错开 32 像素, 有父窗口的居中在父窗口上方 (不错开). 只有 `free` 改尺寸. 点进一个窗口: 拿焦点
+  并提到它那一层最前, 它的子窗口 (含子窗口的子窗口, 保持原来的先后) 跟着提到它上方 (model `front_family`). 隐藏是框架状态 (不画、不命中、不拿焦点). `animate {opacity, scale, dx, dy, duration, delay, easing}` 由合成器每帧插值,
   做完发 `windowanimated`; 有 look 的窗口按画出来的位置命中.
-- **焦点和模态**: 键盘只发给焦点窗口. 要把焦点给有模态子窗口 (xdg-dialog `set_modal` + `set_parent`) 的窗口时改给最上层的模态子窗口, 子窗口关掉
-  焦点回父窗口. 指针不拦.
+- **焦点和模态**: 键盘只发给焦点窗口. 要把焦点给有模态子窗口 (xdg-dialog `set_modal` + `set_parent`, 或 Broker 授权时的 `parent` / `modal`) 的窗口时
+  改给最上层的模态子窗口, 子窗口关掉焦点回父窗口. 指针也不发给有模态子窗口的窗口: 在它上面没有指针焦点, 按下只把焦点给模态子窗口 (不开始拖动).
 - **grab** (shell `grabs.rs`): `request_grab(kind)` 在被别人拿着或框架在移窗时拒绝; 键盘 grab 同时给焦点. 收回 (发一次 `grab_lost`): 在别的窗口
   按下 (`other_window`)、Esc (`esc`, 这次 Esc 不发)、焦点被给别人 (`focus_lost`)、客户端死掉.
 - **全局快捷键** (crates/model `shortcut.rs`): 组合写成 `ctrl+alt+t` (键是 xkb keysym 名, 按未修饰的那层匹配, Shift 写进组合). 作用域 session /
@@ -132,7 +132,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   (`surface.rs`、`present.rs`、`compose.rs`、`gpu.rs`), `system/` 是交给宿主系统的事 (`chooser.rs`、`notify.rs`、`handoff.rs`). 下面只写文件名.
   平台层 (`platform.rs` 的 `Handler` / `HostEvent` / `Cmd`) 只有两个: `platform/win32.rs` (Win32: 窗口、IMM32、剪贴板、`WM_DROPFILES`、
   `SHBrowseForFolderW`、`IFileOpenDialog` / `IFileSaveDialog`、per-monitor DPI v2) 和 `platform/host_winit.rs` (macOS / Linux, winit + arboard; macOS 的选文件夹、打开和保存文件是 `chooser.rs`). `app.rs`:
-  命中、拖动、焦点、快捷键、注入. `shell.rs`: 窗口表 (`State` / `Entry`, 层序 desktop < free / fixed < pinned, 再按 z). `present.rs`: 每个 web
+  命中、拖动、焦点、快捷键、注入. `shell.rs`: 窗口表 (`State` / `Entry`, 层序 desktop < free / fixed < pinned, 再按 z; `Entry.parent` / `modal`
+  来自 `grant`, `raise` 把子窗口带到父窗口上方, `modal_child` 找最上层的模态子窗口, `forget` 删窗口时放开它的子窗口). `present.rs`: 每个 web
   一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理; `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync).
   页面 / 面板的 plane 有 layers (backdrop-filter、filter) 时走 `Presenter::layered`, 照 `acde_gpu::Raster::draw_pass` 用 `Composer` 做
   backdrop、投影、模糊和颜色矩阵 (Raster 要 dmabuf, 只在 Linux): 画进一张草稿纹理, 最后一次提交里整张拷进页面纹理 (分几次提交直接画,
@@ -149,7 +150,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `WGPU_DEBUG` 照 wgpu 的环境变量. 所有 `surface.configure` 和提交都拿 `acde_gpu::Gpu::submit_lock`.
 - **坐标**: 宿主窗口的内容区就是「屏幕」(`output`: `ACDE_SIZE`, 否则主显示器的 90% × 85%, 最大 1440 × 900), 窗口表的 rect 是它里面的
   逻辑坐标. 宿主窗口改尺寸 / 换缩放时桌面和全屏窗口跟着改, 发 `output`.
-- **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner), 给它焦点、提前,
+- **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner; 窗口有模态子窗口时 `Hit.blocked`, 只激活模态子窗口, 指针、滚轮、拖放都不给它), 给它焦点、提前,
   之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 滚轮发 `wheel` 给指针下的窗口, 同时交给它的出帧线程
   (`Msg::Scroll` → `RenderHandle::scroll_at`) 做默认滚动, 和会话里 crates/window 一样. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
   `deactivate`. 输入法是 `imepreedit` / `imecommit` 事件 (Windows: `WM_IME_COMPOSITION`, 上屏只发 commit, 只有在组字时结束才发空预编辑表示取消);
@@ -325,7 +326,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `acde.<名字>.<方法>` 指 `acde:<名字>` 导出的值.
   - window web: 清单给的服务和能力; `acde.window` (标题、菜单、关闭、最小化、`requestMode` / `setGrabHint` / `setBackdrop` /
     `requestActivate` / `requestGrab` / `releaseGrab`、app 级 `shortcut(combo)`; `beforeclose` 返回 false 留住窗口; `request` 是别的应用
-    `acde.open(<id>, {…})` 要它打开的东西, 要对方清单的 `open` 允许, 为一个请求开的窗口把它交给第一个 `request` 处理函数, 只给一次);
+    `acde.open(<id>, {…})` 要它打开的东西, 要对方清单的 `open` 允许, 为一个请求开的窗口把它交给第一个 `request` 处理函数, 只给一次;
+    `acde.window.id` 是自己的窗口号). `open(<id>, request, {parent, modal})` 给新窗口一个父窗口 (`broker/family.ts`: 应用只能写自己应用的
+    web 窗口, 桌面可以写任何开着的窗口; 不存在 404, 别人的 403, 不是窗口号 400); 新窗口居中在父窗口上方, 不用记住的位置; 已在运行的单例应用只收请求,
+    不改父窗口. 父窗口、模态记在合成器的窗口表 (hostwin `Entry`、会话 model `Window`), `acde.inspect` 的窗口带 `parent` / `modal`;
     `acde.windows` 只管它自己 `launch({slot: true})` 起的原生程序 (要清单的 `slots`).
   - desktop web: 全部服务; `acde.apps` (`list` / `launch` / `open` / `natives()` / `runNative(id)`); `acde.windows` (所有窗口, 加 `kill`、
     `invokeMenu`、`stats`、`focus` / `hide` / `show`、`animate`、session / desktop 级 `shortcut`); `acde.session`; `acde.inspect`. 另收
@@ -786,8 +790,8 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   commit-timing、viewporter、fractional-scale、pointer-constraints / relative-pointer / gestures、data-device、xdg-activation、cursor-shape、
   wlr-layer-shell、ext-session-lock、idle、text-input-v3 + input-method-v2 + virtual-keyboard、keyboard-shortcuts-inhibit、xdg-output.
   第三方的 popup 和 layer-shell surface 在表里是 `pinned`. maximize 不理.
-- Broker 侧: `Shell.broker()`; `onEvents(cb)` / `pump()`; `grant({desktop?, window?, mode?, rect?, size?})` → `{window, token}` (随机 64 位令牌,
-  客户端在 `acde_window.bind` 里交回一次); `release`、`place`、`windows()`、`animate`、`shortcut` / `unshortcut`
+- Broker 侧: `Shell.broker()`; `onEvents(cb)` / `pump()`; `grant({desktop?, window?, mode?, rect?, size?, parent?, modal?})` → `{window, token}` (随机 64 位令牌,
+  客户端在 `acde_window.bind` 里交回一次; `parent` / `modal` 在窗口绑上时写进窗口表, 客户端自己的 xdg parent 优先); `release`、`place`、`windows()`、`animate`、`shortcut` / `unshortcut`
   (冲突抛错)、`focus`、`hide`、`close`、`quit` (等合成器线程拆完, 最多 3 秒)、`socketName`、`launch(argv, {cwd, env})`、`stats(reset?)`、
   `screenshot(path)`、`inject(...)`.
 - web 侧: `claimSurface(token, {frame?})` (crates/acdert `webnative.rs` → crates/window `Surface::claim`: 连上合成器、开 toplevel、bind 令牌;

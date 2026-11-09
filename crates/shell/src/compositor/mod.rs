@@ -503,7 +503,7 @@ impl Compositor {
         let managed = id.and_then(|id| self.managed(id));
         let _ = self.table.focus(canvas, managed);
         if let Some(managed) = managed.filter(|_| id != self.desktop) {
-            let _ = self.table.front(managed);
+            let _ = self.table.front_family(managed);
         }
     }
 

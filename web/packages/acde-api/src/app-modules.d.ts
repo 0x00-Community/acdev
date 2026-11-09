@@ -23,7 +23,7 @@ declare module 'acde:apps' {
   export { apps, apps as default }
 }
 declare module 'acde:open' {
-  const open: (app: string, request?: Record<string, unknown> | null) => Promise<{ window: number }>
+  const open: import('./page').AcdeOpen
   export { open, open as default }
 }
 declare module 'acde:openPath' {

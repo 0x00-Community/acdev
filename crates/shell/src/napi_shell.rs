@@ -29,6 +29,8 @@ pub struct GrantOptions {
     pub mode: Option<String>,
     pub rect: Option<Vec<i32>>,
     pub size: Option<Vec<i32>>,
+    pub parent: Option<u32>,
+    pub modal: Option<bool>,
 }
 
 #[napi(object)]
@@ -109,7 +111,9 @@ impl Shell {
         let size = options.size.as_deref().and_then(|s| <[i32; 2]>::try_from(s).ok()).filter(|s| s[0] > 0 && s[1] > 0);
         let [x, y, w, h] = rect.unwrap_or_default();
         let [sw, sh] = size.unwrap_or_default();
-        self.link.send(|s| s.grant((token >> 32) as u32, token as u32, id, desktop.into(), mode as u32, x, y, w, h, sw, sh));
+        let parent = options.parent.filter(|_| !desktop).and_then(|p| i32::try_from(p).ok()).unwrap_or(-1);
+        let modal = options.modal.unwrap_or(false) && parent >= 0;
+        self.link.send(|s| s.grant((token >> 32) as u32, token as u32, id, desktop.into(), mode as u32, x, y, w, h, sw, sh, parent, modal.into()));
         Ok(SurfaceGrant { window: id, token: BigInt::from(token) })
     }
 

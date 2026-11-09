@@ -35,9 +35,14 @@ impl Compositor {
     pub fn sync_window_parent(&mut self, window: &Window) {
         let Some(surface) = window.toplevel().cloned() else { return };
         let Some(managed) = self.managed_of(window) else { return };
-        let parent = surface.parent().and_then(|p| self.window_of(&p)).and_then(|p| self.managed_of(&p));
+        let granted = Self::bound(surface.wl_surface()).filter(|g| g.parent.is_some());
+        let parent = match surface.parent() {
+            Some(p) => self.window_of(&p).and_then(|p| self.managed_of(&p)),
+            None => granted.and_then(|g| self.managed(g.parent?)),
+        };
         let modal =
-            with_states(surface.wl_surface(), |s| s.data_map.get::<XdgToplevelSurfaceData>().and_then(|d| d.lock().ok().map(|d| d.modal)).unwrap_or(false));
+            with_states(surface.wl_surface(), |s| s.data_map.get::<XdgToplevelSurfaceData>().and_then(|d| d.lock().ok().map(|d| d.modal)).unwrap_or(false))
+                || (surface.parent().is_none() && granted.is_some_and(|g| g.modal));
         if self.table.set_parent(managed, parent, modal).is_err() {
             return;
         }
@@ -52,6 +57,15 @@ impl Compositor {
     pub fn modal_target(&self, window: &Window) -> Option<Window> {
         let managed = self.managed_of(window)?;
         self.window(self.table.modal_child(managed)?.0)
+    }
+
+    pub fn raise_children(&mut self, window: &Window) {
+        let Some(managed) = self.managed_of(window) else { return };
+        for child in self.table.descendants(managed) {
+            if let Some(child) = self.window(child.0) {
+                self.space.raise_element(&child, false);
+            }
+        }
     }
 
     pub fn parent_window(&self, window: &Window) -> Option<Window> {

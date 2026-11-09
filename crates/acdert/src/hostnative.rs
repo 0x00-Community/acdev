@@ -129,6 +129,8 @@ fn grant(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: 
         wanted.rect = numbers(scope, rect).and_then(|r| <[f64; 4]>::try_from(r).ok());
         let size = bind::get(scope, options, "size");
         wanted.size = numbers(scope, size).and_then(|s| <[f64; 2]>::try_from(s).ok());
+        wanted.parent = bind::get(scope, options, "parent").and_then(|v| v.number_value(scope)).filter(|n| n.is_finite() && *n >= 0.0).map(|n| n as u32);
+        wanted.modal = bind::get(scope, options, "modal").is_some_and(|v| v.boolean_value(scope));
     }
     let Some((window, token)) = with(scope, |shell| shell.grant(wanted)) else {
         return;
@@ -230,6 +232,11 @@ fn windows(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v
         let focus = v8::Boolean::new(scope, w.focus);
         let hidden = v8::Boolean::new(scope, w.hidden);
         let pid = num(scope, pid);
+        let parent = match w.parent {
+            Some(p) => num(scope, f64::from(p)),
+            None => v8::null(scope).into(),
+        };
+        let modal = v8::Boolean::new(scope, w.modal);
         let fields = [
             ("id", id),
             ("window", window),
@@ -243,6 +250,8 @@ fn windows(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v
             ("focus", focus.into()),
             ("hidden", hidden.into()),
             ("pid", pid),
+            ("parent", parent),
+            ("modal", modal.into()),
         ];
         let obj = bind::object(scope, &fields);
         array.set_index(scope, i as u32, obj.into());

@@ -123,7 +123,9 @@ impl Compositor {
                 self.focus_window(window.as_ref());
                 if let Some(w) = window.as_ref() {
                     self.emit(ShellEvent::WindowActivate(Self::window_id(w)));
-                    if let Some(edges) = self.grab_hint_at(w, pos) {
+                    if self.modal_target(w).is_none()
+                        && let Some(edges) = self.grab_hint_at(w, pos)
+                    {
                         let start = smithay::input::pointer::GrabStartData { focus: None, button, location: pos };
                         self.start_drag(w, edges, serial, start);
                     }

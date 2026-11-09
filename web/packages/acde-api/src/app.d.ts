@@ -14,7 +14,7 @@ export interface AppModules {
   readonly network: Page.AcdeNetwork
   readonly launch: Page.AcdeLaunch
   readonly apps: Page.AcdeAppList
-  readonly open: (app: string, request?: Record<string, unknown> | null) => Promise<{ window: number }>
+  readonly open: Page.AcdeOpen
   readonly openPath: Page.AcdeOpenFiles['openPath']
   readonly handlers: Page.AcdeOpenFiles['handlers']
   readonly window: Page.AcdeWindow

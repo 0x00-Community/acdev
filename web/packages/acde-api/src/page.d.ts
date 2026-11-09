@@ -230,10 +230,17 @@ export interface NativeApp {
   readonly wmClass: string | null
 }
 
+export interface OpenWindowOptions {
+  readonly parent?: number
+  readonly modal?: boolean
+}
+
+export type AcdeOpen = (app: string, request?: Record<string, unknown> | null, options?: OpenWindowOptions) => Promise<{ window: number }>
+
 export interface AcdeAppList {
   on?(type: 'changed', handler: (event: { readonly apps?: readonly DesktopApp[] }) => void): () => boolean
   list(): Promise<DesktopApp[]>
-  open(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
+  open: AcdeOpen
 }
 
 export interface AcdeApps extends AcdeAppList, AcdeOpenFiles {
@@ -310,6 +317,8 @@ export interface InspectWindow {
   readonly focus: boolean
   readonly hidden: boolean
   readonly pid: number | null
+  readonly parent?: number | null
+  readonly modal?: boolean
 }
 
 export interface InspectMatch extends InspectNode {
@@ -425,6 +434,7 @@ export interface WindowRect {
 }
 
 export interface AcdeWindow {
+  readonly id: number
   readonly host: WindowHost
   mount(app: WindowApp): void
   setTitle(title: string): void
@@ -535,7 +545,7 @@ export interface AcdePage {
   readonly desktops?: AcdeDesktops
   readonly session?: AcdeSession
   readonly inspect?: AcdeInspect
-  readonly open?: (app: string, request?: Record<string, unknown> | null) => Promise<{ window: number }>
+  readonly open?: AcdeOpen
   readonly openPath?: AcdeOpenFiles['openPath']
   readonly handlers?: AcdeOpenFiles['handlers']
   readonly setDefault?: AcdeOpenFiles['setDefault']

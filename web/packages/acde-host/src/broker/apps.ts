@@ -1,5 +1,6 @@
 import type { NativeApps } from '../launcher'
 import type { Opener, OpenOptions } from '../open'
+import { Family, type FamilyWindow, type WindowFamily } from './family'
 import type { BrokerShell } from './types'
 import { Web } from './web'
 
@@ -15,7 +16,8 @@ export interface AppsHost {
   list(): ListedApp[]
   refresh(): unknown
   install(dir: string): unknown
-  launch(appId: string, request: Record<string, unknown> | null): { window: number }
+  launch(appId: string, request: Record<string, unknown> | null, family?: WindowFamily | null): { window: number }
+  record(id: number): FamilyWindow | undefined
   raise(opened: { window: number }): unknown
 }
 
@@ -50,10 +52,11 @@ export class AppCalls {
       return this.#host.opener.setDefault(String(args[0]), String(args[1]))
     }
     if (method === 'launch' || method === 'open') {
-      const [appId, request] = args as [string, Record<string, unknown> | undefined]
+      const [appId, request, options] = args as [string, Record<string, unknown> | undefined, unknown]
       const open = caps?.open
       if (!desktop && !(open === true || (Array.isArray(open) && open.includes(appId)))) throw Web.refused(web, `open ${appId}`)
-      return this.#host.launch(appId, request ?? null)
+      const caller = { desktop, appId: web.app?.id ?? null, label: web.app?.label ?? web.kind }
+      return this.#host.launch(appId, request ?? null, Family.of(options, caller, (id) => this.#host.record(id)))
     }
     throw new Error(`acde.apps has no ${method}`)
   }

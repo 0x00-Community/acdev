@@ -56,13 +56,14 @@ impl Server {
     }
 
     pub fn activate(&self, id: u32) {
-        let previous = {
+        let (id, previous) = {
             let mut state = self.state();
+            let id = state.modal_child(id).unwrap_or(id);
             let raise = state.entries.get(&id).is_some_and(|e| !e.desktop && !e.panel);
             if raise {
                 state.raise(id);
             }
-            state.focus.replace(id)
+            (id, state.focus.replace(id))
         };
         if previous != Some(id) {
             if let Some(previous) = previous {
@@ -330,7 +331,7 @@ impl App {
     }
 
     fn target(&self, server: &Server) -> Option<(u32, [f64; 2])> {
-        self.capture.or_else(|| server.state().hit(self.pointer.0, self.pointer.1).filter(|hit| !hit.bar).map(|hit| (hit.target, hit.origin)))
+        self.capture.or_else(|| server.state().hit(self.pointer.0, self.pointer.1).filter(|hit| !hit.bar && !hit.blocked).map(|hit| (hit.target, hit.origin)))
     }
 
     fn focused(&self, server: &Server, event: Event) {
@@ -375,7 +376,7 @@ impl App {
     fn data_drag_over(&mut self, server: &Server) {
         let Some(drag) = &mut self.data_drag else { return };
         let (x, y) = self.pointer;
-        let hit = server.state().hit(x, y).filter(|hit| !hit.bar && hit.target != drag.source);
+        let hit = server.state().hit(x, y).filter(|hit| !hit.bar && !hit.blocked && hit.target != drag.source);
         let now = hit.as_ref().map(|hit| hit.target);
         if drag.over != now
             && let Some(left) = drag.over.take()
@@ -399,7 +400,7 @@ impl App {
         let Some(drag) = self.data_drag.take() else { return false };
         let Some(over) = drag.over else { return false };
         let (x, y) = self.pointer;
-        let Some(hit) = server.state().hit(x, y).filter(|hit| hit.target == over) else {
+        let Some(hit) = server.state().hit(x, y).filter(|hit| hit.target == over && !hit.blocked) else {
             server.event(over, Event::named("dndleave"));
             return false;
         };
@@ -444,6 +445,9 @@ impl App {
                 let hit = server.state().hit(x, y);
                 let Some(hit) = hit else { return };
                 server.activate(hit.target);
+                if hit.blocked {
+                    return;
+                }
                 if button == keys::BUTTON_LEFT
                     && let Some(drag) = self.grab(server, hit.entry)
                 {
@@ -526,7 +530,7 @@ impl App {
 
     fn dropped(&self, server: &Server, paths: &[std::path::PathBuf]) {
         let (x, y) = self.pointer;
-        let hit = server.state().hit(x, y);
+        let hit = server.state().hit(x, y).filter(|hit| !hit.blocked);
         let Some(hit) = hit else { return };
         let owner = drop_owner(&server.state(), hit.target);
         if let Some(app) = owner {

@@ -332,13 +332,37 @@ impl WindowTable {
     pub fn set_parent(&mut self, id: WindowId, parent: Option<WindowId>, modal: bool) -> Result<(), Error> {
         let canvas = self.windows.get(&id).ok_or(Error::UnknownWindow)?.canvas;
         if let Some(p) = parent
-            && (p == id || self.windows.get(&p).is_none_or(|w| w.canvas != canvas))
+            && (p == id || self.windows.get(&p).is_none_or(|w| w.canvas != canvas) || self.descendants(id).contains(&p))
         {
             return Err(Error::NotOnCanvas);
         }
         let w = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         w.parent = parent;
         w.modal = modal && parent.is_some();
+        Ok(())
+    }
+
+    pub fn descendants(&self, id: WindowId) -> Vec<WindowId> {
+        let Some(canvas) = self.windows.get(&id).and_then(|w| self.canvases.get(&w.canvas)) else { return Vec::new() };
+        let mut family = vec![id];
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for w in self.windows.values() {
+                if w.parent.is_some_and(|p| family.contains(&p)) && !family.contains(&w.id) {
+                    family.push(w.id);
+                    grew = true;
+                }
+            }
+        }
+        canvas.z.iter().copied().filter(|w| *w != id && family.contains(w)).collect()
+    }
+
+    pub fn front_family(&mut self, id: WindowId) -> Result<(), Error> {
+        self.front(id)?;
+        for child in self.descendants(id) {
+            self.front(child)?;
+        }
         Ok(())
     }
 
@@ -664,5 +688,23 @@ mod tests {
         assert_eq!(t.set_parent(parent, Some(parent), true), Err(Error::NotOnCanvas));
         t.remove(dialog);
         assert_eq!(t.modal_child(parent), None);
+    }
+
+    #[test]
+    fn children_follow_their_parent_up() {
+        let (mut t, c) = table();
+        let r = Rect::new(0.0, 0.0, 10.0, 10.0);
+        let parent = add(&mut t, c, Mode::Free, r);
+        let child = add(&mut t, c, Mode::Free, r);
+        let other = add(&mut t, c, Mode::Free, r);
+        let inner = add(&mut t, c, Mode::Free, r);
+        t.set_parent(child, Some(parent), false).unwrap();
+        t.set_parent(inner, Some(child), true).unwrap();
+        assert_eq!(t.descendants(parent), vec![child, inner]);
+        assert_eq!(t.set_parent(parent, Some(inner), false), Err(Error::NotOnCanvas));
+        t.front(parent).unwrap();
+        assert_eq!(t.canvas(c).unwrap().z, vec![child, other, inner, parent]);
+        t.front_family(parent).unwrap();
+        assert_eq!(t.canvas(c).unwrap().z, vec![other, parent, child, inner]);
     }
 }

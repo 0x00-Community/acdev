@@ -38,6 +38,19 @@ test('an app project sees the app modules, typed', () => {
   assert.deepEqual(errors('app', appCode), [])
 })
 
+test('opening a window names a parent and a modal flag, typed', () => {
+  const code = `
+import { open } from 'acde:open'
+import { apps } from 'acde:apps'
+import self from 'acde:window'
+export const dialog: Promise<{ window: number }> = open('notes', { file: 'a' }, { parent: self.id, modal: true })
+export const child = apps.open('notes', null, { parent: 3 })
+`
+  assert.deepEqual(errors('app', code), [])
+  assert.ok(errors('app', `import { open } from 'acde:open'\nopen('notes', null, { parent: 'self' })`).length > 0)
+  assert.ok(errors('app', `import { open } from 'acde:open'\nopen('notes', null, { modal: 1 })`).length > 0)
+})
+
 test('an app project does not see shell module types', () => {
   const found = errors('app', `import { windows } from 'acde:windows'\nwindows.focus?.(1)`)
   assert.ok(found.length > 0, 'acde:windows must not be typed for apps')

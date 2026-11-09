@@ -60,6 +60,8 @@
       <arg name="height" type="int"/>
       <arg name="size_width" type="int" summary="0: no size"/>
       <arg name="size_height" type="int"/>
+      <arg name="parent" type="int" summary="-1: no parent"/>
+      <arg name="modal" type="uint"/>
     </request>
 
     <request name="release">

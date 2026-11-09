@@ -139,6 +139,8 @@ export class Inspect {
         focus: row.focus,
         hidden: !!row.hidden,
         pid: row.pid ?? null,
+        parent: row.parent ?? null,
+        modal: !!row.modal,
       })
     }
     return out.sort((a, b) => b.z - a.z)

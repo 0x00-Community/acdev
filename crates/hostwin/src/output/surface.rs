@@ -307,7 +307,7 @@ impl Drop for Surface {
             if focused {
                 state.focus = None;
             }
-            (state.entries.remove(&self.window), focused)
+            (state.forget(self.window), focused)
         };
         if let Some(compositor) = server.compositor() {
             compositor.remove(self.window);
@@ -316,7 +316,11 @@ impl Drop for Surface {
             }
         }
         if focused {
-            server.focus_top();
+            let parent = gone.as_ref().and_then(|e| e.parent).filter(|p| server.state().entries.get(p).is_some_and(|e| e.opened && !e.hidden));
+            match parent {
+                Some(parent) => server.activate(parent),
+                None => server.focus_top(),
+            }
         }
         server.relayout();
         let Some(entry) = gone else { return };

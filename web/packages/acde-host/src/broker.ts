@@ -29,6 +29,7 @@ import { WindowCalls } from './broker/windows'
 import { ServiceCalls } from './broker/services'
 import { AppCalls } from './broker/apps'
 import { Tiers } from './broker/tier'
+import type { WindowFamily } from './broker/family'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
@@ -150,7 +151,8 @@ export class Broker {
       list: () => this.#appList(),
       refresh: () => this.refreshApps(),
       install: (dir) => this.installApps(dir),
-      launch: (appId, request) => this.launch(appId, request),
+      launch: (appId, request, family) => this.launch(appId, request, 'free', null, family),
+      record: (id) => this.#windows.get(id),
       raise: (opened) => this.#raise(opened),
     })
     this.#services = new ServiceCalls({
@@ -655,7 +657,13 @@ export class Broker {
     }
   }
 
-  launch(appId: string, request: Record<string, unknown> | null = null, mode: 'fullscreen' | 'free' = 'free', place: Rect | null = null): { window: number } {
+  launch(
+    appId: string,
+    request: Record<string, unknown> | null = null,
+    mode: 'fullscreen' | 'free' = 'free',
+    place: Rect | null = null,
+    family: WindowFamily | null = null,
+  ): { window: number } {
     const app = this.apps.get(appId) ?? (this.refreshApps(), this.apps.get(appId))
     if (!app) throw this.#missing(appId)
     if (!this.#available(app)) throw Object.assign(new Error(`${app.label}: the system service it needs is not running`), { status: 503 })
@@ -669,8 +677,8 @@ export class Broker {
         return { window: running.id }
       }
     }
-    const rect = mode !== 'free' || this.#running(appId) ? null : (place ?? this.#places.get(appId, this.#screen()))
-    const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app) }) })
+    const rect = mode !== 'free' || family || this.#running(appId) ? null : (place ?? this.#places.get(appId, this.#screen()))
+    const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app) }), ...family })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], request, mode }
     this.#windows.set(record.id, record)
     this.#spawnWindow(record, grant.token)

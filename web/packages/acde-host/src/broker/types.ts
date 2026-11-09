@@ -17,6 +17,8 @@ export interface BrokerShell {
     mode?: 'fullscreen' | 'free' | 'fixed' | 'pinned'
     rect?: number[]
     size?: readonly number[]
+    parent?: number
+    modal?: boolean
   }): { window: number; token: bigint }
   place(window: number, x: number, y: number, width: number, height: number): void
   release(window: number): void
@@ -75,6 +77,8 @@ export interface ShellWindow {
   readonly focus: boolean
   readonly hidden?: boolean
   readonly pid?: number | null
+  readonly parent?: number | null
+  readonly modal?: boolean
 }
 
 export interface AnimateOptions {

@@ -188,12 +188,14 @@ impl Compositor {
 
     fn shell_request(&mut self, request: Request, data_init: &mut DataInit<'_, Self>) {
         match request {
-            Request::Grant { token_hi, token_lo, window, desktop, mode, x, y, width, height, size_width, size_height } => {
+            Request::Grant { token_hi, token_lo, window, desktop, mode, x, y, width, height, size_width, size_height, parent, modal } => {
                 let token = (u64::from(token_hi) << 32) | u64::from(token_lo);
                 let mode = Mode::try_from(mode).unwrap_or(Mode::Free);
                 let rect = (width > 0 && height > 0).then_some([x, y, width, height]);
                 let size = (size_width > 0 && size_height > 0).then_some([size_width, size_height]);
-                self.grants.insert(token, Grant { id: window, desktop: desktop != 0, mode, rect, size });
+                let parent = u32::try_from(parent).ok().filter(|p| *p != window);
+                let grant = Grant { id: window, desktop: desktop != 0, mode, rect, size, parent, modal: modal != 0 && parent.is_some() };
+                self.grants.insert(token, grant);
             }
             Request::Release { window } => self.grants.retain(|_, g| g.id != window),
             Request::Focus { window } => {
