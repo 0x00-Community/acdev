@@ -46,6 +46,8 @@ export interface BrokerShell {
   devRespond?(id: number, ok: boolean, payload: string): void
   notify?(title: string, body: string, subtitle: string): void
   answerFolder?(path: string | null): void
+  answerOpen?(paths: string[] | null): void
+  answerSave?(path: string | null): void
   readonly socketName: string
   readonly hosted?: boolean
 }
@@ -1139,7 +1141,12 @@ export class Broker {
   #fileChooser(): Promise<NativeFileChooser | null> {
     this.#chooser ??= (async () => {
       const FileChooser = this.native.FileChooser
-      if (!FileChooser) return null
+      if (!FileChooser) {
+        if (!this.#chooserWarned) Log.write(Level.Warn, 'acde_host', 'no file chooser on this platform: open and save pickers are cancelled')
+        this.#chooserWarned = true
+        this.#chooser = null
+        return null
+      }
       try {
         return await FileChooser.open()
       } catch (error) {
@@ -1245,16 +1252,30 @@ export class Broker {
       }
       case 'emulate':
         return this.emulate(args as never)
-      case 'choose': {
-        const folder = args['folder']
-        if (folder !== null && (typeof folder !== 'string' || !isAbsolute(folder))) throw new Error('choose: folder is an absolute path, or null to cancel')
-        if (!this.shell.answerFolder) throw new Error('choose: this backend asks the portal, it cannot be answered beforehand (host windows only)')
-        this.shell.answerFolder(folder)
-        return { folder }
-      }
+      case 'choose':
+        return this.#devChoose(args)
       default:
         throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose)`)
     }
+  }
+
+  #devChoose(args: Record<string, unknown>): Record<string, unknown> {
+    const kinds = (['folder', 'open', 'save'] as const).filter((kind) => args[kind] !== undefined)
+    if (kinds.length !== 1) throw new Error('choose: give exactly one of folder, open or save')
+    const kind = kinds[0]!
+    const answer = args[kind]
+    const path = (value: unknown) => typeof value === 'string' && isAbsolute(value)
+    const shell = this.shell
+    if (!shell.answerFolder || !shell.answerOpen || !shell.answerSave) throw new Error('choose: this backend asks the portal, it cannot be answered beforehand (host windows only)')
+    if (kind === 'open') {
+      if (answer !== null && !(Array.isArray(answer) && answer.length > 0 && answer.every(path))) throw new Error('choose: open is a non-empty list of absolute file paths, or null to cancel')
+      shell.answerOpen(answer as string[] | null)
+    } else {
+      if (answer !== null && !path(answer)) throw new Error(`choose: ${kind} is an absolute path, or null to cancel`)
+      if (kind === 'folder') shell.answerFolder(answer as string | null)
+      else shell.answerSave(answer as string | null)
+    }
+    return { [kind]: answer }
   }
 
   static #devQuery<T extends object>(args: Record<string, unknown>, extra: T): { web?: string; since?: number; limit?: number } & T {

@@ -3,7 +3,8 @@ use std::sync::{Mutex, mpsc};
 
 use acde_gpu::wgpu;
 
-use super::{Cmd, FolderReply, Handler, HostEvent};
+use super::{Cmd, FilesReply, FolderReply, Handler, HostEvent};
+use crate::{OpenRequest, SaveRequest};
 
 #[derive(Clone)]
 pub(crate) struct Proxy(mpsc::Sender<Cmd>);
@@ -30,6 +31,14 @@ impl super::Host for Host {
 
     fn choose_folder(&self, _: &str, reply: FolderReply) {
         let _ = reply.send(Err("no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand (acde dev op choose)".to_owned()));
+    }
+
+    fn open_files(&self, _: OpenRequest, reply: FilesReply) {
+        let _ = reply.send(Err("no file chooser without a host window (ACDE_HEADLESS): answer it beforehand (acde dev op choose)".to_owned()));
+    }
+
+    fn save_file(&self, _: SaveRequest, reply: FolderReply) {
+        let _ = reply.send(Err("no save chooser without a host window (ACDE_HEADLESS): answer it beforehand (acde dev op choose)".to_owned()));
     }
 
     fn exit(&self, code: i32) {

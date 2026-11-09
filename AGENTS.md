@@ -129,7 +129,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 `Surface`, crates/acdert `surface.rs` 是两种的 enum).
 
 - **结构**: 平台层 (`platform.rs` 的 `Handler` / `HostEvent` / `Cmd`) 只有两个: `platform/win32.rs` (Win32: 窗口、IMM32、剪贴板、`WM_DROPFILES`、
-  `SHBrowseForFolderW`、per-monitor DPI v2) 和 `platform/host_winit.rs` (macOS / Linux, winit + arboard; macOS 选文件夹是 `chooser.rs`). `app.rs`:
+  `SHBrowseForFolderW`、per-monitor DPI v2) 和 `platform/host_winit.rs` (macOS / Linux, winit + arboard; macOS 的选文件夹、打开和保存文件是 `chooser.rs`). `app.rs`:
   命中、拖动、焦点、快捷键、注入. `shell.rs`: 窗口表 (`State` / `Entry`, 层序 desktop < free / fixed < pinned, 再按 z). `present.rs`: 每个 web
   一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理; `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync).
   页面 / 面板的 plane 有 layers (backdrop-filter、filter) 时走 `Presenter::layered`, 照 `acde_gpu::Raster::draw_pass` 用 `Composer` 做
@@ -166,10 +166,10 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `platform/headless.rs`). headless 不开窗口: 主线程只收 `Cmd` (`Exit` 时退出), 屏幕是 `ACDE_SIZE` (否则 1440 × 900) 乘 `ACDE_SCALE`
   (0.5–4, 默认 1), 起来就算宿主窗口有焦点. 合成器没有 surface: 不出画面、不数 `frames`, 但页面照常出帧 (出帧线程的节奏不靠宿主窗口),
   `capture` / `screenshot` / `ACDE_HOST_DUMP` 照常读回. 注入和真窗口走同一段 (`App::inject`). 只在 headless 下不同的: 剪贴板是进程里的一份
-  (不碰系统剪贴板), 选文件夹没有事先的答复 (`choose`) 时回错 (Linux 的 headless 也走 hostwin, 不问 portal), 系统通知只写一行 info 日志 (不弹出), 标题和输入法区域不做. 仍然要 GPU (「GPU 与性能」: 网页只在
+  (不碰系统剪贴板), 选文件夹、打开和保存文件没有事先的答复 (`choose`) 时回错 (Linux 的 headless 也不问 portal), 系统通知只写一行 info 日志 (不弹出), 标题和输入法区域不做. 仍然要 GPU (「GPU 与性能」: 网页只在
   GPU 上画, 不认 lavapipe): 能在有 Metal 的 macOS 机器 (含 GitHub 的 macOS runner, 没验) 或有 GPU 的 Linux / Windows 上无人值守地跑, 不能在
   没有 GPU 的 Linux CI 上跑. Linux 上设了它就算「在别人的桌面里」, 不要 `WAYLAND_DISPLAY` / `DISPLAY`.
-- **系统能力**: fs、选文件夹、声音、剪贴板到处都有; terminal 和应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
+- **系统能力**: fs、选文件夹、声音、剪贴板到处都有; 打开 / 保存文件在 Linux (portal) 和 macOS 有, Windows 还没有; terminal 和应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
   WebGPU 只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`), 它不带根证书: runtime `http.rs` 的 `tls()` 在那两处从系统证书库
   (Keychain / Windows 证书存储, rustls-native-certs) 读进来; Linux 用系统的 OpenSSL 和它的证书目录. Windows 的证书库是按需下载的
   (第三方根证书要等系统自己的 TLS 第一次用到才进库), 所以 Windows 上 OpenSSL 校验失败时 (`system_trusts`) 再把对方的证书链交给
@@ -208,8 +208,10 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   - `emulate {colorScheme?: light | dark | null, reducedMotion?: boolean | null}` → `{colorScheme, emulated, reducedMotion}`: 所有页面 (和以后
     开的) 的 `prefers-color-scheme` / `prefers-reduced-motion` (CSS 和 `matchMedia`); null 回到系统的 (portal / `ACDE_COLOR_SCHEME` /
     `ACDE_REDUCED_MOTION`). 模拟配色时系统配色的变化只记下, 回到系统时再生效.
-  - `choose {folder: 绝对路径 | null}` → `{folder}`: 事先答复页面下一次的选文件夹 (`showDirectoryPicker`), 不弹窗: napi `Shell.answerFolder`
-    → hostwin `answer_folder` 排进队列, `choose_folder` 先取队列 (null 当作用户取消), 有窗口和 headless 都一样; 会话 (portal) 没有这个, 回错.
+  - `choose {folder | open | save}` (恰好给一个) → 原样回: 事先答复页面下一次的这种选择器, 不弹窗, 三种各排各的队列, null 当作用户取消.
+    `folder: 绝对路径` 答 `showDirectoryPicker`; `open: [绝对路径, …]` (不空) 答 `showOpenFilePicker` / `<input type=file>`, 多于一个而这次
+    不许多选时这次回错; `save: 绝对路径` 答 `showSaveFilePicker`. napi `Shell.answerFolder` / `answerOpen` / `answerSave` → hostwin 的队列,
+    crates/acdert `chooser.rs` 先取队列再弹窗, 有窗口、headless、Linux 的 portal 都一样; 会话没有这个, 回错.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 没人接的 `error` / `unhandledrejection` (交给 `host.reportError` 的那些) 报 `error(kind, text)`
   (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认); `fetch` / XHR / EventSource (都经 `exchange`, 加上本地资源和够不着的地址)
@@ -332,7 +334,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `type="importmap"` (`modules.rs` 解析说明符时用: `imports` / `scopes`, 精确或 `/` 结尾前缀匹配, 多个合并先到先得).
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
   `localStorage` 每个应用一个文件 (`$XDG_CONFIG_HOME/acde/storage/app-<id>.json`); `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
-  外部链接交给浏览器应用, 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器走 portal (Linux); 隐藏 / 显示是 `visibilitychange`;
+  外部链接交给浏览器应用, 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
   `screen.*` 是主输出的逻辑尺寸.
 - **通知**: `Notification` 转给桌面 (`on('notification')`); 桌面没在显示时 (调试窗口) 由宿主窗口发系统通知 (hostwin `notify.rs`). 页面给的文字
   当不可信数据: macOS 用 `osascript -l JavaScript -e <固定脚本>`, 文字只经环境变量 `ACDE_NOTIFY_*` 传 (放进 argv 会被当成选项); Linux 走
@@ -342,7 +344,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   Hermite 重采样, 设备要 f32). 3 秒没声音关流; 没有设备 (或 `ACDE_AUDIO=null`) 按墙上时间渲染丢掉.
 - **还没有**: indexedDB、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
-  (Node ≥ 22.3; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
+  (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
   `ACDE_APP_SOCKETS` / `PORT` / `NODE_ENV=production` + 会话的 HOME、PATH、LANG 等), 工作目录 `$XDG_DATA_HOME/acde/apps/<id>/`, 输出前缀
   `[<app>#backend]`, `PR_SET_PDEATHSIG` (子进程都由 `acde-fork` 线程 fork). preload 把 listen 换成 unix socket (`$XDG_RUNTIME_DIR/acde/apps/<id>/`),
@@ -417,7 +419,8 @@ spawn 参数 (`grants.app`, Broker 决定), 桌面没有应用 id, 记在桌面�
 
 **选文件夹和授权**: 标准的 `showDirectoryPicker(options?)` → `FileSystemDirectoryHandle` (acde-dom `dom/picker.ts`, 参数校验和错误照 Chromium,
 取消或没有选择器是 `AbortError`, `requestPermission` 不弹窗; handle 只活到页面结束). 链路: acde-dom 的
-`env.files` → crates/acdert `picker.rs` 绑的 `natives.picker` (不是 `acde:` 模块). 选择器在 `acde-picker` 线程上开: Linux 是 portal
+`env.files` → crates/acdert `picker.rs` 绑的 `natives.picker` (不是 `acde:` 模块). 选择器在 `acde-picker` 线程上开, 先取 `choose` 事先给的答复
+(crates/acdert `chooser.rs`, 三种选择器都在这里定去哪): Linux 是 portal
 FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel` sheet, Windows 是 `SHBrowseForFolderW`. handle 的读写在 runtime
 `fs/picked.rs` `PickedFolders` (每个 web 一份, 只在内存, 选中的文件夹当 root; 新建 `O_EXCL | O_NOFOLLOW`, 一个文件最多 64 MiB).
 Windows 选择器返回盘符或 UNC 绝对路径, 内存句柄和持久授权使用同一路径规则. `bash scripts/check-directory-picker.sh` 用预设选择结果验收.
@@ -425,6 +428,19 @@ Windows 选择器返回盘符或 UNC 绝对路径, 内存句柄和持久授权�
 (`acde:fs` 多一个 root `{source: 'granted', label}`, 文件夹没了是 `mode: 'unavailable'`), 记在
 `$XDG_STATE_HOME/acde/grants/<应用 id>.json` (runtime `fs/grants.rs`; `ACDE_STORAGE` 为空时只在内存); 桌面选的不授. `fs.revoke(rootPath)`
 收回. Broker 起 web 时 grants 带应用 id, `web.rs` 给 `Workspace::scoped(roots, app)` 和 `natives.picker`.
+
+**打开和保存文件**: `showOpenFilePicker` / `<input type=file>` / `showSaveFilePicker` (acde-dom `dom/picker.ts`、`dom/forms.ts`) → `env.files.open` /
+`save` → acde-host `pagecalls.ts` 的页面调用 `open` / `save` → Broker `#fileChooser()` 的 `native.FileChooser` 的 `openFile({title, multiple,
+directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, globs, mimes}` (页面的 `types` / `accept` 换来的), 回路径列表 / 路径
+或 null (取消). 选中的文件只给这个页面读写 (`pagecalls.ts` 记着). 没有 `FileChooser` 时打一行 warn, 页面得到 `AbortError` / `cancel`.
+- 会话: runtime `portal.rs` 的 napi `FileChooser` (portal 的 `OpenFile` / `SaveFile`).
+- 宿主窗口: crates/acdert `hostnative.rs` 换上自己的 `FileChooser`, 在 `acde-chooser` 线程上走 `chooser.rs`: 先取 `choose` 的答复; Linux 有窗口时
+  是 portal (runtime `open_files` / `save_file`, 和 napi 同一段); 别的交给 hostwin 主线程: macOS 是挂在宿主窗口上的 `NSOpenPanel` /
+  `NSSavePanel` sheet, headless 回错, Windows 还没有 (回错).
+- macOS 的类型过滤 (`chooser.rs` `content_types`): `*.ext` 按扩展名、MIME 按 MIME、`image/*` / `text/*` / `audio/*` / `video/*` 按大类换成
+  UTType; 有一项换不了 (`*`、别的通配、`application/*`、不认识的 MIME) 就不限类型 (宁可多给不能少给). UTType 按类型的继承匹配: `text/plain`
+  也放行 Markdown, 和 Linux 上 shared-mime-info 的子类型一样. 保存面板不按 filters 限扩展名 (GTK 的保存对话框也只拿它筛显示的文件),
+  建议的名字原样填进去.
 
 ## 默认应用
 
@@ -608,7 +624,10 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 `package.json`), 解压到 binary 旁边 (acdert 找 `<exe 所在目录>/app/dist`). 桌面包 (Dopame) 不在里面.
 
 - 推 `v*` tag: 建 GitHub prerelease, 附上三个 binary 和 host bundle. 手动触发 (`workflow_dispatch`) 只编, 不建 release.
-- 不发 npm 包 (用户定, 2026-11-08). 开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`.
+- npm 上只发 `@dopame/acde-api` (用户定, 2026-11-09; npm 组织 `dopame`), 只发压缩后的构建, 见下面 web/packages 的 acde-api. 别的包不发,
+  开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`. release 成功后 `npm-build` 检查 tag 和 acde-api 的版本一致、npm 上还没有这个版本,
+  构建 `dist/` 交给 `npm` job; `npm` 经 trusted publishing (OIDC, npm 上配的是 `dopame-org/acdert` 的 `release.yml`) 发布, 不存 token.
+  拿 `id-token: write` 的 `npm` job 只用 GitHub 自己的 action (setup-node、download-artifact), bun 等第三方的只在没有这个权限的 `npm-build` 里.
 - 版本号是 `0.0.N`, 每发一次 N 加 1 (前两位保持 0): 根 `Cargo.toml` 的 `workspace.package.version` 和 `web/packages/*/package.json`
   一起改 (再 `bun install` 刷新 `web/bun.lock`), tag 是 `v0.0.N`.
 - Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire.
@@ -642,7 +661,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 ## 协作规则
 
 - 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`
-  (都 `publish = false`), 不发 npm 包, 仓库和 release 不公开. `vendors/` 和 crates/acde-napi 保留上游的许可证文件和版权行.
+  (都 `publish = false`), 除 `@dopame/acde-api` 的压缩构建外不发 npm 包, 仓库和 release 不公开. `vendors/` 和 crates/acde-napi 保留上游的许可证文件和版权行.
 - Rust 和 TypeScript 代码不写注释, 要说明的写进本文件. 例外: 版权和许可证行 (crates/acde-napi 的 Deno 版权)、工具指令 (`/// <reference>`,
   `@ts-expect-error`)、`vendors/` 改动处的 `acrender:` / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
@@ -686,7 +705,13 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 - **acde-api**: `load(name)` (`src/load.js`: `import('acde:<name>')` 的默认导出, 拿不到时是 null; 说明符带 `@vite-ignore` 等)、
   `@dopame/acde-api/vite` (build 时 `acde:*` 留作外部模块, dev 时换成会 reject 的替身); 声明 `manifest.d.ts` / `service.d.ts` / `page.d.ts` /
   `config.d.ts` (+ `config.schema.json`) / `modules.d.ts`; `src/validate.ts` (导出 `./manifest`) 是清单校验和 `ICON_NAMES`, 测试
-  `test/validate.test.ts`. 还没上 npm: acde 仓库用 `file:../acdert/web/packages/acde-api`, acde-dopame 拷一份 (`scripts/sync-acde-api.sh`).
+  `test/validate.test.ts`. acde 仓库用 `file:../acdert/web/packages/acde-api`, acde-dopame 拷一份 (`scripts/sync-acde-api.sh`).
+  npm 上的 `@dopame/acde-api` 不是这个目录: 它的 package.json 是 `"private": true`, 防止把源码发出去. `bun run build` (`scripts/build.mjs`)
+  生成 `dist/`, 发布的是 `dist/` (`cd dist && bunx npm publish`, 要 2FA): `.js` / `.ts` 用 esbuild 压缩 (标识符也压, 没有 source map,
+  不留注释), `validate.ts` 的声明由 tsc 生成成 `validate.d.ts`, `./manifest` 改指向 `validate.js` / `validate.d.ts`; 手写的 `.d.ts` 和
+  `config.schema.json` 原样拷贝 (对外接口); 去掉 `private` / `scripts` / `devDependencies`; `LICENSE` 是根目录 `LICENSE` 的版权段
+  (不含第三方那段). 构建最后检查 `dist/`: 有 `.map`、非 `.d.ts` 的 `.ts`、`sourceMappingURL` / `sourcesContent` 或意料外的文件就失败.
+  esbuild 装在 web 根的 devDependencies: 放在 acde-api 自己的 devDependencies 里, bun 会把它装进用 `file:` 引用它的 acde.
 - **acde-dom**: 经 `DomNative` / `GpuNative` / `AudioNative` / `HostNative` (`src/native.ts`) 调 crates/acdert, 打进 acde-host 的 `dist/web.js`.
   编辑只有 `dom/editing.ts` 一份. 测试在 happy-dom 的 MockDom 上跑. 布局类的读 (rect、metrics、计算样式) 缓存到下一次写入、下一个指针事件 / 帧 / 滚动, 或这个任务结束 (CSS 过渡和动画在 render 线程上跑, JS 不知道, 下一个任务要重新读). Web Animations
   (`dom/animation.ts`): 关键帧变成 `@keyframes acde-animation-<n>` 规则加元素内联的 `animation-*`, 由 render 跑; 时间、事件、`finished` 在 JS

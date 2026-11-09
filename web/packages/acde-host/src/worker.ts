@@ -122,7 +122,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     self.emit('activate')
     self.onVisible = (visible) => page.setVisible(visible)
   }
-  new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, window: init.window, label: init.app?.label ?? '桌面' })
+  new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, label: init.app?.label ?? '桌面' })
   web.onActivation = (active) => self?.emit(active ? 'activate' : 'deactivate')
   web.onGrab = (event) => self?.emit(event.kind === 'lost' ? 'grablost' : 'grab', event)
   web.onFrameButton = (key) => {

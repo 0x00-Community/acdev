@@ -259,6 +259,8 @@ impl Handler for App {
             HostEvent::Cmd(Cmd::ImeArea(rect)) => host.set_ime_area(rect),
             HostEvent::Cmd(Cmd::Inject(event)) => self.inject(server, event),
             HostEvent::Cmd(Cmd::ChooseFolder { title, reply }) => host.choose_folder(&title, reply),
+            HostEvent::Cmd(Cmd::OpenFiles { request, reply }) => host.open_files(request, reply),
+            HostEvent::Cmd(Cmd::SaveFile { request, reply }) => host.save_file(request, reply),
             HostEvent::Cmd(Cmd::Exit(code)) => host.exit(code),
         }
     }

@@ -40,7 +40,7 @@ pub use network::{NetCall, Networks};
 #[cfg(target_os = "linux")]
 pub use office::{OfficeCall, OfficeService};
 #[cfg(target_os = "linux")]
-pub use portal::{Appearance, FileChooser, choose_folder};
+pub use portal::{Appearance, FileChooser, Filter as PortalFilter, choose_folder, open_files, save_file};
 #[cfg(unix)]
 pub use terminal::Terminals;
 #[cfg(target_os = "linux")]
