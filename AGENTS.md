@@ -649,8 +649,8 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 `package.json`), 解压到 binary 旁边 (acdert 找 `<exe 所在目录>/app/dist`). 桌面包 (Dopame) 不在里面.
 
 - 推 `v*` tag: 建 GitHub prerelease, 附上三个 binary 和 host bundle. 手动触发 (`workflow_dispatch`) 只编, 不建 release.
-- 同一个 tag 也传到 AWS S3 桶 `dopame-pkgs` (`pkgs` job, 三个平台和 host 都编成功才传): `acdert/<版本>/` 放三个 binary、host bundle
-  和 `SHA256SUMS` (缓存一年, 不再改), `acdert/latest.json` (`{version, tag, commit, base, files}`, 不缓存) 指向最新的一版;
+- 同一个 tag 也传到 AWS S3 桶 `dopame-pkgs` (`pkgs` job, 三个平台和 host 都编成功才传): `acdert/<版本>/` 放三个 binary、host bundle、
+  `acde-api-<版本>.tar.gz` (web/packages/acde-api, 不带 test/ 和 node_modules; acde 的发版拿它打包) 和 `SHA256SUMS` (缓存一年, 不再改), `acdert/latest.json` (`{version, tag, commit, base, files}`, 不缓存) 指向最新的一版;
   下载地址 `https://pkgs.dopame.ai/acdert/<版本>/<文件>`. 传完让 CloudFront `E3ET3L14ALFOXX` 失效这两处. 凭证走 GitHub OIDC,
   不存密钥: IAM 角色 `dopame-acdert-release` 只信任本仓库的 `refs/tags/v*` (sub 是不可变形式
   `repo:dopame-org@342965929/acdert@1445550002:ref:refs/tags/v*`), 只能读写 `dopame-pkgs/acdert/*`、失效那个 distribution.

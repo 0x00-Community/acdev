@@ -104,6 +104,9 @@ jobs:
     env:
       TAG: ${{ github.ref_name }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          path: src
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -113,6 +116,7 @@ jobs:
           mkdir -p "pkgs/$v"
           cp artifacts/acdert-*/acdert-* "pkgs/$v/"
           tar -C artifacts/host -czf "pkgs/$v/acdert-host-$v.tar.gz" app
+          tar -C src/web/packages --exclude acde-api/test --exclude acde-api/node_modules -czf "pkgs/$v/acde-api-$v.tar.gz" acde-api
           (cd "pkgs/$v" && sha256sum -- * > SHA256SUMS)
           files=$(cd "pkgs/$v" && ls | jq -R . | jq -sc .)
           jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$GITHUB_SHA" --argjson files "$files" \
