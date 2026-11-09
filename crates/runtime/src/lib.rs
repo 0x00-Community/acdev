@@ -2,6 +2,7 @@
 mod atspi;
 #[cfg(target_os = "linux")]
 mod bus;
+pub mod channel;
 mod failure;
 mod fetch;
 pub(crate) mod fs;
