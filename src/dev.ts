@@ -127,7 +127,7 @@ export class DevSession {
       const paths = [...new Set(this.#units.map((u) => u.built!.dir)), process.env['ACDE_PATH']].filter(Boolean).join(delimiter)
       const what = this.#units.map((u) => `${u.pkg.name} (${u.built!.dir})`).join(', ')
       console.log(`acde: dev ${target.kind} ${target.id}${this.#headless ? ' (headless)' : ''}: ${what}; rebuilding and reloading on change`)
-      const env = { ...process.env, ACDE_DEV: this.#endpoint, ACDE_PATH: paths, ...(this.#headless && { ACDE_HEADLESS: '1' }) }
+      const env = { ...process.env, ACDE_DEV: this.#endpoint, ACDE_PATH: paths, ACDE_RUNTIME: Runtime.bun ? 'bun' : 'node', ...(this.#headless && { ACDE_HEADLESS: '1' }) }
       const started = Runtime.spawn([this.#acdert, target.kind, target.id], { env, stdio: 'inherit' })
       child = started
       running = true

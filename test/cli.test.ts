@@ -351,6 +351,7 @@ describe('a project made by acde from its checkout', () => {
   test('bun: bun install && bun run build with the checkout acde on PATH, no node there', async () => {
     const dir = join(tmp(), 'by-bun')
     expect((await cli(['new', dir, '--pm', 'bun', '--yes'], tmp())).code).toBe(0)
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toBe(`bun@${process.versions.bun}`)
     const path = tools(['bun'])
     const installed = await run([process.execPath, 'install'], dir, path)
     expect(installed.code, installed.out).toBe(0)
@@ -365,6 +366,7 @@ describe('a project made by acde from its checkout', () => {
     test.skipIf(!which(pm) || !which('node'))(`${pm}: install, run build`, async () => {
       const dir = join(tmp(), `by-${pm}`)
       expect((await cli(['new', dir, '--pm', pm, '--yes'], tmp())).code).toBe(0)
+      expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toStartWith(`${pm}@`)
       const path = tools([pm, 'node', 'bun'])
       const installed = await run([pm, 'install'], dir, path)
       expect(installed.code, installed.out).toBe(0)

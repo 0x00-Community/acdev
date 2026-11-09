@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { constants, homedir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
@@ -73,6 +73,20 @@ export function requireAcdert(root = ROOT) {
   throw new Error(`no acdert found. Looked in:\n${looked.join('\n')}\nSet ACDERT to an acdert you built (ACDERT=/path/to/acdert acde dev)${fix}, or put acdert on PATH`)
 }
 
+export function nodeAtLeast(version) {
+  const [major, minor] = version.split('.').map(Number)
+  const [needMajor, needMinor] = NODE_MINIMUM
+  return major > needMajor || (major === needMajor && minor >= needMinor)
+}
+
+export function runtimes(env = process.env) {
+  const bun = process.versions.bun ? process.execPath : which(`bun${EXE}`, env)
+  if (!process.versions.bun) return { bun, node: process.execPath }
+  const found = which(`node${EXE}`, env)
+  const version = found ? spawnSync(found, ['-p', "process.versions.bun ? '' : process.versions.node"], { encoding: 'utf8' }) : null
+  return { bun, node: version?.status === 0 && nodeAtLeast(version.stdout.trim()) ? found : null }
+}
+
 export function cliFile(root = ROOT) {
   return ['cli.js', 'cli.ts'].map((name) => join(root, 'src', name)).find((file) => existsSync(file))
 }
@@ -93,14 +107,11 @@ export function cliEnv(exe, env = process.env) {
 
 function checkNode() {
   if (process.versions.bun) return
-  const [major, minor] = process.versions.node.split('.').map(Number)
-  const [needMajor, needMinor] = NODE_MINIMUM
-  if (major < needMajor || (major === needMajor && minor < needMinor)) throw new Error(`acde needs Node.js ${NODE_MINIMUM.join('.')} or newer (this is ${process.version}), or Bun (https://bun.sh)`)
+  if (!nodeAtLeast(process.versions.node)) throw new Error(`acde needs Node.js ${NODE_MINIMUM.join('.')} or newer (this is ${process.version}), or Bun (https://bun.sh)`)
 }
 
-export function run(args) {
+export function run(args, exe = cliRuntime()) {
   checkNode()
-  const exe = cliRuntime()
   const child = spawn(exe, [cliFile(), ...args], { stdio: 'inherit', env: cliEnv(exe) })
   process.on('SIGINT', () => {})
   if (!WINDOWS) for (const signal of ['SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal))
