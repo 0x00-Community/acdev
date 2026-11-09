@@ -581,8 +581,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   序列化 (require well-formed, 不良构抛 `InvalidStateError`), 赋值用 XML 片段解析 (上下文元素的命名空间声明都在作用域里, 出错 `SyntaxError`).
   `XMLSerializer` 照 DOM Parsing 的 XML 序列化 (命名空间前缀表、`ns1` 生成前缀、空元素 `/>`), 和 WPT 记的浏览器行为一致的几处: 去掉没有命名空间的
   `xmlns` 属性、命名空间相同的元素也保留显式的 `xmlns=""`、属性的命名空间没声明过时总是生成新前缀. WPT 2026-11-09 macOS: `domparsing`
-  147 → 223 / 2369 (`DOMParser-parseFromString-xml-parsererror` 23 / 23、`XMLSerializer-serializeToString` 29 / 33、实体、CDATA、往返全过;
-  剩下的大多是 `innerHTML` 的 Trusted Types、`createContextualFragment`、`positional-methods` 那批和 iframe), `dom/nodes` 见下.
+  147 → 277 / 2369 (`DOMParser-parseFromString-xml-parsererror` 23 / 23、`XMLSerializer-serializeToString` 29 / 33、实体、CDATA、往返全过;
+  剩下的大多是 `innerHTML` 的 Trusted Types、`createContextualFragment`、`positional-methods` 那批和 iframe); `dom/nodes` 3066 → 4114 / 6112
+  (62 个文件变好, 没有变差的; `createElementNS`、`createDocument`、`*NS` 的属性和集合、处理指令、选择器大小写).
 - **通知**: `Notification` 转给桌面 (`on('notification')`); 桌面没在显示时 (调试窗口) 由宿主窗口发系统通知 (hostwin `system/notify.rs`). 页面给的文字
   当不可信数据: macOS 用 `osascript -l JavaScript -e <固定脚本>`, 文字只经环境变量 `ACDE_NOTIFY_*` 传 (放进 argv 会被当成选项); Linux 走
   `org.freedesktop.Notifications` (body 只在服务端报 `body-markup` 时转实体). Windows 没有系统通知 (宿主 `Shell` 不绑定 `notify`): 平台表 win32
