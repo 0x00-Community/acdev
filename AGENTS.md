@@ -295,7 +295,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **窗框**: 应用窗口 (清单 `frame` 不是 false; 桌面和面板没有) 有一条标题栏, **不在页面的文档里**: `<html>`、`innerHeight`、`100vh`、`resize`
   都只是内容区. 窗口表的 rect、grab hint、backdrop 是含窗框的整个窗口; 页面给的 `setGrabHint` / `setBackdrop` 是页面坐标, 加上窗框高再交出去,
   窗框的 hint (标题栏移动, 四边 4 px / 四角 10 px 改大小) 优先. 会话里是 crates/window `decoration.rs` 在页面 surface 上开的同步 `wl_subsurface`
-  (`set_window_geometry(0, -H, W, 整高)`, 自己的画布 plane `usize::MAX`); 宿主窗口里见「宿主窗口」. 三个按钮按下和松开在同一个上时发
+  (`set_window_geometry(0, -H, W, 整高)`, 自己的画布 plane `usize::MAX`); 宿主窗口里见「宿主窗口」. 三个按钮 (样式见 render 的「窗框」, `ACDE_FRAME_STYLE`: 红绿灯或 Windows 的最小化 / 最大化 / 关闭) 按下和松开在同一个上时发
   `framebutton {key}` (`close` / `minimize` / `fullscreen` / `restore`), acde-host 调 `acde.window` 的 `close()` / `minimize()` / `requestMode`.
   标题是 `document.title` 或 `acde.window.setTitle` (没有时用 `label`), 经 surface 的 `setTitle`. 高度只在 acde-host `frame.ts` 的
   `Frame.HEIGHT` (32), 经 `claimSurface(token, {frame})` 交给 surface; 画法在 render 的 `Decoration`. 全屏时窗框照旧在. `acde:inspect` 看不到窗框
@@ -640,8 +640,10 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   viewport, 媒体查询和 `matchMedia` 跟着变). `semantics(root, limit, offscreen)`: offscreen 时不按可见范围剪. `<iframe>` 不加载
   (`skip_iframe_content`), 只是空盒子. 增量录制见 vendors/acrender; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
   64 MB. 所有入口 `catch_unwind`.
-- 窗框 (`decoration.rs`): `Decoration::scene(&Bar {title, width, height, scale})` → 物理像素的场景 (背景 #f4f2f7, 三个 12 px 圆点, 标题居中截断);
-  `Bar::button_at(x, y)` 是按钮命中. 测试 `tests/decoration.rs`.
+- 窗框 (`decoration.rs`): `Decoration::scene(&Bar {title, width, height, scale, style, fullscreen})` → 物理像素的场景 (背景 #f4f2f7; `FrameStyle::Mac`:
+  左边三个 12 px 圆点 (关闭 / 最小化 / 全屏), 标题居中截断; `FrameStyle::Windows`: 右边三个 46 px 宽的按钮 (最小化 / 最大化 / 关闭, 1 px 线画的图标,
+  `fullscreen` 时最大化换成还原), 标题靠左截断; 没有悬停效果). `FrameStyle::current()`: `ACDE_FRAME_STYLE` (`mac` / `windows`), 没设或别的值时
+  Windows 上是 `Windows`, 别处是 `Mac`. `Bar::button_at(x, y)` 是按钮命中, `FrameStyle::grab_hints` 是标题栏 (按钮区外) 和四边四角的 hint. 测试 `tests/decoration.rs`.
 
 ### shell (`crates/shell`, napi 类 `Shell`)
 

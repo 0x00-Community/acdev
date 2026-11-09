@@ -16,6 +16,7 @@ pub(crate) enum Msg {
     Scroll(f64, f64, f64, f64),
     Panel(u32, Option<u32>),
     Title(String),
+    Fullscreen(bool),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
     Stop,
 }
@@ -55,7 +56,7 @@ pub struct Surface {
 
 pub(crate) fn set_mode(id: u32, mode: Mode) {
     let Some(server) = server() else { return };
-    let (was, rect) = {
+    let (was, rect, link) = {
         let mut state = server.state();
         let [sw, sh, _] = state.screen;
         let Some(entry) = state.entries.get_mut(&id) else { return };
@@ -72,10 +73,13 @@ pub(crate) fn set_mode(id: u32, mode: Mode) {
         } else {
             None
         };
-        (was, rect)
+        (was, rect, entry.link.clone().filter(|_| entry.frame > 0.0))
     };
     if let Some(rect) = rect {
         server.set_rect(id, rect);
+    }
+    if let Some(link) = link {
+        link.send(Msg::Fullscreen(mode == Mode::Fullscreen));
     }
     if mode == Mode::Fullscreen {
         server.broker.push(Event { kind: "windowfullscreen".into(), window: Some(id), ..Default::default() });

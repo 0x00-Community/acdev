@@ -1,6 +1,6 @@
 use acde_model::{BTN_LEFT, Event};
 use acde_paint::{Drawn, Sheet};
-use acde_render::{Bar, Decoration, FrameButton};
+use acde_render::{Bar, Decoration, FrameButton, FrameStyle};
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind};
 use smithay_client_toolkit::shell::xdg::XdgSurface;
 use smithay_client_toolkit::subcompositor::SubcompositorState;
@@ -78,7 +78,14 @@ impl App {
 
     fn bar(&self) -> Option<Bar> {
         let deco = self.decoration.as_ref()?;
-        Some(Bar { title: deco.title.clone(), width: f64::from(self.logical.0), height: f64::from(deco.height), scale: self.scale })
+        Some(Bar {
+            title: deco.title.clone(),
+            width: f64::from(self.logical.0),
+            height: f64::from(deco.height),
+            scale: self.scale,
+            style: FrameStyle::current(),
+            fullscreen: deco.fullscreen,
+        })
     }
 
     pub(crate) fn decoration_sheet(&mut self) -> Option<(usize, Sheet, (u32, u32))> {
