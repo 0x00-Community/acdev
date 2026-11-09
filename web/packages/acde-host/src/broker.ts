@@ -5,13 +5,12 @@ import { AppRegistry, type AppManifest, type Capabilities } from './apps'
 import { AppBackends } from './backend'
 import { Crashes } from './crashes'
 import { PageBridge } from './bridge'
-import { Downloads } from './downloads'
 import { Frame } from './frame'
 import { Opener, type OpenOptions } from './open'
 import { NativeApps } from './launcher'
 import { PageSource } from './page'
 import { StartupTimeline } from './timeline'
-import type { Native, NativeFileChooser, RawShellEvent } from './native'
+import type { Native, RawShellEvent } from './native'
 import { Packages, type InstalledDesktop } from './packages'
 import { DesktopSession, type RunEnd } from './session'
 import { DevLog } from './devlog'
@@ -20,11 +19,11 @@ import { SessionLanguage } from './language'
 import { StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
-import { basename } from './sys/path'
 import { process } from './sys/process'
 import type { AnimateOptions, BrokerOptions, BrokerShell, ServiceShape, WebInfo, WebInit, WindowRecord, WireMenu } from './broker/types'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
+import { PageCalls, PanelCalls } from './broker/page'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -54,7 +53,8 @@ export class Broker {
   #desktop: Web | null = null
   #standaloneWindow: number | null = null
   readonly #windows = new Map<number, WindowRecord>()
-  readonly #panels = new Set<number>()
+  readonly #panelCalls: PanelCalls
+  readonly #pageCalls: PageCalls
   readonly #places = new WindowPlaces()
   readonly #placed = new Map<number, string>()
   readonly #claims: { web: Web; pid: number }[] = []
@@ -121,7 +121,7 @@ export class Broker {
         const r = this.#windows.get(id)
         return r ? { kind: r.kind, app: r.app?.id ?? r.appId, title: r.title } : null
       },
-      panel: (id) => this.#panels.has(id),
+      panel: (id) => this.#panelCalls.has(id),
       close: async (id) => (this.#windows.get(id)?.kind === 'web' ? this.closeWeb(id) : this.shell.close(id)),
       hide: (id, hidden) => this.#hide(id, hidden),
       open: (name) => this.#openByName(name),
@@ -137,6 +137,16 @@ export class Broker {
       infos: () => this.webs(),
       web: (name) => this.#web(name),
       emulate: (options) => this.emulate(options),
+    })
+    this.#panelCalls = new PanelCalls(this.shell)
+    this.#pageCalls = new PageCalls({
+      native,
+      shell: this.shell,
+      desktop: () => this.#desktop,
+      shown: () => this.onDesktopShown(),
+      desktopShown: () => this.#desktopShown(),
+      devReload: (app) => this.devReload(app),
+      toDesktop: (event) => this.#toDesktop(event),
     })
     StartupTimeline.mark('shell created')
   }
@@ -822,8 +832,8 @@ export class Broker {
       throw new Error(`acde.apps has no ${method}`)
     }
     if (service === 'window') return this.#selfCall(web, method, args)
-    if (service === 'panel') return this.#panelCall(web, method, args)
-    if (service === 'page') return this.#pageCall(web, method, args)
+    if (service === 'panel') return this.#panelCalls.call(web, method, args)
+    if (service === 'page') return this.#pageCalls.call(web, method, args)
     if (service === 'inspect' || service === 'session' || service === 'desktops') {
       if (!desktop && (service === 'inspect' || !caps?.[service])) throw Web.refused(web, `acde.${service}`)
       const call = (this.#builtins()[service] as Record<string, (...a: unknown[]) => unknown>)[method]
@@ -892,33 +902,6 @@ export class Broker {
     throw new Error(`acde.windows has no ${method}`)
   }
 
-  #panelCall(web: Web, method: string, args: unknown[]): unknown {
-    if (web.kind !== 'desktop') throw Web.refused(web, 'pinned panels')
-    const rect = (value: unknown): [number, number, number, number] => {
-      const v = Array.isArray(value) ? value.map((n) => Math.round(Number(n) || 0)) : []
-      return [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 0]
-    }
-    const id = Number(args[0])
-    switch (method) {
-      case 'open': {
-        const grant = this.shell.grant({ mode: 'pinned', rect: rect(args[0]) })
-        this.#panels.add(grant.window)
-        return grant
-      }
-      case 'place': {
-        if (!this.#panels.has(id)) throw Web.refused(web, `window ${id}`)
-        const [x, y, width, height] = rect(args[1])
-        if (width <= 0 || height <= 0) return this.shell.hide(id, true)
-        this.shell.place(id, x, y, width, height)
-        return this.shell.hide(id, false)
-      }
-      case 'close':
-        if (this.#panels.delete(id)) this.shell.release(id)
-        return
-    }
-    throw new Error(`acde.panel has no ${method}`)
-  }
-
   #selfCall(web: Web, method: string, args: unknown[]): unknown {
     const record = this.#windows.get(web.window)
     if (web.kind !== 'window' || !record) throw new Error('acde.window: only a window web has a window')
@@ -964,73 +947,6 @@ export class Broker {
     }
     throw new Error(`acde.window has no ${method}`)
   }
-
-  async #pageCall(web: Web, method: string, args: unknown[]): Promise<unknown> {
-    const text = (value: unknown, max: number) => (typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)).slice(0, max)
-    const filters = (value: unknown) =>
-      (Array.isArray(value) ? value : []).slice(0, 32).map((f: { name?: unknown; globs?: unknown; mimes?: unknown }) => ({
-        name: text(f?.name, 200),
-        globs: (Array.isArray(f?.globs) ? f.globs : []).map((g: unknown) => text(g, 100)).filter(Boolean),
-        mimes: (Array.isArray(f?.mimes) ? f.mimes : []).map((m: unknown) => text(m, 100)).filter(Boolean),
-      })).filter((f) => f.globs.length || f.mimes.length)
-    switch (method) {
-      case 'shown':
-        if (web === this.#desktop) this.onDesktopShown()
-        return
-      case 'devreload':
-        if (web !== this.#desktop && !web.app) return
-        return this.devReload(web === this.#desktop ? null : web.app!.id)
-      case 'open':
-      case 'save': {
-        const options = (args[0] ?? {}) as Record<string, unknown>
-        const chooser = await this.#fileChooser()
-        if (!chooser) return null
-        const label = web.app?.label ?? '桌面'
-        if (method === 'open') return chooser.openFile({ title: `${label}: 打开`, multiple: options['multiple'] === true, directory: options['directory'] === true, filters: filters(options['filters']) })
-        return chooser.saveFile({ title: `${label}: 保存`, name: text(options['name'], 255), filters: filters(options['filters']) })
-      }
-      case 'download': {
-        const [name, type, bytes] = args as [unknown, unknown, unknown]
-        if (!(bytes instanceof Uint8Array)) throw new TypeError('acde: a download is bytes')
-        const path = Downloads.save(text(name, 1000), text(type, 200), bytes)
-        Log.write(Level.Info, 'acde_host', `[${web.name}] saved ${path} (${bytes.length} bytes)`)
-        this.#toDesktop({ type: 'download', window: web.window, app: web.app?.id ?? null, path, name: basename(path), size: bytes.length })
-        return path
-      }
-      case 'notify': {
-        const n = (args[0] ?? {}) as Record<string, unknown>
-        const icon = text(n['icon'], 256 * 1024)
-        const notice = { type: 'notification', window: web.window, app: web.app?.id ?? null, label: web.app?.label ?? null, title: text(n['title'], 200), body: text(n['body'], 2000), icon: /^(data:image\/|http:\/\/acde\.local\/)/.test(icon) ? icon : '', tag: text(n['tag'], 200) }
-        if (this.#desktopShown() || !this.shell.notify) this.#toDesktop(notice)
-        else this.shell.notify(notice.title, notice.body, notice.label ?? '')
-        return true
-      }
-    }
-    throw new Error(`acde: no page call ${method}`)
-  }
-
-  #fileChooser(): Promise<NativeFileChooser | null> {
-    this.#chooser ??= (async () => {
-      const FileChooser = this.native.FileChooser
-      if (!FileChooser) {
-        if (!this.#chooserWarned) Log.write(Level.Warn, 'acde_host', 'no file chooser on this platform: open and save pickers are cancelled')
-        this.#chooserWarned = true
-        this.#chooser = null
-        return null
-      }
-      try {
-        return await FileChooser.open()
-      } catch (error) {
-        if (!this.#chooserWarned) Log.write(Level.Warn, 'acde_host', `no file chooser: ${(error as Error).message}`)
-        this.#chooserWarned = true
-        this.#chooser = null
-        return null
-      }
-    })()
-    return this.#chooser
-  }
-  #chooser: Promise<NativeFileChooser | null> | null = null
-  #chooserWarned = false
 
   async debugEval(name: string, code: string): Promise<unknown> {
     return this.#web(name).rpc.call('debug', 'eval', [code])
