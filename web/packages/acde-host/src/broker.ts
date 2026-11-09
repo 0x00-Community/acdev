@@ -321,7 +321,10 @@ export class Broker {
     for (const record of this.#windows.values()) this.#announce(record)
   }
 
-  #spawnWindow(record: WindowRecord, token: bigint = this.shell.grant({ window: record.id, mode: record.mode, size: Frame.windowSize(record.app!) }).token): void {
+  #spawnWindow(
+    record: WindowRecord,
+    token: bigint = this.shell.grant({ window: record.id, mode: record.mode, size: Frame.windowSize(record.app!) }).token,
+  ): void {
     const app = record.app!
     this.#placed.set(record.id, app.id)
     const init: WebInit = {
@@ -396,7 +399,11 @@ export class Broker {
       if (this.#stopped) return
       const crashes = this.#desktopCrashes.note()
       if (crashes.tooMany) {
-        Log.write(Level.Error, 'acde_host', `the desktop stopped ${crashes.count} times in a minute (exit ${code}${reason ? `, ${reason}` : ''}); the session ends`)
+        Log.write(
+          Level.Error,
+          'acde_host',
+          `the desktop stopped ${crashes.count} times in a minute (exit ${code}${reason ? `, ${reason}` : ''}); the session ends`,
+        )
         this.#stopped = true
         this.#ended = 'exit'
         this.#poke()
@@ -503,7 +510,9 @@ export class Broker {
         return to?.thread.post(event)
       }
       case 'devreload':
-        return void this.devReload(event.key ?? null, event.title === 'hot').catch((error: Error) => Log.write(Level.Error, 'acde_host', `acde dev: reload: ${error.message}`))
+        return void this.devReload(event.key ?? null, event.title === 'hot').catch((error: Error) =>
+          Log.write(Level.Error, 'acde_host', `acde dev: reload: ${error.message}`),
+        )
       case 'devrequest':
         return void this.#dev.request(event.key ?? '')
       case 'windowcloserequest':
@@ -525,7 +534,16 @@ export class Broker {
     if (record?.kind === 'web') return this.#toDesktop(event)
     if (event.type === 'windowopen') {
       const claim = this.#claims.shift() ?? null
-      const opened: WindowRecord = { id: event.window, kind: 'native', appId: event.appId ?? null, title: event.title ?? null, owner: claim?.web ?? null, web: null, app: null, menus: [] }
+      const opened: WindowRecord = {
+        id: event.window,
+        kind: 'native',
+        appId: event.appId ?? null,
+        title: event.title ?? null,
+        owner: claim?.web ?? null,
+        web: null,
+        app: null,
+        menus: [],
+      }
       this.#windows.set(event.window, opened)
       if (claim) {
         claim.web.owns.set(event.window, claim.pid)
@@ -574,7 +592,8 @@ export class Broker {
   #announce(record: WindowRecord): void {
     if (record.owner) return
     if (record.kind === 'web') {
-      this.#toDesktop({ type: 'windowopen', window: record.id, appId: record.app!.id, title: record.title ?? record.app!.label, web: true, icon: record.app!.icon })
+      const app = record.app!
+      this.#toDesktop({ type: 'windowopen', window: record.id, appId: app.id, title: record.title ?? app.label, web: true, icon: app.icon })
       if (record.menus.length) this.#toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus })
     } else {
       this.#toDesktop({ type: 'windowopen', window: record.id, appId: record.appId, title: record.title })
