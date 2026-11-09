@@ -45,7 +45,10 @@ class Processes {
 }
 
 export class DesktopServices {
-  static readonly RESERVED: ReadonlySet<string> = new Set(['windows', 'apps', 'window', 'open', 'desktop', 'desktops', 'session', 'debug', 'inspect'])
+  static readonly RESERVED: ReadonlySet<string> = new Set([
+    ...['windows', 'apps', 'window', 'open', 'desktop', 'desktops', 'session', 'debug', 'inspect'],
+    ...['packages', 'launch', 'openPath', 'handlers', 'setDefault'],
+  ])
 
   readonly #running: Running[] = []
   readonly capability = new Map<string, string>()

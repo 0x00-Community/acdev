@@ -23,15 +23,15 @@ export class WindowCalls {
   }
 
   async windows(web: Web, method: string, args: unknown[]): Promise<unknown> {
-    const desktop = web.kind === 'desktop'
+    const desktop = web.shell('windows')
     const caps = web.app?.capabilities ?? {}
     const id = Number(args[0])
     const mine = (window: number) => desktop || web.owns.has(window)
     switch (method) {
       case 'launch': {
         const [argv, options] = args as [string[], { cwd?: string; env?: Record<string, string>; slot?: boolean } | undefined]
-        const slot = !!options?.slot && !desktop
-        if (!desktop && !(slot ? caps.slots : caps.launch)) throw Web.refused(web, slot ? 'native programs in its slots' : 'starting programs')
+        const slot = !!options?.slot && web.kind !== 'desktop'
+        if (web.kind !== 'desktop' && !(slot ? caps.slots : caps.launch)) throw Web.refused(web, slot ? 'native programs in its slots' : 'starting programs')
         const pid = this.#host.shell.launch(argv, { cwd: options?.cwd, env: options?.env })
         if (slot) this.#host.claim(web, pid)
         return pid
@@ -75,8 +75,31 @@ export class WindowCalls {
     throw new Error(`acde.windows has no ${method}`)
   }
 
-  self(web: Web, method: string, args: unknown[]): unknown {
-    const record = this.#host.record(web.window)
+  async launch(web: Web, method: string, args: unknown[]): Promise<unknown> {
+    const desktop = web.kind === 'desktop'
+    const caps = web.app?.capabilities ?? {}
+    if (method === 'start' || method === 'embed') {
+      const [argv, options] = args as [unknown, { cwd?: string; env?: Record<string, string> } | undefined]
+      const embed = method === 'embed'
+      if (!desktop && !(embed ? caps.slots : caps.launch)) throw Web.refused(web, embed ? 'embedding programs (slots)' : 'starting programs (launch)')
+      if (!Array.isArray(argv) || argv.length === 0) throw new TypeError(`acde.launch.${method}: argv is a non-empty array`)
+      const pid = this.#host.shell.launch(argv.map(String), { cwd: options?.cwd, env: options?.env })
+      if (embed) this.#host.claim(web, pid)
+      else web.startedPids.add(pid)
+      return pid
+    }
+    if (method === 'close') {
+      const id = Number(args[0])
+      if (!web.started.has(id) && !web.owns.has(id)) {
+        throw Object.assign(new Error(`acde.launch.close: window ${id} was not started by ${web.app?.label ?? web.kind}`), { status: 403, code: 'forbidden' })
+      }
+      this.#host.shell.close(id)
+      return true
+    }
+    throw new Error(`acde.launch has no ${method}`)
+  }
+
+  self(web: Web, method: string, args: unknown[]): unknown {    const record = this.#host.record(web.window)
     if (web.kind !== 'window' || !record) throw new Error('acde.window: only a window web has a window')
     switch (method) {
       case 'setTitle':

@@ -1,5 +1,6 @@
 import type { Capabilities } from '../apps'
 import type { PageBridge } from '../bridge'
+import { Tiers, type WebTier } from './tier'
 import type { ServiceShape } from './types'
 import { Web } from './web'
 
@@ -20,14 +21,14 @@ export class ServiceCalls {
     this.#host = host
   }
 
-  shapes(caps: Capabilities | null): Record<string, ServiceShape> {
+  shapes(caps: Capabilities | null, tier: WebTier = Tiers.LEGACY): Record<string, ServiceShape> {
     const shapes: Record<string, ServiceShape> = {}
     for (const [service, target] of Object.entries(this.#host.bridge.value)) {
       if (ServiceCalls.#LOCAL.has(service) || (caps && !this.#allowed(caps, service))) continue
       shapes[service] = this.#shape(service, target)
     }
     for (const [service, api] of Object.entries(this.#host.builtins())) {
-      if (!caps || (service !== 'inspect' && caps[service])) shapes[service] = this.#shape(service, api)
+      if (!caps || (service === 'inspect' ? tier.shell.includes('inspect') : caps[service])) shapes[service] = this.#shape(service, api)
     }
     return shapes
   }
@@ -36,7 +37,7 @@ export class ServiceCalls {
     const desktop = web.kind === 'desktop'
     const caps = web.app?.capabilities ?? null
     if (service === 'inspect' || service === 'session' || service === 'desktops') {
-      if (!desktop && (service === 'inspect' || !caps?.[service])) throw Web.refused(web, `acde.${service}`)
+      if (!desktop && !(service === 'inspect' ? web.shell('inspect') : caps?.[service])) throw Web.refused(web, `acde.${service}`)
       const call = (this.#host.builtins()[service] as Record<string, (...a: unknown[]) => unknown>)[method]
       if (!call) throw new Error(`acde.${service} has no ${method}`)
       return call(...args)

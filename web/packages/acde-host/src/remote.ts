@@ -192,24 +192,55 @@ export class RemoteBridge {
     for (const [service, shape] of Object.entries(init.services)) this.value[service] = this.#proxy(service, shape)
     const apps = Rpc.calls(() => rpc, 'apps', 'list', 'launch', 'open')
     const files = Rpc.calls(() => rpc, 'apps', 'openPath', 'handlers', 'setDefault')
+    const shell = new Set<string>(init.tier?.shell ?? [])
+    const globalWindows = () => ({
+      ...windows.api,
+      ...Rpc.calls(() => rpc, 'windows', 'kill', 'focus', 'hide', 'show', 'invokeMenu', 'stats', 'animate', 'shortcut', 'unshortcut'),
+    })
+    const tier = {
+      packages: () => ({ ...Rpc.calls(() => rpc, 'packages', 'refresh', 'install', 'natives', 'runNative'), on: windows.notices.for('apps', ['changed']) }),
+      launch: () => ({ ...Rpc.calls(() => rpc, 'launch', 'start', 'embed', 'close'), list: windows.api.list, on: windows.api.on }),
+    }
     if (init.kind === 'desktop') {
       this.value['apps'] = { ...apps, ...files, ...Rpc.calls(() => rpc, 'apps', 'refresh', 'install', 'natives', 'runNative'), on: windows.notices.for('apps', ['changed']) }
       this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification', 'screenshot', 'shortcut']) }
-      this.value['windows'] = { ...windows.api, ...Rpc.calls(() => rpc, 'windows', 'kill', 'focus', 'hide', 'show', 'invokeMenu', 'stats', 'animate', 'shortcut', 'unshortcut') }
+      this.value['windows'] = globalWindows()
+      Object.assign(this.value, { packages: tier.packages(), launch: tier.launch(), open: apps.open, ...files })
+    } else if (init.tier && init.tier.level >= 1) {
+      const caps = init.app?.capabilities ?? {}
+      this.value['apps'] = { list: apps.list, open: apps.open, on: windows.notices.for('apps', ['changed']) }
+      this.value['open'] = apps.open
+      if (caps['openFiles']) Object.assign(this.value, { openPath: files.openPath, handlers: files.handlers })
+      if (caps['launch'] || caps['slots']) this.value['launch'] = tier.launch()
+      if (shell.has('windows')) this.value['windows'] = globalWindows()
+      if (shell.has('packages')) this.value['packages'] = tier.packages()
+      if (shell.has('setDefault')) this.value['setDefault'] = files.setDefault
+      if (shell.has('desktop')) {
+        this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification']) }
+      }
+      if (self) this.value['window'] = this.#window(self, windows)
     } else {
       this.value['windows'] = windows.api
       this.value['open'] = apps.open
       if (init.app?.capabilities['openFiles']) Object.assign(this.value, files)
-      if (self) {
-        const api = self.api
-        const shortcut = windows.notices.for('window', ['shortcut'])
-        this.value['window'] = { ...api, on: (name: string, handler: (value?: unknown) => unknown) => (name === 'shortcut' ? shortcut(name, handler) : api.on(name as WindowEventName, handler)) }
-      }
+      if (self) this.value['window'] = this.#window(self, windows)
     }
+    this.#refused = init.tier?.refused ?? {}
   }
 
-  define(host: { defineModule(url: string, exports: object): void }): void {
+  readonly #refused: Readonly<Record<string, string>>
+
+  #window(self: WindowSelf, windows: WindowList): unknown {
+    const api = self.api
+    const shortcut = windows.notices.for('window', ['shortcut'])
+    const on = (name: string, handler: (value?: unknown) => unknown) =>
+      name === 'shortcut' ? shortcut(name, handler) : api.on(name as WindowEventName, handler)
+    return { ...api, on }
+  }
+
+  define(host: { defineModule(url: string, exports: object): void; refuseModule?(url: string, reason: string): void }): void {
     for (const [name, value] of Object.entries(this.value)) host.defineModule(`acde:${name}`, { [name]: value, default: value })
+    for (const [url, reason] of Object.entries(this.#refused)) if (!(url.slice('acde:'.length) in this.value)) host.refuseModule?.(url, reason)
   }
 
   #proxy(service: string, shape: ServiceShape): unknown {

@@ -42,7 +42,9 @@ export class AppCalls {
       return this.#host.shell.launch(['gio', 'launch', file])
     }
     if (method === 'openPath' || method === 'handlers' || method === 'setDefault') {
-      if (!desktop && !caps?.['openFiles']) throw Web.refused(web, 'opening files with their apps')
+      const legacy = web.tier.level < 1 && !!caps?.['openFiles']
+      const allowed = method === 'setDefault' ? web.shell('setDefault') || legacy : desktop || !!caps?.['openFiles']
+      if (!allowed) throw Web.refused(web, method === 'setDefault' ? 'acde:setDefault' : 'opening files with their apps')
       if (method === 'openPath') return this.#host.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions, desktop ? null : Web.caller(web.app!))
       if (method === 'handlers') return this.#host.opener.handlers(String(args[0]))
       return this.#host.opener.setDefault(String(args[0]), String(args[1]))
@@ -54,6 +56,24 @@ export class AppCalls {
       return this.#host.launch(appId, request ?? null)
     }
     throw new Error(`acde.apps has no ${method}`)
+  }
+
+  packages(web: Web, method: string, args: unknown[]): unknown {
+    if (!web.shell('packages')) throw Web.refused(web, 'acde:packages')
+    switch (method) {
+      case 'refresh':
+        return this.#host.refresh()
+      case 'install':
+        return this.#host.install(String(args[0]))
+      case 'natives':
+        return this.#host.natives.list()
+      case 'runNative': {
+        const file = this.#host.natives.file(String(args[0]))
+        if (!file) throw Object.assign(new Error(`no native app ${String(args[0])}`), { status: 404 })
+        return this.#host.shell.launch(['gio', 'launch', file])
+      }
+    }
+    throw new Error(`acde.packages has no ${method}`)
   }
 
   async openByName(name: string): Promise<string> {

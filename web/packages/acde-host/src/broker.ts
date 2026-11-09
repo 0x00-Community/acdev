@@ -27,6 +27,7 @@ import { PageCalls, PanelCalls } from './broker/page'
 import { WindowCalls } from './broker/windows'
 import { ServiceCalls } from './broker/services'
 import { AppCalls } from './broker/apps'
+import { Tiers } from './broker/tier'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
@@ -309,6 +310,7 @@ export class Broker {
       standalone: this.#current.id === Packages.BARE ? standalone : null,
       devState: this.#takeDevState(''),
       devRoutes: this.#dev.routesFor('desktop', null),
+      tier: Tiers.DESKTOP,
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
@@ -327,6 +329,7 @@ export class Broker {
   ): void {
     const app = record.app!
     this.#placed.set(record.id, app.id)
+    const tier = Tiers.app(app, this.apps.origin(app.id))
     const init: WebInit = {
       kind: 'window',
       name: `${app.id}#${record.id}`,
@@ -339,7 +342,7 @@ export class Broker {
       reducedMotion: this.#preferences.reducedMotion,
       dark: this.#preferences.dark,
       languages: this.language.current,
-      services: this.#services.shapes(app.capabilities),
+      services: this.#services.shapes(app.capabilities, tier),
       resources: PageSource.isHtml(app.entry) ? PageSource.rooted(app.entry, this.#resources()) : this.#resources(),
       app,
       theme: this.#theme(),
@@ -348,6 +351,7 @@ export class Broker {
       ...(app.backend && { sockets: AppBackends.socketDir(app.id) }),
       devState: this.#takeDevState(app.id),
       devRoutes: this.#dev.routesFor(`${app.id}#${record.id}`, app.id),
+      tier,
     }
     record.request = null
     record.web = this.#spawn(init, app.heapMb)
@@ -362,7 +366,7 @@ export class Broker {
       sys().spawnWeb(init.name, init, heapMb, env, onMessage, (code, reason) => {
         this.#exited(web, code, reason)
         exit(code)
-      }, grants))
+      }, grants), init.tier)
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     web.onPost = (message) => {
       if (DevLog.isPost(message)) this.devlog.take({ name: web.name, app: web.app?.id ?? null }, message)
@@ -549,6 +553,13 @@ export class Broker {
         claim.web.owns.set(event.window, claim.pid)
         return claim.web.thread.post(event)
       }
+      const pid = this.shell.windows().find((row) => (row.window ?? row.id) === event.window)?.pid
+      const starter = pid ? this.#webs().find((web) => web.startedPids.has(pid)) : undefined
+      if (starter) {
+        opened.starter = starter
+        starter.started.add(event.window)
+        starter.thread.post(event)
+      }
       return this.#toDesktop(event)
     }
     if (!record) return this.#toDesktop(event)
@@ -559,9 +570,11 @@ export class Broker {
     if (event.type === 'windowclose') {
       this.#windows.delete(event.window)
       record.owner?.owns.delete(event.window)
+      record.starter?.started.delete(event.window)
     }
-    if (record.owner) record.owner.thread.post(event)
-    else this.#toDesktop(event)
+    if (record.owner) return record.owner.thread.post(event)
+    record.starter?.thread.post(event)
+    this.#toDesktop(event)
   }
 
   #gone(event: RawShellEvent): void {
@@ -587,6 +600,8 @@ export class Broker {
 
   #toDesktop(event: Record<string, unknown> | RawShellEvent): void {
     this.#desktop?.thread.post(event)
+    const type = String(event.type)
+    for (const record of this.#windows.values()) if (record.web && Tiers.listens(record.web.tier, type)) record.web.thread.post(event)
   }
 
   #announce(record: WindowRecord): void {
@@ -605,6 +620,8 @@ export class Broker {
     if (!app) throw this.#missing(appId)
     if (!this.#available(app)) throw Object.assign(new Error(`${app.label}: the system service it needs is not running`), { status: 503 })
     if (!this.#runsHere(app)) throw Broker.#unsupported(app)
+    const shellRefusal = Tiers.refusal(app, this.apps.origin(app.id))
+    if (shellRefusal) throw Object.assign(new Error(shellRefusal), { status: 403, code: 'shell_module' })
     if (!app.multiple) {
       const running = this.#running(appId)
       if (running) {
@@ -770,6 +787,8 @@ export class Broker {
   async #serve(web: Web, service: string, method: string, args: unknown[]): Promise<unknown> {
     if (service === 'windows') return this.#windowCalls.windows(web, method, args)
     if (service === 'apps') return this.#appCalls.call(web, method, args)
+    if (service === 'packages') return this.#appCalls.packages(web, method, args)
+    if (service === 'launch') return this.#windowCalls.launch(web, method, args)
     if (service === 'window') return this.#windowCalls.self(web, method, args)
     if (service === 'panel') return this.#panelCalls.call(web, method, args)
     if (service === 'page') return this.#pageCalls.call(web, method, args)

@@ -4,6 +4,7 @@ import type { Languages } from '../language'
 import type { RawShellEvent } from '../native'
 import type { InstalledDesktop, Packages } from '../packages'
 import type { StoragePlace } from '../storage'
+import type { WebTier } from './tier'
 import type { Web } from './web'
 
 export interface BrokerShell {
@@ -141,6 +142,7 @@ export interface WebInit {
   readonly sockets?: string
   readonly devState?: unknown
   readonly devRoutes?: readonly DevRoute[]
+  readonly tier?: WebTier
 }
 
 export interface ServiceShape {
@@ -156,6 +158,7 @@ export interface WindowRecord {
   appId: string | null
   title: string | null
   owner: Web | null
+  starter?: Web | null
   web: Web | null
   app: AppManifest | null
   menus: WireMenu[]

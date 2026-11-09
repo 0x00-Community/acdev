@@ -7,8 +7,14 @@ export type { AppManifest, Capabilities } from '@dopame/acde-api/manifest'
 
 type Installed = Pick<Packages, 'packages'> & Partial<Pick<Packages, 'refused'>>
 
+export interface AppOrigin {
+  readonly level: number
+  readonly system: boolean
+}
+
 export class AppRegistry {
   readonly #apps = new Map<string, AppManifest>()
+  readonly #origins = new Map<string, AppOrigin>()
   readonly #refused = new Map<string, string>()
 
   constructor(packages: Installed) {
@@ -18,13 +24,18 @@ export class AppRegistry {
   reload(packages: Installed): boolean {
     const before = JSON.stringify(this.list())
     this.#apps.clear()
+    this.#origins.clear()
     this.#refused.clear()
     for (const pkg of packages.packages) {
+      const origin = { level: typeof pkg.manifest.apiLevel === 'number' ? pkg.manifest.apiLevel : 0, system: (pkg.manifest.desktops ?? []).length > 0 }
       for (const raw of pkg.manifest.apps ?? []) {
         const app = Manifest.app(raw)
         if (typeof app === 'string') Log.write(Level.Warn, 'acde_host', `${pkg.dir}/package.json: ${app}`)
         else if (this.#apps.has(app.id)) Log.write(Level.Warn, 'acde_host', `app ${app.id} in ${pkg.dir} is already defined; the first one stays`)
-        else this.#apps.set(app.id, app)
+        else {
+          this.#apps.set(app.id, app)
+          this.#origins.set(app.id, origin)
+        }
       }
     }
     for (const pkg of packages.refused ?? []) {
@@ -38,6 +49,10 @@ export class AppRegistry {
 
   get(id: string): AppManifest | null {
     return this.#apps.get(id) ?? null
+  }
+
+  origin(id: string): AppOrigin {
+    return this.#origins.get(id) ?? { level: 0, system: false }
   }
 
   refusal(id: string): string | null {

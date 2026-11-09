@@ -3,6 +3,7 @@ import { process } from '../sys/process'
 import type { AppManifest, Capabilities } from '../apps'
 import type { OpenCaller } from '../open'
 import { Rpc } from '../rpc'
+import { Tiers, type WebTier } from './tier'
 
 export class Web {
   readonly rpc: Rpc
@@ -10,6 +11,8 @@ export class Web {
   closing = false
   reloading = false
   readonly owns = new Map<number, number>()
+  readonly startedPids = new Set<number>()
+  readonly started = new Set<number>()
   readonly thread: WebThreadHandle
   onPost: ((message: unknown) => void) | null = null
   readonly #exited: Promise<number>
@@ -20,6 +23,7 @@ export class Web {
     readonly window: number,
     readonly app: AppManifest | null,
     spawn: (onMessage: (message: unknown) => void, onExit: (code: number) => void) => WebThreadHandle,
+    readonly tier: WebTier = Tiers.LEGACY,
   ) {
     let exit!: (code: number) => void
     this.#exited = new Promise((resolve) => (exit = resolve))
@@ -56,6 +60,10 @@ export class Web {
   static env(): Record<string, string> {
     const keep = /^(ACDE_|XDG_|LANG$|LC_|LANGUAGE$|HOME$|USER$|DBUS_SESSION_BUS_ADDRESS$|RUST_LOG$|TZ$|PATH$|RUST_BACKTRACE$)/
     return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => keep.test(entry[0]) && entry[1] !== undefined))
+  }
+
+  shell(module: string): boolean {
+    return this.kind === 'desktop' || (this.tier.shell as readonly string[]).includes(module)
   }
 
   static refused(web: Web, what: string): Error {
