@@ -72,5 +72,5 @@ export function shipLeaks(root: string): string[] {
 export function systemTar(args: string[]) {
   const systemRoot = process.env['SystemRoot'] ?? 'C:\\Windows'
   const exe = process.platform === 'win32' ? join(systemRoot, 'System32', 'tar.exe') : 'tar'
-  return spawnSync(exe, args, { encoding: 'utf8' })
+  return spawnSync(exe, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
