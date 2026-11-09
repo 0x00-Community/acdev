@@ -113,7 +113,7 @@ impl Dial {
     fn check(self, path: &str, schemes: &[&str]) -> Result<Self, String> {
         match &self {
             Self::Socket(socket) => {
-                if !socket.starts_with('/') || socket.contains('\0') {
+                if !std::path::Path::new(socket).is_absolute() || socket.contains('\0') {
                     return Err("socket must be an absolute path".into());
                 }
                 if !path.starts_with('/') || !path.bytes().all(|b| b.is_ascii_graphic()) {
@@ -501,21 +501,51 @@ impl Drop for FetchClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(unix)]
     use crate::http::frames;
     use std::io::{BufRead, Read, Write};
     #[cfg(unix)]
-    use std::os::unix::net::{UnixListener, UnixStream as StdStream};
-    #[cfg(unix)]
-    use std::path::PathBuf;
+    use std::os::unix::net::UnixStream as StdStream;
+    use std::path::{Path, PathBuf};
     use std::time::Duration;
 
-    #[cfg(unix)]
-    fn serve(name: &str, answer: impl FnOnce(StdStream) + Send + 'static) -> (String, std::thread::JoinHandle<()>) {
+    #[cfg(windows)]
+    type StdStream = socket2::Socket;
+
+    struct Listener(#[cfg(unix)] std::os::unix::net::UnixListener, #[cfg(windows)] socket2::Socket);
+
+    impl Listener {
+        #[cfg(unix)]
+        fn bind(path: &Path) -> Self {
+            Self(std::os::unix::net::UnixListener::bind(path).expect("bind"))
+        }
+
+        #[cfg(windows)]
+        fn bind(path: &Path) -> Self {
+            let socket = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None).expect("socket");
+            socket.bind(&socket2::SockAddr::unix(path).expect("address")).expect("bind");
+            socket.listen(16).expect("listen");
+            Self(socket)
+        }
+
+        fn accept(&self) -> std::io::Result<(StdStream, ())> {
+            self.0.accept().map(|(stream, _)| (stream, ()))
+        }
+    }
+
+    fn scratch() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).expect("scratch directory");
-        let path: PathBuf = dir.join(name);
-        let listener = UnixListener::bind(&path).expect("bind");
+        dir
+    }
+
+    fn missing(name: &str) -> String {
+        let root = if cfg!(windows) { r"C:\nonexistent\acde" } else { "/nonexistent/acde" };
+        Path::new(root).join(name).to_string_lossy().into_owned()
+    }
+
+    fn serve(name: &str, answer: impl FnOnce(StdStream) + Send + 'static) -> (String, std::thread::JoinHandle<()>) {
+        let path = scratch().join(name);
+        let listener = Listener::bind(&path);
         let server = std::thread::spawn(move || {
             let (stream, _) = listener.accept().expect("accept");
             answer(stream);
@@ -523,7 +553,6 @@ mod tests {
         (path.to_string_lossy().into_owned(), server)
     }
 
-    #[cfg(unix)]
     fn read_head(stream: &StdStream) -> (Vec<String>, std::io::BufReader<StdStream>) {
         let mut reader = std::io::BufReader::new(stream.try_clone().expect("clone"));
         let mut lines = Vec::new();
@@ -539,7 +568,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     fn request(socket: &str, method: &str, path: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Exchange {
         Exchange {
             to: Dial::Socket(socket.into()),
@@ -568,7 +596,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn get_with_content_length() {
         let (socket, server) = serve("3000.sock", |mut stream| {
             let (lines, _) = read_head(&stream);
@@ -646,7 +673,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn chunked_body_arrives_in_pieces() {
         let (go, wait) = std::sync::mpsc::channel::<()>();
         let (socket, server) = serve("0.sock", move |mut stream| {
@@ -670,7 +696,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn post_body_and_read_to_close() {
         let (socket, server) = serve("8080.sock", |mut stream| {
             let (lines, mut reader) = read_head(&stream);
@@ -701,7 +726,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn abort_drops_the_connection() {
         let (closed, seen) = std::sync::mpsc::channel();
         let (socket, server) = serve("1.sock", move |mut stream| {
@@ -722,27 +746,24 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn missing_socket_is_an_error_event() {
         let (sender, events) = channel();
         let client = FetchClient::default();
-        client.exchange(request("/nonexistent/acde/3000.sock", "GET", "/", &[], None), sender);
+        let socket = missing("3000.sock");
+        client.exchange(request(&socket, "GET", "/", &[], None), sender);
         let Event::Error(message) = next(&events) else { panic!("an error") };
-        assert!(message.contains("/nonexistent/acde/3000.sock") && message.contains("No such file"), "{message}");
+        assert!(message.contains(&socket), "{message}");
         assert!(recv(&events).is_none());
     }
 
     #[test]
-    #[cfg(unix)]
     fn socket_bound_later_is_waited_for() {
-        let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
-        std::fs::create_dir_all(&dir).expect("scratch directory");
-        let path = dir.join("3000.sock");
+        let path = scratch().join("3000.sock");
         let (sender, events) = channel();
         let client = FetchClient::default();
         client.exchange(request(&path.to_string_lossy(), "GET", "/", &[], None), sender);
         std::thread::sleep(Duration::from_millis(200));
-        let listener = UnixListener::bind(&path).expect("bind");
+        let listener = Listener::bind(&path);
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
             read_head(&stream);
@@ -754,12 +775,9 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn many_streams_at_once() {
-        let dir = std::env::temp_dir().join(format!("acde-fetch-{}", uuid::Uuid::new_v4().simple()));
-        std::fs::create_dir_all(&dir).expect("scratch directory");
-        let path = dir.join("3000.sock");
-        let listener = UnixListener::bind(&path).expect("bind");
+        let path = scratch().join("3000.sock");
+        let listener = Listener::bind(&path);
         let server = std::thread::spawn(move || {
             let accept = |_| {
                 let (mut stream, _) = listener.accept().expect("accept");
@@ -784,7 +802,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn early_end_is_an_error() {
         let (socket, server) = serve("2.sock", |mut stream| {
             read_head(&stream);
@@ -801,10 +818,11 @@ mod tests {
 
     #[test]
     fn options_are_checked() {
-        let options = |headers: Vec<Vec<String>>, path: &str| Exchange::new(Dial::Socket("/run/x.sock".into()), "GET".into(), path.into(), headers, None);
+        let options = |headers: Vec<Vec<String>>, path: &str| Exchange::new(Dial::Socket(missing("x.sock")), "GET".into(), path.into(), headers, None);
         let pair = |n: &str, v: &str| vec![n.to_owned(), v.to_owned()];
         assert!(options(vec![pair("Bad Name", "x")], "/").is_err());
         assert!(options(vec![pair("X", "a\r\nInjected: 1")], "/").is_err());
+        assert!(Exchange::new(Dial::Socket("acde/x.sock".into()), "GET".into(), "/".into(), vec![], None).is_err());
         assert!(options(vec![], "no-slash").is_err());
         assert!(options(vec![], "/a b").is_err());
         let exchange = options(vec![pair("Host", "localhost:3000"), pair("Content-Length", "9"), pair("X-A", "b")], "/").expect("valid");
@@ -816,7 +834,6 @@ mod tests {
         assert_eq!(close_frame(None, Some("bye".into())).expect("1000").map(|f| u16::from(f.code)), Some(1000));
     }
 
-    #[cfg(unix)]
     fn upgrade(socket: &str, protocols: &[&str]) -> Upgrade {
         Upgrade {
             to: Dial::Socket(socket.into()),
@@ -827,7 +844,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     fn accept(stream: &mut StdStream, protocol: Option<&str>) -> (Vec<String>, std::io::BufReader<StdStream>) {
         let (lines, reader) = read_head(stream);
         assert_eq!(lines[0], "GET /ws HTTP/1.1");
@@ -842,7 +858,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn websocket_echo_and_client_close() {
         let (socket, server) = serve("3000.sock", |mut stream| {
             let (lines, mut reader) = accept(&mut stream, Some("v2"));
@@ -875,7 +890,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn websocket_fragments_ping_and_server_close() {
         let (socket, server) = serve("4000.sock", |mut stream| {
             let mut answer = Vec::new();
@@ -913,7 +927,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn websocket_refused_and_missing() {
         let (socket, server) = serve("5000.sock", |mut stream| {
             read_head(&stream);
@@ -929,8 +942,9 @@ mod tests {
 
         let (sender, events) = channel();
         let client = FetchClient::default();
-        client.upgrade(upgrade("/nonexistent/acde/1.sock", &[]), sender);
-        assert!(matches!(next(&events), Event::Error(message) if message.contains("No such file")));
+        let socket = missing("1.sock");
+        client.upgrade(upgrade(&socket, &[]), sender);
+        assert!(matches!(next(&events), Event::Error(message) if message.contains(&socket)));
         assert!(matches!(next(&events), Event::Close { code: 1006, clean: false, .. }));
     }
 }
