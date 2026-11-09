@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ACDE_DIST=${ACDE_DIST:-https://dopame.ai}
+ACDE_DIST=${ACDE_DIST:-https://pkgs.dopame.ai/acde}
 ACDE_DIST=${ACDE_DIST%/}
 
 say() {
