@@ -51,6 +51,30 @@ pub(super) fn windows_directory(value: &str) -> Option<String> {
     std::path::absolute(path).ok()?.into_os_string().into_string().ok()
 }
 
+#[cfg(windows)]
+fn same_windows_name(a: &str, b: &str) -> bool {
+    let upper = |c: char| {
+        let mut mapped = c.to_uppercase();
+        match (mapped.next(), mapped.next()) {
+            (Some(single), None) => single,
+            _ => c,
+        }
+    };
+    a.chars().map(upper).eq(b.chars().map(upper))
+}
+
+#[cfg(windows)]
+pub(super) fn windows_within(path: &std::path::Path, root: &str) -> Option<String> {
+    let mut parts = path.components();
+    for top in std::path::Path::new(root).components() {
+        if !same_windows_name(parts.next()?.as_os_str().to_str()?, top.as_os_str().to_str()?) {
+            return None;
+        }
+    }
+    let rest: Option<Vec<&str>> = parts.map(|part| part.as_os_str().to_str()).collect();
+    Some(rest?.join("/"))
+}
+
 impl NodePath for str {
     fn is_absolute(&self) -> bool {
         self.starts_with('/')

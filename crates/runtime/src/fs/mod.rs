@@ -280,10 +280,7 @@ impl Shared {
         let clean = expanded.is_absolute().then(|| expanded.normalize());
         let clean = clean.ok_or_else(|| Failure::invalid("path must be absolute (or ~/…), or give root and path"))?;
         #[cfg(windows)]
-        let relative = |root: &str| {
-            let relative = std::path::Path::new(&clean).strip_prefix(root).ok()?;
-            Some(relative.to_str()?.replace('\\', "/"))
-        };
+        let relative = |root: &str| path::windows_within(std::path::Path::new(&clean), root);
         #[cfg(not(windows))]
         let relative = |root: &str| clean.within(root).map(|path| path.trim_start_matches('/').to_owned());
         let roots = self.roots(owner)?;
@@ -468,6 +465,32 @@ mod tests {
         _ = std::fs::remove_dir_all(base);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn locate_matches_windows_roots_ignoring_case_and_separators() {
+        let base = std::env::temp_dir().join(format!("acde-locate-case-{}", std::process::id()));
+        let root = base.join("Desktop");
+        let file = root.join("Folder").join("Entry.txt");
+        let sibling = base.join("Desktop2").join("entry.txt");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
+        std::fs::write(&file, "inside").unwrap();
+        std::fs::write(&sibling, "outside").unwrap();
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let scoped = all.scoped(Some(vec![]), Some("locate-case"));
+        let root = scoped.grant(root.to_str().unwrap()).unwrap();
+        let locate = |path: &str| json(scoped.call(FsCall::Locate { path: path.to_owned() }));
+        let found = |path: &str| serde_json::json!({"root": root, "path": path});
+        let file = file.to_str().unwrap();
+        assert_eq!(locate(&file.to_lowercase()), found("folder/entry.txt"));
+        assert_eq!(locate(&file.to_uppercase()), found("FOLDER/ENTRY.TXT"));
+        assert_eq!(locate(&root.to_lowercase()), found(""));
+        assert_eq!(locate(&format!("{}/Folder\\Entry.txt", root.replace('\\', "/").to_uppercase())), found("Folder/Entry.txt"));
+        assert_eq!(locate(&sibling.to_str().unwrap().to_lowercase())["code"], "EACCES");
+        assert_eq!(locate(&format!("{}2\\entry.txt", root.to_lowercase()))["code"], "EACCES");
+        _ = std::fs::remove_dir_all(base);
+    }
+
     #[test]
     fn a_granted_folder_is_a_root_of_its_app_only() {
         let base = std::env::temp_dir().join(format!("acde-granted-{}", std::process::id()));
@@ -522,6 +545,15 @@ mod tests {
         assert_eq!(copy(secret.to_str().unwrap())["code"], "EPERM");
         assert_eq!(copy(uri.as_str())["code"], "EPERM");
         assert_eq!(copy(vault.join("inside.txt").to_str().unwrap())["name"], "inside.txt");
+        assert_eq!(copy(vault.join("missing.txt").to_str().unwrap())["code"], "ENOENT");
+        assert_eq!(copy(elsewhere.join("missing.txt").to_str().unwrap())["code"], "EPERM");
+        #[cfg(windows)]
+        {
+            let vault = vault.to_str().unwrap();
+            assert_eq!(copy(&format!("{}/MISSING.txt", vault.to_uppercase()))["code"], "ENOENT");
+            assert_eq!(copy(&format!("{}\\missing.txt", vault.replace('\\', "/").to_lowercase()))["code"], "ENOENT");
+            assert_eq!(copy(&format!("{}2\\missing.txt", vault.to_lowercase()))["code"], "EPERM");
+        }
         acde_model::drop_grant::record(Some("copy-probe"), std::slice::from_ref(&secret));
         assert_eq!(copy(uri.as_str())["name"], "secret.txt");
         assert_eq!(copy(uri.as_str())["code"], "EPERM");

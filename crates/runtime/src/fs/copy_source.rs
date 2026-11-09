@@ -53,7 +53,17 @@ fn missing(allowed: &[FinderRoot], requested: &Path, error: &std::io::Error) -> 
 
 fn lexically_inside(allowed: &[FinderRoot], requested: &Path) -> bool {
     let plain = !requested.components().any(|part| part == Component::ParentDir);
-    plain && allowed.iter().any(|root| requested.starts_with(&root.path))
+    plain && allowed.iter().any(|root| inside_root(requested, &root.path))
+}
+
+#[cfg(windows)]
+fn inside_root(requested: &Path, root: &str) -> bool {
+    super::path::windows_within(requested, root).is_some()
+}
+
+#[cfg(not(windows))]
+fn inside_root(requested: &Path, root: &str) -> bool {
+    requested.starts_with(root)
 }
 
 fn refused() -> Failure {
