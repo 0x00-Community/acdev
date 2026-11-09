@@ -41,6 +41,14 @@ impl Surface {
         Err("claimSurface: no windows here".into())
     }
 
+    pub fn host_controls(&self) -> bool {
+        match self {
+            Surface::Host(s) => s.host_controls(),
+            #[cfg(target_os = "linux")]
+            Surface::Wayland(_) => false,
+        }
+    }
+
     pub fn hosted(&self) -> bool {
         matches!(self, Surface::Host(_))
     }

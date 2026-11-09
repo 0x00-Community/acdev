@@ -25,6 +25,7 @@ pub struct Grant {
     pub size: Option<[f64; 2]>,
     pub parent: Option<u32>,
     pub modal: bool,
+    pub host: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -60,6 +61,7 @@ pub(crate) struct Entry {
     pub owner: Option<u32>,
     pub parent: Option<u32>,
     pub modal: bool,
+    pub host: bool,
     pub input: Option<[f64; 4]>,
     pub reserve: Option<(u32, f64)>,
     pub frame: f64,
@@ -125,6 +127,7 @@ pub(crate) struct State {
     pub double_click: DoubleClick,
     pub clicks: Clicks,
     pub theme: acde_render::FrameTheme,
+    pub controls: bool,
 }
 
 impl State {
@@ -215,6 +218,7 @@ impl State {
         entry.mode = mode;
         entry.parent = parent;
         entry.modal = grant.modal && parent.is_some();
+        entry.host = grant.host && self.controls && !grant.desktop;
         if placed || !entry.opened {
             entry.rect = rect;
             entry.placed = placed;
@@ -280,8 +284,7 @@ impl State {
             return Press::Plain;
         };
         let (x, y) = (at[0] - e.rect[0], at[1] - e.rect[1]);
-        let edges =
-            e.grab_hints(&self.theme).iter().rev().find(|([hx, hy, hw, hh], _)| x >= *hx && y >= *hy && x < hx + hw && y < hy + hh).map(|(_, edges)| *edges);
+        let edges = edges_at(&e.grab_hints(&self.theme), x, y);
         let title = edges == Some(0) && matches!(e.mode, Mode::Free | Mode::Fixed);
         let allowed = e.state.moves() && (e.mode == Mode::Free || (e.mode == Mode::Fixed && edges == Some(0)));
         let (mode, state, rect) = (e.mode, e.state, e.rect);
@@ -295,6 +298,10 @@ impl State {
             Some(edges) if allowed => Press::Drag(edges, rect),
             _ => Press::Plain,
         }
+    }
+
+    pub fn host_entry(&self) -> Option<u32> {
+        self.entries.iter().find(|(_, e)| e.host).map(|(&id, _)| id)
     }
 
     pub fn pixels(&self, rect: [f64; 4]) -> (u32, u32) {
@@ -366,6 +373,10 @@ impl State {
         let (w, h) = (w.min(sw.max(320.0)), h.min(sh.max(240.0)));
         [(px + (pw - w) / 2.0).clamp(0.0, (sw - w).max(0.0)), (py + (ph - h) / 2.0).clamp(0.0, (sh - h).max(0.0)), w, h]
     }
+}
+
+pub(crate) fn edges_at(hints: &[([f64; 4], u32)], x: f64, y: f64) -> Option<u32> {
+    hints.iter().rev().find(|([hx, hy, hw, hh], _)| x >= *hx && y >= *hy && x < hx + hw && y < hy + hh).map(|(_, edges)| *edges)
 }
 
 pub struct Shell(());
@@ -755,6 +766,20 @@ mod tests {
         assert!(matches!(s.press(w, [120.0, 115.0], 2000.0, settings), Press::Plain), "the buttons moved left");
         assert!(matches!(s.press(w, [480.0, 115.0], 3000.0, settings), Press::Drag(0, _)));
         assert_eq!(s.entries[&w].bar(s.theme, true).button_at(100.0, 15.0), Some(acde_render::FrameButton::Close));
+    }
+
+    #[test]
+    fn only_a_granted_host_window_on_a_host_with_controls_maps_hints_to_the_host() {
+        let mut s = screen();
+        let plain = open(&mut s, Grant { host: true, ..Grant::default() });
+        assert!(!s.entries[&plain].host, "no native controls, no host window");
+        s.controls = true;
+        let primary = open(&mut s, Grant { host: true, mode: Some(Mode::Fullscreen), ..Grant::default() });
+        let other = open(&mut s, Grant { rect: Some([10.0, 10.0, 100.0, 100.0]), ..Grant::default() });
+        assert_eq!((s.host_entry(), s.entries[&other].host), (Some(primary), false));
+        s.entries.get_mut(&primary).expect("primary").hints = vec![([0.0, 0.0, 1000.0, 40.0], 0), ([0.0, 0.0, 1000.0, 4.0], acde_model::edge::TOP)];
+        let hints = s.entries[&primary].grab_hints(&s.theme);
+        assert_eq!([20.0, 2.0, 200.0].map(|y| edges_at(&hints, 500.0, y)), [Some(0), Some(acde_model::edge::TOP), None]);
     }
 
     #[test]

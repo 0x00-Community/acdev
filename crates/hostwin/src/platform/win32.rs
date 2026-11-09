@@ -49,9 +49,13 @@ use crate::keys;
 use crate::{OpenRequest, SaveRequest};
 
 mod dialog;
+mod frame;
 
 const WM_MOUSELEAVE: u32 = 0x02a3;
 const SIZE_MINIMIZED: usize = 1;
+const WM_MOVE: u32 = 0x0003;
+const WM_SETTINGCHANGE: u32 = 0x001a;
+const WM_NCHITTEST: u32 = 0x0084;
 const WHEEL_DELTA: f64 = 120.0;
 
 fn wide(text: &str) -> Vec<u16> {
@@ -83,9 +87,18 @@ pub(crate) struct Host {
     scale: Cell<f64>,
     exit: Cell<Option<i32>>,
     ime_area: Cell<Option<RECT>>,
+    frame: frame::HostFrame,
 }
 
 impl super::Host for Host {
+    fn controls(&self) -> bool {
+        true
+    }
+
+    fn set_state(&self, state: Option<acde_model::WindowState>) {
+        self.frame.set(self.hwnd, state);
+    }
+
     fn set_title(&self, title: &str) {
         let title = wide(title);
         unsafe { SetWindowTextW(self.hwnd, title.as_ptr()) };
@@ -263,6 +276,13 @@ impl Win {
         unsafe { DestroyWindow(self.host.hwnd) };
     }
 
+    fn placed(&self, hwnd: HWND) {
+        let events = [self.host.frame.changed(hwnd), self.host.frame.output(hwnd)];
+        for event in events.into_iter().flatten() {
+            self.emit(event);
+        }
+    }
+
     fn mods(&self) {
         let down = |vk: u16| unsafe { GetKeyState(i32::from(vk)) } < 0;
         let mods = Combo::mods(down(VK_CONTROL), down(VK_MENU), down(VK_SHIFT), down(VK_LWIN) || down(VK_RWIN));
@@ -400,12 +420,22 @@ impl Win {
                     let size = ((lparam & 0xffff) as u32, ((lparam >> 16) & 0xffff) as u32);
                     self.emit(HostEvent::Resized { size: (size.0.max(1), size.1.max(1)), scale: self.host.scale.get() });
                 }
+                self.placed(hwnd);
+            }
+            WM_MOVE | WM_SETTINGCHANGE => self.placed(hwnd),
+            WM_NCHITTEST => {
+                let hit = unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+                if hit != HTCLIENT as LRESULT {
+                    return Some(hit);
+                }
+                return Some(frame::hit(hwnd, lparam, self.host.scale.get()).unwrap_or(hit));
             }
             WM_DPICHANGED => {
                 self.host.scale.set(f64::from((wparam & 0xffff) as u32) / 96.0);
                 let rect = unsafe { &*(lparam as *const RECT) };
                 unsafe { SetWindowPos(hwnd, null_mut(), rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE) };
                 self.emit(HostEvent::Resized { size: self.client_size(), scale: self.host.scale.get() });
+                self.placed(hwnd);
             }
             WM_CLOSE => self.emit(HostEvent::CloseRequested),
             WM_DESTROY => unsafe { PostQuitMessage(self.code.get()) },
@@ -561,7 +591,14 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
     }
     unsafe { DragAcceptFiles(hwnd, 1) };
     let scale = f64::from(unsafe { GetDpiForWindow(hwnd) }.max(1)) / 96.0;
-    let host = Host { hwnd, hinstance: hinstance as isize, scale: Cell::new(scale), exit: Cell::new(None), ime_area: Cell::new(None) };
+    let host = Host {
+        hwnd,
+        hinstance: hinstance as isize,
+        scale: Cell::new(scale),
+        exit: Cell::new(None),
+        ime_area: Cell::new(None),
+        frame: frame::HostFrame::default(),
+    };
     let proxy = Proxy(Arc::new(Queue { hwnd: hwnd as isize, cmds: Mutex::new(VecDeque::new()) }));
     let win = Rc::new(Win {
         host,
@@ -583,6 +620,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
         win.close(code);
     } else {
         unsafe { ShowWindow(hwnd, SW_SHOW) };
+        win.placed(hwnd);
         win.emit(HostEvent::Redraw);
     }
     let mut msg = MSG::default();

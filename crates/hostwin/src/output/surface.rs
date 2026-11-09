@@ -78,6 +78,9 @@ pub(crate) fn set_mode(id: u32, mode: Mode) {
 
 pub(crate) fn request_state(id: u32, to: Option<WindowState>) {
     let Some(server) = server() else { return };
+    if server.state().entries.get(&id).is_some_and(|e| e.host) {
+        return server.send(Cmd::HostState(to));
+    }
     let (change, link, focused) = {
         let mut state = server.state();
         let focused = state.focus == Some(id);
@@ -99,15 +102,20 @@ pub(crate) fn request_state(id: u32, to: Option<WindowState>) {
         server.activate(id);
     }
     server.relayout();
-    let (state, previous) = (Some(change.state.as_str().to_owned()), Some(change.previous.as_str().to_owned()));
+    announce(id, change.state, change.previous);
+}
+
+pub(crate) fn announce(id: u32, to: WindowState, from: WindowState) {
+    let Some(server) = server() else { return };
+    let (state, previous) = (Some(to.as_str().to_owned()), Some(from.as_str().to_owned()));
     server.event(id, Event { kind: "state".into(), state: state.clone(), previous: previous.clone(), ..Default::default() });
     server.broker.push(Event { kind: "windowstate".into(), window: Some(id), state, previous, ..Default::default() });
-    let legacy = match (change.previous, change.state) {
+    let legacy = match (from, to) {
         (_, WindowState::Fullscreen) => Some("windowfullscreen"),
         (WindowState::Fullscreen, _) => Some("windowunfullscreen"),
         _ => None,
     };
-    for kind in legacy.into_iter().chain((change.state == WindowState::Minimized).then_some("windowminimize")) {
+    for kind in legacy.into_iter().chain((to == WindowState::Minimized).then_some("windowminimize")) {
         server.broker.push(Event { kind: kind.into(), window: Some(id), ..Default::default() });
     }
 }
@@ -123,7 +131,7 @@ impl Surface {
             let id = state.tokens.remove(&token).ok_or("claimSurface: wrong or already used token")?;
             let (scale, refresh, unfocused, theme) = (state.screen[2], state.refresh, state.focus.is_none(), state.theme);
             let entry = state.entries.get_mut(&id).ok_or("claimSurface: window is gone")?;
-            entry.frame = if entry.desktop || entry.panel { 0.0 } else { f64::from(frame) };
+            entry.frame = if entry.desktop || entry.panel || entry.host { 0.0 } else { f64::from(frame) };
             entry.inbox = Some(inbox.clone());
             entry.link = Some(link.clone());
             entry.app = app;
@@ -303,6 +311,10 @@ impl Surface {
         server.refill();
     }
 
+    pub fn host_controls(&self) -> bool {
+        server().is_some_and(|s| s.state().entries.get(&self.window).is_some_and(|e| e.host))
+    }
+
     pub fn content_offset(&self) -> (f64, f64) {
         let frame = server().and_then(|s| s.state().entries.get(&self.window).map(|e| e.frame));
         (0.0, frame.unwrap_or(0.0))
@@ -310,17 +322,17 @@ impl Surface {
 
     fn set_title(&self, title: &str) {
         let Some(server) = server() else { return };
-        let framed = match server.state().entries.get_mut(&self.window) {
+        let (framed, host) = match server.state().entries.get_mut(&self.window) {
             Some(e) => {
                 e.title = title.to_owned();
-                e.frame > 0.0
+                (e.frame > 0.0, e.host)
             }
-            None => false,
+            None => (false, false),
         };
         if framed {
             self.link.send(Msg::Title(title.to_owned()));
         }
-        if self.window == 0 {
+        if self.window == 0 || host {
             server.send(Cmd::Title(title.to_owned()));
         }
     }

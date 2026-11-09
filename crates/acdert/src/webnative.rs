@@ -73,11 +73,12 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     })));
     let window = surface.window();
     let hosted = surface.hosted();
+    let controls = surface.host_controls();
     let (offset_x, offset_y) = surface.content_offset();
     STATE.with(|s| s.borrow_mut().surface = Some(surface));
     let offset = [offset_x, offset_y].map(|v| v8::Number::new(scope, v).into());
     let offset = v8::Array::new_with_elements(scope, &offset);
-    let obj = crate::js_object!(scope, {"window" => window, "hosted" => hosted, "contentOffset" => offset});
+    let obj = crate::js_object!(scope, {"window" => window, "hosted" => hosted, "hostControls" => controls, "contentOffset" => offset});
     crate::methods!(scope, obj,
         "pump" => pump,
         "wait" => wait,

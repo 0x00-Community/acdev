@@ -132,6 +132,7 @@ fn grant(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: 
         wanted.size = numbers(scope, size).and_then(|s| <[f64; 2]>::try_from(s).ok());
         wanted.parent = bind::get(scope, options, "parent").and_then(|v| v.number_value(scope)).filter(|n| n.is_finite() && *n >= 0.0).map(|n| n as u32);
         wanted.modal = bind::get(scope, options, "modal").is_some_and(|v| v.boolean_value(scope));
+        wanted.host = bind::get(scope, options, "host").is_some_and(|v| v.boolean_value(scope));
     }
     let Some((window, token)) = with(scope, |shell| shell.grant(wanted)) else {
         return;

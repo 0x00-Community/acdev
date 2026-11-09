@@ -221,6 +221,7 @@ impl Handler for App {
             let mut state = server.state();
             state.screen = [(f64::from(size.0) / scale).round(), (f64::from(size.1) / scale).round(), scale];
             state.refresh = monitor.and_then(|m| m.refresh);
+            state.controls = host.controls();
         }
         let surface = match host.surface(&server.gpu.instance) {
             Ok(surface) => surface,
@@ -285,6 +286,14 @@ impl Handler for App {
             HostEvent::ImePreedit(text) => self.focused(server, Event { kind: "imepreedit".into(), key: Some(text), ..Default::default() }),
             HostEvent::ImeCommit(text) => self.focused(server, Event { kind: "imecommit".into(), key: Some(text), ..Default::default() }),
             HostEvent::Dropped(paths) => self.dropped(server, &paths),
+            HostEvent::State(to) => Self::host_state(server, to),
+            HostEvent::Output { size, scale, work: [x, y, w, h] } => {
+                let (width, height) = (Some(f64::from(size.0)), Some(f64::from(size.1)));
+                server.broker.push(Event { kind: "hostoutput".into(), width, height, scale: Some(scale), ..Default::default() });
+                let area = Event { kind: "hostworkarea".into(), x: Some(x), y: Some(y), width: Some(w), height: Some(h), ..Default::default() };
+                server.broker.push(area);
+            }
+            HostEvent::Cmd(Cmd::HostState(to)) => host.set_state(to),
             HostEvent::Redraw => server.relayout(),
             HostEvent::Cmd(Cmd::Title(title)) => host.set_title(&title),
             HostEvent::Cmd(Cmd::ImeArea(rect)) => host.set_ime_area(rect),
@@ -346,6 +355,23 @@ impl App {
             scale: Some(scale),
             ..Default::default()
         });
+    }
+
+    fn host_state(server: &Server, to: WindowState) {
+        let changed = {
+            let mut state = server.state();
+            let Some(id) = state.host_entry() else { return };
+            let Some(e) = state.entries.get_mut(&id).filter(|e| e.state != to) else { return };
+            (id, std::mem::replace(&mut e.state, to))
+        };
+        let (id, from) = changed;
+        if to == WindowState::Minimized {
+            server.focus_top();
+        } else if from == WindowState::Minimized {
+            server.activate(id);
+        }
+        server.relayout();
+        crate::output::surface::announce(id, to, from);
     }
 
     fn inject(&mut self, server: &Server, event: Injected) {

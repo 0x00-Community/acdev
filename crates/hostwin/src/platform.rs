@@ -13,6 +13,7 @@ pub(crate) enum Cmd {
     ChooseFolder { title: String, reply: FolderReply },
     OpenFiles { request: OpenRequest, reply: FilesReply },
     SaveFile { request: SaveRequest, reply: FolderReply },
+    HostState(Option<acde_model::WindowState>),
     Exit(i32),
 }
 
@@ -21,6 +22,7 @@ pub(crate) struct Monitor {
     pub refresh: Option<f64>,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) enum HostEvent {
     Resized { size: (u32, u32), scale: f64 },
     CloseRequested,
@@ -34,6 +36,8 @@ pub(crate) enum HostEvent {
     ImePreedit(String),
     ImeCommit(String),
     Dropped(Vec<PathBuf>),
+    State(acde_model::WindowState),
+    Output { size: (u32, u32), scale: f64, work: [f64; 4] },
     Redraw,
     Cmd(Cmd),
 }
@@ -72,6 +76,12 @@ pub(crate) trait Host {
     fn open_files(&self, request: OpenRequest, reply: FilesReply);
     fn save_file(&self, request: SaveRequest, reply: FolderReply);
     fn exit(&self, code: i32);
+
+    fn controls(&self) -> bool {
+        false
+    }
+
+    fn set_state(&self, _: Option<acde_model::WindowState>) {}
 }
 
 #[derive(Clone)]
