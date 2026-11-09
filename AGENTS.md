@@ -135,6 +135,20 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - Node 上 `export default {fetch}`: `acde.serve` 用 `node:http` 起服务, 请求换成 WHATWG `Request` (流式 body, 断开时 abort), `server` 只有
   `upgrade()` (false, 没有 WebSocket 升级)、`requestIP()` (null)、`port`、`hostname`; `Response` 流式写回; 抛错回 500.
 - 开发时: `bun --preload <acde>/src/listen.ts server.ts`.
+- **通道模式** (`src/channel.ts`, Windows 上的 Node; 帧和信用见下面「Windows 后端契约」): 只在 Node 上且 `ACDE_APP_CHANNEL=fd` 时
+  (`channelMode`; bun 不看它, 照常走套接字). 这时 `listen(P)` 不真正监听: 把 server 登记到端口 P, 下一个 tick 发 `listening`,
+  `address()` 给 P, `listening` 为真; `close()` 注销后照原型方法关 (回调不报 `ERR_SERVER_NOT_RUNNING`), `signal` 中止同样注销;
+  同一端口第二次 listen 发 `EADDRINUSE`. 第一次登记时用 `net.Socket` 打开 fd 3 (读) 和 fd 4 (写): libuv 在 Windows 上把匿名管道的阻塞读
+  放进系统线程池, unix 上是 epoll, 都不占 libuv 线程池 (`fs.read` 会一直占一个, `UV_THREADPOOL_SIZE=1` 时文件操作全卡住, 测试里有这条).
+  没有登记的 server 也没有在途流时 fd 3 `unref`, 应用关掉 server 后进程照常退出. fd 3 读到头或出错 (运行时没了)、帧超过 64 KiB 时
+  所有流按 RST 失败, stderr 打一行后 `exit(0)`.
+- 每条流是一个 `ChannelSocket` (Duplex, `allowHalfOpen`), 经 `server.emit('connection')` 交给 server, HTTP 和 `upgrade` 都走它; 补了
+  `setTimeout` (空闲计时)、`setNoDelay` / `setKeepAlive` / `ref` / `unref` (空操作)、`destroySoon`, `remoteAddress` 为 undefined (同 unix socket).
+  写出的数据按对方信用切成至多 64 KiB 的 DATA, 信用用完就停, 收到 WINDOW 续发; `end()` 在数据发完后发 FIN. 收到的 DATA 交给 server
+  读走 (`_read`) 后攒够 32 KiB 回一个 WINDOW; 超出给过的信用、FIN 之后再来 DATA 都回 RST 并让连接以错误结束. 对方 RST: 连接以
+  `ECONNRESET` 出错, 不回帧. 带错误的 `destroy` 发 RST; 不带错误的 `destroy` (keep-alive 超时、`Connection: close` 之后) 补发 FIN,
+  流号留到对方的 FIN 再了结, 这期间对方的 DATA 回 RST (像 TCP 关闭后收到数据). SHUTDOWN 和不认识的类型目前忽略 (优雅停止是 acde#6).
+- 构建出的 `acde-listen.js` 含 `acde-listen-channel/1` (`CHANNEL_MARK`, 也是 `Symbol.for('acde.listen')` 的值), 运行时据此判断支持通道.
 
 ## acde dev (`src/dev.ts`, `src/ipc.ts`, `src/sessions.ts`)
 
@@ -260,8 +274,9 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 - 命令行 `acdert app <id>` / `acdert desktop <id|包目录>`; 环境 `ACDE_PATH`、`ACDE_DEV`、`ACDE_HEADLESS`、`ACDE_RUNTIME`; dev IPC 见上.
 - 后端: acdert 在 PATH 上有 bun 时 `bun --preload <dir>/acde-listen.js <entry>`, 否则 `node --import <acde-listen.js 的 file: URL> <entry>` (Windows
   盘符路径不是合法的模块说明符). `acde dev` 给 acdert 设 `ACDE_RUNTIME` (`bun` / `node`, acde 自己跑在哪个上), `node` 时 acdert 先找 node. 没有 `acde-listen.js` 的旧包不起.
-- **Windows 后端契约** (2026-11-09 定, 和 acdert AGENTS.md「网页应用」的「Windows 后端契约」是同一份, 两边一起发版; 运行时和预加载都还没实现,
-  见 acde#4、#5、#6). 不变量: 后端运行期间没有 TCP 监听、没有命名管道, 套接字文件只有 SYSTEM 和当前用户能开; macOS / Linux 不变.
+- **Windows 后端契约** (2026-11-09 定, 和 acdert AGENTS.md「网页应用」的「Windows 后端契约」是同一份, 两边一起发版; 预加载的通道模式
+  已实现 (acde#4, 见「preload」), 套接字模式见 acde#5, 优雅停止见 acde#6; 运行时一侧见 acdert#23、#24、#25).
+  不变量: 后端运行期间没有 TCP 监听、没有命名管道, 套接字文件只有 SYSTEM 和当前用户能开; macOS / Linux 不变.
   - **两种模式**: node 走**通道模式**, 环境 `ACDE_APP_CHANNEL=fd`, 不设 `ACDE_APP_SOCKETS` (Node 在 Windows 上不能用文件系统 AF_UNIX);
     bun 走**套接字模式**, 环境 `ACDE_APP_SOCKETS=<本代目录>` 加 `ACDE_APP_CONTROL=fd`, 不设 `ACDE_APP_CHANNEL`. 其余变量同 unix.
     两种模式下运行时都经 CRT 的 `lpReserved2` 交给后端两根匿名管道: fd 3 (后端读) 和 fd 4 (后端写). 通道模式上面跑全部帧, 套接字模式只跑控制帧.
@@ -278,7 +293,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 
 ## 测试
 
-`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`launcher`、`runtime`、`listen`、`node` (打好的后端在 Node 上跑; 要
+`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
+打好的 preload 在真的 node 上由测试扮演运行时, 用 `node:child_process` 的额外管道当 fd 3 / 4, 没有 node ≥ 22 就跳过这一半)、`node` (打好的后端在 Node 上跑; 要
 `ACDE_TEST_NODE` 或 PATH 上真的 node ≥ 22.3, 没有就跳过)、`dev` / `driver` / `mcp` / `e2e` (都用 `test/fixtures/dev/fake-acdert.ts` 这个有状态的假
 acdert (它听 `ACDE_DEV`) 跑真的 `acde dev`)、`dist` (假 acdert 打包、本地托管、跑 install.sh 和 `bin/acde`). 给包管理器搭 PATH 用符号链接, 不用 `exec` 的 sh 脚本:
 包了一层的 `node` 让 pnpm 不装 rolldown 的平台原生包.

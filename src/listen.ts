@@ -1,6 +1,7 @@
 import type { Socket as UdpSocket } from 'node:dgram'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Server as NetServer } from 'node:net'
+import { CHANNEL_MARK, channelMode, serveChannel, unserveChannel } from './channel.ts'
 import { socketPath } from './sockets.ts'
 
 const dgram = process.getBuiltinModule('node:dgram')
@@ -26,6 +27,11 @@ function toPort(value: unknown): number | undefined {
     throw new RangeError(`acde: bad port ${String(value)}`)
   }
   return port
+}
+
+function envPort(): number {
+  const env = process.env
+  return toPort(env['BUN_PORT']) ?? toPort(env['PORT']) ?? toPort(env['NODE_PORT']) ?? 3000
 }
 
 function refuse(what: string): never {
@@ -85,15 +91,16 @@ function onUnix(original: Fn, fallback: () => number): Fn {
 function patchBun(): void {
   if (typeof Bun === 'undefined') return
   const bun = Bun as unknown as Record<string, Fn>
-  const env = process.env
-  bun['serve'] = onUnix(bun['serve']!, () => toPort(env['BUN_PORT']) ?? toPort(env['PORT']) ?? toPort(env['NODE_PORT']) ?? 3000)
+  bun['serve'] = onUnix(bun['serve']!, envPort)
   bun['listen'] = onUnix(bun['listen']!, () => 0)
 
   const udp = bun['udpSocket']
   if (udp) {
     bun['udpSocket'] = function (this: unknown, ...args: unknown[]) {
       const options = args[0] as Options | null
-      if (options && typeof options === 'object' && toPort(options['port'])) refuse(`UDP socket on port ${String(options['port'])}`)
+      if (options && typeof options === 'object' && toPort(options['port'])) {
+        refuse(`UDP socket on port ${String(options['port'])}`)
+      }
       return udp.apply(Bun, args)
     }
   }
@@ -122,6 +129,53 @@ function nodeArgs(args: unknown[]): { port: number; host: string | undefined; op
   return { port: toPort(first) ?? 0, host: typeof rest[1] === 'string' ? rest[1] : undefined, options, cb }
 }
 
+type Mapped = NonNullable<ReturnType<typeof nodeArgs>>
+
+function listenChannel(server: NetServer, mapped: Mapped): NetServer {
+  const { port } = mapped
+  const host = mapped.host && net.isIP(mapped.host) ? mapped.host : '::'
+  for (const cb of mapped.cb) server.once('listening', cb as () => void)
+  if (!serveChannel(port, (socket) => void server.emit('connection', socket))) {
+    const message = `acde: listen EADDRINUSE: port ${port} is already served`
+    const taken = Object.assign(new Error(message), { code: 'EADDRINUSE' })
+    process.nextTick(() => server.emit('error', taken))
+    return server
+  }
+  let listening = true
+  const close = (Object.getPrototypeOf(server) as { close: Fn }).close
+  const stop = () => {
+    if (!listening) return false
+    listening = false
+    unserveChannel(port)
+    return true
+  }
+  Object.defineProperties(server, {
+    listening: { configurable: true, get: () => listening },
+    address: {
+      configurable: true,
+      writable: true,
+      value: () => (listening ? { address: host, family: net.isIPv6(host) ? 'IPv6' : 'IPv4', port } : null),
+    },
+    close: {
+      configurable: true,
+      writable: true,
+      value: function (this: NetServer, cb?: (error?: Error) => void) {
+        const was = stop()
+        if (typeof cb === 'function') {
+          const notRunning = Object.assign(new Error('Server is not running.'), { code: 'ERR_SERVER_NOT_RUNNING' })
+          this.once('close', () => (was ? cb() : cb(notRunning)))
+        }
+        return close.call(this)
+      },
+    },
+  })
+  const signal = mapped.options['signal'] as AbortSignal | undefined
+  if (signal?.aborted) stop()
+  else signal?.addEventListener('abort', () => server.close(), { once: true })
+  process.nextTick(() => (listening ? server.emit('listening') : undefined))
+  return server
+}
+
 const patched = new WeakSet<object>()
 
 function patchListen(proto: object): void {
@@ -132,6 +186,7 @@ function patchListen(proto: object): void {
   target.listen = function (this: NetServer, ...args: unknown[]) {
     const mapped = nodeArgs(args)
     if (!mapped) return listen.apply(this, args)
+    if (channelMode(process.env, typeof Bun !== 'undefined')) return listenChannel(this, mapped)
     const path = prepare(mapped.port)
     const server = this as NetServer & { address: Fn }
     delete (server as Partial<typeof server>).address
@@ -156,7 +211,8 @@ function patchUdp(): void {
   const bind = proto.bind
   proto.bind = function (this: UdpSocket, ...args: unknown[]) {
     const first = args[0]
-    const port = first !== null && typeof first === 'object' ? (first as Options)['port'] : typeof first === 'function' ? 0 : first
+    const port =
+      first !== null && typeof first === 'object' ? (first as Options)['port'] : typeof first === 'function' ? 0 : first
     if (toPort(port)) refuse(`UDP bind to port ${String(port)}`)
     return bind.apply(this, args)
   }
@@ -233,7 +289,10 @@ async function respond(app: FetchApp, server: object, req: IncomingMessage, res:
       response = await app.error(error)
     }
     if (res.destroyed) return
-    if (!(response instanceof Response)) throw new TypeError(`acde: the fetch handler returned ${response === undefined ? 'nothing' : typeof response}, not a Response`)
+    if (!(response instanceof Response)) {
+      const got = response === undefined ? 'nothing' : typeof response
+      throw new TypeError(`acde: the fetch handler returned ${got}, not a Response`)
+    }
     await send(response, req, res)
   } catch (error) {
     console.error(error)
@@ -244,9 +303,9 @@ async function respond(app: FetchApp, server: object, req: IncomingMessage, res:
 
 function serve(app: FetchApp): object | undefined {
   if (!app || typeof app.fetch !== 'function') return undefined
-  const env = process.env
-  const port = toPort(app.port) ?? toPort(env['BUN_PORT']) ?? toPort(env['PORT']) ?? toPort(env['NODE_PORT']) ?? 3000
-  const facade = { upgrade: () => false, requestIP: () => null, port, hostname: typeof app.hostname === 'string' ? app.hostname : 'localhost' }
+  const port = toPort(app.port) ?? envPort()
+  const hostname = typeof app.hostname === 'string' ? app.hostname : 'localhost'
+  const facade = { upgrade: () => false, requestIP: () => null, port, hostname }
   const server = http.createServer((req, res) => void respond(app, facade, req, res))
   if (typeof app.unix === 'string' && app.unix) server.listen(app.unix)
   else if (typeof app.hostname === 'string' && app.hostname) server.listen(port, app.hostname)
@@ -256,7 +315,7 @@ function serve(app: FetchApp): object | undefined {
 
 const global = globalThis as Record<symbol, unknown>
 if (!global[INSTALLED]) {
-  global[INSTALLED] = true
+  global[INSTALLED] = CHANNEL_MARK
   if (typeof Bun === 'undefined') global[SERVE] = serve
   patchBun()
   for (const Server of [net.Server, http.Server, https.Server, tls.Server]) patchListen(Server.prototype)

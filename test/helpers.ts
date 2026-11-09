@@ -28,7 +28,8 @@ export function cleanup(): void {
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true })
 }
 
-const SCRUBBED = /^(PORT|BUN_PORT|NODE_PORT|ACDERT|ACDE_API|ACDE_APP_ID|ACDE_APP_SOCKETS|XDG_RUNTIME_DIR)$/
+const SCRUBBED =
+  /^(PORT|BUN_PORT|NODE_PORT|ACDERT|ACDE_API|ACDE_APP_ID|ACDE_APP_SOCKETS|ACDE_APP_CHANNEL|XDG_RUNTIME_DIR)$/
 
 export function env(extra: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
