@@ -1,3 +1,4 @@
+import type { InspectArg } from '@dopame/acde-api'
 import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
 import { sys, type WebGrants, type WebThreadHandle } from './sys/natives'
@@ -16,6 +17,7 @@ import { Packages, type InstalledDesktop } from './packages'
 import { Rpc } from './rpc'
 import { DesktopSession, type RunEnd } from './session'
 import { DevLog } from './devlog'
+import { DevRoutes, type DevRoute } from './devroutes'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage, type Languages } from './language'
 import { StorageFile } from './storage'
@@ -48,6 +50,8 @@ export interface BrokerShell {
   answerFolder?(path: string | null): void
   answerOpen?(paths: string[] | null): void
   answerSave?(path: string | null): void
+  readClipboard?(): string
+  writeClipboard?(text: string): void
   readonly socketName: string
   readonly hosted?: boolean
 }
@@ -127,6 +131,7 @@ export interface WebInit {
   readonly url?: string | null
   readonly sockets?: string
   readonly devState?: unknown
+  readonly devRoutes?: readonly DevRoute[]
 }
 
 export interface ServiceShape {
@@ -215,6 +220,8 @@ export class Broker {
   #emulatedDark: boolean | null = null
   #reducedMotion: boolean | null
   readonly devlog = new DevLog()
+  #devRoutes: DevRoute[] = []
+  #nextRoute = 1
   #ended: RunEnd = 'signal'
   #devStates = new Map<string, unknown>()
   #wake: (() => void) | null = null
@@ -434,6 +441,7 @@ export class Broker {
       storageFile: storageFile(this.#current.id),
       standalone: this.#current.id === Packages.BARE ? standalone : null,
       devState: this.#takeDevState(''),
+      devRoutes: this.#routesFor('desktop', null),
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
@@ -470,6 +478,7 @@ export class Broker {
       url: record.url ?? null,
       ...(app.backend && { sockets: AppBackends.socketDir(app.id) }),
       devState: this.#takeDevState(app.id),
+      devRoutes: this.#routesFor(`${app.id}#${record.id}`, app.id),
     }
     record.request = null
     record.web = this.#spawn(init, app.heapMb)
@@ -487,6 +496,7 @@ export class Broker {
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     web.onPost = (message) => {
       if (DevLog.isPost(message)) this.devlog.take({ name: web.name, app: web.app?.id ?? null }, message)
+      else if (typeof (message as { devroute?: unknown })?.devroute === 'number') this.#routeUsed((message as { devroute: number }).devroute)
     }
     return web
   }
@@ -1233,7 +1243,7 @@ export class Broker {
       case 'snapshot':
         return this.inspect.api.snapshot(args)
       case 'act':
-        return this.inspect.api.act(String(args['ref'] ?? ''), args['action'] as never, (args['arg'] ?? null) as string | number | null)
+        return this.inspect.api.act(String(args['ref'] ?? ''), args['action'] as never, (args['arg'] ?? null) as InspectArg)
       case 'run':
         return this.inspect.api.run(args['steps'] as never)
       case 'open':
@@ -1254,9 +1264,51 @@ export class Broker {
         return this.emulate(args as never)
       case 'choose':
         return this.#devChoose(args)
+      case 'route': {
+        const route = DevRoutes.parse(args, this.#nextRoute++)
+        this.#devRoutes.push(route)
+        this.#pushRoutes()
+        return { id: route.id }
+      }
+      case 'unroute': {
+        const id = args['route']
+        if (id !== undefined && id !== null && !Number.isInteger(id)) throw new Error('unroute: route is the id route answered, or leave it out to remove every route')
+        const before = this.#devRoutes.length
+        this.#devRoutes = id === undefined || id === null ? [] : this.#devRoutes.filter((r) => r.id !== id)
+        this.#pushRoutes()
+        return { removed: before - this.#devRoutes.length, left: this.#devRoutes.length }
+      }
+      case 'clipboard': {
+        const shell = this.shell
+        if (!shell.readClipboard || !shell.writeClipboard) throw new Error('clipboard: this backend has no clipboard of its own to read (host windows only)')
+        if (args['text'] !== undefined) {
+          if (typeof args['text'] !== 'string') throw new Error('clipboard: text is a string')
+          shell.writeClipboard(args['text'])
+        }
+        return { text: shell.readClipboard() }
+      }
       default:
-        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose)`)
+        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard)`)
     }
+  }
+
+  #routesFor(name: string, app: string | null): DevRoute[] {
+    return this.#devRoutes.filter((r) => r.web === null || r.web === name || (app !== null && r.web === app))
+  }
+
+  #pushRoutes(): void {
+    for (const web of this.#webs()) web.thread.post({ type: 'devroutes', routes: this.#routesFor(web.name, web.app?.id ?? null) })
+  }
+
+  #routeUsed(id: number): void {
+    const route = this.#devRoutes.find((r) => r.id === id)
+    if (!route || route.times === null) return
+    if (route.times > 1) {
+      this.#devRoutes = this.#devRoutes.map((r) => (r.id === id ? { ...r, times: route.times! - 1 } : r))
+      return
+    }
+    this.#devRoutes = this.#devRoutes.filter((r) => r.id !== id)
+    this.#pushRoutes()
   }
 
   #devChoose(args: Record<string, unknown>): Record<string, unknown> {

@@ -66,6 +66,8 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "answerFolder" => answer_folder,
         "answerOpen" => answer_open,
         "answerSave" => answer_save,
+        "readClipboard" => read_clipboard,
+        "writeClipboard" => write_clipboard,
     );
     let name = bind::string(scope, "");
     bind::set(scope, obj, "socketName", name.into());
@@ -340,6 +342,17 @@ fn answer_folder(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     let answer = args.get(0);
     let path = (!answer.is_null_or_undefined()).then(|| std::path::PathBuf::from(bind::arg_string(scope, &args, 0)));
     with(scope, |_| acde_hostwin::answer_folder(path));
+}
+
+fn read_clipboard(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Some(text) = with(scope, |_| acde_hostwin::clipboard_text()) else { return };
+    let text = bind::string(scope, &text);
+    rv.set(text.into());
+}
+
+fn write_clipboard(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let text = bind::arg_string(scope, &args, 0);
+    with(scope, |_| acde_hostwin::set_clipboard_text(text));
 }
 
 fn answer_open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

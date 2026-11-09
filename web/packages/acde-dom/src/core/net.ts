@@ -1,7 +1,7 @@
 import { Blob, blobBytes } from './blob'
 import { allowedHeaders, backendTarget, cookies, dialOf, isRemote, requestHeaders, type Header, type HttpEvent, type RemoteTarget, type Target, type WsEvent, transport } from './backend'
 import { Cors } from './cors'
-import { Tracked, type RequestKind } from './observe'
+import { mocked, Tracked, type MockReply, type RequestKind } from './observe'
 import { bytesOf, concat, TextDecoder, unbase64 } from './encoding'
 import { CloseEvent, defineHandlers, Event, EventTarget, fire, MessageEvent, ProgressEvent } from './event'
 import { DOMException } from './exception'
@@ -738,6 +738,28 @@ export async function scriptSource(url: string): Promise<string> {
   return response.text()
 }
 
+function fetchMocked(request: Request, mock: MockReply, signal: SignalLike | null): Promise<Response> {
+  const tracked = Tracked.start('fetch', request.method, request.url, 0, true)
+  return new Promise((resolve, reject) => {
+    host.setTimer(0, () => {
+      if (signal?.aborted) {
+        tracked?.error('aborted')
+        return reject(aborted(signal))
+      }
+      if ('error' in mock) {
+        tracked?.error(mock.error)
+        return reject(new TypeError('Failed to fetch', { cause: mock.error }))
+      }
+      const empty = request.method === 'HEAD' || NULL_BODY.has(mock.status)
+      tracked?.response(mock.status, mock.statusText)
+      tracked?.end(empty ? 0 : mock.body.length)
+      const response = new Response(empty ? null : mock.body, { status: mock.status, statusText: mock.statusText, headers: mock.headers as [string, string][] })
+      response.url = request.url
+      resolve(response)
+    })
+  })
+}
+
 export function fetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   let request: Request
   try {
@@ -747,6 +769,8 @@ export function fetch(input: string | URL | Request, init?: RequestInit): Promis
   }
   const signal = request.signal as SignalLike | null
   if (signal?.aborted) return Promise.reject(aborted(signal))
+  const mock = mocked('fetch', request.method, request.url)
+  if (mock) return fetchMocked(request, mock, signal)
   const routed = route(request.url, request.method)
   if (routed && 'target' in routed) return fetchBackend(request, routed.target, signal)
   const tracked = Tracked.start('fetch', request.method, request.url)
@@ -823,6 +847,8 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
   send(body?: BodyInit): void {
     if (this.readyState !== 1) throw new DOMException("Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED.", 'InvalidStateError')
     const token = ++this.#sent
+    const mock = mocked('xhr', this.#method, this.#url)
+    if (mock) return this.#mocked(mock, token)
     const routed = route(this.#url, this.#method)
     if (routed && 'target' in routed) {
       if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': synchronous requests to the app's backend or the network are not supported ('${this.#url}').`, 'NetworkError')
@@ -853,6 +879,39 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
       this.#state(3)
       this.#state(4)
       const total = found.bytes.length
+      fire(this, new ProgressEvent('load', { lengthComputable: true, loaded: total, total }))
+      fire(this, new ProgressEvent('loadend', { lengthComputable: true, loaded: total, total }))
+    }
+    if (!this.#async) return finish()
+    fire(this, new ProgressEvent('loadstart'))
+    host.setTimer(0, finish)
+  }
+
+  #mocked(mock: MockReply, token: number): void {
+    const tracked = Tracked.start('xhr', this.#method, this.#url, 0, true)
+    const finish = () => {
+      if (token !== this.#sent) return tracked?.error('aborted')
+      if ('error' in mock) {
+        tracked?.error(mock.error)
+        this.#state(4)
+        if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': Failed to load '${this.#url}'.`, 'NetworkError')
+        fire(this, new ProgressEvent('error'))
+        fire(this, new ProgressEvent('loadend'))
+        return
+      }
+      const body = this.#method === 'HEAD' || NULL_BODY.has(mock.status) ? new Uint8Array(0) : mock.body
+      tracked?.response(mock.status, mock.statusText)
+      tracked?.end(body.length)
+      this.#bytes = body
+      this.#responseHeaders = mock.headers.map(([name, value]) => [name, value] as Header)
+      this.#type = headerOf(this.#responseHeaders, 'content-type') ?? ''
+      this.status = mock.status
+      this.statusText = mock.statusText
+      this.responseURL = this.#url
+      this.#state(2)
+      this.#state(3)
+      this.#state(4)
+      const total = body.length
       fire(this, new ProgressEvent('load', { lengthComputable: true, loaded: total, total }))
       fire(this, new ProgressEvent('loadend', { lengthComputable: true, loaded: total, total }))
     }

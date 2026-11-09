@@ -40,7 +40,7 @@ import { Clipboard, framesPending, History, installWindow, Location, MediaDevice
 
 export type { AudioNative, DomNative, GpuNative, HostNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
-export { observe, type ConsoleLevel, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
+export { observe, type ConsoleLevel, type MockReply, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
 
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly url: string

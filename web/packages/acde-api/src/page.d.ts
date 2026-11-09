@@ -291,6 +291,7 @@ export interface InspectWindow {
 export interface InspectMatch extends InspectNode {
   readonly tag: string
   readonly visible: boolean
+  readonly attributes?: Readonly<Record<string, string | null>>
 }
 
 export type InspectAction =
@@ -298,14 +299,18 @@ export type InspectAction =
   | 'double'
   | 'right'
   | 'hover'
+  | 'drag'
   | 'type'
   | 'settext'
+  | 'select'
   | 'key'
   | 'scroll'
   | 'focus'
   | 'close'
   | 'minimize'
   | 'restore'
+
+export type InspectArg = string | number | readonly string[] | null
 
 export interface AcdeInspect {
   snapshot(options?: {
@@ -318,9 +323,9 @@ export interface AcdeInspect {
     tree?: boolean
     offscreen?: boolean
   }): Promise<{ text: string; windows: InspectWindow[]; trees: Record<string, InspectNode[]> }>
-  act(ref: string, action: InspectAction, arg?: string | number | null): Promise<{ ok: boolean; text: string }>
+  act(ref: string, action: InspectAction, arg?: InspectArg): Promise<{ ok: boolean; text: string }>
   run(
-    steps: readonly { ref: string; action: InspectAction; text?: string | number | null }[],
+    steps: readonly { ref: string; action: InspectAction; text?: InspectArg }[],
   ): Promise<{ ok: boolean; text: string }>
   open(name: string): Promise<{ ok: boolean; text: string }>
   query(options: {
@@ -328,6 +333,7 @@ export interface AcdeInspect {
     window?: string
     ref?: string
     limit?: number
+    attributes?: readonly string[]
   }): Promise<{ window: string; count: number; nodes: InspectMatch[] }>
 }
 

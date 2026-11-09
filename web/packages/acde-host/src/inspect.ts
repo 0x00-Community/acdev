@@ -1,4 +1,4 @@
-import type { InspectAction, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import type { BrokerShell } from './broker'
 import { keyCode } from './keys'
 import type { PageNode, PagePoint, PageQuery, PageTree } from './pageinspect'
@@ -37,6 +37,7 @@ interface QueryOptions {
   readonly window?: string
   readonly ref?: string
   readonly limit?: number
+  readonly attributes?: readonly string[]
 }
 
 interface Query {
@@ -54,7 +55,7 @@ interface Snapshot {
 interface InspectStep {
   readonly ref: string
   readonly action: InspectAction
-  readonly text?: string | number | null
+  readonly text?: InspectArg
 }
 
 interface ActResult {
@@ -85,6 +86,8 @@ type Line = readonly [string, string]
 const LEFT = 0x110
 const RIGHT = 0x111
 
+type Point = { readonly x: number; readonly y: number } | { readonly error: string }
+
 export class Inspect {
   static readonly LIMIT = 600
   static readonly SETTLE_MS = 400
@@ -92,6 +95,8 @@ export class Inspect {
   static readonly BUSY_MS = 3000
   static readonly OPEN_MS = 5000
   static readonly FIND_LIMIT = 3000
+  static readonly DRAG_STEPS = 10
+  static readonly DRAG_STEP_MS = 16
   static readonly GENERIC = new Set(['generic', 'filler', 'panel', 'section', 'unknown', 'redundant-object', 'split-pane', 'layered-pane', 'scroll-pane', 'viewport', 'internal-frame', 'root-pane', 'glass-pane', 'option-pane', 'window'])
 
   readonly #host: InspectHost
@@ -107,7 +112,7 @@ export class Inspect {
 
   readonly api = {
     snapshot: (options?: SnapshotOptions): Promise<Snapshot> => this.snapshot(options ?? {}),
-    act: (ref: string, action: InspectAction, arg?: string | number | null): Promise<ActResult> => this.act(String(ref), action, arg ?? null),
+    act: (ref: string, action: InspectAction, arg?: InspectArg): Promise<ActResult> => this.act(String(ref), action, arg ?? null),
     run: (steps: readonly InspectStep[]): Promise<ActResult> =>
       this.run(Array.isArray(steps) ? steps.map((s) => ({ ref: String(s?.ref ?? ''), action: s?.action, text: s?.text ?? null })) : []),
     open: (name: string): Promise<ActResult> => this.open(String(name)),
@@ -186,7 +191,7 @@ export class Inspect {
     return { text: lines.join('\n'), windows, trees }
   }
 
-  act(ref: string, action: InspectAction, arg: string | number | null): Promise<ActResult> {
+  act(ref: string, action: InspectAction, arg: InspectArg): Promise<ActResult> {
     return this.run([{ ref, action, text: arg }])
   }
 
@@ -270,7 +275,7 @@ export class Inspect {
     while (!done() && Date.now() - started < Inspect.OPEN_MS) await Inspect.#sleep(100)
   }
 
-  async #windowAct(window: InspectWindow, action: InspectAction, arg: string | number | null): Promise<ActResult> {
+  async #windowAct(window: InspectWindow, action: InspectAction, arg: InspectArg): Promise<ActResult> {
     switch (action) {
       case 'focus':
       case 'restore':
@@ -302,7 +307,7 @@ export class Inspect {
     }
   }
 
-  async #webAct(window: InspectWindow, node: number, action: InspectAction, arg: string | number | null): Promise<ActResult> {
+  async #webAct(window: InspectWindow, node: number, action: InspectAction, arg: InspectArg): Promise<ActResult> {
     const rpc = this.#host.web(window.id)
     if (!rpc) return { ok: false, text: `${window.ref} 的页面没在运行` }
     switch (action) {
@@ -321,6 +326,17 @@ export class Inspect {
         await rpc.call('inspect', 'focus', [node])
         this.#keys(String(arg ?? ''))
         return { ok: true, text: `按了 ${arg}` }
+      case 'select': {
+        const values = Inspect.#values(arg)
+        if (!values) return { ok: false, text: 'select 要给选项的值或文字 (一个字符串, 或多选时的字符串列表)' }
+        const { selected } = (await rpc.call('inspect', 'select', [node, values])) as { selected: string[] }
+        return { ok: true, text: `选中了 ${JSON.stringify(selected)}` }
+      }
+      case 'drag': {
+        const point = (await rpc.call('inspect', 'point', [node])) as PagePoint
+        if ('error' in point) return { ok: false, text: point.error }
+        return this.#drag(window, window.rect[0] + point.x, window.rect[1] + point.y, arg)
+      }
       default: {
         const point = (await rpc.call('inspect', 'point', [node])) as PagePoint
         if ('error' in point) return { ok: false, text: point.error }
@@ -330,7 +346,7 @@ export class Inspect {
     }
   }
 
-  async #nativeAct(window: InspectWindow, node: number, action: InspectAction, arg: string | number | null): Promise<ActResult> {
+  async #nativeAct(window: InspectWindow, node: number, action: InspectAction, arg: InspectArg): Promise<ActResult> {
     const entry = this.#native.get(window.id)?.byNumber.get(node)
     if (!entry) return { ok: false, text: `${window.ref}.${node} 不认识, 先 look ${window.ref}` }
     const access = await this.#host.accessibility()
@@ -360,10 +376,11 @@ export class Inspect {
     }
     const point = at()
     if (!point) return { ok: false, text: `${window.ref}.${node} 没有位置, 做不了 ${action}` }
+    if (action === 'drag') return this.#drag(window, point[0], point[1], arg)
     return this.#pointer(window, point[0], point[1], action === 'focus' ? 'click' : action, arg)
   }
 
-  #pointer(window: InspectWindow, x: number, y: number, action: InspectAction, arg: string | number | null): ActResult {
+  #pointer(window: InspectWindow, x: number, y: number, action: InspectAction, arg: InspectArg): ActResult {
     const cover = this.#cover(window, x, y)
     if (cover) {
       if (window.kind === 'desktop') return { ok: false, text: `那里被 ${cover.ref} (${cover.title ?? cover.app ?? cover.kind}) 挡住了; 先把它最小化或关掉` }
@@ -396,6 +413,62 @@ export class Inspect {
       default:
         return { ok: false, text: `不支持 ${action}` }
     }
+  }
+
+  async #drag(window: InspectWindow, x: number, y: number, to: InspectArg): Promise<ActResult> {
+    if (typeof to !== 'string' || !Inspect.#parse(to)) return { ok: false, text: 'drag 要给放到哪里: 目标的 ref (像 w3.12, 或窗口 w3)' }
+    const cover = this.#cover(window, x, y)
+    if (cover) {
+      if (window.kind === 'desktop') return { ok: false, text: `那里被 ${cover.ref} (${cover.title ?? cover.app ?? cover.kind}) 挡住了; 先把它最小化或关掉` }
+      this.#focus(window)
+    }
+    const shell = this.#host.shell
+    const step = () => Inspect.#sleep(Inspect.DRAG_STEP_MS)
+    shell.inject({ type: 'move', x, y })
+    await step()
+    shell.inject({ type: 'down', x, y, button: LEFT })
+    await step()
+    const target = await this.#point(to)
+    if ('error' in target) {
+      shell.inject({ type: 'up', x, y, button: LEFT })
+      return { ok: false, text: `放不下: ${target.error}` }
+    }
+    for (let i = 1; i <= Inspect.DRAG_STEPS; i++) {
+      const t = i / Inspect.DRAG_STEPS
+      shell.inject({ type: 'move', x: x + (target.x - x) * t, y: y + (target.y - y) * t })
+      await step()
+    }
+    await step()
+    shell.inject({ type: 'up', x: target.x, y: target.y, button: LEFT })
+    return { ok: true, text: `从 ${Math.round(x)},${Math.round(y)} 拖到了 ${to} (${Math.round(target.x)},${Math.round(target.y)})` }
+  }
+
+  async #point(ref: string): Promise<Point> {
+    const parsed = Inspect.#parse(ref)
+    const window = parsed && this.windows().find((w) => w.ref === `w${parsed.window}`)
+    if (!parsed || !window) return { error: `没有 ${ref}` }
+    const [wx, wy, ww, wh] = window.rect
+    if (parsed.node === null) return this.#uncovered(window, wx + ww / 2, wy + wh / 2)
+    if (window.kind === 'native') {
+      const rect = this.#native.get(window.id)?.byNumber.get(parsed.node)?.rect
+      if (!rect) return { error: `${ref} 没有位置` }
+      return this.#uncovered(window, wx + rect[0] + rect[2] / 2, wy + rect[1] + rect[3] / 2)
+    }
+    const rpc = this.#host.web(window.id)
+    if (!rpc) return { error: `${window.ref} 的页面没在运行` }
+    const point = (await rpc.call('inspect', 'point', [parsed.node])) as PagePoint
+    return 'error' in point ? point : this.#uncovered(window, wx + point.x, wy + point.y)
+  }
+
+  #uncovered(window: InspectWindow, x: number, y: number): Point {
+    const cover = this.#cover(window, x, y)
+    return cover ? { error: `${window.ref} 的那里被 ${cover.ref} (${cover.title ?? cover.app ?? cover.kind}) 挡住了` } : { x, y }
+  }
+
+  static #values(arg: InspectArg): string[] | null {
+    if (typeof arg === 'string') return [arg]
+    if (Array.isArray(arg) && arg.every((v) => typeof v === 'string')) return [...arg]
+    return null
   }
 
   #cover(window: InspectWindow, x: number, y: number): InspectWindow | null {
@@ -442,8 +515,9 @@ export class Inspect {
     const rpc = this.#host.web(window.id)
     if (!rpc) throw Object.assign(new Error(`${window.ref} 的页面没在运行`), { status: 409 })
     const limit = Math.max(1, Math.min(Number(options.limit) || Inspect.LIMIT, Inspect.FIND_LIMIT))
-    const found = (await rpc.call('inspect', 'query', [selector, parsed?.node ?? -1, limit])) as PageQuery
-    const nodes = found.nodes.map((n): InspectMatch => ({ ...Inspect.#node(window, n.id, n, n.states, n.rect, []), tag: n.tag, visible: n.visible }))
+    const attributes = Array.isArray(options.attributes) ? options.attributes.filter((a): a is string => typeof a === 'string' && !!a).slice(0, 20) : []
+    const found = (await rpc.call('inspect', 'query', [selector, parsed?.node ?? -1, limit, attributes])) as PageQuery
+    const nodes = found.nodes.map((n): InspectMatch => ({ ...Inspect.#node(window, n.id, n, n.states, n.rect, []), tag: n.tag, visible: n.visible, ...(n.attributes && { attributes: n.attributes }) }))
     return { window: window.ref, count: found.count, nodes }
   }
 

@@ -24,6 +24,7 @@ export interface PageTree {
 export interface PageMatch extends PageNode {
   readonly tag: string
   readonly visible: boolean
+  readonly attributes?: Readonly<Record<string, string | null>>
 }
 
 export interface PageQuery {
@@ -50,13 +51,15 @@ export class PageInspect {
       case 'tree':
         return this.tree(Number(args[0] ?? -1), Number(args[1] ?? PageInspect.LIMIT), args[2] === true)
       case 'query':
-        return this.query(String(args[0] ?? ''), Number(args[1] ?? -1), Number(args[2] ?? PageInspect.LIMIT))
+        return this.query(String(args[0] ?? ''), Number(args[1] ?? -1), Number(args[2] ?? PageInspect.LIMIT), Array.isArray(args[3]) ? args[3].map(String) : [])
       case 'point':
         return this.point(Number(args[0]))
       case 'type':
         return this.type(Number(args[0]), String(args[1] ?? ''), args[2] === true)
       case 'focus':
         return this.focus(Number(args[0]))
+      case 'select':
+        return this.select(Number(args[0]), Array.isArray(args[1]) ? args[1].map(String) : [])
       case 'settle':
         return this.settle(Number(args[0]) || 200, Number(args[1]) || 3000)
       default:
@@ -71,7 +74,7 @@ export class PageInspect {
     return { ...parsed, nodes: parsed.nodes.map((n) => this.#moved(n)), width: window.innerWidth, height: window.innerHeight }
   }
 
-  query(selector: string, within: number, limit: number): PageQuery {
+  query(selector: string, within: number, limit: number, attributes: readonly string[] = []): PageQuery {
     if (!this.dom.semantics) throw new Error('this acde has no semantics')
     const document = this.page.document as unknown as Document
     const root: ParentNode | null = within >= 0 ? this.#element(within) : document
@@ -82,7 +85,13 @@ export class PageInspect {
     } catch (error) {
       throw new Error(`选择器 ${JSON.stringify(selector)} 不对: ${(error as Error)?.message ?? error}`)
     }
-    return { count: found.length, nodes: found.slice(0, Math.max(1, limit)).map((element) => this.#match(element)) }
+    return {
+      count: found.length,
+      nodes: found.slice(0, Math.max(1, limit)).map((element) => {
+        const match = this.#match(element)
+        return attributes.length ? { ...match, attributes: Object.fromEntries(attributes.map((name) => [name, element.getAttribute(name)])) } : match
+      }),
+    }
   }
 
   #match(element: Element): PageMatch {
@@ -168,6 +177,28 @@ export class PageInspect {
     if (text) this.host.insertText(text)
     const value = 'value' in target ? String((target as Field).value) : (target.textContent ?? '')
     return { value: (target as Field).type === 'password' ? '•••' : value.slice(0, 200) }
+  }
+
+  select(id: number, values: readonly string[]): { selected: string[] } {
+    const element = this.#element(id)
+    if (!element) throw new Error(`元素 ${id} 不在了`)
+    const window = this.page.window as unknown as typeof globalThis
+    const select = element instanceof window.HTMLSelectElement ? element : (element.closest('select') ?? element.querySelector('select'))
+    if (!select) throw new Error('这个元素不是 <select>, 里面也没有')
+    if (select.disabled) throw new Error('这个 <select> 是禁用的')
+    const options = [...select.options]
+    const picked = values.map((value) => {
+      const option = options.find((o) => o.value === value) ?? options.find((o) => o.label === value || o.text === value)
+      if (!option) throw new Error(`没有选项 ${JSON.stringify(value)} (有: ${options.map((o) => JSON.stringify(o.value === o.text ? o.value : `${o.value} ${o.text}`)).join(', ')})`)
+      if (option.disabled || (option.parentElement instanceof window.HTMLOptGroupElement && option.parentElement.disabled)) throw new Error(`选项 ${JSON.stringify(value)} 是禁用的`)
+      return option
+    })
+    if (!select.multiple && picked.length > 1) throw new Error(`这个 <select> 只能选一个, 给了 ${picked.length} 个`)
+    if (select.multiple) for (const option of options) option.selected = picked.includes(option)
+    else select.selectedIndex = picked[0]?.index ?? -1
+    select.dispatchEvent(new window.Event('input', { bubbles: true, composed: true }))
+    select.dispatchEvent(new window.Event('change', { bubbles: true }))
+    return { selected: [...select.selectedOptions].map((o) => (o as HTMLOptionElement).value) }
   }
 
   focus(id: number): boolean {
