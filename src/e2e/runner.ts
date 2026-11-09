@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import { cliEnv } from 'acde/launcher'
-import { SKIPPED } from '../paths.ts'
+import { E2E_FILE, SKIPPED } from '../paths.ts'
 import { Runtime } from '../runtime.ts'
 import { E2e } from './settings.ts'
 import { TestTsconfig } from './tsconfig.ts'
@@ -33,7 +33,7 @@ export class TestRunner {
       const path = resolve(cwd, target)
       if (!existsSync(path)) throw new Error(`${target}: no such file or directory`)
       if (statSync(path).isFile()) {
-        if (!/\.e2e\.[cm]?[jt]sx?$/.test(path)) throw new Error(`${target}: an e2e test file is named *.e2e.ts (or .tsx, .js, .mjs, .mts)`)
+        if (!E2E_FILE.test(path)) throw new Error(`${target}: an e2e test file is named *.e2e.ts (or .tsx, .js, .mjs, .mts)`)
         const project = E2e.project(path)
         if (!project) throw new Error(`${target}: no acde project (acde.config.jsonc) holds it`)
         suites.push({ file: path, project })

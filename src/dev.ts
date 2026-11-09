@@ -3,7 +3,7 @@ import { delimiter, resolve } from 'node:path'
 import { DevClient } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
-import { contains, SKIPPED } from './paths.ts'
+import { contains, E2E_FILE, SKIPPED } from './paths.ts'
 import { Runtime, type Child } from './runtime.ts'
 import { Sessions } from './sessions.ts'
 
@@ -179,7 +179,8 @@ export class DevSession {
   #changed(unit: Unit, file: string | null): void {
     if (file === null) return
     const path = resolve(unit.pkg.dir, file)
-    if (SKIPPED.has(file.split(/[\\/]/)[0] ?? '')) return
+    if (file.split(/[\\/]/).some((part) => SKIPPED.has(part)) || E2E_FILE.test(file)) return
+    if (DevSession.#directory(path)) return
     if (contains(unit.out, path)) return
     if (this.#units.some((other) => other !== unit && contains(unit.pkg.dir, other.pkg.dir) && contains(other.pkg.dir, path))) return
     clearTimeout(unit.timer)
@@ -187,6 +188,14 @@ export class DevSession {
       this.#dirty.add(unit)
       void this.#drain()
     }, SETTLE_MS)
+  }
+
+  static #directory(path: string): boolean {
+    try {
+      return statSync(path).isDirectory()
+    } catch {
+      return false
+    }
   }
 
   async #drain(): Promise<void> {

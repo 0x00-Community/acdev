@@ -283,6 +283,13 @@ describe('acde dev with a stand-in acdert', () => {
       expect(screen.stdout.trim()).toBe(join(base, 'all.png'))
       expect(readFileSync(join(base, 'all.png')).subarray(1, 4).toString()).toBe('PNG')
 
+      mkdirSync(join(alpha, 'e2e/__screenshots__/a.e2e.ts'), { recursive: true })
+      writeFileSync(join(alpha, 'e2e/__screenshots__/a.e2e.ts/look-darwin.png'), 'baseline')
+      writeFileSync(join(alpha, 'e2e/a.e2e.ts'), 'export {}')
+      mkdirSync(join(alpha, 'nested/node_modules'), { recursive: true })
+      writeFileSync(join(alpha, 'nested/node_modules/x.js'), '')
+      await Bun.sleep(600)
+      expect(dev.entries().filter((e) => e.got?.['type'] === 'reload')).toEqual([])
       writeFileSync(join(alpha, 'index.html'), '<!doctype html><title>x</title><p>changed</p>')
       await until('a reload of alpha', () => dev.entries().some((e) => e.got?.['type'] === 'reload'))
       await Bun.sleep(400)
