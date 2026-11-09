@@ -42,12 +42,14 @@ mod motion;
 mod pace;
 mod plan;
 mod shortcut;
+mod state;
 
 pub use event::*;
 pub use motion::*;
 pub use pace::Pacer;
 pub use plan::*;
 pub use shortcut::*;
+pub use state::*;
 
 use std::collections::BTreeMap;
 use std::fmt;

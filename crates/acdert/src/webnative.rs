@@ -83,6 +83,7 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         "wait" => wait,
         "requestFrame" => request_frame,
         "requestMode" => request_mode,
+        "requestState" => request_state,
         "setGrabHint" => set_grab_hint,
         "setBackdrop" => set_backdrop,
         "requestActivate" => request_activate,
@@ -163,7 +164,8 @@ pub(crate) fn event_object<'s>(scope: &mut v8::PinScope<'s, '_>, event: Event) -
             fields.push((name, v8::Number::new(scope, value).into()));
         }
     }
-    for (name, value) in [("key", &event.key), ("title", &event.title), ("appId", &event.app_id)] {
+    let strings = [("key", &event.key), ("title", &event.title), ("appId", &event.app_id), ("state", &event.state), ("previous", &event.previous)];
+    for (name, value) in strings {
         if let Some(value) = value {
             fields.push((name, bind::string(scope, value).into()));
         }
@@ -223,6 +225,16 @@ fn request_mode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _
         other => return bind::throw_type_error(scope, &format!("requestMode: no mode {other}")),
     };
     with_surface(scope, |surface| surface.request_mode(mode));
+}
+
+fn request_state(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let name = bind::arg_string(scope, &args, 0);
+    match name.parse::<acde_hostwin::WindowState>() {
+        Ok(state) => {
+            with_surface(scope, |surface| surface.request_state(state as u32));
+        }
+        Err(e) => bind::throw_type_error(scope, &format!("requestState: {e}")),
+    }
 }
 
 fn rect(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments) -> [i32; 4] {

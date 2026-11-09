@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use acde_model::{Combo, Event, Inbox, Injected, Mode, Rect};
+use acde_model::{Combo, Event, Inbox, Injected, Mode, Rect, WindowState};
 use acde_render::FrameButton;
 
 use crate::keys;
@@ -271,7 +271,16 @@ impl App {
             let mut state = server.state();
             let rescaled = state.screen[2] != scale;
             state.screen = [screen[0], screen[1], scale];
-            let full: Vec<u32> = state.entries.iter().filter(|(id, e)| **id == 0 || e.mode == Mode::Fullscreen).map(|(&id, _)| id).collect();
+            let (whole, work) = (state.screen_rect(), state.work_area());
+            let full: Vec<(u32, [f64; 4])> = state
+                .entries
+                .iter()
+                .filter_map(|(&id, e)| match e.state {
+                    _ if id == 0 || e.mode == Mode::Fullscreen || e.state == WindowState::Fullscreen => Some((id, whole)),
+                    WindowState::Filled => Some((id, work)),
+                    _ => None,
+                })
+                .collect();
             let links: Vec<_> = if rescaled {
                 state.entries.iter().filter(|(_, e)| !e.panel).filter_map(|(_, e)| e.link.clone().map(|l| (l, state.content(e)))).collect()
             } else {
@@ -285,8 +294,8 @@ impl App {
         for (link, (w, h)) in links {
             link.resized(w, h, scale);
         }
-        for id in full {
-            server.set_rect(id, [0.0, 0.0, screen[0], screen[1]]);
+        for (id, rect) in full {
+            server.set_rect(id, rect);
         }
         server.broker.push(Event {
             kind: "output".into(),
@@ -416,6 +425,16 @@ impl App {
         [r.x, r.y, r.w, r.h]
     }
 
+    fn frame_pressed(server: &Server, id: u32, pressed: FrameButton) {
+        let fullscreen = server.state().entries.get(&id).is_some_and(|e| e.mode == Mode::Fullscreen || e.state == WindowState::Fullscreen);
+        match pressed {
+            FrameButton::Close => server.event(id, Event { kind: "framebutton".into(), key: Some(pressed.key(fullscreen).into()), ..Default::default() }),
+            FrameButton::Minimize => crate::output::surface::request_state(id, Some(WindowState::Minimized)),
+            FrameButton::Fullscreen if fullscreen => crate::output::surface::request_state(id, None),
+            FrameButton::Fullscreen => crate::output::surface::request_state(id, Some(WindowState::Fullscreen)),
+        }
+    }
+
     fn frame_button(&self, server: &Server, id: u32) -> Option<FrameButton> {
         let state = server.state();
         let e = state.entries.get(&id)?;
@@ -425,7 +444,7 @@ impl App {
     fn grab(&self, server: &Server, entry: u32) -> Option<Drag> {
         let state = server.state();
         let e = state.entries.get(&entry)?;
-        if e.desktop || e.panel || e.owner.is_some() {
+        if e.desktop || e.panel || e.owner.is_some() || !e.state.moves() {
             return None;
         }
         let (x, y) = (self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1]);
@@ -475,8 +494,7 @@ impl App {
                 && let Some((id, pressed)) = self.frame_press.take()
             {
                 if self.frame_button(server, id) == Some(pressed) {
-                    let fullscreen = server.state().entries.get(&id).is_some_and(|e| e.mode == Mode::Fullscreen);
-                    server.event(id, Event { kind: "framebutton".into(), key: Some(pressed.key(fullscreen).into()), ..Default::default() });
+                    Self::frame_pressed(server, id, pressed);
                 }
                 return;
             }

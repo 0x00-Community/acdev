@@ -187,6 +187,7 @@ pub(crate) struct App {
     pub(crate) logical: (u32, u32),
     pub(crate) scale: f64,
     pub(crate) configured: bool,
+    pub(crate) state: acde_model::WindowState,
     pub(crate) active: bool,
     pub(crate) dirty: bool,
     pub(crate) pacer: Pacer,
@@ -297,6 +298,7 @@ impl App {
             logical: (0, 0),
             scale: 1.0,
             configured: false,
+            state: acde_model::WindowState::Normal,
             active: false,
             dirty: false,
             pacer: Pacer::new(None),
@@ -376,6 +378,29 @@ impl App {
     fn physical(&self) -> (u32, u32) {
         let (w, h) = self.content();
         ((f64::from(w) * self.scale).round() as u32, (f64::from(h) * self.scale).round() as u32)
+    }
+
+    fn request_state(&mut self, state: u32) {
+        use acde_model::WindowState as S;
+        match S::try_from(state) {
+            Ok(S::Fullscreen) => self.window.set_fullscreen(None),
+            Ok(S::Filled) => self.window.set_maximized(),
+            Ok(S::Minimized) => self.window.set_minimized(),
+            Ok(S::Normal) => {
+                self.window.unset_fullscreen();
+                self.window.unset_maximized();
+            }
+            Err(_) => log::warn!("no window state {state}"),
+        }
+    }
+
+    pub(crate) fn tell_state(&mut self, state: acde_model::WindowState) {
+        if state == self.state {
+            return;
+        }
+        let previous = std::mem::replace(&mut self.state, state);
+        let (state, previous) = (Some(state.as_str().to_owned()), Some(previous.as_str().to_owned()));
+        self.events.push(Event { kind: "state".into(), state, previous, ..Default::default() });
     }
 
     pub(crate) fn tell_size(&mut self) {
@@ -648,6 +673,7 @@ impl App {
                 Ok(mode) => self.acde.request_mode(mode as u32),
                 Err(_) => log::warn!("no window mode {mode}"),
             },
+            Some(C::State(state)) => self.request_state(state),
             Some(C::GrabHint(rect, edges)) => self.set_page_hint(rect, edges),
             Some(C::Backdrop(rect, [radius, blur, saturate, brightness])) => {
                 let [x, y, w, h] = self.page_backdrop(rect);

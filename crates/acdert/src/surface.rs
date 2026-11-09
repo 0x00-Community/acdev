@@ -71,6 +71,7 @@ impl Surface {
         read_clipboard(reply: Box<dyn FnOnce(String) + Send>) => C::ReadClipboard(reply);
         start_drag(data: HashMap<String, String>, icon: Option<DragImage>) => C::StartDrag(data, icon);
         request_mode(mode: u32) => C::Mode(mode);
+        request_state(state: u32) => C::State(state);
         set_grab_hint(rect: [i32; 4], edges: u32) => C::GrabHint(rect, edges);
         set_backdrop(rect: [i32; 4], effect: [f64; 4]) => C::Backdrop(rect, effect);
         request_activate() => C::Activate;

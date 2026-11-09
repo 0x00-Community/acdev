@@ -3,7 +3,7 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use acde_model::{Binding, Combo, Event, Inbox, Injected, Mode, Scope, Shortcuts, Waker};
+use acde_model::{Binding, Change, Combo, Event, Inbox, Injected, Mode, Restore, Scope, Shortcuts, Waker, WindowState};
 
 use crate::app::server;
 use crate::output::compose::Layer;
@@ -31,6 +31,7 @@ pub struct Grant {
 pub struct WindowInfo {
     pub id: u32,
     pub mode: Mode,
+    pub state: WindowState,
     pub rect: [f64; 4],
     pub z: u64,
     pub focus: bool,
@@ -46,7 +47,8 @@ pub(crate) struct Entry {
     pub mode: Mode,
     pub rect: [f64; 4],
     pub placed: bool,
-    pub before_fullscreen: Option<[f64; 4]>,
+    pub state: WindowState,
+    pub restore: Restore,
     pub title: String,
     pub hidden: bool,
     pub opened: bool,
@@ -83,6 +85,10 @@ impl Entry {
         hints
     }
 
+    pub fn shown(&self) -> bool {
+        self.opened && !self.hidden && self.state.shown()
+    }
+
     pub fn bar(&self) -> acde_render::Bar {
         acde_render::Bar {
             title: self.title.clone(),
@@ -90,7 +96,7 @@ impl Entry {
             height: self.frame,
             scale: 1.0,
             style: acde_render::FrameStyle::current(),
-            fullscreen: self.mode == Mode::Fullscreen,
+            fullscreen: self.mode == Mode::Fullscreen || self.state == WindowState::Fullscreen,
         }
     }
 }
@@ -143,12 +149,8 @@ impl State {
         let mut found = None;
         let mut current = id;
         for _ in 0..self.entries.len() {
-            let child = self
-                .entries
-                .iter()
-                .filter(|(_, e)| e.parent == Some(current) && e.modal && e.opened && !e.hidden)
-                .max_by_key(|(_, e)| e.z)
-                .map(|(&child, _)| child);
+            let child =
+                self.entries.iter().filter(|(_, e)| e.parent == Some(current) && e.modal && e.shown()).max_by_key(|(_, e)| e.z).map(|(&child, _)| child);
             match child {
                 Some(child) if child != id => {
                     found = Some(child);
@@ -231,7 +233,7 @@ impl State {
     }
 
     pub fn layers(&self) -> Vec<Layer> {
-        let mut shown: Vec<(&u32, &Entry)> = self.entries.iter().filter(|(_, e)| e.opened && !e.hidden).collect();
+        let mut shown: Vec<(&u32, &Entry)> = self.entries.iter().filter(|(_, e)| e.shown()).collect();
         shown.sort_by_key(|(id, e)| Self::rank(**id, e));
         shown.into_iter().map(|(&id, e)| Layer { id, rect: e.rect, backdrop: e.backdrop }).collect()
     }
@@ -267,6 +269,23 @@ impl State {
     pub fn content(&self, e: &Entry) -> (u32, u32) {
         let [x, y, w, h] = e.rect;
         self.pixels([x, y, w, (h - e.frame).max(1.0)])
+    }
+
+    pub fn screen_rect(&self) -> [f64; 4] {
+        [0.0, 0.0, self.screen[0], self.screen[1]]
+    }
+
+    pub fn work_area(&self) -> [f64; 4] {
+        self.screen_rect()
+    }
+
+    pub fn change_state(&mut self, id: u32, to: Option<WindowState>) -> Option<Change> {
+        let (screen, work) = (self.screen_rect(), self.work_area());
+        let entry = self.entries.get_mut(&id).filter(|e| !e.desktop && !e.panel)?;
+        let to = to.unwrap_or_else(|| entry.restore.back(entry.state));
+        let change = entry.restore.change(entry.mode, entry.state, to, entry.rect, work, screen)?;
+        entry.state = change.state;
+        Some(change)
     }
 
     pub fn inbox(&self, id: u32) -> Option<Arc<Inbox>> {
@@ -332,6 +351,9 @@ impl Shell {
         let Some(entry) = state.entries.get_mut(&window) else {
             return;
         };
+        if !entry.state.moves() {
+            return;
+        }
         let rect = match entry.mode {
             Mode::Fullscreen => return,
             Mode::Fixed => [rect[0], rect[1], entry.rect[2], entry.rect[3]],
@@ -342,10 +364,21 @@ impl Shell {
     }
 
     pub fn focus(&self, window: u32) {
-        if let Some(e) = self.state().entries.get_mut(&window) {
-            e.hidden = false;
+        let minimized = match self.state().entries.get_mut(&window) {
+            Some(e) => {
+                e.hidden = false;
+                e.state == WindowState::Minimized
+            }
+            None => false,
+        };
+        if minimized {
+            crate::output::surface::request_state(window, None);
         }
         server().expect("hostwin").activate(window);
+    }
+
+    pub fn set_state(&self, window: u32, state: WindowState) {
+        crate::output::surface::request_state(window, Some(state));
     }
 
     pub fn hide(&self, window: u32, hidden: bool) {
@@ -405,6 +438,7 @@ impl Shell {
             .map(|(&id, e)| WindowInfo {
                 id,
                 mode: e.mode,
+                state: e.state,
                 rect: e.rect,
                 z: e.z,
                 focus: state.focus == Some(id),
@@ -458,6 +492,14 @@ mod tests {
 
     fn screen() -> State {
         State { screen: [1000.0, 800.0, 1.0], ..State::default() }
+    }
+
+    fn apply(state: &mut State, id: u32, to: Option<WindowState>) -> Option<WindowState> {
+        let change = state.change_state(id, to)?;
+        if let Some(rect) = change.rect {
+            state.entries.get_mut(&id).expect("changed").rect = rect;
+        }
+        Some(change.state)
     }
 
     fn open(state: &mut State, grant: Grant) -> u32 {
@@ -515,6 +557,45 @@ mod tests {
         assert_eq!(s.modal_child(parent), None);
         assert_eq!((s.entries[&inner].parent, s.entries[&inner].modal), (None, false));
         assert_eq!(s.hit(10.0, 10.0).map(|h| (h.target, h.blocked)), Some((parent, false)));
+    }
+
+    #[test]
+    fn states_change_rects_and_restore_them() {
+        let mut s = screen();
+        let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 300.0, 200.0]), ..Grant::default() });
+        assert_eq!(apply(&mut s, w, Some(WindowState::Filled)), Some(WindowState::Filled));
+        assert_eq!(s.entries[&w].rect, [0.0, 0.0, 1000.0, 800.0]);
+        assert!(apply(&mut s, w, Some(WindowState::Fullscreen)).is_some());
+        assert_eq!(apply(&mut s, w, None), Some(WindowState::Filled));
+        assert!(apply(&mut s, w, Some(WindowState::Normal)).is_some());
+        assert_eq!(s.entries[&w].rect, [100.0, 100.0, 300.0, 200.0]);
+    }
+
+    #[test]
+    fn a_minimized_window_is_not_drawn_or_hit_and_comes_back() {
+        let mut s = screen();
+        let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 300.0, 200.0]), ..Grant::default() });
+        assert!(apply(&mut s, w, Some(WindowState::Minimized)).is_some());
+        assert!(s.layers().iter().all(|l| l.id != w));
+        assert!(s.hit(150.0, 150.0).is_none());
+        assert_eq!(apply(&mut s, w, None), Some(WindowState::Normal));
+        assert!(s.layers().iter().any(|l| l.id == w));
+    }
+
+    #[test]
+    fn desktops_panels_and_fixed_windows_refuse_fill_and_full_screen() {
+        let mut s = screen();
+        let desktop = open(&mut s, Grant { desktop: true, ..Grant::default() });
+        let panel = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 0.0, 100.0, 30.0]), ..Grant::default() });
+        let fixed = open(&mut s, Grant { mode: Some(Mode::Fixed), rect: Some([10.0, 10.0, 100.0, 100.0]), ..Grant::default() });
+        for id in [desktop, panel] {
+            for state in WindowState::ALL {
+                assert!(apply(&mut s, id, Some(*state)).is_none(), "{id} {state:?}");
+            }
+        }
+        assert!(apply(&mut s, fixed, Some(WindowState::Filled)).is_none());
+        assert!(apply(&mut s, fixed, Some(WindowState::Fullscreen)).is_none());
+        assert_eq!(s.entries[&fixed].rect, [10.0, 10.0, 100.0, 100.0]);
     }
 
     #[test]

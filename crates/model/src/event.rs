@@ -26,6 +26,8 @@ pub struct Event {
     pub data: Option<std::collections::HashMap<String, String>>,
     pub parent: Option<u32>,
     pub stamp: Option<f64>,
+    pub state: Option<String>,
+    pub previous: Option<String>,
 }
 
 impl Event {

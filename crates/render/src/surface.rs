@@ -13,6 +13,7 @@ pub enum SurfaceCommand {
     ReadClipboard(Box<dyn FnOnce(String) + Send>),
     StartDrag(HashMap<String, String>, Option<DragImage>),
     Mode(u32),
+    State(u32),
     GrabHint([i32; 4], u32),
     Backdrop([i32; 4], [f64; 4]),
     Activate,

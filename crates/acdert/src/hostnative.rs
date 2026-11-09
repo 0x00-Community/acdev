@@ -50,6 +50,7 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "release" => release,
         "focus" => focus,
         "hide" => hide,
+        "setState" => set_state,
         "close" => close,
         "launch" => launch,
         "screenshot" => screenshot,
@@ -164,6 +165,16 @@ fn hide(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::Re
     with(scope, |shell| shell.hide(window, hidden));
 }
 
+fn set_state(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = bind::arg_f64(scope, &args, 0) as u32;
+    match bind::arg_string(scope, &args, 1).parse::<acde_hostwin::WindowState>() {
+        Ok(state) => {
+            with(scope, |shell| shell.set_state(window, state));
+        }
+        Err(e) => bind::throw_type_error(scope, &format!("setState: {e}")),
+    }
+}
+
 fn launch(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let argv = bind::strings(scope, args.get(0)).unwrap_or_default();
     let options = v8::Local::<v8::Object>::try_from(args.get(1)).ok();
@@ -227,6 +238,7 @@ fn windows(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v
         let window = num(scope, f64::from(w.id));
         let canvas = num(scope, 0.0);
         let mode = bind::string(scope, w.mode.as_str());
+        let state = bind::string(scope, w.state.as_str());
         let [x, y, width, height] = [num(scope, w.rect[0]), num(scope, w.rect[1]), num(scope, w.rect[2]), num(scope, w.rect[3])];
         let z = num(scope, w.z as f64);
         let focus = v8::Boolean::new(scope, w.focus);
@@ -242,6 +254,7 @@ fn windows(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v
             ("window", window),
             ("canvas", canvas),
             ("mode", mode.into()),
+            ("state", state.into()),
             ("x", x),
             ("y", y),
             ("width", width),

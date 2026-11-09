@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
-use acde_model::{Event, Inbox, Mode, Waker};
+use acde_model::{Event, Inbox, Mode, Waker, WindowState};
 use acde_render::{RenderHandle, SurfaceCommand};
 
 use crate::app::server;
@@ -56,35 +56,57 @@ pub struct Surface {
 
 pub(crate) fn set_mode(id: u32, mode: Mode) {
     let Some(server) = server() else { return };
-    let (was, rect, link) = {
+    let current = {
         let mut state = server.state();
-        let [sw, sh, _] = state.screen;
         let Some(entry) = state.entries.get_mut(&id) else { return };
-        if entry.desktop || entry.mode == mode {
+        if entry.desktop {
             return;
         }
-        let was = entry.mode;
-        entry.mode = mode;
-        let rect = if mode == Mode::Fullscreen {
-            entry.before_fullscreen = Some(entry.rect);
-            Some([0.0, 0.0, sw, sh])
-        } else if was == Mode::Fullscreen {
-            entry.before_fullscreen.take()
-        } else {
-            None
-        };
-        (was, rect, entry.link.clone().filter(|_| entry.frame > 0.0))
+        if mode != Mode::Fullscreen && entry.mode != Mode::Fullscreen {
+            entry.mode = mode;
+        }
+        entry.state
     };
-    if let Some(rect) = rect {
+    match mode {
+        Mode::Fullscreen => request_state(id, Some(WindowState::Fullscreen)),
+        _ if current == WindowState::Fullscreen => request_state(id, None),
+        _ => {}
+    }
+}
+
+pub(crate) fn request_state(id: u32, to: Option<WindowState>) {
+    let Some(server) = server() else { return };
+    let (change, link, focused) = {
+        let mut state = server.state();
+        let focused = state.focus == Some(id);
+        let Some(change) = state.change_state(id, to) else { return };
+        let link = state.entries.get(&id).and_then(|e| e.link.clone().filter(|_| e.frame > 0.0));
+        (change, link, focused)
+    };
+    if let Some(rect) = change.rect {
         server.set_rect(id, rect);
     }
     if let Some(link) = link {
-        link.send(Msg::Fullscreen(mode == Mode::Fullscreen));
+        link.send(Msg::Fullscreen(change.state == WindowState::Fullscreen));
     }
-    if mode == Mode::Fullscreen {
-        server.broker.push(Event { kind: "windowfullscreen".into(), window: Some(id), ..Default::default() });
-    } else if was == Mode::Fullscreen {
-        server.broker.push(Event { kind: "windowunfullscreen".into(), window: Some(id), ..Default::default() });
+    if change.state == WindowState::Minimized {
+        if focused {
+            server.focus_top();
+        }
+    } else if change.previous == WindowState::Minimized {
+        server.activate(id);
+    }
+    server.relayout();
+    let (state, previous) = (Some(change.state.as_str().to_owned()), Some(change.previous.as_str().to_owned()));
+    server.event(id, Event { kind: "state".into(), state: state.clone(), previous: previous.clone(), ..Default::default() });
+    server.broker.push(Event { kind: "windowstate".into(), window: Some(id), state, previous, ..Default::default() });
+    let legacy = match (change.previous, change.state) {
+        (_, WindowState::Fullscreen) => Some("windowfullscreen"),
+        (WindowState::Fullscreen, _) => Some("windowunfullscreen"),
+        _ => None,
+    };
+    for kind in legacy.into_iter().chain((change.state == WindowState::Minimized).then_some("windowminimize")) {
+        server.broker.push(Event { kind: kind.into(), window: Some(id), ..Default::default() });
     }
 }
 
@@ -159,6 +181,11 @@ impl Surface {
             C::Mode(mode) => {
                 if let Ok(mode) = Mode::try_from(mode) {
                     set_mode(self.window, mode);
+                }
+            }
+            C::State(state) => {
+                if let Ok(state) = WindowState::try_from(state) {
+                    request_state(self.window, Some(state));
                 }
             }
             C::GrabHint(rect, edges) => self.set_grab_hint(rect, edges),
@@ -327,7 +354,7 @@ impl Drop for Surface {
         if entry.desktop || entry.panel || entry.mode == Mode::Pinned {
             return;
         }
-        let [x, y, w, h] = entry.before_fullscreen.unwrap_or(entry.rect);
+        let [x, y, w, h] = entry.restore.normal_rect(entry.state, entry.rect);
         server.broker.push(Event {
             kind: "windowgone".into(),
             window: Some(self.window),

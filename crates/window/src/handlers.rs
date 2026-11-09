@@ -97,6 +97,11 @@ impl WindowHandler for App {
         self.logical = if size.0 == 0 || size.1 == 0 { (800, 600) } else { size };
         self.configured = true;
         self.decorate(configure.is_fullscreen());
+        self.tell_state(match (configure.is_fullscreen(), configure.is_maximized()) {
+            (true, _) => acde_model::WindowState::Fullscreen,
+            (false, true) => acde_model::WindowState::Filled,
+            _ => acde_model::WindowState::Normal,
+        });
         self.tell_size();
         self.active = configure.is_activated();
         self.paint();

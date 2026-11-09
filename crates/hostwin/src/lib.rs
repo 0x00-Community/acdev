@@ -6,7 +6,7 @@ mod platform;
 mod shell;
 mod system;
 
-pub use acde_model::{Event, Inbox, InjectEvent, Injected, Mode, Waker};
+pub use acde_model::{Event, Inbox, InjectEvent, Injected, Mode, Waker, WindowState};
 pub use dev::respond as dev_respond;
 pub use output::surface::{Shot, Surface};
 pub use shell::{Grant, Shell, WindowInfo};
