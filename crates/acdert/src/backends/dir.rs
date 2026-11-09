@@ -5,28 +5,23 @@ use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LocalFree, STILL_ACTIVE};
-use windows_sys::Win32::Security::Authorization::{
-    ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetNamedSecurityInfoW,
-    SDDL_REVISION_1, SE_FILE_OBJECT,
-};
-use windows_sys::Win32::Security::{
-    DACL_SECURITY_INFORMATION, GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
-};
+use windows_sys::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+use windows_sys::Win32::Security::{GetTokenInformation, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser};
 use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetExitCodeProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
 
 pub const SUN_PATH: usize = 108;
 
-fn wide(path: &Path) -> Vec<u16> {
+pub fn wide(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain(Some(0)).collect()
 }
 
-fn os_error(what: &str) -> io::Error {
+pub fn os_error(what: &str) -> io::Error {
     let error = io::Error::last_os_error();
     io::Error::new(error.kind(), format!("{what}: {error}"))
 }
 
-struct Local<T>(*mut T);
+pub struct Local<T>(pub *mut T);
 
 impl<T> Drop for Local<T> {
     fn drop(&mut self) {
@@ -36,7 +31,7 @@ impl<T> Drop for Local<T> {
     }
 }
 
-fn from_wide(text: *const u16) -> String {
+pub fn from_wide(text: *const u16) -> String {
     let len = (0..).take_while(|&i| unsafe { *text.add(i) } != 0).count();
     String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) })
 }
@@ -77,23 +72,6 @@ pub fn create_protected(path: &Path, sddl: &str) -> io::Result<()> {
         return Err(os_error(&format!("cannot create {}", path.display())));
     }
     Ok(())
-}
-
-#[cfg(test)]
-pub fn dacl(path: &Path) -> io::Result<String> {
-    let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
-    let status = unsafe {
-        GetNamedSecurityInfoW(wide(path).as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, null_mut(), null_mut(), null_mut(), null_mut(), &mut descriptor)
-    };
-    let descriptor = Local(descriptor);
-    if status != 0 {
-        return Err(io::Error::from_raw_os_error(status as i32));
-    }
-    let mut text = Local(null_mut::<u16>());
-    if unsafe { ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor.0, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text.0, null_mut()) } == 0 {
-        return Err(os_error("ConvertSecurityDescriptorToStringSecurityDescriptorW"));
-    }
-    Ok(from_wide(text.0))
 }
 
 pub fn base(xdg_runtime: Option<&OsStr>, local_app_data: Option<&OsStr>) -> Option<PathBuf> {

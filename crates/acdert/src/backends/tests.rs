@@ -111,7 +111,7 @@ fn the_socket_directory_is_only_for_system_and_the_user() {
     std::fs::create_dir_all(&parent).expect("parent");
     let made = parent.join(dir::generation_name());
     dir::create_protected(&made, &dir::sddl(&sid)).expect("created");
-    let dacl = dir::dacl(&made).expect("the DACL");
+    let dacl = read_dacl(&made).expect("the DACL");
     assert!(dacl.starts_with("D:P"), "protected from inheritance: {dacl}");
     let mut aces: Vec<&str> = dacl.trim_start_matches("D:P").split_inclusive(')').collect();
     aces.sort();
@@ -119,7 +119,7 @@ fn the_socket_directory_is_only_for_system_and_the_user() {
     want.sort();
     assert_eq!(aces, want, "{dacl}");
     std::fs::write(made.join("3000.sock"), b"").expect("a file inside");
-    let inner = dir::dacl(&made.join("3000.sock")).expect("the file's DACL");
+    let inner = read_dacl(&made.join("3000.sock")).expect("the file's DACL");
     assert!(inner.contains(&format!("(A;ID;FA;;;{sid})")) && inner.contains("(A;ID;FA;;;SY)") && inner.matches('(').count() == 2, "{inner}");
     assert!(dir::create_protected(&made, &dir::sddl(&sid)).is_err(), "an existing directory is not reused");
     std::fs::remove_dir_all(&parent).ok();
@@ -214,4 +214,26 @@ fn stop_all_ends_backends_and_removes_their_directories() {
     assert!(!dir.exists(), "its directory is gone");
     assert!(channel::lookup("stop-all.test").is_none());
     assert!(!running().contains_key(&pid));
+}
+
+fn read_dacl(path: &std::path::Path) -> std::io::Result<String> {
+    use dir::{Local, from_wide, os_error, wide};
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW, SDDL_REVISION_1, SE_FILE_OBJECT,
+    };
+    use windows_sys::Win32::Security::{DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR};
+    let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
+    let status = unsafe {
+        GetNamedSecurityInfoW(wide(path).as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, null_mut(), null_mut(), null_mut(), null_mut(), &mut descriptor)
+    };
+    let descriptor = Local(descriptor);
+    if status != 0 {
+        return Err(std::io::Error::from_raw_os_error(status as i32));
+    }
+    let mut text = Local(null_mut::<u16>());
+    if unsafe { ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor.0, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text.0, null_mut()) } == 0 {
+        return Err(os_error("ConvertSecurityDescriptorToStringSecurityDescriptorW"));
+    }
+    Ok(from_wide(text.0))
 }
