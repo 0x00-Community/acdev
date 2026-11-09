@@ -75,6 +75,16 @@ pub(super) fn windows_within(path: &std::path::Path, root: &str) -> Option<Strin
     Some(rest?.join("/"))
 }
 
+#[cfg(windows)]
+pub(super) fn same_folder(a: &str, b: &str) -> bool {
+    windows_within(std::path::Path::new(a), b).is_some_and(|rest| rest.is_empty())
+}
+
+#[cfg(not(windows))]
+pub(super) fn same_folder(a: &str, b: &str) -> bool {
+    a == b
+}
+
 impl NodePath for str {
     fn is_absolute(&self) -> bool {
         self.starts_with('/')

@@ -1,5 +1,6 @@
 #[cfg(not(windows))]
 use super::path::NodePath;
+use super::path::same_folder;
 #[cfg(windows)]
 use super::path::windows_directory;
 use crate::failure::{Failure, Outcome};
@@ -72,22 +73,25 @@ impl Grants {
             return Err(Failure::invalid("folders are granted to an app"));
         }
         let path = folder(path, "granted")?;
-        self.with(owner, |roots| {
-            if !roots.contains(&path) {
-                roots.push(path.clone());
-                self.save(owner, roots);
+        Ok(self.with(owner, |roots| {
+            if let Some(known) = roots.iter().find(|root| same_folder(root, &path)) {
+                return known.clone();
             }
-        });
-        Ok(path)
+            roots.push(path.clone());
+            self.save(owner, roots);
+            path
+        }))
     }
 
     pub fn remove(&self, owner: &str, path: &str) -> Outcome<()> {
         if !Self::valid_owner(owner) {
             return Err(Failure::invalid("only an app can revoke a folder granted to it"));
         }
+        #[cfg(windows)]
+        let path = native_folder(path).unwrap_or_else(|| path.to_owned());
         self.with(owner, |roots| {
             let before = roots.len();
-            roots.retain(|root| root != path);
+            roots.retain(|root| !same_folder(root, &path));
             if roots.len() == before {
                 return Err(Failure::http(404, "not a folder granted to this app"));
             }
@@ -149,6 +153,21 @@ mod tests {
         assert_eq!(again.remove("vault", "/elsewhere").unwrap_err().status, 404);
         again.remove("vault", &picked).unwrap();
         assert!(Grants::new(Some(state)).of("vault").is_empty());
+        _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_grants_ignore_case_and_separators() {
+        let dir = scratch();
+        let picked = dir.join("picked").to_string_lossy().into_owned();
+        let grants = Grants::new(None);
+        assert_eq!(grants.add("vault", &picked).unwrap(), picked);
+        assert_eq!(grants.add("vault", &picked.to_uppercase()).unwrap(), picked);
+        assert_eq!(grants.of("vault"), std::slice::from_ref(&picked));
+        assert_eq!(grants.remove("vault", &format!("{}2", picked.to_lowercase())).unwrap_err().status, 404);
+        grants.remove("vault", &format!("{}/", picked.replace('\\', "/").to_lowercase())).unwrap();
+        assert!(grants.of("vault").is_empty());
         _ = std::fs::remove_dir_all(dir);
     }
 

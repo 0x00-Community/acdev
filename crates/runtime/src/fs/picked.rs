@@ -1,5 +1,7 @@
 use super::FsError;
+#[cfg(not(windows))]
 use super::path::NodePath;
+use super::path::same_folder;
 use super::workspace::{Contents, EntryKind, FinderRoot, WorkspaceFs, WriteOptions};
 use crate::failure::{Errno, Failure, Outcome};
 use crate::sync::Locked;
@@ -16,9 +18,10 @@ impl PickedFolders {
     pub fn add(&self, path: &str) -> Picked<String> {
         let path = super::grants::folder(path, "picked")?;
         let mut roots = self.roots.locked();
-        if !roots.iter().any(|root| root.path == path) {
-            roots.push(WorkspaceFs::granted(&path));
+        if let Some(known) = roots.iter().find(|root| same_folder(&root.path, &path)) {
+            return Ok(known.path.clone());
         }
+        roots.push(WorkspaceFs::granted(&path));
         Ok(path)
     }
 
@@ -26,7 +29,7 @@ impl PickedFolders {
         let roots = self.roots.locked();
         roots
             .iter()
-            .filter_map(|root| path.within(&root.path).map(|relative| (root.clone(), relative.to_owned())))
+            .filter_map(|root| within(path, &root.path).map(|relative| (root.clone(), relative)))
             .max_by_key(|(root, _)| root.path.len())
             .ok_or_else(|| Failure::http(403, "not inside a folder the user picked"))
     }
@@ -59,6 +62,41 @@ impl PickedFolders {
         let (root, relative) = self.locate(path)?;
         WorkspaceFs::write_file_in(&root, &relative, data, &WriteOptions::default())?;
         Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn within(path: &str, root: &str) -> Option<String> {
+    super::path::windows_within(std::path::Path::new(path), root)
+}
+
+#[cfg(not(windows))]
+fn within(path: &str, root: &str) -> Option<String> {
+    path.within(root).map(str::to_owned)
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn picked_folders_match_ignoring_case_and_separators() {
+        let base = std::env::temp_dir().join(format!("acde-picked-case-{}", std::process::id()));
+        let picked = base.join("Picked");
+        std::fs::create_dir_all(picked.join("Sub")).unwrap();
+        std::fs::create_dir_all(base.join("Picked2")).unwrap();
+        std::fs::write(picked.join("Sub").join("Note.md"), b"n").unwrap();
+        let folders = PickedFolders::default();
+        let root = folders.add(picked.to_str().unwrap()).unwrap();
+        let lower = root.to_lowercase();
+        let upper_slashes = root.replace('\\', "/").to_uppercase();
+        assert_eq!(folders.read(&format!("{lower}\\sub\\note.md")).unwrap().unwrap().data, b"n");
+        assert_eq!(folders.read(&format!("{upper_slashes}/Sub/Note.md")).unwrap().unwrap().data, b"n");
+        assert_eq!(folders.entries(&root.to_uppercase()).unwrap().len(), 1);
+        assert_eq!(folders.entries(&format!("{lower}2")).err().map(|error| error.code), Some("EACCES"));
+        assert_eq!(folders.add(&root.to_uppercase()).unwrap(), root);
+        assert_eq!(folders.roots.locked().len(), 1);
+        _ = std::fs::remove_dir_all(base);
     }
 }
 
