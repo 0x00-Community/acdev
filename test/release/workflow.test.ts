@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const TEXT = readFileSync(join(import.meta.dir, '..', '..', '.github', 'workflows', 'release.yml'), 'utf8')
-type Step = { name?: string; uses?: string; with?: Record<string, unknown>; run?: string }
-type Job = { permissions?: Record<string, string>; needs?: string; steps: Step[] }
+type Step = { name?: string; if?: string; uses?: string; with?: Record<string, unknown>; run?: string }
+type Job = { permissions?: Record<string, string>; needs?: string; if?: string; steps: Step[] }
 const workflow = Bun.YAML.parse(TEXT) as {
   on: { push: { tags: string[] } } & Record<string, unknown>
   permissions: Record<string, string>
@@ -16,10 +16,22 @@ const runs = (job: string) => jobs[job]!.steps.map((step) => step.run ?? '').joi
 const uses = (job: string) => jobs[job]!.steps.map((step) => step.uses).filter((value): value is string => !!value)
 
 describe('release.yml', () => {
-  test('runs on v* tags only, with read-only default permissions', () => {
-    expect(Object.keys(workflow.on)).toEqual(['push'])
+  test('runs on v* tags, and by hand as a preview, with read-only default permissions', () => {
+    expect(Object.keys(workflow.on).sort()).toEqual(['push', 'workflow_dispatch'])
     expect(workflow.on.push.tags).toEqual(['v*'])
     expect(workflow.permissions).toEqual({ contents: 'read' })
+  })
+
+  test('a hand run is a preview: it needs a version, asks for no token and uploads nothing', () => {
+    const dispatch = (workflow.on as unknown as Record<string, { inputs: Record<string, { required: boolean }> }>)
+      ['workflow_dispatch']
+    expect(dispatch?.inputs['version']?.required).toBe(true)
+    const tag = "TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}"
+    expect(TEXT).toContain(tag)
+    expect(jobs['upload']!.if).toBe("github.event_name == 'push'")
+    const stop = jobs['guard']!.steps.find((step) => step.name === 'a hand run stops here')
+    expect(stop?.if).toBe("github.event_name != 'push'")
+    expect(runs('pkgs') + runs('guard')).not.toMatch(/\baws\b/)
   })
 
   test('the jobs run pkgs (the build), then guard, then upload', () => {

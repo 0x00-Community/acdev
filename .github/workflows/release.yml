@@ -3,13 +3,19 @@ name: release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'x.y.z to build and check; a hand run is a preview and uploads nothing'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 env:
   PKGS: https://pkgs.dopame.ai
-  TAG: ${{ github.ref_name }}
+  TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
   SDK_VERSION: 0.0.5
   AWS_REGION: ap-southeast-1
   ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
@@ -120,9 +126,14 @@ jobs:
             exit 1
           fi
           bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$v"
+      - name: a hand run stops here
+        if: github.event_name != 'push'
+        run: |
+          echo "preview only: the archive passed the guard and nothing was uploaded" >> "$GITHUB_STEP_SUMMARY"
 
   upload:
     needs: guard
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
