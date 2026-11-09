@@ -198,7 +198,6 @@ pub(crate) struct App {
     pub(crate) pointer_serial: u32,
     pub(crate) left: bool,
     pub(crate) clipboard: Option<(CopyPasteSource, String)>,
-    /// the app that owns this window (None: the desktop); a file dropped here is a one-shot copyIn grant for it
     pub(crate) app: Option<String>,
     pub(crate) drag: Option<Drag>,
     pub(crate) over: Option<(f64, f64)>,
