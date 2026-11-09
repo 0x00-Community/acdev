@@ -12,8 +12,8 @@ export interface DevHost {
   readonly inspect: Inspect
   readonly devlog: DevLog
   webs(): Web[]
-  infos(): WebInfo[]
-  web(name: string): Web
+  desktop(): Web | null
+  title(web: Web): string
   emulate(options: { readonly colorScheme?: 'light' | 'dark' | null; readonly reducedMotion?: boolean | null }): unknown
 }
 
@@ -25,6 +25,36 @@ export class DevRequests {
 
   constructor(host: DevHost) {
     this.#host = host
+  }
+
+  infos(): WebInfo[] {
+    return this.#host.webs().map((web) => ({
+      name: web.name,
+      app: web.app?.id ?? null,
+      kind: web.kind === 'desktop' ? 'desktop' : 'app',
+      window: web.window,
+      title: this.#host.title(web),
+    }))
+  }
+
+  web(name: string): Web {
+    const webs = this.#host.webs()
+    const wanted = String(name)
+    const web =
+      webs.find((w) => w.name === wanted) ??
+      (wanted === 'desktop' ? this.#host.desktop() : null) ??
+      webs.filter((w) => w.app?.id === wanted).sort((a, b) => a.window - b.window)[0]
+    if (!web) {
+      const names = webs.map((w) => w.name).join(', ') || 'none'
+      throw Object.assign(new Error(`no web ${wanted} (webs: ${names}; a web name, an app id or desktop)`), { status: 404 })
+    }
+    return web
+  }
+
+  async stats(reset: boolean): Promise<Record<string, unknown>> {
+    const webs = this.#host.webs()
+    const stats = await Promise.all(webs.map((w) => w.rpc.call('debug', 'stats', [reset]).catch((e: Error) => ({ error: e.message }))))
+    return Object.fromEntries(webs.map((w, i) => [w.name, { ...(stats[i] as object), cpuMs: w.thread.cpuMs() }]))
   }
 
   async request(line: string): Promise<void> {
@@ -51,12 +81,12 @@ export class DevRequests {
     const { type: _type, id: _id, op, ...args } = request
     switch (op) {
       case 'webs':
-        return { webs: this.#host.infos() }
+        return { webs: this.infos() }
       case 'eval': {
         if (typeof args['code'] !== 'string') throw new Error('eval: code is a string')
         let value: unknown
         try {
-          value = await this.#host.web(String(args['web'] ?? 'desktop')).rpc.call('debug', 'eval', [args['code']])
+          value = await this.web(String(args['web'] ?? 'desktop')).rpc.call('debug', 'eval', [args['code']])
         } catch (error) {
           throw new Error(error instanceof Error ? `${error.name}: ${error.message}` : String(error))
         }
@@ -67,7 +97,7 @@ export class DevRequests {
         }
       }
       case 'shot': {
-        const web = this.#host.web(String(args['web'] ?? 'desktop'))
+        const web = this.web(String(args['web'] ?? 'desktop'))
         if (!this.#host.shell.capture) throw new Error('shot: this backend cannot read a window back (host windows only)')
         return this.#host.shell.capture(web.window)
       }

@@ -136,8 +136,8 @@ export class Broker {
       inspect: this.inspect,
       devlog: this.devlog,
       webs: () => this.#webs(),
-      infos: () => this.webs(),
-      web: (name) => this.#web(name),
+      desktop: () => this.#desktop,
+      title: (web) => (web.kind === 'desktop' ? this.#current.name : (this.#windows.get(web.window)?.title ?? web.app?.label ?? web.name)),
       emulate: (options) => this.emulate(options),
     })
     this.#appCalls = new AppCalls({
@@ -752,34 +752,15 @@ export class Broker {
   }
 
   async debugEval(name: string, code: string): Promise<unknown> {
-    return this.#web(name).rpc.call('debug', 'eval', [code])
+    return this.#dev.web(name).rpc.call('debug', 'eval', [code])
   }
 
   webs(): WebInfo[] {
-    return this.#webs().map((web) => {
-      const record = web.kind === 'window' ? this.#windows.get(web.window) : undefined
-      return {
-        name: web.name,
-        app: web.app?.id ?? null,
-        kind: web.kind === 'desktop' ? 'desktop' : 'app',
-        window: web.window,
-        title: web.kind === 'desktop' ? this.#current.name : (record?.title ?? web.app?.label ?? web.name),
-      }
-    })
-  }
-
-  #web(name: string): Web {
-    const webs = this.#webs()
-    const wanted = String(name)
-    const web = webs.find((w) => w.name === wanted) ?? (wanted === 'desktop' ? this.#desktop : null) ?? webs.filter((w) => w.app?.id === wanted).sort((a, b) => a.window - b.window)[0]
-    if (!web) throw Object.assign(new Error(`no web ${wanted} (webs: ${webs.map((w) => w.name).join(', ') || 'none'}; a web name, an app id or desktop)`), { status: 404 })
-    return web
+    return this.#dev.infos()
   }
 
   async debugStats(reset = false): Promise<Record<string, unknown>> {
-    const webs = this.#webs()
-    const stats = await Promise.all(webs.map((w) => w.rpc.call('debug', 'stats', [reset]).catch((e: Error) => ({ error: e.message }))))
-    return Object.fromEntries(webs.map((w, i) => [w.name, { ...(stats[i] as object), cpuMs: w.thread.cpuMs() }]))
+    return this.#dev.stats(reset)
   }
 
   get windows(): { id: number; kind: string; app: string | null; title: string | null; running: boolean }[] {
