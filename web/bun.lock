@@ -6,6 +6,7 @@
       "name": "acde-web",
       "devDependencies": {
         "@types/node": "^26.6.5",
+        "esbuild": "^0.28.2",
         "typescript": "5.9.3",
       },
     },

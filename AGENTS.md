@@ -600,7 +600,8 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 `package.json`), 解压到 binary 旁边 (acdert 找 `<exe 所在目录>/app/dist`). 桌面包 (Dopame) 不在里面.
 
 - 推 `v*` tag: 建 GitHub prerelease, 附上三个 binary 和 host bundle. 手动触发 (`workflow_dispatch`) 只编, 不建 release.
-- 不发 npm 包 (用户定, 2026-11-08). 开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`.
+- npm 上只发 `@dopame/acde-api` (用户定, 2026-11-09; npm 组织 `dopame`), 只发压缩后的构建, 见下面 web/packages 的 acde-api. 别的包不发,
+  开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`.
 - 版本号是 `0.0.N`, 每发一次 N 加 1 (前两位保持 0): 根 `Cargo.toml` 的 `workspace.package.version` 和 `web/packages/*/package.json`
   一起改 (再 `bun install` 刷新 `web/bun.lock`), tag 是 `v0.0.N`.
 - Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire.
@@ -634,7 +635,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 ## 协作规则
 
 - 闭源 (用户定, 2026-11-08): 自己的代码是专有的 (根目录 `LICENSE`), package.json 写 `"license": "UNLICENSED"`, Cargo.toml 不写 `license`
-  (都 `publish = false`), 不发 npm 包, 仓库和 release 不公开. `vendors/` 和 crates/acde-napi 保留上游的许可证文件和版权行.
+  (都 `publish = false`), 除 `@dopame/acde-api` 的压缩构建外不发 npm 包, 仓库和 release 不公开. `vendors/` 和 crates/acde-napi 保留上游的许可证文件和版权行.
 - Rust 和 TypeScript 代码不写注释, 要说明的写进本文件. 例外: 版权和许可证行 (crates/acde-napi 的 Deno 版权)、工具指令 (`/// <reference>`,
   `@ts-expect-error`)、`vendors/` 改动处的 `acrender:` / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
@@ -678,7 +679,13 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 - **acde-api**: `load(name)` (`src/load.js`: `import('acde:<name>')` 的默认导出, 拿不到时是 null; 说明符带 `@vite-ignore` 等)、
   `@dopame/acde-api/vite` (build 时 `acde:*` 留作外部模块, dev 时换成会 reject 的替身); 声明 `manifest.d.ts` / `service.d.ts` / `page.d.ts` /
   `config.d.ts` (+ `config.schema.json`) / `modules.d.ts`; `src/validate.ts` (导出 `./manifest`) 是清单校验和 `ICON_NAMES`, 测试
-  `test/validate.test.ts`. 还没上 npm: acde 仓库用 `file:../acdert/web/packages/acde-api`, acde-dopame 拷一份 (`scripts/sync-acde-api.sh`).
+  `test/validate.test.ts`. acde 仓库用 `file:../acdert/web/packages/acde-api`, acde-dopame 拷一份 (`scripts/sync-acde-api.sh`).
+  npm 上的 `@dopame/acde-api` 不是这个目录: 它的 package.json 是 `"private": true`, 防止把源码发出去. `bun run build` (`scripts/build.mjs`)
+  生成 `dist/`, 发布的是 `dist/` (`cd dist && bunx npm publish`, 要 2FA): `.js` / `.ts` 用 esbuild 压缩 (标识符也压, 没有 source map,
+  不留注释), `validate.ts` 的声明由 tsc 生成成 `validate.d.ts`, `./manifest` 改指向 `validate.js` / `validate.d.ts`; 手写的 `.d.ts` 和
+  `config.schema.json` 原样拷贝 (对外接口); 去掉 `private` / `scripts` / `devDependencies`; `LICENSE` 是根目录 `LICENSE` 的版权段
+  (不含第三方那段). 构建最后检查 `dist/`: 有 `.map`、非 `.d.ts` 的 `.ts`、`sourceMappingURL` / `sourcesContent` 或意料外的文件就失败.
+  esbuild 装在 web 根的 devDependencies: 放在 acde-api 自己的 devDependencies 里, bun 会把它装进用 `file:` 引用它的 acde.
 - **acde-dom**: 经 `DomNative` / `GpuNative` / `AudioNative` / `HostNative` (`src/native.ts`) 调 crates/acdert, 打进 acde-host 的 `dist/web.js`.
   编辑只有 `dom/editing.ts` 一份. 测试在 happy-dom 的 MockDom 上跑. 布局类的读 (rect、metrics、计算样式) 缓存到下一次写入、下一个指针事件 / 帧 / 滚动, 或这个任务结束 (CSS 过渡和动画在 render 线程上跑, JS 不知道, 下一个任务要重新读). Web Animations
   (`dom/animation.ts`): 关键帧变成 `@keyframes acde-animation-<n>` 规则加元素内联的 `animation-*`, 由 render 跑; 时间、事件、`finished` 在 JS
