@@ -20,16 +20,18 @@ import { StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { process } from './sys/process'
-import type { AnimateOptions, BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
-import type { ShellModule } from '@dopame/acde-api/manifest'
+import type { BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
 import { PageCalls, PanelCalls } from './broker/calls/page'
 import { WindowCalls } from './broker/calls/windows'
 import { ServiceCalls } from './broker/calls/services'
 import { AppCalls } from './broker/calls/apps'
+import { DesktopCalls } from './broker/calls/desktops'
 import { Tiers } from './broker/access/tier'
 import type { WindowFamily } from './broker/access/family'
+import { Launchable } from './broker/access/launchable'
+import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
@@ -63,6 +65,12 @@ export class Broker {
   readonly #windowCalls: WindowCalls
   readonly #panelCalls: PanelCalls
   readonly #pageCalls: PageCalls
+  readonly #launchable = new Launchable({
+    apps: () => this.apps,
+    hosted: () => !!this.shell.hosted,
+    services: (app) => this.bridge.available(app.capabilities),
+    refresh: () => this.refreshApps(),
+  })
   readonly #places = new WindowPlaces()
   readonly #placed = new Map<number, string>()
   readonly #claims: { web: Web; pid: number }[] = []
@@ -89,7 +97,7 @@ export class Broker {
     this.apps = new AppRegistry(options.packages)
     this.bridge = new PageBridge()
     this.opener = new Opener({
-      apps: () => this.apps.list().filter((app) => this.#available(app) && this.#runsHere(app)),
+      apps: () => this.apps.list().filter((app) => this.#launchable.shown(app)),
       locate: async (path) => {
         const fs = this.bridge.value['fs'] as { locate(path: string): Promise<{ root: string; path: string }> } | undefined
         return fs ? fs.locate(path).catch(() => null) : null
@@ -104,10 +112,7 @@ export class Broker {
         const shell = this.shell
         return shell.openDefault ? (target) => shell.openDefault!(target) : null
       },
-      unsupported: (id) => {
-        const app = this.apps.get(id)
-        return app && this.#available(app) && !this.#runsHere(app) ? Broker.#unsupported(app) : null
-      },
+      unsupported: (id) => this.#launchable.unsupported(id),
     })
     this.shell = native.Shell.broker()
     this.shell.onEvents(() => this.#poke())
@@ -134,7 +139,22 @@ export class Broker {
       records: () => [...this.#windows.keys()],
     })
     this.bridge.services.inspect = this.inspect.api
-    this.bridge.services.shell = (name) => this.#serviceModule(name)
+    const modules = new ServiceModules({
+      shell: this.shell,
+      natives: this.natives,
+      session: () => this.session.api,
+      desktops: () => this.desktops,
+      inspect: () => this.inspect.api,
+      setDefault: (mime, handler) => this.opener.setDefault(mime, handler),
+      apps: () => this.#appList(),
+      refresh: () => this.refreshApps(),
+      install: (dir) => this.installApps(dir),
+      windows: () => this.windows,
+      hide: (id, hidden) => this.#hide(id, hidden),
+      close: (id) => (this.#windows.get(id)?.kind === 'web' ? this.closeWeb(id) : this.shell.close(id)),
+      kill: (id) => this.closeWeb(id, true),
+    })
+    this.bridge.services.shell = (name) => modules.module(name)
     this.#dev = new DevRequests({
       shell: this.shell,
       inspect: this.inspect,
@@ -168,7 +188,7 @@ export class Broker {
       toDesktop: (event) => this.#toDesktop(event),
       usable: (appId) => {
         const app = this.apps.get(appId)
-        return !!app && this.#available(app) && this.#runsHere(app)
+        return !!app && this.#launchable.shown(app)
       },
       launch: (appId, request) => void this.launch(appId, request),
     })
@@ -183,44 +203,6 @@ export class Broker {
       toDesktop: (event) => this.#toDesktop(event),
     })
     StartupTimeline.mark('shell created')
-  }
-
-  #serviceModule(name: ShellModule): object | null {
-    switch (name) {
-      case 'session':
-        return this.session.api
-      case 'desktops':
-        return this.desktops
-      case 'inspect':
-        return this.inspect.api
-      case 'setDefault':
-        return (mime: string, handler: string) => this.opener.setDefault(String(mime), String(handler))
-      case 'desktop':
-        return { apps: async () => ({ apps: this.#appList() }) }
-      case 'packages':
-        return {
-          refresh: () => this.refreshApps(),
-          install: (dir: string) => this.installApps(String(dir)),
-          natives: () => this.natives.list(),
-          runNative: (id: string) => {
-            const file = this.natives.file(String(id))
-            if (!file) throw Object.assign(new Error(`no native app ${String(id)}`), { status: 404 })
-            return this.shell.launch(['gio', 'launch', file])
-          },
-        }
-      case 'windows':
-        return {
-          list: () => this.windows,
-          focus: (id: number) => this.shell.focus(Number(id)),
-          hide: (id: number) => this.#hide(Number(id), true),
-          show: (id: number) => this.#hide(Number(id), false),
-          close: (id: number) => (this.#windows.get(Number(id))?.kind === 'web' ? this.closeWeb(Number(id)) : this.shell.close(Number(id))),
-          kill: (id: number) => this.closeWeb(Number(id), true),
-          stats: () => this.shell.stats(),
-          animate: (id: number, options: AnimateOptions) => this.shell.animate(Number(id), options ?? {}),
-        }
-    }
-    return null
   }
 
   accessibility(): Promise<NativeAccessibility | null> {
@@ -264,28 +246,13 @@ export class Broker {
     StartupTimeline.mark('services started')
   }
 
-  readonly desktops = {
-    list: () => {
-      const { packages } = this.#options
-      return {
-        desktops: [
-          ...packages.desktops().map((d) => ({ kind: d.kind, id: d.id, name: d.name, description: d.description, package: d.package.name })),
-          ...packages.sessions().map((s) => ({ kind: s.kind, id: s.id, name: s.name, description: s.description, package: null })),
-        ],
-        current: this.#current.id,
-      }
-    },
-    choose: async (id: string, remember = false): Promise<void> => {
-      const next = this.#options.packages.find(String(id))
-      if (!next) throw Object.assign(new Error(`no desktop ${id}`), { status: 404 })
-      if (next.kind === 'session' && this.#options.standalone) throw Object.assign(new Error(`acdert app: ${id} is not an acde desktop`), { status: 409 })
-      if (remember) Packages.remember(next.id)
-      if (next.kind === 'session') return this.session.handOff(next)
-      if (next.id === this.#current.id) return
-      Log.write(Level.Info, 'acde_host', `switching to desktop ${next.id}`)
-      await this.#replaceDesktop(this.#desktop, next)
-    },
-  }
+  readonly desktops = new DesktopCalls({
+    packages: () => this.#options.packages,
+    standalone: () => !!this.#options.standalone,
+    current: () => this.#current,
+    handOff: (session) => this.session.handOff(session),
+    replace: (next) => this.#replaceDesktop(this.#desktop, next),
+  }).api
 
   get desktopId(): string {
     return this.#current.id
@@ -664,12 +631,7 @@ export class Broker {
     place: Rect | null = null,
     family: WindowFamily | null = null,
   ): { window: number } {
-    const app = this.apps.get(appId) ?? (this.refreshApps(), this.apps.get(appId))
-    if (!app) throw this.#missing(appId)
-    if (!this.#available(app)) throw Object.assign(new Error(`${app.label}: the system service it needs is not running`), { status: 503 })
-    if (!this.#runsHere(app)) throw Broker.#unsupported(app)
-    const shellRefusal = Tiers.refusal(app, this.apps.origin(app.id))
-    if (shellRefusal) throw Object.assign(new Error(shellRefusal), { status: 403, code: 'shell_module' })
+    const app = this.#launchable.app(appId)
     if (!app.multiple) {
       const running = this.#running(appId)
       if (running) {
@@ -687,12 +649,6 @@ export class Broker {
     return { window: record.id }
   }
 
-  #missing(appId: string): Error {
-    const refusal = this.apps.refusal(appId)
-    if (refusal) return Object.assign(new Error(`${appId}: ${refusal}`), { status: 409, code: 'api_level' })
-    return Object.assign(new Error(`no app ${appId}`), { status: 404 })
-  }
-
   #raise(opened: { window: number }): { window: number } {
     this.#hide(opened.window, false)
     this.shell.focus(opened.window)
@@ -706,7 +662,7 @@ export class Broker {
   }
 
   #appList(): { id: string; label: string; icon: string; script: string }[] {
-    const shown = this.apps.list().filter((app) => this.#available(app) && this.#runsHere(app))
+    const shown = this.apps.list().filter((app) => this.#launchable.shown(app))
     return shown.map(({ id, label, icon, entry }) => ({ id, label, icon, script: entry }))
   }
 
@@ -729,18 +685,6 @@ export class Broker {
     else record.request = request
   }
 
-  #available(app: AppManifest): boolean {
-    return this.bridge.available(app.capabilities)
-  }
-
-  static #unsupported(app: AppManifest): Error {
-    return Object.assign(new Error(`${app.label} cannot run in a host window (it needs slots)`), { status: 404, code: 'unsupported_app' })
-  }
-
-  #runsHere(app: AppManifest): boolean {
-    return !(app.capabilities.slots && this.shell.hosted)
-  }
-
   async devReload(app: string | null, hot = false): Promise<void> {
     if (hot) {
       const webs = app ? [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app).map((r) => r.web) : [this.#desktop]
@@ -757,7 +701,7 @@ export class Broker {
       const state = await Broker.#snapshot(web)
       if (primary) {
         if (this.#stopped || !web || primary.web !== web || web.closing || web.reloading) return
-        if (!after || !this.#available(after)) {
+        if (!after || !this.#launchable.available(after)) {
           Log.write(
             Level.Error, 'acde_host', `acdert app ${app}: the app or a required system service is no longer available`,
           )
@@ -795,14 +739,7 @@ export class Broker {
 
   #resizedPlace(window: number | undefined, app: AppManifest): Rect | null {
     const row = window === undefined ? undefined : this.shell.windows().find((w) => (w.window ?? w.id) === window)
-    if (!row || row.mode !== 'free') return null
-    const screen = this.#screen()
-    const [w, h] = Frame.windowSize(app)
-    const width = Math.min(w, screen.width)
-    const height = Math.min(h, screen.height)
-    const x = Math.round(Math.min(Math.max(0, row.x + (row.width - width) / 2), screen.width - width))
-    const y = Math.round(Math.min(Math.max(0, row.y + (row.height - height) / 2), screen.height - height))
-    return [x, y, width, height]
+    return row?.mode === 'free' ? WindowPlaces.over(row, Frame.windowSize(app), this.#screen()) : null
   }
 
   static async #snapshot(web: Web | null): Promise<unknown> {

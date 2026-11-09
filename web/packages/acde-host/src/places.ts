@@ -10,6 +10,18 @@ export class WindowPlaces {
   readonly #file: StorageFile | null
   readonly #rects: Record<string, string>
 
+  static over(
+    row: { x: number; y: number; width: number; height: number },
+    [w, h]: readonly [number, number],
+    screen: { width: number; height: number },
+  ): Rect {
+    const width = Math.min(w, screen.width)
+    const height = Math.min(h, screen.height)
+    const x = Math.round(Math.min(Math.max(0, row.x + (row.width - width) / 2), screen.width - width))
+    const y = Math.round(Math.min(Math.max(0, row.y + (row.height - height) / 2), screen.height - height))
+    return [x, y, width, height]
+  }
+
   constructor() {
     this.#file = process.env['ACDE_STORAGE'] === '' ? null : new StorageFile(join(xdgHome('state'), 'acde', 'windows.json'))
     this.#rects = this.#file?.read() ?? {}
