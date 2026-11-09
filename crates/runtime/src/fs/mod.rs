@@ -1,3 +1,4 @@
+mod copy_source;
 mod grants;
 pub(crate) mod path;
 mod picked;
@@ -239,7 +240,10 @@ impl Shared {
             FsCall::Write { root: at, path, content, expected_modified_ms } => {
                 json(WorkspaceFs::write_in(&root(&at)?, &path, content.as_deref().unwrap_or(""), &expected_modified_ms).json())
             }
-            FsCall::CopyIn { root: at, dir, source } => json(WorkspaceFs::copy_into(&root(&at)?, &dir, &source).json()),
+            FsCall::CopyIn { root: at, dir, source } => {
+                let allowed = self.allowed(owner, scope)?;
+                json(copy_in(owner, &allowed, &at, &dir, &source))
+            }
             FsCall::Rename { root: at, from, to } => json(WorkspaceFs::rename_in(&root(&at)?, &from, &to).json()),
             FsCall::Delete { root: at, path } => {
                 WorkspaceFs::remove_in(&root(&at)?, &path)?;
@@ -250,6 +254,10 @@ impl Shared {
                 Ok(FsReply::Done)
             }
         }
+    }
+
+    fn allowed(&self, owner: Option<&str>, scope: Option<&dyn Fn(&str) -> bool>) -> Outcome<Vec<FinderRoot>> {
+        Ok(self.roots(owner)?.into_iter().filter(|root| scope.is_none_or(|allows| allows(&root.path))).collect())
     }
 
     fn desktop(&self) -> Outcome<Desktop> {
@@ -309,6 +317,17 @@ impl Shared {
         place.save();
         Ok(place)
     }
+}
+
+fn copy_in(owner: Option<&str>, allowed: &[FinderRoot], at: &str, dir: &str, source: &str) -> Outcome<Value> {
+    let to = allowed.iter().find(|root| root.path == at).ok_or_else(|| Failure::invalid("not a Runtime workspace"))?;
+    let requested = copy_source::parse(source)?;
+    let admitted = copy_source::admit(allowed, &requested, owner)?;
+    let entry = WorkspaceFs::copy_into(to, dir, &admitted.name, admitted.file)?;
+    if let Some(claim) = admitted.claim {
+        claim.commit();
+    }
+    serde_json::to_value(entry).map_err(Failure::internal)
 }
 
 fn options_of<T: Default + serde::de::DeserializeOwned>(method: &str, options: Option<Value>) -> Outcome<T> {
@@ -473,6 +492,33 @@ mod tests {
         assert!(matches!(limited.call(FsCall::Revoke { root: picked.clone() }), Ok(FsReply::Done)));
         assert_eq!(list(&limited)["code"], "EACCES");
         assert_eq!(json(all.call(FsCall::Revoke { root: picked.clone() }))["code"], "EINVAL");
+        _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn copy_in_takes_sources_from_granted_folders_or_one_drop() {
+        let base = std::env::temp_dir().join(format!("acde-copy-in-{}", std::process::id()));
+        let vault = base.join("vault");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir_all(vault.join("docs")).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(vault.join("inside.txt"), "inside").unwrap();
+        let secret = elsewhere.join("secret.txt");
+        std::fs::write(&secret, "outside").unwrap();
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let app = all.scoped(Some(vec![]), Some("copy-probe"));
+        let root = app.grant(vault.to_str().unwrap()).unwrap();
+        let copy = |source: &str| {
+            let call = FsCall::CopyIn { root: root.clone(), dir: "docs".into(), source: source.into() };
+            json(app.call(call))
+        };
+        let uri = url::Url::from_file_path(&secret).unwrap();
+        assert_eq!(copy(secret.to_str().unwrap())["code"], "EACCES");
+        assert_eq!(copy(uri.as_str())["code"], "EACCES");
+        assert_eq!(copy(vault.join("inside.txt").to_str().unwrap())["name"], "inside.txt");
+        acde_model::drop_grant::record(Some("copy-probe"), std::slice::from_ref(&secret));
+        assert_eq!(copy(uri.as_str())["name"], "secret.txt");
+        assert_eq!(copy(uri.as_str())["code"], "EACCES");
         _ = std::fs::remove_dir_all(base);
     }
 }

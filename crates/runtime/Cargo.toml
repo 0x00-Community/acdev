@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+# the drop grants of the host window (file sources copyIn accepts): crates/model drop_grant.rs
+acde-model = { path = "../model" }
 # logging (the host installs env_logger through acde-log)
 log = "0"
 # napi: 和 agentrt-rust/crates/napi 同版本

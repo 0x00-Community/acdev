@@ -1,5 +1,8 @@
 use super::*;
-use std::{path::PathBuf, process::Command};
+use std::{path::PathBuf, process::Command, sync::Arc};
+
+use crate::fs::grants::Grants;
+use crate::fs::{FsCall, FsReply, Shared, Workspace};
 
 struct Scratch {
     path: PathBuf,
@@ -141,4 +144,123 @@ fn windows_desktop_override_distinguishes_disk_unc_and_device_paths() {
     for input in rejected {
         assert!(windows_directory(input).is_none(), "accepted {input:?}");
     }
+}
+
+fn copy_app(s: &Scratch, app: &str) -> Workspace {
+    let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+    let scoped = all.scoped(Some(Vec::new()), Some(app));
+    scoped.grant(&s.root.path).unwrap();
+    scoped
+}
+
+fn copy(app: &Workspace, s: &Scratch, dir: &str, source: &str) -> Result<serde_json::Value, (u16, &'static str)> {
+    match app.call(FsCall::CopyIn { root: s.root.path.clone(), dir: dir.into(), source: source.into() }) {
+        Ok(FsReply::Json(value)) => Ok(value),
+        Ok(_) => panic!("copyIn replied with something other than JSON"),
+        Err(error) => Err((error.status, error.code)),
+    }
+}
+
+fn outside_file(s: &Scratch, name: &str, text: &str) -> PathBuf {
+    let dir = s.path.join("outside");
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join(name);
+    fs::write(&file, text).unwrap();
+    file
+}
+
+fn make_junction(link: &Path, target: &Path) {
+    let create = "New-Item -ItemType Junction -Path $env:ACDE_TEST_JUNCTION \
+        -Target $env:ACDE_TEST_TARGET -ErrorAction Stop | Out-Null";
+    let status = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command"])
+        .arg(create)
+        .env("ACDE_TEST_JUNCTION", link)
+        .env("ACDE_TEST_TARGET", target)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn copy_in_refuses_an_outside_drive_path() {
+    let s = Scratch::new();
+    let secret = outside_file(&s, "secret.txt", "outside secret");
+    let app = copy_app(&s, "vault");
+    assert_eq!(copy(&app, &s, "", secret.to_str().unwrap()), Err((403, "EACCES")));
+    assert!(!Path::new(&s.root.path).join("secret.txt").exists());
+}
+
+#[test]
+fn copy_in_refuses_an_outside_file_url() {
+    let s = Scratch::new();
+    let secret = outside_file(&s, "secret.txt", "outside secret");
+    let uri = url::Url::from_file_path(&secret).unwrap();
+    let app = copy_app(&s, "vault");
+    assert_eq!(copy(&app, &s, "", uri.as_str()), Err((403, "EACCES")));
+    assert!(!Path::new(&s.root.path).join("secret.txt").exists());
+}
+
+#[test]
+fn copy_in_refuses_a_junction_that_leaves_the_granted_folder() {
+    let s = Scratch::new();
+    let outside = s.path.join("root-sibling");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("secret.txt"), "outside").unwrap();
+    let link = Path::new(&s.root.path).join("out");
+    make_junction(&link, &outside);
+    let app = copy_app(&s, "vault");
+    let through = link.join("secret.txt");
+    assert_eq!(copy(&app, &s, "", through.to_str().unwrap()), Err((403, "EACCES")));
+    assert!(!Path::new(&s.root.path).join("secret.txt").exists());
+    assert_eq!(fs::read(outside.join("secret.txt")).unwrap(), b"outside");
+}
+
+#[test]
+fn copy_in_accepts_a_source_inside_a_granted_folder() {
+    let s = Scratch::new();
+    let root = Path::new(&s.root.path);
+    fs::create_dir(root.join("notes")).unwrap();
+    fs::create_dir(root.join("docs")).unwrap();
+    fs::write(root.join("notes/source.txt"), "inside").unwrap();
+    let app = copy_app(&s, "vault");
+    copy(&app, &s, "docs", root.join("notes/source.txt").to_str().unwrap()).unwrap();
+    let uri = url::Url::from_file_path(root.join("notes/source.txt")).unwrap();
+    let copied = copy(&app, &s, "docs", uri.as_str()).unwrap();
+    assert_eq!(copied["name"], "source 2.txt");
+    assert_eq!(fs::read(root.join("docs/source.txt")).unwrap(), b"inside");
+    assert_eq!(fs::read(root.join("docs/source 2.txt")).unwrap(), b"inside");
+}
+
+#[test]
+fn a_dropped_file_is_copied_once_for_the_app_it_was_dropped_on() {
+    let s = Scratch::new();
+    let dropped = outside_file(&s, "dropped.txt", "dropped contents");
+    fs::create_dir(Path::new(&s.root.path).join("docs")).unwrap();
+    let app = copy_app(&s, "vault");
+    acde_model::drop_grant::record(Some("vault"), std::slice::from_ref(&dropped));
+    let copied = copy(&app, &s, "docs", dropped.to_str().unwrap()).unwrap();
+    assert_eq!(copied["name"], "dropped.txt");
+    assert_eq!(fs::read(Path::new(&s.root.path).join("docs/dropped.txt")).unwrap(), b"dropped contents");
+    assert_eq!(copy(&app, &s, "docs", dropped.to_str().unwrap()), Err((403, "EACCES")));
+}
+
+#[test]
+fn a_dropped_file_survives_a_failed_copy() {
+    let s = Scratch::new();
+    let dropped = outside_file(&s, "retry.txt", "retry contents");
+    fs::create_dir(Path::new(&s.root.path).join("docs")).unwrap();
+    let app = copy_app(&s, "vault");
+    acde_model::drop_grant::record(Some("vault"), std::slice::from_ref(&dropped));
+    assert!(copy(&app, &s, "missing", dropped.to_str().unwrap()).is_err());
+    assert!(copy(&app, &s, "docs", dropped.to_str().unwrap()).is_ok());
+}
+
+#[test]
+fn a_drop_for_another_app_does_not_open_the_source() {
+    let s = Scratch::new();
+    let dropped = outside_file(&s, "other.txt", "other contents");
+    let app = copy_app(&s, "vault");
+    acde_model::drop_grant::record(Some("other"), std::slice::from_ref(&dropped));
+    assert_eq!(copy(&app, &s, "", dropped.to_str().unwrap()), Err((403, "EACCES")));
 }

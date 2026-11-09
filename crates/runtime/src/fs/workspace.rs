@@ -5,7 +5,7 @@ use icu_locale_core::Locale;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, DirBuilder, File, Metadata, OpenOptions},
-    io::{ErrorKind, Read, Write},
+    io::{self, ErrorKind, Read, Write},
     path::Path,
     time::UNIX_EPOCH,
 };
@@ -370,7 +370,7 @@ impl WorkspaceFs {
         Self::no_follow(OpenOptions::new().read(true), real, false)
     }
 
-    fn no_follow(options: &mut OpenOptions, path: impl AsRef<Path>, nonblock: bool) -> std::io::Result<File> {
+    pub(super) fn no_follow(options: &mut OpenOptions, path: impl AsRef<Path>, nonblock: bool) -> io::Result<File> {
         cfg_select! {
             unix => {
                 use rustix::fs::OFlags;
@@ -645,29 +645,13 @@ impl WorkspaceFs {
         format!("{} {n}{ext}", &name[..name.len() - ext.len()])
     }
 
-    pub fn copy_into(root: &FinderRoot, dir: &str, source: &str) -> Outcome<FinderEntry> {
-        let source = match source.strip_prefix("file://") {
-            Some(rest) => url::Url::parse(&format!("file://{rest}"))
-                .ok()
-                .and_then(|u| u.to_file_path().ok())
-                .ok_or_else(|| Failure::invalid("not a file:// URI of this machine"))?,
-            None => std::path::PathBuf::from(source),
-        };
-        if !source.is_absolute() {
-            return Err(Failure::invalid("source must be an absolute path or a file:// URI"));
-        }
-        let info = fs::metadata(&source).map_err(|_| Failure::http(404, "source file not found"))?;
-        if !info.is_file() {
-            return Err(Failure::invalid("only regular files can be copied in"));
-        }
+    pub fn copy_into(root: &FinderRoot, dir: &str, name: &str, mut reader: File) -> Outcome<FinderEntry> {
         let Resolved { absolute, real, .. } = Self::resolve(root, dir, true)?;
         if !fs::metadata(&real)?.is_dir() {
             return Err(Failure::invalid("not a directory"));
         }
-        let name = source.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or_else(|| Failure::invalid("source has no file name"))?;
-        let mut reader = File::open(&source)?;
         for n in 1..10_000 {
-            let candidate = Self::numbered(&name, n);
+            let candidate = Self::numbered(name, n);
             let target = absolute.join(&candidate);
             let created = Self::no_follow(OpenOptions::new().write(true).create_new(true), &target, false);
             let mut file = match created {
@@ -899,29 +883,26 @@ mod tests {
         fs::write(src.join("截图 1.png"), image).unwrap();
         fs::write(src.join(".env"), "A=1\n").unwrap();
         fs::write(src.join("README"), "readme\n").unwrap();
-        let copy = |dir: &str, source: &str| WorkspaceFs::copy_into(&s.root, dir, source);
-        let entry = copy("docs", &src.join("截图 1.png")).unwrap();
+        let copy = |dir: &str, name: &str| {
+            let file = File::open(src.join(name)).unwrap();
+            WorkspaceFs::copy_into(&s.root, dir, name, file)
+        };
+        let entry = copy("docs", "截图 1.png").unwrap();
         assert_eq!((entry.name.as_str(), entry.kind, entry.size), ("截图 1.png", EntryKind::File, image.len() as u64));
         assert_eq!(fs::read(s.at("docs/截图 1.png")).unwrap(), image);
-        let uri = url::Url::from_file_path(src.join("截图 1.png")).unwrap();
-        assert_eq!(copy("docs", uri.as_str()).unwrap().name, "截图 1 2.png");
-        assert_eq!(copy("docs", &src.join("截图 1.png")).unwrap().name, "截图 1 3.png");
+        assert_eq!(copy("docs", "截图 1.png").unwrap().name, "截图 1 2.png");
+        assert_eq!(copy("docs", "截图 1.png").unwrap().name, "截图 1 3.png");
         for name in [".env", "README"] {
-            assert_eq!(copy("", &src.join(name)).unwrap().name, name);
-            assert_eq!(copy("", &src.join(name)).unwrap().name, format!("{name} 2"));
+            assert_eq!(copy("", name).unwrap().name, name);
+            assert_eq!(copy("", name).unwrap().name, format!("{name} 2"));
         }
         assert_eq!(fs::read_to_string(s.at("docs/plain.txt")).unwrap(), "x");
         File::create(src.join("big.bin")).unwrap().set_len(70 << 20).unwrap();
-        assert_eq!(copy("", &src.join("big.bin")).unwrap().size, 70 << 20);
-        let failed = |outcome: Outcome<FinderEntry>| outcome.err().map(|f| (f.status, f.message));
-        let failed = |dir: &str, source: &str| failed(copy(dir, source));
-        assert_eq!(failed("", &src.join("nope.png")), Some((404, "source file not found".into())));
-        assert_eq!(failed("", &src), Some((400, "only regular files can be copied in".into())));
-        assert_eq!(failed("", "relative.png"), Some((400, "source must be an absolute path or a file:// URI".into())));
-        assert_eq!(failed("", "file://elsewhere/x.png"), Some((400, "not a file:// URI of this machine".into())));
-        assert_eq!(failed("docs/plain.txt", &src.join("README")), Some((400, "not a directory".into())));
-        assert_eq!(failed("../", &src.join("README")), Some((400, "path escapes the workspace".into())));
-        assert_eq!(failed("nope", &src.join("README")), Some((404, "no such file or directory".into())));
+        assert_eq!(copy("", "big.bin").unwrap().size, 70 << 20);
+        let failed = |dir: &str, name: &str| copy(dir, name).err().map(|f| (f.status, f.message));
+        assert_eq!(failed("docs/plain.txt", "README"), Some((400, "not a directory".into())));
+        assert_eq!(failed("../", "README"), Some((400, "path escapes the workspace".into())));
+        assert_eq!(failed("nope", "README"), Some((404, "no such file or directory".into())));
         assert!(!Path::new(&s.at("nope")).exists());
     }
 }
