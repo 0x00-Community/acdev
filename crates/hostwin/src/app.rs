@@ -289,6 +289,7 @@ impl Handler for App {
                 if self.capture.is_none()
                     && let Some(hover) = self.hover.take()
                 {
+                    Self::hover(server, hover, None);
                     server.event(hover, Event::named("pointerleave"));
                 }
             }
@@ -436,6 +437,7 @@ impl App {
         }
         let Some((target, [ox, oy])) = self.target(server) else {
             if let Some(hover) = self.hover.take() {
+                Self::hover(server, hover, None);
                 server.event(hover, Event::named("pointerleave"));
             }
             return;
@@ -443,10 +445,18 @@ impl App {
         if self.hover != Some(target)
             && let Some(hover) = self.hover.replace(target)
         {
+            Self::hover(server, hover, None);
             server.event(hover, Event::named("pointerleave"));
         }
+        Self::hover(server, target, Some((x - ox, y - oy)));
         server.event(target, Event { kind: "pointermove".into(), x: Some(x - ox), y: Some(y - oy), ..Default::default() });
         self.data_drag_over(server);
+    }
+
+    fn hover(server: &Server, window: u32, at: Option<(f64, f64)>) {
+        if let Some(link) = server.state().entries.get(&window).and_then(|e| e.link.clone()) {
+            link.send(Msg::Pointer(at));
+        }
     }
 
     fn start_data_drag(&mut self, server: &Server, window: u32, data: HashMap<String, String>) {

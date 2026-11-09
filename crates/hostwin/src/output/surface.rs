@@ -15,6 +15,7 @@ pub(crate) enum Msg {
     Frame,
     Resized(u32, u32, f64),
     Scroll(f64, f64, f64, f64),
+    Pointer(Option<(f64, f64)>),
     Panel(u32, Option<u32>),
     Title(String),
     Fullscreen(bool),
