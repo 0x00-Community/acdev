@@ -16,6 +16,7 @@ struct Open {
 #[derive(Default)]
 struct State {
     sockets: Option<PathBuf>,
+    app: Option<String>,
     client: Option<FetchClient>,
     open: bind::Slab<Open>,
 }
@@ -24,10 +25,25 @@ thread_local! {
     static STATE: RefCell<State> = RefCell::new(State::default());
 }
 
+fn by_app(scope: &mut v8::PinScope, init: v8::Local<v8::Object>, sockets: bool) -> Option<String> {
+    let channel = bind::get(scope, init, "channel").is_some_and(|value| value.is_true());
+    if !cfg!(windows) || !(channel || sockets) {
+        return None;
+    }
+    let app = bind::get(scope, init, "app").and_then(|app| v8::Local::<v8::Object>::try_from(app).ok())?;
+    bind::get_string(scope, app, "id").filter(|id| !id.is_empty())
+}
+
 pub fn install<'s>(scope: &mut v8::PinScope<'s, '_>, natives: v8::Local<'s, v8::Object>, init: v8::Local<'s, v8::Value>) {
-    let sockets = v8::Local::<v8::Object>::try_from(init).ok().and_then(|init| bind::get_string(scope, init, "sockets"));
+    let init = v8::Local::<v8::Object>::try_from(init).ok();
+    let sockets = init.and_then(|init| bind::get_string(scope, init, "sockets"));
     let sockets = sockets.map(PathBuf::from).filter(|dir| dir.is_absolute());
-    STATE.with(|s| s.borrow_mut().sockets = sockets);
+    let app = init.and_then(|init| by_app(scope, init, sockets.is_some()));
+    STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        s.sockets = sockets;
+        s.app = app;
+    });
     let backend = v8::Object::new(scope);
     crate::methods!(scope, backend,
         "request" => request,
@@ -52,6 +68,9 @@ fn dial(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) 
     if !(0.0..=65535.0).contains(&port) || port.fract() != 0.0 {
         bind::throw_range_error(scope, "acde.backend: a port is 0 to 65535");
         return None;
+    }
+    if let Some(app) = STATE.with(|s| s.borrow().app.clone()) {
+        return Some(Dial::App { app, port: port as u16 });
     }
     let Some(sockets) = STATE.with(|s| s.borrow().sockets.clone()) else {
         bind::throw_type_error(scope, "acde.backend: this app has no backend");

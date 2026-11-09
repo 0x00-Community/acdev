@@ -18,6 +18,8 @@ interface Running {
   end: () => void
 }
 
+type Mode = 'channel' | 'sockets'
+
 interface AppBackendsOptions {
   readonly resources: () => { prefix: string; dirs: string[] }[]
   readonly wanted: (id: string) => boolean
@@ -37,8 +39,30 @@ export class AppBackends {
     this.#options = options
   }
 
+  static get windows(): boolean {
+    return sys().spawnBackend !== undefined
+  }
+
   static socketDir(id: string): string {
     return join(runtimeDir(), 'acde', 'apps', id)
+  }
+
+  static env(key: string): string | undefined {
+    const env = process.env
+    if (env[key] !== undefined || process.platform !== 'win32') return env[key]
+    const name = Object.keys(env).find((candidate) => candidate.toUpperCase() === key.toUpperCase())
+    return name === undefined ? undefined : env[name]
+  }
+
+  static mode(argv: readonly string[]): Mode {
+    return /(^|[\\/])node(\.exe)?$/i.test(argv[0] ?? '') ? 'channel' : 'sockets'
+  }
+
+  static webInit(id: string): { channel: true } | { sockets: string } {
+    if (!AppBackends.windows) return { sockets: AppBackends.socketDir(id) }
+    const argv = AppBackends.argv(AppBackends.env('PATH'), 'acde-listen.js', 'server.js', process.env['ACDE_RUNTIME'])
+    if (argv && AppBackends.mode(argv) === 'channel') return { channel: true }
+    return { sockets: join(AppBackends.env('XDG_RUNTIME_DIR') || AppBackends.env('TMP') || AppBackends.env('TEMP') || '', 'acde', 'b') }
   }
 
   static #dataDir(id: string): string {
@@ -51,29 +75,35 @@ export class AppBackends {
 
   start(app: AppManifest): void {
     if (!app.backend || this.#running.has(app.id) || this.#failed.has(app.id)) return
-    const sockets = AppBackends.socketDir(app.id)
+    const windows = AppBackends.windows
+    const sockets = windows ? '' : AppBackends.socketDir(app.id)
     try {
-      mkdirSync(sockets, { recursive: true, mode: 0o700 })
+      if (!windows) mkdirSync(sockets, { recursive: true, mode: 0o700 })
       mkdirSync(AppBackends.#dataDir(app.id), { recursive: true })
     } catch (error) {
       AppBackends.#report(`${app.id}#backend`, (error as Error).message, Level.Warn)
       return
     }
-    AppBackends.#removeSockets(sockets)
+    if (!windows) AppBackends.#removeSockets(sockets)
     const running: Running = { app, sockets, pid: null, stopping: false, ended: Promise.resolve(), end: () => undefined }
     this.#running.set(app.id, running)
     if (!this.#spawn(running)) this.#running.delete(app.id)
   }
 
   static argv(path: string | undefined, preload: string, server: string, prefer?: string): string[] | null {
+    const windows = process.platform === 'win32'
     const find = (name: string) => {
-      for (const dir of (path ?? '').split(':')) if (dir && stat(join(dir, name))?.isFile) return join(dir, name)
+      for (const dir of (path ?? '').split(windows ? ';' : ':')) {
+        const exe = dir && join(dir, windows ? `${name}.exe` : name)
+        if (exe && stat(exe)?.isFile) return exe
+      }
       return null
     }
+    const href = windows ? `file:///${encodeURI(preload.replaceAll('\\', '/'))}` : new URL(`file://${preload}`).href
     const order = prefer === 'node' ? ['node', 'bun'] : ['bun', 'node']
     for (const name of order) {
       const exe = find(name)
-      if (exe) return name === 'bun' ? [exe, '--preload', preload, server] : [exe, '--import', new URL(`file://${preload}`).href, server]
+      if (exe) return name === 'bun' ? [exe, '--preload', preload, server] : [exe, '--import', href, server]
     }
     return null
   }
@@ -87,23 +117,31 @@ export class AppBackends {
       AppBackends.#report(name, `not started: ${server ? `no acde-listen.js beside ${server} (built by an older acde: acde build it again)` : `no file for ${app.backend!.entry}`}`, Level.Warn)
       return false
     }
-    const spawn = sys().spawn
-    if (!spawn) {
-      AppBackends.#report(name, 'not started: this acde cannot start processes (not Linux)', Level.Warn)
+    const { spawn, spawnBackend } = sys()
+    if (!spawn && !spawnBackend) {
+      AppBackends.#report(name, 'not started: this acde cannot start processes', Level.Warn)
       return false
     }
-    const argv = AppBackends.argv(process.env['PATH'], preload!, server, process.env['ACDE_RUNTIME'])
+    const argv = AppBackends.argv(AppBackends.env('PATH'), preload!, server, process.env['ACDE_RUNTIME'])
     if (!argv) {
       AppBackends.#report(name, 'not started: neither bun nor node is on PATH', Level.Warn)
       return false
     }
     const data = AppBackends.#dataDir(app.id)
     const env: Record<string, string> = {}
-    for (const key of AppBackends.ENV) if (process.env[key]) env[key] = process.env[key]!
-    Object.assign(env, { ACDE_APP_ID: app.id, ACDE_APP_DATA: data, ACDE_APP_SOCKETS: running.sockets, PORT: String(app.backend!.port), NODE_ENV: 'production' })
+    for (const key of AppBackends.ENV) {
+      const value = AppBackends.env(key)
+      if (value) env[key] = value
+    }
+    Object.assign(env, { ACDE_APP_ID: app.id, ACDE_APP_DATA: data, PORT: String(app.backend!.port), NODE_ENV: 'production' })
+    if (!spawnBackend) env['ACDE_APP_SOCKETS'] = running.sockets
     running.ended = new Promise((done) => (running.end = done))
+    const onExit = (code: number | null, signal: number | null) => this.#exited(running, code, signal)
+    const prefix = `[${name}] `
     try {
-      running.pid = spawn(argv, { cwd: data, env, prefix: `[${name}] ` }, (code, signal) => this.#exited(running, code, signal))
+      running.pid = spawnBackend
+        ? spawnBackend(argv, { cwd: data, env, prefix, app: app.id, mode: AppBackends.mode(argv), preload: preload! }, onExit)
+        : spawn!(argv, { cwd: data, env, prefix }, onExit)
     } catch (error) {
       running.end()
       AppBackends.#report(name, `not started: ${(error as Error).message}`, Level.Warn)
@@ -148,10 +186,16 @@ export class AppBackends {
     running.stopping = true
     const pid = running.pid
     if (pid === null) return
-    const timer = unref(stopGroup(pid, () => running.pid === pid, AppBackends.STOP_MS))
-    await running.ended
-    clearTimeout(timer)
-    AppBackends.#removeSockets(running.sockets)
+    const stopBackend = sys().stopBackend
+    if (stopBackend) {
+      stopBackend(pid, AppBackends.STOP_MS)
+      await running.ended
+    } else {
+      const timer = unref(stopGroup(pid, () => running.pid === pid, AppBackends.STOP_MS))
+      await running.ended
+      clearTimeout(timer)
+      AppBackends.#removeSockets(running.sockets)
+    }
     AppBackends.#report(`${id}#backend`, 'stopped')
   }
 

@@ -144,6 +144,7 @@ export interface WebInit {
   readonly request?: Record<string, unknown> | null
   readonly url?: string | null
   readonly sockets?: string
+  readonly channel?: boolean
   readonly devState?: unknown
   readonly devRoutes?: readonly DevRoute[]
   readonly tier?: WebTier

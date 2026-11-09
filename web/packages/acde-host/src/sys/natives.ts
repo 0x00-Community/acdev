@@ -42,6 +42,12 @@ interface SysNative {
   run(argv: readonly string[], timeoutMs?: number): { status: number | null; stdout: string; stderr: string }
   onSignal(callback: (name: 'SIGINT' | 'SIGTERM' | 'SIGHUP') => void): void
   spawn?(argv: readonly string[], options: { cwd?: string; env: Record<string, string>; prefix: string; stdin?: boolean; onStdout?: (line: string) => void }, onExit: (code: number | null, signal: number | null) => void): number
+  spawnBackend?(
+    argv: readonly string[],
+    options: { cwd?: string; env: Record<string, string>; prefix: string; app: string; mode: 'channel' | 'sockets'; preload: string },
+    onExit: (code: number | null, signal: number | null) => void,
+  ): number
+  stopBackend?(pid: number, ms: number): boolean
   write?(pid: number, text: string): boolean
   endInput?(pid: number): void
   spawnWeb(name: string, init: unknown, heapMb: number, env: Record<string, string>, onMessage: (message: unknown) => void, onExit: (code: number, reason: string | null) => void, grants: WebGrants): WebThreadHandle

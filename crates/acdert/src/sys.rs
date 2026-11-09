@@ -178,6 +178,10 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
     #[cfg(unix)]
     bind::method(scope, obj, "getuid", getuid);
     bind::method(scope, obj, "spawn", crate::child::spawn);
+    #[cfg(windows)]
+    bind::method(scope, obj, "spawnBackend", crate::backends::spawn);
+    #[cfg(windows)]
+    bind::method(scope, obj, "stopBackend", crate::backends::stop);
     bind::method(scope, obj, "write", crate::child::write);
     bind::method(scope, obj, "endInput", crate::child::end_input);
     let argv = argv.to_vec().js(scope);

@@ -146,7 +146,7 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     rv.set_uint32(pid);
 }
 
-fn each_line(from: impl Read + Send + 'static, mut each: impl FnMut(String) + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
+pub fn each_line(from: impl Read + Send + 'static, mut each: impl FnMut(String) + Send + 'static) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new().name("acde-child-out".into()).spawn(move || {
         for line in std::io::BufReader::new(from).split(b'\n') {
             let Ok(line) = line else { break };
@@ -258,6 +258,8 @@ fn adopt(child: &Child) {
 }
 
 pub fn stop_all() {
+    #[cfg(windows)]
+    crate::backends::stop_all();
     #[cfg(all(unix, not(target_os = "linux")))]
     for pid in std::mem::take(&mut *GROUPS.lock().unwrap_or_else(|e| e.into_inner())) {
         if let Some(group) = process::Pid::from_raw(pid as i32) {
