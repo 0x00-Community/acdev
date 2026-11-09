@@ -14,31 +14,39 @@ import { Tools } from './tools.ts'
 const USAGE = `usage: acde <command>
   new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--pm PM] [--yes]
                                                    a project; in a terminal it asks what is missing (--yes: ask nothing)
-                                                   T: ${STARTERS.map((s) => s.name).join(', ')}; PM: bun, npm, pnpm, yarn (default: the one running this)
+                                                   T: ${STARTERS.map((s) => s.name).join(', ')}
+                                                   PM: bun, npm, pnpm, yarn (default: the one running this)
   check [dir]                                      acde.config.jsonc (or a package's manifest), as acdert reads it
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)
   dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless]
-                                                   build, run in acdert, rebuild and reload what changed; one project: its
-                                                   desktop or app; several or --desktop: all in that desktop (default: the
-                                                   desktop project among them, else dopame); --headless: no host window
+                                                   build, run in acdert, rebuild and reload what changed; one
+                                                   project: its desktop or app; several or --desktop: all in that
+                                                   desktop (default: the desktop project among them, else dopame);
+                                                   --headless: no host window
  with an acde dev running (the one whose projects hold this directory, or --session PID):
   webs                                             the webs (windows' pages) acdert runs
-  eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop), print the JSON
+  eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop),
+                                                   print the JSON
   shot <web> [-o FILE]                             a PNG of the web's window (default ./<web>.png), print its path
   inspect [--window W] [--find TEXT] [--all] [--offscreen]
-                                                   the desktop as text (acde:inspect snapshot); --offscreen: scrolled-out too
+                                                   the desktop as text (acde:inspect snapshot);
+                                                   --offscreen: scrolled-out too
   act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed
-  console [--web W] [--level L] [--follow]         pages' console.* and uncaught errors (L: log info warn error debug errors)
-  network [--web W] [--failed] [--follow]          pages' fetch / XHR / WebSocket / EventSource requests and how they ended
-  screen [-o FILE]                                 a PNG of the whole screen, every window composed (default ./screen.png)
+  console [--web W] [--level L] [--follow]         pages' console.* and uncaught errors
+                                                   (L: log info warn error debug errors)
+  network [--web W] [--failed] [--follow]          pages' fetch / XHR / WebSocket / EventSource requests
+                                                   and how they ended
+  screen [-o FILE]                                 a PNG of the whole screen, every window composed
+                                                   (default ./screen.png)
   test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
-                                                   run the e2e tests (*.e2e.ts, import from acde/test): each test gets a fresh,
-                                                   isolated acde dev (headless unless --headed); what a failing test left goes
-                                                   to <project>/.acde/test-results (--trace: a screenshot after every step and
-                                                   trace.html for every test); -u / --update-screenshots rewrites the baselines
-  mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run acde dev itself);
-                                                   for agents: claude mcp add acde -- acde mcp`
+                                                   run the e2e tests (*.e2e.ts, import from acde/test): each test
+                                                   gets a fresh, isolated acde dev (headless unless --headed); what a
+                                                   failing test left goes to <project>/.acde/test-results (--trace: a
+                                                   screenshot after every step and trace.html for every test);
+                                                   -u / --update-screenshots rewrites the baselines
+  mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run
+                                                   acde dev itself); for agents: claude mcp add acde -- acde mcp`
 
 interface Spec {
   readonly args: readonly [number, number]
@@ -68,9 +76,15 @@ class Cli {
     network: { args: [0, 0], flags: ['session', 'web'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
     mcp: { args: [0, 0], flags: ['session'] },
-    test: { args: [0, Infinity], flags: ['desktop', 'test-name-pattern', 'timeout'], switches: ['headed', 'bail', 'trace', 'update-screenshots'] },
+    test: {
+      args: [0, Infinity],
+      flags: ['desktop', 'test-name-pattern', 'timeout'],
+      switches: ['headed', 'bail', 'trace', 'update-screenshots'],
+    },
   }
-  static readonly SHORT: Readonly<Record<string, string>> = { o: 'output', t: 'test-name-pattern', u: 'update-screenshots' }
+  static readonly SHORT: Readonly<Record<string, string>> = {
+    o: 'output', t: 'test-name-pattern', u: 'update-screenshots',
+  }
 
   static parse(argv: readonly string[]): Args {
     const [command = '', ...rest] = argv
@@ -81,7 +95,8 @@ class Cli {
     let positional = false
     for (let i = 0; i < rest.length; i++) {
       const arg = rest[i]!
-      if (positional || arg === '-' || !arg.startsWith('-') || (/^-[^-]/.test(arg) && !Object.hasOwn(Cli.SHORT, arg.slice(1)))) {
+      const unknownShort = /^-[^-]/.test(arg) && !Object.hasOwn(Cli.SHORT, arg.slice(1))
+      if (positional || arg === '-' || !arg.startsWith('-') || unknownShort) {
         args.push(arg)
         continue
       }
@@ -89,7 +104,9 @@ class Cli {
         positional = true
         continue
       }
-      const [flag, inline] = arg.startsWith('--') ? (arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined]) : [Cli.SHORT[arg.slice(1)]!, undefined]
+      const [flag, inline] = arg.startsWith('--')
+        ? (arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined])
+        : [Cli.SHORT[arg.slice(1)]!, undefined]
       if (spec.switches?.includes(flag) && inline === undefined) flags.set(flag, '')
       else if (!spec.flags?.includes(flag)) throw new Error(`${command}: unknown argument ${arg}\n${USAGE}`)
       else if (inline !== undefined) flags.set(flag, inline)
@@ -97,7 +114,10 @@ class Cli {
       else throw new Error(`--${flag} needs a value\n${USAGE}`)
     }
     const [min, max] = spec.args
-    if (args.length < min || args.length > max) throw new Error(`${command}: ${min === max ? min : `${min} to ${max}`} arguments, not ${args.length}\n${USAGE}`)
+    if (args.length < min || args.length > max) {
+      const count = min === max ? min : `${min} to ${max}`
+      throw new Error(`${command}: ${count} arguments, not ${args.length}\n${USAGE}`)
+    }
     return { command, args, flags }
   }
 
@@ -108,7 +128,8 @@ class Cli {
     if (followed !== null) return followed
     if (command === 'test') {
       const timeout = flags.has('timeout') ? Number(flags.get('timeout')) : undefined
-      if (timeout !== undefined && !(Number.isInteger(timeout) && timeout > 0)) throw new Error(`--timeout ${flags.get('timeout')}: milliseconds per test`)
+      if (timeout !== undefined && !(Number.isInteger(timeout) && timeout > 0))
+        throw new Error(`--timeout ${flags.get('timeout')}: milliseconds per test`)
       return await TestRunner.run({
         targets: args,
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
@@ -120,10 +141,18 @@ class Cli {
         ...(timeout !== undefined && { timeout }),
       })
     }
-    if (command === 'mcp') return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
+    if (command === 'mcp')
+      return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)
     if (command === 'dev') {
-      const session = new DevSession({ dirs: args, ...(flags.has('out') && { out: flags.get('out')! }), ...(flags.has('app') && { app: flags.get('app')! }), ...(flags.has('desktop') && { desktop: flags.get('desktop')! }), ...(flags.has('headless') && { headless: true }), acdert: await requireAcdert() })
+      const session = new DevSession({
+        dirs: args,
+        ...(flags.has('out') && { out: flags.get('out')! }),
+        ...(flags.has('app') && { app: flags.get('app')! }),
+        ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
+        ...(flags.has('headless') && { headless: true }),
+        acdert: await requireAcdert(),
+      })
       return await session.run()
     }
     const pkg = new AppPackage(args[0] ?? '.')
@@ -137,7 +166,8 @@ class Cli {
   }
 
   static async follow(command: string, dir: string, argv: readonly string[]): Promise<number | null> {
-    if (!['dev', 'build', 'install'].includes(command) || !import.meta.url.endsWith('.js') || process.env['ACDE_FOLLOWED']) return null
+    const bundled = import.meta.url.endsWith('.js')
+    if (!['dev', 'build', 'install'].includes(command) || !bundled || process.env['ACDE_FOLLOWED']) return null
     const wanted = PackageManager.of(resolve(dir)).runtime
     const current = Runtime.bun ? 'bun' : 'node'
     if (wanted === current) return null
@@ -146,7 +176,9 @@ class Cli {
       process.env['ACDE_FOLLOWED'] = '1'
       return await run(argv, exe)
     }
-    console.error(`acde: this project runs on ${wanted === 'bun' ? 'Bun 1.4+' : 'Node.js 22.3+'}, which is not on PATH: going on with ${current === 'bun' ? 'Bun' : 'Node.js'}`)
+    const needed = wanted === 'bun' ? 'Bun 1.4+' : 'Node.js 22.3+'
+    const using = current === 'bun' ? 'Bun' : 'Node.js'
+    console.error(`acde: this project runs on ${needed}, which is not on PATH: going on with ${using}`)
     return null
   }
 
@@ -177,7 +209,8 @@ class Cli {
     for (const warning of warnings) p.log.warn(warning)
     for (const error of errors) p.log.error(error)
     p.note(Creator.next(created).join('\n'), 'Next')
-    p.outro(`${created.starter.kind === 'desktop' ? 'Desktop' : `${created.starter.label} app`} ${JSON.stringify(created.pkg.name)} is ready`)
+    const kind = created.starter.kind === 'desktop' ? 'Desktop' : `${created.starter.label} app`
+    p.outro(`${kind} ${JSON.stringify(created.pkg.name)} is ready`)
     return errors.length === 0 ? 0 : 1
   }
 
