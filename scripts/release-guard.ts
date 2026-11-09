@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -9,14 +9,12 @@ const { values } = parseArgs({
   options: {
     dir: { type: 'string', default: 'out' },
     version: { type: 'string' },
-    triples: { type: 'string' },
   },
 })
 
 const problems: string[] = []
 const dir = resolve(values.dir!)
 const version = values.version ?? ''
-const triples = (values.triples ?? '').split(/[\s,]+/).filter(Boolean)
 
 function fail(message: string): never {
   console.error(`release guard: ${message}`)
@@ -24,12 +22,12 @@ function fail(message: string): never {
 }
 
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) fail(`--version ${version || '(missing)'}: x.y.z`)
-if (triples.length === 0) fail('--triples is empty')
 if (!existsSync(dir)) fail(`${dir}: no such directory`)
 
-const archives = triples.map((triple) => `acde-${version}-${triple}.tar.gz`)
+const archives = [`acde-${version}.tar.gz`]
 const allowed = new Set([
   'latest',
+  'latest.json',
   'install.sh',
   'install.ps1',
   `${version}/SHA256SUMS`,
@@ -48,6 +46,13 @@ for (const path of allowed) {
 if (problems.length === 0) {
   const latest = readFileSync(join(dir, 'latest'), 'utf8').trim()
   if (latest !== version) problems.push(`latest says ${latest}, the release is ${version}`)
+
+  const manifest = JSON.parse(readFileSync(join(dir, 'latest.json'), 'utf8')) as { version?: string; files?: string[] }
+  if (manifest.version !== version) problems.push(`latest.json says ${manifest.version}, the release is ${version}`)
+  const shipped = readdirSync(join(dir, version)).sort()
+  if (JSON.stringify([...(manifest.files ?? [])].sort()) !== JSON.stringify(shipped)) {
+    problems.push('latest.json does not list exactly the files of the version directory')
+  }
 
   const sums = readFileSync(join(dir, version, 'SHA256SUMS'), 'utf8').split('\n').filter(Boolean)
   const listed = new Map<string, string>()
@@ -107,4 +112,4 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`)
   process.exit(1)
 }
-console.log(`release guard: ${archives.length} archives and four more files, all on the allow-list`)
+console.log('release guard: the archive, SHA256SUMS, latest, latest.json and the installers are listed')

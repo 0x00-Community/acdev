@@ -1,13 +1,13 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { cleanup, tmp } from '../helpers.ts'
 import { systemTar } from '../../scripts/shipped.ts'
 
 const ROOT = join(import.meta.dir, '..', '..')
 const VERSION = '0.0.5'
-const TRIPLES = ['x86_64-unknown-linux-gnu', 'x86_64-pc-windows-msvc']
+const TRIPLES = ['generic']
 
 type Plant = { where: 'archive' | 'release'; triple?: string; path: string; text?: string }
 
@@ -23,7 +23,7 @@ function release(plant: Plant[] = [], tamper = false): string {
   const lines: string[] = []
   for (const triple of TRIPLES) {
     const stage = join(root, 'stage', triple)
-    const top = `acde-${VERSION}-${triple}`
+    const top = `acde-${VERSION}`
     const write = (path: string, text: string) => {
       mkdirSync(join(stage, top, path, '..'), { recursive: true })
       writeFileSync(join(stage, top, path), text)
@@ -46,7 +46,8 @@ function release(plant: Plant[] = [], tamper = false): string {
   writeFileSync(join(out, 'latest'), `${VERSION}\n`)
   writeFileSync(join(out, 'install.sh'), 'sh')
   writeFileSync(join(out, 'install.ps1'), 'ps1')
-  if (tamper) writeFileSync(join(version, `acde-${VERSION}-${TRIPLES[0]}.tar.gz`), 'changed after the checksum')
+  writeFileSync(join(out, 'latest.json'), JSON.stringify({ version: VERSION, files: readdirSync(version).sort() }))
+  if (tamper) writeFileSync(join(version, `acde-${VERSION}.tar.gz`), 'changed after the checksum')
   for (const item of plant.filter((p) => p.where === 'release')) {
     mkdirSync(join(out, item.path, '..'), { recursive: true })
     writeFileSync(join(out, item.path), item.text ?? '')
@@ -56,7 +57,7 @@ function release(plant: Plant[] = [], tamper = false): string {
 
 function guard(out: string): { code: number | null; out: string } {
   const child = Bun.spawnSync([
-    process.execPath, 'scripts/release-guard.ts', '--dir', out, '--version', VERSION, '--triples', TRIPLES.join(','),
+    process.execPath, 'scripts/release-guard.ts', '--dir', out, '--version', VERSION,
   ], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' })
   return { code: child.exitCode, out: child.stdout.toString() + child.stderr.toString() }
 }
@@ -67,7 +68,7 @@ describe('release guard', () => {
   test('passes a release that holds exactly the allow-list', () => {
     const made = guard(release())
     expect(made.code, made.out).toBe(0)
-    expect(made.out).toContain('all on the allow-list')
+    expect(made.out).toContain('are listed')
   }, 180_000)
 
   test('fails on a file in the release that is not on the allow-list', () => {
@@ -132,7 +133,7 @@ describe('release guard', () => {
 
   test.skipIf(process.platform === 'win32')('fails on a symbolic link inside an archive', () => {
     const root = tmp()
-    const top = `acde-${VERSION}-${TRIPLES[0]}`
+    const top = `acde-${VERSION}`
     const stage = join(root, 'stage')
     mkdirSync(join(stage, top, 'lib'), { recursive: true })
     writeFileSync(join(stage, top, 'LICENSE'), 'license')
@@ -141,7 +142,7 @@ describe('release guard', () => {
     const file = join(out, VERSION, `${top}.tar.gz`)
     systemTar(['-czf', file, '-C', stage, top])
     const lines = TRIPLES.map((triple) => {
-      const name = `acde-${VERSION}-${triple}.tar.gz`
+      const name = `acde-${VERSION}.tar.gz`
       return `${sha(join(out, VERSION, name))}  ${name}`
     })
     writeFileSync(join(out, VERSION, 'SHA256SUMS'), `${lines.join('\n')}\n`)
