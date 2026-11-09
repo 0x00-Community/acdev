@@ -336,7 +336,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   跟着量的结果变), 经 surface 的 `reservePanel(id, edge, thickness)` 交给运行时. 宿主窗口 (`State::work_area`) 用输出减去显示着的面板占的边得到工作区,
   面板隐藏、挪动、改尺寸、取消钉住或输出变了时重算 (`refill`): `filled` 的窗口跟着改 rect, 全屏不管工作区; 工作区变了给 Broker 发
   `workarea {x, y, width, height}`, Broker (`broker/output.ts`) 把它放进发给每个 web 的 `screen` 消息和 `WebInit.screen.workArea`
-  (`acde:window.output.workArea`). 不写 reserve 的面板什么都不占. 一个宿主窗口就是一个输出; 会话里还没有工作区 (`reservePanel` 只记 debug 日志). 元素要是 stacking context, 不带祖先的裁剪和透明度.
+  (`acde:window.output.workArea`). 不写 reserve 的面板什么都不占. 钉住后用句柄的 `reserve({edge, thickness?} | null)` 就地换占的边或厚度 (不用 unpin 再钉,
+  工作区只变一次, 中间没有整个输出的一步; `null` 不再占, 不认识的边或负的厚度抛 TypeError). 一个宿主窗口就是一个输出; 会话里还没有工作区 (`reservePanel` 只记 debug 日志). 元素要是 stacking context, 不带祖先的裁剪和透明度.
   `acde.desktop.setDoubleClick('fill' | 'minimize' | 'none')` (SDK `DoubleClickAction`) 声明双击标题栏做什么, 随时可以再设, 下一次双击就按新的;
   不认识的值抛 TypeError. 桌面页面和声明了 `acde:desktop` 的系统应用窗口都有 (经自己的 surface 的 `setDoubleClick`, 整个宿主一份), 服务没有;
   会话里还没有 (只记 debug 日志).

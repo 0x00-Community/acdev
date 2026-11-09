@@ -27,8 +27,8 @@ interface Panel {
   readonly element: Element
   readonly id: number
   readonly margin: number
-  readonly reserve: PanelReserve | null
-  reserved: number
+  reserve: PanelReserve | null
+  reserved: string
   window: number | null
   opening: boolean
   rect: Box | null
@@ -62,7 +62,7 @@ export class Pinned {
     const reserve = options.reserve && Pinned.#EDGES[options.reserve.edge] ? options.reserve : null
     const margin = Math.max(0, options.margin ?? 0)
     const id = this.#page.idOf(element)
-    const panel: Panel = { element, id, margin, reserve, reserved: 0, window: null, opening: false, rect: null, extent: null, stops: [] }
+    const panel: Panel = { element, id, margin, reserve, reserved: '', window: null, opening: false, rect: null, extent: null, stops: [] }
     this.#panels.set(element, panel)
     const { ResizeObserver, MutationObserver } = this.#page.window
     const resized = new ResizeObserver(() => this.#place(panel))
@@ -97,8 +97,19 @@ export class Pinned {
   }
 
   #handle(panel: Panel): PinnedPanel {
-    return { update: () => this.#place(panel), unpin: () => this.#unpin(panel) }
+    return { update: () => this.#place(panel), unpin: () => this.#unpin(panel), reserve: (reserve) => this.#rereserve(panel, reserve) }
   }
+
+  #rereserve(panel: Panel, reserve: PanelReserve | null): void {
+    if (reserve !== null && (typeof reserve !== 'object' || !Pinned.#EDGES[reserve.edge])) {
+      throw new TypeError(`reserve: edge is one of ${Object.keys(Pinned.#EDGES).join(', ')}`)
+    }
+    if (reserve?.thickness !== undefined && !(Number.isFinite(reserve.thickness) && reserve.thickness >= 0)) {
+      throw new TypeError('reserve: thickness is a number of pixels, 0 or more')
+    }
+    if (this.#panels.get(panel.element) !== panel) return
+    panel.reserve = reserve
+    if (panel.rect) this.#reserve(panel, panel.rect)  }
 
   #unpin(panel: Panel): void {
     if (this.#panels.get(panel.element) !== panel) return
@@ -153,13 +164,15 @@ export class Pinned {
   }
 
   #reserve(panel: Panel, [x, y, width, height]: Box): void {
-    if (!panel.reserve || panel.window === null) return
+    if (panel.window === null) return
     const { innerWidth, innerHeight } = this.#page.window
     const sides = { top: y + height, bottom: innerHeight - y, left: x + width, right: innerWidth - x }
-    const thickness = Math.max(0, Math.round(panel.reserve.thickness ?? sides[panel.reserve.edge]))
-    if (thickness === panel.reserved) return
-    panel.reserved = thickness
-    this.#surface.reservePanel?.(panel.id, Pinned.#EDGES[panel.reserve.edge], thickness)
+    const edge = panel.reserve ? Pinned.#EDGES[panel.reserve.edge] : 0
+    const thickness = panel.reserve ? Math.max(0, Math.round(panel.reserve.thickness ?? sides[panel.reserve.edge])) : 0
+    const key = `${edge}:${thickness}`
+    if (key === panel.reserved || (panel.reserved === '' && edge === 0)) return
+    panel.reserved = key
+    this.#surface.reservePanel?.(panel.id, edge, thickness)
   }
 
   #open(panel: Panel, rect: Box, input: Box): void {

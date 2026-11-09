@@ -533,6 +533,7 @@ export interface PinOptions {
 export interface PinnedPanel {
   update(): void
   unpin(): void
+  reserve(reserve: PanelReserve | null): void
 }
 
 export type DoubleClickAction = 'fill' | 'minimize' | 'none'
