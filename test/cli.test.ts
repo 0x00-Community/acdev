@@ -1,9 +1,20 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { delimiter, join, relative, sep } from 'node:path'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
+import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
 import { Runtime } from '../src/runtime.ts'
 import { cleanup, env, tmp } from './helpers.ts'
@@ -14,7 +25,11 @@ const WINDOWS = process.platform === 'win32'
 
 async function cli(args: string[], cwd: string, extra: Record<string, string> = {}) {
   const child = Bun.spawn([process.execPath, CLI, ...args], { cwd, env: env(extra), stdout: 'pipe', stderr: 'pipe' })
-  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ])
   return { code, stdout, stderr }
 }
 
@@ -22,11 +37,14 @@ afterAll(cleanup)
 
 async function answer(out: string, path: string): Promise<string> {
   const sockets = tmp()
-  const child = Bun.spawn([process.execPath, '--preload', join(out, 'backend/acde-listen.js'), join(out, 'backend/server.js')], {
-    env: env({ ACDE_APP_SOCKETS: sockets }),
-    stdout: 'ignore',
-    stderr: 'inherit',
-  })
+  const child = Bun.spawn(
+    [process.execPath, '--preload', join(out, 'backend/acde-listen.js'), join(out, 'backend/server.js')],
+    {
+      env: env({ ACDE_APP_SOCKETS: sockets }),
+      stdout: 'ignore',
+      stderr: 'inherit',
+    },
+  )
   try {
     const socket = join(sockets, '3000.sock')
     for (let i = 0; i < 200 && !existsSync(socket); i++) await Bun.sleep(25)
@@ -98,7 +116,10 @@ describe('acde build', () => {
   })
 
   test('CSS url(/...) into public/ stays that URL (the app directory is also at /)', () => {
-    const css = readdirSync(join(out, 'web')).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, 'web', f), 'utf8')).join('\n')
+    const css = readdirSync(join(out, 'web'))
+      .filter((f) => f.endsWith('.css'))
+      .map((f) => readFileSync(join(out, 'web', f), 'utf8'))
+      .join('\n')
     expect(css).toContain('url(/fonts/fixture.woff2)')
   })
 
@@ -139,7 +160,10 @@ describe('backends', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'package.json'), '{"name": "node-app"}')
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>node</title><p>node</p>')
-    writeFileSync(join(dir, 'server.js'), "import http from 'node:http'\nhttp.createServer((req, res) => res.end('hi')).listen(3000)\n")
+    writeFileSync(
+      join(dir, 'server.js'),
+      "import http from 'node:http'\nhttp.createServer((req, res) => res.end('hi')).listen(3000)\n",
+    )
     const out = join(dir, '.acde')
     const built = await cli(['build', '--out', out], dir)
     expect(built.stderr).toBe('')
@@ -176,11 +200,16 @@ describe('acde.config.jsonc', () => {
     const data = tmp()
     const dir = join(tmp(), 'hello')
     expect((await cli(['new', dir, '--label', 'Hi'], tmp())).code).toBe(0)
-    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@dopame/acde-api']).toStartWith('file:')
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@dopame/acde-api']).toStartWith(
+      'file:',
+    )
     expect((await cli(['check'], dir)).stdout).toContain('app (acde.config.jsonc)')
     expect((await cli(['install'], dir, { XDG_DATA_HOME: data })).code).toBe(0)
     const built = JSON.parse(readFileSync(join(data, 'acde/packages/hello/package.json'), 'utf8'))
-    expect(built.acde).toEqual({ apps: [{ id: 'hello', label: 'Hi', icon: 'app', entry: '/app/hello/index.html', capabilities: {} }], assets: { '/app/hello/': ['web'] } })
+    expect(built.acde).toEqual({
+      apps: [{ id: 'hello', label: 'Hi', icon: 'app', entry: '/app/hello/index.html', capabilities: {} }],
+      assets: { '/app/hello/': ['web'] },
+    })
     expect(existsSync(join(data, 'acde/packages/hello/web/index.html'))).toBe(true)
   })
 
@@ -190,17 +219,30 @@ describe('acde.config.jsonc', () => {
     writeFileSync(join(dir, 'clock.js'), 'export default () => ({ methods: { now: () => Date.now() } })\n')
     writeFileSync(join(dir, 'notes.html'), '<!doctype html><title>Notes</title><p>notes</p>\n')
     const config = readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')
-    writeFileSync(join(dir, 'acde.config.jsonc'), config.replace('"services": {}', '"services": { "clock": "clock.js" }').replace('"apps": []', '"apps": [{ "id": "notes", "label": "Notes", "entry": "notes.html", "backend": false }]'))
+    writeFileSync(
+      join(dir, 'acde.config.jsonc'),
+      config
+        .replace('"services": {}', '"services": { "clock": "clock.js" }')
+        .replace(
+          '"apps": []',
+          '"apps": [{ "id": "notes", "label": "Notes", "entry": "notes.html", "backend": false }]',
+        ),
+    )
     const out = join(tmp(), 'out')
     const result = await cli(['build', '--out', out], dir)
     expect(result.stderr).toBe('')
     const built = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
-    expect(built.acde.desktops).toEqual([{ id: 'mine', name: '我的桌面', entry: 'desktop/index.html', services: ['clock'] }])
+    expect(built.acde.desktops).toEqual([
+      { id: 'mine', name: '我的桌面', entry: 'desktop/index.html', services: ['clock'] },
+    ])
     expect(built.acde.services).toEqual([{ name: 'clock', module: 'services/clock.js' }])
     expect(built.acde.apps).toEqual([{ id: 'notes', label: 'Notes', icon: 'app', entry: '/app/notes/notes.html' }])
     expect(built.acde.assets).toEqual({ '/desktop/mine/': ['desktop'], '/app/notes/': ['apps/notes/web'] })
-    for (const file of ['desktop/index.html', 'services/clock.js', 'apps/notes/web/notes.html']) expect(existsSync(join(out, file))).toBe(true)
-    const scripts = readdirSync(join(out, 'desktop')).filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(out, 'desktop', f), 'utf8'))
+    for (const file of ['desktop/index.html', 'services/clock.js', 'apps/notes/web/notes.html'])
+      expect(existsSync(join(out, file))).toBe(true)
+    const scripts = readdirSync(join(out, 'desktop'))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => readFileSync(join(out, 'desktop', f), 'utf8'))
     expect(scripts.some((text) => /from\s*"acde:apps"/.test(text))).toBe(true)
   })
 
@@ -209,7 +251,13 @@ describe('acde.config.jsonc', () => {
     const dir = tmp()
     mkdirSync(join(dir, 'ui'))
     writeFileSync(join(dir, 'ui/app.js'), 'export default { mount() { return () => {} } }\n')
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'by-hand', acde: { apps: [{ id: 'by-hand', label: 'x', icon: 'apps', entry: '/ui/app.js' }], assets: { '/ui/': ['ui'] } } }))
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'by-hand',
+        acde: { apps: [{ id: 'by-hand', label: 'x', icon: 'apps', entry: '/ui/app.js' }], assets: { '/ui/': ['ui'] } },
+      }),
+    )
     expect((await cli(['install'], dir, { XDG_DATA_HOME: data })).code).toBe(0)
     expect(readlinkSync(join(data, 'acde/packages/by-hand'))).toBe(realpathSync(dir))
     rmSync(join(dir, 'ui/app.js'))
@@ -234,13 +282,29 @@ describe('acde.config.jsonc', () => {
     expect(made.stdout).toContain('next: cd ')
     const out = join(tmp(), 'out')
     expect((await cli(['build', '--out', out], dir)).code).toBe(0)
-    expect(JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0].backend).toEqual({ entry: '/app/with-api/backend/server.js', port: 3000 })
+    expect(JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0].backend).toEqual({
+      entry: '/app/with-api/backend/server.js',
+      port: 3000,
+    })
     expect(JSON.parse(await answer(out, '/api/hello')).hello).toBe('API')
+  })
+
+  test('new: the next steps quote a directory with spaces as typed in a shell', () => {
+    const dir = join(tmp(), 'my app')
+    mkdirSync(dir)
+    const rel = relative(process.cwd(), dir)
+    const pm = new PackageManager('pnpm')
+    const starter = Creator.starter('react')
+    const steps = Creator.next({ pkg: { dir } as AppPackage, dir, starter, installed: false, pm })
+    expect(steps).toEqual([`cd "${rel}"`, 'pnpm install', 'pnpm acde:dev'])
   })
 
   test('a framework project gets acde.config.jsonc, the SDK and .acde/ ignored', () => {
     const dir = tmp()
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'made-by-vite', devDependencies: { vite: '^7.0.0' } }))
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ name: 'made-by-vite', devDependencies: { vite: '^7.0.0' } }),
+    )
     writeFileSync(join(dir, '.gitignore'), 'node_modules')
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
@@ -254,7 +318,9 @@ describe('acde.config.jsonc', () => {
 
   test('new: no directory and no terminal, or a template that does not exist', async () => {
     expect((await cli(['new'], tmp())).stderr).toContain('new: a directory')
-    expect((await cli(['new', 'x', '--template', 'angular'], tmp())).stderr).toContain('template "angular": one of html, react')
+    expect((await cli(['new', 'x', '--template', 'angular'], tmp())).stderr).toContain(
+      'template "angular": one of html, react',
+    )
   })
 
   test('check: a missing entry, a wrong type', async () => {
@@ -292,16 +358,24 @@ describe('a project made by acde from its checkout', () => {
   }
 
   async function run(argv: string[], cwd: string, path: string, extra: Record<string, string> = {}) {
-    const basePath = WINDOWS && argv[0] !== process.execPath ? process.env['PATH'] : WINDOWS
-      ? join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32')
-      : '/usr/bin:/bin'
+    const basePath =
+      WINDOWS && argv[0] !== process.execPath
+        ? process.env['PATH']
+        : WINDOWS
+          ? join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32')
+          : '/usr/bin:/bin'
     const child = Runtime.spawn([which(argv[0]!) ?? argv[0]!, ...argv.slice(1)], {
-      cwd, env: env({ PATH: [path, basePath].join(delimiter), npm_config_user_agent: '', ...extra }),
+      cwd,
+      env: env({ PATH: [path, basePath].join(delimiter), npm_config_user_agent: '', ...extra }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let out = ''
-    child.process.stdout!.on('data', (chunk) => { out += chunk.toString() })
-    child.process.stderr!.on('data', (chunk) => { out += chunk.toString() })
+    child.process.stdout!.on('data', (chunk) => {
+      out += chunk.toString()
+    })
+    child.process.stderr!.on('data', (chunk) => {
+      out += chunk.toString()
+    })
     return { code: await child.exited, out }
   }
 
@@ -313,7 +387,12 @@ describe('a project made by acde from its checkout', () => {
   })
 
   test('npm, pnpm and yarn projects get vite for the html and desktop templates, bun ones do not', () => {
-    for (const [pm, vite] of [['bun', undefined], ['npm', Creator.VITE], ['pnpm', Creator.VITE], ['yarn', Creator.VITE]] as const) {
+    for (const [pm, vite] of [
+      ['bun', undefined],
+      ['npm', Creator.VITE],
+      ['pnpm', Creator.VITE],
+      ['yarn', Creator.VITE],
+    ] as const) {
       for (const kind of ['app', 'desktop'] as const) {
         const dir = join(tmp(), `${kind}-${pm}`)
         Creator.lay(dir, kind, pm, `${kind}-${pm}`, `${kind}-${pm}`)
@@ -337,11 +416,23 @@ describe('a project made by acde from its checkout', () => {
       expect(PackageManager.invoking().name).toBe('npm')
       expect(() => PackageManager.named('other')).toThrow('one of bun, npm, pnpm, yarn')
       expect(PackageManager.named('pnpm').exec('create-vite@latest', ['x'])).toEqual([
-        expect.stringMatching(/(?:^|[/\\])pnpm(?:\.(?:exe|cmd|bat))?$/i), 'dlx', 'create-vite@latest', 'x',
+        expect.stringMatching(/(?:^|[/\\])pnpm(?:\.(?:exe|cmd|bat))?$/i),
+        'dlx',
+        'create-vite@latest',
+        'x',
       ])
-      expect(PackageManager.named('bun').exec('sv@latest', ['create'])).toEqual([process.execPath, 'x', '--bun', 'sv@latest', 'create'])
+      expect(PackageManager.named('bun').exec('sv@latest', ['create'])).toEqual([
+        process.execPath,
+        'x',
+        '--bun',
+        'sv@latest',
+        'create',
+      ])
     } finally {
-      for (const [key, value] of [['npm_config_user_agent', saved.agent], ['ACDE_HOST_RUNTIME', saved.runtime]] as const) {
+      for (const [key, value] of [
+        ['npm_config_user_agent', saved.agent],
+        ['ACDE_HOST_RUNTIME', saved.runtime],
+      ] as const) {
         if (value === undefined) delete process.env[key]
         else process.env[key] = value
       }
@@ -351,7 +442,9 @@ describe('a project made by acde from its checkout', () => {
   test('bun: bun install && bun run build with the checkout acde on PATH, no node there', async () => {
     const dir = join(tmp(), 'by-bun')
     expect((await cli(['new', dir, '--pm', 'bun', '--yes'], tmp())).code).toBe(0)
-    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toBe(`bun@${process.versions.bun}`)
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toBe(
+      `bun@${process.versions.bun}`,
+    )
     const path = tools(['bun'])
     const installed = await run([process.execPath, 'install'], dir, path)
     expect(installed.code, installed.out).toBe(0)
@@ -363,23 +456,31 @@ describe('a project made by acde from its checkout', () => {
   }, 60_000)
 
   for (const pm of ['npm', 'pnpm'] as const) {
-    test.skipIf(!which(pm) || !which('node'))(`${pm}: install, run build`, async () => {
-      const dir = join(tmp(), `by-${pm}`)
-      expect((await cli(['new', dir, '--pm', pm, '--yes'], tmp())).code).toBe(0)
-      expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toStartWith(`${pm}@`)
-      const path = tools([pm, 'node', 'bun'])
-      const installed = await run([pm, 'install'], dir, path)
-      expect(installed.code, installed.out).toBe(0)
-      const built = await run([pm, 'run', 'build'], dir, path)
-      expect(built.out).toContain(`built app by-${pm}`)
-      expect(built.code).toBe(0)
-      expect(existsSync(join(dir, 'node_modules/@dopame/acde-api/package.json'))).toBe(true)
-    }, 180_000)
+    test.skipIf(!which(pm) || !which('node'))(
+      `${pm}: install, run build`,
+      async () => {
+        const dir = join(tmp(), `by-${pm}`)
+        expect((await cli(['new', dir, '--pm', pm, '--yes'], tmp())).code).toBe(0)
+        expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toStartWith(`${pm}@`)
+        const path = tools([pm, 'node', 'bun'])
+        const installed = await run([pm, 'install'], dir, path)
+        expect(installed.code, installed.out).toBe(0)
+        const built = await run([pm, 'run', 'build'], dir, path)
+        expect(built.out).toContain(`built app by-${pm}`)
+        expect(built.code).toBe(0)
+        expect(existsSync(join(dir, 'node_modules/@dopame/acde-api/package.json'))).toBe(true)
+      },
+      180_000,
+    )
   }
 })
 
 describe('public/ and icons', () => {
-  const PNG_BYTES = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a1d1d1ff0000000049454e44ae426082', 'hex')
+  const PNG_BYTES = Buffer.from(
+    '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489' +
+      '0000000d4944415478da63f8cfc0f01f0005000201a1d1d1ff0000000049454e44ae426082',
+    'hex',
+  )
 
   function project(files: Record<string, string | Buffer>): string {
     const dir = tmp()
@@ -402,7 +503,10 @@ describe('public/ and icons', () => {
   })
 
   test('an HTML reference to /x that is nowhere names public/ too', async () => {
-    const dir = project({ 'package.json': '{"name": "lost-icon"}', 'index.html': '<!doctype html><link rel="icon" href="/gone.svg"><p>x</p>' })
+    const dir = project({
+      'package.json': '{"name": "lost-icon"}',
+      'index.html': '<!doctype html><link rel="icon" href="/gone.svg"><p>x</p>',
+    })
     const result = await cli(['build', '--out', join(dir, '.acde')], dir)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain(`/gone.svg in index.html: there is no ${join('public/gone.svg')}`)
@@ -410,7 +514,11 @@ describe('public/ and icons', () => {
 
   test('a desktop page and its apps: CSS url(/...) into public/ is bundled (no / mount there)', async () => {
     const dir = project({
-      'acde.config.jsonc': JSON.stringify({ type: 'desktop', id: 'deck', apps: [{ id: 'cards', label: 'Cards', entry: 'cards.html', icon: 'art/cards.png', backend: false }] }),
+      'acde.config.jsonc': JSON.stringify({
+        type: 'desktop',
+        id: 'deck',
+        apps: [{ id: 'cards', label: 'Cards', entry: 'cards.html', icon: 'art/cards.png', backend: false }],
+      }),
       'index.html': '<!doctype html><link rel="stylesheet" href="./desk.css"><p>desk</p>',
       'desk.css': 'body { background: url(/wall.svg); }',
       'cards.html': '<!doctype html><link rel="stylesheet" href="./desk.css"><p>cards</p>',
@@ -421,8 +529,15 @@ describe('public/ and icons', () => {
     const result = await cli(['build', '--out', out], dir)
     expect(result.stderr).toBe('')
     expect(result.code).toBe(0)
-    const css = (web: string) => readdirSync(join(out, web)).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, web, f), 'utf8')).join('')
-    for (const [web, prefix] of [['desktop', '/desktop/deck/'], ['apps/cards/web', '/app/cards/']] as const) {
+    const css = (web: string) =>
+      readdirSync(join(out, web))
+        .filter((f) => f.endsWith('.css'))
+        .map((f) => readFileSync(join(out, web, f), 'utf8'))
+        .join('')
+    for (const [web, prefix] of [
+      ['desktop', '/desktop/deck/'],
+      ['apps/cards/web', '/app/cards/'],
+    ] as const) {
       expect(css(web)).not.toContain('url(/wall.svg)')
       expect(css(web)).toMatch(new RegExp(`url\\((?:data:image/svg|${prefix}wall-)`))
     }
@@ -432,7 +547,10 @@ describe('public/ and icons', () => {
   })
 
   test('an icon name stays a name; a missing or non-image icon file fails check and build', async () => {
-    const named = project({ 'acde.config.jsonc': JSON.stringify({ type: 'app', id: 'named', icon: 'timer' }), 'index.html': '<!doctype html><p>x</p>' })
+    const named = project({
+      'acde.config.jsonc': JSON.stringify({ type: 'app', id: 'named', icon: 'timer' }),
+      'index.html': '<!doctype html><p>x</p>',
+    })
     expect((await cli(['build', '--out', join(named, '.acde')], named)).code).toBe(0)
     expect(JSON.parse(readFileSync(join(named, '.acde/package.json'), 'utf8')).acde.apps[0].icon).toBe('timer')
     const cases: [string, Record<string, string | Buffer>, string][] = [
@@ -442,7 +560,11 @@ describe('public/ and icons', () => {
       ['fake.svg', { 'fake.svg': PNG_BYTES }, 'not an SVG image'],
     ]
     for (const [icon, files, problem] of cases) {
-      const dir = project({ 'acde.config.jsonc': JSON.stringify({ type: 'app', id: 'iconic', icon }), 'index.html': '<!doctype html><p>x</p>', ...files })
+      const dir = project({
+        'acde.config.jsonc': JSON.stringify({ type: 'app', id: 'iconic', icon }),
+        'index.html': '<!doctype html><p>x</p>',
+        ...files,
+      })
       const message = `icon ${JSON.stringify(icon)} in acde.config.jsonc: ${problem}`
       expect((await cli(['check'], dir)).stderr).toContain(message)
       const built = await cli(['build', '--out', join(dir, '.acde')], dir)

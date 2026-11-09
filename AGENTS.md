@@ -5,6 +5,8 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 窗口模型、dev IPC 的 op) 以 acdert 的 AGENTS.md 为准 (并排检出在 `../acdert`), 这里只写工具.
 
 - 说明都在本文件里 (没有 README). full agentic. TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
+- 仓库脚本: `bun run acde <命令> [参数]` 从源码跑 CLI (即 `bun bin/acde.mjs`, 经 launcher 的 `run`, 退出码原样传回);
+  `bun run test`、`bun run typecheck`、`bun run dist -- <参数>` (见「分发」). 要在别的目录当 `acde` 用时 `bun link` / `npm link`.
 - 代码不写注释 (`//`, `/* */`, JSDoc 都不写), 要说明的写进本文件; 工具要读的指令 (`/// <reference>`、`@ts-expect-error`) 除外.
 - 闭源: 代码是专有的 (`LICENSE`, package.json `"license": "UNLICENSED"`), 不发 npm 包, 仓库不公开.
 - 日志和命令行输出只用英文.
@@ -29,6 +31,9 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 在应用工程目录运行 `acde check`、`acde build` 和 `acde dev`。从其他目录运行时，可传入工程路径。
 `acde new` 在指定目录生成应用源码、配置和依赖声明。框架模板保留框架原有脚本，并追加 `acde:check`、`acde:build` 和 `acde:dev`
 用于应用检查、构建和开发会话。
+生成的工程只有这三个脚本，经工程自己的包管理器运行，`acde` 的退出码由包管理器传回。不生成 `prod` / `start`：
+acde 还没有“启动已构建应用”的命令（`acde install` 只装包，部署和发布不算启动），定义之前不分配脚本名。
+也不生成 `test`：`acde test` 只在 bun 上运行，新工程没有 `*.e2e.ts`，这时运行会报错；写了端到端测试的工程自行添加 `acde test` 脚本。
 
 `acde check` 读取工程配置和入口。普通工程的 `build` 和 `dev` 默认把运行时包写到工程的 `.acde/`。
 显式的绝对 `--out` 直接指定产物目录。相对 `--out` 从被构建的工程目录解析，例如从父目录运行
@@ -62,7 +67,8 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
   只对打好的 `cli.js`, `cli.ts` 只能 bun 跑); 那个运行时不在 PATH 上就打一行, 接着在现在的上面跑.
   yarn 的工程写 `.yarnrc.yml` `nodeLinker: node-modules` (PnP 下 bun 和框架的构建找不到依赖).
 - **package.json** (`Creator.lay` / `adopt`): 自带模板的脚本 `dev` / `build` / `check` 是 `acde <同名>`; 框架模板不动框架的脚本, 加 `acde:dev` /
-  `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acde`, 工程里没有 `acde` 依赖. devDependencies: `@dopame/acde-api` (`Creator.api`, `ACDE_API`
+  `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acde`, 工程里没有 `acde` 依赖. 建好后的下一步提示 (`Creator.next`)
+  给含空白的目录加双引号, Windows 上不转义反斜杠. devDependencies: `@dopame/acde-api` (`Creator.api`, `ACDE_API`
   可整个换掉); npm / pnpm / yarn 下自带模板另加 `vite: ^8` (`Creator.VITE`: Node 上用工程的 Vite 打包).
 - `@dopame/acde-api` 是 `file:` 依赖 (没上 npm). 全局装的 acde (`installed()`: 自己在 `lib/acde`, 旁边有 `lib/acde-api`): 绝对路径
   `file:<$ACDE_INSTALL>/current/lib/acde-api` (走 `current`, 升级后重装依赖就是新的; `current` 不是跑着的版本时用自己版本的). 检出跑的 acde:
