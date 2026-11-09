@@ -5,6 +5,7 @@ import {
 } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
+import JavaScriptObfuscator from 'javascript-obfuscator'
 import ts from 'typescript'
 
 const ROOT = resolve(import.meta.dirname, '..')
@@ -24,6 +25,24 @@ const BUNDLES: { entry: string; file: string; target: 'node' | 'bun' }[] = [
   { entry: 'src/driver/index.ts', file: 'driver.js', target: 'node' },
   { entry: 'src/e2e/index.ts', file: 'test.js', target: 'bun' },
 ]
+const OBFUSCATION = {
+  compact: true,
+  controlFlowFlattening: false,
+  deadCodeInjection: false,
+  debugProtection: false,
+  disableConsoleOutput: false,
+  identifierNamesGenerator: 'hexadecimal' as const,
+  renameGlobals: true,
+  reservedStrings: ['getBuiltinModule'],
+  selfDefending: false,
+  simplify: true,
+  sourceMap: false,
+  stringArray: true,
+  stringArrayEncoding: ['base64' as const],
+  stringArrayThreshold: 0.75,
+  target: 'node' as const,
+  unicodeEscapeSequence: false,
+}
 
 const { values } = parseArgs({
   options: {
@@ -43,7 +62,7 @@ function need(name: string, value: string | undefined, what: string): string {
 }
 
 const acdert = resolve(need('acdert', values.acdert, 'the acdert binary'))
-const host = resolve(need('host', values.host, 'the acde-host dist directory (broker.js, web.js)'))
+const host = resolve(need('host', values.host, 'the acdert host bundle: the app/ directory of acdert-host'))
 const api = resolve(values.api!)
 const desktop = resolve(values.desktop!)
 const triple = need('triple', values.triple, `rust target triple: ${TRIPLES.join(', ')}`)
@@ -52,7 +71,12 @@ const out = resolve(values.out!)
 if (!TRIPLES.includes(triple)) throw new Error(`--triple ${triple}: one of ${TRIPLES.join(', ')}`)
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`--version ${version}: x.y.z`)
 if (!statSync(acdert).isFile()) throw new Error(`--acdert ${acdert}: not a file`)
-if (!existsSync(join(host, 'broker.js'))) throw new Error(`--host ${host}: no broker.js in it`)
+if (!existsSync(join(host, 'dist', 'broker.js'))) throw new Error(`--host ${host}: no dist/broker.js in it`)
+const hostVersion = (JSON.parse(readFileSync(join(host, 'package.json'), 'utf8')) as { version?: string }).version
+if (hostVersion !== version) {
+  throw new Error(`--host ${host} is version ${hostVersion ?? 'unknown'}, not ${version}: `
+    + 'only the host of the same release ships')
+}
 if (!existsSync(join(api, 'package.json')) || !existsSync(join(api, 'src', 'index.js'))) {
   throw new Error(`--api ${api}: not a built acde-api (run bun run build in acdert's web/packages/acde-api)`)
 }
@@ -69,7 +93,7 @@ const top = join(stage, name)
 const lib = join(top, 'lib', 'acde')
 rmSync(stage, { recursive: true, force: true })
 
-mkdirSync(join(top, 'bin', 'app', 'dist'), { recursive: true })
+mkdirSync(join(top, 'bin'), { recursive: true })
 mkdirSync(join(lib, 'dist'), { recursive: true })
 const crlf = (from: string, to: string) => writeFileSync(to, readFileSync(from, 'utf8').replace(/\r?\n/g, '\r\n'))
 if (windows) {
@@ -80,9 +104,7 @@ if (windows) {
   copyFileSync(acdert, join(top, 'bin', 'acdert'))
   for (const file of ['acde', 'acdert']) chmodSync(join(top, 'bin', file), 0o755)
 }
-for (const file of readdirSync(host)) {
-  if (file.endsWith('.js')) copyFileSync(join(host, file), join(top, 'bin', 'app', 'dist', file))
-}
+cpSync(host, join(top, 'bin', 'app'), { recursive: true, filter: (from) => !from.endsWith('.map') })
 const shipped = join(top, 'bin', 'app', 'packages', basename(desktop))
 mkdirSync(shipped, { recursive: true })
 copyFileSync(join(desktop, 'package.json'), join(shipped, 'package.json'))
@@ -91,6 +113,7 @@ cpSync(join(desktop, 'dist'), join(shipped, 'dist'), { recursive: true, filter: 
 for (const path of ['templates', 'LICENSE', 'launcher.d.mts']) {
   cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 }
+copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 for (const { entry, file, target } of BUNDLES) await bundle(entry, join(lib, 'dist'), file, target)
 await bundle('launcher.mjs', lib, 'launcher.mjs', 'node')
 declarations(join(lib, 'dist', 'types'))
@@ -140,7 +163,8 @@ async function bundle(entry: string, outdir: string, file: string, target: 'node
   })
   if (!built.success) throw new AggregateError(built.logs, `bundling ${entry} failed`)
   const path = join(outdir, file)
-  writeFileSync(path, readFileSync(path, 'utf8').replace(/^#!.*\n(\/\/ @bun.*\n)?/, ''))
+  const minified = readFileSync(path, 'utf8').replace(/^#!.*\n(\/\/ @bun.*\n)?/, '')
+  writeFileSync(path, JavaScriptObfuscator.obfuscate(minified, OBFUSCATION).getObfuscatedCode())
 }
 
 function declarations(outDir: string): void {
@@ -194,7 +218,7 @@ function leaks(root: string): string[] {
     }
   }
   walk(root)
-  const found = ['lib/acde/src', 'lib/acde/test', 'lib/acde-api/test']
+  const found = ['lib/acde/src', 'lib/acde/test', 'lib/acde-api/test', 'bin/app/src']
     .filter((path) => existsSync(join(root, path)))
     .map((path) => `${path}: source directory`)
   const isSource = (file: string) => /\.[cm]?tsx?$/.test(file) && !/\.d\.[cm]?ts$/.test(file)
@@ -205,7 +229,7 @@ function leaks(root: string): string[] {
     if (!/\.(m?js|cjs|json|d\.ts)$/.test(path)) continue
     const text = readFileSync(file, 'utf8')
     if (/sourcesContent/.test(text)) found.push(`${path}: sourcesContent`)
-    if (path.startsWith('lib/') && /sourceMappingURL/.test(text)) found.push(`${path}: source map reference`)
+    if (/sourceMappingURL/.test(text)) found.push(`${path}: source map reference`)
   }
   return found
 }

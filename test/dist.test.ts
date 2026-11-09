@@ -13,6 +13,16 @@ const ROOT = join(import.meta.dir, '..')
 const TRIPLE = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-` +
   `${process.platform === 'darwin' ? 'apple-darwin' : 'unknown-linux-gnu'}`
 const FETCHER = which('curl') ?? which('wget')
+const API = join(ROOT, '../acdert/web/packages/acde-api/dist')
+
+function writeHost(host: string, version: string, broker = ''): string {
+  mkdirSync(join(host, 'dist'), { recursive: true })
+  writeFileSync(join(host, 'dist', 'broker.js'), broker)
+  writeFileSync(join(host, 'dist', 'web.js'), '')
+  writeFileSync(join(host, 'dist', 'web.js.map'), '')
+  writeFileSync(join(host, 'package.json'), JSON.stringify({ name: 'acde-host', version }))
+  return host
+}
 
 async function run(argv: string[], extra: Record<string, string>, cwd = ROOT) {
   const child = Bun.spawn(argv, { cwd, env: env(extra), stdout: 'pipe', stderr: 'pipe' })
@@ -30,7 +40,8 @@ describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh',
 
   async function dist(version: string) {
     const made = await run([
-      process.execPath, 'scripts/dist.ts', '--acdert', join(inputs, 'acdert'), '--host', join(inputs, 'host'),
+      process.execPath, 'scripts/dist.ts', '--acdert', join(inputs, 'acdert'),
+      '--host', writeHost(join(inputs, `host-${version}`), version),
       '--triple', TRIPLE, '--version', version, '--out', out,
     ], {})
     expect(made.code, made.out).toBe(0)
@@ -44,10 +55,6 @@ describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh',
 
   beforeAll(async () => {
     writeFileSync(join(inputs, 'acdert'), '#!/bin/sh\necho fake-acdert "$@"\n', { mode: 0o755 })
-    mkdirSync(join(inputs, 'host'))
-    writeFileSync(join(inputs, 'host', 'broker.js'), '')
-    writeFileSync(join(inputs, 'host', 'web.js'), '')
-    writeFileSync(join(inputs, 'host', 'web.js.map'), '')
     await dist('0.0.1')
     await dist('0.0.2')
     server = Bun.serve({
@@ -88,7 +95,7 @@ describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh',
     expect(readFileSync(join(out, '0.0.2', 'SHA256SUMS'), 'utf8')).toBe(`${sum}  ${name}.tar.gz\n`)
     expect(readFileSync(join(out, 'latest'), 'utf8')).toBe('0.0.2\n')
     const windows = await run([
-      process.execPath, 'scripts/dist.ts', '--acdert', join(inputs, 'acdert'), '--host', join(inputs, 'host'),
+      process.execPath, 'scripts/dist.ts', '--acdert', join(inputs, 'acdert'), '--host', join(inputs, 'host-0.0.2'),
       '--triple', 'x86_64-pc-windows-msvc', '--version', '0.0.2', '--out', out,
     ], {})
     expect(windows.code, windows.out).toBe(0)
@@ -217,16 +224,14 @@ test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(
     const desktop = join(root, 'desktop package')
     const acdert = join(root, 'acdert.exe')
     const version = '0.0.2'
-    mkdirSync(host)
+    writeHost(host, version)
     mkdirSync(join(desktop, 'dist'), { recursive: true })
     writeFileSync(acdert, 'test runtime')
-    writeFileSync(join(host, 'broker.js'), '')
-    writeFileSync(join(host, 'web.js'), '')
     writeFileSync(join(desktop, 'package.json'), '{"name":"test-desktop","acde":{"apps":[]}}')
     writeFileSync(join(desktop, 'dist', 'index.html'), '<title>Desktop</title>')
     const made = await run([
       process.execPath, 'scripts/dist.ts', '--acdert', acdert, '--host', host, '--desktop', desktop,
-      '--api', join(ROOT, '../acdert/web/packages/acde-api/dist'), '--triple', 'x86_64-pc-windows-msvc',
+      '--api', API, '--triple', 'x86_64-pc-windows-msvc',
       '--out', out, '--version', version,
     ], {})
     expect(made.code, made.out).toBe(0)
@@ -261,6 +266,19 @@ test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(
     expect(existsSync(join(current, 'lib', 'acde', 'src'))).toBe(false)
     expect(existsSync(join(current, 'lib', 'acde', 'dist', 'cli.js'))).toBe(true)
     expect(existsSync(join(current, 'lib', 'acde', 'dist', 'types', 'driver', 'index.d.ts'))).toBe(true)
+    expect(readFileSync(join(current, 'LICENSE'), 'utf8')).toBe(readFileSync(join(ROOT, 'LICENSE'), 'utf8'))
+    const license = readFileSync(join(ROOT, 'LICENSE'), 'utf8')
+    expect(readFileSync(join(current, 'lib', 'acde', 'LICENSE'), 'utf8')).toBe(license)
+    const entries = join(current, 'lib', 'acde', 'dist')
+    const exported = await run([process.execPath, '-e', `
+      const names = async (file) => Object.keys(await import(file)).sort().join(',')
+      console.log(await names(${JSON.stringify(join(entries, 'driver.js'))}))
+      console.log(await names(${JSON.stringify(join(entries, 'test.js'))}))
+    `], {}, root)
+    expect(exported.code, exported.out).toBe(0)
+    const [driver, test] = exported.stdout.trim().split('\n')
+    expect(driver).toContain('Acde,')
+    expect(test).toContain('expect')
 
     const launcher = pathToFileURL(join(current, 'lib', 'acde', 'launcher.mjs')).href
     const found = await run([
@@ -273,10 +291,14 @@ test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(
     const project = join(root, 'hello world')
     const build = join(root, 'build output')
     const path = [dirname(process.execPath), process.env['PATH']].join(delimiter)
+    const withApi = join(root, 'with api')
+    const apiBuild = join(root, 'api build')
     for (const args of [
       ['new', project, '--yes', '--id', 'hello', '--pm', 'bun'],
       ['check', project],
       ['build', project, '--out', build],
+      ['new', withApi, '--template', 'html', '--backend', '--yes', '--id', 'with-api', '--pm', 'bun'],
+      ['build', withApi, '--out', apiBuild],
     ]) {
       const child = Runtime.spawn([shim, ...args], {
         cwd: root, env: env({ ACDE_INSTALL: home, PATH: path }), stdio: ['ignore', 'pipe', 'pipe'],
@@ -287,6 +309,9 @@ test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(
       expect(await child.exited, output).toBe(0)
     }
     expect(existsSync(join(build, 'web', 'index.html'))).toBe(true)
+    const preload = readFileSync(join(apiBuild, 'backend', 'acde-listen.js'), 'utf8')
+    expect(preload).toContain('process.getBuiltinModule')
+    expect(preload).toContain('ACDE_APP_SOCKETS')
     const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8'))
     const api = manifest.devDependencies['@dopame/acde-api']
     expect(api).toStartWith('file:')
@@ -294,5 +319,29 @@ test.skipIf(process.platform !== 'win32' || process.arch !== 'x64')(
   },
   180_000,
 )
+
+describe('dist refuses a host that is not this release, or that ships maps', () => {
+  const root = tmp()
+  const acdert = join(root, 'acdert')
+  const dist = (host: string, version: string) => run([
+    process.execPath, 'scripts/dist.ts', '--acdert', acdert, '--host', host, '--triple', TRIPLE,
+    '--version', version, '--api', API, '--out', join(root, 'out'),
+  ], {})
+
+  beforeAll(() => writeFileSync(acdert, 'fake acdert'))
+
+  test('a host of another version', async () => {
+    const made = await dist(writeHost(join(root, 'old-host'), '0.0.1'), '0.0.2')
+    expect(made.code).toBe(1)
+    expect(made.out).toContain('only the host of the same release ships')
+  }, 60_000)
+
+  test('a host whose bundle still points at a source map', async () => {
+    const mapped = writeHost(join(root, 'mapped-host'), '0.0.2', '//# sourceMappingURL=broker.js.map\n')
+    const made = await dist(mapped, '0.0.2')
+    expect(made.code).toBe(1)
+    expect(made.out).toContain('source map reference')
+  }, 120_000)
+})
 
 afterAll(cleanup)
