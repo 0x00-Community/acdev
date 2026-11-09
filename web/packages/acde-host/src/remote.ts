@@ -1,4 +1,4 @@
-import type { AppMenu, NativeWindow, WindowApp, WindowEdge, WindowEventName, WindowMode, WindowRect } from '@dopame/acde-api'
+import type { AppMenu, NativeWindow, WindowApp, WindowEdge, WindowEventName, WindowMode, WindowOutput, WindowRect, WindowState } from '@dopame/acde-api'
 import type { ServiceShape, WebInit, WireMenu } from './broker'
 import { Level, Log } from './log'
 import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
@@ -46,6 +46,10 @@ export class WindowList {
   track(event: WindowEvent): void {
     if (event.type === 'windowclose') return void this.#windows.delete(event.window)
     const was = this.#windows.get(event.window)
+    if (event.type === 'windowstate') {
+      if (was) this.#windows.set(event.window, { ...was, state: event['state'] as WindowState })
+      return
+    }
     const text = (value: unknown, fallback: string | null) => (typeof value === 'string' && value ? value : fallback)
     const web = event['web'] === true || was?.web === true
     const appId = text(event['appId'], was?.appId ?? null)
@@ -82,14 +86,40 @@ export class WindowSelf {
   readonly #handlers = new Map<WindowEventName, Set<(value?: unknown) => unknown>>()
   #unmount: (() => void) | null = null
   #opening: Record<string, unknown> | null
+  #state: WindowState = 'normal'
+  #output: WindowOutput
   onVisible: (visible: boolean) => void = () => {}
   onTitle: (title: string) => void = () => {}
 
-  constructor(rpc: Rpc, surface: NativeSurface, page: PageLike, opening: Record<string, unknown> | null) {
+  constructor(rpc: Rpc, surface: NativeSurface, page: PageLike, opening: Record<string, unknown> | null, output: WindowOutput) {
     this.#rpc = rpc
     this.#surface = surface
     this.#page = page
     this.#opening = opening
+    this.#output = output
+  }
+
+  get state(): WindowState {
+    return this.#state
+  }
+
+  get output(): WindowOutput {
+    return this.#output
+  }
+
+  changed(state: string, previous: string): void {
+    this.#state = state as WindowState
+    this.emit('state', { state, previous })
+  }
+
+  moved(output: WindowOutput): void {
+    const was = this.#output
+    this.#output = output
+    if (JSON.stringify(was) !== JSON.stringify(output)) this.emit('output', output)
+  }
+
+  static output(width: number, height: number, scale: number, workArea?: WindowRect | null): WindowOutput {
+    return Object.freeze({ width, height, scale, workArea: Object.freeze({ ...(workArea ?? { x: 0, y: 0, width, height }) }) })
   }
 
   readonly host = {
@@ -122,7 +152,8 @@ export class WindowSelf {
     setTitle: this.host.setTitle,
     setMenus: this.host.setMenus,
     ...Rpc.calls(() => this.#rpc, 'window', 'close', 'minimize', 'requestAttention', 'shortcut', 'unshortcut'),
-    requestMode: (mode: WindowMode) => this.#surface.requestMode(mode),
+    requestMode: (mode: WindowMode | 'fullscreen') => this.#surface.requestMode(mode),
+    requestState: (state: WindowState) => this.#surface.requestState(state),
     setGrabHint: (rect: WindowRect, edges: readonly WindowEdge[] = []) =>
       this.#surface.setGrabHint(rect.x, rect.y, rect.width, rect.height, edges.reduce((bits, e) => bits | WindowSelf.#EDGES[e], 0)),
     setBackdrop: (rect: WindowRect | null, effect: { radius?: number; blur?: number; saturate?: number; brightness?: number } = {}) => {
@@ -189,7 +220,7 @@ export class WindowSelf {
     for (const handler of handlers) handler(request)
   }
 
-  emit(name: 'activate' | 'deactivate' | 'grab' | 'grablost', value?: unknown): void {
+  emit(name: 'activate' | 'deactivate' | 'grab' | 'grablost' | 'state' | 'output', value?: unknown): void {
     for (const handler of this.#handlers.get(name) ?? []) handler(value)
   }
 }
@@ -206,7 +237,7 @@ export class RemoteBridge {
     const shell = new Set<string>(init.tier?.shell ?? [])
     const globalWindows = () => ({
       ...windows.api,
-      ...Rpc.calls(() => rpc, 'windows', 'kill', 'focus', 'hide', 'show', 'invokeMenu', 'stats', 'animate', 'shortcut', 'unshortcut'),
+      ...Rpc.calls(() => rpc, 'windows', 'kill', 'focus', 'hide', 'show', 'requestState', 'invokeMenu', 'stats', 'animate', 'shortcut', 'unshortcut'),
     })
     const tier = {
       packages: () => ({ ...Rpc.calls(() => rpc, 'packages', 'refresh', 'install', 'natives', 'runNative'), on: windows.notices.for('apps', ['changed']) }),
@@ -249,7 +280,10 @@ export class RemoteBridge {
     const shortcut = windows.notices.for('window', ['shortcut'])
     const on = (name: string, handler: (value?: unknown) => unknown) =>
       name === 'shortcut' ? shortcut(name, handler) : api.on(name as WindowEventName, handler)
-    return { ...api, id: self.id, on }
+    const value = { ...api, id: self.id, on }
+    Object.defineProperty(value, 'state', { get: () => self.state, enumerable: true })
+    Object.defineProperty(value, 'output', { get: () => self.output, enumerable: true })
+    return value
   }
 
   define(host: { defineModule(url: string, exports: object): void; refuseModule?(url: string, reason: string): void }): void {

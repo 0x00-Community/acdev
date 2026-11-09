@@ -16,6 +16,7 @@ export interface WindowsHost {
 
 export class WindowCalls {
   static readonly BROWSER = 'browser'
+  static readonly STATES = ['normal', 'minimized', 'filled', 'fullscreen'] as const
   readonly #host: WindowsHost
 
   constructor(host: WindowsHost) {
@@ -50,6 +51,9 @@ export class WindowCalls {
         const record = this.#host.record(id)
         return record?.web?.rpc.call('window', 'menu', [args[1], args[2]])
       }
+      case 'requestState':
+        if (!desktop) throw Web.refused(web, `the state of window ${id}`)
+        return this.#state(id, args[1])
       case 'focus':
       case 'hide':
       case 'show':
@@ -99,6 +103,14 @@ export class WindowCalls {
     throw new Error(`acde.launch has no ${method}`)
   }
 
+  #state(id: number, state: unknown): void {
+    if (!WindowCalls.STATES.includes(state as never)) {
+      throw Object.assign(new TypeError(`no window state ${String(state)} (${WindowCalls.STATES.join(', ')})`), { status: 400 })
+    }
+    if (!this.#host.shell.setState) throw Object.assign(new Error('window states are not carried out here yet'), { status: 501 })
+    this.#host.shell.setState(id, state as (typeof WindowCalls.STATES)[number])
+  }
+
   self(web: Web, method: string, args: unknown[]): unknown {    const record = this.#host.record(web.window)
     if (web.kind !== 'window' || !record) throw new Error('acde.window: only a window web has a window')
     switch (method) {
@@ -111,6 +123,7 @@ export class WindowCalls {
       case 'close':
         return this.#host.closeWeb(record.id, true)
       case 'minimize':
+        if (this.#host.shell.setState) return this.#state(record.id, 'minimized')
         return this.#host.toDesktop({ type: 'windowminimize', window: record.id })
       case 'requestAttention':
         return this.#host.toDesktop({ type: 'windowattention', window: record.id })

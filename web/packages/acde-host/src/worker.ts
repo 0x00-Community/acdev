@@ -1,4 +1,5 @@
-import { install, installBackendTransport, observe, type AudioNative, type BackendTransport, type CaptureNative, type DomNative, type GpuNative, type HostNative, type StorageNative } from '@dopame/acde-dom'
+import { install, installBackendTransport, observe } from '@dopame/acde-dom'
+import type { AudioNative, BackendTransport, CaptureNative, DomNative, GpuNative, HostNative, StorageNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
 import { Frame } from './frame'
 import { Host } from './host'
@@ -22,11 +23,20 @@ import { StartupTimeline } from './timeline'
 import { WebAppPage } from './webapp'
 
 interface WebNatives extends Natives {
-  readonly host: HostNative & { onTaskEnd(fn: () => void): void; setReporter(fn: (error: unknown, promise?: Promise<unknown>) => void): void; requestFrame(): void }
+  readonly host: HostNative & {
+    onTaskEnd(fn: () => void): void
+    setReporter(fn: (error: unknown, promise?: Promise<unknown>) => void): void
+    requestFrame(): void
+  }
   readonly port: { post(message: unknown): void; onMessage(fn: (message: unknown) => void): void }
   readonly init: WebInit
   readonly env: Record<string, string>
-  createDocument(width: number, height: number, scale: number, options: { resources: { prefix: string; dirs: string[] }[]; reducedMotion: boolean; dark: boolean }): DomNative
+  createDocument(
+    width: number,
+    height: number,
+    scale: number,
+    options: { resources: { prefix: string; dirs: string[] }[]; reducedMotion: boolean; dark: boolean },
+  ): DomNative
   claimSurface(token: bigint, options?: { frame?: number }): NativeSurface
   readonly Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   readonly gpu?: GpuNative
@@ -46,7 +56,8 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const { host, port, init } = natives
   Host.label = init.name
 
-  const dom = natives.createDocument(init.width, init.height, init.scale, { resources: init.resources, reducedMotion: init.reducedMotion === true, dark: init.dark === true })
+  const look = { resources: init.resources, reducedMotion: init.reducedMotion === true, dark: init.dark === true }
+  const dom = natives.createDocument(init.width, init.height, init.scale, look)
   const surface = natives.claimSurface(init.token, { frame: init.kind === 'window' ? Frame.height(init.app) : 0 })
   const title = (text: string) => surface.setTitle(text || (init.app?.label ?? init.name))
   title('')
@@ -84,7 +95,8 @@ export default async function boot(natives: WebNatives): Promise<void> {
   })
 
   const rpc = new Rpc((message) => port.post(message))
-  const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null) : null
+  const output = WindowSelf.output(init.screen?.width ?? 0, init.screen?.height ?? 0, init.scale, init.workArea)
+  const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null, output) : null
   const windows = new WindowList(rpc)
   const bridge = new RemoteBridge(rpc, init, self, windows)
   if (natives.backend) installBackendTransport({ ...natives.backend, port: init.kind === 'window' && init.app?.backend ? init.app.backend.port : null })
@@ -102,12 +114,24 @@ export default async function boot(natives: WebNatives): Promise<void> {
   let devhot = (): void => {}
   port.onMessage((message) => {
     if (rpc.receive(message)) return
-    const m = message as { type?: string; dark?: boolean; reduced?: boolean; language?: string; languages?: string[]; width?: number; height?: number; routes?: DevRoute[] }
+    const m = message as {
+      type?: string
+      dark?: boolean
+      reduced?: boolean
+      language?: string
+      languages?: string[]
+      width?: number
+      height?: number
+      scale?: number
+      workArea?: { x: number; y: number; width: number; height: number }
+      routes?: DevRoute[]
+    }
     switch (m.type) {
       case 'devroutes':
         return routes?.set(m.routes ?? [])
       case 'screen':
         if (m.width && m.height) page.setScreen({ width: m.width, height: m.height })
+        if (m.width && m.height) self?.moved(WindowSelf.output(m.width, m.height, m.scale ?? self.output.scale, m.workArea))
         return
       case 'languages':
         return page.setLanguages({ language: m.language, languages: m.languages })
@@ -127,9 +151,11 @@ export default async function boot(natives: WebNatives): Promise<void> {
     self.emit('activate')
     self.onVisible = (visible) => page.setVisible(visible)
   }
-  new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, label: init.app?.label ?? '桌面', privateDirectory: natives.storage?.privateDirectory ? () => natives.storage!.privateDirectory!() : null })
+  const privateDirectory = natives.storage?.privateDirectory ? () => natives.storage!.privateDirectory!() : null
+  new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, label: init.app?.label ?? '桌面', privateDirectory })
   web.onActivation = (active) => self?.emit(active ? 'activate' : 'deactivate')
   web.onGrab = (event) => self?.emit(event.kind === 'lost' ? 'grablost' : 'grab', event)
+  web.onState = (state, previous) => self?.changed(state, previous)
   web.onFrameButton = (key) => {
     if (!self) return
     if (key === 'close') void self.api.close()
@@ -145,21 +171,42 @@ export default async function boot(natives: WebNatives): Promise<void> {
   if (natives.fs) bridge.value['fs'] = natives.fs
   if (natives.terminal) bridge.value['terminal'] = natives.terminal
   if (natives.network) bridge.value['network'] = natives.network
-  if (natives.office) bridge.value['office'] = { ...natives.office, editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme) }
+  if (natives.office) {
+    const editorPage = async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme)
+    bridge.value['office'] = { ...natives.office, editorPage }
+  }
   bridge.define(host)
   const app = self ? new WebAppPage(page, rpc, init.name) : null
   StartupTimeline.mark('page load started')
   const served = htmlEntry && PageSource.isServer(init.app!.entry)
-  const html = init.kind === 'desktop' ? (init.standalone ? standalone(init.standalone) : readFileSync(init.page!, 'utf8')) : served ? await PageSource.served(page.window as never, init.url ?? `${PageSource.ORIGIN}/`) : htmlPage ? PageSource.html(htmlPage, init.resources) : PageSource.window(init.app!, init.theme ?? '')
+  const html =
+    init.kind === 'desktop'
+      ? init.standalone
+        ? standalone(init.standalone)
+        : readFileSync(init.page!, 'utf8')
+      : served
+        ? await PageSource.served(page.window as never, init.url ?? `${PageSource.ORIGIN}/`)
+        : htmlPage
+          ? PageSource.html(htmlPage, init.resources)
+          : PageSource.window(init.app!, init.theme ?? '')
   await page.loadPage(html)
   if (init.devState) {
     DevState.restore(page.window as never, init.devState as DevSnapshot, (restored, missed) =>
       Log.write(Level.Info, 'acde_host', `[${init.name}] acde dev: state restored (${restored} kept${missed ? `, ${missed} not found` : ''})`),
     )
   }
-  const reread = !natives.env['ACDE_DEV'] ? null : init.kind === 'desktop' ? (init.standalone ? null : () => readFileSync(init.page!, 'utf8')) : !served && htmlPage ? () => PageSource.html(htmlPage, init.resources) : null
+  const reread = !natives.env['ACDE_DEV']
+    ? null
+    : init.kind === 'desktop'
+      ? init.standalone
+        ? null
+        : () => readFileSync(init.page!, 'utf8')
+      : !served && htmlPage
+        ? () => PageSource.html(htmlPage, init.resources)
+        : null
+  const parser = (page.window as never as { DOMParser: ConstructorParameters<typeof DevHot>[1] }).DOMParser
   const hot = reread
-    ? new DevHot(page.window.document as never, (page.window as never as { DOMParser: ConstructorParameters<typeof DevHot>[1] }).DOMParser, page.window.location.href, {
+    ? new DevHot(page.window.document as never, parser, page.window.location.href, {
         read: (src) => {
           const path = new URL(src, PageSource.ORIGIN).pathname
           const file = PageSource.file(path, init.resources ?? [])

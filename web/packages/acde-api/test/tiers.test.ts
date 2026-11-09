@@ -32,6 +32,10 @@ import self from 'acde:window'
 export const started: Promise<number> = launch.start(['foot'])
 export const listed = apps.list()
 self.setTitle('x')
+export const state: 'normal' | 'minimized' | 'filled' | 'fullscreen' = self.state
+export const work: number = self.output.workArea.width + self.output.scale
+self.requestState('filled')
+self.on('state', (event) => event.previous satisfies string)
 `
 
 test('an app project sees the app modules, typed', () => {
@@ -56,6 +60,16 @@ test('an app project does not see shell module types', () => {
   assert.ok(found.length > 0, 'acde:windows must not be typed for apps')
   assert.ok(found.some((m) => /windows/.test(m)), found.join('\n'))
   assert.ok(errors('app', `import { apps } from 'acde:apps'\napps.refresh()`).some((m) => /refresh/.test(m)))
+})
+
+test('window states are apart from modes', () => {
+  const mode = (value: string) => `import type { WindowMode } from ${JSON.stringify(join(src, 'app.js'))}
+export const mode: WindowMode = '${value}'`
+  assert.deepEqual(errors('app', mode('free')), [])
+  assert.ok(errors('app', mode('fullscreen')).some((m) => /fullscreen/.test(m)))
+  assert.ok(errors('app', `import self from 'acde:window'\nself.requestState('maximized')`).length > 0)
+  assert.deepEqual(errors('app', `import self from 'acde:window'\nself.requestMode('fullscreen')`), [])
+  assert.deepEqual(errors('shell', `import { windows } from 'acde:windows'\nwindows.requestState?.(3, 'minimized')\nwindows.on('state', (e) => e.window)`), [])
 })
 
 test('a desktop project sees both tiers', () => {

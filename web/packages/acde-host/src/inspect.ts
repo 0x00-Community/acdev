@@ -97,7 +97,10 @@ export class Inspect {
   static readonly FIND_LIMIT = 3000
   static readonly DRAG_STEPS = 10
   static readonly DRAG_STEP_MS = 16
-  static readonly GENERIC = new Set(['generic', 'filler', 'panel', 'section', 'unknown', 'redundant-object', 'split-pane', 'layered-pane', 'scroll-pane', 'viewport', 'internal-frame', 'root-pane', 'glass-pane', 'option-pane', 'window'])
+  static readonly GENERIC = new Set([
+    ...['generic', 'filler', 'panel', 'section', 'unknown', 'redundant-object', 'split-pane', 'layered-pane'],
+    ...['scroll-pane', 'viewport', 'internal-frame', 'root-pane', 'glass-pane', 'option-pane', 'window'],
+  ])
 
   readonly #host: InspectHost
   readonly #refs = new Map<number, string>()
@@ -134,6 +137,7 @@ export class Inspect {
         app: record?.app ?? null,
         title: record?.title ?? null,
         mode: row.mode,
+        state: row.state ?? 'normal',
         rect: [row.x, row.y, row.width, row.height],
         z: row.z,
         focus: row.focus,
@@ -189,7 +193,8 @@ export class Inspect {
       else lines.push(...(body.length ? body.map(([, line]) => line) : ['(空)']))
       lines.push(...notes)
     }
-    if (find && !Object.keys(trees).length) lines.push('', `没找到含 ${JSON.stringify(options.find!.trim())} 的元素${options.offscreen ? '' : ' (可见范围外的找不到; scroll 或加 offscreen, 或换个窗口再找)'}`)
+    const hint = options.offscreen ? '' : ' (可见范围外的找不到; scroll 或加 offscreen, 或换个窗口再找)'
+    if (find && !Object.keys(trees).length) lines.push('', `没找到含 ${JSON.stringify(options.find!.trim())} 的元素${hint}`)
     return { text: lines.join('\n'), windows, trees }
   }
 
@@ -286,7 +291,8 @@ export class Inspect {
         return { ok: true, text: `${window.ref} 到了最前面` }
       case 'minimize':
         if (window.kind === 'desktop') return { ok: false, text: '桌面不能最小化' }
-        this.#host.hide(window.id, true)
+        if (this.#host.shell.setState) this.#host.shell.setState(window.id, 'minimized')
+        else this.#host.hide(window.id, true)
         return { ok: true, text: `${window.ref} 最小化了` }
       case 'close':
         if (window.kind === 'desktop') return { ok: false, text: '桌面不能关' }
@@ -363,7 +369,9 @@ export class Inspect {
         break
       case 'type':
       case 'settext':
-        if (access && (await access.act(entry.key, action, String(arg ?? '')).catch(() => false))) return { ok: true, text: `输入了 ${JSON.stringify(String(arg ?? ''))}` }
+        if (access && (await access.act(entry.key, action, String(arg ?? '')).catch(() => false))) {
+          return { ok: true, text: `输入了 ${JSON.stringify(String(arg ?? ''))}` }
+        }
         return { ok: false, text: '这个元素不能直接输入; 先 click 它, 再用 key 或对窗口 type' }
       case 'focus':
         if (access && (await access.act(entry.key, 'focus').catch(() => false))) return { ok: true, text: `焦点给了 ${window.ref}.${node}` }
@@ -481,7 +489,10 @@ export class Inspect {
       if (id === window.id || row.hidden || (own && row.z <= own.z)) continue
       if (window.kind === 'desktop' && this.#host.panel(id)) continue
       if (x < row.x || y < row.y || x >= row.x + row.width || y >= row.y + row.height) continue
-      if (this.#host.panel(id)) return { ref: 'w0', id: 0, kind: 'desktop', app: null, title: '桌面的面板', mode: row.mode, rect: [row.x, row.y, row.width, row.height], z: row.z, focus: row.focus, hidden: false, pid: null }
+      if (this.#host.panel(id)) {
+        const rect: [number, number, number, number] = [row.x, row.y, row.width, row.height]
+        return { ref: 'w0', id: 0, kind: 'desktop', app: null, title: '桌面的面板', mode: row.mode, rect, z: row.z, focus: row.focus, hidden: false, pid: null }
+      }
       return this.windows().find((w) => w.id === id) ?? null
     }
     return null
@@ -519,7 +530,10 @@ export class Inspect {
     const limit = Math.max(1, Math.min(Number(options.limit) || Inspect.LIMIT, Inspect.FIND_LIMIT))
     const attributes = Array.isArray(options.attributes) ? options.attributes.filter((a): a is string => typeof a === 'string' && !!a).slice(0, 20) : []
     const found = (await rpc.call('inspect', 'query', [selector, parsed?.node ?? -1, limit, attributes])) as PageQuery
-    const nodes = found.nodes.map((n): InspectMatch => ({ ...Inspect.#node(window, n.id, n, n.states, n.rect, []), tag: n.tag, visible: n.visible, ...(n.attributes && { attributes: n.attributes }) }))
+    const nodes = found.nodes.map((n): InspectMatch => {
+      const node = Inspect.#node(window, n.id, n, n.states, n.rect, [])
+      return { ...node, tag: n.tag, visible: n.visible, ...(n.attributes && { attributes: n.attributes }) }
+    })
     return { window: window.ref, count: found.count, nodes }
   }
 
@@ -555,13 +569,21 @@ export class Inspect {
       table.byNumber.set(number, { key: n.id, rect: n.rect ?? null })
       const children = (n.children ?? []).flatMap(convert)
       if (Inspect.GENERIC.has(n.role) && !n.name && !n.more) return children
-      const states = [...(n.states ?? []), ...(n.actions?.length && !['button', 'link', 'menuitem', 'checkbox', 'radio', 'tab'].includes(n.role) ? ['clickable'] : [])]
+      const plain = !['button', 'link', 'menuitem', 'checkbox', 'radio', 'tab'].includes(n.role)
+      const states = [...(n.states ?? []), ...(n.actions?.length && plain ? ['clickable'] : [])]
       return [Inspect.#node(window, number, n, states, n.rect, children)]
     }
     return { nodes: (root.children ?? []).flatMap(convert), notes: [] }
   }
 
-  static #node(window: InspectWindow, id: number, n: { role: string; name?: string; value?: string; level?: number; more?: number }, states: readonly string[] | undefined, rect: readonly [number, number, number, number] | null | undefined, children: InspectNode[]): InspectNode {
+  static #node(
+    window: InspectWindow,
+    id: number,
+    n: { role: string; name?: string; value?: string; level?: number; more?: number },
+    states: readonly string[] | undefined,
+    rect: readonly [number, number, number, number] | null | undefined,
+    children: InspectNode[],
+  ): InspectNode {
     const [ox, oy] = window.rect
     return {
       ref: `${window.ref}.${id}`,

@@ -10,8 +10,11 @@ export interface Modifiers {
   readonly meta?: boolean
 }
 
-export const WINDOW_EVENTS = ['windowopen', 'windowclose', 'windowtitle', 'windowfullscreen', 'windowunfullscreen', 'windowminimize', 'windowactivate', 'windowminsize', 'windowparent',
-  'windowmenus', 'windowcrash', 'windowhang', 'windowresponsive', 'windowattention', 'windowready', 'windowshow', 'windowanimated'] as const
+export const WINDOW_EVENTS = [
+  'windowopen', 'windowclose', 'windowtitle', 'windowfullscreen', 'windowunfullscreen', 'windowminimize', 'windowstate',
+  'windowactivate', 'windowminsize', 'windowparent', 'windowmenus', 'windowcrash', 'windowhang', 'windowresponsive',
+  'windowattention', 'windowready', 'windowshow', 'windowanimated',
+] as const
 type WindowEventType = (typeof WINDOW_EVENTS)[number]
 export interface WindowEvent {
   readonly type: WindowEventType
@@ -45,6 +48,8 @@ export interface RawShellEvent {
   readonly key?: string
   readonly title?: string
   readonly appId?: string
+  readonly state?: string
+  readonly previous?: string
   readonly width?: number
   readonly height?: number
   readonly scale?: number
@@ -66,6 +71,7 @@ export interface NativeSurface {
   readClipboard(): Promise<string>
   startDrag(data: Record<string, string>, icon?: DragIcon): void
   requestMode(mode: 'fullscreen' | 'free' | 'fixed' | 'pinned'): void
+  requestState(state: 'normal' | 'minimized' | 'filled' | 'fullscreen'): void
   setGrabHint(x: number, y: number, width: number, height: number, edges: number): void
   setBackdrop(x: number, y: number, width: number, height: number, radius: number, blur: number, saturate: number, brightness: number): void
   requestActivate(): void

@@ -510,10 +510,11 @@ export class Broker {
     switch (event.type) {
       case 'output':
         if (event.width && event.height) {
-          const was = this.#screen()
+          const [was, scale] = [this.#screen(), this.#output.scale]
           this.#output = { width: event.width, height: event.height, scale: event.scale ?? this.#output.scale }
-          const screen = this.#screen()
-          if (screen.width !== was.width || screen.height !== was.height) for (const web of this.#webs()) web.thread.post({ type: 'screen', ...screen })
+          const screen = { ...this.#screen(), scale: this.#output.scale }
+          const changed = screen.width !== was.width || screen.height !== was.height || screen.scale !== scale
+          if (changed) for (const web of this.#webs()) web.thread.post({ type: 'screen', ...screen })
         }
         return
       case 'milestone':

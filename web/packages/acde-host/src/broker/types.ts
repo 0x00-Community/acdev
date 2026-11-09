@@ -24,6 +24,7 @@ export interface BrokerShell {
   release(window: number): void
   focus(window: number): void
   hide(window: number, hidden: boolean): void
+  setState?(window: number, state: 'normal' | 'minimized' | 'filled' | 'fullscreen'): void
   close(window: number): void
   launch(argv: string[], options?: { cwd?: string; env?: Record<string, string> }): number
   screenshot(path: string): Promise<{ width: number; height: number }>
@@ -66,6 +67,7 @@ export interface WebInfo {
 
 export interface ShellWindow {
   readonly id: number
+  readonly state?: 'normal' | 'minimized' | 'filled' | 'fullscreen'
   readonly window?: number
   readonly canvas: number
   readonly mode: string
@@ -132,6 +134,7 @@ export interface WebInit {
   readonly height: number
   readonly scale: number
   readonly screen?: { width: number; height: number }
+  readonly workArea?: { x: number; y: number; width: number; height: number }
   readonly reducedMotion: boolean | null
   readonly dark: boolean
   readonly languages: Languages

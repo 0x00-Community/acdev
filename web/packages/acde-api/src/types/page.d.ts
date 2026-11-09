@@ -127,6 +127,7 @@ export interface NativeWindow {
   readonly appId: string | null
   readonly title: string | null
   readonly web?: boolean
+  readonly state?: WindowState
 }
 
 export type WindowsEventType =
@@ -136,6 +137,7 @@ export type WindowsEventType =
   | 'fullscreen'
   | 'unfullscreen'
   | 'minimize'
+  | 'state'
   | 'activate'
   | 'minsize'
   | 'parent'
@@ -162,6 +164,7 @@ export interface AcdeWindows {
     options?: { cwd?: string; env?: Record<string, string>; slot?: boolean },
   ): number | Promise<number>
   close(id: number): void
+  requestState?(id: number, state: WindowState): Promise<void>
   kill?(id: number): Promise<boolean>
   focus?(id: number): Promise<void>
   hide?(id: number): Promise<void>
@@ -312,6 +315,7 @@ export interface InspectWindow {
   readonly app: string | null
   readonly title: string | null
   readonly mode: string
+  readonly state?: WindowState
   readonly rect: readonly [number, number, number, number]
   readonly z: number
   readonly focus: boolean
@@ -423,8 +427,15 @@ export type WindowEventName =
   | 'resume'
   | 'grab'
   | 'grablost'
+  | 'state'
+  | 'output'
 
-export type WindowMode = 'fullscreen' | 'free' | 'fixed' | 'pinned'
+export type WindowMode = 'free' | 'fixed' | 'pinned'
+export type WindowState = 'normal' | 'minimized' | 'filled' | 'fullscreen'
+export interface WindowStateEvent {
+  readonly state: WindowState
+  readonly previous: WindowState
+}
 export type WindowEdge = 'top' | 'bottom' | 'left' | 'right'
 export interface WindowRect {
   readonly x: number
@@ -433,8 +444,17 @@ export interface WindowRect {
   readonly height: number
 }
 
+export interface WindowOutput {
+  readonly width: number
+  readonly height: number
+  readonly scale: number
+  readonly workArea: WindowRect
+}
+
 export interface AcdeWindow {
   readonly id: number
+  readonly state: WindowState
+  readonly output: WindowOutput
   readonly host: WindowHost
   mount(app: WindowApp): void
   setTitle(title: string): void
@@ -442,7 +462,8 @@ export interface AcdeWindow {
   close(): Promise<unknown>
   minimize(): Promise<unknown>
   requestAttention(): Promise<unknown>
-  requestMode(mode: WindowMode): void
+  requestState(state: WindowState): void
+  requestMode(mode: WindowMode | 'fullscreen'): void
   setGrabHint(rect: WindowRect, edges?: readonly WindowEdge[]): void
   setBackdrop(
     rect: WindowRect | null,
@@ -458,6 +479,8 @@ export interface AcdeWindow {
   on(name: 'suspend', handler: () => unknown): () => boolean
   on(name: 'resume', handler: (state: unknown) => void): () => boolean
   on(name: 'activate' | 'deactivate', handler: () => void): () => boolean
+  on(name: 'state', handler: (event: WindowStateEvent) => void): () => boolean
+  on(name: 'output', handler: (output: WindowOutput) => void): () => boolean
   on(name: 'shortcut', handler: (event: { readonly key: string }) => void): () => boolean
   on(name: WindowEventName, handler: (value?: unknown) => unknown): () => boolean
 }

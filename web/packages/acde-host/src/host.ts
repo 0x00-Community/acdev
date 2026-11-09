@@ -13,7 +13,12 @@ import { Level, Log } from './log'
 
 export class Host {
   static label = ''
-  static readonly NOTICES = new Map<string, readonly string[]>([['appschanged', ['apps:changed']], ['download', ['desktop:download']], ['notification', ['desktop:notification']], ['shortcut', ['desktop:shortcut', 'window:shortcut']]])
+  static readonly NOTICES = new Map<string, readonly string[]>([
+    ['appschanged', ['apps:changed']],
+    ['download', ['desktop:download']],
+    ['notification', ['desktop:notification']],
+    ['shortcut', ['desktop:shortcut', 'window:shortcut']],
+  ])
   static readonly #WINDOW_EVENTS = new Set<string>(WINDOW_EVENTS)
   readonly #page: WebInternals
   readonly #dom: DomNative
@@ -31,6 +36,7 @@ export class Host {
   onPanelMove: (id: number, extent: readonly [number, number, number, number]) => void = () => {}
   onGrab: (event: { kind: string; granted?: boolean; reason?: string }) => void = () => {}
   onFrameButton: (key: string) => void = () => {}
+  onState: (state: string, previous: string) => void = () => {}
   onFirstFrame: () => void = () => {}
   #framed = false
 
@@ -57,7 +63,9 @@ export class Host {
     page.input.onKeyDefault = (target, key, modifiers) => {
       const ctrl = !!(modifiers.ctrl || modifiers.meta)
       const lower = key.toLowerCase()
-      if (ctrl && (lower === 'c' || lower === 'x' || lower === 'v')) return void this.#text.clipboard(target as unknown as Element, lower).catch((error) => Host.report(error))
+      if (ctrl && (lower === 'c' || lower === 'x' || lower === 'v')) {
+        return void this.#text.clipboard(target as unknown as Element, lower).catch((error) => Host.report(error))
+      }
       page.editing.editKey(target as never, key, ctrl)
     }
   }
@@ -138,7 +146,8 @@ export class Host {
     const input = this.#page.input
     switch (event.type) {
       case 'pointermove': {
-        if ((this.#buttons & 1 || this.#drag.active) && this.#drag.move(input.elementAt(event.target, event.x, event.y, true) as unknown as Element, event.x, event.y, (source) => this.#cancelPointer(source))) return
+        const over = () => input.elementAt(event.target, event.x, event.y, true) as unknown as Element
+        if ((this.#buttons & 1 || this.#drag.active) && this.#drag.move(over(), event.x, event.y, (source) => this.#cancelPointer(source))) return
         return input.pointer('pointermove', event.x, event.y, { target: event.target, modifiers: event.modifiers })
       }
       case 'pointerdown': {
@@ -172,7 +181,8 @@ export class Host {
     const input = this.#page.input
     const captured = input.capture as unknown as Element | null
     input.capture = null
-    ;(captured ?? source).dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, composed: true, pointerId: 1, pointerType: 'mouse', isPrimary: true }))
+    const cancel = new PointerEvent('pointercancel', { bubbles: true, composed: true, pointerId: 1, pointerType: 'mouse', isPrimary: true })
+    ;(captured ?? source).dispatchEvent(cancel)
     if (captured) captured.dispatchEvent(new PointerEvent('lostpointercapture', { pointerId: 1, pointerType: 'mouse', isPrimary: true }))
   }
 
@@ -234,6 +244,10 @@ export class Host {
         }
         if (raw.type === 'framebutton') {
           this.onFrameButton(raw.key ?? '')
+          continue
+        }
+        if (raw.type === 'state') {
+          this.onState(raw.state ?? 'normal', raw.previous ?? 'normal')
           continue
         }
         if (raw.type === 'imecommit' || raw.type === 'imepreedit') {
