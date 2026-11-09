@@ -120,7 +120,7 @@ pub(super) fn hit(hwnd: HWND, lparam: LPARAM, scale: f64) -> Option<LRESULT> {
     let (x, y) = (f64::from(point.x) / scale, f64::from(point.y) / scale);
     let state = crate::app::server()?.state();
     let host = state.entries.values().find(|e| e.host && e.shown())?;
-    let edges = crate::shell::edges_at(&host.grab_hints(&state.theme), x, y)?;
+    let edges = crate::shell::pointer::edges_at(&host.grab_hints(&state.theme), x, y)?;
     let (top, bottom, left, right) = (edges & 1 != 0, edges & 2 != 0, edges & 4 != 0, edges & 8 != 0);
     let code = match (top, bottom, left, right) {
         (true, _, true, _) => HTTOPLEFT,

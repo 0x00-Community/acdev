@@ -143,7 +143,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   平台层 (`platform.rs` 的 `Handler` / `HostEvent` / `Cmd`) 只有两个: `platform/win32.rs` (Win32: 窗口、IMM32、剪贴板、`WM_DROPFILES`、
   `SHBrowseForFolderW`、`IFileOpenDialog` / `IFileSaveDialog`、per-monitor DPI v2) 和 `platform/host_winit.rs` (macOS / Linux, winit + arboard; macOS 的选文件夹、打开和保存文件是 `chooser.rs`). `app.rs`:
   命中、拖动、焦点、快捷键、注入. `shell.rs`: 窗口表 (`State` / `Entry`, 层序 desktop < free / fixed < pinned, 再按 z; `Entry.parent` / `modal`
-  来自 `grant`, `raise` 把子窗口带到父窗口上方, `modal_child` 找最上层的模态子窗口, `forget` 删窗口时放开它的子窗口). `present.rs`: 每个 web
+  来自 `grant`, `raise` 把子窗口带到父窗口上方, `modal_child` 找最上层的模态子窗口, `forget` 删窗口时放开它的子窗口); `shell/pointer.rs`: 命中 (`hit`, 模态子窗口挡住父窗口) 和按下 (`press`: 拖动的边、标题区双击). `present.rs`: 每个 web
   一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理; `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync).
   页面 / 面板的 plane 有 layers (backdrop-filter、filter) 时走 `Presenter::layered`, 照 `acde_gpu::Raster::draw_pass` 用 `Composer` 做
   backdrop、投影、模糊和颜色矩阵 (Raster 要 dmabuf, 只在 Linux): 画进一张草稿纹理, 最后一次提交里整张拷进页面纹理 (分几次提交直接画,
