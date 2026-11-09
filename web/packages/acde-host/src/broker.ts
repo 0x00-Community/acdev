@@ -50,6 +50,7 @@ export interface BrokerShell {
   answerFolder?(path: string | null): void
   answerOpen?(paths: string[] | null): void
   answerSave?(path: string | null): void
+  openDefault?(target: string): Promise<void>
   readClipboard?(): string
   writeClipboard?(text: string): void
   readonly socketName: string
@@ -244,6 +245,10 @@ export class Broker {
       },
       launch: (app, request) => this.#raise(this.launch(app, request)),
       spawn: (argv) => void this.shell.launch(argv),
+      system: () => {
+        const shell = this.shell
+        return shell.openDefault ? (target) => shell.openDefault!(target) : null
+      },
     })
     this.shell = native.Shell.broker()
     this.shell.onEvents(() => this.#poke())

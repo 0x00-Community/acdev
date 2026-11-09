@@ -23,7 +23,10 @@ interface OpenerHost {
   locate(path: string): Promise<{ root: string; path: string } | null>
   launch(app: string, request: Record<string, unknown>): { window: number }
   spawn(argv: string[]): void
+  system(): ((target: string) => Promise<void>) | null
 }
+
+type Opened = { kind: 'acde' | 'native'; id: string; window?: number }
 
 class MimeTypes {
   static readonly DIRECTORY = 'inode/directory'
@@ -222,7 +225,7 @@ export class Opener {
     return MimeApps.setDefault(mime, id)
   }
 
-  async open(target: string, options: OpenOptions = {}): Promise<{ kind: 'acde' | 'native'; id: string; window?: number }> {
+  async open(target: string, options: OpenOptions = {}): Promise<Opened> {
     const scheme = Opener.#scheme(String(target))
     if (scheme) return this.#openUrl(String(target), scheme, options)
     const path = Opener.#existing(target)
@@ -231,6 +234,8 @@ export class Opener {
     const mime = select ? MimeTypes.DIRECTORY : MimeTypes.of(path)
     const natives = MimeApps.natives()
     let chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
+    const system = !chosen && !options.app && !select && !isDir ? this.#host.system() : null
+    if (system) return this.#toSystem(system, path, mime)
     if (!chosen) throw Object.assign(new Error(`no app can open this kind of file (${mime})`), { status: 404, code: 'no_app' })
     if (chosen.kind === 'acde') {
       const id = chosen.id
@@ -247,16 +252,44 @@ export class Opener {
     return chosen
   }
 
-  async #openUrl(url: string, scheme: string, options: OpenOptions): Promise<{ kind: 'acde' | 'native'; id: string; window?: number }> {
+  async #openUrl(url: string, scheme: string, options: OpenOptions): Promise<Opened> {
     const mime = `x-scheme-handler/${scheme}`
     const natives = MimeApps.natives()
     const chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
     const app = chosen?.kind === 'acde' ? this.#host.apps().find((a) => a.id === chosen.id) : null
     if (app && !app.capabilities.fs) return { kind: 'acde', id: app.id, window: this.#host.launch(app.id, { url }).window }
     const native = chosen?.kind === 'native' ? natives.find((n) => n.id === chosen.id) : null
+    const system = !native && !options.app && Opener.#WEB.includes(scheme) ? this.#host.system() : null
+    if (system) return Opener.#handOff(system, Opener.#webLink(url), `${scheme}: links`)
     if (!native) throw Object.assign(new Error(`no app can open ${scheme}: links`), { status: 404, code: 'no_app' })
     this.#host.spawn(['gio', 'launch', native.file, url])
     return { kind: 'native', id: native.id }
+  }
+
+  static readonly SYSTEM = 'system'
+  static readonly #WEB = ['http', 'https']
+
+  static #webLink(url: string): string {
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.href
+    } catch {}
+    throw Object.assign(new Error(`not a web link: ${url}`), { status: 400 })
+  }
+
+  async #toSystem(system: (target: string) => Promise<void>, path: string, mime: string): Promise<Opened> {
+    const outside = () => Object.assign(new Error(`${path} is not in any finder root (desktop, downloads, workspace)`), { status: 404, code: 'outside_roots' })
+    if (!(await this.#host.locate(path))) throw outside()
+    return Opener.#handOff(system, path, `this kind of file (${mime})`)
+  }
+
+  static async #handOff(system: (target: string) => Promise<void>, target: string, what: string): Promise<Opened> {
+    try {
+      await system(target)
+    } catch (error) {
+      throw Object.assign(new Error(`no app can open ${what}: ${(error as Error).message}`), { status: 404, code: 'no_app' })
+    }
+    return { kind: 'native', id: Opener.SYSTEM }
   }
 
   static #scheme(target: string): string | null {

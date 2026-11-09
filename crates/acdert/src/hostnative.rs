@@ -69,6 +69,10 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "readClipboard" => read_clipboard,
         "writeClipboard" => write_clipboard,
     );
+    #[cfg(any(windows, target_os = "macos"))]
+    crate::methods!(scope, obj,
+        "openDefault" => open_default,
+    );
     let name = bind::string(scope, "");
     bind::set(scope, obj, "socketName", name.into());
     let hosted = v8::Boolean::new(scope, true);
@@ -336,6 +340,29 @@ fn notify(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
     if let Some(Err(e)) = with(scope, |_| acde_hostwin::notify(&title, &body, &subtitle)) {
         bind::throw_error(scope, &e);
     }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn open_default(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let target = bind::arg_string(scope, &args, 0);
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    crate::offload::run(scope, &mut rv, "acde-open", move || acde_hostwin::open_default(&target), settle_default);
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+fn settle_default(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, done: Result<(), acde_hostwin::OpenError>) {
+    let error = match done {
+        Ok(()) => {
+            let undefined = v8::undefined(scope).into();
+            resolver.resolve(scope, undefined);
+            return;
+        }
+        Err(acde_hostwin::OpenError::Refused(message)) => crate::offload::failure(scope, &message, Some(403), "refused"),
+        Err(acde_hostwin::OpenError::Failed(message)) => crate::offload::failure(scope, &message, Some(500), "failed"),
+    };
+    resolver.reject(scope, error);
 }
 
 fn answer_folder(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

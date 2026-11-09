@@ -166,7 +166,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   的字符 (`keys::us_text`). 中文等走 `acde:inspect` 的 `type`, 不经注入.
 - **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG; 还没画出第一帧时等到画出, 最多 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
   画进一张离屏的 `Rgba8Unorm` 纹理, 读回编 PNG 写到 path, 回 `{width, height}`, 和会话的 `Shell.screenshot` 同一个接口; 最多等 10 秒),
-  `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`, Windows 没有), `devRespond`, `screen`, `shortcut`, `windows`,
+  `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`, Windows 没有), `openDefault` (`handoff.rs`, 只在 macOS / Windows,
+  见「默认应用」), `devRespond`, `screen`, `shortcut`, `windows`,
   `launch`. `animate` 直接回 `windowanimated`, `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
   桌面的结束会话. `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png` (和 `screenshot` 同一段).
 - **不显示 (`ACDE_HEADLESS=1`)**: 平台层在运行时二选一 (`platform.rs`: `Host` 是 trait, `Proxy` 是 enum; 原生的 win32 / winit 和
@@ -637,10 +638,22 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - **这个平台上跑不了的应用不选** (Broker `#runsHere`): 宿主窗口里没有 slots (嵌原生窗口只在 Linux 会话里), 要 `slots` 的应用 (如
   Dopame 的浏览器) 不当默认应用、不进 `handlers`, 页面的外部链接也不交给它 (打一行 warn, 不开只会报错的空窗口). 应用列表和
   `acde.apps.launch` 不变.
-- **macOS / Windows 的宿主窗口没有原生程序** (没有 XDG 的 `.desktop`): `natives()` 是空的, 要交给原生程序的那几条路回 `no_app` /
-  `outside_roots`, 和没装原生程序的 Dopame OS 一样, 不转给宿主系统的应用.
+- **macOS / Windows 的宿主窗口交给系统默认程序** (没有 XDG 的 `.desktop`, `natives()` 是空的): 没有能用的 acde 应用、也没有指定 `app`
+  时, `Opener.open` 经宿主 `Shell.openDefault(目标)` (只在这两处注入; hostwin `handoff.rs`, 在 `acde-open` 线程上做, promise 落定)
+  交给系统: Windows `ShellExecuteW` (动词 `open`, 线程上先 `CoInitializeEx`), macOS `/usr/bin/open <目标>` (不经 shell). 回
+  `{kind: 'native', id: 'system'}`. 只有两种目标:
+  - http / https 链接: `Opener` 先用 `URL` 规范成 `href`; Rust 再要求小于 8 KiB、只有可见 ASCII、没有 `"` `\` `<` `>` `` ` `` 和空白、有主机
+    (挡掉往浏览器命令行里塞参数). 别的 scheme (`file:`、`javascript:`、`ms-settings:`、`mailto:` …) 不交.
+  - 文件: 不是文件夹、不是 `select`, 先过 `locate` (在 Finder 的根里, 不在的照旧 `outside_roots`), Rust 再要求绝对路径、不是设备 / 逐字路径
+    (`\\?\`、`\\.\`)、不带 `..`、Windows 上不是命名流 (组件里有 `:`)、`symlink_metadata` 是普通文件 (链接不交), 扩展名在
+    `handoff.rs` `EXTENSIONS` 里 (PDF、图片、音视频、纯文本 / Markdown / CSV / JSON / HTML、Office 和 OpenDocument 文档). 可执行文件、脚本、快捷方式
+    (`.exe` `.bat` `.ps1` `.js` `.lnk` `.url` `.hta` `.docm` …) 一律不交. Windows 不关区域检查 (Mark of the Web 照旧提示).
+  - Rust 拒绝 (`code: 'refused'`) 或系统打不开 (`failed`) 都回 `no_app`, 文字带原因. 系统找不到默认程序时 Windows 弹它自己的「打开方式」.
+  - 安全边界: 只有 `Opener.open` 这条路 (桌面、有 `openFiles` 的应用、`acdert open`), 不查用户激活 (acde-dom 没有这个模型), 靠能力和上面的
+    过滤限范围. 页面自己的导航 (`<a>`、`location`、`window.open` 到 http(s)) 是页面可控的, 不交给系统. 文件的根是 Broker 的 Finder 根, 不按调用
+    应用清单的 roots 再收窄. headless (`ACDE_HEADLESS`) 照样检查, 只打一行 info 不打开. Linux (会话和宿主窗口) 不注入, 行为不变.
 - **交给应用**: 应用收 `request` (和 `acde.open` 同一个事件), 窗口提前 (桌面收 `windowshow`); 有 `fs` 的拿 `{root, path, file}`
-  (`fs.locate`), 没有的拿 `{url}`. 不在任何根里的文件交给原生程序 (`gio launch`), 没有就报 `outside_roots`.
+  (`fs.locate`), 没有的拿 `{url}`. 不在任何根里的文件交给原生程序 (`gio launch`), 没有就报 `outside_roots` (宿主窗口也不交给系统).
 - **改默认**: `acde.setDefault(mime, 应用)` 写 `$XDG_CONFIG_HOME/acde-mimeapps.list` (只在 `XDG_CURRENT_DESKTOP=acde` 下生效).
   `acde.handlers(路径)` 列能打开它的应用.
 - `acdert applications <目录> [--package <包目录>]` 给有 `mimeTypes` 的应用写 `acde-<app>.desktop` (`Exec=acdert open --app <app> %U`,

@@ -4,6 +4,7 @@ mod chooser;
 mod compose;
 mod dev;
 mod gpu;
+mod handoff;
 mod keys;
 mod notify;
 mod platform;
@@ -13,6 +14,7 @@ mod surface;
 
 pub use acde_model::{Event, Inbox, InjectEvent, Injected, Mode, Waker};
 pub use dev::respond as dev_respond;
+pub use handoff::OpenError;
 pub use shell::{Grant, Shell, WindowInfo};
 pub use surface::{Shot, Surface};
 
@@ -26,6 +28,10 @@ pub fn notify(title: &str, body: &str, subtitle: &str) -> Result<(), String> {
         return Ok(());
     }
     notify::show(title, body, subtitle)
+}
+
+pub fn open_default(target: &str) -> Result<(), OpenError> {
+    handoff::open(target, platform::headless())
 }
 
 pub fn headless() -> bool {
