@@ -147,9 +147,10 @@ impl Surface {
             C::RequestFrame => self.link.send(Msg::Frame),
             C::SetClipboard(text) => platform::clipboard_set(text),
             C::ReadClipboard(reply) => reply(platform::clipboard_get()),
-            C::StartDrag(..) => {
-                self.inbox.push(Event { kind: "dragend".into(), button: Some(0), ..Default::default() })
-            }
+            C::StartDrag(data, _) => match server() {
+                Some(server) => server.send(Cmd::StartDrag { window: self.window, data }),
+                None => self.inbox.push(Event { kind: "dragend".into(), button: Some(0), ..Default::default() }),
+            },
             C::Mode(mode) => {
                 if let Ok(mode) = Mode::try_from(mode) {
                     set_mode(self.window, mode);

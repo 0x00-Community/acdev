@@ -117,6 +117,12 @@ struct Drag {
     rect: [f64; 4],
 }
 
+struct DataDrag {
+    source: u32,
+    data: HashMap<String, String>,
+    over: Option<u32>,
+}
+
 #[derive(Default)]
 struct App {
     main: Option<Main>,
@@ -125,6 +131,7 @@ struct App {
     capture: Option<(u32, [f64; 2])>,
     pressed: HashSet<u32>,
     drag: Option<Drag>,
+    data_drag: Option<DataDrag>,
     modifiers: u8,
     injected_mods: u8,
     swallowed: HashSet<u32>,
@@ -258,6 +265,7 @@ impl Handler for App {
             HostEvent::Cmd(Cmd::Title(title)) => host.set_title(&title),
             HostEvent::Cmd(Cmd::ImeArea(rect)) => host.set_ime_area(rect),
             HostEvent::Cmd(Cmd::Inject(event)) => self.inject(server, event),
+            HostEvent::Cmd(Cmd::StartDrag { window, data }) => self.start_data_drag(server, window, data),
             HostEvent::Cmd(Cmd::ChooseFolder { title, reply }) => host.choose_folder(&title, reply),
             HostEvent::Cmd(Cmd::OpenFiles { request, reply }) => host.open_files(request, reply),
             HostEvent::Cmd(Cmd::SaveFile { request, reply }) => host.save_file(request, reply),
@@ -396,6 +404,69 @@ impl App {
             target,
             Event { kind: "pointermove".into(), x: Some(x - ox), y: Some(y - oy), ..Default::default() },
         );
+        self.data_drag_over(server);
+    }
+
+    fn start_data_drag(&mut self, server: &Server, window: u32, data: HashMap<String, String>) {
+        let pressing =
+            self.pressed.contains(&keys::BUTTON_LEFT) && self.capture.is_some_and(|(target, _)| target == window);
+        if !pressing {
+            server.event(window, Event { kind: "dragend".into(), button: Some(0), ..Default::default() });
+            return;
+        }
+        self.data_drag = Some(DataDrag { source: window, data, over: None });
+        self.data_drag_over(server);
+    }
+
+    fn data_drag_over(&mut self, server: &Server) {
+        let Some(drag) = &mut self.data_drag else { return };
+        let (x, y) = self.pointer;
+        let hit = server.state().hit(x, y).filter(|hit| !hit.bar && hit.target != drag.source);
+        let now = hit.as_ref().map(|hit| hit.target);
+        if drag.over != now
+            && let Some(left) = drag.over.take()
+        {
+            server.event(left, Event::named("dndleave"));
+        }
+        let Some(hit) = hit else { return };
+        let (lx, ly) = (x - hit.origin[0], y - hit.origin[1]);
+        if drag.over.is_none() {
+            drag.over = Some(hit.target);
+            server.event(
+                hit.target,
+                Event {
+                    kind: "dndenter".into(),
+                    x: Some(lx),
+                    y: Some(ly),
+                    mime: Some(drag.data.keys().cloned().collect()),
+                    ..Default::default()
+                },
+            );
+        } else {
+            server.event(hit.target, Event { kind: "dndmove".into(), x: Some(lx), y: Some(ly), ..Default::default() });
+        }
+    }
+
+    fn drop_data_drag(&mut self, server: &Server) -> bool {
+        let Some(drag) = self.data_drag.take() else { return false };
+        let Some(over) = drag.over else { return false };
+        let (x, y) = self.pointer;
+        let Some(hit) = server.state().hit(x, y).filter(|hit| hit.target == over) else {
+            server.event(over, Event::named("dndleave"));
+            return false;
+        };
+        server.event(
+            over,
+            Event {
+                kind: "dnddrop".into(),
+                x: Some(x - hit.origin[0]),
+                y: Some(y - hit.origin[1]),
+                data: Some(drag.data),
+                ..Default::default()
+            },
+        );
+        server.event(drag.source, Event { kind: "dragend".into(), button: Some(1), ..Default::default() });
+        true
     }
 
     fn dragged(drag: &Drag, (x, y): (f64, f64)) -> [f64; 4] {
@@ -478,6 +549,12 @@ impl App {
                 return;
             }
             if !self.pressed.remove(&button) {
+                return;
+            }
+            if button == keys::BUTTON_LEFT && self.drop_data_drag(server) {
+                if self.pressed.is_empty() {
+                    self.capture = None;
+                }
                 return;
             }
         }
