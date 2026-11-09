@@ -32,3 +32,9 @@ opt-level = "s"
 debug = 0
 strip = true
 lto = "thin"
+
+[profile.dist]
+inherits = "release"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "symbols"
