@@ -930,3 +930,12 @@ fn a_scroll_box_whose_content_shrinks_is_scrolled_back_into_range() {
     dom.set_attribute(content, "style", "height:50px").unwrap();
     assert_eq!(dom.metrics(b).unwrap().unwrap().scroll_top, 0.0);
 }
+
+#[test]
+fn named_sections_are_regions_and_outputs_are_status() {
+    let (_doc, dom) = page("<body><section aria-label='Notes'><p>a</p></section><section><p>b</p></section><output>28</output></body>");
+    let tree = dom.semantics(NONE, 100, true, false).unwrap();
+    assert!(tree.contains("\"role\":\"region\",\"name\":\"Notes\""), "{tree}");
+    assert_eq!(tree.matches("\"region\"").count(), 1, "{tree}");
+    assert!(tree.contains("\"role\":\"status\""), "{tree}");
+}

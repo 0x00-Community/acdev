@@ -380,6 +380,7 @@ impl<'a> Walk<'a> {
             "nav" => "navigation",
             "main" => "main",
             "aside" => "complementary",
+            "section" if attr("aria-label").is_some_and(|l| !l.trim().is_empty()) || attr("aria-labelledby").is_some() || attr("title").is_some() => "region",
             "dialog" => "dialog",
             "form" => "form",
             "table" => "table",
