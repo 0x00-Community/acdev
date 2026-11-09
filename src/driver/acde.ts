@@ -119,7 +119,10 @@ export interface ActResult {
   readonly text: string
 }
 
-export const ACTIONS: readonly InspectAction[] = ['click', 'double', 'right', 'hover', 'drag', 'type', 'settext', 'select', 'key', 'scroll', 'focus', 'close', 'minimize', 'restore']
+export const ACTIONS: readonly InspectAction[] = [
+  'click', 'double', 'right', 'hover', 'drag', 'type', 'settext', 'select', 'key', 'scroll', 'focus', 'close',
+  'minimize', 'restore',
+]
 
 export interface Step {
   readonly ref: string
@@ -182,6 +185,17 @@ interface Launched {
   readonly dir: string
 }
 
+interface Unrouted {
+  removed: number
+  left: number
+}
+
+interface Emulated {
+  colorScheme: 'light' | 'dark'
+  emulated: boolean
+  reducedMotion: boolean
+}
+
 export class ActError extends Error {
   readonly result: ActResult
 
@@ -223,7 +237,8 @@ export class Acde {
   }
 
   static async attach(options: AttachOptions = {}): Promise<Acde> {
-    const session = Sessions.pick(Sessions.list(Sessions.dir({ ...process.env, ...options.env })), options.cwd ?? process.cwd(), options.session)
+    const sessions = Sessions.list(Sessions.dir({ ...process.env, ...options.env }))
+    const session = Sessions.pick(sessions, options.cwd ?? process.cwd(), options.session)
     return new Acde(session, await Acde.#connect(session), null, null, options.timeout ?? Acde.TIMEOUT_MS)
   }
 
@@ -240,7 +255,9 @@ export class Acde {
       ...(options.out !== undefined ? ['--out', options.out] : []),
       ...(options.headless ? ['--headless'] : []),
     ]
-    const child = Runtime.spawn(argv, { cwd, env: cliEnv(runtime, { ...process.env, ...options.env }), stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = Runtime.spawn(argv, {
+      cwd, env: cliEnv(runtime, { ...process.env, ...options.env }), stdio: ['ignore', 'pipe', 'pipe'],
+    })
     const logs = new Logs()
     logs.follow(child.process.stdout!, 'stdout')
     logs.follow(child.process.stderr!, 'stderr')
@@ -306,7 +323,8 @@ export class Acde {
   }
 
   window(match: WindowMatch | string): AppWindow {
-    return new AppWindow(this, typeof match === 'string' ? (/^w\d+$/.test(match) ? { ref: match } : { app: match }) : match)
+    if (typeof match !== 'string') return new AppWindow(this, match)
+    return new AppWindow(this, /^w\d+$/.test(match) ? { ref: match } : { app: match })
   }
 
   async webs(): Promise<Web[]> {
@@ -353,14 +371,20 @@ export class Acde {
     const path = options.path === undefined ? join(scratch!, 'screen.png') : resolve(options.path)
     try {
       const answer = (await this.#request('screen', { path })) as { width?: unknown; height?: unknown } | null
-      return { png: readFileSync(path), width: Number(answer?.width) || 0, height: Number(answer?.height) || 0, path: scratch === null ? path : null }
+      return {
+        png: readFileSync(path),
+        width: Number(answer?.width) || 0,
+        height: Number(answer?.height) || 0,
+        path: scratch === null ? path : null,
+      }
     } finally {
       if (scratch !== null) rmSync(scratch, { recursive: true, force: true })
     }
   }
 
-  async emulate(options: Emulation): Promise<{ colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean }> {
-    return this.trace.step(`emulate(${JSON.stringify(options)})`, async () => (await this.#request('emulate', { ...options })) as { colorScheme: 'light' | 'dark'; emulated: boolean; reducedMotion: boolean })
+  async emulate(options: Emulation): Promise<Emulated> {
+    return this.trace.step(`emulate(${JSON.stringify(options)})`,
+      async () => (await this.#request('emulate', { ...options })) as Emulated)
   }
 
   async chooseFolder(folder: string | null): Promise<void> {
@@ -379,7 +403,13 @@ export class Acde {
   }
 
   async route(url: UrlMatch, response: RouteResponse, options: RouteOptions = {}): Promise<number> {
-    const args = { ...Acde.#routeUrl(url), ...Acde.#routeResponse(response), ...(options.method !== undefined && { method: options.method }), ...(options.web !== undefined && { web: options.web }), ...(options.times !== undefined && { times: options.times }) }
+    const args = {
+      ...Acde.#routeUrl(url),
+      ...Acde.#routeResponse(response),
+      ...(options.method !== undefined && { method: options.method }),
+      ...(options.web !== undefined && { web: options.web }),
+      ...(options.times !== undefined && { times: options.times }),
+    }
     return this.trace.step(`route(${String(url instanceof RegExp ? url : JSON.stringify(url))})`, async () => {
       const answer = (await this.#request('route', args)) as { id?: unknown } | null
       if (typeof answer?.id !== 'number') throw new Error(`acdert answered route with ${JSON.stringify(answer)}`)
@@ -388,7 +418,8 @@ export class Acde {
   }
 
   async unroute(id?: number): Promise<{ removed: number; left: number }> {
-    return this.trace.step(`unroute(${id ?? ''})`, async () => (await this.#request('unroute', id === undefined ? {} : { route: id })) as { removed: number; left: number })
+    return this.trace.step(`unroute(${id ?? ''})`,
+      async () => (await this.#request('unroute', id === undefined ? {} : { route: id })) as Unrouted)
   }
 
   async clipboard(): Promise<string> {
@@ -404,7 +435,8 @@ export class Acde {
     const matches = Acde.urlMatcher(url)
     const method = options.method?.toUpperCase()
     const ms = options.timeout ?? this.timeout
-    const what = `request to ${url instanceof RegExp ? String(url) : JSON.stringify(url)}${method ? ` (${method})` : ''}`
+    const target = url instanceof RegExp ? String(url) : JSON.stringify(url)
+    const what = `request to ${target}${method ? ` (${method})` : ''}`
     let open: RequestEntry | null = null
     return Poll.until(ms, async () => {
       const page = await this.network({ since, limit: 5000, ...(options.web !== undefined && { web: options.web }) })
@@ -419,9 +451,17 @@ export class Acde {
     const ms = options.timeout ?? this.timeout
     const matches = (line: string) => (text instanceof RegExp ? text.test(line) : line.includes(text))
     return Poll.until(ms, async () => {
-      const page = await this.console({ since, limit: 5000, ...(options.level !== undefined && { level: options.level }), ...(options.web !== undefined && { web: options.web }) })
+      const page = await this.console({
+        since,
+        limit: 5000,
+        ...(options.level !== undefined && { level: options.level }),
+        ...(options.web !== undefined && { web: options.web }),
+      })
       return page.entries.find((e) => matches(e.text)) ?? null
-    }, () => `waitForConsole: no console line ${text instanceof RegExp ? String(text) : `containing ${JSON.stringify(text)}`}${options.level ? ` at ${options.level}` : ''} within ${ms} ms`)
+    }, () => {
+      const line = text instanceof RegExp ? String(text) : `containing ${JSON.stringify(text)}`
+      return `waitForConsole: no console line ${line}${options.level ? ` at ${options.level}` : ''} within ${ms} ms`
+    })
   }
 
   static urlMatcher(url: UrlMatch): (href: string) => boolean {
@@ -454,7 +494,9 @@ export class Acde {
 
   static #routeResponse(response: RouteResponse): Record<string, unknown> {
     if ('abort' in response) return { abort: response.abort }
-    const headers: Record<string, string> = Object.fromEntries(Object.entries(response.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]))
+    const headers: Record<string, string> = Object.fromEntries(
+      Object.entries(response.headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]),
+    )
     let body: Uint8Array | null = null
     if (response.json !== undefined) {
       body = Buffer.from(JSON.stringify(response.json))
@@ -477,13 +519,18 @@ export class Acde {
   }
 
   async act(ref: string, action: InspectAction, arg?: InspectArg): Promise<ActResult> {
-    return this.trace.step(`act(${JSON.stringify(ref)}, ${JSON.stringify(action)}${arg === undefined || arg === null ? '' : `, ${JSON.stringify(arg)}`})`,
-      async () => Acde.#result(await this.#request('act', { ref, action, ...(arg !== undefined && arg !== null && { arg }) })), Acde.#said)
+    const given = arg !== undefined && arg !== null
+    const shown = [ref, action, ...(given ? [arg] : [])].map((value) => JSON.stringify(value)).join(', ')
+    return this.trace.step(`act(${shown})`,
+      async () => Acde.#result(await this.#request('act', { ref, action, ...(given && { arg }) })), Acde.#said)
   }
 
   async run(steps: readonly Step[]): Promise<ActResult> {
     return this.trace.step(`run(${steps.map((s) => `${s.ref} ${s.action}`).join(', ')})`,
-      async () => Acde.#result(await this.#request('run', { steps: steps.map((s) => ({ ref: s.ref, action: s.action, text: s.arg ?? null })) })), Acde.#said)
+      async () => {
+        const sent = steps.map((s) => ({ ref: s.ref, action: s.action, text: s.arg ?? null }))
+        return Acde.#result(await this.#request('run', { steps: sent }))
+      }, Acde.#said)
   }
 
   static #said(result: ActResult): string {
