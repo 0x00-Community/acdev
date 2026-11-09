@@ -601,7 +601,9 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 
 - 推 `v*` tag: 建 GitHub prerelease, 附上三个 binary 和 host bundle. 手动触发 (`workflow_dispatch`) 只编, 不建 release.
 - npm 上只发 `@dopame/acde-api` (用户定, 2026-11-09; npm 组织 `dopame`), 只发压缩后的构建, 见下面 web/packages 的 acde-api. 别的包不发,
-  开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`.
+  开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`. release 成功后 `npm-build` 检查 tag 和 acde-api 的版本一致、npm 上还没有这个版本,
+  构建 `dist/` 交给 `npm` job; `npm` 经 trusted publishing (OIDC, npm 上配的是 `dopame-org/acdert` 的 `release.yml`) 发布, 不存 token.
+  拿 `id-token: write` 的 `npm` job 只用 GitHub 自己的 action (setup-node、download-artifact), bun 等第三方的只在没有这个权限的 `npm-build` 里.
 - 版本号是 `0.0.N`, 每发一次 N 加 1 (前两位保持 0): 根 `Cargo.toml` 的 `workspace.package.version` 和 `web/packages/*/package.json`
   一起改 (再 `bun install` 刷新 `web/bun.lock`), tag 是 `v0.0.N`.
 - Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire.
