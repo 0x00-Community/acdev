@@ -62,14 +62,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - name: host bundle
+      - name: "host bundle (release build: minified, obfuscated, no source maps)"
         working-directory: web
-        run: bun install --frozen-lockfile && bun run build
+        run: bun install --frozen-lockfile && bun run --filter @dopame/acde-host build:release
       - name: stage
         run: |
           mkdir -p out/app
-          cp -r web/packages/acde-host/dist web/packages/acde-host/brand web/packages/acde-host/greet web/packages/acde-host/package.json out/app/
-          rm -f out/app/dist/*.map
+          cp -r web/packages/acde-host/dist-release out/app/dist
+          cp -r web/packages/acde-host/brand web/packages/acde-host/greet web/packages/acde-host/package.json out/app/
+          cp LICENSE out/LICENSE
+      - name: leak check
+        run: |
+          bun web/packages/acde-host/scripts/check-release.mjs out/app/dist
+          leaks=$(find out -name '*.map' -o -name '*.ts' -o -name '*.tsx' -o -name '*.ts.map')
+          if [ -n "$leaks" ]; then echo "::error::source-like files in the host artifact:"; echo "$leaks"; exit 1; fi
       - uses: actions/upload-artifact@v7
         with:
           name: host
@@ -89,10 +95,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          tar -C artifacts/host -czf "acdert-host-${TAG#v}.tar.gz" app
+          tar -C artifacts/host -czf "acdert-host-${TAG#v}.tar.gz" app LICENSE
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG" \
             --notes "Debug builds. Put the app/ directory from acdert-host-${TAG#v}.tar.gz next to the binary." \
-            artifacts/acdert-*/acdert-* "acdert-host-${TAG#v}.tar.gz"
+            artifacts/acdert-*/acdert-* "acdert-host-${TAG#v}.tar.gz" artifacts/host/LICENSE
 
   npm-build:
     needs: release
