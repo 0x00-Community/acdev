@@ -279,3 +279,16 @@ fn cursors_walk_index_keys_in_all_directions() {
     idb.op(db, conn, 14, Op::Count { source: Source::Index(index), range: Range::default() });
     assert_eq!(result(&web), Reply::Count(2));
 }
+
+#[test]
+fn unknown_database_handles_from_a_page_are_ignored() {
+    let mut web = Web::new();
+    let idb = Idb::open(None);
+    let tx = web.id();
+    idb.begin(u64::MAX, tx, tx, vec![1], Mode::ReadWrite);
+    idb.op(1 << 40, tx, 1, Op::Clear { store: 1 });
+    idb.commit(u64::MAX - 1, tx);
+    let (db, conn) = open_new(&idb, &mut web, "after", 1);
+    idb.commit(db, conn);
+    assert_eq!(web.next_event(), Event::Complete { tx: conn });
+}

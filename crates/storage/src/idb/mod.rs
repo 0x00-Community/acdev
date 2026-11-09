@@ -325,15 +325,15 @@ fn serve(rx: std::sync::mpsc::Receiver<Message>, dir: Option<PathBuf>, catalog: 
         match message {
             Message::To(id, name, cmd) => {
                 let at = id as usize;
-                if workers.len() <= at {
-                    workers.resize_with(at + 1, || None);
+                if let Some(name) = name {
+                    if workers.len() <= at {
+                        workers.resize_with(at + 1, || None);
+                    }
+                    if workers[at].is_none() {
+                        workers[at] = Some(database::Worker::new(name, id, dir.clone(), catalog.clone()));
+                    }
                 }
-                if workers[at].is_none()
-                    && let Some(name) = name
-                {
-                    workers[at] = Some(database::Worker::new(name, id, dir.clone(), catalog.clone()));
-                }
-                if let Some(worker) = workers[at].as_mut() {
+                if let Some(worker) = workers.get_mut(at).and_then(Option::as_mut) {
                     worker.handle(*cmd);
                 }
             }
