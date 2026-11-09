@@ -218,14 +218,10 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   或调试保护, 不出 sourcemap. 导出名不变 (只改本地绑定, 别名保留). 预加载 `acde-listen.js` 不混淆: `src/listen-macro.ts` 返回 JSON 字符串、
   `src/listen-bundle.ts` 用 `JSON.parse` 还原, 让它在 bundle 里是普通字符串字面量, `reservedStrings` 留下 `getBuiltinModule`. 预加载的源码
   是压缩后的普通 JS, 写进每个用户应用的后端目录 (混淆它没有保护价值, 它就跑在用户的应用里).
-- **发布** (`.github/workflows/release.yml`, `v*` 标签): `build` 任务 (无 OIDC 权限) 检查标签与 `package.json` 版本一致; 经
-  `pkgs.dopame.ai/acdert/<版本>/` 取三个 `acdert-<triple>[.exe]` 和 `acdert-host-<版本>.tar.gz`, 经 `pkgs.dopame.ai/acde-dopame/<版本>/` 取
-  `acde-dopame-<版本>.tar.gz`, 都用 `SHA256SUMS` 校验; `@dopame/acde-api@<版本>` 用 `npm pack` 放到 `../acdert/web/packages/acde-api`
-  (CLI 的 `file:` 依赖路径); 三个 triple 各跑一次 dist.ts; 解压 Linux 归档检查 `bin/acde` 能起 CLI; 上传成 artifact. `upload` 任务
-  (只有它有 `id-token: write`, 只用 GitHub 自己的 action, 用 `curl` 换 OIDC、`aws sts assume-role-with-web-identity` 取凭据) 角色
-  `RELEASE_ROLE_ARN` (一个环境变量), 桶 `dopame-pkgs`, 前缀 `acde/`: 版本目录已存在就失败, 版本目录不可变缓存, `latest` 和安装脚本不缓存; 最后失效
-  CloudFront `E3ET3L14ALFOXX` 的 `/acde/latest`、`/acde/install.*`、`/acde/<版本>/*`. `test/release.test.ts` 检查这些不变量. Windows 主机上用系统的 `tar.exe` (Git 的 GNU tar 认不得 `C:`), 不管目标是哪个 triple. macOS 上 tar 带 `--no-xattrs
-  --no-mac-metadata` 和 `COPYFILE_DISABLE=1` (不出 `._`).
+- **发布** (`.github/workflows/release.yml`, `v*` 标签; 标签必须等于 `package.json` 的版本): 协作者的工作流为基础, 合入以下要求. 一个通用包 `acde-<版本>.tar.gz`, 只含命令行工具、模板、SDK 和 LICENSE, 不含 acdert 和 Dopame 桌面 (它们预装在 Dopame 虚拟机里, 不随 acde 公开). SDK 是 npm 上固定的 `@dopame/acde-api@0.0.5` (`SDK_VERSION`, 与标签版本一致, 由 acdert 先发布; 找不到时 `pkgs` 任务明确失败, 不退回别的版本); 取到后放到 `../acdert/web/packages/acde-api`, 那是 `file:` 依赖的 CI 位置, 不是 acdert 仓库.
+  作业: `pkgs` (无 OIDC 权限) 检查标签, 取 SDK, `bun install --frozen-lockfile`, 跑 `dist.ts`, 写 `latest.json` (`version`、`tag`、`commit`、`sdk`、`base`、`files`), 解开归档检查 `bin/acde` 能起 CLI, 上传成 artifact. `guard` 作业 (无 OIDC 权限) 用 `scripts/release-guard.ts` 核对产物恰好是允许清单 (归档、SHA256SUMS、latest、latest.json、两个安装脚本), 核对校验和, 并把归档重新做泄漏检查. `upload` 作业 (只有它有 `id-token: write`, 只用 `actions/download-artifact`): 再核对一次清单; 用 `curl` 换 GitHub OIDC、`aws sts assume-role-with-web-identity` 取凭据 (先 mask, 从不打印, 不用 `set -x`); 归档或 SHA256SUMS 已存在就失败 (不覆盖); 按清单逐个 `aws s3 cp` (没有 sync、递归或通配), 缓存: 版本文件不可变, `latest` 和安装脚本不缓存; 最后失效 CloudFront `E3ET3L14ALFOXX` 的具体路径.
+  与协作者原有约定的差异 (逐条说明的取舍): (1) 协作者是一个作业里完成全部步骤并直接用 `aws-actions/configure-aws-credentials`; 我们拆成三个作业, 把 OIDC 权限只给上传作业, 凭据用 AWS CLI 手工换取 (角色 ARN、区域、存储路径不变). (2) 协作者的 `latest.json` 带 `acdert` 和 `dopame` 两个版本字段; 现在没有这两个依赖, 改为 `sdk`. (3) 协作者用 `aws s3 cp --recursive` 上传整个版本目录; 现在按允许清单逐个上传. (4) 协作者的归档按 acdert 的 triple 生成多个; 现在是一个通用归档 (CLI 与平台无关, 安装脚本不再选平台). (5) 协作者的版本目录每次覆盖; 现在已存在就失败.
+  `test/release/workflow.test.ts` 检查这些不变量 (作业关系、权限、SHA 固定、不下载 acdert 和桌面包、清单上传、覆盖检查、遮蔽凭据、角色 ARN 与区域).
 - 压缩: `dist/cli.js`、`dist/driver.js` (target node)、`dist/test.js` (target bun, `bun:test` 留作外部) 和根上的 `launcher.mjs` 都是 `Bun.build` 的
   `minify: true`, 不出 sourcemap. 打完去掉 shebang 和随之加的 `// @bun`: 带它 bun 不转译、按 latin1 读, 非 ASCII 乱码. `acde/launcher` 留作外部
   (`launcher.mjs` 在包根, `import.meta.url` 仍指对), 运行时按包的 `exports` 自引用. `*.d.ts` 由 TypeScript 从 `src/driver/index.ts` 和
@@ -244,13 +240,6 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `run`: `cliRuntime()` 跑 `cliFile()` (`dist/cli.js`, 否则 `src/cli.ts`, 这时 Node 上找 PATH 上的 bun), 环境 `cliEnv`; 信号同 `acde dev`. 全局装的
   `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (设了找不到直接报错), 检出时旁边的 `../acdert/target/{release,debug}/acdert` (先于 PATH: 两个仓库一起改),
   全局装时自己版本的 `bin/acdert` 再 `$ACDE_INSTALL` 的, 最后 PATH; 都没有就列出找过的地方.
-- **发版** (`.github/workflows/release.yml`): 推 `v*` tag, 版本是 tag 去掉 `v`. 取 `https://pkgs.dopame.ai/acdert/latest.json` 那一版 acdert 的
-  binary、host bundle (`app/dist`) 和 `acde-api-<版本>.tar.gz` (放到 `../acdert/web/packages/acde-api`, 满足 `file:` 依赖), 取
-  `acde-dopame/latest.json` 的 `dopame.tar.gz` (放到 `../acde-dopame/packages/dopame`), 都按 `SHA256SUMS` 校验; acdert 有哪些 triple 就对哪些跑
-  dist.ts. 传到 S3 桶 `dopame-pkgs` 的 `acde/`: `<版本>/` 缓存一年, `install.sh`、`install.ps1`、`latest` (text/plain) 和 `latest.json`
-  (`{version, tag, commit, acdert, dopame, base, files}`) 不缓存, 再让 CloudFront `E3ET3L14ALFOXX` 失效这些. 跨仓库不 checkout (组织禁了 deploy key),
-  只经 pkgs. 凭证走 GitHub OIDC: IAM 角色 `dopame-acde-release` 只信任本仓库的 `refs/tags/v*`
-  (`repo:dopame-org@342965929/acde@1445550577:ref:refs/tags/v*`), 只能读写 `dopame-pkgs/acde/*`、失效那个 distribution.
 - musl 的 acdert 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
 
 ## 和 acdert 的契约
