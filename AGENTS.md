@@ -91,6 +91,8 @@ acdert 只认包 (package.json 的 `acde` 字段, `PackageManifest`); `acde.conf
   (入口 `index.html`, id 由 `name` 经 `Project.idOf`, label 取 `displayName` / `productName`).
 - **产物**: app 是 `web/` (URL `/app/<id>/`) 和 `backend/`; desktop 是 `desktop/` (`/desktop/<id>/`)、`services/<名>.js`、`apps/<id>/{web,backend}`.
   `Project.build` 会 `chdir` 进工程, 不能并行构建.
+- **契约级别**: 产物清单写 `apiLevel`, 值是构建所用 SDK 的 `API_LEVEL` (`acde.config.jsonc` 不写它). 手写的包由 `Manifest.check` 查:
+  没写是警告 (运行时暂按第 0 级加载), 不是正整数或与 SDK 的级别不同是错误.
 - **图标**: 图标名 (SDK 的 `ICON_NAMES`) 原样写进清单, 没给是 `app`; 像路径的 (`Project.isIconPath`: 含 `/`、`\` 或有扩展名) 是工程里的
   `.svg` / `.png` (查文件和内容), 复制进应用的 `web/` 叫 `icon.<ext>` (重名时 `icon-<hash8>.<ext>`), 清单写 `/app/<id>/icon.<ext>`.
 

@@ -7,6 +7,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import type {
   AcdeConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig,
 } from '@dopame/acde-api'
+import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { Bundler, type PublicRules } from './bundler.ts'
 import { CONFIGS } from './configs.ts'
 import { Frameworks, type Output } from './frameworks.ts'
@@ -167,7 +168,8 @@ export class Project {
         for (const [name, module] of services) manifest.services.push(await this.#service(name, module, out))
       }
     }
-    const built: BuiltPackage = { name: this.name, version: this.version, private: true, acde: { ...manifest, assets } }
+    const acde = { apiLevel: API_LEVEL, ...manifest, assets }
+    const built: BuiltPackage = { name: this.name, version: this.version, private: true, acde }
     writeFileSync(join(out, 'package.json'), JSON.stringify(built, null, 2) + '\n')
     return built
   }

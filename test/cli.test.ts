@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { delimiter, join, relative, sep } from 'node:path'
+import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
@@ -65,6 +66,7 @@ describe('acde build', () => {
       version: '1.2.3',
       private: true,
       acde: {
+        apiLevel: API_LEVEL,
         apps: [
           {
             id: 'hello-app',
@@ -199,6 +201,7 @@ describe('acde.config.jsonc', () => {
     expect((await cli(['install'], dir, { XDG_DATA_HOME: data })).code).toBe(0)
     const built = JSON.parse(readFileSync(join(data, 'acde/packages/hello/package.json'), 'utf8'))
     expect(built.acde).toEqual({
+      apiLevel: API_LEVEL,
       apps: [{ id: 'hello', label: 'Hi', icon: 'app', entry: '/app/hello/index.html', capabilities: {} }],
       assets: { '/app/hello/': ['web'] },
     })
@@ -224,6 +227,7 @@ describe('acde.config.jsonc', () => {
     const result = await cli(['build', '--out', out], dir)
     expect(result.stderr).toBe('')
     const built = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+    expect(built.acde.apiLevel).toBe(API_LEVEL)
     expect(built.acde.desktops).toEqual([
       { id: 'mine', name: '我的桌面', entry: 'desktop/index.html', services: ['clock'] },
     ])
@@ -256,6 +260,41 @@ describe('acde.config.jsonc', () => {
     const result = await cli(['check'], dir)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('is in no assets directory')
+  })
+
+  test('check: a hand-written package states the contract level of the SDK', async () => {
+    const dir = tmp()
+    mkdirSync(join(dir, 'ui'))
+    writeFileSync(join(dir, 'ui/app.js'), 'export default { mount() { return () => {} } }\n')
+    const write = (level: unknown) =>
+      writeFileSync(
+        join(dir, 'package.json'),
+        JSON.stringify({
+          name: 'leveled',
+          acde: {
+            ...(level !== undefined && { apiLevel: level }),
+            apps: [{ id: 'leveled', label: 'x', icon: 'app', entry: '/ui/app.js' }],
+            assets: { '/ui/': ['ui'] },
+          },
+        }),
+      )
+    write(API_LEVEL)
+    const right = await cli(['check'], dir)
+    expect(right.code).toBe(0)
+    expect(right.stderr).toBe('')
+    write(undefined)
+    const missing = await cli(['check'], dir)
+    expect(missing.code).toBe(0)
+    expect(missing.stderr).toContain('warning: acde.apiLevel is missing')
+    expect(missing.stderr).toContain(`declare apiLevel ${API_LEVEL}`)
+    write(API_LEVEL + 1)
+    const wrong = await cli(['check'], dir)
+    expect(wrong.code).toBe(1)
+    expect(wrong.stderr).toContain(`error: acde.apiLevel ${API_LEVEL + 1}: needs level ${API_LEVEL + 1}`)
+    write('1')
+    const typed = await cli(['check'], dir)
+    expect(typed.code).toBe(1)
+    expect(typed.stderr).toContain('error: acde.apiLevel must be a positive whole number')
   })
 
   test('new . in a fresh git checkout (only .git there)', async () => {
