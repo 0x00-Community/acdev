@@ -148,3 +148,33 @@ fn socket_paths_fit_sun_path_and_old_generations_are_swept() {
     assert!(dir::alive(std::process::id()));
     std::fs::remove_dir_all(&base).ok();
 }
+
+fn started(script: &str) -> Option<Arc<Running>> {
+    let node = node()?;
+    let env = environment(vec![], &[("ACDE_APP_CONTROL", "fd".into())], |k| std::env::var(k).ok());
+    let args = vec!["-e".to_owned(), script.to_owned()];
+    let started = process::start(&Spec { program: &node.to_string_lossy(), args: &args, cwd: None, env: &env }).expect("started");
+    let mux = Mux::start(started.to_backend, started.from_backend).expect("mux");
+    Some(Arc::new(Running { app: "stop.test".into(), generation: 0, process: started.process, mux, sockets: None }))
+}
+
+#[test]
+fn stop_asks_the_backend_to_shut_down_first() {
+    let script = "const s = new (require('net').Socket)({ fd: 3, readable: true, writable: false }); \
+                  s.on('data', (b) => { if (b[0] === 6) process.exit(7) }); setInterval(() => {}, 1000)";
+    let Some(backend) = started(script) else { return eprintln!("skipped: no node on PATH") };
+    std::thread::sleep(Duration::from_millis(300));
+    let begun = Instant::now();
+    stop_running(backend.clone(), 5000).expect("stop");
+    assert_eq!(backend.process.wait(Some(10_000)), Some(7), "the backend left on SHUTDOWN");
+    assert!(begun.elapsed() < Duration::from_secs(4), "{:?}", begun.elapsed());
+}
+
+#[test]
+fn stop_terminates_a_backend_that_does_not_leave() {
+    let Some(backend) = started("setInterval(() => {}, 1000)") else { return eprintln!("skipped: no node on PATH") };
+    let begun = Instant::now();
+    stop_running(backend.clone(), 500).expect("stop");
+    assert_eq!(backend.process.wait(Some(10_000)), Some(1), "terminated with code 1");
+    assert!(begun.elapsed() >= Duration::from_millis(450), "{:?}", begun.elapsed());
+}

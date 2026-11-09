@@ -183,3 +183,23 @@ fn exited(scope: &mut v8::PinScope, pid: u32, code: Option<i32>) {
     let (code, signal) = (code.js(scope), None::<i32>.js(scope));
     bind::call(scope, on_exit, &[code, signal]);
 }
+
+fn stop_running(running: Arc<Running>, ms: u32) -> std::io::Result<()> {
+    _ = running.mux.shutdown();
+    std::thread::Builder::new().name("acde-backend-stop".into()).spawn(move || {
+        if running.process.wait(Some(ms)).is_none() {
+            running.process.terminate();
+        }
+    })?;
+    Ok(())
+}
+
+pub fn stop(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let pid = bind::arg_u32(scope, &args, 0);
+    let ms = bind::arg_u32(scope, &args, 1);
+    let Some(backend) = running().get(&pid).cloned() else { return rv.set_bool(false) };
+    if let Err(e) = stop_running(backend, ms) {
+        return bind::throw_error(scope, &format!("stopBackend {pid}: {e}"));
+    }
+    rv.set_bool(true);
+}
