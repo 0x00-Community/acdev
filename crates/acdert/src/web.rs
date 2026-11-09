@@ -84,7 +84,8 @@ impl Webs {
         let office = bind::get(scope, wanted, "office").is_some_and(|v| v.is_true());
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
-        let picker = crate::picker::Picker::new(app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
+        let picker =
+            crate::picker::Picker::new(app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
         Grants {
             fs: fs.map(|roots| workspace.scoped(roots, app.as_deref())),
             app,
@@ -147,7 +148,13 @@ impl Spec {
     const KILLED: i32 = 137;
     const PANICKED: i32 = 134;
 
-    fn spawn(self, id: u32, on_message: Arc<bind::SendFunction>, on_exit: bind::SendFunction, broker: Sender<Msg>) -> Result<Handle, String> {
+    fn spawn(
+        self,
+        id: u32,
+        on_message: Arc<bind::SendFunction>,
+        on_exit: bind::SendFunction,
+        broker: Sender<Msg>,
+    ) -> Result<Handle, String> {
         let (ready, started) = std::sync::mpsc::sync_channel(1);
         let dead = Arc::new(AtomicBool::new(false));
         let name = self.name.clone();
@@ -156,15 +163,19 @@ impl Spec {
             .stack_size(Self::STACK)
             .spawn(move || {
                 UPSTREAM.with(|u| *u.borrow_mut() = Some((broker.clone(), on_message.clone())));
-                let (code, reason) = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(dead.clone(), &ready))) {
-                    Ok(ended) => ended,
-                    Err(panic) => {
-                        let message =
-                            panic.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
-                        log::error!("[{name}] panic: {message}");
-                        (Self::PANICKED, Some(format!("panic: {message}")))
-                    }
-                };
+                let (code, reason) =
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(dead.clone(), &ready))) {
+                        Ok(ended) => ended,
+                        Err(panic) => {
+                            let message = panic
+                                .downcast_ref::<&str>()
+                                .map(|s| (*s).to_owned())
+                                .or_else(|| panic.downcast_ref::<String>().cloned())
+                                .unwrap_or_default();
+                            log::error!("[{name}] panic: {message}");
+                            (Self::PANICKED, Some(format!("panic: {message}")))
+                        }
+                    };
                 UPSTREAM.with(|u| u.borrow_mut().take());
                 let killed = dead.load(Ordering::SeqCst);
                 let (code, reason) = if killed { (Self::KILLED, None) } else { (code, reason) };
@@ -195,7 +206,14 @@ impl Spec {
             target_os = "linux" => rustix::thread::gettid().as_raw_nonzero().get(),
             _ => 0,
         };
-        _ = ready.send(Handle { tx: runtime.lp.sender(), isolate, stopping: stopping.clone(), killed, busy: runtime.lp.busy(), tid });
+        _ = ready.send(Handle {
+            tx: runtime.lp.sender(),
+            isolate,
+            stopping: stopping.clone(),
+            killed,
+            busy: runtime.lp.busy(),
+            tid,
+        });
         let code = run_web(&mut runtime, self.init, &self.env, self.grants, &stopping);
         ON_MESSAGE.with(|m| *m.borrow_mut() = None);
         crate::webnative::clear();
@@ -242,7 +260,9 @@ pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     let Some(init) = crate::host::serialize_value(scope, args.get(1)) else { return };
     let heap_mb = bind::arg_f64(scope, &args, 2);
     let env = bind::own_string_pairs(scope, args.get(3));
-    let (Ok(on_message), Ok(on_exit)) = (v8::Local::<v8::Function>::try_from(args.get(4)), v8::Local::<v8::Function>::try_from(args.get(5))) else {
+    let (Ok(on_message), Ok(on_exit)) =
+        (v8::Local::<v8::Function>::try_from(args.get(4)), v8::Local::<v8::Function>::try_from(args.get(5)))
+    else {
         return bind::throw_type_error(scope, "spawnWeb: onMessage and onExit must be functions");
     };
     let on_message = Arc::new(bind::SendFunction(v8::Global::new(scope, on_message)));
@@ -267,7 +287,11 @@ pub fn spawn_web(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     rv.set(obj.into());
 }
 
-fn with_handle<R>(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, f: impl FnOnce(&Handle) -> R) -> Option<R> {
+fn with_handle<R>(
+    scope: &mut v8::PinScope,
+    args: &v8::FunctionCallbackArguments,
+    f: impl FnOnce(&Handle) -> R,
+) -> Option<R> {
     let id = args.data().uint32_value(scope)?;
     WEBS.with(|w| w.borrow().live.get(&id).map(f))
 }
@@ -312,7 +336,12 @@ struct HeapGuard {
 }
 
 impl HeapGuard {
-    fn install(runtime: &mut rt::Runtime, handle: v8::IsolateHandle, reason: Arc<Mutex<Option<String>>>, stopping: Arc<AtomicBool>) -> Box<Self> {
+    fn install(
+        runtime: &mut rt::Runtime,
+        handle: v8::IsolateHandle,
+        reason: Arc<Mutex<Option<String>>>,
+        stopping: Arc<AtomicBool>,
+    ) -> Box<Self> {
         let guard = Box::new(Self { handle, reason, stopping });
         let data = &*guard as *const Self as *mut std::ffi::c_void;
         runtime.isolate.add_near_heap_limit_callback(Self::near_limit, data);
@@ -330,7 +359,13 @@ impl HeapGuard {
     }
 }
 
-fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], grants: Grants, stopping: &Arc<AtomicBool>) -> i32 {
+fn run_web(
+    runtime: &mut rt::Runtime,
+    init: Vec<u8>,
+    env: &[(String, String)],
+    grants: Grants,
+    stopping: &Arc<AtomicBool>,
+) -> i32 {
     crate::modules::set_loader(std::rc::Rc::new(crate::dom::WebLoader));
     let bundle = app_dir().join("web.js");
     let Some(url) = std::fs::canonicalize(&bundle).ok().and_then(|p| url::Url::from_file_path(p).ok()) else {
@@ -361,7 +396,8 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], g
             crate::backend::install(scope, natives, init);
             bind::set(scope, natives, "init", init);
         }
-        let env: Vec<(&str, v8::Local<v8::Value>)> = env.iter().map(|(key, value)| (key.as_str(), bind::string(scope, value).into())).collect();
+        let env: Vec<(&str, v8::Local<v8::Value>)> =
+            env.iter().map(|(key, value)| (key.as_str(), bind::string(scope, value).into())).collect();
         let env = bind::object(scope, &env);
         bind::set(scope, natives, "env", env.into());
         if let Some(own) = v8::Function::builder(own_env).data(env.into()).build(scope) {

@@ -147,7 +147,9 @@ impl Surface {
             C::RequestFrame => self.link.send(Msg::Frame),
             C::SetClipboard(text) => platform::clipboard_set(text),
             C::ReadClipboard(reply) => reply(platform::clipboard_get()),
-            C::StartDrag(..) => self.inbox.push(Event { kind: "dragend".into(), button: Some(0), ..Default::default() }),
+            C::StartDrag(..) => {
+                self.inbox.push(Event { kind: "dragend".into(), button: Some(0), ..Default::default() })
+            }
             C::Mode(mode) => {
                 if let Ok(mode) = Mode::try_from(mode) {
                     set_mode(self.window, mode);
@@ -162,7 +164,12 @@ impl Surface {
             }
             C::Grab(kind, true) => {
                 let name = if kind == 2 { "keyboard" } else { "pointer" };
-                self.inbox.push(Event { kind: "grab".into(), key: Some(name.into()), code: Some(1), ..Default::default() });
+                self.inbox.push(Event {
+                    kind: "grab".into(),
+                    key: Some(name.into()),
+                    code: Some(1),
+                    ..Default::default()
+                });
             }
             C::Grab(_, false) => {}
             C::OpenPanel { id, token, rect } => self.open_panel(id, token, rect),
@@ -190,7 +197,8 @@ impl Surface {
         let scale = state.screen[2];
         let Some(entry) = state.entries.get_mut(&self.window) else { return };
         let top = (entry.frame * scale).round();
-        entry.backdrop = (w > 0 && h > 0).then(|| ([f64::from(x), f64::from(y) + top, f64::from(w), f64::from(h)], effect));
+        entry.backdrop =
+            (w > 0 && h > 0).then(|| ([f64::from(x), f64::from(y) + top, f64::from(w), f64::from(h)], effect));
         drop(state);
         if let Some(compositor) = server.compositor() {
             compositor.dirty();
