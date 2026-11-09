@@ -394,7 +394,7 @@ fn after_task(scope: &mut v8::PinScope) {
             v8::tc_scope!(let tc, scope);
             hook(tc);
             let message = tc.message();
-            tc.exception().map(|e| (v8::Global::new(tc, e), thrown_at(tc, message, e)))
+            tc.exception().filter(|_| !tc.has_terminated()).map(|e| (v8::Global::new(tc, e), thrown_at(tc, message, e)))
         };
         if let Some((exception, origin)) = thrown {
             let exception = v8::Local::new(scope, exception);
@@ -409,6 +409,9 @@ pub fn report(scope: &mut v8::PinScope, error: v8::Local<v8::Value>) {
 }
 
 fn report_to(scope: &mut v8::PinScope, error: v8::Local<v8::Value>, promise: Option<v8::Local<v8::Promise>>, origin: Option<String>) {
+    if scope.is_execution_terminating() {
+        return;
+    }
     let lp = current();
     let reporter = lp.reporter.borrow().clone();
     if let Some(reporter) = reporter {
@@ -571,5 +574,43 @@ extern "C" fn promise_reject(message: v8::PromiseRejectMessage) {
             lp.rejections.borrow_mut().retain(|(p, _, _)| *p != promise);
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(scope: &mut v8::PinScope, code: &str) -> Option<()> {
+        let code = v8::String::new(scope, code)?;
+        v8::Script::compile(scope, code, None)?.run(scope).map(|_| ())
+    }
+
+    #[test]
+    fn termination_in_the_end_of_task_hook_is_not_a_page_error() {
+        let mut rt = Runtime::new(None, "termination");
+        rt.task(|scope| {
+            let code = v8::String::new(scope, "globalThis.reports = []; (e) => { globalThis.reports.push(String(e)) }").expect("source");
+            let reporter = v8::Script::compile(scope, code, None).and_then(|s| s.run(scope)).expect("reporter");
+            let reporter = v8::Local::<v8::Function>::try_from(reporter).expect("function");
+            current().set_reporter(Some(v8::Global::new(scope, reporter)));
+        });
+        rt.lp.set_after_task(|scope| {
+            let handle = scope.thread_safe_handle();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                handle.terminate_execution();
+            });
+            let _ = run(scope, "for (;;) {}");
+        });
+        rt.task(|scope| _ = run(scope, "1"));
+        rt.lp.set_after_task(|_| {});
+        rt.task(|scope| _ = run(scope, "Promise.reject(new Error('real'))"));
+        let reports = rt.task(|scope| {
+            let code = v8::String::new(scope, "globalThis.reports.join('|')").expect("source");
+            let value = v8::Script::compile(scope, code, None).and_then(|s| s.run(scope)).expect("reports");
+            value.to_rust_string_lossy(scope)
+        });
+        assert_eq!(reports, "Error: real", "only the real rejection is reported, not the termination");
     }
 }
