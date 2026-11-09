@@ -220,9 +220,14 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       writeFileSync(String(m['path']), Buffer.from(PNG, 'base64'))
       return void ok({ width: 1, height: 1, path: m['path'] })
     case 'choose': {
-      const folder = m['folder']
-      if (folder === null || (typeof folder === 'string' && isAbsolute(folder))) return void ok({ folder })
-      return void fail('choose: folder is an absolute path, or null to cancel')
+      const kinds = ['folder', 'open', 'save'].filter((kind) => m[kind] !== undefined)
+      if (kinds.length !== 1) return void fail('choose: give exactly one of folder, open or save')
+      const kind = kinds[0]!
+      const answer = m[kind]
+      const path = (value: unknown) => typeof value === 'string' && isAbsolute(value)
+      const valid = answer === null || (kind === 'open' ? Array.isArray(answer) && answer.length > 0 && answer.every(path) : path(answer))
+      if (valid) return void ok({ [kind]: answer })
+      return void fail(`choose: ${kind} is not an absolute path, a list of them for open, or null to cancel`)
     }
     case 'emulate':
       if (m['colorScheme'] !== undefined) dark = m['colorScheme'] === 'dark'

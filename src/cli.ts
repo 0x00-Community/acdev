@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 import { resolve } from 'node:path'
 import * as p from '@clack/prompts'
-import { requireAcdert } from 'acde/launcher'
+import { requireAcdert, run, runtimes } from 'acde/launcher'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
 import { TestRunner } from './e2e/runner.ts'
 import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
+import { Runtime } from './runtime.ts'
 import { Tools } from './tools.ts'
 
 const USAGE = `usage: acde <command>
@@ -102,6 +103,8 @@ class Cli {
   static async main(argv: readonly string[]): Promise<number> {
     const { command, args, flags } = Cli.parse(argv)
     if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
+    const followed = await Cli.follow(command, args[0] ?? '.', argv)
+    if (followed !== null) return followed
     if (command === 'test') {
       const timeout = flags.has('timeout') ? Number(flags.get('timeout')) : undefined
       if (timeout !== undefined && !(Number.isInteger(timeout) && timeout > 0)) throw new Error(`--timeout ${flags.get('timeout')}: milliseconds per test`)
@@ -128,6 +131,20 @@ class Cli {
     if (command === 'build') return 0
     console.log(`acde: installed ${built.id} in ${pkg.install(built)}`)
     return 0
+  }
+
+  static async follow(command: string, dir: string, argv: readonly string[]): Promise<number | null> {
+    if (!['dev', 'build', 'install'].includes(command) || !import.meta.url.endsWith('.js') || process.env['ACDE_FOLLOWED']) return null
+    const wanted = PackageManager.of(resolve(dir)).runtime
+    const current = Runtime.bun ? 'bun' : 'node'
+    if (wanted === current) return null
+    const exe = runtimes()[wanted]
+    if (exe) {
+      process.env['ACDE_FOLLOWED'] = '1'
+      return await run(argv, exe)
+    }
+    console.error(`acde: this project runs on ${wanted === 'bun' ? 'Bun 1.4+' : 'Node.js 22.3+'}, which is not on PATH: going on with ${current === 'bun' ? 'Bun' : 'Node.js'}`)
+    return null
   }
 
   static async create(dir: string, flags: ReadonlyMap<string, string>): Promise<number> {

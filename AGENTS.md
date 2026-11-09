@@ -4,7 +4,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 跑桌面和应用, Dopame OS 的会话就是它), acde 建工程、构建、装包, `acde dev` 拉起 acdert. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
 窗口模型、dev IPC 的 op) 以 acdert 的 AGENTS.md 为准 (并排检出在 `../acdert`), 这里只写工具.
 
-- 说明都在本文件里 (没有 README). full agentic. TypeScript, 跑在开发者已有的 bun 或 Node.js ≥ 22.3 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
+- 说明都在本文件里 (没有 README). full agentic. TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
 - 代码不写注释 (`//`, `/* */`, JSDoc 都不写), 要说明的写进本文件; 工具要读的指令 (`/// <reference>`、`@ts-expect-error`) 除外.
 - 闭源: 代码是专有的 (`LICENSE`, package.json `"license": "UNLICENSED"`), 不发 npm 包, 仓库不公开.
 - 日志和命令行输出只用英文.
@@ -54,8 +54,12 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 - 在终端里 (stdin、stdout 都是 TTY, 没给 `--yes`) 用 @clack/prompts 问缺的 (`Creator.ask`): 目录 (默认 `my-app`, 非空或算不出 id 当场提示)、
   应用 / 桌面、模板、显示名、后端 (只有 html)、装依赖、`git init` (不在仓库里且有 git 才问; 没配 user.name / email 时跳过首次提交).
   Ctrl+C 退出码 0. 不在终端里什么都不问: 目录必填, 模板默认 html, 不装依赖、不建仓库.
-- **包管理器** 只认 bun / npm / pnpm / yarn. 新工程: `--pm`, 否则 `npm_config_user_agent`, 否则跑 acde 的运行时 (bun → bun, Node → npm;
-  launcher 从 Node 起 bun 跑 `cli.ts` 时经 `ACDE_HOST_RUNTIME` 传原来的). 已有工程 (`PackageManager.of`): lockfile, 再 `packageManager` 字段.
+- **运行时和包管理器**: 工程跑在 bun 或 Node 上, 由包管理器定 (bun → bun, npm / pnpm / yarn → Node). 新工程: `--pm`, 否则 `npm_config_user_agent`;
+  在终端里问的时候按 PATH (`runtimes()`: ≥ 1.4 的 bun, 和 ≥ 22.3 的 node; 其实是 bun 的 `node` 软链接不算): 只有一个就用它, 两个都有问 `Run this project on` (Bun → bun, Node.js → npm,
+  默认是跑 acde 的那个); 不在终端里是跑 acde 的运行时 (bun → bun, Node → npm; launcher 从 Node 起 bun 跑 `cli.ts` 时经 `ACDE_HOST_RUNTIME` 传原来的).
+  建好写上 `packageManager: <pm>@<版本>` (已经有的不动). 已有工程 (`PackageManager.of`): lockfile, 再 `packageManager` 字段, 都没有是跑 acde 的那个.
+  `acde dev` / `build` / `install` 跑在别的运行时上时 (`bin/acde` 两个都有时用 bun), `Cli.follow` 换到工程的运行时重新跑一遍 (`run(argv, exe)`, 带 `ACDE_FOLLOWED=1` 只换一次;
+  只对打好的 `cli.js`, `cli.ts` 只能 bun 跑); 那个运行时不在 PATH 上就打一行, 接着在现在的上面跑.
   yarn 的工程写 `.yarnrc.yml` `nodeLinker: node-modules` (PnP 下 bun 和框架的构建找不到依赖).
 - **package.json** (`Creator.lay` / `adopt`): 自带模板的脚本 `dev` / `build` / `check` 是 `acde <同名>`; 框架模板不动框架的脚本, 加 `acde:dev` /
   `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acde`, 工程里没有 `acde` 依赖. devDependencies: `@dopame/acde-api` (`Creator.api`, `ACDE_API`
@@ -150,11 +154,11 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `console` / `network` (`--follow` 每 0.5 s 带 `next` 续读). 格式在 `src/driver/format.ts`. 出错 `acde: <原因>`, 退出码 1.
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块): `Acde.attach` / `Acde.launch` (用 `process.execPath` 跑 `cliFile()`, 输出进 `Logs`,
   等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdert 先答 `webs`, 窗口稍后进表; 默认 120 s; `close()` 时 SIGTERM, 10 s 后
-  SIGKILL). 方法和 op 一一对应 (`chooseFolder` 是 `choose`). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
+  SIGKILL). 方法和 op 一一对应 (`chooseFolder` / `chooseFiles` / `chooseSaveFile` 都是 `choose`, 分别给 `folder` / `open` / `save`; 相对路径按当前目录解析). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
   `AppWindow` 每次用到时在窗口表里重新找. `Locator` 每次在最新语义树 (`limit: 3000, offscreen: true`) 上重新求、不缓存 ref; 动作要**恰好一个**匹配
   (多个报错, 不猜), click / fill / type 还等不 `disabled`, `ok: false` 重试到超时再抛 `ActError`. `expect` 重试到超时 (默认 5 s), 要一个元素的断言在零个
   或多个时一直等. 语义树的限制在 acdert: `opacity: 0` 算不可见, `getByText` 找的是无障碍名字.
-- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 17 个工具建在 driver 上 (`start` / `stop` / `logs` 是自己起 `acde dev` 的). stdout 只走协议.
+- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 19 个工具建在 driver 上 (`start` / `stop` / `logs` 是自己起 `acde dev` 的). stdout 只走协议.
   会话: 钉住的 (`--session`、`sessions {use}`), 否则 `start` 起的, 否则按工作目录挑 (每次调用前看 IPC 断没断). stdin 关闭或收到信号时停掉 `start`
   起的. 工具出错回 `isError`, 不抛协议错误.
 - **e2e** (`src/e2e/`): 文件 `*.e2e.{ts,tsx,js,mjs,mts}` (普通 `bun test` 匹配不到, 不会起 acdert), 从 `acde/test` 导入. 每个测试一个新 `acde dev`
@@ -171,8 +175,8 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 tarball 里一个目录就是一个版本的安装根:
 
 ```
-bin/acde            scripts/acde.sh: 有 bun 用 bun 跑 lib/acde/src/cli.js, 否则 node (≥ 22.3)
-bin/acde.cmd        Windows 代替 bin/acde: scripts/acde.cmd (CRLF), 同样的选法, node 要 ≥ 22.3; 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acde 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
+bin/acde            scripts/acde.sh 跑 lib/acde/src/cli.js: bun ≥ 1.4 用 bun, 否则 node ≥ 22.3 用 node; 都不行时 bun 太旧提示更新 bun, 否则 node 太旧提示更新 node, 都没有提示装其中一个
+bin/acde.cmd        Windows 代替 bin/acde: scripts/acde.cmd (CRLF), 同样的选法和提示; 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acde 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
 bin/acdert[.exe]
 bin/app/dist/       acde-host 的 bundle (broker.js、web.js; acdert 找 <自己>/app/dist)
 bin/app/packages/   Dopame 桌面包 (不带 .map); acde-host 在 broker.js 上一级的 packages/ 找自带的桌面
@@ -205,9 +209,9 @@ lib/acde-api/       acdert 的 web/packages/acde-api (不带 test/)
 
 - 清单校验只有一份: `@dopame/acde-api/manifest` (acdert 的 `web/packages/acde-api`), acdert 的 Broker 和 acde 用同一段 (打进 `cli.js`). 检出的
   package.json 用 `file:../acdert/web/packages/acde-api`, 两个仓库要并排检出.
-- 命令行 `acdert app <id>` / `acdert desktop <id|包目录>`; 环境 `ACDE_PATH`、`ACDE_DEV`、`ACDE_HEADLESS`; dev IPC 见上.
+- 命令行 `acdert app <id>` / `acdert desktop <id|包目录>`; 环境 `ACDE_PATH`、`ACDE_DEV`、`ACDE_HEADLESS`、`ACDE_RUNTIME`; dev IPC 见上.
 - 后端: acdert 在 PATH 上有 bun 时 `bun --preload <dir>/acde-listen.js <entry>`, 否则 `node --import <acde-listen.js 的 file: URL> <entry>` (Windows
-  盘符路径不是合法的模块说明符). 没有 `acde-listen.js` 的旧包不起.
+  盘符路径不是合法的模块说明符). `acde dev` 给 acdert 设 `ACDE_RUNTIME` (`bun` / `node`, acde 自己跑在哪个上), `node` 时 acdert 先找 node. 没有 `acde-listen.js` 的旧包不起.
 
 ## 测试
 

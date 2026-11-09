@@ -19,7 +19,7 @@ const INSTRUCTIONS = `acde: see and drive the desktop and apps of an acde dev se
 - Elements scrolled out of view are left out unless offscreen is set; act scrolls an element into view before using it. query finds elements by CSS selector (also [data-testid=…]) and gives refs act takes.
 - open launches an app by id or name. screenshot shows a window's pixels, or target "screen" the whole screen with every window (snapshot cannot tell colour, layout or overlap). eval runs JavaScript in a page and returns JSON. wait_for waits for a text to appear or go.
 - console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource requests (status, size, time, error); both answer next, pass it as since to read only newer entries. emulate switches the colour scheme or reduced motion. logs is the raw output of an acde dev that start ran.
-- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's folder chooser then needs choose_folder first.`
+- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's folder, open or save chooser then needs choose_folder, choose_files or choose_save_file first.`
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 
@@ -317,6 +317,44 @@ export class Mcp {
           const folder = args.cancel ? null : resolve(this.#cwd, args.path!)
           await (await this.#acde()).chooseFolder(folder)
           return Mcp.#text(folder === null ? 'the next folder chooser will be cancelled' : `the next folder chooser will answer ${folder}`)
+        }),
+    )
+
+    s.registerTool(
+      'choose_files',
+      {
+        description: 'Answer the next file chooser a page opens (showOpenFilePicker, <input type=file>) without showing it: one or more files, or cancel. Without a host window (headless) a chooser fails unless answered first.',
+        inputSchema: z.object({
+          paths: z.array(z.string()).min(1).optional().describe('the files, relative to the working directory'),
+          cancel: z.boolean().optional().describe('answer as if the user cancelled'),
+        }),
+        annotations: drive,
+      },
+      (args) =>
+        this.#safe(async () => {
+          if ((args.paths === undefined) === (args.cancel !== true)) throw new Error('choose_files: give paths, or cancel: true')
+          const files = args.cancel ? null : args.paths!.map((path) => resolve(this.#cwd, path))
+          await (await this.#acde()).chooseFiles(files)
+          return Mcp.#text(files === null ? 'the next file chooser will be cancelled' : `the next file chooser will answer ${files.join(', ')}`)
+        }),
+    )
+
+    s.registerTool(
+      'choose_save_file',
+      {
+        description: 'Answer the next save chooser a page opens (showSaveFilePicker) without showing it: the file to save to, or cancel. Without a host window (headless) a chooser fails unless answered first.',
+        inputSchema: z.object({
+          path: z.string().optional().describe('the file, relative to the working directory'),
+          cancel: z.boolean().optional().describe('answer as if the user cancelled'),
+        }),
+        annotations: drive,
+      },
+      (args) =>
+        this.#safe(async () => {
+          if ((args.path === undefined) === (args.cancel !== true)) throw new Error('choose_save_file: give a path, or cancel: true')
+          const file = args.cancel ? null : resolve(this.#cwd, args.path!)
+          await (await this.#acde()).chooseSaveFile(file)
+          return Mcp.#text(file === null ? 'the next save chooser will be cancelled' : `the next save chooser will answer ${file}`)
         }),
     )
 

@@ -29,7 +29,7 @@ describe('acde mcp', () => {
     const { client, call } = await connect(s.project, s.env)
     try {
       const tools = (await client.listTools()).tools
-      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'choose_folder', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'wait_for', 'webs'])
+      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'choose_files', 'choose_folder', 'choose_save_file', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'wait_for', 'webs'])
       expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
 
       const none = await call('webs')
@@ -82,6 +82,12 @@ describe('acde mcp', () => {
       expect((await call('choose_folder', { path: 'pick' })).text).toBe(`the next folder chooser will answer ${join(s.project, 'pick')}`)
       expect((await call('choose_folder', { cancel: true })).text).toBe('the next folder chooser will be cancelled')
       expect((await call('choose_folder', {})).error).toBe(true)
+      expect((await call('choose_files', { paths: ['a.txt', 'b.txt'] })).text).toBe(`the next file chooser will answer ${join(s.project, 'a.txt')}, ${join(s.project, 'b.txt')}`)
+      expect((await call('choose_files', { cancel: true })).text).toBe('the next file chooser will be cancelled')
+      expect((await call('choose_files', {})).error).toBe(true)
+      expect((await call('choose_save_file', { path: 'out.txt' })).text).toBe(`the next save chooser will answer ${join(s.project, 'out.txt')}`)
+      expect((await call('choose_save_file', { cancel: true })).text).toBe('the next save chooser will be cancelled')
+      expect((await call('choose_save_file', {})).error).toBe(true)
       expect((await call('emulate', { colorScheme: 'dark' })).text).toBe('colour scheme dark (emulated), reduced motion off')
       expect((await call('emulate', { colorScheme: 'system', reducedMotion: 'reduce' })).text).toBe('colour scheme light, reduced motion on')
       expect(JSON.parse((await call('eval', { code: '1', target: 'desktop' })).text)).toEqual({ web: 'desktop', code: '1' })

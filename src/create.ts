@@ -2,7 +2,7 @@ import * as p from '@clack/prompts'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { installDir, installed, which } from 'acde/launcher'
+import { installDir, installed, runtimes, which } from 'acde/launcher'
 import { Project } from './app.ts'
 import { AppPackage } from './package.ts'
 import { up } from './paths.ts'
@@ -137,7 +137,7 @@ export class Creator {
       const starter = Creator.starter(template)
       const label = given.label ?? (await answer(p.text({ message: 'Name people see', placeholder: given.id ?? Creator.idOf(dir), defaultValue: given.id ?? Creator.idOf(dir) })))
       const backend = given.backend ?? (starter.name === 'html' ? await answer(p.confirm({ message: 'Add a backend (server.ts, any Bun / Node server)?', initialValue: false })) : false)
-      const pm = given.pm ? PackageManager.named(given.pm) : PackageManager.invoking()
+      const pm = given.pm ? PackageManager.named(given.pm) : await Creator.#choose(answer)
       const install = given.install ?? (await answer(p.confirm({ message: `Install dependencies (${pm.name} install)?`, initialValue: true })))
       const git = given.git ?? (which('git') && !Creator.#inRepo(dir) ? await answer(p.confirm({ message: 'Start a git repository?', initialValue: true })) : false)
       return { ...given, dir, template, label, backend, install, git, pm: pm.name }
@@ -165,6 +165,7 @@ export class Creator {
       Creator.lay(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
     }
     if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml'))) writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+    Creator.#pin(dir, pm)
     const pkg = new AppPackage(dir)
     if (options.install) await step(`${pm.name} install`, [pm.install], dir)
     if (options.git && !Creator.#inRepo(dir)) {
@@ -214,6 +215,33 @@ export class Creator {
     const spec = self.dependencies['@dopame/acde-api'] ?? ''
     if (!spec.startsWith('file:')) throw new Error(`acde's package.json: @dopame/acde-api is not a file: dependency (${spec})`)
     return realpathSync(resolve(Creator.ROOT, spec.slice('file:'.length)))
+  }
+
+  static async #choose(answer: <T>(value: Promise<T>) => Promise<Exclude<T, symbol>>): Promise<PackageManager> {
+    if (process.env['npm_config_user_agent']) return PackageManager.invoking()
+    const found = runtimes()
+    if (!found.bun || !found.node) return new PackageManager(found.bun ? 'bun' : 'npm')
+    const runtime = await answer(
+      p.select<'bun' | 'node'>({
+        message: 'Run this project on',
+        options: [
+          { value: 'bun', label: 'Bun', hint: 'bun install, builds with Bun' },
+          { value: 'node', label: 'Node.js', hint: 'npm install, builds with Vite' },
+        ],
+        initialValue: Runtime.bun ? 'bun' : 'node',
+      }),
+    )
+    return new PackageManager(runtime === 'bun' ? 'bun' : 'npm')
+  }
+
+  static #pin(dir: string, pm: PackageManager): void {
+    const file = join(dir, 'package.json')
+    const json = JSON.parse(readFileSync(file, 'utf8')) as { packageManager?: string }
+    if (json.packageManager) return
+    const version = pm.version()
+    if (!version) return
+    json.packageManager = `${pm.name}@${version}`
+    writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   }
 
   static #wire(dir: string, scripts: Readonly<Record<string, string>>, extra: Readonly<Record<string, string>> = {}): void {

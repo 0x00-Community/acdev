@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { which } from 'acde/launcher'
@@ -44,6 +45,19 @@ export class PackageManager {
       return (PackageManager.NAMES as readonly string[]).includes(named) ? (named as PmName) : null
     })
     return name ? new PackageManager(name) : PackageManager.invoking()
+  }
+
+  get runtime(): 'bun' | 'node' {
+    return this.name === 'bun' ? 'bun' : 'node'
+  }
+
+  version(): string | null {
+    if (this.name === 'bun' && process.versions['bun']) return process.versions['bun']
+    const bin = which(this.name)
+    if (!bin) return null
+    const out = spawnSync(bin, ['--version'], { encoding: 'utf8', shell: /\.(cmd|bat)$/i.test(bin) })
+    const version = out.status === 0 ? out.stdout.trim().replace(/^v/, '') : ''
+    return /^\d+\.\d+\.\d+/.test(version) ? version : null
   }
 
   get install(): string[] {

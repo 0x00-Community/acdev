@@ -330,12 +330,12 @@ describe('a project made by acde from its checkout', () => {
     try {
       process.env['npm_config_user_agent'] = 'pnpm/10.23.0 npm/? node/v24.0.0 darwin arm64'
       expect(PackageManager.invoking().name).toBe('pnpm')
-      process.env['npm_config_user_agent'] = 'deno/2.7.12 npm/? deno/2.7.12 darwin arm64'
+      process.env['npm_config_user_agent'] = 'other/1.0.0 darwin arm64'
       delete process.env['ACDE_HOST_RUNTIME']
       expect(PackageManager.invoking().name).toBe('bun')
       process.env['ACDE_HOST_RUNTIME'] = 'node'
       expect(PackageManager.invoking().name).toBe('npm')
-      expect(() => PackageManager.named('deno')).toThrow('one of bun, npm, pnpm, yarn')
+      expect(() => PackageManager.named('other')).toThrow('one of bun, npm, pnpm, yarn')
       expect(PackageManager.named('pnpm').exec('create-vite@latest', ['x'])).toEqual([
         expect.stringMatching(/(?:^|[/\\])pnpm(?:\.(?:exe|cmd|bat))?$/i), 'dlx', 'create-vite@latest', 'x',
       ])
@@ -351,6 +351,7 @@ describe('a project made by acde from its checkout', () => {
   test('bun: bun install && bun run build with the checkout acde on PATH, no node there', async () => {
     const dir = join(tmp(), 'by-bun')
     expect((await cli(['new', dir, '--pm', 'bun', '--yes'], tmp())).code).toBe(0)
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toBe(`bun@${process.versions.bun}`)
     const path = tools(['bun'])
     const installed = await run([process.execPath, 'install'], dir, path)
     expect(installed.code, installed.out).toBe(0)
@@ -365,6 +366,7 @@ describe('a project made by acde from its checkout', () => {
     test.skipIf(!which(pm) || !which('node'))(`${pm}: install, run build`, async () => {
       const dir = join(tmp(), `by-${pm}`)
       expect((await cli(['new', dir, '--pm', pm, '--yes'], tmp())).code).toBe(0)
+      expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toStartWith(`${pm}@`)
       const path = tools([pm, 'node', 'bun'])
       const installed = await run([pm, 'install'], dir, path)
       expect(installed.code, installed.out).toBe(0)

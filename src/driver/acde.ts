@@ -326,6 +326,14 @@ export class Acde {
     await this.#request('choose', { folder: folder === null ? null : resolve(folder) })
   }
 
+  async chooseFiles(files: string | readonly string[] | null): Promise<void> {
+    await this.#request('choose', { open: files === null ? null : (typeof files === 'string' ? [files] : files).map((file) => resolve(file)) })
+  }
+
+  async chooseSaveFile(file: string | null): Promise<void> {
+    await this.#request('choose', { save: file === null ? null : resolve(file) })
+  }
+
   async windows(): Promise<InspectWindow[]> {
     return [...(await this.snapshot({ tree: false })).windows]
   }
