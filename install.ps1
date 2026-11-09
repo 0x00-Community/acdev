@@ -16,7 +16,7 @@ function Install-Acde {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
 
-    $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'http://localhost:8787' }
+    $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
     $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acde' }
 
     $shell = $PSVersionTable.PSVersion

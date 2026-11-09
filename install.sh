@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ACDE_DIST=${ACDE_DIST:-http://localhost:8787}
+ACDE_DIST=${ACDE_DIST:-https://pkgs.dopame.ai/acde}
 
 say() {
   printf 'acde-install: %s\n' "$*"

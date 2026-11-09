@@ -1,0 +1,97 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PKGS: https://pkgs.dopame.ai
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  pkgs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: acde
+      - uses: oven-sh/setup-bun@v2
+      - name: acdert
+        run: |
+          curl -fsSL "$PKGS/acdert/latest.json" -o acdert.json
+          cat acdert.json
+          base=$(jq -r .base acdert.json)
+          av=$(jq -r .version acdert.json)
+          jq -e --arg f "acde-api-$av.tar.gz" '.files | index($f)' acdert.json > /dev/null \
+            || { echo "::error::acdert $av has no acde-api-$av.tar.gz: release acdert again"; exit 1; }
+          mkdir -p in/acdert && cd in/acdert
+          for f in $(jq -r '.files[]' ../../acdert.json); do curl -fsSLO "$base$f"; done
+          sha256sum -c SHA256SUMS
+          tar -xzf "acdert-host-$av.tar.gz"
+          mkdir -p "$GITHUB_WORKSPACE/acdert/web/packages"
+          tar -C "$GITHUB_WORKSPACE/acdert/web/packages" -xzf "acde-api-$av.tar.gz"
+      - name: desktop
+        run: |
+          curl -fsSL "$PKGS/acde-dopame/latest.json" -o dopame.json
+          cat dopame.json
+          base=$(jq -r .base dopame.json)
+          mkdir -p in/dopame && cd in/dopame
+          for f in $(jq -r '.files[]' ../../dopame.json); do curl -fsSLO "$base$f"; done
+          sha256sum -c SHA256SUMS
+          mkdir -p "$GITHUB_WORKSPACE/acde-dopame/packages"
+          tar -C "$GITHUB_WORKSPACE/acde-dopame/packages" -xzf dopame.tar.gz
+      - name: install
+        working-directory: acde
+        run: bun install --frozen-lockfile
+      - name: dist
+        working-directory: acde
+        run: |
+          v=${TAG#v}
+          found=
+          for bin in ../in/acdert/acdert-*; do
+            case $bin in *.tar.gz) continue ;; esac
+            triple=$(basename "$bin" .exe)
+            triple=${triple#acdert-}
+            bun scripts/dist.ts --acdert "$bin" --host ../in/acdert/app/dist --triple "$triple" --version "$v" --out ../out
+            found=1
+          done
+          [ -n "$found" ] || { echo "::error::no acdert binaries"; exit 1; }
+      - name: latest.json
+        run: |
+          v=${TAG#v}
+          files=$(cd "out/$v" && ls | jq -R . | jq -sc .)
+          jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$GITHUB_SHA" \
+            --arg acdert "$(jq -r .version acdert.json)" --arg dopame "$(jq -r .commit dopame.json)" --argjson files "$files" \
+            '{version: $version, tag: $tag, commit: $commit, acdert: $acdert, dopame: $dopame, base: "https://pkgs.dopame.ai/acde/\($version)/", files: $files}' \
+            > out/latest.json
+          cat out/latest.json
+          ls -la out "out/$v"
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::312030312811:role/dopame-acde-release
+          aws-region: ap-southeast-1
+      - name: upload
+        run: |
+          v=${TAG#v}
+          aws s3 cp "out/$v" "s3://dopame-pkgs/acde/$v/" --recursive \
+            --cache-control 'public, max-age=31536000, immutable'
+          fresh='public, max-age=0, must-revalidate'
+          for f in install.sh install.ps1 latest; do
+            aws s3 cp "out/$f" "s3://dopame-pkgs/acde/$f" --content-type 'text/plain; charset=utf-8' --cache-control "$fresh"
+          done
+          aws s3 cp out/latest.json s3://dopame-pkgs/acde/latest.json --content-type application/json --cache-control "$fresh"
+      - name: invalidate
+        run: >
+          aws cloudfront create-invalidation --distribution-id E3ET3L14ALFOXX
+          --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 "/acde/${TAG#v}/*"
+          --query Invalidation.Id --output text
+      - run: |
+          {
+            echo "curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh"
+            echo
+            echo "irm https://pkgs.dopame.ai/acde/install.ps1 | iex"
+          } >> "$GITHUB_STEP_SUMMARY"

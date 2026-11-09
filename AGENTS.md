@@ -186,8 +186,8 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 
 ## 分发 (`install.sh`, `install.ps1`, `scripts/dist.ts`)
 
-只有全局安装: acde 和 acdert 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认 `http://localhost:8787`, 两个脚本开头
-各一处; 还没有正式托管). 托管目录就是 dist.ts 的 `--out`: `install.sh`、`install.ps1`、`latest` (版本号)、`<版本>/SHA256SUMS`、
+只有全局安装: acde 和 acdert 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认 `https://pkgs.dopame.ai/acde`, 两个脚本开头
+各一处). 托管目录就是 dist.ts 的 `--out`: `install.sh`、`install.ps1`、`latest` (版本号)、`<版本>/SHA256SUMS`、
 `<版本>/acde-<版本>-<triple>.tar.gz` (`{aarch64,x86_64}-{apple-darwin,unknown-linux-gnu,unknown-linux-musl}`、`x86_64-pc-windows-msvc`).
 
 tarball 里一个目录就是一个版本的安装根:
@@ -221,6 +221,13 @@ lib/acde-api/       acdert 的 web/packages/acde-api (不带 test/)
   `run`: `cliRuntime()` 跑 `cliFile()` (`src/cli.js`, 否则 `cli.ts`, 这时 Node 上找 PATH 上的 bun), 环境 `cliEnv`; 信号同 `acde dev`. 全局装的
   `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (设了找不到直接报错), 检出时旁边的 `../acdert/target/{release,debug}/acdert` (先于 PATH: 两个仓库一起改),
   全局装时自己版本的 `bin/acdert` 再 `$ACDE_INSTALL` 的, 最后 PATH; 都没有就列出找过的地方.
+- **发版** (`.github/workflows/release.yml`): 推 `v*` tag, 版本是 tag 去掉 `v`. 取 `https://pkgs.dopame.ai/acdert/latest.json` 那一版 acdert 的
+  binary、host bundle (`app/dist`) 和 `acde-api-<版本>.tar.gz` (放到 `../acdert/web/packages/acde-api`, 满足 `file:` 依赖), 取
+  `acde-dopame/latest.json` 的 `dopame.tar.gz` (放到 `../acde-dopame/packages/dopame`), 都按 `SHA256SUMS` 校验; acdert 有哪些 triple 就对哪些跑
+  dist.ts. 传到 S3 桶 `dopame-pkgs` 的 `acde/`: `<版本>/` 缓存一年, `install.sh`、`install.ps1`、`latest` (text/plain) 和 `latest.json`
+  (`{version, tag, commit, acdert, dopame, base, files}`) 不缓存, 再让 CloudFront `E3ET3L14ALFOXX` 失效这些. 跨仓库不 checkout (组织禁了 deploy key),
+  只经 pkgs. 凭证走 GitHub OIDC: IAM 角色 `dopame-acde-release` 只信任本仓库的 `refs/tags/v*`
+  (`repo:dopame-org@342965929/acde@1445550577:ref:refs/tags/v*`), 只能读写 `dopame-pkgs/acde/*`、失效那个 distribution.
 - musl 的 acdert 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
 
 ## 和 acdert 的契约
@@ -252,7 +259,7 @@ Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试�
 1. 热重载: acdert 已认 `reload {hot: true}` (见它的「acde dev」, 那里提到的 acde `src/changes.ts` 还没有), acde 只发普通 `reload`; 框架用自己的 `build --watch`.
 2. `acde.config.jsonc` 加 `compatibility_date`、environments、vars / secrets、服务名 ↔ capability 的显式 binding.
 3. `acde types` (按 capabilities 生成 d.ts)、单元测试跑在 acdert 的 isolate 里、`acde deploy --to <主机>`、包签名和仓库之后 `acde publish`.
-4. 分发: 正式托管 (域名、R2 或 GitHub release); acdert 的发版流程改成各平台跑 dist.ts 再合起来上传; Windows ARM64.
+4. 分发: musl 的 acdert 进 acdert 的发版; Windows ARM64.
 5. 用户工程里 `acde/test` / `acde/driver` 的编辑器类型 (运行时 `acde test` 已替它解析): 发一个只有类型的包, 或 `acde new` 带上依赖.
 6. e2e 在 CI 上跑 (要有 GPU 的 runner, 比如 GitHub 的 macOS runner).
 
