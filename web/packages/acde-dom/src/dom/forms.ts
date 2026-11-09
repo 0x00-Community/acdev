@@ -24,6 +24,7 @@ type Field = HTMLInputElement | HTMLTextAreaElement
 const VALUE_MODE = new Set(['text', 'search', 'url', 'tel', 'email', 'password', 'number', 'range', 'color', 'date', 'month', 'week', 'time', 'datetime-local'])
 const DEFAULT_MODE = new Set(['hidden', 'submit', 'image', 'reset', 'button'])
 const SELECTABLE = new Set(['text', 'search', 'url', 'tel', 'password'])
+const SELECT_ALL = new Set([...SELECTABLE, 'email', 'number'])
 const TYPES = ['hidden', 'text', 'search', 'tel', 'url', 'email', 'password', 'date', 'month', 'week', 'time', 'datetime-local', 'number', 'range', 'color', 'checkbox', 'radio', 'file', 'submit', 'image', 'reset', 'button']
 
 function formOwner(element: Element): HTMLFormElement | null {
@@ -260,7 +261,7 @@ class TextSelection {
     setSelection(this, Number(start), Number(end), direction)
   }
   select(this: Field): void {
-    if (!selectable(this)) return
+    if (this[LOCAL] !== 'textarea' && !SELECT_ALL.has((this as HTMLInputElement).type)) return
     setSelection(this, 0, this.value.length, 'none')
     queueTask(() => fire(this, new Event('select', { bubbles: true })))
   }
