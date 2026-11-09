@@ -1,0 +1,183 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-1
+  CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
+  PKGS_BASE: https://pkgs.dopame.ai
+  PKGS_BUCKET: dopame-pkgs
+  PKGS_PREFIX: acde
+  RELEASE_ROLE_ARN: arn:aws:iam::312030312811:role/dopame-acde-release
+
+concurrency:
+  group: release-acde
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: the tag is this version
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::acde is $version but the tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: acde-api from npm, the SDK acdert publishes for this version
+        run: |
+          set -eu
+          mkdir -p inputs/api
+          npm pack "@dopame/acde-api@$VERSION" --pack-destination inputs/api --silent
+          tar -xzf "inputs/api/dopame-acde-api-$VERSION.tgz" -C inputs/api
+          mkdir -p ../acdert/web/packages
+          mv inputs/api/package ../acdert/web/packages/acde-api
+      - uses: oven-sh/setup-bun@v2
+      - name: dependencies
+        run: bun install --frozen-lockfile
+      - name: acdert release from pkgs
+        run: |
+          set -eu
+          verify() {
+            awk -v name="$2" '$2 == name || $2 == "*" name' "$1/SHA256SUMS" > "$1/$2.sum"
+            if [ ! -s "$1/$2.sum" ]; then
+              echo "::error::$2 is not in SHA256SUMS"
+              exit 1
+            fi
+            (cd "$1" && sha256sum -c "$2.sum")
+            rm -f "$1/$2.sum"
+          }
+          base="$PKGS_BASE/acdert/$VERSION"
+          mkdir -p inputs/acdert
+          curl -fsSL --retry 3 -o inputs/acdert/SHA256SUMS "$base/SHA256SUMS"
+          for file in acdert-aarch64-apple-darwin acdert-x86_64-unknown-linux-gnu acdert-x86_64-pc-windows-msvc.exe \
+            "acdert-host-$VERSION.tar.gz"; do
+            curl -fsSL --retry 3 -o "inputs/acdert/$file" "$base/$file"
+            verify inputs/acdert "$file"
+          done
+          mkdir -p inputs/host
+          tar -xzf "inputs/acdert/acdert-host-$VERSION.tar.gz" -C inputs/host
+      - name: acde-dopame release from pkgs
+        run: |
+          set -eu
+          verify() {
+            awk -v name="$2" '$2 == name || $2 == "*" name' "$1/SHA256SUMS" > "$1/$2.sum"
+            if [ ! -s "$1/$2.sum" ]; then
+              echo "::error::$2 is not in SHA256SUMS"
+              exit 1
+            fi
+            (cd "$1" && sha256sum -c "$2.sum")
+            rm -f "$1/$2.sum"
+          }
+          base="$PKGS_BASE/acde-dopame/$VERSION"
+          file="acde-dopame-$VERSION.tar.gz"
+          mkdir -p inputs/dopame
+          curl -fsSL --retry 3 -o inputs/dopame/SHA256SUMS "$base/SHA256SUMS"
+          curl -fsSL --retry 3 -o "inputs/dopame/$file" "$base/$file"
+          verify inputs/dopame "$file"
+          tar -xzf "inputs/dopame/$file" -C inputs/dopame
+          packages=$(find inputs/dopame -mindepth 1 -maxdepth 1 -type d)
+          count=$(printf '%s\n' "$packages" | wc -l)
+          if [ "$count" != 1 ] || [ ! -f "$packages/package.json" ] || [ ! -d "$packages/dist" ]; then
+            echo "::error::the acde-dopame archive must hold exactly one package directory with package.json and dist/"
+            exit 1
+          fi
+          echo "DESKTOP=$packages" >> "$GITHUB_ENV"
+      - name: archives for three triples
+        run: |
+          set -eu
+          for triple in aarch64-apple-darwin x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+            exe=
+            case $triple in *windows*) exe=.exe ;; esac
+            bun scripts/dist.ts --acdert "inputs/acdert/acdert-$triple$exe" --host inputs/host/app \
+              --desktop "$DESKTOP" --api ../acdert/web/packages/acde-api --triple "$triple" \
+              --version "$VERSION" --out out
+          done
+          ls -R out
+      - name: the Linux archive runs its shim
+        run: |
+          set -eu
+          mkdir -p smoke
+          tar -xzf "out/$VERSION/acde-$VERSION-x86_64-unknown-linux-gnu.tar.gz" -C smoke
+          if "smoke/acde-$VERSION-x86_64-unknown-linux-gnu/bin/acde" 2>&1 | grep -q 'usage: acde <command>'; then
+            echo "shim ok"
+          else
+            echo "::error::bin/acde does not start the CLI"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: acde-release
+          path: out
+          if-no-files-found: error
+          retention-days: 1
+
+  upload:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: acde-release
+          path: out
+      - name: AWS credentials from the GitHub OIDC token
+        run: |
+          set -eu
+          token=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          creds=$(aws sts assume-role-with-web-identity --role-arn "$RELEASE_ROLE_ARN" \
+            --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
+            --duration-seconds 3600 --query Credentials --output json)
+          key=$(jq -r .AccessKeyId <<< "$creds")
+          secret=$(jq -r .SecretAccessKey <<< "$creds")
+          session=$(jq -r .SessionToken <<< "$creds")
+          echo "::add-mask::$key"
+          echo "::add-mask::$secret"
+          echo "::add-mask::$session"
+          {
+            echo "AWS_ACCESS_KEY_ID=$key"
+            echo "AWS_SECRET_ACCESS_KEY=$secret"
+            echo "AWS_SESSION_TOKEN=$session"
+          } >> "$GITHUB_ENV"
+      - name: publish to pkgs
+        run: |
+          set -eu
+          version=$(cat out/latest)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::the archives are $version but the tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
+          key="$PKGS_PREFIX/$version/SHA256SUMS"
+          if aws s3api head-object --bucket "$PKGS_BUCKET" --key "$key" > /dev/null 2>&1; then
+            echo "::error::acde $version is already published, and a version is never overwritten"
+            exit 1
+          fi
+          aws s3 sync "out/$version" "s3://$PKGS_BUCKET/$PKGS_PREFIX/$version" --no-progress \
+            --cache-control 'public, max-age=31536000, immutable'
+          aws s3 cp out/latest "s3://$PKGS_BUCKET/$PKGS_PREFIX/latest" --no-progress \
+            --content-type 'text/plain; charset=utf-8' --cache-control 'public, max-age=0, must-revalidate'
+          for file in install.sh install.ps1; do
+            aws s3 cp "out/$file" "s3://$PKGS_BUCKET/$PKGS_PREFIX/$file" --no-progress \
+              --content-type 'text/plain; charset=utf-8' --cache-control 'public, max-age=0, must-revalidate'
+          done
+      - name: invalidate the CloudFront paths
+        run: |
+          set -eu
+          version=$(cat out/latest)
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" \
+            --paths "/$PKGS_PREFIX/latest" "/$PKGS_PREFIX/install.sh" "/$PKGS_PREFIX/install.ps1" \
+            "/$PKGS_PREFIX/$version/*" --query Invalidation.Id --output text
