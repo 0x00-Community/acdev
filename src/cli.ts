@@ -143,7 +143,7 @@ class Cli {
       process.env['ACDE_FOLLOWED'] = '1'
       return await run(argv, exe)
     }
-    console.error(`acde: this project runs on ${wanted === 'bun' ? 'Bun' : 'Node.js 22.3+'}, which is not on PATH: going on with ${current === 'bun' ? 'Bun' : 'Node.js'}`)
+    console.error(`acde: this project runs on ${wanted === 'bun' ? 'Bun 1.4+' : 'Node.js 22.3+'}, which is not on PATH: going on with ${current === 'bun' ? 'Bun' : 'Node.js'}`)
     return null
   }
 

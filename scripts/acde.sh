@@ -9,24 +9,38 @@ while [ -h "$self" ]; do
 done
 bin=$(cd -P "$(dirname "$self")" && pwd -P) || exit 1
 cli=$(dirname "$bin")/lib/acde/src/cli.js
-if command -v bun >/dev/null 2>&1; then
-  exec bun "$cli" "$@"
-fi
-if command -v node >/dev/null 2>&1; then
-  version=$(node -p 'process.versions.node' 2>/dev/null)
-  major=${version%%.*}
+at_least() {
+  major=${1%%.*}
   minor=0
-  case $version in
-    *.*) minor=${version#*.} && minor=${minor%%.*} ;;
+  case $1 in
+    *.*) minor=${1#*.} && minor=${minor%%.*} ;;
   esac
   case $major$minor in
-    '' | *[!0-9]*) major=0 minor=0 ;;
+    '' | *[!0-9]*) return 1 ;;
   esac
-  if [ "$major" -gt 22 ] || { [ "$major" -eq 22 ] && [ "$minor" -ge 3 ]; }; then
+  [ "$major" -gt "$2" ] || { [ "$major" -eq "$2" ] && [ "$minor" -ge "$3" ]; }
+}
+bun_version=
+node_version=
+if command -v bun >/dev/null 2>&1; then
+  bun_version=$(bun --version 2>/dev/null)
+  if at_least "$bun_version" 1 4; then
+    exec bun "$cli" "$@"
+  fi
+fi
+if command -v node >/dev/null 2>&1; then
+  node_version=$(node -p "process.versions.bun ? '' : process.versions.node" 2>/dev/null)
+  if at_least "$node_version" 22 3; then
     exec node "$cli" "$@"
   fi
-  echo "acde: needs Node.js 22.3 or newer, and the node on PATH is $(node --version 2>/dev/null || echo unknown): install a newer Node.js (https://nodejs.org) or Bun (https://bun.sh)" >&2
+fi
+if [ -n "$bun_version" ]; then
+  echo "acde: needs Bun 1.4 or newer, and the bun on PATH is $bun_version: update it (bun upgrade, or https://bun.sh)" >&2
   exit 1
 fi
-echo "acde: needs Bun or Node.js 22.3+ and there is neither on PATH: install Bun (https://bun.sh) or Node.js (https://nodejs.org)" >&2
+if [ -n "$node_version" ]; then
+  echo "acde: needs Node.js 22.3 or newer, and the node on PATH is $node_version: update it (https://nodejs.org)" >&2
+  exit 1
+fi
+echo "acde: needs Bun 1.4+ or Node.js 22.3+ and there is neither on PATH: install one of them, Bun (https://bun.sh) or Node.js (https://nodejs.org)" >&2
 exit 1

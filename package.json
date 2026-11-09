@@ -10,7 +10,8 @@
     "url": "https://github.com/dopame-org/acde"
   },
   "engines": {
-    "node": ">=22.3"
+    "node": ">=22.3",
+    "bun": ">=1.4"
   },
   "bin": {
     "acde": "./bin/acde.mjs"
