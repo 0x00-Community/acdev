@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { constants, homedir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,49 +42,18 @@ export function which(name, env = process.env) {
   return null
 }
 
-export function acdertCheckouts(root = ROOT) {
-  return ['release', 'debug'].map((profile) => join(root, '..', 'acdert', 'target', profile, `acdert${EXE}`))
-}
-
-function places(root) {
-  const own = installed(root) ? [join(root, '..', '..', 'bin', `acdert${EXE}`)] : []
-  const global = join(installDir(), WINDOWS ? join('current', 'bin') : 'bin', `acdert${EXE}`)
-  const real = (path) => {
-    try {
-      return join(realpathSync(dirname(path)), basename(path))
-    } catch {
-      return path
-    }
-  }
-  return {
-    checkouts: installed(root) ? [] : acdertCheckouts(root),
-    installs: own.some((path) => real(path) === real(global)) ? own : [...own, global],
-  }
-}
-
-export function requireAcdert(root = ROOT) {
+export function requireAcdert() {
   const set = process.env.ACDERT
   if (set) {
     if (existsSync(set)) return set
     const named = /[\\/]/.test(set) ? null : which(set)
     if (named) return named
-    throw new Error(`ACDERT=${set}: no such file; point ACDERT at an acdert binary, ` +
-      'or unset it to let acde look for one')
+    throw new Error(`ACDERT=${set}: no such file; point ACDERT at an acdert binary, or unset it`)
   }
-  const { checkouts, installs } = places(root)
-  const found = [...checkouts, ...installs].find((path) => existsSync(path)) ?? which('acdert')
+  const found = which(`acdert${EXE}`)
   if (found) return found
-  const looked = [
-    '  ACDERT (not set)',
-    ...checkouts.map((path) => `  ${path} (not built)`),
-    ...installs.map((path) => `  ${path} (not there)`),
-    `  PATH (no acdert${EXE} in it)`,
-  ]
-  const fix = checkouts.length
-    ? `, build the acdert checkout next to acde (cd ${join(root, '..', 'acdert')} && cargo build --release -p acdert)`
-    : ', install acde again (it brings acdert along)'
-  throw new Error(`no acdert found. Looked in:\n${looked.join('\n')}\n` +
-    `Set ACDERT to an acdert you built (ACDERT=/path/to/acdert acde dev)${fix}, or put acdert on PATH`)
+  throw new Error('acde dev needs the Dopame runtime (acdert), which is not part of acde. ' +
+    'Run it inside the Dopame virtual machine, or set ACDERT to an acdert binary, or put acdert on PATH')
 }
 
 export function atLeast(version, minimum) {
