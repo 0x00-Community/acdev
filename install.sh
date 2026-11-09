@@ -19,8 +19,9 @@ usage: curl -fsSL $ACDE_DIST/install.sh | sh
        curl -fsSL $ACDE_DIST/install.sh | sh -s -- [--version X.Y.Z] [--no-modify-path]
        sh install.sh [--version X.Y.Z] [--no-modify-path]
 
-Installs acde (the developer CLI) and acdert (the runtime) into \$ACDE_INSTALL
-(default ~/.acde) and puts \$ACDE_INSTALL/bin on PATH. No root needed.
+Installs acde (the developer CLI and its SDK) into \$ACDE_INSTALL (default ~/.acde)
+and puts \$ACDE_INSTALL/bin on PATH. No root needed. The runtime (acdert) is not
+part of acde: acde dev finds it through ACDERT or PATH.
   --version X.Y.Z    that version instead of the latest
   --no-modify-path   do not touch any shell startup file
   ACDE_DIST          where to download from (now $ACDE_DIST)
@@ -61,30 +62,6 @@ main() {
   os=$(uname -s)
   case $os in
     MINGW* | MSYS* | CYGWIN*) die "this is Windows: in PowerShell run  irm $ACDE_DIST/install.ps1 | iex" ;;
-  esac
-  arch=$(uname -m)
-  case $arch in
-    arm64 | aarch64) arch=aarch64 ;;
-    x86_64 | amd64) arch=x86_64 ;;
-    *) die "unsupported CPU: $arch (acde has builds for arm64 and x86_64)" ;;
-  esac
-  case $os in
-    Darwin)
-      if [ "$arch" = x86_64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
-        arch=aarch64
-      fi
-      triple=$arch-apple-darwin
-      ;;
-    Linux)
-      libc=gnu
-      for loader in /lib/ld-musl-*; do
-        if [ -e "$loader" ]; then
-          libc=musl
-        fi
-      done
-      triple=$arch-unknown-linux-$libc
-      ;;
-    *) die "unsupported system: $os (this installer is for macOS, Linux and Windows)" ;;
   esac
 
   if command -v curl >/dev/null 2>&1; then
@@ -127,12 +104,12 @@ main() {
     '' | *[!0-9A-Za-z.-]*) die "not a version: '$version'" ;;
   esac
 
-  file=acde-$version-$triple.tar.gz
-  say "downloading acde $version for $triple"
+  file=acde-$version.tar.gz
+  say "downloading acde $version"
   fetch "$ACDE_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
     die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acde $version?)"
   expected=$(awk -v f="$file" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")
-  [ -n "$expected" ] || die "acde $version has no build for $triple ($file is not in its SHA256SUMS)"
+  [ -n "$expected" ] || die "acde $version is not in its SHA256SUMS ($file)"
   fetch "$ACDE_DIST/$version/$file" "$tmp/$file" || die "could not download $ACDE_DIST/$version/$file"
   actual=$(sha256 "$tmp/$file")
   [ "$actual" = "$expected" ] ||
@@ -147,8 +124,8 @@ main() {
   stage=$(mktemp -d "$root/versions/.stage.XXXXXX")
   trap 'rm -rf "$tmp" "$stage"' EXIT
   tar -xzf "$tmp/$file" -C "$stage" || die "could not unpack $file"
-  unpacked=$stage/acde-$version-$triple
-  [ -x "$unpacked/bin/acde" ] && [ -x "$unpacked/bin/acdert" ] || die "$file does not hold bin/acde and bin/acdert"
+  unpacked=$stage/acde-$version
+  [ -x "$unpacked/bin/acde" ] || die "$file does not hold bin/acde"
   if [ -e "$root/versions/$version" ]; then
     mv "$root/versions/$version" "$stage/old"
   fi
@@ -207,8 +184,8 @@ main() {
     esac
   fi
 
-  say "installed acde $version ($triple) in $root/versions/$version"
-  printf '  acde    %s/acde\n  acdert  %s/acdert\n' "$bin" "$bin"
+  say "installed acde $version in $root/versions/$version"
+  printf '  acde    %s/acde\n' "$bin"
   if [ -n "$added" ]; then
     say "open a new terminal (or run: export PATH=\"$bin:\$PATH\") to get acde on PATH"
   elif [ "$on_path" = 0 ]; then
@@ -217,18 +194,33 @@ main() {
 
   runs=
   if command -v bun >/dev/null 2>&1; then
-    runs=bun
-  elif command -v node >/dev/null 2>&1; then
-    major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)
-    case $major in
-      '' | *[!0-9]*) major=0 ;;
+    bun_version=$(bun --version 2>/dev/null || true)
+    case $bun_version in
+      1.[4-9]* | [2-9].* | [1-9][0-9]*) runs=bun ;;
+      *)
+        say "acde needs Bun 1.4 or newer, and the bun on PATH is $bun_version:" \
+          "update it (bun upgrade, or https://bun.sh)"
+        ;;
     esac
-    if [ "$major" -ge 22 ]; then
+  fi
+  if [ -z "$runs" ] && command -v node >/dev/null 2>&1; then
+    node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)
+    node_minor=$(node -p 'process.versions.node.split(".")[1]' 2>/dev/null || true)
+    case $node_major in
+      '' | *[!0-9]*) node_major=0 ;;
+    esac
+    case $node_minor in
+      '' | *[!0-9]*) node_minor=0 ;;
+    esac
+    if [ "$node_major" -gt 22 ] || { [ "$node_major" -eq 22 ] && [ "$node_minor" -ge 3 ]; }; then
       runs=node
+    else
+      say "acde needs Node.js 22.3 or newer, and the node on PATH is $(node --version 2>/dev/null):" \
+        "update it (https://nodejs.org)"
     fi
   fi
   if [ -z "$runs" ]; then
-    say "acde runs on Bun or Node.js 22+ and found neither:" \
+    say "acde runs on Bun 1.4 or newer, or Node.js 22.3 or newer, and found neither:" \
       "install Bun (https://bun.sh) or Node.js (https://nodejs.org)"
   fi
   say "next: acde new my-app (it uses your bun, or npm / pnpm / yarn on Node.js)"

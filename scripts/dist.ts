@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
-  chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync,
+  chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import JavaScriptObfuscator from 'javascript-obfuscator'
 import ts from 'typescript'
@@ -17,10 +17,7 @@ const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   repository: object
   engines: object
 }
-const TRIPLES = [
-  'aarch64-apple-darwin', 'x86_64-apple-darwin', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu',
-  'aarch64-unknown-linux-musl', 'x86_64-unknown-linux-musl', 'x86_64-pc-windows-msvc',
-]
+const SDK_PIN = '0.0.5'
 const CLI = 'src/cli.ts'
 const SHARED = ['src/driver/index.ts', 'src/e2e/index.ts']
 const OBFUSCATION = {
@@ -44,74 +41,41 @@ const OBFUSCATION = {
 
 const { values } = parseArgs({
   options: {
-    acdert: { type: 'string' },
-    host: { type: 'string' },
     api: { type: 'string', default: join(ROOT, '../acdert/web/packages/acde-api/dist') },
-    desktop: { type: 'string', default: join(ROOT, '../acde-dopame/packages/dopame') },
-    triple: { type: 'string' },
+    sdk: { type: 'string', default: SDK_PIN },
     version: { type: 'string', default: SELF.version },
     out: { type: 'string', default: join(ROOT, '.dist') },
   },
 })
 
-function need(name: string, value: string | undefined, what: string): string {
-  if (!value) throw new Error(`--${name} <${what}>`)
-  return value
-}
-
-const acdert = resolve(need('acdert', values.acdert, 'the acdert binary'))
-const host = resolve(need('host', values.host, 'the acdert host bundle: the app/ directory of acdert-host'))
 const api = resolve(values.api!)
-const desktop = resolve(values.desktop!)
-const triple = need('triple', values.triple, `rust target triple: ${TRIPLES.join(', ')}`)
 const version = values.version!
 const out = resolve(values.out!)
-if (!TRIPLES.includes(triple)) throw new Error(`--triple ${triple}: one of ${TRIPLES.join(', ')}`)
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`--version ${version}: x.y.z`)
-if (!statSync(acdert).isFile()) throw new Error(`--acdert ${acdert}: not a file`)
-if (!existsSync(join(host, 'dist', 'broker.js'))) throw new Error(`--host ${host}: no dist/broker.js in it`)
-const hostVersion = (JSON.parse(readFileSync(join(host, 'package.json'), 'utf8')) as { version?: string }).version
-if (hostVersion !== version) {
-  throw new Error(`--host ${host} is version ${hostVersion ?? 'unknown'}, not ${version}: `
-    + 'only the host of the same release ships')
-}
 if (!existsSync(join(api, 'package.json')) || !existsSync(join(api, 'src', 'index.js'))) {
-  throw new Error(`--api ${api}: not a built acde-api (run bun run build in acdert's web/packages/acde-api)`)
+  throw new Error(`--api ${api}: not a built @dopame/acde-api package (package.json and src/index.js)`)
 }
-if (!existsSync(join(desktop, 'package.json')) || !existsSync(join(desktop, 'dist'))) {
-  throw new Error(`--desktop ${desktop}: a built desktop package (package.json and dist/), `
-    + 'e.g. acde-dopame\'s packages/dopame after bun run build')
+const sdk = JSON.parse(readFileSync(join(api, 'package.json'), 'utf8')) as { name?: string; version?: string }
+if (sdk.name !== '@dopame/acde-api' || sdk.version !== values.sdk) {
+  throw new Error(`--api ${api} is ${sdk.name} ${sdk.version}, not @dopame/acde-api ${values.sdk}`)
 }
 
-const windows = triple.endsWith('-windows-msvc')
-const name = `acde-${version}-${triple}`
+const name = `acde-${version}`
 const dir = join(out, version)
-const stage = join(dir, `.stage-${triple}`)
+const stage = join(dir, '.stage')
 const top = join(stage, name)
 const lib = join(top, 'lib', 'acde')
 rmSync(stage, { recursive: true, force: true })
 
 mkdirSync(join(top, 'bin'), { recursive: true })
 mkdirSync(join(lib, 'dist'), { recursive: true })
-const crlf = (from: string, to: string) => writeFileSync(to, readFileSync(from, 'utf8').replace(/\r?\n/g, '\r\n'))
-if (windows) {
-  crlf(join(ROOT, 'scripts', 'acde.cmd'), join(top, 'bin', 'acde.cmd'))
-  copyFileSync(acdert, join(top, 'bin', 'acdert.exe'))
-} else {
-  copyFileSync(join(ROOT, 'scripts', 'acde.sh'), join(top, 'bin', 'acde'))
-  copyFileSync(acdert, join(top, 'bin', 'acdert'))
-  for (const file of ['acde', 'acdert']) chmodSync(join(top, 'bin', file), 0o755)
-}
-cpSync(host, join(top, 'bin', 'app'), { recursive: true, filter: (from) => !from.endsWith('.map') })
-const shipped = join(top, 'bin', 'app', 'packages', basename(desktop))
-mkdirSync(shipped, { recursive: true })
-copyFileSync(join(desktop, 'package.json'), join(shipped, 'package.json'))
-cpSync(join(desktop, 'dist'), join(shipped, 'dist'), { recursive: true, filter: (from) => !from.endsWith('.map') })
-
-for (const path of ['templates', 'LICENSE', 'launcher.d.mts']) {
-  cpSync(join(ROOT, path), join(lib, path), { recursive: true })
-}
+copyFileSync(join(ROOT, 'scripts', 'acde.sh'), join(top, 'bin', 'acde'))
+chmodSync(join(top, 'bin', 'acde'), 0o755)
+const cmd = readFileSync(join(ROOT, 'scripts', 'acde.cmd'), 'utf8').replace(/\r?\n/g, '\r\n')
+writeFileSync(join(top, 'bin', 'acde.cmd'), cmd)
+for (const path of ['templates', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
+copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
 await bundle([CLI], join(lib, 'dist'), 'cli.js', 'node')
 await bundle(SHARED, join(lib, 'dist'), undefined, 'bun')
 await bundle(['launcher.mjs'], lib, 'launcher.mjs', 'node')
@@ -138,12 +102,7 @@ if (tar.status !== 0) throw new Error(`tar for ${tarball} failed`)
 rmSync(stage, { recursive: true, force: true })
 
 const sum = createHash('sha256').update(readFileSync(tarball)).digest('hex')
-const sums = join(dir, 'SHA256SUMS')
-const otherLines = (path: string) => readFileSync(path, 'utf8').split('\n')
-  .filter((line) => line && !line.endsWith(`  ${name}.tar.gz`))
-const lines = existsSync(sums) ? otherLines(sums) : []
-const entries = [...lines, `${sum}  ${name}.tar.gz`].sort((a, b) => a.slice(66).localeCompare(b.slice(66)))
-writeFileSync(sums, `${entries.join('\n')}\n`)
+writeFileSync(join(dir, 'SHA256SUMS'), `${sum}  ${name}.tar.gz\n`)
 writeFileSync(join(out, 'latest'), `${version}\n`)
 copyFileSync(join(ROOT, 'install.sh'), join(out, 'install.sh'))
 copyFileSync(join(ROOT, 'install.ps1'), join(out, 'install.ps1'))
@@ -213,4 +172,3 @@ function published() {
     },
   }
 }
-

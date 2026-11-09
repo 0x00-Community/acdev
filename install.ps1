@@ -27,7 +27,6 @@ function Install-Acde {
         }
         $protocols = [Net.ServicePointManager]::SecurityProtocol
         [Net.ServicePointManager]::SecurityProtocol = $protocols -bor [Net.SecurityProtocolType]::Tls12
-        $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
     } else {
         if (-not $IsWindows) {
             throw "acde: install.ps1 is for Windows; on macOS and Linux run: curl -fsSL $dist/install.sh | sh"
@@ -35,11 +34,6 @@ function Install-Acde {
         if ($shell -lt [version]'7.2') {
             throw "acde: PowerShell $shell is out of support: use PowerShell 7.2+ or Windows PowerShell 5.1"
         }
-        $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-    }
-    $triple = switch ($arch) {
-        { $_ -in 'AMD64', 'X64' } { 'x86_64-pc-windows-msvc' }
-        default { throw "acde: there is no Windows build for $arch yet, only x64" }
     }
 
     function Save-Remote([string]$Uri, [string]$OutFile) {
@@ -71,7 +65,7 @@ function Install-Acde {
         if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
             throw "acde: bad version '$Version' (x.y.z)"
         }
-        $name = "acde-$Version-$triple"
+        $name = "acde-$Version"
         Write-Host "acde: installing $name from $dist"
         $tarball = Join-Path -Path $work -ChildPath "$name.tar.gz"
         $sums = Join-Path -Path $work -ChildPath 'SHA256SUMS'
@@ -157,8 +151,43 @@ function Install-Acde {
         }
     }
 
-    Write-Host "acde: installed acde and acdert $Version into $install"
+    Write-Host "acde: installed acde $Version into $install"
     Write-Host '  acde new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
+    Write-Host '  acde dev needs the Dopame runtime (acdert): run it in the Dopame virtual machine, or set ACDERT'
+
+    $bun = Get-Command bun -ErrorAction SilentlyContinue
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    $runs = $false
+    if ($bun) {
+        $bunVersion = (& $bun.Source --version 2>$null | Out-String).Trim()
+        $bunOk = $false
+        if ($bunVersion -match '^(\d+)\.(\d+)') {
+            $bunOk = [int]$Matches[1] -gt 1 -or ([int]$Matches[1] -eq 1 -and [int]$Matches[2] -ge 4)
+        }
+        if ($bunOk) {
+            $runs = $true
+        } else {
+            Write-Host ("acde: needs Bun 1.4 or newer, and the bun on PATH is ${bunVersion}: " +
+                'update it (bun upgrade, or https://bun.sh)')
+        }
+    }
+    if (-not $runs -and $node) {
+        $nodeVersion = (& $node.Source -p 'process.versions.node' 2>$null | Out-String).Trim()
+        $nodeOk = $false
+        if ($nodeVersion -match '^(\d+)\.(\d+)') {
+            $nodeOk = [int]$Matches[1] -gt 22 -or ([int]$Matches[1] -eq 22 -and [int]$Matches[2] -ge 3)
+        }
+        if ($nodeOk) {
+            $runs = $true
+        } else {
+            Write-Host ("acde: needs Node.js 22.3 or newer, and the node on PATH is ${nodeVersion}: " +
+                'update it (https://nodejs.org)')
+        }
+    }
+    if (-not $runs -and -not $bun -and -not $node) {
+        Write-Host ('acde: runs on Bun 1.4 or newer, or Node.js 22.3 or newer, and found neither: ' +
+            'install Bun (https://bun.sh) or Node.js (https://nodejs.org)')
+    }
 }
 
 Install-Acde -Version $Version -NoModifyPath:$NoModifyPath
