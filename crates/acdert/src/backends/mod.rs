@@ -16,6 +16,8 @@ use process::{Process, Spec};
 
 const TRANSPORT: &[&str] = &["ACDE_APP_CHANNEL", "ACDE_APP_SOCKETS", "ACDE_APP_CONTROL"];
 const SYSTEM: &[&str] = &["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "USERNAME", "PATHEXT", "ComSpec"];
+const CHANNEL_MARK: &[u8] = b"acde-listen-channel/1";
+const OLD_PRELOAD: &str = "acde-listen.js does not support the Windows channel (built by an older acde: acde build it again)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -56,6 +58,10 @@ fn environment(given: Vec<(String, String)>, transport: &[(&str, String)], syste
         }
     }
     env
+}
+
+fn supports_channel(preload: &std::path::Path) -> bool {
+    std::fs::read(preload).is_ok_and(|text| text.windows(CHANNEL_MARK.len()).any(|w| w == CHANNEL_MARK))
 }
 
 fn finish(pid: u32) {
@@ -119,6 +125,12 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     let cwd = bind::get_string(scope, options, "cwd");
     let prefix = bind::get_string(scope, options, "prefix").unwrap_or_default();
     let given = bind::get(scope, options, "env").map(|env| bind::own_string_pairs(scope, env)).unwrap_or_default();
+    if mode == Mode::Channel {
+        let preload = bind::get_string(scope, options, "preload").unwrap_or_default();
+        if !supports_channel(std::path::Path::new(&preload)) {
+            return bind::throw_error(scope, OLD_PRELOAD);
+        }
+    }
     let sockets = match mode {
         Mode::Channel => None,
         Mode::Sockets => match generation() {

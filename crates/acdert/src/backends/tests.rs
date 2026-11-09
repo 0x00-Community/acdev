@@ -178,3 +178,16 @@ fn stop_terminates_a_backend_that_does_not_leave() {
     assert_eq!(backend.process.wait(Some(10_000)), Some(1), "terminated with code 1");
     assert!(begun.elapsed() >= Duration::from_millis(450), "{:?}", begun.elapsed());
 }
+
+#[test]
+fn only_a_preload_with_the_channel_mark_starts_node() {
+    let dir = std::env::temp_dir().join(format!("acde-preload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    std::fs::write(dir.join("new.js"), "const CHANNEL_MARK = 'acde-listen-channel/1'\n").expect("new");
+    std::fs::write(dir.join("old.js"), "export {}\n").expect("old");
+    assert!(supports_channel(&dir.join("new.js")));
+    assert!(!supports_channel(&dir.join("old.js")));
+    assert!(!supports_channel(&dir.join("missing.js")));
+    assert_eq!(OLD_PRELOAD, "acde-listen.js does not support the Windows channel (built by an older acde: acde build it again)");
+    std::fs::remove_dir_all(&dir).ok();
+}
