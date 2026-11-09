@@ -330,12 +330,12 @@ describe('a project made by acde from its checkout', () => {
     try {
       process.env['npm_config_user_agent'] = 'pnpm/10.23.0 npm/? node/v24.0.0 darwin arm64'
       expect(PackageManager.invoking().name).toBe('pnpm')
-      process.env['npm_config_user_agent'] = 'deno/2.7.12 npm/? deno/2.7.12 darwin arm64'
+      process.env['npm_config_user_agent'] = 'other/1.0.0 darwin arm64'
       delete process.env['ACDE_HOST_RUNTIME']
       expect(PackageManager.invoking().name).toBe('bun')
       process.env['ACDE_HOST_RUNTIME'] = 'node'
       expect(PackageManager.invoking().name).toBe('npm')
-      expect(() => PackageManager.named('deno')).toThrow('one of bun, npm, pnpm, yarn')
+      expect(() => PackageManager.named('other')).toThrow('one of bun, npm, pnpm, yarn')
       expect(PackageManager.named('pnpm').exec('create-vite@latest', ['x'])).toEqual([
         expect.stringMatching(/(?:^|[/\\])pnpm(?:\.(?:exe|cmd|bat))?$/i), 'dlx', 'create-vite@latest', 'x',
       ])
