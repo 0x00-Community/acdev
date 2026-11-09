@@ -74,7 +74,7 @@ describe('release.yml', () => {
     expect(check).toBeGreaterThan(0)
     expect(check).toBeLessThan(pkgs.indexOf('tar -xzf "in/sdk/$name"'))
     expect(pkgs.indexOf('tar -xzf "in/sdk/$name"')).toBeLessThan(pkgs.indexOf('mv in/sdk/unpacked/package'))
-    expect(pkgs).toContain('test "$(ls in/sdk/unpacked)" = package')
+    expect(pkgs).toContain('if [ "$(ls in/sdk/unpacked)" != package ]; then')
     expect(pkgs).toContain('test -f in/sdk/unpacked/package/src/validate.js')
     expect(TEXT).not.toMatch(/acdert\/latest|acde-dopame\/latest|acde-dopame\/\$|acdert-host|acdert-x86/)
     expect(TEXT).not.toMatch(/\bdopame\.tar\.gz\b/)
