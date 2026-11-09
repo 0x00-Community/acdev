@@ -16,7 +16,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | 命令 | 做什么 |
 | --- | --- |
 | `acde new [目录] [--template T] [--id] [--label] [--backend] [--install] [--git] [--pm PM] [--yes]` | 新建工程 |
-| `acde check [目录]` | 手写的包: `Manifest.check` 加入口文件; 有配置的工程: 查配置 (id、入口、图标、服务模块、框架) |
+| `acde check [目录] [--platform P]` | 手写的包: `Manifest.check` 加入口文件; 有配置的工程: 查配置 (id、入口、图标、服务模块、框架); `--platform` 见下 |
 | `acde build [目录] [--out .acde]` | 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
 | `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless]` | 构建、起 acdert、改了就重新构建并 `reload` |
@@ -25,6 +25,12 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde test [目录\|文件...] [--headed] [-t 名字] [--desktop] [--timeout MS] [--bail] [--trace] [-u]` | e2e 测试, 只在 bun 上 |
 
 参数解析和用法文字在 `src/cli.ts` (`Cli.SPECS`、`USAGE`).
+
+`acde check --platform <windows|macos|linux>` (`AppPackage.platform`): 名字对到 SDK 的平台键 (`win32` / `darwin` / `linux`),
+按 SDK 的 `RUNNING_MODES` 逐个取 `platformSupport(平台, 模式)` (没有这一行的模式跳过, 比如 Windows 没有 `session`). 每个应用声明了
+(`capabilities` 里为真) 而该模式 `unsupported` 里有的能力: 不在 `optional` 里是错误 `<平台> (<模式>): app "<id>" requires <能力>, which this mode lacks`,
+在 `optional` 里是 `note:`. 工程读配置 (应用或桌面的 `apps`), 手写的包读 `Manifest.app` 解析后的清单. 平台数据只来自 SDK, CLI 不存一份.
+有错误时退出 1, 没有时打 `ok: <平台> (<模式>…): every required capability is there`.
 
 ## 工程与工具目录
 

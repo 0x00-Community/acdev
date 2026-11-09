@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { delimiter, join, relative, sep } from 'node:path'
-import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { API_LEVEL, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
@@ -594,6 +594,66 @@ describe('public/ and icons', () => {
       expect(built.code).toBe(1)
       expect(built.stderr).toContain(message)
     }
+  })
+})
+
+describe('acde check --platform', () => {
+  function project(config: object): string {
+    const dir = tmp()
+    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify(config))
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
+    return dir
+  }
+
+  test('an app requiring terminal fails on Windows in every mode; optional, it passes with a note', async () => {
+    const required = project({ type: 'app', id: 'term', capabilities: { terminal: true, fs: true } })
+    const failed = await cli(['check', '--platform', 'windows'], required)
+    expect(failed.code).toBe(1)
+    for (const mode of RUNNING_MODES.filter((m) => platformSupport('win32', m)))
+      expect(failed.stderr).toContain(`error: windows (${mode}): app "term" requires terminal, which this mode lacks`)
+    expect(failed.stderr).not.toContain('requires fs')
+    const linux = await cli(['check', '--platform', 'linux'], required)
+    expect(linux.code).toBe(0)
+    expect(linux.stdout).toContain('linux (session, desktop, standalone): every required capability is there')
+
+    const optional = project({ type: 'app', id: 'term', capabilities: { terminal: true }, optional: ['terminal'] })
+    const noted = await cli(['check', '--platform', 'windows'], optional)
+    expect(noted.code).toBe(0)
+    expect(noted.stderr).toContain('note: windows (desktop): app "term" runs without optional terminal')
+    expect(noted.stderr).not.toContain('error:')
+  })
+
+  test('a hand-written package and the apps of a desktop are checked too; an unknown platform is refused', async () => {
+    const dir = tmp()
+    mkdirSync(join(dir, 'ui'))
+    writeFileSync(join(dir, 'ui/app.js'), 'export default { mount() { return () => {} } }\n')
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'cam',
+        acde: {
+          apiLevel: API_LEVEL,
+          apps: [{ id: 'cam', label: 'Cam', icon: 'app', entry: '/ui/app.js', capabilities: { camera: true } }],
+          assets: { '/ui/': ['ui'] },
+        },
+      }),
+    )
+    const camera = await cli(['check', '--platform', 'windows'], dir)
+    expect(camera.code).toBe(1)
+    expect(camera.stderr).toContain('error: windows (standalone): app "cam" requires camera, which this mode lacks')
+    expect((await cli(['check', '--platform', 'macos'], dir)).code).toBe(0)
+
+    const desk = project({
+      type: 'desktop', id: 'desk',
+      apps: [{ id: 'net', label: 'Net', entry: 'index.html', backend: false, capabilities: { network: true } }],
+    })
+    const mac = await cli(['check', '--platform', 'macos'], desk)
+    expect(mac.code).toBe(1)
+    expect(mac.stderr).toContain('error: macos (desktop): app "net" requires network, which this mode lacks')
+
+    const unknown = await cli(['check', '--platform', 'beos'], desk)
+    expect(unknown.code).toBe(1)
+    expect(unknown.stderr).toContain('--platform beos: windows, macos or linux')
   })
 })
 

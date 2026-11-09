@@ -16,7 +16,9 @@ const USAGE = `usage: acde <command>
                                                    a project; in a terminal it asks what is missing (--yes: ask nothing)
                                                    T: ${STARTERS.map((s) => s.name).join(', ')}
                                                    PM: bun, npm, pnpm, yarn (default: the one running this)
-  check [dir]                                      acde.config.jsonc (or a package's manifest), as acdert reads it
+  check [dir] [--platform P]                       acde.config.jsonc (or a package's manifest), as acdert reads it;
+                                                   P (windows, macos, linux): the required capabilities a running
+                                                   mode there lacks (optional ones are notes)
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)
   dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless]
@@ -63,7 +65,7 @@ interface Args {
 class Cli {
   static readonly SPECS: Readonly<Record<string, Spec>> = {
     new: { args: [0, 1], flags: ['id', 'label', 'template', 'pm'], switches: ['backend', 'install', 'git', 'yes'] },
-    check: { args: [0, 1] },
+    check: { args: [0, 1], flags: ['platform'] },
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
     dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
@@ -156,7 +158,7 @@ class Cli {
       return await session.run()
     }
     const pkg = new AppPackage(args[0] ?? '.')
-    if (command === 'check') return Cli.report(pkg) ? 0 : 1
+    if (command === 'check') return Cli.report(pkg, flags.get('platform')) ? 0 : 1
     const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
     console.log(`acde: ${pkg.project ? `built ${what} into ${built.dir}` : `ok: ${pkg.name} (${what})`}`)
@@ -214,12 +216,18 @@ class Cli {
     return errors.length === 0 ? 0 : 1
   }
 
-  static report(pkg: AppPackage): boolean {
+  static report(pkg: AppPackage, platform?: string): boolean {
+    const target = platform === undefined ? null : pkg.platform(platform)
     const { errors, warnings } = pkg.check()
     for (const warning of warnings) console.error(`warning: ${warning}`)
     for (const error of errors) console.error(`error: ${error}`)
     if (errors.length === 0) console.log(`ok: ${pkg.name}, ${pkg.kind}`)
-    return errors.length === 0
+    if (!target) return errors.length === 0
+    for (const note of target.notes) console.error(`note: ${note}`)
+    for (const error of target.errors) console.error(`error: ${error}`)
+    const modes = `${platform} (${target.modes.join(', ')})`
+    if (target.errors.length === 0) console.log(`ok: ${modes}: every required capability is there`)
+    return errors.length === 0 && target.errors.length === 0
   }
 }
 

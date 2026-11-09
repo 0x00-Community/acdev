@@ -3,8 +3,24 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
-import { Manifest, type Findings, type PackageManifest } from '@dopame/acde-api/manifest'
+import type { WindowAppConfig } from '@dopame/acde-api'
+import {
+  Manifest, platformSupport, RUNNING_MODES,
+  type AppManifest, type Capabilities, type Findings, type PackageManifest, type RunningMode,
+} from '@dopame/acde-api/manifest'
 import { Project } from './app.ts'
+
+export interface PlatformReport {
+  readonly modes: readonly RunningMode[]
+  readonly errors: readonly string[]
+  readonly notes: readonly string[]
+}
+
+interface Declared {
+  readonly id: string
+  readonly capabilities: Capabilities
+  readonly optional: readonly string[]
+}
 
 export interface Built {
   readonly dir: string
@@ -15,6 +31,8 @@ export interface Built {
 }
 
 export class AppPackage {
+  static readonly PLATFORMS: Readonly<Record<string, string>> = { windows: 'win32', macos: 'darwin', linux: 'linux' }
+
   readonly dir: string
   readonly name: string
   readonly manifest: PackageManifest | null
@@ -64,6 +82,42 @@ export class AppPackage {
   check(): Findings {
     if (this.manifest) return AppPackage.check(this.dir, this.manifest)
     return { errors: this.project!.check(), warnings: [] }
+  }
+
+  platform(name: string): PlatformReport {
+    const key = Object.hasOwn(AppPackage.PLATFORMS, name) ? AppPackage.PLATFORMS[name]! : null
+    if (!key) throw new Error(`--platform ${name}: windows, macos or linux`)
+    const rows = RUNNING_MODES.flatMap((mode) => {
+      const row = platformSupport(key, mode)
+      return row ? [{ mode, unsupported: row.unsupported }] : []
+    })
+    const errors: string[] = []
+    const notes: string[] = []
+    for (const app of this.#declarations()) {
+      for (const { mode, unsupported } of rows) {
+        const at = `${name} (${mode}): app ${JSON.stringify(app.id)}`
+        for (const capability of unsupported.filter((c) => !!app.capabilities[c])) {
+          if (app.optional.includes(capability))
+            notes.push(`${at} runs without optional ${capability}, which this mode lacks`)
+          else errors.push(`${at} requires ${capability}, which this mode lacks`)
+        }
+      }
+    }
+    return { modes: rows.map((row) => row.mode), errors, notes }
+  }
+
+  #declarations(): Declared[] {
+    if (this.manifest) {
+      return (this.manifest.apps ?? [])
+        .map((raw) => Manifest.app(raw))
+        .filter((app): app is AppManifest => typeof app !== 'string')
+    }
+    const project = this.project!
+    const config = project.config
+    const declared = (id: string, app: WindowAppConfig): Declared =>
+      ({ id, capabilities: app.capabilities ?? {}, optional: app.optional ?? [] })
+    if (config.type === 'desktop') return (config.apps ?? []).map((app) => declared(app.id, app))
+    return [declared(config.id ?? Project.idOf(project.name) ?? project.name, config)]
   }
 
   async build(out: string): Promise<Built> {
