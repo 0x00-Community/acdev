@@ -6,10 +6,9 @@ import type { Subprocess } from 'bun'
 import { which } from '../launcher.mjs'
 import { BunBundler } from '../src/bundler.ts'
 import { Runtime } from '../src/runtime.ts'
-import { cleanup, env, inetSockets, line, tmp } from './helpers.ts'
+import { cleanup, env, inetSockets, line, tmp, WINDOWS } from './helpers.ts'
 
 const FIXTURE = join(import.meta.dir, 'fixtures/fetch-backend')
-const WINDOWS = process.platform === 'win32'
 
 function realNode(): string | null {
   const candidates = [process.env['ACDE_TEST_NODE'], which('node')].filter((c): c is string => !!c)

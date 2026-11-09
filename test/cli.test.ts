@@ -16,21 +16,13 @@ import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
 import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
-import { Runtime } from '../src/runtime.ts'
-import { cleanup, env, tmp } from './helpers.ts'
+import { cleanup, collect, env, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 const APP = join(import.meta.dir, 'fixtures/app')
-const WINDOWS = process.platform === 'win32'
 
-async function cli(args: string[], cwd: string, extra: Record<string, string> = {}) {
-  const child = Bun.spawn([process.execPath, CLI, ...args], { cwd, env: env(extra), stdout: 'pipe', stderr: 'pipe' })
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-  return { code, stdout, stderr }
+function cli(args: string[], cwd: string, extra: Record<string, string> = {}) {
+  return collect([process.execPath, CLI, ...args], { cwd, env: env(extra) })
 }
 
 afterAll(cleanup)
@@ -357,26 +349,18 @@ describe('a project made by acde from its checkout', () => {
     return bin
   }
 
-  async function run(argv: string[], cwd: string, path: string, extra: Record<string, string> = {}) {
-    const basePath =
-      WINDOWS && argv[0] !== process.execPath
-        ? process.env['PATH']
-        : WINDOWS
-          ? join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32')
-          : '/usr/bin:/bin'
-    const child = Runtime.spawn([which(argv[0]!) ?? argv[0]!, ...argv.slice(1)], {
-      cwd,
-      env: env({ PATH: [path, basePath].join(delimiter), npm_config_user_agent: '', ...extra }),
-      stdio: ['ignore', 'pipe', 'pipe'],
+  function basePath(program: string): string[] {
+    if (!WINDOWS) return ['/usr/bin', '/bin']
+    if (program === process.execPath) return [join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32')]
+    return (process.env['PATH'] ?? '').split(delimiter).filter(Boolean)
+  }
+
+  function run(argv: string[], cwd: string, path: string, extra: Record<string, string> = {}) {
+    const program = argv[0]!
+    const PATH = [path, ...basePath(program)].join(delimiter)
+    return collect([which(program) ?? program, ...argv.slice(1)], {
+      cwd, env: env({ PATH, npm_config_user_agent: '', ...extra }),
     })
-    let out = ''
-    child.process.stdout!.on('data', (chunk) => {
-      out += chunk.toString()
-    })
-    child.process.stderr!.on('data', (chunk) => {
-      out += chunk.toString()
-    })
-    return { code: await child.exited, out }
   }
 
   test('the SDK is a relative file: path, scripts call acde from PATH, there is no acde dependency', () => {

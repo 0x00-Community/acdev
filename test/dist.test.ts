@@ -6,20 +6,15 @@ import {
 import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { which } from '../launcher.mjs'
-import { Runtime } from '../src/runtime.ts'
-import { cleanup, env, standIn, tmp } from './helpers.ts'
+import { cleanup, collect, env, standIn, tmp } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
 const API = join(ROOT, '../acdert/web/packages/acde-api/dist')
 const SDK = '0.0.5'
 const FETCHER = which('curl') ?? which('wget')
 
-async function run(argv: string[], extra: Record<string, string>, cwd = ROOT) {
-  const child = Bun.spawn(argv, { cwd, env: env(extra), stdout: 'pipe', stderr: 'pipe' })
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
-  ])
-  return { code, stdout, stderr, out: stdout + stderr }
+function run(argv: string[], extra: Record<string, string>, cwd = ROOT) {
+  return collect(argv, { cwd, env: env(extra) })
 }
 
 function dist(out: string, version: string) {
@@ -207,13 +202,8 @@ describe('the release archive and the installed CLI', () => {
       ['new', withApi, '--template', 'html', '--backend', '--yes', '--id', 'with-api', '--pm', 'bun'],
       ['build', withApi, '--out', apiBuild],
     ]) {
-      const child = Runtime.spawn([shim, ...args], {
-        cwd: root, env: env({ ACDE_INSTALL: home, PATH: path }), stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      let output = ''
-      child.process.stdout!.on('data', (chunk) => { output += chunk.toString() })
-      child.process.stderr!.on('data', (chunk) => { output += chunk.toString() })
-      expect(await child.exited, output).toBe(0)
+      const ran = await run([shim, ...args], { ACDE_INSTALL: home, PATH: path }, root)
+      expect(ran.code, ran.out).toBe(0)
     }
     expect(existsSync(join(build, 'web', 'index.html'))).toBe(true)
     const preload = readFileSync(join(apiBuild, 'backend', 'acde-listen.js'), 'utf8')

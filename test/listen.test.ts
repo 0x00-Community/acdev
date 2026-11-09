@@ -3,11 +3,10 @@ import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Subprocess } from 'bun'
 import { socketDir, socketPath } from '../src/sockets.ts'
-import { cleanup, env, get, inetSockets, line, tmp } from './helpers.ts'
+import { cleanup, env, get, inetSockets, line, tmp, WINDOWS } from './helpers.ts'
 
 const LISTEN = join(import.meta.dir, '../src/listen.ts')
 const FIXTURES = join(import.meta.dir, 'fixtures/listen')
-const WINDOWS = process.platform === 'win32'
 const children: Subprocess[] = []
 
 function start(fixture: string, extra: Record<string, string>): Subprocess<'ignore', 'pipe', 'pipe'> {

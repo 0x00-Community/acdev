@@ -2,11 +2,10 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:tes
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { cliFile, cliRuntime, requireAcdert } from '../launcher.mjs'
-import { cleanup, tmp } from './helpers.ts'
+import { cleanup, tmp, WINDOWS } from './helpers.ts'
 
 afterAll(cleanup)
 
-const WINDOWS = process.platform === 'win32'
 const EXE = WINDOWS ? '.exe' : ''
 
 function binary(path: string): string {

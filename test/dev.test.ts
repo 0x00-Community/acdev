@@ -10,10 +10,9 @@ import { DevClient, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
 import { slug } from '../src/paths.ts'
-import { cleanup, env, fakeAcdert, tmp } from './helpers.ts'
+import { cleanup, env, fakeAcdert, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
-const WINDOWS = process.platform === 'win32'
 
 afterAll(cleanup)
 
