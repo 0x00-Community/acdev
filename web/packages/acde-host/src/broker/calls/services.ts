@@ -1,4 +1,4 @@
-import type { Capabilities } from '../../apps'
+import type { AppManifest } from '../../apps'
 import type { PageBridge } from '../../bridge'
 import { Tiers, type WebTier } from '../access/tier'
 import type { ServiceShape } from '../types'
@@ -21,10 +21,11 @@ export class ServiceCalls {
     this.#host = host
   }
 
-  shapes(caps: Capabilities | null, tier: WebTier = Tiers.LEGACY): Record<string, ServiceShape> {
+  shapes(app: AppManifest | null, tier: WebTier = Tiers.LEGACY): Record<string, ServiceShape> {
     const shapes: Record<string, ServiceShape> = {}
+    const caps = app?.capabilities ?? null
     for (const [service, target] of Object.entries(this.#host.bridge.value)) {
-      if (ServiceCalls.#LOCAL.has(service) || (caps && !this.#allowed(caps, service))) continue
+      if (ServiceCalls.#LOCAL.has(service) || (app && !this.#allowed(app, service))) continue
       shapes[service] = this.#shape(service, target)
     }
     for (const [service, api] of Object.entries(this.#host.builtins())) {
@@ -42,7 +43,7 @@ export class ServiceCalls {
       if (!call) throw new Error(`acde.${service} has no ${method}`)
       return call(...args)
     }
-    if (caps && !this.#allowed(caps, service)) throw Web.refused(web, `acde.${service}`)
+    if (web.app && !this.#allowed(web.app, service)) throw Web.refused(web, `acde.${service}`)
     const target = this.#host.bridge.value[service] as Record<string, (...a: unknown[]) => unknown> | ((...a: unknown[]) => unknown) | undefined
     if (!target) throw Object.assign(new Error(`acde.${service} is not running`), { status: 503 })
     if (method === '' && typeof target === 'function') return target(...args)
@@ -81,7 +82,8 @@ export class ServiceCalls {
     return { methods: [...methods], values, sync, callable: typeof target === 'function' }
   }
 
-  #allowed(caps: Capabilities, namespace: string): boolean {
-    return !!caps[this.#host.bridge.services.capability.get(namespace) ?? namespace]
+  #allowed(app: AppManifest, namespace: string): boolean {
+    const name = this.#host.bridge.services.capability.get(namespace) ?? namespace
+    return !!app.capabilities[name] || app.services.includes(name)
   }
 }

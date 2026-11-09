@@ -1,10 +1,12 @@
 import { Manifest, SHELL_MODULES, type ShellModule } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../apps'
+import type { CapabilitySnapshot } from './capabilities'
 
 export interface WebTier {
   readonly level: number
   readonly shell: readonly ShellModule[]
   readonly refused: Readonly<Record<string, string>>
+  readonly capabilities?: CapabilitySnapshot
 }
 
 export class Tiers {

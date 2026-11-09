@@ -3,6 +3,7 @@ import type { ServiceShape, WebInit, WireMenu } from './broker'
 import { Level, Log } from './log'
 import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
 import { Rpc } from './rpc'
+import { CapabilityCheck } from './broker/access/capabilities'
 
 class Notices {
   readonly #handlers = new Map<string, Set<(detail: unknown) => void>>()
@@ -47,7 +48,8 @@ export class WindowList {
     const was = this.#windows.get(event.window)
     const text = (value: unknown, fallback: string | null) => (typeof value === 'string' && value ? value : fallback)
     const web = event['web'] === true || was?.web === true
-    this.#windows.set(event.window, { id: event.window, appId: text(event['appId'], was?.appId ?? null), title: text(event['title'], was?.title ?? null), ...(web ? { web } : {}) })
+    const appId = text(event['appId'], was?.appId ?? null)
+    this.#windows.set(event.window, { id: event.window, appId, title: text(event['title'], was?.title ?? null), ...(web ? { web } : {}) })
   }
 
   screenshot(path: string): Promise<{ width: number; height: number }> {
@@ -63,7 +65,8 @@ export class WindowList {
   readonly api = {
     on: this.notices.for('windows', WindowList.EVENTS),
     list: (): NativeWindow[] => [...this.#windows.values()].map((window) => ({ ...window })),
-    launch: (argv: string[], options?: { cwd?: string; env?: Record<string, string>; slot?: boolean }): Promise<number> => this.#call('launch', argv, options ?? {}) as Promise<number>,
+    launch: (argv: string[], options?: { cwd?: string; env?: Record<string, string>; slot?: boolean }): Promise<number> =>
+      this.#call('launch', argv, options ?? {}) as Promise<number>,
     close: (id: number): void => void this.#call('close', id),
   }
 }
@@ -99,7 +102,11 @@ export class WindowSelf {
       const wire: WireMenu[] = this.#menus.map((m) => ({
         id: m.id,
         label: m.label,
-        items: m.items.map((it) => ('type' in it ? { type: 'separator' as const } : { id: it.id, label: it.label, shortcut: it.shortcut, checked: it.checked, disabled: it.disabled, action: !!it.onSelect })),
+        items: m.items.map((it) =>
+          'type' in it
+            ? { type: 'separator' as const }
+            : { id: it.id, label: it.label, shortcut: it.shortcut, checked: it.checked, disabled: it.disabled, action: !!it.onSelect },
+        ),
       }))
       void this.#rpc.call('window', 'setMenus', [wire]).catch(() => undefined)
     },
@@ -206,8 +213,10 @@ export class RemoteBridge {
       launch: () => ({ ...Rpc.calls(() => rpc, 'launch', 'start', 'embed', 'close'), list: windows.api.list, on: windows.api.on }),
     }
     if (init.kind === 'desktop') {
-      this.value['apps'] = { ...apps, ...files, ...Rpc.calls(() => rpc, 'apps', 'refresh', 'install', 'natives', 'runNative'), on: windows.notices.for('apps', ['changed']) }
-      this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification', 'screenshot', 'shortcut']) }
+      const shell = Rpc.calls(() => rpc, 'apps', 'refresh', 'install', 'natives', 'runNative')
+      this.value['apps'] = { ...apps, ...files, ...shell, on: windows.notices.for('apps', ['changed']) }
+      const events = ['download', 'notification', 'screenshot', 'shortcut']
+      this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', events) }
       this.value['windows'] = globalWindows()
       Object.assign(this.value, { packages: tier.packages(), launch: tier.launch(), open: apps.open, ...files })
     } else if (init.tier && init.tier.level >= 1) {
@@ -229,6 +238,7 @@ export class RemoteBridge {
       if (init.app?.capabilities['openFiles']) Object.assign(this.value, files)
       if (self) this.value['window'] = this.#window(self, windows)
     }
+    if (init.tier?.capabilities) this.value['capabilities'] = CapabilityCheck.module(init.tier.capabilities)
     this.#refused = init.tier?.refused ?? {}
   }
 
@@ -249,7 +259,9 @@ export class RemoteBridge {
 
   #proxy(service: string, shape: ServiceShape): unknown {
     const methods: Record<string, unknown> = { ...shape.values }
-    for (const method of shape.methods) methods[method] = method in shape.sync ? () => shape.sync[method] : (...args: unknown[]) => this.#rpc.call(service, method, args)
+    for (const method of shape.methods) {
+      methods[method] = method in shape.sync ? () => shape.sync[method] : (...args: unknown[]) => this.#rpc.call(service, method, args)
+    }
     if (!shape.callable) return methods
     const call = (...args: unknown[]) => this.#rpc.call(service, '', args)
     for (const [key, value] of Object.entries(methods)) Object.defineProperty(call, key, { value, enumerable: true, configurable: true, writable: true })

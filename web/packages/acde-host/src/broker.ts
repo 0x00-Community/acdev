@@ -68,7 +68,8 @@ export class Broker {
   readonly #launchable = new Launchable({
     apps: () => this.apps,
     hosted: () => !!this.shell.hosted,
-    services: (app) => this.bridge.available(app.capabilities),
+    standalone: () => !!this.#options.standalone,
+    bridge: () => this.bridge,
     refresh: () => this.refreshApps(),
   })
   readonly #places = new WindowPlaces()
@@ -319,7 +320,7 @@ export class Broker {
       standalone: this.#current.id === Packages.BARE ? standalone : null,
       devState: this.#takeDevState(''),
       devRoutes: this.#dev.routesFor('desktop', null),
-      tier: Tiers.DESKTOP,
+      tier: this.#launchable.tier(null),
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
@@ -338,7 +339,7 @@ export class Broker {
   ): void {
     const app = record.app!
     this.#placed.set(record.id, app.id)
-    const tier = Tiers.app(app, this.apps.origin(app.id))
+    const tier = this.#launchable.tier(app)
     const init: WebInit = {
       kind: 'window',
       name: `${app.id}#${record.id}`,
@@ -351,7 +352,7 @@ export class Broker {
       reducedMotion: this.#preferences.reducedMotion,
       dark: this.#preferences.dark,
       languages: this.language.current,
-      services: this.#services.shapes(app.capabilities, tier),
+      services: this.#services.shapes(app, tier),
       resources: PageSource.isHtml(app.entry) ? PageSource.rooted(app.entry, this.#resources()) : this.#resources(),
       app,
       theme: this.#theme(),

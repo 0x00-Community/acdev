@@ -25,7 +25,13 @@ class Processes {
     if (!native.spawn || !native.write || !native.endInput) throw new Error('spawn: this acde cannot start processes')
     const pid = native.spawn(
       argv,
-      { cwd: options.cwd, env: { ...options.env }, prefix: `[${service}] `, stdin: true, onStdout: options.onLine ? (line) => options.onLine!(line) : undefined },
+      {
+        cwd: options.cwd,
+        env: { ...options.env },
+        prefix: `[${service}] `,
+        stdin: true,
+        onStdout: options.onLine ? (line) => options.onLine!(line) : undefined,
+      },
       (code, signal) => {
         processes.delete(pid)
         options.onExit?.(code, signal)
@@ -48,7 +54,7 @@ class Processes {
 export class DesktopServices {
   static readonly RESERVED: ReadonlySet<string> = new Set([
     ...['windows', 'apps', 'window', 'open', 'desktop', 'desktops', 'session', 'debug', 'inspect'],
-    ...['packages', 'launch', 'openPath', 'handlers', 'setDefault'],
+    ...['packages', 'launch', 'openPath', 'handlers', 'setDefault', 'capabilities'],
   ])
 
   readonly #running: Running[] = []
@@ -103,6 +109,10 @@ export class DesktopServices {
       for (const sync of instance.sync ?? []) if (namespaces.includes(sync.split('.')[0]!)) this.sync.add(sync)
       this.#running.push({ name, instance, namespaces, processes })
     }
+  }
+
+  running(name: string): boolean {
+    return this.#running.some((service) => service.name === name)
   }
 
   async #import(service: InstalledService, specifier: string): Promise<object> {

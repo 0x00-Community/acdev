@@ -15,6 +15,10 @@ export class PageBridge {
     return (!caps.fs || !!this.value['fs']) && (!caps.terminal || process.platform !== 'win32') && (!caps.office || this.#office)
   }
 
+  present(capability: string): boolean {
+    return capability === 'fs' ? !!this.value['fs'] : capability === 'office' ? this.#office : true
+  }
+
   async start(native: Native, desktop: InstalledDesktop): Promise<void> {
     const system = this.#open(native)
     await Promise.all([system, this.services.start(desktop, native, this.value, system)])

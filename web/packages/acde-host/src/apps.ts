@@ -33,6 +33,7 @@ export class AppRegistry {
         if (typeof app === 'string') Log.write(Level.Warn, 'acde_host', `${pkg.dir}/package.json: ${app}`)
         else if (this.#apps.has(app.id)) Log.write(Level.Warn, 'acde_host', `app ${app.id} in ${pkg.dir} is already defined; the first one stays`)
         else {
+          if (origin.level >= 1) AppRegistry.#deprecated(app)
           this.#apps.set(app.id, app)
           this.#origins.set(app.id, origin)
         }
@@ -45,6 +46,12 @@ export class AppRegistry {
       }
     }
     return JSON.stringify(this.list()) !== before
+  }
+
+  static #deprecated(app: AppManifest): void {
+    for (const name of Object.keys(app.capabilities).filter((key) => !Manifest.CAPABILITIES.has(key))) {
+      Log.write(Level.Warn, 'acde_host', `app ${app.id}: "${name}" under capabilities is deprecated: list desktop services under services`)
+    }
   }
 
   get(id: string): AppManifest | null {
