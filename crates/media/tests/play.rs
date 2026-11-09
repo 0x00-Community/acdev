@@ -30,6 +30,7 @@ fn drain_audio(player: &Player) -> Vec<f32> {
     all
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn an_mp4_gives_its_size_frames_and_sound() {
     let player = Player::open(fixture("clip.mp4")).unwrap();
@@ -59,6 +60,7 @@ fn an_mp4_gives_its_size_frames_and_sound() {
     assert!(player.error().is_none());
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn seeking_restarts_both_tracks_near_the_target() {
     let player = Player::open(fixture("clip.mp4")).unwrap();
@@ -71,6 +73,7 @@ fn seeking_restarts_both_tracks_near_the_target() {
     assert!((seconds - 0.5).abs() < 0.15, "audio seconds after seeking {seconds}");
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn a_rotated_video_is_shown_upright() {
     let player = Player::open(fixture("silent-rotated.mp4")).unwrap();
@@ -81,6 +84,14 @@ fn a_rotated_video_is_shown_upright() {
     assert_eq!((frame.width, frame.height), (48, 64));
     let [r, g, b] = centre(&frame);
     assert!(near(r, 0xcc) && near(g, 0x33) && near(b, 0x66), "colour {r:x} {g:x} {b:x}");
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn playback_is_not_supported_without_a_platform_decoder() {
+    assert!(acde_media::TYPES.is_empty());
+    let error = Player::open(fixture("clip.mp4")).err().expect("no decoder here");
+    assert!(error.contains("not supported"), "{error}");
 }
 
 #[test]
@@ -115,6 +126,7 @@ fn playlists_and_other_containers_that_point_elsewhere_are_refused() {
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn frames_follow_the_picture_and_a_seek_lands_on_the_new_one() {
     let player = Player::open(fixture("two-colours.mp4")).unwrap();
