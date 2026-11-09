@@ -514,7 +514,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `ACDE_APP_SOCKETS` / `PORT` / `NODE_ENV=production` + 会话的 HOME、PATH、LANG 等), 工作目录 `$XDG_DATA_HOME/acde/apps/<id>/`, 输出前缀
   `[<app>#backend]`, `PR_SET_PDEATHSIG` (子进程都由 `acde-fork` 线程 fork). preload 把 listen 换成 unix socket (`$XDG_RUNTIME_DIR/acde/apps/<id>/`),
   指定端口的 UDP bind 拒绝; 原生扩展开的端口管不到.
-- **Windows 后端契约** (2026-11-09 定, 运行时还没实现; acde 的「和 acdert 的契约」写同一份, 两边一起发版). 不变量: 后端运行期间没有 TCP 监听、没有命名管道,
+- **Windows 后端契约** (2026-11-09 定, 运行时实现在 crates/acdert `backends/` 和 runtime `channel/`; acde 的「和 acdert 的契约」写同一份, 两边一起发版). 不变量: 后端运行期间没有 TCP 监听、没有命名管道,
   套接字文件只有 SYSTEM 和当前用户能开; macOS / Linux 不变. argv、`ACDE_RUNTIME` 选 bun / node、环境从零建、一分钟 4 次崩溃上限、首窗起末窗停都同上.
   - **两种模式**: node 走**通道模式** (Node 在 Windows 上不能用文件系统 AF_UNIX, 命名管道的默认安全描述符给 Everyone / 匿名读、也接受远端打开);
     bun 走**套接字模式** (和 unix 一样, `Bun.serve` 语义完整). 环境: 通道模式 `ACDE_APP_CHANNEL=fd`, 不设 `ACDE_APP_SOCKETS`; 套接字模式
@@ -522,7 +522,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - **进程**: `CreateProcessW`, 每个后端一个自己的作业对象 (关闭即终止, 后端派生的子进程一起在里面), 只显式继承列出的句柄
     (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`). 两种模式都另建两根匿名管道, 经 CRT 的 `lpReserved2` 交成子进程的 fd 3 (子进程读) 和 fd 4 (子进程写);
     单向匿名管道两根, 因为双工管道要有名字. 通道模式上面跑全部帧; 套接字模式只跑控制帧 (SHUTDOWN, 帧格式同下), 数据走 AF_UNIX. 运行时一侧一条线程阻塞写、一条阻塞读, 和 ntex 的 `IoStream` 之间只经互斥锁和 waker.
-    Broker 用的原生接口多一个只在 Windows 有、带这两根管道的 spawn (两种模式都用它).
+    Broker 用的原生接口多两个只在 Windows 有的: `sys.spawnBackend(argv, {cwd, env, prefix, app, mode, preload}, onExit)` (两种模式都用它, mode 是
+    `'channel'` / `'sockets'`; 传输变量和 `SystemRoot`、`TEMP`、`LOCALAPPDATA` 等 Windows 程序要的变量由运行时补) 和 `sys.stopBackend(pid, ms)`.
+    acde-host `backend.ts` 有它们就走这条路, node 是通道模式, bun 是套接字模式. acdert 退出时 `child::stop_all` 终止还在的后端并删本代目录.
   - **通道帧** (大端): `type u8 | stream u32 | length u32 | payload`, 头 9 字节, payload 最多 64 KiB. 类型: OPEN 1 (运行时开一条流, payload 是
     u16 逻辑端口, 即 `listen(P)` 的 P)、DATA 2 (字节, 运行时按 16 KiB 分块)、FIN 3 (这一方向写完, 半关闭)、RST 4 (中止这条流, payload 是 UTF-8
     原因)、WINDOW 5 (payload u32, 给对方追加的信用字节数)、SHUTDOWN 6 (流号 0, 无 payload, 运行时请后端优雅退出). 流号由运行时分配, 不复用;
@@ -539,9 +541,13 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     (SDDL `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;<用户 SID>)`); 套接字文件继承它 (实测 `D:AI(A;ID;FA;;;<用户>)(A;ID;FA;;;SY)`). AF_UNIX 路径最多
     108 字节 (`sun_path`, UTF-8, 含结尾 NUL): 运行时用 `65535.sock` 算最长路径, 超了不起并打 warn. 停止后删掉本代目录; 运行时第一次起后端前删掉
     base 下 pid 已不在的目录 (崩溃留下的). 被杀的 Bun 会留下套接字文件, 同一路径再 `Bun.serve` 是 `EADDRINUSE`, 所以每代用新目录.
+    从 MSIX 打包应用 (例如 Claude 桌面版) 派生的进程写 `%APPDATA%` / `%LOCALAPPDATA%` 时被重定向到 `Packages\<包>\LocalCache`, 在那里建的
+    AF_UNIX 套接字连不上 (`WSAEINVAL` 10022, Bun 自己的客户端也一样), 也删不掉; `%TEMP%` 和用户目录外的路径不受影响. 这种环境下设 `XDG_RUNTIME_DIR`.
   - **运行时连接**: 套接字模式和 unix 同一段: `fetch.rs` 的 `ntex::rt::unix_connect` (Windows 上 ntex 的 IOCP 反应器用 socket2 建 AF_UNIX
     再 `ConnectEx`), 不用线程桥接; `Dial::check` 接受 Windows 的绝对路径. 通道模式经通道开流. web 初始化参数: 套接字模式照旧给 `sockets`
-    (本代目录), 通道模式不给 `sockets`, 给 `channel: true`, 运行时按这个 web 的应用 id 找当前一代的通道. 两种模式没就绪或拒绝连接时都重试 10 秒
+    (只表示有后端, 值是 base), 通道模式不给 `sockets`, 给 `channel: true` (`AppBackends.webInit`). Windows 上两种 web 都按 `init.app.id` 拨
+    `Dial::App`, 运行时的登记表 (runtime `channel::register`, 每代一个 `Route::Channel` / `Route::Sockets(本代目录)`) 给出当前一代, 所以重起后换了
+    目录的 Bun 也能接上. 两种模式没就绪或拒绝连接时都重试 10 秒
     (通道: 还没注册; 套接字: `NotFound` / `ConnectionRefused`, 后者也是残留套接字的错误 10061), 新一代起来后接上.
   - **停止**: 两种模式都在 fd 3 上发 SHUTDOWN (预加载停止接受新连接、让在途请求做完、关 server 后退出), 等 3 秒 (`STOP_MS`), 然后终止作业对象
     (旧预加载不读控制帧, 就是等满 3 秒再终止). 后端退出时注销这一代的通道 / 目录, 上面还没完的流失败.
