@@ -19,6 +19,8 @@ interface BuiltApp {
   readonly icon: string
   readonly entry: string
   readonly capabilities?: Readonly<Record<string, unknown>>
+  readonly optional?: readonly string[]
+  readonly services?: readonly string[]
   readonly heapMb?: number
   readonly size?: readonly [number, number]
   readonly multiple?: boolean
@@ -240,6 +242,8 @@ export class Project {
       icon: placed.icon,
       entry: placed.entry,
       ...(config.capabilities && { capabilities: config.capabilities }),
+      ...(config.optional && config.optional.length > 0 && { optional: config.optional }),
+      ...(config.services && config.services.length > 0 && { services: config.services }),
       ...(config.heapMb !== undefined && { heapMb: config.heapMb }),
       ...(config.size && { size: config.size }),
       ...(config.multiple !== undefined && { multiple: config.multiple }),
