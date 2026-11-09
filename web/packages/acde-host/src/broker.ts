@@ -20,10 +20,11 @@ import { StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { process } from './sys/process'
-import type { AnimateOptions, BrokerOptions, BrokerShell, ServiceShape, WebInfo, WebInit, WindowRecord, WireMenu } from './broker/types'
+import type { BrokerOptions, BrokerShell, ServiceShape, WebInfo, WebInit, WindowRecord } from './broker/types'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
 import { PageCalls, PanelCalls } from './broker/page'
+import { WindowCalls } from './broker/windows'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -33,7 +34,6 @@ export class Broker {
   static readonly DEV_STATE_MS = 500
   static readonly RESTARTS = 3
   static readonly SYNC = ['session.own'] as const
-  static readonly BROWSER = 'browser'
 
   readonly native: Native
   readonly shell: BrokerShell
@@ -53,6 +53,7 @@ export class Broker {
   #desktop: Web | null = null
   #standaloneWindow: number | null = null
   readonly #windows = new Map<number, WindowRecord>()
+  readonly #windowCalls: WindowCalls
   readonly #panelCalls: PanelCalls
   readonly #pageCalls: PageCalls
   readonly #places = new WindowPlaces()
@@ -137,6 +138,19 @@ export class Broker {
       infos: () => this.webs(),
       web: (name) => this.#web(name),
       emulate: (options) => this.emulate(options),
+    })
+    this.#windowCalls = new WindowCalls({
+      shell: this.shell,
+      record: (id) => this.#windows.get(id),
+      claim: (web, pid) => void this.#claims.push({ web, pid }),
+      closeWeb: (id, force) => this.closeWeb(id, force),
+      hide: (id, hidden) => this.#hide(id, hidden),
+      toDesktop: (event) => this.#toDesktop(event),
+      usable: (appId) => {
+        const app = this.apps.get(appId)
+        return !!app && this.#available(app) && this.#runsHere(app)
+      },
+      launch: (appId, request) => void this.launch(appId, request),
     })
     this.#panelCalls = new PanelCalls(this.shell)
     this.#pageCalls = new PageCalls({
@@ -803,7 +817,7 @@ export class Broker {
   async #serve(web: Web, service: string, method: string, args: unknown[]): Promise<unknown> {
     const desktop = web.kind === 'desktop'
     const caps = web.app?.capabilities ?? null
-    if (service === 'windows') return this.#windowsCall(web, method, args)
+    if (service === 'windows') return this.#windowCalls.windows(web, method, args)
     if (service === 'apps') {
       if (method === 'list') return this.#appList()
       if (method === 'refresh' || method === 'install') {
@@ -831,7 +845,7 @@ export class Broker {
       }
       throw new Error(`acde.apps has no ${method}`)
     }
-    if (service === 'window') return this.#selfCall(web, method, args)
+    if (service === 'window') return this.#windowCalls.self(web, method, args)
     if (service === 'panel') return this.#panelCalls.call(web, method, args)
     if (service === 'page') return this.#pageCalls.call(web, method, args)
     if (service === 'inspect' || service === 'session' || service === 'desktops') {
@@ -847,105 +861,6 @@ export class Broker {
     const fn = (target as Record<string, (...a: unknown[]) => unknown>)[method]
     if (typeof fn !== 'function') throw new Error(`acde.${service} has no ${method}`)
     return fn.apply(target, args)
-  }
-
-  async #windowsCall(web: Web, method: string, args: unknown[]): Promise<unknown> {
-    const desktop = web.kind === 'desktop'
-    const caps = web.app?.capabilities ?? {}
-    const id = Number(args[0])
-    const mine = (window: number) => desktop || web.owns.has(window)
-    switch (method) {
-      case 'launch': {
-        const [argv, options] = args as [string[], { cwd?: string; env?: Record<string, string>; slot?: boolean } | undefined]
-        const slot = !!options?.slot && !desktop
-        if (!desktop && !(slot ? caps.slots : caps.launch)) throw Web.refused(web, slot ? 'native programs in its slots' : 'starting programs')
-        const pid = this.shell.launch(argv, { cwd: options?.cwd, env: options?.env })
-        if (slot) this.#claims.push({ web, pid })
-        return pid
-      }
-      case 'close': {
-        if (!mine(id)) throw Web.refused(web, `window ${id}`)
-        if (this.#windows.get(id)?.kind === 'web') return this.closeWeb(id)
-        this.shell.close(id)
-        return true
-      }
-      case 'kill':
-        if (!desktop) throw Web.refused(web, `window ${id}`)
-        return this.closeWeb(id, true)
-      case 'invokeMenu': {
-        if (!desktop) throw Web.refused(web, `the menus of window ${id}`)
-        const record = this.#windows.get(id)
-        return record?.web?.rpc.call('window', 'menu', [args[1], args[2]])
-      }
-      case 'focus':
-      case 'hide':
-      case 'show':
-        if (!desktop) throw Web.refused(web, `window ${id}`)
-        if (method === 'focus') return this.shell.focus(id)
-        return this.#hide(id, method === 'hide')
-      case 'stats':
-        if (!desktop) throw Web.refused(web, 'compositor stats')
-        return this.shell.stats()
-      case 'screenshot':
-        if (!desktop) throw Web.refused(web, 'screenshots')
-        return this.shell.screenshot(String(args[0]))
-      case 'animate':
-        if (!desktop) throw Web.refused(web, `animating window ${id}`)
-        return this.shell.animate(id, (args[1] ?? {}) as AnimateOptions)
-      case 'shortcut':
-      case 'unshortcut': {
-        const [combo, scope] = [String(args[0]), String(args[1] ?? 'desktop')]
-        if (!desktop || (scope !== 'session' && scope !== 'desktop')) throw Web.refused(web, `${scope} shortcuts`)
-        return method === 'shortcut' ? this.shell.shortcut(combo, scope, 0) : this.shell.unshortcut(combo, scope, 0)
-      }
-    }
-    throw new Error(`acde.windows has no ${method}`)
-  }
-
-  #selfCall(web: Web, method: string, args: unknown[]): unknown {
-    const record = this.#windows.get(web.window)
-    if (web.kind !== 'window' || !record) throw new Error('acde.window: only a window web has a window')
-    switch (method) {
-      case 'setTitle':
-        record.title = String(args[0])
-        return this.#toDesktop({ type: 'windowtitle', window: record.id, appId: record.app!.id, title: record.title })
-      case 'setMenus':
-        record.menus = (args[0] as WireMenu[]) ?? []
-        return this.#toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus })
-      case 'close':
-        return this.closeWeb(record.id, true)
-      case 'minimize':
-        return this.#toDesktop({ type: 'windowminimize', window: record.id })
-      case 'requestAttention':
-        return this.#toDesktop({ type: 'windowattention', window: record.id })
-      case 'shortcut':
-        return this.shell.shortcut(String(args[0]), 'app', record.id)
-      case 'unshortcut':
-        return this.shell.unshortcut(String(args[0]), 'app', record.id)
-      case 'ready':
-        return this.#toDesktop({ type: 'windowready', window: record.id })
-      case 'reload': {
-        if (record.web !== web || web.closing) return false
-        const url = args[0] === undefined || args[0] === null ? null : String(args[0])
-        if (url !== null && !url.startsWith(`${PageSource.ORIGIN}/`)) return false
-        if (url !== null) record.url = url
-        web.reloading = true
-        void web.terminate().catch(() => 0)
-        return true
-      }
-      case 'openUrl': {
-        const url = String(args[0])
-        if (!/^https?:\/\//i.test(url)) return false
-        const browser = this.apps.get(Broker.BROWSER)
-        if (!browser || !this.#available(browser) || !this.#runsHere(browser)) {
-          Log.write(Level.Warn, 'acde_host', `[${web.name}] opens ${url}: no ${Broker.BROWSER} app that works here`)
-          return false
-        }
-        this.launch(Broker.BROWSER, { url })
-        return true
-      }
-    }
-    throw new Error(`acde.window has no ${method}`)
   }
 
   async debugEval(name: string, code: string): Promise<unknown> {
