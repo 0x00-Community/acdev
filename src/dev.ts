@@ -159,7 +159,8 @@ export class DevSession {
     this.#level = level
     const refused = this.#units.map((u) => DevSession.refusal(u, level)).filter((r) => r !== null)
     if (refused.length === 0) return
-    const why = level === 0 ? `\n${this.#acdert} --version says ${JSON.stringify(said)}, no contract level: ` +
+    const told = said ? `says ${JSON.stringify(said)}` : 'printed nothing'
+    const why = level === 0 ? `\n${this.#acdert} --version ${told}, no contract level: ` +
       'it is older than contract levels; use an acdert that has them' : ''
     throw new Error(`${refused.join('\n')}${why}`)
   }
