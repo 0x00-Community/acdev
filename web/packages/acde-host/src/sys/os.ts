@@ -25,7 +25,9 @@ export function runtimeDir(): string {
   const set = process.env['XDG_RUNTIME_DIR']
   if (set) return set
   if (process.platform === 'linux') return `/run/user/${process.getuid()}`
-  return join(process.env['TMPDIR'] || process.env['TEMP'] || process.env['TMP'] || '/tmp', `acde-${process.getuid()}`)
+  const base = process.env['TMPDIR'] || process.env['TEMP'] || process.env['TMP'] || '/tmp'
+  if (process.platform === 'win32') return join(base, `acde-${process.env['USERNAME'] || 'user'}`)
+  return join(base, `acde-${process.getuid()}`)
 }
 
 export function userDir(name: 'PICTURES' | 'DOWNLOAD', fallback: string): string {
