@@ -465,6 +465,7 @@ impl Desk {
         init["app"] = app.raw.clone();
         init["theme"] = state.look.theme.clone().into();
         init["frame"] = state.look.frame.clone().filter(|_| app.frame).into();
+        init["frameStyle"] = std::env::var("ACDE_FRAME_STYLE").ok().filter(|s| s == "mac" || s == "windows").into();
         init["request"] = request.unwrap_or(Value::Null);
         init["url"] = url.into();
         if app.backend.is_some() {

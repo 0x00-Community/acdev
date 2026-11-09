@@ -28,6 +28,8 @@ export interface WindowFrameContext {
   readonly app: { readonly id: string; readonly label: string; readonly icon: string }
   /** The window's title now (`document.title`, `setTitle`, or the app's label). */
   readonly title: string
+  /** `ACDE_FRAME_STYLE` (`mac`: traffic lights on the left; `windows`: minimize, maximize, close on the right), or null: the frame picks. */
+  readonly style: 'mac' | 'windows' | null
   /** Called when the title changes. */
   onTitle(handler: (title: string) => void): void
 }

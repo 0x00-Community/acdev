@@ -73,6 +73,7 @@ export interface IsolateInit {
   readonly theme?: string
   /** The desktop's window frame module, when this window gets a frame. */
   readonly frame?: string | null
+  readonly frameStyle?: 'mac' | 'windows' | null
   readonly request?: Record<string, unknown> | null
   readonly url?: string | null
   readonly sockets?: string

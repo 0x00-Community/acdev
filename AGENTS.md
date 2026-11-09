@@ -744,8 +744,8 @@ acde-base 不认识它们.
 - **窗框**: acde 不画窗框, 也没有按钮的设计. 桌面清单可以给一个窗框模块 (`desktops[].frame`, 同源路径如 `/ui/frame.js`, 在包的
   `assets` 下); 清单没写 `frame: false` 的应用窗口在页面装好后 import 它, 用 `WindowFrameContext` 调它的默认导出 (`window` 是这个窗口的
   `acde:window`, `document`、`app {id, label, icon}`、`title` 和 `onTitle`: 标题是 `document.title` (HTML 入口) 或 `acde.window.setTitle`,
-  没有时用清单的 `label`). 它在窗口自己的 isolate 里跑, 画什么、按钮放哪、哪里能拖 (`setGrabHint`) 都是桌面包的事; 加载或运行出错只打一行
-  warn. 换桌面后新开的窗口用新桌面的. Dopame 的是 `acde-dopame` `packages/dopame/src/frame/frame.ts` (标题栏和关闭 / 最小化 / 全屏三个按钮).
+  没有时用清单的 `label`)、`style` (`ACDE_FRAME_STYLE`: `mac` 是左边的红绿灯, `windows` 是右边的最小化 / 最大化 / 关闭, 没设或别的值是 null, 由窗框模块自己定). 它在窗口自己的 isolate 里跑, 画什么、按钮放哪、哪里能拖 (`setGrabHint`) 都是桌面包的事; 加载或运行出错只打一行
+  warn. 换桌面后新开的窗口用新桌面的. Dopame 的是 `acde-dopame` `packages/dopame/src/frame/frame.ts` (标题栏和三个按钮: 红绿灯, 或 Windows 样式; `style` 为 null 时按 `navigator.platform`, Windows 用 Windows 样式, 别处用红绿灯).
 - **钉住的面板** (桌面的 Dock、菜单栏、下拉菜单、弹出层): 桌面 的页面调 `acde.desktop.pin(element, {margin?})`
   (返回 `{update(), unpin()}`), 这个元素和它的子树就成了一个单独的 `pinned` 窗口, 在所有 `free` / `fixed` 窗口上面; 状态、
   事件、React 树都还在同一个文档里, 页面不用改结构. 链路: acde-host `src/pinned.ts` 量元素的 `getBoundingClientRect` (加

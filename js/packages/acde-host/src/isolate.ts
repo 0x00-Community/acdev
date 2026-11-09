@@ -152,7 +152,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   const served = htmlEntry && PageSource.isServer(init.app!.entry)
   const html = init.place === 'desktop' ? (init.standalone ? standalone(init.standalone) : init.html!) : served ? await PageSource.served(page.window as never, init.url ?? `${PageSource.ORIGIN}/`) : htmlPage ? PageSource.html(htmlPage, asset(htmlPage) ?? '') : PageSource.window(init.app!, init.theme ?? '')
   await page.loadPage(html)
-  if (self && init.frame) await installFrame(init.frame, self, app, page.window as never, init.app!)
+  if (self && init.frame) await installFrame(init.frame, init.frameStyle ?? null, self, app, page.window as never, init.app!)
   app?.loaded(htmlEntry)
   StartupTimeline.mark(init.place === 'desktop' ? 'desktop loaded' : 'loaded')
   await pageHost.run(surface)
@@ -162,7 +162,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
 }
 
 /** The desktop's window frame (its manifest's `frame` module): acde draws none of its own. */
-async function installFrame(url: string, self: WindowSelf, app: AppPage | null, window: { document: Document }, manifest: { id: string; label: string; icon: string }): Promise<void> {
+async function installFrame(url: string, style: 'mac' | 'windows' | null, self: WindowSelf, app: AppPage | null, window: { document: Document }, manifest: { id: string; label: string; icon: string }): Promise<void> {
   let title = manifest.label
   const handlers: ((title: string) => void)[] = []
   const changed = (next: string) => {
@@ -177,6 +177,7 @@ async function installFrame(url: string, self: WindowSelf, app: AppPage | null, 
       window: self.api as unknown as WindowFrameContext['window'],
       document: window.document,
       app: { id: manifest.id, label: manifest.label, icon: manifest.icon },
+      style,
       get title() {
         return title
       },
