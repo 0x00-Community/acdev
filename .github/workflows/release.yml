@@ -7,6 +7,10 @@ on:
         description: 'false rehearses (builds and checks only); true publishes a new release from main'
         type: boolean
         default: false
+      commit:
+        description: 'full or short sha on origin/main to publish or rehearse; a formal release needs it, a rehearsal defaults to the run commit'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -21,11 +25,15 @@ jobs:
       group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
       cancel-in-progress: ${{ !inputs.publish }}
     outputs:
+      sha: ${{ steps.plan.outputs.sha }}
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}
       mode: ${{ steps.plan.outputs.mode }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
       - name: version, tag and mode (preview, new, resume)
         id: plan
         env:
@@ -34,7 +42,8 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
           PUBLISH: ${{ inputs.publish }}
-        run: scripts/release/plan.sh "$EVENT" "$REF_TYPE" "$REF_NAME" "$SHA" "$PUBLISH"
+          COMMIT: ${{ inputs.commit }}
+        run: scripts/release/plan.sh "$EVENT" "$REF_TYPE" "$REF_NAME" "$SHA" "$PUBLISH" "$COMMIT"
 
   build:
     needs: plan
@@ -52,6 +61,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - name: system libraries
         if: runner.os == 'Linux'
         run: >
@@ -125,6 +136,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: oven-sh/setup-bun@v2
       - name: "host bundle (release build: minified, obfuscated, no source maps)"
         working-directory: web
@@ -157,6 +170,8 @@ jobs:
       VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -184,10 +199,14 @@ jobs:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - name: annotated tag on the commit that passed the checks
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
         run: |
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-            tag -a "$TAG" -m "acdert $TAG" "$GITHUB_SHA"
+            tag -a "$TAG" -m "acdert $TAG" "$SHA"
           git push origin "refs/tags/$TAG"
 
   release:
@@ -205,6 +224,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: actions/download-artifact@v8
         with:
           name: release-stage
@@ -238,11 +259,15 @@ jobs:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: actions/download-artifact@v8
         with:
           name: release-stage
           path: release-stage
       - name: check the staging and build the pkgs directory
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
         run: |
           scripts/release/check-stage.sh release-stage "$VERSION"
           mkdir -p "pkgs/$VERSION"
@@ -252,7 +277,7 @@ jobs:
           (cd "pkgs/$VERSION" && sha256sum -- * > SHA256SUMS)
           scripts/release/check-stage.sh "pkgs/$VERSION" "$VERSION"
           files=$(cd "pkgs/$VERSION" && ls | jq -R . | jq -sc .)
-          jq -n --arg version "$VERSION" --arg tag "$TAG" --arg commit "$GITHUB_SHA" --argjson files "$files" \
+          jq -n --arg version "$VERSION" --arg tag "$TAG" --arg commit "$SHA" --argjson files "$files" \
             '{version: $version, tag: $tag, commit: $commit, base: "https://pkgs.dopame.ai/acdert/\($version)/", files: $files}' \
             > pkgs/latest.json
           cat pkgs/latest.json
@@ -337,6 +362,8 @@ jobs:
       publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24
