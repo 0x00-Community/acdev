@@ -1,21 +1,25 @@
 name: release
 
+# Run by hand: gh workflow run release.yml -R dopame-org/acde --ref main -f publish=true
+# publish=false is a preview (build, check, no tag, no upload). publish=true tags v<version> and uploads; main only.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
-      version:
-        description: 'x.y.z to build and check; a hand run is a preview and uploads nothing'
-        required: true
-        type: string
+      publish:
+        description: 'false: build and check only. true: tag v<version> from package.json and publish (main only)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
+concurrency:
+  group: acde-release
+  cancel-in-progress: false
+
 env:
   PKGS: https://pkgs.dopame.ai
-  TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
   AWS_REGION: ap-southeast-1
   ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
   BUCKET: dopame-pkgs
@@ -23,22 +27,71 @@ env:
   CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
 
 jobs:
-  pkgs:
+  plan:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acde
           persist-credentials: false
-      - name: the tag is this version
+      - name: the version comes from package.json, and only main publishes
+        id: version
         working-directory: acde
+        env:
+          PUBLISH: ${{ inputs.publish }}
         run: |
+          set -eu
           v=$(node -p 'require("./package.json").version')
-          if [ "v$v" != "$TAG" ]; then
-            echo "::error::acde is $v but the tag is $TAG"
+          case $v in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::package.json version $v is not x.y.z"; exit 1 ;;
+          esac
+          if [ "$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::a release is published from main only; this run is on $GITHUB_REF"
             exit 1
           fi
-          echo "SDK_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          echo "acde $v: publish=$PUBLISH"
+      - name: the tag is free, or already points at this commit
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -eu
+          if ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha' 2> ref.err); then
+            set -- $ref
+            sha=$2
+            if [ "$1" = tag ]; then
+              sha=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)
+            fi
+            if [ "$sha" != "$GITHUB_SHA" ]; then
+              echo "::error::$TAG already exists and points at $sha, not at this commit ($GITHUB_SHA): bump the version in package.json and merge it to main first"
+              exit 1
+            fi
+            echo "$TAG already points at this commit: a rerun continues"
+          elif grep -q 'HTTP 404' ref.err; then
+            echo "$TAG is free"
+          else
+            cat ref.err
+            exit 1
+          fi
+
+  pkgs:
+    needs: plan
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      SDK_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          persist-credentials: false
       - name: the SDK tarball from pkgs.dopame.ai, checked against its SHA256SUMS
         run: |
           set -eu
@@ -127,8 +180,10 @@ jobs:
           retention-days: 1
 
   guard:
-    needs: pkgs
+    needs: [plan, pkgs]
     runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -149,18 +204,56 @@ jobs:
             exit 1
           fi
           bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$v"
-      - name: a hand run stops here
-        if: github.event_name != 'push'
+      - name: a preview stops here
+        if: ${{ !inputs.publish }}
         run: |
-          echo "preview only: the archive passed the guard and nothing was uploaded" >> "$GITHUB_STEP_SUMMARY"
+          echo "preview only: the archive passed the guard; no tag and no upload" >> "$GITHUB_STEP_SUMMARY"
+
+  tag:
+    needs: [plan, guard]
+    if: ${{ inputs.publish && success() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - name: the annotated tag points at this commit, or already does
+        working-directory: acde
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            peeled=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f 1)
+            if [ -z "$peeled" ]; then
+              peeled=$(git ls-remote origin "refs/tags/$TAG" | cut -f 1)
+            fi
+            if [ "$peeled" != "$GITHUB_SHA" ]; then
+              echo "::error::$TAG already exists and points at $peeled, not at this commit: bump the version in package.json"
+              exit 1
+            fi
+            echo "$TAG already points at this commit: a rerun continues"
+          else
+            git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+              tag -a "$TAG" -m "acde $TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+            echo "pushed $TAG at $GITHUB_SHA"
+          fi
 
   upload:
-    needs: guard
-    if: github.event_name == 'push'
+    needs: [plan, guard, tag]
+    if: ${{ inputs.publish && success() }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -210,21 +303,7 @@ jobs:
             echo "AWS_SECRET_ACCESS_KEY=$secret"
             echo "AWS_SESSION_TOKEN=$session"
           } >> "$GITHUB_ENV"
-      - name: refuse to overwrite a published version
-        run: |
-          set -eu
-          v=$(cat out/latest)
-          for key in "$PREFIX/$v/acde-$v.tar.gz" "$PREFIX/$v/SHA256SUMS"; do
-            if output=$(aws s3api head-object --bucket "$BUCKET" --key "$key" 2>&1); then
-              echo "::error::$key is already published: a version is never overwritten"
-              exit 1
-            fi
-            case $output in
-              *Not\ Found*|*NotFound*|*404*) ;;
-              *) echo "::error::cannot check $key: $output"; exit 1 ;;
-            esac
-          done
-      - name: upload the allow-list, one file at a time
+      - name: upload the allow-list; a published version is identical or refused, never overwritten
         run: |
           set -eu
           v=$(cat out/latest)
@@ -232,12 +311,29 @@ jobs:
           fresh='public, max-age=0, must-revalidate'
           text='text/plain; charset=utf-8'
           put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
-          put "out/$v/acde-$v.tar.gz" "$v/acde-$v.tar.gz" application/gzip "$immutable"
-          put "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
-          put out/latest latest "$text" "$fresh"
-          put out/latest.json latest.json application/json "$fresh"
+          publish_once() {
+            key="$PREFIX/$2"
+            if aws s3api head-object --bucket "$BUCKET" --key "$key" > /dev/null 2> head.err; then
+              aws s3 cp "s3://$BUCKET/$key" published.tmp --only-show-errors
+              if cmp -s published.tmp "$1"; then
+                echo "already published, identical: $2"
+              else
+                echo "::error::$2 is already published with different content: a version is never overwritten"
+                exit 1
+              fi
+            elif grep -qE 'Not Found|NotFound|404' head.err; then
+              put "$1" "$2" "$3" "$4"
+            else
+              echo "::error::cannot check $2: $(cat head.err)"
+              exit 1
+            fi
+          }
+          publish_once "out/$v/acde-$v.tar.gz" "$v/acde-$v.tar.gz" application/gzip "$immutable"
+          publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
           put out/install.sh install.sh "$text" "$fresh"
           put out/install.ps1 install.ps1 "$text" "$fresh"
+          put out/latest latest "$text" "$fresh"
+          put out/latest.json latest.json application/json "$fresh"
       - name: invalidate
         run: |
           set -eu
