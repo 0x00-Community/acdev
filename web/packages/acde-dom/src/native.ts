@@ -292,6 +292,21 @@ export interface GpuCompilationMessage {
   length: number
 }
 
+export interface StorageAreaNative {
+  length(): number
+  key(index: number): string | null
+  get(key: string): string | null
+  set(key: string, value: string, url: string): boolean
+  remove(key: string, url: string): void
+  clear(url: string): void
+  keys(): string[]
+}
+
+export interface StorageNative {
+  readonly local: StorageAreaNative
+  onChange(callback: (key: string | null, oldValue: string | null, newValue: string | null, url: string) => void): void
+}
+
 export interface AudioNative {
   readonly sampleRate: number
   onEvent(callback: (kind: number, id: number) => void): void

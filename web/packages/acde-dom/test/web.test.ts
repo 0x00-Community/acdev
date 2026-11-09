@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import vm from 'node:vm'
 import { bundle, createWeb, page } from './harness.ts'
 import { MockHost } from './mock/host.ts'
+import { MockStorage } from './mock/storage.ts'
 
 test('fetch and XMLHttpRequest: same-origin assets only, data: and blob: URLs; the rest is refused', async () => {
   using web = createWeb()
@@ -29,8 +30,8 @@ test('fetch and XMLHttpRequest: same-origin assets only, data: and blob: URLs; t
 })
 
 test('storage, location / history, matchMedia, navigator, screen, viewport', async () => {
-  const changes: Record<string, string>[] = []
-  using web = createWeb({ url: 'http://acde.local/index.html#desk', localStorage: { theme: 'dark' }, onStorageChange: (entries) => changes.push({ ...entries }) })
+  const storage = new MockStorage({ theme: 'dark' })
+  using web = createWeb({ url: 'http://acde.local/index.html#desk', storage })
   web.dom.media['prefers-reduced-motion'] = 'reduce'
   await web.internals.loadPage('<!doctype html><html><body></body></html>')
   const result = web.json(`(() => {
@@ -62,8 +63,7 @@ test('storage, location / history, matchMedia, navigator, screen, viewport', asy
     nav: ['Linux x86_64', 'zh-CN', 'function', false],
     view: [1280, 800, 1, 1280],
   })
-  web.endTask()
-  assert.deepEqual(changes.at(-1), { name: 'ada', n: '2' })
+  assert.deepEqual(Object.fromEntries(storage.items), { name: 'ada', n: '2' })
   await web.wait(5)
   assert.deepEqual(web.json('hashes'), ['http://acde.local/index.html#setup'])
   web.run('globalThis.mediaLog = []; matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", (e) => mediaLog.push(e.matches))')

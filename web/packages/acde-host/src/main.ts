@@ -7,6 +7,7 @@ import type { GreetUser, Native, NativeDesktopBus } from './native'
 import { WaylandSessions } from './foreign'
 import { DesktopEntries } from './open'
 import { Packages, type InstalledDesktop } from './packages'
+import { StoragePlaces } from './storage'
 import { AppRegistry } from './apps'
 import { mkdirSync, readFileSync, writeFileSync } from './sys/fs'
 import { bindNatives, type Natives } from './sys/natives'
@@ -119,12 +120,6 @@ class Main {
   static #switch(name: string): boolean | null {
     const set = process.env[name]
     return set === '1' ? true : set === '0' ? false : null
-  }
-
-  static storageFile(desktop: string): string | null {
-    const set = process.env['ACDE_STORAGE']
-    if (set !== undefined) return set || null
-    return join(xdgHome('config'), 'acde', 'storage', `${desktop}.json`)
   }
 
   static async open(native: Native, argv: string[]): Promise<number> {
@@ -243,7 +238,7 @@ class Main {
       reducedMotion: Main.#switch('ACDE_REDUCED_MOTION'),
       dark: fixed ?? false,
       session,
-      storageFile: (id) => (greeter ? null : Main.storageFile(id)),
+      storage: (id) => (greeter ? StoragePlaces.memory('greeter') : StoragePlaces.desktop(id)),
       standalone,
     })
     const started = performance.now()

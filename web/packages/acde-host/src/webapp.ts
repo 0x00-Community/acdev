@@ -2,7 +2,6 @@ import type { WebInternals } from '@dopame/acde-dom'
 import { PageSource } from './page'
 import { WindowSelf } from './remote'
 import type { Rpc } from './rpc'
-import type { StorageFile } from './storage'
 import { Level, Log } from './log'
 
 interface WindowEvents {
@@ -15,15 +14,13 @@ export class WebAppPage {
   readonly #name: string
   readonly #alerts: string[] = []
   #title: string | null = null
-  #storage: StorageFile | null = null
   #leaving = false
   onTitle: (title: string) => void = () => {}
 
-  constructor(page: WebInternals, rpc: Rpc, name: string, window: WindowEvents, storage: StorageFile | null) {
+  constructor(page: WebInternals, rpc: Rpc, name: string) {
     this.#page = page
     this.#rpc = rpc
     this.#name = name
-    this.#storage = storage
     const env = page.env
     env.close = () => {
       if (this.#leave()) this.#call('close')
@@ -33,7 +30,6 @@ export class WebAppPage {
     }
     env.navigate = (url, target) => this.#navigate(url, target)
     env.alert = (message) => this.#alert(message)
-    window.on('beforeclose', () => void storage?.flush())
   }
 
   loaded(html: boolean): void {
@@ -82,7 +78,6 @@ export class WebAppPage {
       return false
     }
     this.#leaving = true
-    this.#storage?.flush()
     return true
   }
 

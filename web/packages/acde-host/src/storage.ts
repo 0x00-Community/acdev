@@ -4,6 +4,38 @@ import { dirname, join } from './sys/path'
 import { process } from './sys/process'
 import { Level, Log } from './log'
 
+export interface StoragePlace {
+  readonly key: string
+  readonly dir: string | null
+  readonly legacy: string | null
+}
+
+export class StoragePlaces {
+  static root(): string | null {
+    const set = process.env['ACDE_STORAGE']
+    if (set !== undefined) return set || null
+    return join(xdgHome('data'), 'acde', 'storage')
+  }
+
+  static app(id: string): StoragePlace {
+    return StoragePlaces.#place(`app-${id}`, `app-${id}.json`)
+  }
+
+  static desktop(id: string): StoragePlace {
+    return StoragePlaces.#place(`desktop-${id}`, `${id}.json`)
+  }
+
+  static memory(key: string): StoragePlace {
+    return { key, dir: null, legacy: null }
+  }
+
+  static #place(key: string, legacy: string): StoragePlace {
+    const root = StoragePlaces.root()
+    const old = process.env['ACDE_STORAGE'] === undefined ? join(xdgHome('config'), 'acde', 'storage', legacy) : null
+    return { key, dir: root === null ? null : join(root, key), legacy: old }
+  }
+}
+
 export class StorageFile {
   static readonly WRITE_AFTER_MS = 1000
   readonly #path: string
@@ -12,11 +44,6 @@ export class StorageFile {
 
   constructor(path: string) {
     this.#path = path
-  }
-
-  static forApp(id: string): string | null {
-    if (process.env['ACDE_STORAGE'] === '') return null
-    return join(xdgHome('config'), 'acde', 'storage', `app-${id}.json`)
   }
 
   read(): Record<string, string> | null {

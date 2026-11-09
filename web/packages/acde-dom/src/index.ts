@@ -6,7 +6,8 @@ import { observer, type PageErrorKind } from './core/observe'
 import { EventSource, fetch, Headers, net, Request, Response, WebSocket, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net'
 import { ReadableStream, ReadableStreamDefaultController, ReadableStreamDefaultReader, TextDecoderStream, TextEncoderStream, TransformStream, TransformStreamDefaultController, WritableStream, WritableStreamDefaultController, WritableStreamDefaultWriter } from './core/streams'
 import { objectUrlOrigin, URL } from './core/url'
-import type { AudioNative, DomNative, GpuNative, HostNative } from './native'
+import type { AudioNative, DomNative, GpuNative, HostNative, StorageNative } from './native'
+import { installStorage, Storage } from './storage/webstorage'
 import { contexts as gpuContexts, installGpu } from './gpu/index'
 import { installAudio } from './audio/index'
 import { NodeType } from './native'
@@ -36,16 +37,15 @@ import { attachShadow, shadowRootOf, ShadowRoot } from './dom/shadow'
 import { CSS, CSSRule, CSSRuleList, CSSStyleDeclaration, CSSStyleRule, CSSStyleSheet, StyleSheetList } from './dom/style'
 import * as svg from './dom/svg'
 import { NodeFilter, NodeIterator, TreeWalker } from './dom/traversal'
-import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, Storage, storage, STORAGE_CHANGED, storageEntries, VisualViewport, Window, type NavigatorOptions } from './dom/window'
+import { Clipboard, framesPending, History, installWindow, Location, MediaDevices, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, VisualViewport, Window, type NavigatorOptions } from './dom/window'
 
-export type { AudioNative, DomNative, GpuNative, HostNative } from './native'
+export type { AudioNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
 export { observe, type ConsoleLevel, type MockReply, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
 
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly url: string
-  readonly localStorage?: Readonly<Record<string, string>> | null
-  readonly onStorageChange?: (entries: Record<string, string>) => void
+  readonly storage?: StorageNative
   readonly logNetwork?: boolean
   readonly gpu?: GpuNative
   readonly audio?: AudioNative
@@ -115,12 +115,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
 
   const document = wrap<Document>(documentId)!
   const input = new Input()
-  const local = storage(options.localStorage)
-  const session = storage(null)
-  let storageDirty = false
-  local[STORAGE_CHANGED] = () => {
-    storageDirty = true
-  }
+  const { local, session } = installStorage(global as unknown as EventTarget, options.storage)
   const registry = new CustomElementRegistry()
 
   extendElements(input)
@@ -198,10 +193,6 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       moved()
       canvases.flush()
       gpuContexts.present()
-      if (storageDirty) {
-        storageDirty = false
-        options.onStorageChange?.(storageEntries(local))
-      }
       if (version !== frameVersion && watching()) frames.request()
       dom.commit()
     },

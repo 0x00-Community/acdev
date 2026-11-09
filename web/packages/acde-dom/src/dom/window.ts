@@ -8,6 +8,7 @@ import { NONE, NodeType } from '../native'
 import type { Element } from './element'
 import { scrollArgs, scrollElement, type ScrollToOptions } from './element'
 import { env, frames, resolveUrl } from './env'
+import type { Storage } from '../storage/webstorage'
 import { HashChangeEvent, MediaQueryListEvent, PopStateEvent } from './events'
 import { HANDLER_TYPES } from './element'
 import { rootScroll } from './layout'
@@ -202,73 +203,6 @@ export class History {
   }
 }
 tag(History)
-
-const STORAGE = Symbol('storage')
-export const STORAGE_CHANGED = Symbol('storageChanged')
-
-export class Storage {
-  [STORAGE]: Map<string, string> = new Map();
-  [STORAGE_CHANGED]: (() => void) | null = null
-
-  get length(): number {
-    return this[STORAGE].size
-  }
-  key(index: number): string | null {
-    return [...this[STORAGE].keys()][index] ?? null
-  }
-  getItem(key: string): string | null {
-    return this[STORAGE].get(String(key)) ?? null
-  }
-  setItem(key: string, value: string): void {
-    const k = String(key), v = String(value)
-    if (this[STORAGE].get(k) === v) return
-    this[STORAGE].set(k, v)
-    this[STORAGE_CHANGED]?.()
-  }
-  removeItem(key: string): void {
-    if (this[STORAGE].delete(String(key))) this[STORAGE_CHANGED]?.()
-  }
-  clear(): void {
-    if (this[STORAGE].size === 0) return
-    this[STORAGE].clear()
-    this[STORAGE_CHANGED]?.()
-  }
-}
-tag(Storage)
-
-export function storage(initial: Record<string, string> | null | undefined): Storage {
-  const target = new Storage()
-  for (const [k, v] of Object.entries(initial ?? {})) if (typeof v === 'string') target[STORAGE].set(k, v)
-  return new Proxy(target, {
-    get(t, key) {
-      if (typeof key === 'symbol' || key in t) return Reflect.get(t, key)
-      return t.getItem(key) ?? undefined
-    },
-    set(t, key, value) {
-      if (typeof key === 'symbol') return Reflect.set(t, key, value)
-      t.setItem(key, value)
-      return true
-    },
-    deleteProperty(t, key) {
-      if (typeof key === 'string') t.removeItem(key)
-      return true
-    },
-    has(t, key) {
-      return typeof key === 'string' ? t[STORAGE].has(key) || key in t : key in t
-    },
-    ownKeys(t) {
-      return [...t[STORAGE].keys()]
-    },
-    getOwnPropertyDescriptor(t, key) {
-      if (typeof key !== 'string' || !t[STORAGE].has(key)) return undefined
-      return { value: t[STORAGE].get(key), writable: true, enumerable: true, configurable: true }
-    },
-  })
-}
-
-export function storageEntries(s: Storage): Record<string, string> {
-  return Object.fromEntries(s[STORAGE])
-}
 
 const watched = new Set<MediaQueryList>()
 let recheckList: (list: MediaQueryList) => void

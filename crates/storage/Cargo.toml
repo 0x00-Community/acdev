@@ -1,0 +1,11 @@
+[package]
+name = "acde-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+log = "0"
+# web storage on disk (localStorage, IndexedDB): SQLite built in, the way WebKit keeps them
+rusqlite = { version = "0", features = ["bundled"] }
+indexmap = "2"
+serde_json = "1"

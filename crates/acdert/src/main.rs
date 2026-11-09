@@ -19,6 +19,7 @@ mod offload;
 mod picker;
 mod profile;
 mod rt;
+mod storage;
 #[cfg(target_os = "linux")]
 mod supervise;
 mod surface;
@@ -103,6 +104,7 @@ fn main() {
         }
     };
     child::stop_all();
+    acde_storage::flush_all();
     acde_log::flush();
     std::process::exit(code);
 }

@@ -20,7 +20,7 @@ import { DevLog } from './devlog'
 import { DevRoutes, type DevRoute } from './devroutes'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage, type Languages } from './language'
-import { StorageFile } from './storage'
+import { StoragePlaces, type StoragePlace } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { basename, isAbsolute } from './sys/path'
@@ -98,7 +98,7 @@ interface BrokerOptions {
   readonly reducedMotion: boolean | null
   readonly dark: boolean
   readonly session: boolean
-  readonly storageFile: (desktop: string) => string | null
+  readonly storage: (desktop: string) => StoragePlace
   readonly standalone: string | null
 }
 
@@ -123,7 +123,6 @@ export interface WebInit {
   readonly services: Readonly<Record<string, ServiceShape>>
   readonly resources: { prefix: string; dirs: string[] }[]
   readonly page?: string
-  readonly storageFile?: string | null
   readonly standalone?: string | null
   readonly app?: AppManifest
   readonly theme?: string
@@ -410,7 +409,7 @@ export class Broker {
   }
 
   startDesktop(): void {
-    const { storageFile, standalone } = this.#options
+    const { standalone } = this.#options
     if (standalone && this.shell.hosted) {
       if (this.#standaloneWindow === null && !this.#stopped) {
         try {
@@ -438,7 +437,6 @@ export class Broker {
       services: this.#shapes(null),
       resources: this.#resources(),
       page: this.#current.html,
-      storageFile: storageFile(this.#current.id),
       standalone: this.#current.id === Packages.BARE ? standalone : null,
       devState: this.#takeDevState(''),
       devRoutes: this.#routesFor('desktop', null),
@@ -473,7 +471,6 @@ export class Broker {
       resources: PageSource.isHtml(app.entry) ? PageSource.rooted(app.entry, this.#resources()) : this.#resources(),
       app,
       theme: this.#theme(),
-      storageFile: StorageFile.forApp(app.id),
       request: record.request ?? null,
       url: record.url ?? null,
       ...(app.backend && { sockets: AppBackends.socketDir(app.id) }),
@@ -487,7 +484,8 @@ export class Broker {
 
   #spawn(init: WebInit, heapMb: number): Web {
     const env = { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }
-    const grants = Broker.#grants(init.app?.id ?? null, init.app?.capabilities ?? null)
+    const storage = init.app ? StoragePlaces.app(init.app.id) : this.#options.storage(this.#current.id)
+    const grants = { ...Broker.#grants(init.app?.id ?? null, init.app?.capabilities ?? null), storage }
     const web: Web = new Web(init.kind, init.name, init.window, init.app ?? null, (onMessage, exit) =>
       sys().spawnWeb(init.name, init, heapMb, env, onMessage, (code, reason) => {
         this.#exited(web, code, reason)
@@ -503,7 +501,7 @@ export class Broker {
 
   static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office'])
 
-  static #grants(app: string | null, caps: Capabilities | null): WebGrants {
+  static #grants(app: string | null, caps: Capabilities | null): Omit<WebGrants, 'storage'> {
     if (!caps) return { app, fs: true, terminal: true, network: true, office: true }
     const fs = caps.fs
     return { app, fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null, terminal: !!caps.terminal, network: !!caps.network, office: !!caps.office }

@@ -1,4 +1,4 @@
-import { install, installBackendTransport, observe, type AudioNative, type BackendTransport, type DomNative, type GpuNative, type HostNative } from '@dopame/acde-dom'
+import { install, installBackendTransport, observe, type AudioNative, type BackendTransport, type DomNative, type GpuNative, type HostNative, type StorageNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
 import { Frame } from './frame'
 import { Host } from './host'
@@ -14,7 +14,6 @@ import { PageInspect } from './pageinspect'
 import { Pinned } from './pinned'
 import { RemoteBridge, WindowList, WindowSelf } from './remote'
 import { Rpc } from './rpc'
-import { StorageFile } from './storage'
 import { OfficePage } from './office'
 import { readFileSync, readTextOr } from './sys/fs'
 import { bindNatives, type Natives } from './sys/natives'
@@ -32,6 +31,7 @@ interface WebNatives extends Natives {
   readonly Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   readonly gpu?: GpuNative
   readonly audio?: AudioNative
+  readonly storage?: StorageNative
   readonly backend?: Omit<BackendTransport, 'port'>
   readonly fs?: object
   readonly terminal?: object
@@ -51,7 +51,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
   title('')
   host.requestFrame = () => surface.requestFrame()
 
-  const storage = init.storageFile ? new StorageFile(init.storageFile) : null
   const htmlEntry = init.kind === 'window' && !!init.app && PageSource.isHtml(init.app.entry)
   const htmlPage = htmlEntry ? PageSource.htmlFor(init.app!.entry, init.url, init.resources) : null
   if (htmlEntry) {
@@ -62,8 +61,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const page = install(globalThis, dom, host, {
     url: (htmlEntry ? init.url : undefined) ?? `${PageSource.ORIGIN}/`,
     ...init.languages,
-    localStorage: storage?.read() ?? null,
-    onStorageChange: storage ? (entries) => storage.changed(entries) : undefined,
+    ...(natives.storage && { storage: natives.storage }),
     gpu: natives.gpu,
     audio: natives.audio,
     ...(init.screen && { screen: init.screen }),
@@ -147,7 +145,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   if (natives.network) bridge.value['network'] = natives.network
   if (natives.office) bridge.value['office'] = { ...natives.office, editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme) }
   bridge.define(host)
-  const app = self ? new WebAppPage(page, rpc, init.name, self.api, storage) : null
+  const app = self ? new WebAppPage(page, rpc, init.name) : null
   StartupTimeline.mark('page load started')
   const served = htmlEntry && PageSource.isServer(init.app!.entry)
   const html = init.kind === 'desktop' ? (init.standalone ? standalone(init.standalone) : readFileSync(init.page!, 'utf8')) : served ? await PageSource.served(page.window as never, init.url ?? `${PageSource.ORIGIN}/`) : htmlPage ? PageSource.html(htmlPage, init.resources) : PageSource.window(init.app!, init.theme ?? '')
@@ -184,7 +182,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
   app?.loaded(htmlEntry)
   StartupTimeline.mark(init.kind === 'desktop' ? 'desktop loaded' : 'loaded')
   await web.run(surface)
-  storage?.flush()
   web.close()
   process.exit(0)
 }
