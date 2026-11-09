@@ -6,7 +6,7 @@ import type { Subprocess } from 'bun'
 import { which } from '../launcher.mjs'
 import { BunBundler } from '../src/bundler.ts'
 import { Runtime } from '../src/runtime.ts'
-import { cleanup, env, inetSockets, line, skipping, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, collect, env, inetSockets, line, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const FIXTURE = join(import.meta.dir, 'fixtures/fetch-backend')
 
@@ -47,6 +47,10 @@ function run(argv: string[], extra: Record<string, string>): Subprocess<'ignore'
   return child
 }
 
+function underNode(dir: string, entry: string): string[] {
+  return [NODE!, '--import', pathToFileURL(join(dir, 'acde-listen.js')).href, join(dir, entry)]
+}
+
 async function waitFor(socket: string, child: Subprocess<'ignore', 'pipe', 'pipe'>): Promise<void> {
   for (let i = 0; i < 400 && !existsSync(socket); i++) {
     if (child.exitCode !== null) throw new Error(`exited ${child.exitCode}: ${await new Response(child.stderr).text()}`)
@@ -68,7 +72,7 @@ describe.skipIf(!NODE)('a built Unix-socket backend under node --import acde-lis
   async function start(extra: Record<string, string> = {}): Promise<void> {
     sockets = join(tmp(), 'sockets')
     socket = join(sockets, `${extra['PORT'] ?? 3000}.sock`)
-    child = run([NODE!, '--import', pathToFileURL(join(out, 'acde-listen.js')).href, join(out, 'server.js')], { ACDE_APP_SOCKETS: sockets, ...extra })
+    child = run(underNode(out, 'server.js'), { ACDE_APP_SOCKETS: sockets, ...extra })
     await waitFor(socket, child)
   }
 
@@ -77,7 +81,9 @@ describe.skipIf(!NODE)('a built Unix-socket backend under node --import acde-lis
     const answer = await ask('/api/hello?x=1')
     expect(answer.status).toBe(200)
     expect(answer.headers.get('content-type')).toContain('application/json')
-    expect(await answer.json()).toEqual({ hello: 'from a fetch handler', url: 'http://acde.local/api/hello?x=1', method: 'GET', runtime: 'node', port: null })
+    expect(await answer.json()).toEqual({
+      hello: 'from a fetch handler', url: 'http://acde.local/api/hello?x=1', method: 'GET', runtime: 'node', port: null,
+    })
     const inet = inetSockets(child.pid)
     if (inet !== null) expect(inet).toEqual([])
   })
@@ -90,7 +96,8 @@ describe.skipIf(!NODE)('a built Unix-socket backend under node --import acde-lis
   test('request bodies stream in, headers both ways, status kept', async () => {
     await start()
     const body = 'x'.repeat(300_000)
-    const answer = await ask('/api/echo', { method: 'POST', body, headers: { 'content-type': 'text/plain', 'x-test': 'yes' } })
+    const headers = { 'content-type': 'text/plain', 'x-test': 'yes' }
+    const answer = await ask('/api/echo', { method: 'POST', body, headers })
     expect(answer.status).toBe(201)
     expect(answer.headers.get('x-seen')).toBe('yes')
     expect(answer.headers.get('content-type')).toBe('text/plain')
@@ -108,7 +115,9 @@ describe.skipIf(!NODE)('a built Unix-socket backend under node --import acde-lis
     expect(answer.headers.get('content-type')).toBe('text/event-stream')
     const reader = answer.body!.getReader()
     const pieces: string[] = []
-    for (let read = await reader.read(); !read.done; read = await reader.read()) pieces.push(new TextDecoder().decode(read.value))
+    for (let read = await reader.read(); !read.done; read = await reader.read()) {
+      pieces.push(new TextDecoder().decode(read.value))
+    }
     expect(pieces.join('')).toBe('data: 0\n\ndata: 1\n\ndata: 2\n\n')
     expect(pieces.length).toBeGreaterThan(1)
   })
@@ -141,9 +150,10 @@ describe.skipIf(!NODE)('the Unix-socket preload on Node.js', () => {
   test('node:http listen(4100, host) goes to 4100.sock', async () => {
     const out = await build(join(FIXTURE, 'http-server.js'))
     const sockets = join(tmp(), 'sockets')
-    const child = run([NODE!, '--import', pathToFileURL(join(out, 'acde-listen.js')).href, join(out, 'server.js')], { ACDE_APP_SOCKETS: sockets })
+    const child = run(underNode(out, 'server.js'), { ACDE_APP_SOCKETS: sockets })
     await line(child, 'ready')
-    expect(await (await fetch('http://acde.local/a?b=1', { unix: join(sockets, '4100.sock') })).text()).toBe('node-http /a?b=1')
+    const answer = await fetch('http://acde.local/a?b=1', { unix: join(sockets, '4100.sock') })
+    expect(await answer.text()).toBe('node-http /a?b=1')
   })
 
   test('acde-listen.js loads beside a CommonJS package.json too (no import / export in it)', async () => {
@@ -152,9 +162,11 @@ describe.skipIf(!NODE)('the Unix-socket preload on Node.js', () => {
     mkdirSync(cjs)
     writeFileSync(join(cjs, 'package.json'), '{ "type": "commonjs" }')
     writeFileSync(join(cjs, 'acde-listen.js'), await Bun.file(join(out, 'acde-listen.js')).text())
-    writeFileSync(join(cjs, 'server.js'), "require('node:http').createServer((q, s) => s.end('cjs')).listen(4200, () => console.log('ready'))\n")
+    const server = "require('node:http').createServer((q, s) => s.end('cjs'))" +
+      ".listen(4200, () => console.log('ready'))\n"
+    writeFileSync(join(cjs, 'server.js'), server)
     const sockets = join(tmp(), 'sockets')
-    const child = run([NODE!, '--import', pathToFileURL(join(cjs, 'acde-listen.js')).href, join(cjs, 'server.js')], { ACDE_APP_SOCKETS: sockets })
+    const child = run(underNode(cjs, 'server.js'), { ACDE_APP_SOCKETS: sockets })
     await line(child, 'ready')
     expect(await (await fetch('http://acde.local/', { unix: join(sockets, '4200.sock') })).text()).toBe('cjs')
   })
@@ -163,7 +175,11 @@ describe.skipIf(!NODE)('the Unix-socket preload on Node.js', () => {
 describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, with acde\'s own vite)', () => {
   const CLI = join(import.meta.dir, '../src/cli.ts')
   const MODULES = join(import.meta.dir, '../node_modules')
-  const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a1d1d1ff0000000049454e44ae426082', 'hex')
+  const PNG = Buffer.from(
+    '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489' +
+      '0000000d4944415478da63f8cfc0f01f0005000201a1d1d1ff0000000049454e44ae426082',
+    'hex',
+  )
 
   function project(files: Record<string, string | Buffer>, modules = true): string {
     const dir = tmp()
@@ -176,15 +192,19 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
   }
 
   async function build(dir: string, extra: Record<string, string> = {}) {
-    const child = Bun.spawn([process.execPath, CLI, 'build', '--out', join(dir, '.acde')], { cwd: dir, env: env({ ACDE_BUNDLER: 'vite', ...extra }), stdout: 'pipe', stderr: 'pipe' })
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
-    return { code, stdout, stderr, out: join(dir, '.acde') }
+    const out = join(dir, '.acde')
+    const ran = await collect([process.execPath, CLI, 'build', '--out', out], {
+      cwd: dir, env: env({ ACDE_BUNDLER: 'vite', ...extra }),
+    })
+    return { code: ran.code, stdout: ran.stdout, stderr: ran.stderr, out }
   }
 
-  const files = (dir: string, ext: string): string[] => readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith(ext)).map((f) => join(dir, f))
+  const files = (dir: string, ext: string): string[] =>
+    readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith(ext)).map((f) => join(dir, f))
   const text = (dir: string, ext: string) => files(dir, ext).map((f) => readFileSync(f, 'utf8')).join('\n')
 
-  test('the fixture app: /app/<id>/ URLs, public/ copied, CSS url(/x) into public/ kept, icon, backend and preload', async () => {
+  test('the fixture app: /app/<id>/ URLs, public/ copied, CSS url(/x) into public/ kept, icon, ' +
+    'backend and preload', async () => {
     const dir = tmp()
     cpSync(join(import.meta.dir, 'fixtures/app'), dir, { recursive: true })
     symlinkSync(MODULES, join(dir, 'node_modules'), WINDOWS ? 'junction' : 'dir')
@@ -206,38 +226,52 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
     expect(existsSync(join(result.out, 'web/fonts/fixture.woff2'))).toBe(true)
     expect(readFileSync(join(result.out, 'web/icon.svg'), 'utf8')).toBe(readFileSync(join(dir, 'src/logo.svg'), 'utf8'))
     const manifest = JSON.parse(readFileSync(join(result.out, 'package.json'), 'utf8'))
-    expect(manifest.acde.apps[0]).toMatchObject({ id: 'hello-app', entry: '/app/hello-app/index.html', icon: '/app/hello-app/icon.svg', backend: { entry: '/app/hello-app/backend/server.js', port: 3000 } })
+    expect(manifest.acde.apps[0]).toMatchObject({
+      id: 'hello-app',
+      entry: '/app/hello-app/index.html',
+      icon: '/app/hello-app/icon.svg',
+      backend: { entry: '/app/hello-app/backend/server.js', port: 3000 },
+    })
     expect(readdirSync(join(result.out, 'backend')).sort()).toEqual(['acde-listen.js', 'package.json', 'server.js'])
     expect(readFileSync(join(result.out, 'backend/acde-listen.js'), 'utf8')).not.toMatch(/^\s*(import|export)\b/m)
   })
 
-  test('a desktop: the page, a service, an app; CSS url(/x) into public/ bundled there; acde:* stays an import', async () => {
+  test('a desktop: the page, a service, an app; CSS url(/x) into public/ bundled there; ' +
+    'acde:* stays an import', async () => {
     const dir = project({
       'acde.config.jsonc': `{ "type": "desktop", "id": "deck", "label": "Deck", // a comment
         "services": { "clock": "clock.ts" },
         "apps": [{ "id": "cards", "label": "Cards", "entry": "cards.html", "icon": "art/cards.png", "backend": false },
                  { "id": "mod", "entry": "src/mod.ts", "backend": false },], }`,
-      'index.html': '<!doctype html><link rel="stylesheet" href="./desk.css"><script type="module" src="./desk.ts"></script><p>desk</p>',
+      'index.html':
+        '<!doctype html><link rel="stylesheet" href="./desk.css">' +
+        '<script type="module" src="./desk.ts"></script><p>desk</p>',
       'desk.ts': "import { apps } from 'acde:apps'\nconsole.log(apps)\n",
       'desk.css': 'body { background: url(/wall.svg); }',
-      'cards.html': '<!doctype html><link rel="icon" href="/wall.svg"><link rel="stylesheet" href="./desk.css"><p>cards</p>',
-      'clock.ts': 'const late = () => import("./later.ts")\nexport default () => ({ methods: { now: () => Date.now(), late } })\n',
+      'cards.html':
+        '<!doctype html><link rel="icon" href="/wall.svg"><link rel="stylesheet" href="./desk.css"><p>cards</p>',
+      'clock.ts':
+        'const late = () => import("./later.ts")\n' +
+        'export default () => ({ methods: { now: () => Date.now(), late } })\n',
       'later.ts': 'export const later = 1\n',
       'src/mod.ts': 'export default { mount(root: HTMLElement) { root.textContent = "mod" } }\n',
-      'public/wall.svg': `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="400" height="400" fill="#123456"/>${'<g/>'.repeat(2000)}</svg>`,
+      'public/wall.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">' +
+        `<rect width="400" height="400" fill="#123456"/>${'<g/>'.repeat(2000)}</svg>`,
       'art/cards.png': PNG,
     })
     const result = await build(dir)
     expect(result.stderr).toBe('')
     expect(result.code).toBe(0)
     const built = JSON.parse(readFileSync(join(result.out, 'package.json'), 'utf8'))
-    expect(built.acde.desktops).toEqual([{ id: 'deck', name: 'Deck', entry: 'desktop/index.html', services: ['clock'] }])
+    expect(built.acde.desktops)
+      .toEqual([{ id: 'deck', name: 'Deck', entry: 'desktop/index.html', services: ['clock'] }])
     expect(built.acde.services).toEqual([{ name: 'clock', module: 'services/clock.js' }])
     expect(built.acde.apps).toEqual([
       { id: 'cards', label: 'Cards', icon: '/app/cards/icon.png', entry: '/app/cards/cards.html' },
       { id: 'mod', label: 'mod', icon: 'app', entry: '/app/mod/mod.js' },
     ])
-    expect(built.acde.assets).toEqual({ '/desktop/deck/': ['desktop'], '/app/cards/': ['apps/cards/web'], '/app/mod/': ['apps/mod/web'] })
+    expect(built.acde.assets)
+      .toEqual({ '/desktop/deck/': ['desktop'], '/app/cards/': ['apps/cards/web'], '/app/mod/': ['apps/mod/web'] })
     expect(readdirSync(join(result.out, 'services'))).toEqual(['clock.js'])
     expect(readFileSync(join(result.out, 'services/clock.js'), 'utf8')).toMatch(/export\s*\{[^}]*default/)
     expect(readFileSync(join(result.out, 'apps/mod/web/mod.js'), 'utf8')).toMatch(/export\s*\{[^}]*default/)
@@ -259,32 +293,50 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
   })
 
   test('an HTML page below the root lands as <name>.html, like Bun', async () => {
-    const dir = project({ 'acde.config.jsonc': '{ "type": "app", "id": "deep", "entry": "pages/main/page.html" }', 'pages/main/page.html': '<!doctype html><script type="module" src="./page.ts"></script>', 'pages/main/page.ts': 'document.title = "deep"\n' })
+    const dir = project({
+      'acde.config.jsonc': '{ "type": "app", "id": "deep", "entry": "pages/main/page.html" }',
+      'pages/main/page.html': '<!doctype html><script type="module" src="./page.ts"></script>',
+      'pages/main/page.ts': 'document.title = "deep"\n',
+    })
     const result = await build(dir)
     expect(result.code).toBe(0)
     expect(existsSync(join(result.out, 'web/page.html'))).toBe(true)
     expect(existsSync(join(result.out, 'web/pages'))).toBe(false)
-    expect(JSON.parse(readFileSync(join(result.out, 'package.json'), 'utf8')).acde.apps[0].entry).toBe('/app/deep/page.html')
+    const manifest = JSON.parse(readFileSync(join(result.out, 'package.json'), 'utf8'))
+    expect(manifest.acde.apps[0].entry).toBe('/app/deep/page.html')
   })
 
   test('references to /x that are nowhere name the file and public/', async () => {
-    const css = await build(project({ 'package.json': '{"name": "lost-font"}', 'index.html': '<!doctype html><link rel="stylesheet" href="./style.css"><p>x</p>', 'style.css': "@font-face { font-family: X; src: url('/fonts/gone.woff2'); }" }))
+    const css = await build(project({
+      'package.json': '{"name": "lost-font"}',
+      'index.html': '<!doctype html><link rel="stylesheet" href="./style.css"><p>x</p>',
+      'style.css': "@font-face { font-family: X; src: url('/fonts/gone.woff2'); }",
+    }))
     expect(css.code).toBe(1)
     expect(css.stderr).toContain(`/fonts/gone.woff2 in style.css: there is no ${join('public/fonts/gone.woff2')}`)
-    const html = await build(project({ 'package.json': '{"name": "lost-icon"}', 'index.html': '<!doctype html><link rel="icon" href="/gone.svg"><p>x</p>' }))
+    const html = await build(project({
+      'package.json': '{"name": "lost-icon"}',
+      'index.html': '<!doctype html><link rel="icon" href="/gone.svg"><p>x</p>',
+    }))
     expect(html.code).toBe(1)
     expect(html.stderr).toContain(`/gone.svg in index.html: there is no ${join('public/gone.svg')}`)
   })
 
   test('no vite in the project: says how to add it with its package manager', async () => {
-    const dir = project({ 'package.json': '{"name": "plain"}', 'package-lock.json': '{}', 'index.html': '<!doctype html><p>x</p>' }, false)
+    const dir = project(
+      { 'package.json': '{"name": "plain"}', 'package-lock.json': '{}', 'index.html': '<!doctype html><p>x</p>' },
+      false,
+    )
     const result = await build(dir)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('this project builds with Vite on Node.js: add it with npm add -D vite')
   })
 
   test('a Vite-built backend answers under the platform-supported preload runtime', async () => {
-    const dir = project({ 'package.json': '{"name": "api", "type": "module"}', 'index.html': '<!doctype html><p>x</p>' })
+    const dir = project({
+      'package.json': '{"name": "api", "type": "module"}',
+      'index.html': '<!doctype html><p>x</p>',
+    })
     cpSync(join(FIXTURE, 'server.ts'), join(dir, 'server.ts'))
     cpSync(join(FIXTURE, 'lib.ts'), join(dir, 'lib.ts'))
     const result = await build(dir)
@@ -297,7 +349,8 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
       : [process.execPath, '--preload', preload]
     const child = run([...argv, join(backend, 'server.js')], { ACDE_APP_SOCKETS: sockets })
     await waitFor(join(sockets, '3000.sock'), child)
-    const answer = (await (await fetch('http://acde.local/api/hello', { unix: join(sockets, '3000.sock') })).json()) as { hello: string; runtime: string }
+    const response = await fetch('http://acde.local/api/hello', { unix: join(sockets, '3000.sock') })
+    const answer = (await response.json()) as { hello: string; runtime: string }
     expect(answer).toMatchObject({ hello: 'from a fetch handler', runtime: NODE ? 'node' : 'bun' })
   })
 })
