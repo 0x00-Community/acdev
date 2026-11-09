@@ -25,6 +25,7 @@ interface OpenerHost {
   launch(app: string, request: Record<string, unknown>): { window: number }
   spawn(argv: string[]): void
   system(): ((target: string) => Promise<void>) | null
+  unsupported(app: string): Error | null
 }
 
 type Opened = { kind: 'acde' | 'native'; id: string; window?: number }
@@ -317,7 +318,9 @@ export class Opener {
 
   #asked(id: string, natives: readonly NativeEntry[]): { kind: 'acde' | 'native'; id: string } {
     const native = id.endsWith('.desktop')
-    if (native ? !natives.some((n) => n.id === id) : !this.#host.apps().some((a) => a.id === id)) throw Object.assign(new Error(`no app ${id}`), { status: 404 })
+    const unsupported = native ? null : this.#host.unsupported(id)
+    if (unsupported) throw unsupported
+    if (native ?!natives.some((n) => n.id === id) : !this.#host.apps().some((a) => a.id === id)) throw Object.assign(new Error(`no app ${id}`), { status: 404 })
     return { kind: native ? 'native' : 'acde', id }
   }
 

@@ -665,8 +665,9 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   宿主窗口和 Dopame OS 得到同样的类型 (`.md` 是 `text/markdown`, 不是 `file` 说的 `text/plain`). 数据库不进包 (shared-mime-info 是 GPL),
   没有时打一行 warn (macOS 提示 `brew install shared-mime-info`), 类型会和 Dopame OS 不一样. 测试 `acde-host/test/mimedb.test.ts`.
 - **这个平台上跑不了的应用不选** (Broker `#runsHere`): 宿主窗口里没有 slots (嵌原生窗口只在 Linux 会话里), 要 `slots` 的应用 (如
-  Dopame 的浏览器) 不当默认应用、不进 `handlers`, 页面的外部链接也不交给它 (打一行 warn, 不开只会报错的空窗口). 应用列表和
-  `acde.apps.launch` 不变.
+  Dopame 的浏览器) 不当默认应用、不进 `handlers`, 页面的外部链接也不交给它 (打一行 warn, 不开只会报错的空窗口). 它们也不在
+  `acde.apps.list()` 和 `appschanged` 里 (Dock、搜索、设置看不到); `launch` / `acde.open(<id>)` 和指定 `app` 的 `openPath` 回
+  `{status: 404, code: 'unsupported_app'}` (页面看不出自己在哪: `navigator.platform` 固定是 `Linux x86_64`, 所以靠这个 code). Linux 会话不变.
 - **macOS / Windows 的宿主窗口交给系统默认程序** (没有 XDG 的 `.desktop`, `natives()` 是空的): 没有能用的 acde 应用、也没有指定 `app`
   时, `Opener.open` 经宿主 `Shell.openDefault(目标)` (只在这两处注入; hostwin `handoff.rs`, 在 `acde-open` 线程上做, promise 落定)
   交给系统: Windows `ShellExecuteW` (动词 `open`, 线程上先 `CoInitializeEx`), macOS `/usr/bin/open <目标>` (不经 shell). 回

@@ -253,6 +253,10 @@ export class Broker {
         const shell = this.shell
         return shell.openDefault ? (target) => shell.openDefault!(target) : null
       },
+      unsupported: (id) => {
+        const app = this.apps.get(id)
+        return app && this.#available(app) && !this.#runsHere(app) ? Broker.#unsupported(app) : null
+      },
     })
     this.shell = native.Shell.broker()
     this.shell.onEvents(() => this.#poke())
@@ -751,6 +755,7 @@ export class Broker {
     const app = this.apps.get(appId) ?? (this.refreshApps(), this.apps.get(appId))
     if (!app) throw Object.assign(new Error(`no app ${appId}`), { status: 404 })
     if (!this.#available(app)) throw Object.assign(new Error(`${app.label}: the system service it needs is not running`), { status: 503 })
+    if (!this.#runsHere(app)) throw Broker.#unsupported(app)
     if (!app.multiple) {
       const running = this.#running(appId)
       if (running) {
@@ -781,7 +786,8 @@ export class Broker {
   }
 
   #appList(): { id: string; label: string; icon: string; script: string }[] {
-    return this.apps.list().filter((app) => this.#available(app)).map(({ id, label, icon, entry }) => ({ id, label, icon, script: entry }))
+    const shown = this.apps.list().filter((app) => this.#available(app) && this.#runsHere(app))
+    return shown.map(({ id, label, icon, entry }) => ({ id, label, icon, script: entry }))
   }
 
   refreshApps(): { id: string; label: string; icon: string; script: string }[] {
@@ -805,6 +811,10 @@ export class Broker {
 
   #available(app: AppManifest): boolean {
     return this.bridge.available(app.capabilities)
+  }
+
+  static #unsupported(app: AppManifest): Error {
+    return Object.assign(new Error(`${app.label} cannot run in a host window (it needs slots)`), { status: 404, code: 'unsupported_app' })
   }
 
   #runsHere(app: AppManifest): boolean {
