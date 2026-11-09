@@ -1,5 +1,6 @@
 mod decode;
 mod graph;
+mod live;
 mod mixer;
 mod output;
 #[cfg(not(target_os = "linux"))]
@@ -19,10 +20,14 @@ use mixer::{Clock, Cmd, MediaOp, Note, RATE};
 use output::Ctl;
 use video::{Picture, VideoSound};
 
+enum Feed {
+    File { player: Arc<acde_media::Player>, epoch: u64 },
+    Live { capture: Arc<acde_media::capture::Capture>, seq: u64, black: bool },
+}
+
 struct Video {
-    player: Arc<acde_media::Player>,
+    feed: Feed,
     picture: Picture,
-    epoch: u64,
 }
 
 #[derive(Default)]
@@ -106,6 +111,9 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
         "present" => present,
         "videoSize" => video_size,
         "clearVideo" => clear_video,
+        "openStream" => open_stream,
+        "streamEnabled" => stream_enabled,
+        "streamNode" => stream_node,
     );
     bind::set(scope, natives, "audio", audio.into());
 }
@@ -429,11 +437,11 @@ fn opened(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, re
         if !live {
             send(Cmd::CloseMedia { media: open.media });
         } else if let Some(frame) = open.first {
-            picture.show(frame);
+            picture.show(&frame);
         }
         let (width, height) = if info.video { picture.size.unwrap_or((info.width, info.height)) } else { (0, 0) };
         if live {
-            with_state(|s| s.videos.insert(open.media, Video { player: open.player, picture, epoch: open.epoch }));
+            with_state(|s| s.videos.insert(open.media, Video { feed: Feed::File { player: open.player, epoch: open.epoch }, picture }));
         }
         [("duration", info.duration), ("width", f64::from(width)), ("height", f64::from(height)), ("audio", f64::from(u8::from(info.audio)))]
     });
@@ -456,17 +464,30 @@ fn present(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
     let shown = with_state(|s| {
         let time = s.media.get(&media).map(|t| f64::from_bits(t.load(Ordering::Acquire)))?;
         let video = s.videos.get_mut(&media)?;
-        let epoch = video.player.epoch();
-        let frame = if epoch != video.epoch {
-            let frame = video.player.first_frame(Duration::ZERO);
-            if frame.is_some() {
-                video.epoch = epoch;
+        match &mut video.feed {
+            Feed::File { player, epoch } => {
+                let now = player.epoch();
+                let frame = if now != *epoch {
+                    let frame = player.first_frame(Duration::ZERO);
+                    if frame.is_some() {
+                        *epoch = now;
+                    }
+                    frame
+                } else {
+                    player.frame_at(time)
+                };
+                Some(video.picture.show(&frame?))
             }
-            frame
-        } else {
-            video.player.frame_at(time)
-        };
-        Some(video.picture.show(frame?))
+            Feed::Live { black: true, .. } => None,
+            Feed::Live { capture, seq, .. } => {
+                let (latest, frame) = capture.frame()?;
+                if latest == *seq {
+                    return None;
+                }
+                *seq = latest;
+                Some(video.picture.show(&frame))
+            }
+        }
     });
     rv.set_int32(match shown {
         Some(true) => 2,
@@ -488,4 +509,51 @@ fn video_size(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
 fn clear_video(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let node = bind::arg_u32(scope, &args, 0);
     Picture::new(node, None).clear();
+}
+
+fn open_stream(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let (media, node) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
+    let (video, audio) = (crate::capture::source(bind::arg_u32(scope, &args, 2)), crate::capture::source(bind::arg_u32(scope, &args, 3)));
+    let Some(web) = web() else {
+        return bind::throw_error(scope, "NotSupportedError: no audio output");
+    };
+    let time = Arc::new(AtomicU64::new(0f64.to_bits()));
+    with_state(|s| s.media.insert(media, time.clone()));
+    let has_audio = audio.is_some();
+    output::send(Ctl::Cmd(web, Cmd::AddMedia { media, stream: Box::new(live::LiveSound::new(audio)), time }));
+    let (mut width, mut height) = (0, 0);
+    if let Some(capture) = video {
+        let mut picture = Picture::new(node, acde_gpu::Gpu::shared());
+        let mut seq = 0;
+        if let Some((latest, frame)) = capture.frame() {
+            picture.show(&frame);
+            seq = latest;
+        }
+        (width, height) = picture.size.unwrap_or((0, 0));
+        with_state(|s| s.videos.insert(media, Video { feed: Feed::Live { capture, seq, black: false }, picture }));
+    }
+    let fields: [(&str, f64); 4] =
+        [("duration", f64::INFINITY), ("width", f64::from(width)), ("height", f64::from(height)), ("audio", f64::from(u8::from(has_audio)))];
+    let fields: Vec<(&str, v8::Local<v8::Value>)> = fields.iter().map(|&(name, value)| (name, v8::Number::new(scope, value).into())).collect();
+    let obj = bind::object(scope, &fields);
+    rv.set(obj.into());
+}
+
+fn stream_enabled(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let (media, enabled) = (bind::arg_u32(scope, &args, 0), bind::arg_bool(scope, &args, 1));
+    with_state(|s| {
+        let Some(video) = s.videos.get_mut(&media) else { return };
+        let Feed::Live { black, seq, .. } = &mut video.feed else { return };
+        *black = !enabled;
+        *seq = 0;
+        if !enabled {
+            video.picture.black();
+        }
+    });
+}
+
+fn stream_node(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let (node, source) = (bind::arg_u32(scope, &args, 0), bind::arg_u32(scope, &args, 1));
+    let tap = crate::capture::source(source).map(|capture| Box::new(live::LiveTap::new(capture)));
+    send(Cmd::Node { node, op: NodeOp::Stream(tap) });
 }

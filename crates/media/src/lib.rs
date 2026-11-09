@@ -1,5 +1,6 @@
 #[cfg(target_os = "macos")]
 mod apple;
+pub mod capture;
 #[cfg(target_os = "linux")]
 mod gst;
 
@@ -79,7 +80,7 @@ struct Shared {
     readers: usize,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 

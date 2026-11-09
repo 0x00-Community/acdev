@@ -55,6 +55,8 @@ export interface WebGrants {
   readonly terminal: boolean
   readonly network: boolean
   readonly office: boolean
+  readonly camera: boolean
+  readonly microphone: boolean
   readonly storage: StoragePlace
 }
 

@@ -1,6 +1,7 @@
 import { defineHandlers, Event, EventTarget, fire, LISTENERS, windowEvent } from '../core/event'
 import { DOMException } from '../core/exception'
-import { G, getters, globals, host, tag } from '../core/host'
+import { G, getters, globals, host, KEY, tag } from '../core/host'
+import { capturePermission, MediaDevices, Permissions } from '../media/stream'
 import { structuredClone, transferList } from '../core/message'
 import { objectUrls, URL } from '../core/url'
 import { Blob } from '../core/blob'
@@ -321,21 +322,6 @@ export class Clipboard extends EventTarget {
 }
 tag(Clipboard)
 
-export class MediaDevices extends EventTarget {
-  getUserMedia(): Promise<never> {
-    return Promise.reject(new DOMException('Permission denied', 'NotAllowedError'))
-  }
-  getDisplayMedia(): Promise<never> {
-    return Promise.reject(new DOMException('Permission denied', 'NotAllowedError'))
-  }
-  enumerateDevices(): Promise<unknown[]> {
-    return Promise.resolve([])
-  }
-  getSupportedConstraints(): object {
-    return {}
-  }
-}
-tag(MediaDevices)
 
 export class Notification extends EventTarget {
   static get permission(): string {
@@ -393,10 +379,28 @@ export function setNavigatorLanguages(navigator: Navigator, languages: { languag
   return true
 }
 
+function permissionState(name: string): string {
+  switch (name) {
+    case 'camera':
+    case 'microphone':
+      return capturePermission(name)
+    case 'notifications':
+      return env.notify ? 'granted' : 'denied'
+    case 'persistent-storage':
+      return 'granted'
+    case 'clipboard-read':
+    case 'clipboard-write':
+      return env.clipboard ? 'granted' : 'denied'
+    default:
+      return 'denied'
+  }
+}
+
 export class Navigator {
   readonly #options: NavigatorOptions
   readonly #clipboard = new Clipboard()
   readonly #media = new MediaDevices()
+  readonly #permissions = new Permissions(KEY, (name) => permissionState(name))
 
   constructor(options: NavigatorOptions) {
     this.#options = options
@@ -427,6 +431,9 @@ export class Navigator {
   get mediaDevices(): MediaDevices {
     return this.#media
   }
+  get permissions(): Permissions {
+    return this.#permissions
+  }
   javaEnabled(): boolean {
     return false
   }
@@ -449,7 +456,6 @@ export class Navigator {
 getters(Navigator.prototype, {
   appName: 'Netscape', appCodeName: 'Mozilla', platform: 'Linux x86_64', product: 'Gecko', productSub: '20030107', vendor: '', vendorSub: '',
   onLine: true, cookieEnabled: true, deviceMemory: 8, maxTouchPoints: 0, pdfViewerEnabled: false, webdriver: false, doNotTrack: null,
-  permissions: () => ({ query: () => Promise.resolve({ state: 'denied', onchange: null }) }),
   userActivation: () => ({ hasBeenActive: true, isActive: false }),
   mimeTypes: () => ({ length: 0 }),
   plugins: () => ({ length: 0 }),

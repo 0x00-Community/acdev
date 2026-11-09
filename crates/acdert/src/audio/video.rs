@@ -113,7 +113,16 @@ impl Picture {
         Picture { node, gpu, image: None, size: None }
     }
 
-    pub fn show(&mut self, frame: Frame) -> bool {
+    pub fn black(&mut self) -> bool {
+        let Some((width, height)) = self.size else { return false };
+        let mut rgba = vec![0u8; (width * height * 4) as usize];
+        for pixel in rgba.as_chunks_mut::<4>().0 {
+            pixel[3] = 0xff;
+        }
+        self.show(&Frame { time: 0.0, width, height, rgba })
+    }
+
+    pub fn show(&mut self, frame: &Frame) -> bool {
         let size = (frame.width, frame.height);
         if size.0 == 0 || size.1 == 0 || frame.rgba.len() < (size.0 * size.1 * 4) as usize {
             return false;
@@ -133,7 +142,7 @@ impl Picture {
                 image.image()
             }
             None => peniko::ImageData {
-                data: peniko::Blob::new(Arc::new(frame.rgba)),
+                data: peniko::Blob::new(Arc::new(frame.rgba.clone())),
                 format: peniko::ImageFormat::Rgba8,
                 alpha_type: peniko::ImageAlphaType::Alpha,
                 width: size.0,

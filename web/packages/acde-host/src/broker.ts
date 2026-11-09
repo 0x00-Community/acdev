@@ -507,9 +507,17 @@ export class Broker {
   static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office'])
 
   static #grants(app: string | null, caps: Capabilities | null): Omit<WebGrants, 'storage'> {
-    if (!caps) return { app, fs: true, terminal: true, network: true, office: true }
+    if (!caps) return { app, fs: true, terminal: true, network: true, office: true, camera: true, microphone: true }
     const fs = caps.fs
-    return { app, fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null, terminal: !!caps.terminal, network: !!caps.network, office: !!caps.office }
+    return {
+      app,
+      fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null,
+      terminal: !!caps.terminal,
+      network: !!caps.network,
+      office: !!caps.office,
+      camera: caps.camera === true,
+      microphone: caps.microphone === true,
+    }
   }
 
   static #env(): Record<string, string> {

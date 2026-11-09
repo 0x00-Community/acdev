@@ -1,6 +1,27 @@
 use std::path::Path;
 
+const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>org.dopame.Acde</string>
+	<key>CFBundleName</key>
+	<string>acde</string>
+	<key>NSCameraUsageDescription</key>
+	<string>An acde app asks to use the camera.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>An acde app asks to use the microphone.</string>
+</dict>
+</plist>
+"#;
+
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("Info.plist");
+        std::fs::write(&out, INFO_PLIST).expect("writing Info.plist");
+        println!("cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{}", out.display());
+    }
     if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         return;
     }

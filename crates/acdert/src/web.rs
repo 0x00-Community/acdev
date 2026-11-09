@@ -60,6 +60,7 @@ struct Grants {
     storage: Option<acde_storage::Place>,
     fs: Option<acde_runtime::Workspace>,
     picker: crate::picker::Picker,
+    capture: crate::capture::Allowed,
     #[cfg(unix)]
     terminal: Option<acde_runtime::Terminals>,
     #[cfg(target_os = "linux")]
@@ -77,6 +78,10 @@ impl Webs {
             _ => None,
         };
         let app = bind::get_string(scope, wanted, "app");
+        let capture = crate::capture::Allowed {
+            camera: bind::get(scope, wanted, "camera").is_some_and(|v| v.is_true()),
+            microphone: bind::get(scope, wanted, "microphone").is_some_and(|v| v.is_true()),
+        };
         #[cfg(unix)]
         let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
@@ -89,6 +94,7 @@ impl Webs {
         Grants {
             storage: crate::storage::place(scope, wanted),
             fs: fs.map(|roots| workspace.scoped(roots, app.as_deref())),
+            capture,
             app,
             picker,
             #[cfg(unix)]
@@ -103,6 +109,7 @@ impl Webs {
 
 impl Grants {
     fn install(self, scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
+        crate::capture::install(scope, natives, self.capture, self.app.as_deref());
         crate::webnative::bind_app(self.app);
         if let Some(place) = self.storage {
             crate::storage::install(scope, natives, place);
@@ -211,6 +218,7 @@ impl Spec {
         crate::storage::clear();
         crate::host::clear();
         crate::audio::clear();
+        crate::capture::clear();
         #[cfg(target_os = "linux")]
         crate::webgpu::clear();
         bind::clear_promises();
