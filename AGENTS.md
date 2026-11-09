@@ -273,6 +273,11 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 外部会话 (`src/foreign.ts`): `$XDG_DATA_DIRS/wayland-sessions/*.desktop`, id `session:<文件名>` (显示名去掉 "(Wayland)", KDE 的加 "KDE");
 不列 acde 自己的、`Hidden` / `NoDisplay`、程序找不到的.
 
+**契约级别** (`apiLevel`): 每个包清单的 `acde` 字段带一个整数 `apiLevel`, 运行时的级别只在 SDK `src/level.js` 的 `API_LEVEL` 定义 (acde-host 经
+`@dopame/acde-api/manifest` 读, `acdert --version` 编译时从这个文件读). 级别不同或不是正整数的包 (`Packages.refused`) 不进应用列表、
+桌面列表和打开方式, 启动它的应用报 `<id>: needs level N, runtime is level M` (409, `api_level`), 选它的桌面同样报错. 没有 `apiLevel` 的包
+暂按第 0 级照常加载, 每个包记一行 warn; 本版本末尾的第 0 级移除之后拒绝. acde-host 自己的包不查.
+
 **启动哪个桌面**: `--desktop <id|包目录>`, 否则 `ACDE_DESKTOP`, 否则上次进的 (`$XDG_STATE_HOME/acde/desktop`; `--greeter` 和 `app` /
 `desktop` 子命令不记), 否则第一个 acde 桌面, 否则第一个外部会话. `acdert app` 没有桌面时用空的 (`Packages.bare`).
 桌面经 `acde.desktops.choose(id, remember)` 换桌面.
@@ -846,6 +851,7 @@ acdert --greeter                          # 登录页 (greetd)
 acdert desktop <id|目录>                  # 调试桌面 (acde dev)
 acdert app <id|目录>                      # 调试窗口: 只跑一个应用
 acdert desktops                           # 装了的桌面和外部会话 (不要显示器)
+acdert --version                          # 发行版本和契约级别: acdert 0.0.5 (contract level 1)
 acdert sessions DIR --package PKG         # 给包的每个桌面写 acdert-<id>.desktop
 acdert applications DIR --package PKG     # 「默认应用」的 desktop entry 和 acde-mimeapps.list
 acdert open [--app ID] PATH|URI...        # 在运行中的会话里打开
@@ -990,7 +996,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 
 Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run test`; 测试是 `bun test`, 没有 Node).
 
-- **acde-api**: `load(name)` (`src/load.js`: `import('acde:<name>')` 的默认导出, 拿不到时是 null; 说明符带 `@vite-ignore` 等)、
+- **acde-api**: `API_LEVEL` (`src/level.js`, 契约级别, 包根和 `./manifest` 都导出)、`load(name)` (`src/load.js`: `import('acde:<name>')` 的默认导出, 拿不到时是 null; 说明符带 `@vite-ignore` 等)、
   `@dopame/acde-api/vite` (build 时 `acde:*` 留作外部模块, dev 时换成会 reject 的替身); 声明 `manifest.d.ts` / `service.d.ts` / `page.d.ts` /
   `config.d.ts` (+ `config.schema.json`) / `modules.d.ts`; `src/validate.ts` (导出 `./manifest`) 是清单校验和 `ICON_NAMES`, 测试
   `test/validate.test.ts`. acde 仓库用 `file:../acdert/web/packages/acde-api`, acde-dopame 拷一份 (`scripts/sync-acde-api.sh`).
