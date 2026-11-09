@@ -578,8 +578,9 @@ export class MockDom implements DomNative {
   caretRect(_id: number, _offset: number): Float64Array {
     return new Float64Array(4)
   }
-  caretFromPoint(_x: number, _y: number): { node: number; offset: number } | null {
-    return null
+  caret: ((x: number, y: number) => { node: number; offset: number } | null) | null = null
+  caretFromPoint(x: number, y: number): { node: number; offset: number } | null {
+    return this.caret ? this.caret(x, y) : null
   }
   textRects(_id: number, _start: number, _end: number): Float64Array {
     return new Float64Array(0)

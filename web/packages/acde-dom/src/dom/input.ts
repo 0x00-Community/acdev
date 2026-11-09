@@ -7,6 +7,7 @@ import { KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from './events'
 import { focus, focusable, focusedElement, setFocus } from './focus'
 import { HTMLButtonElement } from './forms'
 import { SelectInput } from './select'
+import { PointerSelection } from './textselect'
 import { dom, documentId, ID, moved, rootElementId, wrap } from './realm'
 
 export interface Modifiers {
@@ -60,6 +61,7 @@ export class Input {
   #last = { x: 0, y: 0 }
   capture: Element | null = null
   readonly selects = new SelectInput()
+  readonly text = new PointerSelection()
   onKeyDefault: (target: Element, key: string, modifiers: Modifiers) => void = () => {}
 
   elementAt(target: number | null | undefined, x: number, y: number, ignoreCapture = false): Element {
@@ -139,7 +141,7 @@ export class Input {
     const target = this.elementAt(options.target, x, y)
     const init = this.#init(x, y, options)
     this.#hoverTo(this.capture ? this.elementAt(options.target, x, y, true) : target, init)
-    this.#pointer(target, 'move', init)
+    if (this.#pointer(target, 'move', init) && this.text.dragging && this.#buttons & 1) this.text.move(x, y)
   }
 
   #down(x: number, y: number, options: PointerOptions): void {
@@ -157,7 +159,10 @@ export class Input {
       const candidate = target.closest(FOCUSABLE)
       if (candidate && focusable(candidate[ID])) setFocus(candidate)
       else if (focusedElement()) setFocus(null)
-      if (button === 0) this.selects.pressed(target, x, y, options.modifiers ?? {})
+      if (button === 0) {
+        this.selects.pressed(target, x, y, options.modifiers ?? {})
+        this.text.down(target, x, y, count, options.modifiers ?? {})
+      }
     }
     if (button === 2) this.#fire(target, 'contextmenu', init)
   }
@@ -166,6 +171,7 @@ export class Input {
     const target = this.elementAt(options.target, x, y)
     const button = options.button ?? 0
     this.#buttons &= ~buttonBit(button)
+    if (button === 0) this.text.up()
     const init = this.#init(x, y, options, button)
     this.#pointer(target, 'up', init, button === 0 ? this.#lastDown.count : 1)
     dom.setActive(NONE)
@@ -191,6 +197,7 @@ export class Input {
 
   #release(button: number): void {
     this.#buttons &= ~buttonBit(button)
+    if (button === 0) this.text.up()
     this.#pressed = null
     dom.setActive(NONE)
   }
