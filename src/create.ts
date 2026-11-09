@@ -38,7 +38,8 @@ export interface Created {
   readonly pm: PackageManager
 }
 
-const vite = (template: string) => (dir: string, pm: PackageManager) => pm.exec('create-vite@latest', [dir, '--template', template, '--no-interactive', '--no-immediate'])
+const vite = (template: string) => (dir: string, pm: PackageManager) =>
+  pm.exec('create-vite@latest', [dir, '--template', template, '--no-interactive', '--no-immediate'])
 
 export const STARTERS: readonly Starter[] = [
   { name: 'html', label: 'HTML', hint: 'index.html + JS, an optional server.ts backend; no framework', kind: 'app' },
@@ -53,30 +54,65 @@ export const STARTERS: readonly Starter[] = [
     label: 'Next.js',
     hint: 'server rendering, App Router',
     kind: 'app',
-    scaffold: (dir, pm) => pm.exec('create-next-app@latest', [dir, '--yes', '--ts', '--app', `--use-${pm.name}`, '--skip-install', '--disable-git', '--no-agent-feedback']),
+    scaffold: (dir, pm) =>
+      pm.exec('create-next-app@latest', [
+        dir,
+        '--yes',
+        '--ts',
+        '--app',
+        `--use-${pm.name}`,
+        '--skip-install',
+        '--disable-git',
+        '--no-agent-feedback',
+      ]),
   },
   {
     name: 'nuxt',
     label: 'Nuxt',
     hint: 'server rendering',
     kind: 'app',
-    scaffold: (dir, pm) => pm.exec('create-nuxt@latest', [dir, '--template', 'minimal', '--no-install', '--no-gitInit', '--packageManager', pm.name]),
+    scaffold: (dir, pm) =>
+      pm.exec('create-nuxt@latest', [
+        dir,
+        '--template',
+        'minimal',
+        '--no-install',
+        '--no-gitInit',
+        '--packageManager',
+        pm.name,
+      ]),
   },
   {
     name: 'sveltekit',
     label: 'SvelteKit',
     hint: 'server rendering',
     kind: 'app',
-    scaffold: (dir, pm) => pm.exec('sv@latest', ['create', dir, '--template', 'minimal', '--types', 'ts', '--no-add-ons', '--no-install']),
+    scaffold: (dir, pm) =>
+      pm.exec('sv@latest', ['create', dir, '--template', 'minimal', '--types', 'ts', '--no-add-ons', '--no-install']),
   },
   {
     name: 'astro',
     label: 'Astro',
     hint: 'static pages',
     kind: 'app',
-    scaffold: (dir, pm) => pm.exec('create-astro@latest', [dir, '--template', 'minimal', '--no-install', '--no-git', '--no-ai', '--yes', '--skip-houston']),
+    scaffold: (dir, pm) =>
+      pm.exec('create-astro@latest', [
+        dir,
+        '--template',
+        'minimal',
+        '--no-install',
+        '--no-git',
+        '--no-ai',
+        '--yes',
+        '--skip-houston',
+      ]),
   },
-  { name: 'desktop', label: 'Desktop', hint: 'a full-screen page behind every window, its services and apps', kind: 'desktop' },
+  {
+    name: 'desktop',
+    label: 'Desktop',
+    hint: 'a full-screen page behind every window, its services and apps',
+    kind: 'desktop',
+  },
 ]
 
 export class Creator {
@@ -111,7 +147,16 @@ export class Creator {
       return got as Exclude<T, symbol>
     }
     try {
-      const dir = given.dir ?? (await answer(p.text({ message: 'Project directory', placeholder: 'my-app', defaultValue: 'my-app', validate: (v) => Creator.vacant(v || 'my-app') })))
+      const dir =
+        given.dir ??
+        (await answer(
+          p.text({
+            message: 'Project directory',
+            placeholder: 'my-app',
+            defaultValue: 'my-app',
+            validate: (v) => Creator.vacant(v || 'my-app'),
+          }),
+        ))
       let template = given.template
       if (template === undefined) {
         const kind = await answer(
@@ -129,17 +174,41 @@ export class Creator {
             : await answer(
                 p.select<string>({
                   message: 'Template',
-                  options: STARTERS.filter((s) => s.kind === 'app').map((s) => ({ value: s.name, label: s.label, hint: s.hint })),
+                  options: STARTERS.filter((s) => s.kind === 'app').map((s) => ({
+                    value: s.name,
+                    label: s.label,
+                    hint: s.hint,
+                  })),
                   maxItems: 12,
                 }),
               )
       }
       const starter = Creator.starter(template)
-      const label = given.label ?? (await answer(p.text({ message: 'Name people see', placeholder: given.id ?? Creator.idOf(dir), defaultValue: given.id ?? Creator.idOf(dir) })))
-      const backend = given.backend ?? (starter.name === 'html' ? await answer(p.confirm({ message: 'Add a backend (server.ts, any Bun / Node server)?', initialValue: false })) : false)
+      const label =
+        given.label ??
+        (await answer(
+          p.text({
+            message: 'Name people see',
+            placeholder: given.id ?? Creator.idOf(dir),
+            defaultValue: given.id ?? Creator.idOf(dir),
+          }),
+        ))
+      const backend =
+        given.backend ??
+        (starter.name === 'html'
+          ? await answer(
+              p.confirm({ message: 'Add a backend (server.ts, any Bun / Node server)?', initialValue: false }),
+            )
+          : false)
       const pm = given.pm ? PackageManager.named(given.pm) : await Creator.#choose(answer)
-      const install = given.install ?? (await answer(p.confirm({ message: `Install dependencies (${pm.name} install)?`, initialValue: true })))
-      const git = given.git ?? (which('git') && !Creator.#inRepo(dir) ? await answer(p.confirm({ message: 'Start a git repository?', initialValue: true })) : false)
+      const install =
+        given.install ??
+        (await answer(p.confirm({ message: `Install dependencies (${pm.name} install)?`, initialValue: true })))
+      const git =
+        given.git ??
+        (which('git') && !Creator.#inRepo(dir)
+          ? await answer(p.confirm({ message: 'Start a git repository?', initialValue: true }))
+          : false)
       return { ...given, dir, template, label, backend, install, git, pm: pm.name }
     } catch (error) {
       if (!(error instanceof Cancelled)) throw error
@@ -164,13 +233,24 @@ export class Creator {
     } else {
       Creator.lay(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
     }
-    if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml'))) writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+    if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml')))
+      writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
     Creator.#pin(dir, pm)
     const pkg = new AppPackage(dir)
     if (options.install) await step(`${pm.name} install`, [pm.install], dir)
     if (options.git && !Creator.#inRepo(dir)) {
-      await step('git init', [['git', 'init', '--quiet'], ['git', 'add', '--all']], dir)
-      const commit = spawnSync('git', ['commit', '--quiet', '--message', 'Initial commit (acde new)'], { cwd: dir, stdio: 'ignore' })
+      await step(
+        'git init',
+        [
+          ['git', 'init', '--quiet'],
+          ['git', 'add', '--all'],
+        ],
+        dir,
+      )
+      const commit = spawnSync('git', ['commit', '--quiet', '--message', 'Initial commit (acde new)'], {
+        cwd: dir,
+        stdio: 'ignore',
+      })
       if (chatty) p.log.step(commit.status === 0 ? 'git commit' : 'git commit: skipped (no git user.name / user.email)')
     }
     return { pkg, dir, starter, installed: options.install === true, pm }
@@ -198,7 +278,8 @@ export class Creator {
     Creator.#wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' })
     const ignore = join(dir, '.gitignore')
     const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
-    if (!/^\/?\.acde\/?$/m.test(ignored)) writeFileSync(ignore, `${ignored}${ignored && !ignored.endsWith('\n') ? '\n' : ''}.acde/\n`)
+    if (!/^\/?\.acde\/?$/m.test(ignored))
+      writeFileSync(ignore, `${ignored}${ignored && !ignored.endsWith('\n') ? '\n' : ''}.acde/\n`)
   }
 
   static api(dir: string): string {
@@ -216,9 +297,12 @@ export class Creator {
       const current = join(installDir(), 'current', 'lib')
       return existsSync(current) && realpathSync(current) === lib ? join(current, 'acde-api') : join(lib, 'acde-api')
     }
-    const self = JSON.parse(readFileSync(join(Creator.ROOT, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+    const self = JSON.parse(readFileSync(join(Creator.ROOT, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+    }
     const spec = self.dependencies['@dopame/acde-api'] ?? ''
-    if (!spec.startsWith('file:')) throw new Error(`acde's package.json: @dopame/acde-api is not a file: dependency (${spec})`)
+    if (!spec.startsWith('file:'))
+      throw new Error(`acde's package.json: @dopame/acde-api is not a file: dependency (${spec})`)
     return realpathSync(resolve(Creator.ROOT, spec.slice('file:'.length)))
   }
 
@@ -249,10 +333,20 @@ export class Creator {
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   }
 
-  static #wire(dir: string, scripts: Readonly<Record<string, string>>, extra: Readonly<Record<string, string>> = {}): void {
+  static #wire(
+    dir: string,
+    scripts: Readonly<Record<string, string>>,
+    extra: Readonly<Record<string, string>> = {},
+  ): void {
     const file = join(dir, 'package.json')
-    const json = JSON.parse(readFileSync(file, 'utf8')) as { scripts?: Record<string, string>; devDependencies?: Record<string, string> }
-    json.scripts = { ...json.scripts, ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `acde ${command}`])) }
+    const json = JSON.parse(readFileSync(file, 'utf8')) as {
+      scripts?: Record<string, string>
+      devDependencies?: Record<string, string>
+    }
+    json.scripts = {
+      ...json.scripts,
+      ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `acde ${command}`])),
+    }
     json.devDependencies = { ...json.devDependencies, '@dopame/acde-api': Creator.api(dir), ...extra }
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   }
@@ -266,7 +360,10 @@ export class Creator {
       }
       const file = resolve(to, name === 'gitignore' ? '.gitignore' : name)
       mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(file, readFileSync(source, 'utf8').replace(/\{\{(\w+)\}\}/g, (all, key: string) => vars[key] ?? all))
+      writeFileSync(
+        file,
+        readFileSync(source, 'utf8').replace(/\{\{(\w+)\}\}/g, (all, key: string) => vars[key] ?? all),
+      )
     }
   }
 
@@ -274,7 +371,11 @@ export class Creator {
     return up(resolve(dir), (at) => existsSync(join(at, '.git'))) !== null
   }
 
-  static async #run(argv: readonly string[], cwd: string | undefined, env: NodeJS.ProcessEnv): Promise<{ code: number; output: string }> {
+  static async #run(
+    argv: readonly string[],
+    cwd: string | undefined,
+    env: NodeJS.ProcessEnv,
+  ): Promise<{ code: number; output: string }> {
     const chunks: Buffer[] = []
     try {
       const child = Runtime.spawn(argv, { ...(cwd !== undefined && { cwd }), env, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -287,7 +388,12 @@ export class Creator {
   }
 
   static #steps(chatty: boolean) {
-    return async (title: string, commands: readonly (readonly string[])[], cwd?: string, env: Readonly<Record<string, string>> = {}): Promise<void> => {
+    return async (
+      title: string,
+      commands: readonly (readonly string[])[],
+      cwd?: string,
+      env: Readonly<Record<string, string>> = {},
+    ): Promise<void> => {
       const spin = chatty ? p.spinner() : null
       spin?.start(title)
       for (const argv of commands) {
