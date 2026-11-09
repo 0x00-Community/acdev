@@ -535,9 +535,12 @@ export interface PinnedPanel {
   unpin(): void
 }
 
+export type DoubleClickAction = 'fill' | 'minimize' | 'none'
+
 export interface AcdeDesktop {
   apps(): Promise<{ apps: DesktopApp[] }>
   pin?(element: Element, options?: PinOptions): PinnedPanel
+  setDoubleClick?(action: DoubleClickAction): void
   on(type: 'download', handler: (event: DownloadEvent) => void): () => boolean
   on(type: 'notification', handler: (event: NotificationEvent) => void): () => boolean
   on(
