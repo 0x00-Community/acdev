@@ -268,6 +268,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **services**: 在 Broker isolate 里跑的 ES 模块, 默认导出 `ServiceFactory` (只用 `ServiceContext` 和 web 标准接口). 随桌面起停; 应用要在
   capabilities 里写服务名才能调. 重活放进 `ctx.spawn(argv, {cwd, env, onLine, onExit})` 起的进程 (`child.rs`: 自己的进程组, stderr 进日志加前缀
   `[<服务名>]`, 服务关闭后 SIGTERM, 3 秒后 SIGKILL).
+  桌面清单的 `services` 项可以写成 `{name, modules}`, 列出这个服务能用的外壳模块; 服务经 `ctx.import('acde:<模块>')` 拿到 `{<模块>, default}`
+  (Broker 侧的 `#serviceModule`), 没列的拒绝并说缺哪条声明. `ctx.inspect` 在扩展期保留.
 
 找包的顺序: acde-host 自己 (只有品牌资源)、`ACDE_PATH`、`$XDG_DATA_HOME/acde/packages/*`、`$XDG_DATA_DIRS/acde/packages/*`, 同 id 先到先得.
 外部会话 (`src/foreign.ts`): `$XDG_DATA_DIRS/wayland-sessions/*.desktop`, id `session:<文件名>` (显示名去掉 "(Wayland)", KDE 的加 "KDE");
@@ -329,6 +331,13 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `invokeMenu`、`stats`、`focus` / `hide` / `show`、`animate`、session / desktop 级 `shortcut`); `acde.session`; `acde.inspect`. 另收
     `windowmenus`、`windowready`、`windowcrash {reason}`、`windowhang` / `windowresponsive`、`windowshow`.
   - 不在清单里的调用拒绝 (403, `forbidden`).
+  - **按调用者层级注入** (第 1 级包, `broker/tier.ts`): 外壳模块 (`SHELL_MODULES`: `windows`、`packages`、`session`、`desktops`、`inspect`、
+    `desktop`、`setDefault`) 只给桌面页面、声明了它的桌面服务和声明了它的系统应用 (与某个已安装桌面同包的应用); 应用模块 (`APP_MODULES`: `launch`、
+    `apps` 只有 list / open、`open`、`openPath`、`handlers`、`window`) 给所有应用. 声明外壳模块的第三方应用启动时拒绝 (403, `shell_module`).
+    没给的模块经 `host.refuseModule` 记下原因, import 时报模块名和缺的声明. 新的 `acde:packages` (refresh / install / natives / runNative)
+    和 `acde:launch` (`start` 要 `launch`, `embed` 要 `slots`, `close` 只关自己起的窗口: 按窗口的 pid 认 `start` 起的, `embed` 走 claim) 桌面也有.
+    系统应用拿到 `acde:windows` 时也收全局窗口事件 (`Tiers.listens`). 第 0 级包 (没有 `apiLevel`) 照旧注入, 到第 0 级移除为止.
+    SDK 类型分层: `@dopame/acde-api/app` 只声明应用层, `@dopame/acde-api/shell` 再加外壳层; 包根在扩展期仍声明全部.
 - **原生应用** (`launcher.ts`, 只有桌面能调): `acde.apps.natives()` 列可见的 `.desktop` (`{id, name, comment, icon (绝对路径, 按 hicolor /
   breeze / Adwaita 找), keywords, wmClass}`, 缓存到 applications 目录的 mtime 变了), `runNative(id)` 用 `gio launch` 起.
 - **应用清单** (`acde.apps`, 解析 acde-host `apps.ts`, 校验 acde-api `validate.ts`): `id`、`label`、`icon`、`entry` (默认导出 `WindowApp` 的
