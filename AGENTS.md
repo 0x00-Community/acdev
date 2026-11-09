@@ -87,6 +87,16 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **window**: `{id, canvas, mode, rect (canvas 坐标, 可以超出 canvas, 超出的不画), z, content, input, grab hints, parent / modal, focus}`.
   四种模式: `fullscreen` (铺满 canvas), `free` (位置尺寸都能变), `fixed` (只能挪), `pinned` (都不变). 桌面是 z 最低的 `fullscreen`
   窗口; 面板和菜单是 `pinned`, 永远在 `free` / `fixed` 上面. 标题栏、边框、阴影是客户端的内容 (客户端画), 不是框架的概念.
+  第 1 级契约里模式只管能不能挪、改尺寸 (`free` / `fixed` / `pinned`, SDK `WindowMode` 不再有 `fullscreen`); 全屏是**窗口状态**.
+- **窗口状态** (crates/model `state.rs`: `WindowState` + `Restore`, 宿主窗口的 `Entry.state` / `restore`, `State::change_state`): `normal`、`minimized`、
+  `filled` (铺满工作区, 现在是整个输出, 工作区由钉住的面板决定之后改)、`fullscreen` (铺满输出); 隐藏仍是框架另一个状态. 每次变化都由运行时裁决:
+  `fixed` 只能最小化, `pinned`、桌面和面板一律拒绝, 同一状态不算变化. 离开 `normal` 时记下原来的 rect, 进全屏时记下之前的状态 (`normal` 或 `filled`),
+  最小化时记下之前的状态; 「回去」(`Restore::back`) 用它们, 所以 normal → filled → 全屏 → 回到 filled → normal 还是原来的 rect. 最小化的窗口不画、不命中,
+  有焦点时焦点给下一个; 给它焦点 (`focus` / `show`) 就回到之前的状态. 每次变化给窗口自己发 `state {state, previous}`, 给 Broker 发
+  `windowstate {window, state, previous}`, 扩展期另发第 0 级的 `windowfullscreen` / `windowunfullscreen` / `windowminimize`. 宿主窗口的窗框按钮
+  (最小化、全屏 / 还原) 由运行时直接改状态, 只有关闭交给页面. `requestMode('fullscreen')` 和从全屏 `requestMode('free')` 在扩展期映射成状态.
+  会话 (crates/window) 把请求映射成标准 xdg_toplevel 请求 (`set_fullscreen` / `set_maximized` / `set_minimized` / 取消), 按 configure 里的
+  fullscreen / maximized 给页面发 `state`; 合成器 (crates/shell) 一侧的 maximized、minimized 处理和 `acde:windows.requestState` 还没有 (Broker 回 501).
 - **分层**: 客户端出缓冲 (dmabuf / shm + damage + opaque 区域); 合成只出计划; 呈现 (GPU / DRM / RDP) 执行. 只传句柄、只报脏区,
   框架不读像素; 客户端慢就用上一次的缓冲.
 - **`CompositePlan`** (crates/model `plan.rs`, shell `compositor/composite.rs`): `{damage (最多 8 块), route: Composite | Direct, layers:
@@ -303,8 +313,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   (acde-host `host.ts`: 只留最新的, 下一个 `frame` 或别的事件前才派发).
 - **记住位置** (`src/places.ts`): 窗口没了时合成器发 `windowgone`, Broker 按应用 id 记最后的 rect (全屏的记进全屏之前的) 到
   `$XDG_STATE_HOME/acde/windows.json` (`ACDE_STORAGE` 为空时只在内存); 下次打开且没有别的窗口开着时摆回 (露出屏幕不到 48 像素或标题栏
-  在屏幕上沿之外时照旧居中). 只有桌面能隐藏 / 显示 / 提前 (`acde.windows.hide` / `show` / `focus`); 应用的 `minimize` 只是给桌面发
-  `windowminimize`.
+  在屏幕上沿之外时照旧居中). 只有桌面能隐藏 / 显示 / 提前 (`acde.windows.hide` / `show` / `focus`); 应用的 `minimize` 在宿主窗口里由运行时最小化 (见「窗口状态」),
+  会话里还只是给桌面发 `windowminimize`.
 - **窗框**: 应用窗口 (清单 `frame` 不是 false; 桌面和面板没有) 有一条标题栏, **不在页面的文档里**: `<html>`、`innerHeight`、`100vh`、`resize`
   都只是内容区. 窗口表的 rect、grab hint、backdrop 是含窗框的整个窗口; 页面给的 `setGrabHint` / `setBackdrop` 是页面坐标, 加上窗框高再交出去,
   窗框的 hint (标题栏移动, 四边 4 px / 四角 10 px 改大小) 优先. 会话里是 crates/window `decoration.rs` 在页面 surface 上开的同步 `wl_subsurface`
@@ -324,6 +334,13 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `acde:<名字>` (`modules.rs` 用 V8 合成模块, 导出 `{<名字>, default}`). 事件不派到 `window` 上: 页面用模块上的 `on(类型, fn)` 订阅 (返回退订
   函数, 不认识的类型抛 TypeError; 类型见 acde-api `page.d.ts`). 其余调用经 `rpc.ts` 到 Broker (错误原样回来, 回调函数可以跨). 本文的
   `acde.<名字>.<方法>` 指 `acde:<名字>` 导出的值.
+  - **窗口状态和输出 (页面)**: `acde.window.state`、`requestState(state)` (不行就什么都不变, 没有回答)、`on('state', {state, previous})`.
+    状态由运行时决定, 页面没请求的变化 (桌面最小化、窗框按钮、给最小化的窗口焦点) 也发 `state`, 页面必须照事件更新自己, 不能只记自己请求过什么.
+    `acde.window.output` 是窗口所在输出的 `{width, height, scale, workArea}` (逻辑像素), 变了发 `on('output')`; 合成的桌面里所有窗口一样
+    (Broker 的 `screen` 消息带上 `scale`, `WebInit.workArea` 没给时是整个输出). 窗口位置只是相对当前输出的提示, 应用接口里没有绝对屏幕坐标.
+    `requestActivate` 可能被拒或变成提醒用户 (attention), `requestGrab` 可能以 `denied` 拒绝, `animate` 可能立刻做完 (照样发 `windowanimated`).
+    桌面 / 系统应用经 `acde.windows.requestState(id, state)` 改任何窗口 (不认识的状态 400, 会话里 501), 收 `on('state')`; `list()` 的行带 `state`,
+    `acde:inspect` 的窗口 (driver 用的) 带 `state`.
   - window web: 清单给的服务和能力; `acde.window` (标题、菜单、关闭、最小化、`requestMode` / `setGrabHint` / `setBackdrop` /
     `requestActivate` / `requestGrab` / `releaseGrab`、app 级 `shortcut(combo)`; `beforeclose` 返回 false 留住窗口; `request` 是别的应用
     `acde.open(<id>, {…})` 要它打开的东西, 要对方清单的 `open` 允许, 为一个请求开的窗口把它交给第一个 `request` 处理函数, 只给一次;
