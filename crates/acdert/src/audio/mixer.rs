@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::decode::MediaStream;
 use super::graph::{Bus, Graph, Kind, NodeOp, QUANTUM, Shared};
 
 pub const RATE: f64 = 48000.0;
@@ -29,6 +28,12 @@ impl Clock {
     }
 }
 
+pub trait MediaSource: Send {
+    fn time(&self) -> f64;
+    fn seek(&mut self, seconds: f64);
+    fn render(&mut self, out: &mut Bus, out_rate: f64, speed: f64, gain: f32, looping: bool) -> bool;
+}
+
 pub enum Cmd {
     CreateContext { ctx: u32, dest: u32, clock: Arc<Clock> },
     Running { ctx: u32, running: bool },
@@ -37,7 +42,7 @@ pub enum Cmd {
     Connect { from: u32, to: u32, param: i32 },
     Disconnect { from: u32, to: i64, param: i32 },
     Node { node: u32, op: NodeOp },
-    AddMedia { media: u32, stream: Box<MediaStream>, time: Arc<AtomicU64> },
+    AddMedia { media: u32, stream: Box<dyn MediaSource>, time: Arc<AtomicU64> },
     Media { media: u32, op: MediaOp },
     CloseMedia { media: u32 },
 }
@@ -65,7 +70,7 @@ struct Context {
 }
 
 struct Media {
-    stream: Box<MediaStream>,
+    stream: Box<dyn MediaSource>,
     playing: bool,
     gain: f32,
     looping: bool,
@@ -253,6 +258,7 @@ impl Mixer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::decode::MediaStream;
     use crate::audio::decode::tests::wav;
     use crate::audio::graph::ParamOp;
 

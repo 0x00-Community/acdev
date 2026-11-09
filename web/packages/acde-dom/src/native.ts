@@ -447,4 +447,9 @@ export interface AudioNative {
   media(media: number, op: number, value: number): void
   mediaTime(media: number): number
   closeMedia(media: number): void
+  openVideo(media: number, node: number, bytes: Uint8Array): Promise<{ duration: number; width: number; height: number; audio: number }>
+  present(media: number): number
+  videoSize(media: number): [number, number]
+  clearVideo(node: number): void
+  readonly videoTypes: readonly string[]
 }

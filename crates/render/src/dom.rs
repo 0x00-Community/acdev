@@ -680,6 +680,19 @@ impl Dom {
         })
     }
 
+    pub fn video_image(&self, id: u32, image: Option<peniko::ImageData>) -> Result<()> {
+        self.touched();
+        self.shared.call(&self.wake, |engine| {
+            engine.uncommitted = true;
+            let (stale, dirty) = (engine.stale, engine.dirty);
+            let resized = engine.n(id).and_then(|_| engine.tree().video_image(id, image).map_err(|err| fail("InvalidStateError", err)));
+            let shown = engine.ids.node(id).is_ok_and(|n| engine.connected(n));
+            engine.stale = stale || (shown && matches!(resized, Ok(true)));
+            engine.dirty = dirty || shown;
+            resized.map(|_| ())
+        })
+    }
+
     pub fn measure_text(&self, id: u32, font: &str, text: &str) -> Result<TextMetrics> {
         self.on(id, |e, _| Canvas::measure(&mut e.doc, font, text))
     }
