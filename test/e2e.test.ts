@@ -50,8 +50,8 @@ function project() {
   return s
 }
 
-async function acdeTest(s: ReturnType<typeof standIn>, args: string[]) {
-  const child = Bun.spawn([process.execPath, CLI, 'test', ...args], { cwd: s.project, env: s.env, stdout: 'pipe', stderr: 'pipe' })
+async function acdeTest(s: ReturnType<typeof standIn>, args: string[], env: Record<string, string> = {}) {
+  const child = Bun.spawn([process.execPath, CLI, 'test', ...args], { cwd: s.project, env: { ...s.env, ...env }, stdout: 'pipe', stderr: 'pipe' })
   const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
   const started = readFileSync(s.env['FAKE_ACDERT_LOG']!, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { argv?: string[]; headless?: string | null; env?: Record<string, string | null> }).filter((e) => e.argv)
   return { code, out: stdout + stderr, started }
@@ -102,6 +102,17 @@ describe('acde test', () => {
     writeFileSync(join(s.root, 'empty/acde.config.jsonc'), '{"type":"app","id":"empty"}')
     expect((await acdeTest(s, [join(s.root, 'empty')])).out).toContain('acde: no e2e tests (**/*.e2e.{ts,tsx,js,mjs,mts})')
     expect((await acdeTest(s, ['--timeout', 'soon'])).out).toContain('--timeout soon: milliseconds per test')
+  }, 120_000)
+
+  test('in CI (CI set) the tests run, and a missing screenshot baseline is an error instead of being written', async () => {
+    const s = project()
+    const run = await acdeTest(s, [TASKS], { CI: '1' })
+    expect(run.out).toContain('acde test: 1 file, 1 passed, 0 failed')
+    expect(run.code).toBe(0)
+    writeFileSync(join(s.project, 'e2e/look.e2e.ts'), `import { test, expect } from 'acde/test'\ntest('looks', async ({ app }) => {\n  await expect(app!).toHaveScreenshot({ timeout: 1000 })\n})\n`)
+    const missing = await acdeTest(s, ['e2e/look.e2e.ts'], { CI: '1' })
+    expect(missing.code).toBe(1)
+    expect(existsSync(join(s.project, 'e2e/__screenshots__'))).toBe(false)
   }, 120_000)
 
   test('screenshot baselines: written next to the test the first time, compared after, rewritten with -u; --trace keeps every step', async () => {

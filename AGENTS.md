@@ -163,7 +163,8 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   (textbox、combobox、checkbox …); `getByPlaceholder` / `getByTitle` / `getByAltText` 用 `query` 的 `attributes` 读回属性再比. `check` / `uncheck` /
   `setChecked` 状态不对才点, 点完等状态变过去; `dragTo(目标)` 每次重新找两边, 发 `act drag`. `expect` 重试到超时 (默认 5 s), 要一个元素的断言在零个
   或多个时一直等; `toHaveAttribute` 在父元素下 `query('*')` 带属性找回自己. 语义树的限制在 acdert: `opacity: 0` 算不可见, `getByText` 找的是无障碍名字,
-  `<select>` 的 `getBoundingClientRect` 是 0×0 (按 CSS 找不到, 用 `getByRole('combobox')` / `getByLabel`).
+  `<select>` 下拉框是 `combobox` (值是选中项, 打开时下面有 `option`), 列表框是 `listbox` (看得见的行是 `option`); 选值用 `selectOption`
+  (走 `act select`, 不经弹出的列表), `click()` 走真的输入, 会打开下拉列表.
 - **截图** (`png.ts`, `screenshot.ts`): `Png` 只用 `node:zlib`: 解所有颜色类型、位深、tRNS、Adam7 (16 位按 /257 取整到 8 位), 编 RGBA (Sub 滤波); `diff` 照
   pixelmatch (YIQ 距离, 阈值默认 0.2, 抗锯齿的边不算, 差的画红). 窗口截图含窗框, 比例是 PNG 宽 / 窗口宽; 元素截图按 rect 减窗口原点乘比例裁;
   `mask` 涂品红. `toHaveScreenshot(名字?, {maxDiffPixels, maxDiffPixelRatio, threshold, mask, timeout})`: 连拍到两张一样才比, 不过就重拍到超时;
@@ -243,6 +244,13 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `run`: `cliRuntime()` 跑 `cliFile()` (`dist/cli.js`, 否则 `src/cli.ts`, 这时 Node 上找 PATH 上的 bun), 环境 `cliEnv`; 信号同 `acde dev`. 全局装的
   `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (设了找不到直接报错), 检出时旁边的 `../acdert/target/{release,debug}/acdert` (先于 PATH: 两个仓库一起改),
   全局装时自己版本的 `bin/acdert` 再 `$ACDE_INSTALL` 的, 最后 PATH; 都没有就列出找过的地方.
+- **发版** (`.github/workflows/release.yml`): 推 `v*` tag, 版本是 tag 去掉 `v`. 取 `https://pkgs.dopame.ai/acdert/latest.json` 那一版 acdert 的
+  binary、host bundle (`app/dist`) 和 `acde-api-<版本>.tar.gz` (放到 `../acdert/web/packages/acde-api`, 满足 `file:` 依赖), 取
+  `acde-dopame/latest.json` 的 `dopame.tar.gz` (放到 `../acde-dopame/packages/dopame`), 都按 `SHA256SUMS` 校验; acdert 有哪些 triple 就对哪些跑
+  dist.ts. 传到 S3 桶 `dopame-pkgs` 的 `acde/`: `<版本>/` 缓存一年, `install.sh`、`install.ps1`、`latest` (text/plain) 和 `latest.json`
+  (`{version, tag, commit, acdert, dopame, base, files}`) 不缓存, 再让 CloudFront `E3ET3L14ALFOXX` 失效这些. 跨仓库不 checkout (组织禁了 deploy key),
+  只经 pkgs. 凭证走 GitHub OIDC: IAM 角色 `dopame-acde-release` 只信任本仓库的 `refs/tags/v*`
+  (`repo:dopame-org@342965929/acde@1445550577:ref:refs/tags/v*`), 只能读写 `dopame-pkgs/acde/*`、失效那个 distribution.
 - musl 的 acdert 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
 
 ## 和 acdert 的契约
@@ -274,7 +282,7 @@ Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试�
 1. 热重载: acdert 已认 `reload {hot: true}` (见它的「acde dev」, 那里提到的 acde `src/changes.ts` 还没有), acde 只发普通 `reload`; 框架用自己的 `build --watch`.
 2. `acde.config.jsonc` 加 `compatibility_date`、environments、vars / secrets、服务名 ↔ capability 的显式 binding.
 3. `acde types` (按 capabilities 生成 d.ts)、单元测试跑在 acdert 的 isolate 里、`acde deploy --to <主机>`、包签名和仓库之后 `acde publish`.
-4. 分发: 流水线只覆盖三个 triple (acdert 目前只发这三个); 还差 `x86_64-apple-darwin`、`aarch64-unknown-linux-gnu` 和两个 musl, 以及 Windows ARM64.
+4. 分发: 发布流水线按协作者的 `release.yml` 建立 (见「分发」); 首次在 `v0.0.5` 标签上运行还没验证.
 5. 用户工程里 `acde/test` / `acde/driver` 的编辑器类型 (运行时 `acde test` 已替它解析): 发一个只有类型的包, 或 `acde new` 带上依赖.
 6. e2e 在 CI 上跑 (要有 GPU 的 runner, 比如 GitHub 的 macOS runner).
 
