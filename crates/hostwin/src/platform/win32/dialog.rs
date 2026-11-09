@@ -129,13 +129,10 @@ fn pattern(glob: &str) -> Option<String> {
 fn specs(filters: &[FileFilter]) -> Option<Vec<(String, String)>> {
     let mut specs = Vec::new();
     for filter in filters {
-        if !filter.mimes.is_empty() {
+        if filter.globs.is_empty() {
             return None;
         }
         let patterns = filter.globs.iter().map(|glob| pattern(glob)).collect::<Option<Vec<_>>>()?;
-        if patterns.is_empty() {
-            return None;
-        }
         let name = if filter.name.is_empty() { patterns.join(";") } else { filter.name.clone() };
         specs.push((name, patterns.join(";")));
     }
@@ -252,9 +249,16 @@ mod tests {
         assert_eq!(specs(&[filter("Any", &["*"], &[])]), None);
         assert_eq!(specs(&[filter("Report", &["report-*"], &[])]), None);
         assert_eq!(specs(&[filter("Mime", &[], &["text/plain"])]), None);
-        assert_eq!(specs(&[filter("Mixed", &["*.png"], &["image/png"])]), None);
         assert_eq!(specs(&[filter("Empty", &[], &[])]), None);
         assert_eq!(specs(&[filter("Semicolon", &["*.a;b"], &[])]), None);
+        assert_eq!(specs(&[filter("Mixed", &["*.png", "report-*"], &["image/png"])]), None);
+        assert_eq!(specs(&[filter("Images", &["*.png"], &[]), filter("Any", &[], &["image/*"])]), None);
+    }
+
+    #[test]
+    fn a_mime_with_an_extension_filters_by_the_extension() {
+        assert_eq!(specs(&[filter("image/png", &["*.png"], &["image/png"])]), Some(vec![("image/png".to_owned(), "*.png".to_owned())]));
+        assert_eq!(specs(&[filter("", &["*.txt"], &["text/plain"])]), Some(vec![("*.txt".to_owned(), "*.txt".to_owned())]));
     }
 
     #[test]

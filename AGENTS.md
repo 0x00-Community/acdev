@@ -443,12 +443,12 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   UTType; 有一项换不了 (`*`、别的通配、`application/*`、不认识的 MIME) 就不限类型 (宁可多给不能少给). UTType 按类型的继承匹配: `text/plain`
   也放行 Markdown, 和 Linux 上 shared-mime-info 的子类型一样. 保存面板不按 filters 限扩展名 (GTK 的保存对话框也只拿它筛显示的文件),
   建议的名字原样填进去.
-- Windows 的类型过滤 (`dialog.rs` `specs`): 只有 `*.ext` 的过滤器映射成 `SetFileTypes` 的扩展名表; 过滤器里有 MIME (页面的 `accept` 或
-  `types` 的 MIME 键, 不论有没有扩展名) 或有一项换不了的通配, 就整体不限类型 (All files). 原因: Windows 没有完整的 MIME 到扩展名表,
-  只按扩展名筛会藏起页面按 MIME 接受的文件, 所以保守退回 (和上面 macOS 的 "宁可多给不能少给" 同一规则). 因此 `types: [{accept: {'image/png': ['.png']}}]`
-  在 Windows 上显示全部文件, 这是有意的, 不是漏做.
+- Windows 的类型过滤 (`dialog.rs` `specs`), 同 Chromium 的 `accept`: 过滤器有 `*.ext` 扩展名时只按扩展名映射成 `SetFileTypes`, 同一过滤器里的 MIME 忽略
+  (`types: [{accept: {'image/png': ['.png']}}]` 只显示 .png). 只有没有扩展名的过滤器 (只有 MIME) 退回 All files, 因为 Windows 没有完整的 MIME 到扩展名表;
+  一项扩展名换不了 (`*`、`report-*`、含 `;`) 也整体退回 All files, 不藏起页面接受的文件 (宁可多给不能少给, 和 macOS 同一规则).
 - 验收: `bash scripts/file-chooser/check-file-chooser.sh` 用 `choose` 的预设答复 (`answerOpen` / `answerSave`) 检查打开多选、取消、无答复时失败、
-  保存写入句柄、保存取消; 真的对话框需要人工操作, 见 `scripts/file-chooser/manual-file-chooser.sh`.
+  保存写入句柄、保存取消; 真的对话框需要人工操作. 人工探针 (PowerShell, 从任何目录): `Set-Location D:\Projects\AgentComputer\acdert; bun scripts/file-chooser/manual-file-chooser.ts`
+  (不带参数时新建 `logs/manual-file-chooser.<时间戳>`, 含 Desktop、Documents、Downloads 等空文件夹, 因为对话框的已知文件夹由 USERPROFILE 展开).
 
 ## 默认应用
 
