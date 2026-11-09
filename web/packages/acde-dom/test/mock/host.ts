@@ -77,6 +77,9 @@ export class MockHost implements HostNative {
   defineModule(url: string): void {
     throw new Error(`modules are not supported in tests: ${url}`)
   }
+  refuseModule(url: string): void {
+    throw new Error(`modules are not supported in tests: ${url}`)
+  }
   async runModule(source: string, url: string): Promise<unknown> {
     return vm.runInContext(`(async () => {\n${source}\n})()`, this.context!, { filename: url })
   }

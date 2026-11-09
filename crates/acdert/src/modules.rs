@@ -13,6 +13,7 @@ struct Map {
     by_url: HashMap<String, v8::Global<v8::Module>>,
     by_hash: HashMap<i32, Vec<(v8::Global<v8::Module>, String)>>,
     builtins: HashMap<String, v8::Global<v8::Object>>,
+    refused: HashMap<String, String>,
 }
 
 thread_local! {
@@ -91,6 +92,10 @@ pub fn define(scope: &mut v8::PinScope, url: &str, exports: v8::Local<v8::Object
     MAP.with(|m| m.borrow_mut().builtins.insert(url.to_owned(), exports));
 }
 
+pub fn refuse(url: &str, reason: &str) {
+    MAP.with(|m| m.borrow_mut().refused.insert(url.to_owned(), reason.to_owned()));
+}
+
 fn builtin<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str) -> Option<v8::Local<'s, v8::Object>> {
     MAP.with(|m| m.borrow().builtins.get(url).map(|g| v8::Local::new(scope, g)))
 }
@@ -98,7 +103,9 @@ fn builtin<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str) -> Option<v8::Local<
 fn target(specifier: &str, referrer: &str) -> Result<String, String> {
     match specifier.starts_with(SCHEME) {
         true if MAP.with(|m| m.borrow().builtins.contains_key(specifier)) => Ok(specifier.to_owned()),
-        true => Err(format!("acdert: '{specifier}' is not given to {referrer} (the capabilities in its manifest)")),
+        true => Err(MAP
+            .with(|m| m.borrow().refused.get(specifier).cloned())
+            .unwrap_or_else(|| format!("acdert: '{specifier}' is not given to {referrer} (the capabilities in its manifest)"))),
         false => mapped(&*loader()?, specifier, referrer),
     }
 }

@@ -18,6 +18,7 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object>
         "clock" => clock,
         "importModule" => import_module,
         "defineModule" => define_module,
+        "refuseModule" => refuse_module,
         "runModule" => run_module,
         "runScript" => run_script,
         "readAsset" => read_asset,
@@ -142,6 +143,15 @@ fn define_module(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         return bind::throw_type_error(scope, &format!("defineModule: {url} is not an {} module", crate::modules::SCHEME));
     }
     crate::modules::define(scope, &url, exports);
+}
+
+fn refuse_module(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let url = bind::arg_string(scope, &args, 0);
+    if !url.starts_with(crate::modules::SCHEME) {
+        return bind::throw_type_error(scope, &format!("refuseModule: {url} is not an {} module", crate::modules::SCHEME));
+    }
+    let reason = bind::arg_string(scope, &args, 1);
+    crate::modules::refuse(&url, &reason);
 }
 
 fn run_module(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {

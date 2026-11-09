@@ -197,6 +197,7 @@ export interface HostNative {
 
   importModule(url: string): Promise<unknown>
   defineModule(url: string, exports: object): void
+  refuseModule(url: string, reason: string): void
   runModule(source: string, url: string): Promise<unknown>
   runScript(source: string, url: string): unknown
 
