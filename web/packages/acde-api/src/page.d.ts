@@ -35,7 +35,18 @@ export interface FileBytes {
   readonly data: Uint8Array
 }
 
-export type AcdeFsErrorCode = 'EINVAL' | 'EACCES' | 'EPERM' | 'ENOENT' | 'EEXIST' | 'ECONFLICT' | 'ENOTEMPTY' | 'EFBIG' | 'EILSEQ' | 'ENOSPC' | 'EIO'
+export type AcdeFsErrorCode =
+  | 'EINVAL'
+  | 'EACCES'
+  | 'EPERM'
+  | 'ENOENT'
+  | 'EEXIST'
+  | 'ECONFLICT'
+  | 'ENOTEMPTY'
+  | 'EFBIG'
+  | 'EILSEQ'
+  | 'ENOSPC'
+  | 'EIO'
 
 export interface AcdeFsError extends Error {
   readonly status: number
@@ -69,10 +80,22 @@ export interface MkdirOptions {
 }
 
 export interface AcdeFs {
-  state(): Promise<{ roots: FinderRoot[]; root: string | null; path: string; entries: FinderEntry[]; truncated: boolean; preview: FinderPreview | null; error: string | null }>
+  state(): Promise<{
+    roots: FinderRoot[]
+    root: string | null
+    path: string
+    entries: FinderEntry[]
+    truncated: boolean
+    preview: FinderPreview | null
+    error: string | null
+  }>
   roots(): Promise<FinderRoot[]>
   desktop(): Promise<{ root: string; entries: FinderEntry[]; truncated: boolean }>
-  list(root: string, path?: string, hidden?: boolean): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean }>
+  list(
+    root: string,
+    path?: string,
+    hidden?: boolean,
+  ): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean }>
   preview(root: string, path: string): Promise<FinderPreview>
   download(root: string, path: string): Promise<FileBytes>
   place(root: string, path?: string, file?: string): Promise<unknown>
@@ -106,7 +129,24 @@ export interface NativeWindow {
   readonly web?: boolean
 }
 
-export type WindowsEventType = 'open' | 'close' | 'title' | 'fullscreen' | 'unfullscreen' | 'minimize' | 'activate' | 'minsize' | 'parent' | 'menus' | 'crash' | 'hang' | 'responsive' | 'attention' | 'ready' | 'show' | 'animated'
+export type WindowsEventType =
+  | 'open'
+  | 'close'
+  | 'title'
+  | 'fullscreen'
+  | 'unfullscreen'
+  | 'minimize'
+  | 'activate'
+  | 'minsize'
+  | 'parent'
+  | 'menus'
+  | 'crash'
+  | 'hang'
+  | 'responsive'
+  | 'attention'
+  | 'ready'
+  | 'show'
+  | 'animated'
 
 export interface WindowsEvent {
   readonly type: string
@@ -117,7 +157,10 @@ export interface WindowsEvent {
 export interface AcdeWindows {
   on(type: WindowsEventType, handler: (event: WindowsEvent) => void): () => boolean
   list(): NativeWindow[]
-  launch(argv: string[], options?: { cwd?: string; env?: Record<string, string>; slot?: boolean }): number | Promise<number>
+  launch(
+    argv: string[],
+    options?: { cwd?: string; env?: Record<string, string>; slot?: boolean },
+  ): number | Promise<number>
   close(id: number): void
   kill?(id: number): Promise<boolean>
   focus?(id: number): Promise<void>
@@ -125,12 +168,26 @@ export interface AcdeWindows {
   show?(id: number): Promise<void>
   invokeMenu?(id: number, menu: string, item: string): Promise<unknown>
   stats?(): Promise<unknown>
-  animate?(id: number, options: { opacity?: number; scale?: number; dx?: number; dy?: number; duration?: number; delay?: number; easing?: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' }): Promise<void>
+  animate?(
+    id: number,
+    options: {
+      opacity?: number
+      scale?: number
+      dx?: number
+      dy?: number
+      duration?: number
+      delay?: number
+      easing?: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'
+    },
+  ): Promise<void>
   shortcut?(combo: string, scope?: 'session' | 'desktop'): Promise<void>
   unshortcut?(combo: string, scope?: 'session' | 'desktop'): Promise<void>
 }
 
-export type TerminalEvent = { type: 'output'; data: string } | { type: 'cwd'; path: string } | { type: 'exit'; code: number | null; signal: number | null }
+export type TerminalEvent =
+  | { type: 'output'; data: string }
+  | { type: 'cwd'; path: string }
+  | { type: 'exit'; code: number | null; signal: number | null }
 
 export interface AcdeTerminals {
   open(cols: number, rows: number): Promise<{ id: string }>
@@ -156,7 +213,10 @@ export interface OpenHandler {
 }
 
 export interface AcdeOpenFiles {
-  openPath(path: string, options?: { app?: string; select?: boolean }): Promise<{ kind: 'acde' | 'native'; id: string; window?: number }>
+  openPath(
+    path: string,
+    options?: { app?: string; select?: boolean },
+  ): Promise<{ kind: 'acde' | 'native'; id: string; window?: number }>
   handlers(path: string): Promise<{ mime: string; handlers: OpenHandler[] }>
   setDefault(mime: string, handler: string): Promise<string>
 }
@@ -233,14 +293,42 @@ export interface InspectMatch extends InspectNode {
   readonly visible: boolean
 }
 
-export type InspectAction = 'click' | 'double' | 'right' | 'hover' | 'type' | 'settext' | 'key' | 'scroll' | 'focus' | 'close' | 'minimize' | 'restore'
+export type InspectAction =
+  | 'click'
+  | 'double'
+  | 'right'
+  | 'hover'
+  | 'type'
+  | 'settext'
+  | 'key'
+  | 'scroll'
+  | 'focus'
+  | 'close'
+  | 'minimize'
+  | 'restore'
 
 export interface AcdeInspect {
-  snapshot(options?: { window?: string; ref?: string; all?: boolean; diff?: boolean; limit?: number; find?: string; tree?: boolean; offscreen?: boolean }): Promise<{ text: string; windows: InspectWindow[]; trees: Record<string, InspectNode[]> }>
+  snapshot(options?: {
+    window?: string
+    ref?: string
+    all?: boolean
+    diff?: boolean
+    limit?: number
+    find?: string
+    tree?: boolean
+    offscreen?: boolean
+  }): Promise<{ text: string; windows: InspectWindow[]; trees: Record<string, InspectNode[]> }>
   act(ref: string, action: InspectAction, arg?: string | number | null): Promise<{ ok: boolean; text: string }>
-  run(steps: readonly { ref: string; action: InspectAction; text?: string | number | null }[]): Promise<{ ok: boolean; text: string }>
+  run(
+    steps: readonly { ref: string; action: InspectAction; text?: string | number | null }[],
+  ): Promise<{ ok: boolean; text: string }>
   open(name: string): Promise<{ ok: boolean; text: string }>
-  query(options: { selector: string; window?: string; ref?: string; limit?: number }): Promise<{ window: string; count: number; nodes: InspectMatch[] }>
+  query(options: {
+    selector: string
+    window?: string
+    ref?: string
+    limit?: number
+  }): Promise<{ window: string; count: number; nodes: InspectMatch[] }>
 }
 
 export interface AppMenuItem {
@@ -287,7 +375,15 @@ export interface WindowApp {
   mount(element: Element, host: WindowHost): () => void
 }
 
-export type WindowEventName = 'activate' | 'deactivate' | 'beforeclose' | 'request' | 'suspend' | 'resume' | 'grab' | 'grablost'
+export type WindowEventName =
+  | 'activate'
+  | 'deactivate'
+  | 'beforeclose'
+  | 'request'
+  | 'suspend'
+  | 'resume'
+  | 'grab'
+  | 'grablost'
 
 export type WindowMode = 'fullscreen' | 'free' | 'fixed' | 'pinned'
 export type WindowEdge = 'top' | 'bottom' | 'left' | 'right'
@@ -308,7 +404,10 @@ export interface AcdeWindow {
   requestAttention(): Promise<unknown>
   requestMode(mode: WindowMode): void
   setGrabHint(rect: WindowRect, edges?: readonly WindowEdge[]): void
-  setBackdrop(rect: WindowRect | null, effect?: { radius?: number; blur?: number; saturate?: number; brightness?: number }): void
+  setBackdrop(
+    rect: WindowRect | null,
+    effect?: { radius?: number; blur?: number; saturate?: number; brightness?: number },
+  ): void
   requestActivate(): void
   requestGrab(kind: 'pointer' | 'keyboard'): void
   releaseGrab(kind: 'pointer' | 'keyboard'): void
@@ -368,8 +467,19 @@ export interface AcdeDesktop {
   pin?(element: Element, options?: { margin?: number }): PinnedPanel
   on(type: 'download', handler: (event: DownloadEvent) => void): () => boolean
   on(type: 'notification', handler: (event: NotificationEvent) => void): () => boolean
-  on(type: 'screenshot', handler: (event: { readonly path: string; readonly width?: number; readonly height?: number; readonly error?: string }) => void): () => boolean
-  on(type: 'shortcut', handler: (event: { readonly key: string; readonly title?: string; readonly window?: number }) => void): () => boolean
+  on(
+    type: 'screenshot',
+    handler: (event: {
+      readonly path: string
+      readonly width?: number
+      readonly height?: number
+      readonly error?: string
+    }) => void,
+  ): () => boolean
+  on(
+    type: 'shortcut',
+    handler: (event: { readonly key: string; readonly title?: string; readonly window?: number }) => void,
+  ): () => boolean
 }
 
 export interface AcdePage {

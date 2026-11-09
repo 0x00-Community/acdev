@@ -2,11 +2,44 @@ import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest
 
 export type { Capabilities, PackageManifest } from './index.js'
 
-export const ICON_NAMES = ['files', 'browser', 'editor', 'office', 'term', 'projects', 'dash', 'team', 'dopa', 'settings', 'store', 'app', 'timer', 'cards', 'list', 'chart', 'calc', 'music', 'video', 'photo', 'paint', 'game', 'chat', 'mail', 'calendar', 'code', 'book', 'map', 'weather'] as const
+export const ICON_NAMES = [
+  'files',
+  'browser',
+  'editor',
+  'office',
+  'term',
+  'projects',
+  'dash',
+  'team',
+  'dopa',
+  'settings',
+  'store',
+  'app',
+  'timer',
+  'cards',
+  'list',
+  'chart',
+  'calc',
+  'music',
+  'video',
+  'photo',
+  'paint',
+  'game',
+  'chat',
+  'mail',
+  'calendar',
+  'code',
+  'book',
+  'map',
+  'weather',
+] as const
 
 export type IconName = (typeof ICON_NAMES)[number]
 
-export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & { readonly backend: Required<AppBackend> | null; readonly size: readonly [number, number] | null }
+export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & {
+  readonly backend: Required<AppBackend> | null
+  readonly size: readonly [number, number] | null
+}
 
 export interface Findings {
   readonly errors: string[]
@@ -16,7 +49,18 @@ export interface Findings {
 export class Manifest {
   static readonly HEAP_MB = 256
   static readonly MIN_HEAP_MB = 32
-  static readonly CAPABILITIES: ReadonlySet<string> = new Set(['fs', 'terminal', 'network', 'office', 'launch', 'slots', 'open', 'openFiles', 'session', 'desktops'])
+  static readonly CAPABILITIES: ReadonlySet<string> = new Set([
+    'fs',
+    'terminal',
+    'network',
+    'office',
+    'launch',
+    'slots',
+    'open',
+    'openFiles',
+    'session',
+    'desktops',
+  ])
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
   static readonly #ICON_NAMES: ReadonlySet<string> = new Set(ICON_NAMES)
   static readonly #ICON_IMAGE = /^\/(?!\/)[^\s\0?#]*\.(svg|png)$/i
@@ -39,28 +83,57 @@ export class Manifest {
     if (typeof raw !== 'object' || raw === null) return incomplete
     const field = (key: string) => (raw as Record<string, unknown>)[key]
     const text = (key: string) => (typeof field(key) === 'string' && field(key) ? (field(key) as string) : null)
-    const id = text('id'), label = text('label'), icon = text('icon'), entry = text('entry')
+    const id = text('id'),
+      label = text('label'),
+      icon = text('icon'),
+      entry = text('entry')
     if (!id || !label || !icon || !entry || !/^[\w-]+$/.test(id) || !entry.startsWith('/')) return incomplete
     const backend = Manifest.#backend(field('backend'))
     if (typeof backend === 'string') return `app ${id}: ${backend}`
-    if (entry.endsWith('/') && !backend) return `app ${id}: an entry ending in / is a page the backend renders: it needs a backend`
-    const capabilities = typeof field('capabilities') === 'object' && field('capabilities') !== null ? (field('capabilities') as Capabilities) : {}
+    if (entry.endsWith('/') && !backend)
+      return `app ${id}: an entry ending in / is a page the backend renders: it needs a backend`
+    const capabilities =
+      typeof field('capabilities') === 'object' && field('capabilities') !== null
+        ? (field('capabilities') as Capabilities)
+        : {}
     const types = field('mimeTypes')
-    if (types !== undefined && (!Array.isArray(types) || types.some((t) => typeof t !== 'string' || !Manifest.#MIME.test(t)))) return `app ${id}: mimeTypes must be MIME types (type/subtype, or type/* for all of a type)`
+    if (
+      types !== undefined &&
+      (!Array.isArray(types) || types.some((t) => typeof t !== 'string' || !Manifest.#MIME.test(t)))
+    )
+      return `app ${id}: mimeTypes must be MIME types (type/subtype, or type/* for all of a type)`
     const mimeTypes = (types as string[] | undefined) ?? []
     const size = Manifest.#size(field('size'))
     if (size === undefined) return `app ${id}: size must be [width, height] in whole logical pixels`
-    return { id, label, icon, entry, capabilities, heapMb: Manifest.heapMb(field('heapMb'), Manifest.HEAP_MB), multiple: field('multiple') === true, frame: field('frame') !== false, mimeTypes, backend, size }
+    return {
+      id,
+      label,
+      icon,
+      entry,
+      capabilities,
+      heapMb: Manifest.heapMb(field('heapMb'), Manifest.HEAP_MB),
+      multiple: field('multiple') === true,
+      frame: field('frame') !== false,
+      mimeTypes,
+      backend,
+      size,
+    }
   }
 
-  static check(manifest: PackageManifest, isDir: (path: string) => boolean, resolve: (url: string) => boolean): Findings {
+  static check(
+    manifest: PackageManifest,
+    isDir: (path: string) => boolean,
+    resolve: (url: string) => boolean,
+  ): Findings {
     const findings: Findings = { errors: [], warnings: [] }
     const { errors, warnings } = findings
     const apps = manifest.apps ?? []
     if (apps.length === 0 && (manifest.desktops ?? []).length === 0) errors.push('acde.apps is empty: no app')
     for (const [prefix, dirs] of Object.entries(manifest.assets ?? {})) {
-      if (!prefix.startsWith('/') || !prefix.endsWith('/')) errors.push(`assets ${JSON.stringify(prefix)}: a prefix is /…/`)
-      for (const dir of dirs.filter((d) => !isDir(d))) errors.push(`assets ${JSON.stringify(prefix)}: no directory ${JSON.stringify(dir)}`)
+      if (!prefix.startsWith('/') || !prefix.endsWith('/'))
+        errors.push(`assets ${JSON.stringify(prefix)}: a prefix is /…/`)
+      for (const dir of dirs.filter((d) => !isDir(d)))
+        errors.push(`assets ${JSON.stringify(prefix)}: no directory ${JSON.stringify(dir)}`)
     }
     const services = new Set((manifest.services ?? []).map((service) => service.name))
     const seen = new Set<string>()
@@ -73,16 +146,26 @@ export class Manifest {
       const at = `app ${JSON.stringify(app.id)}`
       if (seen.has(app.id)) errors.push(`${at}: twice`)
       seen.add(app.id)
-      if (!app.entry.endsWith('/') && !resolve(app.entry)) errors.push(`${at}: entry ${JSON.stringify(app.entry)} is in no assets directory`)
-      if (app.backend && !resolve(app.backend.entry)) errors.push(`${at}: backend.entry ${JSON.stringify(app.backend.entry)} is in no assets directory`)
+      if (!app.entry.endsWith('/') && !resolve(app.entry))
+        errors.push(`${at}: entry ${JSON.stringify(app.entry)} is in no assets directory`)
+      if (app.backend && !resolve(app.backend.entry))
+        errors.push(`${at}: backend.entry ${JSON.stringify(app.backend.entry)} is in no assets directory`)
       if (Manifest.iconImage(app.icon)) {
         if (!resolve(app.icon)) errors.push(`${at}: icon ${JSON.stringify(app.icon)} is in no assets directory`)
       } else if (!Manifest.iconName(app.icon)) {
-        warnings.push(`${at}: icon ${JSON.stringify(app.icon)} is neither an icon name (${ICON_NAMES.join(', ')}) nor an image (.svg or .png) under the assets, such as /app/${app.id}/icon.svg`)
+        warnings.push(
+          `${at}: icon ${JSON.stringify(app.icon)} is neither an icon name (${ICON_NAMES.join(', ')}) ` +
+            `nor an image (.svg or .png) under the assets, such as /app/${app.id}/icon.svg`,
+        )
       }
-      if (raw.heapMb !== undefined && Manifest.heapMb(raw.heapMb, 0) === 0) warnings.push(`${at}: heapMb below ${Manifest.MIN_HEAP_MB} is ignored (${Manifest.HEAP_MB} then)`)
-      for (const name of Object.keys(app.capabilities).filter((k) => !Manifest.CAPABILITIES.has(k) && !services.has(k))) {
-        warnings.push(`${at}: capability ${JSON.stringify(name)} is not acde's: a desktop service of that name must be running`)
+      if (raw.heapMb !== undefined && Manifest.heapMb(raw.heapMb, 0) === 0)
+        warnings.push(`${at}: heapMb below ${Manifest.MIN_HEAP_MB} is ignored (${Manifest.HEAP_MB} then)`)
+      for (const name of Object.keys(app.capabilities).filter(
+        (k) => !Manifest.CAPABILITIES.has(k) && !services.has(k),
+      )) {
+        warnings.push(
+          `${at}: capability ${JSON.stringify(name)} is not acde's: a desktop service of that name must be running`,
+        )
       }
     }
     return findings
@@ -90,15 +173,25 @@ export class Manifest {
 
   static #size(raw: unknown): readonly [number, number] | null | undefined {
     if (raw === undefined || raw === null) return null
-    return Array.isArray(raw) && raw.length === 2 && raw.every((n) => Number.isInteger(n) && n > 0) ? [raw[0], raw[1]] : undefined
+    return Array.isArray(raw) && raw.length === 2 && raw.every((n) => Number.isInteger(n) && n > 0)
+      ? [raw[0], raw[1]]
+      : undefined
   }
 
   static #backend(raw: unknown): Required<AppBackend> | null | string {
     if (raw === undefined || raw === null) return null
     if (typeof raw !== 'object' || Array.isArray(raw)) return 'backend must be an object {entry, port?}'
     const { entry, port = 3000 } = raw as { entry?: unknown; port?: unknown }
-    if (typeof entry !== 'string' || !entry.startsWith('/') || entry.startsWith('//') || /[\s\0?#]/.test(entry) || !/\.m?js$/.test(entry)) return 'backend.entry must be a same-origin URL of a .js module under the assets (/app/<id>/backend/server.js)'
-    if (typeof port !== 'number' || !Number.isInteger(port) || port < 0 || port > 65535) return 'backend.port must be a port number (0 to 65535)'
+    if (
+      typeof entry !== 'string' ||
+      !entry.startsWith('/') ||
+      entry.startsWith('//') ||
+      /[\s\0?#]/.test(entry) ||
+      !/\.m?js$/.test(entry)
+    )
+      return 'backend.entry must be a same-origin URL of a .js module under the assets (/app/<id>/backend/server.js)'
+    if (typeof port !== 'number' || !Number.isInteger(port) || port < 0 || port > 65535)
+      return 'backend.port must be a port number (0 to 65535)'
     return { entry, port }
   }
 }
