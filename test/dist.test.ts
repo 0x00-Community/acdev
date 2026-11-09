@@ -10,7 +10,7 @@ import { cleanup, collect, env, skipping, standIn, tmp, WINDOWS } from './helper
 
 const ROOT = join(import.meta.dir, '..')
 const API = join(ROOT, '../acdert/web/packages/acde-api/dist')
-const SDK = '0.0.5'
+const SDK = '0.0.6'
 const FETCHER = which('curl') ?? which('wget')
 
 function run(argv: string[], extra: Record<string, string>, cwd = ROOT) {
