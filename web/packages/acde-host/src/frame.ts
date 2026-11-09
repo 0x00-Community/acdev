@@ -1,5 +1,5 @@
-import type { DoubleClickAction } from '@dopame/acde-api'
-import type { AppManifest } from '@dopame/acde-api/manifest'
+import type { DoubleClickAction, FrameTheme } from '@dopame/acde-api'
+import { FrameThemes, type AppManifest } from '@dopame/acde-api/manifest'
 import type { NativeSurface } from './native'
 
 export class Frame {
@@ -16,8 +16,16 @@ export class Frame {
     return [width, height + Frame.height(app)]
   }
 
-  static desktop(surface: Pick<NativeSurface, 'setDoubleClick'>): { setDoubleClick(action: DoubleClickAction): void } {
+  static desktop(surface: Pick<NativeSurface, 'setDoubleClick' | 'setFrameTheme'>): {
+    setDoubleClick(action: DoubleClickAction): void
+    setFrameTheme(theme: FrameTheme | null): void
+  } {
     return {
+      setFrameTheme: (theme) => {
+        const wire = FrameThemes.parse(theme)
+        if (typeof wire === 'string') throw new TypeError(`setFrameTheme: ${wire}`)
+        surface.setFrameTheme?.(...wire.colors, wire.style, wire.side, wire.align)
+      },
       setDoubleClick: (action) => {
         if (!Frame.DOUBLE_CLICK.includes(action)) throw new TypeError(`setDoubleClick: no action ${String(action)} (${Frame.DOUBLE_CLICK.join(', ')})`)
         surface.setDoubleClick?.(action)

@@ -4,6 +4,7 @@ import { API_LEVEL } from './runtime/level.js'
 export type { Capabilities, PackageManifest } from './types/manifest.js'
 export type { CapabilityState, CapabilityStatus, PlatformSupport, RunningMode, WindowFeatures } from './types/capabilities.js'
 export { API_LEVEL }
+export { FrameThemes, type FrameThemeWire } from './frame.js'
 export { PLATFORM_SUPPORT, RUNNING_MODES, platformSupport } from './runtime/platforms.js'
 
 export const ICON_NAMES = [
