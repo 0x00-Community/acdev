@@ -29,14 +29,15 @@ macro_rules! wire {
             type Err = String;
 
             fn from_str(s: &str) -> Result<Self, String> {
-                Self::ALL.iter().copied().find(|v| v.as_str() == s).ok_or_else(|| format!(concat!("unknown ", $what, " {}"), s))
+                let found = Self::ALL.iter().copied().find(|v| v.as_str() == s);
+                found.ok_or_else(|| format!(concat!("unknown ", $what, " {}"), s))
             }
         }
     };
 }
 
-mod event;
 pub mod drop_grant;
+mod event;
 mod motion;
 mod pace;
 mod plan;
@@ -141,7 +142,13 @@ pub mod edge {
     pub const RIGHT: u32 = 8;
 }
 
-wire!(#[derive(Default)] "mode" Mode { Fullscreen = "fullscreen", #[default] Free = "free", Fixed = "fixed", Pinned = "pinned" });
+wire!(#[derive(Default)] "mode" Mode {
+    Fullscreen = "fullscreen",
+    #[default]
+    Free = "free",
+    Fixed = "fixed",
+    Pinned = "pinned",
+});
 
 impl Mode {
     pub fn can_move(self) -> bool {
@@ -196,7 +203,10 @@ impl TryFrom<InjectEvent> for Injected {
                 };
                 Injected::Wheel { dx: e.dx.unwrap_or(0.0), dy: e.dy.unwrap_or(0.0), source }
             }
-            "keydown" | "keyup" => Injected::Key { code: e.code.ok_or_else(|| format!("inject {}: missing code", e.kind))?, pressed: e.kind == "keydown" },
+            "keydown" | "keyup" => {
+                let code = e.code.ok_or_else(|| format!("inject {}: missing code", e.kind))?;
+                Injected::Key { code, pressed: e.kind == "keydown" }
+            }
             other => return Err(format!("inject: unknown type {other}")),
         })
     }
@@ -230,6 +240,8 @@ pub struct Window {
     pub parent: Option<WindowId>,
     pub modal: bool,
 }
+
+pub type Done = Result<(), Error>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -281,7 +293,7 @@ impl WindowTable {
         self.windows.get(&id)
     }
 
-    pub fn create(&mut self, id: WindowId, canvas: CanvasId, mode: Mode, rect: Rect, parent: Option<WindowId>) -> Result<(), Error> {
+    pub fn create(&mut self, id: WindowId, canvas: CanvasId, mode: Mode, rect: Rect, parent: Option<WindowId>) -> Done {
         let c = self.canvases.get(&canvas).ok_or(Error::UnknownCanvas)?;
         if self.windows.contains_key(&id) {
             return Err(Error::Taken);
@@ -319,7 +331,7 @@ impl WindowTable {
         Some(w)
     }
 
-    pub fn set_parent(&mut self, id: WindowId, parent: Option<WindowId>, modal: bool) -> Result<(), Error> {
+    pub fn set_parent(&mut self, id: WindowId, parent: Option<WindowId>, modal: bool) -> Done {
         let canvas = self.windows.get(&id).ok_or(Error::UnknownWindow)?.canvas;
         if let Some(p) = parent
             && (p == id || self.windows.get(&p).is_none_or(|w| w.canvas != canvas))
@@ -332,11 +344,15 @@ impl WindowTable {
         Ok(())
     }
 
+    fn modal_of(&self, window: WindowId, parent: WindowId) -> bool {
+        self.windows.get(&window).is_some_and(|w| w.parent == Some(parent) && w.modal)
+    }
+
     pub fn modal_child(&self, id: WindowId) -> Option<WindowId> {
         let canvas = self.canvases.get(&self.windows.get(&id)?.canvas)?;
         let mut found = None;
         let mut current = id;
-        while let Some(&child) = canvas.z.iter().rev().find(|c| self.windows.get(c).is_some_and(|w| w.parent == Some(current) && w.modal)) {
+        while let Some(&child) = canvas.z.iter().rev().find(|c| self.modal_of(**c, current)) {
             if Some(child) == found {
                 break;
             }
@@ -346,7 +362,7 @@ impl WindowTable {
         found
     }
 
-    pub fn set_mode(&mut self, id: WindowId, mode: Mode) -> Result<(), Error> {
+    pub fn set_mode(&mut self, id: WindowId, mode: Mode) -> Done {
         let w = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         if mode == Mode::Fullscreen {
             let c = self.canvases.get(&w.canvas).ok_or(Error::UnknownCanvas)?;
@@ -356,7 +372,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn place(&mut self, id: WindowId, x: f64, y: f64) -> Result<(), Error> {
+    pub fn place(&mut self, id: WindowId, x: f64, y: f64) -> Done {
         let w = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         if !w.mode.can_move() {
             return Err(Error::ModeRefusesMove);
@@ -366,7 +382,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn resize(&mut self, id: WindowId, w: f64, h: f64) -> Result<(), Error> {
+    pub fn resize(&mut self, id: WindowId, w: f64, h: f64) -> Done {
         let win = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         if !win.mode.can_resize() {
             return Err(Error::ModeRefusesResize);
@@ -379,7 +395,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn set_rect(&mut self, id: WindowId, rect: Rect) -> Result<(), Error> {
+    pub fn set_rect(&mut self, id: WindowId, rect: Rect) -> Done {
         let win = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         if rect.w <= 0.0 || rect.h <= 0.0 {
             return Err(Error::EmptyRect);
@@ -388,7 +404,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn lower(&mut self, id: WindowId) -> Result<(), Error> {
+    pub fn lower(&mut self, id: WindowId) -> Done {
         let canvas = self.windows.get(&id).ok_or(Error::UnknownWindow)?.canvas;
         let z = &mut self.canvases.get_mut(&canvas).ok_or(Error::UnknownCanvas)?.z;
         z.retain(|&x| x != id);
@@ -396,19 +412,22 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn front(&mut self, id: WindowId) -> Result<(), Error> {
+    pub fn front(&mut self, id: WindowId) -> Done {
         let window = self.windows.get(&id).ok_or(Error::UnknownWindow)?;
         let canvas = window.canvas;
         let pinned = window.mode == Mode::Pinned;
         let modes: BTreeMap<WindowId, Mode> = self.windows.iter().map(|(k, w)| (*k, w.mode)).collect();
         let z = &mut self.canvases.get_mut(&canvas).ok_or(Error::UnknownCanvas)?.z;
         z.retain(|&x| x != id);
-        let at = if pinned { z.len() } else { z.iter().position(|x| modes.get(x) == Some(&Mode::Pinned)).unwrap_or(z.len()) };
+        let at = match pinned {
+            true => z.len(),
+            false => z.iter().position(|x| modes.get(x) == Some(&Mode::Pinned)).unwrap_or(z.len()),
+        };
         z.insert(at, id);
         Ok(())
     }
 
-    pub fn focus(&mut self, canvas: CanvasId, id: Option<WindowId>) -> Result<(), Error> {
+    pub fn focus(&mut self, canvas: CanvasId, id: Option<WindowId>) -> Done {
         let c = self.canvases.get_mut(&canvas).ok_or(Error::UnknownCanvas)?;
         if let Some(id) = id
             && !c.z.contains(&id)
@@ -478,7 +497,8 @@ mod tests {
     fn windows_may_exceed_the_canvas_and_are_clipped() {
         let (mut t, c) = table();
         let w = add(&mut t, c, Mode::Free, Rect::new(90.0, 10.0, 30.0, 10.0));
-        let shown = |t: &WindowTable| CompositePlan::build(t, &[input(w, false, Rect::default())], &[]).layer(w).map(|l| l.clip);
+        let probe = [input(w, false, Rect::default())];
+        let shown = |t: &WindowTable| CompositePlan::build(t, &probe, &[]).layer(w).map(|l| l.clip);
         assert_eq!(shown(&t), Some(Rect::new(180.0, 20.0, 20.0, 20.0)));
         t.place(w, 200.0, 0.0).unwrap();
         assert_eq!(shown(&t), None);
@@ -524,7 +544,8 @@ mod tests {
     }
 
     fn input(w: WindowId, opaque: bool, rect: Rect) -> Input {
-        Input { window: w, opaque: if opaque { vec![Rect::new(0.0, 0.0, rect.w * 2.0, rect.h * 2.0)] } else { Vec::new() }, ..Default::default() }
+        let opaque = if opaque { vec![Rect::new(0.0, 0.0, rect.w * 2.0, rect.h * 2.0)] } else { Vec::new() };
+        Input { window: w, opaque, ..Default::default() }
     }
 
     #[test]
@@ -569,7 +590,8 @@ mod tests {
         let mut under = input(below, true, Rect::default());
         under.damage = vec![Rect::new(30.0, 30.0, 2.0, 2.0)];
         let mut top = input(glass, false, Rect::default());
-        top.backdrop = Some(Effect::Backdrop { rect: Rect::new(0.0, 0.0, 80.0, 80.0), radius: 0.0, blur: 8.0, saturate: 1.0, brightness: 1.0 });
+        let rect = Rect::new(0.0, 0.0, 80.0, 80.0);
+        top.backdrop = Some(Effect::Backdrop { rect, radius: 0.0, blur: 8.0, saturate: 1.0, brightness: 1.0 });
         let plan = CompositePlan::build(&t, &[under.clone(), top.clone()], &[]);
         assert!(plan.layers[1].redraw);
         assert!(plan.damage.iter().any(|d| d.covers(&Rect::new(20.0, 20.0, 80.0, 80.0))), "{:?}", plan.damage);
@@ -589,7 +611,8 @@ mod tests {
         let mut under = input(moving, false, Rect::default());
         under.moved_from = Some(old);
         let mut top = input(glass, false, Rect::default());
-        top.backdrop = Some(Effect::Backdrop { rect: Rect::new(0.0, 0.0, 100.0, 100.0), radius: 0.0, blur: 8.0, saturate: 1.0, brightness: 1.0 });
+        let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+        top.backdrop = Some(Effect::Backdrop { rect, radius: 0.0, blur: 8.0, saturate: 1.0, brightness: 1.0 });
         let plan = CompositePlan::build(&t, &[under, top], &[]);
         assert_eq!(plan.layers.iter().map(|l| l.window).collect::<Vec<_>>(), vec![glass]);
         assert!(plan.layers[0].redraw);
