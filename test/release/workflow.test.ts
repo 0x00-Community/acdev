@@ -12,7 +12,7 @@ type Job = {
   needs?: string | string[]; if?: string; permissions?: Record<string, string>; env?: Record<string, string>
   outputs?: Record<string, string>; steps: Step[]
 }
-type Input = { required: boolean; default: boolean; type: string }
+type Input = { required: boolean; default: boolean | string; type: string }
 const workflow = Bun.YAML.parse(TEXT) as {
   on: { workflow_dispatch: { inputs: Record<string, Input> } }
   permissions: Record<string, string>
@@ -32,26 +32,26 @@ const indexIn = (text: string, needle: string) => {
 }
 
 describe('release.yml', () => {
-  test('is started by hand only, with a boolean publish input that defaults to false and no version input', () => {
+  test('is started by hand only, with publish (boolean, default false) and commit (string) inputs', () => {
     expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch'])
     const inputs = workflow.on.workflow_dispatch.inputs
-    expect(Object.keys(inputs)).toEqual(['publish'])
+    expect(Object.keys(inputs)).toEqual(['publish', 'commit'])
     expect(inputs['publish']).toEqual({
-      description: expect.any(String),
-      required: false,
-      default: false,
-      type: 'boolean',
+      description: expect.any(String), required: false, default: false, type: 'boolean',
     })
+    expect(inputs['commit']).toEqual({ description: expect.any(String), required: false, default: '', type: 'string' })
     expect(TEXT).not.toMatch(/^\s*push:/m)
     expect(TEXT).not.toMatch(/tags: \['v\*'\]/)
+    expect(TEXT).not.toMatch(/^\s*version:\s*$/m)
   })
 
-  test('default permissions are read-only; contents write only on tag; id-token write only on upload', () => {
+  test('read-only by default; contents write only on tag; id-token write only on upload and latest', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' })
     const writers = Object.entries(jobs).filter(([, job]) => Object.values(job.permissions ?? {}).includes('write'))
     expect(writers.map(([id, job]) => [id, job.permissions])).toEqual([
-      ['tag', { contents: 'write' }],
       ['upload', { contents: 'read', 'id-token': 'write' }],
+      ['tag', { contents: 'write' }],
+      ['latest', { contents: 'read', 'id-token': 'write' }],
     ])
   })
 
@@ -59,70 +59,110 @@ describe('release.yml', () => {
     expect(workflow.concurrency).toEqual({ group: 'acde-release', 'cancel-in-progress': false })
   })
 
-  test('the jobs run plan, pkgs, guard, tag, upload in that order', () => {
-    expect(Object.keys(jobs)).toEqual(['plan', 'pkgs', 'guard', 'tag', 'upload'])
+  test('the jobs run plan, pkgs, guard, upload, tag, latest, with their needs', () => {
+    expect(Object.keys(jobs)).toEqual(['plan', 'pkgs', 'guard', 'upload', 'tag', 'latest'])
     expect(needs('plan')).toEqual([])
     expect(needs('pkgs')).toEqual(['plan'])
     expect(needs('guard')).toEqual(['plan', 'pkgs'])
-    expect(needs('tag')).toEqual(['plan', 'guard'])
-    expect(needs('upload')).toEqual(['plan', 'guard', 'tag'])
+    expect(needs('upload')).toEqual(['plan', 'guard'])
+    expect(needs('tag')).toEqual(['plan', 'guard', 'upload'])
+    expect(needs('latest')).toEqual(['plan', 'guard', 'tag'])
   })
 
-  test('tag and upload need publish=true and every job they wait for to succeed', () => {
-    for (const job of ['tag', 'upload']) {
+  test('upload, tag and latest need publish=true and every job they wait for to succeed', () => {
+    for (const job of ['upload', 'tag', 'latest']) {
       expect(jobs[job]!.if).toContain('inputs.publish')
       expect(jobs[job]!.if).toContain('success()')
     }
+    expect(jobs['plan']!.if).toBeUndefined()
     expect(jobs['pkgs']!.if).toBeUndefined()
     expect(jobs['guard']!.if).toBeUndefined()
   })
 
-  test('a preview (publish=false) says so and stops after the guard', () => {
-    expect(step('guard', 'a preview stops here')?.if).toBe('${{ !inputs.publish }}')
-    expect(TEXT).not.toMatch(/gh workflow run[^\n]*publish=true[^\n]*tags?/)
+  test('the versioned files are uploaded before the tag, and latest.json is updated after the tag', () => {
+    const upload = runs('upload')
+    const archive = indexIn(upload, 'publish_once "out/$v/acde-$v.tar.gz"')
+    expect(archive).toBeLessThan(indexIn(upload, 'publish_once "out/$v/SHA256SUMS"'))
+    expect(upload).toContain('aws s3 cp "s3://$BUCKET/$key" readback.tmp')
+    expect(upload).toContain('does not read back as uploaded')
+    expect(upload).not.toMatch(/put out\/(latest|install)/)
+    expect(runs('tag')).toContain('git push origin "refs/tags/$TAG"')
+    expect(needs('tag')).toContain('upload')
+    const latest = runs('latest')
+    const order = ['put out/install.sh', 'put out/install.ps1', 'put out/latest latest', 'put out/latest.json']
+    const at = order.map((needle) => indexIn(latest, needle))
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(needs('latest')).toContain('tag')
   })
 
-  test('the version comes from package.json, and a publish runs only on main', () => {
+  test('a preview (publish=false) says so and stops after the guard', () => {
+    expect(step('guard', 'a preview stops here')?.if).toBe('${{ !inputs.publish }}')
+    expect(TEXT).not.toMatch(/tags?\s+v\$/)
+  })
+
+  test('a publish needs a commit; the commit must be a commit here and an ancestor of origin/main', () => {
     const plan = runs('plan')
-    expect(plan).toContain('require("./package.json").version')
-    expect(plan).toContain('case $v in')
-    expect(plan).toContain('[0-9]*.[0-9]*.[0-9]*')
-    expect(plan).toContain('"$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/main ]')
-    expect(plan).toContain('echo "tag=v$v" >> "$GITHUB_OUTPUT"')
+    expect(plan).toContain('a publish needs a commit: run it with -f commit=<sha>')
+    expect(plan).toContain('git rev-parse --verify --quiet "$COMMIT^{commit}"')
+    expect(plan).toContain('git merge-base --is-ancestor "$sha" origin/main')
+    expect(plan).toContain('neither origin/main nor one of its ancestors')
+    expect(plan).toContain('echo "sha=$sha" >> "$GITHUB_OUTPUT"')
+    const checkout = indexIn(plan, 'git checkout --quiet --detach "$sha"')
+    expect(indexIn(plan, 'git merge-base --is-ancestor')).toBeLessThan(checkout)
     expect(jobs['plan']!.outputs).toEqual({
+      sha: '${{ steps.version.outputs.sha }}',
       version: '${{ steps.version.outputs.version }}',
       tag: '${{ steps.version.outputs.tag }}',
     })
+  })
+
+  test('a publish runs only on main; the version is read from the commit checked out', () => {
+    const plan = runs('plan')
+    expect(plan).toContain('"$PUBLISH" = true ] && [ "$GITHUB_REF" != refs/heads/main ]')
+    expect(plan).toContain('require("./package.json").version')
+    expect(plan).toContain('[0-9]*.[0-9]*.[0-9]*')
+    const checkout = indexIn(plan, 'git checkout --quiet --detach "$sha"')
+    expect(checkout).toBeLessThan(indexIn(plan, 'require("./package.json")'))
     expect(TEXT).not.toMatch(/github\.ref_name|format\('v\{0\}'/)
   })
 
-  test('the tag must be free or already point at this commit, using the GitHub API', () => {
+  test('the plan checkout fetches history; every later job checks out the resolved commit', () => {
+    const planCheckout = jobs['plan']!.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
+    expect(planCheckout?.with?.['fetch-depth']).toBe(0)
+    expect(planCheckout?.with?.['ref']).toBeUndefined()
+    for (const job of ['pkgs', 'guard', 'upload', 'tag', 'latest']) {
+      if (job === 'upload' || job === 'latest') continue
+      const checkout = jobs[job]!.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
+      expect(checkout?.with?.['ref']).toBe('${{ needs.plan.outputs.sha }}')
+    }
+  })
+
+  test('the tag is free, or already points at the same commit; a different commit fails with a bump hint', () => {
     const check = step('plan', 'the tag is free, or already points at this commit')
     expect(check?.if).toBe('${{ inputs.publish }}')
     expect(check?.run).toContain('gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"')
-    expect(check?.run).toContain('[ "$sha" != "$GITHUB_SHA" ]')
+    expect(check?.run).toContain('[ "$tagged" != "$SHA" ]')
     expect(check?.run).toContain('HTTP 404')
     expect(check?.run).toContain('bump the version in package.json')
   })
 
-  test('the tag job creates an annotated tag on this commit, never moves or forces one', () => {
+  test('the tag job creates an annotated tag on the resolved commit, never moves or forces one', () => {
     const tag = jobs['tag']!
-    expect(tag.env?.['TAG']).toBe('${{ needs.plan.outputs.tag }}')
+    expect(tag.env?.['SHA']).toBe('${{ needs.plan.outputs.sha }}')
     const checkout = tag.steps.find((item) => item.uses?.startsWith('actions/checkout@'))
     expect(checkout?.with?.['persist-credentials']).toBe(true)
-    expect(checkout?.with?.['ref']).toBe('${{ github.sha }}')
     const run = runs('tag')
-    expect(run).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"')
+    expect(run).toContain('test "$(git rev-parse HEAD)" = "$SHA"')
     expect(run).toContain('git ls-remote --exit-code --tags origin "refs/tags/$TAG"')
-    expect(run).toContain('tag -a "$TAG" -m "acde $TAG" "$GITHUB_SHA"')
+    expect(run).toContain('tag -a "$TAG" -m "acde $TAG" "$SHA"')
     expect(run).toContain('git push origin "refs/tags/$TAG"')
+    expect(run).toContain('bump the version in package.json')
+    expect(run).toContain('a rerun continues')
     expect(run).not.toMatch(/git tag (?!-a)/)
     expect(run).not.toMatch(/git push[^\n]*(--force|\s-f\b|\+refs)/)
-    expect(run).toContain('a rerun continues')
   })
 
-  test('the upload job uses the tag from plan and never checks out a token-bearing repository', () => {
-    expect(jobs['upload']!.env?.['TAG']).toBe('${{ needs.plan.outputs.tag }}')
+  test('the checkout in every job other than tag keeps no token', () => {
     for (const job of Object.keys(jobs).filter((id) => id !== 'tag')) {
       for (const item of jobs[job]!.steps) {
         if (item.uses?.startsWith('actions/checkout@')) expect(item.with?.['persist-credentials']).toBe(false)
@@ -168,16 +208,19 @@ describe('release.yml', () => {
     expect(runs('upload')).toContain('"out/$v/acde-$v.tar.gz"')
   })
 
-  test('the guard runs the release guard on the artifact before the tag or any upload', () => {
+  test('the guard runs the release guard on the artifact before any upload or tag', () => {
     expect(runs('guard')).toContain('bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out"')
     expect(uses('guard').some((action) => action.startsWith('actions/download-artifact@'))).toBe(true)
     expect(jobs['guard']!.permissions).toBeUndefined()
   })
 
-  test('the upload job checks the allow-list and the checksums again before it uploads anything', () => {
+  test('the upload and latest jobs check the allow-list and the checksums before they touch S3', () => {
+    for (const job of ['upload', 'latest']) {
+      expect(runs(job)).toContain('sha256sum -c SHA256SUMS')
+    }
     const upload = runs('upload')
-    expect(indexIn(upload, 'diff "$expected" actual')).toBeLessThan(indexIn(upload, 'sha256sum -c SHA256SUMS'))
-    expect(indexIn(upload, 'sha256sum -c SHA256SUMS')).toBeLessThan(indexIn(upload, 'publish_once()'))
+    expect(upload).toContain('echo "$v/acde-$v.tar.gz"')
+    expect(indexIn(upload, 'diff "$expected" actual')).toBeLessThan(indexIn(upload, 'publish_once()'))
     const steps = jobs['upload']!.steps.map((item) => item.name ?? '')
     expect(steps.indexOf('check the allow-list and the checksums once more')).toBeLessThan(
       steps.indexOf('credentials from the GitHub OIDC token'),
@@ -185,29 +228,11 @@ describe('release.yml', () => {
   })
 
   test('upload is an explicit allow-list with no sync, recursion or globs', () => {
-    const upload = runs('upload')
-    expect(upload).not.toMatch(/\bsync\b|--recursive|\bcp -r\b/)
-    expect(upload).not.toMatch(/s3 cp [^\n]*out\/[^\n]*\*/)
-    expect(upload).toContain('publish_once "out/$v/acde-$v.tar.gz" "$v/acde-$v.tar.gz"')
-    expect(upload).toContain('publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS"')
-    expect(upload).toContain('put out/install.sh install.sh')
-    expect(upload).toContain('put out/install.ps1 install.ps1')
-    expect(upload).toContain('put out/latest latest')
-    expect(upload).toContain('put out/latest.json latest.json')
-  })
-
-  test('latest.json is the last object uploaded, after the archive, the checksums and the installers', () => {
-    const upload = runs('upload')
-    const order = [
-      'publish_once "out/$v/acde-',
-      'publish_once "out/$v/SHA256SUMS"',
-      'put out/install.sh',
-      'put out/install.ps1',
-      'put out/latest latest',
-      'put out/latest.json',
-    ]
-    const at = order.map((needle) => indexIn(upload, needle))
-    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    for (const job of ['upload', 'latest']) {
+      const run = runs(job)
+      expect(run).not.toMatch(/\bsync\b|--recursive|\bcp -r\b/)
+      expect(run).not.toMatch(/s3 cp [^\n]*out\/[^\n]*\*/)
+    }
   })
 
   test('a published version is identical or refused, never overwritten, and a rerun can continue', () => {
@@ -231,6 +256,7 @@ describe('release.yml', () => {
   test('the OIDC exchange is done with the AWS CLI, not a third-party action', () => {
     expect(TEXT).not.toContain('aws-actions/')
     expect(runs('upload')).toContain('aws sts assume-role-with-web-identity')
+    expect(runs('latest')).toContain('aws sts assume-role-with-web-identity')
   })
 
   test('every action is pinned to a full commit SHA with its version noted', () => {
