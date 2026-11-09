@@ -1129,6 +1129,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `packaging/arch` | | Arch 包 `acde-base` |
 | `packaging/office` | | `office-ds.sh`: runtime Office 用的 ONLYOFFICE Document Server 容器 |
 | `packaging/qemu` | | 在运行中的会话里驱动和测量 (`drive.sh`), 汇总计时日志 (`perf-log.sh`) |
+| `npm` | | `build.sh` 打 npm 包: `acde` (命令, 带上 bun)、`@dopame/acde-linux-x64` (程序、acde-host 的 bundle、登录页、`acde app` 的工具)、`create-acde` (`npm create acde`), 外加 SDK `@dopame/acde-api` |
 
 ## 构建和运行 (开发版)
 
@@ -1181,8 +1182,8 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个桌
 
 ## vendors
 
-- **依赖的来源只有两处**: crates.io 和这里的 `vendors/` (Cargo.lock 里没有 git 来源, 构建不需要 GitHub). 不在 crates.io 上的依赖
-  拷进这里, 不用 git 依赖. 访问 crates.io 慢的机器在自己的 `$CARGO_HOME/config.toml` 里换镜像 (不进仓库), 国内用 rsproxy:
+- **依赖的来源**: crates.io、这里的 `vendors/`, 和唯一的 git 依赖 acgpu (见下, 构建要能拉到 `github.com/dopame-org/acgpu`).
+  别的不在 crates.io 上的依赖拷进这里, 不用 git 依赖. 访问 crates.io 慢的机器在自己的 `$CARGO_HOME/config.toml` 里换镜像 (不进仓库), 国内用 rsproxy:
   `[source.crates-io] replace-with = "rsproxy-sparse"` 加 `[source.rsproxy-sparse] registry = "sparse+https://rsproxy.cn/index/"`;
   bun 用 `BUN_CONFIG_REGISTRY=https://registry.npmmirror.com`.
 - 都是直接放在本仓库里的源码 (没有 submodule, 不带上游历史): 直接在这里改, 改动处加 `acrender:` (ironrdp-server 是 `acde:`)
