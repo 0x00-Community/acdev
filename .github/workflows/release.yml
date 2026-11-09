@@ -6,44 +6,47 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   PKGS: https://pkgs.dopame.ai
   TAG: ${{ github.ref_name }}
+  SDK_VERSION: 0.0.5
+  AWS_REGION: ap-southeast-1
+  ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
+  BUCKET: dopame-pkgs
+  PREFIX: acde
+  CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
 
 jobs:
   pkgs:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acde
-      - uses: oven-sh/setup-bun@v2
-      - name: acdert
+          persist-credentials: false
+      - name: the tag is this version
+        working-directory: acde
         run: |
-          curl -fsSL "$PKGS/acdert/latest.json" -o acdert.json
-          cat acdert.json
-          base=$(jq -r .base acdert.json)
-          av=$(jq -r .version acdert.json)
-          jq -e --arg f "acde-api-$av.tar.gz" '.files | index($f)' acdert.json > /dev/null \
-            || { echo "::error::acdert $av has no acde-api-$av.tar.gz: release acdert again"; exit 1; }
-          mkdir -p in/acdert && cd in/acdert
-          for f in $(jq -r '.files[]' ../../acdert.json); do curl -fsSLO "$base$f"; done
-          sha256sum -c SHA256SUMS
-          tar -xzf "acdert-host-$av.tar.gz"
+          v=$(node -p 'require("./package.json").version')
+          if [ "v$v" != "$TAG" ]; then
+            echo "::error::acde is $v but the tag is $TAG"
+            exit 1
+          fi
+      - name: the SDK from npm, the same version as the tag's SDK
+        run: |
+          set -eu
+          mkdir -p in/sdk
+          if ! npm pack "@dopame/acde-api@$SDK_VERSION" --pack-destination in/sdk --silent; then
+            echo "::error::npm has no @dopame/acde-api@$SDK_VERSION: acdert must publish it before acde is tagged"
+            exit 1
+          fi
+          tar -xzf "in/sdk/dopame-acde-api-$SDK_VERSION.tgz" -C in/sdk
+          test -f in/sdk/package/src/index.js
           mkdir -p "$GITHUB_WORKSPACE/acdert/web/packages"
-          tar -C "$GITHUB_WORKSPACE/acdert/web/packages" -xzf "acde-api-$av.tar.gz"
-      - name: desktop
-        run: |
-          curl -fsSL "$PKGS/acde-dopame/latest.json" -o dopame.json
-          cat dopame.json
-          base=$(jq -r .base dopame.json)
-          mkdir -p in/dopame && cd in/dopame
-          for f in $(jq -r '.files[]' ../../dopame.json); do curl -fsSLO "$base$f"; done
-          sha256sum -c SHA256SUMS
-          mkdir -p "$GITHUB_WORKSPACE/acde-dopame/packages"
-          tar -C "$GITHUB_WORKSPACE/acde-dopame/packages" -xzf dopame.tar.gz
+          rm -rf "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
+          mv in/sdk/package "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: install
         working-directory: acde
         run: bun install --frozen-lockfile
@@ -51,44 +54,150 @@ jobs:
         working-directory: acde
         run: |
           v=${TAG#v}
-          found=
-          for bin in ../in/acdert/acdert-*; do
-            case $bin in *.tar.gz) continue ;; esac
-            triple=$(basename "$bin" .exe)
-            triple=${triple#acdert-}
-            bun scripts/dist.ts --acdert "$bin" --host ../in/acdert/app/dist --triple "$triple" --version "$v" --out ../out
-            found=1
-          done
-          [ -n "$found" ] || { echo "::error::no acdert binaries"; exit 1; }
+          bun scripts/dist.ts --api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" --sdk "$SDK_VERSION" \
+            --version "$v" --out "$GITHUB_WORKSPACE/out"
       - name: latest.json
         run: |
           v=${TAG#v}
-          files=$(cd "out/$v" && ls | jq -R . | jq -sc .)
-          jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$GITHUB_SHA" \
-            --arg acdert "$(jq -r .version acdert.json)" --arg dopame "$(jq -r .commit dopame.json)" --argjson files "$files" \
-            '{version: $version, tag: $tag, commit: $commit, acdert: $acdert, dopame: $dopame, base: "https://pkgs.dopame.ai/acde/\($version)/", files: $files}' \
-            > out/latest.json
-          cat out/latest.json
-          ls -la out "out/$v"
-      - uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: arn:aws:iam::312030312811:role/dopame-acde-release
-          aws-region: ap-southeast-1
-      - name: upload
+          files=$(cd "$GITHUB_WORKSPACE/out/$v" && ls | jq -R . | jq -sc .)
+          jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$GITHUB_SHA" --arg sdk "$SDK_VERSION" \
+            --argjson files "$files" \
+            '{version: $version, tag: $tag, commit: $commit, sdk: $sdk, base: "https://pkgs.dopame.ai/acde/\($version)/", files: $files}' \
+            > "$GITHUB_WORKSPACE/out/latest.json"
+          cat "$GITHUB_WORKSPACE/out/latest.json"
+      - name: the archive starts the CLI
         run: |
+          set -eu
           v=${TAG#v}
-          aws s3 cp "out/$v" "s3://dopame-pkgs/acde/$v/" --recursive \
-            --cache-control 'public, max-age=31536000, immutable'
-          fresh='public, max-age=0, must-revalidate'
-          for f in install.sh install.ps1 latest; do
-            aws s3 cp "out/$f" "s3://dopame-pkgs/acde/$f" --content-type 'text/plain; charset=utf-8' --cache-control "$fresh"
+          mkdir -p smoke
+          tar -xzf "$GITHUB_WORKSPACE/out/$v/acde-$v.tar.gz" -C smoke
+          if "smoke/acde-$v/bin/acde" 2>&1 | grep -q 'usage: acde <command>'; then
+            echo "shim ok"
+          else
+            echo "::error::bin/acde does not start the CLI"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: acde-release
+          path: out
+          if-no-files-found: error
+          retention-days: 1
+
+  guard:
+    needs: pkgs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: acde-release
+          path: out
+      - name: the release is exactly the allow-list and the shipped content is clean
+        working-directory: acde
+        run: |
+          set -eu
+          v=$(cat "$GITHUB_WORKSPACE/out/latest")
+          if [ "v$v" != "$TAG" ]; then
+            echo "::error::the release is $v but the tag is $TAG"
+            exit 1
+          fi
+          bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out" --version "$v"
+
+  upload:
+    needs: guard
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: acde-release
+          path: out
+      - name: check the allow-list and the checksums once more
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          case $v in *[!0-9A-Za-z.-]*|'') echo "::error::bad version"; exit 1 ;; esac
+          if [ "v$v" != "$TAG" ]; then
+            echo "::error::the release is $v but the tag is $TAG"
+            exit 1
+          fi
+          expected=$(mktemp)
+          {
+            echo install.ps1
+            echo install.sh
+            echo latest
+            echo latest.json
+            echo "$v/SHA256SUMS"
+            echo "$v/acde-$v.tar.gz"
+          } | sort > "$expected"
+          (cd out && find . -type f | sed 's|^\./||' | sort) > actual
+          if ! diff "$expected" actual; then
+            echo "::error::the release is not exactly the allow-list"
+            exit 1
+          fi
+          (cd "out/$v" && sha256sum -c SHA256SUMS)
+      - name: credentials from the GitHub OIDC token
+        run: |
+          set -eu
+          token=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE" \
+            --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
+            --duration-seconds 3600 --query Credentials --output json)
+          key=$(jq -r .AccessKeyId <<< "$creds")
+          secret=$(jq -r .SecretAccessKey <<< "$creds")
+          session=$(jq -r .SessionToken <<< "$creds")
+          echo "::add-mask::$key"
+          echo "::add-mask::$secret"
+          echo "::add-mask::$session"
+          {
+            echo "AWS_ACCESS_KEY_ID=$key"
+            echo "AWS_SECRET_ACCESS_KEY=$secret"
+            echo "AWS_SESSION_TOKEN=$session"
+          } >> "$GITHUB_ENV"
+      - name: refuse to overwrite a published version
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          for key in "$PREFIX/$v/acde-$v.tar.gz" "$PREFIX/$v/SHA256SUMS"; do
+            if output=$(aws s3api head-object --bucket "$BUCKET" --key "$key" 2>&1); then
+              echo "::error::$key is already published: a version is never overwritten"
+              exit 1
+            fi
+            case $output in
+              *Not\ Found*|*NotFound*|*404*) ;;
+              *) echo "::error::cannot check $key: $output"; exit 1 ;;
+            esac
           done
-          aws s3 cp out/latest.json s3://dopame-pkgs/acde/latest.json --content-type application/json --cache-control "$fresh"
+      - name: upload the allow-list, one file at a time
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          immutable='public, max-age=31536000, immutable'
+          fresh='public, max-age=0, must-revalidate'
+          text='text/plain; charset=utf-8'
+          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
+          put "out/$v/acde-$v.tar.gz" "$v/acde-$v.tar.gz" application/gzip "$immutable"
+          put "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
+          put out/latest latest "$text" "$fresh"
+          put out/latest.json latest.json application/json "$fresh"
+          put out/install.sh install.sh "$text" "$fresh"
+          put out/install.ps1 install.ps1 "$text" "$fresh"
       - name: invalidate
-        run: >
-          aws cloudfront create-invalidation --distribution-id E3ET3L14ALFOXX
-          --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 "/acde/${TAG#v}/*"
-          --query Invalidation.Id --output text
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" \
+            --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 \
+            "/acde/$v/SHA256SUMS" "/acde/$v/acde-$v.tar.gz" --query Invalidation.Id --output text
       - run: |
           {
             echo "curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh"
