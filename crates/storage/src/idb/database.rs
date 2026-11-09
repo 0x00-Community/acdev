@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -60,7 +59,7 @@ enum Current {
 
 pub(crate) struct Worker {
     name: Text,
-    handle: u64,
+    id: u64,
     dir: Option<PathBuf>,
     catalog: Arc<Mutex<Catalog>>,
     db: Option<Connection>,
@@ -77,45 +76,49 @@ fn sql_error(e: rusqlite::Error) -> Error {
 }
 
 impl Worker {
-    pub(crate) fn new(name: Text, handle: u64, dir: Option<PathBuf>, catalog: Arc<Mutex<Catalog>>) -> Worker {
-        Worker { name, handle, dir, catalog, db: None, version: 0, conns: Vec::new(), txs: Vec::new(), queue: VecDeque::new(), current: None, writing: None }
+    pub(crate) fn new(name: Text, id: u64, dir: Option<PathBuf>, catalog: Arc<Mutex<Catalog>>) -> Worker {
+        Worker { name, id, dir, catalog, db: None, version: 0, conns: Vec::new(), txs: Vec::new(), queue: VecDeque::new(), current: None, writing: None }
     }
 
-    pub(crate) fn run(mut self, rx: Receiver<Cmd>) {
-        for cmd in rx {
-            match cmd {
-                Cmd::Open { req, version, sink } => self.queue.push_back(Request::Open { req, version, sink }),
-                Cmd::Delete { req, sink } => self.queue.push_back(Request::Delete { req, sink }),
-                Cmd::Begin { tx, conn, scope, mode } => {
-                    if self.conns.iter().any(|c| c.id == conn) {
-                        self.txs.push(Tx { id: tx, conn, scope, mode, started: false, backlog: Vec::new(), commit: false });
-                    } else if let Some(sink) = self.sink_of_owner(tx.owner) {
-                        sink(Event::Aborted { tx, error: Some(Error::new(ErrorKind::Unknown, "The connection is closed.")) });
-                    }
+    pub(crate) fn handle(&mut self, cmd: Cmd) {
+        match cmd {
+            Cmd::Open { req, version, sink } => self.queue.push_back(Request::Open { req, version, sink }),
+            Cmd::Delete { req, sink } => self.queue.push_back(Request::Delete { req, sink }),
+            Cmd::Begin { tx, conn, scope, mode } => {
+                if self.conns.iter().any(|c| c.id == conn) {
+                    self.txs.push(Tx { id: tx, conn, scope, mode, started: false, backlog: Vec::new(), commit: false });
+                } else if let Some(sink) = self.sink_of_owner(tx.owner) {
+                    sink(Event::Aborted { tx, error: Some(Error::new(ErrorKind::Unknown, "The connection is closed.")) });
                 }
-                Cmd::Op { tx, op, body } => self.op(tx, op, body),
-                Cmd::Commit { tx } => self.commit_requested(tx),
-                Cmd::Abort { tx } => self.abort(tx, None, true),
-                Cmd::Close { conn } => {
-                    if let Some(c) = self.conns.iter_mut().find(|c| c.id == conn) {
-                        c.closing = true;
-                    }
-                }
-                Cmd::Acknowledge { conn } => {
-                    if let Some(Current::Waiting { awaiting, .. }) = &mut self.current {
-                        awaiting.retain(|c| *c != conn);
-                    }
-                }
-                Cmd::OwnerGone { owner } => self.owner_gone(owner),
-                Cmd::Shutdown => break,
             }
-            self.progress();
+            Cmd::Op { tx, op, body } => self.op(tx, op, body),
+            Cmd::Commit { tx } => self.commit_requested(tx),
+            Cmd::Abort { tx } => self.abort(tx, None, true),
+            Cmd::Close { conn } => {
+                if let Some(c) = self.conns.iter_mut().find(|c| c.id == conn) {
+                    c.closing = true;
+                }
+            }
+            Cmd::Acknowledge { conn } => {
+                if let Some(Current::Waiting { awaiting, .. }) = &mut self.current {
+                    awaiting.retain(|c| *c != conn);
+                }
+            }
+            Cmd::OwnerGone { owner } => self.owner_gone(owner),
         }
+        self.progress();
+        if self.dir.is_some() && self.conns.is_empty() && self.txs.is_empty() && self.queue.is_empty() && self.current.is_none() {
+            self.db = None;
+        }
+    }
+
+    pub(crate) fn shutdown(&mut self) {
         if self.writing.take().is_some()
             && let Some(db) = &self.db
         {
             _ = db.execute_batch("ROLLBACK");
         }
+        self.db = None;
     }
 
     fn sink_of_owner(&self, owner: u64) -> Option<Sink> {
@@ -223,7 +226,7 @@ impl Worker {
                     match schema {
                         Ok(schema) => {
                             self.conns.push(Conn { id: *req, sink: sink.clone(), closing: false });
-                            sink(Event::Opened { req: *req, db: self.handle, conn: *req, schema: schema.unwrap_or_default() });
+                            sink(Event::Opened { req: *req, db: self.id, conn: *req, schema: schema.unwrap_or_default() });
                         }
                         Err(error) => sink(Event::OpenFailed { req: *req, error }),
                     }
@@ -274,7 +277,7 @@ impl Worker {
                         self.writing = Some(req);
                         self.current = Some(Current::Upgrading { req, old, new });
                         let generators = schema.stores.iter().filter(|s| s.auto_increment).map(|s| (s.id, s.generator)).collect();
-                        sink(Event::Upgrade { req, db: self.handle, conn: req, tx: req, old, schema });
+                        sink(Event::Upgrade { req, db: self.id, conn: req, tx: req, old, schema });
                         sink(Event::Started { tx: req, generators });
                     }
                     Err(error) => {

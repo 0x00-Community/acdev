@@ -231,10 +231,14 @@ fn private_directory(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments,
         builder.create(&dir)
     };
     if let Err(e) = made {
-        return bind::throw_error(scope, &format!("UnknownError: the private folder {} cannot be made: {e}", dir.display()));
+        log::warn!("storage: the private folder {} cannot be made: {e}", dir.display());
+        return bind::throw_error(scope, "UnknownError: the private folder cannot be made");
     }
     match crate::picker::adopt(&dir.to_string_lossy()) {
         Ok(path) => rv.set(bind::string(scope, &path).into()),
-        Err(e) => bind::throw_error(scope, &format!("UnknownError: {e}")),
+        Err(e) => {
+            log::warn!("storage: the private folder {} cannot be opened: {e}", dir.display());
+            bind::throw_error(scope, "UnknownError: the private folder cannot be opened");
+        }
     }
 }

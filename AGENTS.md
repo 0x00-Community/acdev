@@ -384,8 +384,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - `sessionStorage`: 每个 web 自己的, 只在内存, 配额同上; `location.reload()` 重起 web, 不保留 (标准里同一个浏览上下文要保留, 是缺口).
   - **IndexedDB** (crates/storage `idb/`, crates/acdert `idb.rs`, acde-dom `src/storage/idb/`): 分工是 Rust 管「谁先谁后」和数据, JS 管
     标准的语义.
-    - Rust: 每个数据库一条 `acde-idb` 线程 (`database.rs` `Worker`), 一个 SQLite 文件 `indexeddb/<n>.sqlite3`, 名字和版本在
-      `indexeddb/catalog.sqlite3` (内存分区在 `:memory:` 和表里). 线程上排: 打开 / 删除的队列 (版本变了先给别的连接发 `versionchange`,
+    - Rust: 每个分区一条 `acde-idb` 线程 (`mod.rs` `serve`), 上面每个数据库一个 `Worker` (`database.rs`), 一个 SQLite 文件
+      `indexeddb/<n>.sqlite3` (没有连接、事务和排着的请求时关掉文件, 内存分区的不关), 名字和版本在
+      `indexeddb/catalog.sqlite3` (内存分区在 `:memory:` 和表里). 线程数和打开的文件数不随页面开的数据库个数涨. Worker 里排: 打开 / 删除的队列 (版本变了先给别的连接发 `versionchange`,
       它们都回 `acknowledge` 后还有没关的就给请求发 `blocked`, 都关了才升级或删)、事务调度 (作用域重叠且有一方要写时按创建顺序等;
       SQLite 同一时刻只有一个写事务, 所以不重叠的写事务也排队, 标准允许)、执行操作 (写操作各包一个 SAVEPOINT, 失败只撤这一条)、
       提交 / 回滚. 只读事务不开 SQLite 事务, 和正在写的事务作用域不重叠, 读不到它没提交的东西. 键是 JS 编好的字节, BLOB 按 memcmp
@@ -422,6 +423,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
       `window.close()`. 2026-11-09 macOS: 1332 / 1384 个子测试过. 没过的都是别的缺口: Web Worker、跨 realm (iframe)、bfcache、
       SharedArrayBuffer (要 COOP / COEP)、Storage Buckets、要 WPT 服务器的 (`content.py`); `idlharness` 112 / 207, 没过的是整个 acde-dom
       的绑定形状 (方法和属性不可枚举、事件处理属性在原型上读不抛 TypeError、构造函数的 `length`), 不是 IndexedDB 自己的.
+  - **配额**: IndexedDB 和私有文件系统现在不按 `estimate()` 的 quota 拒绝写入 (不会抛 `QuotaExceededError`), 是缺口; 页面本来就能经
+    `sys` 写任意文件 (见「沙箱」), 所以这不是安全边界的问题, 是和浏览器行为的差别.
   - **cookie** (`document.cookie`, 同源请求的 `Cookie` / `Set-Cookie`): 解析在 acde-dom `core/backend.ts`, 存在分区的 `CookieJar`
     (crates/storage `cookies.rs`): 同一应用的窗口共用; 有 `Expires` / `Max-Age` 的写进 `cookies.sqlite3`, 会话 cookie 只在进程里
     (acdert 退出就没了, 和浏览器关掉一样); 按路径长、再按创建先后排; 脚本碰不到 `HttpOnly`.

@@ -224,7 +224,6 @@ pub(crate) enum Cmd {
     Close { conn: Id },
     Acknowledge { conn: Id },
     OwnerGone { owner: u64 },
-    Shutdown,
 }
 
 pub(crate) enum Catalog {
@@ -297,16 +296,17 @@ impl Catalog {
 
 const CATALOG: &str = "CREATE TABLE IF NOT EXISTS databases (name BLOB NOT NULL UNIQUE, file INTEGER NOT NULL UNIQUE, version INTEGER NOT NULL);";
 
-struct Handle {
-    name: Text,
-    tx: Sender<Cmd>,
-    thread: Option<std::thread::JoinHandle<()>>,
+enum Message {
+    To(u64, Option<Text>, Box<Cmd>),
+    OwnerGone(u64),
+    Shutdown,
 }
 
 pub struct Idb {
-    dir: Option<PathBuf>,
+    names: Mutex<Vec<Text>>,
+    tx: Sender<Message>,
+    thread: Option<std::thread::JoinHandle<()>>,
     catalog: Arc<Mutex<Catalog>>,
-    handles: Mutex<Vec<Handle>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -319,50 +319,77 @@ pub fn new_owner() -> u64 {
     NEXT_OWNER.fetch_add(1, Ordering::Relaxed)
 }
 
+fn serve(rx: std::sync::mpsc::Receiver<Message>, dir: Option<PathBuf>, catalog: Arc<Mutex<Catalog>>) {
+    let mut workers: Vec<Option<database::Worker>> = Vec::new();
+    for message in rx {
+        match message {
+            Message::To(id, name, cmd) => {
+                let at = id as usize;
+                if workers.len() <= at {
+                    workers.resize_with(at + 1, || None);
+                }
+                if workers[at].is_none()
+                    && let Some(name) = name
+                {
+                    workers[at] = Some(database::Worker::new(name, id, dir.clone(), catalog.clone()));
+                }
+                if let Some(worker) = workers[at].as_mut() {
+                    worker.handle(*cmd);
+                }
+            }
+            Message::OwnerGone(owner) => {
+                for worker in workers.iter_mut().flatten() {
+                    worker.handle(Cmd::OwnerGone { owner });
+                }
+            }
+            Message::Shutdown => break,
+        }
+    }
+    for worker in workers.iter_mut().flatten() {
+        worker.shutdown();
+    }
+}
+
 impl Idb {
     pub fn open(dir: Option<&Path>) -> Idb {
         let dir = dir.map(|d| d.join("indexeddb"));
         let catalog =
             dir.as_ref().and_then(|dir| crate::db::open(&dir.join("catalog.sqlite3"), CATALOG)).map_or_else(|| Catalog::Memory(HashMap::new()), Catalog::Disk);
         let dir = dir.filter(|_| matches!(catalog, Catalog::Disk(_)));
-        Idb { dir, catalog: Arc::new(Mutex::new(catalog)), handles: Mutex::default() }
-    }
-
-    fn database(&self, name: &[u16]) -> (u64, Sender<Cmd>) {
-        let mut handles = lock(&self.handles);
-        if let Some((i, handle)) = handles.iter().enumerate().find(|(_, h)| *h.name == *name) {
-            return (i as u64, handle.tx.clone());
-        }
+        let catalog = Arc::new(Mutex::new(catalog));
         let (tx, rx) = std::sync::mpsc::channel();
-        let id = handles.len() as u64;
-        let worker = database::Worker::new(name.into(), id, self.dir.clone(), self.catalog.clone());
-        let thread = std::thread::Builder::new().name("acde-idb".into()).spawn(move || worker.run(rx));
-        let thread = match thread {
+        let shared = catalog.clone();
+        let thread = match std::thread::Builder::new().name("acde-idb".into()).spawn(move || serve(rx, dir, shared)) {
             Ok(thread) => Some(thread),
             Err(e) => {
-                log::warn!("indexedDB: no thread for a database ({e})");
+                log::warn!("indexedDB: no thread for the databases ({e})");
                 None
             }
         };
-        handles.push(Handle { name: name.into(), tx: tx.clone(), thread });
-        (id, tx)
+        Idb { names: Mutex::default(), tx, thread, catalog }
+    }
+
+    fn database(&self, name: &[u16]) -> u64 {
+        let mut names = lock(&self.names);
+        if let Some(i) = names.iter().position(|n| **n == *name) {
+            return i as u64;
+        }
+        names.push(name.into());
+        (names.len() - 1) as u64
     }
 
     fn send(&self, db: u64, cmd: Cmd) {
-        let handles = lock(&self.handles);
-        if let Some(handle) = handles.get(db as usize) {
-            _ = handle.tx.send(cmd);
-        }
+        _ = self.tx.send(Message::To(db, None, Box::new(cmd)));
     }
 
     pub fn open_database(&self, name: &[u16], req: Id, version: Option<u64>, sink: Sink) {
-        let (_, tx) = self.database(name);
-        _ = tx.send(Cmd::Open { req, version, sink });
+        let db = self.database(name);
+        _ = self.tx.send(Message::To(db, Some(name.into()), Box::new(Cmd::Open { req, version, sink })));
     }
 
     pub fn delete_database(&self, name: &[u16], req: Id, sink: Sink) {
-        let (_, tx) = self.database(name);
-        _ = tx.send(Cmd::Delete { req, sink });
+        let db = self.database(name);
+        _ = self.tx.send(Message::To(db, Some(name.into()), Box::new(Cmd::Delete { req, sink })));
     }
 
     pub fn databases(&self) -> Result<Vec<(Text, u64)>, Error> {
@@ -394,22 +421,15 @@ impl Idb {
     }
 
     pub fn owner_gone(&self, owner: u64) {
-        for handle in lock(&self.handles).iter() {
-            _ = handle.tx.send(Cmd::OwnerGone { owner });
-        }
+        _ = self.tx.send(Message::OwnerGone(owner));
     }
 }
 
 impl Drop for Idb {
     fn drop(&mut self) {
-        let handles = std::mem::take(&mut *lock(&self.handles));
-        for handle in &handles {
-            _ = handle.tx.send(Cmd::Shutdown);
-        }
-        for mut handle in handles {
-            if let Some(thread) = handle.thread.take() {
-                _ = thread.join();
-            }
+        _ = self.tx.send(Message::Shutdown);
+        if let Some(thread) = self.thread.take() {
+            _ = thread.join();
         }
     }
 }
