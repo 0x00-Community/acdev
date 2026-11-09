@@ -149,7 +149,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
   `deactivate`. 输入法是 `imepreedit` / `imecommit` 事件 (Windows: `WM_IME_COMPOSITION`, 上屏只发 commit, 只有在组字时结束才发空预编辑表示取消);
   候选框位置: 宿主窗口没有 fcitx, acde-host 的 `TextEntry` 用 `InputMethod.area` 把光标矩形交给 `setImeArea`, Windows 上同时设 IMM 的
-  组字 / 候选窗口并回答 `WM_IME_REQUEST` 的 `IMR_QUERYCHARPOSITION` (微软拼音这类 TSF 输入法只问它). 拖进来的文件: 指针下的窗口收 `dndenter` + `dnddrop`
+  组字 / 候选窗口并回答 `WM_IME_REQUEST` 的 `IMR_QUERYCHARPOSITION` (微软拼音这类 TSF 输入法只问它). 拖进来的文件: 指针下的窗口收 `dndenter` + `dnddrop`, 同时记下这个窗口应用的一次性 copyIn 授权 (见「文件」);
   (`text/uri-list` 和 `text/plain`). 页面发起的拖动不支持 (直接 `dragend {button: 0}`).
 - **窗框在页面外**: 应用窗口 (清单 `frame` 不是 false) 的 rect 含窗框, 页面拿到 rect 减去窗框的高 (`State::content`). 出帧线程
   (`present.rs` `framed`) 把 render 的 `Decoration` 场景和下移了窗框高度的页面画进同一张纹理, 合成器只看到一层. 命中在窗框上
@@ -406,6 +406,13 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 - `mkdir(root, path, {recursive})`: recursive 从 root 起逐级建, 已是文件夹算成功.
 
 打开文件一律不跟随符号链接 (unix `O_NOFOLLOW | O_NONBLOCK`, 不会卡在 FIFO 上; Windows `FILE_FLAG_OPEN_REPARSE_POINT` 再查是不是链接).
+
+**`copyIn` 的来源** (`fs/copy_source.rs`): `copyIn(root, dir, source)` 的 source (绝对路径或 `file://`) 先按 realpath 解析 (跟随链接), 然后只接受两种:
+(a) 落在这个应用能用的某个根里 (清单的 roots 或 granted 文件夹, 同 `acde:fs` 的 `roots()`); (b) 等于宿主为这个应用记下的一次性拖放授权 (`acde_model::drop_grant`,
+绑定应用 id 和规范路径, 5 分钟内未用就过期, 第一次成功的 copyIn 消耗它, 失败则归还; 授权只管 copyIn, 不管直接读). 其余一律 403 / `EACCES`, 目标文件夹的检查不变.
+打开来源后再比对它的最终路径 (Windows `GetFinalPathNameByHandleW`, Linux `/proc/self/fd`), 中途被换成链接的来源被拒绝; macOS 等 unix 只在打开前后重新解析, 较弱, 未验证.
+拖放授权由宿主窗口的共用拖放入口 (`crates/hostwin/src/app.rs` `dropped`, Windows `WM_DROPFILES` 与 macOS/Linux winit 都经它) 记入. 应用 id 是 claimSurface 时该 web 的
+spawn 参数 (`grants.app`, Broker 决定), 桌面没有应用 id, 记在桌面名下. Linux 会话的拖放 (`crates/window` 的 `drop_performed`) 还没有接入, 那里拖入的文件 copyIn 会被拒绝 (失败关闭).
 
 **选文件夹和授权**: 标准的 `showDirectoryPicker(options?)` → `FileSystemDirectoryHandle` (acde-dom `dom/picker.ts`, 参数校验和错误照 Chromium,
 取消或没有选择器是 `AbortError`, `requestPermission` 不弹窗; handle 只活到页面结束). 链路: acde-dom 的
