@@ -65,15 +65,16 @@ export class AppBackends {
     if (!this.#spawn(running)) this.#running.delete(app.id)
   }
 
-  static argv(path: string | undefined, preload: string, server: string): string[] | null {
+  static argv(path: string | undefined, preload: string, server: string, prefer?: string): string[] | null {
     const find = (name: string) => {
       for (const dir of (path ?? '').split(':')) if (dir && stat(join(dir, name))?.isFile) return join(dir, name)
       return null
     }
-    const bun = find('bun')
-    if (bun) return [bun, '--preload', preload, server]
-    const node = find('node')
-    if (node) return [node, '--import', new URL(`file://${preload}`).href, server]
+    const order = prefer === 'node' ? ['node', 'bun'] : ['bun', 'node']
+    for (const name of order) {
+      const exe = find(name)
+      if (exe) return name === 'bun' ? [exe, '--preload', preload, server] : [exe, '--import', new URL(`file://${preload}`).href, server]
+    }
     return null
   }
 
@@ -91,7 +92,7 @@ export class AppBackends {
       AppBackends.#report(name, 'not started: this acde cannot start processes (not Linux)', Level.Warn)
       return false
     }
-    const argv = AppBackends.argv(process.env['PATH'], preload!, server)
+    const argv = AppBackends.argv(process.env['PATH'], preload!, server, process.env['ACDE_RUNTIME'])
     if (!argv) {
       AppBackends.#report(name, 'not started: neither bun nor node is on PATH', Level.Warn)
       return false
