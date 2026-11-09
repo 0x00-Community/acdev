@@ -141,7 +141,10 @@ pub trait ModifiedMs {
 }
 impl ModifiedMs for Metadata {
     fn modified_ms(&self) -> i64 {
-        self.modified().ok().and_then(|at| at.duration_since(UNIX_EPOCH).ok()).map_or(0, |since| since.as_millis() as i64)
+        self.modified()
+            .ok()
+            .and_then(|at| at.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_millis() as i64)
     }
 }
 
@@ -154,7 +157,8 @@ impl FinderEntry {
             kind,
             size: info.len(),
             modified_ms: info.modified_ms(),
-            target: (kind == EntryKind::Symlink).then(|| fs::read_link(absolute).map_or_else(|_| "?".into(), |t| t.to_string_lossy().into_owned())),
+            target: (kind == EntryKind::Symlink)
+                .then(|| fs::read_link(absolute).map_or_else(|_| "?".into(), |t| t.to_string_lossy().into_owned())),
         })
     }
 }
@@ -188,7 +192,10 @@ pub struct WorkspaceFs {
 
 impl WorkspaceFs {
     pub fn new() -> Self {
-        Self { collator: Self::collator(), home: std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned()) }
+        Self {
+            collator: Self::collator(),
+            home: std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned()),
+        }
     }
 
     fn collator() -> CollatorBorrowed<'static> {
@@ -281,7 +288,10 @@ impl WorkspaceFs {
     }
 
     pub fn root(&self, path: &str) -> Outcome<FinderRoot> {
-        self.roots()?.into_iter().find(|item| item.path == path).ok_or_else(|| Failure::invalid("not a Runtime workspace"))
+        self.roots()?
+            .into_iter()
+            .find(|item| item.path == path)
+            .ok_or_else(|| Failure::invalid("not a Runtime workspace"))
     }
 
     fn realpath(path: &str) -> std::io::Result<String> {
@@ -344,7 +354,11 @@ impl WorkspaceFs {
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        let mut entries = names.iter().take(MAX_ENTRIES).map(|name| FinderEntry::read(&absolute.join(name), name)).collect::<Outcome<Vec<_>>>()?;
+        let mut entries = names
+            .iter()
+            .take(MAX_ENTRIES)
+            .map(|name| FinderEntry::read(&absolute.join(name), name))
+            .collect::<Outcome<Vec<_>>>()?;
         entries.sort_by(|a, b| {
             let dir = |e: &FinderEntry| e.kind == EntryKind::Directory;
             dir(b).cmp(&dir(a)).then_with(|| self.collator.compare(&a.name, &b.name))
@@ -360,7 +374,8 @@ impl WorkspaceFs {
             windows => {
                 use std::os::windows::fs::MetadataExt;
                 use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM};
-                entry.metadata().is_ok_and(|m| m.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0)
+                let hidden = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;
+                entry.metadata().is_ok_and(|m| m.file_attributes() & hidden != 0)
             }
             _ => false,
         }
@@ -381,7 +396,8 @@ impl WorkspaceFs {
             windows => {
                 use std::os::windows::fs::OpenOptionsExt;
                 _ = nonblock;
-                let file = options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT).open(path)?;
+                use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+                let file = options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT).open(path)?;
                 if file.metadata()?.file_type().is_symlink() {
                     return Err(std::io::Error::other("refusing to follow a symlink"));
                 }
@@ -464,11 +480,17 @@ impl WorkspaceFs {
 
     pub fn read_text_in(root: &FinderRoot, relative: &str) -> Outcome<(String, i64)> {
         let Contents { data, modified_ms } = Self::read_bytes_in(root, relative)?;
-        let text = String::from_utf8(data).map_err(|_| Failure::invalid("file is not valid UTF-8 text").with(Errno::Ilseq))?;
+        let text =
+            String::from_utf8(data).map_err(|_| Failure::invalid("file is not valid UTF-8 text").with(Errno::Ilseq))?;
         Ok((text, modified_ms))
     }
 
-    pub fn write_file_in(root: &FinderRoot, relative: &str, data: &[u8], options: &WriteOptions) -> Outcome<FinderEntry> {
+    pub fn write_file_in(
+        root: &FinderRoot,
+        relative: &str,
+        data: &[u8],
+        options: &WriteOptions,
+    ) -> Outcome<FinderEntry> {
         if data.len() as u64 > MAX_RAW_BYTES {
             return Err(Failure::http(413, "content exceeds 64 MiB"));
         }
@@ -489,10 +511,14 @@ impl WorkspaceFs {
             (Create::Always, None) => open.create(true),
             _ => &mut open,
         };
-        let mut file = Self::no_follow(&mut open, &absolute, true).map_err(|error| match (error.kind(), options.create, options.if_modified_ms) {
-            (ErrorKind::AlreadyExists, ..) => Failure::exists("file already exists"),
-            (ErrorKind::NotFound, _, Some(_)) => Failure::conflict("file no longer exists or is not a regular file"),
-            _ => error.into(),
+        let mut file = Self::no_follow(&mut open, &absolute, true).map_err(|error| {
+            match (error.kind(), options.create, options.if_modified_ms) {
+                (ErrorKind::AlreadyExists, ..) => Failure::exists("file already exists"),
+                (ErrorKind::NotFound, _, Some(_)) => {
+                    Failure::conflict("file no longer exists or is not a regular file")
+                }
+                _ => error.into(),
+            }
         })?;
         let info = file.metadata()?;
         if !info.is_file() {
@@ -553,12 +579,16 @@ impl WorkspaceFs {
             Err(error) if error.kind() == ErrorKind::NotFound => {
                 let made = match create {
                     None | Some(EntryKind::Other | EntryKind::Symlink) => return Ok(None),
-                    Some(EntryKind::File) => Self::no_follow(OpenOptions::new().write(true).create_new(true), &absolute, false).map(drop),
+                    Some(EntryKind::File) => {
+                        Self::no_follow(OpenOptions::new().write(true).create_new(true), &absolute, false).map(drop)
+                    }
                     Some(EntryKind::Directory) => DirBuilder::new().create(&absolute),
                 };
                 match made {
                     Ok(()) => Ok(create),
-                    Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(Some(fs::symlink_metadata(&absolute)?.file_type().into())),
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                        Ok(Some(fs::symlink_metadata(&absolute)?.file_type().into()))
+                    }
                     Err(error) => Err(error.into()),
                 }
             }
@@ -599,7 +629,8 @@ impl WorkspaceFs {
             match fs::symlink_metadata(&at) {
                 Ok(info) if info.is_dir() => {}
                 Ok(info) if info.file_type().is_symlink() => {
-                    let real = Self::realpath(&at).map_err(|_| Failure::invalid("a symlink on the path points nowhere"))?;
+                    let real =
+                        Self::realpath(&at).map_err(|_| Failure::invalid("a symlink on the path points nowhere"))?;
                     if !Self::inside(&real_root, &real) {
                         return Err(Failure::invalid("path leaves the workspace through a symlink"));
                     }
@@ -610,7 +641,9 @@ impl WorkspaceFs {
                 Ok(_) => return Err(blocked()),
                 Err(error) if error.kind() == ErrorKind::NotFound => match DirBuilder::new().create(&at) {
                     Ok(()) => {}
-                    Err(error) if error.kind() == ErrorKind::AlreadyExists && fs::metadata(&at).is_ok_and(|info| info.is_dir()) => {}
+                    Err(error)
+                        if error.kind() == ErrorKind::AlreadyExists
+                            && fs::metadata(&at).is_ok_and(|info| info.is_dir()) => {}
                     Err(error) => return Err(error.into()),
                 },
                 Err(error) => return Err(error.into()),
@@ -630,7 +663,9 @@ impl WorkspaceFs {
                 if !fs::symlink_metadata(&absolute).is_ok_and(|info| info.is_file()) {
                     return Err(Failure::conflict("file no longer exists or is not a regular file"));
                 }
-                let expected = expected.parse::<i64>().map_err(|_| Failure::conflict("file changed since it was opened; reload before saving"))?;
+                let expected = expected
+                    .parse::<i64>()
+                    .map_err(|_| Failure::conflict("file changed since it was opened; reload before saving"))?;
                 WriteOptions { if_modified_ms: Some(expected as f64), ..WriteOptions::default() }
             }
         };
@@ -714,11 +749,21 @@ mod tests {
     impl Scratch {
         fn new() -> Self {
             static NEXT: AtomicU32 = AtomicU32::new(0);
-            let base = std::env::temp_dir().join(format!("acde-ws-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            let base = std::env::temp_dir().join(format!(
+                "acde-ws-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
             let dir = base.to_string_lossy().into_owned();
             fs::create_dir_all(dir.join("root")).unwrap();
-            let root =
-                FinderRoot { path: dir.join("root"), label: "root".into(), source: RootSource::Default, mode: RootMode::Writable, reason: None, exists: true };
+            let root = FinderRoot {
+                path: dir.join("root"),
+                label: "root".into(),
+                source: RootSource::Default,
+                mode: RootMode::Writable,
+                reason: None,
+                exists: true,
+            };
             Self { dir, root }
         }
 
@@ -807,16 +852,42 @@ mod tests {
         assert_eq!(fs::read(s.at("a.bin")).unwrap(), [0, 1, 2, 255]);
         let entry = WorkspaceFs::write_file_in(&s.root, "a.bin", b"xy", &WriteOptions::default()).unwrap();
         assert_eq!((entry.size, fs::read(s.at("a.bin")).unwrap()), (2, b"xy".to_vec()));
-        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "a.bin", b"z", &write(r#"{"create":"new"}"#))), (409, "EEXIST"));
-        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "b.bin", b"z", &write(r#"{"create":"never"}"#))), (404, "ENOENT"));
+        assert_eq!(
+            code(WorkspaceFs::write_file_in(&s.root, "a.bin", b"z", &write(r#"{"create":"new"}"#))),
+            (409, "EEXIST")
+        );
+        assert_eq!(
+            code(WorkspaceFs::write_file_in(&s.root, "b.bin", b"z", &write(r#"{"create":"never"}"#))),
+            (404, "ENOENT")
+        );
         assert!(!Path::new(&s.at("b.bin")).exists());
         let now = entry.modified_ms;
-        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "a.bin", b"z", &write(&format!(r#"{{"ifModifiedMs":{}}}"#, now - 1000)))), (409, "ECONFLICT"));
+        assert_eq!(
+            code(WorkspaceFs::write_file_in(
+                &s.root,
+                "a.bin",
+                b"z",
+                &write(&format!(r#"{{"ifModifiedMs":{}}}"#, now - 1000))
+            )),
+            (409, "ECONFLICT")
+        );
         assert_eq!(fs::read(s.at("a.bin")).unwrap(), b"xy");
-        let ok = WorkspaceFs::write_file_in(&s.root, "a.bin", b"saved", &write(&format!(r#"{{"ifModifiedMs":{now},"create":"never"}}"#))).unwrap();
+        let ok = WorkspaceFs::write_file_in(
+            &s.root,
+            "a.bin",
+            b"saved",
+            &write(&format!(r#"{{"ifModifiedMs":{now},"create":"never"}}"#)),
+        )
+        .unwrap();
         assert_eq!(ok.size, 5);
-        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "gone.bin", b"z", &write(r#"{"ifModifiedMs":1}"#))), (409, "ECONFLICT"));
-        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "c.bin", b"z", &write(r#"{"ifModifiedMs":1,"create":"new"}"#))), (400, "EINVAL"));
+        assert_eq!(
+            code(WorkspaceFs::write_file_in(&s.root, "gone.bin", b"z", &write(r#"{"ifModifiedMs":1}"#))),
+            (409, "ECONFLICT")
+        );
+        assert_eq!(
+            code(WorkspaceFs::write_file_in(&s.root, "c.bin", b"z", &write(r#"{"ifModifiedMs":1,"create":"new"}"#))),
+            (400, "EINVAL")
+        );
         assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "", b"z", &WriteOptions::default())), (400, "EINVAL"));
     }
 
@@ -832,16 +903,25 @@ mod tests {
         assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "link", b"x", &WriteOptions::default())), (400, "EINVAL"));
         assert_eq!(fs::read_to_string(s.dir.join("secret")).unwrap(), "outside");
         fs::create_dir(s.at("folder")).unwrap();
-        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "folder", b"x", &WriteOptions::default())), (400, "EINVAL"));
+        assert_eq!(
+            code(WorkspaceFs::write_file_in(&s.root, "folder", b"x", &WriteOptions::default())),
+            (400, "EINVAL")
+        );
         symlink(&s.dir, s.at("away")).unwrap();
-        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "away/x", b"x", &WriteOptions::default())), (400, "EINVAL"));
+        assert_eq!(
+            code(WorkspaceFs::write_file_in(&s.root, "away/x", b"x", &WriteOptions::default())),
+            (400, "EINVAL")
+        );
         assert!(!Path::new(&s.dir.join("x")).exists());
     }
 
     #[test]
     fn write_file_mkdirs_creates_the_parents() {
         let s = Scratch::new();
-        assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "a/b/c.md", b"x", &WriteOptions::default())), (400, "EINVAL"));
+        assert_eq!(
+            code(WorkspaceFs::write_file_in(&s.root, "a/b/c.md", b"x", &WriteOptions::default())),
+            (400, "EINVAL")
+        );
         WorkspaceFs::write_file_in(&s.root, "a/b/c.md", b"x", &write(r#"{"mkdirs":true}"#)).unwrap();
         assert_eq!(fs::read(s.at("a/b/c.md")).unwrap(), b"x");
         assert!(serde_json::from_str::<WriteOptions>(r#"{"create":"sometimes"}"#).is_err());

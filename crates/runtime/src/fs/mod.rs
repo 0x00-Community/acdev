@@ -44,7 +44,10 @@ impl Place {
     }
 
     fn load() -> Self {
-        Self::file().and_then(|file| std::fs::read(file).ok()).and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+        Self::file()
+            .and_then(|file| std::fs::read(file).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
     }
 
     fn save(&self) {
@@ -95,7 +98,10 @@ impl Shared {
     }
 
     fn root(&self, owner: Option<&str>, path: &str) -> Outcome<FinderRoot> {
-        self.roots(owner)?.into_iter().find(|root| root.path == path).ok_or_else(|| Failure::invalid("not a Runtime workspace"))
+        self.roots(owner)?
+            .into_iter()
+            .find(|root| root.path == path)
+            .ok_or_else(|| Failure::invalid("not a Runtime workspace"))
     }
 
     fn state(&self, owner: Option<&str>) -> Outcome<State> {
@@ -213,9 +219,13 @@ impl Shared {
             FsCall::State => json(self.state(owner).json()),
             FsCall::Roots => json(self.roots(owner).json()),
             FsCall::Desktop => json(self.desktop().json()),
-            FsCall::List { root: at, path, hidden } => json(self.fs.list_in(root(&at)?, path.as_deref().unwrap_or(""), hidden.unwrap_or(true)).json()),
+            FsCall::List { root: at, path, hidden } => {
+                json(self.fs.list_in(root(&at)?, path.as_deref().unwrap_or(""), hidden.unwrap_or(true)).json())
+            }
             FsCall::Preview { root: at, path } => json(WorkspaceFs::preview_in(&root(&at)?, &path).json()),
-            FsCall::Download { root: at, path } => WorkspaceFs::raw_in(&root(&at)?, &path).map(|(name, data)| FsReply::File { name, data }),
+            FsCall::Download { root: at, path } => {
+                WorkspaceFs::raw_in(&root(&at)?, &path).map(|(name, data)| FsReply::File { name, data })
+            }
             FsCall::Locate { path } => json(self.locate(owner, &path, scope)),
             FsCall::OpenPath { root: at, path } => json(self.open_path(&root(&at)?, &path)),
             FsCall::Place { root: at, path, file } => json(self.set_place(&root(&at)?, path, file).json()),
@@ -237,9 +247,10 @@ impl Shared {
                 let data = data.ok_or_else(|| Failure::invalid("data must be a string or a Uint8Array"))?;
                 json(WorkspaceFs::write_file_in(&root(&at)?, &path, &data, &options).json())
             }
-            FsCall::Write { root: at, path, content, expected_modified_ms } => {
-                json(WorkspaceFs::write_in(&root(&at)?, &path, content.as_deref().unwrap_or(""), &expected_modified_ms).json())
-            }
+            FsCall::Write { root: at, path, content, expected_modified_ms } => json(
+                WorkspaceFs::write_in(&root(&at)?, &path, content.as_deref().unwrap_or(""), &expected_modified_ms)
+                    .json(),
+            ),
             FsCall::CopyIn { root: at, dir, source } => {
                 let allowed = self.allowed(owner, scope)?;
                 json(copy_in(owner, &allowed, &at, &dir, &source))
@@ -312,7 +323,11 @@ impl Shared {
     }
 
     fn set_place(&self, root: &FinderRoot, path: Option<String>, file: Option<String>) -> Outcome<Place> {
-        let place = Place { root: Some(root.path.clone()), path: path.unwrap_or_default(), file: file.filter(|f| !f.is_empty()) };
+        let place = Place {
+            root: Some(root.path.clone()),
+            path: path.unwrap_or_default(),
+            file: file.filter(|f| !f.is_empty()),
+        };
         *self.place.locked() = place.clone();
         place.save();
         Ok(place)
@@ -333,7 +348,9 @@ fn copy_in(owner: Option<&str>, allowed: &[FinderRoot], at: &str, dir: &str, sou
 fn options_of<T: Default + serde::de::DeserializeOwned>(method: &str, options: Option<Value>) -> Outcome<T> {
     match options {
         None | Some(Value::Null) => Ok(T::default()),
-        Some(value) => serde_json::from_value(value).map_err(|error| Failure::invalid(format!("{method} options: {error}"))),
+        Some(value) => {
+            serde_json::from_value(value).map_err(|error| Failure::invalid(format!("{method} options: {error}")))
+        }
     }
 }
 
@@ -357,7 +374,8 @@ impl Workspace {
 
     fn allows(&self, root: &str) -> bool {
         let Some(roots) = &self.roots else { return true };
-        roots.iter().any(|r| r == root) || self.owner.as_deref().is_some_and(|owner| self.shared.grants.of(owner).iter().any(|r| r == root))
+        roots.iter().any(|r| r == root)
+            || self.owner.as_deref().is_some_and(|owner| self.shared.grants.of(owner).iter().any(|r| r == root))
     }
 
     pub fn grant(&self, path: &str) -> std::result::Result<String, FsError> {
@@ -380,12 +398,19 @@ impl Workspace {
                 None if matches!(call, FsCall::Roots | FsCall::Locate { .. } | FsCall::Revoke { .. }) => {}
                 what => {
                     let what = what.unwrap_or("its workspaces");
-                    return Err(Failure::http(403, format!("this app may not use the files of {what} (not in its manifest's capabilities)")).into());
+                    return Err(Failure::http(
+                        403,
+                        format!("this app may not use the files of {what} (not in its manifest's capabilities)"),
+                    )
+                    .into());
                 }
             }
         }
         if let FsCall::Roots = call {
-            let roots: Outcome<Vec<FinderRoot>> = self.shared.roots(owner).map(|roots| roots.into_iter().filter(|root| self.allows(&root.path)).collect());
+            let roots: Outcome<Vec<FinderRoot>> = self
+                .shared
+                .roots(owner)
+                .map(|roots| roots.into_iter().filter(|root| self.allows(&root.path)).collect());
             return Ok(FsReply::Json(roots.json()?));
         }
         let allows = |root: &str| self.allows(root);
@@ -425,7 +450,9 @@ mod tests {
     #[test]
     fn a_root_outside_the_manifest_is_refused_with_eacces() {
         let workspace = Workspace::new().scoped(Some(vec!["/allowed".into()]), Some("app"));
-        let Err(error) = workspace.call(FsCall::List { root: "/elsewhere".into(), path: None, hidden: None }) else { panic!("not refused") };
+        let Err(error) = workspace.call(FsCall::List { root: "/elsewhere".into(), path: None, hidden: None }) else {
+            panic!("not refused")
+        };
         assert_eq!((error.status, error.code), (403, "EACCES"));
         assert_eq!(error.message, "this app may not use the files of /elsewhere (not in its manifest's capabilities)");
         let Err(error) = workspace.call(FsCall::State) else { panic!("not refused") };
@@ -478,13 +505,21 @@ mod tests {
         let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
         let limited = all.scoped(Some(vec![]), Some("vault"));
         let other = all.scoped(None, Some("other"));
-        let list = |workspace: &Workspace| json(workspace.call(FsCall::List { root: picked.clone(), path: None, hidden: None }));
+        let list = |workspace: &Workspace| {
+            json(workspace.call(FsCall::List { root: picked.clone(), path: None, hidden: None }))
+        };
         assert_eq!(list(&limited)["code"], "EACCES");
         assert_eq!(json(limited.call(FsCall::Roots)), serde_json::json!([]));
         assert_eq!(limited.grant(&picked).unwrap(), picked);
         assert_eq!(all.grant(&picked).unwrap_err().code, "EINVAL");
         let roots = json(limited.call(FsCall::Roots));
-        assert_eq!(roots, serde_json::json!([{"path": picked, "label": "Notes", "source": "granted", "mode": "writable", "reason": null, "exists": true}]));
+        assert_eq!(
+            roots,
+            serde_json::json!([{
+                "path": picked, "label": "Notes", "source": "granted", "mode": "writable",
+                "reason": null, "exists": true
+            }])
+        );
         assert_eq!(list(&limited)["entries"][0]["name"], "a.md");
         assert_eq!(list(&other)["code"], "EINVAL");
         assert!(json(other.call(FsCall::Roots)).as_array().unwrap().iter().all(|root| root["source"] != "granted"));
