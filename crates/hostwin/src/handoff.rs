@@ -15,9 +15,8 @@ pub enum Target {
 const URL_MAX: usize = 8192;
 
 const EXTENSIONS: &[&str] = &[
-    "pdf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif", "ico", "svg", "mp3", "wav", "ogg", "oga", "flac", "m4a", "aac",
-    "opus", "wma", "mp4", "m4v", "webm", "mov", "mkv", "avi", "wmv", "txt", "md", "csv", "log", "json", "rtf", "html", "htm", "doc", "docx", "xls", "xlsx",
-    "ppt", "pptx", "odt", "ods", "odp",
+    "pdf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif", "ico", "mp3", "wav", "ogg", "oga", "flac", "m4a", "aac", "opus",
+    "wma", "mp4", "m4v", "webm", "mov", "mkv", "avi", "wmv", "txt", "md", "csv", "log", "json", "docx", "xlsx", "pptx", "odt", "ods", "odp",
 ];
 
 impl Target {
@@ -182,7 +181,25 @@ mod tests {
             std::fs::write(&path, b"x").unwrap();
             assert_eq!(Target::parse(&path.to_string_lossy()), Ok(Target::File(path.clone())), "{name}");
         }
-        for name in ["setup.exe", "run.bat", "script.ps1", "link.lnk", "page.url", "app.hta", "macro.docm", "tool.js", "noext", "x.pdf.exe"] {
+        for name in [
+            "setup.exe",
+            "run.bat",
+            "script.ps1",
+            "link.lnk",
+            "page.url",
+            "app.hta",
+            "macro.docm",
+            "tool.js",
+            "noext",
+            "x.pdf.exe",
+            "old.doc",
+            "old.xls",
+            "old.ppt",
+            "page.html",
+            "page.htm",
+            "image.svg",
+            "text.rtf",
+        ] {
             let path = dir.join(name);
             std::fs::write(&path, b"x").unwrap();
             assert!(refused(&path.to_string_lossy()), "{name}");
