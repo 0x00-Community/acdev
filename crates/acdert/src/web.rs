@@ -57,6 +57,7 @@ struct System {
 #[derive(Default)]
 struct Grants {
     app: Option<String>,
+    storage: Option<acde_storage::Place>,
     fs: Option<acde_runtime::Workspace>,
     picker: crate::picker::Picker,
     #[cfg(unix)]
@@ -86,6 +87,7 @@ impl Webs {
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
         let picker = crate::picker::Picker::new(app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
         Grants {
+            storage: crate::storage::place(scope, wanted),
             fs: fs.map(|roots| workspace.scoped(roots, app.as_deref())),
             app,
             picker,
@@ -102,6 +104,9 @@ impl Webs {
 impl Grants {
     fn install(self, scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
         crate::webnative::bind_app(self.app);
+        if let Some(place) = self.storage {
+            crate::storage::install(scope, natives, place);
+        }
         if let Some(fs) = self.fs {
             crate::fs::install(scope, natives, fs);
         }
@@ -201,6 +206,9 @@ impl Spec {
         crate::webnative::clear();
         crate::backend::clear();
         crate::offload::clear();
+        crate::idb::clear();
+        crate::storage::clear();
+        crate::host::clear();
         crate::audio::clear();
         #[cfg(target_os = "linux")]
         crate::webgpu::clear();

@@ -16,6 +16,8 @@ acde-render = { path = "../render" }
 acde-gpu = { path = "../gpu" }
 acde-hostwin = { path = "../hostwin" }
 acde-runtime = { path = "../runtime" }
+# web storage (storage.rs): localStorage shared by the webs of one app or desktop, kept in SQLite
+acde-storage = { path = "../storage" }
 url = "2"
 encoding_rs = "0"
 getrandom = "0"

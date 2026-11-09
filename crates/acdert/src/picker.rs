@@ -56,6 +56,11 @@ thread_local! {
     static PICKER: RefCell<Option<Picker>> = const { RefCell::new(None) };
 }
 
+pub fn adopt(path: &str) -> Result<String, String> {
+    let picker = PICKER.with(|p| p.borrow().clone()).ok_or("this web has no file handles")?;
+    picker.folders.add(path).map_err(|e| e.message)
+}
+
 pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, picker: Picker) {
     PICKER.with(|p| *p.borrow_mut() = Some(picker));
     let object = v8::Object::new(scope);

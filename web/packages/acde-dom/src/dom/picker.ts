@@ -178,6 +178,10 @@ function directoryHandle(picked: PickedFile, mode: Mode): FileSystemDirectoryHan
   return new FileSystemDirectoryHandle(picked, mode, 'directory')
 }
 
+export function storageRootHandle(path: string): FileSystemDirectoryHandle {
+  return directoryHandle({ name: '', path }, 'readwrite')
+}
+
 async function childOf(handle: FileSystemDirectoryHandle, name: string, create: 'file' | 'directory' | null): Promise<PickedEntry> {
   if (create && handle[MODE] !== 'readwrite') throw notAllowed()
   const dir = handle[PICKED]

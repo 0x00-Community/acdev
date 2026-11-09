@@ -101,6 +101,17 @@ export interface DomNative {
   setChecked(id: number, checked: boolean): void
   selectedIndex(id: number): number
   setSelectedIndex(id: number, index: number): void
+  options(select: number): Uint32Array
+  optionSelected(option: number): boolean
+  setOptionSelected(option: number, selected: boolean): void
+  resetSelect(select: number): void
+  listBoxOptionAt(select: number, x: number, y: number): number
+  openPicker(select: number): boolean
+  closePicker(): void
+  pickerState(): Float64Array
+  pickerOptionAt(x: number, y: number): number
+  pickerOptionRect(option: number): Float64Array | null
+  setPickerActive(option: number): void
   setSelectionRange(id: number, start: number, end: number): void
 
   setFocus(id: number, visible: boolean): void
@@ -197,6 +208,9 @@ export interface HostNative {
   decode(bytes: Uint8Array, label: string, fatal: boolean, ignoreBom: boolean): string
   parseUrl(input: string, base: string | null): { href: string; origin: string; protocol: string; username: string; password: string; host: string; hostname: string; port: string; pathname: string; search: string; hash: string } | null
   serialize(value: unknown): Uint8Array
+  isProxy?(value: unknown): boolean
+  runMicrotasks?(): void
+  cloneHooks?(brand: symbol, revive: (root: unknown, placeholders: readonly [object, unknown][]) => unknown): void
   deserialize(bytes: Uint8Array): unknown
   randomBytes(buffer: Uint8Array): void
   randomUUID(): string
@@ -279,6 +293,103 @@ export interface GpuCompilationMessage {
   linePos: number
   offset: number
   length: number
+}
+
+export interface StorageAreaNative {
+  length(): number
+  key(index: number): string | null
+  get(key: string): string | null
+  set(key: string, value: string, url: string): boolean
+  remove(key: string, url: string): void
+  clear(url: string): void
+  keys(): string[]
+}
+
+export interface StorageNative {
+  readonly local: StorageAreaNative
+  readonly idb?: IdbNative
+  readonly cookies?: CookieNative
+  estimate?(): Promise<{ usage: number; quota: number }>
+  privateDirectory?(): string
+  onChange(callback: (key: string | null, oldValue: string | null, newValue: string | null, url: string) => void): void
+}
+
+export interface CookieNative {
+  set(name: string, value: string, path: string, expires: number | null, httpOnly: boolean, fromScript: boolean): void
+  matching(path: string, script: boolean): [string, string][]
+}
+
+export interface IdbIndexInfo {
+  readonly id: number
+  readonly name: string
+  readonly keyPath: string
+  readonly unique: boolean
+  readonly multiEntry: boolean
+}
+
+export interface IdbStoreInfo {
+  readonly id: number
+  readonly name: string
+  readonly keyPath: string | null
+  readonly autoIncrement: boolean
+  readonly generator: number
+  readonly indexes: readonly IdbIndexInfo[]
+}
+
+export interface IdbSchema {
+  readonly version: number
+  readonly stores: readonly IdbStoreInfo[]
+}
+
+export interface IdbError {
+  readonly name: string
+  readonly message: string
+}
+
+export interface IdbRecord {
+  readonly key: Uint8Array
+  readonly primaryKey: Uint8Array
+  readonly value: Uint8Array | null
+}
+
+export type IdbEvent =
+  | { readonly type: 'opened'; readonly req: number; readonly db: number; readonly conn: number; readonly schema: IdbSchema }
+  | { readonly type: 'upgrade'; readonly req: number; readonly db: number; readonly conn: number; readonly tx: number; readonly old: number; readonly schema: IdbSchema }
+  | { readonly type: 'openFailed'; readonly req: number; readonly error: IdbError }
+  | { readonly type: 'blocked'; readonly req: number; readonly old: number; readonly new: number | null }
+  | { readonly type: 'versionchange'; readonly conn: number; readonly old: number; readonly new: number | null }
+  | { readonly type: 'deleted'; readonly req: number; readonly old: number }
+  | { readonly type: 'started'; readonly tx: number; readonly generators: readonly [number, number][] }
+  | { readonly type: 'result'; readonly tx: number; readonly op: number; readonly id?: number; readonly count?: number; readonly records?: readonly IdbRecord[]; readonly error?: IdbError }
+  | { readonly type: 'complete'; readonly tx: number }
+  | { readonly type: 'aborted'; readonly tx: number; readonly error: IdbError | null }
+  | { readonly type: 'forcedClose'; readonly conn: number }
+
+export type IdbKeyBytes = Uint8Array | null
+
+export interface IdbNative {
+  onEvent(callback: (event: IdbEvent) => void): void
+  open(name: string, req: number, version: number | undefined): void
+  deleteDatabase(name: string, req: number): void
+  databases(): [string, number][]
+  begin(db: number, tx: number, conn: number, scope: number[], mode: 0 | 1): void
+  commit(db: number, tx: number): void
+  abort(db: number, tx: number): void
+  close(db: number, conn: number): void
+  acknowledge(db: number, conn: number): void
+  put(db: number, tx: number, op: number, store: number, key: Uint8Array, value: Uint8Array, indexes: (number | Uint8Array)[], overwrite: boolean, generator: number | undefined): void
+  remove(db: number, tx: number, op: number, store: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean): void
+  clear(db: number, tx: number, op: number, store: number): void
+  get(db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean, values: boolean, count: number, direction: number): void
+  count(db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean): void
+  cursor(db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean, direction: number, position: IdbKeyBytes, positionPrimary: IdbKeyBytes, key: IdbKeyBytes, primaryKey: IdbKeyBytes, advance: number, values: boolean): void
+  createStore(db: number, tx: number, op: number, id: number, name: string, keyPath: string | null, autoIncrement: boolean): void
+  deleteStore(db: number, tx: number, op: number, store: number): void
+  renameStore(db: number, tx: number, op: number, store: number, name: string): void
+  createIndex(db: number, tx: number, op: number, id: number, store: number, name: string, keyPath: string, unique: boolean, multiEntry: boolean): void
+  indexEntries(db: number, tx: number, op: number, index: number, entries: Uint8Array[]): void
+  deleteIndex(db: number, tx: number, op: number, index: number): void
+  renameIndex(db: number, tx: number, op: number, index: number, name: string): void
 }
 
 export interface AudioNative {

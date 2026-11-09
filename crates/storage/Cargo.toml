@@ -1,0 +1,19 @@
+[package]
+name = "acde-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+log = "0"
+# web storage on disk (localStorage, IndexedDB): SQLite built in, the way WebKit keeps them
+rusqlite = { version = "0", features = ["bundled"] }
+indexmap = "2"
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+# quota.rs: the size of the disk the storage is on (statvfs)
+rustix = { version = "1", features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+# quota.rs: the size of the disk the storage is on (GetDiskFreeSpaceExW)
+windows-sys = { version = "0", features = ["Win32_Storage_FileSystem"] }

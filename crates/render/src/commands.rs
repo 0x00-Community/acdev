@@ -29,6 +29,11 @@ impl Commands {
         out
     }
 
+    pub(crate) fn extend(&mut self, commands: Vec<RenderCommand>) {
+        let end = commands.len();
+        self.push(commands.into(), 0, end, Affine::IDENTITY);
+    }
+
     pub(crate) fn owned(commands: Vec<RenderCommand>) -> Self {
         let mut out = Self::default();
         let end = commands.len();

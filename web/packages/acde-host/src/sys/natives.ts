@@ -1,4 +1,5 @@
 import type { HostNative } from '@dopame/acde-dom'
+import type { StoragePlace } from '../storage'
 
 export interface FileStat {
   readonly isFile: boolean
@@ -54,6 +55,7 @@ export interface WebGrants {
   readonly terminal: boolean
   readonly network: boolean
   readonly office: boolean
+  readonly storage: StoragePlace
 }
 
 export interface Natives {

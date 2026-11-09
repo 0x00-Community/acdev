@@ -19,6 +19,7 @@ const shared = {
   mainFields: ['module', 'main'],
   minifyWhitespace: true,
   minifySyntax: true,
+  keepNames: true,
   legalComments: 'none',
   logLevel: 'info',
 }

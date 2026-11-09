@@ -28,6 +28,9 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object>
         "parseUrl" => parse_url,
         "serialize" => serialize,
         "deserialize" => deserialize,
+        "cloneHooks" => clone_hooks,
+        "isProxy" => is_proxy,
+        "runMicrotasks" => run_microtasks,
         "randomBytes" => random_bytes,
         "randomUUID" => random_uuid,
         "queueMicrotask" => queue_microtask,
@@ -264,14 +267,91 @@ fn parse_url(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
 
 struct Clone;
 
+struct Hooks {
+    brand: v8::Global<v8::Symbol>,
+    revive: v8::Global<v8::Function>,
+}
+
+type Placeholder = (v8::Global<v8::Object>, v8::Global<v8::Value>);
+
+thread_local! {
+    static HOOKS: std::cell::RefCell<Option<Hooks>> = const { std::cell::RefCell::new(None) };
+    static PLACEHOLDERS: std::cell::RefCell<Vec<Placeholder>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn hooks<'s>(scope: &mut v8::PinScope<'s, '_>) -> Option<(v8::Local<'s, v8::Symbol>, v8::Local<'s, v8::Function>)> {
+    let (brand, revive) = HOOKS.with(|h| h.borrow().as_ref().map(|h| (h.brand.clone(), h.revive.clone())))?;
+    Some((v8::Local::new(scope, brand), v8::Local::new(scope, revive)))
+}
+
+fn is_proxy(_: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    rv.set_bool(args.get(0).is_proxy());
+}
+
+fn run_microtasks(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    scope.perform_microtask_checkpoint();
+}
+
+pub fn clear() {
+    let hooks = HOOKS.with(|h| h.borrow_mut().take());
+    let placeholders = PLACEHOLDERS.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    drop((hooks, placeholders));
+}
+
+fn clone_hooks(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let (Ok(brand), Ok(revive)) = (v8::Local::<v8::Symbol>::try_from(args.get(0)), v8::Local::<v8::Function>::try_from(args.get(1))) else {
+        return bind::throw_type_error(scope, "cloneHooks: a symbol and a function");
+    };
+    let hooks = Hooks { brand: v8::Global::new(scope, brand), revive: v8::Global::new(scope, revive) };
+    HOOKS.with(|h| *h.borrow_mut() = Some(hooks));
+}
+
+fn brand_writer<'s>(scope: &mut v8::PinScope<'s, '_>, object: v8::Local<'s, v8::Object>) -> Option<v8::Local<'s, v8::Function>> {
+    let (brand, _) = hooks(scope)?;
+    let write = object.get(scope, brand.into())?;
+    v8::Local::<v8::Function>::try_from(write).ok()
+}
+
 impl v8::ValueSerializerImpl for Clone {
     fn throw_data_clone_error<'s>(&self, scope: &mut v8::PinScope<'s, '_>, message: v8::Local<'s, v8::String>) {
         let text = format!("DataCloneError: {}", message.to_rust_string_lossy(scope));
         bind::throw_error(scope, &text);
     }
+
+    fn has_custom_host_object(&self, _: &v8::Isolate) -> bool {
+        HOOKS.with(|h| h.borrow().is_some())
+    }
+
+    fn is_host_object<'s>(&self, scope: &mut v8::PinScope<'s, '_>, object: v8::Local<'s, v8::Object>) -> Option<bool> {
+        if object.is_proxy() {
+            return Some(false);
+        }
+        Some(brand_writer(scope, object).is_some())
+    }
+
+    fn write_host_object<'s>(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+        object: v8::Local<'s, v8::Object>,
+        serializer: &dyn ValueSerializerHelper,
+    ) -> Option<bool> {
+        let write = brand_writer(scope, object)?;
+        let payload = write.call(scope, object.into(), &[])?;
+        let context = scope.get_current_context();
+        serializer.write_value(context, payload)
+    }
 }
 
-impl v8::ValueDeserializerImpl for Clone {}
+impl v8::ValueDeserializerImpl for Clone {
+    fn read_host_object<'s>(&self, scope: &mut v8::PinScope<'s, '_>, deserializer: &dyn ValueDeserializerHelper) -> Option<v8::Local<'s, v8::Object>> {
+        let context = scope.get_current_context();
+        let payload = deserializer.read_value(context)?;
+        let placeholder = v8::Object::new(scope);
+        let entry = (v8::Global::new(scope, placeholder), v8::Global::new(scope, payload));
+        PLACEHOLDERS.with(|p| p.borrow_mut().push(entry));
+        Some(placeholder)
+    }
+}
 
 fn serialize(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     if let Some(bytes) = serialize_value(scope, args.get(0)) {
@@ -290,10 +370,31 @@ fn deserialize(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mu
 }
 
 pub fn deserialize_bytes<'s>(scope: &mut v8::PinScope<'s, '_>, bytes: &[u8]) -> Option<v8::Local<'s, v8::Value>> {
-    let deserializer = v8::ValueDeserializer::new(scope, Box::new(Clone), bytes);
-    let context = scope.get_current_context();
-    deserializer.read_header(context)?;
-    deserializer.read_value(context)
+    let outer = PLACEHOLDERS.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    let value = {
+        let deserializer = v8::ValueDeserializer::new(scope, Box::new(Clone), bytes);
+        let context = scope.get_current_context();
+        deserializer.read_header(context).and_then(|_| deserializer.read_value(context))
+    };
+    let placeholders = PLACEHOLDERS.with(|p| std::mem::replace(&mut *p.borrow_mut(), outer));
+    let value = value?;
+    if placeholders.is_empty() {
+        return Some(value);
+    }
+    let Some((_, revive)) = hooks(scope) else {
+        bind::throw_error(scope, "DataCloneError: no platform objects in this realm");
+        return None;
+    };
+    let pairs: Vec<v8::Local<v8::Value>> = placeholders
+        .iter()
+        .map(|(object, payload)| {
+            let pair = [v8::Local::new(scope, object).into(), v8::Local::new(scope, payload)];
+            v8::Array::new_with_elements(scope, &pair).into()
+        })
+        .collect();
+    let pairs = v8::Array::new_with_elements(scope, &pairs);
+    let undefined = v8::undefined(scope).into();
+    revive.call(scope, undefined, &[value, pairs.into()])
 }
 
 pub fn serialize_value(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<Vec<u8>> {

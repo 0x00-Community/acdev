@@ -47,7 +47,7 @@ test('links: <a download>, blob: and data: URLs are saved through the host (the 
 
 type Node = Uint8Array | 'dir' | 'link'
 
-function chooser(answer: { open?: string[] | null; save?: string | null; directory?: string | null }, files: Map<string, Node>) {
+function chooser(answer: { open?: string[] | null; save?: string | null; directory?: string | null; private?: string }, files: Map<string, Node>) {
   const asked: unknown[] = []
   const name = (path: string) => path.split('/').pop()!
   const kind = (node: Node | undefined) => (node === undefined ? null : node === 'dir' ? ('directory' as const) : node === 'link' ? ('other' as const) : ('file' as const))
@@ -59,10 +59,11 @@ function chooser(answer: { open?: string[] | null; save?: string | null; directo
       save: async (options: unknown) => (asked.push(options), answer.save ? { name: name(answer.save), path: answer.save } : null),
       read: async (file: { path: string }) => {
         const node = files.get(file.path)
-        return node instanceof Uint8Array ? { bytes: node, lastModified: 1000 } : null
+        return ArrayBuffer.isView(node) ? { bytes: node as Uint8Array, lastModified: 1000 } : null
       },
       write: async (file: { path: string }, bytes: Uint8Array) => void files.set(file.path, bytes.slice()),
       directory: async (options: unknown) => (asked.push(options), answer.directory ? { name: name(answer.directory), path: answer.directory } : null),
+      privateDirectory: () => (answer.private ? { name: '', path: answer.private } : null),
       entries: async (dir: { path: string }) =>
         under(dir.path)
           .filter((path) => !path.slice(dir.path.length + 1).includes('/'))
@@ -311,4 +312,18 @@ test('canvas: setting width or height resets the 2d state right away, not at the
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 640, 150)
     globalThis.out = [...reset, ctx.fillStyle]`)
   assert.deepEqual(web.json('out'), ['#000000', 1, '#ffffff'])
+})
+
+test('navigator.storage: getDirectory() is a read-write root named "" from the page\'s file channel; persist and estimate', async () => {
+  using web = await page()
+  const files = new Map<string, Node>([['/opfs', 'dir']])
+  web.internals.env.files = chooser({ private: '/opfs' }, files).files
+  const out = await web.run<Promise<unknown>>(`(async () => {
+    const root = await navigator.storage.getDirectory()
+    const file = await root.getFileHandle('a.txt', { create: true })
+    const w = await file.createWritable(); await w.write('private'); await w.close()
+    return [root.name, root.kind, await root.queryPermission({ mode: 'readwrite' }), await (await file.getFile()).text(), await navigator.storage.persisted(), await navigator.storage.persist(), JSON.stringify(await navigator.storage.estimate()), navigator.storage instanceof StorageManager]
+  })()`)
+  assert.deepEqual(JSON.parse(JSON.stringify(out)), ['', 'directory', 'granted', 'private', true, true, '{"usage":0,"quota":0}', true])
+  assert.equal(new TextDecoder().decode(files.get('/opfs/a.txt') as Uint8Array), 'private')
 })

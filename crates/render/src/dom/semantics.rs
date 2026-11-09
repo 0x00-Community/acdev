@@ -88,6 +88,14 @@ impl Dom {
     }
 }
 
+fn option_label(e: &Engine, option: NodeId) -> String {
+    let node = e.doc.get_node(option);
+    match node.and_then(|n| n.attr(blitz_dom::local_name!("label"))).filter(|l| !l.is_empty()) {
+        Some(label) => label.to_owned(),
+        None => node.map(|n| n.text_content()).unwrap_or_default(),
+    }
+}
+
 fn collapse(text: &str, max: usize) -> String {
     let mut out = String::new();
     for word in text.split_whitespace() {
@@ -249,6 +257,14 @@ impl<'a> Walk<'a> {
                 children.extend(found);
             }
         }
+        if control == Control::Select {
+            children.extend(self.list_box_options(id, truncated));
+            if !self.e.display_size(id).1 {
+                let open = self.e.picker_rects(id);
+                states.push(if open.is_empty() { "collapsed" } else { "expanded" });
+                children.extend(self.options_at(open, truncated));
+            }
+        }
         if more > 0 {
             *truncated = true;
         }
@@ -274,6 +290,32 @@ impl<'a> Walk<'a> {
         vec![Sem { node: id, id: 0, role, name, value, states, rect: if sized { rect } else { Rect::default() }, level, children, more }]
     }
 
+    fn list_box_options(&mut self, select: NodeId, truncated: &mut bool) -> Vec<Sem> {
+        let rows = self.e.list_box_rows(select).into_iter().map(|(o, _, r)| (o, r)).collect();
+        self.options_at(rows, truncated)
+    }
+
+    fn options_at(&mut self, rows: Vec<(NodeId, Rect)>, truncated: &mut bool) -> Vec<Sem> {
+        let mut out = Vec::new();
+        for (option, rect) in rows {
+            if self.budget == 0 {
+                *truncated = true;
+                break;
+            }
+            self.budget -= 1;
+            let mut states = Vec::new();
+            if self.e.selectedness(option) {
+                states.push("selected");
+            }
+            if self.e.option_disabled(option) {
+                states.push("disabled");
+            }
+            let name = collapse(&option_label(self.e, option), NAME_MAX);
+            out.push(Sem { node: option, id: 0, role: "option".into(), name, value: None, states, level: None, rect, more: 0, children: Vec::new() });
+        }
+        out
+    }
+
     fn role(&self, n: &Node, tag: &str, attr: &dyn Fn(&str) -> Option<String>) -> Option<String> {
         if let Some(role) = attr("role").and_then(|r| r.split_whitespace().next().map(str::to_ascii_lowercase)) {
             match role.as_str() {
@@ -296,6 +338,7 @@ impl<'a> Walk<'a> {
                 _ => "textbox",
             },
             "textarea" => "textbox",
+            "select" if self.e.display_size(n.id).1 => "listbox",
             "select" => "combobox",
             "option" => "option",
             "img" => match attr("alt") {
@@ -351,12 +394,7 @@ impl<'a> Walk<'a> {
         if attr("aria-checked").as_deref() == Some("mixed") {
             states.push("mixed");
         }
-        let option_selected = tag == "option"
-            && n.parent.is_some_and(|p| {
-                let select =
-                    self.e.ancestors(p).into_iter().find(|&a| self.node(a).is_some_and(|a| a.element_data().is_some_and(|e| &*e.name.local == "select")));
-                select.is_some_and(|s| usize::try_from(self.e.selected_index(s)).ok().and_then(|i| self.e.options(s).get(i).copied()) == Some(n.id))
-            });
+        let option_selected = tag == "option" && self.e.selectedness(n.id);
         if on("aria-selected") || option_selected {
             states.push("selected");
         }
@@ -469,9 +507,8 @@ impl<'a> Walk<'a> {
             }
             Control::Editor(_) | Control::Value => Some(collapse(&self.e.value(id), VALUE_MAX)),
             Control::Select => {
-                let index = usize::try_from(self.e.selected_index(id)).ok()?;
-                let option = *self.e.options(id).get(index)?;
-                Some(collapse(&self.e.inner_text(option), VALUE_MAX))
+                let option = self.e.options(id).into_iter().find(|&o| self.e.selectedness(o))?;
+                Some(collapse(&option_label(self.e, option), VALUE_MAX))
             }
             _ if matches!(tag, "progress" | "meter") => attr("value"),
             _ if attr("contenteditable").is_some_and(|v| v != "false") => Some(collapse(&self.e.inner_text(id), VALUE_MAX)),

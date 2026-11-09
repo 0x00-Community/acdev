@@ -146,7 +146,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **坐标**: 宿主窗口的内容区就是「屏幕」(`output`: `ACDE_SIZE`, 否则主显示器的 90% × 85%, 最大 1440 × 900), 窗口表的 rect 是它里面的
   逻辑坐标. 宿主窗口改尺寸 / 换缩放时桌面和全屏窗口跟着改, 发 `output`.
 - **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner), 给它焦点、提前,
-  之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
+  之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 滚轮发 `wheel` 给指针下的窗口, 同时交给它的出帧线程
+  (`Msg::Scroll` → `RenderHandle::scroll_at`) 做默认滚动, 和会话里 crates/window 一样. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
   `deactivate`. 输入法是 `imepreedit` / `imecommit` 事件 (Windows: `WM_IME_COMPOSITION`, 上屏只发 commit, 只有在组字时结束才发空预编辑表示取消);
   候选框位置: 宿主窗口没有 fcitx, acde-host 的 `TextEntry` 用 `InputMethod.area` 把光标矩形交给 `setImeArea`, Windows 上同时设 IMM 的
   组字 / 候选窗口并回答 `WM_IME_REQUEST` 的 `IMR_QUERYCHARPOSITION` (微软拼音这类 TSF 输入法只问它). 拖进来的文件: 指针下的窗口收 `dndenter` + `dnddrop`, 同时记下这个窗口应用的一次性 copyIn 授权 (见「文件」);
@@ -161,7 +162,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   四角 10 px 改大小, 由 `Entry::grab_hints` 和页面的 hint (下移窗框高度) 合成, 窗框的优先. `contentOffset` 是 `[0, H]`, 输入法候选框也加 `H`.
 - **注入** (`Shell.inject`): `Cmd::Inject` 到主线程, 和真输入走同一段代码 (命中、拖动、快捷键); 注入的修饰键和真的合起来匹配; 按键带 US 布局
   的字符 (`keys::us_text`). 中文等走 `acde:inspect` 的 `type`, 不经注入.
-- **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG, 最多等 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
+- **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG; 还没画出第一帧时等到画出, 最多 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
   画进一张离屏的 `Rgba8Unorm` 纹理, 读回编 PNG 写到 path, 回 `{width, height}`, 和会话的 `Shell.screenshot` 同一个接口; 最多等 10 秒),
   `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`, Windows 没有), `devRespond`, `screen`, `shortcut`, `windows`,
   `launch`. `animate` 直接回 `windowanimated`, `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
@@ -346,16 +347,93 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **脚本**: classic `<script>` (含 `src`, 先读本地资源, 没有再经后端取; 非 async 的按文档顺序在 DOMContentLoaded 前执行)、`type="module"`、
   `type="importmap"` (`modules.rs` 解析说明符时用: `imports` / `scopes`, 精确或 `/` 结尾前缀匹配, 多个合并先到先得).
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
-  `localStorage` 每个应用一个文件 (`$XDG_CONFIG_HOME/acde/storage/app-<id>.json`); `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
+  `localStorage` / `sessionStorage` 见「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
   外部链接交给浏览器应用, 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
   `screen.*` 是主输出的逻辑尺寸.
+- **`<select>`** (https://html.spec.whatwg.org/#the-select-element): 选中状态在 render (`dom/select.rs`), 每个 option 自己记 selectedness
+  和 dirtiness (`Form.selected` / `dirty`, 没设过时跟 `selected` 属性), 照规范: 没有 `multiple` 时选中一个就清掉别的、插入选中的 option
+  也清掉别的、两个以上留最后一个, 显示大小为 1 时一个都没选就选第一个没禁用的 (插入、删除、`selected` / `multiple` / `size` 属性变了、
+  `option.selected = …` 之后); `selectedIndex = …` 不再补选; 表单 reset 回到属性. list of options 只算直接的 option 和 optgroup 里的
+  (`dom.options`). option 的 `:checked` 跟 selectedness. 显示: 下拉框 (显示大小 1) 画第一个选中项的文字和箭头, 宽是最宽的选项;
+  列表框 (`multiple` 或 `size` > 1) 每个 option 和 optgroup 标签一行 (组里的缩进), 高 `size` 行 (`multiple` 默认 4), 能滚,
+  选中行底色 (有焦点蓝底白字, 没有灰底); 列表框的 option 有盒子 (`getBoundingClientRect` 是它那一行, `elementFromPoint` / 鼠标事件
+  落在 option 上, 和 Chrome 一样), 下拉框的 option 是 0×0. 交互 (acde-dom `dom/select.ts`): 下拉框按下 (mousedown 没被取消) 打开
+  选项列表, 拖到一项松开或再点一项选中、发 `input` 和 `change`, 点外面或 Esc 关掉不改; 列表打开时指针和键盘只给它 (Tab 选中当前项再
+  照常移焦点), 上下 / Home / End / PageUp / PageDown 移高亮, Enter / 空格选中, 打字跳到开头相同的项. 关着有焦点时上下左右 / Home /
+  End / PageUp / PageDown / 打字直接改选中项, 空格、Alt+上下、F4 打开. 列表框按下选中那行, `multiple` 时 Ctrl 切换、Shift 从锚点选到
+  这行, 键盘同理 (Shift 扩展, Ctrl+上下只移光标, Ctrl+空格切换). 焦点移走、窗口失活、隐藏、改大小时关掉列表. `showPicker()`: 禁用时
+  `InvalidStateError`, 下拉框打开列表 (不查 transient activation: acde-dom 还没有用户激活的模型). 选项列表由 render 画在帧的最上面 (不在
+  文档里, `Engine.picker`, 每帧按 select 的位置重排: 下面放得下放下面, 否则放空间大的一边并截短、能滚), 所以出不了窗口; 滚轮在列表上
+  滚列表, 在外面先关掉列表.
 - **通知**: `Notification` 转给桌面 (`on('notification')`); 桌面没在显示时 (调试窗口) 由宿主窗口发系统通知 (hostwin `notify.rs`). 页面给的文字
   当不可信数据: macOS 用 `osascript -l JavaScript -e <固定脚本>`, 文字只经环境变量 `ACDE_NOTIFY_*` 传 (放进 argv 会被当成选项); Linux 走
   `org.freedesktop.Notifications` (body 只在服务端报 `body-markup` 时转实体); Windows 还没有.
 - **声音**: `Audio` / `AudioContext` (acde-dom `src/audio/`, crates/acdert `audio/`): 解码 (symphonia) 和混音 (每个 web 一个 48 kHz 立体声 f32
   `Mixer`, 线程 `acde-audio`) 到处一样. 输出: Linux PipeWire (`output.rs`); macOS / Windows cpal 默认设备 (`output_cpal.rs`, 用设备当前的采样率,
   Hermite 重采样, 设备要 f32). 3 秒没声音关流; 没有设备 (或 `ACDE_AUDIO=null`) 按墙上时间渲染丢掉.
-- **还没有**: indexedDB、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
+- **网页存储** (crates/storage `acde-storage`, crates/acdert `storage.rs`, acde-dom `src/storage/`): 所有 web 都是同一个进程里的线程, 存储按
+  **分区**放在进程里共享: 每个应用一个 (`app-<id>`), 每个桌面一个 (`desktop-<id>`), 登录页 `greeter` (只在内存). Broker 在 `#spawn` 时把
+  `{key, dir, legacy}` 作为 grant 交给 web (acde-host `storage.ts` `StoragePlaces`), Rust 用 `Lease` 引用分区, 最后一个 web 退出时写盘并放掉;
+  进程退出前 `acde_storage::flush_all()`. 目录 `$ACDE_STORAGE/<key>/` (默认 `$XDG_DATA_HOME/acde/storage`), 文件是 SQLite (rusqlite 自带的,
+  WAL, 坏了挪成 `.bad-<毫秒>` 再从空的开始, 打不开就只在内存里, 都打 warn).
+  - `localStorage`: 同一应用的所有窗口共用一份 (`LocalArea`, 内存里的表是准的, 改动由 `acde-storage` 线程按顺序批量写进
+    `localstorage.sqlite3`); 键和值按 UTF-16 存 (单独的代理项原样保留); 配额 5 MiB, 按键和值的 UTF-16 码元数算, 超了 `setItem` 抛
+    `QuotaExceededError` 且不改; 别的窗口改了发 `storage` 事件 (`StorageEvent`, `url` 是改的那个页面当时的地址, `storageArea` 是
+    `localStorage`), 改的窗口自己不收. 命名属性照 WebIDL: 原型上有的名字 (`key`、`length` …) 不当成条目, 赋值一律存. 老版本的
+    `$XDG_CONFIG_HOME/acde/storage/app-<id>.json` / `<desktop>.json` 在第一次建库时导入, 改名成 `.json.imported` (只在没设 `ACDE_STORAGE` 时).
+  - `sessionStorage`: 每个 web 自己的, 只在内存, 配额同上; `location.reload()` 重起 web, 不保留 (标准里同一个浏览上下文要保留, 是缺口).
+  - **IndexedDB** (crates/storage `idb/`, crates/acdert `idb.rs`, acde-dom `src/storage/idb/`): 分工是 Rust 管「谁先谁后」和数据, JS 管
+    标准的语义.
+    - Rust: 每个分区一条 `acde-idb` 线程 (`mod.rs` `serve`), 上面每个数据库一个 `Worker` (`database.rs`), 一个 SQLite 文件
+      `indexeddb/<n>.sqlite3` (没有连接、事务和排着的请求时关掉文件, 内存分区的不关), 名字和版本在
+      `indexeddb/catalog.sqlite3` (内存分区在 `:memory:` 和表里). 线程数和打开的文件数不随页面开的数据库个数涨. Worker 里排: 打开 / 删除的队列 (版本变了先给别的连接发 `versionchange`,
+      它们都回 `acknowledge` 后还有没关的就给请求发 `blocked`, 都关了才升级或删)、事务调度 (作用域重叠且有一方要写时按创建顺序等;
+      SQLite 同一时刻只有一个写事务, 所以不重叠的写事务也排队, 标准允许)、执行操作 (写操作各包一个 SAVEPOINT, 失败只撤这一条)、
+      提交 / 回滚. 只读事务不开 SQLite 事务, 和正在写的事务作用域不重叠, 读不到它没提交的东西. 键是 JS 编好的字节, BLOB 按 memcmp
+      比较就是 IndexedDB 的键序 (`records (store, key)`、`index_records (idx, key, pk)`, 都 WITHOUT ROWID); 值是结构化克隆的字节;
+      store / index 的 id 由 JS 定 (升级里新建的 store 马上就要被后面的请求引用). 连接、事务、请求的 id 是 `(web, 本地号)`, web 退出时
+      `owner_gone` 关掉它的连接、回滚它的事务.
+    - JS (`idb.ts`, `keys.ts`): 键 → 字节 (数字 / 日期是保序的 f64, 字符串按 UTF-16 码元、二进制按字节, 0 转义, 数组以 0 结尾; 类型
+      标签 数字 < 日期 < 字符串 < 二进制 < 数组; 数组的代理对象不是键, 用 `host.isProxy` 认), 键路径、生成键注入、多值索引、
+      `IDBKeyRange`、全部参数检查和异常 (顺序照规范, 文字照 Chromium). 公开的 `IDB*` 类只有 IDL 里的成员 (`test/storage.test.ts` 逐个
+      对), 逻辑在模块里的 `Connection` / `Txn` / `StoreCore` / `IndexCore` / `CursorCore`, 公开对象用 symbol 键指过去.
+      - 请求先排在 `Txn.queue`, 收到 `started` (带键生成器的当前值) 后按顺序发给 Rust. 一条请求的索引集合在**发出请求时**定下 (后面的
+        `createIndex` / `deleteIndex` 也按顺序在 Rust 里执行). 往自增的 store 写时, 等这个 store 前面的写都有了结果才发 (`inflight`),
+        失败就把生成器退回去 (失败的 `add` 不占号, 和浏览器一样); 生成器的新值随 `put` 写在 SAVEPOINT 里, 一起成功或撤销, 用到
+        2^53 以后是 `Infinity` (再生成就是 ConstraintError).
+      - `createIndex` 读出已有记录、算索引键、`indexEntries` 写进去, 期间后面的请求停在 JS 里 (`pause`), 保证它们看到填好的索引;
+        唯一约束不满足就中止升级事务.
+      - 游标不在 Rust 里留状态: 每一步带上位置 (键 + 主键) 和目标重新查. `cursor.update` 只克隆一次.
+    - 事务的「活跃」: 新建和派发 success / error / upgradeneeded 时活跃. IndexedDB 的事件用 `fireFromTask` (`core/event.ts`) 派发: 和浏览器
+      一样每个监听器之后跑一次微任务检查点 (`host.runMicrotasks`), 再做规范的「清理 IndexedDB 事务」(`hooks.checkpoint`: 这个检查点里
+      `db.transaction()` 新建的事务失活; 升级事务不算). 派发完马上失活; 任务末尾 (`endTask` → `idbTaskEnded`) 再看没有没回来的请求
+      就自动提交. 所以用 promise 包 IndexedDB 的库 (idb 等) 和浏览器行为一样. 监听器抛错 (`listenerThrows`; `handleEvent` 不能调用也算)
+      在事务还活跃时中止它; 显式 `commit()` 之后的 error 事件没被取消仍然中止 (Chromium 的行为), 抛错不中止. `commit()` 等所有请求的
+      事件都派发完才发给 Rust. `versionchange` 的回答 (`acknowledge`) 也放到任务末尾, 监听器里 `await` 之后再 `close()` 不算 blocked.
+      升级事务 `abort()` 之后同步看还在跑, 到发 `abort` 事件的那个任务才清掉 (`complete` 之前清掉).
+    - 值的克隆: `host.serialize` / `deserialize` (V8 ValueSerializer). 平台对象是宿主对象 (acde-dom `core/clone.ts` `serializable`: 原型上的
+      `CLONE` 方法给出 `[种类, 字段…]`, `host.cloneHooks` 登记): Blob、File、FileList、ImageData、DOMPoint(ReadOnly)、DOMRect(ReadOnly)、
+      DOMQuad、DOMMatrix(ReadOnly). V8 反序列化时不许跑 JS, 所以 `read_host_object` 先放占位对象, 读完后交给 JS `reviveAll` 换成真的
+      对象 (Map / Set 也照顾到). `EventTarget` / `Event` (含 DOM 节点、window) 克隆抛 `DataCloneError`; 克隆时 getter 抛的错原样抛出
+      (`cloneFailure`). `structuredClone` / `postMessage` 也走这条路, `transfer` 里的 ArrayBuffer 克隆后 detach (MessagePort 照旧不转移).
+    - 测试: `cargo test --release -p acde-storage` (调度、版本变更、回滚、游标), acde-dom `test/idb-keys.test.ts` (键序)、
+      `test/storage.test.ts`. WPT 的 IndexedDB 用临时的包 (`apps` 的 entry 指向生成的页面, assets 挂 `/resources/`、`/IndexedDB/`、
+      `/common/`、`/interfaces/`; `/resources/WebIDLParser.js` 是 `resources/webidl2/lib/webidl2.js`), `acdert app` headless 逐个跑
+      (`.any.js` 只跑 window 那份, 有 `variant` 的用 `history.replaceState` 换查询串), 页面用 `add_completion_callback` 把结果打进日志后
+      `window.close()`. 2026-11-09 macOS: 1332 / 1384 个子测试过. 没过的都是别的缺口: Web Worker、跨 realm (iframe)、bfcache、
+      SharedArrayBuffer (要 COOP / COEP)、Storage Buckets、要 WPT 服务器的 (`content.py`); `idlharness` 112 / 207, 没过的是整个 acde-dom
+      的绑定形状 (方法和属性不可枚举、事件处理属性在原型上读不抛 TypeError、构造函数的 `length`), 不是 IndexedDB 自己的.
+  - **配额**: IndexedDB 和私有文件系统现在不按 `estimate()` 的 quota 拒绝写入 (不会抛 `QuotaExceededError`), 是缺口; 页面本来就能经
+    `sys` 写任意文件 (见「沙箱」), 所以这不是安全边界的问题, 是和浏览器行为的差别.
+  - **cookie** (`document.cookie`, 同源请求的 `Cookie` / `Set-Cookie`): 解析在 acde-dom `core/backend.ts`, 存在分区的 `CookieJar`
+    (crates/storage `cookies.rs`): 同一应用的窗口共用; 有 `Expires` / `Max-Age` 的写进 `cookies.sqlite3`, 会话 cookie 只在进程里
+    (acdert 退出就没了, 和浏览器关掉一样); 按路径长、再按创建先后排; 脚本碰不到 `HttpOnly`.
+  - **`navigator.storage`** (`StorageManager`, acde-dom `storage/manager.ts`): `estimate()` 的 usage 是分区目录下文件的总大小
+    (内存分区加上 localStorage), quota 是磁盘的 60% (和 Chromium 一样; `quota.rs`, unix `statvfs`, Windows `GetDiskFreeSpaceExW`);
+    `persist()` / `persisted()` 都是 true (Dopame OS 不回收应用的存储). `getDirectory()` 是私有文件系统: `<分区>/opfs/` (内存分区在临时
+    目录, 分区放掉时删), 经 `natives.storage.privateDirectory()` 登记进这个 web 的 `PickedFolders` 和 `pagecalls.ts` 的文件夹表,
+    返回名字是 `''` 的可读写 `FileSystemDirectoryHandle`, 读写和 `showDirectoryPicker` 的同一套. `createSyncAccessHandle` 只在 worker 里, 没有.
+- **还没有**: `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Cache API (`caches`)、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
@@ -497,11 +575,13 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 
 - **网页的树** (render `Dom::semantics(root, limit)`, `dom/semantics.rs`): 节点 `{id, role, name?, value?, states?, level?, rect, children?}`, id 是
   render 的节点 id (ref 跨次稳定). 角色按 `role` 属性 / 标签, 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label / alt / 文字, 最多
-  120 字; 剪掉不可见的子树, 没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600).
+  120 字; 剪掉不可见的子树, 没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600). `<select>`: 下拉框是
+  `combobox` (值是选中项的文字, `collapsed` / `expanded`, 打开时子节点是列表里看得见的 `option`, rect 是列表里那一行), 列表框是 `listbox`
+  (子节点是看得见的行).
 - **web 侧** (`pageinspect.ts`): `tree(root, limit, offscreen)` (`offscreen` 时不剪掉滚到可见范围外的子树, 不可见的照样剪)、`query(selector, within,
   limit)` (`querySelectorAll`, 每个元素再用 `semantics(id, 1, true)` 取它自己的角色名字状态, 没有语义的给 `generic` 和 aria-label / title / 文字,
   加 `tag` 和 `visible`: 有大小、不是 hidden / display:none / 透明)、`point(id)` (元素可点的一点: 先 `scrollIntoView`, 在中心和四个四分点上 `hitTest`, 全被挡时报挡住的
-  元素)、`type(id, text, replace)` (走输入法提交那条路 `Host.insertText`)、`select(id, values)` (元素自己、祖先或里面的 `<select>`; 按 value
+  元素; 打开的下拉列表里的 option 用 `pickerOptionRect` 那一行的中心)、`type(id, text, replace)` (走输入法提交那条路 `Host.insertText`)、`select(id, values)` (元素自己、祖先或里面的 `<select>`; 按 value
   再按文字找选项, 禁用的回错, 单选给多个回错; 设好后发 `input` 和 `change`)、`focus(id)`, 坐标加 `contentOffset`.
 - **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
   `{text, windows, trees}`: 先列窗口, 再列焦点窗口 (或指定的) 的树, 一行一个节点 `- button "新建文件夹" [pressed] [w1.52]`; `find` 只给名字或
@@ -531,7 +611,10 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - DOM: `Dom` 实现 acde-dom 的 `DomNative` (契约 `web/packages/acde-dom/src/native.ts`, 同名 snake_case). 节点 id 是 u32 不复用, `<html>` 是 0;
   查询是 CSS 像素; 错误说明以 DOMException 名字开头. 改了文档还没 `Dom::commit` 时 render 不出帧, 期间的指针和滚动在 commit 时按顺序放回.
   连在文档上的节点一直活着, 断开的子树有 JS 包装 (pin) 才活; 包装对象连着时强引用, 断开变 WeakRef, 回收时 unpin (acde-dom `realm.ts`).
-  `hit_test` 返回节点 id; `caret_rect` / `caret_from_point` / `text_rects` (偏移是 UTF-16).
+  `hit_test` 返回节点 id; `caret_rect` / `caret_from_point` / `text_rects` (偏移是 UTF-16). `<select>`: `options` / `option_selected` /
+  `set_option_selected` / `selected_index` / `set_selected_index` / `reset_select` / `list_box_option_at`; 选项列表 `open_picker` /
+  `close_picker` / `picker_state` (`[select 或 -1, 高亮的选项序号或 -1, 一页几行]`) / `picker_option_at` (-2 在列表外, -1 在列表里但不是
+  选项) / `picker_option_rect` / `set_picker_active`; 列表画在 `Frame.plane` 的最后. `scroll_at` 落在打开的列表上时滚列表, 落在外面先关掉它.
 - 出帧 (物理像素): `RenderHandle {tick(now_ms), frame(), scroll_at, pointer, commit, invalidate, set_waker}`. CSS 动画的时钟是单调墙上时间,
   tick 只对齐到 vblank. `Frame {plane, panels, size, animating, commit, trace}`: plane 是整页 (含画布背景, 不含面板); `panels` 是
   `Dom::set_panel` 钉住的元素 `Panel {id, size, plane, extent}`. `Plane {drawing, layers, damage, damage_rects (最多 8 块), bounds}`;
@@ -638,8 +721,8 @@ acdert --size 1920x1080 --scale 1         # shell 报输出之前的 CSS 尺寸
 acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打印 stats 和窗口表
 ```
 
-环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (桌面的 localStorage 文件, 默认 `$XDG_CONFIG_HOME/acde/storage/<desktop>.json`, 空: 只在
-内存)、`ACDE_REDUCED_MOTION=1/0`、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
+环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (网页存储的根目录, 默认 `$XDG_DATA_HOME/acde/storage`, 空: 只在
+内存, 见「网页存储」)、`ACDE_REDUCED_MOTION=1/0`、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
 `ACDE_DEV`、`ACDE_HOST_DUMP`、`ACDE_HEADLESS=1`、`ACDE_SCALE` (headless 的缩放)、`ACDE_AUDIO=null`; shell 的见上.
 
 - **配色** (`appearance.ts`): `ACDE_COLOR_SCHEME`, 否则 portal 的 `org.freedesktop.appearance` `color-scheme`, 变了发给所有 web (`matchMedia` 发 change).
@@ -749,6 +832,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty 上的终端、copyIn、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
 | `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
 | `crates/log` | `acde-log`: 日志和计时 |
+| `crates/storage` | `acde-storage`: 网页存储的分区和 SQLite (见「网页存储」). 检查: `cargo test --release -p acde-storage` |
 | `crates/acde-napi` | rusty_v8 实现的 Node-API (napi8), 让 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` 0.191.0 (MIT, LICENSE-MIT), 去掉了用不到的入口 |
 | `web/packages/acde-host` | acdert 的 JS: Broker 和每个 web 的宿主, 包发现, 桌面服务, 登录页 |
 | `web/packages/acde-dom` | web 里的浏览器全局对象和 DOM |
@@ -773,7 +857,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   编辑只有 `dom/editing.ts` 一份. 测试在 happy-dom 的 MockDom 上跑. 布局类的读 (rect、metrics、计算样式) 缓存到下一次写入、下一个指针事件 / 帧 / 滚动, 或这个任务结束 (CSS 过渡和动画在 render 线程上跑, JS 不知道, 下一个任务要重新读). Web Animations
   (`dom/animation.ts`): 关键帧变成 `@keyframes acde-animation-<n>` 规则加元素内联的 `animation-*`, 由 render 跑; 时间、事件、`finished` 在 JS
   里按 host 的时钟; 近似: easing 作用在每段关键帧上、endDelay 只算进结束时间、没有 composite.
-- **acde-host**: 测试 `bun test` (只测不碰原生接口的模块, 如 `mimedb.ts`). esbuild 打成 `dist/broker.js` (`src/main.ts`, Broker) 和 `dist/web.js` (`src/worker.ts`, 每个 web). release 构建 (`build:release`, `dist-release/`) 的压缩、混淆、泄漏检查见「发版」. 基准 `bash scripts/release-perf/bench.sh` (Windows, 无头, 每边 5 轮中位数): 加载到 `shell running` 开发 1106 ms、release 941 ms; DOM 和布局负载 95 ms 对 107 ms; 纯 JS 负载 29.3 ms 对 29.4 ms. 多一层字符串数组混淆时加载慢约 470 ms, 所以预设不用它. 文件按本文的章节命名
+- **acde-host**: 测试 `bun test` (只测不碰原生接口的模块, 如 `mimedb.ts`). esbuild 打成 `dist/broker.js` (`src/main.ts`, Broker) 和 `dist/web.js` (`src/worker.ts`, 每个 web). release 构建 (`build:release`, `dist-release/`) 的压缩、混淆、泄漏检查见「发版」. 基准 `bash scripts/release-perf/bench.sh` (Windows, 无头, 每边 5 轮中位数): 加载到 `shell running` 开发 1106 ms、release 941 ms; DOM 和布局负载 95 ms 对 107 ms; 纯 JS 负载 29.3 ms 对 29.4 ms. 多一层字符串数组混淆时加载慢约 470 ms, 所以预设不用它. 打包开着 `keepNames`: 有静态块的类会被 esbuild 改名 (`class _Blob`), 不留名字的话 `Blob.name`、`Object.prototype.toString` 都是错的. 文件按本文的章节命名
   (`broker.ts`、`worker.ts` / `host.ts`、`remote.ts` / `rpc.ts`、`inspect.ts`、`devhot.ts` …); `sys/` 是原生接口的 node 风格包装. `greet/` 是登录页,
   `brand/` 的 `mark.mjs` / `art.mjs` 是 agentos 仓库 `branding/` 的原样拷贝 (只在那边改).
 
@@ -813,6 +897,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `render.rs` `draw_canvas_picture`, `cache.rs` `is_boundary` | `<canvas>` 画 2D 图, canvas 是绘制边界 |
 | `render.rs`, `text.rs` | 行内元素按行画 padding / border / 圆角背景 |
 | `render.rs` `draw_text_input_text` | 空输入框画 placeholder |
+| `render/form_controls.rs` `draw_select` / `draw_picker`, `lib.rs` `paint_select_picker` | `<select>`: 下拉框的选中项文字和箭头, 列表框的行 (只画看得见的); 打开的选项列表 (render 画在帧的最上面) |
 | `render/box_shadow.rs` | spread 加到圆角; 偏移和模糊乘缩放; 透明内阴影只跳过自己; 内阴影第一个在最上; 不模糊的内阴影一次填充 (padding box 加反向的洞, 重合的边抵消; 先填再 DestOut 挖洞时两条边落在同一像素里会剩一条淡线, xterm.js 的竖线光标) |
 | `render/box_shadow.rs`, `render.rs` (滚动偏移、`draw_svg`), `render/background.rs` | 偏移在元素自己的坐标里加 |
 | `render/border.rs` `draw_outline` | outline 沿中线、`outline-offset`、dashed / dotted、圆角、在内容之后、乘 opacity |
@@ -858,7 +943,10 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `stylo_device.rs`, blitz-traits `shell.rs` `Viewport.reduced_motion` | `prefers-reduced-motion` |
 | `layout/fieldset.rs` (新), `layout/mod.rs`, `layout/construct.rs`, `node/node.rs`, stylo_taffy `wrapper.rs` | fieldset 是 flow-root; rendered legend 是块级的直接布局子节点, 居中压在上边框上, 上边框占 max(边框宽, legend 高); 不建匿名 content box. 不做竖排、`align`、百分比定高 |
 | `layout/list.rs` | outside 的列表标记按 `white-space: pre` 排 |
-| `assets/default.css` | `::placeholder` 54% currentcolor; 表单控件默认黑字 |
+| `assets/default.css` | `::placeholder` 54% currentcolor; 表单控件默认黑字; `select` 是 inline-block, 列表框 (`[multiple]` / `[size]`, `size` 是 0 / 1 的除外) 纵向能滚 |
+| `node/select.rs` (新), `layout/select.rs` (新), `layout/construct.rs`, `layout/mod.rs`, `node/element.rs` `SpecialElementData::Select` | `<select>` 是叶子: 构造时按 list of options 给每个 option 和 optgroup 标签排一行 (select 的字体, 组标签加粗), 选中看 option 的 `CHECKED` 状态 (嵌入方设); 下拉框宽是最宽的标签加箭头, 高一行; 列表框高 `size` 行, `scrollable_overflow_rect` 含全部行; `SelectPicker` 是打开的列表的几何 |
+| `scrolling.rs` `clamp_scroll_offsets`, `resolve.rs`, `document.rs` `scrolled_nodes` | 布局后把超出新滚动范围的偏移拉回来 (节点和视口; CSSOM View), 只看偏移不是 0 的节点; 上游内容变短后一直停在末尾之外, 顶上空着又滚不回去 |
+| `layout/damage.rs` `propagate_damage_flags`, `document.rs` `rebuild_select` | select 下面有损伤 (option 的文字、属性、状态) 时重建它; 样式看不出的变化 (selectedness) 由嵌入方 `rebuild_select` |
 | 删掉的 | `events/`、`form.rs`、`debug.rs`、devtools、parallel-construct、`<canvas src=数字>`、CSS 光标、custom-widget |
 
 **其余**

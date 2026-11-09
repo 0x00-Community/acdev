@@ -10,7 +10,7 @@ use crate::compose::Layer;
 use crate::platform::Cmd;
 use crate::surface::{Link, Shot};
 
-const CAPTURE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+pub(crate) const CAPTURE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub const FIRST_WEB: u32 = 1 << 20;
 const DEFAULT_SIZE: [f64; 2] = [800.0, 600.0];

@@ -40,6 +40,7 @@ pub(crate) struct Engine {
     pub(crate) uncommitted: bool,
     pub(crate) want_present: bool,
     pub(crate) active: Option<blitz_dom::NodeId>,
+    pub(crate) picker: Option<blitz_dom::node::SelectPicker>,
     pub(crate) name: String,
     pub(crate) trace: Option<acde_log::Trace>,
     pub(crate) input: Option<acde_log::Trace>,
@@ -85,6 +86,7 @@ impl Engine {
             uncommitted: false,
             want_present: false,
             active: None,
+            picker: None,
             name: options.name.clone().unwrap_or_default(),
             trace: None,
             input: None,
@@ -195,6 +197,16 @@ impl Engine {
         self.paint().0.to_scene(acde_gpu::Scene::TOLERANCE)
     }
 
+    fn picker_scene(&mut self, scale: f64) -> Option<acde_gpu::Scene> {
+        self.picker.as_ref()?;
+        if !self.place_picker() {
+            return None;
+        }
+        let mut scene = acde_gpu::Scene::new();
+        blitz_paint::paint_select_picker(&mut scene, &self.doc, self.picker.as_ref()?, scale);
+        Some(scene)
+    }
+
     fn paint(&mut self) -> (Commands, Vec<(u32, kurbo::Rect, Commands)>) {
         let viewport = self.doc.viewport().clone();
         let (width, height) = viewport.window_size;
@@ -205,6 +217,13 @@ impl Engine {
         let pinned: std::collections::HashSet<NodeId> = self.panels.iter().map(|p| p.0).collect();
         let painted = blitz_paint::paint_scene_cached(&mut loose, &mut pieces, &mut self.doc, (scale, width, height), &mut self.paint_cache, true, &pinned);
         let mut commands = Commands::new(loose.commands, pieces);
+        let mut picker = self.picker_scene(scale).map(|p| p.commands);
+        if let Some(picker) = &mut picker {
+            commands.extend(match self.verify {
+                true => picker.clone(),
+                false => std::mem::take(picker),
+            });
+        }
         let panels = self
             .panels
             .iter()
@@ -226,6 +245,9 @@ impl Engine {
         if self.verify {
             let mut reference = acde_gpu::Scene::new();
             blitz_paint::paint_scene_reference(&mut reference, &mut self.doc, (scale, width, height), true, &pinned);
+            if let Some(picker) = picker {
+                reference.commands.extend(picker);
+            }
             let scene = commands.to_scene(reference.tolerance);
             if let Some(m) = Mismatch::find(&scene, &reference, &self.paint_cache) {
                 self.stats.paint_mismatches += 1;
@@ -282,6 +304,12 @@ impl Engine {
 
     pub(crate) fn scroll_at(&mut self, x: f32, y: f32, dx: f64, dy: f64, at: f64) {
         let scale = self.doc.viewport().scale_f64();
+        if self.picker.is_some() {
+            match self.picker_option_at(f64::from(x) / scale, f64::from(y) / scale) {
+                -2 => self.close_picker(),
+                _ => return self.scroll_picker(dy / scale),
+            }
+        }
         let (x, y) = (x / scale as f32, y / scale as f32);
         let hit = self.resolved().hit(x, y).map(|h| h.node_id);
         let viewport = self.doc.viewport_scroll();

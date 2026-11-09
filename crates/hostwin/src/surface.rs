@@ -13,6 +13,7 @@ pub(crate) enum Msg {
     Wake,
     Frame,
     Resized(u32, u32, f64),
+    Scroll(f64, f64, f64, f64),
     Panel(u32, Option<u32>),
     Title(String),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
@@ -29,7 +30,7 @@ pub struct Shot {
 pub(crate) struct Link(mpsc::Sender<Msg>);
 
 impl Link {
-    fn send(&self, msg: Msg) {
+    pub(crate) fn send(&self, msg: Msg) {
         let _ = self.0.send(msg);
     }
 

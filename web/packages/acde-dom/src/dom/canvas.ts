@@ -1,3 +1,4 @@
+import { serializable } from '../core/clone'
 import { DOMException } from '../core/exception'
 import { host, tag } from '../core/host'
 import { DOMMatrix } from './geometry'
@@ -793,3 +794,5 @@ for (const op of ['closePath', 'moveTo', 'lineTo', 'quadraticCurveTo', 'bezierCu
   Object.defineProperty(Path2D.prototype, op, { value(this: Path2D, ...args: unknown[]) { this[COMMANDS].push([op, ...args]) }, writable: true, enumerable: true, configurable: true })
 }
 tag(Path2D)
+
+serializable(ImageData, 'ImageData', (image) => [image.data.slice(), image.width, image.height], ([data, width, height]) => new ImageData(data as Uint8ClampedArray, width as number, height as number))

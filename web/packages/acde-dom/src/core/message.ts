@@ -2,17 +2,40 @@ import { defineHandlers, EventTarget, fire, MessageEvent } from './event'
 import { DOMException } from './exception'
 import { host, illegal, KEY, report, tag } from './host'
 
-export function structuredClone<T>(value: T, options?: { transfer?: unknown[] }): T {
-  void options
-  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
-    if (typeof value === 'symbol') throw new DOMException(`${String(value)} could not be cloned.`, 'DataCloneError')
-    return value
+export function cloneFailure(error: unknown): unknown {
+  const message = (error as Error | null)?.message
+  if (error instanceof Error && !(error instanceof DOMException) && typeof message === 'string' && message.startsWith('DataCloneError: ')) {
+    return new DOMException(message.slice('DataCloneError: '.length), 'DataCloneError')
   }
+  return error
+}
+
+export function transferList(options: unknown): unknown[] {
+  if (options === undefined || options === null) return []
+  if (typeof options === 'object' && Symbol.iterator in options) return Array.from(options as Iterable<unknown>)
+  const list = (options as { transfer?: unknown }).transfer
+  return list === undefined ? [] : Array.from(list as Iterable<unknown>)
+}
+
+export function structuredClone<T>(value: T, options?: { transfer?: unknown }): T {
+  if (arguments.length < 1) throw new TypeError("Failed to execute 'structuredClone' on 'Window': 1 argument required, but only 0 present.")
+  const list = options?.transfer === undefined ? [] : Array.from(options.transfer as Iterable<unknown>)
+  const buffers: ArrayBuffer[] = []
+  for (const item of list) {
+    if (item instanceof MessagePort) continue
+    if (!(item instanceof ArrayBuffer)) throw new DOMException('Value at index ' + list.indexOf(item) + ' does not have a transferable type.', 'DataCloneError')
+    if (buffers.includes(item)) throw new DOMException('ArrayBuffer at index ' + list.indexOf(item) + ' is a duplicate of an earlier ArrayBuffer.', 'DataCloneError')
+    if ((item as { detached?: boolean }).detached) throw new DOMException('An ArrayBuffer is detached and could not be cloned.', 'DataCloneError')
+    buffers.push(item)
+  }
+  let result: T
   try {
-    return host.deserialize(host.serialize(value)) as T
+    result = host.deserialize(host.serialize(value)) as T
   } catch (error) {
-    throw new DOMException((error as Error)?.message ?? 'could not be cloned', 'DataCloneError')
+    throw cloneFailure(error)
   }
+  for (const buffer of buffers) (buffer as ArrayBuffer & { transfer(): ArrayBuffer }).transfer()
+  return result
 }
 
 let entangle: (a: MessagePort, b: MessagePort) => void
@@ -49,10 +72,11 @@ export class MessagePort extends EventTarget {
   }
 
   postMessage(message: unknown, transfer?: unknown): void {
-    void transfer
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'postMessage' on 'MessagePort': 1 argument required, but only 0 present.")
+    const data = structuredClone(message, { transfer: transferList(transfer) })
     const other = this.#other
     if (!other || this.#closed) return
-    receive(other, structuredClone(message))
+    receive(other, data)
   }
 
   start(): void {

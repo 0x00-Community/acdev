@@ -1,6 +1,7 @@
 import type { HostNative } from '../native'
 import { AbortController, AbortSignal } from './abort'
 import { Blob, File, FileReader } from './blob'
+import { installClone } from './clone'
 import { createConsole } from './console'
 import { Crypto } from './crypto'
 import { atob, btoa, TextDecoder, TextEncoder } from './encoding'
@@ -18,6 +19,7 @@ export interface CoreOptions {
 
 export function installCore(global: typeof globalThis, native: HostNative, options: CoreOptions = {}): void {
   bindHost(global, native)
+  installClone()
   globals(global, {
     console: createConsole(), performance: new Performance(), crypto: new Crypto(),
     ...timerGlobals(!!options.nodeTimers),

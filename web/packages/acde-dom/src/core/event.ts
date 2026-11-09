@@ -33,7 +33,16 @@ export const hooks = {
   compile: null as null | ((target: EventTarget, type: string, source: string) => ((event: Event) => unknown) | null),
   passiveDefault: null as null | ((target: EventTarget, type: string) => boolean),
   inline: null as null | ((target: EventTarget, type: string, set: boolean) => void),
+  checkpoint: null as null | (() => void),
 }
+
+let thrown = 0
+export function listenerThrows(): number {
+  return thrown
+}
+
+let depth = 0
+let checkpoints = false
 
 let currentEvent: Event | undefined
 export function windowEvent(): Event | undefined {
@@ -89,6 +98,7 @@ export class Event {
     dispatch = (target, event) => {
       if (event.#dispatching || !event.#initialized) throw new DOMException('The event is already being dispatched.', 'InvalidStateError')
       event.#dispatching = true
+      depth++
       event.#target = target
       event.#canceled = event.#canceled && event.#cancelable
       const path: EventTarget[] = [target]
@@ -107,6 +117,7 @@ export class Event {
           invoke(path[i]!, event, false)
         }
       } finally {
+        depth--
         currentEvent = previous
         event.#phase = Phase.None
         event.#current = null
@@ -139,7 +150,12 @@ export class Event {
         try {
           call(target, listener, event)
         } catch (error) {
+          thrown++
           report(error)
+        }
+        if (checkpoints && depth === 1) {
+          host.runMicrotasks?.()
+          hooks.checkpoint?.()
         }
         event.#passive = false
         event.#current = target
@@ -248,7 +264,11 @@ function call(target: EventTarget, listener: Listener, event: Event): void {
   }
   const callback = listener.callback
   if (typeof callback === 'function') callback.call(target, event)
-  else if (callback !== null && typeof callback === 'object' && typeof (callback as { handleEvent?: unknown }).handleEvent === 'function') (callback as { handleEvent(e: Event): void }).handleEvent(event)
+  else if (callback !== null && typeof callback === 'object') {
+    const handle = (callback as { handleEvent?: unknown }).handleEvent
+    if (typeof handle !== 'function') throw new TypeError("The provided callback's 'handleEvent' property is not callable.")
+    handle.call(callback, event)
+  }
 }
 
 function removeListener(target: Targetish, type: string, listener: Listener): void {
@@ -463,4 +483,14 @@ tag(CloseEvent)
 export function fire(target: EventTarget, event: Event): boolean {
   eventTrusted(event, true)
   return dispatch(target, event)
+}
+
+export function fireFromTask(target: EventTarget, event: Event): boolean {
+  const outer = checkpoints
+  checkpoints = depth === 0
+  try {
+    return fire(target, event)
+  } finally {
+    checkpoints = outer
+  }
 }

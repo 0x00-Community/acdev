@@ -40,6 +40,7 @@ export interface FileChooser {
   read(file: PickedFile): Promise<{ bytes: Uint8Array; lastModified: number } | null>
   write(file: PickedFile, bytes: Uint8Array): Promise<void>
   directory(options: { readonly mode: 'read' | 'readwrite' }): Promise<PickedFile | null>
+  privateDirectory(): PickedFile | null
   entries(dir: PickedFile): Promise<PickedEntry[]>
   entry(dir: PickedFile, name: string, create: 'file' | 'directory' | null): Promise<PickedEntry | null>
   remove(dir: PickedFile, name: string, recursive: boolean): Promise<boolean>

@@ -14,6 +14,7 @@ use crate::serialize::Serializer;
 use crate::tree::{Doctype, Tree};
 use crate::{Capture, CaretPosition, Error, Metrics, Result, Shared, Stats, TextMetrics};
 
+mod select;
 mod semantics;
 
 const INPUT_TTL_MS: f64 = 1000.0;
@@ -267,9 +268,13 @@ impl Dom {
 
     pub fn remove(&self, child: u32) -> Result<()> {
         self.edit(child, |e, node| {
-            if e.doc.get_node(node).is_some_and(|n| n.parent.is_some()) {
+            if let Some(parent) = e.doc.get_node(node).and_then(|n| n.parent) {
+                let owner = e.list_owner(parent);
                 e.tree().m.remove_node(node);
                 e.collect(&[node]);
+                if let Some(select) = owner {
+                    e.settle_select(select, None);
+                }
             }
         })
     }
@@ -472,11 +477,61 @@ impl Dom {
     }
 
     pub fn set_selected_index(&self, id: u32, index: i32) -> Result<()> {
-        self.edit(id, |e, node| {
-            let count = e.options(node).len() as i32;
-            let index = if (0..count).contains(&index) { index } else { -1 };
-            e.ids.forms.entry(node).or_default().selected = Some(index);
+        self.edit(id, |e, node| e.set_selected_index(node, index))
+    }
+
+    pub fn options(&self, id: u32) -> Result<Vec<u32>> {
+        self.read(|e| {
+            let node = e.n(id)?;
+            let options = e.options(node);
+            Ok(e.outs(options))
         })
+    }
+
+    pub fn option_selected(&self, id: u32) -> Result<bool> {
+        self.on(id, |e, n| e.selectedness(n))
+    }
+
+    pub fn set_option_selected(&self, id: u32, selected: bool) -> Result<()> {
+        self.edit(id, |e, n| e.set_option_selected(n, selected))
+    }
+
+    pub fn reset_select(&self, id: u32) -> Result<()> {
+        self.edit(id, |e, n| e.reset_select(n))
+    }
+
+    pub fn list_box_option_at(&self, id: u32, x: f64, y: f64) -> Result<i32> {
+        self.on(id, |e, n| e.list_box_option_at(n, x, y))
+    }
+
+    pub fn open_picker(&self, id: u32) -> Result<bool> {
+        self.write(|e| {
+            let node = e.n(id)?;
+            Ok(e.open_picker(node))
+        })
+    }
+
+    pub fn close_picker(&self) {
+        let _ = self.update(|e| e.close_picker());
+    }
+
+    pub fn picker_state(&self) -> [f64; 3] {
+        self.read(|e| Ok(e.picker_state())).unwrap_or([-1.0, -1.0, 0.0])
+    }
+
+    pub fn picker_option_at(&self, x: f64, y: f64) -> i32 {
+        self.read(|e| Ok(e.picker_option_at(x, y))).unwrap_or(-2)
+    }
+
+    pub fn picker_option_rect(&self, id: u32) -> Result<Option<Quad>> {
+        self.on(id, |e, option| {
+            let select = e.owner_select(option)?;
+            e.picker_rects(select).into_iter().find(|(o, _)| *o == option).map(|(_, r)| quad(r))
+        })
+    }
+
+    pub fn set_picker_active(&self, option: i32) {
+        let _ = self.update(|e| e.set_picker_active(option));
     }
 
     pub fn set_selection_range(&self, id: u32, start: u32, end: u32) -> Result<()> {
@@ -504,12 +559,19 @@ impl Dom {
     }
 
     pub fn rect(&self, id: u32) -> Result<Quad> {
-        self.on(id, |e, n| Geometry { doc: e.resolved() }.client_rect(n).map_or([0.0; 4], quad))
+        self.on(id, |e, n| {
+            let rect = Geometry { doc: e.resolved() }.client_rect(n);
+            e.option_row(n).or(rect).map_or([0.0; 4], quad)
+        })
     }
 
     pub fn client_rects(&self, id: u32) -> Result<Vec<Quad>> {
         self.on(id, |e, node| {
-            let Some(geometry) = shown(e.resolved(), node) else { return Vec::new() };
+            e.resolved();
+            if let Some(row) = e.option_row(node) {
+                return vec![quad(row)];
+            }
+            let Some(geometry) = shown(&e.doc, node) else { return Vec::new() };
             geometry.doc.node_client_rects(node).into_iter().map(|r| quad(geometry.map(node, r.into()))).collect()
         })
     }
@@ -521,7 +583,7 @@ impl Dom {
     pub fn hit_test(&self, x: f64, y: f64) -> Option<u32> {
         self.read(|e| {
             let hit = e.resolved().element_from_point(x as f32, y as f32);
-            Ok(hit.and_then(|n| e.element_of(n)).map(|node| e.ids.id_of(node)))
+            Ok(hit.and_then(|n| e.element_of(n)).map(|node| e.hit_option(node, x, y)).map(|node| e.ids.id_of(node)))
         })
         .ok()
         .flatten()
@@ -535,6 +597,10 @@ impl Dom {
                 if let Some(node) = e.element_of(hit)
                     && !nodes.contains(&node)
                 {
+                    let option = e.hit_option(node, x, y);
+                    if option != node {
+                        nodes.push(option);
+                    }
                     nodes.push(node);
                 }
             }
@@ -1057,11 +1123,15 @@ impl Engine {
         if nodes.is_empty() {
             return Ok(());
         }
-        let mut tree = self.tree();
-        match reference {
-            Some(reference) => tree.m.insert_nodes_before(reference, &nodes),
-            None => tree.m.append_children(parent, &nodes),
+        let left = self.lists_left(&nodes);
+        {
+            let mut tree = self.tree();
+            match reference {
+                Some(reference) => tree.m.insert_nodes_before(reference, &nodes),
+                None => tree.m.append_children(parent, &nodes),
+            }
         }
+        self.lists_changed(parent, &nodes, left);
         Ok(())
     }
 
@@ -1083,6 +1153,7 @@ impl Engine {
         }
         let kept: std::collections::HashSet<NodeId> = new.iter().copied().collect();
         let old: Vec<NodeId> = self.doc.tree()[parent].children.iter().copied().filter(|c| !kept.contains(c)).collect();
+        let left = self.lists_left(&new);
         {
             let mut tree = self.tree();
             for &c in &old {
@@ -1093,6 +1164,7 @@ impl Engine {
             }
         }
         self.collect(&old);
+        self.lists_changed(parent, &new, left);
         Ok(())
     }
 
@@ -1117,6 +1189,7 @@ impl Engine {
             let id = self.ids.id_of(node);
             self.ids.images.entry(id).or_insert((String::new(), u8::MAX));
         }
+        self.settle_selects_in(root);
     }
 
     fn adopt(&mut self, parsed: crate::parse::Parsed) {
@@ -1298,6 +1371,9 @@ impl Engine {
             "src" => self.register(node),
             _ => {}
         }
+        if html {
+            self.select_attribute_changed(node, &local);
+        }
         Ok(true)
     }
 
@@ -1331,11 +1407,7 @@ impl Engine {
             Control::Editor(true) => dirty.unwrap_or_else(|| n.text_content()),
             Control::Editor(false) | Control::Value => dirty.or_else(|| attr(blitz_dom::local_name!("value"))).unwrap_or_default(),
             Control::Checkable => attr(blitz_dom::local_name!("value")).unwrap_or_else(|| "on".into()),
-            Control::Select => {
-                let index = self.selected_index(node);
-                let options = self.options(node);
-                usize::try_from(index).ok().and_then(|i| options.get(i)).map(|&o| self.value(o)).unwrap_or_default()
-            }
+            Control::Select => self.options(node).into_iter().find(|&o| self.selectedness(o)).map(|o| self.value(o)).unwrap_or_default(),
             Control::Default if n.data.is_element_with_tag_name(&blitz_dom::local_name!("option")) => {
                 attr(blitz_dom::local_name!("value")).unwrap_or_else(|| collapse_whitespace(&n.text_content()))
             }
@@ -1355,9 +1427,8 @@ impl Engine {
             }
             Control::Value => self.ids.forms.entry(node).or_default().value = Some(value.to_owned()),
             Control::Select => {
-                let options = self.options(node);
-                let index = options.iter().position(|&o| self.value(o) == value).map_or(-1, |i| i as i32);
-                self.ids.forms.entry(node).or_default().selected = Some(index);
+                let index = self.options(node).iter().position(|&o| self.value(o) == value).map_or(-1, |i| i as i32);
+                self.set_selected_index(node, index);
             }
             Control::Checkable | Control::Default | Control::None => {
                 self.set_attribute_dom(id, "value", Some(value))?;
@@ -1410,29 +1481,6 @@ impl Engine {
             .into_iter()
             .skip(1)
             .find(|&a| self.doc.get_node(a).is_some_and(|n| n.data.is_element_with_tag_name(&blitz_dom::local_name!("form"))))
-    }
-
-    fn options(&self, select: NodeId) -> Vec<NodeId> {
-        self.descendants(select)
-            .into_iter()
-            .filter(|&d| self.doc.get_node(d).is_some_and(|n| n.data.is_element_with_tag_name(&blitz_dom::local_name!("option"))))
-            .collect()
-    }
-
-    fn selected_index(&self, node: NodeId) -> i32 {
-        if self.control(node) != Control::Select {
-            return -1;
-        }
-        if let Some(index) = self.ids.forms.get(&node).and_then(|f| f.selected) {
-            return index;
-        }
-        let options = self.options(node);
-        let marked = options.iter().rposition(|&o| self.doc.tree()[o].attr(blitz_dom::local_name!("selected")).is_some());
-        match marked {
-            Some(i) => i as i32,
-            None if options.is_empty() => -1,
-            None => 0,
-        }
     }
 
     fn show_form_state(&mut self, node: NodeId) {
