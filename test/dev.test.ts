@@ -326,6 +326,36 @@ describe('acde dev with a stand-in acdert', () => {
     expect(readdirSync(dev.sessions)).toEqual([])
   }, 30_000)
 
+  test('acde dev killed from outside: acdert follows; the next tool drops the session file it left', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const dev = start([alpha], base)
+    await until('the session file', () => existsSync(dev.file))
+    const session = JSON.parse(readFileSync(dev.file, 'utf8')) as Session
+    dev.child.kill('SIGKILL')
+    await dev.child.exited
+    expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([`${dev.child.pid}.json`])
+    const gone = async () => {
+      for (const started = Date.now(); Date.now() - started < 10_000; await Bun.sleep(50)) {
+        const link = await DevClient.connect(session.endpoint, 200).catch(() => null)
+        if (!link) return true
+        link.close()
+      }
+      return false
+    }
+    expect(await gone()).toBe(true)
+    const webs = await dev.tool(['webs'], alpha)
+    expect(webs.code).toBe(1)
+    expect(webs.stderr).toContain('no acde dev is running')
+    expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
+
+    Sessions.write({ ...session, pid: process.pid }, dev.sessions)
+    const reused = await dev.tool(['webs'], alpha)
+    expect(reused.code).toBe(1)
+    expect(reused.stderr).toContain(`acde dev ${process.pid} is gone`)
+    expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
+  }, 30_000)
+
   test('--desktop <dir> adds that project and runs its desktop; one project alone is unchanged (acdert app <id>)', async () => {
     const base = tmp()
     const desk = project(join(base, 'desk'), { type: 'desktop', id: 'mydesk' })
