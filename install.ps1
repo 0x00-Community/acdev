@@ -16,7 +16,7 @@ function Install-Acde {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
 
-    $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'http://localhost:8787' }
+    $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://dopame.ai' }
     $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acde' }
 
     $shell = $PSVersionTable.PSVersion
@@ -25,7 +25,8 @@ function Install-Acde {
         if ($shell -lt [version]'5.1') {
             throw "acde: needs Windows PowerShell 5.1 or PowerShell 7.2+, this is $shell"
         }
-        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $protocols = [Net.ServicePointManager]::SecurityProtocol
+        [Net.ServicePointManager]::SecurityProtocol = $protocols -bor [Net.SecurityProtocolType]::Tls12
         $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
     } else {
         if (-not $IsWindows) {
@@ -58,7 +59,8 @@ function Install-Acde {
         throw 'acde: needs tar.exe, which Windows 10 1803 and later ship'
     }
 
-    $work = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("acde-install-" + [guid]::NewGuid().ToString('N'))
+    $temp = [System.IO.Path]::GetTempPath()
+    $work = Join-Path -Path $temp -ChildPath ("acde-install-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work | Out-Null
     try {
         if (-not $Version) {
@@ -101,19 +103,24 @@ function Install-Acde {
         $versions = Join-Path -Path $install -ChildPath 'versions'
         $target = Join-Path -Path $versions -ChildPath $Version
         New-Item -ItemType Directory -Path $versions -Force | Out-Null
-        Get-ChildItem -LiteralPath $versions -Directory -Filter "*.old-*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        $olds = @(Get-ChildItem -LiteralPath $versions -Directory -Filter "*.old-*")
+        foreach ($stale in $olds) {
+            Remove-Item -LiteralPath $stale.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
         $aside = $null
         if (Test-Path -LiteralPath $target) {
             $aside = "$Version.old-" + [guid]::NewGuid().ToString('N')
             try {
                 Rename-Item -LiteralPath $target -NewName $aside
             } catch {
-                throw "acde: could not replace $target, a program in it is still running: stop acde dev (and acdert) and run the installer again"
+                throw ("acde: could not replace $target, a program in it is still running: " +
+                    'stop acde dev (and acdert) and run the installer again')
             }
         }
         Move-Item -LiteralPath (Join-Path -Path $unpacked -ChildPath $name) -Destination $target
         if ($aside) {
-            Remove-Item -LiteralPath (Join-Path -Path $versions -ChildPath $aside) -Recurse -Force -ErrorAction SilentlyContinue
+            $asideDir = Join-Path -Path $versions -ChildPath $aside
+            Remove-Item -LiteralPath $asideDir -Recurse -Force -ErrorAction SilentlyContinue
         }
 
         $current = Join-Path -Path $install -ChildPath 'current'
@@ -134,7 +141,8 @@ function Install-Acde {
     if (-not $NoModifyPath) {
         $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
         try {
-            $old = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            $flags = [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames
+            $old = [string]$key.GetValue('Path', '', $flags)
             $entries = @($old -split ';' | Where-Object { $_ })
             if ($entries -notcontains $bin) {
                 $key.SetValue('Path', (@($entries) + $bin) -join ';', [Microsoft.Win32.RegistryValueKind]::ExpandString)

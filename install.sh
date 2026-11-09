@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-ACDE_DIST=${ACDE_DIST:-http://localhost:8787}
+ACDE_DIST=${ACDE_DIST:-https://dopame.ai}
+ACDE_DIST=${ACDE_DIST%/}
 
 say() {
   printf 'acde-install: %s\n' "$*"
@@ -127,12 +128,14 @@ esac
 
 file=acde-$version-$triple.tar.gz
 say "downloading acde $version for $triple"
-fetch "$ACDE_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" || die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acde $version?)"
+fetch "$ACDE_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
+  die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acde $version?)"
 expected=$(awk -v f="$file" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")
 [ -n "$expected" ] || die "acde $version has no build for $triple ($file is not in its SHA256SUMS)"
 fetch "$ACDE_DIST/$version/$file" "$tmp/$file" || die "could not download $ACDE_DIST/$version/$file"
 actual=$(sha256 "$tmp/$file")
-[ "$actual" = "$expected" ] || die "$file does not match its checksum (expected $expected, got $actual); not installing it"
+[ "$actual" = "$expected" ] ||
+  die "$file does not match its checksum (expected $expected, got $actual); not installing it"
 
 root=${ACDE_INSTALL:-$HOME/.acde}
 mkdir -p "$root/versions" || die "cannot create $root/versions"
