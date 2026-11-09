@@ -12,7 +12,7 @@ type Job = {
   needs?: string | string[]; if?: string; permissions?: Record<string, string>; env?: Record<string, string>
   outputs?: Record<string, string>; steps: Step[]
 }
-type Input = { required: boolean; default: boolean | string; type: string }
+type Input = { description: string; required: boolean; default: boolean | string; type: string }
 const workflow = Bun.YAML.parse(TEXT) as {
   on: { workflow_dispatch: { inputs: Record<string, Input> } }
   permissions: Record<string, string>
