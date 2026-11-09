@@ -411,7 +411,7 @@ impl Composer {
         let y0 = rect[1].max(0.0).floor() as u32;
         let x1 = ((rect[0] + rect[2]).max(0.0).ceil() as u32).min(size.width);
         let y1 = ((rect[1] + rect[3]).max(0.0).ceil() as u32).min(size.height);
-        (x1 > x0 + 1 && y1 > y0 + 1).then_some([x0, y0, x1 - x0, y1 - y0])
+        (x1 > x0 + 1 && y1 > y0 + 1).then(|| [x0, y0, x1 - x0, y1 - y0])
     }
 
     fn textures(&mut self, w: u32, h: u32, levels: u32) -> Vec<wgpu::TextureView> {

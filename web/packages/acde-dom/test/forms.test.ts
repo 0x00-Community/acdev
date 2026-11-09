@@ -189,3 +189,15 @@ test('editing: keys and execCommand share one path; beforeinput cancels typing, 
     ],
   ])
 })
+
+test('select() on number and email inputs selects the value, so typing replaces it', async () => {
+  using web = createWeb()
+  await web.internals.loadPage(`<!doctype html><html><body>
+    <input id="n" type="number" value="25"><input id="m" type="email" value="a@b">
+  </body></html>`)
+  const key = (id: string, k: string) => web.internals.editing.editKey(web.run(`document.getElementById('${id}')`), k, false)
+  web.run(`document.getElementById('n').select(); document.getElementById('m').select()`)
+  key('n', '1')
+  key('m', 'x')
+  assert.deepEqual(web.json(`[document.getElementById('n').value, document.getElementById('m').value, document.getElementById('n').selectionStart]`), ['1', 'x', null])
+})
