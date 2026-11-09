@@ -25,4 +25,8 @@ fi
 cp "$artifacts/host/LICENSE" "$out/LICENSE"
 tar -C "$artifacts/host" -czf "$out/acdert-host-$version.tar.gz" app LICENSE
 
+repo=$(cd -- "$here/../.." && pwd)
+tar -C "$repo/web/packages" --exclude acde-api/test --exclude acde-api/node_modules \
+  -czf "$out/acde-api-$version.tar.gz" acde-api
+
 "$here/check-stage.sh" "$out" "$version"

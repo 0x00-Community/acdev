@@ -8,6 +8,7 @@ required=(
   "acdert-aarch64-apple-darwin"
   "acdert-x86_64-pc-windows-msvc.exe"
   "acdert-host-$version.tar.gz"
+  "acde-api-$version.tar.gz"
   "LICENSE"
 )
 optional=("SHA256SUMS")
