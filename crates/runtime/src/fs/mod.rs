@@ -1,3 +1,4 @@
+mod admit;
 mod copy_source;
 mod grants;
 pub(crate) mod path;
@@ -357,6 +358,11 @@ impl Workspace {
         roots.iter().any(|r| r == root) || self.owner.as_deref().is_some_and(|owner| self.shared.grants.of(owner).iter().any(|r| r == root))
     }
 
+    pub fn admit(&self, path: &str) -> Outcome<String> {
+        let roots: Vec<FinderRoot> = self.shared.roots(self.owner.as_deref())?.into_iter().filter(|root| self.allows(&root.path)).collect();
+        admit::real_inside(&roots, path)
+    }
+
     pub fn grant(&self, path: &str) -> std::result::Result<String, FsError> {
         let Some(owner) = self.owner.as_deref() else {
             return Err(Failure::invalid("folders are granted to an app").into());
@@ -408,6 +414,11 @@ impl Finder {
     pub async fn locate(&self, path: String) -> Result<Value> {
         let shared = Arc::clone(&self.shared);
         blocking(move || Ok(shared.locate(None, &path, None)?)).await
+    }
+
+    #[napi]
+    pub async fn admit(&self, path: String, roots: Option<Vec<String>>, owner: Option<String>) -> Result<String> {
+        blocking(move || Ok(Workspace::new().scoped(roots, owner.as_deref()).admit(&path)?)).await
     }
 }
 
@@ -488,6 +499,44 @@ mod tests {
         assert_eq!(locate(&format!("{}/Folder\\Entry.txt", root.replace('\\', "/").to_uppercase())), found("Folder/Entry.txt"));
         assert_eq!(locate(&sibling.to_str().unwrap().to_lowercase())["code"], "EACCES");
         assert_eq!(locate(&format!("{}2\\entry.txt", root.to_lowercase()))["code"], "EACCES");
+        _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn a_hand_off_stays_inside_the_callers_roots() {
+        let base = std::env::temp_dir().join(format!("acde-admit-{}", std::process::id()));
+        let root = base.join("Root");
+        let outside = base.join("Outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(root.join("in.pdf"), "in").unwrap();
+        std::fs::write(outside.join("out.pdf"), "out").unwrap();
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let with = all.scoped(Some(vec![]), Some("admit-with"));
+        with.grant(root.to_str().unwrap()).unwrap();
+        let without = all.scoped(Some(vec![]), Some("admit-without"));
+        let every_root = all.scoped(None, Some("admit-with"));
+        let inside = root.join("in.pdf");
+        let real = std::fs::canonicalize(&inside).unwrap();
+        let expected = real.to_string_lossy().trim_start_matches(r"\\?\").to_owned();
+        assert_eq!(with.admit(inside.to_str().unwrap()).unwrap(), expected);
+        assert!(every_root.admit(inside.to_str().unwrap()).is_ok());
+        assert_eq!(without.admit(inside.to_str().unwrap()).unwrap_err().status, 403);
+        assert_eq!(with.admit(outside.join("out.pdf").to_str().unwrap()).unwrap_err().status, 403);
+        assert_eq!(with.admit(root.join("missing.pdf").to_str().unwrap()).unwrap_err().status, 404);
+        #[cfg(windows)]
+        {
+            let link = root.join("Linked");
+            let made = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(&link).arg(&outside).output().unwrap();
+            assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+            assert_eq!(with.admit(link.join("out.pdf").to_str().unwrap()).unwrap_err().status, 403);
+            std::fs::remove_dir(&link).unwrap();
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
+            assert_eq!(with.admit(root.join("linked/out.pdf").to_str().unwrap()).unwrap_err().status, 403);
+        }
         _ = std::fs::remove_dir_all(base);
     }
 

@@ -673,7 +673,11 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   `{kind: 'native', id: 'system'}`. 只有两种目标:
   - http / https 链接: `Opener` 先用 `URL` 规范成 `href`; Rust 再要求小于 8 KiB、只有可见 ASCII、没有 `"` `\` `<` `>` `` ` `` 和空白、有主机
     (挡掉往浏览器命令行里塞参数). 别的 scheme (`file:`、`javascript:`、`ms-settings:`、`mailto:` …) 不交.
-  - 文件: 不是文件夹、不是 `select`, 先过 `locate` (在 Finder 的根里, 不在的照旧 `outside_roots`), Rust 再要求绝对路径、不是设备 / 逐字路径
+  - 文件: 不是文件夹、不是 `select`, 先过 napi `Finder.admit(path, roots, owner)` (runtime `fs/admit.rs`): 把路径和调用方能用的根都按真实路径
+    解析 (`canonicalize`, 跟随联接和链接) 后, 文件必须落在其中一个根里, 交给系统的是解析后的路径 (去掉 `\\?\`); 不在的回 `outside_roots`.
+    调用方能用的根: 桌面、`acdert open` 和系统总线 (`openFromBus`) 是全部 Finder 根; 应用是清单 `fs` 的 roots (`fs: true` 是全部 Finder 根,
+    没有 `fs` 是空的) 加上授予它的文件夹, 和它的 `acde:fs` 一样 (每次重读授权文件). 所以根里的联接指向根外时也被拒绝.
+    Rust 再要求绝对路径、不是设备 / 逐字路径
     (`\\?\`、`\\.\`)、不带 `..`、Windows 上不是命名流 (组件里有 `:`)、`symlink_metadata` 是普通文件 (链接不交), 扩展名在
     `handoff.rs` `EXTENSIONS` 里 (PDF、图片、音视频、纯文本 / Markdown / CSV / JSON、新版 Office (`.docx` `.xlsx` `.pptx`) 和 OpenDocument).
     可执行文件、脚本、快捷方式 (`.exe` `.bat` `.ps1` `.js` `.lnk` `.url` `.hta` `.docm` …) 一律不交. 也不交 (决定, 2026-11-10): 旧版 Office
@@ -681,9 +685,10 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
     Mark of the Web: acde 的下载和应用自己写的文件都没有 `Zone.Identifier`, 交给 Office 时不进受保护视图, 收窄对所有来源都成立.
     Windows 不关区域检查 (文件本来带的 Mark of the Web 照旧提示).
   - Rust 拒绝 (`code: 'refused'`) 或系统打不开 (`failed`) 都回 `no_app`, 文字带原因. 系统找不到默认程序时 Windows 弹它自己的「打开方式」.
-  - 安全边界: 只有 `Opener.open` 这条路 (桌面、有 `openFiles` 的应用、`acdert open`), 不查用户激活 (acde-dom 没有这个模型), 靠能力和上面的
-    过滤限范围. 页面自己的导航 (`<a>`、`location`、`window.open` 到 http(s)) 是页面可控的, 不交给系统. 文件的根是 Broker 的 Finder 根, 不按调用
-    应用清单的 roots 再收窄. headless (`ACDE_HEADLESS`) 照样检查, 只打一行 info 不打开. Linux (会话和宿主窗口) 不注入, 行为不变.
+  - 安全边界: 只有 `Opener.open` 这条路 (桌面、有 `openFiles` 的应用、`acdert open`), 靠能力、调用方的根和上面的过滤限范围.
+    **不要求用户手势**: acde-dom 还没有用户激活 (user activation) 模型, 有 `openFiles` 的应用不经点击也能交出去; acde-dom 有了激活模型后,
+    应用发起的交出要求一次有效的激活 (桌面和 `acdert open` 不要求). 页面自己的导航 (`<a>`、`location`、`window.open` 到 http(s)) 是页面可控的,
+    不交给系统. headless (`ACDE_HEADLESS`) 照样检查, 只打一行 info 不打开. Linux (会话和宿主窗口) 不注入, 行为不变.
 - **交给应用**: 应用收 `request` (和 `acde.open` 同一个事件), 窗口提前 (桌面收 `windowshow`); 有 `fs` 的拿 `{root, path, file}`
   (`fs.locate`), 没有的拿 `{url}`. 不在任何根里的文件交给原生程序 (`gio launch`), 没有就报 `outside_roots` (宿主窗口也不交给系统).
 - **改默认**: `acde.setDefault(mime, 应用)` 写 `$XDG_CONFIG_HOME/acde-mimeapps.list` (只在 `XDG_CURRENT_DESKTOP=acde` 下生效).

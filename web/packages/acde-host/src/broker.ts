@@ -8,7 +8,7 @@ import { Crashes } from './crashes'
 import { PageBridge } from './bridge'
 import { Downloads } from './downloads'
 import { Frame } from './frame'
-import { Opener, type OpenOptions } from './open'
+import { type OpenCaller, Opener, type OpenOptions } from './open'
 import { NativeApps } from './launcher'
 import { PageSource } from './page'
 import { StartupTimeline } from './timeline'
@@ -242,6 +242,10 @@ export class Broker {
       locate: async (path) => {
         const fs = this.bridge.value['fs'] as { locate(path: string): Promise<{ root: string; path: string }> } | undefined
         return fs ? fs.locate(path).catch(() => null) : null
+      },
+      admit: async (path, caller) => {
+        const fs = this.bridge.value['fs'] as { admit(path: string, roots: string[] | null, owner: string | null): Promise<string> } | undefined
+        return fs ? fs.admit(path, caller?.roots ? [...caller.roots] : null, caller?.owner ?? null).catch(() => null) : null
       },
       launch: (app, request) => this.#raise(this.launch(app, request)),
       spawn: (argv) => void this.shell.launch(argv),
@@ -505,6 +509,11 @@ export class Broker {
   }
 
   static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office'])
+
+  static #caller(app: AppManifest): OpenCaller {
+    const fs = Broker.#grants(app.id, app.capabilities).fs
+    return { roots: fs === true ? null : (fs ?? []), owner: app.id }
+  }
 
   static #grants(app: string | null, caps: Capabilities | null): Omit<WebGrants, 'storage'> {
     if (!caps) return { app, fs: true, terminal: true, network: true, office: true, camera: true, microphone: true }
@@ -959,7 +968,7 @@ export class Broker {
       }
       if (method === 'openPath' || method === 'handlers' || method === 'setDefault') {
         if (!desktop && !caps?.['openFiles']) throw Broker.#refused(web, 'opening files with their apps')
-        if (method === 'openPath') return this.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions)
+        if (method === 'openPath') return this.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions, desktop ? null : Broker.#caller(web.app!))
         if (method === 'handlers') return this.opener.handlers(String(args[0]))
         return this.opener.setDefault(String(args[0]), String(args[1]))
       }

@@ -21,12 +21,18 @@ interface NativeEntry {
 interface OpenerHost {
   apps(): AppManifest[]
   locate(path: string): Promise<{ root: string; path: string } | null>
+  admit(path: string, caller: OpenCaller | null): Promise<string | null>
   launch(app: string, request: Record<string, unknown>): { window: number }
   spawn(argv: string[]): void
   system(): ((target: string) => Promise<void>) | null
 }
 
 type Opened = { kind: 'acde' | 'native'; id: string; window?: number }
+
+export interface OpenCaller {
+  readonly roots: readonly string[] | null
+  readonly owner: string | null
+}
 
 class MimeTypes {
   static readonly DIRECTORY = 'inode/directory'
@@ -225,7 +231,7 @@ export class Opener {
     return MimeApps.setDefault(mime, id)
   }
 
-  async open(target: string, options: OpenOptions = {}): Promise<Opened> {
+  async open(target: string, options: OpenOptions = {}, caller: OpenCaller | null = null): Promise<Opened> {
     const scheme = Opener.#scheme(String(target))
     if (scheme) return this.#openUrl(String(target), scheme, options)
     const path = Opener.#existing(target)
@@ -235,7 +241,7 @@ export class Opener {
     const natives = MimeApps.natives()
     let chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
     const system = !chosen && !options.app && !select && !isDir ? this.#host.system() : null
-    if (system) return this.#toSystem(system, path, mime)
+    if (system) return this.#toSystem(system, path, mime, caller)
     if (!chosen) throw Object.assign(new Error(`no app can open this kind of file (${mime})`), { status: 404, code: 'no_app' })
     if (chosen.kind === 'acde') {
       const id = chosen.id
@@ -277,10 +283,10 @@ export class Opener {
     throw Object.assign(new Error(`not a web link: ${url}`), { status: 400 })
   }
 
-  async #toSystem(system: (target: string) => Promise<void>, path: string, mime: string): Promise<Opened> {
-    const outside = () => Object.assign(new Error(`${path} is not in any finder root (desktop, downloads, workspace)`), { status: 404, code: 'outside_roots' })
-    if (!(await this.#host.locate(path))) throw outside()
-    return Opener.#handOff(system, path, `this kind of file (${mime})`)
+  async #toSystem(system: (target: string) => Promise<void>, path: string, mime: string, caller: OpenCaller | null): Promise<Opened> {
+    const real = await this.#host.admit(path, caller)
+    if (!real) throw Object.assign(new Error(`${path} is not in a folder the caller may open`), { status: 404, code: 'outside_roots' })
+    return Opener.#handOff(system, real, `this kind of file (${mime})`)
   }
 
   static async #handOff(system: (target: string) => Promise<void>, target: string, what: string): Promise<Opened> {
