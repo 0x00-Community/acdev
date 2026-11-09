@@ -220,8 +220,10 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   是压缩后的普通 JS, 写进每个用户应用的后端目录 (混淆它没有保护价值, 它就跑在用户的应用里).
 - **发布** (`.github/workflows/release.yml`, `v*` 标签; 标签必须等于 `package.json` 的版本): 协作者的工作流为基础, 合入以下要求. 一个通用包 `acde-<版本>.tar.gz`, 只含命令行工具、模板、SDK 和 LICENSE, 不含 acdert 和 Dopame 桌面 (它们预装在 Dopame 虚拟机里, 不随 acde 公开). SDK 是 npm 上固定的 `@dopame/acde-api@0.0.5` (`SDK_VERSION`, 与标签版本一致, 由 acdert 先发布; 找不到时 `pkgs` 任务明确失败, 不退回别的版本); 取到后放到 `../acdert/web/packages/acde-api`, 那是 `file:` 依赖的 CI 位置, 不是 acdert 仓库.
   作业: `pkgs` (无 OIDC 权限) 检查标签, 取 SDK, `bun install --frozen-lockfile`, 跑 `dist.ts`, 写 `latest.json` (`version`、`tag`、`commit`、`sdk`、`base`、`files`), 解开归档检查 `bin/acde` 能起 CLI, 上传成 artifact. `guard` 作业 (无 OIDC 权限) 用 `scripts/release-guard.ts` 核对产物恰好是允许清单 (归档、SHA256SUMS、latest、latest.json、两个安装脚本), 核对校验和, 并把归档重新做泄漏检查. `upload` 作业 (只有它有 `id-token: write`, 只用 `actions/download-artifact`): 再核对一次清单; 用 `curl` 换 GitHub OIDC、`aws sts assume-role-with-web-identity` 取凭据 (先 mask, 从不打印, 不用 `set -x`); 归档或 SHA256SUMS 已存在就失败 (不覆盖); 按清单逐个 `aws s3 cp` (没有 sync、递归或通配), 缓存: 版本文件不可变, `latest` 和安装脚本不缓存; 最后失效 CloudFront `E3ET3L14ALFOXX` 的具体路径.
+  手动运行 (`workflow_dispatch`) 是预演: 必填 `version` 输入 (`x.y.z`, `TAG` 为 `v` 加它), 只跑 `pkgs` 和 `guard`, 不取 OIDC、不上传. `upload` 作业的条件是 `github.event_name == 'push'`, 推 `v*` 标签才发布. `pkgs` 放好 SDK 后先核对 `package.json` 的 `file:` 规格与放置的包名、版本, 再 `bun install --frozen-lockfile`: 锁文件的 `file:` 条目不带版本, 所以安装的是放置的 npm 包内容, 版本由 `SDK_VERSION` 固定. 锁文件里的包地址都走默认源, 不用镜像.
+  已知阻塞 (在 acdert 侧): acdert 当前 SDK 源码的 `package.json` 把 `./manifest` 指向 `./src/validate.ts`, 0.0.4 版本是 `validate.js`. 发布守卫因此拒绝归档里的 `.ts` 源码, 这是正确的拦截; acdert 发布 0.0.5 前应把导出改为编译后的 js 与 d.ts, acde 不为此放宽守卫. 另外 0.0.4 缺 `InspectArg`、`drag`/`select` 动作和 `InspectMatch.attributes` 等类型, acde 当前源码在 0.0.4 上无法生成声明, 所以必须是 0.0.5.
   与协作者原有约定的差异 (逐条说明的取舍): (1) 协作者是一个作业里完成全部步骤并直接用 `aws-actions/configure-aws-credentials`; 我们拆成三个作业, 把 OIDC 权限只给上传作业, 凭据用 AWS CLI 手工换取 (角色 ARN、区域、存储路径不变). (2) 协作者的 `latest.json` 带 `acdert` 和 `dopame` 两个版本字段; 现在没有这两个依赖, 改为 `sdk`. (3) 协作者用 `aws s3 cp --recursive` 上传整个版本目录; 现在按允许清单逐个上传. (4) 协作者的归档按 acdert 的 triple 生成多个; 现在是一个通用归档 (CLI 与平台无关, 安装脚本不再选平台). (5) 协作者的版本目录每次覆盖; 现在已存在就失败.
-  `test/release/workflow.test.ts` 检查这些不变量 (作业关系、权限、SHA 固定、不下载 acdert 和桌面包、清单上传、覆盖检查、遮蔽凭据、角色 ARN 与区域).
+  `test/release/workflow.test.ts` 检查这些不变量 (作业关系、权限、SHA 固定、不下载 acdert 和桌面包、清单上传、覆盖检查、遮蔽凭据、角色 ARN 与区域、手动预演不上传、SDK 放置在 install 之前、锁文件不用镜像).
 - 压缩: `dist/cli.js`、`dist/driver.js` (target node)、`dist/test.js` (target bun, `bun:test` 留作外部) 和根上的 `launcher.mjs` 都是 `Bun.build` 的
   `minify: true`, 不出 sourcemap. 打完去掉 shebang 和随之加的 `// @bun`: 带它 bun 不转译、按 latin1 读, 非 ASCII 乱码. `acde/launcher` 留作外部
   (`launcher.mjs` 在包根, `import.meta.url` 仍指对), 运行时按包的 `exports` 自引用. `*.d.ts` 由 TypeScript 从 `src/driver/index.ts` 和
@@ -271,7 +273,7 @@ Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试�
 1. 热重载: acdert 已认 `reload {hot: true}` (见它的「acde dev」, 那里提到的 acde `src/changes.ts` 还没有), acde 只发普通 `reload`; 框架用自己的 `build --watch`.
 2. `acde.config.jsonc` 加 `compatibility_date`、environments、vars / secrets、服务名 ↔ capability 的显式 binding.
 3. `acde types` (按 capabilities 生成 d.ts)、单元测试跑在 acdert 的 isolate 里、`acde deploy --to <主机>`、包签名和仓库之后 `acde publish`.
-4. 分发: 发布流水线按协作者的 `release.yml` 建立 (见「分发」); 首次在 `v0.0.5` 标签上运行还没验证.
+4. 分发: 发布流水线按协作者的 `release.yml` 建立 (见「分发」). 发布前要先有 npm 上的 `@dopame/acde-api@0.0.5` (见「分发」的阻塞说明); 真正发布前先用手动预演跑一遍, 首次 `v0.0.5` 标签运行仍未验证.
 5. 用户工程里 `acde/test` / `acde/driver` 的编辑器类型 (运行时 `acde test` 已替它解析): 发一个只有类型的包, 或 `acde new` 带上依赖.
 6. e2e 在 CI 上跑 (要有 GPU 的 runner, 比如 GitHub 的 macOS runner).
 
