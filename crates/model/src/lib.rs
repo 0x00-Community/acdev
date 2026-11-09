@@ -241,8 +241,6 @@ pub struct Window {
     pub modal: bool,
 }
 
-pub type Done = Result<(), Error>;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     UnknownCanvas,
@@ -293,7 +291,7 @@ impl WindowTable {
         self.windows.get(&id)
     }
 
-    pub fn create(&mut self, id: WindowId, canvas: CanvasId, mode: Mode, rect: Rect, parent: Option<WindowId>) -> Done {
+    pub fn create(&mut self, id: WindowId, canvas: CanvasId, mode: Mode, rect: Rect, parent: Option<WindowId>) -> Result<(), Error> {
         let c = self.canvases.get(&canvas).ok_or(Error::UnknownCanvas)?;
         if self.windows.contains_key(&id) {
             return Err(Error::Taken);
@@ -331,7 +329,7 @@ impl WindowTable {
         Some(w)
     }
 
-    pub fn set_parent(&mut self, id: WindowId, parent: Option<WindowId>, modal: bool) -> Done {
+    pub fn set_parent(&mut self, id: WindowId, parent: Option<WindowId>, modal: bool) -> Result<(), Error> {
         let canvas = self.windows.get(&id).ok_or(Error::UnknownWindow)?.canvas;
         if let Some(p) = parent
             && (p == id || self.windows.get(&p).is_none_or(|w| w.canvas != canvas))
@@ -362,7 +360,7 @@ impl WindowTable {
         found
     }
 
-    pub fn set_mode(&mut self, id: WindowId, mode: Mode) -> Done {
+    pub fn set_mode(&mut self, id: WindowId, mode: Mode) -> Result<(), Error> {
         let w = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         if mode == Mode::Fullscreen {
             let c = self.canvases.get(&w.canvas).ok_or(Error::UnknownCanvas)?;
@@ -372,7 +370,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn place(&mut self, id: WindowId, x: f64, y: f64) -> Done {
+    pub fn place(&mut self, id: WindowId, x: f64, y: f64) -> Result<(), Error> {
         let w = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         if !w.mode.can_move() {
             return Err(Error::ModeRefusesMove);
@@ -382,7 +380,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn resize(&mut self, id: WindowId, w: f64, h: f64) -> Done {
+    pub fn resize(&mut self, id: WindowId, w: f64, h: f64) -> Result<(), Error> {
         let win = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         if !win.mode.can_resize() {
             return Err(Error::ModeRefusesResize);
@@ -395,7 +393,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn set_rect(&mut self, id: WindowId, rect: Rect) -> Done {
+    pub fn set_rect(&mut self, id: WindowId, rect: Rect) -> Result<(), Error> {
         let win = self.windows.get_mut(&id).ok_or(Error::UnknownWindow)?;
         if rect.w <= 0.0 || rect.h <= 0.0 {
             return Err(Error::EmptyRect);
@@ -404,7 +402,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn lower(&mut self, id: WindowId) -> Done {
+    pub fn lower(&mut self, id: WindowId) -> Result<(), Error> {
         let canvas = self.windows.get(&id).ok_or(Error::UnknownWindow)?.canvas;
         let z = &mut self.canvases.get_mut(&canvas).ok_or(Error::UnknownCanvas)?.z;
         z.retain(|&x| x != id);
@@ -412,7 +410,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn front(&mut self, id: WindowId) -> Done {
+    pub fn front(&mut self, id: WindowId) -> Result<(), Error> {
         let window = self.windows.get(&id).ok_or(Error::UnknownWindow)?;
         let canvas = window.canvas;
         let pinned = window.mode == Mode::Pinned;
@@ -427,7 +425,7 @@ impl WindowTable {
         Ok(())
     }
 
-    pub fn focus(&mut self, canvas: CanvasId, id: Option<WindowId>) -> Done {
+    pub fn focus(&mut self, canvas: CanvasId, id: Option<WindowId>) -> Result<(), Error> {
         let c = self.canvases.get_mut(&canvas).ok_or(Error::UnknownCanvas)?;
         if let Some(id) = id
             && !c.z.contains(&id)
