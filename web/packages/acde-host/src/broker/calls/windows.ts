@@ -108,7 +108,10 @@ export class WindowCalls {
       throw Object.assign(new TypeError(`no window state ${String(state)} (${WindowCalls.STATES.join(', ')})`), { status: 400 })
     }
     if (!this.#host.shell.setState) throw Object.assign(new Error('window states are not carried out here yet'), { status: 501 })
-    this.#host.shell.setState(id, state as (typeof WindowCalls.STATES)[number])
+    if (state === 'minimized' && this.#host.shell.windows().find((row) => row.id === id)?.minimize === false) {
+      const reason = 'a standalone app has no Dock to bring it back'
+      throw Object.assign(new Error(`window ${id} cannot be minimized: ${reason}`), { status: 409, code: 'unavailable' })
+    }    this.#host.shell.setState(id, state as (typeof WindowCalls.STATES)[number])
   }
 
   self(web: Web, method: string, args: unknown[]): unknown {    const record = this.#host.record(web.window)

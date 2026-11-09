@@ -22,3 +22,11 @@ describe('WindowSelf.hostControls', () => {
     assert.deepEqual(seen, [false])
   })
 })
+
+describe('WindowSelf.minimizable', () => {
+  test('follows the runtime and defaults to true', () => {
+    assert.equal(self({ window: 7, minimizable: false }).minimizable, false)
+    assert.equal(self({ window: 7, minimizable: true }).minimizable, true)
+    assert.equal(self({ window: 7 }).minimizable, true)
+  })
+})

@@ -107,6 +107,10 @@ export class WindowSelf {
     return this.#output
   }
 
+  get minimizable(): boolean {
+    return this.#surface.minimizable !== false
+  }
+
   get hostControls(): boolean {
     return this.#surface.hostControls === true
   }
@@ -224,7 +228,7 @@ export class WindowSelf {
     for (const handler of handlers) handler(request)
   }
 
-  emit(name: 'activate' | 'deactivate' | 'grab' | 'grablost' | 'state' | 'output' | 'hostcontrols', value?: unknown): void {
+  emit(name: 'activate' | 'deactivate' | 'grab' | 'grablost' | 'state' | 'output' | 'hostcontrols' | 'minimizable', value?: unknown): void {
     for (const handler of this.#handlers.get(name) ?? []) handler(value)
   }
 }
@@ -288,6 +292,7 @@ export class RemoteBridge {
     Object.defineProperty(value, 'state', { get: () => self.state, enumerable: true })
     Object.defineProperty(value, 'output', { get: () => self.output, enumerable: true })
     Object.defineProperty(value, 'hostControls', { get: () => self.hostControls, enumerable: true })
+    Object.defineProperty(value, 'minimizable', { get: () => self.minimizable, enumerable: true })
     return value
   }
 

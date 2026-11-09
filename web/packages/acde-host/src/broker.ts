@@ -529,13 +529,13 @@ export class Broker {
         )
       case 'devrequest':
         return void this.#dev.request(event.key ?? '')
-      case 'windowcloserequest':
-        if (event.window === 0 || event.window === undefined) {
-          this.#stopped = true
-          this.#ended = 'close'
-          return
-        }
-        return void this.closeWeb(event.window).catch(() => undefined)
+      case 'windowcloserequest': {
+        const id = event.window || this.#standaloneWindow
+        if (id) return void this.closeWeb(id).catch(() => undefined)
+        this.#stopped = true
+        this.#ended = 'close'
+        return
+      }
       case 'close':
       case 'exit':
         this.#stopped = true

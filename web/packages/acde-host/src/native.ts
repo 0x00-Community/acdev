@@ -62,6 +62,7 @@ export interface NativeSurface {
   readonly window: number
   readonly hosted?: boolean
   readonly hostControls?: boolean
+  readonly minimizable?: boolean
   readonly contentOffset: readonly [number, number]
   setTitle(title: string): void
   setImeArea?(x: number, y: number, width: number, height: number): void

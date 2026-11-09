@@ -82,6 +82,7 @@ export interface ShellWindow {
   readonly pid?: number | null
   readonly parent?: number | null
   readonly modal?: boolean
+  readonly minimize?: boolean
 }
 
 export interface AnimateOptions {

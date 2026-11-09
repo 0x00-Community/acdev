@@ -430,6 +430,7 @@ export type WindowEventName =
   | 'state'
   | 'output'
   | 'hostcontrols'
+  | 'minimizable'
 
 export type WindowMode = 'free' | 'fixed' | 'pinned'
 export type WindowState = 'normal' | 'minimized' | 'filled' | 'fullscreen'
@@ -452,11 +453,17 @@ export interface WindowOutput {
   readonly workArea: WindowRect
 }
 
+export interface AcdeWindowError extends Error {
+  readonly code: 'unavailable'
+  readonly status: 409
+}
+
 export interface AcdeWindow {
   readonly id: number
   readonly state: WindowState
   readonly output: WindowOutput
   readonly hostControls: boolean
+  readonly minimizable: boolean
   readonly host: WindowHost
   mount(app: WindowApp): void
   setTitle(title: string): void
@@ -484,6 +491,7 @@ export interface AcdeWindow {
   on(name: 'state', handler: (event: WindowStateEvent) => void): () => boolean
   on(name: 'output', handler: (output: WindowOutput) => void): () => boolean
   on(name: 'hostcontrols', handler: (hostControls: boolean) => void): () => boolean
+  on(name: 'minimizable', handler: (minimizable: boolean) => void): () => boolean
   on(name: 'shortcut', handler: (event: { readonly key: string }) => void): () => boolean
   on(name: WindowEventName, handler: (value?: unknown) => unknown): () => boolean
 }
