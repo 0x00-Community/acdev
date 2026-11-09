@@ -350,7 +350,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `type="importmap"` (`modules.rs` 解析说明符时用: `imports` / `scopes`, 精确或 `/` 结尾前缀匹配, 多个合并先到先得).
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
   `localStorage` / `sessionStorage` 见「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
-  外部链接交给浏览器应用, 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
+  外部链接交给浏览器应用 (宿主窗口里要 slots 的浏览器应用跑不了, 不打开, 见「默认应用」), 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
   `screen.*` 是主输出的逻辑尺寸.
 - **`<select>`** (https://html.spec.whatwg.org/#the-select-element): 选中状态在 render (`dom/select.rs`), 每个 option 自己记 selectedness
   和 dirtiness (`Form.selected` / `dirty`, 没设过时跟 `selected` 属性), 照规范: 没有 `multiple` 时选中一个就清掉别的、插入选中的 option
@@ -634,6 +634,9 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   (`text/*` 或经 `subclasses` 到 `text/plain`) 的那个, 和 gio 用 magic 消歧义一样. 一个也没匹配上用 `file`, 再用扩展名表. 这样 macOS 的
   宿主窗口和 Dopame OS 得到同样的类型 (`.md` 是 `text/markdown`, 不是 `file` 说的 `text/plain`). 数据库不进包 (shared-mime-info 是 GPL),
   没有时打一行 warn (macOS 提示 `brew install shared-mime-info`), 类型会和 Dopame OS 不一样. 测试 `acde-host/test/mimedb.test.ts`.
+- **这个平台上跑不了的应用不选** (Broker `#runsHere`): 宿主窗口里没有 slots (嵌原生窗口只在 Linux 会话里), 要 `slots` 的应用 (如
+  Dopame 的浏览器) 不当默认应用、不进 `handlers`, 页面的外部链接也不交给它 (打一行 warn, 不开只会报错的空窗口). 应用列表和
+  `acde.apps.launch` 不变.
 - **macOS / Windows 的宿主窗口没有原生程序** (没有 XDG 的 `.desktop`): `natives()` 是空的, 要交给原生程序的那几条路回 `no_app` /
   `outside_roots`, 和没装原生程序的 Dopame OS 一样, 不转给宿主系统的应用.
 - **交给应用**: 应用收 `request` (和 `acde.open` 同一个事件), 窗口提前 (桌面收 `windowshow`); 有 `fs` 的拿 `{root, path, file}`

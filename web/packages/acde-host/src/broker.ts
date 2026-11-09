@@ -237,7 +237,7 @@ export class Broker {
     this.apps = new AppRegistry(options.packages)
     this.bridge = new PageBridge()
     this.opener = new Opener({
-      apps: () => this.apps.list().filter((app) => this.#available(app)),
+      apps: () => this.apps.list().filter((app) => this.#available(app) && this.#runsHere(app)),
       locate: async (path) => {
         const fs = this.bridge.value['fs'] as { locate(path: string): Promise<{ root: string; path: string }> } | undefined
         return fs ? fs.locate(path).catch(() => null) : null
@@ -785,6 +785,10 @@ export class Broker {
     return this.bridge.available(app.capabilities)
   }
 
+  #runsHere(app: AppManifest): boolean {
+    return !(app.capabilities.slots && this.shell.hosted)
+  }
+
   async devReload(app: string | null, hot = false): Promise<void> {
     if (hot) {
       const webs = app ? [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app).map((r) => r.web) : [this.#desktop]
@@ -1091,8 +1095,8 @@ export class Broker {
         const url = String(args[0])
         if (!/^https?:\/\//i.test(url)) return false
         const browser = this.apps.get(Broker.BROWSER)
-        if (!browser || !this.#available(browser)) {
-          Log.write(Level.Warn, 'acde_host', `[${web.name}] opens ${url}: no ${Broker.BROWSER} app installed`)
+        if (!browser || !this.#available(browser) || !this.#runsHere(browser)) {
+          Log.write(Level.Warn, 'acde_host', `[${web.name}] opens ${url}: no ${Broker.BROWSER} app that works here`)
           return false
         }
         this.launch(Broker.BROWSER, { url })
