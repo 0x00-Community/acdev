@@ -6,7 +6,7 @@ import {
 import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { which } from '../launcher.mjs'
-import { cleanup, collect, env, standIn, tmp } from './helpers.ts'
+import { cleanup, collect, env, skipping, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
 const API = join(ROOT, '../acdert/web/packages/acde-api/dist')
@@ -25,7 +25,10 @@ function sha256(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
 
-describe.skipIf(process.platform === 'win32' || !FETCHER)('dist and install.sh', () => {
+const NO_INSTALL_SH = skipping(WINDOWS, 'install.sh on Windows: install.ps1 is tested instead')
+  || skipping(!FETCHER, 'install.sh needs curl or wget')
+
+describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
   const out = tmp()
   let server: ReturnType<typeof Bun.serve>
   let base: string

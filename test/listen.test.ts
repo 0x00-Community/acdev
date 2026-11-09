@@ -3,7 +3,7 @@ import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Subprocess } from 'bun'
 import { socketDir, socketPath } from '../src/sockets.ts'
-import { cleanup, env, get, inetSockets, line, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, env, get, inetSockets, line, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const LISTEN = join(import.meta.dir, '../src/listen.ts')
 const FIXTURES = join(import.meta.dir, 'fixtures/listen')
@@ -96,7 +96,8 @@ describe('listen on a port goes to <dir>/<port>.sock', () => {
 })
 
 describe('around the mapping', () => {
-  test.skipIf(WINDOWS)('a stale Unix backend socket file is replaced', async () => {
+  const noSocketFile = skipping(WINDOWS, 'stale Unix socket files: Windows has no socket file to replace')
+  test.skipIf(noSocketFile)('a stale Unix backend socket file is replaced', async () => {
     const dir = join(tmp(), 'sockets')
     const first = start('bun-serve.ts', { ACDE_APP_SOCKETS: dir })
     await line(first, 'ready')

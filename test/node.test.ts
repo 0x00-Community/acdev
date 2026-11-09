@@ -6,7 +6,7 @@ import type { Subprocess } from 'bun'
 import { which } from '../launcher.mjs'
 import { BunBundler } from '../src/bundler.ts'
 import { Runtime } from '../src/runtime.ts'
-import { cleanup, env, inetSockets, line, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, env, inetSockets, line, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const FIXTURE = join(import.meta.dir, 'fixtures/fetch-backend')
 
@@ -20,7 +20,8 @@ function realNode(): string | null {
   return null
 }
 
-const NODE = WINDOWS ? null : realNode()
+const UNIX_SOCKETS = 'Node.js backends on Unix sockets: Windows support is tracked in acdert#4'
+const NODE = skipping(WINDOWS, UNIX_SOCKETS) ? null : realNode()
 if (!WINDOWS && !NODE) console.warn('no Node.js >= 22; set ACDE_TEST_NODE or put a real node first on PATH')
 
 const children: Subprocess[] = []

@@ -10,7 +10,7 @@ import { DevClient, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
 import { slug } from '../src/paths.ts'
-import { cleanup, env, fakeAcdert, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, env, fakeAcdert, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -70,8 +70,10 @@ describe('dev IPC: tools and acde dev talk to acdert directly', () => {
     for (const fake of fakes.splice(0)) await fake.close()
   })
 
-  test.skipIf(process.platform === 'win32')('acde dev prepares a private session dir and clears a stale socket ' +
-    'before acdert listens', () => {
+  const unixOnly = (why: string) => test.skipIf(skipping(WINDOWS, why))
+
+  unixOnly('session dir modes and socket files: Unix only')('acde dev prepares a private session dir and clears ' +
+    'a stale socket before acdert listens', () => {
     const dir = join(tmp(), 'sessions')
     mkdirSync(dir, { mode: 0o755 })
     chmodSync(dir, 0o755)
@@ -83,7 +85,8 @@ describe('dev IPC: tools and acde dev talk to acdert directly', () => {
     expect(DevClient.endpoint(4242)).toBe(join(Sessions.dir(), '4242.sock'))
   })
 
-  test.skipIf(process.platform === 'win32')('the session dir is per user and never followed through a symlink', () => {
+  unixOnly('a per-uid session dir and symlinks: Unix only')('the session dir is per user and never followed ' +
+    'through a symlink', () => {
     expect(Sessions.dir({ XDG_RUNTIME_DIR: '/run/user/501' })).toBe('/run/user/501/acde-dev')
     expect(Sessions.dir({ XDG_RUNTIME_DIR: 'relative' })).toBe(join(tmpdir(), `acde-dev-${process.getuid!()}`))
     expect(Sessions.dir({})).toBe(join(tmpdir(), `acde-dev-${process.getuid!()}`))

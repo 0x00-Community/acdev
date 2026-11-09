@@ -8,6 +8,11 @@ import { Runtime, type Child } from '../src/runtime.ts'
 
 export const WINDOWS = process.platform === 'win32'
 
+export function skipping(skip: boolean, why: string): boolean {
+  if (skip) console.warn(`skipped: ${why}`)
+  return skip
+}
+
 const scratch: string[] = []
 const running = new Set<Child>()
 
