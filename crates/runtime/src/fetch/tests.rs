@@ -454,12 +454,12 @@ fn channel_exchange_past_the_initial_credit() {
     let (sender, events) = channel();
     let client = FetchClient::default();
     let body: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
-    let to = Dial::Channel { app: "fetch.channel.test".into(), port: 3000 };
+    let to = Dial::App { app: "fetch.channel.test".into(), port: 3000 };
     let mut exchange = Exchange::new(to, "POST".into(), "/echo".into(), vec![], Some(body.clone())).expect("valid");
     exchange.host = "localhost:3000".into();
     client.exchange(exchange, sender);
     std::thread::sleep(Duration::from_millis(200));
-    crate::channel::register("fetch.channel.test", mux.clone());
+    let generation = crate::channel::register("fetch.channel.test", crate::channel::Route::Channel(mux.clone()));
     let server = std::thread::spawn(move || {
         let mut reader = from_mux;
         let mut frame = || Frame::read(&mut reader).expect("a frame").expect("not the end");
@@ -513,12 +513,36 @@ fn channel_exchange_past_the_initial_credit() {
     }
     assert!(echoed == body, "the body came back whole ({} of {size} bytes)", echoed.len());
     server.join().expect("server");
-    crate::channel::unregister("fetch.channel.test", &mux);
+    crate::channel::unregister("fetch.channel.test", generation);
 }
 
 #[test]
-fn channel_without_a_backend_is_checked() {
-    let to = |app: &str| Dial::Channel { app: app.into(), port: 1 };
+fn app_sockets_follow_the_current_generation() {
+    let old = scratch();
+    let generation = crate::channel::register("fetch.sockets.test", crate::channel::Route::Sockets(old.clone()));
+    let (sender, events) = channel();
+    let client = FetchClient::default();
+    let exchange = Exchange::new(Dial::App { app: "fetch.sockets.test".into(), port: 3000 }, "GET".into(), "/".into(), vec![], None).expect("valid");
+    client.exchange(exchange, sender);
+    std::thread::sleep(Duration::from_millis(200));
+    crate::channel::unregister("fetch.sockets.test", generation);
+    let new = scratch();
+    let listener = Listener::bind(&new.join("3000.sock"));
+    let generation = crate::channel::register("fetch.sockets.test", crate::channel::Route::Sockets(new));
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        read_head(&stream);
+        stream.write_all(b"HTTP/1.1 204 No Content\r\n\r\n").expect("answer");
+    });
+    assert!(matches!(next(&events), Event::Head { status: 204, .. }));
+    assert_eq!(next(&events), Event::End);
+    server.join().expect("server");
+    crate::channel::unregister("fetch.sockets.test", generation);
+}
+
+#[test]
+fn app_dials_are_checked() {
+    let to = |app: &str| Dial::App { app: app.into(), port: 1 };
     assert!(Exchange::new(to(""), "GET".into(), "/".into(), vec![], None).is_err());
     assert!(Exchange::new(to("x"), "GET".into(), "no-slash".into(), vec![], None).is_err());
     assert!(Exchange::new(to("x"), "GET".into(), "/".into(), vec![], None).is_ok());

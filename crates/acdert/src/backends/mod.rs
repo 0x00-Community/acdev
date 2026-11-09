@@ -1,12 +1,14 @@
+mod dir;
 mod process;
 #[cfg(test)]
 mod tests;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
+use std::path::PathBuf;
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, Once};
 
-use acde_runtime::channel::{self, Mux};
+use acde_runtime::channel::{self, Mux, Route};
 
 use crate::bind::{self, IntoJs};
 use crate::rt::{self, Msg};
@@ -23,9 +25,10 @@ enum Mode {
 
 struct Running {
     app: String,
-    mode: Mode,
+    generation: u64,
     process: Process,
     mux: Arc<Mux>,
+    sockets: Option<PathBuf>,
 }
 
 static RUNNING: LazyLock<Mutex<HashMap<u32, Arc<Running>>>> = LazyLock::new(Mutex::default);
@@ -57,11 +60,41 @@ fn environment(given: Vec<(String, String)>, transport: &[(&str, String)], syste
 
 fn finish(pid: u32) {
     let Some(running) = running().remove(&pid) else { return };
-    if running.mode == Mode::Channel {
-        channel::unregister(&running.app, &running.mux);
-    }
+    channel::unregister(&running.app, running.generation);
     running.mux.close("the backend has exited");
     running.process.terminate();
+    if let Some(dir) = &running.sockets {
+        remove(dir);
+    }
+}
+
+fn remove(dir: &std::path::Path) {
+    for _ in 0..20 {
+        match std::fs::remove_dir_all(dir) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => std::thread::sleep(std::time::Duration::from_millis(50)),
+            _ => return,
+        }
+    }
+    log::warn!("cannot remove the backend socket directory {}", dir.display());
+}
+
+fn generation() -> Result<PathBuf, String> {
+    static SWEPT: Once = Once::new();
+    let base = dir::base(std::env::var_os("XDG_RUNTIME_DIR").as_deref(), std::env::var_os("LOCALAPPDATA").as_deref())
+        .ok_or("neither XDG_RUNTIME_DIR nor LOCALAPPDATA is set")?;
+    std::fs::create_dir_all(&base).map_err(|e| format!("cannot create {}: {e}", base.display()))?;
+    SWEPT.call_once(|| {
+        for left in dir::sweep(&base, dir::alive) {
+            log::info!("removed {}, left by an acdert that is gone", left.display());
+        }
+    });
+    let dir = base.join(dir::generation_name());
+    if !dir::fits(&dir) {
+        return Err(format!("{} is too long for a socket path ({} bytes at most)", dir.join("65535.sock").display(), dir::SUN_PATH - 1));
+    }
+    let sid = dir::user_sid().map_err(|e| e.to_string())?;
+    dir::create_protected(&dir, &dir::sddl(&sid)).map_err(|e| e.to_string())?;
+    Ok(dir)
 }
 
 pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -83,36 +116,49 @@ pub fn spawn(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
         Some("sockets") => Mode::Sockets,
         _ => return bind::throw_type_error(scope, "spawnBackend: options.mode is 'channel' or 'sockets'"),
     };
-    let sockets = bind::get_string(scope, options, "sockets");
-    if mode == Mode::Sockets && sockets.is_none() {
-        return bind::throw_type_error(scope, "spawnBackend: options.sockets is missing");
-    }
     let cwd = bind::get_string(scope, options, "cwd");
     let prefix = bind::get_string(scope, options, "prefix").unwrap_or_default();
     let given = bind::get(scope, options, "env").map(|env| bind::own_string_pairs(scope, env)).unwrap_or_default();
-    let transport = match (mode, &sockets) {
-        (Mode::Channel, _) => vec![("ACDE_APP_CHANNEL", "fd".to_owned())],
-        (Mode::Sockets, sockets) => vec![("ACDE_APP_SOCKETS", sockets.clone().unwrap_or_default()), ("ACDE_APP_CONTROL", "fd".to_owned())],
+    let sockets = match mode {
+        Mode::Channel => None,
+        Mode::Sockets => match generation() {
+            Ok(dir) => Some(dir),
+            Err(e) => return bind::throw_error(scope, &e),
+        },
+    };
+    let transport = match &sockets {
+        None => vec![("ACDE_APP_CHANNEL", "fd".to_owned())],
+        Some(dir) => vec![("ACDE_APP_SOCKETS", dir.to_string_lossy().into_owned()), ("ACDE_APP_CONTROL", "fd".to_owned())],
     };
     let env = environment(given, &transport, |key| std::env::var(key).ok());
     let started = process::start(&Spec { program, args: rest, cwd: cwd.as_deref(), env: &env });
     let started = match started {
         Ok(started) => started,
-        Err(e) => return bind::throw_error(scope, &format!("spawn {program}: {e}")),
+        Err(e) => {
+            if let Some(dir) = &sockets {
+                remove(dir);
+            }
+            return bind::throw_error(scope, &format!("spawn {program}: {e}"));
+        }
     };
     let pid = started.process.pid;
     let mux = match Mux::start(started.to_backend, started.from_backend) {
         Ok(mux) => mux,
         Err(e) => {
             started.process.terminate();
+            if let Some(dir) = &sockets {
+                remove(dir);
+            }
             return bind::throw_error(scope, &format!("spawn {program}: {e}"));
         }
     };
-    if mode == Mode::Channel {
-        channel::register(&app, mux.clone());
-    }
+    let route = match &sockets {
+        None => Route::Channel(mux.clone()),
+        Some(dir) => Route::Sockets(dir.clone()),
+    };
+    let generation = channel::register(&app, route);
     _ = crate::child::each_line(started.log, move |line| log::info!("{prefix}{line}"));
-    let backend = Arc::new(Running { app, mode, process: started.process, mux });
+    let backend = Arc::new(Running { app, generation, process: started.process, mux, sockets });
     running().insert(pid, backend.clone());
     let tx = rt::current().sender();
     let waiter = std::thread::Builder::new().name("acde-backend-wait".into()).spawn(move || {

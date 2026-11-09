@@ -1,3 +1,4 @@
+use crate::channel::Route;
 use crate::http::{Incoming, Messages};
 use crate::sync::Locked;
 use futures_channel::oneshot;
@@ -90,14 +91,24 @@ async fn connect(socket: &str) -> std::result::Result<Io, String> {
     }
 }
 
-async fn open_channel(app: &str, port: u16) -> std::result::Result<Io, String> {
+async fn open_app(app: &str, port: u16) -> std::result::Result<Io, String> {
     let until = Instant::now() + READY;
     loop {
         let error = match crate::channel::lookup(app) {
-            Some(mux) => match mux.open(port) {
+            Some(Route::Channel(mux)) => match mux.open(port) {
                 Ok(io) => return Ok(io),
                 Err(error) => error.to_string(),
             },
+            Some(Route::Sockets(dir)) => {
+                let socket = dir.join(format!("{port}.sock"));
+                match ntex::rt::unix_connect(&socket, ntex::SharedCfg::default()).await {
+                    Ok(io) => return Ok(io),
+                    Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused) => {
+                        format!("{}: {error}", socket.display())
+                    }
+                    Err(error) => return Err(format!("cannot connect to {}: {error}", socket.display())),
+                }
+            }
             None => "the backend is not running".to_owned(),
         };
         if Instant::now() >= until {
@@ -115,7 +126,7 @@ impl Dial {
     async fn local(&self) -> std::result::Result<Io, String> {
         match self {
             Self::Socket(socket) => connect(socket).await,
-            Self::Channel { app, port } => open_channel(app, *port).await,
+            Self::App { app, port } => open_app(app, *port).await,
             Self::Url(url) => Err(format!("{url} is not a backend")),
         }
     }
@@ -137,7 +148,7 @@ fn is_token(text: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dial {
     Socket(String),
-    Channel { app: String, port: u16 },
+    App { app: String, port: u16 },
     Url(String),
 }
 
@@ -158,9 +169,9 @@ impl Dial {
                 local_path(path)?;
                 Ok(self)
             }
-            Self::Channel { app, .. } => {
+            Self::App { app, .. } => {
                 if app.is_empty() {
-                    return Err("the backend channel has no app".into());
+                    return Err("the backend has no app".into());
                 }
                 local_path(path)?;
                 Ok(self)
@@ -236,7 +247,7 @@ impl Exchange {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let method = Method::from_bytes(self.method.as_bytes())?;
         let (mut request, dialed) = match &self.to {
-            Dial::Socket(_) | Dial::Channel { .. } => {
+            Dial::Socket(_) | Dial::App { .. } => {
                 let io = self.to.local().await?;
                 let dialed = format!("c{}", NEXT.fetch_add(1, Ordering::Relaxed));
                 DIALED.with(|d| d.borrow_mut().insert(dialed.clone(), io));
@@ -316,7 +327,7 @@ impl Upgrade {
         }
         let config = ntex::SharedCfg::new("acde-fetch").add(config.map_err(|error| error.to_string())?).add(crate::http::tls_config());
         let (io, codec, response) = match &self.to {
-            Dial::Socket(_) | Dial::Channel { .. } => {
+            Dial::Socket(_) | Dial::App { .. } => {
                 let io = Cell::new(Some(self.to.local().await?));
                 let client = WsClient::new(format!("http://localhost{}", self.path), config)
                     .connector(fn_service(async move |_: Connect<Url>| io.take().ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))));

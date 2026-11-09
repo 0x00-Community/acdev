@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::future::poll_fn;
 use std::io::{self, Read, Write};
+use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
@@ -223,21 +224,35 @@ impl Mux {
     }
 }
 
-static REGISTRY: LazyLock<Mutex<HashMap<String, Arc<Mux>>>> = LazyLock::new(Mutex::default);
-
-pub fn register(app: &str, mux: Arc<Mux>) {
-    lock(&REGISTRY).insert(app.to_owned(), mux);
+#[derive(Clone)]
+pub enum Route {
+    Channel(Arc<Mux>),
+    Sockets(PathBuf),
 }
 
-pub fn unregister(app: &str, mux: &Arc<Mux>) {
+static REGISTRY: LazyLock<Mutex<HashMap<String, (u64, Route)>>> = LazyLock::new(Mutex::default);
+
+pub fn register(app: &str, route: Route) -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let generation = NEXT.fetch_add(1, Ordering::Relaxed);
+    lock(&REGISTRY).insert(app.to_owned(), (generation, route));
+    generation
+}
+
+pub fn unregister(app: &str, generation: u64) {
     let mut registry = lock(&REGISTRY);
-    if registry.get(app).is_some_and(|current| Arc::ptr_eq(current, mux)) {
+    if registry.get(app).is_some_and(|(current, _)| *current == generation) {
         registry.remove(app);
     }
 }
 
-pub fn lookup(app: &str) -> Option<Arc<Mux>> {
-    lock(&REGISTRY).get(app).filter(|mux| !mux.is_closed()).cloned()
+pub fn lookup(app: &str) -> Option<Route> {
+    let registry = lock(&REGISTRY);
+    let (_, route) = registry.get(app)?;
+    match route {
+        Route::Channel(mux) if mux.is_closed() => None,
+        route => Some(route.clone()),
+    }
 }
 
 enum End {

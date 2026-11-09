@@ -1,3 +1,4 @@
+use super::dir;
 use super::process::{self, Spec, quote};
 use super::*;
 use acde_runtime::channel::{DATA, Frame};
@@ -100,4 +101,50 @@ fn arguments_are_quoted_for_the_crt() {
     let block = process::environment(&[("b".into(), "2".into()), ("A".into(), "1".into())]);
     let text = String::from_utf16_lossy(&block);
     assert_eq!(text, "A=1\0b=2\0\0");
+}
+
+#[test]
+fn the_socket_directory_is_only_for_system_and_the_user() {
+    let sid = dir::user_sid().expect("the user's SID");
+    assert!(sid.starts_with("S-1-5-"), "{sid}");
+    let parent = std::env::temp_dir().join(format!("acde-dir-{}", std::process::id()));
+    std::fs::create_dir_all(&parent).expect("parent");
+    let made = parent.join(dir::generation_name());
+    dir::create_protected(&made, &dir::sddl(&sid)).expect("created");
+    let dacl = dir::dacl(&made).expect("the DACL");
+    assert!(dacl.starts_with("D:P"), "protected from inheritance: {dacl}");
+    let mut aces: Vec<&str> = dacl.trim_start_matches("D:P").split_inclusive(')').collect();
+    aces.sort();
+    let mut want = vec!["(A;OICI;FA;;;SY)".to_owned(), format!("(A;OICI;FA;;;{sid})")];
+    want.sort();
+    assert_eq!(aces, want, "{dacl}");
+    std::fs::write(made.join("3000.sock"), b"").expect("a file inside");
+    let inner = dir::dacl(&made.join("3000.sock")).expect("the file's DACL");
+    assert!(inner.contains(&format!("(A;ID;FA;;;{sid})")) && inner.contains("(A;ID;FA;;;SY)") && inner.matches('(').count() == 2, "{inner}");
+    assert!(dir::create_protected(&made, &dir::sddl(&sid)).is_err(), "an existing directory is not reused");
+    std::fs::remove_dir_all(&parent).ok();
+}
+
+#[test]
+fn socket_paths_fit_sun_path_and_old_generations_are_swept() {
+    assert_eq!(dir::base(Some(r"X:\run".as_ref()), Some(r"Y:\local".as_ref())), Some(PathBuf::from(r"X:\run\acde\b")));
+    assert_eq!(dir::base(Some("".as_ref()), Some(r"Y:\local".as_ref())), Some(PathBuf::from(r"Y:\local\acde\b")));
+    assert_eq!(dir::base(None, None), None);
+    let name = dir::generation_name();
+    let (pid, tag) = name.split_once('.').expect("pid.tag");
+    assert_eq!((pid.parse::<u32>().ok(), tag.len()), (Some(std::process::id()), 6));
+    assert!(dir::fits(&PathBuf::from(r"C:\Users\someone\AppData\Local\acde\b\12345.abcdef")));
+    assert!(!dir::fits(&PathBuf::from(format!(r"C:\{}", "x".repeat(94)))));
+    assert!(dir::fits(&PathBuf::from(format!(r"C:\{}", "x".repeat(93)))));
+
+    let base = std::env::temp_dir().join(format!("acde-sweep-{}", std::process::id()));
+    for name in ["111.abcdef", "222.abcdef", "333.notahex", "notapid.abcdef", &format!("{}.abcdef", std::process::id())] {
+        std::fs::create_dir_all(base.join(name)).expect("dir");
+    }
+    let removed = dir::sweep(&base, |pid| pid == 222);
+    assert_eq!(removed, vec![base.join("111.abcdef")]);
+    let left: Vec<String> = std::fs::read_dir(&base).expect("base").flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(left.len(), 4, "{left:?}");
+    assert!(dir::alive(std::process::id()));
+    std::fs::remove_dir_all(&base).ok();
 }

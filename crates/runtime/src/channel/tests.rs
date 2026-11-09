@@ -1,6 +1,7 @@
 use super::*;
 use ntex::codec::BytesCodec;
 use std::io::{PipeReader, PipeWriter};
+use std::path::PathBuf;
 use std::time::Duration;
 
 struct Peer {
@@ -240,11 +241,15 @@ fn the_backend_going_away_fails_streams_and_opens() {
 fn the_registry_keeps_the_current_generation() {
     let (old, _a) = Peer::new();
     let (new, _b) = Peer::new();
-    register("chan.test", old.clone());
-    register("chan.test", new.clone());
-    unregister("chan.test", &old);
-    assert!(lookup("chan.test").is_some_and(|mux| Arc::ptr_eq(&mux, &new)));
+    let first = register("chan.test", Route::Channel(old.clone()));
+    let second = register("chan.test", Route::Channel(new.clone()));
+    unregister("chan.test", first);
+    assert!(matches!(lookup("chan.test"), Some(Route::Channel(mux)) if Arc::ptr_eq(&mux, &new)));
     new.close("stopped");
     assert!(lookup("chan.test").is_none(), "a closed generation is not dialled");
-    unregister("chan.test", &new);
+    unregister("chan.test", second);
+    let third = register("chan.test", Route::Sockets(PathBuf::from("dir")));
+    assert!(matches!(lookup("chan.test"), Some(Route::Sockets(dir)) if dir == PathBuf::from("dir")));
+    unregister("chan.test", third);
+    assert!(lookup("chan.test").is_none());
 }
