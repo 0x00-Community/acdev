@@ -429,6 +429,7 @@ export type WindowEventName =
   | 'grablost'
   | 'state'
   | 'output'
+  | 'hostcontrols'
 
 export type WindowMode = 'free' | 'fixed' | 'pinned'
 export type WindowState = 'normal' | 'minimized' | 'filled' | 'fullscreen'
@@ -455,6 +456,7 @@ export interface AcdeWindow {
   readonly id: number
   readonly state: WindowState
   readonly output: WindowOutput
+  readonly hostControls: boolean
   readonly host: WindowHost
   mount(app: WindowApp): void
   setTitle(title: string): void
@@ -481,6 +483,7 @@ export interface AcdeWindow {
   on(name: 'activate' | 'deactivate', handler: () => void): () => boolean
   on(name: 'state', handler: (event: WindowStateEvent) => void): () => boolean
   on(name: 'output', handler: (output: WindowOutput) => void): () => boolean
+  on(name: 'hostcontrols', handler: (hostControls: boolean) => void): () => boolean
   on(name: 'shortcut', handler: (event: { readonly key: string }) => void): () => boolean
   on(name: WindowEventName, handler: (value?: unknown) => unknown): () => boolean
 }

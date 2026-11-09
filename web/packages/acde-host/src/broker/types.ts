@@ -19,6 +19,7 @@ export interface BrokerShell {
     size?: readonly number[]
     parent?: number
     modal?: boolean
+    host?: boolean
   }): { window: number; token: bigint }
   place(window: number, x: number, y: number, width: number, height: number): void
   release(window: number): void

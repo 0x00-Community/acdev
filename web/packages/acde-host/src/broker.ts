@@ -33,7 +33,7 @@ import type { WindowFamily } from './broker/access/family'
 import { Launchable } from './broker/access/launchable'
 import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
-import { Output, type Screen } from './broker/output'
+import { Outputs, type Screen } from './broker/output'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -76,7 +76,7 @@ export class Broker {
   readonly #places = new WindowPlaces()
   readonly #placed = new Map<number, string>()
   readonly #claims: { web: Web; pid: number }[] = []
-  readonly #output: Output
+  readonly #output: Outputs
   readonly #desktopCrashes = new Crashes(Broker.RESTARTS)
   readonly #themes = new Map<string, string>()
   #stopped = false
@@ -118,7 +118,7 @@ export class Broker {
     })
     this.shell = native.Shell.broker()
     this.shell.onEvents(() => this.#poke())
-    this.#output = new Output(options.width, options.height, options.scale)
+    this.#output = new Outputs(options.width, options.height, options.scale)
     this.session.own = options.session
     this.session.attach(this.shell)
     this.session.language = this.language
@@ -308,9 +308,9 @@ export class Broker {
       name: 'desktop',
       token: grant.token,
       window: 0,
-      width: this.#output.width,
-      height: this.#output.height,
-      scale: this.#output.scale,
+      width: this.#output.main.width,
+      height: this.#output.main.height,
+      scale: this.#output.main.scale,
       screen: this.#screen(),
       reducedMotion: this.#preferences.reducedMotion,
       dark: this.#preferences.dark,
@@ -346,10 +346,10 @@ export class Broker {
       name: `${app.id}#${record.id}`,
       token,
       window: record.id,
-      width: 800 * this.#output.scale,
-      height: 600 * this.#output.scale,
-      scale: this.#output.scale,
-      screen: this.#screen(),
+      width: 800 * this.#output.main.scale,
+      height: 600 * this.#output.main.scale,
+      scale: this.#output.main.scale,
+      screen: this.#screen(record.id),
       reducedMotion: this.#preferences.reducedMotion,
       dark: this.#preferences.dark,
       languages: this.language.current,
@@ -502,16 +502,18 @@ export class Broker {
     }
   }
 
-  #screen(): Screen {
-    return this.#output.screen()
+  #screen(window?: number): Screen {
+    return this.#output.screen(window !== undefined && Outputs.host(this.#windows.get(window), this.#options.standalone))
   }
 
   #event(event: RawShellEvent): void {
     switch (event.type) {
       case 'output':
-      case 'workarea': {
-        const screen = this.#output.update(event)
-        if (screen) for (const web of this.#webs()) web.thread.post({ type: 'screen', ...screen })
+      case 'workarea':
+      case 'hostoutput':
+      case 'hostworkarea': {
+        const changed = this.#output.update(event, this.#options.standalone)
+        if (changed) for (const web of this.#webs()) if (changed.to(this.#windows.get(web.window))) web.thread.post({ type: 'screen', ...changed.screen })
         return
       }
       case 'milestone':
@@ -639,7 +641,8 @@ export class Broker {
       }
     }
     const rect = mode !== 'free' || family || this.#running(appId) ? null : (place ?? this.#places.get(appId, this.#screen()))
-    const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app) }), ...family })
+    const host = Outputs.host({ mode, appId: app.id }, this.#options.standalone) && { host: true }
+    const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app) }), ...family, ...host })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], request, mode }
     this.#windows.set(record.id, record)
     this.#spawnWindow(record, grant.token)

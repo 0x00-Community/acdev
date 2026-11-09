@@ -107,6 +107,10 @@ export class WindowSelf {
     return this.#output
   }
 
+  get hostControls(): boolean {
+    return this.#surface.hostControls === true
+  }
+
   changed(state: string, previous: string): void {
     this.#state = state as WindowState
     this.emit('state', { state, previous })
@@ -220,7 +224,7 @@ export class WindowSelf {
     for (const handler of handlers) handler(request)
   }
 
-  emit(name: 'activate' | 'deactivate' | 'grab' | 'grablost' | 'state' | 'output', value?: unknown): void {
+  emit(name: 'activate' | 'deactivate' | 'grab' | 'grablost' | 'state' | 'output' | 'hostcontrols', value?: unknown): void {
     for (const handler of this.#handlers.get(name) ?? []) handler(value)
   }
 }
@@ -283,6 +287,7 @@ export class RemoteBridge {
     const value = { ...api, id: self.id, on }
     Object.defineProperty(value, 'state', { get: () => self.state, enumerable: true })
     Object.defineProperty(value, 'output', { get: () => self.output, enumerable: true })
+    Object.defineProperty(value, 'hostControls', { get: () => self.hostControls, enumerable: true })
     return value
   }
 
