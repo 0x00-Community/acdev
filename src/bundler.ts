@@ -36,6 +36,26 @@ export class PublicError extends Error {
   }
 }
 
+export class ServiceImports {
+  readonly #found = new Set<string>()
+
+  constructor(readonly name: string, readonly dir: string, readonly out: string) {}
+
+  static readonly FILTER = /^acde:/
+
+  see(spec: string, importer: string | undefined): void {
+    const file = importer ? relative(this.dir, importer.replace(/[?#].*$/s, '')).split(sep).join('/') : '?'
+    this.#found.add(`${file} imports ${spec}`)
+  }
+
+  check(): void {
+    if (this.#found.size === 0) return
+    rmSync(join(this.out, `${this.name}.js`), { force: true })
+    throw new Error(`service ${this.name}: ${[...this.#found].sort().join(', ')}: a service gets shell modules ` +
+      "from ctx.import('acde:<name>'), listed in its modules in the desktop manifest")
+  }
+}
+
 type Built = {
   readonly success: boolean
   readonly logs: readonly unknown[]
@@ -147,7 +167,8 @@ export class BunBundler extends Bundler {
     }
   }
 
-  async service(name: string, entry: string, out: string): Promise<void> {
+  async service(name: string, entry: string, out: string, dir: string): Promise<void> {
+    const imports = new ServiceImports(name, dir, out)
     const result = await Bun.build({
       entrypoints: [entry],
       outdir: out,
@@ -156,8 +177,18 @@ export class BunBundler extends Bundler {
       minify: { syntax: true, whitespace: true, identifiers: false },
       naming: { entry: `${name}.[ext]` },
       throw: false,
+      plugins: [{
+        name: 'acde-service',
+        setup: (build) => {
+          build.onResolve({ filter: ServiceImports.FILTER }, (args) => {
+            imports.see(args.path, args.importer)
+            return { path: args.path, external: true }
+          })
+        },
+      }],
     })
     Bundler.check(`service ${name}`, result)
+    imports.check()
   }
 
   protected async server(job: BackendJob, wrapper: string): Promise<void> {
@@ -350,11 +381,20 @@ export class ViteBundler extends Bundler {
 
   async service(name: string, entry: string, out: string, dir: string): Promise<void> {
     const { vite, options, single } = await this.#load()
+    const imports = new ServiceImports(name, dir, out)
     await vite.build({
       ...ViteBundler.#common(dir),
       publicDir: false,
       define: { 'process.env.NODE_ENV': '"production"' },
-      plugins: [acdeVite()],
+      plugins: [{
+        name: 'acde-service',
+        enforce: 'pre',
+        resolveId: (id: string, importer?: string) => {
+          if (!ServiceImports.FILTER.test(id)) return null
+          imports.see(id, importer)
+          return { id, external: true }
+        },
+      }],
       build: {
         outDir: out,
         emptyOutDir: false,
@@ -368,6 +408,7 @@ export class ViteBundler extends Bundler {
         },
       },
     })
+    imports.check()
   }
 
   protected async server(job: BackendJob, wrapper: string): Promise<void> {

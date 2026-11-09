@@ -296,6 +296,25 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
     expect(readFileSync(join(result.out, 'apps/cards/web/icon.png')).equals(PNG)).toBe(true)
   })
 
+  test('a service importing acde:* fails the same under Bun and Vite, pointing to ctx.import', async () => {
+    const dir = project({
+      'acde.config.jsonc': '{ "type": "desktop", "id": "deck", "services": { "clock": "clock.ts" } }',
+      'index.html': '<!doctype html><p>desk</p>',
+      'clock.ts':
+        "import { windows } from 'acde:windows'\nimport { tick } from './tick.ts'\n" +
+        'export default () => ({ api: { clock: { now: () => [windows, tick()] } } })\n',
+      'tick.ts': "export const tick = async () => (await import('acde:fs')).default\n",
+    })
+    const runs = [await build(dir, { ACDE_BUNDLER: 'bun' }), await build(dir)]
+    for (const ran of runs) {
+      expect(ran.code).toBe(1)
+      expect(ran.stderr).toContain('service clock: clock.ts imports acde:windows, tick.ts imports acde:fs: ' +
+        "a service gets shell modules from ctx.import('acde:<name>')")
+      expect(existsSync(join(ran.out, 'services/clock.js'))).toBe(false)
+    }
+    expect(runs[0]!.stderr).toBe(runs[1]!.stderr)
+  })
+
   test('an HTML page below the root lands as <name>.html, like Bun', async () => {
     const dir = project({
       'acde.config.jsonc': '{ "type": "app", "id": "deep", "entry": "pages/main/page.html" }',
