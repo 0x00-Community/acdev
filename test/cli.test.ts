@@ -4,6 +4,7 @@ import { delimiter, join, relative, sep } from 'node:path'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
+import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
 import { Runtime } from '../src/runtime.ts'
 import { cleanup, env, tmp } from './helpers.ts'
@@ -236,6 +237,16 @@ describe('acde.config.jsonc', () => {
     expect((await cli(['build', '--out', out], dir)).code).toBe(0)
     expect(JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0].backend).toEqual({ entry: '/app/with-api/backend/server.js', port: 3000 })
     expect(JSON.parse(await answer(out, '/api/hello')).hello).toBe('API')
+  })
+
+  test('new: the next steps quote a directory with spaces as typed in a shell', () => {
+    const dir = join(tmp(), 'my app')
+    mkdirSync(dir)
+    const rel = relative(process.cwd(), dir)
+    const pm = new PackageManager('pnpm')
+    const starter = Creator.starter('react')
+    const steps = Creator.next({ pkg: { dir } as AppPackage, dir, starter, installed: false, pm })
+    expect(steps).toEqual([`cd "${rel}"`, 'pnpm install', 'pnpm acde:dev'])
   })
 
   test('a framework project gets acde.config.jsonc, the SDK and .acde/ ignored', () => {

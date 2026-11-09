@@ -179,7 +179,12 @@ export class Creator {
   static next(created: Created): string[] {
     const rel = relative(process.cwd(), created.pkg.dir)
     const { pm } = created
-    return [...(rel ? [`cd ${/\s/.test(rel) ? JSON.stringify(rel) : rel}`] : []), ...(created.installed ? [] : [`${pm.name} install`]), pm.run(created.starter.scaffold ? 'acde:dev' : 'dev').join(' ')]
+    const quoted = !/\s/.test(rel) ? rel : process.platform === 'win32' ? `"${rel}"` : JSON.stringify(rel)
+    return [
+      ...(rel ? [`cd ${quoted}`] : []),
+      ...(created.installed ? [] : [`${pm.name} install`]),
+      pm.run(created.starter.scaffold ? 'acde:dev' : 'dev').join(' '),
+    ]
   }
 
   static lay(dir: string, kind: Kind, pm: PmName, id: string, label: string, layers: readonly string[] = []): void {
