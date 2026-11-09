@@ -212,8 +212,10 @@ describe('the release archive and the installed CLI', () => {
     const preload = readFileSync(join(apiBuild, 'backend', 'acde-listen.js'), 'utf8')
     expect(preload).toContain('process.getBuiltinModule')
     expect(preload).toContain('ACDE_APP_SOCKETS')
-    const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8'))
-    const api = manifest.devDependencies['@dopame/acde-api']
+    const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
+      devDependencies?: Record<string, string>
+    }
+    const api = manifest.devDependencies?.['@dopame/acde-api'] ?? ''
     expect(api).toStartWith('file:')
     expect(realpathSync(api.slice('file:'.length))).toBe(realpathSync(join(current, 'lib', 'acde-api')))
   }, 300_000)
