@@ -34,7 +34,7 @@ impl Surface {
             return acde_hostwin::Surface::claim(token, render, frame, app).map(Surface::Host);
         }
         #[cfg(target_os = "linux")]
-        return acde_window::Surface::claim(token, render, frame).map(Surface::Wayland);
+        return acde_window::Surface::claim(token, render, frame, app).map(Surface::Wayland);
         #[cfg(not(target_os = "linux"))]
         let _ = frame;
         #[cfg(not(target_os = "linux"))]

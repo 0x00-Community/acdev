@@ -10,6 +10,7 @@ acde-render = { path = "../render" }
 acde-gpu = { path = "../gpu" }
 acde-log = { path = "../log" }
 log = "0"
+url = "2"
 smithay-client-toolkit = "0"
 wayland-client = "0"
 wayland-backend = "0"

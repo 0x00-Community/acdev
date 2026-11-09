@@ -413,7 +413,7 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 绑定应用 id 和规范路径, 5 分钟内未用就过期, 第一次成功的 copyIn 消耗它, 失败则归还; 授权只管 copyIn, 不管直接读). 其余一律 403 / `EPERM` (和系统拒绝的 `EACCES` 分开, 页面据此提示没有权限导入这个文件), 目标文件夹的检查不变.
 打开来源后再比对它的最终路径 (Windows `GetFinalPathNameByHandleW`, Linux `/proc/self/fd`), 中途被换成链接的来源被拒绝; macOS 等 unix 只在打开前后重新解析, 较弱, 未验证.
 拖放授权由宿主窗口的共用拖放入口 (`crates/hostwin/src/app.rs` `dropped`, Windows `WM_DROPFILES` 与 macOS/Linux winit 都经它) 记入. 应用 id 是 claimSurface 时该 web 的
-spawn 参数 (`grants.app`, Broker 决定), 桌面没有应用 id, 记在桌面名下. Linux 会话的拖放 (`crates/window` 的 `drop_performed`) 还没有接入, 那里拖入的文件 copyIn 会被拒绝 (失败关闭).
+spawn 参数 (`grants.app`, Broker 决定), 桌面没有应用 id, 记在桌面名下. Linux 会话的拖放 (`crates/window` 的 `drop_performed`) 同样在发 `dnddrop` 前按 `text/uri-list` 记下授权, 应用 id 经 `Surface::claim` 传给窗口线程.
 
 **选文件夹和授权**: 标准的 `showDirectoryPicker(options?)` → `FileSystemDirectoryHandle` (acde-dom `dom/picker.ts`, 参数校验和错误照 Chromium,
 取消或没有选择器是 `AbortError`, `requestPermission` 不弹窗; handle 只活到页面结束). 链路: acde-dom 的

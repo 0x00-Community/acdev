@@ -52,7 +52,7 @@ pub struct Surface {
 }
 
 impl Surface {
-    pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32) -> Result<Self, String> {
+    pub fn claim(token: u64, render: acde_render::RenderHandle, frame: u32, app: Option<String>) -> Result<Self, String> {
         let events = Arc::new(Inbox::default());
         let (commands, rx) = channel::channel();
         let (ready, ready_rx) = mpsc::sync_channel(1);
@@ -60,7 +60,7 @@ impl Surface {
         let thread = std::thread::Builder::new()
             .name("acde-window".into())
             .spawn(move || {
-                if let Err(e) = App::run(token, render, frame, inbox.clone(), rx, ready.clone()) {
+                if let Err(e) = App::run(token, render, frame, app, inbox.clone(), rx, ready.clone()) {
                     log::error!("window: {e}");
                     let _ = ready.send(Err(e));
                 }
@@ -198,6 +198,8 @@ pub(crate) struct App {
     pub(crate) pointer_serial: u32,
     pub(crate) left: bool,
     pub(crate) clipboard: Option<(CopyPasteSource, String)>,
+    /// the app that owns this window (None: the desktop); a file dropped here is a one-shot copyIn grant for it
+    pub(crate) app: Option<String>,
     pub(crate) drag: Option<Drag>,
     pub(crate) over: Option<(f64, f64)>,
     pub(crate) presenting: Vec<acde_log::Trace>,
@@ -219,6 +221,7 @@ impl App {
         token: u64,
         render: acde_render::RenderHandle,
         frame: u32,
+        app: Option<String>,
         events: Arc<Inbox>,
         commands: Channel<Option<SurfaceCommand>>,
         ready: mpsc::SyncSender<Result<u32, String>>,
@@ -306,6 +309,7 @@ impl App {
             pointer_serial: 0,
             left: false,
             clipboard: None,
+            app,
             drag: None,
             over: None,
             presenting: Vec::new(),

@@ -265,8 +265,9 @@ impl DataDeviceHandler for App {
         let _ = self.conn.flush();
         let events = self.events.clone();
         let conn = self.conn.clone();
+        let app = self.app.clone();
         std::thread::spawn(move || {
-            let data = pipes
+            let data: std::collections::HashMap<String, String> = pipes
                 .into_iter()
                 .filter_map(|(mime, fd)| {
                     let mut text = String::new();
@@ -277,6 +278,8 @@ impl DataDeviceHandler for App {
             offer.finish();
             offer.destroy();
             let _ = conn.flush();
+            let dropped = dropped_paths(data.get("text/uri-list").map_or("", String::as_str));
+            acde_model::drop_grant::record(app.as_deref(), &dropped);
             events.push(Event { kind: "dnddrop".into(), x: Some(x), y: Some(y), data: Some(data), ..Default::default() });
         });
     }
@@ -451,4 +454,13 @@ impl Dispatch2<wp_fractional_scale_v1::WpFractionalScaleV1, App> for Data {
             }
         }
     }
+}
+
+/// the local files of a dropped `text/uri-list`, which become one-shot copyIn grants for the window's app
+fn dropped_paths(uris: &str) -> Vec<std::path::PathBuf> {
+    uris.lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("file://"))
+        .filter_map(|line| url::Url::parse(line).ok()?.to_file_path().ok())
+        .collect()
 }
