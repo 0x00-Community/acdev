@@ -23,7 +23,9 @@ export function installed(root = ROOT) {
 }
 
 export function which(name, env = process.env) {
-  const exts = WINDOWS && !/\.[^\\/.]+$/.test(name) ? (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : ['']
+  const exts = WINDOWS && !/\.[^\\/.]+$/.test(name)
+    ? (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+    : ['']
   for (const dir of (env.PATH || env.Path || '').split(delimiter)) {
     if (!dir) continue
     for (const ext of exts) {
@@ -62,16 +64,23 @@ export function requireAcdert(root = ROOT) {
     if (existsSync(set)) return set
     const named = /[\\/]/.test(set) ? null : which(set)
     if (named) return named
-    throw new Error(`ACDERT=${set}: no such file; point ACDERT at an acdert binary, or unset it to let acde look for one`)
+    throw new Error(`ACDERT=${set}: no such file; point ACDERT at an acdert binary, ` +
+      'or unset it to let acde look for one')
   }
   const { checkouts, installs } = places(root)
   const found = [...checkouts, ...installs].find((path) => existsSync(path)) ?? which('acdert')
   if (found) return found
-  const looked = ['  ACDERT (not set)', ...checkouts.map((path) => `  ${path} (not built)`), ...installs.map((path) => `  ${path} (not there)`), `  PATH (no acdert${EXE} in it)`]
+  const looked = [
+    '  ACDERT (not set)',
+    ...checkouts.map((path) => `  ${path} (not built)`),
+    ...installs.map((path) => `  ${path} (not there)`),
+    `  PATH (no acdert${EXE} in it)`,
+  ]
   const fix = checkouts.length
     ? `, build the acdert checkout next to acde (cd ${join(root, '..', 'acdert')} && cargo build --release -p acdert)`
     : ', install acde again (it brings acdert along)'
-  throw new Error(`no acdert found. Looked in:\n${looked.join('\n')}\nSet ACDERT to an acdert you built (ACDERT=/path/to/acdert acde dev)${fix}, or put acdert on PATH`)
+  throw new Error(`no acdert found. Looked in:\n${looked.join('\n')}\n` +
+    `Set ACDERT to an acdert you built (ACDERT=/path/to/acdert acde dev)${fix}, or put acdert on PATH`)
 }
 
 export function atLeast(version, minimum) {
@@ -87,12 +96,15 @@ function probe(name, args, minimum, env) {
 }
 
 export function runtimes(env = process.env) {
-  if (process.versions.bun) return { bun: process.execPath, node: probe('node', ['-p', "process.versions.bun ? '' : process.versions.node"], NODE_MINIMUM, env) }
+  if (process.versions.bun) {
+    const node = probe('node', ['-p', "process.versions.bun ? '' : process.versions.node"], NODE_MINIMUM, env)
+    return { bun: process.execPath, node }
+  }
   return { bun: probe('bun', ['--version'], BUN_MINIMUM, env), node: process.execPath }
 }
 
 export function cliFile(root = ROOT) {
-  return ['cli.js', 'cli.ts'].map((name) => join(root, 'src', name)).find((file) => existsSync(file))
+  return [join(root, 'dist', 'cli.js'), join(root, 'src', 'cli.ts')].find((file) => existsSync(file))
 }
 
 export function cliRuntime(root = ROOT) {
@@ -111,10 +123,16 @@ export function cliEnv(exe, env = process.env) {
 
 function checkRuntime() {
   if (process.versions.bun) {
-    if (!atLeast(process.versions.bun, BUN_MINIMUM)) throw new Error(`acde needs Bun ${BUN_MINIMUM.join('.')} or newer (this is ${process.versions.bun}): update it (bun upgrade, or https://bun.sh)`)
+    if (!atLeast(process.versions.bun, BUN_MINIMUM)) {
+      throw new Error(`acde needs Bun ${BUN_MINIMUM.join('.')} or newer (this is ${process.versions.bun}): ` +
+        'update it (bun upgrade, or https://bun.sh)')
+    }
     return
   }
-  if (!atLeast(process.versions.node, NODE_MINIMUM)) throw new Error(`acde needs Node.js ${NODE_MINIMUM.join('.')} or newer (this is ${process.version}): update it (https://nodejs.org)`)
+  if (!atLeast(process.versions.node, NODE_MINIMUM)) {
+    throw new Error(`acde needs Node.js ${NODE_MINIMUM.join('.')} or newer (this is ${process.version}): ` +
+      'update it (https://nodejs.org)')
+  }
 }
 
 export function run(args, exe = cliRuntime()) {

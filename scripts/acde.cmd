@@ -1,6 +1,6 @@
 @echo off
 setlocal
-set "ACDE_CLI=%~dp0..\lib\acde\src\cli.js"
+set "ACDE_CLI=%~dp0..\lib\acde\dist\cli.js"
 set "ACDE_BUN="
 set "ACDE_NODE="
 for /f "delims=" %%p in ('where bun.exe 2^>nul') do if not defined ACDE_BUN set "ACDE_BUN=%%p"

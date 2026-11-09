@@ -41,10 +41,10 @@ function install(): { home: string; version: string; root: string } {
   const home = tmp()
   const version = join(home, 'versions', '0.0.3')
   const root = join(version, 'lib', 'acde')
-  mkdirSync(join(root, 'src'), { recursive: true })
+  mkdirSync(join(root, 'dist'), { recursive: true })
   mkdirSync(join(version, 'lib', 'acde-api'), { recursive: true })
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'acde', version: '0.0.3' }))
-  writeFileSync(join(root, 'src', 'cli.js'), '')
+  writeFileSync(join(root, 'dist', 'cli.js'), '')
   writeFileSync(join(version, 'lib', 'acde-api', 'package.json'), '{}')
   return { home, version, root }
 }
@@ -149,7 +149,7 @@ describe('launcher: where acdert comes from', () => {
 describe('launcher: what runs the CLI', () => {
   test('the bundled cli.js when there is one, else cli.ts; on bun, this bun', () => {
     expect(cliFile(checkout())).toEndWith(join('src', 'cli.ts'))
-    expect(cliFile(install().root)).toEndWith(join('src', 'cli.js'))
+    expect(cliFile(install().root)).toEndWith(join('dist', 'cli.js'))
     expect(cliRuntime(checkout())).toBe(process.execPath)
   })
 })

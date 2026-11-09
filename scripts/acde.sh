@@ -8,7 +8,7 @@ while [ -h "$self" ]; do
   esac
 done
 bin=$(cd -P "$(dirname "$self")" && pwd -P) || exit 1
-cli=$(dirname "$bin")/lib/acde/src/cli.js
+cli=$(dirname "$bin")/lib/acde/dist/cli.js
 at_least() {
   major=${1%%.*}
   minor=0
@@ -35,12 +35,14 @@ if command -v node >/dev/null 2>&1; then
   fi
 fi
 if [ -n "$bun_version" ]; then
-  echo "acde: needs Bun 1.4 or newer, and the bun on PATH is $bun_version: update it (bun upgrade, or https://bun.sh)" >&2
+  echo "acde: needs Bun 1.4 or newer, and the bun on PATH is $bun_version:" \
+    "update it (bun upgrade, or https://bun.sh)" >&2
   exit 1
 fi
 if [ -n "$node_version" ]; then
   echo "acde: needs Node.js 22.3 or newer, and the node on PATH is $node_version: update it (https://nodejs.org)" >&2
   exit 1
 fi
-echo "acde: needs Bun 1.4+ or Node.js 22.3+ and there is neither on PATH: install one of them, Bun (https://bun.sh) or Node.js (https://nodejs.org)" >&2
+echo "acde: needs Bun 1.4+ or Node.js 22.3+ and there is neither on PATH:" \
+  "install one of them, Bun (https://bun.sh) or Node.js (https://nodejs.org)" >&2
 exit 1
