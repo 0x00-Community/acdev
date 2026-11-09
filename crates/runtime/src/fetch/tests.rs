@@ -443,3 +443,83 @@ fn websocket_refused_and_missing() {
     assert!(matches!(next(&events), Event::Error(message) if message.contains(&socket)));
     assert!(matches!(next(&events), Event::Close { code: 1006, clean: false, .. }));
 }
+
+#[test]
+fn channel_exchange_past_the_initial_credit() {
+    use crate::channel::{CREDIT, DATA, FIN, Frame, Mux, OPEN, WINDOW};
+    let size = CREDIT as usize + 50_000;
+    let (from_mux, to_peer) = std::io::pipe().expect("pipe");
+    let (from_peer, mut to_mux) = std::io::pipe().expect("pipe");
+    let mux = Mux::start(to_peer, from_peer).expect("mux");
+    let (sender, events) = channel();
+    let client = FetchClient::default();
+    let body: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+    let to = Dial::Channel { app: "fetch.channel.test".into(), port: 3000 };
+    let mut exchange = Exchange::new(to, "POST".into(), "/echo".into(), vec![], Some(body.clone())).expect("valid");
+    exchange.host = "localhost:3000".into();
+    client.exchange(exchange, sender);
+    std::thread::sleep(Duration::from_millis(200));
+    crate::channel::register("fetch.channel.test", mux.clone());
+    let server = std::thread::spawn(move || {
+        let mut reader = from_mux;
+        let mut frame = || Frame::read(&mut reader).expect("a frame").expect("not the end");
+        let open = frame();
+        assert_eq!((open.kind, open.payload.as_slice()), (OPEN, 3000u16.to_be_bytes().as_slice()));
+        let id = open.stream;
+        let mut request = Vec::new();
+        let body_at = loop {
+            let data = frame();
+            assert_eq!((data.kind, data.stream), (DATA, id));
+            to_mux.write_all(&Frame::new(WINDOW, id, (data.payload.len() as u32).to_be_bytes()).encode()).expect("window");
+            request.extend(data.payload);
+            if let Some(at) = request.windows(4).position(|w| w == b"\r\n\r\n").map(|at| at + 4)
+                && request.len() >= at + size
+            {
+                break at;
+            }
+        };
+        let head = String::from_utf8_lossy(&request[..body_at]).to_ascii_lowercase();
+        assert!(head.starts_with("post /echo http/1.1\r\n") && head.contains("host: localhost:3000"), "{head}");
+        let mut answer = format!("HTTP/1.1 200 OK\r\nContent-Length: {size}\r\n\r\n").into_bytes();
+        answer.extend_from_slice(&request[body_at..]);
+        let mut credit = CREDIT as usize;
+        for piece in answer.chunks(16 * 1024) {
+            while credit < piece.len() {
+                let grant = frame();
+                if grant.kind == WINDOW {
+                    credit += u32::from_be_bytes(grant.payload.try_into().expect("u32")) as usize;
+                }
+            }
+            credit -= piece.len();
+            to_mux.write_all(&Frame::new(DATA, id, piece.to_vec()).encode()).expect("answer");
+        }
+        to_mux.write_all(&Frame::new(FIN, id, []).encode()).expect("fin");
+        loop {
+            let last = frame();
+            if last.kind == FIN {
+                return;
+            }
+            assert_eq!(last.kind, WINDOW, "{last:?}");
+        }
+    });
+    assert!(matches!(next(&events), Event::Head { status: 200, .. }));
+    let mut echoed = Vec::new();
+    loop {
+        match next(&events) {
+            Event::Chunk(data) => echoed.extend(data),
+            Event::End => break,
+            other => panic!("{other:?}"),
+        }
+    }
+    assert!(echoed == body, "the body came back whole ({} of {size} bytes)", echoed.len());
+    server.join().expect("server");
+    crate::channel::unregister("fetch.channel.test", &mux);
+}
+
+#[test]
+fn channel_without_a_backend_is_checked() {
+    let to = |app: &str| Dial::Channel { app: app.into(), port: 1 };
+    assert!(Exchange::new(to(""), "GET".into(), "/".into(), vec![], None).is_err());
+    assert!(Exchange::new(to("x"), "GET".into(), "no-slash".into(), vec![], None).is_err());
+    assert!(Exchange::new(to("x"), "GET".into(), "/".into(), vec![], None).is_ok());
+}

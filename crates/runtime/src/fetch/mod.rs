@@ -90,6 +90,37 @@ async fn connect(socket: &str) -> std::result::Result<Io, String> {
     }
 }
 
+async fn open_channel(app: &str, port: u16) -> std::result::Result<Io, String> {
+    let until = Instant::now() + READY;
+    loop {
+        let error = match crate::channel::lookup(app) {
+            Some(mux) => match mux.open(port) {
+                Ok(io) => return Ok(io),
+                Err(error) => error.to_string(),
+            },
+            None => "the backend is not running".to_owned(),
+        };
+        if Instant::now() >= until {
+            return Err(format!("cannot reach port {port} of the backend of {app}: {error}"));
+        }
+        ntex::time::sleep(RETRY).await;
+    }
+}
+
+impl Dial {
+    fn is_local(&self) -> bool {
+        !matches!(self, Self::Url(_))
+    }
+
+    async fn local(&self) -> std::result::Result<Io, String> {
+        match self {
+            Self::Socket(socket) => connect(socket).await,
+            Self::Channel { app, port } => open_channel(app, *port).await,
+            Self::Url(url) => Err(format!("{url} is not a backend")),
+        }
+    }
+}
+
 thread_local! {
     static DIALED: RefCell<HashMap<String, Io>> = RefCell::default();
     static CLIENT: ntex::client::Client = ntex::client::Client::builder()
@@ -106,19 +137,32 @@ fn is_token(text: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dial {
     Socket(String),
+    Channel { app: String, port: u16 },
     Url(String),
 }
 
 impl Dial {
     fn check(self, path: &str, schemes: &[&str]) -> Result<Self, String> {
+        fn local_path(path: &str) -> Result<(), String> {
+            if !path.starts_with('/') || !path.bytes().all(|b| b.is_ascii_graphic()) {
+                return Err("path must start with / and be visible ASCII (percent-encoded)".into());
+            }
+            Ok(())
+        }
+
         match &self {
             Self::Socket(socket) => {
                 if !std::path::Path::new(socket).is_absolute() || socket.contains('\0') {
                     return Err("socket must be an absolute path".into());
                 }
-                if !path.starts_with('/') || !path.bytes().all(|b| b.is_ascii_graphic()) {
-                    return Err("path must start with / and be visible ASCII (percent-encoded)".into());
+                local_path(path)?;
+                Ok(self)
+            }
+            Self::Channel { app, .. } => {
+                if app.is_empty() {
+                    return Err("the backend channel has no app".into());
                 }
+                local_path(path)?;
                 Ok(self)
             }
             Self::Url(url) => {
@@ -192,8 +236,8 @@ impl Exchange {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let method = Method::from_bytes(self.method.as_bytes())?;
         let (mut request, dialed) = match &self.to {
-            Dial::Socket(socket) => {
-                let io = connect(socket).await?;
+            Dial::Socket(_) | Dial::Channel { .. } => {
+                let io = self.to.local().await?;
                 let dialed = format!("c{}", NEXT.fetch_add(1, Ordering::Relaxed));
                 DIALED.with(|d| d.borrow_mut().insert(dialed.clone(), io));
                 let request = CLIENT.with(Clone::clone).request(method, format!("http://{dialed}{}", self.path));
@@ -264,7 +308,7 @@ impl Upgrade {
 
     async fn handshake(&self) -> std::result::Result<(Io<Sealed>, Codec, String), String> {
         let mut config = WsClientConfig::new().set_max_frame_size(Messages::FRAME).set_handshake_timeout(HANDSHAKE).set_protocols(&self.protocols);
-        if matches!(self.to, Dial::Socket(_)) {
+        if self.to.is_local() {
             config = config.and_then(|c| c.set_header(header::HOST, self.host.as_str()));
         }
         for (name, value) in &self.headers {
@@ -272,8 +316,8 @@ impl Upgrade {
         }
         let config = ntex::SharedCfg::new("acde-fetch").add(config.map_err(|error| error.to_string())?).add(crate::http::tls_config());
         let (io, codec, response) = match &self.to {
-            Dial::Socket(socket) => {
-                let io = Cell::new(Some(connect(socket).await?));
+            Dial::Socket(_) | Dial::Channel { .. } => {
+                let io = Cell::new(Some(self.to.local().await?));
                 let client = WsClient::new(format!("http://localhost{}", self.path), config)
                     .connector(fn_service(async move |_: Connect<Url>| io.take().ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))));
                 let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
