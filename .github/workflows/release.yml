@@ -16,7 +16,6 @@ permissions:
 env:
   PKGS: https://pkgs.dopame.ai
   TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
-  SDK_VERSION: 0.0.5
   AWS_REGION: ap-southeast-1
   ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
   BUCKET: dopame-pkgs
@@ -39,19 +38,38 @@ jobs:
             echo "::error::acde is $v but the tag is $TAG"
             exit 1
           fi
-      - name: the SDK from npm, the same version as the tag's SDK
+          echo "SDK_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+      - name: the SDK tarball from pkgs.dopame.ai, checked against its SHA256SUMS
         run: |
           set -eu
+          base="$PKGS/acdert/$SDK_VERSION"
+          name="acde-api-$SDK_VERSION.tar.gz"
           mkdir -p in/sdk
-          if ! npm pack "@dopame/acde-api@$SDK_VERSION" --pack-destination in/sdk --silent; then
-            echo "::error::npm has no @dopame/acde-api@$SDK_VERSION: acdert must publish it before acde is tagged"
+          curl -fsSL "$base/SHA256SUMS" -o in/sdk/SHA256SUMS || {
+            echo "::error::no $base/SHA256SUMS: acdert $SDK_VERSION must be published on pkgs first"
+            exit 1
+          }
+          curl -fsSL "$base/$name" -o "in/sdk/$name" || {
+            echo "::error::cannot download $base/$name"
+            exit 1
+          }
+          expected=$(awk -v f="$name" '$2 == f || $2 == "*" f { print $1 }' in/sdk/SHA256SUMS)
+          if [ -z "$expected" ]; then
+            echo "::error::$name is not listed in SHA256SUMS"
             exit 1
           fi
-          tar -xzf "in/sdk/dopame-acde-api-$SDK_VERSION.tgz" -C in/sdk
-          test -f in/sdk/package/src/index.js
+          actual=$(sha256sum "in/sdk/$name" | cut -d ' ' -f 1)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::$name does not match its SHA256SUMS"
+            exit 1
+          fi
+          mkdir -p in/sdk/unpacked
+          tar -xzf "in/sdk/$name" -C in/sdk/unpacked
+          test -f in/sdk/unpacked/acde-api/package.json
+          test -f in/sdk/unpacked/acde-api/src/index.js
           mkdir -p "$GITHUB_WORKSPACE/acdert/web/packages"
           rm -rf "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
-          mv in/sdk/package "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
+          mv in/sdk/unpacked/acde-api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api"
       - name: the placed SDK is the pinned one, at the path package.json names
         working-directory: acde
         run: |

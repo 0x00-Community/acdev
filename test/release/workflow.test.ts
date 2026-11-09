@@ -61,17 +61,26 @@ describe('release.yml', () => {
     }
   })
 
-  test('the SDK is the same npm release as the tag, and nothing is downloaded from acdert or acde-dopame', () => {
-    expect(workflow.env['SDK_VERSION']).toBe('0.0.5')
-    expect(runs('pkgs')).toContain('npm pack "@dopame/acde-api@$SDK_VERSION"')
-    expect(runs('pkgs')).toContain('npm has no @dopame/acde-api@$SDK_VERSION')
+  test('the SDK is the tag version, fetched from pkgs.dopame.ai and checked against SHA256SUMS before use', () => {
+    expect(workflow.env['SDK_VERSION']).toBeUndefined()
+    const pkgs = runs('pkgs')
+    expect(pkgs).toContain('echo "SDK_VERSION=${TAG#v}" >> "$GITHUB_ENV"')
+    expect(pkgs).toContain('base="$PKGS/acdert/$SDK_VERSION"')
+    expect(pkgs).toContain('name="acde-api-$SDK_VERSION.tar.gz"')
+    expect(pkgs).toContain('"$base/SHA256SUMS"')
+    expect(pkgs).toContain('"$base/$name"')
+    expect(pkgs).not.toMatch(/\bnpm\b/)
+    const check = pkgs.indexOf('sha256sum "in/sdk/$name"')
+    expect(check).toBeGreaterThan(0)
+    expect(check).toBeLessThan(pkgs.indexOf('tar -xzf "in/sdk/$name"'))
+    expect(pkgs.indexOf('tar -xzf "in/sdk/$name"')).toBeLessThan(pkgs.indexOf('mv in/sdk/unpacked/acde-api'))
     expect(TEXT).not.toMatch(/acdert\/latest|acde-dopame\/latest|acde-dopame\/\$|acdert-host|acdert-x86/)
     expect(TEXT).not.toMatch(/\bdopame\.tar\.gz\b/)
   })
 
   test('the SDK is placed where the file: dependency points, and checked before install', () => {
     const steps = jobs['pkgs']!.steps.map((step) => step.name ?? '')
-    const placed = steps.indexOf("the SDK from npm, the same version as the tag's SDK")
+    const placed = steps.indexOf('the SDK tarball from pkgs.dopame.ai, checked against its SHA256SUMS')
     const check = steps.indexOf('the placed SDK is the pinned one, at the path package.json names')
     const install = steps.indexOf('install')
     expect(placed).toBeGreaterThanOrEqual(0)
