@@ -383,6 +383,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `openFiles` (桌面不用). `acde.open(<id>, request)` 写了目标时要 `open` 允许, 目标不接受 (链接的 scheme 不在 `schemes`, 文件的类型不在
     `mimeTypes`) 时 409 `not_accepted`. 收到的请求带 `kind`: 链接是 `{kind: 'open-link', url}`, 文件保留今天的字段 (没有 `fs` 的应用
     `{kind: 'open-file', url}`, 有 `fs` 的 `{kind: 'open-file', root, path, file}`). 扩展期不带 `kind` 的 `open(<id>, {…})` 照旧.
+    **私有请求** (SDK `AppRequest {kind, …}`, 和系统请求合成 `WindowRequest`): `acde.open(<id>, {kind, …})`, 运行时只查目标清单的 `requests``n    有这个 `kind` (没有时 409 `not_accepted`, 不交给对方), 内容由接收方自己查; `open` 照旧决定能叫哪些应用. 扩展期目标没写 `requests` 时不查,
+    本版本末尾的第 0 级移除之后一律查.
     `open(<id>, request, {parent, modal})` 给新窗口一个父窗口 (`broker/family.ts`: 应用只能写自己应用的
     web 窗口, 桌面可以写任何开着的窗口; 不存在 404, 别人的 403, 不是窗口号 400); 新窗口居中在父窗口上方, 不用记住的位置; 已在运行的单例应用只收请求,
     不改父窗口. 父窗口、模态记在合成器的窗口表 (hostwin `Entry`、会话 model `Window`), `acde.inspect` 的窗口带 `parent` / `modal`;
@@ -404,7 +406,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **应用清单** (`acde.apps`, 解析 acde-host `apps.ts`, 校验 acde-api `validate.ts`): `id`、`label`、`icon`、`entry` (默认导出 `WindowApp` 的
   模块, 或 HTML)、`capabilities` (只放系统能力: `SYSTEM_CAPABILITIES` 加外壳模块; 第 1 级包里不认识的名字是错误, 本包的服务名是弃用 warn)、
   `optional` (capabilities 里可以缺的几项, 每项也要在 capabilities 里)、`services` (用到的桌面服务名, 不能是 `RESERVED_NAMES`)、
-  `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
+  `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
 - **必需与可选能力** (第 1 级包, `broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
   `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝, 批准做好之前不出现). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
