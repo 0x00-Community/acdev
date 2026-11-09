@@ -33,6 +33,7 @@ import type { WindowFamily } from './broker/access/family'
 import { Launchable } from './broker/access/launchable'
 import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
+import { Output, type Screen } from './broker/output'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -75,7 +76,7 @@ export class Broker {
   readonly #places = new WindowPlaces()
   readonly #placed = new Map<number, string>()
   readonly #claims: { web: Web; pid: number }[] = []
-  #output: { width: number; height: number; scale: number }
+  readonly #output: Output
   readonly #desktopCrashes = new Crashes(Broker.RESTARTS)
   readonly #themes = new Map<string, string>()
   #stopped = false
@@ -117,7 +118,7 @@ export class Broker {
     })
     this.shell = native.Shell.broker()
     this.shell.onEvents(() => this.#poke())
-    this.#output = { width: options.width * options.scale, height: options.height * options.scale, scale: options.scale }
+    this.#output = new Output(options.width, options.height, options.scale)
     this.session.own = options.session
     this.session.attach(this.shell)
     this.session.language = this.language
@@ -501,22 +502,18 @@ export class Broker {
     }
   }
 
-  #screen(): { width: number; height: number } {
-    const scale = this.#output.scale || 1
-    return { width: Math.round(this.#output.width / scale), height: Math.round(this.#output.height / scale) }
+  #screen(): Screen {
+    return this.#output.screen()
   }
 
   #event(event: RawShellEvent): void {
     switch (event.type) {
       case 'output':
-        if (event.width && event.height) {
-          const [was, scale] = [this.#screen(), this.#output.scale]
-          this.#output = { width: event.width, height: event.height, scale: event.scale ?? this.#output.scale }
-          const screen = { ...this.#screen(), scale: this.#output.scale }
-          const changed = screen.width !== was.width || screen.height !== was.height || screen.scale !== scale
-          if (changed) for (const web of this.#webs()) web.thread.post({ type: 'screen', ...screen })
-        }
+      case 'workarea': {
+        const screen = this.#output.update(event)
+        if (screen) for (const web of this.#webs()) web.thread.post({ type: 'screen', ...screen })
         return
+      }
       case 'milestone':
         return StartupTimeline.mark(`shell ${event.title}`)
       case 'shortcut': {

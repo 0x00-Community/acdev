@@ -1,15 +1,23 @@
-import type { PinnedPanel } from '@dopame/acde-api'
+import type { PanelReserve, PinnedPanel, PinOptions, WindowEdge } from '@dopame/acde-api'
 import type { NativeSurface } from './native'
 import type { Rpc } from './rpc'
 
-type PanelSurface = Pick<NativeSurface, 'openPanel' | 'placePanel' | 'closePanel'>
+type PanelSurface = Pick<NativeSurface, 'openPanel' | 'placePanel' | 'closePanel' | 'reservePanel'>
 
 interface PanelDom {
   setPanel(id: number, x: number, y: number, width: number, height: number): void
 }
 
 interface PinnedPage {
-  readonly window: { innerWidth: number; innerHeight: number; ResizeObserver: typeof ResizeObserver; MutationObserver: typeof MutationObserver; addEventListener(type: string, fn: () => void): void; requestAnimationFrame(fn: () => void): number; getComputedStyle(element: Element): CSSStyleDeclaration }
+  readonly window: {
+    innerWidth: number
+    innerHeight: number
+    ResizeObserver: typeof ResizeObserver
+    MutationObserver: typeof MutationObserver
+    addEventListener(type: string, fn: () => void): void
+    requestAnimationFrame(fn: () => void): number
+    getComputedStyle(element: Element): CSSStyleDeclaration
+  }
   idOf(node: unknown): number
 }
 
@@ -19,6 +27,8 @@ interface Panel {
   readonly element: Element
   readonly id: number
   readonly margin: number
+  readonly reserve: PanelReserve | null
+  reserved: number
   window: number | null
   opening: boolean
   rect: Box | null
@@ -27,6 +37,7 @@ interface Panel {
 }
 
 export class Pinned {
+  static readonly #EDGES: Record<WindowEdge, number> = { top: 1, bottom: 2, left: 4, right: 8 }
   readonly #rpc: Rpc
   readonly #surface: PanelSurface
   readonly #dom: PanelDom
@@ -45,10 +56,13 @@ export class Pinned {
     })
   }
 
-  pin(element: Element, options: { readonly margin?: number } = {}): PinnedPanel {
+  pin(element: Element, options: PinOptions = {}): PinnedPanel {
     const known = this.#panels.get(element)
     if (known) return this.#handle(known)
-    const panel: Panel = { element, id: this.#page.idOf(element), margin: Math.max(0, options.margin ?? 0), window: null, opening: false, rect: null, extent: null, stops: [] }
+    const reserve = options.reserve && Pinned.#EDGES[options.reserve.edge] ? options.reserve : null
+    const margin = Math.max(0, options.margin ?? 0)
+    const id = this.#page.idOf(element)
+    const panel: Panel = { element, id, margin, reserve, reserved: 0, window: null, opening: false, rect: null, extent: null, stops: [] }
     this.#panels.set(element, panel)
     const { ResizeObserver, MutationObserver } = this.#page.window
     const resized = new ResizeObserver(() => this.#place(panel))
@@ -135,6 +149,17 @@ export class Pinned {
       void this.#rpc.call('panel', 'place', [panel.window, rect]).catch(() => undefined)
     }
     this.#surface.placePanel(panel.id, ...rect, ...input)
+    this.#reserve(panel, rect)
+  }
+
+  #reserve(panel: Panel, [x, y, width, height]: Box): void {
+    if (!panel.reserve || panel.window === null) return
+    const { innerWidth, innerHeight } = this.#page.window
+    const sides = { top: y + height, bottom: innerHeight - y, left: x + width, right: innerWidth - x }
+    const thickness = Math.max(0, Math.round(panel.reserve.thickness ?? sides[panel.reserve.edge]))
+    if (thickness === panel.reserved) return
+    panel.reserved = thickness
+    this.#surface.reservePanel?.(panel.id, Pinned.#EDGES[panel.reserve.edge], thickness)
   }
 
   #open(panel: Panel, rect: Box, input: Box): void {

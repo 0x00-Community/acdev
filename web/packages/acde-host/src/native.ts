@@ -80,6 +80,7 @@ export interface NativeSurface {
   openPanel(id: number, token: bigint, x: number, y: number, width: number, height: number): void
   placePanel(id: number, x: number, y: number, width: number, height: number, ix: number, iy: number, iw: number, ih: number): void
   closePanel(id: number): void
+  reservePanel?(id: number, edge: number, thickness: number): void
 }
 
 export type Shell = Pick<NativeSurface, 'setClipboard' | 'readClipboard' | 'setImeArea'>

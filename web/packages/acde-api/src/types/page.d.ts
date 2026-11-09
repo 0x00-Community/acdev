@@ -520,6 +520,16 @@ export interface AcdeNetwork {
   watch(callback: (state: NetworkState) => void): void
 }
 
+export interface PanelReserve {
+  readonly edge: WindowEdge
+  readonly thickness?: number
+}
+
+export interface PinOptions {
+  readonly margin?: number
+  readonly reserve?: PanelReserve
+}
+
 export interface PinnedPanel {
   update(): void
   unpin(): void
@@ -527,7 +537,7 @@ export interface PinnedPanel {
 
 export interface AcdeDesktop {
   apps(): Promise<{ apps: DesktopApp[] }>
-  pin?(element: Element, options?: { margin?: number }): PinnedPanel
+  pin?(element: Element, options?: PinOptions): PinnedPanel
   on(type: 'download', handler: (event: DownloadEvent) => void): () => boolean
   on(type: 'notification', handler: (event: NotificationEvent) => void): () => boolean
   on(

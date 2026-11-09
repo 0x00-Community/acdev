@@ -95,7 +95,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   })
 
   const rpc = new Rpc((message) => port.post(message))
-  const output = WindowSelf.output(init.screen?.width ?? 0, init.screen?.height ?? 0, init.scale, init.workArea)
+  const output = WindowSelf.output(init.screen?.width ?? 0, init.screen?.height ?? 0, init.scale, init.screen?.workArea)
   const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null, output) : null
   const windows = new WindowList(rpc)
   const bridge = new RemoteBridge(rpc, init, self, windows)

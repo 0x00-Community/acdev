@@ -133,8 +133,7 @@ export interface WebInit {
   readonly width: number
   readonly height: number
   readonly scale: number
-  readonly screen?: { width: number; height: number }
-  readonly workArea?: { x: number; y: number; width: number; height: number }
+  readonly screen?: { width: number; height: number; workArea?: { x: number; y: number; width: number; height: number } }
   readonly reducedMotion: boolean | null
   readonly dark: boolean
   readonly languages: Languages
