@@ -9,26 +9,69 @@ thread_local! {
 
 pub type Settle<T> = fn(&mut v8::PinScope, v8::Local<v8::PromiseResolver>, T);
 
-pub fn run<T: Send + 'static>(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, thread: &str, work: impl FnOnce() -> T + Send + 'static, settle: Settle<T>) {
-    let Some((token, promise)) = bind::promise(scope) else { return };
+type Job = Box<dyn FnOnce() + Send>;
+
+fn settled<T: Send + 'static>(
+    scope: &mut v8::PinScope,
+    rv: &mut v8::ReturnValue,
+    work: impl FnOnce() -> T + Send + 'static,
+    settle: Settle<T>,
+) -> Option<(u32, Job)> {
+    let (token, promise) = bind::promise(scope)?;
     let lp = rt::current();
     let tx = lp.sender();
     lp.keep_alive(true);
-    let started = std::thread::Builder::new().name(thread.into()).spawn(move || {
-        let value = work();
-        _ = tx.send(Msg::Task(Box::new(move |scope| {
-            rt::current().keep_alive(false);
-            if let Some(resolver) = bind::resolver(scope, token) {
-                settle(scope, resolver, value);
-            }
-        })));
-    });
-    if let Err(e) = started {
-        lp.keep_alive(false);
-        bind::forget_promise(token);
-        return bind::throw_error(scope, &format!("{thread}: {e}"));
-    }
     rv.set(promise.into());
+    Some((
+        token,
+        Box::new(move || {
+            let value = work();
+            _ = tx.send(Msg::Task(Box::new(move |scope| {
+                rt::current().keep_alive(false);
+                if let Some(resolver) = bind::resolver(scope, token) {
+                    settle(scope, resolver, value);
+                }
+            })));
+        }),
+    ))
+}
+
+fn unsettle(rv: &mut v8::ReturnValue, token: u32) {
+    rt::current().keep_alive(false);
+    bind::forget_promise(token);
+    rv.set_undefined();
+}
+
+pub fn run<T: Send + 'static>(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, thread: &str, work: impl FnOnce() -> T + Send + 'static, settle: Settle<T>) {
+    let Some((token, job)) = settled(scope, rv, work, settle) else { return };
+    if let Err(e) = std::thread::Builder::new().name(thread.into()).spawn(job) {
+        unsettle(rv, token);
+        bind::throw_error(scope, &format!("{thread}: {e}"));
+    }
+}
+
+pub struct Queue {
+    tx: std::sync::mpsc::Sender<Job>,
+}
+
+impl Queue {
+    pub fn new(thread: &str) -> std::io::Result<Queue> {
+        let (tx, rx) = std::sync::mpsc::channel::<Job>();
+        std::thread::Builder::new().name(thread.into()).spawn(move || {
+            for job in rx {
+                job();
+            }
+        })?;
+        Ok(Queue { tx })
+    }
+
+    pub fn run<T: Send + 'static>(&self, scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, work: impl FnOnce() -> T + Send + 'static, settle: Settle<T>) {
+        let Some((token, job)) = settled(scope, rv, work, settle) else { return };
+        if self.tx.send(job).is_err() {
+            unsettle(rv, token);
+            bind::throw_error(scope, "the queue's thread is gone");
+        }
+    }
 }
 
 #[cfg(unix)]

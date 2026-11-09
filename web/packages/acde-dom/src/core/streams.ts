@@ -430,7 +430,7 @@ export function streamOfBytes(bytes: Uint8Array): ReadableStream<Uint8Array> {
   })
 }
 
-export async function readAllBytes(stream: ReadableStream<any>): Promise<Uint8Array> {
+export async function readAllBytes(stream: ReadableStream<any>, keepLock = false): Promise<Uint8Array> {
   const reader = stream.getReader()
   const parts: Uint8Array[] = []
   const encoder = new TextEncoder()
@@ -442,7 +442,7 @@ export async function readAllBytes(stream: ReadableStream<any>): Promise<Uint8Ar
       parts.push(typeof value === 'string' ? encoder.encode(value) : bytesOf(value))
     }
   } finally {
-    reader.releaseLock()
+    if (!keepLock) reader.releaseLock()
   }
   return parts.length === 1 ? parts[0]!.slice() : concat(parts)
 }

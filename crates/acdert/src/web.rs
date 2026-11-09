@@ -207,6 +207,7 @@ impl Spec {
         crate::backend::clear();
         crate::offload::clear();
         crate::idb::clear();
+        crate::caches::clear();
         crate::storage::clear();
         crate::host::clear();
         crate::audio::clear();

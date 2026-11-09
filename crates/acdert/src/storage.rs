@@ -32,6 +32,7 @@ pub fn place(scope: &mut v8::PinScope, wanted: v8::Local<v8::Object>) -> Option<
 pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, place: Place) {
     let lease = Lease::open(place);
     let lease_clone = lease.clone();
+    let caches_lease = lease.clone();
     let tx = rt::current().sender();
     let subscription = lease.local().subscribe(move |change| {
         let change = change.clone();
@@ -51,6 +52,7 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, place: 
     let storage = v8::Object::new(scope);
     bind::set(scope, storage, "local", local.into());
     crate::idb::install(scope, storage, lease_clone);
+    crate::caches::install(scope, storage, caches_lease);
     let cookies = v8::Object::new(scope);
     crate::methods!(scope, cookies,
         "set" => set_cookie,

@@ -428,12 +428,22 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - **cookie** (`document.cookie`, 同源请求的 `Cookie` / `Set-Cookie`): 解析在 acde-dom `core/backend.ts`, 存在分区的 `CookieJar`
     (crates/storage `cookies.rs`): 同一应用的窗口共用; 有 `Expires` / `Max-Age` 的写进 `cookies.sqlite3`, 会话 cookie 只在进程里
     (acdert 退出就没了, 和浏览器关掉一样); 按路径长、再按创建先后排; 脚本碰不到 `HttpOnly`.
+  - **Cache API** (`caches`, `Cache` / `CacheStorage`, acde-dom `storage/cache.ts`, crates/storage `caches.rs`, crates/acdert `caches.rs`):
+    `caches.sqlite3`, 每个缓存一行 (按创建先后), 条目存请求的 URL (含 `#片段`)、方法、请求头, 回应的 status / statusText / type / url /
+    redirected (JSON)、回应头和整段 body. 匹配在 Rust 里照规范的「request matches cached item」: 比的时候去掉片段, `ignoreSearch` 再去掉
+    查询串; `Vary` 逐个头比请求头 (`*` 不匹配); 非 GET 除非 `ignoreMethod`. `put` / `add` / `addAll` / `delete` 是一批原子操作 (先删同一请求
+    的旧条目再插). `caches.delete` 只把缓存标成作废 (名字清空): 已经打开的 `Cache` 对象照旧能用, 下次打开分区时清掉. 每个 web 的 Cache API
+    调用经同一条 `acde-caches` 线程按调用顺序执行 (`offload::Queue`), 所以 `Promise.all` 里开的几个缓存按调用顺序排. 页面 `addAll` 里重复的
+    请求 (同 URL、方法, 按后者的 `Vary`) 是 `InvalidStateError`; 206、`Vary: *` 拒绝. 内存分区在内存的 SQLite 里.
+    WPT `service-workers/cache-storage` 2026-11-09 macOS: 133 / 157; 没过的要 WPT 服务器 (`fetch-status.py`、`vary.py`、跨源)、Worker、
+    iframe、Storage Buckets、Service Worker.
   - **`navigator.storage`** (`StorageManager`, acde-dom `storage/manager.ts`): `estimate()` 的 usage 是分区目录下文件的总大小
     (内存分区加上 localStorage), quota 是磁盘的 60% (和 Chromium 一样; `quota.rs`, unix `statvfs`, Windows `GetDiskFreeSpaceExW`);
     `persist()` / `persisted()` 都是 true (Dopame OS 不回收应用的存储). `getDirectory()` 是私有文件系统: `<分区>/opfs/` (内存分区在临时
     目录, 分区放掉时删), 经 `natives.storage.privateDirectory()` 登记进这个 web 的 `PickedFolders` 和 `pagecalls.ts` 的文件夹表,
-    返回名字是 `''` 的可读写 `FileSystemDirectoryHandle`, 读写和 `showDirectoryPicker` 的同一套. `createSyncAccessHandle` 只在 worker 里, 没有.
-- **还没有**: `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Cache API (`caches`)、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
+    返回名字是 `''` 的可读写 `FileSystemDirectoryHandle`. 内存分区的私有文件夹在 `$XDG_RUNTIME_DIR` (没有时用临时目录) 下新建的
+    `acde-storage-<pid>-<随机>` (0700, 已有同名的就换名字, 不复用), 进程退出时删, 读写和 `showDirectoryPicker` 的同一套. `createSyncAccessHandle` 只在 worker 里, 没有.
+- **还没有**: `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
@@ -453,6 +463,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     和安全名单里的头, 回不透明响应 (status 0, type `opaque`, 没有头和 body); `same-origin` 不许跨源. 重定向照常跟 (每跳都查 CORS, 换到第三个源后
     `Origin: null`). 跨源请求不带也不存 cookie (所有主机对 `acde.local` 都是第三方, 和 Safari 拦第三方 cookie 一样); 同源 (后端) 的 cookie 照旧.
   - 被禁的请求头 (Host、Cookie、Origin、Referer、Accept-Encoding、`Sec-*`、`Proxy-*` …) 页面设了也不发. 同步 XHR 只给本地资源.
+  - body (acde-dom `core/net.ts` `Body`): 读 body (`text()` 等) 用流的 reader 读完且不放锁 (规范的 fully read), 之后 `body.locked` 是 true;
+    null body 读了不算 `bodyUsed`. `Response.clone()` 保留 `error` / `opaque` 的 status 0 和 type. URL 带用户名或密码的 `Request` 抛 TypeError.
   - 经典 `<script src>` 从别的主机取时不查 CORS (和浏览器一样, 不带 `crossorigin` 的脚本照样执行): `page.ts` 经 `net.ts` 的内部 `scriptSource`, 不是页面能用的接口.
 - **语音输入** (runtime `src/voice/`, Linux): `listen(onEvent)` 从 PipeWire 默认输入录 16 kHz 单声道, 连豆包输入法的流式识别 (非官方接口,
   身份存 `$XDG_STATE_HOME/acde/doubao-ime.json`). 事件 `partial {text}`、结束时恰好一个 `final` 或 `error`; `stop(id)` 等定稿 (最多 10 秒), 60 秒自动停,
