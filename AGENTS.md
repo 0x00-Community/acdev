@@ -377,7 +377,13 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - window web: 清单给的服务和能力; `acde.window` (标题、菜单、关闭、最小化、`requestMode` / `setGrabHint` / `setBackdrop` /
     `requestActivate` / `requestGrab` / `releaseGrab`、app 级 `shortcut(combo)`; `beforeclose` 返回 false 留住窗口; `request` 是别的应用
     `acde.open(<id>, {…})` 要它打开的东西, 要对方清单的 `open` 允许, 为一个请求开的窗口把它交给第一个 `request` 处理函数, 只给一次;
-    `acde.window.id` 是自己的窗口号). `open(<id>, request, {parent, modal})` 给新窗口一个父窗口 (`broker/family.ts`: 应用只能写自己应用的
+    `acde.window.id` 是自己的窗口号). **系统请求** (SDK `SystemRequest`): `{kind: 'open-link', url}` 和 `{kind: 'open-file', url}`
+    (`url` 是 file URL 或绝对路径). `acde.open(request)` 不写目标时运行时挑应用 (`open.ts` `Opener.request`): 链接先给清单 `schemes` 里有这个
+    scheme 的应用, 再按今天的 `x-scheme-handler` 默认和原生程序, http / https 最后交给系统默认程序; 文件按 `mimeTypes` 和今天的默认. 要调用方声明
+    `openFiles` (桌面不用). `acde.open(<id>, request)` 写了目标时要 `open` 允许, 目标不接受 (链接的 scheme 不在 `schemes`, 文件的类型不在
+    `mimeTypes`) 时 409 `not_accepted`. 收到的请求带 `kind`: 链接是 `{kind: 'open-link', url}`, 文件保留今天的字段 (没有 `fs` 的应用
+    `{kind: 'open-file', url}`, 有 `fs` 的 `{kind: 'open-file', root, path, file}`). 扩展期不带 `kind` 的 `open(<id>, {…})` 照旧.
+    `open(<id>, request, {parent, modal})` 给新窗口一个父窗口 (`broker/family.ts`: 应用只能写自己应用的
     web 窗口, 桌面可以写任何开着的窗口; 不存在 404, 别人的 403, 不是窗口号 400); 新窗口居中在父窗口上方, 不用记住的位置; 已在运行的单例应用只收请求,
     不改父窗口. 父窗口、模态记在合成器的窗口表 (hostwin `Entry`、会话 model `Window`), `acde.inspect` 的窗口带 `parent` / `modal`;
     `acde.windows` 只管它自己 `launch({slot: true})` 起的原生程序 (要清单的 `slots`).
@@ -398,7 +404,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **应用清单** (`acde.apps`, 解析 acde-host `apps.ts`, 校验 acde-api `validate.ts`): `id`、`label`、`icon`、`entry` (默认导出 `WindowApp` 的
   模块, 或 HTML)、`capabilities` (只放系统能力: `SYSTEM_CAPABILITIES` 加外壳模块; 第 1 级包里不认识的名字是错误, 本包的服务名是弃用 warn)、
   `optional` (capabilities 里可以缺的几项, 每项也要在 capabilities 里)、`services` (用到的桌面服务名, 不能是 `RESERVED_NAMES`)、
-  `mimeTypes`、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
+  `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
 - **必需与可选能力** (第 1 级包, `broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
   `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝, 批准做好之前不出现). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
