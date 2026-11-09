@@ -58,6 +58,8 @@ export function setFocus(element: Element | null, visible?: boolean): void {
     return
   }
   const old = previous === NONE ? null : wrap<Element>(previous)
+  const picker = dom.pickerState()[0]!
+  if (picker >= 0 && picker !== next) dom.closePicker()
   focus.id = next
   focus.revision++
   dom.setFocus(next, next === NONE ? false : (visible ?? (focus.modality === 'keyboard' || isTextField(next))))

@@ -6,6 +6,7 @@ import type { Element } from './element'
 import { KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from './events'
 import { focus, focusable, focusedElement, setFocus } from './focus'
 import { HTMLButtonElement } from './forms'
+import { SelectInput } from './select'
 import { dom, documentId, ID, moved, rootElementId, wrap } from './realm'
 
 export interface Modifiers {
@@ -58,6 +59,7 @@ export class Input {
   #noCompat = false
   #last = { x: 0, y: 0 }
   capture: Element | null = null
+  readonly selects = new SelectInput()
   onKeyDefault: (target: Element, key: string, modifiers: Modifiers) => void = () => {}
 
   elementAt(target: number | null | undefined, x: number, y: number, ignoreCapture = false): Element {
@@ -122,6 +124,11 @@ export class Input {
   pointer(type: 'pointermove' | 'pointerdown' | 'pointerup', x: number, y: number, options: PointerOptions = {}): void {
     focus.modality = 'pointer'
     moved()
+    if (this.selects.pointer(type, x, y)) {
+      if (type === 'pointerup') this.#release(options.button ?? 0)
+      this.#last = { x, y }
+      return
+    }
     if (type === 'pointermove') this.#move(x, y, options)
     else if (type === 'pointerdown') this.#down(x, y, options)
     else this.#up(x, y, options)
@@ -150,6 +157,7 @@ export class Input {
       const candidate = target.closest(FOCUSABLE)
       if (candidate && focusable(candidate[ID])) setFocus(candidate)
       else if (focusedElement()) setFocus(null)
+      if (button === 0) this.selects.pressed(target, x, y, options.modifiers ?? {})
     }
     if (button === 2) this.#fire(target, 'contextmenu', init)
   }
@@ -181,13 +189,21 @@ export class Input {
     if (count === 2) this.#fire(common, 'dblclick', { ...init, detail: 2 })
   }
 
+  #release(button: number): void {
+    this.#buttons &= ~buttonBit(button)
+    this.#pressed = null
+    dom.setActive(NONE)
+  }
+
   wheel(x: number, y: number, deltaX: number, deltaY: number, options: PointerOptions = {}): boolean {
+    if (this.selects.wheel(x, y)) return false
     const target = this.elementAt(options.target, x, y)
     return this.#fire(target, 'wheel', { ...this.#init(x, y, options), deltaX, deltaY }, WheelEvent as never)
   }
 
   key(type: 'keydown' | 'keyup', key: string, code: string, options: KeyOptions = {}): boolean {
     focus.modality = 'keyboard'
+    if (this.selects.picker && (type === 'keyup' || this.selects.key(key, options.modifiers ?? {}))) return false
     const target = focusedElement() ?? wrap<{ body: Element | null }>(documentId)!.body ?? this.elementAt(null, 0, 0)
     const spacePress = this.#spacePress
     if (key === ' ' && (type === 'keyup' || !options.repeat)) this.#spacePress = null
@@ -209,6 +225,7 @@ export class Input {
       const char = key.charCodeAt(0)
       if (!this.#fire(target, 'keypress', { ...init, keyCode: char, charCode: char, which: char }, KeyboardEvent as never)) return false
     }
+    if (this.selects.keyDefault(target, key, options.modifiers ?? {})) return true
     if (key === 'Enter' && this.#keyboardButton(target)) this.#keyboardClick(target, options.modifiers)
     if (key === ' ' && !options.repeat && this.#keyboardButton(target)) this.#spacePress = focus.revision
     this.onKeyDefault(target, key, options.modifiers ?? {})

@@ -14,7 +14,6 @@ import { bool, long, string, url } from './reflect'
 import { documentId, dom, ID, wrap } from './realm'
 
 const SELECTION = Symbol('selection')
-const SELECTED = Symbol('selected')
 const CUSTOM_VALIDITY = Symbol('customValidity')
 const INDETERMINATE = Symbol('indeterminate')
 
@@ -50,7 +49,7 @@ function labelsOf(element: Element): NodeList {
   return staticNodeList(list)
 }
 
-function disabledControl(element: Element): boolean {
+export function disabledControl(element: Element): boolean {
   const id = element[ID]
   return dom.hasAttribute(id, 'disabled') || dom.closest(id, 'fieldset[disabled] *') !== NONE
 }
@@ -611,7 +610,7 @@ tag(HTMLOptionsCollection)
 const OPTIONS = Symbol('options')
 
 function optionIds(select: number): Uint32Array {
-  return dom.querySelectorAll(select, 'option')
+  return dom.options(select)
 }
 
 export class HTMLSelectElement extends HTMLElement {
@@ -643,20 +642,11 @@ export class HTMLSelectElement extends HTMLElement {
   }
 
   get selectedIndex(): number {
-    if (this.type === 'select-multiple') {
-      const ids = optionIds(this[ID])
-      for (let i = 0; i < ids.length; i++) if (wrap<HTMLOptionElement>(ids[i]!)!.selected) return i
-      return -1
-    }
     return dom.selectedIndex(this[ID])
   }
   set selectedIndex(value: number) {
     const index = Math.trunc(Number(value))
-    if (this.type === 'select-multiple') {
-      const ids = optionIds(this[ID])
-      ids.forEach((id, i) => ((wrap<HTMLOptionElement>(id)! as unknown as { [SELECTED]: boolean })[SELECTED] = i === index))
-    }
-    dom.setSelectedIndex(this[ID], index >= 0 && index < this.length ? index : -1)
+    dom.setSelectedIndex(this[ID], Number.isFinite(index) ? index : -1)
   }
 
   get value(): string {
@@ -671,7 +661,7 @@ export class HTMLSelectElement extends HTMLElement {
 
   get selectedOptions(): HTMLCollection {
     const id = this[ID]
-    return liveCollection(() => Uint32Array.from([...optionIds(id)].filter((o) => wrap<HTMLOptionElement>(o)!.selected)))
+    return liveCollection(() => Uint32Array.from([...optionIds(id)].filter((o) => dom.optionSelected(o))))
   }
 
   add(element: Element, before?: Element | number | null): void {
@@ -685,14 +675,25 @@ export class HTMLSelectElement extends HTMLElement {
     ;(this.item(index) as Element | null)?.remove()
   }
 
-  showPicker(): void {}
+  showPicker(): void {
+    if (disabledControl(this)) throw new DOMException("Failed to execute 'showPicker' on 'HTMLSelectElement': HTMLSelectElement::showPicker() cannot be used on immutable controls.", 'InvalidStateError')
+    if (!this.isConnected || this.type === 'select-multiple' || this.size > 1) return
+    dom.openPicker(this[ID])
+  }
 }
 for (const name of ['name', 'autocomplete']) string(HTMLSelectElement.prototype, name)
 for (const name of ['disabled', 'required', 'multiple']) bool(HTMLSelectElement.prototype, name)
 long(HTMLSelectElement.prototype, 'size', 0, 'size', 0)
 mixin(HTMLSelectElement, ConstraintValidation)
 register(HTMLSelectElement, 'select')
-export interface HTMLSelectElement extends ConstraintValidation {}
+export interface HTMLSelectElement extends ConstraintValidation {
+  name: string
+  autocomplete: string
+  disabled: boolean
+  required: boolean
+  multiple: boolean
+  size: number
+}
 
 function ownerSelect(option: number): number {
   const parent = dom.parent(option)
@@ -706,8 +707,6 @@ function ownerSelect(option: number): number {
 }
 
 export class HTMLOptionElement extends HTMLElement {
-  [SELECTED]: boolean | null = null
-
   get value(): string {
     return dom.getAttribute(this[ID], 'value') ?? this.text
   }
@@ -736,19 +735,10 @@ export class HTMLOptionElement extends HTMLElement {
   }
 
   get selected(): boolean {
-    const select = ownerSelect(this[ID])
-    if (select === NONE || dom.hasAttribute(select, 'multiple')) return this[SELECTED] ?? dom.hasAttribute(this[ID], 'selected')
-    return dom.selectedIndex(select) === optionIds(select).indexOf(this[ID])
+    return dom.optionSelected(this[ID])
   }
   set selected(value: boolean) {
-    const select = ownerSelect(this[ID])
-    if (select === NONE || dom.hasAttribute(select, 'multiple')) {
-      this[SELECTED] = !!value
-      return
-    }
-    const index = optionIds(select).indexOf(this[ID])
-    if (value) dom.setSelectedIndex(select, index)
-    else if (dom.selectedIndex(select) === index) dom.setSelectedIndex(select, -1)
+    dom.setOptionSelected(this[ID], !!value)
   }
 
   get defaultSelected(): boolean {
@@ -765,6 +755,9 @@ export class HTMLOptionElement extends HTMLElement {
 }
 bool(HTMLOptionElement.prototype, 'disabled')
 register(HTMLOptionElement, 'option')
+export interface HTMLOptionElement {
+  disabled: boolean
+}
 
 export class HTMLOptGroupElement extends HTMLElement {}
 bool(HTMLOptGroupElement.prototype, 'disabled')
@@ -901,13 +894,7 @@ export class HTMLFormElement extends HTMLElement {
         dom.setChecked(id, dom.hasAttribute(id, 'checked'))
         input.indeterminate = false
       } else if (local === 'textarea') dom.setValue(id, dom.textContent(id))
-      else if (local === 'select') {
-        const options = optionIds(id)
-        let index = -1
-        for (let i = 0; i < options.length; i++) if (dom.hasAttribute(options[i]!, 'selected')) index = i
-        dom.setSelectedIndex(id, index < 0 && !dom.hasAttribute(id, 'multiple') && options.length ? 0 : index)
-        options.forEach((o) => ((wrap<HTMLOptionElement>(o)! as unknown as { [SELECTED]: boolean | null })[SELECTED] = null))
-      }
+      else if (local === 'select') dom.resetSelect(id)
     }
   }
 
@@ -1100,7 +1087,7 @@ export class FormData {
         if (!name) continue
         for (const option of optionIds(id)) {
           const o = wrap<HTMLOptionElement>(option)!
-          if (o.selected && !dom.hasAttribute(option, 'disabled')) this.#entries.push([name, o.value])
+          if (dom.optionSelected(option) && !dom.hasAttribute(option, 'disabled')) this.#entries.push([name, o.value])
         }
       } else if (local === 'textarea') {
         if (name) this.#entries.push([name, (control as unknown as HTMLTextAreaElement).value.replace(/\r?\n/g, '\r\n')])

@@ -350,13 +350,28 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `localStorage` 每个应用一个文件 (`$XDG_CONFIG_HOME/acde/storage/app-<id>.json`); `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
   外部链接交给浏览器应用, 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
   `screen.*` 是主输出的逻辑尺寸.
+- **`<select>`** (https://html.spec.whatwg.org/#the-select-element): 选中状态在 render (`dom/select.rs`), 每个 option 自己记 selectedness
+  和 dirtiness (`Form.selected` / `dirty`, 没设过时跟 `selected` 属性), 照规范: 没有 `multiple` 时选中一个就清掉别的、插入选中的 option
+  也清掉别的、两个以上留最后一个, 显示大小为 1 时一个都没选就选第一个没禁用的 (插入、删除、`selected` / `multiple` / `size` 属性变了、
+  `option.selected = …` 之后); `selectedIndex = …` 不再补选; 表单 reset 回到属性. list of options 只算直接的 option 和 optgroup 里的
+  (`dom.options`). option 的 `:checked` 跟 selectedness. 显示: 下拉框 (显示大小 1) 画第一个选中项的文字和箭头, 宽是最宽的选项;
+  列表框 (`multiple` 或 `size` > 1) 每个 option 和 optgroup 标签一行 (组里的缩进), 高 `size` 行 (`multiple` 默认 4), 能滚,
+  选中行底色 (有焦点蓝底白字, 没有灰底); 列表框的 option 有盒子 (`getBoundingClientRect` 是它那一行, `elementFromPoint` / 鼠标事件
+  落在 option 上, 和 Chrome 一样), 下拉框的 option 是 0×0. 交互 (acde-dom `dom/select.ts`): 下拉框按下 (mousedown 没被取消) 打开
+  选项列表, 拖到一项松开或再点一项选中、发 `input` 和 `change`, 点外面或 Esc 关掉不改; 列表打开时指针和键盘只给它 (Tab 选中当前项再
+  照常移焦点), 上下 / Home / End / PageUp / PageDown 移高亮, Enter / 空格选中, 打字跳到开头相同的项. 关着有焦点时上下左右 / Home /
+  End / PageUp / PageDown / 打字直接改选中项, 空格、Alt+上下、F4 打开. 列表框按下选中那行, `multiple` 时 Ctrl 切换、Shift 从锚点选到
+  这行, 键盘同理 (Shift 扩展, Ctrl+上下只移光标, Ctrl+空格切换). 焦点移走、窗口失活、隐藏、改大小时关掉列表. `showPicker()`: 禁用时
+  `InvalidStateError`, 下拉框打开列表 (不查 transient activation: acde-dom 还没有用户激活的模型). 选项列表由 render 画在帧的最上面 (不在
+  文档里, `Engine.picker`, 每帧按 select 的位置重排: 下面放得下放下面, 否则放空间大的一边并截短、能滚), 所以出不了窗口; 滚轮在列表上
+  滚列表, 在外面先关掉列表.
 - **通知**: `Notification` 转给桌面 (`on('notification')`); 桌面没在显示时 (调试窗口) 由宿主窗口发系统通知 (hostwin `notify.rs`). 页面给的文字
   当不可信数据: macOS 用 `osascript -l JavaScript -e <固定脚本>`, 文字只经环境变量 `ACDE_NOTIFY_*` 传 (放进 argv 会被当成选项); Linux 走
   `org.freedesktop.Notifications` (body 只在服务端报 `body-markup` 时转实体); Windows 还没有.
 - **声音**: `Audio` / `AudioContext` (acde-dom `src/audio/`, crates/acdert `audio/`): 解码 (symphonia) 和混音 (每个 web 一个 48 kHz 立体声 f32
   `Mixer`, 线程 `acde-audio`) 到处一样. 输出: Linux PipeWire (`output.rs`); macOS / Windows cpal 默认设备 (`output_cpal.rs`, 用设备当前的采样率,
   Hermite 重采样, 设备要 f32). 3 秒没声音关流; 没有设备 (或 `ACDE_AUDIO=null`) 按墙上时间渲染丢掉.
-- **还没有**: indexedDB、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
+- **还没有**: `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、indexedDB、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
@@ -487,11 +502,13 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 
 - **网页的树** (render `Dom::semantics(root, limit)`, `dom/semantics.rs`): 节点 `{id, role, name?, value?, states?, level?, rect, children?}`, id 是
   render 的节点 id (ref 跨次稳定). 角色按 `role` 属性 / 标签, 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label / alt / 文字, 最多
-  120 字; 剪掉不可见的子树, 没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600).
+  120 字; 剪掉不可见的子树, 没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600). `<select>`: 下拉框是
+  `combobox` (值是选中项的文字, `collapsed` / `expanded`, 打开时子节点是列表里看得见的 `option`, rect 是列表里那一行), 列表框是 `listbox`
+  (子节点是看得见的行).
 - **web 侧** (`pageinspect.ts`): `tree(root, limit, offscreen)` (`offscreen` 时不剪掉滚到可见范围外的子树, 不可见的照样剪)、`query(selector, within,
   limit)` (`querySelectorAll`, 每个元素再用 `semantics(id, 1, true)` 取它自己的角色名字状态, 没有语义的给 `generic` 和 aria-label / title / 文字,
   加 `tag` 和 `visible`: 有大小、不是 hidden / display:none / 透明)、`point(id)` (元素可点的一点: 先 `scrollIntoView`, 在中心和四个四分点上 `hitTest`, 全被挡时报挡住的
-  元素)、`type(id, text, replace)` (走输入法提交那条路 `Host.insertText`)、`select(id, values)` (元素自己、祖先或里面的 `<select>`; 按 value
+  元素; 打开的下拉列表里的 option 用 `pickerOptionRect` 那一行的中心)、`type(id, text, replace)` (走输入法提交那条路 `Host.insertText`)、`select(id, values)` (元素自己、祖先或里面的 `<select>`; 按 value
   再按文字找选项, 禁用的回错, 单选给多个回错; 设好后发 `input` 和 `change`)、`focus(id)`, 坐标加 `contentOffset`.
 - **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
   `{text, windows, trees}`: 先列窗口, 再列焦点窗口 (或指定的) 的树, 一行一个节点 `- button "新建文件夹" [pressed] [w1.52]`; `find` 只给名字或
@@ -521,7 +538,10 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - DOM: `Dom` 实现 acde-dom 的 `DomNative` (契约 `web/packages/acde-dom/src/native.ts`, 同名 snake_case). 节点 id 是 u32 不复用, `<html>` 是 0;
   查询是 CSS 像素; 错误说明以 DOMException 名字开头. 改了文档还没 `Dom::commit` 时 render 不出帧, 期间的指针和滚动在 commit 时按顺序放回.
   连在文档上的节点一直活着, 断开的子树有 JS 包装 (pin) 才活; 包装对象连着时强引用, 断开变 WeakRef, 回收时 unpin (acde-dom `realm.ts`).
-  `hit_test` 返回节点 id; `caret_rect` / `caret_from_point` / `text_rects` (偏移是 UTF-16).
+  `hit_test` 返回节点 id; `caret_rect` / `caret_from_point` / `text_rects` (偏移是 UTF-16). `<select>`: `options` / `option_selected` /
+  `set_option_selected` / `selected_index` / `set_selected_index` / `reset_select` / `list_box_option_at`; 选项列表 `open_picker` /
+  `close_picker` / `picker_state` (`[select 或 -1, 高亮的选项序号或 -1, 一页几行]`) / `picker_option_at` (-2 在列表外, -1 在列表里但不是
+  选项) / `picker_option_rect` / `set_picker_active`; 列表画在 `Frame.plane` 的最后. `scroll_at` 落在打开的列表上时滚列表, 落在外面先关掉它.
 - 出帧 (物理像素): `RenderHandle {tick(now_ms), frame(), scroll_at, pointer, commit, invalidate, set_waker}`. CSS 动画的时钟是单调墙上时间,
   tick 只对齐到 vblank. `Frame {plane, panels, size, animating, commit, trace}`: plane 是整页 (含画布背景, 不含面板); `panels` 是
   `Dom::set_panel` 钉住的元素 `Panel {id, size, plane, extent}`. `Plane {drawing, layers, damage, damage_rects (最多 8 块), bounds}`;
@@ -788,6 +808,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `render.rs` `draw_canvas_picture`, `cache.rs` `is_boundary` | `<canvas>` 画 2D 图, canvas 是绘制边界 |
 | `render.rs`, `text.rs` | 行内元素按行画 padding / border / 圆角背景 |
 | `render.rs` `draw_text_input_text` | 空输入框画 placeholder |
+| `render/form_controls.rs` `draw_select` / `draw_picker`, `lib.rs` `paint_select_picker` | `<select>`: 下拉框的选中项文字和箭头, 列表框的行 (只画看得见的); 打开的选项列表 (render 画在帧的最上面) |
 | `render/box_shadow.rs` | spread 加到圆角; 偏移和模糊乘缩放; 透明内阴影只跳过自己; 内阴影第一个在最上; 不模糊的内阴影一次填充 (padding box 加反向的洞, 重合的边抵消; 先填再 DestOut 挖洞时两条边落在同一像素里会剩一条淡线, xterm.js 的竖线光标) |
 | `render/box_shadow.rs`, `render.rs` (滚动偏移、`draw_svg`), `render/background.rs` | 偏移在元素自己的坐标里加 |
 | `render/border.rs` `draw_outline` | outline 沿中线、`outline-offset`、dashed / dotted、圆角、在内容之后、乘 opacity |
@@ -833,9 +854,10 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `stylo_device.rs`, blitz-traits `shell.rs` `Viewport.reduced_motion` | `prefers-reduced-motion` |
 | `layout/fieldset.rs` (新), `layout/mod.rs`, `layout/construct.rs`, `node/node.rs`, stylo_taffy `wrapper.rs` | fieldset 是 flow-root; rendered legend 是块级的直接布局子节点, 居中压在上边框上, 上边框占 max(边框宽, legend 高); 不建匿名 content box. 不做竖排、`align`、百分比定高 |
 | `layout/list.rs` | outside 的列表标记按 `white-space: pre` 排 |
-| `assets/default.css` | `::placeholder` 54% currentcolor; 表单控件默认黑字 |
+| `assets/default.css` | `::placeholder` 54% currentcolor; 表单控件默认黑字; `select` 是 inline-block, 列表框 (`[multiple]` / `[size]`, `size` 是 0 / 1 的除外) 纵向能滚 |
+| `node/select.rs` (新), `layout/select.rs` (新), `layout/construct.rs`, `layout/mod.rs`, `node/element.rs` `SpecialElementData::Select` | `<select>` 是叶子: 构造时按 list of options 给每个 option 和 optgroup 标签排一行 (select 的字体, 组标签加粗), 选中看 option 的 `CHECKED` 状态 (嵌入方设); 下拉框宽是最宽的标签加箭头, 高一行; 列表框高 `size` 行, `scrollable_overflow_rect` 含全部行; `SelectPicker` 是打开的列表的几何 |
 | `scrolling.rs` `clamp_scroll_offsets`, `resolve.rs`, `document.rs` `scrolled_nodes` | 布局后把超出新滚动范围的偏移拉回来 (节点和视口; CSSOM View), 只看偏移不是 0 的节点; 上游内容变短后一直停在末尾之外, 顶上空着又滚不回去 |
-| `scrolling.rs` `clamp_scroll_offsets`, `resolve.rs`, `document.rs` `scrolled_nodes` | 布局后把超出新滚动范围的偏移拉回来 (节点和视口; CSSOM View), 只看偏移不是 0 的节点; 上游内容变短后一直停在末尾之外, 顶上空着又滚不回去 |
+| `layout/damage.rs` `propagate_damage_flags`, `document.rs` `rebuild_select` | select 下面有损伤 (option 的文字、属性、状态) 时重建它; 样式看不出的变化 (selectedness) 由嵌入方 `rebuild_select` |
 | 删掉的 | `events/`、`form.rs`、`debug.rs`、devtools、parallel-construct、`<canvas src=数字>`、CSS 光标、custom-widget |
 
 **其余**

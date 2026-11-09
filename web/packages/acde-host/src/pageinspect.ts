@@ -123,6 +123,8 @@ export class PageInspect {
     const element = this.#element(id)
     if (!element) return { error: `元素 ${id} 不在了` }
     const window = this.page.window as unknown as Window
+    const row = this.dom.pickerOptionRect(id)
+    if (row) return this.#windowPoint(row[0]! + row[2]! / 2, row[1]! + row[3]! / 2)
     let rect = this.#rect(element)
     if (!rect) return { error: '元素没有显示出来' }
     const inside = (r: DOMRect) => r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight

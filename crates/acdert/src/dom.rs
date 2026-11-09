@@ -464,6 +464,29 @@ natives! {
         let (id, index) = (id(scope, &args, 0), f(scope, &args, 1) as i32);
         dom.set_selected_index(id, index)
     }
+    "options" => fn options(scope, args, dom) { let id = id(scope, &args, 0); dom.options(id).map(Ids) }
+    "optionSelected" => fn option_selected(scope, args, dom) { let id = id(scope, &args, 0); dom.option_selected(id) }
+    "setOptionSelected" => fn set_option_selected(scope, args, dom) {
+        let (id, on) = (id(scope, &args, 0), bind::arg_bool(scope, &args, 1));
+        dom.set_option_selected(id, on)
+    }
+    "resetSelect" => fn reset_select(scope, args, dom) { let id = id(scope, &args, 0); dom.reset_select(id) }
+    "listBoxOptionAt" => fn list_box_option_at(scope, args, dom) {
+        let (id, x, y) = (id(scope, &args, 0), f(scope, &args, 1), f(scope, &args, 2));
+        dom.list_box_option_at(id, x, y)
+    }
+    "openPicker" => fn open_picker(scope, args, dom) { let id = id(scope, &args, 0); dom.open_picker(id) }
+    "closePicker" => fn close_picker(scope, args, dom) { dom.close_picker(); Ok(()) }
+    "pickerState" => fn picker_state(scope, args, dom) { Ok(Floats(dom.picker_state().to_vec())) }
+    "pickerOptionAt" => fn picker_option_at(scope, args, dom) {
+        let (x, y) = (f(scope, &args, 0), f(scope, &args, 1));
+        Ok(dom.picker_option_at(x, y))
+    }
+    "pickerOptionRect" => fn picker_option_rect(scope, args, dom) {
+        let id = id(scope, &args, 0);
+        dom.picker_option_rect(id).map(|q| q.map(|q| Floats(q.to_vec())))
+    }
+    "setPickerActive" => fn set_picker_active(scope, args, dom) { let index = f(scope, &args, 0) as i32; dom.set_picker_active(index); Ok(()) }
     "setSelectionRange" => fn set_selection_range(scope, args, dom) {
         let (id, start, end) = (id(scope, &args, 0), f(scope, &args, 1) as u32, f(scope, &args, 2) as u32);
         dom.set_selection_range(id, start, end)

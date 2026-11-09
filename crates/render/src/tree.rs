@@ -37,7 +37,8 @@ pub(crate) struct Doctype {
 pub(crate) struct Form {
     pub(crate) value: Option<String>,
     pub(crate) checked: Option<bool>,
-    pub(crate) selected: Option<i32>,
+    pub(crate) selected: Option<bool>,
+    pub(crate) dirty: bool,
 }
 
 const NO_ID: u32 = u32::MAX;

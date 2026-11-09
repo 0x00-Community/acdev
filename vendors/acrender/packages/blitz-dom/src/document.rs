@@ -1913,6 +1913,16 @@ impl BaseDocument {
         cb(&mut self.nodes[node_id]);
     }
 
+    /// acrender: rebuild a `<select>`'s rows (layout::select) after a change its style does not
+    /// show, like an option's selectedness
+    pub fn rebuild_select(&mut self, node_id: NodeId) {
+        let Some(node) = self.nodes.get_mut(node_id) else {
+            return;
+        };
+        node.insert_damage(crate::layout::damage::CONSTRUCT_BOX);
+        node.mark_ancestors_dirty();
+    }
+
     // Takes (x, y) co-ordinates (relative to the )
     pub fn hit(&self, x: f32, y: f32) -> Option<HitResult> {
         self.hit_with_scrollbar(x, y).0

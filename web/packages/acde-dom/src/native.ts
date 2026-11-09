@@ -101,6 +101,17 @@ export interface DomNative {
   setChecked(id: number, checked: boolean): void
   selectedIndex(id: number): number
   setSelectedIndex(id: number, index: number): void
+  options(select: number): Uint32Array
+  optionSelected(option: number): boolean
+  setOptionSelected(option: number, selected: boolean): void
+  resetSelect(select: number): void
+  listBoxOptionAt(select: number, x: number, y: number): number
+  openPicker(select: number): boolean
+  closePicker(): void
+  pickerState(): Float64Array
+  pickerOptionAt(x: number, y: number): number
+  pickerOptionRect(option: number): Float64Array | null
+  setPickerActive(option: number): void
   setSelectionRange(id: number, start: number, end: number): void
 
   setFocus(id: number, visible: boolean): void

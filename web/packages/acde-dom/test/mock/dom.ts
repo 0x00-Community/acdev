@@ -358,6 +358,53 @@ export class MockDom implements DomNative {
   setSelectedIndex(id: number, index: number): void {
     this._node(id).selectedIndex = index
   }
+  options(select: number): Uint32Array {
+    const node = this._node(select)
+    const list: HNode[] = []
+    for (const child of node.children ?? []) {
+      if (child.localName === 'option') list.push(child)
+      else if (child.localName === 'optgroup') for (const inner of child.children) if (inner.localName === 'option') list.push(inner)
+    }
+    return this._ids(list)
+  }
+  optionSelected(option: number): boolean {
+    return !!this._node(option).selected
+  }
+  setOptionSelected(option: number, selected: boolean): void {
+    this._node(option).selected = selected
+  }
+  resetSelect(select: number): void {
+    const node = this._node(select)
+    for (const option of node.options) option.selected = option.hasAttribute('selected')
+    if (!node.multiple && node.selectedIndex < 0 && node.options.length) node.selectedIndex = 0
+  }
+  listBox: (select: number, x: number, y: number) => number = () => -1
+  listBoxOptionAt(select: number, x: number, y: number): number {
+    return this.listBox(select, x, y)
+  }
+  picker = { select: NONE, active: -1, page: 8 }
+  pickerHit: (x: number, y: number) => number = () => -2
+  openPicker(select: number): boolean {
+    const node = this._node(select)
+    if (node.multiple || Number(node.getAttribute('size') ?? 0) > 1) return false
+    this.picker = { select, active: node.selectedIndex, page: this.picker.page }
+    return true
+  }
+  closePicker(): void {
+    this.picker = { ...this.picker, select: NONE, active: -1 }
+  }
+  pickerState(): Float64Array {
+    return Float64Array.of(this.picker.select, this.picker.active, this.picker.page)
+  }
+  pickerOptionAt(x: number, y: number): number {
+    return this.picker.select === NONE ? -2 : this.pickerHit(x, y)
+  }
+  pickerOptionRect(_option: number): Float64Array | null {
+    return null
+  }
+  setPickerActive(option: number): void {
+    if (this.picker.select !== NONE) this.picker.active = option
+  }
   setSelectionRange(id: number, start: number, end: number): void {
     this._node(id)
     this.selectionRanges.set(id, [start, end])

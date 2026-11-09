@@ -206,6 +206,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       dom.commit()
     },
     resize() {
+      input.selects.close()
       readViewport()
       moved()
       changed()
@@ -223,11 +224,13 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     },
     setVisible(visible) {
       if (documentState.hidden === !visible) return
+      if (!visible) input.selects.close()
       documentState.hidden = !visible
       fire(document, new Event('visibilitychange', { bubbles: true }))
     },
     setActive(active) {
       if (focus.windowActive === active) return
+      if (!active) input.selects.close()
       focus.windowActive = active
       focus.revision++
       fire(global as unknown as EventTarget, new events.FocusEvent(active ? 'focus' : 'blur'))
