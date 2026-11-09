@@ -1,6 +1,6 @@
 import { build } from 'esbuild'
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, relative } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
@@ -52,7 +52,8 @@ if (diagnostics.length > 0) {
 }
 const expected = new Set(typed.map((file) => join(outSrc, basename(file).replace(/\.ts$/, '.d.ts'))))
 const emitted = program.emit(undefined, (file, text) => {
-  if (!expected.has(file)) throw new Error(`unexpected declaration output ${file}`)
+  // TypeScript reports forward slashes on Windows, join() gives backslashes
+  if (!expected.has(resolve(file))) throw new Error(`unexpected declaration output ${file}`)
   ts.sys.writeFile(file, text)
 })
 if (emitted.emitSkipped) throw new Error('declaration emit skipped')
