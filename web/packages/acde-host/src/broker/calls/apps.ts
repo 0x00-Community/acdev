@@ -1,5 +1,5 @@
 import type { NativeApps } from '../../launcher'
-import type { Opener, OpenOptions } from '../../open'
+import { Opener, type OpenOptions } from '../../open'
 import { Family, type FamilyWindow, type WindowFamily } from '../access/family'
 import type { BrokerShell } from '../types'
 import { Web } from '../web'
@@ -51,8 +51,14 @@ export class AppCalls {
       if (method === 'handlers') return this.#host.opener.handlers(String(args[0]))
       return this.#host.opener.setDefault(String(args[0]), String(args[1]))
     }
-    if (method === 'launch' || method === 'open') {
-      const [appId, request, options] = args as [string, Record<string, unknown> | undefined, unknown]
+    if (method === 'open' && Opener.isSystem(typeof args[0] === 'string' ? args[1] : args[0])) {
+      const [target, request] = typeof args[0] === 'string' ? [args[0], args[1]] : [null, args[0]]
+      const open = caps?.open
+      const allowed = target === null ? desktop || !!caps?.['openFiles'] : desktop || open === true || (Array.isArray(open) && open.includes(target))
+      if (!allowed) throw Web.refused(web, target === null ? 'opening files and links by type' : `open ${target}`)
+      return this.#host.opener.request(request as Parameters<Opener['request']>[0], target, desktop ? null : Web.caller(web.app!))
+    }
+    if (method === 'launch' || method === 'open') {      const [appId, request, options] = args as [string, Record<string, unknown> | undefined, unknown]
       const open = caps?.open
       if (!desktop && !(open === true || (Array.isArray(open) && open.includes(appId)))) throw Web.refused(web, `open ${appId}`)
       const caller = { desktop, appId: web.app?.id ?? null, label: web.app?.label ?? web.kind }

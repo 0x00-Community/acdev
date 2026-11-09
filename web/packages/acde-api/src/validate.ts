@@ -152,6 +152,8 @@ export class Manifest {
     )
       return `app ${id}: mimeTypes must be MIME types (type/subtype, or type/* for all of a type)`
     const mimeTypes = (types as string[] | undefined) ?? []
+    const schemes = Manifest.#schemes(field('schemes'))
+    if (typeof schemes === 'string') return `app ${id}: ${schemes}`
     const size = Manifest.#size(field('size'))
     if (size === undefined) return `app ${id}: size must be [width, height] in whole logical pixels`
     const services = Manifest.#services(field('services'))
@@ -168,6 +170,7 @@ export class Manifest {
       multiple: field('multiple') === true,
       frame: field('frame') !== false,
       mimeTypes,
+      schemes,
       backend,
       size,
       optional,
@@ -271,6 +274,13 @@ export class Manifest {
       }
     }
     return findings
+  }
+
+  static #schemes(raw: unknown): string[] | string {
+    if (raw === undefined || raw === null) return []
+    const valid = (s: unknown) => typeof s === 'string' && /^[a-z][a-z0-9+.-]*$/.test(s) && s !== 'file'
+    if (!Array.isArray(raw) || !raw.every(valid)) return 'schemes lists lower-case URL schemes without the colon (https, mailto); file is not one'
+    return [...(raw as string[])]
   }
 
   static #services(raw: unknown): string[] | string {

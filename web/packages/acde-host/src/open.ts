@@ -196,6 +196,8 @@ export interface OpenOptions {
   readonly select?: boolean
 }
 
+type SystemRequestLike = { kind: 'open-file' | 'open-link'; url?: unknown; path?: unknown }
+
 export class Opener {
   readonly #host: OpenerHost
 
@@ -259,12 +261,38 @@ export class Opener {
     return chosen
   }
 
+  static isSystem(request: unknown): request is SystemRequestLike {
+    const kind = (request as { kind?: unknown } | null)?.kind
+    return typeof request === 'object' && request !== null && (kind === 'open-file' || kind === 'open-link')
+  }
+
+  async request(request: SystemRequestLike, target: string | null, caller: OpenCaller | null): Promise<Opened> {
+    const text = String(request.url ?? request.path ?? '')
+    const app = target === null ? null : this.#host.apps().find((a) => a.id === target)
+    if (target !== null && !app) throw Object.assign(new Error(`no app ${target}`), { status: 404 })
+    const refuse = (what: string) => Object.assign(new Error(`${target} does not accept ${what}`), { status: 409, code: 'not_accepted' })
+    if (request.kind === 'open-link') {
+      const scheme = Opener.#scheme(text)
+      if (!scheme) throw Object.assign(new Error(`open-link needs a URL with a scheme: ${text}`), { status: 400 })
+      if (app && !app.schemes.includes(scheme)) throw refuse(`${scheme}: links (its manifest's schemes)`)
+      return this.#openUrl(text, scheme, target ? { app: target } : {})
+    }
+    if (Opener.#scheme(text)) throw Object.assign(new Error(`open-file needs a file URL or an absolute path: ${text}`), { status: 400 })
+    const mime = MimeTypes.of(Opener.#existing(text))
+    if (app && MimeTypes.match(app.mimeTypes, mime) === 0) throw refuse(`${mime} files (its manifest's mimeTypes)`)
+    return this.open(text, target ? { app: target } : {}, caller)
+  }
+
   async #openUrl(url: string, scheme: string, options: OpenOptions): Promise<Opened> {
+    const declared = options.app ? null : this.#host.apps().find((a) => a.schemes.includes(scheme))
+    if (declared) return { kind: 'acde', id: declared.id, window: this.#host.launch(declared.id, { kind: 'open-link', url }).window }
     const mime = `x-scheme-handler/${scheme}`
     const natives = MimeApps.natives()
     const chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
     const app = chosen?.kind === 'acde' ? this.#host.apps().find((a) => a.id === chosen.id) : null
-    if (app && !app.capabilities.fs) return { kind: 'acde', id: app.id, window: this.#host.launch(app.id, { url }).window }
+    if (app && (!app.capabilities.fs || app.schemes.includes(scheme))) {
+      return { kind: 'acde', id: app.id, window: this.#host.launch(app.id, { kind: 'open-link', url }).window }
+    }
     const native = chosen?.kind === 'native' ? natives.find((n) => n.id === chosen.id) : null
     const system = !native && !options.app && Opener.#WEB.includes(scheme) ? this.#host.system() : null
     if (system) return Opener.#handOff(system, Opener.#webLink(url), `${scheme}: links`)
@@ -306,14 +334,14 @@ export class Opener {
   }
 
   async #request(app: AppManifest, path: string, isDir: boolean, select: boolean): Promise<Record<string, unknown> | null> {
-    if (!app.capabilities.fs) return { url: pathToFileURL(path).href }
+    if (!app.capabilities.fs) return { kind: 'open-file', url: pathToFileURL(path).href }
     const place = await this.#host.locate(path)
     if (!place) return null
     if (select || (!isDir && MimeTypes.match(app.mimeTypes, MimeTypes.DIRECTORY) === 2)) {
       const at = place.path.lastIndexOf('/')
-      return { root: place.root, path: at < 0 ? '' : place.path.slice(0, at), file: basename(path) }
+      return { kind: 'open-file', root: place.root, path: at < 0 ? '' : place.path.slice(0, at), file: basename(path) }
     }
-    return { root: place.root, path: place.path, file: null }
+    return { kind: 'open-file', root: place.root, path: place.path, file: null }
   }
 
   #asked(id: string, natives: readonly NativeEntry[]): { kind: 'acde' | 'native'; id: string } {

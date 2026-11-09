@@ -193,6 +193,13 @@
             "type": "string"
           }
         },
+        "schemes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9+.-]*$"
+          }
+        },
         "backend": {
           "oneOf": [
             {
@@ -420,6 +427,13 @@
                 "type": "array",
                 "items": {
                   "type": "string"
+                }
+              },
+              "schemes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9+.-]*$"
                 }
               },
               "backend": {

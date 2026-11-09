@@ -238,7 +238,32 @@ export interface OpenWindowOptions {
   readonly modal?: boolean
 }
 
-export type AcdeOpen = (app: string, request?: Record<string, unknown> | null, options?: OpenWindowOptions) => Promise<{ window: number }>
+export interface OpenFileRequest {
+  readonly kind: 'open-file'
+  readonly url?: string
+  readonly root?: string
+  readonly path?: string
+  readonly file?: string | null
+}
+
+export interface OpenLinkRequest {
+  readonly kind: 'open-link'
+  readonly url: string
+}
+
+export type SystemRequest = OpenFileRequest | OpenLinkRequest
+
+export interface Opened {
+  readonly kind: 'acde' | 'native'
+  readonly id: string
+  readonly window?: number
+}
+
+export interface AcdeOpen {
+  (request: SystemRequest): Promise<Opened>
+  (app: string, request: SystemRequest): Promise<Opened>
+  (app: string, request?: Record<string, unknown> | null, options?: OpenWindowOptions): Promise<{ window: number }>
+}
 
 export interface AcdeAppList {
   on?(type: 'changed', handler: (event: { readonly apps?: readonly DesktopApp[] }) => void): () => boolean
@@ -484,7 +509,7 @@ export interface AcdeWindow {
   shortcut(combo: string): Promise<void>
   unshortcut(combo: string): Promise<void>
   on(name: 'beforeclose', handler: () => boolean | void | Promise<boolean | void>): () => boolean
-  on(name: 'request', handler: (request: Record<string, unknown>) => void): () => boolean
+  on(name: 'request', handler: (request: SystemRequest | Record<string, unknown>) => void): () => boolean
   on(name: 'suspend', handler: () => unknown): () => boolean
   on(name: 'resume', handler: (state: unknown) => void): () => boolean
   on(name: 'activate' | 'deactivate', handler: () => void): () => boolean

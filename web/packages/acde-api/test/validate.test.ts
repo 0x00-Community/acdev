@@ -138,3 +138,12 @@ test('desktop services: modules must be shell modules, services must exist', () 
   ])
   assert.deepEqual(tiered({ desktops: [desk(['ghost'])], apps: [], services }).warnings, ['desktop "desk": no service "ghost" in acde.services'])
 })
+
+test('schemes: lower-case URL schemes the app opens links for', () => {
+  const app = (schemes: unknown) => Manifest.app({ id: 'web', label: 'Web', icon: 'globe', entry: '/app/web/index.html', schemes })
+  assert.deepEqual((app(['https', 'http', 'mailto', 'web+notes']) as { schemes: readonly string[] }).schemes, ['https', 'http', 'mailto', 'web+notes'])
+  assert.deepEqual((app(undefined) as { schemes: readonly string[] }).schemes, [])
+  for (const bad of [['HTTPS'], ['https:'], ['1http'], ['file'], [''], 'https', [7]]) {
+    assert.match(String(app(bad)), /schemes/, JSON.stringify(bad))
+  }
+})
