@@ -87,6 +87,7 @@ impl App {
             fullscreen: deco.fullscreen,
             theme: acde_render::FrameTheme::default(),
             active: true,
+            minimize: true,
         })
     }
 

@@ -39,6 +39,7 @@ pub struct WindowInfo {
     pub hidden: bool,
     pub parent: Option<u32>,
     pub modal: bool,
+    pub minimize: bool,
 }
 
 #[derive(Default)]
@@ -62,6 +63,7 @@ pub(crate) struct Entry {
     pub parent: Option<u32>,
     pub modal: bool,
     pub host: bool,
+    pub minimize: bool,
     pub input: Option<[f64; 4]>,
     pub reserve: Option<(u32, f64)>,
     pub frame: f64,
@@ -108,6 +110,7 @@ impl Entry {
             fullscreen: self.mode == Mode::Fullscreen || self.state == WindowState::Fullscreen,
             theme,
             active,
+            minimize: self.minimize,
         }
     }
 }
@@ -128,6 +131,7 @@ pub(crate) struct State {
     pub clicks: Clicks,
     pub theme: acde_render::FrameTheme,
     pub controls: bool,
+    pub standalone: bool,
 }
 
 impl State {
@@ -219,6 +223,9 @@ impl State {
         entry.parent = parent;
         entry.modal = grant.modal && parent.is_some();
         entry.host = grant.host && self.controls && !grant.desktop;
+        self.standalone |= grant.host;
+        let entry = self.entries.get_mut(&id).expect("granted");
+        entry.minimize = grant.host || !self.standalone;
         if placed || !entry.opened {
             entry.rect = rect;
             entry.placed = placed;
@@ -345,6 +352,9 @@ impl State {
         let (screen, work) = (self.screen_rect(), self.work_area());
         let entry = self.entries.get_mut(&id).filter(|e| !e.desktop && !e.panel)?;
         let to = to.unwrap_or_else(|| entry.restore.back(entry.state));
+        if to == WindowState::Minimized && !entry.minimize {
+            return None;
+        }
         let change = entry.restore.change(entry.mode, entry.state, to, entry.rect, work, screen)?;
         entry.state = change.state;
         Some(change)
@@ -512,6 +522,7 @@ impl Shell {
                 hidden: e.hidden,
                 parent: e.parent,
                 modal: e.modal,
+                minimize: e.minimize,
             })
             .collect();
         list.sort_by_key(|w| (w.id != 0, w.z));
@@ -780,6 +791,20 @@ mod tests {
         s.entries.get_mut(&primary).expect("primary").hints = vec![([0.0, 0.0, 1000.0, 40.0], 0), ([0.0, 0.0, 1000.0, 4.0], acde_model::edge::TOP)];
         let hints = s.entries[&primary].grab_hints(&s.theme);
         assert_eq!([20.0, 2.0, 200.0].map(|y| edges_at(&hints, 500.0, y)), [Some(0), Some(acde_model::edge::TOP), None]);
+    }
+
+    #[test]
+    fn standalone_secondary_windows_cannot_minimize() {
+        let mut s = screen();
+        let free = open(&mut s, Grant::default());
+        assert!(s.entries[&free].minimize);
+        let primary = open(&mut s, Grant { host: true, mode: Some(Mode::Fullscreen), ..Grant::default() });
+        let second = open(&mut s, Grant { rect: Some([10.0, 10.0, 300.0, 200.0]), ..Grant::default() });
+        assert!(s.entries[&primary].minimize && !s.entries[&second].minimize);
+        assert!(apply(&mut s, second, Some(WindowState::Minimized)).is_none());
+        assert!(apply(&mut s, second, Some(WindowState::Filled)).is_some(), "other states still work");
+        s.entries.get_mut(&second).expect("second").frame = 32.0;
+        assert!(!s.entries[&second].bar(s.theme, true).minimize);
     }
 
     #[test]

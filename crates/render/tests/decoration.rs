@@ -4,7 +4,17 @@ use acde_render::{Bar, ButtonSide, Decoration, FrameButton, FrameColors, FrameSt
 mod common;
 
 fn bar(title: &str, width: f64, scale: f64) -> Bar {
-    Bar { title: title.into(), width, height: 32.0, scale, style: FrameStyle::Mac, fullscreen: false, theme: FrameTheme::default(), active: true }
+    Bar {
+        title: title.into(),
+        width,
+        height: 32.0,
+        scale,
+        style: FrameStyle::Mac,
+        fullscreen: false,
+        theme: FrameTheme::default(),
+        active: true,
+        minimize: true,
+    }
 }
 
 fn windows(title: &str, width: f64, scale: f64) -> Bar {
@@ -188,4 +198,15 @@ fn the_theme_aligns_the_title() {
     let centre = FrameTheme { style: Some(FrameStyle::Windows), align: Some(TitleAlign::Center), ..FrameTheme::default() };
     let runs = glyph_runs(&Bar { title: "Notes".into(), width: 400.0, ..themed(FrameStyle::Windows, centre, true) });
     assert!(runs[0].0 > 160.0 && runs[0].0 < 200.0, "{runs:?}");
+}
+
+#[test]
+fn a_disabled_minimize_button_is_dimmed_and_not_hit() {
+    let off = Bar { minimize: false, ..bar("", 300.0, 1.0) };
+    assert_eq!(off.button_at(38.0, 16.0), None);
+    assert_eq!(off.button_at(18.0, 16.0), Some(FrameButton::Close));
+    assert_ne!(rgb(&pixels(&off), 38.0, 16.0), [0xfe, 0xbc, 0x2e], "not the live yellow");
+    let glyphs = Bar { minimize: false, ..windows("", 400.0, 1.0) };
+    assert_eq!(glyphs.button_at(400.0 - 138.0, 16.0), None);
+    assert_eq!(glyphs.button_at(399.0, 16.0), Some(FrameButton::Close));
 }

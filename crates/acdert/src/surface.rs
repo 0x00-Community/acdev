@@ -41,6 +41,14 @@ impl Surface {
         Err("claimSurface: no windows here".into())
     }
 
+    pub fn minimizable(&self) -> bool {
+        match self {
+            Surface::Host(s) => s.minimizable(),
+            #[cfg(target_os = "linux")]
+            Surface::Wayland(_) => true,
+        }
+    }
+
     pub fn host_controls(&self) -> bool {
         match self {
             Surface::Host(s) => s.host_controls(),

@@ -250,6 +250,7 @@ fn windows(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v
             None => v8::null(scope).into(),
         };
         let modal = v8::Boolean::new(scope, w.modal);
+        let minimize = v8::Boolean::new(scope, w.minimize);
         let fields = [
             ("id", id),
             ("window", window),
@@ -266,6 +267,7 @@ fn windows(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v
             ("pid", pid),
             ("parent", parent),
             ("modal", modal.into()),
+            ("minimize", minimize.into()),
         ];
         let obj = bind::object(scope, &fields);
         array.set_index(scope, i as u32, obj.into());

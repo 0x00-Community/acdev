@@ -208,6 +208,7 @@ pub struct Bar {
     pub fullscreen: bool,
     pub theme: FrameTheme,
     pub active: bool,
+    pub minimize: bool,
 }
 
 impl Bar {
@@ -238,7 +239,7 @@ impl Bar {
         if y < 0.0 || y >= self.height {
             return None;
         }
-        FrameButton::ALL.into_iter().find(|b| {
+        FrameButton::ALL.into_iter().filter(|b| self.minimize || *b != FrameButton::Minimize).find(|b| {
             let (from, to) = b.slot(self.style(), self.side(), self.width);
             x >= from && x < to
         })
@@ -267,6 +268,7 @@ impl Decoration {
     const FAMILY: &'static str = "system-ui, sans-serif";
     const ELLIPSIS: &'static str = "…";
     const RING: Color = Color::from_rgba8(0, 0, 0, 46);
+    const OFF: Color = Color::from_rgba8(0, 0, 0, 40);
 
     pub fn new() -> Self {
         let fonts =
@@ -289,12 +291,14 @@ impl Decoration {
             match style {
                 FrameStyle::Mac => {
                     let centre = ((from + to) / 2.0, h / 2.0);
-                    scene.fill(Fill::NonZero, scale, colors.buttons.map_or_else(|| button.color(), paint), None, &Circle::new(centre, Self::DOT / 2.0));
+                    let fill = if bar.minimize || button != FrameButton::Minimize { colors.buttons.map_or_else(|| button.color(), paint) } else { Self::OFF };
+                    scene.fill(Fill::NonZero, scale, fill, None, &Circle::new(centre, Self::DOT / 2.0));
                     scene.stroke(&Stroke::new(0.5), scale, Self::RING, None, &Circle::new(centre, Self::DOT / 2.0 - 0.25));
                 }
                 FrameStyle::Windows => {
                     let glyph = Self::glyph(button, bar.fullscreen, ((from + to) / 2.0 - Self::GLYPH / 2.0).round(), ((h - Self::GLYPH) / 2.0).round());
-                    scene.stroke(&Stroke::new(1.0), scale, colors.buttons.map_or(text, paint), None, &glyph);
+                    let ink = if bar.minimize || button != FrameButton::Minimize { colors.buttons.map_or(text, paint) } else { Self::OFF };
+                    scene.stroke(&Stroke::new(1.0), scale, ink, None, &glyph);
                 }
             }
         }

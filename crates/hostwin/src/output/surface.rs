@@ -311,6 +311,10 @@ impl Surface {
         server.refill();
     }
 
+    pub fn minimizable(&self) -> bool {
+        server().is_some_and(|s| s.state().entries.get(&self.window).is_some_and(|e| e.minimize))
+    }
+
     pub fn host_controls(&self) -> bool {
         server().is_some_and(|s| s.state().entries.get(&self.window).is_some_and(|e| e.host))
     }
