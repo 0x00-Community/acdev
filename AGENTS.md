@@ -129,7 +129,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 `Surface`, crates/acdert `surface.rs` 是两种的 enum).
 
 - **结构**: 平台层 (`platform.rs` 的 `Handler` / `HostEvent` / `Cmd`) 只有两个: `platform/win32.rs` (Win32: 窗口、IMM32、剪贴板、`WM_DROPFILES`、
-  `SHBrowseForFolderW`、per-monitor DPI v2) 和 `platform/host_winit.rs` (macOS / Linux, winit + arboard; macOS 的选文件夹、打开和保存文件是 `chooser.rs`). `app.rs`:
+  `SHBrowseForFolderW`、`IFileOpenDialog` / `IFileSaveDialog`、per-monitor DPI v2) 和 `platform/host_winit.rs` (macOS / Linux, winit + arboard; macOS 的选文件夹、打开和保存文件是 `chooser.rs`). `app.rs`:
   命中、拖动、焦点、快捷键、注入. `shell.rs`: 窗口表 (`State` / `Entry`, 层序 desktop < free / fixed < pinned, 再按 z). `present.rs`: 每个 web
   一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理; `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync).
   页面 / 面板的 plane 有 layers (backdrop-filter、filter) 时走 `Presenter::layered`, 照 `acde_gpu::Raster::draw_pass` 用 `Composer` 做
@@ -169,7 +169,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   (不碰系统剪贴板), 选文件夹、打开和保存文件没有事先的答复 (`choose`) 时回错 (Linux 的 headless 也不问 portal), 系统通知只写一行 info 日志 (不弹出), 标题和输入法区域不做. 仍然要 GPU (「GPU 与性能」: 网页只在
   GPU 上画, 不认 lavapipe): 能在有 Metal 的 macOS 机器 (含 GitHub 的 macOS runner, 没验) 或有 GPU 的 Linux / Windows 上无人值守地跑, 不能在
   没有 GPU 的 Linux CI 上跑. Linux 上设了它就算「在别人的桌面里」, 不要 `WAYLAND_DISPLAY` / `DISPLAY`.
-- **系统能力**: fs、选文件夹、声音、剪贴板到处都有; 打开 / 保存文件在 Linux (portal) 和 macOS 有, Windows 还没有; terminal 和应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
+- **系统能力**: fs、选文件夹、声音、剪贴板到处都有; 打开 / 保存文件在 Linux (portal)、macOS (`NSOpenPanel` / `NSSavePanel`) 和 Windows (Common Item Dialog, `platform/win32/dialog.rs`) 有; terminal 和应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
   WebGPU 只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`), 它不带根证书: runtime `http.rs` 的 `tls()` 在那两处从系统证书库
   (Keychain / Windows 证书存储, rustls-native-certs) 读进来; Linux 用系统的 OpenSSL 和它的证书目录. Windows 的证书库是按需下载的
   (第三方根证书要等系统自己的 TLS 第一次用到才进库), 所以 Windows 上 OpenSSL 校验失败时 (`system_trusts`) 再把对方的证书链交给
@@ -436,11 +436,19 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - 会话: runtime `portal.rs` 的 napi `FileChooser` (portal 的 `OpenFile` / `SaveFile`).
 - 宿主窗口: crates/acdert `hostnative.rs` 换上自己的 `FileChooser`, 在 `acde-chooser` 线程上走 `chooser.rs`: 先取 `choose` 的答复; Linux 有窗口时
   是 portal (runtime `open_files` / `save_file`, 和 napi 同一段); 别的交给 hostwin 主线程: macOS 是挂在宿主窗口上的 `NSOpenPanel` /
-  `NSSavePanel` sheet, headless 回错, Windows 还没有 (回错).
+  `NSSavePanel` sheet; Windows 是 `platform/win32/dialog.rs` 的 `IFileOpenDialog` / `IFileSaveDialog`, 以宿主窗口为 owner (`multiple` 是
+  `FOS_ALLOWMULTISELECT`, `directory` 是 `FOS_PICKFOLDERS`, 总是 `FOS_FORCEFILESYSTEM`, 返回盘符或 UNC 绝对路径, 取消回 `None`); headless 回错.
+  COM 的 vtable 在 `dialog.rs` 手写 (windows-sys 0.61 没有这些接口), 次序对照 `windows` crate 的定义, 测试覆盖选项、文件名、IShellItem 和数组.
 - macOS 的类型过滤 (`chooser.rs` `content_types`): `*.ext` 按扩展名、MIME 按 MIME、`image/*` / `text/*` / `audio/*` / `video/*` 按大类换成
   UTType; 有一项换不了 (`*`、别的通配、`application/*`、不认识的 MIME) 就不限类型 (宁可多给不能少给). UTType 按类型的继承匹配: `text/plain`
   也放行 Markdown, 和 Linux 上 shared-mime-info 的子类型一样. 保存面板不按 filters 限扩展名 (GTK 的保存对话框也只拿它筛显示的文件),
   建议的名字原样填进去.
+- Windows 的类型过滤 (`dialog.rs` `specs`): 只有 `*.ext` 的过滤器映射成 `SetFileTypes` 的扩展名表; 过滤器里有 MIME (页面的 `accept` 或
+  `types` 的 MIME 键, 不论有没有扩展名) 或有一项换不了的通配, 就整体不限类型 (All files). 原因: Windows 没有完整的 MIME 到扩展名表,
+  只按扩展名筛会藏起页面按 MIME 接受的文件, 所以保守退回 (和上面 macOS 的 "宁可多给不能少给" 同一规则). 因此 `types: [{accept: {'image/png': ['.png']}}]`
+  在 Windows 上显示全部文件, 这是有意的, 不是漏做.
+- 验收: `bash scripts/file-chooser/check-file-chooser.sh` 用 `choose` 的预设答复 (`answerOpen` / `answerSave`) 检查打开多选、取消、无答复时失败、
+  保存写入句柄、保存取消; 真的对话框需要人工操作, 见 `scripts/file-chooser/manual-file-chooser.sh`.
 
 ## 默认应用
 
