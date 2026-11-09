@@ -3,10 +3,11 @@ import { createHash } from 'node:crypto'
 import {
   chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
-import { basename, join, relative, resolve, sep } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import JavaScriptObfuscator from 'javascript-obfuscator'
 import ts from 'typescript'
+import { shipLeaks } from './shipped.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
@@ -119,7 +120,7 @@ writeFileSync(join(lib, 'package.json'), `${JSON.stringify(published(), null, 2)
 const skipped = (from: string) => !/[\\/](node_modules|test)$/.test(from)
 cpSync(api, join(top, 'lib', 'acde-api'), { recursive: true, filter: skipped })
 
-const leaking = leaks(top)
+const leaking = shipLeaks(top)
 if (leaking.length > 0) {
   rmSync(stage, { recursive: true, force: true })
   throw new Error(`dist would ship sources or source maps:\n${leaking.join('\n')}`)
@@ -213,28 +214,3 @@ function published() {
   }
 }
 
-function leaks(root: string): string[] {
-  const files: string[] = []
-  const walk = (path: string): void => {
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      const child = join(path, entry.name)
-      if (entry.isDirectory()) walk(child)
-      else files.push(child)
-    }
-  }
-  walk(root)
-  const found = ['lib/acde/src', 'lib/acde/test', 'lib/acde-api/test', 'bin/app/src']
-    .filter((path) => existsSync(join(root, path)))
-    .map((path) => `${path}: source directory`)
-  const isSource = (file: string) => /\.[cm]?tsx?$/.test(file) && !/\.d\.[cm]?ts$/.test(file)
-  for (const file of files) {
-    const path = relative(root, file).split(sep).join('/')
-    if (path.endsWith('.map')) found.push(`${path}: source map`)
-    else if (isSource(path) && !path.startsWith('lib/acde/templates/')) found.push(`${path}: TypeScript source`)
-    if (!/\.(m?js|cjs|json|d\.ts)$/.test(path)) continue
-    const text = readFileSync(file, 'utf8')
-    if (/sourcesContent/.test(text)) found.push(`${path}: sourcesContent`)
-    if (/sourceMappingURL/.test(text)) found.push(`${path}: source map reference`)
-  }
-  return found
-}
