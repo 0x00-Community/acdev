@@ -122,20 +122,23 @@ export class E2eRun {
 
 type Register = (name: string, fn: () => Promise<void>, timeout?: number) => void
 
-function register(add: Register) {
+function register(add: () => Register) {
   return (name: string, body: Body, options?: TestOptions): void => {
     const settings = E2e.read()
     const timeout = typeof options === 'number' ? options : (options?.timeout ?? settings.timeout)
-    add(name, () => E2eRun.run(name, body, settings), timeout)
+    add()(name, () => E2eRun.run(name, body, settings), timeout)
   }
 }
 
-export const test = Object.assign(register(bunTest), {
-  only: register(bunTest.only),
-  skip: register(bunTest.skip),
-  todo: (name: string): void => bunTest.todo(name),
-  if: (condition: boolean) => register(bunTest.if(condition)),
-})
+export const test = Object.assign(
+  register(() => bunTest),
+  {
+    only: register(() => bunTest.only),
+    skip: register(() => bunTest.skip),
+    todo: (name: string): void => bunTest.todo(name),
+    if: (condition: boolean) => register(() => bunTest.if(condition)),
+  },
+)
 
 export function expect(target: Locator): LocatorAssertions
 export function expect(target: AppWindow): WindowAssertions
