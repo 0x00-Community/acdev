@@ -1,18 +1,47 @@
 name: release
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'false rehearses (builds and checks only); true publishes a new release from main'
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: never
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
+      cancel-in-progress: ${{ !inputs.publish }}
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      mode: ${{ steps.plan.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: version, tag and mode (preview, new, resume)
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          PUBLISH: ${{ inputs.publish }}
+        run: scripts/release/plan.sh "$EVENT" "$REF_TYPE" "$REF_NAME" "$SHA" "$PUBLISH"
+
   build:
+    needs: plan
+    if: ${{ needs.plan.result == 'success' }}
+    concurrency:
+      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
+      cancel-in-progress: ${{ !inputs.publish }}
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +117,11 @@ jobs:
           retention-days: 30
 
   host:
+    needs: plan
+    if: ${{ needs.plan.result == 'success' }}
+    concurrency:
+      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
+      cancel-in-progress: ${{ !inputs.publish }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -113,8 +147,14 @@ jobs:
           retention-days: 1
 
   stage:
-    needs: [build, host]
+    needs: [plan, build, host]
+    if: ${{ needs.plan.result == 'success' && needs.build.result == 'success' && needs.host.result == 'success' }}
+    concurrency:
+      group: release-prepare-${{ inputs.publish && 'publish' || 'rehearsal' }}-${{ github.ref }}
+      cancel-in-progress: ${{ !inputs.publish }}
     runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -124,20 +164,45 @@ jobs:
       - name: web workspace (builds the acde-api SDK for its archive)
         run: bun install --frozen-lockfile --cwd web
       - name: stage the release files (explicit allow-list; symbol artifacts are never read)
-        shell: bash
-        run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=dispatch; fi
-          scripts/release/stage.sh artifacts "$version" out
+        run: scripts/release/stage.sh artifacts "$VERSION" out
       - uses: actions/upload-artifact@v7
         with:
           name: release-stage
           path: out
           retention-days: 1
 
-  release:
-    needs: [stage]
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+  tag:
+    needs: [plan, upload]
+    if: ${{ needs.plan.result == 'success' && needs.plan.outputs.mode == 'new' && needs.upload.result == 'success' }}
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: annotated tag on the commit that passed the checks
+        run: |
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            tag -a "$TAG" -m "acdert $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+  release:
+    needs: [plan, upload, tag]
+    if: ${{ needs.plan.result == 'success' && needs.upload.result == 'success' && (needs.tag.result == 'success' || needs.tag.result == 'skipped') && (needs.plan.outputs.mode == 'new' || needs.plan.outputs.mode == 'resume') }}
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -145,69 +210,126 @@ jobs:
           name: release-stage
           path: release-stage
       - name: check the staging before upload
-        env:
-          TAG: ${{ github.ref_name }}
-        run: scripts/release/check-stage.sh release-stage "${TAG#v}"
-      - name: GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+        run: scripts/release/check-stage.sh release-stage "$VERSION"
+      - name: GitHub release (created once, a re-run replaces the assets)
         run: |
-          v=${TAG#v}
+          files=(acdert-x86_64-unknown-linux-gnu acdert-aarch64-apple-darwin acdert-x86_64-pc-windows-msvc.exe "acdert-host-$VERSION.tar.gz" LICENSE)
           cd release-stage
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG" \
-            --notes "Release builds (split debug information is not attached). Put the app/ directory from acdert-host-$v.tar.gz next to the binary." \
-            "acdert-x86_64-unknown-linux-gnu" "acdert-aarch64-apple-darwin" "acdert-x86_64-pc-windows-msvc.exe" \
-            "acdert-host-$v.tar.gz" "LICENSE"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --title "$TAG" \
+              --notes "Release builds (split debug information is not attached). Put the app/ directory from acdert-host-$VERSION.tar.gz next to the binary." \
+              "${files[@]}"
+          fi
 
-  pkgs:
-    needs: [stage]
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+  upload:
+    needs: [plan, stage]
+    if: ${{ needs.plan.result == 'success' && needs.stage.result == 'success' && (needs.plan.outputs.mode == 'new' || needs.plan.outputs.mode == 'resume') }}
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
     env:
-      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: release-stage
           path: release-stage
-      - name: stage
+      - name: check the staging and build the pkgs directory
         run: |
-          v=${TAG#v}
-          scripts/release/check-stage.sh release-stage "$v"
-          mkdir -p "pkgs/$v"
+          scripts/release/check-stage.sh release-stage "$VERSION"
+          mkdir -p "pkgs/$VERSION"
           cp release-stage/acdert-x86_64-unknown-linux-gnu release-stage/acdert-aarch64-apple-darwin \
-            release-stage/acdert-x86_64-pc-windows-msvc.exe "release-stage/acdert-host-$v.tar.gz" release-stage/LICENSE \
-            "release-stage/acde-api-$v.tar.gz" "pkgs/$v/"
-          (cd "pkgs/$v" && sha256sum -- * > SHA256SUMS)
-          scripts/release/check-stage.sh "pkgs/$v" "$v"
-          files=$(cd "pkgs/$v" && ls | jq -R . | jq -sc .)
-          jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$GITHUB_SHA" --argjson files "$files" \
+            release-stage/acdert-x86_64-pc-windows-msvc.exe "release-stage/acdert-host-$VERSION.tar.gz" release-stage/LICENSE \
+            "release-stage/acde-api-$VERSION.tar.gz" "pkgs/$VERSION/"
+          (cd "pkgs/$VERSION" && sha256sum -- * > SHA256SUMS)
+          scripts/release/check-stage.sh "pkgs/$VERSION" "$VERSION"
+          files=$(cd "pkgs/$VERSION" && ls | jq -R . | jq -sc .)
+          jq -n --arg version "$VERSION" --arg tag "$TAG" --arg commit "$GITHUB_SHA" --argjson files "$files" \
             '{version: $version, tag: $tag, commit: $commit, base: "https://pkgs.dopame.ai/acdert/\($version)/", files: $files}' \
             > pkgs/latest.json
           cat pkgs/latest.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pkgs-latest
+          path: pkgs/latest.json
+          retention-days: 1
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::312030312811:role/dopame-acdert-release
           aws-region: ap-southeast-1
-      - name: upload
+      - name: upload the version directory (same content is skipped, different content is refused)
         run: |
-          v=${TAG#v}
-          aws s3 cp "pkgs/$v" "s3://dopame-pkgs/acdert/$v/" --recursive \
-            --cache-control 'public, max-age=31536000, immutable'
-          aws s3 cp pkgs/latest.json s3://dopame-pkgs/acdert/latest.json \
+          cd "pkgs/$VERSION"
+          for f in *; do
+            sum=$(sha256sum "$f" | cut -d' ' -f1)
+            key="acdert/$VERSION/$f"
+            if head=$(aws s3api head-object --bucket dopame-pkgs --key "$key" --query 'Metadata.sha256' --output text 2> "$RUNNER_TEMP/s3-head.err"); then
+              if [ "$head" = "$sum" ]; then
+                echo "skip $f: the same content is already in S3"
+                continue
+              fi
+              echo "::error::$key is in S3 with sha256 $head, not $sum (missing or different metadata); refusing to overwrite"
+              exit 1
+            fi
+            if ! grep -q '(404)' "$RUNNER_TEMP/s3-head.err"; then
+              cat "$RUNNER_TEMP/s3-head.err"
+              exit 1
+            fi
+            aws s3 cp "$f" "s3://dopame-pkgs/$key" \
+              --cache-control 'public, max-age=31536000, immutable' --metadata "sha256=$sum"
+          done
+      - name: verify every object of the version directory before the tag
+        run: |
+          cd "pkgs/$VERSION"
+          for f in *; do
+            sum=$(sha256sum "$f" | cut -d' ' -f1)
+            remote=$(aws s3api head-object --bucket dopame-pkgs --key "acdert/$VERSION/$f" --query 'Metadata.sha256' --output text)
+            if [ "$remote" != "$sum" ]; then echo "::error::acdert/$VERSION/$f does not match the local file ($remote, not $sum)"; exit 1; fi
+          done
+
+  latest:
+    needs: [plan, upload, release]
+    if: ${{ needs.plan.result == 'success' && needs.upload.result == 'success' && needs.release.result == 'success' }}
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: pkgs-latest
+          path: pkgs-latest
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::312030312811:role/dopame-acdert-release
+          aws-region: ap-southeast-1
+      - name: 'latest.json (last: the version directory is verified and the GitHub release exists)'
+        run: |
+          aws s3 cp pkgs-latest/latest.json s3://dopame-pkgs/acdert/latest.json \
             --content-type application/json --cache-control 'public, max-age=0, must-revalidate'
-      - name: invalidate
-        run: aws cloudfront create-invalidation --distribution-id E3ET3L14ALFOXX --paths "/acdert/latest.json" "/acdert/${TAG#v}/*" --query Invalidation.Id --output text
-      - run: echo "https://pkgs.dopame.ai/acdert/${TAG#v}/" >> "$GITHUB_STEP_SUMMARY"
+      - name: invalidate the version directory and latest.json
+        run: aws cloudfront create-invalidation --distribution-id E3ET3L14ALFOXX --paths "/acdert/latest.json" "/acdert/$VERSION/*" --query Invalidation.Id --output text
+      - run: echo "https://pkgs.dopame.ai/acdert/$VERSION/" >> "$GITHUB_STEP_SUMMARY"
 
   npm-build:
-    needs: release
-    if: ${{ vars.NPM_PUBLISH == 'true' }}
+    needs: [plan, latest]
+    if: ${{ vars.NPM_PUBLISH == 'true' && needs.latest.result == 'success' }}
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -222,7 +344,7 @@ jobs:
         id: version
         working-directory: web/packages/acde-api
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
           name=$(node -p 'require("./package.json").name')
           version=$(node -p 'require("./package.json").version')
@@ -250,6 +372,9 @@ jobs:
   npm:
     needs: npm-build
     if: ${{ needs.npm-build.outputs.publish == 'true' }}
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     permissions:
       id-token: write
