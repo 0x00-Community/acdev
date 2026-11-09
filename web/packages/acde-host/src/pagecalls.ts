@@ -1,3 +1,4 @@
+import { hostTime } from '@dopame/acde-dom'
 import type { WebInternals } from '@dopame/acde-dom'
 import type { Rpc } from './rpc'
 import { existsSync, readFileSync, stat, writeFileSync } from './sys/fs'
@@ -146,7 +147,7 @@ export class PageCalls implements HandOver {
         const path = check(file)
         if (!existsSync(path)) return null
         const bytes = readFileSync(path)
-        return { bytes, lastModified: stat(path)?.mtimeMs ?? Date.now() }
+        return { bytes, lastModified: stat(path)?.mtimeMs ?? hostTime.wallNow() }
       },
       write: async (file, bytes) => {
         const to = inFolder(file.path)

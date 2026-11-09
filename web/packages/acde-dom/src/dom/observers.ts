@@ -1,4 +1,5 @@
 import { guarded, host, tag } from '../core/host'
+import { now as clockNow } from '../core/clock'
 import type { Metrics } from '../native'
 import type { Element } from './element'
 import { frames } from './env'
@@ -236,7 +237,7 @@ export function watching(): boolean {
 export function deliverObservations(): void {
   for (const observer of [...resizeObservers]) gatherResize(observer)
   if (intersectionObservers.size) {
-    const time = host.now()
+    const time = clockNow()
     for (const observer of [...intersectionObservers]) gatherIntersection(observer, time)
   }
 }

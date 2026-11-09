@@ -265,7 +265,8 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `{…,"ok":false,"error":"<文字>"}`, 每个请求恰好一次 (超时在工具一侧); 连接断了, 它还没回答的请求作废. `web` 参数是 web 名
   (`ledger#1048576`)、应用 id (window 号最小的那个 web) 或 `desktop`:
   - `webs` → `{webs: [{name, app, kind, window, title}]}`.
-  - `eval {web, code}` → `{value}`: 和 `ACDE_DEBUG_DIR` 一样求值 (promise 等落定), 结构化克隆回来再 JSON (undefined 是 null, JSON 不了的回错).
+  - `eval {web, code, node?, arg?}` → `{value}`: 和 `ACDE_DEBUG_DIR` 一样求值 (promise 等落定), 结构化克隆回来再 JSON (undefined 是 null, JSON 不了的回错).
+    给了 `node` (render 节点 id, 即 ref 里点后面的数) 时 `code` 是一个函数的源码, 以 `(元素, arg)` 调用 (rpc `debug.evalOn`).
   - `shot {web}` → `{png: <base64>, width, height}` (`Shell.capture`, 设备像素, 桌面的含面板).
   - `snapshot` / `act` / `run` / `open {name}` / `query {selector, window?, ref?, limit?, attributes?}` → `Broker.inspect.api` 的同名方法 (「看和操作桌面」).
   - `console {web?, since?, limit?, level?}` → `{entries, next, dropped}`: 页面的 `console.*` 和没人接的错误 (`devlog.ts`, 见下), `level` 是
@@ -293,6 +294,28 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
     页面收到 drop 要自己等. 会话没有, 回错.
   - `clipboard {text?}` → `{text}`: 给 `text` 先写, 再读回宿主剪贴板 (napi `Shell.readClipboard` / `writeClipboard` → hostwin; headless 是进程里那份,
     有窗口是系统剪贴板); 会话没有, 回错.
+  - `input {web, events}` → act 的回答: 按页面的 CSS 坐标注入一串原始输入 (`Inspect.input`, 加窗口原点和 `contentOffset` 后 `Shell.inject`):
+    `{type: move | down | up | wheel, x, y, button?: left | right | middle, dx?, dy?}`、`{type: keydown | keyup, key}` (键名同 act 的 key)、
+    `{type: text, text}` (走输入法提交那条路, 给焦点元素). 先给窗口焦点; 连着的 move 之间隔 16 ms (页面的 pointermove 按帧合并), 最后等页面安静.
+    act 的 click / double / right / hover 的 arg 是要按住的修饰键 (`shift`、`ctrl+shift`, 还认 `option` / `cmd`).
+  - `clock {web, action, time?, ms?}` → `{installed, paused, now, performanceNow, fixed, timers}`: 接管这个页面的时间 (rpc `dev.clock`, acde-dom
+    `core/clock.ts`, 和 Playwright 的 clock 一样): `install {time?}` 之后 `Date` (换成同原型的包装, `Date()` / `Date.now()` / 无参 `new Date()`
+    和 `Intl.DateTimeFormat` 的无参 format / formatToParts)、`performance.now`、`Event.timeStamp`、rAF 的时间戳、Web Animations 和页面的
+    `setTimeout` / `setInterval` / `requestIdleCallback` 都走虚拟时间 (照常流动, 定时器排在虚拟队列里, 一个宿主定时器叫醒最早的); `pauseAt {time}`
+    跳到那时停住 (已经过了就在此刻停住、`Date` 改成那个时间, performance.now 不倒退); `fastForward {ms}` 跳过去, 到期的定时器各响一次 (间隔
+    的也一次); `runFor {ms}` 一步步走, 每个定时器在它自己的时刻响 (间隔的每次都响), 每响一个让出一个任务 (微任务跟着跑); `resume`;
+    `setFixedTime {time}` 钉住 `Date`; `setSystemTime {time}` 只挪 `Date`; `state`. 装了不能卸 (页面重载就没了). CSS 动画和过渡走 render 的
+    时钟, 不受它管. acde-dom 和 acde-host 自己的计时 (任务队列 `queueTask`、双击判断、select 的打字跳转、`settle`、输入法、面板测量、dev
+    状态恢复、GPU 计时) 用真实时间: acde-dom 导出 `hostTime` (`now` / `wallNow` / `setTimeout` / `clearTimeout`) 给宿主代码用.
+  - `dialog {web, accept?, text?}` → `{web, accept}`: 事先答复这个页面下一个 `alert` / `confirm` / `prompt` (页面里按顺序排, `devdialog` 消息):
+    `accept: false` 是取消, `text` 是 prompt 的回答 (不给用默认值). 没有答复时照旧 (`alert` 画在窗口里, `confirm` false, `prompt` null).
+    每个对话框都记进 console (`kind: dialog`, `level: info`, 带 `dialog: {type, message, defaultValue, answered, accept, text}`).
+  - `init {code, web?, once?}` → `{id}`: 页面加载前要跑的脚本 (`WebInit.devInit`, 在页面的 HTML 解析之前, 全局都在、`document` 还空),
+    `web` 是 web 名或应用 id, 不给是所有页面; `once` 的只给下一个起来的页面. `uninit {init?}` → `{removed, left}`.
+  - `reload {web}` → `{web}`: 和 IPC 的 `reload` 一样重开这个应用的窗口 (或重起桌面), 等它重开.
+  - `resize {web, width, height}` → `{width, height}`: 页面 (不含标题栏) 改成这么大. `free` 窗口经 `Shell.place`; 铺满的 (单应用的 acde dev、
+    桌面) 改宿主窗口 (`Shell.resizeScreen` → hostwin `Cmd::Resize`: headless 直接换输出尺寸, winit `request_inner_size`, Windows 还没有);
+    会话里回错.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 没人接的 `error` / `unhandledrejection` (交给 `host.reportError` 的那些) 报 `error(kind, text)`
   (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认); `fetch` / XHR / EventSource (都经 `exchange`, 加上本地资源和够不着的地址)
@@ -513,7 +536,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   (HTML、脚本、样式、JSON、wasm、字体、图片、音视频), 固定、和系统无关; 别的 (文稿、表格、压缩包、`.md` …) 是 `application/octet-stream` (#106).
   用户文件的类型不走这张表, 走宿主系统 (`env.fileType`, #98).
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
-  `localStorage` / `sessionStorage` 见「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
+  `localStorage` / `sessionStorage` 见「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null; acde dev 里能事先答复, 见
+  「acde dev」的 `dialog`. 页面可以等用户回答的模态对话框还没有);
   外部链接交给浏览器应用 (宿主窗口里要 slots 的浏览器应用跑不了, 不打开, 见「默认应用」), 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
   `screen.*` 是主输出的逻辑尺寸; `navigator.userAgent` / `platform` 在所有宿主上都报 Linux (`X11; Linux x86_64` / `Linux x86_64`, Broker 的 `UserAgent`,
   经 `WebInit.navigator`), 产品段是 `acdert/<真实版本>`. 运行时对应用呈现统一的 Linux 环境: 交互语义一律照 Linux (编辑快捷键是 Ctrl;

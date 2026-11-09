@@ -176,6 +176,10 @@ impl super::Host for Host {
         let _ = reply.send(Ok(approve::ask(self.hwnd, title, message)));
     }
 
+    fn resize(&self, _: [f64; 2], _: f64) -> Result<Option<(u32, u32)>, String> {
+        Err("resizing the host window is not supported on Windows yet".into())
+    }
+
     fn exit(&self, code: i32) {
         self.exit.set(Some(code));
     }

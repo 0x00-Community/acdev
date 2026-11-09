@@ -1,18 +1,29 @@
-import type { ConsoleLevel, PageErrorKind, RequestEvent, RequestKind } from '@dopame/acde-dom'
+import type { ConsoleLevel, DialogType, PageErrorKind, RequestEvent, RequestKind } from '@dopame/acde-dom'
 
 export type DevPost =
   | { readonly devlog: 'console'; readonly time: number; readonly level: ConsoleLevel; readonly text: string }
   | { readonly devlog: 'error'; readonly time: number; readonly kind: PageErrorKind; readonly text: string }
   | { readonly devlog: 'request'; readonly time: number; readonly event: RequestEvent }
+  | { readonly devlog: 'dialog'; readonly time: number; readonly dialog: DialogEntry }
+
+export interface DialogEntry {
+  readonly type: DialogType
+  readonly message: string
+  readonly defaultValue: string | null
+  readonly answered: boolean
+  readonly accept: boolean
+  readonly text: string | null
+}
 
 export interface ConsoleEntry {
   readonly seq: number
   readonly time: number
   readonly web: string
   readonly app: string | null
-  readonly kind: 'console' | PageErrorKind
+  readonly kind: 'console' | 'dialog' | PageErrorKind
   readonly level: ConsoleLevel
   readonly text: string
+  readonly dialog?: DialogEntry
 }
 
 export interface RequestEntry {
@@ -78,6 +89,12 @@ export class DevLog {
         return this.#log({ seq: this.#nextConsole++, time: post.time, web: source.name, app: source.app, kind: post.kind, level: 'error', text: DevLog.text(post.text) })
       case 'request':
         return this.#request(source, post.time, post.event)
+      case 'dialog': {
+        const d = post.dialog
+        const outcome = d.type === 'alert' ? (d.answered ? 'dismissed' : 'shown') : d.accept ? `accepted${d.type === 'prompt' ? ` with ${JSON.stringify(d.text ?? '')}` : ''}` : 'dismissed'
+        const text = `${d.type}(${JSON.stringify(d.message)}) ${outcome}${d.answered ? '' : ' (no answer was given)'}`
+        return this.#log({ seq: this.#nextConsole++, time: post.time, web: source.name, app: source.app, kind: 'dialog', level: 'info', text: DevLog.text(text), dialog: { ...d, message: DevLog.text(d.message) } })
+      }
     }
   }
 

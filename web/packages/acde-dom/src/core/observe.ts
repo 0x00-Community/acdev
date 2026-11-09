@@ -12,11 +12,25 @@ export type MockReply =
   | { readonly status: number; readonly statusText: string; readonly headers: readonly (readonly [string, string])[]; readonly body: Uint8Array }
   | { readonly error: string }
 
+export type DialogType = 'alert' | 'confirm' | 'prompt'
+
+export interface DialogEvent {
+  readonly type: DialogType
+  readonly message: string
+  readonly defaultValue: string | null
+}
+
+export interface DialogAnswer {
+  readonly accept: boolean
+  readonly text?: string
+}
+
 export interface Observer {
   console?(level: ConsoleLevel, text: string): void
   error?(kind: PageErrorKind, text: string): void
   request?(event: RequestEvent): void
   route?(kind: 'fetch' | 'xhr', method: string, url: string): MockReply | null
+  dialog?(event: DialogEvent): DialogAnswer | null
 }
 
 export let observer: Observer | null = null
@@ -27,6 +41,10 @@ export function observe(next: Observer | null): void {
 
 export function mocked(kind: 'fetch' | 'xhr', method: string, url: string): MockReply | null {
   return observer?.route?.call(observer, kind, method, url) ?? null
+}
+
+export function dialogAnswer(type: DialogType, message: string, defaultValue: string | null): DialogAnswer | null {
+  return observer?.dialog?.call(observer, { type, message, defaultValue }) ?? null
 }
 
 let nextRequest = 1

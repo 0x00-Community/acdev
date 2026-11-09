@@ -1,5 +1,6 @@
 import { DOMException } from './exception'
 import { constants, G, host, report, tag } from './host'
+import { now as clockNow } from './clock'
 
 const enum Phase {
   None = 0,
@@ -85,7 +86,7 @@ export class Event {
     this.#bubbles = !!init?.bubbles
     this.#cancelable = !!init?.cancelable
     this.#composed = !!init?.composed
-    this.#timeStamp = host.now()
+    this.#timeStamp = clockNow()
   }
 
   static {

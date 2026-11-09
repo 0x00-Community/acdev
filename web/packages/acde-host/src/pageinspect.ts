@@ -1,3 +1,4 @@
+import { hostTime } from '@dopame/acde-dom'
 import type { DomNative, WebInternals } from '@dopame/acde-dom'
 import type { Host } from './host'
 
@@ -62,6 +63,10 @@ export class PageInspect {
         return this.select(Number(args[0]), Array.isArray(args[1]) ? args[1].map(String) : [])
       case 'settle':
         return this.settle(Number(args[0]) || 200, Number(args[1]) || 3000)
+      case 'offset':
+        return [this.offset[0], this.offset[1]]
+      case 'text':
+        return this.host.insertText(String(args[0] ?? ''))
       default:
         throw new Error(`inspect has no ${method}`)
     }
@@ -215,20 +220,20 @@ export class PageInspect {
   settle(quiet: number, max: number): Promise<number> {
     const window = this.page.window as unknown as typeof globalThis
     const document = this.page.document as unknown as Document
-    const started = Date.now()
+    const started = hostTime.now()
     let last = started
-    const observer = new window.MutationObserver(() => (last = Date.now()))
+    const observer = new window.MutationObserver(() => (last = hostTime.now()))
     observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true })
     return new Promise((resolve) => {
       const check = () => {
-        const now = Date.now()
+        const now = hostTime.now()
         if (now - last >= quiet || now - started >= max) {
           observer.disconnect()
           return resolve(now - started)
         }
-        setTimeout(check, Math.min(quiet - (now - last), max - (now - started)))
+        hostTime.setTimeout(check, Math.min(quiet - (now - last), max - (now - started)))
       }
-      setTimeout(check, quiet)
+      hostTime.setTimeout(check, quiet)
     })
   }
 

@@ -84,10 +84,13 @@ import {
   Window,
   type NavigatorOptions,
 } from './dom/window'
+import { clockHandle, isInstalled as isClockInstalled, now as clockNow, type ClockRequest, type ClockState } from './core/clock'
+import { adoptTimers } from './core/timers'
 
+export { hostTime, type ClockRequest, type ClockState } from './core/clock'
 export type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
-export { observe, type ConsoleLevel, type MockReply, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
+export { observe, type ConsoleLevel, type DialogAnswer, type DialogEvent, type DialogType, type MockReply, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
 
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly url: string
@@ -117,6 +120,7 @@ export interface WebInternals {
   setScreen(size: { width: number; height: number }): void
   setVisible(visible: boolean): void
   setActive(active: boolean): void
+  clock(request: ClockRequest): Promise<ClockState> | ClockState
   reportError(error: unknown): void
   unhandledRejection(promise: Promise<unknown>, reason: unknown): boolean
   stats(): { strong: number; weak: number }
@@ -243,7 +247,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       moved()
       try {
         deliverScrolls()
-        if (!gpuContexts.behind()) runAnimationFrames(time, report)
+        if (!gpuContexts.behind()) runAnimationFrames(isClockInstalled() ? clockNow() : time, report)
         deliverObservations()
       } catch (error) {
         report(error)
@@ -294,6 +298,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       focus.revision++
       fire(global as unknown as EventTarget, new events.FocusEvent(active ? 'focus' : 'blur'))
     },
+    clock: (request) => clockHandle(request, adoptTimers),
     reportError,
     unhandledRejection(promise, reason) {
       const event = new PromiseRejectionEvent('unhandledrejection', { promise, reason, cancelable: true })

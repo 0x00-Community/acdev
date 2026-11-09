@@ -69,6 +69,7 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "answerSave" => answer_save,
         "readClipboard" => read_clipboard,
         "writeClipboard" => write_clipboard,
+        "resizeScreen" => resize_screen,
         "approve" => approve,
         "dismissApproval" => dismiss_approval,
     );
@@ -152,6 +153,13 @@ fn grant(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: 
     let token = v8::BigInt::new_from_u64(scope, token);
     let obj = bind::object(scope, &[("window", window.into()), ("token", token.into())]);
     rv.set(obj.into());
+}
+
+fn resize_screen(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let (width, height) = (bind::arg_f64(scope, &args, 0), bind::arg_f64(scope, &args, 1));
+    if let Some(Err(e)) = with(scope, |shell| shell.resize_screen(width, height)) {
+        bind::throw_error(scope, &e);
+    }
 }
 
 fn place(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

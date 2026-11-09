@@ -85,8 +85,16 @@ export default async function boot(natives: WebNatives): Promise<void> {
     ...(init.screen && { screen: init.screen }),
   })
   const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null
+  const dialogs: { accept: boolean; text?: string }[] = []
   if (routes) {
     observe({
+      dialog: (event) => {
+        const answer = dialogs.shift() ?? null
+        const accept = answer ? answer.accept : event.type === 'alert'
+        const text = event.type === 'prompt' && accept ? (answer?.text ?? event.defaultValue) : null
+        port.post({ devlog: 'dialog', time: Log.clock(), dialog: { type: event.type, message: event.message, defaultValue: event.defaultValue, answered: !!answer, accept, text } })
+        return answer
+      },
       console: (level, text) => port.post({ devlog: 'console', time: Log.clock(), level, text }),
       error: (kind, text) => port.post({ devlog: 'error', time: Log.clock(), kind, text }),
       request: (event) => port.post({ devlog: 'request', time: Log.clock(), event }),
@@ -112,7 +120,15 @@ export default async function boot(natives: WebNatives): Promise<void> {
     if (service === 'window' && self) return self.serve(method, args)
     if (service === 'inspect') return inspect.serve(method, args)
     if (service === 'dev' && method === 'state' && natives.env['ACDE_DEV']) return DevState.capture(page.window as never)
+    if (service === 'dev' && method === 'clock' && natives.env['ACDE_DEV']) return await page.clock(args[0] as never)
     if (service === 'debug' && method === 'eval' && debug) return await (0, eval)(String(args[0]))
+    if (service === 'debug' && method === 'evalOn' && debug) {
+      const element = page.nodeOf(Number(args[0]))
+      if (!element) throw new Error(`no element ${String(args[0])} in this page (it is gone)`)
+      const fn = (0, eval)(`(${String(args[1])})`) as (element: unknown, arg: unknown) => unknown
+      if (typeof fn !== 'function') throw new Error('evalOn: code is a function of the element')
+      return await fn(element, args[2])
+    }
     if (service === 'debug' && method === 'stats' && debug) return dom.stats(Boolean(args[0]))
     throw new Error(`${init.name} serves no ${service}.${method}`)
   })
@@ -137,6 +153,11 @@ export default async function boot(natives: WebNatives): Promise<void> {
     switch (m.type) {
       case 'devroutes':
         return routes?.set(m.routes ?? [])
+      case 'devdialog': {
+        const d = m as { accept?: unknown; text?: unknown }
+        if (routes) dialogs.push({ accept: d.accept !== false, ...(typeof d.text === 'string' && { text: d.text }) })
+        return
+      }
       case 'screen':
         if (m.width && m.height) page.setScreen({ width: m.width, height: m.height })
         if (m.width && m.height) self?.moved(WindowSelf.output(m.width, m.height, m.scale ?? self.output.scale, m.workArea))
@@ -211,6 +232,15 @@ export default async function boot(natives: WebNatives): Promise<void> {
         : htmlPage
           ? PageSource.html(htmlPage, init.resources)
           : PageSource.window(init.app!, init.theme ?? '')
+  if (natives.env['ACDE_DEV']) {
+    for (const code of init.devInit ?? []) {
+      try {
+        ;(0, eval)(code)
+      } catch (error) {
+        page.reportError(error)
+      }
+    }
+  }
   await page.loadPage(html)
   if (init.devState) {
     DevState.restore(page.window as never, init.devState as DevSnapshot, (restored, missed) =>

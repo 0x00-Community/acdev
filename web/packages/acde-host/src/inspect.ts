@@ -1,6 +1,6 @@
 import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import type { BrokerShell } from './broker'
-import { chordCodes } from './keys'
+import { chordCodes, keyCode } from './keys'
 import type { PageNode, PagePoint, PageQuery, PageTree } from './pageinspect'
 import type { Rpc } from './rpc'
 
@@ -90,6 +90,15 @@ interface Tree {
 
 const LEFT = 0x110
 const RIGHT = 0x111
+const MIDDLE = 0x112
+const MODIFIERS = new Set(['shift', 'ctrl', 'control', 'alt', 'option', 'meta', 'super', 'cmd', 'command'])
+
+export type InspectInput =
+  | { readonly type: 'move'; readonly x: number; readonly y: number }
+  | { readonly type: 'down' | 'up'; readonly x: number; readonly y: number; readonly button?: 'left' | 'right' | 'middle' }
+  | { readonly type: 'wheel'; readonly x: number; readonly y: number; readonly dx?: number; readonly dy?: number }
+  | { readonly type: 'keydown' | 'keyup'; readonly key: string }
+  | { readonly type: 'text'; readonly text: string }
 
 type Point = { readonly x: number; readonly y: number } | { readonly error: string }
 
@@ -125,6 +134,7 @@ export class Inspect {
       this.run(Array.isArray(steps) ? steps.map((s) => ({ ref: String(s?.ref ?? ''), action: s?.action, text: s?.text ?? null })) : []),
     open: (name: string): Promise<ActResult> => this.open(String(name)),
     query: (options: QueryOptions): Promise<Query> => this.query(options),
+    input: (window: number, events: readonly InspectInput[]): Promise<ActResult> => this.input(window, events),
   }
 
   windows(): InspectWindow[] {
@@ -405,21 +415,42 @@ export class Inspect {
       this.#focus(window)
     }
     const shell = this.#host.shell
+    const held = action === 'scroll' ? [] : Inspect.#modifiers(arg)
+    if (held === null) return { ok: false, text: `${action} takes the modifier keys to hold (shift, ctrl, alt, meta, joined with +), not ${JSON.stringify(arg)}` }
     shell.inject({ type: 'move', x, y })
+    for (const code of held) shell.inject({ type: 'keydown', code })
+    try {
+      return this.#press(action, x, y, arg, held.length ? ` (holding ${String(arg)})` : '')
+    } finally {
+      for (const code of [...held].reverse()) shell.inject({ type: 'keyup', code })
+    }
+  }
+
+  static #modifiers(arg: InspectArg): number[] | null {
+    if (arg === null || arg === undefined || arg === '') return []
+    if (typeof arg !== 'string') return null
+    const names = arg.toLowerCase().split('+').map((n) => n.trim()).filter(Boolean)
+    if (!names.every((n) => MODIFIERS.has(n))) return null
+    const codes = names.map((n) => keyCode(n))
+    return codes.every((c): c is number => c !== null) ? codes : null
+  }
+
+  #press(action: InspectAction, x: number, y: number, arg: InspectArg, held: string): ActResult {
+    const shell = this.#host.shell
     const press = (button: number) => {
       shell.inject({ type: 'down', x, y, button })
       shell.inject({ type: 'up', x, y, button })
     }
     switch (action) {
       case 'hover':
-        return { ok: true, text: `moved the pointer to ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `moved the pointer to ${Math.round(x)},${Math.round(y)}${held}` }
       case 'right':
         press(RIGHT)
-        return { ok: true, text: `right-clicked ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `right-clicked ${Math.round(x)},${Math.round(y)}${held}` }
       case 'double':
         press(LEFT)
         press(LEFT)
-        return { ok: true, text: `double-clicked ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `double-clicked ${Math.round(x)},${Math.round(y)}${held}` }
       case 'scroll': {
         const dy = Number(arg) || 400
         shell.inject({ type: 'wheel', x, y, dx: 0, dy, source: 'wheel' })
@@ -427,7 +458,7 @@ export class Inspect {
       }
       case 'click':
         press(LEFT)
-        return { ok: true, text: `clicked ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `clicked ${Math.round(x)},${Math.round(y)}${held}` }
       default:
         return { ok: false, text: `unsupported action ${action}` }
     }
@@ -528,6 +559,56 @@ export class Inspect {
       for (const code of codes!) shell.inject({ type: 'keydown', code })
       for (const code of [...codes!].reverse()) shell.inject({ type: 'keyup', code })
     }
+  }
+
+  async input(id: number, events: readonly InspectInput[]): Promise<ActResult> {
+    const window = this.windows().find((w) => w.id === id)
+    if (!window) return { ok: false, text: `window ${id} is gone` }
+    const rpc = this.#host.web(window.id)
+    if (!rpc) return { ok: false, text: `the page of ${window.ref} is not running` }
+    if (!Array.isArray(events) || !events.length) return { ok: false, text: 'input needs a list of events' }
+    const [ox, oy] = (await rpc.call('inspect', 'offset', [])) as [number, number]
+    const at = (e: { x: number; y: number }) => {
+      if (!Number.isFinite(e.x) || !Number.isFinite(e.y)) throw new Error('input: x and y are page coordinates (numbers)')
+      return { x: window.rect[0] + ox + e.x, y: window.rect[1] + oy + e.y }
+    }
+    const buttons = { left: LEFT, right: RIGHT, middle: MIDDLE } as const
+    const shell = this.#host.shell
+    this.#focus(window)
+    let moved = false
+    for (const event of events) {
+      if (event?.type === 'move' && moved) await Inspect.#sleep(Inspect.DRAG_STEP_MS)
+      moved = event?.type === 'move'
+      switch (event?.type) {
+        case 'move':
+          shell.inject({ type: 'move', ...at(event) })
+          break
+        case 'down':
+        case 'up': {
+          const button = buttons[(event.button ?? 'left') as keyof typeof buttons] as number | undefined
+          if (button === undefined) throw new Error(`input: button is left, right or middle, not ${String(event.button)}`)
+          shell.inject({ type: event.type, ...at(event), button })
+          break
+        }
+        case 'wheel':
+          shell.inject({ type: 'wheel', ...at(event), dx: Number(event.dx) || 0, dy: Number(event.dy) || 0, source: 'wheel' })
+          break
+        case 'keydown':
+        case 'keyup': {
+          const code = keyCode(String(event.key ?? ''))
+          if (code === null) throw new Error(`input: unknown key ${JSON.stringify(event.key)}`)
+          shell.inject({ type: event.type, code })
+          break
+        }
+        case 'text':
+          await rpc.call('inspect', 'text', [String(event.text ?? '')])
+          break
+        default:
+          throw new Error(`input: an event's type is move, down, up, wheel, keydown, keyup or text, not ${JSON.stringify((event as { type?: unknown })?.type)}`)
+      }
+    }
+    await this.#settle(window)
+    return { ok: true, text: `sent ${events.length} input events to ${window.ref}` }
   }
 
   async query(options: QueryOptions): Promise<Query> {

@@ -58,6 +58,7 @@ export interface BrokerShell {
   approve?(title: string, message: string): Promise<boolean | null>
   dismissApproval?(): void
   readClipboard?(): string
+  resizeScreen?(width: number, height: number): void
   writeClipboard?(text: string): void
   readonly socketName: string
   readonly hosted?: boolean
@@ -157,6 +158,7 @@ export interface WebInit {
   readonly channel?: boolean
   readonly devState?: unknown
   readonly devRoutes?: readonly DevRoute[]
+  readonly devInit?: readonly string[]
   readonly tier: WebTier
 }
 

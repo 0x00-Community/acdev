@@ -1,3 +1,4 @@
+import { hostTime } from '@dopame/acde-dom'
 import type { PanelReserve, PinnedPanel, PinOptions, WindowEdge } from '@dopame/acde-api'
 import type { NativeSurface } from './native'
 import type { Rpc } from './rpc'
@@ -52,7 +53,7 @@ export class Pinned {
     page.window.addEventListener('resize', () => {
       this.update()
       page.window.requestAnimationFrame(() => this.update())
-      setTimeout(() => this.update(), 700)
+      hostTime.setTimeout(() => this.update(), 700)
     })
   }
 
@@ -67,17 +68,17 @@ export class Pinned {
     const { ResizeObserver, MutationObserver } = this.#page.window
     const resized = new ResizeObserver(() => this.#place(panel))
     resized.observe(element)
-    let settle: ReturnType<typeof setTimeout> | null = null
+    let settle: number | null = null
     const changed = new MutationObserver(() => {
       this.#place(panel)
-      if (settle !== null) clearTimeout(settle)
-      settle = setTimeout(() => {
+      if (settle !== null) hostTime.clearTimeout(settle)
+      settle = hostTime.setTimeout(() => {
         settle = null
         this.#place(panel)
       }, 700)
     })
     for (let at: Element | null = element; at; at = at.parentElement) changed.observe(at, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] })
-    panel.stops.push(() => resized.disconnect(), () => changed.disconnect(), () => settle !== null && clearTimeout(settle))
+    panel.stops.push(() => resized.disconnect(), () => changed.disconnect(), () => settle !== null && hostTime.clearTimeout(settle))
     this.#place(panel)
     return this.#handle(panel)
   }

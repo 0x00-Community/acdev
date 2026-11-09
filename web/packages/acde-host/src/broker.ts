@@ -198,6 +198,8 @@ export class Broker {
       desktop: () => this.#desktop,
       title: (web) => (web.kind === 'desktop' ? this.#current.name : (this.#windows.get(web.window)?.title ?? web.app?.label ?? web.name)),
       emulate: (options) => this.emulate(options),
+      reload: (app) => this.devReload(app),
+      screen: () => this.#screen(),
     })
     this.#appCalls = new AppCalls({
       shell: this.shell,
@@ -363,6 +365,7 @@ export class Broker {
       standalone: this.#current.id === Packages.BARE ? standalone : null,
       devState: this.#takeDevState(''),
       devRoutes: this.#dev.routesFor('desktop', null),
+      devInit: this.#dev.initsFor('desktop', null),
       tier: this.#launchable.tier(null),
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
@@ -404,6 +407,7 @@ export class Broker {
       ...(app.backend && AppBackends.webInit(app.id)),
       devState: this.#takeDevState(app.id),
       devRoutes: this.#dev.routesFor(`${app.id}#${record.id}`, app.id),
+      devInit: this.#dev.initsFor(`${app.id}#${record.id}`, app.id),
       tier,
     }
     record.request = null

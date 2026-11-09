@@ -1,3 +1,4 @@
+import { hostTime } from '@dopame/acde-dom'
 import type { DomNative, WebInternals } from '@dopame/acde-dom'
 import { InputMethod, type ImePanelEvent } from './ime'
 import { ImePanel } from './panel'
@@ -102,7 +103,7 @@ export class TextEntry {
     const password = field?.type === 'password'
     const last = editable === this.#reported ? this.#last : null
     const same = !!last && last.text === text && last.cursor === cursor && last.anchor === anchor && last.password === password
-    const now = performance.now()
+    const now = hostTime.now()
     if (same && now - this.#checked < TextEntry.RECHECK_MS) return
     const rect = this.#caretRect(editable)
     this.#checked = now

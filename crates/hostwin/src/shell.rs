@@ -479,6 +479,15 @@ impl Shell {
         server().expect("hostwin").compositor().ok_or("the compositor has not started")?.screenshot(path)
     }
 
+    pub fn resize_screen(&self, width: f64, height: f64) -> Result<(), String> {
+        if !(width.is_finite() && height.is_finite() && width >= 1.0 && height >= 1.0) {
+            return Err(format!("resize: {width}x{height} is not a size"));
+        }
+        let (reply, got) = std::sync::mpsc::sync_channel(1);
+        server().expect("hostwin").send(Cmd::Resize { size: [width, height], reply });
+        got.recv_timeout(std::time::Duration::from_secs(5)).map_err(|_| "the host window did not answer".to_owned())?
+    }
+
     pub fn quit(&self) {
         server().expect("hostwin").send(Cmd::Exit(0));
     }

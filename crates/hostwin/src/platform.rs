@@ -5,6 +5,7 @@ use crate::{OpenRequest, SaveRequest};
 pub(crate) type FolderReply = std::sync::mpsc::SyncSender<Result<Option<PathBuf>, String>>;
 pub(crate) type FilesReply = std::sync::mpsc::SyncSender<Result<Option<Vec<PathBuf>>, String>>;
 pub(crate) type ApproveReply = std::sync::mpsc::SyncSender<Result<Option<bool>, String>>;
+pub(crate) type ResizeReply = std::sync::mpsc::SyncSender<Result<(), String>>;
 
 pub(crate) enum Cmd {
     Title(String),
@@ -18,6 +19,7 @@ pub(crate) enum Cmd {
     Approve { title: String, message: String, reply: ApproveReply },
     HostState(Option<acde_model::WindowState>),
     HostSize([f64; 2]),
+    Resize { size: [f64; 2], reply: ResizeReply },
     Exit(i32),
 }
 
@@ -80,6 +82,7 @@ pub(crate) trait Host {
     fn choose_folder(&self, title: &str, reply: FolderReply);
     fn open_files(&self, request: OpenRequest, reply: FilesReply);
     fn save_file(&self, request: SaveRequest, reply: FolderReply);
+    fn resize(&self, size: [f64; 2], scale: f64) -> Result<Option<(u32, u32)>, String>;
     fn exit(&self, code: i32);
 
     fn controls(&self) -> bool {

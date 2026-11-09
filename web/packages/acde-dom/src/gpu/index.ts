@@ -713,7 +713,7 @@ export const contexts = {
   waiting: new Set<GPUCanvasContext>(),
   behind(): boolean {
     if (inFlight.size < 2) return false
-    const now = Date.now()
+    const now = host.now()
     let count = 0
     for (const { at } of inFlight) if (now - at < IN_FLIGHT_MS) count++
     return count >= 2
@@ -730,7 +730,7 @@ export const contexts = {
     for (const context of contexts.waiting) device = present(context) ?? device
     contexts.waiting.clear()
     if (!device) return
-    const entry = { at: Date.now() }
+    const entry = { at: host.now() }
     inFlight.add(entry)
     const done = () => inFlight.delete(entry)
     native.onSubmittedWorkDone(device[ID]).then(done, done)

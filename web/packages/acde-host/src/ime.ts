@@ -1,3 +1,4 @@
+import { hostTime } from '@dopame/acde-dom'
 import type { Modifiers } from './native'
 import type { TextInputState } from './text'
 import { Level, Log } from './log'
@@ -103,12 +104,12 @@ export class InputMethod {
   }
 
   #native(): NativeIme | null {
-    if (this.#ime || performance.now() - this.#failedAt < InputMethod.RETRY_MS) return this.#ime
+    if (this.#ime || hostTime.now() - this.#failedAt < InputMethod.RETRY_MS) return this.#ime
     try {
       this.#ime = this.#open()
     } catch (error) {
       if (this.#failedAt === -Infinity) Log.write(Level.Warn, 'acde_host', `input method unavailable (trying again): ${(error as Error).message}`)
-      this.#failedAt = performance.now()
+      this.#failedAt = hostTime.now()
     }
     return this.#ime
   }
@@ -122,7 +123,7 @@ export class InputMethod {
       this.#ime = null
       this.#focused = false
       this.#sent = null
-      this.#failedAt = performance.now()
+      this.#failedAt = hostTime.now()
       Log.write(Level.Warn, 'acde_host', `input method dropped: ${(error as Error).message}`)
       return undefined
     }
