@@ -128,7 +128,9 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 (Broker 的 `native.Shell.broker()` 换成 hostwin 的 `Shell`, crates/acdert `hostnative.rs`; web 的 `claimSurface` 拿到 hostwin 的
 `Surface`, crates/acdert `surface.rs` 是两种的 enum).
 
-- **结构**: 平台层 (`platform.rs` 的 `Handler` / `HostEvent` / `Cmd`) 只有两个: `platform/win32.rs` (Win32: 窗口、IMM32、剪贴板、`WM_DROPFILES`、
+- **结构**: `src/` 顶层是 `lib.rs`、`app.rs`、`shell.rs`、`dev.rs`、`keys.rs`、`platform.rs` (加 `platform/`); `output/` 是出帧到合成
+  (`surface.rs`、`present.rs`、`compose.rs`、`gpu.rs`), `system/` 是交给宿主系统的事 (`chooser.rs`、`notify.rs`、`handoff.rs`). 下面只写文件名.
+  平台层 (`platform.rs` 的 `Handler` / `HostEvent` / `Cmd`) 只有两个: `platform/win32.rs` (Win32: 窗口、IMM32、剪贴板、`WM_DROPFILES`、
   `SHBrowseForFolderW`、`IFileOpenDialog` / `IFileSaveDialog`、per-monitor DPI v2) 和 `platform/host_winit.rs` (macOS / Linux, winit + arboard; macOS 的选文件夹、打开和保存文件是 `chooser.rs`). `app.rs`:
   命中、拖动、焦点、快捷键、注入. `shell.rs`: 窗口表 (`State` / `Entry`, 层序 desktop < free / fixed < pinned, 再按 z). `present.rs`: 每个 web
   一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理; `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync).
@@ -368,7 +370,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `InvalidStateError`, 下拉框打开列表 (不查 transient activation: acde-dom 还没有用户激活的模型). 选项列表由 render 画在帧的最上面 (不在
   文档里, `Engine.picker`, 每帧按 select 的位置重排: 下面放得下放下面, 否则放空间大的一边并截短、能滚), 所以出不了窗口; 滚轮在列表上
   滚列表, 在外面先关掉列表.
-- **通知**: `Notification` 转给桌面 (`on('notification')`); 桌面没在显示时 (调试窗口) 由宿主窗口发系统通知 (hostwin `notify.rs`). 页面给的文字
+- **通知**: `Notification` 转给桌面 (`on('notification')`); 桌面没在显示时 (调试窗口) 由宿主窗口发系统通知 (hostwin `system/notify.rs`). 页面给的文字
   当不可信数据: macOS 用 `osascript -l JavaScript -e <固定脚本>`, 文字只经环境变量 `ACDE_NOTIFY_*` 传 (放进 argv 会被当成选项); Linux 走
   `org.freedesktop.Notifications` (body 只在服务端报 `body-markup` 时转实体); Windows 还没有.
 - **声音**: `Audio` / `AudioContext` (acde-dom `src/audio/`, crates/acdert `audio/`): 解码 (symphonia) 和混音 (每个 web 一个 48 kHz 立体声 f32
@@ -669,7 +671,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   `acde.apps.list()` 和 `appschanged` 里 (Dock、搜索、设置看不到); `launch` / `acde.open(<id>)` 和指定 `app` 的 `openPath` 回
   `{status: 404, code: 'unsupported_app'}` (页面看不出自己在哪: `navigator.platform` 固定是 `Linux x86_64`, 所以靠这个 code). Linux 会话不变.
 - **macOS / Windows 的宿主窗口交给系统默认程序** (没有 XDG 的 `.desktop`, `natives()` 是空的): 没有能用的 acde 应用、也没有指定 `app`
-  时, `Opener.open` 经宿主 `Shell.openDefault(目标)` (只在这两处注入; hostwin `handoff.rs`, 在 `acde-open` 线程上做, promise 落定)
+  时, `Opener.open` 经宿主 `Shell.openDefault(目标)` (只在这两处注入; hostwin `system/handoff.rs`, 在 `acde-open` 线程上做, promise 落定)
   交给系统: Windows `ShellExecuteW` (动词 `open`, 线程上先 `CoInitializeEx`), macOS `/usr/bin/open <目标>` (不经 shell). 回
   `{kind: 'native', id: 'system'}`. 只有两种目标:
   - http / https 链接: `Opener` 先用 `URL` 规范成 `href`; Rust 再要求小于 8 KiB、只有可见 ASCII、没有 `"` `\` `<` `>` `` ` `` 和空白、有主机

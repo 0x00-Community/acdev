@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use acde_gpu::wgpu;
 
 use crate::app::server;
-use crate::gpu::Gpu;
+use crate::output::gpu::Gpu;
 
 const SHADER: &str = r"
 struct Place {

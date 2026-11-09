@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use acde_model::{Combo, Event, Inbox, Injected, Mode, Rect};
 use acde_render::FrameButton;
 
-use crate::compose::{self, Compositor};
-use crate::gpu::Gpu;
 use crate::keys;
+use crate::output::compose::{self, Compositor};
+use crate::output::gpu::Gpu;
 use crate::platform::{self, Cmd, Handler, Host, HostEvent, Monitor, Proxy};
 use crate::shell::State;
 
@@ -323,7 +323,7 @@ impl App {
         if let Some((target, [ox, oy])) = self.target(server) {
             let (x, y) = (self.pointer.0 - ox, self.pointer.1 - oy);
             if let Some(link) = server.state().entries.get(&target).and_then(|e| e.link.clone()) {
-                link.send(crate::surface::Msg::Scroll(x, y, dx, dy));
+                link.send(crate::output::surface::Msg::Scroll(x, y, dx, dy));
             }
             server.event(target, Event { kind: "wheel".into(), x: Some(x), y: Some(y), delta_x: Some(dx), delta_y: Some(dy), ..Default::default() });
         }

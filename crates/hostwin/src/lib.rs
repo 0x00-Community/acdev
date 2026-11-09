@@ -1,22 +1,17 @@
 mod app;
-#[cfg(not(windows))]
-mod chooser;
-mod compose;
 mod dev;
-mod gpu;
-mod handoff;
 mod keys;
-mod notify;
+mod output;
 mod platform;
-mod present;
 mod shell;
-mod surface;
+mod system;
 
 pub use acde_model::{Event, Inbox, InjectEvent, Injected, Mode, Waker};
 pub use dev::respond as dev_respond;
-pub use handoff::OpenError;
+pub use output::surface::{Shot, Surface};
 pub use shell::{Grant, Shell, WindowInfo};
-pub use surface::{Shot, Surface};
+pub use system::handoff::OpenError;
+use system::{handoff, notify};
 
 pub fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
     app::run(main)

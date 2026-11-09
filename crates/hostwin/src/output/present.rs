@@ -9,9 +9,9 @@ use vello::kurbo::{Affine, Rect};
 use vello::peniko::Color;
 
 use crate::app::server;
-use crate::compose::{Page, drain};
-use crate::gpu::Gpu;
-use crate::surface::{Msg, Shot};
+use crate::output::compose::{Page, drain};
+use crate::output::gpu::Gpu;
+use crate::output::surface::{Msg, Shot};
 
 const DEFAULT_HZ: f64 = 60.0;
 

@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use acde_model::{Binding, Combo, Event, Inbox, Injected, Mode, Scope, Shortcuts, Waker};
 
 use crate::app::server;
-use crate::compose::Layer;
+use crate::output::compose::Layer;
+use crate::output::surface::{Link, Shot};
 use crate::platform::Cmd;
-use crate::surface::{Link, Shot};
 
 pub(crate) const CAPTURE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
