@@ -178,7 +178,8 @@ jobs:
           scripts/release/check-stage.sh release-stage "$v"
           mkdir -p "pkgs/$v"
           cp release-stage/acdert-x86_64-unknown-linux-gnu release-stage/acdert-aarch64-apple-darwin \
-            release-stage/acdert-x86_64-pc-windows-msvc.exe "release-stage/acdert-host-$v.tar.gz" release-stage/LICENSE "pkgs/$v/"
+            release-stage/acdert-x86_64-pc-windows-msvc.exe "release-stage/acdert-host-$v.tar.gz" release-stage/LICENSE \
+            "release-stage/acde-api-$v.tar.gz" "pkgs/$v/"
           (cd "pkgs/$v" && sha256sum -- * > SHA256SUMS)
           scripts/release/check-stage.sh "pkgs/$v" "$v"
           files=$(cd "pkgs/$v" && ls | jq -R . | jq -sc .)
@@ -203,6 +204,7 @@ jobs:
 
   npm-build:
     needs: release
+    if: ${{ vars.NPM_PUBLISH == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
