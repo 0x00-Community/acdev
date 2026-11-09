@@ -80,6 +80,7 @@ impl Surface {
         place_panel(id: u32, rect: [i32; 4], input: [i32; 4]) => C::PlacePanel { id, rect, input };
         close_panel(id: u32) => C::ClosePanel(id);
         reserve_panel(id: u32, edge: u32, thickness: f64) => C::ReservePanel { id, edge, thickness };
+        set_double_click(action: u32) => C::DoubleClick(action);
         set_title(title: &str) => C::Title(title.to_owned());
         set_ime_area(rect: [f64; 4]) => C::ImeArea(rect);
     }

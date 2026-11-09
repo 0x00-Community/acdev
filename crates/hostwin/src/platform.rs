@@ -100,3 +100,7 @@ pub(crate) fn clipboard_set(text: String) {
 pub(crate) fn clipboard_get() -> String {
     if headless() { headless::clipboard_get() } else { native::clipboard_get() }
 }
+
+pub(crate) fn click_settings() -> acde_model::ClickSettings {
+    if headless() { acde_model::ClickSettings::default() } else { native::click_settings() }
+}

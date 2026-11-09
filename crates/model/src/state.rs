@@ -26,6 +26,63 @@ impl WindowState {
     }
 }
 
+wire!(#[derive(Default)] "double-click action" DoubleClick {
+    #[default]
+    Fill = "fill",
+    Minimize = "minimize",
+    Off = "none",
+});
+
+impl DoubleClick {
+    pub fn target(self, mode: Mode, state: WindowState) -> Option<WindowState> {
+        if mode != Mode::Free {
+            return None;
+        }
+        match (self, state) {
+            (DoubleClick::Fill, WindowState::Normal) => Some(WindowState::Filled),
+            (DoubleClick::Fill, WindowState::Filled) => Some(WindowState::Normal),
+            (DoubleClick::Minimize, WindowState::Normal | WindowState::Filled) => Some(WindowState::Minimized),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClickSettings {
+    pub time_ms: f64,
+    pub distance: [f64; 2],
+}
+
+impl Default for ClickSettings {
+    fn default() -> Self {
+        Self { time_ms: 500.0, distance: [4.0, 4.0] }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Clicks {
+    last: Option<(u32, f64, [f64; 2])>,
+    count: u32,
+}
+
+impl Clicks {
+    pub fn press(&mut self, target: u32, now_ms: f64, at: [f64; 2], settings: ClickSettings) -> u32 {
+        let near = self.last.is_some_and(|(t, then, [x, y])| {
+            t == target
+                && now_ms - then <= settings.time_ms
+                && (at[0] - x).abs() <= settings.distance[0] / 2.0
+                && (at[1] - y).abs() <= settings.distance[1] / 2.0
+        });
+        self.count = if near { self.count + 1 } else { 1 };
+        self.last = Some((target, now_ms, at));
+        self.count
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Change {
     pub state: WindowState,
@@ -181,6 +238,39 @@ mod tests {
         }
         assert!(Window::new(Mode::Fixed).request(Minimized));
         assert!(!Window::new(Mode::Pinned).request(Minimized));
+    }
+
+    #[test]
+    fn two_presses_close_in_time_and_place_are_a_double_click() {
+        let settings = ClickSettings { time_ms: 500.0, distance: [4.0, 4.0] };
+        let mut clicks = Clicks::default();
+        assert_eq!(clicks.press(1, 0.0, [100.0, 10.0], settings), 1);
+        assert_eq!(clicks.press(1, 400.0, [101.0, 11.0], settings), 2);
+        clicks.reset();
+        assert_eq!(clicks.press(1, 1000.0, [100.0, 10.0], settings), 1);
+        assert_eq!(clicks.press(1, 1501.0, [100.0, 10.0], settings), 1, "too slow");
+        assert_eq!(clicks.press(1, 1600.0, [103.0, 10.0], settings), 1, "too far");
+        assert_eq!(clicks.press(2, 1700.0, [103.0, 10.0], settings), 1, "another window");
+        let wide = ClickSettings { time_ms: 900.0, distance: [10.0, 10.0] };
+        assert_eq!(clicks.press(2, 2500.0, [107.0, 14.0], wide), 2, "the platform settings decide");
+    }
+
+    #[test]
+    fn the_double_click_action_toggles_fill_or_minimizes_free_windows() {
+        assert_eq!(DoubleClick::default(), DoubleClick::Fill);
+        assert_eq!(DoubleClick::Fill.target(Mode::Free, Normal), Some(Filled));
+        assert_eq!(DoubleClick::Fill.target(Mode::Free, Filled), Some(Normal));
+        assert_eq!(DoubleClick::Fill.target(Mode::Free, Fullscreen), None);
+        assert_eq!(DoubleClick::Minimize.target(Mode::Free, Normal), Some(Minimized));
+        assert_eq!(DoubleClick::Minimize.target(Mode::Free, Filled), Some(Minimized));
+        assert_eq!(DoubleClick::Off.target(Mode::Free, Normal), None);
+        for mode in [Mode::Fixed, Mode::Pinned, Mode::Fullscreen] {
+            for action in DoubleClick::ALL {
+                assert_eq!(action.target(mode, Normal), None, "{mode:?} {action:?}");
+            }
+        }
+        assert_eq!("none".parse::<DoubleClick>(), Ok(DoubleClick::Off));
+        assert!("maximize".parse::<DoubleClick>().is_err());
     }
 
     #[test]

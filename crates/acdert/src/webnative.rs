@@ -93,6 +93,7 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         "placePanel" => place_panel,
         "closePanel" => close_panel,
         "reservePanel" => reserve_panel,
+        "setDoubleClick" => set_double_click,
         "setClipboard" => set_clipboard,
         "readClipboard" => read_clipboard,
         "startDrag" => start_drag,
@@ -281,6 +282,16 @@ fn reserve_panel(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
     let edge = bind::arg_f64(scope, &args, 1) as u32;
     let thickness = bind::arg_f64(scope, &args, 2).max(0.0);
     with_surface(scope, |surface| surface.reserve_panel(id, edge, thickness));
+}
+
+fn set_double_click(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let name = bind::arg_string(scope, &args, 0);
+    match name.parse::<acde_hostwin::DoubleClick>() {
+        Ok(action) => {
+            with_surface(scope, |surface| surface.set_double_click(action as u32));
+        }
+        Err(e) => bind::throw_type_error(scope, &format!("setDoubleClick: {e}")),
+    }
 }
 
 fn request_activate(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

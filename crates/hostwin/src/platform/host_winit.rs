@@ -66,6 +66,10 @@ pub(crate) fn clipboard_get() -> String {
     arboard::Clipboard::new().and_then(|mut c| c.get_text()).unwrap_or_default()
 }
 
+pub(crate) fn click_settings() -> acde_model::ClickSettings {
+    acde_model::ClickSettings::default()
+}
+
 struct Loop {
     handler: Box<dyn Handler>,
     proxy: EventLoopProxy<Cmd>,

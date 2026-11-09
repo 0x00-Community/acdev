@@ -3,7 +3,7 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use acde_model::{Binding, Change, Combo, Event, Inbox, Injected, Mode, Restore, Scope, Shortcuts, Waker, WindowState};
+use acde_model::{Binding, Change, ClickSettings, Clicks, Combo, DoubleClick, Event, Inbox, Injected, Mode, Restore, Scope, Shortcuts, Waker, WindowState};
 
 use crate::app::server;
 use crate::output::compose::Layer;
@@ -68,6 +68,12 @@ pub(crate) struct Entry {
     pub drawn: (u32, u32),
 }
 
+pub(crate) enum Press {
+    Plain,
+    Drag(u32, [f64; 4]),
+    Double(Option<WindowState>),
+}
+
 pub(crate) struct Hit {
     pub entry: u32,
     pub target: u32,
@@ -114,6 +120,8 @@ pub(crate) struct State {
     pub refresh: Option<f64>,
     pub frames: u64,
     pub work: Option<[f64; 4]>,
+    pub double_click: DoubleClick,
+    pub clicks: Clicks,
 }
 
 impl State {
@@ -261,6 +269,28 @@ impl State {
                 None => hit,
             })
         })
+    }
+
+    pub fn press(&mut self, id: u32, at: [f64; 2], now_ms: f64, settings: ClickSettings) -> Press {
+        let Some(e) = self.entries.get(&id).filter(|e| !e.desktop && !e.panel && e.owner.is_none()) else {
+            self.clicks.reset();
+            return Press::Plain;
+        };
+        let (x, y) = (at[0] - e.rect[0], at[1] - e.rect[1]);
+        let edges = e.grab_hints().iter().rev().find(|([hx, hy, hw, hh], _)| x >= *hx && y >= *hy && x < hx + hw && y < hy + hh).map(|(_, edges)| *edges);
+        let title = edges == Some(0) && matches!(e.mode, Mode::Free | Mode::Fixed);
+        let allowed = e.state.moves() && (e.mode == Mode::Free || (e.mode == Mode::Fixed && edges == Some(0)));
+        let (mode, state, rect) = (e.mode, e.state, e.rect);
+        if !title {
+            self.clicks.reset();
+        } else if self.clicks.press(id, now_ms, at, settings) >= 2 {
+            self.clicks.reset();
+            return Press::Double(self.double_click.target(mode, state));
+        }
+        match edges {
+            Some(edges) if allowed => Press::Drag(edges, rect),
+            _ => Press::Plain,
+        }
     }
 
     pub fn pixels(&self, rect: [f64; 4]) -> (u32, u32) {
@@ -644,6 +674,67 @@ mod tests {
         assert!(apply(&mut s, w, Some(WindowState::Fullscreen)).is_some());
         assert_eq!(s.entries[&w].rect, [0.0, 0.0, 1000.0, 800.0]);
         assert!(s.refill().1.is_empty());
+    }
+
+    #[test]
+    fn a_double_click_on_a_title_area_acts_without_starting_a_move() {
+        let mut s = screen();
+        let settings = ClickSettings::default();
+        let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 400.0, 300.0]), ..Grant::default() });
+        s.entries.get_mut(&w).expect("framed").frame = 32.0;
+        let title = [300.0, 115.0];
+        assert!(matches!(s.press(w, title, 0.0, settings), Press::Drag(0, _)));
+        assert!(matches!(s.press(w, title, 200.0, settings), Press::Double(Some(WindowState::Filled))));
+        assert!(matches!(s.press(w, title, 300.0, settings), Press::Drag(0, _)), "a third press starts over");
+        apply(&mut s, w, Some(WindowState::Filled));
+        let top = [300.0, 15.0];
+        assert!(matches!(s.press(w, top, 1000.0, settings), Press::Plain), "a filled window does not move");
+        assert!(matches!(s.press(w, top, 1100.0, settings), Press::Double(Some(WindowState::Normal))));
+        apply(&mut s, w, Some(WindowState::Normal));
+        assert!(matches!(s.press(w, title, 2000.0, settings), Press::Drag(0, _)));
+        assert!(matches!(s.press(w, title, 2600.0, settings), Press::Drag(0, _)), "too slow");
+        assert!(matches!(s.press(w, [300.0, 300.0], 2700.0, settings), Press::Plain), "the page");
+        assert!(matches!(s.press(w, title, 2800.0, settings), Press::Drag(0, _)), "a press elsewhere starts over");
+    }
+
+    #[test]
+    fn page_grab_hints_without_edges_take_the_double_click() {
+        let mut s = screen();
+        let settings = ClickSettings::default();
+        let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 400.0, 300.0]), ..Grant::default() });
+        s.entries.get_mut(&w).expect("frameless").hints = vec![([0.0, 0.0, 400.0, 40.0], 0), ([0.0, 0.0, 400.0, 4.0], acde_model::edge::TOP)];
+        let caption = [200.0, 120.0];
+        assert!(matches!(s.press(w, caption, 0.0, settings), Press::Drag(0, _)));
+        assert!(matches!(s.press(w, caption, 100.0, settings), Press::Double(Some(WindowState::Filled))));
+        let edge = [200.0, 101.0];
+        assert!(matches!(s.press(w, edge, 1000.0, settings), Press::Drag(acde_model::edge::TOP, _)));
+        assert!(matches!(s.press(w, edge, 1100.0, settings), Press::Drag(acde_model::edge::TOP, _)), "resize edges never double-click");
+    }
+
+    #[test]
+    fn the_declared_action_decides_and_some_windows_ignore_the_gesture() {
+        let mut s = screen();
+        let settings = ClickSettings::default();
+        let double = |s: &mut State, id: u32, at: [f64; 2], t: f64| {
+            s.press(id, at, t, settings);
+            s.press(id, at, t + 100.0, settings)
+        };
+        let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 400.0, 300.0]), ..Grant::default() });
+        s.entries.get_mut(&w).expect("framed").frame = 32.0;
+        s.double_click = DoubleClick::Minimize;
+        assert!(matches!(double(&mut s, w, [300.0, 115.0], 0.0), Press::Double(Some(WindowState::Minimized))));
+        s.double_click = DoubleClick::Off;
+        assert!(matches!(double(&mut s, w, [300.0, 115.0], 1000.0), Press::Double(None)));
+        s.double_click = DoubleClick::Fill;
+        let fixed = open(&mut s, Grant { mode: Some(Mode::Fixed), rect: Some([600.0, 100.0, 300.0, 200.0]), ..Grant::default() });
+        s.entries.get_mut(&fixed).expect("fixed").frame = 32.0;
+        assert!(matches!(double(&mut s, fixed, [750.0, 115.0], 2000.0), Press::Double(None)));
+        let pinned = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 700.0, 300.0, 100.0]), ..Grant::default() });
+        s.entries.get_mut(&pinned).expect("pinned").hints = vec![([0.0, 0.0, 300.0, 100.0], 0)];
+        assert!(matches!(double(&mut s, pinned, [100.0, 750.0], 3000.0), Press::Plain));
+        let (desktop, _) = s.grant(Grant { desktop: true, ..Grant::default() });
+        s.entries.get_mut(&desktop).expect("desktop").hints = vec![([0.0, 0.0, 1000.0, 800.0], 0)];
+        assert!(matches!(double(&mut s, desktop, [10.0, 10.0], 4000.0), Press::Plain));
     }
 
     #[test]

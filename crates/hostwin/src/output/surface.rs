@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
-use acde_model::{Event, Inbox, Mode, Waker, WindowState};
+use acde_model::{DoubleClick, Event, Inbox, Mode, Waker, WindowState};
 use acde_render::{RenderHandle, SurfaceCommand};
 
 use crate::app::server;
@@ -204,6 +204,11 @@ impl Surface {
             C::PlacePanel { id, rect, input } => self.place_panel(id, rect, input),
             C::ClosePanel(id) => self.close_panel(id),
             C::ReservePanel { id, edge, thickness } => self.reserve_panel(id, edge, thickness),
+            C::DoubleClick(action) => {
+                if let (Some(server), Ok(action)) = (server(), DoubleClick::try_from(action)) {
+                    server.state().double_click = action;
+                }
+            }
             C::Title(title) => self.set_title(&title),
             C::ImeArea(rect) => self.set_ime_area(rect),
         }

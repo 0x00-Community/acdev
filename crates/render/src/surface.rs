@@ -22,6 +22,7 @@ pub enum SurfaceCommand {
     PlacePanel { id: u32, rect: [i32; 4], input: [i32; 4] },
     ClosePanel(u32),
     ReservePanel { id: u32, edge: u32, thickness: f64 },
+    DoubleClick(u32),
     Title(String),
     ImeArea([f64; 4]),
 }

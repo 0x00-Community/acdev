@@ -8,7 +8,7 @@ use crate::keys;
 use crate::output::compose::{self, Compositor};
 use crate::output::gpu::Gpu;
 use crate::platform::{self, Cmd, Handler, Host, HostEvent, Monitor, Proxy};
-use crate::shell::State;
+use crate::shell::{Press, State};
 
 const DESKTOP: [f64; 2] = [1440.0, 900.0];
 const MIN_SIZE: (f64, f64) = (160.0, 100.0);
@@ -452,20 +452,22 @@ impl App {
         (e.frame > 0.0).then(|| e.bar().button_at(self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1])).flatten()
     }
 
-    fn grab(&self, server: &Server, entry: u32) -> Option<Drag> {
-        let state = server.state();
-        let e = state.entries.get(&entry)?;
-        if e.desktop || e.panel || e.owner.is_some() || !e.state.moves() {
-            return None;
+    fn left_press(&mut self, server: &Server, entry: u32) -> bool {
+        let (x, y) = self.pointer;
+        let press = server.state().press(entry, [x, y], acde_log::now_ms(), platform::click_settings());
+        match press {
+            Press::Plain => false,
+            Press::Drag(edges, rect) => {
+                self.drag = Some(Drag { window: entry, edges, start: self.pointer, rect });
+                true
+            }
+            Press::Double(to) => {
+                if let Some(to) = to {
+                    crate::output::surface::request_state(entry, Some(to));
+                }
+                true
+            }
         }
-        let (x, y) = (self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1]);
-        let edges = e.grab_hints().iter().rev().find(|([hx, hy, hw, hh], _)| x >= *hx && y >= *hy && x < hx + hw && y < hy + hh).map(|(_, edges)| *edges)?;
-        let allowed = match e.mode {
-            Mode::Free => true,
-            Mode::Fixed => edges == 0,
-            Mode::Fullscreen | Mode::Pinned => false,
-        };
-        allowed.then_some(Drag { window: entry, edges, start: self.pointer, rect: e.rect })
     }
 
     fn button(&mut self, server: &Server, button: u32, pressed: bool) {
@@ -478,10 +480,7 @@ impl App {
                 if hit.blocked {
                     return;
                 }
-                if button == keys::BUTTON_LEFT
-                    && let Some(drag) = self.grab(server, hit.entry)
-                {
-                    self.drag = Some(drag);
+                if button == keys::BUTTON_LEFT && self.left_press(server, hit.entry) {
                     return;
                 }
                 if hit.bar {
