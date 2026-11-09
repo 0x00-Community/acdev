@@ -1,185 +1,33 @@
 import type { InspectArg } from '@dopame/acde-api'
 import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
-import { sys, type WebGrants, type WebThreadHandle } from './sys/natives'
+import { sys } from './sys/natives'
 import { AppRegistry, type AppManifest, type Capabilities } from './apps'
 import { AppBackends } from './backend'
 import { Crashes } from './crashes'
 import { PageBridge } from './bridge'
 import { Downloads } from './downloads'
 import { Frame } from './frame'
-import { type OpenCaller, Opener, type OpenOptions } from './open'
+import { Opener, type OpenOptions } from './open'
 import { NativeApps } from './launcher'
 import { PageSource } from './page'
 import { StartupTimeline } from './timeline'
 import type { Native, NativeFileChooser, RawShellEvent } from './native'
 import { Packages, type InstalledDesktop } from './packages'
-import { Rpc } from './rpc'
 import { DesktopSession, type RunEnd } from './session'
 import { DevLog } from './devlog'
 import { DevRoutes, type DevRoute } from './devroutes'
 import { Inspect, type NativeAccessibility } from './inspect'
-import { SessionLanguage, type Languages } from './language'
-import { StoragePlaces, type StoragePlace } from './storage'
+import { SessionLanguage } from './language'
+import { StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { basename, isAbsolute } from './sys/path'
 import { process } from './sys/process'
+import type { AnimateOptions, BrokerOptions, BrokerShell, ServiceShape, WebInfo, WebInit, WindowRecord, WireMenu } from './broker/types'
+import { Web } from './broker/web'
 
-export interface BrokerShell {
-  pump(): RawShellEvent[]
-  onEvents(callback: () => void): void
-  grant(options?: { desktop?: boolean; hidden?: boolean; window?: number; mode?: 'fullscreen' | 'free' | 'fixed' | 'pinned'; rect?: number[]; size?: readonly number[] }): { window: number; token: bigint }
-  place(window: number, x: number, y: number, width: number, height: number): void
-  release(window: number): void
-  focus(window: number): void
-  hide(window: number, hidden: boolean): void
-  close(window: number): void
-  launch(argv: string[], options?: { cwd?: string; env?: Record<string, string> }): number
-  screenshot(path: string): Promise<{ width: number; height: number }>
-  stats(reset?: boolean): Record<string, unknown>
-  windows(): ShellWindow[]
-  animate(window: number, options: AnimateOptions): void
-  shortcut(combo: string, scope: 'session' | 'desktop' | 'app', owner: number): void
-  unshortcut(combo: string, scope: 'session' | 'desktop' | 'app', owner: number): void
-  inject(event: { type: 'move' | 'motion' | 'down' | 'up' | 'wheel' | 'keydown' | 'keyup'; x?: number; y?: number; button?: number; dx?: number; dy?: number; source?: 'wheel' | 'finger' | 'continuous'; code?: number }): void
-  quit(): void
-  capture?(window: number): Promise<{ width: number; height: number; png: string }>
-  devRespond?(id: number, ok: boolean, payload: string): void
-  notify?(title: string, body: string, subtitle: string): void
-  answerFolder?(path: string | null): void
-  answerOpen?(paths: string[] | null): void
-  answerSave?(path: string | null): void
-  openDefault?(target: string): Promise<void>
-  readClipboard?(): string
-  writeClipboard?(text: string): void
-  readonly socketName: string
-  readonly hosted?: boolean
-}
-
-export interface WebInfo {
-  readonly name: string
-  readonly app: string | null
-  readonly kind: 'desktop' | 'app'
-  readonly window: number
-  readonly title: string
-}
-
-interface ShellWindow {
-  readonly id: number
-  readonly window?: number
-  readonly canvas: number
-  readonly mode: string
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-  readonly z: number
-  readonly focus: boolean
-  readonly hidden?: boolean
-  readonly pid?: number | null
-}
-
-interface AnimateOptions {
-  opacity?: number
-  scale?: number
-  dx?: number
-  dy?: number
-  duration?: number
-  delay?: number
-  easing?: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'
-}
-
-interface BrokerOptions {
-  readonly packages: Packages
-  readonly desktop: InstalledDesktop
-  readonly width: number
-  readonly height: number
-  readonly scale: number
-  readonly reducedMotion: boolean | null
-  readonly dark: boolean
-  readonly session: boolean
-  readonly storage: (desktop: string) => StoragePlace
-  readonly standalone: string | null
-}
-
-export interface WireMenu {
-  readonly id: string
-  readonly label: string
-  readonly items: readonly ({ readonly type: 'separator' } | { readonly id: string; readonly label: string; readonly shortcut?: string; readonly checked?: boolean; readonly disabled?: boolean; readonly action: boolean })[]
-}
-
-export interface WebInit {
-  readonly kind: 'desktop' | 'window'
-  readonly name: string
-  readonly token: bigint
-  readonly window: number
-  readonly width: number
-  readonly height: number
-  readonly scale: number
-  readonly screen?: { width: number; height: number }
-  readonly reducedMotion: boolean | null
-  readonly dark: boolean
-  readonly languages: Languages
-  readonly services: Readonly<Record<string, ServiceShape>>
-  readonly resources: { prefix: string; dirs: string[] }[]
-  readonly page?: string
-  readonly standalone?: string | null
-  readonly app?: AppManifest
-  readonly theme?: string
-  readonly request?: Record<string, unknown> | null
-  readonly url?: string | null
-  readonly sockets?: string
-  readonly devState?: unknown
-  readonly devRoutes?: readonly DevRoute[]
-}
-
-export interface ServiceShape {
-  readonly methods: readonly string[]
-  readonly values: Readonly<Record<string, unknown>>
-  readonly sync: Readonly<Record<string, unknown>>
-  readonly callable: boolean
-}
-
-class Web {
-  readonly rpc: Rpc
-  hung = false
-  closing = false
-  reloading = false
-  readonly owns = new Map<number, number>()
-  readonly thread: WebThreadHandle
-  onPost: ((message: unknown) => void) | null = null
-  readonly #exited: Promise<number>
-
-  constructor(readonly kind: 'desktop' | 'window', readonly name: string, readonly window: number, readonly app: AppManifest | null, spawn: (onMessage: (message: unknown) => void, onExit: (code: number) => void) => WebThreadHandle) {
-    let exit!: (code: number) => void
-    this.#exited = new Promise((resolve) => (exit = resolve))
-    this.rpc = new Rpc((message) => this.thread.post(message))
-    this.thread = spawn((message) => {
-      if (!this.rpc.receive(message)) this.onPost?.(message)
-    }, exit)
-  }
-
-  terminate(): Promise<number> {
-    this.thread.terminate()
-    return this.#exited
-  }
-}
-
-interface WindowRecord {
-  readonly id: number
-  readonly kind: 'native' | 'web'
-  appId: string | null
-  title: string | null
-  owner: Web | null
-  web: Web | null
-  app: AppManifest | null
-  menus: WireMenu[]
-  request?: Record<string, unknown> | null
-  url?: string | null
-  mode?: 'fullscreen' | 'free'
-  hidden?: boolean
-}
+export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
 export class Broker {
   static readonly HANG_MS = 5000
@@ -496,9 +344,9 @@ export class Broker {
   }
 
   #spawn(init: WebInit, heapMb: number): Web {
-    const env = { ...Broker.#env(), WAYLAND_DISPLAY: this.shell.socketName }
+    const env = { ...Web.env(), WAYLAND_DISPLAY: this.shell.socketName }
     const storage = init.app ? StoragePlaces.app(init.app.id) : this.#options.storage(this.#current.id)
-    const grants = { ...Broker.#grants(init.app?.id ?? null, init.app?.capabilities ?? null), storage }
+    const grants = { ...Web.grants(init.app?.id ?? null, init.app?.capabilities ?? null), storage }
     const web: Web = new Web(init.kind, init.name, init.window, init.app ?? null, (onMessage, exit) =>
       sys().spawnWeb(init.name, init, heapMb, env, onMessage, (code, reason) => {
         this.#exited(web, code, reason)
@@ -513,30 +361,6 @@ export class Broker {
   }
 
   static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office'])
-
-  static #caller(app: AppManifest): OpenCaller {
-    const fs = Broker.#grants(app.id, app.capabilities).fs
-    return { roots: fs === true ? null : (fs ?? []), owner: app.id }
-  }
-
-  static #grants(app: string | null, caps: Capabilities | null): Omit<WebGrants, 'storage'> {
-    if (!caps) return { app, fs: true, terminal: true, network: true, office: true, camera: true, microphone: true }
-    const fs = caps.fs
-    return {
-      app,
-      fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null,
-      terminal: !!caps.terminal,
-      network: !!caps.network,
-      office: !!caps.office,
-      camera: caps.camera === true,
-      microphone: caps.microphone === true,
-    }
-  }
-
-  static #env(): Record<string, string> {
-    const keep = /^(ACDE_|XDG_|LANG$|LC_|LANGUAGE$|HOME$|USER$|DBUS_SESSION_BUS_ADDRESS$|RUST_LOG$|TZ$|PATH$|RUST_BACKTRACE$)/
-    return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => keep.test(entry[0]) && entry[1] !== undefined))
-  }
 
   #theme(): string {
     const id = this.#current.id
@@ -966,26 +790,26 @@ export class Broker {
     if (service === 'apps') {
       if (method === 'list') return this.#appList()
       if (method === 'refresh' || method === 'install') {
-        if (!desktop) throw Broker.#refused(web, `acde.apps.${method}`)
+        if (!desktop) throw Web.refused(web, `acde.apps.${method}`)
         return method === 'refresh' ? this.refreshApps() : this.installApps(String(args[0]))
       }
       if (method === 'natives' || method === 'runNative') {
-        if (!desktop) throw Broker.#refused(web, `acde.apps.${method}`)
+        if (!desktop) throw Web.refused(web, `acde.apps.${method}`)
         if (method === 'natives') return this.natives.list()
         const file = this.natives.file(String(args[0]))
         if (!file) throw Object.assign(new Error(`no native app ${String(args[0])}`), { status: 404 })
         return this.shell.launch(['gio', 'launch', file])
       }
       if (method === 'openPath' || method === 'handlers' || method === 'setDefault') {
-        if (!desktop && !caps?.['openFiles']) throw Broker.#refused(web, 'opening files with their apps')
-        if (method === 'openPath') return this.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions, desktop ? null : Broker.#caller(web.app!))
+        if (!desktop && !caps?.['openFiles']) throw Web.refused(web, 'opening files with their apps')
+        if (method === 'openPath') return this.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions, desktop ? null : Web.caller(web.app!))
         if (method === 'handlers') return this.opener.handlers(String(args[0]))
         return this.opener.setDefault(String(args[0]), String(args[1]))
       }
       if (method === 'launch' || method === 'open') {
         const [appId, request] = args as [string, Record<string, unknown> | undefined]
         const open = caps?.open
-        if (!desktop && !(open === true || (Array.isArray(open) && open.includes(appId)))) throw Broker.#refused(web, `open ${appId}`)
+        if (!desktop && !(open === true || (Array.isArray(open) && open.includes(appId)))) throw Web.refused(web, `open ${appId}`)
         return this.launch(appId, request ?? null)
       }
       throw new Error(`acde.apps has no ${method}`)
@@ -994,22 +818,18 @@ export class Broker {
     if (service === 'panel') return this.#panelCall(web, method, args)
     if (service === 'page') return this.#pageCall(web, method, args)
     if (service === 'inspect' || service === 'session' || service === 'desktops') {
-      if (!desktop && (service === 'inspect' || !caps?.[service])) throw Broker.#refused(web, `acde.${service}`)
+      if (!desktop && (service === 'inspect' || !caps?.[service])) throw Web.refused(web, `acde.${service}`)
       const call = (this.#builtins()[service] as Record<string, (...a: unknown[]) => unknown>)[method]
       if (!call) throw new Error(`acde.${service} has no ${method}`)
       return call(...args)
     }
-    if (caps && !this.#allowed(caps, service)) throw Broker.#refused(web, `acde.${service}`)
+    if (caps && !this.#allowed(caps, service)) throw Web.refused(web, `acde.${service}`)
     const target = this.bridge.value[service] as Record<string, (...a: unknown[]) => unknown> | ((...a: unknown[]) => unknown) | undefined
     if (!target) throw Object.assign(new Error(`acde.${service} is not running`), { status: 503 })
     if (method === '' && typeof target === 'function') return target(...args)
     const fn = (target as Record<string, (...a: unknown[]) => unknown>)[method]
     if (typeof fn !== 'function') throw new Error(`acde.${service} has no ${method}`)
     return fn.apply(target, args)
-  }
-
-  static #refused(web: Web, what: string): Error {
-    return Object.assign(new Error(`${web.app?.label ?? web.kind} may not use ${what} (not in its manifest's capabilities)`), { status: 403, code: 'forbidden' })
   }
 
   async #windowsCall(web: Web, method: string, args: unknown[]): Promise<unknown> {
@@ -1021,44 +841,44 @@ export class Broker {
       case 'launch': {
         const [argv, options] = args as [string[], { cwd?: string; env?: Record<string, string>; slot?: boolean } | undefined]
         const slot = !!options?.slot && !desktop
-        if (!desktop && !(slot ? caps.slots : caps.launch)) throw Broker.#refused(web, slot ? 'native programs in its slots' : 'starting programs')
+        if (!desktop && !(slot ? caps.slots : caps.launch)) throw Web.refused(web, slot ? 'native programs in its slots' : 'starting programs')
         const pid = this.shell.launch(argv, { cwd: options?.cwd, env: options?.env })
         if (slot) this.#claims.push({ web, pid })
         return pid
       }
       case 'close': {
-        if (!mine(id)) throw Broker.#refused(web, `window ${id}`)
+        if (!mine(id)) throw Web.refused(web, `window ${id}`)
         if (this.#windows.get(id)?.kind === 'web') return this.closeWeb(id)
         this.shell.close(id)
         return true
       }
       case 'kill':
-        if (!desktop) throw Broker.#refused(web, `window ${id}`)
+        if (!desktop) throw Web.refused(web, `window ${id}`)
         return this.closeWeb(id, true)
       case 'invokeMenu': {
-        if (!desktop) throw Broker.#refused(web, `the menus of window ${id}`)
+        if (!desktop) throw Web.refused(web, `the menus of window ${id}`)
         const record = this.#windows.get(id)
         return record?.web?.rpc.call('window', 'menu', [args[1], args[2]])
       }
       case 'focus':
       case 'hide':
       case 'show':
-        if (!desktop) throw Broker.#refused(web, `window ${id}`)
+        if (!desktop) throw Web.refused(web, `window ${id}`)
         if (method === 'focus') return this.shell.focus(id)
         return this.#hide(id, method === 'hide')
       case 'stats':
-        if (!desktop) throw Broker.#refused(web, 'compositor stats')
+        if (!desktop) throw Web.refused(web, 'compositor stats')
         return this.shell.stats()
       case 'screenshot':
-        if (!desktop) throw Broker.#refused(web, 'screenshots')
+        if (!desktop) throw Web.refused(web, 'screenshots')
         return this.shell.screenshot(String(args[0]))
       case 'animate':
-        if (!desktop) throw Broker.#refused(web, `animating window ${id}`)
+        if (!desktop) throw Web.refused(web, `animating window ${id}`)
         return this.shell.animate(id, (args[1] ?? {}) as AnimateOptions)
       case 'shortcut':
       case 'unshortcut': {
         const [combo, scope] = [String(args[0]), String(args[1] ?? 'desktop')]
-        if (!desktop || (scope !== 'session' && scope !== 'desktop')) throw Broker.#refused(web, `${scope} shortcuts`)
+        if (!desktop || (scope !== 'session' && scope !== 'desktop')) throw Web.refused(web, `${scope} shortcuts`)
         return method === 'shortcut' ? this.shell.shortcut(combo, scope, 0) : this.shell.unshortcut(combo, scope, 0)
       }
     }
@@ -1066,7 +886,7 @@ export class Broker {
   }
 
   #panelCall(web: Web, method: string, args: unknown[]): unknown {
-    if (web.kind !== 'desktop') throw Broker.#refused(web, 'pinned panels')
+    if (web.kind !== 'desktop') throw Web.refused(web, 'pinned panels')
     const rect = (value: unknown): [number, number, number, number] => {
       const v = Array.isArray(value) ? value.map((n) => Math.round(Number(n) || 0)) : []
       return [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 0]
@@ -1079,7 +899,7 @@ export class Broker {
         return grant
       }
       case 'place': {
-        if (!this.#panels.has(id)) throw Broker.#refused(web, `window ${id}`)
+        if (!this.#panels.has(id)) throw Web.refused(web, `window ${id}`)
         const [x, y, width, height] = rect(args[1])
         if (width <= 0 || height <= 0) return this.shell.hide(id, true)
         this.shell.place(id, x, y, width, height)
