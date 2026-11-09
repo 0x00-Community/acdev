@@ -761,12 +761,12 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 - Windows 的 PDB 路径: `.cargo/config.toml` 的 `/PDBALTPATH:%_PDB%` 让 exe 只记 PDB 的文件名 (MSVC 本来会写完整路径). CI 的 RUSTFLAGS 另加
   `--remap-path-prefix`: cargo home、toolchain、workspace 分别映射成 `/cargo`、`/rustc`、`/src`, 去掉 registry 和 toolchain 路径里的用户名.
 - 发布清单: `stage` job 用 `scripts/release/stage.sh` 按固定清单组装 (三个 binary、host tarball、LICENSE、`acde-api-<版本>.tar.gz`). `scripts/release/check-stage.sh` 拒绝清单外的
-  文件, 目录, 以及 `.pdb` / `.dSYM` / `.dwp` / `.debug`; release 和 pkgs 上传前各跑一遍. release 和 pkgs 只下载 `release-stage` artifact,
+  文件, 目录, 以及 `.pdb` / `.dSYM` / `.dwp` / `.debug`; release 和 pkgs 上传前各跑一遍. release 和 upload 只下载 `release-stage` artifact,
   不用通配. SDK 归档 (`acde-api-<版本>.tar.gz`) 由 stage 先跑 `bun run --cwd web/packages/acde-api build`, 只打包生成的 `dist/`, 顶层目录是 `package/`
   (与 npm 包的布局一致: `package.json`、`LICENSE`、`config.schema.json`、`src/*.js`、`src/*.d.ts`); `./manifest` 指向 `src/validate.js` / `src/validate.d.ts`.
   `check-stage.sh` 拒绝归档里的 `.ts` (非 `.d.ts`)、`scripts/`、`test/`、`.map`、`sourceMappingURL` / `sourcesContent`, 也拒绝布局之外的条目, 并核对 exports 指向的文件都在.
-  本地演练 `bash scripts/release/dry-run.sh`: 放进假的 symbols 和 SDK 污染条目, 检查必须拒绝, 并列出 SDK 归档条目.
-- 缓存: build job 用 `Swatinem/rust-cache@v2` (pinned major). 带 `id-token` 的 job 不用第三方 action (`pkgs` 里的 aws-actions 是例外, 待定).
+  本地演练 `bash scripts/release/dry-run.sh`: 放进假的 symbols 和 SDK 污染条目, 检查必须拒绝, 并列出 SDK 归档条目; `bash scripts/release/plan-dry-run.sh` 覆盖判断版本的各个分支 (预演、正式发布、标签已存在、版本不一致、非 main 拒绝).
+- 缓存: build job 用 `Swatinem/rust-cache@v2` (pinned major). 带 `id-token` 的 job 不用第三方 action (`upload` 和 `latest` 里的 aws-actions 是例外, 待定).
   host bundle 用 release 构建 (`bun run --filter @dopame/acde-host build:release`, 写到 `web/packages/acde-host/dist-release/`): 标识符压缩, 没有
   source map 也没有 `sourceMappingURL`, 再过一遍 javascript-obfuscator 的轻量预设 (`scripts/release-options.mjs`: 只重命名标识符和字符串数组, 不做
   控制流平坦化、死代码注入、自我保护和调试保护, 它们每个 web 线程都要付运行时代价). `scripts/check-release.mjs` 是泄漏检查: 有 map、
@@ -774,15 +774,21 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
   整个 artifact 里没有 `.map` / `.ts`. 开发构建 (`bun run --filter @dopame/acde-host build`, `dist/`) 不变: 可读、带 map, `acde dev` 用它.
   `LICENSE` (专有许可) 随 tarball 和 GitHub release 发布. 启动和帧的数字见下面 acde-host 一条 (`scripts/release-perf/bench.sh`).
 
-- 推 `v*` tag: 建 GitHub prerelease, 附上三个 binary 和 host bundle. 手动触发 (`workflow_dispatch`) 只编, 不建 release.
-- 同一个 tag 也传到 AWS S3 桶 `dopame-pkgs` (`pkgs` job, 三个平台和 host 都编成功才传): `acdert/<版本>/` 放三个 binary、host bundle (`app/` 和 `LICENSE`)、`LICENSE` 单独一份、`acde-api-<版本>.tar.gz` (SDK 发布构建的 `package/` 布局, 见上; acde 按 `package/` 解包) 和 `SHA256SUMS`, `acdert/latest.json` (`{version, tag, commit, base, files}`, 不缓存) 指向最新的一版;
-  下载地址 `https://pkgs.dopame.ai/acdert/<版本>/<文件>`. 同一版本重发时同名文件被覆盖 (上传没有“已存在则拒绝”的守卫), 版本目录的缓存头是一年 `immutable`, 所以传完必须让 CloudFront `E3ET3L14ALFOXX` 失效 `/acdert/<版本>/*` 与 `/acdert/latest.json`, 这两个路径已在 invalidate 步骤里. 凭证走 GitHub OIDC,
-  不存密钥: IAM 角色 `dopame-acdert-release` 只信任本仓库的 `refs/tags/v*` (sub 是不可变形式
-  `repo:dopame-org@342965929/acdert@1445550002:ref:refs/tags/v*`), 只能读写 `dopame-pkgs/acdert/*`、失效那个 distribution.
+- 发版 = 单独提交改版本号 (根 `Cargo.toml` 与 `web/packages/*/package.json` 一起改, 再 `bun install` 刷新 `web/bun.lock`) 并合入 `main`, 然后在 Actions 手动运行 release:
+  预演 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=false` (只构建检查, 不打标签、不上传); 正式发布 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=true`.
+  不再手动打 `v*` 标签, 工作流也不由 push 或标签触发 (先有标签后构建失败会留下半成品). 正式发布只允许在 `main` 上运行.
+- 正式发布的顺序 (同一个工作流, 任何一步失败就停在那里): 判断版本 (`plan`: 源码里的版本必须一致; 标签已存在于另一个提交则失败并说明; 在同一个提交上则续跑) →
+  构建、host、stage、泄漏检查 → `upload` 把版本目录传到 AWS S3 桶 `dopame-pkgs` 的 `acdert/<版本>/` 并逐个校验 → `tag` 在通过的提交上建注释标签 `v<版本>` →
+  `release` 建 GitHub 预发布 → `latest` 最后更新 `acdert/latest.json` 并让 CloudFront `E3ET3L14ALFOXX` 失效 `/acdert/latest.json` 与 `/acdert/<版本>/*`.
+  所以上传失败 (如权限问题) 不会留下标签. `upload` 对已存在的对象: sha256 元数据一致则跳过, 不一致或缺元数据则拒绝覆盖 (上一次留下的对象要先人工清理).
+  版本目录是三个 binary、host bundle (`app/` 和 `LICENSE`)、`LICENSE`、`acde-api-<版本>.tar.gz` (SDK 发布构建的 `package/` 布局, acde 按 `package/` 解包) 和 `SHA256SUMS`;
+  `acdert/latest.json` (`{version, tag, commit, base, files}`, 不缓存) 指向最新的一版; 下载地址 `https://pkgs.dopame.ai/acdert/<版本>/<文件>`. 版本目录的缓存头是一年 `immutable`.
+  凭证走 GitHub OIDC, 不存密钥: IAM 角色 `dopame-acdert-release` 只能读写 `dopame-pkgs/acdert/*`、失效那个 distribution. 它的信任策略目前只允许 `refs/tags/v*`;
+  正式发布由 `main` 上的 `workflow_dispatch` 运行, OIDC sub 是 `repo:dopame-org@342965929/acdert@1445550002:ref:refs/heads/main`, 所以信任策略还要加上这个分支 (在 AWS 侧改, 仓库里没有这份策略).
 - npm 上只发 `@dopame/acde-api` (用户定, 2026-11-09; npm 组织 `dopame`), 只发压缩后的构建, 见下面 web/packages 的 acde-api. 它不做混淆 (决定, 2026-11-09:
   它的 `.d.ts` 是公共接口, 混淆只增加调试难度, 收益低). 别的包不发,
-  开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`. 现在关着: 只有仓库变量 `NPM_PUBLISH` 是 `true` 时才发 (没设, 打 tag 不发 npm).
-  打开后, release 成功后 `npm-build` 检查 tag 和 acde-api 的版本一致、npm 上还没有这个版本,
+  开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`. npm 在 `latest` 之后发布; 只有仓库变量 `NPM_PUBLISH` 是 `true` 时才发 (没设则不发).
+  `npm-build` 检查 tag 和 acde-api 的版本一致、npm 上还没有这个版本,
   构建 `dist/` 交给 `npm` job; `npm` 经 trusted publishing (OIDC, npm 上配的是 `dopame-org/acdert` 的 `release.yml`) 发布, 不存 token.
   拿 `id-token: write` 的 `npm` job 只用 GitHub 自己的 action (setup-node、download-artifact), bun 等第三方的只在没有这个权限的 `npm-build` 里.
 - 版本号是 `0.0.N`, 每发一次 N 加 1 (前两位保持 0): 根 `Cargo.toml` 的 `workspace.package.version` 和 `web/packages/*/package.json`
