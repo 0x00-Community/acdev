@@ -824,7 +824,9 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
   拿 `id-token: write` 的 `npm` job 只用 GitHub 自己的 action (setup-node、download-artifact), bun 等第三方的只在没有这个权限的 `npm-build` 里.
 - 版本号是 `0.0.N`, 每发一次 N 加 1 (前两位保持 0): 根 `Cargo.toml` 的 `workspace.package.version` 和 `web/packages/*/package.json`
   一起改 (再 `bun install` 刷新 `web/bun.lock`), tag 是 `v0.0.N`.
-- Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire.
+- Linux 的 acdert 运行时要 libxkbcommon、gbm、libudev、libinput、fontconfig、OpenSSL 3、pipewire、GLib 和 GStreamer (`libgstreamer1.0`、
+  `gst-plugins-base` 的库, 没有就起不来); 放 `<video>` 还要 gst-plugins-base / good 的插件 (VA-API 硬解要 `gst-plugin-va`), 同 Arch 包的 depends.
+  CI 的 Linux 构建装对应的 `-dev` 包 (`libglib2.0-dev`、`libgstreamer1.0-dev`、`libgstreamer-plugins-base1.0-dev`, crates/media 经 pkg-config 找它们).
 
 ## 日志和计时
 
