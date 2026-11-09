@@ -92,10 +92,32 @@ fn free_socket(runtime: &std::path::Path, name: &str) -> bool {
     flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok()
 }
 
+const API_LEVEL: u32 = api_level(include_str!("../../../web/packages/acde-api/src/level.js"));
+
+const fn api_level(source: &str) -> u32 {
+    let bytes = source.as_bytes();
+    let (mut i, mut level, mut digits) = (0, 0u32, 0);
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            level = level * 10 + (bytes[i] - b'0') as u32;
+            digits += 1;
+        } else if digits > 0 {
+            break;
+        }
+        i += 1;
+    }
+    assert!(level > 0, "acde-api src/level.js defines no positive API_LEVEL");
+    level
+}
+
 fn main() {
     acde_log::init();
     let args: Vec<String> = std::env::args().collect();
     let code = match args.get(1).map(String::as_str) {
+        Some("--version" | "-V") => {
+            println!("acdert {} (contract level {API_LEVEL})", env!("CARGO_PKG_VERSION"));
+            0
+        }
         Some("run") if args.len() > 2 => sys::start(sys::Entry::Script(args[2].clone()), &args[3..]),
         Some("desktops" | "sessions" | "applications" | "open") => sys::start(sys::Entry::Broker, &args[1..]),
         #[cfg(target_os = "linux")]
