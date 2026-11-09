@@ -1,4 +1,3 @@
-import type { InspectArg } from '@dopame/acde-api'
 import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
 import { sys } from './sys/natives'
@@ -16,16 +15,16 @@ import type { Native, NativeFileChooser, RawShellEvent } from './native'
 import { Packages, type InstalledDesktop } from './packages'
 import { DesktopSession, type RunEnd } from './session'
 import { DevLog } from './devlog'
-import { DevRoutes, type DevRoute } from './devroutes'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage } from './language'
 import { StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
-import { basename, isAbsolute } from './sys/path'
+import { basename } from './sys/path'
 import { process } from './sys/process'
 import type { AnimateOptions, BrokerOptions, BrokerShell, ServiceShape, WebInfo, WebInit, WindowRecord, WireMenu } from './broker/types'
 import { Web } from './broker/web'
+import { DevRequests } from './broker/dev'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -68,8 +67,7 @@ export class Broker {
   #emulatedDark: boolean | null = null
   #reducedMotion: boolean | null
   readonly devlog = new DevLog()
-  #devRoutes: DevRoute[] = []
-  #nextRoute = 1
+  readonly #dev: DevRequests
   #ended: RunEnd = 'signal'
   #devStates = new Map<string, unknown>()
   #wake: (() => void) | null = null
@@ -131,6 +129,15 @@ export class Broker {
       records: () => [...this.#windows.keys()],
     })
     this.bridge.services.inspect = this.inspect.api
+    this.#dev = new DevRequests({
+      shell: this.shell,
+      inspect: this.inspect,
+      devlog: this.devlog,
+      webs: () => this.#webs(),
+      infos: () => this.webs(),
+      web: (name) => this.#web(name),
+      emulate: (options) => this.emulate(options),
+    })
     StartupTimeline.mark('shell created')
   }
 
@@ -300,7 +307,7 @@ export class Broker {
       page: this.#current.html,
       standalone: this.#current.id === Packages.BARE ? standalone : null,
       devState: this.#takeDevState(''),
-      devRoutes: this.#routesFor('desktop', null),
+      devRoutes: this.#dev.routesFor('desktop', null),
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
@@ -336,7 +343,7 @@ export class Broker {
       url: record.url ?? null,
       ...(app.backend && { sockets: AppBackends.socketDir(app.id) }),
       devState: this.#takeDevState(app.id),
-      devRoutes: this.#routesFor(`${app.id}#${record.id}`, app.id),
+      devRoutes: this.#dev.routesFor(`${app.id}#${record.id}`, app.id),
     }
     record.request = null
     record.web = this.#spawn(init, app.heapMb)
@@ -355,7 +362,7 @@ export class Broker {
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     web.onPost = (message) => {
       if (DevLog.isPost(message)) this.devlog.take({ name: web.name, app: web.app?.id ?? null }, message)
-      else if (typeof (message as { devroute?: unknown })?.devroute === 'number') this.#routeUsed((message as { devroute: number }).devroute)
+      else if (typeof (message as { devroute?: unknown })?.devroute === 'number') this.#dev.used((message as { devroute: number }).devroute)
     }
     return web
   }
@@ -499,7 +506,7 @@ export class Broker {
       case 'devreload':
         return void this.devReload(event.key ?? null, event.title === 'hot').catch((error: Error) => Log.write(Level.Error, 'acde_host', `acde dev: reload: ${error.message}`))
       case 'devrequest':
-        return void this.#devRequest(event.key ?? '')
+        return void this.#dev.request(event.key ?? '')
       case 'windowcloserequest':
         if (event.window === 0 || event.window === undefined) {
           this.#stopped = true
@@ -1048,147 +1055,6 @@ export class Broker {
     const web = webs.find((w) => w.name === wanted) ?? (wanted === 'desktop' ? this.#desktop : null) ?? webs.filter((w) => w.app?.id === wanted).sort((a, b) => a.window - b.window)[0]
     if (!web) throw Object.assign(new Error(`no web ${wanted} (webs: ${webs.map((w) => w.name).join(', ') || 'none'}; a web name, an app id or desktop)`), { status: 404 })
     return web
-  }
-
-  async #devRequest(line: string): Promise<void> {
-    let id: number | null = null
-    let ok = true
-    let payload: string
-    try {
-      const request = JSON.parse(line) as Record<string, unknown> & { id: number; op: string }
-      id = request.id
-      payload = JSON.stringify(await this.#devOp(request))
-    } catch (error) {
-      ok = false
-      payload = (error as Error)?.message ?? String(error)
-    }
-    if (id === null) return Log.write(Level.Warn, 'acde_host', `acde dev: not a request: ${line.slice(0, 200)}`)
-    try {
-      this.shell.devRespond?.(id, ok, payload)
-    } catch (error) {
-      Log.write(Level.Warn, 'acde_host', `acde dev: response ${id}: ${(error as Error).message}`)
-    }
-  }
-
-  async #devOp(request: Record<string, unknown> & { op: string }): Promise<unknown> {
-    const { type: _type, id: _id, op, ...args } = request
-    switch (op) {
-      case 'webs':
-        return { webs: this.webs() }
-      case 'eval': {
-        if (typeof args['code'] !== 'string') throw new Error('eval: code is a string')
-        let value: unknown
-        try {
-          value = await this.#web(String(args['web'] ?? 'desktop')).rpc.call('debug', 'eval', [args['code']])
-        } catch (error) {
-          throw new Error(error instanceof Error ? `${error.name}: ${error.message}` : String(error))
-        }
-        try {
-          return { value: JSON.parse(JSON.stringify(value) ?? 'null') as unknown }
-        } catch (error) {
-          throw new Error(`eval: the value is not JSON: ${(error as Error).message}`)
-        }
-      }
-      case 'shot': {
-        const web = this.#web(String(args['web'] ?? 'desktop'))
-        if (!this.shell.capture) throw new Error('shot: this backend cannot read a window back (host windows only)')
-        return this.shell.capture(web.window)
-      }
-      case 'snapshot':
-        return this.inspect.api.snapshot(args)
-      case 'act':
-        return this.inspect.api.act(String(args['ref'] ?? ''), args['action'] as never, (args['arg'] ?? null) as InspectArg)
-      case 'run':
-        return this.inspect.api.run(args['steps'] as never)
-      case 'open':
-        if (typeof args['name'] !== 'string' || !args['name']) throw new Error('open: name is an app id or name')
-        return this.inspect.api.open(args['name'])
-      case 'query':
-        return this.inspect.api.query(args as never)
-      case 'console':
-        return this.devlog.console(Broker.#devQuery(args, { level: args['level'] as never }))
-      case 'network':
-        return this.devlog.requests(Broker.#devQuery(args, { failed: args['failed'] === true }))
-      case 'screen': {
-        if (typeof args['path'] !== 'string' || !isAbsolute(args['path'])) throw new Error('screen: path is an absolute file path for the PNG')
-        const size = await this.shell.screenshot(args['path'])
-        return { ...size, path: args['path'] }
-      }
-      case 'emulate':
-        return this.emulate(args as never)
-      case 'choose':
-        return this.#devChoose(args)
-      case 'route': {
-        const route = DevRoutes.parse(args, this.#nextRoute++)
-        this.#devRoutes.push(route)
-        this.#pushRoutes()
-        return { id: route.id }
-      }
-      case 'unroute': {
-        const id = args['route']
-        if (id !== undefined && id !== null && !Number.isInteger(id)) throw new Error('unroute: route is the id route answered, or leave it out to remove every route')
-        const before = this.#devRoutes.length
-        this.#devRoutes = id === undefined || id === null ? [] : this.#devRoutes.filter((r) => r.id !== id)
-        this.#pushRoutes()
-        return { removed: before - this.#devRoutes.length, left: this.#devRoutes.length }
-      }
-      case 'clipboard': {
-        const shell = this.shell
-        if (!shell.readClipboard || !shell.writeClipboard) throw new Error('clipboard: this backend has no clipboard of its own to read (host windows only)')
-        if (args['text'] !== undefined) {
-          if (typeof args['text'] !== 'string') throw new Error('clipboard: text is a string')
-          shell.writeClipboard(args['text'])
-        }
-        return { text: shell.readClipboard() }
-      }
-      default:
-        throw new Error(`no op ${String(op)} (webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard)`)
-    }
-  }
-
-  #routesFor(name: string, app: string | null): DevRoute[] {
-    return this.#devRoutes.filter((r) => r.web === null || r.web === name || (app !== null && r.web === app))
-  }
-
-  #pushRoutes(): void {
-    for (const web of this.#webs()) web.thread.post({ type: 'devroutes', routes: this.#routesFor(web.name, web.app?.id ?? null) })
-  }
-
-  #routeUsed(id: number): void {
-    const route = this.#devRoutes.find((r) => r.id === id)
-    if (!route || route.times === null) return
-    if (route.times > 1) {
-      this.#devRoutes = this.#devRoutes.map((r) => (r.id === id ? { ...r, times: route.times! - 1 } : r))
-      return
-    }
-    this.#devRoutes = this.#devRoutes.filter((r) => r.id !== id)
-    this.#pushRoutes()
-  }
-
-  #devChoose(args: Record<string, unknown>): Record<string, unknown> {
-    const kinds = (['folder', 'open', 'save'] as const).filter((kind) => args[kind] !== undefined)
-    if (kinds.length !== 1) throw new Error('choose: give exactly one of folder, open or save')
-    const kind = kinds[0]!
-    const answer = args[kind]
-    const path = (value: unknown) => typeof value === 'string' && isAbsolute(value)
-    const shell = this.shell
-    if (!shell.answerFolder || !shell.answerOpen || !shell.answerSave) throw new Error('choose: this backend asks the portal, it cannot be answered beforehand (host windows only)')
-    if (kind === 'open') {
-      if (answer !== null && !(Array.isArray(answer) && answer.length > 0 && answer.every(path))) throw new Error('choose: open is a non-empty list of absolute file paths, or null to cancel')
-      shell.answerOpen(answer as string[] | null)
-    } else {
-      if (answer !== null && !path(answer)) throw new Error(`choose: ${kind} is an absolute path, or null to cancel`)
-      if (kind === 'folder') shell.answerFolder(answer as string | null)
-      else shell.answerSave(answer as string | null)
-    }
-    return { [kind]: answer }
-  }
-
-  static #devQuery<T extends object>(args: Record<string, unknown>, extra: T): { web?: string; since?: number; limit?: number } & T {
-    const number = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
-    const since = number(args['since'])
-    const limit = number(args['limit'])
-    return { ...(typeof args['web'] === 'string' && { web: args['web'] }), ...(since !== undefined && { since }), ...(limit !== undefined && { limit }), ...extra }
   }
 
   async debugStats(reset = false): Promise<Record<string, unknown>> {

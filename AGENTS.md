@@ -202,7 +202,7 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   重起 desktop web (服务不重起). `hot: true` 时先试热替换 (下面).
 - `{"type":"quit"}`.
 - `{"type":"request","id","op",…}` (id 是数字或字符串, 只在这条连接里有意义) → id 换成进程内递增的号, 整行作为 `devrequest` 推给 Broker
-  (`broker.ts` `#devRequest`), 做完调 `Shell.devRespond`, 按号找回连接、换回原 id 写出 `{"type":"response","id","ok":true,"result"}` 或
+  (`broker/dev.ts` `DevRequests.request`), 做完调 `Shell.devRespond`, 按号找回连接、换回原 id 写出 `{"type":"response","id","ok":true,"result"}` 或
   `{…,"ok":false,"error":"<文字>"}`, 每个请求恰好一次 (超时在工具一侧); 连接断了, 它还没回答的请求作废. `web` 参数是 web 名
   (`ledger#1048576`)、应用 id (window 号最小的那个 web) 或 `desktop`:
   - `webs` → `{webs: [{name, app, kind, window, title}]}`.
