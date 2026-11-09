@@ -355,7 +355,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - **按调用者层级注入** (第 1 级包, `broker/tier.ts`): 外壳模块 (`SHELL_MODULES`: `windows`、`packages`、`session`、`desktops`、`inspect`、
     `desktop`、`setDefault`) 只给桌面页面、声明了它的桌面服务和声明了它的系统应用 (与某个已安装桌面同包的应用); 应用模块 (`APP_MODULES`: `launch`、
     `apps` 只有 list / open、`open`、`openPath`、`handlers`、`window`) 给所有应用. 声明外壳模块的第三方应用启动时拒绝 (403, `shell_module`).
-    没给的模块经 `host.refuseModule` 记下原因, import 时报模块名和缺的声明. 新的 `acde:packages` (refresh / install / natives / runNative)
+    没给的模块经 `host.refuseModule` 记下原因, import 时报模块名和缺的声明. 哪个模块要哪条声明只在 SDK `Manifest.importRule(name, app, origin)`
+    (`{allowed, missing, reason}`, app 为 null 是桌面; acde-host 的 `Tiers` / `CapabilityCheck` 和 acde 的检查都用它). 新的 `acde:packages` (refresh / install / natives / runNative)
     和 `acde:launch` (`start` 要 `launch`, `embed` 要 `slots`, `close` 只关自己起的窗口: 按窗口的 pid 认 `start` 起的, `embed` 走 claim) 桌面也有.
     系统应用拿到 `acde:windows` 时也收全局窗口事件 (`Tiers.listens`). 第 0 级包 (没有 `apiLevel`) 照旧注入, 到第 0 级移除为止.
     SDK 类型分层: `@dopame/acde-api/app` 只声明应用层, `@dopame/acde-api/shell` 再加外壳层; 包根在扩展期仍声明全部.
