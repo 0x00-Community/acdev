@@ -223,31 +223,28 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 
 ## 分发 (`install.sh`, `install.ps1`, `scripts/dist.ts`)
 
-只有全局安装: acde 和 acdert 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认 `https://pkgs.dopame.ai/acde`,
+只有全局安装: 只装 acde (命令行工具、模板、SDK), acdert 和 Dopame 桌面不在包里 (见「发布」), 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认 `https://pkgs.dopame.ai/acde`,
 两个脚本开头各一处; 末尾的 `/` 去掉). 桶是 `dopame-pkgs`, 前缀 `acde/`, 由 CloudFront 经 `pkgs.dopame.ai` 提供:
-`acde/install.sh`、`acde/install.ps1`、`acde/latest`、`acde/<版本>/SHA256SUMS`、`acde/<版本>/acde-<版本>-<triple>.tar.gz`; 官网 `https://dopame.ai/install.*` 指向这里.
+`acde/install.sh`、`acde/install.ps1`、`acde/latest`、`acde/<版本>/SHA256SUMS`、`acde/<版本>/acde-<版本>.tar.gz` (一个通用包, 不分平台); 官网 `https://dopame.ai/install.*` 指向这里.
 发布由 `.github/workflows/release.yml` 完成 (见下). 本地托管目录就是 dist.ts 的 `--out`: `install.sh`、`install.ps1`、`latest` (版本号)、`<版本>/SHA256SUMS`、
-`<版本>/acde-<版本>-<triple>.tar.gz` (`{aarch64,x86_64}-{apple-darwin,unknown-linux-gnu,unknown-linux-musl}`、`x86_64-pc-windows-msvc`).
+`<版本>/acde-<版本>.tar.gz`.
 
 tarball 里一个目录就是一个版本的安装根:
 
 ```
 bin/acde            scripts/acde.sh 跑 lib/acde/dist/cli.js: bun ≥ 1.4 用 bun, 否则 node ≥ 22.3 用 node; 都不行时 bun 太旧提示更新 bun, 否则 node 太旧提示更新 node, 都没有提示装其中一个
 bin/acde.cmd        Windows 代替 bin/acde: scripts/acde.cmd (CRLF), 同样的选法和提示; 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acde 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
-bin/acdert[.exe]
-bin/app/            acdert-host 的 app/ 目录原样 (dist/broker.js、dist/web.js、brand/、greet/、package.json; 没有 .map); acdert 找 <自己>/app/dist
-bin/app/packages/   Dopame 桌面包 (不带 .map); 包的目录名是 acde-dopame 归档里的那一个
 LICENSE             专有 LICENSE, 归档顶层 (和 lib/acde/LICENSE 一样)
 lib/acde/           package.json (exports, 与源码仓库不同: 指向 dist)、launcher.mjs (压缩和轻度混淆)、launcher.d.mts、LICENSE、templates/ (用户起步模板, 含 .ts 是正常的)、
-                    dist/cli.js、dist/driver.js、dist/test.js (acde/driver、acde/test; 压缩和轻度混淆)、dist/types/**/*.d.ts (声明)
+                    dist/cli.js、dist/driver/index.js、dist/e2e/index.js (acde/driver、acde/test) 和它们共用的 dist/chunk-*.js (压缩和轻度混淆)、dist/types/**/*.d.ts (声明)
 lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、package.json、config.schema.json; 没有 src/*.ts、test/)
 ```
 
-- `bun scripts/dist.ts --acdert <二进制> --host <acdert-host 的 app/ 目录> --triple <triple> [--api] [--desktop] [--version] [--out .dist]`
-  (`--host` 必须有 `dist/broker.js`, 且 `package.json` 的 `version` 等于 `--version`, 否则说是别的发版而拒绝. `--api` 默认
-  `../acdert/web/packages/acde-api/dist`, 要先在 acdert 那边 `bun run build`; 没有构建产物或里面有 `.ts` 源码时报错. 发布时 `--api` 指向上面解包出的 `package/`. `--desktop` 默认 `../acde-dopame/packages/dopame`, 先在那边 `bun run build`). 归档前检查 (`leaks()`):
-  不许有 `lib/acde/src`、`lib/acde/test`、`bin/app/src`、`.map`、`sourcesContent`、任何 `.js`/`.mjs`/`.d.ts` 里的 `sourceMappingURL`、
-  模板之外的 `.ts` 源码; 覆盖整个包, 包括 `bin/app/**` (acde#7). 有就不出包.
+- `bun scripts/dist.ts [--api <目录>] [--sdk <版本>] [--version] [--out .dist]` (`--api` 默认 `../acdert/web/packages/acde-api/dist`,
+  要先在 acdert 那边 `bun run build`; 没有 `package.json` 和 `src/index.js`, 或包名不是 `@dopame/acde-api`、版本不等于 `--sdk`
+  (默认 `dist.ts` 的 `SDK_PIN`) 时报错. 发布时 `--api` 指向上面解包出的 `package/`). 归档前检查 (`scripts/shipped.ts` 的 `shipLeaks()`):
+  不许有 `lib/acde/src`、`lib/acde/test`、`lib/acde-api/test`、`.map`、`sourcesContent`、任何 `.js`/`.mjs`/`.d.ts` 里的 `sourceMappingURL`、
+  模板之外的 `.ts` 源码, 也不许有符号链接、点文件、密钥和本机构建路径; 覆盖整个包 (acde#7). 有就不出包.
 - **轻度混淆** (`javascript-obfuscator` 5.9.0, 精确钉住, 发版前至少两周): 在 `Bun.build` 的 `minify` 之后对 `dist/cli.js`、`dist/driver.js`、
   `dist/test.js`、`launcher.mjs` 做一遍: 标识符改名 (含顶层, `renameGlobals`) 和字符串数组 (base64). 不做控制流平坦化、死代码注入、自我防护
   或调试保护, 不出 sourcemap. 导出名不变 (只改本地绑定, 别名保留). 预加载 `acde-listen.js` 不混淆: `dist.ts` 把它的 JSON 文本 `define` 进去、
@@ -264,8 +261,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   (`launcher.mjs` 在包根, `import.meta.url` 仍指对), 运行时按包的 `exports` 自引用. 归档可复现: 混淆固定 `seed`, 打包前把暂存树的时间戳统一为 2000-01-01, 先 `tar -cf` 再用 `zlib.gzipSync` 压 (gzip 头不写时间), 同一提交两次构建字节相同 (`dist.ts` 里的 `OBFUSCATION_SEED`、`pinTimes`). `*.d.ts` 由 TypeScript 从 `src/driver/index.ts` 和
   `src/e2e/index.ts` 生成到 `dist/types/`. 包根的 `package.json` 由 dist.ts 生成, `exports` 指向 dist (源码仓库的 package.json 不变).
 - dist 测试 (`test/dist.test.ts`) 需要 acdert 的 acde-api 已构建: 它用 `../acdert/web/packages/acde-api/dist`.
-- **install.sh** (sh / dash / `bash --posix`): 认 triple (Rosetta 里按 `sysctl.proc_translated` 换 aarch64; 有 `/lib/ld-musl-*` 是 musl; MSYS 叫去用
-  install.ps1); curl / wget 下载, shasum / sha256sum / openssl 校验, 失败什么都不动. 解进 `$ACDE_INSTALL` (默认 `~/.acde`) 的临时目录再改名成
+- **install.sh** (sh / dash / `bash --posix`): 包不分平台, 不认 triple (MSYS / MinGW / Cygwin 叫去用 install.ps1); curl / wget 下载, shasum / sha256sum / openssl 校验, 失败什么都不动. 解进 `$ACDE_INSTALL` (默认 `~/.acde`) 的临时目录再改名成
   `versions/<版本>`; `current` 原子换 (`mv -T` / `mv -h`, 退回 `ln -sfn`); `bin` → `current/bin` (相对链接). PATH 上没有且没给 `--no-modify-path` 时按
   `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次.
 - **install.ps1** (Windows PowerShell 5.1 或 PowerShell 7.2+, 只有 x64): 出错 `throw` 不 `exit` (`irm | iex` 时 `exit` 关掉用户的终端); 参数也可走
@@ -275,8 +271,9 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `REG_EXPAND_SZ`, 原有的 `%…%` 不展开), 设用户级 `ACDE_INSTALL` (顺带广播 `WM_SETTINGCHANGE`), 当前会话也加上.
 - **launcher** (`launcher.mjs`, 只用 `node:` 模块, 类型手写在 `launcher.d.mts`; 源码一律 `import … from 'acde/launcher'`): `bin/acde.mjs` (检出用) →
   `run`: `cliRuntime()` 跑 `cliFile()` (`dist/cli.js`, 否则 `src/cli.ts`, 这时 Node 上找 PATH 上的 bun), 环境 `cliEnv`; 信号同 `acde dev`. 全局装的
-  `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (设了找不到直接报错), 检出时旁边的 `../acdert/target/{release,debug}/acdert` (先于 PATH: 两个仓库一起改),
-  全局装时自己版本的 `bin/acdert` 再 `$ACDE_INSTALL` 的, 最后 PATH; 都没有就列出找过的地方.
+  `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (文件路径, 或 PATH 上的名字; 设了找不到直接报错), 否则 PATH 上的 `acdert`.
+  不找并排的检出, 也不找安装目录 (acde 不带 acdert); 都没有时说明运行时来自 Dopame 虚拟机, 要设 `ACDERT` 或把 acdert 放上 PATH.
+  两个仓库一起改时 `ACDERT=../acdert/target/release/acdert`.
 - musl 的 acdert 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
 
 ## 和 acdert 的契约
