@@ -6,6 +6,8 @@ acde <command> [args]
 
 On error, acde prints `acde: <reason>` and exits with code 1. Invalid arguments print the usage.
 
+`acde --version` prints the version of acde. `acde --help`, or `--help` after any command, prints the usage.
+
 ## Projects
 
 ### acde new
@@ -59,7 +61,7 @@ Builds, starts acdert, and rebuilds and reloads on changes. See [acde dev](../gu
 
 ## Running sessions
 
-All of these accept `--session <pid>`. See [Debugging](../guide/tools.md).
+These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect`, such as `w1.12`. See [Debugging](../guide/tools.md).
 
 | Command | Description |
 | --- | --- |

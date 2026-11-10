@@ -298,6 +298,9 @@ describe('acde.config.jsonc', () => {
       JSON.stringify({ name: 'made-by-vite', devDependencies: { vite: '^7.0.0' } }),
     )
     writeFileSync(join(dir, '.gitignore'), 'node_modules')
+    writeFileSync(join(dir, 'index.html'), '<html><head><title>made-by-vite</title></head></html>')
+    Creator.adopt(dir, 'made-by-vite', 'Vite & App', 'React')
+    expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe('<html><head><title>Vite &amp; App</title></head></html>')
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Creator.api(dir) })
@@ -580,6 +583,17 @@ describe('mistakes', () => {
     const result = await cli(['frobnicate'], APP)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('usage: acde <command>')
+  })
+
+  test('--version and --help', async () => {
+    const version = await cli(['--version'], APP)
+    expect(version.code).toBe(0)
+    expect(version.stdout.trim()).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version)
+    for (const argv of [['--help'], ['help'], ['skills', '--help'], ['new', '-h']]) {
+      const help = await cli(argv, APP)
+      expect(help.code).toBe(0)
+      expect(help.stdout).toContain('usage: acde <command>')
+    }
   })
 
   test('ids from package names', () => {

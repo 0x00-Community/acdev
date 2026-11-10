@@ -25,7 +25,8 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde test [目录\|文件...] [--headed] [-t 名字] [--desktop] [--timeout MS] [--bail] [--trace] [-u]` | e2e 测试, 只在 bun 上 |
 | `acde skills [install\|remove\|path] [--agent ID,...] [--dir 目录] [--copy]` | 给编码 agent 的 skill: 看装在哪、装、删、打印它的目录 (见「Skill 与文档」) |
 
-参数解析和用法文字在 `src/cli.ts` (`Cli.SPECS`、`USAGE`).
+参数解析和用法文字在 `src/cli.ts` (`Cli.SPECS`、`USAGE`). `acde --version` (`-v`、`version`) 打版本号; `acde --help` (`help`、`-h`) 和任何命令后面的
+`--help` / `-h` (`--` 之前) 把用法打到 stdout, 退出码 0; 不带命令或用错参数照旧打到 stderr, 退出码 1.
 
 ## 工程与工具目录
 
@@ -80,7 +81,8 @@ acde 还没有“启动已构建应用”的命令（`acde install` 只装包，
 - 模板 (`STARTERS`): `html` (`templates/app`, `--backend` 再叠 `templates/backend`)、`desktop` (`templates/desktop`)、`react` / `vue` / `svelte` /
   `solid` / `preact` / `vanilla` (create-vite)、`next` / `nuxt` / `sveltekit` / `astro` (官方脚手架). 框架模板照 `npm create cloudflare`: 经工程的包管理器
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到
-  `CI` 不许新建 lockfile, 装依赖那步不能带). 再叠 `templates/framework/acde.config.jsonc` (没有 `entry`: 构建认框架), `.gitignore` 加 `.acde/`.
+  `CI` 不许新建 lockfile, 装依赖那步不能带). 再叠 `templates/framework/acde.config.jsonc` (没有 `entry`: 构建认框架), `.gitignore` 加 `.acde/`; 根上有 `index.html` 的 (Vite 系)
+  把它的 `<title>` 换成显示名 (窗口标题先用 `document.title`), 别的框架的标题在组件里, 不改.
   加模板就是 `STARTERS` 加一项.
 
 ## 构建 (`src/app.ts`, `src/package.ts`, `src/bundler.ts`, `src/frameworks.ts`)
@@ -265,7 +267,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 - dist 测试 (`test/dist.test.ts`) 需要 acdert 的 acde-api 已构建: 它用 `../acdert/web/packages/acde-api/dist`.
 - **install.sh** (sh / dash / `bash --posix`): 包不分平台, 不认 triple (MSYS / MinGW / Cygwin 叫去用 install.ps1); curl / wget 下载, shasum / sha256sum / openssl 校验, 失败什么都不动. 解进 `$ACDE_INSTALL` (默认 `~/.acde`) 的临时目录再改名成
   `versions/<版本>`; `current` 原子换 (`mv -T` / `mv -h`, 退回 `ln -sfn`); `bin` → `current/bin` (相对链接). PATH 上没有且没给 `--no-modify-path` 时按
-  `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次.
+  `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次. 这个终端的 PATH 上没有时, 输出的最后单独一行是
+  这个终端里要敲的 `export PATH=…` (fish 是 `fish_add_path`): 装完在原来的终端里敲 `acde` 是 command not found, 人会漏看夹在中间的提示.
 - **install.ps1** (Windows PowerShell 5.1 或 PowerShell 7.2+, 只有 x64): 出错 `throw` 不 `exit` (`irm | iex` 时 `exit` 关掉用户的终端); 参数也可走
   `ACDE_VERSION` / `ACDE_NO_MODIFY_PATH`; 用系统的 `tar.exe`. 同版本已在时整体改名挪开 (`<版本>.old-<guid>`, 改名失败才报「还在运行」), 装好再删,
   删不掉留到下次 (`Remove-Item -Recurse` 遇到占用的文件连 `-ErrorAction Stop` 都不停). `current` 是 junction, 先建 `current.next` 再换. PATH 加
@@ -329,7 +332,7 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
 
 **`install.md`** (仓库根, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
 `Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
-`acde` 能跑、`acde skills install`、查运行时在不在 (不在就如实说, 不去找别的来路)、建一个工程 check 和 build (有运行时再 `acde dev --headless`
+`acde` 能跑、`acde skills install`、查运行时在不在 (不在先问用户, 同意了只照 skill `start/install.md` 的「Install the runtime on your own computer」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build (有运行时再 `acde dev --headless`
 截图)、汇报. 步骤放在这个文件里而不是 prompt 里, 改步骤不用改用户手里的那句话. 安装脚本的行为、`acde skills`、运行时怎么找变了, 这个文件一起改;
 改完在临时 `HOME` 里照着走一遍 (`ACDE_DIST` 指向本地 `dist.ts --out` 的目录).
 

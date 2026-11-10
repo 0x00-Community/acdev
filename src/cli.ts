@@ -45,7 +45,9 @@ const USAGE = `usage: acde <command>
                                                    the acde skill (how to build, run, inspect and test with acde, in the Agent
                                                    Skills format): where it is installed; install links it into ~/.agents/skills
                                                    and the skills directory of every agent found here (--agent: of those agents;
-                                                   --dir: into DIR; --copy: a copy, not a link); remove; path prints its directory`
+                                                   --dir: into DIR; --copy: a copy, not a link); remove; path prints its directory
+ --version                                         print the version of acde
+ --help                                            print this (also after any command)`
 
 interface Spec {
   readonly args: readonly [number, number]
@@ -110,6 +112,17 @@ class Cli {
   }
 
   static async main(argv: readonly string[]): Promise<number> {
+    const [first = ''] = argv
+    if (['--version', '-v', 'version'].includes(first)) {
+      console.log(Mcp.version())
+      return 0
+    }
+    const end = argv.indexOf('--')
+    const asked = (end < 0 ? argv : argv.slice(0, end)).some((arg) => arg === '--help' || arg === '-h')
+    if (first === 'help' || (asked && (first.startsWith('-') || Object.hasOwn(Cli.SPECS, first)))) {
+      console.log(USAGE)
+      return 0
+    }
     const { command, args, flags } = Cli.parse(argv)
     if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
     const followed = await Cli.follow(command, args[0] ?? '.', argv)

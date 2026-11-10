@@ -149,7 +149,6 @@ main() {
     *) shown=$bin ;;
   esac
 
-  added=
   on_path=0
   case ":${PATH:-}:" in
     *":$bin:"*) on_path=1 ;;
@@ -165,7 +164,6 @@ main() {
     esac
     if ! grep -qsF "$line" "$1"; then
       printf '\n# acde\n%s\n' "$line" >>"$1"
-      added=1
       say "added $shown to PATH in $1"
     fi
   }
@@ -186,11 +184,6 @@ main() {
 
   say "installed acde $version in $root/versions/$version"
   printf '  acde    %s/acde\n' "$bin"
-  if [ -n "$added" ]; then
-    say "open a new terminal (or run: export PATH=\"$bin:\$PATH\") to get acde on PATH"
-  elif [ "$on_path" = 0 ]; then
-    say "$bin is not on PATH in this shell; add it: export PATH=\"$bin:\$PATH\""
-  fi
 
   runs=
   if command -v bun >/dev/null 2>&1; then
@@ -225,6 +218,18 @@ main() {
   fi
   say "next: acde new my-app (it uses your bun, or npm / pnpm / yarn on Node.js)"
   say "for a coding agent: acde skills install (teaches Claude Code, Codex, Cursor and others to use acde)"
+  if [ "$on_path" = 0 ]; then
+    case $(basename "${SHELL:-sh}") in
+      fish) now="fish_add_path \"$bin\"" ;;
+      *) now="export PATH=\"$bin:\$PATH\"" ;;
+    esac
+    if [ "$modify_path" = 1 ]; then
+      say "acde is on PATH in new terminals; in this one, run:"
+    else
+      say "$bin is not on PATH; add it to your shell's startup file, and in this terminal run:"
+    fi
+    printf '\n  %s\n\n' "$now"
+  fi
 }
 
 main "$@"

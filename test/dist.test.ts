@@ -83,6 +83,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(first.code, first.out).toBe(0)
     expect(first.out).toContain('installed acde 0.0.2')
     expect(first.out).not.toContain('acdert')
+    expect(first.stdout.trimEnd().split('\n').at(-1)).toBe(`  export PATH="${join(home, '.acde', 'bin')}:$PATH"`)
     expect(readlinkSync(join(home, '.acde', 'current'))).toBe('versions/0.0.2')
     expect(readlinkSync(join(home, '.acde', 'bin'))).toBe('current/bin')
     expect(readFileSync(join(home, '.zshrc'), 'utf8')).toBe('\n# acde\nexport PATH="$HOME/.acde/bin:$PATH"\n')
