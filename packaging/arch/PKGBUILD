@@ -19,7 +19,7 @@
 #   /usr/share/wayland-sessions/acde.desktop   the desktop started last (else the first installed);
 #                                  a desktop package installs acde-<id>.desktop for each of its desktops
 #   /usr/lib/tmpfiles.d/acde.conf  /var/lib/acde/greeter: the login screen's state and font cache
-#   /usr/lib/modules-load.d/acde-jsrt.conf, /usr/lib/udev/rules.d/70-acde-jsrt.rules
+#   /usr/lib/modules-load.d/acde-jsrt.conf, /usr/lib/modprobe.d/acde-jsrt.conf, /usr/lib/udev/rules.d/70-acde-jsrt.rules
 #                                  ackernel's /dev/jsrt (the in-kernel JS engine): loaded at boot, open to the seat's user
 #   /etc/xdg/fcitx5/profile        fcitx5's default: English, Ctrl+Space for pinyin
 #   /usr/share/xdg-desktop-portal/acde-portals.conf   portals for XDG_CURRENT_DESKTOP=acde: the GTK backend
@@ -210,6 +210,10 @@ EOF
   # whoever sits at the seat (uaccess: logind's ACL follows the active session, as for /dev/dri); root only otherwise
   install -Dm644 /dev/stdin "${pkgdir}/usr/lib/modules-load.d/acde-jsrt.conf" <<'EOF'
 jsrt_v8
+EOF
+  # the engine's time zone (Intl, Date) is the system's, read when jsrt loads; without /etc/localtime it stays UTC
+  install -Dm644 /dev/stdin "${pkgdir}/usr/lib/modprobe.d/acde-jsrt.conf" <<'EOF'
+install jsrt z=$(readlink -f /etc/localtime); z=${z#*/zoneinfo/}; exec /usr/bin/modprobe --ignore-install jsrt $CMDLINE_OPTS ${z:+timezone=$z}
 EOF
   install -Dm644 /dev/stdin "${pkgdir}/usr/lib/udev/rules.d/70-acde-jsrt.rules" <<'EOF'
 SUBSYSTEM=="misc", KERNEL=="jsrt", MODE="0660", TAG+="uaccess"

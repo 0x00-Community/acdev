@@ -168,6 +168,7 @@ function receive(event: { data: unknown }): void {
 }
 
 function keepReceiving(): void {
+  if (host.onMessage) return
   const own = Object.getOwnPropertyDescriptor(globalThis, 'onmessage')
   if (own?.get === receiving) return
   const page = own?.set
@@ -185,7 +186,8 @@ function receiving(): typeof receive {
   return receive
 }
 
-keepReceiving()
+if (host.onMessage) host.onMessage(receive)
+else keepReceiving()
 
 const engineSetTimeout = globalThis.setTimeout
 const engineClearTimeout = globalThis.clearTimeout

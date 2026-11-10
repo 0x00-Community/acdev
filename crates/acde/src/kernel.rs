@@ -38,13 +38,14 @@ const CALL_MODULE: u16 = 2;
 
 pub fn wanted(place: Place) -> bool {
     let asked = std::env::var("ACDE_KERNEL_JS").ok();
-    if place != Place::Window || asked.as_deref() == Some("0") {
+    let all = asked.as_deref() == Some("all");
+    if (place != Place::Window && !all) || asked.as_deref() == Some("0") {
         return false;
     }
     match rustix::fs::access("/dev/jsrt", rustix::fs::Access::READ_OK | rustix::fs::Access::WRITE_OK) {
         Ok(()) => true,
-        Err(e) if asked.as_deref() == Some("1") => {
-            log::warn!("ACDE_KERNEL_JS=1 but /dev/jsrt is not usable ({e}); this window runs in userspace V8");
+        Err(e) if asked.as_deref() == Some("1") || all => {
+            log::warn!("ACDE_KERNEL_JS={} but /dev/jsrt is not usable ({e}); this isolate runs in userspace V8", asked.as_deref().unwrap_or_default());
             false
         }
         Err(_) => false,
