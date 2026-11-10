@@ -309,8 +309,8 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
     for (const ran of runs) {
       expect(ran.code).toBe(1)
       expect(ran.stderr).toContain('service clock: clock.ts imports acde:windows, tick.ts imports acde:fs: ' +
-        "a service gets shell modules from ctx.import('acde:<name>'), listed in its modules in the desktop " +
-        'manifest (acde.config.jsonc has no field for that list: only a handwritten package manifest grants them)')
+        "a service gets shell modules from ctx.import('acde:<name>'), listed in its modules in " +
+        'acde.config.jsonc ("services": { "clock": { "module": "<file>", "modules": ["<name>"] } })')
       expect(existsSync(join(ran.out, 'services/clock.js'))).toBe(false)
     }
     expect(runs[0]!.stderr).toBe(runs[1]!.stderr)

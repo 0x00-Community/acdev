@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { delimiter, join, relative, sep } from 'node:path'
-import { API_LEVEL, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
+import { API_LEVEL, Manifest, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
@@ -258,6 +258,58 @@ describe('acde.config.jsonc', () => {
       .filter((f) => f.endsWith('.js'))
       .map((f) => readFileSync(join(out, 'desktop', f), 'utf8'))
     expect(scripts.some((text) => /from\s*"acde:apps"/.test(text))).toBe(true)
+  })
+
+  test('a desktop config grants a service shell modules: the built desktop lists {name, modules}', async () => {
+    const dir = join(tmp(), 'mine')
+    expect((await cli(['new', dir, '--template', 'desktop'], tmp())).code).toBe(0)
+    writeFileSync(join(dir, 'clock.js'), "export default async (ctx) => ({ api: { clock: await ctx.import('acde:windows') } })\n")
+    writeFileSync(join(dir, 'plain.js'), 'export default () => ({ api: { plain: { now: () => Date.now() } } })\n')
+    const config = readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')
+    const write = (services: string) =>
+      writeFileSync(join(dir, 'acde.config.jsonc'), config.replace('"services": {}', `"services": ${services}`))
+    write('{ "clock": { "module": "clock.js", "modules": ["windows", "session"] }, "plain": "plain.js", ' +
+      '"bare": { "module": "plain.js" } }')
+    const checked = await cli(['check'], dir)
+    expect(checked.stderr).toBe('')
+    expect(checked.code).toBe(0)
+    const out = join(tmp(), 'out')
+    const result = await cli(['build', '--out', out], dir)
+    expect(result.stderr).toBe('')
+    expect(result.code).toBe(0)
+    const built = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+    expect(built.acde.desktops[0].services).toEqual([{ name: 'clock', modules: ['windows', 'session'] }, 'plain', 'bare'])
+    expect(built.acde.services).toEqual([
+      { name: 'clock', module: 'services/clock.js' },
+      { name: 'plain', module: 'services/plain.js' },
+      { name: 'bare', module: 'services/bare.js' },
+    ])
+    expect(Manifest.desktopServices(built.acde.desktops[0].services)).toEqual([
+      { name: 'clock', modules: ['windows', 'session'] },
+      { name: 'plain', modules: [] },
+      { name: 'bare', modules: [] },
+    ])
+    const shell = 'windows, packages, session, desktops, inspect, desktop, setDefault, permissions'
+    const refused: [string, string][] = [
+      ['{ "clock": { "module": "clock.js", "modules": ["fs"] } }',
+        `services in acde.config.jsonc: service "clock": modules lists shell modules (${shell})`],
+      ['{ "clock": { "module": "clock.js", "modules": "windows" } }',
+        `services in acde.config.jsonc: service "clock": modules lists shell modules (${shell})`],
+      ['{ "clock": { "modules": ["windows"] } }',
+        'services in acde.config.jsonc: service "clock": a service is its module or {module, modules}'],
+      ['{ "clock": { "module": "clock.js", "shell": ["windows"] } }',
+        'services in acde.config.jsonc: service "clock": "shell" is not a field of a service (module, modules)'],
+      ['{ "clock": { "module": "gone.js", "modules": ["windows"] } }', 'no gone.js (services.clock in acde.config.jsonc)'],
+    ]
+    for (const [services, message] of refused) {
+      write(services)
+      const check = await cli(['check'], dir)
+      expect(check.stderr, services).toContain(`error: ${message}\n`)
+      expect(check.code, services).toBe(1)
+      const build = await cli(['build', '--out', out], dir)
+      expect(build.stderr, services).toContain(message)
+      expect(build.code, services).toBe(1)
+    }
   })
 
   test('a hand-written package (package.json acde.apps) installs as a link', async () => {

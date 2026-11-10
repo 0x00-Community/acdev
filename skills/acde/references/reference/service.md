@@ -20,10 +20,10 @@ interface ServiceContext {
   readonly inspect?: AcdeInspect
   log(line: string): void
   spawn(argv: readonly string[], options?: SpawnOptions): ServiceProcess
-  import<K extends keyof ShellModuleTypes>(specifier: `acde:${K}`): Promise<{ readonly default: ShellModuleTypes[K] } & { readonly [N in K]: ShellModuleTypes[K] }>
+  import<K extends keyof ServiceModuleTypes>(specifier: `acde:${K}`): Promise<{ readonly default: ServiceModuleTypes[K] } & { readonly [N in K]: ServiceModuleTypes[K] }>
 }
 
-// ShellModuleTypes: windows, packages, session, desktops, inspect, desktop, setDefault, permissions
+// ServiceModuleTypes: windows, packages, session, desktops, inspect, setDefault, and desktop with apps() only
 
 interface SpawnOptions {
   readonly cwd?: string
@@ -43,5 +43,5 @@ interface ServiceProcess {
 - `api`: namespace → object. Each namespace becomes the module `acde:<namespace>`; functions on the object become callable methods, and strings / numbers / booleans become read-only fields.
 - `sync`: a list of `"namespace.method"` entries. These methods are called once when a page starts, the results are cached in the page, and from then on they return synchronously in the page (good for configuration that doesn't change).
 - `close()`: called when the desktop stops.
-- An app lists the **service name** (the key in the desktop config's `services`) in its own `services`, and the runtime then gives it every namespace of that service. Name the namespace after the service all the same: `acde check` and `acde build` judge an app's `import 'acde:<name>'` by the names in its `services` and reject any other namespace (see [Services](../guide/services.md#call-it)). A service name cannot be that of a system module or capability, and a namespace with such a name is left out.
-- `import('acde:windows')`: resolves to the module (`{ windows, default }`) when the desktop's manifest entry grants it to this service (`"services": [{ "name": "clock", "modules": ["windows"] }]`, see [Manifest](manifest.md#desktopmanifest); `acde.config.jsonc` cannot write this grant, so only a handwritten package has it); otherwise it rejects with `acde:windows is a shell module: list it in the modules of service "clock" in the desktop manifest`. A service cannot use a static `import` of an `acde:` module (the build rejects it). What a service gets can be smaller than what a page gets: its `acde:windows` has `list`, `focus`, `hide`, `show`, `close`, `kill`, `stats`, and `animate`, and no events.
+- An app lists the **service name** (the key in the desktop config's `services`) in its own `services`, and the runtime then gives it every namespace of that service. `acde check` and `acde build` let an import of a namespace that is not the service's own name pass with a `note:`, because they cannot know a service's namespaces (see [Services](../guide/services.md#call-it)). A service name cannot be that of a system module or capability, and a namespace with such a name is left out.
+- `import('acde:windows')`: resolves to the module (`{ windows, default }`) when the desktop grants it to this service: `"services": { "clock": { "module": "services/clock.ts", "modules": ["windows"] } }` in `acde.config.jsonc`, which `acde build` writes into the manifest as `"services": [{ "name": "clock", "modules": ["windows"] }]` (see [Manifest](manifest.md#desktopmanifest)). Otherwise it rejects with `acde:windows is a shell module: list it in the modules of service "clock" in the desktop manifest`. A service cannot use a static `import` of an `acde:` module (the build rejects it). A service gets the modules a desktop page gets, with two exceptions: `acde:desktop` is `apps()` only, and `acde:permissions` is not given. Calls that the types declare as promises return promises in a service too. See [Services](../guide/services.md#shell-modules-in-a-service).

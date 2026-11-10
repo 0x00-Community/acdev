@@ -29,11 +29,13 @@ const clock: ServiceFactory = (ctx) => {
 export default clock
 ```
 
-Register it in the desktop's config:
+Register it in the desktop's config, under the service's name:
 
 ```jsonc
 { "type": "desktop", "services": { "clock": "services/clock.ts" } }
 ```
+
+A service that uses shell modules is written as an object that also lists them; see [Shell modules in a service](#shell-modules-in-a-service).
 
 ## Call it
 
@@ -78,7 +80,7 @@ The `ctx` passed to the factory function:
 | `log(line)` | Writes a log line, prefixed with `[<service name>]` |
 | `spawn(argv, options?)` | Starts a child process |
 | `inspect` | The `acde:inspect` interface |
-| `import(specifier)` | A shell module that a handwritten package manifest grants this service; see below |
+| `import(specifier)` | A shell module the desktop grants this service; see below |
 
 `spawn` takes the options `{cwd, env, onLine(line), onExit(code, signal)}` and returns `{pid, write(text), end(), kill(signal?)}`. The child process runs in its own process group and its stderr goes to the log; when the service closes, it gets SIGTERM, then SIGKILL 3 seconds later.
 
@@ -86,12 +88,60 @@ A service should only use `ServiceContext` and standard Web APIs. Put heavy work
 
 ## Shell modules in a service
 
-A service of a project built from `acde.config.jsonc` gets no shell module except `ctx.inspect`. The config has no field that grants one (its `services` maps names to modules only), so in such a service `ctx.import('acde:windows')` rejects with `acde:windows is a shell module: list it in the modules of service "clock" in the desktop manifest`.
+A service cannot `import` an `acde:` module; the build rejects it:
 
-A service does not `import` `acde:` modules either: the build rejects it (`service clock: services/clock.ts imports acde:windows: a service gets shell modules from ctx.import('acde:<name>'), listed in its modules in the desktop manifest (acde.config.jsonc has no field for that list: only a handwritten package manifest grants them)`).
-
-Only a handwritten package can grant shell modules: the desktop's entry in its [manifest](../reference/manifest.md#desktopmanifest) lists the service as `{ "name": "clock", "modules": ["windows"] }` in the desktop's `services`. The service then asks its context:
-
-```js
-const { windows } = await ctx.import('acde:windows')
+```text
+acde: service clock: services/clock.ts imports acde:windows: a service gets shell modules from ctx.import('acde:<name>'), listed in its modules in acde.config.jsonc ("services": { "clock": { "module": "<file>", "modules": ["<name>"] } })
 ```
+
+It asks its context for the shell modules the desktop grants it. Grant them in the desktop's config: write the service as an object with its module file and the shell modules it may use.
+
+```jsonc
+{
+  "type": "desktop",
+  "services": {
+    "clock": { "module": "services/clock.ts", "modules": ["windows"] }
+  }
+}
+```
+
+```ts
+// services/clock.ts
+import type { ServiceFactory } from '@dopame/acde-api'
+
+const clock: ServiceFactory = async (ctx) => {
+  const { windows } = await ctx.import('acde:windows')
+  windows.on('open', (event) => ctx.log(`window ${event.window} opened`))
+  return {
+    api: {
+      clock: {
+        now: () => Date.now(),
+        windows: () => windows.list(),
+      },
+    },
+  }
+}
+export default clock
+```
+
+With one app window open, `clock.windows()` answers `[{ "id": 1048576, "appId": "tools", "title": "Tools", "web": true, "state": "normal" }]`.
+
+`modules` takes the names of shell modules. Anything else is an error in `acde check` and `acde build`:
+
+```text
+error: services in acde.config.jsonc: service "clock": modules lists shell modules (windows, packages, session, desktops, inspect, desktop, setDefault, permissions)
+```
+
+`acde build` writes the grant into the desktop's entry of the package manifest as `{ "name": "clock", "modules": ["windows"] }`; a handwritten package writes that entry itself (see [Manifest](../reference/manifest.md#desktopmanifest)).
+
+What `ctx.import()` gives:
+
+| Module | In a service |
+| --- | --- |
+| `acde:windows` | The whole module, as the desktop page has it: `list()`, the events, `requestState()`, and the rest |
+| `acde:packages` | The whole module, with its `changed` event |
+| `acde:session`, `acde:desktops`, `acde:inspect`, `acde:setDefault` | The whole module |
+| `acde:desktop` | `apps()` only: a service has no page to pin panels from |
+| `acde:permissions` | Not given: `acde:permissions is not available to services here` |
+
+`ctx.inspect` needs no grant. `ctx.import()` rejects with a `TypeError` for a shell module the service is not granted (`acde:session is a shell module: list it in the modules of service "clock" in the desktop manifest`) and for anything that is not a shell module (`import(acde:fs): a service imports shell modules (acde:windows, acde:packages, …)`). A factory that lets the rejection through does not start its service; the runtime logs `[clock] not started: TypeError: …`.

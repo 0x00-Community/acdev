@@ -8,7 +8,7 @@ import type {
   AcdeConfig, AppManifest as AppEntry, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest,
   WindowAppConfig,
 } from '@dopame/acde-api'
-import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { API_LEVEL, Manifest, type ConfiguredService } from '@dopame/acde-api/manifest'
 import { Bundler, type PublicRules } from './bundler.ts'
 import { CONFIGS } from './configs.ts'
 import { Frameworks, type Output } from './frameworks.ts'
@@ -144,7 +144,9 @@ export class Project {
       return errors
     }
     need(config.entry ?? 'index.html', 'entry')
-    for (const [name, module] of Object.entries(config.services ?? {})) need(module, `services.${name}`)
+    const services = Manifest.configServices(config.services)
+    if (typeof services === 'string') errors.push(`services in ${this.from}: ${services}`)
+    else for (const { name, module } of services) need(module, `services.${name}`)
     for (const app of config.apps ?? []) {
       need(app.entry, `apps ${app.id}: entry`)
       icon(app.icon, `apps ${app.id}: icon`)
@@ -166,13 +168,13 @@ export class Project {
     if (config.type === 'app') {
       manifest.apps.push(await this.#app({ ...config, id: this.id }, out, '', assets, true))
     } else {
-      manifest.desktops = [await this.#desktop(config, out, assets)]
+      const services = Project.services(config)
+      manifest.desktops = [await this.#desktop(config, services, out, assets)]
       for (const app of config.apps ?? [])
         manifest.apps.push(await this.#app(app, out, `apps/${app.id}/`, assets, false))
-      const services = Object.entries(config.services ?? {})
       if (services.length > 0) {
         manifest.services = []
-        for (const [name, module] of services) manifest.services.push(await this.#service(name, module, out))
+        for (const { name, module } of services) manifest.services.push(await this.#service(name, module, out))
       }
     }
     const acde = { apiLevel: API_LEVEL, ...manifest, assets }
@@ -288,7 +290,19 @@ export class Project {
     return base + name
   }
 
-  async #desktop(config: DesktopConfig, out: string, assets: Record<string, string[]>): Promise<DesktopManifest> {
+  static services(config: DesktopConfig): ConfiguredService[] {
+    const services = Manifest.configServices(config.services)
+    if (typeof services === 'string') throw new Error(services)
+    return services
+  }
+
+  static grants(services: readonly ConfiguredService[]): NonNullable<DesktopManifest['services']> {
+    return services.map(({ name, modules }) => (modules.length > 0 ? { name, modules } : name))
+  }
+
+  async #desktop(
+    config: DesktopConfig, services: readonly ConfiguredService[], out: string, assets: Record<string, string[]>,
+  ): Promise<DesktopManifest> {
     const id = this.id
     const base = `/desktop/${id}/`
     const page = await this.#web(resolve(this.dir, config.entry ?? 'index.html'), join(out, 'desktop'), base, true)
@@ -298,7 +312,7 @@ export class Project {
       name: config.label ?? id,
       ...(config.description !== undefined && { description: config.description }),
       entry: `desktop/${page}`,
-      ...(config.services && Object.keys(config.services).length > 0 && { services: Object.keys(config.services) }),
+      ...(services.length > 0 && { services: Project.grants(services) }),
       ...(config.heapMb !== undefined && { heapMb: config.heapMb }),
     }
   }

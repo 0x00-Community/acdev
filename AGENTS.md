@@ -175,10 +175,13 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   (文件相对工程, 排好序, 两边逐字相同). 依据是 acdert 的运行时: 服务在 Broker isolate 里经 `import(file URL)` 加载, 而 `acde:*` 只经
   `defineModule` 注入每个 web 的 isolate (`acde-host` 的 `worker.ts`), Broker isolate 没有, 静态导入在链接时就报 `is not given to`;
   服务只能经 `ctx.import('acde:<模块>')` 拿外壳模块 (桌面清单 `services` 项的 `modules` 授权). 所以不把 `acde:*` 设为外部.
-  **配置写不出这条授权**: SDK 的 `DesktopConfig.services` 是 `Record<string, string>` (`config.schema.json` 同), 构建写进清单的是服务名的数组,
-  所以从配置构建的服务只有 `ctx.inspect`, `ctx.import` 一律被拒 (实测 acdert 0.0.9); 只有手写的包能写 `{name, modules}`. 报错末尾因此加了
-  `(acde.config.jsonc has no field for that list: only a handwritten package manifest grants them)`, 模板的注释和 skill 也照实写.
-  要让配置能写, 得先改 SDK 的类型和 schema (比如值可以是 `{module, modules}`), acde 再把它写成清单的 `{name, modules}`; acde 不自己认 schema 之外的字段.
+  **配置里的授权**: 桌面配置的 `services` 每项是模块文件, 或 `{ "module": 文件, "modules": [外壳模块] }` (SDK 的 `ServiceConfig`,
+  `config.schema.json` 同). 怎么读只有一处: SDK 的 `Manifest.configServices(config.services)` 给出 `{name, module, modules}[]` 或一句错误
+  (`modules` 用清单那条规则 `Manifest.desktopServices` 判, 文字相同; 没有 `module`、多出别的字段也是错误). `Project.check` 把错误报成
+  `services in acde.config.jsonc: service "clock": …`, 再查每个模块文件在不在; `Project.build` 经 `Project.services` / `Project.grants`
+  把有 `modules` 的写成桌面清单的 `{name, modules}`, 没有的照旧写服务名 (产物不变); `acde check` 的临时清单 (`#configFindings`) 用同一份.
+  服务里静态导入 `acde:*` 的报错末尾指向这个字段: `…, listed in its modules in acde.config.jsonc ("services": { "clock": { "module": "<file>",
+  "modules": ["<name>"] } })`. 模板的注释和 skill 写的是同一个字段 (`test/templates.test.ts` 把注释里的例子交给 `Manifest.configServices`, 并对着 schema 的两种写法).
 - `public/` (插件 `acde-public`): 复制进工程自己的应用的 `web/` 和桌面页的 `desktop/` (桌面里的应用不复制). 以 `/` 开头、落在 public 里的引用:
   HTML 里的照常打包; CSS 的 `url(/x)` 在工程自己的 HTML 入口应用里原样留着 (运行时应用目录也挂在 `/` 下), 别处照打包处理; 哪儿都没有时构建失败,
   说清哪个文件的哪个 URL、public 里缺什么 (`PublicError`).

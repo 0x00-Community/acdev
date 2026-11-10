@@ -47,5 +47,5 @@ type AcdeConfig = AppConfig | DesktopConfig
 | `id` / `label` / `description` | string | | |
 | `entry` | string | `"index.html"` | The desktop page |
 | `heapMb` | number | 1024 | |
-| `services` | `Record<string, string>` | | Service name → module path. There is no field that grants a service shell modules; see [Services](../guide/services.md#shell-modules-in-a-service) |
+| `services` | `Record<string, string \| ServiceConfig>` | | Service name → module path, or `{ module, modules? }`: the module path and the shell modules the service gets from `ctx.import()`; see [Services](../guide/services.md#shell-modules-in-a-service) |
 | `apps` | `WindowAppConfig[]` | | Bundled apps (system apps): the `AppConfig` fields except `framework`; `id` and `entry` are required, and `capabilities` may name shell modules |

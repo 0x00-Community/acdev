@@ -110,14 +110,15 @@ export class AppPackage {
     const apps = this.#configApps()
     if (!apps) return { errors, warnings: [] }
     const config = project.config
-    const names = config.type === 'desktop' ? Object.keys(config.services ?? {}) : []
+    const configured = config.type === 'desktop' ? Manifest.configServices(config.services) : []
+    const services = typeof configured === 'string' ? [] : configured
     const manifest: PackageManifest = {
       apiLevel: API_LEVEL,
       apps: apps.map((app) => app.raw),
       ...(config.type === 'desktop' && {
-        desktops: [{ id: project.id, name: project.id, entry: 'desktop/index.html', services: names }],
+        desktops: [{ id: project.id, name: project.id, entry: 'desktop/index.html', services: Project.grants(services) }],
       }),
-      services: names.map((name) => ({ name, module: `services/${name}.js` })),
+      services: services.map(({ name }) => ({ name, module: `services/${name}.js` })),
     }
     const findings = Manifest.check(manifest, () => true, () => true)
     const local = AppPackage.localSdk(project.pkg)

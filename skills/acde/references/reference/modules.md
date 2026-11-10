@@ -26,7 +26,7 @@ Who can import what. "App" is an app of its own package; a "system app" ships in
 | `acde:windows` `acde:packages` `acde:session` `acde:desktops` `acde:inspect` `acde:desktop` `acde:setDefault` `acde:permissions` (shell modules) | | The module's name: `"windows": true` | ✓ |
 | `acde:<service>` | The service's name in `services` | The same | ✓ |
 
-A module the platform lacks is missing for everyone there (see [Platform support](platforms.md)). An import that is not allowed fails with a `TypeError` whose message names the missing declaration, such as `acde:terminal needs "terminal" in the capabilities of Notes`. Desktop services cannot import `acde:` modules; one that a handwritten package manifest grants shell modules gets them from `ctx.import()`; see [Service API](service.md).
+A module the platform lacks is missing for everyone there (see [Platform support](platforms.md)). An import that is not allowed fails with a `TypeError` whose message names the missing declaration, such as `acde:terminal needs "terminal" in the capabilities of Notes`. Desktop services cannot import `acde:` modules; a service that the desktop grants shell modules gets them from `ctx.import()`; see [Service API](service.md).
 
 Events are subscribed with `on(type, handler)`, which returns an unsubscribe function. `acde:windows`, `acde:launch`, and `acde:desktop` throw a `TypeError` for an event type they do not have. Two modules take a callback instead: `acde:terminal` (`subscribe`) and `acde:network` (`watch`).
 

@@ -46,7 +46,7 @@ A project's config lives in `acde.config.jsonc` at its root (`acde.config.json` 
 | `id` / `label` / `description` | The desktop's id, name, and description |
 | `entry` | The desktop page; defaults to `index.html` |
 | `heapMb` | JS heap limit for the desktop page; defaults to 1024 |
-| `services` | Desktop services: name → module path; see [Services](services.md) |
+| `services` | Desktop services: name → module path, or name → `{ "module": path, "modules": [shell modules] }` for a service that uses shell modules; see [Services](services.md) |
 | `apps` | Apps bundled with this desktop (system apps). Each entry has the same fields as an app, but `id` and `entry` are required; its `capabilities` may also name shell modules, such as `"windows": true` |
 
 See [Desktops](desktop.md).
