@@ -153,6 +153,7 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
         "exit" => exit,
         "cwd" => cwd,
         "homedir" => homedir,
+        "languages" => languages,
         "readFile" => read_file,
         "readText" => read_text,
         "writeFile" => write_file,
@@ -234,6 +235,11 @@ fn cwd(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::R
 fn homedir(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let home = std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned());
     rv.set(bind::string(scope, &home).into());
+}
+
+fn languages(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let tags = acde_hostwin::preferred_languages().js(scope);
+    rv.set(tags);
 }
 
 #[cfg(windows)]

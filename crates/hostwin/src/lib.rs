@@ -47,6 +47,10 @@ pub fn open_with(handler: &str, path: &str) -> Result<(), OpenError> {
     system::assoc::open_with(handler, path, platform::headless())
 }
 
+pub fn preferred_languages() -> Vec<String> {
+    system::languages::preferred()
+}
+
 pub fn headless() -> bool {
     platform::headless()
 }

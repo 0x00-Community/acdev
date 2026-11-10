@@ -25,6 +25,7 @@ interface SysNative {
   exit(code: number): never
   cwd(): string
   homedir(): string
+  languages(): string[]
   getuid(): number
   readFile(path: string): Uint8Array
   readText(path: string): string

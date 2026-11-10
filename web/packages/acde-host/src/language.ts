@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from './sys/fs'
+import { sys } from './sys/natives'
 import { xdgHome } from './sys/os'
 import { dirname, join } from './sys/path'
 import { process, type Env } from './sys/process'
@@ -12,7 +13,7 @@ export interface Languages {
 export class SessionLanguage {
   static readonly TAG = /^([a-z]{2,3})-([A-Z]{2})$/
 
-  static of(env: Env): Languages {
+  static of(env: Env, system: readonly string[] = []): Languages {
     const tag = (locale: string) => {
       const base = locale.split(/[.@]/)[0]!.trim()
       if (!base) return null
@@ -20,7 +21,8 @@ export class SessionLanguage {
       return base.replace(/_/g, '-')
     }
     const locale = env['LC_ALL'] || env['LC_MESSAGES'] || env['LANG'] || ''
-    const list = [...(env['LANGUAGE'] ? env['LANGUAGE'].split(':') : []), locale].map(tag).filter((t): t is string => !!t)
+    const set = [...(env['LANGUAGE'] ? env['LANGUAGE'].split(':') : []), locale].map(tag).filter((t): t is string => !!t)
+    const list = set.length ? set : system.map((t) => t.trim()).filter(Boolean)
     const languages = [...new Set(list.flatMap((t) => (t.includes('-') ? [t, t.split('-')[0]!] : [t])))]
     return languages.length ? { language: languages[0]!, languages } : {}
   }
@@ -42,7 +44,7 @@ export class SessionLanguage {
   readonly #onChange: (languages: Languages) => void
 
   constructor(onChange: (languages: Languages) => void) {
-    this.#current = SessionLanguage.of(process.env)
+    this.#current = SessionLanguage.of(process.env, sys().languages())
     this.#onChange = onChange
   }
 
