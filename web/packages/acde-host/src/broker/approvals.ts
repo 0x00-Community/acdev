@@ -1,11 +1,10 @@
-import type { AppRegistry } from '../apps'
+import type { AppManifest, AppRegistry } from '../apps'
 import type { RawShellEvent } from '../native'
 import type { CapabilityCheck } from './access/capabilities'
 import { ApprovalDialogs, type NativeApproval } from './access/approval/dialog'
 import { Permissions, type Approval, type DecisionStore } from './access/approval/permissions'
 import { PermissionCalls } from './calls/permissions'
 import type { WindowRecord } from './types'
-import type { Web } from './web'
 
 export interface ApprovalsHost {
   apps(): AppRegistry
@@ -55,7 +54,7 @@ export class Approvals {
     this.calls = new PermissionCalls({ permissions: this.permissions, apps: () => host.apps(), capabilities: () => host.capabilities() })
   }
 
-  allow(web: Web, capability: string): void {
+  allow(web: { readonly app: AppManifest | null }, capability: string): void {
     if (!web.app) return
     const approval = this.permissions.approval(web.app, this.#host.apps().origin(web.app.id), capability)
     if (approval !== 'granted') throw Permissions.error(web.app.label, capability, approval)

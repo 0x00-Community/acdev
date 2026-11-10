@@ -354,7 +354,15 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   清单的 `services` 里写服务名才能调 (写在 capabilities 里是校验错误). 服务名不能用系统模块的名字 (`RESERVED_NAMES`). 重活放进 `ctx.spawn(argv, {cwd, env, onLine, onExit})` 起的进程 (`child.rs`: 自己的进程组, stderr 进日志加前缀
   `[<服务名>]`, 服务关闭后 SIGTERM, 3 秒后 SIGKILL).
   桌面清单的 `services` 项可以写成 `{name, modules}`, 列出这个服务能用的外壳模块; 服务经 `ctx.import('acde:<模块>')` 拿到 `{<模块>, default}`
-  (Broker 侧的 `#serviceModule`), 没列的拒绝并说缺哪条声明. 服务还另有 `ctx.inspect`.
+  (Broker 侧 `broker/access/modules.ts` `ServiceModules.module(名字, 服务名)`), 没列的拒绝并说缺哪条声明. 服务还另有 `ctx.inspect`.
+  **服务拿到的是什么** (SDK `ServiceModuleTypes`, `ServiceContext.import` 按它定类型; 服务在 Broker isolate 里, 没有页面也没有 surface):
+  `acde:windows` 是页面拿到的那一个 (`Required<AcdeWindows>`): `list()` 的行来自 `WindowRecords.rows()` (和页面的行同一个形状, 带 `state`), 调用走 `WindowCalls.windows`
+  (调用者是 `WindowCalls.SERVICE`, 和桌面页面同一段检查; `launch` 的 `slot` 不算数, 服务没有窗口可嵌), `on(类型)` 收全局窗口事件 (不认识的类型抛 TypeError);
+  `acde:packages` 同页面 (含 `on('changed')`); `acde:session`、`acde:desktops`、`acde:inspect`、`acde:setDefault` 同页面; `acde:desktop` 只有 `apps()` (钉面板、
+  `setDoubleClick`、`setFrameTheme` 要页面或 surface, `download` / `notification` / `screenshot` / `shortcut` 事件只发给页面); `acde:permissions` 不给服务
+  (`is not available to services here`). SDK 里写成 Promise 的调用在服务里也回 Promise (`ServiceModules` 包一层 async). 事件: Broker 的 `#toDesktop` 同时交给
+  `ServiceModules.emit`, 每个服务一份 `Notices` (`notices.ts`, 页面的 `on` 用的也是它), 处理函数在 Broker 线程上同步跑, 抛错只记日志; 服务停了 (或没起来)
+  `release(服务名)` 丢掉它的订阅.
 
 找包的顺序: acde-host 自己 (只有品牌资源)、`ACDE_PATH`、`$XDG_DATA_HOME/acde/packages/*`、`$XDG_DATA_DIRS/acde/packages/*`, 同 id 先到先得.
 外部会话 (`src/foreign.ts`): `$XDG_DATA_DIRS/wayland-sessions/*.desktop`, id `session:<文件名>` (显示名去掉 "(Wayland)", KDE 的加 "KDE");
@@ -1420,7 +1428,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   `acde.launch` / `acde.window`)、`page.ts` (页面调用和钉住的面板)、`services.ts` (交给 web 的服务形状、内置和桌面包服务的调用)、`desktops.ts`
   (`acde.desktops`); `access/` 是谁能用什么: `tier.ts` (按调用者层级的模块)、`family.ts` (打开窗口时的父窗口)、`launchable.ts` (应用能不能
   在这里起: 找不到 404 / 级别不对 409、缺系统服务 503、宿主窗口里要 slots 404、第三方声明外壳模块 403; 列表只给能起的)、`modules.ts`
-  (桌面服务 `ctx.import` 拿到的外壳模块)、`capabilities.ts` (必需与可选能力), `access/approval/` 是批准: `permissions.ts` (决定)、`permits.ts` (web 侧的守卫)、
+  (桌面服务 `ctx.import` 拿到的外壳模块和它们的事件)、`capabilities.ts` (必需与可选能力), `access/approval/` 是批准: `permissions.ts` (决定)、`permits.ts` (web 侧的守卫)、
   `dialog.ts` (单应用模式的原生对话框). `broker.ts` 留着会话循环和 web 的起停. `greet/` 是登录页,
   `brand/` 的 `mark.mjs` / `art.mjs` 是 agentos 仓库 `branding/` 的原样拷贝 (只在那边改).
 

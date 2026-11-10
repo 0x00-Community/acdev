@@ -572,6 +572,16 @@ export interface ShellModuleTypes {
   readonly permissions: AcdePermissions
 }
 
+export interface ServiceModuleTypes {
+  readonly windows: Required<AcdeWindows>
+  readonly packages: AcdePackages
+  readonly session: AcdeSession
+  readonly desktops: AcdeDesktops
+  readonly inspect: AcdeInspect
+  readonly desktop: Pick<AcdeDesktop, 'apps'>
+  readonly setDefault: AcdeOpenFiles['setDefault']
+}
+
 export interface AcdePage {
   readonly fs?: AcdeFs
   readonly office?: AcdeOffice

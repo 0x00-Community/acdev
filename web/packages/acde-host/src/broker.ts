@@ -78,6 +78,7 @@ export class Broker {
   readonly #services: ServiceCalls
   readonly #windowCalls: WindowCalls
   readonly #panelCalls: PanelCalls
+  readonly #modules: ServiceModules
   readonly #pageCalls: PageCalls
   readonly #listing = new AppListing({
     apps: () => this.#appList(),
@@ -184,7 +185,7 @@ export class Broker {
       records: () => [...this.#windows.keys()],
     })
     this.bridge.services.inspect = this.inspect.api
-    const modules = new ServiceModules({
+    this.#modules = new ServiceModules({
       shell: this.shell,
       natives: this.natives,
       session: () => this.session.api,
@@ -194,12 +195,10 @@ export class Broker {
       apps: () => this.#appList(),
       refresh: () => this.refreshApps(),
       install: (dir) => this.installApps(dir),
-      windows: () => this.windows,
-      hide: (id, hidden) => this.#hide(id, hidden),
-      close: (id) => (this.#windows.get(id)?.kind === 'web' ? this.closeWeb(id) : this.shell.close(id)),
-      kill: (id) => this.closeWeb(id, true),
+      rows: () => this.#windows.rows(),
+      windows: (method, args) => this.#windowCalls.windows(WindowCalls.SERVICE, method, args),
     })
-    this.bridge.services.shell = (name) => modules.module(name)
+    this.bridge.services.shell = this.#modules
     this.#dev = new DevRequests({
       shell: this.shell,
       inspect: this.inspect,
@@ -613,6 +612,7 @@ export class Broker {
     this.#desktop?.thread.post(event)
     const type = String(event.type)
     for (const record of this.#windows.values()) if (record.web && Tiers.listens(record.web.tier, type)) record.web.thread.post(event)
+    this.#modules.emit(event)
   }
 
   #announce(record: WindowRecord, tell: (event: Record<string, unknown>) => void = (event) => this.#toDesktop(event)): void {
