@@ -498,6 +498,8 @@ export interface CaptureOpened extends CaptureDevice {
 export interface CaptureNative {
   devices(full: boolean): Promise<CaptureDevice[]>
   permission(kind: 'camera' | 'microphone'): 'granted' | 'denied' | 'prompt'
+  request?(kind: 'camera' | 'microphone'): Promise<boolean>
+  onPermission?(callback: () => void): void
   open(kind: 'audioinput' | 'videoinput', deviceId: string, width: number, height: number, frameRate: number): Promise<CaptureOpened>
   close(source: number): void
   onEnded(callback: (source: number, reason: string) => void): void

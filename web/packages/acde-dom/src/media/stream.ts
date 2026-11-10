@@ -463,9 +463,11 @@ export class MediaDevices extends EventTarget {
     }
     if (wanted.length === 0) return Promise.reject(new TypeError("Failed to execute 'getUserMedia' on 'MediaDevices': At least one of audio and video must be requested"))
     const capture = native
-    if (!capture) return Promise.reject(new DOMException('Permission denied', 'NotAllowedError'))
+    const refused = () => new DOMException('Permission denied', 'NotAllowedError')
+    if (!capture) return Promise.reject(refused())
+    const permission = (kind: TrackKind) => (kind === 'audio' ? 'microphone' : 'camera')
     for (const [kind] of wanted) {
-      if (capture.permission(kind === 'audio' ? 'microphone' : 'camera') === 'denied') return Promise.reject(new DOMException('Permission denied', 'NotAllowedError'))
+      if (capture.permission(permission(kind)) === 'denied') return Promise.reject(refused())
     }
     return capture.devices(true).then(async (devices) => {
       const chosen: [TrackKind, Constraints, Candidate][] = []
@@ -478,13 +480,23 @@ export class MediaDevices extends EventTarget {
       }
       const opened: [TrackKind, Constraints, CaptureOpened][] = []
       try {
+        for (const [kind] of chosen) {
+          if (capture.request && !(await capture.request(permission(kind)))) throw refused()
+        }
         for (const [kind, set, pick] of chosen) {
           const mode = pick.mode ?? [0, 0, 0]
-          opened.push([kind, set, await capture.open(kind === 'audio' ? 'audioinput' : 'videoinput', pick.device.deviceId, mode[0], mode[1], mode[2])])
+          const device = capture.open(kind === 'audio' ? 'audioinput' : 'videoinput', pick.device.deviceId, mode[0], mode[1], mode[2])
+          opened.push([
+            kind,
+            set,
+            await device.catch((error: unknown) => {
+              throw failure(error)
+            }),
+          ])
         }
       } catch (error) {
         for (const [, , o] of opened) capture.close(o.source)
-        throw failure(error)
+        throw error
       } finally {
         for (const change of permissionChanges) change()
       }
@@ -561,6 +573,9 @@ export function capturePermission(name: 'camera' | 'microphone'): string {
 
 export function installCapture(capture: CaptureNative | undefined): void {
   native = capture ?? null
+  native?.onPermission?.(() => {
+    for (const change of permissionChanges) change()
+  })
   native?.onEnded((id) => {
     const source = sources.get(id)
     if (!source) return

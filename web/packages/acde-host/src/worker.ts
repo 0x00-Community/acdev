@@ -75,6 +75,11 @@ export default async function boot(natives: WebNatives): Promise<void> {
     host.readAsset = (url) => read(url) ?? (/^http:\/\/acde\.local\/(?:[?#].*)?$/.test(url) ? read(entry) : null)
   }
   const permits = new Permits(init.tier?.approvals, init.app?.label ?? init.kind)
+  const rpc = new Rpc((message) => port.post(message))
+  const access = {
+    supported: (name: string) => init.tier?.capabilities?.statuses.find((s) => s.name === name)?.state !== 'unsupported',
+    request: (name: string) => rpc.call('capabilities', 'request', [name]) as Promise<CapabilityStatus>,
+  }
   const page = install(globalThis, dom, host, {
     url: (htmlEntry ? init.url : undefined) ?? `${PageSource.ORIGIN}/`,
     ...init.languages,
@@ -82,7 +87,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     ...(natives.storage && { storage: natives.storage }),
     gpu: natives.gpu,
     audio: natives.audio,
-    ...(natives.capture && { capture: permits.capture(natives.capture) }),
+    ...(natives.capture && { capture: permits.capture(natives.capture, access) }),
     ...(init.screen && { screen: init.screen }),
   })
   const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null
@@ -108,7 +113,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
     else page.reportError(error)
   })
 
-  const rpc = new Rpc((message) => port.post(message))
   const output = WindowSelf.output(init.screen?.width ?? 0, init.screen?.height ?? 0, init.scale, init.screen?.workArea)
   const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null, output) : null
   const windows = new WindowList(rpc, init.windows)
@@ -184,7 +188,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     self.onVisible = (visible) => page.setVisible(visible)
   }
   const privateDirectory = natives.storage?.privateDirectory ? () => natives.storage!.privateDirectory!() : null
-  const notify = init.tier?.capabilities?.statuses.find((s) => s.name === 'notifications')?.state !== 'unsupported'
+  const notify = access.supported('notifications')
   const calls = new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, label: init.app?.label ?? '桌面', privateDirectory, notify })
   web.handOver = calls
   bridge.handOver = calls

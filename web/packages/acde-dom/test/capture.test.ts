@@ -177,6 +177,109 @@ test('permissions: denied refuses at once; a prompt answered turns the status to
   w.close()
 })
 
+type Name = 'camera' | 'microphone'
+
+function asking(state: { camera: string; microphone: string }) {
+  const capture = fakeCapture(state)
+  const asked: Name[] = []
+  const waiting = new Map<Name, (allowed: boolean) => void>()
+  let changed: (() => void) | null = null
+  const decide = (kind: Name, allowed: boolean) => {
+    state[kind] = allowed ? 'granted' : 'denied'
+    changed?.()
+  }
+  const native = {
+    ...capture.native,
+    request(kind: Name) {
+      if (state[kind] !== 'prompt') return Promise.resolve(state[kind] === 'granted')
+      asked.push(kind)
+      return new Promise<boolean>((resolve) => waiting.set(kind, resolve)).then((allowed) => (decide(kind, allowed), allowed))
+    },
+    onPermission: (fn: () => void) => (changed = fn),
+  }
+  const web = createWeb({ capture: native as never, audio: fakeAudio().native as never })
+  const answer = async (kind: Name, allowed: boolean) => {
+    for (let i = 0; i < 50 && !waiting.has(kind); i++) await new Promise((resolve) => setTimeout(resolve, 1))
+    const settle = waiting.get(kind)
+    assert.ok(settle, `no prompt for ${kind}`)
+    waiting.delete(kind)
+    settle(allowed)
+  }
+  return { web, capture, asked, answer, decide }
+}
+
+const watch = (w: Web, name: Name) =>
+  w.run<Promise<unknown>>(`navigator.permissions.query({ name: "${name}" }).then((s) => { globalThis.${name} = s; globalThis.${name}Changes = []; s.onchange = () => ${name}Changes.push(s.state) })`)
+
+test('getUserMedia raises the prompt of a capability that was not asked for, and opens the device once it is allowed', async () => {
+  const { web: w, capture, asked, answer } = asking({ camera: 'prompt', microphone: 'granted' })
+  await watch(w, 'camera')
+  assert.equal(w.run('camera.state'), 'prompt')
+  const stream = gum(w, '{ video: true }')
+  await answer('camera', true)
+  assert.equal(await stream, 'ok')
+  assert.deepEqual(asked, ['camera'])
+  assert.deepEqual(capture.calls.map((c) => c[0]), ['devices', 'open'])
+  assert.deepEqual(w.json('cameraChanges'), ['granted'])
+  assert.equal(await gum(w, '{ video: true }'), 'ok')
+  assert.deepEqual(asked, ['camera'], 'an allowed capability is not asked for again')
+  w.close()
+})
+
+test('getUserMedia rejects NotAllowedError when the prompt is denied, opens nothing, and does not ask again', async () => {
+  const { web: w, capture, asked, answer } = asking({ camera: 'prompt', microphone: 'prompt' })
+  await watch(w, 'camera')
+  const stream = gum(w, '{ video: true }')
+  await answer('camera', false)
+  assert.equal(await stream, 'NotAllowedError')
+  assert.deepEqual(capture.named('open'), [])
+  assert.equal(w.run('camera.state'), 'denied')
+  assert.deepEqual(w.json('cameraChanges'), ['denied'])
+  assert.equal(await gum(w, '{ video: true }'), 'NotAllowedError')
+  assert.deepEqual(asked, ['camera'])
+  w.close()
+})
+
+test('audio and video are asked for one after the other; a denial stops there', async () => {
+  const both = asking({ camera: 'prompt', microphone: 'prompt' })
+  const stream = gum(both.web, '{ audio: true, video: true }')
+  await both.answer('microphone', true)
+  await both.answer('camera', true)
+  assert.equal(await stream, 'ok')
+  assert.deepEqual(both.asked, ['microphone', 'camera'])
+  assert.deepEqual(both.capture.named('open').map((c) => c[0]), ['audioinput', 'videoinput'])
+  both.web.close()
+  const first = asking({ camera: 'prompt', microphone: 'prompt' })
+  const refused = gum(first.web, '{ audio: true, video: true }')
+  await first.answer('microphone', false)
+  assert.equal(await refused, 'NotAllowedError')
+  assert.deepEqual(first.asked, ['microphone'])
+  assert.deepEqual(first.capture.named('open'), [])
+  assert.equal(await first.web.run<Promise<string>>('navigator.permissions.query({ name: "camera" }).then((s) => s.state)'), 'prompt')
+  first.web.close()
+})
+
+test('constraints no device meets are refused before anybody is asked', async () => {
+  const { web: w, asked } = asking({ camera: 'prompt', microphone: 'prompt' })
+  assert.equal(await gum(w, '{ video: { width: { exact: 9999 } } }'), 'OverconstrainedError:width')
+  assert.deepEqual(asked, [])
+  w.close()
+})
+
+test('a permission status follows a decision made elsewhere', async () => {
+  const { web: w, decide } = asking({ camera: 'prompt', microphone: 'prompt' })
+  await watch(w, 'camera')
+  await watch(w, 'microphone')
+  decide('camera', true)
+  assert.deepEqual(w.json('cameraChanges'), ['granted'])
+  assert.deepEqual(w.json('microphoneChanges'), [])
+  decide('camera', false)
+  decide('microphone', false)
+  assert.deepEqual(w.json('cameraChanges'), ['granted', 'denied'])
+  assert.deepEqual(w.json('microphoneChanges'), ['denied'])
+  w.close()
+})
+
 test('enumerateDevices: InputDeviceInfo with capabilities; labels hidden until permission is granted', async () => {
   const { web: w } = setup({ camera: 'prompt', microphone: 'granted' })
   const list = JSON.parse(await w.run<Promise<string>>('navigator.mediaDevices.enumerateDevices().then((l) => JSON.stringify(l.map((d) => [d.constructor.name, d.kind, d.label, d.deviceId, JSON.stringify(d.getCapabilities().width ?? null)])))'))

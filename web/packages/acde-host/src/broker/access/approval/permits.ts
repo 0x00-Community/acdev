@@ -1,11 +1,22 @@
+import type { CapabilityStatus } from '@dopame/acde-api'
 import type { CaptureNative } from '@dopame/acde-dom'
 import { FileAccess } from '../files'
 import { Permissions, type Approval } from './permissions'
+
+export interface CaptureAccess {
+  supported(capability: string): boolean
+  request(capability: string): Promise<CapabilityStatus>
+}
+
+type CaptureName = 'camera' | 'microphone'
+
+type CaptureDevice = Awaited<ReturnType<CaptureNative['devices']>>[number]
 
 export class Permits {
   static readonly MODULES: Readonly<Record<string, readonly string[]>> = { launch: ['launch', 'slots'], terminal: ['terminal'], network: ['network'] }
   readonly #approvals: Map<string, Approval>
   readonly #label: string
+  readonly #watchers = new Set<(capability: string) => void>()
 
   constructor(approvals: Readonly<Record<string, Approval>> | undefined, label: string) {
     this.#approvals = new Map(Object.entries(approvals ?? {}))
@@ -17,7 +28,9 @@ export class Permits {
   }
 
   set(capability: string, approval: Approval): void {
+    if (this.#approvals.get(capability) === approval) return
     this.#approvals.set(capability, approval)
+    for (const watcher of this.#watchers) watcher(capability)
   }
 
   usable(module: string): boolean {
@@ -50,16 +63,46 @@ export class Permits {
     })
   }
 
-  capture(native: CaptureNative): CaptureNative {
-    const gate = (kind: string) => (kind === 'audioinput' || kind === 'microphone' ? 'microphone' : 'camera')
-    const allowed = (kind: string) => this.approval(gate(kind)) === 'granted'
+  capture(native: CaptureNative, access: CaptureAccess): CaptureNative {
+    const gate = (kind: string): CaptureName => (kind === 'audioinput' || kind === 'microphone' ? 'microphone' : 'camera')
+    const state = (name: CaptureName): 'granted' | 'denied' | 'prompt' => {
+      const approval = this.approval(name)
+      if (approval === 'granted') return 'granted'
+      return approval === 'denied' || !access.supported(name) ? 'denied' : 'prompt'
+    }
+    const allowed = (kind: string) => state(gate(kind)) === 'granted'
     return {
-      devices: (full) => native.devices(full),
-      permission: (kind) => (allowed(kind) ? native.permission(kind) : 'denied'),
-      open: (kind, ...rest) => (allowed(kind) ? native.open(kind, ...rest) : Promise.reject(this.#error(gate(kind)))),
+      devices: (full) => native.devices(full).then((devices) => (full ? devices : Permits.#listed(devices, allowed))),
+      permission: (kind) => (allowed(kind) ? native.permission(kind) : state(kind)),
+      request: async (kind) => {
+        if (state(kind) !== 'prompt') return allowed(kind)
+        const status = await access.request(kind).catch(() => null)
+        if (status?.state === 'available') this.set(kind, 'granted')
+        else if (status?.state === 'denied') this.set(kind, 'denied')
+        return allowed(kind)
+      },
+      onPermission: (callback) => {
+        this.#watchers.add((capability) => (capability === 'camera' || capability === 'microphone') && callback())
+      },
+      open: (kind, ...rest) => (allowed(kind) ? native.open(kind, ...rest) : Promise.reject(this.#notAllowed(gate(kind)))),
       close: (source) => native.close(source),
       onEnded: (callback) => native.onEnded(callback),
     }
+  }
+
+  static #listed(devices: CaptureDevice[], allowed: (kind: string) => boolean): CaptureDevice[] {
+    const kinds = new Set<string>()
+    return devices.flatMap((device) => {
+      if (allowed(device.kind)) return [device]
+      if (kinds.has(device.kind)) return []
+      kinds.add(device.kind)
+      return [{ ...device, deviceId: '', label: '', groupId: '', facingMode: null }]
+    })
+  }
+
+  #notAllowed(capability: string): Error {
+    const { message, ...fields } = this.#error(capability)
+    return Object.assign(new Error(`NotAllowedError: ${message}`), fields)
   }
 
   #gates(module: string): string[] {
