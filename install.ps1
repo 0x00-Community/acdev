@@ -219,9 +219,7 @@ function Install-Acde {
     Write-Host "  acde     $(Join-Path -Path $bin -ChildPath 'acde.cmd')"
     Write-Host "  acdert   $(Join-Path -Path $bin -ChildPath 'acdert.exe')"
     Write-Host '  acde new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
-    if (@($env:Path -split ';') -notcontains $bin) {
-        Write-Host "acde: $bin is not on PATH in this session; add it to run acde and acdert by name"
-    }
+    Write-Host '  acde skills install    teaches a coding agent (Claude Code, Codex, Cursor and others) to use acde'
 
     $bun = Get-Command bun -ErrorAction SilentlyContinue
     $node = Get-Command node -ErrorAction SilentlyContinue

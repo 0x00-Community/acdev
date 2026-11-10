@@ -382,6 +382,9 @@ describe('acde.config.jsonc', () => {
       JSON.stringify({ name: 'made-by-vite', devDependencies: { vite: '^7.0.0' } }),
     )
     writeFileSync(join(dir, '.gitignore'), 'node_modules')
+    writeFileSync(join(dir, 'index.html'), '<html><head><title>made-by-vite</title></head></html>')
+    Creator.adopt(dir, 'made-by-vite', 'Vite & App', 'React')
+    expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe('<html><head><title>Vite &amp; App</title></head></html>')
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Creator.api(dir) })
@@ -473,7 +476,13 @@ describe('a project made by acde from its checkout', () => {
   })
 
   test('which package manager: the user agent, else the runtime acde runs on', () => {
-    const saved = { agent: process.env['npm_config_user_agent'], runtime: process.env['ACDE_HOST_RUNTIME'] }
+    const saved = {
+      agent: process.env['npm_config_user_agent'],
+      runtime: process.env['ACDE_HOST_RUNTIME'],
+      path: process.env['PATH'],
+    }
+    const bin = tmp()
+    writeFileSync(join(bin, WINDOWS ? 'pnpm.cmd' : 'pnpm'), '')
     try {
       process.env['npm_config_user_agent'] = 'pnpm/10.23.0 npm/? node/v24.0.0 darwin arm64'
       expect(PackageManager.invoking().name).toBe('pnpm')
@@ -483,6 +492,8 @@ describe('a project made by acde from its checkout', () => {
       process.env['ACDE_HOST_RUNTIME'] = 'node'
       expect(PackageManager.invoking().name).toBe('npm')
       expect(() => PackageManager.named('other')).toThrow('one of bun, npm, pnpm, yarn')
+      process.env['PATH'] = bin
+      expect(() => PackageManager.named('yarn').exec('create-vite@latest', ['x'])).toThrow('yarn is not on PATH')
       expect(PackageManager.named('pnpm').exec('create-vite@latest', ['x'])).toEqual([
         expect.stringMatching(/(?:^|[/\\])pnpm(?:\.(?:exe|cmd|bat))?$/i),
         'dlx',
@@ -500,6 +511,7 @@ describe('a project made by acde from its checkout', () => {
       for (const [key, value] of [
         ['npm_config_user_agent', saved.agent],
         ['ACDE_HOST_RUNTIME', saved.runtime],
+        ['PATH', saved.path],
       ] as const) {
         if (value === undefined) delete process.env[key]
         else process.env[key] = value
@@ -715,6 +727,17 @@ describe('mistakes', () => {
     const result = await cli(['frobnicate'], APP)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('usage: acde <command>')
+  })
+
+  test('--version and --help', async () => {
+    const version = await cli(['--version'], APP)
+    expect(version.code).toBe(0)
+    expect(version.stdout.trim()).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version)
+    for (const argv of [['--help'], ['help'], ['skills', '--help'], ['new', '-h']]) {
+      const help = await cli(argv, APP)
+      expect(help.code).toBe(0)
+      expect(help.stdout).toContain('usage: acde <command>')
+    }
   })
 
   test('ids from package names', () => {

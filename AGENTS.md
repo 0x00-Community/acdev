@@ -23,8 +23,10 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde webs` / `eval` / `shot` / `inspect` / `act` / `console` / `network` / `screen` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面 |
 | `acde mcp [--session <pid>]` | stdio 上的 MCP 服务 (`claude mcp add acde -- acde mcp`) |
 | `acde test [目录\|文件...] [--headed] [-t 名字] [--desktop] [--timeout MS] [--bail] [--trace] [-u]` | e2e 测试, 只在 bun 上 |
+| `acde skills [install\|remove\|path] [--agent ID,...] [--dir 目录] [--copy]` | 给编码 agent 的 skill: 看装在哪、装、删、打印它的目录 (见「Skill 与文档」) |
 
-参数解析和用法文字在 `src/cli.ts` (`Cli.SPECS`、`USAGE`).
+参数解析和用法文字在 `src/cli.ts` (`Cli.SPECS`、`USAGE`). `acde --version` (`-v`、`version`) 打版本号; `acde --help` (`help`、`-h`) 和任何命令后面的
+`--help` / `-h` (`--` 之前) 把用法打到 stdout, 退出码 0; 不带命令或用错参数照旧打到 stderr, 退出码 1.
 
 `acde check --platform <windows|macos|linux>` (`AppPackage.platform`): 名字对到 SDK 的平台键 (`win32` / `darwin` / `linux`),
 按 SDK 的 `RUNNING_MODES` 逐个取 `platformSupport(平台, 模式)` (没有这一行的模式跳过, 比如 Windows 没有 `session`). 每个应用声明了
@@ -104,7 +106,8 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
 - 模板 (`STARTERS`): `html` (`templates/app`, `--backend` 再叠 `templates/backend`)、`desktop` (`templates/desktop`)、`react` / `vue` / `svelte` /
   `solid` / `preact` / `vanilla` (create-vite)、`next` / `nuxt` / `sveltekit` / `astro` (官方脚手架). 框架模板照 `npm create cloudflare`: 经工程的包管理器
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到
-  `CI` 不许新建 lockfile, 装依赖那步不能带). 再叠 `templates/framework/acde.config.jsonc` (没有 `entry`: 构建认框架), `.gitignore` 加 `.acde/`.
+  `CI` 不许新建 lockfile, 装依赖那步不能带). 再叠 `templates/framework/acde.config.jsonc` (没有 `entry`: 构建认框架), `.gitignore` 加 `.acde/`; 根上有 `index.html` 的 (Vite 系)
+  把它的 `<title>` 换成显示名 (窗口标题先用 `document.title`), 别的框架的标题在组件里, 不改.
   加模板就是 `STARTERS` 加一项.
 - 模板按第 1 级契约写 (`test/templates.test.ts`): 应用的配置 (`templates/app`、`templates/framework`) 列出 `capabilities`、`optional`、
   `services`、`requests`、`schemes` (空值加说明; `fs.roots` 只点名 SDK 的 `SHARED_PLACES`), 不预先声明要用户批准的能力, 新工程无界面也能启动;
@@ -274,10 +277,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 
 只有全局安装: 安装器把 acde 和与它配对的 acdert 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认
 `https://pkgs.dopame.ai/acde`) 和 `ACDERT_DIST` (默认 `https://pkgs.dopame.ai/acdert`), 两个脚本开头各一处, 末尾的 `/` 去掉. 桶是 `dopame-pkgs`,
-前缀 `acde/`, 由 CloudFront 经 `pkgs.dopame.ai` 提供: `acde/install.sh`、`acde/install.ps1`、`acde/latest`、`acde/latest.json`、
-`acde/<版本>/SHA256SUMS`、`acde/<版本>/acdert-version`、`acde/<版本>/acde-<版本>.tar.gz`; 官网 `https://dopame.ai/install.*` 指向这里.
-发布由 `.github/workflows/release.yml` 完成 (见下). 本地托管目录就是 dist.ts 的 `--out`: `install.sh`、`install.ps1`、`latest` (版本号)、
-`<版本>/SHA256SUMS`、`<版本>/acdert-version`、`<版本>/acde-<版本>.tar.gz`.
+前缀 `acde/`, 由 CloudFront 经 `pkgs.dopame.ai` 提供: `acde/install.sh`、`acde/install.ps1`、`acde/install.md` (给 agent 读的安装步骤, 见
+「Skill 与文档」)、`acde/latest`、`acde/latest.json`、`acde/<版本>/SHA256SUMS`、`acde/<版本>/acdert-version`、`acde/<版本>/acde-<版本>.tar.gz`
+(一个通用包, 不分平台); 官网 `https://dopame.ai/install.*` 指向这里. 发布由 `.github/workflows/release.yml` 完成 (见下). 本地托管目录就是 dist.ts 的
+`--out`: `install.sh`、`install.ps1`、`install.md`、`latest` (版本号)、`<版本>/SHA256SUMS`、`<版本>/acdert-version`、`<版本>/acde-<版本>.tar.gz`.
 
 **运行时** (acde#20): 归档本身只含命令行工具、模板、SDK 和 LICENSE. `<版本>/acdert-version` 是配对记录 (一行 acdert 版本, 即构建这一版所用 SDK
 的版本, 列在同目录 `SHA256SUMS` 里), 安装器 (含 `--version` / `-Version`) 按它从 `$ACDERT_DIST/<acdert 版本>/` 取 `SHA256SUMS`、
@@ -294,15 +297,17 @@ bin/acdert[.exe]    安装器放的 acdert (不在归档里)
 bin/app/            安装器从 acdert-host 解出的 app/ 目录原样 (dist/broker.js、dist/web.js、brand/、greet/、package.json); acdert 找 <自己>/app/dist
 LICENSE             专有 LICENSE, 归档顶层 (和 lib/acde/LICENSE 一样)
 lib/acde/           package.json (exports, 与源码仓库不同: 指向 dist)、launcher.mjs (压缩和轻度混淆)、launcher.d.mts、LICENSE、templates/ (用户起步模板, 含 .ts 是正常的)、
-                    dist/cli.js、dist/driver.js、dist/test.js (acde/driver、acde/test; 压缩和轻度混淆)、dist/types/**/*.d.ts (声明)
+                    skills/acde/ (SKILL.md 和 references/, 原样; `acde skills` 把它装给 agent)、
+                    dist/cli.js、dist/driver/index.js、dist/e2e/index.js (acde/driver、acde/test) 和它们共用的 dist/chunk-*.js (压缩和轻度混淆)、dist/types/**/*.d.ts (声明)
 lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、package.json、config.schema.json; 没有 src/*.ts、test/)
 ```
 
-- `bun scripts/dist.ts [--api <SDK 构建产物>] [--sdk <SDK 版本>] [--version] [--out .dist]` (`--api` 默认
-  `../acdert/web/packages/acde-api/dist`, 要先在 acdert 那边 `bun run build`; 包名或版本不是 `@dopame/acde-api` `--sdk` 时拒绝. 发布时 `--api`
-  指向解包出的 `package/`). `--sdk` 也写进 `<版本>/acdert-version`. Windows 上打的归档没有 unix 的可执行位、`bin/acde` 是 CRLF, 只供 Windows 和测试用;
-  发布在 Linux 上打. 归档前检查 (`leaks()`): 不许有 `lib/acde/src`、`lib/acde/test`、`.map`、`sourcesContent`、任何 `.js`/`.mjs`/`.d.ts` 里的
-  `sourceMappingURL`、模板之外的 `.ts` 源码 (acde#7). 有就不出包.
+- `bun scripts/dist.ts [--api <目录>] [--sdk <版本>] [--version] [--out .dist]` (`--api` 默认 `../acdert/web/packages/acde-api/dist`,
+  要先在 acdert 那边 `bun run build`; 没有 `package.json` 和 `src/index.js`, 或包名不是 `@dopame/acde-api`、版本不等于 `--sdk`
+  (默认 `dist.ts` 的 `SDK_PIN`) 时报错. 发布时 `--api` 指向上面解包出的 `package/`). `--sdk` 也写进 `<版本>/acdert-version`. Windows 上打的归档
+  没有 unix 的可执行位、`bin/acde` 是 CRLF, 只供 Windows 和测试用; 发布在 Linux 上打. 归档前检查 (`scripts/shipped.ts` 的 `shipLeaks()`):
+  不许有 `lib/acde/src`、`lib/acde/test`、`lib/acde-api/test`、`.map`、`sourcesContent`、任何 `.js`/`.mjs`/`.d.ts` 里的 `sourceMappingURL`、
+  模板之外的 `.ts` 源码, 也不许有符号链接、点文件、密钥和本机构建路径; 覆盖整个包 (acde#7). 有就不出包.
 - **轻度混淆** (`javascript-obfuscator` 5.9.0, 精确钉住, 发版前至少两周): 在 `Bun.build` 的 `minify` 之后对 `dist/cli.js`、`dist/driver.js`、
   `dist/test.js`、`launcher.mjs` 做一遍: 标识符改名 (含顶层, `renameGlobals`) 和字符串数组 (base64). 不做控制流平坦化、死代码注入、自我防护
   或调试保护, 不出 sourcemap. 导出名不变 (只改本地绑定, 别名保留). 预加载 `acde-listen.js` 不混淆: `dist.ts` 把它的 JSON 文本 `define` 进去、
@@ -312,7 +317,7 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 不下载 acdert 二进制; Dopame 桌面不随 acde 发布.
   发版: 在 `Akira/develop` 改 `package.json` 的版本号并合入 `main`, 然后 `gh workflow run release.yml -R dopame-org/acde --ref main -f publish=true -f commit=<sha>`. `commit` 是 origin/main 上的提交 (完整或短 SHA), 正式发布必填. 预演: `gh workflow run release.yml -R dopame-org/acde --ref main` (可省略 `publish` 与 `commit`, 用运行分支的头; 任何分支都可以, 只构建、打包、跑 guard, 不打标签、不上传).
   作业顺序: `plan` 把 `commit` 解析为完整 SHA, 它必须是 origin/main 的祖先或等于 main 头 (否则失败); 正式发布只允许在 `main` 上运行; 远端 `v<版本>` 不存在或指向该 SHA 才继续 (指向别处则失败, 提示升版本), 指向该 SHA 时允许重跑. 之后所有作业都 checkout 这个 SHA, 输出打印完整 SHA. `pkgs` 从 `https://pkgs.dopame.ai/acdert/<版本>/` 取 SDK 归档, 先校验 `SHA256SUMS`, 解包 `package/` 放到 `../acdert/web/packages/acde-api` (那是 `file:` 依赖的 CI 位置, 不是 acdert 仓库), 核对放置的包名与版本, 再 `bun install --frozen-lockfile`, 跑 `dist.ts` (同时写配对记录 `<版本>/acdert-version`, 内容是这一版 SDK 对应的 acdert 版本, 列进 `SHA256SUMS`; 下一步核对它等于 `SDK_VERSION`), 写 `latest.json`, 解开归档检查 `bin/acde` 能起 CLI. `guard` 用 `scripts/release-guard.ts` 核对产物恰好是允许清单并重新做泄漏检查 (拒绝 `.ts` 源码、`.map`、`sourceMappingURL` 等).
-  上传顺序: `upload` (只有它和 `latest` 有 `id-token: write`) 上传版本目录的 `acde-<版本>.tar.gz`、`acdert-version` 与 `SHA256SUMS`, 逐一回读校验; 版本文件已存在且逐字节相同则跳过 (重跑), 不同则失败 (不覆盖), 所以上传失败不会留下标签. `tag` (只有它有 `contents: write`) 在上传通过后打注释标签 `v<版本>` 指向该 SHA 并推送; 标签已指向该 SHA 则跳过. `latest` 最后更新 `install.sh`、`install.ps1`、`latest`, 最后才是 `latest.json`, 然后失效 CloudFront `E3ET3L14ALFOXX` 的具体路径. 上传全部用 AWS CLI 换取的凭据 (`aws sts assume-role-with-web-identity`, 先 mask, 从不打印, 不用 `set -x`), 按允许清单逐个 `aws s3 cp` (没有 sync、递归或通配). `concurrency: acde-release` 让发版排队且不取消进行中的运行.
+  上传顺序: `upload` (只有它和 `latest` 有 `id-token: write`) 上传版本目录的 `acde-<版本>.tar.gz`、`acdert-version` 与 `SHA256SUMS`, 逐一回读校验; 版本文件已存在且逐字节相同则跳过 (重跑), 不同则失败 (不覆盖), 所以上传失败不会留下标签. `tag` (只有它有 `contents: write`) 在上传通过后打注释标签 `v<版本>` 指向该 SHA 并推送; 标签已指向该 SHA 则跳过. `latest` 最后更新 `install.sh`、`install.ps1`、`install.md` (`text/markdown`)、`latest`, 最后才是 `latest.json`, 然后失效 CloudFront `E3ET3L14ALFOXX` 的具体路径. 上传全部用 AWS CLI 换取的凭据 (`aws sts assume-role-with-web-identity`, 先 mask, 从不打印, 不用 `set -x`), 按允许清单逐个 `aws s3 cp` (没有 sync、递归或通配). `concurrency: acde-release` 让发版排队且不取消进行中的运行.
   与协作者原有约定的差异 (逐条说明的取舍): (1) 协作者是一个作业里完成全部步骤并直接用 `aws-actions/configure-aws-credentials`; 我们拆成六个作业, 写权限只给打标签的作业, OIDC 权限只给上传与更新指针的作业, 凭据用 AWS CLI 换取 (角色 ARN、区域、存储路径不变). (2) 协作者的 `latest.json` 带 `acdert` 和 `dopame` 两个版本字段; 现在没有这两个依赖, 改为 `sdk`. (3) 协作者用 `aws s3 cp --recursive` 上传整个版本目录; 现在按允许清单逐个上传. (4) 协作者的归档按 acdert 的 triple 生成多个; 现在是一个通用归档. (5) 协作者的版本目录每次覆盖; 现在版本文件内容相同则跳过、不同则失败.
   `test/release/workflow.test.ts` 检查这些不变量 (作业关系与 `needs`、权限分配、SHA 固定、不下载 acdert 和桌面包、`acdert-version` 的写入核对与上传、上传先于标签、`latest.json` 最后、只允许 main 发布、commit 必填与祖先检查、幂等规则、遮蔽凭据、角色 ARN 与区域).
 - 压缩: `dist/cli.js`、`dist/driver.js` (target node)、`dist/test.js` (target bun, `bun:test` 留作外部) 和根上的 `launcher.mjs` 都是 `Bun.build` 的
@@ -324,7 +329,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   install.ps1), 按 triple 选 `acdert-<triple>`; curl / wget 下载, shasum / sha256sum / openssl 校验, acde 和 acdert 都下载校验完、在暂存目录里
   拼好 (`bin/acdert`、`bin/app/`) 才动安装目录, 失败什么都不动. 解进 `$ACDE_INSTALL` (默认 `~/.acde`) 的临时目录再改名成
   `versions/<版本>`; `current` 原子换 (`mv -T` / `mv -h`, 退回 `ln -sfn`); `bin` → `current/bin` (相对链接). PATH 上没有且没给 `--no-modify-path` 时按
-  `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次.
+  `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次. 这个终端的 PATH 上没有时, 输出的最后单独一行是
+  这个终端里要敲的 `export PATH=…` (fish 是 `fish_add_path`): 装完在原来的终端里敲 `acde` 是 command not found, 人会漏看夹在中间的提示.
 - **install.ps1** (Windows PowerShell 5.1 或 PowerShell 7.2+, 只有 x64): 出错 `throw` 不 `exit` (`irm | iex` 时 `exit` 关掉用户的终端); 参数也可走
   `ACDE_VERSION` / `ACDE_NO_MODIFY_PATH`; 用系统的 `tar.exe`. triple 按 `PROCESSOR_ARCHITECTURE` (WOW64 下看 `PROCESSOR_ARCHITEW6432`):
   `x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`, 取 `acdert-<triple>.exe`; 同样先在临时目录拼好整个版本目录 (`bin\acdert.exe`、`bin\app`) 再换. 同版本已在时整体改名挪开 (`<版本>.old-<guid>`, 改名失败才报「还在运行」), 装好再删,
@@ -336,6 +342,61 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (设了找不到直接报错), 全局装时安装器放在旁边的
   `bin/acdert[.exe]` (`acdertBeside`, 同一版本目录), 最后 PATH; 检出跑的 acde 只认 `ACDERT` 和 PATH. 都没有时报错, 说出安装器该放的位置.
 - musl 的 acdert 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
+
+## Skill 与文档 (`skills/acde/`, `scripts/skill.ts`, `src/skills.ts`, `src/agents.ts`, `install.md`)
+
+对外的说明只有一份来源: `skills/acde/`, 一个 [Agent Skills](https://agentskills.io/specification) 格式的 skill. 它随安装包发给用户的编码 agent
+(`acde skills install`), docs.dopame.ai 的英文页也由它生成 (www 仓库 `docs/scripts/skill-sync.ts`, 一个 reference 对一页:
+`references/guide/files.md` → `/guide/files/`; 中文页在 www 里照英文翻译). 所以:
+
+- 命令、参数、配置字段、清单、`acde:` 模块、测试 API、MCP 工具、对外可见的行为变了, **同一个提交里改 skill**. 不去改 www 里生成的英文页
+  (那边的检查会拦). acdert 一侧的变化 (模块、平台差异、Web 兼容性) 也改在这里.
+- skill 只写对外的用法 (怎么用、会看到什么), 不写实现; 实现和取舍写在本文件.
+
+**结构**
+
+```
+skills/acde/SKILL.md                    入口: frontmatter (name、description) 加正文
+skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路径就是文档的地址
+```
+
+- `SKILL.md` 的 `description` 决定 agent 什么时候载入它: 写「做什么」和「什么时候用」, 带上会出现的词 (acde、acdert、Dopame OS、
+  `acde.config.jsonc`、`acde:` 模块). 正文是 agent 每次都读的, 只放: 先查环境 (acde、运行时)、和浏览器不一样的地方、工作循环 (建、跑、看、测)、
+  规则, 最后一节 `## References` 列出全部 references. 这一节里的顺序就是文档侧栏里的顺序. 细节一律放 references, 按需读.
+- 一个 reference 讲一件事, 单独读得懂 (agent 多半只读其中一个); 示例要是真能跑的命令和代码.
+
+**写法规则** (`scripts/skill.ts` 的 `skillProblems()`; `bun scripts/skill.ts` 单独跑, `bun test` 和 `scripts/dist.ts` 都跑, 不过就不出包):
+
+- `SKILL.md`: frontmatter 只有规范里的键 (`name`、`description`、`license`、`compatibility`、`metadata`、`allowed-tools`), 每个值写在一行;
+  `name` 是目录名 (小写字母、数字、单个连字符, ≤ 64); `description` 1 到 1024 字符; 全文 ≤ 500 行.
+- reference: 英文; 路径 `references/<组>/<页>.md`, 两段都是小写连字符; 第一行 `# 标题` 加一个空行 (就是文档页的标题), 没有 frontmatter,
+  没有第二个一级标题; 只用普通 Markdown: 代码之外没有 HTML / JSX 标签、`:::` 指令、MDX 的 import / export; LF, 末尾恰好一个换行.
+- 链接: 指向 skill 里别的文件时写相对路径到 `.md` 文件 (reference 之间 `../guide/files.md#errors`, `SKILL.md` 里 `references/guide/files.md`),
+  不写站点根路径 (`/guide/files/`), 不写 `https://docs.dopame.ai/…`; 目标文件要在, `#锚点` 要是目标里某个标题的 slug (GitHub 的算法:
+  小写, 去掉标点, 空格换 `-`). 每个 reference 都要列在 `SKILL.md` 最后的 `## References` 一节里.
+- 和代码对得上 (`test/skills.test.ts`): 用法文字里的每个命令和每个 `--参数` 都出现在 `references/reference/cli.md`; `src/mcp.ts` 注册的每个工具都出现在
+  `references/guide/mcp.md`. 加命令、加参数、加工具而没写进 skill, 测试就红.
+
+**`acde skills`** (`src/skills.ts`): 不带动作是 `status`, 另有 `install`、`remove`、`path`.
+
+- skill 在哪: `Skills.SOURCE` 是 `cli` 上一级的 `skills/acde` (检出时是仓库里的, 安装后是 `lib/acde/skills/acde`). 链接的目标是 `Skills.stable()`:
+  全局安装时换成经 `<安装根>/current/` 的路径, 所以升级 acde (换 `current`) 后装过的链接自动指向新版本的 skill.
+- 装到哪 (`src/agents.ts` 的 `Agents.all()`): 一张表, 每行是 agent 的 id、名字、全局 skills 目录、「有这些目录之一就算装了这个 agent」的目录.
+  表取自 [vercel-labs/skills](https://github.com/vercel-labs/skills) 的 `src/agents.ts` (MIT, 2026-11-10 的版本), 含它认的环境变量
+  (`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`XDG_CONFIG_HOME` 等). 第一行 `agents` 是 `~/.agents/skills` (Codex、Cline、Zed 等共用的约定目录), 总是装;
+  其余只装检测到的. 同一个目录的几行并成一处. `--agent a,b`: 只装这些, 不管检测没检测到; `--dir D`: 只装进 `D/acde` (表里没有的 agent, 或工程自己的
+  `.agents/skills`). 要支持新的 agent 就在表里加一行.
+- 怎么装: 默认建链接 (Windows 上是 junction, 不要权限), `--copy` 拷贝 (拷贝不会跟着升级, 升级后重跑). 都是先做成 `acde.new-<pid>` 再换上去.
+  目的地已有 `acde` 时: 是链接就换; 是目录且 `SKILL.md` 的 `name` 是 `acde` 才换 (旧的拷贝); 别的一律报错不动 (`not the acde skill`),
+  一处不行就一处都不装.
+- `status` 每处一行: `link` / `copy` 加 `current` (链接指向这份 skill; 拷贝逐文件字节相同) / `outdated` / `broken` (链接的目标没了),
+  检测到 agent 但没装的写 `not installed`, 同名但不是这个 skill 的写 `another skill`. `remove` 只删认得出是 acde skill 的 (和断掉的链接).
+
+**`install.md`** (仓库根, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
+`Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
+`acde` 能跑、`acde skills install`、查运行时在不在 (不在先问用户, 同意了只照 skill `start/install.md` 的「Install the runtime on your own computer」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build (有运行时再 `acde dev --headless`
+截图)、汇报. 步骤放在这个文件里而不是 prompt 里, 改步骤不用改用户手里的那句话. 安装脚本的行为、`acde skills`、运行时怎么找变了, 这个文件一起改;
+改完在临时 `HOME` 里照着走一遍 (`ACDE_DIST` 指向本地 `dist.ts --out` 的目录).
 
 ## 和 acdert 的契约
 
@@ -369,8 +430,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 ## 测试
 
 `bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`templates` (自带模板和框架配置的第 1 级形态: 新建、check、
-build 后 SDK 校验无错无警告)、`imports` (`acde:` 导入: 分词, 第三方 / 系统应用、桌面页、
-服务、手写的包、框架应用; check 和 Bun / Vite 两种 build)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
+build 后 SDK 校验无错无警告)、`skills` (skill 的写法规则、和命令 / MCP 工具对得上、`acde skills` 在临时 HOME 里装和删)、`imports` (`acde:` 导入:
+分词, 第三方 / 系统应用、桌面页、服务、手写的包、框架应用; check 和 Bun / Vite 两种 build)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
 打好的 preload 在真的 node 上由测试扮演运行时, 用 `node:child_process` 的额外管道当 fd 3 / 4, 没有 node ≥ 22 就跳过这一半)、`node` (打好的后端在 Node 上跑; 要
 `ACDE_TEST_NODE` 或 PATH 上真的 node ≥ 22.3, 没有就跳过)、`dev` / `driver` / `mcp` / `e2e` (都用 `test/fixtures/dev/fake-acdert.ts` 这个有状态的假
 acdert (它听 `ACDE_DEV`) 跑真的 `acde dev`)、`dist` (打包、配对记录、本地托管 acde 和替身 acdert 目录 (`runtimeMirror`: 各 triple 的假二进制、宿主包、`SHA256SUMS`), 跑 install.sh /

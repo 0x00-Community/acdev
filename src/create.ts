@@ -284,6 +284,11 @@ export class Creator {
     if (!existsSync(join(dir, 'package.json'))) throw new Error(`${framework} made no package.json in ${dir}`)
     Creator.#copy(join(Creator.TEMPLATES, 'framework'), dir, { id, label, framework })
     Creator.#wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' })
+    const page = join(dir, 'index.html')
+    if (existsSync(page)) {
+      const text = label.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
+      writeFileSync(page, readFileSync(page, 'utf8').replace(/(<title>)[^<]*(<\/title>)/i, (_, open: string, close: string) => open + text + close))
+    }
     const ignore = join(dir, '.gitignore')
     const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
     if (!/^\/?\.acde\/?$/m.test(ignored))

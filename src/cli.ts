@@ -9,6 +9,7 @@ import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
+import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
 
 const USAGE = `usage: acde <command>
@@ -48,7 +49,16 @@ const USAGE = `usage: acde <command>
                                                    screenshot after every step and trace.html for every test);
                                                    -u / --update-screenshots rewrites the baselines
   mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run
-                                                   acde dev itself); for agents: claude mcp add acde -- acde mcp`
+                                                   acde dev itself); for agents: claude mcp add acde -- acde mcp
+ for coding agents:
+  skills [install|remove|path] [--agent ID,...] [--dir DIR] [--copy]
+                                                   the acde skill (how to build, run, inspect and test with acde,
+                                                   in the Agent Skills format): where it is installed; install links
+                                                   it into ~/.agents/skills and the skills directory of every agent
+                                                   found here (--agent: of those agents; --dir: into DIR; --copy: a
+                                                   copy, not a link); remove; path prints its directory
+ --version                                         print the version of acde
+ --help                                            print this (also after any command)`
 
 interface Spec {
   readonly args: readonly [number, number]
@@ -78,6 +88,7 @@ class Cli {
     network: { args: [0, 0], flags: ['session', 'web'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
     mcp: { args: [0, 0], flags: ['session'] },
+    skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
     test: {
       args: [0, Infinity],
       flags: ['desktop', 'test-name-pattern', 'timeout'],
@@ -124,6 +135,17 @@ class Cli {
   }
 
   static async main(argv: readonly string[]): Promise<number> {
+    const [first = ''] = argv
+    if (['--version', '-v', 'version'].includes(first)) {
+      console.log(Mcp.version())
+      return 0
+    }
+    const end = argv.indexOf('--')
+    const asked = (end < 0 ? argv : argv.slice(0, end)).some((arg) => arg === '--help' || arg === '-h')
+    if (first === 'help' || (asked && (first.startsWith('-') || Object.hasOwn(Cli.SPECS, first)))) {
+      console.log(USAGE)
+      return 0
+    }
     const { command, args, flags } = Cli.parse(argv)
     if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
     const followed = await Cli.follow(command, args[0] ?? '.', argv)
@@ -143,6 +165,7 @@ class Cli {
         ...(timeout !== undefined && { timeout }),
       })
     }
+    if (command === 'skills') return Skills.run(args, flags)
     if (command === 'mcp')
       return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)

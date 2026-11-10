@@ -32,6 +32,7 @@ const allowed = new Set([
   'latest.json',
   'install.sh',
   'install.ps1',
+  'install.md',
   `${version}/SHA256SUMS`,
   `${version}/${PAIRING}`,
   ...archives.map((archive) => `${version}/${archive}`),
@@ -125,4 +126,4 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`)
   process.exit(1)
 }
-console.log('release guard: the archive, acdert-version, SHA256SUMS, latest, latest.json and the installers are listed')
+console.log('release guard: the archive, acdert-version, SHA256SUMS, latest, latest.json, the installers and install.md are listed')

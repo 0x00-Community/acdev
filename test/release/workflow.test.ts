@@ -90,7 +90,9 @@ describe('release.yml', () => {
     expect(runs('tag')).toContain('git push origin "refs/tags/$TAG"')
     expect(needs('tag')).toContain('upload')
     const latest = runs('latest')
-    const order = ['put out/install.sh', 'put out/install.ps1', 'put out/latest latest', 'put out/latest.json']
+    const order = [
+      'put out/install.sh', 'put out/install.ps1', 'put out/install.md', 'put out/latest latest', 'put out/latest.json',
+    ]
     const at = order.map((needle) => indexIn(latest, needle))
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(needs('latest')).toContain('tag')
