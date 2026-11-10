@@ -160,7 +160,7 @@ struct Interface<V>(*mut c_void, PhantomData<V>);
 
 impl<V> Interface<V> {
     fn new(raw: *mut c_void) -> Option<Self> {
-        (!raw.is_null()).then_some(Interface(raw, PhantomData))
+        (!raw.is_null()).then(|| Interface(raw, PhantomData))
     }
 
     fn raw(&self) -> *mut c_void {
@@ -351,6 +351,11 @@ fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_null_pointer_is_no_interface_and_is_never_released() {
+        assert!(Interface::<UnknownVtbl>::new(std::ptr::null_mut()).is_none());
+    }
 
     #[test]
     fn only_plain_extensions_are_asked() {
