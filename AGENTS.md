@@ -927,6 +927,10 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   `Dom::set_panel` 钉住的元素 `Panel {id, size, plane, extent}`. `Plane {drawing, layers, damage, damage_rects (最多 8 块), bounds}`;
   layers 是有 backdrop-filter / filter 时切成的段, 每段 `{drawing, bounds, backdrop, filter}` (`Drawing` 出 `scene` / `scene_for`): backdrop 先处理画布上已画的那块再画这段, filter
   先画进临时纹理再合成. 光栅化方 (acde-gpu) 做 backdrop 的 blur / saturate / brightness 和 filter 的 drop-shadow、模糊、颜色矩阵, 别的滤镜忽略.
+- 模糊 (acde-gpu `Composer`、shell `effects.rs`) 是降采样 / 升采样链, 几层、采样偏移多大由 acde-model `Blur::of(sigma)` 一处决定
+  (也给出窗口之间毛玻璃的取样外扩 `margin`): 偏移在约 0.5–1.3 之间连续调 (一层时从 0 起, 五层时最多到 2), 强度随 sigma 连续变,
+  近似同 sigma 的高斯 (`SPREAD` 是 DX12 上量出的每档方差, `crates/gpu/tests/compose.rs` 按相位平均量边缘的展宽对照); sigma 小于约
+  0.96 px 时一层不偏移, 再按 `mix` 和原图混合. sigma 为 0 不模糊 (drop-shadow、backdrop 只拷一份). shell 的 GLES 链不做 `mix`.
 - `Dom::capture(id, scale)`: 单独录一个元素 (拖动图标), 单边超过 2048 缩小; JS 拿 `picture` 编号 (`dom.rs`, 每个 web 留最后一个).
 - canvas 2D (acde-dom `dom/canvas.ts` 编成命令流, `Dom::canvas`): 要像素的都在 GPU 上 (render `gpu.rs`, 用 `acde_gpu::Gpu::publish` 登记的设备):
   超过 20000 条命令 (`ACDE_CANVAS_MAX_COMMANDS`) 画成纹理再接着记, canvas 当图片源是 `GpuImage`, `shadowBlur` 用 `blur.wgsl`,

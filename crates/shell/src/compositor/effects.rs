@@ -218,8 +218,8 @@ impl Effects {
             Some(r) if r.size.w > 1 && r.size.h > 1 => r,
             _ => return Ok(None),
         };
-        let levels = acde_model::blur_levels(b.blur);
-        let margin = acde_model::blur_margin(levels);
+        let blur = acde_model::Blur::of(b.blur);
+        let (levels, offset, margin) = blur.map_or((0, 1.0, 0), |x| (x.levels, x.offset, x.margin()));
         let Some(region) = Rectangle::new(rect.loc - Point::from((margin, margin)), rect.size + Size::from((2 * margin, 2 * margin)))
             .intersection(Rectangle::from_size(screen))
         else {
@@ -246,13 +246,13 @@ impl Effects {
         for _ in 0..levels {
             let from = chain.last().map(|t| t.size()).unwrap_or_default();
             let size = Size::<i32, Physical>::from(((from.w / 2).max(1), (from.h / 2).max(1)));
-            let next = Self::pass(renderer, &chain[chain.len() - 1], size, &down)?;
+            let next = Self::pass(renderer, &chain[chain.len() - 1], size, &down, offset)?;
             chain.push(next);
         }
         let mut current = chain.pop().expect("blur chain");
         while let Some(target) = chain.pop() {
             let size = target.size();
-            current = Self::pass(renderer, &current, Size::from((size.w, size.h)), &up)?;
+            current = Self::pass(renderer, &current, Size::from((size.w, size.h)), &up, offset)?;
         }
         let inner = Rectangle::new(rect.loc - region.loc, rect.size);
         let uniforms = vec![
@@ -266,7 +266,13 @@ impl Effects {
         Ok(Some(BackdropElement { id: Id::new(), texture: current, program, rect, src, uniforms }))
     }
 
-    fn pass(renderer: &mut GlesRenderer, src: &GlesTexture, size: Size<i32, Physical>, program: &GlesTexProgram) -> Result<GlesTexture, GlesError> {
+    fn pass(
+        renderer: &mut GlesRenderer,
+        src: &GlesTexture,
+        size: Size<i32, Physical>,
+        program: &GlesTexProgram,
+        offset: f32,
+    ) -> Result<GlesTexture, GlesError> {
         let from = src.size();
         let mut target: GlesTexture = renderer.create_buffer(Fourcc::Abgr8888, Size::from((size.w, size.h)))?;
         {
@@ -274,7 +280,7 @@ impl Effects {
             let mut frame = renderer.render(&mut fb, size, Transform::Normal)?;
             let all = Rectangle::from_size(size);
             frame.clear([0.0; 4].into(), &[all])?;
-            let texel = Uniform::new("texel", (1.0 / from.w.max(1) as f32, 1.0 / from.h.max(1) as f32));
+            let texel = Uniform::new("texel", (offset / from.w.max(1) as f32, offset / from.h.max(1) as f32));
             frame.render_texture_from_to(src, Rectangle::from_size(from.to_f64()), all, &[all], &[], Transform::Normal, 1.0, Some(program), &[texel])?;
             let _ = frame.finish()?;
         }

@@ -467,6 +467,35 @@ impl WindowTable {
 mod tests {
     use super::*;
 
+    #[test]
+    fn blur_is_none_at_zero() {
+        assert_eq!(Blur::of(0.0), None);
+        assert_eq!(Blur::of(-1.0), None);
+        assert_eq!(Blur::of(f32::NAN), None);
+    }
+
+    #[test]
+    fn blur_strength_follows_sigma() {
+        let mut last = 0.0;
+        for i in 1..=900 {
+            let sigma = i as f32 * 0.1;
+            let blur = Blur::of(sigma).unwrap();
+            let got = blur.sigma();
+            assert!((got - sigma).abs() <= sigma * 0.01 + 1e-3, "sigma {sigma} gives {got} ({blur:?})");
+            assert!(got > last, "sigma {sigma} gives {got}, not more than {last}");
+            last = got;
+        }
+    }
+
+    #[test]
+    fn blur_levels_grow_with_sigma() {
+        assert_eq!(Blur::of(0.5).unwrap().levels, 1);
+        assert_eq!(Blur::of(3.0).unwrap().levels, 1);
+        assert_eq!(Blur::of(6.0).unwrap().levels, 2);
+        assert_eq!(Blur::of(40.0).unwrap().levels, 5);
+        assert!(Blur::of(1.0).unwrap().offset < Blur::of(3.0).unwrap().offset);
+    }
+
     fn add(t: &mut WindowTable, c: CanvasId, mode: Mode, rect: Rect) -> WindowId {
         let id = WindowId(t.windows.len() as u32 + 1);
         t.create(id, c, mode, rect, None).unwrap();

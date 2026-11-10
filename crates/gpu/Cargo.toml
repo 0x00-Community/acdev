@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+acde-model = { path = "../model" }
 kurbo = "0"
 peniko = "0"
 vello = { version = "0", default-features = false, features = ["wgpu"] }
