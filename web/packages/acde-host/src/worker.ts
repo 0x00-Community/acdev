@@ -173,7 +173,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     if (!self) return
     if (key === 'close') void self.api.close()
     else if (key === 'minimize') void self.api.minimize()
-    else if (key === 'fullscreen' || key === 'restore') self.api.requestMode(key === 'fullscreen' ? 'fullscreen' : 'free')
+    else if (key === 'fullscreen' || key === 'restore') self.api.requestState(key === 'fullscreen' ? 'fullscreen' : 'normal')
   }
   if (init.kind === 'desktop') {
     web.onFirstFrame = () => void rpc.call('page', 'shown').catch(() => undefined)

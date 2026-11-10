@@ -231,10 +231,10 @@ fn request_frame(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: 
 
 fn request_mode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let mode = match bind::arg_string(scope, &args, 0).as_str() {
-        "fullscreen" => 0,
         "free" => 1,
         "fixed" => 2,
         "pinned" => 3,
+        "fullscreen" => return bind::throw_type_error(scope, "requestMode: full screen is a window state, use requestState('fullscreen')"),
         other => return bind::throw_type_error(scope, &format!("requestMode: no mode {other}")),
     };
     with_surface(scope, |surface| surface.request_mode(mode));

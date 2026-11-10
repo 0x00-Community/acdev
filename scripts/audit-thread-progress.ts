@@ -159,7 +159,7 @@ try {
 
   const lifecycle = await call<Record<string, unknown>>('lifecycle', `async (api) => {
     const before = api.shell.windows().find((w) => w.window === ${ids.a})
-    await api.web('${a}', 'import("acde:window").then((m)=>m.default.requestMode("fullscreen"))')
+    await api.web('${a}', 'import("acde:window").then((m)=>m.default.requestState("fullscreen"))')
     await api.sleep(400)
     const resized = api.shell.windows().find((w) => w.window === ${ids.a})
     if (!before || !resized || resized.width <= before.width) {

@@ -458,7 +458,7 @@ export interface AcdeWindow {
   minimize(): Promise<void>
   requestAttention(): Promise<void>
   requestState(state: WindowState): void
-  requestMode(mode: WindowMode | 'fullscreen'): void
+  requestMode(mode: WindowMode): void
   setGrabHint(rect: WindowRect, edges?: readonly WindowEdge[]): void
   /**
    * Blurs what lies behind a part of the window. Where the platform cannot

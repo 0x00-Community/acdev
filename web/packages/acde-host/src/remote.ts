@@ -165,7 +165,7 @@ export class WindowSelf {
     setTitle: this.host.setTitle,
     setMenus: this.host.setMenus,
     ...Rpc.calls(() => this.#rpc, 'window', 'close', 'minimize', 'requestAttention', 'shortcut', 'unshortcut'),
-    requestMode: (mode: WindowMode | 'fullscreen') => this.#surface.requestMode(mode),
+    requestMode: (mode: WindowMode) => this.#surface.requestMode(mode),
     requestState: (state: WindowState) => this.#surface.requestState(state),
     setGrabHint: (rect: WindowRect, edges: readonly WindowEdge[] = []) =>
       this.#surface.setGrabHint(rect.x, rect.y, rect.width, rect.height, edges.reduce((bits, e) => bits | WindowSelf.#EDGES[e], 0)),

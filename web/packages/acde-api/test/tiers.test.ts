@@ -68,7 +68,7 @@ export const mode: WindowMode = '${value}'`
   assert.deepEqual(errors('app', mode('free')), [])
   assert.ok(errors('app', mode('fullscreen')).some((m) => /fullscreen/.test(m)))
   assert.ok(errors('app', `import self from 'acde:window'\nself.requestState('maximized')`).length > 0)
-  assert.deepEqual(errors('app', `import self from 'acde:window'\nself.requestMode('fullscreen')`), [])
+  assert.ok(errors('app', `import self from 'acde:window'\nself.requestMode('fullscreen')`).some((m) => /fullscreen/.test(m)))
   assert.deepEqual(errors('shell', `import { windows } from 'acde:windows'\nwindows.requestState?.(3, 'minimized')\nwindows.on('state', (e) => e.window)`), [])
 })
 

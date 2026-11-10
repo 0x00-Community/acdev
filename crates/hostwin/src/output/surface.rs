@@ -69,18 +69,14 @@ pub(crate) fn set_mode(id: u32, mode: Mode) {
     let current = {
         let mut state = server.state();
         let Some(entry) = state.entries.get_mut(&id) else { return };
-        if entry.desktop {
+        if entry.desktop || mode == Mode::Fullscreen || entry.mode == Mode::Fullscreen {
             return;
         }
-        if mode != Mode::Fullscreen && entry.mode != Mode::Fullscreen {
-            entry.mode = mode;
-        }
+        entry.mode = mode;
         entry.state
     };
-    match mode {
-        Mode::Fullscreen => request_state(id, Some(WindowState::Fullscreen)),
-        _ if current == WindowState::Fullscreen => request_state(id, None),
-        _ => {}
+    if !current.allowed(mode) {
+        request_state(id, Some(WindowState::Normal));
     }
 }
 
