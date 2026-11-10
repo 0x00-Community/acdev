@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { CONFIGS } from '../configs.ts'
 import { slug, up } from '../paths.ts'
@@ -23,6 +23,8 @@ export class E2e {
   static readonly TIMEOUT = 'ACDE_TEST_TIMEOUT'
   static readonly TRACE = 'ACDE_TEST_TRACE'
   static readonly UPDATE = 'ACDE_TEST_UPDATE'
+  static readonly MARKS = 'ACDE_TEST_MARKS'
+  static readonly PATTERN = 'ACDE_TEST_PATTERN'
   static readonly TIMEOUT_MS = 60_000
   static readonly SIZE = '1280x800'
 
@@ -53,6 +55,28 @@ export class E2e {
       trace: env[E2e.TRACE] === '1',
       update: env[E2e.UPDATE] === '1',
     }
+  }
+
+  static mark(kind: 'registered' | 'ran', name: string, env: NodeJS.ProcessEnv = process.env): void {
+    const file = env[E2e.MARKS]
+    if (!file) return
+    const selected = kind === 'registered' && E2e.selects(env[E2e.PATTERN], name)
+    appendFileSync(file, selected ? 'registered\nselected\n' : `${kind}\n`)
+  }
+
+  static selects(pattern: string | undefined, name: string): boolean {
+    if (!pattern) return true
+    try {
+      return new RegExp(pattern).test(name)
+    } catch {
+      return true
+    }
+  }
+
+  static unselected(marks: string): boolean {
+    const lines = existsSync(marks) ? readFileSync(marks, 'utf8').split('\n') : []
+    const count = (kind: string) => lines.filter((line) => line === kind).length
+    return count('registered') > 0 && count('selected') === 0 && count('ran') === 0
   }
 
   static project(from: string): string | null {

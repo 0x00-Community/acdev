@@ -149,7 +149,11 @@ function register(add: () => Register) {
   return (name: string, body: Body, options?: TestOptions): void => {
     const settings = E2e.read()
     const timeout = typeof options === 'number' ? options : (options?.timeout ?? settings.timeout)
-    add()(name, () => E2eRun.run(name, body, settings, timeout), timeout)
+    E2e.mark('registered', name)
+    add()(name, () => {
+      E2e.mark('ran', name)
+      return E2eRun.run(name, body, settings, timeout)
+    }, timeout)
   }
 }
 

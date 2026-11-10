@@ -132,6 +132,18 @@ describe('acde test', () => {
     expect((await acdeTest(s, ['--timeout', 'soon'])).out).toContain('--timeout soon: milliseconds per test')
   }, 120_000)
 
+  test('-t skips the files where it matches no test; a filter that matches nothing anywhere fails', async () => {
+    const s = project()
+    const some = await acdeTest(s, ['-t', 'adds'])
+    expect(some.out).toContain(`acde test: ${BROKEN}: no test matches -t "adds", skipped`)
+    expect(some.out).toContain('acde test: 1 file, 1 passed, 0 failed, 1 skipped (no test matches -t)')
+    expect(some.code).toBe(0)
+    expect(some.started.length).toBe(1)
+    const none = await acdeTest(s, ['-t', 'nothing at all'])
+    expect(none.out).toContain('acde test: no test matches -t "nothing at all" in 2 files')
+    expect(none.code).toBe(1)
+  }, 120_000)
+
   const ci = 'in CI (CI set) the tests run, and a missing screenshot baseline is an error instead of being written'
   test(ci, async () => {
     const s = project()
