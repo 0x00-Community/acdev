@@ -69,9 +69,9 @@ test('shell modules: system apps declare them, third-party apps never get them',
   }
 })
 
-test('services are imported when listed under services or, deprecated, capabilities', () => {
+test('services are imported only when listed under services', () => {
   assert.equal(Manifest.importRule('desk', app({}, ['desk']), third).allowed, true)
-  assert.equal(Manifest.importRule('desk', app({ desk: true }), third).allowed, true)
+  assert.equal(Manifest.importRule('desk', app({ desk: true }), third).allowed, false)
   const reason = 'acde:desk is a desktop service: list "desk" in the services of Demo'
   assert.deepEqual(Manifest.importRule('desk', app(), third), { allowed: false, missing: 'desk', reason })
 })

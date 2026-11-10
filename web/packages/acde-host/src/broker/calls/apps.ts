@@ -33,20 +33,8 @@ export class AppCalls {
     const desktop = web.kind === 'desktop'
     const caps = web.app?.capabilities ?? null
     if (method === 'list') return this.#host.list()
-    if (method === 'refresh' || method === 'install') {
-      if (!desktop) throw Web.refused(web, `acde.apps.${method}`)
-      return method === 'refresh' ? this.#host.refresh() : this.#host.install(String(args[0]))
-    }
-    if (method === 'natives' || method === 'runNative') {
-      if (!desktop) throw Web.refused(web, `acde.apps.${method}`)
-      if (method === 'natives') return this.#host.natives.list()
-      const file = this.#host.natives.file(String(args[0]))
-      if (!file) throw Object.assign(new Error(`no native app ${String(args[0])}`), { status: 404 })
-      return this.#host.shell.launch(['gio', 'launch', file])
-    }
     if (method === 'openPath' || method === 'handlers' || method === 'setDefault') {
-      const legacy = web.tier.level < 1 && !!caps?.['openFiles']
-      const allowed = method === 'setDefault' ? web.shell('setDefault') || legacy : desktop || !!caps?.['openFiles']
+      const allowed = method === 'setDefault' ? web.shell('setDefault') : desktop || !!caps?.['openFiles']
       if (!allowed) throw Web.refused(web, method === 'setDefault' ? 'acde:setDefault' : 'opening files with their apps')
       if (method === 'openPath') return this.#host.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions, desktop ? null : this.#caller(web))
       if (method === 'handlers') return this.#host.opener.handlers(String(args[0]))
@@ -59,13 +47,17 @@ export class AppCalls {
       if (!allowed) throw Web.refused(web, target === null ? 'opening files and links by type' : `open ${target}`)
       return this.#host.opener.request(request as Parameters<Opener['request']>[0], target, desktop ? null : this.#caller(web))
     }
-    if (method === 'launch' || method === 'open') {      const [appId, request, options] = args as [string, Record<string, unknown> | undefined, unknown]
+    if (method === 'open') {
+      const [appId, request, options] = args as [string, Record<string, unknown> | undefined, unknown]
       const open = caps?.open
       if (!desktop && !(open === true || (Array.isArray(open) && open.includes(appId)))) throw Web.refused(web, `open ${appId}`)
       const caller = { desktop, appId: web.app?.id ?? null, label: web.app?.label ?? web.kind }
       const kind = (request as { kind?: unknown } | undefined)?.kind
       const target = this.#host.opener.app(appId)
-      if (method === 'open' && typeof kind === 'string' && target?.requests.length && !target.requests.includes(kind)) {
+      if (request !== undefined && request !== null && typeof kind !== 'string') {
+        throw Object.assign(new Error(`a request to ${appId} needs a kind`), { status: 400, code: 'untyped_request' })
+      }
+      if (typeof kind === 'string' && target && !target.requests.includes(kind)) {
         throw Object.assign(new Error(`${appId} does not accept ${kind} requests (its manifest's requests)`), { status: 409, code: 'not_accepted' })
       }
       return this.#host.launch(appId, request ?? null, Family.of(options, caller, (id) => this.#host.record(id)))

@@ -266,7 +266,7 @@ export class RemoteBridge {
       on: windows.notices.for('permissions', ['prompt', 'answered']),
     })
     for (const [service, shape] of Object.entries(init.services)) this.value[service] = this.#proxy(service, shape)
-    const calls = Rpc.calls(() => rpc, 'apps', 'list', 'launch', 'open')
+    const calls = Rpc.calls(() => rpc, 'apps', 'list', 'open')
     const apps = { ...calls, open: async (...args: unknown[]) => calls.open(...args.map((arg) => this.#outgoing(arg))) }
     const files = Rpc.calls(() => rpc, 'apps', 'openPath', 'handlers', 'setDefault')
     const shell = new Set<string>(init.tier?.shell ?? [])
@@ -279,13 +279,12 @@ export class RemoteBridge {
       launch: () => ({ ...Rpc.calls(() => rpc, 'launch', 'start', 'embed', 'close'), list: windows.api.list, on: windows.api.on }),
     }
     if (init.kind === 'desktop') {
-      const shell = Rpc.calls(() => rpc, 'apps', 'refresh', 'install', 'natives', 'runNative')
-      this.value['apps'] = { ...apps, ...files, ...shell, on: windows.notices.for('apps', ['changed']) }
+      this.value['apps'] = { ...apps, ...files, on: windows.notices.for('apps', ['changed']) }
       const events = ['download', 'notification', 'screenshot', 'shortcut']
       this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', events) }
       this.value['windows'] = globalWindows()
       Object.assign(this.value, { packages: tier.packages(), launch: tier.launch(), open: apps.open, permissions: permissions(), ...files })
-    } else if (init.tier && init.tier.level >= 1) {
+    } else {
       const caps = init.app?.capabilities ?? {}
       this.value['apps'] = { list: apps.list, open: apps.open, on: windows.notices.for('apps', ['changed']) }
       this.value['open'] = apps.open
@@ -298,11 +297,6 @@ export class RemoteBridge {
       if (shell.has('desktop')) {
         this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification']) }
       }
-      if (self) this.value['window'] = this.#window(self, windows)
-    } else {
-      this.value['windows'] = windows.api
-      this.value['open'] = apps.open
-      if (init.app?.capabilities['openFiles']) Object.assign(this.value, files)
       if (self) this.value['window'] = this.#window(self, windows)
     }
     if (init.tier?.capabilities) {

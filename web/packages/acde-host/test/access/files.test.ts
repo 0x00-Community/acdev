@@ -8,7 +8,6 @@ import { Permissions, type Permit } from '../../src/broker/access/approval/permi
 
 const third: AppOrigin = { level: 1, system: false }
 const system: AppOrigin = { level: 1, system: true }
-const legacy: AppOrigin = { level: 0, system: false }
 const app = (fields: Record<string, unknown>): AppManifest => {
   const parsed = Manifest.app({ id: 'tool', label: 'Tool', icon: 'app', entry: '/t/index.html', ...fields })
   if (typeof parsed === 'string') throw new Error(parsed)
@@ -24,15 +23,9 @@ test('fs: true at level 1 gives only the private folder and picked folders', () 
   assert.equal(FileAccess.grant({}, third), null)
 })
 
-test('level 0 packages and system apps with fs: true keep every shared place for now', () => {
-  assert.equal(FileAccess.grant({ fs: true }, legacy), true)
-  assert.deepEqual(FileAccess.grant({ fs: { roots: ['/srv/notes'] } } as never, legacy), ['/srv/notes'])
-  assert.equal(FileAccess.grant({ fs: true }, system), true)
+test('fs: true means the private folder and picked folders for system apps too; only the desktop keeps every place', () => {
+  assert.deepEqual(FileAccess.grant({ fs: true }, system), { places: [], paths: false })
   assert.equal(FileAccess.grant(null, null), true)
-  assert.equal(FileAccess.deprecated({ fs: true }, system), true)
-  assert.equal(FileAccess.deprecated({ fs: true }, third), false)
-  assert.equal(FileAccess.deprecated({ fs: true }, legacy), false)
-  assert.equal(FileAccess.deprecated({ fs: { roots: ['documents'] } }, system), false)
 })
 
 test('each shared place a third-party app names needs approval and is asked before launch', async () => {
@@ -110,15 +103,13 @@ test('a copy needs both roots allowed', async () => {
   assert.deepEqual(calls, [['documents', 'a.txt', 'private', ''], ['private', 'music', 'documents', 'music']])
 })
 
-test('open file requests give third-party level 1 apps only a handle; system and level 0 apps keep their paths', () => {
+test('open file requests give third-party apps only a handle; system apps with places keep their paths', () => {
   assert.equal(FileAccess.view({ fs: true }, third), 'handle')
   assert.equal(FileAccess.view({ fs: { roots: ['documents'] } }, third), 'handle')
   assert.equal(FileAccess.view({}, third), 'handle')
   assert.equal(FileAccess.view({ fs: { roots: ['documents'] } }, system), 'url')
   assert.equal(FileAccess.view({}, system), 'url')
-  assert.equal(FileAccess.view({}, legacy), 'url')
-  assert.equal(FileAccess.view({ fs: true }, system), 'roots')
-  assert.equal(FileAccess.view({ fs: true }, legacy), 'roots')
+  assert.equal(FileAccess.view({ fs: true }, system), 'handle')
 })
 
 test('a revoked picked folder leaves roots() and its calls answer 403 denied', async () => {
@@ -162,6 +153,6 @@ test('an open file request from a level 1 app is admitted through its approved p
   const writer = app({ capabilities: { fs: { roots: ['documents', 'pictures'] } } })
   const caller = Web.caller(writer, { level: 1, system: false, shell: [], refused: {} }, (capability) => capability !== 'fs.pictures')
   assert.deepEqual(caller, { roots: [], owner: 'tool', places: ['documents'], paths: false })
-  const old = Web.caller(app({ capabilities: { fs: true } }), { level: 0, shell: [], refused: {} })
-  assert.deepEqual(old, { roots: null, owner: 'tool' })
+  const own = Web.caller(app({ capabilities: { fs: true } }), { level: 1, system: true, shell: [], refused: {} })
+  assert.deepEqual(own, { roots: [], owner: 'tool', places: [], paths: false })
 })

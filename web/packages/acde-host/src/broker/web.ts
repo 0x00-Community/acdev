@@ -8,7 +8,6 @@ import { FileAccess } from './access/files'
 import { Level, Log } from '../log'
 
 export class Web {
-  static readonly #warned = new Set<string>()
   readonly rpc: Rpc
   hung = false
   closing = false
@@ -43,18 +42,13 @@ export class Web {
 
   static caller(app: AppManifest, tier: WebTier, permitted: (capability: string) => boolean = () => true): OpenCaller {
     const fs = FileAccess.grant(app.capabilities, tier)
-    if (fs === true || Array.isArray(fs)) return { roots: fs === true ? null : fs, owner: app.id }
+    if (fs === true) return { roots: null, owner: app.id }
     const places = fs ? fs.places.filter((place) => permitted(`fs.${place}`)) : []
     return { roots: [], owner: app.id, places, paths: !!fs?.paths }
   }
 
   static grants(app: string | null, caps: Capabilities | null, tier: WebTier | null = null): Omit<WebGrants, 'storage'> {
     if (!caps) return { app, fs: true, terminal: true, network: true, office: true, camera: true, microphone: true }
-    if (app && FileAccess.deprecated(caps, tier) && !Web.#warned.has(app)) {
-      Web.#warned.add(app)
-      const why = 'level 0 meaning, removed at the end of 0.0.7'
-      Log.write(Level.Warn, 'acde_host', `${app}: "fs": true still gives every shared place (${why}); name the places in fs.roots`)
-    }
     return {
       app,
       fs: FileAccess.grant(caps, tier),

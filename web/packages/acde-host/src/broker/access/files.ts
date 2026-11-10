@@ -2,7 +2,7 @@ import { Manifest } from '@dopame/acde-api/manifest'
 import type { Capabilities } from '../../apps'
 import { Permissions, type Permit } from './approval/permissions'
 
-export type FsGrant = true | string[] | { readonly places: string[]; readonly paths: boolean } | null
+export type FsGrant = true | { readonly places: string[]; readonly paths: boolean } | null
 
 export interface FileOrigin {
   readonly level: number
@@ -14,24 +14,15 @@ export class FileAccess {
     if (!caps) return true
     const fs = caps.fs
     if (!fs) return null
-    if (FileAccess.legacy(caps, origin)) return fs === true ? true : [...fs.roots]
     const places = fs === true ? [] : Manifest.places(caps)
     return { places, paths: !!origin?.system && places.length > 0 }
   }
 
   static view(caps: Capabilities, origin: FileOrigin | null): 'roots' | 'url' | 'handle' {
     const fs = FileAccess.grant(caps, origin)
-    if (fs === true || Array.isArray(fs)) return 'roots'
-    const paths = fs ? fs.paths : !origin || origin.level < 1 || !!origin.system
+    if (fs === true) return 'roots'
+    const paths = fs ? fs.paths : !!origin?.system
     return paths ? 'url' : 'handle'
-  }
-
-  static legacy(caps: Capabilities, origin: FileOrigin | null): boolean {
-    return !origin || origin.level < 1 || (!!origin.system && caps.fs === true)
-  }
-
-  static deprecated(caps: Capabilities | null, origin: FileOrigin | null): boolean {
-    return !!caps && caps.fs === true && !!origin && origin.level >= 1 && !!origin.system
   }
 
   static guard<T extends object>(fs: T, permit: (capability: string) => Permit | null, label: string, office = false): T {
