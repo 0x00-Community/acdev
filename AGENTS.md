@@ -104,9 +104,13 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acde`, 工程里没有 `acde` 依赖. 建好后的下一步提示 (`Creator.next`)
   给含空白的目录加双引号, Windows 上不转义反斜杠. devDependencies: `@dopame/acde-api` (`Creator.api`, `ACDE_API`
   可整个换掉); npm / pnpm / yarn 下自带模板另加 `vite: ^8` (`Creator.VITE`: Node 上用工程的 Vite 打包).
-- `@dopame/acde-api` 是 `file:` 依赖 (没上 npm). 全局装的 acde (`installed()`: 自己在 `lib/acde`, 旁边有 `lib/acde-api`): 绝对路径
-  `file:<$ACDE_INSTALL>/current/lib/acde-api` (走 `current`, 升级后重装依赖就是新的; `current` 不是跑着的版本时用自己版本的). 检出跑的 acde:
-  相对路径 (先 realpath), 指向 acde 自己 `file:` 依赖的 acdert 检出; 开发 acde 的人 `bun link` / `npm link` 把 `bin/acde.mjs` 放上 PATH.
+- `@dopame/acde-api` 的依赖写法 (acde#29): 全局装的 acde (`installed()`: 自己在 `lib/acde`, 旁边有 `lib/acde-api`) 写 pkgs 上那一版 SDK 的
+  tarball 地址 `https://pkgs.dopame.ai/acdert/<版本>/acde-api-<版本>.tar.gz` (版本取随包 `lib/acde-api/package.json`, 即这个 acde 构建所用的
+  SDK; `ACDERT_DIST` 设了时换成它, 本地镜像测试用). 换机器、CI 都装得上, lockfile 记下内容校验和; 不写本机绝对路径. npm 上的
+  `@dopame/acde-api` 只有旧的 0.0.4, 不用版本号依赖, 等按版本发到 npm 后再换成 `^<版本>`. 检出跑的 acde: 相对路径 `file:` (先 realpath),
+  指向 acde 自己 `file:` 依赖的 acdert 检出, 只供开发 acde 的人用; 他们 `bun link` / `npm link` 把 `bin/acde.mjs` 放上 PATH.
+  `acde check` 见到工程的 `@dopame/acde-api` 是指向本机绝对路径的 `file:` (`AppPackage.localSdk`, 含盘符、`~`) 时打警告 (旧版 acde 建的工程),
+  说明别处装不上并给出 tarball 地址的写法.
 - 模板 (`STARTERS`): `html` (`templates/app`, `--backend` 再叠 `templates/backend`)、`desktop` (`templates/desktop`)、`react` / `vue` / `svelte` /
   `solid` / `preact` / `vanilla` (create-vite)、`next` / `nuxt` / `sveltekit` / `astro` (官方脚手架). 框架模板照 `npm create cloudflare`: 经工程的包管理器
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到

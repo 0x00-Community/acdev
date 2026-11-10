@@ -120,6 +120,7 @@ export class Creator {
   static readonly TEMPLATES = join(Creator.ROOT, 'templates')
   static readonly INSTALLED = installed(Creator.ROOT)
   static readonly VITE = '^8'
+  static readonly SDK_DIST = 'https://pkgs.dopame.ai/acdert'
 
   static starter(name: string): Starter {
     const found = STARTERS.find((s) => s.name === name)
@@ -319,7 +320,11 @@ export class Creator {
     const set = process.env['ACDE_API']
     if (set) return set
     const api = Creator.#apiDir()
-    if (Creator.INSTALLED) return `file:${api.split(sep).join('/')}`
+    if (Creator.INSTALLED) {
+      const { version } = JSON.parse(readFileSync(join(api, 'package.json'), 'utf8')) as { version: string }
+      const base = (process.env['ACDERT_DIST'] || Creator.SDK_DIST).replace(/\/+$/, '')
+      return `${base}/${version}/acde-api-${version}.tar.gz`
+    }
     const rel = relative(realpathSync(dir), api)
     return `file:${(isAbsolute(rel) || rel.startsWith('.') ? rel : `./${rel}`).split(sep).join('/')}`
   }

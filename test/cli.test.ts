@@ -233,6 +233,31 @@ describe('acde.config.jsonc', () => {
     expect(system.code).toBe(0)
   })
 
+  test('check warns about an SDK dependency on an absolute local path', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
+    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'portable' }))
+    const write = (spec: string) =>
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({
+        name: 'portable',
+        devDependencies: { '@dopame/acde-api': spec },
+      }))
+    for (const spec of ['file:/Users/me/.acde/current/lib/acde-api', 'file:C:/Users/me/.acde/current/lib/acde-api']) {
+      write(spec)
+      const checked = await cli(['check'], dir)
+      expect(checked.code).toBe(0)
+      expect(checked.stderr).toContain(`warning: package.json: @dopame/acde-api is ${spec}, a path on this machine`)
+    }
+    const portable = [
+      'file:../acdert/web/packages/acde-api',
+      'https://pkgs.dopame.ai/acdert/0.0.7/acde-api-0.0.7.tar.gz',
+    ]
+    for (const spec of portable) {
+      write(spec)
+      expect((await cli(['check'], dir)).stderr).toBe('')
+    }
+  })
+
   test('new app: builds a window app from index.html', async () => {
     const data = tmp()
     const dir = join(tmp(), 'hello')
@@ -384,7 +409,8 @@ describe('acde.config.jsonc', () => {
     writeFileSync(join(dir, '.gitignore'), 'node_modules')
     writeFileSync(join(dir, 'index.html'), '<html><head><title>made-by-vite</title></head></html>')
     Creator.adopt(dir, 'made-by-vite', 'Vite & App', 'React')
-    expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe('<html><head><title>Vite &amp; App</title></head></html>')
+    const page = '<html><head><title>Vite &amp; App</title></head></html>'
+    expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe(page)
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Creator.api(dir) })

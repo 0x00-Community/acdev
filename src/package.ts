@@ -112,7 +112,20 @@ export class AppPackage {
       services: names.map((name) => ({ name, module: `services/${name}.js` })),
     }
     const findings = Manifest.check(manifest, () => true, () => true)
-    return { errors: [...errors, ...findings.errors], warnings: findings.warnings }
+    const local = AppPackage.localSdk(project.pkg)
+    return { errors: [...errors, ...findings.errors], warnings: [...findings.warnings, ...(local ? [local] : [])] }
+  }
+
+  static localSdk(pkg: Readonly<Record<string, unknown>>): string | null {
+    const lists = [pkg['dependencies'], pkg['devDependencies']] as (Record<string, unknown> | undefined)[]
+    const spec = lists.map((list) => list?.['@dopame/acde-api']).find((value) => typeof value === 'string') as
+      | string
+      | undefined
+    if (!spec?.startsWith('file:')) return null
+    const path = spec.slice('file:'.length)
+    if (!isAbsolute(path) && !/^[A-Za-z]:[\\/]/.test(path) && !path.startsWith('~')) return null
+    return `package.json: @dopame/acde-api is ${spec}, a path on this machine, so the project does not install `
+      + 'anywhere else; depend on https://pkgs.dopame.ai/acdert/<version>/acde-api-<version>.tar.gz instead'
   }
 
   #configApps(): ConfigApp[] | null {

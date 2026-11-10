@@ -49,7 +49,7 @@ On Node.js, acde bundles with the project's own Vite (which is why the built-in 
 
 ## SDK
 
-The project's dev dependencies include `@dopame/acde-api`, which provides:
+The project's dev dependencies include `@dopame/acde-api`, the SDK version this acde was built with, as a tarball from `https://pkgs.dopame.ai/acdert/<version>/` (so the project installs on any machine and in CI). It provides:
 
 - The JSON Schema for `acde.config.jsonc` (editor completion)
 - TypeScript types for all `acde:` modules and the manifest

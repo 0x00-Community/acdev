@@ -320,8 +320,8 @@ describe('the release archive and the installed CLI', () => {
       devDependencies?: Record<string, string>
     }
     const api = manifest.devDependencies?.['@dopame/acde-api'] ?? ''
-    expect(api).toStartWith('file:')
-    expect(realpathSync(api.slice('file:'.length))).toBe(realpathSync(join(current, 'lib', 'acde-api')))
+    expect(api).toBe(`https://pkgs.dopame.ai/acdert/${SDK}/acde-api-${SDK}.tar.gz`)
+    expect(api).not.toContain(home)
   }, 300_000)
 
   test('Windows x64: a bad or missing acdert file, or no build for Windows, keeps the previous install', async () => {
