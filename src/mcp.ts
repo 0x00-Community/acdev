@@ -19,10 +19,12 @@ const INSTRUCTIONS = [
     + `dev here and keeps its output for logs); sessions lists them and pins one.`,
   `- Look with snapshot: windows first (w0 is the desktop, w1, w2 … the others), then the focused window's elements, `
     + `one per line with a ref like [w3.12]. find narrows to elements whose name or value contains a text; window `
-    + `picks a window; all lists every window.`,
+    + `picks a window; all lists every window and keeps elements hidden by opacity: 0 or visibility (marked `
+    + `transparent / invisible).`,
   `- Act with act / run on those refs (click, type, settext, key "ctrl+a backspace", scroll, …). The answer waits for `
-    + `the page to settle and ends with what changed in the window, so another snapshot is rarely needed. Refs stay `
-    + `valid while the page lives; after a reload take a new snapshot.`,
+    + `the page to settle and ends with what changed in the window, so another snapshot is rarely needed. A ref stays `
+    + `the same while its element lives (moved, retexted or restyled); when the page replaces the element it gets a `
+    + `new ref and the old one answers "element N is gone".`,
   `- Elements scrolled out of view are left out unless offscreen is set; act scrolls an element into view before using `
     + `it. query finds elements by CSS selector (also [data-testid=…]) and gives refs act takes.`,
   `- open launches an app by id or name. screenshot shows a window's pixels, or target "screen" the whole screen with `
@@ -158,15 +160,19 @@ export class Mcp {
     s.registerTool(
       'snapshot',
       {
-        description: 'The desktop as text: the windows (w0 desktop, w1 …; focus, minimized), then the elements of the '
-          + 'focused window (or window / ref) one per line: role "name": "value" [states] [ref]. Elements outside the '
-          + 'visible area are not listed; scroll to reach them.',
+        description: 'The desktop as text, in a fixed English format: one line per window, top first '
+          + '(- window "Notes" [app=notes] [focused] [w1]; the desktop is - desktop), and under the focused window (or '
+          + 'window / ref) its elements indented two spaces, one per line: - button "Save" [pressed] [w1.52]. Notes in '
+          + 'parentheses say what is left out, such as (no changes) or (windows unchanged) with diff. Elements outside '
+          + 'the visible area are not listed; scroll to reach them.',
         inputSchema: z.object({
           window: z.string().optional().describe('a window ref (w3) to list instead of the focused one'),
           ref: z.string().optional().describe('an element ref (w3.12): list only what is under it'),
           find: z.string().optional().describe('only elements whose name or value contains this text '
             + '(case-insensitive), with their ancestors, in every window'),
-          all: z.boolean().optional().describe('list every visible window, not only the focused one'),
+          all: z.boolean().optional().describe('list every window that is not minimized, and keep elements hidden by '
+            + 'opacity: 0 or visibility (marked transparent / invisible); display: none, aria-hidden and inert '
+            + 'stay out'),
           diff: z.boolean().optional().describe('only what changed since the last snapshot of that window (+ added, ~ '
             + 'changed, - gone)'),
           limit: z.number().int().min(20).max(3000).optional().describe('most elements per window (default 600)'),

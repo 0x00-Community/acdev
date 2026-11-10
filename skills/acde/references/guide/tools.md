@@ -24,7 +24,7 @@ These commands find an `acde dev` session in this order: `--session <pid>`; othe
 | `acde eval <web> <code>` | Runs code in a page and prints the result as JSON; Promises are awaited. With `-` as the code, reads it from stdin |
 | `acde shot <web> [-o FILE]` | Screenshot of one window (PNG) |
 | `acde screen [-o FILE]` | Screenshot of the whole screen, all windows together |
-| `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | Turns the screen into text: the window list and the element tree of the focused window |
+| `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | Turns the screen into text: the window list and the element tree of the focused window (`--all`: every window, and elements hidden by `opacity: 0` or `visibility`) |
 | `acde act <ref> <action> [arg]` | Clicks, types, presses keys, and more on a ref from `inspect` |
 | `acde console [--web W] [--level L] [--follow]` | The pages' `console.*` output and uncaught errors |
 | `acde network [--web W] [--failed] [--follow]` | The pages' fetch / XHR / WebSocket / EventSource requests and their image, stylesheet and font loads; the kind column says which |
@@ -45,7 +45,7 @@ echo 'localStorage.length' | acde eval notes -
 
 ```sh
 $ acde inspect
-- window "Notes" [focused] [w1]
+- window "Notes" [app=notes] [focused] [w1]
   - textbox "Title" [w1.12]
   - button "Save" [w1.15]
   - list [w1.20]
@@ -54,6 +54,12 @@ $ acde inspect
 $ acde act w1.12 type "Weekly report"
 $ acde act w1.15 click
 ```
+
+The text is always in this English format: one line per window, top first (`- window "Notes" [app=notes] [focused] [w1]`, the desktop is `- desktop`), and under a listed window its elements, indented two spaces per level, as `- role "name" [states] [ref]`. Notes in parentheses say what is left out or unchanged, such as `(empty)`, `(no changes)` and `(windows unchanged)`.
+
+A ref stays the same as long as its element lives: moving it, changing its text or attributes, or reordering a list keeps it. When the page replaces the element with a new one (for example by setting `innerHTML`), the new element gets a new ref, and acting on the old one fails with `element N is gone`; take a new `inspect` then.
+
+By default the tree leaves out elements that can't be seen: `display: none`, `aria-hidden`, `inert`, `opacity: 0` and hidden `visibility`. `--all` lists every window that isn't minimized and also keeps the elements hidden by `opacity: 0` (marked `transparent`; they can still be clicked) or by `visibility` (marked `invisible`; they can't); `display: none`, `aria-hidden` and `inert` are always left out.
 
 `--find TEXT` looks in every visible window (or `--window W`) and prints only the elements whose name or value contains the text (case does not matter), one per line under their window, each followed by the nearest ancestor that has a name:
 

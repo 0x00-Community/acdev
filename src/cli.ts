@@ -38,7 +38,8 @@ const USAGE = `usage: acde <command>
   shot <web> [-o FILE]                             a PNG of the web's window (default ./<web>.png), print its path
   inspect [--window W] [--find TEXT] [--all] [--offscreen]
                                                    the desktop as text (acde:inspect snapshot);
-                                                   --offscreen: scrolled-out too
+                                                   --offscreen: scrolled-out too; --all: every window, and
+                                                   elements hidden by opacity: 0 or visibility
   act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed
   console [--web W] [--level L] [--since S] [--follow]
                                                    pages' console.* and uncaught errors
