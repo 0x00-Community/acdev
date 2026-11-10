@@ -28,6 +28,7 @@ import { WindowCalls } from './broker/windows'
 import { ServiceCalls } from './broker/services'
 import { AppCalls } from './broker/apps'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
+import { UserAgent } from './useragent'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -303,6 +304,7 @@ export class Broker {
       reducedMotion: this.#preferences.reducedMotion,
       dark: this.#preferences.dark,
       languages: this.language.current,
+      navigator: UserAgent.current,
       services: this.#services.shapes(null),
       resources: this.#resources(),
       page: this.#current.html,
@@ -339,6 +341,7 @@ export class Broker {
       reducedMotion: this.#preferences.reducedMotion,
       dark: this.#preferences.dark,
       languages: this.language.current,
+      navigator: UserAgent.current,
       services: this.#services.shapes(app.capabilities),
       resources: PageSource.isHtml(app.entry) ? PageSource.rooted(app.entry, this.#resources()) : this.#resources(),
       app,

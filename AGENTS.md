@@ -354,7 +354,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
   `localStorage` / `sessionStorage` 见「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
   外部链接交给浏览器应用 (宿主窗口里要 slots 的浏览器应用跑不了, 不打开, 见「默认应用」), 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
-  `screen.*` 是主输出的逻辑尺寸.
+  `screen.*` 是主输出的逻辑尺寸; `navigator.userAgent` / `platform` 按 acdert 跑在的系统 (Broker 的 `UserAgent`, 经 `WebInit.navigator`;
+  macOS 照浏览器的惯例是 `MacIntel` 和 `Intel Mac OS X 10_15_7`), 产品段是 `acdert/<版本>`.
 - **`<select>`** (https://html.spec.whatwg.org/#the-select-element): 选中状态在 render (`dom/select.rs`), 每个 option 自己记 selectedness
   和 dirtiness (`Form.selected` / `dirty`, 没设过时跟 `selected` 属性), 照规范: 没有 `multiple` 时选中一个就清掉别的、插入选中的 option
   也清掉别的、两个以上留最后一个, 显示大小为 1 时一个都没选就选第一个没禁用的 (插入、删除、`selected` / `multiple` / `size` 属性变了、
@@ -677,7 +678,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - **这个平台上跑不了的应用不选** (Broker `#runsHere`): 宿主窗口里没有 slots (嵌原生窗口只在 Linux 会话里), 要 `slots` 的应用 (如
   Dopame 的浏览器) 不当默认应用、不进 `handlers`, 页面的外部链接也不交给它 (打一行 warn, 不开只会报错的空窗口). 它们也不在
   `acde.apps.list()` 和 `appschanged` 里 (Dock、搜索、设置看不到); `launch` / `acde.open(<id>)` 和指定 `app` 的 `openPath` 回
-  `{status: 404, code: 'unsupported_app'}` (页面看不出自己在哪: `navigator.platform` 固定是 `Linux x86_64`, 所以靠这个 code). Linux 会话不变.
+  `{status: 404, code: 'unsupported_app'}` (页面从 `navigator.platform` 只看得出系统, 看不出有没有 slots, 所以靠这个 code). Linux 会话不变.
 - **macOS / Windows 的宿主窗口交给系统默认程序** (没有 XDG 的 `.desktop`, `natives()` 是空的): 没有能用的 acde 应用、也没有指定 `app`
   时, `Opener.open` 经宿主 `Shell.openDefault(目标)` (只在这两处注入; hostwin `system/handoff.rs`, 在 `acde-open` 线程上做, promise 落定)
   交给系统: Windows `ShellExecuteW` (动词 `open`, 线程上先 `CoInitializeEx`), macOS `/usr/bin/open <目标>` (不经 shell). 回
