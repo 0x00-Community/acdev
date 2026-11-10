@@ -465,3 +465,49 @@ fn ime_close(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v
         bind::throw_error(scope, &e);
     }
 }
+
+pub fn ime_wire(imes: &mut HashMap<u32, acde_runtime::Ime>, name: &str, a: &mut crate::wire::WireArgs, events: impl Fn(u32, serde_json::Value) -> bool + Send + 'static) -> crate::wire::Answer {
+    use crate::wire::{Answer, Args, Ret};
+    let id = a.f64(0) as u32;
+    if name == "open" {
+        return match acde_runtime::Ime::open(move |event| _ = events(id, event)) {
+            Ok(ime) => {
+                let backend = ime.backend();
+                imes.insert(id, ime);
+                Answer::ok(backend)
+            }
+            Err(e) => Answer::fail(e),
+        };
+    }
+    if name == "close" {
+        return match imes.remove(&id).map(|ime| ime.close()) {
+            Some(Err(e)) => Answer::fail(e),
+            _ => Answer::ok(()),
+        };
+    }
+    let Some(ime) = imes.get(&id) else { return Answer::fail("Ime: closed") };
+    let result: Result<Ret, String> = match name {
+        "focusIn" => ime.focus_in().map(Ret::from),
+        "focusOut" => ime.focus_out().map(Ret::from),
+        "reset" => ime.reset().map(Ret::from),
+        "setCursorRect" => ime.set_cursor_rect(a.f64(1) as i32, a.f64(2) as i32, a.f64(3) as i32, a.f64(4) as i32).map(Ret::from),
+        "setSurroundingText" => ime.set_surrounding_text(a.str(1), a.f64(2) as u32, a.f64(3) as u32).map(Ret::from),
+        "setCapability" => {
+            let capability = a.json(1);
+            let flag = |name: &str| capability.get(name).and_then(serde_json::Value::as_bool);
+            ime.set_capability(acde_runtime::ImeCapability {
+                preedit: flag("preedit"),
+                surrounding_text: flag("surroundingText"),
+                password: flag("password"),
+                client_panel: flag("clientPanel"),
+            })
+            .map(Ret::from)
+        }
+        "processKey" => ime.process_key(a.f64(1) as u32, a.f64(2) as u32, a.f64(3) as u32, a.bool(4)).map(Ret::from),
+        "selectCandidate" => ime.select_candidate(a.f64(1) as i32).map(Ret::from),
+        "prevPage" => ime.prev_page().map(Ret::from),
+        "nextPage" => ime.next_page().map(Ret::from),
+        _ => return Answer::fail(format!("Ime: no method {name}")),
+    };
+    Answer::Now(result.map_err(crate::wire::Fail::new))
+}

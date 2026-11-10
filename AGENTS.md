@@ -601,7 +601,8 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
 - **调试**: `RUST_LOG=kernel=trace` 每个调用、模块请求、引擎消息一行 (target `kernel`).
 - `Grants` (fs / terminal / network / office) 过环: 各模块的 `wire()` 和 V8 绑定共用 crates/runtime 的 `FsCall` / `NetCall` / `OfficeCall`;
   异步的在 `acde-kernel-call` 线程上跑.
-- 还没过环 (内核窗口里没有): `GpuNative`、`AudioNative`、输入法、后端连接.
+- 输入法 (`natives.Ime`) 也走 SYSTEM (`ime.open` / `ime.processKey` …, 同步; 引擎给的回调编号兼作 Ime 的 id, 事件走 EVENT), 窗口进程的 `Driver` 持有 `acde_runtime::Ime`.
+- 还没过环 (内核窗口里没有): `GpuNative` (WebGPU; 2D canvas 是 DomNative 的写, 已经过环)、`AudioNative`、后端连接.
 
 **计划**: 上面还没过环的; 内核 V8 带 ICU; 大消息分块; 阶段 3: 桌面和 Broker 进内核, `acde:` 模块要么过环到窗口进程, 要么直接在内核里
 实现 (比如 `acde:fs` 直接走 VFS). 这和本文件开头「`acde:` 模块是进程内注入, 不是 RPC」冲突, 到时候要定.

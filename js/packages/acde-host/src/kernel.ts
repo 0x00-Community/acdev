@@ -335,7 +335,72 @@ const services = {
   },
 }
 
+class Ime {
+  readonly backend: 'fcitx5' | 'ibus'
+  readonly #id: number
+
+  constructor(callback: (event: unknown) => void) {
+    this.#id = listen(callback)
+    try {
+      this.backend = call(Iface.System, 'ime.open', [this.#id]) as 'fcitx5' | 'ibus'
+    } catch (error) {
+      listeners.delete(this.#id)
+      throw error
+    }
+  }
+
+  #call(name: string, ...args: unknown[]): unknown {
+    return call(Iface.System, `ime.${name}`, [this.#id, ...args])
+  }
+
+  focusIn(): void {
+    this.#call('focusIn')
+  }
+
+  focusOut(): void {
+    this.#call('focusOut')
+  }
+
+  reset(): void {
+    this.#call('reset')
+  }
+
+  setCursorRect(x: number, y: number, width: number, height: number): void {
+    this.#call('setCursorRect', x, y, width, height)
+  }
+
+  setSurroundingText(text: string, cursor: number, anchor: number): void {
+    this.#call('setSurroundingText', text, cursor, anchor)
+  }
+
+  setCapability(capability: object): void {
+    this.#call('setCapability', capability)
+  }
+
+  processKey(keysym: number, keycode: number, state: number, isRelease: boolean): boolean {
+    return this.#call('processKey', keysym, keycode, state, isRelease) as boolean
+  }
+
+  selectCandidate(index: number): void {
+    this.#call('selectCandidate', index)
+  }
+
+  prevPage(): void {
+    this.#call('prevPage')
+  }
+
+  nextPage(): void {
+    this.#call('nextPage')
+  }
+
+  close(): void {
+    listeners.delete(this.#id)
+    this.#call('close')
+  }
+}
+
 const natives = {
+  Ime,
   host: hostNative,
   desk,
   services,

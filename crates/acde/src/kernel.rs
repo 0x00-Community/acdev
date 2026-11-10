@@ -144,6 +144,7 @@ struct Driver {
     next_ask: u32,
     kick: bool,
     grants: Grants,
+    imes: HashMap<u32, acde_runtime::Ime>,
 }
 
 impl Driver {
@@ -176,6 +177,7 @@ impl Driver {
             next_ask: 0,
             kick: false,
             grants: spec.grants,
+            imes: HashMap::new(),
         };
         let bundle = crate::sys::app_dir().join("kernel.js");
         let source = match std::fs::read_to_string(&bundle) {
@@ -490,6 +492,7 @@ impl Driver {
             Some(("terminal", method)) => g.terminal.as_ref().map(|t| crate::terminal::wire(t, method, a, events)),
             Some(("network", method)) => g.network.as_ref().map(|n| crate::network::wire(n, method, a, events)),
             Some(("office", method)) => g.office.as_ref().map(|o| crate::office::wire(o, method, a)),
+            Some(("ime", method)) => Some(crate::surface::ime_wire(&mut self.imes, method, a, events)),
             _ => None,
         };
         answer.unwrap_or_else(|| Answer::fail(format!("{name}: not given to this window")))
