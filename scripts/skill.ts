@@ -164,6 +164,12 @@ export function skillProblems(dir: string): string[] {
   }
 
   const linked = new Set<string>()
+  const index = pages.get('SKILL.md')!.headings.find((heading) => heading.depth === 2 && heading.text === 'References')?.line
+    ?? Infinity
+  if (index === Infinity) problems.push('SKILL.md: no "## References" section (the list of every reference, in docs order)')
+  else if (pages.get('SKILL.md')!.headings.some((heading) => heading.depth <= 2 && heading.line > index)) {
+    problems.push('SKILL.md: "## References" is not the last section')
+  }
   for (const [path, page] of pages) {
     for (const { target, line } of page.links) {
       const at = `${path}:${line}: link ${target}`
@@ -183,7 +189,7 @@ export function skillProblems(dir: string): string[] {
         problems.push(`${at}: no such file`)
         continue
       }
-      if (path === 'SKILL.md') linked.add(to)
+      if (path === 'SKILL.md' && line >= index) linked.add(to)
       const there = pages.get(to)
       if (anchor !== undefined && there && !there.headings.some((heading) => heading.slug === anchor)) {
         problems.push(`${at}: ${to} has no heading with the anchor #${anchor}`)
@@ -192,7 +198,7 @@ export function skillProblems(dir: string): string[] {
   }
   for (const path of pages.keys()) {
     if (path !== 'SKILL.md' && !linked.has(path)) {
-      problems.push(`${path}: SKILL.md does not link it (agents find references only through SKILL.md)`)
+      problems.push(`${path}: the References section of SKILL.md does not list it (agents find references only there)`)
     }
   }
   return problems

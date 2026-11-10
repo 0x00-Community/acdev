@@ -74,6 +74,9 @@ describe('the skill', () => {
     expect(broken((dir) => edit(join(dir, 'SKILL.md'), (text) => text.replace('name: acde', 'name: acde\nversion: 1')))[0])
       .toContain('frontmatter key version')
     expect(broken((dir) => edit(join(dir, 'SKILL.md'), (text) => text + '\nline'.repeat(500)))[0]).toContain('keep it to 500')
+    expect(broken((dir) => edit(join(dir, 'SKILL.md'), (text) => `${text}\n## More\n`))[0]).toContain('is not the last section')
+    expect(broken((dir) => edit(join(dir, 'SKILL.md'), (text) => text.replace('## References', '## Files'))).join('\n'))
+      .toContain('no "## References" section')
   })
 
   test('the check reports references the docs cannot be built from', () => {
@@ -90,7 +93,7 @@ describe('the skill', () => {
     expect(said((text) => `${text}\n<Card title="x" />\n`)).toContain('an HTML or JSX tag')
     expect(said((text) => `${text}\n\`\`\`html\n<p>fine in code</p>\n\`\`\`\n`)).toBe('')
     expect(broken((dir) => writeFileSync(join(dir, 'references/guide/new-page.md'), '# New\n\nText.\n')).join('\n'))
-      .toContain('references/guide/new-page.md: SKILL.md does not link it')
+      .toContain('references/guide/new-page.md: the References section of SKILL.md does not list it')
     expect(broken((dir) => writeFileSync(join(dir, 'references/Loose.md'), '# Loose\n\nText.\n')).join('\n'))
       .toContain('references/Loose.md: a reference is references/<group>/<page>.md')
   })

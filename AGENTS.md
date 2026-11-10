@@ -297,7 +297,7 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
 
 - `SKILL.md` 的 `description` 决定 agent 什么时候载入它: 写「做什么」和「什么时候用」, 带上会出现的词 (acde、acdert、Dopame OS、
   `acde.config.jsonc`、`acde:` 模块). 正文是 agent 每次都读的, 只放: 先查环境 (acde、运行时)、和浏览器不一样的地方、工作循环 (建、跑、看、测)、
-  规则、全部 references 的索引. 索引里的顺序就是文档侧栏里的顺序. 细节一律放 references, 按需读.
+  规则, 最后一节 `## References` 列出全部 references. 这一节里的顺序就是文档侧栏里的顺序. 细节一律放 references, 按需读.
 - 一个 reference 讲一件事, 单独读得懂 (agent 多半只读其中一个); 示例要是真能跑的命令和代码.
 
 **写法规则** (`scripts/skill.ts` 的 `skillProblems()`; `bun scripts/skill.ts` 单独跑, `bun test` 和 `scripts/dist.ts` 都跑, 不过就不出包):
@@ -308,7 +308,7 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
   没有第二个一级标题; 只用普通 Markdown: 代码之外没有 HTML / JSX 标签、`:::` 指令、MDX 的 import / export; LF, 末尾恰好一个换行.
 - 链接: 指向 skill 里别的文件时写相对路径到 `.md` 文件 (reference 之间 `../guide/files.md#errors`, `SKILL.md` 里 `references/guide/files.md`),
   不写站点根路径 (`/guide/files/`), 不写 `https://docs.dopame.ai/…`; 目标文件要在, `#锚点` 要是目标里某个标题的 slug (GitHub 的算法:
-  小写, 去掉标点, 空格换 `-`). 每个 reference 都要从 `SKILL.md` 链到.
+  小写, 去掉标点, 空格换 `-`). 每个 reference 都要列在 `SKILL.md` 最后的 `## References` 一节里.
 - 和代码对得上 (`test/skills.test.ts`): 用法文字里的每个命令和每个 `--参数` 都出现在 `references/reference/cli.md`; `src/mcp.ts` 注册的每个工具都出现在
   `references/guide/mcp.md`. 加命令、加参数、加工具而没写进 skill, 测试就红.
 
