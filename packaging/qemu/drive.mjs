@@ -6,7 +6,7 @@
 //   move X Y | click [X Y] [right] | drag X1 Y1 X2 Y2 | wheel X Y DY   logical pixels
 //   eval WEB CODE                     CODE evaluated in WEB ("desktop", `<app>#<window>`), awaited
 //   windows                           the Broker's window table
-//   launch APP | close WINDOW         through the desktop's acde:apps / acde:windows
+//   launch APP | close WINDOW         through the desktop's acde:apps (open) / acde:windows
 //   stats [reset]                     shell's frame timings and render's per web, as they are
 //   screenshot PATH                   the main output drawn once off screen, saved as a PNG at PATH
 //   perf SCENARIO [SECONDS] [ARG]     a measurement (below); prints what changed over it
@@ -88,7 +88,7 @@ class Windows {
   }
 
   async launch(app) {
-    return this.api.web('desktop', `import("acde:apps").then(({ apps }) => apps.launch(${JSON.stringify(app)})).then((r) => r.window)`)
+    return this.api.web('desktop', `import("acde:apps").then(({ apps }) => apps.open(${JSON.stringify(app)})).then((r) => r.window)`)
   }
 
   async close(id) {
