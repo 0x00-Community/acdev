@@ -712,7 +712,15 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - 同源非资源路径、有后端时的 `localhost:<port>` (和 127.0.0.1、[::1]、0.0.0.0) → 自己应用的 unix socket (`Dial::Socket`, `init.sockets`; 没出现或
     拒绝连接时重试 10 秒). 没有后端的 web 同源非资源路径失败, `localhost` 走下面的网络.
   - 别的主机 (`Dial::Url`, http / https / ws / wss) → 宿主的网络: 系统 DNS, TCP, https / wss 用 `http.rs` 的 `tls()` (只给 http/1.1 的 ALPN,
-    验证证书和主机名). 不经系统代理, 不自动解压 (不发 `Accept-Encoding`).
+    验证证书和主机名). 不自动解压 (不发 `Accept-Encoding`).
+  - 代理 (runtime `proxy/`): 契约照 Linux, 设了 `http_proxy` / `https_proxy` / `all_proxy` (大小写都认, 小写优先) 中任何一个就只看环境变量,
+    各平台都一样; 没设时问平台: Windows 是用户的 Internet 设置 (WinHTTP: 自动检测 WPAD 和配置脚本按 URL 问
+    `WinHttpGetProxyForUrl`, WPAD 没找到后 5 分钟内不再问; 没有答案时用手动代理和它的绕过列表, `<local>`、通配符), macOS 是系统配置
+    (CFNetwork, 例外列表由它处理, PAC 在 `acde-proxy` 线程的 run loop 上跑, 最多 10 秒), Linux 没有别的来源. `no_proxy` (名字含子域、
+    IP、CIDR、`:端口`、`*`) 对系统设置也生效; localhost 和环回地址、应用后端永远直连. 求代理可能阻塞 (WPAD、PAC), 在 `acde-proxy` 线程上做.
+    经代理时自己建隧道: HTTP 代理一律 `CONNECT host:port` (http 也是, 代理看不到请求本身; 主机名由代理解析), 或 SOCKS4a / SOCKS5
+    (主机名交给代理); https / wss 再在隧道上和目标做 TLS (SNI 和校验用目标主机). 经代理的连接不进连接池 (每个请求一条). 按列表顺序试
+    (PAC 的 `PROXY a; DIRECT`), 都失败时错误里写出每个代理和原因. 不支持: 代理认证 (407 原样报错)、`https://` 代理、Linux 桌面环境的代理设置.
   - 和浏览器一样的规则 (页面的源是 `http://acde.local`): 跨源请求带 `Origin`、`Referer: http://acde.local/`、`User-Agent`、`Accept-Language`;
     CORS (acde-dom `core/cors.ts`): 简单请求之外先发 `OPTIONS` 预检 (不缓存), 回答要 2xx 且允许这个源、方法和头 (`*` 只在不带凭据时算,
     `Authorization` 不归 `*`); 响应没有允许这个源 (带凭据时还要 `Access-Control-Allow-Credentials: true`) 就是网络错误 (`TypeError`, `cause`

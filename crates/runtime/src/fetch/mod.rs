@@ -1,11 +1,12 @@
 use crate::channel::Route;
 use crate::http::{Incoming, Messages};
+use crate::proxy;
 use crate::sync::Locked;
 use futures_channel::oneshot;
 use futures_util::{StreamExt, future::AbortHandle};
 use ntex::connect::{Connect, ConnectError};
 use ntex::http::{Method, header};
-use ntex::io::{Io, Sealed};
+use ntex::io::{Filter, Io, IoBoxed, Sealed};
 use ntex::service::fn_service;
 use ntex::time::{Deadline, Millis, Seconds};
 use ntex::url::Url;
@@ -133,7 +134,7 @@ impl Dial {
 }
 
 thread_local! {
-    static DIALED: RefCell<HashMap<String, Io>> = RefCell::default();
+    static DIALED: RefCell<HashMap<String, IoBoxed>> = RefCell::default();
     static CLIENT: ntex::client::Client = ntex::client::Client::builder()
         .connector(fn_service(async |connect: Connect<Url>| {
             DIALED.with(|dialed| dialed.borrow_mut().remove(connect.host())).ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))
@@ -237,24 +238,30 @@ impl Exchange {
         Ok(Self { to, method, path, host, headers, body })
     }
 
-    async fn run(self, events: &impl Events) {
-        if let Err(Stop::Failed(message)) = self.exchange(events).await {
+    async fn run(self, events: &impl Events, proxies: &proxy::Shared) {
+        if let Err(Stop::Failed(message)) = self.exchange(events, proxies).await {
             events.emit(Event::Error(message)).await;
         }
     }
 
-    async fn exchange(self, events: &impl Events) -> std::result::Result<(), Stop> {
+    async fn exchange(self, events: &impl Events, proxies: &proxy::Shared) -> std::result::Result<(), Stop> {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let method = Method::from_bytes(self.method.as_bytes())?;
+        let dial = |io: IoBoxed, path: &str, host: &str| {
+            let dialed = format!("c{}", NEXT.fetch_add(1, Ordering::Relaxed));
+            DIALED.with(|d| d.borrow_mut().insert(dialed.clone(), io));
+            let request = CLIENT.with(Clone::clone).request(method.clone(), format!("http://{dialed}{path}"));
+            (request.force_close().set_header(header::HOST, host), Some(dialed))
+        };
         let (mut request, dialed) = match &self.to {
-            Dial::Socket(_) | Dial::App { .. } => {
-                let io = self.to.local().await?;
-                let dialed = format!("c{}", NEXT.fetch_add(1, Ordering::Relaxed));
-                DIALED.with(|d| d.borrow_mut().insert(dialed.clone(), io));
-                let request = CLIENT.with(Clone::clone).request(method, format!("http://{dialed}{}", self.path));
-                (request.force_close().set_header(header::HOST, self.host.as_str()), Some(dialed))
-            }
-            Dial::Url(url) => (crate::http::client().request(method, url.as_str()).no_decompress(), None),
+            Dial::Socket(_) | Dial::App { .. } => dial(self.to.local().await?.boxed(), &self.path, &self.host),
+            Dial::Url(url) => match proxy::route(proxies, url).await {
+                proxy::Route::Direct => (crate::http::client().request(method.clone(), url.as_str()).no_decompress(), None),
+                proxy::Route::Through(hops, target) => {
+                    let (request, dialed) = dial(proxy::open(&hops, &target).await.map_err(Stop::Failed)?.boxed(), &target.path, &target.authority);
+                    (request.no_decompress(), dialed)
+                }
+            },
         };
         request = request.timeout(Millis::ZERO);
         for (name, value) in &self.headers {
@@ -317,7 +324,7 @@ impl Upgrade {
         Ok(Self { to, path, host, headers, protocols })
     }
 
-    async fn handshake(&self) -> std::result::Result<(Io<Sealed>, Codec, String), String> {
+    async fn handshake(&self, proxies: &proxy::Shared) -> std::result::Result<(Io<Sealed>, Codec, String), String> {
         let mut config = WsClientConfig::new().set_max_frame_size(Messages::FRAME).set_handshake_timeout(HANDSHAKE).set_protocols(&self.protocols);
         if self.to.is_local() {
             config = config.and_then(|c| c.set_header(header::HOST, self.host.as_str()));
@@ -325,32 +332,26 @@ impl Upgrade {
         for (name, value) in &self.headers {
             config = config.and_then(|c| c.set_header(name.as_str(), value.as_str()));
         }
-        let config = ntex::SharedCfg::new("acde-fetch").add(config.map_err(|error| error.to_string())?).add(crate::http::tls_config());
+        let config: ntex::SharedCfg = ntex::SharedCfg::new("acde-fetch").add(config.map_err(|error| error.to_string())?).add(crate::http::tls_config()).into();
         let (io, codec, response) = match &self.to {
-            Dial::Socket(_) | Dial::App { .. } => {
-                let io = Cell::new(Some(self.to.local().await?));
-                let client = WsClient::new(format!("http://localhost{}", self.path), config)
-                    .connector(fn_service(async move |_: Connect<Url>| io.take().ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))));
-                let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
-                (io.seal(), codec, response)
-            }
-            Dial::Url(url) if url.starts_with("wss:") => {
-                let tls = crate::http::tls().map_err(|error| error.to_string())?;
-                let client = WsClient::new(url.as_str(), config).openssl(tls);
-                let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
-                (io.seal(), codec, response)
-            }
-            Dial::Url(url) => {
-                let (io, codec, response) = WsClient::new(url.as_str(), config).connect().await.map_err(|error| error.to_string())?.into_inner();
-                (io.seal(), codec, response)
-            }
+            Dial::Socket(_) | Dial::App { .. } => over(self.to.local().await?, format!("http://localhost{}", self.path), config).await?,
+            Dial::Url(url) => match proxy::route(proxies, url).await {
+                proxy::Route::Direct => direct(url, config).await?,
+                proxy::Route::Through(hops, target) => {
+                    let uri = format!("http://{}{}", target.authority, target.path);
+                    match proxy::open(&hops, &target).await? {
+                        proxy::Tunnel::Plain(io) => over(io, uri, config).await?,
+                        proxy::Tunnel::Tls(io) => over(io, uri, config).await?,
+                    }
+                }
+            },
         };
         let protocol = response.header(header::SEC_WEBSOCKET_PROTOCOL).map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
         Ok((io, codec, protocol.unwrap_or_default()))
     }
 
-    async fn run(self, commands: async_channel::Receiver<Command>, events: &impl Events) {
-        let (io, codec, protocol) = match self.handshake().await {
+    async fn run(self, commands: async_channel::Receiver<Command>, events: &impl Events, proxies: &proxy::Shared) {
+        let (io, codec, protocol) = match self.handshake(proxies).await {
             Ok(opened) => opened,
             Err(message) => {
                 if events.emit(Event::Error(message)).await {
@@ -459,6 +460,27 @@ impl Upgrade {
     }
 }
 
+type Handshake = (Io<Sealed>, Codec, ntex::client::ClientResponse);
+
+/// the handshake over a connection made already (an app backend, a proxy tunnel); `uri` gives the request's Host
+async fn over<F: Filter + 'static>(io: Io<F>, uri: String, config: ntex::SharedCfg) -> std::result::Result<Handshake, String> {
+    let io = Cell::new(Some(io));
+    let client =
+        WsClient::new(uri, config).connector(fn_service(async move |_: Connect<Url>| io.take().ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))));
+    let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
+    Ok((io.seal(), codec, response))
+}
+
+async fn direct(url: &str, config: ntex::SharedCfg) -> std::result::Result<Handshake, String> {
+    if url.starts_with("wss:") {
+        let tls = crate::http::tls().map_err(|error| error.to_string())?;
+        let (io, codec, response) = WsClient::new(url, config).openssl(tls).connect().await.map_err(|error| error.to_string())?.into_inner();
+        return Ok((io.seal(), codec, response));
+    }
+    let (io, codec, response) = WsClient::new(url, config).connect().await.map_err(|error| error.to_string())?.into_inner();
+    Ok((io.seal(), codec, response))
+}
+
 fn close_frame(code: Option<u32>, reason: Option<String>) -> Result<Option<CloseReason>, String> {
     let reason = reason.unwrap_or_default();
     if reason.len() > 123 {
@@ -478,13 +500,24 @@ struct Connection {
     commands: Option<async_channel::Sender<Command>>,
 }
 
-#[derive(Default)]
 pub struct FetchClient {
     next: AtomicU32,
     open: Arc<Mutex<HashMap<u32, Connection>>>,
+    proxies: proxy::Shared,
+}
+
+impl Default for FetchClient {
+    fn default() -> Self {
+        Self::with_proxies(proxy::system())
+    }
 }
 
 impl FetchClient {
+    /// a client whose remote requests ask `proxies` (the system's in the program, a fixed answer in tests)
+    pub(crate) fn with_proxies(proxies: proxy::Shared) -> Self {
+        Self { next: AtomicU32::default(), open: Arc::default(), proxies }
+    }
+
     fn start<F>(&self, commands: Option<async_channel::Sender<Command>>, work: impl FnOnce() -> F + Send + 'static) -> u32
     where
         F: Future<Output = ()> + 'static,
@@ -503,12 +536,14 @@ impl FetchClient {
     }
 
     fn exchange(&self, exchange: Exchange, events: impl Events) -> u32 {
-        self.start(None, move || async move { exchange.run(&events).await })
+        let proxies = self.proxies.clone();
+        self.start(None, move || async move { exchange.run(&events, &proxies).await })
     }
 
     fn upgrade(&self, upgrade: Upgrade, events: impl Events) -> u32 {
         let (commands, receiver) = async_channel::unbounded();
-        self.start(Some(commands), move || async move { upgrade.run(receiver, &events).await })
+        let proxies = self.proxies.clone();
+        self.start(Some(commands), move || async move { upgrade.run(receiver, &events, &proxies).await })
     }
 
     fn command(&self, id: u32, command: Command) {

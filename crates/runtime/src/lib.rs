@@ -18,6 +18,7 @@ mod network;
 mod office;
 #[cfg(target_os = "linux")]
 mod portal;
+mod proxy;
 #[cfg(unix)]
 mod pty;
 mod rt;
