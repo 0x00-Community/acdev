@@ -143,6 +143,8 @@ export class Manifest {
     return grants
   }
 
+  static readonly UNVERSIONED = `no acde.apiLevel: a package built before contract levels; rebuild it with the current acde (level ${API_LEVEL})`
+
   static refusal(level: number): string | null {
     return level === API_LEVEL ? null : `needs level ${level}, runtime is level ${API_LEVEL}`
   }
@@ -223,7 +225,7 @@ export class Manifest {
     if (name === 'openPath' || name === 'handlers') return caps.openFiles ? allowed : refuse('openFiles', `acde:${name} needs "openFiles" in ${declared}`)
     if ((CAPABILITY_MODULES as readonly string[]).includes(name)) return caps[name] ? allowed : refuse(name, `acde:${name} needs "${name}" in ${declared}`)
     if ((APP_MODULES as readonly string[]).includes(name) || name === 'capabilities') return allowed
-    if (app.services.includes(name) || caps[name]) return allowed
+    if (app.services.includes(name)) return allowed
     return refuse(name, `acde:${name} is a desktop service: list "${name}" in the services of ${app.label}`)
   }
 
@@ -240,7 +242,7 @@ export class Manifest {
     const { errors, warnings } = findings
     const apps = manifest.apps ?? []
     const level = Manifest.apiLevel(manifest.apiLevel)
-    if (level === null) warnings.push(`acde.apiLevel is missing: acdert still loads it as level 0 but will refuse it; declare apiLevel ${API_LEVEL}`)
+    if (level === null) errors.push(Manifest.UNVERSIONED)
     else if (typeof level === 'string') errors.push(level)
     else if (Manifest.refusal(level)) errors.push(`acde.apiLevel ${level}: ${Manifest.refusal(level)}`)
     if (apps.length === 0 && (manifest.desktops ?? []).length === 0) errors.push('acde.apps is empty: no app')
@@ -257,6 +259,7 @@ export class Manifest {
     }
     for (const desktop of manifest.desktops ?? []) {
       const at = `desktop ${JSON.stringify(desktop?.id)}`
+      if (desktop && typeof desktop === 'object' && 'frame' in desktop) errors.push(`${at}: frame is not a desktop field (only apps have a frame)`)
       const grants = Manifest.desktopServices(desktop?.services)
       if (typeof grants === 'string') errors.push(`${at}: ${grants}`)
       for (const grant of Array.isArray(grants) ? grants : []) {
@@ -264,7 +267,7 @@ export class Manifest {
       }
     }
     const system = (manifest.desktops ?? []).length > 0
-    const shellFindings = typeof level === 'number' ? errors : warnings
+    const shellFindings = errors
     const seen = new Set<string>()
     for (const raw of apps) {
       const app = Manifest.app(raw)
@@ -295,10 +298,7 @@ export class Manifest {
       }
       for (const finding of Manifest.#roots(app.capabilities.fs)) shellFindings.push(`${at}: ${finding}`)
       for (const name of Object.keys(app.capabilities).filter((k) => !Manifest.CAPABILITIES.has(k))) {
-        if (services.has(name))
-          warnings.push(
-            `${at}: capability ${JSON.stringify(name)} is a desktop service: move it to services (deprecated under capabilities)`,
-          )
+        if (services.has(name)) errors.push(`${at}: capability ${JSON.stringify(name)} is a desktop service: list it under services`)
         else shellFindings.push(`${at}: capability ${JSON.stringify(name)} is not a system capability; list desktop services under services`)
       }
     }

@@ -91,8 +91,8 @@ export class Packages {
 
   static #refusal(pkg: InstalledPackage): string | null {
     const level = Manifest.apiLevel(pkg.manifest.apiLevel)
-    if (level === null) Packages.#notice(`${pkg.dir}: no apiLevel; loaded as level 0 until acdert refuses level 0 packages`)
-    return level === null ? null : typeof level === 'string' ? level : Manifest.refusal(level)
+    if (level === null) return Manifest.UNVERSIONED
+    return typeof level === 'string' ? level : Manifest.refusal(level)
   }
 
   static #dirs(): string[] {

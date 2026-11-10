@@ -70,18 +70,15 @@ test('capabilities: a misspelt capability is an error', () => {
   ])
 })
 
-test('capabilities: a service of the package still under capabilities is a deprecation warning', () => {
+test('capabilities: a service of the package under capabilities is an error', () => {
   const findings = check({ capabilities: { desk: true } }, { services: [{ name: 'desk', module: 'd.js' }] })
-  assert.deepEqual(findings, {
-    errors: [],
-    warnings: ['app "demo": capability "desk" is a desktop service: move it to services (deprecated under capabilities)'],
-  })
+  assert.deepEqual(findings, { errors: ['app "demo": capability "desk" is a desktop service: list it under services'], warnings: [] })
 })
 
-test('capabilities: a level 0 package only gets a warning for an unknown name', () => {
+test('capabilities: a package without apiLevel is refused, and an unknown name is an error', () => {
   const findings = check({ capabilities: { weather: true } }, { apiLevel: undefined })
-  assert.deepEqual(findings.errors, [])
-  assert.ok(findings.warnings.includes('app "demo": capability "weather" is not a system capability; list desktop services under services'))
+  assert.ok(findings.errors.includes(Manifest.UNVERSIONED), JSON.stringify(findings))
+  assert.ok(findings.errors.includes('app "demo": capability "weather" is not a system capability; list desktop services under services'))
 })
 
 test('the platform table is keyed by platform and running mode', () => {

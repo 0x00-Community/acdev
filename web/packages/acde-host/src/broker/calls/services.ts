@@ -1,3 +1,4 @@
+import { Manifest } from '@dopame/acde-api/manifest'
 import type { AppManifest } from '../../apps'
 import type { PageBridge } from '../../bridge'
 import { Tiers, type WebTier } from '../access/tier'
@@ -84,6 +85,6 @@ export class ServiceCalls {
 
   #allowed(app: AppManifest, namespace: string): boolean {
     const name = this.#host.bridge.services.capability.get(namespace) ?? namespace
-    return !!app.capabilities[name] || app.services.includes(name)
+    return app.services.includes(name) || (Manifest.CAPABILITIES.has(name) && !!app.capabilities[name])
   }
 }

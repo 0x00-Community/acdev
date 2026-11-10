@@ -70,10 +70,10 @@ test('apiLevel: the runtime level passes', () => {
   assert.deepEqual(leveled(API_LEVEL), { errors: [], warnings: [] })
 })
 
-test('apiLevel: a missing level still loads as level 0, with a warning', () => {
+test('apiLevel: a package without a level is refused and has to be rebuilt', () => {
   assert.equal(Manifest.apiLevel(undefined), null)
-  const warning = `acde.apiLevel is missing: acdert still loads it as level 0 but will refuse it; declare apiLevel ${API_LEVEL}`
-  assert.deepEqual(leveled(undefined), { errors: [], warnings: [warning] })
+  assert.match(Manifest.UNVERSIONED, new RegExp(`rebuild it with the current acde \\(level ${API_LEVEL}\\)`))
+  assert.deepEqual(leveled(undefined), { errors: [Manifest.UNVERSIONED], warnings: [] })
 })
 
 test('apiLevel: anything but a positive whole number is an error', () => {
@@ -111,10 +111,9 @@ test('shell modules: a third-party app that declares one is refused', () => {
   assert.deepEqual(findings.errors, ['app "demo": acde:session is a shell module: only apps of a desktop package (system apps) may declare it'])
 })
 
-test('shell modules: a level 0 third-party app only gets a warning', () => {
+test('shell modules: a third-party app may not declare one, whatever its level', () => {
   const findings = tiered({ apiLevel: undefined, apps: [demo({ windows: true })] })
-  assert.deepEqual(findings.errors, [])
-  assert.ok(findings.warnings.includes('app "demo": acde:windows is a shell module: only apps of a desktop package (system apps) may declare it'))
+  assert.ok(findings.errors.includes('app "demo": acde:windows is a shell module: only apps of a desktop package (system apps) may declare it'))
 })
 
 test('desktop services: each lists the shell modules it may use', () => {
@@ -192,8 +191,12 @@ test('fs.roots: a level 1 app names shared places; anything else is an error', (
   assert.deepEqual(tiered({ apps: [demo({ fs: { roots: 'documents' } })] }).errors, [`app "demo": fs.roots lists shared places (${shared})`])
 })
 
-test('fs.roots: a level 0 package keeps its old roots with a warning', () => {
+test('fs.roots: a path is not a shared place, whatever the level', () => {
   const findings = tiered({ apiLevel: undefined, apps: [demo({ fs: { roots: ['/srv/notes'] } })] })
-  assert.deepEqual(findings.errors, [])
-  assert.ok(findings.warnings.some((w) => w.startsWith('app "demo": fs.roots "/srv/notes" is not a shared place')), JSON.stringify(findings))
+  assert.ok(findings.errors.some((w) => w.startsWith('app "demo": fs.roots "/srv/notes" is not a shared place')), JSON.stringify(findings))
+})
+
+test('a desktop manifest has no frame field', () => {
+  const findings = tiered({ desktops: [{ ...(desk([]) as object), frame: false } as never], apps: [] })
+  assert.ok(findings.errors.some((e) => e.endsWith('frame is not a desktop field (only apps have a frame)')), JSON.stringify(findings))
 })
