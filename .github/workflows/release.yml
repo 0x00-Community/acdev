@@ -114,7 +114,7 @@ jobs:
           mkdir -p out symbols
           cp "$dist/acdert${{ matrix.exe }}" "out/acdert-${{ matrix.triple }}${{ matrix.exe }}"
           for part in acdert.pdb acdert.dwp acdert.dSYM; do
-            if [ -e "$dist/$part" ]; then cp -R "$dist/$part" symbols/; fi
+            if [ -e "$dist/$part" ]; then cp -RL "$dist/$part" symbols/; fi
           done
           if [ -z "$(ls -A symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
           ls -la out symbols
@@ -128,6 +128,7 @@ jobs:
           name: symbols-${{ matrix.triple }}
           path: symbols
           retention-days: 30
+          if-no-files-found: error
 
   host:
     needs: plan
