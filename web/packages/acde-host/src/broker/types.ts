@@ -156,7 +156,7 @@ export interface WebInit {
   readonly channel?: boolean
   readonly devState?: unknown
   readonly devRoutes?: readonly DevRoute[]
-  readonly tier?: WebTier
+  readonly tier: WebTier
 }
 
 export interface ServiceShape {

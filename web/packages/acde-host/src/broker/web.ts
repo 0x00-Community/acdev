@@ -3,7 +3,7 @@ import { process } from '../sys/process'
 import type { AppManifest, Capabilities } from '../apps'
 import type { OpenCaller } from '../open'
 import { Rpc } from '../rpc'
-import { Tiers, type WebTier } from './access/tier'
+import type { WebTier } from './access/tier'
 import { FileAccess } from './access/files'
 import { Level, Log } from '../log'
 
@@ -25,7 +25,7 @@ export class Web {
     readonly window: number,
     readonly app: AppManifest | null,
     spawn: (onMessage: (message: unknown) => void, onExit: (code: number) => void) => WebThreadHandle,
-    readonly tier: WebTier = Tiers.LEGACY,
+    readonly tier: WebTier,
   ) {
     let exit!: (code: number) => void
     this.#exited = new Promise((resolve) => (exit = resolve))

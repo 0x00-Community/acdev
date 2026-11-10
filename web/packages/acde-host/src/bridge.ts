@@ -11,10 +11,6 @@ export class PageBridge {
   readonly services = new DesktopServices()
   #office = false
 
-  available(caps: { fs?: unknown; terminal?: unknown; office?: unknown }): boolean {
-    return (!caps.fs || !!this.value['fs']) && (!caps.terminal || process.platform !== 'win32') && (!caps.office || this.#office)
-  }
-
   present(capability: string): boolean {
     return capability === 'fs' ? !!this.value['fs'] : capability === 'office' ? this.#office : true
   }

@@ -74,13 +74,13 @@ export class Permissions {
   }
 
   gated(app: AppManifest, origin: AppOrigin): ApprovalCapability[] {
-    if (origin.level < 1 || origin.system) return []
+    if (origin.system) return []
     const declared = Object.keys(app.capabilities).filter((name): name is ApprovalCapability => !!app.capabilities[name] && Permissions.approval(name))
     return [...declared, ...Manifest.places(app.capabilities).map((place) => `fs.${place}` as ApprovalCapability)]
   }
 
   permit(app: AppManifest, origin: AppOrigin, capability: string): Permit {
-    if (origin.level < 1 || origin.system || !Permissions.approval(capability)) return 'granted'
+    if (origin.system || !Permissions.approval(capability)) return 'granted'
     const key = Permissions.#key(app.id, capability)
     return this.#decisions.get(key) ?? (this.#asked.has(key) ? 'denied' : 'ask')
   }

@@ -13,7 +13,6 @@ export interface WebTier {
 }
 
 export class Tiers {
-  static readonly LEGACY: WebTier = { level: 0, shell: [], refused: {} }
   static readonly DESKTOP: WebTier = { level: 1, shell: [...SHELL_MODULES], refused: {} }
   static readonly #GATED = [...SHELL_MODULES, 'launch', 'openPath', 'handlers', ...CAPABILITY_MODULES]
   static readonly #EVENTS: ReadonlyMap<string, ShellModule> = new Map([
@@ -25,7 +24,6 @@ export class Tiers {
   ])
 
   static app(app: AppManifest, origin: AppOrigin): WebTier {
-    if (origin.level < 1) return Tiers.LEGACY
     const shell = origin.system ? Manifest.shellModules(app.capabilities) : []
     const refused: Record<string, string> = {}
     for (const name of Tiers.#GATED) {
@@ -36,7 +34,7 @@ export class Tiers {
   }
 
   static refusal(app: AppManifest, origin: AppOrigin): string | null {
-    if (origin.level < 1 || origin.system) return null
+    if (origin.system) return null
     const declared = Manifest.shellModules(app.capabilities)
     if (!declared.length) return null
     const names = declared.map((name) => `acde:${name}`).join(', ')

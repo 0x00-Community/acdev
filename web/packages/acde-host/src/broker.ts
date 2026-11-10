@@ -120,7 +120,7 @@ export class Broker {
     this.apps = new AppRegistry(options.packages)
     this.bridge = new PageBridge()
     this.opener = new Opener({
-      apps: () => this.apps.list().filter((app) => this.#launchable.shown(app)),
+      apps: () => this.apps.list().filter((app) => this.#launchable.available(app)),
       associations: () => {
         const shell = this.shell
         const { fileHandlers, openWith } = shell
@@ -225,7 +225,7 @@ export class Broker {
       toDesktop: (event) => this.#toDesktop(event),
       usable: (appId) => {
         const app = this.apps.get(appId)
-        return !!app && this.#launchable.shown(app)
+        return !!app && this.#launchable.available(app)
       },
       launch: (appId, request) => void this.launch(appId, request).catch(() => undefined),
       allow: (web, capability) => this.#approvals.allow(web, capability),
@@ -407,7 +407,7 @@ export class Broker {
   #spawn(init: WebInit, heapMb: number): Web {
     const env = { ...Web.env(), WAYLAND_DISPLAY: this.shell.socketName }
     const storage = init.app ? StoragePlaces.app(init.app.id) : this.#options.storage(this.#current.id)
-    const grants = { ...Web.grants(init.app?.id ?? null, init.app?.capabilities ?? null, init.tier ?? null), storage }
+    const grants = { ...Web.grants(init.app?.id ?? null, init.app?.capabilities ?? null, init.tier), storage }
     const web: Web = new Web(init.kind, init.name, init.window, init.app ?? null, (onMessage, exit) =>
       sys().spawnWeb(init.name, init, heapMb, env, onMessage, (code, reason) => {
         this.#exited(web, code, reason)
@@ -640,7 +640,7 @@ export class Broker {
   }
 
   #appList(): { id: string; label: string; icon: string; script: string }[] {
-    const shown = this.apps.list().filter((app) => this.#launchable.shown(app))
+    const shown = this.apps.list().filter((app) => this.#launchable.available(app))
     return shown.map(({ id, label, icon, entry }) => ({ id, label, icon, script: entry }))
   }
 

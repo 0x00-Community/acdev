@@ -17,7 +17,6 @@ const stored = (file: string) => {
 
 const third = { level: 1, system: false }
 const system = { level: 1, system: true }
-const legacy = { level: 0, system: false }
 const app = (capabilities: Record<string, unknown>, optional: string[] = []) =>
   ({ id: 'tool', label: 'Tool', icon: 'app', entry: '/t/index.html', capabilities, optional, services: [], requests: [] }) as unknown as AppManifest
 
@@ -48,13 +47,11 @@ test('only capabilities that reach outside the app wait for approval', () => {
   assert.equal(permissions.permit(tool, third, 'launch'), 'ask')
 })
 
-test('system apps and level 0 packages are granted without a prompt', async () => {
+test('system apps are granted without a prompt', async () => {
   const { permissions, told } = open()
   const tool = app({ launch: true, terminal: true })
   assert.deepEqual(permissions.gated(tool, system), [])
-  assert.deepEqual(permissions.gated(tool, legacy), [])
   await permissions.admit(tool, system)
-  await permissions.admit(tool, legacy)
   assert.equal(permissions.permit(tool, system, 'launch'), 'granted')
   assert.deepEqual(told, [])
 })

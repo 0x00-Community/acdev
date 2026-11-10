@@ -61,7 +61,7 @@ export class CapabilityCheck {
     }
     const system = Manifest.CAPABILITIES.has(name)
     const declared = !app || (system ? !!app.capabilities[name] : app.services.includes(name) || !!app.capabilities[name])
-    const third = !!app && origin.level >= 1 && !origin.system && CapabilityCheck.#SHELL.has(name)
+    const third = !!app && !origin.system && CapabilityCheck.#SHELL.has(name)
     const state: CapabilityState = third
       ? 'shell-only'
       : !declared

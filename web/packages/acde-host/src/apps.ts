@@ -1,4 +1,4 @@
-import { Manifest } from '@dopame/acde-api/manifest'
+import { API_LEVEL, Manifest } from '@dopame/acde-api/manifest'
 import type { AppManifest } from '@dopame/acde-api/manifest'
 import type { Packages } from './packages'
 import { Level, Log } from './log'
@@ -27,7 +27,7 @@ export class AppRegistry {
     this.#origins.clear()
     this.#refused.clear()
     for (const pkg of packages.packages) {
-      const origin = { level: typeof pkg.manifest.apiLevel === 'number' ? pkg.manifest.apiLevel : 0, system: (pkg.manifest.desktops ?? []).length > 0 }
+      const origin = { level: pkg.manifest.apiLevel ?? API_LEVEL, system: (pkg.manifest.desktops ?? []).length > 0 }
       for (const raw of pkg.manifest.apps ?? []) {
         const app = Manifest.app(raw)
         if (typeof app === 'string') Log.write(Level.Warn, 'acde_host', `${pkg.dir}/package.json: ${app}`)
@@ -52,7 +52,7 @@ export class AppRegistry {
   }
 
   origin(id: string): AppOrigin {
-    return this.#origins.get(id) ?? { level: 0, system: false }
+    return this.#origins.get(id) ?? { level: API_LEVEL, system: false }
   }
 
   refusal(id: string): string | null {

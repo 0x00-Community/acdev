@@ -1,7 +1,7 @@
 import { Manifest } from '@dopame/acde-api/manifest'
 import type { AppManifest } from '../../apps'
 import type { PageBridge } from '../../bridge'
-import { Tiers, type WebTier } from '../access/tier'
+import type { WebTier } from '../access/tier'
 import type { ServiceShape } from '../types'
 import { Web } from '../web'
 
@@ -22,7 +22,7 @@ export class ServiceCalls {
     this.#host = host
   }
 
-  shapes(app: AppManifest | null, tier: WebTier = Tiers.LEGACY): Record<string, ServiceShape> {
+  shapes(app: AppManifest | null, tier?: WebTier): Record<string, ServiceShape> {
     const shapes: Record<string, ServiceShape> = {}
     const caps = app?.capabilities ?? null
     for (const [service, target] of Object.entries(this.#host.bridge.value)) {
@@ -30,7 +30,7 @@ export class ServiceCalls {
       shapes[service] = this.#shape(service, target)
     }
     for (const [service, api] of Object.entries(this.#host.builtins())) {
-      if (!caps || (service === 'inspect' ? tier.shell.includes('inspect') : caps[service])) shapes[service] = this.#shape(service, api)
+      if (!caps || (service === 'inspect' ? !!tier?.shell.includes('inspect') : caps[service])) shapes[service] = this.#shape(service, api)
     }
     return shapes
   }
