@@ -75,6 +75,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
 | `acde console [--web W] [--level L] [--follow]` | Page logs and errors |
 | `acde network [--web W] [--failed] [--follow]` | Page requests |
+| `acde stop` | Ends the session and its acdert; see [Stopping](../guide/dev.md#stopping) |
 | `acde mcp [--session PID]` | MCP server over stdio; see [MCP](../guide/mcp.md) |
 
 ## Coding agents

@@ -393,6 +393,30 @@ describe('acde dev with a stand-in acdert', () => {
     expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
   }, 30_000)
 
+  test('act w1 close that ends acdert exits 0; acde stop ends a session in the background', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const closing = start([], alpha)
+    await until('the session file', () => existsSync(closing.file))
+    const closed = await closing.tool(['act', 'w1', 'close'], alpha)
+    expect(closed.stderr).toBe('')
+    expect(closed.stdout).toBe(`closed w1; acdert exited with it, so acde dev ${closing.child.pid} ended\n`)
+    expect(closed.code).toBe(0)
+    expect(await closing.child.exited).toBe(0)
+
+    const stopping = start([], alpha)
+    await until('the session file', () => existsSync(stopping.file))
+    const stopped = await stopping.tool(['stop'], alpha)
+    expect(stopped.stdout).toBe(`acde: stopped acde dev ${stopping.child.pid}\n`)
+    expect(stopped.code).toBe(0)
+    expect(await stopping.child.exited).toBe(0)
+    expect(existsSync(stopping.file)).toBe(false)
+    expect(stopping.entries().some((e) => e.got?.['type'] === 'quit')).toBe(true)
+    const none = await stopping.tool(['stop'], alpha)
+    expect(none.code).toBe(1)
+    expect(none.stderr).toContain('no acde dev is running')
+  }, 30_000)
+
   test('--desktop <dir> adds that project and runs its desktop; ' +
     'one project alone is unchanged (acdert app <id>)', async () => {
     const base = tmp()

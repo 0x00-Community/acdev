@@ -46,6 +46,8 @@ const USAGE = `usage: acde <command>
                                                    and the images, stylesheets and fonts they load, and how they ended
   screen [-o FILE]                                 a PNG of the whole screen, every window composed
                                                    (default ./screen.png)
+  stop                                             end that acde dev and its acdert (as closing its last window
+                                                   does); for one started in the background
   test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
                                                    run the e2e tests (*.e2e.ts, import from acde/test): each test
                                                    gets a fresh, isolated acde dev (headless unless --headed); what a
@@ -91,6 +93,7 @@ class Cli {
     console: { args: [0, 0], flags: ['session', 'web', 'level'], switches: ['follow'] },
     network: { args: [0, 0], flags: ['session', 'web'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
+    stop: { args: [0, 0], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
     test: {

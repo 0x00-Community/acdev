@@ -3,12 +3,16 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction } from '@dopame/acde-api'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
+import { DevClient } from './ipc.ts'
 import { slug } from './paths.ts'
 import { Runtime } from './runtime.ts'
+import { Sessions } from './sessions.ts'
 
 export class Tools {
-  static readonly COMMANDS = new Set(['webs', 'eval', 'shot', 'inspect', 'act', 'console', 'network', 'screen'])
+  static readonly COMMANDS = new Set(['webs', 'eval', 'shot', 'inspect', 'act', 'console', 'network', 'screen', 'stop'])
   static readonly FOLLOW_MS = 500
+  static readonly ENDED_MS = 2_000
+  static readonly STOP_MS = 10_000
   static readonly LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug', 'errors'])
 
   static async run(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Promise<number> {
@@ -18,6 +22,7 @@ export class Tools {
     const level = flags.get('level')
     if (command === 'console' && level !== undefined && !Tools.LEVELS.has(level))
       throw new Error(`console: --level ${level}: one of ${[...Tools.LEVELS].join(', ')} (acde console --help)`)
+    if (command === 'stop') return await Tools.#stop(session)
     const acde = await Acde.attach(session === undefined ? {} : { session })
     try {
       switch (command) {
@@ -43,7 +48,14 @@ export class Tools {
           })).text)
           return 0
         case 'act': {
-          const result = await acde.act(args[0]!, args[1] as InspectAction, args[2])
+          const result = await acde.act(args[0]!, args[1] as InspectAction, args[2]).catch(async (error: unknown) => {
+            if (args[1] !== 'close' || !(await Tools.#ended(acde))) throw error
+            return null
+          })
+          if (result === null) {
+            console.log(`closed ${args[0]}; acdert exited with it, so acde dev ${acde.session.pid} ended`)
+            return 0
+          }
           console.log(result.text)
           return result.ok ? 0 : 1
         }
@@ -72,6 +84,34 @@ export class Tools {
     } finally {
       await acde.close()
     }
+  }
+
+  static async #ended(acde: Acde): Promise<boolean> {
+    for (const until = Date.now() + Tools.ENDED_MS; !acde.closed && Date.now() < until;) await sleep(20)
+    return acde.closed
+  }
+
+  static async #stop(pid: number | undefined): Promise<number> {
+    const session = Sessions.pick(Sessions.list(), process.cwd(), pid)
+    const link = await DevClient.connect(session.endpoint).catch(() => null)
+    if (!link) {
+      Sessions.remove(session.pid)
+      throw new Error(`acde dev ${session.pid} is gone (nothing answers on ${session.endpoint})`)
+    }
+    link.send({ type: 'quit' })
+    await Promise.race([link.closed, sleep(Tools.STOP_MS)])
+    link.close()
+    const until = Date.now() + Tools.STOP_MS
+    while (Sessions.alive(session.pid) && Date.now() < until) await sleep(50)
+    if (Sessions.alive(session.pid)) {
+      try {
+        process.kill(session.pid, 'SIGTERM')
+      } catch {}
+      console.error(`acde: acde dev ${session.pid} did not end within ${Tools.STOP_MS / 1000} s of quit; ended it`)
+    }
+    Sessions.remove(session.pid)
+    console.log(`acde: stopped acde dev ${session.pid}`)
+    return 0
   }
 
   static async #follow<T>(
