@@ -323,14 +323,6 @@ impl Handler for App {
     }
 }
 
-fn drop_owner(state: &State, target: u32) -> Option<Option<String>> {
-    let entry = state.entries.get(&target)?;
-    match (entry.desktop, &entry.app) {
-        (true, _) => Some(None),
-        (false, app) => app.clone().map(Some),
-    }
-}
-
 impl App {
     fn resized(&mut self, server: &Server, size: (u32, u32), scale: f64) {
         let screen = [(f64::from(size.0) / scale).round(), (f64::from(size.1) / scale).round()];
@@ -647,16 +639,9 @@ impl App {
     fn dropped(&self, server: &Server, (x, y): (f64, f64), paths: &[std::path::PathBuf]) {
         let hit = server.state().hit(x, y).filter(|hit| !hit.blocked);
         let Some(hit) = hit else { return };
-        let owner = drop_owner(&server.state(), hit.target);
-        if let Some(app) = owner {
-            acde_model::drop_grant::record(app.as_deref(), paths);
-        }
         let (lx, ly) = (x - hit.origin[0], y - hit.origin[1]);
-        let uris: Vec<String> = paths.iter().filter_map(|p| url::Url::from_file_path(p).ok()).map(String::from).collect();
-        let plain: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
-        let data = HashMap::from([("text/uri-list".to_owned(), uris.join("\r\n")), ("text/plain".to_owned(), plain.join("\n"))]);
-        server.event(hit.target, Event { kind: "dndenter".into(), x: Some(lx), y: Some(ly), mime: Some(data.keys().cloned().collect()), ..Default::default() });
+        server.event(hit.target, Event { kind: "dndenter".into(), x: Some(lx), y: Some(ly), mime: Some(vec!["Files".into()]), ..Default::default() });
         let files = Some(paths.iter().map(|p| p.display().to_string()).collect());
-        server.event(hit.target, Event { kind: "dnddrop".into(), x: Some(lx), y: Some(ly), data: Some(data), files, ..Default::default() });
+        server.event(hit.target, Event { kind: "dnddrop".into(), x: Some(lx), y: Some(ly), data: Some(HashMap::new()), files, ..Default::default() });
     }
 }

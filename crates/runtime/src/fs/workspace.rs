@@ -13,7 +13,6 @@ use std::{
 const MAX_ENTRIES: usize = 5000;
 const MAX_PREVIEW_BYTES: u64 = 256 * 1024;
 const MAX_RAW_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_WRITE_BYTES: usize = 384 * 1024;
 const IMAGES: [&str; 6] = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
 
 #[cfg(all(windows, not(test)))]
@@ -348,10 +347,6 @@ impl WorkspaceFs {
             exists,
             ..FinderRoot::new(path.to_owned(), label, RootSource::Granted)
         }
-    }
-
-    pub fn root(&self, path: &str) -> Outcome<FinderRoot> {
-        self.roots()?.into_iter().find(|item| item.path == path).ok_or_else(|| Failure::invalid("not a Runtime workspace"))
     }
 
     fn realpath(path: &str) -> std::io::Result<String> {
@@ -697,24 +692,6 @@ impl WorkspaceFs {
             }
         }
         Ok(at)
-    }
-
-    pub fn write_in(root: &FinderRoot, relative: &str, content: &str, expected: &str) -> Outcome<FinderEntry> {
-        if content.len() > MAX_WRITE_BYTES {
-            return Err(Failure::http(413, "content exceeds 384 KiB"));
-        }
-        let options = match expected {
-            "new" => WriteOptions { create: Create::New, ..WriteOptions::default() },
-            _ => {
-                let Resolved { absolute, .. } = Self::resolve(root, relative, false)?;
-                if !fs::symlink_metadata(&absolute).is_ok_and(|info| info.is_file()) {
-                    return Err(Failure::conflict("file no longer exists or is not a regular file"));
-                }
-                let expected = expected.parse::<i64>().map_err(|_| Failure::conflict("file changed since it was opened; reload before saving"))?;
-                WriteOptions { if_modified_ms: Some(expected as f64), ..WriteOptions::default() }
-            }
-        };
-        Self::write_file_in(root, relative, content.as_bytes(), &options)
     }
 
     pub fn numbered(name: &str, n: u32) -> String {

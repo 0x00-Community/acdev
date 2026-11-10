@@ -270,9 +270,8 @@ impl DataDeviceHandler for App {
         let _ = self.conn.flush();
         let events = self.events.clone();
         let conn = self.conn.clone();
-        let app = self.app.clone();
         std::thread::spawn(move || {
-            let data: std::collections::HashMap<String, String> = pipes
+            let mut data: std::collections::HashMap<String, String> = pipes
                 .into_iter()
                 .filter_map(|(mime, fd)| {
                     let mut text = String::new();
@@ -284,7 +283,10 @@ impl DataDeviceHandler for App {
             offer.destroy();
             let _ = conn.flush();
             let dropped = dropped_paths(data.get("text/uri-list").map_or("", String::as_str));
-            acde_model::drop_grant::record(app.as_deref(), &dropped);
+            if !dropped.is_empty() {
+                data.remove("text/uri-list");
+                data.remove("text/plain");
+            }
             let files = Some(dropped.iter().map(|path| path.display().to_string()).collect());
             events.push(Event { kind: "dnddrop".into(), x: Some(x), y: Some(y), data: Some(data), files, ..Default::default() });
         });

@@ -5,23 +5,22 @@ mod picked;
 pub(crate) mod workspace;
 
 pub use access::files::{Files, GrantedFolder};
-use access::{admit, copy_source, grants::Grants};
+use access::{admit, grants::Grants};
 #[cfg(not(windows))]
 use path::NodePath;
 #[cfg(windows)]
 use path::windows_directory;
 pub use picked::PickedFolders;
 pub use workspace::EntryKind;
-use workspace::{Contents, FinderEntry, FinderPreview, FinderRoot, MkdirOptions, WorkspaceFs, WriteOptions};
+use workspace::{Contents, FinderRoot, MkdirOptions, WorkspaceFs, WriteOptions};
 
 use crate::blocking;
 use crate::failure::{Failure, Outcome};
-use crate::sync::Locked;
 use napi::Result;
 use napi_derive::napi;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 trait IntoJson {
     fn json(self) -> Outcome<Value>;
@@ -32,51 +31,8 @@ impl<T: Serialize> IntoJson for Outcome<T> {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
-struct Place {
-    root: Option<String>,
-    path: String,
-    file: Option<String>,
-}
-
-impl Place {
-    fn file() -> Option<std::path::PathBuf> {
-        crate::state_file("finder-place.json")
-    }
-
-    fn load() -> Self {
-        Self::file().and_then(|file| std::fs::read(file).ok()).and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
-    }
-
-    fn save(&self) {
-        let Some(file) = Self::file() else { return };
-        if let Err(error) = crate::write_state(&file, &serde_json::to_vec(self).unwrap_or_default(), 0o644) {
-            log::warn!("remembering the Finder's place in {}: {error}", file.display());
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct State {
-    roots: Vec<FinderRoot>,
-    root: Option<String>,
-    path: String,
-    entries: Vec<FinderEntry>,
-    truncated: bool,
-    preview: Option<FinderPreview>,
-    error: Option<String>,
-}
-
-#[derive(Serialize)]
-struct Desktop {
-    root: String,
-    entries: Vec<FinderEntry>,
-    truncated: bool,
-}
-
 pub(crate) struct Shared {
     pub(crate) fs: WorkspaceFs,
-    place: Mutex<Place>,
     grants: Arc<Grants>,
 }
 
@@ -87,10 +43,6 @@ enum View<'a> {
 }
 
 impl Shared {
-    fn place(&self) -> Place {
-        self.place.locked().clone()
-    }
-
     fn roots(&self, owner: Option<&str>) -> Outcome<Vec<FinderRoot>> {
         let mut roots = self.fs.roots()?;
         for granted in owner.map(|owner| self.grants.folders(owner)).unwrap_or_default() {
@@ -123,59 +75,21 @@ impl Shared {
             _ => Ok(()),
         }
     }
-
-    fn state(&self, owner: Option<&str>) -> Outcome<State> {
-        let (fs, place) = (&self.fs, self.place());
-        let roots = self.roots(owner)?;
-        let wanted = place.root.as_deref();
-        let root = roots.iter().find(|item| Some(item.path.as_str()) == wanted).or_else(|| roots.first()).cloned();
-        let mut state = State {
-            roots,
-            root: root.as_ref().map(|root| root.path.clone()),
-            path: String::new(),
-            entries: Vec::new(),
-            truncated: false,
-            preview: None,
-            error: None,
-        };
-        let Some(root) = root else {
-            return Ok(state);
-        };
-        let here = place.root.as_deref() == Some(root.path.as_str());
-        let loaded = fs.list_in(root.clone(), if here { &place.path } else { "" }, true).and_then(|listing| {
-            (state.path, state.entries, state.truncated) = (listing.path, listing.entries, listing.truncated);
-            match place.file.as_deref().filter(|_| here) {
-                Some(file) => WorkspaceFs::preview_in(&root, file).map(Some),
-                None => Ok(None),
-            }
-        });
-        match loaded {
-            Ok(preview) => state.preview = preview,
-            Err(failure) if failure.shown_in_state() => state.error = Some(failure.message),
-            Err(failure) => return Err(failure),
-        }
-        Ok(state)
-    }
 }
 
 pub enum FsCall {
-    State,
     Roots,
-    Desktop,
     List { root: String, path: Option<String>, hidden: Option<bool> },
     Preview { root: String, path: String },
     Download { root: String, path: String },
     Locate { path: String },
     OpenPath { root: String, path: String },
-    Place { root: String, path: Option<String>, file: Option<String> },
     Mkdir { root: String, path: String, options: Option<Value> },
     Stat { root: String, path: String },
     ReadText { root: String, path: String },
     ReadBytes { root: String, path: String },
     WriteFile { root: String, path: String, data: Option<Vec<u8>>, options: Option<Value> },
     Revoke { root: String },
-    Write { root: String, path: String, content: Option<String>, expected_modified_ms: String },
-    CopyIn { root: String, dir: String, source: String },
     Copy { from_root: String, from_path: String, to_root: String, to_dir: String },
     Rename { root: String, from: String, to: String },
     Delete { root: String, path: String },
@@ -205,19 +119,16 @@ impl From<Failure> for FsError {
 impl FsCall {
     fn scope(&self) -> Option<&str> {
         match self {
-            Self::State | Self::Roots | Self::Desktop | Self::Locate { .. } | Self::Revoke { .. } => None,
+            Self::Roots | Self::Locate { .. } | Self::Revoke { .. } => None,
             Self::List { root, .. }
             | Self::Preview { root, .. }
             | Self::Download { root, .. }
             | Self::OpenPath { root, .. }
-            | Self::Place { root, .. }
             | Self::Mkdir { root, .. }
             | Self::Stat { root, .. }
             | Self::ReadText { root, .. }
             | Self::ReadBytes { root, .. }
             | Self::WriteFile { root, .. }
-            | Self::Write { root, .. }
-            | Self::CopyIn { root, .. }
             | Self::Copy { from_root: root, .. }
             | Self::Rename { root, .. }
             | Self::Delete { root, .. } => Some(root),
@@ -228,24 +139,19 @@ impl FsCall {
 impl Shared {
     fn new() -> Self {
         static GRANTS: OnceLock<Arc<Grants>> = OnceLock::new();
-        Self { fs: WorkspaceFs::new(), place: Mutex::new(Place::load()), grants: Arc::clone(GRANTS.get_or_init(|| Arc::new(Grants::from_env()))) }
+        Self { fs: WorkspaceFs::new(), grants: Arc::clone(GRANTS.get_or_init(|| Arc::new(Grants::from_env()))) }
     }
 
     #[cfg(test)]
     fn with(grants: Grants) -> Self {
-        Self { fs: WorkspaceFs::new(), place: Mutex::new(Place::load()), grants: Arc::new(grants) }
+        Self { fs: WorkspaceFs::new(), grants: Arc::new(grants) }
     }
 
     fn call(&self, call: FsCall, owner: Option<&str>, view: View) -> Outcome<FsReply> {
         let json = |value: Outcome<Value>| value.map(FsReply::Json);
         let root = |id: &str| self.root_in(owner, view, id);
-        if let (View::Files(_), FsCall::State | FsCall::Desktop | FsCall::Place { .. }) = (view, &call) {
-            return Err(Failure::http(403, "fs.state(), fs.desktop() and fs.place() are not part of level 1 file access"));
-        }
         match call {
-            FsCall::State => json(self.state(owner).json()),
             FsCall::Roots => json(self.allowed(owner, view).json()),
-            FsCall::Desktop => json(self.desktop().json()),
             FsCall::List { root: at, path, hidden } => json(self.fs.list_in(root(&at)?, path.as_deref().unwrap_or(""), hidden.unwrap_or(true)).json()),
             FsCall::Preview { root: at, path } => json(WorkspaceFs::preview_in(&root(&at)?, &path).json()),
             FsCall::Download { root: at, path } => WorkspaceFs::raw_in(&root(&at)?, &path).map(|(name, data)| FsReply::File { name, data }),
@@ -254,7 +160,6 @@ impl Shared {
                 Self::path_calls(view, "fs.openPath()")?;
                 json(self.open_path(&root(&at)?, &path))
             }
-            FsCall::Place { root: at, path, file } => json(self.set_place(&root(&at)?, path, file).json()),
             FsCall::Mkdir { root: at, path, options } => {
                 let options: MkdirOptions = options_of("mkdir", options)?;
                 json(WorkspaceFs::mkdir_in(&root(&at)?, &path, &options).json())
@@ -272,13 +177,6 @@ impl Shared {
                 let options: WriteOptions = options_of("writeFile", options)?;
                 let data = data.ok_or_else(|| Failure::invalid("data must be a string or a Uint8Array"))?;
                 json(WorkspaceFs::write_file_in(&root(&at)?, &path, &data, &options).json())
-            }
-            FsCall::Write { root: at, path, content, expected_modified_ms } => {
-                json(WorkspaceFs::write_in(&root(&at)?, &path, content.as_deref().unwrap_or(""), &expected_modified_ms).json())
-            }
-            FsCall::CopyIn { root: at, dir, source } => {
-                let allowed = self.allowed(owner, view)?;
-                json(copy_in(owner, &allowed, &at, &dir, &source))
             }
             FsCall::Copy { from_root, from_path, to_root, to_dir } => json(copy::copy(&root(&from_root)?, &from_path, &root(&to_root)?, &to_dir)),
             FsCall::Rename { root: at, from, to } => json(WorkspaceFs::rename_in(&root(&at)?, &from, &to).json()),
@@ -303,12 +201,6 @@ impl Shared {
             View::All(scope) => Ok(self.roots(owner)?.into_iter().filter(|root| scope.is_none_or(|allows| allows(&root.path))).collect()),
             View::Files(files) => self.files_roots(owner, files),
         }
-    }
-
-    fn desktop(&self) -> Outcome<Desktop> {
-        let root = self.fs.desktop()?;
-        let listing = self.fs.list_in(self.fs.root(&root)?, "", false)?;
-        Ok(Desktop { root, entries: listing.entries, truncated: listing.truncated })
     }
 
     fn locate(&self, owner: Option<&str>, path: &str, view: View) -> Outcome<Value> {
@@ -351,24 +243,6 @@ impl Shared {
         WorkspaceFs::raw_in(workspace, &resolved.relative)?;
         Ok(serde_json::json!({"root": workspace.id, "path": resolved.relative, "file": resolved.real}))
     }
-
-    fn set_place(&self, root: &FinderRoot, path: Option<String>, file: Option<String>) -> Outcome<Place> {
-        let place = Place { root: Some(root.path.clone()), path: path.unwrap_or_default(), file: file.filter(|f| !f.is_empty()) };
-        *self.place.locked() = place.clone();
-        place.save();
-        Ok(place)
-    }
-}
-
-fn copy_in(owner: Option<&str>, allowed: &[FinderRoot], at: &str, dir: &str, source: &str) -> Outcome<Value> {
-    let to = allowed.iter().find(|root| root.id == at).ok_or_else(|| Failure::invalid("not a Runtime workspace"))?;
-    let requested = copy_source::parse(source)?;
-    let admitted = copy_source::admit(allowed, &requested, owner)?;
-    let entry = WorkspaceFs::copy_into(to, dir, &admitted.name, admitted.file)?;
-    if let Some(claim) = admitted.claim {
-        claim.commit();
-    }
-    serde_json::to_value(entry).map_err(Failure::internal)
 }
 
 fn options_of<T: Default + serde::de::DeserializeOwned>(method: &str, options: Option<Value>) -> Outcome<T> {
@@ -394,7 +268,7 @@ impl Workspace {
 
     #[cfg(test)]
     pub(crate) fn at(home: &str) -> Self {
-        let shared = Shared { fs: WorkspaceFs::at(home), place: Mutex::new(Place::default()), grants: Arc::new(Grants::new(None)) };
+        let shared = Shared { fs: WorkspaceFs::at(home), grants: Arc::new(Grants::new(None)) };
         Self { shared: Arc::new(shared), roots: None, owner: None, files: None }
     }
 
@@ -527,8 +401,6 @@ mod tests {
         let Err(error) = workspace.call(FsCall::List { root: "/elsewhere".into(), path: None, hidden: None }) else { panic!("not refused") };
         assert_eq!((error.status, error.code), (403, "EACCES"));
         assert_eq!(error.message, "this app may not use the files of /elsewhere (not in its manifest's capabilities)");
-        let Err(error) = workspace.call(FsCall::State) else { panic!("not refused") };
-        assert_eq!((error.status, error.code), (403, "EACCES"));
     }
 
     fn json(reply: std::result::Result<FsReply, FsError>) -> Value {
@@ -699,42 +571,6 @@ mod tests {
         assert!(matches!(limited.call(FsCall::Revoke { root: picked.clone() }), Ok(FsReply::Done)));
         assert_eq!(list(&limited)["code"], "EACCES");
         assert_eq!(json(all.call(FsCall::Revoke { root: picked.clone() }))["code"], "EINVAL");
-        _ = std::fs::remove_dir_all(base);
-    }
-
-    #[test]
-    fn copy_in_takes_sources_from_granted_folders_or_one_drop() {
-        let base = std::env::temp_dir().join(format!("acde-copy-in-{}", std::process::id()));
-        let vault = base.join("vault");
-        let elsewhere = base.join("elsewhere");
-        std::fs::create_dir_all(vault.join("docs")).unwrap();
-        std::fs::create_dir_all(&elsewhere).unwrap();
-        std::fs::write(vault.join("inside.txt"), "inside").unwrap();
-        let secret = elsewhere.join("secret.txt");
-        std::fs::write(&secret, "outside").unwrap();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
-        let app = all.scoped(Some(vec![]), Some("copy-probe"));
-        let root = app.grant(vault.to_str().unwrap()).unwrap();
-        let copy = |source: &str| {
-            let call = FsCall::CopyIn { root: root.clone(), dir: "docs".into(), source: source.into() };
-            json(app.call(call))
-        };
-        let uri = url::Url::from_file_path(&secret).unwrap();
-        assert_eq!(copy(secret.to_str().unwrap())["code"], "EPERM");
-        assert_eq!(copy(uri.as_str())["code"], "EPERM");
-        assert_eq!(copy(vault.join("inside.txt").to_str().unwrap())["name"], "inside.txt");
-        assert_eq!(copy(vault.join("missing.txt").to_str().unwrap())["code"], "ENOENT");
-        assert_eq!(copy(elsewhere.join("missing.txt").to_str().unwrap())["code"], "EPERM");
-        #[cfg(windows)]
-        {
-            let vault = vault.to_str().unwrap();
-            assert_eq!(copy(&format!("{}/MISSING.txt", vault.to_uppercase()))["code"], "ENOENT");
-            assert_eq!(copy(&format!("{}\\missing.txt", vault.replace('\\', "/").to_lowercase()))["code"], "ENOENT");
-            assert_eq!(copy(&format!("{}2\\missing.txt", vault.to_lowercase()))["code"], "EPERM");
-        }
-        acde_model::drop_grant::record(Some("copy-probe"), std::slice::from_ref(&secret));
-        assert_eq!(copy(uri.as_str())["name"], "secret.txt");
-        assert_eq!(copy(uri.as_str())["code"], "EPERM");
         _ = std::fs::remove_dir_all(base);
     }
 }

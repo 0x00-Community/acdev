@@ -189,9 +189,6 @@ mod tests {
         let locate = |workspace: &Workspace| json(workspace.call(FsCall::Locate { path: file.to_string_lossy().into_owned() }));
         assert_eq!(locate(&system), json!({"root": "documents", "path": "a.txt"}));
         assert_eq!(locate(&third)["code"], "EACCES");
-        for call in [FsCall::State, FsCall::Desktop] {
-            assert_eq!(json(third.call(call))["code"], "EACCES");
-        }
     }
 
     #[test]

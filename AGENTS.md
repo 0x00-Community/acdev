@@ -181,13 +181,13 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `deactivate`. 面板不单独拿焦点: 给面板焦点 (`State::focus_target`) 落到它的 owner, 面板每次放置时的重新显示也不抢焦点, 所以焦点在桌面页面和它的面板之间
   移动时桌面页面不收 `deactivate` (不发 `blur`). 输入法是 `imepreedit` / `imecommit` 事件 (Windows: `WM_IME_COMPOSITION`, 上屏只发 commit, 只有在组字时结束才发空预编辑表示取消);
   候选框位置: 宿主窗口没有 fcitx, acde-host 的 `TextEntry` 用 `InputMethod.area` 把光标矩形交给 `setImeArea`, Windows 上同时设 IMM 的
-  组字 / 候选窗口并回答 `WM_IME_REQUEST` 的 `IMR_QUERYCHARPOSITION` (微软拼音这类 TSF 输入法只问它). 拖进来的文件: 指针下的窗口收 `dndenter` + `dnddrop`, 同时记下这个窗口应用的一次性 copyIn 授权 (见「文件」);
-  `dnddrop` 的 `data` 是 `text/uri-list` 和 `text/plain` (扩展期, #69 去掉绝对路径), 另带 `files` (`Event.files`, 系统拖放的路径, 只有这里和 Linux 会话的
+  组字 / 候选窗口并回答 `WM_IME_REQUEST` 的 `IMR_QUERYCHARPOSITION` (微软拼音这类 TSF 输入法只问它). 拖进来的文件: 指针下的窗口收 `dndenter` (`mime` 是 `["Files"]`) + `dnddrop`;
+  `dnddrop` 的 `data` 是空的 (页面看不到绝对路径, #69), 另带 `files` (`Event.files`, 系统拖放的路径, 只有这里和 Linux 会话的
   `drop_performed` 填, 页面发起的拖动没有), 页面的 `File` 和句柄只从 `files` 来 (见「文件」的「拖放和打开请求的句柄」). dev 的 `drop` 请求经
   `Shell.drop(window, paths, x?, y?)` → `Cmd::Drop` 在那个窗口的页面坐标 (默认页面中心) 上走同一个入口 (`dropped`), 指针不动. 页面发起的拖动 (`startDrag`, acde-host `DragSource` 在页面里起的 HTML5 拖放带了数据时): 页面里的
   dragover / drop 由 `DragSource` 自己按指针做, hostwin (`App` 的 `data_drag`, `Cmd::StartDrag`) 只管别的窗口: 按住左键时才接 (否则回
   `dragend {button: 0}`), 指针移到别的 web 上发 `dndenter` (类型) / `dndmove`, 离开发 `dndleave`; 在别的窗口上松手发 `dnddrop` (数据) 再给源
-  `dragend {button: 1}`, 不发 `pointerup`; 在源窗口里或没有窗口处松手照常发 `pointerup`. 数据来自页面, 不记 copyIn 授权 (页面不能替用户担保
+  `dragend {button: 1}`, 不发 `pointerup`; 在源窗口里或没有窗口处松手照常发 `pointerup`. 数据来自页面, 没有 `files` (页面不能替用户担保
   文件). 没有拖动图标.
 - **窗框在页面外**: 应用窗口 (清单 `frame` 不是 false) 的 rect 含窗框, 页面拿到 rect 减去窗框的高 (`State::content`). 出帧线程
   (`present.rs` `framed`) 把 render 的 `Decoration` 场景和下移了窗框高度的页面画进同一张纹理, 合成器只看到一层. 命中在窗框上
@@ -276,7 +276,7 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
     用一次). 不管 CORS、cookie; WebSocket / EventSource 不经它. network 的条目带 `mocked: true`.
   - `unroute {route?}` → `{removed, left}`: 删 id 是 `route` 的那条, 不给全删 (请求自己的 `id` 是请求号, 所以不叫 id).
   - `drop {files, web?, x?, y?}` → `{web, window, files}`: 模拟把这些文件 (绝对路径, 不空) 从系统拖到 web (默认 desktop) 的窗口上, `x` / `y` 是页面坐标
-    (一起给, 默认页面中心), 按这一点命中 (被别的窗口盖住就落到那个窗口), 和真的系统拖放同一段 (`dndenter` + `dnddrop`、copyIn 授权); 只排进主线程就回答,
+    (一起给, 默认页面中心), 按这一点命中 (被别的窗口盖住就落到那个窗口), 和真的系统拖放同一段 (`dndenter` + `dnddrop`); 只排进主线程就回答,
     页面收到 drop 要自己等. 会话没有, 回错.
   - `clipboard {text?}` → `{text}`: 给 `text` 先写, 再读回宿主剪贴板 (napi `Shell.readClipboard` / `writeClipboard` → hostwin; headless 是进程里那份,
     有窗口是系统剪贴板); 会话没有, 回错.
@@ -721,7 +721,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 页面的 `acde:fs` 是 crates/acdert `fs.rs` 绑的 `natives.fs`, 实现在 runtime `fs/` (`Workspace` → `WorkspaceFs`), 类型 acde-api `AcdeFs`.
 第一个参数是 root (`roots()` 里某项的 `id`; 下面按路径的根 `id` 就是 `path`), 第二个是相对路径: 绝对路径、`..` 出 root、经符号链接出 root 都拒绝 (`WorkspaceFs::resolve`),
 root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOWNLOAD_DIR` 或 `~/Downloads`, 存在时)、`~/agentos-work` (存在时), 加上用户授给
-这个应用的文件夹. Windows 上隐藏和系统属性的文件按隐藏文件算. 最后看的位置记在 `$XDG_STATE_HOME/acde/finder-place.json`.
+这个应用的文件夹. Windows 上隐藏和系统属性的文件按隐藏文件算. 运行时不记 Finder 看到哪里 (`state()` / `place()` 随 #69 移除, 由文件管理器自己记).
 
 **第 1 级的根** (#66; runtime `fs/access/files.rs` `Files`, Broker `broker/access/files.ts` `FileAccess`): 第 1 级包的第三方应用和点名公共位置的系统应用, root 是不透明的标识, 不是路径:
 `private` (本应用的私有数据文件夹 `$XDG_DATA_HOME/acde/files/<应用 id>`, 没设时 `$HOME/.local/share/...`, 第一次用时建), 公共位置名 (SDK `SHARED_PLACES`:
@@ -729,7 +729,7 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
 `SHGetKnownFolderPath`, `path.rs` `known_folder`), 选择的文件夹是 `folder-<路径 SHA-256 前 16 位十六进制>` 的令牌. `fs: true` 只给 `private` 和用户选给它的文件夹;
 公共位置要在 `fs.roots` 里点名 (校验器: 第 1 级不是这六个名字就是错误, `agentos-work` 不算; 第 0 级只警告) 并经批准 (见「批准」). `roots()` 回
 `{id, label, source: 'private' | 'place' | 'granted', mode, reason, exists, place?}`, 只有点名了公共位置的系统应用另带 `path`; 别的应用拿不到绝对路径,
-`locate` / `openPath` 报 403 `EACCES`, `state()` / `desktop()` / `place()` 在第 1 级的根上一律 403. 没批准或撤销了的位置: web 侧 (`FileAccess.guard`, 经 `Permits`)
+`locate` / `openPath` 报 403 `EACCES`. 没批准或撤销了的位置: web 侧 (`FileAccess.guard`, 经 `Permits`)
 把它从 `roots()` 里去掉, 以它为 root 的调用 reject 403 `denied` (`AcdePermissionError`). `fs.revoke(令牌)` 收回选择的文件夹, `acde:permissions` 也列出和收回它 (见「批准」). Broker 交给 web 的授权是
 `fs: {places, paths}` (crates/acdert `web.rs` → `Workspace::files`). 扩展期: 第 0 级包, 以及 `fs: true` 的系统应用 (现在的 Dopame) 照旧用下面按路径的根,
 后者每个应用打一行弃用 warn, 到本版本末尾的第 0 级移除为止. 第 0 级的第三方应用在扩展期照旧能 `locate` (它的 `roots()` 本来就是路径), 随 #70 移除.
@@ -768,7 +768,6 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 | --- | --- | --- |
 | `EINVAL` | 400 | 参数不对、出 root、类型不对、符号链接 |
 | `EACCES` | 403 | 清单没给这个 root、系统不让 |
-| `EPERM` | 403 | `copyIn` 的来源不在本应用可用的文件夹内又没有拖放授权, 或打开时被换掉 |
 | `ENOENT` | 404 | 不存在 |
 | `EEXIST` | 409 | 已经有了 |
 | `ECONFLICT` | 409 | 打开之后被改了 / 没了 (`expectedModifiedMs` / `ifModifiedMs` 对不上) |
@@ -783,8 +782,8 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 拒绝 `W` 也拒绝了 `SYNCHRONIZE`, 连打开文件夹都失败, 所以那个文件夹的列出也是 403. 父目录不存在仍是 400 `EINVAL`. 只有
 `acde:fs` 是这个形状; napi `Finder.locate` 的 message 照旧是失败的 JSON.
 
-调用: `list` / `preview` (文字最多 256 KiB) / `write` (最多 384 KiB, `expectedModifiedMs` 是字符串或 `'new'`) / `mkdir` / `rename` / `remove` /
-`copyIn` …, 和文件级的:
+调用: `roots` / `list` / `preview` (文字最多 256 KiB) / `download` / `mkdir` / `rename` / `delete` / `locate` / `openPath` / `revoke`, 和文件级的
+(#69 移除了 `write` (用 `writeFile`)、`desktop()` (用 `list`)、`state()`、`place()` 和 `copyIn` (用 `copy` 和句柄)):
 
 - `stat(root, path)` → `FinderEntry & {path}` (lstat).
 - `readText` → `{text, modifiedMs, size}` (最多 64 MiB, BOM 原样留), `readBytes` → `{data: Uint8Array, modifiedMs, size}`.
@@ -795,16 +794,11 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
   不传绝对路径. 原生复制文件和文件夹 (流式, 不限大小), 名字被占用时照 `numbered` 编号 (`a 2.txt`、`project 2`), `path` 是在目标 root 里的相对路径.
   两个 root 都要在本应用的 root 里 (按路径的根两边都过清单检查), 否则 403 `EACCES`; 没批准的公共位置 403 `denied`; 源是 root 本身、`..` 或经链接 /
   联接出 root (源或目标)、源本身是链接、文件夹里有链接 (先整棵查一遍, 复制中途变成链接也停, 删掉已复制的部分)、把文件夹复制进它自己, 都是 `EINVAL`.
-  它取代 `copyIn` (#69 移除).
 
 打开文件一律不跟随符号链接 (unix `O_NOFOLLOW | O_NONBLOCK`, 不会卡在 FIFO 上; Windows `FILE_FLAG_OPEN_REPARSE_POINT` 再查是不是链接).
 
-**`copyIn` 的来源** (`fs/access/copy_source.rs`): `copyIn(root, dir, source)` 的 source (绝对路径或 `file://`) 先按 realpath 解析 (跟随链接), 然后只接受两种:
-(a) 落在这个应用能用的某个根里 (清单的 roots 或 granted 文件夹, 同 `acde:fs` 的 `roots()`); (b) 等于宿主为这个应用记下的一次性拖放授权 (`acde_model::drop_grant`,
-绑定应用 id 和规范路径, 5 分钟内未用就过期, 第一次成功的 copyIn 消耗它, 失败则归还; 授权只管 copyIn, 不管直接读). 其余一律 403 / `EPERM` (和系统拒绝的 `EACCES` 分开, 页面据此提示没有权限导入这个文件), 目标文件夹的检查不变.
-打开来源后再比对它的最终路径 (Windows `GetFinalPathNameByHandleW`, Linux `/proc/self/fd`), 中途被换成链接的来源被拒绝; macOS 等 unix 只在打开前后重新解析, 较弱, 未验证.
-拖放授权由宿主窗口的共用拖放入口 (`crates/hostwin/src/app.rs` `dropped`, Windows `WM_DROPFILES` 与 macOS/Linux winit 都经它) 记入. 应用 id 是 claimSurface 时该 web 的
-spawn 参数 (`grants.app`, Broker 决定), 桌面没有应用 id, 记在桌面名下. Linux 会话的拖放 (`crates/window` 的 `drop_performed`) 同样在发 `dnddrop` 前按 `text/uri-list` 记下授权 (`dropped_paths`: 只取能解析成本地路径的 `file://` 行), 应用 id 经 `Surface::claim` 传给窗口线程 (`client.rs` 的 `App.app`, 桌面是 None).
+**拖放不再授权** (#69): 系统拖放只交给页面 `File` 和只读句柄, 不记一次性授权, 也不往 `text/uri-list` / `text/plain` 里放绝对路径;
+Linux 会话 (`crates/window` `drop_performed`) 有本地文件时同样去掉这两项, 路径只经 `Event.files` 交给页面宿主.
 
 **选文件夹和授权**: 标准的 `showDirectoryPicker(options?)` → `FileSystemDirectoryHandle` (acde-dom `dom/picker.ts`, 参数校验和错误照 Chromium,
 取消或没有选择器是 `AbortError`, `requestPermission` 不弹窗; handle 只活到页面结束). 链路: acde-dom 的
@@ -1211,7 +1205,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/gpu` | `acde-gpu`: 2D 场景和 vello 渲染器, 每个 OS 一个 wgpu 后端 |
 | `crates/paint` | `acde-paint`: 会话里 web 的光栅化线程 (帧 → GBM dmabuf), WebGPU 和 canvas 共用的设备 |
 | `crates/window` | `acde-window`: 会话里 web 的 Wayland 客户端 (sctk): toplevel、dmabuf、输入、剪贴板、拖放、`acde_window`、窗框子 surface |
-| `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty 上的终端、copyIn、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
+| `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty 上的终端、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
 | `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
 | `crates/log` | `acde-log`: 日志和计时 |
 | `crates/media` | `acde-media`: 解码音视频, 读摄像头和麦克风 (Linux GStreamer, macOS AVFoundation; 见「视频」「摄像头和麦克风」). 检查: `cargo test --release -p acde-media` (`tests/fixtures` 是 ffmpeg 命令行生成的 1 秒小片段; `tests/capture.rs` 用假设备; `tests/devices.rs` 里 `--ignored` 的列出 / 读真设备、在 macOS 上问权限) |

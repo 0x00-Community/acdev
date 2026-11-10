@@ -49,7 +49,6 @@ export interface FileBytes {
 export type AcdeFsErrorCode =
   | 'EINVAL'
   | 'EACCES'
-  | 'EPERM'
   | 'ENOENT'
   | 'EEXIST'
   | 'ECONFLICT'
@@ -62,12 +61,6 @@ export type AcdeFsErrorCode =
 export interface AcdeFsError extends Error {
   readonly status: number
   readonly code: AcdeFsErrorCode
-}
-
-export interface FinderPlace {
-  readonly root: string | null
-  readonly path: string
-  readonly file: string | null
 }
 
 export interface FinderStat extends FinderEntry {
@@ -97,17 +90,7 @@ export interface MkdirOptions {
 }
 
 export interface AcdeFs {
-  state(): Promise<{
-    roots: FinderRoot[]
-    root: string | null
-    path: string
-    entries: FinderEntry[]
-    truncated: boolean
-    preview: FinderPreview | null
-    error: string | null
-  }>
   roots(): Promise<FinderRoot[]>
-  desktop(): Promise<{ root: string; entries: FinderEntry[]; truncated: boolean }>
   list(
     root: string,
     path?: string,
@@ -115,14 +98,11 @@ export interface AcdeFs {
   ): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean }>
   preview(root: string, path: string): Promise<FinderPreview>
   download(root: string, path: string): Promise<FileBytes>
-  place(root: string, path?: string, file?: string): Promise<FinderPlace>
   mkdir(root: string, path: string, options?: MkdirOptions): Promise<FinderEntry>
   stat(root: string, path: string): Promise<FinderStat>
   readText(root: string, path: string): Promise<FileText>
   readBytes(root: string, path: string): Promise<FileData>
   writeFile(root: string, path: string, data: string | Uint8Array, options?: WriteFileOptions): Promise<FinderEntry>
-  write(root: string, path: string, content: string, expectedModifiedMs: string): Promise<FinderEntry>
-  copyIn?(root: string, dir: string, source: string): Promise<FinderEntry>
   copy(fromRoot: string, fromPath: string, toRoot: string, toDir: string): Promise<FinderEntry & { path: string }>
   rename(root: string, from: string, to: string): Promise<FinderEntry>
   delete(root: string, path: string): Promise<{ status: 'deleted'; path: string }>

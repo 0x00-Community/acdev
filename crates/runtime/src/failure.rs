@@ -17,7 +17,6 @@ pub(crate) enum Code {
 pub enum Errno {
     Inval,
     Acces,
-    Perm,
     Noent,
     Exist,
     Conflict,
@@ -33,7 +32,6 @@ impl Errno {
         match self {
             Self::Inval => "EINVAL",
             Self::Acces => "EACCES",
-            Self::Perm => "EPERM",
             Self::Noent => "ENOENT",
             Self::Exist => "EEXIST",
             Self::Conflict => "ECONFLICT",
@@ -101,9 +99,6 @@ impl Failure {
     pub fn internal(detail: impl std::fmt::Display) -> Self {
         log::error!("operation failed: {detail}");
         Self::new(500, Code::InternalError, "Runtime server operation failed")
-    }
-    pub fn shown_in_state(&self) -> bool {
-        matches!(self.code, Code::InvalidRequest) || self.status == 404
     }
 }
 
