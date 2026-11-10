@@ -30,10 +30,12 @@ Creates a project. In a terminal, it asks for whatever is missing; with `--yes`,
 ### acde check
 
 ```text
-acde check [dir]
+acde check [dir] [--platform windows|macos|linux]
 ```
 
-Checks the config (id, entry, icon, service modules, framework), or the manifest and entry files of a handwritten package.
+Checks the config (id, entry, icon, service modules, framework) and the manifest rules of the SDK, or the manifest and entry files of a handwritten package, and the `acde:` imports against the manifest.
+
+`--platform` lists the capabilities an app requires that the platform cannot provide in each way of running (an error), or that it declares optional (a note).
 
 ### acde build
 
