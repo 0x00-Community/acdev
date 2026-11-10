@@ -166,7 +166,37 @@ acde test -u                     # update screenshot baselines
 
 ## Editor types
 
-`acde test` resolves `acde/test` on its own at run time, but your editor does not know where it is. For now, add `paths` to the project's `tsconfig.json` pointing into the install directory (for example `~/.acde/current/lib/acde/dist/types/e2e/index.d.ts`); a separate types package will follow.
+`acde/test` exports the types of everything it hands you, so helpers can be typed: `Fixtures` (the test body's argument), `AppWindow` (the `app` fixture), `Locator`, `Acde`, and the option and result types listed in the [Testing API](../reference/testing.md).
+
+```ts
+import { test, expect, type AppWindow, type Locator } from 'acde/test'
+
+async function enter(app: AppWindow, keys: string[]): Promise<Locator> {
+  for (const key of keys) await app.getByRole('button', { name: key }).click()
+  return app.locator('#display')
+}
+
+test('adds', async ({ app }) => {
+  await expect(await enter(app!, ['1', '+', '2', '='])).toHaveText('3')
+})
+```
+
+`acde test` resolves `acde/test` on its own at run time, but your editor does not know where it is. For now, add `paths` to the project's `tsconfig.json` pointing at the type declarations in the install directory, with the absolute path of your home directory (`tsconfig.json` does not expand `~` or `%USERPROFILE%`):
+
+```jsonc
+{
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "paths": {
+      "acde/test": ["/home/me/.acde/current/lib/acde/dist/types/e2e/index.d.ts"],
+      "acde/driver": ["/home/me/.acde/current/lib/acde/dist/types/driver/index.d.ts"]
+      // Windows: "C:/Users/me/.acde/current/lib/acde/dist/types/e2e/index.d.ts"
+    }
+  }
+}
+```
+
+`acde test` reads the same `paths` and replaces these two entries with its own, so they do not change how tests run. A separate types package will follow.
 
 ## The driver alone
 

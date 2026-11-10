@@ -1,6 +1,6 @@
 # Testing API
 
-`acde/test` exports `test`, `expect`, `describe`, `beforeAll`, `beforeEach`, `afterAll`, `afterEach`, and everything from `acde/driver`. `acde/driver` depends only on `node:` modules, so you can use it on its own in Node.js / Bun scripts.
+`acde/test` exports `test`, `expect`, `describe`, `beforeAll`, `beforeEach`, `afterAll`, `afterEach`, and everything from `acde/driver`, including the types (`Fixtures`, `AppWindow`, `Locator`, `Acde`, `E2eSettings` and the option and result types below; `import { type AppWindow } from 'acde/test'`). `acde/driver` depends only on `node:` modules, so you can use it on its own in Node.js / Bun scripts.
 
 ## test
 
