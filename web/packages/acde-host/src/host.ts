@@ -19,6 +19,8 @@ export class Host {
     ['download', ['desktop:download']],
     ['notification', ['desktop:notification']],
     ['shortcut', ['desktop:shortcut', 'window:shortcut']],
+    ['permissionprompt', ['permissions:prompt']],
+    ['permissionanswered', ['permissions:answered']],
   ])
   static readonly #WINDOW_EVENTS = new Set<string>(WINDOW_EVENTS)
   readonly #page: WebInternals

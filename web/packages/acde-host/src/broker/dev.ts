@@ -6,11 +6,13 @@ import { Level, Log } from '../log'
 import { isAbsolute } from '../sys/path'
 import type { BrokerShell, WebInfo } from './types'
 import type { Web } from './web'
+import type { Permissions } from './access/permissions'
 
 export interface DevHost {
   readonly shell: BrokerShell
   readonly inspect: Inspect
   readonly devlog: DevLog
+  readonly permissions: Permissions
   webs(): Web[]
   desktop(): Web | null
   title(web: Web): string
@@ -18,7 +20,8 @@ export interface DevHost {
 }
 
 export class DevRequests {
-  static readonly #OPS = 'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard'
+  static readonly #OPS =
+    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard, permissions, answer'
   readonly #host: DevHost
   #routes: DevRoute[] = []
   #nextRoute = 1
@@ -125,6 +128,13 @@ export class DevRequests {
         return this.#host.emulate(args as never)
       case 'choose':
         return this.#choose(args)
+      case 'permissions':
+        return { pending: this.#host.permissions.pending(), decisions: this.#host.permissions.list() }
+      case 'answer': {
+        if (!Number.isInteger(args['prompt']) || typeof args['allow'] !== 'boolean') throw new Error('answer: prompt is a prompt id and allow is true or false')
+        this.#host.permissions.answer(args['prompt'] as number, args['allow'])
+        return { prompt: args['prompt'], allow: args['allow'] }
+      }
       case 'route': {
         const route = DevRoutes.parse(args, this.#nextRoute++)
         this.#routes.push(route)

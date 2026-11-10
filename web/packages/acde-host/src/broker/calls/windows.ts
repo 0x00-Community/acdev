@@ -13,6 +13,7 @@ export interface WindowsHost {
   toDesktop(event: Record<string, unknown>): void
   usable(appId: string): boolean
   launch(appId: string, request: Record<string, unknown>): void
+  allow(web: Web, capability: 'launch' | 'slots'): void
 }
 
 export class WindowCalls {
@@ -34,6 +35,7 @@ export class WindowCalls {
         const [argv, options] = args as [string[], { cwd?: string; env?: Record<string, string>; slot?: boolean } | undefined]
         const slot = !!options?.slot && web.kind !== 'desktop'
         if (web.kind !== 'desktop' && !(slot ? caps.slots : caps.launch)) throw Web.refused(web, slot ? 'native programs in its slots' : 'starting programs')
+        this.#host.allow(web, slot ? 'slots' : 'launch')
         const pid = this.#host.shell.launch(argv, { cwd: options?.cwd, env: options?.env })
         if (slot) this.#host.claim(web, pid)
         return pid
@@ -88,6 +90,7 @@ export class WindowCalls {
       const embed = method === 'embed'
       if (!desktop && !(embed ? caps.slots : caps.launch)) throw Web.refused(web, embed ? 'embedding programs (slots)' : 'starting programs (launch)')
       if (!Array.isArray(argv) || argv.length === 0) throw new TypeError(`acde.launch.${method}: argv is a non-empty array`)
+      this.#host.allow(web, embed ? 'slots' : 'launch')
       const pid = this.#host.shell.launch(argv.map(String), { cwd: options?.cwd, env: options?.env })
       if (embed) this.#host.claim(web, pid)
       else web.startedPids.add(pid)
@@ -112,10 +115,12 @@ export class WindowCalls {
     if (state === 'minimized' && this.#host.shell.windows().find((row) => row.id === id)?.minimize === false) {
       const reason = 'a standalone app has no Dock to bring it back'
       throw Object.assign(new Error(`window ${id} cannot be minimized: ${reason}`), { status: 409, code: 'unavailable' })
-    }    this.#host.shell.setState(id, state as (typeof WindowCalls.STATES)[number])
+    }
+    this.#host.shell.setState(id, state as (typeof WindowCalls.STATES)[number])
   }
 
-  self(web: Web, method: string, args: unknown[]): unknown {    const record = this.#host.record(web.window)
+  self(web: Web, method: string, args: unknown[]): unknown {
+    const record = this.#host.record(web.window)
     if (web.kind !== 'window' || !record) throw new Error('acde.window: only a window web has a window')
     switch (method) {
       case 'setTitle':

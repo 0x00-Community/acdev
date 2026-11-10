@@ -16,7 +16,7 @@ export interface AppsHost {
   list(): ListedApp[]
   refresh(): unknown
   install(dir: string): unknown
-  launch(appId: string, request: Record<string, unknown> | null, family?: WindowFamily | null): { window: number }
+  launch(appId: string, request: Record<string, unknown> | null, family?: WindowFamily | null): Promise<{ window: number }>
   record(id: number): FamilyWindow | undefined
   raise(opened: { window: number }): unknown
 }
@@ -66,7 +66,8 @@ export class AppCalls {
       const target = this.#host.opener.app(appId)
       if (method === 'open' && typeof kind === 'string' && target?.requests.length && !target.requests.includes(kind)) {
         throw Object.assign(new Error(`${appId} does not accept ${kind} requests (its manifest's requests)`), { status: 409, code: 'not_accepted' })
-      }      return this.#host.launch(appId, request ?? null, Family.of(options, caller, (id) => this.#host.record(id)))
+      }
+      return this.#host.launch(appId, request ?? null, Family.of(options, caller, (id) => this.#host.record(id)))
     }
     throw new Error(`acde.apps has no ${method}`)
   }
@@ -97,7 +98,7 @@ export class AppCalls {
       apps.find((a) => a.label.toLowerCase() === wanted) ??
       apps.find((a) => a.label.toLowerCase().includes(wanted))
     if (app) {
-      this.#host.raise(this.#host.launch(app.id, null))
+      this.#host.raise(await this.#host.launch(app.id, null))
       return `打开了应用 ${app.label} (${app.id})`
     }
     const natives = this.#host.natives.list()

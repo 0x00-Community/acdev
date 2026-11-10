@@ -4,6 +4,9 @@ import { Level, Log } from './log'
 import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
 import { Rpc } from './rpc'
 import { CapabilityCheck } from './broker/access/capabilities'
+import { Permits } from './broker/access/permits'
+import type { Permit } from './broker/access/permissions'
+import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 
 class Notices {
   readonly #handlers = new Map<string, Set<(detail: unknown) => void>>()
@@ -233,12 +236,23 @@ export class WindowSelf {
   }
 }
 
+type ModuleHost = { defineModule(url: string, exports: object): void; refuseModule?(url: string, reason: string): void }
+
 export class RemoteBridge {
   readonly value: Record<string, unknown> = {}
+  readonly permits: Permits
   readonly #rpc: Rpc
+  #capabilities: { update(status: CapabilityStatus): void } | null = null
+  #host: ModuleHost | null = null
+  readonly #waiting = new Set<string>()
 
-  constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList) {
+  constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList, permits = new Permits(init.tier?.permits, init.app?.label ?? init.kind)) {
     this.#rpc = rpc
+    this.permits = permits
+    const permissions = () => ({
+      ...Rpc.calls(() => rpc, 'permissions', 'pending', 'answer', 'list', 'revoke'),
+      on: windows.notices.for('permissions', ['prompt', 'answered']),
+    })
     for (const [service, shape] of Object.entries(init.services)) this.value[service] = this.#proxy(service, shape)
     const apps = Rpc.calls(() => rpc, 'apps', 'list', 'launch', 'open')
     const files = Rpc.calls(() => rpc, 'apps', 'openPath', 'handlers', 'setDefault')
@@ -257,7 +271,7 @@ export class RemoteBridge {
       const events = ['download', 'notification', 'screenshot', 'shortcut']
       this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', events) }
       this.value['windows'] = globalWindows()
-      Object.assign(this.value, { packages: tier.packages(), launch: tier.launch(), open: apps.open, ...files })
+      Object.assign(this.value, { packages: tier.packages(), launch: tier.launch(), open: apps.open, permissions: permissions(), ...files })
     } else if (init.tier && init.tier.level >= 1) {
       const caps = init.app?.capabilities ?? {}
       this.value['apps'] = { list: apps.list, open: apps.open, on: windows.notices.for('apps', ['changed']) }
@@ -267,6 +281,7 @@ export class RemoteBridge {
       if (shell.has('windows')) this.value['windows'] = globalWindows()
       if (shell.has('packages')) this.value['packages'] = tier.packages()
       if (shell.has('setDefault')) this.value['setDefault'] = files.setDefault
+      if (shell.has('permissions')) this.value['permissions'] = permissions()
       if (shell.has('desktop')) {
         this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification']) }
       }
@@ -277,7 +292,11 @@ export class RemoteBridge {
       if (init.app?.capabilities['openFiles']) Object.assign(this.value, files)
       if (self) this.value['window'] = this.#window(self, windows)
     }
-    if (init.tier?.capabilities) this.value['capabilities'] = CapabilityCheck.module(init.tier.capabilities)
+    if (init.tier?.capabilities) {
+      const live = CapabilityCheck.module(init.tier.capabilities, (name) => rpc.call('capabilities', 'request', [name]) as Promise<CapabilityStatus>)
+      this.value['capabilities'] = live.module
+      this.#capabilities = live
+    }
     this.#refused = init.tier?.refused ?? {}
   }
 
@@ -296,9 +315,28 @@ export class RemoteBridge {
     return value
   }
 
-  define(host: { defineModule(url: string, exports: object): void; refuseModule?(url: string, reason: string): void }): void {
-    for (const [name, value] of Object.entries(this.value)) host.defineModule(`acde:${name}`, { [name]: value, default: value })
+  define(host: ModuleHost): void {
+    this.#host = host
+    for (const name of Object.keys(this.value)) this.#define(name)
     for (const [url, reason] of Object.entries(this.#refused)) if (!(url.slice('acde:'.length) in this.value)) host.refuseModule?.(url, reason)
+  }
+
+  permit(capability: string, permit: Permit, status: CapabilityStatus): void {
+    this.permits.set(capability, permit)
+    this.#capabilities?.update(status)
+    for (const name of [...this.#waiting]) if (this.permits.usable(name)) this.#define(name)
+  }
+
+  #define(name: string): void {
+    const host = this.#host
+    if (!host) return
+    if (!this.permits.usable(name)) {
+      this.#waiting.add(name)
+      return host.refuseModule?.(`acde:${name}`, this.permits.reason(name))
+    }
+    this.#waiting.delete(name)
+    const value = this.permits.guard(name, this.value[name] as object)
+    host.defineModule(`acde:${name}`, { [name]: value, default: value })
   }
 
   #proxy(service: string, shape: ServiceShape): unknown {

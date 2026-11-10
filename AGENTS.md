@@ -415,7 +415,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
 - **必需与可选能力** (第 1 级包, `broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
-  `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝, 批准做好之前不出现). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
+  `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝或撤销, 见「批准」). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
   `<label> needs "terminal" (unsupported on this platform)` (404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`). 可选的照常启动;
   声明了但不可用的 fs / terminal / network / office 在 import 时报原因. 第 0 级包照旧只查 fs、terminal、office 和 slots.
 - **平台支持表** (SDK `src/runtime/platforms.js` 的 `PLATFORM_SUPPORT` / `platformSupport(platform, mode)`, 从包根和 `/manifest` 导出, 运行时、acde 的
@@ -423,8 +423,21 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `unsupported` (不支持的能力) 和窗口特性 `window.backdrop` (`full` / `approximated` / `unsupported`). 现在: Linux 宿主窗口缺 `slots`; Windows 缺
   terminal、network、office、camera、microphone、slots; macOS 缺 network、office、slots; 窗口背景滤镜都是 `full`. Linux 会话和 macOS 的行没有实测.
 - **`acde:capabilities`** (总是注入所有 web, 桌面和应用窗口都有, 服务没有; 类型 `AcdeCapabilities`): `level` (SDK 的 `API_LEVEL`)、`platform`、`mode`、`window`
-  (窗口特性)、`get(name)` / `list()` (所有系统能力加声明的服务, `{name, kind, state, reason, optional}`)、`request(name)` (用户批准做好之前直接回当前
-  状态). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`, 模块在 web 里, 不经 rpc.
+  (窗口特性)、`get(name)` / `list()` (所有系统能力加声明的服务, `{name, kind, state, reason, optional}`)、`request(name)` (要批准的能力 `available`
+  时经 rpc 问用户, 回答之后的状态; 别的直接回当前状态). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`, 之后 Broker 发 `permit`
+  消息更新.
+- **批准** (`broker/access/permissions.ts` `Permissions`, SDK `APPROVAL_CAPABILITIES`): `launch`、`slots`、`terminal`、`network`、`camera`、
+  `microphone` 要用户批准, 可撤销 (公共 fs 位置在 #66 加进来); 其余 (自己的窗口、能力查询、列出和打开应用、按类型打开、桌面服务、`office`) 声明即有.
+  系统应用 (和任一已装桌面同包) 和第 0 级包不问. 必需的在第一次启动前按能力一个一个问 (`Broker.launch` 是 async, `admit` 之后才 grant 窗口),
+  拒绝时不启动, 报 `<label>: "launch" is denied by the user` (403 `denied`, 带 `capability`); 平台不支持的不问, 照旧按 unsupported 拒绝. 可选的在
+  `acde:capabilities` `request(name)` 时问; 没批准的模块不定义 (import 报 `waits for approval` / `is denied by the user`), 批准后 web 收 `permit` 再定义,
+  `load()` 拿得到. 决定按应用持久 (`$XDG_CONFIG_HOME/acde/permissions.json`, `{"<app>:<能力>": "granted" | "denied"}`, 不看 `ACDE_STORAGE`);
+  拒绝也记, 必需能力被拒的应用不进列表. 撤销 (`revoke`) 删掉记录: 这一次运行里当作拒绝 (同一次运行不问第二次), 下次运行再问. 撤销后的调用报同样的
+  403 `denied`: Broker 侧 (`acde.launch` / `acde.windows.launch`) 当场查, web 侧 terminal / network 的模块和 camera / microphone 的 capture 经
+  `broker/access/permits.ts` `Permits` 包一层. 外壳模块 `acde:permissions` (桌面和声明它的系统应用): `pending()`、`answer(id, allow)`、`list(app?)`、
+  `revoke(app, capability)`、`on('prompt' | 'answered')` (`permissionprompt {id, app, label, capability, reason: 'launch' | 'request'}`、
+  `permissionanswered {id, app, capability, allowed}`). 开发、无头和 driver 照常问: dev 请求 `permissions` (待答和已有决定)、`answer {prompt, allow}`
+  给 acde driver 用; 每个提示记一行 info (`waits for the user to allow`), 没人答就一直等, 不自动批准. 单应用模式还没有原生对话框 (#65), 现在只能 driver 答.
   `icon` 是 `ICON_NAMES` (`@dopame/acde-api/manifest`, 和 Dopame art 引擎 `APPS` 的名字一致, 加名字两边一起改) 之一, 或 assets 下以
   `.svg` / `.png` 结尾的同源 URL; 运行时原样交给桌面 (`acde.apps.list()`、`windowopen` 的 `icon`).
 - **沙箱**: 每个 web 是独立的 isolate, 页面和 acde-host 的 web.js 在同一个 realm. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口

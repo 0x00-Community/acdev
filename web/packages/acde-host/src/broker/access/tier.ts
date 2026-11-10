@@ -1,12 +1,14 @@
 import { CAPABILITY_MODULES, Manifest, SHELL_MODULES, type ShellModule } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../apps'
 import type { CapabilitySnapshot } from './capabilities'
+import type { Permit } from './permissions'
 
 export interface WebTier {
   readonly level: number
   readonly shell: readonly ShellModule[]
   readonly refused: Readonly<Record<string, string>>
   readonly capabilities?: CapabilitySnapshot
+  readonly permits?: Readonly<Record<string, Permit>>
 }
 
 export class Tiers {
@@ -17,6 +19,8 @@ export class Tiers {
     ['appschanged', 'packages'],
     ['download', 'desktop'],
     ['notification', 'desktop'],
+    ['permissionprompt', 'permissions'],
+    ['permissionanswered', 'permissions'],
   ])
 
   static app(app: AppManifest, origin: AppOrigin): WebTier {

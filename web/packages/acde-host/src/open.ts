@@ -22,7 +22,7 @@ interface OpenerHost {
   apps(): AppManifest[]
   locate(path: string): Promise<{ root: string; path: string } | null>
   admit(path: string, caller: OpenCaller | null): Promise<string | null>
-  launch(app: string, request: Record<string, unknown>): { window: number }
+  launch(app: string, request: Record<string, unknown>): Promise<{ window: number }>
   spawn(argv: string[]): void
   system(): ((target: string) => Promise<void>) | null
   unsupported(app: string): Error | null
@@ -250,7 +250,7 @@ export class Opener {
       const id = chosen.id
       const app = this.#host.apps().find((a) => a.id === id)!
       const request = await this.#request(app, path, isDir, select)
-      if (request) return { ...chosen, window: this.#host.launch(app.id, request).window }
+      if (request) return { ...chosen, window: (await this.#host.launch(app.id, request)).window }
       const native = options.app ? null : natives.find((n) => MimeTypes.match(n.mimeTypes, mime))
       if (!native) throw Object.assign(new Error(`${path} is not in any finder root (desktop, downloads, workspace)`), { status: 404, code: 'outside_roots' })
       chosen = { kind: 'native', id: native.id }
@@ -289,13 +289,13 @@ export class Opener {
 
   async #openUrl(url: string, scheme: string, options: OpenOptions): Promise<Opened> {
     const declared = options.app ? null : this.#host.apps().find((a) => a.schemes.includes(scheme))
-    if (declared) return { kind: 'acde', id: declared.id, window: this.#host.launch(declared.id, { kind: 'open-link', url }).window }
+    if (declared) return { kind: 'acde', id: declared.id, window: (await this.#host.launch(declared.id, { kind: 'open-link', url })).window }
     const mime = `x-scheme-handler/${scheme}`
     const natives = MimeApps.natives()
     const chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
     const app = chosen?.kind === 'acde' ? this.#host.apps().find((a) => a.id === chosen.id) : null
     if (app && (!app.capabilities.fs || app.schemes.includes(scheme))) {
-      return { kind: 'acde', id: app.id, window: this.#host.launch(app.id, { kind: 'open-link', url }).window }
+      return { kind: 'acde', id: app.id, window: (await this.#host.launch(app.id, { kind: 'open-link', url })).window }
     }
     const native = chosen?.kind === 'native' ? natives.find((n) => n.id === chosen.id) : null
     const system = !native && !options.app && Opener.#WEB.includes(scheme) ? this.#host.system() : null

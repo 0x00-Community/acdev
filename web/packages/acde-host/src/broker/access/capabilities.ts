@@ -16,6 +16,7 @@ export interface CapabilityHost {
   mode(): RunningMode
   running(service: string): boolean
   present(capability: string): boolean
+  denied(app: AppManifest, origin: AppOrigin, capability: string): boolean
 }
 
 export interface CapabilitySnapshot {
@@ -52,7 +53,7 @@ export class CapabilityCheck {
       : !declared
         ? 'not-declared'
         : system
-          ? this.#supported(name) ? 'available' : 'unsupported'
+          ? !this.supported(name) ? 'unsupported' : app && this.#host.denied(app, origin, name) ? 'denied' : 'available'
           : this.#host.running(name) ? 'available' : 'service-not-running'
     return {
       name,
@@ -104,27 +105,35 @@ export class CapabilityCheck {
     return { level: API_LEVEL, platform: this.#host.platform, mode, window: row?.window ?? CapabilityCheck.#NO_FEATURES, statuses: this.statuses(app, origin) }
   }
 
-  #supported(name: string): boolean {
+  supported(name: string): boolean {
     const row = platformSupport(this.#host.platform, this.#host.mode())
     return !!row && !row.unsupported.includes(name) && this.#host.present(name)
   }
 
-  static module(snapshot: CapabilitySnapshot): object {
+  static module(snapshot: CapabilitySnapshot, ask: (name: string) => Promise<CapabilityStatus>): { module: object; update(status: CapabilityStatus): void } {
     const known = new Map(snapshot.statuses.map((status) => [status.name, status]))
+    const update = (status: CapabilityStatus) => void known.set(status.name, status)
     const get = (name: string): CapabilityStatus => {
       const key = String(name)
       const found = known.get(key)
       if (found) return { ...found }
       return { name: key, kind: 'service', state: 'not-declared', reason: CapabilityCheck.REASONS['not-declared'], optional: false }
     }
-    return Object.freeze({
+    const module = Object.freeze({
       level: snapshot.level,
       platform: snapshot.platform,
       mode: snapshot.mode,
       window: Object.freeze({ ...snapshot.window }),
       get,
       list: (): CapabilityStatus[] => snapshot.statuses.map((status) => ({ ...status })),
-      request: async (name: string): Promise<CapabilityStatus> => get(name),
+      request: async (name: string): Promise<CapabilityStatus> => {
+        const status = known.get(String(name))
+        if (!status || status.state !== 'available') return get(name)
+        const answered = await ask(String(name))
+        update(answered)
+        return { ...answered }
+      },
     })
+    return { module, update }
   }
 }
