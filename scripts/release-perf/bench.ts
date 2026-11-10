@@ -63,7 +63,8 @@ async function once(host: string, index: number) {
   delete env['ACDE_DEV']
   const child = Bun.spawn([runtime, 'app', 'perf-probe', '--seconds', '60'], {
     env: { ...env, ACDE_APP: resolve('web', 'packages', 'acde-host', host), ACDE_PATH: pkgRoot, ACDE_DEBUG_DIR: debug, ACDE_HEADLESS: '1',
-      HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, XDG_STATE_HOME: state },
+      HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, XDG_STATE_HOME: state,
+      ...Object.fromEntries(['DESKTOP', 'DOCUMENTS', 'DOWNLOAD', 'MUSIC', 'PICTURES', 'VIDEOS'].map((n) => [`XDG_${n}_DIR`, join(home, 'places', n)])), },
     stdout: Bun.file(join(dir, 'runtime.stdout.log')),
     stderr: Bun.file(join(dir, 'runtime.stderr.log')),
   })

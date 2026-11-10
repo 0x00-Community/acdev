@@ -139,6 +139,7 @@ async function session(name: string, prefer: string, body: (s: Session) => Promi
     env: {
       ...env, ACDE_RUNTIME: prefer, ACDE_APP: host, ACDE_PATH: pkg, ACDE_HEADLESS: '1', ACDE_SIZE: '800x600', ACDE_SCALE: '1', ACDE_STORAGE: '',
       ACDE_DEBUG_DIR: debug, HOME: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home,
+      ...Object.fromEntries(['DESKTOP', 'DOCUMENTS', 'DOWNLOAD', 'MUSIC', 'PICTURES', 'VIDEOS'].map((n) => [`XDG_${n}_DIR`, join(home, 'places', n)])),
     },
     stdout: Bun.file(join(dir, 'acdert.stdout.log')),
     stderr: Bun.file(join(dir, 'acdert.stderr.log')),

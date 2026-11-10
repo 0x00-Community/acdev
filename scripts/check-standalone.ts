@@ -89,6 +89,7 @@ function start(id: string) {
       XDG_STATE_HOME: home,
       XDG_CACHE_HOME: home,
       XDG_RUNTIME_DIR: home,
+      ...Object.fromEntries(['DESKTOP', 'DOCUMENTS', 'DOWNLOAD', 'MUSIC', 'PICTURES', 'VIDEOS'].map((n) => [`XDG_${n}_DIR`, join(home, 'places', n)])),
     },
     stdout: Bun.file(join(run, `${id}.stdout.log`)),
     stderr: Bun.file(join(run, `${id}.stderr.log`)),

@@ -53,6 +53,7 @@ const child = Bun.spawn([runtime, 'desktop', 'audit', '--seconds', '75'], {
   env: { ...env, ACDE_PATH: fixture, ACDE_APP: host,
     ACDE_DEBUG_DIR: debug, ACDE_SIZE: '1120x720', ACDE_STORAGE: '', HOME: home, USERPROFILE: home,
     XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_DATA_HOME: home, XDG_RUNTIME_DIR: home,
+    ...Object.fromEntries(['DESKTOP', 'DOCUMENTS', 'DOWNLOAD', 'MUSIC', 'PICTURES', 'VIDEOS'].map((n) => [`XDG_${n}_DIR`, join(home, 'places', n)])),
     RUST_LOG: 'info,perf::raster=debug,perf::task=debug' },
   stdout: Bun.file(join(run, 'runtime.stdout.log')),
   stderr: Bun.file(join(run, 'runtime.stderr.log')),

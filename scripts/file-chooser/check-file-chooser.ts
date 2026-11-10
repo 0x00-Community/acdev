@@ -37,7 +37,8 @@ const runtime = env['ACDERT'] ?? resolve('target', 'release', binary)
 const host = env['ACDE_APP'] ?? resolve('web/packages/acde-host/dist')
 const child = Bun.spawn([runtime, 'app', 'picker-probe', '--seconds', '60'], {
   env: { ...env, ACDE_APP: host, ACDE_PATH: pkg, ACDE_DEBUG_DIR: debug, ACDE_HEADLESS: '1',
-    HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, XDG_STATE_HOME: state },
+    HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, XDG_STATE_HOME: state,
+    ...Object.fromEntries(['DESKTOP', 'DOCUMENTS', 'DOWNLOAD', 'MUSIC', 'PICTURES', 'VIDEOS'].map((n) => [`XDG_${n}_DIR`, join(home, 'places', n)])), },
   stdout: Bun.file(join(run, 'runtime.stdout.log')),
   stderr: Bun.file(join(run, 'runtime.stderr.log')),
 })
