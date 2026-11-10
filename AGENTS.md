@@ -48,6 +48,12 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
   桌面工程是 `apps` 各自的 `entry`, 都是系统应用 (`system: true`); 手写的包按 `assets` 把应用的 `entry` URL 换成文件, 有 `desktops` 的包是系统应用.
   桌面页 (`app` 为 null, 什么都许) 和桌面服务 (经 `ctx.import`, 按桌面清单的 `services` 授权) 不查;
   服务里的 `acde:` 导入由构建拒绝 (见「构建」).
+- **服务的命名空间和运行时不一致** (实测 acdert 0.0.9, 规则在 SDK, acde 不改): 运行时按服务名授权, 应用写了 `clock` 就拿到这个服务 `api`
+  的每个键 (`DesktopServices.start` 把每个键记到服务名上, `ServiceCalls.#allowed` 先把命名空间换成服务名再查 `app.services`), 所以
+  `api: {clock, timer}` 时应用能 `import 'acde:timer'`. `Manifest.importRule` 只认名字: 不是系统模块又不在 `app.services` 里就拒绝, 原因是
+  `acde:timer is a desktop service: list "timer" in the services of <应用>`; 照做的话应用要求一个不存在的服务, 运行时报
+  `<应用> needs "timer" (service not running)`, 起不来. 命名空间只有服务跑起来才知道 (工厂函数的返回值), 静态规则判不了; skill 里写明这一点,
+  并建议一个服务只给一个和服务同名的命名空间.
 - 可达: HTML / `.vue` / `.svelte` / `.astro` 只看 `<script>` (和 astro 的 frontmatter), `src` 不带 `./` 的按相对路径; 跟相对路径和以 `/` 开头的
   (工程根, 手写的包按 `assets`), 补 `.ts` 等扩展名和 `index.*`, `.js` 可落到同名 `.ts`; 包名、别名 (tsconfig `paths`) 不跟.
 - 词法是自带的小分词器 (字符串到行尾为止, 正则字面量按前一个记号猜), 不依赖 bun 或 Vite, 两个运行时上一样.
@@ -168,6 +174,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   (文件相对工程, 排好序, 两边逐字相同). 依据是 acdert 的运行时: 服务在 Broker isolate 里经 `import(file URL)` 加载, 而 `acde:*` 只经
   `defineModule` 注入每个 web 的 isolate (`acde-host` 的 `worker.ts`), Broker isolate 没有, 静态导入在链接时就报 `is not given to`;
   服务只能经 `ctx.import('acde:<模块>')` 拿外壳模块 (桌面清单 `services` 项的 `modules` 授权). 所以不把 `acde:*` 设为外部.
+  **配置写不出这条授权**: SDK 的 `DesktopConfig.services` 是 `Record<string, string>` (`config.schema.json` 同), 构建写进清单的是服务名的数组,
+  所以从配置构建的服务只有 `ctx.inspect`, `ctx.import` 一律被拒 (实测 acdert 0.0.9); 只有手写的包能写 `{name, modules}`. 报错末尾因此加了
+  `(acde.config.jsonc has no field for that list: only a handwritten package manifest grants them)`, 模板的注释和 skill 也照实写.
+  要让配置能写, 得先改 SDK 的类型和 schema (比如值可以是 `{module, modules}`), acde 再把它写成清单的 `{name, modules}`; acde 不自己认 schema 之外的字段.
 - `public/` (插件 `acde-public`): 复制进工程自己的应用的 `web/` 和桌面页的 `desktop/` (桌面里的应用不复制). 以 `/` 开头、落在 public 里的引用:
   HTML 里的照常打包; CSS 的 `url(/x)` 在工程自己的 HTML 入口应用里原样留着 (运行时应用目录也挂在 `/` 下), 别处照打包处理; 哪儿都没有时构建失败,
   说清哪个文件的哪个 URL、public 里缺什么 (`PublicError`).

@@ -49,6 +49,16 @@ describe('templates at contract level 1', () => {
     )
   })
 
+  test('the desktop template says what its config can give a service: no grant of shell modules', () => {
+    const schema = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules/@dopame/acde-api/config.schema.json'), 'utf8')) as
+      { oneOf: { properties: { type: { const?: string }; services?: { additionalProperties?: unknown } } }[] }
+    const desktop = schema.oneOf.find((one) => one.properties.services?.additionalProperties !== undefined)!
+    expect(desktop.properties.services!.additionalProperties).toEqual({ type: 'string' })
+    const comment = readFileSync(join(TEMPLATES, 'desktop/acde.config.jsonc'), 'utf8')
+    expect(comment).toContain('this\n  // config has no field for that grant.')
+    expect(comment).not.toContain("a service takes shell modules with ctx.import('acde:<name>')")
+  })
+
   for (const [name, args] of [
     ['html', ['--template', 'html']],
     ['html --backend', ['--template', 'html', '--backend']],

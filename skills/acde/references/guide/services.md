@@ -55,7 +55,7 @@ Each key of `api` is a module name (a namespace), and its value is a set of meth
 
 Names:
 
-- Give the service one namespace with the service's own name. `acde check` judges a static `import … from 'acde:clock'` in an app by the names in its `services`, so a namespace with another name fails the check.
+- Give the service one namespace with the service's own name. The runtime gives an app that lists `clock` every namespace of that service, but `acde check` and `acde build` cannot know a service's namespaces: they judge an `import … from 'acde:timer'` in an app by the names in its `services`, and stop with `acde:timer is a desktop service: list "timer" in the services of Notes` when `timer` is a second namespace of `clock`. Do not follow that hint in this case: listing `timer` makes the app require a service of that name, and it no longer starts (`Notes needs "timer" (service not running)`). Make `timer` a service of its own instead.
 - A service cannot have the name of a system module or capability (`fs`, `open`, `window`, `windows`, `apps`, `launch`, `desktop`, `session`, `capabilities`, `notifications`, ...): `acde check` says `service "fs" has the name of a system module (acde:fs); system module names are reserved`. A namespace with such a name is left out when the service starts, with a log line (`[clock] acde.fs is taken; left out`).
 
 ## ServiceContext
@@ -71,7 +71,7 @@ The `ctx` passed to the factory function:
 | `log(line)` | Writes a log line, prefixed with `[<service name>]` |
 | `spawn(argv, options?)` | Starts a child process |
 | `inspect` | The `acde:inspect` interface |
-| `import(specifier)` | A shell module the desktop's manifest gives this service; see below |
+| `import(specifier)` | A shell module that a handwritten package manifest grants this service; see below |
 
 `spawn` takes the options `{cwd, env, onLine(line), onExit(code, signal)}` and returns `{pid, write(text), end(), kill(signal?)}`. The child process runs in its own process group and its stderr goes to the log; when the service closes, it gets SIGTERM, then SIGKILL 3 seconds later.
 
@@ -79,10 +79,12 @@ A service should only use `ServiceContext` and standard Web APIs. Put heavy work
 
 ## Shell modules in a service
 
-A service does not `import` `acde:` modules: the build rejects it (`service clock: services/clock.ts imports acde:windows: a service gets shell modules from ctx.import('acde:<name>'), listed in its modules in the desktop manifest`). It asks its context instead:
+A service of a project built from `acde.config.jsonc` gets no shell module except `ctx.inspect`. The config has no field that grants one (its `services` maps names to modules only), so in such a service `ctx.import('acde:windows')` rejects with `acde:windows is a shell module: list it in the modules of service "clock" in the desktop manifest`.
+
+A service does not `import` `acde:` modules either: the build rejects it (`service clock: services/clock.ts imports acde:windows: a service gets shell modules from ctx.import('acde:<name>'), listed in its modules in the desktop manifest (acde.config.jsonc has no field for that list: only a handwritten package manifest grants them)`).
+
+Only a handwritten package can grant shell modules: the desktop's entry in its [manifest](../reference/manifest.md#desktopmanifest) lists the service as `{ "name": "clock", "modules": ["windows"] }` in the desktop's `services`. The service then asks its context:
 
 ```js
 const { windows } = await ctx.import('acde:windows')
 ```
-
-This works only for shell modules that the desktop's entry in the [manifest](../reference/manifest.md#desktopmanifest) grants the service, written as `{ "name": "clock", "modules": ["windows"] }` in the desktop's `services`. Anything else rejects with `acde:windows is a shell module: list it in the modules of service "clock" in the desktop manifest`. A project's `acde.config.jsonc` has no field for this (its `services` maps names to modules only), so a service built from a config gets no shell modules except `ctx.inspect`; the grant can be written in a handwritten package.
