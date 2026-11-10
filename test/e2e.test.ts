@@ -275,3 +275,24 @@ describe('TestTsconfig', () => {
     expect(Object.keys(lone.compilerOptions.paths).sort()).toEqual(['acde/driver', 'acde/test'])
   })
 })
+
+describe('failures name the test file, not acde', () => {
+  test('frames inside acde (its dist or src) and native frames leave the stack; the message stays', async () => {
+    const { E2eRun } = await import('../src/e2e/index.ts')
+    const root = join(tmpdir(), 'acde-root')
+    const error = new Error('expected a thing')
+    error.stack = [
+      'AssertionError: expected a thing',
+      `      at ${join(root, 'dist', 'chunk-3ggedqd6.js')}:1:129473`,
+      `      at ${join(root, 'src', 'driver', 'expect.ts')}:10:3`,
+      '      at C:\work\calculator\e2e\calculator.e2e.ts:9:42',
+      '      at processTicksAndRejections (native:7:39)',
+    ].join('\n')
+    E2eRun.ownFrames(error, root)
+    expect(error.stack).toBe('AssertionError: expected a thing\n      at C:\work\calculator\e2e\calculator.e2e.ts:9:42')
+    const inside = new Error('only acde frames')
+    inside.stack = `Error: only acde frames\n      at ${join(root, 'dist', 'cli.js')}:1:1`
+    E2eRun.ownFrames(inside, root)
+    expect(inside.stack).toContain('cli.js')
+  })
+})

@@ -1,7 +1,8 @@
 import { test as bunTest, expect as bunExpect, type Matchers } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
+import { packageRoot } from 'acde/launcher'
 import { Acde } from '../driver/acde.ts'
 import { expect as expectUi, type LocatorAssertions, type WindowAssertions } from '../driver/expect.ts'
 import { Format } from '../driver/format.ts'
@@ -96,6 +97,7 @@ export class E2eRun {
         console.log(`acde test: trace of ${JSON.stringify(name)}: ${trace}`)
       }
     } catch (error) {
+      E2eRun.ownFrames(error)
       const saved = await E2eRun.keep(acde, error, results, name)
       if (error instanceof Error) error.message += `\n\n${saved}`
       throw error
@@ -104,6 +106,17 @@ export class E2eRun {
       await acde?.close()
       rmSync(home, { recursive: true, force: true })
     }
+  }
+
+  static ownFrames(error: unknown, root = packageRoot()): void {
+    if (!(error instanceof Error) || !error.stack) return
+    const inside = [join(root, 'dist') + sep, join(root, 'src') + sep, join(root, 'launcher.mjs')]
+    const lines = error.stack.split('\n')
+    const frame = (line: string) => /^\s+at /.test(line)
+    const internal = (line: string) =>
+      inside.some((dir) => line.includes(dir)) || /\((native|node:internal)[^)]*\)$/.test(line)
+    const kept = lines.filter((line) => !frame(line) || !internal(line))
+    if (kept.some(frame)) error.stack = kept.join('\n')
   }
 
   static async keep(acde: Acde | null, error: unknown, dir: string, name = basename(dir)): Promise<string> {
