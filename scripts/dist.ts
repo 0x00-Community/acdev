@@ -11,6 +11,7 @@ import JavaScriptObfuscator from 'javascript-obfuscator'
 import ts from 'typescript'
 import { Bundler } from '../src/bundler.ts'
 import { shipLeaks } from './shipped.ts'
+import { skillProblems } from './skill.ts'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
@@ -66,6 +67,10 @@ if (sdk.name !== '@dopame/acde-api' || sdk.version !== values.sdk) {
   throw new Error(`--api ${api} is ${sdk.name} ${sdk.version}, not @dopame/acde-api ${values.sdk}`)
 }
 
+const skill = join(ROOT, 'skills', 'acde')
+const unfit = skillProblems(skill)
+if (unfit.length > 0) throw new Error(`skills/acde does not follow the skill rules:\n${unfit.join('\n')}`)
+
 const name = `acde-${version}`
 const dir = join(out, version)
 const stage = join(dir, '.stage')
@@ -79,7 +84,7 @@ copyFileSync(join(ROOT, 'scripts', 'acde.sh'), join(top, 'bin', 'acde'))
 chmodSync(join(top, 'bin', 'acde'), 0o755)
 const cmd = readFileSync(join(ROOT, 'scripts', 'acde.cmd'), 'utf8').replace(/\r?\n/g, '\r\n')
 writeFileSync(join(top, 'bin', 'acde.cmd'), cmd)
-for (const path of ['templates', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
+for (const path of ['templates', 'skills', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
 const preload = { ACDE_LISTEN_JSON: JSON.stringify(JSON.stringify(await Bundler.buildPreload())) }
@@ -117,6 +122,7 @@ writeFileSync(join(dir, 'SHA256SUMS'), `${sum}  ${name}.tar.gz\n`)
 writeFileSync(join(out, 'latest'), `${version}\n`)
 copyFileSync(join(ROOT, 'install.sh'), join(out, 'install.sh'))
 copyFileSync(join(ROOT, 'install.ps1'), join(out, 'install.ps1'))
+copyFileSync(join(ROOT, 'install.md'), join(out, 'install.md'))
 console.log(`${tarball}\n${sum}`)
 
 async function bundle(

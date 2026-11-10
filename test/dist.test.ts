@@ -67,7 +67,9 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       'acde-0.0.2/lib/acde/launcher.mjs', 'acde-0.0.2/lib/acde/dist/cli.js', 'acde-0.0.2/lib/acde/dist/driver/index.js',
       'acde-0.0.2/lib/acde/dist/e2e/index.js', 'acde-0.0.2/lib/acde/templates/app/index.html',
       'acde-0.0.2/lib/acde-api/package.json', 'acde-0.0.2/lib/acde-api/src/index.js',
+      'acde-0.0.2/lib/acde/skills/acde/SKILL.md', 'acde-0.0.2/lib/acde/skills/acde/references/reference/cli.md',
     ]) expect(listed).toContain(path)
+    expect(readFileSync(join(out, 'install.md'), 'utf8')).toBe(readFileSync(join(ROOT, 'install.md'), 'utf8'))
     expect(listed.some((path) => /\/(bin\/acdert|bin\/app|lib\/acde\/src)\b/.test(path))).toBe(false)
     expect(listed.some((path) => path.endsWith('.map') || path.includes('/._'))).toBe(false)
     expect(listed.some((path) => /\/lib\/acde\/dist\/chunk-\w+\.js$/.test(path))).toBe(true)
@@ -124,6 +126,27 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const usage = await run(['sh', acde], { PATH: `${dirname(process.execPath)}:/usr/bin:/bin` })
     expect(usage.code).toBe(1)
     expect(usage.stderr).toContain('usage: acde <command>')
+  }, 60_000)
+
+  test('the installed skill is linked through current, so another version brings its own', async () => {
+    const home = tmp()
+    expect((await install(home, ['--no-modify-path'])).code).toBe(0)
+    const acde = join(home, '.acde', 'bin', 'acde')
+    const vars = { HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, XDG_CONFIG_HOME: '', CLAUDE_CONFIG_DIR: '' }
+    mkdirSync(join(home, '.claude'))
+    const linked = await run(['sh', acde, 'skills', 'install'], vars)
+    expect(linked.code, linked.out).toBe(0)
+    const through = join(realpathSync(home), '.acde', 'current', 'lib', 'acde', 'skills', 'acde')
+    for (const dest of [join(home, '.agents', 'skills', 'acde'), join(home, '.claude', 'skills', 'acde')]) {
+      expect(readlinkSync(dest)).toBe(through)
+      expect(realpathSync(dest)).toBe(join(realpathSync(home), '.acde', 'versions', '0.0.2', 'lib', 'acde', 'skills', 'acde'))
+      expect(readFileSync(join(dest, 'SKILL.md'), 'utf8')).toBe(readFileSync(join(ROOT, 'skills', 'acde', 'SKILL.md'), 'utf8'))
+    }
+    expect((await run(['sh', acde, 'skills', 'path'], vars)).stdout.trim()).toBe(through)
+    expect((await install(home, ['--version', '0.0.1', '--no-modify-path'])).code).toBe(0)
+    expect(realpathSync(join(home, '.claude', 'skills', 'acde')))
+      .toBe(join(realpathSync(home), '.acde', 'versions', '0.0.1', 'lib', 'acde', 'skills', 'acde'))
+    expect((await run(['sh', acde, 'skills'], vars)).stdout).toContain(`link, current   ${join(home, '.claude', 'skills', 'acde')}`)
   }, 60_000)
 })
 

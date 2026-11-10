@@ -154,6 +154,7 @@ function Install-Acde {
     Write-Host "acde: installed acde $Version into $install"
     Write-Host '  acde new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
     Write-Host '  acde dev needs the Dopame runtime (acdert): run it in the Dopame virtual machine, or set ACDERT'
+    Write-Host '  acde skills install    teaches a coding agent (Claude Code, Codex, Cursor and others) to use acde'
 
     $bun = Get-Command bun -ErrorAction SilentlyContinue
     $node = Get-Command node -ErrorAction SilentlyContinue

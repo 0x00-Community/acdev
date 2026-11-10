@@ -224,6 +224,7 @@ main() {
       "install Bun (https://bun.sh) or Node.js (https://nodejs.org)"
   fi
   say "next: acde new my-app (it uses your bun, or npm / pnpm / yarn on Node.js)"
+  say "for a coding agent: acde skills install (teaches Claude Code, Codex, Cursor and others to use acde)"
 }
 
 main "$@"

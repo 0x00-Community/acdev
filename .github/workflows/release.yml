@@ -267,6 +267,7 @@ jobs:
           fi
           expected=$(mktemp)
           {
+            echo install.md
             echo install.ps1
             echo install.sh
             echo latest
@@ -420,6 +421,7 @@ jobs:
           put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
           put out/install.sh install.sh "$text" "$fresh"
           put out/install.ps1 install.ps1 "$text" "$fresh"
+          put out/install.md install.md 'text/markdown; charset=utf-8' "$fresh"
           put out/latest latest "$text" "$fresh"
           put out/latest.json latest.json application/json "$fresh"
       - name: invalidate
@@ -427,11 +429,13 @@ jobs:
           set -eu
           v=$(cat out/latest)
           aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" \
-            --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 \
+            --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 /acde/install.md \
             "/acde/$v/SHA256SUMS" "/acde/$v/acde-$v.tar.gz" --query Invalidation.Id --output text
       - run: |
           {
             echo "curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh"
             echo
             echo "irm https://pkgs.dopame.ai/acde/install.ps1 | iex"
+            echo
+            echo "Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine."
           } >> "$GITHUB_STEP_SUMMARY"

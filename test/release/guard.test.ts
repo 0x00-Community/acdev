@@ -46,6 +46,7 @@ function release(plant: Plant[] = [], tamper = false): string {
   writeFileSync(join(out, 'latest'), `${VERSION}\n`)
   writeFileSync(join(out, 'install.sh'), 'sh')
   writeFileSync(join(out, 'install.ps1'), 'ps1')
+  writeFileSync(join(out, 'install.md'), 'md')
   writeFileSync(join(out, 'latest.json'), JSON.stringify({ version: VERSION, files: readdirSync(version).sort() }))
   if (tamper) writeFileSync(join(version, `acde-${VERSION}.tar.gz`), 'changed after the checksum')
   for (const item of plant.filter((p) => p.where === 'release')) {
