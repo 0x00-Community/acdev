@@ -41,7 +41,7 @@ By default the build goes into the project's `.acde/`. `--out DIR` changes that:
 
 ## Stopping
 
-`acde dev` ends on Ctrl+C, when you close the window, or when acdert exits. Its exit code is the same as acdert's.
+`acde dev` ends on Ctrl+C, when you close the window, or when acdert exits. Its exit code is the same as acdert's. To end one running in the background, run `acde stop` from the project directory (or `acde stop --session <pid>`): it asks acdert to quit, waits for `acde dev` to exit, and prints `acde: stopped acde dev <pid>`.
 
 ## Logs
 

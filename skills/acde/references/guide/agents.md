@@ -32,7 +32,7 @@ Each one is a link to the skill inside the acde install, so upgrading acde upgra
 | `acde skills install --agent claude-code,cursor` | Installs it for these agents, found or not |
 | `acde skills install --dir DIR` | Installs it into `DIR/acde`; for an agent acde does not know, or a project's own skills directory such as `.agents/skills` |
 | `acde skills install --copy` | Copies instead of linking; for agents that cannot follow links. Run it again after upgrading acde |
-| `acde skills remove` | Removes it from everywhere it was installed (add `--dir DIR` for a directory you chose) |
+| `acde skills remove` | Removes it from everywhere it was installed (add `--dir DIR` for a directory you chose), and the skills directories `acde skills install` created there once they are empty |
 | `acde skills path` | Prints the directory of the skill inside the acde install |
 
 `acde skills install` never replaces a directory named `acde` that is not this skill; it stops and names it.

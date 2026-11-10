@@ -34,7 +34,7 @@ Create a project without prompts (`--yes` asks nothing; without it `acde new` wa
 acde new my-app --template html --label "My App" --install --yes
 ```
 
-Run it. `acde dev` builds, starts acdert, and rebuilds and reloads on every change. It does not exit: start it in the background and keep it running while you work. Add `--headless` when no window is needed; pages still render and screenshots still work.
+Run it. `acde dev` builds, starts acdert, and rebuilds and reloads on every change. It does not exit: start it in the background and keep it running while you work; `acde stop` ends it. Add `--headless` when no window is needed; pages still render and screenshots still work.
 
 ```sh
 acde dev --headless

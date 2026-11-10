@@ -330,6 +330,7 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     case 'snapshot':
       return void ok(snapshot(m))
     case 'act':
+      if (m['ref'] === 'w1' && m['action'] === 'close' && process.argv[2] === 'app') process.exit(0)
       return void ok(act(String(m['ref']), String(m['action']), m['arg']))
     case 'run': {
       const said: string[] = []

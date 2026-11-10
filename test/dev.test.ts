@@ -210,6 +210,28 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(slug('vault#1048576')).toBe('vault#1048576')
     expect(slug('a/b:c')).toBe('a-b-c')
   })
+
+  test('inspect --find: only the matching elements, each with its nearest named ancestor', () => {
+    const window = { id: 7, kind: 'web', app: 'todo', title: 'To-do', mode: 'normal', rect: [0, 0, 8, 6] } as const
+    const windows = [{ ...window, ref: 'w1', z: 1, focus: true, hidden: false, pid: null }]
+    const item = {
+      ref: 'w1.10', role: 'listitem', name: 'Buy milk',
+      children: [
+        { ref: 'w1.11', role: 'text', name: 'Buy milk' },
+        { ref: 'w1.12', role: 'checkbox', name: 'Done', states: ['checked'] },
+        { ref: 'w1.13', role: 'button', name: 'Delete' },
+      ],
+    }
+    const trees = { w1: [{ ref: 'w1.4', role: 'list', children: [item] }] }
+    expect(Format.found({ text: '', windows, trees }, ' MILK ')).toEqual([
+      'w1 todo "To-do":',
+      '- listitem "Buy milk" [w1.10]',
+      '- text "Buy milk" [w1.11]  in listitem "Buy milk" [w1.10]',
+    ])
+    expect(Format.found({ text: '', windows, trees }, 'delete'))
+      .toEqual(['w1 todo "To-do":', '- button "Delete" [w1.13]  in listitem "Buy milk" [w1.10]'])
+    expect(Format.found({ text: '', windows, trees }, 'nothing')).toEqual([])
+  })
 })
 
 describe('acde dev with a stand-in acdert', () => {
@@ -301,8 +323,12 @@ describe('acde dev with a stand-in acdert', () => {
       expect(readFileSync(join(base, 'alpha#7.png')).subarray(1, 4).toString()).toBe('PNG')
       const named = await dev.tool(['shot', 'desktop', '-o', join(base, 'd.png')], alpha)
       expect(named.stdout.trim()).toBe(join(base, 'd.png'))
-      const inspected = await dev.tool(['inspect', '--find', 'Save', '--window', 'w1', '--all'], alpha)
-      expect(inspected.stdout).toBe('snapshot {"window":"w1","find":"Save","all":true}\n')
+      const inspected = await dev.tool(['inspect', '--find', 'add', '--window', 'w1', '--all'], alpha)
+      expect(inspected.stdout).toBe('w1 alpha "Alpha":\n- button "Add" [disabled] [w1.3]\n')
+      const missing = await dev.tool(['inspect', '--find', 'Save'], alpha)
+      expect(missing.code).toBe(1)
+      expect(missing.stderr).toContain('acde: no element\'s name or value contains "Save"; ')
+      expect((await dev.tool(['inspect'], alpha)).stdout).toBe('snapshot {"window":null,"find":null,"all":false}\n')
       expect((await dev.tool(['act', 'w1.5', 'type', 'hello world'], alpha)).stdout).toBe('type w1.5 "hello world"\n')
       expect((await dev.tool(['act', 'w1.5', 'fail'], alpha)).code).toBe(1)
       expect((await dev.tool(['webs', '--session', String(dev.child.pid)], dev.root)).code).toBe(0)
@@ -328,6 +354,14 @@ describe('acde dev with a stand-in acdert', () => {
       const reloads = dev.entries().filter((e) => e.got?.['type'] === 'reload').map((e) => e.got)
       expect(reloads).toEqual([{ type: 'reload', app: 'alpha' }])
       expect(readFileSync(join(alpha, '.acde/web/index.html'), 'utf8')).toContain('changed')
+      const marked = await until('the reload mark', () =>
+        (JSON.parse(readFileSync(file, 'utf8')) as Session).reloaded)
+      expect(marked).toEqual({ console: 2, network: 1 })
+      expect((await dev.tool(['console', '--since', 'reload'], alpha)).stdout).toBe('')
+      expect((await dev.tool(['console', '--since', '1'], alpha)).stdout).toBe('   1 log    alpha#7  alpha ready\n')
+      const wrong = await dev.tool(['network', '--since', 'later'], alpha)
+      expect(wrong.code).toBe(1)
+      expect(wrong.stderr).toContain('network: --since later: reload, or the number of an entry')
     } finally {
       await dev.stop()
     }
@@ -391,6 +425,30 @@ describe('acde dev with a stand-in acdert', () => {
     expect(reused.code).toBe(1)
     expect(reused.stderr).toContain(`acde dev ${process.pid} is gone`)
     expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
+  }, 30_000)
+
+  test('act w1 close that ends acdert exits 0; acde stop ends a session in the background', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const closing = start([], alpha)
+    await until('the session file', () => existsSync(closing.file))
+    const closed = await closing.tool(['act', 'w1', 'close'], alpha)
+    expect(closed.stderr).toBe('')
+    expect(closed.stdout).toBe(`closed w1; acdert exited with it, so acde dev ${closing.child.pid} ended\n`)
+    expect(closed.code).toBe(0)
+    expect(await closing.child.exited).toBe(0)
+
+    const stopping = start([], alpha)
+    await until('the session file', () => existsSync(stopping.file))
+    const stopped = await stopping.tool(['stop'], alpha)
+    expect(stopped.stdout).toBe(`acde: stopped acde dev ${stopping.child.pid}\n`)
+    expect(stopped.code).toBe(0)
+    expect(await stopping.child.exited).toBe(0)
+    expect(existsSync(stopping.file)).toBe(false)
+    expect(stopping.entries().some((e) => e.got?.['type'] === 'quit')).toBe(true)
+    const none = await stopping.tool(['stop'], alpha)
+    expect(none.code).toBe(1)
+    expect(none.stderr).toContain('no acde dev is running')
   }, 30_000)
 
   test('--desktop <dir> adds that project and runs its desktop; ' +

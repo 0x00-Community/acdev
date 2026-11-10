@@ -55,7 +55,17 @@ $ acde act w1.12 type "Weekly report"
 $ acde act w1.15 click
 ```
 
-Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `key` `drag` `focus`; a window ref (`w1`) also accepts `close` `minimize` `restore`. The argument to `key` looks like `"ctrl+a backspace"`; the argument to `drag` is the target ref. After each action, `act` waits for the page to settle and then prints what changed.
+`--find TEXT` looks in every visible window (or `--window W`) and prints only the elements whose name or value contains the text (case does not matter), one per line under their window, each followed by the nearest ancestor that has a name:
+
+```sh
+$ acde inspect --find milk
+w1 notes "Notes":
+- listitem "Buy milk" [w1.21]
+```
+
+When nothing matches it says so on stderr and exits with code 1. Elements scrolled out of view are found only with `--offscreen`.
+
+Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `key` `drag` `focus`; a window ref (`w1`) also accepts `close` `minimize` `restore`. The argument to `key` looks like `"ctrl+a backspace"`; the argument to `drag` is the target ref. After each action, `act` waits for the page to settle and then prints what changed. When closing a window ends acdert (the app's window when `acde dev` runs one app), `acde dev` ends with it; `act w1 close` then says so and exits with code 0.
 
 ### console and network
 
@@ -65,6 +75,12 @@ acde network --failed
 ```
 
 `--level` is `log`, `info`, `warn`, `error`, `debug`, or `errors` (`console.error` plus uncaught errors). `--follow` keeps printing new entries.
+
+Entries stay after a page reloads, so errors from before a change are still listed. The first column is the entry's number. `--since reload` lists only what came after `acde dev` last rebuilt and reloaded (everything, if it has not reloaded yet); `--since N` lists entry `N` and later. A reload the page does by itself (`location.reload()`) does not count.
+
+```sh
+acde console --level errors --since reload
+```
 
 The most recent 5000 entries of each kind are kept.
 

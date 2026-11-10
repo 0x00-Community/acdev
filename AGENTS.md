@@ -20,7 +20,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
 | `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless]` | 构建、起 acdert、改了就重新构建并 `reload` |
-| `acde webs` / `eval` / `shot` / `inspect` / `act` / `console` / `network` / `screen` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面 |
+| `acde webs` / `eval` / `shot` / `inspect` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
 | `acde mcp [--session <pid>]` | stdio 上的 MCP 服务 (`claude mcp add acde -- acde mcp`) |
 | `acde test [目录\|文件...] [--headed] [-t 名字] [--desktop] [--timeout MS] [--bail] [--trace] [-u]` | e2e 测试, 只在 bun 上 |
 | `acde skills [install\|remove\|path] [--agent ID,...] [--dir 目录] [--copy]` | 给编码 agent 的 skill: 看装在哪、装、删、打印它的目录 (见「Skill 与文档」) |
@@ -237,8 +237,16 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 连不上 (`ECONNREFUSED` / `ENOENT`) 时删掉会话文件, 报 `acde dev <pid> is gone`.
 
 - **命令** (`src/tools.ts`): `webs` (表格)、`eval <web> <代码|->` (JSON; web 是 web 名、应用 id 或 `desktop`)、`shot <web> [-o]` / `screen [-o]`
-  (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`)、`act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1)、
-  `console` / `network` (`--follow` 每 0.5 s 带 `next` 续读). 格式在 `src/driver/format.ts`. 出错 `acde: <原因>`, 退出码 1.
+  (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`; 给了 `--find` 时只打匹配的元素: acdert 回的 `trees` 里一个命中节点带着整棵子树 (运行时的 `find` 命中就停),
+  所以 acde 按同样的规则 (名字或值含这段文字, 不分大小写) 在 `trees` 里重新找, 每个命中一行, 后面跟最近的有名字的祖先, 按窗口分组 (`Format.found`);
+  一个都没有时 stderr 一行、退出码 1)、`act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1;
+  `close` 时连接断了 (acdert 随窗口退出, 如单应用的 `acde dev`) 算成功: 打一行说会话结束, 退出码 0; 别的动作断了照旧报错, 不把崩溃当成功)、
+  `stop` (挑会话同上, 连上发 `{type: "quit"}`, 等连接断、再等 acde dev 的 pid 退出, 各最多 10 s, 还在就 SIGTERM (Windows 上是强制结束,
+  acdert 因连接断开跟着退出), 删会话文件, 打 `acde: stopped acde dev <pid>`; 连不上时删会话文件、报 `is gone`, 不按 pid 结束进程: pid 可能已被复用)、
+  `console` / `network` (`--follow` 每 0.5 s 带 `next` 续读; `--since N` 从第 N 条起 (运行时的 `since` 含这一条), `--since reload` 从会话文件的
+  `reloaded` 起: acde dev 每次重建后、发 `reload` 之前用自己的连接问 `console` / `network {limit: 1}` 的 `next` (最多等 2 s, 问不到沿用上一次),
+  写进会话文件 `reloaded: {console, network}`. 运行时的记录不随页面重载清空, 也不标重载 (同一窗口重载后 web 名不变, 不能按 web 名分), 所以只认
+  acde dev 发的重载, 页面自己的 `location.reload()` 不算; 还没重载过时是全部). 格式在 `src/driver/format.ts`. 出错 `acde: <原因>`, 退出码 1; 动作名、`--level` 这类不用连会话就能查的参数先查, 错误一行, 末尾指向 `acde <命令> --help`.
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
   `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDE_FOLLOWED=1`: 会话文件按子进程 pid 找, `acde dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,
@@ -405,6 +413,9 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
   一处不行就一处都不装.
 - `status` 每处一行: `link` / `copy` 加 `current` (链接指向这份 skill; 拷贝逐文件字节相同) / `outdated` / `broken` (链接的目标没了),
   检测到 agent 但没装的写 `not installed`, 同名但不是这个 skill 的写 `another skill`. `remove` 只删认得出是 acde skill 的 (和断掉的链接).
+- `install` 建 skills 目录时 (`mkdirSync` 递归, 返回建出的第一层) 把它新建的每一层记进 `<XDG_DATA_HOME 或 ~/.local/share>/acde/skills.json`
+  (`{created: [绝对路径]}`); `remove` 删掉 skill 后从那一处往上, 只删记过且已空的目录, 删了就从记录里去掉. 用户原有的目录 (没记过的) 和
+  里面还有别的东西的目录都不动. 记录放 acde 自己的数据目录, 不在 agent 的 skills 目录里留文件.
 
 **`install.md`** (仓库根, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
 `Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认

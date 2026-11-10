@@ -1,4 +1,5 @@
-import type { ConsoleEntry, RequestEntry, Web } from './acde.ts'
+import type { InspectNode } from '@dopame/acde-api'
+import type { ConsoleEntry, RequestEntry, Snapshot, Web } from './acde.ts'
 
 export class Format {
   static console(e: ConsoleEntry): string {
@@ -10,12 +11,47 @@ export class Format {
     const status = e.error !== null ? 'ERR' : e.status === null ? '...' : String(e.status)
     const size = e.responseBytes === null ? '' : ` ${e.responseBytes} B`
     const ms = e.ms === null ? '' : ` ${Math.round(e.ms)} ms`
-    return `${String(e.seq).padStart(4)} ${e.method.padEnd(6)} ${status.padEnd(3)} ${e.url}  (${e.kind}${e.mocked ? ', mocked' : ''}${size}${ms}${e.error !== null ? `; ${e.error}` : ''}) ${e.web}`
+    const about = `${e.kind}${e.mocked ? ', mocked' : ''}${size}${ms}${e.error !== null ? `; ${e.error}` : ''}`
+    return `${String(e.seq).padStart(4)} ${e.method.padEnd(6)} ${status.padEnd(3)} ${e.url}  (${about}) ${e.web}`
   }
 
   static webs(webs: readonly Web[]): string {
-    const rows = [['NAME', 'KIND', 'APP', 'WINDOW', 'TITLE'], ...webs.map((w) => [w.name, w.kind, w.app ?? '-', String(w.window), w.title ?? ''])]
+    const rows = [
+      ['NAME', 'KIND', 'APP', 'WINDOW', 'TITLE'],
+      ...webs.map((w) => [w.name, w.kind, w.app ?? '-', String(w.window), w.title ?? '']),
+    ]
     const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)))
-    return rows.map((r) => r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]!))).join('  ').trimEnd()).join('\n')
+    const row = (r: string[]) => r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]!))).join('  ')
+    return rows.map((r) => row(r).trimEnd()).join('\n')
+  }
+
+  static node(n: InspectNode): string {
+    let line = n.name ? `${n.role} ${JSON.stringify(n.name)}` : n.role
+    if (n.value !== undefined) line += `: ${JSON.stringify(n.value)}`
+    if (n.level) line += ` [level=${n.level}]`
+    for (const state of n.states ?? []) line += ` [${state}]`
+    return `${line} [${n.ref}]`
+  }
+
+  static found(snapshot: Snapshot, text: string): string[] {
+    const needle = text.trim().toLowerCase()
+    const hit = (n: InspectNode) => [n.name, n.value].some((s) => s?.toLowerCase().includes(needle))
+    const lines: string[] = []
+    for (const [ref, nodes] of Object.entries(snapshot.trees)) {
+      const matches: string[] = []
+      const walk = (list: readonly InspectNode[], named: InspectNode | null) => {
+        for (const n of list) {
+          if (hit(n)) matches.push(`- ${Format.node(n)}${named ? `  in ${Format.node(named)}` : ''}`)
+          walk(n.children ?? [], n.name ? n : named)
+        }
+      }
+      walk(nodes, null)
+      if (!matches.length) continue
+      const window = snapshot.windows.find((w) => w.ref === ref)
+      const what = window?.kind === 'desktop' ? 'desktop' : (window?.app ?? window?.kind ?? '')
+      const title = window?.title ? ` ${JSON.stringify(window.title)}` : ''
+      lines.push(`${ref} ${what}${title}:`.replace(/ :$/, ':'), ...matches)
+    }
+    return lines
   }
 }

@@ -1,7 +1,9 @@
 import {
-  cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync,
+  cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync,
+  symlinkSync, writeFileSync,
 } from 'node:fs'
-import { basename, dirname, join, resolve, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { Agents, type Agent } from './agents.ts'
 
 interface Place {
@@ -15,6 +17,10 @@ type State = 'missing' | 'foreign' | 'current' | 'outdated' | 'broken'
 interface Seen {
   readonly state: State
   readonly kind: 'link' | 'copy' | null
+}
+
+interface Made {
+  readonly created: readonly string[]
 }
 
 export class Skills {
@@ -39,7 +45,8 @@ export class Skills {
     }
     const all = Skills.places(Agents.all())
     const chosen = Skills.chosen(all, flags)
-    if (action === 'install') return Skills.install(source, chosen ?? all.filter((place) => place.found), flags.has('copy'))
+    if (action === 'install')
+      return Skills.install(source, chosen ?? all.filter((place) => place.found), flags.has('copy'))
     if (action === 'remove') return Skills.remove(chosen ?? all)
     return Skills.status(source, chosen ?? all)
   }
@@ -88,9 +95,15 @@ export class Skills {
       throw new Error(`${blocked.map((place) => Skills.at(place)).join(', ')}: not the acde skill; ` +
         'move it away, or install somewhere else with --dir')
     }
+    const created = new Set(Skills.created())
     for (const place of places) {
       const dest = Skills.at(place)
-      mkdirSync(place.dir, { recursive: true })
+      const first = mkdirSync(place.dir, { recursive: true })
+      for (let dir = place.dir; first !== undefined; dir = dirname(dir)) {
+        created.add(dir)
+        if (dir === first || dirname(dir) === dir) break
+      }
+      Skills.remember(created)
       const staged = `${dest}.new-${process.pid}`
       rmSync(staged, { recursive: true, force: true })
       if (copy) cpSync(realpathSync(source), staged, { recursive: true })
@@ -99,19 +112,27 @@ export class Skills {
       renameSync(staged, dest)
       console.log(`acde: skill ${copy ? 'copied' : 'linked'} to ${dest}${Skills.who(place)}`)
     }
-    if (places.length === 0) console.log('acde: no agent found; name one with --agent, or a skills directory with --dir')
+    if (places.length === 0)
+      console.log('acde: no agent found; name one with --agent, or a skills directory with --dir')
     return places.length === 0 ? 1 : 0
   }
 
   static remove(places: readonly Place[]): number {
     let removed = 0
+    const created = new Set(Skills.created())
     for (const place of places) {
       const { state } = Skills.look('', place)
       if (state === 'missing' || state === 'foreign') continue
       rmSync(Skills.at(place), { recursive: true, force: true })
       console.log(`acde: skill removed from ${Skills.at(place)}`)
       removed++
+      for (let dir = place.dir; created.has(dir) && Skills.empty(dir); dir = dirname(dir)) {
+        rmdirSync(dir)
+        created.delete(dir)
+        console.log(`acde: removed ${dir}, which skills install had created`)
+      }
     }
+    Skills.remember(created)
     if (removed === 0) console.log('acde: the skill is not installed anywhere acde knows; name a directory with --dir')
     return 0
   }
@@ -154,9 +175,41 @@ export class Skills {
     return names.every((name) => {
       const [left, right] = [join(a, name), join(b, name)]
       const [one, two] = [lstatSync(left), lstatSync(right)]
-      if (one.isDirectory() || two.isDirectory()) return one.isDirectory() && two.isDirectory() && Skills.same(left, right)
+      if (one.isDirectory() || two.isDirectory())
+        return one.isDirectory() && two.isDirectory() && Skills.same(left, right)
       return readFileSync(left).equals(readFileSync(right))
     })
+  }
+
+  static record(): string {
+    const set = process.env['XDG_DATA_HOME']
+    return join(set && isAbsolute(set) ? set : join(homedir(), '.local', 'share'), 'acde', 'skills.json')
+  }
+
+  static created(): string[] {
+    try {
+      const made = JSON.parse(readFileSync(Skills.record(), 'utf8')) as Partial<Made>
+      return Array.isArray(made.created) ? made.created.filter((dir) => typeof dir === 'string') : []
+    } catch {
+      return []
+    }
+  }
+
+  static remember(created: ReadonlySet<string>): void {
+    const file = Skills.record()
+    if (created.size === 0 && !existsSync(file)) return
+    mkdirSync(dirname(file), { recursive: true })
+    const made: Made = { created: [...created].sort() }
+    writeFileSync(file, `${JSON.stringify(made, null, 2)}
+`)
+  }
+
+  static empty(dir: string): boolean {
+    try {
+      return lstatSync(dir).isDirectory() && readdirSync(dir).length === 0
+    } catch {
+      return false
+    }
   }
 
   static at(place: Place): string {

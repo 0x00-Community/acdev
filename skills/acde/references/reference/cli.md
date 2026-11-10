@@ -4,7 +4,7 @@
 acde <command> [args]
 ```
 
-On error, acde prints `acde: <reason>` and exits with code 1. Invalid arguments print the usage.
+On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an unknown action for `act`, a level for `console` …) names what is wrong and the `acde <command> --help` to read; the full usage is printed only by `acde` with no command.
 
 `acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color follows `NO_COLOR`.
 
@@ -73,8 +73,9 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde screen [-o FILE]` | Full-screen screenshot, default `./screen.png` |
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
-| `acde console [--web W] [--level L] [--follow]` | Page logs and errors |
-| `acde network [--web W] [--failed] [--follow]` | Page requests |
+| `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
+| `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N` |
+| `acde stop` | Ends the session and its acdert; see [Stopping](../guide/dev.md#stopping) |
 | `acde mcp [--session PID]` | MCP server over stdio; see [MCP](../guide/mcp.md) |
 
 ## Coding agents
@@ -87,7 +88,7 @@ acde skills [install|remove|path] [--agent ID,...] [--dir DIR] [--copy]
 | --- | --- |
 | `acde skills` | Where the acde skill is installed, and whether each place is current |
 | `acde skills install` | Links the skill into `~/.agents/skills` and the skills directory of every agent found |
-| `acde skills remove` | Removes it from those places |
+| `acde skills remove` | Removes it from those places, and the directories `install` created that are now empty |
 | `acde skills path` | Prints the skill's directory inside the acde install |
 
 | Option | Description |
