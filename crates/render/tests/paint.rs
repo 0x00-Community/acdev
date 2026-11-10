@@ -182,3 +182,44 @@ fn inline_percent_padding_and_border_sides() {
     assert_eq!(at(a.x + 1.0, mid), [0, 0, 255]);
     assert_eq!(at(a.x + a.width - 2.0, mid), [255, 0, 0]);
 }
+
+fn control(css: &str, kind: &str, checked: bool) -> usize {
+    let doc = Doc::new(W, H, 1.0, &Options::default()).unwrap();
+    doc.add_stylesheet(&format!("body {{ margin: 0; }} input {{ margin: 10px; }} {css}")).unwrap();
+    let body = doc.create_element("body").unwrap();
+    doc.append_child(0, body).unwrap();
+    let input = doc.create_element("input").unwrap();
+    doc.set_attribute(input, "type", kind).unwrap();
+    if checked {
+        doc.set_attribute(input, "checked", "").unwrap();
+    }
+    doc.append_child(body, input).unwrap();
+    red_pixels(&doc)
+}
+
+#[test]
+fn checked_controls_take_the_accent_color() {
+    for kind in ["checkbox", "radio"] {
+        assert_eq!(control("", kind, true), 0, "{kind}: auto keeps the text colour");
+        let accented = control("input { accent-color: #f00; }", kind, true);
+        assert!(accented > 60, "{kind}: {accented} red px");
+        assert_eq!(control("input { accent-color: #f00; }", kind, false), 0, "{kind}: unchecked has no accent");
+    }
+}
+
+#[test]
+fn appearance_none_draws_the_element_s_own_boxes() {
+    let own = "input { width: 30px; height: 30px; background: #f00; }";
+    let native = control(own, "checkbox", false);
+    assert!(native < 100, "the checkbox widget covers the background ({native} red px)");
+    for kind in ["checkbox", "radio"] {
+        let plain = control(&format!("{own} input {{ appearance: none; }}"), kind, false);
+        assert!(plain > 850, "{kind}: {plain} red px");
+    }
+    let before = concat!(
+        "input { appearance: none; width: 30px; height: 30px; } ",
+        "input::before { content: ''; display: block; width: 20px; height: 20px; background: #f00; }",
+    );
+    let shown = control(before, "checkbox", true);
+    assert!(shown > 350, "::before of an appearance: none checkbox: {shown} red px");
+}

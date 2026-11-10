@@ -1333,6 +1333,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `render.rs` `draw_canvas_picture`, `cache.rs` `is_boundary` | `<canvas>` 画 2D 图, canvas 是绘制边界 |
 | `render.rs`, `text.rs` | 行内元素按行画 padding / border / 圆角背景 |
 | `render.rs` `draw_text_input_text` | 空输入框画 placeholder |
+| `render/form_controls.rs` `draw_input` | 复选框和单选框: `appearance: none` 时不画控件 (元素自己的边框、背景、`::before` 照常); 选中时填 `accent-color` (`auto` 是文字颜色), 勾按和白色的对比度 (低于 3 用深色); 没选中的复选框边框是文字颜色 |
 | `render/form_controls.rs` `draw_select` / `draw_picker`, `lib.rs` `paint_select_picker` | `<select>`: 下拉框的选中项文字和箭头, 列表框的行 (只画看得见的); 打开的选项列表 (render 画在帧的最上面) |
 | `render/box_shadow.rs` | spread 加到圆角; 偏移和模糊乘缩放; 透明内阴影只跳过自己; 内阴影第一个在最上; 不模糊的内阴影一次填充 (padding box 加反向的洞, 重合的边抵消; 先填再 DestOut 挖洞时两条边落在同一像素里会剩一条淡线, xterm.js 的竖线光标) |
 | `render/box_shadow.rs`, `render.rs` (滚动偏移、`draw_svg`), `render/background.rs` | 偏移在元素自己的坐标里加 |
@@ -1383,6 +1384,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `node/select.rs` (新), `layout/select.rs` (新), `layout/construct.rs`, `layout/mod.rs`, `node/element.rs` `SpecialElementData::Select` | `<select>` 是叶子: 构造时按 list of options 给每个 option 和 optgroup 标签排一行 (select 的字体, 组标签加粗), 选中看 option 的 `CHECKED` 状态 (嵌入方设); 下拉框宽是最宽的标签加箭头, 高一行; 列表框高 `size` 行, `scrollable_overflow_rect` 含全部行; `SelectPicker` 是打开的列表的几何 |
 | `scrolling.rs` `clamp_scroll_offsets`, `resolve.rs`, `document.rs` `scrolled_nodes` | 布局后把超出新滚动范围的偏移拉回来 (节点和视口; CSSOM View), 只看偏移不是 0 的节点; 上游内容变短后一直停在末尾之外, 顶上空着又滚不回去 |
 | `layout/damage.rs` `propagate_damage_flags`, `document.rs` `rebuild_select` | select 下面有损伤 (option 的文字、属性、状态) 时重建它; 样式看不出的变化 (selectedness) 由嵌入方 `rebuild_select` |
+| `assets/default.css`, `node/node.rs` `has_native_appearance`, `layout/construct.rs`, `layout/mod.rs`, `layout/damage.rs` | 复选框和单选框默认 `appearance: auto`, 不带 input 的边框、内边距和背景 (控件的边框盒仍是 20px / 18px); `appearance: none` 时是普通的盒子: 不当叶子、`::before` / `::after` 照常构造和排版, `appearance` 变了重建盒子 |
 | 删掉的 | `events/`、`form.rs`、`debug.rs`、devtools、parallel-construct、`<canvas src=数字>`、CSS 光标、custom-widget |
 
 **其余**
@@ -1397,6 +1399,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | parley `shape/mod.rs` `begin_segment` | (script, locale) 没被跟踪时按没有 locale 查 |
 | stylo `stylesheets/rule_parser.rs` | `@container` 去掉 gecko 限定 (pref `layout.container-queries.enabled`) |
 | stylo `servo/media_features.rs`, `device/servo.rs` | `prefers-reduced-motion` |
+| stylo `properties/longhands.toml` `accent-color` | 去掉 gecko 限定 (servo 也解析、计算, 改了只重画) |
 | stylo `servo/animation.rs` `maybe_start_animations` | 已在跑的动画名 `continue` 而不是 `return` |
 | stylo_atoms `static_atoms.txt` | 加 `prefers-reduced-motion` |
 | vello `scene.rs` `DrawGlyphs::draw` / `try_draw_colr` / `color_bitmaps` | 只有彩色位图代替轮廓; 只带 EBDT 的字体画轮廓 |

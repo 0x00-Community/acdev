@@ -128,11 +128,12 @@ has_effect_on_gecko_scrollbars = false
 spec = "Internal (not web-exposed)"
 affects = "layout"
 
+# acrender: also in servo (blitz-paint colours checked checkboxes and radios with it)
 [accent-color]
 type = "ColorOrAuto"
 initial = "generics::color::ColorOrAuto::Auto"
 struct = "inherited_ui"
-engine = "gecko"
+servo_restyle_damage = "repaint"
 spec = "https://drafts.csswg.org/css-ui-4/#widget-accent"
 ignored_when_colors_disabled = true
 affects = "paint"
