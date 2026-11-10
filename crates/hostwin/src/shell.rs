@@ -104,6 +104,12 @@ impl Entry {
     }
 }
 
+pub(crate) struct Resized {
+    pub rescaled: bool,
+    pub rects: Vec<(u32, [f64; 4])>,
+    pub work: Option<[f64; 4]>,
+}
+
 #[derive(Default)]
 pub(crate) struct State {
     pub tokens: HashMap<u64, u32>,
@@ -302,6 +308,23 @@ impl State {
             }
         }
         [x, y, w.max(1.0), h.max(1.0)]
+    }
+
+    pub fn resize(&mut self, screen: [f64; 2], scale: f64) -> Resized {
+        let rescaled = self.screen[2] != scale;
+        self.screen = [screen[0], screen[1], scale];
+        let (whole, work) = (self.screen_rect(), self.work_area());
+        let rects = self
+            .entries
+            .iter()
+            .filter_map(|(&id, e)| match e.state {
+                _ if id == 0 || e.mode == Mode::Fullscreen || e.state == WindowState::Fullscreen => Some((id, whole)),
+                WindowState::Filled => Some((id, work)),
+                _ => None,
+            })
+            .collect();
+        let (work, _) = self.refill();
+        Resized { rescaled, rects, work }
     }
 
     pub fn refill(&mut self) -> (Option<[f64; 4]>, Vec<u32>) {
@@ -701,6 +724,28 @@ pub(crate) mod tests {
         assert!(apply(&mut s, w, Some(WindowState::Fullscreen)).is_some());
         assert_eq!(s.entries[&w].rect, [0.0, 0.0, 1000.0, 800.0]);
         assert!(s.refill().1.is_empty());
+    }
+
+    #[test]
+    fn a_resized_output_reports_its_work_area_and_moves_what_fills_it() {
+        let mut s = screen();
+        let desktop = open(&mut s, Grant { desktop: true, ..Grant::default() });
+        assert_eq!(s.refill().0, Some([0.0, 0.0, 1000.0, 800.0]));
+        let filled = open(&mut s, Grant { rect: Some([200.0, 200.0, 300.0, 200.0]), ..Grant::default() });
+        let free = open(&mut s, Grant { rect: Some([10.0, 10.0, 100.0, 100.0]), ..Grant::default() });
+        assert_eq!(apply(&mut s, filled, Some(WindowState::Filled)), Some(WindowState::Filled));
+        let resized = s.resize([400.0, 300.0], 1.0);
+        assert!(!resized.rescaled);
+        assert_eq!(resized.work, Some([0.0, 0.0, 400.0, 300.0]));
+        assert_eq!(resized.rects, vec![(desktop, [0.0, 0.0, 400.0, 300.0]), (filled, [0.0, 0.0, 400.0, 300.0])]);
+        assert_eq!(s.entries[&free].rect, [10.0, 10.0, 100.0, 100.0]);
+        let again = s.resize([400.0, 300.0], 2.0);
+        assert!(again.rescaled);
+        assert_eq!(again.work, None);
+        let dock = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 0.0, 80.0, 300.0]), ..Grant::default() });
+        s.entries.get_mut(&dock).expect("dock").panel = true;
+        s.entries.get_mut(&dock).expect("dock").reserve = Some((acde_model::edge::LEFT, 80.0));
+        assert_eq!(s.resize([900.0, 600.0], 2.0).work, Some([80.0, 0.0, 820.0, 600.0]));
     }
 
     #[test]

@@ -319,6 +319,7 @@ export class Broker {
     try {
       while (!this.#stopped && !signal?.aborted) {
         for (const event of this.shell.pump()) this.#event(event)
+        this.#tellScreens()
         if (this.#stopped || signal?.aborted) break
         await this.#events()
       }
@@ -563,16 +564,19 @@ export class Broker {
     return this.#output.screen(window !== undefined && Outputs.host(this.#windows.get(window), this.#options.standalone))
   }
 
+  #tellScreens(): void {
+    for (const changed of this.#output.take()) {
+      for (const web of this.#webs()) if (changed.to(this.#windows.get(web.window))) web.thread.post({ type: 'screen', ...changed.screen })
+    }
+  }
+
   #event(event: RawShellEvent): void {
     switch (event.type) {
       case 'output':
       case 'workarea':
       case 'hostoutput':
-      case 'hostworkarea': {
-        const changed = this.#output.update(event, this.#options.standalone)
-        if (changed) for (const web of this.#webs()) if (changed.to(this.#windows.get(web.window))) web.thread.post({ type: 'screen', ...changed.screen })
-        return
-      }
+      case 'hostworkarea':
+        return void this.#output.update(event, this.#options.standalone)
       case 'milestone':
         return StartupTimeline.mark(`shell ${event.title}`)
       case 'shortcut': {
