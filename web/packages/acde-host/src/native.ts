@@ -11,7 +11,7 @@ export interface Modifiers {
 }
 
 export const WINDOW_EVENTS = [
-  'windowopen', 'windowclose', 'windowtitle', 'windowfullscreen', 'windowunfullscreen', 'windowminimize', 'windowstate',
+  'windowopen', 'windowclose', 'windowtitle', 'windowstate',
   'windowactivate', 'windowminsize', 'windowparent', 'windowmenus', 'windowcrash', 'windowhang', 'windowresponsive',
   'windowattention', 'windowready', 'windowshow', 'windowanimated',
 ] as const

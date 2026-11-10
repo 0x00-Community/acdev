@@ -118,14 +118,6 @@ pub(crate) fn announce(id: u32, to: WindowState, from: WindowState) {
     let (state, previous) = (Some(to.as_str().to_owned()), Some(from.as_str().to_owned()));
     server.event(id, Event { kind: "state".into(), state: state.clone(), previous: previous.clone(), ..Default::default() });
     server.broker.push(Event { kind: "windowstate".into(), window: Some(id), state, previous, ..Default::default() });
-    let legacy = match (from, to) {
-        (_, WindowState::Fullscreen) => Some("windowfullscreen"),
-        (WindowState::Fullscreen, _) => Some("windowunfullscreen"),
-        _ => None,
-    };
-    for kind in legacy.into_iter().chain((to == WindowState::Minimized).then_some("windowminimize")) {
-        server.broker.push(Event { kind: kind.into(), window: Some(id), ..Default::default() });
-    }
 }
 
 impl Surface {

@@ -58,9 +58,6 @@ export interface WindowsEventMap {
   readonly open: WindowOpenEvent
   readonly close: WindowsEventOf<'windowclose'>
   readonly title: WindowTitleEvent
-  readonly fullscreen: WindowsEventOf<'windowfullscreen'>
-  readonly unfullscreen: WindowsEventOf<'windowunfullscreen'>
-  readonly minimize: WindowsEventOf<'windowminimize'>
   readonly state: WindowsStateEvent
   readonly activate: WindowsEventOf<'windowactivate'>
   readonly minsize: WindowMinSizeEvent
