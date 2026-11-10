@@ -149,10 +149,21 @@ main() {
   [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acde $version is not in its SHA256SUMS ($file)"
   fetch "$ACDE_DIST/$version/$file" "$tmp/$file" || die "could not download $ACDE_DIST/$version/$file"
   verify "$tmp/SHA256SUMS" "$file" "$tmp/$file"
-  fetch "$ACDE_DIST/$version/acdert-version" "$tmp/acdert-version" ||
-    die "acde $version does not name the acdert it runs with ($ACDE_DIST/$version/acdert-version): install a newer acde"
-  verify "$tmp/SHA256SUMS" acdert-version "$tmp/acdert-version"
-  runtime=$(tr -d ' \t\r\n' <"$tmp/acdert-version")
+  runtime=
+  if fetch "$ACDE_DIST/$version/acdert-version" "$tmp/acdert-version" 2>/dev/null; then
+    verify "$tmp/SHA256SUMS" acdert-version "$tmp/acdert-version"
+    runtime=$(tr -d ' \t\r\n' <"$tmp/acdert-version")
+  elif fetch "$ACDE_DIST/latest.json" "$tmp/latest.json" 2>/dev/null; then
+    field() {
+      tr -d '\r\n' <"$tmp/latest.json" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+    }
+    if [ "$(field version)" = "$version" ]; then
+      runtime=$(field sdk)
+      [ -z "$runtime" ] || say "acde $version names no acdert of its own; latest.json pairs it with acdert $runtime"
+    fi
+  fi
+  [ -n "$runtime" ] || die "acde $version does not name the acdert it runs with" \
+    "(no $ACDE_DIST/$version/acdert-version, and latest.json does not describe $version): install a newer acde"
   case $runtime in
     '' | *[!0-9A-Za-z.-]*) die "acdert-version of acde $version is not a version: '$runtime'" ;;
   esac

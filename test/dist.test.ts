@@ -353,7 +353,7 @@ describe('the release archive and the installed CLI', () => {
     }
   }, 300_000)
 
-  test('Windows x64: an acde version that names no acdert is not installed', async () => {
+  test('Windows x64: no acdert-version: the sdk of latest.json when it describes that version', async () => {
     expect(built).toBe(true)
     if (process.platform !== 'win32' || process.arch !== 'x64') return
     const old = join(root, 'old release')
@@ -362,17 +362,27 @@ describe('the release archive and the installed CLI', () => {
       writeFileSync(join(old, file), readFileSync(join(out, file)))
     const tarball = join(old, '0.0.2', 'acde-0.0.2.tar.gz')
     writeFileSync(join(old, '0.0.2', 'SHA256SUMS'), `${sha256(tarball)}  acde-0.0.2.tar.gz\n`)
+    runtimeMirror(join(old, 'runtime'), SDK)
     const server = serve(old)
     try {
       const home = join(root, 'old installation')
-      const result = await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })
-      expect(result.code).not.toBe(0)
-      expect(result.out).toContain('acde 0.0.2 does not name the acdert it runs with')
+      const refused = await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })
+      expect(refused.code).not.toBe(0)
+      expect(refused.out).toContain('acde 0.0.2 does not name the acdert it runs with')
       expect(existsSync(join(home, 'current'))).toBe(false)
+      writeFileSync(join(old, 'latest.json'), JSON.stringify({ version: '0.0.1', sdk: SDK }, null, 2))
+      expect((await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })).code).not.toBe(0)
+      writeFileSync(join(old, 'latest.json'), JSON.stringify({ version: '0.0.2', sdk: SDK }, null, 2))
+      const taken = await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })
+      expect(taken.code, taken.out).toBe(0)
+      expect(taken.out).toContain(`latest.json pairs it with acdert ${SDK}`)
+      expect(existsSync(join(home, 'current', 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
+      const last = taken.stdout.trimEnd().split(/\r?\n/).at(-1)
+      expect(last).toBe(`  $env:Path = "${join(home, 'current', 'bin')};$env:Path"`)
     } finally {
       server.stop(true)
     }
-  }, 120_000)
+  }, 180_000)
 
   test('acde dev without a runtime says what to do in English, and acde new/check/build need none', async () => {
     const s = standIn()

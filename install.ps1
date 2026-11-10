@@ -103,14 +103,33 @@ function Install-Acde {
 
         Assert-Sum $sums "$name.tar.gz" $tarball
         $pairing = Join-Path -Path $work -ChildPath 'acdert-version'
+        $paired = $true
         try {
             Save-Remote "$dist/$Version/acdert-version" $pairing
         } catch {
-            throw ("acde: acde $Version does not name the acdert it runs with ($dist/$Version/acdert-version): " +
-                'install a newer acde')
+            $paired = $false
         }
-        Assert-Sum $sums 'acdert-version' $pairing
-        $runtime = (Get-Content -LiteralPath $pairing -Raw).Trim()
+        $runtime = $null
+        if ($paired) {
+            Assert-Sum $sums 'acdert-version' $pairing
+            $runtime = (Get-Content -LiteralPath $pairing -Raw).Trim()
+        } else {
+            $index = Join-Path -Path $work -ChildPath 'latest.json'
+            $info = $null
+            try {
+                Save-Remote "$dist/latest.json" $index
+                $info = Get-Content -LiteralPath $index -Raw | ConvertFrom-Json
+            } catch {
+                $info = $null
+            }
+            if ($info -and [string]$info.version -eq $Version -and $info.sdk) {
+                $runtime = [string]$info.sdk
+                Write-Host "acde: acde $Version names no acdert of its own; latest.json pairs it with acdert $runtime"
+            } else {
+                throw ("acde: acde $Version does not name the acdert it runs with (no $dist/$Version/acdert-version, " +
+                    "and latest.json does not describe $Version): install a newer acde")
+            }
+        }
         if ($runtime -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
             throw "acde: acdert-version of acde $Version is not a version: '$runtime'"
         }
