@@ -121,6 +121,12 @@ export class Broker {
     this.bridge = new PageBridge()
     this.opener = new Opener({
       apps: () => this.apps.list().filter((app) => this.#launchable.shown(app)),
+      associations: () => {
+        const shell = this.shell
+        const { fileHandlers, openWith } = shell
+        if (!fileHandlers || !openWith) return null
+        return { handlers: (ext) => fileHandlers.call(shell, ext), open: (handler, path) => openWith.call(shell, handler, path) }
+      },
       locate: async (path) => {
         const fs = this.bridge.value['fs'] as { locate(path: string): Promise<{ root: string; path: string }> } | undefined
         return fs ? fs.locate(path).catch(() => null) : null

@@ -17,8 +17,23 @@ interface NativeEntry {
   readonly mimeTypes: readonly string[]
 }
 
+/** A program Windows registers for a file extension (`IAssocHandler`); `id` is its name there (a path or a packaged app id). */
+export interface SystemHandler {
+  readonly id: string
+  readonly label: string
+  readonly icon: string
+  readonly default: boolean
+}
+
+/** Windows' file associations: what replaces `.desktop` files there. The system default is only read, never written. */
+export interface FileAssociations {
+  handlers(extension: string): Promise<readonly SystemHandler[]>
+  open(handler: string, path: string): Promise<void>
+}
+
 interface OpenerHost {
   apps(): AppManifest[]
+  associations(): FileAssociations | null
   locate(path: string): Promise<{ root: string; path: string } | null>
   admit(path: string, caller: OpenCaller | null): Promise<string | null>
   launch(app: string, request: Record<string, unknown>): Promise<{ window: number }>
@@ -31,6 +46,14 @@ interface OpenerHost {
 export type OpenView = 'roots' | 'url' | 'handle'
 
 type Opened = { kind: 'acde' | 'native'; id: string; window?: number }
+type Chosen = { kind: 'acde' | 'native'; id: string }
+
+/** What `handlers()` answers: the type, the key `setDefault` remembers a choice under, and the apps to choose from. */
+export interface Handlers {
+  readonly mime: string
+  readonly association: string | null
+  readonly handlers: OpenHandler[]
+}
 
 export interface OpenCaller {
   readonly roots: readonly string[] | null
@@ -83,8 +106,45 @@ class MimeTypes {
   }
 }
 
+/** Windows' "Open with": the acde apps and the programs Windows registers, keyed by extension (as Windows keys its own). */
+export class OpenWith {
+  static readonly #TAKES = /^[\w.+-]+\/([\w.+-]+|\*)$/
+
+  /** Whether `key` is one file extension (`.png`, any case), what Windows remembers choices under. */
+  static isExtension(key: string): boolean {
+    return key.startsWith('.') && FileTypes.extension(key) === key.toLowerCase()
+  }
+
+  /** The key a choice for this file is remembered under: its extension, else its type, else none. */
+  static association(extension: string, mime: string): string | null {
+    return extension || (MimeTypes.valid(mime) ? mime : null)
+  }
+
+  /** Whether an app opens files at all (its manifest has a file type), so it is offered for files of unknown type. */
+  static takesFiles(mimeTypes: readonly string[]): boolean {
+    return mimeTypes.some((m) => OpenWith.#TAKES.test(m) && m !== MimeTypes.DIRECTORY)
+  }
+
+  static list(apps: readonly AppManifest[], natives: readonly SystemHandler[], chosen: Chosen | null): OpenHandler[] {
+    const chosenAs = (kind: 'acde' | 'native', id: string) => chosen?.kind === kind && chosen.id === id
+    const acde = apps.map((app) => ({ kind: 'acde' as const, id: app.id, label: app.label, icon: app.icon, default: chosenAs('acde', app.id) }))
+    const native = natives.map((n) => ({
+      kind: 'native' as const,
+      id: n.id,
+      label: n.label,
+      icon: n.icon,
+      default: chosenAs('native', n.id),
+      system: n.default,
+    }))
+    return [...acde, ...native]
+  }
+}
+
 class MimeApps {
   static readonly DESKTOP = 'acde'
+  static readonly MIME_LIST = `${MimeApps.DESKTOP}-mimeapps.list`
+  /** Windows: the user's choices per file extension, as Windows itself keys them (same format, extensions as keys). */
+  static readonly EXTENSION_LIST = `${MimeApps.DESKTOP}-extensions.list`
 
   static #lists(): string[] {
     const dirs = [...xdgDirs('config', ''), ...xdgDirs('data', 'applications')]
@@ -93,11 +153,20 @@ class MimeApps {
 
   static defaultFor(mime: string, installed: (id: string) => boolean): string | null {
     for (const list of MimeApps.#lists()) {
-      const text = readTextOr(list, null)
-      if (text === null) continue
-      const ids = DesktopEntry.group(text, 'Default Applications').get(mime) ?? ''
-      for (const id of ids.split(';').map((id) => id.trim()).filter(Boolean)) if (installed(id)) return id
+      const found = MimeApps.#first(readTextOr(list, null), mime, installed)
+      if (found) return found
     }
+    return null
+  }
+
+  static byExtension(extension: string, installed: (id: string) => boolean): string | null {
+    return MimeApps.#first(readTextOr(join(xdgHome('config'), MimeApps.EXTENSION_LIST), null), extension, installed)
+  }
+
+  static #first(text: string | null, key: string, installed: (id: string) => boolean): string | null {
+    if (text === null || !key) return null
+    const ids = DesktopEntry.group(text, 'Default Applications').get(key) ?? ''
+    for (const id of ids.split(';').map((id) => id.trim()).filter(Boolean)) if (installed(id)) return id
     return null
   }
 
@@ -111,8 +180,8 @@ class MimeApps {
     })
   }
 
-  static setDefault(mime: string, id: string): string {
-    const file = join(xdgHome('config'), `${MimeApps.DESKTOP}-mimeapps.list`)
+  static setDefault(mime: string, id: string, list = MimeApps.MIME_LIST): string {
+    const file = join(xdgHome('config'), list)
     const text = readTextOr(file, '')
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, MimeApps.#withDefault(text, mime, id))
@@ -201,9 +270,11 @@ export class Opener {
     return isAbsolute(target) ? normalize(target) : null
   }
 
-  handlers(target: string): { mime: string; handlers: OpenHandler[] } {
+  async handlers(target: string): Promise<Handlers> {
     const path = Opener.#existing(target)
     const mime = MimeTypes.of(path)
+    const windows = this.#host.associations()
+    if (windows) return this.#windowsHandlers(windows, path, mime)
     const natives = MimeApps.natives()
     const chosen = this.#chosen(mime, natives)
     const chosenAs = (kind: 'acde' | 'native', id: string) => chosen?.kind === kind && chosen.id === id
@@ -211,16 +282,36 @@ export class Opener {
     const native = natives
       .filter((n) => MimeTypes.match(n.mimeTypes, mime))
       .map((n) => ({ kind: 'native' as const, id: n.id, label: n.name, icon: n.icon, default: chosenAs('native', n.id) }))
-    return { mime, handlers: [...acde, ...native] }
+    return { mime, association: mime, handlers: [...acde, ...native] }
   }
 
-  setDefault(mime: string, handler: string): string {
-    if (!MimeTypes.valid(mime)) throw Object.assign(new Error(`not a MIME type: ${mime}`), { status: 400 })
+  async #windowsHandlers(windows: FileAssociations, path: string, mime: string): Promise<Handlers> {
+    const directory = mime === MimeTypes.DIRECTORY
+    const extension = directory ? '' : FileTypes.extension(basename(path))
+    const chosen = this.#chosen(mime, [], extension)
+    const apps = mime ? this.#acdeFor(mime) : this.#host.apps().filter((app) => OpenWith.takesFiles(app.mimeTypes))
+    const natives = extension ? await windows.handlers(extension).catch(() => []) : []
+    return { mime, association: OpenWith.association(extension, mime), handlers: OpenWith.list(apps, natives, chosen) }
+  }
+
+  async setDefault(key: string, handler: string): Promise<string> {
+    const windows = this.#host.associations()
+    const extension = windows && OpenWith.isExtension(key) ? key.toLowerCase() : null
+    if (!extension && !MimeTypes.valid(key)) {
+      throw Object.assign(new Error(`not a MIME type${windows ? ' or file extension' : ''}: ${key}`), { status: 400 })
+    }
+    const acde = this.#host.apps().some((a) => a.id === handler) || !!DesktopEntries.appOf(handler)
+    if (windows && !acde) {
+      if (!extension) throw Object.assign(new Error(`a Windows program is remembered for a file extension, not for ${key}`), { status: 400 })
+      const registered = await windows.handlers(extension).catch(() => [])
+      if (!registered.some((n) => n.id === handler)) throw Object.assign(new Error(`no program ${handler} for ${extension} files`), { status: 404 })
+      return MimeApps.setDefault(extension, handler, MimeApps.EXTENSION_LIST)
+    }
     const id = handler.endsWith('.desktop') ? handler : DesktopEntries.idOf(handler)
     const app = DesktopEntries.appOf(id)
-    const known = app ? this.#host.apps().some((a) => a.id === app) : MimeApps.natives().some((n) => n.id === id)
+    const known = app ? this.#host.apps().some((a) => a.id === app) : !windows && MimeApps.natives().some((n) => n.id === id)
     if (!known) throw Object.assign(new Error(`no app ${handler}`), { status: 404 })
-    return MimeApps.setDefault(mime, id)
+    return extension ? MimeApps.setDefault(extension, id, MimeApps.EXTENSION_LIST) : MimeApps.setDefault(key, id)
   }
 
   async open(target: string, options: OpenOptions = {}, caller: OpenCaller | null = null): Promise<Opened> {
@@ -230,8 +321,10 @@ export class Opener {
     const isDir = !!stat(path)?.isDirectory
     const select = !!options.select && !isDir
     const mime = select ? MimeTypes.DIRECTORY : MimeTypes.of(path)
-    const natives = MimeApps.natives()
-    let chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
+    const windows = this.#host.associations()
+    const extension = windows && !select && !isDir ? FileTypes.extension(basename(path)) : ''
+    const natives = this.#natives()
+    let chosen = options.app ? this.#asked(options.app, natives, caller) : this.#chosen(mime, natives, extension)
     const system = !chosen && !options.app && !select && !isDir ? this.#host.system() : null
     if (system) return this.#toSystem(system, path, mime, caller)
     if (!chosen) throw Object.assign(new Error(`no app can open this kind of file (${MimeTypes.describe(mime)})`), { status: 404, code: 'no_app' })
@@ -244,6 +337,7 @@ export class Opener {
       if (!native) throw Object.assign(new Error(`${path} is not in any finder root (desktop, downloads, workspace)`), { status: 404, code: 'outside_roots' })
       chosen = { kind: 'native', id: native.id }
     }
+    if (windows) return this.#openWindows(windows, chosen.id, path, caller)
     const id = chosen.id
     const entry = natives.find((n) => n.id === id)!
     this.#host.spawn(['gio', 'launch', entry.file, select ? dirname(path) : path])
@@ -289,7 +383,7 @@ export class Opener {
     const declared = options.app ? null : this.#host.apps().find((a) => a.schemes.includes(scheme))
     if (declared) return { kind: 'acde', id: declared.id, window: (await this.#host.launch(declared.id, { kind: 'open-link', url })).window }
     const mime = `x-scheme-handler/${scheme}`
-    const natives = MimeApps.natives()
+    const natives = this.#natives()
     const chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
     const app = chosen?.kind === 'acde' ? this.#host.apps().find((a) => a.id === chosen.id) : null
     if (app && (!app.capabilities.fs || app.schemes.includes(scheme))) {
@@ -312,6 +406,21 @@ export class Opener {
       if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.href
     } catch {}
     throw Object.assign(new Error(`not a web link: ${url}`), { status: 400 })
+  }
+
+  async #openWindows(windows: FileAssociations, handler: string, path: string, caller: OpenCaller | null): Promise<Opened> {
+    const real = await this.#host.admit(path, caller)
+    if (!real) throw Object.assign(new Error(`${path} is not in a folder the caller may open`), { status: 404, code: 'outside_roots' })
+    try {
+      await windows.open(handler, real)
+    } catch (error) {
+      throw Object.assign(new Error(`${handler} did not open ${real}: ${(error as Error).message}`), { status: 404, code: 'no_app' })
+    }
+    return { kind: 'native', id: handler }
+  }
+
+  #natives(): NativeEntry[] {
+    return this.#host.associations() ? [] : MimeApps.natives()
   }
 
   async #toSystem(system: (target: string) => Promise<void>, path: string, mime: string, caller: OpenCaller | null): Promise<Opened> {
@@ -351,7 +460,11 @@ export class Opener {
     return { kind: 'open-file', root: place.root, path: place.path, file: null, entry }
   }
 
-  #asked(id: string, natives: readonly NativeEntry[]): { kind: 'acde' | 'native'; id: string } {
+  #asked(id: string, natives: readonly NativeEntry[], caller: OpenCaller | null): Chosen {
+    if (this.#host.associations() && !this.#host.apps().some((a) => a.id === id) && !this.#host.unsupported(id)) {
+      if (caller) throw Object.assign(new Error(`only the desktop opens files in a Windows program it names (${id})`), { status: 403, code: 'refused' })
+      return { kind: 'native', id }
+    }
     const native = id.endsWith('.desktop')
     const unsupported = native ? null : this.#host.unsupported(id)
     if (unsupported) throw unsupported
@@ -359,13 +472,14 @@ export class Opener {
     return { kind: native ? 'native' : 'acde', id }
   }
 
-  #chosen(mime: string, natives: readonly NativeEntry[]): { kind: 'acde' | 'native'; id: string } | null {
+  #chosen(mime: string, natives: readonly NativeEntry[], extension = ''): Chosen | null {
     const apps = this.#host.apps()
+    const windows = !!this.#host.associations()
     const installed = (id: string) => {
       const app = DesktopEntries.appOf(id)
-      return app ? apps.some((a) => a.id === app) : natives.some((n) => n.id === id)
+      return app ? apps.some((a) => a.id === app) : windows || natives.some((n) => n.id === id)
     }
-    const listed = MimeApps.defaultFor(mime, installed)
+    const listed = (extension ? MimeApps.byExtension(extension, installed) : null) ?? (mime ? MimeApps.defaultFor(mime, installed) : null)
     if (listed) {
       const app = DesktopEntries.appOf(listed)
       return app ? { kind: 'acde', id: app } : { kind: 'native', id: listed }

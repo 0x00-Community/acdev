@@ -76,6 +76,11 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
     crate::methods!(scope, obj,
         "openDefault" => open_default,
     );
+    #[cfg(windows)]
+    crate::methods!(scope, obj,
+        "fileHandlers" => file_handlers,
+        "openWith" => open_with,
+    );
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     crate::methods!(scope, obj,
         "notify" => notify,
@@ -408,6 +413,44 @@ fn settle_default(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResol
         Err(acde_hostwin::OpenError::Failed(message)) => crate::offload::failure(scope, &message, Some(500), "failed"),
     };
     resolver.reject(scope, error);
+}
+
+#[cfg(windows)]
+fn file_handlers(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let extension = bind::arg_string(scope, &args, 0);
+    crate::offload::run(scope, &mut rv, "acde-handlers", move || acde_hostwin::file_handlers(&extension), settle_handlers);
+}
+
+#[cfg(windows)]
+fn settle_handlers(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, listed: Result<Vec<acde_hostwin::FileHandler>, String>) {
+    let list = match listed {
+        Ok(list) => list,
+        Err(message) => {
+            let error = crate::offload::failure(scope, &message, Some(500), "failed");
+            resolver.reject(scope, error);
+            return;
+        }
+    };
+    let array = v8::Array::new(scope, list.len() as i32);
+    for (i, handler) in list.into_iter().enumerate() {
+        let id: v8::Local<v8::Value> = bind::string(scope, &handler.name).into();
+        let label: v8::Local<v8::Value> = bind::string(scope, &handler.label).into();
+        let icon: v8::Local<v8::Value> = bind::string(scope, &handler.icon).into();
+        let default: v8::Local<v8::Value> = v8::Boolean::new(scope, handler.default).into();
+        let obj = bind::object(scope, &[("id", id), ("label", label), ("icon", icon), ("default", default)]);
+        array.set_index(scope, i as u32, obj.into());
+    }
+    resolver.resolve(scope, array.into());
+}
+
+#[cfg(windows)]
+fn open_with(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let handler = bind::arg_string(scope, &args, 0);
+    let path = bind::arg_string(scope, &args, 1);
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    crate::offload::run(scope, &mut rv, "acde-open", move || acde_hostwin::open_with(&handler, &path), settle_default);
 }
 
 fn answer_folder(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

@@ -866,7 +866,20 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   Dopame 的浏览器) 不当默认应用、不进 `handlers`, 页面的外部链接也不交给它 (打一行 warn, 不开只会报错的空窗口). 它们也不在
   `acde.apps.list()` 和 `appschanged` 里 (Dock、搜索、设置看不到); `launch` / `acde.open(<id>)` 和指定 `app` 的 `openPath` 回
   `{status: 404, code: 'unsupported_app'}` (页面看不出自己在哪: `navigator.platform` 固定是 `Linux x86_64`, 所以靠这个 code). Linux 会话不变.
-- **macOS / Windows 的宿主窗口交给系统默认程序** (没有 XDG 的 `.desktop`, `natives()` 是空的): 没有能用的 acde 应用、也没有指定 `app`
+- **Windows 的打开方式** (宿主 `Shell.fileHandlers` / `Shell.openWith`, hostwin `system/assoc.rs`; Opener 经 `FileAssociations`): Windows 上不读 `.desktop`,
+  原生程序是系统给这个扩展名登记的处理程序 (`SHAssocEnumHandlers(ASSOC_FILTER_RECOMMENDED)`, 即资源管理器「打开方式」里的那些), 每项 `{id: IAssocHandler::GetName
+  (程序全路径或打包应用的 id), label: GetUIName, icon: data:image/png (GetIconLocation, 可执行文件里的图标经 SHDefExtractIconW 画成 32 px,
+  打包应用的 `@{…}` 经 SHLoadIndirectString 取 logo 的 PNG), default}`; 系统默认 (名字等于 `ASSOCSTR_EXECUTABLE` 或 `ASSOCSTR_APPID`) 在 `handlers()` 里标
+  `system: true`, 只读不写 (不调 `MakeDefault`). `handlers(路径)` 回 `{mime, association, handlers}`: acde 应用照旧按清单 `mimeTypes` 匹配, 类型未知时
+  列出所有声明了文件类型的 acde 应用 (只收 `inode/directory` 的除外) 和这个扩展名的原生程序; `association` 是记住选择用的键, Windows 上是扩展名
+  (小写 `.md`), 没有扩展名时是类型. 用户的选择由运行时记: `setDefault('.md', 应用 id 或程序 id)` 写 `$XDG_CONFIG_HOME/acde-extensions.list`
+  (格式同 mimeapps.list, 键是扩展名), 原生程序只能按扩展名记且必须是登记过的; 选 acde 应用时按扩展名或 MIME 都行. 选应用的顺序: 扩展名的选择 →
+  MIME 的选择 → 清单 `mimeTypes` 的第一个 → 交给系统默认 (下一条) → `no_app` (由桌面弹自己的打开方式). 用原生程序打开: 先过 `Finder.admit`
+  (同下), Rust 再做和交给系统同样的路径检查 (绝对、非设备路径、无 `..`、非命名流、普通文件), 但不限扩展名 (用户为这个文件选的这个程序),
+  重新枚举确认它是这个扩展名登记的处理程序, 经 `IAssocHandler::Invoke` (文件的 `IDataObject` 来自 `IShellItem::BindToHandler(BHID_DataObject)`)
+  在 `acde-open` 线程上打开 (先 `CoInitializeEx`). `openPath({app: 程序 id})` 点名原生程序只给桌面 (和 `acdert open`), 应用点名回 403 `refused`;
+  记住的选择对所有调用方都生效. headless 照样检查, 只打一行 info 不打开. 测试 `acde-host/test/open/windows.test.ts` (注入的关联读取).
+- **macOS / Windows 的宿主窗口交给系统默认程序** (没有 XDG 的 `.desktop`, `natives()` 是空的): 没有记住的选择、没有能用的 acde 应用、也没有指定 `app`
   时, `Opener.open` 经宿主 `Shell.openDefault(目标)` (只在这两处注入; hostwin `system/handoff.rs`, 在 `acde-open` 线程上做, promise 落定)
   交给系统: Windows `ShellExecuteW` (动词 `open`, 线程上先 `CoInitializeEx`), macOS `/usr/bin/open <目标>` (不经 shell). 回
   `{kind: 'native', id: 'system'}`. 只有两种目标:
@@ -890,8 +903,8 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
     不交给系统. headless (`ACDE_HEADLESS`) 照样检查, 只打一行 info 不打开. Linux (会话和宿主窗口) 不注入, 行为不变.
 - **交给应用**: 应用收 `request` (和 `acde.open` 同一个事件), 窗口提前 (桌面收 `windowshow`); 请求带 `handle` (见「文件」的「拖放和打开请求的句柄」),
   按路径的根的拿 `{root, path, file}` (`fs.locate`), 能看路径的拿 `{url}`, 第 1 级的第三方应用只有 `handle`. 不在任何根里的文件交给原生程序 (`gio launch`), 没有就报 `outside_roots` (宿主窗口也不交给系统).
-- **改默认**: `acde.setDefault(mime, 应用)` 写 `$XDG_CONFIG_HOME/acde-mimeapps.list` (只在 `XDG_CURRENT_DESKTOP=acde` 下生效).
-  `acde.handlers(路径)` 列能打开它的应用.
+- **改默认**: `acde.setDefault(mime, 应用)` 写 `$XDG_CONFIG_HOME/acde-mimeapps.list` (只在 `XDG_CURRENT_DESKTOP=acde` 下生效; Windows 见上,
+  扩展名的选择写 `acde-extensions.list`). `acde.handlers(路径)` 列能打开它的应用, `association` 是给 `setDefault` 的键.
 - `acdert applications <目录> [--package <包目录>]` 给有 `mimeTypes` 的应用写 `acde-<app>.desktop` (`Exec=acdert open --app <app> %U`,
   `NoDisplay`, `OnlyShowIn=acde;`) 和 `acde-mimeapps.list`.
 - 总线名字只在自己的会话里拿 (`ACDE_BUS_NAMES=1/0` 强制), 允许被替换; 不装 D-Bus activation 文件.

@@ -191,10 +191,15 @@ export interface DesktopApp {
 
 export interface OpenHandler {
   readonly kind: 'acde' | 'native'
+  /** An acde app id; a native program's desktop entry (`x.desktop`), or on Windows its registered name (a path or a packaged app id). */
   readonly id: string
   readonly label: string
+  /** An icon name or URL; Windows programs give a `data:image/png` URL, or `''`. */
   readonly icon: string
+  /** The app `openPath` uses for this file when none is named (the user's remembered choice, else the first that fits). */
   readonly default: boolean
+  /** Windows: this program is the system's own default for the file's extension (read, never changed by acde). */
+  readonly system?: boolean
 }
 
 export interface AcdeOpenFiles {
@@ -202,7 +207,12 @@ export interface AcdeOpenFiles {
     path: string,
     options?: { app?: string; select?: boolean },
   ): Promise<{ kind: 'acde' | 'native'; id: string; window?: number }>
-  handlers(path: string): Promise<{ mime: string; handlers: OpenHandler[] }>
+  /**
+   * The apps that can open a file. `mime` is `''` when the system knows no type for it (Windows); `association` is the key
+   * `setDefault` remembers a choice for this file under: the MIME type, or on Windows the file's extension (`.md`).
+   */
+  handlers(path: string): Promise<{ mime: string; association: string | null; handlers: OpenHandler[] }>
+  /** Remembers `handler` for a MIME type, or on Windows for a file extension (`.md`); the system's own default is untouched. */
   setDefault(mime: string, handler: string): Promise<string>
 }
 

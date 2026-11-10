@@ -44,21 +44,36 @@ impl Target {
     }
 
     fn file(path: &Path) -> Result<Target, OpenError> {
-        let refused = |why: String| Err(OpenError::Refused(format!("{} is not handed to the system: {why}", path.display())));
-        if !path.is_absolute() || path.as_os_str().to_string_lossy().contains('\0') {
-            return refused("not an absolute path".into());
-        }
-        if let Some(why) = Target::odd_component(path) {
-            return refused(why.into());
-        }
+        let refused = |why: String| OpenError::Refused(format!("{} is not handed to the system: {why}", path.display()));
+        Target::plain(path).map_err(|why| refused(why.into()))?;
         let extension = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         if !EXTENSIONS.contains(&extension.as_str()) {
-            return refused(format!("only documents and media open in system apps, not .{extension} files"));
+            return Err(refused(format!("only documents and media open in system apps, not .{extension} files")));
         }
+        Target::regular(path).map(Target::File).map_err(refused)
+    }
+
+    /// A file the user chose a program for: the same path checks as a hand-off to the system default, without its
+    /// list of extensions (the program, registered for this extension, was picked for this file).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn chosen(path: &Path) -> Result<PathBuf, OpenError> {
+        let refused = |why: String| OpenError::Refused(format!("{} is not opened: {why}", path.display()));
+        Target::plain(path).map_err(|why| refused(why.into()))?;
+        Target::regular(path).map_err(refused)
+    }
+
+    fn plain(path: &Path) -> Result<(), &'static str> {
+        if !path.is_absolute() || path.as_os_str().to_string_lossy().contains('\0') {
+            return Err("not an absolute path");
+        }
+        Target::odd_component(path).map_or(Ok(()), Err)
+    }
+
+    fn regular(path: &Path) -> Result<PathBuf, String> {
         match std::fs::symlink_metadata(path) {
-            Ok(meta) if meta.file_type().is_file() => Ok(Target::File(path.components().collect())),
-            Ok(_) => refused("not a regular file".into()),
-            Err(e) => refused(e.to_string()),
+            Ok(meta) if meta.file_type().is_file() => Ok(path.components().collect()),
+            Ok(_) => Err("not a regular file".into()),
+            Err(e) => Err(e.to_string()),
         }
     }
 
@@ -234,6 +249,21 @@ mod tests {
         std::fs::write(&real, b"x").unwrap();
         std::os::unix::fs::symlink(&real, dir.join("link.pdf")).unwrap();
         assert!(refused(&dir.join("link.pdf").to_string_lossy()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_chosen_program_gets_any_regular_file_but_the_same_path_checks() {
+        let dir = scratch("chosen");
+        for name in ["notes.md", "main.py", "noext", "old.doc"] {
+            let path = dir.join(name);
+            std::fs::write(&path, b"x").unwrap();
+            assert_eq!(Target::chosen(&path), Ok(path.clone()), "{name}");
+        }
+        std::fs::create_dir_all(dir.join("folder.md")).unwrap();
+        for path in [dir.join("folder.md"), dir.join("missing.md"), PathBuf::from("relative/notes.md"), dir.join("..").join("x.md")] {
+            assert!(matches!(Target::chosen(&path), Err(OpenError::Refused(_))), "{path:?}");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

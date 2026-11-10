@@ -10,6 +10,8 @@ pub use acde_model::{DoubleClick, Event, Inbox, InjectEvent, Injected, Mode, Wak
 pub use dev::respond as dev_respond;
 pub use output::surface::{Shot, Surface};
 pub use shell::{Grant, Shell, WindowInfo};
+#[cfg(windows)]
+pub use system::assoc::Handler as FileHandler;
 use system::handoff;
 pub use system::handoff::OpenError;
 
@@ -34,6 +36,18 @@ pub fn open_default(target: &str) -> Result<(), OpenError> {
 #[cfg(windows)]
 pub fn content_type(extension: &str) -> Option<String> {
     system::assoc::content_type(extension)
+}
+
+/// The programs Windows registers for opening a file extension, the system default marked.
+#[cfg(windows)]
+pub fn file_handlers(extension: &str) -> Result<Vec<FileHandler>, String> {
+    system::assoc::handlers(extension)
+}
+
+/// Opens a file in a program Windows registers for its extension (one `file_handlers` listed).
+#[cfg(windows)]
+pub fn open_with(handler: &str, path: &str) -> Result<(), OpenError> {
+    system::assoc::open_with(handler, path, platform::headless())
 }
 
 pub fn headless() -> bool {
