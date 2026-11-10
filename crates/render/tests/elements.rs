@@ -160,7 +160,6 @@ fn the_gap_follows_the_legend_when_it_changes() {
     assert!(red(rgb(&px, f.x + f.width - 10.0, mid)), "the border after it");
 }
 
-
 #[test]
 fn css_supports_answers_from_the_parser() {
     let doc = page("<!doctype html><p>x</p>");
