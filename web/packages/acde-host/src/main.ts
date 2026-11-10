@@ -18,7 +18,6 @@ import { unref, within } from './sys/timers'
 import { StartupTimeline } from './timeline'
 import { Level, Log } from './log'
 
-/** A wrong command line: main prints its message and one line of usage, no stack trace, and exits 2. */
 class UsageError extends Error {
   static readonly USAGE = 'usage: acdert [app <id> | desktop <id|dir>] [--desktop <id|dir>] [--size WxH] [--scale N] [--greeter]; acdert --help for more'
 }

@@ -95,7 +95,6 @@ fn free_socket(runtime: &std::path::Path, name: &str) -> bool {
     flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok()
 }
 
-/// `acdert --help`. Answered here, before V8 or a window starts; the options are parsed by acde-host `main.ts` (`Args`).
 const USAGE: &str = "\
 usage: acdert [app <id> | desktop <id|dir>] [options]
        acdert desktops [--desktop <id>] [--package <dir>]
