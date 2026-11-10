@@ -15,6 +15,11 @@ export interface ImportOwner {
   readonly entries: readonly string[]
 }
 
+export interface ImportFindings {
+  readonly errors: string[]
+  readonly notes: string[]
+}
+
 interface Specifier {
   readonly spec: string
   readonly line: number
@@ -45,8 +50,9 @@ export class Imports {
       .map(({ spec, line, dynamic }) => ({ name: spec.slice('acde:'.length), line, dynamic }))
   }
 
-  static check(dir: string, owners: readonly ImportOwner[], root: (url: string) => string | null): string[] {
+  static check(dir: string, owners: readonly ImportOwner[], root: (url: string) => string | null): ImportFindings {
     const errors = new Set<string>()
+    const notes = new Set<string>()
     const cache = new Map<string, Specifier[]>()
     const read = (file: string) => {
       let found = cache.get(file)
@@ -65,6 +71,7 @@ export class Imports {
             errors.add(`${where}: ${rule.reason}`)
             continue
           }
+          if (rule.unverified) notes.add(`${where}: ${rule.unverified}`)
           const strict = Manifest.importRule(name, required, { system })
           if (!strict.allowed && strict.missing) {
             errors.add(`${where}: acde:${name} is optional (${JSON.stringify(strict.missing)} is in optional): ` +
@@ -73,7 +80,7 @@ export class Imports {
         }
       }
     }
-    return [...errors]
+    return { errors: [...errors], notes: [...notes] }
   }
 
   static sources(dir: string): string[] {

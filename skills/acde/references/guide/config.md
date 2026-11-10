@@ -57,7 +57,7 @@ See [Desktops](desktop.md).
 acde check
 ```
 
-This checks that the id is valid, the entry file exists, the icon is a known name or an existing image, service modules exist, and the framework is recognized. It also checks the declarations against the rules of the runtime: capability names, the shared places in `fs.roots`, `optional`, `services`, and every `acde:` import in the source against what the app declares. Errors make the command exit with 1; warnings are only printed.
+This checks that the id is valid, the entry file exists, the icon is a known name or an existing image, service modules exist, and the framework is recognized. It also checks the declarations against the rules of the runtime: capability names, the shared places in `fs.roots`, `optional`, `services`, and every `acde:` import in the source against what the app declares. Errors make the command exit with 1; warnings and notes are only printed.
 
 ```text
 error: app "notes": fs.roots "work" is not a shared place (desktop, documents, downloads, music, pictures, videos); any other folder is one the user picks (showDirectoryPicker() with "fs": true)

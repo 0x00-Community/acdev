@@ -48,12 +48,13 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
   桌面工程是 `apps` 各自的 `entry`, 都是系统应用 (`system: true`); 手写的包按 `assets` 把应用的 `entry` URL 换成文件, 有 `desktops` 的包是系统应用.
   桌面页 (`app` 为 null, 什么都许) 和桌面服务 (经 `ctx.import`, 按桌面清单的 `services` 授权) 不查;
   服务里的 `acde:` 导入由构建拒绝 (见「构建」).
-- **服务的命名空间和运行时不一致** (实测 acdert 0.0.9, 规则在 SDK, acde 不改): 运行时按服务名授权, 应用写了 `clock` 就拿到这个服务 `api`
-  的每个键 (`DesktopServices.start` 把每个键记到服务名上, `ServiceCalls.#allowed` 先把命名空间换成服务名再查 `app.services`), 所以
-  `api: {clock, timer}` 时应用能 `import 'acde:timer'`. `Manifest.importRule` 只认名字: 不是系统模块又不在 `app.services` 里就拒绝, 原因是
-  `acde:timer is a desktop service: list "timer" in the services of <应用>`; 照做的话应用要求一个不存在的服务, 运行时报
-  `<应用> needs "timer" (service not running)`, 起不来. 命名空间只有服务跑起来才知道 (工厂函数的返回值), 静态规则判不了; skill 里写明这一点,
-  并建议一个服务只给一个和服务同名的命名空间.
+- **服务的命名空间** (规则在 SDK, 和运行时一致): 运行时按服务名授权, 应用写了 `clock` 就拿到这个服务 `api` 的每个键, 所以 `api: {clock, timer}`
+  时应用能 `import 'acde:timer'`; 命名空间只有服务跑起来才知道 (工厂函数的返回值), 静态规则判不了. `Manifest.importRule` 对不是系统模块、
+  又不在 `app.services` 里的名字: 应用列了别的服务就许, 结果的 `unverified` 带一句说明, `Imports.check` 把它收进 `notes`
+  (`{errors, notes}`), `acde check` (`Cli.report`) 和 `acde build` (`AppPackage.#throw`, 所以 `dev` / `install` 的构建也打) 在 stderr 上打
+  `note: <文件>:<行>: app "<id>": acde:timer resolves only if the service <应用> lists ("clock") provides the "timer" namespace`, 不算错误,
+  退出码不变 (交互式 `acde new` 用 `p.log.info`). 一个服务都没列的应用是错误 `acde:timer is not a system module; if a desktop service provides it,
+  list that service's name in the services of <应用>` (拼错的模块名也是这一句). `AppPackage.check()` 返回 `Checked` (`Findings` 加 `notes`).
 - 可达: HTML / `.vue` / `.svelte` / `.astro` 只看 `<script>` (和 astro 的 frontmatter), `src` 不带 `./` 的按相对路径; 跟相对路径和以 `/` 开头的
   (工程根, 手写的包按 `assets`), 补 `.ts` 等扩展名和 `index.*`, `.js` 可落到同名 `.ts`; 包名、别名 (tsconfig `paths`) 不跟.
 - 词法是自带的小分词器 (字符串到行尾为止, 正则字面量按前一个记号猜), 不依赖 bun 或 Vite, 两个运行时上一样.

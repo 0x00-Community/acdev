@@ -321,8 +321,9 @@ class Cli {
     const options = await Creator.ask(given)
     if (!options) return 0
     const created = await Creator.create(options, true)
-    const { errors, warnings } = created.pkg.check()
+    const { errors, warnings, notes } = created.pkg.check()
     for (const warning of warnings) p.log.warn(warning)
+    for (const note of notes) p.log.info(note)
     for (const error of errors) p.log.error(error)
     p.note(Creator.next(created).join('\n'), 'Next')
     p.note(Creator.LATER.join('\n'), 'Then')
@@ -333,8 +334,9 @@ class Cli {
 
   static report(pkg: AppPackage, platform?: string): boolean {
     const target = platform === undefined ? null : pkg.platform(platform)
-    const { errors, warnings } = pkg.check()
+    const { errors, warnings, notes } = pkg.check()
     for (const warning of warnings) console.error(`warning: ${warning}`)
+    for (const note of notes) console.error(`note: ${note}`)
     for (const error of errors) console.error(`error: ${error}`)
     if (errors.length === 0) console.log(`ok: ${pkg.name}, ${pkg.kind}`)
     if (!target) return errors.length === 0

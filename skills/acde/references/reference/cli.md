@@ -33,7 +33,7 @@ Creates a project. In a terminal, it asks for whatever is missing; with `--yes`,
 acde check [dir] [--platform windows|macos|linux]
 ```
 
-Checks the config (id, entry, icon, service modules, framework) and the manifest rules of the SDK, or the manifest and entry files of a handwritten package, and the `acde:` imports against the manifest.
+Checks the config (id, entry, icon, service modules, framework) and the manifest rules of the SDK, or the manifest and entry files of a handwritten package, and the `acde:` imports against the manifest. It prints `error:`, `warning:` and `note:` lines on stderr and exits with code 1 only when there is an error. A `note:` marks an import that the check lets pass but cannot verify, the namespace of a [desktop service](../guide/services.md#call-it) that is not the service's own name: `note: src/main.js:1: app "notes": acde:timer resolves only if the service Notes lists ("clock") provides the "timer" namespace`.
 
 `--platform` adds a check of the app's declared capabilities against what that platform has, once for each way of running an app there (`desktop` and `standalone`, on Linux also `session`):
 
@@ -47,7 +47,7 @@ Checks the config (id, entry, icon, service modules, framework) and the manifest
 acde build [dir] [--out DIR]
 ```
 
-Builds into `DIR` (default `.acde`). A relative `--out` is resolved against the project being built. The manifest of the output is checked again.
+Builds into `DIR` (default `.acde`). A relative `--out` is resolved against the project being built. The `acde:` imports are checked first, as in `acde check` (an error stops the build, a `note:` is printed), and the manifest of the output is checked again.
 
 ### acde install
 

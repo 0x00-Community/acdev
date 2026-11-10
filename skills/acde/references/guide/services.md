@@ -55,7 +55,14 @@ Each key of `api` is a module name (a namespace), and its value is a set of meth
 
 Names:
 
-- Give the service one namespace with the service's own name. The runtime gives an app that lists `clock` every namespace of that service, but `acde check` and `acde build` cannot know a service's namespaces: they judge an `import … from 'acde:timer'` in an app by the names in its `services`, and stop with `acde:timer is a desktop service: list "timer" in the services of Notes` when `timer` is a second namespace of `clock`. Do not follow that hint in this case: listing `timer` makes the app require a service of that name, and it no longer starts (`Notes needs "timer" (service not running)`). Make `timer` a service of its own instead.
+- An app lists the **service's name**, and gets every namespace of that service: with `api: { clock: …, timer: … }` in the service `clock`, an app that lists `clock` imports both `acde:clock` and `acde:timer`. Never list a namespace: an app that lists `timer` requires a service of that name and does not start (`Notes needs "timer" (service not running)`).
+- `acde check` and `acde build` cannot know a service's namespaces (they are what the factory returns at run time). An import of the service's own name passes silently. An import of any other name that is not a system module passes with a note in an app that lists a service, and the exit code stays 0:
+
+  ```text
+  note: src/main.js:1: app "notes": acde:timer resolves only if the service Notes lists ("clock") provides the "timer" namespace
+  ```
+
+  If no listed service provides it, the import throws a `TypeError` when the page loads (`'acde:timer' is not given to …`). In an app that lists no service, the same import is an error: `error: src/main.js:1: app "notes": acde:timer is not a system module; if a desktop service provides it, list that service's name in the services of Notes`. A service with one namespace, named after the service, gets no note.
 - A service cannot have the name of a system module or capability (`fs`, `open`, `window`, `windows`, `apps`, `launch`, `desktop`, `session`, `capabilities`, `notifications`, ...): `acde check` says `service "fs" has the name of a system module (acde:fs); system module names are reserved`. A namespace with such a name is left out when the service starts, and the runtime logs a line that ends, word for word, `[clock] acde.fs is taken; left out` (it writes the namespace as `acde.fs`, with a dot).
 
 ## ServiceContext

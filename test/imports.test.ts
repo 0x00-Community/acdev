@@ -135,11 +135,29 @@ describe('a third-party app, with Bun and with Vite', () => {
     expect((await cli(['check'], dir)).stderr).not.toContain('terminal')
   })
 
-  test('a service needs to be listed in services', async () => {
+  test('a service is imported by the name the app lists; an app that lists none is told to list the service', async () => {
     const main = "import clock from 'acde:clock'\nconsole.log(clock)\n"
-    await fails(app({}, main), 'src/main.ts:1: app "notes": acde:clock is a desktop service: list "clock" in the ' +
-      'services of Notes')
+    await fails(app({}, main), 'src/main.ts:1: app "notes": acde:clock is not a system module; if a desktop service ' +
+      "provides it, list that service's name in the services of Notes")
     await passes(app({}, main, { services: ['clock'] }))
+  })
+
+  test('another namespace of a listed service passes with a note, in check and in both builds', async () => {
+    const main = "import clock from 'acde:clock'\nimport timer from 'acde:timer'\nconsole.log(clock, timer)\n"
+    const note = 'note: src/main.ts:2: app "notes": acde:timer resolves only if the service Notes lists ("clock") ' +
+      'provides the "timer" namespace\n'
+    const { check, builds } = await each(app({}, main, { services: ['clock'] }))
+    expect(check.stderr).toBe(note)
+    expect(check.stdout).toContain('ok: ')
+    expect(check.code).toBe(0)
+    for (const [i, build] of builds.entries()) {
+      expect(build.stderr, BUNDLERS[i]).toBe(note)
+      expect(build.code, BUNDLERS[i]).toBe(0)
+    }
+    const several = await cli(['check'], app({}, main, { services: ['clock', 'store'] }))
+    expect(several.stderr).toBe(note.replace('the service Notes lists ("clock")',
+      'one of the services Notes lists ("clock", "store")'))
+    expect(several.code).toBe(0)
   })
 
   test('a shell module fails', async () => {
@@ -203,6 +221,27 @@ describe('other projects', () => {
     expect(result.stderr).toContain('error: ui/lib.js:1: app "by-hand": acde:office needs "office" in the capabilities')
     write({ office: true })
     expect((await cli(['check'], dir)).code).toBe(0)
+  })
+
+  test('a hand-written package: the note about a namespace of a listed service, in check and in build', async () => {
+    const dir = tmp()
+    mkdirSync(join(dir, 'ui'))
+    writeFileSync(join(dir, 'ui/app.js'), "import timer from 'acde:timer'\nexport default { mount() { timer.start() } }\n")
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      name: 'by-hand',
+      acde: {
+        apiLevel: API_LEVEL,
+        apps: [{ id: 'by-hand', label: 'Hand', icon: 'app', entry: '/ui/app.js', services: ['clock'] }],
+        assets: { '/ui/': ['ui'] },
+      },
+    }))
+    const note = 'note: ui/app.js:1: app "by-hand": acde:timer resolves only if the service Hand lists ("clock") ' +
+      'provides the "timer" namespace\n'
+    for (const command of ['check', 'build']) {
+      const result = await cli([command], dir)
+      expect(result.stderr, command).toBe(note)
+      expect(result.code, command).toBe(0)
+    }
   })
 
   test('a framework app: every source file outside the skipped directories', async () => {
