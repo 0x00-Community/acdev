@@ -248,10 +248,8 @@ describe('acde.config.jsonc', () => {
       expect(checked.code).toBe(0)
       expect(checked.stderr).toContain(`warning: package.json: @dopame/acde-api is ${spec}, a path on this machine`)
     }
-    const portable = [
-      'file:../acdert/web/packages/acde-api',
-      'https://pkgs.dopame.ai/acdert/0.0.7/acde-api-0.0.7.tar.gz',
-    ]
+    const portable = ['file:../acdert/web/packages/acde-api',
+      'https://pkgs.dopame.ai/acdert/0.0.7/acde-api-0.0.7.tar.gz']
     for (const spec of portable) {
       write(spec)
       expect((await cli(['check'], dir)).stderr).toBe('')
