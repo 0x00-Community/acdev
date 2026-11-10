@@ -17,12 +17,10 @@ import { DesktopSession, type RunEnd } from './session'
 import { DevLog } from './devlog'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage } from './language'
-import { StorageFile, StoragePlaces } from './storage'
+import { StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { process } from './sys/process'
-import { xdgHome } from './sys/os'
-import { join } from './sys/path'
 import type { BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
@@ -38,8 +36,8 @@ import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 import { Outputs, type Screen } from './broker/output'
 import { WindowRecords } from './broker/records'
-import { Permissions } from './broker/access/permissions'
-import { PermissionCalls } from './broker/calls/permissions'
+import { Approvals } from './broker/approvals'
+import type { Permissions } from './broker/access/permissions'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
@@ -84,19 +82,13 @@ export class Broker {
     refresh: () => this.refreshApps(),
     permissions: () => this.permissions,
   })
-  readonly permissions: Permissions = new Permissions({
-    store: new StorageFile(join(xdgHome('config'), 'acde', 'permissions.json')),
-    label: (id) => this.apps.get(id)?.label ?? null,
-    supported: (capability) => this.#launchable.capabilities.supported(capability),
-    tell: (event) => this.#toDesktop(event),
-    changed: (appId, capability, permit) => this.#permitChanged(appId, capability, permit),
-    log: (line) => Log.write(Level.Info, 'acde_host', line),
-  })
-  readonly #permissionCalls = new PermissionCalls({
-    permissions: this.permissions,
+  readonly #approvals: Approvals = new Approvals({
     apps: () => this.apps,
     capabilities: () => this.#launchable.capabilities,
+    records: () => this.#windows.values(),
+    toDesktop: (event) => this.#toDesktop(event),
   })
+  readonly permissions: Permissions = this.#approvals.permissions
   #opening = false
   readonly #output: Outputs
   readonly #desktopCrashes = new Crashes(Broker.RESTARTS)
@@ -216,11 +208,7 @@ export class Broker {
         return !!app && this.#launchable.shown(app)
       },
       launch: (appId, request) => void this.launch(appId, request).catch(() => undefined),
-      allow: (web, capability) => {
-        if (web.app && this.permissions.permit(web.app, this.apps.origin(web.app.id), capability) !== 'granted') {
-          throw Permissions.error(web.app.label, capability)
-        }
-      },
+      allow: (web, capability) => this.#approvals.allow(web, capability),
     })
     this.#panelCalls = new PanelCalls(this.shell)
     this.#pageCalls = new PageCalls({
@@ -618,15 +606,6 @@ export class Broker {
     return { window: record.id }
   }
 
-  #permitChanged(appId: string, capability: string, permit: string): void {
-    for (const record of this.#windows.values()) {
-      const app = record.app
-      if (!app || app.id !== appId || !record.web) continue
-      const status = this.#launchable.capabilities.status(capability, app, this.apps.origin(appId))
-      record.web.thread.post({ type: 'permit', capability, permit, status })
-    }
-  }
-
   #raise(opened: { window: number }): { window: number } {
     this.#hide(opened.window, false)
     this.shell.focus(opened.window)
@@ -754,8 +733,8 @@ export class Broker {
     if (service === 'launch') return this.#windowCalls.launch(web, method, args)
     if (service === 'window') return this.#windowCalls.self(web, method, args)
     if (service === 'panel') return this.#panelCalls.call(web, method, args)
-    if (service === 'permissions') return this.#permissionCalls.permissions(web, method, args)
-    if (service === 'capabilities') return this.#permissionCalls.capabilities(web, method, args)
+    if (service === 'permissions') return this.#approvals.calls.permissions(web, method, args)
+    if (service === 'capabilities') return this.#approvals.calls.capabilities(web, method, args)
     if (service === 'page') return this.#pageCalls.call(web, method, args)
     return this.#services.call(web, service, method, args)
   }

@@ -1,0 +1,52 @@
+import type { AppRegistry } from '../apps'
+import { Level, Log } from '../log'
+import type { RawShellEvent } from '../native'
+import { StorageFile } from '../storage'
+import { xdgHome } from '../sys/os'
+import { join } from '../sys/path'
+import type { CapabilityCheck } from './access/capabilities'
+import { Permissions, type Permit } from './access/permissions'
+import { PermissionCalls } from './calls/permissions'
+import type { WindowRecord } from './types'
+import type { Web } from './web'
+
+export interface ApprovalsHost {
+  apps(): AppRegistry
+  capabilities(): CapabilityCheck
+  records(): Iterable<WindowRecord>
+  toDesktop(event: Record<string, unknown> | RawShellEvent): void
+}
+
+export class Approvals {
+  readonly permissions: Permissions
+  readonly calls: PermissionCalls
+  readonly #host: ApprovalsHost
+
+  constructor(host: ApprovalsHost) {
+    this.#host = host
+    this.permissions = new Permissions({
+      store: new StorageFile(join(xdgHome('config'), 'acde', 'permissions.json')),
+      label: (id) => host.apps().get(id)?.label ?? null,
+      supported: (capability) => host.capabilities().supported(capability),
+      tell: (event) => host.toDesktop(event),
+      changed: (appId, capability, permit) => this.#changed(appId, capability, permit),
+      log: (line) => Log.write(Level.Info, 'acde_host', line),
+    })
+    this.calls = new PermissionCalls({ permissions: this.permissions, apps: () => host.apps(), capabilities: () => host.capabilities() })
+  }
+
+  allow(web: Web, capability: string): void {
+    if (web.app && this.permissions.permit(web.app, this.#host.apps().origin(web.app.id), capability) !== 'granted') {
+      throw Permissions.error(web.app.label, capability)
+    }
+  }
+
+  #changed(appId: string, capability: string, permit: Permit): void {
+    for (const record of this.#host.records()) {
+      const app = record.app
+      if (!app || app.id !== appId || !record.web) continue
+      const status = this.#host.capabilities().status(capability, app, this.#host.apps().origin(appId))
+      record.web.thread.post({ type: 'permit', capability, permit, status })
+    }
+  }
+}
