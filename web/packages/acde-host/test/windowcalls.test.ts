@@ -55,13 +55,18 @@ test('an app window tells the desktop what it does with typed window events', ()
 
 test('a page notification reaches the desktop as a notification event', async () => {
   const sent: NotificationEvent[] = []
-  const host = { desktopShown: () => true, shell: {}, toDesktop: (event: NotificationEvent) => void sent.push(event) }
+  let supported = true
+  const host = { desktopShown: () => true, shell: {}, notifications: () => supported, toDesktop: (event: NotificationEvent) => void sent.push(event) }
   const page = new PageCalls(host as never)
   const web = { kind: 'window', window: 4, app: { id: 'mail', label: 'Mail' } }
   await page.call(web as never, 'notify', [{ title: 'New', body: 'Hello', tag: 't', icon: 'javascript:alert(1)' }])
   assert.deepEqual(sent, [
     { type: 'notification', window: 4, app: 'mail', label: 'Mail', title: 'New', body: 'Hello', icon: '', tag: 't' },
   ] satisfies NotificationEvent[])
+  supported = false
+  await assert.rejects(page.call(web as never, 'notify', [{ title: 'Again', body: '', tag: '', icon: '' }]), (e: Error & { status?: number; code?: string }) =>
+    e.status === 501 && e.code === 'unsupported')
+  assert.equal(sent.length, 1)
 })
 
 test('a lost grab names one of the reasons the SDK lists', () => {
