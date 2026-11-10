@@ -34,8 +34,8 @@ pub struct Device {
 impl Device {
     pub fn open() -> Result<Self, String> {
         let mut errors = Vec::new();
-        let (adapter, device, queue) = crate::adapters()
-            .1
+        let (instance, adapters) = crate::adapters();
+        let (adapter, device, queue) = adapters
             .into_iter()
             .find_map(|adapter| match Self::open_adapter(&adapter) {
                 Ok((device, queue)) => Some((adapter, device, queue)),
@@ -44,7 +44,7 @@ impl Device {
                     None
                 }
             })
-            .ok_or_else(|| if errors.is_empty() { "no GPU (Vulkan)".to_string() } else { errors.join("; ") })?;
+            .ok_or_else(|| if errors.is_empty() { crate::gpu::no_adapter(&instance) } else { errors.join("; ") })?;
         let mut device = Self { device, queue, info: adapter.get_info(), semaphores: Vec::new(), next: 0 };
         device.semaphores = device.create_semaphores();
         Ok(device)

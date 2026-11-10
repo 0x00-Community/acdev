@@ -63,6 +63,40 @@ pub fn adapters() -> (wgpu::Instance, Vec<wgpu::Adapter>) {
     (instance, adapters)
 }
 
+pub fn no_adapter(instance: &wgpu::Instance) -> String {
+    let (api, hint) = cfg_select! {
+        windows => ("Direct3D 12", "install or update the GPU's driver from its vendor or Windows Update"),
+        target_os = "macos" => ("Metal", "this Mac's GPU does not support Metal"),
+        _ => ("Vulkan", "install the GPU's Vulkan driver (for example vulkan-intel, vulkan-radeon, nvidia-utils) or point VK_DRIVER_FILES at its ICD"),
+    };
+    let cause = match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) {
+        Err(error) => format!("wgpu: {error}"),
+        Ok(adapter) => format!("only the software adapter {}", adapter.get_info().name),
+    };
+    let seen = system_gpu().map(|gpu| format!("the system has a GPU ({gpu}) but ")).unwrap_or_default();
+    format!("{seen}no usable {api} driver was found: {hint} ({cause})")
+}
+
+#[cfg(target_os = "linux")]
+fn system_gpu() -> Option<String> {
+    let mut cards: Vec<_> = std::fs::read_dir("/sys/class/drm")
+        .ok()?
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.strip_prefix("card").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())))
+        .collect();
+    cards.sort();
+    let card = cards.into_iter().next()?;
+    let driver = std::fs::read_link(format!("/sys/class/drm/{card}/device/driver")).ok();
+    let driver = driver.as_deref().and_then(|path| path.file_name()).map(|name| format!(", kernel driver {}", name.to_string_lossy()));
+    Some(format!("{card}{}", driver.unwrap_or_default()))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn system_gpu() -> Option<String> {
+    None
+}
+
 pub fn texture(device: &wgpu::Device, (width, height): (u32, u32), usage: wgpu::TextureUsages, label: &str) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
@@ -124,7 +158,7 @@ impl Gpu {
 
     pub fn open(label: &str) -> Result<(wgpu::Instance, wgpu::Adapter, Arc<Self>), String> {
         let (instance, adapters) = adapters();
-        let adapter = adapters.into_iter().next().ok_or("no GPU")?;
+        let Some(adapter) = adapters.into_iter().next() else { return Err(no_adapter(&instance)) };
         let info = adapter.get_info();
         let desc = wgpu::DeviceDescriptor { label: Some(label), required_limits: adapter.limits(), ..Default::default() };
         let (device, queue) = pollster::block_on(adapter.request_device(&desc)).map_err(|e| format!("opening {}: {e}", info.name))?;
