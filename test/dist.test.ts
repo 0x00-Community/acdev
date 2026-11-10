@@ -227,7 +227,7 @@ describe('the release archive and the installed CLI', () => {
       ...s.env, ACDERT: '', PATH: `${dirname(process.execPath)}:/nonexistent`,
     }, s.project)
     expect(ran.code).toBe(1)
-    expect(ran.out).toContain('acde dev needs the Dopame runtime (acdert)')
+    expect(ran.out).toContain('acde dev needs the Dopame runtime (acdert) and found none')
     expect(ran.out).toContain('set ACDERT to an acdert binary')
     expect(home).toBeTruthy()
   }, 60_000)

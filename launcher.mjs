@@ -42,18 +42,25 @@ export function which(name, env = process.env) {
   return null
 }
 
-export function requireAcdert() {
-  const set = process.env.ACDERT
+export function acdertBeside(root = ROOT) {
+  return installed(root) ? join(root, '..', '..', 'bin', `acdert${EXE}`) : null
+}
+
+export function requireAcdert(root = ROOT, env = process.env) {
+  const set = env.ACDERT
   if (set) {
     if (existsSync(set)) return set
-    const named = /[\\/]/.test(set) ? null : which(set)
+    const named = /[\\/]/.test(set) ? null : which(set, env)
     if (named) return named
     throw new Error(`ACDERT=${set}: no such file; point ACDERT at an acdert binary, or unset it`)
   }
-  const found = which(`acdert${EXE}`)
+  const beside = acdertBeside(root)
+  if (beside && existsSync(beside)) return beside
+  const found = which(`acdert${EXE}`, env)
   if (found) return found
-  throw new Error('acde dev needs the Dopame runtime (acdert), which is not part of acde. ' +
-    'Run it inside the Dopame virtual machine, or set ACDERT to an acdert binary, or put acdert on PATH')
+  const missing = beside ? `no ${beside}, which the acde installer puts there: run the installer again, ` : ''
+  throw new Error(`acde dev needs the Dopame runtime (acdert) and found none: ${missing}` +
+    'set ACDERT to an acdert binary, or put acdert on PATH')
 }
 
 export function atLeast(version, minimum) {

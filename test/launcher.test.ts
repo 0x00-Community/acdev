@@ -75,11 +75,38 @@ describe('launcher: where acdert comes from', () => {
     expect(requireAcdert()).toBe(onPath)
   })
 
-  test('nothing found: an English error says the runtime comes from the Dopame virtual machine or ACDERT', () => {
+  test('an installed acde takes the acdert the installer put beside it, before PATH; ACDERT still wins', () => {
+    const { root } = install()
+    binary(join(root, '..', 'acde-api', 'package.json'))
+    const beside = binary(join(root, '..', '..', 'bin', `acdert${EXE}`))
+    const dir = tmp()
+    binary(join(dir, `acdert${EXE}`))
+    const env = { PATH: dir, PATHEXT: '.EXE' }
+    expect(requireAcdert(root, env)).toBe(beside)
+    const mine = binary(join(tmp(), `acdert${EXE}`))
+    expect(requireAcdert(root, { ...env, ACDERT: mine })).toBe(mine)
+    expect(requireAcdert(checkout(), env)).toBe(join(dir, `acdert${EXE}`))
+  })
+
+  test('nothing found: an English error names where the installer puts it, ACDERT and PATH', () => {
     expect(failure()).toBe(
-      'acde dev needs the Dopame runtime (acdert), which is not part of acde. Run it inside the Dopame virtual ' +
-      'machine, or set ACDERT to an acdert binary, or put acdert on PATH',
+      'acde dev needs the Dopame runtime (acdert) and found none: ' +
+      'set ACDERT to an acdert binary, or put acdert on PATH',
     )
+    const { root } = install()
+    binary(join(root, '..', 'acde-api', 'package.json'))
+    let message = ''
+    try {
+      requireAcdert(root, { PATH: '' })
+    } catch (error) {
+      message = (error as Error).message
+    }
+    const beside = join(root, '..', '..', 'bin', `acdert${EXE}`)
+    expect(message).toBe(
+      `acde dev needs the Dopame runtime (acdert) and found none: no ${beside}, which the acde installer puts there: ` +
+      'run the installer again, set ACDERT to an acdert binary, or put acdert on PATH',
+    )
+    expect(message).not.toContain('not part of acde')
   })
 })
 

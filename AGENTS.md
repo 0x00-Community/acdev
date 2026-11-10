@@ -309,8 +309,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `REG_EXPAND_SZ`, 原有的 `%…%` 不展开), 设用户级 `ACDE_INSTALL` (顺带广播 `WM_SETTINGCHANGE`), 当前会话也加上.
 - **launcher** (`launcher.mjs`, 只用 `node:` 模块, 类型手写在 `launcher.d.mts`; 源码一律 `import … from 'acde/launcher'`): `bin/acde.mjs` (检出用) →
   `run`: `cliRuntime()` 跑 `cliFile()` (`dist/cli.js`, 否则 `src/cli.ts`, 这时 Node 上找 PATH 上的 bun), 环境 `cliEnv`; 信号同 `acde dev`. 全局装的
-  `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (设了找不到直接报错), 检出时旁边的 `../acdert/target/{release,debug}/acdert` (先于 PATH: 两个仓库一起改),
-  全局装时自己版本的 `bin/acdert` 再 `$ACDE_INSTALL` 的, 最后 PATH; 都没有就列出找过的地方.
+  `bin/acde` 不经它. `requireAcdert()`: `ACDERT` (设了找不到直接报错), 全局装时安装器放在旁边的
+  `bin/acdert[.exe]` (`acdertBeside`, 同一版本目录), 最后 PATH; 检出跑的 acde 只认 `ACDERT` 和 PATH. 都没有时报错, 说出安装器该放的位置.
 - musl 的 acdert 在 Alpine 上编 (`-C target-feature=-crt-static`, 动态链接 Alpine 的库).
 
 ## 和 acdert 的契约
