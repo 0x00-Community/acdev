@@ -183,9 +183,22 @@ test('fs.roots: a level 1 app names shared places; anything else is an error', (
   assert.deepEqual(tiered({ apps: [demo({ fs: { roots: ['documents', 'downloads'] } })] }), { errors: [], warnings: [] })
   assert.deepEqual(tiered({ apps: [demo({ fs: true })] }), { errors: [], warnings: [] })
   const shared = 'desktop, documents, downloads, music, pictures, videos'
-  for (const bad of ['agentos-work', 'Documents', '/home/me/Notes', 'C:\Users\me', '']) {
+  const picked = 'any other folder is one the user picks (showDirectoryPicker() with "fs": true)'
+  for (const bad of ['agentos-work', 'nonsense', '下载', '/home/me/Notes', 'C:\\Users\\me', '']) {
     assert.deepEqual(tiered({ apps: [demo({ fs: { roots: [bad] } })] }).errors, [
-      `app "demo": fs.roots ${JSON.stringify(bad)} is not a shared place (${shared})`,
+      `app "demo": fs.roots ${JSON.stringify(bad)} is not a shared place (${shared}); ${picked}`,
+    ])
+  }
+  const named = [
+    ['Documents', 'documents'],
+    ['~/Downloads', 'downloads'],
+    ['/Users/me/Downloads/', 'downloads'],
+    ['C:\\Users\\me\\Pictures', 'pictures'],
+  ]
+  const found = 'the runtime finds that folder through the system (also when it was moved)'
+  for (const [bad, place] of named) {
+    assert.deepEqual(tiered({ apps: [demo({ fs: { roots: [bad] } })] }).errors, [
+      `app "demo": fs.roots ${JSON.stringify(bad)} is not a shared place: write "${place}", ${found}`,
     ])
   }
   assert.deepEqual(tiered({ apps: [demo({ fs: { roots: 'documents' } })] }).errors, [`app "demo": fs.roots lists shared places (${shared})`])

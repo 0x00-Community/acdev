@@ -105,7 +105,19 @@ export class Manifest {
     const shared = SHARED_PLACES.join(', ')
     const roots = (fs as { roots?: unknown }).roots
     if (!Array.isArray(roots)) return [`fs.roots lists shared places (${shared})`]
-    return roots.filter((root) => !Manifest.#PLACES.has(root)).map((root) => `fs.roots ${JSON.stringify(root)} is not a shared place (${shared})`)
+    return roots.filter((root) => !Manifest.#PLACES.has(root)).map((root) => {
+      const named = Manifest.#placeIn(root)
+      const fix = named
+        ? `: write "${named}", the runtime finds that folder through the system (also when it was moved)`
+        : ` (${shared}); any other folder is one the user picks (showDirectoryPicker() with "fs": true)`
+      return `fs.roots ${JSON.stringify(root)} is not a shared place${fix}`
+    })
+  }
+
+  static #placeIn(root: unknown): string | null {
+    if (typeof root !== 'string') return null
+    const last = root.split(/[\\/]+/).filter(Boolean).at(-1)?.toLowerCase() ?? ''
+    return Manifest.#PLACES.has(last) ? last : null
   }
 
   static iconName(icon: string): icon is IconName {

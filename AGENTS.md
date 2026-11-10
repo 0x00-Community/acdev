@@ -756,7 +756,8 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
 `private` (本应用的私有数据文件夹 `$XDG_DATA_HOME/acde/files/<应用 id>`, 没设时 `$HOME/.local/share/...`, 第一次用时建), 公共位置名 (SDK `SHARED_PLACES`:
 `desktop`、`documents`、`downloads`、`music`、`pictures`、`videos`, 按 XDG 用户目录 `XDG_<名>_DIR` / `user-dirs.dirs`; Windows 没设时用对应的已知文件夹
 `SHGetKnownFolderPath`, `path.rs` `known_folder`), 选择的文件夹是 `folder-<路径 SHA-256 前 16 位十六进制>` 的令牌. `fs: true` 只给 `private` 和用户选给它的文件夹;
-公共位置要在 `fs.roots` 里点名 (校验器: 不是这六个名字就是错误, `agentos-work` 不算) 并经批准 (见「批准」). `roots()` 回
+公共位置要在 `fs.roots` 里点名 (校验器: 不是这六个名字就是错误, `agentos-work` 不算;
+末段是位置名的路径如 `~/Downloads` 提示改写位置名, 别的提示用户选的文件夹) 并经批准 (见「批准」). `roots()` 回
 `{id, label, source: 'private' | 'place' | 'granted', mode, reason, exists, place?}`, 只有点名了公共位置的系统应用另带 `path`; 别的应用拿不到绝对路径,
 `locate` / `openPath` 报 403 `EACCES`. 没批准或撤销了的位置: web 侧 (`FileAccess.guard`, 经 `Permits`)
 把它从 `roots()` 里去掉, 以它为 root 的调用 reject 403 `denied` (`AcdePermissionError`). `fs.revoke(令牌)` 收回选择的文件夹, `acde:permissions` 也列出和收回它 (见「批准」). Broker 交给 web 的授权是
