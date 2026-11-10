@@ -1,6 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import acdeVite from '@dopame/acde-api/vite'
 import { ViteBundler, type Bundler } from './bundler.ts'
 import { up } from './paths.ts'
@@ -196,8 +195,8 @@ export class Frameworks {
     const web = join(b.scratch, 'sveltekit-web')
     mkdirSync(web, { recursive: true })
     if (Frameworks.#isDir(join(output, 'client'))) cpSync(join(output, 'client'), web, { recursive: true })
-    const launcher = `import { Server } from ${JSON.stringify(pathToFileURL(join(server, 'index.js')).href)}
-import { manifest } from ${JSON.stringify(pathToFileURL(join(server, manifest)).href)}
+    const launcher = `import { Server } from ${JSON.stringify(join(server, 'index.js'))}
+import { manifest } from ${JSON.stringify(join(server, manifest))}
 const server = new Server(manifest)
 await server.init({ env: process.env })
 export default {
@@ -216,7 +215,7 @@ export default {
     if (!existsSync(entry)) return Frameworks.#static(dist, 'astro build')
     const client = join(dist, 'client')
     const launcher = `process.env.HOST ??= 'localhost'
-await import(${JSON.stringify(pathToFileURL(entry).href)})
+await import(${JSON.stringify(entry)})
 `
     return { web: Frameworks.#isDir(client) ? client : null, page: null, server: await Frameworks.#launch(b, 'astro', launcher) }
   }
@@ -229,8 +228,8 @@ await import(${JSON.stringify(pathToFileURL(entry).href)})
     const server = join(build, 'server', 'index.js')
     if (!existsSync(server)) return Frameworks.#static(Frameworks.#isDir(client) ? client : build, `${tool} build`)
     const runtime = tool === 'remix' ? '@remix-run/node' : 'react-router'
-    const launcher = `import { createRequestHandler } from ${JSON.stringify(pathToFileURL(Runtime.resolve(runtime, b.dir)).href)}
-import * as build from ${JSON.stringify(pathToFileURL(server).href)}
+    const launcher = `import { createRequestHandler } from ${JSON.stringify(Runtime.resolve(runtime, b.dir))}
+import * as build from ${JSON.stringify(server)}
 const handle = createRequestHandler(build, 'production')
 export default { port: Number(process.env.PORT) || 3000, fetch: (request) => handle(request) }
 `
