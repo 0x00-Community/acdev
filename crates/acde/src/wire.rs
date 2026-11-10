@@ -315,15 +315,7 @@ impl Args for WireArgs {
     }
 
     fn str(&mut self, i: usize) -> String {
-        match self.get(i) {
-            WVal::Str(s) => s.clone(),
-            WVal::Undefined => "undefined".to_owned(),
-            WVal::Null => "null".to_owned(),
-            WVal::Bool(b) => b.to_string(),
-            WVal::Num(n) => number_string(*n),
-            WVal::BigInt(n) => n.to_string(),
-            other => other.to_json().to_string(),
-        }
+        text(self.get(i))
     }
 
     fn with_bytes<R>(&mut self, i: usize, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
@@ -343,6 +335,18 @@ impl Args for WireArgs {
 
     fn json(&mut self, i: usize) -> Value {
         self.get(i).to_json()
+    }
+}
+
+pub fn text(v: &WVal) -> String {
+    match v {
+        WVal::Str(s) => s.clone(),
+        WVal::Undefined => "undefined".to_owned(),
+        WVal::Null => "null".to_owned(),
+        WVal::Bool(b) => b.to_string(),
+        WVal::Num(n) => number_string(*n),
+        WVal::BigInt(n) => n.to_string(),
+        other => other.to_json().to_string(),
     }
 }
 

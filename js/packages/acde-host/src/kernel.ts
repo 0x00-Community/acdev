@@ -11,6 +11,7 @@ const enum Iface {
   Own = 4,
   Desk = 5,
   Natives = 6,
+  System = 7,
 }
 
 const enum Out {
@@ -26,6 +27,7 @@ const enum In {
   Message = 3,
   Ask = 4,
   Service = 5,
+  Event = 6,
 }
 
 const BATCH_LIMIT = 64 * 1024
@@ -35,6 +37,8 @@ let batch = new Writer()
 let batched = 0
 let nextRequest = 0
 const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: unknown) => void }>()
+const listeners = new Map<number, (value: unknown) => void>()
+let nextListener = 0
 const handlers: { message?: (message: never) => void; ask?: (kind: never, payload: unknown) => unknown; service?: (message: unknown) => void } = {}
 
 function failure(value: unknown): Error {
@@ -155,6 +159,11 @@ function receive(event: { data: unknown }): void {
     case In.Service:
       handlers.service?.(host.deserialize(r.rest()))
       return
+    case In.Event: {
+      const token = r.u32()
+      listeners.get(token)?.(r.value())
+      return
+    }
   }
 }
 
@@ -234,7 +243,52 @@ const hostNative: HostNative & { onTaskEnd(fn: () => void): void; setReporter(fn
   setReporter: (fn) => host.setReporter(fn),
 }
 
-const info = call(Iface.Natives, 'init', []) as { init: never; env: Record<string, string>; place: 'desktop' | 'window'; window: number; storage: boolean }
+const info = call(Iface.Natives, 'init', []) as {
+  init: never
+  env: Record<string, string>
+  place: 'desktop' | 'window'
+  window: number
+  storage: boolean
+  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean }
+}
+
+function listen(callback: (value: unknown) => void): number {
+  const token = ++nextListener
+  listeners.set(token, callback)
+  return token
+}
+
+function system(module: string, kinds: Readonly<Record<string, 'r' | 'a'>>, own: object = {}): object {
+  const target: Record<string, unknown> = { ...own }
+  for (const [name, kind] of Object.entries(kinds)) {
+    if (name in target) continue
+    target[name] = kind === 'a' ? (...args: unknown[]) => request(Iface.System, `${module}.${name}`, args) : (...args: unknown[]) => call(Iface.System, `${module}.${name}`, args)
+  }
+  return target
+}
+
+const FS = ['state', 'roots', 'desktop', 'list', 'preview', 'download', 'locate', 'openPath', 'place', 'mkdir', 'write', 'copyIn', 'rename', 'delete']
+const fs = info.grants.fs ? system('fs', Object.fromEntries(FS.map((name) => [name, 'a' as const]))) : undefined
+const terminal = info.grants.terminal
+  ? system(
+      'terminal',
+      { open: 'a', input: 'a', resize: 'a', close: 'a' },
+      { subscribe: (id: string, callback: (events: unknown) => void) => request(Iface.System, 'terminal.subscribe', [id, listen(callback)]) },
+    )
+  : undefined
+const network = info.grants.network
+  ? system(
+      'network',
+      { state: 'a', networks: 'a', connect: 'a', activate: 'a', disconnect: 'a', setWifiEnabled: 'a' },
+      {
+        watch: (callback: (state: unknown) => void) => {
+          if (typeof callback !== 'function') throw new TypeError('acde.network.watch: the callback is not a function')
+          call(Iface.System, 'network.watch', [listen(callback)])
+        },
+      },
+    )
+  : undefined
+const office = info.grants.office ? (system('office', { server: 'a', state: 'a', status: 'a', save: 'a', new: 'a', writePage: 'r' }) as { writePage(key: string, html: string): string }) : undefined
 
 const own = {
   exit(code: number): never {
@@ -288,6 +342,10 @@ const natives = {
   init: info.init,
   env: info.env,
   own,
+  fs,
+  terminal,
+  network,
+  office,
   createDocument(width: number, height: number, scale: number, options: object) {
     call(Iface.Natives, 'createDocument', [width, height, scale, options])
     return proxy(Iface.Dom, DOM)

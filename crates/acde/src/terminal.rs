@@ -101,3 +101,32 @@ fn deliver(scope: &mut v8::PinScope, token: u32, events: &serde_json::Value) {
     let value = offload::json(scope, events);
     bind::call(scope, &callback, &[value]);
 }
+
+pub fn wire(terminals: &Terminals, name: &str, a: &mut crate::wire::WireArgs, events: impl Fn(u32, serde_json::Value) -> bool + Send + Sync + 'static) -> crate::wire::Answer {
+    use crate::wire::{Answer, Args, Fail, Ret};
+    let t = terminals.shared();
+    let reply = |r: Result<serde_json::Value, String>| r.map(Ret::Json).map_err(|e| Fail { message: e, status: None, code: "GenericFailure".to_owned() });
+    match name {
+        "open" => {
+            let (cols, rows) = (a.f64(0), a.f64(1));
+            Answer::Later(Box::new(move || reply(t.open(cols, rows).map_err(|e| e.reason.clone()))))
+        }
+        "input" => {
+            let (id, data) = (a.str(0), a.str(1));
+            Answer::Later(Box::new(move || reply(t.input(id, data).map_err(|e| e.reason.clone()))))
+        }
+        "resize" => {
+            let (id, cols, rows) = (a.str(0), a.f64(1), a.f64(2));
+            Answer::Later(Box::new(move || reply(t.resize(id, cols, rows).map_err(|e| e.reason.clone()))))
+        }
+        "close" => {
+            let id = a.str(0);
+            Answer::Later(Box::new(move || reply(Ok(t.close(id)))))
+        }
+        "subscribe" => {
+            let (id, token) = (a.str(0), a.f64(1) as u32);
+            Answer::Now(reply(t.listen(&id, move |batch| events(token, batch)).map(|()| serde_json::Value::Null).map_err(|e| e.reason.clone())))
+        }
+        _ => Answer::fail(format!("acde.terminal: no method {name}")),
+    }
+}

@@ -96,10 +96,17 @@ fn page_dir() -> std::path::PathBuf {
 
 /// `writePage(key, html)`: the Document Server editor page for one document, as a `file:` URL; pages older than an hour go.
 fn write_page(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let (key, html) = (bind::arg_string(scope, &args, 0), bind::arg_string(scope, &args, 1));
+    match page_file(&key, &html) {
+        Ok(url) => rv.set(bind::string(scope, &url).into()),
+        Err(e) => bind::throw_error(scope, &e),
+    }
+}
+
+fn page_file(key: &str, html: &str) -> Result<String, String> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     const STALE: std::time::Duration = std::time::Duration::from_secs(3600);
-    let key: String = bind::arg_string(scope, &args, 0).chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' }).collect();
-    let html = bind::arg_string(scope, &args, 1);
+    let key: String = key.chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' }).collect();
     let dir = page_dir();
     let written = (|| {
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
@@ -115,8 +122,26 @@ fn write_page(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
         Ok::<_, std::io::Error>(file)
     })();
     match written.map(url::Url::from_file_path) {
-        Ok(Ok(url)) => rv.set(bind::string(scope, url.as_str()).into()),
-        Ok(Err(())) => bind::throw_error(scope, "office.writePage: not an absolute path"),
-        Err(e) => bind::throw_error(scope, &format!("office.writePage: {}: {e}", dir.display())),
+        Ok(Ok(url)) => Ok(url.as_str().to_owned()),
+        Ok(Err(())) => Err("office.writePage: not an absolute path".to_owned()),
+        Err(e) => Err(format!("office.writePage: {}: {e}", dir.display())),
     }
+}
+
+pub fn wire(office: &OfficeService, name: &str, a: &mut crate::wire::WireArgs) -> crate::wire::Answer {
+    use crate::wire::{Answer, Args, Fail, Ret, WVal};
+    let given = |a: &crate::wire::WireArgs, i: usize| !matches!(a.0.get(i), None | Some(WVal::Undefined | WVal::Null));
+    let text = |a: &mut crate::wire::WireArgs, i: usize| given(a, i).then(|| a.str(i));
+    let body = |a: &mut crate::wire::WireArgs| given(a, 0).then(|| a.json(0));
+    let call = match name {
+        "server" => OfficeCall::Server,
+        "state" => OfficeCall::State { root: text(a, 0), dir: text(a, 1), path: text(a, 2) },
+        "status" => OfficeCall::Status { key: a.str(0) },
+        "save" => OfficeCall::Save { body: body(a) },
+        "new" => OfficeCall::New { body: body(a) },
+        "writePage" => return Answer::Now(page_file(&a.str(0), &a.str(1)).map(Ret::Str).map_err(Fail::new)),
+        _ => return Answer::fail(format!("acde.office: no method {name}")),
+    };
+    let office = office.clone();
+    Answer::Later(Box::new(move || office.call(call).map(Ret::Json).map_err(|message| Fail { message, status: None, code: "GenericFailure".to_owned() })))
 }

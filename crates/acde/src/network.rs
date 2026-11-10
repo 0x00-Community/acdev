@@ -127,3 +127,29 @@ fn deliver(scope: &mut v8::PinScope, token: u32, state: &serde_json::Value) {
     let value = offload::json(scope, state);
     bind::call(scope, &callback, &[value]);
 }
+
+pub fn wire(networks: &Networks, name: &str, a: &mut crate::wire::WireArgs, events: impl Fn(u32, serde_json::Value) -> bool + Send + 'static) -> crate::wire::Answer {
+    use crate::wire::{Answer, Args, Fail, Ret, WVal};
+    let call = match name {
+        "state" => NetCall::State,
+        "networks" => NetCall::Networks { scan: a.bool(0) },
+        "connect" => NetCall::Connect { ssid: a.str(0), password: (!matches!(a.0.get(1), None | Some(WVal::Undefined | WVal::Null))).then(|| a.str(1)) },
+        "activate" => NetCall::Activate { iface: a.str(0) },
+        "disconnect" => NetCall::Disconnect { iface: a.str(0) },
+        "setWifiEnabled" => NetCall::SetWifiEnabled { on: a.bool(0) },
+        "watch" => {
+            let token = a.f64(0) as u32;
+            return match networks.listen(move |state| events(token, state)) {
+                Ok(()) => Answer::ok(()),
+                Err(e) => Answer::fail(format!("acde.network.watch: {e}")),
+            };
+        }
+        _ => return Answer::fail(format!("acde.network: no method {name}")),
+    };
+    let networks = networks.clone();
+    Answer::Later(Box::new(move || match networks.call(call) {
+        Ok(serde_json::Value::Null) => Ok(Ret::Undefined),
+        Ok(value) => Ok(Ret::Json(value)),
+        Err(message) => Err(Fail { message, status: None, code: "GenericFailure".to_owned() }),
+    }))
+}

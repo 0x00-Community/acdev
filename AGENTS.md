@@ -587,10 +587,10 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
 `acde://host/kernel.js` 求值, 然后 poll isolate 的 fd 和一个 eventfd (别的线程的输入、异步调用的结果从这进来).
 
 - **线上格式** (`wire.rs` / `kernel/wire.ts`): 带标签的值 0 undefined、1 null、2 false、3 true、4 f64、5 字符串 (u32 长度 + UTF-8)、
-  6 字节、7 u32 数组、8 f64 数组、9 列表、10 对象、11 bigint. 接口: DOM 1、HOST 2、SURFACE 3、OWN 4、DESK 5、NATIVES 6.
+  6 字节、7 u32 数组、8 f64 数组、9 列表、10 对象、11 bigint. 接口: DOM 1、HOST 2、SURFACE 3、OWN 4、DESK 5、NATIVES 6、SYSTEM 7 (`Grants`: 方法名 `fs.list`、`terminal.open` …).
   同步调用 `[接口][方法名][u32 参数个数][参数]`, 回 `[u8 状态][值]`. 引擎 → 窗口的二进制消息: 1 BATCH `[u32 n][调用…]`、
   2 ASYNC `[u32 请求号][调用]`、3 SERVICE、4 ANSWER `[u32 token][值]`; 窗口 → 引擎: 1 RESOLVE、2 REJECT、3 MESSAGE、
-  4 ASK `[u32 token][类型][值]`、5 SERVICE.
+  4 ASK `[u32 token][类型][值]`、5 SERVICE、6 EVENT `[u32 token][值]` (`terminal.subscribe` / `network.watch` 的回调: 引擎给回调编号, 参数里带上).
 - **方法分三类**, 按 `native.ts` / `desk.ts` 的 TS 返回类型 (`scripts/natives-table.mjs` 生成 `kernel/natives.gen.ts`): `void` 是写
   (攒批, 任务结束、同步调用或异步调用之前 flush)、`Promise` 是异步、别的是同步. Rust 一侧 `dom.rs` 的 `natives!` 一份方法体同时生成
   V8 回调和 `wire()` 分发 (`Args` trait: `V8Args` / `WireArgs`), 不写两遍.
@@ -599,7 +599,9 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
   时 `keepReceiving()` 把它包回来 (读到的是内核分发, 写入转给页面), 等 jsrt:host 有 `onMessage` 钩子后去掉. 引擎在 onTaskEnd 之后才把
   没处理的 rejection 交给 reporter, 所以 `reportError` 自己 flush.
 - **调试**: `RUST_LOG=kernel=trace` 每个调用、模块请求、引擎消息一行 (target `kernel`).
-- 还没过环 (内核窗口里没有): `GpuNative`、`AudioNative`、输入法、后端连接、`acde:fs` / `terminal` / `network` / `office` 的原生部分.
+- `Grants` (fs / terminal / network / office) 过环: 各模块的 `wire()` 和 V8 绑定共用 crates/runtime 的 `FsCall` / `NetCall` / `OfficeCall`;
+  异步的在 `acde-kernel-call` 线程上跑.
+- 还没过环 (内核窗口里没有): `GpuNative`、`AudioNative`、输入法、后端连接.
 
 **计划**: 上面还没过环的; 内核 V8 带 ICU; 大消息分块; 阶段 3: 桌面和 Broker 进内核, `acde:` 模块要么过环到窗口进程, 要么直接在内核里
 实现 (比如 `acde:fs` 直接走 VFS). 这和本文件开头「`acde:` 模块是进程内注入, 不是 RPC」冲突, 到时候要定.

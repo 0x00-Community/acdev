@@ -11,7 +11,7 @@ use rustix::event::{EventfdFlags, PollFd, PollFlags, eventfd, poll};
 use serde_json::{Value, json};
 
 use crate::desk::{Ask, Desk};
-use crate::isolate::{Place, Spec};
+use crate::isolate::{Grants, Place, Spec};
 use crate::wire::{Answer, Args, Fail, Reader, Ret, WireArgs, Writer};
 
 const DOM: u8 = 1;
@@ -20,6 +20,7 @@ const SURFACE: u8 = 3;
 const OWN: u8 = 4;
 const DESK: u8 = 5;
 const NATIVES: u8 = 6;
+const SYSTEM: u8 = 7;
 
 const OUT_BATCH: u8 = 1;
 const OUT_ASYNC: u8 = 2;
@@ -31,6 +32,7 @@ const IN_REJECT: u8 = 2;
 const IN_MESSAGE: u8 = 3;
 const IN_ASK: u8 = 4;
 const IN_SERVICE: u8 = 5;
+const IN_EVENT: u8 = 6;
 
 const CALL_MODULE: u16 = 2;
 
@@ -57,6 +59,7 @@ enum In {
     Service(Vec<u8>),
     Done(u32, Result<Ret, Fail>, bool),
     Surface,
+    Event(u32, Value),
     Stop,
 }
 
@@ -140,6 +143,7 @@ struct Driver {
     asks: HashMap<u32, Sender<Value>>,
     next_ask: u32,
     kick: bool,
+    grants: Grants,
 }
 
 impl Driver {
@@ -171,6 +175,7 @@ impl Driver {
             asks: HashMap::new(),
             next_ask: 0,
             kick: false,
+            grants: spec.grants,
         };
         let bundle = crate::sys::app_dir().join("kernel.js");
         let source = match std::fs::read_to_string(&bundle) {
@@ -404,6 +409,11 @@ impl Driver {
                 }
                 return;
             }
+            In::Event(token, value) => {
+                w.u8(IN_EVENT);
+                w.u32(token);
+                w.json(&value);
+            }
             In::Stop => return,
         }
         self.outbox.push_back(w.buf);
@@ -431,6 +441,7 @@ impl Driver {
             SURFACE => self.surface(name, a),
             OWN => crate::own::wire_call(name, a),
             DESK => crate::desk::wire::call(name, a, &self.desk, self.window),
+            SYSTEM => self.system(name, a),
             _ => Answer::fail(format!("kernel: no interface {iface}")),
         }
     }
@@ -445,6 +456,12 @@ impl Driver {
                     "place": self.place.name(),
                     "window": self.window,
                     "storage": crate::own::has_storage(),
+                    "grants": {
+                        "fs": self.grants.fs.is_some(),
+                        "terminal": self.grants.terminal.is_some(),
+                        "network": self.grants.network.is_some(),
+                        "office": self.grants.office.is_some(),
+                    },
                 })))
             }
             "createDocument" => {
@@ -456,6 +473,26 @@ impl Driver {
             "claimSurface" => self.claim_surface(),
             _ => Answer::fail(format!("natives: no method {name}")),
         }
+    }
+
+    fn system(&mut self, name: &str, a: &mut WireArgs) -> Answer {
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        let events = move |token: u32, value: Value| {
+            let sent = tx.send(In::Event(token, value)).is_ok();
+            if sent {
+                ring(&wake);
+            }
+            sent
+        };
+        let g = &self.grants;
+        let answer = match name.split_once('.') {
+            Some(("fs", method)) => g.fs.as_ref().map(|fs| crate::fs::wire(fs, method, a)),
+            Some(("terminal", method)) => g.terminal.as_ref().map(|t| crate::terminal::wire(t, method, a, events)),
+            Some(("network", method)) => g.network.as_ref().map(|n| crate::network::wire(n, method, a, events)),
+            Some(("office", method)) => g.office.as_ref().map(|o| crate::office::wire(o, method, a)),
+            _ => None,
+        };
+        answer.unwrap_or_else(|| Answer::fail(format!("{name}: not given to this window")))
     }
 
     fn claim_surface(&mut self) -> Answer {
