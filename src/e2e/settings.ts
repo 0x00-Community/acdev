@@ -56,7 +56,9 @@ export class E2e {
   }
 
   static project(from: string): string | null {
-    return up(resolve(from), (dir) => existsSync(dir) && statSync(dir).isDirectory() && CONFIGS.some((name) => existsSync(join(dir, name))) && dir)
+    const holds = (dir: string) =>
+      existsSync(dir) && statSync(dir).isDirectory() && CONFIGS.some((name) => existsSync(join(dir, name)))
+    return up(resolve(from), (dir) => holds(dir) && dir)
   }
 
   static slug(text: string): string {
