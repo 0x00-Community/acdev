@@ -21,7 +21,7 @@ const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   repository: object
   engines: object
 }
-const SDK_PIN = '0.0.7'
+const SDK_PIN = '0.0.8'
 const PAIRING = 'acdert-version'
 const CLI = 'src/cli.ts'
 const SHARED = ['src/driver/index.ts', 'src/e2e/index.ts']
