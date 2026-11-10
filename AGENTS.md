@@ -480,7 +480,13 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `desktop`、`setDefault`) 只给桌面页面、声明了它的桌面服务和声明了它的系统应用 (与某个已安装桌面同包的应用); 应用模块 (`APP_MODULES`: `launch`、
     `apps` 只有 list / open、`open`、`openPath`、`handlers`、`window`) 给所有应用. 声明外壳模块的第三方应用启动时拒绝 (403, `shell_module`).
     没给的模块经 `host.refuseModule` 记下原因, import 时报模块名和缺的声明. 哪个模块要哪条声明只在 SDK `Manifest.importRule(name, app, origin)`
-    (`{allowed, missing, reason}`, app 为 null 是桌面; acde-host 的 `Tiers` / `CapabilityCheck` 和 acde 的检查都用它). 新的 `acde:packages` (refresh / install / natives / runNative)
+    (`{allowed, missing, reason, unverified}`, app 为 null 是桌面; acde-host 的 `Tiers` / `CapabilityCheck` 和 acde 的检查都用它).
+    **服务的命名空间** (不是系统模块的名字): 运行时按服务名授权, 应用列了 `clock` 就拿到这个服务 `api` 的每个键 (`DesktopServices.start` 把每个键记到服务名上,
+    `ServiceCalls.#allowed` 先把命名空间换成服务名再查 `app.services`), 而命名空间是工厂函数的返回值, 静态规则看不到. 所以规则是: 名字在 `app.services` 里 → 许;
+    不在但应用列了别的服务 → 许, `unverified` 带一句说明 (`acde:timer resolves only if the service <应用> lists ("clock") provides the "timer" namespace`,
+    acde 把它打成 `note:`); 一个服务都没列 → 拒绝, `missing` 是 null (缺的是提供它的那个服务的名字, 规则不知道), 原因让人写服务的名字
+    (`acde:timer is not a system module; if a desktop service provides it, list that service's name in the services of <应用>`; 拼错的模块名也落在这里), 不再让人把命名空间当服务名写进去
+    (那样应用要求一个不存在的服务, 启动时 `needs "timer" (service not running)`). 别的名字 `unverified` 都是 null. 新的 `acde:packages` (refresh / install / natives / runNative)
     和 `acde:launch` (`start` 要 `launch`, `embed` 要 `slots`, `close` 只关自己起的窗口: 按窗口的 pid 认 `start` 起的, `embed` 走 claim) 桌面也有.
     系统应用拿到 `acde:windows` 时也收全局窗口事件 (`Tiers.listens`). **窗口列表从 Broker 的记录起头**: 桌面页面和收全局窗口事件的系统应用起来时, `WebInit.windows`
     带上当时所有窗口的行 (`broker/records.ts` `WindowRecords.rows()`: 嵌进 slot 的不算; `{id, appId, title, web?, state}`, `state` 是记录按 `windowstate` 事件记下的),
