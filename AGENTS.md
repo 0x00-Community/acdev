@@ -578,7 +578,8 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
 内置模块 `jsrt:host`: `call(data)` (同步问窗口进程, 等回答时引擎什么别的都不跑)、`now` / `timeOrigin`、`randomBytes` /
 `randomUUID`、`serialize` / `deserialize` (字节和用户态 V8 一样)、`encodeUtf8` / `decodeUtf8`、`importModule` / `runModule` /
 `runScript` / `defineModule` (模块向窗口要: CALL flags 2, `specifier\0referrer`, 回 `url\0source` 或 `\0原因`)、`onTaskEnd`、
-`setReporter`、`exit`. 内核 V8 现在没有 ICU (`\p{…}` 正则、`Intl` 不行) 也没有 WebAssembly.
+`setReporter`、`exit`、`onMessage` (新的 jsrt_v8). 新的 jsrt_v8 带 ICU (时区是模块参数 `jsrt.timezone`, 包里的 modprobe.d 从
+`/etc/localtime` 取; 旧的没有 ICU, `\p{…}` 正则、`Intl` 不行), 没有 WebAssembly. `ACDE_KERNEL_JS=all`: 桌面也进内核 (实验).
 
 **应用窗口在内核里** (阶段 2, crates/acde `kernel.rs`、`wire.rs`、`desk/wire.rs`, JS `acde-host/src/kernel.ts`):
 `Spec::spawn` 在 `kernel::wanted(place)` 时改走 `kernel::spawn`: 只对 `Place::Window`, `/dev/jsrt` 可读写就用 (默认开),
@@ -596,7 +597,7 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
   V8 回调和 `wire()` 分发 (`Args` trait: `V8Args` / `WireArgs`), 不写两遍.
 - **kernel.ts 的坑**: 页面的 shim 会换掉全局 `setTimeout` / `clearTimeout` / `queueMicrotask` / `postMessage` (换成页面版, 页面版又调
   host), 所以 kernel.ts 在顶层先拿住引擎的; shim 还把全局 `onmessage` 定义成页面的访问器, 内核来的消息会被页面吃掉, 所以每个任务结束
-  时 `keepReceiving()` 把它包回来 (读到的是内核分发, 写入转给页面), 等 jsrt:host 有 `onMessage` 钩子后去掉. 引擎在 onTaskEnd 之后才把
+  时 `keepReceiving()` 把它包回来 (读到的是内核分发, 写入转给页面); jsrt:host 有 `onMessage` (新的 jsrt_v8) 时直接用它, 不再包. 引擎在 onTaskEnd 之后才把
   没处理的 rejection 交给 reporter, 所以 `reportError` 自己 flush.
 - **调试**: `RUST_LOG=kernel=trace` 每个调用、模块请求、引擎消息一行 (target `kernel`).
 - `Grants` (fs / terminal / network / office) 过环: 各模块的 `wire()` 和 V8 绑定共用 crates/runtime 的 `FsCall` / `NetCall` / `OfficeCall`;
