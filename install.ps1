@@ -254,6 +254,16 @@ function Install-Acde {
         Write-Host ('acde: runs on Bun 1.4 or newer, or Node.js 22.3 or newer, and found neither: ' +
             'install Bun (https://bun.sh) or Node.js (https://nodejs.org)')
     }
+    if (@($env:Path -split ';') -notcontains $bin) {
+        if ($NoModifyPath) {
+            Write-Host "acde: $bin is not on PATH; add it to your user Path, and in this terminal run:"
+        } else {
+            Write-Host 'acde: acde is on PATH in new terminals; in this one, run:'
+        }
+        Write-Host ''
+        Write-Host "  `$env:Path = `"$bin;`$env:Path`""
+        Write-Host ''
+    }
 }
 
 Install-Acde -Version $Version -NoModifyPath:$NoModifyPath

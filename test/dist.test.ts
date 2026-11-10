@@ -11,7 +11,7 @@ import { systemTar } from '../scripts/shipped.ts'
 import { cleanup, collect, env, skipping, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
-const API = join(ROOT, '../acdert/web/packages/acde-api/dist')
+const API = process.env['ACDE_TEST_API'] ?? join(ROOT, '../acdert/web/packages/acde-api/dist')
 const SDK = '0.0.7'
 const FETCHER = which('curl') ?? which('wget')
 
@@ -271,6 +271,8 @@ describe('the release archive and the installed CLI', () => {
       const result = await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })
       expect(result.code, result.out).toBe(0)
       expect(result.out).toContain(`installed acde 0.0.2 with acdert ${SDK}`)
+      const bin = join(home, 'current', 'bin')
+      expect(result.stdout.trimEnd().split(/\r?\n/).at(-1)).toBe(`  $env:Path = "${bin};$env:Path"`)
     } finally {
       server.stop(true)
     }
