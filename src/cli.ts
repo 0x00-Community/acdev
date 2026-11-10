@@ -266,7 +266,7 @@ class Cli {
     }
     if (given.template !== undefined) Creator.starter(given.template)
     if (!interactive) {
-      if (!given.dir) throw new Error(`new: a directory (or run it in a terminal to be asked)\n${USAGE}`)
+      if (!given.dir) throw new Error('new: a directory (or run it in a terminal to be asked) (acde new --help)')
       const created = await Creator.create(given, false)
       Cli.report(created.pkg)
       console.log(`acde: ${created.starter.label} in ${created.pkg.dir}. next: ${Creator.next(created).join(' && ')}`)

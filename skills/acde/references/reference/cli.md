@@ -4,7 +4,7 @@
 acde <command> [args]
 ```
 
-On error, acde prints `acde: <reason>` and exits with code 1. Invalid arguments print the usage.
+On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an unknown action for `act`, a level for `console` …) names what is wrong and the `acde <command> --help` to read; the full usage is printed only by `acde` with no command.
 
 `acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color follows `NO_COLOR`.
 

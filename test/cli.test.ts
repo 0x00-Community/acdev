@@ -15,8 +15,10 @@ import { API_LEVEL, platformSupport, RUNNING_MODES } from '@dopame/acde-api/mani
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
+import { ACTIONS } from '../src/driver/acde.ts'
 import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
+import { Tools } from '../src/tools.ts'
 import { cleanup, collect, env, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
@@ -384,7 +386,8 @@ describe('acde.config.jsonc', () => {
     writeFileSync(join(dir, '.gitignore'), 'node_modules')
     writeFileSync(join(dir, 'index.html'), '<html><head><title>made-by-vite</title></head></html>')
     Creator.adopt(dir, 'made-by-vite', 'Vite & App', 'React')
-    expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe('<html><head><title>Vite &amp; App</title></head></html>')
+    expect(readFileSync(join(dir, 'index.html'), 'utf8'))
+      .toBe('<html><head><title>Vite &amp; App</title></head></html>')
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Creator.api(dir) })
@@ -734,6 +737,17 @@ describe('mistakes', () => {
     const value = (await cli(['build', '--out'], APP)).stderr
     expect(lines(value)).toEqual(['acde: build: --out needs a value (acde build --help)'])
     expect(lines((await cli(['eval'], APP)).stderr)).toEqual(['acde: eval: 2 arguments, not 0 (acde eval --help)'])
+    const action = await cli(['act', 'w1.2', 'tap'], APP)
+    expect(action.code).toBe(1)
+    const actions = ACTIONS.join(', ')
+    expect(lines(action.stderr)).toEqual([`acde: act: tap is not an action (${actions}) (acde act --help)`])
+    const level = lines((await cli(['console', '--level', 'loud'], APP)).stderr)
+    const levels = [...Tools.LEVELS].join(', ')
+    expect(level).toEqual([`acde: console: --level loud: one of ${levels} (acde console --help)`])
+    const nameless = await cli(['new', '--yes'], APP)
+    expect(nameless.code).toBe(1)
+    const asked = 'acde: new: a directory (or run it in a terminal to be asked) (acde new --help)'
+    expect(lines(nameless.stderr)).toEqual([asked])
     const bare = await cli([], APP)
     expect(bare.code).toBe(1)
     expect(bare.stderr).toContain('usage: acde <command>')
