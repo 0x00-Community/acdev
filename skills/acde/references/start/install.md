@@ -55,7 +55,26 @@ In PowerShell:
 irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 ```
 
-This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`. You can also pass options as environment variables: `ACDE_VERSION`, `ACDE_NO_MODIFY_PATH`.
+This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`.
+
+`irm | iex` cannot pass parameters. Set environment variables before it, or run the script as a script block to pass its parameters `-Version` and `-NoModifyPath`:
+
+```powershell
+$env:ACDE_VERSION = '0.1.0'; $env:ACDE_NO_MODIFY_PATH = '1'
+irm https://pkgs.dopame.ai/acde/install.ps1 | iex
+
+& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version 0.1.0 -NoModifyPath
+```
+
+### Installer options
+
+| Option | `install.sh` | `install.ps1` |
+| --- | --- | --- |
+| Install a specific version (and its runtime) | `--version X.Y.Z` | `-Version X.Y.Z` or `ACDE_VERSION` |
+| Leave startup files / the user `Path` alone | `--no-modify-path` | `-NoModifyPath` or `ACDE_NO_MODIFY_PATH` set to any value |
+| Install somewhere else than `~/.acde` | `ACDE_INSTALL` | `ACDE_INSTALL` |
+
+Environment variables set this way stay set in that terminal; remove them afterwards (`Remove-Item Env:ACDE_VERSION`) if a later install should take the defaults.
 
 ## Verify
 

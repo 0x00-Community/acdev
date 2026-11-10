@@ -29,6 +29,8 @@ Windows, in PowerShell:
 irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 ```
 
+Run the plain command unless the user asked for something else. The installers take options: a version (`sh -s -- --version X.Y.Z`; in PowerShell `ACDE_VERSION`), leaving the shell startup files or the user `Path` alone (`sh -s -- --no-modify-path`; in PowerShell `ACDE_NO_MODIFY_PATH=1`), and another install directory (`ACDE_INSTALL`, both). `irm | iex` cannot pass parameters, so in PowerShell set the environment variables first, or run `& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version X.Y.Z -NoModifyPath`.
+
 The installer downloads the acde archive and the Dopame runtime it pairs with, acdert (the binary for this platform and its host files), checks every SHA-256, and unpacks them into `~/.acde` (`%USERPROFILE%\.acde` on Windows): `acdert` ends up in the same `bin` directory as `acde`. It then adds that directory to PATH in the user's shell startup file. It needs no root. If any download or check fails, it installs nothing and an earlier install stays as it was. Running it again upgrades an existing install, runtime included.
 
 The PATH change reaches new shells only. When the shell you are in does not have it yet, the installer's last line is the command that puts it on PATH there; run it, or call acde by its path, `~/.acde/bin/acde` (Windows: `%USERPROFILE%\.acde\current\bin\acde.cmd`).
