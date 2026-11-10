@@ -289,3 +289,18 @@ export function ask(error: AcdePermissionError): boolean {
   const unknown = `import { capabilities } from 'acde:capabilities'\nexport const waiting = capabilities.get('terminal').state === 'waiting'`
   assert.ok(errors('app', unknown).length > 0, 'a state the runtime does not report is a type error')
 })
+
+test('every row of a window list carries its state', () => {
+  const shell = `
+import { windows } from 'acde:windows'
+import type { WindowState } from ${JSON.stringify(`${src}shell`)}
+export const states: WindowState[] = windows.list().map((row) => row.state)
+`
+  assert.deepEqual(errors('shell', shell), [])
+  const app = `
+import { launch } from 'acde:launch'
+export const minimized: number[] = launch.list().filter((row) => row.state === 'minimized').map((row) => row.id)
+export const states: ('normal' | 'minimized' | 'filled' | 'fullscreen')[] = launch.list().map((row) => row.state)
+`
+  assert.deepEqual(errors('app', app), [])
+})

@@ -116,7 +116,7 @@ export interface NativeWindow {
   readonly appId: string | null
   readonly title: string | null
   readonly web?: boolean
-  readonly state?: WindowState
+  readonly state: WindowState
 }
 
 export interface AcdeWindows extends WindowsEvents {

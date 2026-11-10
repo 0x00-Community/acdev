@@ -39,6 +39,7 @@ class Notices {
 
 export class WindowList {
   static readonly EVENTS = WINDOW_EVENTS.map((type) => type.slice('window'.length))
+  static readonly STATES: readonly WindowState[] = ['normal', 'minimized', 'filled', 'fullscreen']
   readonly notices = new Notices()
   readonly #windows = new Map<number, NativeWindow>()
   readonly #rpc: Rpc
@@ -47,17 +48,25 @@ export class WindowList {
     this.#rpc = rpc
   }
 
-  track(event: WindowEvent): void {
+  deliver(event: WindowEvent): void {
+    this.#track(event)
+    this.notices.emit(`windows:${event.type.slice('window'.length)}`, event)
+  }
+
+  #track(event: WindowEvent): void {
     if (event.type === 'windowclose') return void this.#windows.delete(event.window)
     const was = this.#windows.get(event.window)
     if (event.type === 'windowstate') {
-      if (was) this.#windows.set(event.window, { ...was, state: event['state'] as WindowState })
+      const state = WindowList.STATES.find((known) => known === event['state'])
+      if (was && state) this.#windows.set(event.window, { ...was, state })
       return
     }
+    if (event.type !== 'windowopen' && event.type !== 'windowtitle') return
     const text = (value: unknown, fallback: string | null) => (typeof value === 'string' && value ? value : fallback)
     const web = event['web'] === true || was?.web === true
     const appId = text(event['appId'], was?.appId ?? null)
-    this.#windows.set(event.window, { id: event.window, appId, title: text(event['title'], was?.title ?? null), ...(web ? { web } : {}) })
+    const title = text(event['title'], was?.title ?? null)
+    this.#windows.set(event.window, { id: event.window, appId, title, ...(web ? { web } : {}), state: was?.state ?? 'normal' })
   }
 
   screenshot(path: string): Promise<{ width: number; height: number }> {
