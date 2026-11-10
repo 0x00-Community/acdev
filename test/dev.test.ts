@@ -210,6 +210,28 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(slug('vault#1048576')).toBe('vault#1048576')
     expect(slug('a/b:c')).toBe('a-b-c')
   })
+
+  test('inspect --find: only the matching elements, each with its nearest named ancestor', () => {
+    const window = { id: 7, kind: 'web', app: 'todo', title: 'To-do', mode: 'normal', rect: [0, 0, 8, 6] } as const
+    const windows = [{ ...window, ref: 'w1', z: 1, focus: true, hidden: false, pid: null }]
+    const item = {
+      ref: 'w1.10', role: 'listitem', name: 'Buy milk',
+      children: [
+        { ref: 'w1.11', role: 'text', name: 'Buy milk' },
+        { ref: 'w1.12', role: 'checkbox', name: 'Done', states: ['checked'] },
+        { ref: 'w1.13', role: 'button', name: 'Delete' },
+      ],
+    }
+    const trees = { w1: [{ ref: 'w1.4', role: 'list', children: [item] }] }
+    expect(Format.found({ text: '', windows, trees }, ' MILK ')).toEqual([
+      'w1 todo "To-do":',
+      '- listitem "Buy milk" [w1.10]',
+      '- text "Buy milk" [w1.11]  in listitem "Buy milk" [w1.10]',
+    ])
+    expect(Format.found({ text: '', windows, trees }, 'delete'))
+      .toEqual(['w1 todo "To-do":', '- button "Delete" [w1.13]  in listitem "Buy milk" [w1.10]'])
+    expect(Format.found({ text: '', windows, trees }, 'nothing')).toEqual([])
+  })
 })
 
 describe('acde dev with a stand-in acdert', () => {
@@ -301,8 +323,12 @@ describe('acde dev with a stand-in acdert', () => {
       expect(readFileSync(join(base, 'alpha#7.png')).subarray(1, 4).toString()).toBe('PNG')
       const named = await dev.tool(['shot', 'desktop', '-o', join(base, 'd.png')], alpha)
       expect(named.stdout.trim()).toBe(join(base, 'd.png'))
-      const inspected = await dev.tool(['inspect', '--find', 'Save', '--window', 'w1', '--all'], alpha)
-      expect(inspected.stdout).toBe('snapshot {"window":"w1","find":"Save","all":true}\n')
+      const inspected = await dev.tool(['inspect', '--find', 'add', '--window', 'w1', '--all'], alpha)
+      expect(inspected.stdout).toBe('w1 alpha "Alpha":\n- button "Add" [disabled] [w1.3]\n')
+      const missing = await dev.tool(['inspect', '--find', 'Save'], alpha)
+      expect(missing.code).toBe(1)
+      expect(missing.stderr).toContain('acde: no element\'s name or value contains "Save"; ')
+      expect((await dev.tool(['inspect'], alpha)).stdout).toBe('snapshot {"window":null,"find":null,"all":false}\n')
       expect((await dev.tool(['act', 'w1.5', 'type', 'hello world'], alpha)).stdout).toBe('type w1.5 "hello world"\n')
       expect((await dev.tool(['act', 'w1.5', 'fail'], alpha)).code).toBe(1)
       expect((await dev.tool(['webs', '--session', String(dev.child.pid)], dev.root)).code).toBe(0)

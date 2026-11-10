@@ -233,7 +233,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 连不上 (`ECONNREFUSED` / `ENOENT`) 时删掉会话文件, 报 `acde dev <pid> is gone`.
 
 - **命令** (`src/tools.ts`): `webs` (表格)、`eval <web> <代码|->` (JSON; web 是 web 名、应用 id 或 `desktop`)、`shot <web> [-o]` / `screen [-o]`
-  (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`)、`act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1;
+  (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`; 给了 `--find` 时只打匹配的元素: acdert 回的 `trees` 里一个命中节点带着整棵子树 (运行时的 `find` 命中就停),
+  所以 acde 按同样的规则 (名字或值含这段文字, 不分大小写) 在 `trees` 里重新找, 每个命中一行, 后面跟最近的有名字的祖先, 按窗口分组 (`Format.found`);
+  一个都没有时 stderr 一行、退出码 1)、`act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1;
   `close` 时连接断了 (acdert 随窗口退出, 如单应用的 `acde dev`) 算成功: 打一行说会话结束, 退出码 0; 别的动作断了照旧报错, 不把崩溃当成功)、
   `stop` (挑会话同上, 连上发 `{type: "quit"}`, 等连接断、再等 acde dev 的 pid 退出, 各最多 10 s, 还在就 SIGTERM (Windows 上是强制结束,
   acdert 因连接断开跟着退出), 删会话文件, 打 `acde: stopped acde dev <pid>`; 连不上时删会话文件、报 `is gone`, 不按 pid 结束进程: pid 可能已被复用)、

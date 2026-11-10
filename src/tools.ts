@@ -39,14 +39,27 @@ export class Tools {
           console.log((await acde.screenshot(args[0]!, { path })).path)
           return 0
         }
-        case 'inspect':
-          console.log((await acde.snapshot({
+        case 'inspect': {
+          const find = flags.get('find')
+          const snapshot = await acde.snapshot({
             ...(flags.has('window') && { window: flags.get('window')! }),
-            ...(flags.has('find') && { find: flags.get('find')! }),
+            ...(find !== undefined && { find }),
             ...(flags.has('all') && { all: true }),
             ...(flags.has('offscreen') && { offscreen: true }),
-          })).text)
-          return 0
+          })
+          if (find === undefined) {
+            console.log(snapshot.text)
+            return 0
+          }
+          const found = Format.found(snapshot, find)
+          if (found.length) {
+            console.log(found.join('\n'))
+            return 0
+          }
+          const hint = flags.has('offscreen') ? '' : '; elements scrolled out of view need --offscreen'
+          console.error(`acde: no element's name or value contains ${JSON.stringify(find.trim())}${hint}`)
+          return 1
+        }
         case 'act': {
           const result = await acde.act(args[0]!, args[1] as InspectAction, args[2]).catch(async (error: unknown) => {
             if (args[1] !== 'close' || !(await Tools.#ended(acde))) throw error
