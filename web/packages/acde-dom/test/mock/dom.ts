@@ -489,6 +489,15 @@ export class MockDom implements DomNative {
     for (let i = 0; i < style.length; i++) out.push(style.item(i), style.getPropertyValue(style.item(i)))
     return out
   }
+  readonly supported: [string, string][] = []
+  cssSupports(condition: string): boolean {
+    this.supported.push(['condition', condition])
+    return /display:\s*grid/.test(condition)
+  }
+  cssSupportsDeclaration(property: string, value: string): boolean {
+    this.supported.push([property, value])
+    return property === 'display' && value === 'grid'
+  }
   caretRect(_id: number, _offset: number): Float64Array {
     return new Float64Array(4)
   }

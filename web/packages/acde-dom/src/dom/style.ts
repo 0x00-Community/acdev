@@ -441,9 +441,9 @@ export const CSS = {
     }
     return out
   },
-  supports(property: string, value?: string): boolean {
-    void property
-    void value
-    return true
+  supports(...args: readonly unknown[]): boolean {
+    if (args.length === 0) throw new TypeError("Failed to execute 'supports' on 'CSS': 1 argument required, but only 0 present.")
+    if (args.length === 1) return dom.cssSupports(String(args[0]))
+    return dom.cssSupportsDeclaration(String(args[0]), String(args[1]))
   },
 }

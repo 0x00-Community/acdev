@@ -562,6 +562,14 @@ natives! {
         let id = id(scope, &args, 0); text!(pseudo = scope, args, 1);
         dom.computed_style_all(id, &pseudo)
     }
+    "cssSupports" => fn css_supports(scope, args, dom) {
+        text!(condition = scope, args, 0);
+        dom.css_supports(&condition)
+    }
+    "cssSupportsDeclaration" => fn css_supports_declaration(scope, args, dom) {
+        text!(property = scope, args, 0); text!(value = scope, args, 1);
+        dom.css_supports_declaration(&property, &value)
+    }
     "caretRect" => fn caret_rect(scope, args, dom) {
         let (id, offset) = (id(scope, &args, 0), f(scope, &args, 1) as u32);
         dom.caret_rect(id, offset).map(|q| Floats(q.to_vec()))

@@ -485,3 +485,20 @@ test('handles handed over for writing (open requests, pickers): createWritable w
   assert.deepEqual(picked, { name: 'doc.txt', path: '/home/u/doc.txt', kind: 'file', mode: 'readwrite' })
   assert.equal(web.internals.handles.picked({ name: 'doc.txt', path: '/etc/passwd' }), null)
 })
+
+test('CSS.supports asks render: a condition text or a property and a value; no argument throws', async () => {
+  using web = await page()
+  assert.equal(web.run('CSS.supports("display", "grid")'), true)
+  assert.equal(web.run('CSS.supports("no-such-property", "zzz")'), false)
+  assert.equal(web.run('CSS.supports("(display: grid) and (not (display: nope))")'), true)
+  assert.equal(web.run('CSS.supports("selector(:nope)")'), false)
+  assert.equal(web.run('CSS.supports(1, 2)'), false)
+  assert.deepEqual(web.dom.supported, [
+    ['display', 'grid'],
+    ['no-such-property', 'zzz'],
+    ['condition', '(display: grid) and (not (display: nope))'],
+    ['condition', 'selector(:nope)'],
+    ['1', '2'],
+  ])
+  assert.equal(web.run('try { CSS.supports() } catch (e) { e instanceof TypeError }'), true)
+})

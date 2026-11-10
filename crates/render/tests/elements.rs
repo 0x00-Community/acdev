@@ -159,3 +159,26 @@ fn the_gap_follows_the_legend_when_it_changes() {
     assert!(!red(rgb(&px, l.x + l.width - 4.0, mid)), "no border behind the longer legend");
     assert!(red(rgb(&px, f.x + f.width - 10.0, mid)), "the border after it");
 }
+
+
+#[test]
+fn css_supports_answers_from_the_parser() {
+    let doc = page("<!doctype html><p>x</p>");
+    let dom = &doc.dom;
+    assert!(dom.css_supports("(display: grid)").unwrap());
+    assert!(dom.css_supports("display: grid").unwrap(), "a bare declaration");
+    assert!(dom.css_supports("(display: grid) and (not (display: nope))").unwrap());
+    assert!(dom.css_supports("selector(:hover)").unwrap());
+    assert!(!dom.css_supports("selector(:nope)").unwrap());
+    assert!(!dom.css_supports("(no-such-property: zzz)").unwrap());
+    assert!(!dom.css_supports("").unwrap());
+    assert!(dom.css_supports_declaration("display", "grid").unwrap());
+    assert!(dom.css_supports_declaration("--anything", "1 2 3").unwrap());
+    assert!(!dom.css_supports_declaration("no-such-property", "zzz").unwrap());
+    assert!(!dom.css_supports_declaration("display", "nope").unwrap());
+    assert!(!dom.css_supports_declaration("color", "red !important").unwrap(), "no !important in the two-argument form");
+    assert!(!dom.css_supports_declaration(" color", "red").unwrap());
+    for property in ["", "123", "color:", "(color"] {
+        assert!(!dom.css_supports_declaration(property, "red").unwrap(), "{property:?} is not a property name");
+    }
+}

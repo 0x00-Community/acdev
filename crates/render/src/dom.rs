@@ -616,6 +616,14 @@ impl Dom {
         })
     }
 
+    pub fn css_supports(&self, condition: &str) -> Result<bool> {
+        self.read(|e| Ok(e.doc.css_supports_condition(condition)))
+    }
+
+    pub fn css_supports_declaration(&self, property: &str, value: &str) -> Result<bool> {
+        self.read(|e| Ok(e.doc.css_supports_declaration(property, value)))
+    }
+
     pub fn computed_style_all(&self, id: u32, pseudo: &str) -> Result<Vec<String>> {
         self.on(id, |e, node| {
             e.resolved();

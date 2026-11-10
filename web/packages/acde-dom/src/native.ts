@@ -125,6 +125,8 @@ export interface DomNative {
   hitTestAll(x: number, y: number): Uint32Array
   computedStyle(id: number, pseudo: string, property: string): string
   computedStyleAll(id: number, pseudo: string): string[]
+  cssSupports(condition: string): boolean
+  cssSupportsDeclaration(property: string, value: string): boolean
   caretRect(id: number, offset: number): Float64Array
   caretFromPoint(x: number, y: number): { node: number; offset: number } | null
   textRects(id: number, start: number, end: number): Float64Array
