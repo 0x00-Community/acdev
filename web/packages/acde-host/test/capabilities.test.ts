@@ -120,7 +120,8 @@ describe('CapabilityCheck', () => {
     const states = Object.fromEntries(snapshot.statuses.map((s) => [s.name, s.state]))
     assert.equal(states['fs'], 'available')
     assert.equal(states['windows'], 'available')
-    assert.equal(states['terminal'], 'unsupported')
+    assert.equal(states['terminal'], 'available')
+    assert.equal(states['network'], 'unsupported')
   })
 })
 
@@ -131,7 +132,7 @@ describe('CapabilityCheck and approval', () => {
     assert.deepEqual(c.status('launch', a, third), { name: 'launch', kind: 'system', state: 'denied', reason: 'denied by the user', optional: false })
     assert.deepEqual(c.missing(a, third).map((s) => s.name), ['launch'])
     assert.ok(c.refusal(a, third)!.message.includes(`"launch" (denied by the user)`))
-    assert.equal(check('win32', 'desktop', [], [], ['terminal']).status('terminal', app({ capabilities: { terminal: true } }), third).state, 'unsupported')
+    assert.equal(check('win32', 'desktop', [], [], ['network']).status('network', app({ capabilities: { network: true } }), third).state, 'unsupported')
   })
 
   test('the live module asks for an available capability and keeps the answer', async () => {
