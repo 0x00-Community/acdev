@@ -1,3 +1,9 @@
+import type { AppsChangedEvent, DesktopEventMap, ShortcutEvent, TerminalEvent, WindowGrabEvent, WindowGrabLostEvent, WindowsEvents } from './events'
+import type { AcdeOffice } from './office'
+
+export type * from './events'
+export type * from './office'
+
 export interface FinderRoot {
   path: string
   label: string
@@ -53,6 +59,12 @@ export interface AcdeFsError extends Error {
   readonly code: AcdeFsErrorCode
 }
 
+export interface FinderPlace {
+  readonly root: string | null
+  readonly path: string
+  readonly file: string | null
+}
+
 export interface FinderStat extends FinderEntry {
   path: string
 }
@@ -98,7 +110,7 @@ export interface AcdeFs {
   ): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean }>
   preview(root: string, path: string): Promise<FinderPreview>
   download(root: string, path: string): Promise<FileBytes>
-  place(root: string, path?: string, file?: string): Promise<unknown>
+  place(root: string, path?: string, file?: string): Promise<FinderPlace>
   mkdir(root: string, path: string, options?: MkdirOptions): Promise<FinderEntry>
   stat(root: string, path: string): Promise<FinderStat>
   readText(root: string, path: string): Promise<FileText>
@@ -113,15 +125,6 @@ export interface AcdeFs {
   revoke(rootPath: string): Promise<void>
 }
 
-export interface AcdeOffice {
-  server(): Promise<unknown>
-  state(root?: string, dir?: string, path?: string): Promise<unknown>
-  status(key: string): Promise<unknown>
-  save(body: { key: string }): Promise<{ result: 'requested' | 'no_changes' }>
-  'new'(body: { root: string; kind: string; dir?: string; name?: string }): Promise<{ path: string }>
-  editorPage(setup: { api: string; config: unknown }, theme: 'light' | 'dark'): Promise<string>
-}
-
 export interface NativeWindow {
   readonly id: number
   readonly appId: string | null
@@ -130,34 +133,7 @@ export interface NativeWindow {
   readonly state?: WindowState
 }
 
-export type WindowsEventType =
-  | 'open'
-  | 'close'
-  | 'title'
-  | 'fullscreen'
-  | 'unfullscreen'
-  | 'minimize'
-  | 'state'
-  | 'activate'
-  | 'minsize'
-  | 'parent'
-  | 'menus'
-  | 'crash'
-  | 'hang'
-  | 'responsive'
-  | 'attention'
-  | 'ready'
-  | 'show'
-  | 'animated'
-
-export interface WindowsEvent {
-  readonly type: string
-  readonly window: number
-  readonly [field: string]: unknown
-}
-
-export interface AcdeWindows {
-  on(type: WindowsEventType, handler: (event: WindowsEvent) => void): () => boolean
+export interface AcdeWindows extends WindowsEvents {
   list(): NativeWindow[]
   launch(
     argv: string[],
@@ -169,8 +145,13 @@ export interface AcdeWindows {
   focus?(id: number): Promise<void>
   hide?(id: number): Promise<void>
   show?(id: number): Promise<void>
-  invokeMenu?(id: number, menu: string, item: string): Promise<unknown>
-  stats?(): Promise<unknown>
+  invokeMenu?(id: number, menu: string, item: string): Promise<void>
+  stats?(): Promise<Readonly<Record<string, number>>>
+  /**
+   * Plays a short animation on a window. Where the runtime cannot animate, the
+   * animation may complete at once; its completion event `windowanimated`
+   * (`on('animated')`) still fires.
+   */
   animate?(
     id: number,
     options: {
@@ -186,11 +167,6 @@ export interface AcdeWindows {
   shortcut?(combo: string, scope?: 'session' | 'desktop'): Promise<void>
   unshortcut?(combo: string, scope?: 'session' | 'desktop'): Promise<void>
 }
-
-export type TerminalEvent =
-  | { type: 'output'; data: string }
-  | { type: 'cwd'; path: string }
-  | { type: 'exit'; code: number | null; signal: number | null }
 
 export interface AcdeTerminals {
   open(cols: number, rows: number): Promise<{ id: string }>
@@ -253,9 +229,8 @@ export interface OpenLinkRequest {
 
 export type SystemRequest = OpenFileRequest | OpenLinkRequest
 
-export interface AppRequest {
-  readonly kind: string
-  readonly [field: string]: unknown
+export type AppRequest<K extends string = string, Fields extends object = Record<never, never>> = { readonly kind: K } & {
+  readonly [P in keyof Fields]: Fields[P]
 }
 
 export type WindowRequest = SystemRequest | AppRequest
@@ -269,12 +244,14 @@ export interface Opened {
 export interface AcdeOpen {
   (request: SystemRequest): Promise<Opened>
   (app: string, request: SystemRequest): Promise<Opened>
-  (app: string, request: AppRequest, options?: OpenWindowOptions): Promise<{ window: number }>
+  <R extends AppRequest>(app: string, request: R, options?: OpenWindowOptions): Promise<{ window: number }>
+  (app: string, request?: null, options?: OpenWindowOptions): Promise<{ window: number }>
+  /** @deprecated Level 0 request without a kind; removed with level 0. */
   (app: string, request?: Record<string, unknown> | null, options?: OpenWindowOptions): Promise<{ window: number }>
 }
 
 export interface AcdeAppList {
-  on?(type: 'changed', handler: (event: { readonly apps?: readonly DesktopApp[] }) => void): () => boolean
+  on?(type: 'changed', handler: (event: AppsChangedEvent) => void): () => boolean
   list(): Promise<DesktopApp[]>
   open: AcdeOpen
 }
@@ -288,7 +265,7 @@ export interface AcdeApps extends AcdeAppList, AcdeOpenFiles {
 }
 
 export interface AcdePackages {
-  on(type: 'changed', handler: (event: { readonly apps?: readonly DesktopApp[] }) => void): () => boolean
+  on(type: 'changed', handler: (event: AppsChangedEvent) => void): () => boolean
   refresh(): Promise<DesktopApp[]>
   install(dir: string): Promise<{ id: string; dir: string; apps: DesktopApp[] }>
   natives(): Promise<NativeApp[]>
@@ -300,12 +277,11 @@ export interface LaunchOptions {
   readonly env?: Readonly<Record<string, string>>
 }
 
-export interface AcdeLaunch {
+export interface AcdeLaunch extends WindowsEvents {
   start(argv: readonly string[], options?: LaunchOptions): Promise<number>
   embed(argv: readonly string[], options?: LaunchOptions): Promise<number>
   close(window: number): Promise<boolean>
   list(): NativeWindow[]
-  on(type: WindowsEventType, handler: (event: WindowsEvent) => void): () => boolean
 }
 
 export interface DesktopInfo {
@@ -427,26 +403,6 @@ export interface WindowHost {
   setMenus(menus: readonly AppMenu[]): void
 }
 
-export interface NotificationEvent {
-  readonly type: 'notification'
-  readonly window: number
-  readonly app: string | null
-  readonly label: string | null
-  readonly title: string
-  readonly body: string
-  readonly icon: string
-  readonly tag: string
-}
-
-export interface DownloadEvent {
-  readonly type: 'download'
-  readonly window: number
-  readonly app: string | null
-  readonly path: string
-  readonly name: string
-  readonly size: number
-}
-
 export interface WindowApp {
   mount(element: Element, host: WindowHost): () => void
 }
@@ -501,12 +457,17 @@ export interface AcdeWindow {
   mount(app: WindowApp): void
   setTitle(title: string): void
   setMenus(menus: readonly AppMenu[]): void
-  close(): Promise<unknown>
-  minimize(): Promise<unknown>
-  requestAttention(): Promise<unknown>
+  close(): Promise<boolean>
+  minimize(): Promise<void>
+  requestAttention(): Promise<void>
   requestState(state: WindowState): void
   requestMode(mode: WindowMode | 'fullscreen'): void
   setGrabHint(rect: WindowRect, edges?: readonly WindowEdge[]): void
+  /**
+   * Blurs what lies behind a part of the window. Where the platform cannot
+   * draw the effect exactly, it may be approximated (see
+   * `acde:capabilities` `window.backdrop`).
+   */
   setBackdrop(
     rect: WindowRect | null,
     effect?: { radius?: number; blur?: number; saturate?: number; brightness?: number },
@@ -517,15 +478,19 @@ export interface AcdeWindow {
   shortcut(combo: string): Promise<void>
   unshortcut(combo: string): Promise<void>
   on(name: 'beforeclose', handler: () => boolean | void | Promise<boolean | void>): () => boolean
-  on(name: 'request', handler: (request: WindowRequest | Record<string, unknown>) => void): () => boolean
-  on(name: 'suspend', handler: () => unknown): () => boolean
-  on(name: 'resume', handler: (state: unknown) => void): () => boolean
+  on<R extends AppRequest = AppRequest>(name: 'request', handler: (request: SystemRequest | R) => void): () => boolean
+  on(name: 'suspend' | 'resume', handler: () => void): () => boolean
   on(name: 'activate' | 'deactivate', handler: () => void): () => boolean
+  on(name: 'grab', handler: (event: WindowGrabEvent) => void): () => boolean
+  on(name: 'grablost', handler: (event: WindowGrabLostEvent) => void): () => boolean
   on(name: 'state', handler: (event: WindowStateEvent) => void): () => boolean
   on(name: 'output', handler: (output: WindowOutput) => void): () => boolean
   on(name: 'hostcontrols', handler: (hostControls: boolean) => void): () => boolean
   on(name: 'minimizable', handler: (minimizable: boolean) => void): () => boolean
-  on(name: 'shortcut', handler: (event: { readonly key: string }) => void): () => boolean
+  on(name: 'shortcut', handler: (event: ShortcutEvent) => void): () => boolean
+  /** @deprecated Level 0 untyped request; removed with level 0. */
+  on(name: 'request', handler: (request: Record<string, unknown>) => void): () => boolean
+  /** @deprecated Level 0 untyped form; removed with level 0. */
   on(name: WindowEventName, handler: (value?: unknown) => unknown): () => boolean
 }
 
@@ -602,21 +567,7 @@ export interface AcdeDesktop {
   pin?(element: Element, options?: PinOptions): PinnedPanel
   setDoubleClick?(action: DoubleClickAction): void
   setFrameTheme?(theme: FrameTheme | null): void
-  on(type: 'download', handler: (event: DownloadEvent) => void): () => boolean
-  on(type: 'notification', handler: (event: NotificationEvent) => void): () => boolean
-  on(
-    type: 'screenshot',
-    handler: (event: {
-      readonly path: string
-      readonly width?: number
-      readonly height?: number
-      readonly error?: string
-    }) => void,
-  ): () => boolean
-  on(
-    type: 'shortcut',
-    handler: (event: { readonly key: string; readonly title?: string; readonly window?: number }) => void,
-  ): () => boolean
+  on<K extends keyof DesktopEventMap>(type: K, handler: (event: DesktopEventMap[K]) => void): () => boolean
 }
 
 export interface ShellModuleTypes {
