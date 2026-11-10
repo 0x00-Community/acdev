@@ -103,7 +103,7 @@ mod tests {
             return;
         }
         let gpu = Gpu::open().expect("a GPU");
-        gpu.shared.device.destroy();
+        gpu.shared.destroy();
         let _ = gpu.shared.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(HANG) });
         std::thread::sleep(HANG);
         log::error!("still running after losing the device");

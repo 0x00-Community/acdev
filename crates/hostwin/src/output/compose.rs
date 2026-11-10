@@ -494,9 +494,8 @@ impl Thread {
         match self.fault {
             Some(Fault::Lost) => {
                 log::info!("ACDE_HOST_FAULT: destroying the GPU device");
-                let device = &self.gpu.shared.device;
-                device.destroy();
-                let _ = device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(SCREENSHOT_WAIT) });
+                self.gpu.shared.destroy();
+                let _ = self.gpu.shared.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(SCREENSHOT_WAIT) });
             }
             Some(Fault::Panic) => panic!("ACDE_HOST_FAULT: panicking on the compose thread"),
             Some(Fault::Outdated) | None => {}

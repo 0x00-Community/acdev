@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Once};
 use std::time::Duration;
 
@@ -24,6 +24,7 @@ pub struct Gpu {
     polling: Condvar,
     poller: Once,
     lost: Mutex<HashMap<u64, LostListener>>,
+    gone: AtomicBool,
 }
 
 enum State {
@@ -91,8 +92,10 @@ impl Gpu {
             polling: Condvar::new(),
             poller: Once::new(),
             lost: Mutex::default(),
+            gone: AtomicBool::new(false),
         });
-        gpu.device.on_uncaptured_error(Arc::new(|error: wgpu::Error| {
+        let weak = Arc::downgrade(&gpu);
+        gpu.device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
             let error = SINK.with(|sink| match sink.borrow_mut().as_mut() {
                 Some(sink) => {
                     sink(error);
@@ -100,14 +103,17 @@ impl Gpu {
                 }
                 None => Some(error),
             });
-            if let Some(error) = error {
-                panic!("wgpu error: {error}");
+            let Some(error) = error else { return };
+            if weak.upgrade().is_some_and(|gpu| gpu.gone()) {
+                return log::debug!("GPU error after the device was lost: {error}");
             }
+            panic!("wgpu error: {error}");
         }));
         let weak = Arc::downgrade(&gpu);
         gpu.device.set_device_lost_callback(move |reason, message| {
             log::error!("web layer GPU device lost ({reason:?}): {message}");
             if let Some(gpu) = weak.upgrade() {
+                gpu.gone.store(true, Ordering::SeqCst);
                 for listener in lock(&gpu.lost).values() {
                     listener(&message);
                 }
@@ -176,6 +182,15 @@ impl Gpu {
             State::Own(gpu) | State::Published(gpu) => gpu.clone(),
             _ => None,
         }
+    }
+
+    pub fn gone(&self) -> bool {
+        self.gone.load(Ordering::SeqCst)
+    }
+
+    pub fn destroy(&self) {
+        self.gone.store(true, Ordering::SeqCst);
+        self.device.destroy();
     }
 
     pub fn submit_lock(&self) -> MutexGuard<'_, ()> {

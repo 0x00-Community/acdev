@@ -165,7 +165,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   不重建设备: 设备丢失 (`gpu.rs` 的 `on_lost`) 或合成 / 出帧线程 panic (`guarded`) 时记一条 `host window: … exiting` 的 error, 经 `Cmd::Exit`
   照常退出 (丢失退 1, panic 退 101), 5 秒内没退完直接 `process::exit`. 取 surface 纹理时 Outdated / Lost 重新 configure 后当场再取一次,
   还不行或 Timeout / Occluded 时 50 ms 后再合成一次, 静止的页面不用等下一次输入. `ACDE_HOST_FAULT=outdated|lost|panic` (调试用) 让合成线程
-  在第 3 次合成时把这一帧的 surface 当成过期、`Device::destroy` 或 panic.
+  在第 3 次合成时把这一帧的 surface 当成过期、`acde_gpu::Gpu::destroy` 或 panic. 设备丢失后 (丢失回调或 `destroy`, `Gpu::gone`) wgpu 报的未捕获错误
+  只记 debug, 不再 panic (以前出帧线程会在丢失之后多 panic 一次, 无界面时可能挂住不退出, #97).
 - **刷新率**: 出帧节奏跟宿主窗口所在的显示器. Win32 (`platform/win32/refresh.rs`) 在窗口挪到另一台显示器 (`WM_MOVE` / `WM_SIZE` /
   `WM_DPICHANGED` 时比 `MonitorFromWindow`) 或 `WM_DISPLAYCHANGE` 后重读这台显示器的当前模式 (`EnumDisplaySettingsW` 按设备名), 发
   `HostEvent::Refresh`; `Server::set_refresh` 变了才记进 `State.refresh` 并给每条出帧线程发 `Msg::Refresh`, 打 `host window: monitor refresh` (启动时也打一次).
