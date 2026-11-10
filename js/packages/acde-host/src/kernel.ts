@@ -113,6 +113,49 @@ function proxy<T extends object>(iface: Iface, kinds: Readonly<Record<string, 'r
   return target as T
 }
 
+const attributes = new Map<number, Map<string, string | null>>()
+
+function changed(id: number): void {
+  attributes.delete(id)
+}
+
+const cachedDom = {
+  getAttribute(id: number, name: string): string | null {
+    let known = attributes.get(id)
+    const value = known?.get(name)
+    if (value !== undefined) return value
+    const fresh = call(Iface.Dom, 'getAttribute', [id, name]) as string | null
+    if (!known) attributes.set(id, (known = new Map()))
+    known.set(name, fresh)
+    return fresh
+  },
+  hasAttribute(id: number, name: string): boolean {
+    const value = attributes.get(id)?.get(name)
+    if (value !== undefined) return value !== null
+    return call(Iface.Dom, 'hasAttribute', [id, name]) as boolean
+  },
+  setAttribute(id: number, name: string, value: string): boolean {
+    changed(id)
+    return call(Iface.Dom, 'setAttribute', [id, name, value]) as boolean
+  },
+  removeAttribute(id: number, name: string): boolean {
+    changed(id)
+    return call(Iface.Dom, 'removeAttribute', [id, name]) as boolean
+  },
+  setValue(id: number, value: string): void {
+    changed(id)
+    write(Iface.Dom, 'setValue', [id, value])
+  },
+  unpin(id: number): void {
+    changed(id)
+    write(Iface.Dom, 'unpin', [id])
+  },
+  parseDocument(...args: unknown[]): void {
+    attributes.clear()
+    write(Iface.Dom, 'parseDocument', args)
+  },
+}
+
 function answer(token: number, value: unknown): void {
   const w = new Writer()
   w.u8(Out.Answer)
@@ -123,6 +166,7 @@ function answer(token: number, value: unknown): void {
 
 function receive(event: { data: unknown }): void {
   if (typeof event.data === 'string') return
+  attributes.clear()
   const r = new Reader(new Uint8Array(event.data as ArrayBuffer))
   switch (r.u8()) {
     case In.Resolve: {
@@ -167,27 +211,7 @@ function receive(event: { data: unknown }): void {
   }
 }
 
-function keepReceiving(): void {
-  if (host.onMessage) return
-  const own = Object.getOwnPropertyDescriptor(globalThis, 'onmessage')
-  if (own?.get === receiving) return
-  const page = own?.set
-  Object.defineProperty(globalThis, 'onmessage', {
-    get: receiving,
-    set(value: unknown) {
-      page?.call(globalThis, value)
-    },
-    enumerable: true,
-    configurable: true,
-  })
-}
-
-function receiving(): typeof receive {
-  return receive
-}
-
-if (host.onMessage) host.onMessage(receive)
-else keepReceiving()
+host.onMessage(receive)
 
 const engineSetTimeout = globalThis.setTimeout
 const engineClearTimeout = globalThis.clearTimeout
@@ -198,7 +222,6 @@ const enabled = new Map<string, boolean>()
 let taskEnd: (() => void) | null = null
 host.onTaskEnd(() => {
   taskEnd?.()
-  keepReceiving()
   flush()
 })
 
@@ -415,7 +438,8 @@ const natives = {
   office,
   createDocument(width: number, height: number, scale: number, options: object) {
     call(Iface.Natives, 'createDocument', [width, height, scale, options])
-    return proxy(Iface.Dom, DOM)
+    attributes.clear()
+    return proxy(Iface.Dom, DOM, cachedDom)
   },
   claimSurface() {
     const window = call(Iface.Natives, 'claimSurface', []) as number

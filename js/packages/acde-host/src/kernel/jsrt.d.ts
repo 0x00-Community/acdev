@@ -14,7 +14,7 @@ declare module 'jsrt:host' {
   export function runScript(source: string, url: string): unknown
   export function defineModule(url: string, exports: object): void
   export function onTaskEnd(fn: (() => void) | null): void
-  export const onMessage: ((fn: ((event: { data: string | ArrayBuffer }) => void) | null) => void) | undefined
+  export function onMessage(fn: ((event: { data: string | ArrayBuffer }) => void) | null): void
   export function setReporter(fn: ((error: unknown, promise?: Promise<unknown>) => void) | null): void
   export function exit(code: number): never
 }
