@@ -1,7 +1,7 @@
 import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 import type { AppRegistry } from '../../apps'
 import type { CapabilityCheck } from '../access/capabilities'
-import { Permissions } from '../access/permissions'
+import { Permissions } from '../access/approval/permissions'
 import { Web } from '../web'
 
 export interface PermissionCallsHost {

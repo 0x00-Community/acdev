@@ -2,7 +2,7 @@ import type { AppManifest, AppRegistry } from '../../apps'
 import type { PageBridge } from '../../bridge'
 import { process } from '../../sys/process'
 import { CapabilityCheck } from './capabilities'
-import type { Permissions } from './permissions'
+import type { Permissions } from './approval/permissions'
 import { Tiers, type WebTier } from './tier'
 
 export interface LaunchableHost {

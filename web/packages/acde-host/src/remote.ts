@@ -4,8 +4,8 @@ import { Level, Log } from './log'
 import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
 import { Rpc } from './rpc'
 import { CapabilityCheck } from './broker/access/capabilities'
-import { Permits } from './broker/access/permits'
-import type { Permit } from './broker/access/permissions'
+import { Permits } from './broker/access/approval/permits'
+import type { Permit } from './broker/access/approval/permissions'
 import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 
 class Notices {

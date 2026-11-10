@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { PermissionAnsweredEvent, PermissionPromptEvent } from '@dopame/acde-api'
 import type { AppManifest } from '../../src/apps.ts'
-import { Permissions, type Permit } from '../../src/broker/access/permissions.ts'
+import { Permissions, type Permit } from '../../src/broker/access/approval/permissions.ts'
 import { DevRequests } from '../../src/broker/dev.ts'
 
 const files = new Map<string, Record<string, string>>()

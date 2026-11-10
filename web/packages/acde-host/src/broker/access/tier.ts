@@ -1,7 +1,7 @@
 import { CAPABILITY_MODULES, Manifest, SHELL_MODULES, type ShellModule } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../apps'
 import type { CapabilitySnapshot } from './capabilities'
-import type { Permit } from './permissions'
+import type { Permit } from './approval/permissions'
 
 export interface WebTier {
   readonly level: number

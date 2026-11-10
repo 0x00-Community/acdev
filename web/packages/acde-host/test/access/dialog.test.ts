@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { PermissionAnsweredEvent, PermissionPromptEvent } from '@dopame/acde-api'
 import type { AppManifest } from '../../src/apps.ts'
-import { ApprovalDialogs } from '../../src/broker/access/dialog.ts'
-import { Permissions } from '../../src/broker/access/permissions.ts'
+import { ApprovalDialogs } from '../../src/broker/access/approval/dialog.ts'
+import { Permissions } from '../../src/broker/access/approval/permissions.ts'
 
 const third = { level: 1, system: false }
 const app = (id: string, capabilities: Record<string, unknown>, optional: string[] = []) => {

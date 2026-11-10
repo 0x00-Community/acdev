@@ -6,7 +6,7 @@ import { Level, Log } from '../log'
 import { isAbsolute } from '../sys/path'
 import type { BrokerShell, WebInfo } from './types'
 import type { Web } from './web'
-import type { Permissions } from './access/permissions'
+import type { Permissions } from './access/approval/permissions'
 
 export interface DevHost {
   readonly shell: BrokerShell

@@ -37,7 +37,7 @@ import { Preferences, type Emulated, type Emulation } from './broker/preferences
 import { Outputs, type Screen } from './broker/output'
 import { WindowRecords } from './broker/records'
 import { Approvals } from './broker/approvals'
-import type { Permissions } from './broker/access/permissions'
+import type { Permissions } from './broker/access/approval/permissions'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
 
