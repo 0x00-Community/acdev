@@ -2,7 +2,7 @@ import type { OpenHandler } from '@dopame/acde-api'
 import type { AppManifest } from './apps'
 import { DesktopEntry } from './desktopentry'
 import { Level, Log } from './log'
-import { MimeDb } from './mimedb'
+import { BUILTIN_MIME, MimeDb } from './mimedb'
 import { spawnSync } from './sys/child_process'
 import { existsSync, mkdirSync, readTextOr, stat, writeFileSync } from './sys/fs'
 import { sys } from './sys/natives'
@@ -41,14 +41,6 @@ export interface OpenCaller {
 class MimeTypes {
   static readonly DIRECTORY = 'inode/directory'
   static readonly #NAME = /^[\w.+-]+\/[\w.+-]+$/
-  static readonly #BY_NAME: Record<string, string> = {
-    txt: 'text/plain', md: 'text/markdown', json: 'application/json', html: 'text/html', htm: 'text/html', pdf: 'application/pdf',
-    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-    mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/x-wav', ogg: 'audio/ogg',
-    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  }
 
   static valid(mime: string): boolean {
     return MimeTypes.#NAME.test(mime)
@@ -66,13 +58,11 @@ class MimeTypes {
     const fromGio = /standard::content-type:\s*(\S+)/.exec(gio.stdout ?? '')?.[1]
     if (gio.status === 0 && fromGio && MimeTypes.valid(fromGio)) return fromGio
     const db = MimeTypes.#database()
-    const candidates = db ? db.candidates(basename(path)) : []
-    if (db && candidates.length === 1) return candidates[0]!
+    const candidates = db.candidates(basename(path))
+    if (candidates.length === 1) return candidates[0]!
     const sniffed = MimeTypes.#sniff(path)
-    if (db && candidates.length > 1) return MimeTypes.#pick(db, candidates, sniffed)
-    if (sniffed) return sniffed
-    const ext = /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''
-    return MimeTypes.#BY_NAME[ext] ?? 'application/octet-stream'
+    if (candidates.length > 1) return MimeTypes.#pick(db, candidates, sniffed)
+    return sniffed ?? 'application/octet-stream'
   }
 
   static #sniff(path: string): string | null {
@@ -88,17 +78,19 @@ class MimeTypes {
     return candidates.find((mime) => db.isText(mime) === text) ?? candidates[0]!
   }
 
-  static #db: MimeDb | null | undefined
+  static #db: MimeDb | undefined
 
-  static #database(): MimeDb | null {
-    if (MimeTypes.#db !== undefined) return MimeTypes.#db
+  static #database(): MimeDb {
+    if (MimeTypes.#db) return MimeTypes.#db
     const macos = sys().platform === 'darwin' ? ['/opt/homebrew/share/mime', '/usr/local/share/mime', '/opt/local/share/mime'] : []
     const dirs = [...new Set([...xdgDirs('data', 'mime'), ...macos])]
-    MimeTypes.#db = MimeDb.parse(dirs.map((dir) => ({ globs2: readTextOr(join(dir, 'globs2'), null), subclasses: readTextOr(join(dir, 'subclasses'), null) })))
-    if (!MimeTypes.#db) {
+    const system = MimeDb.parse(dirs.map((dir) => ({ globs2: readTextOr(join(dir, 'globs2'), null), subclasses: readTextOr(join(dir, 'subclasses'), null) })))
+    if (!system) {
       const hint = sys().platform === 'darwin' ? ' (brew install shared-mime-info)' : ''
-      Log.write(Level.Warn, 'acde_host', `no shared-mime-info database${hint}: file types come from file(1) and may differ from Dopame OS`)
+      const used = 'a built-in table of common extensions'
+      Log.write(Level.Warn, 'acde_host', `no shared-mime-info database${hint}: file types come from ${used} and may differ from Dopame OS`)
     }
+    MimeTypes.#db = system ?? MimeDb.parse([BUILTIN_MIME])!
     return MimeTypes.#db
   }
 }

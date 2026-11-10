@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { MimeDb } from '../src/mimedb.ts'
+import { BUILTIN_MIME, MimeDb } from '../src/mimedb.ts'
 
 const globs2 = `# comment
 80:application/x-heavy:*.foo
@@ -72,5 +72,42 @@ describe('MimeDb', () => {
     const merged = MimeDb.parse([{ globs2: user, subclasses: null }, { globs2, subclasses }])!
     assert.deepEqual(merged.candidates('a.gone'), ['text/x-mine'])
     assert.deepEqual(merged.candidates('a.md'), ['text/markdown'])
+  })
+})
+
+const builtin = MimeDb.parse([BUILTIN_MIME])!
+
+describe('built-in MIME table', () => {
+  test('gives the types gio reports on Linux (shared-mime-info 2.4)', () => {
+    const linux: Record<string, string> = {
+      'script.py': 'text/x-python',
+      'table.csv': 'text/csv',
+      'archive.zip': 'application/zip',
+      'main.ts': 'text/vnd.trolltech.linguist',
+      'style.css': 'text/css',
+      'clip.mp4': 'video/mp4',
+      'notes.txt': 'text/plain',
+      'notes.md': 'text/markdown',
+      'sound.wav': 'audio/vnd.wave',
+      'backup.tar.gz': 'application/x-compressed-tar',
+      'data.gz': 'application/gzip',
+      'REPORT.DOCX': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }
+    for (const [name, mime] of Object.entries(linux)) assert.deepEqual(builtin.candidates(name), [mime], name)
+  })
+
+  test('has one valid type per extension', () => {
+    const seen = new Map<string, string>()
+    for (const line of BUILTIN_MIME.globs2!.split('\n')) {
+      const [, mime = '', pattern = ''] = line.split(':')
+      assert.match(mime, /^[\w.+-]+\/[\w.+-]+$/)
+      assert.equal(seen.get(pattern), undefined, pattern)
+      seen.set(pattern, mime)
+    }
+  })
+
+  test('leaves unknown names to sniffing', () => {
+    assert.deepEqual(builtin.candidates('README'), [])
+    assert.deepEqual(builtin.candidates('data.unknownext'), [])
   })
 })
