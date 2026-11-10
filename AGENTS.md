@@ -97,10 +97,14 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `fixed` 只能最小化, `pinned`、桌面和面板一律拒绝, 同一状态不算变化. 离开 `normal` 时记下原来的 rect, 进全屏时记下之前的状态 (`normal` 或 `filled`),
   最小化时记下之前的状态; 「回去」(`Restore::back`) 用它们, 所以 normal → filled → 全屏 → 回到 filled → normal 还是原来的 rect. 最小化的窗口不画、不命中,
   有焦点时焦点给下一个; 给它焦点 (`focus` / `show`) 就回到之前的状态. 每次变化给窗口自己发 `state {state, previous}`, 给 Broker 发
-  `windowstate {window, state, previous}`, 扩展期另发第 0 级的 `windowfullscreen` / `windowunfullscreen` / `windowminimize`. 宿主窗口的窗框按钮
-  (最小化、全屏 / 还原) 由运行时直接改状态, 只有关闭交给页面. `requestMode('fullscreen')` 和从全屏 `requestMode('free')` 在扩展期映射成状态.
+  `windowstate {window, state, previous}` (旧的 `windowfullscreen` / `windowunfullscreen` / `windowminimize` 已随第 0 级去掉). 宿主窗口的窗框按钮
+  (最小化、全屏 / 还原) 由运行时直接改状态, 只有关闭交给页面. `requestMode` 只收 `free` / `fixed` / `pinned` (`fullscreen` 抛 TypeError,
+  全屏用 `requestState`); 改模式时当前状态在新模式下不允许就回到 `normal`. 独立应用的窗口 (`acdert app`) 内部仍是 `fullscreen` 模式, 页面改不了.
   会话 (crates/window) 把请求映射成标准 xdg_toplevel 请求 (`set_fullscreen` / `set_maximized` / `set_minimized` / 取消), 按 configure 里的
-  fullscreen / maximized 给页面发 `state`; 合成器 (crates/shell) 一侧的 maximized、minimized 处理和 `acde:windows.requestState` 还没有 (Broker 回 501).
+  fullscreen / maximized 给页面发 `state`. 合成器 (crates/shell) 执行全屏和最小化: 全屏切换和 `set_minimized` 都经 `acde_shell.window_state`
+  给 Broker 发 `windowstate` (和宿主窗口同一语义: 已经做完的变化); 最小化的窗口藏起 (记下之前是 `normal` 还是 `fullscreen`), 桌面 `focus` / `show`
+  它时回到之前的状态并再发 `windowstate`. 页面的 `minimize()` 在会话里走自己的 `set_minimized` (Broker 经 `window.minimize` 回调页面).
+  会话里 `filled`、给页面发 `minimized` 的 `state` 和 `acde:windows.requestState` 还没有 (Broker 回 501).
 - **分层**: 客户端出缓冲 (dmabuf / shm + damage + opaque 区域); 合成只出计划; 呈现 (GPU / DRM / RDP) 执行. 只传句柄、只报脏区,
   框架不读像素; 客户端慢就用上一次的缓冲.
 - **`CompositePlan`** (crates/model `plan.rs`, shell `compositor/composite.rs`): `{damage (最多 8 块), route: Composite | Direct, layers:
@@ -315,10 +319,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **desktops**: `entry` 是包里的 HTML, 满屏在所有窗口后面; 桌面拿全部 `acde:` 模块. `heapMb` 默认 1024, 最小 32.
 - **apps**: 见「应用清单」. **assets**: 同源 URL 前缀 → 包里的目录.
 - **services**: 在 Broker isolate 里跑的 ES 模块, 默认导出 `ServiceFactory` (只用 `ServiceContext` 和 web 标准接口). 随桌面起停; 应用要在
-  清单的 `services` 里写服务名才能调 (扩展期写在 capabilities 里的服务名照旧认, 第 1 级包记一行弃用 warn). 服务名不能用系统模块的名字 (`RESERVED_NAMES`). 重活放进 `ctx.spawn(argv, {cwd, env, onLine, onExit})` 起的进程 (`child.rs`: 自己的进程组, stderr 进日志加前缀
+  清单的 `services` 里写服务名才能调 (写在 capabilities 里是校验错误). 服务名不能用系统模块的名字 (`RESERVED_NAMES`). 重活放进 `ctx.spawn(argv, {cwd, env, onLine, onExit})` 起的进程 (`child.rs`: 自己的进程组, stderr 进日志加前缀
   `[<服务名>]`, 服务关闭后 SIGTERM, 3 秒后 SIGKILL).
   桌面清单的 `services` 项可以写成 `{name, modules}`, 列出这个服务能用的外壳模块; 服务经 `ctx.import('acde:<模块>')` 拿到 `{<模块>, default}`
-  (Broker 侧的 `#serviceModule`), 没列的拒绝并说缺哪条声明. `ctx.inspect` 在扩展期保留.
+  (Broker 侧的 `#serviceModule`), 没列的拒绝并说缺哪条声明. 服务还另有 `ctx.inspect`.
 
 找包的顺序: acde-host 自己 (只有品牌资源)、`ACDE_PATH`、`$XDG_DATA_HOME/acde/packages/*`、`$XDG_DATA_DIRS/acde/packages/*`, 同 id 先到先得.
 外部会话 (`src/foreign.ts`): `$XDG_DATA_DIRS/wayland-sessions/*.desktop`, id `session:<文件名>` (显示名去掉 "(Wayland)", KDE 的加 "KDE");
@@ -327,7 +331,11 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 **契约级别** (`apiLevel`): 每个包清单的 `acde` 字段带一个整数 `apiLevel`, 运行时的级别只在 SDK `src/runtime/level.js` 的 `API_LEVEL` 定义 (acde-host 经
 `@dopame/acde-api/manifest` 读, `acdert --version` 编译时从这个文件读). 级别不同或不是正整数的包 (`Packages.refused`) 不进应用列表、
 桌面列表和打开方式, 启动它的应用报 `<id>: needs level N, runtime is level M` (409, `api_level`), 选它的桌面同样报错. 没有 `apiLevel` 的包
-暂按第 0 级照常加载, 每个包记一行 warn; 本版本末尾的第 0 级移除之后拒绝. acde-host 自己的包不查.
+(第 1 级之前构建的) 同样拒绝, 报 `Manifest.UNVERSIONED` (`no acde.apiLevel: ...; rebuild it with the current acde (level 1)`), 要用现在的 acde
+重新构建; 校验器也把它当错误. 第 0 级 (契约级别之前的扩展期形态) 已全部去掉. acde-host 自己的包不查.
+现在的契约是第 1 级; 发版说明 (`.github/workflows/release.yml` 从 `level.js` 读) 写明契约级别.
+**运行时还不是安全边界**: 按层级注入、能力和批准是契约, 不是隔离 (见「沙箱」);
+第三方沙箱上线之前, 本地和开发构建的包都按开发者自己的代码运行.
 
 **启动哪个桌面**: `--desktop <id|包目录>`, 否则 `ACDE_DESKTOP`, 否则上次进的 (`$XDG_STATE_HOME/acde/desktop`; `--greeter` 和 `app` /
 `desktop` 子命令不记), 否则第一个 acde 桌面, 否则第一个外部会话. `acdert app` 没有桌面时用空的 (`Packages.bare`).
@@ -351,8 +359,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   (acde-host `host.ts`: 只留最新的, 下一个 `frame` 或别的事件前才派发).
 - **记住位置** (`src/places.ts`): 窗口没了时合成器发 `windowgone`, Broker 按应用 id 记最后的 rect (全屏的记进全屏之前的) 到
   `$XDG_STATE_HOME/acde/windows.json` (`ACDE_STORAGE` 为空时只在内存); 下次打开且没有别的窗口开着时摆回 (露出屏幕不到 48 像素或标题栏
-  在屏幕上沿之外时照旧居中). 只有桌面能隐藏 / 显示 / 提前 (`acde.windows.hide` / `show` / `focus`); 应用的 `minimize` 在宿主窗口里由运行时最小化 (见「窗口状态」),
-  会话里还只是给桌面发 `windowminimize`.
+  在屏幕上沿之外时照旧居中). 只有桌面能隐藏 / 显示 / 提前 (`acde.windows.hide` / `show` / `focus`); 应用的 `minimize` 由运行时最小化 (见「窗口状态」;
+  会话里由合成器执行, 发 `windowstate`).
 - **窗框**: 应用窗口 (清单 `frame` 不是 false; 桌面和面板没有) 有一条标题栏, **不在页面的文档里**: `<html>`、`innerHeight`、`100vh`、`resize`
   都只是内容区. 窗口表的 rect、grab hint、backdrop 是含窗框的整个窗口; 页面给的 `setGrabHint` / `setBackdrop` 是页面坐标, 加上窗框高再交出去,
   窗框的 hint (标题栏移动, 四边 4 px / 四角 10 px 改大小) 优先. 会话里是 crates/window `decoration.rs` 在页面 surface 上开的同步 `wl_subsurface`
@@ -389,7 +397,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `acde:launch` 的 `on(短名)` 收 `{type: 'window<短名>', window, …}`, `appschanged`、`download`、`notification`、`screenshot {path, width, height}` 或
   `{path, error}`、`shortcut {key, title: 作用域, window}`、终端的 `output` / `cwd` / `exit`); `acde.window` 的 `grab {kind, granted}`、
   `grablost {kind: 'lost', reason}`, `suspend` / `resume` 没有参数 (运行时还不发). 公共事件、请求和结果里没有 `unknown` 和 `[字段: string]: unknown`
-  (SDK `test/types.test.ts` 遍历检查); 扩展期留着的第 0 级无类型重载标 `@deprecated`, 第 0 级移除时删. 产生这些事件的地方用 `satisfies` 对 SDK 类型. 其余调用经 `rpc.ts` 到 Broker (错误原样回来, 回调函数可以跨). 本文的
+  (SDK `test/types.test.ts` 遍历检查, 也查第 0 级的无类型重载和旧事件都不在了). 产生这些事件的地方用 `satisfies` 对 SDK 类型. 其余调用经 `rpc.ts` 到 Broker (错误原样回来, 回调函数可以跨). 本文的
   `acde.<名字>.<方法>` 指 `acde:<名字>` 导出的值.
   - **窗口状态和输出 (页面)**: `acde.window.state`、`requestState(state)` (不行就什么都不变, 没有回答)、`on('state', {state, previous})`.
     状态由运行时决定, 页面没请求的变化 (桌面最小化、窗框按钮、给最小化的窗口焦点) 也发 `state`, 页面必须照事件更新自己, 不能只记自己请求过什么.
@@ -407,38 +415,37 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     scheme 的应用, 再按今天的 `x-scheme-handler` 默认和原生程序, http / https 最后交给系统默认程序; 文件按 `mimeTypes` 和今天的默认. 要调用方声明
     `openFiles` (桌面不用). `acde.open(<id>, request)` 写了目标时要 `open` 允许, 目标不接受 (链接的 scheme 不在 `schemes`, 文件的类型不在
     `mimeTypes`) 时 409 `not_accepted`. 收到的请求带 `kind`: 链接是 `{kind: 'open-link', url}`, 文件保留今天的字段 (没有 `fs` 的应用
-    `{kind: 'open-file', url}`, 有 `fs` 的 `{kind: 'open-file', root, path, file}`). 扩展期不带 `kind` 的 `open(<id>, {…})` 照旧.
+    `{kind: 'open-file', url}`, 有 `fs` 的 `{kind: 'open-file', root, path, file}`). 不带 `kind` 的 `open(<id>, {…})` 回 400 `untyped_request`.
     **私有请求** (SDK `AppRequest<K, Fields>`: 接收方声明自己收的 `kind` 和字段, `on<Task | Page>('request', …)` 按 `kind` 收窄; 和系统请求合成
     `WindowRequest`): `acde.open(<id>, {kind, …})`, 运行时只查目标清单的 `requests`
-    有这个 `kind` (没有时 409 `not_accepted`, 不交给对方), 内容由接收方自己查; `open` 照旧决定能叫哪些应用. 扩展期目标没写 `requests` 时不查,
-    本版本末尾的第 0 级移除之后一律查.
+    有这个 `kind` (没有时 409 `not_accepted`, 不交给对方), 内容由接收方自己查; `open` 照旧决定能叫哪些应用. 目标没写 `requests` 就什么私有请求都不收.
     `open(<id>, request, {parent, modal})` 给新窗口一个父窗口 (`broker/family.ts`: 应用只能写自己应用的
     web 窗口, 桌面可以写任何开着的窗口; 不存在 404, 别人的 403, 不是窗口号 400); 新窗口居中在父窗口上方, 不用记住的位置; 已在运行的单例应用只收请求,
     不改父窗口. 父窗口、模态记在合成器的窗口表 (hostwin `Entry`、会话 model `Window`), `acde.inspect` 的窗口带 `parent` / `modal`;
-    `acde.windows` 只管它自己 `launch({slot: true})` 起的原生程序 (要清单的 `slots`).
-  - desktop web: 全部服务; `acde.apps` (`list` / `launch` / `open` / `natives()` / `runNative(id)`); `acde.windows` (所有窗口, 加 `kill`、
+    应用拿不到 `acde:windows`; 起原生程序和嵌进 slot 用 `acde:launch` (`start` / `embed` / `close`, 要清单的 `launch` / `slots`).
+  - desktop web: 全部服务; `acde.apps` (`list` / `open`), `acde.packages` (`refresh` / `install` / `natives()` / `runNative(id)`), `acde.launch`; `acde.windows` (所有窗口, 加 `kill`、
     `invokeMenu`、`stats`、`focus` / `hide` / `show`、`animate`、session / desktop 级 `shortcut`); `acde.session`; `acde.inspect`. 另收
     `windowmenus`、`windowready`、`windowcrash {reason}`、`windowhang` / `windowresponsive`、`windowshow`.
   - 不在清单里的调用拒绝 (403, `forbidden`).
-  - **按调用者层级注入** (第 1 级包, `broker/tier.ts`): 外壳模块 (`SHELL_MODULES`: `windows`、`packages`、`session`、`desktops`、`inspect`、
+  - **按调用者层级注入** (`broker/tier.ts`): 外壳模块 (`SHELL_MODULES`: `windows`、`packages`、`session`、`desktops`、`inspect`、
     `desktop`、`setDefault`) 只给桌面页面、声明了它的桌面服务和声明了它的系统应用 (与某个已安装桌面同包的应用); 应用模块 (`APP_MODULES`: `launch`、
     `apps` 只有 list / open、`open`、`openPath`、`handlers`、`window`) 给所有应用. 声明外壳模块的第三方应用启动时拒绝 (403, `shell_module`).
     没给的模块经 `host.refuseModule` 记下原因, import 时报模块名和缺的声明. 哪个模块要哪条声明只在 SDK `Manifest.importRule(name, app, origin)`
     (`{allowed, missing, reason}`, app 为 null 是桌面; acde-host 的 `Tiers` / `CapabilityCheck` 和 acde 的检查都用它). 新的 `acde:packages` (refresh / install / natives / runNative)
     和 `acde:launch` (`start` 要 `launch`, `embed` 要 `slots`, `close` 只关自己起的窗口: 按窗口的 pid 认 `start` 起的, `embed` 走 claim) 桌面也有.
-    系统应用拿到 `acde:windows` 时也收全局窗口事件 (`Tiers.listens`). 第 0 级包 (没有 `apiLevel`) 照旧注入, 到第 0 级移除为止.
-    SDK 类型分层: `@dopame/acde-api/app` 只声明应用层, `@dopame/acde-api/shell` 再加外壳层; 包根在扩展期仍声明全部.
-- **原生应用** (`launcher.ts`, 只有桌面能调): `acde.apps.natives()` 列可见的 `.desktop` (`{id, name, comment, icon (绝对路径, 按 hicolor /
+    系统应用拿到 `acde:windows` 时也收全局窗口事件 (`Tiers.listens`). 每个包都按这里注入 (没有 `apiLevel` 的包根本不加载).
+    SDK 类型分层: `@dopame/acde-api/app` 只声明应用层, `@dopame/acde-api/shell` 再加外壳层; 包根声明全部.
+- **原生应用** (`launcher.ts`, 只有桌面和声明了 `packages` 的系统应用能调): `acde.packages.natives()` 列可见的 `.desktop` (`{id, name, comment, icon (绝对路径, 按 hicolor /
   breeze / Adwaita 找), keywords, wmClass}`, 缓存到 applications 目录的 mtime 变了), `runNative(id)` 用 `gio launch` 起.
 - **应用清单** (`acde.apps`, 解析 acde-host `apps.ts`, 校验 acde-api `validate.ts`): `id`、`label`、`icon`、`entry` (默认导出 `WindowApp` 的
-  模块, 或 HTML)、`capabilities` (只放系统能力: `SYSTEM_CAPABILITIES` 加外壳模块; 第 1 级包里不认识的名字是错误, 本包的服务名是弃用 warn)、
+  模块, 或 HTML)、`capabilities` (只放系统能力: `SYSTEM_CAPABILITIES` 加外壳模块; 不认识的名字和服务名都是错误)、
   `optional` (capabilities 里可以缺的几项, 每项也要在 capabilities 里)、`services` (用到的桌面服务名, 不能是 `RESERVED_NAMES`)、
   `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
-- **必需与可选能力** (第 1 级包, `broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
+- **必需与可选能力** (`broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
   `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝或撤销, 见「批准」). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
   `<label> needs "terminal" (unsupported on this platform)` (404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`). 可选的照常启动;
-  声明了但不可用的 fs / terminal / network / office 在 import 时报原因. 第 0 级包照旧只查 fs、terminal、office 和 slots.
+  声明了但不可用的 fs / terminal / network / office 在 import 时报原因.
 - **平台支持表** (SDK `src/runtime/platforms.js` 的 `PLATFORM_SUPPORT` / `platformSupport(platform, mode)`, 从包根和 `/manifest` 导出, 运行时、acde 的
   平台检查和本文都以它为准): 按 `process.platform` × 运行方式 (`session` Linux 会话、`desktop` 完整桌面的宿主窗口、`standalone` 单应用宿主窗口) 给
   `unsupported` (不支持的能力) 和窗口特性 `window.backdrop` (`full` / `approximated` / `unsupported`). 现在: Linux 宿主窗口缺 `slots`; Windows 缺
@@ -449,7 +456,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   消息更新.
 - **批准** (`broker/access/approval/permissions.ts` `Permissions`, SDK `APPROVAL_CAPABILITIES`): `launch`、`slots`、`terminal`、`network`、`camera`、
   `microphone` 要用户批准, 可撤销, 第 1 级包在 `fs.roots` 里点名的公共位置也是, 每个位置一项 `fs.<位置>` (如 `fs.documents`, SDK `PlaceCapability`; `fs` 可选时它们也可选, 经 `request("fs.documents")` 问); 其余 (自己的窗口、能力查询、列出和打开应用、按类型打开、桌面服务、`office`) 声明即有.
-  系统应用 (和任一已装桌面同包) 和第 0 级包不问. 必需的在第一次启动前按能力一个一个问 (`Broker.launch` 是 async, `admit` 之后才 grant 窗口),
+  系统应用 (和任一已装桌面同包) 不问. 必需的在第一次启动前按能力一个一个问 (`Broker.launch` 是 async, `admit` 之后才 grant 窗口),
   拒绝时不启动, 报 `<label>: "launch" is denied by the user` (403 `denied`, 带 `capability`); 平台不支持的不问, 照旧按 unsupported 拒绝. 可选的在
   `acde:capabilities` `request(name)` 时问; 没批准的模块不定义 (import 报 `waits for approval` / `is denied by the user`), 批准后 web 收 `permit` 再定义,
   `load()` 拿得到. 决定按应用持久 (`$XDG_CONFIG_HOME/acde/permissions.json`, `{"<app>:<能力>": "granted" | "denied"}`, 不看 `ACDE_STORAGE`);
@@ -726,16 +733,15 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOWNLOAD_DIR` 或 `~/Downloads`, 存在时)、`~/agentos-work` (存在时), 加上用户授给
 这个应用的文件夹. Windows 上隐藏和系统属性的文件按隐藏文件算. 运行时不记 Finder 看到哪里 (`state()` / `place()` 随 #69 移除, 由文件管理器自己记).
 
-**第 1 级的根** (#66; runtime `fs/access/files.rs` `Files`, Broker `broker/access/files.ts` `FileAccess`): 第 1 级包的第三方应用和点名公共位置的系统应用, root 是不透明的标识, 不是路径:
+**应用的根** (#66; runtime `fs/access/files.rs` `Files`, Broker `broker/access/files.ts` `FileAccess`): 所有应用 (系统应用也是) 的 root 是不透明的标识, 不是路径:
 `private` (本应用的私有数据文件夹 `$XDG_DATA_HOME/acde/files/<应用 id>`, 没设时 `$HOME/.local/share/...`, 第一次用时建), 公共位置名 (SDK `SHARED_PLACES`:
 `desktop`、`documents`、`downloads`、`music`、`pictures`、`videos`, 按 XDG 用户目录 `XDG_<名>_DIR` / `user-dirs.dirs`; Windows 没设时用对应的已知文件夹
 `SHGetKnownFolderPath`, `path.rs` `known_folder`), 选择的文件夹是 `folder-<路径 SHA-256 前 16 位十六进制>` 的令牌. `fs: true` 只给 `private` 和用户选给它的文件夹;
-公共位置要在 `fs.roots` 里点名 (校验器: 第 1 级不是这六个名字就是错误, `agentos-work` 不算; 第 0 级只警告) 并经批准 (见「批准」). `roots()` 回
+公共位置要在 `fs.roots` 里点名 (校验器: 不是这六个名字就是错误, `agentos-work` 不算) 并经批准 (见「批准」). `roots()` 回
 `{id, label, source: 'private' | 'place' | 'granted', mode, reason, exists, place?}`, 只有点名了公共位置的系统应用另带 `path`; 别的应用拿不到绝对路径,
 `locate` / `openPath` 报 403 `EACCES`. 没批准或撤销了的位置: web 侧 (`FileAccess.guard`, 经 `Permits`)
 把它从 `roots()` 里去掉, 以它为 root 的调用 reject 403 `denied` (`AcdePermissionError`). `fs.revoke(令牌)` 收回选择的文件夹, `acde:permissions` 也列出和收回它 (见「批准」). Broker 交给 web 的授权是
-`fs: {places, paths}` (crates/acdert `web.rs` → `Workspace::files`). 扩展期: 第 0 级包, 以及 `fs: true` 的系统应用 (现在的 Dopame) 照旧用下面按路径的根,
-后者每个应用打一行弃用 warn, 到本版本末尾的第 0 级移除为止. 第 0 级的第三方应用在扩展期照旧能 `locate` (它的 `roots()` 本来就是路径), 随 #70 移除.
+`fs: {places, paths}` (crates/acdert `web.rs` → `Workspace::files`). 下面按路径的根只给桌面页面.
 
 **拖放和打开请求的句柄** (#68): 用户交给应用的文件和文件夹是标准的 `FileSystemHandle`, 页面拿不到路径.
 - 系统拖放: `dnddrop` 的 `files` 里每个路径 (acde-host `dnd.ts` `DragDrop`, 链接和别的类型跳过): 不超过 64 MiB 的普通文件进 `dataTransfer.files` (内容在 drop 时读进来),
@@ -748,9 +754,9 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
   (`mimedb.ts` `FileTypes.byName`: Windows 是扩展名登记的 `Content Type`, 别处是 shared-mime-info 的 globs; 见「默认应用」的「文件的类型」),
   acde-host `PageCalls` 把它设成 acde-dom 的 `env.fileType`. 系统不知道的是空字符串, 同浏览器. 不按内容猜 (浏览器也只看名字).
 - 打开请求: `Opener` 给接收方的 `request` 带内部的 `entry: {path, kind, writable}` (要选中文件时是所在文件夹加 `file` 名字), 接收方的 web (`remote.ts`
-  `WindowSelf`) 把它换成 `handle` 再交给页面, `entry` 不进页面. 来源可写 (`mode` 有属主写位; Windows 只读属性) 时句柄可写. 第 1 级的第三方应用
-  (`FileAccess.view` 是 `handle`) 只拿 `{kind, handle, file?}`; 有路径的系统应用、第 0 级、没有 `fs` 的拿 `url` 加 `handle`; 按路径的根 (`fs: true` 的系统应用和
-  第 0 级) 照旧拿 `{root, path, file}` 加 `handle` (旧形态随 #70 去掉).
+  `WindowSelf`) 把它换成 `handle` 再交给页面, `entry` 不进页面. 来源可写 (`mode` 有属主写位; Windows 只读属性) 时句柄可写. `FileAccess.view` 是 `handle` 的
+  应用 (第三方应用, 和只有 `fs: true` 的系统应用) 只拿 `{kind, handle, file?}`; 点名了公共位置的系统应用和没有 `fs` 的系统应用拿 `url` 加 `handle`;
+  按路径的 `{root, path, file}` 加 `handle` 只给桌面页面.
 - 选择器: `showOpenFilePicker` 的文件只读 (只读属性) 时句柄是只读的, 别的可写; `showSaveFilePicker` 可写; `showDirectoryPicker` 照 `mode`.
 - 句柄怎么登记: 文件记在这个页面的 `PageCalls` (和打开选择器选中的文件一起, 读写走 acde-host `sys/fs`), 文件夹经 `natives.picker.adopt` (crates/acdert
   `picker.rs` `adopt`) 进这个 web 的 `PickedFolders`, 读写和选的文件夹一样不出这个文件夹、不跟随链接. acde-dom 经 `WebInternals.handles` (`of` / `picked` /
@@ -1006,7 +1012,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   `pointerleave`、`keydown` / `keyup {code, key}`、`imepreedit` / `imecommit` (宿主窗口)、`activate` / `deactivate`、`framebutton {key}`、
   `frame {time}`、`resize {width, height, scale}` (页面的物理像素, 已减去窗框)、`dndenter` / `dndmove` / `dndleave` / `dnddrop {x, y, data}`
   (data 是类型 → 文本, 松手时已读好)、`dragend {button}` (1: 放到了别的窗口上)、`grab` / `grablost`. 给 Broker 的: `output`、`windowopen` /
-  `windowclose` / `windowtitle` (原生窗口)、`windowfullscreen` / `windowunfullscreen`、`windowminimize`、`windowactivate`、`windowanimated`、
+  `windowclose` / `windowtitle` (原生窗口)、`windowstate {window, state, previous}`、`windowactivate`、`windowanimated`、
   `shortcut` (转给 owner)、`windowgone {window, x, y, width, height}` (web 窗口最后的 rect, 全屏的是之前的)、`windowminsize`、`windowparent`、
   `windowcloserequest` (宿主窗口)、`devreload` / `devrequest`、`milestone`、`inputtarget` (`ACDE_DEBUG_INPUT`)、`exit`.
 - 注入 `inject({type, x, y, button, dx, dy, source, code})`: `move` / `motion` (相对) / `down` / `up` / `wheel` (source `wheel` / `finger` /
