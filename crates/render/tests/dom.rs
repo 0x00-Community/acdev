@@ -466,6 +466,23 @@ fn focus_active_and_selection() {
 }
 
 #[test]
+fn a_stylesheet_added_while_an_element_is_active_restyles() {
+    let (_doc, dom) = page(
+        "<head><style>div { width: 10px; height: 20px } #b:active { height: 40px }</style></head>\
+         <body style='margin:0'><div id=b class=late></div></body>",
+    );
+    let b = by_id(&dom, "b");
+    assert_eq!(dom.rect(b).unwrap()[3], 20.0);
+    dom.set_active(b).unwrap();
+    let head = dom.query_selector(dom.document(), "head").unwrap();
+    let style = dom.create_element(Ns::Html, "style").unwrap();
+    let css = dom.create_text(".late { width: 50px } #b { margin-left: 5px }").unwrap();
+    dom.insert_before(style, css, NONE).unwrap();
+    dom.insert_before(head, style, NONE).unwrap();
+    assert_eq!(dom.rect(b).unwrap(), [5.0, 0.0, 50.0, 40.0]);
+}
+
+#[test]
 fn layout_reads() {
     let (_doc, dom) = page(
         "<head><style>

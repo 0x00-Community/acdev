@@ -1414,6 +1414,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | stylo `servo/media_features.rs`, `device/servo.rs` | `prefers-reduced-motion` |
 | stylo `properties/longhands.toml` `accent-color` | 去掉 gecko 限定 (servo 也解析、计算, 改了只重画) |
 | stylo `servo/animation.rs` `maybe_start_animations` | 已在跑的动画名 `continue` 而不是 `return` |
+| stylo `servo/selector_parser.rs` `ServoElementSnapshot::get_attr` | 没存属性的快照 (只为状态变化拍的: hover / focus / active) 回 None 而不是 unwrap: 加样式表时 `invalidation/stylesheets.rs` 不看 `has_attrs()` 就问每个快照的旧 class 和 id, 元素正悬停 / 按着时加 `<style>` 会 panic. 测试 `crates/render/tests/dom.rs` `a_stylesheet_added_while_an_element_is_active_restyles` |
 | stylo_atoms `static_atoms.txt` | 加 `prefers-reduced-motion` |
 | vello `scene.rs` `DrawGlyphs::draw` / `try_draw_colr` / `color_bitmaps` | 只有彩色位图代替轮廓; 只带 EBDT 的字体画轮廓 |
 | ironrdp-server `transport.rs` (新), `server.rs`, `helper.rs` | tokio → ntex (FramedRead / Write、TLS 握手、`ironrdp-accept` 监听线程), TLS 用 OpenSSL; async-channel; TLS 握手 5 秒超时; 只用 NTLM |
