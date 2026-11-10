@@ -33,6 +33,7 @@ pub use atspi::Accessibility;
 pub use bus::DesktopBus;
 pub use fetch::{Deliver, Dial, Event as FetchEvent, FetchClient};
 pub use fs::{EntryKind, Files, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
+pub use proxy::backend_variables as backend_proxy_variables;
 #[cfg(target_os = "linux")]
 pub use greetd::{GreetUser, Greetd};
 #[cfg(target_os = "linux")]

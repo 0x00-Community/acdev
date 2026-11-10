@@ -149,6 +149,7 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
     let obj = v8::Object::new(scope);
     crate::methods!(scope, obj,
         "env" => env,
+        "proxyEnv" => proxy_env,
         "exit" => exit,
         "cwd" => cwd,
         "homedir" => homedir,
@@ -206,6 +207,15 @@ fn env(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::R
         let (Some(key), Some(value)) = (key.to_str(), value.to_str()) else { continue };
         let value = bind::string(scope, value);
         bind::set(scope, obj, key, value.into());
+    }
+    rv.set(obj.into());
+}
+
+fn proxy_env(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let obj = v8::Object::new(scope);
+    for (key, value) in acde_runtime::backend_proxy_variables() {
+        let value = bind::string(scope, &value);
+        bind::set(scope, obj, &key, value.into());
     }
     rv.set(obj.into());
 }

@@ -101,6 +101,62 @@ impl Proxies for System {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+pub(crate) struct Manual {
+    pub(crate) http: Option<Hop>,
+    pub(crate) https: Option<Hop>,
+    pub(crate) bypass: Vec<String>,
+}
+
+const VARIABLES: [&str; 4] = ["http_proxy", "https_proxy", "all_proxy", "no_proxy"];
+const LOOPBACK: [&str; 3] = ["localhost", "127.0.0.1", "::1"];
+
+pub fn backend_variables() -> Vec<(String, String)> {
+    variables(|name| std::env::var(name).ok(), cfg!(windows), manual)
+}
+
+fn variables(var: impl Fn(&str) -> Option<String>, windows: bool, system: impl FnOnce() -> Option<Manual>) -> Vec<(String, String)> {
+    let names = |name: &str| if windows { vec![name.to_ascii_uppercase()] } else { vec![name.to_owned(), name.to_ascii_uppercase()] };
+    let set = |name: &str| var(name).filter(|value| !value.trim().is_empty());
+    let mut found: Vec<(String, String)> = VARIABLES.into_iter().flat_map(names).filter_map(|name| set(&name).map(|value| (name, value))).collect();
+    let proxied = |found: &[(String, String)]| found.iter().any(|(name, _)| !name.eq_ignore_ascii_case("no_proxy"));
+    if proxied(&found) {
+        return found;
+    }
+    let Some(manual) = system() else { return found };
+    let mut add = |name: &str, value: String| found.extend(names(name).into_iter().map(|name| (name, value.clone())));
+    let socks = [&manual.http, &manual.https].into_iter().flatten().find_map(|hop| match hop {
+        Hop::Socks4(at) => Some(format!("socks4a://{at}")),
+        Hop::Socks5(at) => Some(format!("socks5h://{at}")),
+        _ => None,
+    });
+    for (name, hop) in [("http_proxy", &manual.http), ("https_proxy", &manual.https)] {
+        if let Some(Hop::Http(at)) = hop {
+            add(name, format!("http://{at}"));
+        }
+    }
+    if let Some(socks) = socks {
+        add("all_proxy", socks);
+    }
+    if !proxied(&found) {
+        return found;
+    }
+    let session = names("no_proxy").into_iter().find_map(|name| set(&name)).into_iter();
+    let bypass: Vec<String> = session.chain(manual.bypass).chain(LOOPBACK.map(str::to_owned)).collect();
+    found.retain(|(name, _)| !name.eq_ignore_ascii_case("no_proxy"));
+    found.extend(names("no_proxy").into_iter().map(|name| (name, bypass.join(","))));
+    found
+}
+
+fn manual() -> Option<Manual> {
+    cfg_select! {
+        windows => { windows::manual() }
+        target_os = "macos" => { macos::manual() }
+        _ => { None }
+    }
+}
+
 fn platform(url: &Url) -> Vec<Hop> {
     cfg_select! {
         windows => { windows::find(url) }

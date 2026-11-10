@@ -117,7 +117,7 @@ export class AppBackends {
       AppBackends.#report(name, `not started: ${server ? `no acde-listen.js beside ${server} (built by an older acde: acde build it again)` : `no file for ${app.backend!.entry}`}`, Level.Warn)
       return false
     }
-    const { spawn, spawnBackend } = sys()
+    const { spawn, spawnBackend, proxyEnv } = sys()
     if (!spawn && !spawnBackend) {
       AppBackends.#report(name, 'not started: this acde cannot start processes', Level.Warn)
       return false
@@ -133,7 +133,7 @@ export class AppBackends {
       const value = AppBackends.env(key)
       if (value) env[key] = value
     }
-    Object.assign(env, { ACDE_APP_ID: app.id, ACDE_APP_DATA: data, PORT: String(app.backend!.port), NODE_ENV: 'production' })
+    Object.assign(env, proxyEnv(), { ACDE_APP_ID: app.id, ACDE_APP_DATA: data, PORT: String(app.backend!.port), NODE_ENV: 'production' })
     if (!spawnBackend) env['ACDE_APP_SOCKETS'] = running.sockets
     running.ended = new Promise((done) => (running.end = done))
     const onExit = (code: number | null, signal: number | null) => this.#exited(running, code, signal)

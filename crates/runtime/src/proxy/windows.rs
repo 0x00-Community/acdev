@@ -32,6 +32,22 @@ pub(super) fn find(url: &Url) -> Vec<Hop> {
     named(url, proxy.as_deref(), bypass.as_deref())
 }
 
+pub(super) fn manual() -> Option<super::Manual> {
+    let mut config = WINHTTP_CURRENT_USER_IE_PROXY_CONFIG::default();
+    if unsafe { WinHttpGetIEProxyConfigForCurrentUser(&mut config) } == 0 {
+        log::debug!("proxy: cannot read the Internet settings (error {})", unsafe { GetLastError() });
+        return None;
+    }
+    let script = take(config.lpszAutoConfigUrl);
+    let proxy = take(config.lpszProxy);
+    let bypass = take(config.lpszProxyBypass);
+    if let Some(script) = script {
+        log::debug!("proxy: app backends get no proxy variables from the setup script {script}");
+        return None;
+    }
+    Some(rules::windows_manual(&proxy?, bypass.as_deref().unwrap_or_default()))
+}
+
 fn named(url: &Url, proxy: Option<&str>, bypass: Option<&str>) -> Vec<Hop> {
     match proxy {
         Some(proxy) if !bypass.is_some_and(|bypass| rules::windows_bypass(bypass, url)) => rules::windows_list(proxy, url.scheme() == "https"),

@@ -668,6 +668,16 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `ACDE_APP_SOCKETS` / `PORT` / `NODE_ENV=production` + 会话的 HOME、PATH、LANG 等), 工作目录 `$XDG_DATA_HOME/acde/apps/<id>/`, 输出前缀
   `[<app>#backend]`, `PR_SET_PDEATHSIG` (子进程都由 `acde-fork` 线程 fork). preload 把 listen 换成 unix socket (`$XDG_RUNTIME_DIR/acde/apps/<id>/`),
   指定端口的 UDP bind 拒绝; 原生扩展开的端口管不到.
+- **后端的代理变量** (runtime `proxy::backend_variables`, Broker 经 `sys.proxyEnv()` 并进后端环境, 各平台都有): 会话设了
+  `http_proxy` / `https_proxy` / `all_proxy` 中任何一个, 就原样传 `http_proxy` / `https_proxy` / `all_proxy` / `no_proxy` 这几个变量 (unix 上大小写
+  两种名字各自照传, Windows 环境变量名不分大小写, 用大写名). 一个都没设时给平台的手动代理, 和页面用的同一份系统设置: Windows 是用户
+  Internet 设置的手动代理和绕过列表 (`WinHttpGetIEProxyConfigForCurrentUser`), macOS 是系统配置的 HTTP / HTTPS / SOCKS 代理和例外列表
+  (`CFNetworkCopySystemProxySettings`); HTTP 代理给 `http://h:p`, Windows 的 `socks=` 给 `all_proxy=socks4a://h:p`, macOS 的 SOCKS 给
+  `socks5h://h:p`; unix 上大小写两种名字都设. `no_proxy` 是会话的 `no_proxy` 加上系统的例外再加 `localhost,127.0.0.1,::1` (页面那边环回地址也永远直连);
+  例外换成 `no_proxy` 的写法: `*.x` → `.x`, `192.168.*` → `192.168.0.0/16`, `169.254/16` → `169.254.0.0/16`, 其他带通配符的、带协议的、
+  Windows 的 `<local>` 和 macOS 的“排除简单主机名”没有对应写法, 不给. 配置脚本和自动发现 (Windows 设了配置脚本, macOS 开了自动配置或
+  自动发现) 是按 URL 回答的, 变量表达不了, 这时后端不得到系统代理; Windows 只开“自动检测设置”时照样给手动代理 (和页面在 WPAD 没找到时一致).
+  每次起后端时读, 改了系统设置后新起的后端生效. Linux 没有系统来源, 只有会话的变量.
 - **Windows 后端契约** (2026-11-09 定, 运行时实现在 crates/acdert `backends/` 和 runtime `channel/`; acde 的「和 acdert 的契约」写同一份, 两边一起发版). 不变量: 后端运行期间没有 TCP 监听、没有命名管道,
   套接字文件只有 SYSTEM 和当前用户能开; macOS / Linux 不变. argv、`ACDE_RUNTIME` 选 bun / node、环境从零建、一分钟 4 次崩溃上限、首窗起末窗停都同上.
   - **两种模式**: node 走**通道模式** (Node 在 Windows 上不能用文件系统 AF_UNIX, 命名管道的默认安全描述符给 Everyone / 匿名读、也接受远端打开);

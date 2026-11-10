@@ -31,6 +31,7 @@ unsafe extern "C" {
     fn CFRelease(cf: Ref);
     fn CFRetain(cf: Ref) -> Ref;
     fn CFEqual(a: Ref, b: Ref) -> u8;
+    fn CFStringCreateWithBytes(allocator: Ref, bytes: *const u8, length: isize, encoding: u32, external: u8) -> Ref;
     fn CFURLCreateWithBytes(allocator: Ref, bytes: *const u8, length: isize, encoding: u32, base: Ref) -> Ref;
     fn CFArrayGetCount(array: Ref) -> isize;
     fn CFArrayGetValueAtIndex(array: Ref, index: isize) -> Ref;
@@ -87,6 +88,65 @@ pub(super) fn find(url: &Url) -> Vec<Hop> {
     if hops.is_empty() { vec![Hop::Direct] } else { hops }
 }
 
+pub(super) fn manual() -> Option<super::Manual> {
+    unsafe {
+        let settings = CFNetworkCopySystemProxySettings();
+        if settings.is_null() {
+            return None;
+        }
+        let manual = fixed(settings);
+        CFRelease(settings);
+        manual
+    }
+}
+
+unsafe fn fixed(settings: Ref) -> Option<super::Manual> {
+    let on = |name: &str| unsafe { number(entry(settings, name)) }.is_some_and(|value| value != 0);
+    if on("ProxyAutoConfigEnable") || on("ProxyAutoDiscoveryEnable") {
+        log::debug!("proxy: app backends get no proxy variables from an automatic proxy configuration");
+        return None;
+    }
+    let hop = |kind: &str, make: fn(Endpoint) -> Hop| -> Option<Hop> {
+        if !on(&format!("{kind}Enable")) {
+            return None;
+        }
+        let host = unsafe { text(entry(settings, &format!("{kind}Proxy"))) }?;
+        let port = unsafe { number(entry(settings, &format!("{kind}Port"))) }?;
+        at(&host, port).map(make)
+    };
+    let socks = hop("SOCKS", Hop::Socks5);
+    let exceptions = unsafe { entry(settings, "ExceptionsList") };
+    let count = if exceptions.is_null() { 0 } else { unsafe { CFArrayGetCount(exceptions) } };
+    let bypass = (0..count).filter_map(|i| unsafe { text(CFArrayGetValueAtIndex(exceptions, i)) }).filter_map(|item| super::rules::exception(&item)).collect();
+    Some(super::Manual { http: hop("HTTP", Hop::Http).or_else(|| socks.clone()), https: hop("HTTPS", Hop::Http).or(socks), bypass })
+}
+
+unsafe fn entry(dictionary: Ref, name: &str) -> Ref {
+    let key = unsafe { CFStringCreateWithBytes(null(), name.as_ptr(), name.len() as isize, UTF8, 0) };
+    if key.is_null() {
+        return null();
+    }
+    let value = unsafe { CFDictionaryGetValue(dictionary, key) };
+    unsafe { CFRelease(key) };
+    value
+}
+
+unsafe fn number(value: Ref) -> Option<i32> {
+    let mut number: i32 = 0;
+    (!value.is_null() && unsafe { CFNumberGetValue(value, SINT32, (&raw mut number).cast()) } != 0).then_some(number)
+}
+
+unsafe fn text(value: Ref) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    let mut buffer = [0 as c_char; 1024];
+    if unsafe { CFStringGetCString(value, buffer.as_mut_ptr(), buffer.len() as isize, UTF8) } == 0 {
+        return None;
+    }
+    unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }.to_str().ok().map(str::to_owned)
+}
+
 /// an array of proxy dictionaries; a PAC entry is run (not again inside its own answer)
 unsafe fn convert(list: Ref, target: Ref, scripts: bool) -> Vec<Hop> {
     let mut hops = Vec::new();
@@ -112,21 +172,13 @@ unsafe fn convert(list: Ref, target: Ref, scripts: bool) -> Vec<Hop> {
 }
 
 unsafe fn endpoint(proxy: Ref) -> Option<Endpoint> {
-    let host = unsafe { CFDictionaryGetValue(proxy, kCFProxyHostNameKey) };
-    let port = unsafe { CFDictionaryGetValue(proxy, kCFProxyPortNumberKey) };
-    if host.is_null() || port.is_null() {
-        return None;
-    }
-    let mut buffer = [0 as c_char; 1024];
-    if unsafe { CFStringGetCString(host, buffer.as_mut_ptr(), buffer.len() as isize, UTF8) } == 0 {
-        return None;
-    }
-    let host = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }.to_str().ok()?.to_owned();
-    let mut number: i32 = 0;
-    if unsafe { CFNumberGetValue(port, SINT32, (&raw mut number).cast()) } == 0 {
-        return None;
-    }
-    let port = u16::try_from(number).ok().filter(|port| *port != 0)?;
+    let host = unsafe { text(CFDictionaryGetValue(proxy, kCFProxyHostNameKey)) }?;
+    let port = unsafe { number(CFDictionaryGetValue(proxy, kCFProxyPortNumberKey)) }?;
+    at(&host, port)
+}
+
+fn at(host: &str, port: i32) -> Option<Endpoint> {
+    let port = u16::try_from(port).ok().filter(|port| *port != 0)?;
     Some(Endpoint { host: host.trim_start_matches('[').trim_end_matches(']').to_owned(), port })
 }
 

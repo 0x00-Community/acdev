@@ -1,7 +1,7 @@
 //! The text forms of proxy settings: the environment variables and `no_proxy` (curl's and Go's reading), and the proxy and
 //! bypass lists of the Windows Internet settings. Pure functions, so they are tested on every platform.
 
-use super::{Endpoint, Hop};
+use super::{Endpoint, Hop, Manual};
 use std::net::IpAddr;
 use url::Url;
 
@@ -226,6 +226,53 @@ pub(crate) fn windows_bypass(text: &str, url: &Url) -> bool {
         let pattern = pattern.trim_end_matches('/');
         wildcard(pattern, &host) || with_port.as_deref().is_some_and(|with_port| wildcard(pattern, with_port))
     })
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn windows_manual(proxy: &str, bypass: &str) -> Manual {
+    let first = |secure: bool| windows_list(proxy, secure).into_iter().next().filter(|hop| *hop != Hop::Direct);
+    let bypass = bypass
+        .split([';', ',', ' ', '\t', '\r', '\n'])
+        .filter(|item| !item.is_empty() && !item.starts_with('<') && !item.contains("://"))
+        .filter_map(exception)
+        .collect();
+    Manual { http: first(false), https: first(true), bypass }
+}
+
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+pub(crate) fn exception(item: &str) -> Option<String> {
+    let item = item.trim().trim_end_matches('/').to_ascii_lowercase();
+    if item.is_empty() {
+        return None;
+    }
+    if item == "*" || item.parse::<IpAddr>().is_ok() {
+        return Some(item);
+    }
+    let (address, prefix) = match item.split_once('/') {
+        Some((address, prefix)) => (address, Some(prefix.parse::<u8>().ok()?)),
+        None => (item.as_str(), None),
+    };
+    if prefix.is_some() && address.parse::<IpAddr>().is_ok() {
+        return Some(item);
+    }
+    let parts: Vec<&str> = address.split('.').collect();
+    let known = parts.iter().take_while(|part| part.parse::<u8>().is_ok()).count();
+    let wildcard = parts[known..].iter().all(|part| *part == "*");
+    if known > 0 && known < 4 && parts.len() <= 4 && (prefix.is_some() || parts.len() > known) && wildcard {
+        let mut octets: Vec<&str> = parts[..known].to_vec();
+        octets.resize(4, "0");
+        let prefix = prefix.unwrap_or(8 * known as u8).min(32);
+        return Some(format!("{}/{prefix}", octets.join(".")));
+    }
+    if prefix.is_some() {
+        return None;
+    }
+    let name = item.strip_prefix("*.").map_or(item.as_str(), |rest| rest);
+    if name.contains('*') {
+        log::debug!("proxy: the exception {item:?} has no no_proxy form, app backends do not get it");
+        return None;
+    }
+    Some(if name.len() < item.len() { format!(".{name}") } else { item.clone() })
 }
 
 /// `*` is any run of characters

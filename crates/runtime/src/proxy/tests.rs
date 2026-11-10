@@ -1,4 +1,4 @@
-use super::rules::{Env, NoProxy, proxy, windows_bypass, windows_list};
+use super::rules::{Env, NoProxy, exception, proxy, windows_bypass, windows_list, windows_manual};
 use super::*;
 use crate::fetch::{Deliver, Dial, Event, FetchClient};
 use std::collections::HashMap;
@@ -113,6 +113,57 @@ fn windows_bypass_lists() {
     assert!(!windows_bypass(list, &url("https://plain.example/")));
     assert!(windows_bypass("example.com:8443", &url("https://example.com:8443/")));
     assert!(!windows_bypass("example.com", &url("https://example.com.evil/")));
+}
+
+fn backend(vars: &[(&str, &str)], windows: bool, manual: Option<Manual>) -> Vec<(String, String)> {
+    let vars: HashMap<String, String> = vars.iter().map(|(name, value)| (name.to_string(), value.to_string())).collect();
+    variables(|name| vars.get(name).cloned(), windows, move || manual)
+}
+
+fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+    list.iter().map(|(name, value)| (name.to_string(), value.to_string())).collect()
+}
+
+#[test]
+fn backends_get_the_session_variables_as_they_are() {
+    let system = || Some(Manual { http: Some(Hop::Http(at("system", 1))), ..Manual::default() });
+    let session = [("https_proxy", "http://a:1"), ("HTTPS_PROXY", "http://b:2"), ("no_proxy", "corp"), ("ftp_proxy", "x:1")];
+    assert_eq!(backend(&session, false, system()), pairs(&[("https_proxy", "http://a:1"), ("HTTPS_PROXY", "http://b:2"), ("no_proxy", "corp")]));
+    assert_eq!(backend(&[("HTTPS_PROXY", "http://b:2")], true, system()), pairs(&[("HTTPS_PROXY", "http://b:2")]));
+    assert_eq!(backend(&[("no_proxy", "corp")], false, None), pairs(&[("no_proxy", "corp")]));
+    assert!(backend(&[], false, None).is_empty());
+}
+
+#[test]
+fn backends_get_the_manual_system_proxy_without_session_variables() {
+    let manual = Manual { http: Some(Hop::Http(at("p", 8080))), https: Some(Hop::Http(at("::1", 8443))), bypass: vec![".corp.lan".into()] };
+    let loopback = "localhost,127.0.0.1,::1";
+    assert_eq!(
+        backend(&[("NO_PROXY", "intranet")], true, Some(manual.clone())),
+        pairs(&[("HTTP_PROXY", "http://p:8080"), ("HTTPS_PROXY", "http://[::1]:8443"), ("NO_PROXY", &format!("intranet,.corp.lan,{loopback}"))])
+    );
+    let found = backend(&[], false, Some(manual));
+    assert!(found.contains(&("http_proxy".into(), "http://p:8080".into())) && found.contains(&("HTTP_PROXY".into(), "http://p:8080".into())), "{found:?}");
+    assert!(found.contains(&("no_proxy".into(), format!(".corp.lan,{loopback}"))), "{found:?}");
+    let socks = Manual { http: Some(Hop::Socks4(at("s", 1080))), https: Some(Hop::Socks4(at("s", 1080))), bypass: vec![] };
+    assert_eq!(backend(&[], true, Some(socks)), pairs(&[("ALL_PROXY", "socks4a://s:1080"), ("NO_PROXY", loopback)]));
+    assert_eq!(backend(&[("NO_PROXY", "x")], true, Some(Manual::default())), pairs(&[("NO_PROXY", "x")]));
+}
+
+#[test]
+fn system_exceptions_in_no_proxy_form() {
+    let manual = windows_manual("http=h:1;https=h:2", "localhost;127.*;192.168.*;*.corp.lan;http://plain.example;<local>;a*b.com");
+    assert_eq!((manual.http, manual.https), (Some(Hop::Http(at("h", 1))), Some(Hop::Http(at("h", 2)))));
+    assert_eq!(manual.bypass, ["localhost", "127.0.0.0/8", "192.168.0.0/16", ".corp.lan"]);
+    assert_eq!(windows_manual("ftp=h:21", "").http, None);
+    for (item, form) in
+        [("*.local", Some(".local")), ("169.254/16", Some("169.254.0.0/16")), ("10.0.0.0/8", Some("10.0.0.0/8")), ("fd00::/8", Some("fd00::/8"))]
+    {
+        assert_eq!(exception(item).as_deref(), form, "{item}");
+    }
+    for (item, form) in [("Example.com:8080", Some("example.com:8080")), ("*", Some("*")), ("1.2.3.4", Some("1.2.3.4")), ("x/abc", None)] {
+        assert_eq!(exception(item).as_deref(), form, "{item}");
+    }
 }
 
 #[test]
