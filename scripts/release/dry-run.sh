@@ -46,24 +46,55 @@ sdk="$work/stage/acde-api-$version.tar.gz"
 good="$work/good-sdk.tgz"
 cp "$sdk" "$good"
 sdk_work="$work/poison"
+# op|path in package/|body|error the check must report
 for variant in \
-  "src/validate.ts|export {}" \
-  "src/index.js.map|{}" \
-  "scripts/build.mjs|// build" \
-  "test/validate.test.ts|test" \
-  "src/index.js|//# sourceMappingURL=index.js.map"; do
-  name=${variant%%|*}
-  body=${variant#*|}
+  "add|src/validate.ts|export {}|TypeScript source" \
+  "add|src/runtime/load.ts|export {}|TypeScript source" \
+  "add|src/index.js.map|{}|source map: " \
+  "add|src/types/page.d.ts.map|{}|source map: " \
+  "add|scripts/build.mjs|// build|build scripts" \
+  "add|src/runtime/scripts/gen.js|// gen|build scripts" \
+  "add|test/validate.test.ts|test|has tests" \
+  "add|src/runtime/test/load.test.js|test|has tests" \
+  "add|src/index.js|//# sourceMappingURL=index.js.map|source map reference" \
+  "add|src/runtime/load.js|//# sourceMappingURL=load.js.map|source map reference" \
+  "add|src/types/page.d.ts|// sourcesContent|source map reference" \
+  "add|src/Extra/load.js|export {}|outside the published layout" \
+  "add|src/runtime/notes.md|notes|outside the published layout" \
+  "add|extra.js|export {}|outside the published layout" \
+  "rm|src/runtime/level.js||which the archive does not have" \
+  "rm|src/types/page.d.ts||which the archive does not have" \
+  "rm|src/app.d.ts||points to a file the archive does not have" \
+  "unexport|./app||exports has no \"./app\"" \
+  "unexport|./shell||exports has no \"./shell\""; do
+  IFS='|' read -r op name body expect <<< "$variant"
   rm -rf "$sdk_work"
   mkdir -p "$sdk_work"
   tar -C "$sdk_work" -xzf "$good"
-  mkdir -p "$(dirname -- "$sdk_work/package/$name")"
-  printf '%s\n' "$body" >> "$sdk_work/package/$name"
+  case "$op" in
+    add)
+      mkdir -p "$(dirname -- "$sdk_work/package/$name")"
+      printf '%s\n' "$body" >> "$sdk_work/package/$name" ;;
+    rm) rm "$sdk_work/package/$name" ;;
+    unexport)
+      (cd "$sdk_work/package" && node -e '
+        const fs = require("fs");
+        const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+        delete pkg.exports[process.argv[1]];
+        fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+      ' "$name") ;;
+  esac
   tar -C "$sdk_work" -czf "$sdk" package
-  if "$here/check-stage.sh" "$work/stage" "$version" >/dev/null 2>&1; then
-    echo "FAIL: the check accepted $name in the sdk archive" >&2
+  if out=$("$here/check-stage.sh" "$work/stage" "$version" 2>&1); then
+    echo "FAIL: the check accepted $op $name in the sdk archive" >&2
     exit 1
   fi
+  if ! grep -qF -- "$expect" <<< "$out"; then
+    echo "FAIL: the check rejected $op $name, but not with \"$expect\":" >&2
+    printf '%s\n' "$out" >&2
+    exit 1
+  fi
+  echo "rejected $op $name: $expect"
   cp "$good" "$sdk"
 done
 

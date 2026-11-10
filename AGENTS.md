@@ -1010,9 +1010,15 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 - 发布清单: `stage` job 用 `scripts/release/stage.sh` 按固定清单组装 (三个 binary、host tarball、LICENSE、`acde-api-<版本>.tar.gz`). `scripts/release/check-stage.sh` 拒绝清单外的
   文件, 目录, 以及 `.pdb` / `.dSYM` / `.dwp` / `.debug`; release 和 pkgs 上传前各跑一遍. release 和 upload 只下载 `release-stage` artifact,
   不用通配. SDK 归档 (`acde-api-<版本>.tar.gz`) 由 stage 先跑 `bun run --cwd web/packages/acde-api build`, 只打包生成的 `dist/`, 顶层目录是 `package/`
-  (与 npm 包的布局一致: `package.json`、`LICENSE`、`config.schema.json`、`src/*.js`、`src/*.d.ts`); `./manifest` 指向 `src/validate.js` / `src/validate.d.ts`.
-  `check-stage.sh` 拒绝归档里的 `.ts` (非 `.d.ts`)、`scripts/`、`test/`、`.map`、`sourceMappingURL` / `sourcesContent`, 也拒绝布局之外的条目, 并核对 exports 指向的文件都在.
-  本地演练 `bash scripts/release/dry-run.sh`: 放进假的 symbols 和 SDK 污染条目, 检查必须拒绝, 并列出 SDK 归档条目; `bash scripts/release/plan-dry-run.sh` 覆盖判断版本的各个分支 (预演、正式发布、标签已存在、版本不一致、非 main 拒绝).
+  (与 npm 包的布局一致: `package.json`、`LICENSE`、`config.schema.json`、`src/` 下的 `.js` 和 `.d.ts`, 可以在小写子目录里,
+  如 `types/`、`modules/`、`runtime/`); `./manifest` 指向 `src/validate.js` / `src/validate.d.ts`.
+  `check-stage.sh` 拒绝归档里的 `.ts` (非 `.d.ts`)、`scripts/`、`test/`、`.map`、`sourceMappingURL` / `sourcesContent`,
+  也拒绝布局之外的条目 (含非小写目录名、`..` / 绝对路径、普通文件和目录以外的条目);
+  exports 必须有 `.`、`./app`、`./shell`、`./vite`、`./manifest`、`./config.schema.json`, 指向的文件都在,
+  `src/` 里每个相对 import 都能在归档里解析到.
+  本地演练 `bash scripts/release/dry-run.sh`: 放进假的 symbols 和 SDK 污染条目 (顶层和子目录各一份, 外加删文件、删 export),
+  检查必须以预期的错误拒绝, 并列出 SDK 归档条目;
+  `bash scripts/release/plan-dry-run.sh` 覆盖判断版本的各个分支 (预演、正式发布、标签已存在、版本不一致、非 main 拒绝).
 - 缓存: build job 用 `Swatinem/rust-cache@v2` (pinned major). 带 `id-token` 的 job 不用第三方 action (`upload` 和 `latest` 里的 aws-actions 是例外, 待定).
   host bundle 用 release 构建 (`bun run --filter @dopame/acde-host build:release`, 写到 `web/packages/acde-host/dist-release/`): 标识符压缩, 没有
   source map 也没有 `sourceMappingURL`, 再过一遍 javascript-obfuscator 的轻量预设 (`scripts/release-options.mjs`: 只重命名标识符和字符串数组, 不做

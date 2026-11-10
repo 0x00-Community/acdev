@@ -14,21 +14,29 @@ required=(
 optional=("SHA256SUMS")
 problems=0
 
+# The SDK archive must hold exactly the npm layout: package.json, LICENSE,
+# config.schema.json and the built src/ tree (.js and .d.ts, in plain
+# lowercase subdirectories). Exports and relative imports must resolve.
 check_sdk() {
-  local archive=$1 list entry entries bad=0
-  if ! list=$(tar -tzf "$archive"); then
+  local archive=$1 list verbose entry bad=0 work
+  if ! list=$(tar -tzf "$archive") || ! verbose=$(tar -tvzf "$archive"); then
     echo "::error::cannot list the sdk archive: $(basename "$archive")"
     return 1
   fi
-  entries=$(mktemp)
-  printf '%s\n' "$list" > "$entries"
+  if grep -v '^[-d]' <<< "$verbose" | grep -q .; then
+    echo "::error::sdk archive has entries that are not plain files or directories:"
+    grep -v '^[-d]' <<< "$verbose" | sed 's/^/  /'
+    bad=1
+  fi
   while IFS= read -r entry; do
     case "$entry" in
+      /* | .. | ../* | */../* | */.. | ./* | */./* | *//*)
+        echo "::error::sdk archive has an unsafe path: $entry"; bad=1; continue ;;
       *.map)
         echo "::error::sdk archive has a source map: $entry"; bad=1; continue ;;
-      scripts | scripts/* | */scripts | */scripts/*)
+      scripts | scripts/* | */scripts | */scripts/ | */scripts/*)
         echo "::error::sdk archive has build scripts: $entry"; bad=1; continue ;;
-      test | test/* | */test | */test/*)
+      test | test/* | */test | */test/ | */test/*)
         echo "::error::sdk archive has tests: $entry"; bad=1; continue ;;
       *.ts)
         case "$entry" in
@@ -37,42 +45,74 @@ check_sdk() {
         esac ;;
     esac
     case "$entry" in
-      package | package/ | package/package.json | package/LICENSE | package/config.schema.json | package/src/) ;;
-      package/src/*/*) echo "::error::sdk archive has a nested directory: $entry"; bad=1 ;;
-      package/src/*.js | package/src/*.d.ts) ;;
-      *) echo "::error::sdk archive entry outside the published layout: $entry"; bad=1 ;;
+      package | package/ | package/package.json | package/LICENSE | package/config.schema.json | package/src/) continue ;;
     esac
+    if [[ "$entry" =~ ^package/src/([a-z0-9][a-z0-9_-]*/)*$ ]] ||
+      [[ "$entry" =~ ^package/src/([a-z0-9][a-z0-9_-]*/)*[A-Za-z0-9][A-Za-z0-9_.-]*\.(js|d\.ts)$ ]]; then
+      continue
+    fi
+    echo "::error::sdk archive entry outside the published layout: $entry"; bad=1
   done <<< "$list"
-  local content
-  content=$(tar -xzOf "$archive") || { echo "::error::cannot read the sdk archive: $(basename "$archive")"; bad=1; }
-  if grep -aq -e sourceMappingURL -e sourcesContent -e 'sourceURL=' <<< "${content:-}"; then
+  [ "$bad" = 0 ] || return 1
+
+  work=$(mktemp -d)
+  if ! tar -C "$work" -xzf "$archive"; then
+    echo "::error::cannot read the sdk archive: $(basename "$archive")"
+    rm -rf "$work"
+    return 1
+  fi
+  if grep -raq -e sourceMappingURL -e sourcesContent -e 'sourceURL=' "$work"; then
     echo "::error::sdk archive has a source map reference"; bad=1
   fi
-  local pkg
-  if ! pkg=$(tar -xzOf "$archive" package/package.json); then
+  if [ ! -f "$work/package/package.json" ]; then
     echo "::error::sdk archive has no package/package.json"; bad=1
-  elif ! printf '%s' "$pkg" | node -e '
+  elif ! node -e '
     const fs = require("fs");
-    const entries = new Set(fs.readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).map((e) => e.replace(/\/$/, "")));
-    const pkg = JSON.parse(fs.readFileSync(0, "utf8"));
+    const path = require("path");
+    const root = path.join(process.argv[1], "package");
     const problems = [];
-    const need = (file) => {
-      const path = "package/" + file.replace(/^\.\//, "");
-      if (!entries.has(path)) problems.push("sdk archive is missing " + path);
+    const isFile = (rel) => {
+      try { return fs.statSync(path.join(root, rel)).isFile(); } catch { return false; }
     };
-    for (const target of Object.values(pkg.exports ?? {})) {
-      for (const file of typeof target === "string" ? [target] : [target.types, target.default].filter(Boolean)) need(file);
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    const exportsMap = pkg.exports ?? {};
+    const required = [".", "./app", "./shell", "./vite", "./manifest", "./config.schema.json"];
+    for (const key of required) if (!(key in exportsMap)) problems.push("exports has no " + JSON.stringify(key));
+    for (const [key, target] of Object.entries(exportsMap)) {
+      const files = typeof target === "string" ? [target] : [target.types, target.default];
+      if (typeof target !== "string") {
+        if (!(target.types && target.default)) problems.push("export " + key + " needs both types and default");
+        if (target.types && !target.types.endsWith(".d.ts")) problems.push("export " + key + " types is not a .d.ts: " + target.types);
+        if (target.default && !target.default.endsWith(".js")) problems.push("export " + key + " default is not a .js: " + target.default);
+      }
+      for (const file of files.filter(Boolean)) {
+        if (!isFile(file.replace(/^\.\//, ""))) problems.push("export " + key + " points to a file the archive does not have: " + file);
+      }
     }
-    const manifest = pkg.exports?.["./manifest"];
+    const manifest = exportsMap["./manifest"];
     if (!manifest || manifest.default !== "./src/validate.js" || manifest.types !== "./src/validate.d.ts") {
       problems.push("./manifest must point to ./src/validate.js and ./src/validate.d.ts");
     }
-    for (const problem of problems) console.log("::error::" + problem);
+    const walk = (dir) =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+    const specifier = /(?:\bfrom|\bimport)\s*\(?\s*["\x27](\.{1,2}\/[^"\x27]*)["\x27]/g;
+    for (const file of walk(path.join(root, "src"))) {
+      const rel = path.relative(root, file).split(path.sep).join("/");
+      const declaration = rel.endsWith(".d.ts");
+      for (const [, spec] of fs.readFileSync(file, "utf8").matchAll(specifier)) {
+        const base = path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec));
+        const candidates = declaration
+          ? [base, base + ".d.ts", base.replace(/\.js$/, ".d.ts"), base + "/index.d.ts"]
+          : [base];
+        if (base.startsWith("..") || !candidates.some(isFile)) problems.push(rel + " imports " + spec + ", which the archive does not have");
+      }
+    }
+    for (const problem of problems) console.log("::error::sdk " + problem);
     process.exit(problems.length ? 1 : 0);
-  ' "$entries"; then
+  ' "$work"; then
     bad=1
   fi
-  rm -f "$entries"
+  rm -rf "$work"
   return "$bad"
 }
 
