@@ -975,6 +975,9 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 - 依赖版本只写主版本号 (`log = "0"`, `wgpu = "30"`), 用最新的; 例外是 `[patch.crates-io]` 换成 `vendors/` 的 crate 和配套的 (blitz-*、stylo*、
   parley、html5ever、cssparser) 用 `=` 钉住.
 - `Cargo.lock` 不进 git (`.gitignore`): 依赖按 Cargo.toml 解析到最新. 改了依赖, 提交前 `cargo build --release -p acdert` 必须通过; clippy 要过.
+  本地留下的 `Cargo.lock` 不会自己跟上: 拉取之后先 `cargo update` (或删掉它) 再编. workspace 的版本号一变, cargo 会重新解析这些 crate 的依赖,
+  只写主版本号的 0.x 依赖 (`rand = "0"`、`sha2 = "0"`、`hmac = "0"`) 会落到旧锁里已有的老版本上, 只在 Linux 编的 `voice`、`office` 就编不过
+  (`rand::rng` 找不到, `Hmac<Sha256>` 的 trait 对不上); macOS 和 Windows 不编这两个模块, 看不到这个错.
   `web/bun.lock` 进 git, 改依赖时放在同一个提交里.
 - 诊断用 `log` 的宏, 不用 `eprintln!` (测试、命令行输出除外).
 - Rust 代码提交前 `cargo fmt --all` (根目录 `rustfmt.toml`: 宽 160, `use_small_heuristics = "Max"`; `vendors/` 不在 workspace 里, 不碰).
