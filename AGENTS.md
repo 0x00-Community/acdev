@@ -433,7 +433,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   frame 回调. `ACDE_WEB_FPS` 指定帧率.
 - **通信**: acde-host `remote.ts` 的 `RemoteBridge` 按 Broker 给的能力建代理 (注入的能力直接用 natives), `define` 登记成内置模块
   `acde:<名字>` (`modules.rs` 用 V8 合成模块, 导出 `{<名字>, default}`). 事件不派到 `window` 上: 页面用模块上的 `on(类型, fn)` 订阅 (返回退订
-  函数, 不认识的类型抛 TypeError). 事件和结果都有 SDK 类型 (`types/events.d.ts`、`types/office.d.ts`): 事件按 `type` 区分 (`acde:windows` /
+  函数, 不认识的类型抛 TypeError, 文字是 `acde:<模块> has no <类型> event (<有的类型>)`; `acde:window` 也一样, `WindowSelf` 里的事件名表按 SDK `WindowEventName`
+  逐个写, 少一个多一个都编不过, 另加 `shortcut`). 事件和结果都有 SDK 类型 (`types/events.d.ts`、`types/office.d.ts`): 事件按 `type` 区分 (`acde:windows` /
   `acde:launch` 的 `on(短名)` 收 `{type: 'window<短名>', window, …}`, `appschanged`、`download`、`notification`、`screenshot {path, width, height}` 或
   `{path, error}`、`shortcut {key, title: 作用域, window}`、终端的 `output` / `cwd` / `exit`); `acde.window` 的 `grab {kind, granted}`、
   `grablost {kind: 'lost', reason}`, `suspend` / `resume` 没有参数 (运行时还不发). 公共事件、请求和结果里没有 `unknown` 和 `[字段: string]: unknown`

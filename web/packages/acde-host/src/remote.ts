@@ -66,6 +66,21 @@ type PageLike = { dispatchEvent(event: Event): boolean; Event: typeof Event; doc
 
 export class WindowSelf {
   static readonly #EDGES: Record<WindowEdge, number> = { top: 1, bottom: 2, left: 4, right: 8 }
+  static readonly #OWN: Record<WindowEventName, true> = {
+    activate: true,
+    deactivate: true,
+    beforeclose: true,
+    request: true,
+    suspend: true,
+    resume: true,
+    grab: true,
+    grablost: true,
+    state: true,
+    output: true,
+    hostcontrols: true,
+    minimizable: true,
+  }
+  static readonly EVENTS: readonly string[] = [...Object.keys(WindowSelf.#OWN), 'shortcut']
   readonly #rpc: Rpc
   readonly #surface: NativeSurface
   readonly #page: PageLike
@@ -160,6 +175,7 @@ export class WindowSelf {
     requestGrab: (kind: 'pointer' | 'keyboard') => this.#surface.requestGrab(kind),
     releaseGrab: (kind: 'pointer' | 'keyboard') => this.#surface.releaseGrab(kind),
     on: (name: WindowEventName, handler: (value?: unknown) => unknown) => {
+      if (!Object.hasOwn(WindowSelf.#OWN, name)) throw new TypeError(`acde:window has no ${String(name)} event (${WindowSelf.EVENTS.join(', ')})`)
       const set = this.#handlers.get(name) ?? new Set()
       set.add(handler)
       this.#handlers.set(name, set)
@@ -305,7 +321,7 @@ export class RemoteBridge {
 
   #window(self: WindowSelf, windows: WindowList): unknown {
     const api = self.api
-    const shortcut = windows.notices.for('window', ['shortcut'])
+    const shortcut = windows.notices.for('window', WindowSelf.EVENTS)
     const on = (name: string, handler: (value?: unknown) => unknown) =>
       name === 'shortcut' ? shortcut(name, handler) : api.on(name as WindowEventName, handler)
     const value = { ...api, id: self.id, on }
