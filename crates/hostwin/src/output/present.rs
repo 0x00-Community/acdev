@@ -179,13 +179,6 @@ impl Presenter {
         false
     }
 
-    fn scenes(plane: &Plane) -> Vec<(Scene, Affine)> {
-        match plane.layers.is_empty() {
-            true => vec![(plane.drawing.scene(), Affine::IDENTITY)],
-            false => plane.layers.iter().map(|l| (l.drawing.scene(), Affine::IDENTITY)).collect(),
-        }
-    }
-
     fn paint(&mut self) {
         self.dirty = false;
         let Some(frame) = self.render.frame() else { return };
@@ -194,34 +187,35 @@ impl Presenter {
         }
         self.pacer.animating = frame.animating;
         let started = Instant::now();
-        let mut result = match frame.plane.layers.is_empty() {
-            true => {
-                let (main, size) = self.framed(Self::scenes(&frame.plane));
-                self.draw(self.id, size, main, Color::WHITE)
-            }
-            false => {
-                let (decoration, size) = self.framed(Vec::new());
-                let top = size.1 - self.size.1;
-                self.layered(self.id, size, &frame.plane, top, decoration, Color::WHITE)
-            }
-        };
-        for panel in &frame.panels {
+        let (decoration, size) = self.framed(Vec::new());
+        let top = size.1 - self.size.1;
+        let plane = Self::in_layers(frame.plane, frame.size);
+        let mut result = self.layered(self.id, size, &plane, top, decoration, Color::WHITE);
+        for panel in frame.panels {
             let Some(&window) = self.panels.get(&panel.id) else { continue };
             let size = (panel.size.0.max(1), panel.size.1.max(1));
-            result = result.and(match panel.plane.layers.is_empty() {
-                true => self.draw(window, size, Self::scenes(&panel.plane), Color::TRANSPARENT),
-                false => self.layered(window, size, &panel.plane, 0, Vec::new(), Color::TRANSPARENT),
-            });
-            Self::backdrop(window, &panel.plane);
+            let plane = Self::in_layers(panel.plane, panel.size);
+            result = result.and_then(|drawn| Ok(self.layered(window, size, &plane, 0, Vec::new(), Color::TRANSPARENT)? || drawn));
+            Self::backdrop(window, &plane);
             Self::drawn(window, size);
         }
-        if let Err(e) = result {
+        let drawn = result.unwrap_or_else(|e| {
             log::warn!("web window: {e}");
-        }
-        if let Some(compositor) = server().and_then(|s| s.compositor()) {
+            true
+        });
+        if let Some(compositor) = server().and_then(|s| s.compositor()).filter(|_| drawn) {
             compositor.dirty();
         }
         log::debug!(target: "perf::raster", "surface ms={:.3}", acde_log::since_ms(started));
+    }
+
+    fn in_layers(mut plane: Plane, (width, height): (u32, u32)) -> Plane {
+        if plane.layers.is_empty() {
+            let drawing = std::mem::take(&mut plane.drawing);
+            let bounds = Some(Rect::new(0.0, 0.0, f64::from(width), f64::from(height)));
+            plane.layers.push(Layer { drawing, bounds, backdrop: None, filter: None });
+        }
+        plane
     }
 
     fn drawn(window: u32, size: (u32, u32)) {
@@ -319,22 +313,13 @@ impl Presenter {
         }
     }
 
-    fn draw(&mut self, window: u32, size: (u32, u32), scenes: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
-        self.scratch.remove(&window);
-        let view = self.target(window, size);
-        self.straight(window, true);
-        self.vello.render(scenes, &mut self.overrides, &view, size, base, Some(&self.gpu.shared))?;
-        self.publish(window);
-        Ok(())
-    }
-
     fn straight(&self, window: u32, straight: bool) {
         if let Some(page) = self.targets.get(&window) {
             page.straight.store(straight, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
-    fn layered(&mut self, window: u32, size: (u32, u32), plane: &Plane, top: u32, over: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
+    fn layered(&mut self, window: u32, size: (u32, u32), plane: &Plane, top: u32, over: Vec<(Scene, Affine)>, base: Color) -> Result<bool, String> {
         self.target(window, size);
         let page = self.targets[&window].clone();
         let fresh = self.scratch.get(&window).is_none_or(|s| s.size != size || !s.drawn);
@@ -346,7 +331,7 @@ impl Presenter {
         let region = if fresh { None } else { Self::region(plane, &parts, top, full) };
         let target = region.unwrap_or(full);
         if target.area() == 0 {
-            return Ok(());
+            return Ok(false);
         }
         if let Some(scratch) = self.scratch.get_mut(&window) {
             scratch.drawn = false;
@@ -431,7 +416,7 @@ impl Presenter {
         }
         let ms = acde_log::since_ms(started);
         log::debug!(target: "perf::layers", "window={window} region={:?} layers={redrawn}/{} ms={ms:.3}", target.xywh(), parts.len());
-        Ok(())
+        Ok(true)
     }
 
     fn region(plane: &Plane, parts: &[(&Layer, Part)], top: u32, full: Px) -> Option<Px> {
