@@ -21,7 +21,7 @@ export interface DevHost {
 
 export class DevRequests {
   static readonly #OPS =
-    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard, permissions, answer, drop'
+    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard, permissions, answer, revoke, drop'
   readonly #host: DevHost
   #routes: DevRoute[] = []
   #nextRoute = 1
@@ -136,6 +136,13 @@ export class DevRequests {
         if (!Number.isInteger(args['prompt']) || typeof args['allow'] !== 'boolean') throw new Error('answer: prompt is a prompt id and allow is true or false')
         this.#host.permissions.answer(args['prompt'] as number, args['allow'])
         return { prompt: args['prompt'], allow: args['allow'] }
+      }
+      case 'revoke': {
+        const { app, capability } = args
+        if (typeof app !== 'string' || !app || typeof capability !== 'string' || !capability) {
+          throw new Error('revoke: app is an app id and capability is the approved capability (as in permissions)')
+        }
+        return { app, capability, revoked: this.#host.permissions.revoke(app, capability) }
       }
       case 'route': {
         const route = DevRoutes.parse(args, this.#nextRoute++)
