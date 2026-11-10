@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { API_LEVEL as ROOT_LEVEL } from '../src/index.js'
-import { API_LEVEL, APP_MODULES, ICON_NAMES, Manifest, SHELL_MODULES, type PackageManifest } from '../src/validate.ts'
+import { API_LEVEL, APP_MODULES, APPROVAL_CAPABILITIES, ICON_NAMES, Manifest, SHELL_MODULES, type PackageManifest } from '../src/validate.ts'
 
 const assets = new Set(['/app/demo/index.html', '/app/demo/icon.svg', '/app/demo/icon.png'])
 
@@ -95,7 +95,7 @@ const demo = (capabilities: Record<string, unknown>) => ({ id: 'demo', label: 'D
 const desk = (services: unknown) => ({ id: 'desk', name: 'Desk', entry: 'desk.html', services }) as never
 
 test('modules come in two tiers that do not overlap', () => {
-  assert.deepEqual([...SHELL_MODULES], ['windows', 'packages', 'session', 'desktops', 'inspect', 'desktop', 'setDefault'])
+  assert.deepEqual([...SHELL_MODULES], ['windows', 'packages', 'session', 'desktops', 'inspect', 'desktop', 'setDefault', 'permissions'])
   assert.deepEqual([...APP_MODULES], ['launch', 'apps', 'open', 'openPath', 'handlers', 'window'])
   assert.ok(SHELL_MODULES.every((name) => !(APP_MODULES as readonly string[]).includes(name)))
   for (const name of SHELL_MODULES) assert.ok(Manifest.CAPABILITIES.has(name), name)
@@ -130,7 +130,8 @@ test('desktop services: each lists the shell modules it may use', () => {
 
 test('desktop services: modules must be shell modules, services must exist', () => {
   const services = [{ name: 'assistant', module: 'a.js' }]
-  const message = 'desktop "desk": service "assistant": modules lists shell modules (windows, packages, session, desktops, inspect, desktop, setDefault)'
+  const shell = 'windows, packages, session, desktops, inspect, desktop, setDefault, permissions'
+  const message = `desktop "desk": service "assistant": modules lists shell modules (${shell})`
   assert.deepEqual(tiered({ desktops: [desk([{ name: 'assistant', modules: ['fs'] }])], apps: [], services }).errors, [message])
   assert.deepEqual(tiered({ desktops: [desk([{ name: 'assistant', modules: 'session' }])], apps: [], services }).errors, [message])
   assert.deepEqual(tiered({ desktops: [desk([{ modules: [] }])], apps: [], services }).errors, [
@@ -154,4 +155,16 @@ test('requests: the private request kinds an app accepts', () => {
   for (const bad of [['Task'], ['open-file'], ['open-link'], [''], ['a b'], 'task', [1]]) {
     assert.match(String(app(bad)), /requests/, JSON.stringify(bad))
   }
+})
+test('capabilities that reach outside the app need approval; the rest are granted on declaration', () => {
+  assert.deepEqual([...APPROVAL_CAPABILITIES], ['launch', 'slots', 'terminal', 'network', 'camera', 'microphone'])
+  for (const name of APPROVAL_CAPABILITIES) assert.ok(Manifest.CAPABILITIES.has(name), name)
+  for (const name of ['office', 'open', 'openFiles', 'fs']) assert.ok(!(APPROVAL_CAPABILITIES as readonly string[]).includes(name), name)
+})
+
+test('a system app may declare acde:permissions; a third-party app may not', () => {
+  const settings = { id: 'settings', label: 'Settings', icon: 'app', entry: '/s/index.html', capabilities: { permissions: true } }
+  const parsed = Manifest.app(settings)
+  assert.equal(typeof parsed, 'object')
+  assert.deepEqual(Manifest.shellModules((parsed as { capabilities: Record<string, unknown> }).capabilities), ['permissions'])
 })

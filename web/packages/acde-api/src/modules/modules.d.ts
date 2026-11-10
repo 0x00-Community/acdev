@@ -58,6 +58,10 @@ declare module 'acde:handlers' {
   const handlers: import('@dopame/acde-api').AcdeModules['handlers']
   export { handlers, handlers as default }
 }
+declare module 'acde:permissions' {
+  const permissions: import('@dopame/acde-api').AcdeModules['permissions']
+  export { permissions, permissions as default }
+}
 declare module 'acde:setDefault' {
   const setDefault: import('@dopame/acde-api').AcdeModules['setDefault']
   export { setDefault, setDefault as default }

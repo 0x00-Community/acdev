@@ -41,7 +41,7 @@ export const ICON_NAMES = [
 
 export type IconName = (typeof ICON_NAMES)[number]
 
-export const SHELL_MODULES = ['windows', 'packages', 'session', 'desktops', 'inspect', 'desktop', 'setDefault'] as const
+export const SHELL_MODULES = ['windows', 'packages', 'session', 'desktops', 'inspect', 'desktop', 'setDefault', 'permissions'] as const
 
 export const APP_MODULES = ['launch', 'apps', 'open', 'openPath', 'handlers', 'window'] as const
 
@@ -50,6 +50,8 @@ export type ShellModule = (typeof SHELL_MODULES)[number]
 export const SYSTEM_CAPABILITIES = ['fs', 'terminal', 'network', 'office', 'launch', 'slots', 'open', 'openFiles', 'camera', 'microphone'] as const
 
 export const CAPABILITY_MODULES = ['fs', 'terminal', 'network', 'office'] as const
+
+export const APPROVAL_CAPABILITIES = ['launch', 'slots', 'terminal', 'network', 'camera', 'microphone'] as const
 
 export interface ImportRule {
   readonly allowed: boolean

@@ -224,3 +224,26 @@ test('the typed docs say animations and backdrops are best effort', () => {
   assert.match(doc('animate'), /windowanimated/)
   assert.match(doc('setBackdrop'), /approximat/)
 })
+
+test('the desktop answers approval prompts and lists and revokes decisions through acde:permissions', () => {
+  const code = `
+import { permissions } from 'acde:permissions'
+import type { AcdePermissionError, ApprovalCapability } from ${JSON.stringify(`${src}shell`)}
+permissions.on('prompt', (prompt) => {
+  const capability: ApprovalCapability = prompt.capability
+  void permissions.answer(prompt.id, prompt.reason === 'launch' && capability !== 'network')
+})
+permissions.on('answered', (event) => event.allowed satisfies boolean)
+const pending = await permissions.pending()
+pending.map((prompt) => prompt.app satisfies string)
+const decisions = await permissions.list('notes')
+decisions.map((d) => d.decision satisfies 'granted' | 'denied')
+export const revoked: Promise<boolean> = permissions.revoke('notes', 'launch')
+export function denied(error: AcdePermissionError): [403, 'denied', string] {
+  return [error.status, error.code, error.capability]
+}
+`
+  assert.deepEqual(errors('shell', code), [])
+  assert.ok(errors('app', `import { permissions } from 'acde:permissions'\nvoid permissions.pending()`).length > 0, 'apps do not see it')
+  assert.ok(errors('shell', `import { permissions } from 'acde:permissions'\nvoid permissions.revoke('notes', 'office')`).length > 0)
+})
