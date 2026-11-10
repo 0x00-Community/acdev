@@ -108,7 +108,7 @@ export class Permissions {
     const prompt: PermissionPrompt = { id: this.#next++, app: app.id, label: app.label, capability, reason }
     this.#waiting.set(prompt.id, { prompt, answered, settle })
     this.#asked.add(key)
-    this.#host.log(`${app.label} (${app.id}) waits for the user to allow "${capability}" (prompt ${prompt.id}; acde:permissions or the acde driver answers)`)
+    this.#host.log(`${app.label} (${app.id}) waits for the user to allow "${capability}" (prompt ${prompt.id}; answer it with acde allow or acde deny, the acde driver, or acde:permissions)`)
     this.#host.tell({ type: 'permissionprompt', ...prompt })
     return answered
   }

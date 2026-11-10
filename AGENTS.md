@@ -478,7 +478,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   进程里所有 `Workspace` 和 `Finder` 共用一份授权 (`fs/mod.rs` 的 `GRANTS`), 撤销对正在运行的 web 立刻生效. 页面里已有的这个文件夹的句柄活到页面结束;
   同一个页面撤销后再选同一个文件夹, `acde:fs` 仍报 `denied` 到页面重开. 开发、无头和 driver 照常问: dev 请求 `permissions` (待答和已有决定)、`answer {prompt, allow}`、`revoke {app, capability}` (#95, 和 `acde:permissions.revoke` 同一份记录和效果,
   回 `{app, capability, revoked}`, 没有决定过的回 `revoked: false`; 桌面和 `acdert app` 都能用)
-  给 acde driver 用; 每个提示记一行 info (`waits for the user to allow`), 没人答就一直等, 不自动批准.
+  给 acde 用 (driver、MCP, 和命令行的 `acde permissions` / `allow` / `deny` / `revoke`); 每个提示记一行 info (`waits for the user to allow … answer it with acde allow or acde deny, …`: 这一行出现在 `acde dev` 的输出里, 是没有对话框的会话里用户和 agent 知道该做什么的地方), 没人答就一直等, 不自动批准.
   **单应用模式的原生对话框** (`acdert app`, 宿主窗口; `broker/access/approval/dialog.ts` `ApprovalDialogs`, 由 `broker/approvals.ts` 接上): 提示同时交给宿主的
   `approve(title, message)` (hostwin `Cmd::Approve`, Windows 是 `platform/win32/approve.rs` 的 `MessageBoxW`, 以宿主窗口为 owner, 是 / 否, 默认否),
   一次只开一个, 其余排队; 答案经 `Permissions.answer` 写进同一份 `permissions.json`, 和桌面答的一样. driver 或别处先答了, Broker 调
