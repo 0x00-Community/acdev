@@ -371,10 +371,13 @@ export class Broker {
     for (const record of this.#windows.values()) this.#announce(record)
   }
 
-  #spawnWindow(
-    record: WindowRecord,
-    token: bigint = this.shell.grant({ window: record.id, mode: record.mode, size: Frame.windowSize(record.app!) }).token,
-  ): void {
+  #regrant(record: WindowRecord): bigint {
+    const host = Outputs.host({ mode: record.mode, appId: record.appId }, this.#options.standalone) && { host: true }
+    const size = host ? record.app!.size : Frame.windowSize(record.app!)
+    return this.shell.grant({ window: record.id, mode: record.mode, ...(size && { size }), ...host }).token
+  }
+
+  #spawnWindow(record: WindowRecord, token: bigint = this.#regrant(record)): void {
     const app = record.app!
     this.#windows.placed(record.id, app.id)
     const tier = this.#launchable.tier(app)
