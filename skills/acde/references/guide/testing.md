@@ -146,6 +146,14 @@ await expect(app).toBeOpen()
 
 UI assertions retry until the timeout (5 seconds by default). `expect` on any other value is the `expect` from `bun:test`.
 
+`expect.poll` retries a `bun:test` matcher on a value the test reads itself, until it passes or the timeout runs out. `expect.soft` records a failure and lets the test go on; the test fails at its end with every soft failure listed.
+
+```ts
+await expect.poll(() => app.evaluate<number>('window.saved'), { timeout: 2000 }).toBe(3)
+await expect.soft(app.getByRole('heading')).toHaveText('Notes')
+expect.soft(total).toBe(42)
+```
+
 ## Screenshots
 
 ```ts
@@ -210,7 +218,15 @@ expect((await shown).message).toBe('Delete this note?')
 await app.dialogs()                                   // every dialog the page showed, and how it was answered
 ```
 
-To start from a prepared page:
+To start a test from a prepared page:
+
+```ts
+test('opens the saved draft', { size: [480, 640], localStorage: { draft: 'Hello' } }, async ({ app }) => {
+  await expect(app!.getByRole('textbox')).toHaveValue('Hello')
+})
+```
+
+The options come second or third (`test(name, options, body)` or `test(name, body, options)`): `timeout`, `size` (the page's width and height) and `localStorage` (written before the page loads). They do what these calls do inside a test:
 
 ```ts
 await app.seedLocalStorage({ draft: 'Hello' })   // writes the entries, then reloads the page
@@ -218,6 +234,8 @@ await app.resize(480, 640)                        // the page's size, without th
 await app.addInitScript('window.testing = true')  // runs before the page's own scripts, on every load
 await app.reload()
 ```
+
+`size` and `localStorage` need the `app` fixture, so they work in an app project, not with `--desktop`.
 
 ## Approvals
 
@@ -253,6 +271,8 @@ A test whose session does not start has no screen to save: it leaves `error.txt`
 
 With `--trace`, every test leaves a `trace.html`: each action and assertion, with its duration and result, and a full-screen screenshot after each step.
 
+With `--video`, a failing test also leaves `video.png`, an animated PNG of the screen (four frames a second, the last 600 that differ); `--video=on` keeps one for every test. With `--retries`, the directory holds what the last attempt left.
+
 ## Commands
 
 ```sh
@@ -264,11 +284,15 @@ acde test --desktop dopame       # run the app in the dopame desktop
 acde test --bail --timeout 30000
 acde test --trace
 acde test -u                     # update screenshot baselines
+acde test --workers 2            # two files at a time
+acde test --retries 1 --video    # run a failing test once more; keep a video of failing tests
 ```
+
+Several files run at once: half the machine's cores, at most 4, and one at a time with `--headed` or `--bail` (`--workers` sets it). Each worker builds into its own directory (`.acde/test`, `.acde/test-2`, …). A test that fails is run again `--retries` times, each time on a fresh session with its own timeout; when a later attempt passes, the test passes and a line says `passed on attempt 2 of 2 (flaky)`.
 
 With `-t`, a file in which no test matches is skipped and does not count as failed (`acde test: e2e/approval.e2e.ts: no test matches -t "saves", skipped`); if no test matches in any file, `acde test` prints `acde test: no test matches -t "<pattern>" in <n> files` and exits with code 1.
 
-Each file prints the output of its own `bun test` run as it goes. The run ends with two summary lines, one that counts tests and one that counts files:
+Each file prints the output of its own `bun test` run as it goes; when several run at once, a file's output is printed in one piece when the file ends. The run ends with two summary lines, one that counts tests and one that counts files:
 
 ```text
 acde test: 5 tests ran: 4 passed, 1 failed, 1 not run (skipped, todo, or not matched by -t)

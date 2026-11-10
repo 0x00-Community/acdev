@@ -4,7 +4,8 @@ import { join, relative, resolve, sep } from 'node:path'
 import { cliEnv } from 'acde/launcher'
 import { E2E_FILE, SKIPPED } from '../paths.ts'
 import { Runtime } from '../runtime.ts'
-import { E2e } from './settings.ts'
+import { cpus } from 'node:os'
+import { E2e, type VideoMode } from './settings.ts'
 import { TestTsconfig } from './tsconfig.ts'
 
 export interface RunnerOptions {
@@ -17,6 +18,9 @@ export interface RunnerOptions {
   readonly update?: boolean
   readonly timeout?: number
   readonly cwd?: string
+  readonly workers?: number
+  readonly retries?: number
+  readonly video?: VideoMode
 }
 
 interface Suite {
@@ -119,51 +123,63 @@ export class TestRunner {
       }
       return file
     }
-    const cleaned = new Set<string>()
+    const results = (suite: Suite) => join(suite.project, '.acde', 'test-results')
+    for (const dir of new Set(suites.map(results))) rmSync(dir, { recursive: true, force: true })
+    const wanted = options.workers ?? (options.headed || options.bail ? 1 : TestRunner.defaultWorkers())
+    const workers = Math.max(1, Math.min(suites.length, wanted))
+    const parallel = workers > 1
+    if (parallel) console.log(`acde test: ${suites.length} files, ${workers} at a time`)
     const kept = new Set<string>()
     const failed: string[] = []
     const filtered: string[] = []
     const tallies: Tally[] = []
     const uncounted: string[] = []
     let ran = 0
-    for (const suite of suites) {
+    let next = 0
+    let stop = false
+    const one = async (suite: Suite, slot: number, index: number): Promise<void> => {
       const name = relative(suite.project, suite.file).split(sep).join('/')
-      const results = join(suite.project, '.acde', 'test-results')
-      if (!cleaned.has(results)) {
-        rmSync(results, { recursive: true, force: true })
-        cleaned.add(results)
-      }
       const settings = {
         dirs: [suite.project],
         desktop: options.desktop === undefined ? null : TestRunner.#desktop(options.desktop, cwd),
         headless: options.headed !== true,
-        results,
+        results: results(suite),
         file: name,
         timeout: options.timeout ?? E2e.TIMEOUT_MS,
         trace: options.trace === true,
         update: options.update === true,
+        retries: options.retries ?? 0,
+        video: options.video ?? 'off',
+        out: slot === 0 ? E2e.BUILD : `${E2e.BUILD}-${slot + 1}`,
       }
-      const report = join(scratch, `report-${ran + filtered.length}.xml`)
+      const report = join(scratch, `report-${index}.xml`)
       const argv = [
         bun, 'test', suite.file, '--tsconfig-override', tsconfig(suite.project), '--timeout', String(settings.timeout),
         '--reporter=junit', '--reporter-outfile', report,
         ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : []),
       ]
       const shown = relative(cwd, suite.file) || suite.file
-      console.log(`acde test: ${shown}${settings.headless ? '' : ' (headed)'}`)
-      const marks = join(scratch, `marks-${ran + filtered.length}.txt`)
+      const header = `acde test: ${shown}${settings.headless ? '' : ' (headed)'}`
+      if (!parallel) console.log(header)
+      const marks = join(scratch, `marks-${index}.txt`)
       const env = cliEnv(bun, {
         ...process.env,
         ...E2e.env(settings),
         [E2e.MARKS]: marks,
         ...(options.pattern !== undefined && { [E2e.PATTERN]: options.pattern }),
       })
-      const child = Runtime.spawn(argv, { cwd: suite.project, env, stdio: 'inherit' })
+      const child = Runtime.spawn(argv, { cwd: suite.project, env, stdio: parallel ? 'pipe' : 'inherit' })
+      const { stdout, stderr } = child.process
+      const output = parallel ? Promise.all([TestRunner.#collect(stdout), TestRunner.#collect(stderr)]) : null
       const code = await child.exited
+      if (output) {
+        const text = (await output).join('')
+        process.stdout.write(`${header}\n${text}${text.endsWith('\n') || !text ? '' : '\n'}`)
+      }
       if (options.pattern !== undefined && E2e.unselected(marks)) {
         filtered.push(shown)
         console.log(`acde test: ${shown}: no test matches -t ${JSON.stringify(options.pattern)}, skipped`)
-        continue
+        return
       }
       ran++
       const tally = TestRunner.tally(report)
@@ -171,10 +187,17 @@ export class TestRunner {
       else uncounted.push(shown)
       if (code !== 0) {
         failed.push(shown)
-        if (existsSync(results)) kept.add(results)
-        if (options.bail) break
+        if (existsSync(settings.results)) kept.add(settings.results)
+        if (options.bail) stop = true
       }
     }
+    const worker = async (slot: number): Promise<void> => {
+      while (!stop && next < suites.length) {
+        const index = next++
+        await one(suites[index]!, slot, index)
+      }
+    }
+    await Promise.all(Array.from({ length: workers }, (_, slot) => worker(slot)))
     if (!ran && filtered.length) {
       const files = `${filtered.length} file${filtered.length === 1 ? '' : 's'}`
       console.log(`acde test: no test matches -t ${JSON.stringify(options.pattern)} in ${files}`)
@@ -189,6 +212,20 @@ export class TestRunner {
     if (ran) console.log(TestRunner.counted(tallies, uncounted))
     console.log(failed.length ? `${summary}: ${failed.join(', ')}${left}` : summary)
     return failed.length ? 1 : 0
+  }
+
+  static #collect(stream: NodeJS.ReadableStream | null): Promise<string> {
+    if (!stream) return Promise.resolve('')
+    const chunks: Buffer[] = []
+    return new Promise((resolve) => {
+      stream.on('data', (chunk: Buffer | string) => chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk))
+      stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+      stream.on('error', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    })
+  }
+
+  static defaultWorkers(): number {
+    return Math.max(1, Math.min(4, Math.floor(cpus().length / 2)))
   }
 
   static #desktop(value: string, cwd: string): string {

@@ -138,6 +138,7 @@ See [Coding agents](../guide/agents.md).
 
 ```text
 acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
+          [--workers N] [--retries N] [--video[=on]]
 ```
 
 | Option | Description |
@@ -149,5 +150,8 @@ acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS
 | `--bail` | Stop at the first failure |
 | `--trace` | Leave a `trace.html` for every test |
 | `-u`, `--update-screenshots` | Rewrite screenshot baselines |
+| `--workers` | How many test files run at once (default: half the cores, at most 4; 1 with `--headed` or `--bail`) |
+| `--retries` | Run a failing test again this many times, each on a fresh session; a test that passes later is reported as flaky (default 0) |
+| `--video` | Keep `video.png`, an animated PNG of the screen, for failing tests; `--video=on` keeps it for every test |
 
 The run ends with a line that counts tests (`acde test: 5 tests ran: 4 passed, 1 failed`) and a last line that counts files (`acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).

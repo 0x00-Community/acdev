@@ -69,11 +69,16 @@ const USAGE = `usage: acde <command>
   stop                                             end that acde dev and its acdert (as closing its last window
                                                    does); for one started in the background
   test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
+       [--workers N] [--retries N] [--video[=on]]
                                                    run the e2e tests (*.e2e.ts, import from acde/test): each test
                                                    gets a fresh, isolated acde dev (headless unless --headed); what a
                                                    failing test left goes to <project>/.acde/test-results (--trace: a
                                                    screenshot after every step and trace.html for every test);
-                                                   -u / --update-screenshots rewrites the baselines
+                                                   -u / --update-screenshots rewrites the baselines; --workers:
+                                                   files at once (default half the cores, at most 4; 1 when headed
+                                                   or with --bail); --retries: run a failing test again (passing
+                                                   later = flaky); --video: an animated PNG of the screen for
+                                                   failing tests (=on: for every test)
   mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run
                                                    acde dev itself); for agents: claude mcp add acde -- acde mcp
  for coding agents:
@@ -123,8 +128,8 @@ class Cli {
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
     test: {
       args: [0, Infinity],
-      flags: ['desktop', 'test-name-pattern', 'timeout'],
-      switches: ['headed', 'bail', 'trace', 'update-screenshots'],
+      flags: ['desktop', 'test-name-pattern', 'timeout', 'workers', 'retries', 'video'],
+      switches: ['headed', 'bail', 'trace', 'update-screenshots', 'video'],
     },
   }
   static readonly SHORT: Readonly<Record<string, string>> = {
@@ -227,6 +232,15 @@ class Cli {
       const timeout = flags.has('timeout') ? Number(flags.get('timeout')) : undefined
       if (timeout !== undefined && !(Number.isInteger(timeout) && timeout > 0))
         throw new Error(`--timeout ${flags.get('timeout')}: milliseconds per test`)
+      const workers = flags.has('workers') ? Number(flags.get('workers')) : undefined
+      if (workers !== undefined && !(Number.isInteger(workers) && workers > 0))
+        throw new Error(`--workers ${flags.get('workers')}: how many test files run at once (1 or more)`)
+      const retries = flags.has('retries') ? Number(flags.get('retries')) : undefined
+      if (retries !== undefined && !(Number.isInteger(retries) && retries >= 0))
+        throw new Error(`--retries ${flags.get('retries')}: how many times to run a failing test again (0 or more)`)
+      const video = flags.has('video') ? flags.get('video') || 'failed' : undefined
+      if (video !== undefined && video !== 'on' && video !== 'failed' && video !== 'off')
+        throw new Error(`--video=${video}: failed (the default: only for failing tests), on or off`)
       return await TestRunner.run({
         targets: args,
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
@@ -236,6 +250,9 @@ class Cli {
         ...(flags.has('update-screenshots') && { update: true }),
         ...(flags.has('test-name-pattern') && { pattern: flags.get('test-name-pattern')! }),
         ...(timeout !== undefined && { timeout }),
+        ...(workers !== undefined && { workers }),
+        ...(retries !== undefined && { retries }),
+        ...(video !== undefined && { video }),
       })
     }
     if (command === 'skills') return Skills.run(args, flags)

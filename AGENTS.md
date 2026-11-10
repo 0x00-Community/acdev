@@ -377,6 +377,15 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `GRACE_MS` (30 s), 留给保存和关会话. 原因 (在真的工程和 acdert 上复现过): bun 到点就放弃这个测试并杀掉它起的子进程 (`killed 1 dangling process`),
   文件里最后一个测试超时时进程随即退出, `catch` 里的 `keep` 来不及跑, `.acde/test-results` 什么都没有. `keep` 向 acdert 要截图、快照、console、network
   这几步合计最多 `KEEP_MS` (15 s, 每步 `E2eRun.within`), acdert 不答时写 `<文件>.error.txt` (`not saved: …`), 不把宽限期耗在 `DevClient` 的 30 s 上.
+  `--workers N` 同时跑几个文件 (默认核数的一半, 最多 4; `--headed` / `--bail` 时 1): 每个 worker 构建进自己的目录 (`.acde/test`、`.acde/test-2` …,
+  `ACDE_TEST_OUT`, 否则同一工程的几个文件互相覆盖构建产物), 输出按文件攒着, 跑完一个打一段. `--retries N`: 失败的测试换个新的 acde dev 再跑
+  (后来过了就打 flaky, 结果目录只留最后一次), 每次尝试各有自己的测试限时 (`E2eRun.run` 的 deadline), 交给 bun 的是 (限时 + `GRACE_MS`) × 次数. `--video` (= failed) 失败的测试留 `video.png` (`Video`: 每秒 4 次 `screen`,
+  和上一张一样的不要, 最多 600 张, 拼成 APNG, `Png.animate` 只搬 PNG 的块不重编码), `--video=on` 每个测试都留; 失败时停录像最多等
+  `VIDEO_MS` (5 s, 在 `keep` 之前, 两者都在宽限期里), 录像在 `acde.close()` 之后才收尾 (会话关了录像的循环才一定结束).
+  `test(名字, 函数, 选项)` 和 `test(名字, 选项, 函数)` 都行; 选项 `{timeout, size: [w, h], localStorage: {…}}`: `localStorage` 先
+  `seedLocalStorage`, `size` 再 `resize` (算在测试限时里). `-t` 的记号 (`E2e.mark`) 照旧: 登记时一次, 跑时一次 (重试不重复记), 每个文件的
+  记号文件和 junit 报告按文件序号取名 (并行时 `ran` 的计数对不上). `expect.poll(读值的函数, {timeout}).toBe(…)` 重试 bun 的匹配器; `expect.soft(…)` 失败只记下,
+  测试结束时一起报. `acde/test` 的 `test.only` / `skip` / `if` 用到时才取 bun 的 (bun 在 `CI` 设了时一碰 `test.only` 就抛).
   **解析 `acde/test` / `acde/driver`**: 用户工程不依赖 acde, bun 的插件 (`onResolve`) 管不到静态 import、也不认 `NODE_PATH`, 所以每个工程在临时目录写一份
   tsconfig 给 `bun test --tsconfig-override` (`tsconfig.ts`): `extends` 工程最近的 tsconfig.json, `paths` 是它自己的 (顺着 `extends` 链取最近定义的
   `paths` 和 `baseUrl`, 换成绝对路径; 链上可以是相对路径、数组、包) 加上这两个模块, 指向跑测试的这个 acde (`packageRoot()`, 打包后也对),

@@ -12,7 +12,12 @@ export interface E2eSettings {
   readonly timeout: number
   readonly trace: boolean
   readonly update: boolean
+  readonly retries: number
+  readonly video: VideoMode
+  readonly out: string
 }
+
+export type VideoMode = 'off' | 'on' | 'failed'
 
 export class E2e {
   static readonly DIRS = 'ACDE_TEST_DIRS'
@@ -25,6 +30,10 @@ export class E2e {
   static readonly UPDATE = 'ACDE_TEST_UPDATE'
   static readonly MARKS = 'ACDE_TEST_MARKS'
   static readonly PATTERN = 'ACDE_TEST_PATTERN'
+  static readonly RETRIES = 'ACDE_TEST_RETRIES'
+  static readonly VIDEO = 'ACDE_TEST_VIDEO'
+  static readonly OUT = 'ACDE_TEST_OUT'
+  static readonly BUILD = join('.acde', 'test')
   static readonly TIMEOUT_MS = 60_000
   static readonly SIZE = '1280x800'
 
@@ -36,6 +45,9 @@ export class E2e {
       [E2e.TIMEOUT]: String(settings.timeout),
       [E2e.TRACE]: settings.trace ? '1' : '0',
       [E2e.UPDATE]: settings.update ? '1' : '0',
+      [E2e.RETRIES]: String(settings.retries),
+      [E2e.VIDEO]: settings.video,
+      [E2e.OUT]: settings.out,
       ...(settings.desktop !== null && { [E2e.DESKTOP]: settings.desktop }),
       ...(settings.file !== null && { [E2e.FILE]: settings.file }),
     }
@@ -45,6 +57,8 @@ export class E2e {
     const given = env[E2e.DIRS]
     const dirs = given ? (JSON.parse(given) as string[]) : [E2e.project(cwd) ?? cwd]
     const timeout = Number(env[E2e.TIMEOUT])
+    const retries = Number(env[E2e.RETRIES])
+    const video = env[E2e.VIDEO]
     return {
       dirs,
       desktop: env[E2e.DESKTOP] || null,
@@ -54,6 +68,9 @@ export class E2e {
       timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : E2e.TIMEOUT_MS,
       trace: env[E2e.TRACE] === '1',
       update: env[E2e.UPDATE] === '1',
+      retries: Number.isInteger(retries) && retries > 0 ? retries : 0,
+      video: video === 'on' || video === 'failed' ? video : 'off',
+      out: env[E2e.OUT] || E2e.BUILD,
     }
   }
 

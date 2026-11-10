@@ -5,8 +5,15 @@
 ## test
 
 ```ts
-test(name: string, body: (fixtures: Fixtures) => unknown, options?: number | { timeout?: number }): void
+test(name: string, body: (fixtures: Fixtures) => unknown, options?: TestOptions): void
+test(name: string, options: TestOptions, body: (fixtures: Fixtures) => unknown): void
 test.only / test.skip / test.todo(name) / test.if(condition)
+
+type TestOptions = number | {
+  timeout?: number
+  size?: [width: number, height: number]
+  localStorage?: Record<string, string>
+}
 
 interface Fixtures {
   acde: Acde
@@ -16,12 +23,16 @@ interface Fixtures {
 }
 ```
 
+A number is the timeout in milliseconds. `localStorage` is written before the page loads (`app.seedLocalStorage`), then `size` sets the page's size (`app.resize`); both need the `app` fixture.
+
 ## expect
 
 ```ts
 expect(locator: Locator): LocatorAssertions
 expect(window: AppWindow): WindowAssertions
 expect(value): bun:test Matchers
+expect.poll(read: () => T | Promise<T>, options?: { timeout?: number; message?: string }): bun:test Matchers, each returning a Promise
+expect.soft(locator | window | value): the same assertions; a failure is recorded and the test fails at its end
 ```
 
 **LocatorAssertions** (all support `.not` and accept `{timeout}`):
@@ -248,4 +259,4 @@ CSS locators (`locator`, `getByTestId`, `getByPlaceholder`, `getByTitle`, `getBy
 
 ## Png
 
-`Png.decode(bytes)`, `Png.encode(image)`, `Png.diff(actual, expected, {threshold})`: PNG encoding/decoding using only `node:zlib`, plus a pixelmatch-style comparison. The screenshot assertions are built on it. `Png.animate(frames)` joins PNGs of one size (`{ png, ms }` each) into an animated PNG; `Video.start(acde)` records the screen with it (`stop()`, then `write(path)`).
+`Png.decode(bytes)`, `Png.encode(image)`, `Png.diff(actual, expected, {threshold})`: PNG encoding/decoding using only `node:zlib`, plus a pixelmatch-style comparison. The screenshot assertions are built on it. `Png.animate(frames)` joins PNGs of one size (`{ png, ms }` each) into an animated PNG; `Video.start(acde)` records the screen with it (`stop()`, then `write(path)`), which is what `acde test --video` keeps.
