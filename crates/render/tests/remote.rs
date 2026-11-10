@@ -36,7 +36,8 @@ fn png() -> Vec<u8> {
 fn remote_images_load_through_the_loader() {
     let (_doc, dom, loads) = page("<body><img id=a src='https://img.example.com/a.png'><img id=b src='https://img.example.com/b.png'></body>");
     let (a, b) = (by_id(&dom, "a"), by_id(&dom, "b"));
-    assert!(dom.take_loaded().is_empty(), "both still loading");
+    assert_eq!(dom.take_loaded(), vec![a, b], "both reported as loading, so the page keeps asking");
+    assert!(dom.take_loaded().is_empty(), "loading is reported once");
     assert_eq!(dom.image_state(a).unwrap()[2], 0.0, "loading");
 
     let load = take(&loads, "https://img.example.com/a.png");

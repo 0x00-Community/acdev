@@ -1711,7 +1711,8 @@ impl Engine {
             let Ok(node) = self.ids.node(id) else { continue };
             let (_, _, state, src) = Self::image(&self.doc, node);
             let Some(last) = self.ids.images.get_mut(&id) else { continue };
-            let report = matches!(state, LOADED | FAILED) && (last.1 != state || last.0 != src);
+            // a newly pending image is reported too, so the page keeps asking until its answer comes from the loader
+            let report = matches!(state, LOADED | FAILED | LOADING) && (last.1 != state || last.0 != src);
             if report || state != last.1 {
                 if last.0 != src {
                     last.0 = src.to_owned();
