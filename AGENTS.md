@@ -740,6 +740,7 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
   `queryPermission({mode: 'readwrite'})` 是 `prompt`). 和 Chromium 不同: 文件夹和超过 64 MiB 的文件不在 `files` 里, 那一项的 `getAsFile()` 是 null, 只能用句柄.
   页面自己的 `DataTransfer` 和页面发起的拖动 (没有 `files`) 的项没有句柄, `text/uri-list` 里的 `file:` 也不再变成 `File`.
   `dataTransfer.items` 同浏览器按下标取 (`items[i]`, 活的, 越界是 `undefined`, 同一项每次是同一个对象), 也能迭代; 下标经 acde-dom `events.ts` 的代理.
+  `items.clear()` 同规范移除全部项 (字符串、文件和句柄项), `clearData()` 只清字符串. 没有拖放数据存储的只读 / 受保护模式, 页面拿到的列表一律可写.
 - `File.type`: 拖放的 `File`、句柄的 `getFile()`、`<input type=file>` 和 `showOpenFilePicker` 的文件都按名字取类型, 和选应用用的同一套
   (`mimedb.ts` `FileTypes.byName`: Windows 是扩展名登记的 `Content Type`, 别处是 shared-mime-info 的 globs; 见「默认应用」的「文件的类型」),
   acde-host `PageCalls` 把它设成 acde-dom 的 `env.fileType`. 系统不知道的是空字符串, 同浏览器. 不按内容猜 (浏览器也只看名字).

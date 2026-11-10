@@ -406,6 +406,25 @@ test('DataTransferItemList: items[i] and length like the web platform, undefined
   ])
 })
 
+test('DataTransferItemList.clear() removes strings and files; clearData() leaves the files', async () => {
+  using web = await page()
+  web.run(`globalThis.out = []
+    const dt = new DataTransfer(); const items = dt.items
+    const fill = () => { dt.setData('text/plain', 'hi'); dt.setData('text/uri-list', 'https://a.example/'); items.add(new File(['x'], 'x.txt')) }
+    fill(); const before = dt.files
+    dt.clearData()
+    out.push(items.length, items[0].kind, dt.files.length, [...dt.types])
+    fill(); items.clear()
+    out.push(items.length, items[0] === undefined, 0 in items, dt.files.length, [...dt.types], dt.getData('text/plain'), before.length)
+    items.add('again', 'text/plain')
+    out.push(items.length, items[0].kind, dt.getData('text/plain'))`)
+  assert.deepEqual(web.json('out'), [
+    1, 'file', 1, ['Files'],
+    0, true, false, 0, [], '', 1,
+    1, 'string', 'again',
+  ])
+})
+
 test('drops: files and getAsFileSystemHandle() give read-only handles; folders and strings come as items only', async () => {
   using web = await page()
   const enc = (text: string) => new TextEncoder().encode(text)

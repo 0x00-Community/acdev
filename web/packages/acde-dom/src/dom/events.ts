@@ -481,7 +481,7 @@ export class DataTransferItemList {
     removeTransferItem(itemOwner(this), index)
   }
   clear(): void {
-    itemOwner(this).clearData()
+    clearTransferItems(itemOwner(this))
   }
   [Symbol.iterator](): IterableIterator<DataTransferItem> {
     return transferItems(itemOwner(this))[Symbol.iterator]()
@@ -498,6 +498,7 @@ function itemList(owner: DataTransfer): DataTransferItemList {
 let transferItems: (transfer: DataTransfer) => DataTransferItem[]
 let addTransferFile: (transfer: DataTransfer, file: File) => void
 let removeTransferItem: (transfer: DataTransfer, index: number) => void
+let clearTransferItems: (transfer: DataTransfer) => void
 let addTransferEntry: (transfer: DataTransfer, file: File | null, handle: FileSystemHandle) => void
 
 export function transferEntry(transfer: DataTransfer, file: File | null, handle: FileSystemHandle): void {
@@ -553,6 +554,11 @@ export class DataTransfer {
       if (index < keys.length) transfer.#data.delete(keys[index]!)
       else if (index < keys.length + files) transfer.#files.splice(index - keys.length, 1)
       else transfer.#entries.splice(index - keys.length - files, 1)
+    }
+    clearTransferItems = (transfer) => {
+      transfer.#data.clear()
+      transfer.#files.length = 0
+      transfer.#entries.length = 0
     }
     addTransferEntry = (transfer, file, handle) => {
       if (!file) return void transfer.#entries.push(handle)
