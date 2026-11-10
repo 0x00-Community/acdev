@@ -9,7 +9,7 @@ repo=$(cd -- "$here/../.." && pwd)
 sdk="$repo/web/packages/acde-api"
 mkdir -p "$out"
 
-for entry in "x86_64-unknown-linux-gnu:" "aarch64-apple-darwin:" "x86_64-pc-windows-msvc:.exe"; do
+for entry in "x86_64-unknown-linux-gnu:" "aarch64-apple-darwin:" "x86_64-apple-darwin:" "x86_64-pc-windows-msvc:.exe"; do
   triple=${entry%%:*}
   ext=${entry#*:}
   src="$artifacts/acdert-$triple/acdert-$triple$ext"
