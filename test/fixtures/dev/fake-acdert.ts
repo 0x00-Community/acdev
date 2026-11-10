@@ -12,6 +12,7 @@ interface Node {
   role: string
   name?: string
   value?: string
+  level?: number
   states?: string[]
   rect?: [number, number, number, number]
   children?: Node[]
@@ -80,7 +81,7 @@ function query(m: Record<string, unknown>) {
   const walk = (list: Node[]) => list.forEach((n) => (all.push(n), walk(n.children ?? [])))
   walk(within ? (within.children ?? []) : nodes)
   const tags: Record<string, string> = {
-    textbox: 'input', button: 'button', list: 'ul', listitem: 'li', checkbox: 'input', text: 'span',
+    textbox: 'input', button: 'button', list: 'ul', listitem: 'li', checkbox: 'input', text: 'span', heading: 'h1',
   }
   const pick = (role: string) => all.filter((n) => n.role === role)
   const selector = String(m['selector'])
@@ -92,6 +93,7 @@ function query(m: Record<string, unknown>) {
     : selector === '.ghost' ? [{ ref: 'w1.99', role: 'generic' }]
     : selector === '[placeholder]' ? has('placeholder')
     : selector === '[title]' ? has('title')
+    : selector === 'h1' ? pick('heading')
     : selector === '*' ? all
     : []
   const attributes = Array.isArray(m['attributes']) ? (m['attributes'] as string[]) : []
@@ -121,7 +123,7 @@ function record(entry: object): void {
 
 function tree(win: Win): Node[] {
   if (win.kind === 'desktop') return [{ ref: 'w0.1', role: 'button', name: 'Start' }]
-  if (win.app !== 'alpha') return [{ ref: `${win.ref}.1`, role: 'heading', name: win.title ?? '' }]
+  if (win.app !== 'alpha') return [{ ref: `${win.ref}.1`, role: 'heading', name: win.title ?? '', level: 1 }]
   return [
     { ref: 'w1.2', role: 'textbox', name: 'New task', value: draft, rect: [4, 3, 4, 1] },
     { ref: 'w1.3', role: 'button', name: 'Add', rect: [8, 3, 2, 1], ...(draft ? {} : { states: ['disabled'] }) },

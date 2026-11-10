@@ -211,6 +211,19 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     expect(slug('a/b:c')).toBe('a-b-c')
   })
 
+  test('query prints an element as inspect does, a heading with its level, then the tag', () => {
+    const heading = { ref: 'w1.16', role: 'heading', name: 'Notes', level: 1, tag: 'h1', visible: true }
+    const field = { ref: 'w1.18', role: 'textbox', name: 'Title', value: '', states: ['focused'], tag: 'input', visible: true }
+    const ghost = { ref: 'w1.30', role: 'heading', name: 'Later', level: 2, states: ['transparent'], tag: 'h2', visible: false }
+    expect(Format.node(heading)).toBe('heading "Notes" [level=1] [w1.16]')
+    expect(Format.matches({ window: 'w1', count: 3, nodes: [heading, field, ghost] }, 'h1, input, h2')).toBe([
+      '3 in w1:',
+      '- heading "Notes" [level=1] [w1.16] <h1>',
+      '- textbox "Title": "" [focused] [w1.18] <input>',
+      '- heading "Later" [level=2] [transparent] [w1.30] <h2> [hidden]',
+    ].join('\n'))
+  })
+
   test('inspect --find: only the matching elements, each with its nearest named ancestor', () => {
     const window = { id: 7, kind: 'web', app: 'todo', title: 'To-do', mode: 'normal', rect: [0, 0, 8, 6] } as const
     const windows = [{ ...window, ref: 'w1', z: 1, focus: true, hidden: false, pid: null }]

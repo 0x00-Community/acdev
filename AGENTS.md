@@ -243,7 +243,8 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   所以 acde 按同样的规则 (名字或值含这段文字, 不分大小写) 在 `trees` 里重新找, 每个命中一行, 后面跟最近的有名字的祖先, 按窗口分组 (`Format.found`);
   一个都没有时 stderr 一行、退出码 1)、`query <选择器> [--window W] [--ref REF] [--limit N]` (driver 的 `query`, 即 op `query`: 按 CSS 选择器找元素,
   `inspect` 不列的 (`display: none`、滚出可见范围、没有角色名字的) 也给 ref; 输出是 `Format.matches`, 和 MCP 的 `query` 同一份: `N in <窗口>:` 加每个元素一行
-  `- <节点> <标签>`, 不可见的后面标 `[hidden]`, 运行时给节点带的 `transparent` / `invisible` 状态照旧在前面, 所以和 `inspect --all` 的标记一致;
+  `- <节点> <标签>` (节点那段是 `Locator.line`, 和运行时 `inspect` 的一行逐字相同: 角色、名字、值、标题的 `[level=N]`、状态、ref; `inspect --find`
+  和 Locator 的报错也用它, 只有这一份), 不可见的后面标 `[hidden]`, 运行时给节点带的 `transparent` / `invisible` 状态照旧在前面, 所以和 `inspect --all` 的标记一致;
   没有匹配打 `nothing in <窗口> matches "<选择器>"`, 两种都退出 0; `--limit` 是 1 到 3000 (`Tools.QUERY_LIMIT`, 运行时默认 600), 不用连会话先查)、
   `act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1; 打的是 driver 的 `act` 的 `text`,
   关掉单应用会话唯一的窗口时就是那行「会话结束」, 退出码 0, 见 driver 的「关窗口结束会话」)、

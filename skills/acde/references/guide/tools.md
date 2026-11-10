@@ -156,7 +156,7 @@ $ acde query nav
 nothing in w1 matches "nav"
 ```
 
-Each line is the element's role, name, value, states and ref, as `inspect` prints them (without a heading's level), then its tag. `[hidden]` after the tag marks an element that is not visible: it has no size, or is `display: none`, hidden by `visibility`, or transparent. The `transparent` and `invisible` marks are the ones `inspect --all` gives: a transparent element still takes clicks, as it does for a user; for an `invisible` or `display: none` one, `act` answers `the element is not displayed` until the page shows it. An element whose role cannot be told is listed as `generic`; the tag says what it is.
+Each line is the element's role, name, value, a heading's level, states and ref, exactly as `inspect` prints them (`- heading "Notes" [level=1] [w1.16] <h1>`), then its tag. `[hidden]` after the tag marks an element that is not visible: it has no size, or is `display: none`, hidden by `visibility`, or transparent. The `transparent` and `invisible` marks are the ones `inspect --all` gives: a transparent element still takes clicks, as it does for a user; for an `invisible` or `display: none` one, `act` answers `the element is not displayed` until the page shows it. An element whose role cannot be told is listed as `generic`; the tag says what it is.
 
 The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). Finding nothing is not an error: the exit code is 0 either way.
 

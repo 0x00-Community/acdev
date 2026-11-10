@@ -57,11 +57,7 @@ export class Format {
   }
 
   static node(n: InspectNode): string {
-    let line = n.name ? `${n.role} ${JSON.stringify(n.name)}` : n.role
-    if (n.value !== undefined) line += `: ${JSON.stringify(n.value)}`
-    if (n.level) line += ` [level=${n.level}]`
-    for (const state of n.states ?? []) line += ` [${state}]`
-    return `${line} [${n.ref}]`
+    return Locator.line(n)
   }
 
   static found(snapshot: Snapshot, text: string): string[] {
@@ -72,7 +68,7 @@ export class Format {
       const matches: string[] = []
       const walk = (list: readonly InspectNode[], named: InspectNode | null) => {
         for (const n of list) {
-          if (hit(n)) matches.push(`- ${Format.node(n)}${named ? `  in ${Format.node(named)}` : ''}`)
+          if (hit(n)) matches.push(`- ${Locator.line(n)}${named ? `  in ${Locator.line(named)}` : ''}`)
           walk(n.children ?? [], n.name ? n : named)
         }
       }

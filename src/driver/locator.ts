@@ -404,7 +404,9 @@ export class Locator {
 
   static line(node: InspectNode): string {
     const value = node.value === undefined ? '' : `: ${JSON.stringify(node.value)}`
-    return `${node.role}${node.name ? ` ${JSON.stringify(node.name)}` : ''}${value}${(node.states ?? []).map((s) => ` [${s}]`).join('')} [${node.ref}]`
+    const level = node.level ? ` [level=${node.level}]` : ''
+    const states = (node.states ?? []).map((s) => ` [${s}]`).join('')
+    return `${node.role}${node.name ? ` ${JSON.stringify(node.name)}` : ''}${value}${level}${states} [${node.ref}]`
   }
 
   async #one(timeout: number | undefined, ready: (node: InspectNode) => string | null): Promise<{ node: InspectNode; window: InspectWindow; source: Source }> {

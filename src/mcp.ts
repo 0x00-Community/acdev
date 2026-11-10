@@ -372,8 +372,8 @@ export class Mcp {
       'query',
       {
         description: 'Find elements by CSS selector in a window (default: the focused one), or under an element ref; '
-          + 'one line per element with its role, name, tag and ref ([hidden] when not rendered). The refs work with '
-          + 'act.',
+          + 'one line per element as snapshot prints it (role, name, value, a heading\'s level, states, ref), then '
+          + 'its tag ([hidden] when not rendered). The refs work with act.',
         inputSchema: z.object({
           selector: z.string().min(1).describe('a CSS selector, e.g. form input[type=email] or [data-testid="save"]'),
           window: z.string().optional().describe('a window ref (w3)'),

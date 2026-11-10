@@ -78,6 +78,7 @@ describe('acde mcp', () => {
       expect((await call('query', { selector: '[data-testid="add"]', window: 'w1' })).text).toBe('1 in w1:\n- button "Add" [disabled] [w1.3] <button>')
       expect((await call('query', { selector: '.ghost', window: 'w1' })).text).toBe('1 in w1:\n- generic [w1.99] <div> [hidden]')
       expect((await call('query', { selector: 'nav', window: 'w1' })).text).toBe('nothing in w1 matches "nav"')
+      expect((await call('query', { selector: 'h1', window: 'w2' })).text).toBe('1 in w2:\n- heading "Beta" [level=1] [w2.1] <h1>')
       expect((await call('console')).text).toBe('next: 3\n   1 log    alpha#7  alpha ready\n   2 info   alpha#7  added Buy milk')
       expect((await call('console', { since: 3 })).text).toBe('next: 3\n(nothing)')
       expect((await call('network', { web: 'alpha' })).text).toBe('next: 2\n   1 POST   201 http://acde.local/api/tasks  (fetch 2 B 3 ms) alpha#7')
