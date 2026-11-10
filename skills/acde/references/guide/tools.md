@@ -39,14 +39,15 @@ acde eval notes 'import("acde:fs").then(m => m.fs.roots())'
 echo 'localStorage.length' | acde eval notes -
 ```
 
-On Windows, PowerShell runs `acde` through `acde.cmd`, and on the way double quotes inside an argument are lost: `acde eval notes 'document.querySelector("#x").textContent'` reaches the page as `document.querySelector(#x).textContent`. In PowerShell, pass the code on stdin, where it arrives unchanged, or use only single quotes inside it:
+On Windows, `acde` is `acde.exe`, which hands its arguments to the CLI exactly as the shell passed them. In PowerShell 7 and cmd, double quotes inside an argument arrive unchanged (`acde eval notes 'document.querySelector("#x").textContent'`). Windows PowerShell 5.1 drops double quotes inside arguments to every program; there, write them as `\"`, pass the code on stdin, or use single quotes inside it:
 
 ```powershell
-'document.querySelector("#x").textContent' | acde eval notes -
+acde eval notes 'document.querySelector(\"#x\").textContent'   # Windows PowerShell 5.1 only
+'document.querySelector("#x").textContent' | acde eval notes -   # any shell
 acde eval notes "document.querySelector('#x').textContent"
 ```
 
-The same applies to any argument with double quotes, such as `act ... type`.
+The same applies to any argument with double quotes, such as `act ... type`. `bin\acde.cmd` is still installed next to `acde.exe` as a fallback (`acde.cmd …`), but PowerShell drops double quotes in the arguments it passes to a `.cmd`.
 
 ### inspect and act
 
