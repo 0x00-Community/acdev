@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import vm from 'node:vm'
+import pkg from '../package.json' with { type: 'json' }
 import { bundle, createWeb, page } from './harness.ts'
 import { MockHost } from './mock/host.ts'
 import { MockStorage } from './mock/storage.ts'
@@ -51,6 +52,7 @@ test('storage, location / history, matchMedia, navigator, screen, viewport', asy
     const mq = matchMedia('(prefers-reduced-motion: reduce)')
     out.media = [mq.matches, matchMedia('(min-width: 1000px)').matches, matchMedia('(max-width: 1000px)').matches]
     out.nav = [navigator.platform, navigator.language, typeof navigator.clipboard.writeText, navigator.userAgent.includes('Chrome')]
+    out.ua = navigator.userAgent.endsWith(' acdert/${pkg.version}')
     out.view = [innerWidth, innerHeight, devicePixelRatio, screen.width]
     return out
   })()`)
@@ -61,6 +63,7 @@ test('storage, location / history, matchMedia, navigator, screen, viewport', asy
     history: ['?wp=2', '#setup', 1, 2],
     media: [true, true, false],
     nav: ['Linux x86_64', 'zh-CN', 'function', false],
+    ua: true,
     view: [1280, 800, 1, 1280],
   })
   assert.deepEqual(Object.fromEntries(storage.items), { name: 'ada', n: '2' })

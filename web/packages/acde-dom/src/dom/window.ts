@@ -1,3 +1,4 @@
+import pkg from '../../package.json' with { type: 'json' }
 import { defineHandlers, Event, EventTarget, fire, LISTENERS, windowEvent } from '../core/event'
 import { DOMException } from '../core/exception'
 import { G, getters, globals, host, KEY, tag } from '../core/host'
@@ -409,7 +410,7 @@ export class Navigator {
   }
 
   get userAgent(): string {
-    return this.#options.userAgent ?? 'Mozilla/5.0 (Linux; Wayland) AppleWebKit/537.36 (KHTML, like Gecko) acde/0.1'
+    return this.#options.userAgent ?? `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) acdert/${pkg.version}`
   }
   get platform(): string {
     return this.#options.platform ?? 'Linux x86_64'
