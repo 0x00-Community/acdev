@@ -946,7 +946,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 
 - **网页的树** (render `Dom::semantics(root, limit)`, `dom/semantics.rs`): 节点 `{id, role, name?, value?, states?, level?, rect, children?}`, id 是
   render 的节点 id, 所以 ref 跟着 DOM 节点走: 节点活着 (连在文档上, 或断开了但页面还拿着) 就不变, 移动、改文字、改属性、列表重排都不变,
-  不按遍历顺序编号; 重绘时换成了新节点 (`innerHTML`、不带 key 的列表重建) 才是新 ref (节点 id 不复用), 旧 ref 回「元素不在了」.
+  不按遍历顺序编号; 重绘时换成了新节点 (`innerHTML`、不带 key 的列表重建) 才是新 ref (节点 id 不复用), 旧 ref 回 `element N is gone`.
   测试 `crates/render/tests/semantics.rs`. 角色按 `role` 属性 / 标签, 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label / alt / 文字, 最多
   120 字; 剪掉不可见的子树 (`display: none`、`aria-hidden="true"`、`inert`、`opacity: 0`、`visibility` 不是 `visible`、滚到可见范围外的),
   没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600). `semantics(root, limit, offscreen, invisible)`: `invisible`
@@ -961,8 +961,13 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   元素; 打开的下拉列表里的 option 用 `pickerOptionRect` 那一行的中心)、`type(id, text, replace)` (走输入法提交那条路 `Host.insertText`)、`select(id, values)` (元素自己、祖先或里面的 `<select>`; 按 value
   再按文字找选项, 禁用的回错, 单选给多个回错; 设好后发 `input` 和 `change`)、`focus(id)`, 坐标加 `contentOffset`.
 - **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
-  `{text, windows, trees}`: 先列窗口, 再列焦点窗口 (或指定的) 的树 (`all` 列全部没最小化的窗口, 并留下透明和 `visibility: hidden` 的元素), 一行一个节点 `- button "新建文件夹" [pressed] [w1.52]`; `find` 只给名字或
-  值含这段文字的元素和祖先; `diff` 只给变了的行 (`+` / `~` / `-`), 变化超过六成整个重列. `act(ref, action, arg)` → `{ok, text}`: 做完等页面安静
+  `{text, windows, trees}`: 列出焦点窗口 (或指定的) 的树 (`all` 列全部没最小化的窗口, 并留下透明和 `visibility: hidden` 的元素).
+  `text` 是固定的英文格式, 不随系统语言变 (页面给的名字和值原样): 窗口从上到下一行一个, `- window "Notes" [app=notes] [focused] [w1]`
+  (桌面是 `- desktop`, 标记依次是 `app=`、`native`、`focused`、`minimized`、不是 `free` 的模式), 列了树的窗口下面缩进两格一行一个节点
+  `- button "Save" [pressed] [w1.52]` (角色是 ARIA 名, 状态见上), 后面跟括号里的说明 (`(empty)`、`(N more outside the visible area; …)`、
+  `(too many elements, …)`); `find` 只给名字或值含这段文字的元素和祖先, 一个都没有时最后一行是 `(no element contains "…"…)`; `diff`
+  只给变了的行 (`+` / `~` / `-` 后跟节点行, `(no changes)`), 变化超过六成整个重列 (`(many changes, listing everything)`), 窗口表没变时
+  第一行是 `(windows unchanged)` 且只列有树的窗口. act / run / open / query 的文字和错误也是英文. `act(ref, action, arg)` → `{ok, text}`: 做完等页面安静
   (200 ms 没有 DOM 变化, 最多 3 秒; 原生窗口 0.4 秒), 窗口表或焦点变了先等新焦点窗口安静. `run(steps)` 依次做, 失败就停. 动作: click /
   double / right / hover / scroll 按 `point` 的屏幕坐标经 `Shell.inject` 发 (被盖住时先提前目标窗口; 桌面钉住的面板盖着的地方只算被更上层的钉住窗口挡住, #111); type / settext 走 web 的 `type`;
   key (`"ctrl+a backspace"`) 先 focus 再注入; select (arg 是选项的值或文字, 多选给列表) 走 web 的 `select`; drag (arg 是目标 ref, 元素或窗口,

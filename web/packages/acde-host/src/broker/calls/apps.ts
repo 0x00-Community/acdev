@@ -97,7 +97,7 @@ export class AppCalls {
       apps.find((a) => a.label.toLowerCase().includes(wanted))
     if (app) {
       this.#host.raise(await this.#host.launch(app.id, null))
-      return `打开了应用 ${app.label} (${app.id})`
+      return `opened app ${app.label} (${app.id})`
     }
     const natives = this.#host.natives.list()
     const native =
@@ -106,9 +106,9 @@ export class AppCalls {
       natives.find((n) => n.name.toLowerCase().includes(wanted))
     const file = native && this.#host.natives.file(native.id)
     if (!native || !file) {
-      throw Object.assign(new Error(`没有叫 ${name} 的应用 (acde 应用: ${apps.map((a) => a.label).join(', ')})`), { status: 404 })
+      throw Object.assign(new Error(`no app named ${name} (acde apps: ${apps.map((a) => a.label).join(', ')})`), { status: 404 })
     }
     this.#host.shell.launch(['gio', 'launch', file])
-    return `起了原生程序 ${native.name} (${native.id})`
+    return `started native program ${native.name} (${native.id})`
   }
 }

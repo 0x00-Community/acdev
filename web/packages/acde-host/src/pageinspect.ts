@@ -78,12 +78,12 @@ export class PageInspect {
     if (!this.dom.semantics) throw new Error('this acde has no semantics')
     const document = this.page.document as unknown as Document
     const root: ParentNode | null = within >= 0 ? this.#element(within) : document
-    if (!root) throw new Error(`元素 ${within} 不在了`)
+    if (!root) throw new Error(`element ${within} is gone`)
     let found: Element[]
     try {
       found = [...root.querySelectorAll(selector)]
     } catch (error) {
-      throw new Error(`选择器 ${JSON.stringify(selector)} 不对: ${(error as Error)?.message ?? error}`)
+      throw new Error(`bad selector ${JSON.stringify(selector)}: ${(error as Error)?.message ?? error}`)
     }
     return {
       count: found.length,
@@ -121,23 +121,23 @@ export class PageInspect {
 
   point(id: number): PagePoint {
     const element = this.#element(id)
-    if (!element) return { error: `元素 ${id} 不在了` }
+    if (!element) return { error: `element ${id} is gone` }
     const window = this.page.window as unknown as Window
     const row = this.dom.pickerOptionRect(id)
     if (row) return this.#windowPoint(row[0]! + row[2]! / 2, row[1]! + row[3]! / 2)
     let rect = this.#rect(element)
-    if (!rect) return { error: '元素没有显示出来' }
+    if (!rect) return { error: 'the element is not displayed' }
     const inside = (r: DOMRect) => r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight
     if (!inside(rect) || !this.#hits(element, rect)) {
       element.scrollIntoView({ block: 'center', inline: 'center' })
       rect = this.#rect(element)
-      if (!rect) return { error: '元素没有显示出来' }
+      if (!rect) return { error: 'the element is not displayed' }
     }
     const left = Math.max(rect.left, 0)
     const top = Math.max(rect.top, 0)
     const right = Math.min(rect.right, window.innerWidth)
     const bottom = Math.min(rect.bottom, window.innerHeight)
-    if (right <= left || bottom <= top) return { error: '元素在可见范围之外' }
+    if (right <= left || bottom <= top) return { error: 'the element is outside the visible area' }
     const points: [number, number][] = [
       [(left + right) / 2, (top + bottom) / 2],
       [left + (right - left) * 0.25, (top + bottom) / 2],
@@ -154,7 +154,7 @@ export class PageInspect {
       covered = hit
     }
     if (covered < 0) return this.#windowPoint(points[0]![0], points[0]![1])
-    return { error: `被别的元素挡住了: ${this.#describe(covered)}` }
+    return { error: `covered by another element: ${this.#describe(covered)}` }
   }
 
   #windowPoint(x: number, y: number): PagePoint {
@@ -163,9 +163,9 @@ export class PageInspect {
 
   type(id: number, text: string, replace: boolean): { value: string | null } {
     const element = this.#element(id)
-    if (!element) throw new Error(`元素 ${id} 不在了`)
+    if (!element) throw new Error(`element ${id} is gone`)
     const target = this.#editable(element)
-    if (!target) throw new Error('这个元素不能输入文字')
+    if (!target) throw new Error('cannot type into this element')
     const document = this.page.document as unknown as Document
     if (document.activeElement !== target) target.focus()
     if (replace) {
@@ -183,21 +183,21 @@ export class PageInspect {
 
   select(id: number, values: readonly string[]): { selected: string[] } {
     const element = this.#element(id)
-    if (!element) throw new Error(`元素 ${id} 不在了`)
+    if (!element) throw new Error(`element ${id} is gone`)
     const window = this.page.window as unknown as typeof globalThis
     const select = element instanceof window.HTMLSelectElement ? element : (element.closest('select') ?? element.querySelector('select'))
-    if (!select) throw new Error('这个元素不是 <select>, 里面也没有')
-    if (select.disabled) throw new Error('这个 <select> 是禁用的')
+    if (!select) throw new Error('this element is not a <select> and has none inside')
+    if (select.disabled) throw new Error('this <select> is disabled')
     const options = [...select.options]
     const picked = values.map((value) => {
       const option = options.find((o) => o.value === value) ?? options.find((o) => o.label === value || o.text === value)
       const listed = () => options.map((o) => JSON.stringify(o.value === o.text ? o.value : `${o.value} ${o.text}`)).join(', ')
-      if (!option) throw new Error(`没有选项 ${JSON.stringify(value)} (有: ${listed()})`)
+      if (!option) throw new Error(`no option ${JSON.stringify(value)} (there are: ${listed()})`)
       const group = option.parentElement instanceof window.HTMLOptGroupElement && option.parentElement.disabled
-      if (option.disabled || group) throw new Error(`选项 ${JSON.stringify(value)} 是禁用的`)
+      if (option.disabled || group) throw new Error(`option ${JSON.stringify(value)} is disabled`)
       return option
     })
-    if (!select.multiple && picked.length > 1) throw new Error(`这个 <select> 只能选一个, 给了 ${picked.length} 个`)
+    if (!select.multiple && picked.length > 1) throw new Error(`this <select> takes one option, got ${picked.length}`)
     if (select.multiple) for (const option of options) option.selected = picked.includes(option)
     else select.selectedIndex = picked[0]?.index ?? -1
     select.dispatchEvent(new window.Event('input', { bubbles: true, composed: true }))
@@ -207,7 +207,7 @@ export class PageInspect {
 
   focus(id: number): boolean {
     const element = this.#element(id)
-    if (!element) throw new Error(`元素 ${id} 不在了`)
+    if (!element) throw new Error(`element ${id} is gone`)
     element.focus()
     return (this.page.document as unknown as Document).activeElement === element
   }

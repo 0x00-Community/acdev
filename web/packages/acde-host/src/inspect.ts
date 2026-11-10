@@ -169,22 +169,21 @@ export class Inspect {
           : options.all || find
             ? windows.filter((w) => !w.hidden)
             : [windows.find((w) => w.focus && !w.hidden) ?? windows.find((w) => w.kind === 'desktop')].filter((w): w is InspectWindow => !!w)
-    if (wanted && !targets.length) throw Object.assign(new Error(`没有窗口 ${wanted}`), { status: 404 })
+    if (wanted && !targets.length) throw Object.assign(new Error(`no window ${wanted}`), { status: 404 })
     const headers = windows.map((w) => Inspect.#header(w))
     const same = options.diff && this.#headers === headers.join('\n')
     this.#headers = headers.join('\n')
-    const lines: string[] = same ? ['窗口没变.'] : ['窗口 (上面的在前):', ...headers]
     const trees: Record<string, readonly InspectNode[]> = {}
+    const bodies = new Map<string, string[]>()
     for (const window of targets) {
       const { nodes, notes } = await this.#tree(window, parsed?.node ?? null, limit, options.offscreen === true, options.all === true)
-      const under = parsed?.node != null ? ` (${options.ref} 以下)` : ''
       if (find) {
         const found = Inspect.#find(nodes, find)
         if (!found.length) continue
         trees[window.ref] = found
         const body: Line[] = []
         Inspect.#lines(found, 0, body)
-        lines.push('', `${window.ref} 里含 ${JSON.stringify(options.find!.trim())} 的${under}:`, ...body.map(([, line]) => line))
+        bodies.set(window.ref, body.map(([, line]) => line))
         continue
       }
       trees[window.ref] = nodes
@@ -193,13 +192,17 @@ export class Inspect {
       const key = parsed?.node === undefined || parsed?.node === null ? window.ref : `${window.ref}.${parsed.node}`
       const before = this.#seen.get(key)
       this.#seen.set(key, body)
-      lines.push('', `${window.ref} 的内容${under}:`)
-      if (options.diff && before) lines.push(...Inspect.#diff(before, body))
-      else lines.push(...(body.length ? body.map(([, line]) => line) : ['(空)']))
-      lines.push(...notes)
+      const shown = options.diff && before ? Inspect.#diff(before, body) : body.length ? body.map(([, line]) => line) : ['(empty)']
+      bodies.set(window.ref, [...shown, ...notes])
     }
-    const hint = options.offscreen ? '' : ' (可见范围外的找不到; scroll 或加 offscreen, 或换个窗口再找)'
-    if (find && !Object.keys(trees).length) lines.push('', `没找到含 ${JSON.stringify(options.find!.trim())} 的元素${hint}`)
+    const lines: string[] = same ? ['(windows unchanged)'] : []
+    for (const [i, window] of windows.entries()) {
+      const body = bodies.get(window.ref)
+      if (same && !body) continue
+      lines.push(headers[i]!, ...(body ?? []).map((line) => `  ${line}`))
+    }
+    const hint = options.offscreen ? '' : '; elements outside the visible area are left out: scroll, add offscreen, or try another window'
+    if (find && !Object.keys(trees).length) lines.push(`(no element contains ${JSON.stringify(options.find!.trim())}${hint})`)
     return { text: lines.join('\n'), windows, trees }
   }
 
@@ -208,7 +211,7 @@ export class Inspect {
   }
 
   async run(steps: readonly InspectStep[]): Promise<ActResult> {
-    if (!steps.length) return { ok: false, text: '没有要做的步骤' }
+    if (!steps.length) return { ok: false, text: 'no steps to do' }
     const before = Inspect.#shape(this.windows())
     const opening = this.#opening()
     const said: string[] = []
@@ -226,7 +229,7 @@ export class Inspect {
       else await this.#settle(done.window)
     }
     if (!last) return { ok: false, text: said.join('\n') }
-    if (failed && steps.length > 1) said.push('(后面的步骤没做)')
+    if (failed && steps.length > 1) said.push('(the remaining steps were not done)')
     await Inspect.#until(() => [...this.#opening()].every((id) => opening.has(id)))
     const windows = this.windows()
     const moved = Inspect.#shape(windows) !== before
@@ -235,7 +238,7 @@ export class Inspect {
       if (focused && focused.id !== last.id) await this.#settle(focused)
     }
     const after = moved ? await this.snapshot({ diff: true }) : await this.snapshot({ window: last.ref, diff: true })
-    return { ok: !failed, text: `${said.join('\n')}${moved ? ' (窗口变了)' : ''}\n\n${after.text}` }
+    return { ok: !failed, text: `${said.join('\n')}${moved ? ' (the windows changed)' : ''}\n\n${after.text}` }
   }
 
   async open(name: string): Promise<ActResult> {
@@ -254,9 +257,9 @@ export class Inspect {
 
   async #step(step: InspectStep): Promise<ActResult & { window?: InspectWindow }> {
     const parsed = Inspect.#parse(step.ref)
-    if (!parsed) return { ok: false, text: `看不懂 ref ${step.ref} (应该像 w3 或 w3.12)` }
+    if (!parsed) return { ok: false, text: `cannot read ref ${step.ref} (expected like w3 or w3.12)` }
     const window = this.windows().find((w) => w.ref === `w${parsed.window}`)
-    if (!window) return { ok: false, text: `没有窗口 w${parsed.window}` }
+    if (!window) return { ok: false, text: `no window w${parsed.window}` }
     const arg = step.text ?? null
     try {
       const done =
@@ -293,20 +296,20 @@ export class Inspect {
       case 'restore':
         if (window.hidden) this.#host.hide(window.id, false)
         this.#focus(window)
-        return { ok: true, text: `${window.ref} 到了最前面` }
+        return { ok: true, text: `${window.ref} is in front` }
       case 'minimize':
-        if (window.kind === 'desktop') return { ok: false, text: '桌面不能最小化' }
+        if (window.kind === 'desktop') return { ok: false, text: 'the desktop cannot be minimized' }
         if (this.#host.shell.setState) this.#host.shell.setState(window.id, 'minimized')
         else this.#host.hide(window.id, true)
-        return { ok: true, text: `${window.ref} 最小化了` }
+        return { ok: true, text: `${window.ref} is minimized` }
       case 'close':
-        if (window.kind === 'desktop') return { ok: false, text: '桌面不能关' }
+        if (window.kind === 'desktop') return { ok: false, text: 'the desktop cannot be closed' }
         await this.#host.close(window.id)
-        return { ok: true, text: `关了 ${window.ref}` }
+        return { ok: true, text: `closed ${window.ref}` }
       case 'key':
         this.#focus(window)
         this.#keys(String(arg ?? ''))
-        return { ok: true, text: `在 ${window.ref} 按了 ${arg}` }
+        return { ok: true, text: `pressed ${arg} in ${window.ref}` }
       case 'click':
       case 'double':
       case 'right':
@@ -316,34 +319,34 @@ export class Inspect {
         return this.#pointer(window, x + width / 2, y + height / 2, action, arg)
       }
       default:
-        return { ok: false, text: `窗口不能 ${action}; 给一个元素的 ref` }
+        return { ok: false, text: `a window cannot ${action}; give an element ref` }
     }
   }
 
   async #webAct(window: InspectWindow, node: number, action: InspectAction, arg: InspectArg): Promise<ActResult> {
     const rpc = this.#host.web(window.id)
-    if (!rpc) return { ok: false, text: `${window.ref} 的页面没在运行` }
+    if (!rpc) return { ok: false, text: `the page of ${window.ref} is not running` }
     switch (action) {
       case 'type':
       case 'settext': {
         this.#focus(window)
         const { value } = (await rpc.call('inspect', 'type', [node, String(arg ?? ''), action === 'settext'])) as { value: string | null }
-        return { ok: true, text: `输入了, 现在的值: ${JSON.stringify(value ?? '')}` }
+        return { ok: true, text: `typed, the value is now ${JSON.stringify(value ?? '')}` }
       }
       case 'focus':
         this.#focus(window)
         await rpc.call('inspect', 'focus', [node])
-        return { ok: true, text: `焦点给了 ${window.ref}.${node}` }
+        return { ok: true, text: `focused ${window.ref}.${node}` }
       case 'key':
         this.#focus(window)
         await rpc.call('inspect', 'focus', [node])
         this.#keys(String(arg ?? ''))
-        return { ok: true, text: `按了 ${arg}` }
+        return { ok: true, text: `pressed ${arg}` }
       case 'select': {
         const values = Inspect.#values(arg)
-        if (!values) return { ok: false, text: 'select 要给选项的值或文字 (一个字符串, 或多选时的字符串列表)' }
+        if (!values) return { ok: false, text: 'select needs the value or text of an option (a string, or a list of strings for a multiple select)' }
         const { selected } = (await rpc.call('inspect', 'select', [node, values])) as { selected: string[] }
-        return { ok: true, text: `选中了 ${JSON.stringify(selected)}` }
+        return { ok: true, text: `selected ${JSON.stringify(selected)}` }
       }
       case 'drag': {
         const point = (await rpc.call('inspect', 'point', [node])) as PagePoint
@@ -361,7 +364,7 @@ export class Inspect {
 
   async #nativeAct(window: InspectWindow, node: number, action: InspectAction, arg: InspectArg): Promise<ActResult> {
     const entry = this.#native.get(window.id)?.byNumber.get(node)
-    if (!entry) return { ok: false, text: `${window.ref}.${node} 不认识, 先 look ${window.ref}` }
+    if (!entry) return { ok: false, text: `unknown ref ${window.ref}.${node}; snapshot ${window.ref} first` }
     const access = await this.#host.accessibility()
     const at = (): [number, number] | null => {
       if (!entry.rect) return null
@@ -370,27 +373,27 @@ export class Inspect {
     }
     switch (action) {
       case 'click':
-        if (access && (await access.act(entry.key, 'click').catch(() => false))) return { ok: true, text: `点了 ${window.ref}.${node}` }
+        if (access && (await access.act(entry.key, 'click').catch(() => false))) return { ok: true, text: `clicked ${window.ref}.${node}` }
         break
       case 'type':
       case 'settext':
         if (access && (await access.act(entry.key, action, String(arg ?? '')).catch(() => false))) {
-          return { ok: true, text: `输入了 ${JSON.stringify(String(arg ?? ''))}` }
+          return { ok: true, text: `typed ${JSON.stringify(String(arg ?? ''))}` }
         }
-        return { ok: false, text: '这个元素不能直接输入; 先 click 它, 再用 key 或对窗口 type' }
+        return { ok: false, text: 'cannot type into this element directly; click it, then use key or type on the window' }
       case 'focus':
-        if (access && (await access.act(entry.key, 'focus').catch(() => false))) return { ok: true, text: `焦点给了 ${window.ref}.${node}` }
+        if (access && (await access.act(entry.key, 'focus').catch(() => false))) return { ok: true, text: `focused ${window.ref}.${node}` }
         break
       case 'key':
         this.#focus(window)
         if (access) await access.act(entry.key, 'focus').catch(() => false)
         this.#keys(String(arg ?? ''))
-        return { ok: true, text: `按了 ${arg}` }
+        return { ok: true, text: `pressed ${arg}` }
       default:
         break
     }
     const point = at()
-    if (!point) return { ok: false, text: `${window.ref}.${node} 没有位置, 做不了 ${action}` }
+    if (!point) return { ok: false, text: `${window.ref}.${node} has no position, cannot ${action}` }
     if (action === 'drag') return this.#drag(window, point[0], point[1], arg)
     return this.#pointer(window, point[0], point[1], action === 'focus' ? 'click' : action, arg)
   }
@@ -398,7 +401,7 @@ export class Inspect {
   #pointer(window: InspectWindow, x: number, y: number, action: InspectAction, arg: InspectArg): ActResult {
     const cover = this.#cover(window, x, y)
     if (cover) {
-      if (window.kind === 'desktop') return { ok: false, text: `那里被 ${Inspect.#label(cover)} 挡住了; 先把它最小化或关掉` }
+      if (window.kind === 'desktop') return { ok: false, text: `covered there by ${Inspect.#label(cover)}; minimize or close it first` }
       this.#focus(window)
     }
     const shell = this.#host.shell
@@ -409,32 +412,32 @@ export class Inspect {
     }
     switch (action) {
       case 'hover':
-        return { ok: true, text: `指针移到了 ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `moved the pointer to ${Math.round(x)},${Math.round(y)}` }
       case 'right':
         press(RIGHT)
-        return { ok: true, text: `右键点了 ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `right-clicked ${Math.round(x)},${Math.round(y)}` }
       case 'double':
         press(LEFT)
         press(LEFT)
-        return { ok: true, text: `双击了 ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `double-clicked ${Math.round(x)},${Math.round(y)}` }
       case 'scroll': {
         const dy = Number(arg) || 400
         shell.inject({ type: 'wheel', x, y, dx: 0, dy, source: 'wheel' })
-        return { ok: true, text: `在 ${Math.round(x)},${Math.round(y)} 滚动了 ${dy}` }
+        return { ok: true, text: `scrolled ${dy} at ${Math.round(x)},${Math.round(y)}` }
       }
       case 'click':
         press(LEFT)
-        return { ok: true, text: `点了 ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `clicked ${Math.round(x)},${Math.round(y)}` }
       default:
-        return { ok: false, text: `不支持 ${action}` }
+        return { ok: false, text: `unsupported action ${action}` }
     }
   }
 
   async #drag(window: InspectWindow, x: number, y: number, to: InspectArg): Promise<ActResult> {
-    if (typeof to !== 'string' || !Inspect.#parse(to)) return { ok: false, text: 'drag 要给放到哪里: 目标的 ref (像 w3.12, 或窗口 w3)' }
+    if (typeof to !== 'string' || !Inspect.#parse(to)) return { ok: false, text: 'drag needs where to drop: the target ref (like w3.12, or a window w3)' }
     const cover = this.#cover(window, x, y)
     if (cover) {
-      if (window.kind === 'desktop') return { ok: false, text: `那里被 ${Inspect.#label(cover)} 挡住了; 先把它最小化或关掉` }
+      if (window.kind === 'desktop') return { ok: false, text: `covered there by ${Inspect.#label(cover)}; minimize or close it first` }
       this.#focus(window)
     }
     const shell = this.#host.shell
@@ -446,7 +449,7 @@ export class Inspect {
     const target = await this.#point(to)
     if ('error' in target) {
       shell.inject({ type: 'up', x, y, button: LEFT })
-      return { ok: false, text: `放不下: ${target.error}` }
+      return { ok: false, text: `cannot drop: ${target.error}` }
     }
     for (let i = 1; i <= Inspect.DRAG_STEPS; i++) {
       const t = i / Inspect.DRAG_STEPS
@@ -455,29 +458,29 @@ export class Inspect {
     }
     await step()
     shell.inject({ type: 'up', x: target.x, y: target.y, button: LEFT })
-    return { ok: true, text: `从 ${Math.round(x)},${Math.round(y)} 拖到了 ${to} (${Math.round(target.x)},${Math.round(target.y)})` }
+    return { ok: true, text: `dragged from ${Math.round(x)},${Math.round(y)} to ${to} (${Math.round(target.x)},${Math.round(target.y)})` }
   }
 
   async #point(ref: string): Promise<Point> {
     const parsed = Inspect.#parse(ref)
     const window = parsed && this.windows().find((w) => w.ref === `w${parsed.window}`)
-    if (!parsed || !window) return { error: `没有 ${ref}` }
+    if (!parsed || !window) return { error: `no ${ref}` }
     const [wx, wy, ww, wh] = window.rect
     if (parsed.node === null) return this.#uncovered(window, wx + ww / 2, wy + wh / 2)
     if (window.kind === 'native') {
       const rect = this.#native.get(window.id)?.byNumber.get(parsed.node)?.rect
-      if (!rect) return { error: `${ref} 没有位置` }
+      if (!rect) return { error: `${ref} has no position` }
       return this.#uncovered(window, wx + rect[0] + rect[2] / 2, wy + rect[1] + rect[3] / 2)
     }
     const rpc = this.#host.web(window.id)
-    if (!rpc) return { error: `${window.ref} 的页面没在运行` }
+    if (!rpc) return { error: `the page of ${window.ref} is not running` }
     const point = (await rpc.call('inspect', 'point', [parsed.node])) as PagePoint
     return 'error' in point ? point : this.#uncovered(window, wx + point.x, wy + point.y)
   }
 
   #uncovered(window: InspectWindow, x: number, y: number): Point {
     const cover = this.#cover(window, x, y)
-    return cover ? { error: `${window.ref} 的那里被 ${Inspect.#label(cover)} 挡住了` } : { x, y }
+    return cover ? { error: `${window.ref} is covered there by ${Inspect.#label(cover)}` } : { x, y }
   }
 
   static #label(w: InspectWindow): string {
@@ -503,7 +506,7 @@ export class Inspect {
       if (!at(row)) continue
       if (this.#host.panel(id)) {
         const rect: [number, number, number, number] = [row.x, row.y, row.width, row.height]
-        const title = '桌面的面板'
+        const title = 'desktop panel'
         return { ref: 'w0', id: 0, kind: 'desktop', app: null, title, mode: row.mode, rect, z: row.z, focus: row.focus, hidden: false, pid: null }
       }
       return this.windows().find((w) => w.id === id) ?? null
@@ -521,7 +524,7 @@ export class Inspect {
     for (const chord of spec.trim().split(/\s+/).filter(Boolean)) {
       const parts = chord.split('+')
       const codes = parts.map((p) => keyCode(p))
-      if (codes.some((c) => c === null)) throw new Error(`不认识的键: ${chord}`)
+      if (codes.some((c) => c === null)) throw new Error(`unknown key: ${chord}`)
       if (parts.length === 1 && /^[A-Z]$/.test(parts[0]!)) codes.unshift(keyCode('shift'))
       for (const code of codes) shell.inject({ type: 'keydown', code: code! })
       for (const code of [...codes].reverse()) shell.inject({ type: 'keyup', code: code! })
@@ -530,16 +533,16 @@ export class Inspect {
 
   async query(options: QueryOptions): Promise<Query> {
     const selector = String(options?.selector ?? '').trim()
-    if (!selector) throw Object.assign(new Error('query: 要一个 CSS 选择器'), { status: 400 })
+    if (!selector) throw Object.assign(new Error('query needs a CSS selector'), { status: 400 })
     const parsed = options.ref ? Inspect.#parse(options.ref) : null
-    if (options.ref && !parsed) throw Object.assign(new Error(`看不懂 ref ${options.ref} (应该像 w3 或 w3.12)`), { status: 400 })
+    if (options.ref && !parsed) throw Object.assign(new Error(`cannot read ref ${options.ref} (expected like w3 or w3.12)`), { status: 400 })
     const windows = this.windows()
     const wanted = parsed ? `w${parsed.window}` : options.window
     const window = wanted ? windows.find((w) => w.ref === wanted) : (windows.find((w) => w.focus && !w.hidden) ?? windows.find((w) => w.kind === 'desktop'))
-    if (!window) throw Object.assign(new Error(wanted ? `没有窗口 ${wanted}` : '没有窗口'), { status: 404 })
-    if (window.kind === 'native') throw Object.assign(new Error(`${window.ref} 是原生窗口, 只能在网页里用 CSS 选择器`), { status: 400 })
+    if (!window) throw Object.assign(new Error(wanted ? `no window ${wanted}` : 'no window'), { status: 404 })
+    if (window.kind === 'native') throw Object.assign(new Error(`${window.ref} is a native window; CSS selectors work only in pages`), { status: 400 })
     const rpc = this.#host.web(window.id)
-    if (!rpc) throw Object.assign(new Error(`${window.ref} 的页面没在运行`), { status: 409 })
+    if (!rpc) throw Object.assign(new Error(`the page of ${window.ref} is not running`), { status: 409 })
     const limit = Math.max(1, Math.min(Number(options.limit) || Inspect.LIMIT, Inspect.FIND_LIMIT))
     const attributes = Array.isArray(options.attributes) ? options.attributes.filter((a): a is string => typeof a === 'string' && !!a).slice(0, 20) : []
     const found = (await rpc.call('inspect', 'query', [selector, parsed?.node ?? -1, limit, attributes])) as PageQuery
@@ -551,24 +554,24 @@ export class Inspect {
   }
 
   async #tree(window: InspectWindow, node: number | null, limit: number, offscreen = false, invisible = false): Promise<Tree> {
-    if (window.hidden) return { nodes: [], notes: ['(最小化了; act 它 restore 再看)'] }
+    if (window.hidden) return { nodes: [], notes: ['(minimized; act restore on it to see its elements)'] }
     if (window.kind === 'native') return this.#nativeTree(window, limit)
     const rpc = this.#host.web(window.id)
-    if (!rpc) return { nodes: [], notes: ['(页面没在运行)'] }
+    if (!rpc) return { nodes: [], notes: ['(the page is not running)'] }
     const tree = (await rpc.call('inspect', 'tree', [node ?? -1, limit, offscreen, invisible])) as PageTree
     const convert = (n: PageNode): InspectNode => Inspect.#node(window, n.id, n, n.states, n.rect, (n.children ?? []).map(convert))
     const notes: string[] = []
-    if (tree.hidden) notes.push(`(可见范围外还有 ${tree.hidden} 个元素没列出; scroll 再看)`)
-    if (tree.truncated) notes.push(`(元素太多, 只列了 ${limit} 个; look 某个 ref 看它下面)`)
+    if (tree.hidden) notes.push(`(${tree.hidden} more outside the visible area; scroll, or add offscreen)`)
+    if (tree.truncated) notes.push(`(too many elements, listed ${limit}; snapshot a ref to see what is under it)`)
     return { nodes: tree.nodes.map(convert), notes }
   }
 
   async #nativeTree(window: InspectWindow, limit: number): Promise<Tree> {
     const access = await this.#host.accessibility()
-    if (!access) return { nodes: [], notes: ['(这个会话没有 AT-SPI, 看不到原生窗口的内容)'] }
-    if (!window.pid) return { nodes: [], notes: ['(不知道这个窗口的进程)'] }
+    if (!access) return { nodes: [], notes: ['(this session has no AT-SPI, so native windows show no elements)'] }
+    if (!window.pid) return { nodes: [], notes: ['(the process of this window is unknown)'] }
     const json = await access.tree(window.pid, window.title, limit)
-    if (!json) return { nodes: [], notes: ['(这个程序没有上报无障碍信息)'] }
+    if (!json) return { nodes: [], notes: ['(this program reports no accessibility information)'] }
     const root = JSON.parse(json) as NativeNode
     let aliases = this.#native.get(window.id)
     if (!aliases) this.#native.set(window.id, (aliases = { byKey: new Map(), byNumber: new Map(), next: 1 }))
@@ -628,9 +631,10 @@ export class Inspect {
   }
 
   static #header(w: InspectWindow): string {
-    const kind = w.kind === 'desktop' ? '桌面' : w.kind === 'web' ? `应用 ${w.app ?? ''}`.trim() : `原生 ${w.app ?? ''}`.trim()
-    const flags = [w.focus ? '焦点' : '', w.hidden ? '最小化' : '', w.mode !== 'free' ? w.mode : ''].filter(Boolean)
-    return `${w.ref} ${kind}${w.title ? ` ${JSON.stringify(w.title)}` : ''}${flags.length ? ` ${flags.join(' ')}` : ''}`
+    const flags = [w.app ? `app=${w.app}` : '', w.kind === 'native' ? 'native' : '', w.focus ? 'focused' : '', w.hidden ? 'minimized' : '']
+    if (w.mode !== 'free') flags.push(w.mode)
+    const title = w.title ? ` ${JSON.stringify(w.title)}` : ''
+    return `- ${w.kind === 'desktop' ? 'desktop' : 'window'}${title}${flags.map((f) => (f ? ` [${f}]` : '')).join('')} [${w.ref}]`
   }
 
   static #lines(nodes: readonly InspectNode[], depth: number, out: Line[]): void {
@@ -645,7 +649,7 @@ export class Inspect {
       line += ` [${n.ref}]`
       out.push([`${n.ref}|${n.role}`, line])
       if (n.children) Inspect.#lines(n.children, depth + 1, out)
-      if (n.more) out.push([`${n.ref}|more`, `${pad}  - …还有 ${n.more} 项没列出`])
+      if (n.more) out.push([`${n.ref}|more`, `${pad}  - … ${n.more} more not listed`])
     }
   }
 
@@ -681,8 +685,8 @@ export class Inspect {
       else if (was !== line) out.push(`~ ${line.trimStart()}`)
     }
     for (const [key, line] of old) if (!kept.has(key)) out.push(`- ${line.trimStart()}`)
-    if (!out.length) return ['(没有变化)']
-    if (out.length > after.length * 0.6 && after.length > 10) return ['(变化很大, 全部重列)', ...after.map(([, line]) => line)]
+    if (!out.length) return ['(no changes)']
+    if (out.length > after.length * 0.6 && after.length > 10) return ['(many changes, listing everything)', ...after.map(([, line]) => line)]
     return out
   }
 
