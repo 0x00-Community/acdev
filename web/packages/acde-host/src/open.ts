@@ -308,7 +308,7 @@ export class Opener {
 
   async open(target: string, options: OpenOptions = {}, caller: OpenCaller | null = null): Promise<Opened> {
     const scheme = Opener.#scheme(String(target))
-    if (scheme) return this.#openUrl(String(target), scheme, options)
+    if (scheme) return this.#openUrl(String(target), scheme, options, caller)
     const path = Opener.#existing(target)
     const isDir = !!stat(path)?.isDirectory
     const select = !!options.select && !isDir
@@ -354,7 +354,7 @@ export class Opener {
       const scheme = Opener.#scheme(text)
       if (!scheme) throw Object.assign(new Error(`open-link needs a URL with a scheme: ${text}`), { status: 400 })
       if (app && !app.schemes.includes(scheme)) throw refuse(`${scheme}: links (its manifest's schemes)`)
-      return this.#openUrl(text, scheme, target ? { app: target } : {})
+      return this.#openUrl(text, scheme, target ? { app: target } : {}, caller)
     }
     const held = Opener.#held(request.held)
     const file = held ?? text
@@ -371,12 +371,12 @@ export class Opener {
     return typeof path === 'string' && isAbsolute(path) ? normalize(path) : null
   }
 
-  async #openUrl(url: string, scheme: string, options: OpenOptions): Promise<Opened> {
+  async #openUrl(url: string, scheme: string, options: OpenOptions, caller: OpenCaller | null): Promise<Opened> {
     const declared = options.app ? null : this.#host.apps().find((a) => a.schemes.includes(scheme))
     if (declared) return { kind: 'acde', id: declared.id, window: (await this.#host.launch(declared.id, { kind: 'open-link', url })).window }
     const mime = `x-scheme-handler/${scheme}`
     const natives = this.#natives()
-    const chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
+    const chosen = options.app ? this.#asked(options.app, natives, caller) : this.#chosen(mime, natives)
     const app = chosen?.kind === 'acde' ? this.#host.apps().find((a) => a.id === chosen.id) : null
     if (app && (!app.capabilities.fs || app.schemes.includes(scheme))) {
       return { kind: 'acde', id: app.id, window: (await this.#host.launch(app.id, { kind: 'open-link', url })).window }
