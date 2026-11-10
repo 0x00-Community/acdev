@@ -1,4 +1,3 @@
-
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::os::windows::ffi::OsStrExt;
@@ -12,7 +11,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoTaskMemFree, CoUninitialize};
 use windows_sys::Win32::UI::Shell::{
     ASSOC_FILTER, ASSOC_FILTER_NONE, ASSOC_FILTER_RECOMMENDED, ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR, ASSOCSTR_APPID, ASSOCSTR_CONTENTTYPE, ASSOCSTR_EXECUTABLE,
-    AssocQueryStringW, BHID_DataObject, SHAssocEnumHandlers, SHCreateItemFromParsingName, SHDefExtractIconW, SHLoadIndirectString,
+    ASSOCSTR_FRIENDLYAPPNAME, AssocQueryStringW, BHID_DataObject, SHAssocEnumHandlers, SHCreateItemFromParsingName, SHDefExtractIconW, SHLoadIndirectString,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{DI_NORMAL, DestroyIcon, DrawIconEx, HICON};
 use windows_sys::core::{GUID, HRESULT, PCWSTR, PWSTR};
@@ -68,7 +67,7 @@ pub fn content_type(extension: &str) -> Option<String> {
 pub fn handlers(extension: &str) -> Result<Vec<Handler>, String> {
     let wide = wide_extension(extension).ok_or_else(|| format!("not a file extension: {extension:?}"))?;
     let _com = Com::init();
-    let defaults: Vec<String> = [ASSOCSTR_EXECUTABLE, ASSOCSTR_APPID].into_iter().filter_map(|what| query(what, &wide)).collect();
+    let defaults: Vec<String> = [ASSOCSTR_EXECUTABLE, ASSOCSTR_APPID, ASSOCSTR_FRIENDLYAPPNAME].into_iter().filter_map(|what| query(what, &wide)).collect();
     let mut out: Vec<Handler> = Vec::new();
     for handler in AssocHandler::all(&wide, ASSOC_FILTER_RECOMMENDED)? {
         let Some(name) = handler.name() else { continue };
@@ -77,7 +76,7 @@ pub fn handlers(extension: &str) -> Result<Vec<Handler>, String> {
         }
         let label = handler.label().unwrap_or_else(|| name.clone());
         let icon = handler.icon().and_then(|(location, index)| icon_url(&location, index)).unwrap_or_default();
-        let default = defaults.iter().any(|d| d.eq_ignore_ascii_case(&name));
+        let default = defaults.iter().any(|d| d.eq_ignore_ascii_case(&name) || *d == label);
         out.push(Handler { name, label, icon, default });
     }
     Ok(out)
