@@ -12,7 +12,7 @@
     },
     "packages/acde-api": {
       "name": "@dopame/acde-api",
-      "version": "0.0.6",
+      "version": "0.0.7",
       "peerDependencies": {
         "vite": ">=5",
       },
@@ -22,7 +22,7 @@
     },
     "packages/acde-dom": {
       "name": "@dopame/acde-dom",
-      "version": "0.0.6",
+      "version": "0.0.7",
       "devDependencies": {
         "@codemirror/commands": "^6.11.1",
         "@codemirror/state": "6.7.6",
@@ -38,7 +38,7 @@
     },
     "packages/acde-host": {
       "name": "@dopame/acde-host",
-      "version": "0.0.6",
+      "version": "0.0.7",
       "dependencies": {
         "@dopame/acde-api": "workspace:*",
         "@dopame/acde-dom": "workspace:*",

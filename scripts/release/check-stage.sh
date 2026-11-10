@@ -6,6 +6,7 @@ version=$2
 required=(
   "acdert-x86_64-unknown-linux-gnu"
   "acdert-aarch64-apple-darwin"
+  "acdert-x86_64-apple-darwin"
   "acdert-x86_64-pc-windows-msvc.exe"
   "acdert-host-$version.tar.gz"
   "acde-api-$version.tar.gz"

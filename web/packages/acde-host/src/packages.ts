@@ -234,7 +234,7 @@ export class Packages {
       if (inDir) return inDir
       const refused = this.refused.find((p) => p.dir === dir || (p.manifest.desktops ?? []).some((d) => d?.id === wanted))
       if (refused) throw new Error(`desktop ${wanted}: ${refused.reason}`)
-      throw new Error(`no desktop ${wanted}: not an installed desktop's id nor a package directory with one (acde desktops lists them)`)
+      throw new Error(`no desktop ${wanted}: not an installed desktop's id nor a package directory with one (acdert desktops lists them)`)
     }
     const remembered = readTextOr(Packages.rememberFile(), null)?.trim()
     for (const [id, where] of [[process.env['ACDE_DESKTOP'], 'ACDE_DESKTOP'], [remembered, Packages.rememberFile()]] as const) {

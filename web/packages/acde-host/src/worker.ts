@@ -77,6 +77,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const page = install(globalThis, dom, host, {
     url: (htmlEntry ? init.url : undefined) ?? `${PageSource.ORIGIN}/`,
     ...init.languages,
+    ...init.navigator,
     ...(natives.storage && { storage: natives.storage }),
     gpu: natives.gpu,
     audio: natives.audio,

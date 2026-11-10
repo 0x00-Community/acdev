@@ -56,6 +56,7 @@ jobs:
       matrix:
         include:
           - { triple: aarch64-apple-darwin, os: macos-15 }
+          - { triple: x86_64-apple-darwin, os: macos-15-intel }
           - { triple: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
           - { triple: x86_64-pc-windows-msvc, os: windows-2025, exe: .exe }
     runs-on: ${{ matrix.os }}
@@ -113,7 +114,7 @@ jobs:
           mkdir -p out symbols
           cp "$dist/acdert${{ matrix.exe }}" "out/acdert-${{ matrix.triple }}${{ matrix.exe }}"
           for part in acdert.pdb acdert.dwp acdert.dSYM; do
-            if [ -e "$dist/$part" ]; then cp -R "$dist/$part" symbols/; fi
+            if [ -e "$dist/$part" ]; then cp -RL "$dist/$part" symbols/; fi
           done
           if [ -z "$(ls -A symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
           ls -la out symbols
@@ -127,6 +128,7 @@ jobs:
           name: symbols-${{ matrix.triple }}
           path: symbols
           retention-days: 30
+          if-no-files-found: error
 
   host:
     needs: plan
@@ -235,7 +237,7 @@ jobs:
         run: scripts/release/check-stage.sh release-stage "$VERSION"
       - name: GitHub release (created once, a re-run replaces the assets)
         run: |
-          files=(acdert-x86_64-unknown-linux-gnu acdert-aarch64-apple-darwin acdert-x86_64-pc-windows-msvc.exe "acdert-host-$VERSION.tar.gz" LICENSE)
+          files=(acdert-x86_64-unknown-linux-gnu acdert-aarch64-apple-darwin acdert-x86_64-apple-darwin acdert-x86_64-pc-windows-msvc.exe "acdert-host-$VERSION.tar.gz" LICENSE)
           level=$(sed -n 's/^export const API_LEVEL = \([0-9][0-9]*\).*/\1/p' web/packages/acde-api/src/runtime/level.js)
           test -n "$level"
           notes="Contract level $level: packages need \"apiLevel\": $level (packages without it, or built for another level, are refused; rebuild them with the current acde).
@@ -276,7 +278,7 @@ jobs:
         run: |
           scripts/release/check-stage.sh release-stage "$VERSION"
           mkdir -p "pkgs/$VERSION"
-          cp release-stage/acdert-x86_64-unknown-linux-gnu release-stage/acdert-aarch64-apple-darwin \
+          cp release-stage/acdert-x86_64-unknown-linux-gnu release-stage/acdert-aarch64-apple-darwin release-stage/acdert-x86_64-apple-darwin \
             release-stage/acdert-x86_64-pc-windows-msvc.exe "release-stage/acdert-host-$VERSION.tar.gz" release-stage/LICENSE \
             "release-stage/acde-api-$VERSION.tar.gz" "pkgs/$VERSION/"
           (cd "pkgs/$VERSION" && sha256sum -- * > SHA256SUMS)
