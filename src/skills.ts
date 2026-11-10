@@ -98,11 +98,8 @@ export class Skills {
     const created = new Set(Skills.created())
     for (const place of places) {
       const dest = Skills.at(place)
-      const first = mkdirSync(place.dir, { recursive: true })
-      for (let dir = place.dir; first !== undefined; dir = dirname(dir)) {
-        created.add(dir)
-        if (dir === first || dirname(dir) === dir) break
-      }
+      for (let dir = place.dir; !existsSync(dir) && dirname(dir) !== dir; dir = dirname(dir)) created.add(dir)
+      mkdirSync(place.dir, { recursive: true })
       Skills.remember(created)
       const staged = `${dest}.new-${process.pid}`
       rmSync(staged, { recursive: true, force: true })
