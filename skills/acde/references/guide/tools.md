@@ -84,15 +84,17 @@ Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `ke
 
 #### Key names
 
-The argument to `key` (and `press()` in tests) is one or more chords separated by spaces; a chord is keys joined by `+`, pressed in order and released in reverse. Names are physical keys on a US layout, not characters. Case does not matter, except that a single capital letter (`A`) adds `shift`:
+The argument to `key` (and `press()` in tests) is one or more chords separated by spaces; a chord is keys joined by `+`, pressed in order and released in reverse. Keys are physical keys on a US layout. Case does not matter, except that a single capital letter (`A`) adds `shift`:
 
 - modifiers: `ctrl` (`control`), `shift`, `alt`, `super` (`meta`, `win`)
 - letters `a` … `z`, digits `0` … `9`, `f1` … `f12`
 - `enter` (`return`), `escape` (`esc`), `tab`, `space`, `backspace`, `delete` (`del`), `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `menu`
-- the unshifted punctuation keys by their character: `-` `=` `[` `]` `;` `'` `` ` `` `\` `,` `.` `/`
-- the DOM `KeyboardEvent.code` names of these keys, e.g. `KeyA`, `Digit8`, `Minus`, `ArrowUp`, `CapsLock`, `ShiftRight`; of the keypad only `NumpadMultiply` and `NumpadEnter`
+- printable characters as they are: `-` `=` `[` `]` `;` `'` `` ` `` `\` `,` `.` `/`, and the shifted ones `!` `@` `#` `$` `%` `^` `&` `*` `(` `)` `_` `+` `{` `}` `|` `:` `"` `<` `>` `?` `~`, which add `shift` themselves (`*` is `shift+8`). `+` alone, or last in a chord (`ctrl++`), is the `+` key
+- names for some characters: `plus` (`+`), `multiply`, `asterisk`, `star` (`*`), `minus` (`-`), `divide` (`/`), `period` (`.`), `comma` (`,`); these are the main keyboard keys, not the keypad
+- the keypad: `Numpad0` … `Numpad9`, `NumpadAdd`, `NumpadSubtract`, `NumpadMultiply`, `NumpadDivide`, `NumpadDecimal`, `NumpadEnter`
+- the DOM `KeyboardEvent.code` names of the other keys, e.g. `KeyA`, `Digit8`, `Minus`, `ArrowUp`, `CapsLock`, `ShiftRight`
 
-Shifted characters are not key names, and `+` separates keys: press the key that makes the character, `shift+8` for `*`, `shift+=` for `+`, `shift+9` for `(`. An unknown name fails with `unknown key`. To enter text, use `type` instead.
+The whole argument is checked before anything is pressed: an unknown key fails with `unknown key: …` and presses nothing. The space character is `space` (spaces separate chords). To enter text, use `type` instead.
 
 ### console and network
 
