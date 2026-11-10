@@ -54,6 +54,12 @@ impl super::Host for Host {
     fn exit(&self, code: i32) {
         self.exit.set(Some(code));
     }
+
+    fn set_size(&self, [w, h]: [f64; 2]) {
+        if !self.window.is_maximized() && self.window.fullscreen().is_none() {
+            _ = self.window.request_inner_size(LogicalSize::new(w, h));
+        }
+    }
 }
 
 pub(crate) fn clipboard_set(text: String) {

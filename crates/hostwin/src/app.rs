@@ -215,7 +215,7 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
     code
 }
 
-fn size_from_env() -> Option<[f64; 2]> {
+pub(crate) fn size_from_env() -> Option<[f64; 2]> {
     let text = std::env::var("ACDE_SIZE").ok()?;
     let (w, h) = text.split_once('x')?;
     Some([w.trim().parse().ok()?, h.trim().parse().ok()?])
@@ -308,6 +308,7 @@ impl Handler for App {
             }
             HostEvent::Refresh(hz) => server.set_refresh(hz),
             HostEvent::Cmd(Cmd::HostState(to)) => host.set_state(to),
+            HostEvent::Cmd(Cmd::HostSize(size)) => host.set_size(size),
             HostEvent::Redraw => server.relayout(),
             HostEvent::Cmd(Cmd::Title(title)) => host.set_title(&title),
             HostEvent::Cmd(Cmd::ImeArea(rect)) => host.set_ime_area(rect),

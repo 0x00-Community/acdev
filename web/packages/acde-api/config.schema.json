@@ -179,7 +179,7 @@
           },
           "minItems": 2,
           "maxItems": 2,
-          "description": "窗口的默认尺寸 [宽, 高], 逻辑像素; 默认 800x600"
+          "description": "窗口页面的初始尺寸 [宽, 高], 逻辑像素, 不含窗框; 默认 800x600. 单应用模式 (acdert app) 里是宿主窗口内容区的初始尺寸 (不超出工作区)"
         },
         "multiple": {
           "type": "boolean"
@@ -422,7 +422,7 @@
                 },
                 "minItems": 2,
                 "maxItems": 2,
-                "description": "窗口的默认尺寸 [宽, 高], 逻辑像素; 默认 800x600"
+                "description": "窗口页面的初始尺寸 [宽, 高], 逻辑像素, 不含窗框; 默认 800x600. 单应用模式 (acdert app) 里是宿主窗口内容区的初始尺寸 (不超出工作区)"
               },
               "multiple": {
                 "type": "boolean"

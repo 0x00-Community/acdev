@@ -188,6 +188,10 @@ impl State {
         Some(gone)
     }
 
+    pub fn host_size(&self, grant: &Grant) -> Option<[f64; 2]> {
+        grant.size.filter(|_| grant.host && !grant.desktop && !self.standalone)
+    }
+
     pub fn grant(&mut self, grant: Grant) -> (u32, u64) {
         let id = if grant.desktop {
             0
@@ -367,7 +371,15 @@ impl Shell {
     }
 
     pub fn grant(&self, grant: Grant) -> (u32, u64) {
-        self.state().grant(grant)
+        let (granted, size) = {
+            let mut state = self.state();
+            let size = state.host_size(&grant);
+            (state.grant(grant), size)
+        };
+        if let Some(size) = size.filter(|_| crate::app::size_from_env().is_none()) {
+            server().expect("hostwin").send(Cmd::HostSize(size));
+        }
+        granted
     }
 
     pub fn release(&self, window: u32) {
@@ -694,6 +706,19 @@ pub(crate) mod tests {
         assert!(apply(&mut s, second, Some(WindowState::Filled)).is_some(), "other states still work");
         s.entries.get_mut(&second).expect("second").frame = 32.0;
         assert!(!s.entries[&second].bar(s.theme, true).minimize);
+    }
+
+    #[test]
+    fn only_the_first_host_grant_sizes_the_host_window() {
+        let mut s = screen();
+        let free = Grant { size: Some([520.0, 680.0]), ..Grant::default() };
+        assert_eq!(s.host_size(&free), None);
+        let primary = Grant { host: true, mode: Some(Mode::Fullscreen), size: Some([520.0, 680.0]), ..Grant::default() };
+        assert_eq!(s.host_size(&primary), Some([520.0, 680.0]));
+        assert_eq!(s.host_size(&Grant { host: true, ..Grant::default() }), None);
+        open(&mut s, primary);
+        let again = Grant { host: true, mode: Some(Mode::Fullscreen), size: Some([300.0, 200.0]), ..Grant::default() };
+        assert_eq!(s.host_size(&again), None);
     }
 
     #[test]

@@ -621,7 +621,8 @@ export class Broker {
     }
     const rect = mode !== 'free' || family || this.#windows.running(appId) ? null : (place ?? this.#windows.place(appId, this.#screen()))
     const host = Outputs.host({ mode, appId: app.id }, this.#options.standalone) && { host: true }
-    const grant = this.shell.grant({ mode, ...(rect ? { rect } : { size: Frame.windowSize(app) }), ...family, ...host })
+    const size = host ? app.size : Frame.windowSize(app)
+    const grant = this.shell.grant({ mode, ...(rect ? { rect } : size && { size }), ...family, ...host })
     const record: WindowRecord = { id: grant.window, kind: 'web', appId: app.id, title: app.label, owner: null, web: null, app, menus: [], request, mode }
     this.#windows.set(record.id, record)
     this.#spawnWindow(record, grant.token)

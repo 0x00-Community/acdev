@@ -4,7 +4,7 @@ use std::ptr::null_mut;
 use acde_model::WindowState;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, ScreenToClient};
-use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+use windows_sys::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_STYLE, GetWindowLongPtrW, GetWindowPlacement, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT,
     HTTOPRIGHT, HWND_TOP, IsIconic, IsZoomed, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
@@ -90,6 +90,24 @@ impl HostFrame {
             SetWindowLongPtrW(hwnd, GWL_STYLE, style);
             SetWindowPlacement(hwnd, &placement);
             SetWindowPos(hwnd, null_mut(), 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        }
+    }
+
+    pub fn resize(&self, hwnd: HWND, [w, h]: [f64; 2]) {
+        if self.state(hwnd) != WindowState::Normal {
+            return;
+        }
+        let Some(info) = monitor(hwnd) else { return };
+        let work = info.rcWork;
+        unsafe {
+            let dpi = GetDpiForWindow(hwnd).max(1);
+            let scale = f64::from(dpi) / 96.0;
+            let mut outer = RECT { left: 0, top: 0, right: (w * scale).round() as i32, bottom: (h * scale).round() as i32 };
+            AdjustWindowRectExForDpi(&mut outer, WS_OVERLAPPEDWINDOW, 0, 0, dpi);
+            let (room_w, room_h) = (work.right - work.left, work.bottom - work.top);
+            let (ow, oh) = ((outer.right - outer.left).min(room_w), (outer.bottom - outer.top).min(room_h));
+            let (x, y) = (work.left + (room_w - ow) / 2, work.top + (room_h - oh) / 2);
+            SetWindowPos(hwnd, null_mut(), x, y, ow, oh, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         }
     }
 

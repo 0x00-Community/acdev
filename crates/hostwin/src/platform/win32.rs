@@ -101,6 +101,10 @@ impl super::Host for Host {
         self.frame.set(self.hwnd, state);
     }
 
+    fn set_size(&self, size: [f64; 2]) {
+        self.frame.resize(self.hwnd, size);
+    }
+
     fn set_title(&self, title: &str) {
         let title = wide(title);
         unsafe { SetWindowTextW(self.hwnd, title.as_ptr()) };

@@ -176,7 +176,10 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `HostEvent::Refresh`; `Server::set_refresh` 变了才记进 `State.refresh` 并给每条出帧线程发 `Msg::Refresh`, 打 `host window: monitor refresh` (启动时也打一次).
   macOS / Linux (winit) 仍只在启动时读一次. 真多显示器、改刷新率还没实测.
 - **坐标**: 宿主窗口的内容区就是「屏幕」(`output`: `ACDE_SIZE`, 否则主显示器的 90% × 85%, 最大 1440 × 900), 窗口表的 rect 是它里面的
-  逻辑坐标. 宿主窗口改尺寸 / 换缩放时桌面和全屏窗口跟着改, 发 `output`. web 的文档先按 Broker 给的 800 × 600 建, `claimSurface` 时
+  逻辑坐标. 单应用模式 (`acdert app`) 的主窗口清单设了 `size` 时, Broker 把它放进带 `host: true` 的那次 grant, `Shell::grant` 对第一次这样的
+  grant 发 `Cmd::HostSize`: 宿主窗口还是 `normal` 时把内容区改成这个逻辑尺寸 (Win32 `frame.rs` `resize`: 按窗口 DPI 加上系统边框, 不超出
+  所在显示器的工作区, 在工作区里居中; winit `request_inner_size`), 之后照常 `output`. 设了 `ACDE_SIZE` 时以它为准不改; 宿主窗口先按默认尺寸
+  显示, Broker 发出 grant 后才改. 没设 `size` 的照旧. headless 不改 (屏幕只看 `ACDE_SIZE`). 宿主窗口改尺寸 / 换缩放时桌面和全屏窗口跟着改, 发 `output`. web 的文档先按 Broker 给的 800 × 600 建, `claimSurface` 时
   (crates/acdert `webnative.rs`, hostwin `Surface::size`) 立刻换成窗口表里这个窗口的内容尺寸, 在页面脚本运行之前; 不然加载期间
   (`Host.run` 开始 pump 之前) 页面一直是 800 × 600. 出帧线程起来后照常发一次 `resize`.
 - **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner; 窗口有模态子窗口时 `Hit.blocked`, 只激活模态子窗口, 指针、滚轮、拖放都不给它), 给它焦点、提前,
@@ -440,7 +443,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **应用清单** (`acde.apps`, 解析 acde-host `apps.ts`, 校验 acde-api `validate.ts`): `id`、`label`、`icon`、`entry` (默认导出 `WindowApp` 的
   模块, 或 HTML)、`capabilities` (只放系统能力: `SYSTEM_CAPABILITIES` 加外壳模块; 不认识的名字和服务名都是错误)、
   `optional` (capabilities 里可以缺的几项, 每项也要在 capabilities 里)、`services` (用到的桌面服务名, 不能是 `RESERVED_NAMES`)、
-  `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算)、`multiple`、`frame` (默认 true)、`backend`.
+  `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算; 单应用模式的主窗口铺满宿主窗口, 设了 `size` 时它是宿主窗口内容区的初始尺寸, 见「坐标」)、`multiple`、`frame` (默认 true)、`backend`.
 - **必需与可选能力** (`broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
   `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝或撤销, 见「批准」). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
