@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { API_LEVEL, Manifest, SHARED_PLACES, type PackageManifest } from '@dopame/acde-api/manifest'
 import { Creator } from '../src/create.ts'
@@ -91,6 +91,31 @@ describe('templates at contract level 1', () => {
     const app = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0]
     expect(app).toMatchObject({ optional: ['fs'], requests: ['add-note'], schemes: ['web+notes'] })
   }, 60_000)
+
+  test('a framework project takes --label as its page title wherever its scaffold sets one', () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'titled' }))
+    const put = (path: string, text: string) => {
+      mkdirSync(join(dir, path, '..'), { recursive: true })
+      writeFileSync(join(dir, path), text)
+    }
+    put('index.html', '<!doctype html><title>Vite + React</title>')
+    put('app/layout.tsx', 'export const metadata: Metadata = {\n  title: "Create Next App",\n}\n')
+    put('src/pages/index.astro', '<html><head><title>Astro</title></head></html>')
+    put('src/app.html', '<head>\n\t\t%sveltekit.head%\n</head>')
+    put('app/app.vue', '<template>\n  <NuxtWelcome />\n</template>\n')
+    Creator.adopt(dir, 'titled', 'Mine & <Yours>', 'Test')
+    const read = (path: string) => readFileSync(join(dir, path), 'utf8')
+    expect(read('index.html')).toContain('<title>Mine &amp; &lt;Yours&gt;</title>')
+    expect(read('app/layout.tsx')).toContain('title: "Mine & <Yours>",')
+    expect(read('src/pages/index.astro')).toContain('<title>Mine &amp; &lt;Yours&gt;</title>')
+    const head = '<head>\n\t\t<title>Mine &amp; &lt;Yours&gt;</title>\n\t\t%sveltekit.head%\n</head>'
+    expect(read('src/app.html')).toBe(head)
+    expect(read('app/app.vue')).toStartWith('<script setup lang="ts">\nconst label = "Mine & <Yours>"\n')
+    Creator.adopt(dir, 'titled', 'Again', 'Test')
+    expect(read('app/app.vue').match(/<script/g)).toHaveLength(1)
+    expect(read('src/app.html')).toContain('<title>Again</title>')
+  })
 
   test('the framework overlay declares the same level 1 fields', () => {
     const dir = tmp()

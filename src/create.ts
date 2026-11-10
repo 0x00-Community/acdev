@@ -284,15 +284,35 @@ export class Creator {
     if (!existsSync(join(dir, 'package.json'))) throw new Error(`${framework} made no package.json in ${dir}`)
     Creator.#copy(join(Creator.TEMPLATES, 'framework'), dir, { id, label, framework })
     Creator.#wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' })
-    const page = join(dir, 'index.html')
-    if (existsSync(page)) {
-      const text = label.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
-      writeFileSync(page, readFileSync(page, 'utf8').replace(/(<title>)[^<]*(<\/title>)/i, (_, open: string, close: string) => open + text + close))
-    }
+    Creator.#title(dir, label)
     const ignore = join(dir, '.gitignore')
     const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
     if (!/^\/?\.acde\/?$/m.test(ignored))
       writeFileSync(ignore, `${ignored}${ignored && !ignored.endsWith('\n') ? '\n' : ''}.acde/\n`)
+  }
+
+  static #title(dir: string, label: string): void {
+    const html = label.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)
+    const edit = (path: string, change: (text: string) => string) => {
+      const file = join(dir, path)
+      if (existsSync(file)) writeFileSync(file, change(readFileSync(file, 'utf8')))
+    }
+    const titled = (text: string) => text.replace(/(<title>)[^<]*(<\/title>)/i, (_, open: string, close: string) =>
+      open + html + close)
+    edit('index.html', titled)
+    for (const page of ['src/pages/index.astro', 'src/layouts/Layout.astro']) edit(page, titled)
+    for (const layout of ['app/layout.tsx', 'app/layout.jsx', 'src/app/layout.tsx', 'src/app/layout.jsx']) {
+      edit(layout, (text) =>
+        text.replace(/(\btitle:\s*)(["'`])[^"'`]*\2/, (_, key: string) => key + JSON.stringify(label)))
+    }
+    edit('src/app.html', (text) => (/<title>/i.test(text) ? titled(text)
+      : text.replace(/(\s*)%sveltekit\.head%/, (all, space: string) => `${space}<title>${html}</title>${all}`)))
+    for (const app of ['app/app.vue', 'app.vue']) {
+      edit(app, (text) => (/<script\b/.test(text) ? text
+        : `<script setup lang="ts">\nconst label = ${JSON.stringify(label)}\n`
+          + `useHead({ titleTemplate: (title) => (title && title !== 'Welcome to Nuxt!' ? title : label) })\n`
+          + `</script>\n\n${text}`))
+    }
   }
 
   static api(dir: string): string {
