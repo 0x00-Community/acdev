@@ -39,6 +39,15 @@ acde eval notes 'import("acde:fs").then(m => m.fs.roots())'
 echo 'localStorage.length' | acde eval notes -
 ```
 
+On Windows, PowerShell runs `acde` through `acde.cmd`, and on the way double quotes inside an argument are lost: `acde eval notes 'document.querySelector("#x").textContent'` reaches the page as `document.querySelector(#x).textContent`. In PowerShell, pass the code on stdin, where it arrives unchanged, or use only single quotes inside it:
+
+```powershell
+'document.querySelector("#x").textContent' | acde eval notes -
+acde eval notes "document.querySelector('#x').textContent"
+```
+
+The same applies to any argument with double quotes, such as `act ... type`.
+
 ### inspect and act
 
 `inspect` gives every element a **ref**, such as `w1.12` (element 12 in window `w1`); pass it to `act`.
