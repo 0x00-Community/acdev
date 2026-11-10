@@ -639,21 +639,22 @@ describe('acde check --platform', () => {
     return dir
   }
 
-  test('an app requiring terminal fails on Windows in every mode; optional, it passes with a note', async () => {
-    const required = project({ type: 'app', id: 'term', capabilities: { terminal: true, fs: true } })
+  test('an app requiring network fails on Windows in every mode; optional, it passes with a note', async () => {
+    const required = project({ type: 'app', id: 'net', capabilities: { network: true, terminal: true, fs: true } })
     const failed = await cli(['check', '--platform', 'windows'], required)
     expect(failed.code).toBe(1)
     for (const mode of RUNNING_MODES.filter((m) => platformSupport('win32', m)))
-      expect(failed.stderr).toContain(`error: windows (${mode}): app "term" requires terminal, which this mode lacks`)
+      expect(failed.stderr).toContain(`error: windows (${mode}): app "net" requires network, which this mode lacks`)
     expect(failed.stderr).not.toContain('requires fs')
+    expect(failed.stderr).not.toContain('requires terminal')
     const linux = await cli(['check', '--platform', 'linux'], required)
     expect(linux.code).toBe(0)
     expect(linux.stdout).toContain('linux (session, desktop, standalone): every required capability is there')
 
-    const optional = project({ type: 'app', id: 'term', capabilities: { terminal: true }, optional: ['terminal'] })
+    const optional = project({ type: 'app', id: 'net', capabilities: { network: true }, optional: ['network'] })
     const noted = await cli(['check', '--platform', 'windows'], optional)
     expect(noted.code).toBe(0)
-    expect(noted.stderr).toContain('note: windows (desktop): app "term" runs without optional terminal')
+    expect(noted.stderr).toContain('note: windows (desktop): app "net" runs without optional network')
     expect(noted.stderr).not.toContain('error:')
   })
 

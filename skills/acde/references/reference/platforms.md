@@ -9,7 +9,7 @@ The host window used for development (`acde dev`) runs on macOS, Windows, and Li
 | Sound, clipboard | ✓ | ✓ | ✓ | ✓ |
 | System notifications | ✓ | Only in a desktop, which shows them | ✓ | Shown by the desktop |
 | App backends | ✓ | Not yet | ✓ | ✓ |
-| `acde:terminal` (`terminal`) | ✓ | | ✓ | ✓ |
+| `acde:terminal` (`terminal`) | ✓ | ✓ | ✓ | ✓ |
 | Camera and microphone (`camera`, `microphone`) | ✓ | | ✓ | ✓ |
 | `acde:network`, `acde:office` (`network`, `office`) | | | ✓ | ✓ |
 | Native programs embedded in a window (`slots`) | | | | ✓ |

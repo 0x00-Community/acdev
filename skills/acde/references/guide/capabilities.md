@@ -29,7 +29,7 @@ The `capabilities` in your config decide which modules an app can import:
 | Capability | Grants | The user approves it |
 | --- | --- | --- |
 | `fs` | `acde:fs`. `true`: the app's private folder and the folders the user picks for it. `{ "roots": ["downloads", … ] }` adds shared places; see [Files and folders](files.md) | Each shared place, as `fs.<place>` |
-| `terminal` | `acde:terminal`: pseudo-terminals (macOS / Linux only) | Yes |
+| `terminal` | `acde:terminal`: pseudo-terminals | Yes |
 | `network` | `acde:network`: network settings, Wi-Fi (Linux only, including Dopame OS) | Yes |
 | `office` | `acde:office`: office document service (Linux only) | |
 | `open` | Opening other apps with `acde:open`. `true` for any app, or a list of app ids | |

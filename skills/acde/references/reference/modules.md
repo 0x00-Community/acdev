@@ -273,7 +273,7 @@ interface LaunchOptions { cwd?: string; env?: Record<string, string> }
 
 ## acde:terminal
 
-macOS / Linux only. Needs `terminal`, approved by the user.
+Needs `terminal`, approved by the user.
 
 ```ts
 interface AcdeTerminals {
