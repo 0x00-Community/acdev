@@ -5,7 +5,7 @@ import { constants, G, listClass, queueTask, tag } from '../core/host'
 import { NodeType } from '../native'
 import { Element, flags, handlerOf, handlerSet } from './element'
 import { metricsOf, rectOf, rootScroll } from './layout'
-import { pathHooks, type Node } from './node'
+import { indexKey, pathHooks, type Node } from './node'
 import type { FileSystemHandle } from './picker'
 import { documentId, dom, existing, ID, wrap, type Wrapper } from './realm'
 
@@ -427,33 +427,75 @@ export class DataTransferItem {
 }
 tag(DataTransferItem)
 
+// The list is indexed like the web platform's (`items[0]`, live), so it is handed out behind a proxy; the owner is kept
+// outside the object so that methods called on the proxy find it.
+const itemOwners = new WeakMap<object, DataTransfer>()
+
+function itemOwner(list: object): DataTransfer {
+  const owner = itemOwners.get(list)
+  if (!owner) throw new TypeError('Illegal invocation')
+  return owner
+}
+
+const itemIndex: ProxyHandler<DataTransferItemList> = {
+  get(target, key) {
+    const i = indexKey(key)
+    return i >= 0 ? transferItems(itemOwner(target))[i] : Reflect.get(target, key)
+  },
+  has(target, key) {
+    const i = indexKey(key)
+    return i >= 0 ? i < target.length : Reflect.has(target, key)
+  },
+  ownKeys(target) {
+    return [...Array.from({ length: target.length }, (_, i) => String(i)), ...Reflect.ownKeys(target)]
+  },
+  getOwnPropertyDescriptor(target, key) {
+    const i = indexKey(key)
+    if (i < 0) return Reflect.getOwnPropertyDescriptor(target, key)
+    const value = transferItems(itemOwner(target))[i]
+    return value ? { value, enumerable: true, configurable: true, writable: false } : undefined
+  },
+  set(target, key, value) {
+    return indexKey(key) >= 0 ? true : Reflect.set(target, key, value)
+  },
+  defineProperty(target, key, descriptor) {
+    return indexKey(key) >= 0 ? false : Reflect.defineProperty(target, key, descriptor)
+  },
+}
+
 export class DataTransferItemList {
-  readonly #owner: DataTransfer
   constructor(owner: DataTransfer) {
-    this.#owner = owner
+    itemOwners.set(this, owner)
   }
   get length(): number {
-    return transferItems(this.#owner).length
+    return transferItems(itemOwner(this)).length
   }
   add(data: string | File, type?: string): DataTransferItem | null {
+    const owner = itemOwner(this)
     if (typeof data === 'string') {
-      this.#owner.setData(String(type), data)
-      return transferItems(this.#owner).find((item) => item.kind === 'string' && item.type === String(type).toLowerCase()) ?? null
+      owner.setData(String(type), data)
+      return transferItems(owner).find((item) => item.kind === 'string' && item.type === String(type).toLowerCase()) ?? null
     }
-    addTransferFile(this.#owner, data)
-    return transferItems(this.#owner).at(-1) ?? null
+    addTransferFile(owner, data)
+    return transferItems(owner).at(-1) ?? null
   }
   remove(index: number): void {
-    removeTransferItem(this.#owner, index)
+    removeTransferItem(itemOwner(this), index)
   }
   clear(): void {
-    this.#owner.clearData()
+    itemOwner(this).clearData()
   }
   [Symbol.iterator](): IterableIterator<DataTransferItem> {
-    return transferItems(this.#owner)[Symbol.iterator]()
+    return transferItems(itemOwner(this))[Symbol.iterator]()
   }
 }
 tag(DataTransferItemList)
+
+function itemList(owner: DataTransfer): DataTransferItemList {
+  const list = new Proxy(new DataTransferItemList(owner), itemIndex)
+  itemOwners.set(list, owner)
+  return list
+}
 
 let transferItems: (transfer: DataTransfer) => DataTransferItem[]
 let addTransferFile: (transfer: DataTransfer, file: File) => void
@@ -470,6 +512,7 @@ export class DataTransfer {
   #handles = new WeakMap<File, FileSystemHandle>()
   #entries: FileSystemHandle[] = []
   #items: DataTransferItemList | null = null
+  #itemCache = new Map<unknown, DataTransferItem>()
   dropEffect = 'none'
   effectAllowed = 'uninitialized'
 
@@ -484,15 +527,23 @@ export class DataTransfer {
   }
 
   get items(): DataTransferItemList {
-    return (this.#items ??= new DataTransferItemList(this))
+    return (this.#items ??= itemList(this))
   }
 
   static {
     transferItems = (transfer) => {
+      const before = transfer.#itemCache
+      const cache = new Map<unknown, DataTransferItem>()
+      const item = (key: unknown, make: () => DataTransferItem) => {
+        const found = before.get(key) ?? make()
+        cache.set(key, found)
+        return found
+      }
       const items: DataTransferItem[] = []
-      for (const [type, value] of transfer.#data) items.push(new DataTransferItem('string', type, value))
-      for (const file of transfer.#files) items.push(new DataTransferItem('file', file.type, file, transfer.#handles.get(file) ?? null))
-      for (const handle of transfer.#entries) items.push(new DataTransferItem('file', '', null, handle))
+      for (const [type, value] of transfer.#data) items.push(item(JSON.stringify([type, value]), () => new DataTransferItem('string', type, value)))
+      for (const file of transfer.#files) items.push(item(file, () => new DataTransferItem('file', file.type, file, transfer.#handles.get(file) ?? null)))
+      for (const handle of transfer.#entries) items.push(item(handle, () => new DataTransferItem('file', '', null, handle)))
+      transfer.#itemCache = cache
       return items
     }
     addTransferFile = (transfer, file) => {

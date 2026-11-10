@@ -31,7 +31,7 @@ const CACHE_VERSION = Symbol('cacheVersion')
 const TREE = Symbol('tree')
 const ITEMS = Symbol('items')
 
-function indexKey(key: string | symbol): number {
+export function indexKey(key: string | symbol): number {
   if (typeof key !== 'string') return -1
   const n = key.length
   if (n === 0 || n > 10) return -1

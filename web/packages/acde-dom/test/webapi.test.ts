@@ -386,6 +386,27 @@ test('picked and dropped files: File.type is the type the host system gives the 
   assert.deepEqual(asked.sort(), ['data.xyz', 'data.xyz', 'notes.md', 'photo.PNG', 'photo.PNG'])
 })
 
+test('DataTransferItemList: items[i] and length like the web platform, undefined past the end, live and iterable', async () => {
+  using web = await page()
+  web.run(`globalThis.out = []
+    const dt = new DataTransfer(); const items = dt.items
+    dt.setData('text/plain', 'hi'); items.add(new File(['x'], 'x.txt', { type: 'text/plain' }))
+    out.push(items.length, items[0].kind, items[0].type, items[1].kind, items[1].getAsFile().name, items[2] === undefined, items[-1] === undefined)
+    out.push(items[1] === items[1], items['1'] === items[1], 0 in items, 2 in items, Object.keys(items).join(), [...items].map((i) => i.kind).join())
+    out.push([...items][0] === items[0], items instanceof DataTransferItemList, String(items))
+    items[0] = 'replaced'; items.remove(0)
+    out.push(items.length, items[0].kind, items[1] === undefined, dt.items === items)
+    items.remove(0)
+    out.push(items.length, items[0] === undefined, 0 in items)`)
+  assert.deepEqual(web.json('out'), [
+    2, 'string', 'text/plain', 'file', 'x.txt', true, true,
+    true, true, true, false, '0,1', 'string,file',
+    true, true, '[object DataTransferItemList]',
+    1, 'file', true, true,
+    0, true, false,
+  ])
+})
+
 test('drops: files and getAsFileSystemHandle() give read-only handles; folders and strings come as items only', async () => {
   using web = await page()
   const enc = (text: string) => new TextEncoder().encode(text)
