@@ -234,9 +234,44 @@ export class ActError extends Error {
   }
 }
 
+export type LaunchPhase = 'session' | 'window' | 'exited' | 'failed'
+
+export class LaunchError extends Error {
+  static readonly TAIL = 40
+
+  readonly #phase: LaunchPhase
+  readonly #logs: Logs
+  readonly #code: number | null
+
+  constructor(phase: LaunchPhase, said: string, logs: Logs, options: { code?: number; cause?: unknown } = {}) {
+    super(said, options.cause === undefined ? undefined : { cause: options.cause })
+    this.#phase = phase
+    this.#logs = logs
+    this.#code = options.code ?? null
+  }
+
+  get phase(): LaunchPhase {
+    return this.#phase
+  }
+
+  get logs(): Logs {
+    return this.#logs
+  }
+
+  get code(): number | null {
+    return this.#code
+  }
+
+  static stalled(phase: 'session' | 'window' | 'exited', head: string, logs: Logs, code?: number): LaunchError {
+    return new LaunchError(phase, `${head}\n${logs.tail(LaunchError.TAIL).text}`, logs, code === undefined ? {} : { code })
+  }
+}
+
 export class Acde {
   static readonly TIMEOUT_MS = 5_000
   static readonly START_TIMEOUT_MS = 120_000
+  static readonly STOP_MS = 10_000
+  static readonly DRAIN_MS = 1_000
 
   readonly session: Session
   readonly logs: Logs | null
@@ -292,30 +327,37 @@ export class Acde {
     logs.follow(child.process.stdout!, 'stdout')
     logs.follow(child.process.stderr!, 'stderr')
     let exited: number | null = null
-    void child.exited.then(
-      (code) => {
-        exited = code
-      },
-      () => {
-        exited = -1
-      },
-    )
+    void child.gone.catch(() => -1).then(async (code) => {
+      await logs.drained(Acde.DRAIN_MS)
+      exited = code
+    })
     const dir = Sessions.dir({ ...process.env, ...options.env })
     const limit = options.startTimeout ?? Acde.START_TIMEOUT_MS
     const deadline = Date.now() + limit
     const since = Date.now() - 1_000
     const within = `within ${Math.round(limit / 1000)} s`
-    const late = () => `acde dev did not start ${within}:\n${logs.tail(40).text}`
+    const last = 'last output:'
+    const seen = { pages: 0, windows: 0, lost: false }
+    const late = () => {
+      const state = seen.lost
+        ? 'acdert closed the connection, and acde dev has not exited'
+        : `acdert runs and answers, but no window appeared (pages: ${seen.pages}, windows: ${seen.windows}) `
+          + 'and no approval prompt waits'
+      return LaunchError.stalled('window', `acde dev did not start ${within}:\n${state}; ${last}`, logs)
+    }
     const unregistered = () => {
       const others = Sessions.list(dir).filter((s) => s.pid !== child.pid && s.started >= since)
       const instead = others.length
         ? '; another process registered instead (acde dev handed over to it):\n' +
           others.map((s) => `  ${Sessions.describe(s)}`).join('\n')
         : ` in ${dir}`
-      return `acde dev (pid ${child.pid}) did not register a session ${within}${instead}\n${logs.tail(40).text}`
+      const state = others.length ? last : `no session yet: its build did not finish, or acdert did not start listening; ${last}`
+      const head = `acde dev (pid ${child.pid}) did not register a session ${within}${instead}\n${state}`
+      return LaunchError.stalled('session', head, logs)
     }
     const alive = () => {
-      if (exited !== null) throw new Error(`acde dev exited (${exited}) before it was ready:\n${logs.tail(40).text}`)
+      if (exited !== null)
+        throw LaunchError.stalled('exited', `acde dev exited (${exited}) before it was ready:`, logs, exited)
     }
     try {
       const session = await Poll.until(limit, () => {
@@ -326,14 +368,45 @@ export class Acde {
       const acde = new Acde(session, client, { child, dir }, logs, options.timeout ?? Acde.TIMEOUT_MS)
       await Poll.until(Math.max(0, deadline - Date.now()), async () => {
         alive()
-        return (await acde.ready()) || (await acde.#prompting()) || null
+        try {
+          const { webs, windows } = await acde.#shown()
+          seen.pages = webs.length
+          seen.windows = windows.length
+          return Acde.#ready(webs, windows) || (await acde.#prompting()) || null
+        } catch (error) {
+          if (!acde.closed) throw error
+          seen.lost = true
+          return null
+        }
       }, late)
       return acde
     } catch (error) {
-      child.kill('SIGTERM')
-      await child.exited.catch(() => -1)
-      throw error
+      await Acde.#stop(child)
+      await logs.drained(Acde.DRAIN_MS)
+      Acde.#release(child)
+      if (error instanceof LaunchError) throw error
+      const said = error instanceof Error ? error.message : String(error)
+      throw new LaunchError('failed', said, logs, { cause: error })
     }
+  }
+
+  static async #stop(child: Child): Promise<void> {
+    const timer = new AbortController()
+    const gone = child.gone.catch(() => -1)
+    const late = sleep(Acde.STOP_MS, null, { signal: timer.signal }).catch(() => null)
+    child.kill('SIGTERM')
+    try {
+      if ((await Promise.race([gone, late])) !== null) return
+      child.kill('SIGKILL')
+      await gone
+    } finally {
+      timer.abort()
+    }
+  }
+
+  static #release(child: Child): void {
+    child.process.stdout?.destroy()
+    child.process.stderr?.destroy()
   }
 
   static async #connect(session: Session): Promise<DevClient> {
@@ -350,7 +423,16 @@ export class Acde {
   }
 
   async ready(): Promise<boolean> {
+    const { webs, windows } = await this.#shown()
+    return Acde.#ready(webs, windows)
+  }
+
+  async #shown(): Promise<{ webs: Web[]; windows: InspectWindow[] }> {
     const [webs, windows] = await Promise.all([this.webs(), this.windows()])
+    return { webs, windows }
+  }
+
+  static #ready(webs: readonly Web[], windows: readonly InspectWindow[]): boolean {
     return windows.length > 0 && webs.every((web) => windows.some((w) => w.id === web.window))
   }
 
@@ -693,12 +775,9 @@ export class Acde {
     this.#client.close()
     if (!this.#owned) return
     const { child, dir } = this.#owned
-    child.kill('SIGTERM')
-    const stopped = await Promise.race([child.exited.catch(() => -1), sleep(10_000).then(() => null)])
-    if (stopped === null) {
-      child.kill('SIGKILL')
-      await child.exited.catch(() => -1)
-    }
+    await Acde.#stop(child)
+    await this.logs?.drained(Acde.DRAIN_MS)
+    Acde.#release(child)
     Sessions.removeIfCurrent(this.session, dir)
   }
 

@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises'
+
 export interface LogLine {
   readonly seq: number
   readonly stream: 'stdout' | 'stderr'
@@ -15,10 +17,11 @@ export class Logs {
   static readonly KEEP = 5_000
 
   readonly #lines: LogLine[] = []
+  readonly #following: Promise<void>[] = []
   #next = 1
 
   follow(stream: AsyncIterable<Uint8Array | string>, name: LogLine['stream']): void {
-    void (async () => {
+    this.#following.push((async () => {
       const decoder = new TextDecoder()
       let rest = ''
       for await (const chunk of stream) {
@@ -28,7 +31,18 @@ export class Logs {
       }
       rest += decoder.decode()
       if (rest) this.push(name, rest)
-    })().catch(() => undefined)
+    })().catch(() => undefined))
+  }
+
+  async drained(ms: number): Promise<boolean> {
+    const timer = new AbortController()
+    const ended = Promise.all(this.#following).then(() => true)
+    const late = sleep(ms, false, { signal: timer.signal }).catch(() => false)
+    try {
+      return await Promise.race([ended, late])
+    } finally {
+      timer.abort()
+    }
   }
 
   push(stream: LogLine['stream'], text: string): void {

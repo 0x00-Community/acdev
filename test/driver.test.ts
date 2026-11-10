@@ -2,7 +2,7 @@ import { afterAll, describe, expect as check, test } from 'bun:test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InspectMatch, InspectNode } from '@dopame/acde-api'
-import { Acde, ActError, AssertionError, expect, Locator, Png, Screenshots, type Query, type Source } from '../src/driver/index.ts'
+import { Acde, ActError, AssertionError, expect, LaunchError, Locator, Png, Screenshots, type Query, type Source } from '../src/driver/index.ts'
 import { Sessions } from '../src/sessions.ts'
 import { cleanup, standIn } from './helpers.ts'
 
@@ -400,7 +400,54 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     const s = standIn()
     writeFileSync(join(s.project, 'acde.config.jsonc'), '{ "type": "app" ')
     const error = await Acde.launch({ cwd: s.project, env: s.env }).catch((e: Error) => e)
-    check(error).toBeInstanceOf(Error)
-    check((error as Error).message).toMatch(/^acde dev exited \(1\) before it was ready:\n/)
+    check(error).toBeInstanceOf(LaunchError)
+    const exited = error as LaunchError
+    check(exited.message).toMatch(/^acde dev exited \(1\) before it was ready:\n/)
+    check([exited.name, exited.phase, exited.code]).toEqual(['Error', 'exited', 1])
+    check(exited.message.split('\n').slice(1).join('\n')).toBe(exited.logs.tail(40).text)
+    check(Object.keys(exited)).toEqual([])
+  }, 30_000)
+
+  test('a launch that stalls says in which phase, and keeps the whole output of acde dev', async () => {
+    const s = standIn()
+    const stalled = async (env: Record<string, string>) => {
+      const error = await Acde.launch({ cwd: s.project, env: { ...s.env, ...env }, startTimeout: 5_000 })
+        .catch((e: Error) => e)
+      check(error).toBeInstanceOf(LaunchError)
+      return error as LaunchError
+    }
+    const unheard = await stalled({ FAKE_ACDERT_LISTEN_MS: '600000' })
+    check(unheard.phase).toBe('session')
+    const lines = unheard.message.split('\n')
+    check(lines[0]).toMatch(/^acde dev \(pid \d+\) did not register a session within 5 s in .+acde-dev$/)
+    check(lines[1]).toBe('no session yet: its build did not finish, or acdert did not start listening; last output:')
+    check(lines[2]).toStartWith('acde: dev app alpha: ')
+    check(unheard.logs.tail(5000).text).toContain('[alpha#7] js: fake acdert is up')
+
+    const windowless = await stalled({ FAKE_ACDERT_WINDOWLESS: '1' })
+    check(windowless.phase).toBe('window')
+    check(windowless.message.split('\n').slice(0, 3)).toEqual([
+      'acde dev did not start within 5 s:',
+      'acdert runs and answers, but no window appeared (pages: 0, windows: 0) and no approval prompt waits; ' +
+        'last output:',
+      windowless.logs.tail(5000).lines[0]!.text,
+    ])
+    check(readdirSync(join(s.root, 'acde-dev')).filter((name) => name.endsWith('.json'))).toEqual([])
+  }, 30_000)
+
+  test('close() leaves nothing that keeps a script alive', async () => {
+    const s = standIn()
+    const script = join(s.root, 'script.ts')
+    const driver = join(import.meta.dir, '../src/driver/index.ts')
+    writeFileSync(script, `import { Acde } from ${JSON.stringify(driver)}
+const acde = await Acde.launch({ cwd: ${JSON.stringify(s.project)} })
+await acde.close()
+console.log('closed')
+`)
+    const started = Date.now()
+    const child = Bun.spawn([process.execPath, script], { env: s.env, stdout: 'pipe', stderr: 'pipe' })
+    const [code, out] = await Promise.all([child.exited, new Response(child.stdout).text()])
+    check([code, out]).toEqual([0, 'closed\n'])
+    check(Date.now() - started).toBeLessThan(8_000)
   }, 30_000)
 })

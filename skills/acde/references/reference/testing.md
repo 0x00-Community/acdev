@@ -92,7 +92,11 @@ interface ActResult {
 }
 ```
 
-- `launch` starts an `acde dev` session on the project's own runtime (Bun or Node.js) and waits until the windows of all pages have appeared, or an approval prompt waits (`startTimeout`, 120 seconds by default). When the session does not start, it throws an `Error` whose message says why (`acde dev exited (1) before it was ready:`, `acde dev did not start within 120 s:`) and ends with the last output of `acde dev`.
+- `launch` starts an `acde dev` session on the project's own runtime (Bun or Node.js) and waits until the windows of all pages have appeared, or an approval prompt waits (`startTimeout`, 120 seconds by default). When the session does not start, it ends that `acde dev` and throws a `LaunchError` (an `Error`, exported by `acde/driver`). Its message says how far the start got and ends with the last 40 lines of the output of `acde dev`; `logs` holds the whole output (`error.logs.tail(5000).text`), and `phase` is:
+  - `'exited'`: `acde dev exited (1) before it was ready:`; `code` is the exit code (`null` in the other phases).
+  - `'session'`: `acde dev (pid 4242) did not register a session within 120 s in <dir>`, then the line `no session yet: its build did not finish, or acdert did not start listening; last output:`.
+  - `'window'`: `acde dev did not start within 120 s:`, then the line `acdert runs and answers, but no window appeared (pages: 0, windows: 0) and no approval prompt waits; last output:`.
+  - `'failed'`: anything else that went wrong while it waited (the message is that error's, which is also the `cause`).
 - `close()` ends the session that `launch` started: it sends SIGTERM, then SIGKILL after 10 seconds. On a session from `attach` it only disconnects.
 - `act` answers `ok: false` when the action was not done. In a session that runs a single app, closing the app's only window ends the session, by design: the `close` that did it resolves with `ok: true`, `ended: true` and the text `closed w1; acdert exited with it, so acde dev <pid> ended`; `closed` becomes true, and every later request rejects with `acde dev <pid> is no longer connected`. Any other request during which the runtime goes away rejects with `acdert closed the connection` (also a `close` in a desktop session, and a `run` whose steps close the window).
 - `choose*` answers, in advance, the **next** picker of that kind the page opens; `null` means the user cancelled; relative paths resolve against the current directory.

@@ -180,9 +180,28 @@ test('never ends', async ({ app }) => {
     expect(stuck.code).toBe(1)
     const unstarted = join(s.project, '.acde/test-results/e2e-slow/quick')
     expect(stuck.out).toMatch(/acde dev \(pid \d+\) did not register a session within 2 s in /)
-    expect(stuck.out).toContain(`acde test: saved error.txt in ${unstarted}`)
+    expect(stuck.out)
+      .toContain('\nno session yet: its build did not finish, or acdert did not start listening; last output:\n')
+    expect(stuck.out).toContain(`acde test: saved error.txt, output.log in ${unstarted}`)
+    expect(readdirSync(unstarted).sort()).toEqual(['error.txt', 'output.log'])
     expect(readFileSync(join(unstarted, 'error.txt'), 'utf8')).toContain('acde: dev app alpha (headless)')
+    const output = readFileSync(join(unstarted, 'output.log'), 'utf8').split('\n')
+    expect(output[0]).toStartWith('acde: dev app alpha (headless): ')
+    expect(output).toContain('[alpha#7] js: fake acdert is up')
     expect(readdirSync(join(s.root, 'acde-dev')).filter((name) => name.endsWith('.json'))).toEqual([])
+
+    const windowless = await acdeTest(s, ['--timeout', '3000', '-t', 'quick'], { FAKE_ACDERT_WINDOWLESS: '1' })
+    expect(windowless.code).toBe(1)
+    expect(windowless.out).toContain('acde dev did not start within 2 s:\nacdert runs and answers, but no window ' +
+      'appeared (pages: 0, windows: 0) and no approval prompt waits; last output:\n')
+    expect(readdirSync(unstarted).sort()).toEqual(['error.txt', 'output.log'])
+
+    writeFileSync(join(s.project, 'acde.config.jsonc'), '{ "type": "app" ')
+    const broken = await acdeTest(s, ['--timeout', '3000', '-t', 'quick'])
+    expect(broken.code).toBe(1)
+    expect(broken.out).toContain('acde dev exited (1) before it was ready:\n')
+    expect(broken.out).toContain(`acde test: saved error.txt, output.log in ${unstarted}`)
+    expect(readFileSync(join(unstarted, 'output.log'), 'utf8')).toStartWith('acde: ')
   }, 120_000)
 
   const ci = 'in CI (CI set) the tests run, and a missing screenshot baseline is an error instead of being written'

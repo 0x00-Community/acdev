@@ -165,7 +165,15 @@ A failed test leaves these in `.acde/test-results/<file>/<test>/`:
 
 `error.txt` `output.log` `screen.png` `snapshot.txt` `console.txt` `network.txt` `trace.txt`
 
-A test that runs out of time fails with `TimeoutError: the test did not finish within <ms> ms (its timeout: --timeout, or the one given to test())` and leaves the same files, taken at that moment. A test whose session does not start fails with `acde dev exited (<code>) before it was ready:` or `acde dev did not start within <n> s:`, followed by the last output of `acde dev` (an app that cannot start says why there, for example `Notes needs "clock" (service not running)`); it leaves `error.txt`.
+A test that runs out of time fails with `TimeoutError: the test did not finish within <ms> ms (its timeout: --timeout, or the one given to test())` and leaves the same files, taken at that moment.
+
+A test whose session does not start has no screen to save: it leaves `error.txt` and `output.log`, the whole output of that test's `acde dev`. The error says how far the start got, then quotes the last 40 lines of that output (an app that cannot start says why there, for example `Notes needs "clock" (service not running)`):
+
+| The error starts with | What happened |
+| --- | --- |
+| `acde dev exited (<code>) before it was ready:` | `acde dev` ended with that exit code: the build failed, or acdert refused the app |
+| `acde dev (pid <pid>) did not register a session within <n> s in <dir>`, then `no session yet: its build did not finish, or acdert did not start listening; last output:` | The build or the start of acdert took longer than the test's timeout allows |
+| `acde dev did not start within <n> s:`, then `acdert runs and answers, but no window appeared (pages: 0, windows: 0) and no approval prompt waits; last output:` | acdert runs, but the app opened no window |
 
 With `--trace`, every test leaves a `trace.html`: each action and assertion, with its duration and result, and a full-screen screenshot after each step.
 

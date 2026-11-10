@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { packageRoot } from 'acde/launcher'
-import { Acde } from '../driver/acde.ts'
+import { Acde, LaunchError } from '../driver/acde.ts'
 import { expect as expectUi, type LocatorAssertions, type WindowAssertions } from '../driver/expect.ts'
 import { Format } from '../driver/format.ts'
 import { Locator } from '../driver/locator.ts'
+import { Logs } from '../driver/logs.ts'
 import { Screenshots } from '../driver/screenshot.ts'
 import { AppWindow } from '../driver/window.ts'
 import { E2e, type E2eSettings } from './settings.ts'
@@ -156,7 +157,8 @@ export class E2eRun {
       wrote.push(file)
     }
     write('error.txt', error instanceof Error ? (error.stack ?? `${error.name}: ${error.message}`) : String(error))
-    if (acde?.logs) write('output.log', acde.logs.tail(5000).text)
+    const logs = acde?.logs ?? (error instanceof LaunchError ? error.logs : null)
+    if (logs) write('output.log', logs.tail(Logs.KEEP).text)
     if (acde && !acde.closed) {
       const all = { limit: 5000 }
       const steps: [string, () => Promise<void>][] = [

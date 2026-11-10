@@ -17,6 +17,7 @@ export interface Child {
   readonly process: ChildProcess
   readonly pid: number
   readonly exited: Promise<number>
+  readonly gone: Promise<number>
   kill(signal?: NodeJS.Signals): void
 }
 
@@ -36,15 +37,22 @@ export class Runtime {
       process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)
         ? nodeSpawn([file, ...args].map(Runtime.#quote).join(' '), { ...settings, shell: true })
         : nodeSpawn(file, args, settings)
-    const exited = new Promise<number>((resolve, reject) => {
-      child.once('error', reject)
-      child.once('close', (code, signal) => resolve(code ?? 128 + (signal ? (constants.signals[signal] ?? 0) : 0)))
-    })
-    exited.catch(() => undefined)
+    const status = (code: number | null, signal: NodeJS.Signals | null) =>
+      code ?? 128 + (signal ? (constants.signals[signal] ?? 0) : 0)
+    const once = (event: 'close' | 'exit') => {
+      const settled = new Promise<number>((resolve, reject) => {
+        child.once('error', reject)
+        child.once(event, (code, signal) => resolve(status(code, signal)))
+      })
+      settled.catch(() => undefined)
+      return settled
+    }
+    const exited = once('close')
     return {
       process: child,
       pid: child.pid ?? 0,
       exited,
+      gone: once('exit'),
       kill: (signal: NodeJS.Signals = 'SIGTERM') => {
         if (child.exitCode === null && child.signalCode === null) child.kill(signal)
       },

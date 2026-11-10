@@ -271,7 +271,22 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   输出进 `Logs`,
   等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdert 先答 `webs`, 窗口稍后进表; 有待答的批准提示也算起来了
   (`acdert app` 的应用要批准时, 答之前没有窗口); 默认 120 s (等不到会话文件时报出这段时间里别的进程登记的会话); `close()` 时 SIGTERM, 10 s 后
-  SIGKILL). 方法和 op 一一对应 (`chooseFolder` / `chooseFiles` / `chooseSaveFile` 都是 `choose`, 分别给 `folder` / `open` / `save`; 相对路径按当前目录解析;
+  SIGKILL).
+  **起不来** (`LaunchError`, 是 `Error`, `name` 仍是 `Error`: 0.0.8 的输出里是 `error:` / `Error:`; `phase` / `code` / `logs` 是 getter, bun 打错误时
+  不把它们当自有属性列出来): 消息第一行是 0.0.8 的原文, 说停在哪一步的是加在后面的一行, 再后面是输出的最后 40 行; `logs` 是全部输出.
+  `exited`: `acde dev exited (N) before it was ready:` (子进程退出后先等输出读完, 最多 `DRAIN_MS` 1 s, 再报, 所以最后几行不会丢);
+  `session`: 限时内没有会话文件, 加一行 `no session yet: its build did not finish, or acdert did not start listening; last output:` (会话文件要等
+  构建完、acdert 听上、acde dev 连上才写; 分不清是哪一步, 两种都说, 输出里看得出; 别的进程登记了会话时不说这句);
+  `window`: 会话在、acdert 在答, 但 `ready()` 一直不成立也没有待答提示, 加一行
+  `acdert runs and answers, but no window appeared (pages: N, windows: M) and no approval prompt waits; last output:`; 轮询中连接断了不直接抛
+  `acdert closed the connection` (acdert 先退, acde dev 随后才退, 下一轮就是 `exited`), 到限时还没退出才说连接断了; `failed`: 其余的错 (连不上、
+  acdert 不答), 消息不变, 原错误在 `cause`.
+  失败和 `close()` 都经 `Acde.#stop`: SIGTERM, 10 s 后 SIGKILL, 等的是进程退出 (`Child.gone`, `exit` 事件) 而不是管道关闭 (`Child.exited`,
+  `close` 事件): 构建卡住时 acde dev 被结束后它的构建子进程还拿着管道, 等 `close` 永远等不到, 测试只能由 bun 在限时加宽限期后杀掉, 什么都不留
+  (实测过). 之后等输出读完 (最多 1 s) 再销毁两根管道. 等待用可取消的定时器: 原来 `close()` 里没取消的 10 s 定时器让只用 driver 的脚本在
+  `close()` 之后还要等 10 s 才退出. 没解决的: acde dev 在构建中被结束时, 构建工具的子进程不随它结束 (没有进程组; `acde test` 里用进程组会让
+  终端的 Ctrl+C 到不了 acde dev 和 acdert), 会留到它自己跑完.
+  方法和 op 一一对应 (`chooseFolder` / `chooseFiles` / `chooseSaveFile` 都是 `choose`, 分别给 `folder` / `open` / `save`; 相对路径按当前目录解析;
   `route(url, 回应, {method, web, times})` 是 `route`, url 是 glob (同 acdert: `**` 任意, `*` 不含 `/`, `/` 开头比路径加查询) 或 RegExp, 回应
   `{status, statusText, headers, contentType, body (文字或字节, 转 base64), json}` 或 `{abort}`; `unroute(id?)`; `clipboard()` / `setClipboard(text)`). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
   `waitForRequest(url, {method, web})` 先取 `network` 的 `next` 再轮询到匹配的请求结束 (`done`), `waitForConsole(文字或 RegExp, {level, web})` 同理; 要在触发之前调用.
@@ -320,7 +335,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `-t`: 子进程把登记的、名字匹配 `-t` 的、真正跑了的测试写进 `ACDE_TEST_MARKS` 指的文件 (`E2e.mark`); 登记过测试却一个也没匹配、一个也没跑的文件
   算跳过 (bun 对这种文件退出码非 0), 不算失败; 所有文件都跳过时报 `no test matches -t` 并退出 1. 匹配按 JS 正则只看测试自己的名字, 正则无效当匹配
   (只会少算跳过; describe 名匹配时 bun 会跑, 有 `ran` 也不算跳过).
-  启动 `acde dev` 的限时是测试限时减 3 s (至少一半, `E2eRun.startTimeout`), 起不来时报的是 `Acde.launch` 的原因和输出, 不是 bun 的超时.
+  启动 `acde dev` 的限时是测试限时减 3 s (至少一半, `E2eRun.startTimeout`), 起不来时报的是 `Acde.launch` 的原因和输出 (`LaunchError`, 见 driver),
+  不是 bun 的超时; 这时没有会话可问, `keep` 留 `error.txt` 和 `output.log` (`LaunchError.logs` 里那个 `acde dev` 的全部输出, 和失败的测试一样最多
+  `Logs.KEEP` 行).
   **测试限时由 acde 自己执行** (`E2eRun.within`): 测试体和从测试开始算的限时赛跑, 到点抛 `TimeoutError: the test did not finish within <ms> ms
   (its timeout: --timeout, or the one given to test())` (`TestTimeout`), 照常走 `keep` 留下失败现场, 再 `close()`; 交给 bun 的限时是测试限时加
   `GRACE_MS` (30 s), 留给保存和关会话. 原因 (在真的工程和 acdert 上复现过): bun 到点就放弃这个测试并杀掉它起的子进程 (`killed 1 dangling process`),

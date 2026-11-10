@@ -33,7 +33,8 @@ const windows: Win[] = [
   { ref: 'w0', id: 0, kind: 'desktop', app: null, title: null, rect: [0, 0, 16, 12], focus: false, hidden: false },
   { ref: 'w1', id: 7, kind: 'web', app: 'alpha', title: 'Alpha', rect: [4, 2, 8, 6], focus: true, hidden: false },
 ]
-const held = process.env['FAKE_ACDERT_WAITS'] ? windows.splice(0) : []
+const WINDOWLESS = !!process.env['FAKE_ACDERT_WINDOWLESS']
+const held = process.env['FAKE_ACDERT_WAITS'] || WINDOWLESS ? windows.splice(0) : []
 const tasks: { name: string; done: boolean }[] = []
 let draft = ''
 let priority = 'low'
@@ -44,6 +45,7 @@ const prompts = [
   { id: 1, app: 'alpha', label: 'Alpha', capability: 'launch', reason: 'launch' },
   { id: 2, app: 'beta', label: 'Beta', capability: 'fs.documents', reason: 'request' },
 ]
+if (WINDOWLESS) prompts.length = 0
 const decisions: { app: string; label: string; capability: string; decision: 'granted' | 'denied' }[] = []
 const ATTRIBUTES: Record<string, Record<string, string>> = {
   'w1.2': { placeholder: 'What needs doing?' },
