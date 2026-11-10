@@ -128,8 +128,7 @@ impl Raster {
     }
 
     fn pieces<C>(part: &Part<C>, targets: &[Px], full: Px) -> Vec<(Px, Px)> {
-        let shadows = part.shadows.iter().map(|s| (s.dx.abs().max(s.dy.abs()) + 4.0 * s.blur).ceil() as i32).max().unwrap_or(0);
-        let margin = shadows.max((3.0 * part.effect.blur).ceil() as i32);
+        let margin = crate::compose::reach(&part.shadows, &part.effect);
         targets
             .iter()
             .filter_map(|t| {

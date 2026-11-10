@@ -32,6 +32,20 @@ impl Px {
         (x1 > x0 && y1 > y0).then_some(Self { x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
     }
 
+    pub fn union(self, o: Self) -> Self {
+        let (x0, y0) = (self.x.min(o.x), self.y.min(o.y));
+        let (x1, y1) = ((self.x + self.w).max(o.x + o.w), (self.y + self.h).max(o.y + o.h));
+        Self { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+    }
+
+    pub fn contains(self, o: Self) -> bool {
+        o.x >= self.x && o.y >= self.y && o.x + o.w <= self.x + self.w && o.y + o.h <= self.y + self.h
+    }
+
+    pub fn area(self) -> i64 {
+        i64::from(self.w.max(0)) * i64::from(self.h.max(0))
+    }
+
     pub fn overlaps(self, o: Self) -> bool {
         self.intersection(o).is_some()
     }
@@ -43,6 +57,11 @@ impl Px {
     fn of([x, y, w, h]: [u32; 4]) -> Self {
         Self { x: x as i32, y: y as i32, w: w as i32, h: h as i32 }
     }
+}
+
+pub fn reach(shadows: &[Shadow], effect: &Effect) -> i32 {
+    let shadows = shadows.iter().map(|s| (s.dx.abs().max(s.dy.abs()) + 4.0 * s.blur).ceil() as i32).max().unwrap_or(0);
+    shadows.max((3.0 * effect.blur).ceil() as i32)
 }
 
 #[derive(Clone, Copy, Debug)]

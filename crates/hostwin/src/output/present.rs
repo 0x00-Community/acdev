@@ -20,6 +20,14 @@ pub(crate) fn pace(refresh: Option<f64>) -> Duration {
     Duration::from_secs_f64(REFRESH_SLACK / refresh.filter(|hz| *hz > 1.0).unwrap_or(DEFAULT_HZ))
 }
 
+struct Scratch {
+    size: (u32, u32),
+    view: wgpu::TextureView,
+    drawn: bool,
+}
+
+type Part = (Option<Backdrop>, Vec<Shadow>, Effect, Px);
+
 pub(crate) struct Presenter {
     gpu: Arc<Gpu>,
     vello: Vello,
@@ -34,7 +42,7 @@ pub(crate) struct Presenter {
     targets: HashMap<u32, Arc<Page>>,
     unpublished: HashSet<u32>,
     captures: Vec<(mpsc::SyncSender<Result<Shot, String>>, Instant)>,
-    scratch: Option<((u32, u32), wgpu::Texture, wgpu::TextureView)>,
+    scratch: HashMap<u32, Scratch>,
     pacer: Pacer,
     dirty: bool,
     bar: Bar,
@@ -70,7 +78,7 @@ impl Presenter {
             targets: HashMap::new(),
             unpublished: HashSet::new(),
             captures: Vec::new(),
-            scratch: None,
+            scratch: HashMap::new(),
             pacer: Pacer::new(Some(pace(refresh))),
             dirty: true,
             decoration: (bar.height > 0.0).then(Decoration::new),
@@ -129,6 +137,7 @@ impl Presenter {
                     None => {
                         if let Some(window) = self.panels.remove(&dom) {
                             self.targets.remove(&window);
+                            self.scratch.remove(&window);
                             self.unpublished.remove(&window);
                             if let Some(compositor) = server().and_then(|s| s.compositor()) {
                                 compositor.remove(window);
@@ -193,7 +202,7 @@ impl Presenter {
             false => {
                 let (decoration, size) = self.framed(Vec::new());
                 let top = size.1 - self.size.1;
-                self.layered(self.id, size, &frame.plane.layers, top, decoration, Color::WHITE)
+                self.layered(self.id, size, &frame.plane, top, decoration, Color::WHITE)
             }
         };
         for panel in &frame.panels {
@@ -201,7 +210,7 @@ impl Presenter {
             let size = (panel.size.0.max(1), panel.size.1.max(1));
             result = result.and(match panel.plane.layers.is_empty() {
                 true => self.draw(window, size, Self::scenes(&panel.plane), Color::TRANSPARENT),
-                false => self.layered(window, size, &panel.plane.layers, 0, Vec::new(), Color::TRANSPARENT),
+                false => self.layered(window, size, &panel.plane, 0, Vec::new(), Color::TRANSPARENT),
             });
             Self::backdrop(window, &panel.plane);
             Self::drawn(window, size);
@@ -311,6 +320,7 @@ impl Presenter {
     }
 
     fn draw(&mut self, window: u32, size: (u32, u32), scenes: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
+        self.scratch.remove(&window);
         let view = self.target(window, size);
         self.straight(window, true);
         self.vello.render(scenes, &mut self.overrides, &view, size, base, Some(&self.gpu.shared))?;
@@ -324,21 +334,43 @@ impl Presenter {
         }
     }
 
-    fn layered(&mut self, window: u32, size: (u32, u32), layers: &[Layer], top: u32, over: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
+    fn layered(&mut self, window: u32, size: (u32, u32), plane: &Plane, top: u32, over: Vec<(Scene, Affine)>, base: Color) -> Result<(), String> {
         self.target(window, size);
         let page = self.targets[&window].clone();
-        let view = self.scratch(size);
+        let fresh = self.scratch.get(&window).is_none_or(|s| s.size != size || !s.drawn);
+        let view = self.scratch(window, size);
         let shared = self.gpu.shared.clone();
-        self.vello.render([], &mut self.overrides, &view, size, base, Some(&shared))?;
         let full = Px::sized(size);
         let dy = f64::from(top);
+        let parts: Vec<_> = plane.layers.iter().map(|layer| (layer, Self::part(layer, dy as f32))).collect();
+        let region = if fresh { None } else { Self::region(plane, &parts, top, full) };
+        let target = region.unwrap_or(full);
+        if target.area() == 0 {
+            return Ok(());
+        }
+        if let Some(scratch) = self.scratch.get_mut(&window) {
+            scratch.drawn = false;
+        }
         let mut encoder = shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde host layers") });
-        for layer in layers {
-            let (backdrop, shadows, effect, bounds) = Self::part(layer, dy as f32);
-            if let Some(backdrop) = backdrop {
-                self.composer.backdrop(&mut encoder, &view, &backdrop);
+        match region {
+            None => self.vello.render([], &mut self.overrides, &view, size, base, Some(&shared))?,
+            Some(region) => {
+                self.composer.clear_rects(&mut encoder, &view, [region.xywh()]);
+                if base.components[3] > 0.0 {
+                    self.flush(&mut encoder);
+                    let canvas = self.composer.layer_view(size);
+                    let [x, y, w, h] = region.xywh();
+                    self.vello.render([], &mut self.overrides, &canvas, (w, h), base, Some(&shared))?;
+                    self.composer.place(&mut encoder, &view, [x, y], region.xywh());
+                }
             }
-            let Some(drawn) = bounds.intersection(full) else { continue };
+        }
+        for (layer, (backdrop, shadows, effect, bounds)) in &parts {
+            if let Some(backdrop) = backdrop.as_ref().filter(|b| Px::covering(b.rect).overlaps(target)) {
+                self.composer.backdrop(&mut encoder, &view, backdrop);
+            }
+            let Some(clip) = bounds.intersection(target) else { continue };
+            let Some(drawn) = bounds.intersection(target.grown(acde_gpu::reach(shadows, effect))).and_then(|d| d.intersection(full)) else { continue };
             let [ox, oy, w, h] = drawn.xywh();
             let (x, y) = (f64::from(ox), f64::from(oy));
             let scene = layer.drawing.scene_for(Rect::new(x, y - dy, x + f64::from(w), y + f64::from(h) - dy));
@@ -348,34 +380,61 @@ impl Presenter {
             self.flush(&mut encoder);
             let canvas = self.composer.layer_view(size);
             self.vello.render([(scene, Affine::translate((-x, dy - y)))], &mut self.overrides, &canvas, (w, h), Color::TRANSPARENT, Some(&shared))?;
-            for shadow in &shadows {
-                self.composer.shadow(&mut encoder, &view, shadow, drawn.xywh(), drawn.xywh());
+            for shadow in shadows {
+                self.composer.shadow(&mut encoder, &view, shadow, drawn.xywh(), clip.xywh());
             }
             match effect.is_none() {
-                true => self.composer.place(&mut encoder, &view, [ox, oy], drawn.xywh()),
-                false => self.composer.filtered(&mut encoder, &view, &effect, drawn.xywh(), drawn.xywh()),
+                true => self.composer.place(&mut encoder, &view, [ox, oy], clip.xywh()),
+                false => self.composer.filtered(&mut encoder, &view, effect, drawn.xywh(), clip.xywh()),
             }
         }
-        if !over.is_empty() {
+        if !over.is_empty() && target.y < top as i32 {
             self.flush(&mut encoder);
             let canvas = self.composer.layer_view(size);
             self.vello.render(over, &mut self.overrides, &canvas, size, Color::TRANSPARENT, Some(&shared))?;
-            self.composer.place(&mut encoder, &view, [0, 0], full.xywh());
+            self.composer.place(&mut encoder, &view, [0, 0], target.xywh());
         }
+        let [x, y, w, h] = target.xywh();
+        let at = wgpu::Origin3d { x, y, z: 0 };
         encoder.copy_texture_to_texture(
-            view.texture().as_image_copy(),
-            page.texture.as_image_copy(),
-            wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
+            wgpu::TexelCopyTextureInfo { texture: view.texture(), mip_level: 0, origin: at, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture: &page.texture, mip_level: 0, origin: at, aspect: wgpu::TextureAspect::All },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         self.flush(&mut encoder);
         self.straight(window, false);
         self.composer.end_frame();
         self.publish(window);
+        if let Some(scratch) = self.scratch.get_mut(&window) {
+            scratch.drawn = true;
+        }
         Ok(())
     }
 
-    fn scratch(&mut self, size: (u32, u32)) -> wgpu::TextureView {
-        if self.scratch.as_ref().is_none_or(|(s, ..)| *s != size) {
+    fn region(plane: &Plane, parts: &[(&Layer, Part)], top: u32, full: Px) -> Option<Px> {
+        let dy = top as f32;
+        let damaged = |r: &acde_render::Rect| Px::covering([r.x as f32 - 1.0, r.y as f32 - 1.0 + dy, r.width as f32 + 2.0, r.height as f32 + 2.0]);
+        let rects: Vec<Px> = match plane.damage_rects.iter().filter(|r| r.width > 0.0 && r.height > 0.0).map(damaged).collect::<Vec<_>>() {
+            rects if rects.is_empty() && plane.damage.width > 0.0 && plane.damage.height > 0.0 => vec![damaged(&plane.damage)],
+            rects => rects,
+        };
+        let Some(mut region) = rects.into_iter().reduce(Px::union).and_then(|r| r.intersection(full)) else { return Some(Px::default()) };
+        let reads: Vec<Px> = parts.iter().filter_map(|(_, (b, ..))| b.as_ref().and_then(|b| Px::covering(b.rect).intersection(full))).collect();
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for read in &reads {
+                if region.overlaps(*read) && !region.contains(*read) {
+                    region = region.union(*read);
+                    grew = true;
+                }
+            }
+        }
+        (region.area() * 2 < full.area()).then_some(region)
+    }
+
+    fn scratch(&mut self, window: u32, size: (u32, u32)) -> wgpu::TextureView {
+        if self.scratch.get(&window).is_none_or(|s| s.size != size) {
             let usage = wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -383,9 +442,9 @@ impl Presenter {
                 | wgpu::TextureUsages::COPY_DST;
             let texture = acde_gpu::texture(&self.gpu.shared.device, size, usage, "acde host layers");
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            self.scratch = Some((size, texture, view));
+            self.scratch.insert(window, Scratch { size, view, drawn: false });
         }
-        self.scratch.as_ref().map(|(_, _, v)| v.clone()).expect("made just above")
+        self.scratch[&window].view.clone()
     }
 
     fn flush(&mut self, encoder: &mut wgpu::CommandEncoder) {
@@ -395,7 +454,7 @@ impl Presenter {
         shared.submit([done.finish()]);
     }
 
-    fn part(layer: &Layer, dy: f32) -> (Option<Backdrop>, Vec<Shadow>, Effect, Px) {
+    fn part(layer: &Layer, dy: f32) -> Part {
         let backdrop = layer.backdrop.as_ref().map(|b| {
             let r = b.bounds.intersect(b.clip);
             Backdrop {
