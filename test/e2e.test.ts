@@ -1,8 +1,11 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Acde } from '../src/driver/acde.ts'
+import { TestRunner } from '../src/e2e/runner.ts'
 import { E2e } from '../src/e2e/settings.ts'
 import { TestTsconfig } from '../src/e2e/tsconfig.ts'
 import { Png } from '../src/driver/png.ts'
@@ -81,7 +84,7 @@ describe('acde test', () => {
     expect(run.code).toBe(1)
     expect(run.out).toContain(`acde test: ${BROKEN}\n`)
     expect(run.out).toContain(`acde test: ${TASKS}\n`)
-    expect(run.out).toContain(`acde test: 2 files, 1 passed, 1 failed: ${BROKEN}`)
+    expect(run.out).toContain(`acde test: 4 tests ran: 3 passed, 1 failed\nacde test: 2 files, 1 passed, 1 failed: ${BROKEN}`)
     expect(run.out).not.toContain('acde test ran a unit test')
     expect(run.out)
       .toContain('expected window(app "alpha").getByText("Nowhere") to be visible within 200 ms; saw no element')
@@ -119,10 +122,18 @@ describe('acde test', () => {
     const one = await acdeTest(s, [TASKS, '--headed', '-t', 'adds'])
     expect(one.code).toBe(0)
     expect(one.out).toContain(`acde test: ${TASKS} (headed)`)
-    expect(one.out).toContain('acde test: 1 file, 1 passed, 0 failed')
+    const selected = 'acde test: 1 test ran: 1 passed, 0 failed, 1 not run (skipped, todo, or not matched by -t)'
+    expect(one.out).toContain(`${selected}\nacde test: 1 file, 1 passed, 0 failed\n`)
     expect(one.started.map((e) => e.headless)).toEqual([null])
     const bail = await acdeTest(s, ['--bail'])
-    expect(bail.out).toContain(`acde test: 1 file, 0 passed, 1 failed, 1 not run (--bail): ${BROKEN}`)
+    expect(bail.out).toContain('acde test: 2 tests ran: 1 passed, 1 failed\n' +
+      `acde test: 1 file, 0 passed, 1 failed, 1 not run (--bail): ${BROKEN}`)
+    writeFileSync(join(s.project, 'e2e/unloadable.e2e.ts'), "import { test } from 'acde/test'\nthrow new Error('no')\n")
+    const unloadable = await acdeTest(s, [TASKS, join('e2e', 'unloadable.e2e.ts')])
+    expect(unloadable.out).toContain('acde test: 2 tests ran: 2 passed, 0 failed; not counted: ' +
+      `${join('e2e', 'unloadable.e2e.ts')} (bun test left no report: the file did not load, or its run was killed)\n` +
+      `acde test: 2 files, 1 passed, 1 failed: ${join('e2e', 'unloadable.e2e.ts')}\n`)
+    rmSync(join(s.project, 'e2e/unloadable.e2e.ts'))
     expect((await acdeTest(s, ['unit.test.ts'])).out).toContain('unit.test.ts: an e2e test file is named *.e2e.ts')
     expect((await acdeTest(s, ['nope'])).out).toContain('acde: nope: no such file or directory')
     mkdirSync(join(s.root, 'empty'))
@@ -136,11 +147,13 @@ describe('acde test', () => {
     const s = project()
     const some = await acdeTest(s, ['-t', 'adds'])
     expect(some.out).toContain(`acde test: ${BROKEN}: no test matches -t "adds", skipped`)
-    expect(some.out).toContain('acde test: 1 file, 1 passed, 0 failed, 1 skipped (no test matches -t)')
+    expect(some.out).toContain('acde test: 1 test ran: 1 passed, 0 failed, 1 not run (skipped, todo, or not ' +
+      'matched by -t)\nacde test: 1 file, 1 passed, 0 failed, 1 skipped (no test matches -t)')
     expect(some.code).toBe(0)
     expect(some.started.length).toBe(1)
     const none = await acdeTest(s, ['-t', 'nothing at all'])
     expect(none.out).toContain('acde test: no test matches -t "nothing at all" in 2 files')
+    expect(none.out).not.toContain('ran:')
     expect(none.code).toBe(1)
   }, 120_000)
 
@@ -168,7 +181,7 @@ test('never ends', async ({ app }) => {
     expect(slow.out).toContain(why)
     const saved = 'error.txt, output.log, screen.png, snapshot.txt, console.txt, network.txt, trace.txt'
     expect(slow.out).toContain(`acde test: saved ${saved} in ${left}`)
-    expect(slow.out).toContain(`acde test: 1 file, 0 passed, 1 failed: ${file}\n`)
+    expect(slow.out).toContain(`acde test: 2 tests ran: 1 passed, 1 failed\nacde test: 1 file, 0 passed, 1 failed: ${file}\n`)
     expect(slow.out).not.toContain('dangling process')
     expect(readdirSync(left).sort())
       .toEqual(['console.txt', 'error.txt', 'network.txt', 'output.log', 'screen.png', 'snapshot.txt', 'trace.txt'])
@@ -304,6 +317,31 @@ describe('acde test in a project managed by npm', () => {
 interface Built {
   readonly compilerOptions: { paths: Record<string, string[]> }
 }
+
+describe('the count of tests comes from the JUnit report bun test writes', () => {
+  test('ran, passed and failed from the root element; no report, or one that does not add up, is no count', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'acde-test-'))
+    const report = join(dir, 'report.xml')
+    const xml = (attributes: string) => `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites name="bun test" ` +
+      `${attributes} time="0.05">\n  <testsuite name="a.e2e.ts" tests="99" failures="99" skipped="0">\n  ` +
+      '</testsuite>\n</testsuites>\n'
+    writeFileSync(report, xml('tests="5" assertions="2" failures="2" skipped="2"'))
+    expect(TestRunner.tally(report)).toEqual({ ran: 3, passed: 1, failed: 2, skipped: 2 })
+    writeFileSync(report, xml('tests="2" failures="3" skipped="0"'))
+    expect(TestRunner.tally(report)).toBeNull()
+    writeFileSync(report, xml('tests="two" failures="0" skipped="0"'))
+    expect(TestRunner.tally(report)).toBeNull()
+    writeFileSync(report, '')
+    expect(TestRunner.tally(report)).toBeNull()
+    expect(TestRunner.tally(join(dir, 'none.xml'))).toBeNull()
+    const one = { ran: 1, passed: 1, failed: 0, skipped: 0 }
+    expect(TestRunner.counted([one], [])).toBe('acde test: 1 test ran: 1 passed, 0 failed')
+    expect(TestRunner.counted([one, { ran: 3, passed: 1, failed: 2, skipped: 2 }], []))
+      .toBe('acde test: 4 tests ran: 2 passed, 2 failed, 2 not run (skipped, todo, or not matched by -t)')
+    expect(TestRunner.counted([], ['a.e2e.ts', 'b.e2e.ts'])).toBe('acde test: not counted: a.e2e.ts, b.e2e.ts ' +
+      '(bun test left no report: the file did not load, or its run was killed)')
+  })
+})
 
 describe('TestTsconfig', () => {
   const resolves = 'acde/test and acde/driver resolve to this acde; the project\'s own paths stay, ' +

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import { cliEnv } from 'acde/launcher'
@@ -22,6 +22,13 @@ export interface RunnerOptions {
 interface Suite {
   readonly file: string
   readonly project: string
+}
+
+export interface Tally {
+  readonly ran: number
+  readonly passed: number
+  readonly failed: number
+  readonly skipped: number
 }
 
 export class TestRunner {
@@ -50,6 +57,35 @@ export class TestRunner {
     }
     const seen = new Set<string>()
     return suites.filter((s) => !seen.has(s.file) && !!seen.add(s.file))
+  }
+
+  static tally(report: string): Tally | null {
+    let xml: string
+    try {
+      xml = readFileSync(report, 'utf8')
+    } catch {
+      return null
+    }
+    const root = /<testsuites\b([^>]*)>/.exec(xml)
+    if (!root) return null
+    const attributes = new Map([...root[1]!.matchAll(/([\w:-]+)="([^"]*)"/g)].map((found) => [found[1]!, found[2]!]))
+    const count = (name: string) => (/^\d+$/.test(attributes.get(name) ?? '') ? Number(attributes.get(name)) : null)
+    const tests = count('tests')
+    const failed = count('failures')
+    const skipped = count('skipped')
+    if (tests === null || failed === null || skipped === null || failed + skipped > tests) return null
+    return { ran: tests - skipped, passed: tests - skipped - failed, failed, skipped }
+  }
+
+  static counted(tallies: readonly Tally[], uncounted: readonly string[]): string {
+    const sum = (pick: (tally: Tally) => number) => tallies.reduce((total, tally) => total + pick(tally), 0)
+    const ran = sum((t) => t.ran)
+    const skipped = sum((t) => t.skipped)
+    const left = skipped ? `, ${skipped} not run (skipped, todo, or not matched by -t)` : ''
+    const said = `${ran} test${ran === 1 ? '' : 's'} ran: ${sum((t) => t.passed)} passed, ${sum((t) => t.failed)} failed${left}`
+    const why = 'bun test left no report: the file did not load, or its run was killed'
+    const missing = uncounted.length ? `not counted: ${uncounted.join(', ')} (${why})` : ''
+    return `acde test: ${[...(tallies.length ? [said] : []), ...(missing ? [missing] : [])].join('; ')}`
   }
 
   static async run(options: RunnerOptions): Promise<number> {
@@ -87,6 +123,8 @@ export class TestRunner {
     const kept = new Set<string>()
     const failed: string[] = []
     const filtered: string[] = []
+    const tallies: Tally[] = []
+    const uncounted: string[] = []
     let ran = 0
     for (const suite of suites) {
       const name = relative(suite.project, suite.file).split(sep).join('/')
@@ -105,8 +143,10 @@ export class TestRunner {
         trace: options.trace === true,
         update: options.update === true,
       }
+      const report = join(scratch, `report-${ran + filtered.length}.xml`)
       const argv = [
         bun, 'test', suite.file, '--tsconfig-override', tsconfig(suite.project), '--timeout', String(settings.timeout),
+        '--reporter=junit', '--reporter-outfile', report,
         ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : []),
       ]
       const shown = relative(cwd, suite.file) || suite.file
@@ -126,6 +166,9 @@ export class TestRunner {
         continue
       }
       ran++
+      const tally = TestRunner.tally(report)
+      if (tally) tallies.push(tally)
+      else uncounted.push(shown)
       if (code !== 0) {
         failed.push(shown)
         if (existsSync(results)) kept.add(results)
@@ -143,6 +186,7 @@ export class TestRunner {
     const notRun = unrun ? `, ${unrun} not run (--bail)` : ''
     const summary = `acde test: ${files}, ${ran - failed.length} passed, ${failed.length} failed${skipped}${notRun}`
     const left = kept.size ? `\n  what the failing tests left: ${[...kept].join(', ')}` : ''
+    if (ran) console.log(TestRunner.counted(tallies, uncounted))
     console.log(failed.length ? `${summary}: ${failed.join(', ')}${left}` : summary)
     return failed.length ? 1 : 0
   }

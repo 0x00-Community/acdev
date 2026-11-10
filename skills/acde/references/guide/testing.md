@@ -192,12 +192,16 @@ acde test -u                     # update screenshot baselines
 
 With `-t`, a file in which no test matches is skipped and does not count as failed (`acde test: e2e/approval.e2e.ts: no test matches -t "saves", skipped`); if no test matches in any file, `acde test` prints `acde test: no test matches -t "<pattern>" in <n> files` and exits with code 1.
 
-Each file prints the output of its own `bun test` run as it goes. The last line counts the files that ran, a file passing when all its tests did, and names the ones that failed:
+Each file prints the output of its own `bun test` run as it goes. The run ends with two summary lines, one that counts tests and one that counts files:
 
 ```text
+acde test: 5 tests ran: 4 passed, 1 failed, 1 not run (skipped, todo, or not matched by -t)
 acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts
   what the failing tests left: /path/to/notes/.acde/test-results
 ```
+
+- The first line counts the tests of the files that ran: how many ran, passed and failed, and, when there are any, how many did not run (`test.skip`, `test.todo`, and tests that `-t` left out). The numbers come from the report `bun test` writes for each file. A file that left no report (it failed to load, or its run was killed) is named instead of counted: `; not counted: e2e/broken.e2e.ts (bun test left no report: the file did not load, or its run was killed)`.
+- The second line counts the files that ran, **not tests**: a file passes when all its tests did. It names the files that failed, and adds `, <n> skipped (no test matches -t)` and `, <n> not run (--bail)` when that applies. The indented line under it appears when a failing test left files.
 
 The exit code is 0 when nothing failed and 1 otherwise.
 
