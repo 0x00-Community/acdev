@@ -21,7 +21,7 @@ const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   repository: object
   engines: object
 }
-const SDK_PIN = '0.0.6'
+const SDK_PIN = '0.0.7'
 const CLI = 'src/cli.ts'
 const SHARED = ['src/driver/index.ts', 'src/e2e/index.ts']
 const OBFUSCATION_SEED = 1
