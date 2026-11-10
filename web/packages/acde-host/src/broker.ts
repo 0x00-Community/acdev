@@ -1,4 +1,4 @@
-import type { AppsChangedEvent, WindowCrashEvent, WindowMenusEvent, WindowOpenEvent, WindowsEvent } from '@dopame/acde-api'
+import type { WindowCrashEvent, WindowMenusEvent, WindowOpenEvent, WindowsEvent } from '@dopame/acde-api'
 import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
 import { sys } from './sys/natives'
@@ -17,10 +17,12 @@ import { DesktopSession, type RunEnd } from './session'
 import { DevLog } from './devlog'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage } from './language'
-import { StoragePlaces } from './storage'
+import { StorageFile, StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { process } from './sys/process'
+import { xdgHome } from './sys/os'
+import { join } from './sys/path'
 import type { BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
@@ -37,6 +39,7 @@ import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 import { Outputs, type Screen } from './broker/output'
 import { WindowRecords } from './broker/records'
+import { AppListing } from './broker/listing'
 import { Approvals, type FolderGrants } from './broker/approvals'
 import type { Permissions } from './broker/access/approval/permissions'
 import { UserAgent } from './useragent'
@@ -76,6 +79,10 @@ export class Broker {
   readonly #windowCalls: WindowCalls
   readonly #panelCalls: PanelCalls
   readonly #pageCalls: PageCalls
+  readonly #listing = new AppListing({
+    apps: () => this.#appList(),
+    tell: (event) => this.#toDesktop(event),
+  })
   readonly #launchable = new Launchable({
     apps: () => this.apps,
     hosted: () => !!this.shell.hosted,
@@ -96,6 +103,9 @@ export class Broker {
     },
     standalone: () => !!this.#options.standalone,
     finder: () => (this.bridge.value['fs'] as FolderGrants | undefined) ?? null,
+    store: () => new StorageFile(join(xdgHome('config'), 'acde', 'permissions.json')),
+    log: (line) => Log.write(Level.Info, 'acde_host', line),
+    listed: () => void this.#listing.changed(),
   })
   readonly permissions: Permissions = this.#approvals.permissions
   #opening = false
@@ -205,7 +215,7 @@ export class Broker {
       shell: this.shell,
       natives: this.natives,
       opener: this.opener,
-      list: () => this.#appList(),
+      list: () => this.#listing.list(),
       refresh: () => this.refreshApps(),
       install: (dir) => this.installApps(dir),
       launch: (appId, request, family) => this.launch(appId, request, 'free', null, family),
@@ -369,6 +379,7 @@ export class Broker {
       tier: this.#launchable.tier(null),
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
+    this.#listing.list()
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
       this.launch(standalone, null, 'fullscreen').catch((error: Error) => Log.write(Level.Error, 'acde_host', `acdert app ${standalone}: ${error.message}`))
     }
@@ -658,10 +669,7 @@ export class Broker {
 
   refreshApps(): { id: string; label: string; icon: string; script: string }[] {
     this.#options.packages.rescan()
-    const changed = this.apps.reload(this.#options.packages)
-    const apps = this.#appList()
-    if (changed) this.#toDesktop({ type: 'appschanged', apps } satisfies AppsChangedEvent)
-    return apps
+    return this.#listing.changed(this.apps.reload(this.#options.packages))
   }
 
   installApps(dir: string): { id: string; dir: string; apps: { id: string; label: string; icon: string; script: string }[] } {

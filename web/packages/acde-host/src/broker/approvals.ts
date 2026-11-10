@@ -1,12 +1,8 @@
 import type { AppRegistry } from '../apps'
-import { Level, Log } from '../log'
 import type { RawShellEvent } from '../native'
-import { StorageFile } from '../storage'
-import { xdgHome } from '../sys/os'
-import { join } from '../sys/path'
 import type { CapabilityCheck } from './access/capabilities'
 import { ApprovalDialogs, type NativeApproval } from './access/approval/dialog'
-import { Permissions, type Approval } from './access/approval/permissions'
+import { Permissions, type Approval, type DecisionStore } from './access/approval/permissions'
 import { PermissionCalls } from './calls/permissions'
 import type { WindowRecord } from './types'
 import type { Web } from './web'
@@ -19,6 +15,9 @@ export interface ApprovalsHost {
   dialog(): NativeApproval | null
   standalone(): boolean
   finder(): FolderGrants | null
+  store(): DecisionStore | null
+  log(line: string): void
+  listed(): void
 }
 
 export interface FolderGrants {
@@ -36,7 +35,7 @@ export class Approvals {
     const answers = { pending: () => this.permissions.pending(), answer: (id: number, allow: boolean) => this.permissions.answer(id, allow) }
     const dialogs = new ApprovalDialogs(answers, () => host.dialog())
     this.permissions = new Permissions({
-      store: new StorageFile(join(xdgHome('config'), 'acde', 'permissions.json')),
+      store: host.store(),
       label: (id) => host.apps().get(id)?.label ?? null,
       supported: (capability) => host.capabilities().supported(capability),
       tell: (event) => {
@@ -44,7 +43,7 @@ export class Approvals {
         dialogs.event(event)
       },
       changed: (appId, capability, approval) => this.#changed(appId, capability, approval),
-      log: (line) => Log.write(Level.Info, 'acde_host', line),
+      log: (line) => host.log(line),
       asksAgain: () => host.standalone(),
       folders: (appId) => {
         const finder = host.finder()
@@ -69,5 +68,6 @@ export class Approvals {
       const status = Permissions.folder(capability) ? null : this.#host.capabilities().status(capability, app, this.#host.apps().origin(appId))
       record.web.thread.post({ type: 'permit', capability, approval, status })
     }
+    this.#host.listed()
   }
 }

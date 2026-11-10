@@ -500,7 +500,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   状态变了 `RemoteBridge.permit` 重新 `refuseModule`, 所以拒绝之后的 import 说的是拒绝); 调用报 `AcdePermissionError` (403, 带 `capability`),
   `code` 是 `denied`、`not_asked` 或 `asking`, 文字是 `<label>: ` 加同一句: `acde:fs` / `acde:office` 里还没问过的公共位置 (`FileAccess.guard`)、
   `acde.launch` / `acde.windows.launch` (`Approvals.allow`)、撤销后的 terminal / network 和 camera / microphone 的 capture 都走这里. 决定按应用持久 (`$XDG_CONFIG_HOME/acde/permissions.json`, `{"<app>:<能力>": "granted" | "denied"}`, 不看 `ACDE_STORAGE`);
-  拒绝也记, 必需能力被拒的应用不进列表. 撤销 (`revoke`) 删掉记录: 这一次运行里当作拒绝 (同一次运行不问第二次), 下次运行再问. 撤销后的调用报同样的
+  拒绝也记, 必需能力被拒的应用不进列表, 桌面收 `appschanged` (`acde:apps` 的 `on('changed')`): 每次决定变了 (`Approvals` 的 `changed`) 都经
+  `broker/listing.ts` `AppListing.changed()` 比一次, 列表和桌面上次拿到的 (桌面页面起来时、`list()` 的结果或上一次事件) 不一样才发; `refreshApps` 也走它 (清单变了一定发). 撤销 (`revoke`) 删掉记录: 这一次运行里当作拒绝 (同一次运行不问第二次), 下次运行再问. 撤销后的调用报同样的
   403 `denied`: Broker 侧 (`acde.launch` / `acde.windows.launch`) 当场查, web 侧 terminal / network 的模块和 camera / microphone 的 capture 经
   `broker/access/approval/permits.ts` `Permits` 包一层. 外壳模块 `acde:permissions` (桌面和声明它的系统应用): `pending()`、`answer(id, allow)`、`list(app?)`、
   `revoke(app, capability)`、`on('prompt' | 'answered')` (`permissionprompt {id, app, label, capability, reason: 'launch' | 'request'}`、
@@ -1406,7 +1407,8 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   (`broker.ts`、`worker.ts` / `host.ts`、`remote.ts` / `rpc.ts`、`inspect.ts`、`devhot.ts` …); `sys/` 是原生接口的 node 风格包装.
   `broker/` 是从 Broker 拆出的部分, 每块经一个小的宿主接口 (`…Host`) 拿 Broker 的私有状态: `types.ts` (Broker 的接口和窗口记录)、`web.ts`
   (`Web`: 一个 web 的线程和 rpc, 它的授权、环境变量和 403)、`dev.ts` (`DevRequests`: acde dev 的请求、假回应规则、找 web)、`preferences.ts`
-  (配色和减少动态, 含模拟)、`records.ts` (`WindowRecords`: 窗口表、原生窗口的事件、应用的窗口位置)、`approvals.ts` (`Approvals`: 批准的接线, 决定文件、`acde:permissions` / `acde:capabilities` 的调用、给 web 的 `permit`); `calls/` 是 web 经 rpc 来的调用: `apps.ts` (`acde.apps` / `acde.packages`)、`windows.ts` (`acde.windows` /
+  (配色和减少动态, 含模拟)、`records.ts` (`WindowRecords`: 窗口表、原生窗口的事件、应用的窗口位置)、`approvals.ts` (`Approvals`: 批准的接线, `acde:permissions` / `acde:capabilities` 的调用、给 web 的 `permit`; 决定文件和日志由 Broker 经 `ApprovalsHost` 给)、`listing.ts`
+  (`AppListing`: 桌面知道的应用列表, 变了发 `appschanged`); `calls/` 是 web 经 rpc 来的调用: `apps.ts` (`acde.apps` / `acde.packages`)、`windows.ts` (`acde.windows` /
   `acde.launch` / `acde.window`)、`page.ts` (页面调用和钉住的面板)、`services.ts` (交给 web 的服务形状、内置和桌面包服务的调用)、`desktops.ts`
   (`acde.desktops`); `access/` 是谁能用什么: `tier.ts` (按调用者层级的模块)、`family.ts` (打开窗口时的父窗口)、`launchable.ts` (应用能不能
   在这里起: 找不到 404 / 级别不对 409、缺系统服务 503、宿主窗口里要 slots 404、第三方声明外壳模块 403; 列表只给能起的)、`modules.ts`
