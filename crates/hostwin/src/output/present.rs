@@ -353,19 +353,9 @@ impl Presenter {
         }
         let mut encoder = shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde host layers") });
         let (started, mut redrawn) = (Instant::now(), 0);
-        match region {
-            None => self.vello.render([], &mut self.overrides, &view, size, base, Some(&shared))?,
-            Some(region) => {
-                self.composer.clear_rects(&mut encoder, &view, [region.xywh()]);
-                if base.components[3] > 0.0 {
-                    self.flush(&mut encoder);
-                    let canvas = self.composer.layer_view(size);
-                    let [x, y, w, h] = region.xywh();
-                    self.vello.render([], &mut self.overrides, &canvas, (w, h), base, Some(&shared))?;
-                    self.composer.place(&mut encoder, &view, [x, y], [0, 0], region.xywh());
-                }
-            }
-        }
+        self.composer.layer_view(size);
+        let [r, g, b, a] = base.components;
+        self.composer.fill_rects(&mut encoder, &view, [r * a, g * a, b * a, a], [target.xywh()]);
         let jobs: Vec<Option<(Px, Px)>> = parts
             .iter()
             .map(|(_, (_, shadows, effect, bounds))| {

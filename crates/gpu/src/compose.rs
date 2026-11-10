@@ -537,9 +537,13 @@ impl Composer {
     }
 
     pub fn clear_rects(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, rects: impl IntoIterator<Item = [u32; 4]>) {
+        self.fill_rects(encoder, canvas, [0.0; 4], rects);
+    }
+
+    pub fn fill_rects(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, color: [f32; 4], rects: impl IntoIterator<Item = [u32; 4]>) {
         let Some((_, _, layer)) = self.layer.clone() else { return };
-        let draws: Vec<Draw> =
-            rects.into_iter().map(|r| Draw { pipe: Pipe::Clear, src: &layer, params: Params::default(), scissor: Some(r), mix: None }).collect();
+        let params = Params { color, ..Default::default() };
+        let draws: Vec<Draw> = rects.into_iter().map(|r| Draw { pipe: Pipe::Clear, src: &layer, params, scissor: Some(r), mix: None }).collect();
         self.pass(encoder, canvas, false, &draws);
     }
 

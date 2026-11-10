@@ -31,7 +31,7 @@ fn vs_full(@builtin(vertex_index) i: u32) -> VsOut {
 
 @fragment
 fn fs_clear(in: VsOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(0.0);
+    return params.color;
 }
 
 @fragment
