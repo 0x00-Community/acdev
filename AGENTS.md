@@ -100,6 +100,10 @@ acde 还没有“启动已构建应用”的命令（`acde install` 只装包，
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到
   `CI` 不许新建 lockfile, 装依赖那步不能带). 再叠 `templates/framework/acde.config.jsonc` (没有 `entry`: 构建认框架), `.gitignore` 加 `.acde/`.
   加模板就是 `STARTERS` 加一项.
+- 模板按第 1 级契约写 (`test/templates.test.ts`): 应用的配置 (`templates/app`、`templates/framework`) 列出 `capabilities`、`optional`、
+  `services`、`requests`、`schemes` (空值加说明; `fs.roots` 只点名 SDK 的 `SHARED_PLACES`), 不预先声明要用户批准的能力, 新工程无界面也能启动;
+  类型引用分层: 应用写 `@dopame/acde-api/app`, 桌面页写 `@dopame/acde-api/shell`; 桌面页经 `apps.open(id)` 打开应用 (第 1 级的 `acde:apps`
+  没有 `launch`); 不用 `copyIn` (第 1 级由 `fs.copy` 取代).
 
 ## 构建 (`src/app.ts`, `src/package.ts`, `src/bundler.ts`, `src/frameworks.ts`)
 
@@ -337,7 +341,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 
 ## 测试
 
-`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`imports` (`acde:` 导入: 分词, 第三方 / 系统应用、桌面页、
+`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`templates` (自带模板和框架配置的第 1 级形态: 新建、check、
+build 后 SDK 校验无错无警告)、`imports` (`acde:` 导入: 分词, 第三方 / 系统应用、桌面页、
 服务、手写的包、框架应用; check 和 Bun / Vite 两种 build)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
 打好的 preload 在真的 node 上由测试扮演运行时, 用 `node:child_process` 的额外管道当 fd 3 / 4, 没有 node ≥ 22 就跳过这一半)、`node` (打好的后端在 Node 上跑; 要
 `ACDE_TEST_NODE` 或 PATH 上真的 node ≥ 22.3, 没有就跳过)、`dev` / `driver` / `mcp` / `e2e` (都用 `test/fixtures/dev/fake-acdert.ts` 这个有状态的假
