@@ -232,9 +232,22 @@ impl WorkspaceFs {
                     .is_some_and(|(home, dir)| home == dir);
                 !same_spelling && !same_location()
             }),
-            _ => path.is_absolute().then(|| path.normalize()).filter(|dir| dir != home),
+            _ => path.is_absolute().then(|| Self::directory(&path)).filter(|dir| !Self::same_directory(home, dir)),
         };
         selected.unwrap_or_else(|| home.join(fallback))
+    }
+
+    #[cfg(not(windows))]
+    fn directory(path: &str) -> String {
+        match path.normalize().trim_end_matches('/') {
+            "" => "/".into(),
+            clean => clean.into(),
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn same_directory(home: &str, dir: &str) -> bool {
+        Self::directory(home) == dir || fs::canonicalize(home).ok().zip(fs::canonicalize(dir).ok()).is_some_and(|(home, dir)| home == dir)
     }
 
     pub fn desktop(&self) -> Outcome<String> {
@@ -906,5 +919,58 @@ mod tests {
         assert_eq!(failed("../", "README"), Some((400, "path escapes the workspace".into())));
         assert_eq!(failed("nope", "README"), Some((404, "no such file or directory".into())));
         assert!(!Path::new(&s.at("nope")).exists());
+    }
+
+    #[test]
+    fn desktop_override_is_a_clean_absolute_folder_other_than_home() {
+        let s = Scratch::new();
+        let home = s.dir.join("home");
+        let chosen = s.dir.join("chosen");
+        let listed = s.dir.join("listed");
+        let link = s.dir.join("home link");
+        for dir in [&home, &chosen, &listed.join(".config")] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        symlink(&home, &link).unwrap();
+        fs::write(listed.join(".config/user-dirs.dirs"), "XDG_DESKTOP_DIR=\"$HOME/\"\n").unwrap();
+        let desktop = |home: &str, value: Option<&str>| {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child.args(["--exact", "fs::workspace::tests::desktop_override_child", "--nocapture"]).env("HOME", home).env("ACDE_TEST_DESKTOP", "1");
+            match value {
+                Some(value) => child.env("XDG_DESKTOP_DIR", value),
+                None => child.env_remove("XDG_DESKTOP_DIR"),
+            };
+            let output = child.output().unwrap();
+            assert!(output.status.success(), "override {value:?}: {}", String::from_utf8_lossy(&output.stderr));
+            let printed = String::from_utf8_lossy(&output.stdout);
+            printed.lines().find_map(|line| line.strip_prefix("desktop=")).unwrap_or_else(|| panic!("override {value:?}: {printed}")).to_owned()
+        };
+        let fallback = home.join("Desktop");
+        let cases = [
+            (chosen.clone(), &chosen),
+            (format!("{chosen}/"), &chosen),
+            (format!("{chosen}//sub/../"), &chosen),
+            ("$HOME/picked".into(), &home.join("picked")),
+            (String::new(), &fallback),
+            ("relative/desktop".into(), &fallback),
+            ("$HOMEX/desktop".into(), &fallback),
+            ("$HOME".into(), &fallback),
+            ("$HOME/".into(), &fallback),
+            ("$HOME/.".into(), &fallback),
+            (home.clone(), &fallback),
+            (format!("{home}/"), &fallback),
+            (link, &fallback),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(&desktop(&home, Some(&value)), expected, "override {value:?}");
+        }
+        assert_eq!(desktop(&listed, None), listed.join("Desktop"));
+    }
+
+    #[test]
+    fn desktop_override_child() {
+        if std::env::var_os("ACDE_TEST_DESKTOP").is_some() {
+            println!("desktop={}", WorkspaceFs::new().desktop().unwrap());
+        }
     }
 }
