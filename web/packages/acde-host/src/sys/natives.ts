@@ -41,7 +41,11 @@ interface SysNative {
   kill(pid: number, signal?: string): boolean
   run(argv: readonly string[], timeoutMs?: number): { status: number | null; stdout: string; stderr: string }
   onSignal(callback: (name: 'SIGINT' | 'SIGTERM' | 'SIGHUP') => void): void
-  spawn?(argv: readonly string[], options: { cwd?: string; env: Record<string, string>; prefix: string; stdin?: boolean; onStdout?: (line: string) => void }, onExit: (code: number | null, signal: number | null) => void): number
+  spawn?(
+    argv: readonly string[],
+    options: { cwd?: string; env: Record<string, string>; prefix: string; stdin?: boolean; onStdout?: (line: string) => void },
+    onExit: (code: number | null, signal: number | null) => void,
+  ): number
   spawnBackend?(
     argv: readonly string[],
     options: { cwd?: string; env: Record<string, string>; prefix: string; app: string; mode: 'channel' | 'sockets'; preload: string },
@@ -50,14 +54,22 @@ interface SysNative {
   stopBackend?(pid: number, ms: number): boolean
   write?(pid: number, text: string): boolean
   endInput?(pid: number): void
-  spawnWeb(name: string, init: unknown, heapMb: number, env: Record<string, string>, onMessage: (message: unknown) => void, onExit: (code: number, reason: string | null) => void, grants: WebGrants): WebThreadHandle
+  spawnWeb(
+    name: string,
+    init: unknown,
+    heapMb: number,
+    env: Record<string, string>,
+    onMessage: (message: unknown) => void,
+    onExit: (code: number, reason: string | null) => void,
+    grants: WebGrants,
+  ): WebThreadHandle
   openOffice?(): string | null
   closeOffice?(): void
 }
 
 export interface WebGrants {
   readonly app: string | null
-  readonly fs: true | string[] | null
+  readonly fs: true | string[] | { readonly places: string[]; readonly paths: boolean } | null
   readonly terminal: boolean
   readonly network: boolean
   readonly office: boolean

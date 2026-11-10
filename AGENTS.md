@@ -427,7 +427,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   时经 rpc 问用户, 回答之后的状态; 别的直接回当前状态). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`, 之后 Broker 发 `permit`
   消息更新.
 - **批准** (`broker/access/approval/permissions.ts` `Permissions`, SDK `APPROVAL_CAPABILITIES`): `launch`、`slots`、`terminal`、`network`、`camera`、
-  `microphone` 要用户批准, 可撤销 (公共 fs 位置在 #66 加进来); 其余 (自己的窗口、能力查询、列出和打开应用、按类型打开、桌面服务、`office`) 声明即有.
+  `microphone` 要用户批准, 可撤销, 第 1 级包在 `fs.roots` 里点名的公共位置也是, 每个位置一项 `fs.<位置>` (如 `fs.documents`, SDK `PlaceCapability`; `fs` 可选时它们也可选, 经 `request("fs.documents")` 问); 其余 (自己的窗口、能力查询、列出和打开应用、按类型打开、桌面服务、`office`) 声明即有.
   系统应用 (和任一已装桌面同包) 和第 0 级包不问. 必需的在第一次启动前按能力一个一个问 (`Broker.launch` 是 async, `admit` 之后才 grant 窗口),
   拒绝时不启动, 报 `<label>: "launch" is denied by the user` (403 `denied`, 带 `capability`); 平台不支持的不问, 照旧按 unsupported 拒绝. 可选的在
   `acde:capabilities` `request(name)` 时问; 没批准的模块不定义 (import 报 `waits for approval` / `is denied by the user`), 批准后 web 收 `permit` 再定义,
@@ -690,9 +690,20 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 ## 文件 (`acde:fs`)
 
 页面的 `acde:fs` 是 crates/acdert `fs.rs` 绑的 `natives.fs`, 实现在 runtime `fs/` (`Workspace` → `WorkspaceFs`), 类型 acde-api `AcdeFs`.
-第一个参数是 root (`roots()` 里某项的 `path`), 第二个是相对路径: 绝对路径、`..` 出 root、经符号链接出 root 都拒绝 (`WorkspaceFs::resolve`),
+第一个参数是 root (`roots()` 里某项的 `id`; 下面按路径的根 `id` 就是 `path`), 第二个是相对路径: 绝对路径、`..` 出 root、经符号链接出 root 都拒绝 (`WorkspaceFs::resolve`),
 root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOWNLOAD_DIR` 或 `~/Downloads`, 存在时)、`~/agentos-work` (存在时), 加上用户授给
 这个应用的文件夹. Windows 上隐藏和系统属性的文件按隐藏文件算. 最后看的位置记在 `$XDG_STATE_HOME/acde/finder-place.json`.
+
+**第 1 级的根** (#66; runtime `fs/access/files.rs` `Files`, Broker `broker/access/files.ts` `FileAccess`): 第 1 级包的第三方应用和点名公共位置的系统应用, root 是不透明的标识, 不是路径:
+`private` (本应用的私有数据文件夹 `$XDG_DATA_HOME/acde/files/<应用 id>`, 没设时 `$HOME/.local/share/...`, 第一次用时建), 公共位置名 (SDK `SHARED_PLACES`:
+`desktop`、`documents`、`downloads`、`music`、`pictures`、`videos`, 按 XDG 用户目录 `XDG_<名>_DIR` / `user-dirs.dirs`; Windows 没设时用对应的已知文件夹
+`SHGetKnownFolderPath`, `path.rs` `known_folder`), 选择的文件夹是 `folder-<路径 SHA-256 前 16 位十六进制>` 的令牌. `fs: true` 只给 `private` 和用户选给它的文件夹;
+公共位置要在 `fs.roots` 里点名 (校验器: 第 1 级不是这六个名字就是错误, `agentos-work` 不算; 第 0 级只警告) 并经批准 (见「批准」). `roots()` 回
+`{id, label, source: 'private' | 'place' | 'granted', mode, reason, exists, place?}`, 只有点名了公共位置的系统应用另带 `path`; 别的应用拿不到绝对路径,
+`locate` / `openPath` 报 403 `EACCES`, `state()` / `desktop()` / `place()` 在第 1 级的根上一律 403. 没批准或撤销了的位置: web 侧 (`FileAccess.guard`, 经 `Permits`)
+把它从 `roots()` 里去掉, 以它为 root 的调用 reject 403 `denied` (`AcdePermissionError`). `fs.revoke(令牌)` 收回选择的文件夹. Broker 交给 web 的授权是
+`fs: {places, paths}` (crates/acdert `web.rs` → `Workspace::files`). 扩展期: 第 0 级包, 以及 `fs: true` 的系统应用 (现在的 Dopame) 照旧用下面按路径的根,
+后者每个应用打一行弃用 warn, 到本版本末尾的第 0 级移除为止. 选择器、打开文件请求的句柄见 #68.
 
 工作区内的相对路径用 `/` 分隔. Windows 上拒绝反斜杠、数据流分隔符、保留设备名和以空格或点结尾的名称;
 判断解析后的路径是否在 root 内时按系统路径组件比较.

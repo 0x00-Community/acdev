@@ -45,6 +45,14 @@ export class CapabilityCheck {
   }
 
   status(name: string, app: AppManifest | null, origin: AppOrigin): CapabilityStatus {
+    const place = Manifest.place(name)
+    if (place) {
+      const declared = !app || Manifest.places(app.capabilities).includes(place)
+      const state: CapabilityState = !declared
+        ? 'not-declared'
+        : !this.supported('fs') ? 'unsupported' : app && this.#host.denied(app, origin, name) ? 'denied' : 'available'
+      return { name, kind: 'system', state, reason: CapabilityCheck.REASONS[state], optional: !!app && app.optional.includes('fs') }
+    }
     const system = Manifest.CAPABILITIES.has(name)
     const declared = !app || (system ? !!app.capabilities[name] : app.services.includes(name) || !!app.capabilities[name])
     const third = !!app && origin.level >= 1 && !origin.system && CapabilityCheck.#SHELL.has(name)
@@ -67,7 +75,7 @@ export class CapabilityCheck {
   declared(app: AppManifest | null): string[] {
     if (!app) return [...Manifest.CAPABILITIES]
     const names = Object.keys(app.capabilities).filter((name) => !!app.capabilities[name])
-    return [...new Set([...names, ...app.services])]
+    return [...new Set([...names, ...Manifest.places(app.capabilities).map((place) => `fs.${place}`), ...app.services])]
   }
 
   statuses(app: AppManifest | null, origin: AppOrigin): CapabilityStatus[] {

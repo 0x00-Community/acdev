@@ -1,4 +1,5 @@
 import type { CaptureNative } from '@dopame/acde-dom'
+import { FileAccess } from '../files'
 import { Permissions, type Permit } from './permissions'
 
 export class Permits {
@@ -34,6 +35,7 @@ export class Permits {
   }
 
   guard<T extends object>(module: string, value: T): T {
+    if (module === 'fs') return FileAccess.guard(value, (capability) => this.#permits.get(capability) ?? null, this.#label)
     if (!Permits.MODULES[module] || module === 'launch') return value
     return new Proxy(value, {
       get: (target, key, receiver) => {

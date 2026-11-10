@@ -391,7 +391,7 @@ export class Broker {
   #spawn(init: WebInit, heapMb: number): Web {
     const env = { ...Web.env(), WAYLAND_DISPLAY: this.shell.socketName }
     const storage = init.app ? StoragePlaces.app(init.app.id) : this.#options.storage(this.#current.id)
-    const grants = { ...Web.grants(init.app?.id ?? null, init.app?.capabilities ?? null), storage }
+    const grants = { ...Web.grants(init.app?.id ?? null, init.app?.capabilities ?? null, init.tier ?? null), storage }
     const web: Web = new Web(init.kind, init.name, init.window, init.app ?? null, (onMessage, exit) =>
       sys().spawnWeb(init.name, init, heapMb, env, onMessage, (code, reason) => {
         this.#exited(web, code, reason)

@@ -5,6 +5,7 @@ import type { Permit } from './approval/permissions'
 
 export interface WebTier {
   readonly level: number
+  readonly system?: boolean
   readonly shell: readonly ShellModule[]
   readonly refused: Readonly<Record<string, string>>
   readonly capabilities?: CapabilitySnapshot
@@ -31,7 +32,7 @@ export class Tiers {
       const rule = Manifest.importRule(name, app, origin)
       if (!rule.allowed) refused[`acde:${name}`] = rule.reason!
     }
-    return { level: origin.level, shell, refused }
+    return { level: origin.level, system: origin.system, shell, refused }
   }
 
   static refusal(app: AppManifest, origin: AppOrigin): string | null {

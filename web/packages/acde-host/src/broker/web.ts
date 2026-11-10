@@ -4,8 +4,11 @@ import type { AppManifest, Capabilities } from '../apps'
 import type { OpenCaller } from '../open'
 import { Rpc } from '../rpc'
 import { Tiers, type WebTier } from './access/tier'
+import { FileAccess } from './access/files'
+import { Level, Log } from '../log'
 
 export class Web {
+  static readonly #warned = new Set<string>()
   readonly rpc: Rpc
   hung = false
   closing = false
@@ -38,17 +41,21 @@ export class Web {
     return this.#exited
   }
 
-  static caller(app: AppManifest): OpenCaller {
-    const fs = Web.grants(app.id, app.capabilities).fs
-    return { roots: fs === true ? null : (fs ?? []), owner: app.id }
+  static caller(app: AppManifest, tier: WebTier): OpenCaller {
+    const fs = FileAccess.grant(app.capabilities, tier)
+    return { roots: fs === true ? null : Array.isArray(fs) ? fs : [], owner: app.id }
   }
 
-  static grants(app: string | null, caps: Capabilities | null): Omit<WebGrants, 'storage'> {
+  static grants(app: string | null, caps: Capabilities | null, tier: WebTier | null = null): Omit<WebGrants, 'storage'> {
     if (!caps) return { app, fs: true, terminal: true, network: true, office: true, camera: true, microphone: true }
-    const fs = caps.fs
+    if (app && FileAccess.deprecated(caps, tier) && !Web.#warned.has(app)) {
+      Web.#warned.add(app)
+      const why = 'level 0 meaning, removed at the end of 0.0.7'
+      Log.write(Level.Warn, 'acde_host', `${app}: "fs": true still gives every shared place (${why}); name the places in fs.roots`)
+    }
     return {
       app,
-      fs: typeof fs === 'object' && fs ? [...fs.roots] : fs ? true : null,
+      fs: FileAccess.grant(caps, tier),
       terminal: !!caps.terminal,
       network: !!caps.network,
       office: !!caps.office,

@@ -6,7 +6,7 @@ import type {
   PermissionPrompt,
   PermissionPromptEvent,
 } from '@dopame/acde-api'
-import { APPROVAL_CAPABILITIES } from '@dopame/acde-api/manifest'
+import { APPROVAL_CAPABILITIES, Manifest } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../../apps'
 
 export type Permit = 'granted' | 'denied' | 'ask'
@@ -47,7 +47,7 @@ export class Permissions {
   }
 
   static approval(capability: string): capability is ApprovalCapability {
-    return Permissions.#APPROVAL.has(capability)
+    return Permissions.#APPROVAL.has(capability) || Manifest.place(capability) !== null
   }
 
   static #key(appId: string, capability: string): string {
@@ -61,7 +61,8 @@ export class Permissions {
 
   gated(app: AppManifest, origin: AppOrigin): ApprovalCapability[] {
     if (origin.level < 1 || origin.system) return []
-    return Object.keys(app.capabilities).filter((name): name is ApprovalCapability => !!app.capabilities[name] && Permissions.approval(name))
+    const declared = Object.keys(app.capabilities).filter((name): name is ApprovalCapability => !!app.capabilities[name] && Permissions.approval(name))
+    return [...declared, ...Manifest.places(app.capabilities).map((place) => `fs.${place}` as ApprovalCapability)]
   }
 
   permit(app: AppManifest, origin: AppOrigin, capability: string): Permit {
@@ -76,7 +77,8 @@ export class Permissions {
 
   async admit(app: AppManifest, origin: AppOrigin): Promise<void> {
     for (const capability of this.gated(app, origin)) {
-      if (app.optional.includes(capability) || !this.#host.supported(capability)) continue
+      const base = Manifest.place(capability) ? 'fs' : capability
+      if (app.optional.includes(base) || !this.#host.supported(base)) continue
       if (!(await this.ask(app, origin, capability, 'launch'))) throw Permissions.error(app.label, capability)
     }
   }
