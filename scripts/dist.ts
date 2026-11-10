@@ -21,6 +21,7 @@ const SELF = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   engines: object
 }
 const SDK_PIN = '0.0.6'
+const PAIRING = 'acdert-version'
 const CLI = 'src/cli.ts'
 const SHARED = ['src/driver/index.ts', 'src/e2e/index.ts']
 const OBFUSCATION_SEED = 1
@@ -113,7 +114,10 @@ rmSync(plain, { force: true })
 rmSync(stage, { recursive: true, force: true })
 
 const sum = createHash('sha256').update(readFileSync(tarball)).digest('hex')
-writeFileSync(join(dir, 'SHA256SUMS'), `${sum}  ${name}.tar.gz\n`)
+const pairing = join(dir, PAIRING)
+writeFileSync(pairing, `${values.sdk}\n`)
+const paired = createHash('sha256').update(readFileSync(pairing)).digest('hex')
+writeFileSync(join(dir, 'SHA256SUMS'), `${paired}  ${PAIRING}\n${sum}  ${name}.tar.gz\n`)
 writeFileSync(join(out, 'latest'), `${version}\n`)
 copyFileSync(join(ROOT, 'install.sh'), join(out, 'install.sh'))
 copyFileSync(join(ROOT, 'install.ps1'), join(out, 'install.ps1'))

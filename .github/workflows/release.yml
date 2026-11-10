@@ -183,6 +183,19 @@ jobs:
           v=${TAG#v}
           bun scripts/dist.ts --api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" --sdk "$SDK_VERSION" \
             --version "$v" --out "$GITHUB_WORKSPACE/out"
+      - name: the version directory names the acdert it pairs with, in its SHA256SUMS
+        run: |
+          set -eu
+          v=${TAG#v}
+          dir="$GITHUB_WORKSPACE/out/$v"
+          if [ "$(cat "$dir/acdert-version")" != "$SDK_VERSION" ]; then
+            echo "::error::acdert-version says $(cat "$dir/acdert-version"), the paired acdert is $SDK_VERSION"
+            exit 1
+          fi
+          grep -q '  acdert-version$' "$dir/SHA256SUMS" || {
+            echo "::error::SHA256SUMS does not list acdert-version"
+            exit 1
+          }
       - name: latest.json
         run: |
           v=${TAG#v}
@@ -272,6 +285,7 @@ jobs:
             echo latest
             echo latest.json
             echo "$v/SHA256SUMS"
+            echo "$v/acdert-version"
             echo "$v/acde-$v.tar.gz"
           } | sort > "$expected"
           (cd out && find . -type f | sed 's|^\./||' | sort) > actual
@@ -328,6 +342,7 @@ jobs:
             cmp -s readback.tmp "$1" || { echo "::error::$2 does not read back as uploaded"; exit 1; }
           }
           publish_once "out/$v/acde-$v.tar.gz" "$v/acde-$v.tar.gz" application/gzip "$immutable"
+          publish_once "out/$v/acdert-version" "$v/acdert-version" "$text" "$immutable"
           publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
 
   tag:
@@ -428,7 +443,7 @@ jobs:
           v=$(cat out/latest)
           aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" \
             --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 \
-            "/acde/$v/SHA256SUMS" "/acde/$v/acde-$v.tar.gz" --query Invalidation.Id --output text
+            "/acde/$v/SHA256SUMS" "/acde/$v/acdert-version" "/acde/$v/acde-$v.tar.gz" --query Invalidation.Id --output text
       - run: |
           {
             echo "curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh"

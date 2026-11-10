@@ -25,12 +25,15 @@ if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) fail(`--version ${versio
 if (!existsSync(dir)) fail(`${dir}: no such directory`)
 
 const archives = [`acde-${version}.tar.gz`]
+const PAIRING = 'acdert-version'
+const checked = [PAIRING, ...archives]
 const allowed = new Set([
   'latest',
   'latest.json',
   'install.sh',
   'install.ps1',
   `${version}/SHA256SUMS`,
+  `${version}/${PAIRING}`,
   ...archives.map((archive) => `${version}/${archive}`),
 ])
 
@@ -47,7 +50,11 @@ if (problems.length === 0) {
   const latest = readFileSync(join(dir, 'latest'), 'utf8').trim()
   if (latest !== version) problems.push(`latest says ${latest}, the release is ${version}`)
 
-  const manifest = JSON.parse(readFileSync(join(dir, 'latest.json'), 'utf8')) as { version?: string; files?: string[] }
+  const manifest = JSON.parse(readFileSync(join(dir, 'latest.json'), 'utf8')) as {
+    version?: string
+    sdk?: string
+    files?: string[]
+  }
   if (manifest.version !== version) problems.push(`latest.json says ${manifest.version}, the release is ${version}`)
   const shipped = readdirSync(join(dir, version)).sort()
   if (JSON.stringify([...(manifest.files ?? [])].sort()) !== JSON.stringify(shipped)) {
@@ -61,13 +68,19 @@ if (problems.length === 0) {
     if (!match) problems.push(`SHA256SUMS: unreadable line ${JSON.stringify(line)}`)
     else listed.set(match[2]!, match[1]!)
   }
-  for (const archive of archives) {
-    const path = join(dir, version, archive)
+  for (const file of checked) {
+    const path = join(dir, version, file)
     const hash = createHash('sha256').update(readFileSync(path)).digest('hex')
-    if (listed.get(archive) !== hash) problems.push(`${archive}: not the checksum SHA256SUMS lists`)
+    if (listed.get(file) !== hash) problems.push(`${file}: not the checksum SHA256SUMS lists`)
   }
-  if (listed.size !== archives.length) {
-    problems.push(`SHA256SUMS lists ${listed.size} files, expected ${archives.length}`)
+  if (listed.size !== checked.length) {
+    problems.push(`SHA256SUMS lists ${listed.size} files, expected ${checked.length}`)
+  }
+  const acdert = readFileSync(join(dir, version, PAIRING), 'utf8')
+  if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\n$/.test(acdert)) {
+    problems.push(`${PAIRING}: not one acdert version line`)
+  } else if (acdert.trim() !== manifest.sdk) {
+    problems.push(`${PAIRING} says ${acdert.trim()}, latest.json sdk is ${manifest.sdk}`)
   }
 
   const scratch = mkdtempSync(join(tmpdir(), 'acde-release-guard-'))
@@ -112,4 +125,4 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  ${problem}`)
   process.exit(1)
 }
-console.log('release guard: the archive, SHA256SUMS, latest, latest.json and the installers are listed')
+console.log('release guard: the archive, acdert-version, SHA256SUMS, latest, latest.json and the installers are listed')

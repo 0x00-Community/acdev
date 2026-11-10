@@ -15,12 +15,13 @@ function sha(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
 
-function release(plant: Plant[] = [], tamper = false): string {
+function release(plant: Plant[] = [], tamper = false, acdert = `${VERSION}\n`, sdk = VERSION): string {
   const root = tmp()
   const out = join(root, 'out')
   const version = join(out, VERSION)
   mkdirSync(version, { recursive: true })
-  const lines: string[] = []
+  writeFileSync(join(version, 'acdert-version'), acdert)
+  const lines: string[] = [`${sha(join(version, 'acdert-version'))}  acdert-version`]
   for (const triple of TRIPLES) {
     const stage = join(root, 'stage', triple)
     const top = `acde-${VERSION}`
@@ -46,7 +47,7 @@ function release(plant: Plant[] = [], tamper = false): string {
   writeFileSync(join(out, 'latest'), `${VERSION}\n`)
   writeFileSync(join(out, 'install.sh'), 'sh')
   writeFileSync(join(out, 'install.ps1'), 'ps1')
-  writeFileSync(join(out, 'latest.json'), JSON.stringify({ version: VERSION, files: readdirSync(version).sort() }))
+  writeFileSync(join(out, 'latest.json'), JSON.stringify({ version: VERSION, sdk, files: readdirSync(version).sort() }))
   if (tamper) writeFileSync(join(version, `acde-${VERSION}.tar.gz`), 'changed after the checksum')
   for (const item of plant.filter((p) => p.where === 'release')) {
     mkdirSync(join(out, item.path, '..'), { recursive: true })
@@ -83,6 +84,18 @@ describe('release guard', () => {
     const made = guard(out)
     expect(made.code).toBe(1)
     expect(made.out).toContain('install.sh: missing from the release')
+  }, 180_000)
+
+  test('fails when acdert-version is not one version line or is not the sdk of latest.json', () => {
+    const garbled = guard(release([], false, 'latest\n'))
+    expect(garbled.code).toBe(1)
+    expect(garbled.out).toContain('acdert-version: not one acdert version line')
+    const other = guard(release([], false, '0.0.4\n'))
+    expect(other.code).toBe(1)
+    expect(other.out).toContain(`acdert-version says 0.0.4, latest.json sdk is ${VERSION}`)
+    const out = release()
+    rmSync(join(out, VERSION, 'acdert-version'))
+    expect(guard(out).out).toContain(`${VERSION}/acdert-version: missing from the release`)
   }, 180_000)
 
   test('fails on an archive whose checksum no longer matches', () => {

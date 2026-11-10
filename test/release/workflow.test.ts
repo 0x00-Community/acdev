@@ -209,6 +209,22 @@ describe('release.yml', () => {
     expect(runs('upload')).toContain('"out/$v/acde-$v.tar.gz"')
   })
 
+  test('the version directory names its acdert in acdert-version, checked, listed, uploaded and invalidated', () => {
+    const pairing = 'the version directory names the acdert it pairs with, in its SHA256SUMS'
+    const pkgs = runs('pkgs')
+    expect(pkgs).toContain('--sdk "$SDK_VERSION"')
+    expect(pkgs).toContain('if [ "$(cat "$dir/acdert-version")" != "$SDK_VERSION" ]; then')
+    expect(pkgs).toContain(`grep -q '  acdert-version$' "$dir/SHA256SUMS"`)
+    const steps = jobs['pkgs']!.steps.map((item) => item.name ?? '')
+    expect(steps.indexOf('dist')).toBeLessThan(steps.indexOf(pairing))
+    expect(steps.indexOf(pairing)).toBeLessThan(steps.indexOf('latest.json'))
+    const upload = runs('upload')
+    expect(upload).toContain('echo "$v/acdert-version"')
+    const published = 'publish_once "out/$v/acdert-version" "$v/acdert-version"'
+    expect(indexIn(upload, published)).toBeLessThan(indexIn(upload, 'publish_once "out/$v/SHA256SUMS"'))
+    expect(runs('latest')).toContain('"/acde/$v/acdert-version"')
+  })
+
   test('the guard runs the release guard on the artifact before any upload or tag', () => {
     expect(runs('guard')).toContain('bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out"')
     expect(uses('guard').some((action) => action.startsWith('actions/download-artifact@'))).toBe(true)

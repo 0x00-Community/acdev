@@ -71,7 +71,11 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(listed.some((path) => /\/(bin\/acdert|bin\/app|lib\/acde\/src)\b/.test(path))).toBe(false)
     expect(listed.some((path) => path.endsWith('.map') || path.includes('/._'))).toBe(false)
     expect(listed.some((path) => /\/lib\/acde\/dist\/chunk-\w+\.js$/.test(path))).toBe(true)
-    expect(readFileSync(join(out, '0.0.2', 'SHA256SUMS'), 'utf8')).toBe(`${sha256(tarball)}  acde-0.0.2.tar.gz\n`)
+    const pairing = join(out, '0.0.2', 'acdert-version')
+    expect(readFileSync(pairing, 'utf8')).toBe(`${SDK}\n`)
+    expect(readFileSync(join(out, '0.0.2', 'SHA256SUMS'), 'utf8')).toBe(
+      `${sha256(pairing)}  acdert-version\n${sha256(tarball)}  acde-0.0.2.tar.gz\n`,
+    )
     expect(readFileSync(join(out, 'latest'), 'utf8')).toBe('0.0.2\n')
   }, 300_000)
 
@@ -139,6 +143,13 @@ describe('the release archive and the installed CLI', () => {
   }, 300_000)
 
   afterAll(cleanup)
+
+  test('the version directory names the acdert it pairs with, listed in SHA256SUMS', () => {
+    expect(built).toBe(true)
+    const pairing = join(out, '0.0.2', 'acdert-version')
+    expect(readFileSync(pairing, 'utf8')).toBe(`${SDK}\n`)
+    expect(readFileSync(join(out, '0.0.2', 'SHA256SUMS'), 'utf8')).toStartWith(`${sha256(pairing)}  acdert-version\n`)
+  })
 
   test('dist refuses an SDK that is not the pinned one, and a missing SDK', async () => {
     const wrongArgs = ['--api', API, '--sdk', '9.9.9', '--version', '0.0.3', '--out', join(root, 'x')]
