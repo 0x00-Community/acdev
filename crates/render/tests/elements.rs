@@ -182,3 +182,31 @@ fn css_supports_answers_from_the_parser() {
         assert!(!dom.css_supports_declaration(property, "red").unwrap(), "{property:?} is not a property name");
     }
 }
+
+#[test]
+fn the_root_element_measures_the_viewport() {
+    let root = |doc: &Doc| doc.dom.metrics(doc.dom.query_selector(doc.dom.document(), "html").unwrap()).unwrap().unwrap();
+    let tall = page("<!doctype html><style>body { margin: 0; }</style><div style='height: 1000px'></div>");
+    let m = root(&tall);
+    assert_eq!((m.client_width, m.client_height), (480.0, 320.0), "clientHeight of the root is the viewport's, not the content's");
+    assert_eq!((m.scroll_width, m.scroll_height), (480.0, 1000.0));
+    let short = page("<!doctype html><style>body { margin: 0; }</style><div style='height: 100px'></div>");
+    let m = root(&short);
+    assert_eq!((m.client_width, m.client_height), (480.0, 320.0));
+    assert_eq!((m.scroll_width, m.scroll_height), (480.0, 320.0), "scrollHeight of the root is at least the viewport's");
+}
+
+#[test]
+fn element_from_point_follows_the_viewport_scroll() {
+    let doc = page(
+        "<!doctype html><style>body { margin: 0; } #sp { height: 1000px; } button { display: block; width: 100px; height: 40px; }</style>
+        <div id=sp></div><button id=far>Far</button>",
+    );
+    let (sp, far) = (doc.dom.get_element_by_id("sp"), doc.dom.get_element_by_id("far"));
+    assert_eq!(doc.dom.hit_test(10.0, 110.0), Some(sp));
+    doc.dom.scroll_to(doc.dom.document(), 0.0, 700.0, false).unwrap();
+    doc.commit();
+    assert_eq!(doc.dom.hit_test(10.0, 310.0), Some(far), "page y 1010 is the button once the viewport is scrolled by 700");
+    assert_eq!(doc.dom.hit_test(10.0, 110.0), Some(sp));
+    assert_eq!(doc.dom.hit_test_all(10.0, 310.0).first(), Some(&far));
+}

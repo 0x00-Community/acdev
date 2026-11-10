@@ -1616,10 +1616,18 @@ impl Engine {
         let doc = geometry.doc;
         let mut m = geometry.metrics(node)?;
         let parent = geometry.offset_parent(node);
-        if doc.try_root_element().is_some_and(|r| r.id == node) {
+        if let Some(root) = doc.try_root_element().filter(|r| r.id == node) {
             let scroll = doc.viewport_scroll();
             m.scroll_left = scroll.x;
             m.scroll_top = scroll.y;
+            let viewport = doc.viewport();
+            let scale = viewport.scale_f64();
+            let (width, height) = (f64::from(viewport.window_size.0) / scale, f64::from(viewport.window_size.1) / scale);
+            let layout = root.final_layout();
+            m.client_width = width;
+            m.client_height = height;
+            m.scroll_width = width.max(f64::from(layout.size.width.max(layout.scrollable_overflow_rect.right)));
+            m.scroll_height = height.max(f64::from(layout.size.height.max(layout.scrollable_overflow_rect.bottom)));
         }
         m.offset_parent = parent.map(|p| self.ids.id_of(p));
         Some(m)

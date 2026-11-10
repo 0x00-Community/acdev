@@ -1006,7 +1006,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - DOM: `Dom` 实现 acde-dom 的 `DomNative` (契约 `web/packages/acde-dom/src/native.ts`, 同名 snake_case). 节点 id 是 u32 不复用, `<html>` 是 0;
   查询是 CSS 像素; 错误说明以 DOMException 名字开头. 改了文档还没 `Dom::commit` 时 render 不出帧, 期间的指针和滚动在 commit 时按顺序放回.
   连在文档上的节点一直活着, 断开的子树有 JS 包装 (pin) 才活; 包装对象连着时强引用, 断开变 WeakRef, 回收时 unpin (acde-dom `realm.ts`).
-  `hit_test` 返回节点 id; `caret_rect` / `caret_from_point` / `text_rects` (偏移是 UTF-16). `<select>`: `options` / `option_selected` /
+  `hit_test` 返回节点 id (坐标是视口的, 整页滚动过也对: blitz 的 `hit` 要页面坐标, `element_from_point` 加上视口的滚动); `metrics` 对根元素照 CSSOM View 给: `clientWidth` / `clientHeight` 是视口的大小 (不是内容的), `scrollWidth` / `scrollHeight` 不小于视口 (acde-dom 的 `scrollIntoView` 靠这个判断整页能不能滚); `caret_rect` / `caret_from_point` / `text_rects` (偏移是 UTF-16). `<select>`: `options` / `option_selected` /
   `set_option_selected` / `selected_index` / `set_selected_index` / `reset_select` / `list_box_option_at`; 选项列表 `open_picker` /
   `close_picker` / `picker_state` (`[select 或 -1, 高亮的选项序号或 -1, 一页几行]`) / `picker_option_at` (-2 在列表外, -1 在列表里但不是
   选项) / `picker_option_rect` / `set_picker_active`; 列表画在 `Frame.plane` 的最后. `scroll_at` 落在打开的列表上时滚列表, 落在外面先关掉它.
@@ -1392,6 +1392,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `layout/fieldset.rs` (新), `layout/mod.rs`, `layout/construct.rs`, `node/node.rs`, stylo_taffy `wrapper.rs` | fieldset 是 flow-root; rendered legend 是块级的直接布局子节点, 居中压在上边框上, 上边框占 max(边框宽, legend 高); 不建匿名 content box. 不做竖排、`align`、百分比定高 |
 | `layout/list.rs` | outside 的列表标记按 `white-space: pre` 排 |
 | `assets/default.css` | `::placeholder` 54% currentcolor; 表单控件默认黑字; `select` 是 inline-block, 列表框 (`[multiple]` / `[size]`, `size` 是 0 / 1 的除外) 纵向能滚 |
+| `document.rs` `element_from_point` | 命中测试前加上视口的滚动偏移 (`hit` 从根元素的盒子算起, 是页面坐标): 上游整页滚动之后 `elementFromPoint` 回的是滚动前那个位置上的元素 |
 | `resolved_style.rs` `css_supports_condition` / `css_supports_declaration` | `CSS.supports(条件)` 和 `CSS.supports(属性, 值)` 交给 stylo 的 `@supports` 求值; 两个参数的那种属性名要原样是标识符 (先过 `Declaration::parse`: stylo 的 `Declaration::eval` 对不是「标识符 + 冒号」开头的文字会 panic), 值里不许 `!important` |
 | `node/select.rs` (新), `layout/select.rs` (新), `layout/construct.rs`, `layout/mod.rs`, `node/element.rs` `SpecialElementData::Select` | `<select>` 是叶子: 构造时按 list of options 给每个 option 和 optgroup 标签排一行 (select 的字体, 组标签加粗), 选中看 option 的 `CHECKED` 状态 (嵌入方设); 下拉框宽是最宽的标签加箭头, 高一行; 列表框高 `size` 行, `scrollable_overflow_rect` 含全部行; `SelectPicker` 是打开的列表的几何 |
 | `scrolling.rs` `clamp_scroll_offsets`, `resolve.rs`, `document.rs` `scrolled_nodes` | 布局后把超出新滚动范围的偏移拉回来 (节点和视口; CSSOM View), 只看偏移不是 0 的节点; 上游内容变短后一直停在末尾之外, 顶上空着又滚不回去 |
