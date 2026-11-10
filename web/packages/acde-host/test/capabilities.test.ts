@@ -132,7 +132,12 @@ describe('CapabilityCheck and approval', () => {
     const c = check('win32', 'desktop', [], [], { launch: 'denied' })
     assert.deepEqual(c.status('launch', a, third), { name: 'launch', kind: 'system', state: 'denied', reason: 'denied by the user', optional: false })
     assert.deepEqual(c.missing(a, third).map((s) => s.name), ['launch'])
-    assert.ok(c.refusal(a, third)!.message.includes(`"launch" (denied by the user)`))
+    const refusal = c.refusal(a, third) as Error & { status: number; code: string; capability: string }
+    assert.equal(refusal.message, 'Demo: "launch" is denied by the user')
+    assert.deepEqual([refusal.status, refusal.code, refusal.capability], [403, 'denied', 'launch'])
+    const both = check('win32', 'desktop', [], [], { launch: 'denied' }).refusal(app({ capabilities: { launch: true, office: true } }), third)
+    assert.equal(both!.message, 'Demo needs "launch" (denied by the user), "office" (unsupported on this platform)', 'what the platform lacks comes first')
+    assert.equal((both as Error & { code: string }).code, 'unsupported_app')
     assert.equal(check('win32', 'desktop', [], [], { network: 'denied' }).status('network', app({ capabilities: { network: true } }), third).state, 'unsupported')
   })
 

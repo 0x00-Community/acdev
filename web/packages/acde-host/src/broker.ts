@@ -84,6 +84,7 @@ export class Broker {
     tell: (event) => this.#toDesktop(event),
   })
   readonly #launchable = new Launchable({
+    platform: process.platform,
     apps: () => this.apps,
     hosted: () => !!this.shell.hosted,
     standalone: () => !!this.#options.standalone,
@@ -347,10 +348,7 @@ export class Broker {
         this.#opening = true
         this.launch(standalone, null, 'fullscreen').then(
           (opened) => (this.#standaloneWindow = opened.window),
-          (error: Error) => {
-            Log.write(Level.Error, 'acde_host', `acdert app ${standalone}: ${error.message}`)
-            this.#end('exit')
-          },
+          (error: Error) => this.#endStandalone(standalone, error),
         )
       }
       return
@@ -496,6 +494,11 @@ export class Broker {
       Log.write(Level.Warn, 'acde_host', `[${web.name}] stopped (${reason ?? `exit ${code}`})`)
     }
     this.#forget(record, web.closing ? 'close' : 'exit')
+  }
+
+  #endStandalone(appId: string, error: Error): void {
+    Log.write(Level.Error, 'acde_host', Launchable.ended(appId, error))
+    this.#end('exit')
   }
 
   #end(reason: RunEnd): void {
@@ -699,20 +702,19 @@ export class Broker {
       const state = await Broker.#snapshot(web)
       if (primary) {
         if (this.#stopped || !web || primary.web !== web || web.closing || web.reloading) return
-        if (!after || !this.#launchable.available(after)) {
-          Log.write(
-            Level.Error, 'acde_host', `acdert app ${app}: the app or a required system service is no longer available`,
-          )
-          this.#end('exit')
-          return
+        let next: AppManifest
+        try {
+          next = this.#launchable.app(app)
+        } catch (error) {
+          return this.#endStandalone(app, error as Error)
         }
         if (state) this.#devStates.set(app, state)
         const backend = primary.app?.backend ? this.backends.stop(app) : undefined
-        primary.app = after
+        primary.app = next
         web.reloading = true
         await web.terminate()
         await backend
-        if (!this.#stopped && primary.app === after) this.backends.start(after)
+        if (!this.#stopped && primary.app === next) this.backends.start(next)
         return
       }
       if (state) this.#devStates.set(app, state)

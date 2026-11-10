@@ -1,11 +1,11 @@
 import type { AppManifest, AppRegistry } from '../../apps'
 import type { PageBridge } from '../../bridge'
-import { process } from '../../sys/process'
 import { CapabilityCheck } from './capabilities'
 import type { Permissions } from './approval/permissions'
 import { Tiers, type WebTier } from './tier'
 
 export interface LaunchableHost {
+  readonly platform: string
   apps(): AppRegistry
   hosted(): boolean
   standalone(): boolean
@@ -21,12 +21,17 @@ export class Launchable {
   constructor(host: LaunchableHost) {
     this.#host = host
     this.capabilities = new CapabilityCheck({
-      platform: process.platform,
+      platform: host.platform,
       mode: () => (!host.hosted() ? 'session' : host.standalone() ? 'standalone' : 'desktop'),
       running: (service) => host.bridge().services.running(service),
       present: (capability) => host.bridge().present(capability),
       approval: (app, origin, capability) => host.permissions().approval(app, origin, capability),
     })
+  }
+
+  static ended(appId: string, error: Error): string {
+    const again = (error as { code?: string }).code === 'denied' ? '; acdert app asks for it again the next time it runs' : ''
+    return `acdert app ${appId}: ${error.message}${again}`
   }
 
   available(app: AppManifest): boolean {

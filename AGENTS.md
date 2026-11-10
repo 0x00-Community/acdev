@@ -478,7 +478,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `shell-only` (第三方应用的外壳模块), 要批准的能力 (见「批准」) 另有 `not-asked` (还没问过用户)、`asking` (提示已经弹出, 在等回答)、`denied` (用户拒绝或撤销);
   要批准的能力只有批准了才是 `available`. `reason` 是这个状态的一句话 (`not asked for yet`、`waiting for the user's answer`、`denied by the user` …).
   必需的既不是 `available` 也不是等着问的 (`not-asked` / `asking`, 启动时会问) 时应用不进 `acde:apps` 列表和打开方式, 启动报
-  `<label> needs "terminal" (unsupported on this platform)` (404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`). 可选的照常启动;
+  `<label> needs "terminal" (unsupported on this platform)` (404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`); 缺的只是被用户拒绝的
+  (`CapabilityCheck.refusal`) 报批准那句 `<label>: "terminal" is denied by the user` (403 `denied`, 带 `capability`), 和 `admit` 拒绝时一样. 可选的照常启动;
   声明了但不可用的 fs / terminal / network / office 在 import 时报原因.
 - **平台支持表** (SDK `src/runtime/platforms.js` 的 `PLATFORM_SUPPORT` / `platformSupport(platform, mode)`, 从包根和 `/manifest` 导出, 运行时、acde 的
   平台检查和本文都以它为准): 按 `process.platform` × 运行方式 (`session` Linux 会话、`desktop` 完整桌面的宿主窗口、`standalone` 单应用宿主窗口) 给
@@ -516,7 +517,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `approve(title, message)` (hostwin `Cmd::Approve`, Windows 是 `platform/win32/approve.rs` 的 `MessageBoxW`, 以宿主窗口为 owner, 是 / 否, 默认否),
   一次只开一个, 其余排队; 答案经 `Permissions.answer` 写进同一份 `permissions.json`, 和桌面答的一样. driver 或别处先答了, Broker 调
   `dismissApproval` 关掉还开着的对话框 (它不算回答), 排队的直接丢掉. headless 和 macOS / Linux 宿主窗口没有对话框 (`approve` 回 null), 照旧等 driver.
-  拒绝必需能力时 `acdert app` 记一行错误后退出. **`acdert app` 里以前的拒绝会再问一次** (`PermissionsHost.asksAgain`, 单应用模式为真): 记录里是
+  拒绝必需能力时 `acdert app` 记一行错误后退出. 会话里撤销了正在跑的应用的必需能力 (`acde revoke`), 这一次运行里它算拒绝, 页面还开着 (调用报 403 `denied`),
+  下一次重载 (`devReload` 对主窗口用 `Launchable.app` 重新查一遍: 应用没了、级别不对、平台不支持、服务没在跑、被拒绝各报各的话) 时结束会话. 两处的那行错误都是
+  `Launchable.ended`: `acdert app <id>: <原因>`, 原因是拒绝 (`code: 'denied'`) 时后面加 `; acdert app asks for it again the next time it runs`
+  (撤销删掉了记录, 拒绝的记录下次按下面的规则再问, 所以这句总成立). **`acdert app` 里以前的拒绝会再问一次** (`PermissionsHost.asksAgain`, 单应用模式为真): 记录里是
   `denied`、这一次运行还没问过的能力, `permit` 当作 `ask`, 问的时候删掉旧记录并记一行 `was denied … in an earlier run: asking again`; 这一次运行里答了「否」照旧不问第二次.
   单应用模式是开发者点名要跑这个应用, 又没有桌面的权限界面; 不这样的话拒绝一次之后每次 `acde dev` 都在开窗前退出, 而 `acde revoke` 要有会话才能用, 只剩手改 `permissions.json`. 桌面和会话里记下的拒绝照旧有效.
   `icon` 是 `ICON_NAMES` (`@dopame/acde-api/manifest`, 和 Dopame art 引擎 `APPS` 的名字一致, 加名字两边一起改) 之一, 或 assets 下以

@@ -11,7 +11,7 @@ import {
   type WindowFeatures,
 } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../apps'
-import type { Approval } from './approval/permissions'
+import { Permissions, type Approval } from './approval/permissions'
 
 export interface CapabilityHost {
   readonly platform: string
@@ -108,6 +108,8 @@ export class CapabilityCheck {
   refusal(app: AppManifest, origin: AppOrigin): Error | null {
     const missing = this.missing(app, origin)
     if (!missing.length) return null
+    const denied = missing.every((status) => status.state === 'denied')
+    if (denied) return Permissions.error(app.label, missing[0]!.name)
     const names = missing.map((status) => `"${status.name}" (${status.reason})`).join(', ')
     const stopped = missing.some((status) => status.state === 'service-not-running')
     const error = new Error(`${app.label} needs ${names}`)
