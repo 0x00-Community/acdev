@@ -178,7 +178,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **输入**: 平台事件变成 evdev 码 (`keys.rs`) 和逻辑坐标. 按下命中最上面的窗口 (`State::hit`; 面板按 input 区域, 落到 owner; 窗口有模态子窗口时 `Hit.blocked`, 只激活模态子窗口, 指针、滚轮、拖放都不给它), 给它焦点、提前,
   之后的移动和抬起都发给它 (隐式 grab); 按在 grab hint 上由 hostwin 自己拖动 / 改大小. 滚轮发 `wheel` 给指针下的窗口, 同时交给它的出帧线程
   (`Msg::Scroll` → `RenderHandle::scroll_at`) 做默认滚动, 和会话里 crates/window 一样. 键先过快捷键表再发给焦点窗口; 宿主窗口失焦只发
-  `deactivate`. 输入法是 `imepreedit` / `imecommit` 事件 (Windows: `WM_IME_COMPOSITION`, 上屏只发 commit, 只有在组字时结束才发空预编辑表示取消);
+  `deactivate`. 面板不单独拿焦点: 给面板焦点 (`State::focus_target`) 落到它的 owner, 面板每次放置时的重新显示也不抢焦点, 所以焦点在桌面页面和它的面板之间
+  移动时桌面页面不收 `deactivate` (不发 `blur`). 输入法是 `imepreedit` / `imecommit` 事件 (Windows: `WM_IME_COMPOSITION`, 上屏只发 commit, 只有在组字时结束才发空预编辑表示取消);
   候选框位置: 宿主窗口没有 fcitx, acde-host 的 `TextEntry` 用 `InputMethod.area` 把光标矩形交给 `setImeArea`, Windows 上同时设 IMM 的
   组字 / 候选窗口并回答 `WM_IME_REQUEST` 的 `IMR_QUERYCHARPOSITION` (微软拼音这类 TSF 输入法只问它). 拖进来的文件: 指针下的窗口收 `dndenter` + `dnddrop`, 同时记下这个窗口应用的一次性 copyIn 授权 (见「文件」);
   `dnddrop` 的 `data` 是 `text/uri-list` 和 `text/plain` (扩展期, #69 去掉绝对路径), 另带 `files` (`Event.files`, 系统拖放的路径, 只有这里和 Linux 会话的

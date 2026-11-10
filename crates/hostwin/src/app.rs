@@ -59,7 +59,7 @@ impl Server {
     pub fn activate(&self, id: u32) {
         let (id, previous) = {
             let mut state = self.state();
-            let id = state.modal_child(id).unwrap_or(id);
+            let Some(id) = state.focus_target(id) else { return };
             let raise = state.entries.get(&id).is_some_and(|e| !e.desktop && !e.panel);
             if raise {
                 state.raise(id);

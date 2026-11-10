@@ -154,6 +154,17 @@ impl State {
         found
     }
 
+    /// The window that takes the focus when `id` is asked to: a pinned panel is part of its owner's page (focus inside it is
+    /// the page's own business, as in the session where the page and its panels count as one), so its owner, and none while the
+    /// panel has no owner yet; then the topmost modal child of that window, if any.
+    pub fn focus_target(&self, id: u32) -> Option<u32> {
+        let id = match self.entries.get(&id) {
+            Some(e) if e.panel => e.owner?,
+            _ => id,
+        };
+        Some(self.modal_child(id).unwrap_or(id))
+    }
+
     pub fn modal_child(&self, id: u32) -> Option<u32> {
         let mut found = None;
         let mut current = id;
@@ -411,10 +422,12 @@ impl Shell {
             return;
         };
         e.hidden = hidden;
+        let panel = e.panel;
         let focused = state.focus == Some(window);
         drop(state);
         let server = server().expect("hostwin");
-        if !hidden {
+        // A panel is shown again each time its page places it (acde-host `panel.place`); that is not a request for focus.
+        if !hidden && !panel {
             self.focus(window);
         } else if focused {
             server.focus_top();
@@ -591,6 +604,21 @@ pub(crate) mod tests {
         assert_eq!(s.modal_child(parent), None);
         assert_eq!((s.entries[&inner].parent, s.entries[&inner].modal), (None, false));
         assert_eq!(s.hit(10.0, 10.0).map(|h| (h.target, h.blocked)), Some((parent, false)));
+    }
+
+    #[test]
+    fn focus_asked_for_a_panel_goes_to_its_owner() {
+        let mut s = screen();
+        let desktop = open(&mut s, Grant { desktop: true, ..Grant::default() });
+        let panel = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 0.0, 400.0, 40.0]), ..Grant::default() });
+        assert!(s.entries[&panel].panel);
+        assert_eq!(s.focus_target(panel), None, "a panel not yet opened by a page focuses nothing");
+        s.entries.get_mut(&panel).expect("panel").owner = Some(desktop);
+        assert_eq!(s.focus_target(panel), Some(desktop));
+        assert_eq!(s.focus_target(desktop), Some(desktop));
+        let window = open(&mut s, Grant { rect: Some([0.0, 0.0, 600.0, 400.0]), ..Grant::default() });
+        let dialog = open(&mut s, Grant { parent: Some(window), modal: true, size: Some([200.0, 100.0]), ..Grant::default() });
+        assert_eq!(s.focus_target(window), Some(dialog), "modal children still take their parent's focus");
     }
 
     #[test]
