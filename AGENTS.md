@@ -946,16 +946,20 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 
 - **网页的树** (render `Dom::semantics(root, limit)`, `dom/semantics.rs`): 节点 `{id, role, name?, value?, states?, level?, rect, children?}`, id 是
   render 的节点 id (ref 跨次稳定). 角色按 `role` 属性 / 标签, 都没有但 `cursor: pointer` 的是 `clickable`; 名字按 aria / label / alt / 文字, 最多
-  120 字; 剪掉不可见的子树, 没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600). `<select>`: 下拉框是
+  120 字; 剪掉不可见的子树 (`display: none`、`aria-hidden="true"`、`inert`、`opacity: 0`、`visibility` 不是 `visible`、滚到可见范围外的),
+  没有角色名字状态的展开; 每个父节点最多 60 个子节点, 全树最多 limit (默认 600). `semantics(root, limit, offscreen, invisible)`: `invisible`
+  时留下透明和 `visibility: hidden` 的元素, 自己或祖先 `opacity: 0` 的标 `transparent`, `visibility` 不可见的标 `invisible` (透明的照样能点,
+  不可见的点不到); `display: none`、`aria-hidden`、`inert` 照样剪. `<select>`: 下拉框是
   `combobox` (值是选中项的文字, `collapsed` / `expanded`, 打开时子节点是列表里看得见的 `option`, rect 是列表里那一行), 列表框是 `listbox`
   (子节点是看得见的行).
-- **web 侧** (`pageinspect.ts`): `tree(root, limit, offscreen)` (`offscreen` 时不剪掉滚到可见范围外的子树, 不可见的照样剪)、`query(selector, within,
+- **web 侧** (`pageinspect.ts`): `tree(root, limit, offscreen, invisible)` (`offscreen` 时不剪掉滚到可见范围外的子树, `invisible` 时留下透明和
+  `visibility: hidden` 的, 见上)、`query(selector, within,
   limit)` (`querySelectorAll`, 每个元素再用 `semantics(id, 1, true)` 取它自己的角色名字状态, 没有语义的给 `generic` 和 aria-label / title / 文字,
   加 `tag` 和 `visible`: 有大小、不是 hidden / display:none / 透明)、`point(id)` (元素可点的一点: 先 `scrollIntoView`, 在中心和四个四分点上 `hitTest`, 全被挡时报挡住的
   元素; 打开的下拉列表里的 option 用 `pickerOptionRect` 那一行的中心)、`type(id, text, replace)` (走输入法提交那条路 `Host.insertText`)、`select(id, values)` (元素自己、祖先或里面的 `<select>`; 按 value
   再按文字找选项, 禁用的回错, 单选给多个回错; 设好后发 `input` 和 `change`)、`focus(id)`, 坐标加 `contentOffset`.
 - **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
-  `{text, windows, trees}`: 先列窗口, 再列焦点窗口 (或指定的) 的树, 一行一个节点 `- button "新建文件夹" [pressed] [w1.52]`; `find` 只给名字或
+  `{text, windows, trees}`: 先列窗口, 再列焦点窗口 (或指定的) 的树 (`all` 列全部没最小化的窗口, 并留下透明和 `visibility: hidden` 的元素), 一行一个节点 `- button "新建文件夹" [pressed] [w1.52]`; `find` 只给名字或
   值含这段文字的元素和祖先; `diff` 只给变了的行 (`+` / `~` / `-`), 变化超过六成整个重列. `act(ref, action, arg)` → `{ok, text}`: 做完等页面安静
   (200 ms 没有 DOM 变化, 最多 3 秒; 原生窗口 0.4 秒), 窗口表或焦点变了先等新焦点窗口安静. `run(steps)` 依次做, 失败就停. 动作: click /
   double / right / hover / scroll 按 `point` 的屏幕坐标经 `Shell.inject` 发 (被盖住时先提前目标窗口; 桌面钉住的面板盖着的地方只算被更上层的钉住窗口挡住, #111); type / settext 走 web 的 `type`;
@@ -1002,7 +1006,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   超过 20000 条命令 (`ACDE_CANVAS_MAX_COMMANDS`) 画成纹理再接着记, canvas 当图片源是 `GpuImage`, `shadowBlur` 用 `blur.wgsl`,
   `getImageData` / `toDataURL` 同步读回. 提交都拿 `Gpu::submit_lock`.
 - 选项 `default_lang` (默认 zh-Hans, 选 CJK 地区变体)、`reduced_motion`、`dark` (事后用 `set_reduced_motion` / `set_dark` 改, 都只改
-  viewport, 媒体查询和 `matchMedia` 跟着变). `semantics(root, limit, offscreen)`: offscreen 时不按可见范围剪. `<iframe>` 不加载
+  viewport, 媒体查询和 `matchMedia` 跟着变). `semantics(root, limit, offscreen, invisible)`: offscreen 时不按可见范围剪, invisible 见「看和操作桌面」. `<iframe>` 不加载
   (`skip_iframe_content`), 只是空盒子. 增量录制见 vendors/acrender; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
   64 MB. 所有入口 `catch_unwind`.
 - 窗框 (`decoration.rs`): `Decoration::scene(&Bar {title, width, height, scale, style, fullscreen})` → 物理像素的场景 (背景 #f4f2f7; `FrameStyle::Mac`:

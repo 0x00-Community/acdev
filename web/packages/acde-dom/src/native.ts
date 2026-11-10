@@ -157,7 +157,7 @@ export interface DomNative {
 
   commit(): void
 
-  semantics?(root: number, limit: number, offscreen?: boolean): string
+  semantics?(root: number, limit: number, offscreen?: boolean, invisible?: boolean): string
 
   stats(reset?: boolean): DomStats
 }

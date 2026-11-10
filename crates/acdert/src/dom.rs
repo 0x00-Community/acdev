@@ -646,8 +646,8 @@ natives! {
     "pinnedIn" => fn pinned_in(scope, args, dom) { let id = id(scope, &args, 0); dom.pinned_in(id).map(Ids) }
     "commit" => fn commit(scope, args, dom) { dom.commit(); Ok(()) }
     "semantics" => fn semantics(scope, args, dom) {
-        let (id, limit, offscreen) = (id(scope, &args, 0), f(scope, &args, 1), bind::arg_bool(scope, &args, 2));
-        dom.semantics(id, if limit.is_finite() && limit >= 1.0 { limit as u32 } else { 600 }, offscreen)
+        let (id, limit, offscreen, invisible) = (id(scope, &args, 0), f(scope, &args, 1), bind::arg_bool(scope, &args, 2), bind::arg_bool(scope, &args, 3));
+        dom.semantics(id, if limit.is_finite() && limit >= 1.0 { limit as u32 } else { 600 }, offscreen, invisible)
     }
     "stats" => fn stats(scope, args, dom) {
         let stats = dom.stats();

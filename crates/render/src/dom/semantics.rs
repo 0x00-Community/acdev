@@ -62,10 +62,12 @@ struct Walk<'a> {
     budget: usize,
     hidden: usize,
     offscreen: bool,
+    invisible: bool,
+    faded: bool,
 }
 
 impl Dom {
-    pub fn semantics(&self, root: u32, limit: u32, offscreen: bool) -> crate::Result<String> {
+    pub fn semantics(&self, root: u32, limit: u32, offscreen: bool, invisible: bool) -> crate::Result<String> {
         self.read(|e| {
             let root = match root {
                 super::NONE => e.doc.try_root_element().map(|r| r.id),
@@ -77,8 +79,16 @@ impl Dom {
                 let viewport = e.doc.viewport();
                 let scale = viewport.scale_f64();
                 let screen = kurbo::Rect::new(0.0, 0.0, f64::from(viewport.window_size.0) / scale, f64::from(viewport.window_size.1) / scale);
-                let mut walk =
-                    Walk { e, geometry: Geometry { doc: &e.doc }, focus: e.doc.get_focussed_node_id(), budget: limit.max(1) as usize, hidden: 0, offscreen };
+                let mut walk = Walk {
+                    e,
+                    geometry: Geometry { doc: &e.doc },
+                    focus: e.doc.get_focussed_node_id(),
+                    budget: limit.max(1) as usize,
+                    hidden: 0,
+                    offscreen,
+                    invisible,
+                    faded: false,
+                };
                 tree.nodes = walk.element(root, screen, &mut tree.truncated);
                 tree.hidden = walk.hidden;
                 number(&mut tree.nodes, &mut |n| e.ids.id_of(n));
@@ -174,9 +184,16 @@ impl<'a> Walk<'a> {
             return Vec::new();
         }
         let Some(style) = n.primary_styles() else { return Vec::new() };
-        if style.get_box().display.is_none() || style.get_effects().opacity <= 0.0 || style.clone_visibility() != Visibility::Visible {
+        if style.get_box().display.is_none() {
             return Vec::new();
         }
+        let transparent = style.get_effects().opacity <= 0.0;
+        let unseen = style.clone_visibility() != Visibility::Visible;
+        if (transparent || unseen) && !self.invisible {
+            return Vec::new();
+        }
+        let faded = self.faded;
+        let transparent = transparent || faded;
         let rect = self.geometry.client_rect(id).unwrap_or_default();
         let sized = rect.width > 0.0 && rect.height > 0.0;
         let visible = kurbo::Rect::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height).intersect(clip);
@@ -213,6 +230,7 @@ impl<'a> Walk<'a> {
         let mut more = 0;
         let child_ids: Vec<NodeId> = n.children.to_vec();
         let named_by_content = content_named && !name.is_empty();
+        self.faded = transparent;
         for child in child_ids {
             let Some(c) = self.node(child) else { continue };
             if let NodeData::Text(t) = &c.data {
@@ -257,6 +275,7 @@ impl<'a> Walk<'a> {
                 children.extend(found);
             }
         }
+        self.faded = faded;
         if control == Control::Select {
             children.extend(self.list_box_options(id, truncated));
             if !self.e.display_size(id).1 {
@@ -286,6 +305,12 @@ impl<'a> Walk<'a> {
         }
         if children.is_empty() && name.is_empty() && value.is_none() && more == 0 && !INTERACTIVE.contains(&role.as_str()) {
             return Vec::new();
+        }
+        if transparent {
+            states.push("transparent");
+        }
+        if unseen {
+            states.push("invisible");
         }
         vec![Sem { node: id, id: 0, role, name, value, states, rect: if sized { rect } else { Rect::default() }, level, children, more }]
     }

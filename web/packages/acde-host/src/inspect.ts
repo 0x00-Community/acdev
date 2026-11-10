@@ -83,6 +83,11 @@ interface Aliases {
 
 type Line = readonly [string, string]
 
+interface Tree {
+  readonly nodes: InspectNode[]
+  readonly notes: string[]
+}
+
 const LEFT = 0x110
 const RIGHT = 0x111
 
@@ -171,7 +176,7 @@ export class Inspect {
     const lines: string[] = same ? ['窗口没变.'] : ['窗口 (上面的在前):', ...headers]
     const trees: Record<string, readonly InspectNode[]> = {}
     for (const window of targets) {
-      const { nodes, notes } = await this.#tree(window, parsed?.node ?? null, limit, options.offscreen === true)
+      const { nodes, notes } = await this.#tree(window, parsed?.node ?? null, limit, options.offscreen === true, options.all === true)
       const under = parsed?.node != null ? ` (${options.ref} 以下)` : ''
       if (find) {
         const found = Inspect.#find(nodes, find)
@@ -393,7 +398,7 @@ export class Inspect {
   #pointer(window: InspectWindow, x: number, y: number, action: InspectAction, arg: InspectArg): ActResult {
     const cover = this.#cover(window, x, y)
     if (cover) {
-      if (window.kind === 'desktop') return { ok: false, text: `那里被 ${cover.ref} (${cover.title ?? cover.app ?? cover.kind}) 挡住了; 先把它最小化或关掉` }
+      if (window.kind === 'desktop') return { ok: false, text: `那里被 ${Inspect.#label(cover)} 挡住了; 先把它最小化或关掉` }
       this.#focus(window)
     }
     const shell = this.#host.shell
@@ -429,7 +434,7 @@ export class Inspect {
     if (typeof to !== 'string' || !Inspect.#parse(to)) return { ok: false, text: 'drag 要给放到哪里: 目标的 ref (像 w3.12, 或窗口 w3)' }
     const cover = this.#cover(window, x, y)
     if (cover) {
-      if (window.kind === 'desktop') return { ok: false, text: `那里被 ${cover.ref} (${cover.title ?? cover.app ?? cover.kind}) 挡住了; 先把它最小化或关掉` }
+      if (window.kind === 'desktop') return { ok: false, text: `那里被 ${Inspect.#label(cover)} 挡住了; 先把它最小化或关掉` }
       this.#focus(window)
     }
     const shell = this.#host.shell
@@ -472,7 +477,11 @@ export class Inspect {
 
   #uncovered(window: InspectWindow, x: number, y: number): Point {
     const cover = this.#cover(window, x, y)
-    return cover ? { error: `${window.ref} 的那里被 ${cover.ref} (${cover.title ?? cover.app ?? cover.kind}) 挡住了` } : { x, y }
+    return cover ? { error: `${window.ref} 的那里被 ${Inspect.#label(cover)} 挡住了` } : { x, y }
+  }
+
+  static #label(w: InspectWindow): string {
+    return `${w.ref} (${w.title ?? w.app ?? w.kind})`
   }
 
   static #values(arg: InspectArg): string[] | null {
@@ -494,7 +503,8 @@ export class Inspect {
       if (!at(row)) continue
       if (this.#host.panel(id)) {
         const rect: [number, number, number, number] = [row.x, row.y, row.width, row.height]
-        return { ref: 'w0', id: 0, kind: 'desktop', app: null, title: '桌面的面板', mode: row.mode, rect, z: row.z, focus: row.focus, hidden: false, pid: null }
+        const title = '桌面的面板'
+        return { ref: 'w0', id: 0, kind: 'desktop', app: null, title, mode: row.mode, rect, z: row.z, focus: row.focus, hidden: false, pid: null }
       }
       return this.windows().find((w) => w.id === id) ?? null
     }
@@ -540,12 +550,12 @@ export class Inspect {
     return { window: window.ref, count: found.count, nodes }
   }
 
-  async #tree(window: InspectWindow, node: number | null, limit: number, offscreen = false): Promise<{ nodes: InspectNode[]; notes: string[] }> {
+  async #tree(window: InspectWindow, node: number | null, limit: number, offscreen = false, invisible = false): Promise<Tree> {
     if (window.hidden) return { nodes: [], notes: ['(最小化了; act 它 restore 再看)'] }
     if (window.kind === 'native') return this.#nativeTree(window, limit)
     const rpc = this.#host.web(window.id)
     if (!rpc) return { nodes: [], notes: ['(页面没在运行)'] }
-    const tree = (await rpc.call('inspect', 'tree', [node ?? -1, limit, offscreen])) as PageTree
+    const tree = (await rpc.call('inspect', 'tree', [node ?? -1, limit, offscreen, invisible])) as PageTree
     const convert = (n: PageNode): InspectNode => Inspect.#node(window, n.id, n, n.states, n.rect, (n.children ?? []).map(convert))
     const notes: string[] = []
     if (tree.hidden) notes.push(`(可见范围外还有 ${tree.hidden} 个元素没列出; scroll 再看)`)
@@ -553,7 +563,7 @@ export class Inspect {
     return { nodes: tree.nodes.map(convert), notes }
   }
 
-  async #nativeTree(window: InspectWindow, limit: number): Promise<{ nodes: InspectNode[]; notes: string[] }> {
+  async #nativeTree(window: InspectWindow, limit: number): Promise<Tree> {
     const access = await this.#host.accessibility()
     if (!access) return { nodes: [], notes: ['(这个会话没有 AT-SPI, 看不到原生窗口的内容)'] }
     if (!window.pid) return { nodes: [], notes: ['(不知道这个窗口的进程)'] }

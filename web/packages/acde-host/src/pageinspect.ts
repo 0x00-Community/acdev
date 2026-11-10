@@ -49,7 +49,7 @@ export class PageInspect {
   serve(method: string, args: unknown[]): unknown {
     switch (method) {
       case 'tree':
-        return this.tree(Number(args[0] ?? -1), Number(args[1] ?? PageInspect.LIMIT), args[2] === true)
+        return this.tree(Number(args[0] ?? -1), Number(args[1] ?? PageInspect.LIMIT), args[2] === true, args[3] === true)
       case 'query':
         return this.query(String(args[0] ?? ''), Number(args[1] ?? -1), Number(args[2] ?? PageInspect.LIMIT), Array.isArray(args[3]) ? args[3].map(String) : [])
       case 'point':
@@ -67,9 +67,9 @@ export class PageInspect {
     }
   }
 
-  tree(root: number, limit: number, offscreen = false): PageTree {
+  tree(root: number, limit: number, offscreen = false, invisible = false): PageTree {
     if (!this.dom.semantics) throw new Error('this acde has no semantics')
-    const parsed = JSON.parse(this.dom.semantics(root < 0 ? -1 : root, limit, offscreen)) as Omit<PageTree, 'width' | 'height'>
+    const parsed = JSON.parse(this.dom.semantics(root < 0 ? -1 : root, limit, offscreen, invisible)) as Omit<PageTree, 'width' | 'height'>
     const window = this.page.window as unknown as Window
     return { ...parsed, nodes: parsed.nodes.map((n) => this.#moved(n)), width: window.innerWidth, height: window.innerHeight }
   }
@@ -96,7 +96,7 @@ export class PageInspect {
 
   #match(element: Element): PageMatch {
     const id = this.page.idOf(element)
-    const tree = JSON.parse(this.dom.semantics!(id, 1, true)) as { nodes: PageNode[] }
+    const tree = JSON.parse(this.dom.semantics!(id, 1, true, true)) as { nodes: PageNode[] }
     const own = tree.nodes.length === 1 && tree.nodes[0]!.id === id ? tree.nodes[0]! : null
     const box = element.getBoundingClientRect()
     const style = (this.page.window as unknown as Window).getComputedStyle(element)
@@ -104,7 +104,7 @@ export class PageInspect {
     const rect: [number, number, number, number] = [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)]
     const text = (element.getAttribute('aria-label') || element.getAttribute('title') || element.textContent || '').replace(/\s+/g, ' ').trim()
     const base: PageNode = own
-      ? { id, role: own.role, ...(own.name && { name: own.name }), ...(own.value !== undefined && { value: own.value }), ...(own.states && { states: own.states }), ...(own.level && { level: own.level }), rect }
+      ? (({ children: _children, more: _more, ...kept }) => ({ ...kept, rect }))(own)
       : { id, role: 'generic', ...(text && { name: text.length > 120 ? `${text.slice(0, 120)}…` : text }), rect }
     return { ...this.#moved(base), tag: element.localName, visible }
   }
@@ -191,8 +191,10 @@ export class PageInspect {
     const options = [...select.options]
     const picked = values.map((value) => {
       const option = options.find((o) => o.value === value) ?? options.find((o) => o.label === value || o.text === value)
-      if (!option) throw new Error(`没有选项 ${JSON.stringify(value)} (有: ${options.map((o) => JSON.stringify(o.value === o.text ? o.value : `${o.value} ${o.text}`)).join(', ')})`)
-      if (option.disabled || (option.parentElement instanceof window.HTMLOptGroupElement && option.parentElement.disabled)) throw new Error(`选项 ${JSON.stringify(value)} 是禁用的`)
+      const listed = () => options.map((o) => JSON.stringify(o.value === o.text ? o.value : `${o.value} ${o.text}`)).join(', ')
+      if (!option) throw new Error(`没有选项 ${JSON.stringify(value)} (有: ${listed()})`)
+      const group = option.parentElement instanceof window.HTMLOptGroupElement && option.parentElement.disabled
+      if (option.disabled || group) throw new Error(`选项 ${JSON.stringify(value)} 是禁用的`)
       return option
     })
     if (!select.multiple && picked.length > 1) throw new Error(`这个 <select> 只能选一个, 给了 ${picked.length} 个`)

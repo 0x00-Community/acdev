@@ -282,10 +282,10 @@ fn list_box_options_have_their_rows_as_boxes_and_are_hit() {
 fn the_semantics_tree_shows_an_open_pickers_options() {
     let doc = page("<select id=s><option>one</option><option>two</option></select>");
     let s = id(&doc, "s");
-    let closed = doc.semantics(NONE, 100, true).unwrap();
+    let closed = doc.semantics(NONE, 100, true, false).unwrap();
     assert!(closed.contains("\"collapsed\"") && !closed.contains("\"option\""), "{closed}");
     doc.open_picker(s).unwrap();
-    let open = doc.semantics(NONE, 100, true).unwrap();
+    let open = doc.semantics(NONE, 100, true, false).unwrap();
     assert!(open.contains("\"expanded\"") && open.matches("\"option\"").count() == 2, "{open}");
     let two = doc.options(s).unwrap()[1];
     let [x, y, w, h] = doc.picker_option_rect(two).unwrap().unwrap();
