@@ -302,13 +302,15 @@ impl Thread {
             let ([x, y, w, h], [radius, blur, saturate, brightness]) = layer.backdrop?;
             let origin = [(layer.rect[0] * scale).round(), (layer.rect[1] * scale).round()];
             let rect = [(origin[0] + x) as f32, (origin[1] + y) as f32, w as f32, h as f32];
-            (blur > 0.0 || saturate != 1.0 || brightness != 1.0).then_some(acde_gpu::Backdrop {
-                rect,
-                radius: radius as f32,
-                blur: blur as f32,
-                saturate: saturate as f32,
-                brightness: brightness as f32,
-            })
+            let mut effect = acde_gpu::Effect::default();
+            effect.blur(blur as f32);
+            if saturate != 1.0 {
+                effect.matrix(acde_gpu::ColorMatrix::saturate(saturate as f32).0);
+            }
+            if brightness != 1.0 {
+                effect.matrix(acde_gpu::ColorMatrix::brightness(brightness as f32).0);
+            }
+            (!effect.is_none()).then_some(acde_gpu::Backdrop { rect, radius: radius as f32, effect })
         };
         Some(shown.iter().map(|l| (l.id, backdrop(l))).collect())
     }

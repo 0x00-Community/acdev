@@ -1,10 +1,10 @@
 struct Params {
     texel: vec2<f32>,
     offset: f32,
-    saturate: f32,
+    spare0: f32,
     rect: vec4<f32>,
     radius: f32,
-    brightness: f32,
+    spare1: f32,
     shift: vec2<f32>,
     color: vec4<f32>,
     matrix: mat4x4<f32>,
@@ -74,9 +74,10 @@ fn rounded_rect(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
 fn fs_backdrop(in: VsOut) -> @location(0) vec4<f32> {
     let px = in.pos.xy;
     let local = (px - params.rect.xy) / params.rect.zw;
-    var c = textureSample(src, samp, clamp(local, vec2<f32>(0.0), vec2<f32>(1.0)));
-    let luma = dot(c.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-    c = vec4<f32>(mix(vec3<f32>(luma), c.rgb, params.saturate) * params.brightness, c.a);
+    let p = textureSample(src, samp, clamp(local, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let straight = select(vec4<f32>(0.0), vec4<f32>(p.rgb / p.a, p.a), p.a > 0.0);
+    let m = clamp(params.matrix * straight + params.bias, vec4<f32>(0.0), vec4<f32>(1.0));
+    let c = vec4<f32>(m.rgb * m.a, m.a);
     let half = params.rect.zw * 0.5;
     let d = rounded_rect(px - params.rect.xy - half, half, min(params.radius, min(half.x, half.y)));
     let mask = clamp(0.5 - d, 0.0, 1.0);

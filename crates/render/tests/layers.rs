@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use acde_gpu::FilterEffect;
+use acde_gpu::{ColorMatrix, Effect};
 use acde_gpu::{PaintScene, Scene};
 use acde_render::{Frame, Options};
 
@@ -12,7 +13,13 @@ const CSS: &str = "html, body { margin: 0; height: 100%; }
   .card { position: absolute; left: 50px; top: 40px; width: 200px; height: 120px; border-radius: 16px;
           background: rgba(255, 255, 255, .25); backdrop-filter: blur(20px) saturate(1.8); }
   .shadow { position: absolute; left: 300px; top: 60px; width: 80px; height: 80px; border-radius: 12px; background: #fff;
-            filter: drop-shadow(0 8px 10px rgba(40, 16, 80, .45)); }";
+            filter: drop-shadow(0 8px 10px rgba(40, 16, 80, .45)); }
+  .glass { position: absolute; left: 20px; top: 20px; width: 100px; height: 60px; }
+  .contrast { backdrop-filter: contrast(1.5); }
+  .gray { backdrop-filter: grayscale(1); }
+  .hue { backdrop-filter: hue-rotate(90deg); }
+  .chain { backdrop-filter: sepia(.5) blur(2px) invert(.25) drop-shadow(0 2px 3px black); }
+  .blurs { backdrop-filter: blur(3px) blur(4px); }";
 
 struct Page {
     doc: Doc,
@@ -111,4 +118,42 @@ fn segments_compose_to_the_whole_scene() {
     let parts = raster(frame.size, frame.plane.layers.iter().map(|l| l.drawing.scene()).collect());
     let differing = whole.chunks(4).zip(parts.chunks(4)).filter(|(a, b)| a != b).count();
     assert_eq!(differing, 0);
+}
+
+fn backdrop_of(class: &str) -> Effect {
+    let page = Page::new(1.0);
+    page.div(&format!("glass {class}"));
+    let frame = page.frame();
+    frame.plane.layers.iter().find_map(|l| l.backdrop.as_ref()).expect("a backdrop").effect()
+}
+
+#[test]
+fn backdrop_keeps_every_color_function_in_order() {
+    let cases = [
+        ("contrast", vec![ColorMatrix::contrast(1.5)]),
+        ("gray", vec![ColorMatrix::grayscale(1.0)]),
+        ("hue", vec![ColorMatrix::hue_rotate(std::f32::consts::FRAC_PI_2)]),
+        ("chain", vec![ColorMatrix::sepia(0.5), ColorMatrix::invert(0.25)]),
+    ];
+    for (class, matrices) in cases {
+        let got = backdrop_of(class);
+        let mut want = Effect::default();
+        for m in matrices {
+            want.matrix(m.0);
+        }
+        let (got_m, want_m) = (got.matrix.expect("a color matrix"), want.matrix.unwrap());
+        assert!(got_m.iter().zip(want_m).all(|(a, b)| (a - b).abs() < 1e-4), "{class}: {got_m:?}, want {want_m:?}");
+    }
+    assert!(near(f64::from(backdrop_of("chain").blur), 2.0));
+}
+
+#[test]
+fn backdrop_blurs_combine_as_root_sum_of_squares() {
+    let page = Page::new(1.0);
+    page.div("glass blurs");
+    let frame = page.frame();
+    let b = frame.plane.layers.iter().find_map(|l| l.backdrop.as_ref()).unwrap();
+    assert!((b.blur() - 5.0).abs() < 1e-3, "blur {}", b.blur());
+    assert!((b.effect().blur - 5.0).abs() < 1e-3, "blur {}", b.effect().blur);
+    assert!(b.effect().matrix.is_none());
 }

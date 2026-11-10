@@ -132,24 +132,72 @@ fn shadow_without_blur_is_sharp() {
     }
 }
 
-#[test]
-fn backdrop_without_blur_keeps_edges() {
-    let mut bench = Bench::new();
-    let (left, right) = ([200, 120, 80, 255], [60, 90, 160, 255]);
-    bench.fill(&bench.canvas, &edge(left, right, W / 2));
-    let backdrop = Backdrop { rect: [8.0, 8.0, 112.0, 48.0], radius: 0.0, blur: 0.0, saturate: 2.0, brightness: 1.0 };
-    let got = bench.run(|c, e, canvas| c.backdrop(e, canvas, &backdrop));
-    let saturated = |p: [u8; 4]| {
-        let m = ColorMatrix::saturate(2.0).0;
-        let c = p.map(|v| f32::from(v) / 255.0);
-        std::array::from_fn::<u8, 4, _>(|i| {
-            let v = (0..4).map(|j| m[i * 5 + j] * c[j]).sum::<f32>() + m[i * 5 + 4];
-            (v.clamp(0.0, 1.0) * 255.0).round() as u8
-        })
-    };
+fn filtered(matrices: &[ColorMatrix], p: [u8; 4]) -> [u8; 4] {
+    let mut c = p.map(|v| f32::from(v) / 255.0);
+    for m in matrices {
+        let m = m.0;
+        c = std::array::from_fn(|i| (0..4).map(|j| m[i * 5 + j] * c[j]).sum::<f32>() + m[i * 5 + 4]);
+    }
+    c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+}
+
+fn backdrop(bench: &mut Bench, matrices: &[ColorMatrix]) -> Vec<[u8; 4]> {
+    let mut effect = Effect::default();
+    for m in matrices {
+        effect.matrix(m.0);
+    }
+    let backdrop = Backdrop { rect: [8.0, 8.0, 112.0, 48.0], radius: 0.0, effect };
+    bench.run(|c, e, canvas| c.backdrop(e, canvas, &backdrop))
+}
+
+const LEFT: [u8; 4] = [200, 120, 80, 255];
+const RIGHT: [u8; 4] = [60, 90, 160, 255];
+
+fn check_row(got: &[[u8; 4]], matrices: &[ColorMatrix]) {
     for x in 8..120u32 {
-        let want = saturated(if x < W / 2 { left } else { right });
+        let want = filtered(matrices, if x < W / 2 { LEFT } else { RIGHT });
         let p = got[(32 * W + x) as usize];
         assert!(p.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 3), "at x {x}: {p:?}, want {want:?}");
     }
+}
+
+#[test]
+fn backdrop_without_blur_keeps_edges() {
+    let mut bench = Bench::new();
+    bench.fill(&bench.canvas, &edge(LEFT, RIGHT, W / 2));
+    let matrices = [ColorMatrix::saturate(2.0)];
+    check_row(&backdrop(&mut bench, &matrices), &matrices);
+}
+
+#[test]
+fn backdrop_applies_every_color_function_in_order() {
+    let mut bench = Bench::new();
+    let cases = [
+        vec![ColorMatrix::contrast(1.5)],
+        vec![ColorMatrix::grayscale(1.0)],
+        vec![ColorMatrix::hue_rotate(std::f32::consts::FRAC_PI_2)],
+        vec![ColorMatrix::sepia(0.5), ColorMatrix::invert(0.25)],
+        vec![ColorMatrix::hue_rotate(std::f32::consts::FRAC_PI_2), ColorMatrix::grayscale(0.5), ColorMatrix::brightness(1.2)],
+    ];
+    for matrices in cases {
+        bench.fill(&bench.canvas, &edge(LEFT, RIGHT, W / 2));
+        check_row(&backdrop(&mut bench, &matrices), &matrices);
+    }
+}
+
+#[test]
+fn backdrop_blurs_summed_in_squares() {
+    let mut bench = Bench::new();
+    let mut twice = Effect::default();
+    twice.blur(3.0);
+    twice.blur(4.0);
+    assert!((twice.blur - 5.0).abs() < 1e-5);
+    let mut once = Effect::default();
+    once.blur(5.0);
+    let mut run = |effect: Effect| {
+        bench.fill(&bench.canvas, &edge(LEFT, RIGHT, W / 2));
+        let backdrop = Backdrop { rect: [8.0, 8.0, 112.0, 48.0], radius: 0.0, effect };
+        bench.run(|c, e, canvas| c.backdrop(e, canvas, &backdrop))
+    };
+    assert_eq!(run(twice), run(once));
 }

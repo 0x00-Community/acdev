@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use acde_gpu::ColorMatrix;
+use acde_gpu::Effect;
 use acde_gpu::Filter;
 use acde_gpu::FilterEffect;
 use acde_gpu::Scene;
@@ -68,7 +69,19 @@ impl Backdrop {
                 FilterEffect::GaussianBlur(b) => f64::from(b.std_deviation) * self.scale,
                 _ => 0.0,
             })
-            .sum()
+            .fold(0.0, f64::hypot)
+    }
+
+    pub fn effect(&self) -> Effect {
+        let mut effect = Effect::default();
+        for e in self.filter.effects() {
+            match e {
+                FilterEffect::GaussianBlur(b) => effect.blur(b.std_deviation * self.scale as f32),
+                FilterEffect::ColorMatrix(m) => effect.matrix(m.0),
+                FilterEffect::DropShadow(_) => unsupported(&self.filter),
+            }
+        }
+        effect
     }
 
     pub fn saturate(&self) -> f32 {
@@ -88,6 +101,18 @@ impl Backdrop {
 
     fn amount(m: &[f32; 20], build: fn(f32) -> ColorMatrix, guess: f32) -> Option<f32> {
         build(guess).0.iter().zip(m).all(|(a, b)| (a - b).abs() < 1e-3).then_some(guess)
+    }
+}
+
+const LOGGED_FILTERS: usize = 64;
+
+static LOGGED: Mutex<Vec<Filter>> = Mutex::new(Vec::new());
+
+fn unsupported(filter: &Filter) {
+    let mut logged = LOGGED.lock().unwrap_or_else(|e| e.into_inner());
+    if logged.len() < LOGGED_FILTERS && !logged.contains(filter) {
+        logged.push(filter.clone());
+        log::warn!("backdrop-filter: drop-shadow() is not supported and is left out ({:?})", filter.effects());
     }
 }
 

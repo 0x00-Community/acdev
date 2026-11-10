@@ -401,9 +401,7 @@ impl Presenter {
             Backdrop {
                 rect: [r.x0 as f32, r.y0 as f32 + dy, r.width().max(0.0) as f32, r.height().max(0.0) as f32],
                 radius: b.radius() as f32,
-                blur: b.blur() as f32,
-                saturate: b.saturate(),
-                brightness: b.brightness(),
+                effect: b.effect(),
             }
         });
         let mut shadows = Vec::new();

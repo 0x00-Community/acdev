@@ -43,13 +43,7 @@ impl Content {
         use acde_gpu::FilterEffect;
         let backdrop = layer.backdrop.as_ref().map(|b| {
             let r = b.bounds.intersect(b.clip);
-            Backdrop {
-                rect: [r.x0 as f32, r.y0 as f32, r.width().max(0.0) as f32, r.height().max(0.0) as f32],
-                radius: b.radius() as f32,
-                blur: b.blur() as f32,
-                saturate: b.saturate(),
-                brightness: b.brightness(),
-            }
+            Backdrop { rect: [r.x0 as f32, r.y0 as f32, r.width().max(0.0) as f32, r.height().max(0.0) as f32], radius: b.radius() as f32, effect: b.effect() }
         });
         let mut shadows = Vec::new();
         let mut effect = Effect::default();

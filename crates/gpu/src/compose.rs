@@ -49,9 +49,7 @@ impl Px {
 pub struct Backdrop {
     pub rect: [f32; 4],
     pub radius: f32,
-    pub blur: f32,
-    pub saturate: f32,
-    pub brightness: f32,
+    pub effect: Effect,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -96,10 +94,10 @@ impl Effect {
 struct Params {
     texel: [f32; 2],
     offset: f32,
-    saturate: f32,
+    spare0: f32,
     rect: [f32; 4],
     radius: f32,
-    brightness: f32,
+    spare1: f32,
     shift: [f32; 2],
     color: [f32; 4],
     matrix: [f32; 16],
@@ -114,13 +112,13 @@ impl Params {
             self.texel[0],
             self.texel[1],
             self.offset,
-            self.saturate,
+            self.spare0,
             self.rect[0],
             self.rect[1],
             self.rect[2],
             self.rect[3],
             self.radius,
-            self.brightness,
+            self.spare1,
             self.shift[0],
             self.shift[1],
         ];
@@ -519,8 +517,9 @@ impl Composer {
 
     pub fn backdrop(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, b: &Backdrop) {
         let Some(region) = Self::region(b.rect, canvas.texture().size()) else { return };
-        let blurred = self.blur(encoder, canvas.texture(), region, b.blur);
-        let params = Params { rect: b.rect, radius: b.radius, saturate: b.saturate, brightness: b.brightness, ..Default::default() };
+        let blurred = self.blur(encoder, canvas.texture(), region, b.effect.blur);
+        let (matrix, bias) = b.effect.columns();
+        let params = Params { rect: b.rect, radius: b.radius, matrix, bias, ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Backdrop, src: &blurred, params, scissor: Some(region), mix: None }]);
     }
 
