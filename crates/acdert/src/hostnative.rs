@@ -60,6 +60,7 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "shortcut" => shortcut,
         "unshortcut" => unshortcut,
         "inject" => inject,
+        "drop" => drop_files,
         "quit" => quit,
         "capture" => capture,
         "devRespond" => dev_respond,
@@ -313,6 +314,19 @@ fn inject(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
     match injected(scope, args.get(0)) {
         Ok(event) => _ = with(scope, |shell| shell.inject(event)),
         Err(e) => bind::throw_error(scope, &e),
+    }
+}
+
+fn drop_files(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = bind::arg_f64(scope, &args, 0) as u32;
+    let Some(paths) = bind::strings(scope, args.get(1)).filter(|paths| !paths.is_empty()) else {
+        return bind::throw_type_error(scope, "drop: the files are a non-empty list of paths");
+    };
+    let (x, y) = (args.get(2).number_value(scope).filter(|n| n.is_finite()), args.get(3).number_value(scope).filter(|n| n.is_finite()));
+    let at = x.zip(y).map(|(x, y)| [x, y]);
+    let paths = paths.into_iter().map(std::path::PathBuf::from).collect();
+    if let Some(Err(error)) = with(scope, |shell| shell.drop_files(window, at, paths)) {
+        bind::throw_error(scope, &error);
     }
 }
 

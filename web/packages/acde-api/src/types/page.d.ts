@@ -222,6 +222,7 @@ export interface OpenWindowOptions {
 
 export interface OpenFileRequest {
   readonly kind: 'open-file'
+  readonly handle?: FileSystemFileHandle | FileSystemDirectoryHandle
   readonly url?: string
   readonly root?: string
   readonly path?: string

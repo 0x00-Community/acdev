@@ -26,7 +26,10 @@ interface OpenerHost {
   spawn(argv: string[]): void
   system(): ((target: string) => Promise<void>) | null
   unsupported(app: string): Error | null
+  view(app: AppManifest): OpenView
 }
+
+export type OpenView = 'roots' | 'url' | 'handle'
 
 type Opened = { kind: 'acde' | 'native'; id: string; window?: number }
 
@@ -104,7 +107,8 @@ class MimeApps {
   static readonly DESKTOP = 'acde'
 
   static #lists(): string[] {
-    return [...xdgDirs('config', ''), ...xdgDirs('data', 'applications')].flatMap((dir) => [join(dir, `${MimeApps.DESKTOP}-mimeapps.list`), join(dir, 'mimeapps.list')])
+    const dirs = [...xdgDirs('config', ''), ...xdgDirs('data', 'applications')]
+    return dirs.flatMap((dir) => [join(dir, `${MimeApps.DESKTOP}-mimeapps.list`), join(dir, 'mimeapps.list')])
   }
 
   static defaultFor(mime: string, installed: (id: string) => boolean): string | null {
@@ -194,9 +198,10 @@ export class DesktopEntries {
 export interface OpenOptions {
   readonly app?: string
   readonly select?: boolean
+  readonly readOnly?: boolean
 }
 
-type SystemRequestLike = { kind: 'open-file' | 'open-link'; url?: unknown; path?: unknown }
+type SystemRequestLike = { kind: 'open-file' | 'open-link'; url?: unknown; path?: unknown; held?: unknown }
 
 export class Opener {
   readonly #host: OpenerHost
@@ -221,8 +226,11 @@ export class Opener {
     const mime = MimeTypes.of(path)
     const natives = MimeApps.natives()
     const chosen = this.#chosen(mime, natives)
-    const acde = this.#acdeFor(mime).map((app) => ({ kind: 'acde' as const, id: app.id, label: app.label, icon: app.icon, default: chosen?.kind === 'acde' && chosen.id === app.id }))
-    const native = natives.filter((n) => MimeTypes.match(n.mimeTypes, mime)).map((n) => ({ kind: 'native' as const, id: n.id, label: n.name, icon: n.icon, default: chosen?.kind === 'native' && chosen.id === n.id }))
+    const chosenAs = (kind: 'acde' | 'native', id: string) => chosen?.kind === kind && chosen.id === id
+    const acde = this.#acdeFor(mime).map((app) => ({ kind: 'acde' as const, id: app.id, label: app.label, icon: app.icon, default: chosenAs('acde', app.id) }))
+    const native = natives
+      .filter((n) => MimeTypes.match(n.mimeTypes, mime))
+      .map((n) => ({ kind: 'native' as const, id: n.id, label: n.name, icon: n.icon, default: chosenAs('native', n.id) }))
     return { mime, handlers: [...acde, ...native] }
   }
 
@@ -230,7 +238,8 @@ export class Opener {
     if (!MimeTypes.valid(mime)) throw Object.assign(new Error(`not a MIME type: ${mime}`), { status: 400 })
     const id = handler.endsWith('.desktop') ? handler : DesktopEntries.idOf(handler)
     const app = DesktopEntries.appOf(id)
-    if (app ? !this.#host.apps().some((a) => a.id === app) : !MimeApps.natives().some((n) => n.id === id)) throw Object.assign(new Error(`no app ${handler}`), { status: 404 })
+    const known = app ? this.#host.apps().some((a) => a.id === app) : MimeApps.natives().some((n) => n.id === id)
+    if (!known) throw Object.assign(new Error(`no app ${handler}`), { status: 404 })
     return MimeApps.setDefault(mime, id)
   }
 
@@ -249,7 +258,7 @@ export class Opener {
     if (chosen.kind === 'acde') {
       const id = chosen.id
       const app = this.#host.apps().find((a) => a.id === id)!
-      const request = await this.#request(app, path, isDir, select)
+      const request = await this.#request(app, path, isDir, select, !!options.readOnly)
       if (request) return { ...chosen, window: (await this.#host.launch(app.id, request)).window }
       const native = options.app ? null : natives.find((n) => MimeTypes.match(n.mimeTypes, mime))
       if (!native) throw Object.assign(new Error(`${path} is not in any finder root (desktop, downloads, workspace)`), { status: 404, code: 'outside_roots' })
@@ -281,10 +290,19 @@ export class Opener {
       if (app && !app.schemes.includes(scheme)) throw refuse(`${scheme}: links (its manifest's schemes)`)
       return this.#openUrl(text, scheme, target ? { app: target } : {})
     }
-    if (Opener.#scheme(text)) throw Object.assign(new Error(`open-file needs a file URL or an absolute path: ${text}`), { status: 400 })
-    const mime = MimeTypes.of(Opener.#existing(text))
+    const held = Opener.#held(request.held)
+    const file = held ?? text
+    if (!held && Opener.#scheme(text)) throw Object.assign(new Error(`open-file needs a file URL or an absolute path: ${text}`), { status: 400 })
+    const mime = MimeTypes.of(Opener.#existing(file))
     if (app && MimeTypes.match(app.mimeTypes, mime) === 0) throw refuse(`${mime} files (its manifest's mimeTypes)`)
-    return this.open(text, target ? { app: target } : {}, caller)
+    const vouched = held && caller?.roots ? { ...caller, roots: [...caller.roots, dirname(held)] } : caller
+    const readOnly = (request.held as { writable?: unknown } | undefined)?.writable === false
+    return this.open(file, { ...(target && { app: target }), ...(held && readOnly && { readOnly }) }, vouched)
+  }
+
+  static #held(held: unknown): string | null {
+    const path = (held as { path?: unknown } | null | undefined)?.path
+    return typeof path === 'string' && isAbsolute(path) ? normalize(path) : null
   }
 
   async #openUrl(url: string, scheme: string, options: OpenOptions): Promise<Opened> {
@@ -337,15 +355,20 @@ export class Opener {
     return scheme === 'file' ? null : scheme
   }
 
-  async #request(app: AppManifest, path: string, isDir: boolean, select: boolean): Promise<Record<string, unknown> | null> {
-    if (!app.capabilities.fs) return { kind: 'open-file', url: pathToFileURL(path).href }
+  async #request(app: AppManifest, path: string, isDir: boolean, select: boolean, readOnly: boolean): Promise<Record<string, unknown> | null> {
+    const inFolder = select || (!isDir && MimeTypes.match(app.mimeTypes, MimeTypes.DIRECTORY) === 2)
+    const at = inFolder ? dirname(path) : path
+    const entry = { path: at, kind: inFolder || isDir ? 'directory' : 'file', writable: !readOnly && ((stat(at)?.mode ?? 0) & 0o200) !== 0 }
+    const view = this.#host.view(app)
+    if (view === 'handle') return { kind: 'open-file', entry, ...(inFolder && { file: basename(path) }) }
+    if (view === 'url') return { kind: 'open-file', url: pathToFileURL(path).href, entry }
     const place = await this.#host.locate(path)
     if (!place) return null
-    if (select || (!isDir && MimeTypes.match(app.mimeTypes, MimeTypes.DIRECTORY) === 2)) {
-      const at = place.path.lastIndexOf('/')
-      return { kind: 'open-file', root: place.root, path: at < 0 ? '' : place.path.slice(0, at), file: basename(path) }
+    if (inFolder) {
+      const cut = place.path.lastIndexOf('/')
+      return { kind: 'open-file', root: place.root, path: cut < 0 ? '' : place.path.slice(0, cut), file: basename(path), entry }
     }
-    return { kind: 'open-file', root: place.root, path: place.path, file: null }
+    return { kind: 'open-file', root: place.root, path: place.path, file: null, entry }
   }
 
   #asked(id: string, natives: readonly NativeEntry[]): { kind: 'acde' | 'native'; id: string } {

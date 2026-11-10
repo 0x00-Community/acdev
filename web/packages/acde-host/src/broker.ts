@@ -32,6 +32,7 @@ import { DesktopCalls } from './broker/calls/desktops'
 import { Tiers } from './broker/access/tier'
 import type { WindowFamily } from './broker/access/family'
 import { Launchable } from './broker/access/launchable'
+import { FileAccess } from './broker/access/files'
 import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 import { Outputs, type Screen } from './broker/output'
@@ -134,6 +135,7 @@ export class Broker {
         return shell.openDefault ? (target) => shell.openDefault!(target) : null
       },
       unsupported: (id) => this.#launchable.unsupported(id),
+      view: (app) => FileAccess.view(app.capabilities, this.#launchable.tier(app)),
     })
     this.shell = native.Shell.broker()
     this.shell.onEvents(() => this.#poke())

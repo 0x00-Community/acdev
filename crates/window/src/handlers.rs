@@ -285,7 +285,8 @@ impl DataDeviceHandler for App {
             let _ = conn.flush();
             let dropped = dropped_paths(data.get("text/uri-list").map_or("", String::as_str));
             acde_model::drop_grant::record(app.as_deref(), &dropped);
-            events.push(Event { kind: "dnddrop".into(), x: Some(x), y: Some(y), data: Some(data), ..Default::default() });
+            let files = Some(dropped.iter().map(|path| path.display().to_string()).collect());
+            events.push(Event { kind: "dnddrop".into(), x: Some(x), y: Some(y), data: Some(data), files, ..Default::default() });
         });
     }
 }

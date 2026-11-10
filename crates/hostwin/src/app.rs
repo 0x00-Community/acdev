@@ -285,7 +285,7 @@ impl Handler for App {
             HostEvent::Key { evdev, pressed, text } => self.key(server, evdev, pressed, text),
             HostEvent::ImePreedit(text) => self.focused(server, Event { kind: "imepreedit".into(), key: Some(text), ..Default::default() }),
             HostEvent::ImeCommit(text) => self.focused(server, Event { kind: "imecommit".into(), key: Some(text), ..Default::default() }),
-            HostEvent::Dropped(paths) => self.dropped(server, &paths),
+            HostEvent::Dropped(paths) => self.dropped(server, self.pointer, &paths),
             HostEvent::State(to) => Self::host_state(server, to),
             HostEvent::Output { size, scale, work: [x, y, w, h] } => {
                 let (width, height) = (Some(f64::from(size.0)), Some(f64::from(size.1)));
@@ -299,6 +299,7 @@ impl Handler for App {
             HostEvent::Cmd(Cmd::ImeArea(rect)) => host.set_ime_area(rect),
             HostEvent::Cmd(Cmd::Inject(event)) => self.inject(server, event),
             HostEvent::Cmd(Cmd::StartDrag { window, data }) => self.start_data_drag(server, window, data),
+            HostEvent::Cmd(Cmd::Drop { window, at, paths }) => self.simulated_drop(server, window, at, &paths),
             HostEvent::Cmd(Cmd::ChooseFolder { title, reply }) => host.choose_folder(&title, reply),
             HostEvent::Cmd(Cmd::OpenFiles { request, reply }) => host.open_files(request, reply),
             HostEvent::Cmd(Cmd::SaveFile { request, reply }) => host.save_file(request, reply),
@@ -614,8 +615,22 @@ impl App {
         self.focused(server, Event { kind: (if pressed { "keydown" } else { "keyup" }).into(), code: Some(evdev), key: text, ..Default::default() });
     }
 
-    fn dropped(&self, server: &Server, paths: &[std::path::PathBuf]) {
-        let (x, y) = self.pointer;
+    fn simulated_drop(&self, server: &Server, window: u32, at: Option<[f64; 2]>, paths: &[std::path::PathBuf]) {
+        let point = {
+            let state = server.state();
+            state.entries.get(&window).filter(|e| e.shown()).map(|e| {
+                let [x, y, w, h] = e.rect;
+                let [dx, dy] = at.unwrap_or([w / 2.0, (h - e.frame) / 2.0]);
+                (x + dx, y + e.frame + dy)
+            })
+        };
+        match point {
+            Some((x, y)) => self.dropped(server, (x, y), paths),
+            None => log::warn!("simulated drop: window {window} is not on screen"),
+        }
+    }
+
+    fn dropped(&self, server: &Server, (x, y): (f64, f64), paths: &[std::path::PathBuf]) {
         let hit = server.state().hit(x, y).filter(|hit| !hit.blocked);
         let Some(hit) = hit else { return };
         let owner = drop_owner(&server.state(), hit.target);
@@ -627,6 +642,7 @@ impl App {
         let plain: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
         let data = HashMap::from([("text/uri-list".to_owned(), uris.join("\r\n")), ("text/plain".to_owned(), plain.join("\n"))]);
         server.event(hit.target, Event { kind: "dndenter".into(), x: Some(lx), y: Some(ly), mime: Some(data.keys().cloned().collect()), ..Default::default() });
-        server.event(hit.target, Event { kind: "dnddrop".into(), x: Some(lx), y: Some(ly), data: Some(data), ..Default::default() });
+        let files = Some(paths.iter().map(|p| p.display().to_string()).collect());
+        server.event(hit.target, Event { kind: "dnddrop".into(), x: Some(lx), y: Some(ly), data: Some(data), files, ..Default::default() });
     }
 }

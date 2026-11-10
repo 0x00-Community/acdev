@@ -22,6 +22,7 @@ interface DownloadRequest {
 export interface PickedFile {
   readonly name: string
   readonly path: string
+  readonly writable?: boolean
 }
 
 export interface FileFilter {
@@ -35,7 +36,12 @@ export interface PickedEntry extends PickedFile {
 }
 
 export interface FileChooser {
-  open(options: { readonly multiple: boolean; readonly directory: boolean; readonly filters: readonly FileFilter[]; readonly title?: string }): Promise<PickedFile[] | null>
+  open(options: {
+    readonly multiple: boolean
+    readonly directory: boolean
+    readonly filters: readonly FileFilter[]
+    readonly title?: string
+  }): Promise<PickedFile[] | null>
   save(options: { readonly name: string; readonly filters: readonly FileFilter[]; readonly title?: string }): Promise<PickedFile | null>
   read(file: PickedFile): Promise<{ bytes: Uint8Array; lastModified: number } | null>
   write(file: PickedFile, bytes: Uint8Array): Promise<void>

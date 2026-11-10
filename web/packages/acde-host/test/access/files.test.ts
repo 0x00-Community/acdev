@@ -109,3 +109,14 @@ test('a copy needs both roots allowed', async () => {
   await fs.copy('private', 'music', 'documents', 'music')
   assert.deepEqual(calls, [['documents', 'a.txt', 'private', ''], ['private', 'music', 'documents', 'music']])
 })
+
+test('open file requests give third-party level 1 apps only a handle; system and level 0 apps keep their paths', () => {
+  assert.equal(FileAccess.view({ fs: true }, third), 'handle')
+  assert.equal(FileAccess.view({ fs: { roots: ['documents'] } }, third), 'handle')
+  assert.equal(FileAccess.view({}, third), 'handle')
+  assert.equal(FileAccess.view({ fs: { roots: ['documents'] } }, system), 'url')
+  assert.equal(FileAccess.view({}, system), 'url')
+  assert.equal(FileAccess.view({}, legacy), 'url')
+  assert.equal(FileAccess.view({ fs: true }, system), 'roots')
+  assert.equal(FileAccess.view({ fs: true }, legacy), 'roots')
+})

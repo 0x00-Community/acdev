@@ -1,6 +1,7 @@
 import type { ScreenshotEvent, WindowGrabEvent, WindowGrabLostEvent } from '@dopame/acde-api'
 import type { DomNative, WebInternals } from '@dopame/acde-dom'
 import { DragDrop, DragSource } from './dnd'
+import type { HandOver } from './pagecalls'
 import { InputMethod, type ImeEvent } from './ime'
 import { ShellInput } from './keys'
 import { WINDOW_EVENTS, type Native, type NativeSurface, type RawShellEvent, type ShellEvent, type WindowEvent } from './native'
@@ -41,6 +42,10 @@ export class Host {
   onFrameButton: (key: string) => void = () => {}
   onState: (state: string, previous: string) => void = () => {}
   onFirstFrame: () => void = () => {}
+
+  set handOver(handOver: HandOver) {
+    this.#dnd.handOver = handOver
+  }
   #framed = false
 
   constructor(page: WebInternals, dom: DomNative, scale: number, Ime: Native['Ime'], windows: WindowList) {

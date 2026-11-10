@@ -71,6 +71,7 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, picker:
         "remove" => remove,
         "read" => read,
         "write" => write,
+        "adopt" => adopt_folder,
     );
     bind::set(scope, natives, "picker", object.into());
 }
@@ -80,6 +81,13 @@ fn run(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, work: impl FnOnce(Pic
         return bind::throw_error(scope, "picker: not given to this web");
     };
     offload::run(scope, rv, "acde-picker", move || work(picker), settle);
+}
+
+fn adopt_folder(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    match adopt(&bind::arg_string(scope, &args, 0)) {
+        Ok(path) => rv.set(bind::string(scope, &path).into()),
+        Err(message) => bind::throw_error(scope, &message),
+    }
 }
 
 fn kind(scope: &mut v8::PinScope, value: v8::Local<v8::Value>) -> Option<EntryKind> {

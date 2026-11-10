@@ -50,7 +50,8 @@ type Node = Uint8Array | 'dir' | 'link'
 function chooser(answer: { open?: string[] | null; save?: string | null; directory?: string | null; private?: string }, files: Map<string, Node>) {
   const asked: unknown[] = []
   const name = (path: string) => path.split('/').pop()!
-  const kind = (node: Node | undefined) => (node === undefined ? null : node === 'dir' ? ('directory' as const) : node === 'link' ? ('other' as const) : ('file' as const))
+  const kind = (node: Node | undefined) =>
+    node === undefined ? null : node === 'dir' ? ('directory' as const) : node === 'link' ? ('other' as const) : ('file' as const)
   const under = (dir: string) => [...files.keys()].filter((path) => path.startsWith(`${dir}/`))
   return {
     asked,
@@ -99,7 +100,8 @@ test('<input type=file>: activation opens the chooser; the picked files are its 
     })
     f.click()`)
   await web.wait(5)
-  assert.deepEqual(JSON.parse(JSON.stringify(c.asked)), [{ multiple: true, directory: false, filters: [{ name: '.png, image/jpeg', globs: ['*.png'], mimes: ['image/jpeg'] }] }])
+  const filters = [{ name: '.png, image/jpeg', globs: ['*.png'], mimes: ['image/jpeg'] }]
+  assert.deepEqual(JSON.parse(JSON.stringify(c.asked)), [{ multiple: true, directory: false, filters }])
   assert.deepEqual(web.json('out'), ['input', 'change', 2, 'a.png', 'image/png', 'text/plain', 'C:\\fakepath\\a.png', 'hello', 'a.png,b.txt'])
   web.run(`document.getElementById('f').value = ''; out = [document.getElementById('f').files.length]`)
   assert.deepEqual(web.json('out'), [0])
@@ -137,7 +139,8 @@ test('showOpenFilePicker / showSaveFilePicker: handles over the picked files; ca
   await web.wait(5)
   assert.deepEqual(web.json('out'), ['file', 'notes.md', 'notes.md', 'text/markdown', '# notes', 'out.json'])
   assert.equal(new TextDecoder().decode(files.get('/home/u/out.json')), '{"a":1}')
-  assert.deepEqual(JSON.parse(JSON.stringify(c.asked)), [{ multiple: false, directory: false, filters: [{ name: 'Markdown', globs: ['*.md'], mimes: ['text/markdown'] }] }, { name: 'out.json', filters: [] }])
+  const filters = [{ name: 'Markdown', globs: ['*.md'], mimes: ['text/markdown'] }]
+  assert.deepEqual(JSON.parse(JSON.stringify(c.asked)), [{ multiple: false, directory: false, filters }, { name: 'out.json', filters: [] }])
   web.internals.env.files = null
   web.run(`out = []; showOpenFilePicker().catch((e) => out.push(e.name, e instanceof DOMException))`)
   await web.wait(5)
@@ -147,7 +150,13 @@ test('showOpenFilePicker / showSaveFilePicker: handles over the picked files; ca
 test('showDirectoryPicker: a directory handle over the picked folder (entries, get, create, remove, resolve); cancelled is an AbortError', async () => {
   using web = await page()
   const enc = (text: string) => new TextEncoder().encode(text)
-  const files = new Map<string, Node>([['/home/u/Notes', 'dir'], ['/home/u/Notes/a.md', enc('# a')], ['/home/u/Notes/sub', 'dir'], ['/home/u/Notes/sub/b.md', enc('b')], ['/home/u/Notes/link', 'link']])
+  const files = new Map<string, Node>([
+    ['/home/u/Notes', 'dir'],
+    ['/home/u/Notes/a.md', enc('# a')],
+    ['/home/u/Notes/sub', 'dir'],
+    ['/home/u/Notes/sub/b.md', enc('b')],
+    ['/home/u/Notes/link', 'link'],
+  ])
   const c = chooser({ directory: '/home/u/Notes' }, files)
   web.internals.env.files = c.files
   web.run(`globalThis.out = []; (async () => {
@@ -194,7 +203,8 @@ test('showDirectoryPicker: a directory handle over the picked folder (entries, g
     '# a',
     '["sub","b.md"]', 0, null,
     'directory', true, false,
-    'missing NotFoundError', 'file as dir TypeMismatchError', 'dir as file TypeMismatchError', 'link TypeMismatchError', 'bad name TypeError', 'not empty InvalidModificationError', 'remove missing NotFoundError',
+    'missing NotFoundError', 'file as dir TypeMismatchError', 'dir as file TypeMismatchError', 'link TypeMismatchError', 'bad name TypeError',
+    'not empty InvalidModificationError', 'remove missing NotFoundError',
     'NotFoundError',
     'granted',
     'prompt', 'denied', 'granted',
@@ -268,7 +278,8 @@ test('live tag collections, location after pushState, validity, anchors, constan
     const a = document.createElement('a'); a.href = '/p?z'; a.rel = 'noopener'; a.text = 'link'
     const link = [a.href, a.search, a.textContent, a.relList.contains('noopener'), a.nonce, a.autofocus]
     a.nonce = 'n'; a.autofocus = true
-    link.push(a.getAttribute('nonce'), a.hasAttribute('autofocus'), Object.keys(Node.prototype).includes('ELEMENT_NODE'), KeyboardEvent.prototype.DOM_KEY_LOCATION_NUMPAD)
+    link.push(a.getAttribute('nonce'), a.hasAttribute('autofocus'))
+    link.push(Object.keys(Node.prototype).includes('ELEMENT_NODE'), KeyboardEvent.prototype.DOM_KEY_LOCATION_NUMPAD)
     const ctx = document.createElement('canvas').getContext('2d')
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(NaN, 1); ctx.arc(5, 5, 2, 0, 1); ctx.roundRect(0, 0, 4, 4, [1, 2])
     ctx.lineCap = 'round'; ctx.lineCap = 'nope'; ctx.shadowBlur = -1; ctx.shadowOffsetX = 3
@@ -322,7 +333,9 @@ test('navigator.storage: getDirectory() is a read-write root named "" from the p
     const root = await navigator.storage.getDirectory()
     const file = await root.getFileHandle('a.txt', { create: true })
     const w = await file.createWritable(); await w.write('private'); await w.close()
-    return [root.name, root.kind, await root.queryPermission({ mode: 'readwrite' }), await (await file.getFile()).text(), await navigator.storage.persisted(), await navigator.storage.persist(), JSON.stringify(await navigator.storage.estimate()), navigator.storage instanceof StorageManager]
+    const storage = navigator.storage
+    return [root.name, root.kind, await root.queryPermission({ mode: 'readwrite' }), await (await file.getFile()).text(),
+      await storage.persisted(), await storage.persist(), JSON.stringify(await storage.estimate()), storage instanceof StorageManager]
   })()`)
   assert.deepEqual(JSON.parse(JSON.stringify(out)), ['', 'directory', 'granted', 'private', true, true, '{"usage":0,"quota":0}', true])
   assert.equal(new TextDecoder().decode(files.get('/opfs/a.txt') as Uint8Array), 'private')
@@ -339,4 +352,65 @@ test('fetch bodies: a null body is never used, reading locks the stream, clone k
     return JSON.stringify([empty.bodyUsed, full.bodyUsed, full.body.locked, error.status, error.type, credentials])
   })()`)
   assert.deepEqual(JSON.parse(out as string), [false, true, true, 0, 'error', 'TypeError'])
+})
+
+test('drops: files and getAsFileSystemHandle() give read-only handles; folders and strings come as items only', async () => {
+  using web = await page()
+  const enc = (text: string) => new TextEncoder().encode(text)
+  const files = new Map<string, Node>([['/drop/a.txt', enc('alpha')], ['/drop/b.md', enc('# beta')], ['/drop/dir', 'dir'], ['/drop/dir/c.txt', enc('c')]])
+  web.internals.env.files = chooser({}, files).files
+  const { handles } = web.internals
+  const transfer = web.run<object>('globalThis.dt = new DataTransfer(); dt.setData("text/uri-list", "file:///drop/a.txt"); dt')
+  for (const [path, text] of [['/drop/a.txt', 'alpha'], ['/drop/b.md', '# beta']] as const) {
+    const name = path.slice('/drop/'.length)
+    const file = web.run<object>(`new File([${JSON.stringify(text)}], ${JSON.stringify(name)})`)
+    handles.transfer(transfer, file, handles.of({ name, path }, 'file', 'read'))
+  }
+  handles.transfer(transfer, null, handles.of({ name: 'dir', path: '/drop/dir' }, 'directory', 'read'))
+  web.run(`globalThis.out = []; (async () => {
+    out.push([...dt.types], dt.files.length, [...dt.files].map((f) => f.name), dt.items.length)
+    const items = [...dt.items]
+    out.push(items.map((i) => i.kind), items.map((i) => i.getAsFile()?.name ?? null))
+    const got = await Promise.all(items.map((i) => i.getAsFileSystemHandle()))
+    out.push(got.map((h) => h && [h.kind, h.name, h instanceof FileSystemHandle]))
+    out.push(await (await got[1].getFile()).text(), await (await got[2].getFile()).text())
+    out.push(await got[1].queryPermission({ mode: 'readwrite' }), await got[1].queryPermission())
+    out.push(await got[1].createWritable().then(() => 'writable', (e) => e.name))
+    const names = []; for await (const [name, child] of got[3].entries()) names.push(name, child.kind)
+    out.push(names, await got[3].getFileHandle('new.txt', { create: true }).then(() => 'created', (e) => e.name))
+    const own = new DataTransfer(); own.items.add(new File(['x'], 'x.txt'))
+    out.push(await own.items[Symbol.iterator]().next().value.getAsFileSystemHandle())
+  })().catch((e) => out.push('error ' + e.name + ' ' + e.message))`)
+  await web.wait(5)
+  assert.deepEqual(web.json('out'), [
+    ['text/uri-list', 'Files'], 2, ['a.txt', 'b.md'], 4,
+    ['string', 'file', 'file', 'file'], [null, 'a.txt', 'b.md', null],
+    [null, ['file', 'a.txt', true], ['file', 'b.md', true], ['directory', 'dir', true]],
+    'alpha', '# beta',
+    'prompt', 'granted',
+    'NotAllowedError',
+    ['c.txt', 'file'], 'NotAllowedError',
+    null,
+  ])
+})
+
+test('handles handed over for writing (open requests, pickers): createWritable writes back; read-only picks are refused', async () => {
+  using web = await page()
+  const files = new Map<string, Node>([['/home/u/doc.txt', new TextEncoder().encode('old')], ['/home/u/locked.txt', new TextEncoder().encode('ro')]])
+  const c = chooser({ open: ['/home/u/locked.txt'] }, files)
+  web.internals.env.files = { ...c.files, open: async () => [{ name: 'locked.txt', path: '/home/u/locked.txt', writable: false }] }
+  const handle = web.internals.handles.of({ name: 'doc.txt', path: '/home/u/doc.txt' }, 'file', 'readwrite')
+  ;(web.context as Record<string, unknown>)['given'] = handle
+  web.run(`globalThis.out = []; (async () => {
+    out.push(given instanceof FileSystemFileHandle, await given.queryPermission({ mode: 'readwrite' }))
+    const w = await given.createWritable(); await w.write('new'); await w.close()
+    const [locked] = await showOpenFilePicker()
+    out.push(await locked.queryPermission({ mode: 'readwrite' }), await locked.createWritable().then(() => 'writable', (e) => e.name))
+  })().catch((e) => out.push('error ' + e.name + ' ' + e.message))`)
+  await web.wait(5)
+  assert.deepEqual(web.json('out'), [true, 'granted', 'prompt', 'NotAllowedError'])
+  assert.equal(new TextDecoder().decode(files.get('/home/u/doc.txt') as Uint8Array), 'new')
+  const picked = JSON.parse(JSON.stringify(web.internals.handles.picked(handle)))
+  assert.deepEqual(picked, { name: 'doc.txt', path: '/home/u/doc.txt', kind: 'file', mode: 'readwrite' })
+  assert.equal(web.internals.handles.picked({ name: 'doc.txt', path: '/etc/passwd' }), null)
 })

@@ -6,6 +6,7 @@ import { Rpc } from './rpc'
 import { CapabilityCheck } from './broker/access/capabilities'
 import { Permits } from './broker/access/approval/permits'
 import type { Permit } from './broker/access/approval/permissions'
+import type { HandOver } from './pagecalls'
 import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 
 class Notices {
@@ -93,6 +94,7 @@ export class WindowSelf {
   #output: WindowOutput
   onVisible: (visible: boolean) => void = () => {}
   onTitle: (title: string) => void = () => {}
+  handOver: HandOver | null = null
 
   constructor(rpc: Rpc, surface: NativeSurface, page: PageLike, opening: Record<string, unknown> | null, output: WindowOutput) {
     this.#rpc = rpc
@@ -181,7 +183,7 @@ export class WindowSelf {
       const opening = name === 'request' ? this.#opening : null
       if (opening) {
         this.#opening = null
-        queueMicrotask(() => handler(opening))
+        queueMicrotask(() => handler(this.#received(opening)))
       }
       return () => set.delete(handler)
     },
@@ -228,7 +230,16 @@ export class WindowSelf {
   deliver(request: Record<string, unknown>): void {
     const handlers = this.#handlers.get('request')
     if (!handlers?.size) return void (this.#opening = request)
-    for (const handler of handlers) handler(request)
+    const received = this.#received(request)
+    for (const handler of handlers) handler(received)
+  }
+
+  #received(request: Record<string, unknown>): Record<string, unknown> {
+    const { entry, ...rest } = request
+    const given = entry as { path?: unknown; kind?: unknown; writable?: unknown } | undefined
+    if (rest['kind'] !== 'open-file' || typeof given?.path !== 'string') return rest
+    const handle = this.handOver?.handle(given.path, given.kind === 'directory' ? 'directory' : 'file', given.writable === true)
+    return handle ? { ...rest, handle } : rest
   }
 
   emit(name: 'activate' | 'deactivate' | 'grab' | 'grablost' | 'state' | 'output' | 'hostcontrols' | 'minimizable', value?: unknown): void {
@@ -245,6 +256,7 @@ export class RemoteBridge {
   #capabilities: { update(status: CapabilityStatus): void } | null = null
   #host: ModuleHost | null = null
   readonly #waiting = new Set<string>()
+  handOver: HandOver | null = null
 
   constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList, permits = new Permits(init.tier?.permits, init.app?.label ?? init.kind)) {
     this.#rpc = rpc
@@ -254,7 +266,8 @@ export class RemoteBridge {
       on: windows.notices.for('permissions', ['prompt', 'answered']),
     })
     for (const [service, shape] of Object.entries(init.services)) this.value[service] = this.#proxy(service, shape)
-    const apps = Rpc.calls(() => rpc, 'apps', 'list', 'launch', 'open')
+    const calls = Rpc.calls(() => rpc, 'apps', 'list', 'launch', 'open')
+    const apps = { ...calls, open: async (...args: unknown[]) => calls.open(...args.map((arg) => this.#outgoing(arg))) }
     const files = Rpc.calls(() => rpc, 'apps', 'openPath', 'handlers', 'setDefault')
     const shell = new Set<string>(init.tier?.shell ?? [])
     const globalWindows = () => ({
@@ -301,6 +314,15 @@ export class RemoteBridge {
   }
 
   readonly #refused: Readonly<Record<string, string>>
+
+  #outgoing(arg: unknown): unknown {
+    if (typeof arg !== 'object' || arg === null || (arg as { kind?: unknown }).kind !== 'open-file') return arg
+    const { handle, held: _held, entry: _entry, ...request } = arg as Record<string, unknown>
+    if (handle === undefined) return request
+    const held = this.handOver?.held(handle)
+    if (!held) throw new TypeError('open-file: the handle is not a file or folder this page was given')
+    return { ...request, held }
+  }
 
   #window(self: WindowSelf, windows: WindowList): unknown {
     const api = self.api

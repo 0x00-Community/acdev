@@ -4,7 +4,18 @@ import { CustomEvent, ErrorEvent, Event, fire, PromiseRejectionEvent, type Event
 import { globals, host, KEY, report, setReport } from './core/host'
 import { observer, type PageErrorKind } from './core/observe'
 import { EventSource, fetch, Headers, net, Request, Response, WebSocket, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net'
-import { ReadableStream, ReadableStreamDefaultController, ReadableStreamDefaultReader, TextDecoderStream, TextEncoderStream, TransformStream, TransformStreamDefaultController, WritableStream, WritableStreamDefaultController, WritableStreamDefaultWriter } from './core/streams'
+import {
+  ReadableStream,
+  ReadableStreamDefaultController,
+  ReadableStreamDefaultReader,
+  TextDecoderStream,
+  TextEncoderStream,
+  TransformStream,
+  TransformStreamDefaultController,
+  WritableStream,
+  WritableStreamDefaultController,
+  WritableStreamDefaultWriter,
+} from './core/streams'
 import { objectUrlOrigin, URL } from './core/url'
 import type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageNative } from './native'
 import { installStorage, Storage } from './storage/webstorage'
@@ -30,18 +41,48 @@ import { createHtml, HTMLElement } from './dom/html'
 import { Input } from './dom/input'
 import * as media from './dom/media'
 import { deliverLoads, presentVideos } from './dom/media'
-import { InputDeviceInfo, installCapture, MediaDeviceInfo, MediaDevices, MediaStream, MediaStreamTrack, OverconstrainedError, Permissions, PermissionStatus } from './media/stream'
+import {
+  InputDeviceInfo,
+  installCapture,
+  MediaDeviceInfo,
+  MediaDevices,
+  MediaStream,
+  MediaStreamTrack,
+  OverconstrainedError,
+  Permissions,
+  PermissionStatus,
+} from './media/stream'
 import { MutationObserver, MutationRecord } from './dom/mutation'
 import { CDATASection, CharacterData, Comment, DocumentFragment, DocumentType, HTMLCollection, Node, NodeList, ProcessingInstruction, Text } from './dom/node'
 import { deliverObservations, IntersectionObserver, IntersectionObserverEntry, ResizeObserver, ResizeObserverEntry, watching } from './dom/observers'
 import { loadPage } from './dom/page'
+import { handedOver, pickedOf, type Mode } from './dom/picker'
 import { AbstractRange, CaretPosition, getSelection, Range, Selection, StaticRange } from './dom/range'
 import { bindDom, changed, documentId, dom, existing, idOf, moved, rootElementId, version, wrap, wrapperStats } from './dom/realm'
 import { attachShadow, shadowRootOf, ShadowRoot } from './dom/shadow'
 import { CSS, CSSRule, CSSRuleList, CSSStyleDeclaration, CSSStyleRule, CSSStyleSheet, StyleSheetList } from './dom/style'
 import * as svg from './dom/svg'
 import { NodeFilter, NodeIterator, TreeWalker } from './dom/traversal'
-import { Clipboard, framesPending, History, installWindow, Location, mediaChanged, MediaQueryList, Navigator, readViewport, runAnimationFrames, Screen, screenSize, ScreenOrientation, setNavigatorLanguages, setNavigatorStorage, VisualViewport, Window, type NavigatorOptions } from './dom/window'
+import {
+  Clipboard,
+  framesPending,
+  History,
+  installWindow,
+  Location,
+  mediaChanged,
+  MediaQueryList,
+  Navigator,
+  readViewport,
+  runAnimationFrames,
+  Screen,
+  screenSize,
+  ScreenOrientation,
+  setNavigatorLanguages,
+  setNavigatorStorage,
+  VisualViewport,
+  Window,
+  type NavigatorOptions,
+} from './dom/window'
 
 export type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
@@ -63,6 +104,7 @@ export interface WebInternals {
   readonly input: Input
   readonly env: typeof env
   readonly editing: typeof editing
+  readonly handles: Handles
   idOf(node: unknown): number
   nodeOf(id: number): unknown
   loadPage(html: string): Promise<void>
@@ -77,6 +119,12 @@ export interface WebInternals {
   reportError(error: unknown): void
   unhandledRejection(promise: Promise<unknown>, reason: unknown): boolean
   stats(): { strong: number; weak: number }
+}
+
+export interface Handles {
+  of(entry: { readonly name: string; readonly path: string }, kind: 'file' | 'directory', mode: Mode): object
+  picked(handle: unknown): { readonly name: string; readonly path: string; readonly kind: 'file' | 'directory'; readonly mode: Mode } | null
+  transfer(transfer: object, file: object | null, handle: object): void
 }
 
 let installed: WebInternals | null = null
@@ -180,6 +228,11 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
     input,
     env,
     editing,
+    handles: {
+      of: handedOver,
+      picked: pickedOf,
+      transfer: (transfer, file, handle) => events.transferEntry(transfer as never, file as never, handle as never),
+    },
     idOf,
     nodeOf: (id: number) => wrap(id),
     loadPage,
@@ -252,7 +305,9 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
 }
 
 function externalPixels(source: unknown): { width: number; height: number; rgba: Uint8Array } | null {
-  if (source instanceof ImageData) return { width: source.width, height: source.height, rgba: new Uint8Array(source.data.buffer, source.data.byteOffset, source.data.byteLength) }
+  if (source instanceof ImageData) {
+    return { width: source.width, height: source.height, rgba: new Uint8Array(source.data.buffer, source.data.byteOffset, source.data.byteLength) }
+  }
   if (source instanceof media.HTMLCanvasElement) {
     const gpu = gpuContexts.pixels(source)
     if (gpu !== undefined) return gpu
@@ -278,9 +333,27 @@ function externalPixels(source: unknown): { width: number; height: number; rgba:
 function extendElements(input: Input): void {
   const proto = Element.prototype as unknown as Record<string, unknown>
   Object.defineProperties(proto, {
-    animate: { value(this: Element, keyframes: unknown, options?: number | Record<string, unknown>) { return animate(this, keyframes, options) }, writable: true, configurable: true },
-    getAnimations: { value(this: Element, options?: { subtree?: boolean }) { return animationsOf(this, !!options?.subtree) }, writable: true, configurable: true },
-    attachShadow: { value(this: Element, init: { mode?: string; delegatesFocus?: boolean }) { return attachShadow(this, init) }, writable: true, configurable: true },
+    animate: {
+      value(this: Element, keyframes: unknown, options?: number | Record<string, unknown>) {
+        return animate(this, keyframes, options)
+      },
+      writable: true,
+      configurable: true,
+    },
+    getAnimations: {
+      value(this: Element, options?: { subtree?: boolean }) {
+        return animationsOf(this, !!options?.subtree)
+      },
+      writable: true,
+      configurable: true,
+    },
+    attachShadow: {
+      value(this: Element, init: { mode?: string; delegatesFocus?: boolean }) {
+        return attachShadow(this, init)
+      },
+      writable: true,
+      configurable: true,
+    },
     shadowRoot: { get(this: Element) { return shadowRootOf(this) }, enumerable: true, configurable: true },
     setPointerCapture: { value(this: Element, pointerId: number) { input.setPointerCapture(this, pointerId) }, writable: true, configurable: true },
     releasePointerCapture: { value(this: Element, pointerId: number) { input.releasePointerCapture(this, pointerId) }, writable: true, configurable: true },
@@ -330,7 +403,8 @@ function interfaces(): Record<string, unknown> {
     MutationObserver, MutationRecord, ResizeObserver, ResizeObserverEntry, IntersectionObserver, IntersectionObserverEntry,
     AbstractRange, Range, StaticRange, Selection, CaretPosition, TreeWalker, NodeIterator, NodeFilter,
     DOMParser, XMLSerializer, DOMImplementation, FontFace, FontFaceSet,
-    DOMRect, DOMRectReadOnly, DOMRectList, DOMPoint, DOMPointReadOnly, DOMMatrix, DOMMatrixReadOnly, DOMQuad, SVGMatrix: DOMMatrix, SVGPoint: DOMPoint, SVGRect: DOMRect,
+    DOMRect, DOMRectReadOnly, DOMRectList, DOMPoint, DOMPointReadOnly, DOMMatrix, DOMMatrixReadOnly, DOMQuad,
+    SVGMatrix: DOMMatrix, SVGPoint: DOMPoint, SVGRect: DOMRect,
     CanvasRenderingContext2D: CanvasContext2d, CanvasGradient, CanvasPattern, Path2D, ImageData, TextMetrics,
     Animation, AnimationEffect, KeyframeEffect, AnimationTimeline, DocumentTimeline, AnimationPlaybackEvent,
     CustomElementRegistry, Location, History, Navigator, Screen, ScreenOrientation, VisualViewport, Storage, MediaQueryList, Clipboard, MediaDevices,

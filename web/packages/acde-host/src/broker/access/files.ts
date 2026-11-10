@@ -19,6 +19,13 @@ export class FileAccess {
     return { places, paths: !!origin?.system && places.length > 0 }
   }
 
+  static view(caps: Capabilities, origin: FileOrigin | null): 'roots' | 'url' | 'handle' {
+    const fs = FileAccess.grant(caps, origin)
+    if (fs === true || Array.isArray(fs)) return 'roots'
+    const paths = fs ? fs.paths : !origin || origin.level < 1 || !!origin.system
+    return paths ? 'url' : 'handle'
+  }
+
   static legacy(caps: Capabilities, origin: FileOrigin | null): boolean {
     return !origin || origin.level < 1 || (!!origin.system && caps.fs === true)
   }

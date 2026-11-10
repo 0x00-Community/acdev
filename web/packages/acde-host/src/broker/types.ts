@@ -50,6 +50,7 @@ export interface BrokerShell {
   notify?(title: string, body: string, subtitle: string): void
   answerFolder?(path: string | null): void
   answerOpen?(paths: string[] | null): void
+  drop?(window: number, paths: string[], x?: number, y?: number): void
   answerSave?(path: string | null): void
   openDefault?(target: string): Promise<void>
   approve?(title: string, message: string): Promise<boolean | null>

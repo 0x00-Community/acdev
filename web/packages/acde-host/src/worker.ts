@@ -161,7 +161,10 @@ export default async function boot(natives: WebNatives): Promise<void> {
     self.onVisible = (visible) => page.setVisible(visible)
   }
   const privateDirectory = natives.storage?.privateDirectory ? () => natives.storage!.privateDirectory!() : null
-  new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, label: init.app?.label ?? '桌面', privateDirectory })
+  const calls = new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, label: init.app?.label ?? '桌面', privateDirectory })
+  web.handOver = calls
+  bridge.handOver = calls
+  if (self) self.handOver = calls
   web.onActivation = (active) => self?.emit(active ? 'activate' : 'deactivate')
   web.onGrab = (event) => self?.emit(event.kind === 'lost' ? 'grablost' : 'grab', event)
   web.onState = (state, previous) => self?.changed(state, previous)

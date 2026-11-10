@@ -6,6 +6,7 @@ import { NodeType } from '../native'
 import { Element, flags, handlerOf, handlerSet } from './element'
 import { metricsOf, rectOf, rootScroll } from './layout'
 import { pathHooks, type Node } from './node'
+import type { FileSystemHandle } from './picker'
 import { documentId, dom, existing, ID, wrap, type Wrapper } from './realm'
 
 export const SHADOW_ROOT = Symbol('shadowRoot')
@@ -91,7 +92,8 @@ hooks.passiveDefault = (target, type) => {
   const local = dom.nodeType(id) === NodeType.Element ? dom.localName(id) : ''
   if (local !== 'html' && local !== 'body') return false
   const parent = dom.parent(id)
-  return parent === documentId || (parent >= 0 && dom.nodeType(parent) === NodeType.Element && dom.localName(parent) === 'html' && dom.parent(parent) === documentId)
+  if (parent === documentId) return true
+  return parent >= 0 && dom.nodeType(parent) === NodeType.Element && dom.localName(parent) === 'html' && dom.parent(parent) === documentId
 }
 
 const INIT = Symbol('init')
@@ -131,7 +133,14 @@ export class FocusEvent extends UIEvent {}
 initFields(FocusEvent, { relatedTarget: null })
 tag(FocusEvent)
 
-const MODIFIERS: Record<string, string> = { Control: 'ctrlKey', Shift: 'shiftKey', Alt: 'altKey', Meta: 'metaKey', AltGraph: 'modifierAltGraph', CapsLock: 'modifierCapsLock' }
+const MODIFIERS: Record<string, string> = {
+  Control: 'ctrlKey',
+  Shift: 'shiftKey',
+  Alt: 'altKey',
+  Meta: 'metaKey',
+  AltGraph: 'modifierAltGraph',
+  CapsLock: 'modifierCapsLock',
+}
 
 function modifier(init: Init, key: string): boolean {
   return Object.hasOwn(MODIFIERS, key) && !!init[MODIFIERS[key]!]
@@ -179,12 +188,42 @@ export class MouseEvent extends UIEvent {
   getModifierState(key: string): boolean {
     return modifier(this[INIT], key)
   }
-  initMouseEvent(type: string, bubbles?: boolean, cancelable?: boolean, _view?: unknown, detail?: number, screenX?: number, screenY?: number, clientX?: number, clientY?: number, ctrlKey?: boolean, altKey?: boolean, shiftKey?: boolean, metaKey?: boolean, button?: number, relatedTarget?: EventTarget | null): void {
+  initMouseEvent(
+    type: string,
+    bubbles?: boolean,
+    cancelable?: boolean,
+    _view?: unknown,
+    detail?: number,
+    screenX?: number,
+    screenY?: number,
+    clientX?: number,
+    clientY?: number,
+    ctrlKey?: boolean,
+    altKey?: boolean,
+    shiftKey?: boolean,
+    metaKey?: boolean,
+    button?: number,
+    relatedTarget?: EventTarget | null,
+  ): void {
     this.initEvent(type, bubbles, cancelable)
     Object.assign(this[INIT], { detail, screenX, screenY, clientX, clientY, ctrlKey, altKey, shiftKey, metaKey, button, relatedTarget })
   }
 }
-initFields(MouseEvent, { screenX: 0, screenY: 0, clientX: 0, clientY: 0, movementX: 0, movementY: 0, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, button: 0, buttons: 0, relatedTarget: null })
+initFields(MouseEvent, {
+  screenX: 0,
+  screenY: 0,
+  clientX: 0,
+  clientY: 0,
+  movementX: 0,
+  movementY: 0,
+  ctrlKey: false,
+  shiftKey: false,
+  altKey: false,
+  metaKey: false,
+  button: 0,
+  buttons: 0,
+  relatedTarget: null,
+})
 tag(MouseEvent)
 
 function targetOrigin(target: EventTarget | null, axis: 0 | 1): number {
@@ -203,7 +242,18 @@ export class PointerEvent extends MouseEvent {
     return []
   }
 }
-initFields(PointerEvent, { pointerId: 0, width: 1, height: 1, pressure: 0, tangentialPressure: 0, tiltX: 0, tiltY: 0, twist: 0, pointerType: '', isPrimary: false })
+initFields(PointerEvent, {
+  pointerId: 0,
+  width: 1,
+  height: 1,
+  pressure: 0,
+  tangentialPressure: 0,
+  tiltX: 0,
+  tiltY: 0,
+  twist: 0,
+  pointerType: '',
+  isPrimary: false,
+})
 tag(PointerEvent)
 
 export class WheelEvent extends MouseEvent {
@@ -231,12 +281,35 @@ export class KeyboardEvent extends UIEvent {
   getModifierState(key: string): boolean {
     return modifier(this[INIT], key)
   }
-  initKeyboardEvent(type: string, bubbles?: boolean, cancelable?: boolean, _view?: unknown, key?: string, location?: number, ctrlKey?: boolean, altKey?: boolean, shiftKey?: boolean, metaKey?: boolean): void {
+  initKeyboardEvent(
+    type: string,
+    bubbles?: boolean,
+    cancelable?: boolean,
+    _view?: unknown,
+    key?: string,
+    location?: number,
+    ctrlKey?: boolean,
+    altKey?: boolean,
+    shiftKey?: boolean,
+    metaKey?: boolean,
+  ): void {
     this.initEvent(type, bubbles, cancelable)
     Object.assign(this[INIT], { key, location, ctrlKey, altKey, shiftKey, metaKey })
   }
 }
-initFields(KeyboardEvent, { key: '', code: '', location: 0, repeat: false, isComposing: false, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, charCode: 0, keyCode: 0 })
+initFields(KeyboardEvent, {
+  key: '',
+  code: '',
+  location: 0,
+  repeat: false,
+  isComposing: false,
+  ctrlKey: false,
+  shiftKey: false,
+  altKey: false,
+  metaKey: false,
+  charCode: 0,
+  keyCode: 0,
+})
 constants(KeyboardEvent, { DOM_KEY_LOCATION_STANDARD: 0, DOM_KEY_LOCATION_LEFT: 1, DOM_KEY_LOCATION_RIGHT: 2, DOM_KEY_LOCATION_NUMPAD: 3 })
 tag(KeyboardEvent)
 
@@ -268,7 +341,9 @@ export class ClipboardEvent extends BaseEvent {
 }
 tag(ClipboardEvent)
 
-function simpleEvent<T extends Record<string, unknown>>(name: string, defaults: T): new (type: string, init?: EventInit & Partial<T>) => BaseEvent & Readonly<T> {
+type SimpleEvent<T> = new (type: string, init?: EventInit & Partial<T>) => BaseEvent & Readonly<T>
+
+function simpleEvent<T extends Record<string, unknown>>(name: string, defaults: T): SimpleEvent<T> {
   const cls = class extends BaseEvent {
     constructor(type: string, init?: EventInit & Partial<T>) {
       super(type, init)
@@ -286,7 +361,13 @@ function simpleEvent<T extends Record<string, unknown>>(name: string, defaults: 
 export const HashChangeEvent = simpleEvent('HashChangeEvent', { oldURL: '', newURL: '' })
 export const PopStateEvent = simpleEvent('PopStateEvent', { state: null as unknown, hasUAVisualTransition: false })
 export const PageTransitionEvent = simpleEvent('PageTransitionEvent', { persisted: false })
-export const StorageEvent = simpleEvent('StorageEvent', { key: null as string | null, oldValue: null as string | null, newValue: null as string | null, url: '', storageArea: null as unknown })
+export const StorageEvent = simpleEvent('StorageEvent', {
+  key: null as string | null,
+  oldValue: null as string | null,
+  newValue: null as string | null,
+  url: '',
+  storageArea: null as unknown,
+})
 export const TransitionEvent = simpleEvent('TransitionEvent', { propertyName: '', elapsedTime: 0, pseudoElement: '' })
 export const AnimationEvent = simpleEvent('AnimationEvent', { animationName: '', elapsedTime: 0, pseudoElement: '' })
 export const SubmitEvent = simpleEvent('SubmitEvent', { submitter: null as unknown })
@@ -317,14 +398,17 @@ serializable(FileList, 'FileList', (list) => [...list], (files) => new FileList(
 export type FileList = InstanceType<typeof FileList>
 
 export class DataTransferItem {
-  readonly #value: string | File
+  readonly #value: string | File | null
+  readonly #handle: FileSystemHandle | null
 
   constructor(
     readonly kind: 'string' | 'file',
     readonly type: string,
-    value: string | File,
+    value: string | File | null,
+    handle: FileSystemHandle | null = null,
   ) {
     this.#value = value
+    this.#handle = handle
   }
   getAsString(callback: ((data: string) => void) | null): void {
     if (this.kind !== 'string' || typeof callback !== 'function') return
@@ -332,7 +416,10 @@ export class DataTransferItem {
     queueTask(() => callback(value))
   }
   getAsFile(): File | null {
-    return this.kind === 'file' ? (this.#value as File) : null
+    return this.kind === 'file' ? (this.#value as File | null) : null
+  }
+  getAsFileSystemHandle(): Promise<FileSystemHandle | null> {
+    return Promise.resolve(this.kind === 'file' ? this.#handle : null)
   }
   webkitGetAsEntry(): null {
     return null
@@ -371,17 +458,24 @@ tag(DataTransferItemList)
 let transferItems: (transfer: DataTransfer) => DataTransferItem[]
 let addTransferFile: (transfer: DataTransfer, file: File) => void
 let removeTransferItem: (transfer: DataTransfer, index: number) => void
+let addTransferEntry: (transfer: DataTransfer, file: File | null, handle: FileSystemHandle) => void
+
+export function transferEntry(transfer: DataTransfer, file: File | null, handle: FileSystemHandle): void {
+  addTransferEntry(transfer, file, handle)
+}
 
 export class DataTransfer {
   #data = new Map<string, string>()
   #files: File[] = []
+  #handles = new WeakMap<File, FileSystemHandle>()
+  #entries: FileSystemHandle[] = []
   #items: DataTransferItemList | null = null
   dropEffect = 'none'
   effectAllowed = 'uninitialized'
 
   get types(): readonly string[] {
     const types = [...this.#data.keys()]
-    if (this.#files.length) types.push('Files')
+    if (this.#files.length || this.#entries.length) types.push('Files')
     return Object.freeze(types)
   }
 
@@ -397,7 +491,8 @@ export class DataTransfer {
     transferItems = (transfer) => {
       const items: DataTransferItem[] = []
       for (const [type, value] of transfer.#data) items.push(new DataTransferItem('string', type, value))
-      for (const file of transfer.#files) items.push(new DataTransferItem('file', file.type, file))
+      for (const file of transfer.#files) items.push(new DataTransferItem('file', file.type, file, transfer.#handles.get(file) ?? null))
+      for (const handle of transfer.#entries) items.push(new DataTransferItem('file', '', null, handle))
       return items
     }
     addTransferFile = (transfer, file) => {
@@ -405,8 +500,15 @@ export class DataTransfer {
     }
     removeTransferItem = (transfer, index) => {
       const keys = [...transfer.#data.keys()]
+      const files = transfer.#files.length
       if (index < keys.length) transfer.#data.delete(keys[index]!)
-      else transfer.#files.splice(index - keys.length, 1)
+      else if (index < keys.length + files) transfer.#files.splice(index - keys.length, 1)
+      else transfer.#entries.splice(index - keys.length - files, 1)
+    }
+    addTransferEntry = (transfer, file, handle) => {
+      if (!file) return void transfer.#entries.push(handle)
+      transfer.#files.push(file)
+      transfer.#handles.set(file, handle)
     }
   }
 

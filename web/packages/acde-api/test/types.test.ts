@@ -161,7 +161,7 @@ self.on<Task | Page>('request', (request) => {
     case 'open-link':
       return void (request.url satisfies string)
     case 'open-file':
-      return void request.url
+      return void [request.url, request.handle?.kind satisfies 'file' | 'directory' | undefined]
   }
 })
 self.on('request', (request) => request.kind satisfies string)

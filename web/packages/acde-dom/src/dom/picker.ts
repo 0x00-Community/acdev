@@ -58,19 +58,24 @@ function host<T>(call: () => Promise<T>): Promise<T> {
   })
 }
 
-type Mode = 'read' | 'readwrite'
+export type Mode = 'read' | 'readwrite'
 
 function permissionMode(descriptor: unknown, method: string): Mode {
   const mode = descriptor !== null && typeof descriptor === 'object' ? (descriptor as { mode?: unknown }).mode : undefined
   if (mode === undefined) return 'read'
   const text = String(mode)
-  if (text !== 'read' && text !== 'readwrite') throw new TypeError(`Failed to execute '${method}' on 'FileSystemHandle': The provided value '${text}' is not a valid enum value of type FileSystemPermissionMode.`)
+  if (text !== 'read' && text !== 'readwrite') {
+    const what = `The provided value '${text}' is not a valid enum value of type FileSystemPermissionMode.`
+    throw new TypeError(`Failed to execute '${method}' on 'FileSystemHandle': ${what}`)
+  }
   return text
 }
 
 function validName(name: unknown, method: string): string {
   const text = String(name)
-  if (text === '' || text === '.' || text === '..' || text.includes('/') || text.includes('\0')) throw new TypeError(`Failed to execute '${method}' on 'FileSystemDirectoryHandle': Name is not allowed.`)
+  if (text === '' || text === '.' || text === '..' || text.includes('/') || text.includes('\0')) {
+    throw new TypeError(`Failed to execute '${method}' on 'FileSystemDirectoryHandle': Name is not allowed.`)
+  }
   return text
 }
 
@@ -164,7 +169,9 @@ export class FileSystemDirectoryHandle extends FileSystemHandle {
     if (!(await host(() => env.files!.remove(dir, text, !!options?.recursive)))) throw notFound()
   }
   async resolve(possibleDescendant: unknown): Promise<string[] | null> {
-    if (!(possibleDescendant instanceof FileSystemHandle)) throw new TypeError("Failed to execute 'resolve' on 'FileSystemDirectoryHandle': parameter 1 is not of type 'FileSystemHandle'.")
+    if (!(possibleDescendant instanceof FileSystemHandle)) {
+      throw new TypeError("Failed to execute 'resolve' on 'FileSystemDirectoryHandle': parameter 1 is not of type 'FileSystemHandle'.")
+    }
     const here = this[PICKED].path
     const there = possibleDescendant[PICKED].path
     if (there === here) return possibleDescendant[KIND] === 'directory' ? [] : null
@@ -176,6 +183,14 @@ tag(FileSystemDirectoryHandle)
 
 function directoryHandle(picked: PickedFile, mode: Mode): FileSystemDirectoryHandle {
   return new FileSystemDirectoryHandle(picked, mode, 'directory')
+}
+
+export function handedOver(entry: PickedFile, kind: 'file' | 'directory', mode: Mode): FileSystemFileHandle | FileSystemDirectoryHandle {
+  return kind === 'directory' ? directoryHandle(entry, mode) : new FileSystemFileHandle(entry, mode, 'file')
+}
+
+export function pickedOf(handle: unknown): (PickedFile & { readonly kind: 'file' | 'directory'; readonly mode: Mode }) | null {
+  return handle instanceof FileSystemHandle ? { ...handle[PICKED], kind: handle[KIND], mode: handle[MODE] } : null
 }
 
 export function storageRootHandle(path: string): FileSystemDirectoryHandle {
@@ -207,7 +222,8 @@ export class FileSystemWritableFileStream {
 
   async write(data: unknown): Promise<void> {
     if (this.#closed) throw new TypeError('The stream is closed.')
-    const params = data !== null && typeof data === 'object' && 'type' in (data as object) && typeof (data as { type: unknown }).type === 'string' && !(data instanceof Blob) ? (data as WriteParams) : ({ type: 'write', data } as WriteParams)
+    const typed = data !== null && typeof data === 'object' && 'type' in (data as object) && typeof (data as { type: unknown }).type === 'string'
+    const params = typed && !(data instanceof Blob) ? (data as WriteParams) : ({ type: 'write', data } as WriteParams)
     if (params.type === 'seek') return void (this.#position = Math.max(0, Math.trunc(params.position)))
     if (params.type === 'truncate') {
       this.#resize(Math.max(0, Math.trunc(params.size)))
@@ -267,7 +283,7 @@ async function chunkBytes(data: unknown): Promise<Uint8Array> {
 export async function showOpenFilePicker(options?: { multiple?: boolean; types?: unknown; excludeAcceptAllOption?: boolean }): Promise<FileSystemFileHandle[]> {
   const picked = env.files ? await env.files.open({ multiple: !!options?.multiple, directory: false, filters: typeFilters(options?.types) }) : null
   if (!picked || picked.length === 0) throw aborted()
-  return picked.map((file) => new FileSystemFileHandle(file))
+  return picked.map((file) => new FileSystemFileHandle(file, file.writable === false ? 'read' : 'readwrite'))
 }
 
 export async function showSaveFilePicker(options?: { suggestedName?: string; types?: unknown }): Promise<FileSystemFileHandle> {
@@ -281,10 +297,18 @@ const WELL_KNOWN = new Set(['desktop', 'documents', 'downloads', 'music', 'pictu
 export async function showDirectoryPicker(options?: { id?: unknown; mode?: unknown; startIn?: unknown }): Promise<FileSystemDirectoryHandle> {
   const method = "Failed to execute 'showDirectoryPicker' on 'Window'"
   const mode = options?.mode === undefined ? 'read' : String(options.mode)
-  if (mode !== 'read' && mode !== 'readwrite') throw new TypeError(`${method}: Failed to read the 'mode' property from 'DirectoryPickerOptions': The provided value '${mode}' is not a valid enum value of type FileSystemPermissionMode.`)
-  if (options?.id !== undefined && !/^[\w-]{0,32}$/.test(String(options.id))) throw new TypeError(`${method}: ID must be at most 32 characters long and contain only alphanumeric characters, underscores, or dashes.`)
+  const invalid = (field: string, value: string, type: string) => {
+    const what = `The provided value '${value}' is not a valid enum value of type ${type}.`
+    return new TypeError(`${method}: Failed to read the '${field}' property from 'DirectoryPickerOptions': ${what}`)
+  }
+  if (mode !== 'read' && mode !== 'readwrite') throw invalid('mode', mode, 'FileSystemPermissionMode')
+  if (options?.id !== undefined && !/^[\w-]{0,32}$/.test(String(options.id))) {
+    throw new TypeError(`${method}: ID must be at most 32 characters long and contain only alphanumeric characters, underscores, or dashes.`)
+  }
   const start = options?.startIn
-  if (start !== undefined && !(start instanceof FileSystemHandle) && !WELL_KNOWN.has(String(start))) throw new TypeError(`${method}: Failed to read the 'startIn' property from 'DirectoryPickerOptions': The provided value '${String(start)}' is not a valid enum value of type WellKnownDirectory.`)
+  if (start !== undefined && !(start instanceof FileSystemHandle) && !WELL_KNOWN.has(String(start))) {
+    throw invalid('startIn', String(start), 'WellKnownDirectory')
+  }
   const picked = env.files ? await env.files.directory({ mode }) : null
   if (!picked) throw aborted()
   return directoryHandle(picked, mode)

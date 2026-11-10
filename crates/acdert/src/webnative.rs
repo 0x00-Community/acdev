@@ -184,6 +184,10 @@ pub(crate) fn event_object<'s>(scope: &mut v8::PinScope<'s, '_>, event: Event) -
         let texts: Vec<(&str, v8::Local<v8::Value>)> = data.iter().map(|(kind, text)| (kind.as_str(), bind::string(scope, text).into())).collect();
         fields.push(("data", bind::object(scope, &texts).into()));
     }
+    if let Some(files) = &event.files {
+        let paths: Vec<v8::Local<v8::Value>> = files.iter().map(|path| bind::string(scope, path).into()).collect();
+        fields.push(("files", v8::Array::new_with_elements(scope, &paths).into()));
+    }
     bind::object(scope, &fields)
 }
 

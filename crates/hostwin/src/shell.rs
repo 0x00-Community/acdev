@@ -426,6 +426,14 @@ impl Shell {
         server().expect("hostwin").send(Cmd::Inject(event));
     }
 
+    pub fn drop_files(&self, window: u32, at: Option<[f64; 2]>, paths: Vec<std::path::PathBuf>) -> Result<(), String> {
+        if !self.state().entries.get(&window).is_some_and(|e| e.shown()) {
+            return Err(format!("no window {window} on screen"));
+        }
+        server().expect("hostwin").send(Cmd::Drop { window, at, paths });
+        Ok(())
+    }
+
     pub fn capture(&self, window: u32) -> Result<Shot, String> {
         let link = self
             .state()

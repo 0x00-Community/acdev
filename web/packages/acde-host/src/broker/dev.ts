@@ -21,7 +21,7 @@ export interface DevHost {
 
 export class DevRequests {
   static readonly #OPS =
-    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard, permissions, answer'
+    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard, permissions, answer, drop'
   readonly #host: DevHost
   #routes: DevRoute[] = []
   #nextRoute = 1
@@ -128,6 +128,8 @@ export class DevRequests {
         return this.#host.emulate(args as never)
       case 'choose':
         return this.#choose(args)
+      case 'drop':
+        return this.#drop(args)
       case 'permissions':
         return { pending: this.#host.permissions.pending(), decisions: this.#host.permissions.list() }
       case 'answer': {
@@ -205,6 +207,22 @@ export class DevRequests {
       else shell.answerSave(answer as string | null)
     }
     return { [kind]: answer }
+  }
+
+  #drop(args: Record<string, unknown>): Record<string, unknown> {
+    const files = args['files']
+    if (!Array.isArray(files) || !files.length || !files.every((f) => typeof f === 'string' && isAbsolute(f))) {
+      throw new Error('drop: files is a non-empty list of absolute paths')
+    }
+    const point = ['x', 'y'].map((k) => args[k]).filter((v) => typeof v === 'number' && Number.isFinite(v)) as number[]
+    if (point.length === 1 || (point.length === 0 && (args['x'] !== undefined || args['y'] !== undefined))) {
+      throw new Error('drop: x and y are page coordinates given together, or leave both out for the middle of the page')
+    }
+    const shell = this.#host.shell
+    if (!shell.drop) throw new Error('drop: this backend takes drops from the system only (host windows only)')
+    const web = this.web(String(args['web'] ?? 'desktop'))
+    shell.drop(web.window, files as string[], ...point)
+    return { web: web.name, window: web.window, files }
   }
 
   static #query<T extends object>(args: Record<string, unknown>, extra: T): { web?: string; since?: number; limit?: number } & T {

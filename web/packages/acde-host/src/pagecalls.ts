@@ -6,8 +6,13 @@ import { Level, Log } from './log'
 
 type Env = WebInternals['env']
 type Chooser = NonNullable<Env['files']>
-type Picked = { readonly name: string; readonly path: string }
+type Picked = { readonly name: string; readonly path: string; readonly writable?: boolean }
 type Kind = 'file' | 'directory'
+
+export interface HandOver {
+  handle(path: string, kind: Kind, writable: boolean): object | null
+  held(handle: unknown): { readonly path: string; readonly kind: Kind } | null
+}
 
 export interface FolderPicker {
   directory(title: string, writable: boolean): Promise<string | null>
@@ -16,6 +21,7 @@ export interface FolderPicker {
   remove(dir: string, name: string, recursive: boolean): Promise<boolean>
   read(path: string): Promise<{ bytes: Uint8Array; lastModified: number } | null>
   write(path: string, bytes: Uint8Array): Promise<void>
+  adopt?(path: string): string
 }
 
 interface FolderSetup {
@@ -24,7 +30,7 @@ interface FolderSetup {
   readonly privateDirectory: (() => string) | null
 }
 
-export class PageCalls {
+export class PageCalls implements HandOver {
   readonly #rpc: Rpc
   readonly #name: string
   readonly #page: WebInternals
@@ -39,25 +45,53 @@ export class PageCalls {
     this.#name = name
     this.#setup = setup
     page.env.files = this.#chooser()
-    page.env.download = (request) => void this.#download(request).catch((error: Error) => this.#log(`download of ${request.url.slice(0, 120)}: ${error.message}`))
+    page.env.download = (request) =>
+      void this.#download(request).catch((error: Error) => this.#log(`download of ${request.url.slice(0, 120)}: ${error.message}`))
     page.env.notify = (notification) => void this.#notify(notification).catch((error: Error) => this.#log(`notification: ${error.message}`))
   }
 
-  #chooser(): Chooser {
-    const grant = (path: string): Picked => {
-      this.#granted.add(path)
-      return { name: basename(path), path }
+  handle(path: string, kind: Kind, writable: boolean): object | null {
+    const picker = this.#setup.picker
+    if (kind === 'file') return this.#page.handles.of(this.#grant(path), 'file', writable ? 'readwrite' : 'read')
+    if (!picker?.adopt) return null
+    try {
+      const adopted = picker.adopt(path)
+      this.#folders.add(adopted)
+      return this.#page.handles.of({ name: basename(adopted) || adopted, path: adopted }, 'directory', writable ? 'readwrite' : 'read')
+    } catch (error) {
+      this.#log(`handing over ${kind}: ${(error as Error).message}`)
+      return null
     }
+  }
+
+  held(handle: unknown): { readonly path: string; readonly kind: Kind; readonly writable: boolean } | null {
+    const picked = this.#page.handles.picked(handle)
+    if (!picked) return null
+    const ok = this.#inFolder(picked.path) !== null || (picked.kind === 'file' && this.#granted.has(picked.path))
+    return ok ? { path: picked.path, kind: picked.kind, writable: picked.mode === 'readwrite' } : null
+  }
+
+  #grant(path: string): Picked {
+    this.#granted.add(path)
+    const mode = stat(path)?.mode ?? 0o666
+    return { name: basename(path), path, writable: (mode & 0o200) !== 0 }
+  }
+
+  #inFolder(path: string): FolderPicker | null {
+    const picker = this.#setup.picker
+    if (!picker) return null
+    for (const folder of this.#folders) if (path === folder || path.startsWith(folder === '/' ? '/' : `${folder}/`)) return picker
+    return null
+  }
+
+  #chooser(): Chooser {
+    const grant = (path: string): Picked => this.#grant(path)
     const check = (file: Picked): string => {
       if (!this.#granted.has(file.path)) throw new Error('not a file the user picked')
       return file.path
     }
     const picker = this.#setup.picker
-    const inFolder = (path: string): FolderPicker | null => {
-      if (!picker) return null
-      for (const folder of this.#folders) if (path === folder || path.startsWith(folder === '/' ? '/' : `${folder}/`)) return picker
-      return null
-    }
+    const inFolder = (path: string): FolderPicker | null => this.#inFolder(path)
     const folder = (dir: Picked): FolderPicker => {
       const found = inFolder(dir.path)
       if (!found) throw new Error('not in a folder the user picked')

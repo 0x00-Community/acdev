@@ -56,6 +56,7 @@ export interface RawShellEvent {
   readonly parent?: number | null
   readonly mime?: readonly string[]
   readonly data?: Readonly<Record<string, string>>
+  readonly files?: readonly string[]
 }
 
 export interface NativeSurface {

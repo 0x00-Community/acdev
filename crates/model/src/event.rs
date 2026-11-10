@@ -24,6 +24,7 @@ pub struct Event {
     pub scale: Option<f64>,
     pub mime: Option<Vec<String>>,
     pub data: Option<std::collections::HashMap<String, String>>,
+    pub files: Option<Vec<String>>,
     pub parent: Option<u32>,
     pub stamp: Option<f64>,
     pub state: Option<String>,

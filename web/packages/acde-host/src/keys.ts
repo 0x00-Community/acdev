@@ -55,7 +55,10 @@ export class ShellInput {
       case 'resize': return { type: 'resize', width: raw.width ?? 0, height: raw.height ?? 0, scale: raw.scale ?? this.#scale }
       case 'dndenter': return { type: 'dndenter', target: this.#hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0, mime: raw.mime ?? [] }
       case 'dndmove': return { type: 'dndmove', target: this.#hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0 }
-      case 'dnddrop': return { type: 'dnddrop', target: this.#hitTest(raw.x ?? 0, raw.y ?? 0), x: raw.x ?? 0, y: raw.y ?? 0, data: raw.data ?? {} }
+      case 'dnddrop': {
+        const [x, y] = [raw.x ?? 0, raw.y ?? 0]
+        return { type: 'dnddrop', target: this.#hitTest(x, y), x, y, data: raw.data ?? {}, files: raw.files ?? [] }
+      }
       case 'dndleave': return { type: 'dndleave' }
       case 'dragend': return { type: 'dragend', dropped: raw.button === 1 }
       case 'pointerleave': return { type: 'pointerleave', modifiers: { ...this.#mods } }
