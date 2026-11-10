@@ -65,6 +65,8 @@ interface SysNative {
   ): WebThreadHandle
   openOffice?(): string | null
   closeOffice?(): void
+  /** Windows only: the content type the system registers for an extension (`.png`), null when it has none. */
+  contentType?(extension: string): string | null
 }
 
 export interface WebGrants {

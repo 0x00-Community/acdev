@@ -182,6 +182,8 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>, argv: &[String]) -> v8::Loca
     bind::method(scope, obj, "spawnBackend", crate::backends::spawn);
     #[cfg(windows)]
     bind::method(scope, obj, "stopBackend", crate::backends::stop);
+    #[cfg(windows)]
+    bind::method(scope, obj, "contentType", content_type);
     bind::method(scope, obj, "write", crate::child::write);
     bind::method(scope, obj, "endInput", crate::child::end_input);
     let argv = argv.to_vec().js(scope);
@@ -222,6 +224,15 @@ fn cwd(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::R
 fn homedir(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let home = std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned());
     rv.set(bind::string(scope, &home).into());
+}
+
+#[cfg(windows)]
+fn content_type(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let extension = bind::arg_string(scope, &args, 0);
+    match acde_hostwin::content_type(&extension) {
+        Some(mime) => rv.set(bind::string(scope, &mime).into()),
+        None => rv.set_null(),
+    }
 }
 
 fn with_path(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, f: impl FnOnce(&mut v8::PinScope, &Path) -> std::io::Result<()>) {

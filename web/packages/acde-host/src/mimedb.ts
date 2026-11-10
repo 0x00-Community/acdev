@@ -1,3 +1,9 @@
+import { Level, Log } from './log'
+import { readTextOr } from './sys/fs'
+import { sys } from './sys/natives'
+import { xdgDirs } from './sys/os'
+import { join } from './sys/path'
+
 export interface MimeSource {
   readonly globs2: string | null
   readonly subclasses: string | null
@@ -107,120 +113,80 @@ export class MimeDb {
   }
 }
 
-// Common file name extensions with the type shared-mime-info 2.4 gives them on Linux (`gio info`), for hosts without
-// that database (Windows, macOS without Homebrew's). Each extension has one type; where Linux decides by content
-// (`.ogg`, `.otf`, text files with no glob) this is the type of the usual content.
-const TYPES: Readonly<Record<string, string>> = {
-  'text/plain': 'txt cjs jsx less ini conf cfg bash cmd swift vue',
-  'text/markdown': 'md markdown',
-  'application/json': 'json',
-  'text/javascript': 'js mjs',
-  'text/vnd.trolltech.linguist': 'ts',
-  'application/x-tiled-tsx': 'tsx',
-  'text/html': 'html htm',
-  'application/xhtml+xml': 'xhtml',
-  'application/xml': 'xml',
-  'text/css': 'css',
-  'text/x-scss': 'scss',
-  'text/csv': 'csv',
-  'text/tab-separated-values': 'tsv',
-  'application/yaml': 'yaml yml',
-  'application/toml': 'toml',
-  'text/x-log': 'log',
-  'application/x-shellscript': 'sh',
-  'application/x-powershell': 'ps1',
-  'application/x-bat': 'bat',
-  'text/x-python': 'py',
-  'application/x-ruby': 'rb',
-  'text/rust': 'rs',
-  'text/x-go': 'go',
-  'text/x-csrc': 'c',
-  'text/x-chdr': 'h',
-  'text/x-c++src': 'cpp cc cxx',
-  'text/x-c++hdr': 'hpp',
-  'text/x-java': 'java',
-  'text/x-kotlin': 'kt',
-  'application/x-php': 'php',
-  'application/x-perl': 'pl',
-  'text/x-lua': 'lua',
-  'application/sql': 'sql',
-  'text/x-tex': 'tex',
-  'application/rtf': 'rtf',
-  'text/x-patch': 'diff patch',
-  'text/calendar': 'ics',
-  'text/vcard': 'vcf',
-  'message/rfc822': 'eml',
-  'image/svg+xml': 'svg',
-  'image/png': 'png',
-  'image/jpeg': 'jpg jpeg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-  'image/bmp': 'bmp',
-  'image/vnd.microsoft.icon': 'ico',
-  'image/tiff': 'tif tiff',
-  'image/heif': 'heic',
-  'image/avif': 'avif',
-  'image/vnd.adobe.photoshop': 'psd',
-  'audio/mpeg': 'mp3',
-  'audio/vnd.wave': 'wav',
-  'audio/x-vorbis+ogg': 'ogg oga',
-  'audio/x-opus+ogg': 'opus',
-  'audio/flac': 'flac',
-  'audio/mp4': 'm4a',
-  'audio/aac': 'aac',
-  'audio/midi': 'mid midi',
-  'audio/x-ms-wma': 'wma',
-  'video/mp4': 'mp4 m4v',
-  'video/webm': 'webm',
-  'video/x-matroska': 'mkv',
-  'video/quicktime': 'mov',
-  'video/vnd.avi': 'avi',
-  'video/x-ms-wmv': 'wmv',
-  'video/mpeg': 'mpg mpeg',
-  'video/3gpp': '3gp',
-  'video/x-flv': 'flv',
-  'application/zip': 'zip',
-  'application/x-tar': 'tar',
-  'application/gzip': 'gz',
-  'application/x-compressed-tar': 'tgz tar.gz',
-  'application/x-bzip2': 'bz2',
-  'application/x-bzip2-compressed-tar': 'tar.bz2',
-  'application/x-xz': 'xz',
-  'application/x-xz-compressed-tar': 'tar.xz',
-  'application/zstd': 'zst',
-  'application/x-zstd-compressed-tar': 'tar.zst',
-  'application/x-7z-compressed': '7z',
-  'application/vnd.rar': 'rar',
-  'application/pdf': 'pdf',
-  'application/msword': 'doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-  'application/vnd.ms-excel': 'xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-  'application/vnd.ms-powerpoint': 'ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-  'application/vnd.oasis.opendocument.text': 'odt',
-  'application/vnd.oasis.opendocument.spreadsheet': 'ods',
-  'application/vnd.oasis.opendocument.presentation': 'odp',
-  'application/vnd.oasis.opendocument.graphics': 'odg',
-  'application/epub+zip': 'epub',
-  'font/ttf': 'ttf',
-  'font/otf': 'otf',
-  'font/woff': 'woff',
-  'font/woff2': 'woff2',
-  'application/x-msdownload': 'exe',
-  'application/x-msi': 'msi',
-  'application/vnd.efi.iso': 'iso',
-  'application/vnd.android.package-archive': 'apk',
-  'application/java-archive': 'jar',
-  'application/wasm': 'wasm',
-  'application/vnd.debian.binary-package': 'deb',
-  'application/x-rpm': 'rpm',
+/** Where a host learns file types: Windows' registered content types, or the shared-mime-info database elsewhere. */
+export interface TypeSources {
+  /** The `Content Type` Windows registers for an extension (`.png`), null when it has none; null off Windows. */
+  readonly registered: ((extension: string) => string | null) | null
+  /** The shared-mime-info database, null when there is none. */
+  readonly database: () => MimeDb | null
 }
 
-/** The table above as a shared-mime-info source (`globs2` lines, no subclasses). */
-export const BUILTIN_MIME: MimeSource = {
-  globs2: Object.entries(TYPES)
-    .flatMap(([mime, exts]) => exts.split(' ').map((ext) => `50:${mime}:*.${ext}`))
-    .join('\n'),
-  subclasses: null,
+/**
+ * File types from the operating system's own knowledge, never from a table of our own: on Windows the per-extension
+ * content type of its file associations, elsewhere shared-mime-info's globs. A name the system does not know has the
+ * unknown type `''` (as `File.type` in browsers), not a guess.
+ */
+export class FileTypes {
+  static readonly UNKNOWN = ''
+  static readonly #MIME = /^[\w.+-]+\/[\w.+-]+$/
+  static #system: FileTypes | null = null
+
+  readonly #sources: TypeSources
+
+  constructor(sources: TypeSources) {
+    this.#sources = sources
+  }
+
+  static valid(mime: string): boolean {
+    return FileTypes.#MIME.test(mime)
+  }
+
+  /** The extension Windows associates a name with: from the last dot, lowercased (`.gz` for `a.tar.gz`), or `''`. */
+  static extension(name: string): string {
+    const base = name.slice(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1)
+    const dot = base.lastIndexOf('.')
+    const ext = dot < 0 ? '' : base.slice(dot).toLowerCase()
+    return /^\.[^\s.\\/:*?"<>|]+$/.test(ext) ? ext : ''
+  }
+
+  /** Whether this host learns types from file associations (Windows) rather than a MIME database. */
+  get associations(): boolean {
+    return this.#sources.registered !== null
+  }
+
+  /** The type of a file by its name alone, as a browser gives `File.type`; `''` when the system knows none. */
+  byName(name: string): string {
+    const registered = this.#sources.registered
+    if (registered) {
+      const ext = FileTypes.extension(name)
+      const mime = ext ? (registered(ext)?.trim().toLowerCase() ?? '') : ''
+      return FileTypes.valid(mime) ? mime : FileTypes.UNKNOWN
+    }
+    return this.#sources.database()?.candidates(name)[0] ?? FileTypes.UNKNOWN
+  }
+
+  database(): MimeDb | null {
+    return this.#sources.database()
+  }
+
+  /** This process's types: Windows' associations through `sys.contentType`, else shared-mime-info (read once). */
+  static system(): FileTypes {
+    if (FileTypes.#system) return FileTypes.#system
+    const contentType = sys().contentType
+    let db: MimeDb | null | undefined
+    const database = () => (db === undefined ? (db = FileTypes.#sharedMimeInfo()) : db)
+    FileTypes.#system = new FileTypes({ registered: contentType ? (ext) => contentType(ext) : null, database })
+    return FileTypes.#system
+  }
+
+  static #sharedMimeInfo(): MimeDb | null {
+    const macos = sys().platform === 'darwin' ? ['/opt/homebrew/share/mime', '/usr/local/share/mime', '/opt/local/share/mime'] : []
+    const dirs = [...new Set([...xdgDirs('data', 'mime'), ...macos])]
+    const db = MimeDb.parse(dirs.map((dir) => ({ globs2: readTextOr(join(dir, 'globs2'), null), subclasses: readTextOr(join(dir, 'subclasses'), null) })))
+    if (!db) {
+      const hint = sys().platform === 'darwin' ? ' (brew install shared-mime-info)' : ''
+      Log.write(Level.Warn, 'acde_host', `no shared-mime-info database${hint}: file types come from file(1) and may differ from Dopame OS`)
+    }
+    return db
+  }
 }

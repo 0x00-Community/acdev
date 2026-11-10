@@ -30,6 +30,12 @@ pub fn open_default(target: &str) -> Result<(), OpenError> {
     handoff::open(target, platform::headless())
 }
 
+/// The content type Windows registers for a file extension (`.png`), `None` when it has none.
+#[cfg(windows)]
+pub fn content_type(extension: &str) -> Option<String> {
+    system::assoc::content_type(extension)
+}
+
 pub fn headless() -> bool {
     platform::headless()
 }

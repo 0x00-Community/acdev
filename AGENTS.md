@@ -849,14 +849,19 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - **选应用**: 类型 (文件夹 `inode/directory`; 链接 `x-scheme-handler/<scheme>`; 文件见下) → 按 XDG
   MIME Applications 规范读 mimeapps.list (每个目录先读 `acde-mimeapps.list`), `acde-<app>.desktop` 指 acde 应用; 没设过的用清单 `mimeTypes`
   写了它的第一个应用 (全名先于 `type/*`), 再没有用原生程序.
-- **文件的类型** (`MimeTypes.of`): 先问 `gio info` (Linux). 它给不出 MIME 时 (macOS 的 gio 回 UTI, 或没有 gio) 按 shared-mime-info 的
-  `mime/globs2` 匹配文件名 (`mimedb.ts`; XDG 数据目录, macOS 另加 Homebrew / MacPorts 的 `share/mime`; 每个进程读一次; `__NOGLOBS__` 照规范):
-  完整文件名先于通配, 再比权重、模式长度、区分大小写的优先. 打平时用 `file --mime-type`: 它是候选之一就用它, 否则挑和它一样是不是文本
-  (`text/*` 或经 `subclasses` 到 `text/plain`) 的那个, 和 gio 用 magic 消歧义一样. 一个也没匹配上用 `file`,
-  再不行是 `application/octet-stream`. 这样 macOS 的宿主窗口和 Dopame OS 得到同样的类型 (`.md` 是 `text/markdown`, 不是 `file` 说的
-  `text/plain`). 数据库不进包 (shared-mime-info 是 GPL), 没有时 (Windows、没装它的 macOS) 改用 `mimedb.ts` `BUILTIN_MIME` 的常见扩展名表
-  (约 110 个, 每个一个类型, 照 Ubuntu 24.04 上 `gio info` 的结果手写, `.py` 是 `text/x-python`, `.ts` 是 `text/vnd.trolltech.linguist`)
-  并打一行 warn (macOS 提示 `brew install shared-mime-info`), 表外的类型会和 Dopame OS 不一样. 测试 `acde-host/test/mimedb.test.ts`.
+- **文件的类型** (`MimeTypes.of`, 按名字的部分在 `mimedb.ts` `FileTypes`): 用各平台自己登记的类型, 运行时不带扩展名表, 也不用 mime-db
+  这类面向浏览器的库 (决定, 2026-11-10). 系统不知道的类型就是未知 (`''`), 不猜, 由用户选应用.
+  - Windows (有 `sys.contentType`): 按最后一个扩展名 (小写, `a.tar.gz` 是 `.gz`) 取系统登记的 `Content Type` (`HKEY_CLASSES_ROOT\.<ext>`,
+    hostwin `system/assoc.rs` 用 `AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_CONTENTTYPE)`, 原生调用, 不起子进程), 原样用它:
+    `.csv` 可能是 `application/vnd.ms-excel`, `.zip` 是 `application/x-zip-compressed`; `.md` `.py` `.rs` `.yaml` 一般没有, 就是未知.
+    不问 gio、`file`, 也不读 shared-mime-info.
+  - Linux / macOS: 先问 `gio info` (Linux). 它给不出 MIME 时 (macOS 的 gio 回 UTI, 或没有 gio) 按 shared-mime-info 的
+    `mime/globs2` 匹配文件名 (`mimedb.ts`; XDG 数据目录, macOS 另加 Homebrew / MacPorts 的 `share/mime`; 每个进程读一次; `__NOGLOBS__` 照规范):
+    完整文件名先于通配, 再比权重、模式长度、区分大小写的优先. 打平时用 `file --mime-type`: 它是候选之一就用它, 否则挑和它一样是不是文本
+    (`text/*` 或经 `subclasses` 到 `text/plain`) 的那个, 和 gio 用 magic 消歧义一样. 一个也没匹配上用 `file`, 再不行是
+    `application/octet-stream`. 这样 macOS 的宿主窗口和 Dopame OS 得到同样的类型 (`.md` 是 `text/markdown`, 不是 `file` 说的 `text/plain`).
+    数据库不进包 (shared-mime-info 是 GPL), 没有时打一行 warn (macOS 提示 `brew install shared-mime-info`), 类型只来自 `file`.
+  - 测试 `acde-host/test/mimedb.test.ts` (注入的注册表读取, 不碰真的注册表).
 - **这个平台上跑不了的应用不选** (Broker `#runsHere`): 宿主窗口里没有 slots (嵌原生窗口只在 Linux 会话里), 要 `slots` 的应用 (如
   Dopame 的浏览器) 不当默认应用、不进 `handlers`, 页面的外部链接也不交给它 (打一行 warn, 不开只会报错的空窗口). 它们也不在
   `acde.apps.list()` 和 `appschanged` 里 (Dock、搜索、设置看不到); `launch` / `acde.open(<id>)` 和指定 `app` 的 `openPath` 回

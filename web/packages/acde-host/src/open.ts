@@ -1,8 +1,7 @@
 import type { OpenHandler } from '@dopame/acde-api'
 import type { AppManifest } from './apps'
 import { DesktopEntry } from './desktopentry'
-import { Level, Log } from './log'
-import { BUILTIN_MIME, MimeDb } from './mimedb'
+import { FileTypes, type MimeDb } from './mimedb'
 import { spawnSync } from './sys/child_process'
 import { existsSync, mkdirSync, readTextOr, stat, writeFileSync } from './sys/fs'
 import { sys } from './sys/natives'
@@ -52,17 +51,22 @@ class MimeTypes {
     return patterns.includes(`${type}/*`) ? 1 : 0
   }
 
-  static of(path: string): string {
+  static of(path: string, types = FileTypes.system()): string {
     if (stat(path)?.isDirectory) return MimeTypes.DIRECTORY
+    if (types.associations) return types.byName(basename(path))
     const gio = spawnSync('gio', ['info', '--attributes=standard::content-type', path], 3000)
     const fromGio = /standard::content-type:\s*(\S+)/.exec(gio.stdout ?? '')?.[1]
     if (gio.status === 0 && fromGio && MimeTypes.valid(fromGio)) return fromGio
-    const db = MimeTypes.#database()
-    const candidates = db.candidates(basename(path))
-    if (candidates.length === 1) return candidates[0]!
+    const db = types.database()
+    const candidates = db ? db.candidates(basename(path)) : []
+    if (db && candidates.length === 1) return candidates[0]!
     const sniffed = MimeTypes.#sniff(path)
-    if (candidates.length > 1) return MimeTypes.#pick(db, candidates, sniffed)
+    if (db && candidates.length > 1) return MimeTypes.#pick(db, candidates, sniffed)
     return sniffed ?? 'application/octet-stream'
+  }
+
+  static describe(mime: string): string {
+    return mime || 'a type the system does not know'
   }
 
   static #sniff(path: string): string | null {
@@ -76,22 +80,6 @@ class MimeTypes {
     if (!sniffed) return candidates[0]!
     const text = db.isText(sniffed)
     return candidates.find((mime) => db.isText(mime) === text) ?? candidates[0]!
-  }
-
-  static #db: MimeDb | undefined
-
-  static #database(): MimeDb {
-    if (MimeTypes.#db) return MimeTypes.#db
-    const macos = sys().platform === 'darwin' ? ['/opt/homebrew/share/mime', '/usr/local/share/mime', '/opt/local/share/mime'] : []
-    const dirs = [...new Set([...xdgDirs('data', 'mime'), ...macos])]
-    const system = MimeDb.parse(dirs.map((dir) => ({ globs2: readTextOr(join(dir, 'globs2'), null), subclasses: readTextOr(join(dir, 'subclasses'), null) })))
-    if (!system) {
-      const hint = sys().platform === 'darwin' ? ' (brew install shared-mime-info)' : ''
-      const used = 'a built-in table of common extensions'
-      Log.write(Level.Warn, 'acde_host', `no shared-mime-info database${hint}: file types come from ${used} and may differ from Dopame OS`)
-    }
-    MimeTypes.#db = system ?? MimeDb.parse([BUILTIN_MIME])!
-    return MimeTypes.#db
   }
 }
 
@@ -246,7 +234,7 @@ export class Opener {
     let chosen = options.app ? this.#asked(options.app, natives) : this.#chosen(mime, natives)
     const system = !chosen && !options.app && !select && !isDir ? this.#host.system() : null
     if (system) return this.#toSystem(system, path, mime, caller)
-    if (!chosen) throw Object.assign(new Error(`no app can open this kind of file (${mime})`), { status: 404, code: 'no_app' })
+    if (!chosen) throw Object.assign(new Error(`no app can open this kind of file (${MimeTypes.describe(mime)})`), { status: 404, code: 'no_app' })
     if (chosen.kind === 'acde') {
       const id = chosen.id
       const app = this.#host.apps().find((a) => a.id === id)!
@@ -286,7 +274,7 @@ export class Opener {
     const file = held ?? text
     if (!held && Opener.#scheme(text)) throw Object.assign(new Error(`open-file needs a file URL or an absolute path: ${text}`), { status: 400 })
     const mime = MimeTypes.of(Opener.#existing(file))
-    if (app && MimeTypes.match(app.mimeTypes, mime) === 0) throw refuse(`${mime} files (its manifest's mimeTypes)`)
+    if (app && MimeTypes.match(app.mimeTypes, mime) === 0) throw refuse(`${MimeTypes.describe(mime)} files (its manifest's mimeTypes)`)
     const vouched = held && caller?.roots ? { ...caller, roots: [...caller.roots, dirname(held)] } : caller
     const readOnly = (request.held as { writable?: unknown } | undefined)?.writable === false
     return this.open(file, { ...(target && { app: target }), ...(held && readOnly && { readOnly }) }, vouched)
@@ -329,7 +317,7 @@ export class Opener {
   async #toSystem(system: (target: string) => Promise<void>, path: string, mime: string, caller: OpenCaller | null): Promise<Opened> {
     const real = await this.#host.admit(path, caller)
     if (!real) throw Object.assign(new Error(`${path} is not in a folder the caller may open`), { status: 404, code: 'outside_roots' })
-    return Opener.#handOff(system, real, `this kind of file (${mime})`)
+    return Opener.#handOff(system, real, `this kind of file (${MimeTypes.describe(mime)})`)
   }
 
   static async #handOff(system: (target: string) => Promise<void>, target: string, what: string): Promise<Opened> {
