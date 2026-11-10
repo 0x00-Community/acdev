@@ -85,7 +85,7 @@ acde build
 acde dev --headless
 ```
 
-`acde dev` keeps running: start it in the background, wait for its output to show the app's first build, then from the same directory run `acde webs` and `acde shot hello -o hello.png`, look at the PNG, and stop `acde dev`. Remove the temporary directory when you are done.
+`acde dev` keeps running: start it in the background. It first prints a line beginning `acde: dev app hello (headless):` (the build is done and acdert is starting). The session is ready when `acde webs`, run from the same directory, lists a page whose APP is `hello`; until then `acde webs` says `no acde dev is running`, so run it again every second or two, for up to a minute. Then run `acde shot hello -o hello.png`, look at the PNG, and end the session with `acde stop`. Remove the temporary directory when you are done.
 
 ## 7. Report
 
