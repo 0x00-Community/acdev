@@ -181,20 +181,30 @@ self.on<AppRequest<'task', { title: string }>>('request', (r) => (r.kind === 'ta
   assert.ok(errors('app', wrong).length > 0, 'an undeclared field is an error')
 })
 
-test('callers send typed app requests and keep the level 0 form for now', () => {
+test('callers send only typed app requests', () => {
   const code = `
 import { open } from 'acde:open'
 import type { AppRequest } from ${JSON.stringify(`${src}app`)}
 export const typed: Promise<{ window: number }> = open('board', { kind: 'task', title: 'x' })
 export const declared: Promise<{ window: number }> = open<AppRequest<'task', { title: string }>>('board', { kind: 'task', title: 'x' })
 export const plain: Promise<{ window: number }> = open('notes')
-export const legacy: Promise<{ window: number }> = open('notes', { file: 'a' })
 `
   assert.deepEqual(errors('app', code), [])
   const wrong = `import { open } from 'acde:open'
 import type { AppRequest } from ${JSON.stringify(`${src}app`)}
 open<AppRequest<'task', { title: string }>>('board', { kind: 'task', title: 1 })`
   assert.ok(errors('app', wrong).length > 0)
+  assert.ok(errors('app', `import { open } from 'acde:open'\nopen('notes', { file: 'a' })`).length > 0, 'a request without a kind is level 0')
+})
+
+test('the SDK has no level 0 window shapes', () => {
+  const window = `import self from 'acde:window'
+self.on('request', (r: Record<string, unknown>) => r)
+self.on('opened', () => {})
+self.requestMode('fullscreen')`
+  assert.equal(errors('app', window).length, 3, 'untyped request handler, unknown event, full screen as a mode')
+  const legacy = ['fullscreen', 'unfullscreen', 'minimize'].map((type) => `windows.on('${type}', () => {})`)
+  assert.equal(errors('shell', `import { windows } from 'acde:windows'\n${legacy.join('\n')}`).length, 3, 'the old window events')
 })
 
 test('office results follow the runtime', () => {

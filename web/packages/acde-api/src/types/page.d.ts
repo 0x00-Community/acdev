@@ -243,8 +243,6 @@ export interface AcdeOpen {
   (app: string, request: SystemRequest): Promise<Opened>
   <R extends AppRequest>(app: string, request: R, options?: OpenWindowOptions): Promise<{ window: number }>
   (app: string, request?: null, options?: OpenWindowOptions): Promise<{ window: number }>
-  /** @deprecated Level 0 request without a kind; removed with level 0. */
-  (app: string, request?: Record<string, unknown> | null, options?: OpenWindowOptions): Promise<{ window: number }>
 }
 
 export interface AcdeAppList {
@@ -485,10 +483,6 @@ export interface AcdeWindow {
   on(name: 'hostcontrols', handler: (hostControls: boolean) => void): () => boolean
   on(name: 'minimizable', handler: (minimizable: boolean) => void): () => boolean
   on(name: 'shortcut', handler: (event: ShortcutEvent) => void): () => boolean
-  /** @deprecated Level 0 untyped request; removed with level 0. */
-  on(name: 'request', handler: (request: Record<string, unknown>) => void): () => boolean
-  /** @deprecated Level 0 untyped form; removed with level 0. */
-  on(name: WindowEventName, handler: (value?: unknown) => unknown): () => boolean
 }
 
 export interface NetworkDevice {

@@ -78,8 +78,6 @@ export type WindowsEvent = WindowsEventMap[WindowsEventType]
 
 export interface WindowsEvents {
   on<K extends WindowsEventType>(type: K, handler: (event: WindowsEventMap[K]) => void): () => boolean
-  /** @deprecated Level 0 untyped form; removed with level 0. */
-  on(type: WindowsEventType, handler: (event: { readonly type: string; readonly window: number; readonly [field: string]: unknown }) => void): () => boolean
 }
 
 export interface AppsChangedEvent {

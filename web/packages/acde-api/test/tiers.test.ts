@@ -47,7 +47,7 @@ test('opening a window names a parent and a modal flag, typed', () => {
 import { open } from 'acde:open'
 import { apps } from 'acde:apps'
 import self from 'acde:window'
-export const dialog: Promise<{ window: number }> = open('notes', { file: 'a' }, { parent: self.id, modal: true })
+export const dialog: Promise<{ window: number }> = open('notes', { kind: 'note', file: 'a' }, { parent: self.id, modal: true })
 export const child = apps.open('notes', null, { parent: 3 })
 `
   assert.deepEqual(errors('app', code), [])
