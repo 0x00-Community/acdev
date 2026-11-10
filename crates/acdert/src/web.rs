@@ -73,9 +73,14 @@ impl Webs {
     fn grants(&mut self, scope: &mut v8::PinScope, wanted: v8::Local<v8::Value>) -> Grants {
         let Ok(wanted) = v8::Local::<v8::Object>::try_from(wanted) else { return Grants::default() };
         let fs = match bind::get(scope, wanted, "fs") {
-            Some(v) if v.is_true() => Some(None),
-            Some(v) if v.is_array() => Some(Some(bind::strings(scope, v).unwrap_or_default())),
-            _ => None,
+            Some(v) if v.is_true() => Some(Err(None)),
+            Some(v) if v.is_array() => Some(Err(Some(bind::strings(scope, v).unwrap_or_default()))),
+            Some(v) => v8::Local::<v8::Object>::try_from(v).ok().map(|files| {
+                let places = bind::get(scope, files, "places").and_then(|places| bind::strings(scope, places)).unwrap_or_default();
+                let paths = bind::get(scope, files, "paths").is_some_and(|paths| paths.is_true());
+                Ok(acde_runtime::Files::new(&places, paths))
+            }),
+            None => None,
         };
         let app = bind::get_string(scope, wanted, "app");
         let capture = crate::capture::Allowed {
@@ -93,7 +98,10 @@ impl Webs {
         let picker = crate::picker::Picker::new(app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
         Grants {
             storage: crate::storage::place(scope, wanted),
-            fs: fs.map(|roots| workspace.scoped(roots, app.as_deref())),
+            fs: fs.and_then(|fs| match fs {
+                Ok(files) => app.as_deref().map(|app| workspace.files(files, app)),
+                Err(roots) => Some(workspace.scoped(roots, app.as_deref())),
+            }),
             capture,
             app,
             picker,

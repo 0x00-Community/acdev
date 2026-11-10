@@ -1,15 +1,18 @@
 import type { AppsChangedEvent, DesktopEventMap, ShortcutEvent, TerminalEvent, WindowGrabEvent, WindowGrabLostEvent, WindowsEvents } from './events'
 import type { AcdeOffice } from './office'
 import type { AcdePermissions } from './permissions'
+import type { SharedPlace } from '../runtime/places'
 
 export type * from './events'
 export type * from './office'
 export type * from './permissions'
 
 export interface FinderRoot {
-  path: string
+  id: string
+  path?: string
   label: string
-  source: 'desktop' | 'downloads' | 'default' | 'task' | 'granted'
+  source: 'desktop' | 'downloads' | 'default' | 'task' | 'granted' | 'private' | 'place'
+  place?: SharedPlace
   mode: RootMode
   reason: string | null
   exists: boolean

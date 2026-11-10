@@ -3,6 +3,7 @@ pub(crate) mod path;
 mod picked;
 pub(crate) mod workspace;
 
+pub use access::files::Files;
 use access::{admit, copy_source, grants::Grants};
 #[cfg(not(windows))]
 use path::NodePath;
@@ -78,6 +79,12 @@ pub(crate) struct Shared {
     grants: Grants,
 }
 
+#[derive(Clone, Copy)]
+enum View<'a> {
+    All(Option<&'a dyn Fn(&str) -> bool>),
+    Files(&'a Files),
+}
+
 impl Shared {
     fn place(&self) -> Place {
         self.place.locked().clone()
@@ -95,6 +102,25 @@ impl Shared {
 
     fn root(&self, owner: Option<&str>, path: &str) -> Outcome<FinderRoot> {
         self.roots(owner)?.into_iter().find(|root| root.path == path).ok_or_else(|| Failure::invalid("not a Runtime workspace"))
+    }
+
+    fn files_roots(&self, owner: Option<&str>, files: &Files) -> Outcome<Vec<FinderRoot>> {
+        let owner = owner.ok_or_else(|| Failure::invalid("private folders belong to an app"))?;
+        files.roots(&self.fs, owner, self.grants.of(owner))
+    }
+
+    fn root_in(&self, owner: Option<&str>, view: View, id: &str) -> Outcome<FinderRoot> {
+        match view {
+            View::All(_) => self.root(owner, id),
+            View::Files(files) => Files::find(self.files_roots(owner, files)?, id),
+        }
+    }
+
+    fn path_calls(view: View, what: &str) -> Outcome<()> {
+        match view {
+            View::Files(files) if !files.paths() => Err(Failure::http(403, format!("{what} works only in system apps that declare shared places"))),
+            _ => Ok(()),
+        }
     }
 
     fn state(&self, owner: Option<&str>) -> Outcome<State> {
@@ -205,18 +231,24 @@ impl Shared {
         Self { fs: WorkspaceFs::new(), place: Mutex::new(Place::load()), grants }
     }
 
-    fn call(&self, call: FsCall, owner: Option<&str>, scope: Option<&dyn Fn(&str) -> bool>) -> Outcome<FsReply> {
+    fn call(&self, call: FsCall, owner: Option<&str>, view: View) -> Outcome<FsReply> {
         let json = |value: Outcome<Value>| value.map(FsReply::Json);
-        let root = |path: &str| self.root(owner, path);
+        let root = |id: &str| self.root_in(owner, view, id);
+        if let (View::Files(_), FsCall::State | FsCall::Desktop | FsCall::Place { .. }) = (view, &call) {
+            return Err(Failure::http(403, "fs.state(), fs.desktop() and fs.place() are not part of level 1 file access"));
+        }
         match call {
             FsCall::State => json(self.state(owner).json()),
-            FsCall::Roots => json(self.roots(owner).json()),
+            FsCall::Roots => json(self.allowed(owner, view).json()),
             FsCall::Desktop => json(self.desktop().json()),
             FsCall::List { root: at, path, hidden } => json(self.fs.list_in(root(&at)?, path.as_deref().unwrap_or(""), hidden.unwrap_or(true)).json()),
             FsCall::Preview { root: at, path } => json(WorkspaceFs::preview_in(&root(&at)?, &path).json()),
             FsCall::Download { root: at, path } => WorkspaceFs::raw_in(&root(&at)?, &path).map(|(name, data)| FsReply::File { name, data }),
-            FsCall::Locate { path } => json(self.locate(owner, &path, scope)),
-            FsCall::OpenPath { root: at, path } => json(self.open_path(&root(&at)?, &path)),
+            FsCall::Locate { path } => json(self.locate(owner, &path, view)),
+            FsCall::OpenPath { root: at, path } => {
+                Self::path_calls(view, "fs.openPath()")?;
+                json(self.open_path(&root(&at)?, &path))
+            }
             FsCall::Place { root: at, path, file } => json(self.set_place(&root(&at)?, path, file).json()),
             FsCall::Mkdir { root: at, path, options } => {
                 let options: MkdirOptions = options_of("mkdir", options)?;
@@ -240,7 +272,7 @@ impl Shared {
                 json(WorkspaceFs::write_in(&root(&at)?, &path, content.as_deref().unwrap_or(""), &expected_modified_ms).json())
             }
             FsCall::CopyIn { root: at, dir, source } => {
-                let allowed = self.allowed(owner, scope)?;
+                let allowed = self.allowed(owner, view)?;
                 json(copy_in(owner, &allowed, &at, &dir, &source))
             }
             FsCall::Rename { root: at, from, to } => json(WorkspaceFs::rename_in(&root(&at)?, &from, &to).json()),
@@ -249,14 +281,22 @@ impl Shared {
                 json(Ok(serde_json::json!({"status": "deleted", "path": path})))
             }
             FsCall::Revoke { root: at } => {
-                self.grants.remove(owner.unwrap_or_default(), &at)?;
+                let path = match view {
+                    View::Files(_) => Some(root(&at)?).filter(|root| matches!(root.source, workspace::RootSource::Granted)).map(|root| root.path),
+                    View::All(_) => Some(at.clone()),
+                };
+                let path = path.ok_or_else(|| Failure::invalid(format!("{at} is not a folder the user picked")))?;
+                self.grants.remove(owner.unwrap_or_default(), &path)?;
                 Ok(FsReply::Done)
             }
         }
     }
 
-    fn allowed(&self, owner: Option<&str>, scope: Option<&dyn Fn(&str) -> bool>) -> Outcome<Vec<FinderRoot>> {
-        Ok(self.roots(owner)?.into_iter().filter(|root| scope.is_none_or(|allows| allows(&root.path))).collect())
+    fn allowed(&self, owner: Option<&str>, view: View) -> Outcome<Vec<FinderRoot>> {
+        match view {
+            View::All(scope) => Ok(self.roots(owner)?.into_iter().filter(|root| scope.is_none_or(|allows| allows(&root.path))).collect()),
+            View::Files(files) => self.files_roots(owner, files),
+        }
     }
 
     fn desktop(&self) -> Outcome<Desktop> {
@@ -265,7 +305,8 @@ impl Shared {
         Ok(Desktop { root, entries: listing.entries, truncated: listing.truncated })
     }
 
-    fn locate(&self, owner: Option<&str>, path: &str, scope: Option<&dyn Fn(&str) -> bool>) -> Outcome<Value> {
+    fn locate(&self, owner: Option<&str>, path: &str, view: View) -> Outcome<Value> {
+        Self::path_calls(view, "fs.locate()")?;
         let home = std::env::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
         let expanded = match path.strip_prefix('~') {
             Some(rest) if rest.is_empty() || rest.starts_with('/') || cfg!(windows) && rest.starts_with('\\') => {
@@ -282,17 +323,15 @@ impl Shared {
         let relative = |root: &str| path::windows_within(std::path::Path::new(&clean), root);
         #[cfg(not(windows))]
         let relative = |root: &str| clean.within(root).map(|path| path.trim_start_matches('/').to_owned());
-        let roots = self.roots(owner)?;
-        let (root, relative) = roots
-            .iter()
-            .filter(|root| scope.is_none_or(|allows| allows(&root.path)))
-            .filter_map(|root| relative(&root.path).map(|path| (root, path)))
-            .max_by_key(|(root, _)| root.path.len())
-            .ok_or_else(|| match scope {
-                Some(_) => Failure::http(403, "not inside a workspace allowed for this app"),
-                None => Failure::http(404, "not inside any workspace the Finder lists"),
-            })?;
-        Ok(serde_json::json!({"root": root.path, "path": relative}))
+        let roots = self.allowed(owner, view)?;
+        let (root, relative) =
+            roots.iter().filter_map(|root| relative(&root.path).map(|path| (root, path))).max_by_key(|(root, _)| root.path.len()).ok_or_else(
+                || match view {
+                    View::All(None) => Failure::http(404, "not inside any workspace the Finder lists"),
+                    _ => Failure::http(403, "not inside a workspace allowed for this app"),
+                },
+            )?;
+        Ok(serde_json::json!({"root": root.id, "path": relative}))
     }
 
     fn open_path(&self, workspace: &FinderRoot, path: &str) -> Outcome<Value> {
@@ -304,7 +343,7 @@ impl Shared {
             return Err(Failure::invalid("hidden files and folders are not opened in the browser"));
         }
         WorkspaceFs::raw_in(workspace, &resolved.relative)?;
-        Ok(serde_json::json!({"root": workspace.path, "path": resolved.relative, "file": resolved.real}))
+        Ok(serde_json::json!({"root": workspace.id, "path": resolved.relative, "file": resolved.real}))
     }
 
     fn set_place(&self, root: &FinderRoot, path: Option<String>, file: Option<String>) -> Outcome<Place> {
@@ -316,7 +355,7 @@ impl Shared {
 }
 
 fn copy_in(owner: Option<&str>, allowed: &[FinderRoot], at: &str, dir: &str, source: &str) -> Outcome<Value> {
-    let to = allowed.iter().find(|root| root.path == at).ok_or_else(|| Failure::invalid("not a Runtime workspace"))?;
+    let to = allowed.iter().find(|root| root.id == at).ok_or_else(|| Failure::invalid("not a Runtime workspace"))?;
     let requested = copy_source::parse(source)?;
     let admitted = copy_source::admit(allowed, &requested, owner)?;
     let entry = WorkspaceFs::copy_into(to, dir, &admitted.name, admitted.file)?;
@@ -338,17 +377,29 @@ pub struct Workspace {
     shared: Arc<Shared>,
     roots: Option<Arc<[String]>>,
     owner: Option<Arc<str>>,
+    files: Option<Arc<Files>>,
 }
 
 impl Workspace {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self { shared: Arc::new(Shared::new()), roots: None, owner: None }
+        Self { shared: Arc::new(Shared::new()), roots: None, owner: None, files: None }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn at(home: &str) -> Self {
+        let shared = Shared { fs: WorkspaceFs::at(home), place: Mutex::new(Place::default()), grants: Grants::new(None) };
+        Self { shared: Arc::new(shared), roots: None, owner: None, files: None }
     }
 
     pub fn scoped(&self, roots: Option<Vec<String>>, owner: Option<&str>) -> Self {
         let owner = owner.filter(|owner| Grants::valid_owner(owner)).map(Into::into);
-        Self { shared: Arc::clone(&self.shared), roots: roots.map(Into::into), owner }
+        Self { shared: Arc::clone(&self.shared), roots: roots.map(Into::into), owner, files: None }
+    }
+
+    pub fn files(&self, files: Files, owner: &str) -> Self {
+        let owner = Some(owner).filter(|owner| Grants::valid_owner(owner)).map(Into::into);
+        Self { shared: Arc::clone(&self.shared), roots: Some(Arc::from([])), owner, files: Some(Arc::new(files)) }
     }
 
     fn allows(&self, root: &str) -> bool {
@@ -375,6 +426,12 @@ impl Workspace {
 
     pub fn call(&self, call: FsCall) -> std::result::Result<FsReply, FsError> {
         let owner = self.owner.as_deref();
+        if let Some(files) = &self.files {
+            if owner.is_none() {
+                return Err(Failure::http(403, "this web has no app to own its files").into());
+            }
+            return Ok(self.shared.call(call, owner, View::Files(files))?);
+        }
         if self.roots.is_some() {
             match call.scope() {
                 Some(root) if self.allows(root) => {}
@@ -391,7 +448,7 @@ impl Workspace {
         }
         let allows = |root: &str| self.allows(root);
         let scope = self.roots.as_ref().map(|_| &allows as &dyn Fn(&str) -> bool);
-        Ok(self.shared.call(call, owner, scope)?)
+        Ok(self.shared.call(call, owner, View::All(scope))?)
     }
 }
 
@@ -411,7 +468,7 @@ impl Finder {
     #[napi]
     pub async fn locate(&self, path: String) -> Result<Value> {
         let shared = Arc::clone(&self.shared);
-        blocking(move || Ok(shared.locate(None, &path, None)?)).await
+        blocking(move || Ok(shared.locate(None, &path, View::All(None))?)).await
     }
 
     #[napi]
@@ -456,7 +513,7 @@ mod tests {
         std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
         std::fs::write(&file, "inside").unwrap();
         std::fs::write(&sibling, "outside").unwrap();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
         let scoped = all.scoped(Some(vec![]), Some("locate-probe"));
         let owner = all.scoped(None, Some("locate-probe"));
         let other = all.scoped(Some(vec![]), Some("other"));
@@ -485,7 +542,7 @@ mod tests {
         std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
         std::fs::write(&file, "inside").unwrap();
         std::fs::write(&sibling, "outside").unwrap();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
         let scoped = all.scoped(Some(vec![]), Some("locate-case"));
         let root = scoped.grant(root.to_str().unwrap()).unwrap();
         let locate = |path: &str| json(scoped.call(FsCall::Locate { path: path.to_owned() }));
@@ -509,7 +566,7 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(root.join("in.pdf"), "in").unwrap();
         std::fs::write(outside.join("out.pdf"), "out").unwrap();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
         let with = all.scoped(Some(vec![]), Some("admit-with"));
         with.grant(root.to_str().unwrap()).unwrap();
         let without = all.scoped(Some(vec![]), Some("admit-without"));
@@ -545,7 +602,7 @@ mod tests {
         std::fs::create_dir_all(&picked).unwrap();
         std::fs::write(picked.join("a.md"), "# a").unwrap();
         let picked = picked.to_string_lossy().into_owned();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
         let limited = all.scoped(Some(vec![]), Some("vault"));
         let other = all.scoped(None, Some("other"));
         let list = |workspace: &Workspace| json(workspace.call(FsCall::List { root: picked.clone(), path: None, hidden: None }));
@@ -557,7 +614,7 @@ mod tests {
         assert_eq!(
             roots,
             serde_json::json!([{
-                "path": picked, "label": "Notes", "source": "granted", "mode": "writable",
+                "id": picked, "path": picked, "label": "Notes", "source": "granted", "mode": "writable",
                 "reason": null, "exists": true
             }])
         );
@@ -581,7 +638,7 @@ mod tests {
         std::fs::write(vault.join("inside.txt"), "inside").unwrap();
         let secret = elsewhere.join("secret.txt");
         std::fs::write(&secret, "outside").unwrap();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
         let app = all.scoped(Some(vec![]), Some("copy-probe"));
         let root = app.grant(vault.to_str().unwrap()).unwrap();
         let copy = |source: &str| {

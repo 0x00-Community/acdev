@@ -31,7 +31,7 @@ pub use atspi::Accessibility;
 #[cfg(target_os = "linux")]
 pub use bus::DesktopBus;
 pub use fetch::{Deliver, Dial, Event as FetchEvent, FetchClient};
-pub use fs::{EntryKind, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
+pub use fs::{EntryKind, Files, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
 #[cfg(target_os = "linux")]
 pub use greetd::{GreetUser, Greetd};
 #[cfg(target_os = "linux")]

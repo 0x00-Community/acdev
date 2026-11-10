@@ -30,16 +30,40 @@ pub enum RootSource {
     Downloads,
     Default,
     Granted,
+    Private,
+    Place,
 }
 
 #[derive(Clone, Serialize)]
 pub struct FinderRoot {
+    pub id: String,
+    #[serde(skip)]
     pub path: String,
+    #[serde(rename = "path", skip_serializing_if = "Option::is_none")]
+    pub shown: Option<String>,
     pub label: String,
     pub source: RootSource,
     pub mode: RootMode,
     pub reason: Option<String>,
     pub exists: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place: Option<&'static str>,
+}
+
+impl FinderRoot {
+    pub fn new(path: String, label: &str, source: RootSource) -> Self {
+        Self {
+            id: path.clone(),
+            shown: Some(path.clone()),
+            path,
+            label: label.into(),
+            source,
+            mode: RootMode::Writable,
+            reason: None,
+            exists: true,
+            place: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -184,11 +208,40 @@ impl From<fs::FileType> for EntryKind {
 pub struct WorkspaceFs {
     collator: CollatorBorrowed<'static>,
     home: String,
+    data: String,
+    system: bool,
 }
 
 impl WorkspaceFs {
     pub fn new() -> Self {
-        Self { collator: Self::collator(), home: std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned()) }
+        let home = std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned());
+        let data = std::env::var("XDG_DATA_HOME").ok().filter(|dir| Path::new(dir).is_absolute()).unwrap_or_else(|| {
+            let base = std::env::var("HOME").ok().filter(|dir| !dir.is_empty()).unwrap_or_else(|| home.clone());
+            base.join(".local").join("share")
+        });
+        Self { collator: Self::collator(), home, data, system: true }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn at(home: &str) -> Self {
+        Self { collator: Self::collator(), home: home.to_owned(), data: home.join("data"), system: false }
+    }
+
+    pub fn place_dir(&self, name: &str) -> Option<String> {
+        let (key, fallback) = match name {
+            "desktop" => ("DESKTOP", "Desktop"),
+            "documents" => ("DOCUMENTS", "Documents"),
+            "downloads" => ("DOWNLOAD", "Downloads"),
+            "music" => ("MUSIC", "Music"),
+            "pictures" => ("PICTURES", "Pictures"),
+            "videos" => ("VIDEOS", "Videos"),
+            _ => return None,
+        };
+        Some(self.user_dir(key, fallback, true))
+    }
+
+    pub fn private_dir(&self, owner: &str) -> String {
+        self.data.join("acde").join("files").join(owner)
     }
 
     fn collator() -> CollatorBorrowed<'static> {
@@ -205,10 +258,11 @@ impl WorkspaceFs {
             .expect("compiled root collation data")
     }
 
-    fn user_dir(&self, name: &str, fallback: &str) -> String {
+    #[cfg_attr(not(windows), allow(unused_variables))]
+    fn user_dir(&self, name: &str, fallback: &str, known: bool) -> String {
         let home = self.home.as_str();
         let key = format!("XDG_{name}_DIR");
-        let dir = std::env::var(&key).ok().filter(|dir| !dir.is_empty()).or_else(|| {
+        let dir = std::env::var(&key).ok().filter(|dir| self.system && !dir.is_empty()).or_else(|| {
             let text = fs::read(home.join(".config").join("user-dirs.dirs")).ok()?;
             let prefix = format!("{key}=\"");
             String::from_utf8_lossy(&text).split(['\n', '\r']).find_map(|line| {
@@ -217,6 +271,8 @@ impl WorkspaceFs {
                 (!value.is_empty()).then(|| value.to_owned())
             })
         });
+        #[cfg(windows)]
+        let dir = dir.or_else(|| (self.system && known).then(|| super::path::known_folder(name)).flatten());
         let Some(dir) = dir else { return home.join(fallback) };
         let path = match dir.strip_prefix("$HOME") {
             Some(rest) if rest.is_empty() || rest.starts_with('/') || (cfg!(windows) && rest.starts_with('\\')) => {
@@ -238,7 +294,7 @@ impl WorkspaceFs {
     }
 
     pub fn desktop(&self) -> Outcome<String> {
-        let desktop = self.user_dir("DESKTOP", "Desktop");
+        let desktop = self.user_dir("DESKTOP", "Desktop", false);
         if !Path::new(&desktop).exists() {
             DirBuilder::new().recursive(true).create(&desktop)?;
         }
@@ -246,21 +302,14 @@ impl WorkspaceFs {
     }
 
     pub fn downloads(&self) -> Option<String> {
-        Some(self.user_dir("DOWNLOAD", "Downloads")).filter(|dir| Path::new(dir).exists())
+        Some(self.user_dir("DOWNLOAD", "Downloads", false)).filter(|dir| Path::new(dir).exists())
     }
 
     pub fn roots(&self) -> Outcome<Vec<FinderRoot>> {
         let fallback = self.home.join("agentos-work");
         let work = Some(fallback).filter(|path| Path::new(path).exists());
         let desktop = self.desktop()?;
-        let root = |path: String, label: &str, source: RootSource| FinderRoot {
-            path,
-            label: label.into(),
-            source,
-            mode: RootMode::Writable,
-            reason: None,
-            exists: true,
-        };
+        let root = |path: String, label: &str, source: RootSource| FinderRoot::new(path, label, source);
         let downloads = self.downloads().filter(|dir| *dir != desktop && work.as_ref() != Some(dir));
         let down = downloads.map(|path| root(path, "下载", RootSource::Downloads));
         let work = work.filter(|path| *path != desktop).map(|path| root(path, "~/agentos-work", RootSource::Default));
@@ -271,12 +320,10 @@ impl WorkspaceFs {
         let exists = Path::new(path).is_dir();
         let label = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
         FinderRoot {
-            path: path.to_owned(),
-            label: label.to_owned(),
-            source: RootSource::Granted,
             mode: if exists { RootMode::Writable } else { RootMode::Unavailable },
             reason: (!exists).then(|| "the folder no longer exists".to_owned()),
             exists,
+            ..FinderRoot::new(path.to_owned(), label, RootSource::Granted)
         }
     }
 
@@ -719,8 +766,7 @@ mod tests {
             let base = std::env::temp_dir().join(format!("acde-ws-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
             let dir = base.to_string_lossy().into_owned();
             fs::create_dir_all(dir.join("root")).unwrap();
-            let root =
-                FinderRoot { path: dir.join("root"), label: "root".into(), source: RootSource::Default, mode: RootMode::Writable, reason: None, exists: true };
+            let root = FinderRoot::new(dir.join("root"), "root", RootSource::Default);
             Self { dir, root }
         }
 

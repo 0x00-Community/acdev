@@ -196,3 +196,28 @@ impl NodePath for str {
         }
     }
 }
+
+#[cfg(windows)]
+pub(super) fn known_folder(key: &str) -> Option<String> {
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{
+        FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_Music, FOLDERID_Pictures, FOLDERID_Videos, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
+    };
+    let id = match key {
+        "DESKTOP" => &FOLDERID_Desktop,
+        "DOCUMENTS" => &FOLDERID_Documents,
+        "DOWNLOAD" => &FOLDERID_Downloads,
+        "MUSIC" => &FOLDERID_Music,
+        "PICTURES" => &FOLDERID_Pictures,
+        "VIDEOS" => &FOLDERID_Videos,
+        _ => return None,
+    };
+    let mut path = std::ptr::null_mut();
+    let found = unsafe { SHGetKnownFolderPath(id, KF_FLAG_DEFAULT as u32, std::ptr::null_mut(), &mut path) } == 0;
+    let text = found.then(|| {
+        let len = (0..).take_while(|&i| unsafe { *path.add(i) } != 0).count();
+        String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(path, len) })
+    });
+    unsafe { CoTaskMemFree(path.cast()) };
+    text.and_then(|text| windows_directory(&text))
+}

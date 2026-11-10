@@ -52,7 +52,7 @@ libc = "0"
 
 # Windows: what std has no API for (not following a symlink when opening; a TLS chain whose root Windows has not downloaded yet)
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0", features = ["Win32_Security_Cryptography", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0", features = ["Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell"] }
 
 # fetch.rs tests: a test server on an AF_UNIX socket (std has no Windows listener)
 [target.'cfg(windows)'.dev-dependencies]

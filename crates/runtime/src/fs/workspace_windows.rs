@@ -147,7 +147,7 @@ fn windows_desktop_override_distinguishes_disk_unc_and_device_paths() {
 }
 
 fn copy_app(s: &Scratch, app: &str) -> Workspace {
-    let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None };
+    let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
     let scoped = all.scoped(Some(Vec::new()), Some(app));
     scoped.grant(&s.root.path).unwrap();
     scoped
