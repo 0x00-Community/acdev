@@ -4,12 +4,15 @@ const KEYS: Record<number, readonly [string, string?]> = {
   1: ['Escape', 'Escape'], 12: ['Minus'], 13: ['Equal'], 14: ['Backspace', 'Backspace'], 15: ['Tab', 'Tab'],
   26: ['BracketLeft'], 27: ['BracketRight'], 28: ['Enter', 'Enter'], 29: ['ControlLeft', 'Control'], 39: ['Semicolon'],
   40: ['Quote'], 41: ['Backquote'], 42: ['ShiftLeft', 'Shift'], 43: ['Backslash'], 51: ['Comma'], 52: ['Period'],
-  53: ['Slash'], 54: ['ShiftRight', 'Shift'], 55: ['NumpadMultiply'], 56: ['AltLeft', 'Alt'], 57: ['Space'],
+  53: ['Slash'], 54: ['ShiftRight', 'Shift'], 55: ['NumpadMultiply', '*'], 56: ['AltLeft', 'Alt'], 57: ['Space'],
   58: ['CapsLock', 'CapsLock'], 87: ['F11', 'F11'], 88: ['F12', 'F12'], 96: ['NumpadEnter', 'Enter'],
   97: ['ControlRight', 'Control'], 100: ['AltRight', 'Alt'], 102: ['Home', 'Home'], 103: ['ArrowUp', 'ArrowUp'],
   104: ['PageUp', 'PageUp'], 105: ['ArrowLeft', 'ArrowLeft'], 106: ['ArrowRight', 'ArrowRight'], 107: ['End', 'End'],
   108: ['ArrowDown', 'ArrowDown'], 109: ['PageDown', 'PageDown'], 110: ['Insert', 'Insert'], 111: ['Delete', 'Delete'],
   99: ['PrintScreen', 'PrintScreen'], 125: ['MetaLeft', 'Meta'], 126: ['MetaRight', 'Meta'], 127: ['ContextMenu', 'ContextMenu'],
+  71: ['Numpad7', '7'], 72: ['Numpad8', '8'], 73: ['Numpad9', '9'], 74: ['NumpadSubtract', '-'], 75: ['Numpad4', '4'], 76: ['Numpad5', '5'],
+  77: ['Numpad6', '6'], 78: ['NumpadAdd', '+'], 79: ['Numpad1', '1'], 80: ['Numpad2', '2'], 81: ['Numpad3', '3'], 82: ['Numpad0', '0'],
+  83: ['NumpadDecimal', '.'], 98: ['NumpadDivide', '/'],
 }
 for (const [row, start] of [['qwertyuiop', 16], ['asdfghjkl', 30], ['zxcvbnm', 44]] as const) {
   ;[...row].forEach((c, i) => (KEYS[start + i] = [`Key${c.toUpperCase()}`]))
@@ -99,7 +102,7 @@ export class ShellInput {
         const mod = named ? MODIFIER[named] : undefined
         if (mod) this.#mods[mod] = raw.type === 'keydown'
         const char = raw.key && raw.key >= ' ' && raw.key !== '\x7f' ? raw.key : null
-        const key = named ?? char ?? ShellInput.#fallback(code, this.#mods.shift)
+        const key = named && named.length > 1 ? named : (char ?? named ?? ShellInput.#fallback(code, this.#mods.shift))
         return { type: raw.type, key, code, keycode: raw.code ?? 0, modifiers: { ...this.#mods } }
       }
       default: return null

@@ -22,3 +22,10 @@ test('named keys and chords with a plus', () => {
   assert.equal(chordCodes('nosuchkey'), null)
   assert.equal(chordCodes('ctrl+'), null)
 })
+
+test('the numeric keypad has its own keys', () => {
+  for (const name of ['Numpad0', 'Numpad7', 'NumpadAdd', 'NumpadSubtract', 'NumpadMultiply', 'NumpadDivide', 'NumpadDecimal', 'NumpadEnter']) {
+    assert.notEqual(keyCode(name), null, name)
+  }
+  assert.notEqual(keyCode('Numpad7'), keyCode('7'))
+})
