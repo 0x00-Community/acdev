@@ -58,7 +58,7 @@ async fn secure(io: Io, hop: &Hop, target: &Target, cfg: &ntex::SharedCfg) -> Re
 /// ntex shows an I/O failure only as "Tcp connect"; the cause is in the I/O error
 fn reason(error: &ntex::Error<ConnectError>) -> String {
     match &**error {
-        ConnectError::Io(error) | ConnectError::Resolver(error) => error.to_string(),
+        ConnectError::Io(error) | ConnectError::Resolver(error) => crate::http::chain(error),
         other => other.to_string(),
     }
 }

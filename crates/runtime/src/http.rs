@@ -83,17 +83,26 @@ fn roots() -> &'static [Vec<u8>] {
 
 /// An error with its causes, `outer: cause: root`: ntex's outer errors ("Failed to connect to host: Connector has been
 /// disconnected") hide why (a refused connection, a certificate that does not verify). A cause whose text is already in
-/// the message is left out.
+/// the message is left out. An OS error also gets its kind in English (`connection refused`): Windows words the OS message
+/// in the user's language.
 pub(crate) fn chain(error: &(dyn std::error::Error + 'static)) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        let part = cause.to_string();
+    let mut text = String::new();
+    let mut next = Some(error);
+    while let Some(cause) = next {
+        let mut part = cause.to_string();
+        if let Some(io) = cause.downcast_ref::<std::io::Error>().filter(|io| io.raw_os_error().is_some()) {
+            let kind = io.kind().to_string();
+            if !part.to_ascii_lowercase().contains(&kind) {
+                part = format!("{kind} ({part})");
+            }
+        }
         if !part.is_empty() && !text.contains(&part) {
-            text.push_str(": ");
+            if !text.is_empty() {
+                text.push_str(": ");
+            }
             text.push_str(&part);
         }
-        source = cause.source();
+        next = cause.source();
     }
     text
 }

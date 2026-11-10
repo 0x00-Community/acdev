@@ -233,7 +233,8 @@ fn untrusted() -> (u16, std::thread::JoinHandle<()>) {
 fn an_untrusted_certificate_is_named() {
     let (port, server) = untrusted();
     let (sender, events) = channel();
-    unproxied().exchange(remote(&format!("https://127.0.0.1:{port}/")), sender);
+    let client = unproxied();
+    client.exchange(remote(&format!("https://127.0.0.1:{port}/")), sender);
     let Event::Error(message) = next(&events) else { panic!("an error") };
     assert!(message.contains("certificate"), "{message}");
     server.join().expect("server");
