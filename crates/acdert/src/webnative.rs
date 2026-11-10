@@ -64,6 +64,9 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         Ok(surface) => surface,
         Err(e) => return bind::throw_error(scope, &e),
     };
+    if let Some((width, height, scale)) = surface.size() {
+        crate::dom::with_dom(|dom| dom.resize(width, height, scale as f32));
+    }
     let tx = rt::current().sender();
     let armed = STATE.with(|s| s.borrow().armed.clone());
     surface.set_waker(Some(Arc::new(move || {

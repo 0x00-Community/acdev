@@ -57,6 +57,14 @@ impl Surface {
         }
     }
 
+    pub fn size(&self) -> Option<(u32, u32, f64)> {
+        match self {
+            Surface::Host(s) => s.size(),
+            #[cfg(target_os = "linux")]
+            Surface::Wayland(_) => None,
+        }
+    }
+
     pub fn hosted(&self) -> bool {
         matches!(self, Surface::Host(_))
     }

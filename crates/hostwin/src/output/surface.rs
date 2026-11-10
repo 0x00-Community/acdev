@@ -319,6 +319,15 @@ impl Surface {
         server().is_some_and(|s| s.state().entries.get(&self.window).is_some_and(|e| e.host))
     }
 
+    pub fn size(&self) -> Option<(u32, u32, f64)> {
+        let server = server()?;
+        let state = server.state();
+        state.entries.get(&self.window).map(|e| {
+            let (w, h) = state.content(e);
+            (w, h, state.screen[2])
+        })
+    }
+
     pub fn content_offset(&self) -> (f64, f64) {
         let frame = server().and_then(|s| s.state().entries.get(&self.window).map(|e| e.frame));
         (0.0, frame.unwrap_or(0.0))
