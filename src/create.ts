@@ -228,7 +228,9 @@ export class Creator {
     const pm = options.pm ? PackageManager.named(options.pm) : PackageManager.invoking()
     const step = Creator.#steps(chatty)
     if (starter.scaffold) {
-      await step(`${starter.label}: its own scaffolding`, [starter.scaffold(dir, pm)], undefined, { CI: '1' })
+      const target = resolve(dir)
+      const [at, name] = target === process.cwd() ? [target, '.'] : [dirname(target), basename(target)]
+      await step(`${starter.label}: its own scaffolding`, [starter.scaffold(name, pm)], at, { CI: '1' })
       Creator.adopt(dir, id, label, starter.label)
     } else {
       Creator.lay(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
