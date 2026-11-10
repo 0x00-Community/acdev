@@ -507,8 +507,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
   `localStorage` / `sessionStorage` 见「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
   外部链接交给浏览器应用 (宿主窗口里要 slots 的浏览器应用跑不了, 不打开, 见「默认应用」), 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
-  `screen.*` 是主输出的逻辑尺寸; `navigator.userAgent` / `platform` 按 acdert 跑在的系统 (Broker 的 `UserAgent`, 经 `WebInit.navigator`;
-  macOS 照浏览器的惯例是 `MacIntel` 和 `Intel Mac OS X 10_15_7`), 产品段是 `acdert/<版本>`.
+  `screen.*` 是主输出的逻辑尺寸; `navigator.userAgent` / `platform` 在所有宿主上都报 Linux (`X11; Linux x86_64` / `Linux x86_64`, Broker 的 `UserAgent`,
+  经 `WebInit.navigator`), 产品段是 `acdert/<真实版本>`. 运行时对应用呈现统一的 Linux 环境: 交互语义一律照 Linux (编辑快捷键是 Ctrl;
+  页面若看到 `MacIntel`, 编辑器库会把快捷键改绑到 Command, 同一窗口里就有两套规矩), 跨宿主一致, 也和 acde-base 一致.
+  需要宿主系统信息的应用以后由 `acde:` 模块单独提供, 不从 `navigator` 猜.
 - **`<select>`** (https://html.spec.whatwg.org/#the-select-element): 选中状态在 render (`dom/select.rs`), 每个 option 自己记 selectedness
   和 dirtiness (`Form.selected` / `dirty`, 没设过时跟 `selected` 属性), 照规范: 没有 `multiple` 时选中一个就清掉别的、插入选中的 option
   也清掉别的、两个以上留最后一个, 显示大小为 1 时一个都没选就选第一个没禁用的 (插入、删除、`selected` / `multiple` / `size` 属性变了、
@@ -896,7 +898,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - **这个平台上跑不了的应用不选** (Broker `#runsHere`): 宿主窗口里没有 slots (嵌原生窗口只在 Linux 会话里), 要 `slots` 的应用 (如
   Dopame 的浏览器) 不当默认应用、不进 `handlers`, 页面的外部链接也不交给它 (打一行 warn, 不开只会报错的空窗口). 它们也不在
   `acde.apps.list()` 和 `appschanged` 里 (Dock、搜索、设置看不到); `launch` / `acde.open(<id>)` 和指定 `app` 的 `openPath` 回
-  `{status: 404, code: 'unsupported_app'}` (页面从 `navigator.platform` 只看得出系统, 看不出有没有 slots, 所以靠这个 code). Linux 会话不变.
+  `{status: 404, code: 'unsupported_app'}` (页面的 `navigator.platform` 总是 Linux, 看不出宿主和有没有 slots, 所以靠这个 code). Linux 会话不变.
 - **Windows 的打开方式** (宿主 `Shell.fileHandlers` / `Shell.openWith`, hostwin `system/assoc.rs`; Opener 经 `FileAssociations`): Windows 上不读 `.desktop`,
   原生程序是系统给这个扩展名登记的处理程序 (`SHAssocEnumHandlers(ASSOC_FILTER_RECOMMENDED)`, 即资源管理器「打开方式」里的那些), 每项 `{id: IAssocHandler::GetName
   (程序全路径或打包应用的 id), label: GetUIName, icon: data:image/png (GetIconLocation, 可执行文件里的图标经 SHDefExtractIconW 画成 32 px,
