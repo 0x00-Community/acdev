@@ -27,6 +27,11 @@ export type TestOptions = number | { readonly timeout?: number }
 
 export class E2eRun {
   static readonly #used = new Map<string, number>()
+  static readonly MARGIN_MS = 3_000
+
+  static startTimeout(timeout: number): number {
+    return Math.max(timeout / 2, timeout - E2eRun.MARGIN_MS)
+  }
 
   static env(home: string): Record<string, string> {
     const dir = (name: string) => {
@@ -49,7 +54,8 @@ export class E2eRun {
   }
 
   static results(settings: E2eSettings, name: string): string {
-    const base = join(settings.results, ...(settings.file ? [E2e.slug(settings.file.replace(/\.e2e\.[cm]?[jt]sx?$/, ''))] : []), E2e.slug(name))
+    const file = settings.file ? [E2e.slug(settings.file.replace(/\.e2e\.[cm]?[jt]sx?$/, ''))] : []
+    const base = join(settings.results, ...file, E2e.slug(name))
     const seen = E2eRun.#used.get(base) ?? 0
     E2eRun.#used.set(base, seen + 1)
     return seen ? `${base}-${seen + 1}` : base
@@ -60,11 +66,15 @@ export class E2eRun {
     return join(dirname(file), '__screenshots__', basename(file))
   }
 
-  static async run(name: string, body: Body, settings: E2eSettings = E2e.read()): Promise<void> {
+  static async run(
+    name: string, body: Body, settings: E2eSettings = E2e.read(), timeout = settings.timeout,
+  ): Promise<void> {
     const home = mkdtempSync(join(tmpdir(), 'acde-test-'))
     const results = E2eRun.results(settings, name)
     rmSync(results, { recursive: true, force: true })
-    Screenshots.context = { dir: E2eRun.screenshots(settings), results, update: settings.update, ci: !!process.env['CI'], test: name }
+    Screenshots.context = {
+      dir: E2eRun.screenshots(settings), results, update: settings.update, ci: !!process.env['CI'], test: name,
+    }
     let acde: Acde | null = null
     try {
       const one = settings.dirs.length === 1 && settings.desktop === null
@@ -75,11 +85,16 @@ export class E2eRun {
         ...(settings.desktop !== null && { desktop: settings.desktop }),
         ...(one && { out: join('.acde', 'test') }),
         cwd: settings.dirs[0]!,
+        startTimeout: E2eRun.startTimeout(timeout),
       })
       acde.trace.screenshots = settings.trace
-      const app = acde.session.desktop === null && acde.session.apps[0] !== undefined ? acde.window(acde.session.apps[0]) : null
+      const first = acde.session.apps[0]
+      const app = acde.session.desktop === null && first !== undefined ? acde.window(first) : null
       await body({ acde, app, home: join(home, 'home'), settings })
-      if (settings.trace) console.log(`acde test: trace of ${JSON.stringify(name)}: ${acde.trace.write(results, name).map((f) => join(results, f))[0]}`)
+      if (settings.trace) {
+        const trace = acde.trace.write(results, name).map((f) => join(results, f))[0]
+        console.log(`acde test: trace of ${JSON.stringify(name)}: ${trace}`)
+      }
     } catch (error) {
       const saved = await E2eRun.keep(acde, error, results, name)
       if (error instanceof Error) error.message += `\n\n${saved}`
@@ -101,11 +116,19 @@ export class E2eRun {
     write('error.txt', error instanceof Error ? (error.stack ?? `${error.name}: ${error.message}`) : String(error))
     if (acde?.logs) write('output.log', acde.logs.tail(5000).text)
     if (acde && !acde.closed) {
+      const all = { limit: 5000 }
       const steps: [string, () => Promise<void>][] = [
-        ['screen.png', async () => void (await acde.screen({ path: join(dir, 'screen.png') }), wrote.push('screen.png'))],
+        ['screen.png', async () => {
+          await acde.screen({ path: join(dir, 'screen.png') })
+          wrote.push('screen.png')
+        }],
         ['snapshot.txt', async () => write('snapshot.txt', (await acde.snapshot({ all: true, offscreen: true })).text)],
-        ['console.txt', async () => write('console.txt', (await acde.console({ limit: 5000 })).entries.map(Format.console).join('\n'))],
-        ['network.txt', async () => write('network.txt', (await acde.network({ limit: 5000 })).entries.map(Format.request).join('\n'))],
+        ['console.txt', async () => {
+          write('console.txt', (await acde.console(all)).entries.map(Format.console).join('\n'))
+        }],
+        ['network.txt', async () => {
+          write('network.txt', (await acde.network(all)).entries.map(Format.request).join('\n'))
+        }],
       ]
       for (const [file, step] of steps) {
         try {
@@ -126,7 +149,11 @@ function register(add: () => Register) {
   return (name: string, body: Body, options?: TestOptions): void => {
     const settings = E2e.read()
     const timeout = typeof options === 'number' ? options : (options?.timeout ?? settings.timeout)
-    add()(name, () => E2eRun.run(name, body, settings), timeout)
+    E2e.mark('registered', name)
+    add()(name, () => {
+      E2e.mark('ran', name)
+      return E2eRun.run(name, body, settings, timeout)
+    }, timeout)
   }
 }
 

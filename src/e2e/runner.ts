@@ -33,7 +33,8 @@ export class TestRunner {
       const path = resolve(cwd, target)
       if (!existsSync(path)) throw new Error(`${target}: no such file or directory`)
       if (statSync(path).isFile()) {
-        if (!E2E_FILE.test(path)) throw new Error(`${target}: an e2e test file is named *.e2e.ts (or .tsx, .js, .mjs, .mts)`)
+        if (!E2E_FILE.test(path))
+          throw new Error(`${target}: an e2e test file is named *.e2e.ts (or .tsx, .js, .mjs, .mts)`)
         const project = E2e.project(path)
         if (!project) throw new Error(`${target}: no acde project (acde.config.jsonc) holds it`)
         suites.push({ file: path, project })
@@ -52,10 +53,14 @@ export class TestRunner {
   }
 
   static async run(options: RunnerOptions): Promise<number> {
-    if (!Runtime.bun) throw new Error('acde test needs bun (the tests run on bun test): install it from https://bun.sh, then run acde test again')
+    if (!Runtime.bun) {
+      throw new Error('acde test needs bun (the tests run on bun test): install it from https://bun.sh, ' +
+        'then run acde test again')
+    }
     const cwd = options.cwd ?? process.cwd()
     const suites = TestRunner.suites(options.targets, cwd)
-    if (!suites.length) throw new Error(`no e2e tests (${TestRunner.PATTERN}) in ${(options.targets.length ? options.targets : ['.']).join(', ')}`)
+    const where = (options.targets.length ? options.targets : ['.']).join(', ')
+    if (!suites.length) throw new Error(`no e2e tests (${TestRunner.PATTERN}) in ${where}`)
     const bun = process.execPath
     const scratch = mkdtempSync(join(tmpdir(), 'acde-test-run-'))
     try {
@@ -65,7 +70,9 @@ export class TestRunner {
     }
   }
 
-  static async #suites(suites: readonly Suite[], options: RunnerOptions, cwd: string, bun: string, scratch: string): Promise<number> {
+  static async #suites(
+    suites: readonly Suite[], options: RunnerOptions, cwd: string, bun: string, scratch: string,
+  ): Promise<number> {
     const tsconfigs = new Map<string, string>()
     const tsconfig = (project: string) => {
       let file = tsconfigs.get(project)
@@ -79,6 +86,7 @@ export class TestRunner {
     const cleaned = new Set<string>()
     const kept = new Set<string>()
     const failed: string[] = []
+    const filtered: string[] = []
     let ran = 0
     for (const suite of suites) {
       const name = relative(suite.project, suite.file).split(sep).join('/')
@@ -97,24 +105,50 @@ export class TestRunner {
         trace: options.trace === true,
         update: options.update === true,
       }
-      const argv = [bun, 'test', suite.file, '--tsconfig-override', tsconfig(suite.project), '--timeout', String(settings.timeout), ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : [])]
-      console.log(`acde test: ${relative(cwd, suite.file) || suite.file}${settings.headless ? '' : ' (headed)'}`)
-      const child = Runtime.spawn(argv, { cwd: suite.project, env: cliEnv(bun, { ...process.env, ...E2e.env(settings) }), stdio: 'inherit' })
+      const argv = [
+        bun, 'test', suite.file, '--tsconfig-override', tsconfig(suite.project), '--timeout', String(settings.timeout),
+        ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : []),
+      ]
+      const shown = relative(cwd, suite.file) || suite.file
+      console.log(`acde test: ${shown}${settings.headless ? '' : ' (headed)'}`)
+      const marks = join(scratch, `marks-${ran + filtered.length}.txt`)
+      const env = cliEnv(bun, {
+        ...process.env,
+        ...E2e.env(settings),
+        [E2e.MARKS]: marks,
+        ...(options.pattern !== undefined && { [E2e.PATTERN]: options.pattern }),
+      })
+      const child = Runtime.spawn(argv, { cwd: suite.project, env, stdio: 'inherit' })
       const code = await child.exited
+      if (options.pattern !== undefined && E2e.unselected(marks)) {
+        filtered.push(shown)
+        console.log(`acde test: ${shown}: no test matches -t ${JSON.stringify(options.pattern)}, skipped`)
+        continue
+      }
       ran++
       if (code !== 0) {
-        failed.push(relative(cwd, suite.file) || suite.file)
+        failed.push(shown)
         if (existsSync(results)) kept.add(results)
         if (options.bail) break
       }
     }
-    const skipped = suites.length - ran
-    const summary = `acde test: ${ran} file${ran === 1 ? '' : 's'}, ${ran - failed.length} passed, ${failed.length} failed${skipped ? `, ${skipped} not run (--bail)` : ''}`
-    console.log(failed.length ? `${summary}: ${failed.join(', ')}${kept.size ? `\n  what the failing tests left: ${[...kept].join(', ')}` : ''}` : summary)
+    if (!ran && filtered.length) {
+      const files = `${filtered.length} file${filtered.length === 1 ? '' : 's'}`
+      console.log(`acde test: no test matches -t ${JSON.stringify(options.pattern)} in ${files}`)
+      return 1
+    }
+    const unrun = suites.length - ran - filtered.length
+    const files = `${ran} file${ran === 1 ? '' : 's'}`
+    const skipped = filtered.length ? `, ${filtered.length} skipped (no test matches -t)` : ''
+    const notRun = unrun ? `, ${unrun} not run (--bail)` : ''
+    const summary = `acde test: ${files}, ${ran - failed.length} passed, ${failed.length} failed${skipped}${notRun}`
+    const left = kept.size ? `\n  what the failing tests left: ${[...kept].join(', ')}` : ''
+    console.log(failed.length ? `${summary}: ${failed.join(', ')}${left}` : summary)
     return failed.length ? 1 : 0
   }
 
   static #desktop(value: string, cwd: string): string {
-    return /[\\/]/.test(value) || value === '.' || value === '..' || existsSync(resolve(cwd, value)) ? resolve(cwd, value) : value
+    const path = /[\\/]/.test(value) || value === '.' || value === '..' || existsSync(resolve(cwd, value))
+    return path ? resolve(cwd, value) : value
   }
 }
