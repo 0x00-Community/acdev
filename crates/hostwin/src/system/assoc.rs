@@ -13,7 +13,9 @@ use windows_sys::Win32::UI::Shell::{
     ASSOC_FILTER, ASSOC_FILTER_NONE, ASSOC_FILTER_RECOMMENDED, ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR, ASSOCSTR_APPID, ASSOCSTR_CONTENTTYPE, ASSOCSTR_EXECUTABLE,
     ASSOCSTR_FRIENDLYAPPNAME, AssocQueryStringW, BHID_DataObject, SHAssocEnumHandlers, SHCreateItemFromParsingName, SHDefExtractIconW, SHLoadIndirectString,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{DI_NORMAL, DestroyIcon, DrawIconEx, HICON};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    DI_NORMAL, DestroyIcon, DispatchMessageW, DrawIconEx, HICON, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
+};
 use windows_sys::core::{GUID, HRESULT, PCWSTR, PWSTR};
 
 use super::handoff::{OpenError, Target};
@@ -100,7 +102,27 @@ pub fn open_with(name: &str, path: &str, headless: bool) -> Result<(), OpenError
     log::info!("open with {name}: {}", file.display());
     let data = data_object(&file).map_err(OpenError::Failed)?;
     let invoked = unsafe { (handler.vtable().invoke)(handler.raw(), data.raw()) };
-    if invoked < 0 { Err(OpenError::Failed(format!("{name} {}: error {invoked:#x}", file.display()))) } else { Ok(()) }
+    if invoked < 0 {
+        return Err(OpenError::Failed(format!("{name} {}: error {invoked:#x}", file.display())));
+    }
+    pump(HANDOFF_PUMP);
+    Ok(())
+}
+
+const HANDOFF_PUMP: std::time::Duration = std::time::Duration::from_secs(3);
+
+fn pump(time: std::time::Duration) {
+    let end = std::time::Instant::now() + time;
+    let mut msg: MSG = unsafe { std::mem::zeroed() };
+    while std::time::Instant::now() < end {
+        while unsafe { PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) } != 0 {
+            unsafe {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
 }
 
 struct Com(bool);
