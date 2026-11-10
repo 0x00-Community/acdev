@@ -317,7 +317,8 @@ describe('acde.config.jsonc', () => {
       join(dir, 'package.json'),
       JSON.stringify({
         name: 'by-hand',
-        acde: { apps: [{ id: 'by-hand', label: 'x', icon: 'apps', entry: '/ui/app.js' }], assets: { '/ui/': ['ui'] } },
+        acde: { apiLevel: API_LEVEL, apps: [{ id: 'by-hand', label: 'x', icon: 'apps', entry: '/ui/app.js' }],
+          assets: { '/ui/': ['ui'] } },
       }),
     )
     expect((await cli(['install'], dir, { XDG_DATA_HOME: data })).code).toBe(0)
@@ -350,9 +351,9 @@ describe('acde.config.jsonc', () => {
     expect(right.stderr).toBe('')
     write(undefined)
     const missing = await cli(['check'], dir)
-    expect(missing.code).toBe(0)
-    expect(missing.stderr).toContain('warning: acde.apiLevel is missing')
-    expect(missing.stderr).toContain(`declare apiLevel ${API_LEVEL}`)
+    expect(missing.code).toBe(1)
+    expect(missing.stderr).toContain(`error: no acde.apiLevel: a package built before contract levels`)
+    expect(missing.stderr).toContain(`(level ${API_LEVEL})`)
     write(API_LEVEL + 1)
     const wrong = await cli(['check'], dir)
     expect(wrong.code).toBe(1)

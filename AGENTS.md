@@ -133,7 +133,7 @@ acdert 只认包 (package.json 的 `acde` 字段, `PackageManifest`); `acde.conf
   `Project.build` 会 `chdir` 进工程, 不能并行构建.
 - 应用配置的 `optional` 和 `services` 非空时原样进清单 (运行时据 `optional` 决定缺了哪些能力仍可启动).
 - **契约级别**: 产物清单写 `apiLevel`, 值是构建所用 SDK 的 `API_LEVEL` (`acde.config.jsonc` 不写它). 手写的包由 `Manifest.check` 查:
-  没写是警告 (运行时暂按第 0 级加载), 不是正整数或与 SDK 的级别不同是错误.
+  没写、不是正整数或与 SDK 的级别不同都是错误 (第 0 级已移除, 运行时不再加载没写级别的包).
 - **图标**: 图标名 (SDK 的 `ICON_NAMES`) 原样写进清单, 没给是 `app`; 像路径的 (`Project.isIconPath`: 含 `/`、`\` 或有扩展名) 是工程里的
   `.svg` / `.png` (查文件和内容), 复制进应用的 `web/` 叫 `icon.<ext>` (重名时 `icon-<hash8>.<ext>`), 清单写 `/app/<id>/icon.<ext>`.
 
