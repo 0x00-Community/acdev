@@ -427,8 +427,6 @@ export class DataTransferItem {
 }
 tag(DataTransferItem)
 
-// The list is indexed like the web platform's (`items[0]`, live), so it is handed out behind a proxy; the owner is kept
-// outside the object so that methods called on the proxy find it.
 const itemOwners = new WeakMap<object, DataTransfer>()
 
 function itemOwner(list: object): DataTransfer {

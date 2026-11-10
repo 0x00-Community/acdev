@@ -4,7 +4,6 @@ import type { AppManifest } from '../../src/apps.ts'
 import { Opener, OpenWith, type OpenCaller, type SystemHandler } from '../../src/open.ts'
 import { bindNatives } from '../../src/sys/natives.ts'
 
-// A Windows host with injected association readers: no registry, no shell, no real files.
 const DESKTOP = 'C:/Users/u/Desktop'
 const REGISTRY: Record<string, string> = { '.png': 'image/png', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
 const PHOTOS: SystemHandler = { id: 'Microsoft.Windows.Photos_8wekyb3d8bbwe!App', label: 'Photos', icon: 'data:image/png;base64,AA==', default: true }

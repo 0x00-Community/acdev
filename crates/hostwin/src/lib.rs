@@ -32,19 +32,16 @@ pub fn open_default(target: &str) -> Result<(), OpenError> {
     handoff::open(target, platform::headless())
 }
 
-/// The content type Windows registers for a file extension (`.png`), `None` when it has none.
 #[cfg(windows)]
 pub fn content_type(extension: &str) -> Option<String> {
     system::assoc::content_type(extension)
 }
 
-/// The programs Windows registers for opening a file extension, the system default marked.
 #[cfg(windows)]
 pub fn file_handlers(extension: &str) -> Result<Vec<FileHandler>, String> {
     system::assoc::handlers(extension)
 }
 
-/// Opens a file in a program Windows registers for its extension (one `file_handlers` listed).
 #[cfg(windows)]
 pub fn open_with(handler: &str, path: &str) -> Result<(), OpenError> {
     system::assoc::open_with(handler, path, platform::headless())

@@ -53,9 +53,7 @@ export interface BrokerShell {
   drop?(window: number, paths: string[], x?: number, y?: number): void
   answerSave?(path: string | null): void
   openDefault?(target: string): Promise<void>
-  /** Windows: the programs registered for an extension (`.png`), the system default marked. */
   fileHandlers?(extension: string): Promise<{ id: string; label: string; icon: string; default: boolean }[]>
-  /** Windows: opens a file in one of those programs. */
   openWith?(handler: string, path: string): Promise<void>
   approve?(title: string, message: string): Promise<boolean | null>
   dismissApproval?(): void

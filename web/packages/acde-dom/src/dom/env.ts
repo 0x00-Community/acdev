@@ -11,7 +11,6 @@ export const env = {
   download: null as null | ((request: DownloadRequest) => void),
   files: null as null | FileChooser,
   notify: null as null | ((notification: { title: string; body: string; icon: string; tag: string }) => void),
-  /** The type the host's system gives a file by its name, for picked and dropped `File`s; `''` when it knows none. */
   fileType: (_name: string): string => '',
 }
 

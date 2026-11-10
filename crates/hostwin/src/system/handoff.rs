@@ -53,8 +53,6 @@ impl Target {
         Target::regular(path).map(Target::File).map_err(refused)
     }
 
-    /// A file the user chose a program for: the same path checks as a hand-off to the system default, without its
-    /// list of extensions (the program, registered for this extension, was picked for this file).
     #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) fn chosen(path: &Path) -> Result<PathBuf, OpenError> {
         let refused = |why: String| OpenError::Refused(format!("{} is not opened: {why}", path.display()));

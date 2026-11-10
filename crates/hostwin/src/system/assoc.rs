@@ -1,6 +1,3 @@
-//! What Windows knows about file types through its file associations: the content type it registers for an extension
-//! (`HKEY_CLASSES_ROOT\.<ext>` `Content Type`, read with `AssocQueryStringW(ASSOCSTR_CONTENTTYPE)`), and the programs
-//! registered to open it, as the shell's "Open with" lists them (`SHAssocEnumHandlers`). The system default is only read.
 
 use std::ffi::c_void;
 use std::marker::PhantomData;
@@ -27,20 +24,14 @@ const ICON_SIZE: u32 = 32;
 const IID_ISHELLITEM: GUID = GUID::from_u128(0x43826d1e_e718_42ee_bc55_a1e261c37bfe);
 const IID_IDATAOBJECT: GUID = GUID::from_u128(0x0000010e_0000_0000_c000_000000000046);
 
-/// A program Windows lists for opening a file type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Handler {
-    /// What the shell calls it (`IAssocHandler::GetName`): the program's full path, or a packaged app's id.
     pub name: String,
-    /// The name people see ("Photos", "Notepad").
     pub label: String,
-    /// The program's icon as a `data:image/png` URL, empty when there is none.
     pub icon: String,
-    /// Whether it is the system's default program for the extension.
     pub default: bool,
 }
 
-/// `.ext` as a NUL-terminated wide string, or `None` for anything that is not one plain extension.
 pub(crate) fn wide_extension(extension: &str) -> Option<Vec<u16>> {
     let name = extension.strip_prefix('.')?;
     let plain = |c: char| !c.is_whitespace() && !c.is_control() && !matches!(c, '.' | '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
@@ -50,8 +41,6 @@ pub(crate) fn wide_extension(extension: &str) -> Option<Vec<u16>> {
     Some(extension.encode_utf16().chain([0]).collect())
 }
 
-/// One association string for an extension; `None` when Windows has none (an unknown extension is not answered
-/// with the "Open with" dialog, thanks to `ASSOCF_INIT_IGNOREUNKNOWN`).
 pub(crate) fn query(what: ASSOCSTR, extension: &[u16]) -> Option<String> {
     let mut len = 0u32;
     let sized = unsafe { AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN, what, extension.as_ptr(), null(), null_mut(), &mut len) };
@@ -72,12 +61,10 @@ fn until_nul(wide: &[u16]) -> &[u16] {
     &wide[..wide.iter().position(|&c| c == 0).unwrap_or(wide.len())]
 }
 
-/// The content type Windows registers for `.ext`, as it reports it (`.csv` may well be `application/vnd.ms-excel`).
 pub fn content_type(extension: &str) -> Option<String> {
     query(ASSOCSTR_CONTENTTYPE, &wide_extension(extension)?)
 }
 
-/// The programs Windows recommends for `.ext` (the shell's "Open with" list), the system default marked.
 pub fn handlers(extension: &str) -> Result<Vec<Handler>, String> {
     let wide = wide_extension(extension).ok_or_else(|| format!("not a file extension: {extension:?}"))?;
     let _com = Com::init();
@@ -96,9 +83,6 @@ pub fn handlers(extension: &str) -> Result<Vec<Handler>, String> {
     Ok(out)
 }
 
-/// Opens `path` in the program `name` registered for its extension (`IAssocHandler::Invoke`), the way "Open with"
-/// does. The path gets the same checks as a hand-off to the system default, but no list of extensions: the user
-/// picked this program for this file. The system's own default is left as it is.
 pub fn open_with(name: &str, path: &str, headless: bool) -> Result<(), OpenError> {
     let file = Target::chosen(Path::new(path))?;
     let extension = file.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
@@ -120,7 +104,6 @@ pub fn open_with(name: &str, path: &str, headless: bool) -> Result<(), OpenError
     if invoked < 0 { Err(OpenError::Failed(format!("{name} {}: error {invoked:#x}", file.display()))) } else { Ok(()) }
 }
 
-/// COM on this thread for as long as it lives (the association objects are apartment threaded).
 struct Com(bool);
 
 impl Com {
@@ -173,7 +156,6 @@ struct ShellItemVtbl {
     bind_to_handler: unsafe extern "system" fn(*mut c_void, *mut c_void, *const GUID, *const GUID, *mut *mut c_void) -> HRESULT,
 }
 
-/// An owned COM interface pointer whose vtable starts like `V`; released on drop.
 struct Interface<V>(*mut c_void, PhantomData<V>);
 
 impl<V> Interface<V> {
@@ -238,7 +220,6 @@ impl AssocHandler {
     }
 }
 
-/// A string the callee allocated with `CoTaskMemAlloc`: copied and freed.
 unsafe fn taken(hr: HRESULT, text: PWSTR) -> Option<String> {
     if text.is_null() {
         return None;
@@ -253,7 +234,6 @@ fn wide_path(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain([0]).collect()
 }
 
-/// The file as the data object a handler is invoked with (`IShellItem::BindToHandler(BHID_DataObject)`).
 fn data_object(path: &Path) -> Result<Interface<UnknownVtbl>, String> {
     let wide = wide_path(path);
     let mut raw = null_mut();
@@ -264,7 +244,6 @@ fn data_object(path: &Path) -> Result<Interface<UnknownVtbl>, String> {
     Interface::new(data).filter(|_| hr >= 0).ok_or_else(|| format!("{}: no data object, error {hr:#x}", path.display()))
 }
 
-/// A handler's icon as a PNG data URL: a packaged app's logo file (`@{…}` resource), or the icon in an executable.
 fn icon_url(location: &str, index: i32) -> Option<String> {
     let png = if location.starts_with("@{") { packaged_logo(location)? } else { extracted_icon(location, index)? };
     Some(format!("data:image/png;base64,{}", base64(&png)))
@@ -294,7 +273,6 @@ fn extracted_icon(location: &str, index: i32) -> Option<Vec<u8>> {
     acde_render::encode_png(ICON_SIZE, ICON_SIZE, &straight_rgba(&bgra?))
 }
 
-/// The icon drawn into a top-down 32-bit DIB: premultiplied BGRA rows.
 unsafe fn draw(icon: HICON, size: i32) -> Option<Vec<u8>> {
     let dc = unsafe { CreateCompatibleDC(null_mut()) };
     if dc.is_null() {
@@ -331,12 +309,11 @@ unsafe fn draw(icon: HICON, size: i32) -> Option<Vec<u8>> {
     out
 }
 
-/// Premultiplied BGRA to straight RGBA. Icons without an alpha channel come out with alpha 0 everywhere; their
-/// drawn pixels are opaque and the untouched (black) background transparent.
 fn straight_rgba(bgra: &[u8]) -> Vec<u8> {
-    let has_alpha = bgra.chunks_exact(4).any(|p| p[3] != 0);
+    let (pixels, _) = bgra.as_chunks::<4>();
+    let has_alpha = pixels.iter().any(|p| p[3] != 0);
     let mut out = Vec::with_capacity(bgra.len());
-    for p in bgra.chunks_exact(4) {
+    for p in pixels {
         let (b, g, r) = (p[0], p[1], p[2]);
         let a = if has_alpha {
             p[3]

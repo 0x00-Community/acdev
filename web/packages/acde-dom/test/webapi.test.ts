@@ -47,7 +47,6 @@ test('links: <a download>, blob: and data: URLs are saved through the host (the 
 
 type Node = Uint8Array | 'dir' | 'link'
 
-// What a host system knows by name (the runtime asks Windows' associations or shared-mime-info); the rest is unknown.
 const SYSTEM_TYPES: Record<string, string> = { '.png': 'image/png', '.txt': 'text/plain', '.md': 'text/markdown' }
 const systemType = (name: string) => SYSTEM_TYPES[name.slice(name.lastIndexOf('.')).toLowerCase()] ?? ''
 

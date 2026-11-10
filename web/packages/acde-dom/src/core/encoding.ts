@@ -38,7 +38,6 @@ export class TextEncoder {
 getters(TextEncoder.prototype, { encoding: 'utf-8' })
 tag(TextEncoder)
 
-// encoding_rs in the host decodes every encoding of the WHATWG Encoding Standard; a streaming decode keeps its decoder there.
 const streams = new FinalizationRegistry<number>((id) => host.closeDecoder(id))
 
 export class TextDecoder {

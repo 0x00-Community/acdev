@@ -1,7 +1,3 @@
-//! `TextDecoder` over encoding_rs, the implementation of the WHATWG Encoding Standard: every label of the standard decodes
-//! (gb18030, gbk, big5, shift_jis, euc-kr, the windows-125x family …); labels of the replacement encoding and unknown labels
-//! give none, so the page throws `RangeError`. A streaming decode keeps its encoding_rs `Decoder` here between calls.
-
 use std::cell::RefCell;
 
 use encoding_rs::{CoderResult, Decoder, DecoderResult, Encoding};
@@ -17,8 +13,6 @@ thread_local! {
     static STREAMS: RefCell<bind::Slab<Stream>> = RefCell::new(bind::Slab::default());
 }
 
-/// The name of the encoding `label` stands for, lowercase as `TextDecoder.encoding` reports it; none for an unknown label
-/// or one of the replacement encoding.
 pub fn encoding_name(label: &str) -> Option<String> {
     Encoding::for_label_no_replacement(label.as_bytes()).map(|encoding| encoding.name().to_ascii_lowercase())
 }
@@ -30,7 +24,6 @@ fn new_decoder(encoding: &'static Encoding, ignore_bom: bool) -> Decoder {
     }
 }
 
-/// Decodes `bytes` with `decoder`; `last` flushes what the decoder still holds. None when `fatal` and the bytes are malformed.
 fn feed(decoder: &mut Decoder, bytes: &[u8], last: bool, fatal: bool) -> Option<String> {
     let mut out = String::with_capacity(room(decoder, bytes.len(), fatal));
     let mut rest = bytes;
@@ -51,7 +44,6 @@ fn feed(decoder: &mut Decoder, bytes: &[u8], last: bool, fatal: bool) -> Option<
     }
 }
 
-/// The UTF-8 room `len` more bytes may need.
 fn room(decoder: &Decoder, len: usize, fatal: bool) -> usize {
     let room = match fatal {
         true => decoder.max_utf8_buffer_length_without_replacement(len),
@@ -60,7 +52,6 @@ fn room(decoder: &Decoder, len: usize, fatal: bool) -> usize {
     room.unwrap_or(len)
 }
 
-/// Decodes all of `bytes` in the encoding `label` stands for; the outer none is an unknown label, the inner a fatal error.
 pub fn decode_once(label: &str, bytes: &[u8], fatal: bool, ignore_bom: bool) -> Option<Option<String>> {
     let encoding = Encoding::for_label(if label.is_empty() { b"utf-8" } else { label.as_bytes() })?;
     Some(feed(&mut new_decoder(encoding, ignore_bom), bytes, true, fatal))
@@ -74,7 +65,6 @@ fn invalid_data(scope: &mut v8::PinScope) {
     bind::throw_type_error(scope, "The encoded data was not valid.");
 }
 
-/// `encodingName(label)`: the encoding's name, or null.
 pub fn name(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     match encoding_name(&bind::arg_string(scope, &args, 0)) {
         Some(name) => rv.set(bind::string(scope, &name).into()),
@@ -82,7 +72,6 @@ pub fn name(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut r
     }
 }
 
-/// `decode(bytes, label, fatal, ignoreBom)`: one whole input.
 pub fn decode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let label = bind::arg_string(scope, &args, 1);
     let fatal = bind::arg_bool(scope, &args, 2);
@@ -97,7 +86,6 @@ pub fn decode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
     }
 }
 
-/// `openDecoder(encoding, fatal, ignoreBom)`: a streaming decoder's id, kept until `closeDecoder` or a call with `last`.
 pub fn open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let label = bind::arg_string(scope, &args, 0);
     let Some(encoding) = Encoding::for_label_no_replacement(label.as_bytes()) else {
@@ -107,7 +95,6 @@ pub fn open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut r
     rv.set_uint32(STREAMS.with(|s| s.borrow_mut().add(stream)));
 }
 
-/// `decodeChunk(id, bytes, last)`: the text of one chunk; `last` flushes and closes the decoder, so does a fatal error.
 pub fn chunk(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let id = bind::arg_u32(scope, &args, 0);
     let last = bind::arg_bool(scope, &args, 2);
@@ -127,10 +114,9 @@ pub fn chunk(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     rv.set(bind::string(scope, &out).into());
 }
 
-/// `closeDecoder(id)`: drops a streaming decoder the page let go of.
 pub fn close(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let id = bind::arg_u32(scope, &args, 0);
-    drop(STREAMS.with(|s| s.borrow_mut().remove(&id)));
+    STREAMS.with(|s| s.borrow_mut().remove(&id));
 }
 
 pub fn clear() {

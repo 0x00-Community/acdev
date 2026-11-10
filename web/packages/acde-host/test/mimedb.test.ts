@@ -75,8 +75,6 @@ describe('MimeDb', () => {
   })
 })
 
-// What a Windows 11 machine registers (`HKEY_CLASSES_ROOT\.<ext>` `Content Type`), vendor types included;
-// `.md`, `.py` and `.rs` have none there.
 const REGISTRY: Record<string, string> = {
   '.png': 'image/png',
   '.pdf': 'application/pdf',

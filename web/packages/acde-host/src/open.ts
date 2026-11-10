@@ -17,7 +17,6 @@ interface NativeEntry {
   readonly mimeTypes: readonly string[]
 }
 
-/** A program Windows registers for a file extension (`IAssocHandler`); `id` is its name there (a path or a packaged app id). */
 export interface SystemHandler {
   readonly id: string
   readonly label: string
@@ -25,7 +24,6 @@ export interface SystemHandler {
   readonly default: boolean
 }
 
-/** Windows' file associations: what replaces `.desktop` files there. The system default is only read, never written. */
 export interface FileAssociations {
   handlers(extension: string): Promise<readonly SystemHandler[]>
   open(handler: string, path: string): Promise<void>
@@ -48,7 +46,6 @@ export type OpenView = 'roots' | 'url' | 'handle'
 type Opened = { kind: 'acde' | 'native'; id: string; window?: number }
 type Chosen = { kind: 'acde' | 'native'; id: string }
 
-/** What `handlers()` answers: the type, the key `setDefault` remembers a choice under, and the apps to choose from. */
 export interface Handlers {
   readonly mime: string
   readonly association: string | null
@@ -106,21 +103,17 @@ class MimeTypes {
   }
 }
 
-/** Windows' "Open with": the acde apps and the programs Windows registers, keyed by extension (as Windows keys its own). */
 export class OpenWith {
   static readonly #TAKES = /^[\w.+-]+\/([\w.+-]+|\*)$/
 
-  /** Whether `key` is one file extension (`.png`, any case), what Windows remembers choices under. */
   static isExtension(key: string): boolean {
     return key.startsWith('.') && FileTypes.extension(key) === key.toLowerCase()
   }
 
-  /** The key a choice for this file is remembered under: its extension, else its type, else none. */
   static association(extension: string, mime: string): string | null {
     return extension || (MimeTypes.valid(mime) ? mime : null)
   }
 
-  /** Whether an app opens files at all (its manifest has a file type), so it is offered for files of unknown type. */
   static takesFiles(mimeTypes: readonly string[]): boolean {
     return mimeTypes.some((m) => OpenWith.#TAKES.test(m) && m !== MimeTypes.DIRECTORY)
   }
@@ -143,7 +136,6 @@ export class OpenWith {
 class MimeApps {
   static readonly DESKTOP = 'acde'
   static readonly MIME_LIST = `${MimeApps.DESKTOP}-mimeapps.list`
-  /** Windows: the user's choices per file extension, as Windows itself keys them (same format, extensions as keys). */
   static readonly EXTENSION_LIST = `${MimeApps.DESKTOP}-extensions.list`
 
   static #lists(): string[] {

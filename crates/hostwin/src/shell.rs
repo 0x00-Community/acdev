@@ -154,9 +154,6 @@ impl State {
         found
     }
 
-    /// The window that takes the focus when `id` is asked to: a pinned panel is part of its owner's page (focus inside it is
-    /// the page's own business, as in the session where the page and its panels count as one), so its owner, and none while the
-    /// panel has no owner yet; then the topmost modal child of that window, if any.
     pub fn focus_target(&self, id: u32) -> Option<u32> {
         let id = match self.entries.get(&id) {
             Some(e) if e.panel => e.owner?,
@@ -426,7 +423,6 @@ impl Shell {
         let focused = state.focus == Some(window);
         drop(state);
         let server = server().expect("hostwin");
-        // A panel is shown again each time its page places it (acde-host `panel.place`); that is not a request for focus.
         if !hidden && !panel {
             self.focus(window);
         } else if focused {
