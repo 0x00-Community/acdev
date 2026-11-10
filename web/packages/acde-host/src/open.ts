@@ -56,6 +56,7 @@ export interface OpenCaller {
   readonly roots: readonly string[] | null
   readonly owner: string | null
   readonly places?: readonly string[]
+  readonly paths?: boolean
 }
 
 class MimeTypes {
@@ -455,7 +456,12 @@ export class Opener {
 
   #asked(id: string, natives: readonly NativeEntry[], caller: OpenCaller | null): Chosen {
     if (this.#host.associations() && !this.#host.apps().some((a) => a.id === id) && !this.#host.unsupported(id)) {
-      if (caller) throw Object.assign(new Error(`only the desktop opens files in a Windows program it names (${id})`), { status: 403, code: 'refused' })
+      if (caller && !caller.paths) {
+        throw Object.assign(new Error(`only the desktop and system apps with shared places open files in a Windows program they name (${id})`), {
+          status: 403,
+          code: 'refused',
+        })
+      }
       return { kind: 'native', id }
     }
     const native = id.endsWith('.desktop')

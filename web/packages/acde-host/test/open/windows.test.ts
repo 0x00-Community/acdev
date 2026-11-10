@@ -5,13 +5,14 @@ import { Opener, OpenWith, type OpenCaller, type SystemHandler } from '../../src
 import { bindNatives } from '../../src/sys/natives.ts'
 
 const DESKTOP = 'C:/Users/u/Desktop'
+const OUTSIDE = 'C:/Elsewhere'
 const REGISTRY: Record<string, string> = { '.png': 'image/png', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
 const PHOTOS: SystemHandler = { id: 'Microsoft.Windows.Photos_8wekyb3d8bbwe!App', label: 'Photos', icon: 'data:image/png;base64,AA==', default: true }
 const PAINT: SystemHandler = { id: 'C:\\Windows\\System32\\mspaint.exe', label: 'Paint', icon: '', default: false }
 const CODE: SystemHandler = { id: 'C:\\Program Files\\Code\\Code.exe', label: 'Visual Studio Code', icon: '', default: false }
 const HANDLERS: Record<string, SystemHandler[]> = { '.png': [PHOTOS, PAINT], '.md': [CODE] }
 
-const files = new Map<string, string>([[`${DESKTOP}/photo.png`, ''], [`${DESKTOP}/notes.md`, ''], [`${DESKTOP}/data.xyz`, '']])
+const files = new Map<string, string>([[`${DESKTOP}/photo.png`, ''], [`${DESKTOP}/notes.md`, ''], [`${DESKTOP}/data.xyz`, ''], [`${OUTSIDE}/photo.png`, '']])
 const statOf = (path: string) => (files.has(path) ? { isFile: true, isDirectory: false, isSymbolicLink: false, size: 0, mtimeMs: 0, mode: 0o666 } : null)
 const asked: string[] = []
 bindNatives({
@@ -48,7 +49,7 @@ function windowsHost() {
       open: async (handler: string, path: string) => void opened.push([handler, path]),
     }),
     locate: async () => null,
-    admit: async (path: string, caller: OpenCaller | null) => (caller ? null : path),
+    admit: async (path: string, caller: OpenCaller | null) => (!caller || caller.places?.some((place) => path.startsWith(place)) ? path : null),
     launch: async () => ({ window: 7 }),
     spawn: () => assert.fail('Windows hosts launch no .desktop files'),
     system: () => async (target: string) => void system.push(target),
@@ -95,12 +96,15 @@ test('Windows: a remembered program is kept per extension and opens the file; th
   assert.deepEqual((await opener.handlers(`${DESKTOP}/notes.md`)).handlers.filter((h) => h.default).map((h) => h.id), ['notes'])
 })
 
-test('Windows: only the desktop names a program to open a file with', async () => {
+test('Windows: the desktop and system apps with shared places name a program; third-party apps do not', async () => {
   const { opener, opened } = windowsHost()
-  const caller = { roots: [DESKTOP], owner: 'viewer' }
-  await assert.rejects(opener.open(`${DESKTOP}/photo.png`, { app: PAINT.id }, caller), { status: 403 })
+  const third = { roots: [], owner: 'viewer', places: [DESKTOP], paths: false }
+  const system = { roots: [], owner: 'files', places: [DESKTOP], paths: true }
+  await assert.rejects(opener.open(`${DESKTOP}/photo.png`, { app: PAINT.id }, third), { status: 403, code: 'refused' })
   assert.deepEqual(await opener.open(`${DESKTOP}/photo.png`, { app: PAINT.id }), { kind: 'native', id: PAINT.id })
-  assert.deepEqual(opened, [[PAINT.id, `${DESKTOP}/photo.png`]])
+  assert.deepEqual(await opener.open(`${DESKTOP}/photo.png`, { app: PAINT.id }, system), { kind: 'native', id: PAINT.id })
+  await assert.rejects(opener.open(`${OUTSIDE}/photo.png`, { app: PAINT.id }, system), { status: 404, code: 'outside_roots' })
+  assert.deepEqual(opened, [[PAINT.id, `${DESKTOP}/photo.png`], [PAINT.id, `${DESKTOP}/photo.png`]])
 })
 
 test('Windows: types come from the registry by extension, asked natively', () => {

@@ -879,7 +879,8 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   MIME 的选择 → 清单 `mimeTypes` 的第一个 → 交给系统默认 (下一条) → `no_app` (由桌面弹自己的打开方式). 用原生程序打开: 先过 `Finder.admit`
   (同下), Rust 再做和交给系统同样的路径检查 (绝对、非设备路径、无 `..`、非命名流、普通文件), 但不限扩展名 (用户为这个文件选的这个程序),
   重新枚举确认它是这个扩展名登记的处理程序, 经 `IAssocHandler::Invoke` (文件的 `IDataObject` 来自 `IShellItem::BindToHandler(BHID_DataObject)`)
-  在 `acde-open` 线程上打开 (先 `CoInitializeEx`). `openPath({app: 程序 id})` 点名原生程序只给桌面 (和 `acdert open`), 应用点名回 403 `refused`;
+  在 `acde-open` 线程上打开 (先 `CoInitializeEx`). `openPath({app: 程序 id})` 点名原生程序只给桌面 (和 `acdert open`) 以及点名了公共位置的系统应用 (能 `locate` 的那些, `OpenCaller.paths`, #115;
+  文件仍要在它的根里), 别的应用点名回 403 `refused`;
   记住的选择对所有调用方都生效. headless 照样检查, 只打一行 info 不打开. 测试 `acde-host/test/open/windows.test.ts` (注入的关联读取).
 - **macOS / Windows 的宿主窗口交给系统默认程序** (没有 XDG 的 `.desktop`, `natives()` 是空的): 没有记住的选择、没有能用的 acde 应用、也没有指定 `app`
   时, `Opener.open` 经宿主 `Shell.openDefault(目标)` (只在这两处注入; hostwin `system/handoff.rs`, 在 `acde-open` 线程上做, promise 落定)

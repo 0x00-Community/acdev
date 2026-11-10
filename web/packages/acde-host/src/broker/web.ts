@@ -45,7 +45,7 @@ export class Web {
     const fs = FileAccess.grant(app.capabilities, tier)
     if (fs === true || Array.isArray(fs)) return { roots: fs === true ? null : fs, owner: app.id }
     const places = fs ? fs.places.filter((place) => permitted(`fs.${place}`)) : []
-    return { roots: [], owner: app.id, places }
+    return { roots: [], owner: app.id, places, paths: !!fs?.paths }
   }
 
   static grants(app: string | null, caps: Capabilities | null, tier: WebTier | null = null): Omit<WebGrants, 'storage'> {

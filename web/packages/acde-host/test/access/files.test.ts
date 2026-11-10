@@ -161,7 +161,7 @@ test('an open file request from a level 1 app is admitted through its approved p
   const { Web } = await import('../../src/broker/web.ts')
   const writer = app({ capabilities: { fs: { roots: ['documents', 'pictures'] } } })
   const caller = Web.caller(writer, { level: 1, system: false, shell: [], refused: {} }, (capability) => capability !== 'fs.pictures')
-  assert.deepEqual(caller, { roots: [], owner: 'tool', places: ['documents'] })
+  assert.deepEqual(caller, { roots: [], owner: 'tool', places: ['documents'], paths: false })
   const old = Web.caller(app({ capabilities: { fs: true } }), { level: 0, shell: [], refused: {} })
   assert.deepEqual(old, { roots: null, owner: 'tool' })
 })
