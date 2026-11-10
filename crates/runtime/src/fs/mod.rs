@@ -1,4 +1,5 @@
 mod access;
+mod copy;
 pub(crate) mod path;
 mod picked;
 pub(crate) mod workspace;
@@ -175,6 +176,7 @@ pub enum FsCall {
     Revoke { root: String },
     Write { root: String, path: String, content: Option<String>, expected_modified_ms: String },
     CopyIn { root: String, dir: String, source: String },
+    Copy { from_root: String, from_path: String, to_root: String, to_dir: String },
     Rename { root: String, from: String, to: String },
     Delete { root: String, path: String },
 }
@@ -216,6 +218,7 @@ impl FsCall {
             | Self::WriteFile { root, .. }
             | Self::Write { root, .. }
             | Self::CopyIn { root, .. }
+            | Self::Copy { from_root: root, .. }
             | Self::Rename { root, .. }
             | Self::Delete { root, .. } => Some(root),
         }
@@ -275,6 +278,7 @@ impl Shared {
                 let allowed = self.allowed(owner, view)?;
                 json(copy_in(owner, &allowed, &at, &dir, &source))
             }
+            FsCall::Copy { from_root, from_path, to_root, to_dir } => json(copy::copy(&root(&from_root)?, &from_path, &root(&to_root)?, &to_dir)),
             FsCall::Rename { root: at, from, to } => json(WorkspaceFs::rename_in(&root(&at)?, &from, &to).json()),
             FsCall::Delete { root: at, path } => {
                 WorkspaceFs::remove_in(&root(&at)?, &path)?;
@@ -433,6 +437,11 @@ impl Workspace {
             return Ok(self.shared.call(call, owner, View::Files(files))?);
         }
         if self.roots.is_some() {
+            if let FsCall::Copy { to_root, .. } = &call
+                && !self.allows(to_root)
+            {
+                return Err(Failure::http(403, format!("this app may not use the files of {to_root} (not in its manifest's capabilities)")).into());
+            }
             match call.scope() {
                 Some(root) if self.allows(root) => {}
                 None if matches!(call, FsCall::Roots | FsCall::Locate { .. } | FsCall::Revoke { .. }) => {}

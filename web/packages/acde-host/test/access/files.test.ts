@@ -97,3 +97,15 @@ test('the page cannot use a place it was not allowed, and roots() leaves it out'
   await fs.list('music', '')
   assert.deepEqual(calls.map((args) => args[0]), ['documents', 'private', 'music'])
 })
+
+test('a copy needs both roots allowed', async () => {
+  const permits: Record<string, Permit> = { 'fs.documents': 'granted', 'fs.music': 'denied' }
+  const calls: unknown[][] = []
+  const native = { copy: async (...args: unknown[]) => void calls.push(args) }
+  const fs = FileAccess.guard(native, (capability) => permits[capability] ?? null, 'Tool')
+  await fs.copy('documents', 'a.txt', 'private', '')
+  await assert.rejects(fs.copy('documents', 'music', 'music', ''), (e: Error & { capability?: string }) => e.capability === 'fs.music')
+  await assert.rejects(fs.copy('music', 'a.txt', 'documents', ''), (e: Error & { capability?: string }) => e.capability === 'fs.music')
+  await fs.copy('private', 'music', 'documents', 'music')
+  assert.deepEqual(calls, [['documents', 'a.txt', 'private', ''], ['private', 'music', 'documents', 'music']])
+})

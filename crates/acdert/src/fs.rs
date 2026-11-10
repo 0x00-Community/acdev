@@ -7,7 +7,7 @@ use crate::offload;
 
 type Method = fn(&mut Args) -> FsCall;
 
-const METHODS: [(&str, Method); 19] = [
+const METHODS: [(&str, Method); 20] = [
     ("state", |_| FsCall::State),
     ("roots", |_| FsCall::Roots),
     ("desktop", |_| FsCall::Desktop),
@@ -20,6 +20,7 @@ const METHODS: [(&str, Method); 19] = [
     ("mkdir", |a| FsCall::Mkdir { root: a.string(0), path: a.string(1), options: a.json(2) }),
     ("write", |a| FsCall::Write { root: a.string(0), path: a.string(1), content: a.text(2), expected_modified_ms: a.string(3) }),
     ("copyIn", |a| FsCall::CopyIn { root: a.string(0), dir: a.string(1), source: a.string(2) }),
+    ("copy", |a| FsCall::Copy { from_root: a.string(0), from_path: a.string(1), to_root: a.string(2), to_dir: a.string(3) }),
     ("rename", |a| FsCall::Rename { root: a.string(0), from: a.string(1), to: a.string(2) }),
     ("delete", |a| FsCall::Delete { root: a.string(0), path: a.string(1) }),
     ("stat", |a| FsCall::Stat { root: a.string(0), path: a.string(1) }),

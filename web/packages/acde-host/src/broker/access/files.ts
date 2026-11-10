@@ -39,7 +39,7 @@ export class FileAccess {
         const member = Reflect.get(target, key, receiver) as unknown
         if (typeof member !== 'function') return member
         return (...args: unknown[]) => {
-          const capability = blocked(args[0])
+          const capability = blocked(args[0]) ?? (key === 'copy' ? blocked(args[2]) : null)
           if (capability) return Promise.reject(Permissions.error(label, capability))
           const result = (member as (...a: unknown[]) => unknown).apply(target, args)
           return key === 'roots' ? Promise.resolve(result).then(visible) : result

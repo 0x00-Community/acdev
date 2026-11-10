@@ -123,6 +123,7 @@ export interface AcdeFs {
   writeFile(root: string, path: string, data: string | Uint8Array, options?: WriteFileOptions): Promise<FinderEntry>
   write(root: string, path: string, content: string, expectedModifiedMs: string): Promise<FinderEntry>
   copyIn?(root: string, dir: string, source: string): Promise<FinderEntry>
+  copy(fromRoot: string, fromPath: string, toRoot: string, toDir: string): Promise<FinderEntry & { path: string }>
   rename(root: string, from: string, to: string): Promise<FinderEntry>
   delete(root: string, path: string): Promise<{ status: 'deleted'; path: string }>
   locate(path: string): Promise<{ root: string; path: string }>

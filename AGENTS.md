@@ -738,6 +738,11 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 - `writeFile(root, path, data, {create: 'always' | 'new' | 'never', ifModifiedMs, mkdirs})` → `FinderEntry`: 写在原文件上 (打开不截断 → fstat
   比较 → 截断写入 → fsync, inode 和权限不变), 新文件 0644. 选项对象经 JSON 交给 runtime, 类型不对 `EINVAL`.
 - `mkdir(root, path, {recursive})`: recursive 从 root 起逐级建, 已是文件夹算成功.
+- `copy(fromRoot, fromPath, toRoot, toDir)` → `FinderEntry & {path}` (#67, runtime `fs/copy.rs`): 在本应用可用的两个 root 之间复制, 两边各是 root 加相对路径,
+  不传绝对路径. 原生复制文件和文件夹 (流式, 不限大小), 名字被占用时照 `numbered` 编号 (`a 2.txt`、`project 2`), `path` 是在目标 root 里的相对路径.
+  两个 root 都要在本应用的 root 里 (按路径的根两边都过清单检查), 否则 403 `EACCES`; 没批准的公共位置 403 `denied`; 源是 root 本身、`..` 或经链接 /
+  联接出 root (源或目标)、源本身是链接、文件夹里有链接 (先整棵查一遍, 复制中途变成链接也停, 删掉已复制的部分)、把文件夹复制进它自己, 都是 `EINVAL`.
+  它取代 `copyIn` (#69 移除).
 
 打开文件一律不跟随符号链接 (unix `O_NOFOLLOW | O_NONBLOCK`, 不会卡在 FIFO 上; Windows `FILE_FLAG_OPEN_REPARSE_POINT` 再查是不是链接).
 
