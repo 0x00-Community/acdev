@@ -8,6 +8,7 @@ mod capture;
 mod child;
 mod chooser;
 mod dom;
+mod encoding;
 mod engine;
 mod fs;
 mod host;

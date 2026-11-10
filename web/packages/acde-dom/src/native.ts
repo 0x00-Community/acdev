@@ -207,6 +207,13 @@ export interface HostNative {
 
   encodeUtf8(text: string): Uint8Array
   decode(bytes: Uint8Array, label: string, fatal: boolean, ignoreBom: boolean): string
+  /** The WHATWG name of the encoding a label stands for (lowercase), null for an unknown label or the replacement encoding. */
+  encodingName(label: string): string | null
+  /** A streaming decoder for `TextDecoder.decode(..., { stream: true })`; kept until `decodeChunk(id, bytes, true)` or `closeDecoder`. */
+  openDecoder(encoding: string, fatal: boolean, ignoreBom: boolean): number
+  /** The text of the next chunk; `last` flushes and closes the decoder, so does the TypeError of a fatal decoder. */
+  decodeChunk(id: number, bytes: Uint8Array, last: boolean): string
+  closeDecoder(id: number): void
   parseUrl(input: string, base: string | null): { href: string; origin: string; protocol: string; username: string; password: string; host: string; hostname: string; port: string; pathname: string; search: string; hash: string } | null
   serialize(value: unknown): Uint8Array
   isProxy?(value: unknown): boolean

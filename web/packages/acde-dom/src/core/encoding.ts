@@ -38,20 +38,18 @@ export class TextEncoder {
 getters(TextEncoder.prototype, { encoding: 'utf-8' })
 tag(TextEncoder)
 
-const LABELS: Record<string, string> = {
-  'utf-8': 'utf-8', utf8: 'utf-8', 'unicode-1-1-utf-8': 'utf-8', 'utf-16le': 'utf-16le', 'utf-16': 'utf-16le',
-  latin1: 'windows-1252', 'iso-8859-1': 'windows-1252', 'windows-1252': 'windows-1252', ascii: 'windows-1252', 'us-ascii': 'windows-1252',
-}
+// encoding_rs in the host decodes every encoding of the WHATWG Encoding Standard; a streaming decode keeps its decoder there.
+const streams = new FinalizationRegistry<number>((id) => host.closeDecoder(id))
 
 export class TextDecoder {
   readonly #encoding: string
   readonly #fatal: boolean
   readonly #ignoreBOM: boolean
-  #pending: Uint8Array | null = null
+  #stream = 0
 
   constructor(label = 'utf-8', options?: { fatal?: boolean; ignoreBOM?: boolean }) {
-    const encoding = LABELS[String(label).trim().toLowerCase()]
-    if (!encoding) throw new RangeError(`Failed to construct 'TextDecoder': The encoding label provided ('${label}') is invalid.`)
+    const encoding = host.encodingName(String(label))
+    if (encoding === null) throw new RangeError(`Failed to construct 'TextDecoder': The encoding label provided ('${label}') is invalid.`)
     this.#encoding = encoding
     this.#fatal = !!options?.fatal
     this.#ignoreBOM = !!options?.ignoreBOM
@@ -68,34 +66,26 @@ export class TextDecoder {
   }
 
   decode(input?: BufferSourceLike | null, options?: { stream?: boolean }): string {
-    let bytes = bytesOf(input)
-    if (this.#pending) {
-      bytes = concat([this.#pending, bytes])
-      this.#pending = null
+    const bytes = bytesOf(input)
+    let stream = !!options?.stream
+    if (!stream && !this.#stream) return host.decode(bytes, this.#encoding, this.#fatal, this.#ignoreBOM)
+    if (!this.#stream) {
+      this.#stream = host.openDecoder(this.#encoding, this.#fatal, this.#ignoreBOM)
+      streams.register(this, this.#stream, this)
     }
-    if (options?.stream && this.#encoding === 'utf-8') {
-      const cut = TextDecoder.#completeLength(bytes)
-      if (cut < bytes.length) {
-        this.#pending = bytes.slice(cut)
-        bytes = bytes.subarray(0, cut)
+    const id = this.#stream
+    try {
+      return host.decodeChunk(id, bytes, !stream)
+    } catch (error) {
+      host.closeDecoder(id)
+      stream = false
+      throw error
+    } finally {
+      if (!stream) {
+        streams.unregister(this)
+        this.#stream = 0
       }
-    } else if (options?.stream && this.#encoding === 'utf-16le' && bytes.length % 2) {
-      this.#pending = bytes.slice(bytes.length - 1)
-      bytes = bytes.subarray(0, bytes.length - 1)
     }
-    const label = this.#encoding === 'windows-1252' ? 'latin1' : this.#encoding
-    return host.decode(bytes, label, this.#fatal, this.#ignoreBOM)
-  }
-
-  static #completeLength(bytes: Uint8Array): number {
-    const n = bytes.length
-    for (let back = 1; back <= 3 && back <= n; back++) {
-      const b = bytes[n - back]!
-      if ((b & 0xc0) === 0x80) continue
-      const need = b >= 0xf0 ? 4 : b >= 0xe0 ? 3 : b >= 0xc0 ? 2 : 1
-      return need > back ? n - back : n
-    }
-    return n
   }
 }
 tag(TextDecoder)

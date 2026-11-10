@@ -25,7 +25,11 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object>
         "liveEdit" => live_edit,
         "addImportMap" => add_import_map,
         "encodeUtf8" => encode_utf8,
-        "decode" => decode,
+        "decode" => crate::encoding::decode,
+        "encodingName" => crate::encoding::name,
+        "openDecoder" => crate::encoding::open,
+        "decodeChunk" => crate::encoding::chunk,
+        "closeDecoder" => crate::encoding::close,
         "parseUrl" => parse_url,
         "serialize" => serialize,
         "deserialize" => deserialize,
@@ -204,40 +208,6 @@ fn encode_utf8(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mu
     rv.set(bind::uint8_array(scope, text.into_bytes()).into());
 }
 
-fn decode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let label = bind::arg_string(scope, &args, 1);
-    let fatal = bind::arg_bool(scope, &args, 2);
-    let ignore_bom = bind::arg_bool(scope, &args, 3);
-    let encoding = encoding_rs::Encoding::for_label(if label.is_empty() { b"utf-8" } else { label.as_bytes() });
-    let Some(decoded) = bind::with_bytes(args.get(0), |bytes| encoding.map(|encoding| decode_bytes(encoding, bytes, fatal, ignore_bom))) else {
-        return bind::throw_type_error(scope, "decode: not an ArrayBuffer or a view");
-    };
-    let Some(decoded) = decoded else {
-        return bind::throw_range_error(scope, &format!("The encoding label provided ('{label}') is invalid."));
-    };
-    let Some(out) = decoded else {
-        return bind::throw_type_error(scope, "The encoded data was not valid.");
-    };
-    rv.set(bind::string(scope, &out).into());
-}
-
-fn decode_bytes(encoding: &'static encoding_rs::Encoding, bytes: &[u8], fatal: bool, ignore_bom: bool) -> Option<String> {
-    let mut decoder = match ignore_bom {
-        true => encoding.new_decoder_without_bom_handling(),
-        false => encoding.new_decoder_with_bom_removal(),
-    };
-    let mut out = String::with_capacity(decoder.max_utf8_buffer_length(bytes.len()).unwrap_or(bytes.len() * 3));
-    if fatal {
-        let (result, _) = decoder.decode_to_string_without_replacement(bytes, &mut out, true);
-        if result != encoding_rs::DecoderResult::InputEmpty {
-            return None;
-        }
-    } else {
-        _ = decoder.decode_to_string(bytes, &mut out, true);
-    }
-    Some(out)
-}
-
 fn parse_url(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let input = bind::arg_string(scope, &args, 0);
     let base = args.get(1);
@@ -306,6 +276,7 @@ pub fn clear() {
     let hooks = HOOKS.with(|h| h.borrow_mut().take());
     let placeholders = PLACEHOLDERS.with(|p| std::mem::take(&mut *p.borrow_mut()));
     drop((hooks, placeholders));
+    crate::encoding::clear();
 }
 
 fn clone_hooks(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

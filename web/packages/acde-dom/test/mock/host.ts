@@ -97,6 +97,35 @@ export class MockHost implements HostNative {
   decode(bytes: Uint8Array, label: string, fatal: boolean, ignoreBom: boolean): string {
     return new TextDecoder(label, { fatal, ignoreBOM: ignoreBom }).decode(bytes)
   }
+  readonly decoders = new Map<number, TextDecoder>()
+  encodingName(label: string): string | null {
+    if (label.trim() === '') return null
+    try {
+      return new TextDecoder(label).encoding
+    } catch {
+      return null
+    }
+  }
+  openDecoder(encoding: string, fatal: boolean, ignoreBom: boolean): number {
+    const id = this.#next++
+    this.decoders.set(id, new TextDecoder(encoding, { fatal, ignoreBOM: ignoreBom }))
+    return id
+  }
+  decodeChunk(id: number, bytes: Uint8Array, last: boolean): string {
+    const decoder = this.decoders.get(id)
+    if (!decoder) throw new TypeError('decodeChunk: no such decoder')
+    try {
+      return decoder.decode(bytes, { stream: !last })
+    } catch (error) {
+      this.decoders.delete(id)
+      throw error
+    } finally {
+      if (last) this.decoders.delete(id)
+    }
+  }
+  closeDecoder(id: number): void {
+    this.decoders.delete(id)
+  }
   parseUrl(input: string, base: string | null) {
     try {
       const u = base === null ? new URL(input) : new URL(input, base)

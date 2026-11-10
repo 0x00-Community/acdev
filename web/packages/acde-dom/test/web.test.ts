@@ -104,6 +104,38 @@ test('encoding, URL, structuredClone, crypto, atob, MessageChannel, AbortSignal.
   assert.deepEqual(web.host.logs, [[0, 'logged x 5 { k: [ 1 ] }'], [1, '<body>']])
 })
 
+test('TextDecoder: the labels of the Encoding Standard, streaming any of them, RangeError for the rest', async () => {
+  using web = await page()
+  const result = web.run<string>(`(() => {
+    const samples = [
+      ['gb18030', [0xc4, 0xe3, 0xba, 0xc3, 0x81, 0x30, 0x81, 0x30]], ['GBK', [0xc4, 0xe3, 0xba, 0xc3]], ['big5', [0xa4, 0xa4, 0xa4, 0xe5]],
+      ['sjis', [0x93, 0xfa, 0x96, 0x7b]], ['euc-kr', [0xc7, 0xd1, 0xb1, 0xb9]], ['cp1251', [0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2]],
+      ['windows-1250', [0xe8]], ['latin1', [0x80]],
+    ]
+    const out = []
+    for (const [label, bytes] of samples) {
+      const d = new TextDecoder(label)
+      const whole = d.decode(new Uint8Array(bytes))
+      const split = d.decode(new Uint8Array(bytes.slice(0, 1)), { stream: true }) + d.decode(new Uint8Array(bytes.slice(1)))
+      out.push([d.encoding, whole, split === whole])
+    }
+    for (const label of ['', 'cp936', 'iso-2022-kr', 'nope']) {
+      try { new TextDecoder(label); out.push('constructed ' + label) } catch (e) { out.push(e.name) }
+    }
+    try { new TextDecoder('gbk', { fatal: true }).decode(new Uint8Array([0xc4, 0xe3, 0xba])); out.push('decoded?') } catch (e) { out.push(e.name) }
+    const fatal = new TextDecoder('gbk', { fatal: true })
+    try { fatal.decode(new Uint8Array([0xc4]), { stream: true }); fatal.decode(new Uint8Array([0x30, 0x80])) } catch (e) { out.push(e.name) }
+    out.push(fatal.decode(new Uint8Array([0xc4, 0xe3])))
+    return JSON.stringify(out)
+  })()`)
+  assert.deepEqual(JSON.parse(result), [
+    ['gb18030', '你好\u0080', true], ['gbk', '你好', true], ['big5', '中文', true], ['shift_jis', '日本', true], ['euc-kr', '한국', true],
+    ['windows-1251', 'Привет', true], ['windows-1250', 'č', true], ['windows-1252', '€', true],
+    'RangeError', 'RangeError', 'RangeError', 'RangeError', 'TypeError', 'TypeError', '你',
+  ])
+  assert.equal(web.host.decoders.size, 0, 'every streaming decoder was closed by its last chunk or its error')
+})
+
 test('canvas 2D commands reach render in page order; measureText; Path2D', async () => {
   using web = await page('<!doctype html><html><body><canvas id="c" width="100" height="50"></canvas></body></html>')
   web.run(`
