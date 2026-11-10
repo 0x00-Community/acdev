@@ -1,14 +1,15 @@
 {
   "$schema": "./node_modules/@dopame/acde-api/config.schema.json",
-  // 桌面: 一张满屏网页, 在所有窗口后面. 系统能力从 acde:* 模块导入, 应用层和外壳层的模块都有;
-  // 编辑器里的类型写 /// <reference types="@dopame/acde-api/shell" />.
+  // A desktop: one full-screen web page behind all windows. System features come from acde:* modules, both the app and
+  // the shell modules. For editor types write /// <reference types="@dopame/acde-api/shell" />.
   "type": "desktop",
   "id": "{{id}}",
   "label": "{{label}}",
   "entry": "index.html",
-  // services: 跑在 acde 里的桌面服务 (名字 → 模块). 服务名不能用系统模块的名字; 服务经 ctx.import('acde:<名字>') 拿外壳模块.
+  // services: desktop services that run in acde (name → module). A service name is not the name of a system module;
+  // a service takes shell modules with ctx.import('acde:<name>').
   "services": {},
-  // apps: 这个桌面自带的窗口应用 (系统应用), 每个和 "type": "app" 的工程一样写 capabilities、optional、services、requests、schemes,
-  // 另外可以声明外壳模块 (如 "windows": true).
+  // apps: the window apps this desktop brings along (system apps). Each declares capabilities, optional, services,
+  // requests and schemes like a "type": "app" project, and may also declare shell modules (like "windows": true).
   "apps": []
 }

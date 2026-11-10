@@ -1,21 +1,26 @@
 {
   "$schema": "./node_modules/@dopame/acde-api/config.schema.json",
-  // 窗口应用: 普通网页 (index.html), 可选后端 server.ts. 系统能力从 acde:* 模块导入 (import { fs } from 'acde:fs'), 按 capabilities 给;
-  // 编辑器里的类型写 /// <reference types="@dopame/acde-api/app" /> (应用层的模块; 外壳模块只给桌面和它自带的应用).
+  // A window app: a plain web page (index.html), with an optional backend in server.ts. System features come from
+  // acde:* modules (import { fs } from 'acde:fs'), granted by capabilities. For editor types write
+  // /// <reference types="@dopame/acde-api/app" /> (the app modules; shell modules are only for desktops and their own apps).
   "type": "app",
   "id": "{{id}}",
   "label": "{{label}}",
-  // icon: 图标名 (app、timer、chart … 见 @dopame/acde-api) 或工程里的一张 .svg / .png (如 "icon.svg"), 构建时复制进包.
+  // icon: an icon name (app, timer, chart … see @dopame/acde-api) or an .svg / .png in the project (like "icon.svg"),
+  // copied into the package at build time.
   "icon": "app",
   "entry": "index.html",
-  // capabilities: 用到的系统能力. "fs": true 给本应用的私有文件夹和用户选给它的文件夹; 要公共位置时在 fs.roots 里点名,
-  // 每个位置由用户批准: "fs": { "roots": ["documents"] } (desktop、documents、downloads、music、pictures、videos).
+  // capabilities: the system features the app uses. "fs": true gives the app's private folder and the folders the user
+  // picks for it; name public places in fs.roots, each approved by the user: "fs": { "roots": ["documents"] }
+  // (desktop, documents, downloads, music, pictures, videos).
   "capabilities": {},
-  // optional: capabilities 里缺了也能运行的几项; 它们不静态导入, 经 @dopame/acde-api 的 load('<名字>') 拿.
+  // optional: capabilities the app can run without; they are not imported statically but taken with
+  // load('<name>') from @dopame/acde-api.
   "optional": [],
-  // services: 用到的桌面服务名 (import 'acde:<名字>'), 不能用系统模块的名字.
+  // services: desktop services the app uses (import 'acde:<name>'); not the name of a system module.
   "services": [],
-  // requests: 接受的私有请求 (别的应用 open('{{id}}', { kind: '<名字>' })); schemes: 打开哪些 URL scheme 的链接 (小写, 不带冒号).
+  // requests: the private requests the app accepts (another app calls open('{{id}}', { kind: '<name>' }));
+  // schemes: the URL schemes whose links it opens (lower case, without the colon).
   "requests": [],
   "schemes": []
 }
