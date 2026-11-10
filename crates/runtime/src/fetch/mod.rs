@@ -70,9 +70,10 @@ enum Stop {
     Failed(String),
 }
 
-impl<E: std::fmt::Display> From<E> for Stop {
-    fn from(error: E) -> Self {
-        Self::Failed(error.to_string())
+impl Stop {
+    /// the error with its causes (a refused connection, a certificate that does not verify)
+    fn caused(error: impl std::error::Error + 'static) -> Self {
+        Self::Failed(crate::http::chain(&error))
     }
 }
 
@@ -246,7 +247,7 @@ impl Exchange {
 
     async fn exchange(self, events: &impl Events, proxies: &proxy::Shared) -> std::result::Result<(), Stop> {
         static NEXT: AtomicU32 = AtomicU32::new(0);
-        let method = Method::from_bytes(self.method.as_bytes())?;
+        let method = Method::from_bytes(self.method.as_bytes()).map_err(Stop::caused)?;
         let dial = |io: IoBoxed, path: &str, host: &str| {
             let dialed = format!("c{}", NEXT.fetch_add(1, Ordering::Relaxed));
             DIALED.with(|d| d.borrow_mut().insert(dialed.clone(), io));
@@ -254,7 +255,7 @@ impl Exchange {
             (request.force_close().set_header(header::HOST, host), Some(dialed))
         };
         let (mut request, dialed) = match &self.to {
-            Dial::Socket(_) | Dial::App { .. } => dial(self.to.local().await?.boxed(), &self.path, &self.host),
+            Dial::Socket(_) | Dial::App { .. } => dial(self.to.local().await.map_err(Stop::Failed)?.boxed(), &self.path, &self.host),
             Dial::Url(url) => match proxy::route(proxies, url).await {
                 proxy::Route::Direct => (crate::http::client().request(method.clone(), url.as_str()).no_decompress(), None),
                 proxy::Route::Through(hops, target) => {
@@ -274,7 +275,7 @@ impl Exchange {
         if let Some(dialed) = dialed {
             DIALED.with(|d| d.borrow_mut().remove(&dialed));
         }
-        let mut response = sent?;
+        let mut response = sent.map_err(Stop::caused)?;
         let status = response.status();
         let headers = response.headers().iter().map(|(name, value)| (name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).trim().to_owned()));
         let head = Event::Head { status: status.as_u16(), status_text: status.canonical_reason().unwrap_or_default().into(), headers: headers.collect() };
@@ -282,7 +283,7 @@ impl Exchange {
             return Err(Stop::Gone);
         }
         while let Some(chunk) = response.next().await {
-            if !events.emit(Event::Chunk(chunk?.to_vec())).await {
+            if !events.emit(Event::Chunk(chunk.map_err(Stop::caused)?.to_vec())).await {
                 return Err(Stop::Gone);
             }
         }
@@ -467,17 +468,17 @@ async fn over<F: Filter + 'static>(io: Io<F>, uri: String, config: ntex::SharedC
     let io = Cell::new(Some(io));
     let client =
         WsClient::new(uri, config).connector(fn_service(async move |_: Connect<Url>| io.take().ok_or_else(|| ntex::Error::from(ConnectError::Unresolved))));
-    let (io, codec, response) = client.connect().await.map_err(|error| error.to_string())?.into_inner();
+    let (io, codec, response) = client.connect().await.map_err(|error| crate::http::chain(&error))?.into_inner();
     Ok((io.seal(), codec, response))
 }
 
 async fn direct(url: &str, config: ntex::SharedCfg) -> std::result::Result<Handshake, String> {
     if url.starts_with("wss:") {
         let tls = crate::http::tls().map_err(|error| error.to_string())?;
-        let (io, codec, response) = WsClient::new(url, config).openssl(tls).connect().await.map_err(|error| error.to_string())?.into_inner();
+        let (io, codec, response) = WsClient::new(url, config).openssl(tls).connect().await.map_err(|error| crate::http::chain(&error))?.into_inner();
         return Ok((io.seal(), codec, response));
     }
-    let (io, codec, response) = WsClient::new(url, config).connect().await.map_err(|error| error.to_string())?.into_inner();
+    let (io, codec, response) = WsClient::new(url, config).connect().await.map_err(|error| crate::http::chain(&error))?.into_inner();
     Ok((io.seal(), codec, response))
 }
 

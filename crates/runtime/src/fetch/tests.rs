@@ -170,6 +170,75 @@ fn remote_urls_are_checked() {
     assert!(upgrade("wss://example.com/ws").is_none());
 }
 
+/// a client that reads no proxy setting: everything direct
+fn unproxied() -> FetchClient {
+    FetchClient::with_proxies(std::sync::Arc::new(crate::proxy::Fixed(vec![crate::proxy::Hop::Direct])))
+}
+
+/// a local port nothing listens on
+fn closed_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    listener.local_addr().expect("address").port()
+}
+
+fn remote(url: &str) -> Exchange {
+    Exchange::new(Dial::Url(url.into()), "GET".into(), String::new(), vec![], None).expect("a valid request")
+}
+
+#[test]
+fn a_refused_connection_is_named() {
+    let (sender, events) = channel();
+    let client = unproxied();
+    client.exchange(remote(&format!("http://127.0.0.1:{}/", closed_port())), sender);
+    let Event::Error(message) = next(&events) else { panic!("an error") };
+    assert!(message.to_ascii_lowercase().contains("refused"), "{message}");
+
+    let (sender, events) = channel();
+    client.upgrade(Upgrade::new(Dial::Url(format!("ws://127.0.0.1:{}/", closed_port())), String::new(), vec![], vec![]).expect("valid"), sender);
+    let Event::Error(message) = next(&events) else { panic!("an error") };
+    assert!(message.to_ascii_lowercase().contains("refused"), "{message}");
+    assert!(matches!(next(&events), Event::Close { code: 1006, clean: false, .. }));
+}
+
+/// a TLS server with a self-signed certificate for `localhost`, which no client trusts
+fn untrusted() -> (u16, std::thread::JoinHandle<()>) {
+    use openssl::{asn1::Asn1Time, bn::BigNum, ec, hash::MessageDigest, nid::Nid, pkey::PKey, ssl, x509};
+    let key = PKey::from_ec_key(ec::EcKey::generate(&ec::EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).expect("group")).expect("key")).expect("key");
+    let mut name = x509::X509NameBuilder::new().expect("name");
+    name.append_entry_by_text("CN", "localhost").expect("CN");
+    let name = name.build();
+    let mut cert = x509::X509::builder().expect("certificate");
+    cert.set_version(2).expect("version");
+    cert.set_serial_number(&BigNum::from_u32(1).and_then(|n| n.to_asn1_integer()).expect("serial")).expect("serial");
+    cert.set_subject_name(&name).expect("subject");
+    cert.set_issuer_name(&name).expect("issuer");
+    cert.set_pubkey(&key).expect("key");
+    cert.set_not_before(&Asn1Time::days_from_now(0).expect("time")).expect("not before");
+    cert.set_not_after(&Asn1Time::days_from_now(1).expect("time")).expect("not after");
+    cert.sign(&key, MessageDigest::sha256()).expect("sign");
+    let mut acceptor = ssl::SslAcceptor::mozilla_intermediate_v5(ssl::SslMethod::tls()).expect("acceptor");
+    acceptor.set_private_key(&key).expect("key");
+    acceptor.set_certificate(&cert.build()).expect("certificate");
+    let acceptor = acceptor.build();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        _ = acceptor.accept(stream);
+    });
+    (port, server)
+}
+
+#[test]
+fn an_untrusted_certificate_is_named() {
+    let (port, server) = untrusted();
+    let (sender, events) = channel();
+    unproxied().exchange(remote(&format!("https://127.0.0.1:{port}/")), sender);
+    let Event::Error(message) = next(&events) else { panic!("an error") };
+    assert!(message.contains("certificate"), "{message}");
+    server.join().expect("server");
+}
+
 #[test]
 fn chunked_body_arrives_in_pieces() {
     let (go, wait) = std::sync::mpsc::channel::<()>();

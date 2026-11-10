@@ -81,6 +81,23 @@ fn roots() -> &'static [Vec<u8>] {
     })
 }
 
+/// An error with its causes, `outer: cause: root`: ntex's outer errors ("Failed to connect to host: Connector has been
+/// disconnected") hide why (a refused connection, a certificate that does not verify). A cause whose text is already in
+/// the message is left out.
+pub(crate) fn chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let part = cause.to_string();
+        if !part.is_empty() && !text.contains(&part) {
+            text.push_str(": ");
+            text.push_str(&part);
+        }
+        source = cause.source();
+    }
+    text
+}
+
 pub(crate) fn tls_config() -> ntex::tls::TlsConfig {
     ntex::tls::TlsConfig::new().set_handshake_timeout(ntex::time::Seconds(30))
 }
