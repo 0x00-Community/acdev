@@ -76,13 +76,32 @@ fn junction_cannot_escape_on_read_or_recursive_create() {
     assert_eq!(fs::read(outside.join("secret.txt")).unwrap(), b"outside");
 }
 
+fn desktop_child(home: &Path, known: &Path, desktop: Option<&str>, expected: &str) {
+    let mut child = Command::new(std::env::current_exe().unwrap());
+    child
+        .args(["--exact", "fs::workspace::windows_tests::desktop_override_child"])
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env("XDG_STATE_HOME", home)
+        .env("ACDE_TEST_KNOWN_DESKTOP", known)
+        .env_remove("XDG_DOWNLOAD_DIR")
+        .env("ACDE_TEST_DESKTOP", expected);
+    match desktop {
+        Some(input) => child.env("XDG_DESKTOP_DIR", input),
+        None => child.env_remove("XDG_DESKTOP_DIR"),
+    };
+    let output = child.output().unwrap();
+    assert!(output.status.success(), "override {desktop:?}: {}", String::from_utf8_lossy(&output.stdout));
+}
+
 #[test]
 fn windows_desktop_override_uses_native_paths_and_safe_fallback() {
     let s = Scratch::new();
     let home = s.path.join("profile");
     let fallback = home.join("Desktop");
     let selected = home.join("override");
-    for path in [&fallback, &selected] {
+    let known = s.path.join("known");
+    for path in [&fallback, &selected, &known] {
         fs::create_dir_all(path).unwrap();
         fs::write(path.join("fixture.txt"), "isolated desktop").unwrap();
     }
@@ -94,7 +113,7 @@ fn windows_desktop_override_uses_native_paths_and_safe_fallback() {
         (&forward_slash, selected),
         ("$HOME/override", selected),
         (r"$HOME\override", selected),
-        ("", fallback),
+        ("", known.to_str().unwrap()),
         ("D:relative", fallback),
         (r"\root-relative", fallback),
         ("/", fallback),
@@ -104,18 +123,20 @@ fn windows_desktop_override_uses_native_paths_and_safe_fallback() {
         ("$HOME", fallback),
     ];
     for (input, expected) in paths {
-        let output = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "fs::workspace::windows_tests::desktop_override_child"])
-            .env("HOME", &home)
-            .env("USERPROFILE", &home)
-            .env("XDG_STATE_HOME", &home)
-            .env("XDG_DESKTOP_DIR", input)
-            .env_remove("XDG_DOWNLOAD_DIR")
-            .env("ACDE_TEST_DESKTOP", expected)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "override {input:?}: {}", String::from_utf8_lossy(&output.stdout));
+        desktop_child(&home, &known, Some(input), expected);
     }
+}
+
+#[test]
+fn level_0_desktop_uses_the_known_folder_without_creating_the_profile_one() {
+    let s = Scratch::new();
+    let home = s.path.join("profile");
+    let known = s.path.join("OneDrive").join("Desktop");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&known).unwrap();
+    fs::write(known.join("fixture.txt"), "isolated desktop").unwrap();
+    desktop_child(&home, &known, None, known.to_str().unwrap());
+    assert!(!home.join("Desktop").exists());
 }
 
 #[test]

@@ -16,6 +16,15 @@ const MAX_RAW_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_WRITE_BYTES: usize = 384 * 1024;
 const IMAGES: [&str; 6] = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
 
+#[cfg(all(windows, not(test)))]
+use super::path::known_folder;
+
+/// Tests never ask the shell for the real folders: `ACDE_TEST_KNOWN_<NAME>` stands in for them.
+#[cfg(all(windows, test))]
+fn known_folder(name: &str) -> Option<String> {
+    std::env::var(format!("ACDE_TEST_KNOWN_{name}")).ok().filter(|dir| !dir.is_empty())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RootMode {
@@ -237,7 +246,7 @@ impl WorkspaceFs {
             "videos" => ("VIDEOS", "Videos"),
             _ => return None,
         };
-        Some(self.user_dir(key, fallback, true))
+        Some(self.user_dir(key, fallback))
     }
 
     pub fn private_dir(&self, owner: &str) -> String {
@@ -258,8 +267,7 @@ impl WorkspaceFs {
             .expect("compiled root collation data")
     }
 
-    #[cfg_attr(not(windows), allow(unused_variables))]
-    fn user_dir(&self, name: &str, fallback: &str, known: bool) -> String {
+    fn user_dir(&self, name: &str, fallback: &str) -> String {
         let home = self.home.as_str();
         let key = format!("XDG_{name}_DIR");
         let dir = std::env::var(&key).ok().filter(|dir| self.system && !dir.is_empty()).or_else(|| {
@@ -272,7 +280,7 @@ impl WorkspaceFs {
             })
         });
         #[cfg(windows)]
-        let dir = dir.or_else(|| (self.system && known).then(|| super::path::known_folder(name)).flatten());
+        let dir = dir.or_else(|| self.system.then(|| known_folder(name)).flatten());
         let Some(dir) = dir else { return home.join(fallback) };
         let path = match dir.strip_prefix("$HOME") {
             Some(rest) if rest.is_empty() || rest.starts_with('/') || (cfg!(windows) && rest.starts_with('\\')) => {
@@ -294,7 +302,7 @@ impl WorkspaceFs {
     }
 
     pub fn desktop(&self) -> Outcome<String> {
-        let desktop = self.user_dir("DESKTOP", "Desktop", false);
+        let desktop = self.user_dir("DESKTOP", "Desktop");
         if !Path::new(&desktop).exists() {
             DirBuilder::new().recursive(true).create(&desktop)?;
         }
@@ -302,7 +310,7 @@ impl WorkspaceFs {
     }
 
     pub fn downloads(&self) -> Option<String> {
-        Some(self.user_dir("DOWNLOAD", "Downloads", false)).filter(|dir| Path::new(dir).exists())
+        Some(self.user_dir("DOWNLOAD", "Downloads")).filter(|dir| Path::new(dir).exists())
     }
 
     pub fn roots(&self) -> Outcome<Vec<FinderRoot>> {

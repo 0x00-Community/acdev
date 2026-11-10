@@ -735,7 +735,8 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
 判断解析后的路径是否在 root 内时按系统路径组件比较.
 
 Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及普通 UNC 文件共享路径, 可用 `/` 或 `\` 分隔.
-`$HOME` 可用两种分隔符展开. 设备路径、逐字路径、IPC 共享、相对路径和指向用户主目录的覆盖项使用默认目录.
+`$HOME` 可用两种分隔符展开. 设备路径、逐字路径、IPC 共享、相对路径和指向用户主目录的覆盖项使用默认目录 `%USERPROFILE%\<名>`.
+没设 (或为空) 时按路径的根和第 1 级公共位置一样用系统已知文件夹 (`known_folder`), 桌面挪进 OneDrive 时不再新建 `%USERPROFILE%\Desktop`.
 
 **失败**: reject 一个 `Error` (`AcdeFsError`), 字段来自 runtime `failure.rs` 的 `Failure`: `message` 人读的英文, `status`, node 风格的 `code`:
 

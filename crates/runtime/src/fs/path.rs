@@ -198,6 +198,7 @@ impl NodePath for str {
 }
 
 #[cfg(windows)]
+#[cfg_attr(test, allow(dead_code))]
 pub(super) fn known_folder(key: &str) -> Option<String> {
     use windows_sys::Win32::System::Com::CoTaskMemFree;
     use windows_sys::Win32::UI::Shell::{
