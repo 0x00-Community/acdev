@@ -1,4 +1,6 @@
-export type ApprovalCapability = 'launch' | 'slots' | 'terminal' | 'network' | 'camera' | 'microphone'
+import type { PlaceCapability } from '../runtime/places'
+
+export type ApprovalCapability = 'launch' | 'slots' | 'terminal' | 'network' | 'camera' | 'microphone' | PlaceCapability
 
 export interface PermissionPrompt {
   readonly id: number

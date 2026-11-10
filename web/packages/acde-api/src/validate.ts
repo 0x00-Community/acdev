@@ -1,9 +1,11 @@
 import type { AppBackend, AppManifest as AppEntry, Capabilities, PackageManifest } from './types/manifest.js'
 import { API_LEVEL } from './runtime/level.js'
+import { SHARED_PLACES } from './runtime/places.js'
 
 export type { Capabilities, PackageManifest } from './types/manifest.js'
 export type { CapabilityState, CapabilityStatus, PlatformSupport, RunningMode, WindowFeatures } from './types/capabilities.js'
-export { API_LEVEL }
+export { API_LEVEL, SHARED_PLACES }
+export type { PlaceCapability, SharedPlace } from './runtime/places.js'
 export { FrameThemes, type FrameThemeWire } from './frame.js'
 export { PLATFORM_SUPPORT, RUNNING_MODES, platformSupport } from './runtime/platforms.js'
 
@@ -81,9 +83,28 @@ export class Manifest {
   static readonly MIN_HEAP_MB = 32
   static readonly CAPABILITIES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...SHELL_MODULES])
   static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
+  static readonly #PLACES: ReadonlySet<string> = new Set(SHARED_PLACES)
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
   static readonly #ICON_NAMES: ReadonlySet<string> = new Set(ICON_NAMES)
   static readonly #ICON_IMAGE = /^\/(?!\/)[^\s\0?#]*\.(svg|png)$/i
+
+  static places(caps: Capabilities): string[] {
+    const fs = caps.fs
+    return typeof fs === 'object' && fs && Array.isArray(fs.roots) ? fs.roots.filter((root) => Manifest.#PLACES.has(root)) : []
+  }
+
+  static place(capability: string): string | null {
+    const name = capability.startsWith('fs.') ? capability.slice(3) : ''
+    return Manifest.#PLACES.has(name) ? name : null
+  }
+
+  static #roots(fs: unknown): string[] {
+    if (typeof fs !== 'object' || !fs) return []
+    const shared = SHARED_PLACES.join(', ')
+    const roots = (fs as { roots?: unknown }).roots
+    if (!Array.isArray(roots)) return [`fs.roots lists shared places (${shared})`]
+    return roots.filter((root) => !Manifest.#PLACES.has(root)).map((root) => `fs.roots ${JSON.stringify(root)} is not a shared place (${shared})`)
+  }
 
   static iconName(icon: string): icon is IconName {
     return Manifest.#ICON_NAMES.has(icon)
@@ -270,6 +291,7 @@ export class Manifest {
         for (const name of Manifest.shellModules(app.capabilities))
           shellFindings.push(`${at}: acde:${name} is a shell module: only apps of a desktop package (system apps) may declare it`)
       }
+      for (const finding of Manifest.#roots(app.capabilities.fs)) shellFindings.push(`${at}: ${finding}`)
       for (const name of Object.keys(app.capabilities).filter((k) => !Manifest.CAPABILITIES.has(k))) {
         if (services.has(name))
           warnings.push(

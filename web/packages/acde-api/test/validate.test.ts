@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { API_LEVEL as ROOT_LEVEL } from '../src/index.js'
-import { API_LEVEL, APP_MODULES, APPROVAL_CAPABILITIES, ICON_NAMES, Manifest, SHELL_MODULES, type PackageManifest } from '../src/validate.ts'
+import { API_LEVEL as ROOT_LEVEL, SHARED_PLACES as ROOT_PLACES } from '../src/index.js'
+import { API_LEVEL, APP_MODULES, APPROVAL_CAPABILITIES, ICON_NAMES, Manifest, SHARED_PLACES, SHELL_MODULES, type PackageManifest } from '../src/validate.ts'
 
 const assets = new Set(['/app/demo/index.html', '/app/demo/icon.svg', '/app/demo/icon.png'])
 
@@ -167,4 +167,33 @@ test('a system app may declare acde:permissions; a third-party app may not', () 
   const parsed = Manifest.app(settings)
   assert.equal(typeof parsed, 'object')
   assert.deepEqual(Manifest.shellModules((parsed as { capabilities: Record<string, unknown> }).capabilities), ['permissions'])
+})
+
+test('shared places follow the XDG user directories and are asked for one by one', () => {
+  assert.deepEqual([...SHARED_PLACES], ['desktop', 'documents', 'downloads', 'music', 'pictures', 'videos'])
+  assert.deepEqual([...ROOT_PLACES], [...SHARED_PLACES])
+  assert.deepEqual(Manifest.places({ fs: { roots: ['documents', 'pictures'] } }), ['documents', 'pictures'])
+  assert.deepEqual(Manifest.places({ fs: true }), [])
+  assert.deepEqual(Manifest.places({}), [])
+  assert.equal(Manifest.place('fs.documents'), 'documents')
+  assert.equal(Manifest.place('fs.agentos-work'), null)
+  assert.equal(Manifest.place('documents'), null)
+})
+
+test('fs.roots: a level 1 app names shared places; anything else is an error', () => {
+  assert.deepEqual(tiered({ apps: [demo({ fs: { roots: ['documents', 'downloads'] } })] }), { errors: [], warnings: [] })
+  assert.deepEqual(tiered({ apps: [demo({ fs: true })] }), { errors: [], warnings: [] })
+  const shared = 'desktop, documents, downloads, music, pictures, videos'
+  for (const bad of ['agentos-work', 'Documents', '/home/me/Notes', 'C:\Users\me', '']) {
+    assert.deepEqual(tiered({ apps: [demo({ fs: { roots: [bad] } })] }).errors, [
+      `app "demo": fs.roots ${JSON.stringify(bad)} is not a shared place (${shared})`,
+    ])
+  }
+  assert.deepEqual(tiered({ apps: [demo({ fs: { roots: 'documents' } })] }).errors, [`app "demo": fs.roots lists shared places (${shared})`])
+})
+
+test('fs.roots: a level 0 package keeps its old roots with a warning', () => {
+  const findings = tiered({ apiLevel: undefined, apps: [demo({ fs: { roots: ['/srv/notes'] } })] })
+  assert.deepEqual(findings.errors, [])
+  assert.ok(findings.warnings.some((w) => w.startsWith('app "demo": fs.roots "/srv/notes" is not a shared place')), JSON.stringify(findings))
 })

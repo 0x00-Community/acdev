@@ -1,3 +1,4 @@
+import type { SharedPlace } from '../runtime/places'
 import type { IconName, ShellModule } from '../validate'
 
 export type { IconName, ShellModule }
@@ -48,7 +49,7 @@ export interface AppBackend {
 }
 
 export interface Capabilities {
-  readonly fs?: boolean | { readonly roots: readonly string[] }
+  readonly fs?: boolean | { readonly roots: readonly SharedPlace[] }
   readonly terminal?: boolean
   readonly network?: boolean
   readonly office?: boolean
