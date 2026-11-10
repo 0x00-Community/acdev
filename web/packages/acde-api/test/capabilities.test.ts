@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import * as root from '../src/index.js'
-import { API_LEVEL, Manifest, PLATFORM_SUPPORT, RESERVED_NAMES, RUNNING_MODES, platformSupport, type PackageManifest } from '../src/validate.ts'
+import {
+  API_LEVEL,
+  Manifest,
+  PLATFORM_SUPPORT,
+  RESERVED_NAMES,
+  RUNNING_MODES,
+  WEB_CAPABILITIES,
+  platformSupport,
+  type PackageManifest,
+} from '../src/validate.ts'
 
 const assets = new Set(['/app/demo/index.html'])
 const check = (app: Record<string, unknown>, extra: Partial<PackageManifest> = {}) =>
@@ -87,10 +96,12 @@ test('the platform table is keyed by platform and running mode', () => {
     assert.ok(!platformSupport('darwin', mode)!.unsupported.includes('terminal'))
   }
   assert.deepEqual(platformSupport('linux', 'session')!.unsupported, [])
+  assert.ok(platformSupport('win32', 'standalone')!.unsupported.includes('notifications'))
+  assert.ok(!platformSupport('win32', 'desktop')!.unsupported.includes('notifications'))
   for (const platform of Object.values(PLATFORM_SUPPORT)) {
     for (const row of Object.values(platform)) {
       assert.ok(['full', 'approximated', 'unsupported'].includes(row.window.backdrop))
-      for (const name of row.unsupported) assert.ok(Manifest.CAPABILITIES.has(name), name)
+      for (const name of row.unsupported) assert.ok(Manifest.CAPABILITIES.has(name) || (WEB_CAPABILITIES as readonly string[]).includes(name), name)
     }
   }
 })

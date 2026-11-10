@@ -93,11 +93,6 @@ pub fn show(title: &str, body: &str, label: &str) -> Result<(), String> {
         .map_err(|e| format!("notification thread: {e}"))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn show(_: &str, _: &str, _: &str) -> Result<(), String> {
-    Err(format!("no native notifications on {}", std::env::consts::OS))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

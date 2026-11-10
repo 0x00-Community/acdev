@@ -13,7 +13,7 @@ export const PLATFORM_SUPPORT = {
   },
   win32: {
     desktop: { unsupported: WINDOWS_MISSING, window: FULL },
-    standalone: { unsupported: WINDOWS_MISSING, window: FULL },
+    standalone: { unsupported: [...WINDOWS_MISSING, 'notifications'], window: FULL },
   },
   darwin: {
     desktop: { unsupported: MACOS_MISSING, window: FULL },

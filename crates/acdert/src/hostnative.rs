@@ -64,7 +64,6 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "quit" => quit,
         "capture" => capture,
         "devRespond" => dev_respond,
-        "notify" => notify,
         "answerFolder" => answer_folder,
         "answerOpen" => answer_open,
         "answerSave" => answer_save,
@@ -76,6 +75,10 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
     #[cfg(any(windows, target_os = "macos"))]
     crate::methods!(scope, obj,
         "openDefault" => open_default,
+    );
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    crate::methods!(scope, obj,
+        "notify" => notify,
     );
     let name = bind::string(scope, "");
     bind::set(scope, obj, "socketName", name.into());
@@ -374,6 +377,7 @@ fn dev_respond(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _:
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn notify(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let title = bind::arg_string(scope, &args, 0);
     let body = bind::arg_string(scope, &args, 1);

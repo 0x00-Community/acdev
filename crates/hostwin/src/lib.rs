@@ -10,19 +10,20 @@ pub use acde_model::{DoubleClick, Event, Inbox, InjectEvent, Injected, Mode, Wak
 pub use dev::respond as dev_respond;
 pub use output::surface::{Shot, Surface};
 pub use shell::{Grant, Shell, WindowInfo};
+use system::handoff;
 pub use system::handoff::OpenError;
-use system::{handoff, notify};
 
 pub fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
     app::run(main)
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn notify(title: &str, body: &str, subtitle: &str) -> Result<(), String> {
     if platform::headless() {
         log::info!("notification (ACDE_HEADLESS, not shown): {title:?} {subtitle:?} {body:?}");
         return Ok(());
     }
-    notify::show(title, body, subtitle)
+    system::notify::show(title, body, subtitle)
 }
 
 pub fn open_default(target: &str) -> Result<(), OpenError> {

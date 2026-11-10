@@ -3,6 +3,7 @@ import {
   CAPABILITY_MODULES,
   Manifest,
   SHELL_MODULES,
+  WEB_CAPABILITIES,
   platformSupport,
   type CapabilityState,
   type CapabilityStatus,
@@ -37,6 +38,7 @@ export class CapabilityCheck {
     denied: 'denied by the user',
   }
   static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
+  static readonly #WEB: ReadonlySet<string> = new Set(WEB_CAPABILITIES)
   static readonly #NO_FEATURES: WindowFeatures = { backdrop: 'unsupported' }
   readonly #host: CapabilityHost
 
@@ -52,6 +54,10 @@ export class CapabilityCheck {
         ? 'not-declared'
         : !this.supported('fs') ? 'unsupported' : app && this.#host.denied(app, origin, name) ? 'denied' : 'available'
       return { name, kind: 'system', state, reason: CapabilityCheck.REASONS[state], optional: !!app && app.optional.includes('fs') }
+    }
+    if (CapabilityCheck.#WEB.has(name)) {
+      const state: CapabilityState = this.supported(name) ? 'available' : 'unsupported'
+      return { name, kind: 'system', state, reason: CapabilityCheck.REASONS[state], optional: false }
     }
     const system = Manifest.CAPABILITIES.has(name)
     const declared = !app || (system ? !!app.capabilities[name] : app.services.includes(name) || !!app.capabilities[name])
@@ -79,7 +85,7 @@ export class CapabilityCheck {
   }
 
   statuses(app: AppManifest | null, origin: AppOrigin): CapabilityStatus[] {
-    return [...new Set([...Manifest.CAPABILITIES, ...this.declared(app)])].map((name) => this.status(name, app, origin))
+    return [...new Set([...Manifest.CAPABILITIES, ...WEB_CAPABILITIES, ...this.declared(app)])].map((name) => this.status(name, app, origin))
   }
 
   missing(app: AppManifest, origin: AppOrigin): CapabilityStatus[] {

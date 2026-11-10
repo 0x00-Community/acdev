@@ -51,6 +51,8 @@ export type ShellModule = (typeof SHELL_MODULES)[number]
 
 export const SYSTEM_CAPABILITIES = ['fs', 'terminal', 'network', 'office', 'launch', 'slots', 'open', 'openFiles', 'camera', 'microphone'] as const
 
+export const WEB_CAPABILITIES = ['notifications'] as const
+
 export const CAPABILITY_MODULES = ['fs', 'terminal', 'network', 'office'] as const
 
 export const APPROVAL_CAPABILITIES = ['launch', 'slots', 'terminal', 'network', 'camera', 'microphone'] as const
@@ -61,7 +63,7 @@ export interface ImportRule {
   readonly reason: string | null
 }
 
-export const RESERVED_NAMES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...SHELL_MODULES, ...APP_MODULES, 'capabilities'])
+export const RESERVED_NAMES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...WEB_CAPABILITIES, ...SHELL_MODULES, ...APP_MODULES, 'capabilities'])
 
 export interface DesktopServiceGrant {
   readonly name: string

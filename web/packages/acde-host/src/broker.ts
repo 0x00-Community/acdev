@@ -225,6 +225,7 @@ export class Broker {
       desktop: () => this.#desktop,
       shown: () => this.onDesktopShown(),
       desktopShown: () => this.#desktopShown(),
+      notifications: () => this.#launchable.capabilities.supported('notifications'),
       devReload: (app) => this.devReload(app),
       toDesktop: (event) => this.#toDesktop(event),
     })

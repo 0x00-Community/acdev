@@ -12,6 +12,7 @@ export interface PageHost {
   desktop(): Web | null
   shown(): void
   desktopShown(): boolean
+  notifications(): boolean
   devReload(app: string | null): Promise<void>
   toDesktop(event: Record<string, unknown>): void
 }
@@ -114,6 +115,7 @@ export class PageCalls {
           icon: /^(data:image\/|http:\/\/acde\.local\/)/.test(icon) ? icon : '',
           tag: text(n['tag'], 200),
         } satisfies NotificationEvent
+        if (!this.#host.notifications()) throw Object.assign(new Error('notifications are unsupported here'), { status: 501, code: 'unsupported' })
         if (this.#host.desktopShown() || !this.#host.shell.notify) this.#host.toDesktop(notice)
         else this.#host.shell.notify(notice.title, notice.body, notice.label ?? '')
         return true

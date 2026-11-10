@@ -24,10 +24,13 @@ export interface FolderPicker {
   adopt?(path: string): string
 }
 
+type Notice = { title: string; body: string; icon: string; tag: string }
+
 interface FolderSetup {
   readonly picker: FolderPicker | null
   readonly label: string
   readonly privateDirectory: (() => string) | null
+  readonly notify: boolean
 }
 
 export class PageCalls implements HandOver {
@@ -47,7 +50,8 @@ export class PageCalls implements HandOver {
     page.env.files = this.#chooser()
     page.env.download = (request) =>
       void this.#download(request).catch((error: Error) => this.#log(`download of ${request.url.slice(0, 120)}: ${error.message}`))
-    page.env.notify = (notification) => void this.#notify(notification).catch((error: Error) => this.#log(`notification: ${error.message}`))
+    const notify = (notification: Notice) => void this.#notify(notification).catch((error: Error) => this.#log(`notification: ${error.message}`))
+    page.env.notify = setup.notify ? notify : null
   }
 
   handle(path: string, kind: Kind, writable: boolean): object | null {
@@ -179,7 +183,7 @@ export class PageCalls implements HandOver {
     await this.#rpc.call('page', 'download', [name, type, bytes])
   }
 
-  async #notify(notification: { title: string; body: string; icon: string; tag: string }): Promise<void> {
+  async #notify(notification: Notice): Promise<void> {
     let icon = notification.icon
     if (icon.startsWith('http://acde.local/')) {
       icon = ''

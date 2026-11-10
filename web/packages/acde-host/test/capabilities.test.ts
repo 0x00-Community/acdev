@@ -32,6 +32,23 @@ describe('CapabilityCheck', () => {
     assert.equal(state(check('win32', 'session'), 'fs', app({ capabilities: { fs: true } })), 'unsupported')
   })
 
+  test('notifications need no declaration and only a Windows standalone window lacks them', () => {
+    const plain = app({})
+    for (const [platform, mode] of [['linux', 'session'], ['linux', 'standalone'], ['darwin', 'standalone'], ['win32', 'desktop']] as const) {
+      assert.equal(state(check(platform, mode), 'notifications', plain), 'available', `${platform} ${mode}`)
+    }
+    const windows = check('win32', 'standalone')
+    assert.deepEqual(windows.status('notifications', plain, third), {
+      name: 'notifications',
+      kind: 'system',
+      state: 'unsupported',
+      reason: 'unsupported on this platform',
+      optional: false,
+    })
+    assert.ok(windows.statuses(plain, third).some((s) => s.name === 'notifications' && s.state === 'unsupported'))
+    assert.equal(windows.refusal(plain, third), null)
+  })
+
   test('a capability the runtime could not open is unsupported too', () => {
     assert.equal(state(check('linux', 'session', [], ['office']), 'office', app({ capabilities: { office: true } })), 'unsupported')
   })
