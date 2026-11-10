@@ -1,5 +1,9 @@
 import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
-import { ActError, type Acde, type ActResult, type ConsoleEntry, type ConsoleOptions, type DevPage, type NetworkOptions, type RequestEntry, type RouteOptions, type RouteResponse, type Shot, type UrlMatch, type WaitConsoleOptions, type WaitRequestOptions } from './acde.ts'
+import {
+  ActError, type Acde, type ActResult, type ConsoleEntry, type ConsoleOptions, type DevPage, type DropOptions,
+  type Dropped, type NetworkOptions, type RequestEntry, type RouteOptions, type RouteResponse, type Shot,
+  type UrlMatch, type WaitConsoleOptions, type WaitRequestOptions,
+} from './acde.ts'
 import { Locator, type RoleOptions, type Scope, type Source, type TextMatch, type TextOptions, type Timeout, type Tree } from './locator.ts'
 import { Png } from './png.ts'
 import { Poll } from './poll.ts'
@@ -121,6 +125,10 @@ export class AppWindow implements Scope {
 
   async route(url: UrlMatch, response: RouteResponse, options: Omit<RouteOptions, 'web'> = {}): Promise<number> {
     return this.acde.route(url, response, { ...options, web: await this.web() })
+  }
+
+  async drop(files: string | readonly string[], options: Omit<DropOptions, 'web'> = {}): Promise<Dropped> {
+    return this.acde.drop(files, { ...options, web: await this.web() })
   }
 
   async waitForRequest(url: UrlMatch, options: Omit<WaitRequestOptions, 'web'> = {}): Promise<RequestEntry> {

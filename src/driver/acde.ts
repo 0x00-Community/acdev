@@ -2,7 +2,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type {
+  ApprovalCapability, InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow, PermissionDecision,
+  PermissionPrompt,
+} from '@dopame/acde-api'
 import { cliEnv, cliFile } from 'acde/launcher'
 import { DevClient } from '../ipc.ts'
 import { Runtime, type Child } from '../runtime.ts'
@@ -180,6 +183,29 @@ export interface LaunchOptions {
   readonly startTimeout?: number
 }
 
+export interface Permissions {
+  readonly pending: readonly PermissionPrompt[]
+  readonly decisions: readonly PermissionDecision[]
+}
+
+export interface PromptMatch {
+  readonly app?: string
+  readonly capability?: ApprovalCapability
+  readonly timeout?: number
+}
+
+export interface DropOptions {
+  readonly web?: string
+  readonly x?: number
+  readonly y?: number
+}
+
+export interface Dropped {
+  readonly web: string
+  readonly window: number
+  readonly files: readonly string[]
+}
+
 interface Launched {
   readonly child: Child
   readonly dir: string
@@ -286,7 +312,7 @@ export class Acde {
       const acde = new Acde(session, client, { child, dir }, logs, options.timeout ?? Acde.TIMEOUT_MS)
       await Poll.until(Math.max(0, deadline - Date.now()), async () => {
         alive()
-        return (await acde.ready()) || null
+        return (await acde.ready()) || (await acde.#prompting()) || null
       }, late)
       return acde
     } catch (error) {
@@ -420,6 +446,87 @@ export class Acde {
   async unroute(id?: number): Promise<{ removed: number; left: number }> {
     return this.trace.step(`unroute(${id ?? ''})`,
       async () => (await this.#request('unroute', id === undefined ? {} : { route: id })) as Unrouted)
+  }
+
+  async permissions(): Promise<Permissions> {
+    const answer = (await this.#request('permissions')) as Partial<Permissions> | null
+    if (!Array.isArray(answer?.pending) || !Array.isArray(answer?.decisions)) {
+      throw new Error(`acdert answered permissions with ${JSON.stringify(answer)}`)
+    }
+    return answer as Permissions
+  }
+
+  async waitForPrompt(match: PromptMatch = {}): Promise<PermissionPrompt> {
+    const ms = match.timeout ?? this.timeout
+    const fits = (prompt: PermissionPrompt) => (match.app === undefined || prompt.app === match.app)
+      && (match.capability === undefined || prompt.capability === match.capability)
+    return Poll.until(ms, async () => (await this.permissions()).pending.find(fits) ?? null,
+      () => `waitForPrompt: no approval prompt${Acde.#describe(match)} within ${ms} ms`)
+  }
+
+  async answer(prompt: PermissionPrompt | number, allow: boolean): Promise<void> {
+    const id = typeof prompt === 'number' ? prompt : prompt.id
+    await this.trace.step(`answer(${id}, ${allow})`, () => this.#request('answer', { prompt: id, allow }))
+  }
+
+  async allow(match: PromptMatch = {}): Promise<PermissionPrompt> {
+    return this.#settle(match, true)
+  }
+
+  async deny(match: PromptMatch = {}): Promise<PermissionPrompt> {
+    return this.#settle(match, false)
+  }
+
+  async #settle(match: PromptMatch, allow: boolean): Promise<PermissionPrompt> {
+    return this.trace.step(`${allow ? 'allow' : 'deny'}(${Acde.#describe(match).trim()})`, async () => {
+      const prompt = await this.waitForPrompt(match)
+      await this.#request('answer', { prompt: prompt.id, allow })
+      return prompt
+    }, (prompt) => `${prompt.app}: ${prompt.capability}`)
+  }
+
+  async revoke(app: string, capability: ApprovalCapability): Promise<boolean> {
+    return this.trace.step(`revoke(${JSON.stringify(app)}, ${JSON.stringify(capability)})`, async () => {
+      if (!(await this.webs()).some((web) => web.kind === 'desktop')) {
+        throw new Error('revoke: this goes through acde:permissions on the desktop page, and this session '
+          + 'runs no desktop (start acde dev with a desktop project or --desktop)')
+      }
+      const code = `import('acde:permissions').then(({ permissions }) => `
+        + `permissions.revoke(${JSON.stringify(app)}, ${JSON.stringify(capability)}))`
+      return (await this.evaluate<boolean>('desktop', code)) === true
+    })
+  }
+
+  async drop(files: string | readonly string[], options: DropOptions = {}): Promise<Dropped> {
+    const list = (typeof files === 'string' ? [files] : files).map((file) => resolve(file))
+    if (list.length === 0) throw new Error('drop: give at least one file')
+    if ((options.x === undefined) !== (options.y === undefined)) throw new Error('drop: give x and y together')
+    const args = {
+      files: list,
+      ...(options.web !== undefined && { web: options.web }),
+      ...(options.x !== undefined && { x: options.x, y: options.y }),
+    }
+    return this.trace.step(`drop(${JSON.stringify(list)}${options.web ? `, ${options.web}` : ''})`, async () => {
+      const answer = (await this.#request('drop', args)) as Partial<Dropped> | null
+      if (typeof answer?.web !== 'string' || typeof answer.window !== 'number' || !Array.isArray(answer.files)) {
+        throw new Error(`acdert answered drop with ${JSON.stringify(answer)}`)
+      }
+      return answer as Dropped
+    }, (dropped) => `onto ${dropped.web}`)
+  }
+
+  async #prompting(): Promise<boolean> {
+    try {
+      return (await this.permissions()).pending.length > 0
+    } catch {
+      return false
+    }
+  }
+
+  static #describe(match: PromptMatch): string {
+    const parts = [match.app && `app ${match.app}`, match.capability && `capability ${match.capability}`]
+      .filter(Boolean)
+    return parts.length > 0 ? ` for ${parts.join(', ')}` : ''
   }
 
   async clipboard(): Promise<string> {

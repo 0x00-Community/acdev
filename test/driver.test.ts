@@ -189,6 +189,44 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     check(Sessions.list(sessions)).toEqual([])
   }, 60_000)
 
+  test('approval prompts: wait, allow, deny, list; revoke through the desktop; simulated drops', async () => {
+    const s = standIn()
+    const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })
+    try {
+      check((await acde.permissions()).pending.map((p) => p.id)).toEqual([1, 2])
+      check((await acde.waitForPrompt({ capability: 'fs.documents' })).app).toBe('beta')
+      const missing = await acde.waitForPrompt({ app: 'gamma', timeout: 300 }).catch((e: Error) => e.message)
+      check(missing).toBe('waitForPrompt: no approval prompt for app gamma within 300 ms')
+      check(await acde.allow({ app: 'alpha' })).toMatchObject({ id: 1, capability: 'launch' })
+      await acde.answer(2, false)
+      const after = await acde.permissions()
+      check(after.pending).toEqual([])
+      check(after.decisions.map((d) => `${d.app} ${d.capability} ${d.decision}`))
+        .toEqual(['alpha launch granted', 'beta fs.documents denied'])
+      const none = await acde.deny({ timeout: 200 }).catch((e: Error) => e.message)
+      check(none).toContain('no approval prompt within 200 ms')
+      check(await acde.revoke('alpha', 'launch')).toBe(false)
+
+      check(await acde.drop([join(s.root, 'a.txt'), 'b.txt'])).toEqual({
+        web: 'desktop', window: 0, files: [join(s.root, 'a.txt'), join(process.cwd(), 'b.txt')],
+      })
+      check(await acde.window('alpha').drop('c.png', { x: 3, y: 4 })).toMatchObject({ web: 'alpha#7', window: 7 })
+      check(await acde.drop([]).catch((e: Error) => e.message)).toBe('drop: give at least one file')
+      check(await acde.drop('d.txt', { x: 1 }).catch((e: Error) => e.message)).toBe('drop: give x and y together')
+      check(acde.trace.text()).toContain('allow(for app alpha)')
+      check(acde.trace.text()).toContain('drop(')
+    } finally {
+      await acde.close()
+    }
+    const sent = readFileSync(join(s.root, 'fake.log'), 'utf8').split('\n').filter(Boolean)
+      .map((line) => JSON.parse(line) as { got?: Record<string, unknown> }).flatMap((e) => (e.got ? [e.got] : []))
+    check(sent.find((m) => m['op'] === 'answer' && m['prompt'] === 1)).toMatchObject({ allow: true })
+    check(sent.find((m) => m['op'] === 'eval' && m['web'] === 'desktop')?.['code'])
+      .toBe(`import('acde:permissions').then(({ permissions }) => permissions.revoke("alpha", "launch"))`)
+    check(sent.find((m) => m['op'] === 'drop' && m['web'] === 'alpha#7'))
+      .toMatchObject({ x: 3, y: 4, files: [join(process.cwd(), 'c.png')] })
+  }, 60_000)
+
   test('select, check, drag, label / placeholder / title locators, attributes, routes and waits, clipboard, element pictures and screenshot baselines', async () => {
     const s = standIn()
     const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })

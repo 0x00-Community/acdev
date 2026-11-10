@@ -8,9 +8,13 @@ export {
   type ConsoleLevel,
   type ConsoleOptions,
   type DevPage,
+  type DropOptions,
+  type Dropped,
   type Emulation,
   type LaunchOptions,
   type NetworkOptions,
+  type Permissions,
+  type PromptMatch,
   type QueryOptions,
   type QueryResult,
   type RequestEntry,
@@ -33,4 +37,7 @@ export { Png, type Diff, type DiffOptions, type Image } from './png.ts'
 export { Screenshots, type Capturable, type Capture, type ScreenshotContext, type ScreenshotOptions } from './screenshot.ts'
 export { Trace, type TraceStep } from './trace.ts'
 export { AppWindow, type WindowMatch } from './window.ts'
-export type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+export type {
+  ApprovalCapability, InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow, PermissionDecision,
+  PermissionPrompt,
+} from '@dopame/acde-api'
