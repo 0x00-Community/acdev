@@ -19,6 +19,7 @@ export interface AppsHost {
   launch(appId: string, request: Record<string, unknown> | null, family?: WindowFamily | null): Promise<{ window: number }>
   record(id: number): FamilyWindow | undefined
   raise(opened: { window: number }): unknown
+  permitted(appId: string, capability: string): boolean
 }
 
 export class AppCalls {
@@ -47,7 +48,7 @@ export class AppCalls {
       const legacy = web.tier.level < 1 && !!caps?.['openFiles']
       const allowed = method === 'setDefault' ? web.shell('setDefault') || legacy : desktop || !!caps?.['openFiles']
       if (!allowed) throw Web.refused(web, method === 'setDefault' ? 'acde:setDefault' : 'opening files with their apps')
-      if (method === 'openPath') return this.#host.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions, desktop ? null : Web.caller(web.app!, web.tier))
+      if (method === 'openPath') return this.#host.opener.open(String(args[0]), (args[1] ?? {}) as OpenOptions, desktop ? null : this.#caller(web))
       if (method === 'handlers') return this.#host.opener.handlers(String(args[0]))
       return this.#host.opener.setDefault(String(args[0]), String(args[1]))
     }
@@ -56,7 +57,7 @@ export class AppCalls {
       const open = caps?.open
       const allowed = target === null ? desktop || !!caps?.['openFiles'] : desktop || open === true || (Array.isArray(open) && open.includes(target))
       if (!allowed) throw Web.refused(web, target === null ? 'opening files and links by type' : `open ${target}`)
-      return this.#host.opener.request(request as Parameters<Opener['request']>[0], target, desktop ? null : Web.caller(web.app!, web.tier))
+      return this.#host.opener.request(request as Parameters<Opener['request']>[0], target, desktop ? null : this.#caller(web))
     }
     if (method === 'launch' || method === 'open') {      const [appId, request, options] = args as [string, Record<string, unknown> | undefined, unknown]
       const open = caps?.open
@@ -70,6 +71,11 @@ export class AppCalls {
       return this.#host.launch(appId, request ?? null, Family.of(options, caller, (id) => this.#host.record(id)))
     }
     throw new Error(`acde.apps has no ${method}`)
+  }
+
+  #caller(web: Web) {
+    const app = web.app!
+    return Web.caller(app, web.tier, (capability) => this.#host.permitted(app.id, capability))
   }
 
   packages(web: Web, method: string, args: unknown[]): unknown {

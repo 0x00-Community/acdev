@@ -132,8 +132,10 @@ export class Broker {
         return fs ? fs.locate(path).catch(() => null) : null
       },
       admit: async (path, caller) => {
-        const fs = this.bridge.value['fs'] as { admit(path: string, roots: string[] | null, owner: string | null): Promise<string> } | undefined
-        return fs ? fs.admit(path, caller?.roots ? [...caller.roots] : null, caller?.owner ?? null).catch(() => null) : null
+        type Admit = (path: string, roots: string[] | null, owner: string | null, places: string[] | null) => Promise<string>
+        const fs = this.bridge.value['fs'] as { admit: Admit } | undefined
+        const places = caller?.places ? [...caller.places] : null
+        return fs ? fs.admit(path, caller?.roots ? [...caller.roots] : null, caller?.owner ?? null, places).catch(() => null) : null
       },
       launch: (app, request) => this.launch(app, request).then((opened) => this.#raise(opened)),
       spawn: (argv) => void this.shell.launch(argv),
@@ -205,6 +207,10 @@ export class Broker {
       launch: (appId, request, family) => this.launch(appId, request, 'free', null, family),
       record: (id) => this.#windows.get(id),
       raise: (opened) => this.#raise(opened),
+      permitted: (appId, capability) => {
+        const app = this.apps.get(appId)
+        return !!app && this.permissions.permit(app, this.apps.origin(appId), capability) === 'granted'
+      },
     })
     this.#services = new ServiceCalls({
       bridge: this.bridge,

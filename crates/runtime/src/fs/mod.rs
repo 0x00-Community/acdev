@@ -288,7 +288,12 @@ impl Workspace {
     }
 
     pub fn admit(&self, path: &str) -> Outcome<String> {
-        let roots: Vec<FinderRoot> = self.shared.roots(self.owner.as_deref())?.into_iter().filter(|root| self.allows(&root.path)).collect();
+        self.admit_with(path, &[])
+    }
+
+    pub(crate) fn admit_with(&self, path: &str, handed: &[String]) -> Outcome<String> {
+        let mut roots = self.finder_roots()?;
+        roots.extend(handed.iter().map(|dir| WorkspaceFs::granted(dir)));
         admit::real_inside(&roots, path)
     }
 
@@ -303,7 +308,6 @@ impl Workspace {
         Ok(self.shared.grants.add(owner, path, writable)?)
     }
 
-    #[cfg(target_os = "linux")]
     pub(crate) fn finder_roots(&self) -> Outcome<Vec<FinderRoot>> {
         let owner = self.owner.as_deref();
         if let Some(files) = &self.files {
@@ -382,8 +386,15 @@ impl Finder {
     }
 
     #[napi]
-    pub async fn admit(&self, path: String, roots: Option<Vec<String>>, owner: Option<String>) -> Result<String> {
-        blocking(move || Ok(Workspace::new().scoped(roots, owner.as_deref()).admit(&path)?)).await
+    pub async fn admit(&self, path: String, roots: Option<Vec<String>>, owner: Option<String>, places: Option<Vec<String>>) -> Result<String> {
+        blocking(move || {
+            let all = Workspace::new();
+            Ok(match (places, owner.as_deref()) {
+                (Some(places), Some(owner)) => all.files(Files::new(&places, false), owner).admit_with(&path, &roots.unwrap_or_default())?,
+                _ => all.scoped(roots, owner.as_deref()).admit(&path)?,
+            })
+        })
+        .await
     }
 }
 

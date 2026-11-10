@@ -41,9 +41,11 @@ export class Web {
     return this.#exited
   }
 
-  static caller(app: AppManifest, tier: WebTier): OpenCaller {
+  static caller(app: AppManifest, tier: WebTier, permitted: (capability: string) => boolean = () => true): OpenCaller {
     const fs = FileAccess.grant(app.capabilities, tier)
-    return { roots: fs === true ? null : Array.isArray(fs) ? fs : [], owner: app.id }
+    if (fs === true || Array.isArray(fs)) return { roots: fs === true ? null : fs, owner: app.id }
+    const places = fs ? fs.places.filter((place) => permitted(`fs.${place}`)) : []
+    return { roots: [], owner: app.id, places }
   }
 
   static grants(app: string | null, caps: Capabilities | null, tier: WebTier | null = null): Omit<WebGrants, 'storage'> {

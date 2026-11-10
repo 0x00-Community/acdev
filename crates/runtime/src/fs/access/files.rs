@@ -192,6 +192,31 @@ mod tests {
     }
 
     #[test]
+    fn level_1_roots_admit_files_for_the_system_and_nothing_else() {
+        let home = Home::new("admit");
+        let all = Workspace::at(&home.text());
+        let app = all.files(Files::new(&["documents".to_owned()], false), "viewer");
+        let picked = home.0.join("Picked");
+        std::fs::create_dir_all(&picked).unwrap();
+        app.grant(picked.to_str().unwrap()).unwrap();
+        assert_eq!(write(&app, "private", "mine.docx", "p")["name"], "mine.docx");
+        let handed = home.0.join("Handed");
+        std::fs::create_dir_all(&handed).unwrap();
+        let files = [home.0.join("Documents").join("a.docx"), picked.join("b.docx"), home.0.join("Desktop").join("c.docx"), handed.join("d.docx")];
+        for file in &files {
+            std::fs::write(file, "x").unwrap();
+        }
+        let private = home.0.join("data").join("acde").join("files").join("viewer").join("mine.docx");
+        let admit = |path: &Path, extra: &[String]| app.admit_with(path.to_str().unwrap(), extra).map_err(|f| f.status);
+        for inside in [&files[0], &files[1], &private] {
+            assert!(admit(inside, &[]).is_ok(), "{}", inside.display());
+        }
+        assert_eq!(admit(&files[2], &[]), Err(403), "a place the app did not name");
+        assert_eq!(admit(&files[3], &[]), Err(403), "a folder it holds nothing in");
+        assert!(admit(&files[3], &[handed.to_string_lossy().into_owned()]).is_ok(), "a handed file's folder");
+    }
+
+    #[test]
     fn a_picked_folder_is_a_root_token_until_it_is_revoked() {
         let home = Home::new("picked");
         let picked = home.0.join("Projects");

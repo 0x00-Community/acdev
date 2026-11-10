@@ -55,6 +55,7 @@ export interface Handlers {
 export interface OpenCaller {
   readonly roots: readonly string[] | null
   readonly owner: string | null
+  readonly places?: readonly string[]
 }
 
 class MimeTypes {
