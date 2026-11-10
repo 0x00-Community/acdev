@@ -5,7 +5,8 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import type {
-  AcdeConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig,
+  AcdeConfig, AppManifest as AppEntry, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest,
+  WindowAppConfig,
 } from '@dopame/acde-api'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { Bundler, type PublicRules } from './bundler.ts'
@@ -26,8 +27,12 @@ interface BuiltApp {
   readonly multiple?: boolean
   readonly frame?: boolean
   readonly mimeTypes?: readonly string[]
+  readonly schemes?: readonly string[]
+  readonly requests?: readonly string[]
   readonly backend?: { readonly entry: string; readonly port: number }
 }
+
+type AppConfig = WindowAppConfig & Pick<AppEntry, 'schemes' | 'requests'>
 
 interface BuiltPackage {
   readonly name: string
@@ -231,7 +236,7 @@ export class Project {
   }
 
   static #manifestOf(
-    config: WindowAppConfig, id: string, placed: { entry: string; backend: string | null; icon: string },
+    config: AppConfig, id: string, placed: { entry: string; backend: string | null; icon: string },
   ): BuiltApp {
     const port = (config.backend ? config.backend.port : undefined) ?? DEFAULT_PORT
     if (!Number.isInteger(port) || port < 0 || port > 65535)
@@ -249,6 +254,8 @@ export class Project {
       ...(config.multiple !== undefined && { multiple: config.multiple }),
       ...(config.frame !== undefined && { frame: config.frame }),
       ...(config.mimeTypes && { mimeTypes: config.mimeTypes }),
+      ...(config.schemes && config.schemes.length > 0 && { schemes: config.schemes }),
+      ...(config.requests && config.requests.length > 0 && { requests: config.requests }),
       ...(placed.backend && { backend: { entry: placed.backend, port } }),
     }
   }

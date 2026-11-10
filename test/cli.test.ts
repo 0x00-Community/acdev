@@ -190,10 +190,11 @@ describe('acde install / dev', () => {
 })
 
 describe('acde.config.jsonc', () => {
-  test('optional and services reach the built manifest', async () => {
+  test('optional, services, schemes and requests reach the built manifest', async () => {
     const dir = tmp()
     const config = { type: 'app', id: 'opt', capabilities: { fs: true, terminal: true }, optional: ['terminal'] }
-    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ ...config, services: ['clock'] }))
+    const accepts = { schemes: ['web+notes'], requests: ['add-note'] }
+    writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ ...config, ...accepts, services: ['clock'] }))
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     const out = join(tmp(), 'out')
     const result = await cli(['build', '--out', out], dir)
@@ -201,6 +202,8 @@ describe('acde.config.jsonc', () => {
     const app = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0]
     expect(app.optional).toEqual(['terminal'])
     expect(app.services).toEqual(['clock'])
+    expect(app.schemes).toEqual(['web+notes'])
+    expect(app.requests).toEqual(['add-note'])
   })
 
   test('new app: builds a window app from index.html', async () => {
