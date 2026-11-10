@@ -225,6 +225,9 @@ impl State {
         entry.modal = grant.modal && parent.is_some();
         entry.host = grant.host && self.controls && !grant.desktop;
         self.standalone |= grant.host;
+        if grant.desktop {
+            acde_render::FrameStyle::follow_session();
+        }
         let entry = self.entries.get_mut(&id).expect("granted");
         entry.minimize = grant.host || !self.standalone;
         if placed || !entry.opened {

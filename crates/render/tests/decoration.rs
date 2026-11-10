@@ -96,11 +96,19 @@ fn buttons_are_hit_in_their_slots_only() {
 
 #[test]
 fn the_style_comes_from_its_name_or_the_platform() {
-    assert_eq!(FrameStyle::parse(Some("mac")), FrameStyle::Mac);
-    assert_eq!(FrameStyle::parse(Some("windows")), FrameStyle::Windows);
+    for session in [false, true] {
+        assert_eq!(FrameStyle::parse(Some("mac"), session), FrameStyle::Mac);
+        assert_eq!(FrameStyle::parse(Some("windows"), session), FrameStyle::Windows);
+    }
     let native = if cfg!(windows) { FrameStyle::Windows } else { FrameStyle::Mac };
-    assert_eq!(FrameStyle::parse(None), native);
-    assert_eq!(FrameStyle::parse(Some("gnome")), native);
+    assert_eq!(FrameStyle::parse(None, false), native);
+    assert_eq!(FrameStyle::parse(Some("gnome"), false), native);
+}
+
+#[test]
+fn a_full_desktop_draws_the_session_style_on_every_platform() {
+    assert_eq!(FrameStyle::parse(None, true), FrameStyle::Mac);
+    assert_eq!(FrameStyle::parse(Some("gnome"), true), FrameStyle::Mac);
 }
 
 #[test]

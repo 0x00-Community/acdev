@@ -4,6 +4,7 @@ use parley::fontique::{Collection, CollectionOptions, SourceCache};
 use parley::{FontContext, FontFamily, FontWeight, Layout, LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty};
 use peniko::{Color, Fill};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FrameStyle {
@@ -12,18 +13,35 @@ pub enum FrameStyle {
     Windows,
 }
 
+static SESSION: AtomicBool = AtomicBool::new(false);
+
 impl FrameStyle {
     pub fn current() -> Self {
-        static STYLE: OnceLock<FrameStyle> = OnceLock::new();
-        *STYLE.get_or_init(|| Self::parse(std::env::var("ACDE_FRAME_STYLE").ok().as_deref()))
+        static NAMED: OnceLock<Option<FrameStyle>> = OnceLock::new();
+        let named = *NAMED.get_or_init(|| Self::named(std::env::var("ACDE_FRAME_STYLE").ok().as_deref()));
+        named.unwrap_or_else(|| Self::native(SESSION.load(Ordering::Relaxed)))
     }
 
-    pub fn parse(value: Option<&str>) -> Self {
+    pub fn follow_session() {
+        SESSION.store(true, Ordering::Relaxed);
+    }
+
+    pub fn parse(value: Option<&str>, session: bool) -> Self {
+        Self::named(value).unwrap_or_else(|| Self::native(session))
+    }
+
+    fn named(value: Option<&str>) -> Option<Self> {
         match value {
-            Some("mac") => FrameStyle::Mac,
-            Some("windows") => FrameStyle::Windows,
-            _ if cfg!(windows) => FrameStyle::Windows,
-            _ => FrameStyle::Mac,
+            Some("mac") => Some(FrameStyle::Mac),
+            Some("windows") => Some(FrameStyle::Windows),
+            _ => None,
+        }
+    }
+
+    fn native(session: bool) -> Self {
+        match cfg!(windows) && !session {
+            true => FrameStyle::Windows,
+            false => FrameStyle::Mac,
         }
     }
 
