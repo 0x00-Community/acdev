@@ -1,4 +1,4 @@
-use acde_render::{NONE, Options};
+use acde_render::{NONE, Ns, Options};
 use serde_json::Value;
 
 mod common;
@@ -49,4 +49,34 @@ fn transparent_and_invisible_elements_show_only_when_asked() {
     assert_eq!(states(&named(&doc, "Hidden", true).unwrap()), ["invisible"]);
     assert!(named(&doc, "Gone", true).is_none(), "display: none has no box");
     assert!(nodes(&doc, true).iter().all(|n| n["role"] != "generic"), "a transparent wrapper is not listed on its own");
+}
+
+fn id_of(doc: &Doc, name: &str) -> Option<u64> {
+    named(doc, name, false).and_then(|n| n["id"].as_u64())
+}
+
+#[test]
+fn a_ref_follows_its_node_across_a_list_re_render() {
+    let doc = page("<ul id=l><li id=a>Alpha</li><li id=b>Beta</li></ul>");
+    let (list, a, b) = (doc.get_element_by_id("l"), doc.get_element_by_id("a"), doc.get_element_by_id("b"));
+    assert_eq!((id_of(&doc, "Alpha"), id_of(&doc, "Beta")), (Some(u64::from(a)), Some(u64::from(b))));
+    let c = doc.create_element(Ns::Html, "li").unwrap();
+    let text = doc.create_text("Gamma").unwrap();
+    doc.insert_before(c, text, NONE).unwrap();
+    doc.insert_before(list, c, a).unwrap();
+    doc.insert_before(list, b, a).unwrap();
+    doc.set_text_content(a, "Alpha again").unwrap();
+    doc.set_attribute(b, "class", "done").unwrap();
+    doc.commit();
+    assert_eq!(id_of(&doc, "Alpha again"), Some(u64::from(a)), "new text, same node");
+    assert_eq!(id_of(&doc, "Beta"), Some(u64::from(b)), "moved, same node");
+    assert_eq!(id_of(&doc, "Gamma"), Some(u64::from(c)));
+    let fresh = doc.create_element(Ns::Html, "li").unwrap();
+    let text = doc.create_text("Alpha again").unwrap();
+    doc.insert_before(fresh, text, NONE).unwrap();
+    doc.replace_children(list, &[c, b, fresh]).unwrap();
+    doc.commit();
+    assert_eq!(id_of(&doc, "Alpha again"), Some(u64::from(fresh)), "a replaced node has a new ref");
+    assert!(doc.semantics(a, 10, true, false).is_err(), "the old ref is gone with its node");
+    assert_eq!(id_of(&doc, "Beta"), Some(u64::from(b)));
 }
