@@ -37,10 +37,12 @@ export class FileAccess {
   static guard<T extends object>(fs: T, permit: (capability: string) => Permit | null, label: string): T {
     const blocked = (root: unknown): string | null => {
       const capability = typeof root === 'string' ? `fs.${root}` : ''
-      const state = Manifest.place(capability) ? permit(capability) : null
+      const state = Manifest.place(capability) || Permissions.folder(capability) ? permit(capability) : null
       return state && state !== 'granted' ? capability : null
     }
-    const visible = (roots: unknown) => (Array.isArray(roots) ? roots.filter((root: { place?: unknown }) => !blocked(root?.place)) : roots)
+    const folder = (id: unknown) => typeof id === 'string' && !!Permissions.folder(`fs.${id}`)
+    const shown = (root: { place?: unknown; id?: unknown }) => !blocked(root?.place) && !(folder(root?.id) && blocked(root?.id))
+    const visible = (roots: unknown) => (Array.isArray(roots) ? roots.filter(shown) : roots)
     return new Proxy(fs, {
       get: (target, key, receiver) => {
         const member = Reflect.get(target, key, receiver) as unknown

@@ -4,7 +4,7 @@ pub(crate) mod path;
 mod picked;
 pub(crate) mod workspace;
 
-pub use access::files::Files;
+pub use access::files::{Files, GrantedFolder};
 use access::{admit, copy_source, grants::Grants};
 #[cfg(not(windows))]
 use path::NodePath;
@@ -21,7 +21,7 @@ use napi::Result;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{sync::Arc, sync::Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 trait IntoJson {
     fn json(self) -> Outcome<Value>;
@@ -77,7 +77,7 @@ struct Desktop {
 pub(crate) struct Shared {
     pub(crate) fs: WorkspaceFs,
     place: Mutex<Place>,
-    grants: Grants,
+    grants: Arc<Grants>,
 }
 
 #[derive(Clone, Copy)]
@@ -227,11 +227,13 @@ impl FsCall {
 
 impl Shared {
     fn new() -> Self {
-        Self::with(Grants::from_env())
+        static GRANTS: OnceLock<Arc<Grants>> = OnceLock::new();
+        Self { fs: WorkspaceFs::new(), place: Mutex::new(Place::load()), grants: Arc::clone(GRANTS.get_or_init(|| Arc::new(Grants::from_env()))) }
     }
 
+    #[cfg(test)]
     fn with(grants: Grants) -> Self {
-        Self { fs: WorkspaceFs::new(), place: Mutex::new(Place::load()), grants }
+        Self { fs: WorkspaceFs::new(), place: Mutex::new(Place::load()), grants: Arc::new(grants) }
     }
 
     fn call(&self, call: FsCall, owner: Option<&str>, view: View) -> Outcome<FsReply> {
@@ -392,7 +394,7 @@ impl Workspace {
 
     #[cfg(test)]
     pub(crate) fn at(home: &str) -> Self {
-        let shared = Shared { fs: WorkspaceFs::at(home), place: Mutex::new(Place::default()), grants: Grants::new(None) };
+        let shared = Shared { fs: WorkspaceFs::at(home), place: Mutex::new(Place::default()), grants: Arc::new(Grants::new(None)) };
         Self { shared: Arc::new(shared), roots: None, owner: None, files: None }
     }
 
@@ -481,6 +483,18 @@ impl Finder {
     }
 
     #[napi]
+    pub fn folders(&self, owner: String) -> Vec<GrantedFolder> {
+        self.shared.grants.of(&owner).iter().map(|path| Files::folder(path)).collect()
+    }
+
+    #[napi]
+    pub fn revoke_folder(&self, owner: String, id: String) -> Result<bool> {
+        let Some(path) = self.shared.grants.of(&owner).into_iter().find(|path| Files::token(path) == id) else { return Ok(false) };
+        self.shared.grants.remove(&owner, &path)?;
+        Ok(true)
+    }
+
+    #[napi]
     pub async fn admit(&self, path: String, roots: Option<Vec<String>>, owner: Option<String>) -> Result<String> {
         blocking(move || Ok(Workspace::new().scoped(roots, owner.as_deref()).admit(&path)?)).await
     }
@@ -510,6 +524,29 @@ mod tests {
             Ok(_) => Value::String("not json".into()),
             Err(error) => serde_json::json!({"status": error.status, "code": error.code}),
         }
+    }
+
+    #[test]
+    fn picked_folders_are_listed_by_token_and_revoked_for_every_web() {
+        let base = std::env::temp_dir().join(format!("acde-folders-{}", std::process::id()));
+        let picked = base.join("Picked");
+        std::fs::create_dir_all(&picked).unwrap();
+        let finder = Finder { shared: Arc::new(Shared::with(Grants::new(None))) };
+        let web = Workspace { shared: Arc::clone(&finder.shared), roots: None, owner: None, files: None }.files(Files::new(&[], false), "vault");
+        let path = web.grant(picked.to_str().unwrap()).unwrap();
+        let token = Files::token(&path);
+        let ids = |workspace: &Workspace| {
+            json(workspace.call(FsCall::Roots)).as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
+        };
+        assert!(ids(&web).contains(&token));
+        assert_eq!(finder.folders("vault".into()), [GrantedFolder { id: token.clone(), label: "Picked".into(), exists: true }]);
+        assert!(finder.folders("other".into()).is_empty());
+        assert!(!finder.revoke_folder("vault".into(), "folder-0000000000000000".into()).unwrap());
+        assert!(finder.revoke_folder("vault".into(), token.clone()).unwrap());
+        assert!(!ids(&web).contains(&token));
+        assert_eq!(json(web.call(FsCall::List { root: token, path: None, hidden: None }))["code"], "EACCES");
+        assert!(finder.folders("vault".into()).is_empty());
+        _ = std::fs::remove_dir_all(base);
     }
 
     #[test]

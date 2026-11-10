@@ -120,3 +120,20 @@ test('open file requests give third-party level 1 apps only a handle; system and
   assert.equal(FileAccess.view({ fs: true }, system), 'roots')
   assert.equal(FileAccess.view({ fs: true }, legacy), 'roots')
 })
+
+test('a revoked picked folder leaves roots() and its calls answer 403 denied', async () => {
+  const permits: Record<string, Permit> = {}
+  const calls: unknown[][] = []
+  const native = {
+    roots: async () => [{ id: 'private' }, { id: 'folder-0123456789abcdef', source: 'granted' }],
+    list: async (...args: unknown[]) => void calls.push(args),
+  }
+  const fs = FileAccess.guard(native, (capability) => permits[capability] ?? null, 'Tool')
+  assert.deepEqual((await fs.roots()).map((root) => root.id), ['private', 'folder-0123456789abcdef'])
+  await fs.list('folder-0123456789abcdef', '')
+  permits['fs.folder-0123456789abcdef'] = 'denied'
+  assert.deepEqual((await fs.roots()).map((root) => root.id), ['private'])
+  await assert.rejects(fs.list('folder-0123456789abcdef', ''), (e: Error & { status?: number; code?: string; capability?: string }) =>
+    e.status === 403 && e.code === 'denied' && e.capability === 'fs.folder-0123456789abcdef')
+  assert.deepEqual(calls.map((args) => args[0]), ['folder-0123456789abcdef'])
+})

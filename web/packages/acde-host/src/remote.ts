@@ -343,9 +343,9 @@ export class RemoteBridge {
     for (const [url, reason] of Object.entries(this.#refused)) if (!(url.slice('acde:'.length) in this.value)) host.refuseModule?.(url, reason)
   }
 
-  permit(capability: string, permit: Permit, status: CapabilityStatus): void {
+  permit(capability: string, permit: Permit, status: CapabilityStatus | null): void {
     this.permits.set(capability, permit)
-    this.#capabilities?.update(status)
+    if (status) this.#capabilities?.update(status)
     for (const name of [...this.#waiting]) if (this.permits.usable(name)) this.#define(name)
   }
 

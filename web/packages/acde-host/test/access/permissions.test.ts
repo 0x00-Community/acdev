@@ -135,3 +135,31 @@ test('the acde driver lists and answers prompts through the dev requests', async
   await dev.request(JSON.stringify({ id: 3, op: 'answer', prompt: 1, allow: true }))
   assert.deepEqual(replies.slice(1).map(([id, ok]) => [id, ok]), [[2, true], [3, false]])
 })
+
+test('folders an app holds are listed by token and revoked like approvals', () => {
+  const held = new Map([['tool', [{ id: 'folder-0123456789abcdef', label: 'Notes', exists: true }]], ['other', []]])
+  const changes: [string, string, Permit][] = []
+  const permissions = new Permissions({
+    store: null,
+    label: (id) => (id === 'tool' ? 'Tool' : null),
+    supported: () => true,
+    tell: () => {},
+    changed: (id, capability, permit) => void changes.push([id, capability, permit]),
+    log: () => {},
+    folders: (appId) => [...held].filter(([app]) => appId === undefined || app === appId).flatMap(([app, list]) => list.map((f) => ({ app, ...f }))),
+    revokeFolder: (appId, id) => {
+      const list = held.get(appId) ?? []
+      const kept = list.filter((f) => f.id !== id)
+      held.set(appId, kept)
+      return kept.length !== list.length
+    },
+  })
+  const row = { app: 'tool', label: 'Tool', capability: 'fs.folder-0123456789abcdef', decision: 'granted', folder: { label: 'Notes', exists: true } }
+  assert.deepEqual(permissions.list(), [row])
+  assert.deepEqual(permissions.list('other'), [])
+  assert.equal(permissions.revoke('tool', 'fs.folder-0123456789abcdef'), true)
+  assert.deepEqual(changes, [['tool', 'fs.folder-0123456789abcdef', 'denied']])
+  assert.deepEqual(permissions.list('tool'), [])
+  assert.equal(permissions.revoke('tool', 'fs.folder-0123456789abcdef'), false)
+  assert.throws(() => permissions.revoke('tool', 'fs.folder-nothex'), (e: Error & { status?: number }) => e.status === 400)
+})

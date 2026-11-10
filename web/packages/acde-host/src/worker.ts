@@ -151,7 +151,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
       case 'devhot':
         return devhot()
       case 'permit':
-        return m.capability && m.permit && m.status ? bridge.permit(m.capability, m.permit, m.status) : undefined
+        return m.capability && m.permit ? bridge.permit(m.capability, m.permit, m.status ?? null) : undefined
       default:
         web.deliver([m] as never)
     }

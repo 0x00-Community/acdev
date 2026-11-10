@@ -6,6 +6,14 @@ use std::path::Path;
 const PLACES: [(&str, &str); 6] =
     [("desktop", "桌面"), ("documents", "文档"), ("downloads", "下载"), ("music", "音乐"), ("pictures", "图片"), ("videos", "视频")];
 
+#[napi_derive::napi(object)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrantedFolder {
+    pub id: String,
+    pub label: String,
+    pub exists: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Files {
     places: Vec<&'static str>,
@@ -38,11 +46,19 @@ impl Files {
             roots.push(FinderRoot { place: Some(name), ..Self::checked(root, "the folder does not exist") });
         }
         for path in granted {
-            let label = Path::new(&path).file_name().and_then(|name| name.to_str()).unwrap_or("folder").to_owned();
+            let label = Self::label(&path);
             let root = self.root(Self::token(&path), path, &label, RootSource::Granted);
             roots.push(Self::checked(root, "the folder no longer exists"));
         }
         Ok(roots)
+    }
+
+    pub fn folder(path: &str) -> GrantedFolder {
+        GrantedFolder { id: Self::token(path), label: Self::label(path), exists: Path::new(path).is_dir() }
+    }
+
+    fn label(path: &str) -> String {
+        Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or("folder").to_owned()
     }
 
     pub(crate) fn find(roots: Vec<FinderRoot>, id: &str) -> Outcome<FinderRoot> {

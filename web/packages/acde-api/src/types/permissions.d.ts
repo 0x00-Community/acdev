@@ -2,6 +2,8 @@ import type { PlaceCapability } from '../runtime/places'
 
 export type ApprovalCapability = 'launch' | 'slots' | 'terminal' | 'network' | 'camera' | 'microphone' | PlaceCapability
 
+export type FolderCapability = `fs.folder-${string}`
+
 export interface PermissionPrompt {
   readonly id: number
   readonly app: string
@@ -30,15 +32,16 @@ export interface PermissionEventMap {
 export interface PermissionDecision {
   readonly app: string
   readonly label: string | null
-  readonly capability: ApprovalCapability
+  readonly capability: ApprovalCapability | FolderCapability
   readonly decision: 'granted' | 'denied'
+  readonly folder?: { readonly label: string; readonly exists: boolean }
 }
 
 export interface AcdePermissions {
   pending(): Promise<PermissionPrompt[]>
   answer(id: number, allow: boolean): Promise<void>
   list(app?: string): Promise<PermissionDecision[]>
-  revoke(app: string, capability: ApprovalCapability): Promise<boolean>
+  revoke(app: string, capability: ApprovalCapability | FolderCapability): Promise<boolean>
   on<K extends keyof PermissionEventMap>(type: K, handler: (event: PermissionEventMap[K]) => void): () => boolean
 }
 

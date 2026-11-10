@@ -17,6 +17,12 @@ export interface ApprovalsHost {
   records(): Iterable<WindowRecord>
   toDesktop(event: Record<string, unknown> | RawShellEvent): void
   dialog(): NativeApproval | null
+  finder(): FolderGrants | null
+}
+
+export interface FolderGrants {
+  folders(owner: string): { id: string; label: string; exists: boolean }[]
+  revokeFolder(owner: string, id: string): boolean
 }
 
 export class Approvals {
@@ -38,6 +44,12 @@ export class Approvals {
       },
       changed: (appId, capability, permit) => this.#changed(appId, capability, permit),
       log: (line) => Log.write(Level.Info, 'acde_host', line),
+      folders: (appId) => {
+        const finder = host.finder()
+        const ids = appId === undefined ? host.apps().list().map((app) => app.id) : [appId]
+        return finder ? ids.flatMap((app) => finder.folders(app).map((folder) => ({ app, ...folder }))) : []
+      },
+      revokeFolder: (appId, id) => host.finder()?.revokeFolder(appId, id) ?? false,
     })
     this.calls = new PermissionCalls({ permissions: this.permissions, apps: () => host.apps(), capabilities: () => host.capabilities() })
   }
@@ -52,7 +64,7 @@ export class Approvals {
     for (const record of this.#host.records()) {
       const app = record.app
       if (!app || app.id !== appId || !record.web) continue
-      const status = this.#host.capabilities().status(capability, app, this.#host.apps().origin(appId))
+      const status = Permissions.folder(capability) ? null : this.#host.capabilities().status(capability, app, this.#host.apps().origin(appId))
       record.web.thread.post({ type: 'permit', capability, permit, status })
     }
   }

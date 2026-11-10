@@ -1,6 +1,7 @@
 import type {
   AcdePermissionError,
   ApprovalCapability,
+  FolderCapability,
   PermissionAnsweredEvent,
   PermissionDecision,
   PermissionPrompt,
@@ -24,6 +25,15 @@ export interface PermissionsHost {
   tell(event: PermissionPromptEvent | PermissionAnsweredEvent): void
   changed(appId: string, capability: ApprovalCapability, permit: Permit): void
   log(line: string): void
+  folders?(appId?: string): PickedFolder[]
+  revokeFolder?(appId: string, id: string): boolean
+}
+
+export interface PickedFolder {
+  readonly app: string
+  readonly id: string
+  readonly label: string
+  readonly exists: boolean
 }
 
 interface Waiting {
@@ -48,6 +58,10 @@ export class Permissions {
 
   static approval(capability: string): capability is ApprovalCapability {
     return Permissions.#APPROVAL.has(capability) || Manifest.place(capability) !== null
+  }
+
+  static folder(capability: string): string | null {
+    return /^fs\.folder-[0-9a-f]{16}$/.test(capability) ? capability.slice('fs.'.length) : null
   }
 
   static #key(appId: string, capability: string): string {
@@ -121,10 +135,19 @@ export class Permissions {
       const capability = key.slice(at + 1)
       if ((appId === undefined || app === appId) && Permissions.approval(capability)) rows.push({ app, label: this.#host.label(app), capability, decision })
     }
+    for (const { app, id, label, exists } of this.#host.folders?.(appId) ?? []) {
+      rows.push({ app, label: this.#host.label(app), capability: `fs.${id}` as FolderCapability, decision: 'granted', folder: { label, exists } })
+    }
     return rows.sort((a, b) => a.app.localeCompare(b.app) || a.capability.localeCompare(b.capability))
   }
 
   revoke(appId: string, capability: string): boolean {
+    const folder = Permissions.folder(capability)
+    if (folder) {
+      const had = this.#host.revokeFolder?.(appId, folder) ?? false
+      this.#host.changed(appId, capability as ApprovalCapability, 'denied')
+      return had
+    }
     if (!Permissions.approval(capability)) throw Object.assign(new TypeError(`"${capability}" is not given by approval`), { status: 400 })
     const key = Permissions.#key(appId, capability)
     const had = this.#decisions.delete(key)

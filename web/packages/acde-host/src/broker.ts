@@ -37,7 +37,7 @@ import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 import { Outputs, type Screen } from './broker/output'
 import { WindowRecords } from './broker/records'
-import { Approvals } from './broker/approvals'
+import { Approvals, type FolderGrants } from './broker/approvals'
 import type { Permissions } from './broker/access/approval/permissions'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
@@ -93,6 +93,7 @@ export class Broker {
       if (!this.#options.standalone || !shell.hosted || !shell.approve) return null
       return { show: (title, message) => shell.approve!(title, message), dismiss: () => shell.dismissApproval?.() }
     },
+    finder: () => (this.bridge.value['fs'] as FolderGrants | undefined) ?? null,
   })
   readonly permissions: Permissions = this.#approvals.permissions
   #opening = false
