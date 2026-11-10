@@ -773,7 +773,9 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 | `ENOSPC` | 507 | 磁盘满 |
 | `EIO` | 500 | 别的 (细节进日志) |
 
-`code` 由造 `Failure` 的地方定 (`exists` / `conflict` / `with`), 否则按 status; io 错误按 `io::ErrorKind` 映射 (unix 上另认 ELOOP). 只有
+`code` 由造 `Failure` 的地方定 (`exists` / `conflict` / `with`), 否则按 status; io 错误按 `io::ErrorKind` 映射 (unix 上另认 ELOOP).
+系统拒绝 (Windows 的拒绝 ACE、只读属性) 在写入、新建、mkdir、copy、rename、删除和解析路径 (`WorkspaceFs::resolve` 取 realpath) 时都是 403 `EACCES`;
+拒绝 `W` 也拒绝了 `SYNCHRONIZE`, 连打开文件夹都失败, 所以那个文件夹的列出也是 403. 父目录不存在仍是 400 `EINVAL`. 只有
 `acde:fs` 是这个形状; napi `Finder.locate` 的 message 照旧是失败的 JSON.
 
 调用: `list` / `preview` (文字最多 256 KiB) / `write` (最多 384 KiB, `expectedModifiedMs` 是字符串或 `'new'`) / `mkdir` / `rename` / `remove` /

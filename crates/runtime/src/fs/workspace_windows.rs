@@ -76,6 +76,75 @@ fn junction_cannot_escape_on_read_or_recursive_create() {
     assert_eq!(fs::read(outside.join("secret.txt")).unwrap(), b"outside");
 }
 
+struct Denied(Vec<PathBuf>);
+
+impl Denied {
+    fn add(&mut self, path: PathBuf, rights: &str) {
+        let status = Command::new("icacls").arg(&path).arg("/deny").arg(format!("*S-1-1-0:{rights}")).arg("/Q").status().unwrap();
+        assert!(status.success(), "icacls /deny {rights} on {}", path.display());
+        self.0.push(path);
+    }
+}
+
+impl Drop for Denied {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            _ = Command::new("icacls").arg(path).args(["/remove:d", "*S-1-1-0", "/Q"]).status();
+        }
+    }
+}
+
+fn answer<T>(outcome: Outcome<T>) -> (u16, &'static str) {
+    match outcome {
+        Ok(_) => (0, "ok"),
+        Err(failure) => (failure.status, failure.errno.as_str()),
+    }
+}
+
+#[test]
+fn writes_the_system_denies_answer_403() {
+    let s = Scratch::new();
+    let root = Path::new(&s.root.path);
+    for dir in ["no-add", "sealed", "kept"] {
+        fs::create_dir(root.join(dir)).unwrap();
+    }
+    fs::write(root.join("a.txt"), "a").unwrap();
+    fs::write(root.join("kept/keep.txt"), "keep").unwrap();
+    let mut denied = Denied(Vec::new());
+    denied.add(root.join("no-add"), "(WD,AD)");
+    denied.add(root.join("sealed"), "(W)");
+    denied.add(root.join("kept"), "(DC)");
+    denied.add(root.join("kept/keep.txt"), "(DE)");
+    let recursive = MkdirOptions { recursive: true };
+    for dir in ["no-add", "sealed"] {
+        let at = |name: &str| format!("{dir}/{name}");
+        assert_eq!(answer(WorkspaceFs::write_file_in(&s.root, &at("new.txt"), b"x", &WriteOptions::default())), (403, "EACCES"), "{dir}");
+        assert_eq!(answer(WorkspaceFs::write_in(&s.root, &at("new.txt"), "x", "new")), (403, "EACCES"), "{dir}");
+        assert_eq!(answer(WorkspaceFs::mkdir_in(&s.root, &at("sub"), &MkdirOptions::default())), (403, "EACCES"), "{dir}");
+        assert_eq!(answer(WorkspaceFs::mkdir_in(&s.root, &at("sub/deeper"), &recursive)), (403, "EACCES"), "{dir}");
+        assert_eq!(answer(WorkspaceFs::child_in(&s.root, dir, "made", Some(EntryKind::File))), (403, "EACCES"), "{dir}");
+        assert_eq!(answer(WorkspaceFs::rename_in(&s.root, "a.txt", &at("a.txt"))), (403, "EACCES"), "{dir}");
+        assert_eq!(answer(crate::fs::copy::copy(&s.root, "a.txt", &s.root, dir)), (403, "EACCES"), "{dir}");
+    }
+    assert_eq!(answer(WorkspaceFs::remove_in(&s.root, "kept/keep.txt")), (403, "EACCES"));
+    assert_eq!(answer(WorkspaceFs::remove_child_in(&s.root, "kept", "keep.txt", false)), (403, "EACCES"));
+    assert_eq!(answer(WorkspaceFs::new().list_in(s.root.clone(), "sealed", true)), (403, "EACCES"));
+    drop(denied);
+    assert_eq!(fs::read(root.join("kept/keep.txt")).unwrap(), b"keep");
+    assert_eq!(fs::read(root.join("a.txt")).unwrap(), b"a");
+    for dir in ["no-add", "sealed"] {
+        assert_eq!(fs::read_dir(root.join(dir)).unwrap().count(), 0, "{dir}");
+    }
+}
+
+#[test]
+fn a_missing_parent_still_answers_einval() {
+    let s = Scratch::new();
+    assert_eq!(answer(WorkspaceFs::write_file_in(&s.root, "missing/new.txt", b"x", &WriteOptions::default())), (400, "EINVAL"));
+    assert_eq!(answer(WorkspaceFs::mkdir_in(&s.root, "missing/sub", &MkdirOptions::default())), (400, "EINVAL"));
+    assert_eq!(answer(WorkspaceFs::remove_in(&s.root, "missing.txt")), (404, "ENOENT"));
+}
+
 fn desktop_child(home: &Path, known: &Path, desktop: Option<&str>, expected: &str) {
     let mut child = Command::new(std::env::current_exe().unwrap());
     child

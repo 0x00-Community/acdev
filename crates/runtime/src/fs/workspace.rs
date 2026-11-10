@@ -372,7 +372,7 @@ impl WorkspaceFs {
         let inside = |path: &str| Self::inside(&real_root, path);
         let mut real = absolute.clone();
         if must_exist {
-            real = Self::realpath(&absolute).map_err(|_| Failure::http(404, "no such file or directory"))?;
+            real = Self::realpath(&absolute).map_err(|error| denied_or(error, || Failure::http(404, "no such file or directory")))?;
             if !inside(&real) {
                 return Err(Failure::invalid("path leaves the workspace through a symlink"));
             }
@@ -380,8 +380,10 @@ impl WorkspaceFs {
             if clean == "." {
                 return Err(Failure::invalid("the workspace root itself cannot be replaced"));
             }
-            if !inside(&Self::realpath(absolute.dirname()).unwrap_or_default()) {
-                return Err(Failure::invalid("parent directory is missing or outside the workspace"));
+            let missing = || Failure::invalid("parent directory is missing or outside the workspace");
+            let parent = Self::realpath(absolute.dirname()).map_err(|error| denied_or(error, missing))?;
+            if !inside(&parent) {
+                return Err(missing());
             }
         }
         let relative = if clean == "." { String::new() } else { clean.to_owned() };
@@ -744,12 +746,19 @@ impl WorkspaceFs {
         if relative.is_empty() {
             return Err(Failure::invalid("the workspace root cannot be deleted"));
         }
-        let info = fs::symlink_metadata(&absolute).map_err(|_| Failure::http(404, "no such file or directory"))?;
+        let info = fs::symlink_metadata(&absolute).map_err(|error| denied_or(error, || Failure::http(404, "no such file or directory")))?;
         match info.is_dir() {
             true => fs::remove_dir(&absolute)?,
             false => fs::remove_file(&absolute)?,
         }
         Ok(())
+    }
+}
+
+fn denied_or(error: io::Error, otherwise: impl FnOnce() -> Failure) -> Failure {
+    match error.kind() {
+        ErrorKind::PermissionDenied => error.into(),
+        _ => otherwise(),
     }
 }
 
