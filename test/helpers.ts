@@ -29,7 +29,7 @@ export function cleanup(): void {
 }
 
 const SCRUBBED =
-  /^(PORT|BUN_PORT|NODE_PORT|ACDERT|ACDE_API|ACDE_APP_(ID|SOCKETS|CHANNEL|CONTROL)|XDG_RUNTIME_DIR)$/
+  /^(PORT|BUN_PORT|NODE_PORT|ACDERT|ACDE_API|ACDE_INSTALL|ACDE_APP_(ID|SOCKETS|CHANNEL|CONTROL)|XDG_RUNTIME_DIR)$/
 
 export function env(extra: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
