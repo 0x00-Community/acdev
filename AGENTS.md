@@ -289,7 +289,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 **运行时** (acde#20): 归档本身只含命令行工具、模板、SDK 和 LICENSE. `<版本>/acdert-version` 是配对记录 (一行 acdert 版本, 即构建这一版所用 SDK
 的版本, 列在同目录 `SHA256SUMS` 里), 安装器 (含 `--version` / `-Version`) 按它从 `$ACDERT_DIST/<acdert 版本>/` 取 `SHA256SUMS`、
 `acdert-<triple>[.exe]` 和 `acdert-host-<acdert 版本>.tar.gz`, 都按那份 `SHA256SUMS` 校验后才落位: 二进制放成 `bin/acdert[.exe]`, 宿主包解开后
-的 `app/` 放成 `bin/app/` (acdert 找 `<自己>/app/dist`). 全有或全无: 没有配对记录 (旧版本)、`SHA256SUMS` 里没有本平台的 triple (报出它列着的
+的 `app/` 放成 `bin/app/` (acdert 找 `<自己>/app/dist`). 没有配对记录的版本 (如 0.0.7, 发布流程加它之前发的) 读 `$ACDE_DIST/latest.json`, 它的 `version` 正是要装的版本时用它的 `sdk` 并打一行说明, 否则拒绝. 全有或全无: 找不到配对、`SHA256SUMS` 里没有本平台的 triple (报出它列着的
 平台)、下载或校验失败, 都在动安装目录之前失败, 之前装的版本和 `current` 照旧. 不用 `acdert/latest`. Dopame 桌面包不随 acde 安装.
 
 装好后一个版本目录 (`versions/<版本>`; 归档里的顶层目录 `acde-<版本>/` 加上安装器放的两项) 是:
@@ -398,8 +398,8 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
 
 **`install.md`** (仓库根, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
 `Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
-`acde` 能跑、`acde skills install`、查运行时在不在 (不在先问用户, 同意了只照 skill `start/install.md` 的「Install the runtime on your own computer」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build (有运行时再 `acde dev --headless`
-截图)、汇报. 步骤放在这个文件里而不是 prompt 里, 改步骤不用改用户手里的那句话. 安装脚本的行为、`acde skills`、运行时怎么找变了, 这个文件一起改;
+`acde` 能跑、`acde skills install`、用 `acde --version` 看找到的运行时 (安装器已把配对的 acdert 装在 acde 旁边; 找不到先重跑安装器, 安装器在这台机器上用不了时才问用户, 同意了只照 skill `start/install.md` 的「Install the runtime by hand」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build 再 `acde dev --headless`
+截图、汇报. 步骤放在这个文件里而不是 prompt 里, 改步骤不用改用户手里的那句话. 安装脚本的行为、`acde skills`、运行时怎么找变了, 这个文件一起改;
 改完在临时 `HOME` 里照着走一遍 (`ACDE_DIST` 指向本地 `dist.ts --out` 的目录).
 
 ## 和 acdert 的契约

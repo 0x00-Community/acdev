@@ -12,7 +12,7 @@ This skill ships inside acde and describes the version it came with. When it and
 ## Check the environment first
 
 1. `acde` must be on PATH. If it is not, follow [Install](references/start/install.md).
-2. `acde dev` and `acde test` need the runtime. acde finds it through the `ACDERT` variable (a path to the binary) or as `acdert` on PATH. acdert is **not** part of acde and is not downloaded by its installer: it is already on PATH in the Dopame virtual machine, and elsewhere it is a separate download, described in [Install the runtime](references/start/install.md#install-the-runtime-on-your-own-computer). Without it, `acde new`, `acde check`, and `acde build` still work, and `acde dev` says what is missing. If it is missing, tell the user, and install it with those steps only if they agree. Get it from nowhere else.
+2. `acde dev` and `acde test` need the runtime, acdert. The acde installer sets up the acdert release that acde pairs with next to it; acde finds `ACDERT` (a path to the binary) first, then that one, then `acdert` on PATH (in the Dopame virtual machine it is already there). `acde --version` shows which one it finds. If none is found, run the acde installer again; only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acde new`, `acde check`, and `acde build` still work, and `acde dev` says what is missing.
 3. A project runs on Bun when its package manager is bun, and on Node.js with npm, pnpm, or yarn. `acde test` needs Bun.
 
 ## What is not like a browser

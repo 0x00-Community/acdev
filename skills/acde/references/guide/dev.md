@@ -51,4 +51,4 @@ To watch them from another terminal, or to read them from a script, use `acde co
 
 ## Runtime
 
-`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the `acdert` on PATH. acdert is not part of acde; see [Install the runtime](../start/install.md#install-the-runtime-on-your-own-computer).
+`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the acdert the installer put next to acde, otherwise the `acdert` on PATH. `acde --version` shows which one it finds; see [The runtime](../start/install.md#the-runtime).

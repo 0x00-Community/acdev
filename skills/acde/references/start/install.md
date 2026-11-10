@@ -1,6 +1,6 @@
 # Install
 
-acde is one archive: the CLI, the project templates, and the SDK. No npm, no root. To run apps you also need the runtime, acdert, which is a separate download; see [The runtime](#the-runtime).
+The installer sets up acde (the CLI, the project templates, and the SDK) together with the runtime it pairs with, acdert, which runs your apps. No npm, no root. See [The runtime](#the-runtime).
 
 ## With a coding agent
 
@@ -31,7 +31,7 @@ If you have both, acde uses Bun. The install script doesn't install either of th
 | Linux | x86_64 |
 | Windows | x64 |
 
-acde itself is JavaScript; these are the platforms the runtime is built for, and the Windows installer is x64 only. What the runtime can do differs somewhat between them; see [Platform support](../reference/platforms.md).
+acde itself is JavaScript; these are the platforms the runtime is built for (`aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`), and the installer stops with this list on any other. The Windows installer is x64 only. What the runtime can do differs somewhat between them; see [Platform support](../reference/platforms.md).
 
 ## macOS / Linux
 
@@ -59,32 +59,33 @@ This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`. You ca
 
 ## Verify
 
-> **Open a new terminal first.** The installer changes `PATH` only for terminals opened after it, so in the terminal you installed from, `acde` is `command not found`. To use that terminal anyway, run the `export PATH=…` line the installer printed.
+> **Open a new terminal first.** The installer changes `PATH` only for terminals opened after it, so in the terminal you installed from, `acde` is `command not found`. To use that terminal anyway, run the last line the installer printed (`export PATH=…`, or `$env:Path = …` in PowerShell).
 
 In the new terminal, run:
 
 ```sh
-acde
+acde --version
 ```
 
-If it prints usage, acde is installed.
+It prints the acde version, the SDK version and contract level it was built with, and the runtime it found with its version and contract level.
 
 ## The runtime
 
-`acde new`, `acde check`, and `acde build` need nothing else. `acde dev` and `acde test` run your app in the runtime, acdert, which the acde installer does not include. Inside the Dopame virtual machine, `acdert` is already on PATH. On your own computer, [install it](#install-the-runtime-on-your-own-computer) first.
+`acde dev` and `acde test` run your app in the runtime, acdert. The installer puts the acdert release that this acde pairs with next to it: the binary as `bin/acdert` (`acdert.exe` on Windows) and its host files as `bin/app/`, both checked against the release's `SHA256SUMS`. The pairing is recorded with each acde release, so `--version` installs the matching runtime too. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had. Inside the Dopame virtual machine, `acdert` is already on PATH.
 
 acde looks for the runtime in this order:
 
 1. `ACDERT`: the path of an acdert binary, or the name of one on PATH;
-2. `acdert` on PATH.
+2. the acdert the installer put next to acde;
+3. `acdert` on PATH.
 
-When neither is there, `acde dev` stops and says so.
+When none is there, `acde dev` stops and says so.
 
 The runtime renders pages only on the GPU, so it needs a working GPU (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux).
 
-### Install the runtime on your own computer
+### Install the runtime by hand
 
-Each runtime release is in `https://pkgs.dopame.ai/acdert/<version>/`, and `https://pkgs.dopame.ai/acdert/latest.json` names the latest version. A release has:
+Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine, and set `ACDERT` to the result. Each runtime release is in `https://pkgs.dopame.ai/acdert/<version>/`, and `https://pkgs.dopame.ai/acdert/latest.json` names the latest version. A release has:
 
 | File | What it is |
 | --- | --- |
@@ -181,6 +182,6 @@ Your app is in the desktop's app list; open it from there. The desktop's assista
 
 ## Upgrade and uninstall
 
-To upgrade, run the install command again. Each version is installed in `~/.acde/versions/<version>`, and `~/.acde/current` points to the one in use.
+To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use.
 
-To uninstall, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the line that was added to your shell's startup file. If you installed the runtime or the desktop as above, also delete `~/.acdert` and `~/.local/share/acde/packages/dopame`, and remove the `ACDERT` line.
+To uninstall, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the line that was added to your shell's startup file. If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and `~/.local/share/acde/packages/dopame`, and remove the `ACDERT` line.

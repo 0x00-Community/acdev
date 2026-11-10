@@ -29,17 +29,17 @@ Windows, in PowerShell:
 irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 ```
 
-The installer downloads one archive, checks its SHA-256, unpacks it into `~/.acde` (`%USERPROFILE%\.acde` on Windows), and adds its `bin` directory to PATH in the user's shell startup file. It needs no root. Running it again upgrades an existing install.
+The installer downloads the acde archive and the Dopame runtime it pairs with, acdert (the binary for this platform and its host files), checks every SHA-256, and unpacks them into `~/.acde` (`%USERPROFILE%\.acde` on Windows): `acdert` ends up in the same `bin` directory as `acde`. It then adds that directory to PATH in the user's shell startup file. It needs no root. If any download or check fails, it installs nothing and an earlier install stays as it was. Running it again upgrades an existing install, runtime included.
 
-The PATH change reaches new shells only. In the shell you are in, call acde by its path, `~/.acde/bin/acde` (Windows: `%USERPROFILE%\.acde\current\bin\acde.cmd`), or put that directory on PATH first.
+The PATH change reaches new shells only. When the shell you are in does not have it yet, the installer's last line is the command that puts it on PATH there; run it, or call acde by its path, `~/.acde/bin/acde` (Windows: `%USERPROFILE%\.acde\current\bin\acde.cmd`).
 
 ## 3. Check that it runs
 
 ```sh
-acde
+acde --help
 ```
 
-It prints its usage, a line beginning `acde: usage: acde <command>` and one line per command, and exits with code 1; that is what success looks like here. If it says Bun or Node.js is missing or too old, go back to step 1.
+It prints its usage, a line beginning `usage: acde <command>` and one line per command, and exits with code 0. If it says Bun or Node.js is missing or too old, go back to step 1.
 
 ## 4. Install the acde skill
 
@@ -58,16 +58,15 @@ The first command links the skill into `~/.agents/skills` and into the skills di
 
 Most agents load new skills when a session starts. For the rest of this session, read `SKILL.md` in the directory `acde skills path` prints before you do anything else with acde.
 
-## 5. Look for the runtime
+## 5. Check the runtime
 
-`acde new`, `acde check` and `acde build` work now. `acde dev` and `acde test` also need the Dopame runtime, acdert, which is not part of acde. Check for it:
+`acde dev` and `acde test` run apps in the Dopame runtime, acdert. The installer put the acdert that this acde pairs with next to it, so they work now. acde looks for acdert in this order: `ACDERT`, the acdert installed next to acde, then `acdert` on PATH (in the Dopame virtual machine it is already on PATH). Check which one it finds:
 
 ```sh
-echo "${ACDERT:-}"
-command -v acdert
+acde --version
 ```
 
-(Windows: `echo $env:ACDERT` and `where.exe acdert`.) In the Dopame virtual machine acdert is already on PATH. Elsewhere it is a separate download from `https://pkgs.dopame.ai/acdert/`. If it is not on this machine, ask the user whether to install it. If they agree, follow the section "Install the runtime on your own computer" in the skill's `references/start/install.md` (in the directory `acde skills path` prints), and nothing else: do not build it or fetch it from anywhere else. If they decline, say in the report that it is missing.
+It prints the acde version, the SDK version and contract level, and the acdert it found with its version and contract level. If it says no acdert was found, the install did not finish: run the installer again and report what it printed. Only if the installer cannot work here (no access to `https://pkgs.dopame.ai/`, or no acdert build for this platform), ask the user whether to set the runtime up by hand; if they agree, follow the section "Install the runtime by hand" in the skill's `references/start/install.md` (in the directory `acde skills path` prints), and nothing else: do not build it or fetch it from anywhere else.
 
 ## 6. Try it
 
@@ -80,7 +79,7 @@ acde check
 acde build
 ```
 
-`acde check` prints a line beginning `ok: hello, app`, and `acde build` one beginning `acde: built app hello into`. If the runtime is there, also run the app without a window and take a picture of it:
+`acde check` prints a line beginning `ok: hello, app`, and `acde build` one beginning `acde: built app hello into`. Then run the app without a window and take a picture of it:
 
 ```sh
 acde dev --headless
@@ -95,7 +94,7 @@ Tell the user, in a few lines:
 - the acde version installed and where (`~/.acde/versions/<version>`), and whether a new terminal is needed for PATH;
 - which JavaScript runtime acde will use;
 - where the skill was installed (the output of `acde skills`);
-- whether the runtime was found or installed, and that `acde dev` and `acde test` need it if it was not;
+- the acdert that `acde --version` found, with its version and contract level;
 - which commands of step 6 you ran and what they printed, and anything that failed.
 
 Report only what you ran and saw. Then suggest a first step: `acde new my-app`.
