@@ -2,6 +2,7 @@ import { test as bunTest, expect as bunExpect, type Matchers } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { packageRoot } from 'acde/launcher'
 import { Acde } from '../driver/acde.ts'
 import { expect as expectUi, type LocatorAssertions, type WindowAssertions } from '../driver/expect.ts'
@@ -26,9 +27,18 @@ export type Body = (fixtures: Fixtures) => unknown
 
 export type TestOptions = number | { readonly timeout?: number }
 
+export class TestTimeout extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TimeoutError'
+  }
+}
+
 export class E2eRun {
   static readonly #used = new Map<string, number>()
   static readonly MARGIN_MS = 3_000
+  static readonly GRACE_MS = 30_000
+  static readonly KEEP_MS = 15_000
 
   static startTimeout(timeout: number): number {
     return Math.max(timeout / 2, timeout - E2eRun.MARGIN_MS)
@@ -70,6 +80,7 @@ export class E2eRun {
   static async run(
     name: string, body: Body, settings: E2eSettings = E2e.read(), timeout = settings.timeout,
   ): Promise<void> {
+    const deadline = Date.now() + timeout
     const home = mkdtempSync(join(tmpdir(), 'acde-test-'))
     const results = E2eRun.results(settings, name)
     rmSync(results, { recursive: true, force: true })
@@ -91,7 +102,10 @@ export class E2eRun {
       acde.trace.screenshots = settings.trace
       const first = acde.session.apps[0]
       const app = acde.session.desktop === null && first !== undefined ? acde.window(first) : null
-      await body({ acde, app, home: join(home, 'home'), settings })
+      const fixtures = { acde, app, home: join(home, 'home'), settings }
+      const how = 'its timeout: --timeout, or the one given to test()'
+      const late = () => new TestTimeout(`the test did not finish within ${timeout} ms (${how})`)
+      await E2eRun.within(deadline - Date.now(), async () => body(fixtures), late)
       if (settings.trace) {
         const trace = acde.trace.write(results, name).map((f) => join(results, f))[0]
         console.log(`acde test: trace of ${JSON.stringify(name)}: ${trace}`)
@@ -119,6 +133,21 @@ export class E2eRun {
     if (kept.some(frame)) error.stack = kept.join('\n')
   }
 
+  static async within<T>(ms: number, work: () => Promise<T>, late: () => Error): Promise<T> {
+    const timer = new AbortController()
+    const working = work()
+    working.catch(() => undefined)
+    const timed = sleep(Math.max(0, ms), null, { signal: timer.signal }).then(() => {
+      throw late()
+    })
+    timed.catch(() => undefined)
+    try {
+      return await Promise.race([working, timed])
+    } finally {
+      timer.abort()
+    }
+  }
+
   static async keep(acde: Acde | null, error: unknown, dir: string, name = basename(dir)): Promise<string> {
     mkdirSync(dir, { recursive: true })
     const wrote: string[] = []
@@ -143,9 +172,12 @@ export class E2eRun {
           write('network.txt', (await acde.network(all)).entries.map(Format.request).join('\n'))
         }],
       ]
+      const until = Date.now() + E2eRun.KEEP_MS
+      const left = `the ${E2eRun.KEEP_MS / 1000} s left for what a failing test leaves`
+      const late = () => new Error(`not saved: acdert did not answer within ${left}`)
       for (const [file, step] of steps) {
         try {
-          await step()
+          await E2eRun.within(until - Date.now(), step, late)
         } catch (failure) {
           write(`${file}.error.txt`, (failure as Error)?.message ?? String(failure))
         }
@@ -166,7 +198,7 @@ function register(add: () => Register) {
     add()(name, () => {
       E2e.mark('ran', name)
       return E2eRun.run(name, body, settings, timeout)
-    }, timeout)
+    }, timeout + E2eRun.GRACE_MS)
   }
 }
 

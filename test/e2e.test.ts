@@ -144,6 +144,47 @@ describe('acde test', () => {
     expect(none.code).toBe(1)
   }, 120_000)
 
+  const late = 'a test that runs out of time, even the last of its file, leaves what it saw; ' +
+    'one whose acde dev never starts leaves the reason'
+  test(late, async () => {
+    const s = standIn()
+    mkdirSync(join(s.project, 'e2e'))
+    const file = join('e2e', 'slow.e2e.ts')
+    writeFileSync(join(s.project, file), `import { test, expect } from 'acde/test'
+
+test('quick', async ({ app }) => {
+  await expect(app!.getByRole('listitem')).toHaveCount(0)
+})
+
+test('never ends', async ({ app }) => {
+  await expect(app!.getByText('Nowhere')).toBeVisible({ timeout: 600000 })
+})
+`)
+    const slow = await acdeTest(s, ['--timeout', '4000'])
+    expect(slow.code).toBe(1)
+    const left = join(s.project, '.acde/test-results/e2e-slow/never-ends')
+    const why = 'TimeoutError: the test did not finish within 4000 ms ' +
+      '(its timeout: --timeout, or the one given to test())'
+    expect(slow.out).toContain(why)
+    const saved = 'error.txt, output.log, screen.png, snapshot.txt, console.txt, network.txt, trace.txt'
+    expect(slow.out).toContain(`acde test: saved ${saved} in ${left}`)
+    expect(slow.out).toContain(`acde test: 1 file, 0 passed, 1 failed: ${file}\n`)
+    expect(slow.out).not.toContain('dangling process')
+    expect(readdirSync(left).sort())
+      .toEqual(['console.txt', 'error.txt', 'network.txt', 'output.log', 'screen.png', 'snapshot.txt', 'trace.txt'])
+    expect(readFileSync(join(left, 'error.txt'), 'utf8')).toStartWith(why)
+    expect(readFileSync(join(left, 'output.log'), 'utf8')).toContain('acde: dev app alpha (headless)')
+    expect(readdirSync(join(s.root, 'acde-dev'))).toEqual([])
+
+    const stuck = await acdeTest(s, ['--timeout', '3000', '-t', 'quick'], { FAKE_ACDERT_LISTEN_MS: '600000' })
+    expect(stuck.code).toBe(1)
+    const unstarted = join(s.project, '.acde/test-results/e2e-slow/quick')
+    expect(stuck.out).toMatch(/acde dev \(pid \d+\) did not register a session within 2 s in /)
+    expect(stuck.out).toContain(`acde test: saved error.txt in ${unstarted}`)
+    expect(readFileSync(join(unstarted, 'error.txt'), 'utf8')).toContain('acde: dev app alpha (headless)')
+    expect(readdirSync(join(s.root, 'acde-dev')).filter((name) => name.endsWith('.json'))).toEqual([])
+  }, 120_000)
+
   const ci = 'in CI (CI set) the tests run, and a missing screenshot baseline is an error instead of being written'
   test(ci, async () => {
     const s = project()
