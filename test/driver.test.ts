@@ -57,6 +57,14 @@ describe('Locator.match', () => {
     check(await Locator.text(source, { ref: 'w1.40', role: 'generic', tag: 'div', visible: true } as InspectMatch)).toBe('Inside the card')
   })
 
+  test('text content: the text under an element, not its accessible name (as Playwright\'s toHaveText)', async () => {
+    const display = node('w1.6', 'generic', 'Display', [node('w1.7', 'text', '18')])
+    check(await Locator.content(source, display)).toBe('18')
+    check(await Locator.text(source, display)).toBe('Display')
+    check(await Locator.content(source, node('w1.8', 'button', 'Save'))).toBe('Save')
+    check(await Locator.content(source, tree[0]!)).toBe('Buy milk Done Walk the dog Done')
+  })
+
   test('CSS: asked of acdert in the window or under each match; what it finds is searched by role through its own subtree', async () => {
     queried.length = 0
     check(await refs([{ kind: 'css', selector: '.card' }])).toEqual(['w1.20'])

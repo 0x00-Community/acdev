@@ -26,7 +26,7 @@ expect(value): bun:test Matchers
 
 **LocatorAssertions** (all support `.not` and accept `{timeout}`):
 
-`toBeVisible()` `toBeHidden()` `toHaveCount(n)` `toHaveText(text, {exact?})` `toContainText(text)` `toHaveValue(text)` `toHaveState(state)` `toBeChecked()` `toBeDisabled()` `toBeEnabled()` `toBeFocused()` `toHaveAttribute(name, value?)` `toHaveScreenshot(name?, options?)`
+`toBeVisible()` `toBeHidden()` `toHaveCount(n)` `toHaveText(text, {exact?})` `toContainText(text)` (text content, not the accessible name) `toHaveValue(text)` `toHaveState(state)` `toBeChecked()` `toBeDisabled()` `toBeEnabled()` `toBeFocused()` `toHaveAttribute(name, value?)` `toHaveScreenshot(name?, options?)`
 
 **WindowAssertions**: `toBeOpen()` `toHaveTitle(text)` `toHaveScreenshot(name?, options?)`
 
@@ -135,6 +135,7 @@ class Locator {
   count(): Promise<number>
   all(): Promise<Locator[]>
   isVisible(): Promise<boolean>
+  textContent(): Promise<string>  // the text inside the element (what toHaveText compares)
   text() / name() / value() / states() / ref() / node(): Promise<...>
   waitFor(options?: { state?: 'visible' | 'hidden'; timeout?: number }): Promise<void>
 

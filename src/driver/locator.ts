@@ -143,6 +143,25 @@ export class Locator {
     return Locator.text(source, node)
   }
 
+  async textContent(options: Timeout = {}): Promise<string> {
+    const { node, source } = await this.#one(options.timeout, () => null)
+    return Locator.content(source, node)
+  }
+
+  static async content(source: Source, node: InspectNode): Promise<string> {
+    const parts: string[] = []
+    const walk = async (n: InspectNode): Promise<void> => {
+      const children = await source.children(n)
+      if (children.length === 0) {
+        if (n.name) parts.push(n.name)
+        return
+      }
+      for (const child of children) await walk(child)
+    }
+    await walk(node)
+    return Locator.normalize(parts.join(' '))
+  }
+
   static async text(source: Source, node: InspectNode): Promise<string> {
     if (node.name) return node.name
     const parts: string[] = []

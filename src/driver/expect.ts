@@ -55,14 +55,14 @@ export class LocatorAssertions {
 
   toHaveText(expected: TextMatch, options: Timeout & { readonly exact?: boolean } = {}): Promise<void> {
     return this.#one(`have text ${LocatorAssertions.#text(expected)}`, options, async (n, source) => {
-      const text = await Locator.text(source, n)
+      const text = await Locator.content(source, n)
       return { pass: Locator.matches(text, expected, options.exact ?? typeof expected === 'string'), saw: `text ${JSON.stringify(text)}` }
     })
   }
 
   toContainText(expected: TextMatch, options: Timeout = {}): Promise<void> {
     return this.#one(`contain text ${LocatorAssertions.#text(expected)}`, options, async (n, source) => {
-      const text = await Locator.text(source, n)
+      const text = await Locator.content(source, n)
       return { pass: Locator.matches(text, expected), saw: `text ${JSON.stringify(text)}` }
     })
   }

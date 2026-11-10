@@ -102,6 +102,8 @@ await expect(app).toHaveTitle('Notes')
 await expect(app).toBeOpen()
 ```
 
+`toHaveText` and `toContainText` compare the element's text content, as in Playwright: the text inside it, whitespace collapsed, not its accessible name. An `<output aria-label="Display">18</output>` has the text `18`; locators such as `getByText` and `getByRole(…, { name })` match the accessible name (`Display`). `locator.textContent()` reads the text content, `locator.name()` the accessible name.
+
 UI assertions retry until the timeout (5 seconds by default). `expect` on any other value is the `expect` from `bun:test`.
 
 ## Screenshots
