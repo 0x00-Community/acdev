@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 use std::sync::Mutex;
 
-use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
 use windows_sys::Win32::System::Console::{COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole};
 use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
 use windows_sys::Win32::System::JobObjects::{
@@ -17,8 +17,8 @@ use windows_sys::Win32::System::JobObjects::{
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Threading::{
     CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess,
-    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, ResumeThread, STARTUPINFOEXW,
-    UpdateProcThreadAttribute, WaitForSingleObject,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, ResumeThread,
+    STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
 };
 
 pub(crate) struct Master {
@@ -143,6 +143,8 @@ fn start(console: HPCON, command_line: &str, cwd: &Path, extra: &[(&str, &str)])
     }
     let mut info: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
     info.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
+    info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    (info.StartupInfo.hStdInput, info.StartupInfo.hStdOutput, info.StartupInfo.hStdError) = (INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE);
     info.lpAttributeList = attributes;
     let mut command = wide(OsStr::new(command_line));
     let directory = wide(cwd.as_os_str());
