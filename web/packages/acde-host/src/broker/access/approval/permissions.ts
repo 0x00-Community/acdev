@@ -25,6 +25,7 @@ export interface PermissionsHost {
   tell(event: PermissionPromptEvent | PermissionAnsweredEvent): void
   changed(appId: string, capability: ApprovalCapability, permit: Permit): void
   log(line: string): void
+  asksAgain?(): boolean
   folders?(appId?: string): PickedFolder[]
   revokeFolder?(appId: string, id: string): boolean
 }
@@ -82,6 +83,7 @@ export class Permissions {
   permit(app: AppManifest, origin: AppOrigin, capability: string): Permit {
     if (origin.system || !Permissions.approval(capability)) return 'granted'
     const key = Permissions.#key(app.id, capability)
+    if (this.#stale(key)) return 'ask'
     return this.#decisions.get(key) ?? (this.#asked.has(key) ? 'denied' : 'ask')
   }
 
@@ -103,6 +105,11 @@ export class Permissions {
     const permit = this.permit(app, origin, capability)
     if (permit !== 'ask') return permit === 'granted'
     const key = Permissions.#key(app.id, capability)
+    if (this.#stale(key)) {
+      this.#decisions.delete(key)
+      this.#save()
+      this.#host.log(`${app.label} (${app.id}) was denied "${capability}" in an earlier run: asking again`)
+    }
     let settle: (allowed: boolean) => void = () => {}
     const answered = new Promise<boolean>((resolve) => (settle = resolve))
     const prompt: PermissionPrompt = { id: this.#next++, app: app.id, label: app.label, capability, reason }
@@ -155,6 +162,10 @@ export class Permissions {
     if (had) this.#save()
     this.#host.changed(appId, capability, 'denied')
     return had
+  }
+
+  #stale(key: string): boolean {
+    return this.#decisions.get(key) === 'denied' && !this.#asked.has(key) && this.#host.asksAgain?.() === true
   }
 
   #decide(appId: string, capability: ApprovalCapability, decision: 'granted' | 'denied'): void {

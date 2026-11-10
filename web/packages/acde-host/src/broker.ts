@@ -94,6 +94,7 @@ export class Broker {
       if (!this.#options.standalone || !shell.hosted || !shell.approve) return null
       return { show: (title, message) => shell.approve!(title, message), dismiss: () => shell.dismissApproval?.() }
     },
+    standalone: () => !!this.#options.standalone,
     finder: () => (this.bridge.value['fs'] as FolderGrants | undefined) ?? null,
   })
   readonly permissions: Permissions = this.#approvals.permissions

@@ -17,6 +17,7 @@ export interface ApprovalsHost {
   records(): Iterable<WindowRecord>
   toDesktop(event: Record<string, unknown> | RawShellEvent): void
   dialog(): NativeApproval | null
+  standalone(): boolean
   finder(): FolderGrants | null
 }
 
@@ -44,6 +45,7 @@ export class Approvals {
       },
       changed: (appId, capability, permit) => this.#changed(appId, capability, permit),
       log: (line) => Log.write(Level.Info, 'acde_host', line),
+      asksAgain: () => host.standalone(),
       folders: (appId) => {
         const finder = host.finder()
         const ids = appId === undefined ? host.apps().list().map((app) => app.id) : [appId]

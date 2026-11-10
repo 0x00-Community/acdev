@@ -160,3 +160,26 @@ test('folders an app holds are listed by token and revoked like approvals', () =
   assert.equal(permissions.revoke('tool', 'fs.folder-0123456789abcdef'), false)
   assert.throws(() => permissions.revoke('tool', 'fs.folder-nothex'), (e: Error & { status?: number }) => e.status === 400)
 })
+
+test('acdert app asks again about a denial of an earlier run; a desktop keeps it', async () => {
+  const file = 'again'
+  files.set(file, { 'tool:launch': 'denied', 'tool:network': 'granted' })
+  const tool = app({ launch: true, network: true })
+  const make = (asksAgain: boolean) =>
+    new Permissions({ store: stored(file), label: () => 'Tool', supported: () => true, tell: () => {}, changed: () => {}, log: () => {}, asksAgain: () => asksAgain })
+
+  const desktop = make(false)
+  await assert.rejects(desktop.admit(tool, third), /denied by the user/)
+  assert.deepEqual(desktop.pending(), [])
+
+  const standalone = make(true)
+  const admitted = standalone.admit(tool, third)
+  const prompt = await next(standalone)
+  assert.deepEqual([prompt.capability, prompt.reason], ['launch', 'launch'], 'the granted network is not asked')
+  assert.deepEqual(files.get(file), { 'tool:network': 'granted' }, 'the old denial is dropped once it is asked again')
+  standalone.answer(prompt.id, false)
+  await assert.rejects(admitted, /denied by the user/)
+  assert.deepEqual(files.get(file), { 'tool:network': 'granted', 'tool:launch': 'denied' })
+  await assert.rejects(standalone.admit(tool, third), /denied by the user/, 'a no of this run is not asked twice')
+  assert.deepEqual(standalone.pending(), [])
+})
