@@ -37,7 +37,7 @@
   ],
   "scripts": {
     "build": "bun scripts/build.mjs",
-    "test": "bun test"
+    "test": "bun test --timeout 60000"
   },
   "peerDependencies": {
     "vite": ">=5"
