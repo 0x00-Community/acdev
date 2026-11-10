@@ -32,6 +32,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "acde-jsrt"
+version = "0.1.0"
+dependencies = [
+ "ntex-io-uring",
+ "rustix 1.1.5",
+]
+
+[[package]]
 name = "acde-log"
 version = "0.1.0"
 dependencies = [

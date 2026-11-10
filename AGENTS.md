@@ -556,6 +556,39 @@ title: scope}`)、`window_gone`、`window_min_size`、`window_parent`、`milesto
 输入到上屏的延迟分布 (IPC + 事件循环排队), 4K 下 N 个窗口的损伤合并与遮挡剔除成本, backdrop 每帧多一次采样 / 模糊的成本,
 `Route::Direct` 在实际会话里命中多少次.
 
+## 内核态 JS (分支 jsrt)
+
+分支 `jsrt` 把 isolate 的 JS 搬进内核 (ackernel 的 `/dev/jsrt`, 文档 `Documentation/userspace-api/ac/jsrt.rst`, ABI
+`<linux/ac/jsrt.h>`); `main` 仍是普通的用户态程序, 两条线分开走, 这一节只在 `jsrt` 上. 内核里只有 JS 引擎 (V8, 和这里同一版本),
+HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者进程的一条 worker 线程上 (CPU、内存、生死都算这个进程的),
+和进程之间是共享内存里的三个环: `to_window` (引擎 → 进程)、`to_engine` (进程 → 引擎)、`replies` (进程 → 引擎, 回答引擎的
+同步调用). 旧的 `/dev/jsruntime` (crates/acde `jsruntime.rs`) 在这条分支上会被换掉.
+
+**crates/jsrt** (`acde-jsrt`): `Isolate::create(&Options)` (名字、内存上限、栈、环大小, 0 是内核默认) 建一个 isolate 并映射共享区
+(区里 `replies` 的 size 为 0 说明内核太旧, 报 `Unsupported`); `eval(source, name, module)` 交源码 (脚本或 ES 模块, 错误以
+`Kind::Error` 消息回来); `recv(&mut buf)` 取 `to_window` 的下一条 (`Message { kind, flags, len }`); `send(kind, flags, data)` 写
+`to_engine`; `reply(&[parts])` 回答最早那个 `Kind::Call` (几段拼成一条); 没地方时 `Err(Full)`, 等引擎消费 (`Events::SPACE`).
+写了或消费了之后要踢一下引擎: `Waiter` (io_uring, `JSRT_CMD_KICK` 和 `JSRT_CMD_WAIT` 在同一次 `io_uring_enter` 里, 一个来回
+一次系统调用; ntex 已经带进来的 ntex-io-uring) 的 `kick_and_wait(&iso, kick)`, 或没有 io_uring 时 `kick()` / `wait(timeout)`
+(poll + read; `None` 是结束了且事件已读完). `Events::EXIT` 之后 `exit_code()` 有效; 之后再等立即返回空事件. 环是单生产者单消费者,
+一个 `Isolate` 同时只由一条线程驱动 (`Send`, 不 `Sync`). 测试 `tests/isolate.rs` 要有 `/dev/jsrt` 且引擎是 V8 (否则跳过):
+消息来回、JS 里的 `call()` 经 io_uring 回答、`close()` 结束.
+
+**引擎里的 JS 能用的** (内核的 V8 胶水层): `postMessage` / `onmessage` (字符串和二进制)、`console`、`close()`、定时器、微任务;
+内置模块 `jsrt:host` 的 `call(data)`: 同步问窗口进程, 字符串进字符串出 (消息 flags 1), 二进制进 `ArrayBuffer` 出; 等回答时
+引擎什么别的都不跑. 别的 import 都失败 (还不能从窗口取模块).
+
+**计划** (阶段 2: 应用窗口先进内核, Broker 和桌面还在用户态):
+
+1. 原生接口过环: `js/packages/acde-dom/src/native.ts` 的 `DomNative` / `HostNative` / `GpuNative` / `AudioNative` 按方法分三类:
+   不要结果的写 (`insertBefore`、`setData`、`canvas`、`renderPass` …) 攒成批放进 `to_window` 不等; 建节点要 id 的
+   (`createElement` …) 由引擎这边分配 id (向窗口预领一段), 也变成不等的写; 读 (`rect`、`metrics`、`computedStyle`、
+   `querySelector` …) 是一次同步 `call`, acde-dom 已有的布局读缓存照用. `HostNative` 的时钟、定时器、微任务、序列化、随机数在
+   引擎里自己做, 不过环. 两端 (引擎里的 JS 代理、窗口进程的 Rust 分发) 从 `native.ts` 生成, 契约只有一份.
+2. `isolate.js` 在内核里跑起来, 一个简单应用端到端: 窗口进程用 crates/jsrt 起 isolate, 分发调用到 render 的文档.
+3. 阶段 3: 桌面和 Broker 进内核; `acde:` 模块要么过环到窗口进程, 要么直接在内核里实现 (比如 `acde:fs` 直接走 VFS). 这和
+   本文件开头「`acde:` 模块是进程内注入, 不是 RPC」冲突, 到时候要定.
+
 ## 宿主: crates/acde (V8, 不用 Node)
 
 acde 是一个 Rust 可执行文件, 内嵌 V8 (rusty_v8, crate `v8`); 页面的 DOM 只有 Blitz 那一份.
@@ -1121,6 +1154,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | `crates/window` | Rust | `acde-window`: 桌面 / 窗口 isolate 的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
+| `crates/jsrt` | Rust | `acde-jsrt` (lib `jsrt`, 只在 Linux 上): ackernel `/dev/jsrt` 的进程这一端, 见「内核态 JS (分支 jsrt)」 |
 | `crates/acde-napi` | Rust | 用 rusty_v8 实现的 Node-API C 接口 (napi8), 让 runtime / shell 的 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` (deno_napi 0.191.0, MIT, 见 LICENSE-MIT): 任务派发换成嵌入方的, 去掉了旧式模块注册、async_hooks、callback scope、napi9+ 和 runtime / shell 链接不到的入口 (删掉后 `cargo build -p acde` 照样链接成功的那些: Date、DataView、TypedArray、escapable handle scope、new_target、freeze / seal、detach、async cleanup hook、symbol、instanceof 等); cleanup hook 只检查参数, 不存 (Env 不析构, 本来就不会跑); 每个 async work 起一条 `acde-napi-work` 线程 (只有 shell 的 screenshot 用); `open` 把一个模块的导出注册进一个 context |
 | `js/packages/acde-host` | TypeScript | `acde` 的 JS 部分: Broker (主线程) 和每个 isolate 线程的宿主, 包发现, 桌面服务, 登录页 (`greet/`) |
 | `js/packages/acde-dom` | TypeScript | isolate 里的浏览器全局对象和 DOM (包着 render 的文档) |
