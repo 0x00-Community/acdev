@@ -85,8 +85,8 @@ fn channel() -> (async_channel::Sender<Event>, Received) {
 
 fn recv(events: &Received) -> Option<Event> {
     let events = events.clone();
-    let received = crate::rt::block_on(async move { ntex::time::timeout(Duration::from_secs(10), events.recv()).await });
-    received.expect("the executor").expect("an event or the end in time").ok()
+    let received = crate::rt::block_on(crate::rt::local(move || async move { ntex::time::timeout(Duration::from_secs(10), events.recv()).await }));
+    received.flatten().expect("the executor").expect("an event or the end in time").ok()
 }
 
 fn next(events: &Received) -> Event {

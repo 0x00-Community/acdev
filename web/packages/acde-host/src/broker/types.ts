@@ -144,6 +144,7 @@ export interface WebInit {
   readonly reducedMotion: boolean | null
   readonly dark: boolean
   readonly languages: Languages
+  readonly navigator: { readonly userAgent: string; readonly platform: string }
   readonly services: Readonly<Record<string, ServiceShape>>
   readonly resources: { prefix: string; dirs: string[] }[]
   readonly page?: string

@@ -363,6 +363,7 @@ export interface NavigatorOptions {
   readonly languages?: readonly string[]
   readonly hardwareConcurrency?: number
   readonly userAgent?: string
+  readonly platform?: string
 }
 
 const navigatorLanguages = new WeakMap<Navigator, { language?: string; languages?: readonly string[] }>()
@@ -410,6 +411,9 @@ export class Navigator {
   get userAgent(): string {
     return this.#options.userAgent ?? 'Mozilla/5.0 (Linux; Wayland) AppleWebKit/537.36 (KHTML, like Gecko) acde/0.1'
   }
+  get platform(): string {
+    return this.#options.platform ?? 'Linux x86_64'
+  }
   get appVersion(): string {
     return this.userAgent.replace(/^Mozilla\//, '')
   }
@@ -454,7 +458,7 @@ export class Navigator {
   }
 }
 getters(Navigator.prototype, {
-  appName: 'Netscape', appCodeName: 'Mozilla', platform: 'Linux x86_64', product: 'Gecko', productSub: '20030107', vendor: '', vendorSub: '',
+  appName: 'Netscape', appCodeName: 'Mozilla', product: 'Gecko', productSub: '20030107', vendor: '', vendorSub: '',
   onLine: true, cookieEnabled: true, deviceMemory: 8, maxTouchPoints: 0, pdfViewerEnabled: false, webdriver: false, doNotTrack: null,
   userActivation: () => ({ hasBeenActive: true, isActive: false }),
   mimeTypes: () => ({ length: 0 }),
