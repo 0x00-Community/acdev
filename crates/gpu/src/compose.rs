@@ -507,20 +507,29 @@ impl Composer {
         views.into_iter().next().expect("at least one level")
     }
 
-    pub fn place(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, origin: [u32; 2], clip: [u32; 4]) {
+    pub fn place(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, origin: [u32; 2], at: [u32; 2], clip: [u32; 4]) {
         let Some((_, _, layer)) = self.layer.clone() else { return };
         let pipe = Pipe::Place;
-        let params = Params { rect: [origin[0] as f32, origin[1] as f32, 0.0, 0.0], ..Default::default() };
+        let params = Params { rect: [origin[0] as f32 - at[0] as f32, origin[1] as f32 - at[1] as f32, 0.0, 0.0], ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe, src: &layer, params, scissor: Some(clip), mix: None }]);
     }
 
-    pub fn filtered(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, e: &Effect, [x, y, w, h]: [u32; 4], clip: [u32; 4]) {
+    pub fn filtered(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        canvas: &wgpu::TextureView,
+        e: &Effect,
+        [x, y, w, h]: [u32; 4],
+        at: [u32; 2],
+        clip: [u32; 4],
+    ) {
         let Some((_, _, layer)) = self.layer.clone() else { return };
         if w < 2 || h < 2 {
             return;
         }
         let flat = self.textures(w, h, 0).swap_remove(0);
-        self.pass(encoder, &flat, true, &[Draw { pipe: Pipe::Flatten, src: &layer, params: Params::default(), scissor: None, mix: None }]);
+        let params = Params { rect: [-(at[0] as f32), -(at[1] as f32), 0.0, 0.0], ..Default::default() };
+        self.pass(encoder, &flat, true, &[Draw { pipe: Pipe::Flatten, src: &layer, params, scissor: None, mix: None }]);
         let src = if e.blur > 0.0 { self.blur(encoder, flat.texture(), [0, 0, w, h], e.blur) } else { flat };
         let (matrix, bias) = e.columns();
         let params = Params { rect: [x as f32, y as f32, w as f32, h as f32], matrix, bias, ..Default::default() };
@@ -542,7 +551,7 @@ impl Composer {
         self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Backdrop, src: &blurred, params, scissor: Some(region), mix: None }]);
     }
 
-    pub fn shadow(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, s: &Shadow, [x, y, w, h]: [u32; 4], clip: [u32; 4]) {
+    pub fn shadow(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, s: &Shadow, [x, y, w, h]: [u32; 4], at: [u32; 2], clip: [u32; 4]) {
         let Some((_, layer, _)) = self.layer.clone() else { return };
         if w < 2 || h < 2 {
             return;
@@ -550,7 +559,7 @@ impl Composer {
         let rect = [x as f32, y as f32, w as f32, h as f32];
         let Some(shifted) = Self::region([rect[0] + s.dx, rect[1] + s.dy, rect[2], rect[3]], layer.size()) else { return };
         let Some(scissor) = Px::of(shifted).intersection(Px::of(clip)) else { return };
-        let blurred = self.blur(encoder, &layer, [0, 0, w, h], s.blur);
+        let blurred = self.blur(encoder, &layer, [at[0], at[1], w, h], s.blur);
         let params = Params { rect, shift: [s.dx, s.dy], color: s.color, ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Shadow, src: &blurred, params, scissor: Some(scissor.xywh()), mix: None }]);
     }

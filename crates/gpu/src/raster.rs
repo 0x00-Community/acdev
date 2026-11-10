@@ -166,11 +166,11 @@ impl Raster {
                 self.submit(encoder);
                 self.vello.render([(scene, Affine::translate((-f64::from(ox), -f64::from(oy))))], images, &layer, (width, height), Color::TRANSPARENT, None)?;
                 for shadow in &part.shadows {
-                    self.composer.shadow(encoder, &canvas, shadow, drawn.xywh(), clip.xywh());
+                    self.composer.shadow(encoder, &canvas, shadow, drawn.xywh(), [0, 0], clip.xywh());
                 }
                 match part.effect.is_none() {
-                    true => self.composer.place(encoder, &canvas, [ox, oy], clip.xywh()),
-                    false => self.composer.filtered(encoder, &canvas, &part.effect, drawn.xywh(), clip.xywh()),
+                    true => self.composer.place(encoder, &canvas, [ox, oy], [0, 0], clip.xywh()),
+                    false => self.composer.filtered(encoder, &canvas, &part.effect, drawn.xywh(), [0, 0], clip.xywh()),
                 }
             }
         }
@@ -184,7 +184,7 @@ impl Raster {
         self.vello.render([(scene, Affine::IDENTITY)], images, &layer, (width, height), Color::TRANSPARENT, None)?;
         let mut encoder = self.device.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde icon") });
         self.composer.clear(&mut encoder, &view);
-        self.composer.place(&mut encoder, &view, [0, 0], [0, 0, width, height]);
+        self.composer.place(&mut encoder, &view, [0, 0], [0, 0], [0, 0, width, height]);
         let index = self.submit(&mut encoder);
         self.composer.end_frame();
         self.device

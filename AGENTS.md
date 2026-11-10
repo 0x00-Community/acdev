@@ -159,8 +159,10 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   来自 `grant`, `raise` 把子窗口带到父窗口上方, `modal_child` 找最上层的模态子窗口, `forget` 删窗口时放开它的子窗口); `shell/pointer.rs`: 命中 (`hit`, 模态子窗口挡住父窗口) 和按下 (`press`: 拖动的边、标题区双击). `present.rs`: 每个 web
   一条出帧线程 `acde-host-<id>`, vello 把页面和面板画进各自的纹理, 节奏是宿主窗口所在显示器刷新率的 0.9 倍周期 (`pace`, 不知道时按 60 Hz); `compose.rs`: `acde-compose` 线程按层贴到宿主 surface (AutoVsync).
   页面 / 面板的 plane 有 layers (backdrop-filter、filter) 时走 `Presenter::layered`, 照 `acde_gpu::Raster::draw_pass` 用 `Composer` 做
-  backdrop、投影、模糊和颜色矩阵 (Raster 要 dmabuf, 只在 Linux): 画进一张草稿纹理, 最后一次提交里整张拷进页面纹理 (分几次提交直接画,
-  合成线程会读到只铺了底色的半成品). 这条路出的是预乘 alpha, vello 直接画的是非预乘: `Page.straight` 标明, 合成器按预乘混合, 非预乘的
+  backdrop、投影、模糊和颜色矩阵 (Raster 要 dmabuf, 只在 Linux): 画进每个窗口自己的草稿纹理, 最后一次提交里拷进页面纹理 (分几次提交直接画,
+  合成线程会读到只铺了底色的半成品). 草稿留着上一帧: 只重画 plane 的损坏区 (被 backdrop 读到的区域并进来; 超过一半面积就整张重画), 只画
+  与它相交的层 (按滤镜外扩), 只拷这块. 这一帧要画的层装箱进 `Composer` 的层画布 (`present.rs` `pack`), 一次 vello 画完
+  (`Vello::render_clipped`, 每层裁在自己的格子里), `Composer` 的 `place` / `shadow` / `filtered` 用 `at` 从格子里读; 画布装不下才分批. 这条路出的是预乘 alpha, vello 直接画的是非预乘: `Page.straight` 标明, 合成器按预乘混合, 非预乘的
   先在着色器里乘上 alpha.
 - **窗口之间的毛玻璃**: 钉住的面板里 backdrop-filter 最大的那块 (同 window crate 的 `Panel::backdrops`) 和页面的 `acde.window.setBackdrop`
   (窗口本地物理像素, 加窗框高度) 记在 `Entry.backdrop`. 合成器先把各层画进一张离屏画布, 画到带 backdrop 的层之前调 `Composer::backdrop`
@@ -1223,6 +1225,7 @@ Rust 一律 `log` 的宏, `crates/log` (`acde-log`) 装 env_logger: `RUST_LOG` �
 | `perf::task` | crates/acdert | 事件循环里超过 8 ms 的任务: `task ms= hook=`, V8 自己的 `v8` |
 | `perf::frame` | render | `<web> commit= resolve= paint= finish= ms=` |
 | `perf::raster` | crates/paint、crates/window、hostwin | `job surfaces= wait= record= ms=`, `surface owner= ms=` |
+| `perf::layers` | hostwin `present.rs` | 有 layers 的页面 / 面板: `window= region= layers=重画的/全部 ms=` |
 | `perf::compose` | shell | `<输出> elements= ms=`, `rdp elements= rects= ms=`, `plan inputs= layers= damage= route=`, `backdrop window= w= h= blur= ms=` |
 | `perf::rpc` | acde-host | web 侧 `call <服务>.<方法> error= ms=`, Broker 侧 `serve …` |
 

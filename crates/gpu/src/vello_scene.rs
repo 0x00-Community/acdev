@@ -26,15 +26,33 @@ impl Vello {
         scenes: impl IntoIterator<Item = (Scene, Affine)>,
         overrides: &mut Overrides,
         target: &wgpu::TextureView,
+        size: (u32, u32),
+        base: Color,
+        lock: Option<&Gpu>,
+    ) -> Result<(), String> {
+        self.render_clipped(scenes.into_iter().map(|(scene, place)| (scene, place, None)), overrides, target, size, base, lock)
+    }
+
+    pub fn render_clipped(
+        &mut self,
+        scenes: impl IntoIterator<Item = (Scene, Affine, Option<Rect>)>,
+        overrides: &mut Overrides,
+        target: &wgpu::TextureView,
         (width, height): (u32, u32),
         base: Color,
         lock: Option<&Gpu>,
     ) -> Result<(), String> {
         overrides.forget(&mut self.renderer);
         self.scene.reset();
-        for (scene, place) in scenes {
+        for (scene, place, clip) in scenes {
             overrides.apply(&mut self.renderer, &scene);
+            if let Some(clip) = clip {
+                self.scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &clip);
+            }
             VelloScene(&mut self.scene).append_scene(scene, place);
+            if clip.is_some() {
+                self.scene.pop_layer();
+            }
         }
         let clear = peniko::Gradient::new_linear((0.0, 0.0), (1.0, 0.0)).with_stops([Color::TRANSPARENT, Color::TRANSPARENT]);
         self.scene.fill(Fill::NonZero, Affine::IDENTITY, &clear, None, &Rect::new(0.0, 0.0, 1.0, 1.0));

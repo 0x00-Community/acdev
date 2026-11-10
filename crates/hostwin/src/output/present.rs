@@ -352,6 +352,7 @@ impl Presenter {
             scratch.drawn = false;
         }
         let mut encoder = shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde host layers") });
+        let (started, mut redrawn) = (Instant::now(), 0);
         match region {
             None => self.vello.render([], &mut self.overrides, &view, size, base, Some(&shared))?,
             Some(region) => {
@@ -361,38 +362,68 @@ impl Presenter {
                     let canvas = self.composer.layer_view(size);
                     let [x, y, w, h] = region.xywh();
                     self.vello.render([], &mut self.overrides, &canvas, (w, h), base, Some(&shared))?;
-                    self.composer.place(&mut encoder, &view, [x, y], region.xywh());
+                    self.composer.place(&mut encoder, &view, [x, y], [0, 0], region.xywh());
                 }
             }
         }
-        for (layer, (backdrop, shadows, effect, bounds)) in &parts {
+        let jobs: Vec<Option<(Px, Px)>> = parts
+            .iter()
+            .map(|(_, (_, shadows, effect, bounds))| {
+                let clip = bounds.intersection(target)?;
+                Some((clip, bounds.intersection(target.grown(acde_gpu::reach(shadows, effect)))?.intersection(full)?))
+            })
+            .collect();
+        let mut scenes: Vec<Option<Scene>> = parts
+            .iter()
+            .zip(&jobs)
+            .map(|((layer, _), job)| {
+                let [ox, oy, w, h] = job.as_ref()?.1.xywh();
+                let (x, y) = (f64::from(ox), f64::from(oy));
+                Some(layer.drawing.scene_for(Rect::new(x, y - dy, x + f64::from(w), y + f64::from(h) - dy))).filter(|scene| !scene.commands.is_empty())
+            })
+            .collect();
+        let slots = Self::pack(scenes.iter().zip(&jobs).map(|(scene, job)| scene.as_ref().and(job.as_ref()).map(|(_, drawn)| drawn.xywh())), size);
+        let mut atlas = None;
+        for (i, (_, (backdrop, shadows, effect, _))) in parts.iter().enumerate() {
             if let Some(backdrop) = backdrop.as_ref().filter(|b| Px::covering(b.rect).overlaps(target)) {
                 self.composer.backdrop(&mut encoder, &view, backdrop);
             }
-            let Some(clip) = bounds.intersection(target) else { continue };
-            let Some(drawn) = bounds.intersection(target.grown(acde_gpu::reach(shadows, effect))).and_then(|d| d.intersection(full)) else { continue };
-            let [ox, oy, w, h] = drawn.xywh();
-            let (x, y) = (f64::from(ox), f64::from(oy));
-            let scene = layer.drawing.scene_for(Rect::new(x, y - dy, x + f64::from(w), y + f64::from(h) - dy));
-            if scene.commands.is_empty() {
-                continue;
+            let (Some((clip, drawn)), Some((batch, at))) = (jobs[i], slots[i]) else { continue };
+            if atlas != Some(batch) {
+                atlas = Some(batch);
+                self.flush(&mut encoder);
+                let canvas = self.composer.layer_view(size);
+                let mut extent = (1, 1);
+                let mut items = Vec::new();
+                for (j, slot) in slots.iter().enumerate() {
+                    let (Some((b, [sx, sy])), Some((_, drawn)), Some(scene)) = (slot, jobs[j], scenes[j].take()) else { continue };
+                    if *b != batch {
+                        scenes[j] = Some(scene);
+                        continue;
+                    }
+                    let [ox, oy, w, h] = drawn.xywh();
+                    extent = (extent.0.max(sx + w), extent.1.max(sy + h));
+                    let (sx, sy) = (f64::from(*sx), f64::from(*sy));
+                    let place = Affine::translate((sx - f64::from(ox), sy + dy - f64::from(oy)));
+                    items.push((scene, place, Some(Rect::new(sx, sy, sx + f64::from(w), sy + f64::from(h)))));
+                    redrawn += 1;
+                }
+                self.vello.render_clipped(items, &mut self.overrides, &canvas, extent, Color::TRANSPARENT, Some(&shared))?;
             }
-            self.flush(&mut encoder);
-            let canvas = self.composer.layer_view(size);
-            self.vello.render([(scene, Affine::translate((-x, dy - y)))], &mut self.overrides, &canvas, (w, h), Color::TRANSPARENT, Some(&shared))?;
+            let [ox, oy, ..] = drawn.xywh();
             for shadow in shadows {
-                self.composer.shadow(&mut encoder, &view, shadow, drawn.xywh(), clip.xywh());
+                self.composer.shadow(&mut encoder, &view, shadow, drawn.xywh(), at, clip.xywh());
             }
             match effect.is_none() {
-                true => self.composer.place(&mut encoder, &view, [ox, oy], clip.xywh()),
-                false => self.composer.filtered(&mut encoder, &view, effect, drawn.xywh(), clip.xywh()),
+                true => self.composer.place(&mut encoder, &view, [ox, oy], at, clip.xywh()),
+                false => self.composer.filtered(&mut encoder, &view, effect, drawn.xywh(), at, clip.xywh()),
             }
         }
         if !over.is_empty() && target.y < top as i32 {
             self.flush(&mut encoder);
             let canvas = self.composer.layer_view(size);
             self.vello.render(over, &mut self.overrides, &canvas, size, Color::TRANSPARENT, Some(&shared))?;
-            self.composer.place(&mut encoder, &view, [0, 0], target.xywh());
+            self.composer.place(&mut encoder, &view, [0, 0], [0, 0], target.xywh());
         }
         let [x, y, w, h] = target.xywh();
         let at = wgpu::Origin3d { x, y, z: 0 };
@@ -408,6 +439,8 @@ impl Presenter {
         if let Some(scratch) = self.scratch.get_mut(&window) {
             scratch.drawn = true;
         }
+        let ms = acde_log::since_ms(started);
+        log::debug!(target: "perf::layers", "window={window} region={:?} layers={redrawn}/{} ms={ms:.3}", target.xywh(), parts.len());
         Ok(())
     }
 
@@ -431,6 +464,24 @@ impl Presenter {
             }
         }
         (region.area() * 2 < full.area()).then_some(region)
+    }
+
+    fn pack(rects: impl Iterator<Item = Option<[u32; 4]>>, (width, height): (u32, u32)) -> Vec<Option<(usize, [u32; 2])>> {
+        let (mut batch, mut x, mut y, mut row) = (0, 0, 0, 0);
+        rects
+            .map(|rect| {
+                let [_, _, w, h] = rect?;
+                if x + w > width {
+                    (x, y, row) = (0, y + row, 0);
+                }
+                if y + h > height {
+                    (batch, x, y, row) = (batch + 1, 0, 0, 0);
+                }
+                let at = [x, y];
+                (x, row) = (x + w, row.max(h));
+                Some((batch, at))
+            })
+            .collect()
     }
 
     fn scratch(&mut self, window: u32, size: (u32, u32)) -> wgpu::TextureView {

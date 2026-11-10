@@ -53,7 +53,7 @@ impl Bench {
         self.fill(&self.canvas, &vec![[0; 4]; (W * H) as usize]);
         let mut effect = Effect::default();
         effect.blur(sigma);
-        self.run(|c, e, canvas| c.filtered(e, canvas, &effect, [0, 0, W, H], [0, 0, W, H]))
+        self.run(|c, e, canvas| c.filtered(e, canvas, &effect, [0, 0, W, H], [0, 0], [0, 0, W, H]))
     }
 }
 
@@ -123,7 +123,7 @@ fn shadow_without_blur_is_sharp() {
     bench.layer(&layer);
     bench.fill(&bench.canvas, &vec![[0; 4]; (W * H) as usize]);
     let shadow = Shadow { dx: 2.0, dy: 3.0, blur: 0.0, color: [0.0, 0.0, 1.0, 1.0] };
-    let got = bench.run(|c, e, canvas| c.shadow(e, canvas, &shadow, [0, 0, 64, 64], [0, 0, W, H]));
+    let got = bench.run(|c, e, canvas| c.shadow(e, canvas, &shadow, [0, 0, 64, 64], [0, 0], [0, 0, W, H]));
     for y in 0..i64::from(H) {
         for x in 0..i64::from(W) {
             let want = if square(x - 2, y - 3) { [0, 0, 255, 255] } else { [0; 4] };
@@ -200,4 +200,30 @@ fn backdrop_blurs_summed_in_squares() {
         bench.run(|c, e, canvas| c.backdrop(e, canvas, &backdrop))
     };
     assert_eq!(run(twice), run(once));
+}
+
+type DrawAt<'a> = dyn Fn(&mut Composer, &mut wgpu::CommandEncoder, &wgpu::TextureView, [u32; 2]) + 'a;
+
+#[test]
+fn a_layer_read_from_an_offset_lands_where_it_belongs() {
+    let mut bench = Bench::new();
+    let square = |x: i64, y: i64, at: i64| (16 + at..32 + at).contains(&x) && (8 + at..24 + at).contains(&y);
+    let mut draw = |at: u32, with: &DrawAt<'_>| {
+        let layer: Vec<[u8; 4]> =
+            (0..i64::from(W * H)).map(|i| if square(i % i64::from(W), i / i64::from(W), i64::from(at)) { [255; 4] } else { [0; 4] }).collect();
+        bench.layer(&layer);
+        bench.fill(&bench.canvas, &vec![[0; 4]; (W * H) as usize]);
+        bench.run(|c, e, canvas| with(c, e, canvas, [at, at]))
+    };
+    let shadow = Shadow { dx: 2.0, dy: 3.0, blur: 2.0, color: [0.0, 0.0, 1.0, 1.0] };
+    let mut effect = Effect::default();
+    effect.blur(1.5);
+    let place = |c: &mut Composer, e: &mut wgpu::CommandEncoder, v: &wgpu::TextureView, at: [u32; 2]| c.place(e, v, [4, 4], at, [0, 0, W, H]);
+    let shadowed =
+        |c: &mut Composer, e: &mut wgpu::CommandEncoder, v: &wgpu::TextureView, at: [u32; 2]| c.shadow(e, v, &shadow, [4, 4, 48, 32], at, [0, 0, W, H]);
+    let filtered =
+        |c: &mut Composer, e: &mut wgpu::CommandEncoder, v: &wgpu::TextureView, at: [u32; 2]| c.filtered(e, v, &effect, [4, 4, 48, 32], at, [0, 0, W, H]);
+    for (name, with) in [("place", &place as &DrawAt<'_>), ("shadow", &shadowed), ("filtered", &filtered)] {
+        assert_eq!(draw(0, with), draw(20, with), "{name}: the layer read at (20, 20) differs from the one at (0, 0)");
+    }
 }
