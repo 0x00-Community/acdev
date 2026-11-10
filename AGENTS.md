@@ -72,7 +72,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   network、office 和选文件夹在各 web 里绑定同一份 Rust 对象 (crates/acdert `fs.rs` / `terminal.rs` / `network.rs` / `office.rs` /
   `picker.rs`; 阻塞的活经 `offload.rs` 各起一条线程, promise 在这个 web 的事件循环上落定). 限制 (fs 的 roots) 在注入时绑进去, 没给的
   `import('acde:<名字>')` 直接失败. Broker 自己只用 napi `Finder` 的 `locate` (「默认应用」), 是另一份.
-  terminal 起用户的登录 shell, 在家目录: unix 是 `$SHELL` (不是可执行的绝对路径时 `/bin/bash`), 带 `-l`, pty
+  terminal 起用户的登录 shell, 在家目录: unix 是账户数据库里的 shell (`getpwuid_r` 的 `pw_shell`, 不可执行时 `$SHELL`, 再不行 `/bin/sh`), 带 `-l`, pty
   子进程 exec 前关掉 3 以上的所有 fd, 每秒从 `/proc` 报 `cwd` (只在 Linux); Windows 用 ConPTY (runtime `conpty.rs`), shell 依次取 Windows Terminal
   默认配置的 `commandline` (`settings.json`, 商店版、预览版、非打包版三处)、PATH 上的 `pwsh.exe`、Windows PowerShell、`%ComSpec%`; 子进程不继承
   任何句柄, 整棵进程树放进一个关句柄即结束的作业对象: 关终端时先关伪控制台 (shell 收到 `CTRL_CLOSE_EVENT`), 3 秒后还在就结束整个作业, 会话

@@ -47,7 +47,8 @@ pipewire = { version = "0", features = ["v0_3_49"] }
 # unix: the pty, the terminal's poll loop, signals and process groups, O_NOFOLLOW, ELOOP
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["event", "fs", "process", "pty", "termios"] }
-# pty.rs: close_range in the terminal shell's child (rustix has none), so it inherits no fd of the runtime
+# pty.rs: close_range in the terminal shell's child (rustix has none), so it inherits no fd of the runtime;
+# terminal/unix.rs: getpwuid_r for the account's login shell
 libc = "0"
 
 # Windows: what std has no API for (not following a symlink when opening; a TLS chain whose root Windows has not downloaded yet;

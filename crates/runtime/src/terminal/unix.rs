@@ -5,6 +5,7 @@ use rustix::io::Errno;
 use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::json;
 use std::{
+    ffi::CStr,
     os::fd::OwnedFd,
     os::unix::process::ExitStatusExt,
     process::Child,
@@ -34,12 +35,23 @@ pub(super) fn root() -> String {
     "/".into()
 }
 
+fn account_shell() -> Option<String> {
+    let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+    let mut found: *mut libc::passwd = std::ptr::null_mut();
+    let status = unsafe { libc::getpwuid_r(libc::getuid(), &mut entry, buffer.as_mut_ptr(), buffer.len(), &mut found) };
+    if status != 0 || found.is_null() || entry.pw_shell.is_null() {
+        return None;
+    }
+    unsafe { CStr::from_ptr(entry.pw_shell) }.to_str().ok().map(str::to_owned)
+}
+
 fn login_shell() -> String {
-    std::env::var("SHELL")
-        .ok()
-        .filter(|shell| shell.starts_with('/'))
-        .filter(|shell| access(shell.as_str(), Access::EXEC_OK).is_ok())
-        .unwrap_or_else(|| "/bin/bash".into())
+    account_shell()
+        .into_iter()
+        .chain(std::env::var("SHELL").ok())
+        .find(|shell| shell.starts_with('/') && access(shell.as_str(), Access::EXEC_OK).is_ok())
+        .unwrap_or_else(|| "/bin/sh".into())
 }
 
 pub(super) fn spawn(home: &str, cols: u32, rows: u32) -> Result<Spawned, String> {
@@ -339,5 +351,14 @@ mod tests {
         assert_eq!(failed(t.resize(id, 80.0, 24.0)), missing());
         assert_eq!(s.exited(), json!({"type": "exit", "code": null, "signal": 9}));
         assert!((2500..5000).contains(&at.elapsed().as_millis()), "SIGKILL about 3 s after the hang-up");
+    }
+
+    #[test]
+    fn the_shell_is_the_account_login_shell() {
+        let shell = login_shell();
+        assert!(shell.starts_with('/'), "{shell}");
+        if let Some(account) = account_shell().filter(|s| access(s.as_str(), Access::EXEC_OK).is_ok()) {
+            assert_eq!(shell, account);
+        }
     }
 }
