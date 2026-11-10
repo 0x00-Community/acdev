@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Write};
 use std::os::windows::ffi::OsStrExt;
@@ -89,17 +89,17 @@ fn pipe() -> Result<(OwnedHandle, OwnedHandle), String> {
     Ok(unsafe { (OwnedHandle::from_raw_handle(read as _), OwnedHandle::from_raw_handle(write as _)) })
 }
 
-fn environment(extra: &[(&str, &str)]) -> Vec<u16> {
-    let mut vars: Vec<(String, String)> = std::env::vars_os()
-        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
-        .filter(|(k, _)| !extra.iter().any(|(e, _)| e.eq_ignore_ascii_case(k)))
-        .collect();
-    vars.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
-    vars.sort_by_key(|(k, _)| k.to_uppercase());
+fn environment(extra: &[(&str, &str)], inherited: impl Iterator<Item = (OsString, OsString)>) -> Vec<u16> {
+    let mut vars: Vec<(OsString, OsString)> = extra.iter().map(|(k, v)| (OsString::from(k), OsString::from(v))).collect();
+    for (key, value) in inherited {
+        if !vars.iter().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case(&key.to_string_lossy())) {
+            vars.push((key, value));
+        }
+    }
+    vars.sort_by_cached_key(|(k, _)| k.to_string_lossy().to_uppercase());
     let mut block: Vec<u16> = Vec::new();
     for (k, v) in vars {
-        block.extend(format!("{k}={v}").encode_utf16());
-        block.push(0);
+        block.extend(k.encode_wide().chain(Some(u16::from(b'='))).chain(v.encode_wide()).chain(Some(0)));
     }
     block.push(0);
     block
@@ -148,7 +148,7 @@ fn start(console: HPCON, command_line: &str, cwd: &Path, extra: &[(&str, &str)])
     info.lpAttributeList = attributes;
     let mut command = wide(OsStr::new(command_line));
     let directory = wide(cwd.as_os_str());
-    let env = environment(extra);
+    let env = environment(extra, std::env::vars_os());
     let mut process: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
     let flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED;
     let created = unsafe {
@@ -287,6 +287,14 @@ fn json_of(jsonc: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_environment_names_each_variable_once() {
+        let inherited = [("PATH", r"C:\short"), ("Path", r"C:\full"), ("COLORTERM", "no"), ("b", "2")];
+        let inherited = inherited.map(|(k, v)| (OsString::from(k), OsString::from(v)));
+        let block = String::from_utf16(&environment(&[("COLORTERM", "truecolor")], inherited.into_iter())).unwrap();
+        assert_eq!(block, "b=2\0COLORTERM=truecolor\0PATH=C:\\short\0\0");
+    }
 
     #[test]
     fn the_terminal_default_profile_gives_the_command_line() {
