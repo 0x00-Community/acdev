@@ -55,7 +55,9 @@ export class PackageManager {
     if (this.name === 'bun' && process.versions['bun']) return process.versions['bun']
     const bin = which(this.name)
     if (!bin) return null
-    const out = spawnSync(bin, ['--version'], { encoding: 'utf8', shell: /\.(cmd|bat)$/i.test(bin) })
+    const out = /\.(cmd|bat)$/i.test(bin)
+      ? spawnSync(`"${bin}" --version`, { encoding: 'utf8', shell: true })
+      : spawnSync(bin, ['--version'], { encoding: 'utf8' })
     const version = out.status === 0 ? out.stdout.trim().replace(/^v/, '') : ''
     return /^\d+\.\d+\.\d+/.test(version) ? version : null
   }
