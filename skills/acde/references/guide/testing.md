@@ -75,7 +75,7 @@ await locator.hover()
 await locator.fill('text')       // replaces
 await locator.type('text')       // appends
 await locator.clear()
-await locator.press('ctrl+a backspace')
+await locator.press('ctrl+a backspace') // key names: see Tools, "Key names"
 await locator.selectOption('beta')
 await locator.check() / uncheck() / setChecked(true)
 await locator.dragTo(other)

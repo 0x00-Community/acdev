@@ -73,6 +73,18 @@ When nothing matches it says so on stderr and exits with code 1. Elements scroll
 
 Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `key` `drag` `focus`; a window ref (`w1`) also accepts `close` `minimize` `restore`. The argument to `key` looks like `"ctrl+a backspace"`; the argument to `drag` is the target ref. After each action, `act` waits for the page to settle and then prints what changed. When closing a window ends acdert (the app's window when `acde dev` runs one app), `acde dev` ends with it; `act w1 close` then says so and exits with code 0.
 
+#### Key names
+
+The argument to `key` (and `press()` in tests) is one or more chords separated by spaces; a chord is keys joined by `+`, pressed in order and released in reverse. Names are physical keys on a US layout, not characters. Case does not matter, except that a single capital letter (`A`) adds `shift`:
+
+- modifiers: `ctrl` (`control`), `shift`, `alt`, `super` (`meta`, `win`)
+- letters `a` … `z`, digits `0` … `9`, `f1` … `f12`
+- `enter` (`return`), `escape` (`esc`), `tab`, `space`, `backspace`, `delete` (`del`), `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `menu`
+- the unshifted punctuation keys by their character: `-` `=` `[` `]` `;` `'` `` ` `` `\` `,` `.` `/`
+- the DOM `KeyboardEvent.code` names of these keys, e.g. `KeyA`, `Digit8`, `Minus`, `ArrowUp`, `CapsLock`, `ShiftRight`; of the keypad only `NumpadMultiply` and `NumpadEnter`
+
+Shifted characters are not key names, and `+` separates keys: press the key that makes the character, `shift+8` for `*`, `shift+=` for `+`, `shift+9` for `(`. An unknown name fails with `unknown key`. To enter text, use `type` instead.
+
 ### console and network
 
 ```sh
