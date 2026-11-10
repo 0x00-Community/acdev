@@ -109,10 +109,18 @@ const LOGGED_FILTERS: usize = 64;
 static LOGGED: Mutex<Vec<Filter>> = Mutex::new(Vec::new());
 
 fn unsupported(filter: &Filter) {
+    once(filter, || log::warn!("backdrop-filter: drop-shadow() is not supported and is left out ({:?})", filter.effects()));
+}
+
+fn nested(filter: &Filter, what: &str) {
+    once(filter, || log::warn!("{what} inside an element with a filter is not supported yet and is left out ({:?})", filter.effects()));
+}
+
+fn once(filter: &Filter, warn: impl FnOnce()) {
     let mut logged = LOGGED.lock().unwrap_or_else(|e| e.into_inner());
     if logged.len() < LOGGED_FILTERS && !logged.contains(filter) {
         logged.push(filter.clone());
-        log::warn!("backdrop-filter: drop-shadow() is not supported and is left out ({:?})", filter.effects());
+        warn();
     }
 }
 
@@ -207,6 +215,15 @@ impl<'a> Split<'a> {
                 self.filter = Some(LayerFilter { filter, bounds: bounds.intersect(self.clip()), scale: self.scale(t * l.transform) });
                 self.filter_depth = Some(self.open.len());
                 self.push_plain(command, t, |l| l.filter = None);
+            }
+            RenderCommand::PushLayer(l) if l.filter.is_some() || l.backdrop_filter.is_some() => {
+                if let Some(filter) = &l.filter {
+                    nested(filter, "filter");
+                }
+                if let Some(filter) = &l.backdrop_filter {
+                    nested(filter, "backdrop-filter");
+                }
+                self.push(Pushed::At(i), self.this_kind);
             }
             RenderCommand::PushLayer(_) | RenderCommand::PushClipLayer(_) => self.push(Pushed::At(i), self.this_kind),
             RenderCommand::PopLayer => {
