@@ -11,13 +11,14 @@ import {
   type WindowFeatures,
 } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../apps'
+import type { Approval } from './approval/permissions'
 
 export interface CapabilityHost {
   readonly platform: string
   mode(): RunningMode
   running(service: string): boolean
   present(capability: string): boolean
-  denied(app: AppManifest, origin: AppOrigin, capability: string): boolean
+  approval(app: AppManifest, origin: AppOrigin, capability: string): Approval
 }
 
 export interface CapabilitySnapshot {
@@ -31,6 +32,8 @@ export interface CapabilitySnapshot {
 export class CapabilityCheck {
   static readonly REASONS: Readonly<Record<CapabilityState, string>> = {
     available: 'available',
+    'not-asked': 'not asked for yet',
+    asking: "waiting for the user's answer",
     'not-declared': 'not declared in the manifest',
     unsupported: 'unsupported on this platform',
     'service-not-running': 'service not running',
@@ -39,6 +42,7 @@ export class CapabilityCheck {
   }
   static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
   static readonly #WEB: ReadonlySet<string> = new Set(WEB_CAPABILITIES)
+  static readonly #STARTS: ReadonlySet<CapabilityState> = new Set<CapabilityState>(['available', 'not-asked', 'asking'])
   static readonly #NO_FEATURES: WindowFeatures = { backdrop: 'unsupported' }
   readonly #host: CapabilityHost
 
@@ -50,9 +54,7 @@ export class CapabilityCheck {
     const place = Manifest.place(name)
     if (place) {
       const declared = !app || Manifest.places(app.capabilities).includes(place)
-      const state: CapabilityState = !declared
-        ? 'not-declared'
-        : !this.supported('fs') ? 'unsupported' : app && this.#host.denied(app, origin, name) ? 'denied' : 'available'
+      const state: CapabilityState = !declared ? 'not-declared' : !this.supported('fs') ? 'unsupported' : this.#approved(name, app, origin)
       return { name, kind: 'system', state, reason: CapabilityCheck.REASONS[state], optional: !!app && app.optional.includes('fs') }
     }
     if (CapabilityCheck.#WEB.has(name)) {
@@ -67,7 +69,7 @@ export class CapabilityCheck {
       : !declared
         ? 'not-declared'
         : system
-          ? !this.supported(name) ? 'unsupported' : app && this.#host.denied(app, origin, name) ? 'denied' : 'available'
+          ? !this.supported(name) ? 'unsupported' : this.#approved(name, app, origin)
           : this.#host.running(name) ? 'available' : 'service-not-running'
     return {
       name,
@@ -76,6 +78,15 @@ export class CapabilityCheck {
       reason: CapabilityCheck.REASONS[state],
       optional: !!app && app.optional.includes(name),
     }
+  }
+
+  #approved(name: string, app: AppManifest | null, origin: AppOrigin): CapabilityState {
+    const approval = app ? this.#host.approval(app, origin, name) : 'granted'
+    return approval === 'granted' ? 'available' : approval
+  }
+
+  static asks(state: CapabilityState): boolean {
+    return state === 'not-asked' || state === 'asking'
   }
 
   declared(app: AppManifest | null): string[] {
@@ -91,7 +102,7 @@ export class CapabilityCheck {
   missing(app: AppManifest, origin: AppOrigin): CapabilityStatus[] {
     return this.declared(app)
       .map((name) => this.status(name, app, origin))
-      .filter((status) => !status.optional && status.state !== 'available')
+      .filter((status) => !status.optional && !CapabilityCheck.#STARTS.has(status.state))
   }
 
   refusal(app: AppManifest, origin: AppOrigin): Error | null {
@@ -108,7 +119,7 @@ export class CapabilityCheck {
     for (const name of CAPABILITY_MODULES) {
       if (!Manifest.importRule(name, app, origin).allowed) continue
       const status = this.status(name, app, origin)
-      if (status.state !== 'available' && status.state !== 'not-declared') refused[`acde:${name}`] = `acde:${name}: "${name}" is ${status.reason}`
+      if (!CapabilityCheck.#STARTS.has(status.state) && status.state !== 'not-declared') refused[`acde:${name}`] = `acde:${name}: "${name}" is ${status.reason}`
     }
     return refused
   }
@@ -139,10 +150,10 @@ export class CapabilityCheck {
       mode: snapshot.mode,
       window: Object.freeze({ ...snapshot.window }),
       get,
-      list: (): CapabilityStatus[] => snapshot.statuses.map((status) => ({ ...status })),
+      list: (): CapabilityStatus[] => [...known.values()].map((status) => ({ ...status })),
       request: async (name: string): Promise<CapabilityStatus> => {
         const status = known.get(String(name))
-        if (!status || status.state !== 'available') return get(name)
+        if (!status || !CapabilityCheck.asks(status.state)) return get(name)
         const answered = await ask(String(name))
         update(answered)
         return { ...answered }

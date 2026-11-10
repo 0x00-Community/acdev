@@ -12,6 +12,8 @@ import type { AppManifest, AppOrigin } from '../../../apps'
 
 export type Permit = 'granted' | 'denied' | 'ask'
 
+export type Approval = 'granted' | 'denied' | 'not-asked' | 'asking'
+
 export interface DecisionStore {
   read(): Record<string, string> | null
   changed(entries: Record<string, string>): void
@@ -23,7 +25,7 @@ export interface PermissionsHost {
   label(appId: string): string | null
   supported(capability: string): boolean
   tell(event: PermissionPromptEvent | PermissionAnsweredEvent): void
-  changed(appId: string, capability: ApprovalCapability, permit: Permit): void
+  changed(appId: string, capability: ApprovalCapability, approval: Approval): void
   log(line: string): void
   asksAgain?(): boolean
   folders?(appId?: string): PickedFolder[]
@@ -69,9 +71,16 @@ export class Permissions {
     return `${appId}:${capability}`
   }
 
-  static error(app: string, capability: string): AcdePermissionError {
-    const error = new Error(`${app}: "${capability}" is denied by the user`)
-    return Object.assign(error, { status: 403 as const, code: 'denied' as const, capability })
+  static reason(capability: string, approval: Exclude<Approval, 'granted'>): string {
+    if (approval === 'denied') return `"${capability}" is denied by the user`
+    if (approval === 'asking') return `"${capability}" is waiting for the user's answer`
+    return `"${capability}" is not asked for yet; ask for it with acde:capabilities request("${capability}")`
+  }
+
+  static error(app: string, capability: string, approval: Exclude<Approval, 'granted'> = 'denied'): AcdePermissionError {
+    const error = new Error(`${app}: ${Permissions.reason(capability, approval)}`)
+    const code = approval === 'denied' ? ('denied' as const) : approval === 'asking' ? ('asking' as const) : ('not_asked' as const)
+    return Object.assign(error, { status: 403 as const, code, capability })
   }
 
   gated(app: AppManifest, origin: AppOrigin): ApprovalCapability[] {
@@ -87,8 +96,15 @@ export class Permissions {
     return this.#decisions.get(key) ?? (this.#asked.has(key) ? 'denied' : 'ask')
   }
 
-  permits(app: AppManifest, origin: AppOrigin): Record<string, Permit> {
-    return Object.fromEntries(this.gated(app, origin).map((name) => [name, this.permit(app, origin, name)]))
+  approval(app: AppManifest, origin: AppOrigin, capability: string): Approval {
+    if (origin.system || !Permissions.approval(capability)) return 'granted'
+    if (this.#prompt(app.id, capability)) return 'asking'
+    const permit = this.permit(app, origin, capability)
+    return permit === 'ask' ? 'not-asked' : permit
+  }
+
+  approvals(app: AppManifest, origin: AppOrigin): Record<string, Approval> {
+    return Object.fromEntries(this.gated(app, origin).map((name) => [name, this.approval(app, origin, name)]))
   }
 
   async admit(app: AppManifest, origin: AppOrigin): Promise<void> {
@@ -100,7 +116,7 @@ export class Permissions {
   }
 
   async ask(app: AppManifest, origin: AppOrigin, capability: ApprovalCapability, reason: PermissionPrompt['reason']): Promise<boolean> {
-    const already = [...this.#waiting.values()].find((w) => w.prompt.app === app.id && w.prompt.capability === capability)
+    const already = this.#prompt(app.id, capability)
     if (already) return already.answered
     const permit = this.permit(app, origin, capability)
     if (permit !== 'ask') return permit === 'granted'
@@ -116,6 +132,7 @@ export class Permissions {
     this.#waiting.set(prompt.id, { prompt, answered, settle })
     this.#asked.add(key)
     this.#host.log(`${app.label} (${app.id}) waits for the user to allow "${capability}" (prompt ${prompt.id}; answer it with acde allow or acde deny, the acde driver, or acde:permissions)`)
+    this.#host.changed(app.id, capability, 'asking')
     this.#host.tell({ type: 'permissionprompt', ...prompt })
     return answered
   }
@@ -162,6 +179,10 @@ export class Permissions {
     if (had) this.#save()
     this.#host.changed(appId, capability, 'denied')
     return had
+  }
+
+  #prompt(appId: string, capability: string): Waiting | undefined {
+    return [...this.#waiting.values()].find((w) => w.prompt.app === appId && w.prompt.capability === capability)
   }
 
   #stale(key: string): boolean {

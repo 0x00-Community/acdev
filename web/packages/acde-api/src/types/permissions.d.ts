@@ -47,6 +47,6 @@ export interface AcdePermissions {
 
 export interface AcdePermissionError extends Error {
   readonly status: 403
-  readonly code: 'denied'
+  readonly code: 'denied' | 'not_asked' | 'asking'
   readonly capability: string
 }

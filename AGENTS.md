@@ -475,7 +475,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算; 单应用模式的主窗口铺满宿主窗口, 设了 `size` 时它是宿主窗口内容区的初始尺寸, 见「坐标」)、`multiple`、`frame` (默认 true)、`backend`.
 - **必需与可选能力** (`broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
-  `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝或撤销, 见「批准」). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
+  `shell-only` (第三方应用的外壳模块), 要批准的能力 (见「批准」) 另有 `not-asked` (还没问过用户)、`asking` (提示已经弹出, 在等回答)、`denied` (用户拒绝或撤销);
+  要批准的能力只有批准了才是 `available`. `reason` 是这个状态的一句话 (`not asked for yet`、`waiting for the user's answer`、`denied by the user` …).
+  必需的既不是 `available` 也不是等着问的 (`not-asked` / `asking`, 启动时会问) 时应用不进 `acde:apps` 列表和打开方式, 启动报
   `<label> needs "terminal" (unsupported on this platform)` (404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`). 可选的照常启动;
   声明了但不可用的 fs / terminal / network / office 在 import 时报原因.
 - **平台支持表** (SDK `src/runtime/platforms.js` 的 `PLATFORM_SUPPORT` / `platformSupport(platform, mode)`, 从包根和 `/manifest` 导出, 运行时、acde 的
@@ -483,15 +485,21 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `unsupported` (不支持的能力) 和窗口特性 `window.backdrop` (`full` / `approximated` / `unsupported`). 现在: Linux 宿主窗口缺 `slots`; Windows 缺
   network、office、camera、microphone、slots; macOS 缺 network、office、slots; 窗口背景滤镜都是 `full`. Linux 会话和 macOS 的行没有实测.
 - **`acde:capabilities`** (总是注入所有 web, 桌面和应用窗口都有, 服务没有; 类型 `AcdeCapabilities`): `level` (SDK 的 `API_LEVEL`)、`platform`、`mode`、`window`
-  (窗口特性)、`get(name)` / `list()` (所有系统能力、`WEB_CAPABILITIES` 加声明的服务, `{name, kind, state, reason, optional}`)、`request(name)` (要批准的能力 `available`
-  时经 rpc 问用户, 回答之后的状态; 别的直接回当前状态). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`, 之后 Broker 发 `permit`
-  消息更新.
+  (窗口特性)、`get(name)` / `list()` (所有系统能力、`WEB_CAPABILITIES` 加声明的服务, `{name, kind, state, reason, optional}`)、`request(name)` (状态是 `not-asked` / `asking`
+  时经 rpc 问用户, 已经在问的并进同一个提示, 回答之后的状态; 别的直接回当前状态, 不问). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`, 之后 Broker 发 `permit`
+  消息更新 (`{capability, approval, status}`): 提示弹出时 (`Permissions.ask` 调 `changed(…, 'asking')`) 变 `asking`, 回答或撤销后变 `available` / `denied`, `get` 和 `list` 都跟着变.
+  应用按状态做事: `not-asked` 调 `request`, `asking` 等, `denied` 告诉用户, `available` 直接用.
 - **批准** (`broker/access/approval/permissions.ts` `Permissions`, SDK `APPROVAL_CAPABILITIES`): `launch`、`slots`、`terminal`、`network`、`camera`、
   `microphone` 要用户批准, 可撤销, 第 1 级包在 `fs.roots` 里点名的公共位置也是, 每个位置一项 `fs.<位置>` (如 `fs.documents`, SDK `PlaceCapability`; `fs` 可选时它们也可选, 经 `request("fs.documents")` 问); 其余 (自己的窗口、能力查询、列出和打开应用、按类型打开、桌面服务、`office`) 声明即有.
   系统应用 (和任一已装桌面同包) 不问. 必需的在第一次启动前按能力一个一个问 (`Broker.launch` 是 async, `admit` 之后才 grant 窗口),
   拒绝时不启动, 报 `<label>: "launch" is denied by the user` (403 `denied`, 带 `capability`); 平台不支持的不问, 照旧按 unsupported 拒绝. 可选的在
-  `acde:capabilities` `request(name)` 时问; 没批准的模块不定义 (import 报 `waits for approval` / `is denied by the user`), 批准后 web 收 `permit` 再定义,
-  `load()` 拿得到. 决定按应用持久 (`$XDG_CONFIG_HOME/acde/permissions.json`, `{"<app>:<能力>": "granted" | "denied"}`, 不看 `ACDE_STORAGE`);
+  `acde:capabilities` `request(name)` 时问; 没批准的模块不定义, 批准后 web 收 `permit` 再定义, `load()` 拿得到.
+  **没批准时的话按当时的状态说** (`Permissions.approval` 四态 `granted` / `not-asked` / `asking` / `denied`, 文字只在 `Permissions.reason`; Broker 自己的 `permit` 仍是
+  `granted` / `denied` / `ask` 三态, 管该不该问): import 报 `acde:terminal: "terminal" is not asked for yet; ask for it with acde:capabilities request("terminal")`、
+  `… is waiting for the user's answer` 或 `… is denied by the user` (`Permits.reason`, 一个模块有几道门时 (`acde:launch` 的 `launch` / `slots`) 每道没批准的各说一句;
+  状态变了 `RemoteBridge.permit` 重新 `refuseModule`, 所以拒绝之后的 import 说的是拒绝); 调用报 `AcdePermissionError` (403, 带 `capability`),
+  `code` 是 `denied`、`not_asked` 或 `asking`, 文字是 `<label>: ` 加同一句: `acde:fs` / `acde:office` 里还没问过的公共位置 (`FileAccess.guard`)、
+  `acde.launch` / `acde.windows.launch` (`Approvals.allow`)、撤销后的 terminal / network 和 camera / microphone 的 capture 都走这里. 决定按应用持久 (`$XDG_CONFIG_HOME/acde/permissions.json`, `{"<app>:<能力>": "granted" | "denied"}`, 不看 `ACDE_STORAGE`);
   拒绝也记, 必需能力被拒的应用不进列表. 撤销 (`revoke`) 删掉记录: 这一次运行里当作拒绝 (同一次运行不问第二次), 下次运行再问. 撤销后的调用报同样的
   403 `denied`: Broker 侧 (`acde.launch` / `acde.windows.launch`) 当场查, web 侧 terminal / network 的模块和 camera / microphone 的 capture 经
   `broker/access/approval/permits.ts` `Permits` 包一层. 外壳模块 `acde:permissions` (桌面和声明它的系统应用): `pending()`、`answer(id, allow)`、`list(app?)`、

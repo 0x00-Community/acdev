@@ -5,7 +5,7 @@ import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
 import { Rpc } from './rpc'
 import { CapabilityCheck } from './broker/access/capabilities'
 import { Permits } from './broker/access/approval/permits'
-import type { Permit } from './broker/access/approval/permissions'
+import type { Approval } from './broker/access/approval/permissions'
 import type { HandOver } from './pagecalls'
 import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 
@@ -260,7 +260,7 @@ export class RemoteBridge {
   readonly #waiting = new Set<string>()
   handOver: HandOver | null = null
 
-  constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList, permits = new Permits(init.tier?.permits, init.app?.label ?? init.kind)) {
+  constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList, permits = new Permits(init.tier?.approvals, init.app?.label ?? init.kind)) {
     this.#rpc = rpc
     this.permits = permits
     const permissions = () => ({
@@ -339,10 +339,10 @@ export class RemoteBridge {
     for (const [url, reason] of Object.entries(this.#refused)) if (!(url.slice('acde:'.length) in this.value)) host.refuseModule?.(url, reason)
   }
 
-  permit(capability: string, permit: Permit, status: CapabilityStatus | null): void {
-    this.permits.set(capability, permit)
+  permit(capability: string, approval: Approval, status: CapabilityStatus | null): void {
+    this.permits.set(capability, approval)
     if (status) this.#capabilities?.update(status)
-    for (const name of [...this.#waiting]) if (this.permits.usable(name)) this.#define(name)
+    for (const name of [...this.#waiting]) this.#define(name)
   }
 
   #define(name: string): void {

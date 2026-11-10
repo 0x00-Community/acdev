@@ -6,7 +6,7 @@ import { xdgHome } from '../sys/os'
 import { join } from '../sys/path'
 import type { CapabilityCheck } from './access/capabilities'
 import { ApprovalDialogs, type NativeApproval } from './access/approval/dialog'
-import { Permissions, type Permit } from './access/approval/permissions'
+import { Permissions, type Approval } from './access/approval/permissions'
 import { PermissionCalls } from './calls/permissions'
 import type { WindowRecord } from './types'
 import type { Web } from './web'
@@ -43,7 +43,7 @@ export class Approvals {
         host.toDesktop(event)
         dialogs.event(event)
       },
-      changed: (appId, capability, permit) => this.#changed(appId, capability, permit),
+      changed: (appId, capability, approval) => this.#changed(appId, capability, approval),
       log: (line) => Log.write(Level.Info, 'acde_host', line),
       asksAgain: () => host.standalone(),
       folders: (appId) => {
@@ -57,17 +57,17 @@ export class Approvals {
   }
 
   allow(web: Web, capability: string): void {
-    if (web.app && this.permissions.permit(web.app, this.#host.apps().origin(web.app.id), capability) !== 'granted') {
-      throw Permissions.error(web.app.label, capability)
-    }
+    if (!web.app) return
+    const approval = this.permissions.approval(web.app, this.#host.apps().origin(web.app.id), capability)
+    if (approval !== 'granted') throw Permissions.error(web.app.label, capability, approval)
   }
 
-  #changed(appId: string, capability: string, permit: Permit): void {
+  #changed(appId: string, capability: string, approval: Approval): void {
     for (const record of this.#host.records()) {
       const app = record.app
       if (!app || app.id !== appId || !record.web) continue
       const status = Permissions.folder(capability) ? null : this.#host.capabilities().status(capability, app, this.#host.apps().origin(appId))
-      record.web.thread.post({ type: 'permit', capability, permit, status })
+      record.web.thread.post({ type: 'permit', capability, approval, status })
     }
   }
 }

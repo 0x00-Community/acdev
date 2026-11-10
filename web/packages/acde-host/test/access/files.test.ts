@@ -4,7 +4,7 @@ import { Manifest, type AppManifest, type RunningMode } from '@dopame/acde-api/m
 import type { AppOrigin } from '../../src/apps.ts'
 import { CapabilityCheck } from '../../src/broker/access/capabilities.ts'
 import { FileAccess } from '../../src/broker/access/files.ts'
-import { Permissions, type Permit } from '../../src/broker/access/approval/permissions.ts'
+import { Permissions, type Approval } from '../../src/broker/access/approval/permissions.ts'
 
 const third: AppOrigin = { level: 1, system: false }
 const system: AppOrigin = { level: 1, system: true }
@@ -56,13 +56,13 @@ test('places of an optional fs are asked on request', async () => {
 })
 
 test('acde:capabilities reports each declared place', () => {
-  const check = (denied: string[] = []) =>
+  const check = (denied: string[] = [], unasked: string[] = []) =>
     new CapabilityCheck({
       platform: 'win32',
       mode: () => 'desktop' as RunningMode,
       running: () => false,
       present: () => true,
-      denied: (_, __, capability) => denied.includes(capability),
+      approval: (_, __, capability) => (denied.includes(capability) ? 'denied' : unasked.includes(capability) ? 'not-asked' : 'granted'),
     })
   const tool = app({ capabilities: { fs: { roots: ['documents'] } } })
   const status = check().status('fs.documents', tool, third)
@@ -71,10 +71,12 @@ test('acde:capabilities reports each declared place', () => {
   assert.equal(check(['fs.documents']).status('fs.documents', tool, third).state, 'denied')
   assert.ok(check().statuses(tool, third).some((s) => s.name === 'fs.documents'))
   assert.deepEqual(check(['fs.documents']).missing(tool, third).map((s) => s.name), ['fs.documents'])
+  assert.equal(check([], ['fs.documents']).status('fs.documents', tool, third).state, 'not-asked')
+  assert.deepEqual(check([], ['fs.documents']).missing(tool, third), [])
 })
 
 test('the page cannot use a place it was not allowed, and roots() leaves it out', async () => {
-  const permits: Record<string, Permit> = { 'fs.documents': 'granted', 'fs.music': 'ask' }
+  const permits: Record<string, Approval> = { 'fs.documents': 'granted', 'fs.music': 'not-asked' }
   const calls: unknown[][] = []
   const native = {
     roots: async () => [{ id: 'private' }, { id: 'documents', place: 'documents' }, { id: 'music', place: 'music' }],
@@ -85,14 +87,22 @@ test('the page cannot use a place it was not allowed, and roots() leaves it out'
   await fs.list('documents', '')
   await fs.list('private', '')
   await assert.rejects(fs.list('music', ''), (e: Error & { status?: number; code?: string; capability?: string }) =>
-    e.status === 403 && e.code === 'denied' && e.capability === 'fs.music')
+    e.status === 403 && e.code === 'not_asked' && e.capability === 'fs.music' &&
+    e.message === 'Tool: "fs.music" is not asked for yet; ask for it with acde:capabilities request("fs.music")')
+  permits['fs.music'] = 'asking'
+  await assert.rejects(fs.list('music', ''), (e: Error & { status?: number; code?: string }) =>
+    e.status === 403 && e.code === 'asking' && e.message === `Tool: "fs.music" is waiting for the user's answer`)
+  permits['fs.music'] = 'denied'
+  await assert.rejects(fs.list('music', ''), (e: Error & { status?: number; code?: string }) =>
+    e.status === 403 && e.code === 'denied' && e.message === 'Tool: "fs.music" is denied by the user')
+  assert.deepEqual((await fs.roots()).map((root) => root.id), ['private', 'documents'])
   permits['fs.music'] = 'granted'
   await fs.list('music', '')
   assert.deepEqual(calls.map((args) => args[0]), ['documents', 'private', 'music'])
 })
 
 test('a copy needs both roots allowed', async () => {
-  const permits: Record<string, Permit> = { 'fs.documents': 'granted', 'fs.music': 'denied' }
+  const permits: Record<string, Approval> = { 'fs.documents': 'granted', 'fs.music': 'denied' }
   const calls: unknown[][] = []
   const native = { copy: async (...args: unknown[]) => void calls.push(args) }
   const fs = FileAccess.guard(native, (capability) => permits[capability] ?? null, 'Tool')
@@ -113,7 +123,7 @@ test('open file requests give third-party apps only a handle; system apps with p
 })
 
 test('a revoked picked folder leaves roots() and its calls answer 403 denied', async () => {
-  const permits: Record<string, Permit> = {}
+  const permits: Record<string, Approval> = {}
   const calls: unknown[][] = []
   const native = {
     roots: async () => [{ id: 'private' }, { id: 'folder-0123456789abcdef', source: 'granted' }],
@@ -130,7 +140,7 @@ test('a revoked picked folder leaves roots() and its calls answer 403 denied', a
 })
 
 test('acde:office follows the same place approvals as acde:fs', async () => {
-  const permits: Record<string, Permit> = { 'fs.documents': 'granted', 'fs.music': 'denied' }
+  const permits: Record<string, Approval> = { 'fs.documents': 'granted', 'fs.music': 'denied' }
   const calls: unknown[][] = []
   const roots = [{ id: 'private' }, { id: 'documents', place: 'documents' }, { id: 'music', place: 'music' }]
   const native = {

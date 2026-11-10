@@ -25,7 +25,7 @@ export class Launchable {
       mode: () => (!host.hosted() ? 'session' : host.standalone() ? 'standalone' : 'desktop'),
       running: (service) => host.bridge().services.running(service),
       present: (capability) => host.bridge().present(capability),
-      denied: (app, origin, capability) => host.permissions().permit(app, origin, capability) === 'denied',
+      approval: (app, origin, capability) => host.permissions().approval(app, origin, capability),
     })
   }
 
@@ -43,8 +43,8 @@ export class Launchable {
     const origin = this.#host.apps().origin(app.id)
     const tier = Tiers.app(app, origin)
     const refused = { ...tier.refused, ...this.capabilities.refusedModules(app, origin) }
-    const permits = this.#host.permissions().permits(app, origin)
-    return { ...tier, refused, capabilities: this.capabilities.snapshot(app, origin), permits }
+    const approvals = this.#host.permissions().approvals(app, origin)
+    return { ...tier, refused, capabilities: this.capabilities.snapshot(app, origin), approvals }
   }
 
   app(appId: string): AppManifest {

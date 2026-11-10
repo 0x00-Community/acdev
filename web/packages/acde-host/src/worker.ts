@@ -15,7 +15,7 @@ import { PageInspect } from './pageinspect'
 import { Pinned } from './pinned'
 import { RemoteBridge, WindowList, WindowSelf } from './remote'
 import { Permits } from './broker/access/approval/permits'
-import type { Permit } from './broker/access/approval/permissions'
+import type { Approval } from './broker/access/approval/permissions'
 import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 import { Rpc } from './rpc'
 import { OfficePage } from './office'
@@ -73,7 +73,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     const entry = `${PageSource.ORIGIN}${init.app!.entry}`
     host.readAsset = (url) => read(url) ?? (/^http:\/\/acde\.local\/(?:[?#].*)?$/.test(url) ? read(entry) : null)
   }
-  const permits = new Permits(init.tier?.permits, init.app?.label ?? init.kind)
+  const permits = new Permits(init.tier?.approvals, init.app?.label ?? init.kind)
   const page = install(globalThis, dom, host, {
     url: (htmlEntry ? init.url : undefined) ?? `${PageSource.ORIGIN}/`,
     ...init.languages,
@@ -147,7 +147,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
       workArea?: { x: number; y: number; width: number; height: number }
       routes?: DevRoute[]
       capability?: string
-      permit?: Permit
+      approval?: Approval
       status?: CapabilityStatus
     }
     switch (m.type) {
@@ -173,7 +173,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
       case 'devhot':
         return devhot()
       case 'permit':
-        return m.capability && m.permit ? bridge.permit(m.capability, m.permit, m.status ?? null) : undefined
+        return m.capability && m.approval ? bridge.permit(m.capability, m.approval, m.status ?? null) : undefined
       default:
         web.deliver([m] as never)
     }
