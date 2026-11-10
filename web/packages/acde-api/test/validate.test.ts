@@ -139,6 +139,45 @@ test('desktop services: modules must be shell modules, services must exist', () 
   assert.deepEqual(tiered({ desktops: [desk(['ghost'])], apps: [], services }).warnings, ['desktop "desk": no service "ghost" in acde.services'])
 })
 
+test('config services: a module path, or {module, modules} with the shell modules the manifest rule accepts', () => {
+  assert.deepEqual(Manifest.configServices(undefined), [])
+  assert.deepEqual(Manifest.configServices({ desk: 'services/desk.ts', assistant: { module: 'services/a.ts', modules: ['session', 'windows'] }, bare: { module: 'b.ts' } }), [
+    { name: 'desk', module: 'services/desk.ts', modules: [] },
+    { name: 'assistant', module: 'services/a.ts', modules: ['session', 'windows'] },
+    { name: 'bare', module: 'b.ts', modules: [] },
+  ])
+  const configured = Manifest.configServices({ assistant: { module: 'a.ts', modules: ['windows'] } }) as { name: string; modules: string[] }[]
+  assert.deepEqual(Manifest.desktopServices(configured.map(({ name, modules }) => ({ name, modules }))), [{ name: 'assistant', modules: ['windows'] }])
+})
+
+test('config services: what is refused, modules in the words of the manifest rule', () => {
+  const shell = 'windows, packages, session, desktops, inspect, desktop, setDefault, permissions'
+  const modules = `service "assistant": modules lists shell modules (${shell})`
+  assert.equal(Manifest.configServices({ assistant: { module: 'a.ts', modules: ['fs'] } }), modules)
+  assert.equal(Manifest.configServices({ assistant: { module: 'a.ts', modules: 'windows' } }), modules)
+  assert.equal(Manifest.configServices({ assistant: { module: 'a.ts', modules: null } }), modules)
+  assert.equal(Manifest.desktopServices([{ name: 'assistant', modules: ['fs'] }]), modules)
+  const shape = 'service "assistant": a service is its module or {module, modules}'
+  for (const entry of [{ modules: ['windows'] }, { module: '' }, { module: 3 }, '', 3, null, ['a.ts']]) assert.equal(Manifest.configServices({ assistant: entry }), shape, JSON.stringify(entry))
+  assert.equal(Manifest.configServices({ assistant: { module: 'a.ts', shell: ['windows'] } }), 'service "assistant": "shell" is not a field of a service (module, modules)')
+  for (const raw of [['assistant'], 'assistant', 3]) assert.equal(Manifest.configServices(raw), 'services maps each service name to its module or {module, modules}')
+})
+
+test('the config schema gives a desktop service the two forms, with the shell modules by name', () => {
+  type Form = { type: string; properties?: { module: { type: string }; modules: { type: string; items: { enum: string[] } } }; required?: string[]; additionalProperties?: boolean }
+  const schema = JSON.parse(readFileSync(new URL('../config.schema.json', import.meta.url), 'utf8')) as {
+    oneOf: { properties: { type: { const: string }; services: { type: string; additionalProperties?: { oneOf: Form[] } } } }[]
+  }
+  const desktop = schema.oneOf.find((branch) => branch.properties.type.const === 'desktop')!
+  const [path, granted] = desktop.properties.services.additionalProperties!.oneOf
+  assert.equal(path!.type, 'string')
+  assert.equal(granted!.type, 'object')
+  assert.equal(granted!.properties!.module.type, 'string')
+  assert.deepEqual(granted!.properties!.modules.items.enum, [...SHELL_MODULES])
+  assert.deepEqual(granted!.required, ['module'])
+  assert.equal(granted!.additionalProperties, false)
+})
+
 test('schemes: lower-case URL schemes the app opens links for', () => {
   const app = (schemes: unknown) => Manifest.app({ id: 'web', label: 'Web', icon: 'globe', entry: '/app/web/index.html', schemes })
   assert.deepEqual((app(['https', 'http', 'mailto', 'web+notes']) as { schemes: readonly string[] }).schemes, ['https', 'http', 'mailto', 'web+notes'])

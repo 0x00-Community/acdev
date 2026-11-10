@@ -71,6 +71,10 @@ export interface DesktopServiceGrant {
   readonly modules: ShellModule[]
 }
 
+export interface ConfiguredService extends DesktopServiceGrant {
+  readonly module: string
+}
+
 export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & {
   readonly backend: Required<AppBackend> | null
   readonly size: readonly [number, number] | null
@@ -154,6 +158,28 @@ export class Manifest {
       grants.push({ name, modules: [...(modules as ShellModule[])] })
     }
     return grants
+  }
+
+  static configServices(raw: unknown): ConfiguredService[] | string {
+    if (raw === undefined || raw === null) return []
+    if (typeof raw !== 'object' || Array.isArray(raw)) return 'services maps each service name to its module or {module, modules}'
+    const services: ConfiguredService[] = []
+    for (const [name, entry] of Object.entries(raw)) {
+      const at = `service ${JSON.stringify(name)}`
+      if (typeof entry === 'string' && entry) {
+        services.push({ name, module: entry, modules: [] })
+        continue
+      }
+      const fields = (typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry : {}) as Record<string, unknown>
+      const { module, modules, ...rest } = fields
+      if (typeof module !== 'string' || !module) return `${at}: a service is its module or {module, modules}`
+      const [unknown] = Object.keys(rest)
+      if (unknown !== undefined) return `${at}: ${JSON.stringify(unknown)} is not a field of a service (module, modules)`
+      const grants = Manifest.desktopServices([{ name, modules }])
+      if (!Array.isArray(grants)) return grants ?? `${at}: a service is its module or {module, modules}`
+      services.push({ name, module, modules: grants[0]!.modules })
+    }
+    return services
   }
 
   static readonly UNVERSIONED = `no acde.apiLevel: a package built before contract levels; rebuild it with the current acde (level ${API_LEVEL})`

@@ -84,6 +84,14 @@ windows.list()
   assert.deepEqual(errors('shell', code), [])
 })
 
+test('a desktop config gives a service its module, or its module and shell modules', () => {
+  const head = `import type { DesktopConfig } from ${JSON.stringify(join(src, 'shell.d.ts'))}\n`
+  const config = (services: string) => `${head}export const config: DesktopConfig = { type: 'desktop', services: ${services} }`
+  assert.deepEqual(errors('shell', config(`{ clock: 'services/clock.ts', assistant: { module: 'services/a.ts', modules: ['windows', 'session'] }, bare: { module: 'b.ts' } }`)), [])
+  assert.ok(errors('shell', config(`{ assistant: { module: 'a.ts', modules: ['fs'] } }`)).length > 0, 'fs is not a shell module')
+  assert.ok(errors('shell', config(`{ assistant: { modules: ['windows'] } }`)).length > 0, 'a service needs its module')
+})
+
 test('a service imports shell modules through its context, typed', () => {
   const code = `
 import type { ServiceFactory } from ${JSON.stringify(join(src, 'shell.d.ts'))}

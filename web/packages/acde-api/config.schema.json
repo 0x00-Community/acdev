@@ -281,9 +281,43 @@
         "services": {
           "type": "object",
           "additionalProperties": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "服务的模块文件"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "module": {
+                    "type": "string",
+                    "description": "服务的模块文件"
+                  },
+                  "modules": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "windows",
+                        "packages",
+                        "session",
+                        "desktops",
+                        "inspect",
+                        "desktop",
+                        "setDefault",
+                        "permissions"
+                      ]
+                    },
+                    "description": "这个服务能用的外壳模块, 服务里 ctx.import('acde:<名字>') 拿到; acde build 写进桌面清单的 {name, modules}"
+                  }
+                },
+                "required": [
+                  "module"
+                ],
+                "additionalProperties": false
+              }
+            ]
           },
-          "description": "服务名 → 模块"
+          "description": "服务名 → 模块文件, 或 {module, modules} (再列出它能用的外壳模块)"
         },
         "apps": {
           "type": "array",
