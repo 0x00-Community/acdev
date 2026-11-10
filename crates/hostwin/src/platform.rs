@@ -41,6 +41,7 @@ pub(crate) enum HostEvent {
     Dropped(Vec<PathBuf>),
     State(acde_model::WindowState),
     Output { size: (u32, u32), scale: f64, work: [f64; 4] },
+    Refresh(Option<f64>),
     Redraw,
     Cmd(Cmd),
 }

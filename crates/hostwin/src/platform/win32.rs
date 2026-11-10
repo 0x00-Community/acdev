@@ -10,10 +10,7 @@ use acde_gpu::wgpu;
 use acde_model::Combo;
 use wgpu::rwh;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{
-    ClientToScreen, DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
-    ValidateRect,
-};
+use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, ValidateRect};
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -51,6 +48,7 @@ use crate::{OpenRequest, SaveRequest};
 mod approve;
 mod dialog;
 mod frame;
+mod refresh;
 
 pub(crate) use approve::dismiss as dismiss_approval;
 
@@ -58,6 +56,7 @@ const WM_MOUSELEAVE: u32 = 0x02a3;
 const SIZE_MINIMIZED: usize = 1;
 const WM_MOVE: u32 = 0x0003;
 const WM_SETTINGCHANGE: u32 = 0x001a;
+const WM_DISPLAYCHANGE: u32 = 0x007e;
 const WM_NCHITTEST: u32 = 0x0084;
 const WHEEL_DELTA: f64 = 120.0;
 
@@ -253,6 +252,7 @@ struct Win {
     mods: Cell<u8>,
     surrogate: Cell<Option<u16>>,
     composing: Cell<bool>,
+    refresh: refresh::RefreshWatch,
 }
 
 thread_local! {
@@ -284,7 +284,7 @@ impl Win {
     }
 
     fn placed(&self, hwnd: HWND) {
-        let events = [self.host.frame.changed(hwnd), self.host.frame.output(hwnd)];
+        let events = [self.host.frame.changed(hwnd), self.host.frame.output(hwnd), self.refresh.placed(hwnd)];
         for event in events.into_iter().flatten() {
             self.emit(event);
         }
@@ -430,6 +430,10 @@ impl Win {
                 self.placed(hwnd);
             }
             WM_MOVE | WM_SETTINGCHANGE => self.placed(hwnd),
+            WM_DISPLAYCHANGE => {
+                self.refresh.forget();
+                self.placed(hwnd);
+            }
             WM_NCHITTEST => {
                 let hit = unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
                 if hit != HTCLIENT as LRESULT {
@@ -558,12 +562,9 @@ fn monitor() -> (Option<Monitor>, RECT, f64) {
         if GetMonitorInfoW(handle, &mut info) == 0 {
             return (None, RECT { left: 0, top: 0, right: 0, bottom: 0 }, scale);
         }
-        let mut mode = DEVMODEW { dmSize: size_of::<DEVMODEW>() as u16, ..Default::default() };
-        let refresh =
-            (EnumDisplaySettingsW(null(), ENUM_CURRENT_SETTINGS, &mut mode) != 0 && mode.dmDisplayFrequency > 1).then(|| f64::from(mode.dmDisplayFrequency));
         let work = info.rcWork;
         let size = [f64::from(work.right - work.left) / scale, f64::from(work.bottom - work.top) / scale];
-        (Some(Monitor { size, refresh }), work, scale)
+        (Some(Monitor { size, refresh: None }), work, scale)
     }
 }
 
@@ -597,6 +598,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
         return Err(format!("open window: {}", std::io::Error::last_os_error()));
     }
     unsafe { DragAcceptFiles(hwnd, 1) };
+    let monitor = monitor.map(|m| Monitor { refresh: refresh::of_window(hwnd), ..m });
     let scale = f64::from(unsafe { GetDpiForWindow(hwnd) }.max(1)) / 96.0;
     let host = Host {
         hwnd,
@@ -619,6 +621,7 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
         mods: Cell::new(0),
         surrogate: Cell::new(None),
         composing: Cell::new(false),
+        refresh: refresh::RefreshWatch::default(),
     });
     let size = win.client_size();
     win.handler.borrow_mut().started(&win.host, super::Proxy::Native(proxy), monitor, size, scale);

@@ -255,6 +255,14 @@ impl State {
         self.entries.iter().find(|(_, e)| e.host).map(|(&id, _)| id)
     }
 
+    pub fn set_refresh(&mut self, hz: Option<f64>) -> Option<Vec<Link>> {
+        if self.refresh == hz {
+            return None;
+        }
+        self.refresh = hz;
+        Some(self.entries.values().filter(|e| !e.panel).filter_map(|e| e.link.clone()).collect())
+    }
+
     pub fn pixels(&self, rect: [f64; 4]) -> (u32, u32) {
         let scale = self.screen[2];
         (((rect[2] * scale).round() as u32).max(1), ((rect[3] * scale).round() as u32).max(1))
@@ -677,5 +685,22 @@ pub(crate) mod tests {
         assert_eq!(s.entries[&lone].parent, None);
         open(&mut s, Grant { window: Some(lone), parent: Some(lone), ..Grant::default() });
         assert_eq!(s.entries[&lone].parent, None);
+    }
+
+    #[test]
+    fn a_new_monitor_rate_reaches_each_window_once() {
+        let mut s = screen();
+        let window = open(&mut s, Grant::default());
+        let panel = open(&mut s, Grant { mode: Some(Mode::Pinned), ..Grant::default() });
+        let ((link, got), (shared, _)) = (Link::pair(), Link::pair());
+        s.entries.get_mut(&window).expect("window").link = Some(link);
+        s.entries.get_mut(&panel).expect("panel").link = Some(shared);
+        let links = s.set_refresh(Some(60.0)).expect("changed");
+        assert_eq!(links.len(), 1, "a panel is drawn by its owner");
+        links[0].send(crate::output::surface::Msg::Refresh(Some(60.0)));
+        assert!(matches!(got.try_recv(), Ok(crate::output::surface::Msg::Refresh(Some(60.0)))));
+        assert!(s.set_refresh(Some(60.0)).is_none(), "another monitor at the same rate");
+        assert!(s.set_refresh(Some(144.0)).is_some());
+        assert_eq!(s.refresh, Some(144.0));
     }
 }

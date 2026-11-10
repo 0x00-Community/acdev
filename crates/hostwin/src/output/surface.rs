@@ -19,6 +19,7 @@ pub(crate) enum Msg {
     Fullscreen(bool),
     Theme(acde_render::FrameTheme),
     Active(bool),
+    Refresh(Option<f64>),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
     Stop,
 }
@@ -35,6 +36,12 @@ pub(crate) struct Link(mpsc::Sender<Msg>);
 impl Link {
     pub(crate) fn send(&self, msg: Msg) {
         let _ = self.0.send(msg);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pair() -> (Self, mpsc::Receiver<Msg>) {
+        let (tx, rx) = mpsc::channel();
+        (Self(tx), rx)
     }
 
     pub fn resized(&self, width: u32, height: u32, scale: f64) {

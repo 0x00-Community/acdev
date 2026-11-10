@@ -14,6 +14,11 @@ use crate::output::gpu::Gpu;
 use crate::output::surface::{Msg, Shot};
 
 const DEFAULT_HZ: f64 = 60.0;
+const REFRESH_SLACK: f64 = 0.9;
+
+pub(crate) fn pace(refresh: Option<f64>) -> Duration {
+    Duration::from_secs_f64(REFRESH_SLACK / refresh.filter(|hz| *hz > 1.0).unwrap_or(DEFAULT_HZ))
+}
 
 pub(crate) struct Presenter {
     gpu: Arc<Gpu>,
@@ -51,7 +56,6 @@ impl Presenter {
         let vello = Vello::new(&gpu.shared.device, &gpu.shared.queue)?;
         let composer = Composer::new(&gpu.shared.device, &gpu.shared.queue);
         let overrides = Overrides::from(gpu.shared.images.clone());
-        let hz = refresh.filter(|hz| *hz > 1.0).unwrap_or(DEFAULT_HZ);
         Ok(Self {
             gpu,
             vello,
@@ -67,7 +71,7 @@ impl Presenter {
             unpublished: HashSet::new(),
             captures: Vec::new(),
             scratch: None,
-            pacer: Pacer::new(Some(Duration::from_secs_f64(0.9 / hz))),
+            pacer: Pacer::new(Some(pace(refresh))),
             dirty: true,
             decoration: (bar.height > 0.0).then(Decoration::new),
             bar,
@@ -154,6 +158,11 @@ impl Presenter {
                 self.bar.active = active;
                 self.render.invalidate();
                 self.dirty = true;
+            }
+            Msg::Refresh(hz) => {
+                let pace = pace(hz);
+                log::debug!(target: "perf::raster", "window {} pace ms={:.3}", self.id, pace.as_secs_f64() * 1000.0);
+                self.pacer.set_refresh(Some(pace));
             }
             Msg::Capture(reply) => self.captures.push((reply, Instant::now() + crate::shell::CAPTURE_WAIT)),
             Msg::Stop => return true,
@@ -415,5 +424,18 @@ impl Presenter {
             (None, None) => Px::default(),
         };
         (backdrop, shadows, effect, bounds)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pace_follows_the_monitor_rate() {
+        assert_eq!(pace(Some(144.0)), Duration::from_secs_f64(0.9 / 144.0));
+        assert_eq!(pace(Some(60.0)), Duration::from_secs_f64(0.9 / 60.0));
+        assert_eq!(pace(None), pace(Some(60.0)));
+        assert_eq!(pace(Some(1.0)), pace(Some(60.0)), "1 Hz means the driver's default mode");
     }
 }

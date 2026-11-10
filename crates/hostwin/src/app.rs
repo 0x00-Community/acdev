@@ -143,6 +143,14 @@ impl Server {
         }
         self.relayout();
     }
+
+    pub fn set_refresh(&self, hz: Option<f64>) {
+        let Some(links) = self.state().set_refresh(hz) else { return };
+        log::info!("host window: monitor refresh {}", hz.map_or_else(|| "unknown".to_owned(), |hz| format!("{hz} Hz")));
+        for link in links {
+            link.send(Msg::Refresh(hz));
+        }
+    }
 }
 
 type Main = Box<dyn FnOnce() -> i32 + Send>;
@@ -293,6 +301,7 @@ impl Handler for App {
                 let area = Event { kind: "hostworkarea".into(), x: Some(x), y: Some(y), width: Some(w), height: Some(h), ..Default::default() };
                 server.broker.push(area);
             }
+            HostEvent::Refresh(hz) => server.set_refresh(hz),
             HostEvent::Cmd(Cmd::HostState(to)) => host.set_state(to),
             HostEvent::Redraw => server.relayout(),
             HostEvent::Cmd(Cmd::Title(title)) => host.set_title(&title),
