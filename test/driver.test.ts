@@ -189,7 +189,7 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     check(Sessions.list(sessions)).toEqual([])
   }, 60_000)
 
-  test('approval prompts: wait, allow, deny, list; revoke through the desktop; simulated drops', async () => {
+  test('approval prompts: wait, allow, deny, list; revoke; simulated drops', async () => {
     const s = standIn()
     const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })
     try {
@@ -205,7 +205,9 @@ describe('the driver against acde dev with a stand-in acdert', () => {
         .toEqual(['alpha launch granted', 'beta fs.documents denied'])
       const none = await acde.deny({ timeout: 200 }).catch((e: Error) => e.message)
       check(none).toContain('no approval prompt within 200 ms')
+      check(await acde.revoke('alpha', 'launch')).toBe(true)
       check(await acde.revoke('alpha', 'launch')).toBe(false)
+      check((await acde.permissions()).decisions.map((d) => d.app)).toEqual(['beta'])
 
       check(await acde.drop([join(s.root, 'a.txt'), 'b.txt'])).toEqual({
         web: 'desktop', window: 0, files: [join(s.root, 'a.txt'), join(process.cwd(), 'b.txt')],
@@ -221,8 +223,8 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     const sent = readFileSync(join(s.root, 'fake.log'), 'utf8').split('\n').filter(Boolean)
       .map((line) => JSON.parse(line) as { got?: Record<string, unknown> }).flatMap((e) => (e.got ? [e.got] : []))
     check(sent.find((m) => m['op'] === 'answer' && m['prompt'] === 1)).toMatchObject({ allow: true })
-    check(sent.find((m) => m['op'] === 'eval' && m['web'] === 'desktop')?.['code'])
-      .toBe(`import('acde:permissions').then(({ permissions }) => permissions.revoke("alpha", "launch"))`)
+    check(sent.find((m) => m['op'] === 'revoke')).toMatchObject({ app: 'alpha', capability: 'launch' })
+    check(sent.some((m) => m['op'] === 'eval')).toBe(false)
     check(sent.find((m) => m['op'] === 'drop' && m['web'] === 'alpha#7'))
       .toMatchObject({ x: 3, y: 4, files: [join(process.cwd(), 'c.png')] })
   }, 60_000)

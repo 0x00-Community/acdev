@@ -396,6 +396,14 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       decisions.push({ ...prompt!, decision: m['allow'] ? 'granted' : 'denied' })
       return void ok({ prompt: m['prompt'], allow: m['allow'] })
     }
+    case 'revoke': {
+      if (typeof m['app'] !== 'string' || typeof m['capability'] !== 'string') {
+        return void fail('revoke: app is an app id and capability is the approved capability (as in permissions)')
+      }
+      const at = decisions.findIndex((d) => d.app === m['app'] && d.capability === m['capability'])
+      if (at >= 0) decisions.splice(at, 1)
+      return void ok({ app: m['app'], capability: m['capability'], revoked: at >= 0 })
+    }
     case 'drop': {
       const files = m['files']
       if (!Array.isArray(files) || files.length === 0 || !files.every((f) => typeof f === 'string' && isAbsolute(f))) {

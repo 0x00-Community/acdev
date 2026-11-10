@@ -487,14 +487,10 @@ export class Acde {
 
   async revoke(app: string, capability: ApprovalCapability): Promise<boolean> {
     return this.trace.step(`revoke(${JSON.stringify(app)}, ${JSON.stringify(capability)})`, async () => {
-      if (!(await this.webs()).some((web) => web.kind === 'desktop')) {
-        throw new Error('revoke: this goes through acde:permissions on the desktop page, and this session '
-          + 'runs no desktop (start acde dev with a desktop project or --desktop)')
-      }
-      const code = `import('acde:permissions').then(({ permissions }) => `
-        + `permissions.revoke(${JSON.stringify(app)}, ${JSON.stringify(capability)}))`
-      return (await this.evaluate<boolean>('desktop', code)) === true
-    })
+      const answer = (await this.#request('revoke', { app, capability })) as { revoked?: unknown } | null
+      if (typeof answer?.revoked !== 'boolean') throw new Error(`acdert answered revoke with ${JSON.stringify(answer)}`)
+      return answer.revoked
+    }, (revoked) => (revoked ? 'revoked' : 'nothing to revoke'))
   }
 
   async drop(files: string | readonly string[], options: DropOptions = {}): Promise<Dropped> {

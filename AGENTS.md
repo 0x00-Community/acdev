@@ -229,10 +229,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `route(url, 回应, {method, web, times})` 是 `route`, url 是 glob (同 acdert: `**` 任意, `*` 不含 `/`, `/` 开头比路径加查询) 或 RegExp, 回应
   `{status, statusText, headers, contentType, body (文字或字节, 转 base64), json}` 或 `{abort}`; `unroute(id?)`; `clipboard()` / `setClipboard(text)`). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
   `waitForRequest(url, {method, web})` 先取 `network` 的 `next` 再轮询到匹配的请求结束 (`done`), `waitForConsole(文字或 RegExp, {level, web})` 同理; 要在触发之前调用.
-  **批准** (acde#16, op `permissions` / `answer`, 类型来自 SDK 的 `PermissionPrompt` / `PermissionDecision` / `ApprovalCapability`):
+  **批准** (acde#16, op `permissions` / `answer` / `revoke`, 类型来自 SDK 的 `PermissionPrompt` / `PermissionDecision` / `ApprovalCapability`):
   `permissions()` → `{pending, decisions}`; `waitForPrompt({app, capability, timeout})` 轮询到匹配的待答提示; `answer(提示或 id, allow)`;
-  `allow(匹配)` / `deny(匹配)` 是等到再答, 回那个提示. `revoke(app, capability)` acdert 没有 dev op, 经桌面页的 `acde:permissions` 求值
-  (`evaluate('desktop', …)`), 会话里没有桌面 (`acdert app`) 时报错. 没人答的提示一直等, 不自动批准.
+  `allow(匹配)` / `deny(匹配)` 是等到再答, 回那个提示. `revoke(app, capability)` 是 op `revoke` (acdert#95), 回 `revoked`
+  (有那条决定并删掉了才是 true), 桌面会话和 `acdert app` 都能用. 没人答的提示一直等, 不自动批准.
   **拖放** (op `drop`): `drop(文件, {web, x, y})` (相对路径按当前目录解析, x / y 页面坐标一起给, 默认页面中心, web 默认 desktop) →
   `{web, window, files}`; `AppWindow.drop(文件, {x, y})` 带上自己的 web. acdert 排进主线程就回答, 页面稍后才收到 `drop`, 要等页面上的效果
   (如 `evaluate` 轮询或 `expect`), 不能以回答为准. 页面拿到的: 普通文件进 `dataTransfer.files` (`File`), 每项 `getAsFileSystemHandle()` 是只读句柄
