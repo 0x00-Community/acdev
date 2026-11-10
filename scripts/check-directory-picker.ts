@@ -85,11 +85,19 @@ try {
     const blocked = await handle.getFileHandle('blocked.txt', { create: true })
       .then(() => 'created', (error) => error.name)
     const { fs } = await import('acde:fs')
-    return { name: handle.name, text: await file.text(), blocked, roots: await fs.roots() }
+    const roots = (await fs.roots()).map(({ path, label, mode }) => ({ path, label, mode }))
+    const write = await fs.writeFile(${JSON.stringify(readDir)}, 'blocked.txt', 'x').then(() => 'written', (error) => error.code)
+    return { name: handle.name, text: await file.text(), blocked, roots, write }
   })()`)
-  assert.deepEqual(read, { name: 'read-only', text: 'selected folder', blocked: 'NotAllowedError', roots: [] })
-  assert.equal(await Bun.file(grant).exists(), false, 'Read-only selection must not persist a writable grant')
-  console.log('Read-only choice permits reading and leaves the grant table untouched')
+  assert.deepEqual(read, {
+    name: 'read-only',
+    text: 'selected folder',
+    blocked: 'NotAllowedError',
+    roots: [{ path: readDir, label: 'read-only', mode: 'read_only' }],
+    write: 'EACCES',
+  })
+  assert.deepEqual(await Bun.file(grant).json(), { roots: [readDir], readOnly: [readDir] })
+  console.log('Read-only choice permits reading and grants the folder as a read-only root')
 
   const write = await pick('read-write', writeDir, `(async () => {
     const handle = await showDirectoryPicker({ mode: 'readwrite' })
@@ -106,15 +114,15 @@ try {
     return { roots, sibling, location, outside }
   })()`)
   assert.deepEqual(write, {
-    roots: [{ path: writeDir, label: 'read-write', mode: 'writable' }],
-    sibling: 'EACCES',
+    roots: [{ path: readDir, label: 'read-only', mode: 'read_only' }, { path: writeDir, label: 'read-write', mode: 'writable' }],
+    sibling: 'read',
     location: { root: writeDir, path: 'saved.txt' },
-    outside: 'EACCES',
+    outside: 'located',
   })
-  assert.deepEqual(await Bun.file(grant).json(), { roots: [writeDir] })
+  assert.deepEqual(await Bun.file(grant).json(), { roots: [readDir, writeDir], readOnly: [readDir] })
   assert.equal(await Bun.file(join(writeDir, 'saved.txt')).text(), 'confirmed writable selection')
-  console.log('Explicit read/write choice creates a file and persists only that directory')
-  console.log('Locate resolves a file within the granted folder and refuses a sibling directory')
+  console.log('Explicit read/write choice creates a file and persists that directory as writable')
+  console.log('Locate resolves files within both granted folders')
 
   const file = join(writeDir, 'saved.txt')
   const targets = [file, file.replaceAll('\\', '/'), pathToFileURL(file).href, 'https://example.invalid/test']
