@@ -1,6 +1,7 @@
-import type { WindowMenusEvent, WindowsEvent, WindowTitleEvent } from '@dopame/acde-api'
+import type { WindowMenusEvent, WindowsEvent, WindowState, WindowTitleEvent } from '@dopame/acde-api'
 import { Level, Log } from '../../log'
 import { PageSource } from '../../page'
+import { WindowRecords } from '../records'
 import type { AnimateOptions, BrokerShell, WindowRecord, WireMenu } from '../types'
 import { Web } from '../web'
 
@@ -18,7 +19,7 @@ export interface WindowsHost {
 
 export class WindowCalls {
   static readonly BROWSER = 'browser'
-  static readonly STATES = ['normal', 'minimized', 'filled', 'fullscreen'] as const
+  static readonly STATES = WindowRecords.STATES
   readonly #host: WindowsHost
 
   constructor(host: WindowsHost) {
@@ -116,7 +117,7 @@ export class WindowCalls {
       const reason = 'a standalone app has no Dock to bring it back'
       throw Object.assign(new Error(`window ${id} cannot be minimized: ${reason}`), { status: 409, code: 'unavailable' })
     }
-    this.#host.shell.setState(id, state as (typeof WindowCalls.STATES)[number])
+    this.#host.shell.setState(id, state as WindowState)
   }
 
   self(web: Web, method: string, args: unknown[]): unknown {

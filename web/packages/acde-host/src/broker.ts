@@ -375,13 +375,15 @@ export class Broker {
       devRoutes: this.#dev.routesFor('desktop', null),
       devInit: this.#dev.initsFor('desktop', null),
       tier: this.#launchable.tier(null),
+      windows: this.#windows.rows(),
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
     this.#listing.list()
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
       this.launch(standalone, null, 'fullscreen').catch((error: Error) => Log.write(Level.Error, 'acde_host', `acdert app ${standalone}: ${error.message}`))
     }
-    for (const record of this.#windows.values()) this.#announce(record)
+    const desktop = this.#desktop
+    for (const record of this.#windows.values()) this.#announce(record, (event) => desktop.thread.post(event))
   }
 
   #regrant(record: WindowRecord): bigint {
@@ -418,6 +420,7 @@ export class Broker {
       devRoutes: this.#dev.routesFor(`${app.id}#${record.id}`, app.id),
       devInit: this.#dev.initsFor(`${app.id}#${record.id}`, app.id),
       tier,
+      ...(Tiers.listens(tier, 'windowopen') && { windows: this.#windows.rows() }),
     }
     record.request = null
     record.web = this.#spawn(init, app.heapMb)
@@ -612,16 +615,15 @@ export class Broker {
     for (const record of this.#windows.values()) if (record.web && Tiers.listens(record.web.tier, type)) record.web.thread.post(event)
   }
 
-  #announce(record: WindowRecord): void {
+  #announce(record: WindowRecord, tell: (event: Record<string, unknown>) => void = (event) => this.#toDesktop(event)): void {
     if (record.owner) return
     if (record.kind === 'web') {
       const app = record.app!
       const title = record.title ?? app.label
-      const opened = { type: 'windowopen', window: record.id, appId: app.id, title, web: true, icon: app.icon } satisfies WindowOpenEvent
-      this.#toDesktop(opened)
-      if (record.menus.length) this.#toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
+      tell({ type: 'windowopen', window: record.id, appId: app.id, title, web: true, icon: app.icon } satisfies WindowOpenEvent)
+      if (record.menus.length) tell({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
     } else {
-      this.#toDesktop({ type: 'windowopen', window: record.id, appId: record.appId, title: record.title } satisfies WindowOpenEvent)
+      tell({ type: 'windowopen', window: record.id, appId: record.appId, title: record.title } satisfies WindowOpenEvent)
     }
   }
 

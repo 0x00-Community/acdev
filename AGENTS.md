@@ -466,7 +466,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     没给的模块经 `host.refuseModule` 记下原因, import 时报模块名和缺的声明. 哪个模块要哪条声明只在 SDK `Manifest.importRule(name, app, origin)`
     (`{allowed, missing, reason}`, app 为 null 是桌面; acde-host 的 `Tiers` / `CapabilityCheck` 和 acde 的检查都用它). 新的 `acde:packages` (refresh / install / natives / runNative)
     和 `acde:launch` (`start` 要 `launch`, `embed` 要 `slots`, `close` 只关自己起的窗口: 按窗口的 pid 认 `start` 起的, `embed` 走 claim) 桌面也有.
-    系统应用拿到 `acde:windows` 时也收全局窗口事件 (`Tiers.listens`). 每个包都按这里注入 (没有 `apiLevel` 的包根本不加载).
+    系统应用拿到 `acde:windows` 时也收全局窗口事件 (`Tiers.listens`). **窗口列表从 Broker 的记录起头**: 桌面页面和收全局窗口事件的系统应用起来时, `WebInit.windows`
+    带上当时所有窗口的行 (`broker/records.ts` `WindowRecords.rows()`: 嵌进 slot 的不算; `{id, appId, title, web?, state}`, `state` 是记录按 `windowstate` 事件记下的),
+    web 侧的 `WindowList` 从这些行开始再按事件维护, 所以晚起的系统应用 `list()` 和桌面一样全. 桌面页面 (重) 起时补发的 `windowopen` / `windowmenus` 只发给新的桌面页面,
+    不再发给正开着的系统应用. 每个包都按这里注入 (没有 `apiLevel` 的包根本不加载).
     SDK 类型分层: `@dopame/acde-api/app` 只声明应用层, `@dopame/acde-api/shell` 再加外壳层; 包根声明全部.
 - **原生应用** (`launcher.ts`, 只有桌面和声明了 `packages` 的系统应用能调): `acde.packages.natives()` 列可见的 `.desktop` (`{id, name, comment, icon (绝对路径, 按 hicolor /
   breeze / Adwaita 找), keywords, wmClass}`, 缓存到 applications 目录的 mtime 变了), `runNative(id)` 用 `gio launch` 起.

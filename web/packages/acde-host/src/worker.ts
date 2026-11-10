@@ -110,7 +110,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const rpc = new Rpc((message) => port.post(message))
   const output = WindowSelf.output(init.screen?.width ?? 0, init.screen?.height ?? 0, init.scale, init.screen?.workArea)
   const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null, output) : null
-  const windows = new WindowList(rpc)
+  const windows = new WindowList(rpc, init.windows)
   const bridge = new RemoteBridge(rpc, init, self, windows, permits)
   if (natives.backend) installBackendTransport({ ...natives.backend, port: init.kind === 'window' && init.app?.backend ? init.app.backend.port : null })
   const web = new Host(page, dom, init.scale, natives.Ime, windows)

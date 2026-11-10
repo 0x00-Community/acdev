@@ -1,3 +1,4 @@
+import type { NativeWindow, WindowState } from '@dopame/acde-api'
 import { unref } from '../sys/timers'
 import { WindowPlaces, type Rect } from '../places'
 import type { RawShellEvent } from '../native'
@@ -11,8 +12,9 @@ export interface WindowRecordsHost {
 }
 
 export class WindowRecords extends Map<number, WindowRecord> {
+  static readonly STATES: readonly WindowState[] = ['normal', 'minimized', 'filled', 'fullscreen']
   readonly #host: WindowRecordsHost
-  readonly #places = new WindowPlaces()
+  #saved: WindowPlaces | null = null
   readonly #placed = new Map<number, string>()
   readonly #claims: { web: Web; pid: number }[] = []
 
@@ -21,9 +23,23 @@ export class WindowRecords extends Map<number, WindowRecord> {
     this.#host = host
   }
 
+  get #places(): WindowPlaces {
+    return (this.#saved ??= new WindowPlaces())
+  }
+
   running(appId: string): WindowRecord | undefined {
     for (const record of this.values()) if (record.kind === 'web' && record.app?.id === appId) return record
     return undefined
+  }
+
+  rows(): NativeWindow[] {
+    return [...this.values()].filter((record) => !record.owner).map((record) => WindowRecords.row(record))
+  }
+
+  static row(record: WindowRecord): NativeWindow {
+    const { id, app } = record
+    const [appId, title] = [app?.id ?? record.appId, record.title ?? app?.label ?? null]
+    return { id, appId, title, ...(record.kind === 'web' ? { web: true } : {}), state: record.state ?? 'normal' }
   }
 
   claim(web: Web, pid: number): void {
@@ -59,6 +75,7 @@ export class WindowRecords extends Map<number, WindowRecord> {
     if (event.type === 'windowgone') return this.#gone(event)
     const host = this.#host
     const record = this.get(event.window)
+    if (record && event.type === 'windowstate') record.state = WindowRecords.STATES.find((state) => state === event.state) ?? record.state
     if (record?.kind === 'web') return host.toDesktop(event)
     if (event.type === 'windowopen') return this.#opened(event)
     if (!record) return host.toDesktop(event)

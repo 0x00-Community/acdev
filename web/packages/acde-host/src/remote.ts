@@ -44,8 +44,9 @@ export class WindowList {
   readonly #windows = new Map<number, NativeWindow>()
   readonly #rpc: Rpc
 
-  constructor(rpc: Rpc) {
+  constructor(rpc: Rpc, rows: readonly NativeWindow[] = []) {
     this.#rpc = rpc
+    for (const row of rows) this.#windows.set(row.id, { ...row })
   }
 
   deliver(event: WindowEvent): void {
