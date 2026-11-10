@@ -93,9 +93,9 @@ impl Shared {
 
     fn roots(&self, owner: Option<&str>) -> Outcome<Vec<FinderRoot>> {
         let mut roots = self.fs.roots()?;
-        for path in owner.map(|owner| self.grants.of(owner)).unwrap_or_default() {
-            if !roots.iter().any(|root| root.path == path) {
-                roots.push(WorkspaceFs::granted(&path));
+        for granted in owner.map(|owner| self.grants.folders(owner)).unwrap_or_default() {
+            if !roots.iter().any(|root| root.path == granted.path) {
+                roots.push(WorkspaceFs::granted(&granted.path).access(granted.writable));
             }
         }
         Ok(roots)
@@ -107,7 +107,7 @@ impl Shared {
 
     fn files_roots(&self, owner: Option<&str>, files: &Files) -> Outcome<Vec<FinderRoot>> {
         let owner = owner.ok_or_else(|| Failure::invalid("private folders belong to an app"))?;
-        files.roots(&self.fs, owner, self.grants.of(owner))
+        files.roots(&self.fs, owner, self.grants.folders(owner))
     }
 
     fn root_in(&self, owner: Option<&str>, view: View, id: &str) -> Outcome<FinderRoot> {
@@ -419,10 +419,14 @@ impl Workspace {
     }
 
     pub fn grant(&self, path: &str) -> std::result::Result<String, FsError> {
+        self.grant_as(path, true)
+    }
+
+    pub fn grant_as(&self, path: &str, writable: bool) -> std::result::Result<String, FsError> {
         let Some(owner) = self.owner.as_deref() else {
             return Err(Failure::invalid("folders are granted to an app").into());
         };
-        Ok(self.shared.grants.add(owner, path)?)
+        Ok(self.shared.grants.add(owner, path, writable)?)
     }
 
     #[cfg(target_os = "linux")]
@@ -555,6 +559,21 @@ mod tests {
         assert!(!ids(&web).contains(&token));
         assert_eq!(json(web.call(FsCall::List { root: token, path: None, hidden: None }))["code"], "EACCES");
         assert!(finder.folders("vault".into()).is_empty());
+        _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn a_read_only_pick_is_listed_and_revoked_like_other_picks() {
+        let base = std::env::temp_dir().join(format!("acde-folders-read-{}", std::process::id()));
+        let picked = base.join("Shown");
+        std::fs::create_dir_all(&picked).unwrap();
+        let finder = Finder { shared: Arc::new(Shared::with(Grants::new(None))) };
+        let web = Workspace { shared: Arc::clone(&finder.shared), roots: None, owner: None, files: None }.files(Files::new(&[], false), "viewer");
+        let token = Files::token(&web.grant_as(picked.to_str().unwrap(), false).unwrap());
+        assert_eq!(finder.folders("viewer".into()), [GrantedFolder { id: token.clone(), label: "Shown".into(), exists: true }]);
+        assert!(finder.revoke_folder("viewer".into(), token.clone()).unwrap());
+        assert_eq!(json(web.call(FsCall::List { root: token, path: None, hidden: None }))["code"], "EACCES");
+        assert!(finder.folders("viewer".into()).is_empty());
         _ = std::fs::remove_dir_all(base);
     }
 

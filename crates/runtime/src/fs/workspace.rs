@@ -29,6 +29,7 @@ fn known_folder(name: &str) -> Option<String> {
 #[serde(rename_all = "snake_case")]
 pub enum RootMode {
     Writable,
+    ReadOnly,
     Unavailable,
 }
 
@@ -71,6 +72,20 @@ impl FinderRoot {
             reason: None,
             exists: true,
             place: None,
+        }
+    }
+
+    pub fn access(self, writable: bool) -> Self {
+        match self.mode {
+            RootMode::Writable if !writable => Self { mode: RootMode::ReadOnly, ..self },
+            _ => self,
+        }
+    }
+
+    pub(crate) fn writable(&self) -> Outcome<()> {
+        match self.mode {
+            RootMode::ReadOnly => Err(Failure::http(403, format!("{} was picked read-only", self.label))),
+            _ => Ok(()),
         }
     }
 }
@@ -528,6 +543,7 @@ impl WorkspaceFs {
     }
 
     pub fn write_file_in(root: &FinderRoot, relative: &str, data: &[u8], options: &WriteOptions) -> Outcome<FinderEntry> {
+        root.writable()?;
         if data.len() as u64 > MAX_RAW_BYTES {
             return Err(Failure::http(413, "content exceeds 64 MiB"));
         }
@@ -570,6 +586,7 @@ impl WorkspaceFs {
     }
 
     pub fn mkdir_in(root: &FinderRoot, relative: &str, options: &MkdirOptions) -> Outcome<FinderEntry> {
+        root.writable()?;
         let absolute = match options.recursive {
             true => Self::make_dirs(root, relative)?,
             false => {
@@ -610,6 +627,9 @@ impl WorkspaceFs {
         match fs::symlink_metadata(&absolute) {
             Ok(info) => Ok(Some(info.file_type().into())),
             Err(error) if error.kind() == ErrorKind::NotFound => {
+                if matches!(create, Some(EntryKind::File | EntryKind::Directory)) {
+                    root.writable()?;
+                }
                 let made = match create {
                     None | Some(EntryKind::Other | EntryKind::Symlink) => return Ok(None),
                     Some(EntryKind::File) => Self::no_follow(OpenOptions::new().write(true).create_new(true), &absolute, false).map(drop),
@@ -626,6 +646,7 @@ impl WorkspaceFs {
     }
 
     pub fn remove_child_in(root: &FinderRoot, dir: &str, name: &str, recursive: bool) -> Outcome<bool> {
+        root.writable()?;
         let Resolved { absolute, .. } = Self::resolve(root, &Self::child_path(dir, name)?, false)?;
         let info = match fs::symlink_metadata(&absolute) {
             Ok(info) => info,
@@ -705,6 +726,7 @@ impl WorkspaceFs {
     }
 
     pub fn copy_into(root: &FinderRoot, dir: &str, name: &str, mut reader: File) -> Outcome<FinderEntry> {
+        root.writable()?;
         let Resolved { absolute, real, .. } = Self::resolve(root, dir, true)?;
         if !fs::metadata(&real)?.is_dir() {
             return Err(Failure::invalid("not a directory"));
@@ -729,6 +751,7 @@ impl WorkspaceFs {
     }
 
     pub fn rename_in(root: &FinderRoot, from: &str, to: &str) -> Outcome<FinderEntry> {
+        root.writable()?;
         let source = Self::resolve(root, from, true)?;
         let target = Self::resolve(root, to, false)?;
         if source.relative.is_empty() {
@@ -742,6 +765,7 @@ impl WorkspaceFs {
     }
 
     pub fn remove_in(root: &FinderRoot, relative: &str) -> Outcome<()> {
+        root.writable()?;
         let Resolved { absolute, relative, .. } = Self::resolve(root, relative, false)?;
         if relative.is_empty() {
             return Err(Failure::invalid("the workspace root cannot be deleted"));

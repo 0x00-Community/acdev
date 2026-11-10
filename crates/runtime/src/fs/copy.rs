@@ -7,6 +7,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 pub(super) fn copy(from: &FinderRoot, path: &str, to: &FinderRoot, dir: &str) -> Outcome<Value> {
+    to.writable()?;
     let source = WorkspaceFs::resolve(from, path, true)?;
     if source.relative.is_empty() {
         return Err(Failure::invalid("a root itself cannot be copied; copy what is in it"));

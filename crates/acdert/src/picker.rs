@@ -42,9 +42,8 @@ impl Picker {
             return Ok(Reply::Path(None));
         };
         let path = self.folders.add(&picked)?;
-        if writable
-            && let Some(grants) = &self.grants
-            && let Err(error) = grants.grant(&path)
+        if let Some(grants) = &self.grants
+            && let Err(error) = grants.grant_as(&path, writable)
         {
             log::warn!("granting the picked folder {path}: {}", error.message);
         }

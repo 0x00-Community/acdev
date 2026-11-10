@@ -1,3 +1,4 @@
+use super::grants::Granted;
 use crate::failure::{Failure, Outcome};
 use crate::fs::workspace::{FinderRoot, RootMode, RootSource, WorkspaceFs};
 use sha2::{Digest, Sha256};
@@ -36,7 +37,7 @@ impl Files {
         format!("folder-{hex}")
     }
 
-    pub(crate) fn roots(&self, fs: &WorkspaceFs, owner: &str, granted: Vec<String>) -> Outcome<Vec<FinderRoot>> {
+    pub(in crate::fs) fn roots(&self, fs: &WorkspaceFs, owner: &str, granted: Vec<Granted>) -> Outcome<Vec<FinderRoot>> {
         let private = fs.private_dir(owner);
         std::fs::DirBuilder::new().recursive(true).create(&private)?;
         let mut roots = vec![self.root("private".into(), private, "应用数据", RootSource::Private)];
@@ -45,10 +46,10 @@ impl Files {
             let root = self.root(name.into(), path, label, RootSource::Place);
             roots.push(FinderRoot { place: Some(name), ..Self::checked(root, "the folder does not exist") });
         }
-        for path in granted {
+        for Granted { path, writable } in granted {
             let label = Self::label(&path);
             let root = self.root(Self::token(&path), path, &label, RootSource::Granted);
-            roots.push(Self::checked(root, "the folder no longer exists"));
+            roots.push(Self::checked(root, "the folder no longer exists").access(writable));
         }
         Ok(roots)
     }
@@ -210,5 +211,41 @@ mod tests {
         assert_eq!(read(&all.files(Files::new(&[], false), "other"), &token, "plan.md")["code"], "EACCES");
         assert!(matches!(app.call(FsCall::Revoke { root: token.clone() }), Ok(FsReply::Done)));
         assert_eq!(read(&app, &token, "plan.md")["code"], "EACCES");
+    }
+
+    #[test]
+    fn a_read_only_pick_is_a_root_that_refuses_writes() {
+        let home = Home::new("read-only");
+        let picked = home.0.join("Photos");
+        std::fs::create_dir_all(picked.join("album")).unwrap();
+        std::fs::write(picked.join("a.txt"), "a").unwrap();
+        let all = Workspace::at(&home.text());
+        let app = all.files(Files::new(&[], false), "viewer");
+        let token = Files::token(&app.grant_as(picked.to_str().unwrap(), false).unwrap());
+        let roots = json(app.call(FsCall::Roots));
+        assert_eq!(roots[1], json!({"id": token, "label": "Photos", "source": "granted", "mode": "read_only", "reason": null, "exists": true}));
+        let listed = json(app.call(FsCall::List { root: token.clone(), path: None, hidden: None }));
+        assert_eq!(listed["entries"].as_array().map(Vec::len), Some(2), "{listed}");
+        assert_eq!(read(&app, &token, "a.txt"), "a");
+        let refused = |call: FsCall| {
+            let answer = json(app.call(call));
+            (answer["status"].clone(), answer["code"].clone())
+        };
+        let eacces = (json!(403), json!("EACCES"));
+        assert_eq!(refused(FsCall::WriteFile { root: token.clone(), path: "b.txt".into(), data: Some(b"b".to_vec()), options: None }), eacces);
+        assert_eq!(refused(FsCall::Mkdir { root: token.clone(), path: "new".into(), options: None }), eacces);
+        assert_eq!(refused(FsCall::Rename { root: token.clone(), from: "a.txt".into(), to: "c.txt".into() }), eacces);
+        assert_eq!(refused(FsCall::Delete { root: token.clone(), path: "a.txt".into() }), eacces);
+        let copy =
+            |from: (&str, &str), to: &str| FsCall::Copy { from_root: from.0.into(), from_path: from.1.into(), to_root: to.into(), to_dir: String::new() };
+        assert_eq!(refused(copy(("private", ""), &token)), eacces);
+        assert_eq!(refused(copy((&token, "album"), &token)), eacces);
+        assert_eq!(json(app.call(copy((&token, "a.txt"), "private")))["name"], "a.txt");
+        assert!(!picked.join("b.txt").exists() && !picked.join("new").exists() && picked.join("a.txt").is_file());
+        app.grant_as(picked.to_str().unwrap(), true).unwrap();
+        assert_eq!(json(app.call(FsCall::Roots))[1]["mode"], "writable");
+        assert_eq!(write(&app, &token, "b.txt", "b")["name"], "b.txt");
+        assert!(matches!(app.call(FsCall::Revoke { root: token.clone() }), Ok(FsReply::Done)));
+        assert_eq!(read(&app, &token, "a.txt")["code"], "EACCES");
     }
 }
