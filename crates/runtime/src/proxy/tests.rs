@@ -191,8 +191,8 @@ fn deliver() -> (Deliver, async_channel::Receiver<Event>) {
 
 fn next(events: &async_channel::Receiver<Event>) -> Event {
     let events = events.clone();
-    let received = crate::rt::block_on(async move { ntex::time::timeout(Duration::from_secs(10), events.recv()).await });
-    received.expect("the executor").expect("an event in time").expect("an event")
+    let received = crate::rt::block_on(crate::rt::local(move || async move { ntex::time::timeout(Duration::from_secs(10), events.recv()).await }));
+    received.flatten().expect("the executor").expect("an event in time").expect("an event")
 }
 
 fn get(client: &FetchClient, url: &str) -> async_channel::Receiver<Event> {
