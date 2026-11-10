@@ -53,6 +53,7 @@ const { values } = parseArgs({
     sdk: { type: 'string', default: SDK_PIN },
     version: { type: 'string', default: SELF.version },
     out: { type: 'string', default: join(ROOT, '.dist') },
+    exe: { type: 'string' },
   },
 })
 
@@ -66,6 +67,11 @@ if (!existsSync(join(api, 'package.json')) || !existsSync(join(api, 'src', 'inde
 const sdk = JSON.parse(readFileSync(join(api, 'package.json'), 'utf8')) as { name?: string; version?: string }
 if (sdk.name !== '@dopame/acde-api' || sdk.version !== values.sdk) {
   throw new Error(`--api ${api} is ${sdk.name} ${sdk.version}, not @dopame/acde-api ${values.sdk}`)
+}
+
+const exe = values.exe === undefined ? null : resolve(values.exe)
+if (exe !== null && (!existsSync(exe) || readFileSync(exe).subarray(0, 2).toString('latin1') !== 'MZ')) {
+  throw new Error(`--exe ${exe}: not a Windows executable (exe/, cargo build --release)`)
 }
 
 const skill = join(ROOT, 'skills', 'acde')
@@ -85,6 +91,7 @@ copyFileSync(join(ROOT, 'scripts', 'acde.sh'), join(top, 'bin', 'acde'))
 chmodSync(join(top, 'bin', 'acde'), 0o755)
 const cmd = readFileSync(join(ROOT, 'scripts', 'acde.cmd'), 'utf8').replace(/\r?\n/g, '\r\n')
 writeFileSync(join(top, 'bin', 'acde.cmd'), cmd)
+if (exe !== null) copyFileSync(exe, join(top, 'bin', 'acde.exe'))
 for (const path of ['templates', 'skills', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))

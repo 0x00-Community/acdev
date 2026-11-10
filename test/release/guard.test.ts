@@ -30,6 +30,7 @@ function release(plant: Plant[] = [], tamper = false, acdert = `${VERSION}\n`, s
       writeFileSync(join(stage, top, path), text)
     }
     write('bin/acde', 'shim')
+    write('bin/acde.exe', 'MZ launcher')
     write('lib/acde/package.json', '{"name":"acde"}')
     write('lib/acde/dist/cli.js', 'console.log(1)\n')
     write('lib/acde/templates/app/index.html', '<!doctype html>')
@@ -71,6 +72,12 @@ describe('release guard', () => {
     const made = guard(release())
     expect(made.code, made.out).toBe(0)
     expect(made.out).toContain('are listed')
+  }, 180_000)
+
+  test('fails when bin/acde.exe in the archive is not a Windows executable', () => {
+    const made = guard(release([{ where: 'archive', path: 'bin/acde.exe', text: '#!/bin/sh' }]))
+    expect(made.code).toBe(1)
+    expect(made.out).toContain('bin/acde.exe is not a Windows executable')
   }, 180_000)
 
   test('fails on a file in the release that is not on the allow-list', () => {

@@ -111,8 +111,33 @@ jobs:
             exit 1
           fi
 
-  pkgs:
+  exe:
     needs: plan
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: acde
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - name: acde.exe, the Windows launcher (x64, static CRT)
+        working-directory: acde/exe
+        shell: pwsh
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo build --release --locked --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = Get-Item target/x86_64-pc-windows-msvc/release/acde.exe
+          "acde.exe: $($exe.Length) bytes"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: acde-exe
+          path: acde/exe/target/x86_64-pc-windows-msvc/release/acde.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  pkgs:
+    needs: [plan, exe]
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ needs.plan.outputs.tag }}
@@ -173,6 +198,10 @@ jobs:
               throw new Error("placed " + placed.name + "@" + placed.version + ", want " + process.argv[2])
             }
           ' "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" "$SDK_VERSION"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: acde-exe
+          path: in/exe
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: install
         working-directory: acde
@@ -182,7 +211,7 @@ jobs:
         run: |
           v=${TAG#v}
           bun scripts/dist.ts --api "$GITHUB_WORKSPACE/acdert/web/packages/acde-api" --sdk "$SDK_VERSION" \
-            --version "$v" --out "$GITHUB_WORKSPACE/out"
+            --version "$v" --out "$GITHUB_WORKSPACE/out" --exe "$GITHUB_WORKSPACE/in/exe/acde.exe"
       - name: the version directory names the acdert it pairs with, in its SHA256SUMS
         run: |
           set -eu
@@ -217,6 +246,10 @@ jobs:
             echo "::error::bin/acde does not start the CLI"
             exit 1
           fi
+          test "$(head -c 2 "smoke/acde-$v/bin/acde.exe")" = MZ || {
+            echo "::error::bin/acde.exe is missing or not a Windows executable"
+            exit 1
+          }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: acde-release
