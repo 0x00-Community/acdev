@@ -206,6 +206,33 @@ describe('acde.config.jsonc', () => {
     expect(app.requests).toEqual(['add-note'])
   })
 
+  test('check: the SDK validator judges the config at level 1 before anything builds', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
+    const write = (config: object) => writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify(config))
+    write({ type: 'app', id: 'lv', capabilities: { fs: { roots: ['/srv'] }, bogus: true, windows: true } })
+    const app = await cli(['check'], dir)
+    expect(app.code).toBe(1)
+    expect(app.stderr).toContain('app "lv": fs.roots "/srv" is not a shared place (desktop, documents')
+    expect(app.stderr).toContain('app "lv": capability "bogus" is not a system capability')
+    expect(app.stderr).toContain('app "lv": acde:windows is a shell module: only apps of a desktop package')
+    write({ type: 'app', id: 'lv', capabilities: {}, services: ['fs'] })
+    const reserved = await cli(['check'], dir)
+    expect(reserved.code).toBe(1)
+    const message = 'service "fs" has the name of a system module (acde:fs); system module names are reserved'
+    expect(reserved.stderr.split(message).length).toBe(2)
+    const places = { fs: { roots: ['documents'] } }
+    write({ type: 'app', id: 'lv', capabilities: places, schemes: ['web+lv'], requests: ['task'] })
+    expect((await cli(['check'], dir)).code).toBe(0)
+    write({ type: 'desktop', id: 'dk', services: { fs: 'index.html' }, apps: [] })
+    expect((await cli(['check'], dir)).stderr).toContain(`error: ${message}`)
+    const shell = { id: 'sys', entry: 'index.html', capabilities: { windows: true } }
+    write({ type: 'desktop', id: 'dk', apps: [shell] })
+    const system = await cli(['check'], dir)
+    expect(system.stderr).toBe('')
+    expect(system.code).toBe(0)
+  })
+
   test('new app: builds a window app from index.html', async () => {
     const data = tmp()
     const dir = join(tmp(), 'hello')

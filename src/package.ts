@@ -3,9 +3,9 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
-import type { WindowAppConfig } from '@dopame/acde-api'
+import type { AppManifest as AppEntry, WindowAppConfig } from '@dopame/acde-api'
 import {
-  Manifest, platformSupport, RUNNING_MODES,
+  API_LEVEL, Manifest, platformSupport, RUNNING_MODES,
   type AppManifest, type Capabilities, type Findings, type PackageManifest, type RunningMode,
 } from '@dopame/acde-api/manifest'
 import { Project } from './app.ts'
@@ -21,6 +21,12 @@ interface Declared {
   readonly id: string
   readonly capabilities: Capabilities
   readonly optional: readonly string[]
+}
+
+interface ConfigApp {
+  readonly raw: AppEntry
+  readonly system: boolean
+  readonly entries: readonly string[]
 }
 
 export interface Built {
@@ -85,11 +91,49 @@ export class AppPackage {
   }
 
   check(): Findings {
-    const findings = this.manifest
-      ? AppPackage.check(this.dir, this.manifest)
-      : { errors: this.project!.check(), warnings: [] }
+    const findings = this.manifest ? AppPackage.check(this.dir, this.manifest) : this.#configFindings()
     findings.errors.push(...this.imports())
-    return findings
+    return { errors: [...new Set(findings.errors)], warnings: [...new Set(findings.warnings)] }
+  }
+
+  #configFindings(): Findings {
+    const project = this.project!
+    const errors = project.check()
+    const apps = this.#configApps()
+    if (!apps) return { errors, warnings: [] }
+    const config = project.config
+    const names = config.type === 'desktop' ? Object.keys(config.services ?? {}) : []
+    const manifest: PackageManifest = {
+      apiLevel: API_LEVEL,
+      apps: apps.map((app) => app.raw),
+      ...(config.type === 'desktop' && {
+        desktops: [{ id: project.id, name: project.id, entry: 'desktop/index.html', services: names }],
+      }),
+      services: names.map((name) => ({ name, module: `services/${name}.js` })),
+    }
+    const findings = Manifest.check(manifest, () => true, () => true)
+    return { errors: [...errors, ...findings.errors], warnings: findings.warnings }
+  }
+
+  #configApps(): ConfigApp[] | null {
+    const project = this.project!
+    const config = project.config
+    const raw = (id: string, app: WindowAppConfig): AppEntry =>
+      ({ ...app, id, label: app.label ?? id, icon: 'app', entry: `/app/${id}/index.html`, backend: undefined })
+    let id: string
+    let framework: string | null
+    try {
+      id = project.id
+      framework = project.framework
+    } catch {
+      return null
+    }
+    if (config.type === 'desktop') {
+      return (config.apps ?? []).map((app) =>
+        ({ raw: raw(app.id, app), system: true, entries: [resolve(project.dir, app.entry)] }))
+    }
+    const entries = framework ? Imports.sources(project.dir) : [resolve(project.dir, config.entry ?? 'index.html')]
+    return [{ raw: raw(id, config), system: false, entries }]
   }
 
   imports(): string[] {
@@ -110,23 +154,7 @@ export class AppPackage {
       return [...errors, ...Imports.check(this.dir, owners, (url) => AppPackage.asset(this.dir, manifest, url))]
     }
     const project = this.project!
-    const config = project.config
-    const raw = (id: string, app: WindowAppConfig) =>
-      ({ ...app, id, label: app.label ?? id, icon: 'app', entry: `/app/${id}/index.html`, backend: undefined })
-    if (config.type === 'desktop') {
-      for (const app of config.apps ?? []) add(raw(app.id, app), true, [resolve(project.dir, app.entry)])
-    } else {
-      let id: string
-      let framework: string | null
-      try {
-        id = project.id
-        framework = project.framework
-      } catch {
-        return []
-      }
-      const entry = resolve(project.dir, config.entry ?? 'index.html')
-      add(raw(id, config), false, framework ? Imports.sources(project.dir) : [entry])
-    }
+    for (const app of this.#configApps() ?? []) add(app.raw, app.system, app.entries)
     return [...errors, ...Imports.check(project.dir, owners, (url) => join(project.dir, url))]
   }
 
