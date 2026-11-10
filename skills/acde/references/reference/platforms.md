@@ -8,7 +8,7 @@ The host window used for development (`acde dev`) runs on macOS, Windows, and Li
 | `acde:fs`, file pickers | ✓ | ✓ | ✓ | ✓ |
 | Sound, clipboard | ✓ | ✓ | ✓ | ✓ |
 | System notifications | ✓ | Only in a desktop, which shows them | ✓ | Shown by the desktop |
-| App backends | ✓ | Not yet | ✓ | ✓ |
+| App backends | ✓ | ✓ (see [Backend](../guide/backend.md#on-windows)) | ✓ | ✓ |
 | `acde:terminal` (`terminal`) | ✓ | ✓ | ✓ | ✓ |
 | Camera and microphone (`camera`, `microphone`) | ✓ | | ✓ | ✓ |
 | `acde:network`, `acde:office` (`network`, `office`) | | | ✓ | ✓ |

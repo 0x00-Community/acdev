@@ -66,7 +66,9 @@ irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 & ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version 0.1.0 -NoModifyPath
 ```
 
-### Installer options
+## Installer options
+
+Both installers take the same options, each in its own form:
 
 | Option | `install.sh` | `install.ps1` |
 | --- | --- | --- |
@@ -74,7 +76,7 @@ irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 | Leave startup files / the user `Path` alone | `--no-modify-path` | `-NoModifyPath` or `ACDE_NO_MODIFY_PATH` set to any value |
 | Install somewhere else than `~/.acde` | `ACDE_INSTALL` | `ACDE_INSTALL` |
 
-Environment variables set this way stay set in that terminal; remove them afterwards (`Remove-Item Env:ACDE_VERSION`) if a later install should take the defaults.
+In PowerShell, environment variables set this way stay set in that terminal; remove them afterwards (`Remove-Item Env:ACDE_VERSION`) if a later install should take the defaults.
 
 ## Verify
 
@@ -90,7 +92,7 @@ It prints the acde version, the SDK version and contract level it was built with
 
 ## The runtime
 
-`acde dev` and `acde test` run your app in the runtime, acdert. The installer puts the acdert release that this acde pairs with next to it: the binary as `bin/acdert` (`acdert.exe` on Windows) and its host files as `bin/app/`, both checked against the release's `SHA256SUMS`. The pairing is recorded with each acde release, so `--version` installs the matching runtime too. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had. Inside the Dopame virtual machine, `acdert` is already on PATH.
+`acde dev` and `acde test` run your app in the runtime, acdert. The installer puts the acdert release that this acde pairs with next to it: the binary as `bin/acdert` (`acdert.exe` on Windows) and its host files as `bin/app/`, both checked against the release's `SHA256SUMS`. The pairing is recorded with each acde release, so installing a specific version of acde (the installer's `--version X.Y.Z`, or `-Version X.Y.Z` on Windows) installs the runtime that version pairs with. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had. Inside the Dopame virtual machine, `acdert` is already on PATH.
 
 acde looks for the runtime in this order:
 
@@ -104,7 +106,7 @@ The runtime renders pages only on the GPU, so it needs a working GPU (Metal on m
 
 ### Install the runtime by hand
 
-Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine, and set `ACDERT` to the result. Each runtime release is in `https://pkgs.dopame.ai/acdert/<version>/`, and `https://pkgs.dopame.ai/acdert/latest.json` names the latest version. A release has:
+Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is an `acdert` binary with its `app/` directory next to it; set `ACDERT` to the path of that binary (`~/.acdert/acdert` in the commands below). Each runtime release is in `https://pkgs.dopame.ai/acdert/<version>/`, and `https://pkgs.dopame.ai/acdert/latest.json` names the latest version. A release has:
 
 | File | What it is |
 | --- | --- |
@@ -164,7 +166,7 @@ On Windows, in PowerShell:
 }
 ```
 
-This sets `ACDERT` for your user and for the current terminal. App backends don't run on Windows yet; see [Platform support](../reference/platforms.md).
+This sets `ACDERT` for your user and for the current terminal.
 
 To upgrade the runtime, run the same commands again. Check that it works with a new project:
 

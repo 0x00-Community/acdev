@@ -40,8 +40,8 @@ const USAGE = `usage: acde <command>
   shot <web> [-o FILE]                             a PNG of the web's window (default ./<web>.png), print its path
   inspect [--window W] [--find TEXT] [--all] [--offscreen]
                                                    the desktop as text (acde:inspect snapshot);
-                                                   --offscreen: scrolled-out too; --all: every window, and
-                                                   elements hidden by opacity: 0 or visibility
+                                                   --offscreen: scrolled-out too; --all: every window not marked
+                                                   [minimized], and elements hidden by opacity: 0 or visibility
   query <selector> [--window W] [--ref REF] [--limit N]
                                                    the elements a CSS selector matches in the focused window (or W, or
                                                    under REF), each with a ref act takes; also what inspect leaves out

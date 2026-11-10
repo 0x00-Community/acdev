@@ -4,7 +4,7 @@
 acde <command> [args]
 ```
 
-On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an unknown action for `act`, a level for `console` …) names what is wrong and the `acde <command> --help` to read; the full usage is printed only by `acde` with no command.
+On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an action `act` does not know, a level `console` does not know, …) is answered with one line that names what is wrong and the `acde <command> --help` to read, such as `acde: console: --level loud: one of log, info, warn, error, debug, errors (acde console --help)`; the full usage is printed only by `acde` with no command.
 
 `acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color follows `NO_COLOR`.
 
@@ -35,7 +35,11 @@ acde check [dir] [--platform windows|macos|linux]
 
 Checks the config (id, entry, icon, service modules, framework) and the manifest rules of the SDK, or the manifest and entry files of a handwritten package, and the `acde:` imports against the manifest.
 
-`--platform` lists the capabilities an app requires that the platform cannot provide in each way of running (an error), or that it declares optional (a note).
+`--platform` adds a check of the app's declared capabilities against what that platform has, once for each way of running an app there (`desktop` and `standalone`, on Linux also `session`):
+
+- A required capability that the platform lacks is an error: `error: windows (desktop): app "notes" requires network, which this mode lacks`.
+- An optional capability that it lacks is a note, and no error: `note: windows (desktop): app "notes" runs without optional camera, which this mode lacks`.
+- When no required capability is missing, the last line is `ok: linux (session, desktop, standalone): every required capability is there`.
 
 ### acde build
 
@@ -88,7 +92,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `--window` | `inspect`, `query`: this window (`w1`) instead of the focused one |
 | `--ref` | `query`: search only under this element (`w1.12`) |
 | `--limit` | `query`: list at most this many elements (1 to 3000, default 600) |
-| `--all` | `inspect`: every window, and elements hidden by `opacity: 0` or `visibility`. `allow`, `deny`: every waiting prompt |
+| `--all` | `inspect`: every window that is not marked `[minimized]`, and elements hidden by `opacity: 0` or `visibility`. `allow`, `deny`: every waiting prompt |
 
 `acde query` prints `N in <window>:` and one line per element, or `nothing in <window> matches "<selector>"`; both exit with code 0. `acde act` prints what it did and what changed, and exits with code 1 when the action was not done (the reason is then the only line).
 
@@ -146,4 +150,4 @@ acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS
 | `--trace` | Leave a `trace.html` for every test |
 | `-u`, `--update-screenshots` | Rewrite screenshot baselines |
 
-See [Testing](../guide/testing.md).
+The run ends with a line that counts tests (`acde test: 5 tests ran: 4 passed, 1 failed`) and a last line that counts files (`acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).

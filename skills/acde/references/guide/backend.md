@@ -2,7 +2,7 @@
 
 An app can have a backend: a module that exports `fetch`, or any Node.js / Bun server that calls `listen()` (Express, Hono, Fastify, ...). Pages reach it with a plain `fetch('/api/…')`.
 
-> App backends currently work only on macOS and Linux; Windows support is in progress.
+App backends run on macOS, Linux and Windows. On Windows the runtime reaches the backend in another way; see [On Windows](#on-windows).
 
 ## Write a backend
 
@@ -59,22 +59,31 @@ As a result:
 - Requests from the page to same-origin paths (`/api/x`) or to `http://localhost:<port>/…` (and `127.0.0.1`, `[::1]`, `0.0.0.0`) all go to the app's own backend.
 - UDP `bind` to a specific port is rejected (`EACCES`); ports opened by native extensions on their own aren't covered.
 
+## On Windows
+
+The same build runs on Windows, and there too the backend opens no TCP port and no named pipe. How the runtime reaches it depends on what runs it:
+
+- **Bun**: as on macOS and Linux, `listen(P)` becomes a socket file `P.sock`. Its directory (`ACDE_APP_SOCKETS`) is made anew each time the backend starts, and only the current user and the system can open it.
+- **Node.js**: Node.js cannot listen on a socket file on Windows, so nothing listens at all. The preload keeps the server that called `listen(P)`, and the runtime hands it every connection (HTTP requests and WebSocket upgrades) through a private pipe to the backend process. The backend gets `ACDE_APP_CHANNEL=fd` and no `ACDE_APP_SOCKETS`. A backend built by an acde from before this is not started on Windows; the log says `not started: acde-listen.js does not support the Windows channel (built by an older acde: acde build it again)`.
+
+To stop a backend on Windows the runtime asks it to shut down: it takes no new connections, finishes the requests in progress and exits; after 3 seconds the runtime ends it together with the processes it started.
+
 ## Bundling
 
 `acde build` bundles the backend into a single ES module, `backend/server.js` (target node): npm packages are bundled in, while Node built-in modules and `bun` / `bun:*` stay as imports. The same output runs on both Bun and Node.js.
 
 ## Running
 
-- The backend starts **when the app's first window opens** and stops **when its last window closes** (SIGTERM, then SIGKILL after 3 seconds). After the 4th crash within a minute, it's no longer restarted automatically.
+- The backend starts **when the app's first window opens** and stops **when its last window closes** (on macOS and Linux with SIGTERM, then SIGKILL after 3 seconds; for Windows see [above](#on-windows)). After the 4th crash within a minute, it's no longer restarted automatically.
 - It runs on Bun if `bun` is on PATH, otherwise on Node.js (≥ 22.3). `acde dev` picks based on the project's JavaScript runtime.
 - The environment is built from scratch: `ACDE_APP_ID`, `ACDE_APP_DATA`, `ACDE_APP_SOCKETS`, `PORT`, `NODE_ENV=production`, plus the session's `HOME`, `PATH`, `LANG`, and so on, and the proxy variables below. Nothing else is inherited from your terminal.
-- Proxy settings are passed on. If the session sets any of `http_proxy`, `https_proxy` or `all_proxy`, the backend gets `http_proxy`, `https_proxy`, `all_proxy` and `no_proxy` as the session has them (on macOS and Linux under both the lower-case and the upper-case names, as set; on Windows, where variable names ignore case, under the upper-case names). If none is set, the backend gets the system's manual proxy, the same settings pages use: on Windows the HTTP proxy from the user's Internet settings (a `socks=` entry becomes `all_proxy=socks4a://host:port`), on macOS the HTTP, HTTPS and SOCKS proxies from the network settings (SOCKS becomes `socks5h://host:port`); on macOS and Linux both name cases are set. `no_proxy` then holds the session's `no_proxy`, the system's exceptions in `no_proxy` form (`*.example.com` becomes `.example.com`, `192.168.*` becomes `192.168.0.0/16`; other wildcards, Windows' `<local>` and macOS's "exclude simple hostnames" have no `no_proxy` form and are left out), and `localhost,127.0.0.1,::1`. A proxy auto-config script or automatic proxy discovery answers per URL and can't be expressed as variables, so with those the backend gets no system proxy (on Windows, "Automatically detect settings" alone still passes the manual proxy). The settings are read each time a backend starts. Linux has no system source: only the session's variables count. Your HTTP client still has to honour these variables (Bun's `fetch` and many npm clients do; Node.js's built-in `fetch` does not by default).
+- Proxy settings are passed on. If the session sets any of `http_proxy`, `https_proxy` or `all_proxy`, the backend gets `http_proxy`, `https_proxy`, `all_proxy` and `no_proxy` as the session has them (on macOS and Linux under both the lower-case and the upper-case names, as set; on Windows, where variable names ignore case, under the upper-case names). If none is set, the backend gets the system's manual proxy, the same settings pages use. Only Windows and macOS have one: on Windows the HTTP proxy from the user's Internet settings (a `socks=` entry becomes `all_proxy=socks4a://host:port`), set under the upper-case names; on macOS the HTTP, HTTPS and SOCKS proxies from the network settings (SOCKS becomes `socks5h://host:port`), set under both the lower-case and the upper-case names. `no_proxy` then holds the session's `no_proxy`, the system's exceptions in `no_proxy` form (`*.example.com` becomes `.example.com`, `192.168.*` becomes `192.168.0.0/16`; other wildcards, Windows' `<local>` and macOS's "exclude simple hostnames" have no `no_proxy` form and are left out), and `localhost,127.0.0.1,::1`. A proxy auto-config script or automatic proxy discovery answers per URL and can't be expressed as variables, so with those the backend gets no system proxy (on Windows, "Automatically detect settings" alone still passes the manual proxy). The settings are read each time a backend starts. Linux has no system proxy setting to read: only the session's variables count there. Your HTTP client still has to honour these variables (Bun's `fetch` and many npm clients do; Node.js's built-in `fetch` does not by default).
 - The working directory is `$XDG_DATA_HOME/acde/apps/<id>/`; the app can keep its own data here.
 - Backend output goes to the runtime's log, prefixed with `[<id>#backend]`. `acde dev` prints it in your terminal.
 
 ## Running it directly
 
-To debug the built backend on its own, without the runtime, give it a socket directory and load the preload that `acde build` put next to it:
+To debug the built backend on its own, without the runtime, give it a socket directory and load the preload that `acde build` put next to it (the commands are for macOS and Linux):
 
 ```sh
 acde build

@@ -445,6 +445,15 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 - 命令、参数、配置字段、清单、`acde:` 模块、测试 API、MCP 工具、对外可见的行为变了, **同一个提交里改 skill**. 不去改 www 里生成的英文页
   (那边的检查会拦). acdert 一侧的变化 (模块、平台差异、Web 兼容性) 也改在这里.
 - skill 只写对外的用法 (怎么用、会看到什么), 不写实现; 实现和取舍写在本文件.
+- skill 里引的输出要是工具真的打出来的, 按它出现的场合逐字引 (2026-11-11 对着 acdert 0.0.9 重跑过): 拒绝必需能力时单应用的 `acde dev`
+  日志是 `acdert app <id>: <名字>: "<能力>" is denied by the user`, 桌面里触发提示的 `apps.open()` 以 `<名字>: "<能力>" is denied by the user`
+  (403 `denied`) 拒绝, 之后再开是 `<名字> needs "<能力>" (denied by the user)` (404); `fs` 调用没批准的位置 (没问过或被拒) 的错误消息也是前一句.
+  `inspect --find` 的窗口行是另一种格式 (`w1 notes "Notes":`, 桌面 `w0 desktop:`). `inspect --all` / `--find` 跳过的是窗口行标了
+  `[minimized]` 的窗口: 实测宿主窗口会话里 `act w1 minimize` 后窗口 `state` 是 `minimized` 但 `hidden` 仍是 false, 运行时的 inspect 按 `hidden`
+  标 `[minimized]`, 所以这样的窗口没标记、`--all` 照列; 桌面 `windows.hide()` 的窗口才有标记 (这是运行时的事, 文档照实写成「没标 `[minimized]` 的」).
+  `acde check` 的错误里应用 id 有的带引号有的不带 (`app "notes":` / `app notes:`), 两种都出自 SDK (`Manifest.check` 带, `Manifest.app` 不带), 文档照实.
+  **Windows 上的后端**: skill 现在写「能跑」, 依据是两边的源码和说明 (本文件「Windows 后端契约」、acdert AGENTS.md 同名一节和它的验收脚本
+  `scripts/check-backends.sh`), 没有在 Windows 上重跑; `tools.md` 里 cmd 的引号写法 (`\"`) 也只是按 MSVC 的命令行规则写的, 没在 Windows 上试.
 
 **结构**
 
@@ -539,7 +548,7 @@ install.ps1 和 `bin/acde`; 篡改、缺文件、没有本平台构建、没有�
 它从安装目录定位安装器放进去的运行时和随包的 SDK。install.sh 的分发测试只在 macOS 和 Linux 上运行。开发会话测试使用替身运行时，真实启动和正常退出须单独用实际运行时验证。
 
 Windows 跳过 `install.sh`、Unix 会话权限与 Unix 域套接字文件清理、Node.js 后端文件系统套接字场景。
-应用后端的 Windows 运行时支持由 [acdert#4](https://github.com/dopame-org/acdert/issues/4) 跟踪。Bun 预加载的新套接字请求、
+应用后端的 Windows 运行时一侧见「Windows 后端契约」（最初由 [acdert#4](https://github.com/dopame-org/acdert/issues/4) 跟踪）。Bun 预加载的新套接字请求、
 Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试仍验证套接字 HTTP 响应，跳过对进程网络套接字的枚举。
 未安装对应工具时，测试会跳过 npm、pnpm 或 Unix Node.js 后端的相关场景。
 

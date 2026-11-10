@@ -56,7 +56,7 @@ Each key of `api` is a module name (a namespace), and its value is a set of meth
 Names:
 
 - Give the service one namespace with the service's own name. The runtime gives an app that lists `clock` every namespace of that service, but `acde check` and `acde build` cannot know a service's namespaces: they judge an `import … from 'acde:timer'` in an app by the names in its `services`, and stop with `acde:timer is a desktop service: list "timer" in the services of Notes` when `timer` is a second namespace of `clock`. Do not follow that hint in this case: listing `timer` makes the app require a service of that name, and it no longer starts (`Notes needs "timer" (service not running)`). Make `timer` a service of its own instead.
-- A service cannot have the name of a system module or capability (`fs`, `open`, `window`, `windows`, `apps`, `launch`, `desktop`, `session`, `capabilities`, `notifications`, ...): `acde check` says `service "fs" has the name of a system module (acde:fs); system module names are reserved`. A namespace with such a name is left out when the service starts, with a log line (`[clock] acde.fs is taken; left out`).
+- A service cannot have the name of a system module or capability (`fs`, `open`, `window`, `windows`, `apps`, `launch`, `desktop`, `session`, `capabilities`, `notifications`, ...): `acde check` says `service "fs" has the name of a system module (acde:fs); system module names are reserved`. A namespace with such a name is left out when the service starts, and the runtime logs a line that ends, word for word, `[clock] acde.fs is taken; left out` (it writes the namespace as `acde.fs`, with a dot).
 
 ## ServiceContext
 

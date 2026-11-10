@@ -66,7 +66,7 @@ error: src/main.js:1: app "notes": acde:terminal needs "terminal" in the capabil
 error: src/main.js:2: app "notes": acde:windows is a shell module: only the desktop, its services and system apps may import it, and Notes is not a system app
 ```
 
-A path in `fs.roots` is answered with the name to write instead: `fs.roots "~/Documents" is not a shared place: write "documents", the runtime finds that folder through the system (also when it was moved)`. An `optional` name that is not in `capabilities` is reported first, on its own: `error: app notes: optional "launch" is not in capabilities (optional lists declared capabilities that the app can run without)`.
+A path in `fs.roots` is answered with the name to write instead: `fs.roots "~/Documents" is not a shared place: write "documents", the runtime finds that folder through the system (also when it was moved)`. An `optional` name that is not in `capabilities` is reported first, on its own: `error: app notes: optional "launch" is not in capabilities (optional lists declared capabilities that the app can run without)`. That line really names the app without quotes, unlike the ones above; match either form when you read these lines by program.
 
 `acde check --platform windows` (or `macos`, `linux`) adds what that platform lacks: a required capability it does not have is an error, an optional one a note.
 

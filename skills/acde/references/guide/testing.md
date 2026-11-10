@@ -75,14 +75,14 @@ await locator.hover()
 await locator.fill('text')       // replaces
 await locator.type('text')       // appends
 await locator.clear()
-await locator.press('ctrl+a backspace') // key names: see Tools, "Key names"
+await locator.press('ctrl+a backspace') // key names: see "Key names" in Debugging
 await locator.selectOption('beta')
 await locator.check() / uncheck() / setChecked(true)
 await locator.dragTo(other)
 await locator.scroll(400)
 ```
 
-`click`, `fill`, and similar actions wait for the element to be enabled (not `disabled`), and retry until the timeout when they fail.
+`click`, `fill`, and similar actions wait for the element to be enabled (not `disabled`), and retry until the timeout when they fail. The keys `press` takes are listed under [Key names](tools.md#key-names).
 
 ## Assertions
 

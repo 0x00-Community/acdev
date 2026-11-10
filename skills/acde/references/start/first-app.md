@@ -18,7 +18,7 @@ Available templates:
 
 | Template | What it is |
 | --- | --- |
-| `html` | A plain web page (default); add `--backend` to include a backend (backends don't run on Windows yet) |
+| `html` | A plain web page (default); add `--backend` to include a backend |
 | `desktop` | A desktop (see [Desktops](../guide/desktop.md)) |
 | `react` `vue` `svelte` `solid` `preact` `vanilla` | create-vite templates |
 | `next` `nuxt` `sveltekit` `astro` | Each framework's official scaffolding tool |

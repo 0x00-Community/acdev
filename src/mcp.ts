@@ -20,8 +20,8 @@ const INSTRUCTIONS = [
     + `dev here and keeps its output for logs); sessions lists them and pins one.`,
   `- Look with snapshot: windows first (w0 is the desktop, w1, w2 … the others), then the focused window's elements, `
     + `one per line with a ref like [w3.12]. find narrows to elements whose name or value contains a text; window `
-    + `picks a window; all lists every window and keeps elements hidden by opacity: 0 or visibility (marked `
-    + `transparent / invisible).`,
+    + `picks a window; all lists every window not marked [minimized] and keeps elements hidden by opacity: 0 or `
+    + `visibility (marked transparent / invisible).`,
   `- Act with act / run on those refs (click, type, settext, key "ctrl+a backspace", scroll, …). The answer waits for `
     + `the page to settle and ends with what changed in the window, so another snapshot is rarely needed. A ref stays `
     + `the same while its element lives (moved, retexted or restyled); when the page replaces the element it gets a `
@@ -237,8 +237,8 @@ export class Mcp {
           window: z.string().optional().describe('a window ref (w3) to list instead of the focused one'),
           ref: z.string().optional().describe('an element ref (w3.12): list only what is under it'),
           find: z.string().optional().describe('only elements whose name or value contains this text '
-            + '(case-insensitive), with their ancestors, in every window'),
-          all: z.boolean().optional().describe('list every window that is not minimized, and keep elements hidden by '
+            + '(case-insensitive), with their ancestors, in every window not marked [minimized]'),
+          all: z.boolean().optional().describe('list every window not marked [minimized], and keep elements hidden by '
             + 'opacity: 0 or visibility (marked transparent / invisible); display: none, aria-hidden and inert '
             + 'stay out'),
           diff: z.boolean().optional().describe('only what changed since the last snapshot of that window (+ added, ~ '

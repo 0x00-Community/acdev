@@ -78,7 +78,7 @@ Everything in `capabilities` is required by default: if the platform lacks one, 
 
 - The app starts without asking the user, and it also starts on a platform that lacks the capability.
 - An optional module must not be imported statically (`acde check`: `acde:terminal is optional ("terminal" is in optional): reach it with load('terminal') from @dopame/acde-api instead of importing it`). Get it with `load()`, which resolves to `null` while the module is unavailable.
-- A capability that needs approval is asked for when the page calls `request(name)` from `acde:capabilities`. It resolves with the capability's status once the user has answered; when the user allowed it, `load()` returns the module from then on.
+- A capability that needs approval is asked for when the page calls `request(name)` from `acde:capabilities`. It resolves with the capability's status once the user has answered. Only when the user allowed it (`state: 'available'`) does `load()` return the module from then on; when the user denied it, the state is `denied` and `load()` keeps resolving to `null`.
 
 ```js
 import { load } from '@dopame/acde-api'
