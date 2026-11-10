@@ -3,6 +3,8 @@ mod atspi;
 #[cfg(target_os = "linux")]
 mod bus;
 pub mod channel;
+#[cfg(windows)]
+mod conpty;
 mod failure;
 mod fetch;
 pub(crate) mod fs;
@@ -23,7 +25,6 @@ mod proxy;
 mod pty;
 mod rt;
 mod sync;
-#[cfg(unix)]
 mod terminal;
 #[cfg(target_os = "linux")]
 mod voice;
@@ -33,7 +34,6 @@ pub use atspi::Accessibility;
 pub use bus::DesktopBus;
 pub use fetch::{Deliver, Dial, Event as FetchEvent, FetchClient};
 pub use fs::{EntryKind, Files, Finder, FsCall, FsError, FsReply, PickedFolders, Workspace};
-pub use proxy::backend_variables as backend_proxy_variables;
 #[cfg(target_os = "linux")]
 pub use greetd::{GreetUser, Greetd};
 #[cfg(target_os = "linux")]
@@ -44,7 +44,7 @@ pub use network::{NetCall, Networks};
 pub use office::{OfficeCall, OfficeService};
 #[cfg(target_os = "linux")]
 pub use portal::{Appearance, FileChooser, Filter as PortalFilter, choose_folder, open_files, save_file};
-#[cfg(unix)]
+pub use proxy::backend_variables as backend_proxy_variables;
 pub use terminal::Terminals;
 #[cfg(target_os = "linux")]
 pub use voice::Voice;

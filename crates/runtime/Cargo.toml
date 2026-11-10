@@ -51,14 +51,20 @@ rustix = { version = "1", features = ["event", "fs", "process", "pty", "termios"
 libc = "0"
 
 # Windows: what std has no API for (not following a symlink when opening; a TLS chain whose root Windows has not downloaded yet;
-# the proxy of the user's Internet settings, WinHTTP)
+# the proxy of the user's Internet settings, WinHTTP; the terminal's pseudo console, its job object and pipes)
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0", features = [
     "Win32_Foundation",
     "Win32_Networking_WinHttp",
+    "Win32_Security",
     "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_Environment",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
     "Win32_UI_Shell",
 ] }
 

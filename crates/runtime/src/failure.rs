@@ -8,7 +8,6 @@ pub(crate) enum Code {
     HttpError,
     InvalidRequest,
     InternalError,
-    #[cfg(unix)]
     #[serde(untagged)]
     Service(String),
 }

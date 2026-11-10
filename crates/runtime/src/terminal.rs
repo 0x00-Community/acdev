@@ -1,31 +1,31 @@
 use crate::failure::{Code, Failure, Outcome};
 use crate::sync::Locked;
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
-use rustix::fs::{Access, OFlags, access, fcntl_setfl};
-use rustix::io::Errno;
-use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
-    os::fd::OwnedFd,
-    os::unix::process::ExitStatusExt,
-    process::Child,
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as platform;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as platform;
+
+use platform::{Master, Wake};
 
 type Result<T> = std::result::Result<T, String>;
 
 const MAX_TERMINALS: usize = 8;
 const ATTACH: Duration = Duration::from_secs(15);
 const ENDED: Duration = Duration::from_secs(30);
-const CWD_EVERY: Duration = Duration::from_secs(1);
 const DRAIN: Duration = Duration::from_millis(300);
 const KILL_AFTER: Duration = Duration::from_secs(3);
 const BACKLOG_UNITS: usize = 256 * 1024;
-const BATCH_BYTES: usize = 256 * 1024;
-const LINGER_BYTES: usize = 64 * 1024;
-const LINGER: Duration = Duration::from_millis(4);
 const MAX_INPUT_UNITS: usize = 64 * 1024;
 
 type Listener = dyn Fn(Value) -> bool + Send + Sync;
@@ -77,18 +77,16 @@ struct State {
 
 struct Session {
     id: String,
-    pid: u32,
-    master: Mutex<Option<Arc<OwnedFd>>>,
+    master: Mutex<Option<Arc<Master>>>,
     wake: Wake,
     state: Mutex<State>,
-    home: String,
 }
 
 impl Session {
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.locked()
     }
-    fn master(&self) -> Option<Arc<OwnedFd>> {
+    fn master(&self) -> Option<Arc<Master>> {
         self.master.locked().clone()
     }
     fn wake(&self) {
@@ -131,20 +129,30 @@ impl Session {
     }
 
     fn hang_up(&self) {
-        if self.master.locked().take().is_some() {
+        let master = self.master.locked().take();
+        if let Some(master) = master {
             let mut state = self.state();
             if !state.ended {
                 state.deadlines.kill = Some(Instant::now() + KILL_AFTER);
             }
+            drop(state);
+            platform::release(master);
         }
         self.wake();
     }
 
-    fn display(&self, path: &str) -> String {
-        match path.strip_prefix(self.home.as_str()) {
-            Some("") => "~".into(),
-            Some(rest) if rest.starts_with('/') => format!("~{rest}"),
-            _ => path.into(),
+    fn end(&self, registry: &Registry, rest: String, exit: Value) {
+        self.emit(vec![Session::output(rest), exit]);
+        let subscribed = {
+            let mut state = self.state();
+            state.ended = true;
+            state.deadlines.kill = None;
+            state.deadlines.removal = Some(Instant::now() + if state.listeners.is_empty() { ENDED } else { Duration::ZERO });
+            !state.listeners.is_empty()
+        };
+        self.hang_up();
+        if subscribed {
+            registry.close(self);
         }
     }
 }
@@ -170,171 +178,6 @@ impl Registry {
     }
 }
 
-struct Io<'a> {
-    registry: &'a Registry,
-    session: &'a Session,
-    child: Child,
-    pidfd: Option<OwnedFd>,
-    decoder: Utf8Stream,
-    exited: Option<(Instant, std::process::ExitStatus)>,
-    drained: bool,
-    cwd: String,
-    next_cwd: Instant,
-}
-
-impl Io<'_> {
-    fn run(mut self) {
-        let mut buffer = vec![0u8; 64 * 1024];
-        loop {
-            let (closed, ended, deadlines, pending_input) = {
-                let state = self.session.state();
-                (state.closed, state.ended, [state.deadlines.removal, state.deadlines.kill], !state.input.is_empty())
-            };
-            if closed && ended && self.exited.is_some() {
-                return;
-            }
-            let master = self.session.master().filter(|_| !self.drained);
-            let now = Instant::now();
-            let drain = self.exited.filter(|_| !ended).map(|(at, _)| at + DRAIN);
-            let cwd = (!ended).then_some(self.next_cwd);
-            let cwd = cwd.or((self.pidfd.is_none() && self.exited.is_none()).then(|| now + Duration::from_millis(100)));
-            let next = deadlines.into_iter().flatten().chain(drain).chain(cwd).min();
-            let timeout = next.and_then(|at| Timespec::try_from(at.saturating_duration_since(now).min(Duration::from_secs(60))).ok());
-            let wake = &self.session.wake.read;
-            let idle = PollFd::new(wake, PollFlags::empty());
-            let events = PollFlags::IN | if pending_input { PollFlags::OUT } else { PollFlags::empty() };
-            let mut fds = [
-                PollFd::new(wake, PollFlags::IN),
-                self.pidfd.as_ref().map_or(idle.clone(), |pidfd| PollFd::new(pidfd, PollFlags::IN)),
-                master.as_deref().map_or(idle, |master| PollFd::new(master, events)),
-            ];
-            _ = poll(&mut fds, timeout.as_ref());
-            let [woken, exited, ready] = fds.map(|fd| fd.revents());
-            if !woken.is_empty() {
-                self.session.wake.drain();
-            }
-            if let Some(master) = &master {
-                if ready.contains(PollFlags::OUT) {
-                    self.write(master);
-                }
-                if ready.intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR) {
-                    self.read(master, &mut buffer);
-                }
-            }
-            if !exited.is_empty() {
-                self.reap();
-            }
-            self.tick();
-        }
-    }
-
-    fn write(&self, master: &OwnedFd) {
-        let mut state = self.session.state();
-        while !state.input.is_empty() {
-            match rustix::io::write(master, &state.input) {
-                Ok(0) => return,
-                Ok(wrote) => _ = state.input.drain(..wrote),
-                Err(error) => {
-                    if error != Errno::AGAIN {
-                        state.input.clear();
-                    }
-                    return;
-                }
-            }
-        }
-    }
-
-    fn read(&mut self, master: &OwnedFd, buffer: &mut [u8]) {
-        let (mut text, mut total, started) = (String::new(), 0, Instant::now());
-        'batch: loop {
-            while total < BATCH_BYTES {
-                match rustix::io::read(master, &mut *buffer) {
-                    Ok(read) if read > 0 => {
-                        total += read;
-                        text.push_str(&self.decoder.push(&buffer[..read]));
-                    }
-                    Err(Errno::AGAIN) => break,
-                    _ => {
-                        self.drained = true;
-                        break 'batch;
-                    }
-                }
-            }
-            if total == 0 || total >= LINGER_BYTES || started.elapsed() >= LINGER {
-                break;
-            }
-            let mut more = [PollFd::new(master, PollFlags::IN)];
-            if !matches!(poll(&mut more, Some(&Timespec { tv_sec: 0, tv_nsec: 1_000_000 })), Ok(1..)) {
-                break;
-            }
-        }
-        self.session.emit(vec![Session::output(text)]);
-    }
-
-    fn reap(&mut self) {
-        if let Ok(Some(status)) = self.child.try_wait() {
-            self.pidfd = None;
-            if self.exited.is_none() {
-                self.exited = Some((Instant::now(), status));
-            }
-        }
-    }
-
-    fn tick(&mut self) {
-        if self.exited.is_none() && self.pidfd.is_none() {
-            self.reap();
-        }
-        let now = Instant::now();
-        let (ended, removal, kill) = {
-            let state = self.session.state();
-            (state.ended, state.deadlines.removal, state.deadlines.kill)
-        };
-        if !ended && now >= self.next_cwd {
-            self.next_cwd = now + CWD_EVERY;
-            if let Ok(path) = std::fs::read_link(format!("/proc/{}/cwd", self.session.pid)) {
-                let path = self.session.display(&path.to_string_lossy());
-                if path != self.cwd {
-                    self.cwd = path.clone();
-                    self.session.emit(vec![json!({"type": "cwd", "path": path})]);
-                }
-            }
-        }
-        if let Some((at, status)) = self.exited.filter(|_| !ended)
-            && (self.drained || now >= at + DRAIN)
-        {
-            self.end(status);
-        }
-        if removal.is_some_and(|at| now >= at) {
-            self.registry.close(self.session);
-        }
-        if kill.is_some_and(|at| now >= at) {
-            self.session.state().deadlines.kill = None;
-            if !self.session.state().ended
-                && let Some(group) = Pid::from_raw(self.session.pid as i32)
-            {
-                _ = kill_process_group(group, Signal::KILL);
-            }
-        }
-    }
-
-    fn end(&mut self, status: std::process::ExitStatus) {
-        let rest = self.decoder.end();
-        let exit = json!({"type": "exit", "code": status.code(), "signal": status.signal()});
-        self.session.emit(vec![Session::output(rest), exit]);
-        let subscribed = {
-            let mut state = self.session.state();
-            state.ended = true;
-            state.deadlines.kill = None;
-            state.deadlines.removal = Some(Instant::now() + if state.listeners.is_empty() { ENDED } else { Duration::ZERO });
-            !state.listeners.is_empty()
-        };
-        self.session.hang_up();
-        if subscribed {
-            self.registry.close(self.session);
-        }
-    }
-}
-
 pub struct Terminals {
     registry: Arc<Registry>,
     owner: bool,
@@ -350,56 +193,24 @@ impl Terminals {
         Ok((cols as u32, rows as u32))
     }
 
-    fn login_shell() -> String {
-        std::env::var("SHELL")
-            .ok()
-            .filter(|shell| shell.starts_with('/'))
-            .filter(|shell| access(shell.as_str(), Access::EXEC_OK).is_ok())
-            .unwrap_or_else(|| "/bin/bash".into())
-    }
-
     fn start(&self, cols: u32, rows: u32) -> Outcome<String> {
         if self.registry.sessions().len() >= MAX_TERMINALS {
             return Err(Failure::http(429, format!("at most {MAX_TERMINALS} terminals")));
         }
-        let home = std::env::home_dir().map_or_else(|| "/".into(), |h| h.to_string_lossy().into_owned());
-        let file = Self::login_shell();
-        let mut command = std::process::Command::new(&file);
-        command.arg("-l").envs([("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]).current_dir(&home);
-        let (master, child) = crate::pty::spawn(&mut command, cols, rows).map_err(|reason| {
-            log::warn!("could not start {file} -l: {reason}");
-            Failure::http(500, format!("could not start the terminal: {reason}"))
-        })?;
-        _ = fcntl_setfl(&master, OFlags::NONBLOCK);
+        let home = std::env::home_dir().map_or_else(platform::root, |h| h.to_string_lossy().into_owned());
+        let spawned = platform::spawn(&home, cols, rows).map_err(|reason| Failure::http(500, format!("could not start the terminal: {reason}")))?;
         let wake = Wake::new().map_err(Failure::internal)?;
-        let pid = child.id();
+        let pid = spawned.pid;
         let session = Arc::new(Session {
             id: uuid::Uuid::new_v4().to_string(),
-            pid,
-            master: Mutex::new(Some(Arc::new(master))),
+            master: Mutex::new(Some(Arc::new(spawned.master))),
             wake,
             state: Mutex::new(State { deadlines: Deadlines { removal: Some(Instant::now() + ATTACH), kill: None }, ..State::default() }),
-            home,
         });
         self.registry.sessions().insert(session.id.clone(), Arc::clone(&session));
         let (registry, id) = (Arc::clone(&self.registry), session.id.clone());
-        std::thread::Builder::new()
-            .name(format!("terminal-{pid}"))
-            .spawn(move || {
-                Io {
-                    registry: &registry,
-                    session: &session,
-                    child,
-                    pidfd: pidfd(pid),
-                    decoder: Utf8Stream::default(),
-                    exited: None,
-                    drained: false,
-                    cwd: String::new(),
-                    next_cwd: Instant::now() + CWD_EVERY,
-                }
-                .run()
-            })
-            .map_err(Failure::internal)?;
+        let process = spawned.process;
+        std::thread::Builder::new().name(format!("terminal-{pid}")).spawn(move || platform::run(&registry, &session, process)).map_err(Failure::internal)?;
         Ok(id)
     }
 }
@@ -431,7 +242,7 @@ impl Terminals {
         let (c, r) = Self::size(cols, rows)?;
         let session = self.registry.get(&id)?;
         if let Some(master) = session.master() {
-            crate::pty::set_size(&*master, c, r).map_err(|e| Failure::new(500, Code::Service("pty_failed".into()), e))?;
+            platform::resize(&master, c, r).map_err(|e| Failure::new(500, Code::Service("pty_failed".into()), e))?;
         }
         Ok(json!({"cols": c, "rows": r}))
     }
@@ -482,57 +293,17 @@ impl Drop for Terminals {
     }
 }
 
-#[cfg(target_os = "linux")]
-fn pidfd(pid: u32) -> Option<OwnedFd> {
-    Pid::from_raw(pid as i32).and_then(|pid| rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).ok())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn pidfd(_: u32) -> Option<OwnedFd> {
-    None
-}
-
-struct Wake {
-    read: OwnedFd,
-    write: OwnedFd,
-}
-
-impl Wake {
-    #[cfg(target_os = "linux")]
-    fn new() -> std::io::Result<Self> {
-        let fd = rustix::event::eventfd(0, rustix::event::EventfdFlags::NONBLOCK | rustix::event::EventfdFlags::CLOEXEC)?;
-        Ok(Self { write: fd.try_clone()?, read: fd })
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    fn new() -> std::io::Result<Self> {
-        let (read, write) = std::os::unix::net::UnixStream::pair()?;
-        read.set_nonblocking(true)?;
-        write.set_nonblocking(true)?;
-        Ok(Self { read: read.into(), write: write.into() })
-    }
-
-    fn signal(&self) {
-        _ = rustix::io::write(&self.write, &1u64.to_ne_bytes());
-    }
-
-    fn drain(&self) {
-        let mut buf = [0u8; 64];
-        while matches!(rustix::io::read(&self.read, &mut buf), Ok(n) if n > 0) {}
-    }
-}
-
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     type Log = (String, Vec<Value>, Vec<usize>);
 
     #[derive(Clone, Default)]
-    struct Seen(Arc<Mutex<Log>>);
+    pub(super) struct Seen(Arc<Mutex<Log>>);
 
     impl Seen {
-        fn follow(terminals: &Terminals, id: &str) -> Self {
+        pub(super) fn follow(terminals: &Terminals, id: &str) -> Self {
             let seen = Self::default();
             let sink = seen.clone();
             let listened = terminals.listen(id, move |events| {
@@ -553,42 +324,51 @@ mod tests {
             seen
         }
 
-        fn until(&self, what: &str, within: Duration, done: impl Fn(&Log) -> bool) {
+        pub(super) fn until(&self, what: &str, within: Duration, done: impl Fn(&Log) -> bool) {
             let end = Instant::now() + within;
             while !done(&self.0.locked()) {
-                assert!(Instant::now() < end, "timed out waiting for {what}");
+                assert!(Instant::now() < end, "timed out waiting for {what}: {:?}", self.0.locked().0);
                 std::thread::sleep(Duration::from_millis(20));
             }
         }
 
-        fn exited(&self) -> Value {
+        pub(super) fn exited(&self) -> Value {
             self.until("exit", Duration::from_secs(6), |log| log.1.iter().any(|e| e["type"] == "exit"));
             self.0.locked().1.last().cloned().unwrap_or_default()
         }
+
+        pub(super) fn text(&self) -> String {
+            self.0.locked().0.clone()
+        }
+
+        #[cfg(target_os = "linux")]
+        pub(super) fn sizes(&self) -> Vec<usize> {
+            self.0.locked().2.clone()
+        }
     }
 
-    fn failed<T: std::fmt::Debug>(result: Result<T>) -> Value {
+    pub(super) fn failed<T: std::fmt::Debug>(result: Result<T>) -> Value {
         let mut failure: Value = serde_json::from_str(&result.unwrap_err()).unwrap();
         failure.as_object_mut().unwrap().remove("retryable");
         failure
     }
 
-    fn invalid(message: &str) -> Value {
+    pub(super) fn invalid(message: &str) -> Value {
         json!({"status": 400, "code": "invalid_request", "message": message})
     }
 
-    fn missing() -> Value {
+    pub(super) fn missing() -> Value {
         json!({"status": 404, "code": "http_error", "message": "no such terminal"})
     }
 
-    fn open(t: &Terminals) -> String {
+    pub(super) fn open(t: &Terminals) -> String {
         t.open(80.0, 24.0).unwrap()["id"].as_str().unwrap().to_owned()
     }
 
-    const WAIT: Duration = Duration::from_secs(5);
+    pub(super) const WAIT: Duration = Duration::from_secs(5);
 
     #[test]
-    fn a_session_on_a_real_pty() {
+    fn requests_are_checked() {
         let t = Terminals::new();
         assert_eq!(failed(t.open(1.0, 24.0)), invalid("cols must be an integer in [2, 1000]"));
         assert_eq!(failed(t.open(80.0, 24.5)), invalid("rows must be an integer in [2, 1000]"));
@@ -597,61 +377,11 @@ mod tests {
         assert_eq!(failed(t.resize("nope".into(), 80.0, 24.0)), missing());
         assert_eq!(failed(t.listen("nope", |_| true)), missing());
         assert_eq!(t.close("nope".into()), json!({"closed": "nope"}));
-        let id = open(&t);
-        assert_eq!(id.len(), 36);
-        let s = Seen::follow(&t, &id);
-        assert_eq!(t.input(id.clone(), "echo he\"\"llo; pwd\n".into()).unwrap(), json!({"ok": true}));
-        let home = std::env::home_dir().unwrap().to_string_lossy().into_owned();
-        s.until("echo", WAIT, |log| log.0.contains("hello") && log.0.contains(&home));
-        s.until("cwd ~", WAIT, |log| log.1.iter().any(|e| e["type"] == "cwd" && e["path"] == "~"));
-        t.input(id.clone(), "cd /tmp\n".into()).unwrap();
-        s.until("cwd /tmp", WAIT, |log| log.1.iter().any(|e| e["type"] == "cwd" && e["path"] == "/tmp"));
-        assert_eq!(t.resize(id.clone(), 100.0, 30.0).unwrap(), json!({"cols": 100, "rows": 30}));
-        assert_eq!(failed(t.resize(id.clone(), 100.0, 1.0)), invalid("rows must be an integer in [2, 1000]"));
-        t.input(id.clone(), "stty size\n".into()).unwrap();
-        s.until("stty size", WAIT, |log| log.0.contains("30 100"));
-        t.input(id.clone(), "printf '\\xe4\\xb8'; sleep 0.3; printf '\\xad|\\n'\n".into()).unwrap();
-        s.until("split UTF-8 joined", WAIT, |log| log.0.contains("中|"));
-        assert!(!s.0.locked().0.contains('\u{fffd}'));
-        assert_eq!(failed(t.input(id.clone(), "x".repeat(65537))), invalid("data must be a string of at most 65536 characters"));
-        let before = s.0.locked().2.len();
-        t.input(id.clone(), "seq 1 200000; echo SEQ-$((1+1))-DONE\n".into()).unwrap();
-        s.until("seq output", Duration::from_secs(20), |log| log.0.contains("200000\r\nSEQ-2-DONE\r\n"));
-        let sizes = s.0.locked().2[before..].to_vec();
-        assert!(sizes.iter().sum::<usize>() / sizes.len() > 4096, "output is batched: {} callbacks", sizes.len());
-        t.input(id.clone(), "exit 7\n".into()).unwrap();
-        assert_eq!(s.exited(), json!({"type": "exit", "code": 7, "signal": null}));
-        std::thread::sleep(Duration::from_millis(50));
-        assert_eq!(failed(t.input(id, "x".into())), missing());
     }
 
     #[test]
-    fn backlog_signals_hang_up_and_limit() {
+    fn at_most_eight_terminals() {
         let t = Terminals::new();
-        let id = open(&t);
-        t.input(id.clone(), "echo early-$((6*7)); exit 3\n".into()).unwrap();
-        std::thread::sleep(Duration::from_millis(1500));
-        let s = Seen::follow(&t, &id);
-        assert_eq!(s.exited(), json!({"type": "exit", "code": 3, "signal": null}));
-        assert!(s.0.locked().0.contains("early-42"));
-        std::thread::sleep(Duration::from_millis(50));
-        assert_eq!(failed(t.input(id, "x".into())), missing());
-
-        let id = open(&t);
-        let s = Seen::follow(&t, &id);
-        t.input(id, "kill -9 $$\n".into()).unwrap();
-        assert_eq!(s.exited(), json!({"type": "exit", "code": null, "signal": 9}));
-
-        let id = open(&t);
-        let s = Seen::follow(&t, &id);
-        t.input(id.clone(), "trap '' HUP; echo TRAPPED; while :; do sleep 1; done\n".into()).unwrap();
-        s.until("trap set", WAIT, |log| log.0.contains("TRAPPED\r\n"));
-        let at = Instant::now();
-        assert_eq!(t.close(id.clone()), json!({"closed": &id}));
-        assert_eq!(failed(t.resize(id, 80.0, 24.0)), missing());
-        assert_eq!(s.exited(), json!({"type": "exit", "code": null, "signal": 9}));
-        assert!((2500..5000).contains(&at.elapsed().as_millis()), "SIGKILL about 3 s after the hang-up");
-
         let ids: Vec<String> = (0..8).map(|_| open(&t)).collect();
         assert_eq!(failed(t.open(80.0, 24.0)), json!({"status": 429, "code": "http_error", "message": "at most 8 terminals"}));
         for id in ids {
@@ -666,7 +396,7 @@ mod tests {
         let t = Terminals::new();
         let id = open(&t);
         std::thread::sleep(Duration::from_secs(14));
-        assert_eq!(t.input(id.clone(), "true\n".into()).unwrap(), json!({"ok": true}));
+        assert_eq!(t.input(id.clone(), "\n".into()).unwrap(), json!({"ok": true}));
         std::thread::sleep(Duration::from_secs(2));
         assert_eq!(failed(t.input(id, "x".into())), missing());
     }

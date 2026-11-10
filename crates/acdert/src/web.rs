@@ -46,7 +46,6 @@ struct Webs {
 #[derive(Default)]
 struct System {
     workspace: Option<acde_runtime::Workspace>,
-    #[cfg(unix)]
     terminals: Option<acde_runtime::Terminals>,
     #[cfg(target_os = "linux")]
     networks: acde_runtime::Networks,
@@ -61,7 +60,6 @@ struct Grants {
     fs: Option<acde_runtime::Workspace>,
     picker: crate::picker::Picker,
     capture: crate::capture::Allowed,
-    #[cfg(unix)]
     terminal: Option<acde_runtime::Terminals>,
     #[cfg(target_os = "linux")]
     network: Option<acde_runtime::Networks>,
@@ -87,7 +85,6 @@ impl Webs {
             camera: bind::get(scope, wanted, "camera").is_some_and(|v| v.is_true()),
             microphone: bind::get(scope, wanted, "microphone").is_some_and(|v| v.is_true()),
         };
-        #[cfg(unix)]
         let terminal = bind::get(scope, wanted, "terminal").is_some_and(|v| v.is_true());
         #[cfg(target_os = "linux")]
         let network = bind::get(scope, wanted, "network").is_some_and(|v| v.is_true());
@@ -108,7 +105,6 @@ impl Webs {
             capture,
             app,
             picker,
-            #[cfg(unix)]
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
             #[cfg(target_os = "linux")]
             network: network.then(|| system.networks.clone()),
@@ -127,7 +123,6 @@ impl Grants {
             crate::fs::install(scope, natives, fs);
         }
         crate::picker::install(scope, natives, self.picker);
-        #[cfg(unix)]
         if let Some(terminals) = self.terminal {
             crate::terminal::install(scope, natives, terminals);
         }

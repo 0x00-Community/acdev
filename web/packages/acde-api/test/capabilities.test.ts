@@ -88,7 +88,7 @@ test('the platform table is keyed by platform and running mode', () => {
   assert.equal(platformSupport('win32', 'session'), null)
   assert.equal(platformSupport('freebsd', 'desktop'), null)
   for (const mode of ['desktop', 'standalone'] as const) {
-    assert.ok(platformSupport('win32', mode)!.unsupported.includes('terminal'))
+    assert.ok(!platformSupport('win32', mode)!.unsupported.includes('terminal'))
     assert.ok(platformSupport('linux', mode)!.unsupported.includes('slots'))
     assert.ok(!platformSupport('darwin', mode)!.unsupported.includes('terminal'))
   }

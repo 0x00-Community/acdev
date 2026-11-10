@@ -1,5 +1,5 @@
 const HOST_WINDOW_ONLY = ['slots']
-const WINDOWS_MISSING = ['terminal', 'network', 'office', 'camera', 'microphone', ...HOST_WINDOW_ONLY]
+const WINDOWS_MISSING = ['network', 'office', 'camera', 'microphone', ...HOST_WINDOW_ONLY]
 const MACOS_MISSING = ['network', 'office', ...HOST_WINDOW_ONLY]
 const FULL = { backdrop: 'full' }
 

@@ -30,7 +30,6 @@ mod storage;
 mod supervise;
 mod surface;
 mod sys;
-#[cfg(unix)]
 mod terminal;
 mod web;
 #[cfg(target_os = "linux")]

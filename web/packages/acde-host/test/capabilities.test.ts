@@ -23,9 +23,9 @@ const state = (c: CapabilityCheck, name: string, a: AppManifest | null, origin: 
 
 describe('CapabilityCheck', () => {
   test('a capability the table leaves out is unsupported on this platform', () => {
-    const terminal = app({ capabilities: { terminal: true } })
-    assert.equal(state(check('win32', 'desktop'), 'terminal', terminal), 'unsupported')
-    assert.equal(state(check('linux', 'desktop'), 'terminal', terminal), 'available')
+    const office = app({ capabilities: { office: true } })
+    assert.equal(state(check('win32', 'desktop'), 'office', office), 'unsupported')
+    assert.equal(state(check('linux', 'desktop'), 'office', office), 'available')
     const slots = app({ capabilities: { slots: true } })
     assert.equal(state(check('linux', 'standalone'), 'slots', slots), 'unsupported')
     assert.equal(state(check('linux', 'session'), 'slots', slots), 'available')
@@ -68,24 +68,24 @@ describe('CapabilityCheck', () => {
 
   test('required capabilities refuse the app and name what is missing', () => {
     const c = check('win32', 'desktop')
-    const refusal = c.refusal(app({ label: 'Term', capabilities: { terminal: true, fs: true } }), third) as Error & { status: number; code: string }
-    assert.equal(refusal.message, 'Term needs "terminal" (unsupported on this platform)')
+    const refusal = c.refusal(app({ label: 'Docs', capabilities: { office: true, fs: true } }), third) as Error & { status: number; code: string }
+    assert.equal(refusal.message, 'Docs needs "office" (unsupported on this platform)')
     assert.equal(refusal.status, 404)
     assert.equal(refusal.code, 'unsupported_app')
     const stopped = c.refusal(app({ label: 'Board', services: ['desk'] }), third) as Error & { status: number; code: string }
     assert.equal(stopped.message, 'Board needs "desk" (service not running)')
     assert.equal(stopped.status, 503)
-    assert.equal(c.refusal(app({ capabilities: { terminal: true }, optional: ['terminal'] }), third), null)
+    assert.equal(c.refusal(app({ capabilities: { office: true }, optional: ['office'] }), third), null)
     assert.equal(c.refusal(app({ capabilities: { network: true, fs: true } }), third)?.message, 'Demo needs "network" (unsupported on this platform)')
   })
 
   test('declared but unavailable module capabilities get a refusal reason at import', () => {
-    const refused = check('win32', 'desktop').refusedModules(app({ capabilities: { terminal: true, fs: true }, optional: ['terminal'] }), third)
-    assert.deepEqual(refused, { 'acde:terminal': 'acde:terminal: "terminal" is unsupported on this platform' })
+    const refused = check('win32', 'desktop').refusedModules(app({ capabilities: { office: true, fs: true }, optional: ['office'] }), third)
+    assert.deepEqual(refused, { 'acde:office': 'acde:office: "office" is unsupported on this platform' })
   })
 
   test('the module reports level, mode, window features and each status', async () => {
-    const a = app({ capabilities: { terminal: true, fs: true }, optional: ['terminal'], services: ['desk'] })
+    const a = app({ capabilities: { office: true, fs: true }, optional: ['office'], services: ['desk'] })
     const c = check('win32', 'standalone')
     const snapshot = c.snapshot(a, third)
     assert.equal(snapshot.level, API_LEVEL)
@@ -102,11 +102,11 @@ describe('CapabilityCheck', () => {
       request(name: string): Promise<{ state: string }>
     }
     assert.equal(module.level, API_LEVEL)
-    assert.deepEqual(module.get('terminal'), { name: 'terminal', kind: 'system', state: 'unsupported', reason: 'unsupported on this platform', optional: true })
+    assert.deepEqual(module.get('office'), { name: 'office', kind: 'system', state: 'unsupported', reason: 'unsupported on this platform', optional: true })
     assert.equal(module.get('desk').state, 'service-not-running')
     assert.equal(module.get('weather').state, 'not-declared')
     assert.equal(module.get('windows').state, 'shell-only')
-    assert.equal((await module.request('terminal')).state, 'unsupported')
+    assert.equal((await module.request('office')).state, 'unsupported')
     assert.deepEqual(asked, [], 'only an available capability is asked for')
     live.update({ ...c.status('terminal', a, third), state: 'denied', reason: 'denied by the user' })
     assert.equal(module.get('terminal').reason, 'denied by the user')
