@@ -7,6 +7,7 @@ assert.ok(artifacts, 'Run this check through scripts/check-standalone.sh')
 const run = resolve(artifacts)
 const pkg = join(run, 'fixture')
 const leveled = join(run, 'fixture-level2')
+const unversioned = join(run, 'fixture-unversioned')
 const debug = join(run, 'debug')
 const home = join(run, 'home')
 const binary = process.platform === 'win32' ? 'acdert.exe' : 'acdert'
@@ -19,16 +20,17 @@ interface FixtureState {
   windows: { window: number; mode: string; width: number; height: number }[]
 }
 
-await Promise.all([pkg, leveled, debug, home].map((path) => mkdir(path, { recursive: true })))
+await Promise.all([pkg, leveled, unversioned, debug, home].map((path) => mkdir(path, { recursive: true })))
 await Promise.all([
   Bun.write(join(pkg, 'package.json'), JSON.stringify({
     name: 'standalone-smoke',
     acde: {
+      apiLevel: 1,
       desktops: [{ id: 'smoke', name: 'Smoke Desktop', entry: 'desktop.html' }],
       apps: [
         {
           id: 'smoke-app', label: 'Smoke App', icon: 'editor',
-          entry: '/smoke/app.html', capabilities: { smoke: true },
+          entry: '/smoke/app.html', capabilities: {}, services: ['smoke'],
         },
         {
           id: 'terminal-app', label: 'Terminal App', icon: 'term',
@@ -48,6 +50,11 @@ await Promise.all([
     },
   })),
   Bun.write(join(leveled, 'app.html'), '<!doctype html><title>Level 2</title>'),
+  Bun.write(join(unversioned, 'package.json'), JSON.stringify({
+    name: 'standalone-unversioned',
+    acde: { apps: [{ id: 'old-app', label: 'Old App', icon: 'app', entry: '/old/app.html' }], assets: { '/old/': ['.'] } },
+  })),
+  Bun.write(join(unversioned, 'app.html'), '<!doctype html><title>Old</title>'),
   Bun.write(join(pkg, 'desktop.html'), '<!doctype html><title>Smoke Desktop</title>'),
   Bun.write(join(pkg, 'app.html'), `<!doctype html><title>Starting</title>
 <script type="module">
@@ -75,7 +82,7 @@ function start(id: string) {
     env: {
       ...env,
       ACDE_APP: host,
-      ACDE_PATH: [pkg, leveled].join(process.platform === 'win32' ? ';' : ':'),
+      ACDE_PATH: [pkg, leveled, unversioned].join(process.platform === 'win32' ? ';' : ':'),
       ACDE_DESKTOP: 'smoke',
       ACDE_HEADLESS: '1',
       ACDE_SIZE: '800x600',
@@ -182,11 +189,12 @@ try {
 
 await assertExited('missing-app', start('missing-app'), 1)
 assert.match(await Bun.file(join(run, 'missing-app.stderr.log')).text(), /no app missing-app/)
-assert.match(await Bun.file(join(run, 'smoke-app.stderr.log')).text(), /fixture: no apiLevel; loaded as level 0/)
+await assertExited('old-app', start('old-app'), 1)
+assert.match(await Bun.file(join(run, 'old-app.stderr.log')).text(), /old-app: no acde\.apiLevel: .*rebuild it with the current acde \(level 1\)/)
 await assertExited('level2-app', start('level2-app'), 1)
 assert.match(await Bun.file(join(run, 'level2-app.stderr.log')).text(), /level2-app: needs level 2, runtime is level 1/)
 if (process.platform === 'win32') {
   await assertExited('terminal-app', start('terminal-app'), 1)
   const failure = await Bun.file(join(run, 'terminal-app.stderr.log')).text()
-  assert.match(failure, /the system service it needs is not running/)
+  assert.match(failure, /Terminal App needs "terminal" \(unsupported on this platform\)/)
 }

@@ -13,6 +13,7 @@ await Promise.all([fixture, debug, home].map((path) => mkdir(path, { recursive: 
 
 await Promise.all([
   Bun.write(join(fixture, 'package.json'), JSON.stringify({ name: 'thread-audit', acde: {
+    apiLevel: 1,
     desktops: [{ id: 'audit', name: 'Thread audit', entry: 'desktop.html' }],
     apps: [{ id: 'probe', label: 'Thread probe', icon: 'editor', entry: '/audit/app.html',
       size: [500, 550], multiple: true, frame: false }],

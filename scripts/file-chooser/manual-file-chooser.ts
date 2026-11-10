@@ -19,6 +19,7 @@ await Bun.write(join(sample, '流萤合照.png'), pngBytes)
 await Bun.write(join(sample, '屏幕截图 1.png'), pngBytes)
 await mkdir(join(run, 'saved'), { recursive: true })
 await Bun.write(join(pkg, 'package.json'), JSON.stringify({ name: 'manual-file-chooser', acde: {
+  apiLevel: 1,
   apps: [
     { id: 'manual-file-chooser', label: 'Manual File Chooser', icon: 'files',
       entry: '/manual/index.html', capabilities: { fs: { roots: [] }, openFiles: true } },

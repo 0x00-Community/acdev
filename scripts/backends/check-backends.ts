@@ -72,6 +72,7 @@ async function writeFixture(): Promise<void> {
   await Bun.write(join(pkg, 'package.json'), JSON.stringify({
     name: 'backend-check',
     acde: {
+      apiLevel: 1,
       apps: apps.map(([id]) => ({
         id: `backend-${id}`, label: `Backend ${id}`, icon: 'app', entry: `/${id}/index.html`,
         backend: { entry: `/${id}/backend/server.js`, port: 3000 },

@@ -19,7 +19,7 @@ export default {
       if (detail.action === 'minimize') win.minimize()
       if (detail.action === 'probe') {
         const fs = await import('acde:fs').then(() => 'object', () => 'undefined')
-        open('term', {}).then(() => host.setTitle(`probe opened fs=${fs}`), (e) => host.setTitle(`probe refused ${e.status} fs=${fs}`))
+        open('term').then(() => host.setTitle(`probe opened fs=${fs}`), (e) => host.setTitle(`probe refused ${e.status} fs=${fs}`))
       }
     })
     return () => {}

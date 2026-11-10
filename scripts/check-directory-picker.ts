@@ -16,6 +16,7 @@ await Promise.all([pkg, debug, home, state, readDir, writeDir].map((path) => mkd
 await Promise.all([
   Bun.write(join(readDir, 'fixture.txt'), 'selected folder'),
   Bun.write(join(pkg, 'package.json'), JSON.stringify({ name: 'picker-probe', acde: {
+    apiLevel: 1,
     apps: [
       { id: 'picker-probe', label: 'Picker Probe', icon: 'files',
         entry: '/picker/app.html', capabilities: { fs: { roots: [] }, openFiles: true } },

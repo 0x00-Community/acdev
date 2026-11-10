@@ -19,6 +19,7 @@ await Promise.all([
   Bun.write(first, 'alpha'),
   Bun.write(second, 'beta'),
   Bun.write(join(pkg, 'package.json'), JSON.stringify({ name: 'picker-probe', acde: {
+    apiLevel: 1,
     apps: [
       { id: 'picker-probe', label: 'Picker Probe', icon: 'files',
         entry: '/picker/app.html', capabilities: { fs: { roots: [] }, openFiles: true } },
