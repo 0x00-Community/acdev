@@ -321,3 +321,44 @@ fn inserted_keyframes_and_inline_animation_lists_run_like_web_animations() {
     let r = page.doc.rect(m).unwrap();
     assert!((r.x - 100.0).abs() < 2.0 && (r.y - 100.0).abs() < 2.0, "fill forwards holds the end: {} {}", r.x, r.y);
 }
+
+#[test]
+fn an_animation_takes_a_new_value_on_every_tick_at_120_hz() {
+    let page =
+        Page::new(".box { position: absolute; left: 0; top: 0; width: 10px; height: 10px; transition: left 2000ms linear; } .box.moved { left: 1000px; }");
+    let b = page.div(page.body, "box");
+    let handle = page.doc.handle();
+    let start = Instant::now();
+    let now = || start.elapsed().as_secs_f64() * 1e3;
+    handle.commit();
+    handle.wait_frame();
+    page.doc.set_attribute(b, "class", "box moved").unwrap();
+    handle.commit();
+    handle.wait_frame();
+    let mut xs = Vec::new();
+    for _ in 0..40 {
+        std::thread::sleep(Duration::from_micros(8_333));
+        handle.tick(now());
+        handle.wait_frame();
+        xs.push(page.doc.rect(b).unwrap().x);
+    }
+    let repeated = xs.windows(2).filter(|w| w[1] <= w[0]).count();
+    assert_eq!(repeated, 0, "ticks that kept the previous value: {xs:?}");
+}
+
+#[test]
+fn ticks_do_not_restyle_an_idle_document() {
+    let page = Page::new(".box { position: absolute; width: 10px; height: 10px; }");
+    page.div(page.body, "box");
+    let handle = page.doc.handle();
+    let start = Instant::now();
+    handle.commit();
+    handle.wait_frame();
+    let before = page.doc.stats().resolves;
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_micros(8_333));
+        handle.tick(start.elapsed().as_secs_f64() * 1e3);
+    }
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(page.doc.stats().resolves, before);
+}
