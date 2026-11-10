@@ -88,12 +88,13 @@ class Acde {
 interface ActResult {
   ok: boolean
   text: string
+  ended?: true
 }
 ```
 
 - `launch` starts an `acde dev` session on the project's own runtime (Bun or Node.js) and waits until the windows of all pages have appeared, or an approval prompt waits (`startTimeout`, 120 seconds by default). When the session does not start, it throws an `Error` whose message says why (`acde dev exited (1) before it was ready:`, `acde dev did not start within 120 s:`) and ends with the last output of `acde dev`.
 - `close()` ends the session that `launch` started: it sends SIGTERM, then SIGKILL after 10 seconds. On a session from `attach` it only disconnects.
-- `act` answers `ok: false` when the action was not done. In a session that runs a single app, closing the app's only window ends the session: the call that closed it rejects with `acdert closed the connection`, `closed` becomes true, and every later request rejects with `acde dev <pid> is no longer connected`.
+- `act` answers `ok: false` when the action was not done. In a session that runs a single app, closing the app's only window ends the session, by design: the `close` that did it resolves with `ok: true`, `ended: true` and the text `closed w1; acdert exited with it, so acde dev <pid> ended`; `closed` becomes true, and every later request rejects with `acde dev <pid> is no longer connected`. Any other request during which the runtime goes away rejects with `acdert closed the connection` (also a `close` in a desktop session, and a `run` whose steps close the window).
 - `choose*` answers, in advance, the **next** picker of that kind the page opens; `null` means the user cancelled; relative paths resolve against the current directory.
 - Call `waitFor*` before the action that triggers it.
 - Approval prompts (`PermissionPrompt` is `{ id, app, label, capability, reason: 'launch' | 'request' }`, `PermissionDecision` is `{ app, label, capability, decision: 'granted' | 'denied' }`): `allow` and `deny` wait for a prompt that matches (any prompt when nothing is given), answer it and return it; `waitForPrompt` only waits; `answer` answers a prompt you already have. Nothing answers a prompt by itself: an app whose required capability waits has no window until the test answers. `revoke` takes a decision back and returns whether there was one. See [Approvals in tests](../guide/testing.md#approvals).
@@ -142,7 +143,7 @@ interface RoleOptions {
 
 `AppWindow` looks itself up in the window table again on every use, so it keeps working if the window is closed and reopened.
 
-`close()` waits until the window is gone. Closing the only window of a session that runs a single app ends the session, and the call rejects with `acdert closed the connection`; a test has no need to close that window, since its session ends with the test.
+`close()` waits until the window is gone. Closing the only window of a session that runs a single app ends the session: the call resolves with `ended: true` and a text that says so (see `act` under [Acde](#acde)), and the session takes no more requests. A test has no need to close that window, since its session ends with the test.
 
 ## Locator
 

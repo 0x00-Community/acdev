@@ -197,7 +197,14 @@ export class AppWindow implements Scope {
   async close(): Promise<ActResult> {
     const window = await this.info()
     const result = await this.#act('close')
-    await new AppWindow(this.acde, { id: window.id }).waitFor({ state: 'closed' })
+    if (result.ended) return result
+    try {
+      await new AppWindow(this.acde, { id: window.id }).waitFor({ state: 'closed' })
+    } catch (error) {
+      const ended = this.acde.endedBy(window.ref)
+      if (ended === null) throw error
+      return ended
+    }
     return result
   }
 

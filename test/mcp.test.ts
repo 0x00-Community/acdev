@@ -143,6 +143,49 @@ describe('acde mcp', () => {
     expect(existsSync(join(sessions, `${pid}.json`))).toBe(false)
   }, 60_000)
 
+  test('act close on the only window of a single-app session succeeds and says the session ended; ' +
+    'the next call says it stopped; another action that loses the connection is an error', async () => {
+    const s = standIn()
+    const started = await connect(s.project, s.env)
+    try {
+      const pid = Number(/^acde dev (\d+)/.exec((await started.call('start', { headless: true })).text)![1])
+      const closed = await started.call('act', { ref: 'w1', action: 'close' })
+      expect([closed.error, closed.text])
+        .toEqual([false, `closed w1; acdert exited with it, so acde dev ${pid} ended`])
+      const next = await started.call('webs')
+      expect(next.error).toBe(true)
+      expect(next.text).toStartWith(`the acde dev started here (pid ${pid}) stopped; last output:\n`)
+    } finally {
+      await started.client.close()
+    }
+
+    const outside = await Acde.launch({ cwd: s.project, env: s.env })
+    const attached = await connect(s.project, s.env)
+    try {
+      const pid = outside.session.pid
+      const closed = await attached.call('act', { ref: 'w1', action: 'close' })
+      expect([closed.error, closed.text])
+        .toEqual([false, `closed w1; acdert exited with it, so acde dev ${pid} ended`])
+      const next = await attached.call('snapshot')
+      expect(next.error).toBe(true)
+      expect(next.text).toStartWith(`acde dev ${pid} stopped; no acde dev is running (`)
+      expect((await attached.call('snapshot')).text).toStartWith('no acde dev is running (')
+    } finally {
+      await attached.client.close()
+      await outside.close()
+    }
+
+    const crashing = await connect(s.project, { ...s.env, FAKE_ACDERT_DIES_ON: 'click' })
+    try {
+      const pid = Number(/^acde dev (\d+)/.exec((await crashing.call('start', { headless: true })).text)![1])
+      const lost = await crashing.call('act', { ref: 'w1.3', action: 'click' })
+      expect([lost.error, lost.text]).toEqual([true, 'acdert closed the connection'])
+      expect((await crashing.call('webs')).text).toStartWith(`the acde dev started here (pid ${pid}) stopped;`)
+    } finally {
+      await crashing.client.close()
+    }
+  }, 60_000)
+
   test('approval prompts: start says what an app waits for; permissions, answer and revoke', async () => {
     const s = standIn()
     const { client, call } = await connect(s.project, { ...s.env, FAKE_ACDERT_WAITS: '1' })

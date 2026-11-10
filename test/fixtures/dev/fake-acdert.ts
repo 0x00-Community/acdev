@@ -331,7 +331,12 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     case 'snapshot':
       return void ok(snapshot(m))
     case 'act':
-      if (m['ref'] === 'w1' && m['action'] === 'close' && process.argv[2] === 'app') process.exit(0)
+      if (m['action'] === process.env['FAKE_ACDERT_DIES_ON']) process.exit(1)
+      if (m['ref'] === 'w1' && m['action'] === 'close' && process.argv[2] === 'app') {
+        if (process.env['FAKE_ACDERT_CLOSE'] !== 'answers') process.exit(0)
+        setTimeout(() => process.exit(0), 150)
+        return void ok({ ok: true, text: 'closing w1' })
+      }
       return void ok(act(String(m['ref']), String(m['action']), m['arg']))
     case 'run': {
       const said: string[] = []

@@ -444,7 +444,8 @@ describe('acde dev with a stand-in acdert', () => {
     expect(readdirSync(dev.sessions).filter((f) => f.endsWith('.json'))).toEqual([])
   }, 30_000)
 
-  test('act w1 close that ends acdert exits 0; acde stop ends a session in the background', async () => {
+  test('act w1 close that ends a single-app session exits 0, any other lost connection 1; ' +
+    'acde stop ends a session in the background', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const closing = start([], alpha)
@@ -454,6 +455,18 @@ describe('acde dev with a stand-in acdert', () => {
     expect(closed.stdout).toBe(`closed w1; acdert exited with it, so acde dev ${closing.child.pid} ended\n`)
     expect(closed.code).toBe(0)
     expect(await closing.child.exited).toBe(0)
+
+    const crashing = start([], alpha, { FAKE_ACDERT_DIES_ON: 'focus' })
+    await until('the session file', () => existsSync(crashing.file))
+    const lost = await crashing.tool(['act', 'w1', 'focus'], alpha)
+    expect([lost.code, lost.stdout, lost.stderr]).toEqual([1, '', 'acde: acdert closed the connection\n'])
+    await crashing.child.exited
+
+    const desktop = start(['--desktop', 'dopame'], alpha, { FAKE_ACDERT_DIES_ON: 'close' })
+    await until('the session file', () => existsSync(desktop.file))
+    const crashed = await desktop.tool(['act', 'w1', 'close'], alpha)
+    expect([crashed.code, crashed.stdout, crashed.stderr]).toEqual([1, '', 'acde: acdert closed the connection\n'])
+    await desktop.child.exited
 
     const stopping = start([], alpha)
     await until('the session file', () => existsSync(stopping.file))

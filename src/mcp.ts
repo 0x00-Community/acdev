@@ -4,6 +4,7 @@ import * as z from 'zod'
 import type { InspectAction } from '@dopame/acde-api'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { Approvals } from './approvals.ts'
 import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import { Poll } from './driver/poll.ts'
@@ -64,6 +65,8 @@ export interface McpOptions {
 }
 
 export class Mcp {
+  static readonly DELISTED_MS = 2_000
+
   readonly server: McpServer
   readonly #cwd: string
   #pinned: number | undefined
@@ -257,7 +260,8 @@ export class Mcp {
             + 'the value), key (arg: keys like "ctrl+a backspace" or "Enter"), focus, drag (arg: the ref to drop on, '
             + 'an element or a window, also in another window), select (arg: an option\'s value or text of a <select>, '
             + 'or a list of them for a multiple one). Window refs (w3): focus, restore, minimize, close, key. Real '
-            + 'input is injected; the answer waits for the page to settle and lists what changed.',
+            + 'input is injected; the answer waits for the page to settle and lists what changed. Closing the only '
+            + 'window of a session that runs a single app ends that session; the answer says so.',
         inputSchema: z.object({
           ref: z.string().describe('w3 or w3.12'),
           action: ACTION,
@@ -628,10 +632,25 @@ export class Mcp {
     const attached = this.#attached
     if (attached && !attached.closed && (this.#pinned === undefined || this.#pinned === attached.session.pid))
       return attached
+    const stopped = attached?.closed ? attached.session.pid : undefined
     await attached?.close()
     this.#attached = null
-    this.#attached = await Acde.attach({ cwd: this.#cwd, ...(this.#pinned !== undefined && { session: this.#pinned }) })
+    if (stopped !== undefined) await Mcp.#delisted(stopped)
+    try {
+      this.#attached = await Acde.attach({
+        cwd: this.#cwd,
+        ...(this.#pinned !== undefined && { session: this.#pinned }),
+      })
+    } catch (error) {
+      if (stopped === undefined) throw error
+      throw new Error(`acde dev ${stopped} stopped; ${error instanceof Error ? error.message : String(error)}`)
+    }
     return this.#attached
+  }
+
+  static async #delisted(pid: number): Promise<void> {
+    const listed = () => Sessions.list().some((session) => session.pid === pid)
+    for (const until = Date.now() + Mcp.DELISTED_MS; listed() && Date.now() < until;) await sleep(20)
   }
 
   async #web(acde: Acde, target: string | undefined): Promise<string> {

@@ -197,6 +197,60 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     check(Sessions.list(sessions)).toEqual([])
   }, 60_000)
 
+  test('closing the only window of a single-app session ends it, and close says so; ' +
+    'any other loss of the connection is an error', async () => {
+    const s = standIn()
+    const launch = (extra: Record<string, string> = {}, desktop?: string) =>
+      Acde.launch({ cwd: s.project, env: { ...s.env, ...extra }, timeout: 2_000, ...(desktop && { desktop }) })
+    const said = (acde: Acde) => `closed w1; acdert exited with it, so acde dev ${acde.session.pid} ended`
+    const message = (error: Error) => error.message
+
+    const single = await launch()
+    try {
+      check(await single.window('alpha').close()).toEqual({ ok: true, text: said(single), ended: true })
+      check(single.closed).toBe(true)
+      const gone = `acde dev ${single.session.pid} is no longer connected`
+      check(await single.webs().catch(message)).toBe(gone)
+      check(await single.act('w1', 'close').catch(message)).toBe(gone)
+      check(single.trace.text()).toContain(said(single))
+    } finally {
+      await single.close()
+    }
+
+    const answering = await launch({ FAKE_ACDERT_CLOSE: 'answers' })
+    try {
+      check(await answering.window('alpha').close()).toEqual({ ok: true, text: said(answering), ended: true })
+    } finally {
+      await answering.close()
+    }
+
+    const crashing = await launch({ FAKE_ACDERT_DIES_ON: 'focus' })
+    try {
+      check(await crashing.window('alpha').focus().catch(message)).toBe('acdert closed the connection')
+      check(crashing.closed).toBe(true)
+    } finally {
+      await crashing.close()
+    }
+
+    const desktop = await launch({ FAKE_ACDERT_DIES_ON: 'close' }, 'dopame')
+    try {
+      check(desktop.session.desktop).toBe('dopame')
+      check(await desktop.window('alpha').close().catch(message)).toBe('acdert closed the connection')
+    } finally {
+      await desktop.close()
+    }
+
+    const kept = await launch({}, 'dopame')
+    try {
+      const closed = await kept.window('alpha').close()
+      check([closed.ok, closed.text, closed.ended]).toEqual([true, 'close w1 null', undefined])
+      check(kept.closed).toBe(false)
+      check(await kept.window('alpha').isOpen()).toBe(false)
+    } finally {
+      await kept.close()
+    }
+  }, 60_000)
+
   test('approval prompts: wait, allow, deny, list; revoke; simulated drops', async () => {
     const s = standIn()
     const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })

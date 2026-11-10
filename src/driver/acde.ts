@@ -121,6 +121,7 @@ export interface Snapshot {
 export interface ActResult {
   readonly ok: boolean
   readonly text: string
+  readonly ended?: true
 }
 
 export const ACTIONS: readonly InspectAction[] = [
@@ -243,7 +244,7 @@ export class Acde {
   timeout: number
   readonly #client: DevClient
   readonly #owned: Launched | null
-  #closed = false
+  #closing = false
 
   private constructor(
     session: Session,
@@ -258,9 +259,6 @@ export class Acde {
     this.logs = logs
     this.timeout = timeout
     this.trace = new Trace(this)
-    client.closed.then(() => {
-      this.#closed = true
-    })
   }
 
   static async attach(options: AttachOptions = {}): Promise<Acde> {
@@ -357,7 +355,7 @@ export class Acde {
   }
 
   get closed(): boolean {
-    return this.#closed
+    return this.#client.ended
   }
 
   get desktop(): AppWindow {
@@ -640,8 +638,21 @@ export class Acde {
   async act(ref: string, action: InspectAction, arg?: InspectArg): Promise<ActResult> {
     const given = arg !== undefined && arg !== null
     const shown = [ref, action, ...(given ? [arg] : [])].map((value) => JSON.stringify(value)).join(', ')
-    return this.trace.step(`act(${shown})`,
-      async () => Acde.#result(await this.#request('act', { ref, action, ...(given && { arg }) })), Acde.#said)
+    return this.trace.step(`act(${shown})`, async () => {
+      this.#connected()
+      try {
+        return Acde.#result(await this.#client.request('act', { ref, action, ...(given && { arg }) }))
+      } catch (error) {
+        const ended = action === 'close' ? this.endedBy(ref) : null
+        if (ended === null) throw error
+        return ended
+      }
+    }, Acde.#said)
+  }
+
+  endedBy(ref: string): ActResult | null {
+    if (!this.#client.ended || this.#closing || this.session.desktop !== null || !/^w\d+$/.test(ref)) return null
+    return { ok: true, text: `closed ${ref}; acdert exited with it, so acde dev ${this.session.pid} ended`, ended: true }
   }
 
   async run(steps: readonly Step[]): Promise<ActResult> {
@@ -678,6 +689,7 @@ export class Acde {
   }
 
   async close(): Promise<void> {
+    this.#closing = true
     this.#client.close()
     if (!this.#owned) return
     const { child, dir } = this.#owned
@@ -691,8 +703,12 @@ export class Acde {
   }
 
   async #request(op: string, args: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
-    if (this.#closed) throw new Error(`acde dev ${this.session.pid} is no longer connected`)
+    this.#connected()
     return this.#client.request(op, args)
+  }
+
+  #connected(): void {
+    if (this.#client.ended) throw new Error(`acde dev ${this.session.pid} is no longer connected`)
   }
 
   static #page<T>(op: string, answer: unknown): DevPage<T> {

@@ -18,7 +18,6 @@ export class Tools {
   static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
   static readonly QUERY_LIMIT = 3000
   static readonly FOLLOW_MS = 500
-  static readonly ENDED_MS = 2_000
   static readonly STOP_MS = 10_000
   static readonly LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug', 'errors'])
 
@@ -96,14 +95,7 @@ export class Tools {
           return 0
         }
         case 'act': {
-          const result = await acde.act(args[0]!, args[1] as InspectAction, args[2]).catch(async (error: unknown) => {
-            if (args[1] !== 'close' || !(await Tools.#ended(acde))) throw error
-            return null
-          })
-          if (result === null) {
-            console.log(`closed ${args[0]}; acdert exited with it, so acde dev ${acde.session.pid} ended`)
-            return 0
-          }
+          const result = await acde.act(args[0]!, args[1] as InspectAction, args[2])
           console.log(result.text)
           return result.ok ? 0 : 1
         }
@@ -134,11 +126,6 @@ export class Tools {
     } finally {
       await acde.close()
     }
-  }
-
-  static async #ended(acde: Acde): Promise<boolean> {
-    for (const until = Date.now() + Tools.ENDED_MS; !acde.closed && Date.now() < until;) await sleep(20)
-    return acde.closed
   }
 
   static async #stop(pid: number | undefined): Promise<number> {
