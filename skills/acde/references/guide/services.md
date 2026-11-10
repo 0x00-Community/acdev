@@ -1,6 +1,6 @@
 # Services
 
-A desktop service is a JS module that starts and stops with the desktop and runs in the background. It exposes its methods as `acde:<namespace>` modules, one for each key of its `api` (usually just one, named after the service), callable by the desktop and by apps that request the service. It is a good home for global state and for logic that talks to external processes (an AI assistant or a sync service, for example).
+A desktop service is a JS module that starts and stops with the desktop and runs in the background. It exposes its methods as `acde:<namespace>` modules, one for each key of its `api` (usually just one, named after the service), callable by the desktop and by apps that list the service. It is a good home for global state and for logic that talks to external processes (an AI assistant or a sync service, for example).
 
 ## Write a service
 
@@ -37,10 +37,10 @@ Register it in the desktop's config:
 
 ## Call it
 
-The desktop imports it directly; an app must list the **service name** in its `capabilities`:
+The desktop imports it directly; an app must list the **service name** in its `services`:
 
 ```jsonc
-{ "capabilities": { "clock": true } }
+{ "services": ["clock"] }
 ```
 
 ```js
@@ -49,7 +49,14 @@ import { clock } from 'acde:clock'
 console.log(await clock.now())
 ```
 
-Each key of `api` is a module name (a namespace), and its value is a set of methods. All calls are asynchronous, and arguments and return values must be structured-cloneable; callback functions can be passed across. Namespaces that clash with built-in modules (`windows`, `apps`, `window`, `open`, `desktop`, `desktops`, `session`, `inspect`) are ignored.
+A service an app lists is required, and cannot be made optional: where the service is not running the app does not start (`Notes needs "clock" (service not running)`). That includes `acde dev` of the app project alone, which runs no desktop; run the app in the desktop that has the service: `acde dev ./my-app --desktop ./my-desktop`. Listing a service under `capabilities` instead is an error in `acde check` (`capability "clock" is not a system capability; list desktop services under services`).
+
+Each key of `api` is a module name (a namespace), and its value is a set of methods. All calls are asynchronous, and arguments and return values must be structured-cloneable; callback functions can be passed across.
+
+Names:
+
+- Give the service one namespace with the service's own name. `acde check` judges a static `import … from 'acde:clock'` in an app by the names in its `services`, so a namespace with another name fails the check.
+- A service cannot have the name of a system module or capability (`fs`, `open`, `window`, `windows`, `apps`, `launch`, `desktop`, `session`, `capabilities`, `notifications`, ...): `acde check` says `service "fs" has the name of a system module (acde:fs); system module names are reserved`. A namespace with such a name is left out when the service starts, with a log line (`[clock] acde.fs is taken; left out`).
 
 ## ServiceContext
 
@@ -64,7 +71,18 @@ The `ctx` passed to the factory function:
 | `log(line)` | Writes a log line, prefixed with `[<service name>]` |
 | `spawn(argv, options?)` | Starts a child process |
 | `inspect` | The `acde:inspect` interface |
+| `import(specifier)` | A shell module the desktop's manifest gives this service; see below |
 
 `spawn` takes the options `{cwd, env, onLine(line), onExit(code, signal)}` and returns `{pid, write(text), end(), kill(signal?)}`. The child process runs in its own process group and its stderr goes to the log; when the service closes, it gets SIGTERM, then SIGKILL 3 seconds later.
 
 A service should only use `ServiceContext` and standard Web APIs. Put heavy work in a process started with `spawn`.
+
+## Shell modules in a service
+
+A service does not `import` `acde:` modules: the build rejects it (`service clock: services/clock.ts imports acde:windows: a service gets shell modules from ctx.import('acde:<name>'), listed in its modules in the desktop manifest`). It asks its context instead:
+
+```js
+const { windows } = await ctx.import('acde:windows')
+```
+
+This works only for shell modules that the desktop's entry in the [manifest](../reference/manifest.md#desktopmanifest) grants the service, written as `{ "name": "clock", "modules": ["windows"] }` in the desktop's `services`. Anything else rejects with `acde:windows is a shell module: list it in the modules of service "clock" in the desktop manifest`. A project's `acde.config.jsonc` has no field for this (its `services` maps names to modules only), so a service built from a config gets no shell modules except `ctx.inspect`; the grant can be written in a handwritten package.

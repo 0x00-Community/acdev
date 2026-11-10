@@ -337,6 +337,23 @@ describe('acde dev with a stand-in acdert', () => {
       expect(logged.stdout).toBe('   1 log    alpha#7  alpha ready\n')
       expect((await dev.tool(['console', '--level', 'loud'], alpha)).stderr).toContain('--level loud: one of')
       expect((await dev.tool(['network', '--failed'], alpha)).stdout).toBe('')
+      const queried = await dev.tool(['query', '[data-testid="add"]', '--window', 'w1'], alpha)
+      expect(queried.stdout).toBe('1 in w1:\n- button "Add" [disabled] [w1.3] <button>\n')
+      expect(queried.code).toBe(0)
+      expect((await dev.tool(['query', '.ghost', '--window=w1'], alpha)).stdout)
+        .toBe('1 in w1:\n- generic [w1.99] <div> [hidden]\n')
+      const nothing = await dev.tool(['query', 'nav'], alpha)
+      expect([nothing.code, nothing.stdout]).toEqual([0, 'nothing in w1 matches "nav"\n'])
+      expect((await dev.tool(['query', '*', '--ref', 'w1.4', '--limit', '5'], alpha)).stdout)
+        .toBe('nothing in w1 matches "*"\n')
+      expect(dev.entries().findLast((e) => e.got?.['op'] === 'query')?.got)
+        .toMatchObject({ selector: '*', ref: 'w1.4', limit: 5 })
+      for (const limit of ['0', '3001', 'few']) {
+        const refused = await dev.tool(['query', 'li', '--limit', limit], alpha)
+        expect([refused.code, refused.stderr]).toEqual([1,
+          `acde: query: --limit ${limit}: how many elements to list at most, 1 to 3000 (acde query --help)\n`])
+      }
+      expect((await dev.tool(['query'], alpha)).stderr).toContain('query: 1 arguments, not 0 (acde query --help)')
       const screen = await dev.tool(['screen', '-o', join(base, 'all.png')], alpha)
       expect(screen.stdout.trim()).toBe(join(base, 'all.png'))
       expect(readFileSync(join(base, 'all.png')).subarray(1, 4).toString()).toBe('PNG')
@@ -450,6 +467,70 @@ describe('acde dev with a stand-in acdert', () => {
     expect(none.code).toBe(1)
     expect(none.stderr).toContain('no acde dev is running')
   }, 30_000)
+
+  test('approval prompts from the command line: permissions, allow, deny, revoke; ' +
+    'webs says what an app waits for', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const dev = start([], alpha, { FAKE_ACDERT_WAITS: '1' })
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      const said = async (...argv: string[]) => {
+        const ran = await dev.tool(argv, alpha)
+        return [ran.code, ran.stdout, ran.stderr]
+      }
+      const empty = 'NAME  KIND  APP  WINDOW  TITLE\n'
+      const hints = 'alpha waits for approval of launch: acde allow (or acde deny)\n' +
+        'beta waits for approval of fs.documents: acde allow (or acde deny)\n'
+      expect(await said('webs')).toEqual([0, empty + hints, ''])
+      const waiting = '  1  alpha  launch  (launch)\n  2  beta  fs.documents  (request)\n'
+      expect(await said('permissions')).toEqual([0, `pending:\n${waiting}decisions: none\n`, ''])
+      const several =
+        `acde: 2 approval prompts wait; name one (its id, or <app> <capability>) or pass --all:\n${waiting}`
+      expect(await said('allow')).toEqual([1, '', several])
+      expect(await said('deny')).toEqual([1, '', several])
+      expect(await said('allow', '7')).toEqual([1, '', 'acde: no approval prompt 7 is waiting (waiting: 1, 2)\n'])
+      expect(await said('deny', 'alpha', 'network'))
+        .toEqual([1, '', 'acde: no approval prompt of alpha for network is waiting (waiting: 1, 2)\n'])
+      expect(await said('allow', 'alpha')).toEqual([1, '', 'acde: allow: alpha is not a prompt id ' +
+        '(acde permissions lists them); or give <app> <capability> (acde allow --help)\n'])
+      expect(await said('deny', '1', '--all')).toEqual([1, '',
+        'acde: deny: --all answers every waiting prompt; leave the prompt out (acde deny --help)\n'])
+      expect((await dev.tool(['allow', 'a', 'b', 'c'], alpha)).stderr)
+        .toContain('allow: 0 to 2 arguments, not 3 (acde allow --help)')
+      expect(dev.entries().some((e) => e.got?.['op'] === 'answer')).toBe(false)
+
+      expect(await said('allow', 'alpha', 'launch')).toEqual([0, 'allowed alpha launch (prompt 1)\n', ''])
+      expect((await dev.tool(['webs'], alpha)).stdout).toContain('alpha#7  app      alpha  7       Alpha')
+      expect(await said('deny')).toEqual([0, 'denied beta fs.documents (prompt 2)\n', ''])
+      const decided = '  alpha  launch  granted\n  beta  fs.documents  denied\n'
+      expect(await said('permissions')).toEqual([0, `pending: none\ndecisions:\n${decided}`, ''])
+      expect(await said('allow')).toEqual([1, '', 'acde: no approval prompt is waiting\n'])
+      expect(await said('deny', '--all')).toEqual([1, '', 'acde: no approval prompt is waiting\n'])
+      expect(await said('allow', 'beta', 'fs.documents')).toEqual([1, '', 'acde: no approval prompt of beta for ' +
+        'fs.documents is waiting: it is already denied (revoke takes that back)\n'])
+      expect(await said('revoke', 'beta', 'fs.documents')).toEqual([0, 'revoked beta fs.documents\n', ''])
+      expect(await said('revoke', 'beta', 'fs.documents')).toEqual([1, '',
+        'acde: no decision about beta fs.documents to revoke (permissions lists the decisions)\n'])
+      expect((await dev.tool(['revoke', 'beta'], alpha)).stderr)
+        .toContain('revoke: 2 arguments, not 1 (acde revoke --help)')
+      const sent = dev.entries()
+        .flatMap((e) => (e.got?.['op'] === 'answer' ? [[e.got['prompt'], e.got['allow']]] : []))
+      expect(sent).toEqual([[1, true], [2, false]])
+    } finally {
+      await dev.stop()
+    }
+
+    const all = start([], alpha)
+    try {
+      await until('the session file', () => existsSync(all.file))
+      const allowed = await all.tool(['allow', '--all'], alpha)
+      expect([allowed.code, allowed.stdout])
+        .toEqual([0, 'allowed alpha launch (prompt 1)\nallowed beta fs.documents (prompt 2)\n'])
+    } finally {
+      await all.stop()
+    }
+  }, 60_000)
 
   test('--desktop <dir> adds that project and runs its desktop; ' +
     'one project alone is unchanged (acdert app <id>)', async () => {

@@ -20,11 +20,12 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | --- | --- |
 | `sessions` | Lists running `acde dev` sessions; can pin one |
 | `start` / `stop` / `logs` | Starts its own `acde dev` session (for the project in the working directory by default), stops it, reads its output |
-| `webs` | Lists pages |
+| `webs` | Lists pages; when an app waits for an approval instead, says so |
+| `permissions` / `answer` / `revoke` | Lists the approval prompts that wait and the decisions made, allows or denies a waiting prompt, takes back a decision; see [Approvals](tools.md#approvals) |
 | `snapshot` | The screen as text: windows and the elements of the focused window, each with a ref |
 | `act` / `run` | Performs one action on a ref / several in sequence, and reports what changed |
 | `open` | Opens an app and waits for its window |
-| `query` | Finds elements by CSS selector |
+| `query` | Finds elements by CSS selector, hidden ones too; the refs work with `act` |
 | `wait_for` | Waits for some text to appear (or disappear) |
 | `screenshot` | Screenshot of one window or the whole screen |
 | `eval` | Runs JS in a page |
@@ -35,6 +36,10 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | `clipboard` | Reads and writes the clipboard |
 
 Which session is used: the pinned one; otherwise the one `start` launched; otherwise one picked by the working directory.
+
+An app that requires a capability the user must approve opens no window until its prompt is answered. `start` and `webs` then answer an empty table and a line per prompt, `notes waits for approval of fs.downloads: the answer tool allows or denies it`. `answer` takes `allow` (true or false). To allow, it must name the `app` and the `capability` that `permissions` lists, so the call states what is granted; to deny, the `prompt` id or the `app` and `capability` will do, and neither is needed when only one prompt waits. It stands in for the user's own answer, so the tool is marked as an action that needs confirmation: allow only what the user asked for or agreed to.
+
+Closing the only window of a session that runs a single app (`act` with `close` on `w1`) ends that session: the tool answers `acdert closed the connection`, and the next call says that the session stopped. Run `start` again to go on.
 
 In a session with windows, `clipboard` touches **your system clipboard**, so the agent must pass `system: true` explicitly, and the tool is marked as an action that needs confirmation. Headless sessions have their own clipboard.
 

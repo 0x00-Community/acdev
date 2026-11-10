@@ -20,7 +20,8 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
 | `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless]` | 构建、起 acdert、改了就重新构建并 `reload` |
-| `acde webs` / `eval` / `shot` / `inspect` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
+| `acde webs` / `eval` / `shot` / `inspect` / `query` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
+| `acde permissions` / `allow` / `deny` / `revoke` (`--session <pid>`) | 看待答的批准提示和已有决定, 答提示, 撤销决定 (见「开发工具」的「批准」) |
 | `acde mcp [--session <pid>]` | stdio 上的 MCP 服务 (`claude mcp add acde -- acde mcp`) |
 | `acde test [目录\|文件...] [--headed] [-t 名字] [--desktop] [--timeout MS] [--bail] [--trace] [-u]` | e2e 测试, 只在 bun 上 |
 | `acde skills [install\|remove\|path] [--agent ID,...] [--dir 目录] [--copy]` | 给编码 agent 的 skill: 看装在哪、装、删、打印它的目录 (见「Skill 与文档」) |
@@ -240,7 +241,11 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - **命令** (`src/tools.ts`): `webs` (表格)、`eval <web> <代码|->` (JSON; web 是 web 名、应用 id 或 `desktop`)、`shot <web> [-o]` / `screen [-o]`
   (PNG 写文件, 打出路径)、`inspect` (`snapshot().text`; 给了 `--find` 时只打匹配的元素: acdert 回的 `trees` 里一个命中节点带着整棵子树 (运行时的 `find` 命中就停),
   所以 acde 按同样的规则 (名字或值含这段文字, 不分大小写) 在 `trees` 里重新找, 每个命中一行, 后面跟最近的有名字的祖先, 按窗口分组 (`Format.found`);
-  一个都没有时 stderr 一行、退出码 1)、`act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1;
+  一个都没有时 stderr 一行、退出码 1)、`query <选择器> [--window W] [--ref REF] [--limit N]` (driver 的 `query`, 即 op `query`: 按 CSS 选择器找元素,
+  `inspect` 不列的 (`display: none`、滚出可见范围、没有角色名字的) 也给 ref; 输出是 `Format.matches`, 和 MCP 的 `query` 同一份: `N in <窗口>:` 加每个元素一行
+  `- <节点> <标签>`, 不可见的后面标 `[hidden]`, 运行时给节点带的 `transparent` / `invisible` 状态照旧在前面, 所以和 `inspect --all` 的标记一致;
+  没有匹配打 `nothing in <窗口> matches "<选择器>"`, 两种都退出 0; `--limit` 是 1 到 3000 (`Tools.QUERY_LIMIT`, 运行时默认 600), 不用连会话先查)、
+  `act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1;
   `close` 时连接断了 (acdert 随窗口退出, 如单应用的 `acde dev`) 算成功: 打一行说会话结束, 退出码 0; 别的动作断了照旧报错, 不把崩溃当成功)、
   `stop` (挑会话同上, 连上发 `{type: "quit"}`, 等连接断、再等 acde dev 的 pid 退出, 各最多 10 s, 还在就 SIGTERM (Windows 上是强制结束,
   acdert 因连接断开跟着退出), 删会话文件, 打 `acde: stopped acde dev <pid>`; 连不上时删会话文件、报 `is gone`, 不按 pid 结束进程: pid 可能已被复用)、
@@ -248,6 +253,18 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `reloaded` 起: acde dev 每次重建后、发 `reload` 之前用自己的连接问 `console` / `network {limit: 1}` 的 `next` (最多等 2 s, 问不到沿用上一次),
   写进会话文件 `reloaded: {console, network}`. 运行时的记录不随页面重载清空, 也不标重载 (同一窗口重载后 web 名不变, 不能按 web 名分), 所以只认
   acde dev 发的重载, 页面自己的 `location.reload()` 不算; 还没重载过时是全部). 格式在 `src/driver/format.ts`. 出错 `acde: <原因>`, 退出码 1; 动作名、`--level` 这类不用连会话就能查的参数先查, 错误一行, 末尾指向 `acde <命令> --help`.
+- **批准的命令** (`src/approvals.ts` `Approvals`, CLI 和 MCP 共用; 运行时一侧见 acdert AGENTS.md 的「批准」): 第 1 级下要批准的必需能力
+  (`terminal`、`network`、`camera`、`microphone`、`launch`、`slots`、`fs.roots` 里的公共位置) 没答之前应用不开窗口, macOS / Linux 的宿主窗口和 headless
+  没有对话框, 只能经 dev IPC 答. `acde permissions` 打两段 (`Format.permissions`): `pending:` 下每行 `<id>  <app>  <能力>  (<launch|request>)`,
+  `decisions:` 下每行 `<app>  <能力>  <granted|denied>`, 空的一段是 `pending: none` / `decisions: none`. `acde allow` / `acde deny`
+  `[<提示 id> | <app> <能力>] [--all]` (`Tools.wanted` 先查参数, 不用连会话: 一个参数必须是数字 id, `--all` 不能再带参数; `Approvals.pick` 挑提示):
+  不带参数时只有一个待答就答它, 几个待答时一个都不答、列出来、退出 1 (不猜); 按 id 或按应用加能力点名; `--all` 全答. 每答一个打
+  `allowed|denied <app> <能力> (prompt <id>)`. 没有待答的、点名的不在待答里 (已有决定时说 `it is already granted|denied (revoke takes that back)`) 退出 1.
+  `acde revoke <app> <能力>` 是 driver 的 `revoke`, 打 `revoked <app> <能力>`, 没有那条决定时退出 1. `acde webs` 的表是空的时候 (单应用会话的应用在等批准)
+  每个待答提示再打一行 `<app> waits for approval of <能力>: acde allow (or acde deny)` (`Approvals.waiting`, `Format.waiting`; MCP 的 `webs` / `start`
+  同理, 后半句是 `the answer tool allows or denies it`); 桌面会话里 `webs` 总有桌面页, 不打这行, 看 `acde permissions`. 实测 (acdert 0.0.8 加当天的修复):
+  单应用会话里拒绝必需能力后 acdert 记一行错误退出 1, 下次 `acde dev` 再问; 撤销必需能力后应用照常跑到下一次 reload, reload 时 acdert 退出 1;
+  桌面里拒绝会留着, 应用不进列表.
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
   `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDE_FOLLOWED=1`: 会话文件按子进程 pid 找, `acde dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,
@@ -259,7 +276,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `waitForRequest(url, {method, web})` 先取 `network` 的 `next` 再轮询到匹配的请求结束 (`done`), `waitForConsole(文字或 RegExp, {level, web})` 同理; 要在触发之前调用.
   **批准** (acde#16, op `permissions` / `answer` / `revoke`, 类型来自 SDK 的 `PermissionPrompt` / `PermissionDecision` / `ApprovalCapability`):
   `permissions()` → `{pending, decisions}`; `waitForPrompt({app, capability, timeout})` 轮询到匹配的待答提示; `answer(提示或 id, allow)`;
-  `allow(匹配)` / `deny(匹配)` 是等到再答, 回那个提示. `revoke(app, capability)` 是 op `revoke` (acdert#95), 回 `revoked`
+  `allow(匹配)` / `deny(匹配)` 是等到再答, 回那个提示. `revoke(app, capability)` (capability 的类型是 `PermissionDecision['capability']`, 含用户选的文件夹 `fs.folder-<令牌>`) 是 op `revoke` (acdert#95), 回 `revoked`
   (有那条决定并删掉了才是 true), 桌面会话和 `acdert app` 都能用. 没人答的提示一直等, 不自动批准.
   **拖放** (op `drop`): `drop(文件, {web, x, y})` (相对路径按当前目录解析, x / y 页面坐标一起给, 默认页面中心, web 默认 desktop) →
   `{web, window, files}`; `AppWindow.drop(文件, {x, y})` 带上自己的 web. acdert 排进主线程就回答, 页面稍后才收到 `drop`, 要等页面上的效果
@@ -279,7 +296,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   基线: acde test 里是测试文件旁的 `__screenshots__/<文件名>/<名字>-<平台>.png` (不给名字是 `<测试名>-<序号>`), 单用 driver 时名字要是 .png 路径.
 - **trace** (`trace.ts`): `acde.trace` 记每个动作和断言 (Locator / AppWindow 的方法、`expect`、`open`、`route`、`choose*` …; 嵌套的只记最外层) 的
   标题、耗时、结果; `screenshots` 开着时每步之后拍整屏. `write(dir)` 写 `trace.txt`, 有截图时再写 `trace.html` (自带的查看页) 和 `trace/NNN.png`.
-- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 22 个工具建在 driver 上 (含 `route` / `unroute` / `clipboard`, `act` 的 drag / select; `clipboard` 在有窗口的会话里碰的是用户的系统剪贴板, 要 `system: true` 才做, 标成 destructive / openWorld 让客户端先问) (`start` / `stop` / `logs` 是自己起 `acde dev` 的). stdout 只走协议.
+- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 25 个工具建在 driver 上 (含 `route` / `unroute` / `clipboard`, `act` 的 drag / select;
+  `permissions` / `answer {allow, prompt? | app? + capability?}` / `revoke {app, capability}` 和命令行的批准命令共用 `Approvals`, `answer` / `revoke` 标成 destructive (`answer` 带 `allow: true` 时必须给 `app` 和 `capability`, 不认只给 id 或什么都不给: 批准替的是用户的回答, 而且决定是持久的, 所以批准了什么要写在这次调用里, 客户端问用户时看得见; 拒绝不要求)
+  (它替用户做决定), `prompt` 和 `app` / `capability` 不能同时给; `query` 的输出是 `Format.matches`; `clipboard` 在有窗口的会话里碰的是用户的系统剪贴板, 要 `system: true` 才做, 标成 destructive / openWorld 让客户端先问) (`start` / `stop` / `logs` 是自己起 `acde dev` 的). stdout 只走协议.
   会话: 钉住的 (`--session`、`sessions {use}`), 否则 `start` 起的, 否则按工作目录挑 (每次调用前看 IPC 断没断). stdin 关闭或收到信号时停掉 `start`
   起的. 工具出错回 `isError`, 不抛协议错误.
 - **e2e** (`src/e2e/`): 文件 `*.e2e.{ts,tsx,js,mjs,mts}` (普通 `bun test` 匹配不到, 不会起 acdert), 从 `acde/test` 导入. 每个测试一个新 `acde dev`
@@ -291,6 +310,11 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   算跳过 (bun 对这种文件退出码非 0), 不算失败; 所有文件都跳过时报 `no test matches -t` 并退出 1. 匹配按 JS 正则只看测试自己的名字, 正则无效当匹配
   (只会少算跳过; describe 名匹配时 bun 会跑, 有 `ran` 也不算跳过).
   启动 `acde dev` 的限时是测试限时减 3 s (至少一半, `E2eRun.startTimeout`), 起不来时报的是 `Acde.launch` 的原因和输出, 不是 bun 的超时.
+  **测试限时由 acde 自己执行** (`E2eRun.within`): 测试体和从测试开始算的限时赛跑, 到点抛 `TimeoutError: the test did not finish within <ms> ms
+  (its timeout: --timeout, or the one given to test())` (`TestTimeout`), 照常走 `keep` 留下失败现场, 再 `close()`; 交给 bun 的限时是测试限时加
+  `GRACE_MS` (30 s), 留给保存和关会话. 原因 (在真的工程和 acdert 上复现过): bun 到点就放弃这个测试并杀掉它起的子进程 (`killed 1 dangling process`),
+  文件里最后一个测试超时时进程随即退出, `catch` 里的 `keep` 来不及跑, `.acde/test-results` 什么都没有. `keep` 向 acdert 要截图、快照、console、network
+  这几步合计最多 `KEEP_MS` (15 s, 每步 `E2eRun.within`), acdert 不答时写 `<文件>.error.txt` (`not saved: …`), 不把宽限期耗在 `DevClient` 的 30 s 上.
   **解析 `acde/test` / `acde/driver`**: 用户工程不依赖 acde, bun 的插件 (`onResolve`) 管不到静态 import、也不认 `NODE_PATH`, 所以每个工程在临时目录写一份
   tsconfig 给 `bun test --tsconfig-override` (`tsconfig.ts`): `extends` 工程最近的 tsconfig.json, `paths` 是它自己的 (顺着 `extends` 链取最近定义的
   `paths` 和 `baseUrl`, 换成绝对路径; 链上可以是相对路径、数组、包) 加上这两个模块, 指向跑测试的这个 acde (`packageRoot()`, 打包后也对),
@@ -461,7 +485,7 @@ build 后 SDK 校验无错无警告)、`skills` (skill 的写法规则、和命�
 分词, 第三方 / 系统应用、桌面页、服务、手写的包、框架应用; check 和 Bun / Vite 两种 build)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
 打好的 preload 在真的 node 上由测试扮演运行时, 用 `node:child_process` 的额外管道当 fd 3 / 4, 没有 node ≥ 22 就跳过这一半)、`node` (打好的后端在 Node 上跑; 要
 `ACDE_TEST_NODE` 或 PATH 上真的 node ≥ 22.3, 没有就跳过)、`dev` / `driver` / `mcp` / `e2e` (都用 `test/fixtures/dev/fake-acdert.ts` 这个有状态的假
-acdert (它听 `ACDE_DEV`) 跑真的 `acde dev`)、`dist` (打包、配对记录、本地托管 acde 和替身 acdert 目录 (`runtimeMirror`: 各 triple 的假二进制、宿主包、`SHA256SUMS`), 跑 install.sh /
+acdert (它听 `ACDE_DEV`) 跑真的 `acde dev`; `FAKE_ACDERT_WAITS=1` 时它先不开窗口, `launch` 的提示被批准后才开, 用来测批准的命令、`webs` 的提示和 MCP 的 `answer`)、`dist` (打包、配对记录、本地托管 acde 和替身 acdert 目录 (`runtimeMirror`: 各 triple 的假二进制、宿主包、`SHA256SUMS`), 跑 install.sh /
 install.ps1 和 `bin/acde`; 篡改、缺文件、没有本平台构建、没有配对记录时安装失败且旧安装不变). 给包管理器搭 PATH 用符号链接, 不用 `exec` 的 sh 脚本:
 包了一层的 `node` 让 pnpm 不装 rolldown 的平台原生包.
 

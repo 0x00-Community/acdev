@@ -25,6 +25,8 @@ A running `acde dev` is a **dev session**: the [debugging commands](tools.md), [
 
 With several projects or `--desktop`, the desktop is chosen like this: the value of `--desktop`; otherwise the only desktop project among them; otherwise `dopame`. A `--desktop` value that looks like a path (contains `/`, or is `.` / `..`), or that names a project in the current directory, is treated as one more project.
 
+The session is ready when `acde webs`, run from the project directory, lists the app's page. An app that requires a capability the user must approve (a shared folder named in `fs.roots`, `terminal`, `network`, ...) opens no window until its prompt is answered: `acde dev` prints a line like `Notes (notes) waits for the user to allow "fs.downloads" (prompt 1; answer it with acde allow or acde deny, …)` and waits, and `acde webs` lists no page and names what waits. Answer from another terminal with `acde allow` or `acde deny`; see [Approvals](tools.md#approvals).
+
 `--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. It still needs a GPU, so it doesn't run on Linux CI machines without one (macOS CI runners work); see [Platform support](../reference/platforms.md).
 
 ## Reloading

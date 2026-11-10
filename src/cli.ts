@@ -42,6 +42,10 @@ const USAGE = `usage: acde <command>
                                                    the desktop as text (acde:inspect snapshot);
                                                    --offscreen: scrolled-out too; --all: every window, and
                                                    elements hidden by opacity: 0 or visibility
+  query <selector> [--window W] [--ref REF] [--limit N]
+                                                   the elements a CSS selector matches in the focused window (or W, or
+                                                   under REF), each with a ref act takes; also what inspect leaves out
+                                                   (not rendered ones are marked [hidden])
   act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed
   console [--web W] [--level L] [--since S] [--follow]
                                                    pages' console.* and uncaught errors
@@ -52,6 +56,16 @@ const USAGE = `usage: acde <command>
                                                    and the images, stylesheets and fonts they load, and how they ended
   screen [-o FILE]                                 a PNG of the whole screen, every window composed
                                                    (default ./screen.png)
+  permissions                                      the approval prompts that wait and the decisions made: an app that
+                                                   needs approval (terminal, network, camera, microphone, launch,
+                                                   slots, fs.<place>) opens no window until its prompt is answered
+  allow [<prompt>|<app> <capability>] [--all]      allow a waiting approval prompt: the only one, the one with that id
+                                                   (acde permissions shows it), the one of that app for that
+                                                   capability, or with --all every one
+  deny [<prompt>|<app> <capability>] [--all]       deny a waiting approval prompt: the only one, the one with that id
+                                                   (acde permissions shows it), the one of that app for that
+                                                   capability, or with --all every one
+  revoke <app> <capability>                        take back a decision, so the app is asked again
   stop                                             end that acde dev and its acdert (as closing its last window
                                                    does); for one started in the background
   test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
@@ -95,10 +109,15 @@ class Cli {
     eval: { args: [2, 2], flags: ['session'] },
     shot: { args: [1, 1], flags: ['session', 'output'] },
     inspect: { args: [0, 0], flags: ['session', 'window', 'find'], switches: ['all', 'offscreen'] },
+    query: { args: [1, 1], flags: ['session', 'window', 'ref', 'limit'] },
     act: { args: [2, 3], flags: ['session'] },
     console: { args: [0, 0], flags: ['session', 'web', 'level', 'since'], switches: ['follow'] },
     network: { args: [0, 0], flags: ['session', 'web', 'since'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
+    permissions: { args: [0, 0], flags: ['session'] },
+    allow: { args: [0, 2], flags: ['session'], switches: ['all'] },
+    deny: { args: [0, 2], flags: ['session'], switches: ['all'] },
+    revoke: { args: [2, 2], flags: ['session'] },
     stop: { args: [0, 0], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },

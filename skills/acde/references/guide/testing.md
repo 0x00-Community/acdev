@@ -44,7 +44,7 @@ Each test gets:
 
 - Temporary `HOME` and `XDG_*` directories, and in-memory storage only;
 - A 1280 × 800 screen, light mode, reduced motion, and no autostart items;
-- Headless by default (`--headed` to watch in a window), with a 60-second timeout per test (`--timeout`). Headless still needs a GPU, so Linux CI machines without one can't run tests; see [Platform support](../reference/platforms.md).
+- Headless by default (`--headed` to watch in a window), with a 60-second timeout per test (`--timeout`); the time the session takes to start counts. Headless still needs a GPU, so Linux CI machines without one can't run tests; see [Platform support](../reference/platforms.md).
 
 Builds go into `.acde/test`, results into `.acde/test-results`.
 
@@ -143,11 +143,29 @@ await acde.emulate({ colorScheme: 'dark' })
 await acde.setClipboard('hello')
 ```
 
+## Approvals
+
+Some capabilities need the user's approval before the app gets them (see [Capabilities](capabilities.md#approval)). Every test starts with an empty home, so nothing is approved yet, and no prompt is answered by itself: an app that requires such a capability opens no window until the test answers. Answer first, then use `app`:
+
+```ts
+import { expect, test } from 'acde/test'
+
+test('the app gets Downloads once the user allows it', async ({ app, acde }) => {
+  await acde.allow({ capability: 'fs.downloads' })
+  const roots = await app!.evaluate<{ id: string }[]>(`import('acde:fs').then((m) => m.fs.roots())`)
+  expect(roots.map((root) => root.id)).toEqual(['private', 'downloads'])
+})
+```
+
+`acde.allow()` and `acde.deny()` wait for a matching prompt (`{ app, capability }`, both optional) and answer it; `acde.permissions()` lists what waits and what was decided; `acde.revoke(app, capability)` takes a decision back. To test how the app behaves when the user says no, make the capability optional in the config and `deny` the prompt that `request()` raises; denying a required capability means the app does not start.
+
 ## Failures
 
 A failed test leaves these in `.acde/test-results/<file>/<test>/`:
 
 `error.txt` `output.log` `screen.png` `snapshot.txt` `console.txt` `network.txt` `trace.txt`
+
+A test that runs out of time fails with `TimeoutError: the test did not finish within <ms> ms (its timeout: --timeout, or the one given to test())` and leaves the same files, taken at that moment. A test whose session does not start fails with `acde dev exited (<code>) before it was ready:` or `acde dev did not start within <n> s:`, followed by the last output of `acde dev` (an app that cannot start says why there, for example `Notes needs "clock" (service not running)`); it leaves `error.txt`.
 
 With `--trace`, every test leaves a `trace.html`: each action and assertion, with its duration and result, and a full-screen screenshot after each step.
 
@@ -156,13 +174,24 @@ With `--trace`, every test leaves a `trace.html`: each action and assertion, wit
 ```sh
 acde test                        # all *.e2e.* in the project
 acde test e2e/tasks.e2e.ts       # specific files
-acde test -t "adds"              # filter by name
+acde test -t "adds"              # only tests whose names match this regular expression
 acde test --headed               # watch in a window
 acde test --desktop dopame       # run the app in the dopame desktop
 acde test --bail --timeout 30000
 acde test --trace
 acde test -u                     # update screenshot baselines
 ```
+
+With `-t`, a file in which no test matches is skipped and does not count as failed (`acde test: e2e/approval.e2e.ts: no test matches -t "saves", skipped`); if no test matches in any file, `acde test` prints `acde test: no test matches -t "<pattern>" in <n> files` and exits with code 1.
+
+Each file prints the output of its own `bun test` run as it goes. The last line counts the files that ran, a file passing when all its tests did, and names the ones that failed:
+
+```text
+acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts
+  what the failing tests left: /path/to/notes/.acde/test-results
+```
+
+The exit code is 0 when nothing failed and 1 otherwise.
 
 ## Editor types
 

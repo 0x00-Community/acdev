@@ -100,7 +100,7 @@ acde looks for the runtime in this order:
 
 When none is there, `acde dev` stops and says so.
 
-The runtime renders pages only on the GPU, so it needs a working GPU (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux).
+The runtime renders pages only on the GPU, so it needs a working GPU (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux). On Linux that means the hardware Vulkan driver of the machine's GPU (Mesa: `vulkan-intel` or `vulkan-radeon` on Arch, `mesa-vulkan-drivers` on Debian, Ubuntu and Fedora; NVIDIA: the vendor's driver); a software renderer is not accepted. Without it `acde dev` fails at startup with a log line that begins `web layer unavailable:` and says `no usable Vulkan driver was found: install the GPU's Vulkan driver …`: install the driver and check that `vulkaninfo --summary` lists the GPU.
 
 ### Install the runtime by hand
 

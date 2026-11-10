@@ -4,8 +4,8 @@ import * as z from 'zod'
 import type { InspectAction } from '@dopame/acde-api'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { Approvals } from './approvals.ts'
 import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
-import { Locator } from './driver/locator.ts'
 import { Poll } from './driver/poll.ts'
 import { Sessions } from './sessions.ts'
 import { Format } from './driver/format.ts'
@@ -41,7 +41,14 @@ const INSTRUCTIONS = [
     + `see (headless sessions only, unless the user agrees to system: true).`,
   `- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's `
     + `folder, open or save chooser then needs choose_folder, choose_files or choose_save_file first.`,
+  `- An app that needs the user's approval for a capability (terminal, network, camera, microphone, launch, slots, a `
+    + `shared folder) opens no window until its prompt is answered: webs is then empty and says what waits. `
+    + `permissions lists the prompts and the decisions, answer allows or denies a prompt, revoke takes a decision `
+    + `back.`,
 ].join('\n')
+
+const ANSWER = 'the answer tool allows or denies it'
+const NAMING = 'name one with prompt, or with app and capability'
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 
@@ -154,7 +161,65 @@ export class Mcp {
         inputSchema: z.object({}),
         annotations: look,
       },
-      () => this.#safe(async () => Mcp.#text(Format.webs(await (await this.#acde()).webs()))),
+      () => this.#safe(async () => Mcp.#text(await Mcp.#webs(await this.#acde()))),
+    )
+
+    s.registerTool(
+      'permissions',
+      {
+        description: 'The approval prompts that wait (id, app, capability, why it is asked) and the decisions made '
+          + '(app, capability, granted or denied). An app that waits for an approval has no window yet.',
+        inputSchema: z.object({}),
+        annotations: look,
+      },
+      () => this.#safe(async () => Mcp.#text(Format.permissions(await (await this.#acde()).permissions()))),
+    )
+
+    s.registerTool(
+      'answer',
+      {
+        description: 'Allow or deny an approval prompt that waits. To allow, name the app and the capability, so '
+          + 'that what is granted is stated in the call. To deny: the prompt id, or app and capability, or, with '
+          + 'neither, the only one waiting (several are listed, not guessed). The decision is kept for the app until '
+          + 'revoke takes it back. It stands in for the user\'s own answer: allow only what the user asked for or '
+          + 'agreed to, and tell them what you allowed.',
+        inputSchema: z.object({
+          allow: z.boolean().describe('true grants the capability, false denies it'),
+          prompt: z.number().int().positive().optional().describe('the id permissions shows'),
+          app: z.string().optional().describe('the app id, together with capability'),
+          capability: z.string().optional().describe('the capability asked for (network, fs.downloads, …), together '
+            + 'with app'),
+        }),
+        annotations: { ...drive, destructiveHint: true },
+      },
+      (args) =>
+        this.#safe(async () => {
+          if (args.prompt !== undefined && (args.app !== undefined || args.capability !== undefined))
+            throw new Error('answer: give prompt, or app and capability, not both')
+          if (args.allow && (args.app === undefined || args.capability === undefined))
+            throw new Error('answer: to allow, name the app and the capability (permissions lists what waits)')
+          const wanted = {
+            ...(args.prompt !== undefined && { prompt: args.prompt }),
+            ...(args.app !== undefined && { app: args.app }),
+            ...(args.capability !== undefined && { capability: args.capability }),
+          }
+          return Mcp.#text(await Approvals.answer(await this.#acde(), wanted, args.allow, NAMING))
+        }),
+    )
+
+    s.registerTool(
+      'revoke',
+      {
+        description: 'Take back a decision about an app and a capability (as permissions lists them), so the app is '
+          + 'asked again the next time it needs it.',
+        inputSchema: z.object({
+          app: z.string().describe('the app id'),
+          capability: z.string().describe('the capability the decision is about'),
+        }),
+        annotations: { ...drive, destructiveHint: true },
+      },
+      (args) =>
+        this.#safe(async () => Mcp.#text(await Approvals.revoke(await this.#acde(), args.app, args.capability))),
     )
 
     s.registerTool(
@@ -314,14 +379,7 @@ export class Mcp {
         annotations: look,
       },
       (args) =>
-        this.#safe(async () => {
-          const found = await (await this.#acde()).query(args)
-          const lines = found.nodes.map((n) => `- ${Locator.line(n)} <${n.tag}>${n.visible ? '' : ' [hidden]'}`)
-          const more = found.count > found.nodes.length ? `\n(${found.count - found.nodes.length} more not listed)` : ''
-          return Mcp.#text(found.count
-            ? `${found.count} in ${found.window}:\n${lines.join('\n')}${more}`
-            : `nothing in ${found.window} matches ${JSON.stringify(args.selector)}`)
-        }),
+        this.#safe(async () => Mcp.#text(Format.matches(await (await this.#acde()).query(args), args.selector))),
     )
 
     s.registerTool(
@@ -635,7 +693,7 @@ export class Mcp {
     this.#pinned = acde.session.pid
     const runs = acde.session.desktop ? `desktop ${acde.session.desktop}` : `app ${acde.session.apps.join(', ')}`
     const what = `${runs}${args.headless ? ' without a window (headless)' : ''}`
-    const webs = Format.webs(await acde.webs())
+    const webs = await Mcp.#webs(acde)
     return Mcp.#text(`acde dev ${acde.session.pid} runs ${what} (${acde.session.dirs.join(', ')})\n\n${webs}`)
   }
 
@@ -696,6 +754,12 @@ export class Mcp {
       const text = error instanceof Error ? error.message : String(error)
       return { content: [{ type: 'text', text }], isError: true }
     }
+  }
+
+  static async #webs(acde: Acde): Promise<string> {
+    const webs = await acde.webs()
+    const waiting = webs.length === 0 ? await Approvals.waiting(acde, ANSWER) : []
+    return [Format.webs(webs), ...waiting].join('\n')
   }
 
   static #entries<T>(page: DevPage<T>, line: (entry: T) => string): Result {

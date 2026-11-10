@@ -501,7 +501,7 @@ export class Acde {
     }, (prompt) => `${prompt.app}: ${prompt.capability}`)
   }
 
-  async revoke(app: string, capability: ApprovalCapability): Promise<boolean> {
+  async revoke(app: string, capability: PermissionDecision['capability']): Promise<boolean> {
     return this.trace.step(`revoke(${JSON.stringify(app)}, ${JSON.stringify(capability)})`, async () => {
       const answer = (await this.#request('revoke', { app, capability })) as { revoked?: unknown } | null
       if (typeof answer?.revoked !== 'boolean') throw new Error(`acdert answered revoke with ${JSON.stringify(answer)}`)

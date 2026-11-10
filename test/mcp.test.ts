@@ -29,7 +29,9 @@ describe('acde mcp', () => {
     const { client, call } = await connect(s.project, s.env)
     try {
       const tools = (await client.listTools()).tools
-      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute', 'wait_for', 'webs'])
+      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'answer', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'permissions', 'query', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute', 'wait_for', 'webs'])
+      expect(tools.find((t) => t.name === 'answer')!.annotations)
+        .toMatchObject({ readOnlyHint: false, destructiveHint: true })
       expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
 
       const none = await call('webs')
@@ -139,5 +141,48 @@ describe('acde mcp', () => {
     const sessions = join(s.root, 'acde-dev')
     for (let i = 0; i < 100 && existsSync(join(sessions, `${pid}.json`)); i++) await Bun.sleep(50)
     expect(existsSync(join(sessions, `${pid}.json`))).toBe(false)
+  }, 60_000)
+
+  test('approval prompts: start says what an app waits for; permissions, answer and revoke', async () => {
+    const s = standIn()
+    const { client, call } = await connect(s.project, { ...s.env, FAKE_ACDERT_WAITS: '1' })
+    try {
+      const started = await call('start', { headless: true })
+      expect(started.error).toBe(false)
+      const hints = 'alpha waits for approval of launch: the answer tool allows or denies it\n' +
+        'beta waits for approval of fs.documents: the answer tool allows or denies it'
+      expect(started.text).toEndWith(`\n\nNAME  KIND  APP  WINDOW  TITLE\n${hints}`)
+      expect((await call('webs')).text).toBe(`NAME  KIND  APP  WINDOW  TITLE\n${hints}`)
+      const waiting = '  1  alpha  launch  (launch)\n  2  beta  fs.documents  (request)'
+      expect((await call('permissions')).text).toBe(`pending:\n${waiting}\ndecisions: none`)
+      const several = await call('answer', { allow: false })
+      expect([several.error, several.text])
+        .toEqual([true, `2 approval prompts wait; name one with prompt, or with app and capability:\n${waiting}`])
+      expect((await call('answer', { allow: true, prompt: 1, app: 'alpha' })).text)
+        .toBe('answer: give prompt, or app and capability, not both')
+      expect((await call('answer', { allow: false, app: 'alpha' })).text)
+        .toBe('an approval prompt is named by its id, or by its app and its capability together')
+      const unnamed = 'answer: to allow, name the app and the capability (permissions lists what waits)'
+      for (const args of [{}, { prompt: 1 }, { app: 'alpha' }]) {
+        const refused = await call('answer', { allow: true, ...args })
+        expect([refused.error, refused.text]).toEqual([true, unnamed])
+      }
+      expect((await call('permissions')).text).toBe(`pending:\n${waiting}\ndecisions: none`)
+      expect((await call('answer', { allow: true, app: 'alpha', capability: 'launch' })).text)
+        .toBe('allowed alpha launch (prompt 1)')
+      expect((await call('webs')).text).toContain('alpha#7  app      alpha  7       Alpha')
+      expect((await call('answer', { allow: false })).text).toBe('denied beta fs.documents (prompt 2)')
+      const none = await call('answer', { allow: true, app: 'beta', capability: 'fs.documents' })
+      expect([none.error, none.text]).toEqual([true,
+        'no approval prompt of beta for fs.documents is waiting: it is already denied (revoke takes that back)'])
+      expect((await call('permissions')).text)
+        .toBe('pending: none\ndecisions:\n  alpha  launch  granted\n  beta  fs.documents  denied')
+      expect((await call('revoke', { app: 'alpha', capability: 'launch' })).text).toBe('revoked alpha launch')
+      const again = await call('revoke', { app: 'alpha', capability: 'launch' })
+      expect([again.error, again.text])
+        .toEqual([true, 'no decision about alpha launch to revoke (permissions lists the decisions)'])
+    } finally {
+      await client.close()
+    }
   }, 60_000)
 })

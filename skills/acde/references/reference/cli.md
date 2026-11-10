@@ -63,7 +63,7 @@ Builds, starts acdert, and rebuilds and reloads on changes. See [acde dev](../gu
 
 ## Running sessions
 
-These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect`, such as `w1.12`. See [Debugging](../guide/tools.md).
+These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect` or `acde query`, such as `w1.12`, or a window, such as `w1`. See [Debugging](../guide/tools.md).
 
 | Command | Description |
 | --- | --- |
@@ -72,11 +72,42 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde shot <web> [-o FILE]` | Window screenshot, default `./<web>.png` |
 | `acde screen [-o FILE]` | Full-screen screenshot, default `./screen.png` |
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
+| `acde query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
 | `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
 | `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N` |
+| `acde permissions` | The approval prompts that wait and the decisions made |
+| `acde allow [<prompt id> \| <app> <capability>] [--all]` | Allows a waiting approval prompt |
+| `acde deny [<prompt id> \| <app> <capability>] [--all]` | Denies a waiting approval prompt |
+| `acde revoke <app> <capability>` | Takes back a decision |
 | `acde stop` | Ends the session and its acdert; see [Stopping](../guide/dev.md#stopping) |
 | `acde mcp [--session PID]` | MCP server over stdio; see [MCP](../guide/mcp.md) |
+
+| Option | Description |
+| --- | --- |
+| `--window` | `inspect`, `query`: this window (`w1`) instead of the focused one |
+| `--ref` | `query`: search only under this element (`w1.12`) |
+| `--limit` | `query`: list at most this many elements (1 to 3000, default 600) |
+| `--all` | `inspect`: every window, and elements hidden by `opacity: 0` or `visibility`. `allow`, `deny`: every waiting prompt |
+
+`acde query` prints `N in <window>:` and one line per element, or `nothing in <window> matches "<selector>"`; both exit with code 0. `acde act` prints what it did and what changed, and exits with code 1 when the action was not done (the reason is then the only line).
+
+`acde permissions` prints two blocks and exits with code 0:
+
+```text
+pending:
+  2  notes  fs.documents  (launch)
+decisions:
+  notes  fs.downloads  granted
+```
+
+A pending line is `<prompt id>  <app>  <capability>  (<reason>)`, where the reason is `launch` (asked before the app starts) or `request` (asked by the running app); a decision line is `<app>  <capability>  <granted|denied>`. An empty block is `pending: none` or `decisions: none`.
+
+`acde allow` and `acde deny` answer prompts that wait now. Without arguments they answer the only waiting prompt; when several wait they answer none, list them, and exit with code 1. `<prompt id>` names one prompt, `<app> <capability>` the prompt of that app for that capability, and `--all` every waiting prompt. Each answered prompt prints `allowed <app> <capability> (prompt <id>)` or `denied <app> <capability> (prompt <id>)`. When nothing waits, or nothing matches, they print one line that says so (`acde: no approval prompt is waiting`, `acde: no approval prompt 5 is waiting (waiting: 2)`) and exit with code 1.
+
+`acde revoke <app> <capability>` prints `revoked <app> <capability>`; when there is no such decision it says so and exits with code 1.
+
+When no page runs because an app waits for an approval, `acde webs` prints, after the empty table, one line per prompt: `<app> waits for approval of <capability>: acde allow (or acde deny)`. See [Approvals](../guide/tools.md#approvals).
 
 ## Coding agents
 
@@ -110,7 +141,7 @@ acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS
 | `--headed` | Open windows (headless by default) |
 | `-t`, `--test-name-pattern` | Run only tests whose names match |
 | `--desktop` | Run the app in this desktop |
-| `--timeout` | Timeout per test (milliseconds, default 60000) |
+| `--timeout` | Timeout per test, including the start of its session (milliseconds, default 60000) |
 | `--bail` | Stop at the first failure |
 | `--trace` | Leave a `trace.html` for every test |
 | `-u`, `--update-screenshots` | Rewrite screenshot baselines |

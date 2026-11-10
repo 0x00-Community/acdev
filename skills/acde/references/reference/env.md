@@ -5,7 +5,7 @@
 | Variable | Effect |
 | --- | --- |
 | `ACDE_INSTALL` | Install directory, default `~/.acde` |
-| `ACDERT` | The acdert binary `acde dev` and `acde test` run: a path, or a name on PATH. Unset: `acdert` on PATH |
+| `ACDERT` | The acdert binary `acde dev` and `acde test` run: a path, or a name on PATH. Unset: the acdert the installer put next to acde, then `acdert` on PATH |
 | `ACDE_BUNDLER=vite` | Bundle with Vite on Bun too |
 | `ACDE_API` | The value `acde new` writes for the `@dopame/acde-api` dependency (default: the SDK tarball on `https://pkgs.dopame.ai/acdert/<version>/` that matches this acde) |
 | `CI` | When set, `toHaveScreenshot` does not write new baselines; a missing baseline fails right away |

@@ -53,8 +53,8 @@ class Acde {
   evaluate<T>(web: string, code: string): Promise<T>
   snapshot(options?): Promise<{ text; windows; trees }>
   query(options: { selector: string; window?: string; ref?: string; limit?: number; attributes?: string[] }): Promise<QueryResult>
-  act(ref: string, action: InspectAction, arg?): Promise<{ ok: boolean; text: string }>
-  run(steps): Promise<{ ok: boolean; text: string }>
+  act(ref: string, action: InspectAction, arg?): Promise<ActResult>
+  run(steps): Promise<ActResult>
 
   screenshot(web: string, options?: { path?: string }): Promise<Shot>
   screen(options?: { path?: string }): Promise<Shot>
@@ -72,14 +72,32 @@ class Acde {
   clipboard(): Promise<string>
   setClipboard(text: string): Promise<void>
 
+  permissions(): Promise<{ pending: PermissionPrompt[]; decisions: PermissionDecision[] }>
+  waitForPrompt(match?: { app?: string; capability?: string; timeout?: number }): Promise<PermissionPrompt>
+  allow(match?: { app?: string; capability?: string; timeout?: number }): Promise<PermissionPrompt>
+  deny(match?: { app?: string; capability?: string; timeout?: number }): Promise<PermissionPrompt>
+  answer(prompt: PermissionPrompt | number, allow: boolean): Promise<void>
+  revoke(app: string, capability: string): Promise<boolean>
+  drop(files: string | string[], options?: { web?: string; x?: number; y?: number }): Promise<{ web; window; files }>
+
   ready(): Promise<boolean>
+  readonly closed: boolean
   close(): Promise<void>
+}
+
+interface ActResult {
+  ok: boolean
+  text: string
 }
 ```
 
-- `launch` starts an `acde dev` session and waits until the windows of all pages have appeared (120 seconds by default). `close()` sends SIGTERM, then SIGKILL after 10 seconds.
+- `launch` starts an `acde dev` session on the project's own runtime (Bun or Node.js) and waits until the windows of all pages have appeared, or an approval prompt waits (`startTimeout`, 120 seconds by default). When the session does not start, it throws an `Error` whose message says why (`acde dev exited (1) before it was ready:`, `acde dev did not start within 120 s:`) and ends with the last output of `acde dev`.
+- `close()` ends the session that `launch` started: it sends SIGTERM, then SIGKILL after 10 seconds. On a session from `attach` it only disconnects.
+- `act` answers `ok: false` when the action was not done. In a session that runs a single app, closing the app's only window ends the session: the call that closed it rejects with `acdert closed the connection`, `closed` becomes true, and every later request rejects with `acde dev <pid> is no longer connected`.
 - `choose*` answers, in advance, the **next** picker of that kind the page opens; `null` means the user cancelled; relative paths resolve against the current directory.
 - Call `waitFor*` before the action that triggers it.
+- Approval prompts (`PermissionPrompt` is `{ id, app, label, capability, reason: 'launch' | 'request' }`, `PermissionDecision` is `{ app, label, capability, decision: 'granted' | 'denied' }`): `allow` and `deny` wait for a prompt that matches (any prompt when nothing is given), answer it and return it; `waitForPrompt` only waits; `answer` answers a prompt you already have. Nothing answers a prompt by itself: an app whose required capability waits has no window until the test answers. `revoke` takes a decision back and returns whether there was one. See [Approvals in tests](../guide/testing.md#approvals).
+- `drop` drops files from the system onto a page (default: the middle of the desktop page; `web` picks a page, `x` and `y` a point in it). The page gets a standard `drop` event a moment after the call returns, so wait for what the page does with it.
 
 ### route
 
@@ -123,6 +141,8 @@ interface RoleOptions {
 ```
 
 `AppWindow` looks itself up in the window table again on every use, so it keeps working if the window is closed and reopened.
+
+`close()` waits until the window is gone. Closing the only window of a session that runs a single app ends the session, and the call rejects with `acdert closed the connection`; a test has no need to close that window, since its session ends with the test.
 
 ## Locator
 

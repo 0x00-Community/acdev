@@ -32,6 +32,7 @@ const windows: Win[] = [
   { ref: 'w0', id: 0, kind: 'desktop', app: null, title: null, rect: [0, 0, 16, 12], focus: false, hidden: false },
   { ref: 'w1', id: 7, kind: 'web', app: 'alpha', title: 'Alpha', rect: [4, 2, 8, 6], focus: true, hidden: false },
 ]
+const held = process.env['FAKE_ACDERT_WAITS'] ? windows.splice(0) : []
 const tasks: { name: string; done: boolean }[] = []
 let draft = ''
 let priority = 'low'
@@ -395,6 +396,7 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       }
       const [prompt] = prompts.splice(at, 1)
       decisions.push({ ...prompt!, decision: m['allow'] ? 'granted' : 'denied' })
+      if (prompt!.reason === 'launch' && m['allow']) windows.push(...held.splice(0))
       return void ok({ prompt: m['prompt'], allow: m['allow'] })
     }
     case 'revoke': {

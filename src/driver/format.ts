@@ -1,5 +1,6 @@
-import type { InspectNode } from '@dopame/acde-api'
-import type { ConsoleEntry, RequestEntry, Snapshot, Web } from './acde.ts'
+import type { InspectNode, PermissionDecision, PermissionPrompt } from '@dopame/acde-api'
+import type { ConsoleEntry, Permissions, QueryResult, RequestEntry, Snapshot, Web } from './acde.ts'
+import { Locator } from './locator.ts'
 
 export class Format {
   static console(e: ConsoleEntry): string {
@@ -13,6 +14,36 @@ export class Format {
     const ms = e.ms === null ? '' : ` ${Math.round(e.ms)} ms`
     const about = `${e.kind}${e.mocked ? ', mocked' : ''}${size}${ms}${e.error !== null ? `; ${e.error}` : ''}`
     return `${String(e.seq).padStart(4)} ${e.method.padEnd(6)} ${status.padEnd(3)} ${e.url}  (${about}) ${e.web}`
+  }
+
+  static matches(found: QueryResult, selector: string): string {
+    if (!found.count) return `nothing in ${found.window} matches ${JSON.stringify(selector)}`
+    const lines = found.nodes.map((n) => `- ${Locator.line(n)} <${n.tag}>${n.visible ? '' : ' [hidden]'}`)
+    const more = found.count > found.nodes.length ? `\n(${found.count - found.nodes.length} more not listed)` : ''
+    return `${found.count} in ${found.window}:\n${lines.join('\n')}${more}`
+  }
+
+  static prompt(prompt: PermissionPrompt): string {
+    return `${prompt.id}  ${prompt.app}  ${prompt.capability}  (${prompt.reason})`
+  }
+
+  static decision(decision: PermissionDecision): string {
+    return `${decision.app}  ${decision.capability}  ${decision.decision}`
+  }
+
+  static permissions(permissions: Permissions): string {
+    const block = (name: string, lines: readonly string[]) =>
+      lines.length ? `${name}:\n${lines.map((line) => `  ${line}`).join('\n')}` : `${name}: none`
+    const pending = block('pending', permissions.pending.map(Format.prompt))
+    return `${pending}\n${block('decisions', permissions.decisions.map(Format.decision))}`
+  }
+
+  static answered(prompt: PermissionPrompt, allow: boolean): string {
+    return `${allow ? 'allowed' : 'denied'} ${prompt.app} ${prompt.capability} (prompt ${prompt.id})`
+  }
+
+  static waiting(prompt: PermissionPrompt, how: string): string {
+    return `${prompt.app} waits for approval of ${prompt.capability}: ${how}`
   }
 
   static webs(webs: readonly Web[]): string {
