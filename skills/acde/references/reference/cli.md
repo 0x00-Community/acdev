@@ -51,7 +51,7 @@ Builds into `DIR` (default `.acde`). A relative `--out` is resolved against the 
 acde install [dir] [--out DIR]
 ```
 
-Builds, then installs into `$XDG_DATA_HOME/acde/packages/<id>`. See [Local install](../guide/install.md).
+Builds, then installs into `$XDG_DATA_HOME/acde/packages/<id>`; without `XDG_DATA_HOME`, `~/.local/share/acde/packages/<id>` (on Windows `%USERPROFILE%\.local\share\acde\packages\<id>`). See [Local install](../guide/install.md).
 
 ### acde dev
 

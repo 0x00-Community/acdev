@@ -25,7 +25,9 @@ const USAGE = `usage: acde <command>
                                                    P (windows, macos, linux): the required capabilities a running
                                                    mode there lacks (optional ones are notes)
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
-  install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link)
+  install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link);
+                                                   default ~/.local/share/acde/packages, on Windows
+                                                   %USERPROFILE%\\.local\\share\\acde\\packages
   dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless]
                                                    build, run in acdert, rebuild and reload what changed; one
                                                    project: its desktop or app; several or --desktop: all in that
