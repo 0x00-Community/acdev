@@ -125,7 +125,7 @@ impl Surface {
         let (window, size, scale, refresh, focus, bar) = {
             let mut state = server.state();
             let id = state.tokens.remove(&token).ok_or("claimSurface: wrong or already used token")?;
-            let (scale, refresh, unfocused, theme) = (state.screen[2], state.refresh, state.focus.is_none(), state.theme);
+            let (scale, refresh, unfocused, theme, focused) = (state.screen[2], state.refresh, state.focus.is_none(), state.theme, state.focus == Some(id));
             let entry = state.entries.get_mut(&id).ok_or("claimSurface: window is gone")?;
             entry.frame = if entry.desktop || entry.panel || entry.host { 0.0 } else { f64::from(frame) };
             entry.inbox = Some(inbox.clone());
@@ -133,7 +133,7 @@ impl Surface {
             entry.app = app;
             entry.opened = true;
             let focus = !entry.hidden && (!entry.desktop || unfocused);
-            let bar = entry.bar(theme, false);
+            let bar = entry.bar(theme, focused);
             (id, state.content(&state.entries[&id]), scale, refresh, focus, bar)
         };
         let wake = link.clone();
