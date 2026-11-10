@@ -43,7 +43,7 @@ const USAGE = `usage: acde <command>
   console [--web W] [--level L] [--follow]         pages' console.* and uncaught errors
                                                    (L: log info warn error debug errors)
   network [--web W] [--failed] [--follow]          pages' fetch / XHR / WebSocket / EventSource requests
-                                                   and how they ended
+                                                   and the images, stylesheets and fonts they load, and how they ended
   screen [-o FILE]                                 a PNG of the whole screen, every window composed
                                                    (default ./screen.png)
   test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]

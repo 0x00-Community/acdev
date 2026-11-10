@@ -27,7 +27,7 @@ These commands find an `acde dev` session in this order: `--session <pid>`; othe
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | Turns the screen into text: the window list and the element tree of the focused window |
 | `acde act <ref> <action> [arg]` | Clicks, types, presses keys, and more on a ref from `inspect` |
 | `acde console [--web W] [--level L] [--follow]` | The pages' `console.*` output and uncaught errors |
-| `acde network [--web W] [--failed] [--follow]` | The pages' fetch / XHR / WebSocket / EventSource requests |
+| `acde network [--web W] [--failed] [--follow]` | The pages' fetch / XHR / WebSocket / EventSource requests and their image, stylesheet and font loads; the kind column says which |
 
 A **web** is one page: the desktop page, or the page in one app window (each window has one). `<web>` is a web name from `acde webs` (`notes#1048576`), an app id (that app's first window), or `desktop`.
 

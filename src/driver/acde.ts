@@ -73,7 +73,7 @@ export interface RequestEntry {
   readonly web: string
   readonly app: string | null
   readonly id: number
-  readonly kind: 'fetch' | 'xhr' | 'websocket' | 'eventsource'
+  readonly kind: 'fetch' | 'xhr' | 'websocket' | 'eventsource' | 'image' | 'stylesheet' | 'font'
   readonly method: string
   readonly url: string
   readonly requestBytes: number

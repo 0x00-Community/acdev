@@ -19,7 +19,10 @@ const INSTRUCTIONS = `acde: see and drive the desktop and apps of an acde dev se
 - Act with act / run on those refs (click, type, settext, key "ctrl+a backspace", scroll, …). The answer waits for the page to settle and ends with what changed in the window, so another snapshot is rarely needed. Refs stay valid while the page lives; after a reload take a new snapshot.
 - Elements scrolled out of view are left out unless offscreen is set; act scrolls an element into view before using it. query finds elements by CSS selector (also [data-testid=…]) and gives refs act takes.
 - open launches an app by id or name. screenshot shows a window's pixels, or target "screen" the whole screen with every window (snapshot cannot tell colour, layout or overlap). eval runs JavaScript in a page and returns JSON. wait_for waits for a text to appear or go.
-- console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource requests (status, size, time, error); both answer next, pass it as since to read only newer entries. emulate switches the colour scheme or reduced motion. logs is the raw output of an acde dev that start ran.
+- console has the pages' console.* lines and uncaught errors, network their fetch / XHR / WebSocket / EventSource
+  requests and the images, stylesheets and fonts they load (status, size, time, error); both answer next, pass it as
+  since to read only newer entries. emulate switches the colour scheme or reduced motion. logs is the raw output of an
+  acde dev that start ran.
 - act drag moves an element onto another ref (pointer drags and HTML5 drag and drop, also into another window); act select picks options of a <select> by value or text.
 - route fakes the response (or a failure) of a page's fetch / XHR whose URL matches, so a test or an agent can try states the backend does not give; unroute takes them away. clipboard reads or writes the clipboard the pages see (headless sessions only, unless the user agrees to system: true).
 - start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's folder, open or save chooser then needs choose_folder, choose_files or choose_save_file first.`
@@ -272,7 +275,9 @@ export class Mcp {
     s.registerTool(
       'network',
       {
-        description: "The pages' requests (fetch, XHR, WebSocket, EventSource): method, status (ERR when it failed, ... while open), URL, kind, response size, time, error, page. next is what to pass as since.",
+        description: "The pages' requests (fetch, XHR, WebSocket, EventSource, and loads of images, stylesheets "
+          + 'and fonts): method, status (ERR when it failed, ... while open), URL, kind, response size, time, '
+          + 'error, page. next is what to pass as since.',
         inputSchema: z.object({
           web: z.string().optional().describe('only this page: a web name, an app id, or desktop'),
           failed: z.boolean().optional().describe('only failed requests and status 400 or more'),
