@@ -47,6 +47,10 @@ test('links: <a download>, blob: and data: URLs are saved through the host (the 
 
 type Node = Uint8Array | 'dir' | 'link'
 
+// What a host system knows by name (the runtime asks Windows' associations or shared-mime-info); the rest is unknown.
+const SYSTEM_TYPES: Record<string, string> = { '.png': 'image/png', '.txt': 'text/plain', '.md': 'text/markdown' }
+const systemType = (name: string) => SYSTEM_TYPES[name.slice(name.lastIndexOf('.')).toLowerCase()] ?? ''
+
 function chooser(answer: { open?: string[] | null; save?: string | null; directory?: string | null; private?: string }, files: Map<string, Node>) {
   const asked: unknown[] = []
   const name = (path: string) => path.split('/').pop()!
@@ -92,6 +96,7 @@ test('<input type=file>: activation opens the chooser; the picked files are its 
   const files = new Map([['/home/u/a.png', new TextEncoder().encode('PNG')], ['/home/u/b.txt', new TextEncoder().encode('hello')]])
   const c = chooser({ open: ['/home/u/a.png', '/home/u/b.txt'] }, files)
   web.internals.env.files = c.files
+  web.internals.env.fileType = systemType
   web.run(`globalThis.out = []; const f = document.getElementById('f')
     f.addEventListener('input', () => out.push('input'))
     f.addEventListener('change', async () => {
@@ -127,6 +132,7 @@ test('showOpenFilePicker / showSaveFilePicker: handles over the picked files; ca
   const files = new Map([['/home/u/notes.md', new TextEncoder().encode('# notes')]])
   const c = chooser({ open: ['/home/u/notes.md'], save: '/home/u/out.json' }, files)
   web.internals.env.files = c.files
+  web.internals.env.fileType = systemType
   web.run(`globalThis.out = []; (async () => {
     const [handle] = await showOpenFilePicker({ types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] })
     const file = await handle.getFile()
@@ -352,6 +358,32 @@ test('fetch bodies: a null body is never used, reading locks the stream, clone k
     return JSON.stringify([empty.bodyUsed, full.bodyUsed, full.body.locked, error.status, error.type, credentials])
   })()`)
   assert.deepEqual(JSON.parse(out as string), [false, true, true, 0, 'error', 'TypeError'])
+})
+
+test('picked and dropped files: File.type is the type the host system gives the name, empty when it knows none', async () => {
+  using web = await page()
+  const enc = (text: string) => new TextEncoder().encode(text)
+  const files = new Map<string, Node>([['/drop/photo.PNG', enc('PNG')], ['/drop/notes.md', enc('# n')], ['/drop/data.xyz', enc('x')]])
+  web.internals.env.files = chooser({ open: ['/drop/photo.PNG', '/drop/data.xyz'] }, files).files
+  const { handles } = web.internals
+  const transfer = web.run<object>('globalThis.dt = new DataTransfer(); dt')
+  for (const path of files.keys()) handles.transfer(transfer, null, handles.of({ name: path.slice('/drop/'.length), path }, 'file', 'read'))
+  web.run(`globalThis.out = []
+    globalThis.dropped = () => Promise.all([...dt.items].map(async (i) => (await (await i.getAsFileSystemHandle()).getFile()).type))`)
+  web.run(`dropped().then((types) => out.push(types))`)
+  await web.wait(5)
+  const asked: string[] = []
+  web.internals.env.fileType = (name) => (asked.push(name), systemType(name))
+  web.run(`dropped().then((types) => out.push(types))
+    .then(() => showOpenFilePicker({ multiple: true })).then((hs) => Promise.all(hs.map((h) => h.getFile())))
+    .then((picked) => out.push(picked.map((f) => [f.name, f.type])))`)
+  await web.wait(5)
+  assert.deepEqual(web.json('out'), [
+    ['', '', ''],
+    ['image/png', 'text/markdown', ''],
+    [['photo.PNG', 'image/png'], ['data.xyz', '']],
+  ])
+  assert.deepEqual(asked.sort(), ['data.xyz', 'data.xyz', 'notes.md', 'photo.PNG', 'photo.PNG'])
 })
 
 test('drops: files and getAsFileSystemHandle() give read-only handles; folders and strings come as items only', async () => {

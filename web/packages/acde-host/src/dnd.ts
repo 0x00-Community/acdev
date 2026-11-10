@@ -94,7 +94,9 @@ export class DragDrop {
       const handle = this.handOver?.handle(path, entry.isDirectory ? 'directory' : 'file', false) ?? null
       const small = entry.isFile && entry.size <= DragDrop.FILE_LIMIT
       const bytes = small ? (readFileSync(path) as Uint8Array<ArrayBuffer>) : null
-      const file = bytes ? (new this.#window.File([bytes], basename(path), { lastModified: entry.mtimeMs }) as unknown as File) : null
+      const name = basename(path)
+      const type = entry.isFile ? this.#page.env.fileType(name) : ''
+      const file = bytes ? (new this.#window.File([bytes], name, { type, lastModified: entry.mtimeMs }) as unknown as File) : null
       if (handle) this.#page.handles.transfer(transfer, file, handle)
       else if (file) transfer.items.add(file)
     } catch {

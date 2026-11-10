@@ -3,6 +3,7 @@ import type { Rpc } from './rpc'
 import { existsSync, readFileSync, stat, writeFileSync } from './sys/fs'
 import { basename } from './sys/path'
 import { Level, Log } from './log'
+import { FileTypes } from './mimedb'
 
 type Env = WebInternals['env']
 type Chooser = NonNullable<Env['files']>
@@ -48,6 +49,7 @@ export class PageCalls implements HandOver {
     this.#name = name
     this.#setup = setup
     page.env.files = this.#chooser()
+    page.env.fileType = (name) => FileTypes.system().byName(name)
     page.env.download = (request) =>
       void this.#download(request).catch((error: Error) => this.#log(`download of ${request.url.slice(0, 120)}: ${error.message}`))
     const notify = (notification: Notice) => void this.#notify(notification).catch((error: Error) => this.#log(`notification: ${error.message}`))

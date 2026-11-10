@@ -2,7 +2,6 @@ import { Blob, File } from '../core/blob'
 import { bytesOf } from '../core/encoding'
 import { DOMException } from '../core/exception'
 import { getters, host as native, tag } from '../core/host'
-import { typeOfName } from '../core/net'
 import { env, type FileFilter, type PickedEntry, type PickedFile } from './env'
 
 export function acceptFilters(accept: string): FileFilter[] {
@@ -25,7 +24,7 @@ function typeFilters(types: unknown): FileFilter[] {
 export async function readPicked(file: PickedFile): Promise<File> {
   const read = await env.files!.read(file)
   if (!read) throw notFound()
-  return new File([read.bytes], file.name, { type: typeOfName(file.name), lastModified: read.lastModified })
+  return new File([read.bytes], file.name, { type: env.fileType(file.name), lastModified: read.lastModified })
 }
 
 function aborted(): DOMException {
