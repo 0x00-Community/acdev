@@ -11,5 +11,9 @@ export declare function atLeast(version: string, minimum: readonly [number, numb
 export declare function runtimes(env?: Record<string, string | undefined>): { bun: string | null; node: string | null }
 export declare function cliFile(root?: string): string
 export declare function cliRuntime(root?: string): string
-export declare function cliEnv(exe: string, env?: Record<string, string | undefined>): Record<string, string | undefined>
+export declare function cliEnv(
+  exe: string,
+  env?: Record<string, string | undefined>,
+  platform?: NodeJS.Platform,
+): Record<string, string | undefined>
 export declare function run(args: readonly string[], exe?: string): Promise<number>

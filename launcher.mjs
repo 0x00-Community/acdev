@@ -93,10 +93,15 @@ export function cliRuntime(root = ROOT) {
   return process.execPath
 }
 
-export function cliEnv(exe, env = process.env) {
+export function cliEnv(exe, env = process.env, platform = process.platform) {
+  const out = { ...env }
+  const isPath = (name) => (platform === 'win32' ? name.toUpperCase() === 'PATH' : name === 'PATH')
+  const names = Object.keys(out).filter(isPath)
+  const path = names.length > 0 ? out[names.at(-1)] : undefined
+  for (const name of names) delete out[name]
   return {
-    ...env,
-    PATH: `${dirname(exe)}${delimiter}${env.PATH || ''}`,
+    ...out,
+    PATH: `${dirname(exe)}${delimiter}${path || ''}`,
     ACDE_HOST_RUNTIME: env.ACDE_HOST_RUNTIME || runtime(),
   }
 }

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { cliFile, cliRuntime, requireAcdert } from '../launcher.mjs'
+import { delimiter, join } from 'node:path'
+import { cliEnv, cliFile, cliRuntime, requireAcdert } from '../launcher.mjs'
 import { cleanup, tmp, WINDOWS } from './helpers.ts'
 
 afterAll(cleanup)
@@ -115,5 +115,34 @@ describe('launcher: what runs the CLI', () => {
     expect(cliFile(checkout())).toEndWith(join('src', 'cli.ts'))
     expect(cliFile(install().root)).toEndWith(join('dist', 'cli.js'))
     expect(cliRuntime(checkout())).toBe(process.execPath)
+  })
+})
+
+describe('launcher: the environment of the CLI', () => {
+  const bin = join('opt', 'bun')
+  const exe = join(bin, 'bun')
+  const pathKeys = (env: Record<string, string | undefined>) =>
+    Object.keys(env).filter((k) => k.toUpperCase() === 'PATH')
+
+  test('Windows: PATH is found under any case and left as one PATH key, the runtime first', () => {
+    const one = cliEnv(exe, { Path: 'C:\a;C:\b', ACDE_HOST_RUNTIME: 'bun' }, 'win32')
+    expect(pathKeys(one)).toEqual(['PATH'])
+    expect(one['PATH']).toBe(`${bin}${delimiter}C:\a;C:\b`)
+  })
+
+  test('Windows: of several spellings the one given last wins, as a later spread does', () => {
+    const both = cliEnv(exe, { Path: 'system', ACDE_HOST_RUNTIME: 'bun', PATH: 'given' }, 'win32')
+    expect(pathKeys(both)).toEqual(['PATH'])
+    expect(both['PATH']).toBe(`${bin}${delimiter}given`)
+  })
+
+  test('no PATH at all: just the runtime directory', () => {
+    expect(cliEnv(exe, { ACDE_HOST_RUNTIME: 'bun' }, 'win32')['PATH']).toBe(`${bin}${delimiter}`)
+  })
+
+  test('elsewhere names are case-sensitive: only PATH is PATH', () => {
+    const env = cliEnv(exe, { PATH: '/usr/bin', Path: 'other', ACDE_HOST_RUNTIME: 'bun' }, 'linux')
+    expect(env['PATH']).toBe(`${bin}${delimiter}/usr/bin`)
+    expect(env['Path']).toBe('other')
   })
 })
