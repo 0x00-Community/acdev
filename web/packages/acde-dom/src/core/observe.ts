@@ -1,6 +1,6 @@
 export type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 export type PageErrorKind = 'error' | 'rejection'
-export type RequestKind = 'fetch' | 'xhr' | 'websocket' | 'eventsource'
+export type RequestKind = 'fetch' | 'xhr' | 'websocket' | 'eventsource' | 'image' | 'stylesheet' | 'font'
 
 export type RequestEvent =
   | { readonly phase: 'start'; readonly id: number; readonly kind: RequestKind; readonly method: string; readonly url: string; readonly bytes: number; readonly mocked?: true }

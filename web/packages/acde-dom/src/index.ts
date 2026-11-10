@@ -4,6 +4,7 @@ import { CustomEvent, ErrorEvent, Event, fire, PromiseRejectionEvent, type Event
 import { globals, host, KEY, report, setReport } from './core/host'
 import { observer, type PageErrorKind } from './core/observe'
 import { EventSource, fetch, Headers, net, Request, Response, WebSocket, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net'
+import { loadResource } from './core/resources'
 import {
   ReadableStream,
   ReadableStreamDefaultController,
@@ -142,6 +143,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   if (installed) throw new Error('acde-dom is installed in this context already')
   installCore(global, hostNative, options)
   bindDom(domNative)
+  domNative.setLoader((id, url, destination) => loadResource(url, destination, (bytes) => domNative.loaded(id, bytes)))
   env.url = hostNative.parseUrl(options.url, null)?.href ?? options.url
   objectUrlOrigin.value = new URL(env.url).origin
   net.base = () => env.url

@@ -221,6 +221,7 @@ impl Spec {
         ON_MESSAGE.with(|m| *m.borrow_mut() = None);
         crate::webnative::clear();
         crate::backend::clear();
+        crate::dom::clear_loads();
         crate::offload::clear();
         crate::idb::clear();
         crate::caches::clear();

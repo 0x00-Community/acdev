@@ -67,7 +67,7 @@ function browserHeaders(page: readonly Header[], accept: boolean): Header[] {
 type Loaded = { bytes: Uint8Array; type: string }
 type Routed = { target: Target } | { asset: Loaded } | null
 
-function unreachable(url: string): string {
+export function unreachable(url: string): string {
   try {
     if (new URL(url).origin === new URL(net.base()).origin) return 'no such file in the app, and no backend to ask'
   } catch {
@@ -90,7 +90,7 @@ function inline(url: string): Loaded | null {
   return bytes ? { bytes, type: meta.replace(/;base64$/i, '') || 'text/plain;charset=US-ASCII' } : null
 }
 
-function route(url: string, method: string): Routed {
+export function route(url: string, method: string): Routed {
   const connection = method === 'WS' || method === 'SSE'
   if (!connection && (url.startsWith('data:') || url.startsWith('blob:'))) {
     const found = inline(url)
@@ -182,7 +182,7 @@ function visibleHeaders(headers: readonly Header[]): Header[] {
   return headers.filter(([name]) => !/^set-cookie2?$/i.test(name))
 }
 
-function headerOf(headers: readonly Header[], name: string): string | null {
+export function headerOf(headers: readonly Header[], name: string): string | null {
   const values = headers.filter(([n]) => n.toLowerCase() === name).map(([, v]) => v)
   return values.length ? values.join(', ') : null
 }
@@ -505,7 +505,7 @@ function tracking(tracked: Tracked | null, given: ExchangeHandlers): ExchangeHan
   }
 }
 
-function exchange(first: Target, request: ExchangeRequest, given: ExchangeHandlers, kind: RequestKind): () => void {
+export function exchange(first: Target, request: ExchangeRequest, given: ExchangeHandlers, kind: RequestKind): () => void {
   const backend = transport!
   const tracked = Tracked.start(kind, request.method, request.url, request.body?.length ?? 0)
   const on = tracking(tracked, given)

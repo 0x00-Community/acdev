@@ -569,6 +569,14 @@ export class MockDom implements DomNative {
     this.#loaded = []
     return out
   }
+  loader: ((id: number, url: string, destination: string) => void) | null = null
+  loads = new Map<number, Uint8Array | null>()
+  setLoader(load: ((id: number, url: string, destination: string) => void) | null): void {
+    this.loader = load
+  }
+  loaded(id: number, bytes: Uint8Array | null): void {
+    this.loads.set(id, bytes && bytes.slice())
+  }
   canvas(id: number, commands: Uint8Array): void {
     this._node(id)
     const list = this.canvasCommands.get(id) ?? []

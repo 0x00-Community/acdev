@@ -141,6 +141,8 @@ export interface DomNative {
 
   imageState(id: number): Float64Array
   takeLoaded(): Uint32Array
+  setLoader(load: ((id: number, url: string, destination: string) => void) | null): void
+  loaded(id: number, bytes: Uint8Array | null): void
   canvas(id: number, commands: Uint8Array): void
   measureText(id: number, font: string, text: string): Float64Array
   toDataURL(id: number, type: string): string

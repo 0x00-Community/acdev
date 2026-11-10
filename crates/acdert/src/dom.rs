@@ -121,7 +121,17 @@ pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionC
     }
     ASSETS.with(|a| *a.borrow_mut() = Assets(resources.clone()));
     let name = Some(crate::rt::web_name());
-    let options = acde_render::Options { base_url: Some(format!("{ORIGIN}/")), resources: Some(resources), reduced_motion, dark, name, ..Default::default() };
+    let tasks = crate::rt::current().sender();
+    let loader = acde_render::Loader::new(move |load| _ = tasks.send(crate::rt::Msg::Task(Box::new(move |scope| start_load(scope, load)))));
+    let options = acde_render::Options {
+        base_url: Some(format!("{ORIGIN}/")),
+        resources: Some(resources),
+        reduced_motion,
+        dark,
+        name,
+        loader: Some(loader),
+        ..Default::default()
+    };
     let document = match acde_render::Document::new(width, height, scale, &options) {
         Ok(document) => document,
         Err(e) => return bind::throw_error(scope, &format!("createDocument: {e}")),
@@ -129,6 +139,39 @@ pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionC
     let dom = document.dom();
     DOC.with(|d| *d.borrow_mut() = Some((document, dom)));
     rv.set(object(scope).into());
+}
+
+#[derive(Default)]
+struct Loads {
+    callback: Option<v8::Global<v8::Function>>,
+    pending: bind::Slab<acde_render::Load>,
+}
+
+thread_local! {
+    static LOADS: RefCell<Loads> = RefCell::default();
+}
+
+fn start_load(scope: &mut v8::PinScope, load: acde_render::Load) {
+    let Some(callback) = LOADS.with(|l| l.borrow().callback.clone()) else { return };
+    let (url, destination) = (load.url.clone(), load.destination);
+    let id = LOADS.with(|l| l.borrow_mut().pending.add(load));
+    let args = [id.js(scope), url.js(scope), destination.js(scope)];
+    if bind::call(scope, callback, &args).is_none() {
+        let failed = LOADS.with(|l| l.borrow_mut().pending.remove(&id));
+        drop(failed);
+    }
+}
+
+fn finish_load(id: u32, bytes: Option<Vec<u8>>) {
+    let load = LOADS.with(|l| l.borrow_mut().pending.remove(&id));
+    if let Some(load) = load {
+        load.finish(bytes);
+    }
+}
+
+pub fn clear_loads() {
+    let loads = LOADS.with(|l| std::mem::take(&mut *l.borrow_mut()));
+    drop(loads);
 }
 
 fn id(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> u32 {
@@ -556,6 +599,16 @@ natives! {
     "takeScrolled" => fn take_scrolled(scope, args, dom) { Ok(Ids(dom.take_scrolled())) }
     "imageState" => fn image_state(scope, args, dom) { let id = id(scope, &args, 0); dom.image_state(id).map(|s| Floats(s.to_vec())) }
     "takeLoaded" => fn take_loaded(scope, args, dom) { Ok(Ids(dom.take_loaded())) }
+    "setLoader" => fn set_loader(scope, args, dom) {
+        let callback = v8::Local::<v8::Function>::try_from(args.get(0)).ok().map(|f| v8::Global::new(scope, f));
+        LOADS.with(|l| l.borrow_mut().callback = callback);
+        Ok(())
+    }
+    "loaded" => fn loaded(scope, args, dom) {
+        let id = f(scope, &args, 0) as u32;
+        finish_load(id, bind::bytes(args.get(1)));
+        Ok(())
+    }
     "canvas" => fn canvas(scope, args, dom) {
         let id = id(scope, &args, 0);
         bind::with_bytes(args.get(1), |commands| dom.canvas(id, commands)).unwrap_or_else(|| dom.canvas(id, &[]))
