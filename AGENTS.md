@@ -566,8 +566,11 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
 
 **crates/jsrt** (`acde-jsrt`): `Isolate::create(&Options)` (名字、内存上限、栈、环大小, 0 是内核默认) 建一个 isolate 并映射共享区
 (区里 `replies` 的 size 为 0 说明内核太旧, 报 `Unsupported`); `eval(source, name, module)` 交源码 (脚本或 ES 模块, 错误以
-`Kind::Error` 消息回来); `recv(&mut buf)` 取 `to_window` 的下一条 (`Message { kind, flags, len }`); `send(kind, flags, data)` 写
-`to_engine`; `reply(&[parts])` 回答最早那个 `Kind::Call` (几段拼成一条); 没地方时 `Err(Full)`, 等引擎消费 (`Events::SPACE`).
+`Kind::Error` 消息回来); `recv(&mut buf)` 取 `to_window` 的下一条整消息 (`Message { kind, flags, len }`; `JSRT_MSG_PART` 分块的
+先攒在 `Isolate` 里, 收齐才返回); `send(kind, flags, data)` 写 `to_engine` 的一条记录, `send_from(kind, flags, data, &mut sent)` 写任意长的
+消息 (装得下一条记录就一条, 旧内核也认; 否则按环的 1/4 分块), 没地方时 `Err(Full)`, `sent` 记着写到哪, 等引擎消费 (`Events::SPACE`)
+后用同一份数据再调; `reply(data)` 回答最早那个 `Kind::Call`, 长回答分块时自己等地方 (引擎在等这个回答, 边收边发 SPACE; 等到的别的事件
+存着, 下次 `wait` 一起返回).
 写了或消费了之后要踢一下引擎: `Waiter` (io_uring, `JSRT_CMD_KICK` 和 `JSRT_CMD_WAIT` 在同一次 `io_uring_enter` 里, 一个来回
 一次系统调用; ntex 已经带进来的 ntex-io-uring) 的 `kick_and_wait(&iso, kick)`, 或没有 io_uring 时 `kick()` / `wait(timeout)`
 (poll + read; `None` 是结束了且事件已读完). `Events::EXIT` 之后 `exit_code()` 有效; 之后再等立即返回空事件. 环是单生产者单消费者,
@@ -584,8 +587,10 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
 **应用窗口在内核里** (阶段 2, crates/acde `kernel.rs`、`wire.rs`、`desk/wire.rs`, JS `acde-host/src/kernel.ts`):
 `Spec::spawn` 在 `kernel::wanted(place)` 时改走 `kernel::spawn`: 只对 `Place::Window`, `/dev/jsrt` 可读写就用 (默认开),
 `ACDE_KERNEL_JS=0` 关掉; 设了 `=1` 却打不开时打 warn 再退回用户态. 窗口进程起一条 `acde-window` 线程: 建 isolate (栈和用户态
-一样 8 MiB, 环 16 MiB: 模块源码和 `readAsset` 的整份内容一次过环, 还没分块), 把 `app_dir()/kernel.js` 当模块
-`acde://host/kernel.js` 求值, 然后 poll isolate 的 fd 和一个 eventfd (别的线程的输入、异步调用的结果从这进来).
+一样 8 MiB; 环 1 MiB, 内核能分块时 (有 `/sys/module/jsrt/parameters/call_spin_us`), 否则 16 MiB, 因为模块源码和 `readAsset`
+的整份内容要一次过环), 把 `app_dir()/kernel.js` 当模块 `acde://host/kernel.js` 求值, 然后 poll isolate 的 fd 和一个 eventfd (别的线程的
+输入、异步调用的结果从这进来). 回答了同步调用之后先自旋 50 µs 看 `to_window` (`Isolate::pending`), 连着的调用不用睡一觉再被叫醒;
+内核那边 `jsrt_call` 等回答也先自旋 (`jsrt.call_spin_us`). 发给引擎的消息排在 `outbox`, 长的分块续写 (`sent`).
 
 - **线上格式** (`wire.rs` / `kernel/wire.ts`): 带标签的值 0 undefined、1 null、2 false、3 true、4 f64、5 字符串 (u32 长度 + UTF-8)、
   6 字节、7 u32 数组、8 f64 数组、9 列表、10 对象、11 bigint. 接口: DOM 1、HOST 2、SURFACE 3、OWN 4、DESK 5、NATIVES 6、SYSTEM 7 (`Grants`: 方法名 `fs.list`、`terminal.open` …).
@@ -596,16 +601,19 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
   (攒批, 任务结束、同步调用或异步调用之前 flush)、`Promise` 是异步、别的是同步. Rust 一侧 `dom.rs` 的 `natives!` 一份方法体同时生成
   V8 回调和 `wire()` 分发 (`Args` trait: `V8Args` / `WireArgs`), 不写两遍.
 - **kernel.ts 的坑**: 页面的 shim 会换掉全局 `setTimeout` / `clearTimeout` / `queueMicrotask` / `postMessage` (换成页面版, 页面版又调
-  host), 所以 kernel.ts 在顶层先拿住引擎的; shim 还把全局 `onmessage` 定义成页面的访问器, 内核来的消息会被页面吃掉, 所以每个任务结束
-  时 `keepReceiving()` 把它包回来 (读到的是内核分发, 写入转给页面); jsrt:host 有 `onMessage` (新的 jsrt_v8) 时直接用它, 不再包. 引擎在 onTaskEnd 之后才把
-  没处理的 rejection 交给 reporter, 所以 `reportError` 自己 flush.
+  host), 所以 kernel.ts 在顶层先拿住引擎的; shim 还把全局 `onmessage` 定义成页面的访问器, 所以内核来的消息走 jsrt:host 的
+  `onMessage`, 不经全局 `onmessage` (要 38030d4d4 以后的 jsrt_v8). 引擎在 onTaskEnd 之后才把没处理的 rejection 交给 reporter, 所以
+  `reportError` 自己 flush.
+- **属性缓存** (kernel.ts 的 `cachedDom`): `getAttribute` / `hasAttribute` 一次同步调用约几十微秒, 页面每帧读 canvas 的 `width` /
+  `height` 时会上万次, 所以引擎这边按节点缓存读到的值. 自己的 `setAttribute` / `removeAttribute` / `setValue` (有的控件改 `value`
+  属性) / `unpin` 丢掉那个节点的, `createDocument` / `parseDocument` 和窗口来的任何消息 (输入、帧、回答) 丢掉全部; 节点号单调不复用.
 - **调试**: `RUST_LOG=kernel=trace` 每个调用、模块请求、引擎消息一行 (target `kernel`).
 - `Grants` (fs / terminal / network / office) 过环: 各模块的 `wire()` 和 V8 绑定共用 crates/runtime 的 `FsCall` / `NetCall` / `OfficeCall`;
   异步的在 `acde-kernel-call` 线程上跑.
 - 输入法 (`natives.Ime`) 也走 SYSTEM (`ime.open` / `ime.processKey` …, 同步; 引擎给的回调编号兼作 Ime 的 id, 事件走 EVENT), 窗口进程的 `Driver` 持有 `acde_runtime::Ime`.
 - 还没过环 (内核窗口里没有): `GpuNative` (WebGPU; 2D canvas 是 DomNative 的写, 已经过环)、`AudioNative`、后端连接.
 
-**计划**: 上面还没过环的; 内核 V8 带 ICU; 大消息分块; 阶段 3: 桌面和 Broker 进内核, `acde:` 模块要么过环到窗口进程, 要么直接在内核里
+**计划**: 上面还没过环的; 阶段 3: 桌面和 Broker 进内核, `acde:` 模块要么过环到窗口进程, 要么直接在内核里
 实现 (比如 `acde:fs` 直接走 VFS). 这和本文件开头「`acde:` 模块是进程内注入, 不是 RPC」冲突, 到时候要定.
 
 ## 宿主: crates/acde (V8, 不用 Node)

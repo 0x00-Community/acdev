@@ -72,6 +72,35 @@ impl Ring {
         Ok(())
     }
 
+    /// Writes data from `*sent` on. One record when it fits in the ring
+    /// (what kernels without parts understand), else JSRT_MSG_PART records
+    /// of a quarter of the ring, then the record with `kind`. Full when the
+    /// ring is; `*sent` says how far it got, and a later call goes on from
+    /// there.
+    pub fn put_from(&self, kind: u16, flags: u16, data: &[u8], sent: &mut usize) -> Result<(), Full> {
+        if *sent == 0 && HEADER + data.len() <= self.size as usize {
+            self.put(kind, flags, &[data])?;
+            *sent = data.len();
+            return Ok(());
+        }
+        let part = (self.size / 4) as usize;
+        loop {
+            let rest = &data[*sent..];
+            if rest.len() > part {
+                self.put(crate::abi::PART, 0, &[&rest[..part]])?;
+                *sent += part;
+            } else {
+                self.put(kind, flags, &[rest])?;
+                *sent = data.len();
+                return Ok(());
+            }
+        }
+    }
+
+    pub fn ready(&self) -> bool {
+        self.head().load(Ordering::Relaxed) != self.tail().load(Ordering::Acquire)
+    }
+
     pub fn take(&self, buf: &mut Vec<u8>) -> Option<(u16, u16)> {
         let head = self.head().load(Ordering::Relaxed);
         let tail = self.tail().load(Ordering::Acquire);

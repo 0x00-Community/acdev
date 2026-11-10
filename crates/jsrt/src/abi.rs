@@ -46,6 +46,9 @@ pub struct Area {
     pub replies: RingHeader,
 }
 
+/// JSRT_MSG_PART: the start of a message longer than one record.
+pub const PART: u16 = 7;
+
 #[repr(C)]
 pub struct MsgHeader {
     pub len: u32,

@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use acde_window::{Event, Surface};
 use jsrt::{Isolate, Kind, Message, Options};
@@ -52,7 +52,13 @@ pub fn wanted(place: Place) -> bool {
     }
 }
 
-const RING: u32 = 16 << 20;
+/// Rings of a jsrt that splits long messages into parts (it has
+/// `call_spin_us`, which came with them); without parts a message must fit
+/// in one ring, so the rings are as long as the longest message.
+fn ring_size() -> u32 {
+    if std::path::Path::new("/sys/module/jsrt/parameters/call_spin_us").exists() { 1 << 20 } else { 16 << 20 }
+}
+const SPIN: Duration = Duration::from_micros(50);
 
 enum In {
     Message(Value),
@@ -138,12 +144,15 @@ struct Driver {
     tx: Sender<In>,
     wake: Arc<OwnedFd>,
     outbox: VecDeque<Vec<u8>>,
+    /// Bytes of the front of the outbox already in the ring.
+    sent: usize,
     surface: Option<Surface>,
     surface_wait: Option<u32>,
     armed: Arc<AtomicBool>,
     asks: HashMap<u32, Sender<Value>>,
     next_ask: u32,
     kick: bool,
+    replied: bool,
     grants: Grants,
     imes: HashMap<u32, acde_runtime::Ime>,
 }
@@ -151,7 +160,7 @@ struct Driver {
 impl Driver {
     fn run(spec: Spec, tx: Sender<In>, wake: Arc<OwnedFd>, rx: Receiver<In>) -> (i32, Option<String>) {
         let mem_limit = if spec.heap_mb > 0.0 { (spec.heap_mb * 1024.0 * 1024.0) as u64 } else { 0 };
-        let iso = match Isolate::create(&Options { name: spec.name.clone(), mem_limit, stack_size: Spec::STACK as u32, ring_size: RING }) {
+        let iso = match Isolate::create(&Options { name: spec.name.clone(), mem_limit, stack_size: Spec::STACK as u32, ring_size: ring_size() }) {
             Ok(iso) => iso,
             Err(e) => {
                 log::error!("[{}] /dev/jsrt: {e}", spec.name);
@@ -171,12 +180,14 @@ impl Driver {
             tx,
             wake,
             outbox: VecDeque::new(),
+            sent: 0,
             surface: None,
             surface_wait: None,
             armed: Arc::new(AtomicBool::new(false)),
             asks: HashMap::new(),
             next_ask: 0,
             kick: false,
+            replied: false,
             grants: spec.grants,
             imes: HashMap::new(),
         };
@@ -218,6 +229,9 @@ impl Driver {
             if ended {
                 let code = self.iso.exit_code();
                 return (code, (code != 0).then(|| format!("exit {code}")));
+            }
+            if std::mem::take(&mut self.replied) && self.spin() {
+                continue;
             }
             let mut fds = [PollFd::new(&self.iso, PollFlags::IN), PollFd::new(&*self.wake, PollFlags::IN)];
             if let Err(e) = poll(&mut fds, None) {
@@ -302,10 +316,24 @@ impl Driver {
     }
 
     fn reply(&mut self, data: &[u8]) {
-        if self.iso.reply(&[data]).is_err() {
-            log::error!("kernel: the reply ring is full");
+        if let Err(e) = self.iso.reply(data) {
+            log::error!("kernel: a reply did not get through: {e}");
         }
         self.kick = true;
+        self.replied = true;
+    }
+
+    /// After answering a call the engine usually makes another soon:
+    /// waiting for it here skips a sleep and a wakeup per call.
+    fn spin(&self) -> bool {
+        let until = Instant::now() + SPIN;
+        while Instant::now() < until {
+            if self.iso.pending() {
+                return true;
+            }
+            std::hint::spin_loop();
+        }
+        false
     }
 
     fn binary(&mut self, data: &[u8]) {
@@ -424,16 +452,22 @@ impl Driver {
 
     fn flush(&mut self) {
         while let Some(front) = self.outbox.front() {
-            if self.iso.send(Kind::Binary, 0, front).is_err() {
+            let before = self.sent;
+            let done = self.iso.send_from(Kind::Binary, 0, front, &mut self.sent).is_ok();
+            self.kick |= self.sent != before || done;
+            if !done {
                 break;
             }
             self.outbox.pop_front();
-            self.kick = true;
+            self.sent = 0;
         }
     }
 
     fn dispatch(&mut self, iface: u8, name: &str, a: &mut WireArgs) -> Answer {
-        log::trace!(target: "kernel", "call {iface} {name}");
+        if log::log_enabled!(target: "kernel", log::Level::Trace) {
+            let args: String = format!("{:?}", a.0).chars().take(120).collect();
+            log::trace!(target: "kernel", "call {iface} {name} {args}");
+        }
         match iface {
             DOM => match crate::dom::with_dom_wire(name, a) {
                 Some(result) => Answer::Now(result.map_err(Fail::new)),

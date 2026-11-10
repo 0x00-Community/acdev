@@ -4,6 +4,7 @@ mod abi;
 mod ring;
 mod waiter;
 
+use std::cell::{Cell, RefCell};
 use std::ffi::CString;
 use std::io;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
@@ -45,6 +46,10 @@ pub struct Isolate {
     to_window: Ring,
     to_engine: Ring,
     replies: Ring,
+    /// Parts of a message from the engine that has not ended yet.
+    partial: RefCell<Vec<u8>>,
+    /// Events taken while waiting for room for a reply, for the next wait.
+    stash: Cell<u32>,
 }
 
 unsafe impl Send for Isolate {}
@@ -99,6 +104,8 @@ impl Isolate {
             to_window,
             to_engine,
             replies,
+            partial: RefCell::new(Vec::new()),
+            stash: Cell::new(0),
         })
     }
 
@@ -120,20 +127,68 @@ impl Isolate {
         Ok(())
     }
 
+    /// The next whole message: one record, or its parts put together.
     pub fn recv(&self, buf: &mut Vec<u8>) -> Option<Message> {
-        self.to_window.take(buf).map(|(kind, flags)| Message {
-            kind: Kind::from(kind),
-            flags,
-            len: buf.len(),
-        })
+        loop {
+            let (kind, flags) = self.to_window.take(buf)?;
+            let mut partial = self.partial.borrow_mut();
+            if kind == abi::PART {
+                partial.extend_from_slice(buf);
+                continue;
+            }
+            if !partial.is_empty() {
+                partial.extend_from_slice(buf);
+                std::mem::swap(buf, &mut *partial);
+                partial.clear();
+                if partial.capacity() > 1 << 20 {
+                    *partial = Vec::new();
+                }
+            }
+            return Some(Message {
+                kind: Kind::from(kind),
+                flags,
+                len: buf.len(),
+            });
+        }
+    }
+
+    pub fn pending(&self) -> bool {
+        self.to_window.ready()
     }
 
     pub fn send(&self, kind: Kind, flags: u16, data: &[u8]) -> Result<(), Full> {
         self.to_engine.put(kind.into(), flags, &[data])
     }
 
-    pub fn reply(&self, parts: &[&[u8]]) -> Result<(), Full> {
-        self.replies.put(Kind::Reply.into(), 0, parts)
+    /// A message of any length to the engine, from `*sent` on (see
+    /// [`Ring::put_from`]): call again with the same data after Full.
+    pub fn send_from(&self, kind: Kind, flags: u16, data: &[u8], sent: &mut usize) -> Result<(), Full> {
+        self.to_engine.put_from(kind.into(), flags, data, sent)
+    }
+
+    /// Answers the oldest call. The engine waits for it and takes a long
+    /// one's parts as they come: this waits for room meanwhile.
+    pub fn reply(&self, data: &[u8]) -> io::Result<()> {
+        let mut sent = 0;
+        while self.replies.put_from(Kind::Reply.into(), 0, data, &mut sent).is_err() {
+            self.kick()?;
+            let mut fds = [PollFd::new(&self.fd, PollFlags::IN)];
+            poll(&mut fds, Some(&Timespec { tv_sec: 1, tv_nsec: 0 }))?;
+            let mut word = [0u8; 4];
+            match rustix::io::read(&self.fd, &mut word) {
+                Ok(0) => return Err(io::Error::from(io::ErrorKind::BrokenPipe)),
+                Ok(_) => {
+                    let events = u32::from_ne_bytes(word);
+                    self.stash.set(self.stash.get() | events);
+                    if Events::from_bits(events).contains(Events::EXIT) {
+                        return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+                    }
+                }
+                Err(rustix::io::Errno::AGAIN) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(())
     }
 
     pub fn kick(&self) -> io::Result<()> {
@@ -146,15 +201,17 @@ impl Isolate {
             tv_sec: t.as_secs() as _,
             tv_nsec: t.subsec_nanos() as _,
         });
+        let stashed = self.stash.replace(0);
         let mut fds = [PollFd::new(&self.fd, PollFlags::IN)];
-        if poll(&mut fds, timeout.as_ref())? == 0 {
-            return Ok(Some(Events::empty()));
+        let zero = Timespec { tv_sec: 0, tv_nsec: 0 };
+        if poll(&mut fds, if stashed != 0 { Some(&zero) } else { timeout.as_ref() })? == 0 {
+            return Ok(Some(Events::from_bits(stashed)));
         }
         let mut word = [0u8; 4];
         match rustix::io::read(&self.fd, &mut word) {
             Ok(0) => Ok(None),
-            Ok(_) => Ok(Some(Events::from_bits(u32::from_ne_bytes(word)))),
-            Err(rustix::io::Errno::AGAIN) => Ok(Some(Events::empty())),
+            Ok(_) => Ok(Some(Events::from_bits(stashed | u32::from_ne_bytes(word)))),
+            Err(rustix::io::Errno::AGAIN) => Ok(Some(Events::from_bits(stashed))),
             Err(e) => Err(e.into()),
         }
     }
