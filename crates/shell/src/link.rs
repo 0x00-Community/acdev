@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use rustix::event::{PollFd, PollFlags, poll};
 
-use acde_model::{Mode, Scope};
+use acde_model::{Mode, Scope, WindowState};
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
@@ -150,8 +150,10 @@ impl From<acde_shell::Event> for Event {
             E::WindowOpen { window, title, app_id } => Event { title, app_id, ..on("windowopen", Some(window)) },
             E::WindowClose { window } => on("windowclose", some(window)),
             E::WindowTitle { window, title, app_id } => Event { title, app_id, ..on("windowtitle", some(window)) },
-            E::WindowFullscreen { window, fullscreen } => on(if fullscreen != 0 { "windowfullscreen" } else { "windowunfullscreen" }, Some(window)),
-            E::WindowMinimize { window } => on("windowminimize", some(window)),
+            E::WindowState { window, state, previous } => {
+                let name = |v: u32| Some(WindowState::try_from(v).unwrap_or_default().as_str().to_owned());
+                Event { state: name(state), previous: name(previous), ..on("windowstate", Some(window)) }
+            }
             E::WindowActivate { window } => on("windowactivate", some(window)),
             E::WindowAnimated { window } => on("windowanimated", Some(window)),
             E::Shortcut { owner, key, scope } => {

@@ -19,6 +19,13 @@
       <entry name="pinned" value="3"/>
     </enum>
 
+    <enum name="state">
+      <entry name="normal" value="0"/>
+      <entry name="minimized" value="1"/>
+      <entry name="filled" value="2"/>
+      <entry name="fullscreen" value="3"/>
+    </enum>
+
     <enum name="scope">
       <entry name="session" value="0"/>
       <entry name="desktop" value="1"/>
@@ -190,13 +197,11 @@
       <arg name="app_id" type="string" allow-null="true"/>
     </event>
 
-    <event name="window_fullscreen">
+    <event name="window_state">
+      <description summary="a window's state changed (the compositor carried it out)"/>
       <arg name="window" type="uint"/>
-      <arg name="fullscreen" type="uint"/>
-    </event>
-
-    <event name="window_minimize">
-      <arg name="window" type="int"/>
+      <arg name="state" type="uint" summary="a state entry"/>
+      <arg name="previous" type="uint" summary="a state entry"/>
     </event>
 
     <event name="window_activate">

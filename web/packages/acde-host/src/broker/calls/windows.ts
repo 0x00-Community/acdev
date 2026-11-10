@@ -133,7 +133,7 @@ export class WindowCalls {
         return this.#host.closeWeb(record.id, true)
       case 'minimize':
         if (this.#host.shell.setState) return this.#state(record.id, 'minimized')
-        return this.#host.toDesktop({ type: 'windowminimize', window: record.id } satisfies WindowsEvent)
+        return web.rpc.call('window', 'minimize', [])
       case 'requestAttention':
         return this.#host.toDesktop({ type: 'windowattention', window: record.id } satisfies WindowsEvent)
       case 'shortcut':

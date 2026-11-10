@@ -28,26 +28,33 @@ test('other windows minimize as before', () => {
 
 const windowEvents = () => {
   const sent: WindowsEvent[] = []
+  const asked: string[] = []
   const host = {
     shell: { windows: () => [] },
     record: (id: number) => (id === 9 ? { id: 9, title: 'Notes', app: { id: 'notes' }, menus: [] } : undefined),
     toDesktop: (event: WindowsEvent) => void sent.push(event),
   }
-  return { calls: new WindowCalls(host as never), sent, web: { kind: 'window', window: 9 } as never }
+  const rpc = { call: (scope: string, method: string) => void asked.push(`${scope}.${method}`) }
+  return { calls: new WindowCalls(host as never), sent, asked, web: { kind: 'window', window: 9, rpc } as never }
 }
+
+test('without runtime window states a window minimizes itself through its own surface', () => {
+  const { calls, sent, asked, web } = windowEvents()
+  calls.self(web, 'minimize', [])
+  assert.deepEqual(asked, ['window.minimize'])
+  assert.deepEqual(sent, [])
+})
 
 test('an app window tells the desktop what it does with typed window events', () => {
   const { calls, sent, web } = windowEvents()
   calls.self(web, 'setTitle', ['Draft'])
   const menus: WindowMenu[] = [{ id: 'file', label: 'File', items: [{ type: 'separator' }, { id: 'save', label: 'Save', action: true }] }]
   calls.self(web, 'setMenus', [menus])
-  calls.self(web, 'minimize', [])
   calls.self(web, 'requestAttention', [])
   calls.self(web, 'ready', [])
   assert.deepEqual(sent, [
     { type: 'windowtitle', window: 9, appId: 'notes', title: 'Draft' },
     { type: 'windowmenus', window: 9, menus },
-    { type: 'windowminimize', window: 9 },
     { type: 'windowattention', window: 9 },
     { type: 'windowready', window: 9 },
   ] satisfies WindowsEvent[])

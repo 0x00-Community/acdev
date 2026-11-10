@@ -209,6 +209,8 @@ export class WindowSelf {
         return this.deliver(args[0] as Record<string, unknown>)
       case 'visible':
         return this.onVisible(args[0] === true)
+      case 'minimize':
+        return this.#surface.requestState('minimized')
       case 'menu': {
         const [menu, item] = args as [string, string]
         const it = this.#menus.find((m) => m.id === menu)?.items.find((x) => 'id' in x && x.id === item) as { onSelect?(): unknown } | undefined

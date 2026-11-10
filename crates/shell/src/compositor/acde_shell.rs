@@ -4,7 +4,7 @@ use std::os::unix::net::UnixStream;
 use std::process::{Command as Process, Stdio};
 use std::sync::Arc;
 
-use acde_model::{Easing, Injected, Mode, Scope, WheelSource};
+use acde_model::{Easing, Injected, Mode, Scope, WheelSource, WindowState};
 use smithay::reexports::calloop::channel;
 use smithay::reexports::wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 
@@ -38,8 +38,7 @@ pub enum ShellEvent {
     WindowOpen { window: u32, title: Option<String>, app_id: Option<String> },
     WindowClose(Option<u32>),
     WindowTitle { window: Option<u32>, title: Option<String>, app_id: Option<String> },
-    WindowFullscreen { window: u32, fullscreen: bool },
-    WindowMinimize(Option<u32>),
+    WindowState { window: u32, state: WindowState, previous: WindowState },
     WindowActivate(Option<u32>),
     WindowAnimated(u32),
     Shortcut { owner: u32, key: Option<String>, scope: Scope },
@@ -93,8 +92,7 @@ impl ShellEvent {
             Self::WindowOpen { window, title, app_id } => shell.window_open(window, title, app_id),
             Self::WindowClose(window) => shell.window_close(wire(window)),
             Self::WindowTitle { window, title, app_id } => shell.window_title(wire(window), title, app_id),
-            Self::WindowFullscreen { window, fullscreen } => shell.window_fullscreen(window, fullscreen.into()),
-            Self::WindowMinimize(window) => shell.window_minimize(wire(window)),
+            Self::WindowState { window, state, previous } => shell.window_state(window, state as u32, previous as u32),
             Self::WindowActivate(window) => shell.window_activate(wire(window)),
             Self::WindowAnimated(window) => shell.window_animated(window),
             Self::Shortcut { owner, key, scope } => shell.shortcut(owner, key, scope as u32),
@@ -198,6 +196,7 @@ impl Compositor {
                 self.grants.insert(token, grant);
             }
             Request::Release { window } => self.grants.retain(|_, g| g.id != window),
+            Request::Focus { window } if self.minimized.contains_key(&window) => self.hide(window, false),
             Request::Focus { window } => {
                 if let Some(window) = self.window(window) {
                     self.focus_window(Some(&window));

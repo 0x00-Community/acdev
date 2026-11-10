@@ -187,6 +187,7 @@ pub struct Compositor {
     drag: Option<dnd::Drag>,
     swallowed: std::collections::HashSet<u32>,
     hidden: std::collections::HashSet<u32>,
+    minimized: std::collections::HashMap<u32, acde_model::WindowState>,
     deferred: Vec<DeferredMove>,
     frame_tick: Option<RegistrationToken>,
     last_render: Option<Instant>,
@@ -312,6 +313,7 @@ impl Compositor {
             lock: lock::Lock::new(&dh),
             swallowed: Default::default(),
             hidden: Default::default(),
+            minimized: Default::default(),
             deferred: Vec::new(),
             drag: None,
             last_render: None,
@@ -533,10 +535,26 @@ impl Compositor {
                 if !pinned {
                     self.focus_window(Some(&window));
                 }
+                if let Some(state) = self.minimized.remove(&id) {
+                    self.emit(ShellEvent::WindowState { window: id, state, previous: acde_model::WindowState::Minimized });
+                }
             }
             _ => return,
         }
         self.backend.damaged();
+    }
+
+    /// A client's xdg_toplevel.set_minimized, carried out here: hidden until the desktop shows or focuses it again.
+    pub(crate) fn minimize(&mut self, id: u32) {
+        use acde_model::{Mode, WindowState};
+        let Some(mode) = self.managed_window(id).map(|w| w.mode) else { return };
+        if Some(id) == self.desktop || mode == Mode::Pinned || self.minimized.contains_key(&id) {
+            return;
+        }
+        let previous = if mode == Mode::Fullscreen { WindowState::Fullscreen } else { WindowState::Normal };
+        self.minimized.insert(id, previous);
+        self.hide(id, true);
+        self.emit(ShellEvent::WindowState { window: id, state: WindowState::Minimized, previous });
     }
 
     pub(crate) fn set_mode_managed(&mut self, id: u32, mode: acde_model::Mode) {
@@ -553,7 +571,9 @@ impl Compositor {
             return;
         }
         if (was == Some(full)) != (mode == full) && Some(id) != self.desktop {
-            self.emit(ShellEvent::WindowFullscreen { window: id, fullscreen: mode == full });
+            use acde_model::WindowState::{Fullscreen, Normal};
+            let (state, previous) = if mode == full { (Fullscreen, Normal) } else { (Normal, Fullscreen) };
+            self.emit(ShellEvent::WindowState { window: id, state, previous });
         }
         if let Some(toplevel) = window.toplevel() {
             use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State;

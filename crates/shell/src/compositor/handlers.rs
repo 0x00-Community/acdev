@@ -179,6 +179,7 @@ impl XdgShellHandler for Compositor {
         self.space.unmap_elem(&window);
         if let Some(id) = id {
             self.native_leave(id);
+            self.minimized.remove(&id);
         }
         if Self::bound(surface.wl_surface()).is_none() {
             self.emit(ShellEvent::WindowClose(id));
@@ -267,8 +268,9 @@ impl XdgShellHandler for Compositor {
     }
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {
-        let window = self.window_of(surface.wl_surface());
-        self.emit(ShellEvent::WindowMinimize(window.as_ref().and_then(Self::window_id)));
+        if let Some(id) = self.window_of(surface.wl_surface()).as_ref().and_then(Self::window_id) {
+            self.minimize(id);
+        }
     }
 
     fn title_changed(&mut self, surface: ToplevelSurface) {
