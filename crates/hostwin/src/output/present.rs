@@ -338,7 +338,7 @@ impl Presenter {
         }
         let mut encoder = shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde host layers") });
         let (started, mut redrawn) = (Instant::now(), 0);
-        self.composer.layer_view(size);
+        let room = self.composer.layer_view(size).texture().size();
         let [r, g, b, a] = base.components;
         self.composer.fill_rects(&mut encoder, &view, [r * a, g * a, b * a, a], [target.xywh()]);
         let jobs: Vec<Option<(Px, Px)>> = parts
@@ -357,7 +357,8 @@ impl Presenter {
                 Some(layer.drawing.scene_for(Rect::new(x, y - dy, x + f64::from(w), y + f64::from(h) - dy))).filter(|scene| !scene.commands.is_empty())
             })
             .collect();
-        let slots = Self::pack(scenes.iter().zip(&jobs).map(|(scene, job)| scene.as_ref().and(job.as_ref()).map(|(_, drawn)| drawn.xywh())), size);
+        let slots =
+            Self::pack(scenes.iter().zip(&jobs).map(|(scene, job)| scene.as_ref().and(job.as_ref()).map(|(_, drawn)| drawn.xywh())), (room.width, room.height));
         let mut atlas = None;
         for (i, (_, (backdrop, shadows, effect, _))) in parts.iter().enumerate() {
             if let Some(backdrop) = backdrop.as_ref().filter(|b| Px::covering(b.rect).overlaps(target)) {

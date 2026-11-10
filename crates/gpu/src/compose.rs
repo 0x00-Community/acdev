@@ -321,8 +321,9 @@ impl Composer {
         })
     }
 
-    pub fn layer_view(&mut self, size: (u32, u32)) -> wgpu::TextureView {
-        if self.layer.as_ref().is_none_or(|(s, _, _)| *s != size) {
+    pub fn layer_view(&mut self, (width, height): (u32, u32)) -> wgpu::TextureView {
+        if self.layer.as_ref().is_none_or(|((w, h), _, _)| *w < width || *h < height) {
+            let size = self.layer.as_ref().map_or((width, height), |((w, h), _, _)| ((*w).max(width), (*h).max(height)));
             let usage =
                 wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST;
             let texture = crate::texture(&self.device, size, usage, "acde layer");
