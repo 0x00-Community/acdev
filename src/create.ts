@@ -269,6 +269,12 @@ export class Creator {
     ]
   }
 
+  static readonly LATER: readonly string[] = [
+    'while acde dev runs, acde inspect / eval / console / network / shot look into its pages',
+    'acde test runs *.e2e.ts end to end, each test on its own acdert',
+    'acde install builds it and puts it on the desktop of this machine (acde build only builds)',
+  ]
+
   static lay(dir: string, kind: Kind, pm: PmName, id: string, label: string, layers: readonly string[] = []): void {
     for (const layer of [kind, ...layers]) Creator.#copy(join(Creator.TEMPLATES, layer), dir, { id, label })
     Creator.#wire(dir, { dev: 'dev', build: 'build', check: 'check' }, pm === 'bun' ? {} : { vite: Creator.VITE })

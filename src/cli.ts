@@ -202,6 +202,7 @@ class Cli {
       const created = await Creator.create(given, false)
       Cli.report(created.pkg)
       console.log(`acde: ${created.starter.label} in ${created.pkg.dir}. next: ${Creator.next(created).join(' && ')}`)
+      console.log(`acde: then: ${Creator.LATER.join('; ')}`)
       return 0
     }
     const options = await Creator.ask(given)
@@ -211,6 +212,7 @@ class Cli {
     for (const warning of warnings) p.log.warn(warning)
     for (const error of errors) p.log.error(error)
     p.note(Creator.next(created).join('\n'), 'Next')
+    p.note(Creator.LATER.join('\n'), 'Then')
     const kind = created.starter.kind === 'desktop' ? 'Desktop' : `${created.starter.label} app`
     p.outro(`${kind} ${JSON.stringify(created.pkg.name)} is ready`)
     return errors.length === 0 ? 0 : 1

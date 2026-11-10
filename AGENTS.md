@@ -50,8 +50,14 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 在应用工程目录运行 `acde check`、`acde build` 和 `acde dev`。从其他目录运行时，可传入工程路径。
 `acde new` 在指定目录生成应用源码、配置和依赖声明。框架模板保留框架原有脚本，并追加 `acde:check`、`acde:build` 和 `acde:dev`
 用于应用检查、构建和开发会话。
-生成的工程只有这三个脚本，经工程自己的包管理器运行，`acde` 的退出码由包管理器传回。不生成 `prod` / `start`：
-acde 还没有“启动已构建应用”的命令（`acde install` 只装包，部署和发布不算启动），定义之前不分配脚本名。
+生成的工程只有这三个脚本，经工程自己的包管理器运行，`acde` 的退出码由包管理器传回。
+
+开发流程（acde#3）：`acde new` 建工程 → `acde dev` 预览和调试（跑着时可用 `acde inspect` / `eval` / `console` / `network` / `shot`，
+或 driver、MCP）→ `acde test` 端到端测试（每个测试自己起一个隔离的 acdert）→ `acde build` 构建，`acde install` 构建并装进本机桌面。
+`acde new` 打完下一步提示后再打一行（交互时是 `Then` 一栏）列出后三步（`Creator.LATER`）。
+
+不新增 `prod` / `start` / `preview` 命令或脚本：`acde dev` 和 `acde build` 用同一种构建（都压缩、`NODE_ENV` 是 `"production"`），
+dev 只多了改动后自动重建刷新和调试接口；“装好后的样子”就是 `acde install` 之后从桌面打开。部署和发布不算启动。
 也不生成 `test`：`acde test` 只在 bun 上运行，新工程没有 `*.e2e.ts`，这时运行会报错；写了端到端测试的工程自行添加 `acde test` 脚本。
 
 `acde check` 读取工程配置和入口。普通工程的 `build` 和 `dev` 默认把运行时包写到工程的 `.acde/`。

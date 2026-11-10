@@ -354,6 +354,8 @@ describe('acde.config.jsonc', () => {
     const made = await cli(['new', dir, '--template', 'html', '--backend', '--label', 'API'], tmp())
     expect(made.code).toBe(0)
     expect(made.stdout).toContain('next: cd ')
+    expect(made.stdout).toContain('acde: then: while acde dev runs, acde inspect / eval / console / network / shot')
+    expect(made.stdout).toContain('acde install builds it and puts it on the desktop')
     const out = join(tmp(), 'out')
     expect((await cli(['build', '--out', out], dir)).code).toBe(0)
     expect(JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).acde.apps[0].backend).toEqual({
