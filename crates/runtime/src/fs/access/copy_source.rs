@@ -1,17 +1,17 @@
-use super::workspace::{FinderRoot, WorkspaceFs};
 use crate::failure::{Errno, Failure, Outcome};
+use crate::fs::workspace::{FinderRoot, WorkspaceFs};
 use acde_model::drop_grant::{self, Claim};
 use std::fs::{self, File, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
-pub(super) struct Source {
+pub(in crate::fs) struct Source {
     pub file: File,
     pub name: String,
     pub claim: Option<Claim<'static>>,
 }
 
-pub(super) fn parse(source: &str) -> Outcome<PathBuf> {
+pub(in crate::fs) fn parse(source: &str) -> Outcome<PathBuf> {
     let path = match source.strip_prefix("file://") {
         Some(rest) => url::Url::parse(&format!("file://{rest}"))
             .ok()
@@ -25,7 +25,7 @@ pub(super) fn parse(source: &str) -> Outcome<PathBuf> {
     Ok(path)
 }
 
-pub(super) fn admit(allowed: &[FinderRoot], requested: &Path, owner: Option<&str>) -> Outcome<Source> {
+pub(in crate::fs) fn admit(allowed: &[FinderRoot], requested: &Path, owner: Option<&str>) -> Outcome<Source> {
     let real = fs::canonicalize(requested).map_err(|error| missing(allowed, requested, &error))?;
     let inside = allowed.iter().any(|root| fs::canonicalize(&root.path).is_ok_and(|top| real.starts_with(&top)));
     let claim = match inside {
@@ -58,7 +58,7 @@ fn lexically_inside(allowed: &[FinderRoot], requested: &Path) -> bool {
 
 #[cfg(windows)]
 fn inside_root(requested: &Path, root: &str) -> bool {
-    super::path::windows_within(requested, root).is_some()
+    crate::fs::path::windows_within(requested, root).is_some()
 }
 
 #[cfg(not(windows))]

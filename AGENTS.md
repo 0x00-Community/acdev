@@ -730,7 +730,7 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 
 打开文件一律不跟随符号链接 (unix `O_NOFOLLOW | O_NONBLOCK`, 不会卡在 FIFO 上; Windows `FILE_FLAG_OPEN_REPARSE_POINT` 再查是不是链接).
 
-**`copyIn` 的来源** (`fs/copy_source.rs`): `copyIn(root, dir, source)` 的 source (绝对路径或 `file://`) 先按 realpath 解析 (跟随链接), 然后只接受两种:
+**`copyIn` 的来源** (`fs/access/copy_source.rs`): `copyIn(root, dir, source)` 的 source (绝对路径或 `file://`) 先按 realpath 解析 (跟随链接), 然后只接受两种:
 (a) 落在这个应用能用的某个根里 (清单的 roots 或 granted 文件夹, 同 `acde:fs` 的 `roots()`); (b) 等于宿主为这个应用记下的一次性拖放授权 (`acde_model::drop_grant`,
 绑定应用 id 和规范路径, 5 分钟内未用就过期, 第一次成功的 copyIn 消耗它, 失败则归还; 授权只管 copyIn, 不管直接读). 其余一律 403 / `EPERM` (和系统拒绝的 `EACCES` 分开, 页面据此提示没有权限导入这个文件), 目标文件夹的检查不变.
 打开来源后再比对它的最终路径 (Windows `GetFinalPathNameByHandleW`, Linux `/proc/self/fd`), 中途被换成链接的来源被拒绝; macOS 等 unix 只在打开前后重新解析, 较弱, 未验证.
@@ -746,7 +746,7 @@ FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel`
 Windows 选择器返回盘符或 UNC 绝对路径, 内存句柄和持久授权使用同一路径规则. `bash scripts/check-directory-picker.sh` 用预设选择结果验收.
 默认只读选择只给只读网页句柄. `mode: 'readwrite'` 的选择提示明确读写授权, 用户选中的文件夹同时授给调用的应用
 (`acde:fs` 多一个 root `{source: 'granted', label}`, 文件夹没了是 `mode: 'unavailable'`), 记在
-`$XDG_STATE_HOME/acde/grants/<应用 id>.json` (runtime `fs/grants.rs`; `ACDE_STORAGE` 为空时只在内存); 桌面选的不授. `fs.revoke(rootPath)`
+`$XDG_STATE_HOME/acde/grants/<应用 id>.json` (runtime `fs/access/grants.rs`; `ACDE_STORAGE` 为空时只在内存); 桌面选的不授. `fs.revoke(rootPath)`
 收回. Broker 起 web 时 grants 带应用 id, `web.rs` 给 `Workspace::scoped(roots, app)` 和 `natives.picker`.
 
 **打开和保存文件**: `showOpenFilePicker` / `<input type=file>` / `showSaveFilePicker` (acde-dom `dom/picker.ts`、`dom/forms.ts`) → `env.files.open` /
@@ -798,7 +798,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   `{kind: 'native', id: 'system'}`. 只有两种目标:
   - http / https 链接: `Opener` 先用 `URL` 规范成 `href`; Rust 再要求小于 8 KiB、只有可见 ASCII、没有 `"` `\` `<` `>` `` ` `` 和空白、有主机
     (挡掉往浏览器命令行里塞参数). 别的 scheme (`file:`、`javascript:`、`ms-settings:`、`mailto:` …) 不交.
-  - 文件: 不是文件夹、不是 `select`, 先过 napi `Finder.admit(path, roots, owner)` (runtime `fs/admit.rs`): 把路径和调用方能用的根都按真实路径
+  - 文件: 不是文件夹、不是 `select`, 先过 napi `Finder.admit(path, roots, owner)` (runtime `fs/access/admit.rs`): 把路径和调用方能用的根都按真实路径
     解析 (`canonicalize`, 跟随联接和链接) 后, 文件必须落在其中一个根里, 交给系统的是解析后的路径 (去掉 `\\?\`); 不在的回 `outside_roots`.
     调用方能用的根: 桌面、`acdert open` 和系统总线 (`openFromBus`) 是全部 Finder 根; 应用是清单 `fs` 的 roots (`fs: true` 是全部 Finder 根,
     没有 `fs` 是空的) 加上授予它的文件夹, 和它的 `acde:fs` 一样 (每次重读授权文件). 所以根里的联接指向根外时也被拒绝.

@@ -1,8 +1,8 @@
-use super::workspace::FinderRoot;
 use crate::failure::{Failure, Outcome};
+use crate::fs::workspace::FinderRoot;
 use std::path::Path;
 
-pub(super) fn real_inside(allowed: &[FinderRoot], path: &str) -> Outcome<String> {
+pub(in crate::fs) fn real_inside(allowed: &[FinderRoot], path: &str) -> Outcome<String> {
     let real = std::fs::canonicalize(path)?;
     let inside = allowed.iter().any(|root| std::fs::canonicalize(&root.path).is_ok_and(|top| real.starts_with(&top)));
     if !inside {

@@ -1,7 +1,7 @@
 use super::*;
 use std::{path::PathBuf, process::Command, sync::Arc};
 
-use crate::fs::grants::Grants;
+use crate::fs::access::grants::Grants;
 use crate::fs::{FsCall, FsReply, Shared, Workspace};
 
 struct Scratch {

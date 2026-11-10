@@ -1,9 +1,9 @@
-#[cfg(not(windows))]
-use super::path::NodePath;
-use super::path::same_folder;
-#[cfg(windows)]
-use super::path::windows_directory;
 use crate::failure::{Failure, Outcome};
+#[cfg(not(windows))]
+use crate::fs::path::NodePath;
+use crate::fs::path::same_folder;
+#[cfg(windows)]
+use crate::fs::path::windows_directory;
 use crate::sync::Locked;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

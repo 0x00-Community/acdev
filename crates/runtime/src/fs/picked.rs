@@ -16,7 +16,7 @@ type Picked<T> = std::result::Result<T, FsError>;
 
 impl PickedFolders {
     pub fn add(&self, path: &str) -> Picked<String> {
-        let path = super::grants::folder(path, "picked")?;
+        let path = super::access::grants::folder(path, "picked")?;
         let mut roots = self.roots.locked();
         if let Some(known) = roots.iter().find(|root| same_folder(&root.path, &path)) {
             return Ok(known.path.clone());

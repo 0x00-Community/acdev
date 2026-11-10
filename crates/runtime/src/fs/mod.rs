@@ -1,11 +1,9 @@
-mod admit;
-mod copy_source;
-mod grants;
+mod access;
 pub(crate) mod path;
 mod picked;
 pub(crate) mod workspace;
 
-use grants::Grants;
+use access::{admit, copy_source, grants::Grants};
 #[cfg(not(windows))]
 use path::NodePath;
 #[cfg(windows)]
