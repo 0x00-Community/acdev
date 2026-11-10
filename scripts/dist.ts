@@ -88,7 +88,10 @@ writeFileSync(join(top, 'bin', 'acde.cmd'), cmd)
 for (const path of ['templates', 'skills', 'launcher.d.mts']) cpSync(join(ROOT, path), join(lib, path), { recursive: true })
 copyFileSync(join(ROOT, 'LICENSE'), join(top, 'LICENSE'))
 copyFileSync(join(ROOT, 'LICENSE'), join(lib, 'LICENSE'))
-const preload = { ACDE_LISTEN_JSON: JSON.stringify(JSON.stringify(await Bundler.buildPreload())) }
+const preload = {
+  ACDE_LISTEN_JSON: JSON.stringify(JSON.stringify(await Bundler.buildPreload())),
+  ACDE_SDK_VERSION: JSON.stringify(sdk.version),
+}
 await bundle([CLI], join(lib, 'dist'), 'cli.js', 'node')
 await bundle(SHARED, join(lib, 'dist'), undefined, 'bun')
 await bundle(['launcher.mjs'], lib, 'launcher.mjs', 'node')

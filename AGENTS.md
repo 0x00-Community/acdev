@@ -25,8 +25,12 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde test [目录\|文件...] [--headed] [-t 名字] [--desktop] [--timeout MS] [--bail] [--trace] [-u]` | e2e 测试, 只在 bun 上 |
 | `acde skills [install\|remove\|path] [--agent ID,...] [--dir 目录] [--copy]` | 给编码 agent 的 skill: 看装在哪、装、删、打印它的目录 (见「Skill 与文档」) |
 
-参数解析和用法文字在 `src/cli.ts` (`Cli.SPECS`、`USAGE`). `acde --version` (`-v`、`version`) 打版本号; `acde --help` (`help`、`-h`) 和任何命令后面的
-`--help` / `-h` (`--` 之前) 把用法打到 stdout, 退出码 0; 不带命令或用错参数照旧打到 stderr, 退出码 1.
+参数解析和用法文字在 `src/cli.ts` (`Cli.SPECS`、`USAGE`). `acde --version` (`-v`、`version`, acde#23) 第一行是 acde 版本号 (脚本可只取第一行),
+再打 `sdk <版本> (contract level N)` (版本在打包时经 `define` 的 `ACDE_SDK_VERSION` 写进去, 从源码跑时读 `node_modules` 里的 SDK) 和找到的 acdert
+(`requireAcdert` 的顺序) 的 `--version` 那一行加路径, 没找到或它没有契约级别时也说清. `acde --help` (`help`、`-h`) 把用法打到 stdout, 退出码 0;
+任何命令后面的 `--help` / `-h` (`--` 之前) 和 `acde help <命令>` 只打那个命令的一段 (`Cli.usage`, 从 `USAGE` 里取; 开发会话的工具命令加 `--session`).
+不带命令照旧把用法打到 stderr, 退出码 1; 未知命令、未知参数、缺值、参数个数不对只打一行 (说清哪里不对, 指向 `acde --help` 或 `acde <命令> --help`), 退出码 1.
+其他常见全局选项: 颜色由 @clack/prompts (picocolors) 按 `NO_COLOR` / 非终端自动关掉, 不另加 `--no-color`; 输出本来就少, 暂不加 `--quiet` / `--verbose`.
 
 `acde check --platform <windows|macos|linux>` (`AppPackage.platform`): 名字对到 SDK 的平台键 (`win32` / `darwin` / `linux`),
 按 SDK 的 `RUNNING_MODES` 逐个取 `platformSupport(平台, 模式)` (没有这一行的模式跳过, 比如 Windows 没有 `session`). 每个应用声明了

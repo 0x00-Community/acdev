@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
-import { resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
-import { requireAcdert, run, runtimes } from 'acde/launcher'
+import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { packageRoot, requireAcdert, run, runtimes } from 'acde/launcher'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
 import { TestRunner } from './e2e/runner.ts'
@@ -11,6 +13,8 @@ import { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
 import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
+
+declare const ACDE_SDK_VERSION: string | undefined
 
 const USAGE = `usage: acde <command>
   new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--pm PM] [--yes]
@@ -57,8 +61,8 @@ const USAGE = `usage: acde <command>
                                                    it into ~/.agents/skills and the skills directory of every agent
                                                    found here (--agent: of those agents; --dir: into DIR; --copy: a
                                                    copy, not a link); remove; path prints its directory
- --version                                         print the version of acde
- --help                                            print this (also after any command)`
+ --version, -v                                     the version of acde, then the SDK and the acdert it finds
+ --help, -h                                        this; after a command (or help <command>), that command only`
 
 interface Spec {
   readonly args: readonly [number, number]
@@ -102,7 +106,9 @@ class Cli {
   static parse(argv: readonly string[]): Args {
     const [command = '', ...rest] = argv
     const spec = Object.hasOwn(Cli.SPECS, command) ? Cli.SPECS[command]! : null
-    if (!spec) throw new Error(USAGE)
+    if (!command) throw new Error(USAGE)
+    if (!spec) throw new Error(`unknown command ${JSON.stringify(command)} (acde --help lists the commands)`)
+    const hint = `(acde ${command} --help)`
     const flags = new Map<string, string>()
     const args: string[] = []
     let positional = false
@@ -121,29 +127,68 @@ class Cli {
         ? (arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined])
         : [Cli.SHORT[arg.slice(1)]!, undefined]
       if (spec.switches?.includes(flag) && inline === undefined) flags.set(flag, '')
-      else if (!spec.flags?.includes(flag)) throw new Error(`${command}: unknown argument ${arg}\n${USAGE}`)
+      else if (!spec.flags?.includes(flag)) throw new Error(`${command}: unknown argument ${arg} ${hint}`)
       else if (inline !== undefined) flags.set(flag, inline)
       else if (rest[i + 1] !== undefined) flags.set(flag, rest[++i]!)
-      else throw new Error(`--${flag} needs a value\n${USAGE}`)
+      else throw new Error(`${command}: --${flag} needs a value ${hint}`)
     }
     const [min, max] = spec.args
     if (args.length < min || args.length > max) {
-      const count = min === max ? min : `${min} to ${max}`
-      throw new Error(`${command}: ${count} arguments, not ${args.length}\n${USAGE}`)
+      const count = min === max ? min : max === Infinity ? `${min} or more` : `${min} to ${max}`
+      throw new Error(`${command}: ${count} arguments, not ${args.length} ${hint}`)
     }
     return { command, args, flags }
+  }
+
+  static usage(command: string): string {
+    if (!command) return USAGE
+    if (!Object.hasOwn(Cli.SPECS, command))
+      throw new Error(`help: unknown command ${JSON.stringify(command)} (acde --help lists the commands)`)
+    const lines = USAGE.split('\n')
+    const at = lines.findIndex((line) => line === `  ${command}` || line.startsWith(`  ${command} `))
+    const [syntax = '', said] = lines[at]!.trim().split(/ {2,}(.*)/s, 2)
+    const about = said ? [said] : []
+    for (let i = at + 1; i < lines.length && /^ {20,}\S/.test(lines[i]!); i++) about.push(lines[i]!.trim())
+    if (Tools.COMMANDS.has(command))
+      about.push('--session PID: the acde dev to use (default: the one whose projects hold this directory)')
+    return [`usage: acde ${syntax}`, ...about.map((line) => `  ${line}`)].join('\n')
+  }
+
+  static async versions(): Promise<string[]> {
+    const lines = [Mcp.version(), `sdk ${Cli.sdk()} (contract level ${API_LEVEL})`]
+    let acdert: string
+    try {
+      acdert = requireAcdert()
+    } catch {
+      return [...lines, 'acdert: not found (ACDERT, next to acde, PATH)']
+    }
+    const { said } = await DevSession.runtimeLevel(acdert)
+    const named = said.split(/\r?\n/).map((line) => line.trim())
+      .find((line) => /^acdert \S+ \(contract level \d+\)$/.test(line))
+    return [...lines, named ? `${named}: ${acdert}` : `acdert without a contract level (older, level 0): ${acdert}`]
+  }
+
+  static sdk(): string {
+    if (typeof ACDE_SDK_VERSION === 'string') return ACDE_SDK_VERSION
+    const file = join(packageRoot(), 'node_modules', '@dopame', 'acde-api', 'package.json')
+    try {
+      return (JSON.parse(readFileSync(file, 'utf8')) as { version: string }).version
+    } catch {
+      return 'unknown'
+    }
   }
 
   static async main(argv: readonly string[]): Promise<number> {
     const [first = ''] = argv
     if (['--version', '-v', 'version'].includes(first)) {
-      console.log(Mcp.version())
+      for (const line of await Cli.versions()) console.log(line)
       return 0
     }
     const end = argv.indexOf('--')
     const asked = (end < 0 ? argv : argv.slice(0, end)).some((arg) => arg === '--help' || arg === '-h')
     if (first === 'help' || (asked && (first.startsWith('-') || Object.hasOwn(Cli.SPECS, first)))) {
-      console.log(USAGE)
+      const topic = first === 'help' ? (argv[1] ?? '') : first.startsWith('-') ? '' : first
+      console.log(Cli.usage(topic))
       return 0
     }
     const { command, args, flags } = Cli.parse(argv)

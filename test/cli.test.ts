@@ -17,7 +17,7 @@ import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
 import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
-import { cleanup, collect, env, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, collect, env, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 const APP = join(import.meta.dir, 'fixtures/app')
@@ -723,21 +723,48 @@ describe('mistakes', () => {
     expect(result.stderr).toContain('no index.html')
   })
 
-  test('unknown command', async () => {
-    const result = await cli(['frobnicate'], APP)
-    expect(result.code).toBe(1)
-    expect(result.stderr).toContain('usage: acde <command>')
+  test('an unknown command, argument or count: one line that names the help to read', async () => {
+    const lines = (text: string) => text.trim().split('\n')
+    const unknown = await cli(['frobnicate'], APP)
+    expect(unknown.code).toBe(1)
+    expect(lines(unknown.stderr)).toEqual(['acde: unknown command "frobnicate" (acde --help lists the commands)'])
+    const argument = await cli(['build', '--bogus'], APP)
+    expect(argument.code).toBe(1)
+    expect(lines(argument.stderr)).toEqual(['acde: build: unknown argument --bogus (acde build --help)'])
+    const value = (await cli(['build', '--out'], APP)).stderr
+    expect(lines(value)).toEqual(['acde: build: --out needs a value (acde build --help)'])
+    expect(lines((await cli(['eval'], APP)).stderr)).toEqual(['acde: eval: 2 arguments, not 0 (acde eval --help)'])
+    const bare = await cli([], APP)
+    expect(bare.code).toBe(1)
+    expect(bare.stderr).toContain('usage: acde <command>')
   })
 
-  test('--version and --help', async () => {
-    const version = await cli(['--version'], APP)
+  test('--version: acde, then the SDK and the acdert it finds; --help: all, or one command', async () => {
+    const version = await cli(['--version'], APP, { ACDERT: join(tmp(), 'gone') })
     expect(version.code).toBe(0)
-    expect(version.stdout.trim()).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version)
-    for (const argv of [['--help'], ['help'], ['skills', '--help'], ['new', '-h']]) {
+    const [acde, sdk] = version.stdout.trim().split('\n')
+    expect(acde).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8')).version)
+    const api = join(import.meta.dirname, '..', 'node_modules', '@dopame', 'acde-api', 'package.json')
+    expect(sdk).toBe(`sdk ${JSON.parse(readFileSync(api, 'utf8')).version} (contract level ${API_LEVEL})`)
+    const s = standIn()
+    const found = await cli(['-v'], APP, { ACDERT: s.env['ACDERT']! })
+    expect(found.stdout.trim().split('\n')[2]).toBe(`acdert 0.0.0 (contract level ${API_LEVEL}): ${s.env['ACDERT']}`)
+    for (const argv of [['--help'], ['help'], ['-h']]) {
       const help = await cli(argv, APP)
       expect(help.code).toBe(0)
       expect(help.stdout).toContain('usage: acde <command>')
+      expect(help.stdout).toContain('  skills [install|remove|path]')
     }
+    for (const argv of [['new', '-h'], ['help', 'new'], ['new', 'x', '--help']]) {
+      const help = await cli(argv, APP)
+      expect(help.code).toBe(0)
+      expect(help.stdout).toStartWith('usage: acde new [dir] [--template T]')
+      expect(help.stdout).not.toContain('acde build')
+    }
+    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID: the acde dev to use')
+    expect((await cli(['help', 'nope'], APP)).stderr.trim()).toBe(
+      'acde: help: unknown command "nope" (acde --help lists the commands)',
+    )
   })
 
   test('ids from package names', () => {
