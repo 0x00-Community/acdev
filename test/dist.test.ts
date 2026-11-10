@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
-  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync,
+  writeFileSync,
 } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { which } from '../launcher.mjs'
+import { systemTar } from '../scripts/shipped.ts'
 import { cleanup, collect, env, skipping, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
@@ -25,7 +27,48 @@ function sha256(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
 
-const NO_INSTALL_SH = skipping(WINDOWS, 'install.sh on Windows: install.ps1 is tested instead')
+const BUILDS = [
+  'x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-musl', 'aarch64-unknown-linux-musl',
+  'x86_64-apple-darwin', 'aarch64-apple-darwin', 'x86_64-pc-windows-msvc.exe',
+]
+
+type RuntimeOptions = { builds?: readonly string[]; tamper?: string; omit?: string }
+
+function runtimeMirror(dir: string, version: string, options: RuntimeOptions = {}): void {
+  const at = join(dir, version)
+  const stage = join(at, '.stage')
+  mkdirSync(join(stage, 'app', 'dist'), { recursive: true })
+  writeFileSync(join(stage, 'app', 'dist', 'broker.js'), 'export {}\n')
+  writeFileSync(join(stage, 'app', 'package.json'), '{}\n')
+  const host = `acdert-host-${version}.tar.gz`
+  const packed = systemTar(['-czf', join(at, host), '-C', stage, 'app'])
+  if (packed.status !== 0) throw new Error(`tar: ${packed.stderr}`)
+  rmSync(stage, { recursive: true, force: true })
+  const files = [host]
+  for (const build of options.builds ?? BUILDS) {
+    const file = `acdert-${build}`
+    writeFileSync(join(at, file), `#!/bin/sh\necho "acdert ${version} (${build})"\n`)
+    chmodSync(join(at, file), 0o755)
+    files.push(file)
+  }
+  writeFileSync(join(at, 'SHA256SUMS'), files.map((file) => `${sha256(join(at, file))}  ${file}\n`).join(''))
+  if (options.tamper) writeFileSync(join(at, options.tamper), 'changed after the checksum')
+  if (options.omit) rmSync(join(at, options.omit))
+}
+
+function serve(root: string): ReturnType<typeof Bun.serve> {
+  return Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch(request) {
+      const file = join(root, decodeURIComponent(new URL(request.url).pathname))
+      if (!existsSync(file) || !lstatSync(file).isFile()) return new Response('not found', { status: 404 })
+      return new Response(Bun.file(file))
+    },
+  })
+}
+
+const NO_INSTALL_SH =skipping(WINDOWS, 'install.sh on Windows: install.ps1 is tested instead')
   || skipping(!FETCHER, 'install.sh needs curl or wget')
 
 describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
@@ -35,7 +78,8 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
 
   function install(home: string, args: string[] = [], extra: Record<string, string> = {}) {
     return run(['sh', join(out, 'install.sh'), ...args], {
-      HOME: home, SHELL: '/bin/zsh', ACDE_DIST: base, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ZDOTDIR: '', ...extra,
+      HOME: home, SHELL: '/bin/zsh', ACDE_DIST: base, ACDERT_DIST: `${base}/runtime`,
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ZDOTDIR: '', ...extra,
     }, home)
   }
 
@@ -44,14 +88,11 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       const made = await dist(out, version)
       expect(made.code, made.out).toBe(0)
     }
-    server = Bun.serve({
-      port: 0,
-      fetch(request) {
-        const file = join(out, decodeURIComponent(new URL(request.url).pathname))
-        if (!existsSync(file) || !lstatSync(file).isFile()) return new Response('not found', { status: 404 })
-        return new Response(Bun.file(file))
-      },
-    })
+    runtimeMirror(join(out, 'runtime'), SDK)
+    runtimeMirror(join(out, 'tampered'), SDK, { tamper: `acdert-host-${SDK}.tar.gz` })
+    runtimeMirror(join(out, 'missing'), SDK, { omit: `acdert-host-${SDK}.tar.gz` })
+    runtimeMirror(join(out, 'elsewhere'), SDK, { builds: ['x86_64-pc-windows-msvc.exe'] })
+    server = serve(out)
     base = `http://127.0.0.1:${server.port}`
   }, 300_000)
 
@@ -79,12 +120,15 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(readFileSync(join(out, 'latest'), 'utf8')).toBe('0.0.2\n')
   }, 300_000)
 
-  test('install.sh: latest into ~/.acde, current and bin links, PATH in .zshrc once, runtime hints only', async () => {
+  test('install.sh: latest and its acdert into ~/.acde, current and bin links, PATH in .zshrc once', async () => {
     const home = tmp()
     const first = await install(home)
     expect(first.code, first.out).toBe(0)
-    expect(first.out).toContain('installed acde 0.0.2')
-    expect(first.out).not.toContain('acdert')
+    expect(first.out).toContain(`installed acde 0.0.2 with acdert ${SDK}`)
+    const runtime = join(home, '.acde', 'bin', 'acdert')
+    expect(statSync(runtime).mode & 0o111).not.toBe(0)
+    expect((await run(['sh', runtime], {})).stdout).toStartWith(`acdert ${SDK} (`)
+    expect(existsSync(join(home, '.acde', 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
     expect(readlinkSync(join(home, '.acde', 'current'))).toBe('versions/0.0.2')
     expect(readlinkSync(join(home, '.acde', 'bin'))).toBe('current/bin')
     expect(readFileSync(join(home, '.zshrc'), 'utf8')).toBe('\n# acde\nexport PATH="$HOME/.acde/bin:$PATH"\n')
@@ -120,6 +164,25 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     }
   })
 
+  test('install.sh: a bad or missing acdert file, or no build here, keeps the previous install', async () => {
+    const home = tmp()
+    expect((await install(home, ['--no-modify-path', '--version', '0.0.1'])).code).toBe(0)
+    const failing: [string, string][] = [
+      ['tampered', `acdert-host-${SDK}.tar.gz does not match its checksum`],
+      ['missing', `could not download ${base}/missing/${SDK}/acdert-host-${SDK}.tar.gz`],
+      ['elsewhere', `acdert ${SDK} has no build for this platform`],
+    ]
+    for (const [mirror, said] of failing) {
+      const bad = await install(home, ['--no-modify-path'], { ACDERT_DIST: `${base}/${mirror}` })
+      expect(bad.code, bad.out).toBe(1)
+      expect(bad.stderr).toContain(said)
+      expect(readlinkSync(join(home, '.acde', 'current'))).toBe('versions/0.0.1')
+      expect(existsSync(join(home, '.acde', 'versions', '0.0.2'))).toBe(false)
+    }
+    const unsupported = await install(home, ['--no-modify-path'], { ACDERT_DIST: `${base}/elsewhere` })
+    expect(unsupported.stderr).toContain('it is built for: x86_64-pc-windows-msvc')
+  }, 120_000)
+
   test('bin/acde starts the CLI with bun', async () => {
     const home = tmp()
     expect((await install(home, ['--no-modify-path'])).code).toBe(0)
@@ -139,8 +202,21 @@ describe('the release archive and the installed CLI', () => {
   beforeAll(async () => {
     const made = await dist(out, '0.0.2')
     expect(made.code, made.out).toBe(0)
+    runtimeMirror(join(out, 'runtime'), SDK)
+    runtimeMirror(join(out, 'tampered'), SDK, { tamper: 'acdert-x86_64-pc-windows-msvc.exe' })
+    runtimeMirror(join(out, 'missing'), SDK, { omit: `acdert-host-${SDK}.tar.gz` })
+    runtimeMirror(join(out, 'elsewhere'), SDK, { builds: ['x86_64-unknown-linux-gnu', 'aarch64-apple-darwin'] })
     built = true
   }, 300_000)
+
+  function installPs1(home: string, runtime: string, extra: Record<string, string> = {}) {
+    const powershell = which('pwsh') ?? which('powershell')
+    expect(powershell).not.toBeNull()
+    return run([
+      powershell!, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(out, 'install.ps1'),
+      '-NoModifyPath',
+    ], { ACDE_INSTALL: home, ACDERT_DIST: `${extra['ACDE_DIST']}/${runtime}`, ...extra }, root)
+  }
 
   afterAll(cleanup)
 
@@ -166,30 +242,21 @@ describe('the release archive and the installed CLI', () => {
     expect(built).toBe(true)
     if (process.platform !== 'win32' || process.arch !== 'x64') return
     const home = join(root, 'acde installation')
-    const server = Bun.serve({
-      hostname: '127.0.0.1',
-      port: 0,
-      fetch(request) {
-        const file = Bun.file(join(out, new URL(request.url).pathname))
-        return file.exists().then((exists) => exists ? new Response(file) : new Response('not found', { status: 404 }))
-      },
-    })
+    const server = serve(out)
     try {
-      const powershell = which('pwsh') ?? which('powershell')
-      expect(powershell).not.toBeNull()
-      const result = await run([
-        powershell!, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(out, 'install.ps1'),
-        '-NoModifyPath',
-      ], { ACDE_DIST: server.url.origin, ACDE_INSTALL: home }, root)
+      const result = await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })
       expect(result.code, result.out).toBe(0)
-      expect(result.out).toContain('acde dev needs the Dopame runtime')
+      expect(result.out).toContain(`installed acde 0.0.2 with acdert ${SDK}`)
     } finally {
       server.stop(true)
     }
 
     const current = join(home, 'current')
     expect(realpathSync(current)).toBe(realpathSync(join(home, 'versions', '0.0.2')))
-    expect(existsSync(join(current, 'bin', 'acdert.exe'))).toBe(false)
+    expect(readFileSync(join(current, 'bin', 'acdert.exe'), 'utf8')).toBe(
+      `#!/bin/sh\necho "acdert ${SDK} (x86_64-pc-windows-msvc.exe)"\n`,
+    )
+    expect(existsSync(join(current, 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
     expect(existsSync(join(current, 'lib', 'acde', 'src'))).toBe(false)
     expect(readFileSync(join(current, 'LICENSE'), 'utf8')).toBe(readFileSync(join(ROOT, 'LICENSE'), 'utf8'))
     const entries = join(current, 'lib', 'acde', 'dist')
@@ -230,6 +297,56 @@ describe('the release archive and the installed CLI', () => {
     expect(api).toStartWith('file:')
     expect(realpathSync(api.slice('file:'.length))).toBe(realpathSync(join(current, 'lib', 'acde-api')))
   }, 300_000)
+
+  test('Windows x64: a bad or missing acdert file, or no build for Windows, keeps the previous install', async () => {
+    expect(built).toBe(true)
+    if (process.platform !== 'win32' || process.arch !== 'x64') return
+    const home = join(root, 'kept installation')
+    const server = serve(out)
+    const dist = { ACDE_DIST: server.url.origin }
+    try {
+      expect((await installPs1(home, 'runtime', dist)).code).toBe(0)
+      const before = readFileSync(join(home, 'current', 'bin', 'acdert.exe'))
+      writeFileSync(join(home, 'current', 'marker'), 'kept')
+      const failing: [string, string][] = [
+        ['tampered', 'checksum mismatch for acdert-x86_64-pc-windows-msvc.exe'],
+        ['missing', `could not download ${server.url.origin}/missing/${SDK}/acdert-host-${SDK}.tar.gz`],
+        ['elsewhere', `acdert ${SDK} has no build for this platform (x86_64-pc-windows-msvc); ` +
+          'it is built for: aarch64-apple-darwin x86_64-unknown-linux-gnu'],
+      ]
+      for (const [mirror, said] of failing) {
+        const bad = await installPs1(home, mirror, dist)
+        expect(bad.code, bad.out).not.toBe(0)
+        const plain = bad.out.replace(/\x1b\[[0-9;]*m/g, '').replace(/\s*\|\s*/g, ' ').replace(/\s+/g, ' ')
+        expect(plain).toContain(said)
+        expect(readFileSync(join(home, 'current', 'marker'), 'utf8')).toBe('kept')
+        expect(readFileSync(join(home, 'current', 'bin', 'acdert.exe'))).toEqual(before)
+      }
+    } finally {
+      server.stop(true)
+    }
+  }, 300_000)
+
+  test('Windows x64: an acde version that names no acdert is not installed', async () => {
+    expect(built).toBe(true)
+    if (process.platform !== 'win32' || process.arch !== 'x64') return
+    const old = join(root, 'old release')
+    mkdirSync(join(old, '0.0.2'), { recursive: true })
+    for (const file of ['install.ps1', 'latest', '0.0.2/acde-0.0.2.tar.gz'])
+      writeFileSync(join(old, file), readFileSync(join(out, file)))
+    const tarball = join(old, '0.0.2', 'acde-0.0.2.tar.gz')
+    writeFileSync(join(old, '0.0.2', 'SHA256SUMS'), `${sha256(tarball)}  acde-0.0.2.tar.gz\n`)
+    const server = serve(old)
+    try {
+      const home = join(root, 'old installation')
+      const result = await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })
+      expect(result.code).not.toBe(0)
+      expect(result.out).toContain('acde 0.0.2 does not name the acdert it runs with')
+      expect(existsSync(join(home, 'current'))).toBe(false)
+    } finally {
+      server.stop(true)
+    }
+  }, 120_000)
 
   test('acde dev without a runtime says what to do in English, and acde new/check/build need none', async () => {
     const s = standIn()

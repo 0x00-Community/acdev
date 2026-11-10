@@ -3,6 +3,8 @@ set -eu
 
 ACDE_DIST=${ACDE_DIST:-https://pkgs.dopame.ai/acde}
 ACDE_DIST=${ACDE_DIST%/}
+ACDERT_DIST=${ACDERT_DIST:-https://pkgs.dopame.ai/acdert}
+ACDERT_DIST=${ACDERT_DIST%/}
 
 say() {
   printf 'acde-install: %s\n' "$*"
@@ -19,12 +21,14 @@ usage: curl -fsSL $ACDE_DIST/install.sh | sh
        curl -fsSL $ACDE_DIST/install.sh | sh -s -- [--version X.Y.Z] [--no-modify-path]
        sh install.sh [--version X.Y.Z] [--no-modify-path]
 
-Installs acde (the developer CLI and its SDK) into \$ACDE_INSTALL (default ~/.acde)
-and puts \$ACDE_INSTALL/bin on PATH. No root needed. The runtime (acdert) is not
-part of acde: acde dev finds it through ACDERT or PATH.
-  --version X.Y.Z    that version instead of the latest
+Installs acde (the developer CLI and its SDK) and the Dopame runtime it was built
+with (acdert) into \$ACDE_INSTALL (default ~/.acde) and puts \$ACDE_INSTALL/bin on
+PATH. No root needed. Every download is checked against its SHA256SUMS; if any part
+fails, nothing is installed and an earlier install stays as it was.
+  --version X.Y.Z    that version of acde (and its acdert) instead of the latest
   --no-modify-path   do not touch any shell startup file
-  ACDE_DIST          where to download from (now $ACDE_DIST)
+  ACDE_DIST          where to download acde from (now $ACDE_DIST)
+  ACDERT_DIST        where to download acdert from (now $ACDERT_DIST)
 EOF
 }
 
@@ -62,6 +66,28 @@ main() {
   os=$(uname -s)
   case $os in
     MINGW* | MSYS* | CYGWIN*) die "this is Windows: in PowerShell run  irm $ACDE_DIST/install.ps1 | iex" ;;
+  esac
+  arch=$(uname -m)
+  case $arch in
+    x86_64 | amd64) cpu=x86_64 ;;
+    aarch64 | arm64) cpu=aarch64 ;;
+    *) cpu=$arch ;;
+  esac
+  case $os in
+    Darwin)
+      if [ "$cpu" = x86_64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ]; then
+        cpu=aarch64
+      fi
+      triple=$cpu-apple-darwin
+      ;;
+    Linux)
+      libc=gnu
+      if ls /lib/ld-musl-* >/dev/null 2>&1; then
+        libc=musl
+      fi
+      triple=$cpu-unknown-linux-$libc
+      ;;
+    *) triple=$cpu-$(printf '%s' "$os" | tr '[:upper:]' '[:lower:]') ;;
   esac
 
   if command -v curl >/dev/null 2>&1; then
@@ -104,16 +130,47 @@ main() {
     '' | *[!0-9A-Za-z.-]*) die "not a version: '$version'" ;;
   esac
 
+  listed() {
+    awk -v f="$2" '$2 == f || $2 == "*" f { print $1 }' "$1"
+  }
+
+  verify() {
+    expected=$(listed "$1" "$2")
+    [ -n "$expected" ] || die "$2 is not in its SHA256SUMS"
+    actual=$(sha256 "$3")
+    [ "$actual" = "$expected" ] ||
+      die "$2 does not match its checksum (expected $expected, got $actual); not installing it"
+  }
+
   file=acde-$version.tar.gz
   say "downloading acde $version"
   fetch "$ACDE_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
     die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acde $version?)"
-  expected=$(awk -v f="$file" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")
-  [ -n "$expected" ] || die "acde $version is not in its SHA256SUMS ($file)"
+  [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acde $version is not in its SHA256SUMS ($file)"
   fetch "$ACDE_DIST/$version/$file" "$tmp/$file" || die "could not download $ACDE_DIST/$version/$file"
-  actual=$(sha256 "$tmp/$file")
-  [ "$actual" = "$expected" ] ||
-    die "$file does not match its checksum (expected $expected, got $actual); not installing it"
+  verify "$tmp/SHA256SUMS" "$file" "$tmp/$file"
+  fetch "$ACDE_DIST/$version/acdert-version" "$tmp/acdert-version" ||
+    die "acde $version does not name the acdert it runs with ($ACDE_DIST/$version/acdert-version): install a newer acde"
+  verify "$tmp/SHA256SUMS" acdert-version "$tmp/acdert-version"
+  runtime=$(tr -d ' \t\r\n' <"$tmp/acdert-version")
+  case $runtime in
+    '' | *[!0-9A-Za-z.-]*) die "acdert-version of acde $version is not a version: '$runtime'" ;;
+  esac
+
+  sums=$ACDERT_DIST/$runtime/SHA256SUMS
+  say "downloading acdert $runtime for $triple"
+  fetch "$sums" "$tmp/acdert.sums" || die "could not download $sums (acde $version runs with acdert $runtime)"
+  binary=acdert-$triple
+  if [ -z "$(listed "$tmp/acdert.sums" "$binary")" ]; then
+    supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdert-/ && f !~ /^acdert-host-/) {
+      sub(/^acdert-/, "", f); sub(/\.exe$/, "", f); print f } }' "$tmp/acdert.sums" | sort | tr '\n' ' ')
+    die "acdert $runtime has no build for this platform ($triple); it is built for: ${supported% }"
+  fi
+  host=acdert-host-$runtime.tar.gz
+  fetch "$ACDERT_DIST/$runtime/$binary" "$tmp/$binary" || die "could not download $ACDERT_DIST/$runtime/$binary"
+  verify "$tmp/acdert.sums" "$binary" "$tmp/$binary"
+  fetch "$ACDERT_DIST/$runtime/$host" "$tmp/$host" || die "could not download $ACDERT_DIST/$runtime/$host"
+  verify "$tmp/acdert.sums" "$host" "$tmp/$host"
 
   root=${ACDE_INSTALL:-$HOME/.acde}
   mkdir -p "$root/versions" || die "cannot create $root/versions"
@@ -126,6 +183,10 @@ main() {
   tar -xzf "$tmp/$file" -C "$stage" || die "could not unpack $file"
   unpacked=$stage/acde-$version
   [ -x "$unpacked/bin/acde" ] || die "$file does not hold bin/acde"
+  cp "$tmp/$binary" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert"
+  mkdir "$stage/host" && tar -xzf "$tmp/$host" -C "$stage/host" || die "could not unpack $host"
+  [ -f "$stage/host/app/dist/broker.js" ] || die "$host does not hold app/dist/broker.js"
+  mv "$stage/host/app" "$unpacked/bin/app" || die "could not place the acdert host files"
   if [ -e "$root/versions/$version" ]; then
     mv "$root/versions/$version" "$stage/old"
   fi
@@ -184,8 +245,9 @@ main() {
     esac
   fi
 
-  say "installed acde $version in $root/versions/$version"
+  say "installed acde $version with acdert $runtime in $root/versions/$version"
   printf '  acde    %s/acde\n' "$bin"
+  printf '  acdert  %s/acdert\n' "$bin"
   if [ -n "$added" ]; then
     say "open a new terminal (or run: export PATH=\"$bin:\$PATH\") to get acde on PATH"
   elif [ "$on_path" = 0 ]; then

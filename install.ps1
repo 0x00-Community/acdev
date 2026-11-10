@@ -17,6 +17,7 @@ function Install-Acde {
     $ProgressPreference = 'SilentlyContinue'
 
     $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
+    $runtimeDist = if ($env:ACDERT_DIST) { $env:ACDERT_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acdert' }
     $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acde' }
 
     $shell = $PSVersionTable.PSVersion
@@ -48,6 +49,34 @@ function Install-Acde {
         }
     }
 
+    $cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+    $triple = switch ($cpu) {
+        'AMD64' { 'x86_64-pc-windows-msvc' }
+        'ARM64' { 'aarch64-pc-windows-msvc' }
+        default { "$("$cpu".ToLowerInvariant())-pc-windows-msvc" }
+    }
+
+    function Get-Listed([string]$Sums, [string]$File) {
+        foreach ($line in Get-Content -LiteralPath $Sums) {
+            $fields = $line.Trim() -split '\s+', 2
+            if ($fields.Count -eq 2 -and $fields[1].TrimStart('*') -eq $File) {
+                return $fields[0].ToLowerInvariant()
+            }
+        }
+        return $null
+    }
+
+    function Assert-Sum([string]$Sums, [string]$File, [string]$Path) {
+        $want = Get-Listed $Sums $File
+        if (-not $want) {
+            throw "acde: $File is not in its SHA256SUMS"
+        }
+        $got = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($got -ne $want) {
+            throw "acde: checksum mismatch for ${File}: expected $want, got $got; not installing it"
+        }
+    }
+
     $tar = Join-Path -Path $env:SystemRoot -ChildPath 'System32\tar.exe'
     if (-not (Test-Path -LiteralPath $tar -PathType Leaf)) {
         throw 'acde: needs tar.exe, which Windows 10 1803 and later ship'
@@ -72,20 +101,41 @@ function Install-Acde {
         Save-Remote "$dist/$Version/$name.tar.gz" $tarball
         Save-Remote "$dist/$Version/SHA256SUMS" $sums
 
-        $want = $null
-        foreach ($line in Get-Content -LiteralPath $sums) {
-            $fields = $line.Trim() -split '\s+', 2
-            if ($fields.Count -eq 2 -and $fields[1].TrimStart('*') -eq "$name.tar.gz") {
-                $want = $fields[0].ToLowerInvariant()
-            }
+        Assert-Sum $sums "$name.tar.gz" $tarball
+        $pairing = Join-Path -Path $work -ChildPath 'acdert-version'
+        try {
+            Save-Remote "$dist/$Version/acdert-version" $pairing
+        } catch {
+            throw ("acde: acde $Version does not name the acdert it runs with ($dist/$Version/acdert-version): " +
+                'install a newer acde')
         }
-        if (-not $want) {
-            throw "acde: $name.tar.gz is not in SHA256SUMS"
+        Assert-Sum $sums 'acdert-version' $pairing
+        $runtime = (Get-Content -LiteralPath $pairing -Raw).Trim()
+        if ($runtime -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "acde: acdert-version of acde $Version is not a version: '$runtime'"
         }
-        $got = (Get-FileHash -LiteralPath $tarball -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($got -ne $want) {
-            throw "acde: checksum mismatch for ${name}.tar.gz: expected $want, got $got"
+
+        Write-Host "acde: installing acdert $runtime for $triple from $runtimeDist"
+        $runtimeSums = Join-Path -Path $work -ChildPath 'acdert.sums'
+        Save-Remote "$runtimeDist/$runtime/SHA256SUMS" $runtimeSums
+        $binary = "acdert-$triple.exe"
+        if (-not (Get-Listed $runtimeSums $binary)) {
+            $supported = @(Get-Content -LiteralPath $runtimeSums | ForEach-Object {
+                $fields = $_.Trim() -split '\s+', 2
+                if ($fields.Count -eq 2) { $fields[1].TrimStart('*') }
+            } | Where-Object { $_ -like 'acdert-*' -and $_ -notlike 'acdert-host-*' } | ForEach-Object {
+                ($_ -replace '^acdert-', '') -replace '\.exe$', ''
+            } | Sort-Object)
+            throw ("acde: acdert $runtime has no build for this platform ($triple); " +
+                "it is built for: $($supported -join ' ')")
         }
+        $bundle = "acdert-host-$runtime.tar.gz"
+        $binaryFile = Join-Path -Path $work -ChildPath $binary
+        $bundleFile = Join-Path -Path $work -ChildPath $bundle
+        Save-Remote "$runtimeDist/$runtime/$binary" $binaryFile
+        Assert-Sum $runtimeSums $binary $binaryFile
+        Save-Remote "$runtimeDist/$runtime/$bundle" $bundleFile
+        Assert-Sum $runtimeSums $bundle $bundleFile
 
         $unpacked = Join-Path -Path $work -ChildPath 'x'
         New-Item -ItemType Directory -Path $unpacked | Out-Null
@@ -93,6 +143,20 @@ function Install-Acde {
         if ($LASTEXITCODE -ne 0) {
             throw "acde: could not unpack $name.tar.gz (tar exit $LASTEXITCODE)"
         }
+        $staged = Join-Path -Path $unpacked -ChildPath $name
+        Copy-Item -LiteralPath $binaryFile -Destination (Join-Path -Path $staged -ChildPath 'bin\acdert.exe')
+        $bundleDir = Join-Path -Path $work -ChildPath 'host'
+        New-Item -ItemType Directory -Path $bundleDir | Out-Null
+        & $tar -xzf $bundleFile -C $bundleDir
+        if ($LASTEXITCODE -ne 0) {
+            throw "acde: could not unpack $bundle (tar exit $LASTEXITCODE)"
+        }
+        $broker = Join-Path -Path $bundleDir -ChildPath 'app\dist\broker.js'
+        if (-not (Test-Path -LiteralPath $broker -PathType Leaf)) {
+            throw "acde: $bundle does not hold app/dist/broker.js"
+        }
+        $app = Join-Path -Path $staged -ChildPath 'bin\app'
+        Move-Item -LiteralPath (Join-Path -Path $bundleDir -ChildPath 'app') -Destination $app
 
         $versions = Join-Path -Path $install -ChildPath 'versions'
         $target = Join-Path -Path $versions -ChildPath $Version
@@ -111,7 +175,7 @@ function Install-Acde {
                     'stop acde dev (and acdert) and run the installer again')
             }
         }
-        Move-Item -LiteralPath (Join-Path -Path $unpacked -ChildPath $name) -Destination $target
+        Move-Item -LiteralPath $staged -Destination $target
         if ($aside) {
             $asideDir = Join-Path -Path $versions -ChildPath $aside
             Remove-Item -LiteralPath $asideDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -151,9 +215,13 @@ function Install-Acde {
         }
     }
 
-    Write-Host "acde: installed acde $Version into $install"
+    Write-Host "acde: installed acde $Version with acdert $runtime into $install"
+    Write-Host "  acde     $(Join-Path -Path $bin -ChildPath 'acde.cmd')"
+    Write-Host "  acdert   $(Join-Path -Path $bin -ChildPath 'acdert.exe')"
     Write-Host '  acde new my-app    starts a project with your Bun or Node.js (npm, pnpm, yarn)'
-    Write-Host '  acde dev needs the Dopame runtime (acdert): run it in the Dopame virtual machine, or set ACDERT'
+    if (@($env:Path -split ';') -notcontains $bin) {
+        Write-Host "acde: $bin is not on PATH in this session; add it to run acde and acdert by name"
+    }
 
     $bun = Get-Command bun -ErrorAction SilentlyContinue
     $node = Get-Command node -ErrorAction SilentlyContinue
