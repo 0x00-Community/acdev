@@ -203,6 +203,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), ignore = "acde-media has no video decoder on this platform")]
     fn a_video_s_sound_plays_to_the_end() {
         let (mut mixer, time) = mixer_with("clip.mp4");
         mixer.apply(Cmd::Media { media: 7, op: MediaOp::Play });
@@ -213,6 +214,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), ignore = "acde-media has no video decoder on this platform")]
     fn a_silent_video_runs_on_its_own_clock() {
         let (mut mixer, time) = mixer_with("silent-rotated.mp4");
         mixer.apply(Cmd::Media { media: 7, op: MediaOp::Play });
@@ -223,6 +225,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), ignore = "acde-media has no video decoder on this platform")]
     fn seeking_moves_the_media_clock() {
         let (mut mixer, time) = mixer_with("clip.mp4");
         mixer.apply(Cmd::Media { media: 7, op: MediaOp::Seek(0.5) });
