@@ -1,5 +1,8 @@
 import { Blob, blobBytes } from './blob'
-import { allowedHeaders, backendTarget, cookies, dialOf, isRemote, requestHeaders, type Header, type HttpEvent, type RemoteTarget, type Target, type WsEvent, transport } from './backend'
+import {
+  allowedHeaders, backendTarget, cookies, dialOf, isRemote, requestHeaders, transport,
+  type Header, type HttpEvent, type RemoteTarget, type Target, type WsEvent,
+} from './backend'
 import { Cors } from './cors'
 import { mocked, Tracked, type MockReply, type RequestKind } from './observe'
 import { bytesOf, concat, TextDecoder, unbase64 } from './encoding'
@@ -126,7 +129,9 @@ export class Headers {
   constructor(init?: HeadersInit | null) {
     if (!init) return
     if (init instanceof Headers) for (const [k, v] of init) this.append(k, v)
-    else if (typeof (init as Iterable<unknown>)[Symbol.iterator] === 'function') for (const [k, v] of init as Iterable<readonly [string, string]>) this.append(k, v)
+    else if (typeof (init as Iterable<unknown>)[Symbol.iterator] === 'function') {
+      for (const [k, v] of init as Iterable<readonly [string, string]>) this.append(k, v)
+    }
     else for (const k of Object.keys(init)) this.append(k, (init as Record<string, string>)[k]!)
   }
 
@@ -377,7 +382,9 @@ export class Request extends Body {
     const inherited = init?.body === undefined && base ? base.bodyForClone() : null
     super(inherited ? inherited.bytes : bytes, inherited ? inherited.stream : stream)
     const parsed = base ? null : new URL(String(input), net.base())
-    if (parsed && (parsed.username || parsed.password)) throw new TypeError(`Failed to construct 'Request': Request cannot be constructed from a URL that includes credentials: ${String(input)}`)
+    if (parsed && (parsed.username || parsed.password)) {
+      throw new TypeError(`Failed to construct 'Request': Request cannot be constructed from a URL that includes credentials: ${String(input)}`)
+    }
     this.url = base ? base.url : parsed!.href
     this.method = String(init?.method ?? base?.method ?? 'GET').toUpperCase()
     this.headers = new Headers(init?.headers ?? base?.headers)
@@ -387,8 +394,12 @@ export class Request extends Body {
     this.credentials = init?.credentials ?? base?.credentials ?? 'same-origin'
     this.redirect = init?.redirect ?? base?.redirect ?? 'follow'
     this.mode = init?.mode ?? base?.mode ?? 'cors'
-    if (!['cors', 'no-cors', 'same-origin'].includes(this.mode)) throw new TypeError(`Failed to construct 'Request': Cannot construct a Request with a RequestInit whose mode member is set as '${this.mode}'.`)
-    if (this.mode === 'no-cors' && !Cors.simpleMethod(this.method)) throw new TypeError(`Failed to construct 'Request': '${this.method}' is unsupported in no-cors mode.`)
+    if (!['cors', 'no-cors', 'same-origin'].includes(this.mode)) {
+      throw new TypeError(`Failed to construct 'Request': Cannot construct a Request with a RequestInit whose mode member is set as '${this.mode}'.`)
+    }
+    if (this.mode === 'no-cors' && !Cors.simpleMethod(this.method)) {
+      throw new TypeError(`Failed to construct 'Request': '${this.method}' is unsupported in no-cors mode.`)
+    }
   }
 
   clone(): Request {
@@ -411,7 +422,9 @@ export class Response extends Body {
     const { bytes, stream, type } = extractBody(body)
     super(bytes, stream)
     this.status = init?.status ?? 200
-    if (this.status < 200 || this.status > 599) throw new RangeError(`Failed to construct 'Response': The status provided (${this.status}) is outside the range [200, 599].`)
+    if (this.status < 200 || this.status > 599) {
+      throw new RangeError(`Failed to construct 'Response': The status provided (${this.status}) is outside the range [200, 599].`)
+    }
     this.statusText = init?.statusText ?? ''
     this.headers = new Headers(init?.headers)
     if (type && !this.headers.has('content-type')) this.headers.set('content-type', type)
@@ -534,7 +547,10 @@ export function exchange(first: Target, request: ExchangeRequest, given: Exchang
       return null
     }
   }
-  const listen = (target: Target, url: string, method: string, pageHeaders: Iterable<readonly [string, string]>, body: Uint8Array | null, mine: () => number | null, tainting: 'basic' | 'cors' | 'opaque') => (event: HttpEvent): void => {
+  const listen = (
+    target: Target, url: string, method: string, pageHeaders: Iterable<readonly [string, string]>, body: Uint8Array | null, mine: () => number | null,
+    tainting: 'basic' | 'cors' | 'opaque',
+  ) => (event: HttpEvent): void => {
     if (finished || current !== mine()) return
     switch (event.type) {
       case 'head': {
@@ -559,7 +575,8 @@ export function exchange(first: Target, request: ExchangeRequest, given: Exchang
             on.end()
             return
           }
-          on.head({ status: event.status, statusText: event.statusText ?? '', headers: tainting === 'cors' ? Cors.exposed(all, include) : visibleHeaders(all), url, redirected: redirects > 0, type: tainting })
+          const headers = tainting === 'cors' ? Cors.exposed(all, include) : visibleHeaders(all)
+          on.head({ status: event.status, statusText: event.statusText ?? '', headers, url, redirected: redirects > 0, type: tainting })
           return
         }
         stop(current)
@@ -601,7 +618,8 @@ export function exchange(first: Target, request: ExchangeRequest, given: Exchang
     const page = allowedHeaders(pageHeaders)
     if (request.mode === 'script') {
       let mine: number | null = null
-      current = mine = ask(target, method, browserHeaders(page, true).concat([['referer', `${own}/`]]), body, listen(target, url, method, pageHeaders, body, () => mine, 'basic'))
+      const headers = browserHeaders(page, true).concat([['referer', `${own}/`]])
+      current = mine = ask(target, method, headers, body, listen(target, url, method, pageHeaders, body, () => mine, 'basic'))
       return
     }
     const unsafe = Cors.unsafeNames(page)
@@ -626,7 +644,9 @@ export function exchange(first: Target, request: ExchangeRequest, given: Exchang
       stop(mine)
       current = null
       const all = event.headers ?? []
-      const problem = event.status < 200 || event.status > 299 ? `It does not have HTTP ok status (${event.status}).` : (Cors.check(all, origin, include) ?? Cors.preflight(all, method, unsafe, include))
+      const problem = event.status < 200 || event.status > 299
+        ? `It does not have HTTP ok status (${event.status}).`
+        : (Cors.check(all, origin, include) ?? Cors.preflight(all, method, unsafe, include))
       if (problem) return blocked(`Response to preflight request doesn't pass access control check: ${problem}`)
       actual()
     }
@@ -648,7 +668,12 @@ export function exchange(first: Target, request: ExchangeRequest, given: Exchang
   }
 }
 
-type SignalLike = { aborted?: boolean; reason?: unknown; addEventListener?: (t: string, f: () => void) => void; removeEventListener?: (t: string, f: () => void) => void }
+type SignalLike = {
+  aborted?: boolean
+  reason?: unknown
+  addEventListener?: (t: string, f: () => void) => void
+  removeEventListener?: (t: string, f: () => void) => void
+}
 
 function aborted(signal: SignalLike): unknown {
   return signal.reason ?? new DOMException('The user aborted a request.', 'AbortError')
@@ -667,7 +692,9 @@ async function fetchBackend(request: Request, target: Target, signal: SignalLike
     let controller: ReadableStreamDefaultController<Uint8Array> | null = null
     let response: Response | null = null
     const settle = (): void => signal?.removeEventListener?.('abort', onAbort)
-    const abort = exchange(target, { url: request.url, method: request.method, headers: request.headers, body, redirect: request.redirect, credentials: request.credentials, mode }, {
+    const { url, method, headers, redirect, credentials } = request
+    const sent = { url, method, headers, body, redirect, credentials, mode }
+    const abort = exchange(target, sent, {
       head(head) {
         if (head.type === 'opaque') {
           settle()
@@ -834,7 +861,9 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
   }
 
   setRequestHeader(name: string, value: string): void {
-    if (this.readyState !== 1) throw new DOMException("Failed to execute 'setRequestHeader' on 'XMLHttpRequest': The object's state must be OPENED.", 'InvalidStateError')
+    if (this.readyState !== 1) {
+      throw new DOMException("Failed to execute 'setRequestHeader' on 'XMLHttpRequest': The object's state must be OPENED.", 'InvalidStateError')
+    }
     this.#headers.append(name, value)
   }
 
@@ -850,7 +879,10 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
     if (mock) return this.#mocked(mock, token)
     const routed = route(this.#url, this.#method)
     if (routed && 'target' in routed) {
-      if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': synchronous requests to the app's backend or the network are not supported ('${this.#url}').`, 'NetworkError')
+      if (!this.#async) {
+        const what = `synchronous requests to the app's backend or the network are not supported ('${this.#url}').`
+        throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': ${what}`, 'NetworkError')
+      }
       fire(this, new ProgressEvent('loadstart'))
       return this.#backend(routed.target, token, body)
     }
@@ -942,7 +974,9 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
     }
     const start = (sent: Uint8Array | null): void => {
       if (!live()) return
-      this.#stop = exchange(target, { url: this.#url, method: this.#method, headers: this.#headers, body: sent, redirect: 'follow', credentials: this.withCredentials ? 'include' : 'same-origin', mode: 'cors' }, {
+      const credentials = this.withCredentials ? 'include' : 'same-origin'
+      const request = { url: this.#url, method: this.#method, headers: this.#headers, body: sent, redirect: 'follow' as const, credentials }
+      this.#stop = exchange(target, { ...request, mode: 'cors' as const }, {
         head: (head) => {
           if (!live()) return
           this.status = head.status
@@ -1068,8 +1102,14 @@ export class WebSocket extends EventTarget {
       throw new DOMException(`Failed to construct 'WebSocket': The URL '${String(url)}' is invalid.`, 'SyntaxError')
     }
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') parsed = new URL(`ws${parsed.href.slice(4)}`)
-    if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') throw new DOMException(`Failed to construct 'WebSocket': The URL's scheme must be either 'http', 'https', 'ws', or 'wss'. '${parsed.protocol}' is not allowed.`, 'SyntaxError')
-    if (parsed.hash) throw new DOMException(`Failed to construct 'WebSocket': The URL contains a fragment identifier ('${parsed.hash}'). Fragment identifiers are not allowed in WebSocket URLs.`, 'SyntaxError')
+    if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+      const what = `The URL's scheme must be either 'http', 'https', 'ws', or 'wss'. '${parsed.protocol}' is not allowed.`
+      throw new DOMException(`Failed to construct 'WebSocket': ${what}`, 'SyntaxError')
+    }
+    if (parsed.hash) {
+      const what = `The URL contains a fragment identifier ('${parsed.hash}'). Fragment identifiers are not allowed in WebSocket URLs.`
+      throw new DOMException(`Failed to construct 'WebSocket': ${what}`, 'SyntaxError')
+    }
     this.url = parsed.href
     this.#origin = parsed.origin
     const list = protocols === undefined ? [] : typeof protocols === 'string' ? [protocols] : [...protocols].map(String)
@@ -1085,7 +1125,9 @@ export class WebSocket extends EventTarget {
   }
 
   #connect(target: Target, protocols: string[]): void {
-    const headers = isRemote(target) ? browserHeaders([['origin', new URL(net.base()).origin]], false) : requestHeaders([], target, { origin: true, cookies: true })
+    const headers = isRemote(target)
+      ? browserHeaders([['origin', new URL(net.base()).origin]], false)
+      : requestHeaders([], target, { origin: true, cookies: true })
     const onEvent = (event: WsEvent): void => {
       if (this.#finished) return
       switch (event.type) {
@@ -1145,7 +1187,9 @@ export class WebSocket extends EventTarget {
   }
 
   send(data: string | ArrayBuffer | ArrayBufferView | Blob): void {
-    if (this.readyState === WS_STATES.CONNECTING) throw new DOMException("Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.", 'InvalidStateError')
+    if (this.readyState === WS_STATES.CONNECTING) {
+      throw new DOMException("Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.", 'InvalidStateError')
+    }
     let payload: string | Uint8Array
     if (typeof data === 'string') payload = data
     else if (data instanceof Blob) payload = blobBytes(data).slice()
@@ -1161,9 +1205,14 @@ export class WebSocket extends EventTarget {
   close(code?: number, reason?: string): void {
     if (code !== undefined) {
       code = Number(code)
-      if (code !== 1000 && !(code >= 3000 && code <= 4999)) throw new DOMException(`Failed to execute 'close' on 'WebSocket': The close code must be either 1000, or between 3000 and 4999. ${code} is neither.`, 'InvalidAccessError')
+      if (code !== 1000 && !(code >= 3000 && code <= 4999)) {
+        const what = `The close code must be either 1000, or between 3000 and 4999. ${code} is neither.`
+        throw new DOMException(`Failed to execute 'close' on 'WebSocket': ${what}`, 'InvalidAccessError')
+      }
     }
-    if (reason !== undefined && host.encodeUtf8(String(reason)).length > 123) throw new DOMException("Failed to execute 'close' on 'WebSocket': The close reason must not be greater than 123 UTF-8 bytes.", 'SyntaxError')
+    if (reason !== undefined && host.encodeUtf8(String(reason)).length > 123) {
+      throw new DOMException("Failed to execute 'close' on 'WebSocket': The close reason must not be greater than 123 UTF-8 bytes.", 'SyntaxError')
+    }
     if (this.readyState === WS_STATES.CLOSING || this.readyState === WS_STATES.CLOSED) return
     if (this.#id === null) {
       this.readyState = WS_STATES.CLOSED
@@ -1262,7 +1311,8 @@ export class EventSource extends EventTarget {
     }
     const headers: [string, string][] = [['accept', 'text/event-stream'], ['cache-control', 'no-cache']]
     if (this.#lastId) headers.push(['last-event-id', this.#lastId])
-    this.#stop = exchange(this.#target!, { url: this.url, method: 'GET', headers, body: null, redirect: 'follow', credentials: this.withCredentials ? 'include' : 'same-origin', mode: 'cors' }, {
+    const credentials = this.withCredentials ? 'include' : 'same-origin'
+    this.#stop = exchange(this.#target!, { url: this.url, method: 'GET', headers, body: null, redirect: 'follow', credentials, mode: 'cors' }, {
       head: (head) => {
         if (this.readyState === ES_STATES.CLOSED) return
         const contentType = headerOf(head.headers, 'content-type') ?? ''

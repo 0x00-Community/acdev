@@ -36,7 +36,10 @@ export class MockDom implements DomNative {
   media: Record<string, string> = {}
 
   constructor() {
-    this.window = new Window({ url: 'http://acde.local/', width: 1280, height: 800, settings: { disableJavaScriptEvaluation: true, disableCSSFileLoading: true, disableJavaScriptFileLoading: true, handleDisabledFileLoadingAsSuccess: true, navigation: { disableChildFrameNavigation: true, disableChildPageNavigation: true, disableMainFrameNavigation: true } } as never })
+    this.window = new Window({ url: 'http://acde.local/', width: 1280, height: 800, settings: {
+      disableJavaScriptEvaluation: true, disableCSSFileLoading: true, disableJavaScriptFileLoading: true, handleDisabledFileLoadingAsSuccess: true,
+      navigation: { disableChildFrameNavigation: true, disableChildPageNavigation: true, disableMainFrameNavigation: true },
+    } as never })
     this.doc = this.window.document
     for (const name of Object.getOwnPropertyNames(MockDom.prototype)) {
       if (name === 'constructor' || name.startsWith('_')) continue
@@ -451,7 +454,8 @@ export class MockDom implements DomNative {
     return {
       offsetLeft: b.x - pb.x, offsetTop: b.y - pb.y, offsetWidth: b.width, offsetHeight: b.height, offsetParent: parent,
       clientLeft: 0, clientTop: 0, clientWidth: b.width, clientHeight: b.height,
-      scrollLeft: s.left, scrollTop: s.top, scrollWidth: Math.max(b.width, content?.width ?? 0), scrollHeight: Math.max(b.height, Number(node.getAttribute?.('data-scroll-height') ?? 0)),
+      scrollLeft: s.left, scrollTop: s.top, scrollWidth: Math.max(b.width, content?.width ?? 0),
+      scrollHeight: Math.max(b.height, Number(node.getAttribute?.('data-scroll-height') ?? 0)),
     }
   }
   hitTest(x: number, y: number): number {
@@ -495,7 +499,9 @@ export class MockDom implements DomNative {
     return new Float64Array(0)
   }
   parseColor(color: string): Float64Array | null {
-    const named: Record<string, number[]> = { black: [0, 0, 0], white: [255, 255, 255], red: [255, 0, 0], darkblue: [0, 0, 139], rebeccapurple: [102, 51, 153], transparent: [0, 0, 0, 0] }
+    const named: Record<string, number[]> = {
+      black: [0, 0, 0], white: [255, 255, 255], red: [255, 0, 0], darkblue: [0, 0, 139], rebeccapurple: [102, 51, 153], transparent: [0, 0, 0, 0],
+    }
     const text = color.trim().toLowerCase()
     const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(text)
     let rgba: number[] | undefined = named[text]
@@ -622,7 +628,10 @@ export class MockDom implements DomNative {
 
   stats(): DomStats {
     const none = { count: 0, totalMs: 0, maxMs: 0 }
-    return { resolve: none, frame: none, frameLocked: none, resolveMs: 0, paintMs: 0, damageMs: 0, layersMs: 0, fragmentsRecorded: 0, fragmentsReused: 0, animating: false, nodes: this.#nodes.size, images: 0, imageBytes: 0, mallocBytes: 0 }
+    return {
+      resolve: none, frame: none, frameLocked: none, resolveMs: 0, paintMs: 0, damageMs: 0, layersMs: 0, fragmentsRecorded: 0, fragmentsReused: 0,
+      animating: false, nodes: this.#nodes.size, images: 0, imageBytes: 0, mallocBytes: 0,
+    }
   }
 
   node(id: number): HNode {

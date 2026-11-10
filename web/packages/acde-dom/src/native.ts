@@ -147,7 +147,9 @@ export interface DomNative {
   measureText(id: number, font: string, text: string): Float64Array
   toDataURL(id: number, type: string): string
   getImageData(id: number, x: number, y: number, width: number, height: number): Uint8Array
-  capture(id: number, scale: number): { x: number; y: number; width: number; height: number; pixelWidth: number; pixelHeight: number; scale: number; picture: number } | null
+  capture(
+    id: number, scale: number,
+  ): { x: number; y: number; width: number; height: number; pixelWidth: number; pixelHeight: number; scale: number; picture: number } | null
 
   setPanel(id: number, x: number, y: number, width: number, height: number): void
   unpin(id: number): void
@@ -213,7 +215,10 @@ export interface HostNative {
   openDecoder(encoding: string, fatal: boolean, ignoreBom: boolean): number
   decodeChunk(id: number, bytes: Uint8Array, last: boolean): string
   closeDecoder(id: number): void
-  parseUrl(input: string, base: string | null): { href: string; origin: string; protocol: string; username: string; password: string; host: string; hostname: string; port: string; pathname: string; search: string; hash: string } | null
+  parseUrl(input: string, base: string | null): {
+    href: string; origin: string; protocol: string; username: string; password: string; host: string; hostname: string; port: string; pathname: string
+    search: string; hash: string
+  } | null
   serialize(value: unknown): Uint8Array
   isProxy?(value: unknown): boolean
   runMicrotasks?(): void
@@ -225,7 +230,9 @@ export interface HostNative {
 
 export interface GpuNative {
   requestAdapter(): Promise<GpuAdapterInfo | null>
-  createDevice(features: string[], limits: Record<string, number>, onError: (kind: string, message: string) => void, onLost: (reason: string, message: string) => void): number
+  createDevice(
+    features: string[], limits: Record<string, number>, onError: (kind: string, message: string) => void, onLost: (reason: string, message: string) => void,
+  ): number
   destroyDevice(device: number): void
   pushErrorScope(device: number, filter: string): void
   popErrorScope(device: number): GpuErrorInfo | null | undefined
@@ -389,13 +396,19 @@ export interface IdbRecord {
 
 export type IdbEvent =
   | { readonly type: 'opened'; readonly req: number; readonly db: number; readonly conn: number; readonly schema: IdbSchema }
-  | { readonly type: 'upgrade'; readonly req: number; readonly db: number; readonly conn: number; readonly tx: number; readonly old: number; readonly schema: IdbSchema }
+  | {
+    readonly type: 'upgrade'; readonly req: number; readonly db: number; readonly conn: number; readonly tx: number; readonly old: number
+    readonly schema: IdbSchema
+  }
   | { readonly type: 'openFailed'; readonly req: number; readonly error: IdbError }
   | { readonly type: 'blocked'; readonly req: number; readonly old: number; readonly new: number | null }
   | { readonly type: 'versionchange'; readonly conn: number; readonly old: number; readonly new: number | null }
   | { readonly type: 'deleted'; readonly req: number; readonly old: number }
   | { readonly type: 'started'; readonly tx: number; readonly generators: readonly [number, number][] }
-  | { readonly type: 'result'; readonly tx: number; readonly op: number; readonly id?: number; readonly count?: number; readonly records?: readonly IdbRecord[]; readonly error?: IdbError }
+  | {
+    readonly type: 'result'; readonly tx: number; readonly op: number; readonly id?: number; readonly count?: number; readonly records?: readonly IdbRecord[]
+    readonly error?: IdbError
+  }
   | { readonly type: 'complete'; readonly tx: number }
   | { readonly type: 'aborted'; readonly tx: number; readonly error: IdbError | null }
   | { readonly type: 'forcedClose'; readonly conn: number }
@@ -412,12 +425,23 @@ export interface IdbNative {
   abort(db: number, tx: number): void
   close(db: number, conn: number): void
   acknowledge(db: number, conn: number): void
-  put(db: number, tx: number, op: number, store: number, key: Uint8Array, value: Uint8Array, indexes: (number | Uint8Array)[], overwrite: boolean, generator: number | undefined): void
+  put(
+    db: number, tx: number, op: number, store: number, key: Uint8Array, value: Uint8Array, indexes: (number | Uint8Array)[], overwrite: boolean,
+    generator: number | undefined,
+  ): void
   remove(db: number, tx: number, op: number, store: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean): void
   clear(db: number, tx: number, op: number, store: number): void
-  get(db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean, values: boolean, count: number, direction: number): void
-  count(db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean): void
-  cursor(db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean, direction: number, position: IdbKeyBytes, positionPrimary: IdbKeyBytes, key: IdbKeyBytes, primaryKey: IdbKeyBytes, advance: number, values: boolean): void
+  get(
+    db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean,
+    values: boolean, count: number, direction: number,
+  ): void
+  count(
+    db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean,
+  ): void
+  cursor(
+    db: number, tx: number, op: number, index: boolean, source: number, lower: IdbKeyBytes, lowerOpen: boolean, upper: IdbKeyBytes, upperOpen: boolean,
+    direction: number, position: IdbKeyBytes, positionPrimary: IdbKeyBytes, key: IdbKeyBytes, primaryKey: IdbKeyBytes, advance: number, values: boolean,
+  ): void
   createStore(db: number, tx: number, op: number, id: number, name: string, keyPath: string | null, autoIncrement: boolean): void
   deleteStore(db: number, tx: number, op: number, store: number): void
   renameStore(db: number, tx: number, op: number, store: number, name: string): void
