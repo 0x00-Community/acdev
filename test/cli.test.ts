@@ -389,7 +389,13 @@ describe('a project made by acde from its checkout', () => {
   })
 
   test('which package manager: the user agent, else the runtime acde runs on', () => {
-    const saved = { agent: process.env['npm_config_user_agent'], runtime: process.env['ACDE_HOST_RUNTIME'] }
+    const saved = {
+      agent: process.env['npm_config_user_agent'],
+      runtime: process.env['ACDE_HOST_RUNTIME'],
+      path: process.env['PATH'],
+    }
+    const bin = tmp()
+    writeFileSync(join(bin, WINDOWS ? 'pnpm.cmd' : 'pnpm'), '')
     try {
       process.env['npm_config_user_agent'] = 'pnpm/10.23.0 npm/? node/v24.0.0 darwin arm64'
       expect(PackageManager.invoking().name).toBe('pnpm')
@@ -399,6 +405,8 @@ describe('a project made by acde from its checkout', () => {
       process.env['ACDE_HOST_RUNTIME'] = 'node'
       expect(PackageManager.invoking().name).toBe('npm')
       expect(() => PackageManager.named('other')).toThrow('one of bun, npm, pnpm, yarn')
+      process.env['PATH'] = bin
+      expect(() => PackageManager.named('yarn').exec('create-vite@latest', ['x'])).toThrow('yarn is not on PATH')
       expect(PackageManager.named('pnpm').exec('create-vite@latest', ['x'])).toEqual([
         expect.stringMatching(/(?:^|[/\\])pnpm(?:\.(?:exe|cmd|bat))?$/i),
         'dlx',
@@ -416,6 +424,7 @@ describe('a project made by acde from its checkout', () => {
       for (const [key, value] of [
         ['npm_config_user_agent', saved.agent],
         ['ACDE_HOST_RUNTIME', saved.runtime],
+        ['PATH', saved.path],
       ] as const) {
         if (value === undefined) delete process.env[key]
         else process.env[key] = value
