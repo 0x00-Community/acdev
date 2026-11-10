@@ -1,30 +1,30 @@
 ---
 name: acde
-description: Build, run, debug and test apps and desktops for Dopame OS with the acde CLI and its runtime, acdert. Use when a project has an acde.config.jsonc, imports an acde: module (acde:fs, acde:window, ...) or depends on @dopame/acde-api, and when the user mentions acde, acdert or Dopame OS, or asks to create, run, inspect, screenshot, drive or end-to-end test a Dopame app or desktop.
+description: Build, run, debug, and test apps and desktops for Dopame OS with the acde CLI and its runtime, acdert. Use when a project has an acde.config.jsonc, imports an acde: module (acde:fs, acde:window, ...) or depends on @dopame/acde-api, and when the user mentions acde, acdert, or Dopame OS, or asks to create, run, inspect, screenshot, drive, or end-to-end test a Dopame app or desktop.
 ---
 
 # acde
 
-A Dopame OS app is a web project: HTML, CSS and JS in any framework, optionally with a Bun or Node.js backend. `acde` is the developer CLI (create, check, build, run, inspect, test). `acdert` is the runtime that draws the desktop and the apps; `acde dev` starts it. The relation is wrangler to workerd.
+A Dopame OS app is a web project: HTML, CSS, and JS in any framework, optionally with a Bun or Node.js backend. `acde` is the developer CLI (create, check, build, run, inspect, test). `acdert` is the runtime that draws the desktop and the apps; `acde dev` starts it. The relation is wrangler to workerd.
 
 This skill ships inside acde and describes the version it came with. When it and the CLI disagree, the CLI is right: `acde` with no arguments prints the usage of every command.
 
 ## Check the environment first
 
 1. `acde` must be on PATH. If it is not, follow [Install](references/start/install.md).
-2. `acde dev` and `acde test` need the runtime. acde finds it through the `ACDERT` variable (a path to the binary) or as `acdert` on PATH. acdert is **not** part of acde and is not downloaded by its installer: it comes with the Dopame virtual machine. Without it, `acde new`, `acde check` and `acde build` still work, and `acde dev` says what is missing. Do not look for another way to get the runtime; tell the user it is missing.
-3. A project runs on Bun when its package manager is bun, and on Node.js with npm, pnpm or yarn. `acde test` needs Bun.
+2. `acde dev` and `acde test` need the runtime. acde finds it through the `ACDERT` variable (a path to the binary) or as `acdert` on PATH. acdert is **not** part of acde and is not downloaded by its installer: it is already on PATH in the Dopame virtual machine, and elsewhere it is a separate download, described in [Install the runtime](references/start/install.md#install-the-runtime-on-your-own-computer). Without it, `acde new`, `acde check`, and `acde build` still work, and `acde dev` says what is missing. If it is missing, tell the user, and install it with those steps only if they agree. Get it from nowhere else.
+3. A project runs on Bun when its package manager is bun, and on Node.js with npm, pnpm, or yarn. `acde test` needs Bun.
 
 ## What is not like a browser
 
-acdert has its own renderer and is not Chromium. Standard APIs follow the spec, and what the runtime lacks is absent rather than faked. Before relying on anything beyond the DOM, `fetch` and storage, read [Web compatibility](references/reference/web.md). The mistakes to avoid:
+acdert has its own renderer and is not Chromium. Standard APIs follow the spec, and what the runtime lacks is absent rather than faked. Before relying on anything beyond the DOM, `fetch`, and storage, read [Web compatibility](references/reference/web.md). The mistakes to avoid:
 
-- **No CDN.** Images, fonts and ES modules load only from the app's own files. Bundle every dependency.
-- **Missing APIs**: Web Workers, Service Workers, `crypto.subtle`, OffscreenCanvas, fullscreen, pointer lock. `confirm()` returns `false` and `prompt()` returns `null`; build dialogs in the page.
+- **No CDN.** Images, fonts, and ES modules load only from the app's own files. Bundle every dependency.
+- **Missing APIs**: Web Workers, Service Workers, `crypto.subtle`, WebGL, OffscreenCanvas, fullscreen, pointer lock. `confirm()` returns `false` and `prompt()` returns `null`; build dialogs in the page.
 - **System access goes through `acde:` modules only** (`import { fs } from 'acde:fs'`), and only for capabilities the config requests. There is no global object. Importing a module that was not requested fails. See [Capabilities](references/guide/capabilities.md).
 - **The backend has no TCP port.** A backend's `listen(port)` becomes a unix socket, and the page reaches it with a same-origin `fetch('/api/…')`. Do not `curl localhost`. See [Backend](references/guide/backend.md).
 - **No developer tools.** Use the commands below to look at pages.
-- **Platforms differ.** A capability a platform lacks fails to import. See [Platforms](references/reference/platforms.md).
+- **Platforms differ.** A capability a platform lacks fails to import. See [Platform support](references/reference/platforms.md).
 
 ## The working loop
 
@@ -71,14 +71,14 @@ Read the one that matches the task; each is self-contained.
 
 Getting started:
 
-- [Install](references/start/install.md): install, upgrade, uninstall, the runtime
+- [Install](references/start/install.md): install, upgrade, uninstall, the runtime, and the Dopame desktop
 - [First app](references/start/first-app.md): from `acde new` to a capability and a build
 - [Project layout](references/start/project.md): files, config versus manifest, build output, the SDK
 
 Guides:
 
 - [Configuration](references/guide/config.md): `acde.config.jsonc` for apps and desktops
-- [Frameworks](references/guide/frameworks.md): how React, Vue, Next.js, Nuxt, SvelteKit, Astro and others are built
+- [Frameworks](references/guide/frameworks.md): how React, Vue, Next.js, Nuxt, SvelteKit, Astro, and others are built
 - [Assets and icons](references/guide/assets.md): `public/`, icons
 - [Backend](references/guide/backend.md): `export default { fetch }` or any server that listens
 - [Capabilities](references/guide/capabilities.md): requesting and importing `acde:` modules
@@ -104,4 +104,4 @@ Reference:
 - [Testing API](references/reference/testing.md): fixtures, locators, assertions, settings
 - [Web compatibility](references/reference/web.md): storage, network, what is unsupported
 - [Environment variables](references/reference/env.md): acde, the runtime, app backends
-- [Platforms](references/reference/platforms.md): what works on macOS, Windows, Linux and Dopame OS
+- [Platform support](references/reference/platforms.md): what works on macOS, Windows, Linux, and Dopame OS

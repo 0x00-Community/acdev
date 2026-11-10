@@ -1,6 +1,6 @@
 # Debugging
 
-acdert has no browser developer tools. Instead, a set of commands connects to a running `acde dev` and lets you look at pages, run code, take screenshots, and click buttons. Run them in another terminal:
+acdert has no browser developer tools. Instead, a set of commands connects to a running `acde dev` session and lets you look at pages, run code, take screenshots, and click buttons. Run them in another terminal:
 
 ```sh
 acde webs
@@ -14,7 +14,7 @@ notes#1048576    app      notes   1048576  Notes
 
 ## Sessions
 
-These commands find an `acde dev` in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise the only session, if there is just one; otherwise they fail and list all sessions.
+These commands find an `acde dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise the only session, if there is just one; otherwise they fail and list all sessions.
 
 ## Commands
 
@@ -29,7 +29,7 @@ These commands find an `acde dev` in this order: `--session <pid>`; otherwise th
 | `acde console [--web W] [--level L] [--follow]` | The pages' `console.*` output and uncaught errors |
 | `acde network [--web W] [--failed] [--follow]` | The pages' fetch / XHR / WebSocket / EventSource requests |
 
-`<web>` is a web name (`notes#1048576`), an app id (that app's first window), or `desktop`.
+A **web** is one page: the desktop page, or the page in one app window (each window has one). `<web>` is a web name from `acde webs` (`notes#1048576`), an app id (that app's first window), or `desktop`.
 
 ### eval
 
@@ -40,6 +40,8 @@ echo 'localStorage.length' | acde eval notes -
 ```
 
 ### inspect and act
+
+`inspect` gives every element a **ref**, such as `w1.12` (element 12 in window `w1`); pass it to `act`.
 
 ```sh
 $ acde inspect
@@ -68,4 +70,4 @@ The most recent 5000 entries of each kind are kept.
 
 ## Errors
 
-When a command fails, it prints `acde: <reason>` and exits with code 1. If the `acde dev` has already exited, it says `acde dev <pid> is gone`.
+When a command fails, it prints `acde: <reason>` and exits with code 1. If the session has already exited, it says `acde dev <pid> is gone`.

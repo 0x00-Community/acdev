@@ -38,7 +38,7 @@ There is a single manifest validator: the runtime and `acde check` / `acde build
 
 | Field | Description |
 | --- | --- |
-| `id` | `[\w-]+`, required |
+| `id` | `[\w-]+`, required. The runtime accepts this; a config only allows `[a-z0-9][a-z0-9-]*` (see [acde.config.jsonc](config.md#appconfig)), so the looser rule matters only for a handwritten package |
 | `label` | Required |
 | `icon` | An icon name, or a URL under assets ending in `.svg` / `.png`; required |
 | `entry` | A URL starting with `/`, required. HTML or a module; a trailing `/` means the page is rendered by the backend (requires `backend`) |

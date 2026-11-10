@@ -7,8 +7,10 @@ acde dev
 This does three things:
 
 1. Builds the project (into `.acde/`).
-2. Starts acdert and opens **one** window on your desktop.
+2. Starts acdert, which opens **one** window on your computer: the **host window**, standing in for the screen of a Dopame OS machine.
 3. Watches the project's files, and on every change rebuilds and reloads the affected windows.
+
+A running `acde dev` is a **dev session**: the [debugging commands](tools.md), [MCP](mcp.md), and `acde test` all work with one.
 
 ## What runs
 
@@ -19,11 +21,11 @@ This does three things:
 | `acde dev --app ID` | Picks one app when the project has several |
 | `acde dev ./a ./b` | Several projects together, in one desktop |
 | `acde dev ./app --desktop ./my-desktop` | The app runs in the given desktop project |
-| `acde dev ./app --desktop dopame` | The app runs in the installed `dopame` desktop |
+| `acde dev ./app --desktop dopame` | The app runs in the `dopame` desktop, once it is [installed](../start/install.md#install-the-dopame-desktop) |
 
 With several projects or `--desktop`, the desktop is chosen like this: the value of `--desktop`; otherwise the only desktop project among them; otherwise `dopame`. A `--desktop` value that looks like a path (contains `/`, or is `.` / `..`), or that names a project in the current directory, is treated as one more project.
 
-`--headless` opens no windows, which suits scripts and CI. Pages still render and screenshots still work.
+`--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. It still needs a GPU, so it doesn't run on Linux CI machines without one (macOS CI runners work); see [Platform support](../reference/platforms.md).
 
 ## Reloading
 
@@ -49,4 +51,4 @@ To watch them from another terminal, or to read them from a script, use `acde co
 
 ## Runtime
 
-`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the `acdert` on PATH. acdert is not part of acde; see [Install](../start/install.md#the-runtime).
+`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the `acdert` on PATH. acdert is not part of acde; see [Install the runtime](../start/install.md#install-the-runtime-on-your-own-computer).

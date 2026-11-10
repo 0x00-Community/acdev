@@ -1,11 +1,11 @@
 # Windows
 
-Each app window is a separate web page with its own DOM and JS heap; one window crashing does not affect the others. All windows of the same app share storage such as `localStorage`, IndexedDB and cookies.
+Each app window is a separate web page with its own DOM and JS heap; one window crashing does not affect the others. All windows of the same app share storage such as `localStorage`, IndexedDB, and cookies.
 
 ## Size and title bar
 
 - A new window's content area is the configured `size` (800 × 600 by default) and opens centered; next time it opens where it was last closed.
-- The title bar drawn by the system is **not part of the page's document**: `innerHeight`, `100vh` and `resize` events only cover the content area. To drop the title bar, set `"frame": false` in the config, draw your own, and use `setGrabHint` to tell the system where the window can be dragged.
+- The title bar drawn by the system is **not part of the page's document**: `innerHeight`, `100vh`, and `resize` events only cover the content area. To drop the title bar, set `"frame": false` in the config, draw your own, and use `setGrabHint` to tell the system where the window can be dragged.
 - The title comes from `document.title` or `window.setTitle()`; if neither is set, `label` is used.
 
 ## acde:window

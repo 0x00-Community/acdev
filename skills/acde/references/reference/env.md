@@ -18,7 +18,7 @@
 | --- | --- |
 | `ACDE_PATH` | Extra package directories (separated by `;` on Windows) |
 | `ACDE_DESKTOP` | Default desktop |
-| `ACDE_HEADLESS=1` | Open no windows |
+| `ACDE_HEADLESS=1` | Don't open a window |
 | `ACDE_SIZE` | Screen size, such as `1280x800` |
 | `ACDE_SCALE` | Scale factor when headless (0.5–4) |
 | `ACDE_COLOR_SCHEME` | `light` / `dark` |

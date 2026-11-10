@@ -7,7 +7,7 @@ The project's `public/` directory (rename it with the `public` config field) is 
 References in your pages that start with `/` and point to a file in public:
 
 - In HTML: bundled as usual.
-- `url(/x)` in CSS: kept as is in the project's own HTML-entry app (the runtime also serves the app directory at `/`).
+- `url(/x)` in CSS: kept as is when the project is an app whose entry is HTML, because the runtime also serves the app's directory at `/`. Elsewhere (a desktop, or the apps it bundles) it is bundled as usual.
 - If the file can't be found anywhere, the build fails and tells you which URL in which file, and what's missing from public.
 
 ## URLs

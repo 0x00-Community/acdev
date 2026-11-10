@@ -1,11 +1,11 @@
-# Platforms
+# Platform support
 
-The host window used for development (`acde dev`) runs on macOS, Windows, and Linux; Dopame OS itself is Linux.
+The host window used for development (`acde dev`) runs on macOS, Windows, and Linux; Dopame OS itself is Linux. The runtime is built for macOS on Apple silicon and Intel, Linux on x86_64, and Windows on x64; see [Install](../start/install.md#supported-platforms).
 
 | | macOS | Windows | Linux (development) | Dopame OS |
 | --- | --- | --- | --- | --- |
 | Page rendering (requires a GPU) | Metal | DX12 | Vulkan | Vulkan |
-| `acde:fs`, file choosers | ✓ | ✓ | ✓ | ✓ |
+| `acde:fs`, file pickers | ✓ | ✓ | ✓ | ✓ |
 | Sound, clipboard | ✓ | ✓ | ✓ | ✓ |
 | System notifications | ✓ | | ✓ | Shown by the desktop |
 | App backends | ✓ | Not yet | ✓ | ✓ |

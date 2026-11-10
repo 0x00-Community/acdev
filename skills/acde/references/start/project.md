@@ -8,7 +8,7 @@ my-app/
 ├── package.json
 ├── index.html           entry page
 ├── src/main.js
-├── server.ts            backend (optional)
+├── server.ts            backend (optional; not on Windows yet)
 ├── public/              static files copied as is (optional)
 └── .acde/               build output, kept out of git
 ```
@@ -16,13 +16,13 @@ my-app/
 ## Config and manifest
 
 - **`acde.config.jsonc`** is the config you write. It's only read at build time. `"type"` is `"app"` (a windowed app) or `"desktop"` (a desktop).
-- The **manifest** is the `acde` field of the build output's `.acde/package.json`. It's the only thing the runtime reads.
+- The **manifest** is the `acde` field of `package.json` in the build output, `.acde/`. That directory is a **package**: what the runtime runs. The manifest is the only thing the runtime reads.
 
 `acde build` turns the former into the latter. Most of the time you only need to care about the config; for the manifest format, see [Manifest](../reference/manifest.md).
 
 A directory without `acde.config.jsonc` can still be built:
 
-- If the `acde` field in `package.json` has `apps`, it's treated as a **hand-written package** and used as is (only checked).
+- If the `acde` field in `package.json` has `apps`, it's treated as a **handwritten package** and used as is (only checked).
 - Otherwise it's treated as a default app: the entry is `index.html`, the id is derived from `name` in `package.json`, and the display name comes from `displayName` or `productName`.
 
 ## Build output
@@ -41,7 +41,7 @@ After building the app `my-app`:
 
 A desktop project produces `desktop/` (served at `/desktop/<id>/`), `services/<name>.js`, and `apps/<id>/{web,backend}` for the apps it bundles.
 
-## Runtime and package manager
+## JavaScript runtime and package manager
 
 Whether a project runs on Bun or Node.js is decided by its package manager: `bun` → Bun; `npm` / `pnpm` / `yarn` → Node.js. For an existing project, acde looks at the lockfile, then at the `packageManager` field in `package.json`. `acde new` writes `packageManager` for you.
 

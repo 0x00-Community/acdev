@@ -67,7 +67,7 @@ echo "${ACDERT:-}"
 command -v acdert
 ```
 
-(Windows: `echo $env:ACDERT` and `where.exe acdert`.) acdert comes with the Dopame virtual machine, where it is already on PATH. If it is not on this machine, do not try to download or build it: say so in the report.
+(Windows: `echo $env:ACDERT` and `where.exe acdert`.) In the Dopame virtual machine acdert is already on PATH. Elsewhere it is a separate download from `https://pkgs.dopame.ai/acdert/`. If it is not on this machine, ask the user whether to install it. If they agree, follow the section "Install the runtime on your own computer" in the skill's `references/start/install.md` (in the directory `acde skills path` prints), and nothing else: do not build it or fetch it from anywhere else. If they decline, say in the report that it is missing.
 
 ## 6. Try it
 
@@ -95,7 +95,7 @@ Tell the user, in a few lines:
 - the acde version installed and where (`~/.acde/versions/<version>`), and whether a new terminal is needed for PATH;
 - which JavaScript runtime acde will use;
 - where the skill was installed (the output of `acde skills`);
-- whether the runtime was found, and that `acde dev` and `acde test` need it if it was not;
+- whether the runtime was found or installed, and that `acde dev` and `acde test` need it if it was not;
 - which commands of step 6 you ran and what they printed, and anything that failed.
 
 Report only what you ran and saw. Then suggest a first step: `acde new my-app`.

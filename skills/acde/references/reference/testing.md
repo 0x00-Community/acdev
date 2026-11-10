@@ -77,7 +77,7 @@ class Acde {
 }
 ```
 
-- `launch` starts an `acde dev` and waits until the windows of all pages have appeared (120 seconds by default). `close()` sends SIGTERM, then SIGKILL after 10 seconds.
+- `launch` starts an `acde dev` session and waits until the windows of all pages have appeared (120 seconds by default). `close()` sends SIGTERM, then SIGKILL after 10 seconds.
 - `choose*` answers, in advance, the **next** picker of that kind the page opens; `null` means the user cancelled; relative paths resolve against the current directory.
 - Call `waitFor*` before the action that triggers it.
 

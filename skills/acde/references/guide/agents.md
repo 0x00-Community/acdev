@@ -1,6 +1,6 @@
 # Coding agents
 
-acde ships a **skill**: instructions and reference files that teach a coding agent (Claude Code, Codex, Cursor, Gemini CLI, and any other that reads the [Agent Skills](https://agentskills.io) format) how to create, run, inspect and test acde projects. The skill is part of the acde archive, so it always describes the acde you have installed. These docs are generated from the same files.
+acde ships a **skill**: instructions and reference files that teach a coding agent (Claude Code, Codex, Cursor, Gemini CLI, and any other that reads the [Agent Skills](https://agentskills.io) format) how to create, run, inspect, and test acde projects. The skill is part of the acde archive, so it always describes the acde you have installed. These docs are generated from the same files.
 
 ## Set up with one prompt
 
@@ -47,4 +47,4 @@ This is an acde project. Before working on it, read the file SKILL.md in the dir
 
 ## What the agent can do
 
-With `acde dev` running, the [debugging commands](tools.md) let an agent read the screen as text, click and type, take screenshots, and read the console and network logs; [`acde test`](testing.md) runs end-to-end tests. The same tools are available over [MCP](mcp.md) for agents that prefer it.
+With an `acde dev` session running, the [debugging commands](tools.md) let an agent read the screen as text, click and type, take screenshots, and read the console and network logs; [`acde test`](testing.md) runs end-to-end tests. The same tools are available over [MCP](mcp.md) for agents that prefer it.

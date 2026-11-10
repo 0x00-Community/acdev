@@ -1,6 +1,6 @@
 # Testing
 
-`acde test` tests your app in the real runtime: each test gets a fresh, isolated `acde dev`, and a Playwright-like API finds elements, clicks, types, asserts, and compares screenshots. Requires Bun.
+`acde test` tests your app in the real runtime: each test gets a fresh, isolated `acde dev` session, and a Playwright-like API finds elements, clicks, types, asserts, and compares screenshots. Requires Bun, even when the project itself runs on Node.js.
 
 ## A first test
 
@@ -44,7 +44,7 @@ Each test gets:
 
 - Temporary `HOME` and `XDG_*` directories, and in-memory storage only;
 - A 1280 × 800 screen, light mode, reduced motion, and no autostart items;
-- Headless by default (`--headed` to watch in a window), with a 60-second timeout per test (`--timeout`).
+- Headless by default (`--headed` to watch in a window), with a 60-second timeout per test (`--timeout`). Headless still needs a GPU, so Linux CI machines without one can't run tests; see [Platform support](../reference/platforms.md).
 
 Builds go into `.acde/test`, results into `.acde/test-results`.
 
@@ -117,7 +117,7 @@ await expect(app.getByRole('textbox')).toHaveScreenshot('field', { maxDiffPixels
 - `acde test -u` rewrites the baselines.
 - Options: `maxDiffPixels`, `maxDiffPixelRatio`, `threshold` (default 0.2), `mask`, `timeout`.
 
-## Network, file choosers, clipboard
+## Network, file pickers, clipboard
 
 ```ts
 // Fake responses
@@ -129,7 +129,7 @@ const request = app.waitForRequest('/api/save', { method: 'POST' })
 await app.getByRole('button', { name: 'Save' }).click()
 await request
 
-// Answer choosers in advance
+// Answer file pickers in advance
 await acde.chooseFiles(['/tmp/a.txt'])
 await acde.chooseFolder('/tmp/project')
 await acde.chooseSaveFile('/tmp/out.md')
@@ -179,4 +179,4 @@ await acde.window('notes').getByRole('button', { name: 'New' }).click()
 await acde.close()
 ```
 
-`Acde.attach()` connects to an `acde dev` that is already running. For the full API, see [Reference: Testing API](../reference/testing.md).
+`Acde.attach()` connects to an `acde dev` session that is already running. For the full API, see [Reference: Testing API](../reference/testing.md).

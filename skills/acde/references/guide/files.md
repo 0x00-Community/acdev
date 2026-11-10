@@ -1,6 +1,6 @@
 # Files and folders
 
-There are three ways to read and write the user's files:
+There are three ways to read and write files:
 
 1. **Standard file pickers**: `showOpenFilePicker`, `showSaveFilePicker`, `showDirectoryPicker`, `<input type="file">`. No capability needed; you get whatever the user picks.
 2. **`acde:fs`**: access the user's folders by "root". Suited to apps like file managers and editors. Requires the `fs` capability.
@@ -52,7 +52,7 @@ The roots are:
 | `default` / `task` | Working folders provided by the system |
 | `granted` | Folders the user granted to this app through `showDirectoryPicker({mode: 'readwrite'})` |
 
-`mode` is `writable`, `read_only` or `unavailable` (for example, when a granted folder has been deleted).
+`mode` is `writable`, `read_only`, or `unavailable` (for example, when a granted folder has been deleted).
 
 To grant only some roots: `"fs": { "roots": [ … ] }`.
 

@@ -1,6 +1,6 @@
 # Desktops
 
-The Dopame OS desktop is itself an acde project: a web page that fills the screen behind every window. A desktop has access to all `acde:` modules and is responsible for the "system UI": the Dock, the menu bar, window switching, notifications and so on. The desktop that ships with Dopame is called `dopame`; you can build your own.
+The Dopame OS desktop is itself an acde project: a web page that fills the screen behind every window. A desktop can import every `acde:` module except `acde:window` (which is for app windows), and is responsible for the "system UI": the Dock, the menu bar, window switching, notifications, and so on. The desktop that ships with Dopame is called `dopame`; you can build your own.
 
 ```sh
 acde new my-desktop --template desktop
@@ -59,11 +59,11 @@ await windows.animate(id, { opacity: 0, scale: 0.9, duration: 180, easing: 'ease
 
 Window events: `open` `close` `title` `fullscreen` `unfullscreen` `minimize` `activate` `minsize` `parent` `menus` `crash` `hang` `responsive` `attention` `ready` `show` `animated`.
 
-Only the desktop can hide, show or raise windows; an app's `minimize()` merely notifies the desktop (the `minimize` event), and the desktop decides what to do. A window that hangs (`hang`) can be ended with `kill`.
+Only the desktop can hide, show, or raise windows; an app's `minimize()` merely notifies the desktop (the `minimize` event), and the desktop decides what to do. A window that hangs (`hang`) can be ended with `kill`.
 
 ## Panels
 
-For things that must float **above** app windows, such as the Dock, the menu bar and popovers, use `pin` to turn an element of the desktop page into its own always-on-top window:
+For things that must float **above** app windows, such as the Dock, the menu bar, and popovers, use `pin` to turn an element of the desktop page into its own always-on-top window:
 
 ```js
 import { desktop } from 'acde:desktop'
@@ -74,9 +74,9 @@ panel.update()
 panel.unpin()
 ```
 
-The element stays in the same document, so its state, React tree and events work as usual. The element must be a stacking context (for example, `position` plus `z-index`, or `isolation: isolate`); its `backdrop-filter` becomes real frosted glass across windows.
+The element stays in the same document, so its state, React tree, and events work as usual. The element must be a stacking context (for example, `position` plus `z-index`, or `isolation: isolate`); its `backdrop-filter` becomes real frosted glass across windows.
 
-## Notifications, downloads and shortcuts
+## Notifications, downloads, and shortcuts
 
 ```js
 desktop.on('notification', (n) => toast(n.title, n.body, n.icon))

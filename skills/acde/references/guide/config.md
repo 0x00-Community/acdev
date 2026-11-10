@@ -25,7 +25,7 @@ A project's config lives in `acde.config.jsonc` at its root (`acde.config.json` 
 | `entry` | Entry point: an HTML page (default `index.html`), or a module whose default export is a `WindowApp`. Omit it when building with a framework |
 | `framework` | How to build; defaults to `auto`. See [Frameworks](frameworks.md) |
 | `capabilities` | Capabilities the app requests; see [Capabilities](capabilities.md) |
-| `size` | Default size of the window's content area, `[width, height]` in logical pixels; defaults to `[800, 600]`. The title bar is extra |
+| `size` | Default size of the window's content area, `[width, height]` in logical pixels; defaults to `[800, 600]`. The title bar is not included |
 | `frame` | Whether the window has a system title bar; defaults to `true` |
 | `multiple` | Whether multiple windows can be open at once |
 | `mimeTypes` | File types the app can open, e.g. `["text/markdown", "image/*"]`; see [Opening apps](open.md) |

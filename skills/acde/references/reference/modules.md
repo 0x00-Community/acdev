@@ -26,7 +26,7 @@ Types are in `@dopame/acde-api`. For who can import what, see [Capabilities](../
 | `acde:inspect` | | ✓ (and services) |
 | `acde:<service>` | Service name | ✓ |
 
-All callbacks and events are subscribed with `on(type, handler)`, which returns an unsubscribe function; unknown event types throw `TypeError`.
+Events are subscribed with `on(type, handler)`, which returns an unsubscribe function; unknown event types throw `TypeError`. Two modules take a callback instead: `acde:terminal` (`subscribe`) and `acde:network` (`watch`).
 
 ## acde:window
 
@@ -81,7 +81,7 @@ interface WindowHost {
 }
 ```
 
-Coordinates are logical pixels of the page (the content area). Shortcut combos are written like `ctrl+alt+t`: keys are xkb keysym names, and Shift is part of the combo.
+Coordinates are logical pixels of the page (the content area). Shortcut combos are written like `ctrl+alt+t`: keys are xkb keysym names, the key names X11 and Wayland use (`t`, `return`, `escape`, `f5`, `space`; case doesn't matter), and Shift is part of the combo.
 
 ## acde:fs
 
@@ -183,7 +183,7 @@ type TerminalEvent =
 
 ## acde:network
 
-Dopame OS only (Linux, NetworkManager).
+Linux only (Dopame OS, or any Linux with NetworkManager).
 
 ```ts
 interface AcdeNetwork {
@@ -384,4 +384,4 @@ Window refs are `w0` (the desktop), `w1`, ...; element refs look like `w3.12`. T
 
 ## acde:office
 
-Linux only. An editing service for office documents (text, spreadsheets, presentations), used by Dopame's bundled office apps; the API will change.
+Linux only. An editing service for office documents (text, spreadsheets, presentations), used by Dopame's bundled office apps; the API is still subject to change.

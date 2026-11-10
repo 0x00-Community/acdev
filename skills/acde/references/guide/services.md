@@ -1,6 +1,6 @@
 # Services
 
-A desktop service is a JS module that starts and stops with the desktop and runs in the background. It exposes a set of methods as an `acde:<name>` module, callable by the desktop and by apps that request it. It is a good home for global state and for logic that talks to external processes (an AI assistant or a sync service, for example).
+A desktop service is a JS module that starts and stops with the desktop and runs in the background. It exposes its methods as `acde:<namespace>` modules, one for each key of its `api` (usually just one, named after the service), callable by the desktop and by apps that request the service. It is a good home for global state and for logic that talks to external processes (an AI assistant or a sync service, for example).
 
 ## Write a service
 
