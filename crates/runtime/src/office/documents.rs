@@ -32,7 +32,7 @@ pub struct OfficeFile {
 
 impl OfficeFile {
     pub fn view(&self) -> Value {
-        json!({"root": self.root.path, "rootLabel": self.root.label, "path": self.path, "name": self.name, "ext": self.ext,
+        json!({"root": self.root.id, "rootLabel": self.root.label, "path": self.path, "name": self.name, "ext": self.ext,
             "documentType": self.document_type, "size": self.size, "modifiedMs": self.modified_ms, "editable": self.editable,
             "readOnlyReason": self.read_only_reason})
     }
@@ -70,12 +70,20 @@ impl OfficeFiles {
         EDITABLE.iter().chain(VIEWABLE.iter()).find(|(e, _)| *e == ext).map(|(_, t)| (*t).to_owned())
     }
 
-    pub fn roots(&self) -> Outcome<Vec<FinderRoot>> {
-        self.0.fs.roots()
+    pub fn handed(dir: &str) -> FinderRoot {
+        FinderRoot { id: String::new(), shown: None, label: String::new(), ..WorkspaceFs::granted(dir) }
     }
 
     pub fn file(&self, root_path: &str, relative: &str) -> Outcome<OfficeFile> {
-        Self::file_in(self.0.fs.root(root_path)?, relative)
+        Self::file_in(WorkspaceFs::granted(root_path), relative)
+    }
+
+    pub fn read_only(mut file: OfficeFile) -> OfficeFile {
+        if file.editable {
+            file.editable = false;
+            file.read_only_reason = Some("交来的文件只能查看。".into());
+        }
+        file
     }
 
     pub fn file_in(root: FinderRoot, relative: &str) -> Outcome<OfficeFile> {
@@ -145,7 +153,7 @@ impl OfficeFiles {
         written
     }
 
-    pub fn create(&self, root_path: &str, directory: &str, kind: BlankKind, name: Option<&str>) -> Outcome<String> {
+    pub fn create(root: &FinderRoot, directory: &str, kind: BlankKind, name: Option<&str>) -> Outcome<String> {
         let ext = kind.extension();
         let base = crate::js::JsText::js_trim(name.unwrap_or(kind.default_name())).to_owned();
         let base = match base.len().checked_sub(ext.len() + 1) {
@@ -155,8 +163,7 @@ impl OfficeFiles {
         if base.is_empty() || base.contains(['/', '\\', '\0']) || base.starts_with('.') {
             return Err(Failure::invalid("invalid file name"));
         }
-        let root = self.0.fs.root(root_path)?;
-        let folder = WorkspaceFs::resolve(&root, directory, true)?;
+        let folder = WorkspaceFs::resolve(root, directory, true)?;
         if !fs::metadata(&folder.real)?.is_dir() {
             return Err(Failure::invalid("not a directory"));
         }
@@ -164,7 +171,7 @@ impl OfficeFiles {
         let name = format!("{base}.{ext}");
         for index in 1..1000 {
             let candidate = folder.relative.join(&WorkspaceFs::numbered(&name, index));
-            let target = WorkspaceFs::resolve(&root, &candidate, false)?;
+            let target = WorkspaceFs::resolve(root, &candidate, false)?;
             match Self::write_new(&target.absolute, &data, 0o644, false) {
                 Ok(()) => return Ok(candidate),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -186,7 +193,7 @@ impl OfficeFiles {
     }
 
     pub fn save(&self, root_path: &str, relative: &str, data: &[u8], expected_ms: i64) -> Outcome<SaveResult> {
-        let root = self.0.fs.root(root_path)?;
+        let root = WorkspaceFs::granted(root_path);
         let target = WorkspaceFs::resolve(&root, relative, false)?;
         let current = fs::symlink_metadata(&target.absolute).ok();
         if current.as_ref().is_some_and(|c| !c.is_file()) {
@@ -210,5 +217,42 @@ impl OfficeFiles {
         Self::write_new(&WorkspaceFs::resolve(&root, &copy, false)?.absolute, data, 0o644, false)?;
         let modified_ms = fs::metadata(&WorkspaceFs::resolve(&root, &copy, true)?.real)?.modified_ms();
         Ok(SaveResult { path: copy, modified_ms, conflict: true })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fs::{Files, Workspace};
+
+    #[test]
+    fn level_1_roots_open_and_create_documents_and_handed_files_hide_their_path() {
+        let home = std::env::temp_dir().join(format!("acde-office-roots-{}", std::process::id()));
+        _ = fs::remove_dir_all(&home);
+        fs::create_dir_all(home.join("Documents")).unwrap();
+        let text = home.to_string_lossy().into_owned();
+        let app = Workspace::at(&text).files(Files::new(&["documents".to_owned()], false), "writer");
+        let roots = app.finder_roots().unwrap();
+        assert_eq!(roots.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["private", "documents"]);
+        assert!(!serde_json::to_string(&roots).unwrap().contains(&text), "roots carry no paths");
+        for root in &roots {
+            let path = OfficeFiles::create(root, "", BlankKind::Docx, Some("report")).unwrap();
+            assert_eq!(path, "report.docx");
+            assert_eq!(OfficeFiles::create(root, "", BlankKind::Docx, Some("report")).unwrap(), "report 2.docx");
+            let file = OfficeFiles::file_in(root.clone(), &path).unwrap();
+            assert!(file.editable);
+            assert_eq!(file.view()["root"], root.id.as_str());
+            assert!(!file.view().to_string().contains(&text), "{}", file.view());
+        }
+        assert!(OfficeFiles::create(&roots[1], "../..", BlankKind::Docx, None).is_err());
+        let documents = home.join("Documents").to_string_lossy().into_owned();
+        let handed = OfficeFiles::file_in(OfficeFiles::handed(&documents), "report.docx").unwrap();
+        assert_eq!(handed.view()["root"], "");
+        assert!(!handed.view().to_string().contains(&text), "{}", handed.view());
+        assert!(handed.editable);
+        let read_only = OfficeFiles::read_only(handed);
+        assert!(!read_only.editable && read_only.read_only_reason.is_some());
+        assert!(OfficeFiles::file_in(OfficeFiles::handed(&documents), "../Documents/report.docx").is_err());
+        _ = fs::remove_dir_all(&home);
     }
 }

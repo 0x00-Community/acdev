@@ -426,6 +426,15 @@ impl Workspace {
     }
 
     #[cfg(target_os = "linux")]
+    pub(crate) fn finder_roots(&self) -> Outcome<Vec<FinderRoot>> {
+        let owner = self.owner.as_deref();
+        if let Some(files) = &self.files {
+            return self.shared.files_roots(owner, files);
+        }
+        Ok(self.shared.roots(owner)?.into_iter().filter(|root| self.allows(&root.path)).collect())
+    }
+
+    #[cfg(target_os = "linux")]
     pub(crate) fn shared_fs(&self) -> Arc<Shared> {
         Arc::clone(&self.shared)
     }

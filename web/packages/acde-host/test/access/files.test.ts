@@ -137,3 +137,22 @@ test('a revoked picked folder leaves roots() and its calls answer 403 denied', a
     e.status === 403 && e.code === 'denied' && e.capability === 'fs.folder-0123456789abcdef')
   assert.deepEqual(calls.map((args) => args[0]), ['folder-0123456789abcdef'])
 })
+
+test('acde:office follows the same place approvals as acde:fs', async () => {
+  const permits: Record<string, Permit> = { 'fs.documents': 'granted', 'fs.music': 'denied' }
+  const calls: unknown[][] = []
+  const roots = [{ id: 'private' }, { id: 'documents', place: 'documents' }, { id: 'music', place: 'music' }]
+  const native = {
+    state: async (...args: unknown[]) => (calls.push(['state', ...args]), { roots, root: args[0] ?? null }),
+    new: async (body: unknown) => (calls.push(['new', body]), { path: 'a.docx' }),
+    status: async (key: unknown) => (calls.push(['status', key]), {}),
+  }
+  const office = FileAccess.guard(native, (capability) => permits[capability] ?? null, 'Writer', true)
+  const state = (await office.state('documents', '', 'a.docx')) as { roots: { id: string }[] }
+  assert.deepEqual(state.roots.map((root) => root.id), ['private', 'documents'])
+  await assert.rejects(office.state('music'), (e: Error & { code?: string; capability?: string }) => e.code === 'denied' && e.capability === 'fs.music')
+  await assert.rejects(office.new({ root: 'music', kind: 'docx' }), (e: Error & { capability?: string }) => e.capability === 'fs.music')
+  await office.new({ root: 'private', kind: 'docx' })
+  await office.status('music')
+  assert.deepEqual(calls.map((c) => c[0]), ['state', 'new', 'status'])
+})

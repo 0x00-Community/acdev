@@ -110,6 +110,7 @@ export interface OfficeState {
 export interface AcdeOffice {
   server(): Promise<OfficeServer>
   state(root?: string, dir?: string, path?: string): Promise<OfficeState>
+  state(handle: FileSystemFileHandle): Promise<OfficeState>
   status(key: string): Promise<OfficeStatus>
   save(body: { key: string }): Promise<{ readonly result: 'requested' | 'no_changes'; readonly status: OfficeStatus }>
   'new'(body: { root: string; kind: 'docx' | 'xlsx' | 'pptx'; dir?: string; name?: string }): Promise<{ readonly path: string }>

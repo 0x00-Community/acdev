@@ -8,6 +8,7 @@ mod tokens;
 
 use crate::failure::{Failure, Outcome};
 use crate::fs::path::NodePath;
+use crate::fs::workspace::FinderRoot;
 use crate::js::JsText;
 use crate::sync::Locked;
 use blank::BlankKind;
@@ -80,15 +81,48 @@ impl Service {
         value
     }
 
-    fn props(&self, root: Option<&str>, dir: Option<&str>, path: Option<&str>) -> Outcome<Value> {
-        let roots = self.files.roots()?;
-        let found = match root {
-            Some(wanted) => roots.iter().find(|r| r.path == wanted).cloned(),
+    fn found(roots: &[FinderRoot], id: Option<&str>) -> Option<FinderRoot> {
+        match id {
+            Some(wanted) => roots.iter().find(|r| r.id == wanted).cloned(),
             None => roots.first().cloned(),
-        };
-        let server = self.status(false);
-        let mut props = json!({"base": "", "apps": [], "roots": roots, "root": found.as_ref().map(|r| r.path.clone()), "dir": "",
-            "entries": [], "truncated": false, "file": null, "editor": null, "status": null, "server": server, "error": null});
+        }
+    }
+
+    fn blank(&self, roots: &[FinderRoot], root: Option<&FinderRoot>) -> Value {
+        json!({"base": "", "apps": [], "roots": roots, "root": root.map(|r| r.id.clone()), "dir": "", "entries": [], "truncated": false,
+            "file": null, "editor": null, "status": null, "server": self.status(false), "error": null})
+    }
+
+    fn show(&self, props: &mut Value, file: OfficeFile) -> Outcome<()> {
+        let folder = file.path.dirname().to_owned();
+        props["dir"] = if folder == "." { String::new() } else { folder }.into();
+        props["file"] = file.view();
+        if props["server"]["ok"] == true {
+            let session = self.sessions.open(&file.root.path, &file.path, file.modified_ms, file.size);
+            props["editor"] = self.editor(&file, &session)?;
+            props["status"] = session.locked().status();
+        }
+        Ok(())
+    }
+
+    fn handed(&self, roots: &[FinderRoot], path: &str, writable: bool) -> Outcome<Value> {
+        let mut props = self.blank(roots, None);
+        let opened = OfficeFiles::file_in(OfficeFiles::handed(path.dirname()), path.basename())
+            .map(|file| if writable { file } else { OfficeFiles::read_only(file) })
+            .and_then(|file| self.show(&mut props, file));
+        match opened {
+            Err(failure) if failure.status == 500 => Err(failure),
+            Err(failure) => {
+                props["error"] = failure.message.into();
+                Ok(props)
+            }
+            Ok(()) => Ok(props),
+        }
+    }
+
+    fn props(&self, roots: &[FinderRoot], root: Option<&str>, dir: Option<&str>, path: Option<&str>) -> Outcome<Value> {
+        let found = Self::found(roots, root);
+        let mut props = self.blank(roots, found.as_ref());
         if root.is_some() && found.is_none() {
             props["error"] = "not a Runtime workspace".into();
             return Ok(props);
@@ -98,17 +132,7 @@ impl Service {
         };
         let loaded = (|| -> Outcome<()> {
             match path {
-                Some(path) => {
-                    let file = OfficeFiles::file_in(found.clone(), path)?;
-                    let folder = file.path.dirname().to_owned();
-                    props["file"] = file.view();
-                    props["dir"] = if folder == "." { String::new() } else { folder }.into();
-                    if props["server"]["ok"] == true {
-                        let session = self.sessions.open(&file.root.path, &file.path, file.modified_ms, file.size);
-                        props["editor"] = self.editor(&file, &session)?;
-                        props["status"] = session.locked().status();
-                    }
-                }
+                Some(path) => self.show(&mut props, OfficeFiles::file_in(found.clone(), path)?)?,
                 None => {
                     let (path, entries, truncated) = self.files.list_in(found.clone(), dir.unwrap_or(""))?;
                     props["dir"] = path.into();
@@ -332,6 +356,7 @@ fn fields<T: serde::de::DeserializeOwned>(body: Option<Value>) -> Outcome<T> {
 pub enum OfficeCall {
     Server,
     State { root: Option<String>, dir: Option<String>, path: Option<String> },
+    Open { path: String, writable: bool },
     Status { key: String },
     Save { body: Option<Value> },
     New { body: Option<Value> },
@@ -370,10 +395,12 @@ impl Service {
         Ok(service)
     }
 
-    fn call(&self, call: OfficeCall) -> Outcome<Value> {
+    fn call(&self, call: OfficeCall, scope: Option<&crate::fs::Workspace>) -> Outcome<Value> {
+        let roots = || scope.map_or_else(|| Ok(Vec::new()), crate::fs::Workspace::finder_roots);
         match call {
             OfficeCall::Server => Ok(self.status(true)),
-            OfficeCall::State { root, dir, path } => self.props(root.as_deref(), dir.as_deref(), path.as_deref()),
+            OfficeCall::State { root, dir, path } => self.props(&roots()?, root.as_deref(), dir.as_deref(), path.as_deref()),
+            OfficeCall::Open { path, writable } => self.handed(&roots()?, &path, writable),
             OfficeCall::Status { key } => {
                 let session = self.sessions.get(&key).ok_or_else(|| Failure::http(404, "no open document with this key"))?;
                 Ok(session.locked().status())
@@ -396,7 +423,8 @@ impl Service {
                     return Err(Failure::invalid("all fields must be non-empty strings"));
                 }
                 let name = name.map(|n| n.js_trim().to_owned()).filter(|n| !n.is_empty());
-                let path = self.files.create(&root, &dir, kind, name.as_deref())?;
+                let found = Self::found(&roots()?, Some(&root)).ok_or_else(|| Failure::http(403, format!("{root} is not one of this app's roots")))?;
+                let path = OfficeFiles::create(&found, &dir, kind, name.as_deref())?;
                 Ok(json!({"path": path}))
             }
         }
@@ -404,15 +432,19 @@ impl Service {
 }
 
 #[derive(Clone)]
-pub struct OfficeService(Arc<Service>);
+pub struct OfficeService(Arc<Service>, Option<crate::fs::Workspace>);
 
 impl OfficeService {
     pub fn open(workspace: &crate::fs::Workspace) -> std::result::Result<Self, String> {
-        Service::start(workspace.shared_fs()).map(Self).map_err(|f| f.message)
+        Service::start(workspace.shared_fs()).map(|service| Self(service, None)).map_err(|f| f.message)
+    }
+
+    pub fn for_web(&self, files: Option<crate::fs::Workspace>) -> Self {
+        Self(Arc::clone(&self.0), files)
     }
 
     pub fn call(&self, call: OfficeCall) -> std::result::Result<Value, String> {
-        self.0.call(call).map_err(String::from)
+        self.0.call(call, self.1.as_ref()).map_err(String::from)
     }
 
     pub fn close(&self) {

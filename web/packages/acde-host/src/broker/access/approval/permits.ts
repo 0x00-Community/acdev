@@ -35,7 +35,9 @@ export class Permits {
   }
 
   guard<T extends object>(module: string, value: T): T {
-    if (module === 'fs') return FileAccess.guard(value, (capability) => this.#permits.get(capability) ?? null, this.#label)
+    if (module === 'fs' || module === 'office') {
+      return FileAccess.guard(value, (capability) => this.#permits.get(capability) ?? null, this.#label, module === 'office')
+    }
     if (!Permits.MODULES[module] || module === 'launch') return value
     return new Proxy(value, {
       get: (target, key, receiver) => {

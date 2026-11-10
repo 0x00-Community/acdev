@@ -73,7 +73,11 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   `picker.rs`; 阻塞的活经 `offload.rs` 各起一条线程, promise 在这个 web 的事件循环上落定). 限制 (fs 的 roots) 在注入时绑进去, 没给的
   `import('acde:<名字>')` 直接失败. Broker 自己只用 napi `Finder` 的 `locate` (「默认应用」), 是另一份.
   terminal (只在 unix) 的 pty 子进程 exec 前关掉 3 以上的所有 fd; network 第一次调用时连 NetworkManager; office 由 Broker 起服务时
-  `sys.openOffice()` 开 (network / office 只在 Linux).
+  `sys.openOffice()` 开 (network / office 只在 Linux). `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
+  runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. 没批准或撤销了的
+  公共位置和文件夹和 `acde:fs` 一样经 `FileAccess.guard` 拒绝 403 `denied`、从 `state().roots` 去掉. `state(handle)` 按交来的文件句柄打开 (web 侧认
+  `PageCalls` 登记过的句柄, 换成路径交给 runtime `OfficeCall::Open`), 文稿的 `root` 是空的, 只读句柄只能查看. 编辑器的取文件和保存回调凭签名的票据里的
+  文件夹路径找文件 (`OfficeFiles::file` / `save` 不再查共享根).
 - **还没做的**: 窗口 / 应用 / 会话表还在 Broker 的 JS 里 (`acde:windows` / `acde:apps` / `acde:window` / `acde:session` 经 RPC);
   桌面包服务的调用经 Broker; 外部内存 (ArrayBuffer、文档、GPU 缓冲) 不按 isolate 记账.
 

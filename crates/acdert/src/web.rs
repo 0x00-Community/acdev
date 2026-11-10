@@ -96,12 +96,15 @@ impl Webs {
         let system = &mut self.system;
         let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new);
         let picker = crate::picker::Picker::new(app.as_deref().map(|app| workspace.scoped(Some(Vec::new()), Some(app))));
+        let fs = fs.and_then(|fs| match fs {
+            Ok(files) => app.as_deref().map(|app| workspace.files(files, app)),
+            Err(roots) => Some(workspace.scoped(roots, app.as_deref())),
+        });
         Grants {
             storage: crate::storage::place(scope, wanted),
-            fs: fs.and_then(|fs| match fs {
-                Ok(files) => app.as_deref().map(|app| workspace.files(files, app)),
-                Err(roots) => Some(workspace.scoped(roots, app.as_deref())),
-            }),
+            #[cfg(target_os = "linux")]
+            office: system.office.as_ref().filter(|_| office).map(|service| service.for_web(fs.clone())),
+            fs,
             capture,
             app,
             picker,
@@ -109,8 +112,6 @@ impl Webs {
             terminal: terminal.then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
             #[cfg(target_os = "linux")]
             network: network.then(|| system.networks.clone()),
-            #[cfg(target_os = "linux")]
-            office: system.office.clone().filter(|_| office),
         }
     }
 }

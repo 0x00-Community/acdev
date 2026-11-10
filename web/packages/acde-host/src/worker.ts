@@ -187,7 +187,14 @@ export default async function boot(natives: WebNatives): Promise<void> {
   if (natives.network) bridge.value['network'] = natives.network
   if (natives.office) {
     const editorPage = async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => OfficePage.write(setup, theme)
-    bridge.value['office'] = { ...natives.office, editorPage }
+    const office = natives.office as { state(...args: unknown[]): Promise<unknown>; open(path: string, writable: boolean): Promise<unknown> }
+    const state = (root?: unknown, ...rest: unknown[]) => {
+      if (root === undefined || root === null || typeof root === 'string') return office.state(root, ...rest)
+      const held = calls.held(root)
+      if (!held || held.kind !== 'file') return Promise.reject(new TypeError('acde:office state: not a file handle this page was given'))
+      return office.open(held.path, held.writable)
+    }
+    bridge.value['office'] = { ...natives.office, state, editorPage }
   }
   bridge.define(host)
   const app = self ? new WebAppPage(page, rpc, init.name) : null
