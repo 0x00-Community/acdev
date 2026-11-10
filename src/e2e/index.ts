@@ -27,6 +27,11 @@ export type TestOptions = number | { readonly timeout?: number }
 
 export class E2eRun {
   static readonly #used = new Map<string, number>()
+  static readonly MARGIN_MS = 3_000
+
+  static startTimeout(timeout: number): number {
+    return Math.max(timeout / 2, timeout - E2eRun.MARGIN_MS)
+  }
 
   static env(home: string): Record<string, string> {
     const dir = (name: string) => {
@@ -61,7 +66,9 @@ export class E2eRun {
     return join(dirname(file), '__screenshots__', basename(file))
   }
 
-  static async run(name: string, body: Body, settings: E2eSettings = E2e.read()): Promise<void> {
+  static async run(
+    name: string, body: Body, settings: E2eSettings = E2e.read(), timeout = settings.timeout,
+  ): Promise<void> {
     const home = mkdtempSync(join(tmpdir(), 'acde-test-'))
     const results = E2eRun.results(settings, name)
     rmSync(results, { recursive: true, force: true })
@@ -78,6 +85,7 @@ export class E2eRun {
         ...(settings.desktop !== null && { desktop: settings.desktop }),
         ...(one && { out: join('.acde', 'test') }),
         cwd: settings.dirs[0]!,
+        startTimeout: E2eRun.startTimeout(timeout),
       })
       acde.trace.screenshots = settings.trace
       const first = acde.session.apps[0]
@@ -141,7 +149,7 @@ function register(add: () => Register) {
   return (name: string, body: Body, options?: TestOptions): void => {
     const settings = E2e.read()
     const timeout = typeof options === 'number' ? options : (options?.timeout ?? settings.timeout)
-    add()(name, () => E2eRun.run(name, body, settings), timeout)
+    add()(name, () => E2eRun.run(name, body, settings, timeout), timeout)
   }
 }
 

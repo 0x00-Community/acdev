@@ -6,8 +6,9 @@ import type {
   ApprovalCapability, InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow, PermissionDecision,
   PermissionPrompt,
 } from '@dopame/acde-api'
-import { cliEnv, cliFile } from 'acde/launcher'
+import { cliEnv, cliFile, runtimes } from 'acde/launcher'
 import { DevClient } from '../ipc.ts'
+import { PackageManager } from '../pm.ts'
 import { Runtime, type Child } from '../runtime.ts'
 import { Sessions, type Session } from '../sessions.ts'
 import { Logs } from './logs.ts'
@@ -268,9 +269,15 @@ export class Acde {
     return new Acde(session, await Acde.#connect(session), null, null, options.timeout ?? Acde.TIMEOUT_MS)
   }
 
+  static runtime(dir: string, file = cliFile(), found: () => Record<'bun' | 'node', string | null> = runtimes): string {
+    const wanted = PackageManager.of(dir).runtime
+    if (!file?.endsWith('.js') || wanted === (Runtime.bun ? 'bun' : 'node')) return process.execPath
+    return found()[wanted] ?? process.execPath
+  }
+
   static async launch(options: LaunchOptions = {}): Promise<Acde> {
     const cwd = resolve(options.cwd ?? process.cwd())
-    const runtime = process.execPath
+    const runtime = Acde.runtime(resolve(cwd, options.dirs?.[0] ?? '.'))
     const argv = [
       runtime,
       cliFile(),
@@ -281,9 +288,8 @@ export class Acde {
       ...(options.out !== undefined ? ['--out', options.out] : []),
       ...(options.headless ? ['--headless'] : []),
     ]
-    const child = Runtime.spawn(argv, {
-      cwd, env: cliEnv(runtime, { ...process.env, ...options.env }), stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    const env = cliEnv(runtime, { ...process.env, ...options.env, ACDE_FOLLOWED: '1' })
+    const child = Runtime.spawn(argv, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
     const logs = new Logs()
     logs.follow(child.process.stdout!, 'stdout')
     logs.follow(child.process.stderr!, 'stderr')
@@ -299,7 +305,17 @@ export class Acde {
     const dir = Sessions.dir({ ...process.env, ...options.env })
     const limit = options.startTimeout ?? Acde.START_TIMEOUT_MS
     const deadline = Date.now() + limit
-    const late = () => `acde dev did not start within ${Math.round(limit / 1000)} s:\n${logs.tail(40).text}`
+    const since = Date.now() - 1_000
+    const within = `within ${Math.round(limit / 1000)} s`
+    const late = () => `acde dev did not start ${within}:\n${logs.tail(40).text}`
+    const unregistered = () => {
+      const others = Sessions.list(dir).filter((s) => s.pid !== child.pid && s.started >= since)
+      const instead = others.length
+        ? '; another process registered instead (acde dev handed over to it):\n' +
+          others.map((s) => `  ${Sessions.describe(s)}`).join('\n')
+        : ` in ${dir}`
+      return `acde dev (pid ${child.pid}) did not register a session ${within}${instead}\n${logs.tail(40).text}`
+    }
     const alive = () => {
       if (exited !== null) throw new Error(`acde dev exited (${exited}) before it was ready:\n${logs.tail(40).text}`)
     }
@@ -307,7 +323,7 @@ export class Acde {
       const session = await Poll.until(limit, () => {
         alive()
         return Sessions.list(dir).find((s) => s.pid === child.pid) ?? null
-      }, late)
+      }, unregistered)
       const client = await Acde.#connect(session)
       const acde = new Acde(session, client, { child, dir }, logs, options.timeout ?? Acde.TIMEOUT_MS)
       await Poll.until(Math.max(0, deadline - Date.now()), async () => {

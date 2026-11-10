@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Acde } from '../src/driver/acde.ts'
 import { E2e } from '../src/e2e/settings.ts'
 import { TestTsconfig } from '../src/e2e/tsconfig.ts'
 import { Png } from '../src/driver/png.ts'
@@ -196,6 +197,35 @@ test('the empty list', async ({ app }) => {
     expect(readdirSync(join(left, 'trace')).length).toBeGreaterThan(5)
     expect((await acdeTest(s, [])).code).toBe(0)
     expect(existsSync(left)).toBe(false)
+  }, 120_000)
+})
+
+describe('acde test in a project managed by npm', () => {
+  const runtime = 'the driver starts acde dev on the runtime of the project itself, ' +
+    'so the dev session is the process it waits for'
+  test(runtime, () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'acde-runtime-')))
+    const at = (name: string, lock: string) => {
+      mkdirSync(join(root, name))
+      writeFileSync(join(root, name, lock), '{}')
+      return join(root, name)
+    }
+    const npm = at('npm', 'package-lock.json')
+    const bun = at('bun', 'bun.lock')
+    const found = () => ({ bun: '/opt/bun', node: '/opt/node' })
+    const bundled = join(root, 'dist', 'cli.js')
+    expect(Acde.runtime(npm, bundled, found)).toBe('/opt/node')
+    expect(Acde.runtime(bun, bundled, found)).toBe(process.execPath)
+    expect(Acde.runtime(npm, bundled, () => ({ bun: '/opt/bun', node: null }))).toBe(process.execPath)
+    expect(Acde.runtime(npm, join(root, 'src', 'cli.ts'), found)).toBe(process.execPath)
+  })
+
+  test('its e2e tests run and pass', async () => {
+    const s = project()
+    writeFileSync(join(s.project, 'package-lock.json'), JSON.stringify({ name: 'alpha', lockfileVersion: 3 }))
+    const run = await acdeTest(s, [TASKS])
+    expect(run.out).toContain('acde test: 1 file, 1 passed, 0 failed')
+    expect(run.code).toBe(0)
   }, 120_000)
 })
 
