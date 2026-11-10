@@ -575,19 +575,34 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
 消息来回、JS 里的 `call()` 经 io_uring 回答、`close()` 结束.
 
 **引擎里的 JS 能用的** (内核的 V8 胶水层): `postMessage` / `onmessage` (字符串和二进制)、`console`、`close()`、定时器、微任务;
-内置模块 `jsrt:host` 的 `call(data)`: 同步问窗口进程, 字符串进字符串出 (消息 flags 1), 二进制进 `ArrayBuffer` 出; 等回答时
-引擎什么别的都不跑. 别的 import 都失败 (还不能从窗口取模块).
+内置模块 `jsrt:host`: `call(data)` (同步问窗口进程, 等回答时引擎什么别的都不跑)、`now` / `timeOrigin`、`randomBytes` /
+`randomUUID`、`serialize` / `deserialize` (字节和用户态 V8 一样)、`encodeUtf8` / `decodeUtf8`、`importModule` / `runModule` /
+`runScript` / `defineModule` (模块向窗口要: CALL flags 2, `specifier\0referrer`, 回 `url\0source` 或 `\0原因`)、`onTaskEnd`、
+`setReporter`、`exit`. 内核 V8 现在没有 ICU (`\p{…}` 正则、`Intl` 不行) 也没有 WebAssembly.
 
-**计划** (阶段 2: 应用窗口先进内核, Broker 和桌面还在用户态):
+**应用窗口在内核里** (阶段 2, crates/acde `kernel.rs`、`wire.rs`、`desk/wire.rs`, JS `acde-host/src/kernel.ts`):
+`Spec::spawn` 在 `kernel::wanted(place)` 时改走 `kernel::spawn`: 只对 `Place::Window`, `/dev/jsrt` 可读写就用 (默认开),
+`ACDE_KERNEL_JS=0` 关掉; 设了 `=1` 却打不开时打 warn 再退回用户态. 窗口进程起一条 `acde-window` 线程: 建 isolate (栈和用户态
+一样 8 MiB, 环 16 MiB: 模块源码和 `readAsset` 的整份内容一次过环, 还没分块), 把 `app_dir()/kernel.js` 当模块
+`acde://host/kernel.js` 求值, 然后 poll isolate 的 fd 和一个 eventfd (别的线程的输入、异步调用的结果从这进来).
 
-1. 原生接口过环: `js/packages/acde-dom/src/native.ts` 的 `DomNative` / `HostNative` / `GpuNative` / `AudioNative` 按方法分三类:
-   不要结果的写 (`insertBefore`、`setData`、`canvas`、`renderPass` …) 攒成批放进 `to_window` 不等; 建节点要 id 的
-   (`createElement` …) 由引擎这边分配 id (向窗口预领一段), 也变成不等的写; 读 (`rect`、`metrics`、`computedStyle`、
-   `querySelector` …) 是一次同步 `call`, acde-dom 已有的布局读缓存照用. `HostNative` 的时钟、定时器、微任务、序列化、随机数在
-   引擎里自己做, 不过环. 两端 (引擎里的 JS 代理、窗口进程的 Rust 分发) 从 `native.ts` 生成, 契约只有一份.
-2. `isolate.js` 在内核里跑起来, 一个简单应用端到端: 窗口进程用 crates/jsrt 起 isolate, 分发调用到 render 的文档.
-3. 阶段 3: 桌面和 Broker 进内核; `acde:` 模块要么过环到窗口进程, 要么直接在内核里实现 (比如 `acde:fs` 直接走 VFS). 这和
-   本文件开头「`acde:` 模块是进程内注入, 不是 RPC」冲突, 到时候要定.
+- **线上格式** (`wire.rs` / `kernel/wire.ts`): 带标签的值 0 undefined、1 null、2 false、3 true、4 f64、5 字符串 (u32 长度 + UTF-8)、
+  6 字节、7 u32 数组、8 f64 数组、9 列表、10 对象、11 bigint. 接口: DOM 1、HOST 2、SURFACE 3、OWN 4、DESK 5、NATIVES 6.
+  同步调用 `[接口][方法名][u32 参数个数][参数]`, 回 `[u8 状态][值]`. 引擎 → 窗口的二进制消息: 1 BATCH `[u32 n][调用…]`、
+  2 ASYNC `[u32 请求号][调用]`、3 SERVICE、4 ANSWER `[u32 token][值]`; 窗口 → 引擎: 1 RESOLVE、2 REJECT、3 MESSAGE、
+  4 ASK `[u32 token][类型][值]`、5 SERVICE.
+- **方法分三类**, 按 `native.ts` / `desk.ts` 的 TS 返回类型 (`scripts/natives-table.mjs` 生成 `kernel/natives.gen.ts`): `void` 是写
+  (攒批, 任务结束、同步调用或异步调用之前 flush)、`Promise` 是异步、别的是同步. Rust 一侧 `dom.rs` 的 `natives!` 一份方法体同时生成
+  V8 回调和 `wire()` 分发 (`Args` trait: `V8Args` / `WireArgs`), 不写两遍.
+- **kernel.ts 的坑**: 页面的 shim 会换掉全局 `setTimeout` / `clearTimeout` / `queueMicrotask` / `postMessage` (换成页面版, 页面版又调
+  host), 所以 kernel.ts 在顶层先拿住引擎的; shim 还把全局 `onmessage` 定义成页面的访问器, 内核来的消息会被页面吃掉, 所以每个任务结束
+  时 `keepReceiving()` 把它包回来 (读到的是内核分发, 写入转给页面), 等 jsrt:host 有 `onMessage` 钩子后去掉. 引擎在 onTaskEnd 之后才把
+  没处理的 rejection 交给 reporter, 所以 `reportError` 自己 flush.
+- **调试**: `RUST_LOG=kernel=trace` 每个调用、模块请求、引擎消息一行 (target `kernel`).
+- 还没过环 (内核窗口里没有): `GpuNative`、`AudioNative`、输入法、后端连接、`acde:fs` / `terminal` / `network` / `office` 的原生部分.
+
+**计划**: 上面还没过环的; 内核 V8 带 ICU; 大消息分块; 阶段 3: 桌面和 Broker 进内核, `acde:` 模块要么过环到窗口进程, 要么直接在内核里
+实现 (比如 `acde:fs` 直接走 VFS). 这和本文件开头「`acde:` 模块是进程内注入, 不是 RPC」冲突, 到时候要定.
 
 ## 宿主: crates/acde (V8, 不用 Node)
 

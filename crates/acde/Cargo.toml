@@ -36,6 +36,8 @@ acde-shell = { path = "../shell", features = ["link"] }
 acde-model = { path = "../model" }
 acde-window = { path = "../window" }
 acde-paint = { path = "../paint" }
+# window isolates in the kernel (/dev/jsrt, ACDE_KERNEL_JS=1)
+acde-jsrt = { path = "../jsrt" }
 # WebGPU (webgpu/): descriptors come as JSON, read into wgpu-types (its serde names are WebGPU's)
 wgpu-types = { version = "30", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

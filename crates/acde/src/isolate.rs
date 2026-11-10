@@ -31,6 +31,8 @@ impl Place {
 /// The exit code of an isolate that panicked (its own thread, or its raster thread).
 pub const PANICKED: i32 = 134;
 
+pub const KILLED: i32 = 137;
+
 /// The system objects one isolate is given (crates/runtime, shared by every isolate that has them).
 #[derive(Default)]
 pub struct Grants {
@@ -59,13 +61,16 @@ impl Grants {
 
 /// A running isolate, as the desk holds it.
 pub struct Handle {
-    tx: Sender<Msg>,
-    isolate: v8::IsolateHandle,
-    stopping: Arc<AtomicBool>,
+    engine: Engine,
     killed: Arc<AtomicBool>,
     busy: Arc<AtomicU64>,
     tid: i32,
     budget: Arc<Budget>,
+}
+
+enum Engine {
+    V8 { tx: Sender<Msg>, isolate: v8::IsolateHandle, stopping: Arc<AtomicBool> },
+    Kernel(crate::kernel::Control),
 }
 
 struct Started {
@@ -80,15 +85,33 @@ struct Started {
 impl Handle {
     /// Runs `task` on the isolate's own loop.
     pub fn task(&self, task: Box<dyn FnOnce(&mut v8::PinScope) + Send>) {
-        _ = self.tx.send(Msg::Task(task));
+        if let Engine::V8 { tx, .. } = &self.engine {
+            _ = tx.send(Msg::Task(task));
+        }
+    }
+
+    pub fn kernel(control: crate::kernel::Control, tid: i32) -> Self {
+        Handle { engine: Engine::Kernel(control), killed: Arc::default(), busy: Arc::default(), tid, budget: Budget::new(Spec::EXTERNAL_MB) }
+    }
+
+    pub fn in_kernel(&self) -> Option<&crate::kernel::Control> {
+        match &self.engine {
+            Engine::Kernel(control) => Some(control),
+            Engine::V8 { .. } => None,
+        }
     }
 
     /// Stops it, also when it is stuck in JS (exit code 137).
     pub fn terminate(&self) {
         self.killed.store(true, Ordering::SeqCst);
-        self.stopping.store(true, Ordering::SeqCst);
-        self.isolate.terminate_execution();
-        _ = self.tx.send(Msg::Wake);
+        match &self.engine {
+            Engine::V8 { tx, isolate, stopping } => {
+                stopping.store(true, Ordering::SeqCst);
+                isolate.terminate_execution();
+                _ = tx.send(Msg::Wake);
+            }
+            Engine::Kernel(control) => control.terminate(),
+        }
     }
 
     /// How long its current task has been running (zero when it is waiting).
@@ -125,14 +148,17 @@ pub struct Spec {
 }
 
 impl Spec {
-    const STACK: usize = 8 << 20;
+    pub(crate) const STACK: usize = 8 << 20;
     const START_WAIT: Duration = Duration::from_secs(10);
-    const KILLED: i32 = 137;
+
     /// The external memory cap when the manifest gives no `heapMb`: the same as the V8 heap gets then.
-    const EXTERNAL_MB: usize = 256;
+    pub(crate) const EXTERNAL_MB: usize = 256;
 
     /// Starts the thread; when it ends the desk hears of it (`Desk::exited`), on that thread.
     pub fn spawn(self) -> Result<Handle, String> {
+        if crate::kernel::wanted(self.place) {
+            return crate::kernel::spawn(self);
+        }
         let (ready, started) = std::sync::mpsc::sync_channel(1);
         let killed = Arc::new(AtomicBool::new(false));
         let dead = killed.clone();
@@ -149,12 +175,12 @@ impl Spec {
                         (PANICKED, Some(format!("panic: {message}")))
                     }
                 };
-                let (code, reason) = if dead.load(Ordering::SeqCst) { (Self::KILLED, None) } else { (code, reason) };
+                let (code, reason) = if dead.load(Ordering::SeqCst) { (KILLED, None) } else { (code, reason) };
                 desk.exited(window, serial, code, reason);
             })
             .map_err(|e| format!("isolate: {e}"))?;
         let Started { tx, isolate, stopping, busy, tid, budget } = started.recv_timeout(Self::START_WAIT).map_err(|_| "isolate: its thread did not start".to_owned())?;
-        Ok(Handle { tx, isolate, stopping, killed, busy, tid, budget })
+        Ok(Handle { engine: Engine::V8 { tx, isolate, stopping }, killed, busy, tid, budget })
     }
 
     fn run(self, ready: &std::sync::mpsc::SyncSender<Started>) -> (i32, Option<String>) {

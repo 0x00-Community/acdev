@@ -180,3 +180,74 @@ fn write(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::R
         None => bind::throw_type_error(scope, "files.write: the data is bytes"),
     }
 }
+
+pub fn set(storage: Option<PathBuf>) {
+    OWN.with(|o| *o.borrow_mut() = Own { storage, granted: HashSet::new() });
+}
+
+pub fn has_storage() -> bool {
+    OWN.with(|o| o.borrow().storage.is_some())
+}
+
+pub fn wire_call(name: &str, a: &mut crate::wire::WireArgs) -> crate::wire::Answer {
+    use crate::wire::{Answer, Args, Fail, Ret};
+    let storage = || OWN.with(|o| o.borrow().storage.clone()).ok_or_else(|| Fail::new("storage: this isolate has no storage file"));
+    let granted = |path: String| {
+        let path = PathBuf::from(path);
+        if OWN.with(|o| o.borrow().granted.contains(&path)) {
+            Ok(path)
+        } else {
+            Err(Fail { message: "not a file the user picked or dropped".to_owned(), status: Some(403), code: "forbidden".to_owned() })
+        }
+    };
+    match name {
+        "storageRead" => Answer::Now(storage().map(|path| std::fs::read_to_string(&path).map_or(Ret::Null, Ret::Str))),
+        "storageWrite" => {
+            let text = a.str(0);
+            Answer::Now(storage().and_then(|path| write_private(&path, text.as_bytes()).map(|()| Ret::Undefined).map_err(|e| Fail::new(format!("{}: {e}", path.display())))))
+        }
+        "storageAside" => Answer::Now(storage().map(|path| {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+            let mut aside = path.clone().into_os_string();
+            aside.push(format!(".bad-{stamp}"));
+            let aside = PathBuf::from(aside);
+            _ = std::fs::rename(&path, &aside);
+            Ret::Str(aside.to_string_lossy().into_owned())
+        })),
+        "filesOpen" | "filesSave" => {
+            let which = if name == "filesSave" { Pick::Save } else { Pick::Open };
+            let options = a.json(0);
+            Answer::Later(Box::new(move || match picked(which, options) {
+                Ok(paths) => Ok(Ret::List(paths.into_iter().map(Ret::Str).collect())),
+                Err(message) => Err(Fail { message, status: None, code: "portal_unavailable".to_owned() }),
+            }))
+        }
+        "filesRead" => {
+            let path = match granted(a.str(0)) {
+                Ok(path) => path,
+                Err(fail) => return Answer::Now(Err(fail)),
+            };
+            let limit = Some(a.f64(1)).filter(|n| n.is_finite() && *n >= 0.0).map(|n| n as u64);
+            let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file() && limit.is_none_or(|limit| m.len() <= limit));
+            let Some((meta, bytes)) = meta.and_then(|meta| Some((meta, std::fs::read(&path).ok()?))) else { return Answer::ok(Ret::Null) };
+            let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+            Answer::ok(Ret::Obj(vec![("bytes", Ret::Bytes(bytes)), ("lastModified", Ret::Num(modified))]))
+        }
+        "filesWrite" => {
+            let path = match granted(a.str(0)) {
+                Ok(path) => path,
+                Err(fail) => return Answer::Now(Err(fail)),
+            };
+            match a.with_bytes(1, |bytes| std::fs::write(&path, bytes)) {
+                Some(Ok(())) => Answer::ok(()),
+                Some(Err(e)) => Answer::fail(format!("{}: {e}", path.display())),
+                None => Answer::fail("files.write: the data is bytes"),
+            }
+        }
+        _ => Answer::fail(format!("own: no method {name}")),
+    }
+}
+
+pub fn granted_paths(paths: &[String]) {
+    OWN.with(|o| o.borrow_mut().granted.extend(paths.iter().map(PathBuf::from)));
+}

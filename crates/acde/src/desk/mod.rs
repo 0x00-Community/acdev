@@ -6,6 +6,7 @@ mod app;
 mod files;
 mod inspect;
 mod js;
+pub mod wire;
 mod open;
 mod session;
 
@@ -213,7 +214,10 @@ impl Desk {
     /// Posts a message to an isolate's `desk.onMessage` (events, screen, languages, color scheme, visibility).
     fn post(&self, state: &State, window: u32, message: Value) {
         if let Some(live) = state.live.get(&window) {
-            live.handle.task(Box::new(move |scope| js::message(scope, message)));
+            match live.handle.in_kernel() {
+                Some(kernel) => kernel.message(message),
+                None => live.handle.task(Box::new(move |scope| js::message(scope, message))),
+            }
         }
     }
 
@@ -224,7 +228,10 @@ impl Desk {
     fn to_all(&self, state: &State, message: &Value) {
         for live in state.live.values() {
             let message = message.clone();
-            live.handle.task(Box::new(move |scope| js::message(scope, message)));
+            match live.handle.in_kernel() {
+                Some(kernel) => kernel.message(message),
+                None => live.handle.task(Box::new(move |scope| js::message(scope, message))),
+            }
         }
     }
 
@@ -238,7 +245,10 @@ impl Desk {
     pub fn ask(&self, window: u32, ask: Ask, payload: Value) -> Receiver<Value> {
         let (tx, rx) = mpsc::channel();
         if let Some(live) = self.state().live.get(&window) {
-            live.handle.task(Box::new(move |scope| js::ask(scope, ask, payload, tx)));
+            match live.handle.in_kernel() {
+                Some(kernel) => kernel.ask(ask, payload, tx),
+                None => live.handle.task(Box::new(move |scope| js::ask(scope, ask, payload, tx))),
+            }
         }
         rx
     }
@@ -635,7 +645,10 @@ impl Desk {
     fn ask_locked(&self, state: &State, window: u32, ask: Ask, payload: Value) -> Receiver<Value> {
         let (tx, rx) = mpsc::channel();
         if let Some(live) = state.live.get(&window) {
-            live.handle.task(Box::new(move |scope| js::ask(scope, ask, payload, tx)));
+            match live.handle.in_kernel() {
+                Some(kernel) => kernel.ask(ask, payload, tx),
+                None => live.handle.task(Box::new(move |scope| js::ask(scope, ask, payload, tx))),
+            }
         }
         rx
     }
@@ -947,7 +960,10 @@ impl Desk {
     /// The Broker's answer (or callback) to the isolate of `window`.
     pub fn service_to_isolate(&self, window: u32, bytes: Vec<u8>) {
         if let Some(live) = self.state().live.get(&window) {
-            live.handle.task(Box::new(move |scope| js::service_in(scope, &bytes)));
+            match live.handle.in_kernel() {
+                Some(kernel) => kernel.service(bytes),
+                None => live.handle.task(Box::new(move |scope| js::service_in(scope, &bytes))),
+            }
         }
     }
 

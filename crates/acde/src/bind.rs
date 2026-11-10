@@ -1,7 +1,5 @@
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::mem::MaybeUninit;
 
 #[macro_export]
 macro_rules! methods {
@@ -138,21 +136,6 @@ pub fn arg_string(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments
         return String::new();
     }
     value.to_rust_string_lossy(scope)
-}
-
-pub fn arg_str<'a, const N: usize>(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32, buffer: &'a mut [MaybeUninit<u8>; N]) -> Cow<'a, str> {
-    let value = args.get(i);
-    if value.is_undefined() {
-        return Cow::Borrowed("");
-    }
-    let string = match v8::Local::<v8::String>::try_from(value) {
-        Ok(string) => string,
-        Err(_) => match value.to_string(scope) {
-            Some(string) => string,
-            None => return Cow::Borrowed(""),
-        },
-    };
-    string.to_rust_cow_lossy(scope, buffer)
 }
 
 pub fn arg_f64(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> f64 {

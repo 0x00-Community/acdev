@@ -241,10 +241,10 @@ fn on_ask(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
-struct LaunchOptions {
-    cwd: Option<String>,
-    env: HashMap<String, String>,
-    slot: bool,
+pub(super) struct LaunchOptions {
+    pub(super) cwd: Option<String>,
+    pub(super) env: HashMap<String, String>,
+    pub(super) slot: bool,
 }
 
 fn start_program(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
@@ -333,7 +333,7 @@ fn screenshot(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
-struct AnimateOptions {
+pub(super) struct AnimateOptions {
     opacity: Option<f64>,
     scale: Option<f64>,
     dx: Option<f64>,

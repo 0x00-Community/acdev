@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use acde_render::{Dom, NONE};
 
 use crate::bind;
+use crate::wire::{Args, Ret, V8Args, WireArgs};
 use crate::modules::Loader;
 
 const ORIGIN: &str = "http://acde.local";
@@ -107,188 +108,131 @@ impl Loader for PageLoader {
     }
 }
 
-pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue) {
-    let width = bind::arg_f64(scope, &args, 0).max(1.0) as u32;
-    let height = bind::arg_f64(scope, &args, 1).max(1.0) as u32;
-    let scale = bind::arg_f64(scope, &args, 2) as f32;
-    let mut resources = Vec::new();
-    let mut default_lang = None;
-    let mut reduced_motion = false;
-    let mut dark = false;
-    if let Ok(options) = v8::Local::<v8::Object>::try_from(args.get(3)) {
-        if let Some(Ok(list)) = bind::get(scope, options, "resources").map(v8::Local::<v8::Array>::try_from) {
-            for i in 0..list.length() {
-                let Some(Ok(entry)) = list.get_index(scope, i).map(v8::Local::<v8::Object>::try_from) else { continue };
-                let prefix = bind::get(scope, entry, "prefix").map(|p| p.to_rust_string_lossy(scope)).unwrap_or_default();
-                let mut dirs = Vec::new();
-                if let Some(Ok(list)) = bind::get(scope, entry, "dirs").map(v8::Local::<v8::Array>::try_from) {
-                    for j in 0..list.length() {
-                        if let Some(dir) = list.get_index(scope, j) {
-                            dirs.push(dir.to_rust_string_lossy(scope));
-                        }
-                    }
-                }
-                resources.push(acde_render::Resource { prefix, dirs });
-            }
+pub struct DocumentOptions {
+    pub resources: Vec<acde_render::Resource>,
+    pub default_lang: Option<String>,
+    pub reduced_motion: bool,
+    pub dark: bool,
+}
+
+impl DocumentOptions {
+    pub fn from_json(options: &serde_json::Value) -> Self {
+        let text = |v: &serde_json::Value| v.as_str().map(str::to_owned);
+        let resources = options["resources"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .map(|entry| acde_render::Resource {
+                        prefix: text(&entry["prefix"]).unwrap_or_default(),
+                        dirs: entry["dirs"].as_array().map(|d| d.iter().filter_map(text).collect()).unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        DocumentOptions {
+            resources,
+            default_lang: text(&options["defaultLang"]),
+            reduced_motion: options["reducedMotion"] == serde_json::Value::Bool(true),
+            dark: options["dark"] == serde_json::Value::Bool(true),
         }
-        if let Some(lang) = bind::get(scope, options, "defaultLang").filter(|v| v.is_string()) {
-            default_lang = Some(lang.to_rust_string_lossy(scope));
-        }
-        reduced_motion = bind::get(scope, options, "reducedMotion").is_some_and(|v| v.is_true());
-        dark = bind::get(scope, options, "dark").is_some_and(|v| v.is_true());
     }
-    ASSETS.with(|a| *a.borrow_mut() = Assets(resources.clone()));
-    let name = Some(crate::rt::web_name());
-    let options = acde_render::Options { base_url: Some(format!("{ORIGIN}/")), resources: Some(resources), default_lang, reduced_motion, dark, name, ..Default::default() };
-    let document = match acde_render::Document::new(width, height, scale, &options) {
-        Ok(document) => document,
-        Err(e) => return bind::throw_error(scope, &format!("createDocument: {e}")),
+}
+
+pub fn create(width: f64, height: f64, scale: f64, options: DocumentOptions, name: String) -> Result<(), String> {
+    let (width, height, scale) = (width.max(1.0) as u32, height.max(1.0) as u32, scale as f32);
+    ASSETS.with(|a| *a.borrow_mut() = Assets(options.resources.clone()));
+    let render = acde_render::Options {
+        base_url: Some(format!("{ORIGIN}/")),
+        resources: Some(options.resources),
+        default_lang: options.default_lang,
+        reduced_motion: options.reduced_motion,
+        dark: options.dark,
+        name: Some(name),
+        ..Default::default()
     };
+    let document = acde_render::Document::new(width, height, scale, &render).map_err(|e| format!("createDocument: {e}"))?;
     let dom = document.dom();
     DOC.with(|d| *d.borrow_mut() = Some((document, dom)));
+    Ok(())
+}
+
+pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue) {
+    let (width, height, scale) = (bind::arg_f64(scope, &args, 0), bind::arg_f64(scope, &args, 1), bind::arg_f64(scope, &args, 2));
+    let options = {
+        let mut a = V8Args { scope: &mut *scope, args: &args };
+        a.json(3)
+    };
+    if let Err(e) = create(width, height, scale, DocumentOptions::from_json(&options), crate::rt::web_name()) {
+        return bind::throw_error(scope, &e);
+    }
     rv.set(object(scope).into());
 }
 
-fn id(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> u32 {
-    let n = bind::arg_f64(scope, args, i);
-    if n >= 0.0 && n < NONE as f64 { n as u32 } else { NONE }
-}
-
-macro_rules! text {
-    ($name:ident = $scope:ident, $args:ident, $i:expr) => {
-        let mut buffer = [std::mem::MaybeUninit::<u8>::uninit(); 256];
-        let $name = bind::arg_str($scope, &$args, $i, &mut buffer);
-    };
-}
-
-fn f(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> f64 {
-    bind::arg_f64(scope, args, i)
+pub fn with_dom_wire(name: &str, args: &mut WireArgs) -> Option<Result<Ret, String>> {
+    let f = wire(name)?;
+    Some(DOC.with(|d| {
+        let d = d.borrow();
+        let Some((_, dom)) = d.as_ref() else { return Err("InvalidStateError: no document".to_owned()) };
+        f(args, dom).map_err(|e| e.to_string())
+    }))
 }
 
 struct Id(u32);
 
-trait IntoJs {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value>;
-}
-
-impl IntoJs for () {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        v8::undefined(scope).into()
-    }
-}
-
-impl IntoJs for bool {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        v8::Boolean::new(scope, self).into()
-    }
-}
-
-impl IntoJs for Id {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        match self.0 {
-            NONE => v8::Integer::new(scope, -1).into(),
-            id => v8::Integer::new_from_unsigned(scope, id).into(),
-        }
-    }
-}
-
-macro_rules! numbers {
-    ($($t:ty),*) => {$(
-        impl IntoJs for $t {
-            fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-                v8::Number::new(scope, self as f64).into()
-            }
-        }
-    )*};
-}
-numbers!(u32, i32, u16, f64);
-
-impl IntoJs for String {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        bind::string(scope, &self).into()
-    }
-}
-
-impl<T: IntoJs> IntoJs for Option<T> {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        match self {
-            Some(v) => v.js(scope),
-            None => v8::null(scope).into(),
+impl From<Id> for Ret {
+    fn from(id: Id) -> Self {
+        match id.0 {
+            NONE => Ret::Num(-1.0),
+            id => Ret::Num(f64::from(id)),
         }
     }
 }
 
 struct Ids(Vec<u32>);
 
-impl IntoJs for Ids {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        bind::uint32_array(scope, &self.0).into()
+impl From<Ids> for Ret {
+    fn from(ids: Ids) -> Self {
+        Ret::U32s(ids.0)
     }
 }
 
-impl IntoJs for Vec<String> {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let items: Vec<v8::Local<v8::Value>> = self.iter().map(|t| bind::string(scope, t).into()).collect();
-        v8::Array::new_with_elements(scope, &items).into()
-    }
-}
-
-impl IntoJs for Vec<u8> {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        bind::uint8_array(scope, self).into()
-    }
-}
-
-impl IntoJs for (acde_render::NodeType, acde_render::Ns, bool, String) {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let items = [
-            v8::Integer::new(scope, self.0 as i32).into(),
-            v8::Integer::new(scope, self.1 as i32).into(),
-            v8::Boolean::new(scope, self.2).into(),
-            bind::string(scope, &self.3).into(),
-        ];
-        v8::Array::new_with_elements(scope, &items).into()
+impl From<(acde_render::NodeType, acde_render::Ns, bool, String)> for Ret {
+    fn from(d: (acde_render::NodeType, acde_render::Ns, bool, String)) -> Self {
+        Ret::List(vec![Ret::Num(d.0 as i32 as f64), Ret::Num(d.1 as i32 as f64), Ret::Bool(d.2), Ret::Str(d.3)])
     }
 }
 
 struct Floats(Vec<f64>);
 
-impl IntoJs for Floats {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        bind::float64_array(scope, &self.0).into()
+impl From<Floats> for Ret {
+    fn from(f: Floats) -> Self {
+        Ret::F64s(f.0)
     }
 }
 
-impl IntoJs for acde_render::Metrics {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let n = |scope: &mut v8::PinScope<'s, '_>, v: f64| -> v8::Local<'s, v8::Value> { v8::Number::new(scope, v).into() };
-        let fields = [
-            ("offsetLeft", n(scope, self.offset_left)),
-            ("offsetTop", n(scope, self.offset_top)),
-            ("offsetWidth", n(scope, self.offset_width)),
-            ("offsetHeight", n(scope, self.offset_height)),
-            ("offsetParent", Id(self.offset_parent.unwrap_or(NONE)).js(scope)),
-            ("clientLeft", n(scope, self.client_left)),
-            ("clientTop", n(scope, self.client_top)),
-            ("clientWidth", n(scope, self.client_width)),
-            ("clientHeight", n(scope, self.client_height)),
-            ("scrollLeft", n(scope, self.scroll_left)),
-            ("scrollTop", n(scope, self.scroll_top)),
-            ("scrollWidth", n(scope, self.scroll_width)),
-            ("scrollHeight", n(scope, self.scroll_height)),
-        ];
-        bind::object(scope, &fields).into()
+impl From<acde_render::Metrics> for Ret {
+    fn from(m: acde_render::Metrics) -> Self {
+        Ret::Obj(vec![
+            ("offsetLeft", Ret::Num(m.offset_left)),
+            ("offsetTop", Ret::Num(m.offset_top)),
+            ("offsetWidth", Ret::Num(m.offset_width)),
+            ("offsetHeight", Ret::Num(m.offset_height)),
+            ("offsetParent", Id(m.offset_parent.unwrap_or(NONE)).into()),
+            ("clientLeft", Ret::Num(m.client_left)),
+            ("clientTop", Ret::Num(m.client_top)),
+            ("clientWidth", Ret::Num(m.client_width)),
+            ("clientHeight", Ret::Num(m.client_height)),
+            ("scrollLeft", Ret::Num(m.scroll_left)),
+            ("scrollTop", Ret::Num(m.scroll_top)),
+            ("scrollWidth", Ret::Num(m.scroll_width)),
+            ("scrollHeight", Ret::Num(m.scroll_height)),
+        ])
     }
 }
 
-impl IntoJs for acde_render::Viewport {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let fields = [
-            ("width", v8::Number::new(scope, self.width).into()),
-            ("height", v8::Number::new(scope, self.height).into()),
-            ("scale", v8::Number::new(scope, self.scale).into()),
-        ];
-        bind::object(scope, &fields).into()
+impl From<acde_render::Viewport> for Ret {
+    fn from(v: acde_render::Viewport) -> Self {
+        Ret::Obj(vec![("width", Ret::Num(v.width)), ("height", Ret::Num(v.height)), ("scale", Ret::Num(v.scale))])
     }
 }
 
@@ -320,87 +264,101 @@ pub fn take_picture(id: u32) -> Option<acde_render::acgpu::Scene> {
     })
 }
 
-impl IntoJs for acde_render::Capture {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let n = |scope: &mut v8::PinScope<'s, '_>, v: f64| -> v8::Local<'s, v8::Value> { v8::Number::new(scope, v).into() };
-        let fields = [
-            ("x", n(scope, self.x)),
-            ("y", n(scope, self.y)),
-            ("width", n(scope, self.width)),
-            ("height", n(scope, self.height)),
-            ("pixelWidth", n(scope, self.pixel_width as f64)),
-            ("pixelHeight", n(scope, self.pixel_height as f64)),
-            ("scale", n(scope, self.scale)),
-            ("picture", n(scope, f64::from(keep_picture(self.scene)))),
-        ];
-        bind::object(scope, &fields).into()
+impl From<acde_render::Capture> for Ret {
+    fn from(c: acde_render::Capture) -> Self {
+        Ret::Obj(vec![
+            ("x", Ret::Num(c.x)),
+            ("y", Ret::Num(c.y)),
+            ("width", Ret::Num(c.width)),
+            ("height", Ret::Num(c.height)),
+            ("pixelWidth", Ret::Num(c.pixel_width as f64)),
+            ("pixelHeight", Ret::Num(c.pixel_height as f64)),
+            ("scale", Ret::Num(c.scale)),
+            ("picture", Ret::Num(f64::from(keep_picture(c.scene)))),
+        ])
     }
 }
 
-impl IntoJs for acde_render::Timing {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let fields = [
-            ("count", v8::Number::new(scope, f64::from(self.count)).into()),
-            ("totalMs", v8::Number::new(scope, self.total_ms).into()),
-            ("maxMs", v8::Number::new(scope, self.max_ms).into()),
-        ];
-        bind::object(scope, &fields).into()
+impl From<acde_render::Timing> for Ret {
+    fn from(t: acde_render::Timing) -> Self {
+        Ret::Obj(vec![("count", Ret::Num(f64::from(t.count))), ("totalMs", Ret::Num(t.total_ms)), ("maxMs", Ret::Num(t.max_ms))])
     }
 }
 
-impl IntoJs for acde_render::Stats {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let n = |scope: &mut v8::PinScope<'s, '_>, v: f64| -> v8::Local<'s, v8::Value> { v8::Number::new(scope, v).into() };
-        let fields = [
-            ("resolve", self.resolve.js(scope)),
-            ("frame", self.frame.js(scope)),
-            ("frameLocked", self.frame_locked.js(scope)),
-            ("resolveMs", n(scope, self.resolve_ms)),
-            ("paintMs", n(scope, self.paint_ms)),
-            ("damageMs", n(scope, self.damage_ms)),
-            ("layersMs", n(scope, self.layers_ms)),
-            ("fragmentsRecorded", n(scope, f64::from(self.fragments_recorded))),
-            ("fragmentsReused", n(scope, f64::from(self.fragments_reused))),
-            ("animating", self.animating.js(scope)),
-            ("nodes", n(scope, f64::from(self.nodes))),
-            ("images", n(scope, f64::from(self.images))),
-            ("imageBytes", n(scope, self.image_bytes)),
-            ("mallocBytes", n(scope, self.malloc_bytes)),
-        ];
-        bind::object(scope, &fields).into()
+impl From<acde_render::Stats> for Ret {
+    fn from(s: acde_render::Stats) -> Self {
+        Ret::Obj(vec![
+            ("resolve", s.resolve.into()),
+            ("frame", s.frame.into()),
+            ("frameLocked", s.frame_locked.into()),
+            ("resolveMs", Ret::Num(s.resolve_ms)),
+            ("paintMs", Ret::Num(s.paint_ms)),
+            ("damageMs", Ret::Num(s.damage_ms)),
+            ("layersMs", Ret::Num(s.layers_ms)),
+            ("fragmentsRecorded", Ret::Num(f64::from(s.fragments_recorded))),
+            ("fragmentsReused", Ret::Num(f64::from(s.fragments_reused))),
+            ("animating", Ret::Bool(s.animating)),
+            ("nodes", Ret::Num(f64::from(s.nodes))),
+            ("images", Ret::Num(f64::from(s.images))),
+            ("imageBytes", Ret::Num(s.image_bytes)),
+            ("mallocBytes", Ret::Num(s.malloc_bytes)),
+        ])
     }
 }
 
-impl IntoJs for acde_render::CaretPosition {
-    fn js<'s>(self, scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Value> {
-        let fields = [("node", Id(self.node).js(scope)), ("offset", v8::Number::new(scope, self.offset as f64).into())];
-        bind::object(scope, &fields).into()
+impl From<acde_render::CaretPosition> for Ret {
+    fn from(c: acde_render::CaretPosition) -> Self {
+        Ret::Obj(vec![("node", Id(c.node).into()), ("offset", Ret::Num(c.offset as f64))])
     }
 }
 
 macro_rules! natives {
-    ($($name:literal => fn $f:ident($scope:ident, $args:ident, $dom:ident) $body:block)*) => {
-        $(
-            #[allow(unused_variables, clippy::redundant_closure_call)]
-            fn $f<'s>($scope: &mut v8::PinScope<'s, '_>, $args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue) {
-                let result = DOC.with(|d| {
-                    let d = d.borrow();
-                    let (_, $dom) = d.as_ref()?;
+    ($($name:literal => fn $f:ident($a:ident, $dom:ident) $body:block)*) => {
+        mod body {
+            #[allow(unused_imports)]
+            use super::*;
+            $(
+                #[allow(unused_variables, unused_mut, clippy::redundant_closure_call)]
+                pub fn $f<A: Args>($a: &mut A, $dom: &Dom) -> Result<Ret, acde_render::Error> {
                     let result: Result<_, acde_render::Error> = (|| $body)();
-                    Some(result)
-                });
-                match result {
-                    Some(Ok(value)) => rv.set(IntoJs::js(value, $scope)),
-                    Some(Err(e)) => bind::throw_error($scope, &e.to_string()),
-                    None => bind::throw_error($scope, "InvalidStateError: no document"),
+                    result.map(Into::into)
                 }
-            }
-        )*
+            )*
+        }
+
+        mod js {
+            #[allow(unused_imports)]
+            use super::*;
+            $(
+                pub fn $f<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue) {
+                    let result = DOC.with(|d| {
+                        let d = d.borrow();
+                        let (_, dom) = d.as_ref()?;
+                        let mut a = V8Args { scope: &mut *scope, args: &args };
+                        Some(body::$f(&mut a, dom))
+                    });
+                    match result {
+                        Some(Ok(value)) => rv.set(value.js(scope)),
+                        Some(Err(e)) => bind::throw_error(scope, &e.to_string()),
+                        None => bind::throw_error(scope, "InvalidStateError: no document"),
+                    }
+                }
+            )*
+        }
 
         fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object> {
             let obj = v8::Object::new(scope);
-            $( bind::method(scope, obj, $name, $f); )*
+            $( bind::method(scope, obj, $name, js::$f); )*
             obj
+        }
+
+        pub type WireFn = fn(&mut WireArgs, &Dom) -> Result<Ret, acde_render::Error>;
+
+        pub fn wire(name: &str) -> Option<WireFn> {
+            match name {
+                $( $name => Some(body::$f::<WireArgs>), )*
+                _ => None,
+            }
         }
     };
 }
@@ -423,210 +381,210 @@ fn ns(code: f64) -> acde_render::Ns {
 }
 
 natives! {
-    "document" => fn document(scope, args, dom) { Ok(Id(dom.document())) }
-    "parseDocument" => fn parse_document(scope, args, dom) { text!(html = scope, args, 0); dom.parse_document(&html) }
-    "viewport" => fn viewport(scope, args, dom) { Ok(dom.viewport()) }
-    "nodeType" => fn node_type(scope, args, dom) { let id = id(scope, &args, 0); dom.node_type(id).map(|t| t as u8 as u32) }
-    "parent" => fn parent(scope, args, dom) { let id = id(scope, &args, 0); dom.parent(id).map(Id) }
-    "ancestors" => fn ancestors(scope, args, dom) { let id = id(scope, &args, 0); dom.ancestors(id).map(Ids) }
-    "describe" => fn describe(scope, args, dom) { let id = id(scope, &args, 0); dom.describe(id) }
-    "firstChild" => fn first_child(scope, args, dom) { let id = id(scope, &args, 0); dom.first_child(id).map(Id) }
-    "lastChild" => fn last_child(scope, args, dom) { let id = id(scope, &args, 0); dom.last_child(id).map(Id) }
-    "nextSibling" => fn next_sibling(scope, args, dom) { let id = id(scope, &args, 0); dom.next_sibling(id).map(Id) }
-    "previousSibling" => fn previous_sibling(scope, args, dom) { let id = id(scope, &args, 0); dom.previous_sibling(id).map(Id) }
-    "childNodes" => fn child_nodes(scope, args, dom) { let id = id(scope, &args, 0); dom.child_nodes(id).map(Ids) }
-    "children" => fn children(scope, args, dom) { let id = id(scope, &args, 0); dom.children(id).map(Ids) }
-    "childCount" => fn child_count(scope, args, dom) { let id = id(scope, &args, 0); dom.child_count(id) }
-    "isConnected" => fn is_connected(scope, args, dom) { let id = id(scope, &args, 0); dom.is_connected(id) }
-    "compareDocumentPosition" => fn compare_document_position(scope, args, dom) {
-        let (a, b) = (id(scope, &args, 0), id(scope, &args, 1));
+    "document" => fn document(a, dom) { Ok(Id(dom.document())) }
+    "parseDocument" => fn parse_document(a, dom) { let html = a.str(0); dom.parse_document(&html) }
+    "viewport" => fn viewport(a, dom) { Ok(dom.viewport()) }
+    "nodeType" => fn node_type(a, dom) { let id = a.id(0); dom.node_type(id).map(|t| t as u8 as u32) }
+    "parent" => fn parent(a, dom) { let id = a.id(0); dom.parent(id).map(Id) }
+    "ancestors" => fn ancestors(a, dom) { let id = a.id(0); dom.ancestors(id).map(Ids) }
+    "describe" => fn describe(a, dom) { let id = a.id(0); dom.describe(id) }
+    "firstChild" => fn first_child(a, dom) { let id = a.id(0); dom.first_child(id).map(Id) }
+    "lastChild" => fn last_child(a, dom) { let id = a.id(0); dom.last_child(id).map(Id) }
+    "nextSibling" => fn next_sibling(a, dom) { let id = a.id(0); dom.next_sibling(id).map(Id) }
+    "previousSibling" => fn previous_sibling(a, dom) { let id = a.id(0); dom.previous_sibling(id).map(Id) }
+    "childNodes" => fn child_nodes(a, dom) { let id = a.id(0); dom.child_nodes(id).map(Ids) }
+    "children" => fn children(a, dom) { let id = a.id(0); dom.children(id).map(Ids) }
+    "childCount" => fn child_count(a, dom) { let id = a.id(0); dom.child_count(id) }
+    "isConnected" => fn is_connected(a, dom) { let id = a.id(0); dom.is_connected(id) }
+    "compareDocumentPosition" => fn compare_document_position(a, dom) {
+        let (a, b) = (a.id(0), a.id(1));
         dom.compare_document_position(a, b)
     }
-    "createElement" => fn create_element(scope, args, dom) {
-        let n = ns(f(scope, &args, 0)); text!(name = scope, args, 1);
+    "createElement" => fn create_element(a, dom) {
+        let n = ns(a.f64(0)); let name = a.str(1);
         dom.create_element(n, &name).and_then(|id| pinned(dom, id))
     }
-    "createText" => fn create_text(scope, args, dom) { text!(data = scope, args, 0); dom.create_text(&data).and_then(|id| pinned(dom, id)) }
-    "createComment" => fn create_comment(scope, args, dom) { text!(data = scope, args, 0); dom.create_comment(&data).and_then(|id| pinned(dom, id)) }
-    "createFragment" => fn create_fragment(scope, args, dom) { dom.create_fragment().and_then(|id| pinned(dom, id)) }
-    "createDocumentType" => fn create_document_type(scope, args, dom) {
-        text!(name = scope, args, 0); text!(public = scope, args, 1); text!(system = scope, args, 2);
+    "createText" => fn create_text(a, dom) { let data = a.str(0); dom.create_text(&data).and_then(|id| pinned(dom, id)) }
+    "createComment" => fn create_comment(a, dom) { let data = a.str(0); dom.create_comment(&data).and_then(|id| pinned(dom, id)) }
+    "createFragment" => fn create_fragment(a, dom) { dom.create_fragment().and_then(|id| pinned(dom, id)) }
+    "createDocumentType" => fn create_document_type(a, dom) {
+        let name = a.str(0); let public = a.str(1); let system = a.str(2);
         dom.create_document_type(&name, &public, &system).map(Id)
     }
-    "documentType" => fn document_type(scope, args, dom) {
-        let id = id(scope, &args, 0);
+    "documentType" => fn document_type(a, dom) {
+        let id = a.id(0);
         dom.document_type(id).map(|(a, b, c)| vec![a, b, c])
     }
-    "clone" => fn clone_node(scope, args, dom) {
-        let (id, deep) = (id(scope, &args, 0), bind::arg_bool(scope, &args, 1));
+    "clone" => fn clone_node(a, dom) {
+        let (id, deep) = (a.id(0), a.bool(1));
         dom.clone(id, deep).and_then(|id| pinned(dom, id))
     }
-    "insertBefore" => fn insert_before(scope, args, dom) {
-        let (parent, child, reference) = (id(scope, &args, 0), id(scope, &args, 1), id(scope, &args, 2));
+    "insertBefore" => fn insert_before(a, dom) {
+        let (parent, child, reference) = (a.id(0), a.id(1), a.id(2));
         dom.insert_before(parent, child, reference)
     }
-    "remove" => fn remove(scope, args, dom) { let id = id(scope, &args, 0); dom.remove(id) }
-    "replaceChildren" => fn replace_children(scope, args, dom) {
-        let parent = id(scope, &args, 0);
-        let list: Vec<u32> = bind::with_bytes(args.get(1), |bytes| bytes.as_chunks::<4>().0.iter().map(|c| u32::from_ne_bytes(*c)).collect())
+    "remove" => fn remove(a, dom) { let id = a.id(0); dom.remove(id) }
+    "replaceChildren" => fn replace_children(a, dom) {
+        let parent = a.id(0);
+        let list: Vec<u32> = a.with_bytes(1, |bytes| bytes.as_chunks::<4>().0.iter().map(|c| u32::from_ne_bytes(*c)).collect())
             .unwrap_or_default();
         dom.replace_children(parent, &list)
     }
-    "localName" => fn local_name(scope, args, dom) { let id = id(scope, &args, 0); dom.local_name(id) }
-    "namespace" => fn namespace(scope, args, dom) { let id = id(scope, &args, 0); dom.namespace(id).map(|n| n as u8 as u32) }
-    "getAttribute" => fn get_attribute(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(name = scope, args, 1);
+    "localName" => fn local_name(a, dom) { let id = a.id(0); dom.local_name(id) }
+    "namespace" => fn namespace(a, dom) { let id = a.id(0); dom.namespace(id).map(|n| n as u8 as u32) }
+    "getAttribute" => fn get_attribute(a, dom) {
+        let id = a.id(0); let name = a.str(1);
         dom.get_attribute(id, &name)
     }
-    "setAttribute" => fn set_attribute(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(name = scope, args, 1); text!(value = scope, args, 2);
+    "setAttribute" => fn set_attribute(a, dom) {
+        let id = a.id(0); let name = a.str(1); let value = a.str(2);
         dom.set_attribute(id, &name, &value)
     }
-    "removeAttribute" => fn remove_attribute(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(name = scope, args, 1);
+    "removeAttribute" => fn remove_attribute(a, dom) {
+        let id = a.id(0); let name = a.str(1);
         dom.remove_attribute(id, &name)
     }
-    "hasAttribute" => fn has_attribute(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(name = scope, args, 1);
+    "hasAttribute" => fn has_attribute(a, dom) {
+        let id = a.id(0); let name = a.str(1);
         dom.has_attribute(id, &name)
     }
-    "attributes" => fn attributes(scope, args, dom) { let id = id(scope, &args, 0); dom.attributes(id) }
-    "id" => fn element_id(scope, args, dom) { let id = id(scope, &args, 0); dom.id(id) }
-    "className" => fn class_name(scope, args, dom) { let id = id(scope, &args, 0); dom.class_name(id) }
-    "data" => fn data(scope, args, dom) { let id = id(scope, &args, 0); dom.data(id) }
-    "setData" => fn set_data(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(data = scope, args, 1);
+    "attributes" => fn attributes(a, dom) { let id = a.id(0); dom.attributes(id) }
+    "id" => fn element_id(a, dom) { let id = a.id(0); dom.id(id) }
+    "className" => fn class_name(a, dom) { let id = a.id(0); dom.class_name(id) }
+    "data" => fn data(a, dom) { let id = a.id(0); dom.data(id) }
+    "setData" => fn set_data(a, dom) {
+        let id = a.id(0); let data = a.str(1);
         dom.set_data(id, &data)
     }
-    "textContent" => fn text_content(scope, args, dom) { let id = id(scope, &args, 0); dom.text_content(id) }
-    "setTextContent" => fn set_text_content(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(text = scope, args, 1);
+    "textContent" => fn text_content(a, dom) { let id = a.id(0); dom.text_content(id) }
+    "setTextContent" => fn set_text_content(a, dom) {
+        let id = a.id(0); let text = a.str(1);
         dom.set_text_content(id, &text)
     }
-    "innerText" => fn inner_text(scope, args, dom) { let id = id(scope, &args, 0); dom.inner_text(id) }
-    "innerHTML" => fn inner_html(scope, args, dom) { let id = id(scope, &args, 0); dom.inner_html(id) }
-    "outerHTML" => fn outer_html(scope, args, dom) { let id = id(scope, &args, 0); dom.outer_html(id) }
-    "parseFragment" => fn parse_fragment(scope, args, dom) {
-        let context = id(scope, &args, 0); text!(html = scope, args, 1);
+    "innerText" => fn inner_text(a, dom) { let id = a.id(0); dom.inner_text(id) }
+    "innerHTML" => fn inner_html(a, dom) { let id = a.id(0); dom.inner_html(id) }
+    "outerHTML" => fn outer_html(a, dom) { let id = a.id(0); dom.outer_html(id) }
+    "parseFragment" => fn parse_fragment(a, dom) {
+        let context = a.id(0); let html = a.str(1);
         dom.parse_fragment(context, &html).map(Id)
     }
-    "templateContent" => fn template_content(scope, args, dom) { let id = id(scope, &args, 0); dom.template_content(id).map(Id) }
-    "parseInert" => fn parse_inert(scope, args, dom) { text!(html = scope, args, 0); dom.parse_inert(&html).and_then(|id| pinned(dom, id)) }
-    "querySelector" => fn query_selector(scope, args, dom) {
-        let root = id(scope, &args, 0); text!(selector = scope, args, 1);
+    "templateContent" => fn template_content(a, dom) { let id = a.id(0); dom.template_content(id).map(Id) }
+    "parseInert" => fn parse_inert(a, dom) { let html = a.str(0); dom.parse_inert(&html).and_then(|id| pinned(dom, id)) }
+    "querySelector" => fn query_selector(a, dom) {
+        let root = a.id(0); let selector = a.str(1);
         dom.query_selector(root, &selector).map(Id)
     }
-    "querySelectorAll" => fn query_selector_all(scope, args, dom) {
-        let root = id(scope, &args, 0); text!(selector = scope, args, 1);
+    "querySelectorAll" => fn query_selector_all(a, dom) {
+        let root = a.id(0); let selector = a.str(1);
         dom.query_selector_all(root, &selector).map(Ids)
     }
-    "matches" => fn matches(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(selector = scope, args, 1);
+    "matches" => fn matches(a, dom) {
+        let id = a.id(0); let selector = a.str(1);
         dom.matches(id, &selector)
     }
-    "closest" => fn closest(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(selector = scope, args, 1);
+    "closest" => fn closest(a, dom) {
+        let id = a.id(0); let selector = a.str(1);
         dom.closest(id, &selector).map(Id)
     }
-    "getElementById" => fn get_element_by_id(scope, args, dom) { text!(name = scope, args, 0); Ok(Id(dom.get_element_by_id(&name))) }
-    "getElementsByClassName" => fn get_elements_by_class_name(scope, args, dom) {
-        let root = id(scope, &args, 0); text!(names = scope, args, 1);
+    "getElementById" => fn get_element_by_id(a, dom) { let name = a.str(0); Ok(Id(dom.get_element_by_id(&name))) }
+    "getElementsByClassName" => fn get_elements_by_class_name(a, dom) {
+        let root = a.id(0); let names = a.str(1);
         dom.get_elements_by_class_name(root, &names).map(Ids)
     }
-    "getElementsByTagName" => fn get_elements_by_tag_name(scope, args, dom) {
-        let root = id(scope, &args, 0); text!(name = scope, args, 1);
+    "getElementsByTagName" => fn get_elements_by_tag_name(a, dom) {
+        let root = a.id(0); let name = a.str(1);
         dom.get_elements_by_tag_name(root, &name).map(Ids)
     }
-    "value" => fn value(scope, args, dom) { let id = id(scope, &args, 0); dom.value(id) }
-    "setValue" => fn set_value(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(value = scope, args, 1);
+    "value" => fn value(a, dom) { let id = a.id(0); dom.value(id) }
+    "setValue" => fn set_value(a, dom) {
+        let id = a.id(0); let value = a.str(1);
         dom.set_value(id, &value)
     }
-    "checked" => fn checked(scope, args, dom) { let id = id(scope, &args, 0); dom.checked(id) }
-    "setChecked" => fn set_checked(scope, args, dom) {
-        let (id, on) = (id(scope, &args, 0), bind::arg_bool(scope, &args, 1));
+    "checked" => fn checked(a, dom) { let id = a.id(0); dom.checked(id) }
+    "setChecked" => fn set_checked(a, dom) {
+        let (id, on) = (a.id(0), a.bool(1));
         dom.set_checked(id, on)
     }
-    "selectedIndex" => fn selected_index(scope, args, dom) { let id = id(scope, &args, 0); dom.selected_index(id) }
-    "setSelectedIndex" => fn set_selected_index(scope, args, dom) {
-        let (id, index) = (id(scope, &args, 0), f(scope, &args, 1) as i32);
+    "selectedIndex" => fn selected_index(a, dom) { let id = a.id(0); dom.selected_index(id) }
+    "setSelectedIndex" => fn set_selected_index(a, dom) {
+        let (id, index) = (a.id(0), a.f64(1) as i32);
         dom.set_selected_index(id, index)
     }
-    "setSelectionRange" => fn set_selection_range(scope, args, dom) {
-        let (id, start, end) = (id(scope, &args, 0), f(scope, &args, 1) as u32, f(scope, &args, 2) as u32);
+    "setSelectionRange" => fn set_selection_range(a, dom) {
+        let (id, start, end) = (a.id(0), a.f64(1) as u32, a.f64(2) as u32);
         dom.set_selection_range(id, start, end)
     }
-    "setFocus" => fn set_focus(scope, args, dom) {
-        let (id, visible) = (id(scope, &args, 0), bind::arg_bool(scope, &args, 1));
+    "setFocus" => fn set_focus(a, dom) {
+        let (id, visible) = (a.id(0), a.bool(1));
         dom.set_focus(id, visible)
     }
-    "setActive" => fn set_active(scope, args, dom) { let id = id(scope, &args, 0); dom.set_active(id) }
-    "setSelection" => fn set_selection(scope, args, dom) {
-        let (a, ao, b, bo) = (id(scope, &args, 0), f(scope, &args, 1) as u32, id(scope, &args, 2), f(scope, &args, 3) as u32);
+    "setActive" => fn set_active(a, dom) { let id = a.id(0); dom.set_active(id) }
+    "setSelection" => fn set_selection(a, dom) {
+        let (a, ao, b, bo) = (a.id(0), a.f64(1) as u32, a.id(2), a.f64(3) as u32);
         dom.set_selection(a, ao, b, bo)
     }
-    "rect" => fn rect(scope, args, dom) { let id = id(scope, &args, 0); dom.rect(id).map(|q| Floats(q.to_vec())) }
-    "clientRects" => fn client_rects(scope, args, dom) { let id = id(scope, &args, 0); dom.client_rects(id).map(quads) }
-    "metrics" => fn metrics(scope, args, dom) { let id = id(scope, &args, 0); dom.metrics(id) }
-    "hitTest" => fn hit_test(scope, args, dom) {
-        let (x, y) = (f(scope, &args, 0), f(scope, &args, 1));
+    "rect" => fn rect(a, dom) { let id = a.id(0); dom.rect(id).map(|q| Floats(q.to_vec())) }
+    "clientRects" => fn client_rects(a, dom) { let id = a.id(0); dom.client_rects(id).map(quads) }
+    "metrics" => fn metrics(a, dom) { let id = a.id(0); dom.metrics(id) }
+    "hitTest" => fn hit_test(a, dom) {
+        let (x, y) = (a.f64(0), a.f64(1));
         Ok(dom.hit_test(x, y).map_or(-1.0, f64::from))
     }
-    "hitTestAll" => fn hit_test_all(scope, args, dom) {
-        let (x, y) = (f(scope, &args, 0), f(scope, &args, 1));
+    "hitTestAll" => fn hit_test_all(a, dom) {
+        let (x, y) = (a.f64(0), a.f64(1));
         Ok(Ids(dom.hit_test_all(x, y)))
     }
-    "computedStyle" => fn computed_style(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(pseudo = scope, args, 1); text!(property = scope, args, 2);
+    "computedStyle" => fn computed_style(a, dom) {
+        let id = a.id(0); let pseudo = a.str(1); let property = a.str(2);
         dom.computed_style(id, &pseudo, &property)
     }
-    "computedStyleAll" => fn computed_style_all(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(pseudo = scope, args, 1);
+    "computedStyleAll" => fn computed_style_all(a, dom) {
+        let id = a.id(0); let pseudo = a.str(1);
         dom.computed_style_all(id, &pseudo)
     }
-    "caretRect" => fn caret_rect(scope, args, dom) {
-        let (id, offset) = (id(scope, &args, 0), f(scope, &args, 1) as u32);
+    "caretRect" => fn caret_rect(a, dom) {
+        let (id, offset) = (a.id(0), a.f64(1) as u32);
         dom.caret_rect(id, offset).map(|q| Floats(q.to_vec()))
     }
-    "caretFromPoint" => fn caret_from_point(scope, args, dom) {
-        let (x, y) = (f(scope, &args, 0), f(scope, &args, 1));
+    "caretFromPoint" => fn caret_from_point(a, dom) {
+        let (x, y) = (a.f64(0), a.f64(1));
         Ok(dom.caret_from_point(x, y))
     }
-    "textRects" => fn text_rects(scope, args, dom) {
-        let (id, start, end) = (id(scope, &args, 0), f(scope, &args, 1) as u32, f(scope, &args, 2) as u32);
+    "textRects" => fn text_rects(a, dom) {
+        let (id, start, end) = (a.id(0), a.f64(1) as u32, a.f64(2) as u32);
         dom.text_rects(id, start, end).map(quads)
     }
-    "matchMedia" => fn match_media(scope, args, dom) { text!(query = scope, args, 0); Ok(dom.match_media(&query)) }
-    "parseColor" => fn parse_color(scope, args, dom) { text!(color = scope, args, 0); Ok(dom.parse_color(&color).map(|c| Floats(c.to_vec()))) }
-    "sheetRuleCount" => fn sheet_rule_count(scope, args, dom) {
-        let id = id(scope, &args, 0);
+    "matchMedia" => fn match_media(a, dom) { let query = a.str(0); Ok(dom.match_media(&query)) }
+    "parseColor" => fn parse_color(a, dom) { let color = a.str(0); Ok(dom.parse_color(&color).map(|c| Floats(c.to_vec()))) }
+    "sheetRuleCount" => fn sheet_rule_count(a, dom) {
+        let id = a.id(0);
         dom.sheet_rule_count(id).map(|n| n.map_or(-1.0, f64::from))
     }
-    "sheetRule" => fn sheet_rule(scope, args, dom) {
-        let (id, index) = (id(scope, &args, 0), f(scope, &args, 1) as u32);
+    "sheetRule" => fn sheet_rule(a, dom) {
+        let (id, index) = (a.id(0), a.f64(1) as u32);
         dom.sheet_rule(id, index)
     }
-    "sheetInsertRule" => fn sheet_insert_rule(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(rule = scope, args, 1); let index = f(scope, &args, 2) as u32;
+    "sheetInsertRule" => fn sheet_insert_rule(a, dom) {
+        let id = a.id(0); let rule = a.str(1); let index = a.f64(2) as u32;
         dom.sheet_insert_rule(id, &rule, index)
     }
-    "sheetDeleteRule" => fn sheet_delete_rule(scope, args, dom) {
-        let (id, index) = (id(scope, &args, 0), f(scope, &args, 1) as u32);
+    "sheetDeleteRule" => fn sheet_delete_rule(a, dom) {
+        let (id, index) = (a.id(0), a.f64(1) as u32);
         dom.sheet_delete_rule(id, index)
     }
-    "scrollTo" => fn scroll_to(scope, args, dom) {
-        let (id, left, top, smooth) = (id(scope, &args, 0), f(scope, &args, 1), f(scope, &args, 2), bind::arg_bool(scope, &args, 3));
+    "scrollTo" => fn scroll_to(a, dom) {
+        let (id, left, top, smooth) = (a.id(0), a.f64(1), a.f64(2), a.bool(3));
         dom.scroll_to(id, left, top, smooth)
     }
-    "takeScrolled" => fn take_scrolled(scope, args, dom) { Ok(Ids(dom.take_scrolled())) }
-    "imageState" => fn image_state(scope, args, dom) { let id = id(scope, &args, 0); dom.image_state(id).map(|s| Floats(s.to_vec())) }
-    "takeLoaded" => fn take_loaded(scope, args, dom) { Ok(Ids(dom.take_loaded())) }
-    "canvas" => fn canvas(scope, args, dom) {
-        let id = id(scope, &args, 0);
-        bind::with_bytes(args.get(1), |commands| dom.canvas(id, commands)).unwrap_or_else(|| dom.canvas(id, &[]))
+    "takeScrolled" => fn take_scrolled(a, dom) { Ok(Ids(dom.take_scrolled())) }
+    "imageState" => fn image_state(a, dom) { let id = a.id(0); dom.image_state(id).map(|s| Floats(s.to_vec())) }
+    "takeLoaded" => fn take_loaded(a, dom) { Ok(Ids(dom.take_loaded())) }
+    "canvas" => fn canvas(a, dom) {
+        let id = a.id(0);
+        a.with_bytes(1, |commands| dom.canvas(id, commands)).unwrap_or_else(|| dom.canvas(id, &[]))
     }
-    "measureText" => fn measure_text(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(font = scope, args, 1); text!(text = scope, args, 2);
+    "measureText" => fn measure_text(a, dom) {
+        let id = a.id(0); let font = a.str(1); let text = a.str(2);
         dom.measure_text(id, &font, &text).map(|m| Floats(vec![
             m.width,
             m.actual_bounding_box_left,
@@ -637,48 +595,48 @@ natives! {
             m.font_bounding_box_descent,
         ]))
     }
-    "toDataURL" => fn to_data_url(scope, args, dom) {
-        let id = id(scope, &args, 0); text!(kind = scope, args, 1);
+    "toDataURL" => fn to_data_url(a, dom) {
+        let id = a.id(0); let kind = a.str(1);
         dom.to_data_url(id, &kind)
     }
-    "getImageData" => fn get_image_data(scope, args, dom) {
-        let (id, x, y, w, h) = (id(scope, &args, 0), f(scope, &args, 1), f(scope, &args, 2), f(scope, &args, 3), f(scope, &args, 4));
+    "getImageData" => fn get_image_data(a, dom) {
+        let (id, x, y, w, h) = (a.id(0), a.f64(1), a.f64(2), a.f64(3), a.f64(4));
         dom.get_image_data(id, x, y, w, h)
     }
-    "capture" => fn capture(scope, args, dom) {
-        let id = id(scope, &args, 0);
-        let scale = f(scope, &args, 1);
+    "capture" => fn capture(a, dom) {
+        let id = a.id(0);
+        let scale = a.f64(1);
         dom.capture(id, if scale.is_finite() && scale > 0.0 { scale } else { 1.0 })
     }
-    "setPanel" => fn set_panel(scope, args, dom) {
-        let (id, x, y, w, h) = (id(scope, &args, 0), f(scope, &args, 1), f(scope, &args, 2), f(scope, &args, 3), f(scope, &args, 4));
+    "setPanel" => fn set_panel(a, dom) {
+        let (id, x, y, w, h) = (a.id(0), a.f64(1), a.f64(2), a.f64(3), a.f64(4));
         dom.set_panel(id, (w > 0.0 && h > 0.0).then_some([x, y, w, h]))
     }
-    "unpin" => fn unpin(scope, args, dom) { let id = id(scope, &args, 0); dom.unpin(id) }
-    "pinnedIn" => fn pinned_in(scope, args, dom) { let id = id(scope, &args, 0); dom.pinned_in(id).map(Ids) }
-    "commit" => fn commit(scope, args, dom) { dom.commit(); Ok(()) }
-    "semantics" => fn semantics(scope, args, dom) {
-        let (id, limit) = (id(scope, &args, 0), f(scope, &args, 1));
+    "unpin" => fn unpin(a, dom) { let id = a.id(0); dom.unpin(id) }
+    "pinnedIn" => fn pinned_in(a, dom) { let id = a.id(0); dom.pinned_in(id).map(Ids) }
+    "commit" => fn commit(a, dom) { dom.commit(); Ok(()) }
+    "semantics" => fn semantics(a, dom) {
+        let (id, limit) = (a.id(0), a.f64(1));
         dom.semantics(id, if limit.is_finite() && limit >= 1.0 { limit as u32 } else { 600 })
     }
-    "stats" => fn stats(scope, args, dom) {
+    "stats" => fn stats(a, dom) {
         let stats = dom.stats();
-        if bind::arg_bool(scope, &args, 0) {
+        if a.bool(0) {
             dom.reset_timings();
         }
         Ok(stats)
     }
-    "resize" => fn resize(scope, args, dom) {
-        let (w, h, scale) = (f(scope, &args, 0) as u32, f(scope, &args, 1) as u32, f(scope, &args, 2) as f32);
+    "resize" => fn resize(a, dom) {
+        let (w, h, scale) = (a.f64(0) as u32, a.f64(1) as u32, a.f64(2) as f32);
         dom.resize(w, h, scale);
         Ok(())
     }
-    "setReducedMotion" => fn set_reduced_motion(scope, args, dom) {
-        dom.set_reduced_motion(bind::arg_bool(scope, &args, 0));
+    "setReducedMotion" => fn set_reduced_motion(a, dom) {
+        dom.set_reduced_motion(a.bool(0));
         Ok(())
     }
-    "setDark" => fn set_dark(scope, args, dom) {
-        dom.set_dark(bind::arg_bool(scope, &args, 0));
+    "setDark" => fn set_dark(a, dom) {
+        dom.set_dark(a.bool(0));
         Ok(())
     }
 }
