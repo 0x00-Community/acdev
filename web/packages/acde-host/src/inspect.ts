@@ -484,11 +484,14 @@ export class Inspect {
   #cover(window: InspectWindow, x: number, y: number): InspectWindow | null {
     const rows = this.#host.shell.windows()
     const own = rows.find((r) => (r.window ?? r.id) === window.id)
+    const at = (row: (typeof rows)[number]) => x >= row.x && y >= row.y && x < row.x + row.width && y < row.y + row.height
+    const panel = window.kind === 'desktop' ? rows.find((row) => !row.hidden && this.#host.panel(row.window ?? row.id) && at(row)) : undefined
     for (const row of rows) {
       const id = row.window ?? row.id
       if (id === window.id || row.hidden || (own && row.z <= own.z)) continue
       if (window.kind === 'desktop' && this.#host.panel(id)) continue
-      if (x < row.x || y < row.y || x >= row.x + row.width || y >= row.y + row.height) continue
+      if (panel && !(row.mode === 'pinned' && row.z > panel.z)) continue
+      if (!at(row)) continue
       if (this.#host.panel(id)) {
         const rect: [number, number, number, number] = [row.x, row.y, row.width, row.height]
         return { ref: 'w0', id: 0, kind: 'desktop', app: null, title: '桌面的面板', mode: row.mode, rect, z: row.z, focus: row.focus, hidden: false, pid: null }
