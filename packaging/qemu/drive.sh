@@ -36,7 +36,11 @@ until [ -f "$dir/$name.out" ]; do
 	sleep 0.1
 	waited=$((waited + 1))
 done
-out=$(cat "$dir/$name.out")
+# the answer straight from the file: dash 0.5.13 corrupts UTF-8 that passes through $(...) and printf (it puts 0x81
+# before some continuation bytes), so it never goes through a variable
+status=0
+cat "$dir/$name.out"
+echo
+! grep -qF '"error":' "$dir/$name.out" || status=1
 rm -f "$dir/$name.out" "$dir/$name.mjs.done" "$dir/$name.args"
-printf '%s\n' "$out"
-case "$out" in *'"error":'*) exit 1 ;; esac
+exit "$status"

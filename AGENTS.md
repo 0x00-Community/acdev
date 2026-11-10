@@ -1387,7 +1387,8 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 - seat0 被 gdm 占着时验 DRM 后端: `sudo systemd-run --unit=acde-drm-test --uid=$USER -p PAMName=login -p TTYPath=/dev/tty7 -p StandardInput=tty-force
   <脚本>` (脚本设 `ACDE_BACKEND=drm ACDE_DEBUG_DIR=…`, 用 `timeout` 兜底), 测完 `loginctl terminate-session <id>` 再 `chvt 1`.
 
-`drive.sh [-d DIR] [-t 秒] 命令 [参数...]` (dash): 交给 Broker 里的 `drive.mjs` 执行, 打印 JSON.
+`drive.sh [-d DIR] [-t 秒] 命令 [参数...]` (dash): 交给 Broker 里的 `drive.mjs` 执行, 打印 JSON. 回答直接 `cat` 出来, 不经变量和
+`printf` (dash 0.5.13 会在经过 `$(...)` 的 UTF-8 续字节前插 0x81); `drive-check.sh` 不要会话, 在 dash 和 bash 下各跑一次, 比对非 ASCII 回答的每个字节.
 
 | 命令 | 做什么 |
 | --- | --- |
