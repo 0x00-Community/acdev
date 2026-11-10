@@ -115,17 +115,28 @@ fn ask<T>(cmd: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, String>>) -> pl
     let server = app::server().ok_or("no host windows")?;
     let (reply, answer) = std::sync::mpsc::sync_channel(1);
     server.send(cmd(reply));
-    answer.recv().map_err(|_| format!("the {what} chooser closed without an answer"))?
+    answer.recv().map_err(|_| format!("the {what} closed without an answer"))?
 }
 
 pub fn choose_folder(title: &str) -> Result<Option<std::path::PathBuf>, String> {
-    ask(|reply| platform::Cmd::ChooseFolder { title: title.to_owned(), reply }, "folder")
+    ask(|reply| platform::Cmd::ChooseFolder { title: title.to_owned(), reply }, "folder chooser")
 }
 
 pub fn open_files(request: OpenRequest) -> Result<Option<Vec<std::path::PathBuf>>, String> {
-    ask(|reply| platform::Cmd::OpenFiles { request, reply }, "file")
+    ask(|reply| platform::Cmd::OpenFiles { request, reply }, "file chooser")
 }
 
 pub fn save_file(request: SaveRequest) -> Result<Option<std::path::PathBuf>, String> {
-    ask(|reply| platform::Cmd::SaveFile { request, reply }, "save")
+    ask(|reply| platform::Cmd::SaveFile { request, reply }, "save chooser")
+}
+
+pub fn approve(title: &str, message: &str) -> Result<Option<bool>, String> {
+    if platform::headless() {
+        return Ok(None);
+    }
+    ask(|reply| platform::Cmd::Approve { title: title.to_owned(), message: message.to_owned(), reply }, "approval dialog")
+}
+
+pub fn dismiss_approval() {
+    platform::dismiss_approval();
 }

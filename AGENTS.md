@@ -183,7 +183,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   的字符 (`keys::us_text`). 中文等走 `acde:inspect` 的 `type`, 不经注入.
 - **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG; 还没画出第一帧时等到画出, 最多 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
   画进一张离屏的 `Rgba8Unorm` 纹理, 读回编 PNG 写到 path, 回 `{width, height}`, 和会话的 `Shell.screenshot` 同一个接口; 最多等 10 秒),
-  `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`, Windows 没有), `openDefault` (`handoff.rs`, 只在 macOS / Windows,
+  `approve` / `dismissApproval` (批准对话框, 见「批准」), `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`, Windows 没有), `openDefault` (`handoff.rs`, 只在 macOS / Windows,
   见「默认应用」), `devRespond`, `screen`, `shortcut`, `windows`,
   `launch`. `animate` 直接回 `windowanimated`, `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
   桌面的结束会话. `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png` (和 `screenshot` 同一段).
@@ -437,7 +437,12 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `broker/access/permits.ts` `Permits` 包一层. 外壳模块 `acde:permissions` (桌面和声明它的系统应用): `pending()`、`answer(id, allow)`、`list(app?)`、
   `revoke(app, capability)`、`on('prompt' | 'answered')` (`permissionprompt {id, app, label, capability, reason: 'launch' | 'request'}`、
   `permissionanswered {id, app, capability, allowed}`). 开发、无头和 driver 照常问: dev 请求 `permissions` (待答和已有决定)、`answer {prompt, allow}`
-  给 acde driver 用; 每个提示记一行 info (`waits for the user to allow`), 没人答就一直等, 不自动批准. 单应用模式还没有原生对话框 (#65), 现在只能 driver 答.
+  给 acde driver 用; 每个提示记一行 info (`waits for the user to allow`), 没人答就一直等, 不自动批准.
+  **单应用模式的原生对话框** (`acdert app`, 宿主窗口; `broker/access/dialog.ts` `ApprovalDialogs`, 由 `broker/approvals.ts` 接上): 提示同时交给宿主的
+  `approve(title, message)` (hostwin `Cmd::Approve`, Windows 是 `platform/win32/approve.rs` 的 `MessageBoxW`, 以宿主窗口为 owner, 是 / 否, 默认否),
+  一次只开一个, 其余排队; 答案经 `Permissions.answer` 写进同一份 `permissions.json`, 和桌面答的一样. driver 或别处先答了, Broker 调
+  `dismissApproval` 关掉还开着的对话框 (它不算回答), 排队的直接丢掉. headless 和 macOS / Linux 宿主窗口没有对话框 (`approve` 回 null), 照旧等 driver.
+  拒绝必需能力时 `acdert app` 记一行错误后退出.
   `icon` 是 `ICON_NAMES` (`@dopame/acde-api/manifest`, 和 Dopame art 引擎 `APPS` 的名字一致, 加名字两边一起改) 之一, 或 assets 下以
   `.svg` / `.png` 结尾的同源 URL; 运行时原样交给桌面 (`acde.apps.list()`、`windowopen` 的 `icon`).
 - **沙箱**: 每个 web 是独立的 isolate, 页面和 acde-host 的 web.js 在同一个 realm. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口

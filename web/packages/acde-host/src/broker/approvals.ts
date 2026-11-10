@@ -5,6 +5,7 @@ import { StorageFile } from '../storage'
 import { xdgHome } from '../sys/os'
 import { join } from '../sys/path'
 import type { CapabilityCheck } from './access/capabilities'
+import { ApprovalDialogs, type NativeApproval } from './access/dialog'
 import { Permissions, type Permit } from './access/permissions'
 import { PermissionCalls } from './calls/permissions'
 import type { WindowRecord } from './types'
@@ -15,6 +16,7 @@ export interface ApprovalsHost {
   capabilities(): CapabilityCheck
   records(): Iterable<WindowRecord>
   toDesktop(event: Record<string, unknown> | RawShellEvent): void
+  dialog(): NativeApproval | null
 }
 
 export class Approvals {
@@ -24,11 +26,16 @@ export class Approvals {
 
   constructor(host: ApprovalsHost) {
     this.#host = host
+    const answers = { pending: () => this.permissions.pending(), answer: (id: number, allow: boolean) => this.permissions.answer(id, allow) }
+    const dialogs = new ApprovalDialogs(answers, () => host.dialog())
     this.permissions = new Permissions({
       store: new StorageFile(join(xdgHome('config'), 'acde', 'permissions.json')),
       label: (id) => host.apps().get(id)?.label ?? null,
       supported: (capability) => host.capabilities().supported(capability),
-      tell: (event) => host.toDesktop(event),
+      tell: (event) => {
+        host.toDesktop(event)
+        dialogs.event(event)
+      },
       changed: (appId, capability, permit) => this.#changed(appId, capability, permit),
       log: (line) => Log.write(Level.Info, 'acde_host', line),
     })

@@ -52,6 +52,8 @@ export interface BrokerShell {
   answerOpen?(paths: string[] | null): void
   answerSave?(path: string | null): void
   openDefault?(target: string): Promise<void>
+  approve?(title: string, message: string): Promise<boolean | null>
+  dismissApproval?(): void
   readClipboard?(): string
   writeClipboard?(text: string): void
   readonly socketName: string

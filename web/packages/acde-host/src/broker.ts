@@ -87,6 +87,11 @@ export class Broker {
     capabilities: () => this.#launchable.capabilities,
     records: () => this.#windows.values(),
     toDesktop: (event) => this.#toDesktop(event),
+    dialog: () => {
+      const shell = this.shell
+      if (!this.#options.standalone || !shell.hosted || !shell.approve) return null
+      return { show: (title, message) => shell.approve!(title, message), dismiss: () => shell.dismissApproval?.() }
+    },
   })
   readonly permissions: Permissions = this.#approvals.permissions
   #opening = false
