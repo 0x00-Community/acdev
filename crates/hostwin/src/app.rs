@@ -146,7 +146,7 @@ impl Server {
 
     pub fn set_refresh(&self, hz: Option<f64>) {
         let Some(links) = self.state().set_refresh(hz) else { return };
-        log::info!("host window: monitor refresh {}", hz.map_or_else(|| "unknown".to_owned(), |hz| format!("{hz} Hz")));
+        log_refresh(hz);
         for link in links {
             link.send(Msg::Refresh(hz));
         }
@@ -154,6 +154,10 @@ impl Server {
 }
 
 type Main = Box<dyn FnOnce() -> i32 + Send>;
+
+fn log_refresh(hz: Option<f64>) {
+    log::info!("host window: monitor refresh {}", hz.map_or_else(|| "unknown".to_owned(), |hz| format!("{hz} Hz")));
+}
 
 struct Drag {
     window: u32,
@@ -230,6 +234,7 @@ impl Handler for App {
             state.screen = [(f64::from(size.0) / scale).round(), (f64::from(size.1) / scale).round(), scale];
             state.refresh = monitor.and_then(|m| m.refresh);
             state.controls = host.controls();
+            log_refresh(state.refresh);
         }
         let surface = match host.surface(&server.gpu.instance) {
             Ok(surface) => surface,
