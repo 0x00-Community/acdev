@@ -15,6 +15,7 @@ struct Place {
     origin: vec2<f32>,
     size: vec2<f32>,
     pad: vec2<f32>,
+    look: vec4<f32>,
 }
 
 @group(0) @binding(0) var page: texture_2d<f32>;
@@ -30,13 +31,15 @@ fn vs_quad(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
 @fragment
 fn fs_quad(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     let size = vec2<i32>(textureDimensions(page));
-    let p = clamp(vec2<i32>(floor(at.xy - place.origin)), vec2<i32>(0, 0), size - vec2<i32>(1, 1));
+    let p = clamp(vec2<i32>(floor((at.xy - place.origin) / place.look.x)), vec2<i32>(0, 0), size - vec2<i32>(1, 1));
     let c = textureLoad(page, p, 0);
-    return select(c, vec4<f32>(c.rgb * c.a, c.a), place.pad.x > 0.5);
+    return select(c, vec4<f32>(c.rgb * c.a, c.a), place.pad.x > 0.5) * place.look.y;
 }
 ";
 
 const DUMP_DELAY: Duration = Duration::from_millis(300);
+const MOTION_TICK: Duration = Duration::from_millis(4);
+const PLACE_BYTES: u64 = 48;
 const SCREENSHOT_WAIT: Duration = Duration::from_secs(10);
 const RETRY: Duration = Duration::from_millis(50);
 const FAULT_AT: u64 = 3;
@@ -54,6 +57,7 @@ pub(crate) struct Layer {
     pub id: u32,
     pub rect: [f64; 4],
     pub backdrop: Option<([f64; 4], [f64; 4])>,
+    pub look: acde_model::Look,
 }
 
 struct Canvas {
@@ -210,7 +214,11 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
                 visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: wgpu::BufferSize::new(32) },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(PLACE_BYTES),
+                },
                 count: None,
             },
         ],
@@ -304,7 +312,7 @@ impl Thread {
         let device = &self.gpu.shared.device;
         let place = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("acde compose place"),
-            size: 32,
+            size: PLACE_BYTES,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -319,19 +327,29 @@ impl Thread {
         Bound { page, place, bind }
     }
 
-    fn prepare(&self) -> Option<Vec<(u32, Option<acde_gpu::Backdrop>)>> {
+    fn prepare(&mut self) -> Option<Vec<(u32, Option<acde_gpu::Backdrop>)>> {
         let server = server()?;
-        let (layers, scale) = {
-            let state = server.state();
-            (state.layers(), state.screen[2])
+        let (layers, scale, done, moving) = {
+            let mut state = server.state();
+            let done = state.advance(crate::shell::now_ms());
+            (state.layers(), state.screen[2], done, !state.transitions.is_empty())
         };
+        for window in done {
+            server.broker.push(acde_model::Event { kind: "windowanimated".into(), window: Some(window), ..Default::default() });
+        }
+        if moving {
+            self.retry_at = Some(Instant::now() + MOTION_TICK);
+        }
         let shown: Vec<&Layer> = layers.iter().filter(|l| self.pages.contains_key(&l.id)).collect();
         let screen = [self.size.0 as f32, self.size.1 as f32];
         for layer in &shown {
             let bound = &self.pages[&layer.id];
-            let origin = [(layer.rect[0] * scale).round() as f32, (layer.rect[1] * scale).round() as f32];
+            let (w, h) = (f64::from(bound.page.size.0), f64::from(bound.page.size.1));
+            let at = acde_model::Rect::new((layer.rect[0] * scale).round(), (layer.rect[1] * scale).round(), w, h);
+            let shown = layer.look.map(&at, scale, &at);
             let straight = f32::from(u8::from(bound.page.straight.load(std::sync::atomic::Ordering::Relaxed)));
-            let values = [screen[0], screen[1], origin[0], origin[1], bound.page.size.0 as f32, bound.page.size.1 as f32, straight, 0.0];
+            let look = [layer.look.scale.max(1e-6) as f32, layer.look.opacity];
+            let values = [screen[0], screen[1], shown.x as f32, shown.y as f32, shown.w as f32, shown.h as f32, straight, 0.0, look[0], look[1], 0.0, 0.0];
             let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
             self.gpu.shared.queue.write_buffer(&bound.place, 0, &bytes);
         }
@@ -390,12 +408,12 @@ impl Thread {
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             let place = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("acde compose canvas place"),
-                size: 32,
+                size: PLACE_BYTES,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
             let screen = [size.0 as f32, size.1 as f32];
-            let values = [screen[0], screen[1], 0.0, 0.0, screen[0], screen[1], 0.0, 0.0];
+            let values = [screen[0], screen[1], 0.0, 0.0, screen[0], screen[1], 0.0, 0.0, 1.0, 1.0, 0.0, 0.0];
             let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
             self.gpu.shared.queue.write_buffer(&place, 0, &bytes);
             let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {

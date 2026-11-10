@@ -18,10 +18,11 @@ pub(crate) struct Hit {
 
 impl State {
     pub fn hit(&self, x: f64, y: f64) -> Option<Hit> {
-        let inside = |[rx, ry, rw, rh]: [f64; 4]| x >= rx && y >= ry && x < rx + rw && y < ry + rh;
         self.layers().into_iter().rev().find_map(|layer| {
             let e = self.entries.get(&layer.id)?;
-            let [rx, ry, ..] = e.rect;
+            let [rx, ry, rw, rh] = e.rect;
+            let (x, y) = layer.look.unmap(&acde_model::Rect::new(rx, ry, rw, rh), 1.0, x, y);
+            let inside = |[ax, ay, aw, ah]: [f64; 4]| x >= ax && y >= ay && x < ax + aw && y < ay + ah;
             let area = match e.input {
                 Some([ix, iy, iw, ih]) => [rx + ix, ry + iy, iw, ih],
                 None => e.rect,

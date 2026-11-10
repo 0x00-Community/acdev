@@ -9,7 +9,7 @@ mod system;
 pub use acde_model::{DoubleClick, Event, Inbox, InjectEvent, Injected, Mode, Waker, WindowState};
 pub use dev::respond as dev_respond;
 pub use output::surface::{Shot, Surface};
-pub use shell::{Grant, Shell, WindowInfo};
+pub use shell::{Animate, Grant, Shell, WindowInfo};
 #[cfg(windows)]
 pub use system::assoc::Handler as FileHandler;
 use system::handoff;

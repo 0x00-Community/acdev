@@ -169,7 +169,23 @@ macro_rules! by_window {
     )*};
 }
 
-by_window!(release, focus, close, animate);
+by_window!(release, focus, close);
+
+fn animate(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = bind::arg_f64(scope, &args, 0) as u32;
+    let options = v8::Local::<v8::Object>::try_from(args.get(1)).ok();
+    let mut number = |name: &str| options.and_then(|o| bind::get(scope, o, name)).filter(|v| v.is_number()).and_then(|v| v.number_value(scope));
+    let spec = acde_hostwin::Animate {
+        opacity: number("opacity"),
+        scale: number("scale"),
+        dx: number("dx"),
+        dy: number("dy"),
+        duration_ms: number("duration").unwrap_or(0.0),
+        delay_ms: number("delay").unwrap_or(0.0),
+        easing: options.and_then(|o| bind::get_string(scope, o, "easing")).and_then(|e| e.parse().ok()),
+    };
+    with(scope, |shell| shell.animate(window, spec));
+}
 
 fn hide(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let window = bind::arg_f64(scope, &args, 0) as u32;

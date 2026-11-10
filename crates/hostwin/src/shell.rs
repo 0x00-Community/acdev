@@ -3,7 +3,9 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use acde_model::{Binding, Change, Clicks, Combo, DoubleClick, Event, Inbox, Injected, Mode, Restore, Scope, Shortcuts, Waker, WindowState};
+use acde_model::{
+    Binding, Change, Clicks, Combo, DoubleClick, Easing, Event, Inbox, Injected, Look, Mode, Restore, Scope, Shortcuts, Transition, Waker, WindowState,
+};
 
 use crate::app::server;
 use crate::output::compose::Layer;
@@ -121,6 +123,24 @@ pub(crate) struct State {
     pub theme: acde_render::FrameTheme,
     pub controls: bool,
     pub standalone: bool,
+    pub looks: HashMap<u32, Look>,
+    pub transitions: HashMap<u32, Transition>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Animate {
+    pub opacity: Option<f64>,
+    pub scale: Option<f64>,
+    pub dx: Option<f64>,
+    pub dy: Option<f64>,
+    pub duration_ms: f64,
+    pub delay_ms: f64,
+    pub easing: Option<Easing>,
+}
+
+pub(crate) fn now_ms() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0
 }
 
 impl State {
@@ -179,7 +199,48 @@ impl State {
         found
     }
 
+    pub fn animate(&mut self, id: u32, spec: Animate, now_ms: f64) -> bool {
+        if !self.entries.contains_key(&id) {
+            return false;
+        }
+        let from = self.look(id);
+        let to = Look {
+            opacity: spec.opacity.map_or(from.opacity, |o| o.clamp(0.0, 1.0) as f32),
+            scale: spec.scale.map_or(from.scale, |s| s.max(0.0)),
+            dx: spec.dx.unwrap_or(from.dx),
+            dy: spec.dy.unwrap_or(from.dy),
+        };
+        let start_ms = now_ms + spec.delay_ms.max(0.0);
+        let transition = Transition { from, to, start_ms, duration_ms: spec.duration_ms.max(0.0), easing: spec.easing.unwrap_or(Easing::Ease) };
+        self.transitions.insert(id, transition);
+        true
+    }
+
+    pub fn look(&self, id: u32) -> Look {
+        self.looks.get(&id).copied().unwrap_or_default()
+    }
+
+    pub fn advance(&mut self, now_ms: f64) -> Vec<u32> {
+        let mut done = Vec::new();
+        for (&id, transition) in &self.transitions {
+            let (look, finished) = transition.at(now_ms);
+            self.looks.insert(id, look);
+            if finished {
+                done.push(id);
+            }
+        }
+        for id in &done {
+            self.transitions.remove(id);
+            if self.looks.get(id).is_some_and(|l| *l == Look::default()) {
+                self.looks.remove(id);
+            }
+        }
+        done
+    }
+
     pub fn forget(&mut self, id: u32) -> Option<Entry> {
+        self.looks.remove(&id);
+        self.transitions.remove(&id);
         let gone = self.entries.remove(&id)?;
         for e in self.entries.values_mut().filter(|e| e.parent == Some(id)) {
             e.parent = None;
@@ -263,7 +324,7 @@ impl State {
     pub fn layers(&self) -> Vec<Layer> {
         let mut shown: Vec<(&u32, &Entry)> = self.entries.iter().filter(|(_, e)| e.shown()).collect();
         shown.sort_by_key(|(id, e)| Self::rank(**id, e));
-        shown.into_iter().map(|(&id, e)| Layer { id, rect: e.rect, backdrop: e.backdrop }).collect()
+        shown.into_iter().map(|(&id, e)| Layer { id, rect: e.rect, backdrop: e.backdrop, look: self.look(id) }).collect()
     }
 
     pub fn host_entry(&self) -> Option<u32> {
@@ -522,9 +583,13 @@ impl Shell {
         }
     }
 
-    pub fn animate(&self, window: u32) {
-        if let Some(s) = server() {
-            s.broker.push(Event { kind: "windowanimated".into(), window: Some(window), ..Default::default() });
+    pub fn animate(&self, window: u32, spec: Animate) {
+        let Some(s) = server() else { return };
+        if !s.state().animate(window, spec, now_ms()) {
+            return s.broker.push(Event { kind: "windowanimated".into(), window: Some(window), ..Default::default() });
+        }
+        if let Some(compositor) = s.compositor() {
+            compositor.dirty();
         }
     }
 
@@ -568,6 +633,29 @@ pub(crate) mod tests {
 
     fn order(state: &State) -> Vec<u32> {
         state.layers().iter().map(|l| l.id).collect()
+    }
+
+    #[test]
+    fn an_animation_moves_the_look_and_the_hit_area_then_ends_once() {
+        let mut s = screen();
+        let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 400.0, 200.0]), ..Grant::default() });
+        let spec = Animate { scale: Some(0.5), opacity: Some(0.25), duration_ms: 100.0, easing: Some(Easing::Linear), ..Animate::default() };
+        assert!(s.animate(w, spec, 0.0));
+        assert!(!s.animate(9999, spec, 0.0), "no such window");
+        assert!(s.advance(50.0).is_empty());
+        let half = s.look(w);
+        assert!((half.scale - 0.75).abs() < 1e-9 && (half.opacity - 0.625).abs() < 1e-6, "{half:?}");
+        assert_eq!(s.advance(100.0), vec![w]);
+        assert!(s.advance(150.0).is_empty(), "it ends once");
+        assert_eq!(s.layers()[0].look, Look { opacity: 0.25, scale: 0.5, dx: 0.0, dy: 0.0 });
+        assert!(s.hit(120.0, 120.0).is_none(), "outside the shrunk window");
+        assert_eq!(s.hit(300.0, 200.0).map(|h| h.entry), Some(w));
+        s.animate(w, Animate { scale: Some(1.0), opacity: Some(1.0), ..Animate::default() }, 200.0);
+        assert_eq!(s.advance(200.0), vec![w]);
+        assert!(s.looks.is_empty(), "back to the identity look");
+        s.animate(w, spec, 300.0);
+        s.forget(w);
+        assert!(s.transitions.is_empty() && s.looks.is_empty());
     }
 
     #[test]
