@@ -1,6 +1,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
 use blitz_dom::{BaseDocument, DocumentConfig, NodeId};
@@ -50,12 +51,12 @@ pub(crate) struct Engine {
 unsafe impl Send for Engine {}
 
 impl Engine {
-    pub(crate) fn new(width: u32, height: u32, scale: f32, options: &Options) -> Result<Self> {
+    pub(crate) fn new(width: u32, height: u32, scale: f32, options: &Options, wake: Weak<Sender<()>>) -> Result<Self> {
         let base = options.base_url.as_deref().unwrap_or("http://acde.local/");
         let base = Url::parse(base).map_err(|e| Error::new(format!("base_url {base}: {e}")))?;
         let resources = options.resources.as_deref().unwrap_or_default();
         let arrived = Arc::new(AtomicBool::new(false));
-        let net = LocalNet::new(base.clone(), resources, arrived.clone());
+        let net = LocalNet::new(base.clone(), resources, arrived.clone(), options.loader.clone(), wake);
         let mut this = Self {
             doc: BaseDocument::new(DocumentConfig {
                 viewport: Some(Viewport {
@@ -391,6 +392,14 @@ impl Engine {
     pub(crate) fn touch(&mut self) {
         self.stale = true;
         self.dirty = true;
+    }
+
+    pub(crate) fn take_arrived(&mut self) -> bool {
+        let arrived = self.arrived.swap(false, Ordering::AcqRel);
+        if arrived {
+            self.touch();
+        }
+        arrived
     }
 
     pub(crate) fn frame_timed(&mut self, locked: f64, total: f64) {

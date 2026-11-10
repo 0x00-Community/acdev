@@ -28,6 +28,7 @@ pub use dom::{Dom, NONE, NodeType, Ns, Quad, Viewport};
 pub use error::{Error, Result};
 pub use geometry::Metrics;
 pub use layers::{Backdrop, Drawing, Layer, LayerFilter};
+pub use net::{Load, Loader};
 pub use surface::{DragImage, SurfaceCommand};
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -49,6 +50,7 @@ pub struct Options {
     pub reduced_motion: bool,
     pub dark: bool,
     pub name: Option<String>,
+    pub loader: Option<Loader>,
 }
 
 #[derive(Clone, Debug)]
@@ -314,17 +316,20 @@ impl Shared {
 pub struct Document {
     shared: Arc<Shared>,
     wake: Sender<()>,
+    _arrivals: Arc<Sender<()>>,
 }
 
 impl Document {
     pub fn new(width: u32, height: u32, scale: f32, options: &Options) -> Result<Self> {
         let (wake, rx) = channel();
+        let arrivals = Arc::new(wake.clone());
+        let weak = Arc::downgrade(&arrivals);
         let (ready, started) = sync_channel(1);
         let options = options.clone();
         std::thread::Builder::new()
             .name("acde-render".into())
             .spawn(move || {
-                let engine = catch_unwind(AssertUnwindSafe(|| Engine::new(width, height, scale, &options)))
+                let engine = catch_unwind(AssertUnwindSafe(move || Engine::new(width, height, scale, &options, weak)))
                     .unwrap_or_else(|_| Err(Error::new("render: panicked while creating the document")));
                 match engine {
                     Ok(engine) => {
@@ -345,7 +350,7 @@ impl Document {
             })
             .map_err(|e| Error::new(format!("render: spawn thread: {e}")))?;
         let shared = started.recv().map_err(|_| Error::new("render: thread exited"))??;
-        Ok(Self { shared, wake })
+        Ok(Self { shared, wake, _arrivals: arrivals })
     }
 
     pub fn dom(&self) -> Dom {
@@ -432,7 +437,7 @@ fn run(shared: &Shared, rx: &Receiver<()>) {
         while rx.try_recv().is_ok() {}
         let pings = std::mem::take(&mut *shared.pings.lock());
         let mut engine = shared.engine.lock();
-        let mut present = shared.drain(&mut engine) | std::mem::take(&mut engine.want_present);
+        let mut present = shared.drain(&mut engine) | std::mem::take(&mut engine.want_present) | engine.take_arrived();
         while present && engine.is_dirty() {
             present = present_frame(shared, &mut engine);
         }
