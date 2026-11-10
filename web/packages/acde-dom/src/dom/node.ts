@@ -1,9 +1,10 @@
 import { DOMException, guard } from '../core/exception'
 import { BUILD_PATH, EventTarget, type Event } from '../core/event'
 import { constants, getters, tag } from '../core/host'
-import { NONE, NodeType } from '../native'
+import { NONE, NodeType, Ns } from '../native'
+import { legacy, type LegacyShape } from './legacy'
 import { characterDataObservers, childListObservers, observing, recordCharacterData, recordChildList, type Observers } from './mutation'
-import { adopt, attach, changed, CONNECTED, constructing, detach, documentId, dom, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper } from './realm'
+import { adopt, attach, changed, CONNECTED, constructing, detach, documentId, dom, ID, nodeConstructing, treeChanged, treeVersion, version, wrap, type Wrapper, inner } from './realm'
 import type { Document } from './document'
 import type { Element } from './element'
 import { documents, locateNamespace, lookupPrefixOf, namespaceOf, nullable } from './namespaces'
@@ -32,49 +33,7 @@ const CACHE_VERSION = Symbol('cacheVersion')
 const TREE = Symbol('tree')
 const ITEMS = Symbol('items')
 
-export function indexKey(key: string | symbol): number {
-  if (typeof key !== 'string') return -1
-  const n = key.length
-  if (n === 0 || n > 10) return -1
-  const first = key.charCodeAt(0)
-  if (first < 48 || first > 57 || (first === 48 && n > 1)) return -1
-  for (let i = 1; i < n; i++) {
-    const c = key.charCodeAt(i)
-    if (c < 48 || c > 57) return -1
-  }
-  const index = Number(key)
-  return index < 4294967295 ? index : -1
-}
-
-const liveIndex: ProxyHandler<NodeList> = {
-  get(target, key) {
-    const i = indexKey(key)
-    if (i >= 0) return target.item(i) ?? undefined
-    return Reflect.get(target, key)
-  },
-  has(target, key) {
-    const i = indexKey(key)
-    if (i >= 0) return i < target.length
-    return Reflect.has(target, key)
-  },
-  ownKeys(target) {
-    const keys: (string | symbol)[] = []
-    for (let i = 0; i < target.length; i++) keys.push(String(i))
-    return [...keys, ...Reflect.ownKeys(target)]
-  },
-  getOwnPropertyDescriptor(target, key) {
-    const i = indexKey(key)
-    if (i >= 0) {
-      const value = target.item(i)
-      return value ? { value, enumerable: true, configurable: true, writable: false } : undefined
-    }
-    return Reflect.getOwnPropertyDescriptor(target, key)
-  },
-  set(target, key, value) {
-    if (indexKey(key) >= 0) return true
-    return Reflect.set(target, key, value)
-  },
-}
+const HANDLER = Symbol('handler')
 
 let listConstructing = false
 
@@ -83,19 +42,24 @@ class LiveList {
   [CACHE]: Uint32Array | null = null;
   [CACHE_VERSION] = -1;
   [TREE] = false
+  declare [HANDLER]: ProxyHandler<LiveList>
 
   constructor() {
     if (!listConstructing) throw new TypeError('Illegal constructor')
   }
 }
 
-function liveIds(list: LiveList): Uint32Array {
+export function liveIds(list: LiveList): Uint32Array {
   const now = list[TREE] ? treeVersion : version
   if (list[CACHE_VERSION] !== now || !list[CACHE]) {
     list[CACHE] = list[SOURCE]!()
     list[CACHE_VERSION] = now
   }
   return list[CACHE]
+}
+
+export function listShape<T extends LiveList>(cls: { prototype: T }, shape: LegacyShape<T>): void {
+  Object.defineProperty(cls.prototype, HANDLER, { value: legacy(shape), configurable: true })
 }
 
 export class NodeList extends LiveList {
@@ -137,6 +101,13 @@ export class NodeList extends LiveList {
   }
 }
 tag(NodeList)
+listShape(NodeList, {
+  length: (list) => liveIds(list).length,
+  item: (list, index) => {
+    const ids = liveIds(list)
+    return index < ids.length ? wrap<Node>(ids[index]!) : null
+  },
+})
 
 export function staticNodeList(nodes: readonly Node[]): NodeList {
   listConstructing = true
@@ -156,18 +127,28 @@ export function staticNodeListOfIds(ids: Uint32Array): NodeList {
   return staticNodeList(nodes)
 }
 
+export function namedBy(id: number, key: string): boolean {
+  return dom.id(id) === key || (dom.getAttribute(id, 'name') === key && dom.namespace(id) === Ns.Html)
+}
+
+export function namesOf(ids: Uint32Array): string[] {
+  const names: string[] = []
+  for (let i = 0; i < ids.length; i++) {
+    const id = dom.id(ids[i]!)
+    if (id) names.push(id)
+    const name = dom.namespace(ids[i]!) === Ns.Html ? dom.getAttribute(ids[i]!, 'name') : null
+    if (name) names.push(name)
+  }
+  return names
+}
 
 export class HTMLCollection extends LiveList {
-  protected ids(): Uint32Array {
-    return liveIds(this)
-  }
-
   get length(): number {
-    return this.ids().length
+    return liveIds(this).length
   }
 
   item(index: number): Element | null {
-    const ids = this.ids()
+    const ids = liveIds(this)
     const i = Number(index) >>> 0
     return i < ids.length ? wrap<Element>(ids[i]!) : null
   }
@@ -175,9 +156,8 @@ export class HTMLCollection extends LiveList {
   namedItem(name: string): Element | null {
     const key = String(name)
     if (!key) return null
-    const ids = this.ids()
-    for (let i = 0; i < ids.length; i++) if (dom.id(ids[i]!) === key) return wrap<Element>(ids[i]!)
-    for (let i = 0; i < ids.length; i++) if (dom.getAttribute(ids[i]!, 'name') === key) return wrap<Element>(ids[i]!)
+    const ids = liveIds(this)
+    for (let i = 0; i < ids.length; i++) if (namedBy(ids[i]!, key)) return wrap<Element>(ids[i]!)
     return null
   }
 
@@ -187,13 +167,27 @@ export class HTMLCollection extends LiveList {
 }
 tag(HTMLCollection)
 
+export function collectionShape<T extends HTMLCollection>(extra: LegacyShape<T> = {}): LegacyShape<T> {
+  return {
+    length: (list) => liveIds(list).length,
+    item: (list, index) => {
+      const ids = liveIds(list)
+      return index < ids.length ? wrap<Element>(ids[index]!) : null
+    },
+    named: (list, key) => list.namedItem(key) ?? undefined,
+    names: (list) => namesOf(liveIds(list)),
+    ...extra,
+  }
+}
+listShape(HTMLCollection, collectionShape())
+
 export function liveCollection<T extends LiveList>(source: () => Uint32Array, cls: new () => T = HTMLCollection as never, tree = false): T {
   listConstructing = true
   try {
     const list = new cls()
     list[SOURCE] = source
     list[TREE] = tree
-    return new Proxy(list, liveIndex as unknown as ProxyHandler<T>)
+    return new Proxy(list, list[HANDLER] as ProxyHandler<T>)
   } finally {
     listConstructing = false
   }
@@ -233,7 +227,7 @@ function siblings(id: number): [Node | null, Node | null] {
 
 export function insert(parent: Node, node: Node, ref: Node | null): void {
   const pid = parent[ID], nid = node[ID], rid = ref ? ref[ID] : NONE
-  const fragment = node.nodeType === NodeType.DocumentFragment
+  const fragment = inner(node, 'nodeType') === NodeType.DocumentFragment
   const mo = observing(), ranges = rangeHooks.active()
   let oldParent = NONE
   let oldObservers: Observers | null = null
@@ -308,7 +302,7 @@ export function replaceAll(parent: Node, incoming: readonly Node[], mutate: () =
   else for (const node of incoming) if (node[CONNECTED]) detach(dom.pinnedIn(node[ID]))
   const added: Node[] = []
   if (observers) for (const node of incoming) {
-    if (node.nodeType === NodeType.DocumentFragment) for (const id of dom.childNodes(node[ID])) added.push(wrap<Node>(id)!)
+    if (dom.nodeType(node[ID]) === NodeType.DocumentFragment) for (const id of dom.childNodes(node[ID])) added.push(wrap<Node>(id)!)
     else added.push(node)
   }
   guard(mutate)
@@ -353,7 +347,8 @@ export class Node extends EventTarget implements Wrapper {
 
   constructor() {
     super()
-    adopt(this)
+    const outer = adopt(this)
+    if (outer !== this) return outer
   }
 
   get nodeType(): number {
@@ -450,23 +445,7 @@ export class Node extends EventTarget implements Wrapper {
 
   isEqualNode(other: Node | null): boolean {
     if (!other || !(other instanceof Node)) return false
-    if (other === this) return true
-    if (this.nodeType !== other.nodeType) return false
-    switch (this.nodeType) {
-      case NodeType.Element: return equalElements(this[ID], other[ID])
-      case NodeType.Text:
-      case NodeType.CDataSection:
-      case NodeType.Comment: return dom.data(this[ID]) === dom.data(other[ID])
-      case NodeType.ProcessingInstruction: return dom.data(this[ID]) === dom.data(other[ID]) && dom.processingInstructionTarget(this[ID]) === dom.processingInstructionTarget(other[ID])
-      case NodeType.DocumentType: {
-        const a = dom.documentType(this[ID]), b = dom.documentType(other[ID])
-        return a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
-      }
-      default: {
-        const a = dom.childNodes(this[ID]), b = dom.childNodes(other[ID])
-        return a.length === b.length && a.every((id, i) => wrap<Node>(id)!.isEqualNode(wrap<Node>(b[i]!)))
-      }
-    }
+    return equalNodes(this, other)
   }
 
   cloneNode(deep = false): Node {
@@ -512,7 +491,7 @@ export class Node extends EventTarget implements Wrapper {
   insertBefore<T extends Node>(node: T, child: Node | null): T {
     nodeArg(node, 'insertBefore')
     if (child !== null && child !== undefined && !(child instanceof Node)) throw new TypeError("Failed to execute 'insertBefore' on 'Node': parameter 2 is not of type 'Node'.")
-    const ref = child === node ? node.nextSibling : (child ?? null)
+    const ref = child === node ? inner(node, 'nextSibling') : (child ?? null)
     insert(this, node, ref)
     return node
   }
@@ -529,8 +508,8 @@ export class Node extends EventTarget implements Wrapper {
     nodeArg(child, 'replaceChild')
     if (dom.parent(child[ID]) !== this[ID]) throw new DOMException("Failed to execute 'replaceChild' on 'Node': The node to be replaced is not a child of this node.", 'NotFoundError')
     if (node === child) return child
-    let ref = child.nextSibling
-    if (ref === node) ref = node.nextSibling
+    let ref = inner(child, 'nextSibling')
+    if (ref === node) ref = inner(node, 'nextSibling')
     remove(child)
     insert(this, node, ref)
     return child
@@ -555,6 +534,27 @@ export class Node extends EventTarget implements Wrapper {
 constants(Node, { ELEMENT_NODE: 1, ATTRIBUTE_NODE: 2, TEXT_NODE: 3, CDATA_SECTION_NODE: 4, ENTITY_REFERENCE_NODE: 5, ENTITY_NODE: 6, PROCESSING_INSTRUCTION_NODE: 7, COMMENT_NODE: 8, DOCUMENT_NODE: 9, DOCUMENT_TYPE_NODE: 10, DOCUMENT_FRAGMENT_NODE: 11, NOTATION_NODE: 12, DOCUMENT_POSITION_DISCONNECTED: 1, DOCUMENT_POSITION_PRECEDING: 2, DOCUMENT_POSITION_FOLLOWING: 4, DOCUMENT_POSITION_CONTAINS: 8, DOCUMENT_POSITION_CONTAINED_BY: 16, DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC: 32 })
 tag(Node)
 
+function equalNodes(one: Node, other: Node): boolean {
+  if (other === one) return true
+  const type = dom.nodeType(one[ID])
+  if (type !== dom.nodeType(other[ID])) return false
+  switch (type) {
+    case NodeType.Element: return equalElements(one[ID], other[ID])
+    case NodeType.Text:
+    case NodeType.CDataSection:
+    case NodeType.Comment: return dom.data(one[ID]) === dom.data(other[ID])
+    case NodeType.ProcessingInstruction: return dom.data(one[ID]) === dom.data(other[ID]) && dom.processingInstructionTarget(one[ID]) === dom.processingInstructionTarget(other[ID])
+    case NodeType.DocumentType: {
+      const a = dom.documentType(one[ID]), b = dom.documentType(other[ID])
+      return a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
+    }
+    default: {
+      const a = dom.childNodes(one[ID]), b = dom.childNodes(other[ID])
+      return a.length === b.length && a.every((id, i) => equalNodes(wrap<Node>(id)!, wrap<Node>(b[i]!)!))
+    }
+  }
+}
+
 function equalElements(a: number, b: number): boolean {
   if (dom.localName(a) !== dom.localName(b) || namespaceOf(a) !== namespaceOf(b) || dom.prefix(a) !== dom.prefix(b)) return false
   const attrs = (id: number) => {
@@ -567,7 +567,7 @@ function equalElements(a: number, b: number): boolean {
   if (x.size !== y.size) return false
   for (const [k, v] of x) if (y.get(k) !== v) return false
   const ca = dom.childNodes(a), cb = dom.childNodes(b)
-  return ca.length === cb.length && ca.every((id, i) => wrap<Node>(id)!.isEqualNode(wrap<Node>(cb[i]!)))
+  return ca.length === cb.length && ca.every((id, i) => equalNodes(wrap<Node>(id)!, wrap<Node>(cb[i]!)!))
 }
 
 export const baseHooks = { url: () => '' }
@@ -581,7 +581,7 @@ export function cloneOf(node: Node, deep: boolean): Node {
 }
 
 export function setTextContent(node: Node, text: string): void {
-  const type = node.nodeType
+  const type = inner(node, 'nodeType')
   if (type === NodeType.Element || type === NodeType.DocumentFragment) {
     replaceAll(node, [], () => dom.setTextContent(node[ID], text))
   } else if (type === NodeType.Text || type === NodeType.Comment || type === NodeType.CDataSection || type === NodeType.ProcessingInstruction) {
@@ -595,7 +595,7 @@ function elementFrom(id: number, forward: boolean): Element | null {
 }
 
 function viable(ref: Node | null, nodes: unknown[], forward: boolean): Node | null {
-  while (ref && nodes.includes(ref)) ref = forward ? ref.nextSibling : ref.previousSibling
+  while (ref && nodes.includes(ref)) ref = forward ? inner(ref, 'nextSibling') : inner(ref, 'previousSibling')
   return ref
 }
 
@@ -629,7 +629,7 @@ export class ParentNodeMixin {
 
   prepend(this: Node, ...nodes: unknown[]): void {
     const node = convertNodes(nodes)
-    if (node) insert(this, node, this.firstChild)
+    if (node) insert(this, node, inner(this, 'firstChild'))
   }
 
   replaceChildren(this: Node, ...nodes: unknown[]): void {
@@ -667,25 +667,25 @@ const CHILDREN = Symbol('children')
 
 export class ChildNodeMixin {
   before(this: Node, ...nodes: unknown[]): void {
-    const parent = this.parentNode
+    const parent = inner(this, 'parentNode')
     if (!parent) return
-    const ref = viable(this.previousSibling, nodes, false)
+    const ref = viable(inner(this, 'previousSibling'), nodes, false)
     const node = convertNodes(nodes)
-    if (node) insert(parent, node, ref ? ref.nextSibling : parent.firstChild)
+    if (node) insert(parent, node, ref ? inner(ref, 'nextSibling') : inner(parent, 'firstChild'))
   }
 
   after(this: Node, ...nodes: unknown[]): void {
-    const parent = this.parentNode
+    const parent = inner(this, 'parentNode')
     if (!parent) return
-    const ref = viable(this.nextSibling, nodes, true)
+    const ref = viable(inner(this, 'nextSibling'), nodes, true)
     const node = convertNodes(nodes)
     if (node) insert(parent, node, ref)
   }
 
   replaceWith(this: Node, ...nodes: unknown[]): void {
-    const parent = this.parentNode
+    const parent = inner(this, 'parentNode')
     if (!parent) return
-    const ref = viable(this.nextSibling, nodes, true)
+    const ref = viable(inner(this, 'nextSibling'), nodes, true)
     const node = convertNodes(nodes)
     if (dom.parent(this[ID]) === parent[ID]) remove(this)
     if (node) insert(parent, node, ref)
@@ -773,9 +773,9 @@ export class Text extends CharacterData {
 
   get wholeText(): string {
     let first: Node = this
-    while (first.previousSibling?.nodeType === NodeType.Text) first = first.previousSibling
+    while (dom.previousSibling(first[ID]) !== NONE && dom.nodeType(dom.previousSibling(first[ID])) === NodeType.Text) first = wrap<Node>(dom.previousSibling(first[ID]))!
     let text = ''
-    for (let n: Node | null = first; n && n.nodeType === NodeType.Text; n = n.nextSibling) text += (n as Text).data
+    for (let n: Node | null = first; n && inner(n, 'nodeType') === NodeType.Text; n = inner(n, 'nextSibling')) text += (n as Text).data
     return text
   }
 

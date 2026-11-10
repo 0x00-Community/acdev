@@ -14,7 +14,7 @@ import { createHtml, documentClass, type HTMLElement } from './html'
 import { CDATASection, Comment, cssString, DocumentFragment, elementById, DocumentType, Node, ParentNodeMixin, ProcessingInstruction, baseHooks, HTMLCollection, liveCollection, mixin, type NodeList, staticNodeListOfIds, Text, cloneOf, remove } from './node'
 import { HTML_NS, KNOWN, SVG_NS, validateAndExtract, validElementLocalName, documents } from './namespaces'
 import { CaretPosition, getSelection, Range, type Selection } from './range'
-import { bodyId, classes, construct, constructing, documentElementOf, documentId, dom, headId, ID, nodeConstructing, rootElementId, wrap } from './realm'
+import { bodyId, classes, CONNECTED, construct, constructing, documentElementOf, documentId, dom, headId, ID, inner, nodeConstructing, rootElementId, wrap } from './realm'
 import { CSSStyleSheet, StyleSheetList } from './style'
 import { NodeIterator, TreeWalker } from './traversal'
 
@@ -195,7 +195,7 @@ export class Document extends Node {
   get activeElement(): Element | null {
     if (!this.#live) return null
     const focused = focusedElement()
-    if (focused?.isConnected) return focused
+    if (focused?.[CONNECTED]) return focused
     return this.body ?? this.documentElement
   }
   get scrollingElement(): Element | null {
@@ -209,7 +209,8 @@ export class Document extends Node {
   }
   set designMode(_value: string) {}
   get dir(): string {
-    return this.documentElement?.getAttribute('dir') ?? ''
+    const root = rootElementId()
+    return root === NONE ? '' : (dom.getAttribute(root, 'dir') ?? '')
   }
   set dir(value: string) {
     if (this.documentElement) setAttribute(this.documentElement, 'dir', String(value))
@@ -360,7 +361,7 @@ export class Document extends Node {
 
   adoptNode<T extends Node>(node: T): T {
     if (node instanceof Document) throw new DOMException("Failed to execute 'adoptNode' on 'Document': The node provided is a document, which may not be adopted.", 'NotSupportedError')
-    if (node.parentNode) remove(node)
+    if (inner(node, 'parentNode')) remove(node)
     dom.adopt(node[ID], this[ID])
     return node
   }

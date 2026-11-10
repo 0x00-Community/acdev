@@ -6,7 +6,7 @@ import { DOMRect, rectList, type DOMRectList } from './geometry'
 import { computedStyleOf, metricGetters, metricsOf, rectOf } from './layout'
 import { attributeObservers, observing, recordAttribute } from './mutation'
 import { ChildNodeMixin, insert, mixin, Node, ParentNodeMixin, remove, replaceAll, Text, type DocumentFragment } from './node'
-import { bodyId, changed, CONNECTED as CONNECTED_KEY, dom, ID, moved, wrap } from './realm'
+import { bodyId, changed, CONNECTED as CONNECTED_KEY, dom, ID, moved, wrap, inner } from './realm'
 import { string } from './reflect'
 import { inHtmlDocument, namespaceOf, nullable, validAttributeLocalName, validateAndExtract } from './namespaces'
 
@@ -23,6 +23,7 @@ export const pendingElement = { local: null as string | null, ns: Ns.Html as Ns 
 
 export const flags = {
   inlineHandlers: false,
+  formAttributes: false,
 }
 
 export const HANDLER_TYPES = [
@@ -39,9 +40,11 @@ export const HANDLER_TYPES = [
 ] as const
 const HANDLER_SET = new Set<string>(HANDLER_TYPES)
 const HANDLER_ATTRIBUTE = /\son[a-z]+\s*=/i
+const FORM_ATTRIBUTE = /\sform\s*=/i
 
 export function noteMarkup(html: string): void {
   if (!flags.inlineHandlers && HANDLER_ATTRIBUTE.test(html)) flags.inlineHandlers = true
+  if (!flags.formAttributes && FORM_ATTRIBUTE.test(html)) flags.formAttributes = true
 }
 
 export const customAttributes = {
@@ -118,7 +121,7 @@ export class Element extends Node {
   }
 
   override get nodeName(): string {
-    return this.tagName
+    return inner(this, 'tagName')
   }
 
   get localName(): string {
@@ -126,7 +129,7 @@ export class Element extends Node {
   }
 
   get tagName(): string {
-    const prefix = this.prefix
+    const prefix = inner(this, 'prefix')
     const name = prefix === null ? this[LOCAL] : `${prefix}:${this[LOCAL]}`
     return this[NS] === Ns.Html && inHtmlDocument(this[ID]) ? name.toUpperCase() : name
   }
@@ -146,7 +149,7 @@ export class Element extends Node {
       flags.inlineHandlers = true
       handlerSet(this, name.slice(2))
       setHandler(this, name.slice(2), value)
-    }
+    } else if (name === 'form') flags.formAttributes = true
   }
 
   get id(): string {
@@ -255,7 +258,7 @@ export class Element extends Node {
     if (!(attr instanceof Attr)) throw new TypeError("Failed to execute 'setAttributeNode' on 'Element': parameter 1 is not of type 'Attr'.")
     const owner = attr.ownerElement
     if (owner !== null && owner !== this) throw new DOMException("Failed to execute 'setAttributeNode' on 'Element': The node provided is an attribute node that is already an attribute of another Element; attribute nodes must be explicitly cloned.", 'InUseAttributeError')
-    const old = this.getAttributeNodeNS(attr.namespaceURI, attr.localName)
+    const old = inner(this, 'getAttributeNodeNS').call(this, attr.namespaceURI, attr.localName)
     if (old === attr) return attr
     const value = attr.value
     if (old) detachAttr(old)
@@ -265,7 +268,7 @@ export class Element extends Node {
   }
 
   setAttributeNodeNS(attr: Attr): Attr | null {
-    return this.setAttributeNode(attr)
+    return inner(this, 'setAttributeNode').call(this, attr)
   }
 
   removeAttributeNode(attr: Attr): Attr {
@@ -286,10 +289,10 @@ export class Element extends Node {
     return dom.outerHTML(this[ID])
   }
   set outerHTML(html: string) {
-    const parent = this.parentNode
+    const parent = inner(this, 'parentNode')
     if (!parent) return
-    if (parent.nodeType === NodeType.Document) throw new DOMException("Failed to set the 'outerHTML' property on 'Element': This element's parent is of type '#document', which is not an element node.", 'NoModificationAllowedError')
-    const context = parent.nodeType === NodeType.Element ? parent[ID] : bodyId() === NONE ? this[ID] : bodyId()
+    if (inner(parent, 'nodeType') === NodeType.Document) throw new DOMException("Failed to set the 'outerHTML' property on 'Element': This element's parent is of type '#document', which is not an element node.", 'NoModificationAllowedError')
+    const context = inner(parent, 'nodeType') === NodeType.Element ? parent[ID] : bodyId() === NONE ? this[ID] : bodyId()
     const markup = html === null ? '' : String(html)
     noteMarkup(markup)
     const fragment = wrap<DocumentFragment>(guard(() => dom.parseFragment(context, markup)))!
@@ -302,8 +305,8 @@ export class Element extends Node {
     const where = String(position).toLowerCase()
     const outside = where === 'beforebegin' || where === 'afterend'
     if (!outside && where !== 'afterbegin' && where !== 'beforeend') throw new DOMException(`Failed to execute 'insertAdjacentHTML' on 'Element': The value provided ('${position}') is not one of 'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'.`, 'SyntaxError')
-    const parent = this.parentNode
-    if (outside && (!parent || parent.nodeType === NodeType.Document)) throw new DOMException("Failed to execute 'insertAdjacentHTML' on 'Element': The element has no parent.", 'NoModificationAllowedError')
+    const parent = inner(this, 'parentNode')
+    if (outside && (!parent || inner(parent, 'nodeType') === NodeType.Document)) throw new DOMException("Failed to execute 'insertAdjacentHTML' on 'Element': The element has no parent.", 'NoModificationAllowedError')
     const markup = String(html)
     noteMarkup(markup)
     const context = outside ? parent![ID] : this[ID]
@@ -325,7 +328,7 @@ export class Element extends Node {
   }
 
   webkitMatchesSelector(selectors: string): boolean {
-    return this.matches(selectors)
+    return inner(this, 'matches').call(this, selectors)
   }
 
   closest(selectors: string): Element | null {
@@ -361,7 +364,7 @@ export class Element extends Node {
   }
 
   scroll(x?: number | ScrollToOptions, y?: number): void {
-    this.scrollTo(x, y)
+    inner(this, 'scrollTo').call(this, x, y)
   }
 
   scrollBy(x?: number | ScrollToOptions, y?: number): void {
@@ -431,7 +434,7 @@ function setInnerHTML(element: Element, html: string): void {
   noteMarkup(html)
   const id = element[ID]
   const fragment = guard(() => dom.parseFragment(id, html))
-  const stand = { [ID]: fragment, [CONNECTED_KEY]: false, nodeType: NodeType.DocumentFragment } as unknown as Node
+  const stand = { [ID]: fragment, [CONNECTED_KEY]: false } as unknown as Node
   replaceAll(element, [stand], () => dom.replaceChildren(id, Uint32Array.of(fragment)))
   parsed(element)
 }
@@ -439,9 +442,9 @@ function setInnerHTML(element: Element, html: string): void {
 function adjacent(element: Element, where: string, node: Node): boolean {
   const inside = where === 'afterbegin' || where === 'beforeend'
   if (!inside && where !== 'beforebegin' && where !== 'afterend') throw new DOMException(`The value provided ('${where}') is not one of 'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'.`, 'SyntaxError')
-  const parent = inside ? element : element.parentNode
+  const parent = inside ? element : inner(element, 'parentNode')
   if (!parent) return false
-  insert(parent, node, where === 'beforebegin' ? element : where === 'afterbegin' ? element.firstChild : where === 'afterend' ? element.nextSibling : null)
+  insert(parent, node, where === 'beforebegin' ? element : where === 'afterbegin' ? inner(element, 'firstChild') : where === 'afterend' ? inner(element, 'nextSibling') : null)
   return true
 }
 
@@ -639,31 +642,31 @@ export class NamedNodeMap {
   }
 
   getNamedItem(name: string): Attr | null {
-    return this.#element.getAttributeNode(name)
+    return inner(this.#element, 'getAttributeNode').call(this.#element, name)
   }
 
   getNamedItemNS(namespace: string | null, name: string): Attr | null {
-    return this.#element.getAttributeNodeNS(namespace, name)
+    return inner(this.#element, 'getAttributeNodeNS').call(this.#element, namespace, name)
   }
 
   setNamedItem(attr: Attr): Attr | null {
-    return this.#element.setAttributeNode(attr)
+    return inner(this.#element, 'setAttributeNode').call(this.#element, attr)
   }
 
   setNamedItemNS(attr: Attr): Attr | null {
-    return this.#element.setAttributeNode(attr)
+    return inner(this.#element, 'setAttributeNode').call(this.#element, attr)
   }
 
   removeNamedItem(name: string): Attr {
-    const attr = this.#element.getAttributeNode(name)
+    const attr = inner(this.#element, 'getAttributeNode').call(this.#element, name)
     if (!attr) throw new DOMException(`Failed to execute 'removeNamedItem' on 'NamedNodeMap': No item with name '${name}' was found.`, 'NotFoundError')
-    return this.#element.removeAttributeNode(attr)
+    return inner(this.#element, 'removeAttributeNode').call(this.#element, attr)
   }
 
   removeNamedItemNS(namespace: string | null, name: string): Attr {
     const attr = this.getNamedItemNS(namespace, name)
     if (!attr) throw new DOMException(`Failed to execute 'removeNamedItemNS' on 'NamedNodeMap': No item with name '${name}' was found.`, 'NotFoundError')
-    return this.#element.removeAttributeNode(attr)
+    return inner(this.#element, 'removeAttributeNode').call(this.#element, attr)
   }
 
   *[Symbol.iterator](): IterableIterator<Attr> {
@@ -704,7 +707,7 @@ export class DOMTokenList {
   }
 
   #write(tokens: string[]): void {
-    if (tokens.length === 0 && !this.#element.hasAttribute(this.#attribute)) return
+    if (tokens.length === 0 && !dom.hasAttribute(this.#element[ID], this.#attribute)) return
     setAttribute(this.#element, this.#attribute, tokens.join(' '))
   }
 

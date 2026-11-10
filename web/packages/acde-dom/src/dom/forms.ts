@@ -1,17 +1,18 @@
 import { DOMException } from '../core/exception'
 import { Event, fire } from '../core/event'
-import { getters, host, listClass, queueTask, tag } from '../core/host'
+import { getters, host, queueTask, tag } from '../core/host'
 import { File } from '../core/blob'
 import { NONE } from '../native'
+import { legacy } from './legacy'
 import { ACTIVATION, activation, FileList, SubmitEvent } from './events'
-import { ATTRIBUTE_CHANGED, LOCAL, setAttribute, tokenList, type Element, type DOMTokenList } from './element'
+import { ATTRIBUTE_CHANGED, flags, LOCAL, setAttribute, tokenList, type Element, type DOMTokenList } from './element'
 import { env, resolveUrl } from './env'
 import { focusable, setFocus } from './focus'
-import { HTMLElement, register } from './html'
+import { createHtml, HTMLElement, register } from './html'
 import { acceptFilters, readPicked } from './picker'
-import { cssString, HTMLCollection, liveCollection, mixin, staticNodeList, type Node, type NodeList } from './node'
+import { collectionShape, cssString, DocumentFragment, HTMLCollection, listShape, liveCollection, liveIds, mixin, namedBy, namesOf, NodeList, staticNodeList, type Node } from './node'
 import { bool, long, string, url } from './reflect'
-import { documentId, dom, ID, wrap } from './realm'
+import { documentId, dom, exotic, ID, version, wrap, inner } from './realm'
 
 const SELECTION = Symbol('selection')
 const CUSTOM_VALIDITY = Symbol('customValidity')
@@ -26,16 +27,18 @@ const SELECTABLE = new Set(['text', 'search', 'url', 'tel', 'password'])
 const SELECT_ALL = new Set([...SELECTABLE, 'email', 'number'])
 const TYPES = ['hidden', 'text', 'search', 'tel', 'url', 'email', 'password', 'date', 'month', 'week', 'time', 'datetime-local', 'number', 'range', 'color', 'checkbox', 'radio', 'file', 'submit', 'image', 'reset', 'button']
 
-function formOwner(element: Element): HTMLFormElement | null {
-  const id = element[ID]
-  const attr = dom.getAttribute(id, 'form')
+function formOwnerId(id: number): number {
+  const attr = dom.localName(id) === 'img' ? null : dom.getAttribute(id, 'form')
   if (attr !== null) {
     const found = dom.getElementById(attr)
-    return found !== NONE && dom.localName(found) === 'form' ? wrap<HTMLFormElement>(found) : null
+    return found !== NONE && dom.localName(found) === 'form' ? found : NONE
   }
   const parent = dom.parent(id)
-  if (parent === NONE) return null
-  return wrap<HTMLFormElement>(dom.closest(parent, 'form'))
+  return parent === NONE ? NONE : dom.closest(parent, 'form')
+}
+
+function formOwner(element: Element): HTMLFormElement | null {
+  return wrap<HTMLFormElement>(formOwnerId(element[ID]))
 }
 
 function labelsOf(element: Element): NodeList {
@@ -527,8 +530,8 @@ export class HTMLInputElement extends HTMLElement {
         },
       }
     }
-    if (type === 'submit' || type === 'image') return activation(() => this.form?.requestSubmit(this))
-    if (type === 'reset') return activation(() => this.form?.reset())
+    if (type === 'submit' || type === 'image') return activation(() => submitFrom(this))
+    if (type === 'reset') return activation(() => resetFrom(this))
     return null
   }
 
@@ -604,8 +607,20 @@ export class HTMLOptionsCollection extends HTMLCollection {
   remove(index: number): void {
     this[SELECT]?.remove(index)
   }
+
+  override get length(): number {
+    return liveIds(this).length
+  }
+  override set length(value: number) {
+    if (this[SELECT]) setOptionCount(this[SELECT], value)
+  }
 }
 tag(HTMLOptionsCollection)
+listShape(HTMLOptionsCollection, collectionShape<HTMLOptionsCollection>({
+  setItem: (list, index, value) => {
+    if (list[SELECT]) setOption(list[SELECT], index, value)
+  },
+}))
 
 const OPTIONS = Symbol('options')
 
@@ -613,7 +628,41 @@ function optionIds(select: number): Uint32Array {
   return dom.options(select)
 }
 
+function setOptionCount(select: HTMLSelectElement, value: number): void {
+  const ids = optionIds(select[ID])
+  const count = Number(value) >>> 0
+  if (count > ids.length) {
+    if (count > 100000) return
+    const fragment = new DocumentFragment()
+    for (let i = ids.length; i < count; i++) fragment.appendChild(createHtml('option'))
+    select.appendChild(fragment)
+    return
+  }
+  for (let i = ids.length - 1; i >= count; i--) wrap<Element>(ids[i]!)!.remove()
+}
+
+function setOption(select: HTMLSelectElement, index: number, value: unknown): void {
+  if (value === null || value === undefined) return select.remove(index)
+  if (!(value instanceof HTMLOptionElement)) throw new TypeError("Failed to set an indexed property on 'HTMLSelectElement': parameter 2 is not of type 'HTMLOptionElement'.")
+  const ids = optionIds(select[ID])
+  if (index > ids.length) setOptionCount(select, index)
+  if (index >= ids.length) select.appendChild(value)
+  else wrap<Element>(ids[index]!)!.replaceWith(value)
+}
+
+const selectShape = legacy<HTMLSelectElement>({
+  identity: true,
+  length: (select) => optionIds(select[ID]).length,
+  item: (select, index) => wrap<Element>(optionIds(select[ID])[index] ?? NONE),
+  setItem: setOption,
+})
+
 export class HTMLSelectElement extends HTMLElement {
+  constructor() {
+    exotic(selectShape)
+    super()
+  }
+
   get type(): string {
     return dom.hasAttribute(this[ID], 'multiple') ? 'select-multiple' : 'select-one'
   }
@@ -632,9 +681,12 @@ export class HTMLSelectElement extends HTMLElement {
   get length(): number {
     return optionIds(this[ID]).length
   }
+  set length(value: number) {
+    setOptionCount(this, value)
+  }
 
   item(index: number): Element | null {
-    return wrap<Element>(optionIds(this[ID])[index] ?? NONE)
+    return wrap<Element>(optionIds(this[ID])[Number(index) >>> 0] ?? NONE)
   }
 
   namedItem(name: string): Element | null {
@@ -661,7 +713,7 @@ export class HTMLSelectElement extends HTMLElement {
 
   get selectedOptions(): HTMLCollection {
     const id = this[ID]
-    return liveCollection(() => Uint32Array.from([...optionIds(id)].filter((o) => dom.optionSelected(o))))
+    return liveCollection(() => optionIds(id).filter((o) => dom.optionSelected(o)))
   }
 
   add(element: Element, before?: Element | number | null): void {
@@ -776,8 +828,8 @@ export class HTMLButtonElement extends HTMLElement {
   [ACTIVATION](): { run(): void; cancel(): void } | null {
     if (disabledControl(this)) return null
     const type = this.type
-    if (type === 'submit') return activation(() => this.form?.requestSubmit(this))
-    if (type === 'reset') return activation(() => this.form?.reset())
+    if (type === 'submit') return activation(() => submitFrom(this))
+    if (type === 'reset') return activation(() => resetFrom(this))
     return activation(() => {})
   }
 }
@@ -788,17 +840,29 @@ register(HTMLButtonElement, 'button')
 export interface HTMLButtonElement extends ConstraintValidation {}
 
 const LISTED = 'button, fieldset, input, object, output, select, textarea'
+const FORM_LISTED = 'button, fieldset, input:not([type="image" i]), object, output, select, textarea'
 
-export class RadioNodeList extends listClass<Element>('RadioNodeList') {
-  #radio(test: (input: HTMLInputElement) => boolean): HTMLInputElement | undefined {
-    return [...this].find((n) => n[LOCAL] === 'input' && (n as unknown as HTMLInputElement).type === 'radio' && test(n as unknown as HTMLInputElement)) as HTMLInputElement | undefined
-  }
+function radio(id: number): boolean {
+  return dom.localName(id) === 'input' && dom.getAttribute(id, 'type')?.toLowerCase() === 'radio'
+}
+
+export class RadioNodeList extends NodeList {
   get value(): string {
-    return this.#radio((n) => n.checked)?.value ?? ''
+    const ids = liveIds(this)
+    for (let i = 0; i < ids.length; i++) if (radio(ids[i]!) && dom.checked(ids[i]!)) return dom.getAttribute(ids[i]!, 'value') ?? 'on'
+    return ''
   }
   set value(value: string) {
-    const radio = this.#radio((n) => n.value === String(value))
-    if (radio) radio.checked = true
+    const text = String(value)
+    const ids = liveIds(this)
+    for (let i = 0; i < ids.length; i++) {
+      if (!radio(ids[i]!)) continue
+      const own = dom.getAttribute(ids[i]!, 'value')
+      if (own === text || (own === null && text === 'on')) {
+        wrap<HTMLInputElement>(ids[i]!)!.checked = true
+        return
+      }
+    }
   }
 }
 tag(RadioNodeList)
@@ -807,46 +871,179 @@ export class HTMLFormControlsCollection extends HTMLCollection {
   override namedItem(name: string): Element | null {
     const key = String(name)
     if (!key) return null
-    const matches: Element[] = []
-    const ids = this.ids()
-    for (let i = 0; i < ids.length; i++) if (dom.id(ids[i]!) === key || dom.getAttribute(ids[i]!, 'name') === key) matches.push(wrap<Element>(ids[i]!)!)
-    if (matches.length === 0) return null
-    return matches.length === 1 ? matches[0]! : (new RadioNodeList(matches) as unknown as Element)
+    const ids = liveIds(this)
+    let first = NONE
+    for (let i = 0; i < ids.length; i++) {
+      if (!namedBy(ids[i]!, key)) continue
+      if (first !== NONE) return liveCollection(() => liveIds(this).filter((id) => namedBy(id, key)), RadioNodeList) as unknown as Element
+      first = ids[i]!
+    }
+    return wrap<Element>(first)
   }
 }
 tag(HTMLFormControlsCollection)
+listShape(HTMLFormControlsCollection, collectionShape())
 
 const ELEMENTS = Symbol('elements')
+const NAMED = Symbol('named')
+const PAST = Symbol('pastNames')
 
-function formControls(form: number): Uint32Array {
-  const inside = dom.querySelectorAll(form, LISTED)
+function owned(form: number, selector: string): Uint32Array {
+  const inside = dom.querySelectorAll(form, selector)
+  if (!flags.formAttributes) return inside
   const own = dom.getAttribute(form, 'id')
   const result: number[] = []
   for (const id of inside) if (!dom.hasAttribute(id, 'form') || dom.getAttribute(id, 'form') === own) result.push(id)
   if (own) {
-    for (const id of dom.querySelectorAll(documentId, `[form=${cssString(own)}]`)) if (!result.includes(id) && dom.matches(id, LISTED)) result.push(id)
-    result.sort((a, b) => (a === b ? 0 : dom.compareDocumentPosition(a, b) & 4 ? -1 : 1))
+    let outside = false
+    for (const id of dom.querySelectorAll(documentId, `[form=${cssString(own)}]`)) {
+      if (result.includes(id) || !dom.matches(id, selector)) continue
+      result.push(id)
+      outside = true
+    }
+    if (outside) result.sort((a, b) => (a === b ? 0 : dom.compareDocumentPosition(a, b) & 4 ? -1 : 1))
   }
   return Uint32Array.from(result)
 }
 
+function formControls(form: number): Uint32Array {
+  return owned(form, FORM_LISTED)
+}
+
+type Named = Element | RadioNodeList
+
+function candidates(form: number, key: string): Uint32Array {
+  const quoted = cssString(key)
+  const found = owned(form, `:is(${FORM_LISTED}, img):is([id=${quoted}], [name=${quoted}])`)
+  if (found.length === 0) return found
+  const listed = found.filter((id) => dom.localName(id) !== 'img')
+  return listed.length ? listed : found
+}
+
+function formNamed(form: HTMLFormElement, key: string): Named | undefined {
+  if (!key) return undefined
+  let cache = form[NAMED]
+  if (!cache) cache = form[NAMED] = { version, found: new Map() }
+  else if (cache.version !== version) {
+    cache.version = version
+    cache.found.clear()
+    const past = form[PAST]
+    if (past) for (const [name, element] of past) if (formOwnerId(element[ID]) !== form[ID]) past.delete(name)
+  }
+  let found = cache.found.get(key)
+  if (found === undefined) {
+    found = formLookup(form, key)
+    cache.found.set(key, found)
+  }
+  return found ?? undefined
+}
+
+function formLookup(form: HTMLFormElement, key: string): Named | null {
+  const id = form[ID]
+  const ids = candidates(id, key)
+  if (ids.length === 0) return form[PAST]?.get(key) ?? null
+  if (ids.length > 1) return liveCollection(() => candidates(id, key), RadioNodeList)
+  const element = wrap<Element>(ids[0]!)!
+  ;(form[PAST] ??= new Map()).set(key, element)
+  return element
+}
+
+function formNames(form: HTMLFormElement): string[] {
+  const names = namesOf(owned(form[ID], `${FORM_LISTED}, img`))
+  const past = form[PAST]
+  return past ? names.concat([...past.keys()]) : names
+}
+
+function elementsOf(form: HTMLFormElement): HTMLFormControlsCollection {
+  const id = form[ID]
+  return (form[ELEMENTS] ??= liveCollection(() => formControls(id), HTMLFormControlsCollection))
+}
+
+const formShape = legacy<HTMLFormElement>({
+  identity: true,
+  override: true,
+  length: (form) => liveIds(elementsOf(form)).length,
+  item: (form, index) => {
+    const ids = liveIds(elementsOf(form))
+    return index < ids.length ? wrap<Element>(ids[index]!) : null
+  },
+  named: formNamed,
+  names: formNames,
+})
+
+function formMethod(form: number): string {
+  const raw = dom.getAttribute(form, 'method')?.toLowerCase()
+  return raw === 'post' || raw === 'dialog' ? raw : 'get'
+}
+
+function formValid(form: number): boolean {
+  let valid = true
+  for (const id of formControls(form)) {
+    const control = wrap<Element>(id)! as unknown as ConstraintValidation & Element
+    if (typeof control.checkValidity === 'function' && !control.checkValidity.call(control)) valid = false
+  }
+  return valid
+}
+
+function submitForm(form: HTMLFormElement, submitter: Element | null): void {
+  const id = form[ID]
+  if (submitter && formOwnerId(submitter[ID]) !== id) throw new DOMException("Failed to execute 'requestSubmit' on 'HTMLFormElement': The specified element is not owned by this form element.", 'NotFoundError')
+  const noValidate = dom.hasAttribute(id, 'novalidate') || (submitter ? dom.hasAttribute(submitter[ID], 'formnovalidate') : false)
+  if (!noValidate && !formValid(id)) return
+  const event = new SubmitEvent('submit', { bubbles: true, cancelable: true, submitter })
+  if (!fire(form, event)) return
+  if (formMethod(id) === 'dialog') {
+    const dialog = dom.closest(id, 'dialog')
+    if (dialog !== NONE) (wrap<HTMLElement>(dialog) as unknown as { close(v?: string): void }).close(submitter ? ((submitter as unknown as { value?: string }).value ?? undefined) : undefined)
+  }
+}
+
+function resetForm(form: HTMLFormElement): void {
+  if (!fire(form, new Event('reset', { bubbles: true, cancelable: true }))) return
+  for (const id of formControls(form[ID])) {
+    const control = wrap<Element>(id)!
+    const local = control[LOCAL]
+    if (local === 'input') {
+      const input = control as unknown as HTMLInputElement
+      dom.setValue(id, dom.getAttribute(id, 'value') ?? '')
+      dom.setChecked(id, dom.hasAttribute(id, 'checked'))
+      input.indeterminate = false
+    } else if (local === 'textarea') dom.setValue(id, dom.textContent(id))
+    else if (local === 'select') dom.resetSelect(id)
+  }
+}
+
+function submitFrom(submitter: Element): void {
+  const form = formOwner(submitter)
+  if (form) submitForm(form, submitter)
+}
+
+function resetFrom(control: Element): void {
+  const form = formOwner(control)
+  if (form) resetForm(form)
+}
+
+export function submitImplicitly(field: Element): void {
+  const form = formOwner(field)
+  if (form) submitForm(form, null)
+}
+
 export class HTMLFormElement extends HTMLElement {
+  [ELEMENTS]?: HTMLFormControlsCollection;
+  [NAMED]?: { version: number; found: Map<string, Named | null> };
+  [PAST]?: Map<string, Element>
+
+  constructor() {
+    exotic(formShape)
+    super()
+  }
+
   get elements(): HTMLFormControlsCollection {
-    const holder = this as unknown as { [ELEMENTS]?: HTMLFormControlsCollection }
-    const id = this[ID]
-    return (holder[ELEMENTS] ??= liveCollection(() => formControls(id), HTMLFormControlsCollection))
+    return elementsOf(this)
   }
 
   get length(): number {
-    return formControls(this[ID]).length
-  }
-
-  item(index: number): Element | null {
-    return this.elements.item(index)
-  }
-
-  namedItem(name: string): Element | null {
-    return this.elements.namedItem(name)
+    return liveIds(elementsOf(this)).length
   }
 
   get relList(): DOMTokenList {
@@ -862,8 +1059,7 @@ export class HTMLFormElement extends HTMLElement {
   }
 
   get method(): string {
-    const raw = dom.getAttribute(this[ID], 'method')?.toLowerCase()
-    return raw === 'post' || raw === 'dialog' ? raw : 'get'
+    return formMethod(this[ID])
   }
   set method(value: string) {
     setAttribute(this, 'method', String(value))
@@ -872,43 +1068,19 @@ export class HTMLFormElement extends HTMLElement {
   submit(): void {}
 
   requestSubmit(submitter?: Element | null): void {
-    if (submitter && formOwner(submitter) !== this) throw new DOMException("Failed to execute 'requestSubmit' on 'HTMLFormElement': The specified element is not owned by this form element.", 'NotFoundError')
-    const noValidate = dom.hasAttribute(this[ID], 'novalidate') || (submitter ? dom.hasAttribute(submitter[ID], 'formnovalidate') : false)
-    if (!noValidate && !this.reportValidity()) return
-    const event = new SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: submitter ?? null })
-    if (!fire(this, event)) return
-    if (this.method === 'dialog') {
-      const dialog = dom.closest(this[ID], 'dialog')
-      if (dialog !== NONE) (wrap<HTMLElement>(dialog) as unknown as { close(v?: string): void }).close(submitter ? ((submitter as unknown as { value?: string }).value ?? undefined) : undefined)
-    }
+    submitForm(this, submitter ?? null)
   }
 
   reset(): void {
-    if (!fire(this, new Event('reset', { bubbles: true, cancelable: true }))) return
-    for (const id of formControls(this[ID])) {
-      const control = wrap<Element>(id)!
-      const local = control[LOCAL]
-      if (local === 'input') {
-        const input = control as unknown as HTMLInputElement
-        dom.setValue(id, dom.getAttribute(id, 'value') ?? '')
-        dom.setChecked(id, dom.hasAttribute(id, 'checked'))
-        input.indeterminate = false
-      } else if (local === 'textarea') dom.setValue(id, dom.textContent(id))
-      else if (local === 'select') dom.resetSelect(id)
-    }
+    resetForm(this)
   }
 
   checkValidity(): boolean {
-    let valid = true
-    for (const id of formControls(this[ID])) {
-      const control = wrap<Element>(id)! as unknown as ConstraintValidation & Element
-      if (typeof control.checkValidity === 'function' && !control.checkValidity.call(control)) valid = false
-    }
-    return valid
+    return formValid(this[ID])
   }
 
   reportValidity(): boolean {
-    return this.checkValidity()
+    return formValid(this[ID])
   }
 }
 for (const name of ['name', 'target', 'acceptCharset', 'autocomplete', 'rel']) string(HTMLFormElement.prototype, name, name === 'acceptCharset' ? 'accept-charset' : name.toLowerCase())
@@ -943,11 +1115,11 @@ export class HTMLLabelElement extends HTMLElement {
   [ACTIVATION](event: Event): { run(): void; cancel(): void } | null {
     const control = this.control
     const target = event.target as Node | null
-    if (!control || (target && control.contains(target))) return null
+    if (!control || (target && inner(control, 'contains').call(control, target))) return null
     if (target && target !== this && (target as unknown as Element)[ID] !== undefined && dom.closest((target as unknown as Element)[ID], 'a[href], button, input, select, textarea, label') !== this[ID]) return null
     return activation(() => {
       if (focusable(control[ID])) setFocus(control)
-      if (control[LOCAL] !== 'textarea' && !(control[LOCAL] === 'input' && SELECTABLE.has((control as unknown as HTMLInputElement).type))) control.click()
+      if (control[LOCAL] !== 'textarea' && !(control[LOCAL] === 'input' && SELECTABLE.has((control as unknown as HTMLInputElement).type))) inner(control, 'click').call(control)
     })
   }
 }
@@ -956,7 +1128,8 @@ register(HTMLLabelElement, 'label')
 export class HTMLFieldSetElement extends HTMLElement {
   get elements(): HTMLCollection {
     const id = this[ID]
-    return liveCollection(() => dom.querySelectorAll(id, LISTED), HTMLFormControlsCollection)
+    const holder = this as unknown as { [ELEMENTS]?: HTMLCollection }
+    return (holder[ELEMENTS] ??= liveCollection(() => dom.querySelectorAll(id, LISTED)))
   }
 }
 getters(HTMLFieldSetElement.prototype, { type: 'fieldset' })

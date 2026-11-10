@@ -584,6 +584,28 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   147 → 277 / 2369 (`DOMParser-parseFromString-xml-parsererror` 23 / 23、`XMLSerializer-serializeToString` 29 / 33、实体、CDATA、往返全过;
   剩下的大多是 `innerHTML` 的 Trusted Types、`createContextualFragment`、`positional-methods` 那批和 iframe); `dom/nodes` 3066 → 4114 / 6112
   (62 个文件变好, 没有变差的; `createElementNS`、`createDocument`、`*NS` 的属性和集合、处理指令、选择器大小写).
+- **按名字和序号取成员** (WebIDL 的 legacy platform object, acde-dom `dom/legacy.ts` 的 `legacy(shape)` 出 Proxy 的 handler, 照规范的
+  [[GetOwnProperty]] / [[DefineOwnProperty]] / [[Delete]] / [[OwnPropertyKeys]]): 序号是可枚举的自有属性, 名字是不可枚举的
+  (`Object.keys` 只有序号, `in` 和 `getOwnPropertyNames` 有名字), 没有 setter 的写入失败 (严格模式抛 TypeError), `preventExtensions` 失败.
+  - `HTMLCollection` (`document.forms.login`、`getElementsByTagName('input').title`、`children`、`select.options`、表格的 `rows` / `cells` /
+    `tBodies`, 这三个现在是活的 `HTMLCollection`): 按文档顺序第一个 id 等于名字、或 HTML 元素的 `name` 等于名字的元素 (`namedItem` 同一段,
+    一遍扫完); 自有属性和原型上的成员优先 (`length`、`item` 还是自己的).
+  - `HTMLFormControlsCollection` (`form.elements`, 同一个对象; 不含 `<input type=image>`): 一个匹配给元素, 几个给活的 `RadioNodeList`
+    (现在是 `NodeList` 的子类, `value` 读写选中的单选钮). `fieldset.elements` 是 `HTMLCollection`.
+  - `HTMLFormElement` (`[LegacyOverrideBuiltIns]`): `form[0]`、`form.title`. 先找它的 listed 元素 (不含图片按钮), 没有再找它里面的 `img`,
+    都没有再查 past names map (元素改名后旧名字仍然指它, 元素不再属于这个表单时去掉); 名字盖过原型上的成员 (`<input name="submit">` 之后
+    `form.submit` 是那个 input), 只有自有属性排在名字前面. 写入照普通对象走原型上的 setter (`form.action = …` 仍然改属性).
+    表单的包装对象是 Proxy (`realm.ts` `exotic` 在构造时换上, 登记进包装表的就是它), 所以 **acde-dom 自己的代码不许从可能是表单的
+    包装对象上按名字读成员**: 用 id 调原生接口, 或 `realm.ts` 的 `inner(node, 'parentNode')` (从原型读, receiver 还是这个对象; 页面加的
+    自有属性也挡不住它). 测试 `test/named.test.ts` 最后一条给表单放上和每个成员同名的控件, 和没重名的表单逐项对照.
+    每次按名字读表单是一次查表: 文档有改动 (`version` 变了) 后第一次读某个名字做一次 `querySelectorAll` (只在这个表单里; 页面出现过
+    `form` 属性之后 (`flags.formAttributes`, 和 `inlineHandlers` 一样从标记和 `setAttribute` 记下) 才另查整个文档里 `form=<id>` 的控件),
+    之后同一个名字不再调原生接口 (`test/cost.test.ts`: React 挂 500 个 input 的表单, 每次 append 一次查询).
+  - `HTMLSelectElement` / `HTMLOptionsCollection`: `select[i]`、`select[i] = option` (null 是删掉, 超出长度先补空的 option, 不是
+    `HTMLOptionElement` 抛 TypeError)、`length = n`.
+  - 还没有: `document.<name>` 和 `window.<id>` (Document / Window 的具名属性)、`element.attributes.<name>` (`NamedNodeMap`)、
+    `classList[0]` (`DOMTokenList`)、`map.areas`; 解析器给的 form owner (错位嵌套时 `img` 和控件属于哪个表单) 不记, 一律按最近的
+    祖先 `form` 和 `form` 属性算.
 - **通知**: `Notification` 转给桌面 (`on('notification')`); 桌面没在显示时 (调试窗口) 由宿主窗口发系统通知 (hostwin `system/notify.rs`). 页面给的文字
   当不可信数据: macOS 用 `osascript -l JavaScript -e <固定脚本>`, 文字只经环境变量 `ACDE_NOTIFY_*` 传 (放进 argv 会被当成选项); Linux 走
   `org.freedesktop.Notifications` (body 只在服务端报 `body-markup` 时转实体). Windows 没有系统通知 (宿主 `Shell` 不绑定 `notify`): 平台表 win32

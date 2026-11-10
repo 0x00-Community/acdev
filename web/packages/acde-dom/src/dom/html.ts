@@ -1,5 +1,5 @@
 import { DOMException } from '../core/exception'
-import { defineHandlers, Event, fire } from '../core/event'
+import { defineHandlers, Event, EventTarget, fire } from '../core/event'
 import { G, getters, host, queueTask, tag } from '../core/host'
 import { URL } from '../core/url'
 import { NONE, NodeType, Ns } from '../native'
@@ -9,9 +9,9 @@ import { ATTRIBUTE_CHANGED, dataset, Element, HANDLER_TYPES, LOCAL, NS, pendingE
 import { resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
 import { metricGetters, metricsOf } from './layout'
-import { CDATASection, CharacterData, Comment, DocumentFragment, DocumentType, mixin, Node, ProcessingInstruction, replaceAll, Text, type NodeList } from './node'
+import { CDATASection, CharacterData, Comment, DocumentFragment, DocumentType, type HTMLCollection, liveCollection, mixin, Node, ProcessingInstruction, replaceAll, setTextContent, Text } from './node'
 import { bool, long, nullable, string, url, urlParts } from './reflect'
-import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap } from './realm'
+import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap, inner } from './realm'
 import { CSSStyleSheet, inlineStyle, type CSSStyleDeclaration } from './style'
 import { followLink } from './window'
 
@@ -51,7 +51,7 @@ export class HTMLOrSVGElementMixin {
   }
 
   focus(this: Element, options?: { preventScroll?: boolean; focusVisible?: boolean }): void {
-    if (!this.isConnected || !focusable(this[ID])) return
+    if (!inner(this, 'isConnected') || !focusable(this[ID])) return
     setFocus(this, options?.focusVisible)
   }
 
@@ -141,13 +141,7 @@ export class HTMLElement extends Element {
   }
 
   get isContentEditable(): boolean {
-    const id = dom.closest(this[ID], '[contenteditable]')
-    if (id === NONE) return false
-    const value = dom.getAttribute(id, 'contenteditable')!.toLowerCase()
-    if (value === 'false') return false
-    if (value === '' || value === 'true' || value === 'plaintext-only') return true
-    const parent = dom.parent(id)
-    return parent !== NONE && dom.nodeType(parent) === NodeType.Element ? (wrap<HTMLElement>(parent)?.isContentEditable ?? false) : false
+    return editable(this[ID])
   }
 
   get innerText(): string {
@@ -158,13 +152,13 @@ export class HTMLElement extends Element {
   }
 
   get outerText(): string {
-    return this.innerText
+    return inner(this, 'innerText')
   }
   set outerText(value: string) {
-    const parent = this.parentNode
+    const parent = inner(this, 'parentNode')
     if (!parent) throw new DOMException("Failed to set the 'outerText' property on 'HTMLElement': The element has no parent.", 'NoModificationAllowedError')
     const text = new Text(String(value))
-    this.replaceWith(text)
+    inner(this, 'replaceWith').call(this, text)
   }
 
   get offsetParent(): Element | null {
@@ -176,7 +170,7 @@ export class HTMLElement extends Element {
     if (clicking.has(this) || (dom.hasAttribute(this[ID], 'disabled') && /^(button|input|select|textarea|fieldset|option|optgroup)$/.test(this[LOCAL]))) return
     clicking.add(this)
     try {
-      this.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: G }))
+      EventTarget.prototype.dispatchEvent.call(this, new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: G }))
     } finally {
       clicking.delete(this)
     }
@@ -205,6 +199,16 @@ nullable(HTMLElement.prototype, 'popover')
 bool(HTMLElement.prototype, 'inert')
 export interface HTMLElement extends HTMLOrSVGElementMixin {}
 
+function editable(element: number): boolean {
+  const id = dom.closest(element, '[contenteditable]')
+  if (id === NONE) return false
+  const value = dom.getAttribute(id, 'contenteditable')!.toLowerCase()
+  if (value === 'false') return false
+  if (value === '' || value === 'true' || value === 'plaintext-only') return true
+  const parent = dom.parent(id)
+  return parent !== NONE && dom.nodeType(parent) === NodeType.Element ? editable(parent) : false
+}
+
 const clicking = new WeakSet<Element>()
 
 defineHandlers(HTMLElement.prototype, HANDLER_TYPES)
@@ -212,7 +216,7 @@ defineHandlers(HTMLElement.prototype, HANDLER_TYPES)
 function setInnerText(element: Element, text: string): void {
   const parts = text.replace(/\r\n?/g, '\n').split('\n')
   if (parts.length === 1) {
-    element.textContent = text
+    setTextContent(element, text)
     return
   }
   const fragment = new DocumentFragment()
@@ -361,6 +365,15 @@ export const HTMLDataListElement = simple('HTMLDataListElement', 'datalist', (p)
 })
 
 const TABLE_ROWS = ':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr'
+const ROWS = Symbol('rows')
+const BODIES = Symbol('bodies')
+const CELLS = Symbol('cells')
+
+function within(element: Element, key: symbol, selector: string): HTMLCollection {
+  const holder = element as unknown as Record<symbol, HTMLCollection | undefined>
+  const id = element[ID]
+  return (holder[key] ??= liveCollection<HTMLCollection>(() => dom.querySelectorAll(id, selector)))
+}
 
 export class HTMLTableElement extends HTMLElement {
   get caption(): Element | null {
@@ -372,15 +385,15 @@ export class HTMLTableElement extends HTMLElement {
   get tFoot(): Element | null {
     return this.querySelector(':scope > tfoot')
   }
-  get tBodies(): unknown {
-    return this.querySelectorAll(':scope > tbody')
+  get tBodies(): HTMLCollection {
+    return within(this, BODIES, ':scope > tbody')
   }
-  get rows(): NodeList {
-    return this.querySelectorAll(TABLE_ROWS)
+  get rows(): HTMLCollection {
+    return within(this, ROWS, TABLE_ROWS)
   }
   createTBody(): Element {
     const body = createHtml('tbody')
-    const bodies = this.querySelectorAll(':scope > tbody')
+    const bodies = this.tBodies
     const last = bodies.item(bodies.length - 1)
     this.insertBefore(body, last ? last.nextSibling : null)
     return body
@@ -427,8 +440,8 @@ export class HTMLTableElement extends HTMLElement {
 register(HTMLTableElement, 'table')
 
 export class HTMLTableSectionElement extends HTMLElement {
-  get rows(): NodeList {
-    return this.querySelectorAll(':scope > tr')
+  get rows(): HTMLCollection {
+    return within(this, ROWS, ':scope > tr')
   }
   insertRow(index = -1): Element {
     const row = createHtml('tr')
@@ -444,8 +457,8 @@ export class HTMLTableSectionElement extends HTMLElement {
 register(HTMLTableSectionElement, 'thead', 'tbody', 'tfoot')
 
 export class HTMLTableRowElement extends HTMLElement {
-  get cells(): NodeList {
-    return this.querySelectorAll(':scope > td, :scope > th')
+  get cells(): HTMLCollection {
+    return within(this, CELLS, ':scope > td, :scope > th')
   }
   get rowIndex(): number {
     const table = dom.closest(this[ID], 'table')
@@ -504,7 +517,7 @@ export class HTMLDialogElement extends HTMLElement {
     if (dom.hasAttribute(this[ID], 'open')) return
     setAttribute(this, 'open', '')
     const first = this.querySelector('[autofocus]') ?? this.querySelector('button, input, select, textarea, a[href], [tabindex]')
-    ;(first as HTMLElement | null)?.focus()
+    if (first) inner(first as HTMLElement, 'focus').call(first as HTMLElement)
   }
 
   close(returnValue?: string): void {
@@ -583,7 +596,7 @@ export class HTMLLinkElement extends HTMLElement {
 
   override [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
     super[ATTRIBUTE_CHANGED](name, value)
-    if ((name === 'href' || name === 'rel') && value !== null && this.isConnected) linkLoad(this)
+    if ((name === 'href' || name === 'rel') && value !== null && inner(this, 'isConnected')) linkLoad(this)
   }
 }
 getters(HTMLLinkElement.prototype, { sheet: null })
@@ -594,7 +607,7 @@ function linkLoad(link: HTMLLinkElement): void {
   if (!href || !/(^|\s)stylesheet(\s|$)/i.test(dom.getAttribute(id, 'rel') ?? '')) return
   const url = resolveUrl(href)
   host.setTimer(0, () => {
-    if (!link.isConnected || dom.getAttribute(id, 'href') !== href) return
+    if (!inner(link, 'isConnected') || dom.getAttribute(id, 'href') !== href) return
     fire(link, new Event(host.readAsset(url) ? 'load' : 'error'))
   })
 }
@@ -649,7 +662,7 @@ function textAlias(proto: object): void {
       return dom.textContent(this[ID])
     },
     set(this: Element, value: string) {
-      this.textContent = String(value)
+      setTextContent(this, String(value))
     },
     enumerable: true,
     configurable: true,

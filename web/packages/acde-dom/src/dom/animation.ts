@@ -5,7 +5,7 @@ import { getters, host, tag } from '../core/host'
 import { now as clockNow } from '../core/clock'
 import { later } from '../core/timers'
 import type { Element } from './element'
-import { documentId, dom, ID, wrap } from './realm'
+import { documentId, dom, ID, wrap, inner } from './realm'
 import { declarationsOf, inlineStyle, propertyName, writeDeclarations } from './style'
 
 export class AnimationTimeline {
@@ -557,7 +557,7 @@ export function animationsOf(root: Element | null, subtree = false): Animation[]
   for (const animation of running) {
     const target = (animation.effect as KeyframeEffect | null)?.target ?? null
     if (!target) continue
-    if (root === null || target === root || (subtree && root.contains(target))) out.push(animation)
+    if (root === null || target === root || (subtree && inner(root, 'contains').call(root, target))) out.push(animation)
   }
   return out
 }

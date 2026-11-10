@@ -15,7 +15,7 @@ import { frames, resolveUrl } from './env'
 import { HTMLElement, register } from './html'
 import { metricGetters, metricsOf } from './layout'
 import { bool, long, nullable, string, url } from './reflect'
-import { dom, existing, ID, lifecycle, wrap } from './realm'
+import { dom, existing, ID, lifecycle, wrap, inner } from './realm'
 
 export const loading = new Set<number>()
 
@@ -661,7 +661,7 @@ tag(HTMLMediaElement)
 mediaEvents.ended = (media) => playingMedia.get(media)?.[ENDED]()
 
 function created(root: Node, withRoot: boolean): void {
-  const type = root.nodeType
+  const type = inner(root, 'nodeType')
   if (type !== NodeType.Element && type !== NodeType.Document && type !== NodeType.DocumentFragment) return
   const id = root[ID]
   const ids = [...dom.querySelectorAll(id, 'video, audio')]

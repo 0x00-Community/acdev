@@ -9,7 +9,7 @@ import { HTMLButtonElement } from './forms'
 import { SelectInput } from './select'
 import { PointerSelection } from './textselect'
 import { RangeInput } from './rangeinput'
-import { dom, documentId, ID, moved, rootElementId, wrap } from './realm'
+import { CONNECTED, dom, documentId, ID, inner, moved, rootElementId, wrap } from './realm'
 
 export interface Modifiers {
   readonly shift?: boolean
@@ -67,11 +67,11 @@ export class Input {
   onKeyDefault: (target: Element, key: string, modifiers: Modifiers) => void = () => {}
 
   elementAt(target: number | null | undefined, x: number, y: number, ignoreCapture = false): Element {
-    if (!ignoreCapture && this.capture?.isConnected) return this.capture
+    if (!ignoreCapture && this.capture?.[CONNECTED]) return this.capture
     let id = target === undefined ? dom.hitTest(x, y) : (target ?? NONE)
     if (id !== NONE && dom.nodeType(id) === NodeType.Text) id = dom.parent(id)
     const element = id === NONE || dom.nodeType(id) !== NodeType.Element ? null : wrap<Element>(id)
-    return element?.isConnected ? element : (wrap<Element>(rootElementId()) ?? (wrap<Element>(documentId) as Element))
+    return element?.[CONNECTED] ? element : (wrap<Element>(rootElementId()) ?? (wrap<Element>(documentId) as Element))
   }
 
   #fire(target: Element, type: string, init: Record<string, unknown>, Kind: new (type: string, init: Record<string, unknown>) => Event = MouseEvent as never): boolean {
@@ -104,8 +104,8 @@ export class Input {
   }
 
   #hoverTo(target: Element | null, init: Record<string, unknown>): void {
-    if (this.#hover === target && (!target || target.isConnected)) return
-    const old = this.#hover?.isConnected ? this.#hover : (this.#path.find((e) => e.isConnected) ?? null)
+    if (this.#hover === target && (!target || inner(target, 'isConnected'))) return
+    const old = this.#hover?.[CONNECTED] ? this.#hover : (this.#path.find((e) => inner(e, 'isConnected')) ?? null)
     const was = this.#chain(old), now = this.#chain(target)
     this.#hover = target
     this.#path = now.map((id) => wrap<Element>(id)!)
@@ -161,7 +161,7 @@ export class Input {
     const count = button === 0 && now - last.at < DOUBLE_CLICK_MS && Math.hypot(x - last.x, y - last.y) < CLICK_SLOP ? last.count + 1 : 1
     if (button === 0) this.#lastDown = { at: now, x, y, count }
     if (this.#pointer(target, 'down', init, count)) {
-      const candidate = target.closest(FOCUSABLE)
+      const candidate = inner(target, 'closest').call(target, FOCUSABLE)
       if (candidate && focusable(candidate[ID])) setFocus(candidate)
       else if (focusedElement()) setFocus(null)
       if (button === 0) {
@@ -193,7 +193,7 @@ export class Input {
     this.#pressed = null
     if (!pressed) return
     let common: Element | null = pressed
-    while (common && !common.contains(target)) common = common.parentElement
+    while (common && !inner(common, 'contains').call(common, target)) common = inner(common, 'parentElement')
     if (!common) return
     if (button !== 0) {
       if (button === 1) this.#fire(common, 'auxclick', { ...init, detail: 1 }, PointerEvent as never)
@@ -273,7 +273,7 @@ export class Input {
   }
 
   setPointerCapture(element: Element, pointerId: number): void {
-    if (!element.isConnected) throw new DOMException("Failed to execute 'setPointerCapture' on 'Element': The element is not connected.", 'InvalidStateError')
+    if (!inner(element, 'isConnected')) throw new DOMException("Failed to execute 'setPointerCapture' on 'Element': The element is not connected.", 'InvalidStateError')
     if (this.capture === element) return
     this.capture = element
     this.#fire(element, 'gotpointercapture', { pointerId, bubbles: false, cancelable: false }, PointerEvent as never)

@@ -59,7 +59,7 @@ import { deliverObservations, IntersectionObserver, IntersectionObserverEntry, R
 import { loadPage } from './dom/page'
 import { handedOver, pickedOf, type Mode } from './dom/picker'
 import { AbstractRange, CaretPosition, getSelection, Range, Selection, StaticRange } from './dom/range'
-import { bindDom, changed, documentId, dom, existing, idOf, moved, rootElementId, version, wrap, wrapperStats } from './dom/realm'
+import { bindDom, changed, documentId, dom, existing, idOf, moved, rootElementId, version, wrap, wrapperStats, inner } from './dom/realm'
 import { attachShadow, shadowRootOf, ShadowRoot } from './dom/shadow'
 import { CSS, CSSRule, CSSRuleList, CSSStyleDeclaration, CSSStyleRule, CSSStyleSheet, StyleSheetList } from './dom/style'
 import * as svg from './dom/svg'
@@ -205,10 +205,10 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   inspectHooks.node = (value) => {
     if (!(value instanceof Node)) return null
     if (value instanceof Element) {
-      const id = value.id, cls = value.getAttribute('class')
+      const id = inner(value, 'id'), cls = inner(value, 'getAttribute').call(value, 'class')
       return `<${value[LOCAL]}${id ? `#${id}` : ''}${cls ? `.${cls.trim().split(/\s+/).join('.')}` : ''}>`
     }
-    return value.nodeType === NodeType.Text ? `#text ${JSON.stringify((value as Text).data.slice(0, 40))}` : value.nodeName
+    return inner(value, 'nodeType') === NodeType.Text ? `#text ${JSON.stringify((value as Text).data.slice(0, 40))}` : inner(value, 'nodeName')
   }
 
   let frameVersion = -1

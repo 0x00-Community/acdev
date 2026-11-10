@@ -5,7 +5,7 @@ import type { Modifiers } from './input'
 import { computedStyleOf } from './layout'
 import type { Node } from './node'
 import { getSelection, Range } from './range'
-import { dom, ID, wrap } from './realm'
+import { dom, ID, inner, wrap } from './realm'
 
 const NOT_SELECTING = 'input, textarea, select, button, option, label, [contenteditable]:not([contenteditable="false" i]), a[href], img, [draggable="true" i]'
 const INLINE = new Set(['inline', 'inline-block', 'inline-flex', 'inline-grid', 'contents', 'ruby', 'ruby-text', 'none'])
@@ -30,14 +30,14 @@ function selectable(element: Element): boolean {
 }
 
 function elementOf(node: Node): Element | null {
-  return node.nodeType === NodeType.Element ? (node as Element) : node.parentElement
+  return inner(node, 'nodeType') === NodeType.Element ? (node as Element) : inner(node, 'parentElement')
 }
 
 function word(point: Point): Range {
   const range = new Range()
   range.setStart(point.node, point.offset)
   range.collapse(true)
-  if (point.node.nodeType !== NodeType.Text) return range
+  if (inner(point.node, 'nodeType') !== NodeType.Text) return range
   const text = (point.node as unknown as { data: string }).data
   if (!text) return range
   words ??= new Intl.Segmenter(undefined, { granularity: 'word' })
@@ -51,7 +51,7 @@ function word(point: Point): Range {
 
 function paragraph(point: Point): Range {
   let block = elementOf(point.node)
-  while (block && block.parentElement && INLINE.has(computedStyleOf(block[ID], '', 'display'))) block = block.parentElement
+  while (block && inner(block, 'parentElement') && INLINE.has(computedStyleOf(block[ID], '', 'display'))) block = inner(block, 'parentElement')
   const range = new Range()
   if (block) range.selectNodeContents(block)
   else range.setStart(point.node, point.offset)
@@ -82,7 +82,7 @@ export class PointerSelection {
 
   down(target: Element, x: number, y: number, count: number, modifiers: Modifiers): void {
     this.#dragging = false
-    if (target.closest(NOT_SELECTING) || !selectable(target)) return
+    if (inner(target, 'closest').call(target, NOT_SELECTING) || !selectable(target)) return
     const point = caretAt(x, y)
     const selection = getSelection()
     if (!point) {
