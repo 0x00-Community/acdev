@@ -18,6 +18,11 @@ import { unref, within } from './sys/timers'
 import { StartupTimeline } from './timeline'
 import { Level, Log } from './log'
 
+/** A wrong command line: main prints its message and one line of usage, no stack trace, and exits 2. */
+class UsageError extends Error {
+  static readonly USAGE = 'usage: acdert [app <id> | desktop <id|dir>] [--desktop <id|dir>] [--size WxH] [--scale N] [--greeter]; acdert --help for more'
+}
+
 class Args {
   readonly values: Record<string, string | boolean | string[]> = {}
   readonly positionals: string[] = []
@@ -33,13 +38,13 @@ class Args {
       }
       const [name, inline] = arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined]
       const option = options[name]
-      if (!option) throw new Error(`acdert: unknown option --${name}`)
+      if (!option) throw new UsageError(`acdert: unknown option --${name}`)
       if (option.type === 'boolean') {
         this.values[name] = inline === undefined ? true : inline !== 'false'
         continue
       }
       const value = inline ?? argv[++i]
-      if (value === undefined) throw new Error(`acdert: --${name} needs a value`)
+      if (value === undefined) throw new UsageError(`acdert: --${name} needs a value`)
       if (option.multiple) this.values[name] = [...((this.values[name] as string[] | undefined) ?? []), value]
       else this.values[name] = value
     }
@@ -202,16 +207,25 @@ class Main {
       greeter: { type: 'boolean', default: false },
     })
     const [command, target] = args.positionals
-    if (command !== undefined && command !== 'app' && command !== 'desktop') throw new Error(`acdert: unknown command ${command} (acdert app <id>, acdert desktop <id|dir>)`)
-    if (command !== undefined && !target) throw new Error(command === 'app' ? 'acdert app <id>: which app (the id in its manifest, e.g. files, term, editor)' : 'acdert desktop <id|dir>: which desktop')
-    if (command === 'desktop' && args.string('desktop') !== undefined) throw new Error('acdert desktop <id|dir>: give the desktop once, not also --desktop')
+    if (command !== undefined && command !== 'app' && command !== 'desktop') {
+      throw new UsageError(`acdert: unknown command ${command} (acdert app <id>, acdert desktop <id|dir>)`)
+    }
+    if (command !== undefined && !target) {
+      throw new UsageError(command === 'app'
+        ? 'acdert app <id>: which app (the id in its manifest, e.g. files, term, editor)'
+        : 'acdert desktop <id|dir>: which desktop')
+    }
+    if (command === 'desktop' && args.string('desktop') !== undefined) {
+      throw new UsageError('acdert desktop <id|dir>: give the desktop once, not also --desktop')
+    }
     const wanted = args.flag('greeter') ? join(Packages.HOST, 'greet') : (command === 'desktop' ? target! : args.string('desktop')) ?? null
     const packages = new Packages(wanted && !/^[\w-]+$/.test(wanted) && !wanted.startsWith(WaylandSessions.PREFIX) ? [resolve(wanted)] : [])
     const standalone = command === 'app' ? target! : null
     const desktop = standalone && !wanted && !packages.desktops().length ? packages.bare() : packages.choose(wanted, !standalone)
     if (desktop.kind === 'session') {
       const file = WaylandSessions.handOff(desktop)
-      Log.write(Level.Info, 'acde_host', `${desktop.id} chosen: handing the session over (${desktop.argv.join(' ')}), ${file}, exit ${WaylandSessions.HANDOFF_EXIT}`)
+      const over = `handing the session over (${desktop.argv.join(' ')}), ${file}, exit ${WaylandSessions.HANDOFF_EXIT}`
+      Log.write(Level.Info, 'acde_host', `${desktop.id} chosen: ${over}`)
       return WaylandSessions.HANDOFF_EXIT
     }
     if (Main.session(native) && !args.flag('greeter') && !standalone) {
@@ -226,7 +240,10 @@ class Main {
     return Main.broker(native, args, packages, desktop, width, height, scale, standalone)
   }
 
-  static async broker(native: Native, args: Args, packages: Packages, desktop: InstalledDesktop, width: number, height: number, scale: number, standalone: string | null): Promise<number> {
+  static async broker(
+    native: Native, args: Args, packages: Packages, desktop: InstalledDesktop,
+    width: number, height: number, scale: number, standalone: string | null,
+  ): Promise<number> {
     const session = Main.session(native), greeter = args.flag('greeter')
     const fixed = Appearance.fixed()
     const broker = new Broker(native, {
@@ -249,7 +266,10 @@ class Main {
     broker.startDesktop()
     const shell = broker.shell
     Log.write(Level.Info, 'acde_host', `broker started (${(performance.now() - started).toFixed(0)}ms)`)
-    if (shell.hosted) Log.write(Level.Debug, 'acde_host', `host windows on ${process.platform}: not an acde session, so no fcitx5, AT-SPI, XDG autostart or session bus names`)
+    if (shell.hosted) {
+      const missing = 'not an acde session, so no fcitx5, AT-SPI, XDG autostart or session bus names'
+      Log.write(Level.Debug, 'acde_host', `host windows on ${process.platform}: ${missing}`)
+    }
     if (session && !greeter) {
       try {
         shell.launch(['fcitx5', '-d', '--replace'])
@@ -304,7 +324,10 @@ export default async function main(natives: Natives): Promise<void> {
   try {
     code = await Main.run(natives.native as unknown as Native)
   } catch (error) {
-    process.stderr.write(`acde: ${(error as Error).stack ?? error}\n`)
+    if (error instanceof UsageError) {
+      process.stderr.write(`${error.message}\n${UsageError.USAGE}\n`)
+      code = 2
+    } else process.stderr.write(`acde: ${(error as Error).stack ?? error}\n`)
   }
   process.exit(code)
 }

@@ -95,6 +95,31 @@ fn free_socket(runtime: &std::path::Path, name: &str) -> bool {
     flock(&file, FlockOperation::NonBlockingLockExclusive).is_ok()
 }
 
+/// `acdert --help`. Answered here, before V8 or a window starts; the options are parsed by acde-host `main.ts` (`Args`).
+const USAGE: &str = "\
+usage: acdert [app <id> | desktop <id|dir>] [options]
+       acdert desktops [--desktop <id>] [--package <dir>]
+       acdert sessions <dir> [--package <dir>]
+       acdert applications <dir> [--package <dir>] [--exec <program>]
+       acdert open [--app <id>] <path|uri>...
+       acdert run <file> [args...]
+       acdert --version | --help
+
+Without a command acdert runs the session (on Linux without WAYLAND_DISPLAY or DISPLAY: the screen through DRM/KMS).
+app <id> opens one app and desktop <id|dir> a desktop, each in a host window (what acde dev runs).
+
+Options:
+  --desktop <id|dir>   the desktop to start (else ACDE_DESKTOP, else the last one, else the first installed)
+  --size <W>x<H>       the screen size of the session (default 1440x900)
+  --scale <n>          the scale of the session (default 1)
+  --launch <command>   start a program in the session (repeatable)
+  --seconds <n>        end after n seconds
+  --stats              print the compositor's statistics at exit
+  --greeter            the login screen (greetd's greeter)
+  -V, --version        print the version and contract level
+  -h, --help           print this help
+";
+
 const API_LEVEL: u32 = api_level(include_str!("../../../web/packages/acde-api/src/runtime/level.js"));
 
 const fn api_level(source: &str) -> u32 {
@@ -119,6 +144,10 @@ fn main() {
     let code = match args.get(1).map(String::as_str) {
         Some("--version" | "-V") => {
             println!("acdert {} (contract level {API_LEVEL})", env!("CARGO_PKG_VERSION"));
+            0
+        }
+        Some("--help" | "-h") => {
+            print!("{USAGE}");
             0
         }
         Some("run") if args.len() > 2 => sys::start(sys::Entry::Script(args[2].clone()), &args[3..]),

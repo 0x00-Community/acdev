@@ -128,7 +128,7 @@ package() {
 #!/bin/sh
 # Commands (`acdert desktops`, `sessions`, `applications`, `open`, `run FILE`, `app ID`, `desktop ID|DIR`, `--help`) are not the session: run as they are, no
 # journal redirection, no restart when they fail (a program in the session running `acde --help` once restarted it 3 times)
-case "${1:-}" in desktops|sessions|applications|open|run|app|desktop|-h|--help|--version) exec /usr/lib/acdert/acdert "$@" ;; esac
+case "${1:-}" in desktops|sessions|applications|open|run|app|desktop|-h|--help|-V|--version) exec /usr/lib/acdert/acdert "$@" ;; esac
 # The Dopame desktop session. Without WAYLAND_DISPLAY or DISPLAY the shell takes the seat and drives DRM/KMS.
 # Its output goes to the journal (tag acdert): a display manager such as greetd does not connect the session to it.
 # Once: systemd-cat sets JOURNAL_STREAM to the stream it gives us, so the re-run sees it on its stdout and goes on.
@@ -176,6 +176,8 @@ while :; do
   wait "$child"
   status=$?
   [ "$status" -eq 0 ] && exit 0
+  # 2: a wrong command line (unknown option, missing argument), told on stderr; running it again would not help
+  [ "$status" -eq 2 ] && exit 2
   [ "$status" -eq 3 ] && [ -s "$handoff" ] && hand_over
   now=$(date +%s)
   recent=$now

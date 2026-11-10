@@ -1070,6 +1070,7 @@ acdert desktop <id|目录>                  # 调试桌面 (acde dev)
 acdert app <id|目录>                      # 调试窗口: 只跑一个应用
 acdert desktops                           # 装了的桌面和外部会话 (不要显示器)
 acdert --version                          # 发行版本和契约级别: acdert 0.0.5 (contract level 1)
+acdert --help                             # 用法 (main.rs 直接回, 不起 V8); 不认的选项: 一行原因加一行用法到 stderr, 退出 2
 acdert sessions DIR --package PKG         # 给包的每个桌面写 acdert-<id>.desktop
 acdert applications DIR --package PKG     # 「默认应用」的 desktop entry 和 acde-mimeapps.list
 acdert open [--app ID] PATH|URI...        # 在运行中的会话里打开
