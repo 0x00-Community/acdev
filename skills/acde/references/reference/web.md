@@ -23,7 +23,7 @@ Data lives in `$XDG_DATA_HOME/acde/storage/app-<id>/`.
 
 - `fetch`, `XMLHttpRequest`, `WebSocket`, and `EventSource` are all supported.
 - Same-origin paths and `localhost` go to the app's own backend; see [Backend](../guide/backend.md).
-- Requests to other hosts use the system's DNS and network, with normal certificate validation. They do **not** go through the system proxy, and responses are not decompressed automatically (no `Accept-Encoding` is sent).
+- Requests to other hosts use the system's DNS and network, with normal certificate validation, and go through a proxy the way the system says: with `http_proxy`, `https_proxy` or `all_proxy` set in the session, only those variables (and `no_proxy`) count; otherwise the system's proxy settings (Windows: the user's Internet settings, including a configuration script and automatic detection; macOS: the network settings; Linux has no other source). `localhost`, loopback addresses and the app's own backend are always reached directly. Proxy authentication and `https://` proxies are not supported. Responses are not decompressed automatically (no `Accept-Encoding` is sent).
 - Cross-origin requests follow browser rules: `Origin` header, CORS preflight, response header filtering, opaque responses for `no-cors`.
 - Forbidden request headers (`Host`, `Cookie`, `Origin`, `Referer`, `Sec-*`, ...) are not sent even if you set them.
 - Synchronous XHR can only read the app's own files.

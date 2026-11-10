@@ -37,3 +37,4 @@
 | `ACDE_APP_SOCKETS` | The app's socket directory |
 | `PORT` | The configured port |
 | `NODE_ENV` | `production` |
+| `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` | The session's proxy variables, or else the system's manual proxy (Windows, macOS) with its exceptions plus `localhost,127.0.0.1,::1` in `no_proxy`; upper-case names on Windows, both cases elsewhere. See [Backends](../guide/backend.md#running) |

@@ -10,7 +10,7 @@ import fs2 from 'acde:fs' // the default export is the same object
 
 There is no `acde` global, and the runtime never attaches anything non-standard to `window`.
 
-Talking to other hosts needs no capability: `fetch`, `WebSocket`, and the other standard APIs work as usual. They don't go through the system proxy, though, so on a network that reaches the internet only through a proxy, those requests fail. See [Web compatibility](../reference/web.md#network).
+Talking to other hosts needs no capability: `fetch`, `WebSocket`, and the other standard APIs work as usual, through the system's proxy when one is set. See [Web compatibility](../reference/web.md#network).
 
 ## Requesting capabilities
 
