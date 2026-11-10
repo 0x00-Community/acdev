@@ -2,6 +2,7 @@ import { install, installBackendTransport, observe } from '@dopame/acde-dom'
 import type { AudioNative, BackendTransport, CaptureNative, DomNative, GpuNative, HostNative, StorageNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
 import { Frame } from './frame'
+import { FsModule } from './fsmodule'
 import { Host } from './host'
 import type { ImeEvent, NativeIme } from './ime'
 import type { NativeSurface } from './native'
@@ -47,7 +48,7 @@ interface WebNatives extends Natives {
   readonly capture?: CaptureNative
   readonly storage?: StorageNative
   readonly backend?: Omit<BackendTransport, 'port'>
-  readonly fs?: object
+  readonly fs?: Parameters<typeof FsModule.typed>[0]
   readonly terminal?: object
   readonly network?: object
   readonly office?: object
@@ -204,7 +205,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     bridge.value['desktop'] = { ...(bridge.value['desktop'] as object), pin: (element: Element, options?: { margin?: number }) => pinned.pin(element, options) }
   }
   if (bridge.value['desktop']) bridge.value['desktop'] = { ...(bridge.value['desktop'] as object), ...Frame.desktop(surface) }
-  if (natives.fs) bridge.value['fs'] = natives.fs
+  if (natives.fs) bridge.value['fs'] = FsModule.typed(natives.fs)
   if (natives.terminal) bridge.value['terminal'] = natives.terminal
   if (natives.network) bridge.value['network'] = natives.network
   if (natives.office) {

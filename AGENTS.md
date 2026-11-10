@@ -948,6 +948,9 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 (#69 移除了 `write` (用 `writeFile`)、`desktop()` (用 `list`)、`state()`、`place()` 和 `copyIn` (用 `copy` 和句柄)):
 
 - `stat(root, path)` → `FinderEntry & {path}` (lstat).
+- `download(root, path)` → `{name, contentType, data: Uint8Array}`: runtime 只回名字和内容 (`FsReply::File`), `contentType` 由 web 侧 `fsmodule.ts` `FsModule.typed`
+  (`worker.ts` 把 `natives.fs` 包上它再交出去) 按名字从 `FileTypes.system().byName` 取, 和 `File.type` 同一个库 (见「默认应用」的「文件的类型」:
+  `.md` 是 `text/markdown`); 系统不认识的名字是 `application/octet-stream`.
 - `readText` → `{text, modifiedMs, size}` (最多 64 MiB, BOM 原样留), `readBytes` → `{data: Uint8Array, modifiedMs, size}`.
 - `writeFile(root, path, data, {create: 'always' | 'new' | 'never', ifModifiedMs, mkdirs})` → `FinderEntry`: 写在原文件上 (打开不截断 → fstat
   比较 → 截断写入 → fsync, inode 和权限不变), 新文件 0644. 选项对象经 JSON 交给 runtime, 类型不对 `EINVAL`.
