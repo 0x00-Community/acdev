@@ -76,6 +76,12 @@ acde network --failed
 
 `--level` is `log`, `info`, `warn`, `error`, `debug`, or `errors` (`console.error` plus uncaught errors). `--follow` keeps printing new entries.
 
+Entries stay after a page reloads, so errors from before a change are still listed. The first column is the entry's number. `--since reload` lists only what came after `acde dev` last rebuilt and reloaded (everything, if it has not reloaded yet); `--since N` lists entry `N` and later. A reload the page does by itself (`location.reload()`) does not count.
+
+```sh
+acde console --level errors --since reload
+```
+
 The most recent 5000 entries of each kind are kept.
 
 ## Errors

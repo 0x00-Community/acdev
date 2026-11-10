@@ -5,10 +5,11 @@ import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
 import { contains, E2E_FILE, SKIPPED } from './paths.ts'
 import { Runtime, type Child } from './runtime.ts'
-import { Sessions } from './sessions.ts'
+import { Sessions, type Reloaded } from './sessions.ts'
 
 const SETTLE_MS = 150
 const VERSION_MS = 10_000
+const MARK_MS = 2_000
 
 export interface Target {
   readonly kind: 'app' | 'desktop'
@@ -47,6 +48,7 @@ export class DevSession {
   #building = false
   #shown: string | null = null
   #level: number | null = null
+  #reloaded: Reloaded | null = null
 
   constructor(options: DevOptions) {
     const packages = (options.dirs.length ? options.dirs : ['.']).map((dir) => new AppPackage(dir))
@@ -239,6 +241,7 @@ export class DevSession {
         desktop: this.#shown,
         headless: this.#headless,
         started: this.#started,
+        ...(this.#reloaded && { reloaded: this.#reloaded }),
       })
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -260,6 +263,18 @@ export class DevSession {
       this.#dirty.add(unit)
       void this.#drain()
     }, SETTLE_MS)
+  }
+
+  async #marks(): Promise<Reloaded | null> {
+    const link = this.#link
+    if (!link) return null
+    const next = async (op: string) => {
+      const page = (await link.request(op, { limit: 1 })) as { next?: unknown } | null
+      return typeof page?.next === 'number' ? page.next : 0
+    }
+    const asked = Promise.all([next('console'), next('network')])
+      .then(([logs, requests]) => ({ console: logs, network: requests }), () => null)
+    return await Promise.race([asked, new Promise<null>((done) => setTimeout(() => done(null), MARK_MS).unref())])
   }
 
   static #directory(path: string): boolean {
@@ -296,6 +311,7 @@ export class DevSession {
       if (refused) throw new Error(refused)
       unit.built = built
       console.log(`acde: ${who}rebuilt (${Math.round(performance.now() - started)} ms), reloading`)
+      this.#reloaded = (await this.#marks()) ?? this.#reloaded
       for (const app of built.apps) this.#link?.send({ type: 'reload', app })
       if (this.#shown !== null && built.desktops.includes(this.#shown)) this.#link?.send({ type: 'reload' })
       if (this.#link) this.#publish()

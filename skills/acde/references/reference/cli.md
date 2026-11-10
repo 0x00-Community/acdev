@@ -73,8 +73,8 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde screen [-o FILE]` | Full-screen screenshot, default `./screen.png` |
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
-| `acde console [--web W] [--level L] [--follow]` | Page logs and errors |
-| `acde network [--web W] [--failed] [--follow]` | Page requests |
+| `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
+| `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N` |
 | `acde stop` | Ends the session and its acdert; see [Stopping](../guide/dev.md#stopping) |
 | `acde mcp [--session PID]` | MCP server over stdio; see [MCP](../guide/mcp.md) |
 

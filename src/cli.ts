@@ -40,9 +40,12 @@ const USAGE = `usage: acde <command>
                                                    the desktop as text (acde:inspect snapshot);
                                                    --offscreen: scrolled-out too
   act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed
-  console [--web W] [--level L] [--follow]         pages' console.* and uncaught errors
-                                                   (L: log info warn error debug errors)
-  network [--web W] [--failed] [--follow]          pages' fetch / XHR / WebSocket / EventSource requests
+  console [--web W] [--level L] [--since S] [--follow]
+                                                   pages' console.* and uncaught errors
+                                                   (L: log info warn error debug errors; S: reload, entries since
+                                                   acde dev last reloaded, or N, from entry N on)
+  network [--web W] [--failed] [--since S] [--follow]
+                                                   pages' fetch / XHR / WebSocket / EventSource requests
                                                    and the images, stylesheets and fonts they load, and how they ended
   screen [-o FILE]                                 a PNG of the whole screen, every window composed
                                                    (default ./screen.png)
@@ -90,8 +93,8 @@ class Cli {
     shot: { args: [1, 1], flags: ['session', 'output'] },
     inspect: { args: [0, 0], flags: ['session', 'window', 'find'], switches: ['all', 'offscreen'] },
     act: { args: [2, 3], flags: ['session'] },
-    console: { args: [0, 0], flags: ['session', 'web', 'level'], switches: ['follow'] },
-    network: { args: [0, 0], flags: ['session', 'web'], switches: ['follow', 'failed'] },
+    console: { args: [0, 0], flags: ['session', 'web', 'level', 'since'], switches: ['follow'] },
+    network: { args: [0, 0], flags: ['session', 'web', 'since'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
     stop: { args: [0, 0], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },

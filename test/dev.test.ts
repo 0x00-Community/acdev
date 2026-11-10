@@ -354,6 +354,14 @@ describe('acde dev with a stand-in acdert', () => {
       const reloads = dev.entries().filter((e) => e.got?.['type'] === 'reload').map((e) => e.got)
       expect(reloads).toEqual([{ type: 'reload', app: 'alpha' }])
       expect(readFileSync(join(alpha, '.acde/web/index.html'), 'utf8')).toContain('changed')
+      const marked = await until('the reload mark', () =>
+        (JSON.parse(readFileSync(file, 'utf8')) as Session).reloaded)
+      expect(marked).toEqual({ console: 2, network: 1 })
+      expect((await dev.tool(['console', '--since', 'reload'], alpha)).stdout).toBe('')
+      expect((await dev.tool(['console', '--since', '1'], alpha)).stdout).toBe('   1 log    alpha#7  alpha ready\n')
+      const wrong = await dev.tool(['network', '--since', 'later'], alpha)
+      expect(wrong.code).toBe(1)
+      expect(wrong.stderr).toContain('network: --since later: reload, or the number of an entry')
     } finally {
       await dev.stop()
     }

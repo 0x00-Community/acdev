@@ -1,4 +1,7 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, type Stats } from 'node:fs'
+import {
+  chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync,
+  writeFileSync, type Stats,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { contains } from './paths.ts'
@@ -11,6 +14,12 @@ export interface Session {
   readonly desktop: string | null
   readonly headless?: boolean
   readonly started: number
+  readonly reloaded?: Reloaded
+}
+
+export interface Reloaded {
+  readonly console: number
+  readonly network: number
 }
 
 export class Sessions {
@@ -30,7 +39,8 @@ export class Sessions {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     if (process.platform === 'win32') return dir
     const info = lstatSync(dir)
-    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`${dir} is not a plain directory; remove it and run again`)
+    if (info.isSymbolicLink() || !info.isDirectory())
+      throw new Error(`${dir} is not a plain directory; remove it and run again`)
     if (!Sessions.#owned(info)) throw new Error(`${dir} belongs to another user`)
     if ((info.mode & 0o077) !== 0) chmodSync(dir, 0o700)
     return dir
@@ -55,9 +65,8 @@ export class Sessions {
 
   static removeIfCurrent(session: Session, dir: string): void {
     const current = Sessions.#read(Sessions.file(session.pid, dir))
-    if (current?.pid === session.pid && current.started === session.started && current.endpoint === session.endpoint) {
-      Sessions.remove(session.pid, dir)
-    }
+    const same = current?.pid === session.pid && current.started === session.started
+    if (same && current?.endpoint === session.endpoint) Sessions.remove(session.pid, dir)
   }
 
   static alive(pid: number): boolean {
@@ -89,20 +98,27 @@ export class Sessions {
       if (chosen) return chosen
       throw new Error(`no acde dev with pid ${pid}${Sessions.#listing(sessions)}`)
     }
-    if (sessions.length === 0) throw new Error(`no acde dev is running (start one with acde dev; sessions are listed in ${Sessions.dir()})`)
+    if (sessions.length === 0)
+      throw new Error(`no acde dev is running (start one with acde dev; sessions are listed in ${Sessions.dir()})`)
     const here = Sessions.#real(cwd)
-    const depth = (session: Session) => Math.max(-1, ...session.dirs.filter((dir) => contains(dir, here)).map((dir) => dir.length))
+    const depth = (session: Session) =>
+      Math.max(-1, ...session.dirs.filter((dir) => contains(dir, here)).map((dir) => dir.length))
     const deepest = Math.max(...sessions.map(depth))
     const matching = deepest < 0 ? [] : sessions.filter((s) => depth(s) === deepest)
     if (matching.length === 1) return matching[0]!
     if (matching.length === 0 && sessions.length === 1) return sessions[0]!
-    const why = matching.length > 1 ? `several acde dev sessions run ${here}` : `no acde dev runs ${here}, and there are several`
-    throw new Error(`${why}; pick one with --session <pid>${Sessions.#listing(matching.length > 1 ? matching : sessions)}`)
+    const why = matching.length > 1
+      ? `several acde dev sessions run ${here}`
+      : `no acde dev runs ${here}, and there are several`
+    const listed = Sessions.#listing(matching.length > 1 ? matching : sessions)
+    throw new Error(`${why}; pick one with --session <pid>${listed}`)
   }
 
   static describe(session: Session): string {
-    const what = `${session.desktop ? `desktop ${session.desktop}` : `app ${session.apps.join(', ')}`}${session.headless ? ' (headless)' : ''}`
-    return `${session.pid}  ${what}  ${session.dirs.join(', ')}  (since ${new Date(session.started).toLocaleTimeString()})`
+    const kind = session.desktop ? `desktop ${session.desktop}` : `app ${session.apps.join(', ')}`
+    const what = `${kind}${session.headless ? ' (headless)' : ''}`
+    const since = new Date(session.started).toLocaleTimeString()
+    return `${session.pid}  ${what}  ${session.dirs.join(', ')}  (since ${since})`
   }
 
   static #listing(sessions: readonly Session[]): string {
@@ -113,7 +129,20 @@ export class Sessions {
     try {
       const json = JSON.parse(readFileSync(file, 'utf8')) as Partial<Session>
       if (typeof json.pid !== 'number' || typeof json.endpoint !== 'string' || !Array.isArray(json.dirs)) return null
-      return { pid: json.pid, endpoint: json.endpoint, dirs: json.dirs, apps: Array.isArray(json.apps) ? json.apps : [], desktop: typeof json.desktop === 'string' ? json.desktop : null, headless: json.headless === true, started: Number(json.started) || 0 }
+      const marks = json.reloaded
+      const reloaded = typeof marks?.console === 'number' && typeof marks.network === 'number'
+        ? { reloaded: { console: marks.console, network: marks.network } }
+        : {}
+      return {
+        pid: json.pid,
+        endpoint: json.endpoint,
+        dirs: json.dirs,
+        apps: Array.isArray(json.apps) ? json.apps : [],
+        desktop: typeof json.desktop === 'string' ? json.desktop : null,
+        headless: json.headless === true,
+        started: Number(json.started) || 0,
+        ...reloaded,
+      }
     } catch {
       return null
     }

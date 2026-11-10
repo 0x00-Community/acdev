@@ -22,6 +22,9 @@ export class Tools {
     const level = flags.get('level')
     if (command === 'console' && level !== undefined && !Tools.LEVELS.has(level))
       throw new Error(`console: --level ${level}: one of ${[...Tools.LEVELS].join(', ')} (acde console --help)`)
+    const start = flags.get('since')
+    if (start !== undefined && start !== 'reload' && !/^[1-9]\d*$/.test(start))
+      throw new Error(`${command}: --since ${start}: reload, or the number of an entry (acde ${command} --help)`)
     if (command === 'stop') return await Tools.#stop(session)
     const acde = await Acde.attach(session === undefined ? {} : { session })
     try {
@@ -78,7 +81,8 @@ export class Tools {
             ...(level !== undefined && { level: level as ConsoleLevel | 'errors' }),
           }
           const read = (since: number) => acde.console({ ...options, ...(since && { since }) })
-          return await Tools.#follow(flags.has('follow'), read, Format.console)
+          const from = Tools.#since(start, acde.session.reloaded?.console)
+          return await Tools.#follow(flags.has('follow'), from, read, Format.console)
         }
         case 'network': {
           const options = {
@@ -86,7 +90,8 @@ export class Tools {
             ...(flags.has('failed') && { failed: true }),
           }
           const read = (since: number) => acde.network({ ...options, ...(since && { since }) })
-          return await Tools.#follow(flags.has('follow'), read, Format.request)
+          const from = Tools.#since(start, acde.session.reloaded?.network)
+          return await Tools.#follow(flags.has('follow'), from, read, Format.request)
         }
         case 'screen':
           console.log((await acde.screen({ path: resolve(flags.get('output') ?? 'screen.png') })).path)
@@ -129,10 +134,11 @@ export class Tools {
 
   static async #follow<T>(
     follow: boolean,
+    from: number,
     read: (since: number) => Promise<DevPage<T>>,
     line: (entry: T) => string,
   ): Promise<number> {
-    let since = 0
+    let since = from
     for (;;) {
       const page = await read(since)
       if (page.dropped) console.log(`… ${page.dropped} older entries were dropped`)
@@ -141,6 +147,12 @@ export class Tools {
       if (!follow) return 0
       await sleep(Tools.FOLLOW_MS)
     }
+  }
+
+  static #since(value: string | undefined, reloaded: number | undefined): number {
+    if (value === undefined) return 0
+    if (value === 'reload') return reloaded ?? 0
+    return Number(value)
   }
 
   static pid(value: string): number
