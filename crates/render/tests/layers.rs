@@ -19,7 +19,12 @@ const CSS: &str = "html, body { margin: 0; height: 100%; }
   .gray { backdrop-filter: grayscale(1); }
   .hue { backdrop-filter: hue-rotate(90deg); }
   .chain { backdrop-filter: sepia(.5) blur(2px) invert(.25) drop-shadow(0 2px 3px black); }
-  .blurs { backdrop-filter: blur(3px) blur(4px); }";
+  .blurs { backdrop-filter: blur(3px) blur(4px); }
+  .ds { position: absolute; left: 20px; top: 20px; width: 40px; height: 40px; background: #fff; }
+  .ds4 { filter: drop-shadow(0 0 4px black); }
+  .ds10 { filter: drop-shadow(2px 3px 10px black); }
+  .ds25 { filter: drop-shadow(0 0 25px black); }
+  .bl6 { filter: blur(6px); }";
 
 struct Page {
     doc: Doc,
@@ -118,6 +123,25 @@ fn segments_compose_to_the_whole_scene() {
     let parts = raster(frame.size, frame.plane.layers.iter().map(|l| l.drawing.scene()).collect());
     let differing = whole.chunks(4).zip(parts.chunks(4)).filter(|(a, b)| a != b).count();
     assert_eq!(differing, 0);
+}
+
+fn filter_of(class: &str) -> FilterEffect {
+    let page = Page::new(1.0);
+    page.div(&format!("ds {class}"));
+    let frame = page.frame();
+    let layer = frame.plane.layers.iter().find_map(|l| l.filter.as_ref()).expect("a filtered layer");
+    layer.filter.effects()[0].clone()
+}
+
+#[test]
+fn drop_shadow_deviation_is_half_its_blur_radius() {
+    for (class, radius, offset) in [("ds4", 4.0, (0.0, 0.0)), ("ds10", 10.0, (2.0, 3.0)), ("ds25", 25.0, (0.0, 0.0))] {
+        let FilterEffect::DropShadow(shadow) = filter_of(class) else { panic!("{class}: not a drop shadow") };
+        assert!(near(f64::from(shadow.std_deviation), radius / 2.0), "{class}: deviation {}", shadow.std_deviation);
+        assert!(near(f64::from(shadow.dx), offset.0) && near(f64::from(shadow.dy), offset.1), "{class}: offset {} {}", shadow.dx, shadow.dy);
+    }
+    let FilterEffect::GaussianBlur(blur) = filter_of("bl6") else { panic!("not a blur") };
+    assert!(near(f64::from(blur.std_deviation), 6.0), "blur() keeps its radius as the deviation: {}", blur.std_deviation);
 }
 
 fn backdrop_of(class: &str) -> Effect {
