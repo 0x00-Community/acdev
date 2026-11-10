@@ -590,3 +590,20 @@ test('observe: without a backend, a missing file of the app and another host fai
   })()`)
   assert.deepEqual(JSON.parse(result), ['no such file in the app, and no backend to ask', 'another host, and this page has no network'])
 })
+
+test("an app's own resources get page loading types; documents and unknown names are octet-stream", async () => {
+  using web = await page()
+  const assets: Record<string, string> = {
+    '/app/main.mjs': 'export {}', '/app/style.css': 'body {}', '/app/mod.wasm': '\0asm', '/app/font.woff2': 'wOF2', '/app/data.json': '{}',
+    '/app/report.docx': 'PK', '/app/notes.md': '# n', '/app/table.csv': 'a,b', '/app/blob.zzz': 'x',
+  }
+  for (const [path, body] of Object.entries(assets)) web.host.assets.set(path, body)
+  const paths = JSON.stringify(Object.keys(assets))
+  web.run(`globalThis.out = {}; Promise.all(${paths}.map((p) => fetch(p).then((r) => { out[p] = r.headers.get('content-type') })))`)
+  await web.wait(20)
+  assert.deepEqual(web.json('out'), {
+    '/app/main.mjs': 'text/javascript', '/app/style.css': 'text/css', '/app/mod.wasm': 'application/wasm', '/app/font.woff2': 'font/woff2',
+    '/app/data.json': 'application/json', '/app/report.docx': 'application/octet-stream', '/app/notes.md': 'application/octet-stream',
+    '/app/table.csv': 'application/octet-stream', '/app/blob.zzz': 'application/octet-stream',
+  })
+})

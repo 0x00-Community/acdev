@@ -491,6 +491,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `fetch(init.url)` 取 HTML; `page.ts` `PageSource.served`). `backend: {entry, port?}` (默认 3000).
 - **脚本**: classic `<script>` (含 `src`, 先读本地资源, 没有再经后端取; 非 async 的按文档顺序在 DOMContentLoaded 前执行)、`type="module"`、
   `type="importmap"` (`modules.rs` 解析说明符时用: `imports` / `scopes`, 精确或 `/` 结尾前缀匹配, 多个合并先到先得).
+- **本地资源的类型** (acde-dom `core/net.ts` `TYPES`): 应用包里的文件经 `fetch` / XHR 读到时按扩展名给 `Content-Type`, 只列页面加载要的类型
+  (HTML、脚本、样式、JSON、wasm、字体、图片、音视频), 固定、和系统无关; 别的 (文稿、表格、压缩包、`.md` …) 是 `application/octet-stream` (#106).
+  用户文件的类型不走这张表, 走宿主系统 (`env.fileType`, #98).
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
   `localStorage` / `sessionStorage` 见「网页存储」; `alert` 画在窗口里 (`confirm` / `prompt` 返回 false / null);
   外部链接交给浏览器应用 (宿主窗口里要 slots 的浏览器应用跑不了, 不打开, 见「默认应用」), 下载存进下载目录 (桌面收 `on('download')`); 打开 / 保存文件的选择器见「文件」的「打开和保存文件」; 隐藏 / 显示是 `visibilitychange`;
