@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use acde_gpu::{Backdrop, ColorMatrix, Composer, Effect, Gpu, Shadow, wgpu};
+use acde_gpu::{Backdrop, ColorMatrix, Composer, Effect, Gpu, Op, Shadow, wgpu};
 
 const W: u32 = 128;
 const H: u32 = 64;
@@ -226,4 +226,25 @@ fn a_layer_read_from_an_offset_lands_where_it_belongs() {
     for (name, with) in [("place", &place as &DrawAt<'_>), ("shadow", &shadowed), ("filtered", &filtered)] {
         assert_eq!(draw(0, with), draw(20, with), "{name}: the layer read at (20, 20) differs from the one at (0, 0)");
     }
+}
+
+#[test]
+fn a_shadow_from_the_blurred_canvas_matches_one_blurred_alone() {
+    let mut bench = Bench::new();
+    let shadow = Shadow { dx: 2.0, dy: 3.0, blur: 2.0, color: [0.0, 0.0, 1.0, 1.0] };
+    let square = |at: i64| move |x: i64, y: i64| (16 + at..32 + at).contains(&x) && (8 + at..24 + at).contains(&y);
+    let layer = |bench: &mut Bench, inside: &dyn Fn(i64, i64) -> bool| {
+        let pixels: Vec<[u8; 4]> = (0..i64::from(W * H)).map(|i| if inside(i % i64::from(W), i / i64::from(W)) { [255; 4] } else { [0; 4] }).collect();
+        bench.layer(&pixels);
+        bench.fill(&bench.canvas, &vec![[0; 4]; (W * H) as usize]);
+    };
+    layer(&mut bench, &square(0));
+    let alone = bench.run(|c, e, canvas| c.shadow(e, canvas, &shadow, [4, 4, 48, 32], [0, 0], [0, 0, W, H]));
+    layer(&mut bench, &square(32));
+    let shared = bench.run(|c, e, canvas| {
+        let blurred = c.blur_layers(e, (W, H), shadow.blur, 0).expect("a layer canvas");
+        c.draw(e, canvas, &[Op::Shadow { shadow, rect: [4, 4, 48, 32], at: [32, 32], clip: [0, 0, W, H], blurred }]);
+    });
+    let worst = alone.iter().zip(&shared).map(|(a, b)| a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0)).max().unwrap_or(0);
+    assert!(worst <= 2, "the shadow differs by up to {worst}");
 }

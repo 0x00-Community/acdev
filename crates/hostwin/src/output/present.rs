@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use acde_gpu::{Backdrop, Composer, Effect, FilterEffect, Overrides, Px, Scene, Shadow, Vello, vello, wgpu};
+use acde_gpu::{Backdrop, Composer, Effect, FilterEffect, Op, Overrides, Px, Scene, Shadow, Vello, vello, wgpu};
 use acde_model::{Inbox, Pacer};
 use acde_render::{Bar, Decoration, Layer, Plane, RenderHandle};
 use vello::kurbo::{Affine, Rect};
@@ -14,6 +14,7 @@ use crate::output::gpu::Gpu;
 use crate::output::surface::{Msg, Shot};
 
 const DEFAULT_HZ: f64 = 60.0;
+const ALIGN: u32 = 16;
 const REFRESH_SLACK: f64 = 0.9;
 
 pub(crate) fn pace(refresh: Option<f64>) -> Duration {
@@ -357,19 +358,26 @@ impl Presenter {
                 Some(layer.drawing.scene_for(Rect::new(x, y - dy, x + f64::from(w), y + f64::from(h) - dy))).filter(|scene| !scene.commands.is_empty())
             })
             .collect();
-        let slots =
-            Self::pack(scenes.iter().zip(&jobs).map(|(scene, job)| scene.as_ref().and(job.as_ref()).map(|(_, drawn)| drawn.xywh())), (room.width, room.height));
-        let mut atlas = None;
+        let gap = parts.iter().flat_map(|(_, (_, shadows, ..))| shadows).map(|s| (3.0 * s.blur).ceil() as u32).max().unwrap_or(0);
+        let slots = Self::pack(
+            scenes.iter().zip(&jobs).map(|(scene, job)| scene.as_ref().and(job.as_ref()).map(|(_, drawn)| drawn.xywh())),
+            (room.width, room.height),
+            gap,
+        );
+        let (mut atlas, mut extent, mut blurred) = (None, (1, 1), Vec::<(u32, wgpu::TextureView)>::new());
+        let mut ops = Vec::new();
         for (i, (_, (backdrop, shadows, effect, _))) in parts.iter().enumerate() {
             if let Some(backdrop) = backdrop.as_ref().filter(|b| Px::covering(b.rect).overlaps(target)) {
+                self.composer.draw(&mut encoder, &view, &std::mem::take(&mut ops));
                 self.composer.backdrop(&mut encoder, &view, backdrop);
             }
             let (Some((clip, drawn)), Some((batch, at))) = (jobs[i], slots[i]) else { continue };
             if atlas != Some(batch) {
                 atlas = Some(batch);
+                self.composer.draw(&mut encoder, &view, &std::mem::take(&mut ops));
                 self.flush(&mut encoder);
                 let canvas = self.composer.layer_view(size);
-                let mut extent = (1, 1);
+                (extent, blurred) = ((1, 1), Vec::new());
                 let mut items = Vec::new();
                 for (j, slot) in slots.iter().enumerate() {
                     let (Some((b, [sx, sy])), Some((_, drawn)), Some(scene)) = (slot, jobs[j], scenes[j].take()) else { continue };
@@ -388,13 +396,26 @@ impl Presenter {
             }
             let [ox, oy, ..] = drawn.xywh();
             for shadow in shadows {
-                self.composer.shadow(&mut encoder, &view, shadow, drawn.xywh(), at, clip.xywh());
+                let sigma = shadow.blur.to_bits();
+                let tag = match blurred.iter().position(|(s, _)| *s == sigma) {
+                    Some(tag) => tag,
+                    None => {
+                        let Some(view) = self.composer.blur_layers(&mut encoder, extent, shadow.blur, blurred.len() as u32) else { continue };
+                        blurred.push((sigma, view));
+                        blurred.len() - 1
+                    }
+                };
+                ops.push(Op::Shadow { shadow: *shadow, rect: drawn.xywh(), at, clip: clip.xywh(), blurred: blurred[tag].1.clone() });
             }
             match effect.is_none() {
-                true => self.composer.place(&mut encoder, &view, [ox, oy], at, clip.xywh()),
-                false => self.composer.filtered(&mut encoder, &view, effect, drawn.xywh(), at, clip.xywh()),
+                true => ops.push(Op::Place { origin: [ox, oy], at, clip: clip.xywh() }),
+                false => {
+                    self.composer.draw(&mut encoder, &view, &std::mem::take(&mut ops));
+                    self.composer.filtered(&mut encoder, &view, effect, drawn.xywh(), at, clip.xywh());
+                }
             }
         }
+        self.composer.draw(&mut encoder, &view, &ops);
         if !over.is_empty() && target.y < top as i32 {
             self.flush(&mut encoder);
             let canvas = self.composer.layer_view(size);
@@ -442,19 +463,20 @@ impl Presenter {
         (region.area() * 2 < full.area()).then_some(region)
     }
 
-    fn pack(rects: impl Iterator<Item = Option<[u32; 4]>>, (width, height): (u32, u32)) -> Vec<Option<(usize, [u32; 2])>> {
+    fn pack(rects: impl Iterator<Item = Option<[u32; 4]>>, (width, height): (u32, u32), gap: u32) -> Vec<Option<(usize, [u32; 2])>> {
+        let next = |v: u32| (v + gap).next_multiple_of(ALIGN);
         let (mut batch, mut x, mut y, mut row) = (0, 0, 0, 0);
         rects
             .map(|rect| {
                 let [_, _, w, h] = rect?;
                 if x + w > width {
-                    (x, y, row) = (0, y + row, 0);
+                    (x, y, row) = (0, next(y + row), 0);
                 }
                 if y + h > height {
                     (batch, x, y, row) = (batch + 1, 0, 0, 0);
                 }
                 let at = [x, y];
-                (x, row) = (x + w, row.max(h));
+                (x, row) = (next(x + w), row.max(h));
                 Some((batch, at))
             })
             .collect()

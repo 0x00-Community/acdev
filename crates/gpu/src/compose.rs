@@ -188,6 +188,11 @@ struct Uniforms {
     pending: Vec<u8>,
 }
 
+pub enum Op {
+    Place { origin: [u32; 2], at: [u32; 2], clip: [u32; 4] },
+    Shadow { shadow: Shadow, rect: [u32; 4], at: [u32; 2], clip: [u32; 4], blurred: wgpu::TextureView },
+}
+
 pub struct Composer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -197,7 +202,7 @@ pub struct Composer {
     layer: Option<((u32, u32), wgpu::Texture, wgpu::TextureView)>,
     uniforms: Uniforms,
     binds: HashMap<wgpu::TextureView, (wgpu::BindGroup, u64)>,
-    textures: HashMap<(u32, u32, u32), Cached>,
+    textures: HashMap<(u32, u32, u32, u32), Cached>,
     frame: u64,
 }
 
@@ -447,9 +452,9 @@ impl Composer {
         (x1 > x0 + 1 && y1 > y0 + 1).then(|| [x0, y0, x1 - x0, y1 - y0])
     }
 
-    fn textures(&mut self, w: u32, h: u32, levels: u32) -> Vec<wgpu::TextureView> {
+    fn textures(&mut self, w: u32, h: u32, levels: u32, tag: u32) -> Vec<wgpu::TextureView> {
         let frame = self.frame;
-        if !self.textures.contains_key(&(w, h, levels)) {
+        if !self.textures.contains_key(&(w, h, levels, tag)) {
             let chain: Vec<(wgpu::Texture, wgpu::TextureView)> = (0..=levels)
                 .map(|i| {
                     let usage = wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -463,9 +468,9 @@ impl Composer {
                 .collect();
             let bytes = chain.iter().map(|(t, _)| u64::from(t.width()) * u64::from(t.height()) * 4).sum();
             self.evict(bytes);
-            self.textures.insert((w, h, levels), Cached { levels: chain, bytes, used: frame });
+            self.textures.insert((w, h, levels, tag), Cached { levels: chain, bytes, used: frame });
         }
-        let cached = self.textures.get_mut(&(w, h, levels)).expect("made just above");
+        let cached = self.textures.get_mut(&(w, h, levels, tag)).expect("made just above");
         cached.used = frame;
         cached.levels.iter().map(|(_, v)| v.clone()).collect()
     }
@@ -483,10 +488,14 @@ impl Composer {
         }
     }
 
-    fn blur(&mut self, encoder: &mut wgpu::CommandEncoder, src: &wgpu::Texture, [x0, y0, w, h]: [u32; 4], sigma: f32) -> wgpu::TextureView {
+    fn blur(&mut self, encoder: &mut wgpu::CommandEncoder, src: &wgpu::Texture, region: [u32; 4], sigma: f32) -> wgpu::TextureView {
+        self.blur_tagged(encoder, src, region, sigma, 0)
+    }
+
+    fn blur_tagged(&mut self, encoder: &mut wgpu::CommandEncoder, src: &wgpu::Texture, [x0, y0, w, h]: [u32; 4], sigma: f32, tag: u32) -> wgpu::TextureView {
         let blur = Blur::of(sigma);
         let levels = blur.map_or(0, |b| b.levels);
-        let views = self.textures(w, h, levels);
+        let views = self.textures(w, h, levels, tag);
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo { texture: src, mip_level: 0, origin: wgpu::Origin3d { x: x0, y: y0, z: 0 }, aspect: wgpu::TextureAspect::All },
             wgpu::TexelCopyTextureInfo { texture: views[0].texture(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
@@ -509,10 +518,35 @@ impl Composer {
     }
 
     pub fn place(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, origin: [u32; 2], at: [u32; 2], clip: [u32; 4]) {
+        self.draw(encoder, canvas, &[Op::Place { origin, at, clip }]);
+    }
+
+    pub fn draw(&mut self, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, ops: &[Op]) {
         let Some((_, _, layer)) = self.layer.clone() else { return };
-        let pipe = Pipe::Place;
-        let params = Params { rect: [origin[0] as f32 - at[0] as f32, origin[1] as f32 - at[1] as f32, 0.0, 0.0], ..Default::default() };
-        self.pass(encoder, canvas, false, &[Draw { pipe, src: &layer, params, scissor: Some(clip), mix: None }]);
+        let size = canvas.texture().size();
+        let draws: Vec<Draw> = ops
+            .iter()
+            .filter_map(|op| match *op {
+                Op::Place { origin, at, clip } => {
+                    let params = Params { rect: [origin[0] as f32 - at[0] as f32, origin[1] as f32 - at[1] as f32, 0.0, 0.0], ..Default::default() };
+                    Some(Draw { pipe: Pipe::Place, src: &layer, params, scissor: Some(clip), mix: None })
+                }
+                Op::Shadow { shadow: s, rect: [x, y, w, h], at, clip, ref blurred } => {
+                    if w < 2 || h < 2 {
+                        return None;
+                    }
+                    let rect = [x as f32, y as f32, w as f32, h as f32];
+                    let shifted = Self::region([rect[0] + s.dx, rect[1] + s.dy, rect[2], rect[3]], size)?;
+                    let scissor = Px::of(shifted).intersection(Px::of(clip))?;
+                    let atlas = blurred.texture().size();
+                    let (bw, bh) = (atlas.width as f32, atlas.height as f32);
+                    let uv = [at[0] as f32 / bw, at[1] as f32 / bh, w as f32 / bw, h as f32 / bh];
+                    let params = Params { rect, shift: [s.dx, s.dy], color: s.color, bias: uv, ..Default::default() };
+                    Some(Draw { pipe: Pipe::Shadow, src: blurred, params, scissor: Some(scissor.xywh()), mix: None })
+                }
+            })
+            .collect();
+        self.pass(encoder, canvas, false, &draws);
     }
 
     pub fn filtered(
@@ -528,7 +562,7 @@ impl Composer {
         if w < 2 || h < 2 {
             return;
         }
-        let flat = self.textures(w, h, 0).swap_remove(0);
+        let flat = self.textures(w, h, 0, 0).swap_remove(0);
         let params = Params { rect: [-(at[0] as f32), -(at[1] as f32), 0.0, 0.0], ..Default::default() };
         self.pass(encoder, &flat, true, &[Draw { pipe: Pipe::Flatten, src: &layer, params, scissor: None, mix: None }]);
         let src = if e.blur > 0.0 { self.blur(encoder, flat.texture(), [0, 0, w, h], e.blur) } else { flat };
@@ -565,7 +599,12 @@ impl Composer {
         let Some(shifted) = Self::region([rect[0] + s.dx, rect[1] + s.dy, rect[2], rect[3]], layer.size()) else { return };
         let Some(scissor) = Px::of(shifted).intersection(Px::of(clip)) else { return };
         let blurred = self.blur(encoder, &layer, [at[0], at[1], w, h], s.blur);
-        let params = Params { rect, shift: [s.dx, s.dy], color: s.color, ..Default::default() };
+        let params = Params { rect, shift: [s.dx, s.dy], color: s.color, bias: [0.0, 0.0, 1.0, 1.0], ..Default::default() };
         self.pass(encoder, canvas, false, &[Draw { pipe: Pipe::Shadow, src: &blurred, params, scissor: Some(scissor.xywh()), mix: None }]);
+    }
+
+    pub fn blur_layers(&mut self, encoder: &mut wgpu::CommandEncoder, extent: (u32, u32), sigma: f32, tag: u32) -> Option<wgpu::TextureView> {
+        let (_, layer, _) = self.layer.clone()?;
+        Some(self.blur_tagged(encoder, &layer, [0, 0, extent.0, extent.1], sigma, tag + 1))
     }
 }

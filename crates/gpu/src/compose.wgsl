@@ -90,7 +90,7 @@ fn fs_shadow(in: VsOut) -> @location(0) vec4<f32> {
     if any(local < vec2<f32>(0.0)) || any(local > vec2<f32>(1.0)) {
         return vec4<f32>(0.0);
     }
-    let a = textureSample(src, samp, local).a * params.color.a;
+    let a = textureSample(src, samp, params.bias.xy + local * params.bias.zw).a * params.color.a;
     return vec4<f32>(params.color.rgb * a, a);
 }
 

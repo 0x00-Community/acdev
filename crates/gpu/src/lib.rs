@@ -9,7 +9,7 @@ mod raster;
 mod scene;
 mod vello_scene;
 
-pub use compose::{Backdrop, Composer, Effect, Px, Shadow, reach};
+pub use compose::{Backdrop, Composer, Effect, Op, Px, Shadow, reach};
 #[cfg(target_os = "linux")]
 pub use device::{Device, Dmabuf, Fence};
 pub use filter::*;
