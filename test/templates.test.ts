@@ -127,3 +127,44 @@ describe('templates at contract level 1', () => {
     expectLevel1App(own, 'made-by-vite')
   })
 })
+
+describe('templates speak English and carry a small i18n setup', () => {
+  const CJK = /[぀-ヿ㐀-鿿가-힯＀-￯]/
+
+  test('no CJK text outside the zh message tables, and no hard-coded lang', () => {
+    for (const file of files(TEMPLATES)) {
+      const text = readFileSync(file, 'utf8')
+      if (!/[\\/]locales[\\/]zh\.js$/.test(file)) expect(CJK.test(text), file).toBe(false)
+      expect(text, file).not.toContain('lang="zh"')
+    }
+  })
+
+  for (const template of ['app', 'desktop']) {
+    test(`${template}: every language has the keys of en, and i18n.js is the same in every template`, async () => {
+      const dir = join(TEMPLATES, template, 'src')
+      const tables = readdirSync(join(dir, 'locales')).map((file) => file.replace(/\.js$/, ''))
+      expect(tables).toEqual(expect.arrayContaining(['en', 'zh']))
+      const keys = async (lang: string) =>
+        Object.keys(((await import(join(dir, 'locales', `${lang}.js`))) as { default: object }).default).sort()
+      const english = await keys('en')
+      for (const lang of tables) expect(await keys(lang), lang).toEqual(english)
+      const i18n = readFileSync(join(dir, 'i18n.js'), 'utf8')
+      expect(i18n).toBe(readFileSync(join(TEMPLATES, 'app', 'src', 'i18n.js'), 'utf8'))
+      for (const lang of tables) expect(i18n).toContain(`import ${lang} from './locales/${lang}.js'`)
+    })
+  }
+
+  test('navigator.language picks the table: exact tag, base language, else en; a missing key stays', async () => {
+    const run = (language: string, key: string) => collect([process.execPath, '-e', `
+      globalThis.navigator = { language: ${JSON.stringify(language)} }
+      const { locale, t } = await import(${JSON.stringify(join(TEMPLATES, 'app', 'src', 'i18n.js'))})
+      console.log(locale + '|' + t(${JSON.stringify(key)}, { language: 'L', time: 'T' }))
+    `], { cwd: TEMPLATES, env: env({}) })
+    const results = await Promise.all([
+      run('zh-CN', 'status'), run('en-GB', 'status'), run('fr', 'status'), run('zh', 'nope'),
+    ])
+    expect(results.map((r) => r.stdout.trim())).toEqual([
+      'zh|语言 L · T', 'en|Language L · T', 'en|Language L · T', 'zh|nope',
+    ])
+  })
+})

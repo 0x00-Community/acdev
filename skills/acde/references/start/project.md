@@ -8,10 +8,22 @@ my-app/
 ├── package.json
 ├── index.html           entry page
 ├── src/main.js
+├── src/i18n.js         picks the language and fills in interface text
+├── src/locales/         one message table per language: en.js, zh.js
 ├── server.ts            backend (optional; not on Windows yet)
 ├── public/              static files copied as is (optional)
 └── .acde/               build output, kept out of git
 ```
+
+## Interface languages
+
+The `html` and `desktop` templates keep interface text out of the markup, in one table per language under `src/locales/` (`en.js`, `zh.js`, each `export default { key: 'text' }`). `src/i18n.js` uses only the platform, no library:
+
+- `locale` is chosen from `navigator.language`: the exact tag if there is a table for it (`zh-TW.js`), else its base language (`zh`, via `Intl.Locale`), else `en`. A key a table lacks falls back to its English text.
+- `t(key, values)` returns the text with `{name}` placeholders filled in.
+- `translate()` sets `<html lang>` to `locale` and fills every element with a `data-i18n="key"` attribute; `index.html` ships with `lang="en"` until then.
+
+To add a language, add `src/locales/<tag>.js` with the same keys as `en.js` and import it in `i18n.js`. Format dates and numbers with `Intl` and `locale` (`new Intl.DateTimeFormat(locale)`). Framework templates keep the UI their own scaffolder writes.
 
 ## Config and manifest
 

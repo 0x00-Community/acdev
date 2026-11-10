@@ -121,6 +121,7 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   `services`、`requests`、`schemes` (空值加说明; `fs.roots` 只点名 SDK 的 `SHARED_PLACES`), 不预先声明要用户批准的能力, 新工程无界面也能启动;
   类型引用分层: 应用写 `@dopame/acde-api/app`, 桌面页写 `@dopame/acde-api/shell`; 桌面页经 `apps.open(id)` 打开应用 (第 1 级的 `acde:apps`
   没有 `launch`); 不用 `copyIn` (第 1 级由 `fs.copy` 取代).
+- 模板的注释和默认文字用英文, 与 skill 一致 (acde#38); 有界面的模板 (`templates/app`、`templates/desktop`) 带最小的 i18n: 文案在 `src/locales/<语言>.js` (至少 en、zh, 键相同), `src/i18n.js` (两份相同) 按 `navigator.language` 精确标签→`Intl.Locale` 的基础语言→`en` 选表, 缺的键回落英文, 设 `<html lang>` 并填 `data-i18n`; 不用第三方库. `templates/` 里除 `locales/zh.js` 外不出现中日韩文字, 不写死 `lang="zh"` (测试检查). 框架模板的界面由各自脚手架生成, 不改.
 
 ## 构建 (`src/app.ts`, `src/package.ts`, `src/bundler.ts`, `src/frameworks.ts`)
 
