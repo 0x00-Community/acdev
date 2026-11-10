@@ -80,3 +80,9 @@ fn a_ref_follows_its_node_across_a_list_re_render() {
     assert!(doc.semantics(a, 10, true, false).is_err(), "the old ref is gone with its node");
     assert_eq!(id_of(&doc, "Beta"), Some(u64::from(b)));
 }
+
+#[test]
+fn output_is_a_status() {
+    let doc = page("<form><input id=a value=2><output for=a>4</output></form>");
+    assert!(nodes(&doc, false).iter().any(|n| n["role"] == "status"), "{:?}", nodes(&doc, false));
+}

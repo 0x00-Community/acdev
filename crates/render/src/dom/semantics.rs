@@ -388,6 +388,7 @@ impl<'a> Walk<'a> {
             "th" => "columnheader",
             "progress" => "progressbar",
             "meter" => "meter",
+            "output" => "status",
             "hr" => "separator",
             "details" => "group",
             "fieldset" => "group",
