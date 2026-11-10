@@ -233,6 +233,11 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   独立应用开的别的窗口 (`State.standalone` 之后 grant 的, `Entry.minimize` 为假) 保留运行时窗框, 照常挪、改尺寸、关, 但不能最小化 (没有 Dock 找回来):
   窗框的最小化按钮画成灰的、按了没反应, 运行时拒绝变成 `minimized`, `acde.window.minimize()` 和 `acde.windows.requestState(id, 'minimized')`
   以 `AcdeWindowError` (`code: 'unavailable'`, `status: 409`) 拒绝. `acde.window.minimizable` (加 `on('minimizable')`) 是每个窗口自己的值.
+  **能不能最小化只有一个说法** (`Entry::minimizable`: 宿主替它做 (`host`), 或者 `minimize` 为真、不是桌面和面板、模式允许最小化): 窗框按钮的灰显、
+  `Surface::minimizable`、`windows()` 行的 `minimize` 都用它. 所以宿主没有自己控件的平台 (macOS / Linux 的 winit 宿主、headless) 上, 独立应用的主窗口 (内部是
+  `fullscreen` 模式, 没人替它最小化) 也是不能最小化的: `minimizable` 为假, 窗框的最小化按钮是灰的, `minimize()` 以同一个 409 拒绝, `acde:inspect` 的
+  `act <窗口> minimize` 回 `ok: false` 和原因, 不再回「已最小化」而什么都没变. 原因的文字在 `WindowCalls.unminimizable(行)` 一处: 桌面、铺满宿主窗口的主窗口
+  (`it fills the host window, which only the host window's own controls minimize here`)、钉住的窗口、独立应用的别的窗口 (`a standalone app has no Dock to bring it back`).
 - **不显示 (`ACDE_HEADLESS=1`)**: 平台层在运行时二选一 (`platform.rs`: `Host` 是 trait, `Proxy` 是 enum; 原生的 win32 / winit 和
   `platform/headless.rs`). headless 不开窗口: 主线程只收 `Cmd` (`Exit` 时退出), 屏幕是 `ACDE_SIZE` (否则 1440 × 900) 乘 `ACDE_SCALE`
   (0.5–4, 默认 1), 起来就算宿主窗口有焦点. 合成器没有 surface: 不出画面、不数 `frames`, 但页面照常出帧 (出帧线程的节奏不靠宿主窗口),

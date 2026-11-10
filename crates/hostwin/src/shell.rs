@@ -99,8 +99,12 @@ impl Entry {
             fullscreen: self.mode == Mode::Fullscreen || self.state == WindowState::Fullscreen,
             theme,
             active,
-            minimize: self.minimize,
+            minimize: self.minimizable(),
         }
+    }
+
+    pub fn minimizable(&self) -> bool {
+        self.host || (self.minimize && !self.desktop && !self.panel && WindowState::Minimized.allowed(self.mode))
     }
 }
 
@@ -531,7 +535,7 @@ impl Shell {
                 hidden: e.hidden,
                 parent: e.parent,
                 modal: e.modal,
-                minimize: e.minimize,
+                minimize: e.minimizable(),
             })
             .collect();
         list.sort_by_key(|w| (w.id != 0, w.z));
@@ -760,6 +764,30 @@ pub(crate) mod tests {
         assert!(apply(&mut s, second, Some(WindowState::Filled)).is_some(), "other states still work");
         s.entries.get_mut(&second).expect("second").frame = 32.0;
         assert!(!s.entries[&second].bar(s.theme, true).minimize);
+    }
+
+    #[test]
+    fn a_window_says_it_can_minimize_only_where_the_runtime_would_do_it() {
+        let mut s = screen();
+        let desktop = open(&mut s, Grant { desktop: true, ..Grant::default() });
+        let free = open(&mut s, Grant::default());
+        let fixed = open(&mut s, Grant { mode: Some(Mode::Fixed), ..Grant::default() });
+        let pinned = open(&mut s, Grant { mode: Some(Mode::Pinned), ..Grant::default() });
+        let minimizable = |s: &State, id: u32| s.entries[&id].minimizable();
+        assert!(minimizable(&s, free) && minimizable(&s, fixed));
+        assert!(!minimizable(&s, desktop) && !minimizable(&s, pinned));
+
+        let mut plain = screen();
+        let primary = open(&mut plain, Grant { host: true, mode: Some(Mode::Fullscreen), ..Grant::default() });
+        assert!(!plain.entries[&primary].host, "this host has no controls of its own");
+        assert!(!minimizable(&plain, primary), "nothing would carry it out");
+        assert!(apply(&mut plain, primary, Some(WindowState::Minimized)).is_none());
+        plain.entries.get_mut(&primary).expect("primary").frame = 32.0;
+        assert!(!plain.entries[&primary].bar(plain.theme, true).minimize, "its frame button is greyed");
+
+        let mut controls = State { controls: true, ..screen() };
+        let primary = open(&mut controls, Grant { host: true, mode: Some(Mode::Fullscreen), ..Grant::default() });
+        assert!(controls.entries[&primary].host && minimizable(&controls, primary), "the host window minimizes for it");
     }
 
     #[test]

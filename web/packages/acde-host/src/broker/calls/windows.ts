@@ -2,7 +2,7 @@ import type { WindowMenusEvent, WindowsEvent, WindowState, WindowTitleEvent } fr
 import { Level, Log } from '../../log'
 import { PageSource } from '../../page'
 import { WindowRecords } from '../records'
-import type { AnimateOptions, BrokerShell, WindowRecord, WireMenu } from '../types'
+import type { AnimateOptions, BrokerShell, ShellWindow, WindowRecord, WireMenu } from '../types'
 import { Web } from '../web'
 
 export interface ServiceCaller {
@@ -34,6 +34,14 @@ export class WindowCalls {
 
   constructor(host: WindowsHost) {
     this.#host = host
+  }
+
+  static unminimizable(row: ShellWindow | undefined): string | null {
+    if (!row || row.minimize !== false) return null
+    if ((row.window ?? row.id) === 0) return 'the desktop stays behind every window'
+    if (row.mode === 'fullscreen') return "it fills the host window, which only the host window's own controls minimize here"
+    if (row.mode === 'pinned') return 'a pinned window stays where it is'
+    return 'a standalone app has no Dock to bring it back'
   }
 
   async windows(web: WindowsCaller, method: string, args: unknown[]): Promise<unknown> {
@@ -123,10 +131,8 @@ export class WindowCalls {
       throw Object.assign(new TypeError(`no window state ${String(state)} (${WindowCalls.STATES.join(', ')})`), { status: 400 })
     }
     if (!this.#host.shell.setState) throw Object.assign(new Error('window states are not carried out here yet'), { status: 501 })
-    if (state === 'minimized' && this.#host.shell.windows().find((row) => row.id === id)?.minimize === false) {
-      const reason = 'a standalone app has no Dock to bring it back'
-      throw Object.assign(new Error(`window ${id} cannot be minimized: ${reason}`), { status: 409, code: 'unavailable' })
-    }
+    const reason = state === 'minimized' ? WindowCalls.unminimizable(this.#host.shell.windows().find((row) => (row.window ?? row.id) === id)) : null
+    if (reason) throw Object.assign(new Error(`window ${id} cannot be minimized: ${reason}`), { status: 409, code: 'unavailable' })
     this.#host.shell.setState(id, state as WindowState)
   }
 

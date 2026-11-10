@@ -1,5 +1,6 @@
 import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import type { BrokerShell } from './broker'
+import { WindowCalls } from './broker/calls/windows'
 import { chordCodes, keyCode } from './keys'
 import type { PageNode, PagePoint, PageQuery, PageTree } from './pageinspect'
 import type { Rpc } from './rpc'
@@ -307,11 +308,14 @@ export class Inspect {
         if (window.hidden) this.#host.hide(window.id, false)
         this.#focus(window)
         return { ok: true, text: `${window.ref} is in front` }
-      case 'minimize':
+      case 'minimize': {
         if (window.kind === 'desktop') return { ok: false, text: 'the desktop cannot be minimized' }
+        const reason = WindowCalls.unminimizable(this.#host.shell.windows().find((row) => (row.window ?? row.id) === window.id))
+        if (reason) return { ok: false, text: `${window.ref} cannot be minimized: ${reason}` }
         if (this.#host.shell.setState) this.#host.shell.setState(window.id, 'minimized')
         else this.#host.hide(window.id, true)
         return { ok: true, text: `${window.ref} is minimized` }
+      }
       case 'close':
         if (window.kind === 'desktop') return { ok: false, text: 'the desktop cannot be closed' }
         await this.#host.close(window.id)
