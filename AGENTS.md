@@ -975,7 +975,8 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   第一行是 `(windows unchanged)` 且只列有树的窗口. act / run / open / query 的文字和错误也是英文. `act(ref, action, arg)` → `{ok, text}`: 做完等页面安静
   (200 ms 没有 DOM 变化, 最多 3 秒; 原生窗口 0.4 秒), 窗口表或焦点变了先等新焦点窗口安静. `run(steps)` 依次做, 失败就停. 动作: click /
   double / right / hover / scroll 按 `point` 的屏幕坐标经 `Shell.inject` 发 (被盖住时先提前目标窗口; 桌面钉住的面板盖着的地方只算被更上层的钉住窗口挡住, #111); type / settext 走 web 的 `type`;
-  key (`"ctrl+a backspace"`) 先 focus 再注入; select (arg 是选项的值或文字, 多选给列表) 走 web 的 `select`; drag (arg 是目标 ref, 元素或窗口,
+  key (`"ctrl+a backspace"`, acde-host `keys.ts` 的 `chordCodes`) 先 focus 再注入: 空格分开的每段先全部解析, 有认不出的就整串不发并报出这些段;
+  可打印字符直接写 (`7 . 5 * 2`), 美式键盘上要 Shift 的符号 (`*`、`+`、`(` …) 和大写字母自动加 Shift, 也认 `plus` / `multiply` / `minus` 等名字, `ctrl++` 是 Ctrl 加 `+`; select (arg 是选项的值或文字, 多选给列表) 走 web 的 `select`; drag (arg 是目标 ref, 元素或窗口,
   可以在别的窗口) 在源上按下、量目标 (`point`, 可能滚动; 目标被别的窗口盖住时松开并回错)、分 10 步每步 16 ms 移过去再松开, 页面的指针拖动和
   HTML5 拖放 (也跨窗口) 都靠它. 窗口 ref 能 focus / restore / minimize / close / key. `open(name)` 按 id、名字找应用或原生程序起它. `query({selector, window?, ref?, limit?, attributes?})` →
   `{window, count, nodes}`: 在窗口 (默认焦点窗口) 或某个元素下按 CSS 选择器找, 节点是 `InspectMatch` (`InspectNode` 加 `tag`、`visible`, 给了

@@ -1,6 +1,6 @@
 import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import type { BrokerShell } from './broker'
-import { keyCode } from './keys'
+import { chordCodes } from './keys'
 import type { PageNode, PagePoint, PageQuery, PageTree } from './pageinspect'
 import type { Rpc } from './rpc'
 
@@ -521,13 +521,12 @@ export class Inspect {
 
   #keys(spec: string): void {
     const shell = this.#host.shell
-    for (const chord of spec.trim().split(/\s+/).filter(Boolean)) {
-      const parts = chord.split('+')
-      const codes = parts.map((p) => keyCode(p))
-      if (codes.some((c) => c === null)) throw new Error(`unknown key: ${chord}`)
-      if (parts.length === 1 && /^[A-Z]$/.test(parts[0]!)) codes.unshift(keyCode('shift'))
-      for (const code of codes) shell.inject({ type: 'keydown', code: code! })
-      for (const code of [...codes].reverse()) shell.inject({ type: 'keyup', code: code! })
+    const chords = spec.trim().split(/\s+/).filter(Boolean).map((chord) => ({ chord, codes: chordCodes(chord) }))
+    const unknown = chords.filter((c) => !c.codes).map((c) => c.chord)
+    if (unknown.length) throw new Error(`unknown key${unknown.length > 1 ? 's' : ''}: ${unknown.join(' ')} (nothing was pressed)`)
+    for (const { codes } of chords) {
+      for (const code of codes!) shell.inject({ type: 'keydown', code })
+      for (const code of [...codes!].reverse()) shell.inject({ type: 'keyup', code })
     }
   }
 

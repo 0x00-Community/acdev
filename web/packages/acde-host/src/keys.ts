@@ -23,6 +23,27 @@ const ALIASES: Record<string, number> = {
   insert: 110, menu: 127, '-': 12, '=': 13, '[': 26, ']': 27, ';': 39, "'": 40, '`': 41, '\\': 43, ',': 51, '.': 52, '/': 53,
 }
 
+const SHIFTED: Record<string, string> = {
+  '!': '1', '@': '2', '#': '3', $: '4', '%': '5', '^': '6', '&': '7', '*': '8', '(': '9', ')': '0',
+  _: '-', '+': '=', '{': '[', '}': ']', '|': '\\', ':': ';', '"': "'", '<': ',', '>': '.', '?': '/', '~': '`',
+}
+const NAMED: Record<string, string> = { plus: '+', multiply: '*', asterisk: '*', star: '*', minus: '-', divide: '/', period: '.', comma: ',' }
+
+export function chordCodes(chord: string): number[] | null {
+  const parts = chord === '+' ? ['+'] : chord.endsWith('++') ? [...chord.slice(0, -2).split('+'), '+'] : chord.split('+')
+  if (parts.some((p) => !p)) return null
+  const codes: number[] = []
+  for (const part of parts) {
+    const name = NAMED[part.toLowerCase()] ?? part
+    const base = SHIFTED[name]
+    const code = keyCode(base ?? name)
+    if (code === null) return null
+    if (base !== undefined || (parts.length === 1 && /^[A-Z]$/.test(name))) codes.push(keyCode('shift')!)
+    codes.push(code)
+  }
+  return [...new Set(codes)]
+}
+
 export function keyCode(name: string): number | null {
   const lower = name.toLowerCase()
   if (lower in ALIASES) return ALIASES[lower]!
