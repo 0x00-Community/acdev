@@ -1,3 +1,4 @@
+import type { DownloadEvent, NotificationEvent } from '@dopame/acde-api'
 import type { Native, NativeFileChooser } from '../../native'
 import { Downloads } from '../../downloads'
 import { Level, Log } from '../../log'
@@ -96,7 +97,8 @@ export class PageCalls {
         if (!(bytes instanceof Uint8Array)) throw new TypeError('acde: a download is bytes')
         const path = Downloads.save(text(name, 1000), text(type, 200), bytes)
         Log.write(Level.Info, 'acde_host', `[${web.name}] saved ${path} (${bytes.length} bytes)`)
-        this.#host.toDesktop({ type: 'download', window: web.window, app: web.app?.id ?? null, path, name: basename(path), size: bytes.length })
+        const saved = { type: 'download', window: web.window, app: web.app?.id ?? null, path, name: basename(path), size: bytes.length } satisfies DownloadEvent
+        this.#host.toDesktop(saved)
         return path
       }
       case 'notify': {
@@ -111,7 +113,7 @@ export class PageCalls {
           body: text(n['body'], 2000),
           icon: /^(data:image\/|http:\/\/acde\.local\/)/.test(icon) ? icon : '',
           tag: text(n['tag'], 200),
-        }
+        } satisfies NotificationEvent
         if (this.#host.desktopShown() || !this.#host.shell.notify) this.#host.toDesktop(notice)
         else this.#host.shell.notify(notice.title, notice.body, notice.label ?? '')
         return true

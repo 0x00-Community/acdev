@@ -1,3 +1,4 @@
+import type { WindowMenusEvent, WindowsEvent, WindowTitleEvent } from '@dopame/acde-api'
 import { Level, Log } from '../../log'
 import { PageSource } from '../../page'
 import type { AnimateOptions, BrokerShell, WindowRecord, WireMenu } from '../types'
@@ -119,23 +120,23 @@ export class WindowCalls {
     switch (method) {
       case 'setTitle':
         record.title = String(args[0])
-        return this.#host.toDesktop({ type: 'windowtitle', window: record.id, appId: record.app!.id, title: record.title })
+        return this.#host.toDesktop({ type: 'windowtitle', window: record.id, appId: record.app!.id, title: record.title } satisfies WindowTitleEvent)
       case 'setMenus':
         record.menus = (args[0] as WireMenu[]) ?? []
-        return this.#host.toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus })
+        return this.#host.toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
       case 'close':
         return this.#host.closeWeb(record.id, true)
       case 'minimize':
         if (this.#host.shell.setState) return this.#state(record.id, 'minimized')
-        return this.#host.toDesktop({ type: 'windowminimize', window: record.id })
+        return this.#host.toDesktop({ type: 'windowminimize', window: record.id } satisfies WindowsEvent)
       case 'requestAttention':
-        return this.#host.toDesktop({ type: 'windowattention', window: record.id })
+        return this.#host.toDesktop({ type: 'windowattention', window: record.id } satisfies WindowsEvent)
       case 'shortcut':
         return this.#host.shell.shortcut(String(args[0]), 'app', record.id)
       case 'unshortcut':
         return this.#host.shell.unshortcut(String(args[0]), 'app', record.id)
       case 'ready':
-        return this.#host.toDesktop({ type: 'windowready', window: record.id })
+        return this.#host.toDesktop({ type: 'windowready', window: record.id } satisfies WindowsEvent)
       case 'reload': {
         if (record.web !== web || web.closing) return false
         const url = args[0] === undefined || args[0] === null ? null : String(args[0])

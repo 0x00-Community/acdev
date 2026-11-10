@@ -1,3 +1,4 @@
+import type { AppsChangedEvent, WindowCrashEvent, WindowMenusEvent, WindowOpenEvent, WindowsEvent } from '@dopame/acde-api'
 import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
 import { sys } from './sys/natives'
@@ -437,7 +438,7 @@ export class Broker {
     this.#windows.unclaim(web)
     if (web.reloading && !web.closing && !this.#stopped) return this.#spawnWindow(record)
     if (!web.closing) {
-      this.#toDesktop({ type: 'windowcrash', window: record.id, reason: reason ?? (code === 0 ? 'exit' : `exit ${code}`) })
+      this.#toDesktop({ type: 'windowcrash', window: record.id, reason: reason ?? (code === 0 ? 'exit' : `exit ${code}`) } satisfies WindowCrashEvent)
       Log.write(Level.Warn, 'acde_host', `[${web.name}] stopped (${reason ?? `exit ${code}`})`)
     }
     this.#forget(record, web.closing ? 'close' : 'exit')
@@ -453,7 +454,7 @@ export class Broker {
     this.#windows.delete(record.id)
     this.shell.release(record.id)
     this.#windows.unplace(record.id, Broker.CLOSE_WAIT_MS)
-    this.#toDesktop({ type: 'windowclose', window: record.id })
+    this.#toDesktop({ type: 'windowclose', window: record.id } satisfies WindowsEvent)
     if (record.app?.backend && !this.#windows.running(record.app.id)) void this.backends.stop(record.app.id)
     if (record.id === this.#standaloneWindow && !this.#stopped) this.#end(reason)
   }
@@ -490,12 +491,12 @@ export class Broker {
       const busy = web.thread.busyMs() >= Broker.HANG_MS
       if (web.hung && !busy) {
         web.hung = false
-        this.#toDesktop({ type: 'windowresponsive', window: web.window })
+        this.#toDesktop({ type: 'windowresponsive', window: web.window } satisfies WindowsEvent)
       }
       if (web.hung || !busy) continue
       web.hung = true
       Log.write(Level.Warn, 'acde_host', `[${web.name}] not answering for ${Broker.HANG_MS / 1000} s`)
-      if (web.kind === 'window') this.#toDesktop({ type: 'windowhang', window: web.window })
+      if (web.kind === 'window') this.#toDesktop({ type: 'windowhang', window: web.window } satisfies WindowsEvent)
     }
   }
 
@@ -558,10 +559,12 @@ export class Broker {
     if (record.owner) return
     if (record.kind === 'web') {
       const app = record.app!
-      this.#toDesktop({ type: 'windowopen', window: record.id, appId: app.id, title: record.title ?? app.label, web: true, icon: app.icon })
-      if (record.menus.length) this.#toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus })
+      const title = record.title ?? app.label
+      const opened = { type: 'windowopen', window: record.id, appId: app.id, title, web: true, icon: app.icon } satisfies WindowOpenEvent
+      this.#toDesktop(opened)
+      if (record.menus.length) this.#toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
     } else {
-      this.#toDesktop({ type: 'windowopen', window: record.id, appId: record.appId, title: record.title })
+      this.#toDesktop({ type: 'windowopen', window: record.id, appId: record.appId, title: record.title } satisfies WindowOpenEvent)
     }
   }
 
@@ -594,7 +597,7 @@ export class Broker {
   #raise(opened: { window: number }): { window: number } {
     this.#hide(opened.window, false)
     this.shell.focus(opened.window)
-    this.#toDesktop({ type: 'windowshow', window: opened.window })
+    this.#toDesktop({ type: 'windowshow', window: opened.window } satisfies WindowsEvent)
     return opened
   }
 
@@ -612,7 +615,7 @@ export class Broker {
     this.#options.packages.rescan()
     const changed = this.apps.reload(this.#options.packages)
     const apps = this.#appList()
-    if (changed) this.#toDesktop({ type: 'appschanged', apps })
+    if (changed) this.#toDesktop({ type: 'appschanged', apps } satisfies AppsChangedEvent)
     return apps
   }
 

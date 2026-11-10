@@ -364,7 +364,11 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   frame 回调. `ACDE_WEB_FPS` 指定帧率.
 - **通信**: acde-host `remote.ts` 的 `RemoteBridge` 按 Broker 给的能力建代理 (注入的能力直接用 natives), `define` 登记成内置模块
   `acde:<名字>` (`modules.rs` 用 V8 合成模块, 导出 `{<名字>, default}`). 事件不派到 `window` 上: 页面用模块上的 `on(类型, fn)` 订阅 (返回退订
-  函数, 不认识的类型抛 TypeError; 类型见 acde-api `page.d.ts`). 其余调用经 `rpc.ts` 到 Broker (错误原样回来, 回调函数可以跨). 本文的
+  函数, 不认识的类型抛 TypeError). 事件和结果都有 SDK 类型 (`types/events.d.ts`、`types/office.d.ts`): 事件按 `type` 区分 (`acde:windows` /
+  `acde:launch` 的 `on(短名)` 收 `{type: 'window<短名>', window, …}`, `appschanged`、`download`、`notification`、`screenshot {path, width, height}` 或
+  `{path, error}`、`shortcut {key, title: 作用域, window}`、终端的 `output` / `cwd` / `exit`); `acde.window` 的 `grab {kind, granted}`、
+  `grablost {kind: 'lost', reason}`, `suspend` / `resume` 没有参数 (运行时还不发). 公共事件、请求和结果里没有 `unknown` 和 `[字段: string]: unknown`
+  (SDK `test/types.test.ts` 遍历检查); 扩展期留着的第 0 级无类型重载标 `@deprecated`, 第 0 级移除时删. 产生这些事件的地方用 `satisfies` 对 SDK 类型. 其余调用经 `rpc.ts` 到 Broker (错误原样回来, 回调函数可以跨). 本文的
   `acde.<名字>.<方法>` 指 `acde:<名字>` 导出的值.
   - **窗口状态和输出 (页面)**: `acde.window.state`、`requestState(state)` (不行就什么都不变, 没有回答)、`on('state', {state, previous})`.
     状态由运行时决定, 页面没请求的变化 (桌面最小化、窗框按钮、给最小化的窗口焦点) 也发 `state`, 页面必须照事件更新自己, 不能只记自己请求过什么.
@@ -383,7 +387,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     `openFiles` (桌面不用). `acde.open(<id>, request)` 写了目标时要 `open` 允许, 目标不接受 (链接的 scheme 不在 `schemes`, 文件的类型不在
     `mimeTypes`) 时 409 `not_accepted`. 收到的请求带 `kind`: 链接是 `{kind: 'open-link', url}`, 文件保留今天的字段 (没有 `fs` 的应用
     `{kind: 'open-file', url}`, 有 `fs` 的 `{kind: 'open-file', root, path, file}`). 扩展期不带 `kind` 的 `open(<id>, {…})` 照旧.
-    **私有请求** (SDK `AppRequest {kind, …}`, 和系统请求合成 `WindowRequest`): `acde.open(<id>, {kind, …})`, 运行时只查目标清单的 `requests``n    有这个 `kind` (没有时 409 `not_accepted`, 不交给对方), 内容由接收方自己查; `open` 照旧决定能叫哪些应用. 扩展期目标没写 `requests` 时不查,
+    **私有请求** (SDK `AppRequest<K, Fields>`: 接收方声明自己收的 `kind` 和字段, `on<Task | Page>('request', …)` 按 `kind` 收窄; 和系统请求合成
+    `WindowRequest`): `acde.open(<id>, {kind, …})`, 运行时只查目标清单的 `requests`
+    有这个 `kind` (没有时 409 `not_accepted`, 不交给对方), 内容由接收方自己查; `open` 照旧决定能叫哪些应用. 扩展期目标没写 `requests` 时不查,
     本版本末尾的第 0 级移除之后一律查.
     `open(<id>, request, {parent, modal})` 给新窗口一个父窗口 (`broker/family.ts`: 应用只能写自己应用的
     web 窗口, 桌面可以写任何开着的窗口; 不存在 404, 别人的 403, 不是窗口号 400); 新窗口居中在父窗口上方, 不用记住的位置; 已在运行的单例应用只收请求,
@@ -1100,7 +1106,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run test`; 测试是 `bun test`, 没有 Node).
 
 - **acde-api**: 入口在 `src/` 顶层 (`index`、`app.d.ts` / `shell.d.ts`、`vite`、`validate.ts`), `src/types/` 是接口声明, `src/modules/` 是 `acde:*` 模块声明, `src/runtime/` 是运行时的 JS. `API_LEVEL` (`src/runtime/level.js`, 契约级别, 包根和 `./manifest` 都导出)、`load(name)` (`src/runtime/load.js`: `import('acde:<name>')` 的默认导出, 拿不到时是 null; 说明符带 `@vite-ignore` 等)、
-  `@dopame/acde-api/vite` (build 时 `acde:*` 留作外部模块, dev 时换成会 reject 的替身); 声明 `types/` 的 `manifest.d.ts` / `service.d.ts` / `page.d.ts` /
+  `@dopame/acde-api/vite` (build 时 `acde:*` 留作外部模块, dev 时换成会 reject 的替身); 声明 `types/` 的 `manifest.d.ts` / `service.d.ts` / `page.d.ts` (加 `events.d.ts`、`office.d.ts`) /
   `config.d.ts` (+ `config.schema.json`) 和 `modules/`; `src/validate.ts` (导出 `./manifest`) 是清单校验和 `ICON_NAMES`, 测试
   `test/validate.test.ts`. acde 仓库用 `file:../acdert/web/packages/acde-api`, acde-dopame 拷一份 (`scripts/sync-acde-api.sh`).
   npm 上的 `@dopame/acde-api` 不是这个目录: 它的 package.json 是 `"private": true`, 防止把源码发出去. `bun run build` (`scripts/build.mjs`)

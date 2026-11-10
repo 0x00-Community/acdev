@@ -1,3 +1,4 @@
+import type { ScreenshotEvent, WindowGrabEvent, WindowGrabLostEvent } from '@dopame/acde-api'
 import type { DomNative, WebInternals } from '@dopame/acde-dom'
 import { DragDrop, DragSource } from './dnd'
 import { InputMethod, type ImeEvent } from './ime'
@@ -34,7 +35,7 @@ export class Host {
   #move: RawShellEvent | null = null
   onActivation: (active: boolean) => void = () => {}
   onPanelMove: (id: number, extent: readonly [number, number, number, number]) => void = () => {}
-  onGrab: (event: { kind: string; granted?: boolean; reason?: string }) => void = () => {}
+  onGrab: (event: WindowGrabEvent | WindowGrabLostEvent) => void = () => {}
   onFrameButton: (key: string) => void = () => {}
   onState: (state: string, previous: string) => void = () => {}
   onFirstFrame: () => void = () => {}
@@ -190,12 +191,13 @@ export class Host {
     const dir = userDir('PICTURES', 'Pictures')
     const stamp = new Date().toLocaleString('sv-SE').replace(/:/g, '.')
     const path = join(dir, `截图 ${stamp}.png`)
-    let detail: Record<string, unknown>
+    let detail: ScreenshotEvent
     try {
       mkdirSync(dir, { recursive: true })
-      detail = { path, ...(await this.#windows.screenshot(path)) }
+      const { width, height } = await this.#windows.screenshot(path)
+      detail = { type: 'screenshot', path, width, height }
     } catch (error) {
-      detail = { path, error: (error as Error).message }
+      detail = { type: 'screenshot', path, error: (error as Error).message }
     }
     this.#windows.notices.emit('desktop:screenshot', detail)
   }
@@ -235,11 +237,11 @@ export class Host {
       for (const raw of surface.pump()) {
         if (this.#activation(raw)) continue
         if (raw.type === 'grab') {
-          this.onGrab({ kind: raw.key ?? 'pointer', granted: raw.code === 1 })
+          this.onGrab({ kind: raw.key === 'keyboard' ? 'keyboard' : 'pointer', granted: raw.code === 1 })
           continue
         }
         if (raw.type === 'grablost') {
-          this.onGrab({ kind: 'lost', reason: raw.title ?? 'denied' })
+          this.onGrab({ kind: 'lost', reason: Host.lost(raw.title) })
           continue
         }
         if (raw.type === 'framebutton') {
@@ -281,6 +283,10 @@ export class Host {
 
   close(): void {
     this.#ime?.close()
+  }
+
+  static lost(reason: string | undefined): WindowGrabLostEvent['reason'] {
+    return reason === 'esc' || reason === 'other_window' || reason === 'focus_lost' ? reason : 'denied'
   }
 
   static report(error: unknown): void {
