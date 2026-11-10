@@ -88,7 +88,7 @@ acde skills [install|remove|path] [--agent ID,...] [--dir DIR] [--copy]
 | --- | --- |
 | `acde skills` | Where the acde skill is installed, and whether each place is current |
 | `acde skills install` | Links the skill into `~/.agents/skills` and the skills directory of every agent found |
-| `acde skills remove` | Removes it from those places |
+| `acde skills remove` | Removes it from those places, and the directories `install` created that are now empty |
 | `acde skills path` | Prints the skill's directory inside the acde install |
 
 | Option | Description |

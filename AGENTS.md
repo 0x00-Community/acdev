@@ -403,6 +403,9 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
   一处不行就一处都不装.
 - `status` 每处一行: `link` / `copy` 加 `current` (链接指向这份 skill; 拷贝逐文件字节相同) / `outdated` / `broken` (链接的目标没了),
   检测到 agent 但没装的写 `not installed`, 同名但不是这个 skill 的写 `another skill`. `remove` 只删认得出是 acde skill 的 (和断掉的链接).
+- `install` 建 skills 目录时 (`mkdirSync` 递归, 返回建出的第一层) 把它新建的每一层记进 `<XDG_DATA_HOME 或 ~/.local/share>/acde/skills.json`
+  (`{created: [绝对路径]}`); `remove` 删掉 skill 后从那一处往上, 只删记过且已空的目录, 删了就从记录里去掉. 用户原有的目录 (没记过的) 和
+  里面还有别的东西的目录都不动. 记录放 acde 自己的数据目录, 不在 agent 的 skills 目录里留文件.
 
 **`install.md`** (仓库根, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
 `Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
