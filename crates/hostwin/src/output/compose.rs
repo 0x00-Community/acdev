@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use acde_gpu::wgpu;
 
 use crate::app::server;
-use crate::output::gpu::Gpu;
+use crate::output::gpu::{Gpu, guarded};
 
 const SHADER: &str = r"
 struct Place {
@@ -38,6 +38,8 @@ fn fs_quad(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
 
 const DUMP_DELAY: Duration = Duration::from_millis(300);
 const SCREENSHOT_WAIT: Duration = Duration::from_secs(10);
+const RETRY: Duration = Duration::from_millis(50);
+const FAULT_AT: u64 = 3;
 const OFFSCREEN: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const BACKGROUND: wgpu::Color = wgpu::Color { r: 0.12, g: 0.12, b: 0.13, a: 1.0 };
 
@@ -126,6 +128,28 @@ struct Output {
     pipeline: wgpu::RenderPipeline,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Fault {
+    Outdated,
+    Lost,
+    Panic,
+}
+
+impl Fault {
+    fn from_env() -> Option<Self> {
+        let fault = match std::env::var("ACDE_HOST_FAULT").ok()?.as_str() {
+            "outdated" => Self::Outdated,
+            "lost" => Self::Lost,
+            "panic" => Self::Panic,
+            other => {
+                log::warn!("ACDE_HOST_FAULT: unknown fault {other}");
+                return None;
+            }
+        };
+        Some(fault)
+    }
+}
+
 struct Thread {
     gpu: Arc<Gpu>,
     output: Option<Output>,
@@ -137,6 +161,9 @@ struct Thread {
     pages: HashMap<u32, Bound>,
     composer: acde_gpu::Composer,
     canvas: Option<Canvas>,
+    retry_at: Option<Instant>,
+    fault: Option<Fault>,
+    draws: u64,
 }
 
 fn configuration(gpu: &Gpu, surface: &wgpu::Surface<'static>, size: (u32, u32)) -> Result<wgpu::SurfaceConfiguration, String> {
@@ -208,8 +235,11 @@ pub(crate) fn start(gpu: Arc<Gpu>, surface: Option<wgpu::Surface<'static>>, size
     let (tx, rx) = mpsc::channel();
     let size = (size.0.max(1), size.1.max(1));
     let composer = acde_gpu::Composer::new(device, &gpu.shared.queue);
-    let mut thread = Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages: HashMap::new(), composer, canvas: None };
-    let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(move || thread.run(&rx)).map_err(|e| format!("compose thread: {e}"))?;
+    let pages = HashMap::new();
+    let fault = Fault::from_env();
+    let mut thread = Thread { gpu, output, size, offscreen, layout, dump, dump_at: None, pages, composer, canvas: None, retry_at: None, fault, draws: 0 };
+    let run = move || guarded(|| thread.run(&rx));
+    let handle = std::thread::Builder::new().name("acde-compose".into()).spawn(run).map_err(|e| format!("compose thread: {e}"))?;
     Ok((Compositor(tx), handle))
 }
 
@@ -238,10 +268,17 @@ fn make_pipeline(device: &wgpu::Device, layout: &wgpu::PipelineLayout, module: &
 
 impl Thread {
     fn run(&mut self, rx: &mpsc::Receiver<Msg>) {
-        while let Some(msgs) = drain(rx, self.dump_at.map(|at| at.saturating_duration_since(Instant::now()))) {
+        while let Some(msgs) = drain(rx, self.deadline().map(|at| at.saturating_duration_since(Instant::now()))) {
             if msgs.is_empty() {
-                self.dump_at = None;
-                self.dump();
+                let now = Instant::now();
+                if self.dump_at.is_some_and(|at| at <= now) {
+                    self.dump_at = None;
+                    self.dump();
+                }
+                if self.retry_at.is_some_and(|at| at <= now) {
+                    self.retry_at = None;
+                    self.draw();
+                }
                 continue;
             }
             for msg in msgs {
@@ -405,15 +442,17 @@ impl Thread {
         if self.dump.is_some() && self.dump_at.is_none() {
             self.dump_at = Some(Instant::now() + DUMP_DELAY);
         }
-        let Some(output) = &self.output else { return };
+        self.draws += 1;
+        if self.draws == FAULT_AT {
+            self.inject_fault();
+        }
+        if self.output.is_none() {
+            return;
+        }
         let gpu = self.gpu.clone();
-        let texture = match output.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                self.configure();
-                return;
-            }
-            _ => return,
+        let Some(texture) = self.acquire() else {
+            self.retry_at = Some(Instant::now() + RETRY);
+            return;
         };
         let target = texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = gpu.shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("acde compose") });
@@ -425,6 +464,42 @@ impl Thread {
         gpu.shared.queue.present(texture);
         if let Some(server) = server() {
             server.state().frames += 1;
+        }
+    }
+
+    fn deadline(&self) -> Option<Instant> {
+        self.dump_at.into_iter().chain(self.retry_at).min()
+    }
+
+    fn acquire(&mut self) -> Option<wgpu::SurfaceTexture> {
+        for attempt in 0..2 {
+            let mut got = self.output.as_ref()?.surface.get_current_texture();
+            if self.fault == Some(Fault::Outdated) && self.draws == FAULT_AT && attempt == 0 && matches!(got, wgpu::CurrentSurfaceTexture::Success(_)) {
+                log::info!("ACDE_HOST_FAULT: this frame's surface is outdated");
+                got = wgpu::CurrentSurfaceTexture::Outdated;
+            }
+            match got {
+                wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => return Some(t),
+                wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                    log::debug!("host window surface outdated or lost, configuring it again (attempt {attempt})");
+                    self.configure();
+                }
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    fn inject_fault(&self) {
+        match self.fault {
+            Some(Fault::Lost) => {
+                log::info!("ACDE_HOST_FAULT: destroying the GPU device");
+                let device = &self.gpu.shared.device;
+                device.destroy();
+                let _ = device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(SCREENSHOT_WAIT) });
+            }
+            Some(Fault::Panic) => panic!("ACDE_HOST_FAULT: panicking on the compose thread"),
+            Some(Fault::Outdated) | None => {}
         }
     }
 

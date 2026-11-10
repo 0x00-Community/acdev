@@ -6,6 +6,7 @@ use acde_model::{DoubleClick, Event, Inbox, Mode, Waker, WindowState};
 use acde_render::{RenderHandle, SurfaceCommand};
 
 use crate::app::server;
+use crate::output::gpu::guarded;
 use crate::output::present::Presenter;
 use crate::platform::{self, Cmd};
 
@@ -154,10 +155,10 @@ impl Surface {
         let thread = std::thread::Builder::new()
             .name(format!("acde-host-{window}"))
             .spawn(move || {
-                match Presenter::new(window, gpu, size, scale, refresh, bar, render, events.clone()) {
+                guarded(|| match Presenter::new(window, gpu, size, scale, refresh, bar, render, events.clone()) {
                     Ok(mut presenter) => presenter.run(&rx),
                     Err(e) => log::error!("window {window}: {e}"),
-                }
+                });
                 events.push(Event::named("exit"));
             })
             .map_err(|e| format!("window thread: {e}"))?;

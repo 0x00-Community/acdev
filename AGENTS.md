@@ -158,6 +158,10 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   合成线程每收到一批消息就合成一次, 早交出去会贴上一张空纹理 (面板只剩 backdrop 模糊, 一帧).
 - **GPU**: `gpu.rs` 只开 `acde_gpu::BACKEND` 一个后端 (Windows DX12、macOS Metal、Linux Vulkan), 不要 CPU 设备; `WGPU_VALIDATION` /
   `WGPU_DEBUG` 照 wgpu 的环境变量. 所有 `surface.configure` 和提交都拿 `acde_gpu::Gpu::submit_lock`.
+  不重建设备: 设备丢失 (`gpu.rs` 的 `on_lost`) 或合成 / 出帧线程 panic (`guarded`) 时记一条 `host window: … exiting` 的 error, 经 `Cmd::Exit`
+  照常退出 (丢失退 1, panic 退 101), 5 秒内没退完直接 `process::exit`. 取 surface 纹理时 Outdated / Lost 重新 configure 后当场再取一次,
+  还不行或 Timeout / Occluded 时 50 ms 后再合成一次, 静止的页面不用等下一次输入. `ACDE_HOST_FAULT=outdated|lost|panic` (调试用) 让合成线程
+  在第 3 次合成时把这一帧的 surface 当成过期、`Device::destroy` 或 panic.
 - **刷新率**: 出帧节奏跟宿主窗口所在的显示器. Win32 (`platform/win32/refresh.rs`) 在窗口挪到另一台显示器 (`WM_MOVE` / `WM_SIZE` /
   `WM_DPICHANGED` 时比 `MonitorFromWindow`) 或 `WM_DISPLAYCHANGE` 后重读这台显示器的当前模式 (`EnumDisplaySettingsW` 按设备名), 发
   `HostEvent::Refresh`; `Server::set_refresh` 变了才记进 `State.refresh` 并给每条出帧线程发 `Msg::Refresh`, 打 `host window: monitor refresh`.
@@ -1049,7 +1053,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 
 环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (网页存储的根目录, 默认 `$XDG_DATA_HOME/acde/storage`, 空: 只在
 内存, 见「网页存储」)、`ACDE_REDUCED_MOTION=1/0`、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
-`ACDE_DEV`、`ACDE_HOST_DUMP`、`ACDE_HEADLESS=1`、`ACDE_SCALE` (headless 的缩放)、`ACDE_AUDIO=null`; shell 的见上.
+`ACDE_DEV`、`ACDE_HOST_DUMP`、`ACDE_HOST_FAULT`、`ACDE_HEADLESS=1`、`ACDE_SCALE` (headless 的缩放)、`ACDE_AUDIO=null`; shell 的见上.
 
 - **配色** (`appearance.ts`): `ACDE_COLOR_SCHEME`, 否则 portal 的 `org.freedesktop.appearance` `color-scheme`, 变了发给所有 web (`matchMedia` 发 change).
   **语言** (`language.ts`): 按 `LANGUAGE` / `LC_ALL` / `LC_MESSAGES` / `LANG`; `acde:session` 的 `setLanguage(tag)` 写 `locale.conf` 并发 `languagechange`.
