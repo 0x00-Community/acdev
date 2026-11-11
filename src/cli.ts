@@ -22,8 +22,8 @@ const USAGE = `usage: acde <command>
                                                    T: ${STARTERS.map((s) => s.name).join(', ')}
                                                    PM: bun, npm, pnpm, yarn (default: the one running this)
   check [dir] [--platform P]                       acde.config.jsonc (or a package's manifest), as acdert reads it;
-                                                   P (windows, macos, linux): the required capabilities a running
-                                                   mode there lacks (optional ones are notes)
+                                                   P (windows, macos, linux; default: this one): the required
+                                                   capabilities a running mode there lacks (optional ones are notes)
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link);
                                                    default ~/.local/share/acde/packages, on Windows
@@ -239,7 +239,7 @@ class Cli {
       return await session.run()
     }
     const pkg = new AppPackage(args[0] ?? '.')
-    if (command === 'check') return Cli.report(pkg, flags.get('platform')) ? 0 : 1
+    if (command === 'check') return Cli.report(pkg, flags.get('platform') ?? AppPackage.here()) ? 0 : 1
     const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
     console.log(`acde: ${pkg.project ? `built ${what} into ${built.dir}` : `ok: ${pkg.name} (${what})`}`)
@@ -299,8 +299,8 @@ class Cli {
     return errors.length === 0 ? 0 : 1
   }
 
-  static report(pkg: AppPackage, platform?: string): boolean {
-    const target = platform === undefined ? null : pkg.platform(platform)
+  static report(pkg: AppPackage, platform = AppPackage.here()): boolean {
+    const target = platform === null ? null : pkg.platform(platform)
     const { errors, warnings } = pkg.check()
     for (const warning of warnings) console.error(`warning: ${warning}`)
     for (const error of errors) console.error(`error: ${error}`)
@@ -308,6 +308,10 @@ class Cli {
     if (!target) return errors.length === 0
     for (const note of target.notes) console.error(`note: ${note}`)
     for (const error of target.errors) console.error(`error: ${error}`)
+    if (target.errors.length > 0) {
+      console.error(`hint: to run on ${platform} without it, list the capability in "optional" and import it with `
+        + `load('<name>') from @dopame/acde-api`)
+    }
     const modes = `${platform} (${target.modes.join(', ')})`
     if (target.errors.length === 0) console.log(`ok: ${modes}: every required capability is there`)
     return errors.length === 0 && target.errors.length === 0

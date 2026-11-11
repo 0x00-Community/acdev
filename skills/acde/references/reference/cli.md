@@ -35,7 +35,7 @@ acde check [dir] [--platform windows|macos|linux]
 
 Checks the config (id, entry, icon, service modules, framework) and the manifest rules of the SDK, or the manifest and entry files of a handwritten package, and the `acde:` imports against the manifest.
 
-`--platform` lists the capabilities an app requires that the platform cannot provide in each way of running (an error), or that it declares optional (a note).
+It also lists the capabilities an app requires that a platform cannot provide in each way of running (an error, with how to make the capability optional), or that it declares optional (a note). That platform is the one `acde check` runs on, or the one `--platform` names.
 
 ### acde build
 

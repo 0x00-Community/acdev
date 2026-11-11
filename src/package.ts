@@ -40,6 +40,10 @@ export interface Built {
 export class AppPackage {
   static readonly PLATFORMS: Readonly<Record<string, string>> = { windows: 'win32', macos: 'darwin', linux: 'linux' }
 
+  static here(os: string = process.platform): string | null {
+    return Object.entries(AppPackage.PLATFORMS).find(([, key]) => key === os)?.[0] ?? null
+  }
+
   readonly dir: string
   readonly name: string
   readonly manifest: PackageManifest | null

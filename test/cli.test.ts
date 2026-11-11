@@ -649,6 +649,13 @@ describe('acde check --platform', () => {
     const linux = await cli(['check', '--platform', 'linux'], required)
     expect(linux.code).toBe(0)
     expect(linux.stdout).toContain('linux (session, desktop, standalone): every required capability is there')
+    const here = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform as string]!
+    const plain = await cli(['check'], required)
+    const named = await cli(['check', '--platform', here], required)
+    expect([plain.code, plain.stdout, plain.stderr], 'by default the platform it runs on').toEqual([
+      named.code, named.stdout, named.stderr,
+    ])
+    if (here === 'windows') expect(plain.stderr).toContain('hint: to run on windows without it, list the capability')
     const scripted = await cli(['check', '--', '--platform', 'linux'], required)
     expect(scripted.code, 'a leading -- as package manager scripts pass it').toBe(0)
     expect(scripted.stdout).toBe(linux.stdout)
