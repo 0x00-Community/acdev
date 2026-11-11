@@ -236,6 +236,9 @@ function Install-Acde {
         $olds = @(Get-ChildItem -LiteralPath $versions -Directory -Filter "*.old-*")
         foreach ($stale in $olds) {
             Remove-Item -LiteralPath $stale.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $stale.FullName) {
+                Write-Host "acde: $($stale.FullName), an earlier copy, is still in use; it is removed on a later run"
+            }
         }
         $aside = $null
         if (Test-Path -LiteralPath $target) {
@@ -251,6 +254,10 @@ function Install-Acde {
         if ($aside) {
             $asideDir = Join-Path -Path $versions -ChildPath $aside
             Remove-Item -LiteralPath $asideDir -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $asideDir) {
+                Write-Host ("acde: the files acde $Version replaced are still in use (a running acde dev?); " +
+                    "stop it and delete $asideDir, or run the installer again later and it removes it")
+            }
         }
 
         $current = Join-Path -Path $install -ChildPath 'current'

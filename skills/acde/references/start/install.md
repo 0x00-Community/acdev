@@ -203,4 +203,15 @@ Your app is in the desktop's app list; open it from there. The desktop's assista
 
 To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use.
 
-To uninstall, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them). If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and `~/.local/share/acde/packages/dopame`, and remove the `ACDERT` line.
+To uninstall, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acde\current\bin` from your user `Path` and the user variable `ACDE_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and remove the `ACDERT` line.
+
+acde and the runtime keep data outside the install directory. Delete these too to remove everything (on Windows, without `XDG_*` variables, they are under `%USERPROFILE%` with the same names):
+
+| Directory | What is in it |
+| --- | --- |
+| `$XDG_DATA_HOME/acde` (`~/.local/share/acde`) | Installed apps and desktops (`packages/`), the apps' own data and storage (`apps/`, `storage/`), the skill install record |
+| `$XDG_STATE_HOME/acde` (`~/.local/state/acde`) | Window positions and other session state |
+| `$XDG_CONFIG_HOME/acde` (`~/.config/acde`) | Settings |
+| `$XDG_CACHE_HOME/acde` (`~/.cache/acde`) | Caches |
+
+On Windows, reinstalling the same version while `acde dev` runs moves the files in use aside (`versions/<version>.old-…`); the installer says so, and removes them the next time it runs.
