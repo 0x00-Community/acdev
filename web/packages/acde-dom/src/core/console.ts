@@ -1,4 +1,4 @@
-import { host } from './host'
+import { G, host } from './host'
 import { observer, type ConsoleLevel } from './observe'
 
 const enum Level {
@@ -9,6 +9,16 @@ const enum Level {
 }
 
 type Console = Record<string, (...args: never[]) => void>
+type Method = (...args: unknown[]) => void
+
+const OURS = Symbol('acde console')
+
+function inspectorConsole(): Record<string, Method | undefined> | null {
+  if (!host.inspected?.()) return null
+  const current = (G as { console?: Record<PropertyKey, unknown> }).console
+  if (!current || current[OURS]) return null
+  return current as Record<string, Method | undefined>
+}
 
 const NAMES: Readonly<Record<Level, ConsoleLevel>> = { [Level.Log]: 'log', [Level.Warn]: 'warn', [Level.Error]: 'error', [Level.Debug]: 'debug' }
 
@@ -86,6 +96,7 @@ function format(args: readonly unknown[]): string {
 }
 
 export function createConsole(): Console {
+  const inspector = inspectorConsole()
   let indent = ''
   const counts = new Map<string, number>()
   const times = new Map<string, number>()
@@ -96,6 +107,10 @@ export function createConsole(): Console {
     observer?.console?.(name, shown)
   }
   const noop = () => {}
+  const group = (...args: unknown[]) => {
+    if (args.length) print(Level.Log, args)
+    indent += '  '
+  }
   const console = {
     log: (...args: unknown[]) => print(Level.Log, args),
     info: (...args: unknown[]) => print(Level.Log, args, 'info'),
@@ -115,11 +130,8 @@ export function createConsole(): Console {
       print(Level.Log, [`${label}: ${n}`])
     },
     countReset: (label = 'default') => void counts.delete(label),
-    group: (...args: unknown[]) => {
-      if (args.length) print(Level.Log, args)
-      indent += '  '
-    },
-    groupCollapsed: (...args: unknown[]) => console.group(...args),
+    group: (...args: unknown[]) => group(...args),
+    groupCollapsed: (...args: unknown[]) => group(...args),
     groupEnd: () => {
       indent = indent.slice(2)
     },
@@ -139,6 +151,21 @@ export function createConsole(): Console {
     profile: noop,
     profileEnd: noop,
   }
+  if (inspector) {
+    const methods = console as unknown as Record<string, Method>
+    for (const name of Object.keys(methods)) {
+      const own = methods[name]!
+      const native = inspector[name]
+      if (typeof native !== 'function') continue
+      methods[name] = (...args: unknown[]) => {
+        try {
+          native.apply(inspector, args)
+        } catch {}
+        own(...args)
+      }
+    }
+  }
+  Object.defineProperty(console, OURS, { value: true })
   Object.defineProperty(console, Symbol.toStringTag, { value: 'console', configurable: true })
   return console as unknown as Console
 }

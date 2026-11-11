@@ -261,6 +261,10 @@ pub fn stop() {
     }
 }
 
+pub fn inspected() -> bool {
+    dev() && STATE.with(|s| s.borrow().is_some())
+}
+
 pub fn thrown(scope: &mut v8::PinScope, exception: v8::Local<v8::Value>) {
     if !dev() {
         return;

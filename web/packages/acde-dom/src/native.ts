@@ -234,6 +234,7 @@ export interface HostNative {
 
   readAsset(url: string): Uint8Array | null
   liveEdit?(url: string, source: string): string | undefined
+  inspected?(): boolean
   addImportMap?(imports: [string, string][], scopes: [string, [string, string][]][]): void
 
   encodeUtf8(text: string): Uint8Array

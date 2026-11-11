@@ -24,6 +24,7 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object>
         "readAsset" => read_asset,
         "readSourceMap" => read_source_map,
         "liveEdit" => live_edit,
+        "inspected" => inspected,
         "addImportMap" => add_import_map,
         "encodeUtf8" => encode_utf8,
         "decode" => crate::encoding::decode,
@@ -444,6 +445,10 @@ fn on_task_end(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _:
 fn set_reporter(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let reporter = v8::Local::<v8::Function>::try_from(args.get(0)).ok().map(|f| v8::Global::new(scope, f));
     rt::current().set_reporter(reporter);
+}
+
+fn inspected(_: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    rv.set_bool(crate::inspector::inspected());
 }
 
 fn live_edit(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {

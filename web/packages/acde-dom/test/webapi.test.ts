@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { createConsole } from '../src/core/console.ts'
+import { bindHost } from '../src/core/host.ts'
 import { page } from './harness.ts'
 
 const PAGE = '<!doctype html><html><body><a id="frag" href="#part">to part</a><div style="height:3000px"></div><h2 id="part">Part</h2></body></html>'
@@ -626,4 +628,37 @@ test('getBBox of SVG shapes and groups comes from their geometry, also after a s
     poly: [1, 2, 8, 6],
     n: [10, 10, 20, 10],
   })
+})
+
+type ConsoleMethods = Record<string, (...args: unknown[]) => void>
+
+function consolePage(inspected: boolean) {
+  const printed: string[] = []
+  const reached: [string, unknown[]][] = []
+  const names = ['log', 'warn', 'error', 'group', 'groupCollapsed', 'groupEnd']
+  const global = { console: Object.fromEntries(names.map((name) => [name, (...args: unknown[]) => void reached.push([name, args])])) as unknown }
+  bindHost(global, { inspected: () => inspected, print: (_: number, text: string) => void printed.push(text), now: () => 0 } as never)
+  return { printed, reached, global }
+}
+
+test('console: an inspected page also hands each call to the V8 console, once, with the values themselves', () => {
+  const { printed, reached, global } = consolePage(true)
+  const console = createConsole() as unknown as ConsoleMethods
+  const object = { a: 1 }
+  console.log!('hi', object)
+  console.groupCollapsed!('g')
+  console.groupEnd!()
+  console.info!('no V8 info here')
+  assert.deepEqual(reached, [['log', ['hi', object]], ['groupCollapsed', ['g']], ['groupEnd', []]])
+  assert.deepEqual(printed, ['hi { a: 1 }', 'g', 'no V8 info here'])
+  global.console = console
+  reached.length = 0
+  ;(createConsole() as unknown as ConsoleMethods).log!('again')
+  assert.deepEqual(reached, [], 'a console made over ours does not forward twice')
+})
+
+test('console: a page without an inspector keeps only the dev log', () => {
+  const { printed, reached } = consolePage(false)
+  ;(createConsole() as unknown as ConsoleMethods).log!('plain')
+  assert.deepEqual([printed, reached], [['plain'], []])
 })
