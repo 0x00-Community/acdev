@@ -98,3 +98,30 @@ test('React portals, refs and many nodes', async () => {
   assert.equal(web.run('Object.keys(document.querySelector("section")).some((k) => k.startsWith("__reactFiber$"))'), true)
   assert.deepEqual(web.host.errors, [])
 })
+
+test('React controlled input: typed text undoes and redoes, and the state follows', async () => {
+  using web = await reactWeb()
+  web.run(`
+    const h = React.createElement
+    function Field() {
+      const [text, setText] = React.useState('')
+      return h('div', null, h('input', { id: 'field', value: text, onChange: (e) => setText(e.target.value) }), h('p', { id: 'echo' }, text))
+    }
+    globalThis.root = ReactDOMClient.createRoot(document.getElementById('root'))
+    React.act(() => root.render(h(Field)))
+  `)
+  const field = web.run<never>(`document.getElementById('field')`)
+  const key = (k: string, ctrl = false, shift = false) => web.internals.editing.editKey(field, k, ctrl, shift)
+  const state = () => web.json(`[document.getElementById('field').value, document.getElementById('echo').textContent]`)
+  for (const c of 'hi there') key(c)
+  await web.wait(20)
+  assert.deepEqual(state(), ['hi there', 'hi there'])
+  key('z', true)
+  await web.wait(20)
+  assert.deepEqual(state(), ['', ''])
+  key('z', true, true)
+  await web.wait(20)
+  assert.deepEqual(state(), ['hi there', 'hi there'])
+  web.run('React.act(() => root.unmount())')
+  assert.deepEqual(web.host.errors, [])
+})

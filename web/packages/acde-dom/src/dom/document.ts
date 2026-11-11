@@ -431,9 +431,14 @@ export class Document extends Node {
     return execCommand(String(command).toLowerCase(), value === null || value === undefined ? '' : String(value))
   }
   queryCommandSupported(command: string): boolean {
-    return ['inserttext', 'delete', 'forwarddelete', 'selectall', 'inserthtml', 'insertlinebreak', 'insertparagraph'].includes(String(command).toLowerCase())
+    return ['inserttext', 'delete', 'forwarddelete', 'selectall', 'inserthtml', 'insertlinebreak', 'insertparagraph', 'undo', 'redo'].includes(String(command).toLowerCase())
   }
   queryCommandEnabled(command: string): boolean {
+    const name = String(command).toLowerCase()
+    if (name === 'undo' || name === 'redo') {
+      const target = focusedElement()
+      return !!target && (name === 'undo' ? editing.canUndo(target) : editing.canRedo(target))
+    }
     return this.queryCommandSupported(command)
   }
   queryCommandState(): boolean {
@@ -697,6 +702,10 @@ function execCommand(command: string, value: string): boolean {
       return editing.deleteText(target, true, false)
     case 'selectall':
       return editing.selectAll(target)
+    case 'undo':
+      return editing.undo(target, false)
+    case 'redo':
+      return editing.redo(target, false)
     default:
       return false
   }

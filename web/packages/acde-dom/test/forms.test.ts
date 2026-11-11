@@ -201,3 +201,97 @@ test('select() on number and email inputs selects the value, so typing replaces 
   key('m', 'x')
   assert.deepEqual(web.json(`[document.getElementById('n').value, document.getElementById('m').value, document.getElementById('n').selectionStart]`), ['1', 'x', null])
 })
+
+test('editing history: typing runs, deletes and pastes undo and redo with their selection; script values and cancelled beforeinput', async () => {
+  using web = createWeb()
+  await web.internals.loadPage(`<!doctype html><html><body>
+    <input id="t"><textarea id="ta"></textarea><div id="ed" contenteditable="true">hello</div>
+  </body></html>`)
+  web.run(`globalThis.__log = []
+    for (const id of ['t', 'ta', 'ed']) for (const type of ['beforeinput', 'input'])
+      document.getElementById(id).addEventListener(type, (e) => e.inputType.startsWith('history') && __log.push([id, type, e.inputType, e.data, e.cancelable, e.isTrusted]))`)
+  const el = (id: string) => web.run<never>(`document.getElementById('${id}')`)
+  const key = (id: string, k: string, ctrl = false, shift = false) => web.internals.editing.editKey(el(id), k, ctrl, shift)
+  const type = (id: string, text: string) => { for (const c of text) key(id, c) }
+  const state = (id: string) => web.json(`(() => { const e = document.getElementById('${id}'); return [e.value, e.selectionStart, e.selectionEnd] })()`)
+  const log = () => web.json<unknown[][]>('__log.splice(0)')
+
+  type('t', 'hello')
+  key('t', 'z', true)
+  assert.deepEqual(state('t'), ['', 0, 0], 'one typing run is one step')
+  assert.deepEqual(log(), [
+    ['t', 'beforeinput', 'historyUndo', null, true, true], ['t', 'input', 'historyUndo', null, false, true],
+  ])
+  key('t', 'Z', true, true)
+  assert.deepEqual(state('t'), ['hello', 5, 5])
+  key('t', 'z', true)
+  key('t', 'y', true)
+  assert.deepEqual(state('t'), ['hello', 5, 5])
+  assert.equal(log().length, 6)
+  key('t', 'y', true)
+  assert.deepEqual([state('t'), log()], [['hello', 5, 5], []], 'nothing to redo fires nothing')
+
+  key('t', 'ArrowLeft')
+  key('t', 'ArrowLeft')
+  type('t', 'XY')
+  assert.deepEqual(state('t'), ['helXYlo', 5, 5])
+  key('t', 'Backspace')
+  key('t', 'Backspace')
+  key('t', 'Backspace')
+  assert.deepEqual(state('t'), ['helo', 2, 2])
+  key('t', 'z', true)
+  assert.deepEqual(state('t'), ['helXYlo', 5, 5], 'a backspace run is one step')
+  key('t', 'z', true)
+  assert.deepEqual(state('t'), ['hello', 3, 3], 'moving the caret starts a new step')
+  web.run(`document.getElementById('t').setSelectionRange(1, 4)`)
+  web.internals.editing.insertText(el('t'), 'PP', 'insertFromPaste')
+  assert.deepEqual(state('t'), ['hPPo', 3, 3])
+  type('t', 'q')
+  key('t', 'z', true)
+  assert.deepEqual(state('t'), ['hPPo', 3, 3], 'a paste does not join the typing after it')
+  key('t', 'z', true)
+  assert.deepEqual(state('t'), ['hello', 1, 4], 'undo selects what the paste replaced')
+  type('t', 'n')
+  key('t', 'y', true)
+  assert.deepEqual(state('t'), ['hno', 2, 2], 'a new edit drops the redo steps')
+  log()
+
+  web.run(`document.getElementById('t').value = document.getElementById('t').value`)
+  key('t', 'z', true)
+  assert.deepEqual(state('t'), ['hello', 1, 4], 'setting the same value keeps the history')
+  web.run(`document.getElementById('t').value = 'script'`)
+  key('t', 'z', true)
+  assert.deepEqual(state('t'), ['script', 6, 6], 'a script value drops the history')
+  assert.deepEqual(log().map((e) => e[2]), ['historyUndo', 'historyUndo'])
+
+  type('ta', 'a')
+  key('ta', 'Enter')
+  type('ta', 'b')
+  web.run(`document.getElementById('ta').addEventListener('beforeinput', (e) => e.preventDefault(), { once: true })`)
+  key('ta', 'z', true)
+  assert.deepEqual(state('ta'), ['a\nb', 3, 3], 'a cancelled beforeinput keeps the value')
+  key('ta', 'z', true)
+  assert.deepEqual(state('ta'), ['', 0, 0], 'line breaks join the typing run')
+  assert.deepEqual(log(), [
+    ['ta', 'beforeinput', 'historyUndo', null, true, true],
+    ['ta', 'beforeinput', 'historyUndo', null, true, true], ['ta', 'input', 'historyUndo', null, false, true],
+  ])
+
+  const commands = web.json(`(() => {
+    const ta = document.getElementById('ta')
+    ta.focus()
+    const out = [document.queryCommandSupported('undo'), document.queryCommandSupported('redo'), document.queryCommandEnabled('undo'), document.queryCommandEnabled('redo')]
+    out.push(document.execCommand('insertText', false, 'cmd'), ta.value, document.queryCommandEnabled('undo'))
+    out.push(document.execCommand('undo'), ta.value, document.queryCommandEnabled('redo'))
+    out.push(document.execCommand('redo'), ta.value, document.execCommand('redo'))
+    return out
+  })()`)
+  assert.deepEqual(commands, [true, true, false, true, true, 'cmd', true, true, '', true, true, 'cmd', false])
+  assert.deepEqual(log(), [['ta', 'input', 'historyUndo', null, false, true], ['ta', 'input', 'historyRedo', null, false, true]])
+
+  web.run(`getSelection().collapse(document.getElementById('ed').firstChild, 5)`)
+  key('ed', '!')
+  key('ed', 'z', true)
+  assert.equal(web.run(`document.getElementById('ed').textContent`), 'hello!')
+  assert.deepEqual(log(), [])
+})

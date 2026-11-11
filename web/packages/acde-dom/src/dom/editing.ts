@@ -4,6 +4,7 @@ import { LOCAL, noteMarkup, type Element } from './element'
 import { InputEvent } from './events'
 import { EDITING_HOST } from './focus'
 import { fieldSelection, replaceFieldText, setFieldSelection, submitImplicitly, type TextField } from './forms'
+import * as history from './history'
 import type { HTMLElement } from './html'
 import { Text } from './node'
 import { getSelection, type Range } from './range'
@@ -44,7 +45,7 @@ function afterInput(target: Element, inputType: string, data: string | null): vo
 function replaceField(field: TextField, text: string, from: number, to: number, inputType: string, before: boolean): void {
   const data = dataOf(inputType, text)
   if (before && !beforeInput(field, inputType, data)) return
-  replaceFieldText(field, from, to, text)
+  history.edit(field, inputType, () => replaceFieldText(field, from, to, text))
   afterInput(field, inputType, data)
 }
 
@@ -152,13 +153,36 @@ export function selectAll(target: Element): boolean {
   return true
 }
 
-export function editKey(target: Element, key: string, ctrl: boolean): void {
+export function undo(target: Element, before = true): boolean {
+  const field = textField(target)
+  return !!field && history.undo(field, before)
+}
+
+export function redo(target: Element, before = true): boolean {
+  const field = textField(target)
+  return !!field && history.redo(field, before)
+}
+
+export function canUndo(target: Element): boolean {
+  const field = textField(target)
+  return !!field && history.canUndo(field)
+}
+
+export function canRedo(target: Element): boolean {
+  const field = textField(target)
+  return !!field && history.canRedo(field)
+}
+
+export function editKey(target: Element, key: string, ctrl: boolean, shift = false): void {
   const field = textField(target)
   if (!field && !editable(target)) return
   if (key.length === 1 && !ctrl) return void insertText(target, key)
   if (key === 'Backspace' || key === 'Delete') return void deleteText(target, key === 'Delete')
   if (key === 'a' && ctrl) return void selectAll(target)
   if (!field) return
+  const lower = key.toLowerCase()
+  if (ctrl && lower === 'z') return void (shift ? redo(target) : undo(target))
+  if (ctrl && lower === 'y' && !shift) return void redo(target)
   const { start, end } = fieldSelection(field)
   const length = field.value.length
   const caret = (at: number) => setFieldSelection(field, at, at)

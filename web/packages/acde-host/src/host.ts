@@ -75,7 +75,7 @@ export class Host {
       if (ctrl && (lower === 'c' || lower === 'x' || lower === 'v')) {
         return void this.#text.clipboard(target as unknown as Element, lower).catch((error) => Host.report(error))
       }
-      page.editing.editKey(target as never, key, ctrl)
+      page.editing.editKey(target as never, key, ctrl, !!modifiers.shift)
     }
   }
 
