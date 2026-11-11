@@ -1644,7 +1644,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `layout/damage.rs` `propagate_damage_flags` | 内联 `<svg>` 后代的损伤只重建这个 `<svg>`, 往上只传 REPAINT |
 | `mutator.rs` `set_attribute` / `clear_attribute` / `restyle_for_attribute`, `document.rs` `snapshot_attribute` | 只影响选择器的属性只重算元素自己 (快照让后代失效; 有 `:has()` / nth-of 时重算父子树); 值没变直接返回 |
 | `node/simple_svg.rs`, `svg.rs`, `element.rs`, `layout/construct.rs` | 基本图形 + 纯色的 SVG 直接转 kurbo 路径, 不经 usvg (`<text>` 和嵌套 `<svg>` 走 usvg; `svg_text_only`; `ACRENDER_SVG_PATH=1` 打印) |
-| `node/serialize.rs` `svg_source` | 序列化内联 SVG 时写进算好的样式和字体, CSS 几何算成属性 |
+| `node/serialize.rs` `svg_source`, `assets/default.css` | 序列化内联 SVG 时写进算好的样式和字体, CSS 几何算成属性; 后代的 CSS `transform` / `translate` / `rotate` / `scale` (类、动画) 按视口算成矩阵写进 `transform` 属性, 盖过原属性 (根 `<svg>` 的随它的盒子画). SVG 元素 (除最外层 `<svg>`) 的 `transform-origin` 默认 `0 0`, 同 Firefox |
 | `node/svg.rs` `external_uses` / `inline_external_uses`, `document.rs` `svg_with_sprites`, `net.rs` `SvgSpriteHandler` | 内联 SVG 里指向别的文件的 `<use href="icons.svg#id">` (#152; usvg 只认同一文档里的): 文件经 net provider 取一次 (按去掉片段的 URL 记, 取不到不重试), 到了把等它的 `<svg>` 重建; 序列化后把目标元素原样抄进根下的 `<defs>`, 改成 `acde-sprite-<n>-<id>`, `<use>` 指向它. 只抄目标元素本身, 它再引用文件里别的 id 不跟 |
 | `stylo.rs` `synthesize_presentational_hints_for_legacy_attributes`, `SVG_PRESENTATION` | SVG 的呈现属性 (fill / stroke / opacity / font-* 这 18 个, 和序列化写回的一样) 按 CSS 解析成 PresHints: `stroke="var(--x)"` 能解析, `getComputedStyle` 也读得到; 含 `url(` 的值不映射 (照旧原样交给 usvg) |
 | `util.rs` `parse_svg_image` / `parse_svg_with` | 按源文本缓存 usvg 解析 (512 条); 没有 `<text>` 用空字体库 |

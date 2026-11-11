@@ -158,3 +158,18 @@ fn changing_a_path_inside_an_svg_redraws_it() {
     assert_eq!(left(&page), 0);
     assert!(page.count(50, 50, 100, 100).1 > 2000);
 }
+
+#[test]
+fn css_transforms_move_svg_children_about_their_user_space_origin() {
+    let page = Page::new(
+        "html, body { margin: 0; background: #fff; } svg { position: absolute; top: 0; width: 100px; height: 100px; }
+         .big { transform: scale(2); } .moved { transform: translate(50px, 50px); }",
+    );
+    let svg = page.svg(0, "svg", &[("viewBox", "0 0 100 100")]);
+    let rect = page.svg(svg, "rect", &[("width", "25"), ("height", "25"), ("fill", "#f00"), ("transform", "translate(75 75)"), ("class", "big")]);
+    assert!(page.count(0, 0, 50, 50).1 > 2000, "scale(2) about 0 0 covers the top left quarter");
+    assert_eq!(page.count(50, 50, 100, 100).1, 0, "the transform attribute is overridden by CSS");
+    page.doc.set_attribute(rect, "class", "moved").unwrap();
+    assert_eq!(page.count(0, 0, 50, 50).1, 0);
+    assert!((500..=700).contains(&page.count(50, 50, 100, 100).1), "translated by CSS after the class change");
+}
