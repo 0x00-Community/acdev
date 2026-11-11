@@ -2,7 +2,7 @@ import { mkdirSync } from './sys/fs'
 import { xdgHome } from './sys/os'
 import { join } from './sys/path'
 import { pathToFileURL } from './sys/url'
-import type { ServiceFactory, ServiceInstance, ServiceProcess, SpawnOptions } from '@dopame/acde-api'
+import type { ServiceContext, ServiceFactory, ServiceInstance, ServiceProcess, SpawnOptions } from '@dopame/acde-api'
 import type { Native } from './native'
 import type { InstalledDesktop } from './packages'
 import { process, stopGroup } from './sys/process'
@@ -65,7 +65,16 @@ export class DesktopServices {
           if (typeof module.default !== 'function') throw new Error(`${service.module} has no default export function`)
           const dir = join(state, 'acde', owner, service.name)
           mkdirSync(dir, { recursive: true })
-          return { name: service.name, log, processes, instance: await module.default({ name: service.name, package: desktop.package.dir, state: dir, native: native as unknown as Record<string, unknown>, env: process.env, log, spawn, ...(this.inspect ? { inspect: this.inspect as never } : {}) }) }
+          const granted = desktop.grants[service.name] ?? []
+          const modules: Record<string, object | null> = { inspect: this.inspect }
+          const load = async (specifier: string) => {
+            const name = specifier.startsWith('acde:') ? specifier.slice(5) : ''
+            if (!granted.includes(name)) throw new Error(`${specifier} is not granted to the service ${service.name}`)
+            const value = modules[name]
+            if (!value) throw new Error(`${specifier} is not available to services`)
+            return { default: value, [name]: value }
+          }
+          return { name: service.name, log, processes, instance: await module.default({ name: service.name, package: desktop.package.dir, state: dir, native: native as unknown as Record<string, unknown>, env: process.env, log, spawn, import: load as ServiceContext['import'], ...(this.inspect ? { inspect: this.inspect as never } : {}) }) }
         } catch (error) {
           log(`not started: ${(error as Error).stack ?? error}`)
           Processes.stop(processes)

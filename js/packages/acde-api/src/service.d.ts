@@ -7,6 +7,13 @@ export interface ServiceContext {
   readonly inspect?: import('./page').AcdeInspect
   log(line: string): void
   spawn(argv: readonly string[], options?: SpawnOptions): ServiceProcess
+  import<K extends keyof ServiceModuleTypes>(
+    specifier: `acde:${K}`,
+  ): Promise<{ readonly default: ServiceModuleTypes[K] } & { readonly [N in K]: ServiceModuleTypes[K] }>
+}
+
+export interface ServiceModuleTypes {
+  readonly inspect: import('./page').AcdeInspect
 }
 
 export interface SpawnOptions {

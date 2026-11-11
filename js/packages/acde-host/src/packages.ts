@@ -23,6 +23,7 @@ export interface InstalledDesktop {
   readonly package: InstalledPackage
   readonly html: string
   readonly services: readonly ServiceManifest[]
+  readonly grants: Readonly<Record<string, readonly string[]>>
   readonly heapMb: number
   /** The desktop's window frame: a module (an own-origin asset path) each app window that wants a frame runs. */
   readonly frame: string | null
@@ -101,7 +102,11 @@ export class Packages {
     const all = pkg.manifest.services ?? []
     const named = Array.isArray(raw.services) ? raw.services.map((s) => (typeof s === 'string' ? s : s?.name)) : null
     const wanted = named ? all.filter((s) => named.includes(s.name)) : all
-    return { kind: 'acde', id, name, description: text(raw.description), package: pkg, html, services: wanted, heapMb: Manifest.heapMb(raw.heapMb, Packages.HEAP_MB), frame: text(raw.frame)?.startsWith('/') ? text(raw.frame) : null }
+    const grants: Record<string, readonly string[]> = {}
+    for (const s of Array.isArray(raw.services) ? raw.services : []) {
+      if (typeof s === 'object' && s && typeof s.name === 'string' && Array.isArray(s.modules)) grants[s.name] = (s.modules as unknown[]).filter((m): m is string => typeof m === 'string')
+    }
+    return { kind: 'acde', id, name, description: text(raw.description), package: pkg, html, services: wanted, grants, heapMb: Manifest.heapMb(raw.heapMb, Packages.HEAP_MB), frame: text(raw.frame)?.startsWith('/') ? text(raw.frame) : null }
   }
 
   desktops(): InstalledDesktop[] {
@@ -114,7 +119,7 @@ export class Packages {
 
   bare(): InstalledDesktop {
     const pkg = this.packages.find((p) => p.dir === Packages.HOST) ?? { dir: Packages.HOST, name: '@dopame/acde-host', manifest: {} }
-    return { kind: 'acde', id: 'window', name: 'acde window', description: null, package: pkg, html: '', services: [], heapMb: Packages.HEAP_MB, frame: null }
+    return { kind: 'acde', id: 'window', name: 'acde window', description: null, package: pkg, html: '', services: [], grants: {}, heapMb: Packages.HEAP_MB, frame: null }
   }
 
   sessions(): ForeignSession[] {

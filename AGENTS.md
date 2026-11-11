@@ -660,6 +660,8 @@ acde 是一个 Rust 可执行文件, 内嵌 V8 (rusty_v8, crate `v8`); 页面的
 - **assets**: 同源 URL 前缀 → 包里的目录. 页面和应用的脚本、样式、图片都从这里来.
 - **services**: 在主线程 (Broker) 跑的 ES 模块, 默认导出 `ServiceFactory`. 桌面启动时启动 (默认包里全部, 或桌面的
   `services` 列出的), 桌面结束时关闭; 它返回的命名空间挂在 `acde.<名字>` 上, 应用要在 capabilities 里写上服务名才能调.
+  服务要 acde 模块用 `ctx.import('acde:<名字>')`, 只给桌面的 `services` 里这个服务的 `modules` 列了的 (`{"name": "assistant", "modules": ["inspect"]}`),
+  没列的、或服务拿不到的 (现在服务只拿得到 `inspect`) reject; `ctx.inspect` 照旧直接给.
   桌面自己的重活 (程序、模型、子进程) 放进它自己的进程: `ctx.spawn(argv, {cwd, env, onLine, onExit})` (acde-api
   `ServiceProcess`: `write` 写 stdin, `end` 关掉 stdin, `kill` 给它的进程组发信号). 和应用后端一样由 crates/acde `child.rs` 起
   (自己的会话和进程组, acde 死了它收到 SIGTERM, 环境只有 `env` 给的); stdout 逐行交给 `onLine` (没给就进日志), stderr 逐行进
