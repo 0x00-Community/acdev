@@ -57,7 +57,7 @@ In PowerShell:
 irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 ```
 
-This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`.
+This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`. Like the macOS / Linux installer, it shows each download's progress (size, speed, time left) in a terminal, prints the size and SHA-256 check of each file, and gives up on a download that receives nothing for 30 seconds after three tries. If you turned progress off (`$ProgressPreference = 'SilentlyContinue'`), it stays off.
 
 `irm | iex` cannot pass parameters. Set environment variables before it, or run the script as a script block to pass its parameters `-Version` and `-NoModifyPath`:
 

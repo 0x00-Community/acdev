@@ -365,6 +365,8 @@ describe('the release archive and the installed CLI', () => {
       const result = await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })
       expect(result.code, result.out).toBe(0)
       expect(result.out).toContain(`installed acde 0.0.2 with acdert ${SDK}`)
+      expect(result.out).toMatch(/acde: acdert-x86_64-pc-windows-msvc\.tar\.gz: \d+ KB, SHA-256 matches/)
+      expect(result.out).toContain(`acde: acdert-host-${SDK}.tar.gz: `)
       const bin = join(home, 'current', 'bin')
       expect(result.stdout.trimEnd().split(/\r?\n/).at(-1)).toBe(`  $env:Path = "${bin};$env:Path"`)
     } finally {
