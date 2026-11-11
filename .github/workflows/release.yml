@@ -240,7 +240,7 @@ jobs:
           v=${TAG#v}
           mkdir -p smoke
           tar -xzf "$GITHUB_WORKSPACE/out/$v/acde-$v.tar.gz" -C smoke
-          if "smoke/acde-$v/bin/acde" 2>&1 | grep -q 'usage: acde <command>'; then
+          if "smoke/acde-$v/bin/acde" --help 2>&1 | grep -q 'usage: acde <command>'; then
             echo "shim ok"
           else
             echo "::error::bin/acde does not start the CLI"

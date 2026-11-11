@@ -213,9 +213,9 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect((await install(home, ['--no-modify-path'])).code).toBe(0)
     const acde = join(home, '.acde', 'bin', 'acde')
     const tools = tmp()
-    const usage = await run(['sh', acde], { PATH: `${dirname(process.execPath)}:/usr/bin:/bin` })
-    expect(usage.code).toBe(1)
-    expect(usage.stderr).toContain('usage: acde <command>')
+    const usage = await run(['sh', acde, '--help'], { PATH: `${dirname(process.execPath)}:/usr/bin:/bin` })
+    expect(usage.code).toBe(0)
+    expect(usage.stdout).toContain('usage: acde <command>')
   }, 60_000)
 
   test('the installed skill is linked through current, so another version brings its own', async () => {
