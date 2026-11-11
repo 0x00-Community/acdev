@@ -84,6 +84,7 @@ export class Project {
       if (typeof config !== 'object' || config === null || (config.type !== 'app' && config.type !== 'desktop')) {
         throw new Error(`${basename(found)}: "type" is "app" (a window app) or "desktop"`)
       }
+      if (config.type === 'desktop') Project.#checkApps(basename(found), (config as { apps?: unknown }).apps)
       this.config = config
       this.from = basename(found)
     } else {
@@ -105,6 +106,19 @@ export class Project {
 
   get #detecting(): { pkg: Readonly<Record<string, unknown>>; entry: boolean } {
     return { pkg: this.pkg, entry: this.entryGiven }
+  }
+
+  static #checkApps(file: string, apps: unknown): void {
+    if (apps === undefined) return
+    if (!Array.isArray(apps)) throw new Error(`${file}: "apps" is a list of app objects, each with an "id"`)
+    apps.forEach((app, i) => {
+      if (typeof app !== 'object' || app === null || Array.isArray(app)) {
+        throw new Error(`${file}: apps[${i}] is ${JSON.stringify(app)}: each app is an object with an "id" ` +
+          '(like { "id": "notes", "label": "Notes", "entry": "apps/notes/index.html" })')
+      }
+      if (typeof (app as { id?: unknown }).id !== 'string')
+        throw new Error(`${file}: apps[${i}] has no "id" (a string)`)
+    })
   }
 
   static idOf(name: string): string | null {

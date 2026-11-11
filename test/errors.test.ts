@@ -72,3 +72,22 @@ describe('development builds keep the source', () => {
     expect(readFileSync(join(release, 'backend', 'server.js'), 'utf8')).not.toContain('sourceMappingURL')
   }, 60_000)
 })
+
+describe('a desktop config with apps that are not objects', () => {
+  test('check names the entry instead of crashing', async () => {
+    for (const [apps, said] of [
+      ['["caps"]', 'acde.config.jsonc: apps[0] is "caps": each app is an object with an "id"'],
+      ['[{ "label": "Caps" }]', 'acde.config.jsonc: apps[0] has no "id" (a string)'],
+      ['"caps"', 'acde.config.jsonc: "apps" is a list of app objects'],
+    ] as const) {
+      const dir = project({
+        'acde.config.jsonc': `{ "type": "desktop", "id": "desk", "entry": "index.html", "apps": ${apps} }`,
+        'index.html': '<!doctype html><p>x</p>',
+      })
+      const result = await cli(['check'], dir)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain(said)
+      expect(result.stderr).not.toContain('paths[')
+    }
+  })
+})
