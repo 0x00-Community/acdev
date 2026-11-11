@@ -266,7 +266,8 @@ fn a_folder_swapped_for_a_link_after_the_check_is_refused() {
             symlink(&outside, &a).unwrap();
         });
     };
-    let cases: [(&str, &dyn Fn(&Scratch) -> (u16, &'static str)); 5] = [
+    type Case<'a> = (&'a str, &'a dyn Fn(&Scratch) -> (u16, &'static str));
+    let cases: [Case; 5] = [
         ("read", &|s| code(WorkspaceFs::read_text_in(&s.root, "a/b/file.txt"))),
         ("write", &|s| code(WorkspaceFs::write_file_in(&s.root, "a/b/file.txt", b"changed", &WriteOptions::default()))),
         ("mkdir", &|s| code(WorkspaceFs::mkdir_in(&s.root, "a/b/made", &MkdirOptions::default()))),

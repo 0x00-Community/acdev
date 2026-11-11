@@ -56,10 +56,19 @@ impl Dir {
         let root = open(real_root, flags, Mode::empty())?;
         let fd = match relative {
             "" | "." => root,
-            relative => openat2(&root, relative, flags, Mode::empty(), ResolveFlags::BENEATH).map_err(|e| match e {
-                rustix::io::Errno::XDEV => escape(),
-                e => e.into(),
-            })?,
+            relative => match openat2(&root, relative, flags, Mode::empty(), ResolveFlags::BENEATH) {
+                Ok(fd) => fd,
+                Err(rustix::io::Errno::XDEV) => {
+                    let real = std::fs::canonicalize(Path::new(real_root).join(relative))?;
+                    let inside = real.strip_prefix(real_root).map_err(|_| escape())?;
+                    let strict = ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS;
+                    openat2(&root, inside, flags, Mode::empty(), strict).map_err(|e| match e {
+                        rustix::io::Errno::XDEV | rustix::io::Errno::LOOP => escape(),
+                        e => e.into(),
+                    })?
+                }
+                Err(e) => return Err(e.into()),
+            },
         };
         use std::os::fd::AsRawFd;
         let path = PathBuf::from(format!("/proc/self/fd/{}", fd.as_raw_fd()));
