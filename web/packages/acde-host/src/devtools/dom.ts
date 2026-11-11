@@ -43,6 +43,7 @@ const TEXT = 3
 const ELEMENT = 1
 const DOCUMENT_TYPE = 10
 const DOCUMENT = 9
+const SEARCH_LIMIT = 1000
 const READ_ONLY = 'the Elements panel shows the page read only; change the page from its code or the console'
 const EDITS = [
   'setAttributeValue',
@@ -161,7 +162,7 @@ export class DomDomain {
 
   #search(params: DevToolsParams, session: DevToolsSession): unknown {
     const query = String(params['query'] ?? '').trim()
-    const found = query ? DomDomain.matches(this.#source, query) : []
+    const found = query ? DomDomain.matches(this.#source, query).slice(0, SEARCH_LIMIT) : []
     const searchId = `${session.id}.${++this.#searchSeq}`
     let searches = this.#searches.get(session.id)
     if (!searches) this.#searches.set(session.id, (searches = new Map()))

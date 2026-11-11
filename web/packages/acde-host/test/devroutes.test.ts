@@ -322,6 +322,18 @@ describe('DOM domain served by the page', () => {
     assert.equal(((await results(text.searchId, 1))['error'] as { code: number }).code, -32000, 'dropped with the session')
   })
 
+  test('a search keeps at most 1000 results', async () => {
+    const { body, ask } = tree()
+    body.append(...Array.from({ length: 1200 }, () => new FakeNode(1, 'P')))
+    const reply = await ask({ id: 1, method: 'DOM.performSearch', params: { query: '<p>' } })
+    const { searchId, resultCount } = reply['result'] as { searchId: string; resultCount: number }
+    assert.equal(resultCount, 1000)
+    const last = await ask({ id: 2, method: 'DOM.getSearchResults', params: { searchId, fromIndex: 999, toIndex: 1000 } })
+    assert.equal((last['result'] as { nodeIds: number[] }).nodeIds.length, 1)
+    const over = await ask({ id: 3, method: 'DOM.getSearchResults', params: { searchId, fromIndex: 0, toIndex: 1001 } })
+    assert.equal((over['error'] as { code: number }).code, -32000)
+  })
+
   test('page changes reach the open tree as DOM events', async () => {
     const { body, title, sent, ask, mutate } = tree()
     await ask({ id: 1, method: 'DOM.getDocument', params: { depth: -1 } })

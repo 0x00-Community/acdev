@@ -384,7 +384,7 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `'<选择器>' is not a valid selector.` (异常在 acde-host 里接住, 不进页面); 结果里前端没见过的节点, 先沿祖先自上而下给没展开过的推
   `setChildNodes` (同 `requestChildNodes`, `DomDomain.#reveal`). `performSearch` 照 Chrome: 元素名、属性名和属性值、非空白文本里含查询串
   (不分大小写; `"…"` 是整串相等; `<x` 元素名开头, `x>` 结尾, `<x>` 相等), 再并上按 CSS 选择器查到的 (选择器无效就只算文本), 按文档顺序;
-  不支持 XPath. 结果按客户端 session 存 (`searchId` 是 `<session>.<序号>`), `getSearchResults` 只认本 session 的, 区间越界回 -32000;
+  不支持 XPath. 最多留 1000 个 (多的丢掉, `resultCount` 是留下的数). 结果按客户端 session 存 (`searchId` 是 `<session>.<序号>`), `getSearchResults` 只认本 session 的, 区间越界回 -32000;
   `discardSearchResults` 或断开 (`DevToolsDomain.closed`) 时删掉.
   `Network` (#188, `devtools/network.ts` `NetworkDomain`): fetch 和 XHR. 数据来自 acde-dom 观察点的 `network` (`NetworkObserver`): `Tracked`
   只在 `recording()` 为真 (有客户端 `Network.enable`) 时把请求头、请求体、响应头和收到的每块数据交给它, 没人开时不记录也不复制. 事件
