@@ -51,6 +51,10 @@ const BACKENDS = [
 const DEFAULT_PORT = 3000
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
+export interface BuildOptions {
+  readonly dev?: boolean
+}
+
 export class Project {
   static readonly CONFIGS = CONFIGS
   static readonly ID = /^[a-z0-9][a-z0-9-]*$/
@@ -63,6 +67,7 @@ export class Project {
   readonly pkg: Readonly<Record<string, unknown>>
   readonly entryGiven: boolean
   readonly #bundler: Bundler
+  #dev = false
 
   constructor(dir: string) {
     this.dir = realpathSync(resolve(dir))
@@ -154,7 +159,8 @@ export class Project {
     return errors
   }
 
-  async build(out: string): Promise<BuiltPackage> {
+  async build(out: string, options: BuildOptions = {}): Promise<BuiltPackage> {
+    this.#dev = options.dev === true
     out = resolve(out)
     const errors = this.check()
     if (errors.length > 0) throw new Error(errors.join('\n'))
@@ -231,7 +237,7 @@ export class Project {
     const server = this.#server(config.backend)
     if (!server) return null
     const backend = join(out, `${dir}backend`)
-    await this.#bundler.backend({ entry: server, out: backend, dir: this.dir, splitting: false })
+    await this.#bundler.backend({ entry: server, out: backend, dir: this.dir, splitting: false, dev: this.#dev })
     await this.#bundler.preload(backend)
     assets[`${base}backend/`] = [`${dir}backend`]
     return `${base}backend/server.js`
@@ -324,7 +330,7 @@ export class Project {
       own,
       rooted: own && html && this.config.type === 'app',
     }
-    const page = await this.#bundler.web({ entry, out, base, rules })
+    const page = await this.#bundler.web({ entry, out, base, rules, dev: this.#dev })
     if (own && existsSync(rules.publicDir))
       cpSync(rules.publicDir, out, { recursive: true, force: false, errorOnExist: false })
     return page

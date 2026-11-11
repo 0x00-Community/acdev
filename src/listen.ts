@@ -342,6 +342,7 @@ if (!global[INSTALLED]) {
   global[INSTALLED] = CHANNEL_MARK
   if (typeof Bun === 'undefined') global[SERVE] = serve
   patchBun()
+  if (typeof Bun === 'undefined') process.setSourceMapsEnabled?.(true)
   for (const Server of [net.Server, http.Server, https.Server, tls.Server]) patchListen(Server.prototype)
   patchUdp()
 }

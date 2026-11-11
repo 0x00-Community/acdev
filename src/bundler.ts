@@ -25,6 +25,7 @@ export interface WebJob {
   readonly out: string
   readonly base: string
   readonly rules: PublicRules
+  readonly dev?: boolean
 }
 
 export interface BackendJob {
@@ -32,6 +33,7 @@ export interface BackendJob {
   readonly out: string
   readonly dir: string
   readonly splitting: boolean
+  readonly dev?: boolean
 }
 
 export class PublicError extends Error {
@@ -161,7 +163,8 @@ export class BunBundler extends Bundler {
         target: 'browser',
         external: ['acde:*'],
         publicPath: job.base,
-        minify: true,
+        minify: !job.dev,
+        sourcemap: job.dev ? 'linked' : 'none',
         splitting: true,
         throw: false,
         ...(!html && { naming: { entry: '[name].[ext]' } }),
@@ -215,6 +218,7 @@ export class BunBundler extends Bundler {
       entrypoints: [wrapper],
       outdir: job.out,
       splitting: job.splitting,
+      sourcemap: job.dev ? 'inline' : 'none',
       naming: { entry: 'server.[ext]', chunk: 'chunks/[name]-[hash].[ext]' },
     })
     Bundler.check('backend', result)
@@ -326,6 +330,7 @@ export class ViteBundler extends Bundler {
         emptyOutDir: false,
         copyPublicDir: false,
         modulePreload: false,
+        ...(job.dev && { minify: false, sourcemap: true }),
         [options]: {
           input: job.entry,
           ...(!html && { preserveEntrySignatures: 'exports-only', output: { entryFileNames: '[name].js' } }),
@@ -440,6 +445,7 @@ export class ViteBundler extends Bundler {
         emptyOutDir: false,
         copyPublicDir: false,
         minify: false,
+        sourcemap: job.dev ? 'inline' : false,
         target: 'node22',
         [options]: {
           external: [/^bun(?::|$)/],

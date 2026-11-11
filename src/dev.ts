@@ -168,7 +168,7 @@ export class DevSession {
   }
 
   async run(): Promise<number> {
-    for (const unit of this.#units) unit.built = await unit.pkg.build(unit.out)
+    for (const unit of this.#units) unit.built = await unit.pkg.build(unit.out, { dev: true })
     const target = this.#plan()
     await this.#checkLevels()
     this.#shown = target.kind === 'desktop' ? target.id : null
@@ -306,7 +306,7 @@ export class DevSession {
     const who = this.#units.length > 1 ? `${unit.pkg.name}: ` : ''
     try {
       unit.pkg = new AppPackage(unit.pkg.dir)
-      const built = await unit.pkg.build(unit.out)
+      const built = await unit.pkg.build(unit.out, { dev: true })
       const refused = this.#level === null ? null : DevSession.refusal({ pkg: unit.pkg, built }, this.#level)
       if (refused) throw new Error(refused)
       unit.built = built

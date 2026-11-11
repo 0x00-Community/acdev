@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
@@ -43,4 +43,32 @@ describe('errors in the source say where they are', () => {
     expect(result.stderr).toContain('acde.config.jsonc:5:1: not valid JSON')
     expect(result.stderr).toContain('\n  }\n  ^')
   })
+})
+
+describe('development builds keep the source', () => {
+  test('acde dev builds are not minified and carry source maps; acde build stays minified without them', async () => {
+    const { AppPackage } = await import('../src/package.ts')
+    const dir = project({
+      'package.json': '{"name": "mapped"}',
+      'index.html': '<!doctype html><script type="module" src="./src/main.js"></script>',
+      'src/main.js': 'export function explode(thing) {\n  return thing.foo.bar\n}\nexplode({})\n',
+      'server.ts': 'export default { fetch() { return new Response("ok") } }\n',
+    })
+    const read = (out: string, sub: string) => {
+      const files = readdirSync(join(out, sub))
+      return { files, text: files.filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(out, sub, f), 'utf8')) }
+    }
+    const dev = join(dir, '.acde-dev')
+    await new AppPackage(dir).build(dev, { dev: true })
+    const web = read(dev, 'web')
+    expect(web.files.some((f) => f.endsWith('.js.map'))).toBe(true)
+    expect(web.text.join('\n')).toContain('function explode(thing)')
+    expect(readFileSync(join(dev, 'backend', 'server.js'), 'utf8')).toContain('sourceMappingURL=data:')
+    const release = join(dir, '.acde')
+    await new AppPackage(dir).build(release)
+    const shipped = read(release, 'web')
+    expect(shipped.files.some((f) => f.endsWith('.map'))).toBe(false)
+    expect(shipped.text.join('\n')).not.toContain('function explode(thing)')
+    expect(readFileSync(join(release, 'backend', 'server.js'), 'utf8')).not.toContain('sourceMappingURL')
+  }, 60_000)
 })

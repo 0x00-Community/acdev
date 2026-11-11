@@ -8,7 +8,7 @@ import {
   API_LEVEL, Manifest, platformSupport, RUNNING_MODES,
   type AppManifest, type Capabilities, type Findings, type PackageManifest, type RunningMode,
 } from '@dopame/acde-api/manifest'
-import { Project } from './app.ts'
+import { Project, type BuildOptions } from './app.ts'
 import { Imports, type ImportOwner } from './imports.ts'
 import { Jsonc } from './runtime.ts'
 
@@ -212,7 +212,7 @@ export class AppPackage {
     return [declared(config.id ?? Project.idOf(project.name) ?? project.name, config)]
   }
 
-  async build(out: string): Promise<Built> {
+  async build(out: string, options: BuildOptions = {}): Promise<Built> {
     if (this.manifest) {
       AppPackage.#throw(this.check())
       const apps = (this.manifest.apps ?? []).map((app) => app.id)
@@ -221,7 +221,7 @@ export class AppPackage {
       return { dir: this.dir, id: this.name.replace(/^@[^/]*\//, ''), desktops, apps, level }
     }
     AppPackage.#throw({ errors: this.imports(), warnings: [] })
-    const built = await this.project!.build(out)
+    const built = await this.project!.build(out, options)
     AppPackage.#throw(AppPackage.check(out, built.acde))
     const desktops = (built.acde.desktops ?? []).map((d) => d.id)
     const apps = built.acde.apps.map((app) => app.id)
