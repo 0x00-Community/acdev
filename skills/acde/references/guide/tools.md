@@ -112,11 +112,33 @@ Without `--find`, the text is always in this English format: one line per window
 
 `act` prints what it did on the first line (`clicked 55,202` is the point it clicked, in window coordinates), waits for the page to settle, and then prints the windows and the content of the window again. Where it has listed that window before, it prints only what changed since: `~` for a changed line, `+` for a new one, `-` for one that is gone; `(windows unchanged)` stands for an unchanged window list. So the output of `act` is usually all you need to read before the next step. An element that is scrolled out of view is scrolled into view first, so a ref from `inspect --offscreen` or `query` works wherever the element is on the page.
 
-`act` exits with code 0 when the action was done. When it was not, the reason is the only line and the exit code is 1: `the element is not displayed` (it is `display: none` or hidden by `visibility`), `covered by another element: <div> (27)`, `cannot type into this element`, `element 23 is gone` (see below).
+`act` exits with code 0 when the action was done. When it was not, the reason is the only line and the exit code is 1: `the element is not displayed` (it is `display: none` or hidden by `visibility`), `covered by another element: <div> (27)`, `cannot type into this element`, `element 23 is gone` (see below), `w1 is minimized; act restore on it first` (a click or another pointer action on a minimized window or on an element in it).
 
 A ref stays the same as long as its element lives: moving it, changing its text or attributes, or reordering a list keeps it. When the page replaces the element with a new one (for example by setting `innerHTML`), the new element gets a new ref, and acting on the old one fails with `element N is gone`; take a new `inspect` then.
 
 By default the tree leaves out elements that can't be seen: `display: none`, `aria-hidden`, `inert`, `opacity: 0` and hidden `visibility`. `--all` lists every window that is not marked `[minimized]` in the window list and also keeps the elements hidden by `opacity: 0` (marked `transparent`; they can still be clicked) or by `visibility` (marked `invisible`; they can't); `display: none`, `aria-hidden` and `inert` are always left out.
+
+A window that is off the screen is marked `[minimized]` in the window list: one whose state is `minimized` (after `act w1 minimize`, the app's own `minimize()`, or the desktop's `windows.requestState(id, 'minimized')`), and one the desktop hid with `windows.hide(id)`. Its elements are not listed: `--all` and `--find` skip it, and `--window w1` prints `(empty)` and `(minimized; act restore on it to see its elements)` under its line. Pointer actions on it (`click`, `double`, `right`, `hover`, `scroll`, and `drag` from or onto it) are refused, and `act w1 restore` brings it back. In a desktop session:
+
+```sh
+$ acde act w1 minimize
+w1 is minimized (the windows changed)
+
+- window "Tools" [app=tools] [minimized] [w1]
+- desktop [focused] [fullscreen] [w0]
+  - navigation "Apps" [w0.6]
+    - button "Tools" [w0.10]
+
+$ acde act w1.10 click
+w1 is minimized; act restore on it first
+
+$ acde act w1 restore
+w1 is in front (the windows changed)
+
+- window "Tools" [app=tools] [focused] [w1]
+  + - heading "Tools" [level=1] [w1.10]
+- desktop [fullscreen] [w0]
+```
 
 `--find TEXT` looks in every window that is not marked `[minimized]` (or in `--window W`) and prints only the elements whose name or value contains the text (case does not matter). Its output has a format of its own: a line `<window ref> <app id> "<title>":` for each window that has a match (`w0 desktop:` for the desktop), and under it one line per element. An element inside an ancestor that has a name is followed by `in` and the nearest such ancestor; one that has none is followed by nothing:
 
@@ -174,7 +196,7 @@ $ acde query nav
 nothing in w1 matches "nav"
 ```
 
-Each line is the element's role, name, value, a heading's level, states and ref, exactly as `inspect` prints them (`- heading "Notes" [level=1] [w1.16] <h1>`), then its tag. `[hidden]` after the tag marks an element that is not visible: it has no size, or is `display: none`, hidden by `visibility`, or transparent. The `transparent` and `invisible` marks are the ones `inspect --all` gives: a transparent element still takes clicks, as it does for a user; for an `invisible` or `display: none` one, `act` answers `the element is not displayed` until the page shows it. An element whose role cannot be told is listed as `generic`; the tag says what it is.
+Each line is the element's role, name, value, a heading's level, states and ref, exactly as `inspect` prints them (`- heading "Notes" [level=1] [w1.16] <h1>`), then its tag. `[hidden]` after the tag marks an element that is not visible: it has no size, or is `display: none`, hidden by `visibility`, or transparent, or its window is minimized. The `transparent` and `invisible` marks are the ones `inspect --all` gives: a transparent element still takes clicks, as it does for a user; for an `invisible` or `display: none` one, `act` answers `the element is not displayed` until the page shows it. An element whose role cannot be told is listed as `generic`; the tag says what it is.
 
 The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). Finding nothing is not an error: the exit code is 0 either way.
 

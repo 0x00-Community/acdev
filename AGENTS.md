@@ -479,8 +479,13 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   日志是 `acdert app <id>: <名字>: "<能力>" is denied by the user`, 桌面里触发提示的 `apps.open()` 以 `<名字>: "<能力>" is denied by the user`
   (403 `denied`) 拒绝, 之后再开是 `<名字> needs "<能力>" (denied by the user)` (404); `fs` 调用没批准的位置 (没问过或被拒) 的错误消息也是前一句.
   `inspect --find` 的窗口行是另一种格式 (`w1 notes "Notes":`, 桌面 `w0 desktop:`). `inspect --all` / `--find` 跳过的是窗口行标了
-  `[minimized]` 的窗口: 实测宿主窗口会话里 `act w1 minimize` 后窗口 `state` 是 `minimized` 但 `hidden` 仍是 false, 运行时的 inspect 按 `hidden`
-  标 `[minimized]`, 所以这样的窗口没标记、`--all` 照列; 桌面 `windows.hide()` 的窗口才有标记 (这是运行时的事, 文档照实写成「没标 `[minimized]` 的」).
+  `[minimized]` 的窗口, 即不在屏幕上的窗口: 状态是 `minimized` 的 (`act w1 minimize`、页面的 `minimize()`、桌面的 `requestState`), 和桌面
+  `windows.hide()` 藏起的. 判断在运行时 (acdert `inspect.ts` 的 `Inspect.#offScreen`), acde 原样打它的文字: 窗口表里这样的窗口 `hidden` 为真
+  (`state` 是运行时的状态), 点名它时树是空的加一行 `(minimized; act restore on it to see its elements)`, 对它的指针动作回
+  `w1 is minimized; act restore on it first` (退出码 1), `query` 照样找它的元素但 `visible` 为假 (`Format.matches` 标 `[hidden]`), `act w1 restore`
+  让它回来. 所以 driver 的 Locator 在最小化的窗口里一个元素都找不到 (按角色的走语义树, 按 CSS 的只留 `visible` 的), `restore()` 之后又有.
+  (2026-11-11 acdert 的 `fix(inspect): mark a window the runtime minimized` 之前运行时只看隐藏标记: 宿主窗口会话里 `act w1 minimize` 后窗口
+  没有标记, `--all` 照列, Locator 照样找得到.)
   `acde check` 的错误里应用 id 有的带引号有的不带 (`app "notes":` / `app notes:`), 两种都出自 SDK (`Manifest.check` 带, `Manifest.app` 不带), 文档照实.
   **Windows 上的后端**: skill 现在写「能跑」, 依据是两边的源码和说明 (本文件「Windows 后端契约」、acdert AGENTS.md 同名一节和它的验收脚本
   `scripts/check-backends.sh`), 没有在 Windows 上重跑; `tools.md` 里 cmd 的引号写法 (`\"`) 也只是按 MSVC 的命令行规则写的, 没在 Windows 上试.

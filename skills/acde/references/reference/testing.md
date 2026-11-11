@@ -182,6 +182,8 @@ interface RoleOptions {
 
 `AppWindow` looks itself up in the window table again on every use, so it keeps working if the window is closed and reopened.
 
+`info()` is the window's row in that table: `ref`, `id`, `app`, `title`, `state` (`normal`, `minimized`, `filled`, `fullscreen`), `focus`, `hidden` and more. While a window is minimized, `state` is `minimized`, `hidden` is `true`, and locators find no element in it: `toBeHidden()` passes, and an action waits until its timeout (`no element matches`). `restore()` brings the window and its elements back.
+
 `reload()` waits until the new page has loaded; `resize()` sets the size of the page without the title bar and waits until `innerWidth` and `innerHeight` have it (a window that fills the screen resizes the host window, which Windows cannot do yet); `seedLocalStorage()` writes the entries before the page's scripts run, by reloading the page once.
 
 ```ts
