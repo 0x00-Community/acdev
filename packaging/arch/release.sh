@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 arch=$(uname -m)
 printf '%s\n' "$tag" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+' || { echo "tag must be vX.Y.Z" >&2; exit 1; }
 [ "$(git describe --tags --exact-match HEAD 2>/dev/null)" = "$tag" ] || { echo "HEAD is not $tag" >&2; exit 1; }
-repo=$(git remote get-url origin | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')
+repo=$(git remote get-url gh 2>/dev/null || git remote get-url origin) && repo=$(printf '%s\n' "$repo" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')
 rm -f -- ./*-"$arch".pkg.tar.zst ./*-"$arch".pkg.tar.zst.sha256
 PKGEXT=.pkg.tar.zst makepkg -sf --noconfirm
 pkg=$(ls ./*-"$arch".pkg.tar.zst)
