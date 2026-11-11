@@ -396,6 +396,7 @@ impl Desk {
             terminal: (all || caps.is_some_and(|c| c.terminal)).then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
             network: (all || caps.is_some_and(|c| c.network)).then(|| system.networks.clone()),
             office: system.office.clone().filter(|_| all || caps.is_some_and(|c| c.office)),
+            system: all || caps.is_some_and(|c| c.system),
         }
     }
 

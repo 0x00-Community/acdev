@@ -26,6 +26,13 @@ declare module 'acde:network' {
   export default network
 }
 
+declare module 'acde:system' {
+  import type { AcdePage } from '@dopame/acde-api'
+  const system: NonNullable<AcdePage['system']>
+  export { system }
+  export default system
+}
+
 declare module 'acde:windows' {
   import type { AcdePage } from '@dopame/acde-api'
   const windows: NonNullable<AcdePage['windows']>

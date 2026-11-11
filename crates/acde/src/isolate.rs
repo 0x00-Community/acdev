@@ -40,6 +40,7 @@ pub struct Grants {
     pub terminal: Option<acde_runtime::Terminals>,
     pub network: Option<acde_runtime::Networks>,
     pub office: Option<acde_runtime::OfficeService>,
+    pub system: bool,
 }
 
 impl Grants {
@@ -55,6 +56,9 @@ impl Grants {
         }
         if let Some(office) = self.office {
             crate::office::install(scope, natives, office);
+        }
+        if self.system {
+            crate::system::install(scope, natives);
         }
     }
 }

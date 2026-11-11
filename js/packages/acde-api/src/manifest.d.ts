@@ -69,6 +69,8 @@ export interface Capabilities {
   readonly openFiles?: boolean
   readonly session?: boolean
   readonly desktops?: boolean
+  readonly network?: boolean
+  readonly system?: boolean
   readonly [service: string]: unknown
 }
 

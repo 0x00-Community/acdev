@@ -780,6 +780,23 @@ acde-base 不认识它们.
 - **总线上的名字**只在自己的会话里拿 (`ACDE_BUS_NAMES=1/0` 强制; 嵌套跑时 FileManager1 是外面桌面的); 两个名字都允许被替换,
   后起的会话拿走. 不装 D-Bus activation 文件: 没有会话时不该为了打开一个文件夹起一个 acde.
 
+## 本机信息 (`acde:system`)
+
+给系统设置一类的页面用 (acde-dopame 的「关于本机」「存储」「时间」): 桌面全有, 应用要清单的 `system: true`. 实现在 crates/runtime
+`system.rs` (`system_call(SysCall)`, 阻塞, 由 crates/acde `system.rs` 放到 `acde-system` 线程上跑; 内核态窗口走 SYSTEM 接口的
+`system.<方法>`), JS 侧 `isolate.ts` 加上 `on`. 方法 (都返回 promise; 类型 acde-api `AcdeSystem`):
+
+- `info()`: 主机名、`PRETTY_NAME`、内核版本、CPU 型号和逻辑核数、内存总量、GPU (`/sys/class/drm/card*`) 和 NPU (`/sys/class/accel`, 没有是 null)
+  的名字 (按 hwdata 的 `pci.ids` 查, 查不到给 `厂商 设备号`)、开机秒数、序列号 (DMI, 普通用户一般读不到, 是 null).
+- `storage()`: `/proc/self/mountinfo` 里 `/dev/` 下的挂载 (去掉 loop / zram、squashfs 一类、`/boot` / `/efi` / snap / 容器的目录、
+  小于 1 GiB 的), 同一个设备只留一个挂载点 (`/` 优先, 再 `/home`, 再最短的), 每个 `{path, label, size, free}`: statvfs 的总量和
+  普通用户可用的量, label 是文件系统卷标 (`/dev/disk/by-label`), 没有是空串.
+- `time()` / `timezones()` / `setTimezone(zone)` / `setNtp(on)`: systemd-timedated (没有时 `time()` 读 `/etc/localtime`, `canSetTime` 为 false);
+  `setHostname(name)`: systemd-hostnamed (静态和临时主机名). 改的都不弹 polkit 认证 (`interactive` 为 false), 不让改时 promise 带着
+  timedated / hostnamed 的原因 reject.
+- `user()`: AccountsService 的用户名、全名和头像文件 (没有 AccountsService 时读 `/etc/passwd` 的 gecos).
+- `on('changed', 处理函数)` 收下但现在从不调用 (返回退订函数).
+
 ## 桌面和窗口 (两个启动位置)
 
 每个桌面 / 窗口 isolate (runtime 里的一条线程 + isolate) 有自己的 DOM、CSS、JS 堆、render 文档 (线程) 和合成器 surface; 相互之间、和系统之间只通过 `acde`

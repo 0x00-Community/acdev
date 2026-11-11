@@ -34,6 +34,7 @@ interface IsolateNatives extends Natives {
   readonly fs?: object
   readonly terminal?: object
   readonly network?: object
+  readonly system?: object
   readonly office?: { writePage(key: string, html: string): string }
 }
 
@@ -159,6 +160,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   if (natives.fs) modules.value['fs'] = natives.fs
   if (natives.terminal) modules.value['terminal'] = natives.terminal
   if (natives.network) modules.value['network'] = natives.network
+  if (natives.system) modules.value['system'] = systemModule(natives.system)
   const office = natives.office
   if (office) modules.value['office'] = { ...office, editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => office.writePage(...OfficePage.page(setup, theme)) }
   modules.define(host)
@@ -200,6 +202,17 @@ async function installFrame(url: string, style: 'mac' | 'windows' | null, self: 
     })
   } catch (error) {
     Log.write(Level.Warn, 'acde_host', `window frame ${url}: ${(error as Error)?.message ?? String(error)}`)
+  }
+}
+
+function systemModule(natives: object): object {
+  return {
+    ...natives,
+    on(type: string, handler: unknown): () => void {
+      if (type !== 'changed') throw new TypeError(`acde:system has no ${String(type)} event`)
+      if (typeof handler !== 'function') throw new TypeError('acde:system on: the handler is not a function')
+      return () => {}
+    },
   }
 }
 

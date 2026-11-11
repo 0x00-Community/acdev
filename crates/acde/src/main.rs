@@ -24,6 +24,7 @@ mod sys;
 mod isolate;
 #[cfg(target_os = "linux")]
 mod network;
+mod system;
 #[cfg(target_os = "linux")]
 mod office;
 #[cfg(target_os = "linux")]

@@ -35,6 +35,7 @@ pub struct Capabilities {
     pub open_files: bool,
     pub session: bool,
     pub desktops: bool,
+    pub system: bool,
     #[serde(flatten)]
     pub services: HashMap<String, Value>,
 }

@@ -274,7 +274,7 @@ const info = call(Iface.Natives, 'init', []) as {
   place: 'desktop' | 'window'
   window: number
   storage: boolean
-  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean }
+  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean; system?: boolean }
 }
 
 function listen(callback: (value: unknown) => void): number {
@@ -312,6 +312,9 @@ const network = info.grants.network
         },
       },
     )
+  : undefined
+const systemNatives = info.grants.system
+  ? system('system', { info: 'a', storage: 'a', time: 'a', timezones: 'a', setTimezone: 'a', setNtp: 'a', setHostname: 'a', user: 'a' })
   : undefined
 const office = info.grants.office ? (system('office', { server: 'a', state: 'a', status: 'a', save: 'a', new: 'a', writePage: 'r' }) as { writePage(key: string, html: string): string }) : undefined
 
@@ -435,6 +438,7 @@ const natives = {
   fs,
   terminal,
   network,
+  system: systemNatives,
   office,
   createDocument(width: number, height: number, scale: number, options: object) {
     call(Iface.Natives, 'createDocument', [width, height, scale, options])

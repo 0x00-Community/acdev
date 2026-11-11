@@ -498,6 +498,7 @@ impl Driver {
                         "terminal": self.grants.terminal.is_some(),
                         "network": self.grants.network.is_some(),
                         "office": self.grants.office.is_some(),
+                        "system": self.grants.system,
                     },
                 })))
             }
@@ -527,6 +528,7 @@ impl Driver {
             Some(("terminal", method)) => g.terminal.as_ref().map(|t| crate::terminal::wire(t, method, a, events)),
             Some(("network", method)) => g.network.as_ref().map(|n| crate::network::wire(n, method, a, events)),
             Some(("office", method)) => g.office.as_ref().map(|o| crate::office::wire(o, method, a)),
+            Some(("system", method)) => g.system.then(|| crate::system::wire(method, a)),
             Some(("ime", method)) => Some(crate::surface::ime_wire(&mut self.imes, method, a, events)),
             _ => None,
         };
