@@ -45,10 +45,12 @@ use super::{Cmd, Handler, HostEvent, LINE, Monitor};
 use crate::keys;
 use crate::{OpenRequest, SaveRequest};
 
+mod approve;
 mod dialog;
 mod frame;
 mod refresh;
 
+pub(crate) use approve::dismiss as dismiss_approval;
 
 const WM_MOUSELEAVE: u32 = 0x02a3;
 const SIZE_MINIMIZED: usize = 1;
@@ -168,6 +170,10 @@ impl super::Host for Host {
             }
         };
         let _ = reply.send(Ok(picked));
+    }
+
+    fn approve(&self, title: &str, message: &str, reply: super::ApproveReply) {
+        let _ = reply.send(Ok(approve::ask(self.hwnd, title, message)));
     }
 
     fn exit(&self, code: i32) {

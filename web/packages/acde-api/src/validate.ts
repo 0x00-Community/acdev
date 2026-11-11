@@ -43,9 +43,7 @@ export const ICON_NAMES = [
 
 export type IconName = (typeof ICON_NAMES)[number]
 
-export const SHELL_MODULES = ['windows', 'packages', 'session', 'desktops', 'inspect', 'desktop', 'setDefault'] as const
-
-export const RETIRED_CAPABILITIES = ['permissions'] as const
+export const SHELL_MODULES = ['windows', 'packages', 'session', 'desktops', 'inspect', 'desktop', 'setDefault', 'permissions'] as const
 
 export const APP_MODULES = ['launch', 'apps', 'open', 'openPath', 'handlers', 'window'] as const
 
@@ -57,20 +55,15 @@ export const WEB_CAPABILITIES = ['notifications'] as const
 
 export const CAPABILITY_MODULES = ['fs', 'terminal', 'network', 'office'] as const
 
+export const APPROVAL_CAPABILITIES = ['launch', 'slots', 'terminal', 'network', 'camera', 'microphone'] as const
+
 export interface ImportRule {
   readonly allowed: boolean
   readonly missing: string | null
   readonly reason: string | null
 }
 
-export const RESERVED_NAMES: ReadonlySet<string> = new Set([
-  ...SYSTEM_CAPABILITIES,
-  ...WEB_CAPABILITIES,
-  ...SHELL_MODULES,
-  ...RETIRED_CAPABILITIES,
-  ...APP_MODULES,
-  'capabilities',
-])
+export const RESERVED_NAMES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...WEB_CAPABILITIES, ...SHELL_MODULES, ...APP_MODULES, 'capabilities'])
 
 export interface DesktopServiceGrant {
   readonly name: string
@@ -92,7 +85,6 @@ export class Manifest {
   static readonly MIN_HEAP_MB = 32
   static readonly CAPABILITIES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...SHELL_MODULES])
   static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
-  static readonly #RETIRED: ReadonlySet<string> = new Set(RETIRED_CAPABILITIES)
   static readonly #PLACES: ReadonlySet<string> = new Set(SHARED_PLACES)
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
   static readonly #ICON_NAMES: ReadonlySet<string> = new Set(ICON_NAMES)
@@ -156,9 +148,9 @@ export class Manifest {
       }
       const { name, modules = [] } = (typeof entry === 'object' && entry !== null ? entry : {}) as { name?: unknown; modules?: unknown }
       if (typeof name !== 'string' || !name) return 'services lists service names or {name, modules}'
-      if (!Array.isArray(modules) || modules.some((m) => !Manifest.#SHELL.has(m) && !Manifest.#RETIRED.has(m)))
+      if (!Array.isArray(modules) || modules.some((m) => !Manifest.#SHELL.has(m)))
         return `service ${JSON.stringify(name)}: modules lists shell modules (${SHELL_MODULES.join(', ')})`
-      grants.push({ name, modules: (modules as ShellModule[]).filter((m) => Manifest.#SHELL.has(m)) })
+      grants.push({ name, modules: [...(modules as ShellModule[])] })
     }
     return grants
   }
@@ -318,8 +310,7 @@ export class Manifest {
       }
       for (const finding of Manifest.#roots(app.capabilities.fs)) shellFindings.push(`${at}: ${finding}`)
       for (const name of Object.keys(app.capabilities).filter((k) => !Manifest.CAPABILITIES.has(k))) {
-        if (Manifest.#RETIRED.has(name)) warnings.push(`${at}: acde:${name} was removed (declared capabilities need no approval); drop "${name}"`)
-        else if (services.has(name)) errors.push(`${at}: capability ${JSON.stringify(name)} is a desktop service: list it under services`)
+        if (services.has(name)) errors.push(`${at}: capability ${JSON.stringify(name)} is a desktop service: list it under services`)
         else shellFindings.push(`${at}: capability ${JSON.stringify(name)} is not a system capability; list desktop services under services`)
       }
     }

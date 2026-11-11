@@ -11,12 +11,13 @@ const app = (fields: Record<string, unknown>): AppManifest => {
   if (typeof parsed === 'string') throw new Error(parsed)
   return parsed
 }
-const check = (platform: string, mode: RunningMode, running: string[] = [], absent: string[] = []) =>
+const check = (platform: string, mode: RunningMode, running: string[] = [], absent: string[] = [], denied: string[] = []) =>
   new CapabilityCheck({
     platform,
     mode: () => mode,
     running: (service) => running.includes(service),
     present: (capability) => !absent.includes(capability),
+    denied: (_, __, capability) => denied.includes(capability),
   } satisfies CapabilityHost)
 const state = (c: CapabilityCheck, name: string, a: AppManifest | null, origin: AppOrigin = third) => c.status(name, a, origin).state
 
@@ -92,7 +93,10 @@ describe('CapabilityCheck', () => {
     assert.equal(snapshot.level, API_LEVEL)
     assert.equal(snapshot.mode, 'standalone')
     assert.deepEqual(snapshot.window, { backdrop: 'full' })
-    const module = CapabilityCheck.module(snapshot) as {
+    const asked: string[] = []
+    const ask = async (name: string) => (asked.push(name), { ...c.status(name, a, third), state: 'denied' as const, reason: 'denied by the user' })
+    const live = CapabilityCheck.module(snapshot, ask)
+    const module = live.module as {
       level: number
       window: { backdrop: string }
       get(name: string): { state: string; optional: boolean; reason: string }
@@ -105,6 +109,9 @@ describe('CapabilityCheck', () => {
     assert.equal(module.get('weather').state, 'not-declared')
     assert.equal(module.get('windows').state, 'shell-only')
     assert.equal((await module.request('office')).state, 'unsupported')
+    assert.deepEqual(asked, [], 'only an available capability is asked for')
+    live.update({ ...c.status('terminal', a, third), state: 'denied', reason: 'denied by the user' })
+    assert.equal(module.get('terminal').reason, 'denied by the user')
     const names = module.list().map((s) => s.name)
     for (const name of Manifest.CAPABILITIES) assert.ok(names.includes(name), name)
     assert.ok(names.includes('desk'))
@@ -120,15 +127,24 @@ describe('CapabilityCheck', () => {
   })
 })
 
-describe('CapabilityCheck without approval', () => {
-  test('a declared capability the platform supports is available, and request() reports it without asking', async () => {
-    const a = app({ capabilities: { launch: true, openFiles: true, fs: { roots: ['documents'] } }, optional: ['launch'] })
+describe('CapabilityCheck and approval', () => {
+  test('a supported capability the user denied reports denied by the user and fails the required check', () => {
+    const a = app({ capabilities: { launch: true, openFiles: true } })
+    const c = check('win32', 'desktop', [], [], ['launch'])
+    assert.deepEqual(c.status('launch', a, third), { name: 'launch', kind: 'system', state: 'denied', reason: 'denied by the user', optional: false })
+    assert.deepEqual(c.missing(a, third).map((s) => s.name), ['launch'])
+    assert.ok(c.refusal(a, third)!.message.includes(`"launch" (denied by the user)`))
+    assert.equal(check('win32', 'desktop', [], [], ['network']).status('network', app({ capabilities: { network: true } }), third).state, 'unsupported')
+  })
+
+  test('the live module asks for an available capability and keeps the answer', async () => {
+    const a = app({ capabilities: { launch: true }, optional: ['launch'] })
     const c = check('win32', 'desktop')
-    assert.equal(c.status('launch', a, third).state, 'available')
-    assert.equal(c.status('fs.documents', a, third).state, 'available')
-    assert.deepEqual(c.missing(a, third), [])
-    const module = CapabilityCheck.module(c.snapshot(a, third)) as { request(name: string): Promise<{ state: string }> }
-    assert.equal((await module.request('launch')).state, 'available')
-    assert.equal((await module.request('network')).state, 'not-declared')
+    const deny = async (name: string) => ({ ...c.status(name, a, third), state: 'denied' as const, reason: 'denied by the user' })
+    const live = CapabilityCheck.module(c.snapshot(a, third), deny)
+    const module = live.module as { get(name: string): { state: string }; request(name: string): Promise<{ state: string; reason: string }> }
+    assert.equal(module.get('launch').state, 'available')
+    assert.equal((await module.request('launch')).reason, 'denied by the user')
+    assert.equal(module.get('launch').state, 'denied')
   })
 })

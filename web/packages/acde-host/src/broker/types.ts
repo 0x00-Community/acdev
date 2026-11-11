@@ -55,6 +55,8 @@ export interface BrokerShell {
   openDefault?(target: string): Promise<void>
   fileHandlers?(extension: string): Promise<{ id: string; label: string; icon: string; default: boolean }[]>
   openWith?(handler: string, path: string): Promise<void>
+  approve?(title: string, message: string): Promise<boolean | null>
+  dismissApproval?(): void
   readClipboard?(): string
   writeClipboard?(text: string): void
   readonly socketName: string

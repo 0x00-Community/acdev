@@ -1,5 +1,4 @@
 import type { AppsChangedEvent, WindowCrashEvent, WindowMenusEvent, WindowOpenEvent, WindowsEvent } from '@dopame/acde-api'
-import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
 import { sys } from './sys/natives'
@@ -38,6 +37,8 @@ import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 import { Outputs, type Screen } from './broker/output'
 import { WindowRecords } from './broker/records'
+import { Approvals, type FolderGrants } from './broker/approvals'
+import type { Permissions } from './broker/access/approval/permissions'
 import { UserAgent } from './useragent'
 
 export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './broker/types'
@@ -81,7 +82,21 @@ export class Broker {
     standalone: () => !!this.#options.standalone,
     bridge: () => this.bridge,
     refresh: () => this.refreshApps(),
+    permissions: () => this.permissions,
   })
+  readonly #approvals: Approvals = new Approvals({
+    apps: () => this.apps,
+    capabilities: () => this.#launchable.capabilities,
+    records: () => this.#windows.values(),
+    toDesktop: (event) => this.#toDesktop(event),
+    dialog: () => {
+      const shell = this.shell
+      if (!this.#options.standalone || !shell.hosted || !shell.approve) return null
+      return { show: (title, message) => shell.approve!(title, message), dismiss: () => shell.dismissApproval?.() }
+    },
+    finder: () => (this.bridge.value['fs'] as FolderGrants | undefined) ?? null,
+  })
+  readonly permissions: Permissions = this.#approvals.permissions
   #opening = false
   readonly #output: Outputs
   readonly #desktopCrashes = new Crashes(Broker.RESTARTS)
@@ -177,6 +192,7 @@ export class Broker {
       shell: this.shell,
       inspect: this.inspect,
       devlog: this.devlog,
+      permissions: this.permissions,
       webs: () => this.#webs(),
       desktop: () => this.#desktop,
       title: (web) => (web.kind === 'desktop' ? this.#current.name : (this.#windows.get(web.window)?.title ?? web.app?.label ?? web.name)),
@@ -192,6 +208,10 @@ export class Broker {
       launch: (appId, request, family) => this.launch(appId, request, 'free', null, family),
       record: (id) => this.#windows.get(id),
       raise: (opened) => this.#raise(opened),
+      permitted: (appId, capability) => {
+        const app = this.apps.get(appId)
+        return !!app && this.permissions.permit(app, this.apps.origin(appId), capability) === 'granted'
+      },
     })
     this.#services = new ServiceCalls({
       bridge: this.bridge,
@@ -209,6 +229,7 @@ export class Broker {
         return !!app && this.#launchable.available(app)
       },
       launch: (appId, request) => void this.launch(appId, request).catch(() => undefined),
+      allow: (web, capability) => this.#approvals.allow(web, capability),
     })
     this.#panelCalls = new PanelCalls(this.shell)
     this.#pageCalls = new PageCalls({
@@ -597,6 +618,7 @@ export class Broker {
     family: WindowFamily | null = null,
   ): Promise<{ window: number }> {
     const app = this.#launchable.app(appId)
+    if (!this.#windows.running(appId)) await this.permissions.admit(app, this.apps.origin(app.id))
     if (!app.multiple) {
       const running = this.#windows.running(appId)
       if (running) {
@@ -734,12 +756,6 @@ export class Broker {
     return true
   }
 
-  #capability(web: Web, method: string, args: unknown[]): CapabilityStatus {
-    if (method !== 'request') throw new Error(`acde.capabilities has no ${method}`)
-    const app = web.app
-    return this.#launchable.capabilities.status(String(args[0]), app, app ? this.apps.origin(app.id) : { level: 1, system: true })
-  }
-
   async #serve(web: Web, service: string, method: string, args: unknown[]): Promise<unknown> {
     if (service === 'windows') return this.#windowCalls.windows(web, method, args)
     if (service === 'apps') return this.#appCalls.call(web, method, args)
@@ -747,7 +763,8 @@ export class Broker {
     if (service === 'launch') return this.#windowCalls.launch(web, method, args)
     if (service === 'window') return this.#windowCalls.self(web, method, args)
     if (service === 'panel') return this.#panelCalls.call(web, method, args)
-    if (service === 'capabilities') return this.#capability(web, method, args)
+    if (service === 'permissions') return this.#approvals.calls.permissions(web, method, args)
+    if (service === 'capabilities') return this.#approvals.calls.capabilities(web, method, args)
     if (service === 'page') return this.#pageCalls.call(web, method, args)
     return this.#services.call(web, service, method, args)
   }

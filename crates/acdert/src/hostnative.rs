@@ -69,6 +69,8 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "answerSave" => answer_save,
         "readClipboard" => read_clipboard,
         "writeClipboard" => write_clipboard,
+        "approve" => approve,
+        "dismissApproval" => dismiss_approval,
     );
     #[cfg(any(windows, target_os = "macos"))]
     crate::methods!(scope, obj,
@@ -593,6 +595,35 @@ fn settle_save(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver
         }
         Err(e) => chooser_failed(scope, resolver, &e),
     }
+}
+
+fn approve(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let title = bind::arg_string(scope, &args, 0);
+    let message = bind::arg_string(scope, &args, 1);
+    if with(scope, |_| ()).is_none() {
+        return;
+    }
+    crate::offload::run(scope, &mut rv, "acde-approve", move || acde_hostwin::approve(&title, &message), settle_approve);
+}
+
+fn settle_approve(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, answer: Result<Option<bool>, String>) {
+    match answer {
+        Ok(answer) => {
+            let value = match answer {
+                Some(allowed) => v8::Boolean::new(scope, allowed).into(),
+                None => v8::null(scope).into(),
+            };
+            resolver.resolve(scope, value);
+        }
+        Err(e) => {
+            let error = crate::offload::failure(scope, &e, None, "approve");
+            resolver.reject(scope, error);
+        }
+    }
+}
+
+fn dismiss_approval(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    with(scope, |_| acde_hostwin::dismiss_approval());
 }
 
 fn quit(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

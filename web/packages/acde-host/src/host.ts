@@ -21,6 +21,8 @@ export class Host {
     ['notification', ['desktop:notification']],
     ['screenedge', ['desktop:edge']],
     ['shortcut', ['desktop:shortcut', 'window:shortcut']],
+    ['permissionprompt', ['permissions:prompt']],
+    ['permissionanswered', ['permissions:answered']],
   ])
   static readonly #WINDOW_EVENTS = new Set<string>(WINDOW_EVENTS)
   readonly #page: WebInternals

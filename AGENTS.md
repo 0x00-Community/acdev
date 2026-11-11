@@ -81,7 +81,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   线程退出时作业句柄关闭, 后台留下的进程一并结束; 没有 `cwd` 事件, `exit` 的 `signal` 总是 null.
   network 第一次调用时连 NetworkManager; office 由 Broker 起服务时
   `sys.openOffice()` 开 (network / office 只在 Linux). `acde:office` 的根就是调用方 `acde:fs` 的根 (#96, `OfficeService::for_web` 带上这个 web 的 `Workspace`,
-  runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. `state(handle)` 按交来的文件句柄打开 (web 侧认
+  runtime `Workspace::finder_roots`): 第 1 级应用是 `private`、点名的公共位置和选的文件夹, 按 `id` 认, 不给路径; 没有 `fs` 的应用没有根. 没批准或撤销了的
+  公共位置和文件夹和 `acde:fs` 一样经 `FileAccess.guard` 拒绝 403 `denied`、从 `state().roots` 去掉. `state(handle)` 按交来的文件句柄打开 (web 侧认
   `PageCalls` 登记过的句柄, 换成路径交给 runtime `OfficeCall::Open`), 文稿的 `root` 是空的, 只读句柄只能查看. 编辑器的取文件和保存回调凭签名的票据里的
   文件夹路径找文件 (`OfficeFiles::file` / `save` 不再查共享根).
 - **还没做的**: 窗口 / 应用 / 会话表还在 Broker 的 JS 里 (`acde:windows` / `acde:apps` / `acde:window` / `acde:session` 经 RPC);
@@ -218,7 +219,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   的字符 (`keys::us_text`). 中文等走 `acde:inspect` 的 `type`, 不经注入.
 - **别的**: `capture(window)` (出帧线程读回这个窗口的页面纹理编 PNG; 还没画出第一帧时等到画出, 最多 10 秒), `screenshot(path)` (合成线程按窗口表把所有页面
   画进一张离屏的 `Rgba8Unorm` 纹理, 读回编 PNG 写到 path, 回 `{width, height}`, 和会话的 `Shell.screenshot` 同一个接口; 最多等 10 秒),
-  `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`; Windows 不绑定, 见「通知」), `openDefault` (`handoff.rs`, 只在 macOS / Windows,
+  `approve` / `dismissApproval` (批准对话框, 见「批准」), `notify` (`notify.rs`: macOS osascript, Linux `org.freedesktop.Notifications`; Windows 不绑定, 见「通知」), `openDefault` (`handoff.rs`, 只在 macOS / Windows,
   见「默认应用」), `devRespond`, `screen`, `shortcut`, `windows`,
   `launch`. `animate` 和会话一样走 model 的 `Transition` / `Look` (`State::animate` / `advance`): 合成线程每帧插值, 按 look 缩放、平移、
   调透明度画这个窗口 (最近点取样), 命中按 look 反算, 做完发 `windowanimated`; 窗口不存在时立刻发. `requestGrab` 一律授予. 宿主窗口的关闭按钮发 `windowcloserequest`:
@@ -352,7 +353,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 (第 1 级之前构建的) 同样拒绝, 报 `Manifest.UNVERSIONED` (`no acde.apiLevel: ...; rebuild it with the current acde (level 1)`), 要用现在的 acde
 重新构建; 校验器也把它当错误. 第 0 级 (契约级别之前的扩展期形态) 已全部去掉. acde-host 自己的包不查.
 现在的契约是第 1 级; 发版说明 (`.github/workflows/release.yml` 从 `level.js` 读) 写明契约级别.
-**运行时还不是安全边界**: 按层级注入和能力是契约, 不是隔离 (见「沙箱」);
+**运行时还不是安全边界**: 按层级注入、能力和批准是契约, 不是隔离 (见「沙箱」);
 第三方沙箱上线之前, 本地和开发构建的包都按开发者自己的代码运行.
 
 **启动哪个桌面**: `--desktop <id|包目录>`, 否则 `ACDE_DESKTOP`, 否则上次进的 (`$XDG_STATE_HOME/acde/desktop`; `--greeter` 和 `app` /
@@ -474,7 +475,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `mimeTypes`、`schemes` (打开哪些 URL scheme 的链接, 小写不带冒号, 不能是 `file`)、`requests` (接受哪些私有请求, 小写词, 不能是 `open-file` / `open-link`)、`heapMb` (默认 256, 最小 32)、`size` (页面尺寸, 默认 800x600, 窗框另算; 单应用模式的主窗口铺满宿主窗口, 设了 `size` 时它是宿主窗口内容区的初始尺寸, 见「坐标」)、`multiple`、`frame` (默认 true)、`backend`.
 - **必需与可选能力** (`broker/access/capabilities.ts` `CapabilityCheck`, 由 `Launchable` 用): 声明的能力 (capabilities 和 services) 默认都是
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
-  `shell-only` (第三方应用的外壳模块). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
+  `shell-only` (第三方应用的外壳模块)、`denied` (用户拒绝或撤销, 见「批准」). 必需的不是 `available` 时应用不进 `acde:apps` 列表和打开方式, 启动报
   `<label> needs "network" (not available on Windows host windows); list it in "optional" to run without it` (平台缺的系统能力写出平台和运行方式,
   #148; 404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`, 原因照 `reason`). `acde dev` 重载时新清单要的能力不可用:
   记一行这个错误, 开着的窗口留在旧版本, 会话不退出, 改好清单再存就照常重载. 可选的照常启动;
@@ -484,13 +485,31 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `unsupported` (不支持的能力) 和窗口特性 `window.backdrop` (`full` / `approximated` / `unsupported`). 现在: Linux 宿主窗口缺 `slots`; Windows 缺
   network、office、camera、microphone、slots; macOS 缺 network、office、slots; 窗口背景滤镜都是 `full`. Linux 会话和 macOS 的行没有实测.
 - **`acde:capabilities`** (总是注入所有 web, 桌面和应用窗口都有, 服务没有; 类型 `AcdeCapabilities`): `level` (SDK 的 `API_LEVEL`)、`platform`、`mode`、`window`
-  (窗口特性)、`get(name)` / `list()` (所有系统能力、`WEB_CAPABILITIES` 加声明的服务, `{name, kind, state, reason, optional}`)、`request(name)`
-  (回当前状态, 和 `get` 一样; 留着给第 1 级早先的调用方). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`.
-- **声明即有, 没有批准** (#146, 用户决定): 清单里声明的能力 (含 `launch`、`slots`、`terminal`、`network`、`camera`、`microphone` 和 `fs.roots` 点名的
-  公共位置) 平台支持就直接给, 运行时不问用户、不记决定、没有撤销, 也没有原生对话框. 之前的 `acde:permissions` 外壳模块、SDK 的
-  `APPROVAL_CAPABILITIES` 和 `denied` 状态、`permissions.json`、dev 请求 `permissions` / `answer` / `revoke` 都去掉了. 兼容: 清单不变, 旧包照常运行;
-  还声明 `permissions` 的包能加载, 校验给一条 warning (SDK `RETIRED_CAPABILITIES`; 名字仍是保留名, 服务的 `modules` 里写了也只是忽略);
-  `import('acde:permissions')` 报没有这个模块. 用户选给应用的文件夹仍是那次选择的授权, 应用用 `fs.revoke` 自己收回.
+  (窗口特性)、`get(name)` / `list()` (所有系统能力、`WEB_CAPABILITIES` 加声明的服务, `{name, kind, state, reason, optional}`)、`request(name)` (要批准的能力 `available`
+  时经 rpc 问用户, 回答之后的状态; 别的直接回当前状态). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`, 之后 Broker 发 `permit`
+  消息更新.
+- **批准** (`broker/access/approval/permissions.ts` `Permissions`, SDK `APPROVAL_CAPABILITIES`): `launch`、`slots`、`terminal`、`network`、`camera`、
+  `microphone` 要用户批准, 可撤销, 第 1 级包在 `fs.roots` 里点名的公共位置也是, 每个位置一项 `fs.<位置>` (如 `fs.documents`, SDK `PlaceCapability`; `fs` 可选时它们也可选, 经 `request("fs.documents")` 问); 其余 (自己的窗口、能力查询、列出和打开应用、按类型打开、桌面服务、`office`) 声明即有.
+  系统应用 (和任一已装桌面同包) 不问. 必需的在第一次启动前按能力一个一个问 (`Broker.launch` 是 async, `admit` 之后才 grant 窗口),
+  拒绝时不启动, 报 `<label>: "launch" is denied by the user` (403 `denied`, 带 `capability`); 平台不支持的不问, 照旧按 unsupported 拒绝. 可选的在
+  `acde:capabilities` `request(name)` 时问; 没批准的模块不定义 (import 报 `waits for approval` / `is denied by the user`), 批准后 web 收 `permit` 再定义,
+  `load()` 拿得到. 决定按应用持久 (`$XDG_CONFIG_HOME/acde/permissions.json`, `{"<app>:<能力>": "granted" | "denied"}`, 不看 `ACDE_STORAGE`);
+  拒绝也记, 必需能力被拒的应用不进列表. 撤销 (`revoke`) 删掉记录: 这一次运行里当作拒绝 (同一次运行不问第二次), 下次运行再问. 撤销后的调用报同样的
+  403 `denied`: Broker 侧 (`acde.launch` / `acde.windows.launch`) 当场查, web 侧 terminal / network 的模块和 camera / microphone 的 capture 经
+  `broker/access/approval/permits.ts` `Permits` 包一层. 外壳模块 `acde:permissions` (桌面和声明它的系统应用): `pending()`、`answer(id, allow)`、`list(app?)`、
+  `revoke(app, capability)`、`on('prompt' | 'answered')` (`permissionprompt {id, app, label, capability, reason: 'launch' | 'request'}`、
+  `permissionanswered {id, app, capability, allowed}`). 用户选给应用的文件夹 (#86) 也在 `list` 里: 每个一行 `{app, label, capability: 'fs.folder-<令牌>',
+  decision: 'granted', folder: {label, exists}}` (只给文件夹名, 不给路径; Broker 经 napi `Finder.folders(app)` 读授权文件), `revoke(app, 'fs.folder-<令牌>')`
+  经 `Finder.revokeFolder` 删掉授权 (回有没有删到) 并给这个应用的 web 发 `permit` 拒绝: 它离开 `roots()`, 以它为 root 的调用 403 `denied` (`FileAccess.guard`).
+  进程里所有 `Workspace` 和 `Finder` 共用一份授权 (`fs/mod.rs` 的 `GRANTS`), 撤销对正在运行的 web 立刻生效. 页面里已有的这个文件夹的句柄活到页面结束;
+  同一个页面撤销后再选同一个文件夹, `acde:fs` 仍报 `denied` 到页面重开. 开发、无头和 driver 照常问: dev 请求 `permissions` (待答和已有决定)、`answer {prompt, allow}`、`revoke {app, capability}` (#95, 和 `acde:permissions.revoke` 同一份记录和效果,
+  回 `{app, capability, revoked}`, 没有决定过的回 `revoked: false`; 桌面和 `acdert app` 都能用)
+  给 acde driver 用; 每个提示记一行 info (`waits for the user to allow`), 没人答就一直等, 不自动批准.
+  **单应用模式的原生对话框** (`acdert app`, 宿主窗口; `broker/access/approval/dialog.ts` `ApprovalDialogs`, 由 `broker/approvals.ts` 接上): 提示同时交给宿主的
+  `approve(title, message)` (hostwin `Cmd::Approve`, Windows 是 `platform/win32/approve.rs` 的 `MessageBoxW`, 以宿主窗口为 owner, 是 / 否, 默认否),
+  一次只开一个, 其余排队; 答案经 `Permissions.answer` 写进同一份 `permissions.json`, 和桌面答的一样. driver 或别处先答了, Broker 调
+  `dismissApproval` 关掉还开着的对话框 (它不算回答), 排队的直接丢掉. headless 和 macOS / Linux 宿主窗口没有对话框 (`approve` 回 null), 照旧等 driver.
+  拒绝必需能力时 `acdert app` 记一行错误后退出.
   `icon` 是 `ICON_NAMES` (`@dopame/acde-api/manifest`, 和 Dopame art 引擎 `APPS` 的名字一致, 加名字两边一起改) 之一, 或 assets 下以
   `.svg` / `.png` 结尾的同源 URL; 运行时原样交给桌面 (`acde.apps.list()`、`windowopen` 的 `icon`).
 - **沙箱**: 每个 web 是独立的 isolate, 页面和 acde-host 的 web.js 在同一个 realm. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口
@@ -774,9 +793,10 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
 `desktop`、`documents`、`downloads`、`music`、`pictures`、`videos`, 按 XDG 用户目录 `XDG_<名>_DIR` / `user-dirs.dirs`; Windows 没设时用对应的已知文件夹
 `SHGetKnownFolderPath`, `path.rs` `known_folder`), 选择的文件夹是 `folder-<路径 SHA-256 前 16 位十六进制>` 的令牌. `fs: true` 只给 `private` 和用户选给它的文件夹;
 公共位置要在 `fs.roots` 里点名 (校验器: 不是这六个名字就是错误, `agentos-work` 不算;
-末段是位置名的路径如 `~/Downloads` 提示改写位置名, 别的提示用户选的文件夹), 声明即有. `roots()` 回
+末段是位置名的路径如 `~/Downloads` 提示改写位置名, 别的提示用户选的文件夹) 并经批准 (见「批准」). `roots()` 回
 `{id, label, source: 'private' | 'place' | 'granted', mode, reason, exists, place?}`, 只有点名了公共位置的系统应用另带 `path`; 别的应用拿不到绝对路径,
-`locate` / `openPath` 报 403 `EACCES`. `fs.revoke(令牌)` 收回选择的文件夹. Broker 交给 web 的授权是
+`locate` / `openPath` 报 403 `EACCES`. 没批准或撤销了的位置: web 侧 (`FileAccess.guard`, 经 `Permits`)
+把它从 `roots()` 里去掉, 以它为 root 的调用 reject 403 `denied` (`AcdePermissionError`). `fs.revoke(令牌)` 收回选择的文件夹, `acde:permissions` 也列出和收回它 (见「批准」). Broker 交给 web 的授权是
 `fs: {places, paths}` (crates/acdert `web.rs` → `Workspace::files`). 下面按路径的根只给桌面页面.
 
 **拖放和打开请求的句柄** (#68): 用户交给应用的文件和文件夹是标准的 `FileSystemHandle`, 页面拿不到路径.
@@ -846,7 +866,7 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 - `mkdir(root, path, {recursive})`: recursive 从 root 起逐级建, 已是文件夹算成功.
 - `copy(fromRoot, fromPath, toRoot, toDir)` → `FinderEntry & {path}` (#67, runtime `fs/copy.rs`): 在本应用可用的两个 root 之间复制, 两边各是 root 加相对路径,
   不传绝对路径. 原生复制文件和文件夹 (流式, 不限大小), 名字被占用时照 `numbered` 编号 (`a 2.txt`、`project 2`), `path` 是在目标 root 里的相对路径.
-  两个 root 都要在本应用的 root 里 (按路径的根两边都过清单检查), 否则 403 `EACCES`; 源是 root 本身、`..` 或经链接 /
+  两个 root 都要在本应用的 root 里 (按路径的根两边都过清单检查), 否则 403 `EACCES`; 没批准的公共位置 403 `denied`; 源是 root 本身、`..` 或经链接 /
   联接出 root (源或目标)、源本身是链接、文件夹里有链接 (先整棵查一遍, 复制中途变成链接也停, 删掉已复制的部分)、把文件夹复制进它自己, 都是 `EINVAL`.
 
 **大文件** (#75, runtime `fs/ranged.rs`): `readText` / `readBytes` / `writeFile` 和整读整写仍限 64 MiB. 更大的文件主路径是标准接口:
@@ -888,7 +908,7 @@ Windows 选择器返回盘符或 UNC 绝对路径, 内存句柄和持久授权�
 检查在 `WorkspaceFs` 的各写入函数和 `copy` 开头的 `FinderRoot::writable`); `mode: 'readwrite'` 的选择提示明确读写授权, root 可写.
 同一个文件夹再被读写地选中就升成可写, 只读选择不会把可写的降级. 记在 `$XDG_STATE_HOME/acde/grants/<应用 id>.json`
 (`{roots, readOnly?}`, `readOnly` 是 `roots` 里只读的那些; runtime `fs/access/grants.rs`; `ACDE_STORAGE` 为空时只在内存); 桌面选的不授.
-`fs.revoke(rootPath)` 收回. Broker 起 web 时 grants 带应用 id, `web.rs` 给 `Workspace::scoped(roots, app)` 和 `natives.picker`.
+`fs.revoke(rootPath)` 收回, `acde:permissions` 同样列出和收回只读的. Broker 起 web 时 grants 带应用 id, `web.rs` 给 `Workspace::scoped(roots, app)` 和 `natives.picker`.
 
 **打开和保存文件**: `showOpenFilePicker` / `<input type=file>` / `showSaveFilePicker` (acde-dom `dom/picker.ts`、`dom/forms.ts`) → `env.files.open` /
 `save` → acde-host `pagecalls.ts` 的页面调用 `open` / `save` → Broker `#fileChooser()` 的 `native.FileChooser` 的 `openFile({title, multiple,
@@ -963,7 +983,8 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   - 文件: 不是文件夹、不是 `select`, 先过 napi `Finder.admit(path, roots, owner)` (runtime `fs/access/admit.rs`): 把路径和调用方能用的根都按真实路径
     解析 (`canonicalize`, 跟随联接和链接) 后, 文件必须落在其中一个根里, 交给系统的是解析后的路径 (去掉 `\\?\`); 不在的回 `outside_roots`.
     调用方能用的根: 桌面、`acdert open` 和系统总线 (`openFromBus`) 是全部 Finder 根; 应用是清单 `fs` 的 roots (`fs: true` 是全部 Finder 根,
-    没有 `fs` 是空的) 加上授予它的文件夹, 和它的 `acde:fs` 一样 (每次重读授权文件); 第 1 级的应用是私有文件夹、点名的位置 (`OpenCaller.places`) 和选的文件夹 (napi `Finder.admit` 第 4 个参数, runtime `Workspace::admit_with`), 交来的文件所在的文件夹也算 (#110).
+    没有 `fs` 是空的) 加上授予它的文件夹, 和它的 `acde:fs` 一样 (每次重读授权文件); 第 1 级的应用是私有文件夹、批准了的点名位置 (`OpenCaller.places`,
+    Broker 按当前的批准滤过) 和选的文件夹 (napi `Finder.admit` 第 4 个参数, runtime `Workspace::admit_with`), 交来的文件所在的文件夹也算 (#110).
     所以根里的联接指向根外时也被拒绝.
     Rust 再要求绝对路径、不是设备 / 逐字路径
     (`\\?\`、`\\.\`)、不带 `..`、Windows 上不是命名流 (组件里有 `:`)、`symlink_metadata` 是普通文件 (链接不交), 扩展名在
@@ -1335,11 +1356,12 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
   (`broker.ts`、`worker.ts` / `host.ts`、`remote.ts` / `rpc.ts`、`inspect.ts`、`devhot.ts` …); `sys/` 是原生接口的 node 风格包装.
   `broker/` 是从 Broker 拆出的部分, 每块经一个小的宿主接口 (`…Host`) 拿 Broker 的私有状态: `types.ts` (Broker 的接口和窗口记录)、`web.ts`
   (`Web`: 一个 web 的线程和 rpc, 它的授权、环境变量和 403)、`dev.ts` (`DevRequests`: acde dev 的请求、假回应规则、找 web)、`preferences.ts`
-  (配色和减少动态, 含模拟)、`records.ts` (`WindowRecords`: 窗口表、原生窗口的事件、应用的窗口位置); `calls/` 是 web 经 rpc 来的调用: `apps.ts` (`acde.apps` / `acde.packages`)、`windows.ts` (`acde.windows` /
+  (配色和减少动态, 含模拟)、`records.ts` (`WindowRecords`: 窗口表、原生窗口的事件、应用的窗口位置)、`approvals.ts` (`Approvals`: 批准的接线, 决定文件、`acde:permissions` / `acde:capabilities` 的调用、给 web 的 `permit`); `calls/` 是 web 经 rpc 来的调用: `apps.ts` (`acde.apps` / `acde.packages`)、`windows.ts` (`acde.windows` /
   `acde.launch` / `acde.window`)、`page.ts` (页面调用和钉住的面板)、`services.ts` (交给 web 的服务形状、内置和桌面包服务的调用)、`desktops.ts`
   (`acde.desktops`); `access/` 是谁能用什么: `tier.ts` (按调用者层级的模块)、`family.ts` (打开窗口时的父窗口)、`launchable.ts` (应用能不能
   在这里起: 找不到 404 / 级别不对 409、缺系统服务 503、宿主窗口里要 slots 404、第三方声明外壳模块 403; 列表只给能起的)、`modules.ts`
-  (桌面服务 `ctx.import` 拿到的外壳模块)、`capabilities.ts` (必需与可选能力). `broker.ts` 留着会话循环和 web 的起停. `greet/` 是登录页,
+  (桌面服务 `ctx.import` 拿到的外壳模块)、`capabilities.ts` (必需与可选能力), `access/approval/` 是批准: `permissions.ts` (决定)、`permits.ts` (web 侧的守卫)、
+  `dialog.ts` (单应用模式的原生对话框). `broker.ts` 留着会话循环和 web 的起停. `greet/` 是登录页,
   `brand/` 的 `mark.mjs` / `art.mjs` 是 agentos 仓库 `branding/` 的原样拷贝 (只在那边改).
 
 ## vendors

@@ -1,9 +1,11 @@
 import type { AppsChangedEvent, DesktopEventMap, ShortcutEvent, TerminalEvent, WindowGrabEvent, WindowGrabLostEvent, WindowsEvents } from './events'
 import type { AcdeOffice } from './office'
+import type { AcdePermissions } from './permissions'
 import type { SharedPlace } from '../runtime/places'
 
 export type * from './events'
 export type * from './office'
+export type * from './permissions'
 
 export interface FinderRoot {
   id: string
@@ -598,6 +600,7 @@ export interface ShellModuleTypes {
   readonly inspect: AcdeInspect
   readonly desktop: AcdeDesktop
   readonly setDefault: AcdeOpenFiles['setDefault']
+  readonly permissions: AcdePermissions
 }
 
 export interface AcdePage {
@@ -617,6 +620,7 @@ export interface AcdePage {
   readonly openPath?: AcdeOpenFiles['openPath']
   readonly handlers?: AcdeOpenFiles['handlers']
   readonly setDefault?: AcdeOpenFiles['setDefault']
+  readonly permissions?: AcdePermissions
   readonly window?: AcdeWindow
   readonly capabilities?: import('./capabilities').AcdeCapabilities
   readonly [service: string]: unknown
