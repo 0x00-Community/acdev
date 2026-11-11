@@ -220,7 +220,7 @@ describe('other projects', () => {
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('error: ui/lib.js:1: app "by-hand": acde:office needs "office" in the capabilities')
     write({ office: true })
-    expect((await cli(['check'], dir)).code).toBe(0)
+    expect((await cli(['check', '--platform', 'linux'], dir)).code).toBe(0)
   })
 
   test('a hand-written package: the note about a namespace of a listed service, in check and in build', async () => {
