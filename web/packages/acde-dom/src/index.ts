@@ -90,7 +90,20 @@ import { adoptTimers } from './core/timers'
 export { hostTime, type ClockRequest, type ClockState } from './core/clock'
 export type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
-export { observe, type ConsoleLevel, type DialogAnswer, type DialogEvent, type DialogType, type MockReply, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
+export {
+  observe,
+  type ConsoleLevel,
+  type DialogAnswer,
+  type DialogEvent,
+  type DialogType,
+  type MockReply,
+  type NetworkHeaders,
+  type NetworkObserver,
+  type Observer,
+  type PageErrorKind,
+  type RequestEvent,
+  type RequestKind,
+} from './core/observe'
 
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly url: string

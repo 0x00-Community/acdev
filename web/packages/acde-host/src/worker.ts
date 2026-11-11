@@ -10,6 +10,7 @@ import { DevHot } from './devhot'
 import { DevToolsPage } from './devtools'
 import { DomDomain } from './devtools/dom'
 import { PageDom } from './devtools/pagedom'
+import { NetworkDomain } from './devtools/network'
 import { PageDomain } from './devtools/page'
 import { DevRoutes, type DevRoute } from './devroutes'
 import { DevState, type DevSnapshot } from './devstate'
@@ -113,8 +114,12 @@ export default async function boot(natives: WebNatives): Promise<void> {
   })
   const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null
   const dialogs: { accept: boolean; text?: string }[] = []
+  let network: NetworkDomain | null = null
   if (routes) {
     observe({
+      get network() {
+        return network?.observer ?? null
+      },
       dialog: (event) => {
         const answer = dialogs.shift() ?? null
         const accept = answer ? answer.accept : event.type === 'alert'
@@ -144,10 +149,14 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const inspect = new PageInspect(page, dom, web, surface.contentOffset)
   if (natives.env['ACDE_DEV']) {
     const href = () => String((page.window as { location?: { href?: unknown } }).location?.href ?? '')
-    DevToolsPage.install(host, (devtools) => [
-      PageDomain.create(devtools.frameId, href),
-      DomDomain.create(PageDom.source(page), (method, params) => devtools.emit('DOM', method, params)),
-    ])
+    DevToolsPage.install(host, (devtools) => {
+      network = new NetworkDomain(devtools, href)
+      return [
+        PageDomain.create(devtools.frameId, href),
+        DomDomain.create(PageDom.source(page), (method, params) => devtools.emit('DOM', method, params)),
+        network.domain(),
+      ]
+    })
   }
   rpc.serve(async (service, method, args) => {
     if (service === 'window' && self) return self.serve(method, args)

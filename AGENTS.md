@@ -377,6 +377,12 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   回来的 `result` 改名成 `object` (补 `subtype: 'node'`), 找不到是 -32000.
   `setInspectedNode` 也在 `inspector/page.rs` (`set_inspected`) 拦下: 用同一个查找函数拿到节点, 存成 `Global` 包进 `InspectableImpl`, 交给这个客户端
   V8 session 的 `add_inspected_object`, 控制台的 `$0` (带 `includeCommandLineAPI` 的求值) 就是它; 找不到是 -32000.
+  `Network` (#188, `devtools/network.ts` `NetworkDomain`): fetch 和 XHR. 数据来自 acde-dom 观察点的 `network` (`NetworkObserver`): `Tracked`
+  只在 `recording()` 为真 (有客户端 `Network.enable`) 时把请求头、请求体、响应头和收到的每块数据交给它, 没人开时不记录也不复制. 事件
+  `requestWillBeSent` / `responseReceived` / `dataReceived` / `loadingFinished` / `loadingFailed` (失败、中止 (`canceled`)、没有 network 能力
+  被拒都带 `errorText`), `requestId` 是 `Tracked.id`, `loaderId` / `frameId` 是 web 名, 时间戳是 `performance.now()` 秒. 请求完成后整个
+  响应体留着给 `Network.getResponseBody` (文字类型且是合法 UTF-8 回文字, 其余 base64; 没有的回 -32000), 每页最多 16 MiB, 超出时丢最早的;
+  单个超过上限的不留. WebSocket、EventSource、图片样式表字体 (#189) 还不报.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 有 inspector 的 dev 页面 (`host.inspected()`) 里 acde-dom 的 console 还把原参数交给 V8 自带的
   `console` (装上前的 `globalThis.console`, 同名方法, 每次一份), 由它报给 inspector (`Runtime.consoleAPICalled`, 真的 RemoteObject 和调用栈);

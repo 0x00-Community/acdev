@@ -4,6 +4,7 @@ import { DevRoutes, type DevRoute } from '../src/devroutes.ts'
 import { SourceMaps } from '../src/devlog.ts'
 import { DevToolsPage } from '../src/devtools/index.ts'
 import { DomDomain, type DomNode, type DomRecord } from '../src/devtools/dom.ts'
+import { NetworkDomain } from '../src/devtools/network.ts'
 import { PageDomain } from '../src/devtools/page.ts'
 
 const route = (args: Record<string, unknown>, id = 1): DevRoute => DevRoutes.parse(args, id)
@@ -277,5 +278,97 @@ describe('DOM domain served by the page', () => {
     assert.deepEqual(title.attributes, [{ name: 'class', value: 'big' }])
     await ask({ id: 3, method: 'DOM.disable' })
     assert.equal(observing(), false)
+  })
+})
+
+describe('DevTools Network domain', () => {
+  const network = (limit = NetworkDomain.BODIES) => {
+    const sent: Record<string, unknown>[] = []
+    let handler: ((session: number, text: string | null) => void) | null = null
+    let domain: NetworkDomain | null = null
+    const host = {
+      devtoolsHandler: (fn: (session: number, text: string | null) => void) => ((handler = fn), 'alpha#1'),
+      devtoolsSend: (_: number, text: string) => void sent.push(JSON.parse(text) as Record<string, unknown>),
+    }
+    DevToolsPage.install(host, (page) => {
+      domain = new NetworkDomain(page, () => 'http://app.acde/', limit, () => 1)
+      return [domain.domain()]
+    })
+    const ask = async (message: Record<string, unknown>) => {
+      handler!(1, JSON.stringify(message))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return sent.find((m) => m['id'] === message['id'])
+    }
+    const events = (method: string) => sent.filter((m) => m['method'] === `Network.${method}`).map((m) => m['params'] as Record<string, unknown>)
+    return { sent, ask, events, observer: domain!.observer }
+  }
+  const bytes = (text: string) => new TextEncoder().encode(text)
+
+  test('nothing is recorded until a client enables Network', async () => {
+    const { observer, ask, sent } = network()
+    assert.equal(observer.recording(), false)
+    await ask({ id: 1, method: 'Network.enable' })
+    assert.equal(observer.recording(), true)
+    await ask({ id: 2, method: 'Network.disable' })
+    assert.equal(observer.recording(), false)
+    assert.deepEqual(sent.map((m) => m['id']), [1, 2])
+  })
+
+  test('a fetch reports its request, response, data and end, and its text body is kept', async () => {
+    const { observer, ask, events } = network()
+    await ask({ id: 1, method: 'Network.enable' })
+    observer.start(7, 'fetch', 'POST', 'http://app.acde/api', [['content-type', 'application/json']], bytes('{"a":1}'))
+    observer.response(7, 201, 'Created', [['Content-Type', 'application/json; charset=utf-8'], ['x-a', '1']])
+    observer.data(7, bytes('{"ok":'))
+    observer.data(7, bytes('true}'))
+    observer.end(7, 11)
+    const [sent] = events('requestWillBeSent')
+    assert.deepEqual([sent!['requestId'], sent!['type'], sent!['frameId'], sent!['loaderId']], ['7', 'Fetch', 'alpha#1', 'alpha#1'])
+    assert.deepEqual(sent!['request'], {
+      url: 'http://app.acde/api', method: 'POST', headers: { 'content-type': 'application/json' }, initialPriority: 'High',
+      referrerPolicy: 'strict-origin-when-cross-origin', hasPostData: true, postData: '{"a":1}',
+    })
+    const response = events('responseReceived')[0]!['response'] as Record<string, unknown>
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'x-a': '1' }
+    assert.deepEqual([response['status'], response['statusText'], response['mimeType'], response['headers']], [201, 'Created', 'application/json', headers])
+    assert.equal(events('dataReceived').length, 2)
+    assert.deepEqual(events('loadingFinished'), [{ requestId: '7', timestamp: 1, encodedDataLength: 11 }])
+    const body = await ask({ id: 2, method: 'Network.getResponseBody', params: { requestId: '7' } })
+    assert.deepEqual(body!['result'], { body: '{"ok":true}', base64Encoded: false })
+  })
+
+  test('a binary body comes back as base64, an XHR is typed XHR, and a failure carries its error text', async () => {
+    const { observer, ask, events } = network()
+    await ask({ id: 1, method: 'Network.enable' })
+    observer.start(1, 'xhr', 'GET', 'http://app.acde/a.png', [], null)
+    observer.response(1, 200, 'OK', [['content-type', 'image/png']])
+    observer.data(1, new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
+    observer.end(1, 4)
+    observer.start(2, 'fetch', 'GET', 'https://elsewhere.example/', [], null)
+    observer.error(2, 'this app has no network capability')
+    observer.start(3, 'fetch', 'GET', 'http://app.acde/slow', [], null)
+    observer.error(3, 'aborted')
+    observer.start(4, 'websocket', 'GET', 'ws://app.acde/', [], null)
+    assert.equal(events('requestWillBeSent')[0]!['type'], 'XHR')
+    const image = await ask({ id: 2, method: 'Network.getResponseBody', params: { requestId: '1' } })
+    assert.deepEqual(image!['result'], { body: 'iVBORw==', base64Encoded: true })
+    assert.deepEqual(events('loadingFailed'), [
+      { requestId: '2', timestamp: 1, type: 'Fetch', errorText: 'this app has no network capability' },
+      { requestId: '3', timestamp: 1, type: 'Fetch', errorText: 'aborted', canceled: true },
+    ])
+    assert.equal(events('requestWillBeSent').length, 3, 'other kinds are left for later')
+  })
+
+  test('kept bodies are bounded per page and the oldest go first', async () => {
+    const { observer, ask } = network(10)
+    await ask({ id: 1, method: 'Network.enable' })
+    for (const id of [1, 2]) {
+      observer.start(id, 'fetch', 'GET', `http://app.acde/${id}`, [], null)
+      observer.response(id, 200, 'OK', [['content-type', 'text/plain']])
+      observer.data(id, bytes('123456'))
+      observer.end(id, 6)
+    }
+    assert.equal(((await ask({ id: 2, method: 'Network.getResponseBody', params: { requestId: '1' } }))!['error'] as { code: number }).code, -32000)
+    assert.deepEqual((await ask({ id: 3, method: 'Network.getResponseBody', params: { requestId: '2' } }))!['result'], { body: '123456', base64Encoded: false })
   })
 })

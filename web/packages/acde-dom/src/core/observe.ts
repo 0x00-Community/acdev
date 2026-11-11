@@ -3,7 +3,15 @@ export type PageErrorKind = 'error' | 'rejection'
 export type RequestKind = 'fetch' | 'xhr' | 'websocket' | 'eventsource' | 'image' | 'stylesheet' | 'font'
 
 export type RequestEvent =
-  | { readonly phase: 'start'; readonly id: number; readonly kind: RequestKind; readonly method: string; readonly url: string; readonly bytes: number; readonly mocked?: true }
+  | {
+      readonly phase: 'start'
+      readonly id: number
+      readonly kind: RequestKind
+      readonly method: string
+      readonly url: string
+      readonly bytes: number
+      readonly mocked?: true
+    }
   | { readonly phase: 'response'; readonly id: number; readonly status: number; readonly statusText: string }
   | { readonly phase: 'end'; readonly id: number; readonly bytes: number }
   | { readonly phase: 'error'; readonly id: number; readonly message: string }
@@ -25,12 +33,24 @@ export interface DialogAnswer {
   readonly text?: string
 }
 
+export type NetworkHeaders = readonly (readonly [string, string])[]
+
+export interface NetworkObserver {
+  recording(): boolean
+  start(id: number, kind: RequestKind, method: string, url: string, headers: NetworkHeaders, body: Uint8Array | null): void
+  response(id: number, status: number, statusText: string, headers: NetworkHeaders): void
+  data(id: number, chunk: Uint8Array): void
+  end(id: number, bytes: number): void
+  error(id: number, message: string): void
+}
+
 export interface Observer {
   console?(level: ConsoleLevel, text: string): void
   error?(kind: PageErrorKind, text: string): void
   request?(event: RequestEvent): void
   route?(kind: 'fetch' | 'xhr', method: string, url: string): MockReply | null
   dialog?(event: DialogEvent): DialogAnswer | null
+  readonly network?: NetworkObserver | null
 }
 
 export let observer: Observer | null = null
@@ -54,33 +74,51 @@ export class Tracked {
   #received = 0
   #done = false
 
-  private constructor(readonly sink: (event: RequestEvent) => void) {}
+  private constructor(
+    readonly sink: (event: RequestEvent) => void,
+    readonly network: NetworkObserver | null,
+  ) {}
 
-  static start(kind: RequestKind, method: string, url: string, bytes = 0, mocked = false): Tracked | null {
+  static start(
+    kind: RequestKind,
+    method: string,
+    url: string,
+    bytes = 0,
+    mocked = false,
+    headers?: Iterable<readonly [string, string]>,
+    body?: Uint8Array | null,
+  ): Tracked | null {
     const sink = observer?.request
-    if (!sink) return null
-    const tracked = new Tracked((event) => sink.call(observer, event))
+    const network = observer?.network?.recording() ? observer.network : null
+    if (!sink && !network) return null
+    const tracked = new Tracked((event) => sink?.call(observer, event), network)
     tracked.sink({ phase: 'start', id: tracked.id, kind, method, url, bytes, ...(mocked && { mocked: true as const }) })
+    network?.start(tracked.id, kind, method, url, headers ? [...headers] : [], body ?? null)
     return tracked
   }
 
-  response(status: number, statusText: string): void {
-    if (!this.#done) this.sink({ phase: 'response', id: this.id, status, statusText })
+  response(status: number, statusText: string, headers: NetworkHeaders = []): void {
+    if (this.#done) return
+    this.sink({ phase: 'response', id: this.id, status, statusText })
+    this.network?.response(this.id, status, statusText, headers)
   }
 
-  received(bytes: number): void {
+  received(bytes: number, data?: Uint8Array): void {
     this.#received += bytes
+    if (data && !this.#done) this.network?.data(this.id, data)
   }
 
   end(bytes = this.#received): void {
     if (this.#done) return
     this.#done = true
     this.sink({ phase: 'end', id: this.id, bytes })
+    this.network?.end(this.id, bytes)
   }
 
   error(message: string): void {
     if (this.#done) return
     this.#done = true
     this.sink({ phase: 'error', id: this.id, message })
+    this.network?.error(this.id, message)
   }
 }

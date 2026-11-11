@@ -76,6 +76,11 @@ export class DevToolsPage {
     void this.#answer(state, message)
   }
 
+  listening(domain: string): boolean {
+    for (const session of this.#sessions.values()) if (session.enabled.has(domain)) return true
+    return false
+  }
+
   emit(domain: string, method: string, params: DevToolsParams): void {
     const text = JSON.stringify({ method: `${domain}.${method}`, params })
     for (const session of this.#sessions.values()) if (session.enabled.has(domain)) this.send(session.id, text)

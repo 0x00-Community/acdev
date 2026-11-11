@@ -501,11 +501,11 @@ function tracking(tracked: Tracked | null, given: ExchangeHandlers): ExchangeHan
   if (!tracked) return given
   return {
     head(head) {
-      tracked.response(head.status, head.statusText)
+      tracked.response(head.status, head.statusText, head.headers)
       given.head(head)
     },
     chunk(data) {
-      tracked.received(data.length)
+      tracked.received(data.length, data)
       given.chunk(data)
     },
     end() {
@@ -521,7 +521,7 @@ function tracking(tracked: Tracked | null, given: ExchangeHandlers): ExchangeHan
 
 export function exchange(first: Target, request: ExchangeRequest, given: ExchangeHandlers, kind: RequestKind): () => void {
   const backend = transport!
-  const tracked = Tracked.start(kind, request.method, request.url, request.body?.length ?? 0)
+  const tracked = Tracked.start(kind, request.method, request.url, request.body?.length ?? 0, false, request.headers, request.body)
   const on = tracking(tracked, given)
   const withCookies = request.credentials !== 'omit'
   const include = request.credentials === 'include'
@@ -766,7 +766,7 @@ export async function scriptSource(url: string): Promise<string> {
 }
 
 function fetchMocked(request: Request, mock: MockReply, signal: SignalLike | null): Promise<Response> {
-  const tracked = Tracked.start('fetch', request.method, request.url, 0, true)
+  const tracked = Tracked.start('fetch', request.method, request.url, 0, true, request.headers)
   return new Promise((resolve, reject) => {
     host.setTimer(0, () => {
       if (signal?.aborted) {
@@ -778,7 +778,8 @@ function fetchMocked(request: Request, mock: MockReply, signal: SignalLike | nul
         return reject(new TypeError('Failed to fetch', { cause: mock.error }))
       }
       const empty = request.method === 'HEAD' || NULL_BODY.has(mock.status)
-      tracked?.response(mock.status, mock.statusText)
+      tracked?.response(mock.status, mock.statusText, mock.headers)
+      if (!empty) tracked?.received(mock.body.length, mock.body)
       tracked?.end(empty ? 0 : mock.body.length)
       const response = new Response(empty ? null : mock.body, { status: mock.status, statusText: mock.statusText, headers: mock.headers as [string, string][] })
       response.url = request.url
@@ -800,7 +801,7 @@ export function fetch(input: string | URL | Request, init?: RequestInit): Promis
   if (mock) return fetchMocked(request, mock, signal)
   const routed = route(request.url, request.method)
   if (routed && 'target' in routed) return fetchBackend(request, routed.target, signal)
-  const tracked = Tracked.start('fetch', request.method, request.url)
+  const tracked = Tracked.start('fetch', request.method, request.url, 0, false, request.headers)
   return new Promise((resolve, reject) => {
     host.setTimer(0, () => {
       if (signal?.aborted) {
@@ -811,7 +812,8 @@ export function fetch(input: string | URL | Request, init?: RequestInit): Promis
         tracked?.error(unreachable(request.url))
         return reject(new TypeError('Failed to fetch'))
       }
-      tracked?.response(200, 'OK')
+      tracked?.response(200, 'OK', assetHead(routed.asset))
+      tracked?.received(routed.asset.bytes.length, routed.asset.bytes)
       tracked?.end(routed.asset.bytes.length)
       resolve(assetResponse(request, routed.asset))
     })
@@ -887,7 +889,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
       fire(this, new ProgressEvent('loadstart'))
       return this.#backend(routed.target, token, body)
     }
-    const tracked = Tracked.start('xhr', this.#method, this.#url)
+    const tracked = Tracked.start('xhr', this.#method, this.#url, 0, false, this.#headers)
     const finish = () => {
       if (token !== this.#sent) return tracked?.error('aborted')
       const found = routed?.asset
@@ -899,7 +901,8 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
         fire(this, new ProgressEvent('loadend'))
         return
       }
-      tracked?.response(200, 'OK')
+      tracked?.response(200, 'OK', assetHead(found))
+      tracked?.received(found.bytes.length, found.bytes)
       tracked?.end(found.bytes.length)
       this.#bytes = found.bytes
       this.#type = found.type
@@ -920,7 +923,7 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
   }
 
   #mocked(mock: MockReply, token: number): void {
-    const tracked = Tracked.start('xhr', this.#method, this.#url, 0, true)
+    const tracked = Tracked.start('xhr', this.#method, this.#url, 0, true, this.#headers)
     const finish = () => {
       if (token !== this.#sent) return tracked?.error('aborted')
       if ('error' in mock) {
@@ -932,7 +935,8 @@ export class XMLHttpRequest extends XMLHttpRequestEventTarget {
         return
       }
       const body = this.#method === 'HEAD' || NULL_BODY.has(mock.status) ? new Uint8Array(0) : mock.body
-      tracked?.response(mock.status, mock.statusText)
+      tracked?.response(mock.status, mock.statusText, mock.headers)
+      tracked?.received(body.length, body)
       tracked?.end(body.length)
       this.#bytes = body
       this.#responseHeaders = mock.headers.map(([name, value]) => [name, value] as Header)

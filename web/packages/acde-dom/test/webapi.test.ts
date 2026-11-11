@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createConsole } from '../src/core/console.ts'
 import { bindHost } from '../src/core/host.ts'
+import { observe, Tracked, type NetworkObserver } from '../src/core/observe.ts'
 import { page } from './harness.ts'
 
 const PAGE = '<!doctype html><html><body><a id="frag" href="#part">to part</a><div style="height:3000px"></div><h2 id="part">Part</h2></body></html>'
@@ -661,4 +662,33 @@ test('console: a page without an inspector keeps only the dev log', () => {
   const { printed, reached } = consolePage(false)
   ;(createConsole() as unknown as ConsoleMethods).log!('plain')
   assert.deepEqual([printed, reached], [['plain'], []])
+})
+
+test('network: a tracked request hands headers and bodies to the network observer only while it records', () => {
+  const calls: unknown[][] = []
+  let recording = true
+  const network: NetworkObserver = {
+    recording: () => recording,
+    start: (...args) => void calls.push(['start', ...args]),
+    response: (...args) => void calls.push(['response', ...args]),
+    data: (id, chunk) => void calls.push(['data', id, [...chunk]]),
+    end: (...args) => void calls.push(['end', ...args]),
+    error: (...args) => void calls.push(['error', ...args]),
+  }
+  observe({ network })
+  const tracked = Tracked.start('fetch', 'POST', 'http://app.acde/a', 2, false, [['x-a', '1']], new Uint8Array([1, 2]))!
+  tracked.response(200, 'OK', [['content-type', 'text/plain']])
+  tracked.received(3, new Uint8Array([7, 8, 9]))
+  tracked.end()
+  tracked.error('late')
+  const id = tracked.id
+  assert.deepEqual(calls, [
+    ['start', id, 'fetch', 'POST', 'http://app.acde/a', [['x-a', '1']], new Uint8Array([1, 2])],
+    ['response', id, 200, 'OK', [['content-type', 'text/plain']]],
+    ['data', id, [7, 8, 9]],
+    ['end', id, 3],
+  ])
+  recording = false
+  assert.equal(Tracked.start('fetch', 'GET', 'http://app.acde/b'), null, 'no observer wants it')
+  observe(null)
 })
