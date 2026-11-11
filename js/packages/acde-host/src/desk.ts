@@ -191,6 +191,7 @@ export interface BrokerDesk {
   inspectOpen(name: string): Promise<{ ok: boolean; text: string }>
   warmAccessibility(): void
   startPower(): void
+  startDevices(): void
   quit(): void
 }
 

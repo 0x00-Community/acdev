@@ -144,6 +144,7 @@ struct System {
     terminals: Option<acde_runtime::Terminals>,
     networks: acde_runtime::Networks,
     sounds: acde_runtime::Sounds,
+    devices: acde_runtime::Devices,
     office: Option<acde_runtime::OfficeService>,
     power: acde_runtime::Power,
 }
@@ -404,6 +405,12 @@ impl Desk {
         (id, token)
     }
 
+    /// The session's own removable drives: automounting at login and on attach (`acde:devices`).
+    pub fn start_devices(&self) {
+        let devices = self.system.lock().unwrap_or_else(|e| e.into_inner()).devices.clone();
+        devices.start();
+    }
+
     /// The system objects an isolate gets: everything for the desktop (`None`), the manifest's for an app.
     fn grants(&self, caps: Option<&Capabilities>) -> Grants {
         let mut system = self.system.lock().unwrap_or_else(|e| e.into_inner());
@@ -422,6 +429,7 @@ impl Desk {
             system: all || caps.is_some_and(|c| c.system),
             sound: (all || caps.is_some_and(|c| c.audio)).then(|| system.sounds.clone()),
             power: (all || caps.is_some_and(|c| c.power)).then(|| system.power.clone()),
+            devices: (all || caps.is_some_and(|c| c.devices)).then(|| system.devices.clone()),
         }
     }
 

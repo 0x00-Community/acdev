@@ -43,6 +43,7 @@ pub struct Grants {
     pub system: bool,
     pub sound: Option<acde_runtime::Sounds>,
     pub power: Option<acde_runtime::Power>,
+    pub devices: Option<acde_runtime::Devices>,
 }
 
 impl Grants {
@@ -67,6 +68,9 @@ impl Grants {
         }
         if let Some(power) = self.power {
             crate::power::install(scope, natives, power);
+        }
+        if let Some(devices) = self.devices {
+            crate::devices::install(scope, natives, devices);
         }
     }
 }
@@ -223,6 +227,7 @@ impl Spec {
         crate::network::clear();
         crate::sound::clear();
         crate::power::clear();
+        crate::devices::clear();
         crate::office::clear();
         crate::own::clear();
         crate::desk::clear();
