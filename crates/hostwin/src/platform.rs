@@ -128,10 +128,13 @@ pub(crate) fn clipboard_get() -> String {
 }
 
 pub(crate) fn dismiss_approval() {
-    #[cfg(windows)]
-    if !headless() {
-        native::dismiss_approval();
+    if headless() {
+        return;
     }
+    #[cfg(windows)]
+    native::dismiss_approval();
+    #[cfg(not(windows))]
+    crate::system::approve::dismiss();
 }
 
 pub(crate) fn click_settings() -> acde_model::ClickSettings {

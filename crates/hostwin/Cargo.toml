@@ -22,14 +22,16 @@ windows-sys = { version = "0", features = ["Win32_Foundation", "Win32_Globalizat
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
-# notify.rs: native notifications through org.freedesktop.Notifications when no visible desktop shows them
+# notify.rs: native notifications through org.freedesktop.Notifications when no visible desktop shows them; approve.rs: the approval
+# prompt is such a notification with Allow / Don't Allow actions
 zbus = "5"
 
-# chooser.rs: the folder, open and save choosers are AppKit's open and save panels, shown on the winit main thread;
+# chooser.rs: the folder, open and save choosers are AppKit's open and save panels, shown on the winit main thread; approve.rs: the
+# approval prompt is an NSAlert sheet on the host window;
 # a page's accepted types become the open panel's UTTypes; languages.rs: the user's preferred languages (NSLocale)
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSLocale", "NSString", "NSURL"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-uniform-type-identifiers", "NSApplication", "NSOpenPanel", "NSSavePanel", "NSPanel", "NSWindow", "NSResponder", "NSView"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSLocale", "NSOperation", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-uniform-type-identifiers", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSOpenPanel", "NSSavePanel", "NSPanel", "NSWindow", "NSResponder", "NSView"] }
 objc2-uniform-type-identifiers = { version = "0.3", default-features = false, features = ["std", "UTType"] }

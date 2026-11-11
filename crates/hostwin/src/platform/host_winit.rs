@@ -51,6 +51,10 @@ impl super::Host for Host {
         crate::system::chooser::save(Some(&self.window), &request, reply);
     }
 
+    fn approve(&self, title: &str, message: &str, reply: super::ApproveReply) {
+        crate::system::approve::ask(&self.window, title, message, reply);
+    }
+
     fn resize(&self, [w, h]: [f64; 2], _: f64) -> Result<Option<(u32, u32)>, String> {
         Ok(self.window.request_inner_size(LogicalSize::new(w, h)).map(|size| (size.width.max(1), size.height.max(1))))
     }

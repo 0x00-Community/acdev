@@ -46,7 +46,7 @@ pub fn show(title: &str, body: &str, subtitle: &str) -> Result<(), String> {
 }
 
 #[cfg(any(target_os = "linux", test))]
-fn escape_markup(text: &str) -> String {
+pub(crate) fn escape_markup(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
