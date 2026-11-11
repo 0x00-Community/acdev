@@ -149,11 +149,13 @@ test('act fill and fullscreen set the window state, restore sets it back, the de
   const filled = await inspect.api.act('w1', 'fill')
   assert.equal(filled.ok, true)
   assert.match(filled.text, /^w1 is filled/)
+  assert.match(filled.text, /\n- window "Solo" .*\[filled\] \[w1\]/)
   assert.deepEqual(done.slice(0, 2), [`state ${A} filled`, `focus ${A}`])
   done.length = 0
   const full = await inspect.api.act('w1', 'fullscreen')
   assert.equal(full.ok, true)
   assert.deepEqual(done.slice(0, 1), [`state ${A} fullscreen`])
+  assert.match(full.text, /\[fullscreen\] \[w1\]/)
   done.length = 0
   const restored = await inspect.api.act('w1', 'restore')
   assert.equal(restored.ok, true)
