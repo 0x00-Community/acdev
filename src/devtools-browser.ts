@@ -110,8 +110,14 @@ export class DevtoolsBrowser {
         socket.send(JSON.stringify({ id: 1, method: 'Target.createTarget', params: { url, newWindow: true } }))
       })
       socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data)) as { id?: unknown; error?: { message?: unknown } }
-        if (message.id !== 1) return
+        let message: { id?: unknown; error?: { message?: unknown } }
+        try {
+          message = JSON.parse(String(event.data)) as typeof message
+        } catch {
+          done(new Error('the browser answered Target.createTarget with something that is not JSON'))
+          return
+        }
+        if (message?.id !== 1) return
         const said = message.error?.message
         const why = typeof said === 'string' ? said : 'failed'
         done(message.error ? new Error(`Target.createTarget: ${why}`) : undefined)
