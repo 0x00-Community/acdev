@@ -131,6 +131,14 @@ describe('templates at contract level 1', () => {
 describe('templates speak English and carry a small i18n setup', () => {
   const CJK = /[぀-ヿ㐀-鿿가-힯＀-￯]/
 
+  test('pages declare the colour schemes they support: the app follows the system, the desktop is dark', () => {
+    const page = (template: string) => readFileSync(join(TEMPLATES, template, 'index.html'), 'utf8')
+    expect(page('app')).toContain('<meta name="color-scheme" content="light dark" />')
+    expect(page('app')).toContain(':root { color-scheme: light dark }')
+    expect(page('app')).toContain('@media (prefers-color-scheme: dark)')
+    expect(page('desktop')).toContain('<meta name="color-scheme" content="dark" />')
+  })
+
   test('no CJK text outside the zh message tables, and no hard-coded lang', () => {
     for (const file of files(TEMPLATES)) {
       const text = readFileSync(file, 'utf8')

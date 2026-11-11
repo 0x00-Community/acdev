@@ -7,6 +7,7 @@ Each app window is a separate web page with its own DOM and JS heap; one window 
 - A new window's content area is the configured `size` (800 × 600 by default) and opens centered; next time it opens where it was last closed.
 - The title bar drawn by the system is **not part of the page's document**: `innerHeight`, `100vh`, and `resize` events only cover the content area. To drop the title bar, set `"frame": false` in the config, draw your own, and use `setGrabHint` to tell the system where the window can be dragged.
 - The title comes from `document.title` or `window.setTitle()`; if neither is set, `label` is used.
+- Declare the colour schemes your page supports, as in a browser: `color-scheme: light dark` on the root (`:root { color-scheme: light dark }`) or `<meta name="color-scheme" content="light dark">` when it follows the system with `prefers-color-scheme`, `dark` when it is always dark. The system draws a dark title bar only for pages that name `dark`; a page that declares nothing is taken as light only and gets a light title bar even in a dark theme. The `html` template follows the system and declares `light dark`.
 
 ## acde:window
 
