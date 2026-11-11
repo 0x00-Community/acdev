@@ -69,7 +69,7 @@ export class Web {
     return this.kind === 'desktop' || (this.tier.shell as readonly string[]).includes(module)
   }
 
-  static refused(web: Web, what: string): Error {
+  static refused(web: { readonly app: AppManifest | null; readonly kind: string }, what: string): Error {
     const error = new Error(`${web.app?.label ?? web.kind} may not use ${what} (not in its manifest's capabilities)`)
     return Object.assign(error, { status: 403, code: 'forbidden' })
   }

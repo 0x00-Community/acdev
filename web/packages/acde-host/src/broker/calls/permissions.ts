@@ -1,6 +1,6 @@
 import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 import type { AppRegistry } from '../../apps'
-import type { CapabilityCheck } from '../access/capabilities'
+import { CapabilityCheck } from '../access/capabilities'
 import { Permissions } from '../access/approval/permissions'
 import { Web } from '../web'
 
@@ -41,7 +41,7 @@ export class PermissionCalls {
     if (!app) return check.status(name, null, { level: 1, system: true })
     const origin = this.#host.apps().origin(app.id)
     const status = check.status(name, app, origin)
-    if (status.state === 'available' && Permissions.approval(name)) await this.#host.permissions.ask(app, origin, name, 'request')
+    if (CapabilityCheck.asks(status.state) && Permissions.approval(name)) await this.#host.permissions.ask(app, origin, name, 'request')
     return check.status(name, app, origin)
   }
 }

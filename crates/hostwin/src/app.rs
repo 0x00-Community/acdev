@@ -123,8 +123,11 @@ impl Server {
         for id in filled {
             self.set_rect(id, work);
         }
-        let [x, y, w, h] = work;
-        self.broker.push(Event { kind: "workarea".into(), x: Some(x), y: Some(y), width: Some(w), height: Some(h), ..Default::default() });
+        self.broker.push(Self::work_event(work));
+    }
+
+    fn work_event([x, y, w, h]: [f64; 4]) -> Event {
+        Event { kind: "workarea".into(), x: Some(x), y: Some(y), width: Some(w), height: Some(h), ..Default::default() }
     }
 
     pub fn set_rect(&self, id: u32, rect: [f64; 4]) {
@@ -291,6 +294,7 @@ impl Handler for App {
                 if self.capture.is_none()
                     && let Some(hover) = self.hover.take()
                 {
+                    Self::hover(server, hover, None);
                     server.event(hover, Event::named("pointerleave"));
                 }
             }
@@ -321,6 +325,15 @@ impl Handler for App {
             HostEvent::Cmd(Cmd::OpenFiles { request, reply }) => host.open_files(request, reply),
             HostEvent::Cmd(Cmd::SaveFile { request, reply }) => host.save_file(request, reply),
             HostEvent::Cmd(Cmd::Approve { title, message, reply }) => host.approve(&title, &message, reply),
+            HostEvent::Cmd(Cmd::Resize { size, reply }) => {
+                let scale = server.state().screen[2];
+                let answer = host.resize(size, scale).map(|now| {
+                    if let Some(physical) = now {
+                        self.resized(server, physical, scale);
+                    }
+                });
+                let _ = reply.send(answer);
+            }
             HostEvent::Cmd(Cmd::Exit(code)) => host.exit(code),
         }
     }
@@ -329,26 +342,15 @@ impl Handler for App {
 impl App {
     fn resized(&mut self, server: &Server, size: (u32, u32), scale: f64) {
         let screen = [(f64::from(size.0) / scale).round(), (f64::from(size.1) / scale).round()];
-        let (full, links) = {
+        let (resized, links) = {
             let mut state = server.state();
-            let rescaled = state.screen[2] != scale;
-            state.screen = [screen[0], screen[1], scale];
-            let (whole, work) = (state.screen_rect(), state.work_area());
-            let full: Vec<(u32, [f64; 4])> = state
-                .entries
-                .iter()
-                .filter_map(|(&id, e)| match e.state {
-                    _ if id == 0 || e.mode == Mode::Fullscreen || e.state == WindowState::Fullscreen => Some((id, whole)),
-                    WindowState::Filled => Some((id, work)),
-                    _ => None,
-                })
-                .collect();
-            let links: Vec<_> = if rescaled {
+            let resized = state.resize(screen, scale);
+            let links: Vec<_> = if resized.rescaled {
                 state.entries.iter().filter(|(_, e)| !e.panel).filter_map(|(_, e)| e.link.clone().map(|l| (l, state.content(e)))).collect()
             } else {
                 Vec::new()
             };
-            (full, links)
+            (resized, links)
         };
         if let Some(compositor) = server.compositor() {
             compositor.resized(size);
@@ -356,16 +358,11 @@ impl App {
         for (link, (w, h)) in links {
             link.resized(w, h, scale);
         }
-        for (id, rect) in full {
+        for (id, rect) in resized.rects {
             server.set_rect(id, rect);
         }
-        server.broker.push(Event {
-            kind: "output".into(),
-            width: Some(f64::from(size.0)),
-            height: Some(f64::from(size.1)),
-            scale: Some(scale),
-            ..Default::default()
-        });
+        let output = Event { kind: "output".into(), width: Some(f64::from(size.0)), height: Some(f64::from(size.1)), scale: Some(scale), ..Default::default() };
+        server.broker.push_all(resized.work.map(Server::work_event).into_iter().chain([output]));
     }
 
     fn host_state(server: &Server, to: WindowState) {
@@ -448,6 +445,7 @@ impl App {
         }
         let Some((target, [ox, oy])) = self.target(server) else {
             if let Some(hover) = self.hover.take() {
+                Self::hover(server, hover, None);
                 server.event(hover, Event::named("pointerleave"));
             }
             return;
@@ -455,10 +453,18 @@ impl App {
         if self.hover != Some(target)
             && let Some(hover) = self.hover.replace(target)
         {
+            Self::hover(server, hover, None);
             server.event(hover, Event::named("pointerleave"));
         }
+        Self::hover(server, target, Some((x - ox, y - oy)));
         server.event(target, Event { kind: "pointermove".into(), x: Some(x - ox), y: Some(y - oy), ..Default::default() });
         self.data_drag_over(server);
+    }
+
+    fn hover(server: &Server, window: u32, at: Option<(f64, f64)>) {
+        if let Some(link) = server.state().entries.get(&window).and_then(|e| e.link.clone()) {
+            link.send(Msg::Pointer(at));
+        }
     }
 
     fn start_data_drag(&mut self, server: &Server, window: u32, data: HashMap<String, String>) {

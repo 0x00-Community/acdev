@@ -47,9 +47,15 @@ export class Output {
   }
 }
 
+export interface ScreenChange {
+  readonly screen: Screen
+  to(window: Parameters<typeof Outputs.host>[0]): boolean
+}
+
 export class Outputs {
   readonly main: Output
   #host: Output | null = null
+  readonly #changed = new Map<boolean, ScreenChange>()
 
   constructor(width: number, height: number, scale: number) {
     this.main = new Output(width, height, scale)
@@ -67,10 +73,18 @@ export class Outputs {
     return (host && this.#host?.screen()) || this.main.screen()
   }
 
-  update(event: RawShellEvent, standalone: string | null): { screen: Screen; to: (window: Parameters<typeof Outputs.host>[0]) => boolean } | null {
+  update(event: RawShellEvent, standalone: string | null): ScreenChange | null {
     const host = event.type.startsWith('host')
     if (host) this.#host ??= new Output(0, 0, event.scale ?? 1)
     const screen = host ? this.#host!.update(event, 'host') : this.main.update(event)
-    return screen && { screen, to: (window) => host === (this.hosted && Outputs.host(window, standalone)) }
+    const change = screen && { screen, to: (window: Parameters<typeof Outputs.host>[0]) => host === (this.hosted && Outputs.host(window, standalone)) }
+    if (change) this.#changed.set(host, change)
+    return change
+  }
+
+  take(): ScreenChange[] {
+    const changes = [...this.#changed.values()]
+    this.#changed.clear()
+    return changes
   }
 }

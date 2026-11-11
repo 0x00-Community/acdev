@@ -17,6 +17,7 @@ mod serialize;
 mod surface;
 mod tree;
 mod verify;
+mod xml;
 
 pub use blitz_dom;
 pub use blitz_paint;

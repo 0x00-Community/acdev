@@ -13,6 +13,10 @@ pub(crate) struct Ids {
     pub(crate) images: HashMap<u32, (String, u8)>,
     pub(crate) templates: HashMap<NodeId, NodeId>,
     pub(crate) doctypes: HashMap<NodeId, Doctype>,
+    pub(crate) pis: HashMap<NodeId, String>,
+    pub(crate) cdata: HashSet<NodeId>,
+    pub(crate) owners: HashMap<NodeId, NodeId>,
+    pub(crate) documents: HashMap<NodeId, DocumentInfo>,
     pub(crate) forms: HashMap<NodeId, Form>,
     pub(crate) scrolls: HashMap<NodeId, (f64, f64)>,
     pub(crate) fresh: Vec<NodeId>,
@@ -31,6 +35,25 @@ pub(crate) struct Doctype {
     pub(crate) name: String,
     pub(crate) public_id: String,
     pub(crate) system_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DocumentInfo {
+    pub(crate) xml: bool,
+    pub(crate) interface: &'static str,
+    pub(crate) content_type: String,
+    pub(crate) url: String,
+}
+
+impl DocumentInfo {
+    pub(crate) fn new(interface: &str, content_type: &str, url: &str) -> Self {
+        let interface = match interface {
+            "html" => "html",
+            "xml" => "xml",
+            _ => "document",
+        };
+        Self { xml: interface != "html", interface, content_type: content_type.to_owned(), url: url.to_owned() }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -82,6 +105,10 @@ impl Ids {
     pub(crate) fn forget(&mut self, node: NodeId) {
         self.templates.remove(&node);
         self.doctypes.remove(&node);
+        self.pis.remove(&node);
+        self.cdata.remove(&node);
+        self.owners.remove(&node);
+        self.documents.remove(&node);
         self.forms.remove(&node);
         self.scrolls.remove(&node);
         let Some(id) = self.handle(node) else { return };
@@ -127,6 +154,16 @@ impl Tree<'_> {
         let node = self.m.create_element(QualName::new(None, ns, tag.as_str().into()), Vec::new());
         let id = self.ids.track(node);
         if html && tag == "img" {
+            self.ids.images.insert(id, (String::new(), u8::MAX));
+        }
+        node
+    }
+
+    pub(crate) fn create_element_named(&mut self, name: QualName) -> NodeId {
+        let img = name.ns == ns!(html) && &*name.local == "img";
+        let node = self.m.create_element(name, Vec::new());
+        let id = self.ids.track(node);
+        if img {
             self.ids.images.insert(id, (String::new(), u8::MAX));
         }
         node

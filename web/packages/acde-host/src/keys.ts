@@ -21,7 +21,7 @@ for (const [row, start] of [['qwertyuiop', 16], ['asdfghjkl', 30], ['zxcvbnm', 4
 for (let i = 0; i < 10; i++) KEYS[59 + i] = [`F${i + 1}`, `F${i + 1}`]
 
 const ALIASES: Record<string, number> = {
-  ctrl: 29, control: 29, shift: 42, alt: 56, super: 125, meta: 125, win: 125, enter: 28, return: 28, esc: 1, escape: 1, tab: 15, space: 57,
+  ctrl: 29, control: 29, shift: 42, alt: 56, option: 56, super: 125, meta: 125, win: 125, cmd: 125, command: 125, enter: 28, return: 28, esc: 1, escape: 1, tab: 15, space: 57,
   backspace: 14, delete: 111, del: 111, up: 103, down: 108, left: 105, right: 106, home: 102, end: 107, pageup: 104, pagedown: 109,
   insert: 110, menu: 127, '-': 12, '=': 13, '[': 26, ']': 27, ';': 39, "'": 40, '`': 41, '\\': 43, ',': 51, '.': 52, '/': 53,
 }

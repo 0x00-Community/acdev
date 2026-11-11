@@ -157,19 +157,21 @@ thread_local! {
 
 fn start_load(scope: &mut v8::PinScope, load: acde_render::Load) {
     let Some(callback) = LOADS.with(|l| l.borrow().callback.clone()) else { return };
-    let (url, destination) = (load.url.clone(), load.destination);
+    let (url, destination, cors) = (load.url.clone(), load.destination, load.cors);
     let id = LOADS.with(|l| l.borrow_mut().pending.add(load));
-    let args = [id.js(scope), url.js(scope), destination.js(scope)];
+    let args = [id.js(scope), url.js(scope), destination.js(scope), cors.js(scope)];
     if bind::call(scope, callback, &args).is_none() {
         let failed = LOADS.with(|l| l.borrow_mut().pending.remove(&id));
         drop(failed);
     }
 }
 
-fn finish_load(id: u32, bytes: Option<Vec<u8>>) {
+fn finish_load(id: u32, bytes: Option<Vec<u8>>, opaque: bool) {
     let load = LOADS.with(|l| l.borrow_mut().pending.remove(&id));
-    if let Some(load) = load {
-        load.finish(bytes);
+    match (load, bytes) {
+        (Some(load), Some(bytes)) if opaque => load.finish_opaque(bytes),
+        (Some(load), bytes) => load.finish(bytes),
+        (None, _) => {}
     }
 }
 
@@ -470,7 +472,10 @@ natives! {
         dom.parse_fragment(context, &html).map(Id)
     }
     "templateContent" => fn template_content(scope, args, dom) { let id = id(scope, &args, 0); dom.template_content(id).map(Id) }
-    "parseInert" => fn parse_inert(scope, args, dom) { text!(html = scope, args, 0); dom.parse_inert(&html).and_then(|id| pinned(dom, id)) }
+    "parseInert" => fn parse_inert(scope, args, dom) {
+        text!(html = scope, args, 0); text!(url = scope, args, 1);
+        dom.parse_inert(&html, &url).and_then(|id| pinned(dom, id))
+    }
     "querySelector" => fn query_selector(scope, args, dom) {
         let root = id(scope, &args, 0); text!(selector = scope, args, 1);
         dom.query_selector(root, &selector).map(Id)
@@ -492,6 +497,48 @@ natives! {
         let root = id(scope, &args, 0); text!(names = scope, args, 1);
         dom.get_elements_by_class_name(root, &names).map(Ids)
     }
+    "getElementsByTagNameNS" => fn get_elements_by_tag_name_ns(scope, args, dom) {
+        let root = id(scope, &args, 0); text!(namespace = scope, args, 1); text!(local = scope, args, 2);
+        dom.get_elements_by_tag_name_ns(root, &namespace, &local).map(Ids)
+    }
+    "createElementNS" => fn create_element_ns(scope, args, dom) {
+        text!(namespace = scope, args, 0); text!(prefix = scope, args, 1); text!(local = scope, args, 2);
+        dom.create_element_ns(&namespace, &prefix, &local).and_then(|id| pinned(dom, id))
+    }
+    "createCDATASection" => fn create_cdata(scope, args, dom) { text!(data = scope, args, 0); dom.create_cdata(&data).and_then(|id| pinned(dom, id)) }
+    "createProcessingInstruction" => fn create_processing_instruction(scope, args, dom) {
+        text!(target = scope, args, 0); text!(data = scope, args, 1);
+        dom.create_processing_instruction(&target, &data).and_then(|id| pinned(dom, id))
+    }
+    "processingInstructionTarget" => fn processing_instruction_target(scope, args, dom) { let id = id(scope, &args, 0); dom.processing_instruction_target(id) }
+    "createDocument" => fn create_document_node(scope, args, dom) {
+        text!(interface = scope, args, 0); text!(content_type = scope, args, 1); text!(url = scope, args, 2);
+        dom.create_document(&interface, &content_type, &url).and_then(|id| pinned(dom, id))
+    }
+    "documentInfo" => fn document_info(scope, args, dom) { let id = id(scope, &args, 0); dom.document_info(id).map(Vec::from) }
+    "parseXml" => fn parse_xml(scope, args, dom) {
+        text!(text = scope, args, 0); text!(content_type = scope, args, 1); text!(url = scope, args, 2);
+        dom.parse_xml(&text, &content_type, &url).and_then(|id| pinned(dom, id))
+    }
+    "ownerDocument" => fn owner_document(scope, args, dom) { let id = id(scope, &args, 0); dom.owner_document(id).map(Id) }
+    "adopt" => fn adopt(scope, args, dom) { let (id, doc) = (id(scope, &args, 0), id(scope, &args, 1)); dom.adopt(id, doc) }
+    "inHtmlDocument" => fn in_html_document(scope, args, dom) { let id = id(scope, &args, 0); dom.in_html_document(id) }
+    "namespaceURI" => fn namespace_uri(scope, args, dom) { let id = id(scope, &args, 0); dom.namespace_uri(id) }
+    "prefix" => fn prefix(scope, args, dom) { let id = id(scope, &args, 0); dom.prefix(id) }
+    "attributesNS" => fn attributes_ns(scope, args, dom) { let id = id(scope, &args, 0); dom.attributes_ns(id) }
+    "getAttributeNS" => fn get_attribute_ns(scope, args, dom) {
+        let id = id(scope, &args, 0); text!(namespace = scope, args, 1); text!(local = scope, args, 2);
+        dom.get_attribute_ns(id, &namespace, &local)
+    }
+    "setAttributeNS" => fn set_attribute_ns(scope, args, dom) {
+        let id = id(scope, &args, 0); text!(namespace = scope, args, 1); text!(prefix = scope, args, 2); text!(local = scope, args, 3); text!(value = scope, args, 4);
+        dom.set_attribute_ns(id, &namespace, &prefix, &local, &value)
+    }
+    "removeAttributeNS" => fn remove_attribute_ns(scope, args, dom) {
+        let id = id(scope, &args, 0); text!(namespace = scope, args, 1); text!(local = scope, args, 2);
+        dom.remove_attribute_ns(id, &namespace, &local)
+    }
+    "serializeXml" => fn serialize_xml(scope, args, dom) { let id = id(scope, &args, 0); dom.serialize_xml(id) }
     "getElementsByTagName" => fn get_elements_by_tag_name(scope, args, dom) {
         let root = id(scope, &args, 0); text!(name = scope, args, 1);
         dom.get_elements_by_tag_name(root, &name).map(Ids)
@@ -566,6 +613,14 @@ natives! {
         let id = id(scope, &args, 0); text!(pseudo = scope, args, 1);
         dom.computed_style_all(id, &pseudo)
     }
+    "cssSupports" => fn css_supports(scope, args, dom) {
+        text!(condition = scope, args, 0);
+        dom.css_supports(&condition)
+    }
+    "cssSupportsDeclaration" => fn css_supports_declaration(scope, args, dom) {
+        text!(property = scope, args, 0); text!(value = scope, args, 1);
+        dom.css_supports_declaration(&property, &value)
+    }
     "caretRect" => fn caret_rect(scope, args, dom) {
         let (id, offset) = (id(scope, &args, 0), f(scope, &args, 1) as u32);
         dom.caret_rect(id, offset).map(|q| Floats(q.to_vec()))
@@ -603,6 +658,10 @@ natives! {
     "takeScrolled" => fn take_scrolled(scope, args, dom) { Ok(Ids(dom.take_scrolled())) }
     "imageState" => fn image_state(scope, args, dom) { let id = id(scope, &args, 0); dom.image_state(id).map(|s| Floats(s.to_vec())) }
     "takeLoaded" => fn take_loaded(scope, args, dom) { Ok(Ids(dom.take_loaded())) }
+    "sheetState" => fn sheet_state(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_state(id).map(f64::from) }
+    "sheetUrl" => fn sheet_url(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_url(id) }
+    "sheetOpaque" => fn sheet_opaque(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_opaque(id) }
+    "sheetSerial" => fn sheet_serial(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_serial(id).map(|n| n.map_or(-1.0, f64::from)) }
     "setLoader" => fn set_loader(scope, args, dom) {
         let callback = v8::Local::<v8::Function>::try_from(args.get(0)).ok().map(|f| v8::Global::new(scope, f));
         LOADS.with(|l| l.borrow_mut().callback = callback);
@@ -610,7 +669,7 @@ natives! {
     }
     "loaded" => fn loaded(scope, args, dom) {
         let id = f(scope, &args, 0) as u32;
-        finish_load(id, bind::bytes(args.get(1)));
+        finish_load(id, bind::bytes(args.get(1)), bind::arg_bool(scope, &args, 2));
         Ok(())
     }
     "canvas" => fn canvas(scope, args, dom) {

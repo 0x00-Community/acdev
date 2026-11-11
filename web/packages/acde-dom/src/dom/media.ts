@@ -11,11 +11,11 @@ import { contexts as gpuContexts, type GPUCanvasContext } from '../gpu/index'
 import { canvases, type CanvasContext2d, type CanvasElement } from './canvas'
 import { ATTRIBUTE_CHANGED, flags, parsedHooks, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
 import { clonedHooks, type Node } from './node'
-import { frames, resolveUrl } from './env'
-import { HTMLElement, register } from './html'
+import { frames, loads, resolveUrl } from './env'
+import { deliverSheet, HTMLElement, register } from './html'
 import { metricGetters, metricsOf } from './layout'
 import { bool, long, nullable, string, url } from './reflect'
-import { dom, existing, ID, lifecycle, wrap } from './realm'
+import { dom, existing, ID, lifecycle, wrap, inner } from './realm'
 
 export const loading = new Set<number>()
 
@@ -111,6 +111,10 @@ export function deliverLoads(): boolean {
   const done = dom.takeLoaded()
   for (let i = 0; i < done.length; i++) {
     const id = done[i]!
+    if (!loading.has(id) && dom.localName(id) === 'link') {
+      deliverSheet(id)
+      continue
+    }
     loading.delete(id)
     const state = dom.imageState(id)[2]
     if (state === ImageState.Loading) {
@@ -124,6 +128,9 @@ export function deliverLoads(): boolean {
     fire(target, new Event(state === ImageState.Loaded ? 'load' : 'error'))
   }
   return loading.size > 0
+}
+loads.deliver = () => {
+  if (deliverLoads()) frames.request()
 }
 
 export class HTMLCanvasElement extends HTMLElement {
@@ -661,7 +668,7 @@ tag(HTMLMediaElement)
 mediaEvents.ended = (media) => playingMedia.get(media)?.[ENDED]()
 
 function created(root: Node, withRoot: boolean): void {
-  const type = root.nodeType
+  const type = inner(root, 'nodeType')
   if (type !== NodeType.Element && type !== NodeType.Document && type !== NodeType.DocumentFragment) return
   const id = root[ID]
   const ids = [...dom.querySelectorAll(id, 'video, audio')]

@@ -318,6 +318,8 @@ const ruleIndex: ProxyHandler<CSSRuleList> = {
   },
 }
 
+const NO_SERIAL = -2
+
 let ruleCount: (sheet: CSSStyleSheet) => number
 let ruleAt: (sheet: CSSStyleSheet, index: number) => CSSRule
 
@@ -328,31 +330,48 @@ function ruleOf(text: string, sheet: CSSStyleSheet): CSSRule {
 export class CSSStyleSheet {
   #rules: string[] = []
   readonly #owner: Element | null
+  readonly #serial: number = NO_SERIAL
+  readonly #href: string | null = null
+  readonly #opaque: boolean = false
   #list: CSSRuleList | null = null
   disabled = false
 
   constructor(options?: { media?: string; disabled?: boolean }, owner: Element | null = null) {
     this.#owner = owner
     this.disabled = !!options?.disabled
+    if (!owner || dom.localName(owner[ID]) !== 'link') return
+    this.#serial = dom.sheetSerial(owner[ID])
+    this.#href = dom.sheetUrl(owner[ID])
+    this.#opaque = dom.sheetOpaque(owner[ID])
   }
 
   get ownerNode(): Element | null {
     return this.#owner
   }
   get href(): string | null {
-    const owner = this.#owner as (Element & { href?: unknown }) | null
-    return owner?.localName === 'link' && typeof owner.href === 'string' ? owner.href : null
+    return this.#href
   }
   get media(): { mediaText: string; length: number } {
-    return { mediaText: '', length: 0 }
+    const text = (this.#owner ? dom.getAttribute(this.#owner[ID], 'media') : null) ?? ''
+    return { mediaText: text, length: text.trim() ? text.split(',').length : 0 }
+  }
+
+  #open(access: string): void {
+    if (this.#opaque) throw new DOMException(access, 'SecurityError')
+  }
+
+  #constructed(member: string): void {
+    if (this.#owner) throw new DOMException(`Failed to execute '${member}' on 'CSSStyleSheet': Can't call ${member} on non-constructed CSSStyleSheets.`, 'NotAllowedError')
   }
 
   #native(): number {
-    return this.#owner ? dom.sheetRuleCount(this.#owner[ID]) : -1
+    if (!this.#owner) return -1
+    if (this.#serial !== NO_SERIAL && (this.#opaque || dom.sheetSerial(this.#owner[ID]) !== this.#serial)) return -1
+    return dom.sheetRuleCount(this.#owner[ID])
   }
 
   #text(): string[] {
-    if (this.#owner) this.#rules = splitRules(dom.textContent(this.#owner[ID]))
+    if (this.#owner && this.#serial === NO_SERIAL) this.#rules = splitRules(dom.textContent(this.#owner[ID]))
     return this.#rules
   }
 
@@ -365,14 +384,17 @@ export class CSSStyleSheet {
   }
 
   get cssRules(): CSSRuleList {
+    this.#open("Failed to read the 'cssRules' property from 'CSSStyleSheet': Cannot access rules")
     return (this.#list ??= new Proxy(new CSSRuleList(this), ruleIndex))
   }
 
   get rules(): CSSRuleList {
-    return this.cssRules
+    this.#open("Failed to read the 'rules' property from 'CSSStyleSheet': Cannot access rules")
+    return (this.#list ??= new Proxy(new CSSRuleList(this), ruleIndex))
   }
 
   insertRule(rule: string, index = 0): number {
+    this.#open("Failed to execute 'insertRule' on 'CSSStyleSheet': Cannot access StyleSheet to insertRule")
     const text = String(rule)
     const at = Number(index) >>> 0
     if (this.#native() >= 0) {
@@ -395,6 +417,7 @@ export class CSSStyleSheet {
   }
 
   deleteRule(index: number): void {
+    this.#open("Failed to execute 'deleteRule' on 'CSSStyleSheet': Cannot access StyleSheet to deleteRule")
     const at = Number(index) >>> 0
     if (this.#native() >= 0) {
       guard(() => dom.sheetDeleteRule(this.#owner![ID], at))
@@ -412,17 +435,18 @@ export class CSSStyleSheet {
   }
 
   replaceSync(text: string): void {
+    this.#constructed('replaceSync')
     this.#rules = splitRules(String(text))
-    this.#flush()
   }
 
   async replace(text: string): Promise<CSSStyleSheet> {
-    this.replaceSync(text)
+    this.#constructed('replace')
+    this.#rules = splitRules(String(text))
     return this
   }
 
   #flush(): void {
-    if (this.#owner) (this.#owner as unknown as { textContent: string }).textContent = this.#rules.join('\n')
+    if (this.#owner && this.#serial === NO_SERIAL) (this.#owner as unknown as { textContent: string }).textContent = this.#rules.join('\n')
   }
 }
 getters(CSSStyleSheet.prototype, { type: 'text/css', title: null, parentStyleSheet: null, ownerRule: null })
@@ -445,9 +469,9 @@ export const CSS = {
     }
     return out
   },
-  supports(property: string, value?: string): boolean {
-    void property
-    void value
-    return true
+  supports(...args: readonly unknown[]): boolean {
+    if (args.length === 0) throw new TypeError("Failed to execute 'supports' on 'CSS': 1 argument required, but only 0 present.")
+    if (args.length === 1) return dom.cssSupports(String(args[0]))
+    return dom.cssSupportsDeclaration(String(args[0]), String(args[1]))
   },
 }

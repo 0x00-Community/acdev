@@ -1,4 +1,4 @@
-import type { AppsChangedEvent, WindowCrashEvent, WindowMenusEvent, WindowOpenEvent, WindowsEvent } from '@dopame/acde-api'
+import type { WindowCrashEvent, WindowMenusEvent, WindowOpenEvent, WindowsEvent } from '@dopame/acde-api'
 import { readTextOr } from './sys/fs'
 import { unref, within } from './sys/timers'
 import { sys } from './sys/natives'
@@ -17,10 +17,12 @@ import { DesktopSession, type RunEnd } from './session'
 import { DevLog } from './devlog'
 import { Inspect, type NativeAccessibility } from './inspect'
 import { SessionLanguage } from './language'
-import { StoragePlaces } from './storage'
+import { StorageFile, StoragePlaces } from './storage'
 import { WindowPlaces, type Rect } from './places'
 import { Level, Log } from './log'
 import { process } from './sys/process'
+import { xdgHome } from './sys/os'
+import { join } from './sys/path'
 import type { BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
@@ -37,6 +39,7 @@ import { ServiceModules } from './broker/access/modules'
 import { Preferences, type Emulated, type Emulation } from './broker/preferences'
 import { Outputs, type Screen } from './broker/output'
 import { WindowRecords } from './broker/records'
+import { AppListing } from './broker/listing'
 import { Approvals, type FolderGrants } from './broker/approvals'
 import type { Permissions } from './broker/access/approval/permissions'
 import { UserAgent } from './useragent'
@@ -75,8 +78,14 @@ export class Broker {
   readonly #services: ServiceCalls
   readonly #windowCalls: WindowCalls
   readonly #panelCalls: PanelCalls
+  readonly #modules: ServiceModules
   readonly #pageCalls: PageCalls
+  readonly #listing = new AppListing({
+    apps: () => this.#appList(),
+    tell: (event) => this.#toDesktop(event),
+  })
   readonly #launchable = new Launchable({
+    platform: process.platform,
     apps: () => this.apps,
     hosted: () => !!this.shell.hosted,
     standalone: () => !!this.#options.standalone,
@@ -94,7 +103,11 @@ export class Broker {
       if (!this.#options.standalone || !shell.hosted || !shell.approve) return null
       return { show: (title, message) => shell.approve!(title, message), dismiss: () => shell.dismissApproval?.() }
     },
+    standalone: () => !!this.#options.standalone,
     finder: () => (this.bridge.value['fs'] as FolderGrants | undefined) ?? null,
+    store: () => new StorageFile(join(xdgHome('config'), 'acde', 'permissions.json')),
+    log: (line) => Log.write(Level.Info, 'acde_host', line),
+    listed: () => void this.#listing.changed(),
   })
   readonly permissions: Permissions = this.#approvals.permissions
   #opening = false
@@ -162,7 +175,7 @@ export class Broker {
       web: (id) => (id === 0 ? this.#desktop : (this.#windows.get(id)?.web ?? null))?.rpc ?? null,
       record: (id) => {
         const r = this.#windows.get(id)
-        return r ? { kind: r.kind, app: r.app?.id ?? r.appId, title: r.title } : null
+        return r ? { kind: r.kind, app: r.app?.id ?? r.appId, title: r.title, state: r.state } : null
       },
       panel: (id) => this.#panelCalls.has(id),
       close: async (id) => (this.#windows.get(id)?.kind === 'web' ? this.closeWeb(id) : this.shell.close(id)),
@@ -172,7 +185,7 @@ export class Broker {
       records: () => [...this.#windows.keys()],
     })
     this.bridge.services.inspect = this.inspect.api
-    const modules = new ServiceModules({
+    this.#modules = new ServiceModules({
       shell: this.shell,
       natives: this.natives,
       session: () => this.session.api,
@@ -182,12 +195,10 @@ export class Broker {
       apps: () => this.#appList(),
       refresh: () => this.refreshApps(),
       install: (dir) => this.installApps(dir),
-      windows: () => this.windows,
-      hide: (id, hidden) => this.#hide(id, hidden),
-      close: (id) => (this.#windows.get(id)?.kind === 'web' ? this.closeWeb(id) : this.shell.close(id)),
-      kill: (id) => this.closeWeb(id, true),
+      rows: () => this.#windows.rows(),
+      windows: (method, args) => this.#windowCalls.windows(WindowCalls.SERVICE, method, args),
     })
-    this.bridge.services.shell = (name) => modules.module(name)
+    this.bridge.services.shell = this.#modules
     this.#dev = new DevRequests({
       shell: this.shell,
       inspect: this.inspect,
@@ -197,12 +208,14 @@ export class Broker {
       desktop: () => this.#desktop,
       title: (web) => (web.kind === 'desktop' ? this.#current.name : (this.#windows.get(web.window)?.title ?? web.app?.label ?? web.name)),
       emulate: (options) => this.emulate(options),
+      reload: (app) => this.devReload(app),
+      screen: () => this.#screen(),
     })
     this.#appCalls = new AppCalls({
       shell: this.shell,
       natives: this.natives,
       opener: this.opener,
-      list: () => this.#appList(),
+      list: () => this.#listing.list(),
       refresh: () => this.refreshApps(),
       install: (dir) => this.installApps(dir),
       launch: (appId, request, family) => this.launch(appId, request, 'free', null, family),
@@ -307,6 +320,7 @@ export class Broker {
     try {
       while (!this.#stopped && !signal?.aborted) {
         for (const event of this.shell.pump()) this.#event(event)
+        this.#tellScreens()
         if (this.#stopped || signal?.aborted) break
         await this.#events()
       }
@@ -335,10 +349,7 @@ export class Broker {
         this.#opening = true
         this.launch(standalone, null, 'fullscreen').then(
           (opened) => (this.#standaloneWindow = opened.window),
-          (error: Error) => {
-            Log.write(Level.Error, 'acde_host', `acdert app ${standalone}: ${error.message}`)
-            this.#end('exit')
-          },
+          (error: Error) => this.#endStandalone(standalone, error),
         )
       }
       return
@@ -363,13 +374,17 @@ export class Broker {
       standalone: this.#current.id === Packages.BARE ? standalone : null,
       devState: this.#takeDevState(''),
       devRoutes: this.#dev.routesFor('desktop', null),
+      devInit: this.#dev.initsFor('desktop', null),
       tier: this.#launchable.tier(null),
+      windows: this.#windows.rows(),
     }
     this.#desktop = this.#spawn(init, this.#current.heapMb)
+    this.#listing.list()
     if (standalone && ![...this.#windows.values()].some((r) => r.app?.id === standalone)) {
       this.launch(standalone, null, 'fullscreen').catch((error: Error) => Log.write(Level.Error, 'acde_host', `acdert app ${standalone}: ${error.message}`))
     }
-    for (const record of this.#windows.values()) this.#announce(record)
+    const desktop = this.#desktop
+    for (const record of this.#windows.values()) this.#announce(record, (event) => desktop.thread.post(event))
   }
 
   #regrant(record: WindowRecord): bigint {
@@ -404,7 +419,9 @@ export class Broker {
       ...(app.backend && AppBackends.webInit(app.id)),
       devState: this.#takeDevState(app.id),
       devRoutes: this.#dev.routesFor(`${app.id}#${record.id}`, app.id),
+      devInit: this.#dev.initsFor(`${app.id}#${record.id}`, app.id),
       tier,
+      ...(Tiers.listens(tier, 'windowopen') && { windows: this.#windows.rows() }),
     }
     record.request = null
     record.web = this.#spawn(init, app.heapMb)
@@ -483,6 +500,11 @@ export class Broker {
     this.#forget(record, web.closing ? 'close' : 'exit')
   }
 
+  #endStandalone(appId: string, error: Error): void {
+    Log.write(Level.Error, 'acde_host', Launchable.ended(appId, error))
+    this.#end('exit')
+  }
+
   #end(reason: RunEnd): void {
     this.#stopped = true
     this.#ended = reason
@@ -543,16 +565,19 @@ export class Broker {
     return this.#output.screen(window !== undefined && Outputs.host(this.#windows.get(window), this.#options.standalone))
   }
 
+  #tellScreens(): void {
+    for (const changed of this.#output.take()) {
+      for (const web of this.#webs()) if (changed.to(this.#windows.get(web.window))) web.thread.post({ type: 'screen', ...changed.screen })
+    }
+  }
+
   #event(event: RawShellEvent): void {
     switch (event.type) {
       case 'output':
       case 'workarea':
       case 'hostoutput':
-      case 'hostworkarea': {
-        const changed = this.#output.update(event, this.#options.standalone)
-        if (changed) for (const web of this.#webs()) if (changed.to(this.#windows.get(web.window))) web.thread.post({ type: 'screen', ...changed.screen })
-        return
-      }
+      case 'hostworkarea':
+        return void this.#output.update(event, this.#options.standalone)
       case 'milestone':
         return StartupTimeline.mark(`shell ${event.title}`)
       case 'edgeenter':
@@ -595,18 +620,18 @@ export class Broker {
     this.#desktop?.thread.post(event)
     const type = String(event.type)
     for (const record of this.#windows.values()) if (record.web && Tiers.listens(record.web.tier, type)) record.web.thread.post(event)
+    this.#modules.emit(event)
   }
 
-  #announce(record: WindowRecord): void {
+  #announce(record: WindowRecord, tell: (event: Record<string, unknown>) => void = (event) => this.#toDesktop(event)): void {
     if (record.owner) return
     if (record.kind === 'web') {
       const app = record.app!
       const title = record.title ?? app.label
-      const opened = { type: 'windowopen', window: record.id, appId: app.id, title, web: true, icon: app.icon } satisfies WindowOpenEvent
-      this.#toDesktop(opened)
-      if (record.menus.length) this.#toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
+      tell({ type: 'windowopen', window: record.id, appId: app.id, title, web: true, icon: app.icon } satisfies WindowOpenEvent)
+      if (record.menus.length) tell({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
     } else {
-      this.#toDesktop({ type: 'windowopen', window: record.id, appId: record.appId, title: record.title } satisfies WindowOpenEvent)
+      tell({ type: 'windowopen', window: record.id, appId: record.appId, title: record.title } satisfies WindowOpenEvent)
     }
   }
 
@@ -657,10 +682,7 @@ export class Broker {
 
   refreshApps(): { id: string; label: string; icon: string; script: string }[] {
     this.#options.packages.rescan()
-    const changed = this.apps.reload(this.#options.packages)
-    const apps = this.#appList()
-    if (changed) this.#toDesktop({ type: 'appschanged', apps } satisfies AppsChangedEvent)
-    return apps
+    return this.#listing.changed(this.apps.reload(this.#options.packages))
   }
 
   installApps(dir: string): { id: string; dir: string; apps: { id: string; label: string; icon: string; script: string }[] } {
@@ -694,14 +716,20 @@ export class Broker {
       }
       const state = await Broker.#snapshot(web)
       if (primary) {
-        if (this.#stopped || !web || primary.web !== web || web.closing || web.reloading || !after) return
+        if (this.#stopped || !web || primary.web !== web || web.closing || web.reloading) return
+        let next: AppManifest
+        try {
+          next = this.#launchable.app(app)
+        } catch (error) {
+          return this.#endStandalone(app, error as Error)
+        }
         if (state) this.#devStates.set(app, state)
         const backend = primary.app?.backend ? this.backends.stop(app) : undefined
-        primary.app = after
+        primary.app = next
         web.reloading = true
         await web.terminate()
         await backend
-        if (!this.#stopped && primary.app === after) this.backends.start(after)
+        if (!this.#stopped && primary.app === next) this.backends.start(next)
         return
       }
       if (state) this.#devStates.set(app, state)

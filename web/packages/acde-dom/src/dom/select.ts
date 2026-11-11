@@ -2,7 +2,7 @@ import { Event, fire } from '../core/event'
 import { host } from '../core/host'
 import type { Element } from './element'
 import { disabledControl, HTMLOptionElement, HTMLSelectElement } from './forms'
-import { dom, ID, wrap } from './realm'
+import { dom, ID, wrap, inner } from './realm'
 
 export interface SelectModifiers {
   readonly shift?: boolean
@@ -22,7 +22,7 @@ function options(select: HTMLSelectElement): HTMLOptionElement[] {
 function enabled(option: HTMLOptionElement | undefined): option is HTMLOptionElement {
   if (!option || option.disabled) return false
   const parent = option.parentElement
-  return !(parent?.localName === 'optgroup' && parent.hasAttribute('disabled'))
+  return !(parent && dom.localName(parent[ID]) === 'optgroup' && dom.hasAttribute(parent[ID], 'disabled'))
 }
 
 function listBox(select: HTMLSelectElement): boolean {

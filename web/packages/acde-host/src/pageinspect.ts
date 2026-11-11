@@ -1,3 +1,4 @@
+import { hostTime } from '@dopame/acde-dom'
 import type { DomNative, WebInternals } from '@dopame/acde-dom'
 import type { Host } from './host'
 
@@ -62,6 +63,10 @@ export class PageInspect {
         return this.select(Number(args[0]), Array.isArray(args[1]) ? args[1].map(String) : [])
       case 'settle':
         return this.settle(Number(args[0]) || 200, Number(args[1]) || 3000)
+      case 'offset':
+        return [this.offset[0], this.offset[1]]
+      case 'text':
+        return this.host.insertText(String(args[0] ?? ''))
       default:
         throw new Error(`inspect has no ${method}`)
     }
@@ -78,7 +83,7 @@ export class PageInspect {
     if (!this.dom.semantics) throw new Error('this acde has no semantics')
     const document = this.page.document as unknown as Document
     const root: ParentNode | null = within >= 0 ? this.#element(within) : document
-    if (!root) throw new Error(`element ${within} is gone`)
+    if (!root) throw new Error(PageInspect.#gone(within))
     let found: Element[]
     try {
       found = [...root.querySelectorAll(selector)]
@@ -121,12 +126,12 @@ export class PageInspect {
 
   point(id: number): PagePoint {
     const element = this.#element(id)
-    if (!element) return { error: `element ${id} is gone` }
+    if (!element) return { error: PageInspect.#gone(id) }
     const window = this.page.window as unknown as Window
     const row = this.dom.pickerOptionRect(id)
     if (row) return this.#windowPoint(row[0]! + row[2]! / 2, row[1]! + row[3]! / 2)
     let rect = this.#rect(element)
-    if (!rect) return { error: 'the element is not displayed' }
+    if (!rect || !element.checkVisibility({ visibilityProperty: true })) return { error: 'the element is not displayed' }
     const inside = (r: DOMRect) => r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight
     if (!inside(rect) || !this.#hits(element, rect)) {
       element.scrollIntoView({ block: 'center', inline: 'center' })
@@ -163,7 +168,7 @@ export class PageInspect {
 
   type(id: number, text: string, replace: boolean): { value: string | null } {
     const element = this.#element(id)
-    if (!element) throw new Error(`element ${id} is gone`)
+    if (!element) throw new Error(PageInspect.#gone(id))
     const target = this.#editable(element)
     if (!target) throw new Error('cannot type into this element')
     const document = this.page.document as unknown as Document
@@ -183,7 +188,7 @@ export class PageInspect {
 
   select(id: number, values: readonly string[]): { selected: string[] } {
     const element = this.#element(id)
-    if (!element) throw new Error(`element ${id} is gone`)
+    if (!element) throw new Error(PageInspect.#gone(id))
     const window = this.page.window as unknown as typeof globalThis
     const select = element instanceof window.HTMLSelectElement ? element : (element.closest('select') ?? element.querySelector('select'))
     if (!select) throw new Error('this element is not a <select> and has none inside')
@@ -207,7 +212,7 @@ export class PageInspect {
 
   focus(id: number): boolean {
     const element = this.#element(id)
-    if (!element) throw new Error(`element ${id} is gone`)
+    if (!element) throw new Error(PageInspect.#gone(id))
     element.focus()
     return (this.page.document as unknown as Document).activeElement === element
   }
@@ -215,27 +220,36 @@ export class PageInspect {
   settle(quiet: number, max: number): Promise<number> {
     const window = this.page.window as unknown as typeof globalThis
     const document = this.page.document as unknown as Document
-    const started = Date.now()
+    const started = hostTime.now()
     let last = started
-    const observer = new window.MutationObserver(() => (last = Date.now()))
+    const observer = new window.MutationObserver(() => (last = hostTime.now()))
     observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true })
     return new Promise((resolve) => {
       const check = () => {
-        const now = Date.now()
+        const now = hostTime.now()
         if (now - last >= quiet || now - started >= max) {
           observer.disconnect()
           return resolve(now - started)
         }
-        setTimeout(check, Math.min(quiet - (now - last), max - (now - started)))
+        hostTime.setTimeout(check, Math.min(quiet - (now - last), max - (now - started)))
       }
-      setTimeout(check, quiet)
+      hostTime.setTimeout(check, quiet)
     })
   }
 
   #element(id: number): HTMLElement | null {
-    let node = this.page.nodeOf(id) as Node | null
+    let node: Node | null
+    try {
+      node = this.page.nodeOf(id) as Node | null
+    } catch {
+      return null
+    }
     while (node && node.nodeType !== 1) node = node.parentNode
-    return (node as HTMLElement | null) ?? null
+    return node?.isConnected ? (node as HTMLElement) : null
+  }
+
+  static #gone(id: number): string {
+    return `element ${id} is gone`
   }
 
   #rect(element: Element): DOMRect | null {

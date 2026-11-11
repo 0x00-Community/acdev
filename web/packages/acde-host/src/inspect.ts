@@ -1,6 +1,8 @@
-import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow, WindowState } from '@dopame/acde-api'
 import type { BrokerShell } from './broker'
-import { chordCodes } from './keys'
+import type { ShellWindow } from './broker/types'
+import { WindowCalls } from './broker/calls/windows'
+import { chordCodes, keyCode } from './keys'
 import type { PageNode, PagePoint, PageQuery, PageTree } from './pageinspect'
 import type { Rpc } from './rpc'
 
@@ -12,7 +14,7 @@ export interface NativeAccessibility {
 interface InspectHost {
   readonly shell: BrokerShell
   web(window: number): Rpc | null
-  record(window: number): { readonly kind: 'native' | 'web'; readonly app: string | null; readonly title: string | null } | null
+  record(window: number): { readonly kind: 'native' | 'web'; readonly app: string | null; readonly title: string | null; readonly state?: WindowState } | null
   panel(window: number): boolean
   close(window: number): Promise<unknown>
   hide(window: number, hidden: boolean): void
@@ -90,6 +92,15 @@ interface Tree {
 
 const LEFT = 0x110
 const RIGHT = 0x111
+const MIDDLE = 0x112
+const MODIFIERS = new Set(['shift', 'ctrl', 'control', 'alt', 'option', 'meta', 'super', 'cmd', 'command'])
+
+export type InspectInput =
+  | { readonly type: 'move'; readonly x: number; readonly y: number }
+  | { readonly type: 'down' | 'up'; readonly x: number; readonly y: number; readonly button?: 'left' | 'right' | 'middle' }
+  | { readonly type: 'wheel'; readonly x: number; readonly y: number; readonly dx?: number; readonly dy?: number }
+  | { readonly type: 'keydown' | 'keyup'; readonly key: string }
+  | { readonly type: 'text'; readonly text: string }
 
 type Point = { readonly x: number; readonly y: number } | { readonly error: string }
 
@@ -125,6 +136,7 @@ export class Inspect {
       this.run(Array.isArray(steps) ? steps.map((s) => ({ ref: String(s?.ref ?? ''), action: s?.action, text: s?.text ?? null })) : []),
     open: (name: string): Promise<ActResult> => this.open(String(name)),
     query: (options: QueryOptions): Promise<Query> => this.query(options),
+    input: (window: number, events: readonly InspectInput[]): Promise<ActResult> => this.input(window, events),
   }
 
   windows(): InspectWindow[] {
@@ -135,6 +147,7 @@ export class Inspect {
       if (id !== 0 && this.#host.panel(id)) continue
       const record = id === 0 ? null : this.#host.record(id)
       if (id !== 0 && !record) continue
+      const state = this.#state(row)
       out.push({
         ref: this.#ref(id),
         id,
@@ -142,17 +155,30 @@ export class Inspect {
         app: record?.app ?? null,
         title: record?.title ?? null,
         mode: row.mode,
-        state: row.state ?? 'normal',
+        state,
         rect: [row.x, row.y, row.width, row.height],
         z: row.z,
         focus: row.focus,
-        hidden: !!row.hidden || row.state === 'minimized',
+        hidden: Inspect.#offScreen(row, state),
         pid: row.pid ?? null,
         parent: row.parent ?? null,
         modal: !!row.modal,
       })
     }
     return out.sort((a, b) => b.z - a.z)
+  }
+
+  #state(row: ShellWindow): WindowState {
+    const id = row.window ?? row.id
+    return row.state ?? (id === 0 ? undefined : this.#host.record(id)?.state) ?? 'normal'
+  }
+
+  static #offScreen(row: ShellWindow, state: WindowState): boolean {
+    return !!row.hidden || state === 'minimized'
+  }
+
+  static #minimized(window: InspectWindow): string {
+    return `${window.ref} is minimized; act restore on it first`
   }
 
   async snapshot(options: SnapshotOptions): Promise<Snapshot> {
@@ -294,15 +320,17 @@ export class Inspect {
     switch (action) {
       case 'focus':
       case 'restore':
-        if (window.state === 'minimized' && this.#host.shell.setState) this.#host.shell.setState(window.id, 'normal')
-        else if (window.hidden) this.#host.hide(window.id, false)
+        if (window.hidden) this.#host.hide(window.id, false)
         this.#focus(window)
         return { ok: true, text: `${window.ref} is in front` }
-      case 'minimize':
+      case 'minimize': {
         if (window.kind === 'desktop') return { ok: false, text: 'the desktop cannot be minimized' }
+        const reason = WindowCalls.unminimizable(this.#host.shell.windows().find((row) => (row.window ?? row.id) === window.id))
+        if (reason) return { ok: false, text: `${window.ref} cannot be minimized: ${reason}` }
         if (this.#host.shell.setState) this.#host.shell.setState(window.id, 'minimized')
         else this.#host.hide(window.id, true)
         return { ok: true, text: `${window.ref} is minimized` }
+      }
       case 'close':
         if (window.kind === 'desktop') return { ok: false, text: 'the desktop cannot be closed' }
         await this.#host.close(window.id)
@@ -350,12 +378,12 @@ export class Inspect {
         return { ok: true, text: `selected ${JSON.stringify(selected)}` }
       }
       case 'drag': {
-        const point = (await rpc.call('inspect', 'point', [node])) as PagePoint
+        const point = await this.#measure(window, rpc, node)
         if ('error' in point) return { ok: false, text: point.error }
         return this.#drag(window, window.rect[0] + point.x, window.rect[1] + point.y, arg)
       }
       default: {
-        const point = (await rpc.call('inspect', 'point', [node])) as PagePoint
+        const point = await this.#measure(window, rpc, node)
         if ('error' in point) return { ok: false, text: point.error }
         const [x, y] = window.rect
         return this.#pointer(window, x + point.x, y + point.y, action, arg)
@@ -400,27 +428,49 @@ export class Inspect {
   }
 
   #pointer(window: InspectWindow, x: number, y: number, action: InspectAction, arg: InspectArg): ActResult {
+    if (window.hidden) return { ok: false, text: Inspect.#minimized(window) }
     const cover = this.#cover(window, x, y)
     if (cover) {
       if (window.kind === 'desktop') return { ok: false, text: `covered there by ${Inspect.#label(cover)}; minimize or close it first` }
       this.#focus(window)
     }
     const shell = this.#host.shell
+    const held = action === 'scroll' ? [] : Inspect.#modifiers(arg)
+    if (held === null) return { ok: false, text: `${action} takes the modifier keys to hold (shift, ctrl, alt, meta, joined with +), not ${JSON.stringify(arg)}` }
     shell.inject({ type: 'move', x, y })
+    for (const code of held) shell.inject({ type: 'keydown', code })
+    try {
+      return this.#press(action, x, y, arg, held.length ? ` (holding ${String(arg)})` : '')
+    } finally {
+      for (const code of [...held].reverse()) shell.inject({ type: 'keyup', code })
+    }
+  }
+
+  static #modifiers(arg: InspectArg): number[] | null {
+    if (arg === null || arg === undefined || arg === '') return []
+    if (typeof arg !== 'string') return null
+    const names = arg.toLowerCase().split('+').map((n) => n.trim()).filter(Boolean)
+    if (!names.every((n) => MODIFIERS.has(n))) return null
+    const codes = names.map((n) => keyCode(n))
+    return codes.every((c): c is number => c !== null) ? codes : null
+  }
+
+  #press(action: InspectAction, x: number, y: number, arg: InspectArg, held: string): ActResult {
+    const shell = this.#host.shell
     const press = (button: number) => {
       shell.inject({ type: 'down', x, y, button })
       shell.inject({ type: 'up', x, y, button })
     }
     switch (action) {
       case 'hover':
-        return { ok: true, text: `moved the pointer to ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `moved the pointer to ${Math.round(x)},${Math.round(y)}${held}` }
       case 'right':
         press(RIGHT)
-        return { ok: true, text: `right-clicked ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `right-clicked ${Math.round(x)},${Math.round(y)}${held}` }
       case 'double':
         press(LEFT)
         press(LEFT)
-        return { ok: true, text: `double-clicked ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `double-clicked ${Math.round(x)},${Math.round(y)}${held}` }
       case 'scroll': {
         const dy = Number(arg) || 400
         shell.inject({ type: 'wheel', x, y, dx: 0, dy, source: 'wheel' })
@@ -428,14 +478,18 @@ export class Inspect {
       }
       case 'click':
         press(LEFT)
-        return { ok: true, text: `clicked ${Math.round(x)},${Math.round(y)}` }
+        return { ok: true, text: `clicked ${Math.round(x)},${Math.round(y)}${held}` }
       default:
         return { ok: false, text: `unsupported action ${action}` }
     }
   }
 
   async #drag(window: InspectWindow, x: number, y: number, to: InspectArg): Promise<ActResult> {
-    if (typeof to !== 'string' || !Inspect.#parse(to)) return { ok: false, text: 'drag needs where to drop: the target ref (like w3.12, or a window w3)' }
+    const parsed = typeof to === 'string' ? Inspect.#parse(to) : null
+    if (typeof to !== 'string' || !parsed) return { ok: false, text: 'drag needs where to drop: the target ref (like w3.12, or a window w3)' }
+    if (window.hidden) return { ok: false, text: Inspect.#minimized(window) }
+    const onto = this.windows().find((w) => w.ref === `w${parsed.window}`)
+    if (onto?.hidden) return { ok: false, text: `cannot drop: ${Inspect.#minimized(onto)}` }
     const cover = this.#cover(window, x, y)
     if (cover) {
       if (window.kind === 'desktop') return { ok: false, text: `covered there by ${Inspect.#label(cover)}; minimize or close it first` }
@@ -475,11 +529,17 @@ export class Inspect {
     }
     const rpc = this.#host.web(window.id)
     if (!rpc) return { error: `the page of ${window.ref} is not running` }
-    const point = (await rpc.call('inspect', 'point', [parsed.node])) as PagePoint
+    const point = await this.#measure(window, rpc, parsed.node)
     return 'error' in point ? point : this.#uncovered(window, wx + point.x, wy + point.y)
   }
 
+  async #measure(window: InspectWindow, rpc: Rpc, node: number): Promise<PagePoint> {
+    if (window.hidden) return { error: Inspect.#minimized(window) }
+    return (await rpc.call('inspect', 'point', [node])) as PagePoint
+  }
+
   #uncovered(window: InspectWindow, x: number, y: number): Point {
+    if (window.hidden) return { error: Inspect.#minimized(window) }
     const cover = this.#cover(window, x, y)
     return cover ? { error: `${window.ref} is covered there by ${Inspect.#label(cover)}` } : { x, y }
   }
@@ -498,10 +558,11 @@ export class Inspect {
     const rows = this.#host.shell.windows()
     const own = rows.find((r) => (r.window ?? r.id) === window.id)
     const at = (row: (typeof rows)[number]) => x >= row.x && y >= row.y && x < row.x + row.width && y < row.y + row.height
-    const panel = window.kind === 'desktop' ? rows.find((row) => !row.hidden && this.#host.panel(row.window ?? row.id) && at(row)) : undefined
+    const away = (row: ShellWindow) => Inspect.#offScreen(row, this.#state(row))
+    const panel = window.kind === 'desktop' ? rows.find((row) => !away(row) && this.#host.panel(row.window ?? row.id) && at(row)) : undefined
     for (const row of rows) {
       const id = row.window ?? row.id
-      if (id === window.id || row.hidden || (own && row.z <= own.z)) continue
+      if (id === window.id || away(row) || (own && row.z <= own.z)) continue
       if (window.kind === 'desktop' && this.#host.panel(id)) continue
       if (panel && !(row.mode === 'pinned' && row.z > panel.z)) continue
       if (!at(row)) continue
@@ -531,6 +592,56 @@ export class Inspect {
     }
   }
 
+  async input(id: number, events: readonly InspectInput[]): Promise<ActResult> {
+    const window = this.windows().find((w) => w.id === id)
+    if (!window) return { ok: false, text: `window ${id} is gone` }
+    const rpc = this.#host.web(window.id)
+    if (!rpc) return { ok: false, text: `the page of ${window.ref} is not running` }
+    if (!Array.isArray(events) || !events.length) return { ok: false, text: 'input needs a list of events' }
+    const [ox, oy] = (await rpc.call('inspect', 'offset', [])) as [number, number]
+    const at = (e: { x: number; y: number }) => {
+      if (!Number.isFinite(e.x) || !Number.isFinite(e.y)) throw new Error('input: x and y are page coordinates (numbers)')
+      return { x: window.rect[0] + ox + e.x, y: window.rect[1] + oy + e.y }
+    }
+    const buttons = { left: LEFT, right: RIGHT, middle: MIDDLE } as const
+    const shell = this.#host.shell
+    this.#focus(window)
+    let moved = false
+    for (const event of events) {
+      if (event?.type === 'move' && moved) await Inspect.#sleep(Inspect.DRAG_STEP_MS)
+      moved = event?.type === 'move'
+      switch (event?.type) {
+        case 'move':
+          shell.inject({ type: 'move', ...at(event) })
+          break
+        case 'down':
+        case 'up': {
+          const button = buttons[(event.button ?? 'left') as keyof typeof buttons] as number | undefined
+          if (button === undefined) throw new Error(`input: button is left, right or middle, not ${String(event.button)}`)
+          shell.inject({ type: event.type, ...at(event), button })
+          break
+        }
+        case 'wheel':
+          shell.inject({ type: 'wheel', ...at(event), dx: Number(event.dx) || 0, dy: Number(event.dy) || 0, source: 'wheel' })
+          break
+        case 'keydown':
+        case 'keyup': {
+          const code = keyCode(String(event.key ?? ''))
+          if (code === null) throw new Error(`input: unknown key ${JSON.stringify(event.key)}`)
+          shell.inject({ type: event.type, code })
+          break
+        }
+        case 'text':
+          await rpc.call('inspect', 'text', [String(event.text ?? '')])
+          break
+        default:
+          throw new Error(`input: an event's type is move, down, up, wheel, keydown, keyup or text, not ${JSON.stringify((event as { type?: unknown })?.type)}`)
+      }
+    }
+    await this.#settle(window)
+    return { ok: true, text: `sent ${events.length} input events to ${window.ref}` }
+  }
+
   async query(options: QueryOptions): Promise<Query> {
     const selector = String(options?.selector ?? '').trim()
     if (!selector) throw Object.assign(new Error('query needs a CSS selector'), { status: 400 })
@@ -548,7 +659,7 @@ export class Inspect {
     const found = (await rpc.call('inspect', 'query', [selector, parsed?.node ?? -1, limit, attributes])) as PageQuery
     const nodes = found.nodes.map((n): InspectMatch => {
       const node = Inspect.#node(window, n.id, n, n.states, n.rect, [])
-      return { ...node, tag: n.tag, visible: n.visible, ...(n.attributes && { attributes: n.attributes }) }
+      return { ...node, tag: n.tag, visible: n.visible && !window.hidden, ...(n.attributes && { attributes: n.attributes }) }
     })
     return { window: window.ref, count: found.count, nodes }
   }

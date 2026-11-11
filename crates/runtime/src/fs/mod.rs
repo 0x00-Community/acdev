@@ -430,10 +430,6 @@ impl Finder {
     }
 }
 
-impl FsReply {
-    pub const OCTETS: &str = "application/octet-stream";
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,6 +1,7 @@
 import { EventTarget } from './event'
 import { DOMException } from './exception'
 import { host, tag } from './host'
+import { now as clockNow } from './clock'
 
 export class PerformanceEntry {
   constructor(
@@ -28,7 +29,7 @@ export class Performance extends EventTarget {
   #entries: PerformanceEntry[] = []
 
   now(): number {
-    return host.now()
+    return clockNow()
   }
 
   get timeOrigin(): number {
@@ -36,7 +37,7 @@ export class Performance extends EventTarget {
   }
 
   mark(name: string, options?: { startTime?: number; detail?: unknown }): PerformanceMark {
-    const entry = new PerformanceMark(String(name), 'mark', options?.startTime ?? host.now(), 0, options?.detail ?? null)
+    const entry = new PerformanceMark(String(name), 'mark', options?.startTime ?? clockNow(), 0, options?.detail ?? null)
     this.#add(entry)
     return entry
   }
@@ -52,11 +53,11 @@ export class Performance extends EventTarget {
     let from: number, to: number, detail: unknown = null
     if (typeof start === 'object' && start !== null) {
       detail = start.detail ?? null
-      to = time(start.end, start.duration !== undefined && start.start !== undefined ? time(start.start, 0) + start.duration : host.now())
+      to = time(start.end, start.duration !== undefined && start.start !== undefined ? time(start.start, 0) + start.duration : clockNow())
       from = time(start.start, start.duration !== undefined ? to - start.duration : 0)
     } else {
       from = time(start, 0)
-      to = time(end, host.now())
+      to = time(end, clockNow())
     }
     const entry = new PerformanceMeasure(String(name), 'measure', from, to - from, detail)
     this.#add(entry)

@@ -1,0 +1,92 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import type { AppsChangedEvent } from '@dopame/acde-api'
+import { Manifest, type AppManifest } from '@dopame/acde-api/manifest'
+import type { AppRegistry } from '../../src/apps.ts'
+import { CapabilityCheck } from '../../src/broker/access/capabilities.ts'
+import { Approvals } from '../../src/broker/approvals.ts'
+import { AppListing } from '../../src/broker/listing.ts'
+
+const app = (fields: Record<string, unknown>): AppManifest => {
+  const parsed = Manifest.app({ icon: 'app', entry: '/t/index.html', ...fields })
+  if (typeof parsed === 'string') throw new Error(parsed)
+  return parsed
+}
+
+const session = () => {
+  const installed = [
+    app({ id: 'tool', label: 'Tool', capabilities: { launch: true } }),
+    app({ id: 'notes', label: 'Notes', capabilities: { terminal: true }, optional: ['terminal'] }),
+  ]
+  const origin = { level: 1, system: false }
+  const apps = { get: (id: string) => installed.find((a) => a.id === id) ?? null, origin: () => origin, list: () => installed } as unknown as AppRegistry
+  const events: unknown[] = []
+  const check: CapabilityCheck = new CapabilityCheck({
+    platform: 'darwin',
+    mode: () => 'desktop',
+    running: () => true,
+    present: () => true,
+    approval: (a, o, capability) => approvals.permissions.approval(a, o, capability),
+  })
+  const listing = new AppListing({
+    apps: () => installed.filter((a) => !check.missing(a, origin).length).map(({ id, label, icon, entry }) => ({ id, label, icon, script: entry })),
+    tell: (event) => void events.push(event),
+  })
+  const approvals: Approvals = new Approvals({
+    apps: () => apps,
+    capabilities: () => check,
+    records: () => [],
+    toDesktop: (event) => void events.push(event),
+    dialog: () => null,
+    standalone: () => false,
+    finder: () => null,
+    store: () => null,
+    log: () => {},
+    listed: () => void listing.changed(),
+  })
+  const changes = () => events.filter((e): e is AppsChangedEvent => (e as { type?: string }).type === 'appschanged').map((e) => e.apps.map((a) => a.id))
+  return { approvals, listing, installed, origin, changes }
+}
+
+test('the desktop is told when an answer takes an app off the list', async () => {
+  const { approvals, listing, installed, origin, changes } = session()
+  assert.deepEqual(listing.list().map((a) => a.id), ['tool', 'notes'])
+  const admitted = approvals.permissions.admit(installed[0]!, origin)
+  assert.deepEqual(changes(), [], 'an app whose prompt waits stays on the list')
+  approvals.permissions.answer(approvals.permissions.pending()[0]!.id, false)
+  await assert.rejects(admitted, /denied by the user/)
+  assert.deepEqual(changes(), [['notes']])
+  assert.deepEqual(listing.list().map((a) => a.id), ['notes'])
+})
+
+test('revoking a required capability takes the app off the list and says so; an optional one changes nothing', async () => {
+  const { approvals, installed, origin, listing, changes } = session()
+  listing.list()
+  const admitted = approvals.permissions.admit(installed[0]!, origin)
+  approvals.permissions.answer(approvals.permissions.pending()[0]!.id, true)
+  await admitted
+  const asked = approvals.permissions.ask(installed[1]!, origin, 'terminal', 'request')
+  approvals.permissions.answer(approvals.permissions.pending()[0]!.id, true)
+  await asked
+  assert.deepEqual(changes(), [], 'granting changes no list')
+  approvals.permissions.revoke('notes', 'terminal')
+  assert.deepEqual(changes(), [])
+  approvals.permissions.revoke('tool', 'launch')
+  assert.deepEqual(changes(), [['notes']])
+})
+
+test('a forced change is told even when the rows are the same, and a list the desktop already has is not told again', () => {
+  const rows = [{ id: 'a', label: 'A', icon: 'app', script: '/a.js' }]
+  const told: AppsChangedEvent[] = []
+  const listing = new AppListing({ apps: () => rows.map((row) => ({ ...row })), tell: (event) => void told.push(event) })
+  listing.changed()
+  assert.equal(told.length, 1, 'nothing was known before')
+  listing.changed()
+  assert.equal(told.length, 1)
+  listing.changed(true)
+  assert.equal(told.length, 2)
+  rows.pop()
+  listing.list()
+  listing.changed()
+  assert.equal(told.length, 2)
+})

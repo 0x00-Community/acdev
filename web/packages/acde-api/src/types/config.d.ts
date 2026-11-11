@@ -1,4 +1,4 @@
-import type { Capabilities, IconName } from './manifest'
+import type { Capabilities, IconName, ShellModule } from './manifest'
 
 export type AcdeConfig = AppConfig | DesktopConfig
 
@@ -31,6 +31,11 @@ export interface BackendConfig {
   readonly port?: number
 }
 
+export interface ServiceConfig {
+  readonly module: string
+  readonly modules?: readonly ShellModule[]
+}
+
 export type Framework = 'auto' | 'none' | 'next' | 'nuxt' | 'sveltekit' | 'astro' | 'react-router' | 'remix' | 'angular' | 'vite' | 'cra' | 'script'
 
 export interface AppConfig extends ConfigCommon, WindowAppConfig {
@@ -45,6 +50,6 @@ export interface DesktopConfig extends ConfigCommon {
   readonly description?: string
   readonly entry?: string
   readonly heapMb?: number
-  readonly services?: Readonly<Record<string, string>>
+  readonly services?: Readonly<Record<string, string | ServiceConfig>>
   readonly apps?: readonly (WindowAppConfig & { readonly id: string; readonly entry: string })[]
 }

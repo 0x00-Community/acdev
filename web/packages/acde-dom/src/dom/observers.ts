@@ -1,10 +1,11 @@
 import { guarded, host, tag } from '../core/host'
+import { now as clockNow } from '../core/clock'
 import type { Metrics } from '../native'
 import type { Element } from './element'
 import { frames } from './env'
 import { DOMRectReadOnly } from './geometry'
 import { computedStyleOf, metricsOf, rectOf } from './layout'
-import { dom, documentId, ID } from './realm'
+import { dom, documentId, ID, inner } from './realm'
 
 let gatherResize: (observer: ResizeObserver) => void
 let gatherIntersection: (observer: IntersectionObserver, time: number) => void
@@ -79,7 +80,7 @@ export class ResizeObserver {
 tag(ResizeObserver)
 
 function measure(target: Element, observation: Observation): NonNullable<Observation['sizes']> {
-  const m: Metrics | null = target.isConnected ? metricsOf(target[ID]) : null
+  const m: Metrics | null = inner(target, 'isConnected') ? metricsOf(target[ID]) : null
   const key = m ? `${m.offsetWidth},${m.offsetHeight},${m.clientWidth},${m.clientHeight}` : ''
   if (observation.sizes && key === observation.key) return observation.sizes
   observation.key = key
@@ -157,12 +158,12 @@ export class IntersectionObserver {
       const entries: IntersectionObserverEntry[] = []
       const root = observer.#rootBounds()
       for (const [target, previous] of observer.#targets) {
-        const rendered = target.isConnected && metricsOf(target[ID]) !== null
+        const rendered = inner(target, 'isConnected') && metricsOf(target[ID]) !== null
         const r = rendered ? rectOf(target[ID]) : Float64Array.of(0, 0, 0, 0)
         const box = new DOMRectReadOnly(r[0], r[1], r[2], r[3])
         let inter = new DOMRectReadOnly(0, 0, 0, 0)
         let intersecting = false
-        if (rendered && root && (!observer.#root || observer.#root.contains(target))) {
+        if (rendered && root && (!observer.#root || inner(observer.#root, 'contains').call(observer.#root, target))) {
           const x0 = Math.max(r[0]!, root.x), y0 = Math.max(r[1]!, root.y)
           const x1 = Math.min(r[0]! + r[2]!, root.x + root.width), y1 = Math.min(r[1]! + r[3]!, root.y + root.height)
           if (x1 >= x0 && y1 >= y0) {
@@ -186,7 +187,7 @@ export class IntersectionObserver {
   #rootBounds(): DOMRectReadOnly | null {
     let x: number, y: number, w: number, h: number
     if (this.#root) {
-      if (!this.#root.isConnected) return null
+      if (!inner(this.#root, 'isConnected')) return null
       const m = metricsOf(this.#root[ID])
       if (!m) return null
       const r = rectOf(this.#root[ID])
@@ -236,7 +237,7 @@ export function watching(): boolean {
 export function deliverObservations(): void {
   for (const observer of [...resizeObservers]) gatherResize(observer)
   if (intersectionObservers.size) {
-    const time = host.now()
+    const time = clockNow()
     for (const observer of [...intersectionObservers]) gatherIntersection(observer, time)
   }
 }

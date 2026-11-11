@@ -1,63 +1,46 @@
 import type { AppMenu, NativeWindow, WindowApp, WindowEdge, WindowEventName, WindowMode, WindowOutput, WindowRect, WindowState } from '@dopame/acde-api'
 import type { ServiceShape, WebInit, WireMenu } from './broker'
 import { Level, Log } from './log'
-import { WINDOW_EVENTS, type NativeSurface, type WindowEvent } from './native'
+import { WINDOWS_EVENT_NAMES, type NativeSurface, type WindowEvent } from './native'
+import { Notices } from './notices'
 import { Rpc } from './rpc'
 import { CapabilityCheck } from './broker/access/capabilities'
 import { Permits } from './broker/access/approval/permits'
-import type { Permit } from './broker/access/approval/permissions'
+import type { Approval } from './broker/access/approval/permissions'
 import type { HandOver } from './pagecalls'
 import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 
-class Notices {
-  readonly #handlers = new Map<string, Set<(detail: unknown) => void>>()
-
-  on(type: string, handler: (detail: unknown) => void): () => boolean {
-    const set = this.#handlers.get(type) ?? new Set()
-    set.add(handler)
-    this.#handlers.set(type, set)
-    return () => set.delete(handler)
-  }
-
-  emit(type: string, detail: unknown): void {
-    for (const handler of this.#handlers.get(type) ?? []) {
-      try {
-        handler(detail)
-      } catch (error) {
-        Log.write(Level.Warn, 'acde_host', `${type} handler: ${(error as Error)?.message ?? String(error)}`)
-      }
-    }
-  }
-
-  for(scope: string, types: readonly string[]): (type: string, handler: (detail: unknown) => void) => () => boolean {
-    return (type, handler) => {
-      if (!types.includes(type)) throw new TypeError(`acde:${scope} has no ${String(type)} event (${types.join(', ')})`)
-      return this.on(`${scope}:${type}`, handler)
-    }
-  }
-}
-
 export class WindowList {
-  static readonly EVENTS = WINDOW_EVENTS.map((type) => type.slice('window'.length))
+  static readonly EVENTS = WINDOWS_EVENT_NAMES
+  static readonly STATES: readonly WindowState[] = ['normal', 'minimized', 'filled', 'fullscreen']
   readonly notices = new Notices()
   readonly #windows = new Map<number, NativeWindow>()
   readonly #rpc: Rpc
 
-  constructor(rpc: Rpc) {
+  constructor(rpc: Rpc, rows: readonly NativeWindow[] = []) {
     this.#rpc = rpc
+    for (const row of rows) this.#windows.set(row.id, { ...row })
   }
 
-  track(event: WindowEvent): void {
+  deliver(event: WindowEvent): void {
+    this.#track(event)
+    this.notices.emit(`windows:${event.type.slice('window'.length)}`, event)
+  }
+
+  #track(event: WindowEvent): void {
     if (event.type === 'windowclose') return void this.#windows.delete(event.window)
     const was = this.#windows.get(event.window)
     if (event.type === 'windowstate') {
-      if (was) this.#windows.set(event.window, { ...was, state: event['state'] as WindowState })
+      const state = WindowList.STATES.find((known) => known === event['state'])
+      if (was && state) this.#windows.set(event.window, { ...was, state })
       return
     }
+    if (event.type !== 'windowopen' && event.type !== 'windowtitle') return
     const text = (value: unknown, fallback: string | null) => (typeof value === 'string' && value ? value : fallback)
     const web = event['web'] === true || was?.web === true
     const appId = text(event['appId'], was?.appId ?? null)
-    this.#windows.set(event.window, { id: event.window, appId, title: text(event['title'], was?.title ?? null), ...(web ? { web } : {}) })
+    const title = text(event['title'], was?.title ?? null)
+    this.#windows.set(event.window, { id: event.window, appId, title, ...(web ? { web } : {}), state: was?.state ?? 'normal' })
   }
 
   screenshot(path: string): Promise<{ width: number; height: number }> {
@@ -83,6 +66,21 @@ type PageLike = { dispatchEvent(event: Event): boolean; Event: typeof Event; doc
 
 export class WindowSelf {
   static readonly #EDGES: Record<WindowEdge, number> = { top: 1, bottom: 2, left: 4, right: 8 }
+  static readonly #OWN: Record<WindowEventName, true> = {
+    activate: true,
+    deactivate: true,
+    beforeclose: true,
+    request: true,
+    suspend: true,
+    resume: true,
+    grab: true,
+    grablost: true,
+    state: true,
+    output: true,
+    hostcontrols: true,
+    minimizable: true,
+  }
+  static readonly EVENTS: readonly string[] = [...Object.keys(WindowSelf.#OWN), 'shortcut']
   readonly #rpc: Rpc
   readonly #surface: NativeSurface
   readonly #page: PageLike
@@ -177,6 +175,7 @@ export class WindowSelf {
     requestGrab: (kind: 'pointer' | 'keyboard') => this.#surface.requestGrab(kind),
     releaseGrab: (kind: 'pointer' | 'keyboard') => this.#surface.releaseGrab(kind),
     on: (name: WindowEventName, handler: (value?: unknown) => unknown) => {
+      if (!Object.hasOwn(WindowSelf.#OWN, name)) throw new TypeError(`acde:window has no ${String(name)} event (${WindowSelf.EVENTS.join(', ')})`)
       const set = this.#handlers.get(name) ?? new Set()
       set.add(handler)
       this.#handlers.set(name, set)
@@ -260,7 +259,7 @@ export class RemoteBridge {
   readonly #waiting = new Set<string>()
   handOver: HandOver | null = null
 
-  constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList, permits = new Permits(init.tier?.permits, init.app?.label ?? init.kind)) {
+  constructor(rpc: Rpc, init: WebInit, self: WindowSelf | null, windows: WindowList, permits = new Permits(init.tier?.approvals, init.app?.label ?? init.kind)) {
     this.#rpc = rpc
     this.permits = permits
     const permissions = () => ({
@@ -322,7 +321,7 @@ export class RemoteBridge {
 
   #window(self: WindowSelf, windows: WindowList): unknown {
     const api = self.api
-    const shortcut = windows.notices.for('window', ['shortcut'])
+    const shortcut = windows.notices.for('window', WindowSelf.EVENTS)
     const on = (name: string, handler: (value?: unknown) => unknown) =>
       name === 'shortcut' ? shortcut(name, handler) : api.on(name as WindowEventName, handler)
     const value = { ...api, id: self.id, on }
@@ -339,10 +338,10 @@ export class RemoteBridge {
     for (const [url, reason] of Object.entries(this.#refused)) if (!(url.slice('acde:'.length) in this.value)) host.refuseModule?.(url, reason)
   }
 
-  permit(capability: string, permit: Permit, status: CapabilityStatus | null): void {
-    this.permits.set(capability, permit)
+  permit(capability: string, approval: Approval, status: CapabilityStatus | null): void {
+    this.permits.set(capability, approval)
     if (status) this.#capabilities?.update(status)
-    for (const name of [...this.#waiting]) if (this.permits.usable(name)) this.#define(name)
+    for (const name of [...this.#waiting]) this.#define(name)
   }
 
   #define(name: string): void {

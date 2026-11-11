@@ -53,7 +53,6 @@ fn delayed(isolate: *mut c_void, task: v8::Task, delay: f64) {
 pub fn init() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        v8::icu::set_common_data_78(deno_core_icudata::ICU_DATA).expect("acdert: ICU data");
         v8::icu::set_default_locale("zh-Hans");
         v8::V8::set_flags_from_string("--js-float16array --js-explicit-resource-management");
         if std::env::var_os("ACDE_DEV").is_some() {

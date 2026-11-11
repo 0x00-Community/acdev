@@ -32,7 +32,7 @@ import { CustomElementRegistry } from './dom/custom'
 import * as editing from './dom/editing'
 import { Document, DOMImplementation, DOMParser, documentState, FontFace, FontFaceSet, HTMLDocument, XMLDocument, XMLSerializer } from './dom/document'
 import { Attr, DOMStringMap, DOMTokenList, Element, flags, LOCAL, NamedNodeMap } from './dom/element'
-import { env, frames } from './dom/env'
+import { env, frames, loads } from './dom/env'
 import * as events from './dom/events'
 import { focus } from './dom/focus'
 import * as forms from './dom/forms'
@@ -59,7 +59,7 @@ import { deliverObservations, IntersectionObserver, IntersectionObserverEntry, R
 import { loadPage } from './dom/page'
 import { handedOver, pickedOf, type Mode } from './dom/picker'
 import { AbstractRange, CaretPosition, getSelection, Range, Selection, StaticRange } from './dom/range'
-import { bindDom, changed, documentId, dom, existing, idOf, moved, rootElementId, version, wrap, wrapperStats } from './dom/realm'
+import { bindDom, changed, documentId, dom, existing, idOf, moved, rootElementId, version, wrap, wrapperStats, inner } from './dom/realm'
 import { attachShadow, shadowRootOf, ShadowRoot } from './dom/shadow'
 import { CSS, CSSRule, CSSRuleList, CSSStyleDeclaration, CSSStyleRule, CSSStyleSheet, StyleSheetList } from './dom/style'
 import * as svg from './dom/svg'
@@ -84,10 +84,13 @@ import {
   Window,
   type NavigatorOptions,
 } from './dom/window'
+import { clockHandle, isInstalled as isClockInstalled, now as clockNow, type ClockRequest, type ClockState } from './core/clock'
+import { adoptTimers } from './core/timers'
 
+export { hostTime, type ClockRequest, type ClockState } from './core/clock'
 export type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
-export { observe, type ConsoleLevel, type MockReply, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
+export { observe, type ConsoleLevel, type DialogAnswer, type DialogEvent, type DialogType, type MockReply, type Observer, type PageErrorKind, type RequestEvent, type RequestKind } from './core/observe'
 
 export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly url: string
@@ -117,6 +120,7 @@ export interface WebInternals {
   setScreen(size: { width: number; height: number }): void
   setVisible(visible: boolean): void
   setActive(active: boolean): void
+  clock(request: ClockRequest): Promise<ClockState> | ClockState
   reportError(error: unknown): void
   unhandledRejection(promise: Promise<unknown>, reason: unknown): boolean
   stats(): { strong: number; weak: number }
@@ -143,7 +147,10 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   if (installed) throw new Error('acde-dom is installed in this context already')
   installCore(global, hostNative, options)
   bindDom(domNative)
-  domNative.setLoader((id, url, destination) => loadResource(url, destination, (bytes) => domNative.loaded(id, bytes)))
+  domNative.setLoader((id, url, destination, cors) => loadResource(url, destination, cors, (bytes, opaque) => {
+    domNative.loaded(id, bytes, opaque)
+    if (destination === 'style') loads.expect()
+  }))
   env.url = hostNative.parseUrl(options.url, null)?.href ?? options.url
   objectUrlOrigin.value = new URL(env.url).origin
   net.base = () => env.url
@@ -201,10 +208,10 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   inspectHooks.node = (value) => {
     if (!(value instanceof Node)) return null
     if (value instanceof Element) {
-      const id = value.id, cls = value.getAttribute('class')
+      const id = inner(value, 'id'), cls = inner(value, 'getAttribute').call(value, 'class')
       return `<${value[LOCAL]}${id ? `#${id}` : ''}${cls ? `.${cls.trim().split(/\s+/).join('.')}` : ''}>`
     }
-    return value.nodeType === NodeType.Text ? `#text ${JSON.stringify((value as Text).data.slice(0, 40))}` : value.nodeName
+    return inner(value, 'nodeType') === NodeType.Text ? `#text ${JSON.stringify((value as Text).data.slice(0, 40))}` : inner(value, 'nodeName')
   }
 
   let frameVersion = -1
@@ -243,7 +250,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       moved()
       try {
         deliverScrolls()
-        if (!gpuContexts.behind()) runAnimationFrames(time, report)
+        if (!gpuContexts.behind()) runAnimationFrames(isClockInstalled() ? clockNow() : time, report)
         deliverObservations()
       } catch (error) {
         report(error)
@@ -294,6 +301,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       focus.revision++
       fire(global as unknown as EventTarget, new events.FocusEvent(active ? 'focus' : 'blur'))
     },
+    clock: (request) => clockHandle(request, adoptTimers),
     reportError,
     unhandledRejection(promise, reason) {
       const event = new PromiseRejectionEvent('unhandledrejection', { promise, reason, cancelable: true })

@@ -3,6 +3,8 @@ export const NONE = -1
 export const enum NodeType {
   Element = 1,
   Text = 3,
+  CDataSection = 4,
+  ProcessingInstruction = 7,
   Comment = 8,
   Document = 9,
   DocumentType = 10,
@@ -13,6 +15,7 @@ export const enum Ns {
   Html = 0,
   Svg = 1,
   MathMl = 2,
+  Other = 3,
 }
 
 export interface Metrics {
@@ -54,6 +57,17 @@ export interface DomNative {
   compareDocumentPosition(a: number, b: number): number
 
   createElement(ns: Ns, localName: string): number
+  createElementNS(namespace: string, prefix: string, localName: string): number
+  createCDATASection(data: string): number
+  createProcessingInstruction(target: string, data: string): number
+  processingInstructionTarget(id: number): string
+  createDocument(kind: string, contentType: string, url: string): number
+  documentInfo(id: number): string[]
+  parseXml(text: string, contentType: string, url: string): number
+  ownerDocument(id: number): number
+  adopt(id: number, document: number): void
+  inHtmlDocument(id: number): boolean
+  serializeXml(id: number): string
   createText(data: string): number
   createComment(data: string): number
   createFragment(): number
@@ -67,6 +81,12 @@ export interface DomNative {
 
   localName(id: number): string
   namespace(id: number): Ns
+  namespaceURI(id: number): string
+  prefix(id: number): string
+  attributesNS(id: number): string[]
+  getAttributeNS(id: number, namespace: string, localName: string): string | null
+  setAttributeNS(id: number, namespace: string, prefix: string, localName: string, value: string): boolean
+  removeAttributeNS(id: number, namespace: string, localName: string): boolean
   getAttribute(id: number, name: string): string | null
   setAttribute(id: number, name: string, value: string): boolean
   removeAttribute(id: number, name: string): boolean
@@ -85,7 +105,7 @@ export interface DomNative {
   outerHTML(id: number): string
   parseFragment(context: number, html: string): number
   templateContent(id: number): number
-  parseInert(html: string): number
+  parseInert(html: string, url: string): number
 
   querySelector(root: number, selector: string): number
   querySelectorAll(root: number, selector: string): Uint32Array
@@ -94,6 +114,7 @@ export interface DomNative {
   getElementById(id: string): number
   getElementsByClassName(root: number, classNames: string): Uint32Array
   getElementsByTagName(root: number, qualifiedName: string): Uint32Array
+  getElementsByTagNameNS(root: number, namespace: string, localName: string): Uint32Array
 
   value(id: number): string
   setValue(id: number, value: string): void
@@ -125,6 +146,8 @@ export interface DomNative {
   hitTestAll(x: number, y: number): Uint32Array
   computedStyle(id: number, pseudo: string, property: string): string
   computedStyleAll(id: number, pseudo: string): string[]
+  cssSupports(condition: string): boolean
+  cssSupportsDeclaration(property: string, value: string): boolean
   caretRect(id: number, offset: number): Float64Array
   caretFromPoint(x: number, y: number): { node: number; offset: number } | null
   textRects(id: number, start: number, end: number): Float64Array
@@ -141,8 +164,12 @@ export interface DomNative {
 
   imageState(id: number): Float64Array
   takeLoaded(): Uint32Array
-  setLoader(load: ((id: number, url: string, destination: string) => void) | null): void
-  loaded(id: number, bytes: Uint8Array | null): void
+  sheetState(id: number): number
+  sheetUrl(id: number): string | null
+  sheetOpaque(id: number): boolean
+  sheetSerial(id: number): number
+  setLoader(load: ((id: number, url: string, destination: string, cors: string) => void) | null): void
+  loaded(id: number, bytes: Uint8Array | null, opaque: boolean): void
   canvas(id: number, commands: Uint8Array): void
   measureText(id: number, font: string, text: string): Float64Array
   toDataURL(id: number, type: string): string
@@ -471,6 +498,8 @@ export interface CaptureOpened extends CaptureDevice {
 export interface CaptureNative {
   devices(full: boolean): Promise<CaptureDevice[]>
   permission(kind: 'camera' | 'microphone'): 'granted' | 'denied' | 'prompt'
+  request?(kind: 'camera' | 'microphone'): Promise<boolean>
+  onPermission?(callback: () => void): void
   open(kind: 'audioinput' | 'videoinput', deviceId: string, width: number, height: number, frameRate: number): Promise<CaptureOpened>
   close(source: number): void
   onEnded(callback: (source: number, reason: string) => void): void

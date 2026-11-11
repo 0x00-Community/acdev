@@ -88,7 +88,7 @@ export class Host {
     for (const event of raw) {
       try {
         if (Host.NOTICES.has(event.type)) for (const type of Host.NOTICES.get(event.type)!) this.#windows.notices.emit(type, event)
-        else if (Host.#WINDOW_EVENTS.has(event.type)) this.#windowEvent(event as unknown as WindowEvent)
+        else if (Host.#WINDOW_EVENTS.has(event.type)) this.#windows.deliver(event as unknown as WindowEvent)
       } catch (error) {
         Host.report(error)
       }
@@ -144,11 +144,6 @@ export class Host {
         if (event.key === 'PrintScreen') return void this.#screenshot()
     }
     this.#input(event)
-  }
-
-  #windowEvent(event: WindowEvent): void {
-    if (event.type === 'windowopen' || event.type === 'windowclose' || event.type === 'windowtitle') this.#windows.track(event)
-    this.#windows.notices.emit(`windows:${event.type.slice('window'.length)}`, event)
   }
 
   #input(event: ShellEvent): void {

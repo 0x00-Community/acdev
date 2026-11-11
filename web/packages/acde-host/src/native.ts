@@ -15,6 +15,7 @@ export const WINDOW_EVENTS = [
   'windowactivate', 'windowminsize', 'windowparent', 'windowmenus', 'windowcrash', 'windowhang', 'windowresponsive',
   'windowattention', 'windowready', 'windowshow', 'windowanimated',
 ] as const
+export const WINDOWS_EVENT_NAMES: readonly string[] = WINDOW_EVENTS.map((type) => type.slice('window'.length))
 type WindowEventType = (typeof WINDOW_EVENTS)[number]
 export interface WindowEvent {
   readonly type: WindowEventType

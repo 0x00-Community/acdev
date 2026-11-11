@@ -11,7 +11,7 @@ use crate::caret::{Caret, utf16_to_byte};
 use crate::engine::Engine;
 use crate::geometry::Geometry;
 use crate::serialize::Serializer;
-use crate::tree::{Doctype, Tree};
+use crate::tree::{Doctype, DocumentInfo, Tree};
 use crate::{Capture, CaretPosition, Error, Metrics, Result, Shared, Stats, TextMetrics};
 
 mod select;
@@ -26,6 +26,8 @@ pub const NONE: u32 = u32::MAX;
 pub enum NodeType {
     Element = 1,
     Text = 3,
+    CDataSection = 4,
+    ProcessingInstruction = 7,
     Comment = 8,
     Document = 9,
     DocumentType = 10,
@@ -38,6 +40,7 @@ pub enum Ns {
     Html = 0,
     Svg = 1,
     MathMl = 2,
+    Other = 3,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -235,6 +238,150 @@ impl Dom {
         self.create(|e| Ok(e.tree().create_element(namespace(ns), local_name)))
     }
 
+    pub fn create_element_ns(&self, namespace: &str, prefix: &str, local_name: &str) -> Result<u32> {
+        self.create(|e| {
+            let name = QualName::new((!prefix.is_empty()).then(|| prefix.into()), namespace.into(), local_name.into());
+            Ok(e.tree().create_element_named(name))
+        })
+    }
+
+    pub fn create_cdata(&self, data: &str) -> Result<u32> {
+        self.create(|e| {
+            let node = e.tree().m.create_text_node(data);
+            e.ids.cdata.insert(node);
+            Ok(node)
+        })
+    }
+
+    pub fn create_processing_instruction(&self, target: &str, data: &str) -> Result<u32> {
+        self.create(|e| {
+            let node = e.tree().m.create_comment_node(data);
+            e.ids.pis.insert(node, target.to_owned());
+            Ok(node)
+        })
+    }
+
+    pub fn processing_instruction_target(&self, id: u32) -> Result<String> {
+        self.read(|e| e.ids.pis.get(&e.n(id)?).cloned().ok_or_else(|| fail("InvalidNodeTypeError", "not a processing instruction")))
+    }
+
+    pub fn create_document(&self, interface: &str, content_type: &str, url: &str) -> Result<u32> {
+        self.create(|e| {
+            let holder = e.new_fragment();
+            e.ids.documents.insert(holder, DocumentInfo::new(interface, content_type, url));
+            Ok(holder)
+        })
+    }
+
+    pub fn document_info(&self, id: u32) -> Result<[String; 3]> {
+        self.read(|e| {
+            let node = e.n(id)?;
+            Ok(match e.ids.documents.get(&node) {
+                Some(info) => [info.interface.to_owned(), info.content_type.clone(), info.url.clone()],
+                None => ["html".to_owned(), "text/html".to_owned(), String::new()],
+            })
+        })
+    }
+
+    pub fn owner_document(&self, id: u32) -> Result<u32> {
+        self.read(|e| {
+            let node = e.n(id)?;
+            let owner = e.ids.owners.get(&node).copied();
+            Ok(match owner {
+                Some(doc) => e.ids.id_of(doc),
+                None => e.ids.id_of(e.doc.root_node().id),
+            })
+        })
+    }
+
+    pub fn adopt(&self, id: u32, document: u32) -> Result<()> {
+        self.write(|e| {
+            let node = e.n(id)?;
+            let document = e.n(document)?;
+            let owner = (document != e.doc.root_node().id).then_some(document);
+            e.adopt_into(node, owner);
+            Ok(())
+        })
+    }
+
+    pub fn in_html_document(&self, id: u32) -> Result<bool> {
+        self.read(|e| Ok(!e.in_xml_document(e.n(id)?)))
+    }
+
+    pub fn parse_xml(&self, text: &str, content_type: &str, url: &str) -> Result<u32> {
+        self.create(|e| {
+            let holder = e.new_fragment();
+            e.ids.documents.insert(holder, DocumentInfo::new("document", content_type, url));
+            let parsed = {
+                let mut tree = e.tree();
+                match crate::xml::document(&mut tree.m, holder, text) {
+                    Ok(parsed) => parsed,
+                    Err(error) => {
+                        for child in tree.m.child_ids(holder) {
+                            tree.m.remove_and_drop_node(child);
+                        }
+                        crate::xml::parsererror(&mut tree.m, holder, &error);
+                        crate::parse::Parsed::default()
+                    }
+                }
+            };
+            e.adopt(parsed);
+            e.adopt_into(holder, Some(holder));
+            e.register(holder);
+            Ok(holder)
+        })
+    }
+
+    pub fn namespace_uri(&self, id: u32) -> Result<String> {
+        self.read(|e| Ok(e.element(id)?.name.ns.to_string()))
+    }
+
+    pub fn prefix(&self, id: u32) -> Result<String> {
+        self.read(|e| Ok(e.element(id)?.name.prefix.as_ref().map(|p| p.to_string()).unwrap_or_default()))
+    }
+
+    pub fn attributes_ns(&self, id: u32) -> Result<Vec<String>> {
+        self.read(|e| {
+            Ok(e.element(id)?
+                .attrs()
+                .iter()
+                .flat_map(|a| {
+                    [a.name.ns.to_string(), a.name.prefix.as_ref().map(|p| p.to_string()).unwrap_or_default(), a.name.local.to_string(), a.value.clone()]
+                })
+                .collect())
+        })
+    }
+
+    pub fn get_attribute_ns(&self, id: u32, namespace: &str, local_name: &str) -> Result<Option<String>> {
+        self.read(|e| Ok(e.find_attribute_ns(e.n(id)?, namespace, local_name)?.map(|(_, v)| v)))
+    }
+
+    pub fn set_attribute_ns(&self, id: u32, namespace: &str, prefix: &str, local_name: &str, value: &str) -> Result<bool> {
+        self.write_changed(&[id], |e| {
+            let node = e.n(id)?;
+            let qual = match e.find_attribute_ns(node, namespace, local_name)? {
+                Some((qual, old)) if old == value && !matches!(&*qual.local, "value" | "style") => return Ok(false),
+                Some((qual, _)) => qual,
+                None => QualName::new((!prefix.is_empty()).then(|| prefix.into()), namespace.into(), local_name.into()),
+            };
+            e.store_attribute(id, node, qual, Some(value));
+            Ok(true)
+        })
+    }
+
+    pub fn remove_attribute_ns(&self, id: u32, namespace: &str, local_name: &str) -> Result<bool> {
+        self.write_changed(&[id], |e| {
+            let node = e.n(id)?;
+            let Some((qual, _)) = e.find_attribute_ns(node, namespace, local_name)? else { return Ok(false) };
+            e.store_attribute(id, node, qual, None);
+            Ok(true)
+        })
+    }
+
+    pub fn get_elements_by_tag_name_ns(&self, root: u32, namespace: &str, local_name: &str) -> Result<Vec<u32>> {
+        self.elements(root, |el| (namespace == "*" || *el.name.ns == *namespace) && (local_name == "*" || *el.name.local == *local_name))
+    }
+
     pub fn create_text(&self, data: &str) -> Result<u32> {
         self.create(|e| Ok(e.tree().m.create_text_node(data)))
     }
@@ -368,7 +515,7 @@ impl Dom {
                 let nodes: Vec<NodeId> = text.into_iter().collect();
                 e.replace_children(node, &nodes)
             }
-            NodeType::Text | NodeType::Comment => {
+            NodeType::Text | NodeType::CDataSection | NodeType::Comment | NodeType::ProcessingInstruction => {
                 e.set_data(node, text);
                 Ok(())
             }
@@ -385,15 +532,45 @@ impl Dom {
     }
 
     pub fn inner_html(&self, id: u32) -> Result<String> {
-        self.on(id, |e, n| Serializer { doc: &e.doc, ids: &e.ids }.inner(n))
+        self.read(|e| {
+            let n = e.n(id)?;
+            match e.in_xml_document(n) {
+                true => e.xml_serialize(n, true, false),
+                false => Ok(Serializer { doc: &e.doc, ids: &e.ids }.inner(n)),
+            }
+        })
     }
 
     pub fn outer_html(&self, id: u32) -> Result<String> {
-        self.on(id, |e, n| Serializer { doc: &e.doc, ids: &e.ids }.outer(n))
+        self.read(|e| {
+            let n = e.n(id)?;
+            match e.in_xml_document(n) {
+                true => e.xml_serialize(n, true, true),
+                false => Ok(Serializer { doc: &e.doc, ids: &e.ids }.outer(n)),
+            }
+        })
+    }
+
+    pub fn serialize_xml(&self, id: u32) -> Result<String> {
+        self.read(|e| {
+            let n = e.n(id)?;
+            e.xml_serialize(n, false, true)
+        })
     }
 
     pub fn parse_fragment(&self, context: u32, html: &str) -> Result<u32> {
-        self.create(|e| Ok(e.parse_fragment(e.n(context)?, html)))
+        self.create(|e| {
+            let context = e.n(context)?;
+            if e.in_xml_document(context) {
+                return e.parse_xml_fragment(context, html);
+            }
+            let holder = e.parse_fragment(context, html);
+            let owner = e.owner_of(context);
+            if owner.is_some() {
+                e.adopt_into(holder, owner);
+            }
+            Ok(holder)
+        })
     }
 
     pub fn template_content(&self, id: u32) -> Result<u32> {
@@ -442,7 +619,8 @@ impl Dom {
 
     pub fn get_elements_by_tag_name(&self, root: u32, qualified_name: &str) -> Result<Vec<u32>> {
         let lower = qualified_name.to_ascii_lowercase();
-        self.elements(root, |el| qualified_name == "*" || qualified(&el.name) == if el.name.ns == ns!(html) { lower.as_str() } else { qualified_name })
+        let xml = self.read(|e| Ok(e.in_xml_document(e.n(root)?)))?;
+        self.elements(root, |el| qualified_name == "*" || qualified(&el.name) == if el.name.ns == ns!(html) && !xml { lower.as_str() } else { qualified_name })
     }
 
     fn elements(&self, root: u32, keep: impl Fn(&blitz_dom::ElementData) -> bool) -> Result<Vec<u32>> {
@@ -616,6 +794,14 @@ impl Dom {
         })
     }
 
+    pub fn css_supports(&self, condition: &str) -> Result<bool> {
+        self.read(|e| Ok(e.doc.css_supports_condition(condition)))
+    }
+
+    pub fn css_supports_declaration(&self, property: &str, value: &str) -> Result<bool> {
+        self.read(|e| Ok(e.doc.css_supports_declaration(property, value)))
+    }
+
     pub fn computed_style_all(&self, id: u32, pseudo: &str) -> Result<Vec<String>> {
         self.on(id, |e, node| {
             e.resolved();
@@ -664,6 +850,30 @@ impl Dom {
 
     pub fn take_loaded(&self) -> Vec<u32> {
         self.read(|e| Ok(e.take_loaded())).unwrap_or_default()
+    }
+
+    pub fn sheet_state(&self, id: u32) -> Result<u8> {
+        self.on(id, |e, node| {
+            e.doc.handle_messages();
+            match e.doc.stylesheet_load(node) {
+                Some(blitz_dom::net::SheetLoadState::Loading) => LOADING,
+                Some(blitz_dom::net::SheetLoadState::Loaded) => LOADED,
+                Some(blitz_dom::net::SheetLoadState::Failed) => FAILED,
+                None => NO_SRC,
+            }
+        })
+    }
+
+    pub fn sheet_url(&self, id: u32) -> Result<Option<String>> {
+        self.on(id, |e, node| e.doc.stylesheet_source(node).map(|(url, _, _)| url.to_owned()))
+    }
+
+    pub fn sheet_opaque(&self, id: u32) -> Result<bool> {
+        self.on(id, |e, node| e.doc.stylesheet_source(node).is_some_and(|(_, opaque, _)| opaque))
+    }
+
+    pub fn sheet_serial(&self, id: u32) -> Result<Option<u32>> {
+        self.on(id, |e, node| e.doc.stylesheet_source(node).map(|(_, _, request)| request as u32))
     }
 
     pub fn canvas(&self, id: u32, commands: &[u8]) -> Result<()> {
@@ -788,6 +998,10 @@ impl Dom {
                     Some(data) => (ns_of(&data.name), data.name.local.to_string()),
                     None => (Ns::Html, String::new()),
                 },
+                NodeType::Document => match e.ids.documents.get(&node) {
+                    Some(info) => (Ns::Html, info.interface.to_owned()),
+                    None => (Ns::Html, String::new()),
+                },
                 _ => (Ns::Html, String::new()),
             };
             let connected = e.connected(node);
@@ -796,14 +1010,16 @@ impl Dom {
         })
     }
 
-    pub fn parse_inert(&self, html: &str) -> Result<u32> {
+    pub fn parse_inert(&self, html: &str, url: &str) -> Result<u32> {
         self.create(|e| {
             let holder = e.new_fragment();
+            e.ids.documents.insert(holder, DocumentInfo::new("html", "text/html", url));
             let parsed = {
                 let mut tree = e.tree();
                 crate::parse::document(&mut tree.m, holder, html)
             };
             e.adopt(parsed);
+            e.adopt_into(holder, Some(holder));
             e.register(holder);
             Ok(holder)
         })
@@ -925,13 +1141,18 @@ impl Engine {
         let Some(n) = self.doc.get_node(node) else { return NodeType::Comment };
         match &n.data {
             NodeData::Document(_) => NodeType::Document,
-            NodeData::Element(_) if is_fragment(n) => NodeType::DocumentFragment,
-            NodeData::Element(_) | NodeData::AnonymousBlock(_) => NodeType::Element,
-            NodeData::Text(_) => NodeType::Text,
-            NodeData::Comment { .. } => match self.ids.doctypes.contains_key(&node) {
-                true => NodeType::DocumentType,
-                false => NodeType::Comment,
+            NodeData::Element(_) if is_fragment(n) => match self.ids.documents.contains_key(&node) {
+                true => NodeType::Document,
+                false => NodeType::DocumentFragment,
             },
+            NodeData::Element(_) | NodeData::AnonymousBlock(_) => NodeType::Element,
+            NodeData::Text(_) => match self.ids.cdata.contains(&node) {
+                true => NodeType::CDataSection,
+                false => NodeType::Text,
+            },
+            NodeData::Comment { .. } if self.ids.doctypes.contains_key(&node) => NodeType::DocumentType,
+            NodeData::Comment { .. } if self.ids.pis.contains_key(&node) => NodeType::ProcessingInstruction,
+            NodeData::Comment { .. } => NodeType::Comment,
         }
     }
 
@@ -1074,7 +1295,7 @@ impl Engine {
         let kind = self.kind(node);
         match kind {
             NodeType::Document => return hierarchy("a document cannot be inserted"),
-            NodeType::Text if parent_kind == NodeType::Document => return hierarchy("text cannot be a child of the document"),
+            NodeType::Text | NodeType::CDataSection if parent_kind == NodeType::Document => return hierarchy("text cannot be a child of the document"),
             NodeType::DocumentType if parent_kind != NodeType::Document => {
                 return hierarchy("a doctype can only be a child of the document");
             }
@@ -1101,7 +1322,7 @@ impl Engine {
             NodeType::DocumentFragment => {
                 let inner = &self.doc.tree()[node].children;
                 let elements = inner.iter().filter(|&&c| kind_of(c) == NodeType::Element).count();
-                if elements > 1 || inner.iter().any(|&c| kind_of(c) == NodeType::Text) {
+                if elements > 1 || inner.iter().any(|&c| matches!(kind_of(c), NodeType::Text | NodeType::CDataSection)) {
                     return hierarchy("a document has at most one element child and no text");
                 }
                 if elements == 1 && (has_element || child_is_doctype || child.is_some_and(doctype_after)) {
@@ -1136,6 +1357,12 @@ impl Engine {
         if nodes.is_empty() {
             return Ok(());
         }
+        let owner = self.owner_of(parent);
+        for &node in &nodes {
+            if self.ids.owners.get(&node).copied() != owner {
+                self.adopt_into(node, owner);
+            }
+        }
         let left = self.lists_left(&nodes);
         {
             let mut tree = self.tree();
@@ -1160,8 +1387,14 @@ impl Engine {
         let new: Vec<NodeId> = nodes.iter().flat_map(|&n| self.expand(n)).collect();
         if self.kind(parent) == NodeType::Document {
             let count = |k: NodeType| new.iter().filter(|&&n| self.kind(n) == k).count();
-            if count(NodeType::Element) > 1 || count(NodeType::DocumentType) > 1 || count(NodeType::Text) > 0 {
+            if count(NodeType::Element) > 1 || count(NodeType::DocumentType) > 1 || count(NodeType::Text) + count(NodeType::CDataSection) > 0 {
                 return Err(fail("HierarchyRequestError", "a document has at most one element and one doctype child"));
+            }
+        }
+        let owner = self.owner_of(parent);
+        for &node in &new {
+            if self.ids.owners.get(&node).copied() != owner {
+                self.adopt_into(node, owner);
             }
         }
         let kept: std::collections::HashSet<NodeId> = new.iter().copied().collect();
@@ -1196,6 +1429,10 @@ impl Engine {
         for node in self.subtree(root) {
             let Some(e) = self.doc.get_node(node).and_then(|n| n.element_data()) else { continue };
             let html = e.name.ns == ns!(html);
+            if html && &*e.name.local == "input" {
+                self.show_form_state(node);
+                continue;
+            }
             if !(html && &*e.name.local == "img") {
                 continue;
             }
@@ -1208,6 +1445,8 @@ impl Engine {
     fn adopt(&mut self, parsed: crate::parse::Parsed) {
         self.ids.doctypes.extend(parsed.doctypes);
         self.ids.templates.extend(parsed.templates);
+        self.ids.pis.extend(parsed.pis);
+        self.ids.cdata.extend(parsed.cdata);
     }
 
     fn parse_document(&mut self, html: &str) {
@@ -1223,6 +1462,52 @@ impl Engine {
         self.adopt(parsed);
         self.register(document);
         self.collect(&old);
+    }
+
+    fn xml_scope(&self, context: NodeId) -> Vec<(String, String)> {
+        let mut chain = vec![context];
+        chain.extend(self.ancestors(context));
+        let mut scope = Vec::new();
+        for &node in chain.iter().rev() {
+            let Some(e) = self.doc.get_node(node).and_then(|n| n.element_data()) else { continue };
+            if is_fragment_name(&e.name) {
+                continue;
+            }
+            scope.push((e.name.prefix.as_ref().map(|p| p.to_string()).unwrap_or_default(), e.name.ns.to_string()));
+            for a in e.attrs() {
+                if &*a.name.ns != crate::xml::XMLNS_NS {
+                    continue;
+                }
+                match &a.name.prefix {
+                    Some(_) => scope.push((a.name.local.to_string(), a.value.clone())),
+                    None => scope.push((String::new(), a.value.clone())),
+                }
+            }
+        }
+        scope.retain(|(p, _)| p != "xml" && p != "xmlns");
+        scope
+    }
+
+    fn parse_xml_fragment(&mut self, context: NodeId, text: &str) -> Result<NodeId> {
+        let holder = self.new_fragment();
+        let scope = self.xml_scope(context);
+        let parsed = {
+            let mut tree = self.tree();
+            crate::xml::fragment(&mut tree.m, holder, text, scope)
+        };
+        match parsed {
+            Ok(parsed) => {
+                self.adopt(parsed);
+                let owner = self.owner_of(context);
+                self.adopt_into(holder, owner);
+                self.register(holder);
+                Ok(holder)
+            }
+            Err(error) => {
+                self.tree().m.remove_and_drop_node(holder);
+                Err(fail("SyntaxError", error))
+            }
+        }
     }
 
     fn parse_fragment(&mut self, context: NodeId, html: &str) -> NodeId {
@@ -1272,15 +1557,33 @@ impl Engine {
         let children = n.children.to_vec();
         let (copy, content) = match what {
             What::Element(name, attrs, content) => (tree.m.create_element(name, attrs), content),
-            What::Text(text) => (tree.m.create_text_node(&text), None),
+            What::Text(text) => {
+                let copy = tree.m.create_text_node(&text);
+                if tree.ids.cdata.contains(&node) {
+                    tree.ids.cdata.insert(copy);
+                }
+                (copy, None)
+            }
             What::Comment(text) => {
                 let copy = tree.m.create_comment_node(&text);
                 if let Some(d) = tree.ids.doctypes.get(&node).cloned() {
                     tree.ids.doctypes.insert(copy, d);
                 }
+                if let Some(target) = tree.ids.pis.get(&node).cloned() {
+                    tree.ids.pis.insert(copy, target);
+                }
                 (copy, None)
             }
         };
+        if let Some(info) = tree.ids.documents.get(&node).cloned() {
+            tree.ids.documents.insert(copy, info);
+        } else if let Some(&owner) = tree.ids.owners.get(&node) {
+            tree.ids.owners.insert(copy, owner);
+            let xml = tree.ids.documents.get(&owner).is_some_and(|info| info.xml);
+            if let Some(data) = tree.m.doc.get_node_mut(copy) {
+                data.flags.set(blitz_dom::node::NodeFlags::IN_XML_DOCUMENT, xml);
+            }
+        }
         if let Some(form) = tree.ids.forms.get(&node).cloned() {
             tree.ids.forms.insert(copy, form);
         }
@@ -1341,7 +1644,7 @@ impl Engine {
     fn find_attribute(&self, node: NodeId, name: &str) -> Result<Option<(QualName, String)>> {
         let n = &self.doc.tree()[node];
         let e = n.element_data().filter(|_| n.is_element() && !is_fragment(n)).ok_or_else(|| fail("InvalidNodeTypeError", "not an element"))?;
-        let name = match e.name.ns == ns!(html) {
+        let name = match e.name.ns == ns!(html) && !self.in_xml_document(node) {
             true => std::borrow::Cow::Owned(name.to_ascii_lowercase()),
             false => std::borrow::Cow::Borrowed(name),
         };
@@ -1354,11 +1657,78 @@ impl Engine {
             .map(|a| (a.name.clone(), a.value.clone())))
     }
 
+    fn find_attribute_ns(&self, node: NodeId, namespace: &str, local_name: &str) -> Result<Option<(QualName, String)>> {
+        let n = &self.doc.tree()[node];
+        let e = n.element_data().filter(|_| n.is_element() && !is_fragment(n)).ok_or_else(|| fail("InvalidNodeTypeError", "not an element"))?;
+        Ok(e.attrs().iter().find(|a| *a.name.ns == *namespace && *a.name.local == *local_name).map(|a| (a.name.clone(), a.value.clone())))
+    }
+
+    fn store_attribute(&mut self, id: u32, node: NodeId, qual: QualName, value: Option<&str>) {
+        let html = self.doc.tree()[node].element_data().is_some_and(|e| e.name.ns == ns!(html));
+        let local = qual.local.clone();
+        let plain = qual.ns == ns!();
+        self.tree().set_attribute(id, node, qual, value);
+        if !plain {
+            return;
+        }
+        match &*local {
+            "value" | "checked" | "min" | "max" | "step" | "type" => self.show_form_state(node),
+            "src" => self.register(node),
+            _ => {}
+        }
+        if html {
+            self.select_attribute_changed(node, &local);
+        }
+    }
+
+    fn xml_serialize(&self, node: NodeId, well_formed: bool, outer: bool) -> Result<String> {
+        let documents = |n: NodeId| self.ids.documents.contains_key(&n);
+        let serializer = crate::serialize::XmlSerializer { doc: &self.doc, ids: &self.ids, well_formed, documents: &documents };
+        let result = match outer {
+            true => serializer.outer(node),
+            false => serializer.inner(node),
+        };
+        result.map_err(|message| fail("InvalidStateError", message))
+    }
+
+    pub(crate) fn owner_of(&self, node: NodeId) -> Option<NodeId> {
+        match self.ids.documents.contains_key(&node) {
+            true => Some(node),
+            false => self.ids.owners.get(&node).copied(),
+        }
+    }
+
+    pub(crate) fn in_xml_document(&self, node: NodeId) -> bool {
+        !self.ids.owners.is_empty() && self.owner_of(node).and_then(|d| self.ids.documents.get(&d)).is_some_and(|info| info.xml)
+    }
+
+    fn adopt_into(&mut self, node: NodeId, owner: Option<NodeId>) {
+        let xml = owner.and_then(|d| self.ids.documents.get(&d)).is_some_and(|info| info.xml);
+        let mut stack = vec![node];
+        while let Some(n) = stack.pop() {
+            if !self.ids.documents.contains_key(&n) {
+                match owner {
+                    Some(doc) => self.ids.owners.insert(n, doc),
+                    None => self.ids.owners.remove(&n),
+                };
+            }
+            if let Some(data) = self.doc.get_node_mut(n) {
+                data.flags.set(blitz_dom::node::NodeFlags::IN_XML_DOCUMENT, xml);
+            }
+            if let Some(data) = self.doc.get_node(n) {
+                stack.extend(data.children.iter().copied());
+                if let Some(content) = data.element_data().and_then(|e| e.template_contents) {
+                    stack.push(content);
+                }
+            }
+        }
+    }
+
     fn set_attribute_dom(&mut self, id: u32, name: &str, value: Option<&str>) -> Result<bool> {
         let node = self.n(id)?;
         let existing = self.find_attribute(node, name)?;
         let element = self.doc.tree()[node].element_data();
-        let html = element.is_some_and(|e| e.name.ns == ns!(html));
+        let html = element.is_some_and(|e| e.name.ns == ns!(html)) && !self.in_xml_document(node);
         let canvas = html && element.is_some_and(|e| &*e.name.local == "canvas");
         let qual = match existing {
             Some((qual, old))
@@ -1377,16 +1747,7 @@ impl Engine {
                 },
             ),
         };
-        let local = qual.local.clone();
-        self.tree().set_attribute(id, node, qual, value);
-        match &*local {
-            "value" | "checked" => self.show_form_state(node),
-            "src" => self.register(node),
-            _ => {}
-        }
-        if html {
-            self.select_attribute_changed(node, &local);
-        }
+        self.store_attribute(id, node, qual, value);
         Ok(true)
     }
 
@@ -1403,6 +1764,7 @@ impl Engine {
                 match kind.as_deref() {
                     None | Some("text" | "password" | "email" | "number" | "search" | "tel" | "url") => Control::Editor(false),
                     Some("checkbox" | "radio") => Control::Checkable,
+                    Some("range") => Control::Range,
                     Some("hidden" | "submit" | "reset" | "button" | "image") => Control::Default,
                     Some(_) => Control::Value,
                 }
@@ -1419,6 +1781,16 @@ impl Engine {
         match self.control(node) {
             Control::Editor(true) => dirty.unwrap_or_else(|| n.text_content()),
             Control::Editor(false) | Control::Value => dirty.or_else(|| attr(blitz_dom::local_name!("value"))).unwrap_or_default(),
+            Control::Range => {
+                let raw = dirty.or_else(|| attr(blitz_dom::local_name!("value")));
+                let range = RangeValue::new(
+                    n.attr(blitz_dom::local_name!("min")),
+                    n.attr(blitz_dom::local_name!("max")),
+                    n.attr(blitz_dom::local_name!("step")),
+                    raw.as_deref(),
+                );
+                number_string(range.value)
+            }
             Control::Checkable => attr(blitz_dom::local_name!("value")).unwrap_or_else(|| "on".into()),
             Control::Select => self.options(node).into_iter().find(|&o| self.selectedness(o)).map(|o| self.value(o)).unwrap_or_default(),
             Control::Default if n.data.is_element_with_tag_name(&blitz_dom::local_name!("option")) => {
@@ -1439,6 +1811,11 @@ impl Engine {
                 self.show_form_state(node);
             }
             Control::Value => self.ids.forms.entry(node).or_default().value = Some(value.to_owned()),
+            Control::Range => {
+                let sanitized = self.range_of(node, Some(value)).map(|r| number_string(r.value)).unwrap_or_default();
+                self.ids.forms.entry(node).or_default().value = Some(sanitized);
+                self.show_form_state(node);
+            }
             Control::Select => {
                 let index = self.options(node).iter().position(|&o| self.value(o) == value).map_or(-1, |i| i as i32);
                 self.set_selected_index(node, index);
@@ -1496,8 +1873,35 @@ impl Engine {
             .find(|&a| self.doc.get_node(a).is_some_and(|n| n.data.is_element_with_tag_name(&blitz_dom::local_name!("form"))))
     }
 
+    fn range_of(&self, node: NodeId, value: Option<&str>) -> Option<RangeValue> {
+        let e = self.doc.get_node(node).and_then(|n| n.element_data())?;
+        let attr = |name: &str| e.attrs().iter().find(|a| a.name.ns == ns!() && &*a.name.local == name).map(|a| a.value.as_str());
+        Some(RangeValue::new(attr("min"), attr("max"), attr("step"), value.or_else(|| attr("value"))))
+    }
+
     fn show_form_state(&mut self, node: NodeId) {
-        match self.control(node) {
+        let control = self.control(node);
+        if !matches!(control, Control::Range)
+            && let Some(e) = self.doc.get_node_mut(node).and_then(|n| n.element_data_mut())
+            && matches!(e.special_data, SpecialElementData::RangeInput(_))
+        {
+            e.special_data = SpecialElementData::None;
+            e.repaint();
+        }
+        match control {
+            Control::Range => {
+                let dirty = self.ids.forms.get(&node).and_then(|f| f.value.clone());
+                let Some(range) = self.range_of(node, dirty.as_deref()) else { return };
+                if dirty.is_some() {
+                    self.ids.forms.entry(node).or_default().value = Some(number_string(range.value));
+                }
+                let fraction = range.fraction();
+                let Some(e) = self.doc.get_node_mut(node).and_then(|n| n.element_data_mut()) else { return };
+                if e.range_input_fraction() != Some(fraction) {
+                    e.special_data = SpecialElementData::RangeInput(fraction);
+                    e.repaint();
+                }
+            }
             Control::Editor(multiline) => {
                 let Some(value) = self.ids.forms.get(&node).and_then(|f| f.value.clone()) else { return };
                 let Some(e) = self.doc.get_node_mut(node).and_then(|n| n.element_data_mut()) else { return };
@@ -1608,10 +2012,18 @@ impl Engine {
         let doc = geometry.doc;
         let mut m = geometry.metrics(node)?;
         let parent = geometry.offset_parent(node);
-        if doc.try_root_element().is_some_and(|r| r.id == node) {
+        if let Some(root) = doc.try_root_element().filter(|r| r.id == node) {
             let scroll = doc.viewport_scroll();
             m.scroll_left = scroll.x;
             m.scroll_top = scroll.y;
+            let viewport = doc.viewport();
+            let scale = viewport.scale_f64();
+            let (width, height) = (f64::from(viewport.window_size.0) / scale, f64::from(viewport.window_size.1) / scale);
+            let layout = root.final_layout();
+            m.client_width = width;
+            m.client_height = height;
+            m.scroll_width = width.max(f64::from(layout.size.width.max(layout.scrollable_overflow_rect.right)));
+            m.scroll_height = height.max(f64::from(layout.size.height.max(layout.scrollable_overflow_rect.bottom)));
         }
         m.offset_parent = parent.map(|p| self.ids.id_of(p));
         Some(m)
@@ -1722,6 +2134,9 @@ impl Engine {
             if report {
                 changed.push(id);
             }
+        }
+        for node in self.doc.take_settled_stylesheets() {
+            changed.push(self.ids.id_of(node));
         }
         changed.sort_unstable();
         changed
@@ -1837,6 +2252,7 @@ impl Engine {
 enum Control {
     Editor(bool),
     Value,
+    Range,
     Checkable,
     Select,
     Default,
@@ -1857,14 +2273,16 @@ fn namespace(ns: Ns) -> blitz_dom::Namespace {
         Ns::Html => ns!(html),
         Ns::Svg => ns!(svg),
         Ns::MathMl => ns!(mathml),
+        Ns::Other => ns!(),
     }
 }
 
 fn ns_of(name: &QualName) -> Ns {
     match name.ns {
+        ns!(html) => Ns::Html,
         ns!(svg) => Ns::Svg,
         ns!(mathml) => Ns::MathMl,
-        _ => Ns::Html,
+        _ => Ns::Other,
     }
 }
 
@@ -1880,4 +2298,92 @@ fn css_context(url: &style::stylesheets::UrlExtraData, rule: style::stylesheets:
         None,
         Default::default(),
     )
+}
+
+pub(crate) fn valid_float(text: &str) -> Option<f64> {
+    let bytes = text.as_bytes();
+    let mut i = usize::from(bytes.first() == Some(&b'-'));
+    let digits = |i: &mut usize| {
+        let start = *i;
+        while bytes.get(*i).is_some_and(u8::is_ascii_digit) {
+            *i += 1;
+        }
+        *i > start
+    };
+    let whole = digits(&mut i);
+    let fraction = bytes.get(i) == Some(&b'.') && {
+        i += 1;
+        digits(&mut i)
+    };
+    if !whole && !fraction {
+        return None;
+    }
+    if matches!(bytes.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(bytes.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        if !digits(&mut i) {
+            return None;
+        }
+    }
+    (i == bytes.len()).then(|| text.parse::<f64>().ok()).flatten().filter(|v| v.is_finite())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RangeValue {
+    pub(crate) min: f64,
+    pub(crate) max: f64,
+    pub(crate) value: f64,
+}
+
+impl RangeValue {
+    pub(crate) fn new(min: Option<&str>, max: Option<&str>, step: Option<&str>, value: Option<&str>) -> Self {
+        let places = |text: Option<&str>| text.and_then(|t| valid_float(t).map(|_| t)).map_or(0, decimal_places);
+        let precision = places(min).max(places(step));
+        let min = min.and_then(valid_float).unwrap_or(0.0);
+        let max = max.and_then(valid_float).unwrap_or(100.0).max(min);
+        let step = match step.map(str::trim) {
+            Some(s) if s.eq_ignore_ascii_case("any") => None,
+            Some(s) => Some(valid_float(s).filter(|v| *v > 0.0).unwrap_or(1.0)),
+            None => Some(1.0),
+        };
+        let fallback = min + (max - min) / 2.0;
+        let mut v = value.and_then(valid_float).unwrap_or(fallback).clamp(min, max);
+        if let Some(step) = step {
+            let scale = 10f64.powi(precision.min(15) as i32);
+            let (lo, hi, unit) = ((min * scale).round(), (max * scale + 1e-6).floor(), (step * scale).round().max(1.0));
+            let at = (v * scale).round();
+            let mut snapped = lo + ((at - lo) / unit + 0.5).floor() * unit;
+            if snapped > hi {
+                snapped = lo + ((hi - lo) / unit).floor() * unit;
+            }
+            v = snapped / scale;
+        }
+        Self { min, max, value: v }
+    }
+
+    pub(crate) fn fraction(&self) -> f64 {
+        match self.max > self.min {
+            true => (self.value - self.min) / (self.max - self.min),
+            false => 0.0,
+        }
+    }
+}
+
+pub(crate) fn number_string(value: f64) -> String {
+    if value == 0.0 {
+        return "0".into();
+    }
+    if value.fract() == 0.0 && value.abs() < 1e21 {
+        return format!("{value:.0}");
+    }
+    format!("{value}")
+}
+
+fn decimal_places(text: &str) -> usize {
+    let lower = text.to_ascii_lowercase();
+    let (mantissa, exponent) = lower.split_once('e').map_or((lower.as_str(), 0i64), |(m, e)| (m, e.parse().unwrap_or(0)));
+    let fraction = mantissa.split_once('.').map_or(0, |(_, f)| f.len()) as i64;
+    (fraction - exponent).max(0) as usize
 }

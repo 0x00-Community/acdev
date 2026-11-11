@@ -27,7 +27,7 @@ export function globals(global: object, values: Record<string, unknown>): void {
 }
 
 export function queueTask(fn: () => void): void {
-  ;(G['setTimeout'] as (f: () => void, ms: number) => void)(fn, 0)
+  host.setTimer(0, () => guarded(fn), true)
 }
 
 export function tag(cls: { prototype: object; name: string }, name = cls.name): void {

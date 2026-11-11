@@ -1,22 +1,31 @@
+import * as clock from './clock'
+import type { ClockTimer } from './clock'
 import { host, report } from './host'
 
-interface Timer {
-  handle: number
+interface Timer extends ClockTimer {
   readonly callback: unknown
   readonly args: unknown[]
-  readonly ms: number
-  readonly repeat: boolean
-  refed: boolean
+  handle: { cancel(): void; ref(refed: boolean): void }
 }
 
 const timers = new Map<number, Timer>()
 let nextId = 1
 
-function run(id: number): void {
-  const timer = timers.get(id)
-  if (!timer) return
-  if (timer.repeat) timer.handle = host.setTimer(timer.ms, () => run(id), timer.refed)
-  else timers.delete(id)
+const real = (timer: ClockTimer) => {
+  const handle = host.setTimer(Math.max(0, timer.due - host.now()), () => {
+    if (timer.repeat) arm(timer as Timer)
+    timer.fire()
+  }, timer.refed)
+  return { cancel: () => host.clearTimer(handle), ref: (refed: boolean) => host.refTimer(handle, refed) }
+}
+
+function arm(timer: Timer): void {
+  timer.due = clock.now() + timer.ms
+  timer.handle = clock.schedule(timer, real)
+}
+
+function invoke(timer: Timer): void {
+  if (!timer.repeat) timers.delete(timer.id)
   try {
     const callback = timer.callback
     if (typeof callback === 'function') callback(...timer.args)
@@ -29,9 +38,9 @@ function run(id: number): void {
 function start(callback: unknown, ms: unknown, args: unknown[], repeat: boolean): number {
   const id = nextId++
   const delay = Math.max(0, Number(ms) || 0)
-  const timer: Timer = { handle: 0, callback, args, ms: delay, repeat, refed: true }
+  const timer: Timer = { id, due: 0, callback, args, ms: delay, repeat, refed: true, fire: () => invoke(timer), handle: { cancel() {}, ref() {} } }
   timers.set(id, timer)
-  timer.handle = host.setTimer(delay, () => run(id), true)
+  arm(timer)
   return id
 }
 
@@ -40,7 +49,29 @@ function stop(id: unknown): void {
   const timer = timers.get(key)
   if (!timer) return
   timers.delete(key)
-  host.clearTimer(timer.handle)
+  timer.handle.cancel()
+}
+
+const internal = new Set<Timer>()
+
+export function later(ms: number, fn: () => void): () => void {
+  const timer: Timer = { id: nextId++, due: 0, callback: null, args: [], ms: Math.max(0, ms), repeat: false, refed: true, fire: () => {
+    internal.delete(timer)
+    fn()
+  }, handle: { cancel() {}, ref() {} } }
+  internal.add(timer)
+  arm(timer)
+  return () => {
+    internal.delete(timer)
+    timer.handle.cancel()
+  }
+}
+
+export function adoptTimers(): void {
+  for (const timer of [...timers.values(), ...internal]) {
+    timer.handle.cancel()
+    timer.handle = clock.schedule(timer, real)
+  }
 }
 
 class Timeout {
@@ -59,8 +90,8 @@ class Timeout {
   refresh(): this {
     const timer = timers.get(this.id)
     if (timer) {
-      host.clearTimer(timer.handle)
-      timer.handle = host.setTimer(timer.ms, () => run(this.id), timer.refed)
+      timer.handle.cancel()
+      arm(timer)
     }
     return this
   }
@@ -73,7 +104,7 @@ function setRef(id: number, refed: boolean): void {
   const timer = timers.get(id)
   if (!timer || timer.refed === refed) return
   timer.refed = refed
-  host.refTimer(timer.handle, refed)
+  timer.handle.ref(refed)
 }
 
 export function timerGlobals(node: boolean) {

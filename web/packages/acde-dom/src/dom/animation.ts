@@ -2,13 +2,15 @@ import { defineHandlers, Event, EventTarget, fire } from '../core/event'
 import { DOMException } from '../core/exception'
 import { deferred } from '../core/streams'
 import { getters, host, tag } from '../core/host'
+import { now as clockNow } from '../core/clock'
+import { later } from '../core/timers'
 import type { Element } from './element'
-import { documentId, dom, ID, wrap } from './realm'
+import { documentId, dom, ID, wrap, inner } from './realm'
 import { declarationsOf, inlineStyle, propertyName, writeDeclarations } from './style'
 
 export class AnimationTimeline {
   get currentTime(): number {
-    return host.now()
+    return clockNow()
   }
 }
 tag(AnimationTimeline)
@@ -20,7 +22,7 @@ export class DocumentTimeline extends AnimationTimeline {
     this.#origin = options?.originTime ?? 0
   }
   override get currentTime(): number {
-    return host.now() - this.#origin
+    return clockNow() - this.#origin
   }
 }
 tag(DocumentTimeline)
@@ -143,7 +145,7 @@ export class Animation extends EventTarget {
   #start: number | null = null
   #hold: number | null = null
   #rate = 1
-  #timer = 0
+  #timer: (() => void) | null = null
   #finished = deferred<Animation>()
   #ready = deferred<Animation>()
   #state: 'idle' | 'running' | 'paused' | 'finished' = 'idle';
@@ -176,12 +178,12 @@ export class Animation extends EventTarget {
   get currentTime(): number | null {
     if (this.#hold !== null) return this.#hold
     if (this.#start === null) return null
-    return (host.now() - this.#start) * this.#rate
+    return (clockNow() - this.#start) * this.#rate
   }
   set currentTime(time: number | null) {
     if (time === null) return
     if (this.#state === 'running') {
-      this.#start = host.now() - time / this.#rate
+      this.#start = clockNow() - time / this.#rate
       this.#schedule()
     } else this.#hold = time
     this.#restyle(true)
@@ -218,14 +220,14 @@ export class Animation extends EventTarget {
   }
 
   #schedule(run = true): void {
-    if (this.#timer) host.clearTimer(this.#timer)
-    this.#timer = 0
+    this.#timer?.()
+    this.#timer = null
     const end = this.#end()
     if (!run || !Number.isFinite(end) || this.#rate === 0) return
     const now = this.currentTime ?? 0
     const left = this.#rate > 0 ? (end - now) / this.#rate : now / -this.#rate
-    this.#timer = host.setTimer(Math.max(0, left), () => {
-      this.#timer = 0
+    this.#timer = later(Math.max(0, left), () => {
+      this.#timer = null
       this.#complete(false)
     })
   }
@@ -279,7 +281,7 @@ export class Animation extends EventTarget {
       if (this.#state === 'finished') this.#finished = deferred<Animation>()
     }
     this.#hold = null
-    this.#start = host.now() - from / (this.#rate || 1)
+    this.#start = clockNow() - from / (this.#rate || 1)
     this.#state = 'running'
     running.add(this)
     this.#schedule()
@@ -320,7 +322,7 @@ export class Animation extends EventTarget {
     const now = this.currentTime
     this.#rate = -this.#rate
     if (this.#state !== 'running' || now === null) return this.play()
-    this.#start = host.now() - now / this.#rate
+    this.#start = clockNow() - now / this.#rate
     this.#schedule()
     this.#restyle(true)
   }
@@ -555,7 +557,7 @@ export function animationsOf(root: Element | null, subtree = false): Animation[]
   for (const animation of running) {
     const target = (animation.effect as KeyframeEffect | null)?.target ?? null
     if (!target) continue
-    if (root === null || target === root || (subtree && root.contains(target))) out.push(animation)
+    if (root === null || target === root || (subtree && inner(root, 'contains').call(root, target))) out.push(animation)
   }
   return out
 }

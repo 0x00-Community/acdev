@@ -68,3 +68,184 @@ fn local_and_data_urls_never_reach_the_loader() {
     assert_eq!(dom.image_state(by_id(&dom, "a")).unwrap()[2], 1.0);
     assert!(loads.lock().unwrap().is_empty());
 }
+
+const SITE: &str = "https://cdn.example.com/site.css";
+
+fn linked(body: &str) -> (Document, Dom, Loads, u32, u32) {
+    let (doc, dom, loads) = page(&format!("<head><link id=l rel=stylesheet href='{SITE}'></head><body><p id=p>x</p>{body}</body>"));
+    let (link, p) = (by_id(&dom, "l"), by_id(&dom, "p"));
+    (doc, dom, loads, link, p)
+}
+
+fn color(dom: &Dom, id: u32) -> String {
+    dom.computed_style(id, "", "color").unwrap()
+}
+
+#[test]
+fn a_link_reports_its_stylesheet_once_it_is_fetched_and_applied() {
+    let (_doc, dom, loads, link, p) = linked("");
+    assert_eq!(dom.sheet_state(link).unwrap(), 0, "loading");
+    assert_eq!(dom.sheet_rule_count(link).unwrap(), None, "no sheet yet");
+    assert!(!dom.take_loaded().contains(&link));
+    take(&loads, SITE).finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    assert_eq!(dom.take_loaded(), vec![link]);
+    assert_eq!(dom.sheet_state(link).unwrap(), 1, "loaded");
+    assert_eq!(dom.sheet_rule_count(link).unwrap(), Some(1));
+    assert_eq!(color(&dom, p), "rgb(255, 0, 0)");
+    assert!(dom.take_loaded().is_empty(), "reported once");
+    assert_eq!(dom.sheet_state(p).unwrap(), 3, "not a link");
+}
+
+#[test]
+fn an_empty_stylesheet_loads_and_an_unanswered_one_fails() {
+    let (_doc, dom, loads, link, p) = linked("");
+    take(&loads, SITE).finish(Some(Vec::new()));
+    assert_eq!(dom.take_loaded(), vec![link]);
+    assert_eq!((dom.sheet_state(link).unwrap(), dom.sheet_rule_count(link).unwrap()), (1, Some(0)));
+
+    dom.set_attribute(link, "href", "https://cdn.example.com/b.css").unwrap();
+    assert_eq!(dom.sheet_state(link).unwrap(), 0);
+    assert_eq!(dom.sheet_rule_count(link).unwrap(), Some(0), "the old sheet stays until the new answer");
+    drop(take(&loads, "https://cdn.example.com/b.css"));
+    assert_eq!(dom.take_loaded(), vec![link]);
+    assert_eq!((dom.sheet_state(link).unwrap(), dom.sheet_rule_count(link).unwrap()), (2, None), "failed, and the old sheet is gone");
+    assert_eq!(color(&dom, p), "rgb(0, 0, 0)");
+}
+
+#[test]
+fn only_the_current_fetch_of_a_link_counts() {
+    let (_doc, dom, loads, link, p) = linked("");
+    let first = take(&loads, SITE);
+    dom.set_attribute(link, "href", "https://cdn.example.com/b.css").unwrap();
+    take(&loads, "https://cdn.example.com/b.css").finish(Some(b"p { color: rgb(0, 0, 255) }".to_vec()));
+    assert_eq!(dom.take_loaded(), vec![link]);
+    first.finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    assert!(dom.take_loaded().is_empty(), "the answer to the earlier href is dropped");
+    assert_eq!((dom.sheet_state(link).unwrap(), color(&dom, p)), (1, "rgb(0, 0, 255)".to_owned()));
+
+    dom.set_attribute(link, "href", "https://cdn.example.com/c.css").unwrap();
+    let pending = take(&loads, "https://cdn.example.com/c.css");
+    let holder = dom.create_element(acde_render::Ns::Html, "div").unwrap();
+    dom.insert_before(holder, link, NONE).unwrap();
+    assert!(dom.sheet_state(link).is_ok_and(|state| state == 3), "a link out of the document has no fetch");
+    assert_eq!(color(&dom, p), "rgb(0, 0, 0)");
+    pending.finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    assert!(dom.take_loaded().is_empty(), "nothing is reported for a link that left");
+    assert_eq!(color(&dom, p), "rgb(0, 0, 0)", "and its sheet does not apply");
+}
+
+#[test]
+fn a_link_without_a_sheet_can_lose_its_href_and_rel() {
+    let (_doc, dom, loads, link, p) = linked("");
+    dom.remove_attribute(link, "href").unwrap();
+    assert_eq!(dom.sheet_state(link).unwrap(), 3);
+    take(&loads, SITE).finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    assert!(dom.take_loaded().is_empty());
+    assert_eq!(color(&dom, p), "rgb(0, 0, 0)");
+
+    dom.set_attribute(link, "href", SITE).unwrap();
+    take(&loads, SITE).finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    assert_eq!((dom.take_loaded(), color(&dom, p)), (vec![link], "rgb(255, 0, 0)".to_owned()));
+    dom.set_attribute(link, "rel", "alternate").unwrap();
+    assert_eq!((dom.sheet_state(link).unwrap(), dom.sheet_rule_count(link).unwrap(), color(&dom, p)), (3, None, "rgb(0, 0, 0)".to_owned()));
+}
+
+#[test]
+fn a_link_waits_for_the_sheets_its_stylesheet_imports() {
+    let import = "https://cdn.example.com/more.css";
+    let (_doc, dom, loads) = page(&format!(
+        "<head><link id=l rel=stylesheet href='data:text/css,@import url({import}); p {{ margin-left: 3px }}'></head><body><p id=p>x</p></body>"
+    ));
+    let (link, p) = (by_id(&dom, "l"), by_id(&dom, "p"));
+    assert_eq!(dom.sheet_state(link).unwrap(), 0, "the import is still out");
+    assert!(dom.take_loaded().is_empty());
+    assert_eq!(dom.computed_style(p, "", "margin-left").unwrap(), "3px", "its own rules apply already");
+    let load = take(&loads, import);
+    assert_eq!(load.destination, "style");
+    load.finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    assert_eq!(dom.take_loaded(), vec![link]);
+    assert_eq!((dom.sheet_state(link).unwrap(), color(&dom, p)), (1, "rgb(255, 0, 0)".to_owned()));
+
+    dom.set_attribute(link, "href", &format!("data:text/css,@import url({import}); p {{ margin-left: 5px }}")).unwrap();
+    drop(take(&loads, import));
+    assert_eq!(dom.take_loaded(), vec![link]);
+    assert_eq!(dom.sheet_state(link).unwrap(), 2, "a failed import fails the link");
+    assert_eq!(dom.computed_style(p, "", "margin-left").unwrap(), "5px", "what did load applies");
+}
+
+#[test]
+fn the_media_attribute_decides_whether_a_sheet_applies() {
+    let (_doc, dom, loads) = page(&format!(
+        "<head><link id=l rel=stylesheet media=print href='{SITE}'><style id=s media=print>p {{ margin-left: 7px }}</style></head><body><p id=p>x</p></body>"
+    ));
+    let (link, style, p) = (by_id(&dom, "l"), by_id(&dom, "s"), by_id(&dom, "p"));
+    take(&loads, SITE).finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    assert_eq!(dom.take_loaded(), vec![link], "fetched and reported whatever its media");
+    assert_eq!((dom.sheet_state(link).unwrap(), dom.sheet_rule_count(link).unwrap()), (1, Some(1)));
+    assert_eq!(
+        (color(&dom, p), dom.computed_style(p, "", "margin-left").unwrap()),
+        ("rgb(0, 0, 0)".to_owned(), "0px".to_owned()),
+        "print sheets do not apply on a screen"
+    );
+    dom.set_attribute(link, "media", "all").unwrap();
+    dom.remove_attribute(style, "media").unwrap();
+    assert_eq!((color(&dom, p), dom.computed_style(p, "", "margin-left").unwrap()), ("rgb(255, 0, 0)".to_owned(), "7px".to_owned()));
+    assert!(loads.lock().unwrap().is_empty(), "a media change does not fetch again");
+    dom.set_attribute(link, "media", "(min-width: 5000px)").unwrap();
+    assert_eq!(color(&dom, p), "rgb(0, 0, 0)");
+}
+
+#[test]
+fn the_crossorigin_attribute_makes_the_fetch_a_cors_one() {
+    let (_doc, dom, loads, link, p) = linked("");
+    let first = take(&loads, SITE);
+    assert_eq!(first.cors, "", "no attribute: not a CORS request");
+    dom.set_attribute(link, "crossorigin", "").unwrap();
+    let anonymous = take(&loads, SITE);
+    assert_eq!((anonymous.destination, anonymous.cors), ("style", "anonymous"), "fetched again under the new settings");
+    dom.set_attribute(link, "crossorigin", "Use-Credentials").unwrap();
+    let credentialed = take(&loads, SITE);
+    assert_eq!(credentialed.cors, "use-credentials");
+    first.finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    anonymous.finish(Some(b"p { color: rgb(255, 0, 0) }".to_vec()));
+    assert!(dom.take_loaded().is_empty(), "the answers under the earlier settings are dropped");
+    assert_eq!(color(&dom, p), "rgb(0, 0, 0)");
+    dom.remove_attribute(link, "crossorigin").unwrap();
+    drop(credentialed);
+    let plain = take(&loads, SITE);
+    assert_eq!(plain.cors, "");
+    plain.finish(Some(b"p { color: rgb(0, 0, 255) }".to_vec()));
+    assert_eq!((dom.take_loaded(), color(&dom, p)), (vec![link], "rgb(0, 0, 255)".to_owned()));
+}
+
+#[test]
+fn a_sheet_is_closed_to_the_page_by_the_response_it_was_made_from() {
+    let (_doc, dom, loads, link, _p) = linked("");
+    assert_eq!((dom.sheet_url(link).unwrap(), dom.sheet_opaque(link).unwrap()), (None, false), "no sheet yet");
+    take(&loads, SITE).finish_opaque(b"p { color: rgb(255, 0, 0) }".to_vec());
+    assert_eq!(dom.take_loaded(), vec![link]);
+    assert_eq!((dom.sheet_url(link).unwrap().as_deref(), dom.sheet_opaque(link).unwrap()), (Some(SITE), true));
+
+    let own = "https://cdn.example.com/own.css";
+    dom.set_attribute(link, "crossorigin", "").unwrap();
+    let again = take(&loads, SITE);
+    dom.set_attribute(link, "href", own).unwrap();
+    drop(again);
+    assert_eq!(
+        (dom.sheet_url(link).unwrap().as_deref(), dom.sheet_opaque(link).unwrap()),
+        (Some(SITE), true),
+        "the sheet it still has, not what its attributes say now"
+    );
+    let first = dom.sheet_serial(link).unwrap();
+    assert!(first.is_some());
+    take(&loads, own).finish(Some(b"p { color: rgb(0, 0, 255) }".to_vec()));
+    assert_eq!(dom.take_loaded(), vec![link]);
+    assert_ne!(dom.sheet_serial(link).unwrap(), first, "another sheet");
+    assert_eq!((dom.sheet_url(link).unwrap().as_deref(), dom.sheet_opaque(link).unwrap()), (Some(own), false));
+
+    dom.set_attribute(link, "href", SITE).unwrap();
+    drop(take(&loads, SITE));
+    assert_eq!(dom.take_loaded(), vec![link]);
+    assert_eq!((dom.sheet_url(link).unwrap(), dom.sheet_opaque(link).unwrap()), (None, false), "a failed fetch leaves no sheet");
+    assert_eq!(dom.sheet_serial(link).unwrap(), None);
+}

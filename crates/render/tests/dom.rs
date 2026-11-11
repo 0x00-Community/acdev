@@ -466,6 +466,23 @@ fn focus_active_and_selection() {
 }
 
 #[test]
+fn a_stylesheet_added_while_an_element_is_active_restyles() {
+    let (_doc, dom) = page(
+        "<head><style>div { width: 10px; height: 20px } #b:active { height: 40px }</style></head>\
+         <body style='margin:0'><div id=b class=late></div></body>",
+    );
+    let b = by_id(&dom, "b");
+    assert_eq!(dom.rect(b).unwrap()[3], 20.0);
+    dom.set_active(b).unwrap();
+    let head = dom.query_selector(dom.document(), "head").unwrap();
+    let style = dom.create_element(Ns::Html, "style").unwrap();
+    let css = dom.create_text(".late { width: 50px } #b { margin-left: 5px }").unwrap();
+    dom.insert_before(style, css, NONE).unwrap();
+    dom.insert_before(head, style, NONE).unwrap();
+    assert_eq!(dom.rect(b).unwrap(), [5.0, 0.0, 50.0, 40.0]);
+}
+
+#[test]
 fn layout_reads() {
     let (_doc, dom) = page(
         "<head><style>
@@ -840,8 +857,10 @@ fn describe_is_type_namespace_connectedness_and_name() {
 #[test]
 fn parse_inert_is_a_whole_detached_page() {
     let (_doc, dom) = page("<!doctype html><html><body></body></html>");
-    let root = dom.parse_inert("<!doctype html><html lang=fr><head><title>T</title></head><body><p>a</p><!-- </body> --><p>b</p></body></html>").unwrap();
-    assert_eq!(dom.node_type(root).unwrap(), NodeType::DocumentFragment);
+    let root = dom
+        .parse_inert("<!doctype html><html lang=fr><head><title>T</title></head><body><p>a</p><!-- </body> --><p>b</p></body></html>", "about:blank")
+        .unwrap();
+    assert_eq!(dom.node_type(root).unwrap(), NodeType::Document);
     assert!(!dom.is_connected(root).unwrap());
     let kids = dom.child_nodes(root).unwrap();
     assert_eq!(kids.len(), 2);
@@ -912,4 +931,38 @@ fn a_scroll_box_whose_content_shrinks_is_scrolled_back_into_range() {
     assert_eq!(scrolled, expected, "reported as scrolls");
     dom.set_attribute(content, "style", "height:50px").unwrap();
     assert_eq!(dom.metrics(b).unwrap().unwrap().scroll_top, 0.0);
+}
+
+#[test]
+fn named_sections_are_regions_and_outputs_are_status() {
+    let (_doc, dom) = page("<body><section aria-label='Notes'><p>a</p></section><section><p>b</p></section><output>28</output></body>");
+    let tree = dom.semantics(NONE, 100, true, false).unwrap();
+    assert!(tree.contains("\"role\":\"region\",\"name\":\"Notes\""), "{tree}");
+    assert_eq!(tree.matches("\"region\"").count(), 1, "{tree}");
+    assert!(tree.contains("\"role\":\"status\""), "{tree}");
+}
+
+#[test]
+fn range_inputs_sanitize_their_value_and_paint_a_thumb() {
+    let (_doc, dom) = page(
+        "<body><input type=range id=a><input type=range id=b min=1.2 max=2.4 step=0.1 value=1.8><input type=range id=c min=0 max=10 step=3 value=10>\
+         <input type=range id=d min=5 max=1 value=7><input type=range id=e step=any value=33.3333></body>",
+    );
+    let value = |id: &str| dom.value(by_id(&dom, id)).unwrap();
+    assert_eq!(value("a"), "50");
+    assert_eq!(value("b"), "1.8");
+    assert_eq!(value("c"), "9", "the largest step value not above max");
+    assert_eq!(value("d"), "5", "max below min becomes min");
+    assert_eq!(value("e"), "33.3333");
+    let b = by_id(&dom, "b");
+    dom.set_value(b, "9").unwrap();
+    assert_eq!(value("b"), "2.4");
+    dom.set_value(b, "1.86").unwrap();
+    assert_eq!(value("b"), "1.9");
+    dom.set_value(b, "nonsense").unwrap();
+    assert_eq!(value("b"), "1.8");
+    dom.set_attribute(b, "max", "1.5").unwrap();
+    assert_eq!(value("b"), "1.5");
+    let r = dom.rect(by_id(&dom, "a")).unwrap();
+    assert_eq!((r[2], r[3]), (129.0, 16.0));
 }

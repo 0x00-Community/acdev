@@ -1,5 +1,6 @@
 import type { InspectArg } from '@dopame/acde-api'
 import type { DevLog } from '../devlog'
+import { Frame } from '../frame'
 import { DevRoutes, type DevRoute } from '../devroutes'
 import type { Inspect } from '../inspect'
 import { Level, Log } from '../log'
@@ -7,6 +8,7 @@ import { isAbsolute } from '../sys/path'
 import type { BrokerShell, WebInfo } from './types'
 import type { Web } from './web'
 import type { Permissions } from './access/approval/permissions'
+import type { Screen } from './output'
 
 export interface DevHost {
   readonly shell: BrokerShell
@@ -17,15 +19,26 @@ export interface DevHost {
   desktop(): Web | null
   title(web: Web): string
   emulate(options: { readonly colorScheme?: 'light' | 'dark' | null; readonly reducedMotion?: boolean | null }): unknown
+  reload(app: string | null): Promise<void>
+  screen(): Screen
+}
+
+interface DevInit {
+  readonly id: number
+  readonly web: string | null
+  readonly code: string
+  readonly once: boolean
 }
 
 export class DevRequests {
   static readonly #OPS =
     'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, pointer, clipboard, ' +
-    'permissions, answer, revoke, drop'
+    'permissions, answer, revoke, drop, input, clock, dialog, init, uninit, reload, resize'
   readonly #host: DevHost
   #routes: DevRoute[] = []
   #nextRoute = 1
+  #inits: DevInit[] = []
+  #nextInit = 1
 
   constructor(host: DevHost) {
     this.#host = host
@@ -90,7 +103,12 @@ export class DevRequests {
         if (typeof args['code'] !== 'string') throw new Error('eval: code is a string')
         let value: unknown
         try {
-          value = await this.web(String(args['web'] ?? 'desktop')).rpc.call('debug', 'eval', [args['code']])
+          const web = this.web(String(args['web'] ?? 'desktop'))
+          const node = args['node']
+          value =
+            node === undefined || node === null
+              ? await web.rpc.call('debug', 'eval', [args['code']])
+              : await web.rpc.call('debug', 'evalOn', [Number(node), args['code'], args['arg'] ?? null])
         } catch (error) {
           throw new Error(error instanceof Error ? `${error.name}: ${error.message}` : String(error))
         }
@@ -116,6 +134,36 @@ export class DevRequests {
         return this.#host.inspect.api.open(args['name'])
       case 'query':
         return this.#host.inspect.api.query(args as never)
+      case 'init': {
+        if (typeof args['code'] !== 'string' || !args['code']) throw new Error('init: code is the script to run before the page')
+        const web = args['web'] === undefined || args['web'] === null ? null : String(args['web'])
+        const init = { id: this.#nextInit++, web, code: args['code'], once: args['once'] === true }
+        this.#inits.push(init)
+        return { id: init.id }
+      }
+      case 'uninit': {
+        const id = args['init']
+        const before = this.#inits.length
+        this.#inits = id === undefined || id === null ? [] : this.#inits.filter((i) => i.id !== id)
+        return { removed: before - this.#inits.length, left: this.#inits.length }
+      }
+      case 'reload': {
+        const web = this.web(String(args['web'] ?? 'desktop'))
+        await this.#host.reload(web === this.#host.desktop() ? null : (web.app?.id ?? null))
+        return { web: web.name }
+      }
+      case 'resize':
+        return this.#resize(args)
+      case 'dialog': {
+        if (args['text'] !== undefined && typeof args['text'] !== 'string') throw new Error('dialog: text is the string a prompt answers')
+        const web = this.web(String(args['web'] ?? 'desktop'))
+        web.thread.post({ type: 'devdialog', accept: args['accept'] !== false, ...(args['text'] !== undefined && { text: args['text'] }) })
+        return { web: web.name, accept: args['accept'] !== false }
+      }
+      case 'clock':
+        return this.web(String(args['web'] ?? 'desktop')).rpc.call('dev', 'clock', [DevRequests.#clockRequest(args)])
+      case 'input':
+        return this.#host.inspect.api.input(this.web(String(args['web'] ?? 'desktop')).window, args['events'] as never)
       case 'console':
         return this.#host.devlog.console(DevRequests.#query(args, { level: args['level'] as never }))
       case 'network':
@@ -180,6 +228,66 @@ export class DevRequests {
       }
       default:
         throw new Error(`no op ${String(op)} (${DevRequests.#OPS})`)
+    }
+  }
+
+  initsFor(name: string, app: string | null): string[] {
+    const used = this.#inits.filter((i) => i.web === null || i.web === name || (app !== null && i.web === app))
+    this.#inits = this.#inits.filter((i) => !(i.once && used.includes(i)))
+    return used.map((i) => i.code)
+  }
+
+  #resize(args: Record<string, unknown>): { width: number; height: number } {
+    const web = this.web(String(args['web'] ?? 'desktop'))
+    const width = Number(args['width'])
+    const height = Number(args['height'])
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+      throw new Error('resize: width and height are whole CSS pixels of the page (without the title bar)')
+    }
+    const shell = this.#host.shell
+    const desktop = web === this.#host.desktop()
+    const row = desktop ? null : shell.windows().find((w) => (w.window ?? w.id) === web.window)
+    if (!desktop && !row) throw new Error(`resize: window ${web.window} is gone`)
+    const frame = Frame.height(web.app)
+    if (!row || row.mode === 'fullscreen') {
+      if (!shell.resizeScreen) throw new Error('resize: this one fills the screen, and only host windows (acde dev) can change the screen size')
+      shell.resizeScreen(width, height + frame)
+      return { width, height }
+    }
+    if (row.mode !== 'free') throw new Error(`resize: the window is ${row.mode}; only a free window changes size`)
+    const screen = this.#host.screen()
+    const w = Math.min(width, screen.width)
+    const h = Math.min(height + frame, screen.height)
+    const x = Math.round(Math.min(Math.max(0, row.x), screen.width - w))
+    const y = Math.round(Math.min(Math.max(0, row.y), screen.height - h))
+    shell.place(web.window, x, y, w, h)
+    return { width: w, height: h - frame }
+  }
+
+  static #clockRequest(args: Record<string, unknown>): Record<string, unknown> {
+    const action = String(args['action'] ?? '')
+    const number = (key: string) => {
+      const value = args[key]
+      if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`clock ${action}: ${key} is a number of milliseconds`)
+      return value
+    }
+    switch (action) {
+      case 'install':
+        return args['time'] === undefined || args['time'] === null ? { action } : { action, time: number('time') }
+      case 'fastForward':
+      case 'runFor':
+        return { action, ms: number('ms') }
+      case 'pauseAt':
+      case 'setFixedTime':
+      case 'setSystemTime':
+        return { action, time: number('time') }
+      case 'resume':
+      case 'state':
+        return { action }
+      default:
+        throw new Error(
+          `clock: action is install, fastForward, runFor, pauseAt, resume, setFixedTime, setSystemTime or state, not ${JSON.stringify(action)}`,
+        )
     }
   }
 

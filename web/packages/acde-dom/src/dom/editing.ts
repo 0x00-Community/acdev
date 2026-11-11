@@ -3,11 +3,11 @@ import { NONE, NodeType } from '../native'
 import { LOCAL, noteMarkup, type Element } from './element'
 import { InputEvent } from './events'
 import { EDITING_HOST } from './focus'
-import { fieldSelection, replaceFieldText, setFieldSelection, type TextField } from './forms'
+import { fieldSelection, replaceFieldText, setFieldSelection, submitImplicitly, type TextField } from './forms'
 import type { HTMLElement } from './html'
 import { Text } from './node'
 import { getSelection, type Range } from './range'
-import { dom, ID, wrap } from './realm'
+import { dom, ID, wrap, inner } from './realm'
 
 const TEXT_TYPES = new Set(['text', 'search', 'url', 'email', 'password', 'tel', 'number'])
 
@@ -18,7 +18,7 @@ export function textField(target: Element): TextField | null {
 }
 
 export function editable(target: Element): boolean {
-  return !!(target as HTMLElement).isContentEditable || dom.closest(target[ID], EDITING_HOST) !== NONE
+  return !!inner((target as HTMLElement), 'isContentEditable') || dom.closest(target[ID], EDITING_HOST) !== NONE
 }
 
 export function selectedText(target: Element): string {
@@ -71,7 +71,7 @@ export function insertText(target: Element, text: string, inputType = 'insertTex
     range.deleteContents()
     const container = range.startContainer
     if (!text) return void selection.collapse(container, range.startOffset)
-    if (container.nodeType === NodeType.Text) {
+    if (inner(container, 'nodeType') === NodeType.Text) {
       const at = range.startOffset
       ;(container as Text).insertData(at, text)
       selection.collapse(container, at + text.length)
@@ -91,7 +91,7 @@ export function insertHTML(target: Element, html: string, before = true): boolea
     const fragment = range.createContextualFragment(html)
     const last = fragment.lastChild
     range.insertNode(fragment)
-    const parent = last?.parentNode
+    const parent = last && inner(last, 'parentNode')
     if (last && parent) getSelection().collapse(parent, dom.childNodes(parent[ID]).indexOf(last[ID]) + 1)
   })
 }
@@ -115,7 +115,7 @@ export function deleteText(target: Element, forward: boolean, before = true): bo
     selection.collapse(r.startContainer, r.startOffset)
   })
   const node = range.startContainer
-  if (node.nodeType !== NodeType.Text) return true
+  if (inner(node, 'nodeType') !== NodeType.Text) return true
   const from = forward ? range.startOffset : range.startOffset - 1
   if (from < 0 || from >= (node as Text).length) return true
   return editRange(target, inputType, null, before, () => {
@@ -133,7 +133,7 @@ export function deleteSurrounding(target: Element, offset: number, length: numbe
   }
   const selection = getSelection()
   const node = selection.focusNode
-  if (!selection.isCollapsed || node?.nodeType !== NodeType.Text) return
+  if (!selection.isCollapsed || (node && inner(node, 'nodeType')) !== NodeType.Text) return
   const from = Math.max(0, selection.focusOffset + offset), to = Math.min((node as Text).length, from + length)
   editRange(target, 'deleteContent', null, true, () => {
     ;(node as Text).deleteData(from, to - from)
@@ -168,6 +168,6 @@ export function editKey(target: Element, key: string, ctrl: boolean): void {
   if (key === 'End') return caret(length)
   if (key === 'Enter') {
     if (field[LOCAL] === 'textarea') return void insertText(target, '\n', 'insertLineBreak')
-    ;(field as unknown as { form: { requestSubmit(): void } | null }).form?.requestSubmit()
+    submitImplicitly(field)
   }
 }

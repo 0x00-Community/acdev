@@ -15,6 +15,7 @@ pub(crate) enum Msg {
     Frame,
     Resized(u32, u32, f64),
     Scroll(f64, f64, f64, f64),
+    Pointer(Option<(f64, f64)>),
     Panel(u32, Option<u32>),
     Title(String),
     Fullscreen(bool),
@@ -310,7 +311,7 @@ impl Surface {
     }
 
     pub fn minimizable(&self) -> bool {
-        server().is_some_and(|s| s.state().entries.get(&self.window).is_some_and(|e| e.minimize))
+        server().is_some_and(|s| s.state().entries.get(&self.window).is_some_and(|e| e.minimizable()))
     }
 
     pub fn host_controls(&self) -> bool {

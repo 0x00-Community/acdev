@@ -145,7 +145,7 @@ export class MockDom implements DomNative {
   }
 
   nodeType(id: number): number {
-    return this._node(id).nodeType
+    return this.#docs.has(id) ? 9 : this._node(id).nodeType
   }
   parent(id: number): number {
     return this._id(this._node(id).parentNode)
@@ -183,6 +183,8 @@ export class MockDom implements DomNative {
   describe(id: number): [number, number, boolean, string] {
     const node = this._node(id)
     this.pinned.add(id)
+    const doc = this.#docs.get(id)
+    if (doc) return [9, 0, false, doc[0]!]
     const element = node.nodeType === 1
     return [node.nodeType, element ? this.namespace(id) : 0, this._root(node) === this.doc, element ? node.localName : '']
   }
@@ -238,7 +240,82 @@ export class MockDom implements DomNative {
   }
   namespace(id: number): number {
     const at = NS.indexOf(this._node(id).namespaceURI)
-    return at < 0 ? 0 : at
+    return at < 0 ? 3 : at
+  }
+  namespaceURI(id: number): string {
+    return this._node(id).namespaceURI ?? ''
+  }
+  prefix(id: number): string {
+    return this._node(id).prefix ?? ''
+  }
+  attributesNS(id: number): string[] {
+    const out: string[] = []
+    for (const attr of [...this._node(id).attributes]) out.push(attr.namespaceURI ?? '', attr.prefix ?? '', attr.localName, attr.value)
+    return out
+  }
+  getAttributeNS(id: number, namespace: string, localName: string): string | null {
+    return this._node(id).getAttributeNS(namespace || null, localName)
+  }
+  setAttributeNS(id: number, namespace: string, prefix: string, localName: string, value: string): boolean {
+    const node = this._node(id)
+    const same = node.getAttributeNS(namespace || null, localName) === value
+    this._call(() => node.setAttributeNS(namespace || null, prefix ? `${prefix}:${localName}` : localName, value))
+    return !same
+  }
+  removeAttributeNS(id: number, namespace: string, localName: string): boolean {
+    const node = this._node(id)
+    const had = node.hasAttributeNS(namespace || null, localName)
+    node.removeAttributeNS(namespace || null, localName)
+    return had
+  }
+  #docs = new Map<number, string[]>()
+  #owners = new Map<number, number>()
+  createElementNS(namespace: string, prefix: string, localName: string): number {
+    return this._call(() => this._made(this.doc.createElementNS(namespace || null, prefix ? `${prefix}:${localName}` : localName)))
+  }
+  createCDATASection(data: string): number {
+    const xml = new this.window.DOMParser().parseFromString('<x/>', 'application/xml')
+    return this._made(this.doc.adoptNode(xml.createCDATASection(data)))
+  }
+  createProcessingInstruction(target: string, data: string): number {
+    return this._made(this.doc.createProcessingInstruction(target, data))
+  }
+  processingInstructionTarget(id: number): string {
+    return this._node(id).target
+  }
+  createDocument(kind: string, contentType: string, url: string): number {
+    const id = this._made(this.doc.createDocumentFragment())
+    this.#docs.set(id, [kind, contentType, url])
+    return id
+  }
+  documentInfo(id: number): string[] {
+    return this.#docs.get(id) ?? ['html', 'text/html', '']
+  }
+  parseXml(text: string, contentType: string, url: string): number {
+    const parsed = new this.window.DOMParser().parseFromString(text, contentType)
+    const id = this.createDocument('document', contentType, url)
+    const fragment = this._node(id)
+    for (const child of [...parsed.childNodes]) fragment.appendChild(this.doc.adoptNode(child))
+    return id
+  }
+  ownerDocument(id: number): number {
+    const root = this._id(this._root(this._node(id)))
+    if (this.#docs.has(root)) return root
+    return this.#owners.get(id) ?? this.document()
+  }
+  adopt(id: number, document: number): void {
+    if (document === this.document()) this.#owners.delete(id)
+    else this.#owners.set(id, document)
+  }
+  inHtmlDocument(id: number): boolean {
+    return this.documentInfo(this.ownerDocument(id))[0] === 'html'
+  }
+  serializeXml(id: number): string {
+    return new this.window.XMLSerializer().serializeToString(this._node(id))
+  }
+  getElementsByTagNameNS(root: number, namespace: string, localName: string): Uint32Array {
+    const all = [...this._node(root).querySelectorAll('*')]
+    return this._ids(all.filter((el: HNode) => (namespace === '*' || (el.namespaceURI ?? '') === namespace) && (localName === '*' || el.localName === localName)))
   }
   getAttribute(id: number, name: string): string | null {
     return this._node(id).getAttribute(name)
@@ -310,7 +387,7 @@ export class MockDom implements DomNative {
   templateContent(id: number): number {
     return this._id(this._node(id).content)
   }
-  parseInert(html: string): number {
+  parseInert(html: string, _url: string): number {
     const parsed = new this.window.DOMParser().parseFromString(html, 'text/html')
     const fragment = this.doc.createDocumentFragment()
     for (const child of [...parsed.childNodes]) fragment.appendChild(this.doc.adoptNode(child))
@@ -489,11 +566,21 @@ export class MockDom implements DomNative {
     for (let i = 0; i < style.length; i++) out.push(style.item(i), style.getPropertyValue(style.item(i)))
     return out
   }
+  readonly supported: [string, string][] = []
+  cssSupports(condition: string): boolean {
+    this.supported.push(['condition', condition])
+    return /display:\s*grid/.test(condition)
+  }
+  cssSupportsDeclaration(property: string, value: string): boolean {
+    this.supported.push([property, value])
+    return property === 'display' && value === 'grid'
+  }
   caretRect(_id: number, _offset: number): Float64Array {
     return new Float64Array(4)
   }
-  caretFromPoint(_x: number, _y: number): { node: number; offset: number } | null {
-    return null
+  caret: ((x: number, y: number) => { node: number; offset: number } | null) | null = null
+  caretFromPoint(x: number, y: number): { node: number; offset: number } | null {
+    return this.caret ? this.caret(x, y) : null
   }
   textRects(_id: number, _start: number, _end: number): Float64Array {
     return new Float64Array(0)
@@ -516,10 +603,34 @@ export class MockDom implements DomNative {
     return Float64Array.of(rgba[0]! / 255, rgba[1]! / 255, rgba[2]! / 255, rgba[3] ?? 1)
   }
   sheetRuleCount(id: number): number {
-    const sheet = this._node(id).sheet
-    return this._root(this._node(id)) === this.doc && sheet ? sheet.cssRules.length : -1
+    const node = this._node(id)
+    if (node.localName === 'link') return this._root(node) === this.doc && this.sheets.get(id) === 1 ? (this.sheetSources.get(id)?.rules.length ?? 0) : -1
+    const sheet = node.sheet
+    return this._root(node) === this.doc && sheet ? sheet.cssRules.length : -1
+  }
+  sheets = new Map<number, number>()
+  sheetSources = new Map<number, { url: string; opaque: boolean; serial: number; rules: string[] }>()
+  #sheetSerials = 0
+  sheetState(id: number): number {
+    return this._root(this._node(id)) === this.doc ? (this.sheets.get(id) ?? 3) : 3
+  }
+  sheetUrl(id: number): string | null {
+    return this.sheetRuleCount(id) < 0 ? null : (this.sheetSources.get(id)?.url ?? null)
+  }
+  sheetOpaque(id: number): boolean {
+    return this.sheetRuleCount(id) >= 0 && !!this.sheetSources.get(id)?.opaque
+  }
+  sheetSerial(id: number): number {
+    return this.sheetRuleCount(id) < 0 ? -1 : (this.sheetSources.get(id)?.serial ?? -1)
+  }
+  _sheet(id: number, state: number, opaque = false, url = new URL(this._node(id).getAttribute('href') ?? '', 'http://acde.local/').href, rules: string[] = []): void {
+    this.sheets.set(id, state)
+    if (state === 1) this.sheetSources.set(id, { url, opaque, serial: ++this.#sheetSerials, rules })
+    if (state === 2) this.sheetSources.delete(id)
+    if (state === 1 || state === 2) this.#loaded.push(id)
   }
   sheetRule(id: number, index: number): string {
+    if (this._node(id).localName === 'link') return this.sheetSources.get(id)!.rules[index]!
     return this._node(id).sheet.cssRules[index].cssText
   }
   sheetInsertRule(id: number, rule: string, index: number): number {
@@ -575,13 +686,24 @@ export class MockDom implements DomNative {
     this.#loaded = []
     return out
   }
-  loader: ((id: number, url: string, destination: string) => void) | null = null
+  loader: ((id: number, url: string, destination: string, cors: string) => void) | null = null
   loads = new Map<number, Uint8Array | null>()
-  setLoader(load: ((id: number, url: string, destination: string) => void) | null): void {
+  #sheetLoads = new Map<number, { link: number; url: string }>()
+  setLoader(load: ((id: number, url: string, destination: string, cors: string) => void) | null): void {
     this.loader = load
   }
-  loaded(id: number, bytes: Uint8Array | null): void {
+  opaqueLoads = new Set<number>()
+  loaded(id: number, bytes: Uint8Array | null, opaque: boolean): void {
     this.loads.set(id, bytes && bytes.slice())
+    if (opaque) this.opaqueLoads.add(id)
+    const sheet = this.#sheetLoads.get(id)
+    if (sheet) this._sheet(sheet.link, bytes ? 1 : 2, opaque, sheet.url)
+  }
+  _fetchSheet(link: number, url: string, cors = ''): void {
+    const id = 1000 + this.#sheetLoads.size
+    this.#sheetLoads.set(id, { link, url })
+    this.sheets.set(link, 0)
+    this.loader!(id, url, 'style', cors)
   }
   canvas(id: number, commands: Uint8Array): void {
     this._node(id)

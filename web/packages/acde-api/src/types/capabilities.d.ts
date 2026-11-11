@@ -13,7 +13,7 @@ export interface PlatformSupport {
   readonly window: WindowFeatures
 }
 
-export type CapabilityState = 'available' | 'not-declared' | 'unsupported' | 'service-not-running' | 'shell-only' | 'denied'
+export type CapabilityState = 'available' | 'not-asked' | 'asking' | 'denied' | 'not-declared' | 'unsupported' | 'service-not-running' | 'shell-only'
 
 export interface CapabilityStatus {
   readonly name: string

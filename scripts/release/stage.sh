@@ -8,6 +8,19 @@ here=$(dirname -- "$0")
 repo=$(cd -- "$here/../.." && pwd)
 sdk="$repo/web/packages/acde-api"
 mkdir -p "$out"
+command -v xz >/dev/null || { echo "::error::xz is needed to compress the binaries" >&2; exit 1; }
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+pack() {
+  local dir=$1 member=$2
+  TZ=UTC touch -t 200001010000.00 "$dir/$member"
+  if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+    tar -C "$dir" --format=ustar --owner=0 --group=0 --numeric-owner -cf - "$member"
+  else
+    tar -C "$dir" --format=ustar --uid 0 --gid 0 --numeric-owner -cf - "$member"
+  fi
+}
 
 for entry in "x86_64-unknown-linux-gnu:" "aarch64-apple-darwin:" "x86_64-apple-darwin:" "x86_64-pc-windows-msvc:.exe"; do
   triple=${entry%%:*}
@@ -17,7 +30,14 @@ for entry in "x86_64-unknown-linux-gnu:" "aarch64-apple-darwin:" "x86_64-apple-d
     echo "::error::missing binary $src" >&2
     exit 1
   fi
-  cp "$src" "$out/acdert-$triple$ext"
+  mkdir "$work/$triple"
+  cp "$src" "$work/$triple/acdert$ext"
+  chmod 755 "$work/$triple/acdert$ext"
+  if [ -n "$ext" ]; then
+    pack "$work/$triple" "acdert$ext" | gzip -9 -n > "$out/acdert-$triple.tar.gz"
+  else
+    pack "$work/$triple" acdert | xz -9 -T1 -c > "$out/acdert-$triple.tar.xz"
+  fi
 done
 
 if [ ! -f "$artifacts/host/LICENSE" ] || [ ! -d "$artifacts/host/app" ]; then
@@ -29,8 +49,8 @@ tar -C "$artifacts/host" -czf "$out/acdert-host-$version.tar.gz" app LICENSE
 
 command -v bun >/dev/null || { echo "::error::bun is needed to build the acde-api SDK" >&2; exit 1; }
 bun run --cwd "$sdk" build
-sdk_work=$(mktemp -d)
-trap 'rm -rf "$sdk_work"' EXIT
+sdk_work="$work/sdk"
+mkdir "$sdk_work"
 cp -R "$sdk/dist" "$sdk_work/package"
 tar -C "$sdk_work" -czf "$out/acde-api-$version.tar.gz" package
 

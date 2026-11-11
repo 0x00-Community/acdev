@@ -7,7 +7,9 @@ import { KeyboardEvent, MouseEvent, PointerEvent, WheelEvent } from './events'
 import { focus, focusable, focusedElement, setFocus } from './focus'
 import { HTMLButtonElement } from './forms'
 import { SelectInput } from './select'
-import { dom, documentId, ID, moved, rootElementId, wrap } from './realm'
+import { PointerSelection } from './textselect'
+import { RangeInput } from './rangeinput'
+import { CONNECTED, dom, documentId, ID, inner, moved, rootElementId, wrap } from './realm'
 
 export interface Modifiers {
   readonly shift?: boolean
@@ -60,14 +62,16 @@ export class Input {
   #last = { x: 0, y: 0 }
   capture: Element | null = null
   readonly selects = new SelectInput()
+  readonly text = new PointerSelection()
+  readonly ranges = new RangeInput()
   onKeyDefault: (target: Element, key: string, modifiers: Modifiers) => void = () => {}
 
   elementAt(target: number | null | undefined, x: number, y: number, ignoreCapture = false): Element {
-    if (!ignoreCapture && this.capture?.isConnected) return this.capture
+    if (!ignoreCapture && this.capture?.[CONNECTED]) return this.capture
     let id = target === undefined ? dom.hitTest(x, y) : (target ?? NONE)
     if (id !== NONE && dom.nodeType(id) === NodeType.Text) id = dom.parent(id)
     const element = id === NONE || dom.nodeType(id) !== NodeType.Element ? null : wrap<Element>(id)
-    return element?.isConnected ? element : (wrap<Element>(rootElementId()) ?? (wrap<Element>(documentId) as Element))
+    return element?.[CONNECTED] ? element : (wrap<Element>(rootElementId()) ?? (wrap<Element>(documentId) as Element))
   }
 
   #fire(target: Element, type: string, init: Record<string, unknown>, Kind: new (type: string, init: Record<string, unknown>) => Event = MouseEvent as never): boolean {
@@ -100,8 +104,8 @@ export class Input {
   }
 
   #hoverTo(target: Element | null, init: Record<string, unknown>): void {
-    if (this.#hover === target && (!target || target.isConnected)) return
-    const old = this.#hover?.isConnected ? this.#hover : (this.#path.find((e) => e.isConnected) ?? null)
+    if (this.#hover === target && (!target || inner(target, 'isConnected'))) return
+    const old = this.#hover?.[CONNECTED] ? this.#hover : (this.#path.find((e) => inner(e, 'isConnected')) ?? null)
     const was = this.#chain(old), now = this.#chain(target)
     this.#hover = target
     this.#path = now.map((id) => wrap<Element>(id)!)
@@ -139,7 +143,10 @@ export class Input {
     const target = this.elementAt(options.target, x, y)
     const init = this.#init(x, y, options)
     this.#hoverTo(this.capture ? this.elementAt(options.target, x, y, true) : target, init)
-    this.#pointer(target, 'move', init)
+    if (this.#pointer(target, 'move', init) && this.#buttons & 1) {
+      if (this.text.dragging) this.text.move(x, y)
+      if (this.ranges.dragging) this.ranges.move(x)
+    }
   }
 
   #down(x: number, y: number, options: PointerOptions): void {
@@ -154,10 +161,14 @@ export class Input {
     const count = button === 0 && now - last.at < DOUBLE_CLICK_MS && Math.hypot(x - last.x, y - last.y) < CLICK_SLOP ? last.count + 1 : 1
     if (button === 0) this.#lastDown = { at: now, x, y, count }
     if (this.#pointer(target, 'down', init, count)) {
-      const candidate = target.closest(FOCUSABLE)
+      const candidate = inner(target, 'closest').call(target, FOCUSABLE)
       if (candidate && focusable(candidate[ID])) setFocus(candidate)
       else if (focusedElement()) setFocus(null)
-      if (button === 0) this.selects.pressed(target, x, y, options.modifiers ?? {})
+      if (button === 0) {
+        this.selects.pressed(target, x, y, options.modifiers ?? {})
+        this.text.down(target, x, y, count, options.modifiers ?? {})
+        this.ranges.down(target, x)
+      }
     }
     if (button === 2) this.#fire(target, 'contextmenu', init)
   }
@@ -166,6 +177,10 @@ export class Input {
     const target = this.elementAt(options.target, x, y)
     const button = options.button ?? 0
     this.#buttons &= ~buttonBit(button)
+    if (button === 0) {
+      this.text.up()
+      this.ranges.up()
+    }
     const init = this.#init(x, y, options, button)
     this.#pointer(target, 'up', init, button === 0 ? this.#lastDown.count : 1)
     dom.setActive(NONE)
@@ -178,7 +193,7 @@ export class Input {
     this.#pressed = null
     if (!pressed) return
     let common: Element | null = pressed
-    while (common && !common.contains(target)) common = common.parentElement
+    while (common && !inner(common, 'contains').call(common, target)) common = inner(common, 'parentElement')
     if (!common) return
     if (button !== 0) {
       if (button === 1) this.#fire(common, 'auxclick', { ...init, detail: 1 }, PointerEvent as never)
@@ -191,6 +206,10 @@ export class Input {
 
   #release(button: number): void {
     this.#buttons &= ~buttonBit(button)
+    if (button === 0) {
+      this.text.up()
+      this.ranges.up()
+    }
     this.#pressed = null
     dom.setActive(NONE)
   }
@@ -226,6 +245,7 @@ export class Input {
       if (!this.#fire(target, 'keypress', { ...init, keyCode: char, charCode: char, which: char }, KeyboardEvent as never)) return false
     }
     if (this.selects.keyDefault(target, key, options.modifiers ?? {})) return true
+    if (!ctrl && !options.modifiers?.alt && this.ranges.key(target, key)) return true
     if (key === 'Enter' && this.#keyboardButton(target)) this.#keyboardClick(target, options.modifiers)
     if (key === ' ' && !options.repeat && this.#keyboardButton(target)) this.#spacePress = focus.revision
     this.onKeyDefault(target, key, options.modifiers ?? {})
@@ -253,7 +273,7 @@ export class Input {
   }
 
   setPointerCapture(element: Element, pointerId: number): void {
-    if (!element.isConnected) throw new DOMException("Failed to execute 'setPointerCapture' on 'Element': The element is not connected.", 'InvalidStateError')
+    if (!inner(element, 'isConnected')) throw new DOMException("Failed to execute 'setPointerCapture' on 'Element': The element is not connected.", 'InvalidStateError')
     if (this.capture === element) return
     this.capture = element
     this.#fire(element, 'gotpointercapture', { pointerId, bubbles: false, cancelable: false }, PointerEvent as never)

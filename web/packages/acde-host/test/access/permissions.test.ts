@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { PermissionAnsweredEvent, PermissionPromptEvent } from '@dopame/acde-api'
 import type { AppManifest } from '../../src/apps.ts'
-import { Permissions, type Permit } from '../../src/broker/access/approval/permissions.ts'
+import { Permissions, type Approval } from '../../src/broker/access/approval/permissions.ts'
 import { DevRequests } from '../../src/broker/dev.ts'
 
 const files = new Map<string, Record<string, string>>()
@@ -27,13 +27,13 @@ const next = async (permissions: Permissions) => {
 
 const open = (file = Math.random().toString(36).slice(2)) => {
   const told: (PermissionPromptEvent | PermissionAnsweredEvent)[] = []
-  const changes: [string, string, Permit][] = []
+  const changes: [string, string, Approval][] = []
   const permissions = new Permissions({
     store: stored(file),
     label: (id) => (id === 'tool' ? 'Tool' : null),
     supported: (name) => name !== 'slots',
     tell: (event) => void told.push(event),
-    changed: (id, capability, permit) => void changes.push([id, capability, permit]),
+    changed: (id, capability, approval) => void changes.push([id, capability, approval]),
     log: () => {},
   })
   return { permissions, told, changes, file }
@@ -83,6 +83,43 @@ test('an optional capability is asked on request, and the same prompt is shared 
   permissions.answer(permissions.pending()[0]!.id, true)
   assert.deepEqual(await Promise.all([first, second]), [true, true])
   assert.equal(permissions.permit(tool, third, 'terminal'), 'granted')
+})
+
+test('an app sees whether a capability was not asked for, is being asked, or was answered', async () => {
+  const { permissions, changes } = open()
+  const tool = app({ terminal: true, launch: true, office: true, fs: { roots: ['downloads'] } }, ['terminal', 'launch', 'fs'])
+  assert.deepEqual(permissions.approvals(tool, third), { terminal: 'not-asked', launch: 'not-asked', 'fs.downloads': 'not-asked' })
+  assert.equal(permissions.approval(tool, third, 'office'), 'granted', 'not given by approval')
+  assert.equal(permissions.approval(tool, system, 'terminal'), 'granted', 'system apps are not asked')
+  const asked = permissions.ask(tool, third, 'terminal', 'request')
+  assert.equal(permissions.approval(tool, third, 'terminal'), 'asking')
+  assert.deepEqual(changes, [['tool', 'terminal', 'asking']], 'the app is told that the prompt is up')
+  assert.equal(permissions.approval(tool, third, 'launch'), 'not-asked')
+  permissions.answer(permissions.pending()[0]!.id, false)
+  assert.equal(await asked, false)
+  assert.equal(permissions.approval(tool, third, 'terminal'), 'denied')
+  assert.deepEqual(changes.at(-1), ['tool', 'terminal', 'denied'])
+  const places = permissions.ask(tool, third, 'fs.downloads', 'request')
+  permissions.answer(permissions.pending()[0]!.id, true)
+  assert.equal(await places, true)
+  assert.deepEqual(permissions.approvals(tool, third), { terminal: 'denied', launch: 'not-asked', 'fs.downloads': 'granted' })
+  assert.equal(permissions.revoke('tool', 'fs.downloads'), true)
+  assert.equal(permissions.approval(tool, third, 'fs.downloads'), 'denied', 'a revoked capability is not asked again in this run')
+})
+
+test('the error says which of the three states holds', () => {
+  const error = (approval?: 'denied' | 'not-asked' | 'asking') => {
+    const { message, status, code, capability } = Permissions.error('Tool', 'launch', approval)
+    return { message, status, code, capability }
+  }
+  assert.deepEqual(error(), { message: 'Tool: "launch" is denied by the user', status: 403, code: 'denied', capability: 'launch' })
+  assert.deepEqual(error('not-asked'), {
+    message: 'Tool: "launch" is not asked for yet; ask for it with acde:capabilities request("launch")',
+    status: 403,
+    code: 'not_asked',
+    capability: 'launch',
+  })
+  assert.deepEqual(error('asking'), { message: `Tool: "launch" is waiting for the user's answer`, status: 403, code: 'asking', capability: 'launch' })
 })
 
 test('decisions persist across restarts', async () => {
@@ -135,13 +172,13 @@ test('the acde driver lists and answers prompts through the dev requests', async
 
 test('folders an app holds are listed by token and revoked like approvals', () => {
   const held = new Map([['tool', [{ id: 'folder-0123456789abcdef', label: 'Notes', exists: true }]], ['other', []]])
-  const changes: [string, string, Permit][] = []
+  const changes: [string, string, Approval][] = []
   const permissions = new Permissions({
     store: null,
     label: (id) => (id === 'tool' ? 'Tool' : null),
     supported: () => true,
     tell: () => {},
-    changed: (id, capability, permit) => void changes.push([id, capability, permit]),
+    changed: (id, capability, approval) => void changes.push([id, capability, approval]),
     log: () => {},
     folders: (appId) => [...held].filter(([app]) => appId === undefined || app === appId).flatMap(([app, list]) => list.map((f) => ({ app, ...f }))),
     revokeFolder: (appId, id) => {
@@ -159,4 +196,29 @@ test('folders an app holds are listed by token and revoked like approvals', () =
   assert.deepEqual(permissions.list('tool'), [])
   assert.equal(permissions.revoke('tool', 'fs.folder-0123456789abcdef'), false)
   assert.throws(() => permissions.revoke('tool', 'fs.folder-nothex'), (e: Error & { status?: number }) => e.status === 400)
+})
+
+test('acdert app asks again about a denial of an earlier run; a desktop keeps it', async () => {
+  const file = 'again'
+  files.set(file, { 'tool:launch': 'denied', 'tool:network': 'granted' })
+  const tool = app({ launch: true, network: true })
+  const make = (asksAgain: boolean) =>
+    new Permissions({ store: stored(file), label: () => 'Tool', supported: () => true, tell: () => {}, changed: () => {}, log: () => {}, asksAgain: () => asksAgain })
+
+  const desktop = make(false)
+  assert.equal(desktop.approval(tool, third, 'launch'), 'denied')
+  await assert.rejects(desktop.admit(tool, third), /denied by the user/)
+  assert.deepEqual(desktop.pending(), [])
+
+  const standalone = make(true)
+  assert.equal(standalone.approval(tool, third, 'launch'), 'not-asked', 'the earlier denial is asked about again')
+  const admitted = standalone.admit(tool, third)
+  const prompt = await next(standalone)
+  assert.deepEqual([prompt.capability, prompt.reason], ['launch', 'launch'], 'the granted network is not asked')
+  assert.deepEqual(files.get(file), { 'tool:network': 'granted' }, 'the old denial is dropped once it is asked again')
+  standalone.answer(prompt.id, false)
+  await assert.rejects(admitted, /denied by the user/)
+  assert.deepEqual(files.get(file), { 'tool:network': 'granted', 'tool:launch': 'denied' })
+  await assert.rejects(standalone.admit(tool, third), /denied by the user/, 'a no of this run is not asked twice')
+  assert.deepEqual(standalone.pending(), [])
 })

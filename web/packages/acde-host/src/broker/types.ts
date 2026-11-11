@@ -1,3 +1,4 @@
+import type { NativeWindow, WindowState } from '@dopame/acde-api'
 import type { AppManifest } from '../apps'
 import type { DevRoute } from '../devroutes'
 import type { Languages } from '../language'
@@ -58,6 +59,7 @@ export interface BrokerShell {
   approve?(title: string, message: string): Promise<boolean | null>
   dismissApproval?(): void
   readClipboard?(): string
+  resizeScreen?(width: number, height: number): void
   writeClipboard?(text: string): void
   readonly socketName: string
   readonly hosted?: boolean
@@ -157,7 +159,9 @@ export interface WebInit {
   readonly channel?: boolean
   readonly devState?: unknown
   readonly devRoutes?: readonly DevRoute[]
+  readonly devInit?: readonly string[]
   readonly tier: WebTier
+  readonly windows?: readonly NativeWindow[]
 }
 
 export interface ServiceShape {
@@ -181,4 +185,5 @@ export interface WindowRecord {
   url?: string | null
   mode?: 'fullscreen' | 'free'
   hidden?: boolean
+  state?: WindowState
 }

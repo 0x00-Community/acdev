@@ -3,7 +3,7 @@ import { NONE, NodeType } from '../native'
 import { FocusEvent } from './events'
 import type { Element } from './element'
 import { metricsOf } from './layout'
-import { dom, ID, lifecycle, wrap, type Wrapper } from './realm'
+import { CONNECTED, dom, ID, lifecycle, wrap, type Wrapper } from './realm'
 
 export const focus = {
   id: NONE,
@@ -63,7 +63,7 @@ export function setFocus(element: Element | null, visible?: boolean): void {
   focus.id = next
   focus.revision++
   dom.setFocus(next, next === NONE ? false : (visible ?? (focus.modality === 'keyboard' || isTextField(next))))
-  if (old?.isConnected) {
+  if (old?.[CONNECTED]) {
     fire(old, new FocusEvent('blur', { relatedTarget: element }))
     fire(old, new FocusEvent('focusout', { bubbles: true, relatedTarget: element }))
   }

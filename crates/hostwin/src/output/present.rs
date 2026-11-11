@@ -128,6 +128,13 @@ impl Presenter {
                 self.render.invalidate();
                 self.dirty = true;
             }
+            Msg::Pointer(at) => {
+                let s = self.scale;
+                match at {
+                    Some((x, y)) => self.render.pointer((x * s) as f32, (y * s) as f32),
+                    None => self.render.pointer(-1.0, -1.0),
+                }
+            }
             Msg::Scroll(x, y, dx, dy) => {
                 let s = self.scale;
                 self.render.scroll_at((x * s) as f32, (y * s) as f32, dx * s, dy * s);

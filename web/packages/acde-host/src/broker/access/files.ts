@@ -1,6 +1,6 @@
 import { Manifest } from '@dopame/acde-api/manifest'
 import type { Capabilities } from '../../apps'
-import { Permissions, type Permit } from './approval/permissions'
+import { Permissions, type Approval } from './approval/permissions'
 
 export type FsGrant = true | { readonly places: string[]; readonly paths: boolean } | null
 
@@ -25,12 +25,13 @@ export class FileAccess {
     return paths ? 'url' : 'handle'
   }
 
-  static guard<T extends object>(fs: T, permit: (capability: string) => Permit | null, label: string, office = false): T {
-    const blocked = (root: unknown): string | null => {
+  static guard<T extends object>(fs: T, approval: (capability: string) => Approval | null, label: string, office = false): T {
+    const refusal = (root: unknown): Error | null => {
       const capability = typeof root === 'string' ? `fs.${root}` : ''
-      const state = Manifest.place(capability) || Permissions.folder(capability) ? permit(capability) : null
-      return state && state !== 'granted' ? capability : null
+      const state = Manifest.place(capability) || Permissions.folder(capability) ? approval(capability) : null
+      return state && state !== 'granted' ? Permissions.error(label, capability, state) : null
     }
+    const blocked = (root: unknown): boolean => refusal(root) !== null
     const folder = (id: unknown) => typeof id === 'string' && !!Permissions.folder(`fs.${id}`)
     const shown = (root: { place?: unknown; id?: unknown }) => !blocked(root?.place) && !(folder(root?.id) && blocked(root?.id))
     const visible = (roots: unknown) => (Array.isArray(roots) ? roots.filter(shown) : roots)
@@ -49,8 +50,8 @@ export class FileAccess {
         const member = Reflect.get(target, key, receiver) as unknown
         if (typeof member !== 'function') return member
         return (...args: unknown[]) => {
-          const capability = blocked(rootOf(key, args)) ?? (!office && key === 'copy' ? blocked(args[2]) : null)
-          if (capability) return Promise.reject(Permissions.error(label, capability))
+          const refused = refusal(rootOf(key, args)) ?? (!office && key === 'copy' ? refusal(args[2]) : null)
+          if (refused) return Promise.reject(refused)
           return shape(key, (member as (...a: unknown[]) => unknown).apply(target, args))
         }
       },

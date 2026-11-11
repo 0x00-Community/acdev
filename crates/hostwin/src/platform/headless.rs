@@ -41,6 +41,10 @@ impl super::Host for Host {
         let _ = reply.send(Err(unanswered("no save chooser", "choose_save_file", "chooseSaveFile")));
     }
 
+    fn resize(&self, [w, h]: [f64; 2], scale: f64) -> Result<Option<(u32, u32)>, String> {
+        Ok(Some((((w * scale).round() as u32).max(1), ((h * scale).round() as u32).max(1))))
+    }
+
     fn exit(&self, code: i32) {
         self.exit.set(Some(code));
     }

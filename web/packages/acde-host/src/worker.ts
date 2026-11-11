@@ -2,6 +2,7 @@ import { install, installBackendTransport, observe } from '@dopame/acde-dom'
 import type { AudioNative, BackendTransport, CaptureNative, DomNative, GpuNative, HostNative, StorageNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
 import { Frame } from './frame'
+import { FsModule } from './fsmodule'
 import { Host } from './host'
 import type { ImeEvent, NativeIme } from './ime'
 import type { NativeSurface } from './native'
@@ -15,7 +16,7 @@ import { PageInspect } from './pageinspect'
 import { Pinned } from './pinned'
 import { RemoteBridge, WindowList, WindowSelf } from './remote'
 import { Permits } from './broker/access/approval/permits'
-import type { Permit } from './broker/access/approval/permissions'
+import type { Approval } from './broker/access/approval/permissions'
 import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 import { Rpc } from './rpc'
 import { OfficePage } from './office'
@@ -50,7 +51,7 @@ interface WebNatives extends Natives {
   readonly capture?: CaptureNative
   readonly storage?: StorageNative
   readonly backend?: Omit<BackendTransport, 'port'>
-  readonly fs?: object
+  readonly fs?: Parameters<typeof FsModule.typed>[0]
   readonly terminal?: object
   readonly network?: object
   readonly office?: object
@@ -90,7 +91,12 @@ export default async function boot(natives: WebNatives): Promise<void> {
     Object.defineProperty(copy, 'stack', { value: mapped })
     report(copy)
   }
-  const permits = new Permits(init.tier?.permits, init.app?.label ?? init.kind)
+  const permits = new Permits(init.tier?.approvals, init.app?.label ?? init.kind)
+  const rpc = new Rpc((message) => port.post(message))
+  const access = {
+    supported: (name: string) => init.tier?.capabilities?.statuses.find((s) => s.name === name)?.state !== 'unsupported',
+    request: (name: string) => rpc.call('capabilities', 'request', [name]) as Promise<CapabilityStatus>,
+  }
   const page = install(globalThis, dom, host, {
     url: (htmlEntry ? init.url : undefined) ?? `${PageSource.ORIGIN}/`,
     ...init.languages,
@@ -98,12 +104,20 @@ export default async function boot(natives: WebNatives): Promise<void> {
     ...(natives.storage && { storage: natives.storage }),
     gpu: natives.gpu,
     audio: natives.audio,
-    ...(natives.capture && { capture: permits.capture(natives.capture) }),
+    ...(natives.capture && { capture: permits.capture(natives.capture, access) }),
     ...(init.screen && { screen: init.screen }),
   })
   const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null
+  const dialogs: { accept: boolean; text?: string }[] = []
   if (routes) {
     observe({
+      dialog: (event) => {
+        const answer = dialogs.shift() ?? null
+        const accept = answer ? answer.accept : event.type === 'alert'
+        const text = event.type === 'prompt' && accept ? (answer?.text ?? event.defaultValue) : null
+        port.post({ devlog: 'dialog', time: Log.clock(), dialog: { type: event.type, message: event.message, defaultValue: event.defaultValue, answered: !!answer, accept, text } })
+        return answer
+      },
       console: (level, text) => port.post({ devlog: 'console', time: Log.clock(), level, text: maps.stack(text) }),
       error: (kind, text) => port.post({ devlog: 'error', time: Log.clock(), kind, text: maps.stack(text) }),
       request: (event) => port.post({ devlog: 'request', time: Log.clock(), event }),
@@ -116,10 +130,9 @@ export default async function boot(natives: WebNatives): Promise<void> {
     else page.reportError(error)
   })
 
-  const rpc = new Rpc((message) => port.post(message))
   const output = WindowSelf.output(init.screen?.width ?? 0, init.screen?.height ?? 0, init.scale, init.screen?.workArea)
   const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null, output) : null
-  const windows = new WindowList(rpc)
+  const windows = new WindowList(rpc, init.windows)
   const bridge = new RemoteBridge(rpc, init, self, windows, permits)
   if (natives.backend) installBackendTransport({ ...natives.backend, port: init.kind === 'window' && init.app?.backend ? init.app.backend.port : null })
   const web = new Host(page, dom, init.scale, natives.Ime, windows)
@@ -129,7 +142,15 @@ export default async function boot(natives: WebNatives): Promise<void> {
     if (service === 'window' && self) return self.serve(method, args)
     if (service === 'inspect') return inspect.serve(method, args)
     if (service === 'dev' && method === 'state' && natives.env['ACDE_DEV']) return DevState.capture(page.window as never)
+    if (service === 'dev' && method === 'clock' && natives.env['ACDE_DEV']) return await page.clock(args[0] as never)
     if (service === 'debug' && method === 'eval' && debug) return await (0, eval)(String(args[0]))
+    if (service === 'debug' && method === 'evalOn' && debug) {
+      const element = page.nodeOf(Number(args[0]))
+      if (!element) throw new Error(`no element ${String(args[0])} in this page (it is gone)`)
+      const fn = (0, eval)(`(${String(args[1])})`) as (element: unknown, arg: unknown) => unknown
+      if (typeof fn !== 'function') throw new Error('evalOn: code is a function of the element')
+      return await fn(element, args[2])
+    }
     if (service === 'debug' && method === 'stats' && debug) return dom.stats(Boolean(args[0]))
     throw new Error(`${init.name} serves no ${service}.${method}`)
   })
@@ -148,12 +169,17 @@ export default async function boot(natives: WebNatives): Promise<void> {
       workArea?: { x: number; y: number; width: number; height: number }
       routes?: DevRoute[]
       capability?: string
-      permit?: Permit
+      approval?: Approval
       status?: CapabilityStatus
     }
     switch (m.type) {
       case 'devroutes':
         return routes?.set(m.routes ?? [])
+      case 'devdialog': {
+        const d = m as { accept?: unknown; text?: unknown }
+        if (routes) dialogs.push({ accept: d.accept !== false, ...(typeof d.text === 'string' && { text: d.text }) })
+        return
+      }
       case 'screen':
         if (m.width && m.height) page.setScreen({ width: m.width, height: m.height })
         if (m.width && m.height) self?.moved(WindowSelf.output(m.width, m.height, m.scale ?? self.output.scale, m.workArea))
@@ -170,7 +196,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
       case 'devhot':
         return devhot()
       case 'permit':
-        return m.capability && m.permit ? bridge.permit(m.capability, m.permit, m.status ?? null) : undefined
+        return m.capability && m.approval ? bridge.permit(m.capability, m.approval, m.status ?? null) : undefined
       default:
         web.deliver([m] as never)
     }
@@ -180,7 +206,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     self.onVisible = (visible) => page.setVisible(visible)
   }
   const privateDirectory = natives.storage?.privateDirectory ? () => natives.storage!.privateDirectory!() : null
-  const notify = init.tier?.capabilities?.statuses.find((s) => s.name === 'notifications')?.state !== 'unsupported'
+  const notify = access.supported('notifications')
   const setup = { picker: natives.picker ?? null, label: init.app?.label ?? null, language: () => language, privateDirectory, notify }
   const calls = new PageCalls(page, rpc, init.name, setup)
   web.handOver = calls
@@ -203,8 +229,8 @@ export default async function boot(natives: WebNatives): Promise<void> {
   }
   if (bridge.value['desktop']) bridge.value['desktop'] = { ...(bridge.value['desktop'] as object), ...Frame.desktop(surface) }
   if (natives.fs) {
-    const fs = natives.fs as { roots(): Promise<unknown> }
-    bridge.value['fs'] = { ...natives.fs, roots: async () => HostStrings.roots(await fs.roots(), language) }
+    const typed = FsModule.typed(natives.fs)
+    bridge.value['fs'] = { ...typed, roots: async () => HostStrings.roots(await (typed as unknown as { roots(): Promise<unknown> }).roots(), language) }
   }
   if (natives.terminal) bridge.value['terminal'] = natives.terminal
   if (natives.network) bridge.value['network'] = natives.network
@@ -237,6 +263,15 @@ export default async function boot(natives: WebNatives): Promise<void> {
         : htmlPage
           ? PageSource.html(htmlPage, init.resources)
           : PageSource.window(init.app!, init.theme ?? '')
+  if (natives.env['ACDE_DEV']) {
+    for (const code of init.devInit ?? []) {
+      try {
+        ;(0, eval)(code)
+      } catch (error) {
+        page.reportError(error)
+      }
+    }
+  }
   await page.loadPage(html)
   if (init.kind === 'window' && Frame.height(init.app) > 0) Frame.followScheme(page.window as never, surface, (run) => void setTimeout(run, 50))
   if (init.devState) {

@@ -39,16 +39,27 @@ export function moved(): void {
 
 let creating = NONE
 let creatingConnected = false
+let shaping: ProxyHandler<Wrapper> | null = null
 
-export function adopt(wrapper: Wrapper): void {
+export function exotic<T extends object>(handler: ProxyHandler<T>): void {
+  if (creating !== NONE) shaping = handler as ProxyHandler<Wrapper>
+}
+
+export function adopt<T extends Wrapper>(wrapper: T): T {
   const id = creating
   if (id === NONE) throw new TypeError('Illegal constructor')
   creating = NONE
   wrapper[ID] = id
   wrapper[CONNECTED] = creatingConnected
-  if (creatingConnected) strong.set(id, wrapper)
-  else weak.set(id, new WeakRef(wrapper))
-  collected.register(wrapper, id)
+  let outer = wrapper
+  if (shaping) {
+    outer = new Proxy(wrapper, shaping as ProxyHandler<T>)
+    shaping = null
+  }
+  if (creatingConnected) strong.set(id, outer)
+  else weak.set(id, new WeakRef(outer))
+  collected.register(outer, id)
+  return outer
 }
 
 export function nodeConstructing(): boolean {
@@ -58,6 +69,7 @@ export function nodeConstructing(): boolean {
 export function constructing(id: number, connected = false): void {
   creating = id
   creatingConnected = connected
+  shaping = null
 }
 
 export function construct<T>(cls: new () => T, id: number, connected = false): T {
@@ -65,6 +77,7 @@ export function construct<T>(cls: new () => T, id: number, connected = false): T
   try {
     return new cls()
   } finally {
+    shaping = null
     if (creating === id) {
       creating = NONE
       if (!existing(id)) dom.unpin(id)
@@ -194,4 +207,8 @@ export function wrapperStats(): { strong: number; weak: number } {
 
 export function strongIds(): number[] {
   return [...strong.keys()]
+}
+
+export function inner<T extends object, K extends keyof T>(node: T, key: K): T[K] {
+  return Reflect.get(Object.getPrototypeOf(node) as object, key, node) as T[K]
 }

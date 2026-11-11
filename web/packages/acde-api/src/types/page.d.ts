@@ -146,7 +146,7 @@ export interface NativeWindow {
   readonly appId: string | null
   readonly title: string | null
   readonly web?: boolean
-  readonly state?: WindowState
+  readonly state: WindowState
 }
 
 export interface AcdeWindows extends WindowsEvents {
@@ -601,6 +601,16 @@ export interface ShellModuleTypes {
   readonly desktop: AcdeDesktop
   readonly setDefault: AcdeOpenFiles['setDefault']
   readonly permissions: AcdePermissions
+}
+
+export interface ServiceModuleTypes {
+  readonly windows: Required<AcdeWindows>
+  readonly packages: AcdePackages
+  readonly session: AcdeSession
+  readonly desktops: AcdeDesktops
+  readonly inspect: AcdeInspect
+  readonly desktop: Pick<AcdeDesktop, 'apps'>
+  readonly setDefault: AcdeOpenFiles['setDefault']
 }
 
 export interface AcdePage {

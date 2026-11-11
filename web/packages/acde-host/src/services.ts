@@ -61,7 +61,7 @@ export class DesktopServices {
   readonly capability = new Map<string, string>()
   readonly sync = new Set<string>()
   inspect: object | null = null
-  shell: ((name: ShellModule) => object | null) | null = null
+  shell: { module(name: ShellModule, service: string): object | null; release(service: string): void } | null = null
 
   async start(desktop: InstalledDesktop, native: Native, value: Record<string, unknown>, before: Promise<unknown> = Promise.resolve()): Promise<void> {
     const state = xdgHome('state')
@@ -91,6 +91,7 @@ export class DesktopServices {
         } catch (error) {
           log(`not started: ${(error as Error).stack ?? error}`)
           Processes.stop(processes)
+          this.shell?.release(service.name)
           return null
         }
       }),
@@ -123,7 +124,7 @@ export class DesktopServices {
     if (!service.modules.includes(name)) {
       throw new TypeError(`acde:${name} is a shell module: list it in the modules of service ${JSON.stringify(service.name)} in the desktop manifest`)
     }
-    const value = this.shell?.(name)
+    const value = this.shell?.module(name, service.name)
     if (!value) throw new TypeError(`acde:${name} is not available to services here`)
     return { [name]: value, default: value }
   }
@@ -140,6 +141,7 @@ export class DesktopServices {
         Log.write(Level.Warn, 'acde_host', `[${running.name}] close: ${(error as Error).message}`)
       }
       Processes.stop(running.processes)
+      this.shell?.release(running.name)
     }
     this.sync.clear()
   }

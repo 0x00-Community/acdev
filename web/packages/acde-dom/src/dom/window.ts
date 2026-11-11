@@ -1,6 +1,7 @@
 import pkg from '../../package.json' with { type: 'json' }
 import { defineHandlers, Event, EventTarget, fire, LISTENERS, windowEvent } from '../core/event'
 import { DOMException } from '../core/exception'
+import { dialogAnswer } from '../core/observe'
 import { G, getters, globals, host, KEY, tag } from '../core/host'
 import { capturePermission, MediaDevices, Permissions } from '../media/stream'
 import { structuredClone, transferList } from '../core/message'
@@ -593,13 +594,24 @@ export function installWindow(global: typeof globalThis, parts: WindowParts): vo
         fire(global as unknown as EventTarget, new MessageEvent('message', { data, origin: here().origin, source: global }))
       })
     },
-    alert: (message?: unknown) => (env.alert ? env.alert(String(message ?? '')) : host.print(0, `alert: ${String(message ?? '')}`)),
-    confirm: (message?: unknown) => {
-      host.print(0, `confirm: ${String(message ?? '')} (answered no)`)
+    alert: (message: unknown = '') => {
+      const text = String(message)
+      if (dialogAnswer('alert', text, null)) return
+      if (env.alert) env.alert(text)
+      else host.print(0, `alert: ${text}`)
+    },
+    confirm: (message: unknown = '') => {
+      const text = String(message)
+      const answer = dialogAnswer('confirm', text, null)
+      if (answer) return answer.accept
+      host.print(0, `confirm: ${text} (answered no)`)
       return false
     },
-    prompt: (message?: unknown) => {
-      host.print(0, `prompt: ${String(message ?? '')} (answered nothing)`)
+    prompt: (message: unknown = '', defaultValue: unknown = '') => {
+      const text = String(message), value = String(defaultValue)
+      const answer = dialogAnswer('prompt', text, value)
+      if (answer) return answer.accept ? (answer.text ?? value) : null
+      host.print(0, `prompt: ${text} (answered nothing)`)
       return null
     },
     print: () => {},

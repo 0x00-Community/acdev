@@ -5,9 +5,10 @@ import { constants, G, listClass, queueTask, tag } from '../core/host'
 import { NodeType } from '../native'
 import { Element, flags, handlerOf, handlerSet } from './element'
 import { metricsOf, rectOf, rootScroll } from './layout'
-import { indexKey, pathHooks, type Node } from './node'
+import { indexKey } from './legacy'
+import { pathHooks, type Node } from './node'
 import type { FileSystemHandle } from './picker'
-import { documentId, dom, existing, ID, wrap, type Wrapper } from './realm'
+import { documentId, dom, existing, ID, wrap, type Wrapper, inner } from './realm'
 
 export const SHADOW_ROOT = Symbol('shadowRoot')
 export const ACTIVATION = Symbol('activation')
@@ -26,7 +27,7 @@ pathHooks.build = (node: Node, event: Event, path: EventTarget[]) => {
   const type = event.type
   const full = isClick(event)
   const inline = flags.inlineHandlers
-  if (inline && node.nodeType === NodeType.Element) handlerOf(node as unknown as Element, type)
+  if (inline && inner(node, 'nodeType') === NodeType.Element) handlerOf(node as unknown as Element, type)
   const ancestors = dom.ancestors(node[ID])
   let previous: Wrapper = node
   const last = ancestors.length - 1
@@ -38,7 +39,7 @@ pathHooks.build = (node: Node, event: Event, path: EventTarget[]) => {
       else if (inline && (i < last || dom.nodeType(id) === NodeType.Element) && dom.hasAttribute(id, `on${type}`)) w = wrap(id)!
       else continue
     }
-    if (inline && (w as unknown as Node).nodeType === NodeType.Element) handlerOf(w as unknown as Element, type)
+    if (inline && inner((w as unknown as Node), 'nodeType') === NodeType.Element) handlerOf(w as unknown as Element, type)
     const shadow = w[SHADOW_ROOT]
     if (shadow && previous !== w) path.push(shadow)
     path.push(w as unknown as EventTarget)

@@ -6,7 +6,7 @@ import { DOMRect, DOMRectList } from './geometry'
 import { rectOf } from './layout'
 import { ANY_PARENT, CharacterData, DocumentFragment, insert, Node, rangeHooks, remove, type Text } from './node'
 import { noteMarkup } from './element'
-import { bodyId, CONNECTED, documentId, dom, ID, rootElementId, wrap } from './realm'
+import { bodyId, CONNECTED, documentId, dom, ID, rootElementId, wrap, inner } from './realm'
 
 const enum Position {
   Before = -1,
@@ -19,7 +19,7 @@ const CONTAINS = 8
 const CONTAINED_BY = 16
 
 function nodeLength(node: Node): number {
-  const type = node.nodeType
+  const type = inner(node, 'nodeType')
   if (type === NodeType.Text || type === NodeType.Comment) return dom.data(node[ID]).length
   if (type === NodeType.DocumentType) return 0
   return dom.childCount(node[ID])
@@ -149,7 +149,7 @@ rangeHooks.split = (node, tail, offset) => moveBoundaries((container, o) => (con
 
 function checkPoint(node: Node, offset: number, method: string, iface = 'Range'): void {
   if (!(node instanceof Node)) throw new TypeError(`Failed to execute '${method}' on '${iface}': parameter 1 is not of type 'Node'.`)
-  if (node.nodeType === NodeType.DocumentType) throw new DOMException(`Failed to execute '${method}' on '${iface}': The node provided is of type 'DocumentType'.`, 'InvalidNodeTypeError')
+  if (inner(node, 'nodeType') === NodeType.DocumentType) throw new DOMException(`Failed to execute '${method}' on '${iface}': The node provided is of type 'DocumentType'.`, 'InvalidNodeTypeError')
   const length = nodeLength(node)
   if (offset > length) throw new DOMException(`Failed to execute '${method}' on '${iface}': The offset ${offset} is larger than the node's length (${length}).`, 'IndexSizeError')
 }
@@ -246,7 +246,7 @@ export class Range extends AbstractRange {
   }
 
   #parentOf(node: Node, method: string): Node {
-    const parent = node.parentNode
+    const parent = inner(node, 'parentNode')
     if (!parent) throw new DOMException(`Failed to execute '${method}' on 'Range': the given Node has no parent.`, 'InvalidNodeTypeError')
     return parent
   }
@@ -279,7 +279,7 @@ export class Range extends AbstractRange {
   }
 
   selectNodeContents(node: Node): void {
-    if (node.nodeType === NodeType.DocumentType) throw new DOMException("Failed to execute 'selectNodeContents' on 'Range': The node provided is of type 'DocumentType'.", 'InvalidNodeTypeError')
+    if (inner(node, 'nodeType') === NodeType.DocumentType) throw new DOMException("Failed to execute 'selectNodeContents' on 'Range': The node provided is of type 'DocumentType'.", 'InvalidNodeTypeError')
     setBoundary(this, true, node, 0)
     setBoundary(this, false, node, nodeLength(node))
     changed(this)
@@ -413,7 +413,7 @@ export class Range extends AbstractRange {
     if (this.collapsed) return fragment
     const sc = this[START_NODE], so = this[START_OFFSET], ec = this[END_NODE], eo = this[END_OFFSET]
     const partial = (node: Node, a: Node, ao: number, b: Node, bo: number) => {
-      const clone = node.cloneNode(false)
+      const clone = inner(node, 'cloneNode').call(node, false)
       fragment.appendChild(clone)
       if (isCharacterData(node)) {
         ;(clone as CharacterData).data = dom.data(node[ID]).slice(ao, bo)
@@ -423,7 +423,7 @@ export class Range extends AbstractRange {
       const sub = unlistedRange()
       setBoundary(sub, true, a, ao)
       setBoundary(sub, false, b, bo)
-      clone.appendChild(sub.#extract(move))
+      inner(clone, 'appendChild').call(clone, sub.#extract(move))
     }
     if (sc === ec && isCharacterData(sc)) {
       partial(sc, sc, so, ec, eo)
@@ -445,7 +445,7 @@ export class Range extends AbstractRange {
       newOffset = firstAt + 1
     }
     if (firstPartial) partial(firstPartial, sc, so, firstPartial, nodeLength(firstPartial))
-    for (const node of contained) fragment.appendChild(move ? node : node.cloneNode(true))
+    for (const node of contained) fragment.appendChild(move ? node : inner(node, 'cloneNode').call(node, true))
     if (lastPartial) partial(lastPartial, lastPartial, 0, ec, eo)
     if (move) {
       this[START_NODE] = this[END_NODE] = newNode
@@ -457,32 +457,32 @@ export class Range extends AbstractRange {
 
   insertNode(node: Node): void {
     const sc = this[START_NODE]
-    if (sc.nodeType === NodeType.Comment || (isText(sc) && !sc.parentNode) || sc === node) throw new DOMException("Failed to execute 'insertNode' on 'Range': The range start is in a node that cannot be split.", 'HierarchyRequestError')
+    if (inner(sc, 'nodeType') === NodeType.Comment || (isText(sc) && !inner(sc, 'parentNode')) || sc === node) throw new DOMException("Failed to execute 'insertNode' on 'Range': The range start is in a node that cannot be split.", 'HierarchyRequestError')
     let ref: Node | null
     let parent: Node
     if (isText(sc)) {
       ref = (sc as Text).splitText(this[START_OFFSET])
-      parent = ref.parentNode!
+      parent = inner(ref, 'parentNode')!
     } else {
       ref = wrap<Node>(dom.childNodes(sc[ID])[this[START_OFFSET]] ?? NONE)
       parent = sc
     }
-    if (ref === node) ref = node.nextSibling
-    if (node.parentNode) remove(node)
+    if (ref === node) ref = inner(node, 'nextSibling')
+    if (inner(node, 'parentNode')) remove(node)
     const index = ref ? indexOf(ref) : nodeLength(parent)
-    const added = node.nodeType === NodeType.DocumentFragment ? nodeLength(node) : 1
+    const added = inner(node, 'nodeType') === NodeType.DocumentFragment ? nodeLength(node) : 1
     insert(parent, node, ref)
     if (this.collapsed) setBoundary(this, false, parent, index + added)
     changed(this)
   }
 
   surroundContents(parent: Node): void {
-    const type = parent.nodeType
+    const type = inner(parent, 'nodeType')
     if (type === NodeType.Document || type === NodeType.DocumentType || type === NodeType.DocumentFragment) throw new DOMException("Failed to execute 'surroundContents' on 'Range': The node provided is of an invalid type.", 'InvalidNodeTypeError')
     const fragment = this.extractContents()
-    while (parent.firstChild) remove(parent.firstChild)
+    for (let first = inner(parent, 'firstChild'); first; first = inner(parent, 'firstChild')) remove(first)
     this.insertNode(parent)
-    parent.appendChild(fragment)
+    inner(parent, 'appendChild').call(parent, fragment)
     this.selectNode(parent)
   }
 
@@ -490,7 +490,7 @@ export class Range extends AbstractRange {
     const markup = String(html)
     noteMarkup(markup)
     let context = this[START_NODE]
-    if (context.nodeType !== NodeType.Element) context = context.parentNode ?? wrap<Node>(bodyId()) ?? wrap<Node>(rootElementId())!
+    if (inner(context, 'nodeType') !== NodeType.Element) context = inner(context, 'parentNode') ?? wrap<Node>(bodyId()) ?? wrap<Node>(rootElementId())!
     return wrap<DocumentFragment>(guard(() => dom.parseFragment(context[ID], markup)))!
   }
 
@@ -516,7 +516,7 @@ export class Range extends AbstractRange {
     }
     for (const id of this.#contained()) visit(id)
     if (isText(ec)) push(dom.textRects(ec[ID], 0, this[END_OFFSET]))
-    if (rects.length === 0 && sc.nodeType === NodeType.Element) {
+    if (rects.length === 0 && inner(sc, 'nodeType') === NodeType.Element) {
       const child = dom.childNodes(sc[ID])[this[START_OFFSET]]
       rects.push(child !== undefined && dom.nodeType(child) === NodeType.Element ? rectOf(child) : rectOf(sc[ID]))
     }
@@ -547,11 +547,11 @@ constants(Range, { START_TO_START: 0, START_TO_END: 1, END_TO_END: 2, END_TO_STA
 tag(Range)
 
 function isText(node: Node): boolean {
-  return node.nodeType === NodeType.Text
+  return inner(node, 'nodeType') === NodeType.Text
 }
 
 function isCharacterData(node: Node): boolean {
-  const type = node.nodeType
+  const type = inner(node, 'nodeType')
   return type === NodeType.Text || type === NodeType.Comment
 }
 
@@ -644,7 +644,7 @@ export class Selection {
   addRange(range: Range): void {
     if (!(range instanceof Range)) throw new TypeError("Failed to execute 'addRange' on 'Selection': parameter 1 is not of type 'Range'.")
     if (this.#range) return
-    if (!range.startContainer.isConnected) return
+    if (!inner(range.startContainer, 'isConnected')) return
     this.#set(range)
   }
 
@@ -716,7 +716,7 @@ export class Selection {
   containsNode(node: Node, allowPartial = false): boolean {
     const r = this.#range
     if (!r || root(node[ID]) !== root(r.startContainer[ID])) return false
-    const parent = node.parentNode
+    const parent = inner(node, 'parentNode')
     if (!parent) return false
     if (allowPartial) return r.intersectsNode(node)
     const index = indexOf(node)

@@ -61,6 +61,7 @@ export interface ImportRule {
   readonly allowed: boolean
   readonly missing: string | null
   readonly reason: string | null
+  readonly unverified: string | null
 }
 
 export const RESERVED_NAMES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITIES, ...WEB_CAPABILITIES, ...SHELL_MODULES, ...APP_MODULES, 'capabilities'])
@@ -68,6 +69,10 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([...SYSTEM_CAPABILITI
 export interface DesktopServiceGrant {
   readonly name: string
   readonly modules: ShellModule[]
+}
+
+export interface ConfiguredService extends DesktopServiceGrant {
+  readonly module: string
 }
 
 export type AppManifest = Required<Omit<AppEntry, 'backend' | 'size'>> & {
@@ -155,6 +160,28 @@ export class Manifest {
     return grants
   }
 
+  static configServices(raw: unknown): ConfiguredService[] | string {
+    if (raw === undefined || raw === null) return []
+    if (typeof raw !== 'object' || Array.isArray(raw)) return 'services maps each service name to its module or {module, modules}'
+    const services: ConfiguredService[] = []
+    for (const [name, entry] of Object.entries(raw)) {
+      const at = `service ${JSON.stringify(name)}`
+      if (typeof entry === 'string' && entry) {
+        services.push({ name, module: entry, modules: [] })
+        continue
+      }
+      const fields = (typeof entry === 'object' && entry !== null && !Array.isArray(entry) ? entry : {}) as Record<string, unknown>
+      const { module, modules, ...rest } = fields
+      if (typeof module !== 'string' || !module) return `${at}: a service is its module or {module, modules}`
+      const [unknown] = Object.keys(rest)
+      if (unknown !== undefined) return `${at}: ${JSON.stringify(unknown)} is not a field of a service (module, modules)`
+      const grants = Manifest.desktopServices([{ name, modules }])
+      if (!Array.isArray(grants)) return grants ?? `${at}: a service is its module or {module, modules}`
+      services.push({ name, module, modules: grants[0]!.modules })
+    }
+    return services
+  }
+
   static readonly UNVERSIONED = `no acde.apiLevel: a package built before contract levels; rebuild it with the current acde (level ${API_LEVEL})`
 
   static refusal(level: number): string | null {
@@ -221,11 +248,11 @@ export class Manifest {
   }
 
   static importRule(name: string, app: AppManifest | null, origin: { readonly system: boolean }): ImportRule {
-    const allowed: ImportRule = { allowed: true, missing: null, reason: null }
+    const allowed: ImportRule = { allowed: true, missing: null, reason: null, unverified: null }
     if (!app) return allowed
     const caps = app.capabilities
     const declared = `the capabilities of ${app.label}`
-    const refuse = (missing: string | null, reason: string): ImportRule => ({ allowed: false, missing, reason })
+    const refuse = (missing: string | null, reason: string): ImportRule => ({ allowed: false, missing, reason, unverified: null })
     if (Manifest.#SHELL.has(name)) {
       if (!origin.system) {
         const why = `only the desktop, its services and system apps may import it, and ${app.label} is not a system app`
@@ -238,7 +265,12 @@ export class Manifest {
     if ((CAPABILITY_MODULES as readonly string[]).includes(name)) return caps[name] ? allowed : refuse(name, `acde:${name} needs "${name}" in ${declared}`)
     if ((APP_MODULES as readonly string[]).includes(name) || name === 'capabilities') return allowed
     if (app.services.includes(name)) return allowed
-    return refuse(name, `acde:${name} is a desktop service: list "${name}" in the services of ${app.label}`)
+    if (app.services.length > 0) {
+      const listed = app.services.map((service) => JSON.stringify(service)).join(', ')
+      const one = app.services.length === 1 ? 'the service' : 'one of the services'
+      return { ...allowed, unverified: `acde:${name} resolves only if ${one} ${app.label} lists (${listed}) provides the "${name}" namespace` }
+    }
+    return refuse(null, `acde:${name} is not a system module; if a desktop service provides it, list that service's name in the services of ${app.label}`)
   }
 
   static reserved(name: string): string | null {

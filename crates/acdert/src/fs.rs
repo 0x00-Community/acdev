@@ -103,7 +103,7 @@ fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, re
             resolver.resolve(scope, value);
         }
         Ok(FsReply::File { name, data }) => {
-            let file = crate::js_object!(scope, {"name" => name, "contentType" => FsReply::OCTETS, "data" => data});
+            let file = crate::js_object!(scope, {"name" => name, "data" => data});
             resolver.resolve(scope, file.into());
         }
         Ok(FsReply::Text { text, modified_ms, size, version }) => {

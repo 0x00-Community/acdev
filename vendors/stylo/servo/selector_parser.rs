@@ -857,10 +857,12 @@ impl ServoElementSnapshot {
         self.other_attributes_changed
     }
 
+    // acrender: a snapshot taken for a state change alone (hover, focus, active) holds no
+    // attributes, and stylesheet invalidation asks every snapshot for its old classes and id
+    // (`invalidation/stylesheets.rs`): it has none to give, as in Gecko's snapshot
     fn get_attr(&self, namespace: &Namespace, name: &LocalName) -> Option<&AttrValue> {
         self.attrs
-            .as_ref()
-            .unwrap()
+            .as_ref()?
             .iter()
             .find(|&&(ref ident, _)| ident.local_name == *name && ident.namespace == *namespace)
             .map(|&(_, ref v)| v)

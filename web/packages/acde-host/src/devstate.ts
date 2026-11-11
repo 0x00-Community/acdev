@@ -1,3 +1,5 @@
+import { hostTime } from '@dopame/acde-dom'
+
 interface Field {
   readonly path: string
   readonly value?: string
@@ -153,7 +155,7 @@ export class DevState {
       const left = pass()
       attempt++
       if (left === 0 || attempt === DevState.RETRIES.length) return done(restored, left)
-      win.setTimeout(next, DevState.RETRIES[attempt]! - DevState.RETRIES[attempt - 1]!)
+      hostTime.setTimeout(next, DevState.RETRIES[attempt]! - DevState.RETRIES[attempt - 1]!)
     }
     next()
   }

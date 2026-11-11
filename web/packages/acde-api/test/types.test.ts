@@ -249,11 +249,58 @@ pending.map((prompt) => prompt.app satisfies string)
 const decisions = await permissions.list('notes')
 decisions.map((d) => d.decision satisfies 'granted' | 'denied')
 export const revoked: Promise<boolean> = permissions.revoke('notes', 'launch')
-export function denied(error: AcdePermissionError): [403, 'denied', string] {
+export function refused(error: AcdePermissionError): [403, 'denied' | 'not_asked' | 'asking', string] {
   return [error.status, error.code, error.capability]
 }
 `
   assert.deepEqual(errors('shell', code), [])
   assert.ok(errors('app', `import { permissions } from 'acde:permissions'\nvoid permissions.pending()`).length > 0, 'apps do not see it')
   assert.ok(errors('shell', `import { permissions } from 'acde:permissions'\nvoid permissions.revoke('notes', 'office')`).length > 0)
+})
+
+test('an app tells a capability that was not asked for from one being asked, denied or available', () => {
+  const code = `
+import { capabilities } from 'acde:capabilities'
+import type { AcdePermissionError, CapabilityState } from ${JSON.stringify(`${src}app`)}
+export function next(state: CapabilityState): 'use' | 'request' | 'wait' | 'explain' | 'leave out' {
+  switch (state) {
+    case 'available':
+      return 'use'
+    case 'not-asked':
+      return 'request'
+    case 'asking':
+      return 'wait'
+    case 'denied':
+      return 'explain'
+    case 'not-declared':
+    case 'unsupported':
+    case 'service-not-running':
+    case 'shell-only':
+      return 'leave out'
+  }
+}
+export const now = next(capabilities.get('terminal').state)
+export const answered: Promise<CapabilityState> = capabilities.request('terminal').then((status) => status.state)
+export function ask(error: AcdePermissionError): boolean {
+  return error.code === 'not_asked'
+}
+`
+  assert.deepEqual(errors('app', code), [])
+  const unknown = `import { capabilities } from 'acde:capabilities'\nexport const waiting = capabilities.get('terminal').state === 'waiting'`
+  assert.ok(errors('app', unknown).length > 0, 'a state the runtime does not report is a type error')
+})
+
+test('every row of a window list carries its state', () => {
+  const shell = `
+import { windows } from 'acde:windows'
+import type { WindowState } from ${JSON.stringify(`${src}shell`)}
+export const states: WindowState[] = windows.list().map((row) => row.state)
+`
+  assert.deepEqual(errors('shell', shell), [])
+  const app = `
+import { launch } from 'acde:launch'
+export const minimized: number[] = launch.list().filter((row) => row.state === 'minimized').map((row) => row.id)
+export const states: ('normal' | 'minimized' | 'filled' | 'fullscreen')[] = launch.list().map((row) => row.state)
+`
+  assert.deepEqual(errors('app', app), [])
 })

@@ -84,16 +84,32 @@ windows.list()
   assert.deepEqual(errors('shell', code), [])
 })
 
+test('a desktop config gives a service its module, or its module and shell modules', () => {
+  const head = `import type { DesktopConfig } from ${JSON.stringify(join(src, 'shell.d.ts'))}\n`
+  const config = (services: string) => `${head}export const config: DesktopConfig = { type: 'desktop', services: ${services} }`
+  assert.deepEqual(errors('shell', config(`{ clock: 'services/clock.ts', assistant: { module: 'services/a.ts', modules: ['windows', 'session'] }, bare: { module: 'b.ts' } }`)), [])
+  assert.ok(errors('shell', config(`{ assistant: { module: 'a.ts', modules: ['fs'] } }`)).length > 0, 'fs is not a shell module')
+  assert.ok(errors('shell', config(`{ assistant: { modules: ['windows'] } }`)).length > 0, 'a service needs its module')
+})
+
 test('a service imports shell modules through its context, typed', () => {
   const code = `
 import type { ServiceFactory } from ${JSON.stringify(join(src, 'shell.d.ts'))}
 export const factory: ServiceFactory = async (ctx) => {
   const { session } = await ctx.import('acde:session')
   const windows = (await ctx.import('acde:windows')).default
-  return { api: { probe: { own: () => session.own(), count: () => windows.list().length } } }
+  const off = windows.on('state', (event) => void [event.window, event.state])
+  await windows.requestState(windows.list()[0]!.id, 'minimized')
+  const { desktop } = await ctx.import('acde:desktop')
+  const { packages } = await ctx.import('acde:packages')
+  packages.on('changed', (event) => void event.apps)
+  return { api: { probe: { own: () => session.own(), count: () => windows.list().length, apps: () => desktop.apps() } }, close: off }
 }
 `
   assert.deepEqual(errors('shell', code), [])
   const context = `import type { ServiceContext } from ${JSON.stringify(join(src, 'shell.d.ts'))}\ndeclare const ctx: ServiceContext\n`
   assert.ok(errors('shell', `${context}ctx.import('acde:fs')`).length > 0)
+  assert.ok(errors('shell', `${context}ctx.import('acde:permissions')`).length > 0, 'not given to services')
+  const pinned = `${context}export const pin = (await ctx.import('acde:desktop')).desktop.pin`
+  assert.ok(errors('shell', pinned).length > 0, 'a service has no page to pin a panel from')
 })

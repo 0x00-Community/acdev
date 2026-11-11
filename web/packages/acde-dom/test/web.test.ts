@@ -17,6 +17,7 @@ test('fetch and XMLHttpRequest: same-origin assets only, data: and blob: URLs; t
     out.push(await (await fetch('data:text/plain;base64,aGk=')).text())
     const url = URL.createObjectURL(new Blob(['blob body'], { type: 'text/plain' }))
     out.push(await (await fetch(url)).text())
+    out.push(await (await fetch(url + '#part')).text())
     for (const bad of ['https://example.com/x', '/missing']) {
       try { await fetch(bad); out.push('fetched?') } catch (e) { out.push(e instanceof TypeError) }
     }
@@ -27,7 +28,7 @@ test('fetch and XMLHttpRequest: same-origin assets only, data: and blob: URLs; t
     try { await fetch('/ui/data.json', { signal: controller.signal }) } catch (e) { out.push(e.name) }
     return JSON.stringify(out)
   })()`)
-  assert.deepEqual(JSON.parse(result), [true, 200, 'application/json', '{"a":1}', 'hi', 'blob body', true, true, 200, 1, 'AbortError'])
+  assert.deepEqual(JSON.parse(result), [true, 200, 'application/json', '{"a":1}', 'hi', 'blob body', 'blob body', true, true, 200, 1, 'AbortError'])
 })
 
 test('storage, location / history, matchMedia, navigator, screen, viewport', async () => {

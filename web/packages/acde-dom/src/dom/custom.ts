@@ -3,7 +3,7 @@ import { report, tag } from '../core/host'
 import { Ns } from '../native'
 import { customAttributes, type Element, parsedHooks } from './element'
 import { customHooks, HTMLElement } from './html'
-import { dom, existing, ID, lifecycle, wrap, type Wrapper } from './realm'
+import { dom, existing, ID, lifecycle, wrap, type Wrapper, inner } from './realm'
 import type { Node } from './node'
 
 interface Definition {
@@ -91,7 +91,7 @@ function upgradeExisting(element: Element, def: Definition): void {
     const value = dom.getAttribute(element[ID], name)
     if (value !== null) call(element, def.changed, name, null, value)
   }
-  if (element.isConnected) call(element, def.connected)
+  if (inner(element, 'isConnected')) call(element, def.connected)
 }
 
 parsedHooks.push((container: Node) => {

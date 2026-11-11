@@ -20,7 +20,8 @@ use blitz_paint::PaintCache;
 const FRAME: f64 = 1.0 / 60.0;
 
 const UA_EXTRA: &str = "button, select, input:is([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio], \
-    [type=color], [type=file], [type=image], [type=range]) { box-sizing: border-box; }";
+    [type=color], [type=file], [type=image], [type=range]) { box-sizing: border-box; } \
+    input[type=range] { appearance: auto; width: 129px; height: 16px; margin: 2px; padding: 0; border: 0; background: transparent; cursor: default; }";
 
 pub(crate) struct Engine {
     pub(crate) doc: BaseDocument,

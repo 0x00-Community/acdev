@@ -81,7 +81,8 @@ export function unreachable(url: string): string {
 
 function inline(url: string): Loaded | null {
   if (url.startsWith('blob:')) {
-    const blob = objectUrls.get(url)
+    const hash = url.indexOf('#')
+    const blob = objectUrls.get(hash < 0 ? url : url.slice(0, hash))
     return blob instanceof Blob ? { bytes: blobBytes(blob), type: blob.type } : null
   }
   const comma = url.indexOf(',')

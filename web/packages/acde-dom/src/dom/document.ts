@@ -5,15 +5,16 @@ import { DOMException, guard } from '../core/exception'
 import { G, getters, tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
 import { animationsOf, documentTimeline, type Animation } from './animation'
-import { Attr, Element, HANDLER_TYPES, noteMarkup, setAttribute } from './element'
+import { Attr, attrDocument, createAttr, Element, HANDLER_TYPES, noteMarkup, setAttribute } from './element'
 import { env } from './env'
 import { ClipboardEvent, CompositionEvent, DragEvent, FocusEvent, InputEvent, KeyboardEvent, MouseEvent, PointerEvent, UIEvent, WheelEvent } from './events'
 import * as editing from './editing'
 import { focus, focusedElement } from './focus'
 import { createHtml, documentClass, type HTMLElement } from './html'
-import { Comment, cssString, DocumentFragment, elementById, DocumentType, Node, ParentNodeMixin, baseHooks, HTMLCollection, liveCollection, mixin, type NodeList, staticNodeListOfIds, Text, cloneOf, remove } from './node'
+import { CDATASection, Comment, cssString, DocumentFragment, elementById, DocumentType, Node, ParentNodeMixin, ProcessingInstruction, baseHooks, HTMLCollection, liveCollection, mixin, type NodeList, staticNodeListOfIds, Text, cloneOf, remove } from './node'
+import { HTML_NS, KNOWN, SVG_NS, validateAndExtract, validElementLocalName, documents } from './namespaces'
 import { CaretPosition, getSelection, Range, type Selection } from './range'
-import { bodyId, childNamed, classes, construct, constructing, documentElementOf, documentId, dom, headId, ID, nodeConstructing, rootElementId, wrap } from './realm'
+import { bodyId, classes, CONNECTED, construct, constructing, documentElementOf, documentId, dom, headId, ID, inner, nodeConstructing, rootElementId, wrap } from './realm'
 import { CSSStyleSheet, StyleSheetList } from './style'
 import { NodeIterator, TreeWalker } from './traversal'
 
@@ -23,20 +24,47 @@ export const documentState = {
   currentScript: null as Element | null,
 }
 
-const NS_URI: Record<string, Ns> = { 'http://www.w3.org/1999/xhtml': Ns.Html, 'http://www.w3.org/2000/svg': Ns.Svg, 'http://www.w3.org/1998/Math/MathML': Ns.MathMl }
-
-function createElementIn(ns: Ns, local: string): Element {
-  if (ns === Ns.Html) return createHtml(local)
-  const id = guard(() => dom.createElement(ns, local))
+function createElementNamed(namespace: string | null, prefix: string | null, local: string): Element {
+  const ns = namespace === null ? Ns.Other : (KNOWN[namespace] ?? Ns.Other)
+  if (ns === Ns.Html && prefix === null) return createHtml(local)
+  const id = guard(() => dom.createElementNS(namespace ?? '', prefix ?? '', local))
   return construct(classes.of(NodeType.Element, ns, local), id) as Element
 }
 
-const NAME = /^[A-Za-z_:\u00C0-\uFFFF][\w.:\-\u00B7\u00C0-\uFFFF]*$/
+const XML_NAME = /^[:A-Z_a-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02FF\u0370-\u037D\u037F-\u1FFF\u200C-\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD\u{10000}-\u{EFFFF}][:A-Z_a-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02FF\u0370-\u037D\u037F-\u1FFF\u200C-\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD\u{10000}-\u{EFFFF}\-.0-9\u00B7\u0300-\u036F\u203F-\u2040]*$/u
 
 export class Document extends Node {
+  #kind: string[] | null = null
+
   constructor() {
-    if (!nodeConstructing()) constructing(dom.createFragment())
+    if (!nodeConstructing()) {
+      documents.others = documents.xml = true
+      constructing(dom.createDocument('document', 'application/xml', 'about:blank'))
+    }
     super()
+  }
+
+  get #info(): string[] {
+    if (this.#live) return ['html', 'text/html', env.url]
+    return (this.#kind ??= dom.documentInfo(this[ID]))
+  }
+
+  get #html(): boolean {
+    return this.#info[0] === 'html'
+  }
+
+  get contentType(): string {
+    return this.#info[1]!
+  }
+
+  #own<T extends Node | Element>(node: T): T {
+    if (!this.#live) dom.adopt(node[ID], this[ID])
+    return node
+  }
+
+  #htmlElement(): Element | null {
+    const html = this.documentElement
+    return html && html.namespaceURI === HTML_NS && html.localName === 'html' ? html : null
   }
 
   override get nodeType(): number {
@@ -66,14 +94,18 @@ export class Document extends Node {
 
   get head(): HTMLElement | null {
     if (this.#live) return wrap<HTMLElement>(headId())
-    const html = documentElementOf(this[ID])
-    return html === NONE ? null : wrap<HTMLElement>(childNamed(html, 'head'))
+    const html = this.#htmlElement()
+    if (!html) return null
+    for (const child of html.children) if (child.localName === 'head' && child.namespaceURI === HTML_NS) return child as HTMLElement
+    return null
   }
 
   get body(): HTMLElement | null {
     if (this.#live) return wrap<HTMLElement>(bodyId())
-    const html = documentElementOf(this[ID])
-    return html === NONE ? null : wrap<HTMLElement>(childNamed(html, 'body', 'frameset'))
+    const html = this.#htmlElement()
+    if (!html) return null
+    for (const child of html.children) if ((child.localName === 'body' || child.localName === 'frameset') && child.namespaceURI === HTML_NS) return child as HTMLElement
+    return null
   }
   set body(element: HTMLElement | null) {
     const html = this.documentElement
@@ -90,24 +122,35 @@ export class Document extends Node {
     return wrap<DocumentType>(id)
   }
 
+  #titleElement(): number {
+    const root = this.documentElement
+    if (!root) return NONE
+    if (root.namespaceURI === SVG_NS && root.localName === 'svg') {
+      for (const child of root.children) if (child.localName === 'title' && child.namespaceURI === SVG_NS) return child[ID]
+      return NONE
+    }
+    const all = dom.getElementsByTagNameNS(this[ID], HTML_NS, 'title')
+    return all.length ? all[0]! : NONE
+  }
+
   get title(): string {
-    const title = this.documentElement ? dom.querySelector(this.documentElement[ID], 'title') : NONE
+    const title = this.#titleElement()
     return title === NONE ? '' : dom.textContent(title).replace(/[\t\n\f\r ]+/g, ' ').trim()
   }
   set title(value: string) {
     const html = this.documentElement
     if (!html) return
-    let title = wrap<Element>(dom.querySelector(html[ID], 'title'))
+    let title = wrap<Element>(this.#titleElement())
     if (!title) {
       const head = this.head
       if (!head) return
-      title = head.appendChild(createHtml('title'))
+      title = head.appendChild(this.#own(createHtml('title')))
     }
     title.textContent = String(value)
   }
 
   get URL(): string {
-    return this.#live ? env.url : 'about:blank'
+    return this.#live ? env.url : this.#info[2] || 'about:blank'
   }
   get documentURI(): string {
     return this.URL
@@ -152,7 +195,7 @@ export class Document extends Node {
   get activeElement(): Element | null {
     if (!this.#live) return null
     const focused = focusedElement()
-    if (focused?.isConnected) return focused
+    if (focused?.[CONNECTED]) return focused
     return this.body ?? this.documentElement
   }
   get scrollingElement(): Element | null {
@@ -166,7 +209,8 @@ export class Document extends Node {
   }
   set designMode(_value: string) {}
   get dir(): string {
-    return this.documentElement?.getAttribute('dir') ?? ''
+    const root = rootElementId()
+    return root === NONE ? '' : (dom.getAttribute(root, 'dir') ?? '')
   }
   set dir(value: string) {
     if (this.documentElement) setAttribute(this.documentElement, 'dir', String(value))
@@ -232,44 +276,55 @@ export class Document extends Node {
 
   createElement(name: string, _options?: unknown): Element {
     const local = String(name)
-    if (!NAME.test(local)) throw new DOMException(`Failed to execute 'createElement' on 'Document': The tag name provided ('${local}') is not a valid name.`, 'InvalidCharacterError')
-    return createHtml(local.toLowerCase())
+    if (!validElementLocalName(local)) throw new DOMException(`Failed to execute 'createElement' on 'Document': The tag name provided ('${local}') is not a valid name.`, 'InvalidCharacterError')
+    if (this.#html) return this.#own(createHtml(local.toLowerCase()))
+    const namespace = this.contentType === 'application/xhtml+xml' ? HTML_NS : null
+    return this.#own(namespace === HTML_NS ? createElementNamed(HTML_NS, '', local) : createElementNamed(null, null, local))
   }
 
   createElementNS(namespace: string | null, qualified: string, _options?: unknown): Element {
-    const name = String(qualified)
-    if (!NAME.test(name)) throw new DOMException(`Failed to execute 'createElementNS' on 'Document': The qualified name provided ('${name}') is not a valid name.`, 'InvalidCharacterError')
-    const local = name.includes(':') ? name.slice(name.indexOf(':') + 1) : name
-    const ns = namespace === null ? Ns.Html : (NS_URI[namespace] ?? Ns.Html)
-    return createElementIn(ns, local)
+    const { namespace: ns, prefix, local } = validateAndExtract(namespace, String(qualified), 'element', "createElementNS' on 'Document")
+    return this.#own(ns === HTML_NS && prefix === null && local === local.toLowerCase() ? createHtml(local) : createElementNamed(ns, prefix ?? '', local))
   }
 
   createTextNode(data: string): Text {
-    return new Text(String(data))
+    return this.#own(new Text(String(data)))
   }
 
   createComment(data: string): Comment {
-    return new Comment(String(data))
+    return this.#own(new Comment(String(data)))
   }
 
   createDocumentFragment(): DocumentFragment {
-    return new DocumentFragment()
+    return this.#own(new DocumentFragment())
   }
 
-  createCDATASection(_data: string): never {
-    throw new DOMException("Failed to execute 'createCDATASection' on 'Document': This operation is not supported for HTML documents.", 'NotSupportedError')
+  createCDATASection(data: string): CDATASection {
+    if (this.#html) throw new DOMException("Failed to execute 'createCDATASection' on 'Document': This operation is not supported for HTML documents.", 'NotSupportedError')
+    const text = String(data)
+    if (text.includes(']]>')) throw new DOMException("Failed to execute 'createCDATASection' on 'Document': String cannot contain ']]>' since that is the end delimiter of a CData section.", 'InvalidCharacterError')
+    return this.#own(wrap<CDATASection>(dom.createCDATASection(text))!)
   }
 
-  createProcessingInstruction(_target: string, _data: string): never {
-    throw new DOMException("Failed to execute 'createProcessingInstruction' on 'Document': This operation is not supported for HTML documents.", 'NotSupportedError')
+  createProcessingInstruction(target: string, data: string): ProcessingInstruction {
+    const t = String(target), d = String(data)
+    if (!XML_NAME.test(t)) throw new DOMException(`Failed to execute 'createProcessingInstruction' on 'Document': The target provided ('${t}') is not a valid name.`, 'InvalidCharacterError')
+    if (d.includes('?>')) throw new DOMException(`Failed to execute 'createProcessingInstruction' on 'Document': The data provided ('${d}') contains '?>'.`, 'InvalidCharacterError')
+    return this.#own(wrap<ProcessingInstruction>(dom.createProcessingInstruction(t, d))!)
   }
 
   createAttribute(name: string): Attr {
-    return new Attr(null, String(name).toLowerCase())
+    const local = String(name)
+    const attr = createAttr(null, null, this.#html ? local.toLowerCase() : local)
+    attrDocument.set(attr, this)
+    return attr
   }
 
-  createAttributeNS(_namespace: string | null, name: string): Attr {
-    return new Attr(null, String(name))
+  createAttributeNS(namespace: string | null, name: string): Attr {
+    const { namespace: ns, prefix, local } = validateAndExtract(namespace, String(name), 'attribute', "createAttributeNS' on 'Document")
+    const attr = createAttr(ns, prefix, local)
+    attrDocument.set(attr, this)
+    return attr
   }
 
   createRange(): Range {
@@ -300,12 +355,15 @@ export class Document extends Node {
 
   importNode<T extends Node>(node: T, deep = false): T {
     if (node instanceof Document) throw new DOMException("Failed to execute 'importNode' on 'Document': The node provided is a document, which may not be imported.", 'NotSupportedError')
-    return cloneOf(node, typeof deep === 'object' ? false : !!deep) as T
+    const copy = cloneOf(node, typeof deep === 'object' ? false : !!deep) as T
+    dom.adopt(copy[ID], this[ID])
+    return copy
   }
 
   adoptNode<T extends Node>(node: T): T {
     if (node instanceof Document) throw new DOMException("Failed to execute 'adoptNode' on 'Document': The node provided is a document, which may not be adopted.", 'NotSupportedError')
-    if (node.parentNode) remove(node)
+    if (inner(node, 'parentNode')) remove(node)
+    dom.adopt(node[ID], this[ID])
     return node
   }
 
@@ -396,7 +454,7 @@ export class Document extends Node {
     return { updateCallbackDone: finished, ready: finished.then(() => Promise.reject(new DOMException('Transition was skipped', 'AbortError'))).catch(() => undefined), finished, skipTransition: () => {}, types: new Set() }
   }
 }
-getters(Document.prototype, { referrer: '', characterSet: 'UTF-8', charset: 'UTF-8', inputEncoding: 'UTF-8', contentType: 'text/html', fullscreenElement: null, fullscreenEnabled: false, fullscreen: false, pointerLockElement: null, pictureInPictureElement: null, pictureInPictureEnabled: false })
+getters(Document.prototype, { referrer: '', characterSet: 'UTF-8', charset: 'UTF-8', inputEncoding: 'UTF-8', fullscreenElement: null, fullscreenEnabled: false, fullscreen: false, pointerLockElement: null, pictureInPictureElement: null, pictureInPictureEnabled: false })
 mixin(Document, ParentNodeMixin)
 defineHandlers(Document.prototype, [...HANDLER_TYPES, 'readystatechange', 'visibilitychange', 'fullscreenchange', 'fullscreenerror', 'pointerlockchange', 'pointerlockerror', 'freeze', 'resume'])
 tag(Document)
@@ -407,36 +465,38 @@ export class HTMLDocument extends Document {}
 tag(HTMLDocument)
 export class XMLDocument extends Document {}
 tag(XMLDocument)
+documentClass.html = HTMLDocument as never
+documentClass.xml = XMLDocument as never
 
-function inertDocument(title: string | null, withBody = true): Document {
-  const doc = construct(HTMLDocument, dom.createFragment())
-  if (withBody) {
-    const html = createHtml('html')
-    const head = createHtml('head')
-    if (title !== null) {
-      const t = createHtml('title')
-      t.textContent = title
-      head.appendChild(t)
-    }
-    html.appendChild(head)
-    html.appendChild(createHtml('body'))
-    doc.appendChild(wrap<DocumentType>(dom.createDocumentType('html', '', ''))!)
-    doc.appendChild(html)
-  }
+function htmlDocument(title: string | null): Document {
+  documents.others = true
+  const doc = construct(HTMLDocument, dom.createDocument('html', 'text/html', 'about:blank'))
+  doc.appendChild(wrap<DocumentType>(dom.createDocumentType('html', '', ''))!)
+  const html = doc.appendChild(doc.createElement('html'))
+  const head = html.appendChild(doc.createElement('head'))
+  if (title !== null) head.appendChild(doc.createElement('title')).appendChild(doc.createTextNode(title))
+  html.appendChild(doc.createElement('body'))
   return doc
+}
+
+function xmlDocument(contentType: string): XMLDocument {
+  documents.others = documents.xml = true
+  return construct(XMLDocument, dom.createDocument('xml', contentType, 'about:blank'))
 }
 
 export class DOMImplementation {
   constructor(readonly owner: Document) {}
 
   createHTMLDocument(title?: string): Document {
-    return inertDocument(title === undefined ? null : String(title))
+    return htmlDocument(title === undefined ? null : String(title))
   }
 
-  createDocument(namespace: string | null, qualified: string | null, doctype: DocumentType | null = null): Document {
-    const doc = inertDocument(null, false)
+  createDocument(namespace: string | null, qualified: string | null, doctype: DocumentType | null = null): XMLDocument {
+    const ns = namespace === null || namespace === undefined ? null : String(namespace)
+    const doc = xmlDocument(ns === HTML_NS ? 'application/xhtml+xml' : ns === SVG_NS ? 'image/svg+xml' : 'application/xml')
+    const element = qualified === null || qualified === undefined || String(qualified) === '' ? null : doc.createElementNS(ns, String(qualified))
     if (doctype) doc.appendChild(doctype)
-    if (qualified) doc.appendChild(doc.createElementNS(namespace, qualified))
+    if (element) doc.appendChild(element)
     return doc
   }
 
@@ -456,14 +516,12 @@ export class DOMParser {
     const kind = String(type)
     if (kind === 'text/html') {
       noteMarkup(text)
-      return construct(HTMLDocument, guard(() => dom.parseInert(text)))
+      documents.others = true
+      return construct(HTMLDocument, guard(() => dom.parseInert(text, env.url)))
     }
     if (kind === 'image/svg+xml' || kind === 'application/xml' || kind === 'text/xml' || kind === 'application/xhtml+xml') {
-      const doc = inertDocument(null, false)
-      const holder = createElementIn(Ns.Svg, 'svg')
-      const fragment = wrap<DocumentFragment>(guard(() => dom.parseFragment(holder[ID], text.replace(/<\?xml[^>]*\?>/, ''))))!
-      doc.appendChild(fragment)
-      return doc
+      documents.others = documents.xml = true
+      return construct(Document, guard(() => dom.parseXml(text, kind, env.url)))
     }
     throw new TypeError(`Failed to execute 'parseFromString' on 'DOMParser': The provided value '${kind}' is not a valid enum value of type DOMParserSupportedType.`)
   }
@@ -472,19 +530,9 @@ tag(DOMParser)
 
 export class XMLSerializer {
   serializeToString(node: Node): string {
-    switch (node.nodeType) {
-      case NodeType.Element: {
-        const element = node as Element
-        const html = dom.outerHTML(element[ID])
-        if (element.namespaceURI === 'http://www.w3.org/2000/svg' && !element.hasAttribute('xmlns')) return html.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"')
-        if (element.namespaceURI === 'http://www.w3.org/1999/xhtml' && !element.hasAttribute('xmlns')) return html.replace(/^<([\w-]+)/, '<$1 xmlns="http://www.w3.org/1999/xhtml"')
-        return html
-      }
-      case NodeType.Text: return dom.data(node[ID]).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      case NodeType.Comment: return `<!--${dom.data(node[ID])}-->`
-      case NodeType.DocumentType: return `<!DOCTYPE ${(node as DocumentType).name}>`
-      default: return [...dom.childNodes(node[ID])].map((id) => this.serializeToString(wrap<Node>(id)!)).join('')
-    }
+    if (node instanceof Attr) return ''
+    if (!(node instanceof Node)) throw new TypeError("Failed to execute 'serializeToString' on 'XMLSerializer': parameter 1 is not of type 'Node'.")
+    return guard(() => dom.serializeXml(node[ID]))
   }
 }
 tag(XMLSerializer)

@@ -103,9 +103,19 @@ impl Entry {
             theme,
             active,
             dark_page: self.dark_page,
-            minimize: self.minimize,
+            minimize: self.minimizable(),
         }
     }
+
+    pub fn minimizable(&self) -> bool {
+        self.host || (self.minimize && !self.desktop && !self.panel && WindowState::Minimized.allowed(self.mode))
+    }
+}
+
+pub(crate) struct Resized {
+    pub rescaled: bool,
+    pub rects: Vec<(u32, [f64; 4])>,
+    pub work: Option<[f64; 4]>,
 }
 
 #[derive(Default)]
@@ -370,6 +380,23 @@ impl State {
         [x, y, w.max(1.0), h.max(1.0)]
     }
 
+    pub fn resize(&mut self, screen: [f64; 2], scale: f64) -> Resized {
+        let rescaled = self.screen[2] != scale;
+        self.screen = [screen[0], screen[1], scale];
+        let (whole, work) = (self.screen_rect(), self.work_area());
+        let rects = self
+            .entries
+            .iter()
+            .filter_map(|(&id, e)| match e.state {
+                _ if id == 0 || e.mode == Mode::Fullscreen || e.state == WindowState::Fullscreen => Some((id, whole)),
+                WindowState::Filled => Some((id, work)),
+                _ => None,
+            })
+            .collect();
+        let (work, _) = self.refill();
+        Resized { rescaled, rects, work }
+    }
+
     pub fn refill(&mut self) -> (Option<[f64; 4]>, Vec<u32>) {
         let work = self.work_area();
         let changed = (self.work != Some(work)).then_some(work);
@@ -545,6 +572,15 @@ impl Shell {
         server().expect("hostwin").compositor().ok_or("the compositor has not started")?.screenshot(path)
     }
 
+    pub fn resize_screen(&self, width: f64, height: f64) -> Result<(), String> {
+        if !(width.is_finite() && height.is_finite() && width >= 1.0 && height >= 1.0) {
+            return Err(format!("resize: {width}x{height} is not a size"));
+        }
+        let (reply, got) = std::sync::mpsc::sync_channel(1);
+        server().expect("hostwin").send(Cmd::Resize { size: [width, height], reply });
+        got.recv_timeout(std::time::Duration::from_secs(5)).map_err(|_| "the host window did not answer".to_owned())?
+    }
+
     pub fn quit(&self) {
         server().expect("hostwin").send(Cmd::Exit(0));
     }
@@ -565,7 +601,7 @@ impl Shell {
                 hidden: e.hidden,
                 parent: e.parent,
                 modal: e.modal,
-                minimize: e.minimize,
+                minimize: e.minimizable(),
             })
             .collect();
         list.sort_by_key(|w| (w.id != 0, w.z));
@@ -788,6 +824,28 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_resized_output_reports_its_work_area_and_moves_what_fills_it() {
+        let mut s = screen();
+        let desktop = open(&mut s, Grant { desktop: true, ..Grant::default() });
+        assert_eq!(s.refill().0, Some([0.0, 0.0, 1000.0, 800.0]));
+        let filled = open(&mut s, Grant { rect: Some([200.0, 200.0, 300.0, 200.0]), ..Grant::default() });
+        let free = open(&mut s, Grant { rect: Some([10.0, 10.0, 100.0, 100.0]), ..Grant::default() });
+        assert_eq!(apply(&mut s, filled, Some(WindowState::Filled)), Some(WindowState::Filled));
+        let resized = s.resize([400.0, 300.0], 1.0);
+        assert!(!resized.rescaled);
+        assert_eq!(resized.work, Some([0.0, 0.0, 400.0, 300.0]));
+        assert_eq!(resized.rects, vec![(desktop, [0.0, 0.0, 400.0, 300.0]), (filled, [0.0, 0.0, 400.0, 300.0])]);
+        assert_eq!(s.entries[&free].rect, [10.0, 10.0, 100.0, 100.0]);
+        let again = s.resize([400.0, 300.0], 2.0);
+        assert!(again.rescaled);
+        assert_eq!(again.work, None);
+        let dock = open(&mut s, Grant { mode: Some(Mode::Pinned), rect: Some([0.0, 0.0, 80.0, 300.0]), ..Grant::default() });
+        s.entries.get_mut(&dock).expect("dock").panel = true;
+        s.entries.get_mut(&dock).expect("dock").reserve = Some((acde_model::edge::LEFT, 80.0));
+        assert_eq!(s.resize([900.0, 600.0], 2.0).work, Some([80.0, 0.0, 820.0, 600.0]));
+    }
+
+    #[test]
     fn standalone_secondary_windows_cannot_minimize() {
         let mut s = screen();
         let free = open(&mut s, Grant::default());
@@ -799,6 +857,30 @@ pub(crate) mod tests {
         assert!(apply(&mut s, second, Some(WindowState::Filled)).is_some(), "other states still work");
         s.entries.get_mut(&second).expect("second").frame = 32.0;
         assert!(!s.entries[&second].bar(s.theme, true).minimize);
+    }
+
+    #[test]
+    fn a_window_says_it_can_minimize_only_where_the_runtime_would_do_it() {
+        let mut s = screen();
+        let desktop = open(&mut s, Grant { desktop: true, ..Grant::default() });
+        let free = open(&mut s, Grant::default());
+        let fixed = open(&mut s, Grant { mode: Some(Mode::Fixed), ..Grant::default() });
+        let pinned = open(&mut s, Grant { mode: Some(Mode::Pinned), ..Grant::default() });
+        let minimizable = |s: &State, id: u32| s.entries[&id].minimizable();
+        assert!(minimizable(&s, free) && minimizable(&s, fixed));
+        assert!(!minimizable(&s, desktop) && !minimizable(&s, pinned));
+
+        let mut plain = screen();
+        let primary = open(&mut plain, Grant { host: true, mode: Some(Mode::Fullscreen), ..Grant::default() });
+        assert!(!plain.entries[&primary].host, "this host has no controls of its own");
+        assert!(!minimizable(&plain, primary), "nothing would carry it out");
+        assert!(apply(&mut plain, primary, Some(WindowState::Minimized)).is_none());
+        plain.entries.get_mut(&primary).expect("primary").frame = 32.0;
+        assert!(!plain.entries[&primary].bar(plain.theme, true).minimize, "its frame button is greyed");
+
+        let mut controls = State { controls: true, ..screen() };
+        let primary = open(&mut controls, Grant { host: true, mode: Some(Mode::Fullscreen), ..Grant::default() });
+        assert!(controls.entries[&primary].host && minimizable(&controls, primary), "the host window minimizes for it");
     }
 
     #[test]

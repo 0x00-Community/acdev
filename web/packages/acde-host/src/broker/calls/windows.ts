@@ -1,8 +1,18 @@
-import type { WindowMenusEvent, WindowsEvent, WindowTitleEvent } from '@dopame/acde-api'
+import type { WindowMenusEvent, WindowsEvent, WindowState, WindowTitleEvent } from '@dopame/acde-api'
 import { Level, Log } from '../../log'
 import { PageSource } from '../../page'
-import type { AnimateOptions, BrokerShell, WindowRecord, WireMenu } from '../types'
+import { WindowRecords } from '../records'
+import type { AnimateOptions, BrokerShell, ShellWindow, WindowRecord, WireMenu } from '../types'
 import { Web } from '../web'
+
+export interface ServiceCaller {
+  readonly kind: 'service'
+  readonly app: null
+  readonly owns: ReadonlyMap<number, number>
+  shell(module: string): boolean
+}
+
+export type WindowsCaller = Web | ServiceCaller
 
 export interface WindowsHost {
   readonly shell: BrokerShell
@@ -13,19 +23,28 @@ export interface WindowsHost {
   toDesktop(event: Record<string, unknown>): void
   usable(appId: string): boolean
   launch(appId: string, request: Record<string, unknown>): void
-  allow(web: Web, capability: 'launch' | 'slots'): void
+  allow(web: WindowsCaller, capability: 'launch' | 'slots'): void
 }
 
 export class WindowCalls {
   static readonly BROWSER = 'browser'
-  static readonly STATES = ['normal', 'minimized', 'filled', 'fullscreen'] as const
+  static readonly STATES = WindowRecords.STATES
+  static readonly SERVICE: ServiceCaller = { kind: 'service', app: null, owns: new Map(), shell: () => true }
   readonly #host: WindowsHost
 
   constructor(host: WindowsHost) {
     this.#host = host
   }
 
-  async windows(web: Web, method: string, args: unknown[]): Promise<unknown> {
+  static unminimizable(row: ShellWindow | undefined): string | null {
+    if (!row || row.minimize !== false) return null
+    if ((row.window ?? row.id) === 0) return 'the desktop stays behind every window'
+    if (row.mode === 'fullscreen') return "it fills the host window, which only the host window's own controls minimize here"
+    if (row.mode === 'pinned') return 'a pinned window stays where it is'
+    return 'a standalone app has no Dock to bring it back'
+  }
+
+  async windows(web: WindowsCaller, method: string, args: unknown[]): Promise<unknown> {
     const desktop = web.shell('windows')
     const caps = web.app?.capabilities ?? {}
     const id = Number(args[0])
@@ -33,11 +52,11 @@ export class WindowCalls {
     switch (method) {
       case 'launch': {
         const [argv, options] = args as [string[], { cwd?: string; env?: Record<string, string>; slot?: boolean } | undefined]
-        const slot = !!options?.slot && web.kind !== 'desktop'
-        if (web.kind !== 'desktop' && !(slot ? caps.slots : caps.launch)) throw Web.refused(web, slot ? 'native programs in its slots' : 'starting programs')
+        const slot = !!options?.slot && web.kind === 'window'
+        if (web.kind === 'window' && !(slot ? caps.slots : caps.launch)) throw Web.refused(web, slot ? 'native programs in its slots' : 'starting programs')
         this.#host.allow(web, slot ? 'slots' : 'launch')
         const pid = this.#host.shell.launch(argv, { cwd: options?.cwd, env: options?.env })
-        if (slot) this.#host.claim(web, pid)
+        if (slot && web.kind === 'window') this.#host.claim(web, pid)
         return pid
       }
       case 'close': {
@@ -112,11 +131,9 @@ export class WindowCalls {
       throw Object.assign(new TypeError(`no window state ${String(state)} (${WindowCalls.STATES.join(', ')})`), { status: 400 })
     }
     if (!this.#host.shell.setState) throw Object.assign(new Error('window states are not carried out here yet'), { status: 501 })
-    if (state === 'minimized' && this.#host.shell.windows().find((row) => row.id === id)?.minimize === false) {
-      const reason = 'a standalone app has no Dock to bring it back'
-      throw Object.assign(new Error(`window ${id} cannot be minimized: ${reason}`), { status: 409, code: 'unavailable' })
-    }
-    this.#host.shell.setState(id, state as (typeof WindowCalls.STATES)[number])
+    const reason = state === 'minimized' ? WindowCalls.unminimizable(this.#host.shell.windows().find((row) => (row.window ?? row.id) === id)) : null
+    if (reason) throw Object.assign(new Error(`window ${id} cannot be minimized: ${reason}`), { status: 409, code: 'unavailable' })
+    this.#host.shell.setState(id, state as WindowState)
   }
 
   self(web: Web, method: string, args: unknown[]): unknown {

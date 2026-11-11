@@ -93,5 +93,5 @@ test('DOMParser and createHTMLDocument give inert documents; XMLSerializer', asy
     document.body.appendChild(imported)
     return { text: p.textContent, inBody: p.parentNode === doc.body, title: imp.title, bodyKids: imp.body.childNodes.length, seen, imported: document.body.innerHTML, svg: new XMLSerializer().serializeToString(Object.assign(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))), docType: doc.nodeType, connected: p.isConnected }
   })()`)
-  assert.deepEqual(result, { text: 'hi ', inBody: true, title: 't', bodyKids: 0, seen: ['BODY', 'P', '#text', 'IMG'], imported: '<p id="x">hi <img src="x" onerror="window.pwned = 1"></p>', svg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>', docType: 9, connected: false })
+  assert.deepEqual(result, { text: 'hi ', inBody: true, title: 't', bodyKids: 0, seen: ['BODY', 'P', '#text', 'IMG'], imported: '<p id="x">hi <img src="x" onerror="window.pwned = 1"></p>', svg: '<svg xmlns="http://www.w3.org/2000/svg"/>', docType: 9, connected: false })
 })
