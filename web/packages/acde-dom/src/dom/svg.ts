@@ -7,6 +7,7 @@ import { HTMLOrSVGElementMixin, svgClasses, svgFallback } from './html'
 import { metricsOf, rectOf } from './layout'
 import { elementById, mixin } from './node'
 import { dom, ID, wrap } from './realm'
+import { shapeBox } from './svgbox'
 
 function viewBox(id: number): [number, number, number, number] | null {
   const box = (dom.getAttribute(id, 'viewBox') ?? '').trim().split(/[\s,]+/).map(Number)
@@ -198,6 +199,9 @@ export class SVGGraphicsElement extends SVGElement {
   }
 
   getBBox(): DOMRect {
+    const box = shapeBox(this[ID], ownTransform)
+    if (box) return new DOMRect(box[0], box[1], box[2] - box[0], box[3] - box[1])
+    if (this instanceof SVGGeometryElement) return new DOMRect()
     const r = rectOf(this[ID])
     if (!r[2] && !r[3]) return new DOMRect()
     const inverse = screenCTM(this[ID]).inverse()

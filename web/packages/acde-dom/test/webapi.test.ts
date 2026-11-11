@@ -603,3 +603,24 @@ test('CSS.supports asks render: a condition text or a property and a value; no a
   ])
   assert.equal(web.run('try { CSS.supports() } catch (e) { e instanceof TypeError }'), true)
 })
+
+test('getBBox of SVG shapes and groups comes from their geometry, also after a script sets it', async () => {
+  using web = await page(`<!doctype html><html><body><svg width="200" height="200">
+    <g id="g" transform="translate(10 20)"><rect id="r" x="5" y="6" width="30" height="40"/><circle cx="100" cy="100" r="10"/></g>
+    <path id="p"/><path id="arc" d="M0 50 A50 50 0 0 1 100 50"/><path id="curve" d="M0 0 C0 100 100 100 100 0"/>
+    <polygon id="poly" points="1,2 9,4 5,8"/></svg></body></html>`)
+  const out = web.run(`const round = (v) => Math.round(v * 100) / 100
+    const box = (id) => { const b = document.getElementById(id).getBBox(); return [b.x, b.y, b.width, b.height].map(round) }
+    const empty = box('p')
+    document.getElementById('p').setAttribute('d', 'M130 113 l4 -3 L138 106 H150 v10 z')
+    JSON.stringify({ r: box('r'), g: box('g'), empty, p: box('p'), arc: box('arc'), curve: box('curve'), poly: box('poly') })`)
+  assert.deepEqual(JSON.parse(out as string), {
+    r: [5, 6, 30, 40],
+    g: [5, 6, 105, 104],
+    empty: [0, 0, 0, 0],
+    p: [130, 106, 20, 10],
+    arc: [0, 0, 100, 50],
+    curve: [0, 0, 100, 75],
+    poly: [1, 2, 8, 6],
+  })
+})
