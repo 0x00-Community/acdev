@@ -169,7 +169,8 @@ pub fn start(scope: &mut v8::PinScope, name: &str) {
 fn attach(scope: &mut v8::PinScope, name: &str) {
     let inspector = V8Inspector::create(scope, V8InspectorClient::new(Box::new(Client)));
     let context = scope.get_current_context();
-    inspector.context_created(context, GROUP, StringView::from(name.as_bytes()), StringView::empty());
+    let aux = serde_json::json!({ "isDefault": true, "type": "default", "frameId": name }).to_string();
+    inspector.context_created(context, GROUP, StringView::from(name.as_bytes()), StringView::from(aux.as_bytes()));
     let inbox = Rc::new(Inbox::default());
     let channel = Channel::new(Box::new(Replies(inbox.clone())));
     let session = inspector.connect(GROUP, channel, StringView::empty(), V8InspectorClientTrustLevel::FullyTrusted);
@@ -288,6 +289,8 @@ mod tests {
         let (console, answer) = heard(&messages);
         let posted = poster.join().expect("poster");
         assert!(console, "console event delivered: {messages:?}");
+        let created = messages.iter().find(|m| m["method"] == "Runtime.executionContextCreated").expect("a context");
+        assert_eq!(created["params"]["context"]["auxData"], serde_json::json!({"isDefault": true, "type": "default", "frameId": "inspected"}));
         assert_eq!(answer.expect("evaluate answered")["result"]["result"]["value"], 42);
         assert!(posted.elapsed() < Duration::from_secs(2), "an idle page answers promptly");
         let main = runtime.task(|_| send("Runtime.evaluate", r#"{"expression":"1 + 1"}"#));

@@ -355,7 +355,8 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
    同一个 inspector 还能开别的 session (#182, 给开发者工具用): 页面线程上 `inspector::remote()` 拿到可跨线程的 `Remote`,
    `connect(sink)` → session 号, `send(session, 协议消息 JSON)`, `disconnect(session)`. 投递进一个队列 (`Pending`, 带 Condvar,
    断点暂停时的消息循环 (#174) 也从它取), 队列由空变非空时给页面事件循环发一个任务 `dispatch_posted`, 所以页面空闲时也立刻处理;
-   这些 session 的回复和通知都原样交给 `sink` (在页面线程上调用, `sink` 自己转到别的线程). dev 模式下模块源码末尾加 `"\n;"` (`inspector::module_source`), 换源码时也加:
+   这些 session 的回复和通知都原样交给 `sink` (在页面线程上调用, `sink` 自己转到别的线程); 页面的上下文登记时带 auxData `{isDefault: true, type: "default", frameId: <web 名>}`,
+   所以不带 `contextId` 的 `Runtime.evaluate` (DevTools 控制台默认这样发) 落在它上面. dev 模式下模块源码末尾加 `"\n;"` (`inspector::module_source`), 换源码时也加:
    V8 LiveEdit 的 diff 把文件末尾追加的代码当成没变. 改了模块顶层 (`BlockedByTopLevelEsModuleChange`)、函数在栈上、classic 脚本变了都整页重载.
 3. 整页重载保留状态 (所有 reload): 关窗口前问旧页面要快照 (`dev.state`, 最多 0.5 秒, `devstate.ts`): 表单值、滚动位置、焦点和选区, 元素按 id
    或 `nth-child` 路径认; 新页面加载完在 0 / 50 / 200 / 600 / 1500 ms 各放回一次, 值经原型上的 setter 写再发 `input` / `change`.
