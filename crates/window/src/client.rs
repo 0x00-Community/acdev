@@ -43,7 +43,12 @@ const PANEL_WAIT: Duration = Duration::from_millis(200);
 const REFRESH_SLACK: f64 = 0.9;
 pub(crate) const TEXT: [&str; 3] = ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING"];
 
+static THEME: std::sync::Mutex<(Option<acde_render::FrameTheme>, Vec<(u64, channel::Sender<Option<SurfaceCommand>>)>)> =
+    std::sync::Mutex::new((None, Vec::new()));
+static NEXT_SURFACE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 pub struct Surface {
+    id: u64,
     window: u32,
     frame: u32,
     events: Arc<Inbox>,
@@ -68,7 +73,15 @@ impl Surface {
             })
             .map_err(|e| format!("window thread: {e}"))?;
         let window = ready_rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "window: the compositor did not confirm this window".to_string())??;
-        Ok(Self { window, frame, events, commands, thread: Some(thread) })
+        let id = NEXT_SURFACE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut themed) = THEME.lock() {
+            themed.1.push((id, commands.clone()));
+        }
+        Ok(Self { id, window, frame, events, commands, thread: Some(thread) })
+    }
+
+    pub(crate) fn frame_theme() -> acde_render::FrameTheme {
+        THEME.lock().ok().and_then(|themed| themed.0).unwrap_or_default()
     }
 
     pub fn window(&self) -> u32 {
@@ -92,12 +105,23 @@ impl Surface {
     }
 
     pub fn send(&self, command: SurfaceCommand) {
+        if let SurfaceCommand::FrameTheme(theme) = command {
+            let Ok(mut themed) = THEME.lock() else { return };
+            themed.0 = Some(theme);
+            for (_, commands) in &themed.1 {
+                let _ = commands.send(Some(SurfaceCommand::FrameTheme(theme)));
+            }
+            return;
+        }
         let _ = self.commands.send(Some(command));
     }
 }
 
 impl Drop for Surface {
     fn drop(&mut self) {
+        if let Ok(mut themed) = THEME.lock() {
+            themed.1.retain(|(id, _)| *id != self.id);
+        }
         self.events.set_waker(None);
         let _ = self.commands.send(None);
         if let Some(thread) = self.thread.take() {
@@ -686,8 +710,8 @@ impl App {
             Some(C::PlacePanel { id, rect, input }) => self.place_panel(id, rect, input),
             Some(C::ClosePanel(id)) => self.close_panel(id),
             Some(C::ReservePanel { id, .. }) => log::debug!("panel {id}: the session has no work area yet"),
-            Some(C::FrameTheme(_)) => log::debug!("the session title bar has no theme yet"),
-            Some(C::PageDark(_)) => {}
+            Some(C::FrameTheme(theme)) => self.set_frame_look(Some(theme), None),
+            Some(C::PageDark(dark)) => self.set_frame_look(None, Some(dark)),
             Some(C::DoubleClick(_)) => log::debug!("the session has no title bar double-click action yet"),
             Some(C::Title(title)) => self.set_title(title),
             Some(C::ImeArea(_)) => {}

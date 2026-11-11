@@ -24,6 +24,8 @@ pub(crate) struct DecorationView {
     drawn: Option<Bar>,
     pub(crate) fullscreen: bool,
     pressed: Option<FrameButton>,
+    pub(crate) theme: acde_render::FrameTheme,
+    pub(crate) dark_page: bool,
 }
 
 impl DecorationView {
@@ -48,6 +50,8 @@ impl DecorationView {
             drawn: None,
             fullscreen: false,
             pressed: None,
+            theme: crate::client::Surface::frame_theme(),
+            dark_page: false,
         }
     }
 }
@@ -59,6 +63,17 @@ impl App {
 
     pub(crate) fn content(&self) -> (u32, u32) {
         content_size(self.logical, self.frame_height())
+    }
+
+    pub(crate) fn set_frame_look(&mut self, theme: Option<acde_render::FrameTheme>, dark_page: Option<bool>) {
+        let Some(deco) = self.decoration.as_mut() else { return };
+        if let Some(theme) = theme {
+            deco.theme = theme;
+        }
+        if let Some(dark) = dark_page {
+            deco.dark_page = dark;
+        }
+        self.paint();
     }
 
     pub(crate) fn set_title(&mut self, title: String) {
@@ -85,9 +100,9 @@ impl App {
             scale: self.scale,
             style: FrameStyle::current(),
             fullscreen: deco.fullscreen,
-            theme: acde_render::FrameTheme::default(),
+            theme: deco.theme,
             active: true,
-            dark_page: false,
+            dark_page: deco.dark_page,
             minimize: true,
         })
     }
