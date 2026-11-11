@@ -98,8 +98,44 @@ fn answer<T>(outcome: Outcome<T>) -> (u16, &'static str) {
     }
 }
 
+fn acl_bypass() -> Option<String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::{GetTokenInformation, LookupPrivilegeNameW, SE_PRIVILEGE_ENABLED, TOKEN_PRIVILEGES, TOKEN_QUERY, TokenPrivileges};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    let mut token: HANDLE = std::ptr::null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return None;
+    }
+    let mut size = 0u32;
+    unsafe { GetTokenInformation(token, TokenPrivileges, std::ptr::null_mut(), 0, &mut size) };
+    let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+    let read = unsafe { GetTokenInformation(token, TokenPrivileges, buffer.as_mut_ptr().cast(), size, &mut size) };
+    unsafe { CloseHandle(token) };
+    if read == 0 {
+        return None;
+    }
+    let privileges = unsafe { &*buffer.as_ptr().cast::<TOKEN_PRIVILEGES>() };
+    let all = unsafe { std::slice::from_raw_parts(privileges.Privileges.as_ptr(), privileges.PrivilegeCount as usize) };
+    let enabled: Vec<String> = all
+        .iter()
+        .filter(|p| p.Attributes & SE_PRIVILEGE_ENABLED != 0)
+        .filter_map(|p| {
+            let mut name = [0u16; 64];
+            let mut length = name.len() as u32;
+            let found = unsafe { LookupPrivilegeNameW(std::ptr::null(), &p.Luid, name.as_mut_ptr(), &mut length) };
+            (found != 0).then(|| String::from_utf16_lossy(&name[..length as usize]))
+        })
+        .filter(|name| name == "SeBackupPrivilege" || name == "SeRestorePrivilege")
+        .collect();
+    (!enabled.is_empty()).then(|| enabled.join(", "))
+}
+
 #[test]
 fn writes_the_system_denies_answer_403() {
+    if let Some(privileges) = acl_bypass() {
+        eprintln!("skipped: this process has {privileges} enabled, which bypasses deny ACEs");
+        return;
+    }
     let s = Scratch::new();
     let root = Path::new(&s.root.path);
     for dir in ["no-add", "sealed", "kept"] {
