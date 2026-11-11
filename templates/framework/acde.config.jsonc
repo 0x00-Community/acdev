@@ -10,7 +10,8 @@
   // copied into the package at build time.
   "icon": "app",
   // capabilities: the system features the app uses. "fs": true gives the app's private folder and the folders the user
-  // picks for it; name public places in fs.roots, each approved by the user: "fs": { "roots": ["documents"] }
+  // picks for it; name public places in fs.roots, and declaring one is what gives the app access to it:
+  // "fs": { "roots": ["documents"] }
   // (desktop, documents, downloads, music, pictures, videos).
   "capabilities": {},
   // optional: capabilities the app can run without; they are not imported statically but taken with

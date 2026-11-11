@@ -118,7 +118,7 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   把它的 `<title>` 换成显示名 (窗口标题先用 `document.title`), 别的框架的标题在组件里, 不改.
   加模板就是 `STARTERS` 加一项.
 - 模板按第 1 级契约写 (`test/templates.test.ts`): 应用的配置 (`templates/app`、`templates/framework`) 列出 `capabilities`、`optional`、
-  `services`、`requests`、`schemes` (空值加说明; `fs.roots` 只点名 SDK 的 `SHARED_PLACES`), 不预先声明要用户批准的能力, 新工程无界面也能启动;
+  `services`、`requests`、`schemes` (空值加说明; `fs.roots` 只点名 SDK 的 `SHARED_PLACES`), 声明即授予 (运行时没有批准步骤, acdert#146), 新工程无界面也能启动;
   类型引用分层: 应用写 `@dopame/acde-api/app`, 桌面页写 `@dopame/acde-api/shell`; 桌面页经 `apps.open(id)` 打开应用 (第 1 级的 `acde:apps`
   没有 `launch`); 不用 `copyIn` (第 1 级由 `fs.copy` 取代).
 - 模板的注释和默认文字用英文, 与 skill 一致 (acde#38); 有界面的模板 (`templates/app`、`templates/desktop`) 带最小的 i18n: 文案在 `src/locales/<语言>.js` (至少 en、zh, 键相同), `src/i18n.js` (两份相同) 按 `navigator.language` 精确标签→`Intl.Locale` 的基础语言→`en` 选表, 缺的键回落英文, 设 `<html lang>` 并填 `data-i18n`; 不用第三方库. `templates/` 里除 `locales/zh.js` 外不出现中日韩文字, 不写死 `lang="zh"` (测试检查). 框架模板的界面由各自脚手架生成, 不改.
@@ -251,16 +251,11 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
   `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDE_FOLLOWED=1`: 会话文件按子进程 pid 找, `acde dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,
-  等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdert 先答 `webs`, 窗口稍后进表; 有待答的批准提示也算起来了
-  (`acdert app` 的应用要批准时, 答之前没有窗口); 默认 120 s (等不到会话文件时报出这段时间里别的进程登记的会话); `close()` 时 SIGTERM, 10 s 后
+  等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdert 先答 `webs`, 窗口稍后进表; 默认 120 s (等不到会话文件时报出这段时间里别的进程登记的会话); `close()` 时 SIGTERM, 10 s 后
   SIGKILL). 方法和 op 一一对应 (`chooseFolder` / `chooseFiles` / `chooseSaveFile` 都是 `choose`, 分别给 `folder` / `open` / `save`; 相对路径按当前目录解析;
   `route(url, 回应, {method, web, times})` 是 `route`, url 是 glob (同 acdert: `**` 任意, `*` 不含 `/`, `/` 开头比路径加查询) 或 RegExp, 回应
   `{status, statusText, headers, contentType, body (文字或字节, 转 base64), json}` 或 `{abort}`; `unroute(id?)`; `clipboard()` / `setClipboard(text)`). `evaluate` 返回 `NoInfer<T>` (否则 `expect(await w.evaluate(…))` 被推成 `Locator` 的重载).
   `waitForRequest(url, {method, web})` 先取 `network` 的 `next` 再轮询到匹配的请求结束 (`done`), `waitForConsole(文字或 RegExp, {level, web})` 同理; 要在触发之前调用.
-  **批准** (acde#16, op `permissions` / `answer` / `revoke`, 类型来自 SDK 的 `PermissionPrompt` / `PermissionDecision` / `ApprovalCapability`):
-  `permissions()` → `{pending, decisions}`; `waitForPrompt({app, capability, timeout})` 轮询到匹配的待答提示; `answer(提示或 id, allow)`;
-  `allow(匹配)` / `deny(匹配)` 是等到再答, 回那个提示. `revoke(app, capability)` 是 op `revoke` (acdert#95), 回 `revoked`
-  (有那条决定并删掉了才是 true), 桌面会话和 `acdert app` 都能用. 没人答的提示一直等, 不自动批准.
   **拖放** (op `drop`): `drop(文件, {web, x, y})` (相对路径按当前目录解析, x / y 页面坐标一起给, 默认页面中心, web 默认 desktop) →
   `{web, window, files}`; `AppWindow.drop(文件, {x, y})` 带上自己的 web. acdert 排进主线程就回答, 页面稍后才收到 `drop`, 要等页面上的效果
   (如 `evaluate` 轮询或 `expect`), 不能以回答为准. 页面拿到的: 普通文件进 `dataTransfer.files` (`File`), 每项 `getAsFileSystemHandle()` 是只读句柄
@@ -430,7 +425,7 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
 - 清单校验只有一份: `@dopame/acde-api/manifest` (acdert 的 `web/packages/acde-api`), acdert 的 Broker 和 acde 用同一段 (打进 `cli.js`). 检出的
   package.json 用 `file:../acdert/web/packages/acde-api`, 两个仓库要并排检出.
 - **运行时还不是安全边界**: 第三方沙箱 (acdert#30) 做好之前, `acde install` 装的包和 `acde build` / `acde dev` 的开发构建都按开发者自己的
-  代码对待: 构建执行工程的构建工具和依赖, 后端是有开发者全部权限的普通进程; 清单的 capabilities、批准和 `fs` 的根只管 `acde:` 模块给什么,
+  代码对待: 构建执行工程的构建工具和依赖, 后端是有开发者全部权限的普通进程; 清单的 capabilities 和 `fs` 的根只管 `acde:` 模块给什么,
   不隔离进程. 只装、只跑信得过的代码.
 - `acde check` 对有配置的工程也用 SDK 的 `Manifest.check` (按构建会写的 `apiLevel`): 配置换成临时清单 (入口、图标、资源不查, 那些由
   `Project.check` 管), 第 1 级的规则 (`fs.roots` 只许公共位置名、能力名、第三方应用的外壳模块、服务的保留名) 在构建前报出, 文字与构建时相同.

@@ -38,11 +38,6 @@ let priority = 'low'
 let clipboard = ''
 const routes: { id: number; url: unknown; status: number; times: number | null }[] = []
 let nextRoute = 1
-const prompts = [
-  { id: 1, app: 'alpha', label: 'Alpha', capability: 'launch', reason: 'launch' },
-  { id: 2, app: 'beta', label: 'Beta', capability: 'fs.documents', reason: 'request' },
-]
-const decisions: { app: string; label: string; capability: string; decision: 'granted' | 'denied' }[] = []
 const ATTRIBUTES: Record<string, Record<string, string>> = {
   'w1.2': { placeholder: 'What needs doing?' },
   'w1.3': { title: 'Add a task' },
@@ -385,25 +380,6 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       if (m['route'] === undefined) routes.length = 0
       else routes.splice(0, routes.length, ...routes.filter((r) => r.id !== m['route']))
       return void ok({ removed: before - routes.length, left: routes.length })
-    }
-    case 'permissions':
-      return void ok({ pending: prompts, decisions })
-    case 'answer': {
-      const at = prompts.findIndex((p) => p.id === m['prompt'])
-      if (at < 0 || typeof m['allow'] !== 'boolean') {
-        return void fail('answer: prompt is a prompt id and allow is true or false')
-      }
-      const [prompt] = prompts.splice(at, 1)
-      decisions.push({ ...prompt!, decision: m['allow'] ? 'granted' : 'denied' })
-      return void ok({ prompt: m['prompt'], allow: m['allow'] })
-    }
-    case 'revoke': {
-      if (typeof m['app'] !== 'string' || typeof m['capability'] !== 'string') {
-        return void fail('revoke: app is an app id and capability is the approved capability (as in permissions)')
-      }
-      const at = decisions.findIndex((d) => d.app === m['app'] && d.capability === m['capability'])
-      if (at >= 0) decisions.splice(at, 1)
-      return void ok({ app: m['app'], capability: m['capability'], revoked: at >= 0 })
     }
     case 'drop': {
       const files = m['files']

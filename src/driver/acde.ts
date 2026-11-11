@@ -2,10 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type {
-  ApprovalCapability, InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow, PermissionDecision,
-  PermissionPrompt,
-} from '@dopame/acde-api'
+import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
 import { cliEnv, cliFile, runtimes } from 'acde/launcher'
 import { DevClient } from '../ipc.ts'
 import { PackageManager } from '../pm.ts'
@@ -184,17 +181,6 @@ export interface LaunchOptions {
   readonly startTimeout?: number
 }
 
-export interface Permissions {
-  readonly pending: readonly PermissionPrompt[]
-  readonly decisions: readonly PermissionDecision[]
-}
-
-export interface PromptMatch {
-  readonly app?: string
-  readonly capability?: ApprovalCapability
-  readonly timeout?: number
-}
-
 export interface DropOptions {
   readonly web?: string
   readonly x?: number
@@ -328,7 +314,7 @@ export class Acde {
       const acde = new Acde(session, client, { child, dir }, logs, options.timeout ?? Acde.TIMEOUT_MS)
       await Poll.until(Math.max(0, deadline - Date.now()), async () => {
         alive()
-        return (await acde.ready()) || (await acde.#prompting()) || null
+        return (await acde.ready()) || null
       }, late)
       return acde
     } catch (error) {
@@ -464,51 +450,6 @@ export class Acde {
       async () => (await this.#request('unroute', id === undefined ? {} : { route: id })) as Unrouted)
   }
 
-  async permissions(): Promise<Permissions> {
-    const answer = (await this.#request('permissions')) as Partial<Permissions> | null
-    if (!Array.isArray(answer?.pending) || !Array.isArray(answer?.decisions)) {
-      throw new Error(`acdert answered permissions with ${JSON.stringify(answer)}`)
-    }
-    return answer as Permissions
-  }
-
-  async waitForPrompt(match: PromptMatch = {}): Promise<PermissionPrompt> {
-    const ms = match.timeout ?? this.timeout
-    const fits = (prompt: PermissionPrompt) => (match.app === undefined || prompt.app === match.app)
-      && (match.capability === undefined || prompt.capability === match.capability)
-    return Poll.until(ms, async () => (await this.permissions()).pending.find(fits) ?? null,
-      () => `waitForPrompt: no approval prompt${Acde.#describe(match)} within ${ms} ms`)
-  }
-
-  async answer(prompt: PermissionPrompt | number, allow: boolean): Promise<void> {
-    const id = typeof prompt === 'number' ? prompt : prompt.id
-    await this.trace.step(`answer(${id}, ${allow})`, () => this.#request('answer', { prompt: id, allow }))
-  }
-
-  async allow(match: PromptMatch = {}): Promise<PermissionPrompt> {
-    return this.#settle(match, true)
-  }
-
-  async deny(match: PromptMatch = {}): Promise<PermissionPrompt> {
-    return this.#settle(match, false)
-  }
-
-  async #settle(match: PromptMatch, allow: boolean): Promise<PermissionPrompt> {
-    return this.trace.step(`${allow ? 'allow' : 'deny'}(${Acde.#describe(match).trim()})`, async () => {
-      const prompt = await this.waitForPrompt(match)
-      await this.#request('answer', { prompt: prompt.id, allow })
-      return prompt
-    }, (prompt) => `${prompt.app}: ${prompt.capability}`)
-  }
-
-  async revoke(app: string, capability: ApprovalCapability): Promise<boolean> {
-    return this.trace.step(`revoke(${JSON.stringify(app)}, ${JSON.stringify(capability)})`, async () => {
-      const answer = (await this.#request('revoke', { app, capability })) as { revoked?: unknown } | null
-      if (typeof answer?.revoked !== 'boolean') throw new Error(`acdert answered revoke with ${JSON.stringify(answer)}`)
-      return answer.revoked
-    }, (revoked) => (revoked ? 'revoked' : 'nothing to revoke'))
-  }
-
   async drop(files: string | readonly string[], options: DropOptions = {}): Promise<Dropped> {
     const list = (typeof files === 'string' ? [files] : files).map((file) => resolve(file))
     if (list.length === 0) throw new Error('drop: give at least one file')
@@ -525,20 +466,6 @@ export class Acde {
       }
       return answer as Dropped
     }, (dropped) => `onto ${dropped.web}`)
-  }
-
-  async #prompting(): Promise<boolean> {
-    try {
-      return (await this.permissions()).pending.length > 0
-    } catch {
-      return false
-    }
-  }
-
-  static #describe(match: PromptMatch): string {
-    const parts = [match.app && `app ${match.app}`, match.capability && `capability ${match.capability}`]
-      .filter(Boolean)
-    return parts.length > 0 ? ` for ${parts.join(', ')}` : ''
   }
 
   async clipboard(): Promise<string> {
