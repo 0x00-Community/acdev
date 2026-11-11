@@ -90,46 +90,71 @@ main() {
     *) triple=$cpu-$(printf '%s' "$os" | tr '[:upper:]' '[:lower:]') ;;
   esac
 
-  bar=0
-  [ -t 2 ] && bar=1
+  shows=0
+  if [ -t 2 ]; then
+    shows=1
+  fi
   if command -v curl >/dev/null 2>&1; then
     fetch() {
-      curl -fsSL "$1" -o "$2"
+      curl -fsSL --connect-timeout 20 --retry 2 --speed-limit 1024 --speed-time 30 "$1" -o "$2"
     }
     size_of() {
       curl -fsSIL "$1" 2>/dev/null | tr -d '\r' | awk 'tolower($1) == "content-length:" { n = $2 } END { print n }'
     }
-    pull() {
-      if [ "$bar" = 1 ]; then curl -fL --progress-bar "$1" -o "$2"; else fetch "$1" "$2"; fi
-    }
+    if [ "$shows" = 1 ]; then
+      pull() {
+        curl -fSL --progress-bar --connect-timeout 20 --retry 2 --speed-limit 1024 --speed-time 30 "$1" -o "$2"
+      }
+    else
+      pull() {
+        fetch "$1" "$2"
+      }
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    fetch() {
-      wget -q -O "$2" "$1"
-    }
+    gnu_wget=0
+    if wget --help 2>&1 | grep -q -- --show-progress; then
+      gnu_wget=1
+    fi
+    if [ "$gnu_wget" = 1 ]; then
+      fetch() {
+        wget -q -T 30 --tries=3 -O "$2" "$1"
+      }
+    else
+      fetch() {
+        wget -q -T 30 -O "$2" "$1"
+      }
+    fi
     size_of() {
       wget --spider -S "$1" 2>&1 | tr -d '\r' | awk 'tolower($1) == "content-length:" { n = $2 } END { print n }'
     }
-    if wget --help 2>&1 | grep -q -- --show-progress; then
-      wget_bar='-q --show-progress --progress=bar:force:noscroll'
+    if [ "$shows" = 1 ] && [ "$gnu_wget" = 1 ]; then
+      pull() {
+        (cd "$(dirname "$2")" && wget -q --show-progress --progress=bar:force -T 30 --tries=3 -O "$(basename "$2")" "$1")
+      }
     else
-      wget_bar=
+      pull() {
+        fetch "$1" "$2"
+      }
     fi
-    pull() {
-      if [ "$bar" = 1 ]; then wget $wget_bar -O "$2" "$1"; else fetch "$1" "$2"; fi
-    }
   else
     die "needs curl or wget to download acde"
   fi
+
+  human() {
+    awk -v b="$1" 'BEGIN { if (b >= 1048576) printf "%.1f MB", b / 1048576; else printf "%d KB", (b + 1023) / 1024 }'
+  }
+
+  size() {
+    human "$(wc -c <"$1" | tr -d ' ')"
+  }
 
   download() {
     bytes=$(size_of "$1")
     case $bytes in
       '' | *[!0-9]*) say "downloading $3" ;;
-      *) say "downloading $3 ($(awk -v b="$bytes" 'BEGIN {
-        if (b < 1048576) printf "%d KB", (b + 1023) / 1024; else printf "%.1f MB", b / 1048576 }'))" ;;
+      *) say "downloading $3 ($(human "$bytes"))" ;;
     esac
-    pull "$1" "$2" || return 1
-    [ "$bar" = 1 ] || say "downloaded $3"
+    pull "$1" "$2"
   }
 
   if command -v shasum >/dev/null 2>&1; then
@@ -153,6 +178,7 @@ main() {
   trap 'exit 130' INT TERM HUP
 
   if [ -z "$version" ]; then
+    say "looking up the latest acde at $ACDE_DIST"
     fetch "$ACDE_DIST/latest" "$tmp/latest" || die "could not download $ACDE_DIST/latest (is ACDE_DIST right?)"
     version=$(tr -d ' \t\r\n' <"$tmp/latest")
   fi
@@ -165,12 +191,16 @@ main() {
   }
 
   verify() {
-    say "checking $2 against its SHA256SUMS"
     expected=$(listed "$1" "$2")
     [ -n "$expected" ] || die "$2 is not in its SHA256SUMS"
     actual=$(sha256 "$3")
     [ "$actual" = "$expected" ] ||
       die "$2 does not match its checksum (expected $expected, got $actual); not installing it"
+  }
+
+  got() {
+    verify "$1" "$2" "$3"
+    say "$2: $(size "$3"), SHA-256 matches"
   }
 
   file=acde-$version.tar.gz
@@ -179,7 +209,7 @@ main() {
     die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acde $version?)"
   [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acde $version is not in its SHA256SUMS ($file)"
   download "$ACDE_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDE_DIST/$version/$file"
-  verify "$tmp/SHA256SUMS" "$file" "$tmp/$file"
+  got "$tmp/SHA256SUMS" "$file" "$tmp/$file"
   runtime=
   if fetch "$ACDE_DIST/$version/acdert-version" "$tmp/acdert-version" 2>/dev/null; then
     verify "$tmp/SHA256SUMS" acdert-version "$tmp/acdert-version"
@@ -203,17 +233,22 @@ main() {
   say "acde $version runs with acdert $runtime: getting its build for $triple"
   fetch "$sums" "$tmp/acdert.sums" || die "could not download $sums (acde $version runs with acdert $runtime)"
   binary=acdert-$triple
-  if [ -z "$(listed "$tmp/acdert.sums" "$binary")" ]; then
+  if [ -n "$(listed "$tmp/acdert.sums" "$binary.tar.xz")" ]; then
+    binary=$binary.tar.xz
+    tar --version 2>/dev/null | grep -q bsdtar || command -v xz >/dev/null 2>&1 ||
+      die "needs xz to unpack $binary: install the xz (or xz-utils) package and run this again"
+  elif [ -z "$(listed "$tmp/acdert.sums" "$binary")" ]; then
     supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdert-/ && f !~ /^acdert-host-/) {
-      sub(/^acdert-/, "", f); sub(/\.exe$/, "", f); print f } }' "$tmp/acdert.sums" | sort | tr '\n' ' ')
+      sub(/^acdert-/, "", f); sub(/\.tar\.[gx]z$/, "", f); sub(/\.exe$/, "", f); print f } }' "$tmp/acdert.sums" |
+      sort -u | tr '\n' ' ')
     die "acdert $runtime has no build for this platform ($triple); it is built for: ${supported% }"
   fi
   host=acdert-host-$runtime.tar.gz
   download "$ACDERT_DIST/$runtime/$binary" "$tmp/$binary" "$binary" ||
     die "could not download $ACDERT_DIST/$runtime/$binary"
-  verify "$tmp/acdert.sums" "$binary" "$tmp/$binary"
+  got "$tmp/acdert.sums" "$binary" "$tmp/$binary"
   download "$ACDERT_DIST/$runtime/$host" "$tmp/$host" "$host" || die "could not download $ACDERT_DIST/$runtime/$host"
-  verify "$tmp/acdert.sums" "$host" "$tmp/$host"
+  got "$tmp/acdert.sums" "$host" "$tmp/$host"
 
   root=${ACDE_INSTALL:-$HOME/.acde}
   mkdir -p "$root/versions" || die "cannot create $root/versions"
@@ -221,12 +256,20 @@ main() {
     /*) ;;
     *) root=$(pwd)/$root ;;
   esac
+  say "unpacking into $root/versions/$version"
   stage=$(mktemp -d "$root/versions/.stage.XXXXXX")
   trap 'rm -rf "$tmp" "$stage"' EXIT
   tar -xzf "$tmp/$file" -C "$stage" || die "could not unpack $file"
   unpacked=$stage/acde-$version
   [ -x "$unpacked/bin/acde" ] || die "$file does not hold bin/acde"
-  cp "$tmp/$binary" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert"
+  case $binary in
+    *.tar.xz)
+      mkdir "$stage/runtime" && tar -xJf "$tmp/$binary" -C "$stage/runtime" || die "could not unpack $binary"
+      [ -f "$stage/runtime/acdert" ] && [ ! -h "$stage/runtime/acdert" ] || die "$binary does not hold acdert"
+      mv "$stage/runtime/acdert" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert"
+      ;;
+    *) cp "$tmp/$binary" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert" ;;
+  esac
   mkdir "$stage/host" && tar -xzf "$tmp/$host" -C "$stage/host" || die "could not unpack $host"
   [ -f "$stage/host/app/dist/broker.js" ] || die "$host does not hold app/dist/broker.js"
   mv "$stage/host/app" "$unpacked/bin/app" || die "could not place the acdert host files"

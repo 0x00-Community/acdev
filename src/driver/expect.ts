@@ -42,11 +42,11 @@ export class LocatorAssertions {
   }
 
   toBeVisible(options: Timeout = {}): Promise<void> {
-    return this.#nodes('be visible', options, (nodes) => ({ pass: nodes.length > 0, saw: LocatorAssertions.#count(nodes) }))
+    return this.#nodes('be visible', options, (nodes) => ({ pass: nodes.some(Locator.visible), saw: LocatorAssertions.#count(nodes) }))
   }
 
   toBeHidden(options: Timeout = {}): Promise<void> {
-    return this.#nodes('be hidden', options, (nodes) => ({ pass: nodes.length === 0, saw: LocatorAssertions.#count(nodes) }))
+    return this.#nodes('be hidden', options, (nodes) => ({ pass: !nodes.some(Locator.visible), saw: LocatorAssertions.#count(nodes) }))
   }
 
   toHaveCount(count: number, options: Timeout = {}): Promise<void> {
@@ -98,6 +98,51 @@ export class LocatorAssertions {
       const value = await LocatorAssertions.#attribute(source, nodes[0]!, name)
       if (value === undefined) return { pass: null, saw: 'an element CSS cannot reach' }
       return { pass: value !== null && (expected === undefined || Locator.matches(value, expected, typeof expected === 'string')), saw: value === null ? `no ${name}` : `${name}=${JSON.stringify(value)}` }
+    })
+  }
+
+  toHaveClass(expected: TextMatch, options: Timeout = {}): Promise<void> {
+    return this.#evaluated(`have class ${LocatorAssertions.#text(expected)}`, options, '(el) => typeof el.className === "string" ? el.className : el.getAttribute("class") ?? ""', null, (value) => {
+      const classes = Locator.normalize(String(value))
+      return { pass: expected instanceof RegExp ? expected.test(classes) : classes === Locator.normalize(expected), saw: `class ${JSON.stringify(classes)}` }
+    })
+  }
+
+  toHaveCSS(name: string, expected: TextMatch, options: Timeout = {}): Promise<void> {
+    return this.#evaluated(`have CSS ${name} ${LocatorAssertions.#text(expected)}`, options, '(el, name) => getComputedStyle(el).getPropertyValue(name)', name, (value) => ({
+      pass: Locator.matches(String(value), expected, typeof expected === 'string'),
+      saw: `${name}: ${JSON.stringify(value)}`,
+    }))
+  }
+
+  toHaveJSProperty(name: string, expected: unknown, options: Timeout = {}): Promise<void> {
+    return this.#evaluated(`have property ${name} ${JSON.stringify(expected)}`, options, '(el, name) => el[name]', name, (value) => ({ pass: JSON.stringify(value) === JSON.stringify(expected), saw: `${name} ${JSON.stringify(value)}` }))
+  }
+
+  toBeEmpty(options: Timeout = {}): Promise<void> {
+    const code = '(el) => { const field = el.isContentEditable ? null : ("value" in el && typeof el.value === "string" ? el.value : null); return field !== null ? field === "" : !el.textContent?.trim() && !el.children.length }'
+    return this.#evaluated('be empty', options, code, null, (empty) => ({ pass: empty === true, saw: empty ? 'empty' : 'content' }))
+  }
+
+  toBeEditable(options: Timeout = {}): Promise<void> {
+    const code = '(el) => el.isContentEditable || (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && !el.disabled && !el.readOnly && !el.closest("fieldset:disabled"))'
+    return this.#evaluated('be editable', options, code, null, (editable) => ({ pass: editable === true, saw: editable ? 'editable' : 'not editable' }))
+  }
+
+  toBeInViewport(options: Timeout & { readonly ratio?: number } = {}): Promise<void> {
+    const ratio = options.ratio ?? 0
+    const code = '(el) => { const r = el.getBoundingClientRect(); const w = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)); const h = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)); const area = r.width * r.height; return area > 0 ? (w * h) / area : 0 }'
+    return this.#evaluated(`be in the viewport${ratio ? ` (${ratio * 100}% of it)` : ''}`, options, code, null, (seen) => ({ pass: ratio > 0 ? Number(seen) >= ratio : Number(seen) > 0, saw: `${Math.round(Number(seen) * 100)}% of it in the viewport` }))
+  }
+
+  #evaluated(what: string, options: Timeout, fn: string, arg: unknown, judge: (value: unknown) => Check): Promise<void> {
+    return this.#nodes(what, options, async (nodes) => {
+      if (nodes.length !== 1) return { pass: null, saw: nodes.length === 0 ? 'no element' : `${nodes.length} elements` }
+      try {
+        return judge(await this.#locator.evaluate(fn, arg, { timeout: 0 }))
+      } catch (error) {
+        return { pass: null, saw: (error as Error).message }
+      }
     })
   }
 

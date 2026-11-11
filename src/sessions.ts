@@ -38,12 +38,19 @@ export class Sessions {
   static prepare(dir = Sessions.dir()): string {
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     if (process.platform === 'win32') return dir
-    const info = lstatSync(dir)
-    if (info.isSymbolicLink() || !info.isDirectory())
-      throw new Error(`${dir} is not a plain directory; remove it and run again`)
-    if (!Sessions.#owned(info)) throw new Error(`${dir} belongs to another user`)
-    if ((info.mode & 0o077) !== 0) chmodSync(dir, 0o700)
+    const problem = Sessions.problem(dir)
+    if (problem) throw new Error(problem)
+    if ((lstatSync(dir).mode & 0o077) !== 0) chmodSync(dir, 0o700)
     return dir
+  }
+
+  static problem(dir = Sessions.dir()): string | null {
+    if (process.platform === 'win32') return null
+    const info = lstatSync(dir, { throwIfNoEntry: false })
+    if (!info) return null
+    if (info.isSymbolicLink() || !info.isDirectory()) return `${dir} is not a plain directory; remove it and run again`
+    if (!Sessions.#owned(info)) return `${dir} belongs to another user`
+    return null
   }
 
   static socket(pid: number, dir = Sessions.dir()): string {

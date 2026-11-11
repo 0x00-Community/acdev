@@ -39,7 +39,9 @@ acde itself is JavaScript; these are the platforms the runtime is built for (`aa
 curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh
 ```
 
-This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/bin` to PATH in the startup files of every shell on the machine, once each, and lists them: `~/.profile` (sh, dash, ksh and login shells), `~/.bashrc` and an existing `~/.bash_profile` or `~/.bash_login` (bash), `~/.zshrc` and `~/.zprofile` (zsh), `~/.config/fish/conf.d/acde.fish` (fish), `~/.cshrc` and an existing `~/.tcshrc` (csh, tcsh), and nushell's `env.nu`. To leave your startup files alone:
+This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/bin` to PATH in the startup files of every shell on the machine, once each, and lists them: `~/.profile` (sh, dash, ksh and login shells), `~/.bashrc` and an existing `~/.bash_profile` or `~/.bash_login` (bash), `~/.zshrc` and `~/.zprofile` (zsh), `~/.config/fish/conf.d/acde.fish` (fish), `~/.cshrc` and an existing `~/.tcshrc` (csh, tcsh), and nushell's `env.nu`. Before each download it prints the file's name and size; in a terminal it shows a progress bar; after each one, and also when its output is captured (a coding agent, CI), it prints the file's size and that its SHA-256 matches. A download that stalls (under 1 KB/s for 30 seconds) is retried twice, then the installer stops and installs nothing.
+
+To leave your startup files alone:
 
 ```sh
 curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh -s -- --no-modify-path
@@ -55,7 +57,7 @@ In PowerShell:
 irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 ```
 
-This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`.
+This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`. Like the macOS / Linux installer, it shows each download's progress (size, speed, time left) in a terminal, prints the size and SHA-256 check of each file, and gives up on a download that receives nothing for 30 seconds after three tries. If you turned progress off (`$ProgressPreference = 'SilentlyContinue'`), it stays off.
 
 `irm | iex` cannot pass parameters. Set environment variables before it, or run the script as a script block to pass its parameters `-Version` and `-NoModifyPath`:
 
@@ -66,7 +68,9 @@ irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 & ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version 0.0.8 -NoModifyPath
 ```
 
-### Installer options
+## Installer options
+
+Both installers take the same options, each in its own form:
 
 | Option | `install.sh` | `install.ps1` |
 | --- | --- | --- |
@@ -74,7 +78,7 @@ irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 | Leave startup files / the user `Path` alone | `--no-modify-path` | `-NoModifyPath` or `ACDE_NO_MODIFY_PATH` set to any value |
 | Install somewhere else than `~/.acde` | `ACDE_INSTALL` | `ACDE_INSTALL` |
 
-Environment variables set this way stay set in that terminal; remove them afterwards (`Remove-Item Env:ACDE_VERSION`) if a later install should take the defaults.
+In PowerShell, environment variables set this way stay set in that terminal; remove them afterwards (`Remove-Item Env:ACDE_VERSION`) if a later install should take the defaults.
 
 ## Verify
 
@@ -83,14 +87,16 @@ Environment variables set this way stay set in that terminal; remove them afterw
 In the new terminal, run:
 
 ```sh
-acde --version
+acde doctor
 ```
 
-It prints the acde version, the SDK version and contract level it was built with, and the runtime it found with its version and contract level.
+It checks what `acde dev` and `acde test` need: acde on PATH, Bun and Node.js, the runtime (found, runs, pairs with this acde, and its own check of its files and the GPU, on which it draws a test frame), and more. Each line begins `ok`, `warn`, `error` or `skip`, a line beginning `fix:` follows each problem, and the last line says whether everything is there. See [Check the setup](../guide/doctor.md).
+
+`acde --version` prints just the versions: acde, the SDK and contract level it was built with, and the runtime it found with its version and contract level.
 
 ## The runtime
 
-`acde dev` and `acde test` run your app in the runtime, acdert. The installer puts the acdert release that this acde pairs with next to it: the binary as `bin/acdert` (`acdert.exe` on Windows) and its host files as `bin/app/`, both checked against the release's `SHA256SUMS`. The pairing is recorded with each acde release, so `--version` installs the matching runtime too. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had. Inside the Dopame virtual machine, `acdert` is already on PATH.
+`acde dev` and `acde test` run your app in the runtime, acdert. The installer puts the acdert release that this acde pairs with next to it: the binary as `bin/acdert` (`acdert.exe` on Windows) and its host files as `bin/app/`, both checked against the release's `SHA256SUMS`. The pairing is recorded with each acde release, so installing a specific version of acde (the installer's `--version X.Y.Z`, or `-Version X.Y.Z` on Windows) installs the runtime that version pairs with. If the runtime cannot be installed (no build for your platform, a failed download or checksum), the installer installs nothing and keeps what you had. Inside the Dopame virtual machine, `acdert` is already on PATH.
 
 acde looks for the runtime in this order:
 
@@ -98,24 +104,26 @@ acde looks for the runtime in this order:
 2. the acdert the installer put next to acde;
 3. `acdert` on PATH.
 
-When none is there, `acde dev` stops and says so.
+When none is there, `acde dev` stops and says so, and `acde doctor` says where it looked and what to do.
 
-The runtime renders pages only on the GPU, so it needs a working GPU (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux).
+The runtime renders pages only on the GPU, so it needs a working GPU (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux). On Linux that means the hardware Vulkan driver of the machine's GPU (Mesa: `vulkan-intel` or `vulkan-radeon` on Arch, `mesa-vulkan-drivers` on Debian, Ubuntu and Fedora; NVIDIA: the vendor's driver); a software renderer is not accepted. Without it `acde dev` fails at startup with a log line that begins `web layer unavailable:` and says `no usable Vulkan driver was found: install the GPU's Vulkan driver …`: install the driver and check that `vulkaninfo --summary` lists the GPU. `acde doctor` shows the same line as an error of its `gpu` check before you start anything.
 
 ### Install the runtime by hand
 
-Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine, and set `ACDERT` to the result. Each runtime release is in `https://pkgs.dopame.ai/acdert/<version>/`, and `https://pkgs.dopame.ai/acdert/latest.json` names the latest version. A release has:
+Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is an `acdert` binary with its `app/` directory next to it; set `ACDERT` to the path of that binary (`~/.acdert/acdert` in the commands below). Each runtime release is in `https://pkgs.dopame.ai/acdert/<version>/`, and `https://pkgs.dopame.ai/acdert/latest.json` names the latest version. A release has:
 
 | File | What it is |
 | --- | --- |
-| `acdert-aarch64-apple-darwin` | The runtime for macOS on Apple silicon |
-| `acdert-x86_64-apple-darwin` | The runtime for macOS on Intel |
-| `acdert-x86_64-unknown-linux-gnu` | The runtime for Linux x86_64 |
-| `acdert-x86_64-pc-windows-msvc.exe` | The runtime for Windows x64 |
+| `acdert-aarch64-apple-darwin.tar.xz` | The runtime for macOS on Apple silicon |
+| `acdert-x86_64-apple-darwin.tar.xz` | The runtime for macOS on Intel |
+| `acdert-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
+| `acdert-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
 | `acdert-host-<version>.tar.gz` | The runtime's own scripts (an `app/` directory), the same on every platform |
 | `SHA256SUMS` | Checksums of the files above |
 
-Download the binary for your platform, the host archive, and `SHA256SUMS`, and check them. Extract the host archive into the binary's directory: acdert looks for `app/` next to itself and does not start without it. Rename the binary to `acdert` (`acdert.exe` on Windows).
+Each runtime archive holds only the binary, `acdert` (`acdert.exe` on Windows). Releases up to 0.0.8 have the bare binary instead, under the same name without `.tar.xz` (`.exe` instead of `.tar.gz` on Windows).
+
+Download the archive for your platform, the host archive, and `SHA256SUMS`, and check them. Extract both into the same directory: acdert looks for `app/` next to itself and does not start without it. On Linux, extracting a `.tar.xz` needs `xz` (the `xz` or `xz-utils` package).
 
 On macOS or Linux, paste the lines below, with `target` set for your platform (the parentheses keep your terminal in its current directory): `aarch64-apple-darwin` on Apple silicon, `x86_64-apple-darwin` on an Intel Mac, `x86_64-unknown-linux-gnu` on Linux.
 
@@ -125,10 +133,9 @@ target=aarch64-apple-darwin
 base=https://pkgs.dopame.ai/acdert
 version=$(curl -fsSL "$base/latest.json" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p')
 mkdir -p ~/.acdert && cd ~/.acdert
-curl -fsSLO "$base/$version/acdert-$target" -O "$base/$version/acdert-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
-grep -E " (acdert-$target|acdert-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
-  rm -rf app && tar -xzf "acdert-host-$version.tar.gz" &&
-  mv "acdert-$target" acdert && chmod +x acdert
+curl -fsSLO "$base/$version/acdert-$target.tar.xz" -O "$base/$version/acdert-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
+grep -E " (acdert-$target\.tar\.xz|acdert-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
+  rm -rf app && tar -xzf "acdert-host-$version.tar.gz" && tar -xJf "acdert-$target.tar.xz"
 )
 ```
 
@@ -149,7 +156,7 @@ On Windows, in PowerShell:
   $version = (Invoke-RestMethod "$base/latest.json").version
   $dir = "$env:USERPROFILE\.acdert"
   New-Item -ItemType Directory -Force $dir | Out-Null
-  $files = 'acdert-x86_64-pc-windows-msvc.exe', "acdert-host-$version.tar.gz"
+  $files = 'acdert-x86_64-pc-windows-msvc.tar.gz', "acdert-host-$version.tar.gz"
   foreach ($f in $files + 'SHA256SUMS') { Invoke-WebRequest "$base/$version/$f" -OutFile "$dir\$f" }
   $sums = Get-Content "$dir\SHA256SUMS"
   foreach ($f in $files) {
@@ -158,13 +165,13 @@ On Windows, in PowerShell:
   }
   Remove-Item -Recurse -Force "$dir\app" -ErrorAction SilentlyContinue
   tar -xzf "$dir\acdert-host-$version.tar.gz" -C $dir
-  Move-Item -Force "$dir\acdert-x86_64-pc-windows-msvc.exe" "$dir\acdert.exe"
+  tar -xzf "$dir\acdert-x86_64-pc-windows-msvc.tar.gz" -C $dir
   [Environment]::SetEnvironmentVariable('ACDERT', "$dir\acdert.exe", 'User')
   $env:ACDERT = "$dir\acdert.exe"
 }
 ```
 
-This sets `ACDERT` for your user and for the current terminal. App backends don't run on Windows yet; see [Platform support](../reference/platforms.md).
+This sets `ACDERT` for your user and for the current terminal.
 
 To upgrade the runtime, run the same commands again. Check that it works with a new project:
 

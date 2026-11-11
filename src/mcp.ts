@@ -2,13 +2,16 @@ import { McpServer } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod'
 import type { InspectAction } from '@dopame/acde-api'
-import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { Approvals } from './approvals.ts'
+import { Doctor } from './doctor.ts'
 import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
-import { Locator } from './driver/locator.ts'
 import { Poll } from './driver/poll.ts'
 import { Sessions } from './sessions.ts'
 import { Format } from './driver/format.ts'
+import { PageTools } from './mcppage.ts'
+import { Versions } from './versions.ts'
 
 const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
 const ARG = z.union([z.string(), z.number(), z.array(z.string())])
@@ -19,8 +22,8 @@ const INSTRUCTIONS = [
     + `dev here and keeps its output for logs); sessions lists them and pins one.`,
   `- Look with snapshot: windows first (w0 is the desktop, w1, w2 … the others), then the focused window's elements, `
     + `one per line with a ref like [w3.12]. find narrows to elements whose name or value contains a text; window `
-    + `picks a window; all lists every window and keeps elements hidden by opacity: 0 or visibility (marked `
-    + `transparent / invisible).`,
+    + `picks a window; all lists every window not marked [minimized] and keeps elements hidden by opacity: 0 or `
+    + `visibility (marked transparent / invisible).`,
   `- Act with act / run on those refs (click, type, settext, key "ctrl+a backspace", scroll, …). The answer waits for `
     + `the page to settle and ends with what changed in the window, so another snapshot is rarely needed. A ref stays `
     + `the same while its element lives (moved, retexted or restyled); when the page replaces the element it gets a `
@@ -39,13 +42,24 @@ const INSTRUCTIONS = [
   `- route fakes the response (or a failure) of a page's fetch / XHR whose URL matches, so a test or an agent can try `
     + `states the backend does not give; unroute takes them away. clipboard reads or writes the clipboard the pages `
     + `see (headless sessions only, unless the user agrees to system: true).`,
+  `- input sends raw mouse / keyboard events at page coordinates (act click takes modifiers like "shift" as its `
+    + `arg). clock takes over a page's time (install, pause_at, fast_forward, run_for …) to test timers without `
+    + `waiting. dialog answers the next alert / confirm / prompt beforehand and lists those shown. resize sets a `
+    + `page's size.`,
   `- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's `
     + `folder, open or save chooser then needs choose_folder, choose_files or choose_save_file first.`,
+  `- An app that needs the user's approval for a capability (terminal, network, camera, microphone, launch, slots, a `
+    + `shared folder) opens no window until its prompt is answered: webs is then empty and says what waits. `
+    + `permissions lists the prompts and the decisions, answer allows or denies a prompt, revoke takes a decision `
+    + `back.`,
 ].join('\n')
+
+const ANSWER = 'the answer tool allows or denies it'
+const NAMING = 'name one with prompt, or with app and capability'
 
 type Content = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 
-interface Result {
+export interface Result {
   [key: string]: unknown
   content: Content[]
   isError?: boolean
@@ -57,6 +71,8 @@ export interface McpOptions {
 }
 
 export class Mcp {
+  static readonly DELISTED_MS = 2_000
+
   readonly server: McpServer
   readonly #cwd: string
   #pinned: number | undefined
@@ -66,13 +82,8 @@ export class Mcp {
   constructor(options: McpOptions = {}) {
     this.#cwd = options.cwd ?? process.cwd()
     this.#pinned = options.session
-    this.server = new McpServer({ name: 'acde', version: Mcp.version() }, { instructions: INSTRUCTIONS })
+    this.server = new McpServer({ name: 'acde', version: Versions.acde() }, { instructions: INSTRUCTIONS })
     this.#register()
-  }
-
-  static version(): string {
-    const file = join(import.meta.dirname, '..', 'package.json')
-    return (JSON.parse(readFileSync(file, 'utf8')) as { version: string }).version
   }
 
   static async serve(options: McpOptions = {}): Promise<number> {
@@ -118,6 +129,56 @@ export class Mcp {
     )
 
     s.registerTool(
+      'doctor',
+      {
+        description: 'Check this machine for acde dev, one line per check (ok, warn, error, skip) with a fix for '
+          + 'what is wrong: acde on PATH, Bun and Node.js, acdert (found, runs, pairs with this acde, and its own '
+          + 'check of the GPU and its files), running sessions and approvals they wait for, the project, the agent '
+          + 'skill. Call it first when acde dev or start does not come up.',
+        inputSchema: z.object({
+          dir: z.string().optional().describe('the project directory to check, relative to the working directory '
+            + '(default: the working directory)'),
+          online: z.boolean().optional().describe('also ask pkgs.dopame.ai whether a newer acde is out'),
+        }),
+        annotations: { readOnlyHint: true, openWorldHint: true },
+      },
+      (args) => this.#safe(async () => {
+        const checks = await Doctor.run({ ...(args.dir !== undefined && { dir: args.dir }), online: args.online === true })
+        return Mcp.#text(Doctor.format(checks))
+      }),
+    )
+
+    s.registerTool(
+      'doctor_fix',
+      {
+        description: 'Check this machine as doctor does, then fix what acde may fix without asking: install the acde '
+          + 'skill, add .acde/ to .gitignore, make the sessions directory again. What downloads, installs or stops '
+          + 'something (the acde installer again for a missing or mismatched acdert, the project\'s install, stopping '
+          + 'a session that does not answer) is skipped here and named: that needs the user, who runs acde doctor '
+          + '--fix in a terminal (it asks) or agrees to acde doctor --fix --yes. Approvals, GPU drivers and the '
+          + 'project\'s code are never touched. Answers what it did, then the checks again.',
+        inputSchema: z.object({
+          dir: z.string().optional().describe('the project directory, inside the working directory (default: the '
+            + 'working directory)'),
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      (args) => this.#safe(async () => {
+        const dir = resolve(args.dir ?? '.')
+        if (!Doctor.inside(Doctor.real(dir), Doctor.real(process.cwd())))
+          throw new Error(`${dir} is not inside the working directory ${process.cwd()}`)
+        const options = { dir }
+        const lines: string[] = []
+        await Doctor.fix(await Doctor.run(options), {
+          yes: false, output: 'capture', say: (line) => lines.push(line), confirm: null,
+          allowing: 'the user runs acde doctor --fix in a terminal, or agrees to acde doctor --fix --yes',
+        })
+        const after = await Doctor.run(options)
+        return Mcp.#text(`${lines.join('\n')}\n\n${Doctor.format(after)}`)
+      }),
+    )
+
+    s.registerTool(
       'start',
       {
         description: 'Run acde dev (build, start acdert, rebuild and reload on change) and use that session. Without '
@@ -154,7 +215,65 @@ export class Mcp {
         inputSchema: z.object({}),
         annotations: look,
       },
-      () => this.#safe(async () => Mcp.#text(Format.webs(await (await this.#acde()).webs()))),
+      () => this.#safe(async () => Mcp.#text(await Mcp.#webs(await this.#acde()))),
+    )
+
+    s.registerTool(
+      'permissions',
+      {
+        description: 'The approval prompts that wait (id, app, capability, why it is asked) and the decisions made '
+          + '(app, capability, granted or denied). An app that waits for an approval has no window yet.',
+        inputSchema: z.object({}),
+        annotations: look,
+      },
+      () => this.#safe(async () => Mcp.#text(Format.permissions(await (await this.#acde()).permissions()))),
+    )
+
+    s.registerTool(
+      'answer',
+      {
+        description: 'Allow or deny an approval prompt that waits. To allow, name the app and the capability, so '
+          + 'that what is granted is stated in the call. To deny: the prompt id, or app and capability, or, with '
+          + 'neither, the only one waiting (several are listed, not guessed). The decision is kept for the app until '
+          + 'revoke takes it back. It stands in for the user\'s own answer: allow only what the user asked for or '
+          + 'agreed to, and tell them what you allowed.',
+        inputSchema: z.object({
+          allow: z.boolean().describe('true grants the capability, false denies it'),
+          prompt: z.number().int().positive().optional().describe('the id permissions shows'),
+          app: z.string().optional().describe('the app id, together with capability'),
+          capability: z.string().optional().describe('the capability asked for (network, fs.downloads, …), together '
+            + 'with app'),
+        }),
+        annotations: { ...drive, destructiveHint: true },
+      },
+      (args) =>
+        this.#safe(async () => {
+          if (args.prompt !== undefined && (args.app !== undefined || args.capability !== undefined))
+            throw new Error('answer: give prompt, or app and capability, not both')
+          if (args.allow && (args.app === undefined || args.capability === undefined))
+            throw new Error('answer: to allow, name the app and the capability (permissions lists what waits)')
+          const wanted = {
+            ...(args.prompt !== undefined && { prompt: args.prompt }),
+            ...(args.app !== undefined && { app: args.app }),
+            ...(args.capability !== undefined && { capability: args.capability }),
+          }
+          return Mcp.#text(await Approvals.answer(await this.#acde(), wanted, args.allow, NAMING))
+        }),
+    )
+
+    s.registerTool(
+      'revoke',
+      {
+        description: 'Take back a decision about an app and a capability (as permissions lists them), so the app is '
+          + 'asked again the next time it needs it.',
+        inputSchema: z.object({
+          app: z.string().describe('the app id'),
+          capability: z.string().describe('the capability the decision is about'),
+        }),
+        annotations: { ...drive, destructiveHint: true },
+      },
+      (args) =>
+        this.#safe(async () => Mcp.#text(await Approvals.revoke(await this.#acde(), args.app, args.capability))),
     )
 
     s.registerTool(
@@ -169,8 +288,8 @@ export class Mcp {
           window: z.string().optional().describe('a window ref (w3) to list instead of the focused one'),
           ref: z.string().optional().describe('an element ref (w3.12): list only what is under it'),
           find: z.string().optional().describe('only elements whose name or value contains this text '
-            + '(case-insensitive), with their ancestors, in every window'),
-          all: z.boolean().optional().describe('list every window that is not minimized, and keep elements hidden by '
+            + '(case-insensitive), with their ancestors, in every window not marked [minimized]'),
+          all: z.boolean().optional().describe('list every window not marked [minimized], and keep elements hidden by '
             + 'opacity: 0 or visibility (marked transparent / invisible); display: none, aria-hidden and inert '
             + 'stay out'),
           diff: z.boolean().optional().describe('only what changed since the last snapshot of that window (+ added, ~ '
@@ -192,7 +311,8 @@ export class Mcp {
             + 'the value), key (arg: keys like "ctrl+a backspace" or "Enter"), focus, drag (arg: the ref to drop on, '
             + 'an element or a window, also in another window), select (arg: an option\'s value or text of a <select>, '
             + 'or a list of them for a multiple one). Window refs (w3): focus, restore, minimize, close, key. Real '
-            + 'input is injected; the answer waits for the page to settle and lists what changed.',
+            + 'input is injected; the answer waits for the page to settle and lists what changed. Closing the only '
+            + 'window of a session that runs a single app ends that session; the answer says so.',
         inputSchema: z.object({
           ref: z.string().describe('w3 or w3.12'),
           action: ACTION,
@@ -303,8 +423,8 @@ export class Mcp {
       'query',
       {
         description: 'Find elements by CSS selector in a window (default: the focused one), or under an element ref; '
-          + 'one line per element with its role, name, tag and ref ([hidden] when not rendered). The refs work with '
-          + 'act.',
+          + 'one line per element as snapshot prints it (role, name, value, a heading\'s level, states, ref), then '
+          + 'its tag ([hidden] when not rendered). The refs work with act.',
         inputSchema: z.object({
           selector: z.string().min(1).describe('a CSS selector, e.g. form input[type=email] or [data-testid="save"]'),
           window: z.string().optional().describe('a window ref (w3)'),
@@ -314,14 +434,7 @@ export class Mcp {
         annotations: look,
       },
       (args) =>
-        this.#safe(async () => {
-          const found = await (await this.#acde()).query(args)
-          const lines = found.nodes.map((n) => `- ${Locator.line(n)} <${n.tag}>${n.visible ? '' : ' [hidden]'}`)
-          const more = found.count > found.nodes.length ? `\n(${found.count - found.nodes.length} more not listed)` : ''
-          return Mcp.#text(found.count
-            ? `${found.count} in ${found.window}:\n${lines.join('\n')}${more}`
-            : `nothing in ${found.window} matches ${JSON.stringify(args.selector)}`)
-        }),
+        this.#safe(async () => Mcp.#text(Format.matches(await (await this.#acde()).query(args), args.selector))),
     )
 
     s.registerTool(
@@ -556,6 +669,16 @@ export class Mcp {
         }),
     )
 
+    PageTools.register(s, {
+      page: async (target) => {
+        const acde = await this.#acde()
+        return { acde, web: await this.#web(acde, target) }
+      },
+      safe: (work) => this.#safe(work),
+      text: (text) => Mcp.#text(text),
+      acted: (result) => Mcp.#acted(result),
+    })
+
     s.registerTool(
       'logs',
       {
@@ -586,10 +709,25 @@ export class Mcp {
     const attached = this.#attached
     if (attached && !attached.closed && (this.#pinned === undefined || this.#pinned === attached.session.pid))
       return attached
+    const stopped = attached?.closed ? attached.session.pid : undefined
     await attached?.close()
     this.#attached = null
-    this.#attached = await Acde.attach({ cwd: this.#cwd, ...(this.#pinned !== undefined && { session: this.#pinned }) })
+    if (stopped !== undefined) await Mcp.#delisted(stopped)
+    try {
+      this.#attached = await Acde.attach({
+        cwd: this.#cwd,
+        ...(this.#pinned !== undefined && { session: this.#pinned }),
+      })
+    } catch (error) {
+      if (stopped === undefined) throw error
+      throw new Error(`acde dev ${stopped} stopped; ${error instanceof Error ? error.message : String(error)}`)
+    }
     return this.#attached
+  }
+
+  static async #delisted(pid: number): Promise<void> {
+    const listed = () => Sessions.list().some((session) => session.pid === pid)
+    for (const until = Date.now() + Mcp.DELISTED_MS; listed() && Date.now() < until;) await sleep(20)
   }
 
   async #web(acde: Acde, target: string | undefined): Promise<string> {
@@ -651,7 +789,7 @@ export class Mcp {
     this.#pinned = acde.session.pid
     const runs = acde.session.desktop ? `desktop ${acde.session.desktop}` : `app ${acde.session.apps.join(', ')}`
     const what = `${runs}${args.headless ? ' without a window (headless)' : ''}`
-    const webs = Format.webs(await acde.webs())
+    const webs = await Mcp.#webs(acde)
     return Mcp.#text(`acde dev ${acde.session.pid} runs ${what} (${acde.session.dirs.join(', ')})\n\n${webs}`)
   }
 
@@ -712,6 +850,12 @@ export class Mcp {
       const text = error instanceof Error ? error.message : String(error)
       return { content: [{ type: 'text', text }], isError: true }
     }
+  }
+
+  static async #webs(acde: Acde): Promise<string> {
+    const webs = await acde.webs()
+    const waiting = webs.length === 0 ? await Approvals.waiting(acde, ANSWER) : []
+    return [Format.webs(webs), ...waiting].join('\n')
   }
 
   static #entries<T>(page: DevPage<T>, line: (entry: T) => string): Result {

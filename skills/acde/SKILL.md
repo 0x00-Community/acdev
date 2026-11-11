@@ -11,20 +11,22 @@ This skill ships inside acde and describes the version it came with. When it and
 
 ## Check the environment first
 
+Run `acde doctor`, in the project directory when there is one. It checks what follows and more (the runtime draws a test frame on the GPU), prints one line per check (`ok`, `warn`, `error` or `skip`) with a `fix:` line under each problem, and exits with code 1 on an error. Run it again whenever `acde dev`, `acde test` or the MCP `start` does not come up, before guessing. `acde doctor --fix` then fixes what acde may (the skill, `.acde/` in `.gitignore`) and asks before what downloads, installs or stops something; without a terminal it skips those unless given `--yes`, which you pass only when the user agreed. Approvals, GPU drivers and the project's code it leaves to you and the user. See [Check the setup](references/guide/doctor.md).
+
 1. `acde` must be on PATH. If it is not, follow [Install](references/start/install.md).
-2. `acde dev` and `acde test` need the runtime, acdert. The acde installer sets up the acdert release that acde pairs with next to it; acde finds `ACDERT` (a path to the binary) first, then that one, then `acdert` on PATH (in the Dopame virtual machine it is already there). `acde --version` shows which one it finds. If none is found, run the acde installer again; only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acde new`, `acde check`, and `acde build` still work, and `acde dev` says what is missing.
+2. `acde dev` and `acde test` need the runtime, acdert. The acde installer sets up the acdert release that acde pairs with next to it; acde finds `ACDERT` (a path to the binary) first, then that one, then `acdert` on PATH (in the Dopame virtual machine it is already there). If `acde doctor` finds none, or one that does not run, run the acde installer again (`acde doctor --fix --yes` does that for an installed acde); only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acde new`, `acde check`, and `acde build` still work, and `acde dev` says what is missing.
 3. A project runs on Bun when its package manager is bun, and on Node.js with npm, pnpm, or yarn. `acde test` needs Bun.
 
 ## What is not like a browser
 
 acdert has its own renderer and is not Chromium. Standard APIs follow the spec, and what the runtime lacks is absent rather than faked. Before relying on anything beyond the DOM, `fetch`, and storage, read [Web compatibility](references/reference/web.md). The mistakes to avoid:
 
-- **No CDN.** Images, fonts, and ES modules load only from the app's own files. Bundle every dependency.
+- **No modules from a CDN.** ES modules load only from the app's own files (`import('https://…')` fails): bundle every code dependency. Images, stylesheets and fonts can come from other hosts, as in a browser.
 - **Missing APIs**: Web Workers, Service Workers, `crypto.subtle`, WebGL, OffscreenCanvas, fullscreen, pointer lock. `confirm()` returns `false` and `prompt()` returns `null`; build dialogs in the page.
 - **System access goes through `acde:` modules only** (`import { fs } from 'acde:fs'`), and only for capabilities the config requests. There is no global object. Importing a module that was not requested fails. See [Capabilities](references/guide/capabilities.md).
 - **The backend has no TCP port.** A backend's `listen(port)` becomes a unix socket, and the page reaches it with a same-origin `fetch('/api/…')`. Do not `curl localhost`. See [Backend](references/guide/backend.md).
 - **No developer tools.** Use the commands below to look at pages.
-- **Platforms differ.** A capability a platform lacks fails to import. See [Platform support](references/reference/platforms.md).
+- **Platforms differ.** An app that requires a capability the platform lacks does not start there; one that lists it as optional gets `null` from `load()`. See [Platform support](references/reference/platforms.md).
 
 ## The working loop
 
@@ -34,7 +36,7 @@ Create a project without prompts (`--yes` asks nothing; without it `acde new` wa
 acde new my-app --template html --label "My App" --yes
 ```
 
-Run it. `acde dev` builds, starts acdert, and rebuilds and reloads on every change. It does not exit: start it in the background and keep it running while you work; `acde stop` ends it. Add `--headless` when no window is needed; pages still render and screenshots still work.
+Run it. `acde dev` builds, starts acdert, and rebuilds and reloads on every change. It does not exit: start it in the background and keep it running while you work; `acde stop` ends it. Add `--headless` when no window is needed; pages still render and screenshots still work. It is ready when `acde webs`, run from the project directory, lists the app's page.
 
 ```sh
 acde dev --headless
@@ -43,7 +45,8 @@ acde dev --headless
 Look at what the app does, from another shell in the project directory:
 
 ```sh
-acde inspect                      # the screen as text, every element with a ref
+acde inspect                      # the screen as text, every visible element with a ref
+acde query 'form button'          # elements by CSS selector, hidden ones too, each with a ref
 acde act w1.15 click              # act on a ref: click, type, key, drag, ...
 acde shot my-app -o shot.png      # a PNG of the app's window; read it to see the page
 acde console --level errors       # console.error and uncaught errors
@@ -61,6 +64,9 @@ Before handing over: `acde check` (config and entry), `acde build` (the package 
 
 - Edit `acde.config.jsonc`, never the generated `.acde/package.json`.
 - Request a capability in the config before importing its module.
+- Some capabilities need the user's approval (`terminal`, `network`, `camera`, `microphone`, `launch`, `slots`, and each shared folder named in `fs.roots`). An app that requires one opens no window until the prompt is answered: when `acde webs` lists no page, run `acde permissions`, then `acde allow`. Approving is the user's decision, and it is kept for the app: allow only what the user asked for or agreed to, and say what you allowed. See [Capabilities](references/guide/capabilities.md#approval).
+- In `acde:fs` a root is an id, not a path. `"fs": true` gives the app its own folder, the root `private`: keep the app's working files there. See [Files and folders](references/guide/files.md).
+- An app that lists `services` only runs in the desktop that provides them: `acde dev` in the app project alone does not start it, `acde dev --desktop <dir>` does. See [Services](references/guide/services.md).
 - Keep `.acde/` out of git.
 - In scripts and tests, select elements by role and name (the semantic tree), not by coordinates.
 - An MCP server with the same tools is available as `acde mcp`; the CLI commands above need no setup, so prefer them unless the user has set MCP up. See [MCP](references/guide/mcp.md).
@@ -88,7 +94,8 @@ Guides:
 - [Desktops](references/guide/desktop.md): writing a desktop instead of an app
 - [Services](references/guide/services.md): desktop services and the capabilities they provide
 - [acde dev](references/guide/dev.md): what runs, reloading, several projects, `--desktop`
-- [Debugging](references/guide/tools.md): `webs`, `eval`, `shot`, `screen`, `inspect`, `act`, `console`, `network`
+- [Check the setup](references/guide/doctor.md): `acde doctor`, what it checks, what to do about each finding, and what `--fix` repairs
+- [Debugging](references/guide/tools.md): `webs`, `eval`, `shot`, `screen`, `inspect`, `query`, `act`, `console`, `network`, `permissions`, `allow`, `deny`, `revoke`
 - [Coding agents](references/guide/agents.md): this skill, `acde skills`, where it is installed
 - [MCP](references/guide/mcp.md): `acde mcp` and its tools
 - [Testing](references/guide/testing.md): `acde test`, locators, assertions, screenshots, traces

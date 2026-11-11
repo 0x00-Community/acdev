@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { InspectAction } from '@dopame/acde-api'
+import { Approvals, type Wanted } from './approvals.ts'
 import { ACTIONS, Acde, type ConsoleLevel, type DevPage } from './driver/acde.ts'
 import { Format } from './driver/format.ts'
 import { DevClient } from './ipc.ts'
@@ -10,10 +11,13 @@ import { Sessions } from './sessions.ts'
 
 export class Tools {
   static readonly COMMANDS = new Set([
-    'webs', 'eval', 'shot', 'inspect', 'act', 'console', 'network', 'screen', 'pointer', 'stop',
+    'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'console', 'network', 'screen', 'pointer', 'permissions',
+    'allow', 'deny', 'revoke', 'stop',
   ])
+  static readonly ANSWER = 'acde allow (or acde deny)'
+  static readonly NAMING = 'name one (its id, or <app> <capability>) or pass --all'
+  static readonly QUERY_LIMIT = 3000
   static readonly FOLLOW_MS = 500
-  static readonly ENDED_MS = 2_000
   static readonly STOP_MS = 10_000
   static readonly LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug', 'errors'])
 
@@ -27,12 +31,27 @@ export class Tools {
     const start = flags.get('since')
     if (start !== undefined && start !== 'reload' && !/^[1-9]\d*$/.test(start))
       throw new Error(`${command}: --since ${start}: reload, or the number of an entry (acde ${command} --help)`)
+    const limit = command === 'query' ? Tools.#limit(flags.get('limit')) : undefined
+    const wanted = command === 'allow' || command === 'deny' ? Tools.wanted(command, args, flags) : {}
     if (command === 'stop') return await Tools.#stop(session)
     const acde = await Acde.attach(session === undefined ? {} : { session })
     try {
       switch (command) {
-        case 'webs':
-          console.log(Format.webs(await acde.webs()))
+        case 'webs': {
+          const webs = await acde.webs()
+          console.log(Format.webs(webs))
+          if (webs.length === 0) for (const line of await Approvals.waiting(acde, Tools.ANSWER)) console.log(line)
+          return 0
+        }
+        case 'permissions':
+          console.log(Format.permissions(await acde.permissions()))
+          return 0
+        case 'allow':
+        case 'deny':
+          console.log(await Approvals.answer(acde, wanted, command === 'allow', Tools.NAMING))
+          return 0
+        case 'revoke':
+          console.log(await Approvals.revoke(acde, args[0]!, args[1]!))
           return 0
         case 'eval': {
           const code = args[1] === '-' ? await Runtime.readStdin() : args[1]!
@@ -65,15 +84,18 @@ export class Tools {
           console.error(`acde: no element's name or value contains ${JSON.stringify(find.trim())}${hint}`)
           return 1
         }
-        case 'act': {
-          const result = await acde.act(args[0]!, args[1] as InspectAction, args[2]).catch(async (error: unknown) => {
-            if (args[1] !== 'close' || !(await Tools.#ended(acde))) throw error
-            return null
+        case 'query': {
+          const found = await acde.query({
+            selector: args[0]!,
+            ...(flags.has('window') && { window: flags.get('window')! }),
+            ...(flags.has('ref') && { ref: flags.get('ref')! }),
+            ...(limit !== undefined && { limit }),
           })
-          if (result === null) {
-            console.log(`closed ${args[0]}; acdert exited with it, so acde dev ${acde.session.pid} ended`)
-            return 0
-          }
+          console.log(Format.matches(found, args[0]!))
+          return 0
+        }
+        case 'act': {
+          const result = await acde.act(args[0]!, args[1] as InspectAction, args[2])
           console.log(result.text)
           return result.ok ? 0 : 1
         }
@@ -112,11 +134,6 @@ export class Tools {
     } finally {
       await acde.close()
     }
-  }
-
-  static async #ended(acde: Acde): Promise<boolean> {
-    for (const until = Date.now() + Tools.ENDED_MS; !acde.closed && Date.now() < until;) await sleep(20)
-    return acde.closed
   }
 
   static async #stop(pid: number | undefined): Promise<number> {
@@ -163,6 +180,28 @@ export class Tools {
     if (value === undefined) return 0
     if (value === 'reload') return reloaded ?? 0
     return Number(value)
+  }
+
+  static wanted(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Wanted {
+    const [first, second] = args
+    const hint = `(acde ${command} --help)`
+    if (flags.has('all')) {
+      if (first === undefined) return { all: true }
+      throw new Error(`${command}: --all answers every waiting prompt; leave the prompt out ${hint}`)
+    }
+    if (first === undefined) return {}
+    if (second !== undefined) return { app: first, capability: second }
+    if (/^\d+$/.test(first)) return { prompt: Number(first) }
+    const listed = 'acde permissions lists them'
+    throw new Error(`${command}: ${first} is not a prompt id (${listed}); or give <app> <capability> ${hint}`)
+  }
+
+  static #limit(value: string | undefined): number | undefined {
+    if (value === undefined) return undefined
+    const most = Tools.QUERY_LIMIT
+    const limit = /^\d+$/.test(value) ? Number(value) : NaN
+    if (limit >= 1 && limit <= most) return limit
+    throw new Error(`query: --limit ${value}: how many elements to list at most, 1 to ${most} (acde query --help)`)
   }
 
   static pid(value: string): number

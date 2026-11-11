@@ -9,6 +9,8 @@ import { PackageManager } from '../pm.ts'
 import { Runtime, type Child } from '../runtime.ts'
 import { Sessions, type Session } from '../sessions.ts'
 import { Logs } from './logs.ts'
+import type { ClockState } from './clock.ts'
+import type { InputEvent } from './input.ts'
 import { Poll } from './poll.ts'
 import { Trace } from './trace.ts'
 import { AppWindow, type WindowMatch } from './window.ts'
@@ -60,9 +62,26 @@ export interface ConsoleEntry {
   readonly time: number
   readonly web: string
   readonly app: string | null
-  readonly kind: 'console' | 'error' | 'rejection'
+  readonly kind: 'console' | 'error' | 'rejection' | 'dialog'
   readonly level: ConsoleLevel
   readonly text: string
+  readonly dialog?: Dialog
+}
+
+export type DialogType = 'alert' | 'confirm' | 'prompt'
+
+export interface Dialog {
+  readonly type: DialogType
+  readonly message: string
+  readonly defaultValue: string | null
+  readonly answered: boolean
+  readonly accept: boolean
+  readonly text: string | null
+}
+
+export interface DialogAnswer {
+  readonly accept?: boolean
+  readonly text?: string
 }
 
 export interface RequestEntry {
@@ -118,6 +137,7 @@ export interface Snapshot {
 export interface ActResult {
   readonly ok: boolean
   readonly text: string
+  readonly ended?: true
 }
 
 export const ACTIONS: readonly InspectAction[] = [
@@ -181,6 +201,33 @@ export interface LaunchOptions {
   readonly startTimeout?: number
 }
 
+export interface PermissionPrompt {
+  readonly id: number
+  readonly app: string
+  readonly label: string
+  readonly capability: string
+  readonly reason: string
+}
+
+export interface PermissionDecision {
+  readonly app: string
+  readonly label: string | null
+  readonly capability: string
+  readonly decision: 'granted' | 'denied'
+  readonly folder?: { readonly label: string; readonly exists: boolean }
+}
+
+export interface Permissions {
+  readonly pending: readonly PermissionPrompt[]
+  readonly decisions: readonly PermissionDecision[]
+}
+
+export interface PromptMatch {
+  readonly app?: string
+  readonly capability?: string
+  readonly timeout?: number
+}
+
 export interface DropOptions {
   readonly web?: string
   readonly x?: number
@@ -219,9 +266,44 @@ export class ActError extends Error {
   }
 }
 
+export type LaunchPhase = 'session' | 'window' | 'exited' | 'failed'
+
+export class LaunchError extends Error {
+  static readonly TAIL = 40
+
+  readonly #phase: LaunchPhase
+  readonly #logs: Logs
+  readonly #code: number | null
+
+  constructor(phase: LaunchPhase, said: string, logs: Logs, options: { code?: number; cause?: unknown } = {}) {
+    super(said, options.cause === undefined ? undefined : { cause: options.cause })
+    this.#phase = phase
+    this.#logs = logs
+    this.#code = options.code ?? null
+  }
+
+  get phase(): LaunchPhase {
+    return this.#phase
+  }
+
+  get logs(): Logs {
+    return this.#logs
+  }
+
+  get code(): number | null {
+    return this.#code
+  }
+
+  static stalled(phase: 'session' | 'window' | 'exited', head: string, logs: Logs, code?: number): LaunchError {
+    return new LaunchError(phase, `${head}\n${logs.tail(LaunchError.TAIL).text}`, logs, code === undefined ? {} : { code })
+  }
+}
+
 export class Acde {
   static readonly TIMEOUT_MS = 5_000
   static readonly START_TIMEOUT_MS = 120_000
+  static readonly STOP_MS = 10_000
+  static readonly DRAIN_MS = 1_000
 
   readonly session: Session
   readonly logs: Logs | null
@@ -229,7 +311,7 @@ export class Acde {
   timeout: number
   readonly #client: DevClient
   readonly #owned: Launched | null
-  #closed = false
+  #closing = false
 
   private constructor(
     session: Session,
@@ -244,9 +326,6 @@ export class Acde {
     this.logs = logs
     this.timeout = timeout
     this.trace = new Trace(this)
-    client.closed.then(() => {
-      this.#closed = true
-    })
   }
 
   static async attach(options: AttachOptions = {}): Promise<Acde> {
@@ -280,30 +359,37 @@ export class Acde {
     logs.follow(child.process.stdout!, 'stdout')
     logs.follow(child.process.stderr!, 'stderr')
     let exited: number | null = null
-    void child.exited.then(
-      (code) => {
-        exited = code
-      },
-      () => {
-        exited = -1
-      },
-    )
+    void child.gone.catch(() => -1).then(async (code) => {
+      await logs.drained(Acde.DRAIN_MS)
+      exited = code
+    })
     const dir = Sessions.dir({ ...process.env, ...options.env })
     const limit = options.startTimeout ?? Acde.START_TIMEOUT_MS
     const deadline = Date.now() + limit
     const since = Date.now() - 1_000
     const within = `within ${Math.round(limit / 1000)} s`
-    const late = () => `acde dev did not start ${within}:\n${logs.tail(40).text}`
+    const last = 'last output:'
+    const seen = { pages: 0, windows: 0, lost: false }
+    const late = () => {
+      const state = seen.lost
+        ? 'acdert closed the connection, and acde dev has not exited'
+        : `acdert runs and answers, but no window appeared (pages: ${seen.pages}, windows: ${seen.windows}) `
+          + 'and no approval prompt waits'
+      return LaunchError.stalled('window', `acde dev did not start ${within}:\n${state}; ${last}`, logs)
+    }
     const unregistered = () => {
       const others = Sessions.list(dir).filter((s) => s.pid !== child.pid && s.started >= since)
       const instead = others.length
         ? '; another process registered instead (acde dev handed over to it):\n' +
           others.map((s) => `  ${Sessions.describe(s)}`).join('\n')
         : ` in ${dir}`
-      return `acde dev (pid ${child.pid}) did not register a session ${within}${instead}\n${logs.tail(40).text}`
+      const state = others.length ? last : `no session yet: its build did not finish, or acdert did not start listening; ${last}`
+      const head = `acde dev (pid ${child.pid}) did not register a session ${within}${instead}\n${state}`
+      return LaunchError.stalled('session', head, logs)
     }
     const alive = () => {
-      if (exited !== null) throw new Error(`acde dev exited (${exited}) before it was ready:\n${logs.tail(40).text}`)
+      if (exited !== null)
+        throw LaunchError.stalled('exited', `acde dev exited (${exited}) before it was ready:`, logs, exited)
     }
     try {
       const session = await Poll.until(limit, () => {
@@ -314,14 +400,45 @@ export class Acde {
       const acde = new Acde(session, client, { child, dir }, logs, options.timeout ?? Acde.TIMEOUT_MS)
       await Poll.until(Math.max(0, deadline - Date.now()), async () => {
         alive()
-        return (await acde.ready()) || null
+        try {
+          const { webs, windows } = await acde.#shown()
+          seen.pages = webs.length
+          seen.windows = windows.length
+          return Acde.#ready(webs, windows) || (await acde.#prompting()) || null
+        } catch (error) {
+          if (!acde.closed) throw error
+          seen.lost = true
+          return null
+        }
       }, late)
       return acde
     } catch (error) {
-      child.kill('SIGTERM')
-      await child.exited.catch(() => -1)
-      throw error
+      await Acde.#stop(child)
+      await logs.drained(Acde.DRAIN_MS)
+      Acde.#release(child)
+      if (error instanceof LaunchError) throw error
+      const said = error instanceof Error ? error.message : String(error)
+      throw new LaunchError('failed', said, logs, { cause: error })
     }
+  }
+
+  static async #stop(child: Child): Promise<void> {
+    const timer = new AbortController()
+    const gone = child.gone.catch(() => -1)
+    const late = sleep(Acde.STOP_MS, null, { signal: timer.signal }).catch(() => null)
+    child.kill('SIGTERM')
+    try {
+      if ((await Promise.race([gone, late])) !== null) return
+      child.kill('SIGKILL')
+      await gone
+    } finally {
+      timer.abort()
+    }
+  }
+
+  static #release(child: Child): void {
+    child.process.stdout?.destroy()
+    child.process.stderr?.destroy()
   }
 
   static async #connect(session: Session): Promise<DevClient> {
@@ -338,12 +455,21 @@ export class Acde {
   }
 
   async ready(): Promise<boolean> {
+    const { webs, windows } = await this.#shown()
+    return Acde.#ready(webs, windows)
+  }
+
+  async #shown(): Promise<{ webs: Web[]; windows: InspectWindow[] }> {
     const [webs, windows] = await Promise.all([this.webs(), this.windows()])
+    return { webs, windows }
+  }
+
+  static #ready(webs: readonly Web[], windows: readonly InspectWindow[]): boolean {
     return windows.length > 0 && webs.every((web) => windows.some((w) => w.id === web.window))
   }
 
   get closed(): boolean {
-    return this.#closed
+    return this.#client.ended
   }
 
   get desktop(): AppWindow {
@@ -363,6 +489,10 @@ export class Acde {
 
   async evaluate<T = unknown>(web: string, code: string): Promise<NoInfer<T>> {
     return ((await this.#request('eval', { web, code })) as { value: T }).value
+  }
+
+  async evaluateOn<T = unknown>(web: string, node: number, fn: string, arg: unknown = null): Promise<NoInfer<T>> {
+    return ((await this.#request('eval', { web, node, code: fn, arg })) as { value: T }).value
   }
 
   async screenshot(web: string, options: { readonly path?: string } = {}): Promise<Shot> {
@@ -450,6 +580,51 @@ export class Acde {
       async () => (await this.#request('unroute', id === undefined ? {} : { route: id })) as Unrouted)
   }
 
+  async permissions(): Promise<Permissions> {
+    const answer = (await this.#request('permissions')) as Partial<Permissions> | null
+    if (!Array.isArray(answer?.pending) || !Array.isArray(answer?.decisions)) {
+      throw new Error(`acdert answered permissions with ${JSON.stringify(answer)}`)
+    }
+    return answer as Permissions
+  }
+
+  async waitForPrompt(match: PromptMatch = {}): Promise<PermissionPrompt> {
+    const ms = match.timeout ?? this.timeout
+    const fits = (prompt: PermissionPrompt) => (match.app === undefined || prompt.app === match.app)
+      && (match.capability === undefined || prompt.capability === match.capability)
+    return Poll.until(ms, async () => (await this.permissions()).pending.find(fits) ?? null,
+      () => `waitForPrompt: no approval prompt${Acde.#describe(match)} within ${ms} ms`)
+  }
+
+  async answer(prompt: PermissionPrompt | number, allow: boolean): Promise<void> {
+    const id = typeof prompt === 'number' ? prompt : prompt.id
+    await this.trace.step(`answer(${id}, ${allow})`, () => this.#request('answer', { prompt: id, allow }))
+  }
+
+  async allow(match: PromptMatch = {}): Promise<PermissionPrompt> {
+    return this.#settle(match, true)
+  }
+
+  async deny(match: PromptMatch = {}): Promise<PermissionPrompt> {
+    return this.#settle(match, false)
+  }
+
+  async #settle(match: PromptMatch, allow: boolean): Promise<PermissionPrompt> {
+    return this.trace.step(`${allow ? 'allow' : 'deny'}(${Acde.#describe(match).trim()})`, async () => {
+      const prompt = await this.waitForPrompt(match)
+      await this.#request('answer', { prompt: prompt.id, allow })
+      return prompt
+    }, (prompt) => `${prompt.app}: ${prompt.capability}`)
+  }
+
+  async revoke(app: string, capability: PermissionDecision['capability']): Promise<boolean> {
+    return this.trace.step(`revoke(${JSON.stringify(app)}, ${JSON.stringify(capability)})`, async () => {
+      const answer = (await this.#request('revoke', { app, capability })) as { revoked?: unknown } | null
+      if (typeof answer?.revoked !== 'boolean') throw new Error(`acdert answered revoke with ${JSON.stringify(answer)}`)
+      return answer.revoked
+    }, (revoked) => (revoked ? 'revoked' : 'nothing to revoke'))
+  }
+
   async drop(files: string | readonly string[], options: DropOptions = {}): Promise<Dropped> {
     const list = (typeof files === 'string' ? [files] : files).map((file) => resolve(file))
     if (list.length === 0) throw new Error('drop: give at least one file')
@@ -466,6 +641,20 @@ export class Acde {
       }
       return answer as Dropped
     }, (dropped) => `onto ${dropped.web}`)
+  }
+
+  async #prompting(): Promise<boolean> {
+    try {
+      return (await this.permissions()).pending.length > 0
+    } catch {
+      return false
+    }
+  }
+
+  static #describe(match: PromptMatch): string {
+    const parts = [match.app && `app ${match.app}`, match.capability && `capability ${match.capability}`]
+      .filter(Boolean)
+    return parts.length > 0 ? ` for ${parts.join(', ')}` : ''
   }
 
   async pointer(x: number, y: number): Promise<{ x: number; y: number }> {
@@ -520,6 +709,57 @@ export class Acde {
       const line = text instanceof RegExp ? String(text) : `containing ${JSON.stringify(text)}`
       return `waitForConsole: no console line ${line}${options.level ? ` at ${options.level}` : ''} within ${ms} ms`
     })
+  }
+
+  async addInitScript(code: string, options: { readonly web?: string; readonly once?: boolean } = {}): Promise<number> {
+    const args = { code, ...(options.web !== undefined && { web: options.web }), once: options.once === true }
+    const answer = (await this.#request('init', args)) as { id?: unknown } | null
+    if (typeof answer?.id !== 'number') throw new Error(`acdert answered init with ${JSON.stringify(answer)}`)
+    return answer.id
+  }
+
+  async removeInitScript(id?: number): Promise<{ removed: number; left: number }> {
+    return (await this.#request('uninit', id === undefined ? {} : { init: id })) as { removed: number; left: number }
+  }
+
+  async reload(web: string): Promise<void> {
+    await this.#request('reload', { web })
+  }
+
+  async resize(web: string, width: number, height: number): Promise<{ width: number; height: number }> {
+    return (await this.#request('resize', { web, width, height })) as { width: number; height: number }
+  }
+
+  async answerDialog(web: string, answer: DialogAnswer = {}): Promise<void> {
+    const args = { web, accept: answer.accept !== false, ...(answer.text !== undefined && { text: answer.text }) }
+    const step = `answerDialog(${JSON.stringify(web)}, ${JSON.stringify(answer)})`
+    await this.trace.step(step, () => this.#request('dialog', args))
+  }
+
+  async dialogs(options: { readonly web?: string } = {}): Promise<Dialog[]> {
+    const entries: ConsoleEntry[] = []
+    let since = 0
+    for (;;) {
+      const web = options.web !== undefined && { web: options.web }
+      const page = await this.console({ since, limit: 5000, level: 'info', ...web })
+      entries.push(...page.entries)
+      if (page.entries.length < 5000) break
+      since = page.next
+    }
+    return entries.flatMap((e) => (e.kind === 'dialog' && e.dialog ? [e.dialog] : []))
+  }
+
+  async waitForDialog(
+    options: { readonly web?: string; readonly type?: DialogType; readonly timeout?: number } = {},
+  ): Promise<Dialog> {
+    const since = (await this.console({ limit: 1 })).next
+    const ms = options.timeout ?? this.timeout
+    return Poll.until(ms, async () => {
+      const web = options.web !== undefined && { web: options.web }
+      const page = await this.console({ since, limit: 5000, level: 'info', ...web })
+      const wanted = (dialog: Dialog) => options.type === undefined || dialog.type === options.type
+      return page.entries.find((e) => e.kind === 'dialog' && e.dialog && wanted(e.dialog))?.dialog ?? null
+    }, () => `waitForDialog: no ${options.type ?? 'dialog'} within ${ms} ms`)
   }
 
   static urlMatcher(url: UrlMatch): (href: string) => boolean {
@@ -579,8 +819,31 @@ export class Acde {
   async act(ref: string, action: InspectAction, arg?: InspectArg): Promise<ActResult> {
     const given = arg !== undefined && arg !== null
     const shown = [ref, action, ...(given ? [arg] : [])].map((value) => JSON.stringify(value)).join(', ')
-    return this.trace.step(`act(${shown})`,
-      async () => Acde.#result(await this.#request('act', { ref, action, ...(given && { arg }) })), Acde.#said)
+    return this.trace.step(`act(${shown})`, async () => {
+      this.#connected()
+      try {
+        return Acde.#result(await this.#client.request('act', { ref, action, ...(given && { arg }) }))
+      } catch (error) {
+        const ended = action === 'close' ? this.endedBy(ref) : null
+        if (ended === null) throw error
+        return ended
+      }
+    }, Acde.#said)
+  }
+
+  endedBy(ref: string): ActResult | null {
+    if (!this.#client.ended || this.#closing || this.session.desktop !== null || !/^w\d+$/.test(ref)) return null
+    return { ok: true, text: `closed ${ref}; acdert exited with it, so acde dev ${this.session.pid} ended`, ended: true }
+  }
+
+  async clock(web: string, request: Readonly<Record<string, unknown>>): Promise<ClockState> {
+    const state = (await this.#request('clock', { web, ...request })) as ClockState | null
+    if (typeof state?.installed !== 'boolean') throw new Error(`acdert answered clock with ${JSON.stringify(state)}`)
+    return state
+  }
+
+  async input(web: string, events: readonly InputEvent[]): Promise<ActResult> {
+    return Acde.#result(await this.#request('input', { web, events }))
   }
 
   async run(steps: readonly Step[]): Promise<ActResult> {
@@ -617,21 +880,23 @@ export class Acde {
   }
 
   async close(): Promise<void> {
+    this.#closing = true
     this.#client.close()
     if (!this.#owned) return
     const { child, dir } = this.#owned
-    child.kill('SIGTERM')
-    const stopped = await Promise.race([child.exited.catch(() => -1), sleep(10_000).then(() => null)])
-    if (stopped === null) {
-      child.kill('SIGKILL')
-      await child.exited.catch(() => -1)
-    }
+    await Acde.#stop(child)
+    await this.logs?.drained(Acde.DRAIN_MS)
+    Acde.#release(child)
     Sessions.removeIfCurrent(this.session, dir)
   }
 
   async #request(op: string, args: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
-    if (this.#closed) throw new Error(`acde dev ${this.session.pid} is no longer connected`)
+    this.#connected()
     return this.#client.request(op, args)
+  }
+
+  #connected(): void {
+    if (this.#client.ended) throw new Error(`acde dev ${this.session.pid} is no longer connected`)
   }
 
   static #page<T>(op: string, answer: unknown): DevPage<T> {

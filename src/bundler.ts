@@ -61,7 +61,8 @@ export class ServiceImports {
     if (this.#found.size === 0) return
     rmSync(join(this.out, `${this.name}.js`), { force: true })
     throw new Error(`service ${this.name}: ${[...this.#found].sort().join(', ')}: a service gets shell modules ` +
-      "from ctx.import('acde:<name>'), listed in its modules in the desktop manifest")
+      "from ctx.import('acde:<name>'), listed in its modules in acde.config.jsonc " +
+      `("services": { ${JSON.stringify(this.name)}: { "module": "<file>", "modules": ["<name>"] } })`)
   }
 }
 

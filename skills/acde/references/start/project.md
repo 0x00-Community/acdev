@@ -10,7 +10,7 @@ my-app/
 ├── src/main.js
 ├── src/i18n.js         picks the language and fills in interface text
 ├── src/locales/         one message table per language: en.js, zh.js
-├── server.ts            backend (optional; not on Windows yet)
+├── server.ts            backend (optional)
 ├── public/              static files copied as is (optional)
 └── .acde/               build output, kept out of git
 ```
@@ -71,7 +71,7 @@ The project's dev dependencies include `@dopame/acde-api`, the SDK version this 
 To reference the types in a JS file:
 
 ```js
-/// <reference types="@dopame/acde-api" />
+/// <reference types="@dopame/acde-api/app" />
 ```
 
-In a TypeScript project, add `"@dopame/acde-api"` to `compilerOptions.types` in `tsconfig.json`.
+In a TypeScript project, add `"@dopame/acde-api/app"` to `compilerOptions.types` in `tsconfig.json`. A desktop's pages use `@dopame/acde-api/shell` instead, which adds the modules only a desktop gets; `@dopame/acde-api` declares all of them.

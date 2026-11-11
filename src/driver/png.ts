@@ -227,6 +227,48 @@ export class Png {
     return out
   }
 
+  static chunks(png: Uint8Array): { type: string; data: Buffer }[] {
+    const bytes = Buffer.from(png.buffer, png.byteOffset, png.byteLength)
+    if (bytes.length < 8 || bytes.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG')
+    const out: { type: string; data: Buffer }[] = []
+    for (let at = 8; at + 12 <= bytes.length; ) {
+      const length = bytes.readUInt32BE(at)
+      const type = bytes.toString('latin1', at + 4, at + 8)
+      out.push({ type, data: bytes.subarray(at + 8, at + 8 + length) })
+      at += 12 + length
+      if (type === 'IEND') break
+    }
+    return out
+  }
+
+  static animate(frames: readonly { readonly png: Uint8Array; readonly ms: number }[]): Buffer {
+    if (!frames.length) throw new Error('an animation needs a frame')
+    const parsed = frames.map((f) => ({ chunks: Png.chunks(f.png), ms: f.ms }))
+    const ihdr = parsed[0]!.chunks.find((c) => c.type === 'IHDR')!.data
+    const same = parsed.filter((f) => f.chunks.find((c) => c.type === 'IHDR')!.data.equals(ihdr))
+    const u32 = (...values: number[]) => {
+      const b = Buffer.alloc(values.length * 4)
+      values.forEach((v, i) => b.writeUInt32BE(v >>> 0, i * 4))
+      return b
+    }
+    const u16 = (v: number) => {
+      const b = Buffer.alloc(2)
+      b.writeUInt16BE(Math.max(0, Math.min(65535, Math.round(v))), 0)
+      return b
+    }
+    const width = ihdr.readUInt32BE(0), height = ihdr.readUInt32BE(4)
+    const out: Buffer[] = [Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Png.#chunk('IHDR', ihdr), Png.#chunk('acTL', u32(same.length, 0))]
+    let sequence = 0
+    same.forEach((frame, index) => {
+      out.push(Png.#chunk('fcTL', Buffer.concat([u32(sequence++, width, height, 0, 0), u16(frame.ms), u16(1000), Buffer.from([0, 0])])))
+      for (const chunk of frame.chunks.filter((c) => c.type === 'IDAT')) {
+        out.push(index === 0 ? Png.#chunk('IDAT', chunk.data) : Png.#chunk('fdAT', Buffer.concat([u32(sequence++), chunk.data])))
+      }
+    })
+    out.push(Png.#chunk('IEND', Buffer.alloc(0)))
+    return Buffer.concat(out)
+  }
+
   static #chunk(type: string, data: Buffer): Buffer {
     const head = Buffer.alloc(8)
     head.writeUInt32BE(data.length, 0)

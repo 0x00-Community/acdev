@@ -14,6 +14,7 @@ function Install-Acde {
 
     Set-StrictMode -Version 3.0
     $ErrorActionPreference = 'Stop'
+    $progress = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
 
     $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
@@ -37,16 +38,126 @@ function Install-Acde {
         }
     }
 
-    function Save-Remote([string]$Uri, [string]$OutFile) {
-        try {
-            if ($desktop) {
-                Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
-            } else {
-                Invoke-WebRequest -Uri $Uri -OutFile $OutFile
-            }
-        } catch {
-            throw "acde: could not download ${Uri}: $($_.Exception.Message)"
+    Add-Type -AssemblyName System.Net.Http
+    $shows = $progress -ne 'SilentlyContinue' -and -not [Console]::IsOutputRedirected
+    $invariant = [System.Globalization.CultureInfo]::InvariantCulture
+
+    function Format-Size([long]$Bytes) {
+        if ($Bytes -ge 1MB) {
+            return ([double]$Bytes / 1MB).ToString('0.0', $invariant) + ' MB'
         }
+        return [string][math]::Ceiling([double]$Bytes / 1KB) + ' KB'
+    }
+
+    function Get-Reason($Record) {
+        $e = $Record.Exception
+        while ($e.InnerException) {
+            $e = $e.InnerException
+        }
+        return $e.Message
+    }
+
+    function Wait-Task($Task, [string]$Doing) {
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not $Task.Wait(250)) {
+            if ($clock.Elapsed.TotalSeconds -ge 30) {
+                throw (New-Object -TypeName System.TimeoutException -ArgumentList "no data for 30 s while $Doing")
+            }
+        }
+        return $Task.Result
+    }
+
+    function Receive-Once([string]$Uri, [string]$OutFile, [string]$Label) {
+        if ($Label) {
+            $ProgressPreference = 'Continue'
+        }
+        $response = $null
+        $source = $null
+        $sink = $null
+        try {
+            $asked = $http.GetAsync($Uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead)
+            $response = Wait-Task $asked 'waiting for an answer'
+            $code = [int]$response.StatusCode
+            if (-not $response.IsSuccessStatusCode) {
+                return [pscustomobject]@{ Done = $false; Retry = ($code -ge 500 -or $code -eq 408 -or $code -eq 429); Reason = "HTTP $code" }
+            }
+            $total = $response.Content.Headers.ContentLength
+            if ($script:announce) {
+                $sized = if ($total) { " ($(Format-Size $total))" } else { '' }
+                Write-Host "acde: downloading $script:announce$sized"
+                $script:announce = $null
+            }
+            $source = Wait-Task ($response.Content.ReadAsStreamAsync()) 'opening the download'
+            $sink = [System.IO.File]::Create($OutFile)
+            $buffer = New-Object -TypeName byte[] -ArgumentList 262144
+            $got = [long]0
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            $next = 0
+            while ($true) {
+                $read = Wait-Task ($source.ReadAsync($buffer, 0, $buffer.Length)) 'downloading'
+                if ($read -le 0) {
+                    break
+                }
+                $sink.Write($buffer, 0, $read)
+                $got += $read
+                if ($Label -and $clock.ElapsedMilliseconds -ge $next) {
+                    $next = $clock.ElapsedMilliseconds + 200
+                    $rate = $got / [math]::Max($clock.Elapsed.TotalSeconds, 0.001)
+                    $activity = $Label
+                    if ($total) {
+                        $status = "$(Format-Size $got) of $(Format-Size $total), $(Format-Size ([long]$rate))/s"
+                        $left = [int][math]::Ceiling(($total - $got) / [math]::Max($rate, 1))
+                        $percent = [int][math]::Floor(100 * $got / $total)
+                        Write-Progress -Activity $activity -Status $status -PercentComplete $percent -SecondsRemaining $left
+                    } else {
+                        Write-Progress -Activity $activity -Status "$(Format-Size $got), $(Format-Size ([long]$rate))/s"
+                    }
+                }
+            }
+            if ($total -and $got -ne $total) {
+                return [pscustomobject]@{ Done = $false; Retry = $true; Reason = "the connection closed after $got of $total bytes" }
+            }
+            return [pscustomobject]@{ Done = $true; Retry = $false; Reason = $null }
+        } finally {
+            if ($sink) {
+                $sink.Dispose()
+            }
+            if ($source) {
+                $source.Dispose()
+            }
+            if ($response) {
+                $response.Dispose()
+            }
+            if ($Label) {
+                Write-Progress -Activity $Label -Completed
+            }
+        }
+    }
+
+    function Save-Remote([string]$Uri, [string]$OutFile, [switch]$Shown) {
+        $label = if ($Shown -and $shows) { Split-Path -Path $OutFile -Leaf } else { $null }
+        $script:announce = if ($Shown) { Split-Path -Path $OutFile -Leaf } else { $null }
+        $reason = $null
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            if ($attempt -gt 1) {
+                Write-Host "acde: ${reason}: trying again ($attempt of 3)"
+                Start-Sleep -Seconds ($attempt - 1)
+            }
+            try {
+                $result = Receive-Once $Uri $OutFile $label
+                if ($result.Done) {
+                    return
+                }
+                $reason = $result.Reason
+                if (-not $result.Retry) {
+                    break
+                }
+            } catch {
+                $http.CancelPendingRequests()
+                $reason = Get-Reason $_
+            }
+        }
+        throw "acde: could not download ${Uri}: $reason"
     }
 
     $cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
@@ -54,58 +165,6 @@ function Install-Acde {
         'AMD64' { 'x86_64-pc-windows-msvc' }
         'ARM64' { 'aarch64-pc-windows-msvc' }
         default { "$("$cpu".ToLowerInvariant())-pc-windows-msvc" }
-    }
-
-    $showProgress = -not ([Console]::IsOutputRedirected -or [Console]::IsErrorRedirected)
-
-    function Format-Size([long]$Bytes) {
-        if ($Bytes -lt 1MB) { return '{0} KB' -f [math]::Ceiling($Bytes / 1KB) }
-        return '{0:N1} MB' -f ($Bytes / 1MB)
-    }
-
-    function Save-Large([string]$Uri, [string]$OutFile, [string]$Name) {
-        try {
-            $response = ([Net.WebRequest]::Create($Uri)).GetResponse()
-        } catch {
-            throw "acde: could not download ${Uri}: $($_.Exception.Message)"
-        }
-        try {
-            $total = $response.ContentLength
-            $sized = if ($total -gt 0) { " ($(Format-Size $total))" } else { '' }
-            Write-Host "acde: downloading $Name$sized"
-            $activity = "acde: downloading $Name"
-            $ProgressPreference = 'Continue'
-            $source = $response.GetResponseStream()
-            $target = [IO.File]::Create($OutFile)
-            try {
-                $buffer = New-Object byte[] 262144
-                $done = [long]0
-                $clock = [Diagnostics.Stopwatch]::StartNew()
-                while (($read = $source.Read($buffer, 0, $buffer.Length)) -gt 0) {
-                    $target.Write($buffer, 0, $read)
-                    $done += $read
-                    if ($showProgress -and $clock.ElapsedMilliseconds -ge 250) {
-                        $clock.Restart()
-                        if ($total -gt 0) {
-                            $percent = [int](100 * $done / $total)
-                            $status = "$(Format-Size $done) of $(Format-Size $total) ($percent%)"
-                            Write-Progress -Activity $activity -Status $status -PercentComplete $percent
-                        } else {
-                            Write-Progress -Activity $activity -Status (Format-Size $done)
-                        }
-                    }
-                }
-            } finally {
-                $target.Dispose()
-                $source.Dispose()
-            }
-            if ($showProgress) { Write-Progress -Activity $activity -Completed }
-            Write-Host "acde: downloaded $Name"
-        } catch {
-            throw "acde: could not download ${Uri}: $($_.Exception.Message)"
-        } finally {
-            $response.Dispose()
-        }
     }
 
     function Get-Listed([string]$Sums, [string]$File) {
@@ -119,7 +178,6 @@ function Install-Acde {
     }
 
     function Assert-Sum([string]$Sums, [string]$File, [string]$Path) {
-        Write-Host "acde: checking $File against its SHA256SUMS"
         $want = Get-Listed $Sums $File
         if (-not $want) {
             throw "acde: $File is not in its SHA256SUMS"
@@ -130,6 +188,11 @@ function Install-Acde {
         }
     }
 
+    function Confirm-Download([string]$Sums, [string]$File, [string]$Path) {
+        Assert-Sum $Sums $File $Path
+        Write-Host "acde: ${File}: $(Format-Size (Get-Item -LiteralPath $Path).Length), SHA-256 matches"
+    }
+
     $tar = Join-Path -Path $env:SystemRoot -ChildPath 'System32\tar.exe'
     if (-not (Test-Path -LiteralPath $tar -PathType Leaf)) {
         throw 'acde: needs tar.exe, which Windows 10 1803 and later ship'
@@ -138,8 +201,11 @@ function Install-Acde {
     $temp = [System.IO.Path]::GetTempPath()
     $work = Join-Path -Path $temp -ChildPath ("acde-install-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work | Out-Null
+    $http = New-Object -TypeName System.Net.Http.HttpClient
+    $http.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
     try {
         if (-not $Version) {
+            Write-Host "acde: looking up the latest acde at $dist"
             $latest = Join-Path -Path $work -ChildPath 'latest'
             Save-Remote "$dist/latest" $latest
             $Version = (Get-Content -LiteralPath $latest -Raw).Trim()
@@ -152,9 +218,9 @@ function Install-Acde {
         $tarball = Join-Path -Path $work -ChildPath "$name.tar.gz"
         $sums = Join-Path -Path $work -ChildPath 'SHA256SUMS'
         Save-Remote "$dist/$Version/SHA256SUMS" $sums
-        Save-Large "$dist/$Version/$name.tar.gz" $tarball "$name.tar.gz"
+        Save-Remote "$dist/$Version/$name.tar.gz" $tarball -Shown
 
-        Assert-Sum $sums "$name.tar.gz" $tarball
+        Confirm-Download $sums "$name.tar.gz" $tarball
         $pairing = Join-Path -Path $work -ChildPath 'acdert-version'
         $paired = $true
         try {
@@ -190,25 +256,29 @@ function Install-Acde {
         Write-Host "acde: installing acdert $runtime for $triple from $runtimeDist"
         $runtimeSums = Join-Path -Path $work -ChildPath 'acdert.sums'
         Save-Remote "$runtimeDist/$runtime/SHA256SUMS" $runtimeSums
-        $binary = "acdert-$triple.exe"
+        $binary = "acdert-$triple.tar.gz"
+        if (-not (Get-Listed $runtimeSums $binary)) {
+            $binary = "acdert-$triple.exe"
+        }
         if (-not (Get-Listed $runtimeSums $binary)) {
             $supported = @(Get-Content -LiteralPath $runtimeSums | ForEach-Object {
                 $fields = $_.Trim() -split '\s+', 2
                 if ($fields.Count -eq 2) { $fields[1].TrimStart('*') }
             } | Where-Object { $_ -like 'acdert-*' -and $_ -notlike 'acdert-host-*' } | ForEach-Object {
-                ($_ -replace '^acdert-', '') -replace '\.exe$', ''
-            } | Sort-Object)
+                (($_ -replace '^acdert-', '') -replace '\.tar\.[gx]z$', '') -replace '\.exe$', ''
+            } | Sort-Object -Unique)
             throw ("acde: acdert $runtime has no build for this platform ($triple); " +
                 "it is built for: $($supported -join ' ')")
         }
         $bundle = "acdert-host-$runtime.tar.gz"
         $binaryFile = Join-Path -Path $work -ChildPath $binary
         $bundleFile = Join-Path -Path $work -ChildPath $bundle
-        Save-Large "$runtimeDist/$runtime/$binary" $binaryFile $binary
-        Assert-Sum $runtimeSums $binary $binaryFile
-        Save-Large "$runtimeDist/$runtime/$bundle" $bundleFile $bundle
-        Assert-Sum $runtimeSums $bundle $bundleFile
+        Save-Remote "$runtimeDist/$runtime/$binary" $binaryFile -Shown
+        Confirm-Download $runtimeSums $binary $binaryFile
+        Save-Remote "$runtimeDist/$runtime/$bundle" $bundleFile -Shown
+        Confirm-Download $runtimeSums $bundle $bundleFile
 
+        Write-Host "acde: unpacking"
         $unpacked = Join-Path -Path $work -ChildPath 'x'
         New-Item -ItemType Directory -Path $unpacked | Out-Null
         & $tar -xzf $tarball -C $unpacked
@@ -216,7 +286,20 @@ function Install-Acde {
             throw "acde: could not unpack $name.tar.gz (tar exit $LASTEXITCODE)"
         }
         $staged = Join-Path -Path $unpacked -ChildPath $name
-        Copy-Item -LiteralPath $binaryFile -Destination (Join-Path -Path $staged -ChildPath 'bin\acdert.exe')
+        $runtimeExe = $binaryFile
+        if ($binary -like '*.tar.gz') {
+            $runtimeDir = Join-Path -Path $work -ChildPath 'runtime'
+            New-Item -ItemType Directory -Path $runtimeDir | Out-Null
+            & $tar -xzf $binaryFile -C $runtimeDir
+            if ($LASTEXITCODE -ne 0) {
+                throw "acde: could not unpack $binary (tar exit $LASTEXITCODE)"
+            }
+            $runtimeExe = Join-Path -Path $runtimeDir -ChildPath 'acdert.exe'
+            if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
+                throw "acde: $binary does not hold acdert.exe"
+            }
+        }
+        Copy-Item -LiteralPath $runtimeExe -Destination (Join-Path -Path $staged -ChildPath 'bin\acdert.exe')
         $bundleDir = Join-Path -Path $work -ChildPath 'host'
         New-Item -ItemType Directory -Path $bundleDir | Out-Null
         & $tar -xzf $bundleFile -C $bundleDir
@@ -271,6 +354,7 @@ function Install-Acde {
         }
         Rename-Item -LiteralPath $next -NewName 'current'
     } finally {
+        $http.Dispose()
         Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
     }
 

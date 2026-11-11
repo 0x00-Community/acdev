@@ -1,5 +1,7 @@
 import type { InspectNode } from '@dopame/acde-api'
-import type { ConsoleEntry, RequestEntry, Snapshot, Web } from './acde.ts'
+import type { PermissionDecision, PermissionPrompt } from './acde.ts'
+import type { ConsoleEntry, Permissions, QueryResult, RequestEntry, Snapshot, Web } from './acde.ts'
+import { Locator } from './locator.ts'
 
 export class Format {
   static console(e: ConsoleEntry): string {
@@ -15,6 +17,36 @@ export class Format {
     return `${String(e.seq).padStart(4)} ${e.method.padEnd(6)} ${status.padEnd(3)} ${e.url}  (${about}) ${e.web}`
   }
 
+  static matches(found: QueryResult, selector: string): string {
+    if (!found.count) return `nothing in ${found.window} matches ${JSON.stringify(selector)}`
+    const lines = found.nodes.map((n) => `- ${Locator.line(n, false)} <${n.tag}>${n.visible ? '' : ' [hidden]'}`)
+    const more = found.count > found.nodes.length ? `\n(${found.count - found.nodes.length} more not listed)` : ''
+    return `${found.count} in ${found.window}:\n${lines.join('\n')}${more}`
+  }
+
+  static prompt(prompt: PermissionPrompt): string {
+    return `${prompt.id}  ${prompt.app}  ${prompt.capability}  (${prompt.reason})`
+  }
+
+  static decision(decision: PermissionDecision): string {
+    return `${decision.app}  ${decision.capability}  ${decision.decision}`
+  }
+
+  static permissions(permissions: Permissions): string {
+    const block = (name: string, lines: readonly string[]) =>
+      lines.length ? `${name}:\n${lines.map((line) => `  ${line}`).join('\n')}` : `${name}: none`
+    const pending = block('pending', permissions.pending.map(Format.prompt))
+    return `${pending}\n${block('decisions', permissions.decisions.map(Format.decision))}`
+  }
+
+  static answered(prompt: PermissionPrompt, allow: boolean): string {
+    return `${allow ? 'allowed' : 'denied'} ${prompt.app} ${prompt.capability} (prompt ${prompt.id})`
+  }
+
+  static waiting(prompt: PermissionPrompt, how: string): string {
+    return `${prompt.app} waits for approval of ${prompt.capability}: ${how}`
+  }
+
   static webs(webs: readonly Web[]): string {
     const rows = [
       ['NAME', 'KIND', 'APP', 'WINDOW', 'TITLE'],
@@ -26,11 +58,7 @@ export class Format {
   }
 
   static node(n: InspectNode): string {
-    let line = n.name ? `${n.role} ${JSON.stringify(n.name)}` : n.role
-    if (n.value !== undefined) line += `: ${JSON.stringify(n.value)}`
-    if (n.level) line += ` [level=${n.level}]`
-    for (const state of n.states ?? []) line += ` [${state}]`
-    return `${line} [${n.ref}]`
+    return Locator.line(n)
   }
 
   static found(snapshot: Snapshot, text: string): string[] {
@@ -41,7 +69,7 @@ export class Format {
       const matches: string[] = []
       const walk = (list: readonly InspectNode[], named: InspectNode | null) => {
         for (const n of list) {
-          if (hit(n)) matches.push(`- ${Format.node(n)}${named ? `  in ${Format.node(named)}` : ''}`)
+          if (hit(n)) matches.push(`- ${Locator.line(n)}${named ? `  in ${Locator.line(named)}` : ''}`)
           walk(n.children ?? [], n.name ? n : named)
         }
       }

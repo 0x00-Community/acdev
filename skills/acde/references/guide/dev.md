@@ -25,6 +25,8 @@ A running `acde dev` is a **dev session**: the [debugging commands](tools.md), [
 
 With several projects or `--desktop`, the desktop is chosen like this: the value of `--desktop`; otherwise the only desktop project among them; otherwise `dopame`. A `--desktop` value that looks like a path (contains `/`, or is `.` / `..`), or that names a project in the current directory, is treated as one more project.
 
+The session is ready when `acde webs`, run from the project directory, lists the app's page. Declaring a capability grants it, so the app opens its window right away. Only a page that asks for the camera or the microphone waits for an answer, which `acde allow` or `acde deny` gives from another terminal; see [Camera and microphone](tools.md#camera-and-microphone).
+
 `--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. It still needs a GPU, so it doesn't run on Linux CI machines without one (macOS CI runners work); see [Platform support](../reference/platforms.md).
 
 ## Reloading
@@ -51,4 +53,6 @@ To watch them from another terminal, or to read them from a script, use `acde co
 
 ## Runtime
 
-`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the acdert the installer put next to acde, otherwise the `acdert` on PATH. `acde --version` shows which one it finds; see [The runtime](../start/install.md#the-runtime).
+`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the acdert the installer put next to acde, otherwise the `acdert` on PATH. `acde --version` shows which one it finds, and `acde doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
+
+When acdert exits before the session is ready (for example because it cannot use the GPU), `acde dev` prints its log line, then `acde: acdert exited (1) before it was ready; acde doctor checks the runtime, the GPU and this setup`, and exits with that code.

@@ -1,10 +1,12 @@
 import type { InspectAction, InspectNode, InspectWindow } from '@dopame/acde-api'
 import {
-  ActError, type Acde, type ActResult, type ConsoleEntry, type ConsoleOptions, type DevPage, type DropOptions,
-  type Dropped, type NetworkOptions, type RequestEntry, type RouteOptions, type RouteResponse, type Shot,
-  type UrlMatch, type WaitConsoleOptions, type WaitRequestOptions,
+  ActError, type Acde, type ActResult, type ConsoleEntry, type ConsoleOptions, type DevPage, type Dialog,
+  type DialogAnswer, type DialogType, type DropOptions, type Dropped, type NetworkOptions, type RequestEntry,
+  type RouteOptions, type RouteResponse, type Shot, type UrlMatch, type WaitConsoleOptions, type WaitRequestOptions,
 } from './acde.ts'
 import { Locator, type RoleOptions, type Scope, type Source, type TextMatch, type TextOptions, type Timeout, type Tree } from './locator.ts'
+import { Clock } from './clock.ts'
+import { Keyboard, Mouse } from './input.ts'
 import { Png } from './png.ts'
 import { Poll } from './poll.ts'
 import { Screenshots, type Capture, type ScreenshotOptions } from './screenshot.ts'
@@ -19,6 +21,9 @@ export interface WindowMatch {
 export class AppWindow implements Scope {
   readonly acde: Acde
   readonly match: WindowMatch
+  readonly mouse: Mouse = new Mouse(this)
+  readonly keyboard: Keyboard = new Keyboard(this)
+  readonly clock: Clock = new Clock(this)
 
   constructor(acde: Acde, match: WindowMatch) {
     if (Object.values(match).every((v) => v === undefined)) throw new Error('a window match needs ref, id, app or title')
@@ -87,7 +92,7 @@ export class AppWindow implements Scope {
         return under.length === 1 && under[0]!.ref === node.ref ? (under[0]!.children ?? []) : under
       },
       query: async (selector: string, within: InspectNode | null, attributes?: readonly string[]) =>
-        (await acde.query({ window: ref, selector, limit: 3000, ...(within && { ref: within.ref }), ...(attributes?.length && { attributes }) })).nodes.filter((n) => n.visible),
+        (await acde.query({ window: ref, selector, limit: 3000, ...(within && { ref: within.ref }), ...(attributes?.length && { attributes }) })).nodes,
     }
   }
 
@@ -137,6 +142,59 @@ export class AppWindow implements Scope {
 
   async waitForConsole(text: string | RegExp, options: Omit<WaitConsoleOptions, 'web'> = {}): Promise<ConsoleEntry> {
     return this.acde.waitForConsole(text, { ...options, web: await this.web() })
+  }
+
+  async addInitScript(code: string, options: { readonly once?: boolean } = {}): Promise<number> {
+    return this.acde.addInitScript(code, { web: await this.#scope(), ...options })
+  }
+
+  reload(options: Timeout = {}): Promise<void> {
+    return this.acde.trace.step(`${this.describe()}.reload()`, async () => {
+      const ms = options.timeout ?? this.acde.timeout
+      const marker = 'acde.reloading'
+      await this.evaluate(`globalThis[Symbol.for(${JSON.stringify(marker)})] = true`)
+      await this.acde.reload(await this.web())
+      await Poll.until(ms, async () => {
+        const ready = await this.evaluate<boolean>(`!globalThis[Symbol.for(${JSON.stringify(marker)})] && document.readyState === 'complete'`).catch(() => false)
+        return ready || null
+      }, () => `${this.describe()}: the page did not load again within ${ms} ms`)
+    })
+  }
+
+  resize(width: number, height: number, options: Timeout = {}): Promise<{ width: number; height: number }> {
+    return this.acde.trace.step(`${this.describe()}.resize(${width}, ${height})`, async () => {
+      const size = await this.acde.resize(await this.web(), width, height)
+      const ms = options.timeout ?? this.acde.timeout
+      await Poll.until(ms, async () => {
+        const [w, h] = await this.evaluate<[number, number]>('[innerWidth, innerHeight]')
+        return (w === size.width && h === size.height) || null
+      }, () => `${this.describe()}: the page did not become ${size.width}x${size.height} within ${ms} ms`)
+      return size
+    })
+  }
+
+  seedLocalStorage(entries: Readonly<Record<string, string>>, options: Timeout = {}): Promise<void> {
+    return this.acde.trace.step(`${this.describe()}.seedLocalStorage(${Object.keys(entries).length} keys)`, async () => {
+      const code = `for (const [k, v] of Object.entries(${JSON.stringify(entries)})) localStorage.setItem(k, v)`
+      await this.addInitScript(code, { once: true })
+      await this.reload(options)
+    })
+  }
+
+  async #scope(): Promise<string> {
+    return this.match.app ?? (await this.info()).app ?? (await this.web())
+  }
+
+  async answerDialog(answer: DialogAnswer = {}): Promise<void> {
+    return this.acde.answerDialog(await this.web(), answer)
+  }
+
+  async dialogs(): Promise<Dialog[]> {
+    return this.acde.dialogs({ web: await this.web() })
+  }
+
+  async waitForDialog(options: { readonly type?: DialogType; readonly timeout?: number } = {}): Promise<Dialog> {
+    return this.acde.waitForDialog({ ...options, web: await this.web() })
   }
 
   async console(options: Omit<ConsoleOptions, 'web'> = {}): Promise<DevPage<ConsoleEntry>> {
@@ -197,7 +255,14 @@ export class AppWindow implements Scope {
   async close(): Promise<ActResult> {
     const window = await this.info()
     const result = await this.#act('close')
-    await new AppWindow(this.acde, { id: window.id }).waitFor({ state: 'closed' })
+    if (result.ended) return result
+    try {
+      await new AppWindow(this.acde, { id: window.id }).waitFor({ state: 'closed' })
+    } catch (error) {
+      const ended = this.acde.endedBy(window.ref)
+      if (ended === null) throw error
+      return ended
+    }
     return result
   }
 

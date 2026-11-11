@@ -9,7 +9,7 @@ import {
   type AppManifest, type Capabilities, type Findings, type PackageManifest, type RunningMode,
 } from '@dopame/acde-api/manifest'
 import { Project, type BuildOptions } from './app.ts'
-import { Imports, type ImportOwner } from './imports.ts'
+import { Imports, type ImportFindings, type ImportOwner } from './imports.ts'
 import { Jsonc } from './runtime.ts'
 import { Sdk } from './sdk.ts'
 
@@ -29,6 +29,10 @@ interface ConfigApp {
   readonly raw: AppEntry
   readonly system: boolean
   readonly entries: readonly string[]
+}
+
+export interface Checked extends Findings {
+  readonly notes: readonly string[]
 }
 
 export interface Built {
@@ -96,10 +100,14 @@ export class AppPackage {
     return this.project ? `${this.project.config.type} (${this.project.from})` : 'package'
   }
 
-  check(): Findings {
+  check(): Checked {
     const findings = this.manifest ? AppPackage.check(this.dir, this.manifest) : this.#configFindings()
-    findings.errors.push(...this.imports())
-    return { errors: [...new Set(findings.errors)], warnings: [...new Set(findings.warnings)] }
+    const imports = this.imports()
+    return {
+      errors: [...new Set([...findings.errors, ...imports.errors])],
+      warnings: [...new Set(findings.warnings)],
+      notes: imports.notes,
+    }
   }
 
   #configFindings(): Findings {
@@ -108,14 +116,15 @@ export class AppPackage {
     const apps = this.#configApps()
     if (!apps) return { errors, warnings: [] }
     const config = project.config
-    const names = config.type === 'desktop' ? Object.keys(config.services ?? {}) : []
+    const configured = config.type === 'desktop' ? Manifest.configServices(config.services) : []
+    const services = typeof configured === 'string' ? [] : configured
     const manifest: PackageManifest = {
       apiLevel: API_LEVEL,
       apps: apps.map((app) => app.raw),
       ...(config.type === 'desktop' && {
-        desktops: [{ id: project.id, name: project.id, entry: 'desktop/index.html', services: names }],
+        desktops: [{ id: project.id, name: project.id, entry: 'desktop/index.html', services: Project.grants(services) }],
       }),
-      services: names.map((name) => ({ name, module: `services/${name}.js` })),
+      services: services.map(({ name }) => ({ name, module: `services/${name}.js` })),
     }
     const findings = Manifest.check(manifest, () => true, () => true)
     const sdk = this.sdkWarning()
@@ -160,7 +169,7 @@ export class AppPackage {
     return [{ raw: raw(id, config), system: false, entries }]
   }
 
-  imports(): string[] {
+  imports(): ImportFindings {
     const errors: string[] = []
     const owners: ImportOwner[] = []
     const add = (raw: unknown, system: boolean, entries: readonly string[]) => {
@@ -175,11 +184,13 @@ export class AppPackage {
         const entry = typeof raw?.entry === 'string' ? AppPackage.asset(this.dir, manifest, raw.entry) : null
         add(raw, system, entry ? [entry] : [])
       }
-      return [...errors, ...Imports.check(this.dir, owners, (url) => AppPackage.asset(this.dir, manifest, url))]
+      const found = Imports.check(this.dir, owners, (url) => AppPackage.asset(this.dir, manifest, url))
+      return { errors: [...errors, ...found.errors], notes: found.notes }
     }
     const project = this.project!
     for (const app of this.#configApps() ?? []) add(app.raw, app.system, app.entries)
-    return [...errors, ...Imports.check(project.dir, owners, (url) => join(project.dir, url))]
+    const found = Imports.check(project.dir, owners, (url) => join(project.dir, url))
+    return { errors: [...errors, ...found.errors], notes: found.notes }
   }
 
   platform(name: string): PlatformReport {
@@ -226,7 +237,7 @@ export class AppPackage {
       const level = AppPackage.#level(this.manifest)
       return { dir: this.dir, id: this.name.replace(/^@[^/]*\//, ''), desktops, apps, level }
     }
-    AppPackage.#throw({ errors: this.imports(), warnings: [] })
+    AppPackage.#throw({ ...this.imports(), warnings: [] })
     const built = await this.project!.build(out, options)
     AppPackage.#throw(AppPackage.check(out, built.acde))
     const desktops = (built.acde.desktops ?? []).map((d) => d.id)
@@ -258,8 +269,9 @@ export class AppPackage {
     return dest
   }
 
-  static #throw(findings: Findings): void {
+  static #throw(findings: Findings & Partial<Checked>): void {
     for (const warning of findings.warnings) console.error(`warning: ${warning}`)
+    for (const note of findings.notes ?? []) console.error(`note: ${note}`)
     if (findings.errors.length > 0) throw new Error(findings.errors.join('\n'))
   }
 

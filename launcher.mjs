@@ -46,21 +46,31 @@ export function acdertBeside(root = ROOT) {
   return installed(root) ? join(root, '..', '..', 'bin', `acdert${EXE}`) : null
 }
 
-export function requireAcdert(root = ROOT, env = process.env) {
+export function findAcdert(root = ROOT, env = process.env) {
   const set = env.ACDERT
   if (set) {
-    if (existsSync(set)) return set
+    if (existsSync(set)) return { path: set, from: 'ACDERT' }
     const named = /[\\/]/.test(set) ? null : which(set, env)
-    if (named) return named
-    throw new Error(`ACDERT=${set}: no such file; point ACDERT at an acdert binary, or unset it`)
+    if (named) return { path: named, from: 'ACDERT' }
+    return { path: null, from: 'ACDERT', problem: `ACDERT=${set}: no such file; point ACDERT at an acdert binary, or unset it` }
   }
   const beside = acdertBeside(root)
-  if (beside && existsSync(beside)) return beside
+  if (beside && existsSync(beside)) return { path: beside, from: 'install' }
   const found = which(`acdert${EXE}`, env)
-  if (found) return found
+  if (found) return { path: found, from: 'PATH' }
   const missing = beside ? `no ${beside}, which the acde installer puts there: run the installer again, ` : ''
-  throw new Error(`acde dev needs the Dopame runtime (acdert) and found none: ${missing}` +
-    'set ACDERT to an acdert binary, or put acdert on PATH')
+  return {
+    path: null,
+    from: null,
+    problem: `acde dev needs the Dopame runtime (acdert) and found none: ${missing}` +
+      'set ACDERT to an acdert binary, or put acdert on PATH',
+  }
+}
+
+export function requireAcdert(root = ROOT, env = process.env) {
+  const found = findAcdert(root, env)
+  if (found.path) return found.path
+  throw new Error(`${found.problem} (acde doctor checks the whole setup)`)
 }
 
 export function atLeast(version, minimum) {

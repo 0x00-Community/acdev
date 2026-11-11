@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { Acde } from '../src/driver/index.ts'
@@ -30,11 +31,26 @@ describe('acde mcp', () => {
     try {
       const tools = (await client.listTools()).tools
       expect(tools.map((t) => t.name).sort()).toEqual([
-        'act', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'console', 'emulate', 'eval', 'logs',
-        'network', 'open', 'pointer', 'query', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop',
-        'unroute', 'wait_for', 'webs',
+        'act', 'answer', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'clock', 'console', 'dialog',
+        'doctor', 'doctor_fix', 'emulate', 'eval', 'input', 'logs', 'network', 'open', 'permissions', 'pointer', 'query',
+        'resize', 'revoke', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute', 'wait_for',
+        'webs',
       ])
+      expect(tools.find((t) => t.name === 'answer')!.annotations)
+        .toMatchObject({ readOnlyHint: false, destructiveHint: true })
       expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
+
+      expect(tools.find((t) => t.name === 'doctor')!.annotations).toMatchObject({ readOnlyHint: true })
+      expect(tools.find((t) => t.name === 'doctor_fix')!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false })
+      expect(tools.find((t) => t.name === 'doctor_fix')!.inputSchema.properties).not.toHaveProperty('allow')
+      const outside = await call('doctor_fix', { dir: '..' })
+      expect(outside.error).toBe(true)
+      expect(outside.text).toContain('is not inside the working directory')
+      const checked = await call('doctor')
+      expect(checked.error).toBe(false)
+      expect(checked.text).toContain(`ok     acdert: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDERT']} (from ACDERT)`)
+      expect(checked.text).toContain('ok     project: alpha, app (acde.config.jsonc): acde check finds nothing wrong')
+      expect(checked.text.split('\n').at(-1)).toMatch(/^acde doctor: /)
 
       const none = await call('webs')
       expect(none.error).toBe(true)
@@ -80,6 +96,7 @@ describe('acde mcp', () => {
       expect((await call('query', { selector: '[data-testid="add"]', window: 'w1' })).text).toBe('1 in w1:\n- button "Add" [disabled] [w1.3] <button>')
       expect((await call('query', { selector: '.ghost', window: 'w1' })).text).toBe('1 in w1:\n- generic [w1.99] <div> [hidden]')
       expect((await call('query', { selector: 'nav', window: 'w1' })).text).toBe('nothing in w1 matches "nav"')
+      expect((await call('query', { selector: 'h1', window: 'w2' })).text).toBe('1 in w2:\n- heading "Beta" [level=1] [w2.1] <h1>')
       expect((await call('console')).text).toBe('next: 3\n   1 log    alpha#7  alpha ready\n   2 info   alpha#7  added Buy milk')
       expect((await call('console', { since: 3 })).text).toBe('next: 3\n(nothing)')
       expect((await call('network', { web: 'alpha' })).text).toBe('next: 2\n   1 POST   201 http://acde.local/api/tasks  (fetch 2 B 3 ms) alpha#7')
@@ -144,5 +161,91 @@ describe('acde mcp', () => {
     const sessions = join(s.root, 'acde-dev')
     for (let i = 0; i < 100 && existsSync(join(sessions, `${pid}.json`)); i++) await Bun.sleep(50)
     expect(existsSync(join(sessions, `${pid}.json`))).toBe(false)
+  }, 60_000)
+
+  test('act close on the only window of a single-app session succeeds and says the session ended; ' +
+    'the next call says it stopped; another action that loses the connection is an error', async () => {
+    const s = standIn()
+    const started = await connect(s.project, s.env)
+    try {
+      const pid = Number(/^acde dev (\d+)/.exec((await started.call('start', { headless: true })).text)![1])
+      const closed = await started.call('act', { ref: 'w1', action: 'close' })
+      expect([closed.error, closed.text])
+        .toEqual([false, `closed w1; acdert exited with it, so acde dev ${pid} ended`])
+      const next = await started.call('webs')
+      expect(next.error).toBe(true)
+      expect(next.text).toStartWith(`the acde dev started here (pid ${pid}) stopped; last output:\n`)
+    } finally {
+      await started.client.close()
+    }
+
+    const outside = await Acde.launch({ cwd: s.project, env: s.env })
+    const attached = await connect(s.project, s.env)
+    try {
+      const pid = outside.session.pid
+      const closed = await attached.call('act', { ref: 'w1', action: 'close' })
+      expect([closed.error, closed.text])
+        .toEqual([false, `closed w1; acdert exited with it, so acde dev ${pid} ended`])
+      const next = await attached.call('snapshot')
+      expect(next.error).toBe(true)
+      expect(next.text).toStartWith(`acde dev ${pid} stopped; no acde dev is running (`)
+      expect((await attached.call('snapshot')).text).toStartWith('no acde dev is running (')
+    } finally {
+      await attached.client.close()
+      await outside.close()
+    }
+
+    const crashing = await connect(s.project, { ...s.env, FAKE_ACDERT_DIES_ON: 'click' })
+    try {
+      const pid = Number(/^acde dev (\d+)/.exec((await crashing.call('start', { headless: true })).text)![1])
+      const lost = await crashing.call('act', { ref: 'w1.3', action: 'click' })
+      expect([lost.error, lost.text]).toEqual([true, 'acdert closed the connection'])
+      expect((await crashing.call('webs')).text).toStartWith(`the acde dev started here (pid ${pid}) stopped;`)
+    } finally {
+      await crashing.client.close()
+    }
+  }, 60_000)
+
+  test('approval prompts: start says what an app waits for; permissions, answer and revoke', async () => {
+    const s = standIn()
+    const { client, call } = await connect(s.project, { ...s.env, FAKE_ACDERT_WAITS: '1' })
+    try {
+      const started = await call('start', { headless: true })
+      expect(started.error).toBe(false)
+      const hints = 'alpha waits for approval of launch: the answer tool allows or denies it\n' +
+        'beta waits for approval of fs.documents: the answer tool allows or denies it'
+      expect(started.text).toEndWith(`\n\nNAME  KIND  APP  WINDOW  TITLE\n${hints}`)
+      expect((await call('webs')).text).toBe(`NAME  KIND  APP  WINDOW  TITLE\n${hints}`)
+      const waiting = '  1  alpha  launch  (launch)\n  2  beta  fs.documents  (request)'
+      expect((await call('permissions')).text).toBe(`pending:\n${waiting}\ndecisions: none`)
+      const several = await call('answer', { allow: false })
+      expect([several.error, several.text])
+        .toEqual([true, `2 approval prompts wait; name one with prompt, or with app and capability:\n${waiting}`])
+      expect((await call('answer', { allow: true, prompt: 1, app: 'alpha' })).text)
+        .toBe('answer: give prompt, or app and capability, not both')
+      expect((await call('answer', { allow: false, app: 'alpha' })).text)
+        .toBe('an approval prompt is named by its id, or by its app and its capability together')
+      const unnamed = 'answer: to allow, name the app and the capability (permissions lists what waits)'
+      for (const args of [{}, { prompt: 1 }, { app: 'alpha' }]) {
+        const refused = await call('answer', { allow: true, ...args })
+        expect([refused.error, refused.text]).toEqual([true, unnamed])
+      }
+      expect((await call('permissions')).text).toBe(`pending:\n${waiting}\ndecisions: none`)
+      expect((await call('answer', { allow: true, app: 'alpha', capability: 'launch' })).text)
+        .toBe('allowed alpha launch (prompt 1)')
+      expect((await call('webs')).text).toContain('alpha#7  app      alpha  7       Alpha')
+      expect((await call('answer', { allow: false })).text).toBe('denied beta fs.documents (prompt 2)')
+      const none = await call('answer', { allow: true, app: 'beta', capability: 'fs.documents' })
+      expect([none.error, none.text]).toEqual([true,
+        'no approval prompt of beta for fs.documents is waiting: it is already denied (revoke takes that back)'])
+      expect((await call('permissions')).text)
+        .toBe('pending: none\ndecisions:\n  alpha  launch  granted\n  beta  fs.documents  denied')
+      expect((await call('revoke', { app: 'alpha', capability: 'launch' })).text).toBe('revoked alpha launch')
+      const again = await call('revoke', { app: 'alpha', capability: 'launch' })
+      expect([again.error, again.text])
+        .toEqual([true, 'no decision about alpha launch to revoke (permissions lists the decisions)'])
+    } finally {
+      await client.close()
+    }
   }, 60_000)
 })

@@ -4,9 +4,11 @@ Each app window is a separate web page with its own DOM and JS heap; one window 
 
 ## Size and title bar
 
-- A new window's content area is the configured `size` (800 × 600 by default) and opens centered; next time it opens where it was last closed.
+- In a desktop, a new window's content area is the configured `size` (800 × 600 by default) and opens centered; next time it opens where it was last closed.
+- In an `acde dev` session that runs a single app (an app project without `--desktop`), the app **fills the host window**, and `size` sets how large that window opens: with `"size": [400, 300]` the host window's content area is 400 × 300. The title bar is drawn inside it, so the page is 400 × 268. Without `size` the host window takes most of the screen (90% of its width and 85% of its height, at most 1440 × 900).
+- `acde dev --headless` has no host window, and `size` is not applied: the screen is 1440 × 900 (1280 × 800 in `acde test`) and the app fills it, so the page is 1440 × 868. To see the app in a window of its own `size`, run it in a desktop: `acde dev --desktop ./my-desktop`, or `--desktop dopame` once that desktop is installed (see [acde dev](dev.md#what-runs)).
 - The title bar drawn by the system is **not part of the page's document**: `innerHeight`, `100vh`, and `resize` events only cover the content area. To drop the title bar, set `"frame": false` in the config, draw your own, and use `setGrabHint` to tell the system where the window can be dragged.
-- The title comes from `document.title` or `window.setTitle()`; if neither is set, `label` is used.
+- The title comes from `document.title` or `window.setTitle()`, whichever was set last (a `<title>` in the page replaces a title set before the document loaded); if neither is set, `label` is used.
 - Declare the colour schemes your page supports, as in a browser: `color-scheme: light dark` on the root (`:root { color-scheme: light dark }`) or `<meta name="color-scheme" content="light dark">` when it follows the system with `prefers-color-scheme`, `dark` when it is always dark. The system draws a dark title bar only for pages that name `dark`; a page that declares nothing is taken as light only and gets a light title bar even in a dark theme. The `html` template follows the system and declares `light dark`.
 
 ## acde:window
@@ -24,31 +26,57 @@ self.on('beforeclose', async () => {
 
 > The module is named `window`, the same as the global `window`, so renaming it on import keeps things clear.
 
-| Method | Does |
+| Member | Does |
 | --- | --- |
+| `id` | This window's id (a number) |
 | `setTitle(title)` | Sets the title |
 | `setMenus(menus)` | App menus (shown in the desktop's menu bar) |
-| `close()` / `minimize()` | Close / minimize |
+| `close()` | Closes the window at once; `beforeclose` is not asked |
+| `minimize()` | Minimizes the window, as `requestState('minimized')` does; the promise rejects with `status: 409`, `code: 'unavailable'` when the window cannot be minimized |
+| `state` / `requestState(state)` | The window's state: `normal`, `minimized`, `filled` (fills the work area), `fullscreen`; see [Window state](#window-state) |
+| `requestMode(mode)` | Whether the user can move and resize the window: `free` (both), `fixed` (move only), `pinned` (neither) |
+| `output` | The screen the window is on: `{width, height, scale, workArea: {x, y, width, height}}` in logical pixels; `workArea` leaves out what the desktop's panels reserve. In a session that runs a single app the screen is the host window: with `"size": [400, 300]`, `output` and its `workArea` are both 400 × 300 |
 | `requestAttention()` | Requests attention (for example a bouncing Dock icon; up to the desktop) |
-| `requestMode(mode)` | `free` (resizable), `fixed` (move only), `fullscreen`, `pinned` |
-| `requestActivate()` | Brings the window to the front and requests focus |
+| `requestActivate()` | Brings the window to the front and requests focus; the system may turn this into a request for attention |
 | `setGrabHint(rect, edges?)` | Pressing in this area makes the system move the window (no `edges`) or resize it (with edges) |
 | `setBackdrop(rect, effect?)` | Frosted glass over whatever is behind this area: `{radius, blur, saturate, brightness}`; `null` removes it |
 | `requestGrab(kind)` / `releaseGrab(kind)` | Takes exclusive pointer or keyboard input (`'pointer'` / `'keyboard'`) |
 | `shortcut(combo)` / `unshortcut(combo)` | Registers an app-level global shortcut, such as `'ctrl+shift+k'` |
+| `hostControls` | `true` when the host system draws the window's minimize / maximize / close buttons, so a frameless app should hide its own |
+| `minimizable` | `false` when this window cannot be minimized. In a session that runs a single app, on macOS and headless, the app's window is such a window: it fills the host window |
+
+### Window state
+
+Full screen is a **state** of the window, not a mode: `requestMode('fullscreen')` throws a `TypeError` (`requestMode: full screen is a window state, use requestState('fullscreen')`).
+
+```js
+self.on('state', ({ state, previous }) => {
+  document.body.dataset.windowState = state
+})
+
+self.requestState('fullscreen') // 'normal' | 'minimized' | 'filled' | 'fullscreen'
+```
+
+- `requestState()` returns nothing. The system decides: when it refuses, nothing changes and no event arrives. A `fixed` window can only be minimized, and a `pinned` one cannot change state. A window whose `minimizable` is `false` cannot be minimized: `requestState('minimized')` changes nothing, and `minimize()` rejects.
+- The state also changes without the page asking: the title bar's buttons, the desktop minimizing the window, the user bringing a minimized window back. Keep the UI in step with the `state` event (or `self.state`), not with what the page last requested.
+- A minimized window that gets the focus again returns to the state it had before (`fullscreen`, for example).
+- In a single-app `acde dev` session the app already fills the host window, and state requests may change nothing (headless on macOS, `minimized`, `filled` and `fullscreen` all leave the state `normal`, and no event arrives). Try states in a desktop session.
+- The standard Fullscreen API (`element.requestFullscreen()`) is not supported; it rejects with `NotSupportedError`.
 
 ### Events
 
-Subscribe with `on(name, handler)`, which returns an unsubscribe function. Events are not dispatched on the global `window`.
+Subscribe with `on(name, handler)`, which returns an unsubscribe function. A name the module does not have throws a `TypeError` (`acde:window has no nosuch event (activate, deactivate, beforeclose, request, suspend, resume, grab, grablost, state, output, hostcontrols, minimizable, shortcut)`). Events are not dispatched on the global `window`.
 
 | Event | When |
 | --- | --- |
 | `activate` / `deactivate` | The window gains / loses focus |
-| `beforeclose` | The user wants to close the window. Return `false` (or resolve to `false`) to keep it; if there is no answer within 3 seconds, it closes |
+| `state` | The window's state changed, `{state, previous}` |
+| `output` | The screen or its work area changed; the handler gets the new `output` |
+| `beforeclose` | The user or the desktop wants to close the window. Return `false` (or resolve to `false`) to keep it; if there is no answer within 3 seconds, it closes |
 | `request` | Another app or the system asks this window to open something (see [Opening apps](open.md)) |
 | `shortcut` | A registered shortcut was pressed, `{key}` |
-| `grab` / `grablost` | Exclusive input was granted / taken back |
-| `suspend` / `resume` | The window is suspended / resumed; whatever the `suspend` handler returns is handed back on `resume` |
+| `grab` / `grablost` | Exclusive input was answered, `{kind, granted}` / taken back, `{kind: 'lost', reason}` |
+| `hostcontrols` / `minimizable` | `hostControls` / `minimizable` changed; the handler gets the new value |
 
 ### Menus
 

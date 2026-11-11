@@ -49,6 +49,25 @@ describe('templates at contract level 1', () => {
     )
   })
 
+  test('the desktop template says what its config can give a service: the fields of the schema', () => {
+    type Form = { type: string; properties?: Record<string, unknown>; required?: string[] }
+    const schema = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules/@dopame/acde-api/config.schema.json'), 'utf8')) as
+      { oneOf: { properties: { type: { const?: string }; services?: { additionalProperties?: { oneOf?: Form[] } } } }[] }
+    const desktop = schema.oneOf.find((one) => one.properties.type.const === 'desktop')!
+    const forms = desktop.properties.services!.additionalProperties!.oneOf!
+    expect(forms.map((form) => form.type)).toEqual(['string', 'object'])
+    expect(Object.keys(forms[1]!.properties!)).toEqual(['module', 'modules'])
+    expect(forms[1]!.required).toEqual(['module'])
+    const comment = readFileSync(join(TEMPLATES, 'desktop/acde.config.jsonc'), 'utf8')
+    expect(comment).toContain('"clock": "services/clock.ts"')
+    expect(comment).toContain('"clock": { "module": "services/clock.ts", "modules": ["windows"] }')
+    expect(comment).not.toContain('has no field for that grant')
+    const example = comment.match(/"clock": (\{ "module"[^}]*\})/)![1]!
+    expect(Manifest.configServices({ clock: JSON.parse(example) })).toEqual([
+      { name: 'clock', module: 'services/clock.ts', modules: ['windows'] },
+    ])
+  })
+
   for (const [name, args] of [
     ['html', ['--template', 'html']],
     ['html --backend', ['--template', 'html', '--backend']],

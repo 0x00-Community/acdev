@@ -18,7 +18,7 @@ Available templates:
 
 | Template | What it is |
 | --- | --- |
-| `html` | A plain web page (default); add `--backend` to include a backend (backends don't run on Windows yet) |
+| `html` | A plain web page (default); add `--backend` to include a backend |
 | `desktop` | A desktop (see [Desktops](../guide/desktop.md)) |
 | `react` `vue` `svelte` `solid` `preact` `vanilla` | create-vite templates |
 | `next` `nuxt` `sveltekit` `astro` | Each framework's official scaffolding tool |
@@ -27,7 +27,7 @@ Framework templates run the latest version of the framework's scaffolding tool t
 
 ## Run
 
-`acde dev` runs your app in the runtime, acdert, which the installer set up next to acde (inside the Dopame virtual machine it is already on PATH). `acde --version` shows the one it finds; see [The runtime](install.md#the-runtime).
+`acde dev` runs your app in the runtime, acdert, which the installer set up next to acde (inside the Dopame virtual machine it is already on PATH). `acde doctor` checks that it is there and works on this machine; see [The runtime](install.md#the-runtime).
 
 ```sh
 cd my-app
@@ -36,13 +36,13 @@ acde dev
 
 `acde dev` builds the project, starts acdert, and opens a window on your computer with your app inside. Leave it running, then edit and save `index.html` or `src/main.js`; the window reloads automatically.
 
-Press Ctrl+C or close the window to stop.
+Press Ctrl+C or close the window to stop, or run `acde stop` from another terminal in the project directory.
 
 > In the built-in templates, `package.json` has three scripts, `dev`, `build`, and `check`, which run `acde dev` / `acde build` / `acde check`. Framework templates leave the framework's own scripts alone and add `acde:dev`, `acde:build`, and `acde:check` instead.
 
 ## Add a capability
 
-Let's have the app list the user's folders. This example uses the `html` template; in a framework template, add only the `capabilities` line to its `acde.config.jsonc` (it has no `entry`, and should not get one) and put the code in one of the framework's source files.
+Let's have the app keep a file of its own. This example uses the `html` template; in a framework template, add only the `capabilities` line to its `acde.config.jsonc` (it has no `entry`, and should not get one) and put the code in one of the framework's source files.
 
 First, request the `fs` capability in `acde.config.jsonc`:
 
@@ -63,11 +63,13 @@ Then in `src/main.js`:
 import { fs } from 'acde:fs'
 
 const status = document.querySelector('#status')
+await fs.writeFile('private', 'hello.txt', 'Hello from my app')
+const { text } = await fs.readText('private', 'hello.txt')
 const roots = await fs.roots()
-status.textContent = roots.map((r) => r.label).join(', ')
+status.textContent = `${text} (roots: ${roots.map((r) => r.id).join(', ')})`
 ```
 
-Save, and after the window reloads you'll see the names of folders such as Desktop and Downloads. Importing a capability you haven't requested fails outright.
+Save, and after the window reloads you'll see `Hello from my app (roots: private)`. With `"fs": true` an app gets a private folder of its own (the root `private`) and whatever folder the user picks for it. The user's shared folders, such as Desktop and Downloads, are named in the config and approved by the user before the app gets them; see [Files and folders](../guide/files.md). Importing a capability you haven't requested fails outright.
 
 ## Build and check
 

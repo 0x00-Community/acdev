@@ -7,39 +7,47 @@ import { fs } from 'acde:fs'
 import fs from 'acde:fs'
 ```
 
-Types are in `@dopame/acde-api`. For who can import what, see [Capabilities](../guide/capabilities.md).
+Types are in `@dopame/acde-api`: `@dopame/acde-api/app` declares the modules an app can import, `@dopame/acde-api/shell` adds the shell modules, and the package root declares all of them. For how capabilities are requested and approved, see [Capabilities](../guide/capabilities.md).
 
-| Module | App | Desktop |
-| --- | --- | --- |
-| `acde:window` | ✓ | |
-| `acde:fs` | `fs` | ✓ |
-| `acde:terminal` | `terminal` | ✓ |
-| `acde:network` | `network` | ✓ |
-| `acde:office` | `office` | ✓ |
-| `acde:open` | ✓ (opening needs `open`) | ✓ |
-| `acde:openPath` `acde:handlers` `acde:setDefault` | `openFiles` | On `acde:apps` |
-| `acde:windows` | Only native programs it launched itself (`launch` / `slots`) | All windows |
-| `acde:session` | `session` | ✓ |
-| `acde:desktops` | `desktops` | ✓ |
-| `acde:apps` | | ✓ |
-| `acde:desktop` | | ✓ |
-| `acde:inspect` | | ✓ (and services) |
-| `acde:<service>` | Service name | ✓ |
+Who can import what. "App" is an app of its own package; a "system app" ships in a desktop's package (the `apps` of a desktop config). A name in a cell is the capability the app must declare:
 
-Events are subscribed with `on(type, handler)`, which returns an unsubscribe function; unknown event types throw `TypeError`. Two modules take a callback instead: `acde:terminal` (`subscribe`) and `acde:network` (`watch`).
+| Module | App | System app | Desktop page |
+| --- | --- | --- | --- |
+| `acde:window` | ✓ | ✓ | |
+| `acde:capabilities` | ✓ | ✓ | ✓ |
+| `acde:apps` | ✓ | ✓ | ✓ |
+| `acde:open` | ✓ (opening an app needs `open`) | ✓ (same) | ✓ |
+| `acde:fs` | `fs` | `fs` | ✓ |
+| `acde:terminal` | `terminal`, approved by the user | `terminal` | ✓ |
+| `acde:network` | `network`, approved by the user | `network` | ✓ |
+| `acde:office` | `office` | `office` | ✓ |
+| `acde:openPath` `acde:handlers` | `openFiles` | `openFiles` | ✓ |
+| `acde:launch` | `launch` or `slots`, approved by the user | `launch` or `slots` | ✓ |
+| `acde:windows` `acde:packages` `acde:session` `acde:desktops` `acde:inspect` `acde:desktop` `acde:setDefault` `acde:permissions` (shell modules) | | The module's name: `"windows": true` | ✓ |
+| `acde:<service>` | The service's name in `services` | The same | ✓ |
+
+A module the platform lacks is missing for everyone there (see [Platform support](platforms.md)). An import that is not allowed fails with a `TypeError` whose message names the missing declaration, such as `acde:terminal needs "terminal" in the capabilities of Notes`. Desktop services cannot import `acde:` modules; a service that the desktop grants shell modules gets them from `ctx.import()`; see [Service API](service.md).
+
+Events are subscribed with `on(type, handler)`, which returns an unsubscribe function. `on()` throws a `TypeError` for an event type the module does not have, such as `acde:window has no nosuch event (activate, deactivate, …)`. Two modules take a callback instead: `acde:terminal` (`subscribe`) and `acde:network` (`watch`).
 
 ## acde:window
 
 ```ts
 interface AcdeWindow {
+  readonly id: number
+  readonly state: WindowState
+  readonly output: WindowOutput
+  readonly hostControls: boolean
+  readonly minimizable: boolean
   readonly host: WindowHost
   mount(app: WindowApp): void
   setTitle(title: string): void
   setMenus(menus: readonly AppMenu[]): void
-  close(): Promise<unknown>
-  minimize(): Promise<unknown>
-  requestAttention(): Promise<unknown>
-  requestMode(mode: 'fullscreen' | 'free' | 'fixed' | 'pinned'): void
+  close(): Promise<boolean>
+  minimize(): Promise<void>
+  requestAttention(): Promise<void>
+  requestState(state: WindowState): void
+  requestMode(mode: WindowMode): void
   setGrabHint(rect: WindowRect, edges?: readonly ('top' | 'bottom' | 'left' | 'right')[]): void
   setBackdrop(rect: WindowRect | null, effect?: { radius?: number; blur?: number; saturate?: number; brightness?: number }): void
   requestActivate(): void
@@ -48,15 +56,25 @@ interface AcdeWindow {
   shortcut(combo: string): Promise<void>
   unshortcut(combo: string): Promise<void>
   on(name: 'beforeclose', handler: () => boolean | void | Promise<boolean | void>): () => boolean
-  on(name: 'request', handler: (request: Record<string, unknown>) => void): () => boolean
-  on(name: 'suspend', handler: () => unknown): () => boolean
-  on(name: 'resume', handler: (state: unknown) => void): () => boolean
+  on<R extends AppRequest = AppRequest>(name: 'request', handler: (request: SystemRequest | R) => void): () => boolean
   on(name: 'activate' | 'deactivate', handler: () => void): () => boolean
-  on(name: 'shortcut', handler: (event: { readonly key: string }) => void): () => boolean
-  on(name: 'grab' | 'grablost', handler: (value?: unknown) => unknown): () => boolean
+  on(name: 'state', handler: (event: { readonly state: WindowState; readonly previous: WindowState }) => void): () => boolean
+  on(name: 'output', handler: (output: WindowOutput) => void): () => boolean
+  on(name: 'hostcontrols', handler: (hostControls: boolean) => void): () => boolean
+  on(name: 'minimizable', handler: (minimizable: boolean) => void): () => boolean
+  on(name: 'shortcut', handler: (event: ShortcutEvent) => void): () => boolean
+  on(name: 'grab', handler: (event: { readonly kind: 'pointer' | 'keyboard'; readonly granted: boolean }) => void): () => boolean
+  on(name: 'grablost', handler: (event: { readonly kind: 'lost'; readonly reason: 'esc' | 'other_window' | 'focus_lost' | 'denied' }) => void): () => boolean
+  on(name: 'suspend' | 'resume', handler: () => void): () => boolean
 }
 
+type WindowState = 'normal' | 'minimized' | 'filled' | 'fullscreen'
+type WindowMode = 'free' | 'fixed' | 'pinned'
+
 interface WindowRect { x: number; y: number; width: number; height: number }
+interface WindowOutput { width: number; height: number; scale: number; workArea: WindowRect }
+
+interface ShortcutEvent { type: 'shortcut'; window: number; key: string; title: 'session' | 'desktop' | 'app' }
 
 interface AppMenu {
   id: string
@@ -81,7 +99,35 @@ interface WindowHost {
 }
 ```
 
-Coordinates are logical pixels of the page (the content area). Shortcut combos are written like `ctrl+alt+t`: keys are xkb keysym names, the key names X11 and Wayland use (`t`, `return`, `escape`, `f5`, `space`; case doesn't matter), and Shift is part of the combo.
+- Full screen is a state: `requestState('fullscreen')`. `requestMode('fullscreen')` throws a `TypeError`, and so does an unknown state. `requestState` has no result; follow the `state` event. See [Window state](../guide/window.md#window-state).
+- `close()` closes the window without asking `beforeclose`.
+- `minimize()` rejects with `status: 409`, `code: 'unavailable'` for a window that cannot be minimized (`minimizable` is `false`): `window 1048576 cannot be minimized: it fills the host window, which only the host window's own controls minimize here` for the app's window in a session that runs a single app, on macOS and headless. `requestState('minimized')` changes nothing there.
+- `suspend` and `resume` are declared, but the runtime does not send them yet.
+- Coordinates are logical pixels of the page (the content area). Shortcut combos are written like `ctrl+alt+t`: keys are xkb keysym names, the key names X11 and Wayland use (`t`, `return`, `escape`, `f5`, `space`; case doesn't matter), and Shift is part of the combo.
+
+## acde:capabilities
+
+```ts
+interface AcdeCapabilities {
+  readonly level: number
+  readonly platform: 'linux' | 'win32' | 'darwin'
+  readonly mode: 'session' | 'desktop' | 'standalone'
+  readonly window: { readonly backdrop: 'full' | 'approximated' | 'unsupported' }
+  get(name: string): CapabilityStatus
+  list(): CapabilityStatus[]
+  request(name: string): Promise<CapabilityStatus>
+}
+
+interface CapabilityStatus {
+  name: string
+  kind: 'system' | 'service'
+  state: 'available' | 'not-asked' | 'asking' | 'not-declared' | 'unsupported' | 'service-not-running' | 'shell-only' | 'denied'
+  reason: string
+  optional: boolean
+}
+```
+
+`level` is the contract level (1). `request(name)` asks the user for a capability that needs approval and resolves with its status after the answer; for anything else it resolves at once. A capability that needs approval is `available` only once the user allowed it: `not-asked` before the prompt, `asking` while it waits, `denied` after a denial or after the approval was taken back. A call that the approval stops fails with `status: 403`, the `capability`, and one of the codes `not_asked`, `asking`, `denied`. Names are capability names, `fs.<place>` for a shared place (`fs.downloads`), and service names. See [Capabilities](../guide/capabilities.md#acdecapabilities).
 
 ## acde:fs
 
@@ -100,18 +146,20 @@ interface AcdeFs {
   mkdir(root: string, path: string, options?: { recursive?: boolean }): Promise<FinderEntry>
   rename(root: string, from: string, to: string): Promise<FinderEntry>
   delete(root: string, path: string): Promise<{ status: 'deleted'; path: string }>
-  copyIn?(root: string, dir: string, source: string): Promise<FinderEntry>
+  copy(fromRoot: string, fromPath: string, toRoot: string, toDir: string): Promise<FinderEntry & { path: string }>
   preview(root: string, path: string): Promise<FinderPreview>
   download(root: string, path: string): Promise<{ name: string; contentType: string; data: Uint8Array }>
+  revoke(root: string): Promise<void>
   locate(path: string): Promise<{ root: string; path: string }>
   openPath(root: string, path: string): Promise<{ root: string; path: string; file: string }>
-  revoke(rootPath: string): Promise<void>
 }
 
 interface FinderRoot {
-  path: string
+  id: string
   label: string
-  source: 'desktop' | 'downloads' | 'default' | 'task' | 'granted'
+  source: 'private' | 'place' | 'granted' | 'desktop' | 'downloads' | 'default' | 'task'
+  place?: 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos'
+  path?: string
   mode: 'writable' | 'read_only' | 'unavailable'
   reason: string | null
   exists: boolean
@@ -136,20 +184,63 @@ interface FinderPreview {
 }
 ```
 
-Limits: `readText` / `readBytes` 64 MiB; `preview` text 256 KiB. For error codes, see [Files and folders](../guide/files.md#errors).
+- `root` is the `id` of an item of `roots()`: `private`, a shared place's name, or `folder-…` for a picked folder; never a path. An app's roots have `source` `private`, `place` (with `place`), or `granted`, and no `path`.
+- `path` is there only for system apps that name shared places, and for the desktop page. `locate` and `openPath` work only for them; in other apps they reject with `EACCES`.
+- The desktop page's roots are folders by path (`source` `desktop`, `downloads`, `default`, `task`, or `granted`), and their `id` is the path.
+- `list` includes hidden entries unless `hidden` is `false`.
+- `copy` copies a file or a folder from one root into the folder `toDir` of another; a taken name gets a number (`todo 2.md`), and `path` is where the copy is in `toRoot`.
+- `revoke` gives back a folder the user picked.
+- Limits: `readText` / `readBytes` 64 MiB; `preview` text 256 KiB.
+- `download` answers the type the system knows for the file's name as `contentType`: `text/markdown` for `note.md`, `image/png` for `shot.png`, and `application/octet-stream` for a name it knows no type for (`data.xyz`). The types come from the system, as described under [Files and links](../guide/open.md#files-and-links).
+- Errors have `code` and `status`; see [Files and folders](../guide/files.md#errors).
 
 ## acde:open
 
 ```ts
-function open(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
+interface AcdeOpen {
+  (app: string, request?: null, options?: OpenWindowOptions): Promise<{ window: number }>
+  <R extends AppRequest>(app: string, request: R, options?: OpenWindowOptions): Promise<{ window: number }>
+  (app: string, request: SystemRequest): Promise<Opened>
+  (request: SystemRequest): Promise<Opened>
+}
+
+type AppRequest<K extends string = string, Fields extends object = Record<never, never>> = { readonly kind: K } & { readonly [P in keyof Fields]: Fields[P] }
+
+type SystemRequest =
+  | { kind: 'open-file'; handle?: FileSystemFileHandle | FileSystemDirectoryHandle; url?: string; root?: string; path?: string; file?: string | null }
+  | { kind: 'open-link'; url: string }
+
+interface OpenWindowOptions { parent?: number; modal?: boolean }
+interface Opened { kind: 'acde' | 'native'; id: string; window?: number }
 ```
+
+- `open(app)` and `open(app, request)` need the `open` capability to allow `app`. A request to an app must have a `kind` that the target lists in its `requests` (400 `untyped_request`, 409 `not_accepted`).
+- `open(request)` with a system request and no app needs `openFiles`: the system picks the app. With an app, the target must declare the file's type (`mimeTypes`) or the link's scheme (`schemes`).
+- A receiving app gets a file as `{ kind: 'open-file', handle }`; a system app that names shared places also gets `url`. Send a file with `handle` (one this page got from a picker, a drop, or a request) or, where the caller knows paths, with `url`.
+- A receiver types its own requests with `AppRequest<K, Fields>`: `type ShowImage = AppRequest<'show-image', { image: string }>`, then `self.on<ShowImage>('request', …)` narrows by `kind`. `SystemRequest` and `AppRequest` are also in `acde:window`'s `request` event (above).
+
+See [Opening apps](../guide/open.md).
+
+## acde:apps
+
+```ts
+interface AcdeAppList {
+  list(): Promise<DesktopApp[]>
+  open: AcdeOpen
+  on(type: 'changed', handler: (event: { type: 'appschanged'; apps: readonly DesktopApp[] }) => void): () => boolean
+}
+
+interface DesktopApp { id: string; label: string; icon: string; script: string }
+```
+
+`list()` gives the apps that can run here; `open` is the function of `acde:open`. `changed` fires with the new list when it changes, also when the user denies a capability an app requires or takes its approval back. Installing packages and native programs are in [`acde:packages`](#acdepackages).
 
 ## acde:openPath / acde:handlers / acde:setDefault
 
 ```ts
 function openPath(path: string, options?: { app?: string; select?: boolean }): Promise<{ kind: 'acde' | 'native'; id: string; window?: number }>
-function handlers(path: string): Promise<{ mime: string; handlers: OpenHandler[] }>
-function setDefault(mime: string, handler: string): Promise<string>
+function handlers(path: string): Promise<{ mime: string; association: string | null; handlers: OpenHandler[] }>
+function setDefault(association: string, handler: string): Promise<string>
 
 interface OpenHandler {
   kind: 'acde' | 'native'
@@ -157,14 +248,33 @@ interface OpenHandler {
   label: string
   icon: string
   default: boolean
+  system?: boolean
 }
 ```
 
-`path` can be a path or a URI.
+`path` can be a path or a URI. `openPath` and `handlers` need `openFiles`; for an app the file must be inside one of its roots (404 `outside_roots`). `setDefault` is a shell module. `association` is the key a choice is remembered under: the MIME type, or on Windows the file's extension (`.md`); `mime` is `''` when the system knows no type for the file. `system` marks the program that is the system's own default (Windows).
+
+## acde:launch
+
+Needs `launch` (for `start`) or `slots` (for `embed`), both approved by the user.
+
+```ts
+interface AcdeLaunch {
+  start(argv: readonly string[], options?: LaunchOptions): Promise<number>
+  embed(argv: readonly string[], options?: LaunchOptions): Promise<number>
+  close(window: number): Promise<boolean>
+  list(): NativeWindow[]
+  on<K extends WindowsEventType>(type: K, handler: (event: WindowsEventMap[K]) => void): () => boolean
+}
+
+interface LaunchOptions { cwd?: string; env?: Record<string, string> }
+```
+
+`start` runs a native program and `embed` runs one embedded in the app's own window (Dopame OS only). `close` closes a window the app started; any other window is rejected with 403 `forbidden`. The events are those of [`acde:windows`](#acdewindows).
 
 ## acde:terminal
 
-macOS / Linux only.
+Needs `terminal`, approved by the user.
 
 ```ts
 interface AcdeTerminals {
@@ -183,7 +293,7 @@ type TerminalEvent =
 
 ## acde:network
 
-Linux only (Dopame OS, or any Linux with NetworkManager).
+Linux only (Dopame OS, or any Linux with NetworkManager). Needs `network`, approved by the user.
 
 ```ts
 interface AcdeNetwork {
@@ -227,6 +337,8 @@ interface WifiNetwork {
 
 ## acde:session
 
+Shell module.
+
 ```ts
 interface AcdeSession {
   own(): boolean
@@ -240,6 +352,8 @@ interface AcdeSession {
 `own()`: whether this is a real Dopame OS session (`false` in the host window of `acde dev`). After `setLanguage`, pages receive `languagechange`.
 
 ## acde:desktops
+
+Shell module.
 
 ```ts
 interface AcdeDesktops {
@@ -258,26 +372,18 @@ interface DesktopInfo {
 
 `kind: 'session'` is another Wayland session on the system (GNOME, KDE, ...).
 
-## acde:apps
+## acde:packages
 
-Desktop only.
+Shell module.
 
 ```ts
-interface AcdeApps {
-  list(): Promise<DesktopApp[]>
-  launch(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
-  open(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
+interface AcdePackages {
   refresh(): Promise<DesktopApp[]>
   install(dir: string): Promise<{ id: string; dir: string; apps: DesktopApp[] }>
   natives(): Promise<NativeApp[]>
   runNative(id: string): Promise<number>
-  openPath(...): ...   // same as acde:openPath
-  handlers(...): ...
-  setDefault(...): ...
-  on(type: 'changed', handler: (event: { apps?: DesktopApp[] }) => void): () => boolean
+  on(type: 'changed', handler: (event: { type: 'appschanged'; apps: readonly DesktopApp[] }) => void): () => boolean
 }
-
-interface DesktopApp { id: string; label: string; icon: string; script: string }
 
 interface NativeApp {
   id: string
@@ -293,21 +399,20 @@ interface NativeApp {
 
 ## acde:windows
 
-Desktops get everything; apps can only use `list` / `launch` / `close` to manage native programs they launched themselves.
+Shell module: every window of the session.
 
 ```ts
 interface AcdeWindows {
-  on(type: WindowsEventType, handler: (event: { type: string; window: number; [field: string]: unknown }) => void): () => boolean
+  on<K extends WindowsEventType>(type: K, handler: (event: WindowsEventMap[K]) => void): () => boolean
   list(): NativeWindow[]
-  launch(argv: string[], options?: { cwd?: string; env?: Record<string, string>; slot?: boolean }): number | Promise<number>
   close(id: number): void
-  // desktop only:
+  requestState(id: number, state: WindowState): Promise<void>
   kill(id: number): Promise<boolean>
   focus(id: number): Promise<void>
   hide(id: number): Promise<void>
   show(id: number): Promise<void>
-  invokeMenu(id: number, menu: string, item: string): Promise<unknown>
-  stats(): Promise<unknown>
+  invokeMenu(id: number, menu: string, item: string): Promise<void>
+  stats(): Promise<Record<string, number>>
   animate(id: number, options: {
     opacity?: number; scale?: number; dx?: number; dy?: number
     duration?: number; delay?: number
@@ -315,26 +420,61 @@ interface AcdeWindows {
   }): Promise<void>
   shortcut(combo: string, scope?: 'session' | 'desktop'): Promise<void>
   unshortcut(combo: string, scope?: 'session' | 'desktop'): Promise<void>
+  launch(argv: string[], options?: { cwd?: string; env?: Record<string, string>; slot?: boolean }): number | Promise<number>
 }
 
-interface NativeWindow { id: number; appId: string | null; title: string | null; web?: boolean }
+interface NativeWindow { id: number; appId: string | null; title: string | null; web?: boolean; state: WindowState }
 ```
 
-`WindowsEventType`: `open` `close` `title` `fullscreen` `unfullscreen` `minimize` `activate` `minsize` `parent` `menus` `crash` `hang` `responsive` `attention` `ready` `show` `animated`.
+`WindowsEventType`: `open` `close` `title` `state` `activate` `minsize` `parent` `menus` `crash` `hang` `responsive` `attention` `ready` `show` `animated`. Every event is `{ type: 'window<name>', window: number, … }`:
+
+| Event | Extra fields |
+| --- | --- |
+| `open` | `appId`, `title`, `web`, `icon` |
+| `title` | `appId`, `title` |
+| `state` | `state`, `previous` |
+| `minsize` | `width`, `height` |
+| `parent` | `parent` |
+| `menus` | `menus`: the app's menus, each item with `action: boolean` instead of `onSelect` |
+| `crash` | `reason` |
+
+- A window's state changes are reported by `state`; full screen and minimizing have no events of their own. `requestState` rejects an unknown state with a `TypeError`.
+- `close(id)` asks the app (`beforeclose`); `kill(id)` ends the window without asking.
+- `animate` may finish at once where the runtime cannot animate; `animated` still fires.
+- Every row of `list()` has the window's current `state`, and `list()` has every window, also in a system app that started after a window opened.
+- An app starts native programs with [`acde:launch`](#acdelaunch), not with `launch` here.
 
 ## acde:desktop
 
-Desktop only.
+Shell module.
 
 ```ts
 interface AcdeDesktop {
   apps(): Promise<{ apps: DesktopApp[] }>
-  pin(element: Element, options?: { margin?: number }): { update(): void; unpin(): void }
+  pin(element: Element, options?: { margin?: number; reserve?: PanelReserve }): PinnedPanel
+  setDoubleClick(action: 'fill' | 'minimize' | 'none'): void
+  setFrameTheme(theme: FrameTheme | null): void
   on(type: 'notification', handler: (e: NotificationEvent) => void): () => boolean
   on(type: 'download', handler: (e: DownloadEvent) => void): () => boolean
-  on(type: 'screenshot', handler: (e: { path: string; width?: number; height?: number; error?: string }) => void): () => boolean
-  on(type: 'shortcut', handler: (e: { key: string; title?: string; window?: number }) => void): () => boolean
+  on(type: 'screenshot', handler: (e: { type: 'screenshot'; path: string; width: number; height: number } | { type: 'screenshot'; path: string; error: string }) => void): () => boolean
+  on(type: 'shortcut', handler: (e: ShortcutEvent) => void): () => boolean
 }
+
+interface PanelReserve { edge: 'top' | 'bottom' | 'left' | 'right'; thickness?: number }
+interface PinnedPanel {
+  update(): void
+  unpin(): void
+  reserve(reserve: PanelReserve | null): void
+}
+
+interface FrameTheme {
+  active?: FrameColors
+  inactive?: FrameColors
+  buttonStyle?: 'dots' | 'glyphs'
+  buttonSide?: 'left' | 'right'
+  titleAlign?: 'center' | 'start'
+}
+interface FrameColors { background?: string; title?: string; line?: string; buttons?: string }
 
 interface NotificationEvent {
   type: 'notification'
@@ -357,9 +497,44 @@ interface DownloadEvent {
 }
 ```
 
+See [Desktops](../guide/desktop.md#panels).
+
+## acde:permissions
+
+Shell module: the approval prompts and the decisions about them.
+
+```ts
+interface AcdePermissions {
+  pending(): Promise<PermissionPrompt[]>
+  answer(id: number, allow: boolean): Promise<void>
+  list(app?: string): Promise<PermissionDecision[]>
+  revoke(app: string, capability: string): Promise<boolean>
+  on(type: 'prompt', handler: (event: PermissionPrompt & { type: 'permissionprompt' }) => void): () => boolean
+  on(type: 'answered', handler: (event: { type: 'permissionanswered'; id: number; app: string; capability: string; allowed: boolean }) => void): () => boolean
+}
+
+interface PermissionPrompt {
+  id: number
+  app: string
+  label: string
+  capability: string
+  reason: 'launch' | 'request'
+}
+
+interface PermissionDecision {
+  app: string
+  label: string | null
+  capability: string
+  decision: 'granted' | 'denied'
+  folder?: { label: string; exists: boolean }
+}
+```
+
+`capability` is `launch`, `slots`, `terminal`, `network`, `camera`, `microphone`, or `fs.<place>`; in a decision it can also be `fs.folder-…`, a folder the user picked for the app (with `folder`). `reason` is `launch` for a prompt raised before an app starts and `request` for one raised by `capabilities.request()`. `revoke` resolves to `false` when there was no decision. See [Desktops](../guide/desktop.md#approval-prompts).
+
 ## acde:inspect
 
-Desktops and desktop services only. Turns the screen into a text semantic tree and acts on it by ref; meant for AI agents. `acde inspect` / `acde act` and MCP are built on it.
+Shell module, also given to desktop services as `ctx.inspect`. Turns the screen into a text semantic tree and acts on it by ref; meant for AI agents. `acde inspect` / `acde act` and MCP are built on it.
 
 ```ts
 interface AcdeInspect {

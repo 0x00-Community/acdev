@@ -3,9 +3,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
-import { packageRoot, requireAcdert, run, runtimes } from 'acde/launcher'
+import { findAcdert, requireAcdert, run, runtimes } from 'acde/launcher'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
+import { Doctor } from './doctor.ts'
 import { TestRunner } from './e2e/runner.ts'
 import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
@@ -14,8 +15,7 @@ import { Runtime } from './runtime.ts'
 import { Sdk } from './sdk.ts'
 import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
-
-declare const ACDE_SDK_VERSION: string | undefined
+import { Versions } from './versions.ts'
 
 const USAGE = `usage: acde <command>
   new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--no-install] [--git] [--pm PM] [--yes]
@@ -37,6 +37,18 @@ const USAGE = `usage: acde <command>
                                                    project: its desktop or app; several or --desktop: all in that
                                                    desktop (default: the desktop project among them, else dopame);
                                                    --headless: no host window
+  doctor [dir] [--json] [--online] [--fix [--yes]]
+                                                   check this machine for acde dev and say how to fix what is wrong:
+                                                   acde on PATH, Bun and Node.js, acdert (found, runs, pairs with
+                                                   this acde, and its own check of the GPU and its files), running
+                                                   sessions and waiting approvals, the project in dir (default: the
+                                                   current directory), the agent skill; --online: whether a newer
+                                                   acde is out; --json: one JSON object; exit code 1 on an error;
+                                                   --fix: then fix what acde may (the skill, .acde/ in .gitignore,
+                                                   the sessions directory), and ask before what downloads or stops
+                                                   something (the installer again for acdert, the project's install,
+                                                   a session that does not answer; --yes: do those without asking);
+                                                   approvals, drivers and the project's code stay the user's
  with an acde dev running (the one whose projects hold this directory, or --session PID):
   webs                                             the webs (windows' pages) acdert runs
   eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop),
@@ -44,8 +56,12 @@ const USAGE = `usage: acde <command>
   shot <web> [-o FILE]                             a PNG of the web's window (default ./<web>.png), print its path
   inspect [--window W] [--find TEXT] [--all] [--offscreen]
                                                    the desktop as text (acde:inspect snapshot);
-                                                   --offscreen: scrolled-out too; --all: every window, and
-                                                   elements hidden by opacity: 0 or visibility
+                                                   --offscreen: scrolled-out too; --all: every window not marked
+                                                   [minimized], and elements hidden by opacity: 0 or visibility
+  query <selector> [--window W] [--ref REF] [--limit N]
+                                                   the elements a CSS selector matches in the focused window (or W, or
+                                                   under REF), each with a ref act takes; also what inspect leaves out
+                                                   (not rendered ones are marked [hidden])
   act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed
   console [--web W] [--level L] [--since S] [--follow]
                                                    pages' console.* and uncaught errors
@@ -58,14 +74,28 @@ const USAGE = `usage: acde <command>
                                                    (default ./screen.png)
   pointer <x> <y>                                  move the pointer to screen coordinates, as a real move
                                                    (hover, screen edges); host window: its content area
+  permissions                                      the camera and microphone prompts that wait and the decisions
+                                                   made (declared capabilities are granted without asking)
+  allow [<prompt>|<app> <capability>] [--all]      allow a waiting approval prompt: the only one, the one with that id
+                                                   (acde permissions shows it), the one of that app for that
+                                                   capability, or with --all every one
+  deny [<prompt>|<app> <capability>] [--all]       deny a waiting approval prompt: the only one, the one with that id
+                                                   (acde permissions shows it), the one of that app for that
+                                                   capability, or with --all every one
+  revoke <app> <capability>                        take back a decision, so the app is asked again
   stop                                             end that acde dev and its acdert (as closing its last window
                                                    does); for one started in the background
   test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
+       [--workers N] [--retries N] [--video[=on]]
                                                    run the e2e tests (*.e2e.ts, import from acde/test): each test
                                                    gets a fresh, isolated acde dev (headless unless --headed); what a
                                                    failing test left goes to <project>/.acde/test-results (--trace: a
                                                    screenshot after every step and trace.html for every test);
-                                                   -u / --update-screenshots rewrites the baselines
+                                                   -u / --update-screenshots rewrites the baselines; --workers:
+                                                   files at once (default half the cores, at most 4; 1 when headed
+                                                   or with --bail); --retries: run a failing test again (passing
+                                                   later = flaky); --video: an animated PNG of the screen for
+                                                   failing tests (=on: for every test)
   mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run
                                                    acde dev itself); for agents: claude mcp add acde -- acde mcp
  for coding agents:
@@ -102,22 +132,28 @@ class Cli {
     install: { args: [0, 1], flags: ['out'] },
     sdk: { args: [0, 2] },
     dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
+    doctor: { args: [0, 1], switches: ['json', 'online', 'fix', 'yes'] },
     webs: { args: [0, 0], flags: ['session'] },
     eval: { args: [2, 2], flags: ['session'] },
     shot: { args: [1, 1], flags: ['session', 'output'] },
     inspect: { args: [0, 0], flags: ['session', 'window', 'find'], switches: ['all', 'offscreen'] },
+    query: { args: [1, 1], flags: ['session', 'window', 'ref', 'limit'] },
     act: { args: [2, 3], flags: ['session'] },
     console: { args: [0, 0], flags: ['session', 'web', 'level', 'since'], switches: ['follow'] },
     network: { args: [0, 0], flags: ['session', 'web', 'since'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
     pointer: { args: [2, 2], flags: ['session'] },
+    permissions: { args: [0, 0], flags: ['session'] },
+    allow: { args: [0, 2], flags: ['session'], switches: ['all'] },
+    deny: { args: [0, 2], flags: ['session'], switches: ['all'] },
+    revoke: { args: [2, 2], flags: ['session'] },
     stop: { args: [0, 0], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
     test: {
       args: [0, Infinity],
-      flags: ['desktop', 'test-name-pattern', 'timeout'],
-      switches: ['headed', 'bail', 'trace', 'update-screenshots'],
+      flags: ['desktop', 'test-name-pattern', 'timeout', 'workers', 'retries', 'video'],
+      switches: ['headed', 'bail', 'trace', 'update-screenshots', 'video'],
     },
   }
   static readonly SHORT: Readonly<Record<string, string>> = {
@@ -176,33 +212,20 @@ class Cli {
   }
 
   static async versions(): Promise<string[]> {
-    const lines = [Mcp.version(), `sdk ${Cli.sdk()} (contract level ${API_LEVEL})`]
-    let acdert: string
-    try {
-      acdert = requireAcdert()
-    } catch {
-      return [...lines, 'acdert: not found (ACDERT, next to acde, PATH)']
-    }
-    const { said } = await DevSession.runtimeLevel(acdert)
+    const lines = [Versions.acde(), `sdk ${Versions.sdk()} (contract level ${API_LEVEL})`]
+    const acdert = findAcdert().path
+    if (!acdert) return [...lines, 'acdert: not found (ACDERT, next to acde, PATH)']
+    const { said, failed } = await DevSession.runtimeLevel(acdert)
+    if (failed) return [...lines, `acdert does not run (${failed}): ${acdert}`]
     const named = said.split(/\r?\n/).map((line) => line.trim())
       .find((line) => /^acdert \S+ \(contract level \d+\)$/.test(line))
     return [...lines, named ? `${named}: ${acdert}` : `acdert without a contract level (older, level 0): ${acdert}`]
   }
 
-  static sdk(): string {
-    if (typeof ACDE_SDK_VERSION === 'string') return ACDE_SDK_VERSION
-    const file = join(packageRoot(), 'node_modules', '@dopame', 'acde-api', 'package.json')
-    try {
-      return (JSON.parse(readFileSync(file, 'utf8')) as { version: string }).version
-    } catch {
-      return 'unknown'
-    }
-  }
-
   static async main(argv: readonly string[]): Promise<number> {
     const [first = ''] = argv
     if (argv.length === 0) {
-      console.log(`acde ${Mcp.version()}: acde --help lists the commands`)
+      console.log(`acde ${Versions.acde()}: acde --help lists the commands`)
       return 0
     }
     if (['--version', '-v', 'version'].includes(first)) {
@@ -224,6 +247,15 @@ class Cli {
       const timeout = flags.has('timeout') ? Number(flags.get('timeout')) : undefined
       if (timeout !== undefined && !(Number.isInteger(timeout) && timeout > 0))
         throw new Error(`--timeout ${flags.get('timeout')}: milliseconds per test`)
+      const workers = flags.has('workers') ? Number(flags.get('workers')) : undefined
+      if (workers !== undefined && !(Number.isInteger(workers) && workers > 0))
+        throw new Error(`--workers ${flags.get('workers')}: how many test files run at once (1 or more)`)
+      const retries = flags.has('retries') ? Number(flags.get('retries')) : undefined
+      if (retries !== undefined && !(Number.isInteger(retries) && retries >= 0))
+        throw new Error(`--retries ${flags.get('retries')}: how many times to run a failing test again (0 or more)`)
+      const video = flags.has('video') ? flags.get('video') || 'failed' : undefined
+      if (video !== undefined && video !== 'on' && video !== 'failed' && video !== 'off')
+        throw new Error(`--video=${video}: failed (the default: only for failing tests), on or off`)
       return await TestRunner.run({
         targets: args,
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
@@ -233,9 +265,13 @@ class Cli {
         ...(flags.has('update-screenshots') && { update: true }),
         ...(flags.has('test-name-pattern') && { pattern: flags.get('test-name-pattern')! }),
         ...(timeout !== undefined && { timeout }),
+        ...(workers !== undefined && { workers }),
+        ...(retries !== undefined && { retries }),
+        ...(video !== undefined && { video }),
       })
     }
     if (command === 'skills') return Skills.run(args, flags)
+    if (command === 'doctor') return await Cli.doctor(args[0], flags)
     if (command === 'mcp')
       return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)
@@ -289,6 +325,30 @@ class Cli {
     return null
   }
 
+  static async doctor(dir: string | undefined, flags: ReadonlyMap<string, string>): Promise<number> {
+    if (flags.has('yes') && !flags.has('fix')) throw new Error('doctor: --yes is for --fix (acde doctor --help)')
+    const options = { ...(dir !== undefined && { dir }), online: flags.has('online') }
+    const json = flags.has('json')
+    const checks = await Doctor.run(options)
+    if (!flags.has('fix')) {
+      console.log(json ? Doctor.json(checks) : Doctor.format(checks))
+      return Doctor.failed(checks) ? 1 : 0
+    }
+    if (!json) console.log(Doctor.format(checks))
+    const interactive = !json && !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
+    const fixed = await Doctor.fix(checks, {
+      yes: flags.has('yes'),
+      output: json ? 'stderr' : 'inherit',
+      say: (line) => (json ? console.error(line) : console.log(line)),
+      confirm: interactive ? async (repair) => (await p.confirm({ message: `${repair.does}?`, initialValue: false })) === true : null,
+      allowing: 'pass --yes to allow it',
+    })
+    const after = fixed.some((done) => done.result === 'fixed') ? await Doctor.run(options) : checks
+    if (json) console.log(Doctor.json(after, fixed))
+    else if (after !== checks) console.log(`acde doctor: after fixing:\n${Doctor.format(after)}`)
+    return Doctor.failed(after) ? 1 : 0
+  }
+
   static async create(dir: string, flags: ReadonlyMap<string, string>): Promise<number> {
     const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
     const given = {
@@ -314,8 +374,9 @@ class Cli {
     const options = await Creator.ask(given)
     if (!options) return 0
     const created = await Creator.create(options, true)
-    const { errors, warnings } = created.pkg.check()
+    const { errors, warnings, notes } = created.pkg.check()
     for (const warning of warnings) p.log.warn(warning)
+    for (const note of notes) p.log.info(note)
     for (const error of errors) p.log.error(error)
     p.note(Creator.next(created).join('\n'), 'Next')
     p.note(Creator.LATER.join('\n'), 'Then')
@@ -326,8 +387,9 @@ class Cli {
 
   static report(pkg: AppPackage, platform = AppPackage.here()): boolean {
     const target = platform === null ? null : pkg.platform(platform)
-    const { errors, warnings } = pkg.check()
+    const { errors, warnings, notes } = pkg.check()
     for (const warning of warnings) console.error(`warning: ${warning}`)
+    for (const note of notes) console.error(`note: ${note}`)
     for (const error of errors) console.error(`error: ${error}`)
     if (errors.length === 0) console.log(`ok: ${pkg.name}, ${pkg.kind}`)
     if (!target) return errors.length === 0

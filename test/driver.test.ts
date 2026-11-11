@@ -2,7 +2,9 @@ import { afterAll, describe, expect as check, test } from 'bun:test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InspectMatch, InspectNode } from '@dopame/acde-api'
-import { Acde, ActError, AssertionError, expect, Locator, Png, Screenshots, type Query, type Source } from '../src/driver/index.ts'
+import {
+  Acde, ActError, AssertionError, Clock, expect, LaunchError, Locator, Modifiers, Png, Screenshots, type Query, type Source,
+} from '../src/driver/index.ts'
 import { Sessions } from '../src/sessions.ts'
 import { cleanup, standIn } from './helpers.ts'
 
@@ -85,6 +87,45 @@ describe('Locator.match', () => {
     check(await pick([{ kind: 'attr', name: 'placeholder', text: /^write/i, options: {} }])).toEqual(['w1.51'])
     check(await pick([{ kind: 'attr', name: 'placeholder', text: 'Find', options: { exact: true } }])).toEqual([])
     check(await pick([{ kind: 'attr', name: 'alt', text: 'logo', options: {} }])).toEqual(['w1.52'])
+  })
+})
+
+describe('Locator composition and input helpers', () => {
+  const node = (ref: string, role: string, name?: string, children?: InspectNode[], states?: string[]): InspectNode => ({ ref, role, ...(name !== undefined && { name }), ...(children && { children }), ...(states && { states }) })
+  const tree = [
+    node('w1.1', 'listitem', 'Buy milk', [node('w1.2', 'checkbox', 'Done', undefined, ['checked']), node('w1.3', 'button', 'Delete')]),
+    node('w1.4', 'listitem', 'Walk the dog', [node('w1.5', 'checkbox', 'Done'), node('w1.6', 'button', 'Delete')]),
+    node('w1.7', 'button', 'Save'),
+  ]
+  const source: Source = { nodes: tree, children: async (n) => n.children ?? [], query: async () => [] }
+  const scope = { acde: null as never, tree: async () => ({ window: null, source }), capture: async () => null as never, describe: () => 'window' }
+  const at = (queries: readonly Query[]) => Locator.match(source, queries).then((nodes) => nodes.map((n) => n.ref))
+  const items = new Locator(scope, [{ kind: 'role', role: 'listitem', options: {} }])
+
+  test('filter has / hasNot look under each element; or keeps document order; and intersects', async () => {
+    const done = new Locator(scope, [{ kind: 'role', role: 'checkbox', options: { checked: true } }])
+    check(await at(items.filter({ has: done }).queries)).toEqual(['w1.1'])
+    check(await at(items.filter({ hasNot: done }).queries)).toEqual(['w1.4'])
+    const save = new Locator(scope, [{ kind: 'role', role: 'button', options: { name: 'Save' } }])
+    check(await at(save.or(items).queries)).toEqual(['w1.1', 'w1.4', 'w1.7'])
+    const buttons = new Locator(scope, [{ kind: 'role', role: 'button', options: {} }])
+    check(await at(buttons.and(new Locator(scope, [{ kind: 'text', text: 'Delete', options: {} }])).queries)).toEqual(['w1.3', 'w1.6'])
+    check(items.filter({ hasText: 'milk', has: done }).describe()).toBe('window.getByRole("listitem").filter({ hasText: "milk", has: window.getByRole("checkbox", { checked: true }) })')
+    check(save.or(items).describe()).toBe('window.or(getByRole("button", { name: "Save" }) | getByRole("listitem"))')
+  })
+
+  test('clock times and durations; modifier chords', () => {
+    check(Clock.duration(1500)).toBe(1500)
+    check(Clock.duration('25:00')).toBe(1_500_000)
+    check(Clock.duration('01:00:05')).toBe(3_605_000)
+    check(() => Clock.duration('1h')).toThrow('not a duration')
+    check(Clock.time(new Date(5))).toBe(5)
+    check(Clock.time('2026-01-02T00:00:00Z')).toBe(Date.UTC(2026, 0, 2))
+    check(() => Clock.time('soon')).toThrow('not a time')
+    check(Modifiers.chord(['Shift', 'Control'])).toBe('shift+ctrl')
+    check(Modifiers.chord(['ControlOrMeta'])).toBe('ctrl')
+    check(Modifiers.chord([])).toBe(null)
+    check(() => Modifiers.chord(['Hyper' as never])).toThrow('unknown modifier')
   })
 })
 
@@ -197,25 +238,98 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     check(Sessions.list(sessions)).toEqual([])
   }, 60_000)
 
-  test('simulated drops; the pointer moved to a screen point', async () => {
+  test('closing the only window of a single-app session ends it, and close says so; ' +
+    'any other loss of the connection is an error', async () => {
+    const s = standIn()
+    const launch = (extra: Record<string, string> = {}, desktop?: string) =>
+      Acde.launch({ cwd: s.project, env: { ...s.env, ...extra }, timeout: 2_000, ...(desktop && { desktop }) })
+    const said = (acde: Acde) => `closed w1; acdert exited with it, so acde dev ${acde.session.pid} ended`
+    const message = (error: Error) => error.message
+
+    const single = await launch()
+    try {
+      check(await single.window('alpha').close()).toEqual({ ok: true, text: said(single), ended: true })
+      check(single.closed).toBe(true)
+      const gone = `acde dev ${single.session.pid} is no longer connected`
+      check(await single.webs().catch(message)).toBe(gone)
+      check(await single.act('w1', 'close').catch(message)).toBe(gone)
+      check(single.trace.text()).toContain(said(single))
+    } finally {
+      await single.close()
+    }
+
+    const answering = await launch({ FAKE_ACDERT_CLOSE: 'answers' })
+    try {
+      check(await answering.window('alpha').close()).toEqual({ ok: true, text: said(answering), ended: true })
+    } finally {
+      await answering.close()
+    }
+
+    const crashing = await launch({ FAKE_ACDERT_DIES_ON: 'focus' })
+    try {
+      check(await crashing.window('alpha').focus().catch(message)).toBe('acdert closed the connection')
+      check(crashing.closed).toBe(true)
+    } finally {
+      await crashing.close()
+    }
+
+    const desktop = await launch({ FAKE_ACDERT_DIES_ON: 'close' }, 'dopame')
+    try {
+      check(desktop.session.desktop).toBe('dopame')
+      check(await desktop.window('alpha').close().catch(message)).toBe('acdert closed the connection')
+    } finally {
+      await desktop.close()
+    }
+
+    const kept = await launch({}, 'dopame')
+    try {
+      const closed = await kept.window('alpha').close()
+      check([closed.ok, closed.text, closed.ended]).toEqual([true, 'close w1 null', undefined])
+      check(kept.closed).toBe(false)
+      check(await kept.window('alpha').isOpen()).toBe(false)
+    } finally {
+      await kept.close()
+    }
+  }, 60_000)
+
+  test('approval prompts: wait, allow, deny, list; revoke; simulated drops; the pointer', async () => {
     const s = standIn()
     const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })
     try {
+      check((await acde.permissions()).pending.map((p) => p.id)).toEqual([1, 2])
+      check((await acde.waitForPrompt({ capability: 'fs.documents' })).app).toBe('beta')
+      const missing = await acde.waitForPrompt({ app: 'gamma', timeout: 300 }).catch((e: Error) => e.message)
+      check(missing).toBe('waitForPrompt: no approval prompt for app gamma within 300 ms')
+      check(await acde.allow({ app: 'alpha' })).toMatchObject({ id: 1, capability: 'launch' })
+      await acde.answer(2, false)
+      const after = await acde.permissions()
+      check(after.pending).toEqual([])
+      check(after.decisions.map((d) => `${d.app} ${d.capability} ${d.decision}`))
+        .toEqual(['alpha launch granted', 'beta fs.documents denied'])
+      const none = await acde.deny({ timeout: 200 }).catch((e: Error) => e.message)
+      check(none).toContain('no approval prompt within 200 ms')
+      check(await acde.revoke('alpha', 'launch')).toBe(true)
+      check(await acde.revoke('alpha', 'launch')).toBe(false)
+      check((await acde.permissions()).decisions.map((d) => d.app)).toEqual(['beta'])
+
       check(await acde.drop([join(s.root, 'a.txt'), 'b.txt'])).toEqual({
         web: 'desktop', window: 0, files: [join(s.root, 'a.txt'), join(process.cwd(), 'b.txt')],
       })
       check(await acde.window('alpha').drop('c.png', { x: 3, y: 4 })).toMatchObject({ web: 'alpha#7', window: 7 })
       check(await acde.drop([]).catch((e: Error) => e.message)).toBe('drop: give at least one file')
+      check(await acde.drop('d.txt', { x: 1 }).catch((e: Error) => e.message)).toBe('drop: give x and y together')
       check(await acde.pointer(1439, 0)).toEqual({ x: 1439, y: 0 })
       check(await acde.pointer(Number.NaN, 0).catch((e: Error) => e.message))
         .toBe('pointer: x and y are numbers in screen coordinates')
-      check(await acde.drop('d.txt', { x: 1 }).catch((e: Error) => e.message)).toBe('drop: give x and y together')
+      check(acde.trace.text()).toContain('allow(for app alpha)')
       check(acde.trace.text()).toContain('drop(')
     } finally {
       await acde.close()
     }
     const sent = readFileSync(join(s.root, 'fake.log'), 'utf8').split('\n').filter(Boolean)
       .map((line) => JSON.parse(line) as { got?: Record<string, unknown> }).flatMap((e) => (e.got ? [e.got] : []))
+    check(sent.find((m) => m['op'] === 'answer' && m['prompt'] === 1)).toMatchObject({ allow: true })
+    check(sent.find((m) => m['op'] === 'revoke')).toMatchObject({ app: 'alpha', capability: 'launch' })
     check(sent.some((m) => m['op'] === 'eval')).toBe(false)
     check(sent.find((m) => m['op'] === 'pointer')).toMatchObject({ x: 1439, y: 0 })
     check(sent.find((m) => m['op'] === 'drop' && m['web'] === 'alpha#7'))
@@ -331,7 +445,54 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     const s = standIn()
     writeFileSync(join(s.project, 'acde.config.jsonc'), '{ "type": "app" ')
     const error = await Acde.launch({ cwd: s.project, env: s.env }).catch((e: Error) => e)
-    check(error).toBeInstanceOf(Error)
-    check((error as Error).message).toMatch(/^acde dev exited \(1\) before it was ready:\n/)
+    check(error).toBeInstanceOf(LaunchError)
+    const exited = error as LaunchError
+    check(exited.message).toMatch(/^acde dev exited \(1\) before it was ready:\n/)
+    check([exited.name, exited.phase, exited.code]).toEqual(['Error', 'exited', 1])
+    check(exited.message.split('\n').slice(1).join('\n')).toBe(exited.logs.tail(40).text)
+    check(Object.keys(exited)).toEqual([])
+  }, 30_000)
+
+  test('a launch that stalls says in which phase, and keeps the whole output of acde dev', async () => {
+    const s = standIn()
+    const stalled = async (env: Record<string, string>) => {
+      const error = await Acde.launch({ cwd: s.project, env: { ...s.env, ...env }, startTimeout: 5_000 })
+        .catch((e: Error) => e)
+      check(error).toBeInstanceOf(LaunchError)
+      return error as LaunchError
+    }
+    const unheard = await stalled({ FAKE_ACDERT_LISTEN_MS: '600000' })
+    check(unheard.phase).toBe('session')
+    const lines = unheard.message.split('\n')
+    check(lines[0]).toMatch(/^acde dev \(pid \d+\) did not register a session within 5 s in .+acde-dev$/)
+    check(lines[1]).toBe('no session yet: its build did not finish, or acdert did not start listening; last output:')
+    check(lines[2]).toStartWith('acde: dev app alpha: ')
+    check(unheard.logs.tail(5000).text).toContain('[alpha#7] js: fake acdert is up')
+
+    const windowless = await stalled({ FAKE_ACDERT_WINDOWLESS: '1' })
+    check(windowless.phase).toBe('window')
+    check(windowless.message.split('\n').slice(0, 3)).toEqual([
+      'acde dev did not start within 5 s:',
+      'acdert runs and answers, but no window appeared (pages: 0, windows: 0) and no approval prompt waits; ' +
+        'last output:',
+      windowless.logs.tail(5000).lines[0]!.text,
+    ])
+    check(readdirSync(join(s.root, 'acde-dev')).filter((name) => name.endsWith('.json'))).toEqual([])
+  }, 30_000)
+
+  test('close() leaves nothing that keeps a script alive', async () => {
+    const s = standIn()
+    const script = join(s.root, 'script.ts')
+    const driver = join(import.meta.dir, '../src/driver/index.ts')
+    writeFileSync(script, `import { Acde } from ${JSON.stringify(driver)}
+const acde = await Acde.launch({ cwd: ${JSON.stringify(s.project)} })
+await acde.close()
+console.log('closed')
+`)
+    const started = Date.now()
+    const child = Bun.spawn([process.execPath, script], { env: s.env, stdout: 'pipe', stderr: 'pipe' })
+    const [code, out] = await Promise.all([child.exited, new Response(child.stdout).text()])
+    check([code, out]).toEqual([0, 'closed\n'])
+    check(Date.now() - started).toBeLessThan(8_000)
   }, 30_000)
 })

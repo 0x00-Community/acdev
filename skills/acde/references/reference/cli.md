@@ -4,9 +4,30 @@
 acde <command> [args]
 ```
 
-On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an unknown action for `act`, a level for `console` …) names what is wrong and the `acde <command> --help` to read; the full usage is printed only by `acde` with no command.
+On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong argument (an action `act` does not know, a level `console` does not know, …) is answered with one line that names what is wrong and the `acde <command> --help` to read, such as `acde: console: --level loud: one of log, info, warn, error, debug, errors (acde console --help)`; the full usage is printed only by `acde` with no command.
 
 `acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color follows `NO_COLOR`.
+
+## Setup
+
+### acde doctor
+
+```text
+acde doctor [dir] [--json] [--online] [--fix [--yes]]
+```
+
+Checks what `acde dev` and `acde test` need on this machine: acde on PATH, Bun and Node.js, acdert (found, runs, runs the contract level this acde builds, is the release this acde pairs with), the runtime's own checks (`acdert doctor`: its host files, the GPU, and on Linux the display), running `acde dev` sessions and the approvals they wait for, the project in `dir` (default: the current directory; `acde check`, this platform, its dependencies, `.acde/` in `.gitignore`), and the acde skill for coding agents. See [Check the setup](../guide/doctor.md).
+
+| Option | Description |
+| --- | --- |
+| `--json` | One JSON object instead of lines: `{"ok": …, "checks": [{"id", "title", "status", "summary", "fix", "repair"}]}`; with `--fix` also `"fixed"` |
+| `--online` | Also ask `pkgs.dopame.ai` (or `ACDE_DIST`) whether a newer acde is out |
+| `--fix` | After the checks, fix what acde can: some fixes right away, the others after asking; then check again. See [Fix what it can](../guide/doctor.md#fix-what-it-can) |
+| `--yes` | With `--fix`: do the fixes that ask first without asking |
+
+It prints one line per check, `<status> <check>: <what it found>`, with `fix: …` on the next line for a problem, and a last line that counts errors and warnings. The status is `ok`, `warn`, `error` or `skip` (not checked: no project here, or an earlier check failed). It exits with code 1 when a check is an error, else 0. A `dir` that holds no acde project is an error.
+
+With `--fix`, after the report it prints `fixing: <what>`, the output of what it runs, and `fixed: <what>` or `failed: <what>: <why>` for each fix, `skipped: <what>` for one that was not allowed, and then `acde doctor: after fixing:` and the checks again; the exit code follows the second run. When nothing can be fixed it says `acde doctor: nothing here it can fix; the fix lines say what to do`. `--yes` without `--fix` is an error.
 
 ## Projects
 
@@ -33,9 +54,13 @@ Creates a project. In a terminal, it asks for whatever is missing; with `--yes`,
 acde check [dir] [--platform windows|macos|linux]
 ```
 
-Checks the config (id, entry, icon, service modules, framework) and the manifest rules of the SDK, or the manifest and entry files of a handwritten package, and the `acde:` imports against the manifest.
+Checks the config (id, entry, icon, service modules, framework) and the manifest rules of the SDK, or the manifest and entry files of a handwritten package, and the `acde:` imports against the manifest. It prints `error:`, `warning:` and `note:` lines on stderr and exits with code 1 only when there is an error. A `note:` marks an import that the check lets pass but cannot verify, the namespace of a [desktop service](../guide/services.md#call-it) that is not the service's own name: `note: src/main.js:1: app "notes": acde:timer resolves only if the service Notes lists ("clock") provides the "timer" namespace`.
 
-It also lists the capabilities an app requires that a platform cannot provide in each way of running (an error, with how to make the capability optional), or that it declares optional (a note). That platform is the one `acde check` runs on, or the one `--platform` names.
+It also checks the app's declared capabilities against what a platform has, once for each way of running an app there (`desktop` and `standalone`, on Linux also `session`). That platform is the one `acde check` runs on, or the one `--platform` names:
+
+- A required capability that the platform lacks is an error: `error: windows (desktop): app "notes" requires network, which this mode lacks`, followed by a hint on making it optional.
+- An optional capability that it lacks is a note, and no error: `note: windows (desktop): app "notes" runs without optional camera, which this mode lacks`.
+- When no required capability is missing, the last line is `ok: linux (session, desktop, standalone): every required capability is there`.
 
 ### acde build
 
@@ -43,7 +68,7 @@ It also lists the capabilities an app requires that a platform cannot provide in
 acde build [dir] [--out DIR]
 ```
 
-Builds into `DIR` (default `.acde`). A relative `--out` is resolved against the project being built. The manifest of the output is checked again.
+Builds into `DIR` (default `.acde`). A relative `--out` is resolved against the project being built. The `acde:` imports are checked first, as in `acde check` (an error stops the build, a `note:` is printed), and the manifest of the output is checked again.
 
 ### acde install
 
@@ -71,7 +96,7 @@ Builds, starts acdert, and rebuilds and reloads on changes. See [acde dev](../gu
 
 ## Running sessions
 
-These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect`, such as `w1.12`. See [Debugging](../guide/tools.md).
+These work with a running `acde dev` session, and all of them accept `--session <pid>`. A `<web>` is one page: a web name from `acde webs`, an app id, or `desktop`; a `<ref>` is an element id from `acde inspect` or `acde query`, such as `w1.12`, or a window, such as `w1`. See [Debugging](../guide/tools.md).
 
 | Command | Description |
 | --- | --- |
@@ -81,11 +106,42 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde screen [-o FILE]` | Full-screen screenshot, default `./screen.png` |
 | `acde pointer <x> <y>` | Moves the pointer to screen coordinates, as a real move |
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
+| `acde query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
 | `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
 | `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N` |
+| `acde permissions` | The camera and microphone prompts that wait and the decisions made |
+| `acde allow [<prompt id> \| <app> <capability>] [--all]` | Allows a waiting camera or microphone prompt |
+| `acde deny [<prompt id> \| <app> <capability>] [--all]` | Denies a waiting camera or microphone prompt |
+| `acde revoke <app> <capability>` | Takes back a decision |
 | `acde stop` | Ends the session and its acdert; see [Stopping](../guide/dev.md#stopping) |
 | `acde mcp [--session PID]` | MCP server over stdio; see [MCP](../guide/mcp.md) |
+
+| Option | Description |
+| --- | --- |
+| `--window` | `inspect`, `query`: this window (`w1`) instead of the focused one |
+| `--ref` | `query`: search only under this element (`w1.12`) |
+| `--limit` | `query`: list at most this many elements (1 to 3000, default 600) |
+| `--all` | `inspect`: every window that is not marked `[minimized]`, and elements hidden by `opacity: 0` or `visibility`. `allow`, `deny`: every waiting prompt |
+
+`acde query` prints `N in <window>:` and one line per element, or `nothing in <window> matches "<selector>"`; both exit with code 0. `acde act` prints what it did and what changed, and exits with code 1 when the action was not done (the reason is then the only line).
+
+`acde permissions` prints two blocks and exits with code 0:
+
+```text
+pending:
+  2  notes  fs.documents  (launch)
+decisions:
+  notes  fs.downloads  granted
+```
+
+A pending line is `<prompt id>  <app>  <capability>  (<reason>)`, where the reason is `launch` (asked before the app starts) or `request` (asked by the running app); a decision line is `<app>  <capability>  <granted|denied>`. An empty block is `pending: none` or `decisions: none`.
+
+`acde allow` and `acde deny` answer prompts that wait now. Without arguments they answer the only waiting prompt; when several wait they answer none, list them, and exit with code 1. `<prompt id>` names one prompt, `<app> <capability>` the prompt of that app for that capability, and `--all` every waiting prompt. Each answered prompt prints `allowed <app> <capability> (prompt <id>)` or `denied <app> <capability> (prompt <id>)`. When nothing waits, or nothing matches, they print one line that says so (`acde: no approval prompt is waiting`, `acde: no approval prompt 5 is waiting (waiting: 2)`) and exit with code 1.
+
+`acde revoke <app> <capability>` prints `revoked <app> <capability>`; when there is no such decision it says so and exits with code 1.
+
+When no page runs because an app waits for an approval, `acde webs` prints, after the empty table, one line per prompt: `<app> waits for approval of <capability>: acde allow (or acde deny)`. See [Approvals](../guide/tools.md#approvals).
 
 ## Coding agents
 
@@ -112,6 +168,7 @@ See [Coding agents](../guide/agents.md).
 
 ```text
 acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
+          [--workers N] [--retries N] [--video[=on]]
 ```
 
 | Option | Description |
@@ -119,9 +176,12 @@ acde test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS
 | `--headed` | Open windows (headless by default) |
 | `-t`, `--test-name-pattern` | Run only tests whose names match |
 | `--desktop` | Run the app in this desktop |
-| `--timeout` | Timeout per test (milliseconds, default 60000) |
+| `--timeout` | Timeout per test, including the start of its session (milliseconds, default 60000) |
 | `--bail` | Stop at the first failure |
 | `--trace` | Leave a `trace.html` for every test |
 | `-u`, `--update-screenshots` | Rewrite screenshot baselines |
+| `--workers` | How many test files run at once (default: half the cores, at most 4; 1 with `--headed` or `--bail`) |
+| `--retries` | Run a failing test again this many times, each on a fresh session; a test that passes later is reported as flaky (default 0) |
+| `--video` | Keep `video.png`, an animated PNG of the screen, for failing tests; `--video=on` keeps it for every test |
 
-See [Testing](../guide/testing.md).
+The run ends with a line that counts tests (`acde test: 5 tests ran: 4 passed, 1 failed`) and a last line that counts files (`acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts`); see [Testing](../guide/testing.md#commands).

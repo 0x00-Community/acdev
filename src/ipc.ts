@@ -47,13 +47,17 @@ export class DevClient {
   readonly #waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   #next = 1
   #closed: Error | null = null
+  #ended = false
 
   private constructor(socket: net.Socket, timeoutMs: number) {
     this.#socket = socket
     this.#timeoutMs = timeoutMs
     this.closed = new Promise((resolve) => socket.once('close', () => resolve()))
     Lines.read(socket, (message) => this.#response(message))
-    socket.on('close', () => this.#fail(this.#closed ?? new Error('acdert closed the connection')))
+    socket.on('close', () => {
+      this.#ended = true
+      this.#fail(this.#closed ?? new Error('acdert closed the connection'))
+    })
     socket.on('error', (error) => {
       this.#closed = error
     })
@@ -97,6 +101,10 @@ export class DevClient {
       await sleep(DevClient.RETRY_MS)
     }
     return null
+  }
+
+  get ended(): boolean {
+    return this.#ended
   }
 
   send(message: Message): void {

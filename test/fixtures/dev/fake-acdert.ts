@@ -12,6 +12,7 @@ interface Node {
   role: string
   name?: string
   value?: string
+  level?: number
   states?: string[]
   rect?: [number, number, number, number]
   children?: Node[]
@@ -32,12 +33,20 @@ const windows: Win[] = [
   { ref: 'w0', id: 0, kind: 'desktop', app: null, title: null, rect: [0, 0, 16, 12], focus: false, hidden: false },
   { ref: 'w1', id: 7, kind: 'web', app: 'alpha', title: 'Alpha', rect: [4, 2, 8, 6], focus: true, hidden: false },
 ]
+const WINDOWLESS = !!process.env['FAKE_ACDERT_WINDOWLESS']
+const held = process.env['FAKE_ACDERT_WAITS'] || WINDOWLESS ? windows.splice(0) : []
 const tasks: { name: string; done: boolean }[] = []
 let draft = ''
 let priority = 'low'
 let clipboard = ''
 const routes: { id: number; url: unknown; status: number; times: number | null }[] = []
 let nextRoute = 1
+const prompts = [
+  { id: 1, app: 'alpha', label: 'Alpha', capability: 'launch', reason: 'launch' },
+  { id: 2, app: 'beta', label: 'Beta', capability: 'fs.documents', reason: 'request' },
+]
+if (WINDOWLESS) prompts.length = 0
+const decisions: { app: string; label: string; capability: string; decision: 'granted' | 'denied' }[] = []
 const ATTRIBUTES: Record<string, Record<string, string>> = {
   'w1.2': { placeholder: 'What needs doing?' },
   'w1.3': { title: 'Add a task' },
@@ -74,7 +83,7 @@ function query(m: Record<string, unknown>) {
   const walk = (list: Node[]) => list.forEach((n) => (all.push(n), walk(n.children ?? [])))
   walk(within ? (within.children ?? []) : nodes)
   const tags: Record<string, string> = {
-    textbox: 'input', button: 'button', list: 'ul', listitem: 'li', checkbox: 'input', text: 'span',
+    textbox: 'input', button: 'button', list: 'ul', listitem: 'li', checkbox: 'input', text: 'span', heading: 'h1',
   }
   const pick = (role: string) => all.filter((n) => n.role === role)
   const selector = String(m['selector'])
@@ -86,6 +95,7 @@ function query(m: Record<string, unknown>) {
     : selector === '.ghost' ? [{ ref: 'w1.99', role: 'generic' }]
     : selector === '[placeholder]' ? has('placeholder')
     : selector === '[title]' ? has('title')
+    : selector === 'h1' ? pick('heading')
     : selector === '*' ? all
     : []
   const attributes = Array.isArray(m['attributes']) ? (m['attributes'] as string[]) : []
@@ -115,7 +125,7 @@ function record(entry: object): void {
 
 function tree(win: Win): Node[] {
   if (win.kind === 'desktop') return [{ ref: 'w0.1', role: 'button', name: 'Start' }]
-  if (win.app !== 'alpha') return [{ ref: `${win.ref}.1`, role: 'heading', name: win.title ?? '' }]
+  if (win.app !== 'alpha') return [{ ref: `${win.ref}.1`, role: 'heading', name: win.title ?? '', level: 1 }]
   return [
     { ref: 'w1.2', role: 'textbox', name: 'New task', value: draft, rect: [4, 3, 4, 1] },
     { ref: 'w1.3', role: 'button', name: 'Add', rect: [8, 3, 2, 1], ...(draft ? {} : { states: ['disabled'] }) },
@@ -271,6 +281,29 @@ if (process.argv[2] === '--version') {
   process.exit(0)
 }
 
+const DOCTOR = process.env['FAKE_ACDERT_DOCTOR']
+if (process.argv[2] === '--help') {
+  console.log('usage: acdert [app <id> | desktop <id|dir>] [options]')
+  if (DOCTOR) console.log('       acdert doctor [--json]')
+  process.exit(0)
+}
+if (process.argv[2] === 'doctor' && DOCTOR) {
+  if (DOCTOR === 'garbage') {
+    console.error('acdert doctor: it broke')
+    process.exit(3)
+  }
+  const gpu = DOCTOR === 'gpu'
+    ? { id: 'gpu', title: 'gpu', status: 'error', summary: 'no usable Metal driver was found', fix: 'update the GPU driver' }
+    : { id: 'gpu', title: 'gpu', status: 'ok', summary: 'Fake GPU (Metal, integrated GPU): drew a test frame in 1 ms', fix: null }
+  const host = { id: 'host', title: 'host files', status: 'ok', summary: '/fake/app/dist', fix: null }
+  console.log(JSON.stringify({ acdert: '0.0.0', level: API_LEVEL, platform: process.platform, exe: process.argv[1], checks: [host, gpu] }))
+  process.exit(gpu.status === 'error' ? 1 : 0)
+}
+if (process.env['FAKE_ACDERT_FAILS']) {
+  console.error('web layer unavailable: fake acdert has no GPU')
+  process.exit(1)
+}
+
 const ISOLATION = [
   'HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
   'ACDE_STORAGE', 'ACDE_SIZE', 'ACDE_COLOR_SCHEME', 'ACDE_REDUCED_MOTION', 'ACDE_AUTOSTART',
@@ -325,7 +358,12 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     case 'snapshot':
       return void ok(snapshot(m))
     case 'act':
-      if (m['ref'] === 'w1' && m['action'] === 'close' && process.argv[2] === 'app') process.exit(0)
+      if (m['action'] === process.env['FAKE_ACDERT_DIES_ON']) process.exit(1)
+      if (m['ref'] === 'w1' && m['action'] === 'close' && process.argv[2] === 'app') {
+        if (process.env['FAKE_ACDERT_CLOSE'] !== 'answers') process.exit(0)
+        setTimeout(() => process.exit(0), 150)
+        return void ok({ ok: true, text: 'closing w1' })
+      }
       return void ok(act(String(m['ref']), String(m['action']), m['arg']))
     case 'run': {
       const said: string[] = []
@@ -380,6 +418,26 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       if (m['route'] === undefined) routes.length = 0
       else routes.splice(0, routes.length, ...routes.filter((r) => r.id !== m['route']))
       return void ok({ removed: before - routes.length, left: routes.length })
+    }
+    case 'permissions':
+      return void ok({ pending: prompts, decisions })
+    case 'answer': {
+      const at = prompts.findIndex((p) => p.id === m['prompt'])
+      if (at < 0 || typeof m['allow'] !== 'boolean') {
+        return void fail('answer: prompt is a prompt id and allow is true or false')
+      }
+      const [prompt] = prompts.splice(at, 1)
+      decisions.push({ ...prompt!, decision: m['allow'] ? 'granted' : 'denied' })
+      if (prompt!.reason === 'launch' && m['allow']) windows.push(...held.splice(0))
+      return void ok({ prompt: m['prompt'], allow: m['allow'] })
+    }
+    case 'revoke': {
+      if (typeof m['app'] !== 'string' || typeof m['capability'] !== 'string') {
+        return void fail('revoke: app is an app id and capability is the approved capability (as in permissions)')
+      }
+      const at = decisions.findIndex((d) => d.app === m['app'] && d.capability === m['capability'])
+      if (at >= 0) decisions.splice(at, 1)
+      return void ok({ app: m['app'], capability: m['capability'], revoked: at >= 0 })
     }
     case 'drop': {
       const files = m['files']

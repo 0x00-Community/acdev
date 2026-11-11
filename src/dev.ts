@@ -33,6 +33,13 @@ interface Unit {
   watcher?: FSWatcher
 }
 
+export interface RuntimeProbe {
+  readonly level: number
+  readonly said: string
+  readonly stderr: string
+  readonly failed: string | null
+}
+
 export class DevSession {
   static readonly DEFAULT_DESKTOP = 'dopame'
 
@@ -135,18 +142,15 @@ export class DevSession {
     return { kind: 'desktop', id: desktops[0] ?? DevSession.DEFAULT_DESKTOP }
   }
 
-  static async runtimeLevel(acdert: string): Promise<{ level: number; said: string }> {
-    const child = Runtime.spawn([acdert, '--version'], { stdio: ['ignore', 'pipe', 'ignore'] })
-    let said = ''
-    child.process.stdout!.setEncoding('utf8').on('data', (chunk: string) => (said += chunk))
-    const timer = setTimeout(() => child.kill('SIGKILL'), VERSION_MS)
-    try {
-      await child.exited
-    } finally {
-      clearTimeout(timer)
-    }
-    const level = /\(contract level (\d+)\)/.exec(said)
-    return { level: level ? Number(level[1]) : 0, said: said.trim() }
+  static async runtimeLevel(acdert: string): Promise<RuntimeProbe> {
+    const ran = await Runtime.capture([acdert, '--version'], { timeout: VERSION_MS })
+    const level = /\(contract level (\d+)\)/.exec(ran.stdout)
+    const stderr = ran.stderr.trim()
+    const last = stderr.split(/\r?\n/).at(-1)
+    const failed = ran.error
+      ?? (ran.timedOut ? `it did not exit within ${VERSION_MS / 1000} s`
+        : ran.code !== 0 ? `it exited with code ${ran.code}${last ? `: ${last}` : ''}` : null)
+    return { level: level ? Number(level[1]) : 0, said: ran.stdout.trim(), stderr, failed }
   }
 
   static refusal(unit: { readonly pkg: AppPackage; readonly built: Built | null }, runtime: number): string | null {
@@ -157,13 +161,14 @@ export class DevSession {
 
   async #checkLevels(): Promise<void> {
     if (this.#units.every((u) => u.built?.level === null)) return
-    const { level, said } = await DevSession.runtimeLevel(this.#acdert)
+    const { level, said, failed } = await DevSession.runtimeLevel(this.#acdert)
     this.#level = level
     const refused = this.#units.map((u) => DevSession.refusal(u, level)).filter((r) => r !== null)
     if (refused.length === 0) return
     const told = said ? `says ${JSON.stringify(said)}` : 'printed nothing'
-    const why = level === 0 ? `\n${this.#acdert} --version ${told}, no contract level: ` +
-      'it is older than contract levels; use an acdert that has them' : ''
+    const why = failed ? `\n${this.#acdert} --version: ${failed} (acde doctor checks the whole setup)`
+      : level === 0 ? `\n${this.#acdert} --version ${told}, no contract level: ` +
+        'it is older than contract levels; use an acdert that has them' : ''
     throw new Error(`${refused.join('\n')}${why}`)
   }
 
@@ -214,7 +219,12 @@ export class DevSession {
               '(no reload, no acde webs / eval …): use a newer one',
           ),
       )
-      if (!this.#link) return await started.exited
+      if (!this.#link) {
+        const code = await started.exited
+        if (code !== 0)
+          console.error(`acde: acdert exited (${code}) before it was ready; acde doctor checks the runtime, the GPU and this setup`)
+        return code
+      }
       this.#link.send({ type: 'hello', role: 'dev' })
       this.#publish()
       for (const unit of this.#units) {
