@@ -885,6 +885,38 @@ SYSTEM 的 `power.<方法>`), isolate.ts 的 `powerModule` 把 `watch` 变成 `o
 - 还没有: 锁屏后的息屏时间 (没有锁屏界面)、键盘背光、外接显示器的 DDC/CI 亮度、外设电量、`org.freedesktop.ScreenSaver` /
   `PowerManagement.Inhibit` (只认 Wayland idle-inhibit 和 logind inhibitor)、睡前暂停媒体、按 KDE 的充电起点单独设.
 
+## 可移动存储和打印机 (`acde:devices`)
+
+照 KDE 的「可移动存储」(kded device_automounter + 它的 KCM) 和 print-manager. 桌面全有, 应用要清单的 `devices: true` (桌面包自己的应用
+和 `system` 一样不用写, Broker `apps.ts` 的 `SYSTEM_APP` 补上). 实现在 crates/runtime `devices/` (`Devices`, runtime 里一份, 在 `Desk` 的
+`System` 里), crates/acde `devices.rs` 绑成 `natives.devices` (每次调用一条 `acde-devices` 线程); 内核态窗口走 SYSTEM 的 `devices.<方法>`;
+JS 侧 `isolate.ts` 的 `devicesModule` 加上 `on`. 类型 acde-api `AcdeDevices`. 都返回 promise:
+
+- **盘** (`udisks.rs`, UDisks2, 系统总线, 不用 root): 列出带文件系统、不是 `HintIgnore` / `HintSystem` 的块设备 (U 盘、读卡器、光盘、自己
+  `loop-setup` 的镜像; 解锁了的 LUKS 是它的明文设备, 锁着的不列, 这里也不能解锁). 每个 `{id (块设备名, sdb1), device (自动挂载的键:
+  文件系统 UUID, 没有时 Drive.Id-分区号), label, kind, size, free (挂着时 statvfs), mounted, path, ejectable}`. `mount(id)` 回挂载点,
+  `unmount(id)`, `eject(id)` 是 KDE 的「安全移除」: 卸下同一个盘上的所有文件系统 (加密的再 Lock), 然后 Eject (可弹出的) / PowerOff
+  (能断电的), loop 设备 Delete; 卸下之后的弹出 / 断电失败只记日志 (数据已经安全), 光盘弹不出来报错. 调用都带 `auth.no_user_interaction`
+  (没有 polkit 代理), 不让做时 reject `not allowed: …`.
+- **自动挂载** (`automount.rs`, `$XDG_CONFIG_HOME/acde/automount.json`): 全局 `onLogin` / `onAttach` / `unknown` (KDE 的「登录时」「插入时」
+  「从没挂载过的也挂」, 默认都关, 和 KDE 一样), 每个见过的设备 `{name, everMounted, login, attach}` (login / attach 是这个设备单独强制).
+  规则: 设备强制, 或全局开着且 (挂载过 或 `unknown`). 只在自己的会话里 (main.ts 起 fcitx5 那里, 不含登录页) `desk.startDevices()`:
+  先按「登录时」挂一遍, 再盯 UDisks2 的信号 (300 ms 合并) 按「插入时」挂新插的. 新插的盘 (挂完之后) 发 `on('added', drive)`;
+  见过的设备和它挂载过没有都记进这个文件. `setAutomount(patch)`, `setDeviceAutomount(device, patch)`, `forgetDevice(device)`.
+- **打印机** (`cups.rs` + `ipp.rs`, 自己写的 IPP/1.1 over HTTP, 不链 libcups): 连 `CUPS_SERVER` (是路径时) / `/run/cups/cups.sock` /
+  `127.0.0.1:631`. `CUPS-Get-Printers` 给 `{id (队列名), name (printer-info), state (idle / printing / stopped, reasons 有 offline 时
+  offline), isDefault, jobs (queued-job-count), model, location, message, reasons, accepting, shared}`; `printing` 是 CUPS 在不在.
+  默认打印机先看 `~/.cups/lpoptions` 的 `Default` (和 libcups 一样), 再 `CUPS-Get-Default`. `setDefaultPrinter` 先 `CUPS-Set-Default`
+  (要管理员: 401 时带 `Authorization: PeerCred <用户>` 重试, 本机 socket 上 cupsd 按 SO_PEERCRED 认人, SystemGroup 里的用户就行),
+  成功时去掉用户 lpoptions 的 `Default`, 不让做时改写成只对这个用户 (`lpoptions -d` 的做法). `pausePrinter` / `resumePrinter`
+  (Pause-Printer / Resume-Printer, 同样要管理员), `jobs(printer)` (没完成的任务 `{id, name, user, state, size, created, message}`),
+  `cancelJob(printer, job)` (自己的任务不用管理员).
+- **事件**: `on('changed', state)` 给整个 `state()` (和上次一样不发), `on('added', drive)`. 有 `changed` 的监听时每 3 秒问一次 CUPS
+  (CUPS 没有不订阅就能收的事件), 变了才发; 没有监听时不问 (socket 激活的 cupsd 照常闲了退出). 原生的 `watch(type, 回调)` 回编号,
+  `unwatch(编号)`; isolate 结束时全部摘掉, 每 3 秒的轮询顺带给监听发一个 null (JS 侧丢掉), 收不到的摘掉.
+- 还没有: 添加 / 删除打印机 (KDE 的添加向导、驱动选择)、打印测试页、接受 / 拒绝任务、打印机选项; 手机 (MTP) 不经 UDisks2, 不列.
+  测试: `cargo test -p acde-runtime devices` (IPP 编解码、HTTP 分块、lpoptions 改写、自动挂载规则), 本机的 `--ignored` (`this_machine`).
+
 ## 桌面和窗口 (两个启动位置)
 
 每个桌面 / 窗口 isolate (runtime 里的一条线程 + isolate) 有自己的 DOM、CSS、JS 堆、render 文档 (线程) 和合成器 surface; 相互之间、和系统之间只通过 `acde`

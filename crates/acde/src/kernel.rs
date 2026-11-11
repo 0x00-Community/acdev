@@ -501,6 +501,7 @@ impl Driver {
                         "system": self.grants.system,
                         "audio": self.grants.sound.is_some(),
                         "power": self.grants.power.is_some(),
+                        "devices": self.grants.devices.is_some(),
                     },
                 })))
             }
@@ -533,6 +534,7 @@ impl Driver {
             Some(("system", method)) => g.system.then(|| crate::system::wire(method, a)),
             Some(("sound", method)) => g.sound.as_ref().map(|s| crate::sound::wire(s, method, a, events)),
             Some(("power", method)) => g.power.as_ref().map(|p| crate::power::wire(p, method, a, events)),
+            Some(("devices", method)) => g.devices.as_ref().map(|d| crate::devices::wire(d, method, a, events)),
             Some(("ime", method)) => Some(crate::surface::ime_wire(&mut self.imes, method, a, events)),
             _ => None,
         };

@@ -37,6 +37,7 @@ interface IsolateNatives extends Natives {
   readonly system?: object
   readonly sound?: { watch(callback: (state: unknown) => void): void }
   readonly power?: { watch(callback: (event: { type: string }) => void): void }
+  readonly devices?: DevicesNatives
   readonly office?: { writePage(key: string, html: string): string }
 }
 
@@ -167,6 +168,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   if (natives.system) modules.value['system'] = systemModule(natives.system)
   if (natives.sound) modules.value['audio'] = audioModule(natives.sound)
   if (natives.power) modules.value['power'] = powerModule(natives.power)
+  if (natives.devices) modules.value['devices'] = devicesModule(natives.devices)
   const office = natives.office
   if (office) modules.value['office'] = { ...office, editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => office.writePage(...OfficePage.page(setup, theme)) }
   modules.define(host)
@@ -239,6 +241,48 @@ function powerModule(natives: { watch(callback: (event: { type: string }) => voi
       const own = (value: unknown) => (handler as (value: unknown) => void)(value)
       set.add(own)
       return () => set.delete(own)
+    },
+  }
+}
+
+interface DevicesNatives {
+  watch(type: string, callback: (value: unknown) => void): number
+  unwatch(id: number): void
+}
+
+function devicesModule(natives: DevicesNatives): object {
+  const handlers = new Map<string, Set<(value: unknown) => void>>([['changed', new Set()], ['added', new Set()]])
+  const watching = new Map<string, number>()
+  const { watch, unwatch, ...methods } = natives
+  return {
+    ...methods,
+    on(type: string, handler: (value: unknown) => void): () => boolean {
+      const set = handlers.get(type)
+      if (!set) throw new TypeError(`acde:devices has no ${String(type)} event`)
+      if (typeof handler !== 'function') throw new TypeError('acde:devices on: the handler is not a function')
+      set.add(handler)
+      if (!watching.has(type)) {
+        const deliver = (value: unknown) => {
+          if (value == null) return
+          for (const h of [...set]) {
+            try {
+              h(value)
+            } catch (error) {
+              reportError(error)
+            }
+          }
+        }
+        watching.set(type, watch.call(natives, type, deliver))
+      }
+      return () => {
+        const had = set.delete(handler)
+        const id = watching.get(type)
+        if (!set.size && id !== undefined) {
+          watching.delete(type)
+          unwatch.call(natives, id)
+        }
+        return had
+      }
     },
   }
 }

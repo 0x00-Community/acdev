@@ -1,5 +1,6 @@
 mod atspi;
 mod bus;
+mod devices;
 mod failure;
 mod fields;
 pub(crate) mod fs;
@@ -21,6 +22,7 @@ mod unixhttp;
 mod voice;
 pub use atspi::Accessibility;
 pub use bus::DesktopBus;
+pub use devices::{DevCall, Devices, Topic};
 pub use greetd::{GreetUser, Greetd};
 pub use ime::{Ime, ImeCapability};
 pub use network::{NetCall, Network, Networks};

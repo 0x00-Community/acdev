@@ -54,6 +54,13 @@ declare module 'acde:power' {
   export default power
 }
 
+declare module 'acde:devices' {
+  import type { AcdePage } from '@dopame/acde-api'
+  const devices: NonNullable<AcdePage['devices']>
+  export { devices }
+  export default devices
+}
+
 declare module 'acde:windows' {
   import type { AcdePage } from '@dopame/acde-api'
   const windows: NonNullable<AcdePage['windows']>

@@ -366,7 +366,7 @@ export class Broker {
     [Modules.STORE]: { capability: 'store', desktopOnly: true },
   }
 
-  static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office'])
+  static readonly #LOCAL = new Set(['fs', 'terminal', 'network', 'office', 'devices'])
 
   addService(name: string, target: unknown): void {
     this.bridge.value[name] = target

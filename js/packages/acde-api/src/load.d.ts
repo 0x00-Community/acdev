@@ -9,6 +9,7 @@ export interface AcdeModules {
   readonly display: NonNullable<AcdePage['display']>
   readonly audio: NonNullable<AcdePage['audio']>
   readonly power: NonNullable<AcdePage['power']>
+  readonly devices: NonNullable<AcdePage['devices']>
   readonly windows: NonNullable<AcdePage['windows']>
   readonly apps: NonNullable<AcdePage['apps']>
   readonly desktop: NonNullable<AcdePage['desktop']>

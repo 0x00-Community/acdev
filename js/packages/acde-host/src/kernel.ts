@@ -274,7 +274,7 @@ const info = call(Iface.Natives, 'init', []) as {
   place: 'desktop' | 'window'
   window: number
   storage: boolean
-  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean; system?: boolean; audio?: boolean; power?: boolean }
+  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean; system?: boolean; audio?: boolean; power?: boolean; devices?: boolean }
 }
 
 function listen(callback: (value: unknown) => void): number {
@@ -339,6 +339,23 @@ const power = info.grants.power
         },
       },
     )
+  : undefined
+const DEVICES = ['state', 'mount', 'unmount', 'eject', 'setAutomount', 'setDeviceAutomount', 'forgetDevice', 'setDefaultPrinter', 'pausePrinter', 'resumePrinter', 'jobs', 'cancelJob']
+const deviceTokens = new Map<number, number>()
+const devices = info.grants.devices
+  ? system('devices', Object.fromEntries(DEVICES.map((name) => [name, 'a' as const])), {
+      watch: (type: string, callback: (value: unknown) => void) => {
+        const token = listen(callback)
+        const id = call(Iface.System, 'devices.watch', [type, token]) as number
+        deviceTokens.set(id, token)
+        return id
+      },
+      unwatch: (id: number) => {
+        call(Iface.System, 'devices.unwatch', [id])
+        listeners.delete(deviceTokens.get(id) ?? 0)
+        deviceTokens.delete(id)
+      },
+    })
   : undefined
 const office = info.grants.office ? (system('office', { server: 'a', state: 'a', status: 'a', save: 'a', new: 'a', writePage: 'r' }) as { writePage(key: string, html: string): string }) : undefined
 
@@ -465,6 +482,7 @@ const natives = {
   system: systemNatives,
   sound,
   power,
+  devices,
   office,
   createDocument(width: number, height: number, scale: number, options: object) {
     call(Iface.Natives, 'createDocument', [width, height, scale, options])

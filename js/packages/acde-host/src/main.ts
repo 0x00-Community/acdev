@@ -267,7 +267,10 @@ class Main {
     broker.startDesktop()
     Log.write(Level.Info, 'acde_host', `broker started, the desktop is loading (${(performance.now() - started).toFixed(0)}ms)`)
     const shell = broker.shell
-    if (session && !greeter && !standalone) broker.desk.startPower()
+    if (session && !greeter && !standalone) {
+      broker.desk.startPower()
+      broker.desk.startDevices()
+    }
     if (session && !greeter) {
       try {
         shell.launch(['fcitx5', '-d', '--replace'])
