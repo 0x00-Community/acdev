@@ -218,7 +218,7 @@ describe('acde.config.jsonc', () => {
   test('new app: builds a window app from index.html', async () => {
     const data = tmp()
     const dir = join(tmp(), 'hello')
-    expect((await cli(['new', dir, '--label', 'Hi'], tmp())).code).toBe(0)
+    expect((await cli(['new', dir, '--label', 'Hi', '--no-install'], tmp())).code).toBe(0)
     expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@dopame/acde-api']).toBe(
       Creator.api(),
     )
@@ -235,7 +235,8 @@ describe('acde.config.jsonc', () => {
 
   test('new --template desktop: builds a desktop, its services and its apps', async () => {
     const dir = join(tmp(), 'mine')
-    expect((await cli(['new', dir, '--template', 'desktop', '--label', '我的桌面'], tmp())).code).toBe(0)
+    const made = await cli(['new', dir, '--template', 'desktop', '--label', '我的桌面', '--no-install'], tmp())
+    expect(made.code).toBe(0)
     writeFileSync(join(dir, 'clock.js'), 'export default () => ({ methods: { now: () => Date.now() } })\n')
     writeFileSync(join(dir, 'notes.html'), '<!doctype html><title>Notes</title><p>notes</p>\n')
     const config = readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')
@@ -326,15 +327,15 @@ describe('acde.config.jsonc', () => {
   test('new . in a fresh git checkout (only .git there)', async () => {
     const dir = tmp()
     mkdirSync(join(dir, '.git'))
-    const created = await cli(['new', '.', '--id', 'pomodoro'], dir)
+    const created = await cli(['new', '.', '--id', 'pomodoro', '--no-install'], dir)
     expect(created.code, created.stderr).toBe(0)
     writeFileSync(join(dir, 'stray'), '')
-    expect((await cli(['new', '.', '--id', 'again'], dir)).stderr).toContain('is not empty')
+    expect((await cli(['new', '.', '--id', 'again', '--no-install'], dir)).stderr).toContain('is not empty')
   })
 
   test('new --template html --backend: the page answers from server.ts', async () => {
     const dir = join(tmp(), 'with-api')
-    const made = await cli(['new', dir, '--template', 'html', '--backend', '--label', 'API'], tmp())
+    const made = await cli(['new', dir, '--template', 'html', '--backend', '--label', 'API', '--no-install'], tmp())
     expect(made.code).toBe(0)
     expect(made.stdout).toContain('next: cd ')
     expect(made.stdout).toContain('acde: then: while acde dev runs, acde inspect / eval / console / network / shot')
@@ -388,7 +389,7 @@ describe('acde.config.jsonc', () => {
 
   test('check: a missing entry, a wrong type', async () => {
     const dir = join(tmp(), 'bad')
-    expect((await cli(['new', dir], tmp())).code).toBe(0)
+    expect((await cli(['new', dir, '--no-install'], tmp())).code).toBe(0)
     rmSync(join(dir, 'index.html'))
     expect((await cli(['check'], dir)).stderr).toContain('no index.html (entry in acde.config.jsonc)')
     writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "widget" }')
@@ -518,7 +519,7 @@ describe('a project made by acde from its checkout', () => {
       try {
         const dir = join(tmp(), `by-${pm}`)
         const path = tools(pm === 'bun' ? ['bun'] : [pm, 'node', 'bun'])
-        const argv = [process.execPath, join(ROOT, 'src/cli.ts'), 'new', dir, '--pm', pm, '--yes', '--install']
+        const argv = [process.execPath, join(ROOT, 'src/cli.ts'), 'new', dir, '--pm', pm, '--yes']
         const PATH = [path, ...basePath(pm === 'bun' ? process.execPath : pm)].join(delimiter)
         const made = await run(argv, tmp(), path, { ACDERT_DIST: sdk.dist, PATH })
         expect(made.code, made.out).toBe(0)

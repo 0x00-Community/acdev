@@ -330,10 +330,10 @@ describe('the release archive and the installed CLI', () => {
     const apiBuild = join(root, 'api build')
     const path = [dirname(process.execPath), process.env['PATH']].join(delimiter)
     for (const args of [
-      ['new', project, '--yes', '--id', 'hello', '--pm', 'bun'],
+      ['new', project, '--yes', '--no-install', '--id', 'hello', '--pm', 'bun'],
       ['check', project],
       ['build', project, '--out', build],
-      ['new', withApi, '--template', 'html', '--backend', '--yes', '--id', 'with-api', '--pm', 'bun'],
+      ['new', withApi, '--template', 'html', '--backend', '--yes', '--no-install', '--id', 'with-api', '--pm', 'bun'],
       ['build', withApi, '--out', apiBuild],
     ]) {
       const ran = await run([shim, ...args], { ACDE_INSTALL: home, PATH: path }, root)

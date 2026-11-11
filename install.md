@@ -75,7 +75,7 @@ It prints the acde version, the SDK version and contract level, and the acdert i
 In a temporary directory:
 
 ```sh
-acde new hello --template html --install --yes
+acde new hello --template html --yes
 cd hello
 acde check
 acde build

@@ -169,7 +169,7 @@ This sets `ACDERT` for your user and for the current terminal. App backends don'
 To upgrade the runtime, run the same commands again. Check that it works with a new project:
 
 ```sh
-acde new hello --template html --install --yes
+acde new hello --template html --yes
 cd hello
 acde dev
 ```

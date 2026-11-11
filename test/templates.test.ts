@@ -56,7 +56,7 @@ describe('templates at contract level 1', () => {
   ] as const) {
     test(`${name}: checks clean, builds at level ${API_LEVEL} and the SDK validator finds nothing`, async () => {
       const dir = join(tmp(), 'starter')
-      const made = await cli(['new', dir, ...args, '--label', 'Starter'], tmp())
+      const made = await cli(['new', dir, ...args, '--label', 'Starter', '--no-install'], tmp())
       expect(made.code, made.stderr).toBe(0)
       const own = config(dir)
       if (own['type'] === 'app') expectLevel1App(own, 'starter')
@@ -75,7 +75,7 @@ describe('templates at contract level 1', () => {
 
   test('a desktop app written the template way is a level 1 system app', async () => {
     const dir = join(tmp(), 'deck')
-    expect((await cli(['new', dir, '--template', 'desktop'], tmp())).code).toBe(0)
+    expect((await cli(['new', dir, '--template', 'desktop', '--no-install'], tmp())).code).toBe(0)
     writeFileSync(join(dir, 'notes.html'), '<!doctype html><title>Notes</title><p>notes</p>\n')
     const notes = {
       id: 'notes', label: 'Notes', entry: 'notes.html', backend: false,

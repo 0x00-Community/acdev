@@ -13,7 +13,7 @@ On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong
 ### acde new
 
 ```text
-acde new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--pm PM] [--yes]
+acde new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--no-install] [--git] [--pm PM] [--yes]
 ```
 
 Creates a project. In a terminal, it asks for whatever is missing; with `--yes`, or outside a terminal, it asks nothing (then `dir` is required, the template defaults to `html`, and no dependencies are installed and no repository is created).
@@ -23,7 +23,7 @@ Creates a project. In a terminal, it asks for whatever is missing; with `--yes`,
 | `--template` | `html` `desktop` `react` `vue` `svelte` `solid` `preact` `vanilla` `next` `nuxt` `sveltekit` `astro` |
 | `--id` / `--label` | App id and display name |
 | `--backend` | Include a backend (`html` only) |
-| `--install` | Install dependencies |
+| `--no-install` | Do not install the dependencies (by default `acde new` installs them, the SDK included, with the package manager) |
 | `--git` | `git init` and make the first commit (if a git user name and email are configured) |
 | `--pm` | `bun` `npm` `pnpm` `yarn`; decides whether the project runs on Bun or Node.js |
 

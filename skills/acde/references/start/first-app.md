@@ -11,7 +11,7 @@ In a terminal, `acde new` asks for whatever is missing: app or desktop, template
 To skip the prompts, pass everything as options and add `--yes`:
 
 ```sh
-acde new my-app --template html --label "My App" --install --yes
+acde new my-app --template html --label "My App" --yes
 ```
 
 Available templates:

@@ -17,8 +17,9 @@ import { Tools } from './tools.ts'
 declare const ACDE_SDK_VERSION: string | undefined
 
 const USAGE = `usage: acde <command>
-  new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--pm PM] [--yes]
-                                                   a project; in a terminal it asks what is missing (--yes: ask nothing)
+  new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--no-install] [--git] [--pm PM] [--yes]
+                                                   a project; in a terminal it asks what is missing (--yes: ask
+                                                   nothing); installs its dependencies, SDK included (--no-install: not)
                                                    T: ${STARTERS.map((s) => s.name).join(', ')}
                                                    PM: bun, npm, pnpm, yarn (default: the one running this)
   check [dir] [--platform P]                       acde.config.jsonc (or a package's manifest), as acdert reads it;
@@ -88,7 +89,11 @@ interface Args {
 
 class Cli {
   static readonly SPECS: Readonly<Record<string, Spec>> = {
-    new: { args: [0, 1], flags: ['id', 'label', 'template', 'pm'], switches: ['backend', 'install', 'git', 'yes'] },
+    new: {
+      args: [0, 1],
+      flags: ['id', 'label', 'template', 'pm'],
+      switches: ['backend', 'install', 'no-install', 'git', 'yes'],
+    },
     check: { args: [0, 1], flags: ['platform'] },
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
@@ -277,6 +282,7 @@ class Cli {
       ...(flags.has('label') && { label: flags.get('label')! }),
       ...(flags.has('backend') && { backend: true }),
       ...(flags.has('install') && { install: true }),
+      ...(flags.has('no-install') && { install: false }),
       ...(flags.has('git') && { git: true }),
       ...(flags.has('pm') && { pm: PackageManager.named(flags.get('pm')!).name }),
     }

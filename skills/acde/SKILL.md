@@ -31,7 +31,7 @@ acdert has its own renderer and is not Chromium. Standard APIs follow the spec, 
 Create a project without prompts (`--yes` asks nothing; without it `acde new` waits for answers in a terminal):
 
 ```sh
-acde new my-app --template html --label "My App" --install --yes
+acde new my-app --template html --label "My App" --yes
 ```
 
 Run it. `acde dev` builds, starts acdert, and rebuilds and reloads on every change. It does not exit: start it in the background and keep it running while you work; `acde stop` ends it. Add `--headless` when no window is needed; pages still render and screenshots still work.

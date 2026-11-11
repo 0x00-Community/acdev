@@ -240,7 +240,8 @@ export class Creator {
       writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
     Creator.#pin(dir, pm)
     const pkg = new AppPackage(dir)
-    if (options.install) await step(`${pm.name} install`, [pm.install], dir)
+    const install = options.install ?? true
+    if (install) await step(`${pm.name} install`, [pm.install], dir)
     if (options.git && !Creator.#inRepo(dir)) {
       await step(
         'git init',
@@ -256,7 +257,7 @@ export class Creator {
       })
       if (chatty) p.log.step(commit.status === 0 ? 'git commit' : 'git commit: skipped (no git user.name / user.email)')
     }
-    return { pkg, dir, starter, installed: options.install === true, pm }
+    return { pkg, dir, starter, installed: install, pm }
   }
 
   static next(created: Created): string[] {
