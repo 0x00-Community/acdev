@@ -226,11 +226,15 @@ describe('DOM domain served by the page', () => {
       },
     }
     const sent: Record<string, unknown>[] = []
-    const to: number[] = []
+    const to = new WeakMap<object, number>()
     let handler: ((session: number, text: string | null) => void) | null = null
     const host = {
       devtoolsHandler: (fn: (session: number, text: string | null) => void) => ((handler = fn), 'alpha#1'),
-      devtoolsSend: (session: number, text: string) => void (sent.push(JSON.parse(text) as Record<string, unknown>), to.push(session)),
+      devtoolsSend: (session: number, text: string) => {
+        const message = JSON.parse(text) as Record<string, unknown>
+        to.set(message, session)
+        sent.push(message)
+      },
     }
     const dom = (page: DevToolsPage) => DomDomain.create(source, (session, method, params) => page.emitTo(session, 'DOM', method, params))
     DevToolsPage.install(host, (page) => [dom(page), CssDomain.create(source)])
@@ -241,7 +245,7 @@ describe('DOM domain served by the page', () => {
     }
     const mutate = (records: DomRecord[]) => changed!(records)
     const end = (session: number) => handler!(session, null)
-    const events = (session: number) => sent.filter((m, i) => to[i] === session && typeof m['method'] === 'string')
+    const events = (session: number) => sent.filter((m) => to.get(m) === session && typeof m['method'] === 'string')
     return { document, html, body, title, sent, events, ask, end, mutate, styles, lookup: () => lookup, observing: () => changed !== null }
   }
   type Described = { nodeId: number; nodeName: string; attributes?: string[]; childNodeCount: number; children?: Described[]; nodeValue: string }
@@ -376,6 +380,24 @@ describe('DOM domain served by the page', () => {
     end(1)
     end(2)
     assert.equal(observing(), false, 'no session left, nothing watched')
+  })
+
+  test('a removed node takes the expanded nodes below it out of the session', async () => {
+    const { body, events, sent, ask, mutate } = tree()
+    const inner = new FakeNode(1, 'P').append(new FakeNode(3, '#text', 'deep'))
+    const section = new FakeNode(1, 'SECTION').append(inner)
+    body.append(section)
+    await ask({ id: 1, method: 'DOM.getDocument', params: { depth: -1 } })
+    body.childNodes.splice(body.childNodes.indexOf(section), 1)
+    section.parentNode = null
+    mutate([{ type: 'childList', target: body, addedNodes: [], removedNodes: [section], attributeName: null }])
+    body.append(section)
+    mutate([{ type: 'childList', target: body, addedNodes: [section], removedNodes: [], attributeName: null }])
+    sent.length = 0
+    const more = new FakeNode(1, 'B')
+    inner.append(more)
+    mutate([{ type: 'childList', target: inner, addedNodes: [more], removedNodes: [], attributeName: null }])
+    assert.deepEqual(events(1), [], 'the p inside the removed section is no longer counted as expanded')
   })
 
   test('page changes reach the open tree as DOM events', async () => {

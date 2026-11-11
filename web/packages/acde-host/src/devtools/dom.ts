@@ -326,6 +326,11 @@ export class DomDomain {
     }
   }
 
+  #forget(known: Set<number>, node: DomNode): void {
+    if (!known.delete(this.#source.idOf(node))) return
+    for (let i = 0; i < node.childNodes.length; i++) this.#forget(known, node.childNodes[i]!)
+  }
+
   #tell(session: number, known: Set<number>, record: DomRecord): void {
     const target = this.#source.idOf(record.target)
     const parent = record.target.parentNode
@@ -349,7 +354,7 @@ export class DomDomain {
     for (let i = 0; i < record.removedNodes.length; i++) {
       const node = record.removedNodes[i]!
       if (node.nodeType === TEXT && !(node.nodeValue ?? '').trim()) continue
-      known.delete(this.#source.idOf(node))
+      this.#forget(known, node)
       this.#emit(session, 'childNodeRemoved', { parentNodeId: target, nodeId: this.#source.idOf(node) })
     }
     for (let i = 0; i < record.addedNodes.length; i++) {
