@@ -110,7 +110,7 @@ export class Skills {
       console.log(`acde: skill ${copy ? 'copied' : 'linked'} to ${dest}${Skills.who(place)}`)
     }
     if (places.length === 0)
-      console.log('acde: no agent found; name one with --agent, or a skills directory with --dir')
+      console.error('acde: no agent found; name one with --agent, or a skills directory with --dir')
     return places.length === 0 ? 1 : 0
   }
 
