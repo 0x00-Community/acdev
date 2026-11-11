@@ -1614,7 +1614,9 @@ RDP 后端 (crates/render 的 remote, 合成器侧是 crates/shell `compositor/r
 ironrdp-tokio 带进 reqwest), 这里改成跑在 ntex 上 (运行时 ntex 自己选), TLS 用 ntex-tls 的 OpenSSL filter; 其余 IronRDP crate
 仍用 crates.io 的. 改动处 grep `acde:`: `src/transport.rs` (新: ntex 版的 FramedRead / FramedWrite、TLS 握手、std 监听 +
 `ironrdp-accept` 线程), `src/server.rs`, `src/helper.rs` (OpenSSL 读证书、建 acceptor、`SSLKEYLOGFILE`), `src/encoder/fast_path.rs`
-(没有数据的更新也发一次: 上游把 `DefaultPointer` / `HidePointer` 吞掉了, 客户端从头到尾不显示光标), `Cargo.toml`, `clippy.toml`.
+(没有数据的更新也发一次: 上游把 `DefaultPointer` / `HidePointer` 吞掉了, 客户端从头到尾不显示光标), `src/display.rs` + `src/encoder/mod.rs`
+(客户端发 `RefreshRectangle` 或带矩形的 `SuppressOutput` 时调 `RdpServerDisplay::request_refresh`, 后端重发整屏; 盖满桌面的位图整块编码不做差分.
+mstsc 一类客户端在画面就绪前收到的帧会丢掉, 靠这个要回来, 否则黑到画面有变化), `Cargo.toml`, `clippy.toml`.
 
 和上游的不同: 事件通道是 async-channel (`try_send`); `with_tls` / `with_hybrid` 收 OpenSSL 的 `SslAcceptor`; `run_connection(_with)`
 收 ntex 的 `Io`; `RdpServer::run` 要在 ntex System 里跑; TLS 握手 5 秒超时; 不支持 Kerberos (只用 NTLM).
@@ -1664,6 +1666,13 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 - 一次只服务一个连接 (ironrdp), **新连接顶掉旧连接** (vendors/ironrdp-server `run`): 服务一个连接时同时等下一个, 来了就丢掉旧的
   (socket 关掉) 改服务新的; 否则一个没关掉连接就消失的客户端会把后面的人全挡在外面. 会话开始 / 结束 / 被顶掉各打一行 info (带对端地址,
   target `ironrdp_server`, acde-log 默认开).
+- **H.264 视频** (render `remote/video.rs`, 缺省开, `ACDE_RDP_VIDEO=0` 关; 码率 `ACDE_RDP_KBPS`, 缺省 6000): 客户端协商出图形管线
+  (egfx, AVC420) 时, 画面不再走位图: 每帧读回的矩形画进一份整屏 RGBA, `acde-rdp-h264` 线程最多 30 帧/秒把整屏转 YUV、用 openh264
+  (屏幕内容实时模式, 源码编进来, 不依赖系统库) 编成 H.264, 经 egfx 的 StartFrame / WireToSurface1 / EndFrame 发出; 客户端确认帧
+  (在途超过 3 帧时等确认, 不排队). 新连接重建 surface 并出关键帧, 客户端要求重画 (RefreshRectangle / SuppressOutput 恢复) 时强制
+  关键帧. 协商不出 AVC420 (老客户端) 时照旧发位图. 本机 1440x900 实测编码 (含转 YUV) 平均 32 ms 一帧, 所以大面积变化时到不了
+  30 帧; 下一步是 GPU (VA-API) 编码. 本机自带的 xfreerdp3 编译时没开 H.264, 测的时候用 ~/coding/clone/FreeRDP (3.10.3,
+  `-DWITH_VIDEO_FFMPEG=ON`) 编的 xfreerdp 加 `/gfx:avc420`.
 - **RDP 会话默认 reduced-motion** (acde-host `main.ts`: `ACDE_BACKEND=rdp` 且没设 `ACDE_REDUCED_MOTION` 时): 页面的
   `prefers-reduced-motion: reduce` 成立, 桌面的动画壁纸停下来. 本机 1440x900、Dopame 桌面、回环 xfreerdp3 实测: 静止桌面首屏约 660 KB
   之后 0 B/s; `ACDE_REDUCED_MOTION=0` (壁纸动) 约 727 KiB/s.

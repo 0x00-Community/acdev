@@ -251,7 +251,12 @@ impl UpdateEncoder {
         // TODO: we may want to make it optional for servers that already provide damaged regions
         const USE_DIFFS: bool = true;
 
-        let diffs = if let Some(Framebuffer {
+        // acde: a bitmap of the whole desktop is a refresh the client asked for: sent whole, not diffed against what
+        // the server believes the client shows
+        let whole = bitmap.x == 0 && bitmap.y == 0 && bitmap.width.get() == self.desktop_size.width && bitmap.height.get() == self.desktop_size.height;
+        let diffs = if whole {
+            vec![Rect { x: 0, y: 0, width: bitmap.width.get().into(), height: bitmap.height.get().into() }]
+        } else if let Some(Framebuffer {
             data,
             stride,
             width,

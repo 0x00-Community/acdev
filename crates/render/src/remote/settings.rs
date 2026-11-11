@@ -31,6 +31,8 @@ pub struct RdpSettings {
     pub addr: SocketAddr,
     pub security: RdpSecurity,
     pub size: Size,
+    pub video: bool,
+    pub kbps: u32,
 }
 
 impl RdpSettings {
@@ -39,6 +41,7 @@ impl RdpSettings {
     const DIR: &str = "agentos/rdp";
     const CERT: &str = "cert.pem";
     const KEY: &str = "key.pem";
+    const KBPS: u32 = 6000;
 
     pub fn from_env() -> Result<Self, String> {
         let (Some(user), Some(password)) = (Var::RdpUser.get(), Var::RdpPassword.get()) else {
@@ -49,6 +52,8 @@ impl RdpSettings {
         let key = Var::RdpKey.path().unwrap_or_else(|| dir.join(Self::KEY));
         let addr = Var::RdpAddr.get().as_deref().unwrap_or(Self::ADDR).parse().map_err(|e| format!("{}: {e}", Var::RdpAddr.name()))?;
         let security = Var::RdpSecurity.get().as_deref().map_or(Ok(RdpSecurity::default()), RdpSecurity::try_from)?;
-        Ok(Self { user, password, cert, key, addr, security, size: Size::or(Self::SIZE) })
+        let video = Var::RdpVideo.on(true);
+        let kbps = Var::RdpKbps.parse().filter(|k| *k > 0).unwrap_or(Self::KBPS);
+        Ok(Self { user, password, cert, key, addr, security, size: Size::or(Self::SIZE), video, kbps })
     }
 }

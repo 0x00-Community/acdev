@@ -39,7 +39,8 @@ parking_lot = "0.12"
 # 日志和全链路计时: 帧的耗时, 输入到上屏的 Trace 跟着 Frame 走
 acde-log = { path = "../log" }
 acde-driver = { path = "../driver" }
-ironrdp-server = { version = "0.13", features = ["helper"] }
+ironrdp-server = { version = "0.13", features = ["helper", "egfx"] }
+openh264 = "0.9.10"
 ntex = { version = "4.4", features = ["openssl"] }
 async-channel = "2"
 async-trait = "0.1"

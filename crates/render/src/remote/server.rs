@@ -8,6 +8,7 @@ use ironrdp_server::{
 
 use super::input::{Handler, RdpInput};
 use super::settings::{RdpSecurity, RdpSettings};
+use super::video::Video;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RdpEvent {
@@ -86,6 +87,7 @@ struct Display {
     size: DesktopSize,
     updates: RdpUpdates,
     notify: RdpNotify,
+    video: Option<Video>,
 }
 
 #[async_trait::async_trait]
@@ -98,7 +100,14 @@ impl RdpServerDisplay for Display {
         let receiver = self.updates.open();
         (self.notify)(RdpEvent::Full);
         log::info!("RDP 客户端连上了");
-        Ok(Box::new(UpdateStream { receiver, frame: VecDeque::from([DisplayUpdate::DefaultPointer]), notify: self.notify.clone() }))
+        Ok(Box::new(UpdateStream { receiver, frame: VecDeque::from([DisplayUpdate::DefaultPointer]), notify: self.notify.clone(), video: self.video.clone() }))
+    }
+
+    fn request_refresh(&mut self) {
+        (self.notify)(RdpEvent::Full);
+        if let Some(video) = &self.video {
+            video.refresh();
+        }
     }
 }
 
@@ -106,6 +115,7 @@ struct UpdateStream {
     receiver: async_channel::Receiver<Frame>,
     frame: VecDeque<DisplayUpdate>,
     notify: RdpNotify,
+    video: Option<Video>,
 }
 
 #[async_trait::async_trait]
@@ -117,6 +127,12 @@ impl RdpServerDisplayUpdates for UpdateStream {
             }
             let Ok(frame) = self.receiver.recv().await else { return Ok(None) };
             (self.notify)(RdpEvent::Drained);
+            if let Some(video) = &self.video {
+                video.frame(&frame);
+                if video.active() {
+                    continue;
+                }
+            }
             return Ok(Some(DisplayUpdate::Frame(frame)));
         }
     }
@@ -128,6 +144,10 @@ impl RdpSettings {
         let acceptor = identity.make_acceptor().map_err(|e| format!("RDP TLS: {e:#}"))?;
         let size = DesktopSize { width: self.size.width, height: self.size.height };
         let pub_key = identity.pub_key;
+        let video = match self.video {
+            true => Video::start(size, self.kbps).inspect_err(|e| log::warn!("RDP 视频不可用, 用位图: {e}")).ok(),
+            false => None,
+        };
         let Self { user, password, addr, security, .. } = self;
         std::thread::Builder::new()
             .name("acde-rdp".into())
@@ -140,8 +160,9 @@ impl RdpSettings {
                 };
                 let mut server = builder
                     .with_input_handler(Handler { notify: notify.clone(), size })
-                    .with_display_handler(Display { size, updates, notify })
+                    .with_display_handler(Display { size, updates, notify, video: video.clone() })
                     .with_credential_validator(Some(Arc::new(ExactMatchCredentialValidator::new(credentials.clone()))))
+                    .with_gfx_factory(video.as_ref().map(Video::factory))
                     .build();
                 server.set_credentials(Some(credentials));
                 log::info!("RDP 服务在 {addr}");
