@@ -222,7 +222,7 @@ export class SourceMaps {
     const code = this.#read(url)
     if (!code) return null
     const text = new TextDecoder().decode(code)
-    const link = /\/\/[#@] sourceMappingURL=(\S+)\s*$/.exec(text.slice(-4096))?.[1]
+    const link = /\/\/[#@] sourceMapping[U]RL=(\S+)\s*$/.exec(text.slice(-4096))?.[1]
     if (!link) return null
     let json: string
     let base = url
