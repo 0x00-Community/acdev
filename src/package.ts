@@ -10,6 +10,7 @@ import {
 } from '@dopame/acde-api/manifest'
 import { Project } from './app.ts'
 import { Imports, type ImportOwner } from './imports.ts'
+import { Jsonc } from './runtime.ts'
 
 export interface PlatformReport {
   readonly modes: readonly RunningMode[]
@@ -53,7 +54,7 @@ export class AppPackage {
     this.dir = realpathSync(resolve(dir))
     const file = join(this.dir, 'package.json')
     const json = existsSync(file)
-      ? (JSON.parse(readFileSync(file, 'utf8')) as { name?: unknown; acde?: { apps?: unknown } })
+      ? (Jsonc.parse(readFileSync(file, 'utf8'), 'package.json') as { name?: unknown; acde?: { apps?: unknown } })
       : {}
     const configured = Project.CONFIGS.some((name) => existsSync(join(this.dir, name)))
     this.manifest = !configured && Array.isArray(json.acde?.apps) ? (json.acde as PackageManifest) : null

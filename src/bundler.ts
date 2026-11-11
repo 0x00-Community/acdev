@@ -6,6 +6,13 @@ import acdeVite from '@dopame/acde-api/vite'
 import { PackageManager } from './pm.ts'
 import { Runtime } from './runtime.ts'
 
+interface Position {
+  readonly file: string
+  readonly line: number
+  readonly column: number
+  readonly lineText: string
+}
+
 export interface PublicRules {
   readonly dir: string
   readonly publicDir: string
@@ -119,8 +126,17 @@ if (typeof serve === "function" && main && typeof main.fetch === "function") ser
 
   static check(what: string, result: { readonly success: boolean; readonly logs: readonly unknown[] }): void {
     if (result.success) return
-    const said = result.logs.map((log) => String((log as { message?: unknown }).message ?? log))
-    throw new AggregateError(result.logs, `${what}: ${said.join('; ')}`)
+    const said = result.logs.map((log) => Bundler.describe(log))
+    throw new AggregateError(result.logs, `${what}: ${said.join('\n')}`)
+  }
+
+  static describe(log: unknown): string {
+    const { message, position } = log as { message?: unknown; position?: Position | null }
+    const text = String(message ?? log)
+    if (!position?.file) return text
+    const file = relative(process.cwd(), position.file) || position.file
+    const caret = `${' '.repeat(Math.max(0, position.column - 1))}^`
+    return `${file}:${position.line}:${position.column}: ${text}\n  ${position.lineText}\n  ${caret}`
   }
 
   static publicFile(rules: PublicRules, rel: string): string | null {

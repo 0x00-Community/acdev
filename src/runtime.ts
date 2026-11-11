@@ -136,13 +136,29 @@ export class Runtime {
 }
 
 export class Jsonc {
-  static parse(text: string): unknown {
-    return JSON.parse(Jsonc.strip(text))
+  static parse(text: string, file?: string): unknown {
+    const json = Jsonc.strip(text)
+    try {
+      return JSON.parse(json)
+    } catch (error) {
+      if (file === undefined) throw error
+      const at = Jsonc.errorAt(json)
+      const before = text.slice(0, at).split('\n')
+      const line = before.length
+      const column = before.at(-1)!.length + 1
+      const shown = text.split('\n')[line - 1]!.replace(/\r$/, '')
+      const caret = `${' '.repeat(column - 1)}^`
+      throw new Error(`${file}:${line}:${column}: not valid JSON (${(error as Error).message})\n  ${shown}\n  ${caret}`)
+    }
   }
 
   static strip(text: string): string {
     let out = ''
     let pending = ''
+    const put = (s: string) => {
+      if (pending) pending += s
+      else out += s
+    }
     for (let i = 0; i < text.length; i++) {
       const c = text[i]!
       if (c === '"') {
@@ -152,22 +168,98 @@ export class Jsonc {
         pending = ''
         i = end
       } else if (c === '/' && text[i + 1] === '/') {
-        while (i < text.length && text[i] !== '\n') i++
-        i--
+        let end = i
+        while (end < text.length && text[end] !== '\n') end++
+        put(' '.repeat(end - i))
+        i = end - 1
       } else if (c === '/' && text[i + 1] === '*') {
-        const end = text.indexOf('*/', i + 2)
-        i = end < 0 ? text.length : end + 1
+        const close = text.indexOf('*/', i + 2)
+        const end = close < 0 ? text.length : close + 2
+        put(text.slice(i, end).replace(/[^\n]/g, ' '))
+        i = end - 1
       } else if (c === ',') {
         out += pending
         pending = ','
       } else if (/\s/.test(c)) {
-        if (pending) pending += c
-        else out += c
+        put(c)
       } else {
-        out += (c === '}' || c === ']' ? pending.slice(1) : pending) + c
+        out += (pending && (c === '}' || c === ']') ? ` ${pending.slice(1)}` : pending) + c
         pending = ''
       }
     }
     return out + pending
+  }
+
+  static errorAt(json: string): number {
+    let i = 0
+    const fail = (): never => {
+      throw i
+    }
+    const space = () => {
+      while (i < json.length && /\s/.test(json[i]!)) i++
+    }
+    const literal = (word: string) => {
+      if (json.startsWith(word, i)) i += word.length
+      else fail()
+    }
+    const string = () => {
+      i++
+      while (i < json.length && json[i] !== '"') {
+        if (json[i]! < ' ') fail()
+        i += json[i] === '\\' ? 2 : 1
+      }
+      if (i >= json.length) fail()
+      i++
+    }
+    const value = (): void => {
+      space()
+      const c = json[i]
+      if (c === '{') {
+        i++
+        space()
+        if (json[i] === '}') return void i++
+        for (;;) {
+          space()
+          if (json[i] !== '"') fail()
+          string()
+          space()
+          if (json[i] !== ':') fail()
+          i++
+          value()
+          space()
+          if (json[i] === ',') i++
+          else if (json[i] === '}') return void i++
+          else fail()
+        }
+      }
+      if (c === '[') {
+        i++
+        space()
+        if (json[i] === ']') return void i++
+        for (;;) {
+          value()
+          space()
+          if (json[i] === ',') i++
+          else if (json[i] === ']') return void i++
+          else fail()
+        }
+      }
+      if (c === '"') return string()
+      if (c === 't') return literal('true')
+      if (c === 'f') return literal('false')
+      if (c === 'n') return literal('null')
+      const number = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/.exec(json.slice(i))
+      if (!number) fail()
+      i += number![0].length
+    }
+    try {
+      value()
+      space()
+      if (i < json.length) fail()
+      return json.length
+    } catch (at) {
+      if (typeof at !== 'number') throw at
+      return Math.min(at, json.length)
+    }
   }
 }

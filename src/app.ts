@@ -67,13 +67,15 @@ export class Project {
   constructor(dir: string) {
     this.dir = realpathSync(resolve(dir))
     const file = join(this.dir, 'package.json')
-    const pkg = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>) : {}
+    const pkg = existsSync(file)
+      ? (Jsonc.parse(readFileSync(file, 'utf8'), 'package.json') as Record<string, unknown>)
+      : {}
     this.pkg = pkg
     const found = Project.CONFIGS.map((name) => join(this.dir, name)).find((path) => existsSync(path))
     if (!found && !existsSync(file)) throw new Error(`no ${Project.CONFIGS[0]} or package.json in ${this.dir}`)
     const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
     if (found) {
-      const config = Jsonc.parse(readFileSync(found, 'utf8')) as AcdeConfig
+      const config = Jsonc.parse(readFileSync(found, 'utf8'), basename(found)) as AcdeConfig
       if (typeof config !== 'object' || config === null || (config.type !== 'app' && config.type !== 'desktop')) {
         throw new Error(`${basename(found)}: "type" is "app" (a window app) or "desktop"`)
       }
