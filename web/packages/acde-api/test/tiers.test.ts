@@ -62,6 +62,13 @@ test('an app project does not see shell module types', () => {
   assert.ok(errors('app', `import { apps } from 'acde:apps'\napps.refresh()`).some((m) => /refresh/.test(m)))
 })
 
+test('acde:apps has no launch in either tier', () => {
+  for (const tier of ['app', 'shell'] as const) {
+    const found = errors(tier, `import { apps } from 'acde:apps'\nvoid apps.launch('notes')`)
+    assert.ok(found.some((m) => /launch/.test(m)), `${tier}: ${found.join('\n')}`)
+  }
+})
+
 test('window states are apart from modes', () => {
   const mode = (value: string) => `import type { WindowMode } from ${JSON.stringify(join(src, 'app.js'))}
 export const mode: WindowMode = '${value}'`

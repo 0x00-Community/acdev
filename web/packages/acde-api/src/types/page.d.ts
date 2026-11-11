@@ -282,7 +282,6 @@ export interface AcdeAppList {
 }
 
 export interface AcdeApps extends AcdeAppList, AcdeOpenFiles {
-  launch(app: string, request?: Record<string, unknown> | null): Promise<{ window: number }>
   refresh(): Promise<DesktopApp[]>
   install(dir: string): Promise<{ id: string; dir: string; apps: DesktopApp[] }>
   natives(): Promise<NativeApp[]>
