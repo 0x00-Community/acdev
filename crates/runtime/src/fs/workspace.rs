@@ -11,7 +11,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-const MAX_ENTRIES: usize = 5000;
+const MAX_ENTRIES: usize = if cfg!(test) { 50 } else { 5000 };
 const MAX_PREVIEW_BYTES: u64 = 256 * 1024;
 const MAX_RAW_BYTES: u64 = 64 * 1024 * 1024;
 const IMAGES: [&str; 6] = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
@@ -143,6 +143,12 @@ pub struct Listing {
     pub path: String,
     pub entries: Vec<FinderEntry>,
     pub truncated: bool,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub skipped: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 #[derive(Serialize)]
@@ -444,18 +450,17 @@ impl WorkspaceFs {
             return Err(Failure::invalid("not a directory"));
         }
         let dir = Self::dir(&root, &relative)?;
-        let mut names: Vec<String> = fs::read_dir(dir.path())?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| hidden || !Self::is_hidden(entry))
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .collect();
-        names.sort();
-        let mut entries = names.iter().take(MAX_ENTRIES).map(|name| FinderEntry::read(&absolute.join(name), name)).collect::<Outcome<Vec<_>>>()?;
-        entries.sort_by(|a, b| {
-            let dir = |e: &FinderEntry| e.kind == EntryKind::Directory;
-            dir(b).cmp(&dir(a)).then_with(|| self.collator.compare(&a.name, &b.name))
-        });
-        Ok(Listing { root, path: relative, entries, truncated: names.len() > MAX_ENTRIES })
+        let (mut named, mut skipped) = (Vec::new(), 0);
+        for entry in fs::read_dir(dir.path())?.filter_map(|entry| entry.ok()).filter(|entry| hidden || !Self::is_hidden(entry)) {
+            match entry.file_name().into_string() {
+                Ok(name) => named.push((entry.file_type().is_ok_and(|t| t.is_dir()), name)),
+                Err(_) => skipped += 1,
+            }
+        }
+        named.sort_by(|(a_dir, a), (b_dir, b)| b_dir.cmp(a_dir).then_with(|| self.collator.compare(a, b)).then_with(|| a.cmp(b)));
+        let truncated = named.len() > MAX_ENTRIES;
+        let entries = named.iter().take(MAX_ENTRIES).map(|(_, name)| FinderEntry::read(&absolute.join(name), name)).collect::<Outcome<Vec<_>>>()?;
+        Ok(Listing { root, path: relative, entries, truncated, skipped })
     }
 
     fn is_hidden(entry: &fs::DirEntry) -> bool {

@@ -343,3 +343,22 @@ fn a_folder_that_takes_no_new_files_is_saved_in_place() {
     assert_eq!(saved.unwrap().in_place, Some(true));
     assert_eq!(fs::read_to_string(s.at("locked/doc.txt")).unwrap(), "new");
 }
+
+#[test]
+fn a_long_listing_keeps_folders_first_and_skips_names_it_cannot_show() {
+    use std::os::unix::ffi::OsStrExt;
+    let s = Scratch::new();
+    for n in 0..MAX_ENTRIES + 10 {
+        fs::write(s.at(&format!("a-{n:04}.txt")), "").unwrap();
+    }
+    fs::create_dir(s.at("zz folder")).unwrap();
+    fs::write(Path::new(&s.root.path).join(std::ffi::OsStr::from_bytes(b"bad\xff.txt")), "").unwrap();
+    let listing = WorkspaceFs::new().list_in(s.root.clone(), "", false).unwrap();
+    assert!(listing.truncated);
+    assert_eq!(listing.entries.len(), MAX_ENTRIES);
+    assert_eq!(listing.entries[0].name, "zz folder", "folders come before the cut");
+    assert_eq!((listing.entries[1].name.as_str(), listing.skipped), ("a-0000.txt", 1));
+    let children = WorkspaceFs::children_in(&s.root, "").unwrap();
+    assert_eq!(children.len(), MAX_ENTRIES + 11, "the handle listing skips the same name");
+    assert!(children.iter().all(|(name, _)| !name.contains('\u{fffd}')));
+}

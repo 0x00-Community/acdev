@@ -340,3 +340,18 @@ fn a_folder_that_takes_no_new_files_is_saved_in_place() {
     assert_eq!(saved.unwrap().in_place, Some(true));
     assert_eq!(fs::read_to_string(root.join("locked/doc.txt")).unwrap(), "new");
 }
+
+#[test]
+fn a_long_listing_keeps_folders_first() {
+    let s = Scratch::new();
+    let root = PathBuf::from(&s.root.path);
+    for n in 0..MAX_ENTRIES + 10 {
+        fs::write(root.join(format!("a-{n:04}.txt")), "").unwrap();
+    }
+    fs::create_dir(root.join("zz folder")).unwrap();
+    let listing = WorkspaceFs::new().list_in(s.root.clone(), "", false).unwrap();
+    assert!(listing.truncated);
+    assert_eq!(listing.entries.len(), MAX_ENTRIES);
+    assert_eq!(listing.entries[0].name, "zz folder");
+    assert_eq!((listing.entries[1].name.as_str(), listing.skipped), ("a-0000.txt", 0));
+}

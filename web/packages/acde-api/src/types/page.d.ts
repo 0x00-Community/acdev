@@ -100,7 +100,7 @@ export interface AcdeFs {
     root: string,
     path?: string,
     hidden?: boolean,
-  ): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean }>
+  ): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean; skipped?: number }>
   preview(root: string, path: string): Promise<FinderPreview>
   download(root: string, path: string): Promise<FileBytes>
   mkdir(root: string, path: string, options?: MkdirOptions): Promise<FinderEntry>
