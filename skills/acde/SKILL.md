@@ -99,7 +99,7 @@ Guides:
 - [Coding agents](references/guide/agents.md): this skill, `acde skills`, where it is installed
 - [MCP](references/guide/mcp.md): `acde mcp` and its tools
 - [Testing](references/guide/testing.md): `acde test`, locators, assertions, screenshots, traces
-- [Local install](references/guide/install.md): `acde install`, where packages are looked up
+- [Local install](references/guide/install.md): `acde install`, `acde uninstall`, where packages are looked up
 
 Reference:
 

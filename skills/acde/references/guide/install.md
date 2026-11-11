@@ -20,7 +20,12 @@ In this order; for a given id, the first one found wins:
 
 ## Uninstall
 
-Delete `$XDG_DATA_HOME/acde/packages/<id>`.
+```sh
+acde uninstall          # the installed packages: id and path
+acde uninstall <id>     # or the project directory it was installed from
+```
+
+It says what it removes and asks first (`--yes` skips the question, and is needed outside a terminal). A copied package's directory is removed; for a handwritten package only the link is removed, never the project. A package that a running `acde dev` session uses is not removed: stop that session first. [acde uninstall](../reference/cli.md#acde-uninstall) lists the exit codes.
 
 ## Publishing
 

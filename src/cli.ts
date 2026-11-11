@@ -15,6 +15,7 @@ import { Runtime } from './runtime.ts'
 import { Sdk } from './sdk.ts'
 import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
+import { Uninstall } from './uninstall.ts'
 import { Versions } from './versions.ts'
 
 const USAGE = `usage: acde <command>
@@ -32,6 +33,10 @@ const USAGE = `usage: acde <command>
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link);
                                                    default ~/.local/share/acde/packages, on Windows
                                                    %USERPROFILE%\\.local\\share\\acde\\packages
+  uninstall [id|dir] [--yes]                       remove what acde install put there (a link: only the link); says
+                                                   what first and asks (--yes: not); stops when an acde dev uses it;
+                                                   no argument: the installed packages; exit 1 not installed, 2 in
+                                                   use, 3 not confirmed
   dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless]
                                                    build, run in acdert, rebuild and reload what changed; one
                                                    project: its desktop or app; several or --desktop: all in that
@@ -130,6 +135,7 @@ class Cli {
     check: { args: [0, 1], flags: ['platform'] },
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
+    uninstall: { args: [0, 1], switches: ['yes'] },
     sdk: { args: [0, 2] },
     dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
     doctor: { args: [0, 1], switches: ['json', 'online', 'fix', 'yes'] },
@@ -271,6 +277,11 @@ class Cli {
       })
     }
     if (command === 'skills') return Skills.run(args, flags)
+    if (command === 'uninstall') {
+      const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
+      const confirm = interactive ? Uninstall.ask : null
+      return await Uninstall.run(args[0], { yes: flags.has('yes'), confirm, say: (line) => console.log(line) })
+    }
     if (command === 'doctor') return await Cli.doctor(args[0], flags)
     if (command === 'mcp')
       return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
