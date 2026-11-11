@@ -179,6 +179,7 @@ export interface DomNative {
   ): { x: number; y: number; width: number; height: number; pixelWidth: number; pixelHeight: number; scale: number; picture: number } | null
 
   setPanel(id: number, x: number, y: number, width: number, height: number): void
+  highlight?(id: number): void
   unpin(id: number): void
   pinnedIn(root: number): Uint32Array
 

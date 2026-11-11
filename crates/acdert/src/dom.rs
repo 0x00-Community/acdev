@@ -705,6 +705,10 @@ natives! {
         let (id, x, y, w, h) = (id(scope, &args, 0), f(scope, &args, 1), f(scope, &args, 2), f(scope, &args, 3), f(scope, &args, 4));
         dom.set_panel(id, (w > 0.0 && h > 0.0).then_some([x, y, w, h]))
     }
+    "highlight" => fn highlight(scope, args, dom) {
+        let id = id(scope, &args, 0);
+        if std::env::var_os("ACDE_DEV").is_some() { dom.highlight(id) } else { Ok(()) }
+    }
     "unpin" => fn unpin(scope, args, dom) { let id = id(scope, &args, 0); dom.unpin(id) }
     "pinnedIn" => fn pinned_in(scope, args, dom) { let id = id(scope, &args, 0); dom.pinned_in(id).map(Ids) }
     "commit" => fn commit(scope, args, dom) { dom.commit(); Ok(()) }

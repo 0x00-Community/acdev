@@ -17,6 +17,8 @@ use crate::verify::Mismatch;
 use crate::{Error, Frame, Options, Panel, Plane, Rect, Result, Stats};
 use blitz_paint::PaintCache;
 
+mod highlight;
+
 const FRAME: f64 = 1.0 / 60.0;
 
 const UA_EXTRA: &str = "button, select, input:is([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio], \
@@ -43,6 +45,7 @@ pub(crate) struct Engine {
     pub(crate) want_present: bool,
     pub(crate) active: Option<blitz_dom::NodeId>,
     pub(crate) picker: Option<blitz_dom::node::SelectPicker>,
+    pub(crate) highlight: Option<NodeId>,
     pub(crate) name: String,
     pub(crate) trace: Option<acde_log::Trace>,
     pub(crate) input: Option<acde_log::Trace>,
@@ -89,6 +92,7 @@ impl Engine {
             want_present: false,
             active: None,
             picker: None,
+            highlight: None,
             name: options.name.clone().unwrap_or_default(),
             trace: None,
             input: None,
@@ -219,7 +223,7 @@ impl Engine {
         let pinned: std::collections::HashSet<NodeId> = self.panels.iter().map(|p| p.0).collect();
         let painted = blitz_paint::paint_scene_cached(&mut loose, &mut pieces, &mut self.doc, (scale, width, height), &mut self.paint_cache, true, &pinned);
         let mut commands = Commands::new(loose.commands, pieces);
-        let mut picker = self.picker_scene(scale).map(|p| p.commands);
+        let mut picker = self.overlay(scale);
         if let Some(picker) = &mut picker {
             commands.extend(match self.verify {
                 true => picker.clone(),

@@ -13,6 +13,7 @@ import { DomDomain } from './devtools/dom'
 import { PageDom } from './devtools/pagedom'
 import { NetworkDomain } from './devtools/network'
 import { PageDomain } from './devtools/page'
+import { OverlayDomain } from './devtools/overlay'
 import { DevRoutes, type DevRoute } from './devroutes'
 import { DevState, type DevSnapshot } from './devstate'
 import { Level, Log } from './log'
@@ -157,6 +158,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
         PageDomain.create(devtools.frameId, href),
         DomDomain.create(source, (method, params) => devtools.emit('DOM', method, params)),
         CssDomain.create(source),
+        OverlayDomain.create(PageDom.overlay(page, dom.highlight?.bind(dom))),
         network.domain(),
       ]
     })

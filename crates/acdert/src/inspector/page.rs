@@ -9,9 +9,16 @@ use crate::bind;
 
 pub(super) const DOMAINS: [&str; 5] = ["Page", "DOM", "CSS", "Overlay", "Network"];
 
-pub(super) type Resolving = Arc<Mutex<HashMap<String, Option<Value>>>>;
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Rewritten {
+    Resolve,
+    Highlight,
+}
+
+pub(super) type Resolving = Arc<Mutex<HashMap<String, (Rewritten, Option<Value>)>>>;
 
 const NODE_LOOKUP: &str = "acde.devtools.node";
+const HIGHLIGHT: &str = "acde.devtools.highlight";
 
 #[derive(Default)]
 pub(super) struct PageSide {
@@ -30,24 +37,44 @@ impl PageSide {
     }
 }
 
-pub(super) fn resolve_node(session: u32, message: &str) -> Option<String> {
+pub(super) fn rewrite(session: u32, message: &str) -> Option<String> {
     let value = serde_json::from_str::<Value>(message).ok()?;
-    if value["method"] != "DOM.resolveNode" {
-        return None;
-    }
+    let (kind, call) = rewritten(&value)?;
     let pending = STATE.with(|s| s.borrow().as_ref().map(|s| s.page.resolving(session)))?;
+    pending.lock().unwrap_or_else(|e| e.into_inner()).insert(value["id"].to_string(), (kind, value.get("sessionId").cloned()));
+    Some(call.to_string())
+}
+
+fn rewritten(value: &Value) -> Option<(Rewritten, Value)> {
     let params = &value["params"];
-    let node = params["nodeId"].as_u64().or_else(|| params["backendNodeId"].as_u64()).unwrap_or(0);
-    let mut evaluate = serde_json::json!({
-        "id": value["id"],
-        "method": "Runtime.evaluate",
-        "params": {"expression": format!("globalThis[Symbol.for({NODE_LOOKUP:?})]({node})"), "silent": true},
-    });
-    if let Some(group) = params.get("objectGroup").filter(|g| g.is_string()) {
-        evaluate["params"]["objectGroup"] = group.clone();
+    let node = params["nodeId"].as_u64().or_else(|| params["backendNodeId"].as_u64());
+    match value["method"].as_str()? {
+        "DOM.resolveNode" => {
+            let mut evaluate = serde_json::json!({
+                "id": value["id"],
+                "method": "Runtime.evaluate",
+                "params": {"expression": format!("globalThis[Symbol.for({NODE_LOOKUP:?})]({})", node.unwrap_or(0)), "silent": true},
+            });
+            if let Some(group) = params.get("objectGroup").filter(|g| g.is_string()) {
+                evaluate["params"]["objectGroup"] = group.clone();
+            }
+            Some((Rewritten::Resolve, evaluate))
+        }
+        "Overlay.highlightNode" if node.is_none() && params["objectId"].is_string() => {
+            let call = serde_json::json!({
+                "id": value["id"],
+                "method": "Runtime.callFunctionOn",
+                "params": {
+                    "objectId": params["objectId"],
+                    "functionDeclaration": format!("function () {{ return globalThis[Symbol.for({HIGHLIGHT:?})](this) }}"),
+                    "returnByValue": true,
+                    "silent": true,
+                },
+            });
+            Some((Rewritten::Highlight, call))
+        }
+        _ => None,
     }
-    pending.lock().unwrap_or_else(|e| e.into_inner()).insert(value["id"].to_string(), value.get("sessionId").cloned());
-    Some(evaluate.to_string())
 }
 
 struct Inspected(v8::Global<v8::Value>);
@@ -98,15 +125,21 @@ pub(super) fn set_inspected(scope: &mut v8::PinScope, session: u32, message: &st
 pub(super) fn resolved(pending: &Resolving, text: String) -> String {
     let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return text };
     let key = value["id"].to_string();
-    let Some(session) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&key) else { return text };
-    let found = value["result"].get("exceptionDetails").is_none() && value["result"]["result"]["type"] == "object";
+    let Some((kind, session)) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&key) else { return text };
+    let thrown = value.get("error").is_some() || value["result"].get("exceptionDetails").is_some();
+    let found = !thrown
+        && match kind {
+            Rewritten::Resolve => value["result"]["result"]["type"] == "object",
+            Rewritten::Highlight => value["result"]["result"]["value"] == true,
+        };
     let mut object = value["result"]["result"].take();
     if found && object.get("subtype").is_none() {
         object["subtype"] = "node".into();
     }
-    let mut answer = match found {
-        true => serde_json::json!({"id": value["id"], "result": {"object": object}}),
-        false => serde_json::json!({"id": value["id"], "error": {"code": -32000, "message": "No node with given id found"}}),
+    let mut answer = match (found, kind) {
+        (true, Rewritten::Resolve) => serde_json::json!({"id": value["id"], "result": {"object": object}}),
+        (true, Rewritten::Highlight) => serde_json::json!({"id": value["id"], "result": {}}),
+        (false, _) => serde_json::json!({"id": value["id"], "error": {"code": -32000, "message": "No node with given id found"}}),
     };
     if let Some(session) = session {
         answer["sessionId"] = session;
@@ -186,7 +219,7 @@ mod tests {
     #[test]
     fn an_evaluated_node_answers_resolve_node_and_other_replies_pass() {
         let pending: Resolving = Arc::default();
-        pending.lock().unwrap().insert("7".into(), Some(Value::from("s")));
+        pending.lock().unwrap().insert("7".into(), (Rewritten::Resolve, Some(Value::from("s"))));
         let node = r#"{"id":7,"result":{"result":{"type":"object","className":"HTMLDivElement","objectId":"1.2"}}}"#;
         let answer: Value = serde_json::from_str(&resolved(&pending, node.into())).unwrap();
         assert_eq!(answer["result"]["object"]["objectId"], "1.2");
@@ -194,9 +227,28 @@ mod tests {
         assert_eq!(answer["sessionId"], "s");
         let other = r#"{"id":7,"result":{}}"#;
         assert_eq!(resolved(&pending, other.into()), other, "answered once");
-        pending.lock().unwrap().insert("8".into(), None);
+        pending.lock().unwrap().insert("8".into(), (Rewritten::Resolve, None));
         let thrown = r#"{"id":8,"result":{"result":{"type":"object"},"exceptionDetails":{}}}"#;
         let answer: Value = serde_json::from_str(&resolved(&pending, thrown.into())).unwrap();
         assert_eq!(answer["error"]["code"], -32000);
+    }
+
+    #[test]
+    fn highlight_node_by_object_id_calls_the_page_on_that_object() {
+        let message = serde_json::json!({"id": 3, "method": "Overlay.highlightNode", "params": {"objectId": "9.1", "highlightConfig": {}}});
+        let (kind, call) = rewritten(&message).expect("rewritten");
+        assert_eq!(kind, Rewritten::Highlight);
+        assert_eq!(call["method"], "Runtime.callFunctionOn");
+        assert_eq!(call["params"]["objectId"], "9.1");
+        assert!(call["params"]["functionDeclaration"].as_str().unwrap().contains("acde.devtools.highlight"));
+        let by_id = serde_json::json!({"id": 4, "method": "Overlay.highlightNode", "params": {"nodeId": 7}});
+        assert!(rewritten(&by_id).is_none(), "a nodeId goes to the page as it is");
+        let pending: Resolving = Arc::default();
+        pending.lock().unwrap().insert("3".into(), (Rewritten::Highlight, None));
+        let drawn: Value = serde_json::from_str(&resolved(&pending, r#"{"id":3,"result":{"result":{"type":"boolean","value":true}}}"#.into())).unwrap();
+        assert_eq!(drawn, serde_json::json!({"id": 3, "result": {}}));
+        pending.lock().unwrap().insert("5".into(), (Rewritten::Highlight, None));
+        let other: Value = serde_json::from_str(&resolved(&pending, r#"{"id":5,"result":{"result":{"type":"boolean","value":false}}}"#.into())).unwrap();
+        assert_eq!(other["error"]["code"], -32000);
     }
 }

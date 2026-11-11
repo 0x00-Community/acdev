@@ -238,7 +238,7 @@ pub fn dispatch_posted(scope: &mut v8::PinScope) {
                 }
             }
             Posted::Page(id, message) if page::set_inspected(scope, id, &message) => {}
-            Posted::Page(id, message) => match page::resolve_node(id, &message) {
+            Posted::Page(id, message) => match page::rewrite(id, &message) {
                 Some(evaluate) => {
                     let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow().get(&id).cloned()));
                     if let Some(session) = session {

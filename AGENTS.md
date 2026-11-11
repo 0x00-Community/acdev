@@ -373,7 +373,7 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   不列. `enable` 或 `getDocument` 之后用页面的 `MutationObserver` (不让页面看到) 推 `childNodeInserted` / `childNodeRemoved` (父节点展开过时;
   没展开过推 `childNodeCountUpdated`) / `attributeModified` / `attributeRemoved` / `characterDataModified`, 最后一个客户端 `disable` 时停.
   编辑类方法 (`setAttributeValue`、`setOuterHTML`、`removeNode` ...) 回 -32000 "read only". `resolveNode` 要 V8 的 objectId, 由 `inspector/page.rs`
-  `resolve_node` 改写成这个客户端 V8 session 里的 `Runtime.evaluate` (表达式调页面上 `Symbol.for('acde.devtools.node')` 的查找函数, 只在 dev 时装),
+  `rewrite` 改写成这个客户端 V8 session 里的 `Runtime.evaluate` (表达式调页面上 `Symbol.for('acde.devtools.node')` 的查找函数, 只在 dev 时装),
   回来的 `result` 改名成 `object` (补 `subtype: 'node'`), 找不到是 -32000.
   `setInspectedNode` 也在 `inspector/page.rs` (`set_inspected`) 拦下: 用同一个查找函数拿到节点, 存成 `Global` 包进 `InspectableImpl`, 交给这个客户端
   V8 session 的 `add_inspected_object`, 控制台的 `$0` (带 `includeCommandLineAPI` 的求值) 就是它; 找不到是 -32000.
@@ -393,6 +393,11 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   按算出的 `border-*-width` / `padding-*` 往里缩得 padding / content, 按 `margin-*` 往外扩得 margin (`auto` 当 0), `display: none` 或不是元素回 -32000.
   `getMatchedStylesForNode` 只给 inline style (元素的 `style` 声明, 没有 `styleSheetId`, 不可编辑), `matchedCSSRules` / `inherited` 留空:
   render 还没有可靠的“哪条规则命中”来源, 不编. 编辑类方法 (`setStyleTexts`、`addRule` ...) 回 -32000 read only. 每次选中都现取, 页面改了样式再选就是新的.
+  `Overlay` (#192, `devtools/overlay.ts`): `highlightNode` (`nodeId` / `backendNodeId`) 调 DomNative `highlight(id)` (`-1` 去掉), 同一节点不重画;
+  `hideHighlight`、`disable` 和画它的客户端断开时去掉 (别的客户端的 `hideHighlight` 也去掉页面经 objectId 画的). 只给 `objectId` 时
+  `inspector/page.rs` `rewrite` 改成这个客户端 V8 session 里的 `Runtime.callFunctionOn`, 在那个对象上调页面的 `Symbol.for('acde.devtools.highlight')`
+  (只在 dev 时装, 不是本页节点回 false → -32000). `setInspectMode`、`setShowViewportSizeOnResize` 等开关回 `{}` 不做事. crates/acdert `dom.rs` 的
+  `highlight` 只在有 `ACDE_DEV` 时转给 render, 别时不做事.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 有 inspector 的 dev 页面 (`host.inspected()`) 里 acde-dom 的 console 还把原参数交给 V8 自带的
   `console` (装上前的 `globalThis.console`, 同名方法, 每次一份), 由它报给 inspector (`Runtime.consoleAPICalled`, 真的 RemoteObject 和调用栈);
@@ -1307,7 +1312,10 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   `hit_test` 返回节点 id (坐标是视口的, 整页滚动过也对: blitz 的 `hit` 要页面坐标, `element_from_point` 加上视口的滚动); `metrics` 对根元素照 CSSOM View 给: `clientWidth` / `clientHeight` 是视口的大小 (不是内容的), `scrollWidth` / `scrollHeight` 不小于视口 (acde-dom 的 `scrollIntoView` 靠这个判断整页能不能滚); `caret_rect` / `caret_from_point` / `text_rects` (偏移是 UTF-16). `<select>`: `options` / `option_selected` /
   `set_option_selected` / `selected_index` / `set_selected_index` / `reset_select` / `list_box_option_at`; 选项列表 `open_picker` /
   `close_picker` / `picker_state` (`[select 或 -1, 高亮的选项序号或 -1, 一页几行]`) / `picker_option_at` (-2 在列表外, -1 在列表里但不是
-  选项) / `picker_option_rect` / `set_picker_active`; 列表画在 `Frame.plane` 的最后. `scroll_at` 落在打开的列表上时滚列表, 落在外面先关掉它.
+  选项) / `picker_option_rect` / `set_picker_active`; 列表画在 `Frame.plane` 的最后. `Dom::highlight(id)` (`NONE` 去掉, DevTools 的高亮, #192,
+  `engine/highlight.rs`): 每帧按当时的布局在整页 (含选项列表) 之上画这个元素的 margin / border / padding / content 四块 (CSS 像素的
+  `getBoundingClientRect` 当 border 盒, 按 taffy 的 margin / border / padding 宽度外扩内缩, 颜色是 Chrome 的默认半透明配色), 所以滚动、
+  缩放和布局变化都跟着走; 元素不在文档里、`display: none` 或不是元素时不画. 改了就标脏并叫醒出帧线程, 不需要 `Dom::commit`. `scroll_at` 落在打开的列表上时滚列表, 落在外面先关掉它.
 - 出帧 (物理像素): `RenderHandle {tick(now_ms), frame(), scroll_at, pointer, commit, invalidate, set_waker}`. CSS 动画的时钟是单调墙上时间,
   tick 只对齐到 vblank. `Frame {plane, panels, size, animating, commit, trace}`: plane 是整页 (含画布背景, 不含面板); `panels` 是
   `Dom::set_panel` 钉住的元素 `Panel {id, size, plane, extent}`. `Plane {drawing, layers, damage, damage_rects (最多 8 块), bounds}`;

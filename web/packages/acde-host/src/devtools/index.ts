@@ -10,6 +10,7 @@ export type DevToolsMethod = (params: DevToolsParams, session: DevToolsSession) 
 export interface DevToolsDomain {
   readonly name: string
   readonly methods: Readonly<Record<string, DevToolsMethod>>
+  readonly closed?: (session: number) => void
 }
 
 export interface DevToolsHost {
@@ -60,6 +61,7 @@ export class DevToolsPage {
   receive(session: number, text: string | null): void {
     if (text === null) {
       this.#sessions.delete(session)
+      for (const domain of this.#domains.values()) domain.closed?.(session)
       return
     }
     let message: Incoming

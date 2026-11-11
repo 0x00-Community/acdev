@@ -1,13 +1,26 @@
 import type { DomNative, WebInternals } from '@dopame/acde-dom'
 import type { DomNode, DomRecord, DomSource } from './dom'
+import type { OverlaySource } from './overlay'
 
 type Observer = { observe(target: unknown, options: object): void; disconnect(): void }
 type InlineStyle = { readonly length: number; item(i: number): string; getPropertyValue(name: string): string; getPropertyPriority(name: string): string }
 type ObserverClass = new (callback: (records: readonly DomRecord[]) => void) => Observer
 
 const LOOKUP = Symbol.for('acde.devtools.node')
+const HIGHLIGHT = Symbol.for('acde.devtools.highlight')
 
 export class PageDom {
+  static overlay(page: WebInternals, highlight: ((id: number) => void) | undefined): OverlaySource {
+    return {
+      highlight: (id) => highlight?.(id),
+      idOf: (node) => page.idOf(node),
+      nodeOf: (id) => page.nodeOf(id),
+      expose: (show) => {
+        Object.defineProperty(page.window, HIGHLIGHT, { value: show, configurable: true, enumerable: false, writable: false })
+      },
+    }
+  }
+
   static source(page: WebInternals, dom: DomNative): DomSource {
     return {
       document: () => page.document as unknown as DomNode,
