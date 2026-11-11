@@ -1,0 +1,53 @@
+name: package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .gitea/workflows/package.yaml
+      - packaging/**
+      - crates/**
+      - js/**
+      - vendors/**
+      - Cargo.toml
+      - Cargo.lock
+
+jobs:
+  package:
+    runs-on: archlinux
+    steps:
+      # first (shell) step, so later JS actions find node in the arch image
+      - name: toolchain
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git rust clang cmake pkgconf python nodejs unzip curl
+          # bun is not in the Arch repos; install the official binary
+          curl -fsSL https://bun.sh/install | bash
+          install -m755 "$HOME/.bun/bin/bun" /usr/local/bin/bun
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: makepkg
+        run: |
+          mkdir -p out
+          chown -R builder: .
+          sudo -u builder git config --global --add safe.directory '*'
+          cd packaging/arch
+          # bun is installed by hand (not a pacman package): tell makepkg it is there
+          sudo -u builder env PATH="/usr/local/bin:$PATH" PKGDEST="$GITHUB_WORKSPACE/out" \
+            makepkg -s --noconfirm --nocheck --assume-installed bun
+          ls -lh "$GITHUB_WORKSPACE/out"
+
+      - name: upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: acde-base
+          path: out/*.pkg.tar.*
+          retention-days: 14
+          if-no-files-found: error
