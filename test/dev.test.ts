@@ -12,7 +12,7 @@ import { DevClient, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
 import { slug } from '../src/paths.ts'
-import { cleanup, env, fakeAcdert, skipping, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, env, fakeAcdert, fakeBrowser, skipping, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -557,6 +557,56 @@ describe('acde dev with a stand-in acdert', () => {
         .toMatch(/^devtools:\/\/devtools\/bundled\/inspector\.html\?ws=127\.0\.0\.1%3A\d+%2Fdevtools%2Fpage%2F7\n$/)
       expect(dev.entries().some((e) => (e as { devtools?: string }).devtools === '/json/list')).toBe(true)
     } finally {
+      await dev.stop()
+    }
+  }, 60_000)
+
+  test('acde devtools starts the browser on its own profile, opens the front end with Target.createTarget, '
+    + 'then reuses that browser', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const dev = start([], alpha)
+    const cache = join(base, 'cache')
+    const log = join(base, 'browser.log')
+    writeFileSync(log, '')
+    const browser = fakeBrowser(base)
+    const vars = {
+      ACDE_BROWSER: browser, FAKE_BROWSER_LOG: log, XDG_CACHE_HOME: cache, LOCALAPPDATA: cache, HOME: base,
+      USERPROFILE: base,
+    }
+    type Said = { started?: string[]; pid?: number; method?: string; params?: { url?: string } }
+    const said = () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Said)
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      const first = await dev.tool(['devtools', 'alpha'], alpha, undefined, vars)
+      expect(first.code, first.stderr).toBe(0)
+      expect(first.stderr).toContain(`acde: opened DevTools for Alpha in ${browser}`)
+      const url = first.stdout.trim()
+      expect(url).toStartWith('devtools://devtools/bundled/inspector.html?ws=127.0.0.1%3A')
+      const started = said().filter((entry) => entry.started)
+      expect(started).toHaveLength(1)
+      const profile = started[0]!.started!.find((arg) => arg.startsWith('--user-data-dir='))!.slice(16)
+      expect(profile.startsWith(join(cache, 'acde', 'devtools'))).toBe(true)
+      expect(started[0]!.started).toContain('--remote-debugging-port=0')
+      expect(started[0]!.started).not.toContain(url)
+      expect(said().filter((entry) => entry.method === 'Target.createTarget').map((entry) => entry.params?.url))
+        .toEqual([url])
+      const again = await dev.tool(['devtools', 'alpha'], alpha, undefined, vars)
+      expect(again.code, again.stderr).toBe(0)
+      expect(said().filter((entry) => entry.started)).toHaveLength(1)
+      expect(said().filter((entry) => entry.method === 'Target.createTarget')).toHaveLength(2)
+      const nowhere = { ...vars, ACDE_BROWSER: join(base, 'nope') }
+      const missing = await dev.tool(['devtools', 'alpha'], alpha, undefined, nowhere)
+      expect(missing.code, missing.stderr).toBe(0)
+      expect(missing.stdout.trim()).toBe(url)
+      expect(missing.stderr).toContain('could not open it in')
+      expect(missing.stderr).toContain('paste the address above into the address bar of Chrome or Edge')
+    } finally {
+      for (const entry of said()) {
+        try {
+          if (entry.pid) process.kill(entry.pid)
+        } catch {}
+      }
       await dev.stop()
     }
   }, 60_000)
