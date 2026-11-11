@@ -141,9 +141,11 @@ export class Devtools {
     const browser = Devtools.browser(options.lookup ?? Devtools.lookup())
     const title = target.title || target.url || target.id
     if (!browser) {
+      const off = (options.lookup ?? Devtools.lookup()).env['ACDE_BROWSER'] === Devtools.NONE
+      const why = off ? 'ACDE_BROWSER=none: no browser opened' : 'no Chrome or Edge found (ACDE_BROWSER names one)'
       console.log(url)
-      console.error(`acde: DevTools for ${title}: no Chrome or Edge found (ACDE_BROWSER names one); paste the address `
-        + 'above into the address bar of Chrome or Edge on this machine')
+      console.error(`acde: DevTools for ${title}: ${why}; paste the address above into the address bar of Chrome or `
+        + 'Edge on this machine')
       return 0
     }
     ;(options.launch ?? Devtools.launch)(browser, url)
