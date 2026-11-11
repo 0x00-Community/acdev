@@ -372,7 +372,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   reload 时 acdert 记同一行退出 1; 桌面里拒绝会留着 (跨会话), 应用不进列表 (`acde:apps` 发 `changed`), 撤销已批准的必需能力后应用同样出列表,
   开着的窗口留到下一次 reload (日志 `acde dev: reload: <名字>: "<能力>" is denied by the user`, 窗口关掉); 撤销之后这一次运行里一直算被拒, 下次起运行时再问.
 - **`acde devtools [web]`** (`src/devtools.ts` `Devtools`, acde#75; 规格 acdert#172): 和其他会话命令一样挑会话, 发开发通道请求
-  `devtools` (`Acde.devtools()`, 回 `{port, token}`), 带令牌读 `http://127.0.0.1:<port>/json/list`, 按 id 挑目标 (给了 web: 参数本身、
+  `devtools` (`Acde.devtools()`, 回 `{port}`, 旧的 acdert 另带 `token`), 读 `http://127.0.0.1:<port>/json/list`, 按 id 挑目标 (给了 web: 参数本身、
   它解析出的 web 名或窗口号, web 按名字、应用 id、窗口号、窗口标题 (先原样, 再不分大小写) 找; id 都不中再按目标标题找 (不分大小写,
   也认去掉末尾 ` (<应用 id>)` 的标题), 再找 `service` 类型的目标 (服务, acdert#193: `services` / `service` 或标题 `services: a, b` 里的
   服务名); 没给: 聚焦的网页窗口, 没有就桌面), 用浏览器打开 `devtools://devtools/bundled/inspector.html?ws=…`.
@@ -380,11 +380,12 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
     Windows 依次查 `ProgramFiles(x86)`、`ProgramFiles`、`LOCALAPPDATA` 下的 Edge, 再同样三处的 Chrome; macOS 是 `/Applications`、
     `~/Applications` 里的 Google Chrome.app, 再 Microsoft Edge.app; Linux 在 PATH 上依次找 `google-chrome`、`google-chrome-stable`、
     `chrome`、`chromium`、`chromium-browser`、`microsoft-edge`、`microsoft-edge-stable`. 都没有时打印地址和说明, 退出 0.
-  - 令牌在地址里: `/json/list` 带 `?token=` (另加 `Authorization: Bearer`), 目标的 WebSocket 地址也用 `?token=` (`webSocketDebuggerUrl`
-    没带时补上), 因为 DevTools 前端连 WebSocket 不能加请求头. 所以 stdout 打印的 `devtools://` 地址含令牌, 等于这台机器上这个会话的调试
-    凭据 (能在页面里执行任意代码): 不要贴进议题、日志或聊天, 会话结束后作废.
-  - 测试: 假 acdert 应答 `devtools` 并提供 `/json/list` (令牌 `fake-token`); 浏览器启动经 `launch` 注入, 测试只记录不执行,
-    命令行用例设 `ACDE_BROWSER=none`.
+  - 端点不要令牌 (acde#79, acdert#199): acdert 按 `Host` 和 `Origin` 防护 (同 Chrome 自己的调试端口), `devtools` 只回 `{port}`,
+    `/json/list` 和目标的 `webSocketDebuggerUrl` 原样用. 还回 `token` 的旧 acdert 照旧: `/json/list` 带 `?token=` (另加
+    `Authorization: Bearer`), WebSocket 地址没带 `?token=` 时补上 (DevTools 前端连 WebSocket 不能加请求头), 这时打印的地址含令牌,
+    别贴进议题、日志或聊天.
+  - 测试: 假 acdert 应答 `devtools` 并提供 `/json/list` (令牌 `fake-token`; `FAKE_ACDERT_DEVTOOLS_TOKENLESS=1` 时只回端口、不查令牌);
+    浏览器启动经 `launch` 注入, 测试只记录不执行, 命令行用例设 `ACDE_BROWSER=none`.
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块; 公开的接口类型、`ACTIONS`、`ActError` 和 `LaunchError` 在 `types.ts`, `acde.ts` 原样再导出, 只放 `Acde` 类): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
   `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDE_FOLLOWED=1`: 会话文件按子进程 pid 找, `acde dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,

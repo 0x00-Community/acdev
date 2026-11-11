@@ -545,6 +545,22 @@ describe('acde dev with a stand-in acdert', () => {
     expect(none.stderr).toContain('no acde dev is running')
   }, 30_000)
 
+  test('acde devtools against a runtime that answers only a port: no token in the list or the address', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
+    const dev = start([], alpha, { FAKE_ACDERT_DEVTOOLS_TOKENLESS: '1' })
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      const opened = await dev.tool(['devtools', 'alpha'], alpha, undefined, { ACDE_BROWSER: 'none' })
+      expect(opened.code, opened.stderr).toBe(0)
+      expect(opened.stdout)
+        .toMatch(/^devtools:\/\/devtools\/bundled\/inspector\.html\?ws=127\.0\.0\.1%3A\d+%2Fdevtools%2Fpage%2F7\n$/)
+      expect(dev.entries().some((e) => (e as { devtools?: string }).devtools === '/json/list')).toBe(true)
+    } finally {
+      await dev.stop()
+    }
+  }, 60_000)
+
   test('approval prompts from the command line: permissions, allow, deny, revoke; ' +
     'webs says what an app waits for', async () => {
     const base = tmp()
