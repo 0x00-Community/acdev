@@ -14,7 +14,7 @@ notes#1048576  app      notes  1048576  Notes
 
 ## Sessions
 
-These commands find an `acde dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise the only session, if there is just one; otherwise they fail and list all sessions.
+These commands find an `acde dev` session in this order: `--session <pid>`; otherwise the session whose project directory contains the current directory; otherwise, outside any project, the only session, if there is just one (the command then names it on stderr: `acde: using acde dev <pid> (...), the only one running`); otherwise they fail and list all sessions.
 
 ## Commands
 

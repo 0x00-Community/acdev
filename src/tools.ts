@@ -40,7 +40,8 @@ export class Tools {
     const limit = command === 'query' ? Tools.#limit(flags.get('limit')) : undefined
     const wanted = command === 'allow' || command === 'deny' ? Tools.wanted(command, args, flags) : {}
     if (command === 'stop') return await Tools.#stop(session)
-    const acde = await Acde.attach(session === undefined ? {} : { session })
+    const say = (line: string) => console.error(line)
+    const acde = await Acde.attach(session === undefined ? { say } : { session, say })
     try {
       switch (command) {
         case 'webs': {
@@ -144,7 +145,7 @@ export class Tools {
   }
 
   static async #stop(pid: number | undefined): Promise<number> {
-    const session = Sessions.pick(Sessions.list(), process.cwd(), pid)
+    const session = Sessions.pick(Sessions.list(), process.cwd(), pid, (line) => console.error(line))
     const link = await DevClient.connect(session.endpoint).catch(() => null)
     if (!link) {
       Sessions.remove(session.pid)

@@ -187,6 +187,7 @@ export interface AttachOptions {
   readonly cwd?: string
   readonly env?: Readonly<Record<string, string>>
   readonly timeout?: number
+  readonly say?: (line: string) => void
 }
 
 export interface LaunchOptions {
@@ -331,7 +332,7 @@ export class Acde {
 
   static async attach(options: AttachOptions = {}): Promise<Acde> {
     const sessions = Sessions.list(Sessions.dir({ ...process.env, ...options.env }))
-    const session = Sessions.pick(sessions, options.cwd ?? process.cwd(), options.session)
+    const session = Sessions.pick(sessions, options.cwd ?? process.cwd(), options.session, options.say)
     return new Acde(session, await Acde.#connect(session), null, null, options.timeout ?? Acde.TIMEOUT_MS)
   }
 

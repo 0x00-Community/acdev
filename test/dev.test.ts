@@ -189,7 +189,11 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
     mkdirSync(join(root, 'elsewhere'))
     expect(Sessions.pick([a, ab, c], join(root, 'a', 'b', 'src')).pid).toBe(12)
     expect(Sessions.pick([a, ab, c], join(root, 'a')).pid).toBe(11)
-    expect(Sessions.pick([c], join(root, 'elsewhere')).pid).toBe(13)
+    const said: string[] = []
+    expect(Sessions.pick([c], join(root, 'elsewhere'), undefined, (line) => said.push(line)).pid).toBe(13)
+    expect(said).toEqual([expect.stringMatching(/^acde: using acde dev 13 \(.+\), the only one running$/)])
+    expect(Sessions.pick([a, ab, c], join(root, 'a'), undefined, (line) => said.push(line)).pid).toBe(11)
+    expect(said).toHaveLength(1)
     expect(Sessions.pick([a, ab, c], join(root, 'elsewhere'), 13).pid).toBe(13)
     expect(() => Sessions.pick([a, c], join(root, 'elsewhere')))
       .toThrow(/several[\s\S]*--session <pid>:\n  11  app alpha/)

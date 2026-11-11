@@ -100,7 +100,7 @@ export class Sessions {
     return found.sort((a, b) => a.started - b.started)
   }
 
-  static pick(sessions: readonly Session[], cwd: string, pid?: number): Session {
+  static pick(sessions: readonly Session[], cwd: string, pid?: number, say?: (line: string) => void): Session {
     if (pid !== undefined) {
       const chosen = sessions.find((s) => s.pid === pid)
       if (chosen) return chosen
@@ -115,7 +115,11 @@ export class Sessions {
     const matching = deepest < 0 ? [] : sessions.filter((s) => depth(s) === deepest)
     if (matching.length === 1) return matching[0]!
     const project = up(here, (dir) => [...CONFIGS, 'package.json'].some((name) => existsSync(join(dir, name))) && dir)
-    if (matching.length === 0 && sessions.length === 1 && project === null) return sessions[0]!
+    if (matching.length === 0 && sessions.length === 1 && project === null) {
+      const only = sessions[0]!
+      say?.(`acde: using acde dev ${only.pid} (${Sessions.what(only)}), the only one running`)
+      return only
+    }
     if (matching.length === 0 && project !== null) {
       throw new Error(`no acde dev runs the project in ${project}; to use another one, pass --session <pid>`
         + Sessions.#listing(sessions))
@@ -127,9 +131,13 @@ export class Sessions {
     throw new Error(`${why}; pick one with --session <pid>${listed}`)
   }
 
-  static describe(session: Session): string {
+  static what(session: Session): string {
     const kind = session.desktop ? `desktop ${session.desktop}` : `app ${session.apps.join(', ')}`
-    const what = `${kind}${session.headless ? ' (headless)' : ''}`
+    return `${kind}${session.headless ? ' (headless)' : ''}`
+  }
+
+  static describe(session: Session): string {
+    const what = Sessions.what(session)
     const since = new Date(session.started).toLocaleTimeString()
     return `${session.pid}  ${what}  ${session.dirs.join(', ')}  (since ${since})`
   }
