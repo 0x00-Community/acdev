@@ -38,7 +38,7 @@ describe('the skill', () => {
   })
 
   test('names every command acde has', async () => {
-    const usage = (await cli([], tmp())).stderr
+    const usage = (await cli(['--help'], tmp())).stdout
     const commands = [...usage.matchAll(/^  ([a-z]+) /gm)].map((match) => match[1]!)
     const flags = [...new Set([...usage.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((match) => match[0]))]
     expect(commands).toContain('skills')
@@ -48,7 +48,7 @@ describe('the skill', () => {
   })
 
   test('install.md, the steps an agent follows, uses commands acde has and is where the skill says', async () => {
-    const usage = (await cli([], tmp())).stderr
+    const usage = (await cli(['--help'], tmp())).stdout
     const commands = new Set([...usage.matchAll(/^  ([a-z]+) /gm)].map((match) => match[1]!))
     const steps = readFileSync(join(ROOT, 'install.md'), 'utf8')
     const code = [...steps.matchAll(/^```\w*\n([\s\S]*?)^```$|`([^`\n]+)`/gm)]
