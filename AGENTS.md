@@ -282,8 +282,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   - `stop` (问): 子进程跑 `acde stop --session <pid>`.
   子进程的输出: 文字模式直接给终端; `--json` 时 stdout 指到 fd 2, stdout 上只有最后的 JSON (`{ok, fixed: [{repair, result, said}], checks}`);
   MCP 收下来, 每个最多留最后 20 行. 时限: acde 子命令 60 s, 安装器和包管理器 15 min.
-  MCP 的 `doctor_fix` (`{dir?, allow?}`): 同一个 `Doctor.fix`, `allow` 就是 `--yes`, 没有 confirm (跳过时说 `call again with allow: true once the user
-  agreed`), 标成 destructive / openWorld 让客户端先问用户. 不修的: 待答的批准、GPU 驱动和系统库、macOS 隔离、PATH 上别的 acde、工程的代码和配置
+  MCP 的 `doctor_fix` (`{dir?}`, `dir` 要在工作目录里): 同一个 `Doctor.fix`, 只做不问的那几个; 问的那几个跳过并点名 (`the user runs acde doctor
+  --fix in a terminal, or agrees to acde doctor --fix --yes`). 不给它 `allow` 参数: 同意要来自用户本人 (终端里的确认, 或宿主对那条 shell 命令的权限确认),
+  不该是 agent 自己填的参数 (安全审查 2026-11-11 提出; MCP 的 elicitation 在 SDK 2.4 里已标为废弃、要换成 2026-07-28 协议的 `inputRequired`,
+  没为这一个工具做两套). 不修的: 待答的批准、GPU 驱动和系统库、macOS 隔离、PATH 上别的 acde、工程的代码和配置
   (含 `@dopame/acde-api` 版本不对, 要改 package.json).
 - 实测 (2026-11-11, 本仓库加 acdert 的 `acdert doctor`): macOS (M3 Pro, Metal) 源码跑和经 `install.sh` 从本地镜像装到临时 HOME 后跑 (PATH 前后两种);
   Linux .234 (Panther Lake, Mesa Vulkan) 经 SSH 无显示 (`display` 警告)、`WAYLAND_DISPLAY` 设了、`VK_DRIVER_FILES` 指向不存在的 ICD (`gpu` 错误);

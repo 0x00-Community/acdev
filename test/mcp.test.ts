@@ -36,7 +36,11 @@ describe('acde mcp', () => {
       expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
 
       expect(tools.find((t) => t.name === 'doctor')!.annotations).toMatchObject({ readOnlyHint: true })
-      expect(tools.find((t) => t.name === 'doctor_fix')!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
+      expect(tools.find((t) => t.name === 'doctor_fix')!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false })
+      expect(tools.find((t) => t.name === 'doctor_fix')!.inputSchema.properties).not.toHaveProperty('allow')
+      const outside = await call('doctor_fix', { dir: '..' })
+      expect(outside.error).toBe(true)
+      expect(outside.text).toContain('is not inside the working directory')
       const checked = await call('doctor')
       expect(checked.error).toBe(false)
       expect(checked.text).toContain(`ok     acdert: acdert 0.0.0 (contract level ${API_LEVEL}) at ${s.env['ACDERT']} (from ACDERT)`)

@@ -151,24 +151,27 @@ export class Mcp {
     s.registerTool(
       'doctor_fix',
       {
-        description: 'Check this machine as doctor does, then fix what acde may fix: install the acde skill, add .acde/ '
-          + 'to .gitignore, make the sessions directory again. With allow: true also what downloads or stops something: '
-          + 'run the acde installer again for a missing or mismatched acdert, install the project\'s dependencies, stop '
-          + 'a session that does not answer; set allow only when the user agreed. Approvals, GPU drivers and the '
+        description: 'Check this machine as doctor does, then fix what acde may fix without asking: install the acde '
+          + 'skill, add .acde/ to .gitignore, make the sessions directory again. What downloads, installs or stops '
+          + 'something (the acde installer again for a missing or mismatched acdert, the project\'s install, stopping '
+          + 'a session that does not answer) is skipped here and named: that needs the user, who runs acde doctor '
+          + '--fix in a terminal (it asks) or agrees to acde doctor --fix --yes. Approvals, GPU drivers and the '
           + 'project\'s code are never touched. Answers what it did, then the checks again.',
         inputSchema: z.object({
-          dir: z.string().optional().describe('the project directory, relative to the working directory (default: the '
+          dir: z.string().optional().describe('the project directory, inside the working directory (default: the '
             + 'working directory)'),
-          allow: z.boolean().optional().describe('also the fixes that download, install or stop something (the user agreed)'),
         }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
       },
       (args) => this.#safe(async () => {
-        const options = { ...(args.dir !== undefined && { dir: args.dir }) }
+        const dir = resolve(args.dir ?? '.')
+        if (!Doctor.inside(Doctor.real(dir), Doctor.real(process.cwd())))
+          throw new Error(`${dir} is not inside the working directory ${process.cwd()}`)
+        const options = { dir }
         const lines: string[] = []
         await Doctor.fix(await Doctor.run(options), {
-          yes: args.allow === true, output: 'capture', say: (line) => lines.push(line), confirm: null,
-          allowing: 'call again with allow: true once the user agreed',
+          yes: false, output: 'capture', say: (line) => lines.push(line), confirm: null,
+          allowing: 'the user runs acde doctor --fix in a terminal, or agrees to acde doctor --fix --yes',
         })
         const after = await Doctor.run(options)
         return Mcp.#text(`${lines.join('\n')}\n\n${Doctor.format(after)}`)
