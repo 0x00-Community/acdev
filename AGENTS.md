@@ -914,6 +914,8 @@ JS 侧 `isolate.ts` 的 `devicesModule` 加上 `on`. 类型 acde-api `AcdeDevice
 - **事件**: `on('changed', state)` 给整个 `state()` (和上次一样不发), `on('added', drive)`. 有 `changed` 的监听时每 3 秒问一次 CUPS
   (CUPS 没有不订阅就能收的事件), 变了才发; 没有监听时不问 (socket 激活的 cupsd 照常闲了退出). 原生的 `watch(type, 回调)` 回编号,
   `unwatch(编号)`; isolate 结束时全部摘掉, 每 3 秒的轮询顺带给监听发一个 null (JS 侧丢掉), 收不到的摘掉.
+- 挂上的盘也是「文件」的根 (runtime `fs/workspace.rs` 的 `roots`: `/proc/self/mountinfo` 里 `/run/media/<用户>/<名字>` 和
+  `/media/<用户>/<名字>`, source `default`, 名字是卷标), 所以「打开」和 `openPath` 能在文件管理器里打开它 (KDE 的「用文件管理器打开」).
 - 还没有: 添加 / 删除打印机 (KDE 的添加向导、驱动选择)、打印测试页、接受 / 拒绝任务、打印机选项; 手机 (MTP) 不经 UDisks2, 不列.
   测试: `cargo test -p acde-runtime devices` (IPP 编解码、HTTP 分块、lpoptions 改写、自动挂载规则), 本机的 `--ignored` (`this_machine`).
 
