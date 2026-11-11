@@ -32,6 +32,7 @@ export interface DomSource {
   computed(node: DomNode): [string, string][]
   inline(node: DomNode): [string, string, boolean][]
   rect(node: DomNode): readonly [number, number, number, number] | null
+  query(root: DomNode, selector: string): DomNode[]
 }
 
 export type Quad = [number, number, number, number, number, number, number, number]
@@ -64,6 +65,8 @@ export class DomDomain {
   readonly #emit: Emit
   readonly #sessions = new Set<number>()
   readonly #expanded = new Set<number>()
+  readonly #searches = new Map<number, Map<string, DomNode[]>>()
+  #searchSeq = 0
   #stop: (() => void) | null = null
 
   constructor(source: DomSource, emit: Emit) {
@@ -89,13 +92,21 @@ export class DomDomain {
       },
       getBoxModel: (params) => ({ model: DomDomain.box(source, domain.#node(params)) }),
       pushNodesByBackendIdsToFrontend: (params) => ({ backendNodeIds: params['backendNodeIds'] ?? [] }),
+      querySelector: (params) => {
+        const found = domain.#query(params)[0]
+        return { nodeId: found ? domain.#reveal(found) : 0 }
+      },
+      querySelectorAll: (params) => ({ nodeIds: domain.#query(params).map((node) => domain.#reveal(node)) }),
+      performSearch: (params, session) => domain.#search(params, session),
+      getSearchResults: (params, session) => domain.#results(params, session),
+      discardSearchResults: (params, session) => void domain.#searches.get(session.id)?.delete(String(params['searchId'])),
     }
     for (const name of EDITS) {
       methods[name] = () => {
         throw new DevToolsError(-32000, READ_ONLY)
       }
     }
-    return { name: 'DOM', methods }
+    return { name: 'DOM', methods, closed: (session) => void domain.#searches.delete(session) }
   }
 
   static node(source: DomSource, params: DevToolsParams): DomNode {
@@ -124,6 +135,89 @@ export class DomDomain {
     const margin = inset(border, sides('margin'), -1)
     const quad = ([l, t, r, b]: number[]): Quad => [l!, t!, r!, t!, r!, b!, l!, b!]
     return { content: quad(content), padding: quad(padding), border: quad(border), margin: quad(margin), width, height }
+  }
+
+  #query(params: DevToolsParams): DomNode[] {
+    const root = this.#node(params)
+    const selector = String(params['selector'] ?? '')
+    try {
+      return this.#source.query(root, selector)
+    } catch {
+      throw new DevToolsError(-32000, `'${selector}' is not a valid selector.`)
+    }
+  }
+
+  #reveal(node: DomNode): number {
+    const path: DomNode[] = []
+    for (let parent = node.parentNode; parent; parent = parent.parentNode) path.unshift(parent)
+    for (const parent of path) {
+      const id = this.#source.idOf(parent)
+      if (this.#expanded.has(id)) continue
+      this.#expanded.add(id)
+      this.#emit('setChildNodes', { parentId: id, nodes: this.#shown(parent).map((child) => this.#describe(child, 0)) })
+    }
+    return this.#source.idOf(node)
+  }
+
+  #search(params: DevToolsParams, session: DevToolsSession): unknown {
+    const query = String(params['query'] ?? '').trim()
+    const found = query ? DomDomain.matches(this.#source, query) : []
+    const searchId = `${session.id}.${++this.#searchSeq}`
+    let searches = this.#searches.get(session.id)
+    if (!searches) this.#searches.set(session.id, (searches = new Map()))
+    searches.set(searchId, found)
+    return { searchId, resultCount: found.length }
+  }
+
+  #results(params: DevToolsParams, session: DevToolsSession): unknown {
+    const found = this.#searches.get(session.id)?.get(String(params['searchId']))
+    if (!found) throw new DevToolsError(-32000, 'No search session with given id found')
+    const from = Number(params['fromIndex'])
+    const to = Number(params['toIndex'])
+    if (!(Number.isInteger(from) && Number.isInteger(to) && from >= 0 && from <= to && to <= found.length)) {
+      throw new DevToolsError(-32000, 'Invalid search result range')
+    }
+    return { nodeIds: found.slice(from, to).map((node) => this.#reveal(node)) }
+  }
+
+  static matches(source: DomSource, query: string): DomNode[] {
+    const exact = query.length > 1 && query.startsWith('"') && query.endsWith('"')
+    const text = (exact ? query.slice(1, -1) : query).toLowerCase()
+    const open = !exact && query.startsWith('<')
+    const close = !exact && query.length > 1 && query.endsWith('>')
+    const tag = query.slice(open ? 1 : 0, close ? -1 : undefined).toLowerCase()
+    const hit = (value: string) => (exact ? value.toLowerCase() === text : value.toLowerCase().includes(text))
+    const named = (node: DomNode) => {
+      const name = (node.localName ?? node.nodeName).toLowerCase()
+      if (open || close) return tag !== '' && (open && close ? name === tag : open ? name.startsWith(tag) : name.endsWith(tag))
+      return hit(name)
+    }
+    const found = new Set<DomNode>()
+    const walk = (node: DomNode) => {
+      if (node.nodeType === ELEMENT) {
+        const attributes = node.attributes ? Array.from(node.attributes) : []
+        if (named(node) || (!open && !close && attributes.some((a) => hit(a.name) || hit(a.value)))) found.add(node)
+      } else if (node.nodeType === TEXT && !open && !close && (node.nodeValue ?? '').trim() && hit(node.nodeValue ?? '')) {
+        found.add(node)
+      }
+      for (let i = 0; i < node.childNodes.length; i++) walk(node.childNodes[i]!)
+    }
+    const document = source.document()
+    walk(document)
+    let selected: DomNode[] = []
+    try {
+      selected = source.query(document, query)
+    } catch {}
+    if (!selected.length) return [...found]
+    const order = new Map<DomNode, number>()
+    let index = 0
+    const number = (node: DomNode) => {
+      order.set(node, index++)
+      for (let i = 0; i < node.childNodes.length; i++) number(node.childNodes[i]!)
+    }
+    number(document)
+    for (const node of selected) found.add(node)
+    return [...found].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
   }
 
   #enable(session: DevToolsSession): void {

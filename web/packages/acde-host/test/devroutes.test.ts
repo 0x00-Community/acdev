@@ -211,6 +211,19 @@ describe('DOM domain served by the page', () => {
       computed: (node: DomNode) => styles.get(node as FakeNode) ?? [],
       inline: (node: DomNode): [string, string, boolean][] => (node === title ? [['color', 'red', true]] : []),
       rect: (node: DomNode) => rects.get(node as FakeNode) ?? null,
+      query: (root: DomNode, selector: string) => {
+        if (/[[\]]/.test(selector)) throw new SyntaxError(`bad selector ${selector}`)
+        const match = (node: FakeNode) => {
+          const attribute = (name: string) => node.attributes?.find((a) => a.name === name)?.value ?? ''
+          if (selector.startsWith('.')) return attribute('class').split(' ').includes(selector.slice(1))
+          if (selector.startsWith('#')) return attribute('id') === selector.slice(1)
+          return /^[a-z][a-z0-9]*$/i.test(selector) && node.nodeType === 1 && node.localName === selector.toLowerCase()
+        }
+        const out: FakeNode[] = []
+        const walk = (node: FakeNode) => node.childNodes.forEach((child) => (match(child) && out.push(child), walk(child)))
+        walk(root as FakeNode)
+        return out
+      },
     }
     const sent: Record<string, unknown>[] = []
     let handler: ((session: number, text: string | null) => void) | null = null
@@ -219,13 +232,14 @@ describe('DOM domain served by the page', () => {
       devtoolsSend: (_: number, text: string) => void sent.push(JSON.parse(text) as Record<string, unknown>),
     }
     DevToolsPage.install(host, (page) => [DomDomain.create(source, (method, params) => page.emit('DOM', method, params)), CssDomain.create(source)])
-    const ask = async (message: Record<string, unknown>) => {
-      handler!(1, JSON.stringify(message))
+    const ask = async (message: Record<string, unknown>, session = 1) => {
+      handler!(session, JSON.stringify(message))
       await new Promise((resolve) => setTimeout(resolve, 0))
       return sent.at(-1)!
     }
     const mutate = (records: DomRecord[]) => changed!(records)
-    return { document, html, body, title, sent, ask, mutate, styles, lookup: () => lookup, observing: () => changed !== null }
+    const end = (session: number) => handler!(session, null)
+    return { document, html, body, title, sent, ask, end, mutate, styles, lookup: () => lookup, observing: () => changed !== null }
   }
   type Described = { nodeId: number; nodeName: string; attributes?: string[]; childNodeCount: number; children?: Described[]; nodeValue: string }
 
@@ -258,6 +272,54 @@ describe('DOM domain served by the page', () => {
     assert.equal((described['result'] as { node: Described }).node.nodeName, 'HTML')
     const missing = await ask({ id: 4, method: 'DOM.describeNode', params: { nodeId: 9999 } })
     assert.equal((missing['error'] as { code: number }).code, -32000)
+  })
+
+  test('querySelector and querySelectorAll answer render ids and push the path to unseen nodes', async () => {
+    const { document, html, body, title, sent, ask } = tree()
+    await ask({ id: 1, method: 'DOM.enable' })
+    sent.length = 0
+    const one = await ask({ id: 2, method: 'DOM.querySelector', params: { nodeId: document.id, selector: 'h1' } })
+    assert.deepEqual(one['result'], { nodeId: title.id })
+    const pushed = sent.filter((m) => m['method'] === 'DOM.setChildNodes').map((m) => (m['params'] as { parentId: number }).parentId)
+    assert.deepEqual(pushed, [document.id, html.id, body.id])
+    sent.length = 0
+    const all = await ask({ id: 3, method: 'DOM.querySelectorAll', params: { nodeId: body.id, selector: '.big' } })
+    assert.deepEqual(all['result'], { nodeIds: [title.id] })
+    assert.equal(sent.filter((m) => m['method'] === 'DOM.setChildNodes').length, 0, 'the path is known by now')
+    const none = await ask({ id: 4, method: 'DOM.querySelector', params: { nodeId: document.id, selector: 'p' } })
+    assert.deepEqual(none['result'], { nodeId: 0 })
+    const bad = await ask({ id: 5, method: 'DOM.querySelectorAll', params: { nodeId: document.id, selector: 'a[[' } })
+    assert.deepEqual(bad['error'], { code: -32000, message: "'a[[' is not a valid selector." })
+  })
+
+  test('search finds by text, tag name and selector, per session, until discarded or disconnected', async () => {
+    const { html, title, ask, end } = tree()
+    const search = async (query: string, session = 1) => {
+      const reply = await ask({ id: 1, method: 'DOM.performSearch', params: { query } }, session)
+      return reply['result'] as { searchId: string; resultCount: number }
+    }
+    const results = async (searchId: string, count: number, session = 1) =>
+      (await ask({ id: 2, method: 'DOM.getSearchResults', params: { searchId, fromIndex: 0, toIndex: count } }, session))
+    const text = await search('hello')
+    const textNode = title.childNodes[0]!
+    assert.deepEqual((await results(text.searchId, text.resultCount))['result'], { nodeIds: [textNode.id] })
+    const tag = await search('<h1>')
+    assert.deepEqual((await results(tag.searchId, tag.resultCount))['result'], { nodeIds: [title.id] })
+    const prefix = await search('<h')
+    assert.equal(prefix.resultCount, 3, 'html, head and h1')
+    const selector = await search('.big')
+    assert.deepEqual((await results(selector.searchId, selector.resultCount))['result'], { nodeIds: [title.id] })
+    const attribute = await search('lang')
+    assert.deepEqual((await results(attribute.searchId, 1))['result'], { nodeIds: [html.id] })
+    assert.equal((await search('nothing here')).resultCount, 0)
+    const range = await ask({ id: 3, method: 'DOM.getSearchResults', params: { searchId: tag.searchId, fromIndex: 0, toIndex: 5 } })
+    assert.equal((range['error'] as { code: number }).code, -32000)
+    const other = await results(tag.searchId, 1, 2)
+    assert.equal((other['error'] as { message: string }).message, 'No search session with given id found')
+    await ask({ id: 4, method: 'DOM.discardSearchResults', params: { searchId: tag.searchId } })
+    assert.equal(((await results(tag.searchId, 1))['error'] as { code: number }).code, -32000)
+    end(1)
+    assert.equal(((await results(text.searchId, 1))['error'] as { code: number }).code, -32000, 'dropped with the session')
   })
 
   test('page changes reach the open tree as DOM events', async () => {

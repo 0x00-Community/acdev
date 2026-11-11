@@ -380,6 +380,12 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   回来的 `result` 改名成 `object` (补 `subtype: 'node'`), 找不到是 -32000.
   `setInspectedNode` 也在 `inspector/page.rs` (`set_inspected`) 拦下: 用同一个查找函数拿到节点, 存成 `Global` 包进 `InspectableImpl`, 交给这个客户端
   V8 session 的 `add_inspected_object`, 控制台的 `$0` (带 `includeCommandLineAPI` 的求值) 就是它; 找不到是 -32000.
+  查询和搜索 (#201): `querySelector` / `querySelectorAll` 用页面节点自己的 `querySelectorAll` (`pagedom.ts` `query`), 无效选择器回 -32000
+  `'<选择器>' is not a valid selector.` (异常在 acde-host 里接住, 不进页面); 结果里前端没见过的节点, 先沿祖先自上而下给没展开过的推
+  `setChildNodes` (同 `requestChildNodes`, `DomDomain.#reveal`). `performSearch` 照 Chrome: 元素名、属性名和属性值、非空白文本里含查询串
+  (不分大小写; `"…"` 是整串相等; `<x` 元素名开头, `x>` 结尾, `<x>` 相等), 再并上按 CSS 选择器查到的 (选择器无效就只算文本), 按文档顺序;
+  不支持 XPath. 结果按客户端 session 存 (`searchId` 是 `<session>.<序号>`), `getSearchResults` 只认本 session 的, 区间越界回 -32000;
+  `discardSearchResults` 或断开 (`DevToolsDomain.closed`) 时删掉.
   `Network` (#188, `devtools/network.ts` `NetworkDomain`): fetch 和 XHR. 数据来自 acde-dom 观察点的 `network` (`NetworkObserver`): `Tracked`
   只在 `recording()` 为真 (有客户端 `Network.enable`) 时把请求头、请求体、响应头和收到的每块数据交给它, 没人开时不记录也不复制. 事件
   `requestWillBeSent` / `responseReceived` / `dataReceived` / `loadingFinished` / `loadingFailed` (失败、中止 (`canceled`)、没有 network 能力

@@ -32,6 +32,10 @@ export class PageDom {
         observer.observe(page.document, { childList: true, subtree: true, attributes: true, characterData: true })
         return () => observer.disconnect()
       },
+      query: (root, selector) => {
+        const all = (root as { querySelectorAll?: (selector: string) => ArrayLike<DomNode> }).querySelectorAll
+        return all ? Array.from(all.call(root, selector)) : []
+      },
       computed: (node) => {
         const all = dom.computedStyleAll(page.idOf(node), '')
         const out: [string, string][] = []
