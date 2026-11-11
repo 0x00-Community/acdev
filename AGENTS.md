@@ -1309,7 +1309,9 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - 原生应用经 linux-dmabuf v4 零拷贝, 全屏且格式合适时直扫; pre-commit 钩子等 syncobj acquire point 或 dmabuf 的读 fence. 缺口: presentation
   不是硬件时间戳, 没有 tearing-control 和 VRR.
 - 网页图层 (会话): vello 画进 web 自己 GBM 分配的 linear dmabuf, sync_file 落定后 commit. 光栅化线程 `acde-web` 一次一帧, CPU 编码和 GPU 执行
-  重叠, 挪窗口不重新光栅化, 闲 2 秒放掉中间纹理.
+  重叠, 挪窗口不重新光栅化, 闲 2 秒放掉中间纹理. 两套 vello 着色器都在会话开始时编好 (#109): 光栅化线程自己的 (`vello warm-up`) 和
+  页面画布、阴影、截图用的进程级 `Offscreen` (crates/render `gpu.rs`, 在 `acde-warm` 线程里 `gpu::warm()`, 日志 `offscreen vello warm-up`),
+  不再等第一个用到画布或阴影的窗口打开时才编, 编的时候还拿着全进程一把 `Offscreen` 锁.
 - 帧预算: 120 fps 下每帧 8 ms. 盯 acde-dom `test/cost.test.ts` / `test/caches.test.ts`、shell / DomNative 的 `stats`、`drive.sh perf`; 提交里写测到的数.
 - WebGPU (`navigator.gpu`, 只在 Linux): crates/acdert `webgpu/`, 跑在光栅化线程的设备上; 回调由 `acde-gpu-poll` 线程非阻塞轮询 (每帧路径上不用
   `poll(Wait)`, 它拿着 snatch 读锁会卡住别的线程的提交). WebGL 还没有, 要做时也只经 wgpu.

@@ -13,6 +13,13 @@ fn with<T>(f: impl FnOnce(&mut Offscreen) -> Result<T, String>) -> Option<T> {
     f(slot.as_mut()?).inspect_err(|e| log::warn!("render: {e}")).ok()
 }
 
+pub fn warm() {
+    let started = std::time::Instant::now();
+    if with(|_| Ok(())).is_some() {
+        log::info!("offscreen vello warm-up {:.1}ms", started.elapsed().as_secs_f64() * 1000.0);
+    }
+}
+
 pub fn draw(scene: Scene, size: (u32, u32), place: Affine) -> Option<Arc<GpuImage>> {
     with(|o| o.draw(scene, size, place))
 }

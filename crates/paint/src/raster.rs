@@ -44,6 +44,9 @@ impl Raster {
         let pages = Pages::new(device, std::env::var_os("ACDE_WEB_POLL").is_some())?;
         log::info!("vello warm-up {:.1}ms", acde_log::since_ms(started));
         let gpu = Gpu::publish(Some(published));
+        if let Err(e) = std::thread::Builder::new().name("acde-warm".into()).spawn(acde_render::gpu::warm) {
+            log::warn!("offscreen warm-up thread: {e}");
+        }
         let images = gpu.as_ref().map_or_else(Default::default, |g| g.images.clone());
         Ok(Self { pages, overrides: Overrides::from(images), gpu })
     }
