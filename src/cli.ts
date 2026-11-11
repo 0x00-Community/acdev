@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { findAcdert, requireAcdert, run, runtimes } from 'acde/launcher'
@@ -215,13 +215,18 @@ class Cli {
       }
       return 0
     }
+    const started = performance.now()
     const pkg = new AppPackage(args[0] ?? '.')
     if (command === 'check') return Cli.report(pkg, flags.get('platform') ?? AppPackage.here()) ? 0 : 1
     const built = await pkg.build(resolve(pkg.dir, flags.get('out') ?? '.acde'))
     const what = [...built.desktops.map((id) => `desktop ${id}`), ...built.apps.map((id) => `app ${id}`)].join(', ')
-    console.log(`acde: ${pkg.project ? `built ${what} into ${built.dir}` : `ok: ${pkg.name} (${what})`}`)
-    if (command === 'build') return 0
-    console.log(`acde: installed ${built.id} in ${pkg.install(built)}`)
+    const into = pkg.project ? `built ${what} into ${Cli.shown(built.dir)}` : `ok: ${pkg.name} (${what})`
+    if (command === 'build') {
+      console.log(`acde: ${into} (${Cli.took(started)})`)
+      return 0
+    }
+    console.log(`acde: ${into}`)
+    console.log(`acde: installed ${built.id} in ${pkg.install(built)} (${Cli.took(started)})`)
     return 0
   }
 
@@ -266,7 +271,19 @@ class Cli {
     return Doctor.failed(after) ? 1 : 0
   }
 
+  static shown(path: string): string {
+    const real = existsSync(path) ? realpathSync(path) : path
+    const inside = relative(realpathSync(process.cwd()), real)
+    return inside && !inside.startsWith('..') && !isAbsolute(inside) ? inside : path
+  }
+
+  static took(started: number): string {
+    const ms = performance.now() - started
+    return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`
+  }
+
   static async create(dir: string, flags: ReadonlyMap<string, string>): Promise<number> {
+    const started = performance.now()
     const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
     const given = {
       ...(dir && { dir }),
@@ -284,12 +301,14 @@ class Cli {
       if (!given.dir) throw new Error('new: a directory (or run it in a terminal to be asked) (acde new --help)')
       const created = await Creator.create(given, false)
       Cli.report(created.pkg)
-      console.log(`acde: ${created.starter.label} in ${created.pkg.dir}. next: ${Creator.next(created).join(' && ')}`)
+      const made = `${created.starter.label} in ${Cli.shown(created.pkg.dir)} (${Cli.took(started)})`
+      console.log(`acde: ${made}. next: ${Creator.next(created).join(' && ')}`)
       console.log(`acde: then: ${Creator.LATER.join('; ')}`)
       return 0
     }
     const options = await Creator.ask(given)
     if (!options) return 0
+    const answered = performance.now()
     const created = await Creator.create(options, true)
     const { errors, warnings, notes } = created.pkg.check()
     for (const warning of warnings) p.log.warn(warning)
@@ -298,7 +317,7 @@ class Cli {
     p.note(Creator.next(created).join('\n'), 'Next')
     p.note(Creator.LATER.join('\n'), 'Then')
     const kind = created.starter.kind === 'desktop' ? 'Desktop' : `${created.starter.label} app`
-    p.outro(`${kind} ${JSON.stringify(created.pkg.name)} is ready`)
+    p.outro(`${kind} ${JSON.stringify(created.pkg.name)} is ready (${Cli.took(answered)})`)
     return errors.length === 0 ? 0 : 1
   }
 

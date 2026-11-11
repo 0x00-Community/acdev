@@ -224,7 +224,10 @@ describe('acde.config.jsonc', () => {
       Sdk.url(),
     )
     expect((await cli(['check'], dir)).stdout).toContain('app (acde.config.jsonc)')
-    expect((await cli(['install'], dir, { XDG_DATA_HOME: data })).code).toBe(0)
+    const installed = await cli(['install'], dir, { XDG_DATA_HOME: data })
+    expect(installed.code).toBe(0)
+    expect(installed.stdout)
+      .toMatch(/^acde: built app hello into \.acde\nacde: installed hello in .+ \(\d+(?: ms|\.\d s)\)\n$/)
     const built = JSON.parse(readFileSync(join(data, 'acde/packages/hello/package.json'), 'utf8'))
     expect(built.acde).toEqual({
       apiLevel: API_LEVEL,
@@ -390,7 +393,7 @@ describe('acde.config.jsonc', () => {
     const dir = join(tmp(), 'with-api')
     const made = await cli(['new', dir, '--template', 'html', '--backend', '--label', 'API', '--no-install'], tmp())
     expect(made.code).toBe(0)
-    expect(made.stdout).toContain('next: cd ')
+    expect(made.stdout).toMatch(/^acde: HTML in with-api \(\d+(?: ms|\.\d s)\)\. next: cd /m)
     expect(made.stdout).toContain('acde: then: while acde dev runs, acde inspect / eval / console / network / shot')
     expect(made.stdout).toContain('acde install builds it and puts it on the desktop')
     const out = join(tmp(), 'out')
