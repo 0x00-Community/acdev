@@ -548,7 +548,7 @@ interface AcdeInspect {
   query(options: { selector: string; window?: string; ref?: string; limit?: number; attributes?: readonly string[] }): Promise<{ window: string; count: number; nodes: InspectMatch[] }>
 }
 
-type InspectAction = 'click' | 'double' | 'right' | 'hover' | 'drag' | 'type' | 'settext' | 'select' | 'key' | 'scroll' | 'focus' | 'close' | 'minimize' | 'restore'
+type InspectAction = 'click' | 'double' | 'right' | 'hover' | 'drag' | 'type' | 'settext' | 'select' | 'key' | 'scroll' | 'focus' | 'close' | 'minimize' | 'restore' | 'fill' | 'fullscreen'
 ```
 
 Window refs are `w0` (the desktop), `w1`, ...; element refs look like `w3.12`. The text form has one node per line:

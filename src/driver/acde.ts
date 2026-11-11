@@ -142,7 +142,7 @@ export interface ActResult {
 
 export const ACTIONS: readonly InspectAction[] = [
   'click', 'double', 'right', 'hover', 'drag', 'type', 'settext', 'select', 'key', 'scroll', 'focus', 'close',
-  'minimize', 'restore',
+  'minimize', 'restore', 'fill', 'fullscreen',
 ]
 
 export interface Step {

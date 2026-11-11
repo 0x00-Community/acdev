@@ -603,6 +603,8 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   让它回来. 所以 driver 的 Locator 在最小化的窗口里一个元素都找不到 (按角色的走语义树, 按 CSS 的只留 `visible` 的), `restore()` 之后又有.
   (2026-11-11 acdert 的 `fix(inspect): mark a window the runtime minimized` 之前运行时只看隐藏标记: 宿主窗口会话里 `act w1 minimize` 后窗口
   没有标记, `--all` 照列, Locator 照样找得到.)
+- 窗口 ref 的 `fill` / `fullscreen` (acde#65, 运行时 acdert 0.0.9 起, 提交 0bfaafa): `ACTIONS`、帮助的 `WINDOW_ACTIONS`、MCP 的 act 说明、
+  `AppWindow.fill()` / `fullscreen()` 都有; `restore` 把这两种状态设回 `normal`. 桌面和铺满宿主的窗口 (单应用会话) 由运行时拒绝, acde 照转原因.
   `acde check` 的错误里应用 id 有的带引号有的不带 (`app "notes":` / `app notes:`), 两种都出自 SDK (`Manifest.check` 带, `Manifest.app` 不带), 文档照实.
   **Windows 上的后端**: skill 现在写「能跑」, 依据是两边的源码和说明 (本文件「Windows 后端契约」、acdert AGENTS.md 同名一节和它的验收脚本
   `scripts/check-backends.sh`), 没有在 Windows 上重跑; `tools.md` 里 cmd 的引号写法 (`\"`) 也只是按 MSVC 的命令行规则写的, 没在 Windows 上试.

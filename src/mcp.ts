@@ -310,9 +310,9 @@ export class Mcp {
             + 'pixels, default 400), type (arg: text, appended through the input method), settext (arg: text, replaces '
             + 'the value), key (arg: keys like "ctrl+a backspace" or "Enter"), focus, drag (arg: the ref to drop on, '
             + 'an element or a window, also in another window), select (arg: an option\'s value or text of a <select>, '
-            + 'or a list of them for a multiple one). Window refs (w3): focus, restore, minimize, close, key. Real '
-            + 'input is injected; the answer waits for the page to settle and lists what changed. Closing the only '
-            + 'window of a session that runs a single app ends that session; the answer says so.',
+            + 'or a list of them for a multiple one). Window refs (w3): focus, restore, minimize, fill, fullscreen, '
+            + 'close, key. Real input is injected; the answer waits for the page to settle and lists what changed. '
+            + 'Closing the only window of a session that runs a single app ends that session; the answer says so.',
         inputSchema: z.object({
           ref: z.string().describe('w3 or w3.12'),
           action: ACTION,

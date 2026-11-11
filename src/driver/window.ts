@@ -252,6 +252,14 @@ export class AppWindow implements Scope {
     return this.#act('restore')
   }
 
+  fill(): Promise<ActResult> {
+    return this.#act('fill')
+  }
+
+  fullscreen(): Promise<ActResult> {
+    return this.#act('fullscreen')
+  }
+
   async close(): Promise<ActResult> {
     const window = await this.info()
     const result = await this.#act('close')

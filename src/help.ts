@@ -15,7 +15,7 @@ export interface HelpCommand {
   readonly examples: readonly string[]
 }
 
-const WINDOW_ACTIONS: readonly string[] = ['close', 'minimize', 'restore']
+const WINDOW_ACTIONS: readonly string[] = ['close', 'minimize', 'restore', 'fill', 'fullscreen']
 
 const SESSION: HelpOption = {
   flag: '--session PID',
