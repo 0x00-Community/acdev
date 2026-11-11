@@ -130,6 +130,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde deny [<prompt id> \| <app> <capability>] [--all]` | Denies a waiting camera or microphone prompt |
 | `acde revoke <app> <capability>` | Takes back a decision |
 | `acde stop` | Ends the session and its acdert; see [Stopping](../guide/dev.md#stopping) |
+| `acde devtools [web]` | Opens the DevTools of Chrome or Edge on a page of the session (a web name, an app id or `desktop`; default: the focused page) and prints the DevTools address. It looks for Edge, then Chrome on Windows; the Chrome app, then the Edge app on macOS; `google-chrome`, `chrome`, `chromium`, `microsoft-edge` on `PATH` on Linux. `ACDE_BROWSER` names another browser; `ACDE_BROWSER=none` opens nothing. Without a browser it prints only the address, to paste into the address bar of Chrome or Edge, and exits 0 |
 | `acde mcp [--session PID]` | MCP server over stdio; see [MCP](../guide/mcp.md) |
 
 | Option | Description |

@@ -7,6 +7,7 @@ import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { Devtools } from '../src/devtools.ts'
 import { DevClient, Lines, type Message } from '../src/ipc.ts'
 import { Sessions, type Session } from '../src/sessions.ts'
 import { Format } from '../src/driver/format.ts'
@@ -284,10 +285,10 @@ describe('acde dev with a stand-in acdert', () => {
         .split('\n')
         .filter(Boolean)
         .map((l) => JSON.parse(l) as { argv?: string[]; path?: string; got?: Message })
-    const tool = async (argv: string[], from = cwd, stdin?: string) => {
+    const tool = async (argv: string[], from = cwd, stdin?: string, more: Record<string, string> = {}) => {
       const run = Bun.spawn([process.execPath, CLI, ...argv], {
         cwd: from,
-        env: env({ TMPDIR: root, XDG_RUNTIME_DIR: root }),
+        env: env({ TMPDIR: root, XDG_RUNTIME_DIR: root, ...more }),
         stdin: stdin === undefined ? 'ignore' : new TextEncoder().encode(stdin),
         stdout: 'pipe',
         stderr: 'pipe',
@@ -334,6 +335,35 @@ describe('acde dev with a stand-in acdert', () => {
       const webs = await dev.tool(['webs'], alpha)
       expect(webs.stdout).toContain('alpha#7  app      alpha  7       Alpha')
       expect(webs.code).toBe(0)
+      const frontend = (id: number) => new RegExp('^devtools://devtools/bundled/inspector\\.html\\?ws='
+        + `127\\.0\\.0\\.1%3A\\d+%2Fdevtools%2Fpage%2F${id}%3Ftoken%3Dfake-token\\n$`)
+      const noBrowser = { ACDE_BROWSER: 'none' }
+      const focused = await dev.tool(['devtools'], alpha, undefined, noBrowser)
+      expect(focused.code, focused.stderr).toBe(0)
+      expect(focused.stdout).toMatch(frontend(7))
+      expect(focused.stderr).toContain('acde: DevTools for Alpha: no Chrome or Edge found')
+      const desk = await dev.tool(['devtools', 'desktop'], alpha, undefined, noBrowser)
+      expect(desk.code, desk.stderr).toBe(0)
+      expect(desk.stdout).toMatch(frontend(0))
+      expect((await dev.tool(['devtools', 'alpha'], alpha, undefined, noBrowser)).stdout).toMatch(frontend(7))
+      const nowhere = await dev.tool(['devtools', 'nope'], alpha, undefined, noBrowser)
+      expect(nowhere.code).toBe(1)
+      expect(nowhere.stderr).toContain('acde: no DevTools target for nope; the targets are:\n  0  page  Desk\n')
+      const listed = (e: object) => (e as { devtools?: string }).devtools === '/json/list?token=fake-token'
+      expect(dev.entries().some(listed)).toBe(true)
+      const launched: string[] = []
+      const chromium = join('/opt/bin', 'chromium')
+      const opened = await Devtools.run({
+        window: 'alpha',
+        cwd: alpha,
+        env: { TMPDIR: dev.root, XDG_RUNTIME_DIR: dev.root },
+        say: () => undefined,
+        lookup: { platform: 'linux', env: { PATH: '/opt/bin' }, home: '/home/me', exists: (path) => path === chromium },
+        launch: (browser, url) => launched.push(`${browser.path} ${url}`),
+      })
+      expect(opened).toBe(0)
+      expect(launched).toHaveLength(1)
+      expect(launched[0]!.startsWith(`${chromium} devtools://devtools/bundled/inspector.html?ws=`)).toBe(true)
       const evaluated = await dev.tool(['eval', 'alpha', 'document.title'], join(alpha))
       expect(JSON.parse(evaluated.stdout)).toEqual({ web: 'alpha', code: 'document.title' })
       const piped = await dev.tool(['eval', 'desktop', '-'], alpha, '1 +\n1')
@@ -415,6 +445,9 @@ describe('acde dev with a stand-in acdert', () => {
     expect(readdirSync(dev.sessions)).toEqual([])
     expect(readdirSync(dev.root).filter((f) => f.endsWith('.sock'))).toEqual([])
     expect((await dev.tool(['webs'], base)).stderr).toContain('no acde dev is running')
+    const gone = await dev.tool(['devtools'], base, undefined, { ACDE_BROWSER: 'none' })
+    expect(gone.code).toBe(1)
+    expect(gone.stderr).toContain('no acde dev is running')
   }, 120_000)
 
   test('the desktop project among them is the desktop; a change there reloads its apps and the desktop', async () => {
