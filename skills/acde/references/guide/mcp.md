@@ -32,6 +32,7 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | `emulate` | Switches light/dark mode and reduced motion |
 | `choose_folder` / `choose_files` / `choose_save_file` | Answers the page's next file picker in advance |
 | `route` / `unroute` | Fakes responses to the page's requests, or makes them fail |
+| `pointer` | Moves the pointer to a screen point, as a real move (hover, screen edges) |
 | `clipboard` | Reads and writes the clipboard |
 
 Which session is used: the pinned one; otherwise the one `start` launched; otherwise one picked by the working directory.

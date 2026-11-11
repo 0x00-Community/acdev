@@ -29,7 +29,11 @@ describe('acde mcp', () => {
     const { client, call } = await connect(s.project, s.env)
     try {
       const tools = (await client.listTools()).tools
-      expect(tools.map((t) => t.name).sort()).toEqual(['act', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'console', 'emulate', 'eval', 'logs', 'network', 'open', 'query', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop', 'unroute', 'wait_for', 'webs'])
+      expect(tools.map((t) => t.name).sort()).toEqual([
+        'act', 'choose_files', 'choose_folder', 'choose_save_file', 'clipboard', 'console', 'emulate', 'eval', 'logs',
+        'network', 'open', 'pointer', 'query', 'route', 'run', 'screenshot', 'sessions', 'snapshot', 'start', 'stop',
+        'unroute', 'wait_for', 'webs',
+      ])
       expect(tools.find((t) => t.name === 'snapshot')!.annotations?.readOnlyHint).toBe(true)
 
       const none = await call('webs')
@@ -135,6 +139,7 @@ describe('acde mcp', () => {
     const started = await call('start', { headless: true })
     const pid = Number(/^acde dev (\d+)/.exec(started.text)![1])
     expect((await call('clipboard', { text: 'isolated' })).text).toBe('"isolated"')
+    expect((await call('pointer', { x: 10, y: 0 })).text).toBe('the pointer is at 10, 0')
     await client.close()
     const sessions = join(s.root, 'acde-dev')
     for (let i = 0; i < 100 && existsSync(join(sessions, `${pid}.json`)); i++) await Bun.sleep(50)

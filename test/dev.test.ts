@@ -340,6 +340,8 @@ describe('acde dev with a stand-in acdert', () => {
       const screen = await dev.tool(['screen', '-o', join(base, 'all.png')], alpha)
       expect(screen.stdout.trim()).toBe(join(base, 'all.png'))
       expect(readFileSync(join(base, 'all.png')).subarray(1, 4).toString()).toBe('PNG')
+      expect((await dev.tool(['pointer', '1439', '0'], alpha)).stdout.trim()).toBe('the pointer is at 1439, 0')
+      expect((await dev.tool(['pointer', 'left', '0'], alpha)).stderr).toContain('x and y are numbers')
 
       mkdirSync(join(alpha, 'e2e/__screenshots__/a.e2e.ts'), { recursive: true })
       writeFileSync(join(alpha, 'e2e/__screenshots__/a.e2e.ts/look-darwin.png'), 'baseline')

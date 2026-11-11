@@ -515,6 +515,22 @@ export class Mcp {
     )
 
     s.registerTool(
+      'pointer',
+      {
+        description: 'Move the pointer to a point on the screen, as a real move: hover effects and screen edge events '
+          + '(a desktop that shows its Dock at an edge) follow. Coordinates are logical pixels of the screen (a host '
+          + 'window: its content area); to hover an element use act hover on its ref instead.',
+        inputSchema: z.object({ x: z.number().describe('screen x'), y: z.number().describe('screen y') }),
+        annotations: drive,
+      },
+      (args) =>
+        this.#safe(async () => {
+          const at = await (await this.#acde()).pointer(args.x, args.y)
+          return Mcp.#text(`the pointer is at ${at.x}, ${at.y}`)
+        }),
+    )
+
+    s.registerTool(
       'clipboard',
       {
         description: 'Read the clipboard the pages see, or write text to it first. A headless session keeps a '

@@ -390,6 +390,11 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       if (!target) return void fail(`drop: no web ${JSON.stringify(m['web'])}`)
       return void ok({ web: target.name, window: target.window, files })
     }
+    case 'pointer':
+      if (typeof m['x'] !== 'number' || typeof m['y'] !== 'number') {
+        return void fail('pointer: x and y are numbers in screen coordinates')
+      }
+      return void ok({ x: m['x'], y: m['y'] })
     case 'clipboard':
       if (typeof m['text'] === 'string') clipboard = m['text']
       return void ok({ text: clipboard })

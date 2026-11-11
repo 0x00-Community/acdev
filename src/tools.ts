@@ -9,7 +9,9 @@ import { Runtime } from './runtime.ts'
 import { Sessions } from './sessions.ts'
 
 export class Tools {
-  static readonly COMMANDS = new Set(['webs', 'eval', 'shot', 'inspect', 'act', 'console', 'network', 'screen', 'stop'])
+  static readonly COMMANDS = new Set([
+    'webs', 'eval', 'shot', 'inspect', 'act', 'console', 'network', 'screen', 'pointer', 'stop',
+  ])
   static readonly FOLLOW_MS = 500
   static readonly ENDED_MS = 2_000
   static readonly STOP_MS = 10_000
@@ -96,6 +98,14 @@ export class Tools {
         case 'screen':
           console.log((await acde.screen({ path: resolve(flags.get('output') ?? 'screen.png') })).path)
           return 0
+        case 'pointer': {
+          const [x, y] = args.map(Number) as [number, number]
+          if (!Number.isFinite(x) || !Number.isFinite(y))
+            throw new Error(`pointer: ${args.join(' ')}: x and y are numbers (acde pointer --help)`)
+          const at = await acde.pointer(x, y)
+          console.log(`the pointer is at ${at.x}, ${at.y}`)
+          return 0
+        }
         default:
           throw new Error(`no tool ${command}`)
       }

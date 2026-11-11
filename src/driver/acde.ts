@@ -468,6 +468,18 @@ export class Acde {
     }, (dropped) => `onto ${dropped.web}`)
   }
 
+  async pointer(x: number, y: number): Promise<{ x: number; y: number }> {
+    if (!Number.isFinite(x) || !Number.isFinite(y))
+      throw new Error('pointer: x and y are numbers in screen coordinates')
+    return this.trace.step(`pointer(${x}, ${y})`, async () => {
+      const answer = (await this.#request('pointer', { x, y })) as { x?: unknown; y?: unknown } | null
+      if (typeof answer?.x !== 'number' || typeof answer.y !== 'number') {
+        throw new Error(`acdert answered pointer with ${JSON.stringify(answer)}`)
+      }
+      return { x: answer.x, y: answer.y }
+    })
+  }
+
   async clipboard(): Promise<string> {
     return String(((await this.#request('clipboard')) as { text?: unknown } | null)?.text ?? '')
   }

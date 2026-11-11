@@ -69,6 +69,7 @@ class Acde {
   chooseSaveFile(file: string | null): Promise<void>
   route(url: string | RegExp, response: RouteResponse, options?: { method?; web?; times? }): Promise<number>
   unroute(id?: number): Promise<{ removed: number; left: number }>
+  pointer(x: number, y: number): Promise<{ x: number; y: number }>  // a real pointer move to screen coordinates
   clipboard(): Promise<string>
   setClipboard(text: string): Promise<void>
 

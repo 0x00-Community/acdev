@@ -52,6 +52,8 @@ const USAGE = `usage: acde <command>
                                                    and the images, stylesheets and fonts they load, and how they ended
   screen [-o FILE]                                 a PNG of the whole screen, every window composed
                                                    (default ./screen.png)
+  pointer <x> <y>                                  move the pointer to screen coordinates, as a real move
+                                                   (hover, screen edges); host window: its content area
   stop                                             end that acde dev and its acdert (as closing its last window
                                                    does); for one started in the background
   test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
@@ -99,6 +101,7 @@ class Cli {
     console: { args: [0, 0], flags: ['session', 'web', 'level', 'since'], switches: ['follow'] },
     network: { args: [0, 0], flags: ['session', 'web', 'since'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
+    pointer: { args: [2, 2], flags: ['session'] },
     stop: { args: [0, 0], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },

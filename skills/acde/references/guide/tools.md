@@ -24,6 +24,7 @@ These commands find an `acde dev` session in this order: `--session <pid>`; othe
 | `acde eval <web> <code>` | Runs code in a page and prints the result as JSON; Promises are awaited. With `-` as the code, reads it from stdin |
 | `acde shot <web> [-o FILE]` | Screenshot of one window (PNG) |
 | `acde screen [-o FILE]` | Screenshot of the whole screen, all windows together |
+| `acde pointer <x> <y>` | Moves the pointer to a point on the screen, as a real move: hover effects and screen edge events (a desktop showing its Dock at an edge) follow. In a host window the screen is its content area |
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | Turns the screen into text: the window list and the element tree of the focused window (`--all`: every window, and elements hidden by `opacity: 0` or `visibility`) |
 | `acde act <ref> <action> [arg]` | Clicks, types, presses keys, and more on a ref from `inspect` |
 | `acde console [--web W] [--level L] [--follow]` | The pages' `console.*` output and uncaught errors |

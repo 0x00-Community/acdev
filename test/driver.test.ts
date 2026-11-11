@@ -197,7 +197,7 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     check(Sessions.list(sessions)).toEqual([])
   }, 60_000)
 
-  test('simulated drops', async () => {
+  test('simulated drops; the pointer moved to a screen point', async () => {
     const s = standIn()
     const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })
     try {
@@ -206,6 +206,9 @@ describe('the driver against acde dev with a stand-in acdert', () => {
       })
       check(await acde.window('alpha').drop('c.png', { x: 3, y: 4 })).toMatchObject({ web: 'alpha#7', window: 7 })
       check(await acde.drop([]).catch((e: Error) => e.message)).toBe('drop: give at least one file')
+      check(await acde.pointer(1439, 0)).toEqual({ x: 1439, y: 0 })
+      check(await acde.pointer(Number.NaN, 0).catch((e: Error) => e.message))
+        .toBe('pointer: x and y are numbers in screen coordinates')
       check(await acde.drop('d.txt', { x: 1 }).catch((e: Error) => e.message)).toBe('drop: give x and y together')
       check(acde.trace.text()).toContain('drop(')
     } finally {
@@ -214,6 +217,7 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     const sent = readFileSync(join(s.root, 'fake.log'), 'utf8').split('\n').filter(Boolean)
       .map((line) => JSON.parse(line) as { got?: Record<string, unknown> }).flatMap((e) => (e.got ? [e.got] : []))
     check(sent.some((m) => m['op'] === 'eval')).toBe(false)
+    check(sent.find((m) => m['op'] === 'pointer')).toMatchObject({ x: 1439, y: 0 })
     check(sent.find((m) => m['op'] === 'drop' && m['web'] === 'alpha#7'))
       .toMatchObject({ x: 3, y: 4, files: [join(process.cwd(), 'c.png')] })
   }, 60_000)

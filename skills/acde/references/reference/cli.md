@@ -71,6 +71,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde eval <web> <code\|->` | Runs code in a page and prints JSON |
 | `acde shot <web> [-o FILE]` | Window screenshot, default `./<web>.png` |
 | `acde screen [-o FILE]` | Full-screen screenshot, default `./screen.png` |
+| `acde pointer <x> <y>` | Moves the pointer to screen coordinates, as a real move |
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acde act <ref> <action> [arg]` | Performs an action on a ref |
 | `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
