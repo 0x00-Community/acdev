@@ -7,7 +7,6 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { delimiter, join, relative, sep } from 'node:path'
@@ -467,7 +466,7 @@ describe('a project made by acde from its checkout', () => {
     for (const name of names) {
       const found = name === 'bun' ? process.execPath : which(name)
       if (!found) throw new Error(`${name} is not on PATH`)
-      symlinkSync(realpathSync(found), join(bin, name))
+      writeFileSync(join(bin, name), `#!/bin/sh\nexec ${JSON.stringify(realpathSync(found))} "$@"\n`, { mode: 0o755 })
     }
     writeFileSync(
       join(bin, 'acde'),

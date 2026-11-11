@@ -523,11 +523,12 @@ describe('acde dev with a stand-in acdert', () => {
         const ran = await dev.tool(argv, alpha)
         return [ran.code, ran.stdout, ran.stderr]
       }
-      const empty = 'NAME  KIND  APP  WINDOW  TITLE\n'
-      const hints = 'alpha waits for approval of launch: acde allow (or acde deny)\n' +
-        'beta waits for approval of fs.documents: acde allow (or acde deny)\n'
-      expect(await said('webs')).toEqual([0, empty + hints, ''])
-      const waiting = '  1  alpha  launch  (launch)\n  2  beta  fs.documents  (request)\n'
+      const hints = 'alpha waits for approval of camera: acde allow (or acde deny)\n' +
+        'beta waits for approval of microphone: acde allow (or acde deny)\n'
+      const webs = await said('webs')
+      expect(webs[1]).toContain('alpha#7  app      alpha  7       Alpha\n')
+      expect(webs[1]).toEndWith(hints)
+      const waiting = '  1  alpha  camera  (request)\n  2  beta  microphone  (request)\n'
       expect(await said('permissions')).toEqual([0, `pending:\n${waiting}decisions: none\n`, ''])
       const several =
         `acde: 2 approval prompts wait; name one (its id, or <app> <capability>) or pass --all:\n${waiting}`
@@ -544,18 +545,18 @@ describe('acde dev with a stand-in acdert', () => {
         .toContain('allow: 0 to 2 arguments, not 3 (acde allow --help)')
       expect(dev.entries().some((e) => e.got?.['op'] === 'answer')).toBe(false)
 
-      expect(await said('allow', 'alpha', 'launch')).toEqual([0, 'allowed alpha launch (prompt 1)\n', ''])
-      expect((await dev.tool(['webs'], alpha)).stdout).toContain('alpha#7  app      alpha  7       Alpha')
-      expect(await said('deny')).toEqual([0, 'denied beta fs.documents (prompt 2)\n', ''])
-      const decided = '  alpha  launch  granted\n  beta  fs.documents  denied\n'
+      expect(await said('allow', 'alpha', 'camera')).toEqual([0, 'allowed alpha camera (prompt 1)\n', ''])
+      expect((await dev.tool(['webs'], alpha)).stdout).toEndWith('beta waits for approval of microphone: acde allow (or acde deny)\n')
+      expect(await said('deny')).toEqual([0, 'denied beta microphone (prompt 2)\n', ''])
+      const decided = '  alpha  camera  granted\n  beta  microphone  denied\n'
       expect(await said('permissions')).toEqual([0, `pending: none\ndecisions:\n${decided}`, ''])
       expect(await said('allow')).toEqual([1, '', 'acde: no approval prompt is waiting\n'])
       expect(await said('deny', '--all')).toEqual([1, '', 'acde: no approval prompt is waiting\n'])
-      expect(await said('allow', 'beta', 'fs.documents')).toEqual([1, '', 'acde: no approval prompt of beta for ' +
-        'fs.documents is waiting: it is already denied (revoke takes that back)\n'])
-      expect(await said('revoke', 'beta', 'fs.documents')).toEqual([0, 'revoked beta fs.documents\n', ''])
-      expect(await said('revoke', 'beta', 'fs.documents')).toEqual([1, '',
-        'acde: no decision about beta fs.documents to revoke (permissions lists the decisions)\n'])
+      expect(await said('allow', 'beta', 'microphone')).toEqual([1, '', 'acde: no approval prompt of beta for ' +
+        'microphone is waiting: it is already denied (revoke takes that back)\n'])
+      expect(await said('revoke', 'beta', 'microphone')).toEqual([0, 'revoked beta microphone\n', ''])
+      expect(await said('revoke', 'beta', 'microphone')).toEqual([1, '',
+        'acde: no decision about beta microphone to revoke (permissions lists the decisions)\n'])
       expect((await dev.tool(['revoke', 'beta'], alpha)).stderr)
         .toContain('revoke: 2 arguments, not 1 (acde revoke --help)')
       const sent = dev.entries()
@@ -565,12 +566,12 @@ describe('acde dev with a stand-in acdert', () => {
       await dev.stop()
     }
 
-    const all = start([], alpha)
+    const all = start([], alpha, { FAKE_ACDERT_WAITS: '1' })
     try {
       await until('the session file', () => existsSync(all.file))
       const allowed = await all.tool(['allow', '--all'], alpha)
       expect([allowed.code, allowed.stdout])
-        .toEqual([0, 'allowed alpha launch (prompt 1)\nallowed beta fs.documents (prompt 2)\n'])
+        .toEqual([0, 'allowed alpha camera (prompt 1)\nallowed beta microphone (prompt 2)\n'])
     } finally {
       await all.stop()
     }

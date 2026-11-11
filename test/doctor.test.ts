@@ -160,7 +160,7 @@ describe('acde doctor', () => {
       const ran = await doctor([], s.project, s.env)
       expect(line(ran.stdout, 'acde dev sessions')).toMatch(/^ok     acde dev sessions: 1 running: /)
       expect(line(ran.stdout, 'approval')).toBe(
-        `warn   approval: alpha waits for approval of launch in acde dev ${dev.pid}, so it opens no window until the prompt is answered`,
+        `warn   approval: alpha waits for approval of camera in acde dev ${dev.pid}, so its getUserMedia waits until the prompt is answered`,
       )
       expect(fixAfter(ran.stdout, 'approval')).toBe('acde allow (or acde deny): approving is the user\'s decision')
     } finally {

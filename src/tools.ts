@@ -47,7 +47,7 @@ export class Tools {
         case 'webs': {
           const webs = await acde.webs()
           console.log(Format.webs(webs))
-          if (webs.length === 0) for (const line of await Approvals.waiting(acde, Tools.ANSWER)) console.log(line)
+          for (const line of await Approvals.waiting(acde, Tools.ANSWER)) console.log(line)
           return 0
         }
         case 'permissions':

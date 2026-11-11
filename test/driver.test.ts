@@ -314,22 +314,22 @@ describe('the driver against acde dev with a stand-in acdert', () => {
 
   test('approval prompts: wait, allow, deny, list; revoke; simulated drops; the pointer', async () => {
     const s = standIn()
-    const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })
+    const acde = await Acde.launch({ cwd: s.project, env: { ...s.env, FAKE_ACDERT_WAITS: '1' }, timeout: 2_000 })
     try {
       check((await acde.permissions()).pending.map((p) => p.id)).toEqual([1, 2])
-      check((await acde.waitForPrompt({ capability: 'fs.documents' })).app).toBe('beta')
+      check((await acde.waitForPrompt({ capability: 'microphone' })).app).toBe('beta')
       const missing = await acde.waitForPrompt({ app: 'gamma', timeout: 300 }).catch((e: Error) => e.message)
       check(missing).toBe('waitForPrompt: no approval prompt for app gamma within 300 ms')
-      check(await acde.allow({ app: 'alpha' })).toMatchObject({ id: 1, capability: 'launch' })
+      check(await acde.allow({ app: 'alpha' })).toMatchObject({ id: 1, capability: 'camera' })
       await acde.answer(2, false)
       const after = await acde.permissions()
       check(after.pending).toEqual([])
       check(after.decisions.map((d) => `${d.app} ${d.capability} ${d.decision}`))
-        .toEqual(['alpha launch granted', 'beta fs.documents denied'])
+        .toEqual(['alpha camera granted', 'beta microphone denied'])
       const none = await acde.deny({ timeout: 200 }).catch((e: Error) => e.message)
       check(none).toContain('no approval prompt within 200 ms')
-      check(await acde.revoke('alpha', 'launch')).toBe(true)
-      check(await acde.revoke('alpha', 'launch')).toBe(false)
+      check(await acde.revoke('alpha', 'camera')).toBe(true)
+      check(await acde.revoke('alpha', 'camera')).toBe(false)
       check((await acde.permissions()).decisions.map((d) => d.app)).toEqual(['beta'])
 
       check(await acde.drop([join(s.root, 'a.txt'), 'b.txt'])).toEqual({
@@ -349,7 +349,7 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     const sent = readFileSync(join(s.root, 'fake.log'), 'utf8').split('\n').filter(Boolean)
       .map((line) => JSON.parse(line) as { got?: Record<string, unknown> }).flatMap((e) => (e.got ? [e.got] : []))
     check(sent.find((m) => m['op'] === 'answer' && m['prompt'] === 1)).toMatchObject({ allow: true })
-    check(sent.find((m) => m['op'] === 'revoke')).toMatchObject({ app: 'alpha', capability: 'launch' })
+    check(sent.find((m) => m['op'] === 'revoke')).toMatchObject({ app: 'alpha', capability: 'camera' })
     check(sent.some((m) => m['op'] === 'eval')).toBe(false)
     check(sent.find((m) => m['op'] === 'pointer')).toMatchObject({ x: 1439, y: 0 })
     check(sent.find((m) => m['op'] === 'drop' && m['web'] === 'alpha#7'))

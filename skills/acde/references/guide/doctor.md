@@ -87,7 +87,7 @@ warn   display: neither WAYLAND_DISPLAY nor DISPLAY is set, so acdert app and ac
 A camera or microphone prompt that waits:
 
 ```text
-warn   approval: recorder waits for approval of microphone in acde dev 4242
+warn   approval: recorder waits for approval of microphone in acde dev 4242, so its getUserMedia waits until the prompt is answered
        fix: acde allow (or acde deny): approving is the user's decision
 ```
 

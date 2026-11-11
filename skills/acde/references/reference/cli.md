@@ -145,18 +145,18 @@ These work with a running `acde dev` session, and all of them accept `--session 
 
 ```text
 pending:
-  2  notes  fs.documents  (launch)
+  2  recorder  microphone  (request)
 decisions:
-  notes  fs.downloads  granted
+  recorder  camera  granted
 ```
 
-A pending line is `<prompt id>  <app>  <capability>  (<reason>)`, where the reason is `launch` (asked before the app starts) or `request` (asked by the running app); a decision line is `<app>  <capability>  <granted|denied>`. An empty block is `pending: none` or `decisions: none`.
+A pending line is `<prompt id>  <app>  <capability>  (<reason>)`; the reason is always `request` (the running app asked: its `getUserMedia()` or `request()` waits for the answer); a decision line is `<app>  <capability>  <granted|denied>`. An empty block is `pending: none` or `decisions: none`.
 
 `acde allow` and `acde deny` answer prompts that wait now. Without arguments they answer the only waiting prompt; when several wait they answer none, list them, and exit with code 1. `<prompt id>` names one prompt, `<app> <capability>` the prompt of that app for that capability, and `--all` every waiting prompt. Each answered prompt prints `allowed <app> <capability> (prompt <id>)` or `denied <app> <capability> (prompt <id>)`. When nothing waits, or nothing matches, they print one line that says so (`acde: no approval prompt is waiting`, `acde: no approval prompt 5 is waiting (waiting: 2)`) and exit with code 1.
 
 `acde revoke <app> <capability>` prints `revoked <app> <capability>`; when there is no such decision it says so and exits with code 1.
 
-When a page waits for a camera or microphone answer, `acde webs` prints one line per prompt after the table: `<app> waits for approval of <capability>: acde allow (or acde deny)`. See [Camera and microphone](../guide/tools.md#camera-and-microphone).
+While a camera or microphone prompt waits, `acde webs` prints one line per prompt after the table (the app's window is open; its `getUserMedia()` waits): `<app> waits for approval of <capability>: acde allow (or acde deny)`. See [Camera and microphone](../guide/tools.md#camera-and-microphone).
 
 ## Coding agents
 

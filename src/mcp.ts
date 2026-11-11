@@ -854,7 +854,7 @@ export class Mcp {
 
   static async #webs(acde: Acde): Promise<string> {
     const webs = await acde.webs()
-    const waiting = webs.length === 0 ? await Approvals.waiting(acde, ANSWER) : []
+    const waiting = await Approvals.waiting(acde, ANSWER)
     return [Format.webs(webs), ...waiting].join('\n')
   }
 

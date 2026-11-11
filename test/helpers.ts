@@ -38,7 +38,8 @@ export function sdkMirror(api = join(import.meta.dir, '../../acdert/web/packages
   const windows = process.platform === 'win32'
   const tar = windows ? join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32', 'tar.exe') : 'tar'
   const tarball = join(root, version, `acde-api-${version}.tar.gz`)
-  const packed = Bun.spawnSync([tar, '-czf', tarball, '-C', join(root, 'stage'), 'package'])
+  const plain = process.platform === 'darwin' ? ['--no-mac-metadata', '--no-xattrs'] : []
+  const packed = Bun.spawnSync([tar, ...plain, '-czf', tarball, '-C', join(root, 'stage'), 'package'], { env: { ...process.env, COPYFILE_DISABLE: '1' } })
   if (packed.exitCode !== 0) throw new Error(`tar: ${packed.stderr.toString()}`)
   const server = Bun.serve({
     hostname: '127.0.0.1',

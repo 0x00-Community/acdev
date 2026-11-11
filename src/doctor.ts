@@ -263,7 +263,7 @@ export class Doctor {
         does: `stop acde dev ${session.pid}, which does not answer (acde stop --session ${session.pid})` })]
     }
     return prompts.map((prompt) => Doctor.warn('approval', 'approval', `${prompt.app} waits for approval of ${prompt.capability} ` +
-      `in acde dev ${session.pid}, so it opens no window until the prompt is answered`, Doctor.ANSWER))
+      `in acde dev ${session.pid}, so its getUserMedia waits until the prompt is answered`, Doctor.ANSWER))
   }
 
   static project(dir: string, named: boolean, available: Available): Check[] {
