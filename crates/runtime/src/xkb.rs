@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use roxmltree::{Document, Node};
+use roxmltree::{Document, Node, ParsingOptions};
 use serde_json::{Value, json};
 
 static CATALOG: OnceLock<Value> = OnceLock::new();
@@ -37,7 +37,7 @@ fn item<'a>(node: Node<'a, 'a>) -> (String, String, Option<Node<'a, 'a>>) {
 }
 
 fn parse(xml: &str) -> Result<Value, String> {
-    let doc = Document::parse(xml).map_err(|e| e.to_string())?;
+    let doc = Document::parse_with_options(xml, ParsingOptions { allow_dtd: true, ..ParsingOptions::default() }).map_err(|e| e.to_string())?;
     let registry = doc.root_element();
     let list = |name: &str| child(registry, name);
     let models: Vec<Value> = list("modelList")
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn layouts_variants_and_option_groups() {
-        let xml = r#"<?xml version="1.0"?><xkbConfigRegistry version="1.1">
+        let xml = r#"<?xml version="1.0"?><!DOCTYPE xkbConfigRegistry SYSTEM "xkb.dtd"><xkbConfigRegistry version="1.1">
           <modelList><model><configItem><name>pc105</name><description>Generic 105-key PC</description><vendor>Generic</vendor></configItem></model></modelList>
           <layoutList>
             <layout><configItem><name>us</name><shortDescription>en</shortDescription><description>English (US)</description>
@@ -117,7 +117,10 @@ mod tests {
 
     #[test]
     fn the_installed_catalog_reads() {
-        let Ok(c) = xkb_catalog() else { return };
+        if !std::path::Path::new("/usr/share/X11/xkb/rules/evdev.xml").exists() {
+            return;
+        }
+        let c = xkb_catalog().unwrap();
         assert!(c["layouts"].as_array().is_some_and(|l| l.iter().any(|l| l["id"] == "us")));
     }
 }
