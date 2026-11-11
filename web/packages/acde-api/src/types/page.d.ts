@@ -11,7 +11,7 @@ export interface FinderRoot {
   id: string
   path?: string
   label: string
-  source: 'desktop' | 'downloads' | 'default' | 'task' | 'granted' | 'private' | 'place'
+  source: 'desktop' | 'downloads' | 'default' | 'granted' | 'private' | 'place'
   place?: SharedPlace
   mode: RootMode
   reason: string | null
