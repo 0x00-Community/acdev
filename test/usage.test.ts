@@ -179,7 +179,8 @@ describe('acde new when a step fails', () => {
     expect(made.code).toBe(1)
     expect(made.stdout).toBe('')
     expect(made.stderr).toStartWith(`acde: the project is in ${dir}, but its dependencies are not installed; `
-      + 'once the cause below is fixed, run bun install there: bun install failed (exit ')
+      + 'once the cause below is fixed, run bun install there: ')
+    expect(made.stderr).toMatch(/run bun install there: \S*bun(?:\.exe)? install failed \(exit /)
     expect(existsSync(join(dir, 'acde.config.jsonc'))).toBe(true)
   }, 60_000)
 })

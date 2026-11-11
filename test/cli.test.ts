@@ -393,7 +393,7 @@ describe('acde.config.jsonc', () => {
     const dir = join(tmp(), 'with-api')
     const made = await cli(['new', dir, '--template', 'html', '--backend', '--label', 'API', '--no-install'], tmp())
     expect(made.code).toBe(0)
-    expect(made.stdout).toMatch(/^acde: HTML in with-api \(\d+(?: ms|\.\d s)\)\. next: cd /m)
+    expect(made.stdout).toMatch(/^acde: HTML in (?:.+[\\/])?with-api \(\d+(?: ms|\.\d s)\)\. next: cd /m)
     expect(made.stdout).toContain('acde: then: while acde dev runs, acde inspect / eval / console / network / shot')
     expect(made.stdout).toContain('acde install builds it and puts it on the desktop')
     const out = join(tmp(), 'out')
