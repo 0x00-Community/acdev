@@ -1603,7 +1603,8 @@ benches / examples, 换成空的 `[workspace]`). 源码未改. Blitz 换了 taff
 RDP 后端 (crates/shell `compositor/rdp.rs`) 的服务端: 握手、TLS / NLA (CredSSP, NTLM)、位图编码、键鼠. 上游跑在 tokio 上 (还经
 ironrdp-tokio 带进 reqwest), 这里改成跑在 ntex 上 (运行时 ntex 自己选), TLS 用 ntex-tls 的 OpenSSL filter; 其余 IronRDP crate
 仍用 crates.io 的. 改动处 grep `acde:`: `src/transport.rs` (新: ntex 版的 FramedRead / FramedWrite、TLS 握手、std 监听 +
-`ironrdp-accept` 线程), `src/server.rs`, `src/helper.rs` (OpenSSL 读证书、建 acceptor、`SSLKEYLOGFILE`), `Cargo.toml`, `clippy.toml`.
+`ironrdp-accept` 线程), `src/server.rs`, `src/helper.rs` (OpenSSL 读证书、建 acceptor、`SSLKEYLOGFILE`), `src/encoder/fast_path.rs`
+(没有数据的更新也发一次: 上游把 `DefaultPointer` / `HidePointer` 吞掉了, 客户端从头到尾不显示光标), `Cargo.toml`, `clippy.toml`.
 
 和上游的不同: 事件通道是 async-channel (`try_send`); `with_tls` / `with_hybrid` 收 OpenSSL 的 `SslAcceptor`; `run_connection(_with)`
 收 ntex 的 `Io`; `RdpServer::run` 要在 ntex System 里跑; TLS 握手 5 秒超时; 不支持 Kerberos (只用 NTLM).
