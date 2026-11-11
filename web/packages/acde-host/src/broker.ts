@@ -175,7 +175,7 @@ export class Broker {
       web: (id) => (id === 0 ? this.#desktop : (this.#windows.get(id)?.web ?? null))?.rpc ?? null,
       record: (id) => {
         const r = this.#windows.get(id)
-        return r ? { kind: r.kind, app: r.app?.id ?? r.appId, title: r.title } : null
+        return r ? { kind: r.kind, app: r.app?.id ?? r.appId, title: r.title, state: r.state } : null
       },
       panel: (id) => this.#panelCalls.has(id),
       close: async (id) => (this.#windows.get(id)?.kind === 'web' ? this.closeWeb(id) : this.shell.close(id)),

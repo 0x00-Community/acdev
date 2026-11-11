@@ -1144,6 +1144,15 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   `{window, count, nodes}`: 在窗口 (默认焦点窗口) 或某个元素下按 CSS 选择器找, 节点是 `InspectMatch` (`InspectNode` 加 `tag`、`visible`, 给了
   `attributes` (最多 20 个属性名) 再加 `attributes: {名字: 值或 null}`), ref
   能直接给 act (不在语义树里的元素也行: `point` 按 render 节点 id 找元素).
+- **不在屏幕上的窗口** (`inspect.ts` 的 `Inspect.#offScreen`, 只有这一处): `windows` 里每个窗口的 `state` 是运行时的窗口状态 (宿主窗口的行自带;
+  会话的行没有, 取 Broker 按 `windowstate` 记在窗口记录上的), `hidden` 为真表示它不在屏幕上: 被 `windows.hide()` 藏起, 或状态是 `minimized`
+  (`act <窗口> minimize`、`requestState`、窗框按钮、页面的 `minimize()`). 宿主窗口里最小化不动隐藏标记, 以前 inspect 只看隐藏标记, 这样最小化的窗口
+  没有 `[minimized]`, `all` / `find` 照列它的内容, 它还被算成盖着下面的窗口 (点桌面回 `covered there by …; minimize or close it first`).
+  `[minimized]` 标记、`all` / `find` 跳过谁、默认列哪个窗口、点名它时的 `(minimized; act restore on it to see its elements)`、谁盖着谁 (`#cover`)
+  都只看 `hidden`; `query` 照样在它的页面里找 (CSS 选择器不管显示与否), 但每个节点的 `visible` 为假. 指针动作 (click / double / right / hover / scroll, drag 的两端) 落在这样的窗口上回 `ok: false`
+  `w1 is minimized; act restore on it first` (drag 的目标是 `cannot drop: w1 is minimized; …`, 在源上按下之前就查), 什么都不注入: 以前按它最小化前的位置点下去, 点到的是
+  下面的窗口, 还回 `clicked …`. focus / type / settext / key 先给窗口焦点, 运行时给最小化的窗口焦点就是让它回到之前的状态. `restore` (和窗口的 `focus`)
+  先取消隐藏再给焦点, 两条路离开屏幕的窗口都回来.
 - **原生窗口** (runtime `atspi.rs`, napi `Accessibility`, Linux 会话): 读 AT-SPI2. 起服务时把 `org.a11y.Status.IsEnabled` 设成 true; GTK3 总上报,
   Qt 要开关为 true 且在真的显示平台上. `tree(pid, title, limit)` 按 pid 找应用、按标题挑顶层窗口, 角色规范成 ARIA 风格; act 先试 AT-SPI 的
   Action / EditableText / GrabFocus, 不行按坐标. 检查 `crates/runtime/tests/atspi-check.sh`.

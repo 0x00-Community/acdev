@@ -1,5 +1,6 @@
-import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow } from '@dopame/acde-api'
+import type { InspectAction, InspectArg, InspectMatch, InspectNode, InspectWindow, WindowState } from '@dopame/acde-api'
 import type { BrokerShell } from './broker'
+import type { ShellWindow } from './broker/types'
 import { WindowCalls } from './broker/calls/windows'
 import { chordCodes, keyCode } from './keys'
 import type { PageNode, PagePoint, PageQuery, PageTree } from './pageinspect'
@@ -13,7 +14,7 @@ export interface NativeAccessibility {
 interface InspectHost {
   readonly shell: BrokerShell
   web(window: number): Rpc | null
-  record(window: number): { readonly kind: 'native' | 'web'; readonly app: string | null; readonly title: string | null } | null
+  record(window: number): { readonly kind: 'native' | 'web'; readonly app: string | null; readonly title: string | null; readonly state?: WindowState } | null
   panel(window: number): boolean
   close(window: number): Promise<unknown>
   hide(window: number, hidden: boolean): void
@@ -146,6 +147,7 @@ export class Inspect {
       if (id !== 0 && this.#host.panel(id)) continue
       const record = id === 0 ? null : this.#host.record(id)
       if (id !== 0 && !record) continue
+      const state = this.#state(row)
       out.push({
         ref: this.#ref(id),
         id,
@@ -153,17 +155,30 @@ export class Inspect {
         app: record?.app ?? null,
         title: record?.title ?? null,
         mode: row.mode,
-        state: row.state ?? 'normal',
+        state,
         rect: [row.x, row.y, row.width, row.height],
         z: row.z,
         focus: row.focus,
-        hidden: !!row.hidden,
+        hidden: Inspect.#offScreen(row, state),
         pid: row.pid ?? null,
         parent: row.parent ?? null,
         modal: !!row.modal,
       })
     }
     return out.sort((a, b) => b.z - a.z)
+  }
+
+  #state(row: ShellWindow): WindowState {
+    const id = row.window ?? row.id
+    return row.state ?? (id === 0 ? undefined : this.#host.record(id)?.state) ?? 'normal'
+  }
+
+  static #offScreen(row: ShellWindow, state: WindowState): boolean {
+    return !!row.hidden || state === 'minimized'
+  }
+
+  static #minimized(window: InspectWindow): string {
+    return `${window.ref} is minimized; act restore on it first`
   }
 
   async snapshot(options: SnapshotOptions): Promise<Snapshot> {
@@ -363,12 +378,12 @@ export class Inspect {
         return { ok: true, text: `selected ${JSON.stringify(selected)}` }
       }
       case 'drag': {
-        const point = (await rpc.call('inspect', 'point', [node])) as PagePoint
+        const point = await this.#measure(window, rpc, node)
         if ('error' in point) return { ok: false, text: point.error }
         return this.#drag(window, window.rect[0] + point.x, window.rect[1] + point.y, arg)
       }
       default: {
-        const point = (await rpc.call('inspect', 'point', [node])) as PagePoint
+        const point = await this.#measure(window, rpc, node)
         if ('error' in point) return { ok: false, text: point.error }
         const [x, y] = window.rect
         return this.#pointer(window, x + point.x, y + point.y, action, arg)
@@ -413,6 +428,7 @@ export class Inspect {
   }
 
   #pointer(window: InspectWindow, x: number, y: number, action: InspectAction, arg: InspectArg): ActResult {
+    if (window.hidden) return { ok: false, text: Inspect.#minimized(window) }
     const cover = this.#cover(window, x, y)
     if (cover) {
       if (window.kind === 'desktop') return { ok: false, text: `covered there by ${Inspect.#label(cover)}; minimize or close it first` }
@@ -469,7 +485,11 @@ export class Inspect {
   }
 
   async #drag(window: InspectWindow, x: number, y: number, to: InspectArg): Promise<ActResult> {
-    if (typeof to !== 'string' || !Inspect.#parse(to)) return { ok: false, text: 'drag needs where to drop: the target ref (like w3.12, or a window w3)' }
+    const parsed = typeof to === 'string' ? Inspect.#parse(to) : null
+    if (typeof to !== 'string' || !parsed) return { ok: false, text: 'drag needs where to drop: the target ref (like w3.12, or a window w3)' }
+    if (window.hidden) return { ok: false, text: Inspect.#minimized(window) }
+    const onto = this.windows().find((w) => w.ref === `w${parsed.window}`)
+    if (onto?.hidden) return { ok: false, text: `cannot drop: ${Inspect.#minimized(onto)}` }
     const cover = this.#cover(window, x, y)
     if (cover) {
       if (window.kind === 'desktop') return { ok: false, text: `covered there by ${Inspect.#label(cover)}; minimize or close it first` }
@@ -509,11 +529,17 @@ export class Inspect {
     }
     const rpc = this.#host.web(window.id)
     if (!rpc) return { error: `the page of ${window.ref} is not running` }
-    const point = (await rpc.call('inspect', 'point', [parsed.node])) as PagePoint
+    const point = await this.#measure(window, rpc, parsed.node)
     return 'error' in point ? point : this.#uncovered(window, wx + point.x, wy + point.y)
   }
 
+  async #measure(window: InspectWindow, rpc: Rpc, node: number): Promise<PagePoint> {
+    if (window.hidden) return { error: Inspect.#minimized(window) }
+    return (await rpc.call('inspect', 'point', [node])) as PagePoint
+  }
+
   #uncovered(window: InspectWindow, x: number, y: number): Point {
+    if (window.hidden) return { error: Inspect.#minimized(window) }
     const cover = this.#cover(window, x, y)
     return cover ? { error: `${window.ref} is covered there by ${Inspect.#label(cover)}` } : { x, y }
   }
@@ -532,10 +558,11 @@ export class Inspect {
     const rows = this.#host.shell.windows()
     const own = rows.find((r) => (r.window ?? r.id) === window.id)
     const at = (row: (typeof rows)[number]) => x >= row.x && y >= row.y && x < row.x + row.width && y < row.y + row.height
-    const panel = window.kind === 'desktop' ? rows.find((row) => !row.hidden && this.#host.panel(row.window ?? row.id) && at(row)) : undefined
+    const away = (row: ShellWindow) => Inspect.#offScreen(row, this.#state(row))
+    const panel = window.kind === 'desktop' ? rows.find((row) => !away(row) && this.#host.panel(row.window ?? row.id) && at(row)) : undefined
     for (const row of rows) {
       const id = row.window ?? row.id
-      if (id === window.id || row.hidden || (own && row.z <= own.z)) continue
+      if (id === window.id || away(row) || (own && row.z <= own.z)) continue
       if (window.kind === 'desktop' && this.#host.panel(id)) continue
       if (panel && !(row.mode === 'pinned' && row.z > panel.z)) continue
       if (!at(row)) continue
@@ -632,7 +659,7 @@ export class Inspect {
     const found = (await rpc.call('inspect', 'query', [selector, parsed?.node ?? -1, limit, attributes])) as PageQuery
     const nodes = found.nodes.map((n): InspectMatch => {
       const node = Inspect.#node(window, n.id, n, n.states, n.rect, [])
-      return { ...node, tag: n.tag, visible: n.visible, ...(n.attributes && { attributes: n.attributes }) }
+      return { ...node, tag: n.tag, visible: n.visible && !window.hidden, ...(n.attributes && { attributes: n.attributes }) }
     })
     return { window: window.ref, count: found.count, nodes }
   }
