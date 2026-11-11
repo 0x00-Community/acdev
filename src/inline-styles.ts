@@ -7,6 +7,8 @@ export class InlineStyles {
   static readonly ATTRIBUTE = /(\sstyle\s*=\s*)("[^"]*"|'[^']*')/gi
   static readonly URL = /url\(\s*(["']?)([^"')\s]+)\1\s*\)/g
   static readonly KEPT = /^(?:[a-z][a-z0-9+.-]*:|\/|#)/i
+  static readonly REFERENCE = /&(?:#(\d+)|#x([0-9a-f]+)|(amp|quot|apos|lt|gt));/gi
+  static readonly NAMED: Readonly<Record<string, string>> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>' }
 
   readonly #copied = new Map<string, string>()
 
@@ -23,7 +25,26 @@ export class InlineStyles {
     return html
       .replace(InlineStyles.BLOCK, (_, open: string, css: string, close: string) => open + this.#css(css) + close)
       .replace(InlineStyles.ATTRIBUTE, (_, before: string, value: string) =>
-        before + value[0] + this.#css(value.slice(1, -1)) + value[0])
+        before + value[0] + this.#attribute(value.slice(1, -1), value[0]!) + value[0])
+  }
+
+  #attribute(raw: string, quote: string): string {
+    const css = InlineStyles.decode(raw)
+    const done = this.#css(css)
+    return done === css ? raw : InlineStyles.encode(done, quote)
+  }
+
+  static decode(text: string): string {
+    return text.replace(InlineStyles.REFERENCE, (whole, decimal?: string, hex?: string, name?: string) => {
+      if (name !== undefined) return InlineStyles.NAMED[name.toLowerCase()] ?? whole
+      const code = decimal !== undefined ? Number.parseInt(decimal, 10) : Number.parseInt(hex!, 16)
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole
+    })
+  }
+
+  static encode(text: string, quote: string): string {
+    const amp = text.replace(/&(?![a-z][a-z0-9]*;)/gi, '&amp;')
+    return quote === '"' ? amp.replaceAll('"', '&quot;') : amp.replaceAll("'", '&#39;')
   }
 
   #css(css: string): string {
