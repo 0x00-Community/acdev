@@ -1,16 +1,25 @@
-import { Blob, blobBytes } from './blob'
+import { Blob, blobBytes } from '../blob'
 import {
-  allowedHeaders, backendTarget, cookies, dialOf, isRemote, requestHeaders, transport,
-  type Header, type HttpEvent, type RemoteTarget, type Target, type WsEvent,
-} from './backend'
-import { Cors } from './cors'
-import { mocked, Tracked, type MockReply, type RequestKind } from './observe'
-import { bytesOf, concat, TextDecoder, unbase64 } from './encoding'
-import { CloseEvent, defineHandlers, Event, EventTarget, fire, MessageEvent, ProgressEvent } from './event'
-import { DOMException } from './exception'
-import { constants, G, getters, host, tag } from './host'
-import { isDisturbed, readAllBytes, ReadableStream, streamOfBytes, type ReadableStreamDefaultController } from './streams'
-import { objectUrls, URL, URLSearchParams } from './url'
+  allowedHeaders,
+  backendTarget,
+  cookies,
+  dialOf,
+  isRemote,
+  requestHeaders,
+  transport,
+  type Header,
+  type HttpEvent,
+  type RemoteTarget,
+  type Target,
+} from '../backend'
+import { Cors } from '../cors'
+import { mocked, Tracked, type MockReply, type RequestKind } from '../observe'
+import { bytesOf, concat, TextDecoder, unbase64 } from '../encoding'
+import { DOMException } from '../exception'
+import { G, host, tag } from '../host'
+import { isDisturbed, readAllBytes, ReadableStream, streamOfBytes, type ReadableStreamDefaultController } from '../streams'
+import { objectUrls, URL, URLSearchParams } from '../url'
+import { Headers, type HeadersInit } from './headers'
 
 export const net = {
   base: () => 'http://acde.local/',
@@ -44,7 +53,7 @@ function warnOnce(method: string, url: string, what: string): void {
   host.print(1, `acde-dom: ${key}: ${what}`)
 }
 
-function backendFailed(method: string, url: string, message: string): void {
+export function backendFailed(method: string, url: string, message: string): void {
   let target: Target | null = null
   try {
     target = backendTarget(new URL(url), new URL(net.base()))
@@ -57,7 +66,7 @@ function quality(languages: readonly string[]): string {
   return languages.map((tag, i) => (i ? `${tag};q=${Math.max(0.1, 1 - i * 0.1).toFixed(1)}` : tag)).join(',')
 }
 
-function browserHeaders(page: readonly Header[], accept: boolean): Header[] {
+export function browserHeaders(page: readonly Header[], accept: boolean): Header[] {
   const out: Header[] = [...page]
   const has = (name: string) => out.some(([n]) => n.toLowerCase() === name)
   const navigator = G['navigator'] as { userAgent?: string; languages?: readonly string[] } | undefined
@@ -117,72 +126,9 @@ export function route(url: string, method: string): Routed {
   return null
 }
 
-function assetHead(found: Loaded): Header[] {
+export function assetHead(found: Loaded): Header[] {
   return [['content-length', String(found.bytes.length)], ['content-type', found.type]]
 }
-
-type HeadersInit = Headers | Record<string, string> | Iterable<readonly [string, string]>
-
-export class Headers {
-  #map = new Map<string, string>()
-  #cookies: string[] = []
-
-  constructor(init?: HeadersInit | null) {
-    if (!init) return
-    if (init instanceof Headers) for (const [k, v] of init) this.append(k, v)
-    else if (typeof (init as Iterable<unknown>)[Symbol.iterator] === 'function') {
-      for (const [k, v] of init as Iterable<readonly [string, string]>) this.append(k, v)
-    }
-    else for (const k of Object.keys(init)) this.append(k, (init as Record<string, string>)[k]!)
-  }
-
-  append(name: string, value: string): void {
-    const key = String(name).toLowerCase()
-    const v = String(value).trim()
-    if (key === 'set-cookie') return void this.#cookies.push(v)
-    const old = this.#map.get(key)
-    this.#map.set(key, old === undefined ? v : `${old}, ${v}`)
-  }
-  set(name: string, value: string): void {
-    const key = String(name).toLowerCase()
-    if (key === 'set-cookie') this.#cookies = [String(value).trim()]
-    else this.#map.set(key, String(value).trim())
-  }
-  get(name: string): string | null {
-    const key = String(name).toLowerCase()
-    if (key === 'set-cookie') return this.#cookies.length ? this.#cookies.join(', ') : null
-    return this.#map.get(key) ?? null
-  }
-  getSetCookie(): string[] {
-    return [...this.#cookies]
-  }
-  has(name: string): boolean {
-    const key = String(name).toLowerCase()
-    return key === 'set-cookie' ? this.#cookies.length > 0 : this.#map.has(key)
-  }
-  delete(name: string): void {
-    const key = String(name).toLowerCase()
-    if (key === 'set-cookie') this.#cookies = []
-    else this.#map.delete(key)
-  }
-  forEach(callback: (value: string, key: string, parent: Headers) => void, thisArg?: unknown): void {
-    for (const [k, v] of this) callback.call(thisArg, v, k, this)
-  }
-  *entries(): IterableIterator<[string, string]> {
-    const all: [string, string][] = [...this.#map, ...this.#cookies.map((v): [string, string] => ['set-cookie', v])]
-    yield* all.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-  }
-  *keys(): IterableIterator<string> {
-    for (const [k] of this.entries()) yield k
-  }
-  *values(): IterableIterator<string> {
-    for (const [, v] of this.entries()) yield v
-  }
-  [Symbol.iterator](): IterableIterator<[string, string]> {
-    return this.entries()
-  }
-}
-tag(Headers)
 
 function visibleHeaders(headers: readonly Header[]): Header[] {
   return headers.filter(([name]) => !/^set-cookie2?$/i.test(name))
@@ -201,7 +147,7 @@ function isFormData(value: unknown): value is FormDataLike {
   return typeof value === 'object' && value !== null && Object.prototype.toString.call(value) === '[object FormData]'
 }
 
-type BodyInit = string | ArrayBuffer | ArrayBufferView | Blob | URLSearchParams | ReadableStream<Uint8Array> | FormDataLike | null | undefined
+export type BodyInit = string | ArrayBuffer | ArrayBufferView | Blob | URLSearchParams | ReadableStream<Uint8Array> | FormDataLike | null | undefined
 
 function multipart(form: FormDataLike): { bytes: Uint8Array; type: string } {
   const random = new Uint8Array(12)
@@ -221,7 +167,7 @@ function multipart(form: FormDataLike): { bytes: Uint8Array; type: string } {
   return { bytes: concat(parts), type: `multipart/form-data; boundary=${boundary}` }
 }
 
-function extractBody(body: BodyInit): { bytes: Uint8Array | null; stream: ReadableStream<Uint8Array> | null; type: string | null } {
+export function extractBody(body: BodyInit): { bytes: Uint8Array | null; stream: ReadableStream<Uint8Array> | null; type: string | null } {
   if (body === null || body === undefined) return { bytes: null, stream: null, type: null }
   if (typeof body === 'string') return { bytes: host.encodeUtf8(body), stream: null, type: 'text/plain;charset=UTF-8' }
   if (body instanceof Blob) return { bytes: blobBytes(body), stream: null, type: body.type || null }
@@ -468,7 +414,7 @@ export class Response extends Body {
 tag(Response)
 
 const REDIRECTS = new Set([301, 302, 303, 307, 308])
-const NULL_BODY = new Set([101, 103, 204, 205, 304])
+export const NULL_BODY = new Set([101, 103, 204, 205, 304])
 const BODY_HEADERS = new Set(['content-type', 'content-encoding', 'content-language', 'content-location', 'content-length'])
 
 interface ExchangeHead {
@@ -819,556 +765,3 @@ export function fetch(input: string | URL | Request, init?: RequestInit): Promis
     })
   })
 }
-
-export class XMLHttpRequestEventTarget extends EventTarget {}
-defineHandlers(XMLHttpRequestEventTarget.prototype, ['loadstart', 'progress', 'abort', 'error', 'load', 'timeout', 'loadend'])
-tag(XMLHttpRequestEventTarget)
-
-export class XMLHttpRequestUpload extends XMLHttpRequestEventTarget {}
-tag(XMLHttpRequestUpload)
-
-export class XMLHttpRequest extends XMLHttpRequestEventTarget {
-  readyState = 0
-  status = 0
-  statusText = ''
-  responseType = ''
-  responseURL = ''
-  timeout = 0
-  withCredentials = false
-  readonly upload = new XMLHttpRequestUpload()
-  #method = 'GET'
-  #url = ''
-  #async = true
-  #chunks: Uint8Array[] = []
-  #bytes: Uint8Array | null = null
-  #type = ''
-  #responseHeaders: Header[] | null = null
-  #headers = new Headers()
-  #sent = 0
-  #stop: (() => void) | null = null
-
-  open(method: string, url: string, async = true): void {
-    this.#stop?.()
-    this.#stop = null
-    this.#sent++
-    this.#method = String(method).toUpperCase()
-    this.#url = new URL(String(url), net.base()).href
-    this.#async = async !== false
-    this.#bytes = null
-    this.#chunks = []
-    this.#responseHeaders = null
-    this.#headers = new Headers()
-    this.status = 0
-    this.statusText = ''
-    this.#state(1)
-  }
-
-  setRequestHeader(name: string, value: string): void {
-    if (this.readyState !== 1) {
-      throw new DOMException("Failed to execute 'setRequestHeader' on 'XMLHttpRequest': The object's state must be OPENED.", 'InvalidStateError')
-    }
-    this.#headers.append(name, value)
-  }
-
-  #state(state: number): void {
-    this.readyState = state
-    fire(this, new Event('readystatechange'))
-  }
-
-  send(body?: BodyInit): void {
-    if (this.readyState !== 1) throw new DOMException("Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED.", 'InvalidStateError')
-    const token = ++this.#sent
-    const mock = mocked('xhr', this.#method, this.#url)
-    if (mock) return this.#mocked(mock, token)
-    const routed = route(this.#url, this.#method)
-    if (routed && 'target' in routed) {
-      if (!this.#async) {
-        const what = `synchronous requests to the app's backend or the network are not supported ('${this.#url}').`
-        throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': ${what}`, 'NetworkError')
-      }
-      fire(this, new ProgressEvent('loadstart'))
-      return this.#backend(routed.target, token, body)
-    }
-    const tracked = Tracked.start('xhr', this.#method, this.#url, 0, false, this.#headers)
-    const finish = () => {
-      if (token !== this.#sent) return tracked?.error('aborted')
-      const found = routed?.asset
-      if (!found) {
-        tracked?.error(unreachable(this.#url))
-        this.#state(4)
-        if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': Failed to load '${this.#url}'.`, 'NetworkError')
-        fire(this, new ProgressEvent('error'))
-        fire(this, new ProgressEvent('loadend'))
-        return
-      }
-      tracked?.response(200, 'OK', assetHead(found))
-      tracked?.received(found.bytes.length, found.bytes)
-      tracked?.end(found.bytes.length)
-      this.#bytes = found.bytes
-      this.#type = found.type
-      this.#responseHeaders = assetHead(found)
-      this.status = 200
-      this.statusText = 'OK'
-      this.responseURL = this.#url
-      this.#state(2)
-      this.#state(3)
-      this.#state(4)
-      const total = found.bytes.length
-      fire(this, new ProgressEvent('load', { lengthComputable: true, loaded: total, total }))
-      fire(this, new ProgressEvent('loadend', { lengthComputable: true, loaded: total, total }))
-    }
-    if (!this.#async) return finish()
-    fire(this, new ProgressEvent('loadstart'))
-    host.setTimer(0, finish)
-  }
-
-  #mocked(mock: MockReply, token: number): void {
-    const tracked = Tracked.start('xhr', this.#method, this.#url, 0, true, this.#headers)
-    const finish = () => {
-      if (token !== this.#sent) return tracked?.error('aborted')
-      if ('error' in mock) {
-        tracked?.error(mock.error)
-        this.#state(4)
-        if (!this.#async) throw new DOMException(`Failed to execute 'send' on 'XMLHttpRequest': Failed to load '${this.#url}'.`, 'NetworkError')
-        fire(this, new ProgressEvent('error'))
-        fire(this, new ProgressEvent('loadend'))
-        return
-      }
-      const body = this.#method === 'HEAD' || NULL_BODY.has(mock.status) ? new Uint8Array(0) : mock.body
-      tracked?.response(mock.status, mock.statusText, mock.headers)
-      tracked?.received(body.length, body)
-      tracked?.end(body.length)
-      this.#bytes = body
-      this.#responseHeaders = mock.headers.map(([name, value]) => [name, value] as Header)
-      this.#type = headerOf(this.#responseHeaders, 'content-type') ?? ''
-      this.status = mock.status
-      this.statusText = mock.statusText
-      this.responseURL = this.#url
-      this.#state(2)
-      this.#state(3)
-      this.#state(4)
-      const total = body.length
-      fire(this, new ProgressEvent('load', { lengthComputable: true, loaded: total, total }))
-      fire(this, new ProgressEvent('loadend', { lengthComputable: true, loaded: total, total }))
-    }
-    if (!this.#async) return finish()
-    fire(this, new ProgressEvent('loadstart'))
-    host.setTimer(0, finish)
-  }
-
-  #backend(target: Target, token: number, init: BodyInit): void {
-    const { bytes, stream, type } = this.#method === 'GET' || this.#method === 'HEAD' ? { bytes: null, stream: null, type: null } : extractBody(init)
-    if (type && !this.#headers.has('content-type')) this.#headers.set('content-type', type)
-    const live = () => token === this.#sent
-    let loaded = 0
-    let total = 0
-    const finish = (event: 'load' | 'error' | 'timeout', message = 'the request failed'): void => {
-      this.#stop = null
-      this.#bytes = this.#joined()
-      if (event !== 'load') {
-        this.status = 0
-        this.statusText = ''
-        this.#responseHeaders = null
-        this.#bytes = null
-        if (event === 'error') backendFailed(this.#method, this.#url, message)
-      }
-      this.#state(4)
-      const sizes = { lengthComputable: total > 0, loaded, total }
-      fire(this, new ProgressEvent(event, sizes))
-      fire(this, new ProgressEvent('loadend', sizes))
-    }
-    const start = (sent: Uint8Array | null): void => {
-      if (!live()) return
-      const credentials = this.withCredentials ? 'include' : 'same-origin'
-      const request = { url: this.#url, method: this.#method, headers: this.#headers, body: sent, redirect: 'follow' as const, credentials }
-      this.#stop = exchange(target, { ...request, mode: 'cors' as const }, {
-        head: (head) => {
-          if (!live()) return
-          this.status = head.status
-          this.statusText = head.statusText
-          this.responseURL = head.url
-          this.#responseHeaders = head.headers
-          this.#type = headerOf(head.headers, 'content-type') ?? ''
-          total = Number(headerOf(head.headers, 'content-length') ?? 0) || 0
-          this.#state(2)
-        },
-        chunk: (data) => {
-          if (!live()) return
-          this.#chunks.push(data)
-          this.#bytes = null
-          loaded += data.length
-          this.#state(3)
-          fire(this, new ProgressEvent('progress', { lengthComputable: total > 0, loaded, total }))
-        },
-        end: () => {
-          if (live()) finish('load')
-        },
-        error: (message) => {
-          if (live()) finish('error', message)
-        },
-      }, 'xhr')
-      if (this.timeout > 0) {
-        host.setTimer(this.timeout, () => {
-          if (!live() || this.readyState === 4) return
-          this.#stop?.()
-          finish('timeout')
-        })
-      }
-    }
-    if (stream) readAllBytes(stream).then(start, () => live() && finish('error'))
-    else start(bytes)
-  }
-
-  #joined(): Uint8Array | null {
-    if (this.#bytes) return this.#bytes
-    if (!this.#chunks.length) return this.#responseHeaders ? new Uint8Array(0) : null
-    if (this.#chunks.length === 1) return (this.#bytes = this.#chunks[0]!)
-    const out = concat(this.#chunks)
-    this.#chunks = [out]
-    return (this.#bytes = out)
-  }
-
-  abort(): void {
-    this.#sent++
-    this.#stop?.()
-    this.#stop = null
-    if (this.readyState === 0 || this.readyState === 4) return
-    this.#state(4)
-    fire(this, new ProgressEvent('abort'))
-    fire(this, new ProgressEvent('loadend'))
-    this.readyState = 0
-  }
-
-  get responseText(): string {
-    const bytes = this.#joined()
-    return bytes ? new TextDecoder().decode(bytes) : ''
-  }
-
-  get response(): unknown {
-    const text = this.responseType === '' || this.responseType === 'text'
-    if (text && this.readyState === 3) return this.responseText
-    const bytes = this.readyState === 4 ? this.#joined() : null
-    if (!bytes) return text ? '' : null
-    switch (this.responseType) {
-      case 'json':
-        try {
-          return JSON.parse(this.responseText)
-        } catch {
-          return null
-        }
-      case 'arraybuffer': return bytes.slice().buffer
-      case 'blob': return new Blob([bytes], { type: this.#type })
-      case 'document': return null
-      default: return this.responseText
-    }
-  }
-
-  getResponseHeader(name: string): string | null {
-    if (this.readyState < 2 || !this.#responseHeaders) return null
-    return headerOf(this.#responseHeaders, String(name).toLowerCase())
-  }
-
-  getAllResponseHeaders(): string {
-    if (this.readyState < 2 || !this.#responseHeaders) return ''
-    const names = [...new Set(this.#responseHeaders.map(([n]) => n.toLowerCase()))].sort()
-    return names.map((n) => `${n}: ${headerOf(this.#responseHeaders!, n)}\r\n`).join('')
-  }
-
-  overrideMimeType(type: string): void {
-    this.#type = String(type)
-  }
-}
-getters(XMLHttpRequest.prototype, { responseXML: null })
-defineHandlers(XMLHttpRequest.prototype, ['readystatechange'])
-constants(XMLHttpRequest, { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 })
-tag(XMLHttpRequest)
-
-const WS_STATES = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 } as const
-
-export class WebSocket extends EventTarget {
-  readonly url: string
-  readyState = 0
-  protocol = ''
-  extensions = ''
-  bufferedAmount = 0
-  readonly withCredentials = false
-  #binaryType: 'blob' | 'arraybuffer' = 'blob'
-  #id: number | null = null
-  #finished = false
-  #tracked: Tracked | null = null
-  readonly #origin: string
-
-  constructor(url: string | URL, protocols?: string | Iterable<string>) {
-    super()
-    let parsed: URL
-    try {
-      parsed = new URL(String(url), net.base())
-    } catch {
-      throw new DOMException(`Failed to construct 'WebSocket': The URL '${String(url)}' is invalid.`, 'SyntaxError')
-    }
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') parsed = new URL(`ws${parsed.href.slice(4)}`)
-    if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
-      const what = `The URL's scheme must be either 'http', 'https', 'ws', or 'wss'. '${parsed.protocol}' is not allowed.`
-      throw new DOMException(`Failed to construct 'WebSocket': ${what}`, 'SyntaxError')
-    }
-    if (parsed.hash) {
-      const what = `The URL contains a fragment identifier ('${parsed.hash}'). Fragment identifiers are not allowed in WebSocket URLs.`
-      throw new DOMException(`Failed to construct 'WebSocket': ${what}`, 'SyntaxError')
-    }
-    this.url = parsed.href
-    this.#origin = parsed.origin
-    const list = protocols === undefined ? [] : typeof protocols === 'string' ? [protocols] : [...protocols].map(String)
-    if (new Set(list).size !== list.length) throw new DOMException("Failed to construct 'WebSocket': The subprotocol is duplicated.", 'SyntaxError')
-    this.#tracked = Tracked.start('websocket', 'GET', this.url)
-    const routed = route(this.url, 'WS')
-    if (!routed || !('target' in routed)) {
-      this.#tracked?.error(unreachable(this.url))
-      host.setTimer(0, () => this.#finish(1006, '', false))
-      return
-    }
-    this.#connect(routed.target, list)
-  }
-
-  #connect(target: Target, protocols: string[]): void {
-    const headers = isRemote(target)
-      ? browserHeaders([['origin', new URL(net.base()).origin]], false)
-      : requestHeaders([], target, { origin: true, cookies: true })
-    const onEvent = (event: WsEvent): void => {
-      if (this.#finished) return
-      switch (event.type) {
-        case 'open':
-          if (this.readyState !== WS_STATES.CONNECTING) return
-          this.readyState = WS_STATES.OPEN
-          this.protocol = event.protocol ?? ''
-          this.extensions = event.extensions ?? ''
-          this.#tracked?.response(101, 'Switching Protocols')
-          fire(this, new Event('open'))
-          return
-        case 'message': {
-          if (this.readyState !== WS_STATES.OPEN) return
-          this.#tracked?.received(event.text !== undefined ? event.text.length : (event.data?.length ?? 0))
-          let data: unknown
-          if (event.text !== undefined) data = event.text
-          else {
-            const bytes = event.data ?? new Uint8Array(0)
-            data = this.#binaryType === 'arraybuffer' ? bytes.slice().buffer : new Blob([bytes])
-          }
-          fire(this, new MessageEvent('message', { data, origin: this.#origin }))
-          return
-        }
-        case 'close':
-          return this.#finish(event.code ?? 1005, event.reason ?? '', !!event.wasClean)
-        case 'error':
-          backendFailed('WS', this.url, event.message)
-          this.#tracked?.error(event.message)
-          return this.#finish(1006, '', false)
-      }
-    }
-    try {
-      const [to, path] = dialOf(target)
-      this.#id = transport!.websocket(to, path, headers, protocols, onEvent)
-    } catch (error) {
-      backendFailed('WS', this.url, String((error as Error)?.message ?? error))
-      this.#tracked?.error(String((error as Error)?.message ?? error))
-      host.queueMicrotask(() => this.#finish(1006, '', false))
-    }
-  }
-
-  #finish(code: number, reason: string, wasClean: boolean): void {
-    if (this.#finished) return
-    this.#finished = true
-    if (wasClean) this.#tracked?.end()
-    else this.#tracked?.error(`closed ${code}${reason ? ` ${reason}` : ''}`)
-    this.readyState = WS_STATES.CLOSED
-    if (!wasClean) fire(this, new Event('error'))
-    fire(this, new CloseEvent('close', { code, reason, wasClean }))
-  }
-
-  get binaryType(): 'blob' | 'arraybuffer' {
-    return this.#binaryType
-  }
-  set binaryType(value: string) {
-    if (value === 'blob' || value === 'arraybuffer') this.#binaryType = value
-  }
-
-  send(data: string | ArrayBuffer | ArrayBufferView | Blob): void {
-    if (this.readyState === WS_STATES.CONNECTING) {
-      throw new DOMException("Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.", 'InvalidStateError')
-    }
-    let payload: string | Uint8Array
-    if (typeof data === 'string') payload = data
-    else if (data instanceof Blob) payload = blobBytes(data).slice()
-    else if (typeof data === 'object' && data !== null) payload = bytesOf(data as ArrayBuffer).slice()
-    else payload = String(data)
-    if (this.readyState !== WS_STATES.OPEN || this.#id === null) {
-      this.bufferedAmount += typeof payload === 'string' ? host.encodeUtf8(payload).length : payload.length
-      return
-    }
-    transport?.send(this.#id, payload)
-  }
-
-  close(code?: number, reason?: string): void {
-    if (code !== undefined) {
-      code = Number(code)
-      if (code !== 1000 && !(code >= 3000 && code <= 4999)) {
-        const what = `The close code must be either 1000, or between 3000 and 4999. ${code} is neither.`
-        throw new DOMException(`Failed to execute 'close' on 'WebSocket': ${what}`, 'InvalidAccessError')
-      }
-    }
-    if (reason !== undefined && host.encodeUtf8(String(reason)).length > 123) {
-      throw new DOMException("Failed to execute 'close' on 'WebSocket': The close reason must not be greater than 123 UTF-8 bytes.", 'SyntaxError')
-    }
-    if (this.readyState === WS_STATES.CLOSING || this.readyState === WS_STATES.CLOSED) return
-    if (this.#id === null) {
-      this.readyState = WS_STATES.CLOSED
-      return
-    }
-    this.readyState = WS_STATES.CLOSING
-    transport?.close(this.#id, code, reason === undefined ? undefined : String(reason))
-  }
-}
-constants(WebSocket, WS_STATES)
-defineHandlers(WebSocket.prototype, ['open', 'message', 'error', 'close'])
-tag(WebSocket)
-
-const ES_STATES = { CONNECTING: 0, OPEN: 1, CLOSED: 2 } as const
-
-export class EventSource extends EventTarget {
-  readonly url: string
-  readonly withCredentials: boolean
-  readyState = 0
-  #target: Target | null = null
-  #lastId = ''
-  #retry = 3000
-  #stop: (() => void) | null = null
-  #timer = 0
-
-  constructor(url: string | URL, init?: { withCredentials?: boolean }) {
-    super()
-    try {
-      this.url = new URL(String(url), net.base()).href
-    } catch {
-      throw new DOMException(`Failed to construct 'EventSource': Cannot open an EventSource to '${String(url)}'. The URL is invalid.`, 'SyntaxError')
-    }
-    this.withCredentials = !!init?.withCredentials
-    const routed = route(this.url, 'SSE')
-    if (!routed || !('target' in routed)) {
-      host.setTimer(0, () => {
-        this.readyState = ES_STATES.CLOSED
-        fire(this, new Event('error'))
-      })
-      return
-    }
-    this.#target = routed.target
-    this.#connect()
-  }
-
-  #connect(): void {
-    const decoder = new TextDecoder()
-    const origin = new URL(this.url).origin
-    let buffer = ''
-    let started = false
-    let data = ''
-    let type = ''
-    let id = this.#lastId
-    const dispatch = (): void => {
-      this.#lastId = id
-      if (!data) {
-        type = ''
-        return
-      }
-      const event = new MessageEvent(type || 'message', { data: data.endsWith('\n') ? data.slice(0, -1) : data, origin, lastEventId: this.#lastId })
-      data = ''
-      type = ''
-      if (this.readyState !== ES_STATES.CLOSED) fire(this, event)
-    }
-    const line = (text: string): void => {
-      if (!text) return dispatch()
-      if (text.startsWith(':')) return
-      const colon = text.indexOf(':')
-      const field = colon < 0 ? text : text.slice(0, colon)
-      let value = colon < 0 ? '' : text.slice(colon + 1)
-      if (value.startsWith(' ')) value = value.slice(1)
-      if (field === 'event') type = value
-      else if (field === 'data') data += `${value}\n`
-      else if (field === 'id') {
-        if (!value.includes('\0')) id = value
-      } else if (field === 'retry' && /^\d+$/.test(value)) this.#retry = Number(value)
-    }
-    const feed = (text: string, end: boolean): void => {
-      if (!started && text) {
-        started = true
-        if (text.startsWith('\uFEFF')) text = text.slice(1)
-      }
-      buffer += text
-      let at = 0
-      for (;;) {
-        const cr = buffer.indexOf('\r', at)
-        const lf = buffer.indexOf('\n', at)
-        const stop = cr < 0 ? lf : lf < 0 ? cr : Math.min(cr, lf)
-        if (stop < 0) break
-        if (stop === cr && cr === buffer.length - 1 && !end) break
-        line(buffer.slice(at, stop))
-        at = stop + (stop === cr && buffer[cr + 1] === '\n' ? 2 : 1)
-        if (this.readyState === ES_STATES.CLOSED) return
-      }
-      buffer = buffer.slice(at)
-    }
-    const headers: [string, string][] = [['accept', 'text/event-stream'], ['cache-control', 'no-cache']]
-    if (this.#lastId) headers.push(['last-event-id', this.#lastId])
-    const credentials = this.withCredentials ? 'include' : 'same-origin'
-    this.#stop = exchange(this.#target!, { url: this.url, method: 'GET', headers, body: null, redirect: 'follow', credentials, mode: 'cors' }, {
-      head: (head) => {
-        if (this.readyState === ES_STATES.CLOSED) return
-        const contentType = headerOf(head.headers, 'content-type') ?? ''
-        if (head.status !== 200 || !/^text\/event-stream\s*(;|$)/i.test(contentType)) {
-          backendFailed('SSE', this.url, `status ${head.status}, ${contentType || 'no content type'}`)
-          return this.#fail()
-        }
-        this.readyState = ES_STATES.OPEN
-        fire(this, new Event('open'))
-      },
-      chunk: (bytes) => {
-        if (this.readyState === ES_STATES.OPEN) feed(decoder.decode(bytes, { stream: true }), false)
-      },
-      end: () => {
-        if (this.readyState === ES_STATES.OPEN) feed(decoder.decode(), true)
-        this.#reconnect()
-      },
-      error: (message) => {
-        backendFailed('SSE', this.url, message)
-        this.#reconnect()
-      },
-    }, 'eventsource')
-  }
-
-  #reconnect(): void {
-    this.#stop = null
-    if (this.readyState === ES_STATES.CLOSED) return
-    this.readyState = ES_STATES.CONNECTING
-    fire(this, new Event('error'))
-    if (this.readyState === ES_STATES.CLOSED) return
-    this.#timer = host.setTimer(this.#retry, () => {
-      this.#timer = 0
-      if (this.readyState === ES_STATES.CONNECTING) this.#connect()
-    })
-  }
-
-  #fail(): void {
-    this.#stop?.()
-    this.#stop = null
-    this.readyState = ES_STATES.CLOSED
-    fire(this, new Event('error'))
-  }
-
-  close(): void {
-    this.readyState = ES_STATES.CLOSED
-    this.#stop?.()
-    this.#stop = null
-    if (this.#timer) host.clearTimer(this.#timer)
-    this.#timer = 0
-  }
-}
-constants(EventSource, ES_STATES)
-defineHandlers(EventSource.prototype, ['open', 'message', 'error'])
-tag(EventSource)

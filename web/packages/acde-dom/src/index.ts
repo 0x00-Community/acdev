@@ -3,7 +3,11 @@ import { describe, inspectHooks } from './core/console'
 import { CustomEvent, ErrorEvent, Event, fire, PromiseRejectionEvent, type EventTarget } from './core/event'
 import { globals, host, KEY, report, setReport } from './core/host'
 import { observer, type PageErrorKind } from './core/observe'
-import { EventSource, fetch, Headers, net, Request, Response, WebSocket, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net'
+import { EventSource } from './core/net/eventsource'
+import { Headers } from './core/net/headers'
+import { fetch, net, Request, Response } from './core/net'
+import { WebSocket } from './core/net/websocket'
+import { XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net/xhr'
 import { loadResource } from './core/resources'
 import {
   ReadableStream,

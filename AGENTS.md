@@ -683,7 +683,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - `<link>` / `<style>` 的 `media` 属性是表的 media list: 不匹配的表照取、照派 `load`、`sheet` 照有, 只是不生效; 改属性不重取.
   - 没做: `window` 的 `load` 不等样式表和图片; `link.disabled`、备用样式表 (`title`)、`CSSImportRule.styleSheet`、`MediaList` 的成员 (只有
     `mediaText` / `length`); `<img crossorigin>` 仍按 no-cors 取.
-- **本地资源的类型** (acde-dom `core/net.ts` `TYPES`): 应用包里的文件经 `fetch` / XHR 读到时按扩展名给 `Content-Type`, 只列页面加载要的类型
+- **本地资源的类型** (acde-dom `core/net/index.ts` `TYPES`): 应用包里的文件经 `fetch` / XHR 读到时按扩展名给 `Content-Type`, 只列页面加载要的类型
   (HTML、脚本、样式、JSON、wasm、字体、图片、音视频), 固定、和系统无关; 别的 (文稿、表格、压缩包、`.md` …) 是 `application/octet-stream` (#106).
   用户文件的类型不走这张表, 走宿主系统 (`env.fileType`, #98).
 - **浏览器接口 → 窗口** (acde-host `webapp.ts` / `pagecalls.ts` / `downloads.ts`): `window.close()` / `location.reload()` 关闭 / 重启这个 web;
@@ -972,7 +972,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   - **停止**: 两种模式都在 fd 3 上发 SHUTDOWN (预加载停止接受新连接、让在途请求做完、关 server 后退出), 等 3 秒 (`STOP_MS`), 然后终止作业对象
     (旧预加载不读控制帧, 就是等满 3 秒再终止). 后端退出时注销这一代的通道 / 目录, 上面还没完的流失败.
 - **路由**: 页面的 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` 都由这个 web 自己的线程发 (crates/acdert `backend.rs` 的 `natives.backend`,
-  每个 web 都有 → runtime `fetch.rs` `FetchClient`: ntex 的 HTTP / WebSocket 客户端, I/O 在 `acde-rt` 线程; acde-dom `core/net.ts` 的 `route`). 去哪:
+  每个 web 都有 → runtime `fetch.rs` `FetchClient`: ntex 的 HTTP / WebSocket 客户端, I/O 在 `acde-rt` 线程; acde-dom `core/net/index.ts` 的 `route`). 去哪:
   - 同源非资源路径、有后端时的 `localhost:<port>` (和 127.0.0.1、[::1]、0.0.0.0) → 自己应用的 unix socket (`Dial::Socket`, `init.sockets`; 没出现或
     拒绝连接时重试 10 秒). 没有后端的 web 同源非资源路径失败, `localhost` 走下面的网络.
   - 别的主机 (`Dial::Url`, http / https / ws / wss) → 宿主的网络: 系统 DNS, TCP, https / wss 用 `http.rs` 的 `tls()` (只给 http/1.1 的 ALPN,
@@ -992,9 +992,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     和安全名单里的头, 回不透明响应 (status 0, type `opaque`, 没有头和 body); `same-origin` 不许跨源. 重定向照常跟 (每跳都查 CORS, 换到第三个源后
     `Origin: null`). 跨源请求不带也不存 cookie (所有主机对 `acde.local` 都是第三方, 和 Safari 拦第三方 cookie 一样); 同源 (后端) 的 cookie 照旧.
   - 被禁的请求头 (Host、Cookie、Origin、Referer、Accept-Encoding、`Sec-*`、`Proxy-*` …) 页面设了也不发. 同步 XHR 只给本地资源.
-  - body (acde-dom `core/net.ts` `Body`): 读 body (`text()` 等) 用流的 reader 读完且不放锁 (规范的 fully read), 之后 `body.locked` 是 true;
+  - body (acde-dom `core/net/index.ts` `Body`): 读 body (`text()` 等) 用流的 reader 读完且不放锁 (规范的 fully read), 之后 `body.locked` 是 true;
     null body 读了不算 `bodyUsed`. `Response.clone()` 保留 `error` / `opaque` 的 status 0 和 type. URL 带用户名或密码的 `Request` 抛 TypeError.
-  - 经典 `<script src>` 从别的主机取时不查 CORS (和浏览器一样, 不带 `crossorigin` 的脚本照样执行): `page.ts` 经 `net.ts` 的内部 `scriptSource`, 不是页面能用的接口.
+  - 经典 `<script src>` 从别的主机取时不查 CORS (和浏览器一样, 不带 `crossorigin` 的脚本照样执行): `page.ts` 经 `core/net/` 的内部 `scriptSource`, 不是页面能用的接口.
 - **语音输入** (runtime `src/voice/`, Linux): `listen(onEvent)` 从 PipeWire 默认输入录 16 kHz 单声道, 连豆包输入法的流式识别 (非官方接口,
   身份存 `$XDG_STATE_HOME/acde/doubao-ime.json`). 事件 `partial {text}`、结束时恰好一个 `final` 或 `error`; `stop(id)` 等定稿 (最多 10 秒), 60 秒自动停,
   新的 `listen` 取消上一个. 日志 target `acde_runtime::voice` (识别出的文字不进日志). 没有麦克风时用 PipeWire 的 `module-pipe-source` 喂 PCM.
