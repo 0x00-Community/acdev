@@ -44,6 +44,13 @@ struct Deadline {
     until: Option<Instant>,
 }
 
+impl Deadline {
+    fn lift(&mut self) -> io::Result<()> {
+        self.until = None;
+        self.stream.set_read_timeout(None)
+    }
+}
+
 impl Read for Deadline {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if let Some(until) = self.until {
@@ -242,7 +249,7 @@ fn serve(endpoint: &'static Endpoint, mut stream: TcpStream) -> io::Result<()> {
     let accept = ntex::ws::hash_key(key.as_bytes()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     let answer = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n");
     stream.write_all(answer.as_bytes())?;
-    reader.get_mut().until = None;
+    reader.get_mut().lift()?;
     stream.set_read_timeout(None)?;
     session(endpoint, Client::new(target, stream)?, reader)
 }
@@ -413,6 +420,50 @@ mod tests {
         let mut status = [0u8; 12];
         opened.read_exact(&mut status).unwrap();
         assert_eq!(&status, b"HTTP/1.1 101");
+    }
+
+    #[test]
+    fn an_open_socket_idle_past_the_head_deadline_still_answers() {
+        let (endpoint, address) = served(4, std::time::Duration::from_millis(200));
+        let target = crate::devtools::DevToolsTarget { id: "alpha#7".into(), kind: "page".into(), title: "Alpha".into(), url: "acde://alpha/".into() };
+        endpoint.set_targets(vec![target]);
+        let port = address.port();
+        let mut socket = TcpStream::connect(address).unwrap();
+        let head = format!(
+            "GET /devtools/page/alpha%237 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+             Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+        );
+        socket.write_all(head.as_bytes()).unwrap();
+        socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        let mut reader = BufReader::new(socket.try_clone().unwrap());
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert!(line.starts_with("HTTP/1.1 101"), "{line}");
+        while line != "\r\n" {
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        let request = br#"{"id":1,"method":"Browser.getVersion"}"#;
+        let mut frame = vec![0x81, 0x80 | request.len() as u8, 0, 0, 0, 0];
+        frame.extend_from_slice(request);
+        socket.write_all(&frame).unwrap();
+        let mut head = [0u8; 2];
+        reader.read_exact(&mut head).expect("an answer after idling past the head deadline");
+        let length = match head[1] & 0x7f {
+            126 => {
+                let mut n = [0u8; 2];
+                reader.read_exact(&mut n).unwrap();
+                usize::from(u16::from_be_bytes(n))
+            }
+            n => usize::from(n),
+        };
+        let mut payload = vec![0u8; length];
+        reader.read_exact(&mut payload).unwrap();
+        assert_eq!(head[0], 0x81, "a text frame, not a close");
+        let answer: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(answer["id"], 1);
+        assert!(answer["result"]["product"].is_string(), "{answer}");
     }
 
     #[test]
