@@ -389,7 +389,9 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `Network` (#188, `devtools/network.ts` `NetworkDomain`): fetch 和 XHR. 数据来自 acde-dom 观察点的 `network` (`NetworkObserver`): `Tracked`
   只在 `recording()` 为真 (有客户端 `Network.enable`) 时把请求头、请求体、响应头和收到的每块数据交给它, 没人开时不记录也不复制. 事件
   `requestWillBeSent` / `responseReceived` / `dataReceived` / `loadingFinished` / `loadingFailed` (失败、中止 (`canceled`)、没有 network 能力
-  被拒都带 `errorText`), `requestId` 是 `Tracked.id`, `loaderId` / `frameId` 是 web 名, 时间戳是 `performance.now()` 秒. 请求完成后整个
+  被拒都带 `errorText`), `requestId` 是 `Tracked.id`, `loaderId` / `frameId` 是 web 名, 时间戳是 `performance.now()` 秒; `responseReceived` 的 `response.timing`
+  (`ResourceTiming`): `requestTime` 是请求开始, `sendStart` / `sendEnd` 是 0 (交给传输层即发出), `receiveHeadersEnd` 是收到响应头时相对它的毫秒,
+  DNS、连接、SSL、代理、worker 这些没有可靠来源的是 -1. 请求完成后整个
   响应体留着给 `Network.getResponseBody` (文字类型且是合法 UTF-8 回文字, 其余 base64; 没有的回 -32000), 每页最多 16 MiB, 超出时丢最早的;
   单个超过上限的一超过就丢掉已收的块, 不留. 有客户端中途 `Network.disable` 时丢掉进行中的记录, 之后的数据不再上报. #189 补上其余流量:
   WebSocket (`webSocketCreated`、握手请求和 101 回答、`webSocketFrameSent` / `Received` (文字 opcode 1, 二进制 2 base64)、`webSocketClosed`;

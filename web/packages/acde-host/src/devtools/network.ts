@@ -20,6 +20,7 @@ interface Open {
   chunks: Uint8Array[]
   size: number
   keep: boolean
+  readonly start: number
 }
 
 interface Kept {
@@ -72,6 +73,32 @@ export class NetworkDomain {
     return type.split(';')[0]!.trim().toLowerCase()
   }
 
+  static timing(start: number, headers: number): Record<string, number> {
+    const unknown = -1
+    const received = Math.max(0, (headers - start) * 1000)
+    return {
+      requestTime: start,
+      proxyStart: unknown,
+      proxyEnd: unknown,
+      dnsStart: unknown,
+      dnsEnd: unknown,
+      connectStart: unknown,
+      connectEnd: unknown,
+      sslStart: unknown,
+      sslEnd: unknown,
+      workerStart: unknown,
+      workerReady: unknown,
+      workerFetchStart: unknown,
+      workerRespondWithSettled: unknown,
+      sendStart: 0,
+      sendEnd: 0,
+      pushStart: 0,
+      pushEnd: 0,
+      receiveHeadersStart: received,
+      receiveHeadersEnd: received,
+    }
+  }
+
   static base64(bytes: Uint8Array): string {
     let binary = ''
     for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
@@ -94,11 +121,12 @@ export class NetworkDomain {
     if (!this.page.listening('Network')) return
     const type = TYPES[kind]
     const streamed = kind === 'websocket' || kind === 'eventsource'
-    this.#open.set(id, { kind, type, url, mimeType: '', chunks: [], size: 0, keep: !streamed })
+    const start = this.clock()
+    this.#open.set(id, { kind, type, url, mimeType: '', chunks: [], size: 0, keep: !streamed, start })
     if (kind === 'websocket') {
       this.#emit('webSocketCreated', { requestId: String(id), url, initiator: { type: 'script' } })
       const request = { headers: NetworkDomain.headers(headers) }
-      this.#emit('webSocketWillSendHandshakeRequest', { requestId: String(id), timestamp: this.clock(), wallTime: Date.now() / 1000, request })
+      this.#emit('webSocketWillSendHandshakeRequest', { requestId: String(id), timestamp: start, wallTime: Date.now() / 1000, request })
       return
     }
     const request: Record<string, unknown> = {
@@ -117,7 +145,7 @@ export class NetworkDomain {
       loaderId: this.page.frameId,
       documentURL: this.documentUrl(),
       request,
-      timestamp: this.clock(),
+      timestamp: start,
       wallTime: Date.now() / 1000,
       initiator: { type: 'script' },
       redirectHasExtraInfo: false,
@@ -130,14 +158,15 @@ export class NetworkDomain {
     const open = this.#live(id)
     if (!open) return
     open.mimeType = NetworkDomain.mimeType(headers)
+    const now = this.clock()
     if (open.kind === 'websocket') {
       const response = { status, statusText, headers: NetworkDomain.headers(headers) }
-      return this.#emit('webSocketHandshakeResponseReceived', { requestId: String(id), timestamp: this.clock(), response })
+      return this.#emit('webSocketHandshakeResponseReceived', { requestId: String(id), timestamp: now, response })
     }
     this.#emit('responseReceived', {
       requestId: String(id),
       loaderId: this.page.frameId,
-      timestamp: this.clock(),
+      timestamp: now,
       type: open.type,
       frameId: this.page.frameId,
       hasExtraInfo: false,
@@ -152,6 +181,7 @@ export class NetworkDomain {
         connectionId: 0,
         encodedDataLength: 0,
         securityState: 'neutral',
+        timing: NetworkDomain.timing(open.start, now),
       },
     })
   }

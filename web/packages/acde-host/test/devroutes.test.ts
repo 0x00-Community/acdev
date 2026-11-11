@@ -389,7 +389,7 @@ describe('DOM domain served by the page', () => {
 })
 
 describe('DevTools Network domain', () => {
-  const network = (limit = NetworkDomain.BODIES) => {
+  const network = (limit = NetworkDomain.BODIES, clock = () => 1) => {
     const sent: Record<string, unknown>[] = []
     let handler: ((session: number, text: string | null) => void) | null = null
     let domain: NetworkDomain | null = null
@@ -398,7 +398,7 @@ describe('DevTools Network domain', () => {
       devtoolsSend: (_: number, text: string) => void sent.push(JSON.parse(text) as Record<string, unknown>),
     }
     DevToolsPage.install(host, (page) => {
-      domain = new NetworkDomain(page, () => 'http://app.acde/', limit, () => 1)
+      domain = new NetworkDomain(page, () => 'http://app.acde/', limit, clock)
       return [domain.domain()]
     })
     const ask = async (message: Record<string, unknown>) => {
@@ -482,6 +482,17 @@ describe('DevTools Network domain', () => {
     observer.end(3, 11)
     assert.equal(((await ask({ id: 4, method: 'Network.getResponseBody', params: { requestId: '3' } }))!['error'] as { code: number }).code, -32000)
     assert.deepEqual((await ask({ id: 5, method: 'Network.getResponseBody', params: { requestId: '2' } }))!['result'], { body: '123456', base64Encoded: false })
+  })
+
+  test('a response carries its timing: start time, send at 0, headers when they arrived, unknown phases -1', async () => {
+    const times = [10, 10.25]
+    const { observer, ask, events } = network(NetworkDomain.BODIES, () => times.shift() ?? 11)
+    await ask({ id: 1, method: 'Network.enable' })
+    observer.start(1, 'fetch', 'GET', 'http://app.acde/a', [], null)
+    observer.response(1, 200, 'OK', [])
+    const timing = (events('responseReceived')[0]!['response'] as { timing: Record<string, number> }).timing
+    assert.deepEqual([timing['requestTime'], timing['sendStart'], timing['sendEnd'], timing['receiveHeadersEnd']], [10, 0, 0, 250])
+    assert.deepEqual([timing['dnsStart'], timing['connectStart'], timing['sslStart'], timing['sslEnd']], [-1, -1, -1, -1])
   })
 
   test('a WebSocket shows its handshake, frames both ways and its close', async () => {
