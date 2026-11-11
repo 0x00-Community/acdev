@@ -185,79 +185,26 @@ dependencies = [
 [[package]]
 name = "acgpu"
 version = "0.1.0"
+source = "sparse+http://gitea.dopamine/api/packages/AC/cargo/"
+checksum = "157b306f4b0a2a1000667e233c28e642aad32f49363f35502f9fc1f3a2db00fc"
 dependencies = [
- "acgpu-core",
- "acgpu-fallback",
- "acgpu-intel",
- "acgpu-intel-xe",
- "rustix 1.1.5",
-]
-
-[[package]]
-name = "acgpu-core"
-version = "0.1.0"
-dependencies = [
+ "ash",
+ "bytemuck",
+ "glifo",
+ "hashbrown 0.17.1",
  "kurbo",
  "libc",
  "mlirformat",
  "mlirpass",
  "moremath",
  "peniko",
- "serde",
- "vello_common",
-]
-
-[[package]]
-name = "acgpu-fallback"
-version = "0.1.0"
-dependencies = [
- "acgpu-core",
- "ash",
- "kurbo",
- "peniko",
+ "png",
  "pollster",
  "rustix 1.1.5",
- "vello",
- "wgpu",
-]
-
-[[package]]
-name = "acgpu-intel"
-version = "0.1.0"
-dependencies = [
- "acgpu-core",
- "acgpu-intel-codegen",
- "acgpu-intel-dialect",
- "mlirformat",
- "mlirpass",
- "vello_cpu",
-]
-
-[[package]]
-name = "acgpu-intel-codegen"
-version = "0.1.0"
-dependencies = [
- "acgpu-core",
- "acgpu-intel-dialect",
- "mlirformat",
- "mlirpass",
-]
-
-[[package]]
-name = "acgpu-intel-dialect"
-version = "0.1.0"
-dependencies = [
- "acgpu-core",
- "mlirformat",
  "serde",
-]
-
-[[package]]
-name = "acgpu-intel-xe"
-version = "0.1.0"
-dependencies = [
- "acgpu-core",
- "libc",
+ "vello",
+ "vello_common",
+ "wgpu",
 ]
 
 [[package]]
@@ -7343,17 +7290,6 @@ dependencies = [
  "png",
  "smallvec",
  "thiserror",
-]
-
-[[package]]
-name = "vello_cpu"
-version = "0.3.0"
-dependencies = [
- "bytemuck",
- "glifo",
- "hashbrown 0.17.1",
- "png",
- "vello_common",
 ]
 
 [[package]]

@@ -26,6 +26,9 @@ pub enum DisplayUpdate {
     HidePointer,
     DefaultPointer,
     CachedPointer(u16),
+    // acde: one frame's bitmaps, sent as one surface-commands update between frame markers so the client shows them
+    // together instead of rect by rect
+    Frame(Vec<BitmapUpdate>),
 }
 
 #[derive(Clone)]

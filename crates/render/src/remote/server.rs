@@ -33,7 +33,7 @@ pub struct RdpBitmap {
     pub data: Vec<u8>,
 }
 
-impl TryFrom<RdpBitmap> for DisplayUpdate {
+impl TryFrom<RdpBitmap> for BitmapUpdate {
     type Error = ();
 
     fn try_from(bitmap: RdpBitmap) -> Result<Self, Self::Error> {
@@ -45,11 +45,11 @@ impl TryFrom<RdpBitmap> for DisplayUpdate {
         }
         let x = u16::try_from(bitmap.x).unwrap_or(0);
         let y = u16::try_from(bitmap.y).unwrap_or(0);
-        Ok(Self::Bitmap(BitmapUpdate { x, y, width, height, format: PixelFormat::RgbX32, data: bitmap.data.into(), stride }))
+        Ok(Self { x, y, width, height, format: PixelFormat::RgbX32, data: bitmap.data.into(), stride })
     }
 }
 
-type Frame = Vec<DisplayUpdate>;
+type Frame = Vec<BitmapUpdate>;
 
 #[derive(Clone, Default)]
 pub struct RdpUpdates(Arc<Mutex<Option<async_channel::Sender<Frame>>>>);
@@ -69,7 +69,7 @@ impl RdpUpdates {
 
     pub fn send(&self, bitmaps: impl IntoIterator<Item = RdpBitmap>) {
         let Some(sender) = self.sender() else { return };
-        let frame: Frame = bitmaps.into_iter().filter_map(|b| DisplayUpdate::try_from(b).ok()).collect();
+        let frame: Frame = bitmaps.into_iter().filter_map(|b| BitmapUpdate::try_from(b).ok()).collect();
         if !frame.is_empty() {
             let _ = sender.try_send(frame);
         }
@@ -117,7 +117,7 @@ impl RdpServerDisplayUpdates for UpdateStream {
             }
             let Ok(frame) = self.receiver.recv().await else { return Ok(None) };
             (self.notify)(RdpEvent::Drained);
-            self.frame = frame.into();
+            return Ok(Some(DisplayUpdate::Frame(frame)));
         }
     }
 }

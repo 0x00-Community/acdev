@@ -11,7 +11,7 @@ use ironrdp_pdu::pointer::{
     CachedPointerAttribute, ColorPointerAttribute, Point16, PointerAttribute, PointerPositionAttribute,
 };
 use ironrdp_pdu::rdp::capability_sets::{CmdFlags, EntropyBits};
-use ironrdp_pdu::surface_commands::{ExtendedBitmapDataPdu, SurfaceBitsPdu, SurfaceCommand};
+use ironrdp_pdu::surface_commands::{ExtendedBitmapDataPdu, FrameAction, FrameMarkerPdu, SurfaceBitsPdu, SurfaceCommand};
 use tracing::{debug, warn};
 
 use self::bitmap::BitmapEncoder;
@@ -111,6 +111,10 @@ pub(crate) struct UpdateEncoder {
     /// oversized bitmaps into strips that fit within the limit when sent as
     /// uncompressed surface commands.
     max_request_size: usize,
+    // acde: whole frames as surface commands (SET_SURFACE_BITS with a codec), framed by markers when the client takes them
+    surface: bool,
+    markers: bool,
+    frame_id: u32,
 }
 
 impl fmt::Debug for UpdateEncoder {
@@ -129,7 +133,9 @@ impl UpdateEncoder {
         codecs: UpdateEncoderCodecs,
         max_request_size: u32,
     ) -> Result<Self> {
-        let bitmap_updater = if surface_flags.contains(CmdFlags::SET_SURFACE_BITS) {
+        let surface = surface_flags.contains(CmdFlags::SET_SURFACE_BITS);
+        let markers = surface_flags.contains(CmdFlags::FRAME_MARKER);
+        let bitmap_updater = if surface {
             match codecs {
                 #[cfg(feature = "qoiz")]
                 UpdateEncoderCodecs { qoiz: Some(id), .. } => {
@@ -163,6 +169,9 @@ impl UpdateEncoder {
             framebuffer: None,
             bitmap_updater: Some(bitmap_updater),
             max_request_size: usize::try_from(max_request_size).context("max_request_size")?,
+            surface,
+            markers,
+            frame_id: 0,
         })
     }
 
@@ -171,6 +180,7 @@ impl UpdateEncoder {
         EncoderIter {
             encoder: self,
             state: State::Start(update),
+            queue: std::collections::VecDeque::new(),
         }
     }
 
@@ -330,6 +340,64 @@ impl UpdateEncoder {
         }
     }
 
+    // acde: every bitmap of the frame diffed against the framebuffer, encoded in one blocking task, the surface
+    // commands packed into as few updates as fit the client's reassembly buffer, the first and last carrying the
+    // frame's begin and end markers
+    async fn frame(&mut self, bitmaps: Vec<BitmapUpdate>) -> Result<Vec<UpdateFragmenter>> {
+        let ds = self.desktop_size;
+        let mut subs = Vec::new();
+        for bitmap in bitmaps {
+            if bitmap.x + bitmap.width.get() > ds.width || bitmap.y + bitmap.height.get() > ds.height {
+                continue;
+            }
+            let diffs = self.bitmap_diffs(&bitmap);
+            for rect in &diffs {
+                let (Ok(x), Ok(y), Ok(w), Ok(h)) = (u16::try_from(rect.x), u16::try_from(rect.y), u16::try_from(rect.width), u16::try_from(rect.height)) else {
+                    continue;
+                };
+                let (Some(w), Some(h)) = (NonZeroU16::new(w), NonZeroU16::new(h)) else { continue };
+                subs.extend(bitmap.sub(x, y, w, h));
+            }
+            self.bitmap_update_framebuffer(bitmap, &diffs);
+        }
+        if subs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let markers = self.markers;
+        let frame_id = self.frame_id;
+        self.frame_id = self.frame_id.wrapping_add(1);
+        let limit = self.max_request_size;
+        let mut updater = self.bitmap_updater.take().expect("bitmap updater always Some");
+        let (result, updater) = ntex::rt::spawn_blocking(move || {
+            let result = time_warn!("Encoding frame", 20, Self::pack(&mut updater, &subs, markers, frame_id, limit));
+            (result, updater)
+        })
+        .await?;
+        self.bitmap_updater = Some(updater);
+        result
+    }
+
+    fn marker(action: FrameAction, frame_id: u32) -> Result<Vec<u8>> {
+        Ok(encode_vec(&SurfaceCommand::FrameMarker(FrameMarkerPdu { frame_action: action, frame_id: Some(frame_id) }))?)
+    }
+
+    fn pack(updater: &mut BitmapUpdater, subs: &[BitmapUpdate], markers: bool, frame_id: u32, limit: usize) -> Result<Vec<UpdateFragmenter>> {
+        let mut updates = Vec::new();
+        let mut data = if markers { Self::marker(FrameAction::Begin, frame_id)? } else { Vec::new() };
+        for sub in subs {
+            let encoded = updater.handle(sub)?.data;
+            if !data.is_empty() && data.len() + encoded.len() > limit {
+                updates.push(UpdateFragmenter::new(UpdateCode::SurfaceCommands, core::mem::take(&mut data)));
+            }
+            data.extend(encoded);
+        }
+        if markers {
+            data.extend(Self::marker(FrameAction::End, frame_id)?);
+        }
+        updates.push(UpdateFragmenter::new(UpdateCode::SurfaceCommands, data));
+        Ok(updates)
+    }
+
     async fn bitmap(&mut self, bitmap: BitmapUpdate) -> Result<UpdateFragmenter> {
         // Move the bitmap updater to satisfy spawn_blocking 'static requirement.
         // It is restored after the blocking operation completes.
@@ -356,6 +424,8 @@ enum State {
         bitmap: BitmapUpdate,
         pos: usize,
     },
+    // acde: a frame's encoded updates still to send
+    Packed(std::collections::VecDeque<UpdateFragmenter>),
     #[default]
     Ended,
 }
@@ -364,6 +434,8 @@ enum State {
 pub(crate) struct EncoderIter<'a> {
     encoder: &'a mut UpdateEncoder,
     state: State,
+    // acde: a frame's bitmaps one by one, for clients without surface commands
+    queue: std::collections::VecDeque<BitmapUpdate>,
 }
 
 impl EncoderIter<'_> {
@@ -395,13 +467,36 @@ impl EncoderIter<'_> {
                     DisplayUpdate::HidePointer => UpdateEncoder::hide_pointer(),
                     DisplayUpdate::DefaultPointer => UpdateEncoder::default_pointer(),
                     DisplayUpdate::CachedPointer(idx) => UpdateEncoder::cached_pointer(idx),
+                    DisplayUpdate::Frame(bitmaps) if encoder.surface => match encoder.frame(bitmaps).await {
+                        Ok(packed) => {
+                            self.state = State::Packed(packed.into());
+                            continue;
+                        }
+                        Err(error) => Err(error),
+                    },
+                    DisplayUpdate::Frame(bitmaps) => {
+                        self.queue = bitmaps.into();
+                        match self.queue.pop_front() {
+                            Some(bitmap) => self.state = State::Start(DisplayUpdate::Bitmap(bitmap)),
+                            None => self.state = State::Ended,
+                        }
+                        continue;
+                    }
                     DisplayUpdate::Resize(_) => return None,
                 },
                 State::BitmapDiffs { diffs, bitmap, pos } => {
                     let Some(rect) = diffs.get(pos) else {
                         encoder.bitmap_update_framebuffer(bitmap, &diffs);
-                        self.state = State::Ended;
-                        return None;
+                        match self.queue.pop_front() {
+                            Some(next) => {
+                                self.state = State::Start(DisplayUpdate::Bitmap(next));
+                                continue;
+                            }
+                            None => {
+                                self.state = State::Ended;
+                                return None;
+                            }
+                        }
                     };
                     let Rect { x, y, width, height } = *rect;
 
@@ -439,6 +534,13 @@ impl EncoderIter<'_> {
                     };
                     encoder.bitmap(sub).await
                 }
+                State::Packed(mut packed) => match packed.pop_front() {
+                    Some(update) => {
+                        self.state = State::Packed(packed);
+                        Ok(update)
+                    }
+                    None => return None,
+                },
                 State::Ended => return None,
             };
 
