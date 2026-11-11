@@ -376,6 +376,13 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   它解析出的 web 名或窗口号, web 按名字、应用 id、窗口号、窗口标题 (先原样, 再不分大小写) 找; id 都不中再按目标标题找 (不分大小写,
   也认去掉末尾 ` (<应用 id>)` 的标题), 再找 `service` 类型的目标 (服务, acdert#193: `services` / `service` 或标题 `services: a, b` 里的
   服务名); 没给: 聚焦的网页窗口, 没有就桌面), 用浏览器打开 `devtools://devtools/bundled/inspector.html?ws=…`.
+  - 怎么打开 (`src/devtools-browser.ts` `DevtoolsBrowser`, acde#80): Chrome 158、Edge 157 不认命令行上的 `devtools://` 地址 (只开新标签页),
+    所以经浏览器自己的 CDP 用 `Target.createTarget` (`newWindow: true`) 打开. 浏览器用 acde 专用的配置目录
+    `<用户缓存目录>/acde/devtools/<浏览器名的 slug>` (Windows `%LOCALAPPDATA%`, macOS `~/Library/Caches`, 其他 `$XDG_CACHE_HOME` 或
+    `~/.cache`) 起, 带 `--user-data-dir=<它> --remote-debugging-port=0 --no-first-run --no-default-browser-check`, 不碰用户日常的配置
+    (Chrome 136 起默认配置目录不许开远程调试), 长期复用. 端口从配置目录的 `DevToolsActivePort` 读 (第一行端口, 第二行浏览器端点路径);
+    文件在且 `/json/version` 答得上就复用那个浏览器, 不再起第二个进程; 否则删掉旧文件再起, 最多等 20 s. 起不来、连不上或
+    `createTarget` 报错时打印地址和原因, 退出 0. `ACDE_BROWSER=none` 只打印地址.
   - 浏览器查找顺序 (`Devtools.candidates`): `ACDE_BROWSER` 优先 (路径; `none`: 不打开, 只打印地址, 提示也说明是它的缘故);
     Windows 依次查 `ProgramFiles(x86)`、`ProgramFiles`、`LOCALAPPDATA` 下的 Edge, 再同样三处的 Chrome; macOS 是 `/Applications`、
     `~/Applications` 里的 Google Chrome.app, 再 Microsoft Edge.app; Linux 在 PATH 上依次找 `google-chrome`、`google-chrome-stable`、
@@ -385,7 +392,8 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
     `Authorization: Bearer`), WebSocket 地址没带 `?token=` 时补上 (DevTools 前端连 WebSocket 不能加请求头), 这时打印的地址含令牌,
     别贴进议题、日志或聊天.
   - 测试: 假 acdert 应答 `devtools` 并提供 `/json/list` (令牌 `fake-token`; `FAKE_ACDERT_DEVTOOLS_TOKENLESS=1` 时只回端口、不查令牌);
-    浏览器启动经 `launch` 注入, 测试只记录不执行, 命令行用例设 `ACDE_BROWSER=none`.
+    命令行用例设 `ACDE_BROWSER=none`; 启动浏览器的用例用假浏览器 (`test/fixtures/dev/fake-browser.ts`, `fakeBrowser()`): 它按
+    `--user-data-dir` 写 `DevToolsActivePort`, 记下启动参数和收到的 CDP 调用, 闲 15 s 自己退出; 进程内的用例经 `launch` 注入只记录.
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块; 公开的接口类型、`ACTIONS`、`ActError` 和 `LaunchError` 在 `types.ts`, `acde.ts` 原样再导出, 只放 `Acde` 类): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
   `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDE_FOLLOWED=1`: 会话文件按子进程 pid 找, `acde dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,

@@ -168,6 +168,17 @@ export function fakeAcdert(root: string): string {
   return acdert
 }
 
+const FAKE_BROWSER = join(import.meta.dir, 'fixtures/dev/fake-browser.ts')
+
+export function fakeBrowser(root: string): string {
+  const browser = join(root, WINDOWS ? 'browser.cmd' : 'browser')
+  const script = WINDOWS
+    ? `@echo off\r\n"${process.execPath}" "${FAKE_BROWSER}" %*\r\n`
+    : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_BROWSER)} "$@"\n`
+  writeFileSync(browser, script, { mode: 0o755 })
+  return browser
+}
+
 export function standIn(): { root: string; env: Record<string, string>; project: string } {
   const root = tmp()
   const log = join(root, 'fake.log')

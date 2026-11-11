@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { DevtoolsBrowser } from './devtools-browser.ts'
 import { Acde } from './driver/acde.ts'
 
 export interface Endpoint {
@@ -36,7 +36,7 @@ export interface DevtoolsOptions {
   readonly env?: Readonly<Record<string, string>>
   readonly say: (line: string) => void
   readonly lookup?: Lookup
-  readonly launch?: (browser: Browser, url: string) => void
+  readonly launch?: (browser: Browser, url: string) => unknown
 }
 
 export class Devtools {
@@ -127,12 +127,6 @@ export class Devtools {
     return names.flatMap((name) => dirs.map((dir) => ({ name, path: join(dir, name) })))
   }
 
-  static launch(browser: Browser, url: string): void {
-    const child = spawn(browser.path, [url], { detached: true, stdio: 'ignore' })
-    child.on('error', () => undefined)
-    child.unref()
-  }
-
   static async run(options: DevtoolsOptions): Promise<number> {
     const acde = await Acde.attach({
       ...(options.session !== undefined && { session: options.session }),
@@ -150,18 +144,25 @@ export class Devtools {
     }
     const target = Devtools.pick(await Devtools.targets(endpoint), wanted, options.window ?? null)
     const url = Devtools.url(target, endpoint)
-    const browser = Devtools.browser(options.lookup ?? Devtools.lookup())
+    const lookup = options.lookup ?? Devtools.lookup()
+    const browser = Devtools.browser(lookup)
     const title = target.title || target.url || target.id
+    const paste = 'paste the address above into the address bar of Chrome or Edge on this machine'
+    console.log(url)
     if (!browser) {
-      const off = (options.lookup ?? Devtools.lookup()).env['ACDE_BROWSER'] === Devtools.NONE
+      const off = lookup.env['ACDE_BROWSER'] === Devtools.NONE
       const why = off ? 'ACDE_BROWSER=none: no browser opened' : 'no Chrome or Edge found (ACDE_BROWSER names one)'
-      console.log(url)
-      console.error(`acde: DevTools for ${title}: ${why}; paste the address above into the address bar of Chrome or `
-        + 'Edge on this machine')
+      console.error(`acde: DevTools for ${title}: ${why}; ${paste}`)
       return 0
     }
-    ;(options.launch ?? Devtools.launch)(browser, url)
-    console.log(url)
+    try {
+      await (options.launch ?? ((chosen: Browser, address: string) => DevtoolsBrowser.open(chosen, address, lookup)))(
+        browser, url)
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error)
+      console.error(`acde: DevTools for ${title}: could not open it in ${browser.name} (${why}); ${paste}`)
+      return 0
+    }
     console.error(`acde: opened DevTools for ${title} in ${browser.name}`)
     return 0
   }
