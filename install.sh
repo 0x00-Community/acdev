@@ -110,12 +110,12 @@ main() {
       wget --spider -S "$1" 2>&1 | tr -d '\r' | awk 'tolower($1) == "content-length:" { n = $2 } END { print n }'
     }
     if wget --help 2>&1 | grep -q -- --show-progress; then
-      shown='-q --show-progress --progress=bar:force:noscroll'
+      wget_bar='-q --show-progress --progress=bar:force:noscroll'
     else
-      shown=
+      wget_bar=
     fi
     pull() {
-      if [ "$bar" = 1 ]; then wget $shown -O "$2" "$1"; else fetch "$1" "$2"; fi
+      if [ "$bar" = 1 ]; then wget $wget_bar -O "$2" "$1"; else fetch "$1" "$2"; fi
     }
   else
     die "needs curl or wget to download acde"
@@ -264,6 +264,8 @@ main() {
         line="fish_add_path -g \"$bin\""
         mkdir -p "$(dirname "$1")"
         ;;
+      *.cshrc | *.tcshrc) line="setenv PATH \"$bin:\$PATH\"" ;;
+      *.nu) line="\$env.PATH = (\$env.PATH | split row (char esep) | prepend '$bin')" ;;
       *) line="export PATH=\"$shown:\$PATH\"" ;;
     esac
     if ! grep -qsF "$line" "$1"; then
@@ -272,18 +274,37 @@ main() {
     fi
   }
 
+  has_shell() {
+    [ "$(basename "${SHELL:-}")" = "$1" ] || command -v "$1" >/dev/null 2>&1 ||
+      grep -qs "/$1\$" /etc/shells
+  }
+
   if [ "$modify_path" = 1 ] && [ "$on_path" = 0 ]; then
-    case $(basename "${SHELL:-sh}") in
-      zsh) add_to "${ZDOTDIR:-$HOME}/.zshrc" ;;
-      bash)
-        add_to "$HOME/.bashrc"
-        if [ "$os" = Darwin ]; then
-          add_to "$HOME/.bash_profile"
+    add_to "$HOME/.profile"
+    if has_shell bash; then
+      add_to "$HOME/.bashrc"
+      for login in .bash_profile .bash_login; do
+        if [ -f "$HOME/$login" ]; then
+          add_to "$HOME/$login"
+          break
         fi
-        ;;
-      fish) add_to "$HOME/.config/fish/conf.d/acde.fish" ;;
-      *) add_to "$HOME/.profile" ;;
-    esac
+      done
+    fi
+    if has_shell zsh; then
+      add_to "${ZDOTDIR:-$HOME}/.zshrc"
+      add_to "${ZDOTDIR:-$HOME}/.zprofile"
+    fi
+    has_shell fish && add_to "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/acde.fish"
+    if has_shell tcsh || has_shell csh; then
+      add_to "$HOME/.cshrc"
+      [ -f "$HOME/.tcshrc" ] && add_to "$HOME/.tcshrc"
+    fi
+    if has_shell nu; then
+      nu_env=$(nu -n -c '$nu.env-path' 2>/dev/null) || nu_env=
+      if [ -n "$nu_env" ]; then
+        mkdir -p "$(dirname "$nu_env")" && add_to "$nu_env"
+      fi
+    fi
   fi
 
   say "installed acde $version with acdert $runtime in $root/versions/$version"

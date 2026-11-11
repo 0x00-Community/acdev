@@ -39,7 +39,7 @@ acde itself is JavaScript; these are the platforms the runtime is built for (`aa
 curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh
 ```
 
-This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/bin` to your shell's startup file (zsh, bash, fish, or `.profile`). To leave your startup files alone:
+This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/bin` to PATH in the startup files of every shell on the machine, once each, and lists them: `~/.profile` (sh, dash, ksh and login shells), `~/.bashrc` and an existing `~/.bash_profile` or `~/.bash_login` (bash), `~/.zshrc` and `~/.zprofile` (zsh), `~/.config/fish/conf.d/acde.fish` (fish), `~/.cshrc` and an existing `~/.tcshrc` (csh, tcsh), and nushell's `env.nu`. To leave your startup files alone:
 
 ```sh
 curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh -s -- --no-modify-path
@@ -203,4 +203,4 @@ Your app is in the desktop's app list; open it from there. The desktop's assista
 
 To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use.
 
-To uninstall, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the line that was added to your shell's startup file. If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and `~/.local/share/acde/packages/dopame`, and remove the `ACDERT` line.
+To uninstall, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them). If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and `~/.local/share/acde/packages/dopame`, and remove the `ACDERT` line.

@@ -86,7 +86,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
   function install(home: string, args: string[] = [], extra: Record<string, string> = {}) {
     return run(['sh', join(out, 'install.sh'), ...args], {
       HOME: home, SHELL: '/bin/zsh', ACDE_DIST: base, ACDERT_DIST: `${base}/runtime`,
-      PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ZDOTDIR: '', ...extra,
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ZDOTDIR: '', XDG_CONFIG_HOME: join(home, '.config'), ...extra,
     }, home)
   }
 
@@ -147,11 +147,20 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(existsSync(join(home, '.acde', 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
     expect(readlinkSync(join(home, '.acde', 'current'))).toBe('versions/0.0.2')
     expect(readlinkSync(join(home, '.acde', 'bin'))).toBe('current/bin')
-    expect(readFileSync(join(home, '.zshrc'), 'utf8')).toBe('\n# acde\nexport PATH="$HOME/.acde/bin:$PATH"\n')
+    const line = '\n# acde\nexport PATH="$HOME/.acde/bin:$PATH"\n'
+    const startup = ['.zshrc', '.zprofile', '.profile', ...(which('bash') ? ['.bashrc'] : [])]
+    for (const file of startup) {
+      expect(readFileSync(join(home, file), 'utf8'), file).toBe(line)
+      expect(first.out).toContain(`added $HOME/.acde/bin to PATH in ${join(home, file)}`)
+    }
     const again = await install(home, ['--version', '0.0.1'])
     expect(again.code, again.out).toBe(0)
     expect(readlinkSync(join(home, '.acde', 'current'))).toBe('versions/0.0.1')
-    expect(readFileSync(join(home, '.zshrc'), 'utf8').match(/# acde/g)).toHaveLength(1)
+    for (const file of startup) expect(readFileSync(join(home, file), 'utf8').match(/# acde/g), file).toHaveLength(1)
+    if (which('bash')) {
+      const login = await run(['bash', '-lc', 'command -v acde'], { HOME: home, PATH: '/usr/bin:/bin' }, home)
+      expect(login.stdout.trim(), 'a login bash finds acde').toBe(join(home, '.acde', 'bin', 'acde'))
+    }
   }, 60_000)
 
   test('install.sh fails early and clearly', async () => {
