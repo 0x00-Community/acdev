@@ -341,7 +341,7 @@ describe('acde dev with a stand-in acdert', () => {
       const focused = await dev.tool(['devtools'], alpha, undefined, noBrowser)
       expect(focused.code, focused.stderr).toBe(0)
       expect(focused.stdout).toMatch(frontend(7))
-      expect(focused.stderr).toContain('acde: DevTools for Alpha: no Chrome or Edge found')
+      expect(focused.stderr).toContain('acde: DevTools for Alpha: ACDE_BROWSER=none: no browser opened; paste')
       const desk = await dev.tool(['devtools', 'desktop'], alpha, undefined, noBrowser)
       expect(desk.code, desk.stderr).toBe(0)
       expect(desk.stdout).toMatch(frontend(0))

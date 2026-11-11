@@ -7,6 +7,7 @@
 | `ACDE_INSTALL` | Install directory, default `~/.acde` |
 | `ACDERT` | The acdert binary `acde dev` and `acde test` run: a path, or a name on PATH. Unset: the acdert the installer put next to acde, then `acdert` on PATH |
 | `ACDE_BUNDLER=vite` | Bundle with Vite on Bun too |
+| `ACDE_BROWSER` | The browser `acde devtools` opens DevTools in: a path, or `none` to open nothing and only print the address. Unset: Edge, then Chrome on Windows; Chrome, then Edge on macOS; Chrome, Chromium or Edge on `PATH` on Linux |
 | `CI` | When set, `toHaveScreenshot` does not write new baselines; a missing baseline fails right away |
 
 ## Runtime (acdert)
