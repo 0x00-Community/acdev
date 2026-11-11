@@ -102,8 +102,8 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | --- | --- |
 | `acde webs` | Lists pages |
 | `acde eval <web> <code\|->` | Runs code in a page and prints JSON |
-| `acde shot <web> [-o FILE]` | Window screenshot, default `./<web>.png` |
-| `acde screen [-o FILE]` | Full-screen screenshot, default `./screen.png` |
+| `acde shot <web> [-o, --output FILE]` | Window screenshot, default `./<web>.png` |
+| `acde screen [-o, --output FILE]` | Full-screen screenshot, default `./screen.png` |
 | `acde pointer <x> <y>` | Moves the pointer to screen coordinates, as a real move |
 | `acde inspect [--window W] [--find TEXT] [--all] [--offscreen]` | The screen as text |
 | `acde query <selector> [--window W] [--ref REF] [--limit N]` | The elements a CSS selector matches, each with a ref |

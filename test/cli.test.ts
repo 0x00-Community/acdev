@@ -825,16 +825,21 @@ describe('mistakes', () => {
     for (const argv of [['--help'], ['help'], ['-h']]) {
       const help = await cli(argv, APP)
       expect(help.code).toBe(0)
-      expect(help.stdout).toContain('usage: acde <command>')
-      expect(help.stdout).toContain('  skills [install|remove|path]')
+      expect(help.stdout).toContain('Usage: acde <command> [options]')
+      expect(help.stdout).toMatch(/^Agents:\n {2}mcp +Serve the session tools over MCP \(stdio\)\n {2}skills +Install/m)
+      expect(help.stdout).not.toContain('\x1b[')
     }
     for (const argv of [['new', '-h'], ['help', 'new'], ['new', 'x', '--help']]) {
       const help = await cli(argv, APP)
       expect(help.code).toBe(0)
-      expect(help.stdout).toStartWith('usage: acde new [dir] [--template T]')
+      expect(help.stdout).toStartWith('Usage: acde new [dir] [options]')
+      expect(help.stdout).toContain('  --template T  the template: html')
+      expect(help.stdout).toContain('Examples:\n  $ acde new my-app')
       expect(help.stdout).not.toContain('acde build')
     }
-    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID: the acde dev to use')
+    expect((await cli(['webs', '--help'], APP)).stdout).toContain('--session PID  the acde dev to use')
+    expect((await cli(['--help'], APP, { FORCE_COLOR: '1' })).stdout).toContain('\x1b[1;32mUsage:\x1b[22;39m')
+    expect((await cli(['--help'], APP, { FORCE_COLOR: '1', NO_COLOR: '1' })).stdout).not.toContain('\x1b[')
     expect((await cli(['help', 'nope'], APP)).stderr.trim()).toBe(
       'acde: help: unknown command "nope" (acde --help lists the commands)',
     )

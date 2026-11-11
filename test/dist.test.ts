@@ -267,7 +267,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const tools = tmp()
     const usage = await run(['sh', acde, '--help'], { PATH: `${dirname(process.execPath)}:/usr/bin:/bin` })
     expect(usage.code).toBe(0)
-    expect(usage.stdout).toContain('usage: acde <command>')
+    expect(usage.stdout).toContain('Usage: acde <command>')
   }, 60_000)
 
   test('acde doctor --fix --yes runs the installer again when the acdert next to acde is gone', async () => {

@@ -41,7 +41,7 @@ The PATH change reaches new shells only. When the shell you are in does not have
 acde --help
 ```
 
-It prints its usage, a line beginning `usage: acde <command>` and one line per command, and exits with code 0. If it says Bun or Node.js is missing or too old, go back to step 1.
+It prints its usage, a line beginning `Usage: acde <command>`, then the commands in groups, and exits with code 0. If it says Bun or Node.js is missing or too old, go back to step 1.
 
 ## 4. Install the acde skill
 

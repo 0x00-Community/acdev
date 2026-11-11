@@ -7,7 +7,9 @@ import { findAcdert, requireAcdert, run, runtimes } from 'acde/launcher'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
 import { Doctor } from './doctor.ts'
+import { ACTIONS } from './driver/acde.ts'
 import { TestRunner } from './e2e/runner.ts'
+import { Help } from './help.ts'
 import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
@@ -17,96 +19,6 @@ import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
 import { Versions } from './versions.ts'
 
-const USAGE = `usage: acde <command>
-  new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--no-install] [--git] [--pm PM] [--yes]
-                                                   a project; in a terminal it asks what is missing (--yes: ask
-                                                   nothing); installs its dependencies, SDK included (--no-install: not)
-                                                   T: ${STARTERS.map((s) => s.name).join(', ')}
-                                                   PM: bun, npm, pnpm, yarn (default: the one running this)
-  check [dir] [--platform P]                       acde.config.jsonc (or a package's manifest), as acdert reads it;
-                                                   P (windows, macos, linux; default: this one): the required
-                                                   capabilities a running mode there lacks (optional ones are notes)
-  build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
-  sdk [update] [dir]                               the project's @dopame/acde-api and the version this acde
-                                                   pairs with; update: point it at that tarball and reinstall
-  install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link);
-                                                   default ~/.local/share/acde/packages, on Windows
-                                                   %USERPROFILE%\\.local\\share\\acde\\packages
-  dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless]
-                                                   build, run in acdert, rebuild and reload what changed; one
-                                                   project: its desktop or app; several or --desktop: all in that
-                                                   desktop (default: the desktop project among them, else dopame);
-                                                   --headless: no host window
-  doctor [dir] [--json] [--online] [--fix [--yes]]
-                                                   check this machine for acde dev and say how to fix what is wrong:
-                                                   acde on PATH, Bun and Node.js, acdert (found, runs, pairs with
-                                                   this acde, and its own check of the GPU and its files), running
-                                                   sessions and waiting approvals, the project in dir (default: the
-                                                   current directory), the agent skill; --online: whether a newer
-                                                   acde is out; --json: one JSON object; exit code 1 on an error;
-                                                   --fix: then fix what acde may (the skill, .acde/ in .gitignore,
-                                                   the sessions directory), and ask before what downloads or stops
-                                                   something (the installer again for acdert, the project's install,
-                                                   a session that does not answer; --yes: do those without asking);
-                                                   approvals, drivers and the project's code stay the user's
- with an acde dev running (the one whose projects hold this directory, or --session PID):
-  webs                                             the webs (windows' pages) acdert runs
-  eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop),
-                                                   print the JSON
-  shot <web> [-o FILE]                             a PNG of the web's window (default ./<web>.png), print its path
-  inspect [--window W] [--find TEXT] [--all] [--offscreen]
-                                                   the desktop as text (acde:inspect snapshot);
-                                                   --offscreen: scrolled-out too; --all: every window not marked
-                                                   [minimized], and elements hidden by opacity: 0 or visibility
-  query <selector> [--window W] [--ref REF] [--limit N]
-                                                   the elements a CSS selector matches in the focused window (or W, or
-                                                   under REF), each with a ref act takes; also what inspect leaves out
-                                                   (not rendered ones are marked [hidden])
-  act <ref> <action> [arg]                         click / type / key … on a ref from inspect, print what changed
-  console [--web W] [--level L] [--since S] [--follow]
-                                                   pages' console.* and uncaught errors
-                                                   (L: log info warn error debug errors; S: reload, entries since
-                                                   acde dev last reloaded, or N, from entry N on)
-  network [--web W] [--failed] [--since S] [--follow]
-                                                   pages' fetch / XHR / WebSocket / EventSource requests
-                                                   and the images, stylesheets and fonts they load, and how they ended
-  screen [-o FILE]                                 a PNG of the whole screen, every window composed
-                                                   (default ./screen.png)
-  pointer <x> <y>                                  move the pointer to screen coordinates, as a real move
-                                                   (hover, screen edges); host window: its content area
-  permissions                                      the camera and microphone prompts that wait and the decisions
-                                                   made (declared capabilities are granted without asking)
-  allow [<prompt>|<app> <capability>] [--all]      allow a waiting approval prompt: the only one, the one with that id
-                                                   (acde permissions shows it), the one of that app for that
-                                                   capability, or with --all every one
-  deny [<prompt>|<app> <capability>] [--all]       deny a waiting approval prompt: the only one, the one with that id
-                                                   (acde permissions shows it), the one of that app for that
-                                                   capability, or with --all every one
-  revoke <app> <capability>                        take back a decision, so the app is asked again
-  stop                                             end that acde dev and its acdert (as closing its last window
-                                                   does); for one started in the background
-  test [dir|file...] [--headed] [-t PATTERN] [--desktop ID|DIR] [--timeout MS] [--bail] [--trace] [-u]
-       [--workers N] [--retries N] [--video[=on]]
-                                                   run the e2e tests (*.e2e.ts, import from acde/test): each test
-                                                   gets a fresh, isolated acde dev (headless unless --headed); what a
-                                                   failing test left goes to <project>/.acde/test-results (--trace: a
-                                                   screenshot after every step and trace.html for every test);
-                                                   -u / --update-screenshots rewrites the baselines; --workers:
-                                                   files at once (default half the cores, at most 4; 1 when headed
-                                                   or with --bail); --retries: run a failing test again (passing
-                                                   later = flaky); --video: an animated PNG of the screen for
-                                                   failing tests (=on: for every test)
-  mcp [--session PID]                              an MCP server on stdio with these tools (and start / logs: run
-                                                   acde dev itself); for agents: claude mcp add acde -- acde mcp
- for coding agents:
-  skills [install|remove|path] [--agent ID,...] [--dir DIR] [--copy]
-                                                   the acde skill (how to build, run, inspect and test with acde,
-                                                   in the Agent Skills format): where it is installed; install links
-                                                   it into ~/.agents/skills and the skills directory of every agent
-                                                   found here (--agent: of those agents; --dir: into DIR; --copy: a
-                                                   copy, not a link); remove; path prints its directory
- --version, -v                                     the version of acde, then the SDK and the acdert it finds
- --help, -h                                        this; after a command (or help <command>), that command only`
 
 interface Spec {
   readonly args: readonly [number, number]
@@ -163,7 +75,7 @@ class Cli {
   static parse(argv: readonly string[]): Args {
     const [command = '', ...rest] = argv
     const spec = Object.hasOwn(Cli.SPECS, command) ? Cli.SPECS[command]! : null
-    if (!command) throw new Error(USAGE)
+    if (!command) throw new Error('a command (acde --help lists them)')
     if (!spec) throw new Error(`unknown command ${JSON.stringify(command)} (acde --help lists the commands)`)
     const hint = `(acde ${command} --help)`
     const flags = new Map<string, string>()
@@ -197,18 +109,13 @@ class Cli {
     return { command, args, flags }
   }
 
+  static readonly HELP = Help.commands(STARTERS.map((s) => s.name), ACTIONS)
+
   static usage(command: string): string {
-    if (!command) return USAGE
-    if (!Object.hasOwn(Cli.SPECS, command))
-      throw new Error(`help: unknown command ${JSON.stringify(command)} (acde --help lists the commands)`)
-    const lines = USAGE.split('\n')
-    const at = lines.findIndex((line) => line === `  ${command}` || line.startsWith(`  ${command} `))
-    const [syntax = '', said] = lines[at]!.trim().split(/ {2,}(.*)/s, 2)
-    const about = said ? [said] : []
-    for (let i = at + 1; i < lines.length && /^ {20,}\S/.test(lines[i]!); i++) about.push(lines[i]!.trim())
-    if (Tools.COMMANDS.has(command))
-      about.push('--session PID: the acde dev to use (default: the one whose projects hold this directory)')
-    return [`usage: acde ${syntax}`, ...about.map((line) => `  ${line}`)].join('\n')
+    if (!command) return Help.overview(Cli.HELP, Versions.acde())
+    const found = Cli.HELP.find((item) => item.name === command)
+    if (!found) throw new Error(`help: unknown command ${JSON.stringify(command)} (acde --help lists the commands)`)
+    return Help.command(found)
   }
 
   static async versions(): Promise<string[]> {

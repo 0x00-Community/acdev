@@ -40,8 +40,11 @@ describe('the skill', () => {
   test('names every command acde has', async () => {
     const usage = (await cli(['--help'], tmp())).stdout
     const commands = [...usage.matchAll(/^  ([a-z]+) /gm)].map((match) => match[1]!)
-    const flags = [...new Set([...usage.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((match) => match[0]))]
+    const helps = await Promise.all(commands.map(async (command) => (await cli([command, '--help'], tmp())).stdout))
+    const named = (help: string) => [...help.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((m) => m[0])
+    const flags = [...new Set(helps.flatMap(named))]
     expect(commands).toContain('skills')
+    expect(flags).toContain('--headless')
     const reference = readFileSync(join(SKILL, 'references/reference/cli.md'), 'utf8')
     expect(commands.filter((command) => !reference.includes(`acde ${command}`))).toEqual([])
     expect(flags.filter((flag) => !reference.includes(flag))).toEqual([])

@@ -253,7 +253,7 @@ jobs:
           tar -xzf "$GITHUB_WORKSPACE/out/$v/acde-$v.tar.gz" -C smoke
           out=$("smoke/acde-$v/bin/acde" --help 2>&1 || true)
           case $out in
-            *'usage: acde <command>'*) echo "shim ok" ;;
+            *'Usage: acde <command>'*) echo "shim ok" ;;
             *)
               printf '%s\n' "$out"
               echo "::error::bin/acde does not start the CLI"
