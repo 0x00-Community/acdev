@@ -200,6 +200,9 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
         }
     };
     acde_gpu::Gpu::publish(Some(gpu.shared.clone()));
+    if let Err(e) = std::thread::Builder::new().name("acde-warm".into()).spawn(acde_render::gpu::warm) {
+        log::warn!("offscreen warm-up thread: {e}");
+    }
     let server = Server { proxy: OnceLock::new(), compositor: OnceLock::new(), state: Mutex::new(State::default()), broker: Arc::new(Inbox::default()), gpu };
     if SERVER.set(server).is_err() {
         log::error!("host window: already started");
