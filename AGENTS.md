@@ -1,6 +1,6 @@
 # acde
 
-acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关系像 wrangler 和 workerd: acdert 是运行时 (一个二进制,
+acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系像 wrangler 和 workerd: acdert 是运行时 (一个二进制,
 跑桌面和应用, Dopame OS 的会话就是它), acde 建工程、构建、装包, `acde dev` 拉起 acdert. 运行时的一切 (清单、`acde:` 模块、后端怎么跑、
 窗口模型、dev IPC 的 op) 以 acdert 的 AGENTS.md 为准 (并排检出在 `../acdert`), 这里只写工具.
 
@@ -676,7 +676,7 @@ install.ps1 和 `bin/acde`; 篡改、缺文件、没有本平台构建、没有�
 它从安装目录定位安装器放进去的运行时和随包的 SDK。install.sh 的分发测试只在 macOS 和 Linux 上运行。开发会话测试使用替身运行时，真实启动和正常退出须单独用实际运行时验证。
 
 Windows 跳过 `install.sh`、Unix 会话权限与 Unix 域套接字文件清理、Node.js 后端文件系统套接字场景。
-应用后端的 Windows 运行时一侧见「Windows 后端契约」（最初由 [acdert#4](https://github.com/dopame-org/acdert/issues/4) 跟踪）。Bun 预加载的新套接字请求、
+应用后端的 Windows 运行时一侧见「Windows 后端契约」（最初由 [acdert#4](http://gitea.dopamine/AC/acdert/issues/4) 跟踪）。Bun 预加载的新套接字请求、
 Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试仍验证套接字 HTTP 响应，跳过对进程网络套接字的枚举。
 未安装对应工具时，测试会跳过 npm、pnpm 或 Unix Node.js 后端的相关场景。
 
@@ -692,4 +692,8 @@ Vite 构建及参数检查照常执行。没有 `lsof` 或 `/proc` 时，测试�
 ## 协作规则
 
 - 提交信息英文, Conventional Commits, 每行不超过 72 字符, 不加 Co-Authored-By. 做完就提交并推送.
+- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acde.git`, 网页 `http://gitea.dopamine/AC/acde`), GitHub 的
+  `dopame-org/acde` 是镜像 (远端 `gh`). `origin` 配两个 pushurl (先 Gitea 再 GitHub), `git push origin` 一次推两边; 新检出照这样配:
+  `git remote add gh git@github.com:dopame-org/acde.git`, `git config --add remote.origin.pushurl <Gitea 地址>`, 再 `--add` 一次 GitHub 地址.
+  发版仍在 GitHub Actions 上跑 (`gh workflow run … -R dopame-org/acde`, 见「分发」), 它说的 origin/main 是 GitHub 上的 main, 和 Gitea 的一样; package.json 的仓库地址照旧写 GitHub.
 - 汇报时分开写「已验证 / 未验证」.
