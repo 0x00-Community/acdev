@@ -161,7 +161,8 @@ fn text_rects_one_per_line() {
     let (c1, c4) = (page.caret(t, 1), page.caret(t, 4));
     assert!(near(rects[0].x, c1.x) && near(rects[0].x + rects[0].width, c4.x), "{rects:?}");
     assert!(near(rects[0].y, c1.y) && near(rects[0].height, c1.height));
-    let narrow = page.el("p", page.body, "width: 100px");
+    let glyph = page.caret(t, 1).x - page.caret(t, 0).x;
+    let narrow = page.el("p", page.body, &format!("width: {}px", glyph * 6.5));
     let long = page.text(narrow, "aaaa bbbb cccc");
     let rects = page.doc.text_rects(long, 0, 14).unwrap();
     assert_eq!(rects.len(), 3, "{rects:?}");
