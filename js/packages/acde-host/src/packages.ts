@@ -100,7 +100,8 @@ export class Packages {
     const html = join(pkg.dir, entry)
     if (!existsSync(html)) return null
     const all = pkg.manifest.services ?? []
-    const wanted = Array.isArray(raw.services) ? all.filter((s) => raw.services!.includes(s.name)) : all
+    const named = Array.isArray(raw.services) ? raw.services.map((s) => (typeof s === 'string' ? s : s?.name)) : null
+    const wanted = named ? all.filter((s) => named.includes(s.name)) : all
     return { kind: 'acde', id, name, description: text(raw.description), package: pkg, html, services: wanted, heapMb: Manifest.heapMb(raw.heapMb, Packages.HEAP_MB), frame: text(raw.frame)?.startsWith('/') ? text(raw.frame) : null }
   }
 

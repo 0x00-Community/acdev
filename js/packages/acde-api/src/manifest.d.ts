@@ -10,7 +10,7 @@ export interface DesktopManifest {
   readonly name: string
   readonly description?: string
   readonly entry: string
-  readonly services?: readonly string[]
+  readonly services?: readonly (string | DesktopService)[]
   readonly heapMb?: number
   /**
    * The desktop's window frame: an own-origin module path (`/ui/frame.js`, under the package's `assets`) that every app
@@ -18,6 +18,11 @@ export interface DesktopManifest {
    * {@link WindowFrameContext}. acde draws no frame of its own: title bar, buttons and where to grab are the desktop's.
    */
   readonly frame?: string
+}
+
+export interface DesktopService {
+  readonly name: string
+  readonly modules?: readonly string[]
 }
 
 /** What a desktop's window frame module (`DesktopManifest.frame`) is called with, in the window's own isolate. */
