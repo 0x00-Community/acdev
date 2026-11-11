@@ -518,7 +518,7 @@ interface PermissionPrompt {
   app: string
   label: string
   capability: string
-  reason: 'launch' | 'request'
+  reason: 'request'
 }
 
 interface PermissionDecision {

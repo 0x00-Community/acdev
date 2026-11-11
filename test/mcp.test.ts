@@ -259,11 +259,13 @@ describe('acde mcp', () => {
     try {
       const started = await call('start', { headless: true })
       expect(started.error).toBe(false)
-      const hints = 'alpha waits for approval of launch: the answer tool allows or denies it\n' +
-        'beta waits for approval of fs.documents: the answer tool allows or denies it'
-      expect(started.text).toEndWith(`\n\nNAME  KIND  APP  WINDOW  TITLE\n${hints}`)
-      expect((await call('webs')).text).toBe(`NAME  KIND  APP  WINDOW  TITLE\n${hints}`)
-      const waiting = '  1  alpha  launch  (launch)\n  2  beta  fs.documents  (request)'
+      const hints = 'alpha waits for approval of camera: the answer tool allows or denies it\n' +
+        'beta waits for approval of microphone: the answer tool allows or denies it'
+      expect(started.text).toEndWith(hints)
+      const webs = (await call('webs')).text
+      expect(webs).toContain('alpha#7  app      alpha  7       Alpha\n')
+      expect(webs).toEndWith(hints)
+      const waiting = '  1  alpha  camera  (request)\n  2  beta  microphone  (request)'
       expect((await call('permissions')).text).toBe(`pending:\n${waiting}\ndecisions: none`)
       const several = await call('answer', { allow: false })
       expect([several.error, several.text])
@@ -278,19 +280,18 @@ describe('acde mcp', () => {
         expect([refused.error, refused.text]).toEqual([true, unnamed])
       }
       expect((await call('permissions')).text).toBe(`pending:\n${waiting}\ndecisions: none`)
-      expect((await call('answer', { allow: true, app: 'alpha', capability: 'launch' })).text)
-        .toBe('allowed alpha launch (prompt 1)')
-      expect((await call('webs')).text).toContain('alpha#7  app      alpha  7       Alpha')
-      expect((await call('answer', { allow: false })).text).toBe('denied beta fs.documents (prompt 2)')
-      const none = await call('answer', { allow: true, app: 'beta', capability: 'fs.documents' })
+      expect((await call('answer', { allow: true, app: 'alpha', capability: 'camera' })).text)
+        .toBe('allowed alpha camera (prompt 1)')
+      expect((await call('answer', { allow: false })).text).toBe('denied beta microphone (prompt 2)')
+      const none = await call('answer', { allow: true, app: 'beta', capability: 'microphone' })
       expect([none.error, none.text]).toEqual([true,
-        'no approval prompt of beta for fs.documents is waiting: it is already denied (revoke takes that back)'])
+        'no approval prompt of beta for microphone is waiting: it is already denied (revoke takes that back)'])
       expect((await call('permissions')).text)
-        .toBe('pending: none\ndecisions:\n  alpha  launch  granted\n  beta  fs.documents  denied')
-      expect((await call('revoke', { app: 'alpha', capability: 'launch' })).text).toBe('revoked alpha launch')
-      const again = await call('revoke', { app: 'alpha', capability: 'launch' })
+        .toBe('pending: none\ndecisions:\n  alpha  camera  granted\n  beta  microphone  denied')
+      expect((await call('revoke', { app: 'alpha', capability: 'camera' })).text).toBe('revoked alpha camera')
+      const again = await call('revoke', { app: 'alpha', capability: 'camera' })
       expect([again.error, again.text])
-        .toEqual([true, 'no decision about alpha launch to revoke (permissions lists the decisions)'])
+        .toEqual([true, 'no decision about alpha camera to revoke (permissions lists the decisions)'])
     } finally {
       await client.close()
     }

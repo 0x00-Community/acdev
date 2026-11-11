@@ -35,18 +35,17 @@ const windows: Win[] = [
 ]
 const WINDOWLESS = !!process.env['FAKE_ACDERT_WINDOWLESS']
 let pageless = Number(process.env['FAKE_ACDERT_PAGELESS_SHOTS'] ?? 0)
-const held = process.env['FAKE_ACDERT_WAITS'] || WINDOWLESS ? windows.splice(0) : []
+if (WINDOWLESS) windows.length = 0
 const tasks: { name: string; done: boolean }[] = []
 let draft = ''
 let priority = 'low'
 let clipboard = ''
 const routes: { id: number; url: unknown; status: number; times: number | null }[] = []
 let nextRoute = 1
-const prompts = [
-  { id: 1, app: 'alpha', label: 'Alpha', capability: 'launch', reason: 'launch' },
-  { id: 2, app: 'beta', label: 'Beta', capability: 'fs.documents', reason: 'request' },
-]
-if (WINDOWLESS) prompts.length = 0
+const prompts = process.env['FAKE_ACDERT_WAITS'] ? [
+  { id: 1, app: 'alpha', label: 'Alpha', capability: 'camera', reason: 'request' },
+  { id: 2, app: 'beta', label: 'Beta', capability: 'microphone', reason: 'request' },
+] : []
 const decisions: { app: string; label: string; capability: string; decision: 'granted' | 'denied' }[] = []
 const ATTRIBUTES: Record<string, Record<string, string>> = {
   'w1.2': { placeholder: 'What needs doing?' },
@@ -435,7 +434,6 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       }
       const [prompt] = prompts.splice(at, 1)
       decisions.push({ ...prompt!, decision: m['allow'] ? 'granted' : 'denied' })
-      if (prompt!.reason === 'launch' && m['allow']) windows.push(...held.splice(0))
       return void ok({ prompt: m['prompt'], allow: m['allow'] })
     }
     case 'revoke': {
