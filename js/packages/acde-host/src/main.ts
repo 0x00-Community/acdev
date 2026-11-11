@@ -274,6 +274,7 @@ class Main {
       } catch (error) {
         Log.write(Level.Warn, 'acde_host', `fcitx5 not started: ${(error as Error).message}`)
       }
+      if (!standalone) broker.desk.restoreBluetooth()
     }
     for (const command of args.list('launch')) shell.launch(command.split(' ').filter(Boolean))
     if (Autostart.wanted(session) && !standalone && !greeter) {

@@ -1,4 +1,5 @@
 mod atspi;
+mod bluetooth;
 mod bus;
 mod failure;
 mod fields;
@@ -20,6 +21,7 @@ mod terminal;
 mod unixhttp;
 mod voice;
 pub use atspi::Accessibility;
+pub use bluetooth::{BtCall, Bluetooths};
 pub use bus::DesktopBus;
 pub use greetd::{GreetUser, Greetd};
 pub use ime::{Ime, ImeCapability};

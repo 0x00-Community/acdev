@@ -17,7 +17,7 @@ export interface Findings {
 export class Manifest {
   static readonly HEAP_MB = 256
   static readonly MIN_HEAP_MB = 32
-  static readonly CAPABILITIES: ReadonlySet<string> = new Set(['fs', 'terminal', 'office', 'network', 'system', 'display', 'audio', 'power', 'launch', 'slots', 'open', 'openFiles', 'session', 'desktops'])
+  static readonly CAPABILITIES: ReadonlySet<string> = new Set(['fs', 'terminal', 'office', 'network', 'system', 'display', 'audio', 'power', 'bluetooth', 'launch', 'slots', 'open', 'openFiles', 'session', 'desktops'])
   static readonly #MIME = /^[\w.+-]+\/([\w.+-]+|\*)$/
 
   static heapMb(value: unknown, fallback: number): number {

@@ -143,6 +143,7 @@ struct System {
     terminals: Option<acde_runtime::Terminals>,
     networks: acde_runtime::Networks,
     sounds: acde_runtime::Sounds,
+    bluetooth: acde_runtime::Bluetooths,
     office: Option<acde_runtime::OfficeService>,
     power: acde_runtime::Power,
 }
@@ -395,6 +396,13 @@ impl Desk {
         (id, token)
     }
 
+    pub fn restore_bluetooth(&self) {
+        let bluetooth = self.system.lock().unwrap_or_else(|e| e.into_inner()).bluetooth.clone();
+        if let Err(e) = std::thread::Builder::new().name("acde-bluetooth".into()).spawn(move || bluetooth.restore()) {
+            log::warn!("bluetooth: {e}");
+        }
+    }
+
     /// The system objects an isolate gets: everything for the desktop (`None`), the manifest's for an app.
     fn grants(&self, caps: Option<&Capabilities>) -> Grants {
         let mut system = self.system.lock().unwrap_or_else(|e| e.into_inner());
@@ -413,6 +421,7 @@ impl Desk {
             system: all || caps.is_some_and(|c| c.system),
             sound: (all || caps.is_some_and(|c| c.audio)).then(|| system.sounds.clone()),
             power: (all || caps.is_some_and(|c| c.power)).then(|| system.power.clone()),
+            bluetooth: (all || caps.is_some_and(|c| c.bluetooth)).then(|| system.bluetooth.clone()),
         }
     }
 

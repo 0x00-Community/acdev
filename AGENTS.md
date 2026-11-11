@@ -785,7 +785,7 @@ acde-base 不认识它们.
 ## 本机信息 (`acde:system`)
 
 给系统设置一类的页面用 (acde-dopame 的「关于本机」「存储」「时间」): 桌面全有, 应用要清单的 `system: true`; 桌面包自己的应用 (包里有
-`desktops`, 照 acdert 的「系统应用」) 不写也有 `system`、`display`、`audio` 和 `power` (Broker `apps.ts` 的 `AppRegistry.SYSTEM_APP`: acdert 的 SDK 校验不认这些键,
+`desktops`, 照 acdert 的「系统应用」) 不写也有 `system`、`display`、`audio`、`power` 和 `bluetooth` (Broker `apps.ts` 的 `AppRegistry.SYSTEM_APP`: acdert 的 SDK 校验不认这些键,
 acde-dopame 的清单写不进去). 实现在 crates/runtime
 `system.rs` (`system_call(SysCall)`, 阻塞, 由 crates/acde `system.rs` 放到 `acde-system` 线程上跑; 内核态窗口走 SYSTEM 接口的
 `system.<方法>`), JS 侧 `isolate.ts` 加上 `on`. 方法 (都返回 promise; 类型 acde-api `AcdeSystem`):
@@ -884,6 +884,30 @@ SYSTEM 的 `power.<方法>`), isolate.ts 的 `powerModule` 把 `watch` 变成 `o
 - 显示器的亮度: `acde:display` 的内置屏 `brightness` / `setBrightness` 是同一个背光 (`acde_runtime::backlight_brightness()`、`Power::call(SetBrightness)`).
 - 还没有: 锁屏后的息屏时间 (没有锁屏界面)、键盘背光、外接显示器的 DDC/CI 亮度、外设电量、`org.freedesktop.ScreenSaver` /
   `PowerManagement.Inhibit` (只认 Wayland idle-inhibit 和 logind inhibitor)、睡前暂停媒体、按 KDE 的充电起点单独设.
+
+## 蓝牙 (`acde:bluetooth`)
+
+照 KDE 的 bluedevil (KCM 和 kded): 权限同 `acde:system` (`bluetooth`). 实现在 crates/runtime `bluetooth.rs` (`Bluetooths`, runtime 里一份,
+`Desk` 持有, 各 isolate 共用; BlueZ 的系统总线, zbus), crates/acde `bluetooth.rs` 绑成 `natives.bluetooth` (调用放到 `acde-bluetooth` 线程上;
+内核态窗口走 SYSTEM 的 `bluetooth.<方法>`), `isolate.ts` 的 `bluetoothModule` 加上 `on`. 类型 acde-api `AcdeBluetooth`.
+
+- `state()`: `GetManagedObjects` 一次读全: 适配器 (多块时取第一块开着的, 否则第一块; `powered` 是任一块开着) 的名字 (Alias)、地址、
+  可被发现 / 超时、配对、扫描中, rfkill (`/sys/class/rfkill`, `blocked: 'soft' | 'hard' | null`), 登录时怎么办 (`onLogin`), 所有设备
+  `{id (D-Bus 路径), address, name (Alias), named (有 Name), kind (按 Icon, 再按 Class), icon, paired, connected, trusted, blocked, battery (Battery1), rssi}`,
+  连着的、配过的、有名字的、信号强的在前. 没有 bluetoothd 或适配器时 `available: false`, 不 reject.
+- `setPowered(on)`: 所有适配器; 开之前 rfkill 软屏蔽的先写 `/dev/rfkill` 解开 (硬开关关着就报错), 等适配器出来最多 2 秒. 记进
+  `$XDG_CONFIG_HOME/acde/bluetooth.json` 的 `powered`. `setOnLogin('remember' | 'on' | 'off')` 也写这里 (默认 remember, 同 KDE 的
+  launchState). 登录时 Broker 调 `desk.restoreBluetooth()` (自己的会话, 不是登录页): 按它开 / 关, 适配器还没出来时 10 秒内重试.
+- `setDiscoverable(on, timeout?)`: Discoverable 连同 Pairable, `timeout` 秒 (0 一直可见) 写 DiscoverableTimeout. `setName(name)`: 适配器 Alias.
+- `scan(on)`: 按 isolate 计 (`owner`), 第一个开时 StartDiscovery, 最后一个关 (或 isolate 结束) 时 StopDiscovery.
+- `pair(id)`: Device1.Pair, 成了设 Trusted 再试 Connect (连不上不算错, 同 KDE 的向导). `connect` / `disconnect` / `forget` (RemoveDevice) /
+  `setTrusted` / `setBlocked` / `rename` (设备 Alias).
+- 配对代理: 第一次用到时在同一条连接上导出 `org.bluez.Agent1` (`/org/dopame/acde/bluetooth/agent`, KeyboardDisplay) 并 RequestDefaultAgent;
+  bluetoothd 重起后重新注册. 请求经 `on('pairing')` 交给页面 `{device, name, kind, passkey?, entered?, uuid?}`: `pin` / `passkey` (页面输入),
+  `confirm` (核对 6 位数字)、`authorize` (对方要配对)、`service` (未信任的设备要用某个服务) 要 `answer(device, accept, pin?)`; `display`
+  (在对方输入这串数字) 不用答; `cancel` 是 BlueZ 撤了请求. 没有页面挂着 pairing 处理函数时直接 Rejected. `answer(id, false)` 没有在等的
+  请求时是 CancelPairing. `on('changed')` 收 BlueZ 的信号 (只变 RSSI 一类的不算), 250 ms 合并一次, 给新的 state.
+- 没做: 收发文件 (OBEX)、NAP / DUN 网络、适配器分开设置 (多块时只设第一块).
 
 ## 桌面和窗口 (两个启动位置)
 

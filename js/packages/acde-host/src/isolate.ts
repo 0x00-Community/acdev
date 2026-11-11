@@ -37,6 +37,7 @@ interface IsolateNatives extends Natives {
   readonly system?: object
   readonly sound?: { watch(callback: (state: unknown) => void): void }
   readonly power?: { watch(callback: (event: { type: string }) => void): void }
+  readonly bluetooth?: BluetoothNatives
   readonly office?: { writePage(key: string, html: string): string }
 }
 
@@ -167,6 +168,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   if (natives.system) modules.value['system'] = systemModule(natives.system)
   if (natives.sound) modules.value['audio'] = audioModule(natives.sound)
   if (natives.power) modules.value['power'] = powerModule(natives.power)
+  if (natives.bluetooth) modules.value['bluetooth'] = bluetoothModule(natives.bluetooth)
   const office = natives.office
   if (office) modules.value['office'] = { ...office, editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => office.writePage(...OfficePage.page(setup, theme)) }
   modules.define(host)
@@ -278,6 +280,50 @@ function audioModule(natives: { watch(callback: (state: unknown) => void): void 
         })
       }
       return () => handlers.delete(fn)
+    },
+  }
+}
+
+interface BluetoothNatives {
+  watch(callback: (state: unknown) => void): void
+  pairing(callback: ((request: unknown) => void) | null): void
+}
+
+function bluetoothModule(natives: BluetoothNatives): object {
+  const { watch, pairing, ...methods } = natives
+  const changed = new Set<(value: unknown) => void>()
+  const asks = new Set<(value: unknown) => void>()
+  let watching = false
+  const each = (type: string, handlers: Set<(value: unknown) => void>, value: unknown) => {
+    for (const handler of [...handlers]) {
+      try {
+        handler(value)
+      } catch (error) {
+        Log.write(Level.Warn, 'acde_host', `acde:bluetooth ${type} handler: ${(error as Error)?.message ?? String(error)}`)
+      }
+    }
+  }
+  return {
+    ...methods,
+    on(type: string, handler: unknown): () => boolean {
+      if (type !== 'changed' && type !== 'pairing') throw new TypeError(`acde:bluetooth has no ${String(type)} event`)
+      if (typeof handler !== 'function') throw new TypeError('acde:bluetooth on: the handler is not a function')
+      const fn = handler as (value: unknown) => void
+      if (type === 'changed') {
+        if (!watching) {
+          watching = true
+          watch((state) => each(type, changed, state))
+        }
+        changed.add(fn)
+        return () => changed.delete(fn)
+      }
+      if (!asks.size) pairing((request) => each(type, asks, request))
+      asks.add(fn)
+      return () => {
+        const had = asks.delete(fn)
+        if (had && !asks.size) pairing(null)
+        return had
+      }
     },
   }
 }

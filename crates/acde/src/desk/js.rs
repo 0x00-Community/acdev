@@ -706,6 +706,7 @@ pub fn broker_object(scope: &mut v8::PinScope, args: v8::FunctionCallbackArgumen
         "inspectRun" => b_inspect_run,
         "inspectOpen" => b_inspect_open,
         "warmAccessibility" => b_warm_accessibility,
+        "restoreBluetooth" => b_restore_bluetooth,
         "startPower" => b_start_power,
         "quit" => b_quit,
     );
@@ -1024,6 +1025,10 @@ fn b_inspect_open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments,
         let name = bind::arg_string(scope, &args, 0);
         later(scope, &mut rv, move || desk.inspect_open(&name))
     })
+}
+
+fn b_restore_bluetooth(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    with_broker!(scope, |desk| desk.restore_bluetooth())
 }
 
 fn b_warm_accessibility(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
