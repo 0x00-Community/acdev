@@ -22,7 +22,7 @@ export class SessionLanguage {
     }
     const locale = env['LC_ALL'] || env['LC_MESSAGES'] || env['LANG'] || ''
     const set = [...(env['LANGUAGE'] ? env['LANGUAGE'].split(':') : []), locale].map(tag).filter((t): t is string => !!t)
-    const list = set.length ? set : system.map((t) => t.trim()).filter(Boolean)
+    const list = set.length ? set : system.map((t) => t.trim().replace(/^([a-z]{2,3})-[A-Z][a-z]{3}-([A-Z]{2}|\d{3})$/, '$1-$2')).filter(Boolean)
     const languages = [...new Set(list.flatMap((t) => (t.includes('-') ? [t, t.split('-')[0]!] : [t])))]
     return languages.length ? { language: languages[0]!, languages } : { language: 'en-US', languages: ['en-US', 'en'] }
   }

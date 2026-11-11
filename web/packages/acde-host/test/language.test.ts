@@ -10,7 +10,8 @@ describe('SessionLanguage.of', () => {
 
   test("without them the operating system's preferred languages are used", () => {
     assert.deepEqual(SessionLanguage.of({}, ['zh-CN', 'en-US']), { language: 'zh-CN', languages: ['zh-CN', 'zh', 'en-US', 'en'] })
-    assert.deepEqual(SessionLanguage.of({ LANG: '' }, ['zh-Hans-CN', 'en']), { language: 'zh-Hans-CN', languages: ['zh-Hans-CN', 'zh', 'en'] })
+    assert.deepEqual(SessionLanguage.of({ LANG: '' }, ['zh-Hans-CN', 'en']), { language: 'zh-CN', languages: ['zh-CN', 'zh', 'en'] })
+    assert.deepEqual(SessionLanguage.of({}, ['zh-Hant-TW', 'zh-Hans']), { language: 'zh-TW', languages: ['zh-TW', 'zh', 'zh-Hans'] })
     assert.deepEqual(SessionLanguage.of({}, []), { language: 'en-US', languages: ['en-US', 'en'] })
   })
 })
