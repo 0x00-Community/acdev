@@ -7,6 +7,7 @@ mod caches;
 mod capture;
 mod child;
 mod chooser;
+mod doctor;
 mod dom;
 mod encoding;
 mod engine;
@@ -41,8 +42,13 @@ mod webnative;
 static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[cfg(target_os = "linux")]
+fn outer() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some() || acde_hostwin::headless()
+}
+
+#[cfg(target_os = "linux")]
 fn session_env() {
-    let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some() || acde_hostwin::headless();
+    let outer = outer();
     let backend = std::env::var("ACDE_BACKEND").ok();
     if outer && backend.is_none() {
         return;
@@ -72,8 +78,7 @@ fn hosted_session(args: &[String]) -> i32 {
 #[cfg(target_os = "linux")]
 fn session(args: &[String]) -> i32 {
     let debug = matches!(args.first().map(String::as_str), Some("app" | "desktop"));
-    let outer = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some() || acde_hostwin::headless();
-    if debug && outer && std::env::var_os("ACDE_BACKEND").is_none() {
+    if debug && outer() && std::env::var_os("ACDE_BACKEND").is_none() {
         return hosted_session(args);
     }
     supervise::Supervisor::new(args).run()
@@ -101,10 +106,12 @@ usage: acdert [app <id> | desktop <id|dir>] [options]
        acdert applications <dir> [--package <dir>] [--exec <program>]
        acdert open [--app <id>] <path|uri>...
        acdert run <file> [args...]
+       acdert doctor [--json]
        acdert --version | --help
 
 Without a command acdert runs the session (on Linux without WAYLAND_DISPLAY or DISPLAY: the screen through DRM/KMS).
 app <id> opens one app and desktop <id|dir> a desktop, each in a host window (what acde dev runs).
+doctor checks what that needs here (host files, GPU, display) and exits 1 when something is missing.
 
 Options:
   --desktop <id|dir>   the desktop to start (else ACDE_DESKTOP, else the last one, else the first installed)
@@ -148,6 +155,7 @@ fn main() {
             print!("{USAGE}");
             0
         }
+        Some("doctor") => doctor::run(&args[2..]),
         Some("run") if args.len() > 2 => sys::start(sys::Entry::Script(args[2].clone()), &args[3..]),
         Some("desktops" | "sessions" | "applications" | "open") => sys::start(sys::Entry::Broker, &args[1..]),
         #[cfg(target_os = "linux")]
