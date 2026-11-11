@@ -232,20 +232,6 @@ main() {
   sums=$ACDERT_DIST/$runtime/SHA256SUMS
   say "acde $version runs with acdert $runtime: getting its build for $triple"
   fetch "$sums" "$tmp/acdert.sums" || die "could not download $sums (acde $version runs with acdert $runtime)"
-  built() {
-    [ -n "$(listed "$tmp/acdert.sums" "acdert-$1.tar.xz")" ] || [ -n "$(listed "$tmp/acdert.sums" "acdert-$1")" ]
-  }
-  if [ "$triple" = aarch64-apple-darwin ] && ! built "$triple" && built x86_64-apple-darwin; then
-    if pgrep -q oahd >/dev/null 2>&1 || arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
-      triple=x86_64-apple-darwin
-      say "acdert $runtime has no Apple Silicon build:" \
-        "installing the Intel build ($triple), which runs through Rosetta 2"
-    else
-      die "acdert $runtime has no Apple Silicon build, only an Intel one, which needs Rosetta 2:" \
-        "install Rosetta 2 (softwareupdate --install-rosetta) and run this again," \
-        "or install an earlier acde with --version <version>"
-    fi
-  fi
   binary=acdert-$triple
   if [ -n "$(listed "$tmp/acdert.sums" "$binary.tar.xz")" ]; then
     binary=$binary.tar.xz

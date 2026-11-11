@@ -122,7 +122,6 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     runtimeMirror(join(out, 'elsewhere'), SDK, { builds: ['x86_64-pc-windows-msvc'] })
     runtimeMirror(join(out, 'bare'), SDK, { bare: true })
     runtimeMirror(join(out, 'hollow'), SDK, { member: 'other' })
-    runtimeMirror(join(out, 'intel'), SDK, { builds: ['x86_64-apple-darwin', 'x86_64-unknown-linux-gnu'] })
     server = serve(out)
     base = `http://127.0.0.1:${server.port}`
   }, 300_000)
@@ -274,47 +273,6 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     }
     const unsupported = await install(home, ['--no-modify-path'], { ACDERT_DIST: `${base}/elsewhere` })
     expect(unsupported.stderr).toContain('it is built for: x86_64-pc-windows-msvc')
-  }, 120_000)
-
-  function mac(cpu: string, rosetta: boolean): string {
-    const dir = tmp()
-    const shims: Record<string, string> = {
-      uname: `case "$1" in -m) echo ${cpu} ;; *) echo Darwin ;; esac`,
-      sysctl: 'echo 0',
-      pgrep: 'exit 1',
-      arch: `exit ${rosetta ? 0 : 1}`,
-    }
-    for (const [name, body] of Object.entries(shims)) {
-      writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`)
-      chmodSync(join(dir, name), 0o755)
-    }
-    return `${dir}:/usr/bin:/bin:/usr/sbin:/sbin`
-  }
-
-  test('install.sh on Apple Silicon: arm64, else the Intel build through Rosetta 2, else how to get one', async () => {
-    const arm = await install(tmp(), ['--no-modify-path'], { PATH: mac('arm64', true) })
-    expect(arm.code, arm.out).toBe(0)
-    expect(arm.out).toContain('downloading acdert-aarch64-apple-darwin.tar.xz (')
-    expect(arm.out).not.toContain('Rosetta')
-    const intel = { ACDERT_DIST: `${base}/intel` }
-    const home = tmp()
-    const translated = await install(home, ['--no-modify-path'], { ...intel, PATH: mac('arm64', true) })
-    expect(translated.code, translated.out).toBe(0)
-    expect(translated.stdout).toContain(`acdert ${SDK} has no Apple Silicon build: installing the Intel build `
-      + '(x86_64-apple-darwin), which runs through Rosetta 2\n')
-    const runtime = await run(['sh', join(home, '.acde', 'bin', 'acdert')], {})
-    expect(runtime.stdout).toBe(`acdert ${SDK} (x86_64-apple-darwin)\n`)
-    const none = tmp()
-    const without = await install(none, ['--no-modify-path'], { ...intel, PATH: mac('arm64', false) })
-    expect(without.code, without.out).toBe(1)
-    expect(without.stderr).toContain(`acdert ${SDK} has no Apple Silicon build, only an Intel one, `
-      + 'which needs Rosetta 2: install Rosetta 2 (softwareupdate --install-rosetta) and run this again, '
-      + 'or install an earlier acde with --version <version>')
-    expect(existsSync(join(none, '.acde', 'current'))).toBe(false)
-    const older = await install(tmp(), ['--no-modify-path'], { ...intel, PATH: mac('x86_64', false) })
-    expect(older.code, older.out).toBe(0)
-    expect(older.out).toContain('downloading acdert-x86_64-apple-darwin.tar.xz (')
-    expect(older.out).not.toContain('Rosetta')
   }, 120_000)
 
   test('install.sh: an acdert released as a bare binary (0.0.8 and older) still installs', async () => {
