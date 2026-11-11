@@ -5,6 +5,7 @@ import { DevRoutes, type DevRoute } from '../devroutes'
 import type { Inspect } from '../inspect'
 import { Level, Log } from '../log'
 import { isAbsolute } from '../sys/path'
+import { within } from '../sys/timers'
 import type { BrokerShell, WebInfo } from './types'
 import type { Web } from './web'
 import type { Permissions } from './access/approval/permissions'
@@ -31,10 +32,12 @@ interface DevInit {
 }
 
 export class DevRequests {
+  static readonly STATE_MS = 500
   static readonly #OPS =
     'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, pointer, clipboard, ' +
     'permissions, answer, revoke, drop, input, clock, dialog, init, uninit, reload, resize'
   readonly #host: DevHost
+  readonly #states = new Map<string, unknown>()
   #routes: DevRoute[] = []
   #nextRoute = 1
   #inits: DevInit[] = []
@@ -42,6 +45,20 @@ export class DevRequests {
 
   constructor(host: DevHost) {
     this.#host = host
+  }
+
+  async snapshot(web: Web | null): Promise<unknown> {
+    return !web || web.closing ? null : within(web.rpc.call('dev', 'state', []).catch(() => null), DevRequests.STATE_MS, null)
+  }
+
+  keep(key: string, state: unknown): void {
+    if (state) this.#states.set(key, state)
+  }
+
+  take(key: string): unknown {
+    const state = this.#states.get(key)
+    this.#states.delete(key)
+    return state
   }
 
   infos(): WebInfo[] {

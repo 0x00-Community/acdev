@@ -22,9 +22,9 @@ export class DebugDir {
     const api: DebugApi = {
       broker,
       shell: broker.shell,
-      web: (web, code) => broker.debugEval(web, code),
-      webs: () => broker.webs(),
-      stats: (reset) => broker.debugStats(reset),
+      web: (web, code) => broker.dev.web(web).rpc.call('debug', 'eval', [code]),
+      webs: () => broker.dev.infos(),
+      stats: (reset) => broker.dev.stats(reset ?? false),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       readText: (path) => readFileSync(path, 'utf8'),
       readDir: (path) => readdirSync(path),

@@ -23,7 +23,7 @@ import { Level, Log } from './log'
 import { process } from './sys/process'
 import { xdgHome } from './sys/os'
 import { join } from './sys/path'
-import type { BrokerOptions, BrokerShell, WebInfo, WebInit, WindowRecord } from './broker/types'
+import type { BrokerOptions, BrokerShell, WebInit, WindowRecord } from './broker/types'
 import { Web } from './broker/web'
 import { DevRequests } from './broker/dev'
 import { PageCalls, PanelCalls } from './broker/calls/page'
@@ -49,7 +49,6 @@ export type { BrokerShell, ServiceShape, WebInfo, WebInit, WireMenu } from './br
 export class Broker {
   static readonly HANG_MS = 5000
   static readonly CLOSE_WAIT_MS = 3000
-  static readonly DEV_STATE_MS = 500
   static readonly RESTARTS = 3
 
   readonly native: Native
@@ -119,7 +118,6 @@ export class Broker {
   readonly devlog = new DevLog()
   readonly #dev: DevRequests
   #ended: RunEnd = 'signal'
-  #devStates = new Map<string, unknown>()
   #wake: (() => void) | null = null
   #signal: AbortSignal | null = null
   onDesktopShown: () => void = () => {}
@@ -372,7 +370,7 @@ export class Broker {
       resources: this.#resources(),
       page: this.#current.html,
       standalone: this.#current.id === Packages.BARE ? standalone : null,
-      devState: this.#takeDevState(''),
+      devState: this.#dev.take(''),
       devRoutes: this.#dev.routesFor('desktop', null),
       devInit: this.#dev.initsFor('desktop', null),
       tier: this.#launchable.tier(null),
@@ -417,7 +415,7 @@ export class Broker {
       request: record.request ?? null,
       url: record.url ?? null,
       ...(app.backend && AppBackends.webInit(app.id)),
-      devState: this.#takeDevState(app.id),
+      devState: this.#dev.take(app.id),
       devRoutes: this.#dev.routesFor(`${app.id}#${record.id}`, app.id),
       devInit: this.#dev.initsFor(`${app.id}#${record.id}`, app.id),
       tier,
@@ -713,7 +711,7 @@ export class Broker {
         Log.write(Level.Error, 'acde_host', `acde dev: ${refused.message}; the open window keeps the previous version until the manifest is fixed`)
         return
       }
-      const state = await Broker.#snapshot(web)
+      const state = await this.#dev.snapshot(web)
       if (primary) {
         if (this.#stopped || !web || primary.web !== web || web.closing || web.reloading) return
         let next: AppManifest
@@ -722,7 +720,7 @@ export class Broker {
         } catch (error) {
           return this.#endStandalone(app, error as Error)
         }
-        if (state) this.#devStates.set(app, state)
+        this.#dev.keep(app, state)
         const backend = primary.app?.backend ? this.backends.stop(app) : undefined
         primary.app = next
         web.reloading = true
@@ -731,15 +729,14 @@ export class Broker {
         if (!this.#stopped && primary.app === next) this.backends.start(next)
         return
       }
-      if (state) this.#devStates.set(app, state)
+      this.#dev.keep(app, state)
       const resized = before && after && String(Frame.windowSize(before)) !== String(Frame.windowSize(after)) ? this.#resizedPlace(open[0]?.id, after) : null
       for (const record of open) await this.closeWeb(record.id, true)
       if (open.length || this.#options.standalone === app) await this.launch(app, null, 'free', resized)
       return
     }
     const old = this.#desktop
-    const state = await Broker.#snapshot(old)
-    if (state) this.#devStates.set('', state)
+    this.#dev.keep('', await this.#dev.snapshot(old))
     await this.#replaceDesktop(old)
   }
 
@@ -754,16 +751,6 @@ export class Broker {
   #resizedPlace(window: number | undefined, app: AppManifest): Rect | null {
     const row = window === undefined ? undefined : this.shell.windows().find((w) => (w.window ?? w.id) === window)
     return row?.mode === 'free' ? WindowPlaces.over(row, Frame.windowSize(app), this.#screen()) : null
-  }
-
-  static async #snapshot(web: Web | null): Promise<unknown> {
-    return !web || web.closing ? null : within(web.rpc.call('dev', 'state', []).catch(() => null), Broker.DEV_STATE_MS, null)
-  }
-
-  #takeDevState(key: string): unknown {
-    const state = this.#devStates.get(key)
-    this.#devStates.delete(key)
-    return state
   }
 
   async closeWeb(id: number, force = false): Promise<boolean> {
@@ -796,16 +783,8 @@ export class Broker {
     return this.#services.call(web, service, method, args)
   }
 
-  async debugEval(name: string, code: string): Promise<unknown> {
-    return this.#dev.web(name).rpc.call('debug', 'eval', [code])
-  }
-
-  webs(): WebInfo[] {
-    return this.#dev.infos()
-  }
-
-  async debugStats(reset = false): Promise<Record<string, unknown>> {
-    return this.#dev.stats(reset)
+  get dev(): DevRequests {
+    return this.#dev
   }
 
   get windows(): { id: number; kind: string; app: string | null; title: string | null; running: boolean }[] {
