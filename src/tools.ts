@@ -144,7 +144,12 @@ export class Tools {
       throw new Error(`acde dev ${session.pid} is gone (nothing answers on ${session.endpoint})`)
     }
     link.send({ type: 'quit' })
-    await Promise.race([link.closed, sleep(Tools.STOP_MS)])
+    const timer = new AbortController()
+    try {
+      await Promise.race([link.closed, sleep(Tools.STOP_MS, null, { signal: timer.signal }).catch(() => null)])
+    } finally {
+      timer.abort()
+    }
     link.close()
     const until = Date.now() + Tools.STOP_MS
     while (Sessions.alive(session.pid) && Date.now() < until) await sleep(50)
