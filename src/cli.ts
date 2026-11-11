@@ -6,6 +6,7 @@ import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { findAcdert, requireAcdert, run, runtimes } from 'acde/launcher'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
+import { Devtools } from './devtools.ts'
 import { Doctor } from './doctor.ts'
 import { ACTIONS } from './driver/acde.ts'
 import { TestRunner } from './e2e/runner.ts'
@@ -62,6 +63,7 @@ class Cli {
     deny: { args: [0, 2], flags: ['session'], switches: ['all'] },
     revoke: { args: [2, 2], flags: ['session'] },
     stop: { args: [0, 0], flags: ['session'] },
+    devtools: { args: [0, 1], flags: ['session'] },
     mcp: { args: [0, 0], flags: ['session'] },
     skills: { args: [0, 1], flags: ['agent', 'dir'], switches: ['copy'] },
     test: {
@@ -153,6 +155,12 @@ class Cli {
     }
     const { command, args, flags } = Cli.parse(argv)
     if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
+    if (command === 'devtools') {
+      const session = Tools.pid(flags.get('session'))
+      const say = (line: string) => console.error(line)
+      const window = args[0] !== undefined ? { window: args[0] } : {}
+      return await Devtools.run({ ...window, ...(session !== undefined && { session }), say })
+    }
     const followed = await Cli.follow(command, args[0] ?? '.', argv)
     if (followed !== null) return followed
     if (command === 'test') {

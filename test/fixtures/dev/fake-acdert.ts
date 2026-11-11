@@ -1,4 +1,5 @@
 import { appendFileSync, chmodSync, writeFileSync } from 'node:fs'
+import http from 'node:http'
 import net from 'node:net'
 import { isAbsolute } from 'node:path'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
@@ -265,6 +266,39 @@ function open(name: string): { ok: boolean; text: string } {
   return { ok: true, text: 'opened beta' }
 }
 
+const DEVTOOLS_TOKEN = 'fake-token'
+let devtoolsPort: Promise<number> | null = null
+
+function devtools(): Promise<{ port: number; token: string }> {
+  devtoolsPort ??= new Promise((resolve, reject) => {
+    const server = http.createServer((request, response) => {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      record({ devtools: `${url.pathname}${url.search}` })
+      if (url.searchParams.get('token') !== DEVTOOLS_TOKEN) {
+        response.writeHead(401).end()
+        return
+      }
+      if (url.pathname !== '/json/list') {
+        response.writeHead(404).end()
+        return
+      }
+      const port = (server.address() as { port: number }).port
+      const targets = webs().map((web) => ({
+        id: String(web.window),
+        type: 'page',
+        title: web.title ?? '',
+        url: `acde://${web.app ?? 'desktop'}/`,
+        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${web.window}?token=${DEVTOOLS_TOKEN}`,
+      }))
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(targets))
+    })
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port))
+    server.unref()
+  })
+  return devtoolsPort.then((port) => ({ port, token: DEVTOOLS_TOKEN }))
+}
+
 function webs() {
   const names: Record<number, string> = { 0: 'desktop', 7: 'alpha#7', 8: 'beta#8' }
   return windows.map((w) => ({
@@ -461,6 +495,8 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     case 'clipboard':
       if (typeof m['text'] === 'string') clipboard = m['text']
       return void ok({ text: clipboard })
+    case 'devtools':
+      return void devtools().then(ok, (error: Error) => fail(error.message))
     case 'slow':
       return
     default:

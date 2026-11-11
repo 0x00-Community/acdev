@@ -240,6 +240,11 @@ export class Help {
       inspecting('stop', '', 'End the session', [
         'Ends the acde dev and its acdert, as closing its last window does; for one started in the background.',
       ], [], ['acde stop']),
+      inspecting('devtools', '[web]', 'Open DevTools on a page', [
+        'Opens the DevTools of Chrome or Edge on a page of the session: web (a web name, an app id or desktop), '
+          + 'else the focused page. Prints the DevTools address; without Chrome or Edge it prints only the address '
+          + 'to paste into one. ACDE_BROWSER names the browser to use; none opens nothing.',
+      ], [], ['acde devtools', 'acde devtools notes']),
       {
         name: 'mcp',
         group: 'Agents',

@@ -232,6 +232,10 @@ export class Acde {
     return webs
   }
 
+  async devtools(): Promise<unknown> {
+    return await this.#request('devtools')
+  }
+
   async evaluate<T = unknown>(web: string, code: string): Promise<NoInfer<T>> {
     return ((await this.#request('eval', { web, code })) as { value: T }).value
   }
