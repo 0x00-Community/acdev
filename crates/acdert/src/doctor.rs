@@ -109,12 +109,35 @@ fn resolved(path: &Path) -> PathBuf {
     let mut at = path;
     loop {
         if let Ok(real) = std::fs::canonicalize(at) {
-            return missing.iter().rev().fold(real, |path: PathBuf, part| path.join(part));
+            return missing.iter().rev().fold(plain(&real), |path: PathBuf, part| path.join(part));
         }
         let (Some(parent), Some(name)) = (at.parent(), at.file_name()) else { return path.to_path_buf() };
         missing.push(name.to_owned());
         at = parent;
     }
+}
+
+#[cfg(windows)]
+fn plain(real: &Path) -> PathBuf {
+    use std::path::{Component, Prefix};
+    let mut parts = real.components();
+    let start = match parts.next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::VerbatimDisk(disk) => format!("{}:", char::from(disk)),
+            Prefix::VerbatimUNC(server, share) => format!(r"\\{}\{}", server.to_string_lossy(), share.to_string_lossy()),
+            _ => return real.to_path_buf(),
+        },
+        _ => return real.to_path_buf(),
+    };
+    let mut plain = PathBuf::from(start);
+    plain.push(std::path::MAIN_SEPARATOR_STR);
+    plain.extend(parts.filter(|part| !matches!(part, Component::RootDir)));
+    plain
+}
+
+#[cfg(not(windows))]
+fn plain(real: &Path) -> PathBuf {
+    real.to_path_buf()
 }
 
 #[cfg(target_os = "linux")]
@@ -194,4 +217,17 @@ fn draw() -> Result<String, String> {
         return Err(format!("{name} drew a test frame, but it read back {pixel:?} instead of {PROBE:?}"));
     }
     Ok(format!("{name}: drew a test frame in {} ms", started.elapsed().as_millis()))
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::plain;
+    use std::path::Path;
+
+    #[test]
+    fn verbatim_paths_are_shown_plain() {
+        assert_eq!(plain(Path::new(r"\\?\D:\Projects\app\dist")), Path::new(r"D:\Projects\app\dist"));
+        assert_eq!(plain(Path::new(r"\\?\UNC\server\share\app")), Path::new(r"\\server\share\app"));
+        assert_eq!(plain(Path::new(r"D:\plain")), Path::new(r"D:\plain"));
+    }
 }
