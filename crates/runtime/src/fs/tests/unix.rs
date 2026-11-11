@@ -352,12 +352,16 @@ fn a_long_listing_keeps_folders_first_and_skips_names_it_cannot_show() {
         fs::write(s.at(&format!("a-{n:04}.txt")), "").unwrap();
     }
     fs::create_dir(s.at("zz folder")).unwrap();
-    fs::write(Path::new(&s.root.path).join(std::ffi::OsStr::from_bytes(b"bad\xff.txt")), "").unwrap();
+    let bad = match fs::write(Path::new(&s.root.path).join(std::ffi::OsStr::from_bytes(b"bad\xff.txt")), "") {
+        Ok(()) => 1,
+        Err(e) if e.raw_os_error() == Some(rustix::io::Errno::ILSEQ.raw_os_error()) => 0,
+        Err(e) => panic!("{e}"),
+    };
     let listing = WorkspaceFs::new().list_in(s.root.clone(), "", false).unwrap();
     assert!(listing.truncated);
     assert_eq!(listing.entries.len(), MAX_ENTRIES);
     assert_eq!(listing.entries[0].name, "zz folder", "folders come before the cut");
-    assert_eq!((listing.entries[1].name.as_str(), listing.skipped), ("a-0000.txt", 1));
+    assert_eq!((listing.entries[1].name.as_str(), listing.skipped), ("a-0000.txt", bad));
     let children = WorkspaceFs::children_in(&s.root, "").unwrap();
     assert_eq!(children.len(), MAX_ENTRIES + 11, "the handle listing skips the same name");
     assert!(children.iter().all(|(name, _)| !name.contains('\u{fffd}')));
