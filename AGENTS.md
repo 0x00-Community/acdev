@@ -199,6 +199,8 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - HTML 入口里内联 `<style>` 和 `style` 属性的 `url()` (acde#62): Vite 自己当 CSS 处理; Bun 不管它们, 构建后 `InlineStyles` (`src/inline-styles.ts`)
   改写产出的 HTML: 相对 URL 按入口所在目录找文件, 复制成 `<名字>-<hash8>.<ext>` 放进产物根目录, URL 换成 `<base><文件名>` (保留 `?`/`#` 后缀);
   `/x`、`#x`、带协议的 (`data:`、`https:` 等) 原样留着; 找不到文件时构建失败 (`<url> in an inline style in <入口>: there is no <路径>`).
+  `style` 属性先解码字符引用 (数字的和 `&amp;` `&quot;` `&apos;` `&lt;` `&gt;`, acde#72) 再找 `url()`, 改了才编码回去 (`&` 和包住属性的那种引号),
+  没改的属性原样留着; `<style>` 里是原始文本, 不解码.
 - Bun 1.4 的毛病: 同一资源同时被 HTML 和 CSS 引用时 HTML 里的引用原样留下、文件不出; fixture 因此两边引用不同的文件.
 
 **后端** (`Bundler.backend`): `backend/server.js` 是 ES 模块, target node (Vite 上 SSR `noExternal: true`), npm 包打进去, Node 内置模块和
