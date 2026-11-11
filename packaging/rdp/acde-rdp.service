@@ -1,0 +1,14 @@
+[Unit]
+Description=acde remote desktop (RDP)
+ConditionPathExists=%E/acde/rdp.env
+After=pipewire.service wireplumber.service
+
+[Service]
+EnvironmentFile=%E/acde/rdp.env
+ExecStart=/usr/lib/acde/acde-rdp
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=acde-rdp
+
+[Install]
+WantedBy=default.target

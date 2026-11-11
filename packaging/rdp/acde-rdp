@@ -1,0 +1,18 @@
+#!/bin/sh
+# acde-rdp.service runs this: an acde session of its own, drawn off screen and served over RDP (ACDE_BACKEND=rdp),
+# beside the session on the screen. User and password come from the unit's EnvironmentFile
+# ($XDG_CONFIG_HOME/acde/rdp.env); the TLS certificate is made on first start when there is none.
+config=${XDG_CONFIG_HOME:-$HOME/.config}
+if [ -z "${ACDE_RDP_USER:-}" ] || [ -z "${ACDE_RDP_PASSWORD:-}" ]; then
+  echo "acde-rdp: set ACDE_RDP_USER and ACDE_RDP_PASSWORD in $config/acde/rdp.env" >&2
+  exit 1
+fi
+dir=$config/agentos/rdp
+if [ -z "${ACDE_RDP_CERT:-}" ] && [ ! -s "$dir/cert.pem" ]; then
+  mkdir -p "$dir" || exit 1
+  (umask 077 && openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$(cat /proc/sys/kernel/hostname)" \
+    -keyout "$dir/key.pem" -out "$dir/cert.pem" 2>/dev/null) || { echo "acde-rdp: could not make $dir/cert.pem" >&2; exit 1; }
+fi
+unset WAYLAND_DISPLAY DISPLAY ACDE_SOCKET
+export ACDE_BACKEND=rdp ACDE_STORAGE="${ACDE_STORAGE-$config/acde/storage/rdp.json}"
+exec /usr/lib/acde/acde-base "$@"

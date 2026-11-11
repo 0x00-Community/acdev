@@ -1643,6 +1643,7 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 | `/usr/share/acde/packages/` | 系统装的桌面包, 每个一个目录 |
 | `/usr/lib/acde/acde-app/`, `/usr/lib/acde/acde-api/` | `acde app` 由 bun 跑的源码 (应用的后端也跑在 bun 上) 和 SDK (`acde app new` 让应用的 devDependency 指过来) |
 | `/usr/lib/acde/office-ds.sh` | 文稿用的 ONLYOFFICE Document Server (docker) 启动脚本 |
+| `/usr/lib/acde/acde-rdp`, `/usr/lib/systemd/user/acde-rdp.service` | 远程桌面: 用户自己的一个 RDP 会话, 和屏幕上的会话并存 (见「js/packages/acde-host」的远程桌面) |
 | `/usr/bin/acde` | 会话入口 (POSIX sh), 见下 |
 | `/usr/share/wayland-sessions/acde.desktop` | 给显示管理器的会话项 (上次进的桌面, 否则第一个); 桌面包另装 `acde-<id>.desktop` |
 | `/usr/lib/tmpfiles.d/acde.conf` | `/var/lib/acde/greeter` (0700, greeter): 登录页的状态和 fontconfig 缓存 |
@@ -1820,6 +1821,14 @@ xdg-desktop-portal Settings 的 `org.freedesktop.appearance` `color-scheme` (run
 默认 `$XDG_CONFIG_HOME/agentos/rdp/{cert,key}.pem`); `ACDE_RDP_ADDR` (0.0.0.0:3390), `ACDE_SIZE` (默认 1440x900),
 `ACDE_RDP_SECURITY` (tls, 或 nla: CredSSP + NTLM). 加 `--seconds N` 也是无头起整个会话、读启动标记的办法. 还没有: 应用的光标形状、
 Unicode 键和剪贴板、跟着客户端改尺寸、多个客户端.
+
+常驻的远程桌面 (`packaging/rdp`, 装在 `/usr/lib/acde/acde-rdp` 和 systemd 用户服务 `acde-rdp.service`): 用户写
+`$XDG_CONFIG_HOME/acde/rdp.env` (`ACDE_RDP_USER=…`、`ACDE_RDP_PASSWORD=…`, 0600; 也可以写 `ACDE_RDP_ADDR`、`ACDE_SIZE` 这些),
+`loginctl enable-linger <用户>` (开机就起, 不用先登录), `systemctl --user enable --now acde-rdp`. 它是这个用户的另一个会话
+(不是共享屏幕上的那个): 去掉 `WAYLAND_DISPLAY` / `DISPLAY`, `ACDE_BACKEND=rdp`, 桌面的 localStorage 用
+`$XDG_CONFIG_HOME/acde/storage/rdp.json` (不和屏幕上的会话抢同一个文件), 没有证书时用 openssl 自签一张 (10 年, CN 是主机名)
+放进默认位置. RDP 后端不算自己的会话 (不拿总线名字、不起 fcitx5、不执行电源策略、不往 systemd 导出环境变量), 所以和屏幕上的
+DRM 会话并存不打架; 桌面包的服务 (Dopame 的 harness) 各起一份. 不需要中介服务器: 客户端直接连这台机器的 3390.
 
 **调试运行中的会话** (`ACDE_DEBUG_DIR=<目录>`): 放进去的每个 `<name>.mjs` 由 Broker import, 默认导出被调用, 参数是 `DebugApi`
 (`src/debug.ts`): `broker`, `shell` (`inject`, `stats`, `screenshot(path?)` …: 合成器离屏画一遍主输出存 PNG, 和桌面按 PrintScreen 同一条路, 不读 DRM 帧缓冲), `isolate(name, code)` (在一个 isolate 里求值, 结果结构化克隆回来), `stats(reset?)`,

@@ -18,6 +18,9 @@
 #   /usr/share/acde/packages/      where desktop packages go (each its own directory)
 #   /usr/share/wayland-sessions/acde.desktop   the desktop started last (else the first installed);
 #                                  a desktop package installs acde-<id>.desktop for each of its desktops
+#   /usr/lib/acde/acde-rdp, /usr/lib/systemd/user/acde-rdp.service
+#                                  a remote desktop: a session of its own served over RDP (port 3390), beside the one on
+#                                  the screen; on when the user writes $XDG_CONFIG_HOME/acde/rdp.env and enables the unit
 #   /usr/lib/tmpfiles.d/acde.conf  /var/lib/acde/greeter: the login screen's state and font cache
 #   /usr/lib/modules-load.d/acde-jsrt.conf, /usr/lib/modprobe.d/acde-jsrt.conf, /usr/lib/udev/rules.d/70-acde-jsrt.rules
 #                                  ackernel's /dev/jsrt (the in-kernel JS engine): loaded at boot, open to the seat's user
@@ -34,7 +37,7 @@ license=('Apache-2.0')
 depends=(
   # compositor: DRM/KMS, GBM and EGL/GLES (mesa), input, seat, udev; Wayland clients only (no X server)
   'mesa' 'libdrm' 'libinput' 'seatd' 'systemd-libs' 'wayland' 'libxkbcommon'
-  # TLS (ntex's, through OpenSSL): the RDP backend (ACDE_BACKEND=rdp) and NLA
+  # TLS (ntex's, through OpenSSL): the RDP backend (ACDE_BACKEND=rdp) and NLA; acde-rdp makes its certificate with it
   'openssl'
   # the page layer is drawn on the GPU through Vulkan (vello), and only there: CPU devices (lavapipe) are refused, so the
   # GPU's own driver is required (vulkan-intel, vulkan-radeon, nvidia-utils; the Dopame ISO lists them)
@@ -129,6 +132,8 @@ package() {
   install -Dm644 -t "${pkgdir}/usr/lib/acde/acde-api" "$js/acde-api/config.schema.json"
   install -dm755 "${pkgdir}/usr/share/acde/packages"
   install -Dm755 "${srcdir}/acde/packaging/office/office-ds.sh" "${pkgdir}/usr/lib/acde/office-ds.sh"
+  install -Dm755 "${srcdir}/acde/packaging/rdp/acde-rdp" "${pkgdir}/usr/lib/acde/acde-rdp"
+  install -Dm644 "${srcdir}/acde/packaging/rdp/acde-rdp.service" "${pkgdir}/usr/lib/systemd/user/acde-rdp.service"
   install -Dm755 /dev/stdin "${pkgdir}/usr/bin/acde" <<'EOF'
 #!/bin/sh
 # Commands (`acde desktops`, `sessions`, `applications`, `open`, `run FILE`, `window APP`, `app ...`, `--help`) are not the session: run as they are, no
