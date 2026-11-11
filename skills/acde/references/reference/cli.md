@@ -53,6 +53,14 @@ acde install [dir] [--out DIR]
 
 Builds, then installs into `$XDG_DATA_HOME/acde/packages/<id>`; without `XDG_DATA_HOME`, `~/.local/share/acde/packages/<id>` (on Windows `%USERPROFILE%\.local\share\acde\packages\<id>`). See [Local install](../guide/install.md).
 
+### acde sdk
+
+```text
+acde sdk [update] [dir]
+```
+
+Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with. `acde sdk update` points the dependency at that version's tarball on `https://pkgs.dopame.ai/acdert/<version>/` and reinstalls with the project's package manager (from its lock file or `packageManager`). `acde check` and `acde dev` warn when the two differ, for example after upgrading acde.
+
 ### acde dev
 
 ```text

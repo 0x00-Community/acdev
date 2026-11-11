@@ -109,7 +109,10 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   测试用 (测试的 `sdkMirror()` 把检出的 SDK 打成同样的 tarball 再起本地服务), 文档不提. 换机器、CI 都装得上, lockfile 记下 tarball 与校验和.
   开发 acde 的人 `bun link` / `npm link` 把 `bin/acde.mjs` 放上 PATH.
   `acde check` 见到工程的 `@dopame/acde-api` 是指向本机绝对路径的 `file:` (`AppPackage.localSdk`, 含盘符、`~`) 时打警告 (旧版 acde 建的工程),
-  说明别处装不上并给出 tarball 地址的写法.
+  说明别处装不上, 让人跑 `acde sdk update`. 版本配对 (`src/sdk.ts`): `Sdk.state` 从 tarball 地址取版本 (别的写法读 `node_modules` 里装的),
+  与 `Sdk.paired()` 不同时 `acde check` 打警告、`acde dev` 开始时打一行 (`AppPackage.sdkWarning`). `acde sdk [dir]` 显示两边版本;
+  `acde sdk update [dir]` 把依赖 (原来在哪一节就改哪一节, 没有就加进 devDependencies) 改成配对版本的 tarball 地址, 按 `PackageManager.of`
+  (锁文件或 `packageManager`) 重装.
 - 模板 (`STARTERS`): `html` (`templates/app`, `--backend` 再叠 `templates/backend`)、`desktop` (`templates/desktop`)、`react` / `vue` / `svelte` /
   `solid` / `preact` / `vanilla` (create-vite)、`next` / `nuxt` / `sveltekit` / `astro` (官方脚手架). 框架模板照 `npm create cloudflare`: 经工程的包管理器
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到

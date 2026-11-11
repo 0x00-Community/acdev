@@ -2,12 +2,13 @@ import * as p from '@clack/prompts'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
-import { installDir, installed, runtimes, which } from 'acde/launcher'
+import { installed, runtimes, which } from 'acde/launcher'
 import { Project } from './app.ts'
 import { AppPackage } from './package.ts'
 import { up } from './paths.ts'
 import { PackageManager, type PmName } from './pm.ts'
 import { Runtime } from './runtime.ts'
+import { Sdk } from './sdk.ts'
 
 export type Kind = 'app' | 'desktop'
 
@@ -120,7 +121,6 @@ export class Creator {
   static readonly TEMPLATES = join(Creator.ROOT, 'templates')
   static readonly INSTALLED = installed(Creator.ROOT)
   static readonly VITE = '^8'
-  static readonly SDK_DIST = 'https://pkgs.dopame.ai/acdert'
 
   static starter(name: string): Starter {
     const found = STARTERS.find((s) => s.name === name)
@@ -317,31 +317,6 @@ export class Creator {
     }
   }
 
-  static sdkVersion(): string {
-    const { version } = JSON.parse(readFileSync(join(Creator.#apiDir(), 'package.json'), 'utf8')) as { version: string }
-    return version
-  }
-
-  static api(version = Creator.sdkVersion()): string {
-    const base = (process.env['ACDERT_DIST'] || Creator.SDK_DIST).replace(/\/+$/, '')
-    return `${base}/${version}/acde-api-${version}.tar.gz`
-  }
-
-  static #apiDir(): string {
-    const lib = dirname(Creator.ROOT)
-    if (Creator.INSTALLED) {
-      const current = join(installDir(), 'current', 'lib')
-      return existsSync(current) && realpathSync(current) === lib ? join(current, 'acde-api') : join(lib, 'acde-api')
-    }
-    const self = JSON.parse(readFileSync(join(Creator.ROOT, 'package.json'), 'utf8')) as {
-      dependencies: Record<string, string>
-    }
-    const spec = self.dependencies['@dopame/acde-api'] ?? ''
-    if (!spec.startsWith('file:'))
-      throw new Error(`acde's package.json: @dopame/acde-api is not a file: dependency (${spec})`)
-    return realpathSync(resolve(Creator.ROOT, spec.slice('file:'.length)))
-  }
-
   static async #choose(answer: <T>(value: Promise<T>) => Promise<Exclude<T, symbol>>): Promise<PackageManager> {
     if (process.env['npm_config_user_agent']) return PackageManager.invoking()
     const found = runtimes()
@@ -383,7 +358,7 @@ export class Creator {
       ...json.scripts,
       ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `acde ${command}`])),
     }
-    json.devDependencies = { ...json.devDependencies, '@dopame/acde-api': Creator.api(), ...extra }
+    json.devDependencies = { ...json.devDependencies, [Sdk.NAME]: Sdk.url(), ...extra }
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   }
 

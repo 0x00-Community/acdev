@@ -15,6 +15,7 @@ import { API_LEVEL, platformSupport, RUNNING_MODES } from '@dopame/acde-api/mani
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
+import { Sdk } from '../src/sdk.ts'
 import { ACTIONS } from '../src/driver/acde.ts'
 import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
@@ -220,7 +221,7 @@ describe('acde.config.jsonc', () => {
     const dir = join(tmp(), 'hello')
     expect((await cli(['new', dir, '--label', 'Hi', '--no-install'], tmp())).code).toBe(0)
     expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@dopame/acde-api']).toBe(
-      Creator.api(),
+      Sdk.url(),
     )
     expect((await cli(['check'], dir)).stdout).toContain('app (acde.config.jsonc)')
     expect((await cli(['install'], dir, { XDG_DATA_HOME: data })).code).toBe(0)
@@ -372,7 +373,7 @@ describe('acde.config.jsonc', () => {
     expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe(page)
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Creator.api() })
+    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Sdk.url() })
     expect(pkg.scripts).toEqual({ 'acde:dev': 'acde dev', 'acde:build': 'acde build', 'acde:check': 'acde check' })
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
     expect(readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')).toContain('"label": "Vite App"')
@@ -438,11 +439,11 @@ describe('a project made by acde from its checkout', () => {
   test('the SDK is the tarball of the version this acde pairs with, from pkgs.dopame.ai', () => {
     expect(Creator.INSTALLED).toBe(false)
     const { version } = JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }
-    expect(Creator.sdkVersion()).toBe(version)
+    expect(Sdk.paired()).toBe(version)
     const saved = process.env['ACDERT_DIST']
     delete process.env['ACDERT_DIST']
     try {
-      expect(Creator.api()).toBe(`https://pkgs.dopame.ai/acdert/${version}/acde-api-${version}.tar.gz`)
+      expect(Sdk.url()).toBe(`https://pkgs.dopame.ai/acdert/${version}/acde-api-${version}.tar.gz`)
     } finally {
       if (saved !== undefined) process.env['ACDERT_DIST'] = saved
     }

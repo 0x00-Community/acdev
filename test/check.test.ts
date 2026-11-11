@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { cleanup, collect, env, tmp } from './helpers.ts'
+import { Sdk } from '../src/sdk.ts'
+import { cleanup, collect, env, sdkMirror, tmp } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -39,7 +40,7 @@ describe('acde check on a project', () => {
     expect(system.code).toBe(0)
   })
 
-  test('check warns about an SDK dependency on an absolute local path', async () => {
+  test('check and acde sdk: an SDK on a local path, or not the version this acde pairs with', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
     writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'portable' }))
@@ -53,12 +54,42 @@ describe('acde check on a project', () => {
       const checked = await cli(['check'], dir)
       expect(checked.code).toBe(0)
       expect(checked.stderr).toContain(`warning: package.json: @dopame/acde-api is ${spec}, a path on this machine`)
+      expect(checked.stderr).toContain('run acde sdk update')
     }
-    const portable = ['file:../acdert/web/packages/acde-api',
-      'https://pkgs.dopame.ai/acdert/0.0.7/acde-api-0.0.7.tar.gz']
-    for (const spec of portable) {
-      write(spec)
-      expect((await cli(['check'], dir)).stderr).toBe('')
-    }
+    const paired = Sdk.paired()
+    const older = 'https://pkgs.dopame.ai/acdert/0.0.7/acde-api-0.0.7.tar.gz'
+    write(older)
+    const old = await cli(['check'], dir)
+    expect(old.code).toBe(0)
+    expect(old.stderr).toContain(`@dopame/acde-api is 0.0.7 (${older}), `
+      + `but this acde pairs with ${paired}: run acde sdk update`)
+    expect((await cli(['sdk'], dir)).stdout).toContain(`project: 0.0.7 (`)
+    write(`https://pkgs.dopame.ai/acdert/${paired}/acde-api-${paired}.tar.gz`)
+    expect((await cli(['check'], dir)).stderr).toBe('')
+    expect((await cli(['sdk'], dir)).stdout.trim().split('\n').at(-1)).toBe('up to date')
   })
+
+  test('acde sdk update points package.json at the paired tarball and installs it', async () => {
+    const sdk = sdkMirror()
+    try {
+      const dir = tmp()
+      writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title><p>x</p>')
+      writeFileSync(join(dir, 'acde.config.jsonc'), JSON.stringify({ type: 'app', id: 'old' }))
+      const old = 'https://pkgs.dopame.ai/acdert/0.0.7/acde-api-0.0.7.tar.gz'
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({
+        name: 'old', packageManager: `bun@${process.versions.bun}`, devDependencies: { '@dopame/acde-api': old },
+      }, null, 2))
+      const updated = await cli(['sdk', 'update'], dir, { ACDERT_DIST: sdk.dist })
+      expect(updated.code, updated.out).toBe(0)
+      const url = `${sdk.dist}/${sdk.version}/acde-api-${sdk.version}.tar.gz`
+      expect(updated.stdout).toContain(`acde: @dopame/acde-api is ${sdk.version} (${url}), installed with bun`)
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+      expect(pkg.devDependencies['@dopame/acde-api']).toBe(url)
+      expect(readFileSync(join(dir, 'bun.lock'), 'utf8')).toContain(`acde-api-${sdk.version}.tar.gz`)
+      const installed = JSON.parse(readFileSync(join(dir, 'node_modules/@dopame/acde-api/package.json'), 'utf8'))
+      expect(installed.version).toBe(sdk.version)
+    } finally {
+      sdk.stop()
+    }
+  }, 120_000)
 })

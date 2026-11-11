@@ -11,6 +11,7 @@ import {
 import { Project, type BuildOptions } from './app.ts'
 import { Imports, type ImportOwner } from './imports.ts'
 import { Jsonc } from './runtime.ts'
+import { Sdk } from './sdk.ts'
 
 export interface PlatformReport {
   readonly modes: readonly RunningMode[]
@@ -117,8 +118,13 @@ export class AppPackage {
       services: names.map((name) => ({ name, module: `services/${name}.js` })),
     }
     const findings = Manifest.check(manifest, () => true, () => true)
-    const local = AppPackage.localSdk(project.pkg)
-    return { errors: [...errors, ...findings.errors], warnings: [...findings.warnings, ...(local ? [local] : [])] }
+    const sdk = this.sdkWarning()
+    return { errors: [...errors, ...findings.errors], warnings: [...findings.warnings, ...(sdk ? [sdk] : [])] }
+  }
+
+  sdkWarning(): string | null {
+    if (!this.project) return null
+    return AppPackage.localSdk(this.project.pkg) ?? Sdk.warning(Sdk.state(this.dir, this.project.pkg))
   }
 
   static localSdk(pkg: Readonly<Record<string, unknown>>): string | null {
@@ -130,7 +136,7 @@ export class AppPackage {
     const path = spec.slice('file:'.length)
     if (!isAbsolute(path) && !/^[A-Za-z]:[\\/]/.test(path) && !path.startsWith('~')) return null
     return `package.json: @dopame/acde-api is ${spec}, a path on this machine, so the project does not install `
-      + 'anywhere else; depend on https://pkgs.dopame.ai/acdert/<version>/acde-api-<version>.tar.gz instead'
+      + 'anywhere else: run acde sdk update to depend on the SDK tarball this acde pairs with'
   }
 
   #configApps(): ConfigApp[] | null {

@@ -168,6 +168,10 @@ export class DevSession {
   }
 
   async run(): Promise<number> {
+    for (const unit of this.#units) {
+      const sdk = unit.pkg.sdkWarning()
+      if (sdk) console.error(`acde: warning: ${sdk}`)
+    }
     for (const unit of this.#units) unit.built = await unit.pkg.build(unit.out, { dev: true })
     const target = this.#plan()
     await this.#checkLevels()

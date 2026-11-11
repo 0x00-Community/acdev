@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
@@ -11,6 +11,7 @@ import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
+import { Sdk } from './sdk.ts'
 import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
 
@@ -26,6 +27,8 @@ const USAGE = `usage: acde <command>
                                                    P (windows, macos, linux; default: this one): the required
                                                    capabilities a running mode there lacks (optional ones are notes)
   build [dir] [--out DIR]                          the project into DIR (.acde): its package.json is the manifest
+  sdk [update] [dir]                               the project's @dopame/acde-api and the version this acde
+                                                   pairs with; update: point it at that tarball and reinstall
   install [dir] [--out DIR]                        build, then into $XDG_DATA_HOME/acde/packages (a package: a link);
                                                    default ~/.local/share/acde/packages, on Windows
                                                    %USERPROFILE%\\.local\\share\\acde\\packages
@@ -97,6 +100,7 @@ class Cli {
     check: { args: [0, 1], flags: ['platform'] },
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
+    sdk: { args: [0, 2] },
     dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
     webs: { args: [0, 0], flags: ['session'] },
     eval: { args: [2, 2], flags: ['session'] },
@@ -245,6 +249,18 @@ class Cli {
         acdert: await requireAcdert(),
       })
       return await session.run()
+    }
+    if (command === 'sdk') {
+      const update = args[0] === 'update'
+      const dir = resolve((update ? args[1] : args[0]) ?? '.')
+      if (update) console.log(await Sdk.update(dir))
+      else {
+        const file = join(dir, 'package.json')
+        if (!existsSync(file)) throw new Error(`sdk: no package.json in ${dir}`)
+        for (const line of Sdk.show(dir, JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>))
+          console.log(line)
+      }
+      return 0
     }
     const pkg = new AppPackage(args[0] ?? '.')
     if (command === 'check') return Cli.report(pkg, flags.get('platform') ?? AppPackage.here()) ? 0 : 1
