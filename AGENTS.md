@@ -815,7 +815,7 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 | `EACCES` | 403 | 清单没给这个 root、系统不让 |
 | `ENOENT` | 404 | 不存在 |
 | `EEXIST` | 409 | 已经有了 |
-| `ECONFLICT` | 409 | 打开之后被改了 / 没了 (`expectedModifiedMs` / `ifModifiedMs` 对不上) |
+| `ECONFLICT` | 409 | 打开之后被改了 / 没了 (`expectedModifiedMs` / `ifModifiedMs` / `ifVersion` 对不上) |
 | `ENOTEMPTY` | 409 | 删非空的文件夹 |
 | `EFBIG` | 413 | 超过上限 |
 | `EILSEQ` | 400 | `readText` 读到的不是 UTF-8 |
@@ -830,10 +830,15 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
 调用: `roots` / `list` / `preview` (文字最多 256 KiB) / `download` / `mkdir` / `rename` / `delete` / `locate` / `openPath` / `revoke`, 和文件级的
 (#69 移除了 `write` (用 `writeFile`)、`desktop()` (用 `list`)、`state()`、`place()` 和 `copyIn` (用 `copy` 和句柄)):
 
-- `stat(root, path)` → `FinderEntry & {path}` (lstat).
-- `readText` → `{text, modifiedMs, size}` (最多 64 MiB, BOM 原样留), `readBytes` → `{data: Uint8Array, modifiedMs, size}`.
-- `writeFile(root, path, data, {create: 'always' | 'new' | 'never', ifModifiedMs, mkdirs})` → `FinderEntry`: 写在原文件上 (打开不截断 → fstat
-  比较 → 截断写入 → fsync, inode 和权限不变), 新文件 0644. 选项对象经 JSON 交给 runtime, 类型不对 `EINVAL`.
+- `stat(root, path)` → `FinderEntry & {path}` (lstat; 普通文件多带 `version`).
+- `readText` → `{text, modifiedMs, size, version}` (最多 64 MiB, BOM 原样留), `readBytes` → `{data: Uint8Array, modifiedMs, size, version}`.
+  `version` 是不透明字符串 (`fs/save.rs`: 大小、完整修改时间、文件编号 (unix dev + inode, Windows 卷序号 + 文件索引)), 只用来比相等,
+  不保证跨机器、跨平台可比; 同一毫秒里的两次写、FAT 的 2 秒精度、改系统时间都分得开.
+- `writeFile(root, path, data, {create: 'always' | 'new' | 'never', ifModifiedMs, ifVersion, mkdirs})` → `FinderEntry` (带写后的 `version`):
+  替换已有文件是先在同一文件夹写临时文件 (`.<名字>.<uuid>.acde-save`), fsync, 再原子替换 (unix `rename` 后 fsync 文件夹, 保留权限、尽量保留属主;
+  Windows `ReplaceFileW`, 保留属性和 ACL), 中途出错原文件不动、临时文件删掉; 文件夹不让新建文件 (建临时文件 `EACCES`) 时退回在原文件上截断写入,
+  结果带 `inPlace: true`, 这时没有崩溃安全. 新文件直接写 (0644). `ifModifiedMs` (毫秒) 和 `ifVersion` 任一对不上都是 409 `ECONFLICT`, 不能和
+  `create: 'new'` 一起用 (`EINVAL`). 目录句柄的 `createWritable().close()` 同样原子替换. 选项对象经 JSON 交给 runtime, 类型不对 `EINVAL`.
 - `mkdir(root, path, {recursive})`: recursive 从 root 起逐级建, 已是文件夹算成功.
 - `copy(fromRoot, fromPath, toRoot, toDir)` → `FinderEntry & {path}` (#67, runtime `fs/copy.rs`): 在本应用可用的两个 root 之间复制, 两边各是 root 加相对路径,
   不传绝对路径. 原生复制文件和文件夹 (流式, 不限大小), 名字被占用时照 `numbered` 编号 (`a 2.txt`、`project 2`), `path` 是在目标 root 里的相对路径.

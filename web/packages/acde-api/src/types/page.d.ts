@@ -28,6 +28,8 @@ export interface FinderEntry {
   size: number
   modifiedMs: number
   target?: string
+  version?: string
+  inPlace?: true
 }
 
 export interface FinderPreview {
@@ -71,16 +73,19 @@ export interface FileText {
   readonly text: string
   readonly modifiedMs: number
   readonly size: number
+  readonly version: string
 }
 
 export interface FileData {
   readonly data: Uint8Array
   readonly modifiedMs: number
   readonly size: number
+  readonly version: string
 }
 
 export interface WriteFileOptions {
   ifModifiedMs?: number
+  ifVersion?: string
   create?: 'new' | 'always' | 'never'
   mkdirs?: boolean
 }

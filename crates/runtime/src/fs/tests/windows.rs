@@ -293,3 +293,50 @@ fn a_rename_never_replaces_a_name_that_appears_meanwhile() {
     assert_eq!(answer(WorkspaceFs::rename_in(&s.root, "a.txt", "b.txt")), (409, "EEXIST"));
     assert_eq!(fs::read_to_string(root.join("b.txt")).unwrap(), "late");
 }
+
+#[test]
+fn a_save_replaces_the_file_keeps_its_attributes_and_survives_an_interruption() {
+    use std::os::windows::fs::MetadataExt;
+    let s = Scratch::new();
+    let root = PathBuf::from(&s.root.path);
+    fs::write(root.join("doc.txt"), "original").unwrap();
+    assert!(Command::new("attrib").arg("+H").arg(root.join("doc.txt")).status().unwrap().success());
+    crate::fs::save::hook::interrupt_next_save();
+    assert!(WorkspaceFs::write_file_in(&s.root, "doc.txt", b"half", &WriteOptions::default()).is_err());
+    assert_eq!(fs::read_to_string(root.join("doc.txt")).unwrap(), "original");
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 1, "no temporary file is left");
+    let saved = WorkspaceFs::write_file_in(&s.root, "doc.txt", b"new", &WriteOptions::default()).unwrap();
+    assert_eq!(fs::read_to_string(root.join("doc.txt")).unwrap(), "new");
+    assert!(saved.in_place.is_none());
+    assert_ne!(fs::metadata(root.join("doc.txt")).unwrap().file_attributes() & 0x2, 0, "still hidden");
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+}
+
+#[test]
+fn a_stale_version_conflicts_even_within_one_millisecond() {
+    let s = Scratch::new();
+    let root = PathBuf::from(&s.root.path);
+    fs::write(root.join("doc.txt"), "one").unwrap();
+    let version = WorkspaceFs::read_bytes_in(&s.root, "doc.txt").unwrap().version;
+    assert_eq!(WorkspaceFs::stat_in(&s.root, "doc.txt").unwrap().entry.version.as_ref(), Some(&version));
+    let with = |v: &str| WriteOptions { if_version: Some(v.to_owned()), ..WriteOptions::default() };
+    let saved = WorkspaceFs::write_file_in(&s.root, "doc.txt", b"two", &with(&version)).unwrap();
+    assert_ne!(saved.version.as_ref(), Some(&version));
+    assert_eq!(answer(WorkspaceFs::write_file_in(&s.root, "doc.txt", b"three", &with(&version))), (409, "ECONFLICT"));
+    assert_eq!(answer(WorkspaceFs::write_file_in(&s.root, "doc.txt", b"four", &with(saved.version.as_ref().unwrap()))), (0, "ok"));
+    assert_eq!(fs::read_to_string(root.join("doc.txt")).unwrap(), "four");
+}
+
+#[test]
+fn a_folder_that_takes_no_new_files_is_saved_in_place() {
+    let s = Scratch::new();
+    let root = PathBuf::from(&s.root.path);
+    fs::create_dir(root.join("locked")).unwrap();
+    fs::write(root.join("locked/doc.txt"), "old").unwrap();
+    let mut denied = Denied(Vec::new());
+    denied.add(root.join("locked"), "(WD)");
+    let saved = WorkspaceFs::write_file_in(&s.root, "locked/doc.txt", b"new", &WriteOptions::default());
+    drop(denied);
+    assert_eq!(saved.unwrap().in_place, Some(true));
+    assert_eq!(fs::read_to_string(root.join("locked/doc.txt")).unwrap(), "new");
+}

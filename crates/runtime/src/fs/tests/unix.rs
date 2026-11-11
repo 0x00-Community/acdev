@@ -116,12 +116,18 @@ fn write_file_creates_overwrites_and_detects_conflicts() {
 }
 
 #[test]
-fn write_file_keeps_the_inode_and_refuses_links_and_folders() {
+fn write_file_replaces_the_file_keeps_its_mode_and_refuses_links_and_folders() {
+    use std::os::unix::fs::PermissionsExt;
     let s = Scratch::new();
     fs::write(s.at("keep.txt"), "old").unwrap();
+    fs::set_permissions(s.at("keep.txt"), fs::Permissions::from_mode(0o640)).unwrap();
     let inode = fs::metadata(s.at("keep.txt")).unwrap().ino();
-    WorkspaceFs::write_file_in(&s.root, "keep.txt", b"new", &WriteOptions::default()).unwrap();
-    assert_eq!(fs::metadata(s.at("keep.txt")).unwrap().ino(), inode);
+    let saved = WorkspaceFs::write_file_in(&s.root, "keep.txt", b"new", &WriteOptions::default()).unwrap();
+    assert_eq!(fs::read_to_string(s.at("keep.txt")).unwrap(), "new");
+    assert_ne!(fs::metadata(s.at("keep.txt")).unwrap().ino(), inode, "replaced, not truncated");
+    assert_eq!(fs::metadata(s.at("keep.txt")).unwrap().permissions().mode() & 0o777, 0o640);
+    assert!(saved.in_place.is_none() && saved.version.is_some());
+    assert_eq!(fs::read_dir(&s.root.path).unwrap().count(), 1, "no temporary file is left");
     fs::write(s.dir.join("secret"), "outside").unwrap();
     symlink(s.dir.join("secret"), s.at("link")).unwrap();
     assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "link", b"x", &WriteOptions::default())), (400, "EINVAL"));
@@ -298,4 +304,42 @@ fn desktop_override_child() {
     if std::env::var_os("ACDE_TEST_DESKTOP").is_some() {
         println!("desktop={}", WorkspaceFs::new().desktop().unwrap());
     }
+}
+
+#[test]
+fn an_interrupted_save_leaves_the_original_and_no_temporary_file() {
+    let s = Scratch::new();
+    fs::write(s.at("doc.txt"), "original").unwrap();
+    crate::fs::save::hook::interrupt_next_save();
+    assert!(WorkspaceFs::write_file_in(&s.root, "doc.txt", b"half", &WriteOptions::default()).is_err());
+    assert_eq!(fs::read_to_string(s.at("doc.txt")).unwrap(), "original");
+    assert_eq!(fs::read_dir(&s.root.path).unwrap().count(), 1);
+}
+
+#[test]
+fn a_stale_version_conflicts_even_within_one_millisecond() {
+    let s = Scratch::new();
+    fs::write(s.at("doc.txt"), "one").unwrap();
+    let version = WorkspaceFs::read_bytes_in(&s.root, "doc.txt").unwrap().version;
+    assert_eq!(WorkspaceFs::stat_in(&s.root, "doc.txt").unwrap().entry.version.as_ref(), Some(&version));
+    let with = |v: &str| write(&format!(r#"{{"ifVersion":"{v}"}}"#));
+    let saved = WorkspaceFs::write_file_in(&s.root, "doc.txt", b"two", &with(&version)).unwrap();
+    assert_ne!(saved.version.as_ref(), Some(&version));
+    assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "doc.txt", b"three", &with(&version))), (409, "ECONFLICT"));
+    assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "doc.txt", b"four", &with(saved.version.as_ref().unwrap()))), (0, "ok"));
+    assert_eq!(fs::read_to_string(s.at("doc.txt")).unwrap(), "four");
+    assert_eq!(code(WorkspaceFs::write_file_in(&s.root, "new.txt", b"x", &write(r#"{"ifVersion":"1","create":"new"}"#))), (400, "EINVAL"));
+}
+
+#[test]
+fn a_folder_that_takes_no_new_files_is_saved_in_place() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = Scratch::new();
+    fs::create_dir(s.at("locked")).unwrap();
+    fs::write(s.at("locked/doc.txt"), "old").unwrap();
+    fs::set_permissions(s.at("locked"), fs::Permissions::from_mode(0o555)).unwrap();
+    let saved = WorkspaceFs::write_file_in(&s.root, "locked/doc.txt", b"new", &WriteOptions::default());
+    fs::set_permissions(s.at("locked"), fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(saved.unwrap().in_place, Some(true));
+    assert_eq!(fs::read_to_string(s.at("locked/doc.txt")).unwrap(), "new");
 }

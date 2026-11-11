@@ -3,6 +3,7 @@ mod beneath;
 mod copy;
 pub(crate) mod path;
 mod picked;
+mod save;
 pub(crate) mod workspace;
 
 pub use access::files::{Files, GrantedFolder};
@@ -99,8 +100,8 @@ pub enum FsCall {
 pub enum FsReply {
     Json(Value),
     File { name: String, data: Vec<u8> },
-    Text { text: String, modified_ms: i64, size: u64 },
-    Bytes { data: Vec<u8>, modified_ms: i64 },
+    Text { text: String, modified_ms: i64, size: u64, version: String },
+    Bytes { data: Vec<u8>, modified_ms: i64, version: String },
     Done,
 }
 
@@ -167,12 +168,13 @@ impl Shared {
             }
             FsCall::Stat { root: at, path } => json(WorkspaceFs::stat_in(&root(&at)?, &path).json()),
             FsCall::ReadText { root: at, path } => {
-                let (text, modified_ms) = WorkspaceFs::read_text_in(&root(&at)?, &path)?;
-                Ok(FsReply::Text { size: text.len() as u64, text, modified_ms })
+                let Contents { data, modified_ms, version } = WorkspaceFs::read_bytes_in(&root(&at)?, &path)?;
+                let text = String::from_utf8(data).map_err(|_| Failure::invalid("file is not valid UTF-8 text").with(crate::failure::Errno::Ilseq))?;
+                Ok(FsReply::Text { size: text.len() as u64, text, modified_ms, version })
             }
             FsCall::ReadBytes { root: at, path } => {
-                let Contents { data, modified_ms } = WorkspaceFs::read_bytes_in(&root(&at)?, &path)?;
-                Ok(FsReply::Bytes { data, modified_ms })
+                let Contents { data, modified_ms, version } = WorkspaceFs::read_bytes_in(&root(&at)?, &path)?;
+                Ok(FsReply::Bytes { data, modified_ms, version })
             }
             FsCall::WriteFile { root: at, path, data, options } => {
                 let options: WriteOptions = options_of("writeFile", options)?;

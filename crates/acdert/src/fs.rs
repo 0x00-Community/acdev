@@ -58,17 +58,17 @@ fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, re
             let file = crate::js_object!(scope, {"name" => name, "contentType" => FsReply::OCTETS, "data" => data});
             resolver.resolve(scope, file.into());
         }
-        Ok(FsReply::Text { text, modified_ms, size }) => {
-            let read = crate::js_object!(scope, {"text" => text, "modifiedMs" => modified_ms, "size" => size});
+        Ok(FsReply::Text { text, modified_ms, size, version }) => {
+            let read = crate::js_object!(scope, {"text" => text, "modifiedMs" => modified_ms, "size" => size, "version" => version});
             resolver.resolve(scope, read.into());
         }
         Ok(FsReply::Done) => {
             let done = v8::undefined(scope).into();
             resolver.resolve(scope, done);
         }
-        Ok(FsReply::Bytes { data, modified_ms }) => {
+        Ok(FsReply::Bytes { data, modified_ms, version }) => {
             let size = data.len();
-            let read = crate::js_object!(scope, {"data" => data, "modifiedMs" => modified_ms, "size" => size});
+            let read = crate::js_object!(scope, {"data" => data, "modifiedMs" => modified_ms, "size" => size, "version" => version});
             resolver.resolve(scope, read.into());
         }
         Err(FsError { status, code, message }) => {

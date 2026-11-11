@@ -108,6 +108,10 @@ pub struct FinderEntry {
     pub modified_ms: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_place: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -151,6 +155,7 @@ pub struct Stat {
 pub struct Contents {
     pub data: Vec<u8>,
     pub modified_ms: i64,
+    pub version: String,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -168,6 +173,7 @@ pub struct WriteOptions {
     #[serde(default)]
     pub create: Create,
     pub if_modified_ms: Option<f64>,
+    pub if_version: Option<String>,
     #[serde(default)]
     pub mkdirs: bool,
 }
@@ -203,6 +209,8 @@ impl FinderEntry {
             size: info.len(),
             modified_ms: info.modified_ms(),
             target: (kind == EntryKind::Symlink).then(|| fs::read_link(absolute).map_or_else(|_| "?".into(), |t| t.to_string_lossy().into_owned())),
+            version: None,
+            in_place: None,
         })
     }
 }
@@ -547,17 +555,24 @@ impl WorkspaceFs {
         if info.len() > MAX_RAW_BYTES {
             return Err(too_large());
         }
+        let version = super::save::version(&file)?;
         let mut data = Vec::with_capacity(info.len() as usize);
         file.take(MAX_RAW_BYTES + 1).read_to_end(&mut data)?;
         if data.len() as u64 > MAX_RAW_BYTES {
             return Err(too_large());
         }
-        Ok((absolute, Contents { data, modified_ms: info.modified_ms() }))
+        Ok((absolute, Contents { data, modified_ms: info.modified_ms(), version }))
     }
 
     pub fn stat_in(root: &FinderRoot, relative: &str) -> Outcome<Stat> {
         let Resolved { absolute, relative, .. } = Self::resolve(root, relative, true)?;
-        Ok(Stat { entry: FinderEntry::read(&absolute, absolute.basename())?, path: relative })
+        let mut entry = FinderEntry::read(&absolute, absolute.basename())?;
+        if entry.kind == EntryKind::File && !relative.is_empty() {
+            let (dir, name) = Self::parent(root, &relative)?;
+            let file = Self::no_follow(OpenOptions::new().read(true), dir.child(&name), true)?;
+            entry.version = Some(super::save::version(&file)?);
+        }
+        Ok(Stat { entry, path: relative })
     }
 
     pub fn read_bytes_in(root: &FinderRoot, relative: &str) -> Outcome<Contents> {
@@ -565,7 +580,7 @@ impl WorkspaceFs {
     }
 
     pub fn read_text_in(root: &FinderRoot, relative: &str) -> Outcome<(String, i64)> {
-        let Contents { data, modified_ms } = Self::read_bytes_in(root, relative)?;
+        let Contents { data, modified_ms, .. } = Self::read_bytes_in(root, relative)?;
         let text = String::from_utf8(data).map_err(|_| Failure::invalid("file is not valid UTF-8 text").with(Errno::Ilseq))?;
         Ok((text, modified_ms))
     }
@@ -575,8 +590,9 @@ impl WorkspaceFs {
         if data.len() as u64 > MAX_RAW_BYTES {
             return Err(Failure::http(413, "content exceeds 64 MiB"));
         }
-        if options.create == Create::New && options.if_modified_ms.is_some() {
-            return Err(Failure::invalid("ifModifiedMs cannot go with create: 'new'"));
+        let expects = options.if_modified_ms.is_some() || options.if_version.is_some();
+        if options.create == Create::New && expects {
+            return Err(Failure::invalid("ifModifiedMs and ifVersion cannot go with create: 'new'"));
         }
         if options.mkdirs && options.create != Create::Never {
             let parent = Self::clean(relative)?.dirname().to_owned();
@@ -586,32 +602,41 @@ impl WorkspaceFs {
         }
         let Resolved { absolute, relative, .. } = Self::resolve(root, relative, false)?;
         let (dir, name) = Self::parent(root, &relative)?;
-        let mut open = OpenOptions::new();
-        open.write(true);
-        match (options.create, options.if_modified_ms) {
-            (Create::New, _) => open.create_new(true),
-            (Create::Always, None) => open.create(true),
-            _ => &mut open,
+        let fresh = |dir: &Dir| -> Outcome<FinderEntry> {
+            let mut file = Self::no_follow(OpenOptions::new().write(true).create_new(true), dir.child(&name), true).map_err(|error| match error.kind() {
+                ErrorKind::AlreadyExists => Failure::exists("file already exists"),
+                _ => error.into(),
+            })?;
+            file.write_all(data)?;
+            file.sync_all()?;
+            FinderEntry::read(&absolute, absolute.basename())
         };
-        let mut file = Self::no_follow(&mut open, dir.child(&name), true).map_err(|error| match (error.kind(), options.create, options.if_modified_ms) {
-            (ErrorKind::AlreadyExists, ..) => Failure::exists("file already exists"),
-            (ErrorKind::NotFound, _, Some(_)) => Failure::conflict("file no longer exists or is not a regular file"),
-            _ => error.into(),
-        })?;
+        if options.create == Create::New {
+            return fresh(&dir);
+        }
+        let file = match Self::no_follow(OpenOptions::new().write(true), dir.child(&name), true) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound && expects => {
+                return Err(Failure::conflict("file no longer exists or is not a regular file"));
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound && options.create == Create::Always => return fresh(&dir),
+            Err(error) => return Err(error.into()),
+        };
         let info = file.metadata()?;
         if !info.is_file() {
             return Err(Failure::invalid("not a regular file"));
         }
-        if let Some(expected) = options.if_modified_ms
-            && info.modified_ms() as f64 != expected
-        {
+        let stale = options.if_modified_ms.is_some_and(|expected| info.modified_ms() as f64 != expected)
+            || options.if_version.as_ref().is_some_and(|expected| super::save::version(&file).ok().as_ref() != Some(expected));
+        if stale {
             return Err(Failure::conflict("file changed since it was opened; reload before saving"));
         }
-        file.set_len(0)?;
-        file.write_all(data)?;
-        file.sync_all()?;
-        drop(file);
-        FinderEntry::read(&absolute, absolute.basename())
+        let saved = super::save::save(&dir, &name, data, file, &info)?;
+        let mut entry = FinderEntry::read(&absolute, absolute.basename())?;
+        let file = Self::no_follow(OpenOptions::new().read(true), dir.child(&name), true)?;
+        entry.version = Some(super::save::version(&file)?);
+        entry.in_place = matches!(saved, super::save::Saved::InPlace).then_some(true);
+        Ok(entry)
     }
 
     pub fn mkdir_in(root: &FinderRoot, relative: &str, options: &MkdirOptions) -> Outcome<FinderEntry> {
@@ -811,9 +836,9 @@ fn denied_or(error: io::Error, otherwise: impl FnOnce() -> Failure) -> Failure {
 }
 
 #[cfg(all(test, windows))]
-#[path = "workspace_windows.rs"]
+#[path = "tests/windows.rs"]
 mod windows_tests;
 
 #[cfg(all(test, unix))]
-#[path = "workspace_unix.rs"]
+#[path = "tests/unix.rs"]
 mod tests;
