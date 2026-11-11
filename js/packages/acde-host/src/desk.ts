@@ -12,6 +12,9 @@ export interface IsolateDesk {
   focus(window: number): Promise<void>
   hide(window: number): Promise<void>
   show(window: number): Promise<void>
+  setMode(window: number, mode: 'fullscreen' | 'free' | 'fixed' | 'pinned'): Promise<void>
+  placeWindow(window: number, rect: readonly number[]): Promise<void>
+  geometry(): Promise<DeskGeometry>
   invokeMenu(window: number, menu: string, item: string): Promise<unknown>
   stats(): Promise<unknown>
   screenshot(path?: string): Promise<{ path: string; width: number; height: number }>
@@ -179,4 +182,9 @@ export interface BrokerDesk {
   inspectOpen(name: string): Promise<{ ok: boolean; text: string }>
   warmAccessibility(): void
   quit(): void
+}
+
+export interface DeskGeometry {
+  readonly windows: readonly { readonly window: number; readonly mode: string; readonly rect: readonly [number, number, number, number]; readonly z: number; readonly focus: boolean; readonly hidden: boolean }[]
+  readonly canvases: readonly { readonly id: number; readonly rect: readonly [number, number, number, number]; readonly scale: number }[]
 }

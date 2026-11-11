@@ -394,7 +394,15 @@ impl Dispatch2<acde_window::AcdeWindow, App> for Data {
                 };
                 app.events.push(Event { kind: "grablost".into(), title: Some(reason.into()), ..Default::default() });
             }
-            acde_window::Event::Mode { .. } => {}
+            acde_window::Event::Mode { mode } => {
+                let mode = match mode.into_result() {
+                    Ok(acde_window::Mode::Fullscreen) => "fullscreen",
+                    Ok(acde_window::Mode::Fixed) => "fixed",
+                    Ok(acde_window::Mode::Pinned) => "pinned",
+                    _ => "free",
+                };
+                app.events.push(Event { kind: "mode".into(), key: Some(mode.into()), ..Default::default() });
+            }
         }
     }
 }

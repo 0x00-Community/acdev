@@ -144,6 +144,9 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, desk: A
         "focus" => focus,
         "hide" => hide,
         "show" => show,
+        "setMode" => set_mode,
+        "placeWindow" => place_window,
+        "geometry" => geometry,
         "invokeMenu" => invoke_menu,
         "stats" => stats,
         "screenshot" => screenshot,
@@ -299,6 +302,37 @@ fn show(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v
     desktop_call(scope, &mut rv, &format!("window {window}"), |desk| {
         desk.hide(window, false);
         Ok(Value::Null)
+    });
+}
+
+fn set_mode(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let window = window_arg(scope, &args, 0);
+    let mode = Mode::from_str(&bind::arg_string(scope, &args, 1));
+    desktop_call(scope, &mut rv, &format!("window {window}"), |desk| {
+        let mode = mode.map_err(|e| Failure::new(400, "bad_mode", e))?;
+        desk.link().set_mode(window, mode);
+        Ok(Value::Null)
+    });
+}
+
+fn place_window(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let window = window_arg(scope, &args, 0);
+    let rect = rect_arg(scope, &args, 1);
+    desktop_call(scope, &mut rv, &format!("window {window}"), |desk| {
+        desk.link().place(window, rect);
+        Ok(Value::Null)
+    });
+}
+
+fn geometry(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    desktop_call(scope, &mut rv, "window geometry", |desk| {
+        let (windows, canvases) = desk.link().list();
+        let windows: Vec<Value> = windows
+            .iter()
+            .map(|w| json!({ "window": w.window.unwrap_or(w.id), "mode": w.mode.as_str(), "rect": [w.x, w.y, w.width, w.height], "z": w.z, "focus": w.focus, "hidden": w.hidden }))
+            .collect();
+        let canvases: Vec<Value> = canvases.iter().map(|c| json!({ "id": c.id, "rect": [c.x, c.y, c.width, c.height], "scale": c.scale })).collect();
+        Ok(json!({ "windows": windows, "canvases": canvases }))
     });
 }
 

@@ -799,8 +799,17 @@ acde-base 不认识它们.
   `move` / `resize` (客户端自己画的标题栏), 或 `set_grab_hint`: 指针在 hint 里按下由框架开始移动 (edges 空) 或改尺寸, 这次按下
   不发给客户端. 页面里是 `acde.window.requestMode` / `setGrabHint` / `requestActivate`. 隐藏 (最小化) 是框架状态 (合成器的 `hide(window, hidden)`):
   隐藏的窗口不画、不命中、不拿焦点 (藏起有焦点的窗口时焦点给剩下最上面的), 留在窗口表和 z 列表里, 显示时拿焦点; `windows()` 带 `hidden`.
-  只有桌面能隐藏 / 显示 / 提到最前 (`acde.windows.hide` / `show` / `focus`); 应用的 `acde.window.minimize` 只是给桌面发
-  `windowminimize`, 由桌面决定. 从应用外面打开到某个窗口 (`windowshow`) 时 Broker 先显示它、给它焦点. 隐藏后丢弃还没有.
+  只有桌面能隐藏 / 显示 / 提到最前 (`acde.windows.hide` / `show` / `focus`). 从应用外面打开到某个窗口 (`windowshow`) 时 Broker 先显示它、
+  给它焦点. 隐藏后丢弃还没有.
+- **窗口状态** (照 acdert 的接口, acde-dopame 用它): `normal` / `minimized` / `filled` / `fullscreen`. 桌面 isolate 的 `WindowList`
+  (acde-host `modules.ts`) 记每个窗口的状态, 变了在 `acde:windows` 上发 `on('state', {window, state, previous})`; `list()` 每项带 `state`.
+  `acde.windows.requestState(id, state)`: minimized 是合成器的 `hide` (记下之前的状态), 离开 minimized 先 `show` 回到之前的状态;
+  fullscreen 是合成器的模式 (`natives.desk.setMode`); filled 记下当前的 rect, 摆满工作区 (`placeWindow`), 回 normal 时摆回去.
+  工作区 = 第一个 canvas 减去钉住的面板占的边: `acde.desktop.pin(element, {reserve: {edge, thickness}})` 和面板的 `reserve(r)`
+  (thickness 是输出像素, 除以 canvas 的 scale), 变了时 filled 的窗口跟着重摆. 窗口位置和 canvas 从 `natives.desk.geometry()` 读
+  (合成器的 `list`). 应用的 `acde.window.minimize` / `requestState('minimized')` 给桌面发 `windowminimize`, 运行时直接藏起来
+  (桌面只看 `state`); `focus` / `show` 一个最小化的窗口先恢复它. 应用这边 `acde:window` 的 `state` 和 `on('state')` 跟着合成器发来的
+  `acde_window.mode` (crates/window 转成 `mode` 事件) 和显隐 (`visible`); 应用自己 `requestState('filled')` 还没有 (只打一行 warn).
 - **窗框**: acde 不画窗框, 也没有按钮的设计. 桌面清单可以给一个窗框模块 (`desktops[].frame`, 同源路径如 `/ui/frame.js`, 在包的
   `assets` 下); 清单没写 `frame: false` 的应用窗口在页面装好后 import 它, 用 `WindowFrameContext` 调它的默认导出 (`window` 是这个窗口的
   `acde:window`, `document`、`app {id, label, icon}`、`title` 和 `onTitle`: 标题是 `document.title` (HTML 入口) 或 `acde.window.setTitle`,

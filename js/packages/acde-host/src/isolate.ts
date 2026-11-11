@@ -125,6 +125,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
         dom.setDark?.(m.dark === true)
         return page.mediaChanged()
       case 'visible':
+        self?.visible(m.visible === true)
         return self?.onVisible(m.visible)
     }
   })
@@ -135,11 +136,25 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   new PageCalls(page, desk, init.name, init.app?.label ?? '桌面', natives.own.files)
   pageHost.onActivation = (active) => self?.emit(active ? 'activate' : 'deactivate')
   pageHost.onGrab = (event) => self?.emit(event.kind === 'lost' ? 'grablost' : 'grab', event)
+  pageHost.onMode = (mode) => self?.mode(mode)
   if (init.place === 'desktop') {
     pageHost.onFirstFrame = () => desk.shown()
     const pinned = new Pinned(desk, surface, dom, page as never)
     pageHost.onPanelMove = (id, extent) => pinned.extend(id, extent)
-    modules.value['desktop'] = { ...(modules.value['desktop'] as object), pin: (element: Element, options?: { margin?: number }) => pinned.pin(element, options) }
+    type Reserve = { edge: 'top' | 'bottom' | 'left' | 'right'; thickness: number }
+    const pin = (element: Element, options?: { margin?: number; reserve?: Reserve }) => {
+      const panel = pinned.pin(element, options)
+      windows.reserve(element, options?.reserve ?? null)
+      return {
+        ...panel,
+        unpin: () => {
+          windows.reserve(element, null)
+          panel.unpin()
+        },
+        reserve: (reserve: Reserve | null) => windows.reserve(element, reserve ?? null),
+      }
+    }
+    modules.value['desktop'] = { ...(modules.value['desktop'] as object), pin }
   }
   if (natives.fs) modules.value['fs'] = natives.fs
   if (natives.terminal) modules.value['terminal'] = natives.terminal

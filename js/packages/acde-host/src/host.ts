@@ -27,6 +27,7 @@ export class Host {
   onActivation: (active: boolean) => void = () => {}
   onPanelMove: (id: number, extent: readonly [number, number, number, number]) => void = () => {}
   onGrab: (event: { kind: string; granted?: boolean; reason?: string }) => void = () => {}
+  onMode: (mode: string) => void = () => {}
   onFirstFrame: () => void = () => {}
   #framed = false
 
@@ -126,7 +127,7 @@ export class Host {
   }
 
   #windowEvent(event: WindowEvent): void {
-    if (event.type === 'windowopen' || event.type === 'windowclose' || event.type === 'windowtitle') this.#windows.track(event)
+    this.#windows.track(event)
     this.#windows.notices.emit(`windows:${event.type.slice('window'.length)}`, event)
   }
 
@@ -218,6 +219,10 @@ export class Host {
         if (this.#activation(raw)) continue
         if (raw.type === 'grab') {
           this.onGrab({ kind: raw.key ?? 'pointer', granted: raw.code === 1 })
+          continue
+        }
+        if (raw.type === 'mode') {
+          this.onMode(raw.key ?? 'free')
           continue
         }
         if (raw.type === 'grablost') {
