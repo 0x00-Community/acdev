@@ -19,7 +19,7 @@ thread_local! {
 }
 
 struct Client {
-    isolate: *mut v8::Isolate,
+    isolate: v8::UnsafeRawIsolatePtr,
     context: v8::Global<v8::Context>,
 }
 
@@ -28,7 +28,8 @@ impl V8InspectorClientImpl for Client {
         if context_group_id != GROUP {
             return None;
         }
-        let isolate = unsafe { &mut *self.isolate };
+        let mut raw = self.isolate;
+        let isolate = unsafe { v8::Isolate::ref_from_raw_isolate_ptr_mut(&mut raw) };
         v8::callback_scope!(unsafe scope, isolate);
         let context = v8::Local::new(scope, &self.context);
         Some(unsafe { std::mem::transmute::<v8::Local<'_, v8::Context>, v8::Local<'_, v8::Context>>(context) })
@@ -181,13 +182,7 @@ pub fn start(scope: &mut v8::PinScope, name: &str) {
 
 fn attach(scope: &mut v8::PinScope, name: &str) {
     let context = scope.get_current_context();
-    let client = Client {
-        isolate: {
-            let isolate: &mut v8::Isolate = scope;
-            isolate as *mut v8::Isolate
-        },
-        context: v8::Global::new(scope, context),
-    };
+    let client = Client { isolate: unsafe { scope.as_raw_isolate_ptr() }, context: v8::Global::new(scope, context) };
     let inspector = V8Inspector::create(scope, V8InspectorClient::new(Box::new(client)));
     let aux = serde_json::json!({ "isDefault": true, "type": "default", "frameId": name }).to_string();
     inspector.context_created(context, GROUP, StringView::from(name.as_bytes()), StringView::from(aux.as_bytes()));
