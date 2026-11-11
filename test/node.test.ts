@@ -223,6 +223,11 @@ describe('acde build with Vite (as on Node.js; here ACDE_BUNDLER=vite on bun, wi
     }
     expect(html).not.toContain('/src/')
     expect(text(join(result.out, 'web'), '.css')).toContain('url(/fonts/fixture.woff2)')
+    for (const [, url] of html.matchAll(/url\(\s*["']?([^"')\s]+)/g)) {
+      if (url!.startsWith('data:')) continue
+      expect(url!).toStartWith('/app/hello-app/')
+      expect(existsSync(join(result.out, 'web', url!.slice('/app/hello-app/'.length)))).toBe(true)
+    }
     const js = text(join(result.out, 'web'), '.js')
     expect(js).not.toContain('import.meta.env')
     expect(js).toContain('production')

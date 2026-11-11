@@ -5,10 +5,14 @@
     <title>Hello</title>
     <link rel="icon" href="/favicon.svg" />
     <link rel="stylesheet" href="./src/style.css" />
+    <style>
+      @font-face { font-family: Inline; src: url("./src/inline.woff2") format("woff2"); }
+    </style>
   </head>
   <body>
     <h1 id="greeting">…</h1>
     <img src="./src/logo.svg" alt="" />
+    <span hidden style="background: url('./src/mark.svg')"></span>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
