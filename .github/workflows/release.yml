@@ -240,7 +240,33 @@ jobs:
 
   tag:
     needs: [plan, pkgs, upload]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.mode == 'new' && needs.pkgs.result == 'success' && (needs.upload.result == 'success' || (needs.plan.outputs.github != 'true' && needs.upload.result == 'skipped')) }}
+    if: ${{ needs.plan.outputs.github == 'true' && needs.plan.outputs.mode == 'new' && needs.pkgs.result == 'success' && needs.upload.result == 'success' }}
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        timeout-minutes: 10
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - name: annotated tag on the commit that passed the checks
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            tag -a "$TAG" -m "acdert $TAG" "$SHA"
+          git push origin "refs/tags/$TAG"
+
+
+  tag-gitea:
+    needs: [plan, pkgs]
+    if: ${{ needs.plan.outputs.github != 'true' && needs.plan.outputs.mode == 'new' && needs.pkgs.result == 'success' }}
     concurrency:
       group: release-publish
       cancel-in-progress: false
