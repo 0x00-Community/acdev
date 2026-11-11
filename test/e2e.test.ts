@@ -138,8 +138,10 @@ describe('acde test', () => {
     expect((await acdeTest(s, ['nope'])).out).toContain('acde: nope: no such file or directory')
     mkdirSync(join(s.root, 'empty'))
     writeFileSync(join(s.root, 'empty/acde.config.jsonc'), '{"type":"app","id":"empty"}')
-    expect((await acdeTest(s, [join(s.root, 'empty')])).out)
-      .toContain('acde: no e2e tests (**/*.e2e.{ts,tsx,js,mjs,mts})')
+    const empty = await acdeTest(s, [join(s.root, 'empty')])
+    expect(empty.code).toBe(0)
+    expect(empty.out).toContain('acde test: no e2e tests (**/*.e2e.{ts,tsx,js,mjs,mts})')
+    expect(empty.out).toContain('acde test: write one as e2e/app.e2e.ts')
     expect((await acdeTest(s, ['--timeout', 'soon'])).out).toContain('--timeout soon: milliseconds per test')
   }, 120_000)
 

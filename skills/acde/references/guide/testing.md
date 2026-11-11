@@ -303,7 +303,7 @@ acde test: 2 files, 1 passed, 1 failed: e2e/notes.e2e.ts
 - The first line counts the tests of the files that ran: how many ran, passed and failed, and, when there are any, how many did not run (`test.skip`, `test.todo`, and tests that `-t` left out). The numbers come from the report `bun test` writes for each file. A file that left no report (it failed to load, or its run was killed) is named instead of counted: `; not counted: e2e/broken.e2e.ts (bun test left no report: the file did not load, or its run was killed)`.
 - The second line counts the files that ran, **not tests**: a file passes when all its tests did. It names the files that failed, and adds `, <n> skipped (no test matches -t)` and `, <n> not run (--bail)` when that applies. The indented line under it appears when a failing test left files.
 
-The exit code is 0 when nothing failed and 1 otherwise.
+The exit code is 0 when nothing failed and 1 otherwise. A project with no e2e test yet (a new one) is not a failure: `acde test` says so, points here, and exits with code 0.
 
 ## Editor types
 

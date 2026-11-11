@@ -102,7 +102,11 @@ export class TestRunner {
     const cwd = options.cwd ?? process.cwd()
     const suites = TestRunner.suites(options.targets, cwd)
     const where = (options.targets.length ? options.targets : ['.']).join(', ')
-    if (!suites.length) throw new Error(`no e2e tests (${TestRunner.PATTERN}) in ${where}`)
+    if (!suites.length) {
+      console.log(`acde test: no e2e tests (${TestRunner.PATTERN}) in ${where} yet; nothing to run`)
+      console.log(`acde test: write one as e2e/app.e2e.ts (the acde skill's testing guide: A first test)`)
+      return 0
+    }
     const bun = process.execPath
     const scratch = mkdtempSync(join(tmpdir(), 'acde-test-run-'))
     try {

@@ -81,7 +81,7 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 
 不新增 `prod` / `start` / `preview` 命令或脚本：`acde dev` 和 `acde build` 用同一种构建（都压缩、`NODE_ENV` 是 `"production"`），
 dev 只多了改动后自动重建刷新和调试接口；“装好后的样子”就是 `acde install` 之后从桌面打开。部署和发布不算启动。
-也不生成 `test`：`acde test` 只在 bun 上运行，新工程没有 `*.e2e.ts`，这时运行会报错；写了端到端测试的工程自行添加 `acde test` 脚本。
+也不生成 `test`：`acde test` 只在 bun 上运行，新工程没有 `*.e2e.ts`，这时 `acde test` 说还没有测试、指向测试指南的「A first test」，退出码 0；写了端到端测试的工程自行添加 `acde test` 脚本。
 
 `acde check` 读取工程配置和入口。普通工程的 `build` 和 `dev` 默认把运行时包写到工程的 `.acde/`。
 显式的绝对 `--out` 直接指定产物目录。相对 `--out` 从被构建的工程目录解析，例如从父目录运行
