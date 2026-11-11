@@ -1695,7 +1695,7 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 输入法是 fcitx5: 会话入口不设 `GTK_IM_MODULE` / `QT_IM_MODULE` / `XMODIFIERS`, Wayland 程序走 text-input-v3 (shell 实现
 input-method-v2, IBus 不支持它); 网页里的输入框走 runtime 的 `Ime` (D-Bus).
 
-包从 PKGBUILD 所在仓库的 `HEAD` 构建 (`git archive`), 未提交的改动不会进包. x86_64 和 aarch64 都能打; 版本从 `v*` tag 来
+包从 PKGBUILD 所在仓库的 `HEAD` 构建 (`git archive`), acgpu 取并排检出的 `../acgpu` 的 `HEAD` (也是 `git archive`, 那里要是 git 检出), 未提交的改动不会进包. x86_64 和 aarch64 都能打; 版本从 `v*` tag 来
 (`v1.2.3` 即 `1.2.3`, 之后的提交是 `1.2.3.r<数>.g<hash>`). 可选依赖: acde-dopame、greetd、Document Server (docker)、
 `plasma-workspace` (装了登录页里就有 KDE Plasma)、GPU 自己的 Vulkan 驱动 (`vulkan-intel`、`vulkan-radeon`、`nvidia-utils`):
 依赖里的 `vulkan-driver` 要由其中一个满足 (lavapipe 不算, 网页不在 CPU 上画), 镜像要在包列表里列上它们.

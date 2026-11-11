@@ -94,6 +94,10 @@ prepare() {
   rm -rf -- "${srcdir}/acde"
   mkdir -p -- "${srcdir}/acde"
   git -c safe.directory='*' -C "$(_repo)" archive --format=tar HEAD | tar -x -C "${srcdir}/acde"
+  # acgpu is a path dependency (../acgpu beside this repo): its checked-out commit goes in too
+  rm -rf -- "${srcdir}/acgpu"
+  mkdir -p -- "${srcdir}/acgpu"
+  git -c safe.directory='*' -C "$(_repo)/../acgpu" archive --format=tar HEAD | tar -x -C "${srcdir}/acgpu"
 }
 
 build() {
