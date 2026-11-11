@@ -214,7 +214,8 @@ export class BunBundler extends Bundler {
     if (!inProject && !css) return undefined
     const rel = inProject ? relative(rules.dir, clean) : clean.slice(1)
     const file = Bundler.publicFile(rules, rel)
-    if (file) return css && !inProject && rules.rooted ? { path, external: true } : { path: file }
+    const html = /\.html?$/i.test(importer)
+    if (file) return rules.rooted && ((css && !inProject) || html) ? { path, external: true } : { path: file }
     throw PublicError.of(rules, rel, importer)
   }
 

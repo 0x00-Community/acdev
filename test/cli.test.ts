@@ -84,15 +84,22 @@ describe('acde build', () => {
     })
   })
 
-  test('web/index.html refers only to /app/<id>/ files that exist', () => {
+  test('web/index.html refers to /app/<id>/ files, or to public/ files at /, that exist', () => {
     const html = readFileSync(join(out, 'web/index.html'), 'utf8')
     const urls = [...html.matchAll(/\b(?:src|href)="([^"]*)"/g)].map((m) => m[1]!)
     expect(urls.length).toBeGreaterThanOrEqual(4)
     for (const url of urls) {
-      expect(url).toStartWith('/app/hello-app/')
-      expect(existsSync(join(out, 'web', url.slice('/app/hello-app/'.length)))).toBe(true)
+      const own = url.startsWith('/app/hello-app/')
+      const rel = own ? url.slice('/app/hello-app/'.length) : url.slice(1)
+      expect(own || existsSync(join(APP, 'public', rel)), url).toBe(true)
+      expect(existsSync(join(out, 'web', rel)), url).toBe(true)
     }
     expect(html).not.toContain('/src/')
+  })
+
+  test('a public/ file the HTML refers to is copied once, not also bundled under a hashed name', () => {
+    expect(readFileSync(join(out, 'web/index.html'), 'utf8')).toContain('href="/favicon.svg"')
+    expect(readdirSync(join(out, 'web')).filter((f) => /^favicon.*\.svg$/.test(f))).toEqual(['favicon.svg'])
   })
 
   test('chunk URLs in the scripts are under /app/<id>/ too', () => {
