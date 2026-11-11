@@ -3,6 +3,7 @@ import { describe, test } from 'node:test'
 import { DevRoutes, type DevRoute } from '../src/devroutes.ts'
 import { SourceMaps } from '../src/devlog.ts'
 import { DevToolsPage } from '../src/devtools/index.ts'
+import { DomDomain, type DomNode, type DomRecord } from '../src/devtools/dom.ts'
 import { PageDomain } from '../src/devtools/page.ts'
 
 const route = (args: Record<string, unknown>, id = 1): DevRoute => DevRoutes.parse(args, id)
@@ -137,5 +138,144 @@ describe('DevTools domains served by the page', () => {
   test('without the host side nothing is installed', () => {
     assert.equal(DevToolsPage.install({}, () => []), null)
     assert.equal(DevToolsPage.install({ devtoolsHandler: () => undefined, devtoolsSend: () => {} }, () => []), null)
+  })
+})
+
+class FakeNode implements DomNode {
+  static #next = 1
+  readonly id = FakeNode.#next++
+  readonly childNodes: FakeNode[] = []
+  parentNode: FakeNode | null = null
+  attributes: { name: string; value: string }[] | null
+
+  constructor(
+    readonly nodeType: number,
+    readonly nodeName: string,
+    public nodeValue: string | null = null,
+    attributes: Record<string, string> | null = nodeType === 1 ? {} : null,
+  ) {
+    this.attributes = attributes && Object.entries(attributes).map(([name, value]) => ({ name, value }))
+  }
+
+  get localName(): string {
+    return this.nodeName.toLowerCase()
+  }
+
+  get previousSibling(): FakeNode | null {
+    const siblings = this.parentNode?.childNodes ?? []
+    return siblings[siblings.indexOf(this) - 1] ?? null
+  }
+
+  append(...nodes: FakeNode[]): this {
+    for (const node of nodes) {
+      node.parentNode = this
+      this.childNodes.push(node)
+    }
+    return this
+  }
+}
+
+describe('DOM domain served by the page', () => {
+  const tree = () => {
+    const title = new FakeNode(1, 'H1', null, { class: 'big' }).append(new FakeNode(3, '#text', 'Hello'))
+    const body = new FakeNode(1, 'BODY').append(new FakeNode(3, '#text', '\n  '), title)
+    const html = new FakeNode(1, 'HTML', null, { lang: 'en' }).append(new FakeNode(1, 'HEAD'), body)
+    const document = new FakeNode(9, '#document').append(new FakeNode(10, 'html'), html)
+    const nodes = new Map<number, FakeNode>()
+    const index = (node: FakeNode) => {
+      nodes.set(node.id, node)
+      node.childNodes.forEach(index)
+    }
+    index(document)
+    let changed: ((records: readonly DomRecord[]) => void) | null = null
+    let lookup: ((id: number) => DomNode) | null = null
+    const source = {
+      document: () => document,
+      idOf: (node: DomNode) => (node as FakeNode).id,
+      nodeOf: (id: number) => nodes.get(id) ?? null,
+      observe: (fn: (records: readonly DomRecord[]) => void) => ((changed = fn), () => void (changed = null)),
+      expose: (fn: (id: number) => DomNode) => void (lookup = fn),
+    }
+    const sent: Record<string, unknown>[] = []
+    let handler: ((session: number, text: string | null) => void) | null = null
+    const host = {
+      devtoolsHandler: (fn: (session: number, text: string | null) => void) => ((handler = fn), 'alpha#1'),
+      devtoolsSend: (_: number, text: string) => void sent.push(JSON.parse(text) as Record<string, unknown>),
+    }
+    DevToolsPage.install(host, (page) => [DomDomain.create(source, (method, params) => page.emit('DOM', method, params))])
+    const ask = async (message: Record<string, unknown>) => {
+      handler!(1, JSON.stringify(message))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return sent.at(-1)!
+    }
+    const mutate = (records: DomRecord[]) => changed!(records)
+    return { document, html, body, title, sent, ask, mutate, lookup: () => lookup, observing: () => changed !== null }
+  }
+  type Described = { nodeId: number; nodeName: string; attributes?: string[]; childNodeCount: number; children?: Described[]; nodeValue: string }
+
+  test('getDocument gives the tree with node ids, attributes and text; blank text is left out', async () => {
+    const { document, html, body, title, ask, observing, lookup } = tree()
+    const reply = await ask({ id: 1, method: 'DOM.getDocument', params: { depth: -1 } })
+    const root = (reply['result'] as { root: Described }).root
+    assert.equal(root.nodeId, document.id)
+    assert.deepEqual(
+      root.children!.map((c) => c.nodeName),
+      ['html', 'HTML'],
+    )
+    const htmlNode = root.children![1]!
+    assert.deepEqual([htmlNode.nodeId, htmlNode.attributes], [html.id, ['lang', 'en']])
+    const bodyNode = htmlNode.children![1]!
+    assert.deepEqual([bodyNode.nodeId, bodyNode.childNodeCount], [body.id, 1])
+    const h1 = bodyNode.children![0]!
+    assert.deepEqual([h1.nodeId, h1.attributes, h1.children![0]!.nodeValue], [title.id, ['class', 'big'], 'Hello'])
+    assert.ok(observing(), 'getDocument starts watching the page')
+    assert.equal(lookup()!(title.id), title)
+  })
+
+  test('requestChildNodes and describeNode answer from the page', async () => {
+    const { html, body, sent, ask } = tree()
+    await ask({ id: 1, method: 'DOM.getDocument' })
+    await ask({ id: 2, method: 'DOM.requestChildNodes', params: { nodeId: body.id } })
+    const event = sent.find((m) => m['method'] === 'DOM.setChildNodes')!
+    assert.equal((event['params'] as { parentId: number }).parentId, body.id)
+    const described = await ask({ id: 3, method: 'DOM.describeNode', params: { backendNodeId: html.id } })
+    assert.equal((described['result'] as { node: Described }).node.nodeName, 'HTML')
+    const missing = await ask({ id: 4, method: 'DOM.describeNode', params: { nodeId: 9999 } })
+    assert.equal((missing['error'] as { code: number }).code, -32000)
+  })
+
+  test('page changes reach the open tree as DOM events', async () => {
+    const { body, title, sent, ask, mutate } = tree()
+    await ask({ id: 1, method: 'DOM.getDocument', params: { depth: -1 } })
+    sent.length = 0
+    const added = new FakeNode(1, 'P')
+    body.append(added)
+    mutate([{ type: 'childList', target: body, addedNodes: [added], removedNodes: [], attributeName: null }])
+    title.attributes = [{ name: 'class', value: 'small' }]
+    mutate([{ type: 'attributes', target: title, addedNodes: [], removedNodes: [], attributeName: 'class' }])
+    const text = title.childNodes[0]!
+    text.nodeValue = 'Bye'
+    mutate([{ type: 'characterData', target: text, addedNodes: [], removedNodes: [], attributeName: null }])
+    body.childNodes.splice(body.childNodes.indexOf(added), 1)
+    mutate([{ type: 'childList', target: body, addedNodes: [], removedNodes: [added], attributeName: null }])
+    assert.deepEqual(
+      sent.map((m) => m['method']),
+      ['DOM.childNodeInserted', 'DOM.attributeModified', 'DOM.characterDataModified', 'DOM.childNodeRemoved'],
+    )
+    const inserted = sent[0]!['params'] as { parentNodeId: number; previousNodeId: number; node: Described }
+    assert.deepEqual([inserted.parentNodeId, inserted.previousNodeId, inserted.node.nodeId], [body.id, title.id, added.id])
+    assert.deepEqual(sent[1]!['params'], { nodeId: title.id, name: 'class', value: 'small' })
+    assert.deepEqual(sent[2]!['params'], { nodeId: text.id, characterData: 'Bye' })
+    assert.deepEqual(sent[3]!['params'], { parentNodeId: body.id, nodeId: added.id })
+  })
+
+  test('editing is refused as read only, and disable stops watching', async () => {
+    const { title, ask, observing } = tree()
+    await ask({ id: 1, method: 'DOM.enable' })
+    const edit = await ask({ id: 2, method: 'DOM.setAttributeValue', params: { nodeId: title.id, name: 'id', value: 'x' } })
+    assert.match((edit['error'] as { message: string }).message, /read only/)
+    assert.deepEqual(title.attributes, [{ name: 'class', value: 'big' }])
+    await ask({ id: 3, method: 'DOM.disable' })
+    assert.equal(observing(), false)
   })
 })

@@ -1,21 +1,72 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use serde_json::Value;
 
 use super::{STATE, Sink};
 use crate::bind;
 
 pub(super) const DOMAINS: [&str; 5] = ["Page", "DOM", "CSS", "Overlay", "Network"];
 
+pub(super) type Resolving = Arc<Mutex<HashMap<String, Option<Value>>>>;
+
+const NODE_LOOKUP: &str = "acde.devtools.node";
+
 #[derive(Default)]
 pub(super) struct PageSide {
     sinks: RefCell<HashMap<u32, Sink>>,
     handler: RefCell<Option<v8::Global<v8::Function>>>,
+    resolving: RefCell<HashMap<u32, Resolving>>,
 }
 
 impl PageSide {
     pub(super) fn connected(&self, id: u32, sink: Sink) {
         self.sinks.borrow_mut().insert(id, sink);
     }
+
+    pub(super) fn resolving(&self, id: u32) -> Resolving {
+        self.resolving.borrow_mut().entry(id).or_default().clone()
+    }
+}
+
+pub(super) fn resolve_node(session: u32, message: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(message).ok()?;
+    if value["method"] != "DOM.resolveNode" {
+        return None;
+    }
+    let pending = STATE.with(|s| s.borrow().as_ref().map(|s| s.page.resolving(session)))?;
+    let params = &value["params"];
+    let node = params["nodeId"].as_u64().or_else(|| params["backendNodeId"].as_u64()).unwrap_or(0);
+    let mut evaluate = serde_json::json!({
+        "id": value["id"],
+        "method": "Runtime.evaluate",
+        "params": {"expression": format!("globalThis[Symbol.for({NODE_LOOKUP:?})]({node})"), "silent": true},
+    });
+    if let Some(group) = params.get("objectGroup").filter(|g| g.is_string()) {
+        evaluate["params"]["objectGroup"] = group.clone();
+    }
+    pending.lock().unwrap_or_else(|e| e.into_inner()).insert(value["id"].to_string(), value.get("sessionId").cloned());
+    Some(evaluate.to_string())
+}
+
+pub(super) fn resolved(pending: &Resolving, text: String) -> String {
+    let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return text };
+    let key = value["id"].to_string();
+    let Some(session) = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&key) else { return text };
+    let found = value["result"].get("exceptionDetails").is_none() && value["result"]["result"]["type"] == "object";
+    let mut object = value["result"]["result"].take();
+    if found && object.get("subtype").is_none() {
+        object["subtype"] = "node".into();
+    }
+    let mut answer = match found {
+        true => serde_json::json!({"id": value["id"], "result": {"object": object}}),
+        false => serde_json::json!({"id": value["id"], "error": {"code": -32000, "message": "No node with given id found"}}),
+    };
+    if let Some(session) = session {
+        answer["sessionId"] = session;
+    }
+    answer.to_string()
 }
 
 pub(super) fn routed(message: &str) -> bool {
@@ -35,6 +86,7 @@ pub(super) fn disconnected(scope: &mut v8::PinScope, id: u32) {
     let handler = STATE.with(|s| {
         let s = s.borrow();
         let s = s.as_ref()?;
+        s.page.resolving.borrow_mut().remove(&id);
         s.page.sinks.borrow_mut().remove(&id)?;
         s.page.handler.borrow().clone()
     });
@@ -79,5 +131,27 @@ pub fn reply(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v
     let sink = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.page.sinks.borrow().get(&(id as u32)).cloned()));
     if let Some(sink) = sink {
         sink(text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_evaluated_node_answers_resolve_node_and_other_replies_pass() {
+        let pending: Resolving = Arc::default();
+        pending.lock().unwrap().insert("7".into(), Some(Value::from("s")));
+        let node = r#"{"id":7,"result":{"result":{"type":"object","className":"HTMLDivElement","objectId":"1.2"}}}"#;
+        let answer: Value = serde_json::from_str(&resolved(&pending, node.into())).unwrap();
+        assert_eq!(answer["result"]["object"]["objectId"], "1.2");
+        assert_eq!(answer["result"]["object"]["subtype"], "node");
+        assert_eq!(answer["sessionId"], "s");
+        let other = r#"{"id":7,"result":{}}"#;
+        assert_eq!(resolved(&pending, other.into()), other, "answered once");
+        pending.lock().unwrap().insert("8".into(), None);
+        let thrown = r#"{"id":8,"result":{"result":{"type":"object"},"exceptionDetails":{}}}"#;
+        let answer: Value = serde_json::from_str(&resolved(&pending, thrown.into())).unwrap();
+        assert_eq!(answer["error"]["code"], -32000);
     }
 }

@@ -8,6 +8,8 @@ import type { ImeEvent, NativeIme } from './ime'
 import type { NativeSurface } from './native'
 import { DevHot } from './devhot'
 import { DevToolsPage } from './devtools'
+import { DomDomain } from './devtools/dom'
+import { PageDom } from './devtools/pagedom'
 import { PageDomain } from './devtools/page'
 import { DevRoutes, type DevRoute } from './devroutes'
 import { DevState, type DevSnapshot } from './devstate'
@@ -142,7 +144,10 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const inspect = new PageInspect(page, dom, web, surface.contentOffset)
   if (natives.env['ACDE_DEV']) {
     const href = () => String((page.window as { location?: { href?: unknown } }).location?.href ?? '')
-    DevToolsPage.install(host, (devtools) => [PageDomain.create(devtools.frameId, href)])
+    DevToolsPage.install(host, (devtools) => [
+      PageDomain.create(devtools.frameId, href),
+      DomDomain.create(PageDom.source(page), (method, params) => devtools.emit('DOM', method, params)),
+    ])
   }
   rpc.serve(async (service, method, args) => {
     if (service === 'window' && self) return self.serve(method, args)

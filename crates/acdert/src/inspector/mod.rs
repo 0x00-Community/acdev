@@ -73,12 +73,12 @@ impl ChannelImpl for Replies {
 
 pub type Sink = Arc<dyn Fn(String) + Send + Sync>;
 
-struct Forward(Sink);
+struct Forward(Sink, page::Resolving);
 
 impl ChannelImpl for Forward {
     fn send_response(&self, _: i32, mut message: UniquePtr<StringBuffer>) {
         if let Some(text) = message.as_mut().map(|m| m.string().to_string()) {
-            (self.0)(text);
+            (self.0)(page::resolved(&self.1, text));
         }
     }
 
@@ -225,7 +225,7 @@ pub fn dispatch_posted(scope: &mut v8::PinScope) {
                 let s = s.borrow();
                 let Some(s) = s.as_ref() else { return };
                 s.page.connected(id, sink.clone());
-                let channel = Channel::new(Box::new(Forward(sink)));
+                let channel = Channel::new(Box::new(Forward(sink, s.page.resolving(id))));
                 let session = s.inspector.connect(GROUP, channel, StringView::empty(), V8InspectorClientTrustLevel::FullyTrusted);
                 if s.extra.borrow_mut().insert(id, Rc::new(session)).is_none() {
                     rt::current().keep_alive(true);
@@ -237,7 +237,15 @@ pub fn dispatch_posted(scope: &mut v8::PinScope) {
                     session.dispatch_protocol_message(StringView::from(message.as_bytes()));
                 }
             }
-            Posted::Page(id, message) => page::message(scope, id, &message),
+            Posted::Page(id, message) => match page::resolve_node(id, &message) {
+                Some(evaluate) => {
+                    let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow().get(&id).cloned()));
+                    if let Some(session) = session {
+                        session.dispatch_protocol_message(StringView::from(evaluate.as_bytes()));
+                    }
+                }
+                None => page::message(scope, id, &message),
+            },
             Posted::Disconnect(id) => {
                 page::disconnected(scope, id);
                 let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow_mut().remove(&id)));
