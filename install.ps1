@@ -274,16 +274,28 @@ function Install-Acde {
             $flags = [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames
             $old = [string]$key.GetValue('Path', '', $flags)
             $entries = @($old -split ';' | Where-Object { $_ })
-            if ($entries -notcontains $bin) {
-                $key.SetValue('Path', (@($entries) + $bin) -join ';', [Microsoft.Win32.RegistryValueKind]::ExpandString)
-                Write-Host "acde: added $bin to your user PATH"
+            $others = @($entries | Where-Object { $_ -ne $bin })
+            $next = (@($bin) + $others) -join ';'
+            if ($next -ne $old) {
+                $key.SetValue('Path', $next, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+                $how = if ($entries -contains $bin) { 'moved' } else { 'added' }
+                Write-Host "acde: $how $bin to the front of your user PATH"
             }
         } finally {
             $key.Close()
         }
         [Environment]::SetEnvironmentVariable('ACDE_INSTALL', $install, [EnvironmentVariableTarget]::User)
-        if (@($env:Path -split ';') -notcontains $bin) {
-            $env:Path = "$bin;$env:Path"
+        $env:Path = (@($bin) + @($env:Path -split ';' | Where-Object { $_ -and $_ -ne $bin })) -join ';'
+        $system = [string][Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::Machine)
+        foreach ($dir in @($system -split ';' | Where-Object { $_ -and $_ -ne $bin })) {
+            $expanded = [Environment]::ExpandEnvironmentVariables($dir)
+            foreach ($name in 'acde.exe', 'acde.cmd', 'acde.bat') {
+                if (Test-Path -LiteralPath (Join-Path -Path $expanded -ChildPath $name) -PathType Leaf) {
+                    Write-Host ("acde: warning: $expanded on the system PATH has another $name, and the system " +
+                        'PATH comes before yours: new terminals run that one until it is removed')
+                    break
+                }
+            }
         }
     }
 
