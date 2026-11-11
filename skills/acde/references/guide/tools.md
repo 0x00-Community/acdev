@@ -201,6 +201,18 @@ Each line is the element's role, name, value, a heading's level, states and ref,
 
 The refs work with `act`, like the ones from `inspect`: `acde act w1.20 type "me@example.com"`. `query` searches the focused window; `--window w2` picks another, `--ref w1.6` searches only under that element, and `--limit N` lists at most N elements (1 to 3000, default 600; the first line still counts them all). Finding nothing is not an error: the exit code is 0 either way.
 
+### Styles and layout
+
+There are no developer tools to look at styles and boxes; ask the page with `eval` instead. `getComputedStyle` gives the values the page uses after the CSS cascade, and `getBoundingClientRect` gives an element's box in CSS pixels of the page:
+
+```sh
+acde eval notes "getComputedStyle(document.querySelector('h1')).color"
+acde eval notes "(({ display, fontSize, margin }) => ({ display, fontSize, margin }))(getComputedStyle(document.querySelector('.card')))"
+acde eval notes "(({ x, y, width, height }) => ({ x, y, width, height }))(document.querySelector('.card').getBoundingClientRect())"
+```
+
+Copy the properties you want into a plain object, as above, so the JSON result has them. The code has only single quotes inside, so it is written the same way in sh, PowerShell and cmd (see [eval](#eval)). To see whether something is drawn where you expect, take a screenshot with `acde shot`; to find an element that `inspect` leaves out (no size, `display: none`), use `acde query`.
+
 ### console and network
 
 ```sh
@@ -224,6 +236,19 @@ acde console --level errors --since reload
 ```
 
 The most recent 5000 entries of each kind are kept.
+
+## Without a display
+
+On a machine without a display, such as a server over ssh, start the session with `acde dev --headless`. On Linux, `acde dev` without it stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set and says to add `--headless`; see [acde dev](dev.md). Every command on this page works the same in a headless session:
+
+```sh
+acde dev --headless &
+acde inspect          # the windows and the focused window's elements, as text
+acde shot notes       # ./notes#1048576.png
+acde screen           # ./screen.png, every window together
+```
+
+A headless session has no picker dialogs: a folder, file or save picker the page opens fails unless it was answered beforehand, and the page sees it as cancelled. Answer it from a test with `chooseFolder`, `chooseFiles` or `chooseSaveFile` ([Testing](testing.md#network-file-pickers-clipboard)), or from an agent with the MCP tools `choose_folder`, `choose_files` and `choose_save_file` ([MCP](mcp.md)). The session output names the missing answer: `no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand with the MCP tool choose_folder or acde.chooseFolder() in a test`. A headless session also has its own clipboard and no camera or microphone dialog (see below).
 
 ## Camera and microphone
 

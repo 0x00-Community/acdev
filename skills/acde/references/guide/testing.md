@@ -179,10 +179,11 @@ const request = app.waitForRequest('/api/save', { method: 'POST' })
 await app.getByRole('button', { name: 'Save' }).click()
 await request
 
-// Answer file pickers in advance
+// Answer file pickers in advance (null: as if the user cancelled)
 await acde.chooseFiles(['/tmp/a.txt'])
 await acde.chooseFolder('/tmp/project')
 await acde.chooseSaveFile('/tmp/out.md')
+await app.getByRole('button', { name: 'Open folder' }).click()
 
 // Dark mode
 await acde.emulate({ colorScheme: 'dark' })
@@ -190,6 +191,10 @@ await acde.emulate({ colorScheme: 'dark' })
 // Clipboard (headless sessions have their own)
 await acde.setClipboard('hello')
 ```
+
+Tests run headless unless `acde test --headed`, and a headless session shows no picker dialog: a picker the page opens without an answer fails and the page sees it as cancelled. So call `chooseFolder`, `chooseFiles` or `chooseSaveFile` before the action that opens the picker; each answer serves the next picker of its kind.
+
+To check a style or a box, evaluate in the page: `await app.locator('h1').evaluate((element) => getComputedStyle(element).color)`, or `getBoundingClientRect()` as in [Actions](#actions).
 
 ## Time, dialogs and page setup
 

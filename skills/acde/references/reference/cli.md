@@ -107,7 +107,7 @@ Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with.
 acde dev [dir...] [--out DIR] [--app ID] [--desktop ID|DIR] [--headless]
 ```
 
-Builds, starts acdert, and rebuilds and reloads on changes. See [acde dev](../guide/dev.md).
+Builds, starts acdert, and rebuilds and reloads on changes. `--headless` opens no window; use it on a machine without a display. On Linux without `WAYLAND_DISPLAY` or `DISPLAY`, `acde dev` without `--headless` stops with `acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` and exits with code 1. See [acde dev](../guide/dev.md) and [Without a display](../guide/tools.md#without-a-display).
 
 ## Running sessions
 
