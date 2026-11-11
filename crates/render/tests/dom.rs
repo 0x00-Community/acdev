@@ -752,8 +752,8 @@ fn commit_gate() {
     assert_eq!(doc.handle().commit(), seq + 1, "Dom::commit without changes takes no number");
     dom.set_attribute(m, "class", "").unwrap();
     dom.commit();
-    let frame = handle.wait_frame();
-    assert!(frame.commit > seq + 1);
+    let frame = handle.wait_frame_after(seq + 1);
+    assert_eq!(frame.commit, seq + 2);
 }
 
 #[test]
