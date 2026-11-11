@@ -222,19 +222,12 @@ fn decode_bytes(encoding: &'static encoding_rs::Encoding, bytes: &[u8], fatal: b
     Some(out)
 }
 
-fn parse_url(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let input = bind::arg_string(scope, &args, 0);
-    let base = args.get(1);
-    let parsed = match base.is_null_or_undefined() {
-        true => url::Url::parse(&input),
-        false => {
-            let base = base.to_rust_string_lossy(scope);
-            url::Url::parse(&base).and_then(|base| base.join(&input))
-        }
-    };
-    let Ok(url) = parsed else {
-        return rv.set_null();
-    };
+pub fn url_fields(input: &str, base: Option<&str>) -> Option<Vec<(&'static str, String)>> {
+    let url = match base {
+        None => url::Url::parse(input),
+        Some(base) => url::Url::parse(base).and_then(|base| base.join(input)),
+    }
+    .ok()?;
     let port = url.port().map(|p| p.to_string()).unwrap_or_default();
     let host = match url.port() {
         Some(port) => format!("{}:{port}", url.host_str().unwrap_or("")),
@@ -242,7 +235,7 @@ fn parse_url(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     };
     let search = url.query().filter(|q| !q.is_empty()).map(|q| format!("?{q}")).unwrap_or_default();
     let hash = url.fragment().filter(|f| !f.is_empty()).map(|f| format!("#{f}")).unwrap_or_default();
-    let fields = [
+    Some(vec![
         ("href", url.as_str().to_owned()),
         ("origin", url.origin().ascii_serialization()),
         ("protocol", format!("{}:", url.scheme())),
@@ -254,9 +247,43 @@ fn parse_url(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
         ("pathname", url.path().to_owned()),
         ("search", search),
         ("hash", hash),
-    ];
+    ])
+}
+
+fn parse_url(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let input = bind::arg_string(scope, &args, 0);
+    let base = args.get(1);
+    let base = (!base.is_null_or_undefined()).then(|| base.to_rust_string_lossy(scope));
+    let Some(fields) = url_fields(&input, base.as_deref()) else {
+        return rv.set_null();
+    };
     let fields: Vec<(&str, v8::Local<v8::Value>)> = fields.iter().map(|(name, value)| (*name, bind::string(scope, value).into())).collect();
     rv.set(bind::object(scope, &fields).into());
+}
+
+pub fn decode_label(bytes: &[u8], label: &str, fatal: bool, ignore_bom: bool) -> Result<String, String> {
+    let encoding = encoding_rs::Encoding::for_label(if label.is_empty() { b"utf-8" } else { label.as_bytes() }).ok_or_else(|| format!("RangeError: The encoding label provided ('{label}') is invalid."))?;
+    decode_bytes(encoding, bytes, fatal, ignore_bom).ok_or_else(|| "TypeError: The encoded data was not valid.".to_owned())
+}
+
+pub fn log_level(n: f64) -> Option<log::Level> {
+    match n as usize {
+        1 => Some(log::Level::Error),
+        2 => Some(log::Level::Warn),
+        3 => Some(log::Level::Info),
+        4 => Some(log::Level::Debug),
+        5 => Some(log::Level::Trace),
+        _ => None,
+    }
+}
+
+pub fn print_level(n: f64) -> log::Level {
+    match n as i32 {
+        1 => log::Level::Warn,
+        2 => log::Level::Error,
+        3 => log::Level::Debug,
+        _ => log::Level::Info,
+    }
 }
 
 struct Clone;

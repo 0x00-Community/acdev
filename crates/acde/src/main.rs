@@ -40,6 +40,9 @@ mod own;
 mod surface;
 #[cfg(target_os = "linux")]
 mod webgpu;
+mod wire;
+#[cfg(target_os = "linux")]
+mod kernel;
 
 #[cfg(target_os = "linux")]
 #[global_allocator]

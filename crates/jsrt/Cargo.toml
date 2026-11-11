@@ -1,0 +1,14 @@
+[package]
+name = "acde-jsrt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "jsrt"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# open, ioctl, mmap of the isolate and poll/read/write without io_uring
+rustix = { version = "1", features = ["fs", "mm", "event", "param"] }
+# JSRT_CMD_WAIT / JSRT_CMD_KICK (IORING_OP_URING_CMD); ntex already brings it in
+ntex-io-uring = "1"

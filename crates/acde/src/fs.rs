@@ -153,3 +153,26 @@ fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, re
         }
     }
 }
+
+pub fn wire(workspace: &Workspace, name: &str, a: &crate::wire::WireArgs) -> crate::wire::Answer {
+    use crate::wire::{Answer, WVal};
+    let Some(method) = Method::TABLE.iter().copied().find(|m| m.name() == name) else {
+        return Answer::fail(format!("acde.fs: no method {name}"));
+    };
+    let given = |v: &WVal| !matches!(v, WVal::Undefined | WVal::Null);
+    let texts = a.0.iter().map(|v| given(v).then(|| crate::wire::text(v))).collect();
+    let flags = a.0.iter().map(|v| given(v).then(|| v.truthy())).collect();
+    let request = method.call(&Args(texts, flags));
+    let workspace = workspace.clone();
+    Answer::Later(Box::new(move || wire_reply(workspace.call(request))))
+}
+
+fn wire_reply(reply: Result<FsReply, FsError>) -> Result<crate::wire::Ret, crate::wire::Fail> {
+    use crate::wire::{Fail, Ret};
+    match reply {
+        Ok(FsReply::Json(value)) => Ok(Ret::Json(value)),
+        Ok(FsReply::File { name, data }) => Ok(Ret::Obj(vec![("name", Ret::Str(name)), ("contentType", Ret::Str(FsReply::OCTETS.to_owned())), ("data", Ret::Bytes(data))])),
+        Err(FsError::Refused(what)) => Err(Fail { message: format!("this app may not use {what} (not in its manifest's capabilities)"), status: Some(403), code: "forbidden".to_owned() }),
+        Err(FsError::Failed(json)) => Err(Fail { message: json, status: None, code: "GenericFailure".to_owned() }),
+    }
+}

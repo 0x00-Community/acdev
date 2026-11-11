@@ -312,3 +312,13 @@ pub extern "C" fn import_meta(context: v8::Local<v8::Context>, module: v8::Local
         meta.create_data_property(scope, key.into(), value.into());
     }
 }
+
+pub fn resolve_load(specifier: &str, referrer: &str) -> Result<(String, String), String> {
+    if specifier.starts_with(SCHEME) {
+        return Err(format!("acde: '{specifier}' is not given to {referrer} (the capabilities in its manifest)"));
+    }
+    let loader = loader()?;
+    let url = mapped(&*loader, specifier, referrer)?;
+    let source = loader.load(&url)?;
+    Ok((url, source))
+}
