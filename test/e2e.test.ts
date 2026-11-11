@@ -287,6 +287,8 @@ describe('failures name the test file, not acde', () => {
       `      at ${join(root, 'src', 'driver', 'expect.ts')}:10:3`,
       '      at C:\work\calculator\e2e\calculator.e2e.ts:9:42',
       '      at processTicksAndRejections (native:7:39)',
+      '      at emit (node:events:100:22)',
+      '      at addChunk (internal:streams/readable:267:47)',
     ].join('\n')
     E2eRun.ownFrames(error, root)
     expect(error.stack).toBe('AssertionError: expected a thing\n      at C:\work\calculator\e2e\calculator.e2e.ts:9:42')
