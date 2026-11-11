@@ -575,3 +575,14 @@ test('file handles read large files in ranges and write them in chunks committed
   await web.wait(10)
   assert.deepEqual(web.json('out'), ['01', 'NotReadableError'])
 })
+
+test('document.fonts lists the faces of @font-face rules and the ones added', async () => {
+  const face = '@font-face { font-family: "Inter"; src: url(/inter.woff2); font-weight: 700 }'
+  using web = await page(`<!doctype html><html><head><style>${face}</style></head><body></body></html>`)
+  const out = web.run(`const faces = () => [...document.fonts].map((f) => f.family + ':' + f.weight + ':' + f.status)
+    const first = faces()
+    const same = [...document.fonts][0] === [...document.fonts][0]
+    document.fonts.add(new FontFace('Extra', 'url(/x.woff2)'))
+    JSON.stringify({ first, same, size: document.fonts.size, all: faces() })`)
+  assert.deepEqual(JSON.parse(out as string), { first: ['Inter:700:loaded'], same: true, size: 2, all: ['Inter:700:loaded', 'Extra:normal:loaded'] })
+})

@@ -577,16 +577,23 @@ register(HTMLStyleElement, 'style')
 const REL_LIST = Symbol('relList')
 
 export class HTMLLinkElement extends HTMLElement {
+  #sheet: unknown = null
+  get sheet(): unknown {
+    if (!this.isConnected || dom.sheetRuleCount(this[ID]) < 0) return null
+    if (!this.#sheet) this.#sheet = new CSSStyleSheet(undefined, this)
+    return this.#sheet
+  }
+
   get relList(): DOMTokenList {
     return tokenList(this, REL_LIST, 'rel', ['stylesheet', 'preload', 'modulepreload', 'icon', 'alternate', 'prefetch', 'preconnect', 'dns-prefetch', 'manifest', 'next'])
   }
 
   override [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
     super[ATTRIBUTE_CHANGED](name, value)
+    if (name === 'href' || name === 'rel') this.#sheet = null
     if ((name === 'href' || name === 'rel') && value !== null && this.isConnected) linkLoad(this)
   }
 }
-getters(HTMLLinkElement.prototype, { sheet: null })
 
 function linkLoad(link: HTMLLinkElement): void {
   const id = link[ID]

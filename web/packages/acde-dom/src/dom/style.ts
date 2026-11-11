@@ -339,6 +339,10 @@ export class CSSStyleSheet {
   get ownerNode(): Element | null {
     return this.#owner
   }
+  get href(): string | null {
+    const owner = this.#owner as (Element & { href?: unknown }) | null
+    return owner?.localName === 'link' && typeof owner.href === 'string' ? owner.href : null
+  }
   get media(): { mediaText: string; length: number } {
     return { mediaText: '', length: 0 }
   }
@@ -421,7 +425,7 @@ export class CSSStyleSheet {
     if (this.#owner) (this.#owner as unknown as { textContent: string }).textContent = this.#rules.join('\n')
   }
 }
-getters(CSSStyleSheet.prototype, { type: 'text/css', href: null, title: null, parentStyleSheet: null, ownerRule: null })
+getters(CSSStyleSheet.prototype, { type: 'text/css', title: null, parentStyleSheet: null, ownerRule: null })
 tag(CSSStyleSheet)
 
 export const StyleSheetList = listClass<CSSStyleSheet>('StyleSheetList')

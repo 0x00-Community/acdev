@@ -181,6 +181,7 @@ export class Document extends Node {
     return documentTimeline
   }
   get fonts(): FontFaceSet {
+    fontFaces.sheets ??= () => this.styleSheets as unknown as Iterable<{ readonly cssRules: ArrayLike<{ readonly type: number; readonly cssText: string }> }>
     return fontFaces
   }
   get implementation(): DOMImplementation {
@@ -510,17 +511,53 @@ export class FontFace {
 }
 tag(FontFace)
 
+const FACE_DESCRIPTORS = ['style', 'weight', 'stretch', 'unicode-range', 'display'] as const
+
+function faceOfRule(text: string): FontFace | null {
+  const body = text.slice(text.indexOf('{') + 1, text.lastIndexOf('}'))
+  const value = (name: string) => new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, 'i').exec(body)?.[1]?.trim() ?? null
+  const family = value('font-family')?.replace(/^(['"])(.*)\1$/, '$2')
+  if (!family) return null
+  const descriptors: Record<string, string> = {}
+  for (const name of FACE_DESCRIPTORS) {
+    const found = value(`font-${name}`) ?? (name === 'unicode-range' || name === 'display' ? value(name === 'display' ? 'font-display' : name) : null)
+    if (found) descriptors[name === 'unicode-range' ? 'unicodeRange' : name] = found
+  }
+  return new FontFace(family, value('src') ?? '', descriptors)
+}
+
 export class FontFaceSet extends EventTarget {
   readonly #faces = new Set<FontFace>()
+  readonly #fromCss = new Map<string, FontFace>()
   readonly ready: Promise<FontFaceSet>
+  sheets: (() => Iterable<{ readonly cssRules: ArrayLike<{ readonly type: number; readonly cssText: string }> }>) | null = null
 
   constructor() {
     super()
     this.ready = Promise.resolve(this)
   }
 
+  #all(): FontFace[] {
+    const css: FontFace[] = []
+    const seen = new Set<string>()
+    for (const sheet of this.sheets?.() ?? []) {
+      const rules = sheet.cssRules
+      for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i]!
+        if (rule.type !== 5 || seen.has(rule.cssText)) continue
+        seen.add(rule.cssText)
+        const face = this.#fromCss.get(rule.cssText) ?? faceOfRule(rule.cssText)
+        if (!face) continue
+        this.#fromCss.set(rule.cssText, face)
+        css.push(face)
+      }
+    }
+    for (const text of [...this.#fromCss.keys()]) if (!seen.has(text)) this.#fromCss.delete(text)
+    return [...css, ...this.#faces]
+  }
+
   get size(): number {
-    return this.#faces.size
+    return this.#all().length
   }
   add(face: FontFace): this {
     this.#faces.add(face)
@@ -530,7 +567,7 @@ export class FontFaceSet extends EventTarget {
     return this.#faces.delete(face)
   }
   has(face: FontFace): boolean {
-    return this.#faces.has(face)
+    return this.#all().includes(face)
   }
   clear(): void {
     this.#faces.clear()
@@ -542,10 +579,19 @@ export class FontFaceSet extends EventTarget {
     return Promise.resolve([])
   }
   forEach(callback: (face: FontFace, key: FontFace, set: FontFaceSet) => void, thisArg?: unknown): void {
-    for (const face of this.#faces) callback.call(thisArg, face, face, this)
+    for (const face of this.#all()) callback.call(thisArg, face, face, this)
+  }
+  values(): IterableIterator<FontFace> {
+    return this.#all().values()
+  }
+  keys(): IterableIterator<FontFace> {
+    return this.#all().values()
+  }
+  entries(): IterableIterator<[FontFace, FontFace]> {
+    return this.#all().map((face): [FontFace, FontFace] => [face, face]).values()
   }
   [Symbol.iterator](): IterableIterator<FontFace> {
-    return this.#faces.values()
+    return this.#all().values()
   }
 }
 getters(FontFaceSet.prototype, { status: 'loaded' })
