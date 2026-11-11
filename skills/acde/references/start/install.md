@@ -112,14 +112,16 @@ Use this only when the installer cannot set up the runtime, for example without 
 
 | File | What it is |
 | --- | --- |
-| `acdert-aarch64-apple-darwin` | The runtime for macOS on Apple silicon |
-| `acdert-x86_64-apple-darwin` | The runtime for macOS on Intel |
-| `acdert-x86_64-unknown-linux-gnu` | The runtime for Linux x86_64 |
-| `acdert-x86_64-pc-windows-msvc.exe` | The runtime for Windows x64 |
+| `acdert-aarch64-apple-darwin.tar.xz` | The runtime for macOS on Apple silicon |
+| `acdert-x86_64-apple-darwin.tar.xz` | The runtime for macOS on Intel |
+| `acdert-x86_64-unknown-linux-gnu.tar.xz` | The runtime for Linux x86_64 |
+| `acdert-x86_64-pc-windows-msvc.tar.gz` | The runtime for Windows x64 |
 | `acdert-host-<version>.tar.gz` | The runtime's own scripts (an `app/` directory), the same on every platform |
 | `SHA256SUMS` | Checksums of the files above |
 
-Download the binary for your platform, the host archive, and `SHA256SUMS`, and check them. Extract the host archive into the binary's directory: acdert looks for `app/` next to itself and does not start without it. Rename the binary to `acdert` (`acdert.exe` on Windows).
+Each runtime archive holds only the binary, `acdert` (`acdert.exe` on Windows). Releases up to 0.0.8 have the bare binary instead, under the same name without `.tar.xz` (`.exe` instead of `.tar.gz` on Windows).
+
+Download the archive for your platform, the host archive, and `SHA256SUMS`, and check them. Extract both into the same directory: acdert looks for `app/` next to itself and does not start without it. On Linux, extracting a `.tar.xz` needs `xz` (the `xz` or `xz-utils` package).
 
 On macOS or Linux, paste the lines below, with `target` set for your platform (the parentheses keep your terminal in its current directory): `aarch64-apple-darwin` on Apple silicon, `x86_64-apple-darwin` on an Intel Mac, `x86_64-unknown-linux-gnu` on Linux.
 
@@ -129,10 +131,9 @@ target=aarch64-apple-darwin
 base=https://pkgs.dopame.ai/acdert
 version=$(curl -fsSL "$base/latest.json" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p')
 mkdir -p ~/.acdert && cd ~/.acdert
-curl -fsSLO "$base/$version/acdert-$target" -O "$base/$version/acdert-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
-grep -E " (acdert-$target|acdert-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
-  rm -rf app && tar -xzf "acdert-host-$version.tar.gz" &&
-  mv "acdert-$target" acdert && chmod +x acdert
+curl -fsSLO "$base/$version/acdert-$target.tar.xz" -O "$base/$version/acdert-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
+grep -E " (acdert-$target\.tar\.xz|acdert-host-$version\.tar\.gz)\$" SHA256SUMS | sha256sum -c - &&
+  rm -rf app && tar -xzf "acdert-host-$version.tar.gz" && tar -xJf "acdert-$target.tar.xz"
 )
 ```
 
@@ -153,7 +154,7 @@ On Windows, in PowerShell:
   $version = (Invoke-RestMethod "$base/latest.json").version
   $dir = "$env:USERPROFILE\.acdert"
   New-Item -ItemType Directory -Force $dir | Out-Null
-  $files = 'acdert-x86_64-pc-windows-msvc.exe', "acdert-host-$version.tar.gz"
+  $files = 'acdert-x86_64-pc-windows-msvc.tar.gz', "acdert-host-$version.tar.gz"
   foreach ($f in $files + 'SHA256SUMS') { Invoke-WebRequest "$base/$version/$f" -OutFile "$dir\$f" }
   $sums = Get-Content "$dir\SHA256SUMS"
   foreach ($f in $files) {
@@ -162,7 +163,7 @@ On Windows, in PowerShell:
   }
   Remove-Item -Recurse -Force "$dir\app" -ErrorAction SilentlyContinue
   tar -xzf "$dir\acdert-host-$version.tar.gz" -C $dir
-  Move-Item -Force "$dir\acdert-x86_64-pc-windows-msvc.exe" "$dir\acdert.exe"
+  tar -xzf "$dir\acdert-x86_64-pc-windows-msvc.tar.gz" -C $dir
   [Environment]::SetEnvironmentVariable('ACDERT', "$dir\acdert.exe", 'User')
   $env:ACDERT = "$dir\acdert.exe"
 }
