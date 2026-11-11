@@ -108,16 +108,47 @@ pub struct Ticket {
 }
 
 pub struct Tickets {
+    seal: Vec<u8>,
     key: Vec<u8>,
     used: Mutex<HashMap<String, f64>>,
 }
 
 const FILE_TTL_MS: f64 = 10.0 * 60_000.0;
 const CALLBACK_TTL_MS: f64 = 24.0 * 3_600_000.0;
+const SEAL_NONCE: usize = 16;
+
+fn keystream(key: &[u8], nonce: &[u8], data: &mut [u8]) {
+    for (block, chunk) in data.chunks_mut(32).enumerate() {
+        let mut stream = mac(key, nonce);
+        stream.update(&(block as u32).to_be_bytes());
+        for (byte, pad) in chunk.iter_mut().zip(stream.finalize().into_bytes()) {
+            *byte ^= pad;
+        }
+    }
+}
 
 impl Tickets {
     pub fn new(secret: &str) -> Self {
-        Self { key: mac(secret.as_bytes(), b"agentrt-office/ticket/v1").finalize().into_bytes().to_vec(), used: Mutex::default() }
+        let derive = |label: &[u8]| mac(secret.as_bytes(), label).finalize().into_bytes().to_vec();
+        Self { seal: derive(b"agentrt-office/ticket/v2/seal"), key: derive(b"agentrt-office/ticket/v2/sign"), used: Mutex::default() }
+    }
+
+    fn sealed(&self, body: &Value) -> String {
+        let nonce = rand::random::<[u8; SEAL_NONCE]>();
+        let mut data = body.to_string().into_bytes();
+        keystream(&self.seal, &nonce, &mut data);
+        B64.encode([nonce.as_slice(), &data].concat())
+    }
+
+    fn opened(&self, body: &str) -> Option<Map<String, Value>> {
+        let bytes = B64.decode(body).ok()?;
+        let (nonce, data) = bytes.split_at_checked(SEAL_NONCE)?;
+        let mut data = data.to_vec();
+        keystream(&self.seal, nonce, &mut data);
+        match serde_json::from_slice(&data) {
+            Ok(Value::Object(map)) => Some(map),
+            _ => None,
+        }
     }
 
     pub fn issue(&self, kind: TicketKind, root: &str, path: &str, key: &str, mtime_ms: i64) -> String {
@@ -125,7 +156,7 @@ impl Tickets {
         let nonce = B64.encode(rand::random::<[u8; 9]>());
         let body = json!({"root": root, "path": path, "key": key, "mtimeMs": mtime_ms, "kind": kind,
             "exp": now_ms() + ttl, "nonce": nonce});
-        let body = B64.encode(body.to_string());
+        let body = self.sealed(&body);
         format!("{body}.{}", signature(&self.key, &body))
     }
 
@@ -135,7 +166,7 @@ impl Tickets {
         if body.is_empty() || signature.is_empty() || !verified(&self.key, body, signature) {
             return Err(Failure::token_refused("bad ticket"));
         }
-        let value = object(body).map_err(|_| Failure::token_refused("bad ticket"))?;
+        let value = self.opened(body).ok_or_else(|| Failure::token_refused("bad ticket"))?;
         if value.get("kind") != Some(&json!(kind)) {
             return Err(Failure::token_refused("ticket is for another purpose"));
         }
@@ -162,5 +193,44 @@ impl Tickets {
         }
         used.insert(ticket.nonce.clone(), ticket.exp);
         Ok(ticket)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_page_cannot_read_where_a_ticket_points() {
+        let tickets = Tickets::new("shared with Document Server");
+        let (root, path) = ("/home/someone/Documents", "Reports/q3 plan.docx");
+        for kind in [TicketKind::File, TicketKind::Callback] {
+            let token = tickets.issue(kind, root, path, "doc-key", 42);
+            let url = format!("http://127.0.0.1:1/office/file/{token}");
+            for text in [token.clone(), url] {
+                let decoded: Vec<u8> = text.split(['.', '/']).filter_map(|part| B64.decode(part).ok()).flatten().collect();
+                for secret in [root, path, "/home", "Documents", "Reports", "q3 plan", "doc-key"] {
+                    assert!(!text.contains(secret), "{secret} in {text}");
+                    assert!(!decoded.windows(secret.len()).any(|w| w == secret.as_bytes()), "{secret} decodes out of {text}");
+                }
+            }
+            let ticket = tickets.read(&token, kind).unwrap();
+            assert_eq!((ticket.root.as_str(), ticket.path.as_str(), ticket.key.as_str(), ticket.mtime_ms), (root, path, "doc-key", 42));
+        }
+    }
+
+    #[test]
+    fn a_ticket_only_opens_with_its_secret_and_untouched() {
+        let tickets = Tickets::new("one");
+        let token = tickets.issue(TicketKind::File, "/r", "a.xlsx", "k", 1);
+        assert!(Tickets::new("two").read(&token, TicketKind::File).is_err());
+        assert!(tickets.read(&token, TicketKind::Callback).is_err());
+        let (body, signature) = token.split_once('.').unwrap();
+        let mut bytes = B64.decode(body).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 1;
+        assert!(tickets.read(&format!("{}.{signature}", B64.encode(bytes)), TicketKind::File).is_err());
+        assert!(tickets.consume(&token).is_ok());
+        assert!(tickets.consume(&token).is_err(), "a file ticket is good once");
     }
 }
