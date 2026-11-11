@@ -1,4 +1,6 @@
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use acde_runtime::{FsCall, FsError, FsReply, Workspace};
 
@@ -7,32 +9,47 @@ use crate::offload;
 
 type Method = fn(&mut Args) -> FsCall;
 
-const METHODS: [(&str, Method); 15] = [
-    ("roots", |_| FsCall::Roots),
-    ("list", |a| FsCall::List { root: a.string(0), path: a.text(1), hidden: a.flag(2) }),
-    ("preview", |a| FsCall::Preview { root: a.string(0), path: a.string(1) }),
-    ("download", |a| FsCall::Download { root: a.string(0), path: a.string(1) }),
-    ("locate", |a| FsCall::Locate { path: a.string(0) }),
-    ("openPath", |a| FsCall::OpenPath { root: a.string(0), path: a.string(1) }),
-    ("mkdir", |a| FsCall::Mkdir { root: a.string(0), path: a.string(1), options: a.json(2) }),
-    ("copy", |a| FsCall::Copy { from_root: a.string(0), from_path: a.string(1), to_root: a.string(2), to_dir: a.string(3) }),
-    ("rename", |a| FsCall::Rename { root: a.string(0), from: a.string(1), to: a.string(2) }),
-    ("delete", |a| FsCall::Delete { root: a.string(0), path: a.string(1) }),
-    ("stat", |a| FsCall::Stat { root: a.string(0), path: a.string(1) }),
-    ("readText", |a| FsCall::ReadText { root: a.string(0), path: a.string(1) }),
-    ("readBytes", |a| FsCall::ReadBytes { root: a.string(0), path: a.string(1) }),
-    ("writeFile", |a| FsCall::WriteFile { root: a.string(0), path: a.string(1), data: a.data(2), options: a.json(3) }),
-    ("revoke", |a| FsCall::Revoke { root: a.string(0) }),
+const READ: bool = false;
+const CHANGE: bool = true;
+const READERS: usize = 4;
+
+const METHODS: [(&str, bool, Method); 15] = [
+    ("roots", READ, |_| FsCall::Roots),
+    ("list", READ, |a| FsCall::List { root: a.string(0), path: a.text(1), hidden: a.flag(2) }),
+    ("preview", READ, |a| FsCall::Preview { root: a.string(0), path: a.string(1) }),
+    ("download", READ, |a| FsCall::Download { root: a.string(0), path: a.string(1) }),
+    ("locate", READ, |a| FsCall::Locate { path: a.string(0) }),
+    ("openPath", READ, |a| FsCall::OpenPath { root: a.string(0), path: a.string(1) }),
+    ("mkdir", CHANGE, |a| FsCall::Mkdir { root: a.string(0), path: a.string(1), options: a.json(2) }),
+    ("copy", CHANGE, |a| FsCall::Copy { from_root: a.string(0), from_path: a.string(1), to_root: a.string(2), to_dir: a.string(3) }),
+    ("rename", CHANGE, |a| FsCall::Rename { root: a.string(0), from: a.string(1), to: a.string(2) }),
+    ("delete", CHANGE, |a| FsCall::Delete { root: a.string(0), path: a.string(1) }),
+    ("stat", READ, |a| FsCall::Stat { root: a.string(0), path: a.string(1) }),
+    ("readText", READ, |a| FsCall::ReadText { root: a.string(0), path: a.string(1) }),
+    ("readBytes", READ, |a| FsCall::ReadBytes { root: a.string(0), path: a.string(1) }),
+    ("writeFile", CHANGE, |a| FsCall::WriteFile { root: a.string(0), path: a.string(1), data: a.data(2), options: a.json(3) }),
+    ("revoke", CHANGE, |a| FsCall::Revoke { root: a.string(0) }),
 ];
+
+struct Changes {
+    queue: offload::Queue,
+    pending: Arc<AtomicUsize>,
+}
 
 thread_local! {
     static WORKSPACE: RefCell<Option<Workspace>> = const { RefCell::new(None) };
+    static CHANGES: RefCell<Option<Changes>> = const { RefCell::new(None) };
+}
+
+fn readers() -> &'static offload::Pool {
+    static POOL: OnceLock<offload::Pool> = OnceLock::new();
+    POOL.get_or_init(|| offload::Pool::new("acde-fs", READERS))
 }
 
 pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, workspace: Workspace) {
     WORKSPACE.with(|w| *w.borrow_mut() = Some(workspace));
     let fs = v8::Object::new(scope);
-    for (index, (name, _)) in METHODS.iter().enumerate() {
+    for (index, (name, ..)) in METHODS.iter().enumerate() {
         let data = v8::Integer::new_from_unsigned(scope, index as u32).into();
         bind::method_with(scope, fs, name, call, Some(data));
     }
@@ -40,12 +57,37 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, workspa
 }
 
 fn call(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
-    let Some((_, method)) = args.data().uint32_value(scope).and_then(|i| METHODS.get(i as usize)) else { return };
+    let Some((_, changes, method)) = args.data().uint32_value(scope).and_then(|i| METHODS.get(i as usize)) else { return };
     let Some(workspace) = WORKSPACE.with(|w| w.borrow().clone()) else {
         return bind::throw_error(scope, "acde.fs: not given to this web");
     };
     let request = method(&mut Args { scope: &mut *scope, args: &args });
-    offload::run(scope, &mut rv, "acde-fs", move || workspace.call(request), settle);
+    let pending = CHANGES.with(|c| c.borrow().as_ref().map_or(0, |c| c.pending.load(Ordering::Acquire)));
+    if !changes && pending == 0 {
+        return readers().run(scope, &mut rv, move || workspace.call(request), settle);
+    }
+    CHANGES.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.is_none() {
+            match offload::Queue::new("acde-fs-changes") {
+                Ok(queue) => *c = Some(Changes { queue, pending: Arc::default() }),
+                Err(e) => return bind::throw_error(scope, &format!("acde.fs: {e}")),
+            }
+        }
+        let Some(Changes { queue, pending }) = c.as_ref() else { return };
+        let pending = pending.clone();
+        pending.fetch_add(1, Ordering::AcqRel);
+        queue.run(
+            scope,
+            &mut rv,
+            move || {
+                let reply = workspace.call(request);
+                pending.fetch_sub(1, Ordering::AcqRel);
+                reply
+            },
+            settle,
+        );
+    });
 }
 
 fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, reply: Result<FsReply, FsError>) {

@@ -50,6 +50,45 @@ pub fn run<T: Send + 'static>(scope: &mut v8::PinScope, rv: &mut v8::ReturnValue
     }
 }
 
+pub struct Pool {
+    tx: std::sync::Mutex<std::sync::mpsc::Sender<Job>>,
+}
+
+impl Pool {
+    pub fn new(thread: &str, size: usize) -> Pool {
+        let (tx, rx) = std::sync::mpsc::channel::<Job>();
+        let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+        for n in 0..size {
+            let rx = rx.clone();
+            let spawned = std::thread::Builder::new().name(format!("{thread}-{n}")).spawn(move || {
+                loop {
+                    let job = match rx.lock() {
+                        Ok(rx) => rx.recv(),
+                        Err(_) => return,
+                    };
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => return,
+                    }
+                }
+            });
+            if let Err(e) = spawned {
+                log::error!("{thread}: {e}");
+            }
+        }
+        Pool { tx: std::sync::Mutex::new(tx) }
+    }
+
+    pub fn run<T: Send + 'static>(&self, scope: &mut v8::PinScope, rv: &mut v8::ReturnValue, work: impl FnOnce() -> T + Send + 'static, settle: Settle<T>) {
+        let Some((token, job)) = settled(scope, rv, work, settle) else { return };
+        let sent = self.tx.lock().map_err(|_| ()).and_then(|tx| tx.send(job).map_err(|_| ()));
+        if sent.is_err() {
+            unsettle(rv, token);
+            bind::throw_error(scope, "the pool's threads are gone");
+        }
+    }
+}
+
 pub struct Queue {
     tx: std::sync::mpsc::Sender<Job>,
 }

@@ -70,7 +70,9 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **一个 V8, 每个窗口一个 isolate**: 内存 (各自的堆上限)、生死 (一个死了只掉它的窗口)、CPU (每个 isolate 一个线程, 同一优先级) 各管各的.
 - **注入的系统能力** (`spawnWeb` 第 7 个参数 `{app, fs, terminal, network, office}`, Broker `#grants`: 桌面全给, 应用按清单): fs、terminal、
   network、office 和选文件夹在各 web 里绑定同一份 Rust 对象 (crates/acdert `fs.rs` / `terminal.rs` / `network.rs` / `office.rs` /
-  `picker.rs`; 阻塞的活经 `offload.rs` 各起一条线程, promise 在这个 web 的事件循环上落定). 限制 (fs 的 roots) 在注入时绑进去, 没给的
+  `picker.rs`; 阻塞的活经 `offload.rs` 交给别的线程, promise 在这个 web 的事件循环上落定; `acde:fs` 的改动 (mkdir、copy、rename、delete、
+  writeFile、revoke) 在每个 web 一条的有序队列 `acde-fs-changes` 上按调用顺序跑, 读在全进程 4 条线程的 `acde-fs-<n>` 池里跑, 这个 web 还有改动
+  没做完时读也排进有序队列, 所以没等的写之后的读看得到写的结果). 限制 (fs 的 roots) 在注入时绑进去, 没给的
   `import('acde:<名字>')` 直接失败. Broker 自己只用 napi `Finder` 的 `locate` (「默认应用」), 是另一份.
   terminal 起用户的登录 shell, 在家目录: unix 是账户数据库里的 shell (`getpwuid_r` 的 `pw_shell`, 不可执行时 `$SHELL`, 再不行 `/bin/sh`), 带 `-l`, pty
   子进程 exec 前关掉 3 以上的所有 fd, 每秒从 `/proc` 报 `cwd` (只在 Linux); Windows 用 ConPTY (runtime `conpty.rs`), shell 依次取 Windows Terminal
