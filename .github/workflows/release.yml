@@ -32,6 +32,7 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     concurrency:
       group: release-prepare-${{ github.ref }}-plan
       cancel-in-progress: false
@@ -45,6 +46,7 @@ jobs:
       targets: ${{ steps.plan.outputs.targets }}
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 10
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
@@ -87,6 +89,7 @@ jobs:
           - { triple: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
           - { triple: x86_64-pc-windows-msvc, os: windows-2025, exe: .exe }
     runs-on: ${{ contains(format(',{0},', github.event.inputs.skip_targets), format(',{0},', matrix.triple)) && 'ubuntu-24.04' || matrix.os }}
+    timeout-minutes: 120
     env:
       BUILD: ${{ contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple)) }}
     steps:
@@ -94,6 +97,7 @@ jobs:
         if: env.BUILD != 'true'
         run: echo "${{ matrix.triple }} is in skip_targets; nothing to build"
       - uses: actions/checkout@v7
+        timeout-minutes: 10
         if: env.BUILD == 'true'
         with:
           ref: ${{ needs.plan.outputs.sha }}
@@ -177,8 +181,10 @@ jobs:
       group: release-prepare-${{ github.ref }}-host
       cancel-in-progress: false
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 10
         with:
           ref: ${{ needs.plan.outputs.sha }}
       - uses: oven-sh/setup-bun@v2
@@ -209,11 +215,13 @@ jobs:
       group: release-prepare-${{ github.ref }}-stage
       cancel-in-progress: false
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       VERSION: ${{ needs.plan.outputs.version }}
       RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 10
         with:
           ref: ${{ needs.plan.outputs.sha }}
       - uses: christopherhx/gitea-download-artifact@89488ecb8305ea3f5c6b0e4b000a2d28388fbda5 # v7
@@ -237,12 +245,14 @@ jobs:
       group: release-publish
       cancel-in-progress: false
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: write
     env:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 10
         with:
           ref: ${{ needs.plan.outputs.sha }}
       - name: annotated tag on the commit that passed the checks
@@ -260,6 +270,7 @@ jobs:
       group: release-publish
       cancel-in-progress: false
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: write
     env:
@@ -269,6 +280,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 10
         with:
           ref: ${{ needs.plan.outputs.sha }}
       - uses: christopherhx/gitea-download-artifact@89488ecb8305ea3f5c6b0e4b000a2d28388fbda5 # v7
@@ -300,12 +312,14 @@ jobs:
     needs: [plan, stage]
     if: ${{ needs.plan.result == 'success' && needs.stage.result == 'success' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       VERSION: ${{ needs.plan.outputs.version }}
       RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 10
         with:
           ref: ${{ needs.plan.outputs.sha }}
       - uses: christopherhx/gitea-download-artifact@89488ecb8305ea3f5c6b0e4b000a2d28388fbda5 # v7
@@ -342,6 +356,7 @@ jobs:
       group: release-publish
       cancel-in-progress: false
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -351,6 +366,7 @@ jobs:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 10
         with:
           ref: ${{ needs.plan.outputs.sha }}
       - uses: christopherhx/gitea-download-artifact@89488ecb8305ea3f5c6b0e4b000a2d28388fbda5 # v7
@@ -400,6 +416,7 @@ jobs:
       group: release-publish
       cancel-in-progress: false
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
