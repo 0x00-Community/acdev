@@ -1,8 +1,58 @@
 import { NodeType } from '../native'
-import type { DOMMatrix } from './geometry'
+import { computedStyleOf } from './layout'
 import { dom } from './realm'
 
 export type Box = [number, number, number, number]
+export type Affine = { a: number; b: number; c: number; d: number; e: number; f: number }
+
+const IDENTITY: Affine = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+
+function times(m: Affine, n: Affine): Affine {
+  return {
+    a: m.a * n.a + m.c * n.b,
+    b: m.b * n.a + m.d * n.b,
+    c: m.a * n.c + m.c * n.d,
+    d: m.b * n.c + m.d * n.d,
+    e: m.a * n.e + m.c * n.f + m.e,
+    f: m.b * n.e + m.d * n.f + m.f,
+  }
+}
+
+function viewBoxOf(id: number): Box | null {
+  const box = (dom.getAttribute(id, 'viewBox') ?? '').trim().split(/[\s,]+/).map(Number)
+  return box.length === 4 && box.every(Number.isFinite) && box[2]! > 0 && box[3]! > 0 ? (box as Box) : null
+}
+
+export function fitViewBox(svg: number, width: number, height: number): Affine {
+  const box = viewBoxOf(svg)
+  if (!box) return IDENTITY
+  const [vx, vy, vw, vh] = box
+  let sx = width / vw
+  let sy = height / vh
+  let tx = 0
+  let ty = 0
+  const aspect = (dom.getAttribute(svg, 'preserveAspectRatio') ?? 'xMidYMid meet').trim()
+  if (!aspect.startsWith('none')) {
+    const s = aspect.includes('slice') ? Math.max(sx, sy) : Math.min(sx, sy)
+    const align = aspect.split(/\s+/)[0]!
+    const free = (size: number, content: number, part: string) => (part === 'Min' ? 0 : part === 'Max' ? size - content : (size - content) / 2)
+    tx = free(width, vw * s, /xMin/.test(align) ? 'Min' : /xMax/.test(align) ? 'Max' : 'Mid')
+    ty = free(height, vh * s, /YMin/.test(align) ? 'Min' : /YMax/.test(align) ? 'Max' : 'Mid')
+    sx = sy = s
+  }
+  return { a: sx, b: 0, c: 0, d: sy, e: tx - vx * sx, f: ty - vy * sy }
+}
+
+function nestedSvg(id: number): Affine {
+  const size = (name: string, fallback: number) => {
+    const text = (dom.getAttribute(id, name) ?? '').trim()
+    const value = parseFloat(text)
+    return text.endsWith('%') || !Number.isFinite(value) ? fallback : value
+  }
+  const box = viewBoxOf(id)
+  const fit = fitViewBox(id, size('width', box?.[2] ?? 0), size('height', box?.[3] ?? 0))
+  return times({ ...IDENTITY, e: length(id, 'x'), f: length(id, 'y') }, fit)
+}
 
 const CONTAINERS = new Set(['g', 'svg', 'a', 'switch'])
 const NUMBER = /[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/y
@@ -156,10 +206,14 @@ export function pathBox(d: string): Box | null {
       let [ncx, ncy] = [NaN, NaN]
       switch (upper) {
         case 'M':
+          nx = ox + p.number()
+          ny = oy + p.number()
+          ;[sx, sy] = [nx, ny]
+          bounds.add(nx, ny)
+          break
         case 'L':
           nx = ox + p.number()
           ny = oy + p.number()
-          if (upper === 'M') [sx, sy] = [nx, ny]
           bounds.add(x, y)
           bounds.add(nx, ny)
           break
@@ -229,7 +283,7 @@ function pointsBox(text: string): Box | null {
   return bounds.empty ? null : bounds.box
 }
 
-export function shapeBox(id: number, transformOf: (id: number) => DOMMatrix): Box | null {
+export function shapeBox(id: number, transformOf: (id: number) => Affine): Box | null {
   switch (dom.localName(id)) {
     case 'path':
       return pathBox(dom.getAttribute(id, 'd') ?? '')
@@ -258,10 +312,11 @@ export function shapeBox(id: number, transformOf: (id: number) => DOMMatrix): Bo
   if (!CONTAINERS.has(dom.localName(id))) return null
   const bounds = new Bounds()
   for (const child of dom.children(id)) {
-    if (dom.nodeType(child) !== NodeType.Element) continue
+    if (dom.nodeType(child) !== NodeType.Element || computedStyleOf(child, '', 'display') === 'none') continue
     const box = shapeBox(child, transformOf)
     if (!box) continue
-    const m = transformOf(child)
+    const own = transformOf(child)
+    const m = dom.localName(child) === 'svg' ? times(own, nestedSvg(child)) : own
     for (const [px, py] of [
       [box[0], box[1]],
       [box[2], box[1]],

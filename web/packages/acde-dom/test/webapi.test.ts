@@ -608,12 +608,14 @@ test('getBBox of SVG shapes and groups comes from their geometry, also after a s
   using web = await page(`<!doctype html><html><body><svg width="200" height="200">
     <g id="g" transform="translate(10 20)"><rect id="r" x="5" y="6" width="30" height="40"/><circle cx="100" cy="100" r="10"/></g>
     <path id="p"/><path id="arc" d="M0 50 A50 50 0 0 1 100 50"/><path id="curve" d="M0 0 C0 100 100 100 100 0"/>
-    <polygon id="poly" points="1,2 9,4 5,8"/></svg></body></html>`)
+    <polygon id="poly" points="1,2 9,4 5,8"/>
+    <g id="n"><svg x="10" y="10" width="20" height="20" viewBox="0 0 100 100"><rect width="100" height="50"/></svg>
+    <rect style="display: none" x="-50" y="-50" width="5" height="5"/></g></svg></body></html>`)
   const out = web.run(`const round = (v) => Math.round(v * 100) / 100
     const box = (id) => { const b = document.getElementById(id).getBBox(); return [b.x, b.y, b.width, b.height].map(round) }
     const empty = box('p')
     document.getElementById('p').setAttribute('d', 'M130 113 l4 -3 L138 106 H150 v10 z')
-    JSON.stringify({ r: box('r'), g: box('g'), empty, p: box('p'), arc: box('arc'), curve: box('curve'), poly: box('poly') })`)
+    JSON.stringify({ r: box('r'), g: box('g'), empty, p: box('p'), arc: box('arc'), curve: box('curve'), poly: box('poly'), n: box('n') })`)
   assert.deepEqual(JSON.parse(out as string), {
     r: [5, 6, 30, 40],
     g: [5, 6, 105, 104],
@@ -622,5 +624,6 @@ test('getBBox of SVG shapes and groups comes from their geometry, also after a s
     arc: [0, 0, 100, 50],
     curve: [0, 0, 100, 75],
     poly: [1, 2, 8, 6],
+    n: [10, 10, 20, 10],
   })
 })

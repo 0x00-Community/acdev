@@ -7,7 +7,7 @@ import { HTMLOrSVGElementMixin, svgClasses, svgFallback } from './html'
 import { metricsOf, rectOf } from './layout'
 import { elementById, mixin } from './node'
 import { dom, ID, wrap } from './realm'
-import { shapeBox } from './svgbox'
+import { fitViewBox, shapeBox } from './svgbox'
 
 function viewBox(id: number): [number, number, number, number] | null {
   const box = (dom.getAttribute(id, 'viewBox') ?? '').trim().split(/[\s,]+/).map(Number)
@@ -142,22 +142,7 @@ function viewportMatrix(svg: number): DOMMatrix {
   const metrics = metricsOf(svg)
   const x = r[0]! + (metrics?.clientLeft ?? 0), y = r[1]! + (metrics?.clientTop ?? 0)
   const width = metrics?.clientWidth ?? r[2]!, height = metrics?.clientHeight ?? r[3]!
-  const m = new DOMMatrix().translateSelf(x, y)
-  const box = viewBox(svg)
-  if (!box || !(box[2] > 0) || !(box[3] > 0)) return m
-  const [vx, vy, vw, vh] = box
-  let sx = width / vw, sy = height / vh
-  let tx = 0, ty = 0
-  const aspect = (dom.getAttribute(svg, 'preserveAspectRatio') ?? 'xMidYMid meet').trim()
-  if (!aspect.startsWith('none')) {
-    const s = aspect.includes('slice') ? Math.max(sx, sy) : Math.min(sx, sy)
-    const align = aspect.split(/\s+/)[0]!
-    const free = (size: number, content: number, part: string) => (part === 'Min' ? 0 : part === 'Max' ? size - content : (size - content) / 2)
-    tx = free(width, vw * s, /xMin/.test(align) ? 'Min' : /xMax/.test(align) ? 'Max' : 'Mid')
-    ty = free(height, vh * s, /YMin/.test(align) ? 'Min' : /YMax/.test(align) ? 'Max' : 'Mid')
-    sx = sy = s
-  }
-  return m.translateSelf(tx, ty).scaleSelf(sx, sy).translateSelf(-vx, -vy)
+  return new DOMMatrix().translateSelf(x, y).multiplySelf(fitViewBox(svg, width, height))
 }
 
 function screenCTM(id: number): DOMMatrix {
