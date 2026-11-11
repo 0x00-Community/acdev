@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Saved {
@@ -32,11 +33,12 @@ pub(crate) struct Granted {
 pub(crate) struct Grants {
     dir: Option<PathBuf>,
     owners: Mutex<HashMap<String, Saved>>,
+    changes: AtomicU64,
 }
 
 impl Grants {
     pub fn new(dir: Option<PathBuf>) -> Self {
-        Self { dir, owners: Mutex::new(HashMap::new()) }
+        Self { dir, owners: Mutex::new(HashMap::new()), changes: AtomicU64::new(0) }
     }
 
     pub fn from_env() -> Self {
@@ -58,7 +60,12 @@ impl Grants {
         Saved { roots: native_folders(saved.roots), read_only: native_folders(saved.read_only) }
     }
 
+    pub fn changes(&self) -> u64 {
+        self.changes.load(Ordering::Acquire)
+    }
+
     fn save(&self, owner: &str, saved: &Saved) {
+        self.changes.fetch_add(1, Ordering::AcqRel);
         let Some(file) = self.file(owner) else { return };
         let text = serde_json::to_vec(saved).unwrap_or_default();
         if let Err(error) = crate::write_state(&file, &text, 0o644) {

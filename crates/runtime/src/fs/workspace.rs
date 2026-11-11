@@ -33,7 +33,7 @@ pub enum RootMode {
     Unavailable,
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RootSource {
     Desktop,
@@ -44,7 +44,7 @@ pub enum RootSource {
     Place,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct FinderRoot {
     pub id: String,
     #[serde(skip)]
