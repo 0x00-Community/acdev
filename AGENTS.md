@@ -382,7 +382,12 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `requestWillBeSent` / `responseReceived` / `dataReceived` / `loadingFinished` / `loadingFailed` (失败、中止 (`canceled`)、没有 network 能力
   被拒都带 `errorText`), `requestId` 是 `Tracked.id`, `loaderId` / `frameId` 是 web 名, 时间戳是 `performance.now()` 秒. 请求完成后整个
   响应体留着给 `Network.getResponseBody` (文字类型且是合法 UTF-8 回文字, 其余 base64; 没有的回 -32000), 每页最多 16 MiB, 超出时丢最早的;
-  单个超过上限的不留. WebSocket、EventSource、图片样式表字体 (#189) 还不报.
+  单个超过上限的一超过就丢掉已收的块, 不留. 有客户端中途 `Network.disable` 时丢掉进行中的记录, 之后的数据不再上报. #189 补上其余流量:
+  WebSocket (`webSocketCreated`、握手请求和 101 回答、`webSocketFrameSent` / `Received` (文字 opcode 1, 二进制 2 base64)、`webSocketClosed`;
+  连不上是 `webSocketFrameError` 再 closed, 不发 requestWillBeSent), EventSource (类型 `EventSource`, 每条消息 `eventSourceMessageReceived`,
+  响应体不留), 页面加载的图片、样式表、字体 (类型 `Image` / `Stylesheet` / `Font`; 应用包里的文件经 `Tracked.network` 只报给 DevTools,
+  dev 日志不变). 因页面没有 network 能力被拒的 (`NO_NETWORK`) 在 `loadingFailed` 带 `blockedReason: "other"`.
+  `Tracked` 的 `frame(sent, data)` / `message(event, data, lastId)` 交给 `NetworkObserver` 的可选同名方法; `exchange` 可以接收调用方建好的 `Tracked`.
   `CSS` (#191, `devtools/css.ts`) 和 `DOM.getBoxModel`: 取数和 `getComputedStyle` / `getBoundingClientRect` 是同一个原生接口 (`dom.computedStyleAll`,
   `dom.rect`, 经 `pagedom.ts`). `getComputedStyleForNode` 是 stylo 算出的全部值; `getBoxModel` 的 border 是 `rect` (变换后的包围盒),
   按算出的 `border-*-width` / `padding-*` 往里缩得 padding / content, 按 `margin-*` 往外扩得 margin (`auto` 当 0), `display: none` 或不是元素回 -32000.

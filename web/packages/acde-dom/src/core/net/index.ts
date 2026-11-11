@@ -79,12 +79,14 @@ export function browserHeaders(page: readonly Header[], accept: boolean): Header
 type Loaded = { bytes: Uint8Array; type: string }
 type Routed = { target: Target } | { asset: Loaded } | null
 
+export const NO_NETWORK = 'another host, and this page has no network'
+
 export function unreachable(url: string): string {
   try {
     if (new URL(url).origin === new URL(net.base()).origin) return 'no such file in the app, and no backend to ask'
   } catch {
   }
-  return 'another host, and this page has no network'
+  return NO_NETWORK
 
 }
 
@@ -465,9 +467,14 @@ function tracking(tracked: Tracked | null, given: ExchangeHandlers): ExchangeHan
   }
 }
 
-export function exchange(first: Target, request: ExchangeRequest, given: ExchangeHandlers, kind: RequestKind): () => void {
+export function exchange(
+  first: Target,
+  request: ExchangeRequest,
+  given: ExchangeHandlers,
+  kind: RequestKind,
+  tracked: Tracked | null = Tracked.start(kind, request.method, request.url, request.body?.length ?? 0, false, request.headers, request.body),
+): () => void {
   const backend = transport!
-  const tracked = Tracked.start(kind, request.method, request.url, request.body?.length ?? 0, false, request.headers, request.body)
   const on = tracking(tracked, given)
   const withCookies = request.credentials !== 'omit'
   const include = request.credentials === 'include'

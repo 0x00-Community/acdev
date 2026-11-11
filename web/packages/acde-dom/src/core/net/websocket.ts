@@ -72,6 +72,7 @@ export class WebSocket extends EventTarget {
         case 'message': {
           if (this.readyState !== WS_STATES.OPEN) return
           this.#tracked?.received(event.text !== undefined ? event.text.length : (event.data?.length ?? 0))
+          this.#tracked?.frame(false, event.text ?? event.data ?? new Uint8Array(0))
           let data: unknown
           if (event.text !== undefined) data = event.text
           else {
@@ -130,6 +131,7 @@ export class WebSocket extends EventTarget {
       return
     }
     transport?.send(this.#id, payload)
+    this.#tracked?.frame(true, payload)
   }
 
   close(code?: number, reason?: string): void {

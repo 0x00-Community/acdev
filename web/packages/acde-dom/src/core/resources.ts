@@ -1,7 +1,7 @@
 import type { Header } from './backend'
 import { concat } from './encoding'
 import { host } from './host'
-import { exchange, headerOf, net, route, unreachable } from './net'
+import { assetHead, exchange, headerOf, net, route, unreachable } from './net'
 import { observer, Tracked, type RequestKind } from './observe'
 import { URL } from './url'
 
@@ -31,7 +31,13 @@ export function loadResource(url: string, destination: string, cors: string, don
     failed(url, unreachable(url))
     return done(null, false)
   }
-  if ('asset' in routed) return done(routed.asset.bytes, false)
+  if ('asset' in routed) {
+    const tracked = Tracked.network(kind, 'GET', url)
+    tracked?.response(200, 'OK', assetHead(routed.asset))
+    tracked?.received(routed.asset.bytes.length, routed.asset.bytes)
+    tracked?.end(routed.asset.bytes.length)
+    return done(routed.asset.bytes, false)
+  }
   const font = destination === 'font'
   const accept = ACCEPT[destination]
   const headers: Header[] = accept ? [['accept', accept]] : []

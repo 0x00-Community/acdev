@@ -5,6 +5,7 @@ import { SourceMaps } from '../src/devlog.ts'
 import { DevToolsPage } from '../src/devtools/index.ts'
 import { CssDomain } from '../src/devtools/css.ts'
 import { DomDomain, type DomNode, type DomRecord } from '../src/devtools/dom.ts'
+import { NO_NETWORK } from '@dopame/acde-dom'
 import { NetworkDomain } from '../src/devtools/network.ts'
 import { PageDomain } from '../src/devtools/page.ts'
 
@@ -392,7 +393,6 @@ describe('DevTools Network domain', () => {
     observer.error(2, 'this app has no network capability')
     observer.start(3, 'fetch', 'GET', 'http://app.acde/slow', [], null)
     observer.error(3, 'aborted')
-    observer.start(4, 'websocket', 'GET', 'ws://app.acde/', [], null)
     assert.equal(events('requestWillBeSent')[0]!['type'], 'XHR')
     const image = await ask({ id: 2, method: 'Network.getResponseBody', params: { requestId: '1' } })
     assert.deepEqual(image!['result'], { body: 'iVBORw==', base64Encoded: true })
@@ -400,7 +400,7 @@ describe('DevTools Network domain', () => {
       { requestId: '2', timestamp: 1, type: 'Fetch', errorText: 'this app has no network capability' },
       { requestId: '3', timestamp: 1, type: 'Fetch', errorText: 'aborted', canceled: true },
     ])
-    assert.equal(events('requestWillBeSent').length, 3, 'other kinds are left for later')
+    assert.equal(events('requestWillBeSent').length, 3)
   })
 
   test('kept bodies are bounded per page and the oldest go first', async () => {
@@ -414,5 +414,61 @@ describe('DevTools Network domain', () => {
     }
     assert.equal(((await ask({ id: 2, method: 'Network.getResponseBody', params: { requestId: '1' } }))!['error'] as { code: number }).code, -32000)
     assert.deepEqual((await ask({ id: 3, method: 'Network.getResponseBody', params: { requestId: '2' } }))!['result'], { body: '123456', base64Encoded: false })
+    observer.start(3, 'fetch', 'GET', 'http://app.acde/big', [], null)
+    observer.data(3, bytes('1234567'))
+    observer.data(3, bytes('89ab'))
+    observer.end(3, 11)
+    assert.equal(((await ask({ id: 4, method: 'Network.getResponseBody', params: { requestId: '3' } }))!['error'] as { code: number }).code, -32000)
+    assert.deepEqual((await ask({ id: 5, method: 'Network.getResponseBody', params: { requestId: '2' } }))!['result'], { body: '123456', base64Encoded: false })
+  })
+
+  test('a WebSocket shows its handshake, frames both ways and its close', async () => {
+    const { observer, ask, events } = network()
+    await ask({ id: 1, method: 'Network.enable' })
+    observer.start(5, 'websocket', 'GET', 'ws://app.acde/echo', [['origin', 'http://app.acde']], null)
+    observer.response(5, 101, 'Switching Protocols', [['upgrade', 'websocket']])
+    observer.frame!(5, true, 'hello')
+    observer.frame!(5, false, new Uint8Array([1, 2, 3]))
+    observer.end(5, 3)
+    assert.deepEqual(events('webSocketCreated'), [{ requestId: '5', url: 'ws://app.acde/echo', initiator: { type: 'script' } }])
+    assert.deepEqual(events('webSocketWillSendHandshakeRequest')[0]!['request'], { headers: { origin: 'http://app.acde' } })
+    assert.equal((events('webSocketHandshakeResponseReceived')[0]!['response'] as { status: number }).status, 101)
+    assert.deepEqual(events('webSocketFrameSent')[0]!['response'], { opcode: 1, mask: true, payloadData: 'hello' })
+    assert.deepEqual(events('webSocketFrameReceived')[0]!['response'], { opcode: 2, mask: false, payloadData: 'AQID' })
+    assert.deepEqual(events('webSocketClosed'), [{ requestId: '5', timestamp: 1 }])
+    assert.deepEqual([events('requestWillBeSent').length, events('loadingFinished').length], [0, 0])
+  })
+
+  test('an EventSource shows its messages, loads carry their resource type, and a refused request is blocked', async () => {
+    const { observer, ask, events } = network()
+    await ask({ id: 1, method: 'Network.enable' })
+    observer.start(1, 'eventsource', 'GET', 'http://app.acde/events', [], null)
+    observer.response(1, 200, 'OK', [['content-type', 'text/event-stream']])
+    observer.message!(1, 'tick', 'one', '7')
+    observer.end(1, 20)
+    for (const [id, kind] of [[2, 'image'], [3, 'stylesheet'], [4, 'font']] as const) {
+      observer.start(id, kind, 'GET', `http://app.acde/${kind}`, [], null)
+      observer.response(id, 200, 'OK', [])
+      observer.end(id, 0)
+    }
+    observer.start(5, 'fetch', 'GET', 'https://elsewhere.example/', [], null)
+    observer.error(5, NO_NETWORK)
+    assert.deepEqual(events('eventSourceMessageReceived'), [{ requestId: '1', timestamp: 1, eventName: 'tick', eventId: '7', data: 'one' }])
+    assert.deepEqual(events('requestWillBeSent').map((e) => e['type']), ['EventSource', 'Image', 'Stylesheet', 'Font', 'Fetch'])
+    assert.equal(((await ask({ id: 2, method: 'Network.getResponseBody', params: { requestId: '1' } }))!['error'] as { code: number }).code, -32000)
+    assert.deepEqual(events('loadingFailed'), [{ requestId: '5', timestamp: 1, type: 'Fetch', errorText: NO_NETWORK, blockedReason: 'other' }])
+  })
+
+  test('a request in flight when Network is disabled reports nothing more', async () => {
+    const { observer, ask, sent } = network()
+    await ask({ id: 1, method: 'Network.enable' })
+    observer.start(1, 'fetch', 'GET', 'http://app.acde/slow', [], null)
+    await ask({ id: 2, method: 'Network.disable' })
+    const before = sent.length
+    observer.data(1, bytes('late'))
+    observer.end(1, 4)
+    await ask({ id: 3, method: 'Network.enable' })
+    observer.end(1, 4)
+    assert.equal(sent.length, before + 1, 'only the answer to the second enable')
   })
 })

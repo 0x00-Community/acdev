@@ -3,8 +3,9 @@ import { TextDecoder } from '../encoding'
 import { defineHandlers, Event, EventTarget, fire, MessageEvent } from '../event'
 import { DOMException } from '../exception'
 import { constants, host, tag } from '../host'
+import { Tracked } from '../observe'
 import { URL } from '../url'
-import { backendFailed, exchange, headerOf, net, route } from './index'
+import { backendFailed, exchange, headerOf, net, route, unreachable } from './index'
 
 const ES_STATES = { CONNECTING: 0, OPEN: 1, CLOSED: 2 } as const
 
@@ -28,6 +29,7 @@ export class EventSource extends EventTarget {
     this.withCredentials = !!init?.withCredentials
     const routed = route(this.url, 'SSE')
     if (!routed || !('target' in routed)) {
+      Tracked.start('eventsource', 'GET', this.url)?.error(unreachable(this.url))
       host.setTimer(0, () => {
         this.readyState = ES_STATES.CLOSED
         fire(this, new Event('error'))
@@ -46,6 +48,7 @@ export class EventSource extends EventTarget {
     let data = ''
     let type = ''
     let id = this.#lastId
+    let tracked: Tracked | null = null
     const dispatch = (): void => {
       this.#lastId = id
       if (!data) {
@@ -53,6 +56,7 @@ export class EventSource extends EventTarget {
         return
       }
       const event = new MessageEvent(type || 'message', { data: data.endsWith('\n') ? data.slice(0, -1) : data, origin, lastEventId: this.#lastId })
+      tracked?.message(event.type, String(event.data), this.#lastId)
       data = ''
       type = ''
       if (this.readyState !== ES_STATES.CLOSED) fire(this, event)
@@ -92,6 +96,7 @@ export class EventSource extends EventTarget {
     const headers: [string, string][] = [['accept', 'text/event-stream'], ['cache-control', 'no-cache']]
     if (this.#lastId) headers.push(['last-event-id', this.#lastId])
     const credentials = this.withCredentials ? 'include' : 'same-origin'
+    tracked = Tracked.start('eventsource', 'GET', this.url, 0, false, headers)
     this.#stop = exchange(this.#target!, { url: this.url, method: 'GET', headers, body: null, redirect: 'follow', credentials, mode: 'cors' }, {
       head: (head) => {
         if (this.readyState === ES_STATES.CLOSED) return
@@ -114,7 +119,7 @@ export class EventSource extends EventTarget {
         backendFailed('SSE', this.url, message)
         this.#reconnect()
       },
-    }, 'eventsource')
+    }, 'eventsource', tracked)
   }
 
   #reconnect(): void {

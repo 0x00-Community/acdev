@@ -1,15 +1,25 @@
-import type { NetworkHeaders, NetworkObserver, RequestKind } from '@dopame/acde-dom'
+import { NO_NETWORK, type NetworkHeaders, type NetworkObserver, type RequestKind } from '@dopame/acde-dom'
 import { DevToolsError, type DevToolsDomain, type DevToolsPage } from './index'
 
-const TYPES: Partial<Record<RequestKind, string>> = { fetch: 'Fetch', xhr: 'XHR' }
+const TYPES: Record<RequestKind, string> = {
+  fetch: 'Fetch',
+  xhr: 'XHR',
+  websocket: 'WebSocket',
+  eventsource: 'EventSource',
+  image: 'Image',
+  stylesheet: 'Stylesheet',
+  font: 'Font',
+}
 const TEXT = /^(text\/|application\/(json|javascript|ecmascript|xml|xhtml\+xml|x-www-form-urlencoded)|image\/svg\+xml)|\+json$|\+xml$/i
 
 interface Open {
+  readonly kind: RequestKind
   readonly type: string
   readonly url: string
   mimeType: string
   chunks: Uint8Array[]
   size: number
+  keep: boolean
 }
 
 interface Kept {
@@ -38,6 +48,8 @@ export class NetworkDomain {
     data: (id, chunk) => this.#data(id, chunk),
     end: (id, bytes) => this.#end(id, bytes),
     error: (id, message) => this.#error(id, message),
+    frame: (id, sent, data) => this.#frame(id, sent, data),
+    message: (id, event, data, lastId) => this.#message(id, event, data, lastId),
   }
 
   domain(): DevToolsDomain {
@@ -60,14 +72,35 @@ export class NetworkDomain {
     return type.split(';')[0]!.trim().toLowerCase()
   }
 
+  static base64(bytes: Uint8Array): string {
+    let binary = ''
+    for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
+    return btoa(binary)
+  }
+
   #emit(method: string, params: Record<string, unknown>): void {
     this.page.emit('Network', method, params)
   }
 
+  #live(id: number): Open | null {
+    if (!this.page.listening('Network')) {
+      this.#open.clear()
+      return null
+    }
+    return this.#open.get(id) ?? null
+  }
+
   #start(id: number, kind: RequestKind, method: string, url: string, headers: NetworkHeaders, body: Uint8Array | null): void {
+    if (!this.page.listening('Network')) return
     const type = TYPES[kind]
-    if (!type) return
-    this.#open.set(id, { type, url, mimeType: '', chunks: [], size: 0 })
+    const streamed = kind === 'websocket' || kind === 'eventsource'
+    this.#open.set(id, { kind, type, url, mimeType: '', chunks: [], size: 0, keep: !streamed })
+    if (kind === 'websocket') {
+      this.#emit('webSocketCreated', { requestId: String(id), url, initiator: { type: 'script' } })
+      const request = { headers: NetworkDomain.headers(headers) }
+      this.#emit('webSocketWillSendHandshakeRequest', { requestId: String(id), timestamp: this.clock(), wallTime: Date.now() / 1000, request })
+      return
+    }
     const request: Record<string, unknown> = {
       url,
       method,
@@ -94,9 +127,13 @@ export class NetworkDomain {
   }
 
   #response(id: number, status: number, statusText: string, headers: NetworkHeaders): void {
-    const open = this.#open.get(id)
+    const open = this.#live(id)
     if (!open) return
     open.mimeType = NetworkDomain.mimeType(headers)
+    if (open.kind === 'websocket') {
+      const response = { status, statusText, headers: NetworkDomain.headers(headers) }
+      return this.#emit('webSocketHandshakeResponseReceived', { requestId: String(id), timestamp: this.clock(), response })
+    }
     this.#emit('responseReceived', {
       requestId: String(id),
       loaderId: this.page.frameId,
@@ -120,28 +157,52 @@ export class NetworkDomain {
   }
 
   #data(id: number, chunk: Uint8Array): void {
-    const open = this.#open.get(id)
-    if (!open) return
-    if (open.size + chunk.length <= this.limit) open.chunks.push(chunk.slice())
+    const open = this.#live(id)
+    if (!open || open.kind === 'websocket') return
     open.size += chunk.length
+    if (open.keep && open.size <= this.limit) open.chunks.push(chunk.slice())
+    else {
+      open.keep = false
+      open.chunks = []
+    }
     this.#emit('dataReceived', { requestId: String(id), timestamp: this.clock(), dataLength: chunk.length, encodedDataLength: chunk.length })
   }
 
   #end(id: number, bytes: number): void {
-    const open = this.#open.get(id)
+    const open = this.#live(id)
     if (!open) return
     this.#open.delete(id)
-    if (open.size <= this.limit) this.#keep(String(id), open)
+    if (open.kind === 'websocket') return this.#emit('webSocketClosed', { requestId: String(id), timestamp: this.clock() })
+    if (open.keep) this.#keep(String(id), open)
     this.#emit('loadingFinished', { requestId: String(id), timestamp: this.clock(), encodedDataLength: bytes })
   }
 
   #error(id: number, message: string): void {
-    const open = this.#open.get(id)
+    const open = this.#live(id)
     if (!open) return
     this.#open.delete(id)
+    if (open.kind === 'websocket') {
+      this.#emit('webSocketFrameError', { requestId: String(id), timestamp: this.clock(), errorMessage: message })
+      return this.#emit('webSocketClosed', { requestId: String(id), timestamp: this.clock() })
+    }
     const failed: Record<string, unknown> = { requestId: String(id), timestamp: this.clock(), type: open.type, errorText: message }
     if (message === 'aborted') failed['canceled'] = true
+    if (message === NO_NETWORK) failed['blockedReason'] = 'other'
     this.#emit('loadingFailed', failed)
+  }
+
+  #frame(id: number, sent: boolean, data: string | Uint8Array): void {
+    const open = this.#live(id)
+    if (!open || open.kind !== 'websocket') return
+    const text = typeof data === 'string'
+    const response = { opcode: text ? 1 : 2, mask: sent, payloadData: text ? data : NetworkDomain.base64(data) }
+    this.#emit(sent ? 'webSocketFrameSent' : 'webSocketFrameReceived', { requestId: String(id), timestamp: this.clock(), response })
+  }
+
+  #message(id: number, event: string, data: string, lastId: string): void {
+    const open = this.#live(id)
+    if (!open || open.kind !== 'eventsource') return
+    this.#emit('eventSourceMessageReceived', { requestId: String(id), timestamp: this.clock(), eventName: event, eventId: lastId, data })
   }
 
   #keep(id: string, open: Open): void {
@@ -168,8 +229,6 @@ export class NetworkDomain {
         return { body: new TextDecoder('utf-8', { fatal: true }).decode(kept.body), base64Encoded: false }
       } catch {}
     }
-    let binary = ''
-    for (let at = 0; at < kept.body.length; at += 0x8000) binary += String.fromCharCode(...kept.body.subarray(at, at + 0x8000))
-    return { body: btoa(binary), base64Encoded: true }
+    return { body: NetworkDomain.base64(kept.body), base64Encoded: true }
   }
 }

@@ -42,6 +42,8 @@ export interface NetworkObserver {
   data(id: number, chunk: Uint8Array): void
   end(id: number, bytes: number): void
   error(id: number, message: string): void
+  frame?(id: number, sent: boolean, data: string | Uint8Array): void
+  message?(id: number, event: string, data: string, lastId: string): void
 }
 
 export interface Observer {
@@ -97,6 +99,14 @@ export class Tracked {
     return tracked
   }
 
+  static network(kind: RequestKind, method: string, url: string, headers: Iterable<readonly [string, string]> = []): Tracked | null {
+    const network = observer?.network?.recording() ? observer.network : null
+    if (!network) return null
+    const tracked = new Tracked(() => {}, network)
+    network.start(tracked.id, kind, method, url, [...headers], null)
+    return tracked
+  }
+
   response(status: number, statusText: string, headers: NetworkHeaders = []): void {
     if (this.#done) return
     this.sink({ phase: 'response', id: this.id, status, statusText })
@@ -106,6 +116,14 @@ export class Tracked {
   received(bytes: number, data?: Uint8Array): void {
     this.#received += bytes
     if (data && !this.#done) this.network?.data(this.id, data)
+  }
+
+  frame(sent: boolean, data: string | Uint8Array): void {
+    if (!this.#done) this.network?.frame?.(this.id, sent, data)
+  }
+
+  message(event: string, data: string, lastId: string): void {
+    if (!this.#done) this.network?.message?.(this.id, event, data, lastId)
   }
 
   end(bytes = this.#received): void {

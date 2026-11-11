@@ -94,6 +94,7 @@ import { adoptTimers } from './core/timers'
 export { hostTime, type ClockRequest, type ClockState } from './core/clock'
 export type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
+export { NO_NETWORK } from './core/net'
 export {
   observe,
   type ConsoleLevel,
