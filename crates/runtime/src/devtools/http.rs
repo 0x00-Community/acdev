@@ -401,7 +401,11 @@ mod tests {
         let list: Value = serde_json::from_str(tool.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         let socket = format!("127.0.0.1:{port}/devtools/page/alpha%237");
         assert_eq!(list[0]["webSocketDebuggerUrl"], format!("ws://{socket}"));
-        assert_eq!(list[0]["devtoolsFrontendUrl"], format!("devtools://devtools/bundled/inspector.html?ws={}", encode(&socket)));
+        let frontend = list[0]["devtoolsFrontendUrl"].as_str().unwrap();
+        assert_eq!(frontend, format!("devtools://devtools/bundled/inspector.html?ws={}", encode(&socket)));
+        let ws = decode(frontend.split_once("?ws=").unwrap().1).unwrap();
+        assert_eq!(ws, socket);
+        assert!(ws.ends_with("/devtools/page/alpha%237"), "the page id stays encoded after one decoding: {ws}");
         let mut opened = TcpStream::connect(address).unwrap();
         let head = format!("GET /devtools/page/alpha%237 HTTP/1.1\r\n{host}{upgrade}Origin: devtools://devtools\r\n\r\n");
         opened.write_all(head.as_bytes()).unwrap();
