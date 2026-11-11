@@ -11,8 +11,8 @@ use smithay::reexports::calloop::ping::Ping;
 use smithay::reexports::gbm;
 use smithay::utils::{DeviceFd, Rectangle};
 
-use crate::plane::{Part, Pixels, Rect, Sheet};
-use crate::raster::{Done, Job, Lost, Pass, Raster, Ready};
+use super::plane::{Part, Pixels, Rect, Sheet};
+use super::raster::{Done, Job, Lost, Pass, Raster, Ready};
 
 const FORMAT: Fourcc = Fourcc::Abgr8888;
 const PAD: u32 = 64;
@@ -130,7 +130,7 @@ impl Painter {
             targets: HashMap::new(),
             inflight: None,
             generation: 0,
-            full: std::env::var_os("ACDE_PAGE_FULL").is_some(),
+            full: acde_driver::Var::PageFull.is_set(),
             dropped: false,
             frames: 0,
         })
@@ -256,7 +256,7 @@ impl Painter {
         self.dropped = true;
     }
 
-    pub fn icon(&mut self, scene: acde_render::acgpu::Scene, (w, h): (u32, u32)) -> Result<Dmabuf, String> {
+    pub fn icon(&mut self, scene: crate::acgpu::Scene, (w, h): (u32, u32)) -> Result<Dmabuf, String> {
         if self.failed() {
             return Err("网页图层不可用".to_string());
         }

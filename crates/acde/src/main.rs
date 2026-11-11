@@ -51,10 +51,6 @@ mod wire;
 #[cfg(target_os = "linux")]
 mod kernel;
 
-#[cfg(target_os = "linux")]
-#[global_allocator]
-static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
 /// The session's display: its own Wayland socket. Inside another desktop (WAYLAND_DISPLAY set) acde shows itself in
 /// a window of that desktop (the nested backend), which is told the host's display as `ACDE_HOST_DISPLAY`.
 fn session_env() {

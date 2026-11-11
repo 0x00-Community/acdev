@@ -35,7 +35,7 @@ acde = Agent Computer Desktop Environment. Dopame 的桌面基座, 替换 KDE Pl
 只会说 X11 的程序 (Java AWT、默认走 X11 的 LWJGL 游戏、xeyes 一类) 跑不了.
 
 acde-base 只是平台: 合成器, 渲染, 系统接口, host 和登录页. 具体的桌面 (页面, 应用, 它们要的服务) 由桌面包提供,
-例如 [acde-dopame](https://github.com/dopame-org/acde-dopame). 登录时选哪个桌面, 见下面「桌面包」.
+例如 [acde-dopame](http://gitea.dopamine/AC/acde-dopame). 登录时选哪个桌面, 见下面「桌面包」.
 
 本文件是仓库里唯一的说明, 子目录不放 AGENTS.md; 各子目录的说明在下面按路径命名的章节里. 过时的测量记录不留, 要看翻 git 历史.
 
@@ -80,11 +80,11 @@ JS 线程 `acde-desktop` / `acde-window`, 栈 8 MiB, 自己的 V8 isolate 和事
   它的分配器 (`v8::new_rust_allocator`, 按字节记账), render 文档里图片占的字节每秒对一次账. 超了: 这次分配失败 (页面里是
   RangeError, 和浏览器一样), isolate 随即结束, 原因 `memory` (桌面收到 `windowcrash {reason: 'memory'}`; 桌面自己的按「生命周期」重起).
   WebGPU 的 GPU 缓冲还没记进来.
-- 里面是 crates/render 的文档、crates/paint (光栅化线程 `acde-raster`: 交给 acgpu 的 `PageRaster`, 缺省是它的 Vulkan 回退画,
+- 里面是 crates/render 的文档、crates/render `paint` (光栅化线程 `acde-raster`: 交给 acgpu 的 `PageRaster`, 缺省是它的 Vulkan 回退画,
   `ACDE_PAGES=xe3` 时 Intel Xe3 上它自己的驱动先画 —— vello 画、filter / drop-shadow / backdrop 合成都在 acgpu 里) 和 crates/window
   (Wayland 客户端: xdg_toplevel + linux-dmabuf + `acde_window`, 输入 / 剪贴板 / 拖放 / frame). 光栅化线程 panic 时置 `Lost`, 这个 isolate
   下次取事件时以 134 (`panic`) 结束 —— 不退出进程. 它死掉只掉它的窗口.
-- ⚠ 已知 (渲染侧, 未修): crates/paint 的 `Gpu` 是进程全局的 (`OnceLock`), 第一条光栅化线程的设备; 之后每条光栅化线程又各开一个
+- ⚠ 已知 (渲染侧, 未修): crates/render `paint` 的 `Gpu` 是进程全局的 (`OnceLock`), 第一条光栅化线程的设备; 之后每条光栅化线程又各开一个
   Vulkan 设备, 图片缓存却拿全局那份. 一个 isolate 结束再起 (桌面重起) 后新的光栅化线程在 wgpu 里 panic (`Cannot get TextureId`,
   `wgpu error`), 桌面反复重起到 3 次为止、会话结束. 2026-11-04 用超限的 ArrayBuffer 让桌面重起时复现.
 
@@ -355,7 +355,7 @@ pub enum Effect {
   被盖住的损伤也不报. shell 只把 `layers` 里的窗口交给呈现层 (popup、layer-shell 的 surface 不进计划, 照旧画).
 - backdrop: 只有它**下面**的窗口的损伤 (或 `gone`) 碰到 backdrop 区域时 `redraw` 才为真, 整块进 damage; 窗口自己的内容变了
   不重新模糊. 呈现层 (shell `effects.rs`, GLES): 把下面的渲染元素画进一块离屏纹理 (区域外扩模糊半径), 双 Kawase
-  降采样 / 升采样 (层数同 crates/paint: `ceil(log2(blur / 2))`, 1..5), 再用圆角遮罩 + 饱和度 + 亮度的着色器画在窗口下面;
+  降采样 / 升采样 (层数同 crates/render `paint`: `ceil(log2(blur / 2))`, 1..5), 再用圆角遮罩 + 饱和度 + 亮度的着色器画在窗口下面;
   结果按窗口缓存, `redraw` 为假且参数没变时直接用. 着色器编不出来时 backdrop 不处理 (降级), 不出错. 每次模糊打一行
   `perf::compose backdrop`.
 - `Route::Direct` 只在一种情况给: 只剩一层、铺满 canvas、opaque 区域盖满、没有 effect、opacity = 1、look 是单位阵、元素有
@@ -972,7 +972,7 @@ JS 侧 `isolate.ts` 的 `devicesModule` 加上 `on`. 类型 acde-api `AcdeDevice
 每个桌面 / 窗口 isolate (runtime 里的一条线程 + isolate) 有自己的 DOM、CSS、JS 堆、render 文档 (线程) 和合成器 surface; 相互之间、和系统之间只通过 `acde`
 调用, 由 Broker 按应用清单检查.
 
-- **渲染**: 每个桌面 / 窗口 isolate 是一个进程, 一个 xdg_toplevel. 它自己光栅化 (crates/paint, 三块轮转的 GBM 画布), 画完经
+- **渲染**: 每个桌面 / 窗口 isolate 是一个进程, 一个 xdg_toplevel. 它自己光栅化 (crates/render `paint`, 三块轮转的 GBM 画布), 画完经
   linux-dmabuf 交给合成器, 合成器和别的客户端的窗口一样合成. 所有窗口的 id 同一个空间 (桌面 0, 应用窗口从 `1<<20` 起, Broker 发).
   桌面是 canvas 里 z 最低的 `fullscreen` 窗口; 别的 应用窗口先是居中的 `free` 窗口 (尺寸是清单的 `size`, 默认 800x600, 不超过屏幕), 叠放以窗口表为准.
 - **输入**: 标准 Wayland: 合成器按窗口表的 z 找到指针下的窗口发 wl_pointer / wl_keyboard, isolate (crates/window) 转成
@@ -1008,7 +1008,7 @@ JS 侧 `isolate.ts` 的 `devicesModule` 加上 `on`. 类型 acde-api `AcdeDevice
   `margin`, 并上 render 报的实际绘制范围, 裁到屏幕), 找 Broker 要令牌 (`panel.open(rect)` → 合成器的 `grant({mode: 'pinned', rect})`,
   只有桌面能调), 同一个 isolate的 Wayland 连接再开一个 toplevel (crates/window `panel.rs`, `surface.openPanel`), 再告诉 render
   这个元素是面板 (`Dom::set_panel`). render 照常录整页, 展开片段时跳过面板元素的引用 (blitz-paint `flatten`), 把它单独展开平移到
-  面板原点, 帧里多一个 `Panel {id, size, plane, extent}`; 同一个光栅化任务把主窗口和各面板画进各自的画布 (crates/paint `Painter`
+  面板原点, 帧里多一个 `Panel {id, size, plane, extent}`; 同一个光栅化任务把主窗口和各面板画进各自的画布 (crates/render `paint` `Painter`
   按 plane 分画布). 主窗口里那块变成「挪走了」, 损伤照常算. 面板的输入区域只是元素自己的盒子 (`wl_surface.set_input_region`),
   面板矩形里其余透明的地方点下去落到下面的窗口; 指针坐标加上面板原点送回同一个文档. 几个 surface 合起来算激活: 主窗口或任一面板
   有焦点就是 `activate` (点菜单栏不让页面 `blur`, 点到应用窗口才 `blur`). 元素挪了、改了大小或 `hidden` / `style` / `class`
@@ -1201,15 +1201,15 @@ acde-base 自己是运行时 (像 wrangler 之于 Workers): 工具是 acde 的�
   scene 按它们切成的段 (从下到上), 为空时直接画 scene. 每段 Layer {scene, bounds, backdrop, filter}:
   有 backdrop 时, 光栅化方先把画布上 backdrop.bounds (圆角 radius(), 再和 clip 求交) 里已画好的内容按 blur() / saturate() / brightness()
   处理, 再画这一段; 有 filter 时, 这一段先画进临时纹理, 做滤镜后再合成. 坐标都是物理像素.
-  (`crates/paint` 现状: backdrop 的 blur / saturate / brightness, filter 的 drop-shadow、模糊和颜色矩阵在 GPU 上做; 其他滤镜效果忽略,
+  (`crates/render `paint`` 现状: backdrop 的 blur / saturate / brightness, filter 的 drop-shadow、模糊和颜色矩阵在 GPU 上做; 其他滤镜效果忽略,
   照常画.)
 - `Dom::capture(id, scale)`: 单独录一个元素的子树 (拖动图标), 返回画出来的内容的包围盒 (x/y/width/height, CSS px)、
   pixel_width/pixel_height、实际缩放 scale 和放好位置的 `scene` (像素坐标, 不光栅化); 不带祖先的 transform/opacity/裁剪, 单边超过
   2048 像素时缩小, 什么都没画时返回 None. JS 拿到的是 `picture` 编号 (crates/acde `dom.rs` `keep_picture` / `take_picture`, 每个桌面 / 窗口 isolate 只留最后一个),
-  `startDrag` 的图标带它时 桌面 / 窗口 isolate 的光栅化线程把这个 scene 画进一块 GBM dmabuf (crates/paint `Painter::icon`), 经 linux-dmabuf
+  `startDrag` 的图标带它时 桌面 / 窗口 isolate 的光栅化线程把这个 scene 画进一块 GBM dmabuf (crates/render `paint` `Painter::icon`), 经 linux-dmabuf
   交给合成器当拖动图标; 不带 `picture` 时用 `rgba` (Dopame 自己画的文件图标, 当图片画进 dmabuf). `Capture::pixels()` 在 GPU 上画完
   读回, 只给测试用.
-- canvas 2D 要像素的地方都在 GPU 上 (render `gpu.rs`): 用 isolate光栅化线程的同一个 wgpu 设备 (crates/paint 发布 `Gpu` 时
+- canvas 2D 要像素的地方都在 GPU 上 (render `gpu.rs`): 用 isolate光栅化线程的同一个 wgpu 设备 (crates/render `paint` 发布 `Gpu` 时
   `gpu::install`; 光栅化线程起来之前 `gpu::expect`, 之后要设备的调用最多等 10 秒; 两样都没有时 (测试) 自己开一个非 CPU 的设备),
   在上面跑一个离屏的 vello (`Mutex` 里, 头一次用时建). flatten (命令超过上限)、canvas 当图片源 (drawImage / createPattern) 画进一张
   纹理 (`CanvasImage`, 和 WebGPU canvas 同一个类型), scene 里引用它, 光栅化线程按 blob id 把它换成那张纹理 (`Overrides`), 不读回;
@@ -1309,7 +1309,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
   每个 surface 有 pre-commit 钩子 (`handlers.rs` `block_until_ready`): 客户端给了 syncobj 的 acquire point 就等它, 否则等
   dmabuf 的读 fence, 客户端的帧画完才生效. 现状的缺口: wp_presentation 的时间是处理 vblank 事件时的 `now`, 不是硬件时间戳;
   没有 tearing-control 和 VRR.
-- 网页图层: 在 isolate里, Blitz 由 vello 在 GPU (wgpu, Vulkan) 上画进画布 (crates/paint, 光栅化线程 `acde-raster`). 画布是 isolate
+- 网页图层: 在 isolate里, Blitz 由 vello 在 GPU (wgpu, Vulkan) 上画进画布 (crates/render `paint`, 光栅化线程 `acde-raster`). 画布是 isolate
   进程自己 GBM 分配的 dmabuf (linear), 经 linux-dmabuf 交给合成器 (viewporter 裁掉对齐用的边, 也做分数缩放), Vulkan 信号量
   导出的 sync_file 落定后才 commit; 合成器还拿着的画布不画; 不经 CPU. 只重画脏区域, 页面没变化时不重画. 选中的设备写在日志 (`网页图层用 ...`).
 - 光栅化调度: 每个 isolate一条光栅化线程 (`acde-raster`), 一次一帧: 上一帧交出去 (sync_file) 之前不开始下一帧, 编码前只等
@@ -1322,7 +1322,7 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
   `stats(reset?)` (resolve、出帧、`frameLocked` 只算出帧里 paint 那段); `drive.sh perf` 用它们和各线程的 CPU 量一段操作.
   提交里写测到的数.
 - 网页里的 WebGPU (`navigator.gpu`, `<canvas>` 的 `webgpu` 上下文): acde-dom `src/gpu/` 经 `GpuNative` 调 crates/acde `webgpu/`,
-  跑在这个 isolate光栅化线程的那个 wgpu 设备上 (crates/paint `gpu.rs`, 提交都经 `Gpu::submit`). canvas 纹理光栅化线程直接当
+  跑在这个 isolate光栅化线程的那个 wgpu 设备上 (crates/render `paint` `gpu.rs`, 提交都经 `Gpu::submit`). canvas 纹理光栅化线程直接当
   图片画, 不经 CPU; 每个任务结束时 present. 一个 GPUDevice 只是错误和 `destroy()` 的范围. 网页图层不可用时页面拿不到 adapter.
   map 和 `onSubmittedWorkDone` 的回调由 `acde-gpu-poll` 线程非阻塞地轮询 (有在等的回调时, 队列没空 0.5 ms 一次, 空了 4 ms 一次):
   wgpu 的 `poll(Wait)` 等 GPU 的整段时间都拿着设备的 snatch 读锁, 这时有线程要销毁资源 (拿写锁), 别的线程的提交、建视图、
@@ -1367,12 +1367,12 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 | 路径 | 语言 | 职责 |
 | --- | --- | --- |
 | `crates/shell` | Rust | 合成器与系统交互 |
-| `crates/render` | Rust | Blitz 原生网页渲染 |
+| `crates/render` | Rust | 渲染、绘制、光栅化: Blitz 原生网页渲染; `paint` 模块是桌面 / 窗口 isolate 的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 canvas 共用 acgpu 打开的 wgpu 设备 (原 crates/paint); `remote` 模块是远程连接 (RDP) |
 | `crates/runtime` | Rust | 系统接口的 napi 导出. 异步执行器 `src/rt.rs`: 线程 `acde-rt` 上一个 ntex System (运行时 ntex 自己选: io_uring, 不行用 polling), 也是 napi 的 `async-runtime` 后端, 阻塞活进它的线程池; HTTP / WebSocket 用 ntex, TLS 用 OpenSSL, 不用 tokio; 唯一起的子进程是终端的 shell (`std::process`, 一条 `terminal-<pid>` 线程用 pidfd 等它). 检查在 `tests/`, 用编好的 acde 跑 (`acde run`, 不要 Node): `tests/run.sh <acde> tests/<x>-check.mjs` (fs-copyin、terminal), 输入法 `tests/ime-check.sh` (在私有 D-Bus 和 fcitx5 上跑 `src/ime.rs` 里 ignored 的 Rust 测试; `Ime` 不是 napi 导出, 只由 crates/acde `surface.rs` 绑给 isolate), `tests/portal-check.sh <acde>`; 临时目录在 `$ACDE_CHECK_TMP` (默认 `$TMPDIR`) |
 | `crates/acde` | Rust | `acde` 可执行文件: 内嵌 V8, 每个 isolate 的事件循环, 模块加载, isolate 线程 (`spawnIsolate`), 把 render 的文档绑给 JS (见「宿主: crates/acde」) |
-| `crates/paint` | Rust | `acde-paint`: 桌面 / 窗口 isolate 的光栅化线程 (render 的帧 → GBM dmabuf, 画和合成交给 acgpu; 拖动图标), WebGPU 和 render 的 canvas 共用 acgpu 打开的 wgpu 设备 |
 | `crates/window` | Rust | `acde-window`: 桌面 / 窗口 isolate 的 Wayland 客户端 (sctk): toplevel、linux-dmabuf、输入 → shell 事件、剪贴板、拖放、frame、`acde_window` |
 | `crates/model` | Rust | canvas / 窗口表、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 (`protocol/acde-window.xml`、`protocol/acde-shell.xml`) |
+| `crates/driver` | Rust | `acde-driver`: 系统层调用的封装, 系统状态只在这里读: 环境变量 (`Var` 枚举, 读出来就转成 `Backend` / `Size` 等类型)、XDG 配置文件 (`Config`, 先写 `.tmp` 再改名)、`/dev/dri` 渲染节点 (`Dri`)、sysfs 的 EDID (`Connector`)、fd 的等待 / 管道 / 继承的 socket (`Fd`)、会话环境的导出和清除 (`SessionEnv`). render / shell / window 经它, 不直接读环境变量、不直接用 rustix |
 | `crates/log` | Rust | `acde-log`: 日志 (env_logger, 在自己的线程上写 stderr) 和全链路计时, 见「日志和计时」 |
 | `crates/jsrt` | Rust | `acde-jsrt` (lib `jsrt`, 只在 Linux 上): ackernel `/dev/jsrt` 的进程这一端, 见「内核态 JS (分支 jsrt)」 |
 | `crates/acde-napi` | Rust | 用 rusty_v8 实现的 Node-API C 接口 (napi8), 让 runtime / shell 的 `#[napi]` 导出在 Broker 里可用. 改自 Deno `ext/napi` (deno_napi 0.191.0, MIT, 见 LICENSE-MIT): 任务派发换成嵌入方的, 去掉了旧式模块注册、async_hooks、callback scope、napi9+ 和 runtime / shell 链接不到的入口 (删掉后 `cargo build -p acde` 照样链接成功的那些: Date、DataView、TypedArray、escapable handle scope、new_target、freeze / seal、detach、async cleanup hook、symbol、instanceof 等); cleanup hook 只检查参数, 不存 (Env 不析构, 本来就不会跑); 每个 async work 起一条 `acde-napi-work` 线程 (只有 shell 的 screenshot 用); `open` 把一个模块的导出注册进一个 context |
@@ -1416,7 +1416,7 @@ JS 里 `console.*` 是 target `js`, 页面错误和没接住的异常是 `js` �
 | `perf::latency` | crates/window (isolate, 这一帧的 frame 回调时) | 一次输入到上屏: `<pointerdown/pointerup/keydown/wheel/scroll> owner=<surface> ms=<总>`, 分段 `queue` (进队列到 JS 取走) `js` (到 commit) `render` (到 render 出帧) `raster` (到光栅化做完) `present` (到 vblank) |
 | `perf::task` | crates/acde | 事件循环里超过 8ms 的任务: `task ms= hook=` (hook: 任务后的钩子, 提交文档、flush canvas), V8 自己的任务 `v8` |
 | `perf::frame` | render | 每帧: `<isolate> commit= resolve= paint= finish= ms=` |
-| `perf::raster` | crates/paint、crates/window (isolate) | 光栅化任务 `job surfaces= wait= record= ms=` (ms 是交给 GPU 之前), 每个 surface 从发出到做完 `surface owner= ms=` |
+| `perf::raster` | crates/render `paint`、crates/window (isolate) | 光栅化任务 `job surfaces= wait= record= ms=` (ms 是交给 GPU 之前), 每个 surface 从发出到做完 `surface owner= ms=` |
 | `perf::compose` | shell | 合成一帧: `<输出> elements= ms=`, RDP 的含读回 `rdp elements= rects= ms=`; 计划 `plan inputs= layers= damage= route=`; 一次 backdrop 模糊 `backdrop window= w= h= blur= ms=` (CPU 侧, 含画下面的元素) |
 | `perf::rpc` | acde-host | isolate 侧 `call <服务>.<方法> error= ms=` (往返), Broker 侧 `serve <服务>.<方法> ms=` (处理) |
 
@@ -1436,18 +1436,19 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个桌
 
 ## vendors
 
-- **依赖的来源**: crates.io、这里的 `vendors/`, 和唯一的 git 依赖 acgpu (见下, 构建要能拉到 `github.com/dopame-org/acgpu`).
-  别的不在 crates.io 上的依赖拷进这里, 不用 git 依赖. 访问 crates.io 慢的机器在自己的 `$CARGO_HOME/config.toml` 里换镜像 (不进仓库), 国内用 rsproxy:
+- **依赖的来源**: crates.io、这里的 `vendors/`, 和路径依赖 acgpu (见下). 不用任何 git 依赖, 构建不访问 GitHub.
+  别的不在 crates.io 上的依赖拷进这里. 访问 crates.io 慢的机器在自己的 `$CARGO_HOME/config.toml` 里换镜像 (不进仓库), 国内用 rsproxy:
   `[source.crates-io] replace-with = "rsproxy-sparse"` 加 `[source.rsproxy-sparse] registry = "sparse+https://rsproxy.cn/index/"`;
   bun 用 `BUN_CONFIG_REGISTRY=https://registry.npmmirror.com`.
 - 都是直接放在本仓库里的源码 (没有 submodule, 不带上游历史): 直接在这里改, 改动处加 `acrender:` (ironrdp-server 是 `acde:`)
   注释, 下面的表同步更新; 升级上游时把这些改动重新打上去. 有 `Cargo.toml` 的末尾加了空的 `[workspace]`, 根 `Cargo.toml` 用
   `[patch.crates-io]` 替换上游 (crate 名不改).
 - **acgpu 是依赖, 不进本仓库** (用户定, 2026-11-02 / 11-03): 我们自己的 GPU 用户态驱动 acgpu (dopame-org/acgpu) 是独立仓库, 这里
-  不放它的拷贝 (没有 `vendors/acgpu`), 以 Rust crate 依赖它: git 依赖仓库根的 `acgpu` 包, 钉 rev (crates/render 和
-  vendors/acrender 的 Cargo.toml). 网页图层画进 acgpu 的 2D 场景 (`acgpu::PaintScene` / `Scene` / `RenderCommand` / `Filter`):
+  不放它的拷贝 (没有 `vendors/acgpu`), 以 Rust crate 依赖它: 路径依赖, 和本仓库并排检出的 `../acgpu` 仓库根的 `acgpu` 包 (crates/render 和
+  vendors/acrender 的 Cargo.toml 都是 `path`), 用的就是那份检出当前的代码. acgpu 工作区里的 `[patch]` 在这里不生效, 它的
+  mlirformat / mlirpass 走 crates.io; mlirformat 的 `std` 把 jemalloc 装成全局分配器, 所以 acde 自己不再装. 网页图层画进 acgpu 的 2D 场景 (`acgpu::PaintScene` / `Scene` / `RenderCommand` / `Filter`):
   blitz-paint 和 crates/render 直接画进它, 没有 anyrender 这一层 (已删; 它画 SVG 的 anyrender_svg 搬成了 blitz-paint 的 `svg.rs`).
-  画出来是 acgpu 的事, 回退也归 acgpu: crates/paint 把帧交给 `acgpu::PageRaster` (feature `xe3` + `fallback-vulkan`). 缺省网页图层全走
+  画出来是 acgpu 的事, 回退也归 acgpu: crates/render 的 `paint` 把帧交给 `acgpu::PageRaster` (feature `xe3` + `fallback-vulkan`). 缺省网页图层全走
   Vulkan 回退 `acgpu::fallback`; `ACDE_PAGES=xe3` 时光栅化线程打开 Xe3 (`Xe::open_first()`, 画布最大 3840x2160), 每个窗口的 pass 能在 Xe3 上画就由
   acgpu 自己的 Xe3 驱动画, 画不了的 (`perf::raster` 的 `xe3 refused: …`) 归回退; 一帧一个 sync_file. Xe3 读的 GPU 图片要能导出成 dma-buf, 所以只有
   打开时 render 的共享设备才是 `Shared::exporting`、WebGPU canvas 的纹理才用 `Exported::with_usage` (有额外 view format 时不导出); 线性的可导出
@@ -1455,7 +1456,7 @@ JS 的热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate (Broker 和每个桌
   一半在 CPU 上: 场景回放进 vello_cpu、粗光栅、打包). Xe3 画的和 vello_cpu 逐位相同是验收: crates/render 的 `tests/xe3.rs` (SVG 夹具) 和
   `tests/replay.rs` 的 `recorded_pages_on_xe3_match_vello_cpu` (录下的桌面页), 没有 Xe3 的机器上跳过. 整页的光栅和合成 (vello 渲染、
   图层的滤镜 / 投影 / 毛玻璃、dma-buf 画布导入、sync_file) 在回退里是 `acgpu::fallback` 的 `Raster` / `Composer` / `Device`;
-  crates/paint 只剩线程、GBM 画布分配、损伤和区域、把 render 的帧拆成 `Part` (`plane.rs` 实现 acgpu 的 `Content`),
+  crates/render `paint` 只剩线程、GBM 画布分配、损伤和区域、把 render 的帧拆成 `Part` (`plane.rs` 实现 acgpu 的 `Content`),
   canvas / WebGPU 纹理当场景里的图片是 acgpu 的 `GpuImage` (render 里叫 `CanvasImage`), `Overrides` 也是 acgpu 的. canvas 2D 的
   离屏光栅 (画、读回、写入、阴影) 是 acgpu 的 `Offscreen`; render `gpu.rs` 只剩共享设备的全局入口和几个转发函数.
   改 acgpu 的场景接口就是改 acde 的接口: 先在 acgpu 提交推送, 再在这里改 rev.
@@ -1600,7 +1601,7 @@ benches / examples, 换成空的 `[workspace]`). 源码未改. Blitz 换了 taff
 
 ### vendors/ironrdp-server
 
-RDP 后端 (crates/shell `compositor/rdp.rs`) 的服务端: 握手、TLS / NLA (CredSSP, NTLM)、位图编码、键鼠. 上游跑在 tokio 上 (还经
+RDP 后端 (crates/render 的 remote, 合成器侧是 crates/shell `compositor/rdp.rs`) 的服务端: 握手、TLS / NLA (CredSSP, NTLM)、位图编码、键鼠. 上游跑在 tokio 上 (还经
 ironrdp-tokio 带进 reqwest), 这里改成跑在 ntex 上 (运行时 ntex 自己选), TLS 用 ntex-tls 的 OpenSSL filter; 其余 IronRDP crate
 仍用 crates.io 的. 改动处 grep `acde:`: `src/transport.rs` (新: ntex 版的 FramedRead / FramedWrite、TLS 握手、std 监听 +
 `ironrdp-accept` 线程), `src/server.rs`, `src/helper.rs` (OpenSSL 读证书、建 acceptor、`SSLKEYLOGFILE`), `src/encoder/fast_path.rs`
@@ -1610,7 +1611,7 @@ ironrdp-tokio 带进 reqwest), 这里改成跑在 ntex 上 (运行时 ntex 自�
 收 ntex 的 `Io`; `RdpServer::run` 要在 ntex System 里跑; TLS 握手 5 秒超时; 不支持 Kerberos (只用 NTLM).
 
 验证: `cd vendors/ironrdp-server && cargo clippy --all-targets --all-features` (跑完删掉生成的 `Cargo.lock`), Linux 上
-`cargo clippy --release -p ironrdp-server --all-targets` 和 `-p acde-shell`; 再用 RDP 后端起整个会话, FreeRDP (`xfreerdp3 /cert:ignore`,
+`cargo clippy --release -p ironrdp-server --all-targets` 和 `-p acde-render`、`-p acde-shell`; 再用 RDP 后端起整个会话, FreeRDP (`xfreerdp3 /cert:ignore`,
 无显示时放在 Xvfb 里) 分别以 `ACDE_RDP_SECURITY=tls` 和 `nla` 连上: 出帧、键鼠到桌面、错的密码被拒之后对的照样能连、断开再连.
 
 ## crates/render
@@ -1634,6 +1635,20 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
   (CodeMirror)、关掉 (旧版 panic 的那一批); `open-browser`: 开机进桌面、从 Dock 打开浏览器. 测试里写死的节点 id 是录制时分配的.
 - `svg/*.svg`: os-v2 运行时 DOM 里所有不同的 `<svg>`, 给 "简单 SVG 跳过 usvg" 做逐像素对比. 是页面 DOM 的原样, 不带页面 CSS
   (render 实际拿到的是带计算样式序列化后的内容), 只当结构参考.
+
+## crates/render 的 remote (RDP)
+
+`crates/render/src/remote`: 远程连接的设定和服务端 (现在只有 RDP), 类型带 `Rdp` 前缀 (`RdpSettings` / `RdpInput` / `RdpEvent` / `RdpUpdates` / `RdpBitmap`); 合成器侧 (crates/shell `compositor/rdp.rs`) 还没切过来.
+
+- `RdpSettings::from_env()` (经 crates/driver 读): 一次读完 `ACDE_RDP_USER` / `ACDE_RDP_PASSWORD` (都要有)、`ACDE_RDP_CERT` / `ACDE_RDP_KEY` (默认
+  `$XDG_CONFIG_HOME/agentos/rdp/{cert,key}.pem`)、`ACDE_RDP_ADDR` (`0.0.0.0:3390`)、`ACDE_RDP_SECURITY` (`Security::Tls` / `Nla`, 别的值报错)、
+  `ACDE_SIZE` (`宽x高`, 默认 1440x900). 合成器用 `width` / `height` 建离屏纹理和输出, 所以设定错了在建 GLES 之前就失败.
+- `settings.serve(updates, notify)`: 起 `acde-rdp` 线程, 在上面跑一个 ntex System 和 ironrdp 的 `RdpServer`. `notify` 是
+  `Arc<dyn Fn(Event) + Send + Sync>`, 在服务端线程上调: `RdpEvent::Full` (客户端连上, 要整屏) 和 `RdpEvent::Input(RdpInput)`.
+- `RdpInput`: 中立的键鼠事件. 键是 evdev 码 (RDP 扫描码在这里换, 扩展码查表), 按钮是 evdev `BTN_*`, 绝对坐标夹在桌面尺寸里,
+  `Wheel` 的单位是格 (RDP 的 120 一格, 向下为正); crates/shell 的 `From<RdpInput> for Injected` 乘 `WHEEL_STEP`.
+- `RdpUpdates`: 合成器和服务端共用的帧槽. 客户端连上时开一条 unbounded 通道, 先放一条 `DefaultPointer`; `connected()` 判有没有客户端,
+  `send(bitmaps)` 把读回的 `RdpBitmap {x, y, width, height, data}` (RGBX32, 行距 = 宽 × 4) 转成 `DisplayUpdate` 投进去, 投不进就丢掉这一批剩下的.
 
 ## packaging/arch
 
@@ -1819,8 +1834,8 @@ xdg-desktop-portal Settings 的 `org.freedesktop.appearance` `color-scheme` (run
 **减少动效**: `ACDE_REDUCED_MOTION=1` 让每个桌面 / 窗口 isolate 的 `prefers-reduced-motion: reduce` 成立, `=0` 不成立. 没有软件渲染, 也没有
 `data-acde-software` 了.
 
-**远程桌面** (没有显示器: 服务器、虚拟机): `ACDE_BACKEND=rdp` 让 shell 离屏合成, 用 RDP 送出 (crates/shell `compositor/rdp.rs`,
-服务端是 vendors/ironrdp-server). 要 `ACDE_RDP_USER` / `ACDE_RDP_PASSWORD` 和证书 (`ACDE_RDP_CERT` / `ACDE_RDP_KEY`, PEM 或 DER,
+**远程桌面** (没有显示器: 服务器、虚拟机): `ACDE_BACKEND=rdp` 让 shell 离屏合成, 用 RDP 送出 (合成器侧 crates/shell `compositor/rdp.rs`,
+设定和服务端 crates/render 的 remote, 底下是 vendors/ironrdp-server). 要 `ACDE_RDP_USER` / `ACDE_RDP_PASSWORD` 和证书 (`ACDE_RDP_CERT` / `ACDE_RDP_KEY`, PEM 或 DER,
 默认 `$XDG_CONFIG_HOME/agentos/rdp/{cert,key}.pem`); `ACDE_RDP_ADDR` (0.0.0.0:3390), `ACDE_SIZE` (默认 1440x900),
 `ACDE_RDP_SECURITY` (tls, 或 nla: CredSSP + NTLM). 加 `--seconds N` 也是无头起整个会话、读启动标记的办法. 还没有: 应用的光标形状、
 Unicode 键和剪贴板、跟着客户端改尺寸、多个客户端.

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use rustix::event::{PollFd, PollFlags, poll};
+use acde_driver::{Fd, Ready, Var};
 
 use acde_model::{Easing, Mode, Scope};
 use smithay::backend::input::AxisSource;
@@ -105,13 +105,11 @@ pub struct Session {
 }
 
 impl Session {
-    const SHELL_FD: &str = "ACDE_SHELL_FD";
-
     /// Takes the acde_shell connection the main process handed down (`ACDE_SHELL_FD`), or starts the compositor here.
     pub fn open(sink: Sink) -> Result<Self, String> {
-        let (compositor, stream) = match std::env::var(Self::SHELL_FD) {
-            Ok(fd) => (None, Self::inherited(&fd)?),
-            Err(_) => {
+        let (compositor, stream) = match Fd::inherited_socket(Var::ShellFd) {
+            Some(stream) => (None, stream?),
+            None => {
                 let (client, server) = UnixStream::pair().map_err(|e| e.to_string())?;
                 (Some(Compositor::spawn(server)?), client)
             }
@@ -123,7 +121,7 @@ impl Session {
     pub fn socket_name(&self) -> String {
         match &self.compositor {
             Some(handle) => handle.socket_name().to_string_lossy().into_owned(),
-            None => std::env::var("WAYLAND_DISPLAY").unwrap_or_default(),
+            None => Var::WaylandDisplay.get().unwrap_or_default(),
         }
     }
 
@@ -132,24 +130,6 @@ impl Session {
         if let Some(handle) = self.compositor.as_mut() {
             handle.quit();
         }
-    }
-
-    fn inherited(fd: &str) -> Result<UnixStream, String> {
-        use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
-        use std::os::fd::{BorrowedFd, FromRawFd};
-        let raw: i32 = fd.parse().map_err(|_| format!("{}={fd}: 不是 fd", Self::SHELL_FD))?;
-        // SAFETY: an fd number above stdio that the parent left open for us; checked to be a socket before it is owned.
-        let borrowed = (raw > 2).then(|| unsafe { BorrowedFd::borrow_raw(raw) }).ok_or_else(|| format!("{}={fd}: 不是 fd", Self::SHELL_FD))?;
-        let flags = fcntl_getfd(borrowed).map_err(|e| format!("{}={fd}: {e}", Self::SHELL_FD))?;
-        if flags.contains(FdFlags::CLOEXEC) {
-            return Err(format!("{}={fd}: 已经被拿走了", Self::SHELL_FD));
-        }
-        if !rustix::fs::fstat(borrowed).is_ok_and(|s| rustix::fs::FileType::from_raw_mode(s.st_mode) == rustix::fs::FileType::Socket) {
-            return Err(format!("{}={fd}: 不是 socket", Self::SHELL_FD));
-        }
-        fcntl_setfd(borrowed, FdFlags::CLOEXEC).map_err(|e| format!("{}={fd}: {e}", Self::SHELL_FD))?;
-        // SAFETY: checked above; nothing else owns it (CLOEXEC marks it taken).
-        Ok(unsafe { OwnedFd::from_raw_fd(raw) }.into())
     }
 }
 
@@ -160,12 +140,9 @@ impl Reader {
             queue.flush().map_err(|e| e.to_string())?;
             let Some(guard) = queue.prepare_read() else { continue };
             let fd = guard.connection_fd();
-            let mut fds = [PollFd::new(&fd, PollFlags::IN), PollFd::new(stop, PollFlags::IN)];
-            match poll(&mut fds, None) {
-                Ok(_) if !fds[1].revents().is_empty() => return Ok(()),
-                Ok(_) => _ = guard.read().map_err(|e| e.to_string())?,
-                Err(rustix::io::Errno::INTR) => {}
-                Err(e) => return Err(e.to_string()),
+            match Fd::until_stopped(fd, stop).map_err(|e| e.to_string())? {
+                Ready::Stopped => return Ok(()),
+                Ready::Readable => _ = guard.read().map_err(|e| e.to_string())?,
             }
         }
     }
@@ -188,7 +165,7 @@ impl Link {
         let shell: AcdeShell = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("acde_shell: {e}"))?;
         let idle = Idle { notifier: globals.bind(&qh, 1..=1, ()).ok(), seat: globals.bind(&qh, 1..=1, ()).ok(), watches: Vec::new() };
         conn.flush().map_err(|e| format!("acde_shell: {e}"))?;
-        let (stopped, stop) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).map_err(|e| format!("acde_shell: {e}"))?;
+        let (stopped, stop) = Fd::pipe().map_err(|e| format!("acde_shell: {e}"))?;
         let mut reader = Reader { sink };
         let thread = std::thread::Builder::new()
             .name("acde-shell-link".into())

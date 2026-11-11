@@ -3,8 +3,8 @@
 //! backend, and a host thread shows them in one xdg_toplevel of the host desktop through linux-dmabuf (no CPU copy);
 //! the host's pointer and keys come back as injected input. One window of a fixed size (`ACDE_SIZE`, default 1280x800).
 
-use std::path::PathBuf;
 
+use acde_driver::{Dri, Size};
 use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags};
 use smithay::backend::allocator::{Allocator, Fourcc, Modifier};
@@ -53,24 +53,21 @@ pub struct NestedTarget {
 }
 
 impl NestedTarget {
+    const SIZE: Size = Size { width: 1280, height: 800 };
+
     pub fn start(lh: &LoopHandle<'static, Compositor>) -> Result<(Backend, DrmNode), String> {
-        let path = std::env::var_os("ACDE_RENDER_NODE").map_or_else(|| PathBuf::from("/dev/dri/renderD128"), PathBuf::from);
-        let file = std::fs::OpenOptions::new().read(true).write(true).open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let path = Dri::render_node();
+        let fd = Dri::open(&path)?;
         let node = DrmNode::from_path(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let gbm = gbm::Device::new(DeviceFd::from(std::os::fd::OwnedFd::from(file))).map_err(|e| format!("GBM: {e}"))?;
+        let gbm = gbm::Device::new(DeviceFd::from(fd)).map_err(|e| format!("GBM: {e}"))?;
         // SAFETY: the GBM device lives as long as the display (the allocator keeps a clone).
         let egl = unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|e| format!("EGL: {e}"))?;
         let context = EGLContext::new(&egl).map_err(|e| format!("EGL context: {e}"))?;
         // SAFETY: a fresh context, used only by this renderer on the compositor thread.
         let renderer = unsafe { GlesRenderer::new(context) }.map_err(|e| format!("GLES: {e}"))?;
 
-        let (w, h) = std::env::var("ACDE_SIZE")
-            .ok()
-            .and_then(|s| {
-                let (w, h) = s.split_once('x')?;
-                Some((w.trim().parse::<i32>().ok()?, h.trim().parse::<i32>().ok()?))
-            })
-            .unwrap_or((1280, 800));
+        let size = Size::or(Self::SIZE);
+        let (w, h) = (i32::from(size.width), i32::from(size.height));
         let mut allocator = GbmAllocator::new(gbm, GbmBufferFlags::RENDERING);
         let mut slots = Vec::new();
         for _ in 0..BUFFERS {
@@ -172,6 +169,7 @@ mod host {
     use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
     use std::time::Duration;
 
+    use acde_driver::{Fd, Var};
     use smithay::backend::allocator::Buffer;
     use smithay::backend::allocator::dmabuf::Dmabuf;
     use smithay::reexports::calloop::channel::Sender;
@@ -192,6 +190,8 @@ mod host {
     use wayland_protocols::wp::linux_dmabuf::zv1::client::{zwp_linux_buffer_params_v1, zwp_linux_dmabuf_feedback_v1};
 
     use super::{Host, Injected, Show};
+
+    const HOST_POLL: Duration = Duration::from_millis(4);
 
     struct State {
         registry: RegistryState,
@@ -252,9 +252,7 @@ mod host {
             queue.flush().map_err(|e| e.to_string())?;
             if let Some(guard) = queue.prepare_read() {
                 let fd = guard.connection_fd();
-                let mut fds = [rustix::event::PollFd::new(&fd, rustix::event::PollFlags::IN)];
-                let timeout = rustix::event::Timespec { tv_sec: 0, tv_nsec: 4_000_000 };
-                if rustix::event::poll(&mut fds, Some(&timeout)).is_ok_and(|n| n > 0) {
+                if Fd::readable(fd, Some(HOST_POLL)).is_ok_and(|ready| ready) {
                     _ = guard.read();
                 }
             }
@@ -275,11 +273,11 @@ mod host {
 
     /// The desktop acde runs in: `ACDE_HOST_DISPLAY` (WAYLAND_DISPLAY is acde's own socket by now).
     fn host_connection() -> Result<Connection, String> {
-        let name = std::env::var("ACDE_HOST_DISPLAY").map_err(|_| "没有宿主桌面 (ACDE_HOST_DISPLAY 没设; 嵌套要在一个 Wayland 桌面里起)".to_owned())?;
+        let name = Var::HostDisplay.get().ok_or("没有宿主桌面 (ACDE_HOST_DISPLAY 没设; 嵌套要在一个 Wayland 桌面里起)")?;
         let path = if name.starts_with('/') {
             std::path::PathBuf::from(&name)
         } else {
-            std::path::PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR").ok_or("没有 XDG_RUNTIME_DIR")?).join(&name)
+            Var::XdgRuntimeDir.path().ok_or("没有 XDG_RUNTIME_DIR")?.join(&name)
         };
         let stream = std::os::unix::net::UnixStream::connect(&path).map_err(|e| format!("连接宿主桌面 {}: {e}", path.display()))?;
         Connection::from_socket(stream).map_err(|e| format!("宿主桌面: {e}"))

@@ -24,8 +24,8 @@ pub struct Cursor {
 
 impl Default for Cursor {
     fn default() -> Self {
-        let theme = xcursor::CursorTheme::load(&std::env::var("XCURSOR_THEME").unwrap_or_else(|_| "default".into()));
-        let size = std::env::var("XCURSOR_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(24);
+        let theme = xcursor::CursorTheme::load(&acde_driver::Var::XcursorTheme.get().unwrap_or_else(|| Self::THEME.into()));
+        let size = acde_driver::Var::XcursorSize.parse().unwrap_or(Self::SIZE);
         let mut cursor = Self { status: CursorImageStatus::default_named(), hover: None, drag: None, theme, size, images: HashMap::new() };
         if cursor.image(CursorIcon::Default).is_none() {
             log::warn!("光标主题里没有箭头 (XCURSOR_THEME / XCURSOR_PATH, 缺 adwaita-cursors?): 不画默认光标");
@@ -35,6 +35,9 @@ impl Default for Cursor {
 }
 
 impl Cursor {
+    const THEME: &str = "default";
+    const SIZE: u32 = 24;
+
     fn load(&self, icon: CursorIcon) -> Option<Image> {
         let names = std::iter::once(icon.name()).chain(icon.alt_names().iter().copied());
         let names: Vec<&str> = match icon {

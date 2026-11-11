@@ -10,7 +10,6 @@ dependencies = [
  "acde-log",
  "acde-model",
  "acde-napi",
- "acde-paint",
  "acde-render",
  "acde-runtime",
  "acde-shell",
@@ -26,10 +25,17 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "symphonia",
- "tikv-jemallocator",
  "url",
  "v8",
  "wgpu-types",
+]
+
+[[package]]
+name = "acde-driver"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "rustix 1.1.5",
 ]
 
 [[package]]
@@ -68,21 +74,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "acde-paint"
-version = "0.1.0"
-dependencies = [
- "acde-log",
- "acde-render",
- "log",
- "smithay",
-]
-
-[[package]]
 name = "acde-render"
 version = "0.1.0"
 dependencies = [
+ "acde-driver",
  "acde-log",
  "acgpu",
+ "anyhow",
+ "async-channel",
+ "async-trait",
  "base64 0.22.1",
  "blitz-dom",
  "blitz-paint",
@@ -92,13 +92,16 @@ dependencies = [
  "data-url",
  "flate2",
  "html5ever",
+ "ironrdp-server",
  "kurbo",
  "log",
+ "ntex",
  "parking_lot",
  "parley",
  "peniko",
  "png",
  "roxmltree 0.21.1",
+ "smithay",
  "stylo",
  "stylo_dom",
  "stylo_traits",
@@ -142,8 +145,10 @@ dependencies = [
 name = "acde-shell"
 version = "0.1.0"
 dependencies = [
+ "acde-driver",
  "acde-log",
  "acde-model",
+ "acde-render",
  "anyhow",
  "async-channel",
  "async-trait",
@@ -152,7 +157,6 @@ dependencies = [
  "log",
  "ntex",
  "png",
- "rustix 1.1.5",
  "serde",
  "serde_json",
  "smithay",
@@ -169,13 +173,12 @@ dependencies = [
 name = "acde-window"
 version = "0.1.0"
 dependencies = [
+ "acde-driver",
  "acde-log",
  "acde-model",
- "acde-paint",
  "acde-render",
  "bitflags 2.13.2",
  "log",
- "rustix 1.1.5",
  "smithay",
  "smithay-client-toolkit",
  "wayland-backend",
@@ -187,7 +190,6 @@ dependencies = [
 [[package]]
 name = "acgpu"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "acgpu-core",
  "acgpu-fallback",
@@ -199,12 +201,12 @@ dependencies = [
 [[package]]
 name = "acgpu-core"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "kurbo",
  "libc",
  "mlirformat",
  "mlirpass",
+ "moremath",
  "peniko",
  "serde",
  "vello_common",
@@ -213,7 +215,6 @@ dependencies = [
 [[package]]
 name = "acgpu-fallback"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "acgpu-core",
  "ash",
@@ -228,7 +229,6 @@ dependencies = [
 [[package]]
 name = "acgpu-intel"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "acgpu-core",
  "acgpu-intel-codegen",
@@ -241,7 +241,6 @@ dependencies = [
 [[package]]
 name = "acgpu-intel-codegen"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "acgpu-core",
  "acgpu-intel-dialect",
@@ -252,7 +251,6 @@ dependencies = [
 [[package]]
 name = "acgpu-intel-dialect"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "acgpu-core",
  "mlirformat",
@@ -262,7 +260,6 @@ dependencies = [
 [[package]]
 name = "acgpu-intel-xe"
 version = "0.1.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "acgpu-core",
  "libc",
@@ -3801,22 +3798,25 @@ dependencies = [
 
 [[package]]
 name = "mlirformat"
-version = "0.5.1"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c97c64fa05503cb63e754a62814abe1379c7e427a627029c1b1acd132f23601"
+checksum = "487f05d51646c64cfce030371f382a8903591105392867f2bf629eef2ae83cf8"
 dependencies = [
  "clap",
  "mlirformat-macros",
+ "moremath",
  "serde",
  "serde_json",
+ "smallvec",
  "thiserror",
+ "tikv-jemallocator",
 ]
 
 [[package]]
 name = "mlirformat-macros"
-version = "0.5.1"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9aea2473c25608967c4a29c1f48d8bfac580508202d8e2fd72393f08129df675"
+checksum = "70ecdfa7e6f3239c0d0fab80ae5f547d9191df377094de3c44b2a8802b9905d3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3825,13 +3825,14 @@ dependencies = [
 
 [[package]]
 name = "mlirpass"
-version = "0.4.1"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc384615fb759b36fa47229b0403a4d33842a3540186882f7da096e2d6e5b0b5"
+checksum = "ba9a3cb0c46ec377edc354d4e5927cc9d5f38f538dc5d4fd30be7ed5893da874"
 dependencies = [
  "libm",
  "mlirformat",
  "mlirpass-macros",
+ "moremath",
  "serde",
  "smallvec",
  "thiserror",
@@ -3839,9 +3840,29 @@ dependencies = [
 
 [[package]]
 name = "mlirpass-macros"
-version = "0.3.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e585a0894ea4e979d710850e61d5ce2c0b5b47615b004f6bf924f1095839c00"
+checksum = "80fcefcc17a46729cc9c132d15c13bc1ebe955765e0603a1c9440efabd800d56"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "moremath"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bffe1cb9b0b2e53d64b54d16cfb42efad166dbe5c26c93e08c17c3ce72ca1e0"
+dependencies = [
+ "moremath-macros",
+]
+
+[[package]]
+name = "moremath-macros"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b101f277740b24dde0c3d1294f8b2982317a473875464f9c9196e3fdb27adec"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7332,7 +7353,6 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.3.0"
-source = "git+https://github.com/dopame-org/acgpu?rev=b87e29d72fdb292b7f4d8446ede6086e89589333#b87e29d72fdb292b7f4d8446ede6086e89589333"
 dependencies = [
  "bytemuck",
  "glifo",

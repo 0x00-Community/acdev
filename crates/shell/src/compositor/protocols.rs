@@ -61,8 +61,8 @@ pub struct Protocols {
 impl Protocols {
     pub fn new(dh: &DisplayHandle, render_node: Option<std::path::PathBuf>) -> Self {
         let syncobj = render_node
-            .and_then(|path| std::fs::OpenOptions::new().read(true).write(true).open(path).ok())
-            .map(|file| DrmDeviceFd::new(DeviceFd::from(std::os::fd::OwnedFd::from(file))))
+            .and_then(|path| acde_driver::Dri::open(&path).ok())
+            .map(|fd| DrmDeviceFd::new(DeviceFd::from(fd)))
             .filter(supports_syncobj_eventfd)
             .map(|device| DrmSyncobjState::new::<Compositor>(dh, device));
         if syncobj.is_none() {

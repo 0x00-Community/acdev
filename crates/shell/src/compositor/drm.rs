@@ -80,6 +80,7 @@ pub struct DrmTarget {
     idle_vblank: bool,
     paused: bool,
     blank: bool,
+    scanout: bool,
 }
 
 impl DrmTarget {
@@ -159,7 +160,7 @@ impl DrmTarget {
         })
         .map_err(|e| e.to_string())?;
 
-        let target = Target::Drm(Box::new(Self { session, manager, screens, libinput, idle_vblank: false, paused: false, blank: false }));
+        let target = Target::Drm(Box::new(Self { session, manager, screens, libinput, idle_vblank: false, paused: false, blank: false, scanout: acde_driver::Var::Scanout.on(true) }));
         Ok((Backend::new(renderer, primary, target), render_node))
     }
 
@@ -231,7 +232,7 @@ impl Compositor {
             let screen = &mut drm.screens[index];
             screen.dirty = false;
             let started = std::time::Instant::now();
-            let flags = match super::env::ENV.scanout {
+            let flags = match drm.scanout {
                 true => FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT | FrameFlags::ALLOW_OVERLAY_PLANE_SCANOUT,
                 false => FrameFlags::empty(),
             };

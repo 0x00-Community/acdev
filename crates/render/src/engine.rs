@@ -78,7 +78,7 @@ impl Engine {
             panel_damage: Default::default(),
             verify: options
                 .verify_paint
-                .unwrap_or_else(|| std::env::var("ACDE_PAINT_VERIFY").is_ok_and(|v| v == "1")),
+                .unwrap_or_else(|| acde_driver::Var::PaintVerify.get().is_some_and(|v| v == "1")),
             from_cache: false,
             committed: 0,
             uncommitted: false,

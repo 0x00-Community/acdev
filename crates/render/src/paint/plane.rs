@@ -1,14 +1,14 @@
-use acde_render::acgpu::Scene;
+use crate::acgpu::Scene;
 use smithay::utils::{Buffer as BufferCoord, Rectangle};
 
-use acde_render::acgpu::fallback::{Backdrop, Effect, Px, Shadow};
+use crate::acgpu::fallback::{Backdrop, Effect, Px, Shadow};
 
 pub type Rect = Rectangle<i32, BufferCoord>;
 
 pub trait Pixels {
     fn covering(rect: [f32; 4]) -> Self;
     fn xywh(&self) -> [u32; 4];
-    fn damaged(r: &acde_render::Rect) -> Self;
+    fn damaged(r: &crate::Rect) -> Self;
     fn grown(&self, m: i32) -> Self;
     /// as acgpu's pixel rectangle (both types are foreign here, so not `From`)
     fn px(&self) -> Px;
@@ -24,7 +24,7 @@ impl Pixels for Rect {
         [self.loc.x, self.loc.y, self.size.w, self.size.h].map(|v| v.max(0) as u32)
     }
 
-    fn damaged(r: &acde_render::Rect) -> Self {
+    fn damaged(r: &crate::Rect) -> Self {
         Self::covering([r.x as f32 - 1.0, r.y as f32 - 1.0, r.width as f32 + 2.0, r.height as f32 + 2.0])
     }
 
@@ -38,17 +38,17 @@ impl Pixels for Rect {
 }
 
 /// A layer of a page as acgpu composites it.
-pub type Part = acde_render::acgpu::fallback::Part<Content>;
+pub type Part = crate::acgpu::fallback::Part<Content>;
 
 pub enum Content {
-    Plane(Box<acde_render::Plane>),
-    Layer(Box<acde_render::Layer>),
+    Plane(Box<crate::Plane>),
+    Layer(Box<crate::Layer>),
 }
 
-impl acde_render::acgpu::fallback::Content for Content {
+impl crate::acgpu::fallback::Content for Content {
     fn scene_for(&self, rect: Px) -> Scene {
         let [x, y, w, h] = rect.xywh().map(f64::from);
-        let rect = acde_render::acgpu::fallback::vello::kurbo::Rect::new(x, y, x + w, y + h);
+        let rect = crate::acgpu::fallback::vello::kurbo::Rect::new(x, y, x + w, y + h);
         match self {
             Self::Plane(plane) => plane.scene_for(rect),
             Self::Layer(layer) => layer.scene_for(rect),
@@ -58,8 +58,8 @@ impl acde_render::acgpu::fallback::Content for Content {
 
 impl Content {
     /// A layer with its backdrop, shadows and filter, as a part.
-    fn part(layer: acde_render::Layer) -> Part {
-        use acde_render::acgpu::FilterEffect;
+    fn part(layer: crate::Layer) -> Part {
+        use crate::acgpu::FilterEffect;
         let backdrop = layer.backdrop.as_ref().map(|b| {
             let r = b.bounds.intersect(b.clip);
             Backdrop {
@@ -79,7 +79,7 @@ impl Content {
                 FilterEffect::ColorMatrix(m) => effect.matrix(m.0),
             }
         }
-        let cover = |r: &acde_render::acgpu::fallback::vello::kurbo::Rect| Rect::damaged(&(*r).into());
+        let cover = |r: &crate::acgpu::fallback::vello::kurbo::Rect| Rect::damaged(&(*r).into());
         let bounds = Some(layer.filter.as_ref().map_or_else(|| layer.bounds.as_ref().map_or_else(Rect::default, cover), |f| cover(&f.bounds)));
         Part { content: Content::Layer(Box::new(layer)), backdrop, shadows, effect, bounds: bounds.map(|b| b.px()) }
     }
@@ -90,8 +90,8 @@ pub struct Sheet {
     pub damage: Vec<Rect>,
 }
 
-impl From<acde_render::Plane> for Sheet {
-    fn from(plane: acde_render::Plane) -> Self {
+impl From<crate::Plane> for Sheet {
+    fn from(plane: crate::Plane) -> Self {
         let damage = plane.damage_rects.iter().filter(|d| d.width > 0.0 && d.height > 0.0).map(Rect::damaged).collect();
         let bounds = plane.bounds.as_ref().map(|b| Rect::damaged(b).px());
         let parts = if plane.layers.is_empty() {

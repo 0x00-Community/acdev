@@ -3,7 +3,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use acde_render::acgpu::fallback::{Exported, wgpu};
-use acde_paint::{CanvasImage, Gpu};
+use acde_render::Gpu;
+use acde_render::gpu::CanvasImage;
 
 use super::{Id, Kind, Obj, Out, Ret, State, Texture, Throw, desc, enter, finish, json, report, with_state};
 use crate::bind;

@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dopame-org/acde-base",
+    "url": "http://gitea.dopamine/AC/acde-base",
     "directory": "npm/acde"
   },
   "type": "module",

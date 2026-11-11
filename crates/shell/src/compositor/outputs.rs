@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use acde_driver::{Config, Connector};
 use serde_json::{Value, json};
 use smithay::output::Output;
 
@@ -14,9 +13,7 @@ pub struct Identity {
 }
 
 pub fn edid(connector: &str) -> Option<Edid> {
-    let suffix = format!("-{connector}");
-    let entry = std::fs::read_dir("/sys/class/drm").ok()?.flatten().find(|e| e.file_name().to_string_lossy().ends_with(&suffix))?;
-    parse(&std::fs::read(entry.path().join("edid")).ok()?)
+    parse(&Connector::find(connector)?.edid()?)
 }
 
 fn parse(edid: &[u8]) -> Option<Edid> {
@@ -40,13 +37,12 @@ fn parse(edid: &[u8]) -> Option<Edid> {
     Some(Edid { make, model, identifier })
 }
 
-fn file() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| std::env::var_os("HOME").filter(|v| !v.is_empty()).map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("acde").join("display.json"))
+fn file() -> Option<Config> {
+    Config::at("acde/display.json")
 }
 
 fn read() -> Value {
-    file().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({ "outputs": [] }))
+    file().and_then(|f| f.read()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({ "outputs": [] }))
 }
 
 fn edid_of(output: &Output) -> Option<String> {
@@ -69,7 +65,7 @@ pub fn saved_scale(output: &Output) -> Option<i32> {
 }
 
 pub fn save_scale(output: &Output, scale: i32) -> Result<(), String> {
-    let path = file().ok_or("no XDG_CONFIG_HOME or HOME")?;
+    let file = file().ok_or("no XDG_CONFIG_HOME or HOME")?;
     let edid = edid_of(output);
     let mut config = read();
     if !config["outputs"].is_array() {
@@ -88,13 +84,7 @@ pub fn save_scale(output: &Output, scale: i32) -> Result<(), String> {
         entry["edidIdentifier"] = json!(edid);
     }
     entry["scale"] = json!(scale);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    let text = serde_json::to_vec_pretty(&config).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+    file.write(serde_json::to_vec_pretty(&config).map_err(|e| e.to_string())?)
 }
 
 #[cfg(test)]

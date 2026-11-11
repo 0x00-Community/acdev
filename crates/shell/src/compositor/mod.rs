@@ -5,7 +5,6 @@ mod effects;
 pub use composite::Animate;
 mod cursor;
 mod drm;
-mod env;
 mod handlers;
 mod dnd;
 mod nested;
@@ -32,6 +31,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 use std::thread::JoinHandle;
 use std::time::Instant;
+
+use acde_driver::{SessionEnv, Var};
 
 use smithay::desktop::{PopupManager, Space, Window};
 use smithay::input::{Seat, SeatState};
@@ -283,13 +284,10 @@ impl Compositor {
         let display: Display<Compositor> = Display::new().map_err(|e| e.to_string())?;
         let dh = display.handle();
         let lh = event_loop.handle();
-        let nested = std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
-        let (mut backend, node) = match std::env::var("ACDE_BACKEND").as_deref() {
-            Ok("drm") => drm::DrmTarget::start(&lh)?,
-            Ok("rdp") => rdp::RdpTarget::start(&lh)?,
-            Ok("nested") => nested::NestedTarget::start(&lh)?,
-            _ if nested => nested::NestedTarget::start(&lh)?,
-            _ => drm::DrmTarget::start(&lh)?,
+        let (mut backend, node) = match acde_driver::Backend::chosen() {
+            acde_driver::Backend::Drm => drm::DrmTarget::start(&lh)?,
+            acde_driver::Backend::Rdp => rdp::RdpTarget::start(&lh)?,
+            acde_driver::Backend::Nested => nested::NestedTarget::start(&lh)?,
         };
 
         if let Err(e) = backend.renderer.bind_wl_display(&dh) {
@@ -318,9 +316,9 @@ impl Compositor {
         shm.update_formats(backend.renderer.shm_formats());
         backend.dirty = true;
 
-        let socket = match std::env::var("ACDE_SOCKET") {
-            Ok(name) => ListeningSocketSource::with_name(&name),
-            Err(_) => ListeningSocketSource::new_auto(),
+        let socket = match Var::Socket.get() {
+            Some(name) => ListeningSocketSource::with_name(&name),
+            None => ListeningSocketSource::new_auto(),
         }
         .map_err(|e| format!("Wayland socket: {e}"))?;
         let socket_name = socket.socket_name().to_os_string();
@@ -384,7 +382,7 @@ impl Compositor {
             loop_handle: lh.clone(),
             next_window: 1,
         };
-        let forced = std::env::var("ACDE_SCALE").ok().and_then(|s| s.parse::<f64>().ok()).filter(|s| *s > 0.0);
+        let forced = Var::Scale.parse::<f64>().filter(|s| *s > 0.0);
         let mut x = 0;
         for output in &outputs {
             let scale = outputs::saved_scale(output)
@@ -409,7 +407,7 @@ impl Compositor {
         state.insert_shell_client(shell)?;
         state.init_canvas();
         state.emit_output();
-        state.export_session_env(&[("WAYLAND_DISPLAY", &socket_name.to_string_lossy()), ("XDG_SESSION_TYPE", "wayland"), ("XDG_CURRENT_DESKTOP", "acde")]);
+        state.export_session_env(&[(Var::WaylandDisplay, &socket_name.to_string_lossy()), (Var::XdgSessionType, "wayland"), (Var::XdgCurrentDesktop, "acde")]);
         let _ = ready.send(Ok(socket_name));
 
         event_loop
@@ -818,46 +816,15 @@ impl Compositor {
         }
     }
 
-    pub fn export_session_env(&self, vars: &[(&str, &str)]) {
-        if !matches!(self.backend.target, backend::Target::Drm(_)) {
-            return;
+    pub fn export_session_env(&self, vars: &[(Var, &str)]) {
+        if matches!(self.backend.target, backend::Target::Drm(_)) {
+            SessionEnv::export(vars);
         }
-        let mut command = std::process::Command::new("dbus-update-activation-environment");
-        command.arg("--systemd").args(vars.iter().map(|(k, v)| format!("{k}={v}")));
-        Self::run_and_wait(command);
     }
 
     fn clear_session_env(&self) {
-        if !matches!(self.backend.target, backend::Target::Drm(_)) {
-            return;
-        }
-        let mut unset = std::process::Command::new("systemctl");
-        unset.args(["--user", "unset-environment", "WAYLAND_DISPLAY", "DISPLAY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP"]);
-        Self::run_and_wait(unset);
-        let mut stop = std::process::Command::new("systemctl");
-        stop.args(["--user", "stop", "xdg-desktop-portal.service", "xdg-desktop-portal-gtk.service"]);
-        Self::run_and_wait(stop);
-    }
-
-    fn run_and_wait(mut command: std::process::Command) {
-        let name = command.get_program().to_string_lossy().into_owned();
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(e) => return log::warn!("{name}: {e}"),
-        };
-        let deadline = Instant::now() + Duration::from_secs(3);
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) if !status.success() => return log::warn!("{name}: {status}"),
-                Ok(Some(_)) => return,
-                Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
-                Ok(None) => {
-                    log::warn!("{name} 3 秒没做完, 不等了");
-                    std::thread::spawn(move || child.wait());
-                    return;
-                }
-                Err(e) => return log::warn!("{name}: {e}"),
-            }
+        if matches!(self.backend.target, backend::Target::Drm(_)) {
+            SessionEnv::clear();
         }
     }
 

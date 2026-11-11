@@ -5,16 +5,16 @@
 use std::os::fd::OwnedFd;
 use std::sync::mpsc;
 
-use acde_render::acgpu::fallback::{self, Device, Dmabuf as AcgpuDmabuf, Raster as Vulkan};
-use acde_render::acgpu::xe::Xe;
-use acde_render::acgpu::{Gpu as _, PageRaster, Scene};
-use acde_render::gpu::Overrides;
+use crate::acgpu::fallback::{self, Device, Dmabuf as AcgpuDmabuf, Raster as Vulkan};
+use crate::acgpu::xe::Xe;
+use crate::acgpu::{Gpu as _, PageRaster, Scene};
+use crate::gpu::Overrides;
 use smithay::backend::allocator::Buffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::reexports::calloop::ping::Ping;
 
-use crate::gpu::Gpu;
-use crate::plane::Content;
+use super::gpu::Gpu;
+use super::plane::Content;
 
 const IDLE_TRIM: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -29,11 +29,11 @@ enum Painter {
 }
 
 impl Painter {
-    const ENV: &str = "ACDE_PAGES";
+    const XE3: &str = "xe3";
 
     fn chosen() -> Self {
-        match std::env::var(Self::ENV).as_deref() {
-            Ok("xe3") => Painter::Xe3,
+        match acde_driver::Var::Pages.get().as_deref() {
+            Some(Self::XE3) => Painter::Xe3,
             _ => Painter::Vulkan,
         }
     }
@@ -72,7 +72,7 @@ impl<'d> Raster<'d> {
         log::info!("网页图层用 {} ({:?})", device.info.name, device.info.device_type);
         let published = (device.device.clone(), device.queue.clone(), device.info.clone());
         let started = std::time::Instant::now();
-        let vulkan = Vulkan::new(device, std::env::var_os("ACDE_PAGE_POLL").is_some())?;
+        let vulkan = Vulkan::new(device, acde_driver::Var::PagePoll.is_set())?;
         log::info!("vello 预热 {:.1}ms", acde_log::since_ms(started));
         let gpu = Gpu::publish(Some(published), xe.is_some());
         let images = gpu.as_ref().map_or_else(Default::default, |g| g.images().clone());
@@ -82,9 +82,9 @@ impl<'d> Raster<'d> {
     }
 
     pub fn spawn(jobs: mpsc::Receiver<Job>, done: mpsc::Sender<Done>, ready: Ready, lost: Lost, waker: Ping) -> std::io::Result<()> {
-        acde_render::gpu::expect();
+        crate::gpu::expect();
         std::thread::Builder::new().name("acde-raster".into()).spawn(move || {
-            let xe = (Painter::chosen() == Painter::Xe3).then(|| Xe::open_first().inspect_err(|e| log::warn!("{}=xe3 但打不开 Xe3, 网页图层走 Vulkan: {e}", Painter::ENV)).ok()).flatten();
+            let xe = (Painter::chosen() == Painter::Xe3).then(|| Xe::open_first().inspect_err(|e| log::warn!("{}={} 但打不开 Xe3, 网页图层走 Vulkan: {e}", acde_driver::Var::Pages.name(), Painter::XE3)).ok()).flatten();
             let mut raster = match Raster::new(xe.as_ref()) {
                 Ok(raster) => raster,
                 Err(e) => {
