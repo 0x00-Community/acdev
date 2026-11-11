@@ -40,6 +40,7 @@ export class Lines {
 export class DevClient {
   static readonly TIMEOUT_MS = 30_000
   static readonly RETRY_MS = 50
+  static readonly CLOSE_MS = 1_000
 
   readonly closed: Promise<void>
   readonly #socket: net.Socket
@@ -125,7 +126,12 @@ export class DevClient {
   }
 
   close(): void {
-    this.#socket.end()
+    this.#closed ??= new Error('the connection to acdert was closed')
+    this.#fail(this.#closed)
+    const socket = this.#socket
+    socket.end(() => socket.destroy())
+    setTimeout(() => socket.destroy(), DevClient.CLOSE_MS).unref()
+    socket.unref()
   }
 
   #response(message: Message): void {

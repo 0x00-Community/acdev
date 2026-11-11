@@ -206,6 +206,53 @@ describe('acde mcp', () => {
     }
   }, 60_000)
 
+  test('choose_folder then act; closing stdin with an act in flight ends acde mcp and its session', async () => {
+    const s = standIn()
+    const child = Bun.spawn([process.execPath, CLI, 'mcp'], {
+      cwd: s.project, env: { ...s.env, FAKE_ACDERT_HANGS_ON: 'hover' }, stdin: 'pipe', stdout: 'pipe', stderr: 'ignore',
+    })
+    const answers = new Map<number, (result: unknown) => void>()
+    void (async () => {
+      let buffer = ''
+      for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
+        const lines = (buffer + chunk).split('\n')
+        buffer = lines.pop()!
+        for (const line of lines.filter((l) => l.trim())) {
+          const message = JSON.parse(line) as { id?: number; result?: unknown }
+          if (typeof message.id === 'number') answers.get(message.id)?.(message.result)
+        }
+      }
+    })()
+    let id = 0
+    const send = (message: object) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`)
+    const request = (method: string, params: object) => {
+      const asked = ++id
+      const answered = new Promise<unknown>((resolve) => answers.set(asked, resolve))
+      send({ id: asked, method, params })
+      return answered
+    }
+    const call = async (name: string, args: object = {}) => {
+      const result = (await request('tools/call', { name, arguments: args })) as { content: Block[]; isError?: boolean }
+      return { error: result.isError === true, text: result.content.map((b) => b.text).join('\n') }
+    }
+    const client = { name: 'acde-test', version: '0.0.0' }
+    await request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: client })
+    send({ method: 'notifications/initialized' })
+    try {
+      const pid = Number(/^acde dev (\d+)/.exec((await call('start', { headless: true })).text)![1])
+      expect((await call('choose_folder', { path: 'pick' })).error).toBe(false)
+      expect(await call('act', { ref: 'w1.2', action: 'click' })).toEqual({ error: false, text: 'click w1.2 null' })
+      void call('act', { ref: 'w1.2', action: 'hover' })
+      await Bun.sleep(200)
+      await child.stdin.end()
+      const exited = await Promise.race([child.exited, Bun.sleep(20_000).then(() => 'still running')])
+      expect(exited).toBe(0)
+      expect(existsSync(join(s.root, 'acde-dev', `${pid}.json`))).toBe(false)
+    } finally {
+      child.kill('SIGKILL')
+    }
+  }, 60_000)
+
   test('approval prompts: start says what an app waits for; permissions, answer and revoke', async () => {
     const s = standIn()
     const { client, call } = await connect(s.project, { ...s.env, FAKE_ACDERT_WAITS: '1' })

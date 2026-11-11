@@ -1,4 +1,4 @@
-import { spawn as nodeSpawn, type ChildProcess, type StdioOptions } from 'node:child_process'
+import { spawn as nodeSpawn, spawnSync, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { constants } from 'node:os'
 import { join } from 'node:path'
@@ -32,6 +32,7 @@ export interface Captured {
 export class Runtime {
   static readonly bun = typeof process.versions['bun'] === 'string'
   static readonly CONDITIONS = ['node', 'import', 'module', 'default']
+  static readonly KILL_MS = 5_000
 
   static spawn(argv: readonly string[], options: SpawnOptions = {}): Child {
     const [file, ...args] = argv
@@ -65,6 +66,14 @@ export class Runtime {
         if (child.exitCode === null && child.signalCode === null) child.kill(signal)
       },
     }
+  }
+
+  static killTree(child: Child): void {
+    if (process.platform === 'win32' && child.pid && child.process.exitCode === null) {
+      const options = { stdio: 'ignore', timeout: Runtime.KILL_MS, windowsHide: true } as const
+      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], options)
+    }
+    child.kill('SIGKILL')
   }
 
   static async capture(argv: readonly string[], options: SpawnOptions & { readonly timeout: number }): Promise<Captured> {
