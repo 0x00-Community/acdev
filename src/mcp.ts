@@ -2,15 +2,16 @@ import { McpServer } from '@modelcontextprotocol/server'
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod'
 import type { InspectAction } from '@dopame/acde-api'
-import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Approvals } from './approvals.ts'
+import { Doctor } from './doctor.ts'
 import { ACTIONS, Acde, type ActResult, type DevPage } from './driver/acde.ts'
 import { Poll } from './driver/poll.ts'
 import { Sessions } from './sessions.ts'
 import { Format } from './driver/format.ts'
 import { PageTools } from './mcppage.ts'
+import { Versions } from './versions.ts'
 
 const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
 const ARG = z.union([z.string(), z.number(), z.array(z.string())])
@@ -81,13 +82,8 @@ export class Mcp {
   constructor(options: McpOptions = {}) {
     this.#cwd = options.cwd ?? process.cwd()
     this.#pinned = options.session
-    this.server = new McpServer({ name: 'acde', version: Mcp.version() }, { instructions: INSTRUCTIONS })
+    this.server = new McpServer({ name: 'acde', version: Versions.acde() }, { instructions: INSTRUCTIONS })
     this.#register()
-  }
-
-  static version(): string {
-    const file = join(import.meta.dirname, '..', 'package.json')
-    return (JSON.parse(readFileSync(file, 'utf8')) as { version: string }).version
   }
 
   static async serve(options: McpOptions = {}): Promise<number> {
@@ -130,6 +126,26 @@ export class Mcp {
         annotations: look,
       },
       (args) => this.#safe(async () => this.#sessions(args.use)),
+    )
+
+    s.registerTool(
+      'doctor',
+      {
+        description: 'Check this machine for acde dev, one line per check (ok, warn, error, skip) with a fix for '
+          + 'what is wrong: acde on PATH, Bun and Node.js, acdert (found, runs, pairs with this acde, and its own '
+          + 'check of the GPU and its files), running sessions and approvals they wait for, the project, the agent '
+          + 'skill. Call it first when acde dev or start does not come up.',
+        inputSchema: z.object({
+          dir: z.string().optional().describe('the project directory to check, relative to the working directory '
+            + '(default: the working directory)'),
+          online: z.boolean().optional().describe('also ask pkgs.dopame.ai whether a newer acde is out'),
+        }),
+        annotations: { readOnlyHint: true, openWorldHint: true },
+      },
+      (args) => this.#safe(async () => {
+        const checks = await Doctor.run({ ...(args.dir !== undefined && { dir: args.dir }), online: args.online === true })
+        return Mcp.#text(Doctor.format(checks))
+      }),
     )
 
     s.registerTool(

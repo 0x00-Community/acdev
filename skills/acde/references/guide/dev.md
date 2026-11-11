@@ -53,4 +53,6 @@ To watch them from another terminal, or to read them from a script, use `acde co
 
 ## Runtime
 
-`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the acdert the installer put next to acde, otherwise the `acdert` on PATH. `acde --version` shows which one it finds; see [The runtime](../start/install.md#the-runtime).
+`acde dev` runs the acdert named by `ACDERT` (a path, or a name on PATH), otherwise the acdert the installer put next to acde, otherwise the `acdert` on PATH. `acde --version` shows which one it finds, and `acde doctor` checks that it runs here; see [The runtime](../start/install.md#the-runtime) and [Check the setup](doctor.md).
+
+When acdert exits before the session is ready (for example because it cannot use the GPU), `acde dev` prints its log line, then `acde: acdert exited (1) before it was ready; acde doctor checks the runtime, the GPU and this setup`, and exits with that code.

@@ -281,6 +281,29 @@ if (process.argv[2] === '--version') {
   process.exit(0)
 }
 
+const DOCTOR = process.env['FAKE_ACDERT_DOCTOR']
+if (process.argv[2] === '--help') {
+  console.log('usage: acdert [app <id> | desktop <id|dir>] [options]')
+  if (DOCTOR) console.log('       acdert doctor [--json]')
+  process.exit(0)
+}
+if (process.argv[2] === 'doctor' && DOCTOR) {
+  if (DOCTOR === 'garbage') {
+    console.error('acdert doctor: it broke')
+    process.exit(3)
+  }
+  const gpu = DOCTOR === 'gpu'
+    ? { id: 'gpu', title: 'gpu', status: 'error', summary: 'no usable Metal driver was found', fix: 'update the GPU driver' }
+    : { id: 'gpu', title: 'gpu', status: 'ok', summary: 'Fake GPU (Metal, integrated GPU): drew a test frame in 1 ms', fix: null }
+  const host = { id: 'host', title: 'host files', status: 'ok', summary: '/fake/app/dist', fix: null }
+  console.log(JSON.stringify({ acdert: '0.0.0', level: API_LEVEL, platform: process.platform, exe: process.argv[1], checks: [host, gpu] }))
+  process.exit(gpu.status === 'error' ? 1 : 0)
+}
+if (process.env['FAKE_ACDERT_FAILS']) {
+  console.error('web layer unavailable: fake acdert has no GPU')
+  process.exit(1)
+}
+
 const ISOLATION = [
   'HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
   'ACDE_STORAGE', 'ACDE_SIZE', 'ACDE_COLOR_SCHEME', 'ACDE_REDUCED_MOTION', 'ACDE_AUTOSTART',

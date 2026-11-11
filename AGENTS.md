@@ -20,6 +20,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
 | `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless]` | 构建、起 acdert、改了就重新构建并 `reload` |
+| `acde doctor [目录] [--json] [--online]` | 查这台机器上 `acde dev` / `acde test` 要的东西, 每项给出怎么修 (见「acde doctor」) |
 | `acde webs` / `eval` / `shot` / `inspect` / `query` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
 | `acde permissions` / `allow` / `deny` / `revoke` (`--session <pid>`) | 看待答的批准提示和已有决定, 答提示, 撤销决定 (见「开发工具」的「批准」) |
 | `acde mcp [--session <pid>]` | stdio 上的 MCP 服务 (`claude mcp add acde -- acde mcp`) |
@@ -28,7 +29,8 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 
 参数解析和用法文字在 `src/cli.ts` (`Cli.SPECS`、`USAGE`). `acde --version` (`-v`、`version`, acde#23) 第一行是 acde 版本号 (脚本可只取第一行),
 再打 `sdk <版本> (contract level N)` (版本在打包时经 `define` 的 `ACDE_SDK_VERSION` 写进去, 从源码跑时读 `node_modules` 里的 SDK) 和找到的 acdert
-(`requireAcdert` 的顺序) 的 `--version` 那一行加路径, 没找到或它没有契约级别时也说清. `acde --help` (`help`、`-h`) 把用法打到 stdout, 退出码 0;
+(`requireAcdert` 的顺序) 的 `--version` 那一行加路径, 没找到、起不来 (`acdert does not run (<原因>): <路径>`) 或它没有契约级别时也说清.
+版本号在 `src/versions.ts` (`Versions.acde()` / `Versions.sdk()`), `--version`、MCP 的 server 信息和 doctor 共用. `acde --help` (`help`、`-h`) 把用法打到 stdout, 退出码 0;
 任何命令后面的 `--help` / `-h` (`--` 之前) 和 `acde help <命令>` 只打那个命令的一段 (`Cli.usage`, 从 `USAGE` 里取; 开发会话的工具命令加 `--session`).
 不带命令照旧把用法打到 stderr, 退出码 1; 未知命令、未知参数、缺值、参数个数不对只打一行 (说清哪里不对, 指向 `acde --help` 或 `acde <命令> --help`), 退出码 1.
 其他常见全局选项: 颜色由 @clack/prompts (picocolors) 按 `NO_COLOR` / 非终端自动关掉, 不另加 `--no-color`; 输出本来就少, 暂不加 `--quiet` / `--verbose`.
@@ -226,6 +228,48 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `end` fd 4 再 `exit(0)`. 应用别的句柄 (定时器、数据库连接) 不拦着退出.
 - 构建出的 `acde-listen.js` 含 `acde-listen-channel/1` (`CHANNEL_MARK`, 也是 `Symbol.for('acde.listen')` 的值), 运行时据此判断支持通道.
 
+## acde doctor (`src/doctor.ts`)
+
+一条命令查完「`acde dev` 为什么起不来」的常见原因, 每项 `ok` / `warn` / `error` / `skip` 加一条 `fix`. 原则: **和 `acde dev` 用同一份逻辑, 不另写一套**,
+所以 doctor 说的就是 dev 会遇到的:
+- 找 acdert: launcher 的 `findAcdert()` (返回 `{path, from: 'ACDERT' | 'install' | 'PATH' | null, problem}`), `requireAcdert()` 就是它加上抛错,
+  抛的消息末尾加 `(acde doctor checks the whole setup)`; doctor 直接显示 `problem` (不带这句).
+- 探测 acdert: `DevSession.runtimeLevel` (`acdert --version`, 经 `Runtime.capture`: 带超时跑一个程序、收 stdout / stderr, 起不来时给出原因而不是抛错).
+  它现在还回 `failed`: 起不来 (`EACCES`、`ENOENT`)、10 s 没退出、退出码不是 0 (加上 stderr 最后一行, Linux 缺动态库时就是动态链接器那句). `acde dev` 的契约
+  级别检查在级别不符且 `failed` 时把原因写进错误.
+- 会话目录: `Sessions.problem(dir)` (不是普通目录、不是自己的), `Sessions.prepare` 也用它; doctor 只看不建.
+- 工程: `AppPackage.check()` (就是 `acde check`)、`AppPackage.platform(<本平台>)` (就是 `--platform`), 不另判.
+- skill: `Skills.places` / `Skills.look` (就是 `acde skills` 的状态).
+
+检查和顺序 (`Doctor.run`; JSON 的 id 在括号里): `acde` (版本、跑在哪个运行时上、在哪) → `PATH` (`path`: PATH 上第一个 `acde` realpath 后是否落在这个 acde
+里: 全局装的是版本目录, 检出是仓库; 不在 PATH 上或是别的那个都是警告) → `Bun and Node.js` (`runtimes`: launcher 的 `runtimes()`, 只探测一次, 工程那项也用;
+没有 Bun 是警告, 因为 `acde test` 和 bun 工程要它) → `acdert` (找到没有、从哪来、`--version` 起不起得来、有没有契约级别) → `contract level` (`contract`:
+运行时级别和 SDK 的 `API_LEVEL` 不同是错误 (dev 会拒绝); 相同但 acdert 版本不是 SDK 的版本 (配对的那版) 是警告) → 运行时自检 (`runtime.<id>`, 见下) →
+`acde dev sessions` (`sessions`: 会话目录有问题是错误; 列出在跑的; 每个会话连上去问 `permissions`, 3 s 不答是警告) 和每个待答提示一条 `approval` 警告
+(应用答之前不开窗口, fix 说批准是用户的决定) → 工程 (见下) → `agent skill` (`skill`: 没装、`outdated` / `broken` 是警告) → `--online` 时 `latest release`
+(`latest`: GET `$ACDE_DIST/latest` (默认 `https://pkgs.dopame.ai/acde`), 5 s; 比这个新是警告, fix 是重跑安装器; 取不到是警告).
+有 `error` 退出 1. 输出 `Doctor.format`: 每项 `<状态补到 6 列> <标题>: <内容>`, 有 fix 时下一行 7 个空格加 `fix: …`, 最后一行
+`acde doctor: N errors, M warnings` / `no errors, M warnings` / `everything acde needs is here`; `--json` 是 `{ok, checks: [{id, title, status, summary, fix?}]}`.
+
+- **运行时自检**: acdert 的 `acdert doctor --json` (见 acdert AGENTS.md 的「命令」), 它的每项变成 `runtime.<id>`, 标题、状态、fix 照搬. 支不支持看
+  `acdert --help` 的 stdout 里有没有以 `acdert doctor` 开头的一行, 不按版本号 (同一版本号的开发构建可能有也可能没有). 旧的 acdert 不认 `doctor`, 会把它当成
+  会话参数起桌面, 所以不能盲调. 没有时是一条 `runtime` 警告 (版本号和 SDK 相同时 fix 是换一个更新的构建, 不同时是装配对的那版); 60 s 没结束、stdout 不是
+  报告都是错误. acdert 没找到或起不来时这项和 `contract` 是 `skip`.
+- **工程** (`Doctor.project`): 目录 (参数, 默认当前目录) 里有 `acde.config.jsonc` / `.json` 或 package.json 有 `acde` 字段才算工程; 不是时默认 `skip`,
+  给了目录参数就是错误. `project` (`acde check` 的第一个错误或警告加剩几条, fix `acde check lists them`)、`platform` (缺必需能力是错误, 可选的写进内容)、
+  `dependencies` (工程的包管理器对应的运行时不在 PATH 上是警告; 依赖没装是警告, 像 Node 解析一样往上找 `node_modules/<名字>/package.json`, 所以 workspace
+  里提升到上层的也算装了; 装的 `@dopame/acde-api` 和这个 acde 构建所用的 SDK 版本不同是警告, fix 给 `Creator.api(dir)` 的写法)、`gitignore` (在 git 仓库里
+  且 `git check-ignore -q .acde/` 不中是警告; 没有 git 或不在仓库里不出这项).
+- **修法的文字** (`Doctor.acdertFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acde 一律是重跑安装器 (`curl -fsSL $ACDE_DIST/install.sh | sh`, Windows
+  `irm …/install.ps1 | iex`), 检出的 acde 是编 acdert 再设 `ACDERT`; `ACDERT` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
+  `xattr -d com.apple.quarantine <路径>`; stderr 有 `error while loading shared libraries` 时是装那个库. 不替用户下载或批准任何东西.
+- **`acde dev` 指向 doctor**: 找不到 acdert 的错误末尾那句; acdert 在 dev IPC 连上之前就退出且退出码不是 0 (GPU 不可用、宿主文件缺失、动态库缺失都是这样)
+  时打 `acde: acdert exited (<码>) before it was ready; acde doctor checks the runtime, the GPU and this setup`, 退出码跟 acdert.
+- MCP 的 `doctor` 工具 (`{dir?, online?}`) 回同一份 `Doctor.format`, 只读, `openWorldHint` (`online` 时联网); 有错误也不是 `isError` (那是工具本身失败).
+- 实测 (2026-11-11, 本仓库加 acdert 的 `acdert doctor`): macOS (M3 Pro, Metal) 源码跑和经 `install.sh` 从本地镜像装到临时 HOME 后跑 (PATH 前后两种);
+  Linux .234 (Panther Lake, Mesa Vulkan) 经 SSH 无显示 (`display` 警告)、`WAYLAND_DISPLAY` 设了、`VK_DRIVER_FILES` 指向不存在的 ICD (`gpu` 错误);
+  一个不可执行的 `ACDERT`、退出码 127 加动态库报错的、启动就退出的假 acdert. 没在 Windows 上跑.
+
 ## acde dev (`src/dev.ts`, `src/ipc.ts`, `src/sessions.ts`)
 
 - 一个工程、没有 `--desktop`: 桌面工程起 `acdert desktop <id>`, 应用起 `acdert app <id>` (`--app` 挑). 几个工程或给了 `--desktop`: 都构建进
@@ -351,7 +395,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   基线: acde test 里是测试文件旁的 `__screenshots__/<文件名>/<名字>-<平台>.png` (不给名字是 `<测试名>-<序号>`), 单用 driver 时名字要是 .png 路径.
 - **trace** (`trace.ts`): `acde.trace` 记每个动作和断言 (Locator / AppWindow 的方法、`expect`、`open`、`route`、`choose*` …; 嵌套的只记最外层) 的
   标题、耗时、结果; `screenshots` 开着时每步之后拍整屏. `write(dir)` 写 `trace.txt`, 有截图时再写 `trace.html` (自带的查看页) 和 `trace/NNN.png`.
-- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 29 个工具建在 driver 上 (含 `route` / `unroute` / `clipboard`, `act` 的 drag / select,
+- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 30 个工具 (`doctor` 见「acde doctor」, 其余建在 driver 上) (含 `route` / `unroute` / `clipboard`, `act` 的 drag / select,
   `input` (原始鼠标键盘)、`clock`、`dialog` (答复下一个并列出已有的)、`resize`, 这四个在 `src/mcppage.ts` 的 `PageTools.register`, 经
   `PageToolsHost` 用 `Mcp` 的会话和结果);
   `permissions` / `answer {allow, prompt? | app? + capability?}` / `revoke {app, capability}` 和命令行的批准命令共用 `Approvals`, `answer` / `revoke` 标成 destructive (`answer` 带 `allow: true` 时必须给 `app` 和 `capability`, 不认只给 id 或什么都不给: 批准替的是用户的回答, 而且决定是持久的, 所以批准了什么要写在这次调用里, 客户端问用户时看得见; 拒绝不要求)
@@ -546,7 +590,7 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
 
 **`install.md`** (仓库根, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
 `Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
-`acde` 能跑、`acde skills install`、用 `acde --version` 看找到的运行时 (安装器已把配对的 acdert 装在 acde 旁边; 找不到先重跑安装器, 安装器在这台机器上用不了时才问用户, 同意了只照 skill `start/install.md` 的「Install the runtime by hand」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build 再 `acde dev --headless`
+`acde` 能跑、`acde skills install`、`acde doctor` 查一遍 (找到的运行时、它的 GPU 自检等; 安装器已把配对的 acdert 装在 acde 旁边; `acdert` 那项是错误时先重跑安装器, 安装器在这台机器上用不了时才问用户, 同意了只照 skill `start/install.md` 的「Install the runtime by hand」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build 再 `acde dev --headless`
 截图、汇报. 步骤放在这个文件里而不是 prompt 里, 改步骤不用改用户手里的那句话. 安装脚本的行为、`acde skills`、运行时怎么找变了, 这个文件一起改;
 改完在临时 `HOME` 里照着走一遍 (`ACDE_DIST` 指向本地 `dist.ts --out` 的目录).
 
@@ -581,7 +625,8 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
 
 ## 测试
 
-`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`templates` (自带模板和框架配置的第 1 级形态: 新建、check、
+`bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`doctor` (假 acdert 扮演有 / 没有 `acdert doctor`、报 GPU 错误、
+给不出报告、另一个契约级别、起不来的 acdert; 工程的几项; 跑着的 `acde dev` 里等批准的应用; `acde dev` 在 acdert 提前退出时的提示)、`templates` (自带模板和框架配置的第 1 级形态: 新建、check、
 build 后 SDK 校验无错无警告)、`skills` (skill 的写法规则、和命令 / MCP 工具对得上、`acde skills` 在临时 HOME 里装和删)、`imports` (`acde:` 导入:
 分词, 第三方 / 系统应用、桌面页、服务、手写的包、框架应用; check 和 Bun / Vite 两种 build)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
 打好的 preload 在真的 node 上由测试扮演运行时, 用 `node:child_process` 的额外管道当 fd 3 / 4, 没有 node ≥ 22 就跳过这一半)、`node` (打好的后端在 Node 上跑; 要

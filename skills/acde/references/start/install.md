@@ -85,10 +85,12 @@ In PowerShell, environment variables set this way stay set in that terminal; rem
 In the new terminal, run:
 
 ```sh
-acde --version
+acde doctor
 ```
 
-It prints the acde version, the SDK version and contract level it was built with, and the runtime it found with its version and contract level.
+It checks what `acde dev` and `acde test` need: acde on PATH, Bun and Node.js, the runtime (found, runs, pairs with this acde, and its own check of its files and the GPU, on which it draws a test frame), and more. Each line begins `ok`, `warn`, `error` or `skip`, a line beginning `fix:` follows each problem, and the last line says whether everything is there. See [Check the setup](../guide/doctor.md).
+
+`acde --version` prints just the versions: acde, the SDK and contract level it was built with, and the runtime it found with its version and contract level.
 
 ## The runtime
 
@@ -100,9 +102,9 @@ acde looks for the runtime in this order:
 2. the acdert the installer put next to acde;
 3. `acdert` on PATH.
 
-When none is there, `acde dev` stops and says so.
+When none is there, `acde dev` stops and says so, and `acde doctor` says where it looked and what to do.
 
-The runtime renders pages only on the GPU, so it needs a working GPU (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux). On Linux that means the hardware Vulkan driver of the machine's GPU (Mesa: `vulkan-intel` or `vulkan-radeon` on Arch, `mesa-vulkan-drivers` on Debian, Ubuntu and Fedora; NVIDIA: the vendor's driver); a software renderer is not accepted. Without it `acde dev` fails at startup with a log line that begins `web layer unavailable:` and says `no usable Vulkan driver was found: install the GPU's Vulkan driver …`: install the driver and check that `vulkaninfo --summary` lists the GPU.
+The runtime renders pages only on the GPU, so it needs a working GPU (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux). On Linux that means the hardware Vulkan driver of the machine's GPU (Mesa: `vulkan-intel` or `vulkan-radeon` on Arch, `mesa-vulkan-drivers` on Debian, Ubuntu and Fedora; NVIDIA: the vendor's driver); a software renderer is not accepted. Without it `acde dev` fails at startup with a log line that begins `web layer unavailable:` and says `no usable Vulkan driver was found: install the GPU's Vulkan driver …`: install the driver and check that `vulkaninfo --summary` lists the GPU. `acde doctor` shows the same line as an error of its `gpu` check before you start anything.
 
 ### Install the runtime by hand
 

@@ -8,6 +8,23 @@ On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong
 
 `acde --version` (or `-v`) prints the version of acde on the first line, then the SDK version and contract level it was built with, and the acdert it finds (`ACDERT`, the one installed next to acde, then PATH) with that runtime's version and contract level. `acde --help` (or `-h`) prints the usage; `acde <command> --help` and `acde help <command>` print that command only. An unknown command or argument prints one line that says what is wrong and which `--help` to read, and exits with code 1. Color follows `NO_COLOR`.
 
+## Setup
+
+### acde doctor
+
+```text
+acde doctor [dir] [--json] [--online]
+```
+
+Checks what `acde dev` and `acde test` need on this machine: acde on PATH, Bun and Node.js, acdert (found, runs, runs the contract level this acde builds, is the release this acde pairs with), the runtime's own checks (`acdert doctor`: its host files, the GPU, and on Linux the display), running `acde dev` sessions and the approvals they wait for, the project in `dir` (default: the current directory; `acde check`, this platform, its dependencies, `.acde/` in `.gitignore`), and the acde skill for coding agents. See [Check the setup](../guide/doctor.md).
+
+| Option | Description |
+| --- | --- |
+| `--json` | One JSON object instead of lines: `{"ok": …, "checks": [{"id", "title", "status", "summary", "fix"}]}` |
+| `--online` | Also ask `pkgs.dopame.ai` (or `ACDE_DIST`) whether a newer acde is out |
+
+It prints one line per check, `<status> <check>: <what it found>`, with `fix: …` on the next line for a problem, and a last line that counts errors and warnings. The status is `ok`, `warn`, `error` or `skip` (not checked: no project here, or an earlier check failed). It exits with code 1 when a check is an error, else 0. A `dir` that holds no acde project is an error.
+
 ## Projects
 
 ### acde new

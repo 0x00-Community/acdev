@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
-import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import * as p from '@clack/prompts'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
-import { packageRoot, requireAcdert, run, runtimes } from 'acde/launcher'
+import { findAcdert, requireAcdert, run, runtimes } from 'acde/launcher'
 import { Creator, STARTERS } from './create.ts'
 import { DevSession } from './dev.ts'
+import { Doctor } from './doctor.ts'
 import { TestRunner } from './e2e/runner.ts'
 import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
@@ -13,8 +13,7 @@ import { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
 import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
-
-declare const ACDE_SDK_VERSION: string | undefined
+import { Versions } from './versions.ts'
 
 const USAGE = `usage: acde <command>
   new [dir] [--template T] [--id ID] [--label NAME] [--backend] [--install] [--git] [--pm PM] [--yes]
@@ -33,6 +32,12 @@ const USAGE = `usage: acde <command>
                                                    project: its desktop or app; several or --desktop: all in that
                                                    desktop (default: the desktop project among them, else dopame);
                                                    --headless: no host window
+  doctor [dir] [--json] [--online]                 check this machine for acde dev and say how to fix what is wrong:
+                                                   acde on PATH, Bun and Node.js, acdert (found, runs, pairs with
+                                                   this acde, and its own check of the GPU and its files), running
+                                                   sessions and waiting approvals, the project in dir (default: the
+                                                   current directory), the agent skill; --online: whether a newer
+                                                   acde is out; --json: one JSON object; exit code 1 on an error
  with an acde dev running (the one whose projects hold this directory, or --session PID):
   webs                                             the webs (windows' pages) acdert runs
   eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop),
@@ -110,6 +115,7 @@ class Cli {
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
     dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
+    doctor: { args: [0, 1], switches: ['json', 'online'] },
     webs: { args: [0, 0], flags: ['session'] },
     eval: { args: [2, 2], flags: ['session'] },
     shot: { args: [1, 1], flags: ['session', 'output'] },
@@ -188,27 +194,14 @@ class Cli {
   }
 
   static async versions(): Promise<string[]> {
-    const lines = [Mcp.version(), `sdk ${Cli.sdk()} (contract level ${API_LEVEL})`]
-    let acdert: string
-    try {
-      acdert = requireAcdert()
-    } catch {
-      return [...lines, 'acdert: not found (ACDERT, next to acde, PATH)']
-    }
-    const { said } = await DevSession.runtimeLevel(acdert)
+    const lines = [Versions.acde(), `sdk ${Versions.sdk()} (contract level ${API_LEVEL})`]
+    const acdert = findAcdert().path
+    if (!acdert) return [...lines, 'acdert: not found (ACDERT, next to acde, PATH)']
+    const { said, failed } = await DevSession.runtimeLevel(acdert)
+    if (failed) return [...lines, `acdert does not run (${failed}): ${acdert}`]
     const named = said.split(/\r?\n/).map((line) => line.trim())
       .find((line) => /^acdert \S+ \(contract level \d+\)$/.test(line))
     return [...lines, named ? `${named}: ${acdert}` : `acdert without a contract level (older, level 0): ${acdert}`]
-  }
-
-  static sdk(): string {
-    if (typeof ACDE_SDK_VERSION === 'string') return ACDE_SDK_VERSION
-    const file = join(packageRoot(), 'node_modules', '@dopame', 'acde-api', 'package.json')
-    try {
-      return (JSON.parse(readFileSync(file, 'utf8')) as { version: string }).version
-    } catch {
-      return 'unknown'
-    }
   }
 
   static async main(argv: readonly string[]): Promise<number> {
@@ -256,6 +249,11 @@ class Cli {
       })
     }
     if (command === 'skills') return Skills.run(args, flags)
+    if (command === 'doctor') {
+      const checks = await Doctor.run({ ...(args[0] !== undefined && { dir: args[0] }), online: flags.has('online') })
+      console.log(flags.has('json') ? Doctor.json(checks) : Doctor.format(checks))
+      return Doctor.failed(checks) ? 1 : 0
+    }
     if (command === 'mcp')
       return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)

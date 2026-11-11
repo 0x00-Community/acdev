@@ -21,6 +21,14 @@ export interface Child {
   kill(signal?: NodeJS.Signals): void
 }
 
+export interface Captured {
+  readonly code: number | null
+  readonly stdout: string
+  readonly stderr: string
+  readonly error: string | null
+  readonly timedOut: boolean
+}
+
 export class Runtime {
   static readonly bun = typeof process.versions['bun'] === 'string'
   static readonly CONDITIONS = ['node', 'import', 'module', 'default']
@@ -56,6 +64,27 @@ export class Runtime {
       kill: (signal: NodeJS.Signals = 'SIGTERM') => {
         if (child.exitCode === null && child.signalCode === null) child.kill(signal)
       },
+    }
+  }
+
+  static async capture(argv: readonly string[], options: SpawnOptions & { readonly timeout: number }): Promise<Captured> {
+    const child = Runtime.spawn(argv, { ...options, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.process.stdout!.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk))
+    child.process.stderr!.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk))
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, options.timeout)
+    try {
+      const code = await child.exited
+      return { code, stdout, stderr, error: null, timedOut }
+    } catch (error) {
+      return { code: null, stdout, stderr, error: error instanceof Error ? error.message : String(error), timedOut }
+    } finally {
+      clearTimeout(timer)
     }
   }
 

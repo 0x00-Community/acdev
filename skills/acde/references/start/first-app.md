@@ -27,7 +27,7 @@ Framework templates run the latest version of the framework's scaffolding tool t
 
 ## Run
 
-`acde dev` runs your app in the runtime, acdert, which the installer set up next to acde (inside the Dopame virtual machine it is already on PATH). `acde --version` shows the one it finds; see [The runtime](install.md#the-runtime).
+`acde dev` runs your app in the runtime, acdert, which the installer set up next to acde (inside the Dopame virtual machine it is already on PATH). `acde doctor` checks that it is there and works on this machine; see [The runtime](install.md#the-runtime).
 
 ```sh
 cd my-app

@@ -11,8 +11,10 @@ This skill ships inside acde and describes the version it came with. When it and
 
 ## Check the environment first
 
+Run `acde doctor`, in the project directory when there is one. It checks what follows and more (the runtime draws a test frame on the GPU), prints one line per check (`ok`, `warn`, `error` or `skip`) with a `fix:` line under each problem, and exits with code 1 on an error. Run it again whenever `acde dev`, `acde test` or the MCP `start` does not come up, before guessing. See [Check the setup](references/guide/doctor.md).
+
 1. `acde` must be on PATH. If it is not, follow [Install](references/start/install.md).
-2. `acde dev` and `acde test` need the runtime, acdert. The acde installer sets up the acdert release that acde pairs with next to it; acde finds `ACDERT` (a path to the binary) first, then that one, then `acdert` on PATH (in the Dopame virtual machine it is already there). `acde --version` shows which one it finds. If none is found, run the acde installer again; only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acde new`, `acde check`, and `acde build` still work, and `acde dev` says what is missing.
+2. `acde dev` and `acde test` need the runtime, acdert. The acde installer sets up the acdert release that acde pairs with next to it; acde finds `ACDERT` (a path to the binary) first, then that one, then `acdert` on PATH (in the Dopame virtual machine it is already there). If `acde doctor` finds none, or one that does not run, run the acde installer again; only if it cannot run on this machine, offer the steps in [Install the runtime by hand](references/start/install.md#install-the-runtime-by-hand), and use them only if the user agrees. Get it from nowhere else. Without it, `acde new`, `acde check`, and `acde build` still work, and `acde dev` says what is missing.
 3. A project runs on Bun when its package manager is bun, and on Node.js with npm, pnpm, or yarn. `acde test` needs Bun.
 
 ## What is not like a browser
@@ -92,6 +94,7 @@ Guides:
 - [Desktops](references/guide/desktop.md): writing a desktop instead of an app
 - [Services](references/guide/services.md): desktop services and the capabilities they provide
 - [acde dev](references/guide/dev.md): what runs, reloading, several projects, `--desktop`
+- [Check the setup](references/guide/doctor.md): `acde doctor`, what it checks, and what to do about each finding
 - [Debugging](references/guide/tools.md): `webs`, `eval`, `shot`, `screen`, `inspect`, `query`, `act`, `console`, `network`, `permissions`, `allow`, `deny`, `revoke`
 - [Coding agents](references/guide/agents.md): this skill, `acde skills`, where it is installed
 - [MCP](references/guide/mcp.md): `acde mcp` and its tools
