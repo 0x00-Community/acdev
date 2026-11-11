@@ -50,6 +50,15 @@ Closing the only window of a session that runs a single app (`act` with `close` 
 
 `input`, `clock`, `dialog` and `resize` do for an agent what `app.mouse` / `app.keyboard`, `app.clock`, `app.answerDialog` and `app.resize` do in a test; see [Time, dialogs and page setup](testing.md#time-dialogs-and-page-setup). `clock` takes `action` (`install`, `pause_at`, `fast_forward`, `run_for`, `resume`, `set_fixed_time`, `set_system_time`, `state`) with a `time` (an ISO string or milliseconds since 1970) or a `duration` (milliseconds, `"mm:ss"` or `"hh:mm:ss"`). `dialog` without `accept` or `text` only lists.
 
+A page's folder, file or save picker can be answered before the page opens it: call `choose_folder` with a `path` (relative paths resolve against the working directory), or with `cancel: true`, then the `act` that opens the picker. Each answer serves the next picker of that kind. In a session started with `start {headless: true}` there is no picker dialog, so a picker that was not answered first fails and the page sees it as cancelled. `choose_files` takes `paths`, `choose_save_file` a `path`.
+
+```json
+{ "name": "choose_folder", "arguments": { "path": "fixtures/project" } }
+{ "name": "act", "arguments": { "ref": "w1.4", "action": "click" } }
+```
+
+On a machine without a display, call `start` with `headless: true`; `screenshot` and `snapshot` work the same. `eval` with `getComputedStyle` or `getBoundingClientRect` checks styles and layout, as in [Styles and layout](tools.md#styles-and-layout).
+
 In a session with windows, `clipboard` touches **your system clipboard**, so the agent must pass `system: true` explicitly, and the tool is marked as an action that needs confirmation. Headless sessions have their own clipboard.
 
 When the server's stdin closes or it receives a signal, it stops the `acde dev` session that `start` launched.
