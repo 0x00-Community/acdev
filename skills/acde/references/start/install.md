@@ -104,6 +104,8 @@ acde looks for the runtime in this order:
 2. the acdert the installer put next to acde;
 3. `acdert` on PATH.
 
+There is no other place: acde does not look for a runtime built in a source checkout next to it, even when acde itself runs from source; set `ACDERT` to use one.
+
 When none is there, `acde dev` stops and says so, and `acde doctor` says where it looked and what to do.
 
 The runtime renders pages only on the GPU, so it needs a working GPU (Metal on macOS, DirectX 12 on Windows, Vulkan on Linux). On Linux that means the hardware Vulkan driver of the machine's GPU (Mesa: `vulkan-intel` or `vulkan-radeon` on Arch, `mesa-vulkan-drivers` on Debian, Ubuntu and Fedora; NVIDIA: the vendor's driver); a software renderer is not accepted. Without it `acde dev` fails at startup with a log line that begins `web layer unavailable:` and says `no usable Vulkan driver was found: install the GPU's Vulkan driver …`: install the driver and check that `vulkaninfo --summary` lists the GPU. `acde doctor` shows the same line as an error of its `gpu` check before you start anything.
@@ -210,15 +212,15 @@ Your app is in the desktop's app list; open it from there. The desktop's assista
 
 To upgrade, run the install command again; it upgrades the runtime too. Each version is installed in `~/.acde/versions/<version>`, with its runtime in its `bin`, and `~/.acde/current` points to the one in use.
 
-To uninstall, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acde\current\bin` from your user `Path` and the user variable `ACDE_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and remove the `ACDERT` line.
+`acde uninstall` removes installed apps and desktops, not acde itself (see [Local install](../guide/install.md#uninstall)). To uninstall acde, run `acde skills remove` if you installed the skill, delete `~/.acde`, and remove the `# acde` lines the installer added to your shells' startup files (it listed them); on Windows remove `%USERPROFILE%\.acde\current\bin` from your user `Path` and the user variable `ACDE_INSTALL`. If you installed the runtime by hand or the desktop as above, also delete `~/.acdert` and remove the `ACDERT` line.
 
 acde and the runtime keep data outside the install directory. Delete these too to remove everything (on Windows, without `XDG_*` variables, they are under `%USERPROFILE%` with the same names):
 
 | Directory | What is in it |
 | --- | --- |
 | `$XDG_DATA_HOME/acde` (`~/.local/share/acde`) | Installed apps and desktops (`packages/`), the apps' own data and storage (`apps/`, `storage/`), the skill install record |
-| `$XDG_STATE_HOME/acde` (`~/.local/state/acde`) | Window positions and other session state |
-| `$XDG_CONFIG_HOME/acde` (`~/.config/acde`) | Settings |
-| `$XDG_CACHE_HOME/acde` (`~/.cache/acde`) | Caches |
+| `$XDG_STATE_HOME/acde` (`~/.local/state/acde`) | Window positions, the last desktop, and other session state |
+| `$XDG_CONFIG_HOME/acde` (`~/.config/acde`) | Approval decisions (`permissions.json`) |
+| `$XDG_CACHE_HOME/acde` (`~/.cache/acde`) | Caches (only when `XDG_RUNTIME_DIR` is not set) |
 
 On Windows, reinstalling the same version while `acde dev` runs moves the files in use aside (`versions/<version>.old-…`); the installer says so, and removes them the next time it runs.
