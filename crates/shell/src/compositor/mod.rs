@@ -19,6 +19,7 @@ pub use acde_shell::ShellEvent;
 mod grabs;
 pub use acde_window::Grant;
 mod input;
+mod inputs;
 pub use input::{Injected, WheelKind};
 mod layers;
 mod lock;
@@ -245,6 +246,7 @@ pub struct Compositor {
     pub shortcuts: acde_model::Shortcuts,
     shortcut_names: std::collections::HashMap<acde_model::Combo, String>,
     held_keys: std::collections::HashSet<u32>,
+    pub inputs: inputs::Inputs,
     pub loop_handle: smithay::reexports::calloop::LoopHandle<'static, Self>,
     next_window: u32,
 }
@@ -378,6 +380,7 @@ impl Compositor {
             shortcuts: Default::default(),
             shortcut_names: Default::default(),
             held_keys: Default::default(),
+            inputs: inputs::Inputs::new(inputs::InputConfig::load()),
             loop_handle: lh.clone(),
             next_window: 1,
         };
@@ -400,6 +403,7 @@ impl Compositor {
             log::info!("输出 {}: {}x{} 物理 {}x{} mm 缩放 {scale} 位置 {loc:?}", output.name(), mode.w, mode.h, size.w, size.h);
             x += (f64::from(mode.w) / scale).ceil() as i32;
         }
+        state.input_start();
         Self::acde_window_global(&dh);
         Self::acde_shell_global(&dh);
         state.insert_shell_client(shell)?;

@@ -49,6 +49,7 @@ pub enum ShellEvent {
     WindowParent { window: u32, parent: Option<u32> },
     Milestone { title: &'static str, ms: f64 },
     InputTarget { window: Option<u32>, x: f64, y: f64, button: u32 },
+    Input(String),
 }
 
 #[derive(Default)]
@@ -110,6 +111,7 @@ impl ShellEvent {
             Self::WindowParent { window, parent } => shell.window_parent(window, parent.wire()),
             Self::Milestone { title, ms } => shell.milestone(title.into(), ms),
             Self::InputTarget { window, x, y, button } => shell.input_target(window.wire(), x, y, button),
+            Self::Input(state) => shell.input(state),
         }
     }
 }
@@ -319,6 +321,11 @@ impl Compositor {
                 let Ok(scope) = scope.into_result() else { return };
                 Command::Unshortcut { combo, scope: scope.into(), owner }
             }
+            Request::SetInput { config, callback } => {
+                let callback = data_init.init(callback, ());
+                Self::answer(&callback, self.set_input(&config).map(|()| (0, 0)));
+                return;
+            }
             Request::Launch { argv, cwd, env, callback } => {
                 let callback = data_init.init(callback, ());
                 let strings = |bytes: &[u8]| bytes.split(|b| *b == 0).filter(|s| !s.is_empty()).map(|s| String::from_utf8_lossy(s).into_owned()).collect::<Vec<_>>();
@@ -341,6 +348,7 @@ impl GlobalDispatch<AcdeShell, ()> for Compositor {
         {
             event.send(&shell);
         }
+        state.input_event().send(&shell);
     }
 
     fn can_view(client: Client, _: &()) -> bool {

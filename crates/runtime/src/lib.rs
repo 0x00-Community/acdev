@@ -19,6 +19,7 @@ mod system;
 mod terminal;
 mod unixhttp;
 mod voice;
+mod xkb;
 pub use atspi::Accessibility;
 pub use bus::DesktopBus;
 pub use greetd::{GreetUser, Greetd};
@@ -33,6 +34,7 @@ pub use system::{SysCall, system_call};
 pub use terminal::Terminals;
 pub use unixhttp::{Deliver, Event as UnixEvent, UnixClient};
 pub use voice::Voice;
+pub use xkb::xkb_catalog;
 
 use napi::{Error, Result, Status};
 use serde_json::json;

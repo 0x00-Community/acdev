@@ -499,6 +499,10 @@ impl SeatHandler for Compositor {
         let client = focused.and_then(|s| self.display.get_client(s.id()).ok());
         set_data_device_focus(&self.display, seat, client);
     }
+
+    fn led_state_changed(&mut self, _: &Seat<Self>, leds: smithay::input::keyboard::LedState) {
+        self.input_leds(leds.num.unwrap_or(false), leds.caps.unwrap_or(false), leds.scroll.unwrap_or(false));
+    }
 }
 
 impl SelectionHandler for Compositor {

@@ -134,6 +134,7 @@ pub(super) struct State {
     children: Vec<u32>,
     serial: u64,
     stopped: bool,
+    input: Value,
 }
 
 /// The system objects isolates share (crates/runtime), made the first time a grant needs them.
@@ -311,6 +312,14 @@ impl Desk {
                 return;
             }
             Notice::InputTarget { .. } => return,
+            Notice::Input { state: text } => {
+                let Ok(input) = serde_json::from_str::<Value>(&text) else { return log::warn!("acde_shell input: not JSON") };
+                if input != state.input {
+                    state.input = input.clone();
+                    self.to_all(state, &json!({ "type": "input", "state": input }));
+                }
+                return;
+            }
             _ => {}
         }
         let (window, event) = match &notice {

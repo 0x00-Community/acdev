@@ -80,14 +80,15 @@ impl Compositor {
             }
             InputEvent::PointerButton { event } => self.on_button(event.button_code(), event.state(), event.time_msec()),
             InputEvent::PointerAxis { event } => {
-                let amount = |axis| event.amount(axis).unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * WHEEL_STEP / 120.0);
+                let factor = self.inputs.scroll_factor(event.source());
+                let amount = |axis| factor * event.amount(axis).unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * WHEEL_STEP / 120.0);
                 let (dx, dy) = (amount(Axis::Horizontal), amount(Axis::Vertical));
                 let mut frame = AxisFrame::new(event.time_msec()).source(event.source());
                 for (axis, value) in [(Axis::Horizontal, dx), (Axis::Vertical, dy)] {
                     if value != 0.0 {
                         frame = frame.value(axis, value);
                         if let Some(v120) = event.amount_v120(axis) {
-                            frame = frame.v120(axis, v120 as i32);
+                            frame = frame.v120(axis, (v120 * factor) as i32);
                         }
                     } else if event.source() == AxisSource::Finger && event.amount(axis) == Some(0.0) {
                         frame = frame.stop(axis);
@@ -256,6 +257,7 @@ impl Compositor {
             }
             Some(Key::Held) | None => {}
         }
+        self.input_layout_changed();
     }
 
     fn mods(m: &ModifiersState) -> u8 {

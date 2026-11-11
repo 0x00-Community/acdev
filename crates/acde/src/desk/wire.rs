@@ -181,6 +181,12 @@ pub fn call(name: &str, a: &mut WireArgs, desk: &Arc<Desk>, me: u32) -> Answer {
             let (output, scale) = (a.str(0), a.f64(1));
             later(move || desk.set_scale(me, &output, scale).map(|()| Value::Null))
         }
+        "inputState" => now(desk.input_state(me)),
+        "setInput" => {
+            let patch: Value = arg(a, 0).unwrap_or(Value::Null);
+            later(move || desk.set_input(me, &patch).map(|()| Value::Null))
+        }
+        "inputCatalog" => later(move || desk.input_catalog(me)),
         "setBrightness" => {
             let (output, value) = (a.str(0), a.f64(1));
             later(move || desk.set_brightness(me, &output, value).map(|()| Value::Null))

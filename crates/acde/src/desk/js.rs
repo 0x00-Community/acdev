@@ -175,6 +175,9 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, desk: A
         "desktops" => desktops,
         "displays" => displays,
         "setScale" => set_scale,
+        "inputState" => input_state,
+        "setInput" => set_input,
+        "inputCatalog" => input_catalog,
         "setBrightness" => set_brightness,
         "chooseDesktop" => choose_desktop,
         "openPath" => open_path,
@@ -569,6 +572,21 @@ fn set_brightness(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments,
         let value = args.get(1).number_value(scope).unwrap_or(f64::NAN);
         later(scope, &mut rv, move || desk.set_brightness(me, &output, value).map(|()| Value::Null))
     })
+}
+
+fn input_state(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| resolved(scope, &mut rv, desk.input_state(me)))
+}
+
+fn set_input(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let patch: Value = arg(scope, &args, 0).unwrap_or(Value::Null);
+        later(scope, &mut rv, move || desk.set_input(me, &patch).map(|()| Value::Null))
+    })
+}
+
+fn input_catalog(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| later(scope, &mut rv, move || desk.input_catalog(me)))
 }
 
 fn choose_desktop(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {

@@ -441,6 +441,78 @@ export interface AcdeAudio {
   on(type: 'changed', handler: (state: AudioState) => void): () => boolean
 }
 
+export interface KeyboardLayout {
+  readonly layout: string
+  readonly variant: string
+}
+export interface InputKeyboard {
+  readonly layouts: readonly KeyboardLayout[]
+  readonly model: string
+  readonly options: readonly string[]
+  readonly repeat: boolean
+  readonly repeatDelay: number
+  readonly repeatRate: number
+  readonly numlock: 'on' | 'off' | 'unchanged'
+  readonly active: readonly string[]
+  readonly current: number
+}
+export interface InputPointer {
+  readonly present: boolean
+  readonly speed: number
+  readonly acceleration: 'adaptive' | 'flat'
+  readonly leftHanded: boolean
+  readonly naturalScroll: boolean
+  readonly scrollSpeed: number
+  readonly middleEmulation: boolean
+}
+export type TouchpadScroll = 'two-finger' | 'edge' | 'button' | 'none'
+export type TouchpadClick = 'areas' | 'fingers'
+export interface InputTouchpad extends InputPointer {
+  readonly tapToClick: boolean
+  readonly tapAndDrag: boolean
+  readonly dragLock: boolean
+  readonly tapButtons: 'lrm' | 'lmr'
+  readonly disableWhileTyping: boolean
+  readonly scroll: TouchpadScroll
+  readonly click: TouchpadClick
+  readonly scrollMethods: readonly TouchpadScroll[]
+  readonly clickMethods: readonly TouchpadClick[]
+}
+export interface InputState {
+  readonly keyboard: InputKeyboard
+  readonly mouse: InputPointer
+  readonly touchpad: InputTouchpad
+  readonly devices: readonly { readonly name: string; readonly kind: 'mouse' | 'touchpad' }[]
+}
+type Settable<T> = { readonly [K in keyof T]?: T[K] | null }
+export interface InputPatch {
+  readonly keyboard?: Settable<Omit<InputKeyboard, 'active' | 'current'>>
+  readonly mouse?: Settable<Omit<InputPointer, 'present'>>
+  readonly touchpad?: Settable<Omit<InputTouchpad, 'present' | 'scrollMethods' | 'clickMethods'>>
+}
+export interface InputCatalog {
+  readonly models: readonly { readonly id: string; readonly name: string; readonly vendor: string }[]
+  readonly layouts: readonly {
+    readonly id: string
+    readonly name: string
+    readonly short: string
+    readonly languages: readonly string[]
+    readonly variants: readonly { readonly id: string; readonly name: string }[]
+  }[]
+  readonly options: readonly {
+    readonly id: string
+    readonly name: string
+    readonly multiple: boolean
+    readonly options: readonly { readonly id: string; readonly name: string }[]
+  }[]
+}
+export interface AcdeInput {
+  state(): Promise<InputState | null>
+  catalog(): Promise<InputCatalog>
+  set(patch: InputPatch): Promise<void>
+  on(type: 'changed', handler: (state: InputState) => void): () => boolean
+}
+
 export type PowerProfile = 'power-saver' | 'balanced' | 'performance'
 export type PowerAction = 'none' | 'sleep' | 'hibernate' | 'shutdown' | 'prompt' | 'lock' | 'screen-off'
 export type PowerIdleAction = 'none' | 'sleep' | 'hibernate' | 'shutdown'
@@ -536,6 +608,7 @@ export interface AcdePage {
   readonly system?: AcdeSystem
   readonly display?: AcdeDisplay
   readonly audio?: AcdeAudio
+  readonly input?: AcdeInput
   readonly power?: AcdePower
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps

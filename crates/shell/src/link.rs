@@ -92,6 +92,8 @@ pub enum Notice {
     InputTarget { window: Option<u32>, x: f64, y: f64, button: u32 },
     /// The seat has had no input for the `index`th timeout of [`Link::set_idle`] (`idle`), or has again.
     Idle { index: u32, idle: bool },
+    /// The input settings in effect and the pointing devices (JSON, compositor `inputs.rs`).
+    Input { state: String },
     /// The connection ended (the compositor quit or died).
     Exit,
 }
@@ -302,6 +304,11 @@ impl Link {
         rx.recv_timeout(REPLY_WAIT).map_err(|e| e.to_string())?.map(drop)
     }
 
+    pub fn set_input(&self, config: String) -> Result<(), String> {
+        let rx = self.answer(|s, tx| _ = s.set_input(config, &self.qh, tx));
+        rx.recv_timeout(REPLY_WAIT).map_err(|e| e.to_string())?.map(drop)
+    }
+
     pub fn set_scale(&self, output: String, scale: i32) -> Result<(), String> {
         let rx = self.answer(|s, tx| _ = s.set_scale(output, scale, &self.qh, tx));
         rx.recv_timeout(REPLY_WAIT).map_err(|e| e.to_string())?.map(drop)
@@ -459,6 +466,7 @@ impl Notice {
             E::WindowParent { window, parent } => Notice::Parent { window, parent: some(parent) },
             E::Milestone { title, time_ms } => Notice::Milestone { title, time_ms },
             E::InputTarget { window, x, y, button } => Notice::InputTarget { window: some(window), x, y, button },
+            E::Input { state } => Notice::Input { state },
         })
     }
 }

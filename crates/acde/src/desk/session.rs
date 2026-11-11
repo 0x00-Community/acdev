@@ -88,6 +88,9 @@ impl Desk {
         if caps.is_none_or(|c| c.display) {
             modules.push("display");
         }
+        if caps.is_none_or(|c| c.input) {
+            modules.push("input");
+        }
         modules.into()
     }
 
@@ -217,6 +220,27 @@ impl Desk {
         let state = &*self.state();
         self.to_all(state, &json!({ "type": "display", "state": state.look.display() }));
         Ok(())
+    }
+
+    /// `input.state()`: what the compositor last said (keyboard, mouse, touchpad, devices); null before it has.
+    pub fn input_state(&self, caller: u32) -> Done<Value> {
+        self.session_rights(caller, "acde.input", |c| c.input)?;
+        Ok(self.state().input.clone())
+    }
+
+    /// `input.set(patch)`: the compositor applies and saves it (`acde_shell.set_input`), then says the new state.
+    pub fn set_input(&self, caller: u32, patch: &Value) -> Done<()> {
+        self.session_rights(caller, "acde.input", |c| c.input)?;
+        if !patch.is_object() {
+            return Err(Failure::new(400, "bad_input", "acde.input.set: the patch is an object"));
+        }
+        self.link().set_input(patch.to_string()).map_err(|e| Failure::new(400, "input_failed", e))
+    }
+
+    /// `input.catalog()`: the keyboard models, layouts and options xkeyboard-config knows.
+    pub fn input_catalog(&self, caller: u32) -> Done<Value> {
+        self.session_rights(caller, "acde.input", |c| c.input)?;
+        acde_runtime::xkb_catalog().map_err(|e| Failure::new(500, "no_catalog", e))
     }
 
     pub fn desktops(&self, caller: u32) -> Done<Value> {

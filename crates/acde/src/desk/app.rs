@@ -38,6 +38,7 @@ pub struct Capabilities {
     pub system: bool,
     pub display: bool,
     pub audio: bool,
+    pub input: bool,
     pub power: bool,
     #[serde(flatten)]
     pub services: HashMap<String, Value>,

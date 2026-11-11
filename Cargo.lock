@@ -128,6 +128,7 @@ dependencies = [
  "openssl",
  "pipewire",
  "rand 0.9.5",
+ "roxmltree 0.21.1",
  "rustix 1.1.5",
  "serde",
  "serde_json",

@@ -9,6 +9,7 @@ use smithay::backend::drm::output::{DrmOutput, DrmOutputManager, DrmOutputRender
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent, DrmNode, DrmSurface, NodeType};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
+use smithay::backend::input::InputEvent;
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::renderer::element::{RenderElement, RenderElementStates, UnderlyingStorage};
 use smithay::backend::renderer::utils::Buffer;
@@ -138,7 +139,14 @@ impl DrmTarget {
 
         let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
         libinput.udev_assign_seat(&seat).map_err(|()| "libinput 分配 seat 失败".to_string())?;
-        lh.insert_source(LibinputInputBackend::new(libinput.clone()), |event, _, state| state.on_input(event)).map_err(|e| e.to_string())?;
+        lh.insert_source(LibinputInputBackend::new(libinput.clone()), |event, _, state| {
+            match &event {
+                InputEvent::DeviceAdded { device } => state.input_device_added(device.clone()),
+                InputEvent::DeviceRemoved { device } => state.input_device_removed(device),
+                _ => {}
+            }
+            state.on_input(event)
+        }).map_err(|e| e.to_string())?;
         lh.insert_source(notifier_drm, |event, _, state| match event {
             DrmEvent::VBlank(crtc) => state.on_drm_vblank(crtc),
             DrmEvent::Error(e) => log::warn!("DRM: {e}"),

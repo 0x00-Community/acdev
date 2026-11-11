@@ -132,6 +132,8 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
       case 'visible':
         self?.visible(m.visible === true)
         return self?.onVisible(m.visible)
+      case 'input':
+        return modules.inputChanged(m.state)
     }
   })
   if (self) {

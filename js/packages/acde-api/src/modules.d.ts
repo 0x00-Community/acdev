@@ -30,6 +30,13 @@ declare module 'acde:system' {
   import type { AcdePage } from '@dopame/acde-api'
   const system: NonNullable<AcdePage['system']>
   export { system }
+
+declare module 'acde:input' {
+  import type { AcdePage } from '@dopame/acde-api'
+  const input: NonNullable<AcdePage['input']>
+  export { input }
+  export default input
+}
   export default system
 }
 

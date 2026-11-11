@@ -365,6 +365,7 @@ export class Modules {
     }
     if (modules.has('inspect')) this.value['inspect'] = Modules.inspect(desk)
     if (modules.has('display')) this.value['display'] = this.#display(desk)
+    if (modules.has('input')) this.value['input'] = this.#input(desk)
     if (modules.has('desktops')) this.value['desktops'] = { list: () => desk.desktops(), choose: (id: string, remember = false) => desk.chooseDesktop(String(id), remember === true) }
     if (init.place === 'desktop') {
       this.value['apps'] = { ...apps, ...files, ...((proxies[Modules.STORE] ?? {}) as object), on: windows.notices.for('apps', ['changed']) }
@@ -432,6 +433,35 @@ export class Modules {
         if (typeof handler !== 'function') throw new TypeError('acde:display on: the handler is not a function')
         this.#displayListeners.add(handler)
         return () => this.#displayListeners.delete(handler)
+      },
+    }
+  }
+
+  readonly #inputListeners = new Set<(state: unknown) => void>()
+
+  inputChanged(state: unknown): void {
+    for (const listener of [...this.#inputListeners]) {
+      try {
+        listener(state)
+      } catch (error) {
+        Log.write(Level.Error, 'acde_host', `acde:input changed: ${String((error as Error)?.message ?? error)}`)
+      }
+    }
+  }
+
+  #input(desk: Pick<IsolateDesk, 'inputState' | 'setInput' | 'inputCatalog'>): Record<string, unknown> {
+    return {
+      state: () => desk.inputState(),
+      catalog: () => desk.inputCatalog(),
+      set: (patch: Record<string, unknown>) => {
+        if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) return Promise.reject(new TypeError('acde:input set: the patch is an object'))
+        return desk.setInput(patch)
+      },
+      on: (type: string, handler: (state: unknown) => void) => {
+        if (type !== 'changed') throw new TypeError(`acde:input has no ${String(type)} event`)
+        if (typeof handler !== 'function') throw new TypeError('acde:input on: the handler is not a function')
+        this.#inputListeners.add(handler)
+        return () => this.#inputListeners.delete(handler)
       },
     }
   }

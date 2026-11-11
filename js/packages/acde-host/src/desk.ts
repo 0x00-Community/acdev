@@ -43,6 +43,9 @@ export interface IsolateDesk {
   desktops(): Promise<{ desktops: DesktopEntry[]; current: string }>
   displays(): Promise<unknown>
   setScale(output: string, scale: number): Promise<void>
+  inputState(): Promise<unknown>
+  setInput(patch: Record<string, unknown>): Promise<void>
+  inputCatalog(): Promise<unknown>
   setBrightness(output: string, value: number): Promise<void>
   chooseDesktop(id: string, remember: boolean): Promise<void>
   openPath(path: string, options: { app?: string; select?: boolean }): Promise<{ app: string; window: number }>
@@ -71,6 +74,7 @@ export type DeskMessage =
   | { type: 'colorscheme'; dark: boolean }
   | { type: 'visible'; visible: boolean }
   | { type: 'display'; state: unknown }
+  | { type: 'input'; state: unknown }
 
 /** The services channel of a desktop or window isolate (`natives.services`). */
 export interface IsolateServices {

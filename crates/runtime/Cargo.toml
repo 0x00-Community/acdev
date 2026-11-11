@@ -39,6 +39,8 @@ base64 = "0.22"
 rand = "0.9"
 # the web desktop's input method (fcitx5, else IBus) over D-Bus
 zbus = "5"
+# xkb.rs: the keyboard layouts, models and options of xkeyboard-config (rules/evdev.xml)
+roxmltree = "0"
 # the Office app (app-office): Document Server JWTs and bridge tickets, blank documents
 hmac = "0.12"
 flate2 = "1"

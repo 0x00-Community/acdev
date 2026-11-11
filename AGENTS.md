@@ -454,6 +454,7 @@ runtime 侧是 shell `link.rs` 的 `Link` (wayland-client, 读线程 `acde-shell
 | `shortcut` → `acde_shell_result` | `shortcut` | 冲突时 `failed` |
 | `unshortcut` | 同名 | |
 | `inject_move` / `inject_motion` / `inject_button` / `inject_wheel` / `inject_key` | `inject` | type 在 Broker 侧先解析成枚举 |
+| `set_input` → `acde_shell_result` | `setInput` | JSON 的部分输入设置, 见「键盘、鼠标和触摸板」; 编译不出 keymap 时 `failed`, 不保存 |
 | `animate` | `animate` | `given` 位标记给了哪些值 (没给的不变, 没给 easing 用缺省) |
 | `launch` → `acde_shell_result` | `launch` | argv、env (key=value) 是以 NUL 结尾的串首尾相接; 合成器起程序 (它的 `WAYLAND_DISPLAY`, 去掉 `DISPLAY`), 回 `done(pid)` |
 | `set_screens` | `Link::set_screens` | 屏幕开关 (DPMS), 见「电源和电池」; 合成器在下一次输入时自己打开 |
@@ -461,7 +462,7 @@ runtime 侧是 shell `link.rs` 的 `Link` (wayland-client, 读线程 `acde-shell
 
 事件一种一个: `output`、`window_open`、`window_close`、`window_title`、`window_fullscreen(fullscreen)` (→ `windowfullscreen` /
 `windowunfullscreen`)、`window_minimize`、`window_activate`、`window_animated`、`shortcut(owner, key, scope)` (→ `{window: owner, key,
-title: scope}`)、`window_gone`、`window_min_size`、`window_parent`、`milestone`、`input_target`; Broker 侧还原成「shell」一节表里的
+title: scope}`)、`window_gone`、`window_min_size`、`window_parent`、`milestone`、`input_target`、`input(state)` (JSON, 绑上时和变了时); Broker 侧还原成「shell」一节表里的
 `Event`. `exit` 不是协议事件: 连接断了 (或 `quit`) 时 Broker 侧自己发.
 
 ### 帧、损伤与输入
@@ -781,6 +782,33 @@ acde-base 不认识它们.
   `acde-mimeapps.list` (每个类型给第一个写了它的应用). 桌面包装进 `/usr/share/applications`.
 - **总线上的名字**只在自己的会话里拿 (`ACDE_BUS_NAMES=1/0` 强制; 嵌套跑时 FileManager1 是外面桌面的); 两个名字都允许被替换,
   后起的会话拿走. 不装 D-Bus activation 文件: 没有会话时不该为了打开一个文件夹起一个 acde.
+
+## 键盘、鼠标和触摸板 (`acde:input`)
+
+照 KDE 的「键盘」「鼠标」「触摸板」(kcm_keyboard、kcm_mouse / KWin 的 libinput 设置), 界面在桌面包 (acde-dopame 设置的「键盘和鼠标」).
+桌面全有, 应用要清单的 `input: true`; 桌面包自己的应用 (包里有 `desktops`) 不写也有 (Broker `apps.ts` 的 `AppRegistry.SYSTEM_APP`).
+都在合成器里生效, 经 `natives.desk` (`inputState` / `setInput` / `inputCatalog`) → `Desk` → `acde_shell.set_input`:
+
+- `state()`: 合成器最后报的 (`input` 事件, `Desk` 记着; 没报过是 null): `keyboard {layouts: [{layout, variant}], model, options,
+  repeat, repeatDelay (ms), repeatRate (次/秒), numlock ('on' / 'off' / 'unchanged'), active (keymap 里各布局的名字), current (正在用第几个)}`,
+  `mouse` / `touchpad` 是生效的值 (设过的, 否则设备的 libinput 默认; 触摸板的轻触点击默认开, 照 Plasma 6) 加 `present`, 触摸板另有
+  `scrollMethods` / `clickMethods` (设备支持的), `devices: [{name, kind: 'mouse' | 'touchpad'}]`. `on('changed', fn)`: 变了时 (设置、
+  插拔设备、用 xkb 的切换键换了布局) `Desk` 给所有 isolate 发 `{type: 'input', state}`.
+- `set(patch)`: `{keyboard?, mouse?, touchpad?}` 里给的键改掉, `null` 回到默认. 指针的键: `speed` (-1..1)、`acceleration` ('adaptive' /
+  'flat')、`leftHanded`、`naturalScroll`、`scrollSpeed` (0.1..20, KDE 的 ScrollFactor, 合成器乘在滚动量上: 手指滚动用触摸板的, 别的用鼠标的)、
+  `middleEmulation`; 触摸板另有 `tapToClick`、`tapAndDrag`、`dragLock`、`tapButtons` ('lrm' / 'lmr': 两指 / 三指轻触是右键还是中键)、
+  `disableWhileTyping`、`scroll` ('two-finger' / 'edge' / 'button' / 'none')、`click` ('areas' / 'fingers'). 键盘: 最多 4 个布局 (xkb 的上限),
+  第一个是默认; 切换布局用 xkb 的 `grp:` 选项 (KDE 的「切换布局的快捷键」), 在合成器的 xkb 状态里切, 不经 JS. 布局全空 = xkb 的默认
+  (`XKB_DEFAULT_*`). `repeat: false` 时 repeat_info 的 rate 是 0. 默认照 KDE: 延迟 600 ms、25 次/秒、NumLock 不变.
+- `catalog()`: xkeyboard-config `rules/evdev.xml` (`$XKB_CONFIG_ROOT`, 默认 `/usr/share/X11/xkb`) 的 `models`、`layouts` (带 `variants`、
+  `languages`)、`options` (按组, `grp` 是切换布局) (crates/runtime `xkb.rs`, 读一次). 名字是英文 (xkeyboard-config 的翻译还没接).
+- 合成器 (crates/shell `compositor/inputs.rs`): 起来时读 `$XDG_CONFIG_HOME/acde/input.json` (照 KDE 的 kxkbrc + kcminputrc, 一个文件,
+  只记设过的键), 编不出 keymap 时用默认的; NumLock 只在起来时按设置开 / 关 (和 KDE 一样). DRM 后端的 libinput 设备加进来时按类分
+  (有轻触手指数的指针是触摸板, 别的指针是鼠标) 配上; 每次 `set_input` 先编 keymap (失败就拒绝, 不存), 再改 repeat_info、所有设备的
+  libinput 配置, 写文件 (先 `.tmp` 再改名), 发 `input`. 键盘 LED (NumLock / CapsLock / ScrollLock) 跟 xkb 状态走. 嵌套 / RDP 后端
+  没有 libinput 设备: 只有键盘设置生效, `devices` 为空.
+- 还没有: KDE 的按设备分别设置 (这里按类: 所有鼠标一份、所有触摸板一份)、按窗口 / 按应用记住布局、「高级」里除切换键外的选项界面
+  (`options` 照样能设)、按住出重音 (KeyRepeat=accent)、自定义加速曲线、xkeyboard-config 的翻译.
 
 ## 本机信息 (`acde:system`)
 
