@@ -74,6 +74,14 @@ export class PackageManager {
   exec(pkg: string, args: readonly string[]): string[] {
     if (this.name === 'bun') return [this.#bin(), 'x', '--bun', pkg, ...args]
     if (this.name === 'npm') return [which('npx') ?? 'npx', '--yes', pkg, ...args]
+    if (this.name === 'yarn' && this.version()?.startsWith('1.')) {
+      const npx = which('npx')
+      if (!npx) {
+        throw new Error(`yarn 1 has no yarn dlx to run ${pkg}, and npx is not on PATH: use yarn 2 or newer `
+          + '(corepack enable yarn) or install npm')
+      }
+      return [npx, '--yes', pkg, ...args]
+    }
     return [this.#bin(), 'dlx', pkg, ...args]
   }
 

@@ -486,6 +486,18 @@ describe('a project made by acde from its checkout', () => {
       expect(() => PackageManager.named('other')).toThrow('one of bun, npm, pnpm, yarn')
       process.env['PATH'] = bin
       expect(() => PackageManager.named('yarn').exec('create-vite@latest', ['x'])).toThrow('yarn is not on PATH')
+      const classic = tmp()
+      const fake = (name: string, said: string) => WINDOWS
+        ? writeFileSync(join(classic, `${name}.cmd`), `@echo ${said}\r\n`)
+        : writeFileSync(join(classic, name), `#!/bin/sh\necho ${said}\n`, { mode: 0o755 })
+      fake('yarn', '1.22.22')
+      process.env['PATH'] = classic
+      expect(() => PackageManager.named('yarn').exec('create-vite@latest', ['x'])).toThrow('yarn 1 has no yarn dlx')
+      fake('npx', '11.0.0')
+      expect(PackageManager.named('yarn').exec('create-vite@latest', ['x'])).toEqual([
+        expect.stringMatching(/(?:^|[/\\])npx(?:\.cmd)?$/i), '--yes', 'create-vite@latest', 'x',
+      ])
+      process.env['PATH'] = bin
       expect(PackageManager.named('pnpm').exec('create-vite@latest', ['x'])).toEqual([
         expect.stringMatching(/(?:^|[/\\])pnpm(?:\.(?:exe|cmd|bat))?$/i),
         'dlx',
