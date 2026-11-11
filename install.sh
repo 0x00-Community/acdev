@@ -174,7 +174,7 @@ main() {
   }
 
   file=acde-$version.tar.gz
-  say "downloading acde $version"
+  say "installing acde $version"
   fetch "$ACDE_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
     die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acde $version?)"
   [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acde $version is not in its SHA256SUMS ($file)"
@@ -200,7 +200,7 @@ main() {
   esac
 
   sums=$ACDERT_DIST/$runtime/SHA256SUMS
-  say "downloading acdert $runtime for $triple"
+  say "acde $version runs with acdert $runtime: getting its build for $triple"
   fetch "$sums" "$tmp/acdert.sums" || die "could not download $sums (acde $version runs with acdert $runtime)"
   binary=acdert-$triple
   if [ -z "$(listed "$tmp/acdert.sums" "$binary")" ]; then
