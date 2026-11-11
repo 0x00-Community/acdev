@@ -40,6 +40,13 @@ declare module 'acde:display' {
   export default display
 }
 
+declare module 'acde:audio' {
+  import type { AcdePage } from '@dopame/acde-api'
+  const audio: NonNullable<AcdePage['audio']>
+  export { audio }
+  export default audio
+}
+
 declare module 'acde:windows' {
   import type { AcdePage } from '@dopame/acde-api'
   const windows: NonNullable<AcdePage['windows']>

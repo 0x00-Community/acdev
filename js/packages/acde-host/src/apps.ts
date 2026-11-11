@@ -6,7 +6,7 @@ import { Level, Log } from './log'
 export type { AppManifest, Capabilities } from '@dopame/acde-app/manifest'
 
 export class AppRegistry {
-  static readonly SYSTEM_APP = { system: true, display: true }
+  static readonly SYSTEM_APP = { system: true, display: true, audio: true }
 
   readonly #apps = new Map<string, AppManifest>()
 

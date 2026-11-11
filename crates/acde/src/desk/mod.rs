@@ -141,6 +141,7 @@ struct System {
     workspace: Option<acde_runtime::Workspace>,
     terminals: Option<acde_runtime::Terminals>,
     networks: acde_runtime::Networks,
+    sounds: acde_runtime::Sounds,
     office: Option<acde_runtime::OfficeService>,
 }
 
@@ -401,6 +402,7 @@ impl Desk {
             network: (all || caps.is_some_and(|c| c.network)).then(|| system.networks.clone()),
             office: system.office.clone().filter(|_| all || caps.is_some_and(|c| c.office)),
             system: all || caps.is_some_and(|c| c.system),
+            sound: (all || caps.is_some_and(|c| c.audio)).then(|| system.sounds.clone()),
         }
     }
 

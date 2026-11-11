@@ -41,6 +41,7 @@ pub struct Grants {
     pub network: Option<acde_runtime::Networks>,
     pub office: Option<acde_runtime::OfficeService>,
     pub system: bool,
+    pub sound: Option<acde_runtime::Sounds>,
 }
 
 impl Grants {
@@ -59,6 +60,9 @@ impl Grants {
         }
         if self.system {
             crate::system::install(scope, natives);
+        }
+        if let Some(sounds) = self.sound {
+            crate::sound::install(scope, natives, sounds);
         }
     }
 }
@@ -213,6 +217,7 @@ impl Spec {
         crate::fs::clear();
         crate::terminal::clear();
         crate::network::clear();
+        crate::sound::clear();
         crate::office::clear();
         crate::own::clear();
         crate::desk::clear();

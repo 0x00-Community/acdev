@@ -784,7 +784,7 @@ acde-base 不认识它们.
 ## 本机信息 (`acde:system`)
 
 给系统设置一类的页面用 (acde-dopame 的「关于本机」「存储」「时间」): 桌面全有, 应用要清单的 `system: true`; 桌面包自己的应用 (包里有
-`desktops`, 照 acdert 的「系统应用」) 不写也有 `system` 和 `display` (Broker `apps.ts` 的 `AppRegistry.SYSTEM_APP`: acdert 的 SDK 校验不认这两个键,
+`desktops`, 照 acdert 的「系统应用」) 不写也有 `system`、`display` 和 `audio` (Broker `apps.ts` 的 `AppRegistry.SYSTEM_APP`: acdert 的 SDK 校验不认这些键,
 acde-dopame 的清单写不进去). 实现在 crates/runtime
 `system.rs` (`system_call(SysCall)`, 阻塞, 由 crates/acde `system.rs` 放到 `acde-system` 线程上跑; 内核态窗口走 SYSTEM 接口的
 `system.<方法>`), JS 侧 `isolate.ts` 加上 `on`. 方法 (都返回 promise; 类型 acde-api `AcdeSystem`):
@@ -818,6 +818,27 @@ acde-dopame 的清单写不进去). 实现在 crates/runtime
   edidIdentifier, scale}]}`, 先按 EDID 标识 (和 KWin 同一个格式: `厂商 产品号 序列号 周 年 型号年`, 读 `/sys/class/drm/*-<输出名>/edid`)
   找, 没有 EDID 的按接口名; 每次改都写 (先写 `.tmp` 再改名, 别的键留着). 起合成器时缩放的顺序: 这个文件 → `ACDE_SCALE` → 按 EDID
   的物理宽度算. DRM 输出的名字和内核 / KWin 一样 (`HDMI-A-1`, 原来是 `HDMIA-1`).
+
+## 声音 (`acde:audio`)
+
+照 KDE 的「声音」(plasma-pa) 做, 界面在桌面包里 (acde-dopame 设置的「声音」页、控制中心和音量键). 桌面全有, 应用要清单的 `audio: true`;
+桌面包自己的应用不写也有 (同 `acde:system`, `AppRegistry.SYSTEM_APP`).
+后端直接连 PipeWire (crates/runtime `sound.rs` 的 `Sounds`, 所有 isolate 共用一份): 第一次用时起一条 `acde-sound` 线程跑 pw 主循环, 绑定
+`Audio/Sink*` / `Audio/Source*` / `Stream/{Output,Input}/Audio` 节点、`Audio/Device` 设备、`default` metadata, 记 Link; 参数 (节点的 `Props`,
+设备的 `EnumProfile` / `Profile` / `EnumRoute` / `Route`) 在 info 报参数变了时重新枚举, 下一次 core sync 的 done 时整批换上 (事件按 index 分批,
+pipewire-rs 拿不到枚举的 seq). 不经 pipewire-pulse、不起进程; PipeWire 断了下次调用重连. 和 pipewire-pulse 的做法一样: 有设备 route 的
+节点改 route 的 `props` (`save: true`, WirePlumber 记住), 别的 (虚拟设备、应用的流) 改节点的 `Props`; 默认设备写 metadata
+`default.configured.audio.{sink,source}` (`{"name": node.name}`); 换应用的输出写流的 `target.object` (目标的 `object.serial`).
+crates/acde `sound.rs` 绑成 `natives.sound` (每次调用一条线程, 内核态窗口走 SYSTEM 接口的 `sound.<方法>`), isolate 里拼成 `acde:audio`
+(`natives.audio` 是 Web Audio 的, 所以原生名叫 `sound`). 方法 (都返回 promise, 类型 acde-api `AcdeAudio`):
+
+- `state()`: `{outputs, inputs, streams, cards, maxVolume: 1.5}`. 设备 `{id (节点 id), name, port (图标用: speaker / headphones / hdmi /
+  bluetooth / usb / mic), isDefault, volume, muted, balance (没有左右声道是 null), ports [{id, name, available}], activePort, card, virtual}`;
+  流 `{id, kind: playback | capture, app, title, icon, volume, muted, balance, device}`; 声卡 `{id, name, icon, bus, profile, profiles [{id, name, available}]}`.
+  音量和 pulse 一样是立方刻度 (PipeWire 的线性值开三次方), 取各声道最大值; 平衡照 `pa_cvolume_get_balance` / `set_balance`.
+- `setDefault(id)`、`setVolume(id, 0..1.5)` (保持声道比例)、`setMuted(id, on)`、`setBalance(id, -1..1)`、`setPort(id, port)`、
+  `setProfile(card, profile)`、`moveStream(id, device | null)` (null 是跟默认设备). 失败 reject (message 是原因).
+- `on('changed', fn)`: 有变化 (80 ms 内合并) 时收到新的 `state()`; 返回退订函数.
 
 ## 桌面和窗口 (两个启动位置)
 

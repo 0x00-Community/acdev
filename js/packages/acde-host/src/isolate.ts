@@ -35,6 +35,7 @@ interface IsolateNatives extends Natives {
   readonly terminal?: object
   readonly network?: object
   readonly system?: object
+  readonly sound?: { watch(callback: (state: unknown) => void): void }
   readonly office?: { writePage(key: string, html: string): string }
 }
 
@@ -163,6 +164,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   if (natives.terminal) modules.value['terminal'] = natives.terminal
   if (natives.network) modules.value['network'] = natives.network
   if (natives.system) modules.value['system'] = systemModule(natives.system)
+  if (natives.sound) modules.value['audio'] = audioModule(natives.sound)
   const office = natives.office
   if (office) modules.value['office'] = { ...office, editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => office.writePage(...OfficePage.page(setup, theme)) }
   modules.define(host)
@@ -214,6 +216,34 @@ function systemModule(natives: object): object {
       if (type !== 'changed') throw new TypeError(`acde:system has no ${String(type)} event`)
       if (typeof handler !== 'function') throw new TypeError('acde:system on: the handler is not a function')
       return () => {}
+    },
+  }
+}
+
+function audioModule(natives: { watch(callback: (state: unknown) => void): void }): object {
+  const { watch, ...methods } = natives
+  const handlers = new Set<(state: unknown) => void>()
+  let watching = false
+  return {
+    ...methods,
+    on(type: string, handler: unknown): () => boolean {
+      if (type !== 'changed') throw new TypeError(`acde:audio has no ${String(type)} event`)
+      if (typeof handler !== 'function') throw new TypeError('acde:audio on: the handler is not a function')
+      const fn = handler as (state: unknown) => void
+      handlers.add(fn)
+      if (!watching) {
+        watching = true
+        watch((state) => {
+          for (const each of [...handlers]) {
+            try {
+              each(state)
+            } catch (error) {
+              Log.write(Level.Error, 'acde_host', `acde:audio changed: ${(error as Error)?.message ?? String(error)}`)
+            }
+          }
+        })
+      }
+      return () => handlers.delete(fn)
     },
   }
 }

@@ -499,6 +499,7 @@ impl Driver {
                         "network": self.grants.network.is_some(),
                         "office": self.grants.office.is_some(),
                         "system": self.grants.system,
+                        "audio": self.grants.sound.is_some(),
                     },
                 })))
             }
@@ -529,6 +530,7 @@ impl Driver {
             Some(("network", method)) => g.network.as_ref().map(|n| crate::network::wire(n, method, a, events)),
             Some(("office", method)) => g.office.as_ref().map(|o| crate::office::wire(o, method, a)),
             Some(("system", method)) => g.system.then(|| crate::system::wire(method, a)),
+            Some(("sound", method)) => g.sound.as_ref().map(|s| crate::sound::wire(s, method, a, events)),
             Some(("ime", method)) => Some(crate::surface::ime_wire(&mut self.imes, method, a, events)),
             _ => None,
         };

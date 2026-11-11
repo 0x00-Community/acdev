@@ -385,6 +385,61 @@ export interface AcdeDisplay {
   setNightLight(patch: Partial<NightLight>): Promise<void>
   on(type: 'changed', handler: (state: DisplayState) => void): () => boolean
 }
+export interface AudioPort {
+  readonly id: string
+  readonly name: string
+  readonly available: boolean | null
+}
+export interface AudioDevice {
+  readonly id: string
+  readonly name: string
+  readonly port: 'speaker' | 'headphones' | 'hdmi' | 'bluetooth' | 'usb' | 'mic' | 'other'
+  readonly isDefault: boolean
+  readonly volume: number
+  readonly muted: boolean
+  readonly balance: number | null
+  readonly ports: readonly AudioPort[]
+  readonly activePort: string | null
+  readonly card: string | null
+  readonly virtual: boolean
+}
+export interface AudioStream {
+  readonly id: string
+  readonly kind: 'playback' | 'capture'
+  readonly app: string
+  readonly title: string
+  readonly icon: string
+  readonly volume: number
+  readonly muted: boolean
+  readonly balance: number | null
+  readonly device: string | null
+}
+export interface AudioCard {
+  readonly id: string
+  readonly name: string
+  readonly icon: string
+  readonly bus: string
+  readonly profile: string | null
+  readonly profiles: readonly { readonly id: string; readonly name: string; readonly available: boolean | null }[]
+}
+export interface AudioState {
+  readonly outputs: readonly AudioDevice[]
+  readonly inputs: readonly AudioDevice[]
+  readonly streams: readonly AudioStream[]
+  readonly cards: readonly AudioCard[]
+  readonly maxVolume: number
+}
+export interface AcdeAudio {
+  state(): Promise<AudioState>
+  setDefault(id: string): Promise<void>
+  setVolume(id: string, volume: number): Promise<void>
+  setMuted(id: string, muted: boolean): Promise<void>
+  setBalance(id: string, balance: number): Promise<void>
+  setPort(id: string, port: string): Promise<void>
+  setProfile(card: string, profile: string): Promise<void>
+  moveStream(id: string, device: string | null): Promise<void>
+  on(type: 'changed', handler: (state: AudioState) => void): () => boolean
+}
 
 export interface PinnedPanel {
   update(): void
@@ -407,6 +462,7 @@ export interface AcdePage {
   readonly network?: AcdeNetwork
   readonly system?: AcdeSystem
   readonly display?: AcdeDisplay
+  readonly audio?: AcdeAudio
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
   readonly desktop?: AcdeDesktop

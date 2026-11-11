@@ -274,7 +274,7 @@ const info = call(Iface.Natives, 'init', []) as {
   place: 'desktop' | 'window'
   window: number
   storage: boolean
-  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean; system?: boolean }
+  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean; system?: boolean; audio?: boolean }
 }
 
 function listen(callback: (value: unknown) => void): number {
@@ -315,6 +315,18 @@ const network = info.grants.network
   : undefined
 const systemNatives = info.grants.system
   ? system('system', { info: 'a', storage: 'a', time: 'a', timezones: 'a', setTimezone: 'a', setNtp: 'a', setHostname: 'a', user: 'a' })
+  : undefined
+const sound = info.grants.audio
+  ? system(
+      'sound',
+      { state: 'a', setDefault: 'a', setVolume: 'a', setMuted: 'a', setBalance: 'a', setPort: 'a', setProfile: 'a', moveStream: 'a' },
+      {
+        watch: (callback: (state: unknown) => void) => {
+          if (typeof callback !== 'function') throw new TypeError('acde.audio.watch: the callback is not a function')
+          void request(Iface.System, 'sound.watch', [listen(callback)]).catch(() => {})
+        },
+      },
+    )
   : undefined
 const office = info.grants.office ? (system('office', { server: 'a', state: 'a', status: 'a', save: 'a', new: 'a', writePage: 'r' }) as { writePage(key: string, html: string): string }) : undefined
 
@@ -439,6 +451,7 @@ const natives = {
   terminal,
   network,
   system: systemNatives,
+  sound,
   office,
   createDocument(width: number, height: number, scale: number, options: object) {
     call(Iface.Natives, 'createDocument', [width, height, scale, options])

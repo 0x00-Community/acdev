@@ -26,6 +26,8 @@ mod isolate;
 mod network;
 mod system;
 #[cfg(target_os = "linux")]
+mod sound;
+#[cfg(target_os = "linux")]
 mod office;
 #[cfg(target_os = "linux")]
 mod offload;
