@@ -118,8 +118,18 @@ export interface ShortcutEvent {
   readonly title: ShortcutScope
 }
 
+export type ScreenEdge = 'top' | 'right' | 'bottom' | 'left'
+
+export interface ScreenEdgeEvent {
+  readonly type: 'screenedge'
+  readonly edge: ScreenEdge
+  readonly entered: boolean
+  readonly output: string
+}
+
 export interface DesktopEventMap {
   readonly download: DownloadEvent
+  readonly edge: ScreenEdgeEvent
   readonly notification: NotificationEvent
   readonly screenshot: ScreenshotEvent
   readonly shortcut: ShortcutEvent

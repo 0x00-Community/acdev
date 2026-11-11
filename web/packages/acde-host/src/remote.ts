@@ -282,7 +282,7 @@ export class RemoteBridge {
     }
     if (init.kind === 'desktop') {
       this.value['apps'] = { ...apps, ...files, on: windows.notices.for('apps', ['changed']) }
-      const events = ['download', 'notification', 'screenshot', 'shortcut']
+      const events = ['download', 'notification', 'screenshot', 'shortcut', 'edge']
       this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', events) }
       this.value['windows'] = globalWindows()
       Object.assign(this.value, { packages: tier.packages(), launch: tier.launch(), open: apps.open, permissions: permissions(), ...files })
@@ -297,7 +297,7 @@ export class RemoteBridge {
       if (shell.has('setDefault')) this.value['setDefault'] = files.setDefault
       if (shell.has('permissions')) this.value['permissions'] = permissions()
       if (shell.has('desktop')) {
-        this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification']) }
+        this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification', 'edge']) }
       }
       if (self) this.value['window'] = this.#window(self, windows)
     }

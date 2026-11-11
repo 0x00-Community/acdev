@@ -201,6 +201,7 @@ pub struct Compositor {
     held_keys: std::collections::HashSet<u32>,
     pub loop_handle: smithay::reexports::calloop::LoopHandle<'static, Self>,
     next_window: u32,
+    screen_edges: (String, u8),
 }
 
 impl Compositor {
@@ -235,7 +236,10 @@ impl Compositor {
         let (mut backend, node) = match std::env::var("ACDE_BACKEND").as_deref() {
             Ok("drm") => drm::DrmTarget::start(&lh)?,
             Ok("rdp") => rdp::RdpTarget::start(&lh)?,
-            _ if nested => return Err("acde is inside another display (WAYLAND_DISPLAY / DISPLAY set): use ACDE_BACKEND=rdp for nested development, or run on a tty without a display".into()),
+            _ if nested => {
+                let advice = "use ACDE_BACKEND=rdp for nested development, or run on a tty without a display";
+                return Err(format!("acde is inside another display (WAYLAND_DISPLAY / DISPLAY set): {advice}").into());
+            }
             _ => drm::DrmTarget::start(&lh)?,
         };
 
@@ -328,6 +332,7 @@ impl Compositor {
             held_keys: Default::default(),
             loop_handle: lh.clone(),
             next_window: 1,
+            screen_edges: Default::default(),
         };
         let forced = std::env::var("ACDE_SCALE").ok().and_then(|s| s.parse::<f64>().ok()).filter(|s| *s > 0.0);
         let mut x = 0;

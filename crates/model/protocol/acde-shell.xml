@@ -248,6 +248,12 @@
       <arg name="y" type="fixed"/>
       <arg name="button" type="uint"/>
     </event>
+
+    <event name="screen_edge">
+      <arg name="output" type="string"/>
+      <arg name="edge" type="uint"/>
+      <arg name="entered" type="uint"/>
+    </event>
   </interface>
 
   <interface name="acde_shell_list" version="1">

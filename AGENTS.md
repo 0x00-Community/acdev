@@ -297,6 +297,7 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   - `drop {files, web?, x?, y?}` → `{web, window, files}`: 模拟把这些文件 (绝对路径, 不空) 从系统拖到 web (默认 desktop) 的窗口上, `x` / `y` 是页面坐标
     (一起给, 默认页面中心), 按这一点命中 (被别的窗口盖住就落到那个窗口), 和真的系统拖放同一段 (`dndenter` + `dnddrop`); 只排进主线程就回答,
     页面收到 drop 要自己等. 会话没有, 回错.
+  - `pointer {x, y}` → `{x, y}`: 把指针移到屏幕坐标 (会话是全局逻辑坐标, 宿主窗口是内容区坐标), 同真的移动 (悬停、屏幕边缘事件都照常发).
   - `clipboard {text?}` → `{text}`: 给 `text` 先写, 再读回宿主剪贴板 (napi `Shell.readClipboard` / `writeClipboard` → hostwin; headless 是进程里那份,
     有窗口是系统剪贴板); 会话没有, 回错.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
@@ -404,6 +405,13 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   (`@dopame/acde-api/manifest`; 不认识的键、坏颜色、别的取值抛 TypeError), 转成 11 个数交给 surface 的 `setFrameTheme` (整个宿主一份,
   `State.theme`). 设了就重画所有开着的有窗框的窗口 (`Msg::Theme`), 焦点变化时窗口换 `active` / `inactive` (`Msg::Active`); `null` 回到
   今天的样子. 只管合成里的窗口; 会话里还没有 (只记 debug 日志). 谁有它同 `setDoubleClick`.
+  `acde.desktop.on('edge', fn)` (SDK `ScreenEdgeEvent` `{type: 'screenedge', edge: 'top' | 'right' | 'bottom' | 'left', entered, output}`, #113):
+  指针进入、离开屏幕的一条边时各发一次 (角上是两条边各一次), 给桌面藏起菜单栏和 Dock 时用; 只发事件, 不动焦点和输入. 边的判断在 acde-model
+  `ScreenEdge::touched` (离边不到 1 个逻辑像素, 且那一侧外面没有别的输出; 边的变化 `ScreenEdge::changes`). 会话: 合成器 (crates/shell `input.rs`
+  `screen_edges`) 在指针移动后按所在输出算, 经 acde_shell 的 `screen_edge(output, edge, entered)` 交给 Broker, `output` 是输出名 (如 `HDMI-A-1`),
+  换了输出先离开旧输出的边; 宿主窗口 (hostwin `App::moved`) 按宿主内容区算, 指针离开宿主窗口时离开所有边, `output` 是 `host`, 宿主窗口不论是否全屏都发
+  (运行时不抓窗口外的输入). 两边都给 Broker 推 `edgeenter` / `edgeleave` (`key` 是边, `title` 是输出), Broker 转给桌面和声明了 `acde:desktop` 的系统应用.
+  调试端点 `pointer {x, y}` 把指针移到屏幕坐标 (经 `Shell.inject` 的 `move`, 和真的移动走同一段), 用来模拟指针到边.
 - **帧**: `requestFrame` 之后, 上一帧交出去就给下一帧, 两帧之间至少隔最快输出刷新周期的 0.9 倍; 页面没出新帧时退回 wl_surface 的
   frame 回调. `ACDE_WEB_FPS` 指定帧率.
 - **通信**: acde-host `remote.ts` 的 `RemoteBridge` 按 Broker 给的能力建代理 (注入的能力直接用 natives), `define` 登记成内置模块

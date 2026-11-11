@@ -19,6 +19,7 @@ export class Tiers {
     ['appschanged', 'packages'],
     ['download', 'desktop'],
     ['notification', 'desktop'],
+    ['screenedge', 'desktop'],
     ['permissionprompt', 'permissions'],
     ['permissionanswered', 'permissions'],
   ])

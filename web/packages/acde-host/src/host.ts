@@ -19,6 +19,7 @@ export class Host {
     ['appschanged', ['apps:changed']],
     ['download', ['desktop:download']],
     ['notification', ['desktop:notification']],
+    ['screenedge', ['desktop:edge']],
     ['shortcut', ['desktop:shortcut', 'window:shortcut']],
     ['permissionprompt', ['permissions:prompt']],
     ['permissionanswered', ['permissions:answered']],

@@ -40,6 +40,7 @@ mod event;
 mod motion;
 mod pace;
 mod plan;
+mod screen;
 mod shortcut;
 mod state;
 
@@ -47,6 +48,7 @@ pub use event::*;
 pub use motion::*;
 pub use pace::Pacer;
 pub use plan::*;
+pub use screen::*;
 pub use shortcut::*;
 pub use state::*;
 

@@ -10,7 +10,7 @@ use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_cons
 
 use smithay::input::keyboard::keysyms;
 
-use acde_model::{Binding, Combo, Injected, Scope, WheelSource};
+use acde_model::{Binding, Combo, Injected, Rect, Scope, ScreenEdge, WheelSource};
 use smithay::input::keyboard::xkb;
 
 use super::acde_window::WireLost;
@@ -177,9 +177,30 @@ impl Compositor {
         }
         pointer.frame(self);
         self.hover_cursor(pos);
+        self.screen_edges(pos);
         if matches!(self.backend.target, super::backend::Target::Drm(_)) || self.drag_icon_shown() {
             self.backend.damaged();
         }
+    }
+
+    fn screen_edges(&mut self, pos: Point<f64, Logical>) {
+        let outputs: Vec<_> = self.space.outputs().filter_map(|o| self.space.output_geometry(o).map(|g| (o.name(), g.to_f64()))).collect();
+        let on_output = |x: f64, y: f64| outputs.iter().any(|(_, g)| g.contains((x, y)));
+        let (output, edges) = match outputs.iter().find(|(_, g)| g.contains(pos)) {
+            Some((name, g)) => (name.clone(), ScreenEdge::touched(pos.x, pos.y, Rect::new(g.loc.x, g.loc.y, g.size.w, g.size.h), on_output)),
+            None => (String::new(), 0),
+        };
+        let (was_on, mut was) = std::mem::take(&mut self.screen_edges);
+        if was_on != output {
+            for (edge, entered) in ScreenEdge::changes(was, 0) {
+                self.emit(ShellEvent::ScreenEdge { output: was_on.clone(), edge, entered });
+            }
+            was = 0;
+        }
+        for (edge, entered) in ScreenEdge::changes(was, edges) {
+            self.emit(ShellEvent::ScreenEdge { output: output.clone(), edge, entered });
+        }
+        self.screen_edges = (output, edges);
     }
 
     fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {

@@ -554,6 +554,9 @@ export class Broker {
       }
       case 'milestone':
         return StartupTimeline.mark(`shell ${event.title}`)
+      case 'edgeenter':
+      case 'edgeleave':
+        return this.#toDesktop({ type: 'screenedge', edge: event.key, entered: event.type === 'edgeenter', output: event.title ?? '' })
       case 'shortcut': {
         const owner = event.window === undefined ? undefined : this.#windows.get(event.window)
         const to = event.title === 'app' && owner?.web ? owner.web : this.#desktop

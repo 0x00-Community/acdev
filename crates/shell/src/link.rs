@@ -167,6 +167,11 @@ impl From<acde_shell::Event> for Event {
             E::WindowParent { window, parent } => Event { parent: some(parent), ..on("windowparent", Some(window)) },
             E::Milestone { title, time_ms } => Event { title: Some(title), time: Some(time_ms), ..Event::named("milestone") },
             E::InputTarget { window, x, y, button } => Event { x: Some(x), y: Some(y), button: Some(button), ..on("inputtarget", some(window)) },
+            E::ScreenEdge { output, edge, entered } => {
+                let kind = if entered != 0 { "edgeenter" } else { "edgeleave" };
+                let edge = acde_model::ScreenEdge::try_from(edge).ok().map(|e| e.as_str().to_owned());
+                Event { key: edge, title: Some(output), ..Event::named(kind) }
+            }
         }
     }
 }

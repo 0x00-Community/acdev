@@ -21,7 +21,8 @@ export interface DevHost {
 
 export class DevRequests {
   static readonly #OPS =
-    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, clipboard, permissions, answer, revoke, drop'
+    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, pointer, clipboard, ' +
+    'permissions, answer, revoke, drop'
   readonly #host: DevHost
   #routes: DevRoute[] = []
   #nextRoute = 1
@@ -159,6 +160,14 @@ export class DevRequests {
         this.#routes = id === undefined || id === null ? [] : this.#routes.filter((r) => r.id !== id)
         this.#push()
         return { removed: before - this.#routes.length, left: this.#routes.length }
+      }
+      case 'pointer': {
+        const { x, y } = args
+        if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+          throw new Error('pointer: x and y are numbers in screen coordinates')
+        }
+        this.#host.shell.inject({ type: 'move', x, y })
+        return { x, y }
       }
       case 'clipboard': {
         const shell = this.#host.shell

@@ -47,6 +47,7 @@ pub enum ShellEvent {
     WindowParent { window: u32, parent: Option<u32> },
     Milestone { title: &'static str, ms: f64 },
     InputTarget { window: Option<u32>, x: f64, y: f64, button: u32 },
+    ScreenEdge { output: String, edge: acde_model::ScreenEdge, entered: bool },
 }
 
 #[derive(Default)]
@@ -101,6 +102,7 @@ impl ShellEvent {
             Self::WindowParent { window, parent } => shell.window_parent(window, wire(parent)),
             Self::Milestone { title, ms } => shell.milestone(title.into(), ms),
             Self::InputTarget { window, x, y, button } => shell.input_target(wire(window), x, y, button),
+            Self::ScreenEdge { output, edge, entered } => shell.screen_edge(output, edge as u32, u32::from(entered)),
         }
     }
 }

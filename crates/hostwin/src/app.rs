@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use acde_model::{Combo, Event, Inbox, Injected, Mode, Rect, WindowState};
+use acde_model::{Combo, Event, Inbox, Injected, Mode, Rect, ScreenEdge, WindowState};
 use acde_render::FrameButton;
 
 use crate::keys;
@@ -185,6 +185,7 @@ struct App {
     injected_mods: u8,
     swallowed: HashSet<u32>,
     frame_press: Option<(u32, FrameButton)>,
+    edges: u8,
 }
 
 pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
@@ -286,6 +287,7 @@ impl Handler for App {
             }
             HostEvent::PointerMove(x, y) => self.moved(server, x, y),
             HostEvent::PointerLeave => {
+                self.edges(server, 0);
                 if self.capture.is_none()
                     && let Some(hover) = self.hover.take()
                 {
@@ -427,8 +429,18 @@ impl App {
         }
     }
 
+    fn edges(&mut self, server: &Server, edges: u8) {
+        for (edge, entered) in ScreenEdge::changes(self.edges, edges) {
+            let kind = if entered { "edgeenter" } else { "edgeleave" };
+            server.broker.push(Event { kind: kind.into(), key: Some(edge.as_str().into()), title: Some("host".into()), ..Default::default() });
+        }
+        self.edges = edges;
+    }
+
     fn moved(&mut self, server: &Server, x: f64, y: f64) {
         self.pointer = (x, y);
+        let [_, _, w, h] = server.state().screen_rect();
+        self.edges(server, ScreenEdge::touched(x, y, Rect::new(0.0, 0.0, w, h), |_, _| false));
         if let Some(drag) = &self.drag {
             let rect = Self::dragged(drag, (x, y));
             server.set_rect(drag.window, rect);
