@@ -60,6 +60,23 @@ describe('acde devtools', () => {
     expect(() => Devtools.pick([], ['7'], null)).toThrow('no DevTools target for the focused page (the list is empty)')
   })
 
+  test('a target by title, by the title without its app id, or the services by name', () => {
+    const socket = 'ws://x/'
+    const desktop = { id: 'desktop', title: 'Dopame (desktop)', type: 'page', url: '', webSocketDebuggerUrl: socket }
+    const notes = { id: 'notes#7', title: 'My Notes (notes)', type: 'page', url: '', webSocketDebuggerUrl: socket }
+    const services = {
+      id: 'broker', title: 'services: assistant, store', type: 'service', url: '', webSocketDebuggerUrl: socket,
+    }
+    const targets = [desktop, notes, services]
+    expect(Devtools.pick(targets, ['My Notes (notes)'], 'My Notes (notes)')).toBe(notes)
+    expect(Devtools.pick(targets, ['my notes'], 'my notes')).toBe(notes)
+    expect(Devtools.pick(targets, ['dopame'], 'dopame')).toBe(desktop)
+    expect(Devtools.pick(targets, ['broker'], 'broker')).toBe(services)
+    expect(Devtools.pick(targets, ['services'], 'services')).toBe(services)
+    expect(Devtools.pick(targets, ['Store'], 'Store')).toBe(services)
+    expect(() => Devtools.pick(targets, ['ledger'], 'ledger')).toThrow('no DevTools target for ledger')
+  })
+
   test('acdert must answer with a port and a token', () => {
     expect(Devtools.endpoint({ port: 9300, token: 'abc' })).toEqual({ port: 9300, token: 'abc' })
     expect(() => Devtools.endpoint({ port: 9300 })).toThrow('acdert answered devtools without a port and a token')
