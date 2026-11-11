@@ -94,7 +94,9 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T> + Send + '
 #[cfg(all(test, target_os = "linux"))]
 fn private_bus(name: &str) -> Option<(std::process::Child, String, std::path::PathBuf)> {
     use std::io::BufRead;
-    let dir = std::env::temp_dir().join(format!("acde-{name}-test-{}", std::process::id()));
+    static BUSES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = BUSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("acde-{name}-test-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).ok()?;
     let config = dir.join("bus.conf");
     let policy = "<policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/><allow eavesdrop=\"true\"/><allow own=\"*\"/></policy>";
@@ -109,5 +111,10 @@ fn private_bus(name: &str) -> Option<(std::process::Child, String, std::path::Pa
         .ok()?;
     let mut address = String::new();
     std::io::BufReader::new(daemon.stdout.take()?).read_line(&mut address).ok()?;
-    Some((daemon, address.trim().to_string(), dir))
+    let address = address.trim().to_string();
+    if address.is_empty() {
+        _ = daemon.kill();
+        panic!("dbus-daemon printed no address: {:?}", daemon.wait());
+    }
+    Some((daemon, address, dir))
 }
