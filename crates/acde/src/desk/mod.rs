@@ -135,6 +135,8 @@ pub(super) struct State {
     serial: u64,
     stopped: bool,
     input: Value,
+    frame_theme: Value,
+    double_click: Option<String>,
 }
 
 /// The system objects isolates share (crates/runtime), made the first time a grant needs them.
@@ -518,6 +520,8 @@ impl Desk {
         init["theme"] = state.look.theme.clone().into();
         init["frame"] = state.look.frame.clone().filter(|_| app.frame).into();
         init["frameStyle"] = std::env::var("ACDE_FRAME_STYLE").ok().filter(|s| s == "mac" || s == "windows").into();
+        init["frameTheme"] = state.frame_theme.clone();
+        init["doubleClick"] = state.double_click.clone().into();
         init["request"] = request.unwrap_or(Value::Null);
         init["url"] = url.into();
         if app.backend.is_some() {
@@ -912,6 +916,32 @@ impl Desk {
             }
             desk.to_desktop(state, json!({ "type": "windowtitle", "window": id, "appId": app, "title": title }));
         })
+    }
+
+    pub fn set_frame_theme(&self, caller: u32, theme: Value) -> Done<()> {
+        self.desktop_only(caller, "acde.desktop.setFrameTheme")?;
+        if !(theme.is_object() || theme.is_null()) {
+            return Err(Failure::new(400, "bad_theme", "setFrameTheme: the theme is an object or null"));
+        }
+        let mut state = self.state();
+        if state.frame_theme != theme {
+            state.frame_theme = theme;
+            self.to_all(&state, &json!({ "type": "frame", "theme": state.frame_theme, "doubleClick": state.double_click }));
+        }
+        Ok(())
+    }
+
+    pub fn set_double_click(&self, caller: u32, action: String) -> Done<()> {
+        self.desktop_only(caller, "acde.desktop.setDoubleClick")?;
+        if !["fill", "minimize", "none"].contains(&action.as_str()) {
+            return Err(Failure::new(400, "bad_action", format!("setDoubleClick: no action {action} (fill, minimize, none)")));
+        }
+        let mut state = self.state();
+        if state.double_click.as_deref() != Some(action.as_str()) {
+            state.double_click = Some(action);
+            self.to_all(&state, &json!({ "type": "frame", "theme": state.frame_theme, "doubleClick": state.double_click }));
+        }
+        Ok(())
     }
 
     pub fn set_menus(&self, caller: u32, menus: Value) -> Done<()> {

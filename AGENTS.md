@@ -997,7 +997,15 @@ JS 侧 `isolate.ts` 的 `devicesModule` 加上 `on`. 类型 acde-api `AcdeDevice
   (合成器的 `list`). 应用的 `acde.window.minimize` / `requestState('minimized')` 给桌面发 `windowminimize`, 运行时直接藏起来
   (桌面只看 `state`); `focus` / `show` 一个最小化的窗口先恢复它. 应用这边 `acde:window` 的 `state` 和 `on('state')` 跟着合成器发来的
   `acde_window.mode` (crates/window 转成 `mode` 事件) 和显隐 (`visible`); 应用自己 `requestState('filled')` 还没有 (只打一行 warn).
-- **窗框**: acde 不画窗框, 也没有按钮的设计. 桌面清单可以给一个窗框模块 (`desktops[].frame`, 同源路径如 `/ui/frame.js`, 在包的
+- **窗框**: 桌面清单没给窗框模块时, acde-host 给清单没写 `frame: false` 的应用窗口画默认窗框 (`src/frame.ts` 的 `DefaultFrame`, 照 acdert 的
+  声明式窗框): 页面顶上一条 32 像素的标题栏 (根元素加 `padding-top`), 按钮和标题, `setGrabHint` 给标题栏 (移窗) 和四边四角 (改大小).
+  样子由桌面声明: `acde:desktop` 的 `setFrameTheme(theme | null)` (`{active, inactive, light?: {active, inactive}, buttonStyle: 'dots' | 'glyphs',
+  buttonSide: 'left' | 'right', titleAlign: 'center' | 'start'}`, 颜色 `{background, title, line, buttons}`; `dots` 是红黄绿三个圆点, 失焦时
+  变成 `buttons` 色, `glyphs` 是最小化 / 最大化 / 关闭三个图标按钮; 没给的边和对齐按按钮样式: 圆点在左、标题居中, 图标在右、标题靠左;
+  `light` 给不支持深色的页面 (`<meta name="color-scheme">` 或根元素计算后的 `color-scheme` 不含 `dark`) 用) 和 `setDoubleClick('fill' |
+  'minimize' | 'none')`. 两个都只有桌面能调; `Desk` 记着 (`frame_theme` / `double_click`), 新窗口的 init 带上 (`frameTheme` / `doubleClick`),
+  变了给所有 isolate 发 `{type: 'frame', theme, doubleClick}`, 开着的窗框就地重画. 双击标题栏还没有: 按在 grab hint 里的指针由合成器
+  开始移窗, 不发给页面, 所以 `doubleClick` 只记着. 桌面清单也可以给自己的窗框模块 (`desktops[].frame`, 同源路径如 `/ui/frame.js`, 在包的
   `assets` 下); 清单没写 `frame: false` 的应用窗口在页面装好后 import 它, 用 `WindowFrameContext` 调它的默认导出 (`window` 是这个窗口的
   `acde:window`, `document`、`app {id, label, icon}`、`title` 和 `onTitle`: 标题是 `document.title` (HTML 入口) 或 `acde.window.setTitle`,
   没有时用清单的 `label`)、`style` (`ACDE_FRAME_STYLE`: `mac` 是左边的红绿灯, `windows` 是右边的最小化 / 最大化 / 关闭, 没设或别的值是 null, 由窗框模块自己定). 它在窗口自己的 isolate 里跑, 画什么、按钮放哪、哪里能拖 (`setGrabHint`) 都是桌面包的事; 加载或运行出错只打一行

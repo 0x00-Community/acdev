@@ -15,7 +15,8 @@ import { OfficePage } from './office'
 import { bindNatives, type Natives } from './sys/natives'
 import { StartupTimeline } from './timeline'
 import { AppPage } from './apppage'
-import type { WindowFrameContext } from '@dopame/acde-api'
+import type { AcdeWindow, WindowFrameContext } from '@dopame/acde-api'
+import { DefaultFrame } from './frame'
 import { Level, Log } from './log'
 
 interface IsolateNatives extends Natives {
@@ -118,6 +119,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
         return debug ? dom.stats(Boolean(payload)) : null
     }
   })
+  let frame: DefaultFrame | null = null
   desk.onMessage((m: DeskMessage) => {
     switch (m.type) {
       case 'events':
@@ -136,6 +138,8 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
         return self?.onVisible(m.visible)
       case 'input':
         return modules.inputChanged(m.state)
+      case 'frame':
+        return frame?.theme(m.theme)
     }
   })
   if (self) {
@@ -182,6 +186,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   const html = init.place === 'desktop' ? (init.standalone ? standalone(init.standalone) : init.html!) : served ? await PageSource.served(page.window as never, init.url ?? `${PageSource.ORIGIN}/`) : htmlPage ? PageSource.html(htmlPage, asset(htmlPage) ?? '') : PageSource.window(init.app!, init.theme ?? '')
   await page.loadPage(html)
   if (self && init.frame) await installFrame(init.frame, init.frameStyle ?? null, self, app, page.window as never, init.app!)
+  else if (self && init.app && (init.app as { frame?: unknown }).frame !== false) frame = defaultFrame(init.frameTheme ?? null, self, app, page.window as never, init.app)
   app?.loaded(htmlEntry)
   StartupTimeline.mark(init.place === 'desktop' ? 'desktop loaded' : 'loaded')
   await pageHost.run(surface)
@@ -190,7 +195,18 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   natives.own.exit(0)
 }
 
-/** The desktop's window frame (its manifest's `frame` module): acde draws none of its own. */
+function defaultFrame(theme: unknown, self: WindowSelf, app: AppPage | null, window: { document: Document }, manifest: { label: string }): DefaultFrame {
+  const handlers: ((title: string) => void)[] = []
+  const changed = (title: string) => {
+    for (const handler of handlers) handler(title)
+  }
+  self.onTitle = changed
+  if (app) app.onTitle = changed
+  const frame = new DefaultFrame(self.api as unknown as AcdeWindow, window.document, manifest.label, theme)
+  frame.install((handler) => void handlers.push(handler))
+  return frame
+}
+
 async function installFrame(url: string, style: 'mac' | 'windows' | null, self: WindowSelf, app: AppPage | null, window: { document: Document }, manifest: { id: string; label: string; icon: string }): Promise<void> {
   let title = manifest.label
   const handlers: ((title: string) => void)[] = []

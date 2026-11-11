@@ -137,6 +137,8 @@ export const DESK: Readonly<Record<string, 'r' | 'w' | 'a'>> = {
   "panelPlace": "w",
   "panelClose": "w",
   "setTitle": "w",
+  "setFrameTheme": "w",
+  "setDoubleClick": "w",
   "setMenus": "w",
   "closeSelf": "a",
   "minimize": "a",

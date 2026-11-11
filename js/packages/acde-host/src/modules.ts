@@ -369,7 +369,15 @@ export class Modules {
     if (modules.has('desktops')) this.value['desktops'] = { list: () => desk.desktops(), choose: (id: string, remember = false) => desk.chooseDesktop(String(id), remember === true) }
     if (init.place === 'desktop') {
       this.value['apps'] = { ...apps, ...files, ...((proxies[Modules.STORE] ?? {}) as object), on: windows.notices.for('apps', ['changed']) }
-      this.value['desktop'] = { apps: async () => ({ apps: await apps.list() }), on: windows.notices.for('desktop', ['download', 'notification', 'screenshot', 'shortcut']) }
+      this.value['desktop'] = {
+        apps: async () => ({ apps: await apps.list() }),
+        setFrameTheme: (theme: unknown) => {
+          if (theme !== null && theme !== undefined && typeof theme !== 'object') throw new TypeError('setFrameTheme: the theme is an object or null')
+          desk.setFrameTheme(theme ?? null)
+        },
+        setDoubleClick: (action: unknown) => desk.setDoubleClick(String(action)),
+        on: windows.notices.for('desktop', ['download', 'notification', 'screenshot', 'shortcut']),
+      }
       this.value['windows'] = {
         ...windows.api,
         kill: (id: number) => desk.kill(Number(id)),

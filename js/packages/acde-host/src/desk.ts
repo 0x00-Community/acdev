@@ -25,6 +25,8 @@ export interface IsolateDesk {
   panelPlace(window: number, rect: readonly number[]): void
   panelClose(window: number): void
   setTitle(title: string): void
+  setFrameTheme(theme: unknown): void
+  setDoubleClick(action: string): void
   setMenus(menus: readonly WireMenu[]): void
   closeSelf(): Promise<boolean>
   minimize(): Promise<void>
@@ -75,6 +77,7 @@ export type DeskMessage =
   | { type: 'visible'; visible: boolean }
   | { type: 'display'; state: unknown }
   | { type: 'input'; state: unknown }
+  | { type: 'frame'; theme: unknown; doubleClick: string | null }
 
 /** The services channel of a desktop or window isolate (`natives.services`). */
 export interface IsolateServices {

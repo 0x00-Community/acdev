@@ -715,9 +715,29 @@ export interface PinnedPanel {
   unpin(): void
 }
 
+export type DoubleClickAction = 'fill' | 'minimize' | 'none'
+
+export interface FrameColors {
+  readonly background?: string
+  readonly title?: string
+  readonly line?: string
+  readonly buttons?: string
+}
+
+export interface FrameTheme {
+  readonly active?: FrameColors
+  readonly inactive?: FrameColors
+  readonly light?: { readonly active?: FrameColors; readonly inactive?: FrameColors }
+  readonly buttonStyle?: 'dots' | 'glyphs'
+  readonly buttonSide?: 'left' | 'right'
+  readonly titleAlign?: 'center' | 'start'
+}
+
 export interface AcdeDesktop {
   apps(): Promise<{ apps: DesktopApp[] }>
   pin?(element: Element, options?: { margin?: number }): PinnedPanel
+  setFrameTheme(theme: FrameTheme | null): void
+  setDoubleClick(action: DoubleClickAction): void
   on(type: 'download', handler: (event: DownloadEvent) => void): () => boolean
   on(type: 'notification', handler: (event: NotificationEvent) => void): () => boolean
   on(type: 'screenshot', handler: (event: { readonly path: string; readonly width?: number; readonly height?: number; readonly error?: string }) => void): () => boolean

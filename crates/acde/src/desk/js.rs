@@ -157,6 +157,8 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, desk: A
         "panelPlace" => panel_place,
         "panelClose" => panel_close,
         "setTitle" => set_title,
+        "setFrameTheme" => set_frame_theme,
+        "setDoubleClick" => set_double_click,
         "setMenus" => set_menus,
         "closeSelf" => close_self,
         "minimize" => minimize,
@@ -450,6 +452,20 @@ fn set_title(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     with_caller!(scope, |desk, me| {
         let title = bind::arg_string(scope, &args, 0);
         give(scope, &mut rv, desk.set_title(me, title).map(|()| Value::Null))
+    })
+}
+
+fn set_frame_theme(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let theme = json_of(scope, args.get(0));
+        give(scope, &mut rv, desk.set_frame_theme(me, theme).map(|()| Value::Null))
+    })
+}
+
+fn set_double_click(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let action = bind::arg_string(scope, &args, 0);
+        give(scope, &mut rv, desk.set_double_click(me, action).map(|()| Value::Null))
     })
 }
 
