@@ -491,7 +491,9 @@ describe('acde dev with a stand-in acdert', () => {
 
     const stopping = start([], alpha)
     await until('the session file', () => existsSync(stopping.file))
+    const began = performance.now()
     const stopped = await stopping.tool(['stop'], alpha)
+    expect(performance.now() - began).toBeLessThan(2_000)
     expect(stopped.stdout).toBe(`acde: stopped acde dev ${stopping.child.pid}\n`)
     expect(stopped.code).toBe(0)
     expect(await stopping.child.exited).toBe(0)

@@ -331,7 +331,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   没有匹配打 `nothing in <窗口> matches "<选择器>"`, 两种都退出 0; `--limit` 是 1 到 3000 (`Tools.QUERY_LIMIT`, 运行时默认 600), 不用连会话先查)、
   `act <ref> <动作> [参数]` (动作只认 driver 的 `ACTIONS`, `ok: false` 退出码 1; 打的是 driver 的 `act` 的 `text`,
   关掉单应用会话唯一的窗口时就是那行「会话结束」, 退出码 0, 见 driver 的「关窗口结束会话」)、
-  `stop` (挑会话同上, 连上发 `{type: "quit"}`, 等连接断、再等 acde dev 的 pid 退出, 各最多 10 s, 还在就 SIGTERM (Windows 上是强制结束,
+  `stop` (挑会话同上, 连上发 `{type: "quit"}`, 等连接断、再等 acde dev 的 pid 退出, 各最多 10 s (等连接的计时器在连接断开后取消, 不然它让 `acde stop` 多留 10 s, acde#51), 还在就 SIGTERM (Windows 上是强制结束,
   acdert 因连接断开跟着退出), 删会话文件, 打 `acde: stopped acde dev <pid>`; 连不上时删会话文件、报 `is gone`, 不按 pid 结束进程: pid 可能已被复用)、
   `console` / `network` (`--follow` 每 0.5 s 带 `next` 续读; `--since N` 从第 N 条起 (运行时的 `since` 含这一条), `--since reload` 从会话文件的
   `reloaded` 起: acde dev 每次重建后、发 `reload` 之前用自己的连接问 `console` / `network {limit: 1}` 的 `next` (最多等 2 s, 问不到沿用上一次),
