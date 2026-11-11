@@ -76,7 +76,6 @@ fn numeric(port: &str) -> bool {
 struct Request {
     method: String,
     path: String,
-    query: String,
     headers: Vec<(String, String)>,
 }
 
@@ -140,10 +139,10 @@ fn read_head(reader: &mut impl BufRead) -> io::Result<Option<Request>> {
     let mut first = lines.first().map(|l| l.split(' ')).into_iter().flatten();
     let (Some(method), Some(target)) = (first.next(), first.next()) else { return Ok(None) };
     let target = target.split('#').next().unwrap_or_default();
-    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let path = target.split_once('?').map_or(target, |(path, _)| path);
     let headers =
         lines[1..].iter().filter_map(|l| l.split_once(':')).map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_owned())).collect();
-    Ok(Some(Request { method: method.to_owned(), path: path.to_owned(), query: query.to_owned(), headers }))
+    Ok(Some(Request { method: method.to_owned(), path: path.to_owned(), headers }))
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: &str) -> io::Result<()> {
@@ -200,7 +199,7 @@ impl Endpoint {
                 let socket = self.socket(&format!("/devtools/page/{}", encode(&t.id)));
                 json!({
                     "description": "",
-                    "devtoolsFrontendUrl": format!("devtools://devtools/bundled/inspector.html?ws={socket}"),
+                    "devtoolsFrontendUrl": format!("devtools://devtools/bundled/inspector.html?ws={}", encode(&socket)),
                     "id": t.id,
                     "title": t.title,
                     "type": t.kind,
@@ -336,7 +335,7 @@ mod tests {
         let raw = "GET /json/list?x=1 HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: WebSocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: k\r\n\r\nrest";
         let mut reader = BufReader::new(raw.as_bytes());
         let request = read_head(&mut reader).unwrap().unwrap();
-        assert_eq!((request.method.as_str(), request.path.as_str(), request.query.as_str()), ("GET", "/json/list", "x=1"));
+        assert_eq!((request.method.as_str(), request.path.as_str()), ("GET", "/json/list"));
         assert_eq!(request.upgrade(), Some("k"));
         let mut rest = String::new();
         reader.read_to_string(&mut rest).unwrap();
@@ -402,7 +401,7 @@ mod tests {
         let list: Value = serde_json::from_str(tool.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         let socket = format!("127.0.0.1:{port}/devtools/page/alpha%237");
         assert_eq!(list[0]["webSocketDebuggerUrl"], format!("ws://{socket}"));
-        assert_eq!(list[0]["devtoolsFrontendUrl"], format!("devtools://devtools/bundled/inspector.html?ws={socket}"));
+        assert_eq!(list[0]["devtoolsFrontendUrl"], format!("devtools://devtools/bundled/inspector.html?ws={}", encode(&socket)));
         let mut opened = TcpStream::connect(address).unwrap();
         let head = format!("GET /devtools/page/alpha%237 HTTP/1.1\r\n{host}{upgrade}Origin: devtools://devtools\r\n\r\n");
         opened.write_all(head.as_bytes()).unwrap();
