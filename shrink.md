@@ -15,7 +15,6 @@
   - `Network` 完全没人用, 约 80 行.
   - `Finder` 只用到 `locate`, 约 75 行.
   - `Terminals` 只用到 `closeAll` 和一个存在性检查, 约 45 行.
-  - 代价: `tests/fs-copyin-check.mjs` 和 `terminal-check.mjs` 要改写成别的形式.
 - **[office/blank.rs](crates/runtime/src/office/blank.rs)**: 258 行手写 ZIP 和 XML. 输出每次都一样, 可以生成一次后改成 `include_bytes!`. 约省 225 行, 还能去掉 `crc32fast` 这个依赖.
 - **crates/ipc**: 只有 hostwin `dev.rs` 在用, `Listener` / `endpoint` 只有它自己的测试用. 改成在 `dev.rs` 里写约 20 行, 整个 crate 删掉, 约 120 行.
 - **`setReducedMotion`**: 从 JS 接口到 render 的整条链都没人调. 另外 `defaultLang` 的解析读的是一个 JS 从不传的选项. 约 25 行.
