@@ -13,6 +13,7 @@ use v8::inspector::{
 use crate::rt;
 
 mod devtools;
+mod ignore;
 mod page;
 
 pub use page::{install as page_handler, reply as page_reply};
@@ -179,8 +180,15 @@ fn dev() -> bool {
 
 const TAIL: &str = "\n;";
 
-pub fn module_source(source: &str) -> std::borrow::Cow<'_, str> {
-    if dev() { format!("{source}{TAIL}").into() } else { source.into() }
+pub fn module_source<'a>(url: &str, source: &'a str) -> std::borrow::Cow<'a, str> {
+    if !dev() {
+        return source.into();
+    }
+    let mut text = format!("{source}{TAIL}");
+    if let Some(map) = ignore::map_for(url, source, text.lines().count()) {
+        text.push_str(&map);
+    }
+    text.into()
 }
 
 pub fn start(scope: &mut v8::PinScope, name: &str) {

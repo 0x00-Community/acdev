@@ -24,8 +24,16 @@ const shared = {
   logLevel: 'info',
 }
 
+async function ignoreListed(name) {
+  const file = join(outdir, `${name}.js.map`)
+  const map = JSON.parse(await readFile(file, 'utf8'))
+  const all = map.sources.map((_, index) => index)
+  await writeFile(file, JSON.stringify({ ...map, ignoreList: all, x_google_ignoreList: all }))
+}
+
 if (!release) {
   await build({ ...shared, sourcemap: 'linked' })
+  for (const name of Object.keys(entryPoints)) await ignoreListed(name)
 } else {
   await mkdir(outdir, { recursive: true })
   await build({ ...shared, minifyIdentifiers: true, sourcemap: false })

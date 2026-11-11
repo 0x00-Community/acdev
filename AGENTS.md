@@ -427,6 +427,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
    这些 session 的回复和通知都原样交给 `sink` (在页面线程上调用, `sink` 自己转到别的线程); 页面的上下文登记时带 auxData `{isDefault: true, type: "default", frameId: <web 名>}`,
    所以不带 `contextId` 的 `Runtime.evaluate` (DevTools 控制台默认这样发) 落在它上面. dev 模式下模块源码末尾加 `"\n;"` (`inspector::module_source`), 换源码时也加:
    V8 LiveEdit 的 diff 把文件末尾追加的代码当成没变. 改了模块顶层 (`BlockedByTopLevelEsModuleChange`)、函数在栈上、classic 脚本变了都整页重载.
+   运行时自己的脚本 (`web.js`、`broker.js`) 在 DevTools 里是忽略列表里的脚本 (#184), 前端在控制台消息、异常和单步时跳过它们的帧, 位置落在页面代码上:
+   dev 构建 (`scripts/bundle.mjs`) 给 `web.js.map` / `broker.js.map` 的每个源加 `ignoreList` / `x_google_ignoreList`; 没有自己 source map 的
+   (正式构建) 在 dev 模式下由 `inspector/ignore.rs` 在源码末尾接一个 data: URL 的 source map, 整个文件映射到一个忽略列表里的源 `acde-runtime`.
+   正式构建的文件本身不变. 前端的“自动把已知第三方脚本加入忽略列表”关掉时不起作用.
 3. 整页重载保留状态 (所有 reload): 关窗口前问旧页面要快照 (`dev.state`, 最多 0.5 秒, `devstate.ts`): 表单值、滚动位置、焦点和选区, 元素按 id
    或 `nth-child` 路径认; 新页面加载完在 0 / 50 / 200 / 600 / 1500 ms 各放回一次, 值经原型上的 setter 写再发 `input` / `change`.
 
