@@ -3,10 +3,11 @@ import { URL } from '../core/url'
 import { cookies } from '../core/backend'
 import { DOMException, guard } from '../core/exception'
 import { G, getters, tag } from '../core/host'
+import { loadResource } from '../core/resources'
 import { NONE, NodeType, Ns } from '../native'
 import { animationsOf, documentTimeline, type Animation } from './animation'
 import { Attr, attrDocument, createAttr, Element, HANDLER_TYPES, noteMarkup, setAttribute } from './element'
-import { env } from './env'
+import { env, resolveUrl } from './env'
 import { ClipboardEvent, CompositionEvent, DragEvent, FocusEvent, InputEvent, KeyboardEvent, MouseEvent, PointerEvent, UIEvent, WheelEvent } from './events'
 import * as editing from './editing'
 import { focus, focusedElement } from './focus'
@@ -537,23 +538,53 @@ export class XMLSerializer {
 }
 tag(XMLSerializer)
 
+const FROM_CSS = Symbol('css')
+const FACE_KEYS = ['style', 'weight', 'stretch', 'unicodeRange', 'display'] as const
+
+function sourceUrls(source: string): string[] {
+  return [...source.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]*))\s*\)/g)].map((m) => resolveUrl(m[1] ?? m[2] ?? m[3] ?? ''))
+}
+
 export class FontFace {
   readonly family: string
-  status = 'loaded'
   style = 'normal'
   weight = 'normal'
   stretch = 'normal'
   unicodeRange = 'U+0-10FFFF'
   display = 'auto'
   readonly loaded: Promise<FontFace>
+  #status: 'unloaded' | 'loading' | 'loaded' | 'error' = 'unloaded'
+  #urls: string[] = []
+  #settle!: (ok: boolean) => void
 
-  constructor(family: string, _source: unknown, descriptors?: Record<string, string>) {
+  constructor(family: string, source: unknown, descriptors?: Record<string, string>) {
     this.family = String(family)
-    Object.assign(this, descriptors ?? {})
-    this.loaded = Promise.resolve(this)
+    for (const key of FACE_KEYS) if (descriptors?.[key] !== undefined) this[key] = String(descriptors[key])
+    this.loaded = new Promise<FontFace>((resolve, reject) => {
+      this.#settle = (ok) => {
+        this.#status = ok ? 'loaded' : 'error'
+        if (ok) resolve(this)
+        else reject(new DOMException('A network error occurred.', 'NetworkError'))
+      }
+    })
+    this.loaded.catch(() => {})
+    if (source === FROM_CSS || source instanceof ArrayBuffer || ArrayBuffer.isView(source)) this.#settle(true)
+    else this.#urls = sourceUrls(String(source))
+  }
+
+  get status(): string {
+    return this.#status
   }
 
   load(): Promise<FontFace> {
+    if (this.#status !== 'unloaded') return this.loaded
+    this.#status = 'loading'
+    const next = (urls: string[]): void => {
+      if (!urls.length) return this.#settle(false)
+      loadResource(urls[0]!, 'font', '', (bytes) => (bytes ? this.#settle(true) : next(urls.slice(1))))
+    }
+    if (this.#urls.length) next(this.#urls)
+    else this.#settle(true)
     return this.loaded
   }
 }
@@ -571,7 +602,7 @@ function faceOfRule(text: string): FontFace | null {
     const found = value(`font-${name}`) ?? (name === 'unicode-range' || name === 'display' ? value(name === 'display' ? 'font-display' : name) : null)
     if (found) descriptors[name === 'unicode-range' ? 'unicodeRange' : name] = found
   }
-  return new FontFace(family, value('src') ?? '', descriptors)
+  return new FontFace(family, FROM_CSS, descriptors)
 }
 
 export class FontFaceSet extends EventTarget {
@@ -623,8 +654,9 @@ export class FontFaceSet extends EventTarget {
   check(_font: string, _text?: string): boolean {
     return true
   }
-  load(_font: string, _text?: string): Promise<FontFace[]> {
-    return Promise.resolve([])
+  load(font: string, _text?: string): Promise<FontFace[]> {
+    const wanted = String(font).toLowerCase()
+    return Promise.all(this.#all().filter((face) => wanted.includes(face.family.toLowerCase())).map((face) => face.load()))
   }
   forEach(callback: (face: FontFace, key: FontFace, set: FontFaceSet) => void, thisArg?: unknown): void {
     for (const face of this.#all()) callback.call(thisArg, face, face, this)

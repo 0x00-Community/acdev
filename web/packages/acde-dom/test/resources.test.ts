@@ -134,3 +134,22 @@ test('a link fires load or error by what its remote stylesheet answered, and cro
   ])
   assert.deepEqual(web.host.errors, [])
 })
+
+test('FontFace.load fetches its url sources as fonts in order and reports the outcome', async () => {
+  using web = await page()
+  web.run(FAKE)
+  web.run(`
+    globalThis.out = []
+    const both = new FontFace('Both', 'url(https://fonts.example.com/closed.woff2) format("woff2"), url("https://fonts.example.com/open.woff2")')
+    const closed = new FontFace('Closed', "url('https://fonts.example.com/closed.woff2')")
+    const bytes = new FontFace('Bytes', new Uint8Array([0, 1]))
+    out.push(both.status, closed.status, bytes.status)
+    both.load().then((face) => out.push(face === both, both.status))
+    out.push(both.status)
+    closed.load().catch((e) => out.push(e.name, closed.status))
+  `)
+  for (let i = 0; i < 50 && web.json<unknown[]>('out').length < 8; i++) await web.wait(2)
+  assert.deepEqual(web.json('out'), ['unloaded', 'unloaded', 'loaded', 'loading', 'NetworkError', 'error', true, 'loaded'])
+  const fonts = web.json<string[][]>('seen.requests').filter(([kind]) => kind === 'font').map(([, url]) => url)
+  assert.deepEqual(fonts, ['https://fonts.example.com/closed.woff2', 'https://fonts.example.com/closed.woff2', 'https://fonts.example.com/open.woff2'])
+})

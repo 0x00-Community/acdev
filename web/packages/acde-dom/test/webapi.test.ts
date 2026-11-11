@@ -584,7 +584,7 @@ test('document.fonts lists the faces of @font-face rules and the ones added', as
     const same = [...document.fonts][0] === [...document.fonts][0]
     document.fonts.add(new FontFace('Extra', 'url(/x.woff2)'))
     JSON.stringify({ first, same, size: document.fonts.size, all: faces() })`)
-  assert.deepEqual(JSON.parse(out as string), { first: ['Inter:700:loaded'], same: true, size: 2, all: ['Inter:700:loaded', 'Extra:normal:loaded'] })
+  assert.deepEqual(JSON.parse(out as string), { first: ['Inter:700:loaded'], same: true, size: 2, all: ['Inter:700:loaded', 'Extra:normal:unloaded'] })
 })
 
 test('CSS.supports asks render: a condition text or a property and a value; no argument throws', async () => {
