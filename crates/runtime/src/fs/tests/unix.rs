@@ -253,7 +253,7 @@ fn desktop_override_is_a_clean_absolute_folder_other_than_home() {
     assert_eq!(desktop(&listed, None), listed.join("Desktop"));
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn a_folder_swapped_for_a_link_after_the_check_is_refused() {
     let s = Scratch::new();

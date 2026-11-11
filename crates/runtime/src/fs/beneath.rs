@@ -21,7 +21,7 @@ fn escape() -> io::Error {
 }
 
 pub(crate) struct Dir {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     _fd: std::os::fd::OwnedFd,
     #[cfg(windows)]
     _pin: std::fs::File,
@@ -37,7 +37,7 @@ impl Dir {
         &self.path
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(crate) fn fd(&self) -> std::os::fd::BorrowedFd<'_> {
         use std::os::fd::AsFd;
         self._fd.as_fd()
@@ -75,7 +75,33 @@ impl Dir {
         Ok(Dir { _fd: fd, path })
     }
 
-    #[cfg(all(unix, not(target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    fn open_beneath(real_root: &str, relative: &str) -> io::Result<Dir> {
+        use rustix::fs::{Mode, OFlags, open, openat};
+        let flags = OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC;
+        let mut fd = open(real_root, flags, Mode::empty())?;
+        let inside = match relative {
+            "" | "." => PathBuf::new(),
+            relative => {
+                let real = std::fs::canonicalize(Path::new(real_root).join(relative))?;
+                real.strip_prefix(real_root).map_err(|_| escape())?.to_path_buf()
+            }
+        };
+        for part in inside.components() {
+            fd = openat(&fd, part.as_os_str(), flags, Mode::empty()).map_err(|e| match e {
+                rustix::io::Errno::LOOP => escape(),
+                e => e.into(),
+            })?;
+        }
+        use std::os::unix::ffi::OsStrExt;
+        let path = PathBuf::from(std::ffi::OsStr::from_bytes(rustix::fs::getpath(&fd)?.as_bytes()));
+        if !path.starts_with(real_root) {
+            return Err(escape());
+        }
+        Ok(Dir { _fd: fd, path })
+    }
+
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
     fn open_beneath(real_root: &str, relative: &str) -> io::Result<Dir> {
         let path = match relative {
             "" | "." => PathBuf::from(real_root),
@@ -139,7 +165,7 @@ pub(crate) fn windows_inside(real_root: &str, path: &str) -> bool {
 }
 
 pub(crate) fn rename_no_replace(from: (&Dir, &str), to: (&Dir, &str)) -> io::Result<()> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use rustix::fs::{RenameFlags, renameat_with};
         renameat_with(from.0.fd(), from.1, to.0.fd(), to.1, RenameFlags::NOREPLACE).map_err(io::Error::from)
@@ -155,7 +181,7 @@ pub(crate) fn rename_no_replace(from: (&Dir, &str), to: (&Dir, &str)) -> io::Res
             _ => Ok(()),
         }
     }
-    #[cfg(all(unix, not(target_os = "linux")))]
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
     {
         let target = to.0.child(to.1);
         if std::fs::symlink_metadata(&target).is_ok() {
