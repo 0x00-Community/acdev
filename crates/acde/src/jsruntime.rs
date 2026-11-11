@@ -346,7 +346,7 @@ fn accept(session: BorrowedFd<'_>, id: u64) -> io::Result<()> {
     let mut name = [0u8; 256];
     let mut accept = uapi::Accept { id, name: name.as_mut_ptr() as u64, name_len: name.len() as u32, ..Default::default() };
     // SAFETY: matches struct ac_js_accept; `name` is a writable buffer of `name_len` bytes.
-    unsafe { ioctl(&session, Updater::<{ uapi::ACCEPT }, uapi::Accept>::new(&mut accept)) }?;
+    unsafe { ioctl(session, Updater::<{ uapi::ACCEPT }, uapi::Accept>::new(&mut accept)) }?;
     // SAFETY: the kernel installed both fds for us.
     let (isolate, channel) = unsafe { (OwnedFd::from_raw_fd(accept.fd), OwnedFd::from_raw_fd(accept.channel)) };
     let label = String::from_utf8_lossy(&name[..(accept.name_len as usize).min(name.len())]).into_owned();

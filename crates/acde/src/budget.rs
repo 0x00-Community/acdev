@@ -21,7 +21,7 @@ impl Budget {
 
     /// Takes `len` bytes if they fit under the cap; marks the budget as over when they do not.
     fn take(&self, len: usize) -> bool {
-        let fits = self.used.fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| used.checked_add(len).filter(|&n| n <= self.cap)).is_ok();
+        let fits = self.used.try_update(Ordering::AcqRel, Ordering::Acquire, |used| used.checked_add(len).filter(|&n| n <= self.cap)).is_ok();
         if !fits {
             self.over.store(true, Ordering::Release);
         }

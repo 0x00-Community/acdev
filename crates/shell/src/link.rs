@@ -397,7 +397,7 @@ impl Notice {
             E::WindowActivate { window } => Notice::Activate { window: some(window)? },
             E::WindowAnimated { window } => Notice::Animated { window },
             E::Shortcut { owner, key, scope } => Notice::Shortcut { owner, key: key.unwrap_or_default(), scope: scope.into_result().ok().map(Scope::from) },
-            E::WindowGone { window, x, y, width, height } => Notice::Gone { window: some(window)?, rect: [x, y, width as i32, height as i32] },
+            E::WindowGone { window, x, y, width, height } => Notice::Gone { window: some(window)?, rect: [x, y, width, height] },
             E::WindowMinSize { window, width, height } => Notice::MinSize { window: some(window)?, width: width as u32, height: height as u32 },
             E::WindowParent { window, parent } => Notice::Parent { window, parent: some(parent) },
             E::Milestone { title, time_ms } => Notice::Milestone { title, time_ms },

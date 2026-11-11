@@ -70,7 +70,7 @@ impl Places {
         let [x, y, w, h] = *self.rects.get(app)?;
         let (width, height) = (w.min(screen[0]), h.min(screen[1]));
         let shown = width >= 1.0 && height >= 1.0 && x + width >= Self::VISIBLE && x <= screen[0] - Self::VISIBLE && y >= 0.0 && y <= screen[1] - Self::VISIBLE;
-        shown.then(|| [x as i32, y as i32, width as i32, height as i32])
+        shown.then_some([x as i32, y as i32, width as i32, height as i32])
     }
 
     pub fn set(&mut self, app: &str, rect: [i32; 4]) {

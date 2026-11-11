@@ -101,11 +101,11 @@ impl Mime {
 
     /// How well an app's `mimeTypes` take it: 2 exactly, 1 by `type/*`, 0 not.
     fn taken_by(&self, patterns: &[String]) -> u8 {
-        if patterns.iter().any(|p| *p == self.0) {
+        if patterns.contains(&self.0) {
             return 2;
         }
         let wild = format!("{}/*", self.0.split('/').next().unwrap_or_default());
-        u8::from(patterns.iter().any(|p| *p == wild))
+        u8::from(patterns.contains(&wild))
     }
 }
 
