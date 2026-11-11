@@ -17,7 +17,7 @@ import { HANDLER_TYPES } from './element'
 import { rootScroll } from './layout'
 import { cssString } from './node'
 import { FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemHandle, FileSystemWritableFileStream, showDirectoryPicker, showOpenFilePicker, showSaveFilePicker } from './picker'
-import { documentId, dom, rootElementId, wrap } from './realm'
+import { documentId, dom, rootElementId, version, wrap } from './realm'
 import { urlParts } from './reflect'
 import { computedStyle, type CSSStyleDeclaration } from './style'
 
@@ -520,10 +520,26 @@ interface NamedSource {
 }
 
 const NAMED_BY_NAME = ['embed', 'form', 'img', 'object']
+const NAMED_SELECTOR = ['[id]', ...NAMED_BY_NAME.map((tag) => `${tag}[name]`)].join(',')
 
 function namedProperties(document: NamedSource): object {
+  let names = new Set<string>()
+  let seen = -1
+  const known = (key: string): boolean => {
+    if (seen !== version) {
+      seen = version
+      names = new Set()
+      for (const id of dom.querySelectorAll(documentId, NAMED_SELECTOR)) {
+        const own = dom.getAttribute(id, 'id')
+        if (own) names.add(own)
+        const name = NAMED_BY_NAME.includes(dom.localName(id)) ? dom.getAttribute(id, 'name') : null
+        if (name) names.add(name)
+      }
+    }
+    return names.has(key)
+  }
   const named = (key: string | symbol): Element | null => {
-    if (typeof key !== 'string' || !key) return null
+    if (typeof key !== 'string' || !key || !known(key)) return null
     const byId = document.getElementById(key)
     if (byId) return byId
     const quoted = cssString(key)

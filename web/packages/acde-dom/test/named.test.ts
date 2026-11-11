@@ -397,13 +397,33 @@ test('window: elements by id and the listed elements by name, real globals first
     return out
   })()`)
   assert.deepEqual(result, {
-    byId: [true, true, true, 'undefined', undefined],
-    byName: ['img', undefined],
+    byId: [true, true, true, 'undefined', null],
+    byName: ['img', null],
     globals: [1, true, true, 'function'],
     hidden: [false, true],
-    removed: ['undefined', undefined],
-    renamed: [undefined, true],
+    removed: ['undefined', null],
+    renamed: [null, true],
     back: true,
     assigned: 'mine',
   })
 })
+
+test('window: a name no element has is answered from a cached name set, rebuilt after a DOM change', async () => {
+  const items = Array.from({ length: 5000 }, (_, i) => `<div id="item${i}"><span name="n${i}"></span></div>`).join('')
+  using web = await page(`<!doctype html><html><body>${items}<img name="logo"></body></html>`)
+  const result = web.json<{ first: string; found: unknown[]; after: boolean; perMiss: number }>(`(() => {
+    const first = typeof missingName
+    const start = performance.now()
+    for (let i = 0; i < 1000; i++) if (typeof missingName !== 'undefined') throw new Error('found')
+    const missing = performance.now() - start
+    const found = [typeof item4999, window.logo && window.logo.localName, typeof n1]
+    const div = document.createElement('div')
+    div.id = 'missingName'
+    document.body.append(div)
+    const after = window.missingName === div
+    return { first, found, after, perMiss: missing / 1000 }
+  })()`)
+  assert.deepEqual([result.first, result.found, result.after], ['undefined', ['object', 'img', 'undefined'], true])
+  assert.ok(result.perMiss < 0.05, `a missing name took ${result.perMiss} ms`)
+})
+
