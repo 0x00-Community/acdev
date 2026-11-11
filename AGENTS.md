@@ -1056,7 +1056,7 @@ JS 侧 `isolate.ts` 的 `devicesModule` 加上 `on`. 类型 acde-api `AcdeDevice
 - **应用清单**: 包的 `package.json` 里 `acde.apps` (类型 acde-api `manifest.d.ts`, 解析 acde-host `apps.ts`): `id`、`label`、`icon`、
   `entry` (默认导出 `WindowApp` 的模块, 或 HTML, 见「网页应用」)、`capabilities` (fs [可限 roots]、terminal、office、launch、
   slots、open、openFiles、session、desktops (`acde:session` / `acde:desktops`, 本来只给桌面; 系统设置这类应用要), 其余的键是服务名,
-  如 `assistant`)、`mimeTypes` (「默认应用」)、`heapMb` (默认 256, 最小 32)、`size` (窗口的默认尺寸 `[宽, 高]`, 逻辑像素, 默认 800x600)、
+  如 `assistant`)、`services` (要调的桌面服务名, 和在 capabilities 里写 `<名字>: true` 一样; capabilities 里明写的优先)、`mimeTypes` (「默认应用」)、`heapMb` (默认 256, 最小 32)、`size` (窗口的默认尺寸 `[宽, 高]`, 逻辑像素, 默认 800x600)、
   `multiple`、`frame` (默认 true: 用桌面的窗框模块, 见「窗框」)、`backend`. acde-base 自己不带应用 (只有登录页一个桌面); 应用都来自桌面包 (acde-dopame) 或第三方包.
 - **沙箱**: 每个桌面 / 窗口是独立的 V8 isolate, 页面和 isolate 的宿主代码 (acde-host 的 isolate.js) 在同一个 realm 里. 宿主给的原生
   接口只有「进程结构」里列的那些: 没有 `sys`, 文件只经清单给的 `fs` (roots 在 Rust 里查) 和 `own.files` (用户选的、拖进来的),

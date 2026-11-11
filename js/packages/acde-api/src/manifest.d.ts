@@ -45,6 +45,7 @@ export interface AppManifest {
   readonly icon: string
   readonly entry: string
   readonly capabilities?: Capabilities
+  readonly services?: readonly string[]
   readonly heapMb?: number
   readonly size?: readonly [number, number]
   readonly multiple?: boolean

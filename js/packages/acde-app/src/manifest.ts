@@ -35,13 +35,16 @@ export class Manifest {
     const backend = Manifest.#backend(field('backend'))
     if (typeof backend === 'string') return `app ${id}: ${backend}`
     if (entry.endsWith('/') && !backend) return `app ${id}: an entry ending in / is a page the backend renders: it needs a backend`
-    const capabilities = typeof field('capabilities') === 'object' && field('capabilities') !== null ? (field('capabilities') as Capabilities) : {}
+    const given = typeof field('capabilities') === 'object' && field('capabilities') !== null ? (field('capabilities') as Capabilities) : {}
+    const services = field('services')
+    if (services !== undefined && (!Array.isArray(services) || services.some((s) => typeof s !== 'string' || !s))) return `app ${id}: services must be the names of the desktop services it calls`
+    const capabilities: Capabilities = { ...Object.fromEntries(((services as string[] | undefined) ?? []).map((s) => [s, true])), ...given }
     const types = field('mimeTypes')
     if (types !== undefined && (!Array.isArray(types) || types.some((t) => typeof t !== 'string' || !Manifest.#MIME.test(t)))) return `app ${id}: mimeTypes must be MIME types (type/subtype, or type/* for all of a type)`
     const mimeTypes = (types as string[] | undefined) ?? []
     const size = Manifest.#size(field('size'))
     if (size === undefined) return `app ${id}: size must be [width, height] in whole logical pixels`
-    return { id, label, icon, entry, capabilities, heapMb: Manifest.heapMb(field('heapMb'), Manifest.HEAP_MB), multiple: field('multiple') === true, frame: field('frame') !== false, mimeTypes, backend, size }
+    return { id, label, icon, entry, capabilities, services: (services as string[] | undefined) ?? [], heapMb: Manifest.heapMb(field('heapMb'), Manifest.HEAP_MB), multiple: field('multiple') === true, frame: field('frame') !== false, mimeTypes, backend, size }
   }
 
   static check(manifest: PackageManifest, isDir: (path: string) => boolean, resolve: (url: string) => boolean): Findings {
