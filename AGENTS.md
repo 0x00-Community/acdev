@@ -1134,14 +1134,14 @@ acde 是原生桌面, 性能按原生桌面要求: **整条链路不允许 CPU �
 ## 构建和运行 (开发版)
 
 ```sh
-cargo build --release -p acde                  # target/release/acde
+cargo build --release -p acde                  # target/release/acde-base
 cd js && bun install && bun run build       # packages/acde-host/dist/{broker,isolate}.js
-../target/release/acde desktops                                           # 装了哪些桌面
-ACDE_PATH=<acde-dopame 的包目录> ../target/release/acde --desktop dopame  # 起这个桌面
+../target/release/acde-base desktops                                           # 装了哪些桌面
+ACDE_PATH=<acde-dopame 的包目录> ../target/release/acde-base --desktop dopame  # 起这个桌面
 ```
 
 acde 找 bundle 的顺序: `$ACDE_APP`, 自己旁边的 `app/dist` (装好的包), `<exe>/../../js/packages/acde-host/dist` (仓库里的
-`target/release/acde`; `CARGO_TARGET_DIR` 在别处时要设 `ACDE_APP`). 上机用 DRM/KMS + libinput (在没有显示的 tty 上跑);
+`target/release/acde-base`; `CARGO_TARGET_DIR` 在别处时要设 `ACDE_APP`). 上机用 DRM/KMS + libinput (在没有显示的 tty 上跑);
 已有桌面里开发用 `ACDE_BACKEND=rdp` (见「js/packages/acde-host」的 Run).
 
 ## 日志和计时
@@ -1386,7 +1386,7 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 
 | 路径 | 是什么 |
 | --- | --- |
-| `/usr/lib/acde/acde` | crates/acde 的程序 |
+| `/usr/lib/acde/acde-base` | crates/acde 的程序 |
 | `/usr/lib/acde/app/` | acde-host 打好的 `dist/` (`broker.js`, `isolate.js`)、登录页 `greet/` (`acde --greeter`, greetd 的 greeter)、它用的品牌 `brand/` (标志和字标) 和 `package.json` (`/acde/brand/` 从它的清单来); 没有 node_modules |
 | `/usr/share/acde/packages/` | 系统装的桌面包, 每个一个目录 |
 | `/usr/lib/acde/acde-app/`, `/usr/lib/acde/acde-api/` | `acde app` 由 bun 跑的源码 (应用的后端也跑在 bun 上) 和 SDK (`acde app new` 让应用的 devDependency 指过来) |
@@ -1398,7 +1398,7 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 | `/usr/share/xdg-desktop-portal/acde-portals.conf` | `XDG_CURRENT_DESKTOP=acde` 的 portal 后端: 全部用 GTK (flatpak / snap 应用的文件对话框) |
 
 会话入口 `/usr/bin/acde`: 子命令 (desktops、sessions、applications、open、run、window、app) 和 `-h` / `--help` / `--version` 直接 exec acde.
-否则跑 `/usr/lib/acde/acde` (没有 `WAYLAND_DISPLAY` / `DISPLAY` 时 shell 自己接管 seat 走 DRM/KMS).
+否则跑 `/usr/lib/acde/acde-base` (没有 `WAYLAND_DISPLAY` / `DISPLAY` 时 shell 自己接管 seat 走 DRM/KMS).
 异常退出就重新拉起 (journal 里 `-t acde` 一行 `acde exited with status N: starting it again`), 60 秒内第 3 次崩溃放弃, 退回显示管理器
 (登录页 `--greeter` 放弃时改成 `exec agreety --cmd /usr/bin/acde`, 免得 greetd 一直重启它); 正常退出或收到 TERM/INT/HUP 不重启.
 退出码 3 且有交接文件时 (「桌面包」): 读完删掉, 程序在就导出里面的环境变量并 `exec` 它, 不在就记一行日志、按崩溃处理.

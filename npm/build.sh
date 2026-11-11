@@ -1,6 +1,6 @@
 #!/bin/sh
 # The npm packages, as tarballs in npm/dist (publish them, or try them with CREATE_ACDE_LOCAL=npm/dist):
-#   @dopame/acde-linux-x64  the runtime: bin/acde (the release build), bin/app (acde-host's bundles, brand, login page),
+#   @dopame/acde-linux-x64  the runtime: bin/acde-base (the release build), bin/app (acde-host's bundles, brand, login page),
 #                           bin/acde-app and bin/acde-api (what `acde app` runs under bun)
 #   acde                    `acde` on PATH: runs the platform package's binary, hands it the bun it depends on
 #   create-acde             `npm create acde`: a project from acde-app's templates
@@ -17,7 +17,7 @@ cargo build --locked --release -p acde
 
 platform="$here/acde-linux-x64/bin"
 rm -rf "$platform" && mkdir -p "$platform/app/dist"
-install -m755 target/release/acde "$platform/acde"
+install -m755 target/release/acde-base "$platform/acde-base"
 host=js/packages/acde-host
 cp "$host/dist/broker.js" "$host/dist/isolate.js" "$platform/app/dist/"
 cp "$host/package.json" "$host/LICENSE" "$platform/app/"

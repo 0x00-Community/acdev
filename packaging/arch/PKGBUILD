@@ -7,13 +7,13 @@
 # this repository), so `makepkg` here packages exactly what is committed.
 #
 # Installed layout:
-#   /usr/lib/acde/acde             the program: V8, runtime, render and shell in one binary
+#   /usr/lib/acde/acde-base        the program: V8, runtime, render and shell in one binary
 #   /usr/lib/acde/app/             acde-host: dist/broker.js and dist/isolate.js (bundles), greet/ (the login screen:
 #                                  `acde --greeter`, greetd's greeter; user, password and desktop on one page), brand/
 #                                  (the Dopame mark and wordmark, for it)
 #   /usr/lib/acde/acde-app/        what `acde app` (new / check / build / install / run) runs under bun (TypeScript sources)
 #   /usr/lib/acde/acde-api/        @dopame/acde-api, the SDK (types, load, the Vite plugin): `acde app new` makes it an app's devDependency
-#   /usr/bin/acde                  the session (the script below runs /usr/lib/acde/acde, or the Wayland session it
+#   /usr/bin/acde                  the session (the script below runs /usr/lib/acde/acde-base, or the Wayland session it
 #                                  hands over to: KDE Plasma); `acde desktops`, `acde sessions`
 #   /usr/share/acde/packages/      where desktop packages go (each its own directory)
 #   /usr/share/wayland-sessions/acde.desktop   the desktop started last (else the first installed);
@@ -106,11 +106,11 @@ build() {
 check() {
   # the program starts and answers a command without a display: the Broker's bundle, the packages, the login screen
   ACDE_APP="${srcdir}/acde/js/packages/acde-host/dist" ACDE_PATH= XDG_DATA_HOME="${srcdir}/check" \
-    "${srcdir}/target/release/acde" desktops --package "${srcdir}/acde/js/packages/acde-host/greet" | grep -q greet
+    "${srcdir}/target/release/acde-base" desktops --package "${srcdir}/acde/js/packages/acde-host/greet" | grep -q greet
 }
 
 package() {
-  install -Dm755 "${srcdir}/target/release/acde" "${pkgdir}/usr/lib/acde/acde"
+  install -Dm755 "${srcdir}/target/release/acde-base" "${pkgdir}/usr/lib/acde/acde-base"
   local app="${srcdir}/acde/js/packages/acde-host"
   install -Dm644 -t "${pkgdir}/usr/lib/acde/app/dist" "$app/dist/broker.js" "$app/dist/isolate.js"
   install -Dm644 -t "${pkgdir}/usr/lib/acde/app" "$app/package.json" "$app/LICENSE"
@@ -131,7 +131,7 @@ package() {
 #!/bin/sh
 # Commands (`acde desktops`, `sessions`, `applications`, `open`, `run FILE`, `window APP`, `app ...`, `--help`) are not the session: run as they are, no
 # journal redirection, no restart when they fail (a program in the session running `acde --help` restarted it 3 times)
-case "${1:-}" in desktops|sessions|applications|open|run|window|app|-h|--help|--version) exec /usr/lib/acde/acde "$@" ;; esac
+case "${1:-}" in desktops|sessions|applications|open|run|window|app|-h|--help|--version) exec /usr/lib/acde/acde-base "$@" ;; esac
 # The Dopame desktop session. Without WAYLAND_DISPLAY or DISPLAY the shell takes the seat and drives DRM/KMS.
 # Its output goes to the journal (tag acde): a display manager such as greetd does not connect the session to it.
 # Once: systemd-cat sets JOURNAL_STREAM to the stream it gives us, so the re-run sees it on its stdout and goes on.
@@ -174,7 +174,7 @@ trap 'kill -TERM "$child" 2>/dev/null; wait "$child"; exit 0' TERM INT HUP
 crashes=
 while :; do
   rm -f "$handoff"
-  /usr/lib/acde/acde "$@" <&0 &
+  /usr/lib/acde/acde-base "$@" <&0 &
   child=$!
   wait "$child"
   status=$?

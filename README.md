@@ -16,7 +16,7 @@ acde (Agent Computer Desktop Environment): Linux 桌面的底座, 替代 KDE Pla
 ```sh
 cargo build --release -p acde
 cd js && bun install && bun run build
-ACDE_PATH=<acde-dopame>/packages/dopame ../target/release/acde --desktop dopame
+ACDE_PATH=<acde-dopame>/packages/dopame ../target/release/acde-base --desktop dopame
 ```
 
 `ACDE_PATH` 指向构建好的桌面包 (acde-dopame 里先 `bun install && bun run build`). `CARGO_TARGET_DIR` 不在仓库里时,

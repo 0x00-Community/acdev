@@ -11,7 +11,7 @@ const platform = `@dopame/acde-${process.platform}-${process.arch}`
 function binary() {
   if (process.env.ACDE_BINARY) return process.env.ACDE_BINARY
   try {
-    return join(dirname(require.resolve(`${platform}/package.json`)), 'bin', 'acde')
+    return join(dirname(require.resolve(`${platform}/package.json`)), 'bin', 'acde-base')
   } catch {
     const supported = '@dopame/acde-linux-x64'
     console.error(`acde: no runtime for ${process.platform}-${process.arch} (${platform} is not installed).\nacde runs on Linux x64 for now (${supported}); reinstall without --no-optional if you are on it.`)
