@@ -100,7 +100,7 @@ export interface NativeDevToolsTarget {
 }
 
 export interface NativeDevTools {
-  open(): { readonly port: number; readonly token: string } | null
+  open(): { readonly port: number } | null
   targets(targets: NativeDevToolsTarget[]): void
 }
 

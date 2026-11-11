@@ -29,7 +29,6 @@ pub struct DevToolsTarget {
 #[napi(object)]
 pub struct DevToolsEndpoint {
     pub port: u32,
-    pub token: String,
 }
 
 #[napi]
@@ -39,7 +38,7 @@ pub struct DevTools;
 impl DevTools {
     #[napi]
     pub fn open() -> Option<DevToolsEndpoint> {
-        endpoint().map(|e| DevToolsEndpoint { port: e.port.into(), token: e.token.clone() })
+        endpoint().map(|e| DevToolsEndpoint { port: e.port.into() })
     }
 
     #[napi]
@@ -62,13 +61,12 @@ pub fn forward(to: Option<Arc<dyn Forward>>) {
     }
 }
 
-pub fn address() -> Option<(u16, String)> {
-    endpoint().map(|e| (e.port, e.token.clone()))
+pub fn port() -> Option<u16> {
+    endpoint().map(|e| e.port)
 }
 
 struct Endpoint {
     port: u16,
-    token: String,
     browser: String,
     limit: usize,
     head_wait: Duration,
@@ -106,7 +104,6 @@ impl Endpoint {
     fn new(listener: TcpListener, limit: usize, head_wait: Duration) -> std::io::Result<Self> {
         Ok(Self {
             port: listener.local_addr()?.port(),
-            token: rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect(),
             browser: uuid::Uuid::new_v4().to_string(),
             limit,
             head_wait,

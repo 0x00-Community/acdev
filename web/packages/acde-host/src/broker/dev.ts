@@ -145,7 +145,7 @@ export class DevRequests {
       case 'devtools': {
         const endpoint = this.#devtools?.open()
         if (!endpoint) throw new Error('devtools: this session serves no DevTools endpoint')
-        return { port: endpoint.port, token: endpoint.token }
+        return { port: endpoint.port }
       }
       case 'eval': {
         if (typeof args['code'] !== 'string') throw new Error('eval: code is a string')

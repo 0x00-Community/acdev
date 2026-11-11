@@ -8,7 +8,7 @@ const ledger = { name: 'ledger#7', kind: 'window', app: { id: 'ledger' }, url: '
 
 function session(webs: object[], services: string[]) {
   const pushed: NativeDevToolsTarget[][] = []
-  const devtools = { open: () => ({ port: 1, token: 't' }), targets: (list: NativeDevToolsTarget[]) => void pushed.push(list) }
+  const devtools = { open: () => ({ port: 1 }), targets: (list: NativeDevToolsTarget[]) => void pushed.push(list) }
   const titles: Record<string, string> = { desktop: 'Dopame', 'ledger#7': 'Ledger' }
   const host = { devtools, webs: () => webs, services: () => services, title: (web: { name: string }) => titles[web.name]! }
   return { dev: new DevRequests(host as never), pushed, webs, services }

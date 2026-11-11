@@ -10,6 +10,7 @@ use super::{Client, Endpoint, VERSION};
 use crate::sync::Locked;
 
 const HEAD: usize = 16 << 10;
+const FRONTEND_ORIGIN: &str = "devtools://devtools";
 
 pub(super) fn accept(endpoint: &'static Endpoint, listener: TcpListener) {
     for stream in listener.incoming() {
@@ -90,13 +91,8 @@ impl Request {
         self.header("sec-websocket-key").filter(|_| websocket && version)
     }
 
-    fn token(&self, token: &str) -> bool {
-        let query = url::form_urlencoded::parse(self.query.as_bytes()).any(|(name, value)| name == "token" && same(&value, token));
-        let bearer = self
-            .header("authorization")
-            .and_then(|h| h.split_once(' '))
-            .is_some_and(|(scheme, value)| scheme.eq_ignore_ascii_case("bearer") && same(value.trim(), token));
-        query || bearer
+    fn origin_allowed(&self) -> bool {
+        self.header("origin").is_none_or(|origin| origin == FRONTEND_ORIGIN)
     }
 }
 
@@ -160,10 +156,6 @@ fn respond(stream: &mut TcpStream, status: &str, body: &str) -> io::Result<()> {
     stream.flush()
 }
 
-fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
-}
-
 #[derive(Debug, PartialEq)]
 enum Route {
     Version,
@@ -188,7 +180,7 @@ fn route(path: &str) -> Route {
 
 impl Endpoint {
     fn socket(&self, path: &str) -> String {
-        format!("127.0.0.1:{}{path}?token={}", self.port, self.token)
+        format!("127.0.0.1:{}{path}", self.port)
     }
 
     fn version(&self) -> Value {
@@ -208,7 +200,7 @@ impl Endpoint {
                 let socket = self.socket(&format!("/devtools/page/{}", encode(&t.id)));
                 json!({
                     "description": "",
-                    "devtoolsFrontendUrl": format!("devtools://devtools/bundled/inspector.html?ws={}", encode(&socket)),
+                    "devtoolsFrontendUrl": format!("devtools://devtools/bundled/inspector.html?ws={socket}"),
                     "id": t.id,
                     "title": t.title,
                     "type": t.kind,
@@ -228,8 +220,8 @@ fn serve(endpoint: &'static Endpoint, mut stream: TcpStream) -> io::Result<()> {
     if !request.header("host").is_some_and(local_host) {
         return respond(&mut stream, "400 Bad Request", r#"{"error":"the Host is not this machine"}"#);
     }
-    if !request.token(&endpoint.token) {
-        return respond(&mut stream, "401 Unauthorized", r#"{"error":"a token is required"}"#);
+    if !request.origin_allowed() {
+        return respond(&mut stream, "403 Forbidden", r#"{"error":"requests from web pages may not use this endpoint"}"#);
     }
     if request.method != "GET" {
         return respond(&mut stream, "405 Method Not Allowed", r#"{"error":"only GET"}"#);
@@ -327,18 +319,16 @@ mod tests {
     }
 
     #[test]
-    fn the_token_comes_in_the_query_or_as_a_bearer() {
-        let request = |path: &str, headers: &[(&str, &str)]| {
+    fn only_requests_without_an_origin_or_from_the_devtools_front_end_pass() {
+        let request = |headers: &[(&str, &str)]| {
             let head: String = headers.iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
-            read_head(&mut BufReader::new(format!("GET {path} HTTP/1.1\r\n{head}\r\n").as_bytes())).unwrap().unwrap()
+            read_head(&mut BufReader::new(format!("GET /json/list HTTP/1.1\r\n{head}\r\n").as_bytes())).unwrap().unwrap()
         };
-        assert!(request("/json/list?token=abcd", &[]).token("abcd"));
-        assert!(request("/devtools/page/x?a=1&token=abcd", &[]).token("abcd"));
-        assert!(request("/json/list", &[("Authorization", "Bearer abcd")]).token("abcd"));
-        assert!(!request("/json/list", &[]).token("abcd"));
-        assert!(!request("/json/list?token=abce", &[]).token("abcd"));
-        assert!(!request("/json/list?token=", &[]).token("abcd"));
-        assert!(!request("/json/list", &[("Authorization", "Basic abcd")]).token("abcd"));
+        assert!(request(&[]).origin_allowed());
+        assert!(request(&[("Origin", "devtools://devtools")]).origin_allowed());
+        for origin in ["https://example.com", "http://127.0.0.1:8080", "null", "devtools://devtools.evil", "DEVTOOLS://DEVTOOLS", ""] {
+            assert!(!request(&[("Origin", origin)]).origin_allowed(), "{origin}");
+        }
     }
 
     #[test]
@@ -382,15 +372,44 @@ mod tests {
     }
 
     #[test]
-    fn a_foreign_host_gets_400_before_the_token_is_looked_at() {
-        let (endpoint, address) = served(4, std::time::Duration::from_secs(5));
-        let token = &endpoint.token;
-        let foreign = answer(address, &format!("GET /json/list?token={token} HTTP/1.1\r\nHost: evil.example:{}\r\n\r\n", address.port()));
+    fn a_foreign_host_gets_400_before_the_origin_is_looked_at() {
+        let (_, address) = served(4, std::time::Duration::from_secs(5));
+        let port = address.port();
+        let foreign = answer(address, &format!("GET /json/list HTTP/1.1\r\nHost: evil.example:{port}\r\nOrigin: devtools://devtools\r\n\r\n"));
         assert!(foreign.starts_with("HTTP/1.1 400 "), "{foreign}");
-        let missing = answer(address, &format!("GET /json/list?token={token} HTTP/1.1\r\n\r\n"));
+        let missing = answer(address, "GET /json/list HTTP/1.1\r\n\r\n");
         assert!(missing.starts_with("HTTP/1.1 400 "), "{missing}");
-        let local = answer(address, &format!("GET /json/list?token={token} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", address.port()));
+        let local = answer(address, &format!("GET /json/list HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"));
         assert!(local.starts_with("HTTP/1.1 200 "), "{local}");
+    }
+
+    #[test]
+    fn a_web_page_origin_gets_403_on_http_and_websocket_requests() {
+        let (endpoint, address) = served(4, std::time::Duration::from_secs(5));
+        let target = crate::devtools::DevToolsTarget { id: "alpha#7".into(), kind: "page".into(), title: "Alpha".into(), url: "acde://alpha/".into() };
+        endpoint.set_targets(vec![target]);
+        let port = address.port();
+        let host = format!("Host: 127.0.0.1:{port}\r\n");
+        let upgrade = "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n";
+        let page = answer(address, &format!("GET /json/list HTTP/1.1\r\n{host}Origin: https://example.com\r\n\r\n"));
+        assert!(page.starts_with("HTTP/1.1 403 "), "{page}");
+        let socket = answer(address, &format!("GET /devtools/page/alpha%237 HTTP/1.1\r\n{host}{upgrade}Origin: https://example.com\r\n\r\n"));
+        assert!(socket.starts_with("HTTP/1.1 403 "), "{socket}");
+        let front_end = answer(address, &format!("GET /json/version HTTP/1.1\r\n{host}Origin: devtools://devtools\r\n\r\n"));
+        assert!(front_end.starts_with("HTTP/1.1 200 "), "{front_end}");
+        let tool = answer(address, &format!("GET /json/list HTTP/1.1\r\n{host}\r\n"));
+        assert!(tool.starts_with("HTTP/1.1 200 "), "{tool}");
+        let list: Value = serde_json::from_str(tool.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        let socket = format!("127.0.0.1:{port}/devtools/page/alpha%237");
+        assert_eq!(list[0]["webSocketDebuggerUrl"], format!("ws://{socket}"));
+        assert_eq!(list[0]["devtoolsFrontendUrl"], format!("devtools://devtools/bundled/inspector.html?ws={socket}"));
+        let mut opened = TcpStream::connect(address).unwrap();
+        let head = format!("GET /devtools/page/alpha%237 HTTP/1.1\r\n{host}{upgrade}Origin: devtools://devtools\r\n\r\n");
+        opened.write_all(head.as_bytes()).unwrap();
+        opened.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        let mut status = [0u8; 12];
+        opened.read_exact(&mut status).unwrap();
+        assert_eq!(&status, b"HTTP/1.1 101");
     }
 
     #[test]
@@ -427,13 +446,5 @@ mod tests {
         let read = stream.read_to_end(&mut rest);
         assert!(read.is_ok() || read.as_ref().is_err_and(|e| e.kind() != io::ErrorKind::WouldBlock && e.kind() != io::ErrorKind::TimedOut));
         assert!(started.elapsed() < std::time::Duration::from_secs(2), "cut after {:?}", started.elapsed());
-    }
-
-    #[test]
-    fn tokens_compare_whole() {
-        assert!(same("abcd", "abcd"));
-        assert!(!same("abcd", "abce"));
-        assert!(!same("abc", "abcd"));
-        assert!(!same("", "abcd"));
     }
 }
