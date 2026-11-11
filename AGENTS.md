@@ -34,7 +34,7 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 `acde --help` 是分组简表 (Project / Develop / Inspect a running session / Agents, 每命令一行对齐); 任何命令后面的 `--help` / `-h` (`--` 之前)
 和 `acde help <命令>` 打那个命令的完整说明、选项 (含默认值) 和例子 (`Help.command`; 开发会话的工具命令带 `--session`), 80 列内换行.
 颜色 (`src/color.ts`): stdout 是终端才上色, `NO_COLOR` 非空不上色, `FORCE_COLOR` 强制上色, `TERM=dumb` 不上色.
-不带命令打一行快速上手 (见下), 退出码 0; 未知命令、未知参数、缺值、参数个数不对只打一行 (说清哪里不对, 指向 `acde --help` 或 `acde <命令> --help`), 退出码 1.
+不带命令打三行快速上手 (版本、`acde new my-app` → `cd my-app` → `acde dev`、指向 `acde --help`), 退出码 0; 未知命令、未知参数、缺值、参数个数不对只打一行 (说清哪里不对, 指向 `acde --help` 或 `acde <命令> --help`), 退出码 1.
 其他常见全局选项: 颜色由 @clack/prompts (picocolors) 按 `NO_COLOR` / 非终端自动关掉, 不另加 `--no-color`; 输出本来就少, 暂不加 `--quiet` / `--verbose`.
 
 `acde check --platform <windows|macos|linux>` (`AppPackage.platform`): 名字对到 SDK 的平台键 (`win32` / `darwin` / `linux`),

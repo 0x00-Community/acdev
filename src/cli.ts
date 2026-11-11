@@ -9,6 +9,7 @@ import { DevSession } from './dev.ts'
 import { Doctor } from './doctor.ts'
 import { ACTIONS } from './driver/acde.ts'
 import { TestRunner } from './e2e/runner.ts'
+import { Color } from './color.ts'
 import { Help } from './help.ts'
 import { Mcp } from './mcp.ts'
 import { PackageManager } from './pm.ts'
@@ -132,7 +133,10 @@ class Cli {
   static async main(argv: readonly string[]): Promise<number> {
     const [first = ''] = argv
     if (argv.length === 0) {
-      console.log(`acde ${Versions.acde()}: acde --help lists the commands`)
+      const c = Color.palette()
+      console.log(`acde ${Versions.acde()}: build, run and test apps for Dopame`)
+      console.log(`  ${c.name('acde new my-app')}   then   ${c.name('cd my-app')}   then   ${c.name('acde dev')}`)
+      console.log(`Run ${c.name('acde --help')} for every command.`)
       return 0
     }
     if (['--version', '-v', 'version'].includes(first)) {
