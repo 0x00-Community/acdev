@@ -30,7 +30,7 @@ Data lives in `$XDG_DATA_HOME/acde/storage/app-<id>/`.
 
 ## External resources
 
-Images (`<img>` and images in CSS), stylesheets (`<link rel="stylesheet">`) and fonts load from other hosts as they do in a browser: images and stylesheets without CORS, fonts only with an `Access-Control-Allow-Origin` that allows the page, a stylesheet only from a 2xx `text/css` response. They show up in `acde network` with the kinds `image`, `stylesheet` and `font`, and a failed one is a console error `Failed to load resource: <url>: <reason>`. **ES modules can't be `import`ed from other hosts** (`module … is not a local file`): bundle the code you depend on into the app. (Classic `<script src>` can load from other hosts.) An app that should work without a network bundles its images, styles and fonts too.
+Images (`<img>` and images in CSS), stylesheets (`<link rel="stylesheet">`) and fonts load from other hosts as they do in a browser: images and stylesheets without CORS, fonts only with an `Access-Control-Allow-Origin` that allows the page, a stylesheet only from a 2xx `text/css` response. They show up in `acde network` with the kinds `image`, `stylesheet` and `font`, and a failed one is a console error `Failed to load resource: <url>: <reason>`. A `<link rel="stylesheet">` fires `load` once its sheet is fetched and applied and `error` when it cannot be had (also when a sheet it `@import`s cannot); `link.sheet` and `document.styleSheets` have the sheet from then on. The rules of a sheet from another host (`sheet.cssRules`) throw `SecurityError` unless the link has `crossorigin` and the host allows the page with `Access-Control-Allow-Origin`. **ES modules can't be `import`ed from other hosts** (`module … is not a local file`): bundle the code you depend on into the app. (Classic `<script src>` can load from other hosts.) An app that should work without a network bundles its images, styles and fonts too.
 
 ## Scripts
 
@@ -65,6 +65,5 @@ Files and folders dropped into a window arrive the standard way: `dataTransfer.f
 
 - `alert()` is drawn inside the window; `confirm()` returns `false` and `prompt()` returns `null`.
 - `navigator.userAgent` and `navigator.platform` say Linux on every system (`Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) acdert/<version>` and `Linux x86_64`), and editing shortcuts use Ctrl everywhere, so an app behaves the same on every host. To know the real system, read `platform` from [`acde:capabilities`](../guide/capabilities.md#acdecapabilities).
-- A form's controls are not properties of the form by name: `form.elements.title` and `form.title` are `undefined`. Use `form.elements.namedItem('title')`, `new FormData(form)`, or `form.querySelector('[name="title"]')`.
 - There are no developer tools: use the [debugging tools](../guide/tools.md) and [MCP](../guide/mcp.md).
 - Pages have no security sandbox (there is no syscall-level isolation yet): don't run code you don't trust.
