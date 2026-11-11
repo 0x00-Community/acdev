@@ -170,6 +170,28 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(readFileSync(join(home, '.zshrc'), 'utf8').match(/# acde/g)).toHaveLength(1)
   }, 60_000)
 
+  test('install.sh: a progress bar in a terminal, none when captured, a line per checked file either way', async () => {
+    const captured = await install(tmp(), ['--no-modify-path'])
+    expect(captured.code, captured.out).toBe(0)
+    expect(captured.out).toMatch(/: acdert-[\w-]+\.tar\.xz: \d+ KB, SHA-256 matches\n/)
+    expect(captured.out).toMatch(new RegExp(`: acdert-host-${SDK.replaceAll('.', '\\.')}\\.tar\\.gz: \\d+ KB, SHA-256 matches\n`))
+    expect(captured.out).not.toContain('%')
+    const home = tmp()
+    let shown = ''
+    const decoder = new TextDecoder()
+    const proc = Bun.spawn(['sh', join(out, 'install.sh'), '--no-modify-path'], {
+      cwd: home,
+      env: env({
+        HOME: home, SHELL: '/bin/zsh', ACDE_DIST: base, ACDERT_DIST: `${base}/runtime`,
+        PATH: '/usr/bin:/bin:/usr/sbin:/sbin', ZDOTDIR: '',
+      }),
+      terminal: { cols: 100, rows: 30, data(_terminal, data) { shown += decoder.decode(data, { stream: true }) } },
+    })
+    expect(await proc.exited, shown).toBe(0)
+    expect(shown).toMatch(/100(\.0)?%/)
+    expect(shown).toContain(`installed acde 0.0.2 with acdert ${SDK}`)
+  }, 60_000)
+
   test('install.sh fails early and clearly', async () => {
     const home = tmp()
     expect((await install(home, ['--version', '9.9.9'])).stderr).toContain('is there an acde 9.9.9?')

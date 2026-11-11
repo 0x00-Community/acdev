@@ -39,7 +39,9 @@ acde itself is JavaScript; these are the platforms the runtime is built for (`aa
 curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh
 ```
 
-This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/bin` to your shell's startup file (zsh, bash, fish, or `.profile`). To leave your startup files alone:
+This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/bin` to your shell's startup file (zsh, bash, fish, or `.profile`). In a terminal it shows a progress bar for each download; after each one, and also when its output is captured (a coding agent, CI), it prints the file's size and that its SHA-256 matches. A download that stalls (under 1 KB/s for 30 seconds) is retried twice, then the installer stops and installs nothing.
+
+To leave your startup files alone:
 
 ```sh
 curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh -s -- --no-modify-path
