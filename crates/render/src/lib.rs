@@ -28,7 +28,7 @@ pub use dom::{Dom, NONE, NodeType, Ns, Quad, Viewport};
 pub use error::{Error, Result};
 pub use geometry::Metrics;
 pub use layers::{Backdrop, Layer, LayerFilter};
-pub use remote::{RdpBitmap, RdpEvent, RdpInput, RdpNotify, RdpSecurity, RdpSettings, RdpUpdates};
+pub use remote::{RdpBitmap, RdpEvent, RdpInput, RdpNotify, RdpSecurity, RdpSettings, RdpSlot, RdpUpdates};
 pub use paint::{Drawn, Finished, Gpu, Lost, Painter, Pixels, Sheet, set_error_sink};
 
 use std::panic::{AssertUnwindSafe, catch_unwind};

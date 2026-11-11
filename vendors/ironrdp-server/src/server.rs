@@ -32,7 +32,7 @@ use futures_channel::oneshot;
 use ironrdp_async::{FramedRead, FramedWrite};
 use ntex::io::{Filter, Io};
 use rdpsnd::server::{RdpsndServer, RdpsndServerMessage};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::autodetect::{AutoDetectManager, RttSnapshot};
 use crate::clipboard::CliprdrServerFactory;
@@ -509,6 +509,12 @@ enum Next {
     Connection(Option<(std::net::TcpStream, SocketAddr)>),
 }
 
+// acde: a connection runs until it ends or a newer one arrives (the newer one replaces it)
+enum Served {
+    Done(Result<()>),
+    Replaced(Option<(std::net::TcpStream, SocketAddr)>),
+}
+
 #[derive(Debug, PartialEq)]
 enum RunState {
     Continue,
@@ -928,11 +934,17 @@ impl RdpServer {
         let incoming = Incoming::start(listener).context("start the accept thread")?;
         let ev_receiver = self.ev_receiver.clone();
 
+        let mut replacing = None;
         loop {
             // acde: futures-lite's `or` instead of tokio::select!; both waits are cancel safe
-            let event = async { Next::Event(ev_receiver.recv().await.ok()) };
-            let connection = async { Next::Connection(incoming.accept().await) };
-            let next = futures_lite::future::or(event, connection).await;
+            let next = match replacing.take() {
+                Some(newer) => Next::Connection(Some(newer)),
+                None => {
+                    let event = async { Next::Event(ev_receiver.recv().await.ok()) };
+                    let connection = async { Next::Connection(incoming.accept().await) };
+                    futures_lite::future::or(event, connection).await
+                }
+            };
             match next {
                 // Never closed: the server holds a sender itself.
                 Next::Event(None) => break,
@@ -962,12 +974,27 @@ impl RdpServer {
                         drop(stream);
                     } else {
                         let started = std::time::Instant::now();
-                        // acde: the accepted socket on the current ntex runtime
-                        let result = match ntex::rt::from_tcp_stream(stream, ntex::service::cfg::SharedCfg::default()) {
-                            Ok(io) => self.run_connection(io).await,
-                            Err(error) => Err(anyhow::Error::new(error).context("register the connection")),
+                        info!(%peer, "RDP session starts");
+                        // acde: the accepted socket on the current ntex runtime; a newer connection replaces this one
+                        // (a client that vanished without closing would otherwise keep everyone else out)
+                        let serve = async {
+                            Served::Done(match ntex::rt::from_tcp_stream(stream, ntex::service::cfg::SharedCfg::default()) {
+                                Ok(io) => self.run_connection(io).await,
+                                Err(error) => Err(anyhow::Error::new(error).context("register the connection")),
+                            })
+                        };
+                        let newer = async { Served::Replaced(incoming.accept().await) };
+                        let result = match futures_lite::future::or(serve, newer).await {
+                            Served::Done(result) => result,
+                            Served::Replaced(Some((stream, newer))) => {
+                                info!(%peer, %newer, "RDP session replaced by a newer connection");
+                                replacing = Some((stream, newer));
+                                Ok(())
+                            }
+                            Served::Replaced(None) => bail!("the accept thread stopped"),
                         };
                         let duration = started.elapsed();
+                        info!(%peer, ?duration, "RDP session ends");
 
                         if let Err(ref error) = result {
                             error!(?error, "Connection error");

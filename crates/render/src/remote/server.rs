@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::num::{NonZeroU16, NonZeroUsize};
 use std::sync::{Arc, Mutex};
 
@@ -12,6 +13,14 @@ use super::settings::{RdpSecurity, RdpSettings};
 pub enum RdpEvent {
     Input(RdpInput),
     Full,
+    Drained,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RdpSlot {
+    Closed,
+    Busy,
+    Free,
 }
 
 pub type RdpNotify = Arc<dyn Fn(RdpEvent) + Send + Sync>;
@@ -40,26 +49,34 @@ impl TryFrom<RdpBitmap> for DisplayUpdate {
     }
 }
 
+type Frame = Vec<DisplayUpdate>;
+
 #[derive(Clone, Default)]
-pub struct RdpUpdates(Arc<Mutex<Option<async_channel::Sender<DisplayUpdate>>>>);
+pub struct RdpUpdates(Arc<Mutex<Option<async_channel::Sender<Frame>>>>);
 
 impl RdpUpdates {
-    fn sender(&self) -> Option<async_channel::Sender<DisplayUpdate>> {
+    fn sender(&self) -> Option<async_channel::Sender<Frame>> {
         self.0.lock().expect("rdp 锁").clone()
     }
 
-    pub fn connected(&self) -> bool {
-        self.sender().is_some()
+    pub fn slot(&self) -> RdpSlot {
+        match self.sender() {
+            None => RdpSlot::Closed,
+            Some(sender) if sender.is_full() => RdpSlot::Busy,
+            Some(_) => RdpSlot::Free,
+        }
     }
 
     pub fn send(&self, bitmaps: impl IntoIterator<Item = RdpBitmap>) {
         let Some(sender) = self.sender() else { return };
-        let _ = bitmaps.into_iter().filter_map(|b| DisplayUpdate::try_from(b).ok()).try_for_each(|update| sender.try_send(update));
+        let frame: Frame = bitmaps.into_iter().filter_map(|b| DisplayUpdate::try_from(b).ok()).collect();
+        if !frame.is_empty() {
+            let _ = sender.try_send(frame);
+        }
     }
 
-    fn open(&self) -> async_channel::Receiver<DisplayUpdate> {
-        let (sender, receiver) = async_channel::unbounded();
-        let _ = sender.try_send(DisplayUpdate::DefaultPointer);
+    fn open(&self) -> async_channel::Receiver<Frame> {
+        let (sender, receiver) = async_channel::bounded(1);
         *self.0.lock().expect("rdp 锁") = Some(sender);
         receiver
     }
@@ -81,18 +98,27 @@ impl RdpServerDisplay for Display {
         let receiver = self.updates.open();
         (self.notify)(RdpEvent::Full);
         log::info!("RDP 客户端连上了");
-        Ok(Box::new(UpdateStream { receiver }))
+        Ok(Box::new(UpdateStream { receiver, frame: VecDeque::from([DisplayUpdate::DefaultPointer]), notify: self.notify.clone() }))
     }
 }
 
 struct UpdateStream {
-    receiver: async_channel::Receiver<DisplayUpdate>,
+    receiver: async_channel::Receiver<Frame>,
+    frame: VecDeque<DisplayUpdate>,
+    notify: RdpNotify,
 }
 
 #[async_trait::async_trait]
 impl RdpServerDisplayUpdates for UpdateStream {
     async fn next_update(&mut self) -> anyhow::Result<Option<DisplayUpdate>> {
-        Ok(self.receiver.recv().await.ok())
+        loop {
+            if let Some(update) = self.frame.pop_front() {
+                return Ok(Some(update));
+            }
+            let Ok(frame) = self.receiver.recv().await else { return Ok(None) };
+            (self.notify)(RdpEvent::Drained);
+            self.frame = frame.into();
+        }
     }
 }
 

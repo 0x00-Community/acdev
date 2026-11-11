@@ -1638,17 +1638,26 @@ Blitz (DOM / Stylo / Taffy / 绘制) 包成的渲染引擎, 接口见「组件�
 
 ## crates/render 的 remote (RDP)
 
-`crates/render/src/remote`: 远程连接的设定和服务端 (现在只有 RDP), 类型带 `Rdp` 前缀 (`RdpSettings` / `RdpInput` / `RdpEvent` / `RdpUpdates` / `RdpBitmap`); 合成器侧 (crates/shell `compositor/rdp.rs`) 还没切过来.
+`crates/render/src/remote`: 远程连接的设定和服务端 (现在只有 RDP), 类型带 `Rdp` 前缀 (`RdpSettings` / `RdpInput` / `RdpEvent` / `RdpSlot` / `RdpUpdates` / `RdpBitmap`); 合成器侧在 crates/shell `compositor/rdp.rs`.
 
 - `RdpSettings::from_env()` (经 crates/driver 读): 一次读完 `ACDE_RDP_USER` / `ACDE_RDP_PASSWORD` (都要有)、`ACDE_RDP_CERT` / `ACDE_RDP_KEY` (默认
   `$XDG_CONFIG_HOME/agentos/rdp/{cert,key}.pem`)、`ACDE_RDP_ADDR` (`0.0.0.0:3390`)、`ACDE_RDP_SECURITY` (`Security::Tls` / `Nla`, 别的值报错)、
   `ACDE_SIZE` (`宽x高`, 默认 1440x900). 合成器用 `width` / `height` 建离屏纹理和输出, 所以设定错了在建 GLES 之前就失败.
 - `settings.serve(updates, notify)`: 起 `acde-rdp` 线程, 在上面跑一个 ntex System 和 ironrdp 的 `RdpServer`. `notify` 是
-  `Arc<dyn Fn(Event) + Send + Sync>`, 在服务端线程上调: `RdpEvent::Full` (客户端连上, 要整屏) 和 `RdpEvent::Input(RdpInput)`.
+  `Arc<dyn Fn(RdpEvent) + Send + Sync>`, 在服务端线程上调: `RdpEvent::Full` (客户端连上, 要整屏)、`RdpEvent::Drained` (客户端取走了一帧, 槽空了) 和 `RdpEvent::Input(RdpInput)`.
 - `RdpInput`: 中立的键鼠事件. 键是 evdev 码 (RDP 扫描码在这里换, 扩展码查表), 按钮是 evdev `BTN_*`, 绝对坐标夹在桌面尺寸里,
   `Wheel` 的单位是格 (RDP 的 120 一格, 向下为正); crates/shell 的 `From<RdpInput> for Injected` 乘 `WHEEL_STEP`.
-- `RdpUpdates`: 合成器和服务端共用的帧槽. 客户端连上时开一条 unbounded 通道, 先放一条 `DefaultPointer`; `connected()` 判有没有客户端,
-  `send(bitmaps)` 把读回的 `RdpBitmap {x, y, width, height, data}` (RGBX32, 行距 = 宽 × 4) 转成 `DisplayUpdate` 投进去, 投不进就丢掉这一批剩下的.
+- `RdpUpdates`: 合成器和服务端共用的帧槽, 只有一个槽 (bounded 1, 一帧 = 一次读回的所有矩形, 客户端连上时先发 `DefaultPointer`).
+  `slot()` 是 `RdpSlot::Closed` (没有客户端) / `Busy` (上一帧还没取走) / `Free`; `send(bitmaps)` 把读回的 `RdpBitmap {x, y, width, height, data}`
+  (RGBX32, 行距 = 宽 × 4) 作为一帧放进槽. 背压: 客户端 (网络) 取不走时合成器不读回、不排队, 新的损坏区域在 shell `rdp.rs` 的 `Tiles` 里攒着
+  (屏幕切成 64 像素见方的块, 和 RemoteFX 的编码块一样大; 取的时候按四叉树合并, 整块全脏出一个矩形); `Drained` 来了槽空了, 才从当前画面一次读回.
+  所以慢链路上发的永远是最新的画面, 带宽跟着链路走, 延迟不累积.
+- 一次只服务一个连接 (ironrdp), **新连接顶掉旧连接** (vendors/ironrdp-server `run`): 服务一个连接时同时等下一个, 来了就丢掉旧的
+  (socket 关掉) 改服务新的; 否则一个没关掉连接就消失的客户端会把后面的人全挡在外面. 会话开始 / 结束 / 被顶掉各打一行 info (带对端地址,
+  target `ironrdp_server`, acde-log 默认开).
+- **RDP 会话默认 reduced-motion** (acde-host `main.ts`: `ACDE_BACKEND=rdp` 且没设 `ACDE_REDUCED_MOTION` 时): 页面的
+  `prefers-reduced-motion: reduce` 成立, 桌面的动画壁纸停下来. 本机 1440x900、Dopame 桌面、回环 xfreerdp3 实测: 静止桌面首屏约 660 KB
+  之后 0 B/s; `ACDE_REDUCED_MOTION=0` (壁纸动) 约 727 KiB/s.
 
 ## packaging/arch
 
