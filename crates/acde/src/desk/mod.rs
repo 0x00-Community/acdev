@@ -421,17 +421,21 @@ impl Desk {
     }
 
     /// The system objects an isolate gets: everything for the desktop (`None`), the manifest's for an app.
-    fn grants(&self, caps: Option<&Capabilities>) -> Grants {
+    /// `fs: true` is every Finder root, `fs: {roots: [...]}` the named places (and the app's own folder), as in acdert.
+    fn grants(&self, app: Option<&App>) -> Grants {
         let mut system = self.system.lock().unwrap_or_else(|e| e.into_inner());
-        let fs = match caps.map(|c| &c.fs) {
-            None => Some(None),
-            Some(Some(FsCap::All(true))) => Some(None),
-            Some(Some(FsCap::Roots { roots })) => Some(Some(roots.clone())),
-            Some(_) => None,
+        let caps = app.map(|a| &a.capabilities);
+        let owner = app.map(|a| a.id.as_str());
+        let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new).clone();
+        let fs = match (caps.map(|c| &c.fs), owner) {
+            (None, _) => Some(workspace.scoped(None, None)),
+            (Some(Some(FsCap::All(true))), _) => Some(workspace.scoped(None, owner)),
+            (Some(Some(FsCap::Roots { roots })), Some(owner)) => Some(workspace.files(acde_runtime::Files::new(roots, false), owner)),
+            _ => None,
         };
         let all = caps.is_none();
         Grants {
-            fs: fs.map(|roots| system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(roots)),
+            fs,
             terminal: (all || caps.is_some_and(|c| c.terminal)).then(|| system.terminals.get_or_insert_with(acde_runtime::Terminals::new).shared()),
             network: (all || caps.is_some_and(|c| c.network)).then(|| system.networks.clone()),
             office: system.office.clone().filter(|_| all || caps.is_some_and(|c| c.office)),
@@ -465,7 +469,7 @@ impl Desk {
         let serial = state.serial;
         let mut env = state.look.env.clone();
         env.push(("WAYLAND_DISPLAY".into(), self.socket.clone()));
-        let grants = self.grants(app.as_ref().map(|a| &a.capabilities));
+        let grants = self.grants(app.as_deref());
         let spec = Spec { place, name: name.clone(), window, serial, init, heap_mb, env, grants, storage, token, desk: self.clone() };
         let handle = spec.spawn()?;
         state.live.insert(window, Live { place, name, app, handle, serial, owns: HashMap::new(), closing: false, reloading: false, hung: false });
@@ -1068,7 +1072,7 @@ impl Desk {
     pub fn open_office(&self) -> Result<(), String> {
         let mut system = self.system.lock().unwrap_or_else(|e| e.into_inner());
         if system.office.is_none() {
-            let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(None);
+            let workspace = system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(None, None);
             system.office = Some(acde_runtime::OfficeService::open(&workspace)?);
         }
         Ok(())

@@ -82,13 +82,13 @@ impl Service {
     }
 
     fn props(&self, root: Option<&str>, dir: Option<&str>, path: Option<&str>) -> Outcome<Value> {
-        let roots = self.files.roots()?;
+        let roots = self.files.0.fs.roots()?;
         let found = match root {
-            Some(wanted) => roots.iter().find(|r| r.path == wanted).cloned(),
+            Some(wanted) => roots.iter().find(|r| r.id == wanted).cloned(),
             None => roots.first().cloned(),
         };
         let server = self.status(false);
-        let mut props = json!({"base": "", "apps": [], "roots": roots, "root": found.as_ref().map(|r| r.path.clone()), "dir": "",
+        let mut props = json!({"base": "", "apps": [], "roots": roots, "root": found.as_ref().map(|r| r.id.clone()), "dir": "",
             "entries": [], "truncated": false, "file": null, "editor": null, "status": null, "server": server, "error": null});
         if root.is_some() && found.is_none() {
             props["error"] = "not a Runtime workspace".into();
@@ -323,7 +323,7 @@ impl Service {
         let settings = OfficeSettings::from_env()?;
         let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
         let service = Arc::new(Service {
-            files: OfficeFiles::new(finder),
+            files: OfficeFiles(finder),
             sessions: EditSessions::default(),
             secrets: Mutex::default(),
             cached: Mutex::default(),
@@ -371,7 +371,10 @@ impl Service {
                 let kind = BlankKind::try_from(fields.get("kind").as_str()).map_err(|()| Failure::invalid("kind must be docx, xlsx or pptx"))?;
                 let name = fields.present("name").map(|n| n.js_trim().to_owned()).filter(|n| !n.is_empty());
                 let dir = fields.get("dir");
-                let path = self.files.create(&fields.get("root"), &dir, kind, name.as_deref())?;
+                let wanted = fields.get("root");
+                let roots = self.files.0.fs.roots()?;
+                let found = roots.iter().find(|r| r.id == wanted).ok_or_else(|| Failure::invalid("not a Runtime workspace"))?;
+                let path = OfficeFiles::create(found, &dir, kind, name.as_deref())?;
                 Ok(json!({"path": path}))
             }
         }

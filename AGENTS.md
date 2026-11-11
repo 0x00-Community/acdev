@@ -198,11 +198,12 @@ acde (一个进程)                     同上的 runtime (Broker / desktop / �
      new), isolate 的 `acde:office` 再加上 `editorPage` (`office.ts` 的 `OfficePage.write`, 纯 JS 写编辑页文件, 在 isolate 自己里跑).
    - 调用都在 crates/acde `offload.rs`: 每次一条线程做阻塞的活, promise 在这个 isolate 的事件循环上落定; 失败是带 `code` (和 `status`)
      的 Error.
-   - fs: crates/runtime `Workspace` (Finder 的共享状态 + 这个 isolate 能用的 roots, `None` 是全部) 和 `FsCall` / `FsReply`, napi
-     `Finder` 也是它的包装. Broker 线程第一次 `spawnIsolate` 时建一份, 每个桌面 / 窗口 isolate 按清单拿一个 `scoped` 的副本 (`{fs}`: `true` 是全部,
-     roots 数组, `null` 是没有); roots 在 Rust 里查
-     (第一个参数: root, `locate` 是 path; 不带参数的 `state` / `roots` / `desktop` 在限了 roots 时拒绝), 拒绝是 `status 403`、
-     `code 'forbidden'` 的 Error, 别的失败和 napi 一样: message 是失败的 JSON, `code 'GenericFailure'`. crates/acde `fs.rs` 把它
+   - fs: crates/runtime `fs/` 和 acdert (gitea AC/acdert) 的同一份 (同步时整个目录照搬, 接口同 acdert 契约 level 1): `Workspace`
+     (Finder 的共享状态 + 这个 isolate 能看到的根) 和 `FsCall` / `FsReply`, 根按 `id` 认 (不给路径). Broker 线程第一次 `spawnIsolate`
+     时建一份, 每个 isolate 按清单拿一个副本 (crates/acde `desk/mod.rs` 的 `grants`): 桌面是全部; 清单 `fs: true` 是全部 Finder 根
+     (`scoped(None, 应用)`); `fs: {roots: [...]}` 是这些共享位置 (desktop / documents / downloads / music / pictures / videos, 即 XDG
+     目录) 加应用自己的 `private` 目录 (`files(Files::new(roots), 应用)`), `roots()` 只列这些; 没有 `fs` 就不绑. 不在范围里的根
+     拒绝是 `status 403`, 别的失败带 `status` 和 `code` (`EINVAL` / `EACCES` / `ENOENT` / `EEXIST` …). crates/acde `fs.rs` 把它
      绑成 `natives.fs` (每次调用一条 `acde-fs` 线程, 结果投回这个 isolate 的事件循环), isolate 的 `acde:fs` 就是它. Broker 自己 (桌面服务、`locate`、office) 还用自己的 napi `Finder` (另一份
      `Place`, Broker 不读写它).
 5. 窗口 / 应用 / 会话表进 Rust 共享表, `acde:windows` / `acde:apps` / `acde:window` / `acde:session` / `acde:desktops` /

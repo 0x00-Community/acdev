@@ -1,7 +1,9 @@
 export interface FinderRoot {
-  path: string
+  id: string
+  path?: string
   label: string
-  source: 'desktop' | 'downloads' | 'default' | 'task'
+  source: 'desktop' | 'downloads' | 'default' | 'task' | 'granted' | 'private' | 'place'
+  place?: 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos'
   mode: RootMode
   reason: string | null
   exists: boolean
@@ -17,6 +19,8 @@ export interface FinderEntry {
   size: number
   modifiedMs: number
   target?: string
+  version?: string
+  inPlace?: true
 }
 
 export interface FinderPreview {
@@ -35,21 +39,97 @@ export interface FileBytes {
   readonly data: Uint8Array
 }
 
+export type AcdeFsErrorCode =
+  | 'EINVAL'
+  | 'EACCES'
+  | 'ENOENT'
+  | 'EEXIST'
+  | 'ECONFLICT'
+  | 'ENOTEMPTY'
+  | 'EFBIG'
+  | 'EILSEQ'
+  | 'ENOSPC'
+  | 'EIO'
+
+export interface AcdeFsError extends Error {
+  readonly status: number
+  readonly code: AcdeFsErrorCode
+}
+
+export interface FinderStat extends FinderEntry {
+  path: string
+}
+
+export interface FileText {
+  readonly text: string
+  readonly modifiedMs: number
+  readonly size: number
+  readonly version: string
+}
+
+export interface FileData {
+  readonly data: Uint8Array
+  readonly modifiedMs: number
+  readonly size: number
+  readonly version: string
+}
+
+export interface FileRange {
+  readonly data: Uint8Array
+  readonly offset: number
+  readonly size: number
+  readonly modifiedMs: number
+  readonly version: string
+}
+
+export interface ReadRangeOptions {
+  ifVersion?: string
+}
+
+export interface OpenWriteOptions {
+  keepExistingData?: boolean
+  ifVersion?: string
+  create?: 'new' | 'always' | 'never'
+  mkdirs?: boolean
+}
+
+export interface WriteFileOptions {
+  ifModifiedMs?: number
+  ifVersion?: string
+  create?: 'new' | 'always' | 'never'
+  mkdirs?: boolean
+}
+
+export interface MkdirOptions {
+  recursive?: boolean
+}
+
 export interface AcdeFs {
-  state(): Promise<{ roots: FinderRoot[]; root: string | null; path: string; entries: FinderEntry[]; truncated: boolean; preview: FinderPreview | null; error: string | null }>
   roots(): Promise<FinderRoot[]>
-  desktop(): Promise<{ root: string; entries: FinderEntry[]; truncated: boolean }>
-  list(root: string, path?: string, hidden?: boolean): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean }>
+  list(
+    root: string,
+    path?: string,
+    hidden?: boolean,
+  ): Promise<{ root: FinderRoot; path: string; entries: FinderEntry[]; truncated: boolean; skipped?: number }>
   preview(root: string, path: string): Promise<FinderPreview>
   download(root: string, path: string): Promise<FileBytes>
-  place(root: string, path?: string, file?: string): Promise<unknown>
-  mkdir(root: string, path: string): Promise<FinderEntry>
-  write(root: string, path: string, content: string, expectedModifiedMs: string): Promise<FinderEntry>
-  copyIn?(root: string, dir: string, source: string): Promise<FinderEntry>
+  mkdir(root: string, path: string, options?: MkdirOptions): Promise<FinderEntry>
+  stat(root: string, path: string): Promise<FinderStat>
+  readText(root: string, path: string): Promise<FileText>
+  readBytes(root: string, path: string): Promise<FileData>
+  writeFile(root: string, path: string, data: string | Uint8Array, options?: WriteFileOptions): Promise<FinderEntry>
+  readRange(root: string, path: string, offset: number, length: number, options?: ReadRangeOptions): Promise<FileRange>
+  openWrite(root: string, path: string, options?: OpenWriteOptions): Promise<{ id: string; size: number }>
+  writeChunk(id: string, offset: number, data: string | Uint8Array): Promise<void>
+  truncateWrite(id: string, size: number): Promise<void>
+  commitWrite(id: string): Promise<FinderEntry>
+  abortWrite(id: string): Promise<void>
+  copy(fromRoot: string, fromPath: string, toRoot: string, toDir: string): Promise<FinderEntry & { path: string }>
   rename(root: string, from: string, to: string): Promise<FinderEntry>
   delete(root: string, path: string): Promise<{ status: 'deleted'; path: string }>
   locate(path: string): Promise<{ root: string; path: string }>
   openPath(root: string, path: string): Promise<{ root: string; path: string; file: string }>
+  revoke(rootPath: string): Promise<void>
 }
 
 export interface AcdeOffice {

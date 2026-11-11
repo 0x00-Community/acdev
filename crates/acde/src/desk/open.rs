@@ -291,7 +291,7 @@ impl Desk {
         }
         let workspace = {
             let mut system = self.system.lock().unwrap_or_else(|e| e.into_inner());
-            system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(None)
+            system.workspace.get_or_insert_with(acde_runtime::Workspace::new).scoped(None, None)
         };
         let located = match workspace.call(acde_runtime::FsCall::Locate { path: path.to_string_lossy().into_owned() }) {
             Ok(acde_runtime::FsReply::Json(place)) => serde_json::from_value::<Place>(place).ok(),

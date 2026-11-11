@@ -1,105 +1,150 @@
 use std::cell::RefCell;
 
 use acde_runtime::{FsCall, FsError, FsReply, Workspace};
+use serde_json::Value;
 
+use crate::wire::{Args, V8Args};
 use crate::{bind, offload};
 
 #[derive(Clone, Copy)]
 enum Method {
-    State,
     Roots,
-    Desktop,
     List,
     Preview,
     Download,
     Locate,
     OpenPath,
-    Place,
     Mkdir,
-    Write,
-    CopyIn,
+    Copy,
     Rename,
     Delete,
+    Stat,
+    ReadText,
+    ReadBytes,
+    WriteFile,
+    Revoke,
+    ReadRange,
+    OpenWrite,
+    WriteChunk,
+    TruncateWrite,
+    CommitWrite,
+    AbortWrite,
 }
 
 impl Method {
-    const TABLE: [Method; 14] = [
-        Method::State,
+    const TABLE: [Method; 21] = [
         Method::Roots,
-        Method::Desktop,
         Method::List,
         Method::Preview,
         Method::Download,
         Method::Locate,
         Method::OpenPath,
-        Method::Place,
         Method::Mkdir,
-        Method::Write,
-        Method::CopyIn,
+        Method::Copy,
         Method::Rename,
         Method::Delete,
+        Method::Stat,
+        Method::ReadText,
+        Method::ReadBytes,
+        Method::WriteFile,
+        Method::Revoke,
+        Method::ReadRange,
+        Method::OpenWrite,
+        Method::WriteChunk,
+        Method::TruncateWrite,
+        Method::CommitWrite,
+        Method::AbortWrite,
     ];
 
     fn name(self) -> &'static str {
         match self {
-            Method::State => "state",
             Method::Roots => "roots",
-            Method::Desktop => "desktop",
             Method::List => "list",
             Method::Preview => "preview",
             Method::Download => "download",
             Method::Locate => "locate",
             Method::OpenPath => "openPath",
-            Method::Place => "place",
             Method::Mkdir => "mkdir",
-            Method::Write => "write",
-            Method::CopyIn => "copyIn",
+            Method::Copy => "copy",
             Method::Rename => "rename",
             Method::Delete => "delete",
+            Method::Stat => "stat",
+            Method::ReadText => "readText",
+            Method::ReadBytes => "readBytes",
+            Method::WriteFile => "writeFile",
+            Method::Revoke => "revoke",
+            Method::ReadRange => "readRange",
+            Method::OpenWrite => "openWrite",
+            Method::WriteChunk => "writeChunk",
+            Method::TruncateWrite => "truncateWrite",
+            Method::CommitWrite => "commitWrite",
+            Method::AbortWrite => "abortWrite",
         }
     }
 
-    fn call(self, args: &Args) -> FsCall {
-        let s = |i: usize| args.text(i).unwrap_or_default();
+    fn call(self, a: &mut impl Args) -> FsCall {
+        let mut s = |i: usize| Given::text(a, i).unwrap_or_default();
+        let (s0, s1, s2, s3) = (s(0), s(1), s(2), s(3));
         match self {
-            Method::State => FsCall::State,
             Method::Roots => FsCall::Roots,
-            Method::Desktop => FsCall::Desktop,
-            Method::List => FsCall::List { root: s(0), path: args.text(1), hidden: args.flag(2) },
-            Method::Preview => FsCall::Preview { root: s(0), path: s(1) },
-            Method::Download => FsCall::Download { root: s(0), path: s(1) },
-            Method::Locate => FsCall::Locate { path: s(0) },
-            Method::OpenPath => FsCall::OpenPath { root: s(0), path: s(1) },
-            Method::Place => FsCall::Place { root: s(0), path: args.text(1), file: args.text(2) },
-            Method::Mkdir => FsCall::Mkdir { root: s(0), path: s(1) },
-            Method::Write => FsCall::Write { root: s(0), path: s(1), content: args.text(2), expected_modified_ms: s(3) },
-            Method::CopyIn => FsCall::CopyIn { root: s(0), dir: s(1), source: s(2) },
-            Method::Rename => FsCall::Rename { root: s(0), from: s(1), to: s(2) },
-            Method::Delete => FsCall::Delete { root: s(0), path: s(1) },
+            Method::List => FsCall::List { root: s0, path: Given::text(a, 1), hidden: Given::flag(a, 2) },
+            Method::Preview => FsCall::Preview { root: s0, path: s1 },
+            Method::Download => FsCall::Download { root: s0, path: s1 },
+            Method::Locate => FsCall::Locate { path: s0 },
+            Method::OpenPath => FsCall::OpenPath { root: s0, path: s1 },
+            Method::Mkdir => FsCall::Mkdir { root: s0, path: s1, options: Given::json(a, 2) },
+            Method::Copy => FsCall::Copy { from_root: s0, from_path: s1, to_root: s2, to_dir: s3 },
+            Method::Rename => FsCall::Rename { root: s0, from: s1, to: s2 },
+            Method::Delete => FsCall::Delete { root: s0, path: s1 },
+            Method::Stat => FsCall::Stat { root: s0, path: s1 },
+            Method::ReadText => FsCall::ReadText { root: s0, path: s1 },
+            Method::ReadBytes => FsCall::ReadBytes { root: s0, path: s1 },
+            Method::WriteFile => FsCall::WriteFile { root: s0, path: s1, data: Given::data(a, 2), options: Given::json(a, 3) },
+            Method::Revoke => FsCall::Revoke { root: s0 },
+            Method::ReadRange => {
+                FsCall::ReadRange { root: s0, path: s1, offset: Given::count(a, 2), length: Given::count(a, 3), options: Given::json(a, 4) }
+            }
+            Method::OpenWrite => FsCall::OpenWrite { root: s0, path: s1, options: Given::json(a, 2) },
+            Method::WriteChunk => FsCall::WriteChunk { id: s0, offset: Given::count(a, 1), data: Given::data(a, 2) },
+            Method::TruncateWrite => FsCall::TruncateWrite { id: s0, size: Given::count(a, 1) },
+            Method::CommitWrite => FsCall::CommitWrite { id: s0 },
+            Method::AbortWrite => FsCall::AbortWrite { id: s0 },
         }
     }
 }
 
-struct Args(Vec<Option<String>>, Vec<Option<bool>>);
+/// Optional arguments: `undefined` / `null` is "not given".
+struct Given;
 
-impl Args {
-    fn read(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments) -> Self {
-        let (mut texts, mut flags) = (Vec::new(), Vec::new());
-        for i in 0..args.length() {
-            let value = args.get(i);
-            let given = !value.is_null_or_undefined();
-            texts.push(given.then(|| value.to_rust_string_lossy(scope)));
-            flags.push(given.then(|| value.boolean_value(scope)));
+impl Given {
+    fn value(a: &mut impl Args, i: usize) -> Option<Value> {
+        Some(a.json(i)).filter(|v| !v.is_null())
+    }
+
+    fn text(a: &mut impl Args, i: usize) -> Option<String> {
+        match Self::value(a, i)? {
+            Value::String(text) => Some(text),
+            _ => Some(a.str(i)),
         }
-        Self(texts, flags)
     }
 
-    fn text(&self, i: usize) -> Option<String> {
-        self.0.get(i).cloned().flatten()
+    fn flag(a: &mut impl Args, i: usize) -> Option<bool> {
+        Self::value(a, i).map(|_| a.bool(i))
     }
 
-    fn flag(&self, i: usize) -> Option<bool> {
-        self.1.get(i).copied().flatten()
+    fn json(a: &mut impl Args, i: usize) -> Option<Value> {
+        Self::value(a, i)
+    }
+
+    fn count(a: &mut impl Args, i: usize) -> Option<u64> {
+        Self::value(a, i)?.as_f64().filter(|n| *n >= 0.0).map(|n| n as u64)
+    }
+
+    fn data(a: &mut impl Args, i: usize) -> Option<Vec<u8>> {
+        a.with_bytes(i, <[u8]>::to_vec).or_else(|| match Self::value(a, i)? {
+            Value::String(text) => Some(text.into_bytes()),
+            _ => None,
+        })
     }
 }
 
@@ -121,12 +166,12 @@ pub fn clear() {
     WORKSPACE.with(|w| w.borrow_mut().take());
 }
 
-fn call(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+fn call<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue) {
     let Some(method) = args.data().uint32_value(scope).and_then(|i| Method::TABLE.get(i as usize).copied()) else { return };
     let Some(workspace) = WORKSPACE.with(|w| w.borrow().clone()) else {
         return bind::throw_error(scope, "acde.fs: not given to this web");
     };
-    let request = method.call(&Args::read(scope, &args));
+    let request = method.call(&mut V8Args { scope: &mut *scope, args: &args });
     offload::run(scope, &mut rv, "acde-fs", move || workspace.call(request), settle);
 }
 
@@ -136,43 +181,60 @@ fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, re
             let value = offload::json(scope, &value);
             resolver.resolve(scope, value);
         }
-        Ok(FsReply::File { name, data }) => {
-            let name = bind::string(scope, &name).into();
-            let kind = bind::string(scope, FsReply::OCTETS).into();
-            let data = bind::uint8_array(scope, data).into();
-            let file = bind::object(scope, &[("name", name), ("contentType", kind), ("data", data)]);
-            resolver.resolve(scope, file.into());
+        Ok(FsReply::Done) => {
+            let done = v8::undefined(scope).into();
+            resolver.resolve(scope, done);
         }
-        Err(FsError::Refused(what)) => {
-            let thrown = offload::failure(scope, &format!("this app may not use {what} (not in its manifest's capabilities)"), Some(403), "forbidden");
+        Ok(reply) => {
+            let value = Reply::of(reply).js(scope);
+            resolver.resolve(scope, value);
+        }
+        Err(FsError { status, code, message }) => {
+            let thrown = offload::failure(scope, &message, Some(i32::from(status)), code);
             resolver.reject(scope, thrown);
         }
-        Err(FsError::Failed(json)) => {
-            let thrown = offload::failure(scope, &json, None, "GenericFailure");
-            resolver.reject(scope, thrown);
+    }
+}
+
+/// The non-JSON replies as plain values, for V8 and for the wire.
+struct Reply;
+
+impl Reply {
+    fn of(reply: FsReply) -> crate::wire::Ret {
+        use crate::wire::Ret as R;
+        let ms = |ms: i64| R::Num(ms as f64);
+        match reply {
+            FsReply::Json(value) => R::Json(value),
+            FsReply::Done => R::Undefined,
+            FsReply::File { name, data } => R::Obj(vec![("name", R::Str(name)), ("data", R::Bytes(data))]),
+            FsReply::Text { text, modified_ms, size, version } => {
+                R::Obj(vec![("text", R::Str(text)), ("modifiedMs", ms(modified_ms)), ("size", R::Num(size as f64)), ("version", R::Str(version))])
+            }
+            FsReply::Bytes { data, modified_ms, version } => {
+                let size = R::Num(data.len() as f64);
+                R::Obj(vec![("data", R::Bytes(data)), ("modifiedMs", ms(modified_ms)), ("size", size), ("version", R::Str(version))])
+            }
+            FsReply::Range(range) => R::Obj(vec![
+                ("data", R::Bytes(range.data)),
+                ("offset", R::Num(range.offset as f64)),
+                ("size", R::Num(range.size as f64)),
+                ("modifiedMs", ms(range.modified_ms)),
+                ("version", R::Str(range.version)),
+            ]),
         }
     }
 }
 
 pub fn wire(workspace: &Workspace, name: &str, a: &crate::wire::WireArgs) -> crate::wire::Answer {
-    use crate::wire::{Answer, WVal};
+    use crate::wire::Answer;
     let Some(method) = Method::TABLE.iter().copied().find(|m| m.name() == name) else {
         return Answer::fail(format!("acde.fs: no method {name}"));
     };
-    let given = |v: &WVal| !matches!(v, WVal::Undefined | WVal::Null);
-    let texts = a.0.iter().map(|v| given(v).then(|| crate::wire::text(v))).collect();
-    let flags = a.0.iter().map(|v| given(v).then(|| v.truthy())).collect();
-    let request = method.call(&Args(texts, flags));
+    let request = method.call(&mut crate::wire::WireArgs(a.0.clone()));
     let workspace = workspace.clone();
     Answer::Later(Box::new(move || wire_reply(workspace.call(request))))
 }
 
 fn wire_reply(reply: Result<FsReply, FsError>) -> Result<crate::wire::Ret, crate::wire::Fail> {
-    use crate::wire::{Fail, Ret};
-    match reply {
-        Ok(FsReply::Json(value)) => Ok(Ret::Json(value)),
-        Ok(FsReply::File { name, data }) => Ok(Ret::Obj(vec![("name", Ret::Str(name)), ("contentType", Ret::Str(FsReply::OCTETS.to_owned())), ("data", Ret::Bytes(data))])),
-        Err(FsError::Refused(what)) => Err(Fail { message: format!("this app may not use {what} (not in its manifest's capabilities)"), status: Some(403), code: "forbidden".to_owned() }),
-        Err(FsError::Failed(json)) => Err(Fail { message: json, status: None, code: "GenericFailure".to_owned() }),
-    }
+    reply.map(Reply::of).map_err(|FsError { status, code, message }| crate::wire::Fail { message, status: Some(i32::from(status)), code: code.to_owned() })
 }

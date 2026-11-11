@@ -32,7 +32,7 @@ pub use network::{NetCall, Network, Networks};
 pub use office::{OfficeCall, OfficeService};
 pub use portal::{Appearance, FileChooser};
 pub use power::{Power, PowerCall, PowerHost, backlight_brightness, set_backlight};
-pub use fs::{FileBytes, Finder, FsCall, FsError, FsReply, Workspace};
+pub use fs::{EntryKind, Files, Finder, FsCall, FsError, FsReply, MAX_CHUNK, Opened, PickedFolders, Range, Workspace};
 pub use sound::{SoundCall, Sounds};
 pub use system::{SysCall, system_call};
 pub use terminal::Terminals;
@@ -60,6 +60,24 @@ fn state_file(name: &str) -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".local/state")))?;
     Some(state.join("acde").join(name))
+}
+
+fn write_state(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    cfg_select! {
+        unix => { std::os::unix::fs::OpenOptionsExt::mode(&mut options, mode); }
+        _ => { _ = mode; }
+    }
+    let mut out = options.open(&tmp)?;
+    out.write_all(bytes)?;
+    out.sync_all()?;
+    std::fs::rename(tmp, path)
 }
 
 async fn blocking<T: Send + 'static>(

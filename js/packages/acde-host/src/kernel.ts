@@ -292,7 +292,10 @@ function system(module: string, kinds: Readonly<Record<string, 'r' | 'a'>>, own:
   return target
 }
 
-const FS = ['state', 'roots', 'desktop', 'list', 'preview', 'download', 'locate', 'openPath', 'place', 'mkdir', 'write', 'copyIn', 'rename', 'delete']
+const FS = [
+  'roots', 'list', 'preview', 'download', 'locate', 'openPath', 'mkdir', 'copy', 'rename', 'delete', 'stat', 'readText', 'readBytes',
+  'writeFile', 'revoke', 'readRange', 'openWrite', 'writeChunk', 'truncateWrite', 'commitWrite', 'abortWrite',
+]
 const fs = info.grants.fs ? system('fs', Object.fromEntries(FS.map((name) => [name, 'a' as const]))) : undefined
 const terminal = info.grants.terminal
   ? system(
