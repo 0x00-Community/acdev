@@ -57,7 +57,7 @@ export class E2e {
     }
   }
 
-  static mark(kind: 'registered' | 'ran', name: string, env: NodeJS.ProcessEnv = process.env): void {
+  static mark(kind: 'registered' | 'ran' | 'passed' | 'failed', name: string, env = process.env): void {
     const file = env[E2e.MARKS]
     if (!file) return
     const selected = kind === 'registered' && E2e.selects(env[E2e.PATTERN], name)
@@ -71,6 +71,12 @@ export class E2e {
     } catch {
       return true
     }
+  }
+
+  static counts(marks: string): { passed: number; failed: number } {
+    const lines = existsSync(marks) ? readFileSync(marks, 'utf8').split('\n') : []
+    const count = (kind: string) => lines.filter((line) => line === kind).length
+    return { passed: count('passed'), failed: count('failed') }
   }
 
   static unselected(marks: string): boolean {

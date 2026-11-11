@@ -92,11 +92,13 @@ export class E2eRun {
       const first = acde.session.apps[0]
       const app = acde.session.desktop === null && first !== undefined ? acde.window(first) : null
       await body({ acde, app, home: join(home, 'home'), settings })
+      E2e.mark('passed', name)
       if (settings.trace) {
         const trace = acde.trace.write(results, name).map((f) => join(results, f))[0]
         console.log(`acde test: trace of ${JSON.stringify(name)}: ${trace}`)
       }
     } catch (error) {
+      E2e.mark('failed', name)
       E2eRun.ownFrames(error)
       const saved = await E2eRun.keep(acde, error, results, name)
       if (error instanceof Error) error.message += `\n\n${saved}`

@@ -86,6 +86,7 @@ export class TestRunner {
     const cleaned = new Set<string>()
     const kept = new Set<string>()
     const failed: string[] = []
+    const tests = { passed: 0, failed: 0 }
     const filtered: string[] = []
     let ran = 0
     for (const suite of suites) {
@@ -108,6 +109,7 @@ export class TestRunner {
       const argv = [
         bun, 'test', suite.file, '--tsconfig-override', tsconfig(suite.project), '--timeout', String(settings.timeout),
         ...(options.pattern !== undefined ? ['--test-name-pattern', options.pattern] : []),
+        ...(options.bail ? ['--bail'] : []),
       ]
       const shown = relative(cwd, suite.file) || suite.file
       console.log(`acde test: ${shown}${settings.headless ? '' : ' (headed)'}`)
@@ -126,6 +128,9 @@ export class TestRunner {
         continue
       }
       ran++
+      const counted = E2e.counts(marks)
+      tests.passed += counted.passed
+      tests.failed += counted.failed
       if (code !== 0) {
         failed.push(shown)
         if (existsSync(results)) kept.add(results)
@@ -138,10 +143,13 @@ export class TestRunner {
       return 1
     }
     const unrun = suites.length - ran - filtered.length
-    const files = `${ran} file${ran === 1 ? '' : 's'}`
-    const skipped = filtered.length ? `, ${filtered.length} skipped (no test matches -t)` : ''
-    const notRun = unrun ? `, ${unrun} not run (--bail)` : ''
-    const summary = `acde test: ${files}, ${ran - failed.length} passed, ${failed.length} failed${skipped}${notRun}`
+    const plural = (n: number, what: string) => `${n} ${what}${n === 1 ? '' : 's'}`
+    const total = tests.passed + tests.failed
+    const where = `${plural(total, 'test')} in ${plural(ran, 'file')}`
+    const counted = `${tests.passed} passed, ${tests.failed} failed (${where})`
+    const skipped = filtered.length ? `, ${plural(filtered.length, 'file')} skipped (no test matches -t)` : ''
+    const notRun = unrun ? `, ${plural(unrun, 'file')} not run (--bail)` : ''
+    const summary = `acde test: ${counted}${skipped}${notRun}`
     const left = kept.size ? `\n  what the failing tests left: ${[...kept].join(', ')}` : ''
     console.log(failed.length ? `${summary}: ${failed.join(', ')}${left}` : summary)
     return failed.length ? 1 : 0
