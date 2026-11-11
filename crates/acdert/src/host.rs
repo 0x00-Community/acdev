@@ -85,7 +85,8 @@ fn ref_timer(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v
 
 fn report_error(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     let value = args.get(0);
-    crate::inspector::thrown(scope, value);
+    let thrown = Some(args.get(1)).filter(|thrown| !thrown.is_undefined()).unwrap_or(value);
+    crate::inspector::thrown(scope, thrown);
     let origin = rt::origin_of(scope, value);
     let text = rt::describe_at(scope, value, origin.as_deref());
     let lines: Vec<&str> = text.lines().take(10).collect();

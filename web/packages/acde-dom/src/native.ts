@@ -220,7 +220,7 @@ export interface HostNative {
   refTimer(handle: number, refed: boolean): void
   queueMicrotask(callback: () => void): void
   requestFrame(): void
-  reportError(error: unknown): void
+  reportError(error: unknown, thrown?: unknown): void
   print(level: number, text: string): void
   log(level: number, target: string, text: string): void
   logEnabled(level: number, target: string): boolean

@@ -89,7 +89,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     if (!mapped || mapped === stack) return report(error)
     const copy = new Error(String((error as { message?: unknown }).message ?? ''))
     Object.defineProperty(copy, 'stack', { value: mapped })
-    report(copy)
+    report(copy, error)
   }
   const permits = new Permits(init.tier?.approvals, init.app?.label ?? init.kind)
   const rpc = new Rpc((message) => port.post(message))
