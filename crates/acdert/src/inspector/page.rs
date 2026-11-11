@@ -50,6 +50,51 @@ pub(super) fn resolve_node(session: u32, message: &str) -> Option<String> {
     Some(evaluate.to_string())
 }
 
+struct Inspected(v8::Global<v8::Value>);
+
+impl v8::inspector::InspectableImpl for Inspected {
+    fn get<'s>(&self, scope: &mut v8::PinScope<'s, '_>, _: v8::Local<'s, v8::Context>) -> v8::Local<'s, v8::Value> {
+        v8::Local::new(scope, &self.0)
+    }
+}
+
+fn lookup(scope: &mut v8::PinScope, node: u64) -> Option<v8::Global<v8::Value>> {
+    let context = scope.get_current_context();
+    let global = context.global(scope);
+    let key = v8::String::new(scope, NODE_LOOKUP)?;
+    let symbol = v8::Symbol::for_key(scope, key);
+    let function = v8::Local::<v8::Function>::try_from(global.get(scope, symbol.into())?).ok()?;
+    let id = v8::Number::new(scope, node as f64);
+    v8::tc_scope!(let tc, scope);
+    let recv = v8::undefined(tc);
+    let found = function.call(tc, recv.into(), &[id.into()]);
+    tc.reset();
+    found.filter(|found| found.is_object()).map(|found| v8::Global::new(tc, found))
+}
+
+pub(super) fn set_inspected(scope: &mut v8::PinScope, session: u32, message: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
+    if value["method"] != "DOM.setInspectedNode" {
+        return false;
+    }
+    let params = &value["params"];
+    let found = params["nodeId"].as_u64().or_else(|| params["backendNodeId"].as_u64()).and_then(|node| lookup(scope, node));
+    let target = STATE.with(|s| s.borrow().as_ref().map(|s| (s.extra.borrow().get(&session).cloned(), s.page.sinks.borrow().get(&session).cloned())));
+    let Some((inspector, Some(sink))) = target else { return true };
+    let mut answer = match (found, inspector) {
+        (Some(node), Some(inspector)) => {
+            inspector.add_inspected_object(v8::inspector::Inspectable::new(Box::new(Inspected(node))));
+            serde_json::json!({"id": value["id"], "result": {}})
+        }
+        _ => serde_json::json!({"id": value["id"], "error": {"code": -32000, "message": "No node with given id found"}}),
+    };
+    if let Some(id) = value.get("sessionId") {
+        answer["sessionId"] = id.clone();
+    }
+    sink(answer.to_string());
+    true
+}
+
 pub(super) fn resolved(pending: &Resolving, text: String) -> String {
     let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return text };
     let key = value["id"].to_string();

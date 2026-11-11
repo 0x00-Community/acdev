@@ -237,6 +237,7 @@ pub fn dispatch_posted(scope: &mut v8::PinScope) {
                     session.dispatch_protocol_message(StringView::from(message.as_bytes()));
                 }
             }
+            Posted::Page(id, message) if page::set_inspected(scope, id, &message) => {}
             Posted::Page(id, message) => match page::resolve_node(id, &message) {
                 Some(evaluate) => {
                     let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow().get(&id).cloned()));
@@ -370,6 +371,35 @@ mod tests {
         runtime.task(|scope| dispatch_posted(scope));
         assert!(STATE.with(|s| s.borrow().as_ref().is_some_and(|s| s.extra.borrow().is_empty())), "the second session is gone");
         runtime.lp.keep_alive(false);
+        stop();
+    }
+
+    #[test]
+    fn set_inspected_node_makes_the_node_the_console_dollar_zero() {
+        let mut runtime = rt::Runtime::new(None, "dollar");
+        runtime.task(|scope| {
+            attach(scope, "dollar");
+            let source = "globalThis.marker = {tag: 'node 5'}; globalThis[Symbol.for('acde.devtools.node')] = (id) => (id === 5 ? marker : undefined)";
+            let code = v8::String::new(scope, source).unwrap();
+            v8::Script::compile(scope, code, None).unwrap().run(scope).unwrap();
+        });
+        let remote = remote().expect("an inspector");
+        let (tx, rx) = channel::<String>();
+        let tx = Mutex::new(tx);
+        let session = remote.connect(Arc::new(move |text| _ = tx.lock().unwrap().send(text)));
+        remote.page(session, r#"{"id":1,"method":"DOM.setInspectedNode","params":{"nodeId":5},"sessionId":"s"}"#.into());
+        remote.page(session, r#"{"id":2,"method":"DOM.setInspectedNode","params":{"nodeId":6}}"#.into());
+        remote.send(session, r#"{"id":4,"method":"Runtime.enable","params":{}}"#.into());
+        let evaluate = r#"{"id":3,"method":"Runtime.evaluate","params":{"expression":"$0 === marker","includeCommandLineAPI":true}}"#;
+        remote.send(session, evaluate.into());
+        runtime.task(|scope| dispatch_posted(scope));
+        let replies: Vec<serde_json::Value> = rx.try_iter().map(|text| serde_json::from_str(&text).expect("json")).collect();
+        let by_id = |id: i64| replies.iter().find(|m| m["id"] == id).cloned().unwrap_or_else(|| panic!("reply {id}: {replies:?}"));
+        assert_eq!(by_id(1), serde_json::json!({"id": 1, "result": {}, "sessionId": "s"}));
+        assert_eq!(by_id(2)["error"]["code"], -32000);
+        assert_eq!(by_id(3)["result"]["result"]["value"], true, "$0 is the inspected node");
+        remote.disconnect(session);
+        runtime.task(|scope| dispatch_posted(scope));
         stop();
     }
 }

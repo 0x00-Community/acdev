@@ -375,6 +375,8 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   编辑类方法 (`setAttributeValue`、`setOuterHTML`、`removeNode` ...) 回 -32000 "read only". `resolveNode` 要 V8 的 objectId, 由 `inspector/page.rs`
   `resolve_node` 改写成这个客户端 V8 session 里的 `Runtime.evaluate` (表达式调页面上 `Symbol.for('acde.devtools.node')` 的查找函数, 只在 dev 时装),
   回来的 `result` 改名成 `object` (补 `subtype: 'node'`), 找不到是 -32000.
+  `setInspectedNode` 也在 `inspector/page.rs` (`set_inspected`) 拦下: 用同一个查找函数拿到节点, 存成 `Global` 包进 `InspectableImpl`, 交给这个客户端
+  V8 session 的 `add_inspected_object`, 控制台的 `$0` (带 `includeCommandLineAPI` 的求值) 就是它; 找不到是 -32000.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 有 inspector 的 dev 页面 (`host.inspected()`) 里 acde-dom 的 console 还把原参数交给 V8 自带的
   `console` (装上前的 `globalThis.console`, 同名方法, 每次一份), 由它报给 inspector (`Runtime.consoleAPICalled`, 真的 RemoteObject 和调用栈);
