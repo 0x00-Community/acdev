@@ -603,10 +603,34 @@ export class MockDom implements DomNative {
     return Float64Array.of(rgba[0]! / 255, rgba[1]! / 255, rgba[2]! / 255, rgba[3] ?? 1)
   }
   sheetRuleCount(id: number): number {
-    const sheet = this._node(id).sheet
-    return this._root(this._node(id)) === this.doc && sheet ? sheet.cssRules.length : -1
+    const node = this._node(id)
+    if (node.localName === 'link') return this._root(node) === this.doc && this.sheets.get(id) === 1 ? (this.sheetSources.get(id)?.rules.length ?? 0) : -1
+    const sheet = node.sheet
+    return this._root(node) === this.doc && sheet ? sheet.cssRules.length : -1
+  }
+  sheets = new Map<number, number>()
+  sheetSources = new Map<number, { url: string; opaque: boolean; serial: number; rules: string[] }>()
+  #sheetSerials = 0
+  sheetState(id: number): number {
+    return this._root(this._node(id)) === this.doc ? (this.sheets.get(id) ?? 3) : 3
+  }
+  sheetUrl(id: number): string | null {
+    return this.sheetRuleCount(id) < 0 ? null : (this.sheetSources.get(id)?.url ?? null)
+  }
+  sheetOpaque(id: number): boolean {
+    return this.sheetRuleCount(id) >= 0 && !!this.sheetSources.get(id)?.opaque
+  }
+  sheetSerial(id: number): number {
+    return this.sheetRuleCount(id) < 0 ? -1 : (this.sheetSources.get(id)?.serial ?? -1)
+  }
+  _sheet(id: number, state: number, opaque = false, url = new URL(this._node(id).getAttribute('href') ?? '', 'http://acde.local/').href, rules: string[] = []): void {
+    this.sheets.set(id, state)
+    if (state === 1) this.sheetSources.set(id, { url, opaque, serial: ++this.#sheetSerials, rules })
+    if (state === 2) this.sheetSources.delete(id)
+    if (state === 1 || state === 2) this.#loaded.push(id)
   }
   sheetRule(id: number, index: number): string {
+    if (this._node(id).localName === 'link') return this.sheetSources.get(id)!.rules[index]!
     return this._node(id).sheet.cssRules[index].cssText
   }
   sheetInsertRule(id: number, rule: string, index: number): number {
@@ -662,13 +686,24 @@ export class MockDom implements DomNative {
     this.#loaded = []
     return out
   }
-  loader: ((id: number, url: string, destination: string) => void) | null = null
+  loader: ((id: number, url: string, destination: string, cors: string) => void) | null = null
   loads = new Map<number, Uint8Array | null>()
-  setLoader(load: ((id: number, url: string, destination: string) => void) | null): void {
+  #sheetLoads = new Map<number, { link: number; url: string }>()
+  setLoader(load: ((id: number, url: string, destination: string, cors: string) => void) | null): void {
     this.loader = load
   }
-  loaded(id: number, bytes: Uint8Array | null): void {
+  opaqueLoads = new Set<number>()
+  loaded(id: number, bytes: Uint8Array | null, opaque: boolean): void {
     this.loads.set(id, bytes && bytes.slice())
+    if (opaque) this.opaqueLoads.add(id)
+    const sheet = this.#sheetLoads.get(id)
+    if (sheet) this._sheet(sheet.link, bytes ? 1 : 2, opaque, sheet.url)
+  }
+  _fetchSheet(link: number, url: string, cors = ''): void {
+    const id = 1000 + this.#sheetLoads.size
+    this.#sheetLoads.set(id, { link, url })
+    this.sheets.set(link, 0)
+    this.loader!(id, url, 'style', cors)
   }
   canvas(id: number, commands: Uint8Array): void {
     this._node(id)

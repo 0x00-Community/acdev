@@ -32,7 +32,7 @@ import { CustomElementRegistry } from './dom/custom'
 import * as editing from './dom/editing'
 import { Document, DOMImplementation, DOMParser, documentState, FontFace, FontFaceSet, HTMLDocument, XMLDocument, XMLSerializer } from './dom/document'
 import { Attr, DOMStringMap, DOMTokenList, Element, flags, LOCAL, NamedNodeMap } from './dom/element'
-import { env, frames } from './dom/env'
+import { env, frames, loads } from './dom/env'
 import * as events from './dom/events'
 import { focus } from './dom/focus'
 import * as forms from './dom/forms'
@@ -147,7 +147,10 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   if (installed) throw new Error('acde-dom is installed in this context already')
   installCore(global, hostNative, options)
   bindDom(domNative)
-  domNative.setLoader((id, url, destination) => loadResource(url, destination, (bytes) => domNative.loaded(id, bytes)))
+  domNative.setLoader((id, url, destination, cors) => loadResource(url, destination, cors, (bytes, opaque) => {
+    domNative.loaded(id, bytes, opaque)
+    if (destination === 'style') loads.expect()
+  }))
   env.url = hostNative.parseUrl(options.url, null)?.href ?? options.url
   objectUrlOrigin.value = new URL(env.url).origin
   net.base = () => env.url

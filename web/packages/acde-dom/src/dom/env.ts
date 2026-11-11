@@ -57,6 +57,19 @@ export function resolveUrl(url: string): string {
   return host.parseUrl(url, env.url)?.href ?? url
 }
 
+export const loads = {
+  expected: false,
+  deliver: (): void => {},
+  expect(): void {
+    if (loads.expected) return
+    loads.expected = true
+    host.setTimer(0, () => {
+      loads.expected = false
+      loads.deliver()
+    })
+  },
+}
+
 export const frames = {
   wanted: false,
   request(): void {

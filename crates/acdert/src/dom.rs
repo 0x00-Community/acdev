@@ -153,19 +153,21 @@ thread_local! {
 
 fn start_load(scope: &mut v8::PinScope, load: acde_render::Load) {
     let Some(callback) = LOADS.with(|l| l.borrow().callback.clone()) else { return };
-    let (url, destination) = (load.url.clone(), load.destination);
+    let (url, destination, cors) = (load.url.clone(), load.destination, load.cors);
     let id = LOADS.with(|l| l.borrow_mut().pending.add(load));
-    let args = [id.js(scope), url.js(scope), destination.js(scope)];
+    let args = [id.js(scope), url.js(scope), destination.js(scope), cors.js(scope)];
     if bind::call(scope, callback, &args).is_none() {
         let failed = LOADS.with(|l| l.borrow_mut().pending.remove(&id));
         drop(failed);
     }
 }
 
-fn finish_load(id: u32, bytes: Option<Vec<u8>>) {
+fn finish_load(id: u32, bytes: Option<Vec<u8>>, opaque: bool) {
     let load = LOADS.with(|l| l.borrow_mut().pending.remove(&id));
-    if let Some(load) = load {
-        load.finish(bytes);
+    match (load, bytes) {
+        (Some(load), Some(bytes)) if opaque => load.finish_opaque(bytes),
+        (Some(load), bytes) => load.finish(bytes),
+        (None, _) => {}
     }
 }
 
@@ -652,6 +654,10 @@ natives! {
     "takeScrolled" => fn take_scrolled(scope, args, dom) { Ok(Ids(dom.take_scrolled())) }
     "imageState" => fn image_state(scope, args, dom) { let id = id(scope, &args, 0); dom.image_state(id).map(|s| Floats(s.to_vec())) }
     "takeLoaded" => fn take_loaded(scope, args, dom) { Ok(Ids(dom.take_loaded())) }
+    "sheetState" => fn sheet_state(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_state(id).map(f64::from) }
+    "sheetUrl" => fn sheet_url(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_url(id) }
+    "sheetOpaque" => fn sheet_opaque(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_opaque(id) }
+    "sheetSerial" => fn sheet_serial(scope, args, dom) { let id = id(scope, &args, 0); dom.sheet_serial(id).map(|n| n.map_or(-1.0, f64::from)) }
     "setLoader" => fn set_loader(scope, args, dom) {
         let callback = v8::Local::<v8::Function>::try_from(args.get(0)).ok().map(|f| v8::Global::new(scope, f));
         LOADS.with(|l| l.borrow_mut().callback = callback);
@@ -659,7 +665,7 @@ natives! {
     }
     "loaded" => fn loaded(scope, args, dom) {
         let id = f(scope, &args, 0) as u32;
-        finish_load(id, bind::bytes(args.get(1)));
+        finish_load(id, bind::bytes(args.get(1)), bind::arg_bool(scope, &args, 2));
         Ok(())
     }
     "canvas" => fn canvas(scope, args, dom) {

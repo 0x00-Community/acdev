@@ -532,6 +532,27 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `fetch(init.url)` 取 HTML; `page.ts` `PageSource.served`). `backend: {entry, port?}` (默认 3000).
 - **脚本**: classic `<script>` (含 `src`, 先读本地资源, 没有再经后端取; 非 async 的按文档顺序在 DOMContentLoaded 前执行)、`type="module"`、
   `type="importmap"` (`modules.rs` 解析说明符时用: `imports` / `scopes`, 精确或 `/` 结尾前缀匹配, 多个合并先到先得).
+- **样式表和别的子资源** (`<link rel=stylesheet>`、`<img>`、`@font-face`、CSS 背景图): 应用包里的文件 render 直接读盘; 读不到的 http / https /
+  `blob:` 地址 render 的 `Loader` 发到页面线程, 经页面的网络栈取 (acde-dom `core/resources.ts` `loadResource`: 和 `fetch` 同一套路由、代理、
+  证书、重定向, `acde network` 里是 `image` / `stylesheet` / `font`). 规则按 destination 照浏览器: 图片和样式表 no-cors (不带 `Origin`, body 照用),
+  字体 cors; 样式表要 2xx 的 `text/css`, 图片不看状态码; 失败在 console 报 `Failed to load resource: <url>: <原因>`. `<link crossorigin>` 是 CORS
+  请求 (空值和别的值不带凭据, `use-credentials` 带), 没过 CORS 检查算失败; 改 `crossorigin` 和改 `href` / `rel` 一样重取.
+  - `<link>` 的 `load` / `error`: acrender 给每个 link 记它当前这一次取 (`SheetLoad`, 连同表里 `@import` 的表, 都答了才算完), render 的
+    `take_loaded` 把取完的 link 和图片一起报, `sheetState` 说成败. 成了 (取到并进了 stylist) 派 `load`; 取不到、状态码或类型不对、`@import` 的表有
+    一个没取到派 `error` (已取到的规则照样生效, 和 Chrome 一样). `href` 又变了或 link 离开了文档, 先前那次的答复丢掉, 不派事件; 换 `href` 时旧表留到新的
+    答复来. 页面这边由 `deliverLoads` (`dom/media.ts`) 派: 每帧一次, 另外 link 接进文档、这三个属性变了、解析的 HTML 里有 `<link`、远程样式表答了
+    之后各排一个 0 ms 定时器 (`dom/env.ts` `loads.expect`), 不等帧 (没人看的窗口不出帧). 没有包装对象的 link 只在有 `onload` / `onerror` 属性时才建.
+  - `link.sheet` / `document.styleSheets`: 取完才有 `CSSStyleSheet` (`ownerNode`、`href`、`media.mediaText`), 每次取完是新对象; 在取和失败时
+    `sheet` 是 null. 响应对页面不透明的表, `cssRules` / `rules` / `insertRule` / `deleteRule` 抛 `SecurityError`. 透不透明由取这张表的那次
+    请求定, 不看 link 现在的属性 (改了 `crossorigin` / `href`, 新表到之前手上还是旧表, 旧表的结论不变): `loadResource` 在响应头到的时候判,
+    不是 CORS 请求而且请求地址或重定向后的最终地址有一个不同源就是不透明 (中间跳过别的源、首尾都同源的不算), 随 `loaded(id, bytes, opaque)`
+    交给 render (`Load::finish_opaque` → `NetHandler::opaque`), acrender 记在这张表上 (`sheet_sources`, 连同取它的地址即 `sheet.href`, 和带来
+    它的那次请求的 id). `CSSStyleSheet` 对象建的时候按这个 id (`sheetSerial`) 绑定到这一张表: `link.sheet` 在 id 变了时给新对象; 旧对象和从它
+    拿走的 `cssRules` 每次读都核对 id, link 换了表之后读到的是空 (不会读到后来那张表的规则), 往里 `insertRule` 只改它自己. 包里的文件、`data:`、`blob:`、同源后端和过了 CORS 检查的可读写. `replaceSync` / `replace` 只给
+    `new CSSStyleSheet()` 造的表, `<style>` / `<link>` 的表是 `NotAllowedError`.
+  - `<link>` / `<style>` 的 `media` 属性是表的 media list: 不匹配的表照取、照派 `load`、`sheet` 照有, 只是不生效; 改属性不重取.
+  - 没做: `window` 的 `load` 不等样式表和图片; `link.disabled`、备用样式表 (`title`)、`CSSImportRule.styleSheet`、`MediaList` 的成员 (只有
+    `mediaText` / `length`); `<img crossorigin>` 仍按 no-cors 取.
 - **本地资源的类型** (acde-dom `core/net.ts` `TYPES`): 应用包里的文件经 `fetch` / XHR 读到时按扩展名给 `Content-Type`, 只列页面加载要的类型
   (HTML、脚本、样式、JSON、wasm、字体、图片、音视频), 固定、和系统无关; 别的 (文稿、表格、压缩包、`.md` …) 是 `application/octet-stream` (#106).
   用户文件的类型不走这张表, 走宿主系统 (`env.fileType`, #98).
@@ -746,7 +767,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     目录, 分区放掉时删), 经 `natives.storage.privateDirectory()` 登记进这个 web 的 `PickedFolders` 和 `pagecalls.ts` 的文件夹表,
     返回名字是 `''` 的可读写 `FileSystemDirectoryHandle`. 内存分区的私有文件夹在 `$XDG_RUNTIME_DIR` (没有时用临时目录) 下新建的
     `acde-storage-<pid>-<随机>` (0700, 已有同名的就换名字, 不复用), 进程退出时删, 读写和 `showDirectoryPicker` 的同一套. `createSyncAccessHandle` 只在 worker 里, 没有.
-- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; `<img>` / CSS / 字体从别的主机取 (render 只读本地资源, 见「render」)、从别的主机 `import` ES 模块 (`modules.rs`).
+- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; 从别的主机 `import` ES 模块 (`modules.rs`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
@@ -1464,6 +1485,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | `document.rs` `geometry_generation`, `memory` / `MemoryStats` | 公开几何代数和内存统计 |
 | `document.rs` `create_node` / `forget_layout_child` | 不记 `changed_nodes`; 删节点时从布局父节点的子节点列表去掉 |
 | `mutator.rs` `flush`, `document.rs` `add_stylesheet_for_node` / `tree_order` | 跳过已删的节点; 样式表按文档顺序插进 stylist; 只有在文档里的 `<style>` 才加 |
+| blitz-traits `net.rs` `NetHandler::destination` / `cors` / `failed` / `opaque`, blitz-dom `net.rs` `SheetLoad` / `SheetLoadState`, `document.rs` `fetch_linked_stylesheet` / `unload_linked_stylesheet` / `stylesheet_load` / `take_settled_stylesheets` / `stylesheet_source` / `media_list_of` / `update_stylesheet_media`, `mutator.rs` | 请求带 destination 和 `crossorigin` 的 CORS 设置; 取不到 (`failed`) 和空响应分开, 上游都当空表; 响应不透明 (`opaque`) 时记在 link 的表上, 连同取它的地址. `<link>` 的取表挪到 `BaseDocument`: 每个 link 记当前这一次取和它 `@import` 的表还差几个没答, 都答了报一次成败; 不是当前这次的答复丢掉 (上游后到的旧答复会盖掉新表); 取失败时去掉旧表; link 离开文档、没了 `href` 或 `rel` 里没了 `stylesheet` 时表和这次取一起去掉 (上游只在删 `href` 时去, 没有表就 panic); `rel` / `crossorigin` 变了也重取. `<link>` / `<style>` 的 `media` 属性是表的 media list (上游一律空 list), 改了即时生效 |
 | `document.rs` `repair_after_panic` | panic 后去掉对已删节点的引用, 全部标脏 |
 | `layout/damage.rs` `repaint_inline_root` / `clear_damage_and_dirty_flags` | 行内元素的损伤让 inline root 重画; `display: none` 子树的构造损伤留着 |
 | `document.rs` `physical_unrounded_geometry` | 只减包含块的滚动偏移 |

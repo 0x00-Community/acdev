@@ -852,6 +852,30 @@ impl Dom {
         self.read(|e| Ok(e.take_loaded())).unwrap_or_default()
     }
 
+    pub fn sheet_state(&self, id: u32) -> Result<u8> {
+        self.on(id, |e, node| {
+            e.doc.handle_messages();
+            match e.doc.stylesheet_load(node) {
+                Some(blitz_dom::net::SheetLoadState::Loading) => LOADING,
+                Some(blitz_dom::net::SheetLoadState::Loaded) => LOADED,
+                Some(blitz_dom::net::SheetLoadState::Failed) => FAILED,
+                None => NO_SRC,
+            }
+        })
+    }
+
+    pub fn sheet_url(&self, id: u32) -> Result<Option<String>> {
+        self.on(id, |e, node| e.doc.stylesheet_source(node).map(|(url, _, _)| url.to_owned()))
+    }
+
+    pub fn sheet_opaque(&self, id: u32) -> Result<bool> {
+        self.on(id, |e, node| e.doc.stylesheet_source(node).is_some_and(|(_, opaque, _)| opaque))
+    }
+
+    pub fn sheet_serial(&self, id: u32) -> Result<Option<u32>> {
+        self.on(id, |e, node| e.doc.stylesheet_source(node).map(|(_, _, request)| request as u32))
+    }
+
     pub fn canvas(&self, id: u32, commands: &[u8]) -> Result<()> {
         self.write_paint(id, |e| {
             e.n(id)?;
@@ -2110,6 +2134,9 @@ impl Engine {
             if report {
                 changed.push(id);
             }
+        }
+        for node in self.doc.take_settled_stylesheets() {
+            changed.push(self.ids.id_of(node));
         }
         changed.sort_unstable();
         changed

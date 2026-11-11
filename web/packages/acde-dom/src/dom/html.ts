@@ -5,13 +5,13 @@ import { URL } from '../core/url'
 import { NONE, NodeType, Ns } from '../native'
 import { ACTIVATION, activation, MouseEvent, ToggleEvent } from './events'
 import { customClass, customName } from './custom'
-import { ATTRIBUTE_CHANGED, dataset, Element, HANDLER_TYPES, LOCAL, NS, pendingElement, setAttribute, tokenList, type DOMStringMap, type DOMTokenList } from './element'
-import { resolveUrl } from './env'
+import { ATTRIBUTE_CHANGED, dataset, Element, flags, HANDLER_TYPES, LOCAL, NS, pendingElement, setAttribute, tokenList, type DOMStringMap, type DOMTokenList } from './element'
+import { loads, resolveUrl } from './env'
 import { focus, focusable, setFocus } from './focus'
 import { metricGetters, metricsOf } from './layout'
 import { CDATASection, CharacterData, Comment, DocumentFragment, DocumentType, type HTMLCollection, liveCollection, mixin, Node, ProcessingInstruction, replaceAll, setTextContent, Text } from './node'
 import { bool, long, nullable, string, url, urlParts } from './reflect'
-import { classes, construct, constructing, dom, ID, lifecycle, nodeConstructing, wrap, inner } from './realm'
+import { classes, construct, constructing, dom, existing, ID, lifecycle, nodeConstructing, wrap, inner } from './realm'
 import { CSSStyleSheet, inlineStyle, type CSSStyleDeclaration } from './style'
 import { followLink } from './window'
 
@@ -589,30 +589,46 @@ register(HTMLStyleElement, 'style')
 
 const REL_LIST = Symbol('relList')
 
+const enum SheetState {
+  Loaded = 1,
+  Failed = 2,
+}
+
 export class HTMLLinkElement extends HTMLElement {
+  #sheet: CSSStyleSheet | null = null
+  #serial = -1
+
   get relList(): DOMTokenList {
     return tokenList(this, REL_LIST, 'rel', ['stylesheet', 'preload', 'modulepreload', 'icon', 'alternate', 'prefetch', 'preconnect', 'dns-prefetch', 'manifest', 'next'])
   }
 
+  get sheet(): CSSStyleSheet | null {
+    const serial = dom.sheetSerial(this[ID])
+    if (serial < 0) return (this.#sheet = null)
+    if (!this.#sheet || serial !== this.#serial) {
+      this.#sheet = new CSSStyleSheet(undefined, this)
+      this.#serial = serial
+    }
+    return this.#sheet
+  }
+
   override [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
     super[ATTRIBUTE_CHANGED](name, value)
-    if ((name === 'href' || name === 'rel') && value !== null && inner(this, 'isConnected')) linkLoad(this)
+    if ((name === 'href' || name === 'rel' || name === 'crossorigin') && inner(this, 'isConnected')) loads.expect()
   }
 }
-getters(HTMLLinkElement.prototype, { sheet: null })
 
-function linkLoad(link: HTMLLinkElement): void {
-  const id = link[ID]
-  const href = dom.getAttribute(id, 'href')
-  if (!href || !/(^|\s)stylesheet(\s|$)/i.test(dom.getAttribute(id, 'rel') ?? '')) return
-  const url = resolveUrl(href)
-  host.setTimer(0, () => {
-    if (!inner(link, 'isConnected') || dom.getAttribute(id, 'href') !== href) return
-    fire(link, new Event(host.readAsset(url) ? 'load' : 'error'))
-  })
+export function deliverSheet(id: number): void {
+  const state = dom.sheetState(id)
+  if (state !== SheetState.Loaded && state !== SheetState.Failed) return
+  let link = existing(id) as HTMLLinkElement | undefined
+  if (!link && flags.inlineHandlers && (dom.hasAttribute(id, 'onload') || dom.hasAttribute(id, 'onerror'))) link = wrap<HTMLLinkElement>(id)!
+  if (!link) return
+  fire(link, new Event(state === SheetState.Loaded ? 'load' : 'error'))
 }
+
 lifecycle.connected.push((node) => {
-  if (node instanceof HTMLLinkElement) linkLoad(node)
+  if (node instanceof HTMLLinkElement) loads.expect()
 })
 url(HTMLLinkElement.prototype, 'href')
 string(HTMLLinkElement.prototype, 'rel')

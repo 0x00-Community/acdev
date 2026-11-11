@@ -7,18 +7,25 @@ use blitz_traits::net::{Bytes, NetHandler, NetProvider, Request, Url};
 
 use crate::Resource;
 
-type Done = Box<dyn FnOnce(Option<Vec<u8>>) + Send>;
+type Done = Box<dyn FnOnce(Option<Vec<u8>>, bool) + Send>;
 
 pub struct Load {
     pub url: String,
     pub destination: &'static str,
+    pub cors: &'static str,
     done: Option<Done>,
 }
 
 impl Load {
     pub fn finish(mut self, bytes: Option<Vec<u8>>) {
         if let Some(done) = self.done.take() {
-            done(bytes);
+            done(bytes, false);
+        }
+    }
+
+    pub fn finish_opaque(mut self, bytes: Vec<u8>) {
+        if let Some(done) = self.done.take() {
+            done(Some(bytes), true);
         }
     }
 }
@@ -26,7 +33,7 @@ impl Load {
 impl Drop for Load {
     fn drop(&mut self) {
         if let Some(done) = self.done.take() {
-            done(None);
+            done(None, false);
         }
     }
 }
@@ -89,20 +96,30 @@ impl NetProvider for LocalNet {
             && matches!(url.scheme(), "http" | "https" | "blob")
         {
             let (arrived, wake, resolved) = (self.arrived.clone(), self.wake.clone(), url.to_string());
-            let destination = handler.destination();
-            let done: Done = Box::new(move |bytes| {
-                handler.bytes(resolved, Bytes::from(bytes.unwrap_or_default()));
+            let (destination, cors) = (handler.destination(), handler.cors());
+            let mut handler = handler;
+            let done: Done = Box::new(move |bytes, opaque| {
+                if opaque {
+                    handler.opaque();
+                }
+                match bytes {
+                    Some(bytes) => handler.bytes(resolved, Bytes::from(bytes)),
+                    None => handler.failed(resolved),
+                }
                 arrived.store(true, Ordering::Release);
                 if let Some(wake) = wake.upgrade() {
                     _ = wake.send(());
                 }
             });
-            return (loader.0)(Load { url: url.to_string(), destination, done: Some(done) });
-        }
-        if bytes.is_none() {
-            log::warn!("not loaded: {url}");
+            return (loader.0)(Load { url: url.to_string(), destination, cors, done: Some(done) });
         }
         self.arrived.store(true, Ordering::Release);
-        handler.bytes(url.to_string(), Bytes::from(bytes.unwrap_or_default()));
+        match bytes {
+            Some(bytes) => handler.bytes(url.to_string(), Bytes::from(bytes)),
+            None => {
+                log::warn!("not loaded: {url}");
+                handler.failed(url.to_string());
+            }
+        }
     }
 }

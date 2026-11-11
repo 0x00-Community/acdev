@@ -2,6 +2,7 @@ import { DOMException, guard } from '../core/exception'
 import { getHandler, setHandler } from '../core/event'
 import { getters, tag } from '../core/host'
 import { NONE, NodeType, Ns } from '../native'
+import { loads } from './env'
 import { DOMRect, rectList, type DOMRectList } from './geometry'
 import { computedStyleOf, metricGetters, metricsOf, rectOf } from './layout'
 import { attributeObservers, observing, recordAttribute } from './mutation'
@@ -41,10 +42,12 @@ export const HANDLER_TYPES = [
 const HANDLER_SET = new Set<string>(HANDLER_TYPES)
 const HANDLER_ATTRIBUTE = /\son[a-z]+\s*=/i
 const FORM_ATTRIBUTE = /\sform\s*=/i
+const LINK_ELEMENT = /<link[\s/>]/i
 
 export function noteMarkup(html: string): void {
   if (!flags.inlineHandlers && HANDLER_ATTRIBUTE.test(html)) flags.inlineHandlers = true
   if (!flags.formAttributes && FORM_ATTRIBUTE.test(html)) flags.formAttributes = true
+  if (LINK_ELEMENT.test(html)) loads.expect()
 }
 
 export const customAttributes = {
