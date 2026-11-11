@@ -36,10 +36,16 @@ function sha256(file: string): string {
 
 const BUILDS = [
   'x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-musl', 'aarch64-unknown-linux-musl',
-  'x86_64-apple-darwin', 'aarch64-apple-darwin', 'x86_64-pc-windows-msvc.exe',
+  'x86_64-apple-darwin', 'aarch64-apple-darwin', 'x86_64-pc-windows-msvc',
 ]
 
-type RuntimeOptions = { builds?: readonly string[]; tamper?: string; omit?: string }
+type RuntimeOptions = { builds?: readonly string[]; tamper?: string; omit?: string; bare?: boolean; member?: string }
+
+function runtimeFile(build: string, bare = false): string {
+  const windows = build.endsWith('-windows-msvc')
+  if (bare) return `acdert-${build}${windows ? '.exe' : ''}`
+  return `acdert-${build}${windows ? '.tar.gz' : '.tar.xz'}`
+}
 
 function runtimeMirror(dir: string, version: string, options: RuntimeOptions = {}): void {
   const at = join(dir, version)
@@ -53,10 +59,23 @@ function runtimeMirror(dir: string, version: string, options: RuntimeOptions = {
   rmSync(stage, { recursive: true, force: true })
   const files = [host]
   for (const build of options.builds ?? BUILDS) {
-    const file = `acdert-${build}`
-    writeFileSync(join(at, file), `#!/bin/sh\necho "acdert ${version} (${build})"\n`)
-    chmodSync(join(at, file), 0o755)
+    const windows = build.endsWith('-windows-msvc')
+    const file = runtimeFile(build, options.bare)
+    const script = `#!/bin/sh\necho "acdert ${version} (${build})"\n`
     files.push(file)
+    if (options.bare || (WINDOWS && !windows)) {
+      writeFileSync(join(at, file), script)
+      chmodSync(join(at, file), 0o755)
+      continue
+    }
+    const inner = join(at, `.${build}`)
+    const member = options.member ?? (windows ? 'acdert.exe' : 'acdert')
+    mkdirSync(inner)
+    writeFileSync(join(inner, member), script)
+    chmodSync(join(inner, member), 0o755)
+    const archived = systemTar([windows ? '-czf' : '-cJf', join(at, file), '-C', inner, member])
+    if (archived.status !== 0) throw new Error(`tar: ${archived.stderr}`)
+    rmSync(inner, { recursive: true, force: true })
   }
   writeFileSync(join(at, 'SHA256SUMS'), files.map((file) => `${sha256(join(at, file))}  ${file}\n`).join(''))
   if (options.tamper) writeFileSync(join(at, options.tamper), 'changed after the checksum')
@@ -98,7 +117,9 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     runtimeMirror(join(out, 'runtime'), SDK)
     runtimeMirror(join(out, 'tampered'), SDK, { tamper: `acdert-host-${SDK}.tar.gz` })
     runtimeMirror(join(out, 'missing'), SDK, { omit: `acdert-host-${SDK}.tar.gz` })
-    runtimeMirror(join(out, 'elsewhere'), SDK, { builds: ['x86_64-pc-windows-msvc.exe'] })
+    runtimeMirror(join(out, 'elsewhere'), SDK, { builds: ['x86_64-pc-windows-msvc'] })
+    runtimeMirror(join(out, 'bare'), SDK, { bare: true })
+    runtimeMirror(join(out, 'hollow'), SDK, { member: 'other' })
     server = serve(out)
     base = `http://127.0.0.1:${server.port}`
   }, 300_000)
@@ -182,6 +203,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
       ['tampered', `acdert-host-${SDK}.tar.gz does not match its checksum`],
       ['missing', `could not download ${base}/missing/${SDK}/acdert-host-${SDK}.tar.gz`],
       ['elsewhere', `acdert ${SDK} has no build for this platform`],
+      ['hollow', 'does not hold acdert'],
     ]
     for (const [mirror, said] of failing) {
       const bad = await install(home, ['--no-modify-path'], { ACDERT_DIST: `${base}/${mirror}` })
@@ -193,6 +215,15 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     const unsupported = await install(home, ['--no-modify-path'], { ACDERT_DIST: `${base}/elsewhere` })
     expect(unsupported.stderr).toContain('it is built for: x86_64-pc-windows-msvc')
   }, 120_000)
+
+  test('install.sh: an acdert released as a bare binary (0.0.8 and older) still installs', async () => {
+    const home = tmp()
+    const done = await install(home, ['--no-modify-path'], { ACDERT_DIST: `${base}/bare` })
+    expect(done.code, done.out).toBe(0)
+    const runtime = join(home, '.acde', 'bin', 'acdert')
+    expect(statSync(runtime).mode & 0o111).not.toBe(0)
+    expect((await run(['sh', runtime], {})).stdout).toStartWith(`acdert ${SDK} (`)
+  }, 60_000)
 
   test('bin/acde starts the CLI with bun', async () => {
     const home = tmp()
@@ -261,9 +292,11 @@ describe('the release archive and the installed CLI', () => {
     const made = await dist(out, '0.0.2')
     expect(made.code, made.out).toBe(0)
     runtimeMirror(join(out, 'runtime'), SDK)
-    runtimeMirror(join(out, 'tampered'), SDK, { tamper: 'acdert-x86_64-pc-windows-msvc.exe' })
+    runtimeMirror(join(out, 'tampered'), SDK, { tamper: 'acdert-x86_64-pc-windows-msvc.tar.gz' })
     runtimeMirror(join(out, 'missing'), SDK, { omit: `acdert-host-${SDK}.tar.gz` })
     runtimeMirror(join(out, 'elsewhere'), SDK, { builds: ['x86_64-unknown-linux-gnu', 'aarch64-apple-darwin'] })
+    runtimeMirror(join(out, 'bare'), SDK, { bare: true })
+    runtimeMirror(join(out, 'hollow'), SDK, { member: 'other.exe' })
     built = true
   }, 300_000)
 
@@ -319,7 +352,7 @@ describe('the release archive and the installed CLI', () => {
     const current = join(home, 'current')
     expect(realpathSync(current)).toBe(realpathSync(join(home, 'versions', '0.0.2')))
     expect(readFileSync(join(current, 'bin', 'acdert.exe'), 'utf8')).toBe(
-      `#!/bin/sh\necho "acdert ${SDK} (x86_64-pc-windows-msvc.exe)"\n`,
+      `#!/bin/sh\necho "acdert ${SDK} (x86_64-pc-windows-msvc)"\n`,
     )
     expect(existsSync(join(current, 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
     expect(existsSync(join(current, 'lib', 'acde', 'src'))).toBe(false)
@@ -374,7 +407,8 @@ describe('the release archive and the installed CLI', () => {
       const before = readFileSync(join(home, 'current', 'bin', 'acdert.exe'))
       writeFileSync(join(home, 'current', 'marker'), 'kept')
       const failing: [string, string][] = [
-        ['tampered', 'checksum mismatch for acdert-x86_64-pc-windows-msvc.exe'],
+        ['tampered', 'checksum mismatch for acdert-x86_64-pc-windows-msvc.tar.gz'],
+        ['hollow', `acdert-x86_64-pc-windows-msvc.tar.gz does not hold acdert.exe`],
         ['missing', `could not download ${server.url.origin}/missing/${SDK}/acdert-host-${SDK}.tar.gz`],
         ['elsewhere', `acdert ${SDK} has no build for this platform (x86_64-pc-windows-msvc); ` +
           'it is built for: aarch64-apple-darwin x86_64-unknown-linux-gnu'],
@@ -390,6 +424,22 @@ describe('the release archive and the installed CLI', () => {
     } finally {
       server.stop(true)
     }
+  }, 300_000)
+
+  test('Windows x64: an acdert released as a bare .exe (0.0.8 and older) still installs', async () => {
+    expect(built).toBe(true)
+    if (process.platform !== 'win32' || process.arch !== 'x64') return
+    const home = join(root, 'bare installation')
+    const server = serve(out)
+    try {
+      const result = await installPs1(home, 'bare', { ACDE_DIST: server.url.origin })
+      expect(result.code, result.out).toBe(0)
+    } finally {
+      server.stop(true)
+    }
+    expect(readFileSync(join(home, 'current', 'bin', 'acdert.exe'), 'utf8')).toBe(
+      `#!/bin/sh\necho "acdert ${SDK} (x86_64-pc-windows-msvc)"\n`,
+    )
   }, 300_000)
 
   test('Windows x64: no acdert-version: the sdk of latest.json when it describes that version', async () => {

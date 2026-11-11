@@ -172,9 +172,14 @@ main() {
   say "downloading acdert $runtime for $triple"
   fetch "$sums" "$tmp/acdert.sums" || die "could not download $sums (acde $version runs with acdert $runtime)"
   binary=acdert-$triple
-  if [ -z "$(listed "$tmp/acdert.sums" "$binary")" ]; then
+  if [ -n "$(listed "$tmp/acdert.sums" "$binary.tar.xz")" ]; then
+    binary=$binary.tar.xz
+    tar --version 2>/dev/null | grep -q bsdtar || command -v xz >/dev/null 2>&1 ||
+      die "needs xz to unpack $binary: install the xz (or xz-utils) package and run this again"
+  elif [ -z "$(listed "$tmp/acdert.sums" "$binary")" ]; then
     supported=$(awk '{ f = $2; sub(/^\*/, "", f); if (f ~ /^acdert-/ && f !~ /^acdert-host-/) {
-      sub(/^acdert-/, "", f); sub(/\.exe$/, "", f); print f } }' "$tmp/acdert.sums" | sort | tr '\n' ' ')
+      sub(/^acdert-/, "", f); sub(/\.tar\.[gx]z$/, "", f); sub(/\.exe$/, "", f); print f } }' "$tmp/acdert.sums" |
+      sort -u | tr '\n' ' ')
     die "acdert $runtime has no build for this platform ($triple); it is built for: ${supported% }"
   fi
   host=acdert-host-$runtime.tar.gz
@@ -194,7 +199,14 @@ main() {
   tar -xzf "$tmp/$file" -C "$stage" || die "could not unpack $file"
   unpacked=$stage/acde-$version
   [ -x "$unpacked/bin/acde" ] || die "$file does not hold bin/acde"
-  cp "$tmp/$binary" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert"
+  case $binary in
+    *.tar.xz)
+      mkdir "$stage/runtime" && tar -xJf "$tmp/$binary" -C "$stage/runtime" || die "could not unpack $binary"
+      [ -f "$stage/runtime/acdert" ] && [ ! -h "$stage/runtime/acdert" ] || die "$binary does not hold acdert"
+      mv "$stage/runtime/acdert" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert"
+      ;;
+    *) cp "$tmp/$binary" "$unpacked/bin/acdert" && chmod 755 "$unpacked/bin/acdert" || die "could not place acdert" ;;
+  esac
   mkdir "$stage/host" && tar -xzf "$tmp/$host" -C "$stage/host" || die "could not unpack $host"
   [ -f "$stage/host/app/dist/broker.js" ] || die "$host does not hold app/dist/broker.js"
   mv "$stage/host/app" "$unpacked/bin/app" || die "could not place the acdert host files"

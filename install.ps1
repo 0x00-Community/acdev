@@ -137,14 +137,17 @@ function Install-Acde {
         Write-Host "acde: installing acdert $runtime for $triple from $runtimeDist"
         $runtimeSums = Join-Path -Path $work -ChildPath 'acdert.sums'
         Save-Remote "$runtimeDist/$runtime/SHA256SUMS" $runtimeSums
-        $binary = "acdert-$triple.exe"
+        $binary = "acdert-$triple.tar.gz"
+        if (-not (Get-Listed $runtimeSums $binary)) {
+            $binary = "acdert-$triple.exe"
+        }
         if (-not (Get-Listed $runtimeSums $binary)) {
             $supported = @(Get-Content -LiteralPath $runtimeSums | ForEach-Object {
                 $fields = $_.Trim() -split '\s+', 2
                 if ($fields.Count -eq 2) { $fields[1].TrimStart('*') }
             } | Where-Object { $_ -like 'acdert-*' -and $_ -notlike 'acdert-host-*' } | ForEach-Object {
-                ($_ -replace '^acdert-', '') -replace '\.exe$', ''
-            } | Sort-Object)
+                (($_ -replace '^acdert-', '') -replace '\.tar\.[gx]z$', '') -replace '\.exe$', ''
+            } | Sort-Object -Unique)
             throw ("acde: acdert $runtime has no build for this platform ($triple); " +
                 "it is built for: $($supported -join ' ')")
         }
@@ -163,7 +166,20 @@ function Install-Acde {
             throw "acde: could not unpack $name.tar.gz (tar exit $LASTEXITCODE)"
         }
         $staged = Join-Path -Path $unpacked -ChildPath $name
-        Copy-Item -LiteralPath $binaryFile -Destination (Join-Path -Path $staged -ChildPath 'bin\acdert.exe')
+        $runtimeExe = $binaryFile
+        if ($binary -like '*.tar.gz') {
+            $runtimeDir = Join-Path -Path $work -ChildPath 'runtime'
+            New-Item -ItemType Directory -Path $runtimeDir | Out-Null
+            & $tar -xzf $binaryFile -C $runtimeDir
+            if ($LASTEXITCODE -ne 0) {
+                throw "acde: could not unpack $binary (tar exit $LASTEXITCODE)"
+            }
+            $runtimeExe = Join-Path -Path $runtimeDir -ChildPath 'acdert.exe'
+            if (-not (Test-Path -LiteralPath $runtimeExe -PathType Leaf)) {
+                throw "acde: $binary does not hold acdert.exe"
+            }
+        }
+        Copy-Item -LiteralPath $runtimeExe -Destination (Join-Path -Path $staged -ChildPath 'bin\acdert.exe')
         $bundleDir = Join-Path -Path $work -ChildPath 'host'
         New-Item -ItemType Directory -Path $bundleDir | Out-Null
         & $tar -xzf $bundleFile -C $bundleDir

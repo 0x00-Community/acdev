@@ -473,7 +473,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 
 **运行时** (acde#20): 归档本身只含命令行工具、模板、SDK 和 LICENSE. `<版本>/acdert-version` 是配对记录 (一行 acdert 版本, 即构建这一版所用 SDK
 的版本, 列在同目录 `SHA256SUMS` 里), 安装器 (含 `--version` / `-Version`) 按它从 `$ACDERT_DIST/<acdert 版本>/` 取 `SHA256SUMS`、
-`acdert-<triple>[.exe]` 和 `acdert-host-<acdert 版本>.tar.gz`, 都按那份 `SHA256SUMS` 校验后才落位: 二进制放成 `bin/acdert[.exe]`, 宿主包解开后
+acdert 二进制和 `acdert-host-<acdert 版本>.tar.gz`, 都按那份 `SHA256SUMS` 校验后才落位. 二进制从 acdert 0.0.9 起是压缩包 (macOS / Linux
+`acdert-<triple>.tar.xz`, Windows `acdert-<triple>.tar.gz`, 里面只有 `acdert` / `acdert.exe`; 80 多 MB 的二进制 xz 后约 19 MB), 之前的版本是裸文件
+`acdert-<triple>[.exe]`: 安装器先找压缩包, `SHA256SUMS` 里没有才找裸文件, 所以 `--version` 装旧版照样可以. 二进制放成 `bin/acdert[.exe]`, 宿主包解开后
 的 `app/` 放成 `bin/app/` (acdert 找 `<自己>/app/dist`). 没有配对记录的版本 (如 0.0.7, 发布流程加它之前发的) 读 `$ACDE_DIST/latest.json`, 它的 `version` 正是要装的版本时用它的 `sdk` 并打一行说明, 否则拒绝. 全有或全无: 找不到配对、`SHA256SUMS` 里没有本平台的 triple (报出它列着的
 平台)、下载或校验失败, 都在动安装目录之前失败, 之前装的版本和 `current` 照旧. 不用 `acdert/latest`. Dopame 桌面包不随 acde 安装.
 
@@ -516,14 +518,15 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `src/e2e/index.ts` 生成到 `dist/types/`. 包根的 `package.json` 由 dist.ts 生成, `exports` 指向 dist (源码仓库的 package.json 不变).
 - dist 测试 (`test/dist.test.ts`) 需要 acdert 的 acde-api 已构建: 它用 `../acdert/web/packages/acde-api/dist`.
 - **install.sh** (sh / dash / `bash --posix`): 认 triple (Rosetta 里按 `sysctl.proc_translated` 换 aarch64; 有 `/lib/ld-musl-*` 是 musl; MSYS 叫去用
-  install.ps1), 按 triple 选 `acdert-<triple>`; curl / wget 下载, shasum / sha256sum / openssl 校验, acde 和 acdert 都下载校验完、在暂存目录里
+  install.ps1), 按 triple 选 `acdert-<triple>.tar.xz` (没有才选裸的 `acdert-<triple>`); 解 `.tar.xz` 要 tar 认 xz: bsdtar (macOS) 自带, GNU tar 调 `xz`,
+  两样都没有时在下载 acdert 之前就失败并提示装 xz / xz-utils; 包里必须有普通文件 `acdert`; curl / wget 下载, shasum / sha256sum / openssl 校验, acde 和 acdert 都下载校验完、在暂存目录里
   拼好 (`bin/acdert`、`bin/app/`) 才动安装目录, 失败什么都不动. 解进 `$ACDE_INSTALL` (默认 `~/.acde`) 的临时目录再改名成
   `versions/<版本>`; `current` 原子换 (`mv -T` / `mv -h`, 退回 `ln -sfn`); `bin` → `current/bin` (相对链接). PATH 上没有且没给 `--no-modify-path` 时按
   `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次. 这个终端的 PATH 上没有时, 输出的最后单独一行是
   这个终端里要敲的 `export PATH=…` (fish 是 `fish_add_path`): 装完在原来的终端里敲 `acde` 是 command not found, 人会漏看夹在中间的提示.
 - **install.ps1** (Windows PowerShell 5.1 或 PowerShell 7.2+, 只有 x64): 出错 `throw` 不 `exit` (`irm | iex` 时 `exit` 关掉用户的终端); 参数也可走
   `ACDE_VERSION` / `ACDE_NO_MODIFY_PATH`; 用系统的 `tar.exe`. triple 按 `PROCESSOR_ARCHITECTURE` (WOW64 下看 `PROCESSOR_ARCHITEW6432`):
-  `x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`, 取 `acdert-<triple>.exe`; 同样先在临时目录拼好整个版本目录 (`bin\acdert.exe`、`bin\app`) 再换. 同版本已在时整体改名挪开 (`<版本>.old-<guid>`, 改名失败才报「还在运行」), 装好再删,
+  `x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc`, 取 `acdert-<triple>.tar.gz` (没有才取裸的 `acdert-<triple>.exe`; 不用 xz: 安装器只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz), 用 `tar.exe` 解出 `acdert.exe`; 同样先在临时目录拼好整个版本目录 (`bin\acdert.exe`、`bin\app`) 再换. 同版本已在时整体改名挪开 (`<版本>.old-<guid>`, 改名失败才报「还在运行」), 装好再删,
   删不掉留到下次 (`Remove-Item -Recurse` 遇到占用的文件连 `-ErrorAction Stop` 都不停). `current` 是 junction, 先建 `current.next` 再换. PATH 加
   `current\bin` (`bin` 不做成链接: `acde.cmd` 的 `%~dp0..` 按字面算), 写 `HKCU\Environment` 的 `Path` (`DoNotExpandEnvironmentNames` 读、写回
   `REG_EXPAND_SZ`, 原有的 `%…%` 不展开), 设用户级 `ACDE_INSTALL` (顺带广播 `WM_SETTINGCHANGE`), 当前会话也加上.
