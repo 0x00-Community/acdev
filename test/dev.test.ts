@@ -586,7 +586,8 @@ describe('acde dev with a stand-in acdert', () => {
       const started = said().filter((entry) => entry.started)
       expect(started).toHaveLength(1)
       const profile = started[0]!.started!.find((arg) => arg.startsWith('--user-data-dir='))!.slice(16)
-      expect(profile.startsWith(join(cache, 'acde', 'devtools'))).toBe(true)
+      const caches = process.platform === 'darwin' ? join(base, 'Library', 'Caches') : cache
+      expect(profile.startsWith(join(caches, 'acde', 'devtools'))).toBe(true)
       expect(started[0]!.started).toContain('--remote-debugging-port=0')
       expect(started[0]!.started).not.toContain(url)
       expect(said().filter((entry) => entry.method === 'Target.createTarget').map((entry) => entry.params?.url))
