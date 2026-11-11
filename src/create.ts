@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { installDir, installed, runtimes, which } from 'acde/launcher'
 import { Project } from './app.ts'
 import { AppPackage } from './package.ts'
@@ -316,17 +316,14 @@ export class Creator {
     }
   }
 
-  static api(dir: string): string {
-    const set = process.env['ACDE_API']
-    if (set) return set
-    const api = Creator.#apiDir()
-    if (Creator.INSTALLED) {
-      const { version } = JSON.parse(readFileSync(join(api, 'package.json'), 'utf8')) as { version: string }
-      const base = (process.env['ACDERT_DIST'] || Creator.SDK_DIST).replace(/\/+$/, '')
-      return `${base}/${version}/acde-api-${version}.tar.gz`
-    }
-    const rel = relative(realpathSync(dir), api)
-    return `file:${(isAbsolute(rel) || rel.startsWith('.') ? rel : `./${rel}`).split(sep).join('/')}`
+  static sdkVersion(): string {
+    const { version } = JSON.parse(readFileSync(join(Creator.#apiDir(), 'package.json'), 'utf8')) as { version: string }
+    return version
+  }
+
+  static api(version = Creator.sdkVersion()): string {
+    const base = (process.env['ACDERT_DIST'] || Creator.SDK_DIST).replace(/\/+$/, '')
+    return `${base}/${version}/acde-api-${version}.tar.gz`
   }
 
   static #apiDir(): string {
@@ -385,7 +382,7 @@ export class Creator {
       ...json.scripts,
       ...Object.fromEntries(Object.entries(scripts).map(([name, command]) => [name, `acde ${command}`])),
     }
-    json.devDependencies = { ...json.devDependencies, '@dopame/acde-api': Creator.api(dir), ...extra }
+    json.devDependencies = { ...json.devDependencies, '@dopame/acde-api': Creator.api(), ...extra }
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
   }
 

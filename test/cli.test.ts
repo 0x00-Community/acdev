@@ -19,7 +19,7 @@ import { ACTIONS } from '../src/driver/acde.ts'
 import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
 import { Tools } from '../src/tools.ts'
-import { cleanup, collect, env, standIn, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, collect, env, sdkMirror, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 const APP = join(import.meta.dir, 'fixtures/app')
@@ -219,8 +219,8 @@ describe('acde.config.jsonc', () => {
     const data = tmp()
     const dir = join(tmp(), 'hello')
     expect((await cli(['new', dir, '--label', 'Hi'], tmp())).code).toBe(0)
-    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@dopame/acde-api']).toStartWith(
-      'file:',
+    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).devDependencies['@dopame/acde-api']).toBe(
+      Creator.api(),
     )
     expect((await cli(['check'], dir)).stdout).toContain('app (acde.config.jsonc)')
     expect((await cli(['install'], dir, { XDG_DATA_HOME: data })).code).toBe(0)
@@ -371,7 +371,7 @@ describe('acde.config.jsonc', () => {
     expect(readFileSync(join(dir, 'index.html'), 'utf8')).toBe(page)
     Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Creator.api(dir) })
+    expect(pkg.devDependencies).toEqual({ vite: '^7.0.0', '@dopame/acde-api': Creator.api() })
     expect(pkg.scripts).toEqual({ 'acde:dev': 'acde dev', 'acde:build': 'acde build', 'acde:check': 'acde check' })
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.acde/\n')
     expect(readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')).toContain('"label": "Vite App"')
@@ -434,11 +434,17 @@ describe('a project made by acde from its checkout', () => {
     })
   }
 
-  test('the SDK is a relative file: path, scripts call acde from PATH, there is no acde dependency', () => {
-    const dir = ROOT
+  test('the SDK is the tarball of the version this acde pairs with, from pkgs.dopame.ai', () => {
     expect(Creator.INSTALLED).toBe(false)
-    expect(Creator.api(dir)).toBe(`file:${relative(dir, API).split(sep).join('/')}`)
-    expect(relative(dir, API)).toStartWith('..')
+    const { version } = JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }
+    expect(Creator.sdkVersion()).toBe(version)
+    const saved = process.env['ACDERT_DIST']
+    delete process.env['ACDERT_DIST']
+    try {
+      expect(Creator.api()).toBe(`https://pkgs.dopame.ai/acdert/${version}/acde-api-${version}.tar.gz`)
+    } finally {
+      if (saved !== undefined) process.env['ACDERT_DIST'] = saved
+    }
   })
 
   test('npm, pnpm and yarn projects get vite for the html and desktop templates, bun ones do not', () => {
@@ -503,39 +509,33 @@ describe('a project made by acde from its checkout', () => {
     }
   })
 
-  test('bun: bun install && bun run build with the checkout acde on PATH, no node there', async () => {
-    const dir = join(tmp(), 'by-bun')
-    expect((await cli(['new', dir, '--pm', 'bun', '--yes'], tmp())).code).toBe(0)
-    expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toBe(
-      `bun@${process.versions.bun}`,
-    )
-    const path = tools(['bun'])
-    const installed = await run([process.execPath, 'install'], dir, path)
-    expect(installed.code, installed.out).toBe(0)
-    const built = await run([process.execPath, 'run', 'build'], dir, path)
-    expect(built.out).toContain('built app by-bun')
-    expect(built.code).toBe(0)
-    expect(existsSync(join(dir, '.acde/web/index.html'))).toBe(true)
-    expect(existsSync(join(dir, 'node_modules/@dopame/acde-api/package.json'))).toBe(true)
-  }, 60_000)
+  const LOCKS = { bun: 'bun.lock', npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock' } as const
 
-  for (const pm of ['npm', 'pnpm'] as const) {
-    test.skipIf(!which(pm) || !which('node'))(
-      `${pm}: install, run build`,
-      async () => {
+  for (const pm of ['bun', 'npm', 'pnpm', 'yarn'] as const) {
+    const skip = pm !== 'bun' && (!which(pm) || !which('node'))
+    test.skipIf(skip)(`${pm}: acde new installs the paired SDK tarball into the lock file; run build`, async () => {
+      const sdk = sdkMirror()
+      try {
         const dir = join(tmp(), `by-${pm}`)
-        expect((await cli(['new', dir, '--pm', pm, '--yes'], tmp())).code).toBe(0)
-        expect(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager).toStartWith(`${pm}@`)
-        const path = tools([pm, 'node', 'bun'])
-        const installed = await run([pm, 'install'], dir, path)
-        expect(installed.code, installed.out).toBe(0)
-        const built = await run([pm, 'run', 'build'], dir, path)
+        const path = tools(pm === 'bun' ? ['bun'] : [pm, 'node', 'bun'])
+        const argv = [process.execPath, join(ROOT, 'src/cli.ts'), 'new', dir, '--pm', pm, '--yes', '--install']
+        const PATH = [path, ...basePath(pm === 'bun' ? process.execPath : pm)].join(delimiter)
+        const made = await run(argv, tmp(), path, { ACDERT_DIST: sdk.dist, PATH })
+        expect(made.code, made.out).toBe(0)
+        const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+        expect(pkg.packageManager).toStartWith(`${pm}@`)
+        const tarball = `acde-api-${sdk.version}.tar.gz`
+        expect(pkg.devDependencies['@dopame/acde-api']).toBe(`${sdk.dist}/${sdk.version}/${tarball}`)
+        expect(readFileSync(join(dir, LOCKS[pm]), 'utf8')).toContain(tarball)
+        expect(existsSync(join(dir, 'node_modules/@dopame/acde-api/package.json'))).toBe(true)
+        const build = pm === 'bun' ? [process.execPath, 'run', 'build'] : [pm, 'run', 'build']
+        const built = await run(build, dir, path)
         expect(built.out).toContain(`built app by-${pm}`)
         expect(built.code).toBe(0)
-        expect(existsSync(join(dir, 'node_modules/@dopame/acde-api/package.json'))).toBe(true)
-      },
-      180_000,
-    )
+      } finally {
+        sdk.stop()
+      }
+    }, 180_000)
   }
 })
 
