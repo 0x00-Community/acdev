@@ -530,7 +530,7 @@ interface PermissionDecision {
 }
 ```
 
-`capability` is `launch`, `slots`, `terminal`, `network`, `camera`, `microphone`, or `fs.<place>`; in a decision it can also be `fs.folder-…`, a folder the user picked for the app (with `folder`). `reason` is `launch` for a prompt raised before an app starts and `request` for one raised by `capabilities.request()`. `revoke` resolves to `false` when there was no decision. See [Desktops](../guide/desktop.md#approval-prompts).
+A prompt's `capability` is `camera` or `microphone`, the only capabilities that ask; in a decision it can also be `fs.folder-…`, a folder the user picked for the app (with `folder`). `revoke` resolves to `false` when there was no decision. See [Desktops](../guide/desktop.md#camera-and-microphone-prompts).
 
 ## acde:inspect
 

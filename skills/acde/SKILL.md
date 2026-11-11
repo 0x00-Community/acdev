@@ -64,7 +64,7 @@ Before handing over: `acde check` (config and entry), `acde build` (the package 
 
 - Edit `acde.config.jsonc`, never the generated `.acde/package.json`.
 - Request a capability in the config before importing its module.
-- Some capabilities need the user's approval (`terminal`, `network`, `camera`, `microphone`, `launch`, `slots`, and each shared folder named in `fs.roots`). An app that requires one opens no window until the prompt is answered: when `acde webs` lists no page, run `acde permissions`, then `acde allow`. Approving is the user's decision, and it is kept for the app: allow only what the user asked for or agreed to, and say what you allowed. See [Capabilities](references/guide/capabilities.md#approval).
+- Declaring a capability grants it. Only the camera and the microphone ask the user, the first time a page calls `getUserMedia()`; the call waits for the answer: run `acde permissions`, then `acde allow` or `acde deny`. Answering is the user's decision, and it is kept for the app: allow only what the user asked for or agreed to, and say what you allowed. See [Capabilities](references/guide/capabilities.md#camera-and-microphone).
 - In `acde:fs` a root is an id, not a path. `"fs": true` gives the app its own folder, the root `private`: keep the app's working files there. See [Files and folders](references/guide/files.md).
 - An app that lists `services` only runs in the desktop that provides them: `acde dev` in the app project alone does not start it, `acde dev --desktop <dir>` does. See [Services](references/guide/services.md).
 - Keep `.acde/` out of git.

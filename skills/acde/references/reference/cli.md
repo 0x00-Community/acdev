@@ -141,7 +141,7 @@ A pending line is `<prompt id>  <app>  <capability>  (<reason>)`, where the reas
 
 `acde revoke <app> <capability>` prints `revoked <app> <capability>`; when there is no such decision it says so and exits with code 1.
 
-When no page runs because an app waits for an approval, `acde webs` prints, after the empty table, one line per prompt: `<app> waits for approval of <capability>: acde allow (or acde deny)`. See [Approvals](../guide/tools.md#approvals).
+When a page waits for a camera or microphone answer, `acde webs` prints one line per prompt after the table: `<app> waits for approval of <capability>: acde allow (or acde deny)`. See [Camera and microphone](../guide/tools.md#camera-and-microphone).
 
 ## Coding agents
 

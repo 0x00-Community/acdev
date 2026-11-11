@@ -48,7 +48,7 @@ Files and folders dropped into a window arrive the standard way: `dataTransfer.f
 
 `<video>` plays what the system's own decoders can open, so formats differ by platform: on macOS, MP4 / QuickTime plays and WebM does not. Ask `canPlayType()` before choosing a source.
 
-`navigator.mediaDevices.getUserMedia()` needs the `camera` / `microphone` capability in the config and the user's approval (see [Capabilities](../guide/capabilities.md#approval)). Not available on Windows.
+`navigator.mediaDevices.getUserMedia()` needs the `camera` / `microphone` capability in the config and the user's answer the first time (see [Capabilities](../guide/capabilities.md#camera-and-microphone)). Not available on Windows.
 
 - A required capability is approved before the app starts. An [optional](../guide/capabilities.md#optional-capabilities) one that was not asked for yet is asked for by `getUserMedia()` itself, with the prompt `request('camera')` raises; a call that wants both asks for the microphone first, then the camera. The call resolves once the user allows and rejects with `NotAllowedError` (`Permission denied`) when the user denies; later calls do not ask again.
 - `navigator.permissions.query({ name: 'camera' })` (or `'microphone'`) answers `prompt` until the user has answered and `denied` after a denial or after the approval was taken back; its `change` event fires on the answer. Once the user has allowed it, the answer is the host system's own permission for the device (`granted` when the system allows it too).
