@@ -22,6 +22,7 @@ struct Previous {
     kinds: Vec<Kind>,
     loose: HashMap<usize, RenderCommand>,
     commands: Option<Vec<RenderCommand>>,
+    held: Option<Commands>,
     viewport: Rect,
     tolerance: f64,
 }
@@ -81,7 +82,9 @@ impl Damage {
             Some(c) => Self::uncovered(c.runs(), b.len()).filter_map(|i| Some((i, Self::placed_at(b, i)?))).collect(),
             None => HashMap::new(),
         };
-        let previous = self.previous.replace(Previous { kinds, loose, commands: verify.then(|| b.to_vec()), viewport, tolerance });
+        let commands = (verify && given.is_some()).then(|| b.to_vec());
+        let held = (verify && given.is_none()).then(|| b.clone());
+        let previous = self.previous.replace(Previous { kinds, loose, commands, held, viewport, tolerance });
         let new = self.previous.as_ref().expect("just stored");
         let Some(old) = previous else {
             return (vec![viewport], false, false);
@@ -92,8 +95,11 @@ impl Damage {
         let draws = (&old_draw[..], &self.draw[..]);
         let kinds = (&old.kinds[..], &new.kinds[..]);
         let Some(cache) = cache else {
-            return match (&old.commands, &new.commands) {
-                (Some(a), Some(b)) => (Self::rects(kinds, draws, Self::diff(a, b), viewport), false, false),
+            return match (&old.held, &new.held) {
+                (Some(a), Some(b)) => {
+                    let (a, b): (Vec<_>, Vec<_>) = (a.iter().collect(), b.iter().collect());
+                    (Self::rects(kinds, draws, Self::diff(&a, &b), viewport), false, false)
+                }
                 _ => (vec![viewport], false, false),
             };
         };
@@ -102,7 +108,7 @@ impl Damage {
             return (rects, true, false);
         };
         if log::log_enabled!(log::Level::Trace) {
-            let reference = Self::rects(kinds, draws, Self::diff(a, b), viewport);
+            let reference = Self::rects(kinds, draws, Self::diff(&Self::bare(a), &Self::bare(b)), viewport);
             log::trace!("by fragment {rects:?}, whole frame command by command {reference:?}");
         }
         let Some((i, j)) = Self::unchanged_claims_fail(cache, a, b) else {
@@ -114,7 +120,7 @@ impl Damage {
             a.get(i),
             b.get(j),
         );
-        let reference = Self::rects(kinds, draws, Self::diff(a, b), viewport);
+        let reference = Self::rects(kinds, draws, Self::diff(&Self::bare(a), &Self::bare(b)), viewport);
         let merged = Self::merge(rects.into_iter().chain(reference).collect());
         (merged.into_iter().map(|r| r.intersect(viewport)).collect(), true, true)
     }
@@ -255,7 +261,7 @@ impl Damage {
                     Change::Same => {}
                     Change::Moved => dst.fill(true),
                     Change::Recorded { old, new } => {
-                        let (da, db) = diffs.entry(run.node).or_insert_with(|| Self::diff(old, new));
+                        let (da, db) = diffs.entry(run.node).or_insert_with(|| Self::diff(&Self::bare(old), &Self::bare(new)));
                         let src = if old_side { &da[..] } else { &db[..] };
                         match src.get(run.local..run.local + run.len) {
                             Some(src) => dst.copy_from_slice(src),
@@ -300,11 +306,15 @@ impl Damage {
         seq.into_iter().map(|(n, _)| n).filter(|n| !kept.contains(n)).collect()
     }
 
-    fn depths(commands: &[RenderCommand]) -> Vec<usize> {
+    fn bare(commands: &[RenderCommand]) -> Vec<(&RenderCommand, Affine)> {
+        commands.iter().map(|c| (c, Affine::IDENTITY)).collect()
+    }
+
+    fn depths(commands: &[(&RenderCommand, Affine)]) -> Vec<usize> {
         let mut depth = 0usize;
         commands
             .iter()
-            .map(|c| {
+            .map(|(c, _)| {
                 let here = depth;
                 match c {
                     RenderCommand::PushLayer(_) | RenderCommand::PushClipLayer(_) => depth += 1,
@@ -316,7 +326,7 @@ impl Damage {
             .collect()
     }
 
-    fn diff(a: &[RenderCommand], b: &[RenderCommand]) -> (Vec<bool>, Vec<bool>) {
+    fn diff(a: &[(&RenderCommand, Affine)], b: &[(&RenderCommand, Affine)]) -> (Vec<bool>, Vec<bool>) {
         let (da, db) = (Self::depths(a), Self::depths(b));
         let same = |i: usize, j: usize| da[i] == db[j] && a[i] == b[j];
         let (mut ma, mut mb) = (vec![false; a.len()], vec![false; b.len()]);
@@ -443,5 +453,28 @@ pub(crate) fn draw_bounds(command: &RenderCommand, t: Affine) -> Rect {
             (t * b.transform).transform_rect_bbox(b.rect.inflate(out, out))
         }
         _ => Rect::ZERO,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use acde_gpu::{FillCommand, Paint};
+    use peniko::{Color, Fill};
+
+    fn square(x: f64, color: Color) -> RenderCommand {
+        let shape = Rect::new(x, 10.0, x + 20.0, 30.0).to_path(0.1);
+        RenderCommand::Fill(FillCommand { fill: Fill::NonZero, transform: Affine::IDENTITY, brush: Paint::Solid(color), brush_transform: None, shape })
+    }
+
+    #[test]
+    fn a_panel_without_a_paint_cache_damages_only_what_changed() {
+        let viewport = Rect::new(0.0, 0.0, 200.0, 50.0);
+        let frame = |second: Color| Commands::owned(vec![square(10.0, Color::BLACK), square(100.0, second)]);
+        let mut damage = Damage::default();
+        assert_eq!(damage.update(&frame(Color::BLACK), 0.1, viewport, None, true).0, vec![viewport], "the first frame is all new");
+        assert!(damage.update(&frame(Color::BLACK), 0.1, viewport, None, true).0.is_empty(), "an equal frame has no damage");
+        let rects = damage.update(&frame(Color::WHITE), 0.1, viewport, None, true).0;
+        assert!(!rects.is_empty() && rects.iter().all(|r| r.x0 >= 90.0), "only the second square: {rects:?}");
     }
 }

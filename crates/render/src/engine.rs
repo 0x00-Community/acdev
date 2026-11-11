@@ -356,7 +356,9 @@ impl Engine {
         let size = (rect.width().round().max(1.0) as u32, rect.height().round().max(1.0) as u32);
         let viewport = kurbo::Rect::new(0.0, 0.0, size.0.into(), size.1.into());
         let damage = self.panel_damage.entry(id).or_default();
+        let started = std::time::Instant::now();
         let (rects, _, _) = damage.update(&commands, acde_gpu::Scene::TOLERANCE, viewport, None, true);
+        log::debug!(target: "perf::frame", "panel {id} commands={} damage ms={:.3}", commands.len(), acde_log::since_ms(started));
         let extent = damage
             .kinds()
             .iter()
