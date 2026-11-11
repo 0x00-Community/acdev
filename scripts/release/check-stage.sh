@@ -15,7 +15,7 @@ required=(
 optional=("SHA256SUMS")
 problems=0
 
-# The SDK archive must hold exactly the npm layout: package.json, LICENSE,
+# The SDK archive must hold exactly the package layout: package.json, LICENSE,
 # config.schema.json and the built src/ tree (.js and .d.ts, in plain
 # lowercase subdirectories). Exports and relative imports must resolve.
 check_sdk() {
