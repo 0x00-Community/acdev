@@ -18,8 +18,8 @@ import { Runtime } from './runtime.ts'
 import { Sdk } from './sdk.ts'
 import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
+import { Uninstall } from './uninstall.ts'
 import { Versions } from './versions.ts'
-
 
 interface Spec {
   readonly args: readonly [number, number]
@@ -43,6 +43,7 @@ class Cli {
     check: { args: [0, 1], flags: ['platform'] },
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
+    uninstall: { args: [0, 1], switches: ['yes'] },
     sdk: { args: [0, 2] },
     dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
     doctor: { args: [0, 1], switches: ['json', 'online', 'fix', 'yes'] },
@@ -182,6 +183,11 @@ class Cli {
       })
     }
     if (command === 'skills') return Skills.run(args, flags)
+    if (command === 'uninstall') {
+      const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
+      const confirm = interactive ? Uninstall.ask : null
+      return await Uninstall.run(args[0], { yes: flags.has('yes'), confirm, say: (line) => console.log(line) })
+    }
     if (command === 'doctor') return await Cli.doctor(args[0], flags)
     if (command === 'mcp')
       return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})

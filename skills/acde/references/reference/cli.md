@@ -78,6 +78,21 @@ acde install [dir] [--out DIR]
 
 Builds, then installs into `$XDG_DATA_HOME/acde/packages/<id>`; without `XDG_DATA_HOME`, `~/.local/share/acde/packages/<id>` (on Windows `%USERPROFILE%\.local\share\acde\packages\<id>`). See [Local install](../guide/install.md).
 
+### acde uninstall
+
+```text
+acde uninstall [id|dir] [--yes]
+```
+
+Removes a package that `acde install` put into the packages directory, found by its id (its directory name there) or by the project directory it was installed from. For a handwritten package, installed as a link, it removes only the link; the project it points at stays. Before removing, it prints what it removes (`acde: removes <id>: <path> ...`) and, in a terminal, asks; `--yes` removes without asking, and outside a terminal nothing is removed without `--yes`. When an `acde dev` session runs the package's desktop or one of its apps, or runs a desktop while the package has apps, it removes nothing and names the session to stop first (`acde stop --session <pid>`). With no argument it lists the installed packages, one per line: the id and the path (for a link, `-> <project>`).
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Removed, or listed |
+| 1 | Not installed, or a wrong argument |
+| 2 | In use by an `acde dev` session |
+| 3 | Not confirmed (the question was declined, or no terminal and no `--yes`) |
+
 ### acde sdk
 
 ```text

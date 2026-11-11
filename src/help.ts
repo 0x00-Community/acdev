@@ -86,6 +86,19 @@ export class Help {
         examples: ['acde install'],
       },
       {
+        name: 'uninstall',
+        group: 'Project',
+        args: '[id|dir]',
+        summary: 'Remove a package acde install put on this machine',
+        about: [
+          'Removes what acde install put there (a link: only the link). Says what first and asks; stops when '
+            + 'an acde dev uses it. No argument: lists the installed packages.',
+          'Exit code 1: not installed or a wrong argument; 2: an acde dev uses it; 3: not confirmed.',
+        ],
+        options: [{ flag: '--yes', about: 'remove without asking' }],
+        examples: ['acde uninstall', 'acde uninstall com.example.app --yes'],
+      },
+      {
         name: 'sdk',
         group: 'Project',
         args: '[update] [dir]',
