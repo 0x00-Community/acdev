@@ -73,9 +73,12 @@ describe('release.yml', () => {
   test('upload, tag and latest need publish=true and every job they wait for to succeed', () => {
     const gates: Record<string, string> = { upload: 'guard', tag: 'upload', latest: 'tag' }
     for (const [job, dependency] of Object.entries(gates)) {
-      expect(jobs[job]!.if).toBe(`\${{ inputs.publish && needs.${dependency}.result == 'success' }}`)
+      expect(jobs[job]!.if).toBe(`needs.plan.outputs.publish == 'true' && needs.${dependency}.result == 'success'`)
     }
     expect(TEXT).not.toContain('success()')
+    expect(TEXT).not.toMatch(/\$\{\{\s*!?inputs\./)
+    expect(runs('plan')).toContain('if [ "${PUBLISH_INPUT:-}" = true ]; then PUBLISH=true; else PUBLISH=false; fi')
+    expect(runs('plan')).toContain('echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"')
     expect(jobs['plan']!.if).toBeUndefined()
     expect(jobs['pkgs']!.if).toBeUndefined()
     expect(jobs['guard']!.if).toBeUndefined()
@@ -100,7 +103,7 @@ describe('release.yml', () => {
   })
 
   test('a preview (publish=false) says so and stops after the guard', () => {
-    expect(step('guard', 'a preview stops here')?.if).toBe('${{ !inputs.publish }}')
+    expect(step('guard', 'a preview stops here')?.if).toBe("needs.plan.outputs.publish != 'true'")
     expect(TEXT).not.toMatch(/tags?\s+v\$/)
   })
 
@@ -114,6 +117,7 @@ describe('release.yml', () => {
     const checkout = indexIn(plan, 'git checkout --quiet --detach "$sha"')
     expect(indexIn(plan, 'git merge-base --is-ancestor')).toBeLessThan(checkout)
     expect(jobs['plan']!.outputs).toEqual({
+      publish: '${{ steps.version.outputs.publish }}',
       sha: '${{ steps.version.outputs.sha }}',
       version: '${{ steps.version.outputs.version }}',
       tag: '${{ steps.version.outputs.tag }}',
@@ -143,10 +147,10 @@ describe('release.yml', () => {
 
   test('the tag is free, or already points at the same commit; a different commit fails with a bump hint', () => {
     const check = step('plan', 'the tag is free, or already points at this commit')
-    expect(check?.if).toBe('${{ inputs.publish }}')
-    expect(check?.run).toContain('gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"')
+    expect(check?.if).toBe("steps.version.outputs.publish == 'true'")
+    expect(check?.run).toContain('git rev-parse --verify --quiet "refs/tags/$TAG^{commit}"')
+    expect(TEXT).not.toContain('gh api')
     expect(check?.run).toContain('[ "$tagged" != "$SHA" ]')
-    expect(check?.run).toContain('HTTP 404')
     expect(check?.run).toContain('bump the version in package.json')
   })
 
@@ -238,7 +242,7 @@ describe('release.yml', () => {
 
   test('the guard runs the release guard on the artifact before any upload or tag', () => {
     expect(runs('guard')).toContain('bun scripts/release-guard.ts --dir "$GITHUB_WORKSPACE/out"')
-    expect(uses('guard').some((action) => action.startsWith('actions/download-artifact@'))).toBe(true)
+    expect(uses('guard').some((action) => action.startsWith('christopherhx/gitea-download-artifact@'))).toBe(true)
     expect(jobs['guard']!.permissions).toBeUndefined()
   })
 
