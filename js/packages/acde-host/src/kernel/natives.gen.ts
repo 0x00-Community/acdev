@@ -153,6 +153,8 @@ export const DESK: Readonly<Record<string, 'r' | 'w' | 'a'>> = {
   "endSession": "a",
   "setLanguage": "a",
   "desktops": "a",
+  "displays": "a",
+  "setScale": "a",
   "chooseDesktop": "a",
   "openPath": "a",
   "handlers": "a",

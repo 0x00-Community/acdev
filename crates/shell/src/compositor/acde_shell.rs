@@ -35,7 +35,7 @@ use generated::acde_shell_stats::AcdeShellStats;
 
 #[derive(Clone, Debug)]
 pub enum ShellEvent {
-    Output { width: i32, height: i32, scale: f64 },
+    Output { width: i32, height: i32, scale: f64, name: String, description: String, refresh: i32 },
     WindowOpen { window: u32, title: Option<String>, app_id: Option<String> },
     WindowClose(Option<u32>),
     WindowTitle { window: Option<u32>, title: Option<String>, app_id: Option<String> },
@@ -96,7 +96,7 @@ impl Wire for Option<u32> {
 impl ShellEvent {
     fn send(&self, shell: &AcdeShell) {
         match self.clone() {
-            Self::Output { width, height, scale } => shell.output(width, height, scale),
+            Self::Output { width, height, scale, name, description, refresh } => shell.output(width, height, scale, name, description, refresh),
             Self::WindowOpen { window, title, app_id } => shell.window_open(window, title, app_id),
             Self::WindowClose(window) => shell.window_close(window.wire()),
             Self::WindowTitle { window, title, app_id } => shell.window_title(window.wire(), title, app_id),
@@ -272,6 +272,13 @@ impl Compositor {
                 callback.done(s.frames, s.compose_p50, s.compose_p95, s.compose_max, s.plans, s.direct);
                 return;
             }
+            Request::SetScale { output, scale, callback } => {
+                let callback = data_init.init(callback, ());
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.on_command(Command::SetScale { output, scale, reply: tx });
+                Self::answer(&callback, rx.try_recv().ok().unwrap_or_else(|| Err("缩放没有结果".into())).map(|()| (0, 0)));
+                return;
+            }
             Request::Screenshot { path, callback } => {
                 let callback = data_init.init(callback, ());
                 self.shell_screenshot(path, callback);
@@ -329,9 +336,9 @@ impl GlobalDispatch<AcdeShell, ()> for Compositor {
     fn bind(state: &mut Self, _: &DisplayHandle, _: &Client, resource: New<AcdeShell>, _: &(), data_init: &mut DataInit<'_, Self>) {
         let shell = data_init.init(resource, ());
         if !state.shell.bind(shell.clone())
-            && let Some(mode) = state.backend.output.current_mode()
+            && let Some(event) = state.output_event()
         {
-            ShellEvent::Output { width: mode.size.w, height: mode.size.h, scale: state.scale() }.send(&shell);
+            event.send(&shell);
         }
     }
 

@@ -111,15 +111,18 @@ impl DrmTarget {
         let mut x = 0;
         for (conn, crtc, mode) in screens_info {
             let wl_mode = Mode::from(mode);
+            let name = format!("{}-{}", conn.interface().as_str(), conn.interface_id());
+            let edid = super::outputs::edid(&name);
             let output = Output::new(
-                format!("{:?}-{}", conn.interface(), conn.interface_id()),
+                name,
                 PhysicalProperties {
                     size: conn.size().map_or((0, 0).into(), |(w, h)| (i32::try_from(w).unwrap_or(0), i32::try_from(h).unwrap_or(0)).into()),
                     subpixel: Subpixel::Unknown,
-                    make: "acde".into(),
-                    model: "DRM".into(),
+                    make: edid.as_ref().map_or_else(|| "acde".into(), |e| e.make.clone()),
+                    model: edid.as_ref().map(|e| e.model.clone()).filter(|m| !m.is_empty()).unwrap_or_else(|| "DRM".into()),
                 },
             );
+            output.user_data().insert_if_missing(|| super::outputs::Identity { edid: edid.map(|e| e.identifier) });
             output.set_preferred(wl_mode);
             output.change_current_state(Some(wl_mode), None, None, Some((x, 0).into()));
             x += wl_mode.size.w;

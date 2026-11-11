@@ -343,6 +343,49 @@ export interface AcdeSystem {
   on(type: 'changed', handler: (what: 'time' | 'storage' | 'user' | 'info') => void): () => void
 }
 
+export interface DisplayMode {
+  readonly width: number
+  readonly height: number
+  readonly refresh: number
+  readonly preferred?: boolean
+}
+export interface Display {
+  readonly id: string
+  readonly name: string
+  readonly builtin: boolean
+  readonly primary: boolean
+  readonly enabled: boolean
+  readonly mode: DisplayMode
+  readonly modes: readonly DisplayMode[]
+  readonly scale: number
+  readonly scales: readonly number[]
+  readonly brightness: number | null
+  readonly rotation: 0 | 90 | 180 | 270
+}
+export interface NightLight {
+  readonly on: boolean
+  readonly warmth: number
+  readonly schedule: 'manual' | 'sunset'
+}
+export interface DisplayState {
+  readonly displays: readonly Display[]
+  readonly nightLight: NightLight | null
+}
+export interface DisplayPatch {
+  readonly mode?: DisplayMode
+  readonly scale?: number
+  readonly rotation?: Display['rotation']
+  readonly primary?: boolean
+  readonly enabled?: boolean
+}
+export interface AcdeDisplay {
+  state(): Promise<DisplayState>
+  configure(id: string, patch: DisplayPatch): Promise<void>
+  setBrightness(id: string, value: number): Promise<void>
+  setNightLight(patch: Partial<NightLight>): Promise<void>
+  on(type: 'changed', handler: (state: DisplayState) => void): () => boolean
+}
+
 export interface PinnedPanel {
   update(): void
   unpin(): void
@@ -363,6 +406,7 @@ export interface AcdePage {
   readonly terminal?: AcdeTerminals
   readonly network?: AcdeNetwork
   readonly system?: AcdeSystem
+  readonly display?: AcdeDisplay
   readonly windows?: AcdeWindows
   readonly apps?: AcdeApps
   readonly desktop?: AcdeDesktop

@@ -9,6 +9,7 @@ mod env;
 mod handlers;
 mod dnd;
 mod nested;
+mod outputs;
 mod rdp;
 mod stacking;
 mod windows;
@@ -104,6 +105,7 @@ pub enum Command {
     Inject(input::Injected),
     Animate(u32, Animate),
     Shortcut { combo: String, scope: acde_model::Scope, owner: u32, reply: mpsc::Sender<Result<(), String>> },
+    SetScale { output: String, scale: i32, reply: mpsc::Sender<Result<(), String>> },
     Unshortcut { combo: String, scope: acde_model::Scope, owner: u32 },
     Connect(UnixStream),
     Quit,
@@ -381,7 +383,10 @@ impl Compositor {
         let forced = std::env::var("ACDE_SCALE").ok().and_then(|s| s.parse::<f64>().ok()).filter(|s| *s > 0.0);
         let mut x = 0;
         for output in &outputs {
-            let scale = forced.map(smithay::output::Scale::Fractional).or_else(|| integer_scale(output).map(smithay::output::Scale::Integer));
+            let scale = outputs::saved_scale(output)
+                .map(smithay::output::Scale::Integer)
+                .or_else(|| forced.map(smithay::output::Scale::Fractional))
+                .or_else(|| integer_scale(output).map(smithay::output::Scale::Integer));
             if let Some(scale) = scale {
                 output.change_current_state(None, None, Some(scale), None);
             }
@@ -699,6 +704,9 @@ impl Compositor {
                 let _ = reply.send(self.register_shortcut(&combo, scope, owner));
             }
             Command::Unshortcut { combo, scope, owner } => self.unregister_shortcut(&combo, scope, owner),
+            Command::SetScale { output, scale, reply } => {
+                let _ = reply.send(self.set_output_scale(&output, scale));
+            }
             Command::Connect(stream) => {
                 if let Err(e) = self.insert_shell_client(stream) {
                     log::warn!("{e}");
@@ -872,9 +880,85 @@ impl Compositor {
         self.canvas = Some(self.table.add_canvas(rect, scale));
     }
 
+    pub fn output_event(&self) -> Option<ShellEvent> {
+        let output = &self.backend.output;
+        let mode = output.current_mode()?;
+        let props = output.physical_properties();
+        let description = [props.make.as_str(), props.model.as_str()].iter().filter(|s| !s.is_empty() && **s != "acde").copied().collect::<Vec<_>>().join(" ");
+        Some(ShellEvent::Output { width: mode.size.w, height: mode.size.h, scale: self.scale(), name: output.name(), description, refresh: mode.refresh })
+    }
+
     pub fn emit_output(&mut self) {
+        if let Some(event) = self.output_event() {
+            self.emit(event);
+        }
+    }
+
+    fn set_output_scale(&mut self, name: &str, scale: i32) -> Result<(), String> {
+        if !(1..=3).contains(&scale) {
+            return Err(format!("缩放只能是 1、2、3, 不是 {scale}"));
+        }
+        let output = if name.is_empty() { Some(self.backend.output.clone()) } else { self.space.outputs().find(|o| o.name() == name).cloned() };
+        let output = output.ok_or_else(|| format!("没有输出 {name}"))?;
+        if output.current_scale().fractional_scale() != f64::from(scale) {
+            output.change_current_state(None, None, Some(smithay::output::Scale::Integer(scale)), None);
+            self.layout_outputs();
+            if output == self.backend.output {
+                self.rebuild_canvas();
+            }
+            self.prefer_scale(f64::from(scale));
+            log::info!("输出 {}: 缩放改成 {scale}", output.name());
+            self.backend.damaged();
+            self.emit_output();
+        }
+        if let Err(e) = outputs::save_scale(&output, scale) {
+            log::warn!("记不下输出 {} 的缩放: {e}", output.name());
+        }
+        Ok(())
+    }
+
+    fn layout_outputs(&mut self) {
+        let mut all: Vec<smithay::output::Output> = self.space.outputs().cloned().collect();
+        all.sort_by_key(|o| o.current_location().x);
+        let mut x = 0;
+        for output in all {
+            let loc = (x, output.current_location().y).into();
+            output.change_current_state(None, None, None, Some(loc));
+            self.space.map_output(&output, loc);
+            let width = output.current_mode().map_or(0, |m| m.size.w);
+            x += (f64::from(width) / output.current_scale().fractional_scale()).ceil() as i32;
+        }
+    }
+
+    fn prefer_scale(&self, scale: f64) {
+        use smithay::wayland::fractional_scale::with_fractional_scale;
+        for window in self.space.elements() {
+            window.with_surfaces(|_, states| with_fractional_scale(states, |f| f.set_preferred_scale(scale)));
+        }
+    }
+
+    fn rebuild_canvas(&mut self) {
+        let Some(old) = self.canvas else { return self.init_canvas() };
         let Some(mode) = self.backend.output.current_mode() else { return };
-        self.emit(ShellEvent::Output { width: mode.size.w, height: mode.size.h, scale: self.scale() });
+        let scale = self.scale();
+        let rect = acde_model::Rect::new(0.0, 0.0, f64::from(mode.size.w) / scale, f64::from(mode.size.h) / scale);
+        let Ok(canvas) = self.table.replace_canvas(old, rect, scale) else { return };
+        self.canvas = Some(canvas);
+        let ids: Vec<(u32, acde_model::WindowId)> = self.native_ids.iter().map(|(&id, &managed)| (id, managed)).collect();
+        for (id, managed) in ids {
+            let (Some(window), Some(w)) = (self.window(id), self.table.window(managed)) else { continue };
+            let (mode, r) = (w.mode, w.rect);
+            let fit = match mode {
+                acde_model::Mode::Fullscreen => rect,
+                acde_model::Mode::Pinned => continue,
+                acde_model::Mode::Fixed => acde_model::Rect::new(r.x.clamp(0.0, (rect.w - r.w).max(0.0)), r.y.clamp(0.0, (rect.h - r.h).max(0.0)), r.w, r.h),
+                acde_model::Mode::Free => {
+                    let (w, h) = (r.w.min(rect.w), r.h.min(rect.h));
+                    acde_model::Rect::new(r.x.clamp(0.0, rect.w - w), r.y.clamp(0.0, rect.h - h), w, h)
+                }
+            };
+            self.place(&window, space_rect(fit));
+        }
     }
 }
 

@@ -173,6 +173,8 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, desk: A
         "endSession" => end_session,
         "setLanguage" => set_language,
         "desktops" => desktops,
+        "displays" => displays,
+        "setScale" => set_scale,
         "chooseDesktop" => choose_desktop,
         "openPath" => open_path,
         "handlers" => handlers,
@@ -546,6 +548,18 @@ fn set_language(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, m
 
 fn desktops(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     with_caller!(scope, |desk, me| resolved(scope, &mut rv, desk.desktops(me)))
+}
+
+fn displays(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| resolved(scope, &mut rv, desk.displays(me)))
+}
+
+fn set_scale(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let output = bind::arg_string(scope, &args, 0);
+        let scale = args.get(1).number_value(scope).unwrap_or(0.0);
+        later(scope, &mut rv, move || desk.set_scale(me, &output, scale).map(|()| Value::Null))
+    })
 }
 
 fn choose_desktop(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {

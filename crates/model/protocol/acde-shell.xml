@@ -172,6 +172,13 @@
       <arg name="callback" type="new_id" interface="acde_shell_result"/>
     </request>
 
+    <request name="set_scale">
+      <description summary="the output's integer scale (1..3); the compositor saves it per display"/>
+      <arg name="output" type="string" summary="the output's name; empty is the main output"/>
+      <arg name="scale" type="int"/>
+      <arg name="callback" type="new_id" interface="acde_shell_result"/>
+    </request>
+
     <request name="quit">
       <description summary="the compositor stops; the connection closes when it has"/>
     </request>
@@ -180,6 +187,9 @@
       <arg name="width" type="int"/>
       <arg name="height" type="int"/>
       <arg name="scale" type="fixed"/>
+      <arg name="name" type="string"/>
+      <arg name="description" type="string"/>
+      <arg name="refresh" type="int" summary="mHz, 0 when unknown"/>
     </event>
 
     <event name="window_open">

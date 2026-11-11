@@ -30,6 +30,7 @@ smithay = { version = "0.7.0", default-features = false, features = [
 log = "0.4"
 # 注入事件的 wheel 来源由 crates/acde 从 JS 的选项反序列化
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tracing = { version = "0.1", features = ["log"] }
 acde-log = { path = "../log" }
 # DRM 后端的软件光标: 读系统光标主题

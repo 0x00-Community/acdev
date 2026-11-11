@@ -56,7 +56,7 @@ struct Reader {
 /// What the compositor tells the runtime, typed as it comes off the wire.
 #[derive(Clone, Debug)]
 pub enum Notice {
-    Output { width: u32, height: u32, scale: f64 },
+    Output { width: u32, height: u32, scale: f64, name: String, description: String, refresh: u32 },
     Open { window: u32, title: Option<String>, app_id: Option<String> },
     Close { window: u32 },
     Title { window: u32, title: Option<String>, app_id: Option<String> },
@@ -281,6 +281,11 @@ impl Link {
         rx.recv_timeout(REPLY_WAIT).map_err(|e| e.to_string())?.map(drop)
     }
 
+    pub fn set_scale(&self, output: String, scale: i32) -> Result<(), String> {
+        let rx = self.answer(|s, tx| _ = s.set_scale(output, scale, &self.qh, tx));
+        rx.recv_timeout(REPLY_WAIT).map_err(|e| e.to_string())?.map(drop)
+    }
+
     pub fn unshortcut(&self, combo: String, scope: Scope, owner: u32) {
         self.shell.unshortcut(combo, scope.into(), owner);
         self.sent();
@@ -388,7 +393,7 @@ impl Notice {
     fn of(event: acde_shell::Event) -> Option<Self> {
         use acde_shell::Event as E;
         Some(match event {
-            E::Output { width, height, scale } => Notice::Output { width: width as u32, height: height as u32, scale },
+            E::Output { width, height, scale, name, description, refresh } => Notice::Output { width: width as u32, height: height as u32, scale, name, description, refresh: refresh.max(0) as u32 },
             E::WindowOpen { window, title, app_id } => Notice::Open { window, title, app_id },
             E::WindowClose { window } => Notice::Close { window: some(window)? },
             E::WindowTitle { window, title, app_id } => Notice::Title { window: some(window)?, title, app_id },

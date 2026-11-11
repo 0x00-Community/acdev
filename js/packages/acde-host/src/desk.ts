@@ -41,6 +41,8 @@ export interface IsolateDesk {
   endSession(kind: 'logout' | 'reboot' | 'poweroff'): Promise<void>
   setLanguage(tag: string): Promise<void>
   desktops(): Promise<{ desktops: DesktopEntry[]; current: string }>
+  displays(): Promise<unknown>
+  setScale(output: string, scale: number): Promise<void>
   chooseDesktop(id: string, remember: boolean): Promise<void>
   openPath(path: string, options: { app?: string; select?: boolean }): Promise<{ app: string; window: number }>
   handlers(path: string): Promise<{ mime: string; handlers: { id: string; label: string; icon: string; default: boolean }[] }>
@@ -67,6 +69,7 @@ export type DeskMessage =
   | { type: 'languages'; language?: string; languages?: string[] }
   | { type: 'colorscheme'; dark: boolean }
   | { type: 'visible'; visible: boolean }
+  | { type: 'display'; state: unknown }
 
 /** The services channel of a desktop or window isolate (`natives.services`). */
 export interface IsolateServices {

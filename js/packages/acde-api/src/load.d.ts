@@ -6,6 +6,7 @@ export interface AcdeModules {
   readonly terminal: NonNullable<AcdePage['terminal']>
   readonly network: NonNullable<AcdePage['network']>
   readonly system: NonNullable<AcdePage['system']>
+  readonly display: NonNullable<AcdePage['display']>
   readonly windows: NonNullable<AcdePage['windows']>
   readonly apps: NonNullable<AcdePage['apps']>
   readonly desktop: NonNullable<AcdePage['desktop']>

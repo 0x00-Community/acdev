@@ -271,14 +271,18 @@ impl Desk {
                 drop(guard);
                 return self.to_broker(json!({ "type": "milestone", "title": title, "time": time_ms }));
             }
-            Notice::Output { width, height, scale } => {
-                let was = state.look.screen();
+            Notice::Output { width, height, scale, name, description, refresh } => {
+                let (was, display_was) = (state.look.screen(), state.look.display());
                 (state.look.width, state.look.height, state.look.scale) = (width.into(), height.into(), scale);
-                let screen = state.look.screen();
+                state.look.output = app::OutputLook { name, description, refresh };
+                let (screen, display) = (state.look.screen(), state.look.display());
                 if screen != was {
                     let mut message = screen;
                     message["type"] = "screen".into();
                     self.to_all(state, &message);
+                }
+                if display != display_was {
+                    self.to_all(state, &json!({ "type": "display", "state": display }));
                 }
                 return;
             }

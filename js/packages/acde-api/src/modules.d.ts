@@ -33,6 +33,13 @@ declare module 'acde:system' {
   export default system
 }
 
+declare module 'acde:display' {
+  import type { AcdePage } from '@dopame/acde-api'
+  const display: NonNullable<AcdePage['display']>
+  export { display }
+  export default display
+}
+
 declare module 'acde:windows' {
   import type { AcdePage } from '@dopame/acde-api'
   const windows: NonNullable<AcdePage['windows']>

@@ -36,6 +36,7 @@ pub struct Capabilities {
     pub session: bool,
     pub desktops: bool,
     pub system: bool,
+    pub display: bool,
     #[serde(flatten)]
     pub services: HashMap<String, Value>,
 }
@@ -199,6 +200,15 @@ pub struct Look {
     /// `acde window <app>`: one app, no desktop to hand the session to.
     pub standalone: bool,
     pub desktops: Desktops,
+    #[serde(skip)]
+    pub output: OutputLook,
+}
+
+#[derive(Default, Clone, PartialEq)]
+pub struct OutputLook {
+    pub name: String,
+    pub description: String,
+    pub refresh: u32,
 }
 
 /// A partial update of [`Look`] from the Broker.
@@ -231,6 +241,24 @@ impl Look {
     }
 
     /// The screen's logical size.
+    pub fn display(&self) -> Value {
+        let o = &self.output;
+        if o.name.is_empty() || self.width <= 0.0 {
+            return json!({ "displays": [], "nightLight": null });
+        }
+        let builtin = ["eDP", "LVDS", "DSI"].iter().any(|p| o.name.starts_with(p));
+        let mode = json!({ "width": self.width, "height": self.height, "refresh": f64::from(o.refresh) / 1000.0, "preferred": true });
+        let name = if o.description.is_empty() { o.name.clone() } else { o.description.clone() };
+        json!({
+            "displays": [{
+                "id": o.name, "name": name, "builtin": builtin, "primary": true, "enabled": true,
+                "mode": mode, "modes": [mode], "scale": self.scale, "scales": [1, 2, 3],
+                "brightness": null, "rotation": 0,
+            }],
+            "nightLight": null,
+        })
+    }
+
     pub fn screen(&self) -> Value {
         let scale = if self.scale > 0.0 { self.scale } else { 1.0 };
         json!({ "width": (self.width / scale).round(), "height": (self.height / scale).round() })

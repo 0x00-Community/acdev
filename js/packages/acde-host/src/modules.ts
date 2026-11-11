@@ -364,6 +364,7 @@ export class Modules {
       }
     }
     if (modules.has('inspect')) this.value['inspect'] = Modules.inspect(desk)
+    if (modules.has('display')) this.value['display'] = this.#display(desk)
     if (modules.has('desktops')) this.value['desktops'] = { list: () => desk.desktops(), choose: (id: string, remember = false) => desk.chooseDesktop(String(id), remember === true) }
     if (init.place === 'desktop') {
       this.value['apps'] = { ...apps, ...files, ...((proxies[Modules.STORE] ?? {}) as object), on: windows.notices.for('apps', ['changed']) }
@@ -398,6 +399,40 @@ export class Modules {
         Object.defineProperty(value, 'state', { get: () => self.state, enumerable: true })
         this.value['window'] = value
       }
+    }
+  }
+
+  readonly #displayListeners = new Set<(state: unknown) => void>()
+
+  displayChanged(state: unknown): void {
+    for (const listener of [...this.#displayListeners]) {
+      try {
+        listener(state)
+      } catch (error) {
+        Log.write(Level.Error, 'acde_host', `acde:display changed: ${String((error as Error)?.message ?? error)}`)
+      }
+    }
+  }
+
+  #display(desk: Pick<IsolateDesk, 'displays' | 'setScale'>): Record<string, unknown> {
+    const unsupported = (what: string) => Promise.reject(Object.assign(new Error(`acde:display: ${what} is not supported here`), { code: 'unsupported', status: 501 }))
+    return {
+      state: () => desk.displays(),
+      configure: (id: string, patch: Record<string, unknown>) => {
+        const keys = Object.keys(patch ?? {}).filter((k) => patch[k] !== undefined)
+        const other = keys.filter((k) => k !== 'scale')
+        if (other.length) return unsupported(`changing ${other.join(', ')}`)
+        if (!keys.length) return Promise.resolve()
+        return desk.setScale(String(id), Number(patch['scale']))
+      },
+      setBrightness: () => unsupported('brightness'),
+      setNightLight: () => unsupported('night light'),
+      on: (type: string, handler: (state: unknown) => void) => {
+        if (type !== 'changed') throw new TypeError(`acde:display has no ${String(type)} event`)
+        if (typeof handler !== 'function') throw new TypeError('acde:display on: the handler is not a function')
+        this.#displayListeners.add(handler)
+        return () => this.#displayListeners.delete(handler)
+      },
     }
   }
 

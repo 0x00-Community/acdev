@@ -183,6 +183,20 @@ impl WindowTable {
         id
     }
 
+    pub fn replace_canvas(&mut self, old: CanvasId, rect: Rect, scale: f64) -> Result<CanvasId, Error> {
+        let before = self.canvases.remove(&old).ok_or(Error::UnknownCanvas)?;
+        self.next_canvas += 1;
+        let id = CanvasId(self.next_canvas);
+        for w in self.windows.values_mut().filter(|w| w.canvas == old) {
+            w.canvas = id;
+            if w.mode == Mode::Fullscreen {
+                w.rect = rect;
+            }
+        }
+        self.canvases.insert(id, Canvas { id, rect, scale, z: before.z, focus: before.focus });
+        Ok(id)
+    }
+
     pub fn canvas(&self, id: CanvasId) -> Option<&Canvas> {
         self.canvases.get(&id)
     }
@@ -389,6 +403,21 @@ mod tests {
         assert!(!t.resize(w, 10.0, 10.0).is_ok());
         assert!(t.set_mode(w, Mode::Free).is_ok());
         assert!(t.place(w, 5.0, 5.0).is_ok());
+    }
+
+    #[test]
+    fn a_new_canvas_takes_the_windows() {
+        let (mut t, c) = table();
+        let full = t.create(c, Mode::Fullscreen, Rect::default()).unwrap();
+        let free = t.create(c, Mode::Free, Rect::new(10.0, 10.0, 20.0, 20.0)).unwrap();
+        t.focus(c, Some(free)).unwrap();
+        let n = t.replace_canvas(c, Rect::new(0.0, 0.0, 50.0, 50.0), 4.0).unwrap();
+        assert!(t.canvas(c).is_none());
+        let canvas = t.canvas(n).unwrap();
+        assert_eq!((canvas.z.clone(), canvas.focus, canvas.scale), (vec![full, free], Some(free), 4.0));
+        assert_eq!(t.window(full).unwrap().rect, Rect::new(0.0, 0.0, 50.0, 50.0));
+        assert_eq!(t.window(free).unwrap().rect, Rect::new(10.0, 10.0, 20.0, 20.0));
+        assert_eq!(t.window(free).unwrap().canvas, n);
     }
 
     #[test]

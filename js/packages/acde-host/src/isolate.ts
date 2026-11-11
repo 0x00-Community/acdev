@@ -125,6 +125,8 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
       case 'colorscheme':
         dom.setDark?.(m.dark === true)
         return page.mediaChanged()
+      case 'display':
+        return modules.displayChanged(m.state)
       case 'visible':
         self?.visible(m.visible === true)
         return self?.onVisible(m.visible)

@@ -85,6 +85,9 @@ impl Desk {
         if caps.is_none_or(|c| c.desktops) {
             modules.push("desktops");
         }
+        if caps.is_none_or(|c| c.display) {
+            modules.push("display");
+        }
         modules.into()
     }
 
@@ -187,6 +190,20 @@ impl Desk {
     }
 
     /// `desktops.list()`: the installed acde desktops and the other Wayland sessions, and the current one.
+    pub fn displays(&self, caller: u32) -> Done<Value> {
+        self.session_rights(caller, "acde.display", |c| c.display)?;
+        Ok(self.state().look.display())
+    }
+
+    /// `display.configure(id, {scale})`: only the integer scale (1..3) changes; the compositor saves it per display.
+    pub fn set_scale(&self, caller: u32, output: &str, scale: f64) -> Done<()> {
+        self.session_rights(caller, "acde.display", |c| c.display)?;
+        if scale.fract() != 0.0 || !(1.0..=3.0).contains(&scale) {
+            return Err(Failure::new(400, "bad_scale", format!("the scale is 1, 2 or 3, not {scale}")));
+        }
+        self.link().set_scale(output.to_owned(), scale as i32).map_err(|e| Failure::new(500, "scale_failed", e))
+    }
+
     pub fn desktops(&self, caller: u32) -> Done<Value> {
         self.session_rights(caller, "acde.desktops", |c| c.desktops)?;
         Ok(serde_json::to_value(&self.state().look.desktops).unwrap_or_default())

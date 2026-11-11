@@ -450,6 +450,7 @@ runtime 侧是 shell `link.rs` 的 `Link` (wayland-client, 读线程 `acde-shell
 | `list` → `acde_shell_list` | `windows` / `canvases` | 回 `window` × N、`canvas` × N、`done` |
 | `stats` → `acde_shell_stats` | `stats` | 回 `done` (毫秒是 wl_fixed) |
 | `screenshot` → `acde_shell_result` | `screenshot` | 回 `done(width, height)` 或 `failed(message)`; 存 PNG 在别的线程, 写完才回 |
+| `set_scale` → `acde_shell_result` | `setScale` | 输出名 (空是主输出) 和整数缩放 1..3, 见「显示器」 |
 | `shortcut` → `acde_shell_result` | `shortcut` | 冲突时 `failed` |
 | `unshortcut` | 同名 | |
 | `inject_move` / `inject_motion` / `inject_button` / `inject_wheel` / `inject_key` | `inject` | type 在 Broker 侧先解析成枚举 |
@@ -782,7 +783,9 @@ acde-base 不认识它们.
 
 ## 本机信息 (`acde:system`)
 
-给系统设置一类的页面用 (acde-dopame 的「关于本机」「存储」「时间」): 桌面全有, 应用要清单的 `system: true`. 实现在 crates/runtime
+给系统设置一类的页面用 (acde-dopame 的「关于本机」「存储」「时间」): 桌面全有, 应用要清单的 `system: true`; 桌面包自己的应用 (包里有
+`desktops`, 照 acdert 的「系统应用」) 不写也有 `system` 和 `display` (Broker `apps.ts` 的 `AppRegistry.SYSTEM_APP`: acdert 的 SDK 校验不认这两个键,
+acde-dopame 的清单写不进去). 实现在 crates/runtime
 `system.rs` (`system_call(SysCall)`, 阻塞, 由 crates/acde `system.rs` 放到 `acde-system` 线程上跑; 内核态窗口走 SYSTEM 接口的
 `system.<方法>`), JS 侧 `isolate.ts` 加上 `on`. 方法 (都返回 promise; 类型 acde-api `AcdeSystem`):
 
@@ -796,6 +799,25 @@ acde-base 不认识它们.
   timedated / hostnamed 的原因 reject.
 - `user()`: AccountsService 的用户名、全名和头像文件 (没有 AccountsService 时读 `/etc/passwd` 的 gecos).
 - `on('changed', 处理函数)` 收下但现在从不调用 (返回退订函数).
+
+## 显示器 (`acde:display`)
+
+照 KDE (KWin + kscreen 的显示设置) 的做法, 界面在桌面包里 (acde-dopame 设置的「显示器」页, 改了之后问「保留这些显示设置吗」, 15 秒不点
+「保留」就用 `configure` 改回原来的值). 权限同 `acde:system` (`display`). 现在只能改主输出的**整数缩放** (1、2、3):
+
+- `state()`: `{displays, nightLight: null}`, 一块主输出 `{id: 输出名, name: EDID 的厂商和型号 (没有时是输出名), builtin (eDP / LVDS / DSI),
+  primary, enabled, mode {width, height, refresh (Hz)}, modes: [当前的], scale, scales: [1, 2, 3], brightness: null, rotation: 0}`.
+  `configure(id, {scale})` 经 `natives.desk.setScale` → `acde_shell.set_scale(输出名, 缩放)`; patch 里别的键 (mode、rotation …) 和
+  `setBrightness` / `setNightLight` 都 reject (`code 'unsupported'`, 501). `on('changed', fn)`: 输出变了时 `Desk` 给所有 isolate 发
+  `{type: 'display', state}`.
+- 合成器 (crates/shell `compositor/outputs.rs`, `mod.rs` `set_output_scale`): 改那块输出的 `Scale::Integer`, 重排输出位置, 主输出的
+  canvas 按「canvas 创建后不变」**重建** (`WindowTable::replace_canvas`: 窗口、z 序、焦点搬过去, `fullscreen` 铺满新 canvas,
+  `free` 挪回 / 缩进新 canvas 里, `fixed` 只挪, `pinned` (面板) 不动, 由桌面页重新量), 所有窗口的 fractional-scale 首选值跟着改,
+  再发 `output` 事件 (现在带 `name`、`description`、`refresh` (mHz)), Broker 和页面照输出变化那条路走 (`screen`、`display`).
+- 按显示器记住 (照 KWin 的 `~/.config/kwinoutputconfig.json`): `$XDG_CONFIG_HOME/acde/display.json` 的 `{outputs: [{connectorName,
+  edidIdentifier, scale}]}`, 先按 EDID 标识 (和 KWin 同一个格式: `厂商 产品号 序列号 周 年 型号年`, 读 `/sys/class/drm/*-<输出名>/edid`)
+  找, 没有 EDID 的按接口名; 每次改都写 (先写 `.tmp` 再改名, 别的键留着). 起合成器时缩放的顺序: 这个文件 → `ACDE_SCALE` → 按 EDID
+  的物理宽度算. DRM 输出的名字和内核 / KWin 一样 (`HDMI-A-1`, 原来是 `HDMIA-1`).
 
 ## 桌面和窗口 (两个启动位置)
 
@@ -1103,7 +1125,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
 | `resize {width, height, scale, software}` | isolate 的 surface | configure 给的尺寸 (物理像素) 和 fractional-scale; software: 它的光栅化在 CPU 上 |
 | `dndenter {x, y, mime}` / `dndmove` / `dndleave` / `dnddrop {x, y, data}` | 指针下的 isolate 的 surface | 别的程序 (或别的窗口) 拖进来; data 是 类型 → 文本, 松手时 shell 已经读好 (smithay 等不到 JS) |
 | `dragend {button}` | 发起拖动的 isolate | 1: 放到了别的窗口上 (不要再处理这次放下), 0: 没有 |
-| `output {width, height, scale}` | Broker | 主输出 |
+| `output {width, height, scale, name, description, refresh}` | Broker | 主输出 (启动时和改了缩放之后) |
 | `windowopen` / `windowclose` / `windowtitle {window, title, appId}` | Broker | 窗口的生命周期 (所有窗口一样); `windowopen` 带上客户端映射前已经设好的 title / app_id, 之后任一个变了发 `windowtitle` |
 | `windowfullscreen` / `windowunfullscreen` | Broker | 窗口的模式变成 / 不再是 `fullscreen` (xdg 全屏请求、`acde_window.request_mode`、合成器的 `setMode`, 桌面除外); 全屏铺满 canvas, 进全屏前的位置和尺寸记着, 退出时放回 |
 | `windowminimize` | Broker | 应用的请求, 桌面决定怎么办 (没有 maximize: 框架只有四种模式) |
@@ -1121,7 +1143,7 @@ shell 是完整的 Wayland 合成器 (smithay), 跑在**自己的线程**上 (ca
 - 注入输入 `inject({type, x, y, button, dx, dy, source, code})`: type 是 `move` (绝对) / `motion` (相对, 像真鼠标, 锁鼠标时
   指针不动) / `down` / `up` / `wheel` / `keydown` / `keyup`; wheel 的 source 是 `wheel` / `finger` (dx dy 都为 0 表示手指离开) /
   `continuous`. 和真实输入同一条路由, 只在合成器内部, 不碰真实设备. 给验收和 harness 操作窗口用.
-- 第一帧网页等 JS 第一次 commit 才上屏 (可以先建 Shell 再加载页面). HiDPI: 输出的缩放默认是整数, 按显示器 EDID 的物理宽度算 DPI, 取 `floor(DPI / 96 + 0.3)` (1 到 3; 没有物理尺寸时, 例如 RDP 后端, 是 1; 27 寸 4K 是 2), `ACDE_SCALE` 指定时用它 (可以是分数). 启动时每块输出打一行 `输出 <名字>: <分辨率> 物理 <宽>x<高> mm 缩放 <s> 位置 <x, y>`,
+- 第一帧网页等 JS 第一次 commit 才上屏 (可以先建 Shell 再加载页面). HiDPI: 输出的缩放默认是整数, 按显示器 EDID 的物理宽度算 DPI, 取 `floor(DPI / 96 + 0.3)` (1 到 3; 没有物理尺寸时, 例如 RDP 后端, 是 1; 27 寸 4K 是 2), `ACDE_SCALE` 指定时用它 (可以是分数); 用户在设置里选过的 (`$XDG_CONFIG_HOME/acde/display.json`, 见「显示器」) 优先. 启动时每块输出打一行 `输出 <名字>: <分辨率> 物理 <宽>x<高> mm 缩放 <s> 位置 <x, y>`,
   多块输出按逻辑宽度 (分辨率除以缩放) 从左往右排. 光标一律合成进画面, 不用 DRM 光标平面 (`render_frame` 不给
   `ALLOW_CURSOR_PLANE_SCANOUT`): 带 T2 的 Intel Mac 上 2 倍缩放时, 走光标平面的光标只能走屏幕左上 1/4; 改成合成之后在
   那台 Mac 上验过, 光标走满全屏 (Xe3 + 4K HDMI 上 `ACDE_SCALE=2` 也一样). 其他环境变量: `ACDE_SOCKET`

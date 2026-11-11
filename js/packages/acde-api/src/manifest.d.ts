@@ -71,6 +71,7 @@ export interface Capabilities {
   readonly desktops?: boolean
   readonly network?: boolean
   readonly system?: boolean
+  readonly display?: boolean
   readonly [service: string]: unknown
 }
 
