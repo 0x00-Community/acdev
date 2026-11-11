@@ -145,7 +145,7 @@ A system app imports only what it declares: `import 'acde:session'` without `"se
 
 ## Other modules
 
-- `acde:session`: `logout()`, `reboot()`, `poweroff()`, `setLanguage(tag)`.
+- `acde:session`: `logout()`, `reboot()`, `poweroff()`, `setLanguage(tag)`. Only the desktop page and its system apps that declare `"session": true` can use it; an ordinary app cannot.
 - `acde:desktops`: `list()`, `choose(id, remember?)` to switch desktops.
 - `acde:launch`: `start(argv)` runs a native program, `embed(argv)` embeds one in a window (Dopame OS only).
 - `acde:inspect`: turns the screen into a text semantic tree and acts on it by ref (for AI agents). See the [reference](../reference/modules.md#acdeinspect).
