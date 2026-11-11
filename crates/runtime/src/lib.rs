@@ -5,6 +5,7 @@ mod bus;
 pub mod channel;
 #[cfg(windows)]
 mod conpty;
+pub mod devtools;
 mod failure;
 mod fetch;
 pub(crate) mod fs;

@@ -208,6 +208,7 @@ export class Broker {
       emulate: (options) => this.emulate(options),
       reload: (app) => this.devReload(app),
       screen: () => this.#screen(),
+      devtools: this.native.DevTools ?? null,
     })
     this.#appCalls = new AppCalls({
       shell: this.shell,
@@ -434,7 +435,7 @@ export class Broker {
       sys().spawnWeb(init.name, init, heapMb, env, onMessage, (code, reason) => {
         this.#exited(web, code, reason)
         exit(code)
-      }, grants), init.tier)
+      }, grants), init.tier, init.url ?? null)
     web.rpc.serve((service, method, args) => this.#serve(web, service, method, args))
     web.onPost = (message) => {
       if (DevLog.isPost(message)) this.devlog.take({ name: web.name, app: web.app?.id ?? null }, message)

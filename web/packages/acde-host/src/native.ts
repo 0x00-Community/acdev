@@ -92,8 +92,21 @@ export interface NativeSurface {
 
 export type Shell = Pick<NativeSurface, 'setClipboard' | 'readClipboard' | 'setImeArea'>
 
+export interface NativeDevToolsTarget {
+  readonly id: string
+  readonly kind: 'page'
+  readonly title: string
+  readonly url: string
+}
+
+export interface NativeDevTools {
+  open(): { readonly port: number; readonly token: string } | null
+  targets(targets: NativeDevToolsTarget[]): void
+}
+
 export interface Native {
   Shell: { broker(options?: { title?: string }): BrokerShell; readonly hosted?: boolean }
+  DevTools?: NativeDevTools
   Finder?: new () => object
   Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   Appearance?: { open(): Promise<NativeAppearance> }

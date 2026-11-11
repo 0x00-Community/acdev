@@ -5,11 +5,13 @@ import { DevRoutes, type DevRoute } from '../devroutes'
 import type { Inspect } from '../inspect'
 import { Level, Log } from '../log'
 import { isAbsolute } from '../sys/path'
-import { within } from '../sys/timers'
+import { unref, within } from '../sys/timers'
 import type { BrokerShell, WebInfo } from './types'
 import type { Web } from './web'
 import type { Permissions } from './access/approval/permissions'
 import type { Screen } from './output'
+import type { NativeDevTools, NativeDevToolsTarget } from '../native'
+import { PageSource } from '../page'
 
 export interface DevHost {
   readonly shell: BrokerShell
@@ -22,6 +24,7 @@ export interface DevHost {
   emulate(options: { readonly colorScheme?: 'light' | 'dark' | null; readonly reducedMotion?: boolean | null }): unknown
   reload(app: string | null): Promise<void>
   screen(): Screen
+  readonly devtools: NativeDevTools | null
 }
 
 interface DevInit {
@@ -33,10 +36,13 @@ interface DevInit {
 
 export class DevRequests {
   static readonly STATE_MS = 500
+  static readonly TARGETS_MS = 250
   static readonly #OPS =
     'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, pointer, clipboard, ' +
-    'permissions, answer, revoke, drop, input, clock, dialog, init, uninit, reload, resize'
+    'permissions, answer, revoke, drop, input, clock, dialog, init, uninit, reload, resize, devtools'
   readonly #host: DevHost
+  readonly #devtools: NativeDevTools | null
+  #targets = ''
   readonly #states = new Map<string, unknown>()
   #routes: DevRoute[] = []
   #nextRoute = 1
@@ -45,6 +51,8 @@ export class DevRequests {
 
   constructor(host: DevHost) {
     this.#host = host
+    this.#devtools = host.devtools?.open() ? host.devtools : null
+    if (this.#devtools) unref(setInterval(() => this.publish(), DevRequests.TARGETS_MS))
   }
 
   async snapshot(web: Web | null): Promise<unknown> {
@@ -59,6 +67,20 @@ export class DevRequests {
     const state = this.#states.get(key)
     this.#states.delete(key)
     return state
+  }
+
+  publish(): void {
+    if (!this.#devtools) return
+    const targets: NativeDevToolsTarget[] = this.#host.webs().map((web) => ({
+      id: web.name,
+      kind: 'page',
+      title: this.#host.title(web),
+      url: web.url ?? `${PageSource.ORIGIN}/`,
+    }))
+    const key = JSON.stringify(targets)
+    if (key === this.#targets) return
+    this.#targets = key
+    this.#devtools.targets(targets)
   }
 
   infos(): WebInfo[] {
@@ -116,6 +138,11 @@ export class DevRequests {
     switch (op) {
       case 'webs':
         return { webs: this.infos() }
+      case 'devtools': {
+        const endpoint = this.#devtools?.open()
+        if (!endpoint) throw new Error('devtools: this session serves no DevTools endpoint')
+        return { port: endpoint.port, token: endpoint.token }
+      }
       case 'eval': {
         if (typeof args['code'] !== 'string') throw new Error('eval: code is a string')
         let value: unknown

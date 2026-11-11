@@ -26,6 +26,7 @@ export class Web {
     readonly app: AppManifest | null,
     spawn: (onMessage: (message: unknown) => void, onExit: (code: number) => void) => WebThreadHandle,
     readonly tier: WebTier,
+    readonly url: string | null = null,
   ) {
     let exit!: (code: number) => void
     this.#exited = new Promise((resolve) => (exit = resolve))

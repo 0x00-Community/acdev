@@ -282,6 +282,7 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `{…,"ok":false,"error":"<文字>"}`, 每个请求恰好一次 (超时在工具一侧); 连接断了, 它还没回答的请求作废. `web` 参数是 web 名
   (`ledger#1048576`)、应用 id (window 号最小的那个 web) 或 `desktop`:
   - `webs` → `{webs: [{name, app, kind, window, title}]}`.
+  - `devtools` → `{port, token}`: 这个会话的 DevTools 端点 (下面 **DevTools 端点**); 没有端点 (不是 dev 模式、端口没开成) 时回错.
   - `eval {web, code, node?, arg?}` → `{value}`: 和 `ACDE_DEBUG_DIR` 一样求值 (promise 等落定), 结构化克隆回来再 JSON (undefined 是 null, JSON 不了的回错).
     给了 `node` (render 节点 id, 即 ref 里点后面的数) 时 `code` 是一个函数的源码, 以 `(元素, arg)` 调用 (rpc `debug.evalOn`).
   - `shot {web}` → `{png: <base64>, width, height}` (`Shell.capture`, 设备像素, 桌面的含面板).
@@ -334,6 +335,18 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   - `resize {web, width, height}` → `{width, height}`: 页面 (不含标题栏) 改成这么大. `free` 窗口经 `Shell.place`; 铺满的 (单应用的 acde dev、
     桌面) 改宿主窗口 (`Shell.resizeScreen` → hostwin `Cmd::Resize`: headless 直接换输出尺寸, winit `request_inner_size`, Windows 还没有);
     会话里回错.
+- **DevTools 端点** (只在有 `ACDE_DEV` 时, Chrome DevTools Protocol, #172): acde-runtime `devtools/` (napi `DevTools.open()` /
+  `DevTools.targets(list)`), 宿主窗口和 Linux 会话一样. Broker 建 `DevRequests` 时 `open()`: 在 `127.0.0.1` 上听系统挑的端口, 随机令牌 (32 位十六进制),
+  线程 `acde-devtools`, 每条连接一条 `acde-devtools-conn`; 没有 `ACDE_DEV` 时 `open()` 回 null, 不开任何端口. 每个请求都要令牌: 查询参数
+  `?token=` (HTTP 和 WebSocket 都认) 或 `Authorization: Bearer`, 不对回 401. `GET /json/version` (`Browser`、`Protocol-Version`、
+  浏览器的 `webSocketDebuggerUrl`), `GET /json` 和 `/json/list` (每个目标 `{id, type, title, url, webSocketDebuggerUrl, devtoolsFrontendUrl,
+  description}`), 别的 404. 目标就是 Broker 的 webs: `id` 是 web 名 (`alpha#7`, 桌面 `desktop`, 地址里按百分号编码), `type` 都是 `page`
+  (服务和后端以后定), `title` 同 `webs` 的, `url` 是页面地址; `DevRequests` 每 250 ms 算一次 (`publish()`), 列表变了才推给
+  `DevTools.targets`, 从列表里消失的目标的 WebSocket 以 1001 关掉. `webSocketDebuggerUrl` 是 `ws://127.0.0.1:<port>/devtools/page/<id>?token=…`
+  (DevTools 前端连 WebSocket 时加不了头, 所以令牌在地址里), 不在列表里的目标升级前回 404. WebSocket 上: `Browser.getVersion` 自己答, 别的
+  方法交给 `acde_runtime::devtools::forward` 装上的 `Forward` (`attach(client)` / `message(client, text) -> bool` / `detach(client)`, 在连接
+  线程上调用; `Client::target()` 是 web 名, 浏览器端点是 None; `Client::send(text)` 任意线程发一条文本帧, 连接断了回 false), 没装或它回
+  false 时答 `-32601 '<method>' wasn't found`; 请求带 `sessionId` 的回答原样带回. 只收文本帧 (16 MB 以内), 二进制帧关连接.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 没人接的 `error` / `unhandledrejection` (交给 `host.reportError` 的那些) 报 `error(kind, text)`
   (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认; 栈和 console 文字里 `http(s)://…/x.js:行:列` 的帧, 包里有这个文件的 source map 时
