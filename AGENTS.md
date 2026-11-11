@@ -1314,7 +1314,7 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   不是硬件时间戳, 没有 tearing-control 和 VRR.
 - 网页图层 (会话): vello 画进 web 自己 GBM 分配的 linear dmabuf, sync_file 落定后 commit. 光栅化线程 `acde-web` 一次一帧, CPU 编码和 GPU 执行
   重叠, 挪窗口不重新光栅化, 闲 2 秒放掉中间纹理. 两套 vello 着色器都在会话开始时编好 (#109): 光栅化线程自己的 (`vello warm-up`) 和
-  页面画布、阴影、截图用的进程级 `Offscreen` (crates/render `gpu.rs`, 在 `acde-warm` 线程里 `gpu::warm()`, 日志 `offscreen vello warm-up`),
+  页面画布、阴影、截图用的进程级 `Offscreen` (crates/render `gpu.rs`, 进程里第一个光栅化线程起来时 (`Once`, 进程里可能有多个 `Raster`) 在 `acde-warm` 线程里 `gpu::warm()`, 日志 `offscreen vello warm-up`),
   不再等第一个用到画布或阴影的窗口打开时才编, 编的时候还拿着全进程一把 `Offscreen` 锁. 宿主窗口 (Windows、macOS、Linux 宿主) 同样在
   `hostwin/src/app.rs` 的 `run` 里 `Gpu::publish` 之后起 `acde-warm` 线程预编这套 `Offscreen` 着色器.
 - 帧预算: 120 fps 下每帧 8 ms. 盯 acde-dom `test/cost.test.ts` / `test/caches.test.ts`、shell / DomNative 的 `stats`、`drive.sh perf`; 提交里写测到的数.
