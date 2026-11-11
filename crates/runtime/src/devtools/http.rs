@@ -1,6 +1,7 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::time::Duration;
+use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use serde_json::{Value, json};
 
@@ -9,7 +10,6 @@ use super::{Client, Endpoint, VERSION};
 use crate::sync::Locked;
 
 const HEAD: usize = 16 << 10;
-const HEAD_WAIT: Duration = Duration::from_secs(10);
 
 pub(super) fn accept(endpoint: &'static Endpoint, listener: TcpListener) {
     for stream in listener.incoming() {
@@ -20,15 +20,56 @@ pub(super) fn accept(endpoint: &'static Endpoint, listener: TcpListener) {
                 continue;
             }
         };
+        if endpoint.connections.fetch_add(1, Ordering::AcqRel) >= endpoint.limit {
+            endpoint.connections.fetch_sub(1, Ordering::AcqRel);
+            log::warn!("devtools: more than {} connections; refusing one", endpoint.limit);
+            continue;
+        }
         let spawned = std::thread::Builder::new().name("acde-devtools-conn".into()).spawn(move || {
             if let Err(e) = serve(endpoint, stream) {
                 log::debug!("devtools: connection: {e}");
             }
+            endpoint.connections.fetch_sub(1, Ordering::AcqRel);
         });
         if let Err(e) = spawned {
+            endpoint.connections.fetch_sub(1, Ordering::AcqRel);
             log::warn!("devtools connection thread: {e}");
         }
     }
+}
+
+struct Deadline {
+    stream: TcpStream,
+    until: Option<Instant>,
+}
+
+impl Read for Deadline {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let Some(until) = self.until {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "the request head took too long"));
+            }
+            self.stream.set_read_timeout(Some(left))?;
+        }
+        self.stream.read(buf)
+    }
+}
+
+fn local_host(host: &str) -> bool {
+    let name = match host.strip_prefix('[') {
+        Some(rest) => rest.split_once(']').filter(|(_, port)| port.is_empty() || port.strip_prefix(':').is_some_and(numeric)).map(|(name, _)| name),
+        None => match host.rsplit_once(':') {
+            Some((name, port)) if numeric(port) => Some(name),
+            Some(_) => None,
+            None => Some(host),
+        },
+    };
+    name.is_some_and(|name| name == "127.0.0.1" || name.eq_ignore_ascii_case("localhost") || name == "::1")
+}
+
+fn numeric(port: &str) -> bool {
+    !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
 }
 
 struct Request {
@@ -180,11 +221,13 @@ impl Endpoint {
 }
 
 fn serve(endpoint: &'static Endpoint, mut stream: TcpStream) -> io::Result<()> {
-    stream.set_read_timeout(Some(HEAD_WAIT))?;
-    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut reader = BufReader::new(Deadline { stream: stream.try_clone()?, until: Some(Instant::now() + endpoint.head_wait) });
     let Some(request) = read_head(&mut reader)? else {
         return respond(&mut stream, "400 Bad Request", r#"{"error":"bad request"}"#);
     };
+    if !request.header("host").is_some_and(local_host) {
+        return respond(&mut stream, "400 Bad Request", r#"{"error":"the Host is not this machine"}"#);
+    }
     if !request.token(&endpoint.token) {
         return respond(&mut stream, "401 Unauthorized", r#"{"error":"a token is required"}"#);
     }
@@ -208,8 +251,9 @@ fn serve(endpoint: &'static Endpoint, mut stream: TcpStream) -> io::Result<()> {
     let accept = ntex::ws::hash_key(key.as_bytes()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     let answer = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n");
     stream.write_all(answer.as_bytes())?;
+    reader.get_mut().until = None;
     stream.set_read_timeout(None)?;
-    session(endpoint, Client::new(target, stream), reader)
+    session(endpoint, Client::new(target, stream)?, reader)
 }
 
 fn session(endpoint: &'static Endpoint, client: Client, mut reader: impl Read) -> io::Result<()> {
@@ -308,6 +352,81 @@ mod tests {
         reader.read_to_string(&mut rest).unwrap();
         assert_eq!(rest, "rest");
         assert!(read_head(&mut BufReader::new(format!("GET / HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(HEAD)).as_bytes())).unwrap().is_none());
+    }
+
+    #[test]
+    fn only_this_machine_may_be_the_host() {
+        for host in ["127.0.0.1", "127.0.0.1:9222", "localhost", "LOCALHOST:1", "[::1]", "[::1]:9222"] {
+            assert!(local_host(host), "{host}");
+        }
+        for host in ["", "evil.example", "evil.example:9222", "127.0.0.1.evil.example", "localhost:", "localhost:x", "[::1]x", "::1", "[::2]:1"] {
+            assert!(!local_host(host), "{host}");
+        }
+    }
+
+    fn served(limit: usize, head_wait: std::time::Duration) -> (&'static Endpoint, std::net::SocketAddr) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let endpoint: &'static Endpoint = Box::leak(Box::new(Endpoint::new(listener, limit, head_wait).unwrap()));
+        endpoint.serve();
+        (endpoint, address)
+    }
+
+    fn answer(address: std::net::SocketAddr, head: &str) -> String {
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        let mut text = String::new();
+        stream.read_to_string(&mut text).unwrap();
+        text
+    }
+
+    #[test]
+    fn a_foreign_host_gets_400_before_the_token_is_looked_at() {
+        let (endpoint, address) = served(4, std::time::Duration::from_secs(5));
+        let token = &endpoint.token;
+        let foreign = answer(address, &format!("GET /json/list?token={token} HTTP/1.1\r\nHost: evil.example:{}\r\n\r\n", address.port()));
+        assert!(foreign.starts_with("HTTP/1.1 400 "), "{foreign}");
+        let missing = answer(address, &format!("GET /json/list?token={token} HTTP/1.1\r\n\r\n"));
+        assert!(missing.starts_with("HTTP/1.1 400 "), "{missing}");
+        let local = answer(address, &format!("GET /json/list?token={token} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", address.port()));
+        assert!(local.starts_with("HTTP/1.1 200 "), "{local}");
+    }
+
+    #[test]
+    fn connections_over_the_limit_are_closed() {
+        let (_, address) = served(2, std::time::Duration::from_secs(5));
+        let held: Vec<TcpStream> = (0..2).map(|_| TcpStream::connect(address).unwrap()).collect();
+        let mut over = TcpStream::connect(address).unwrap();
+        over.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+        let started = Instant::now();
+        let mut byte = [0u8; 1];
+        let read = over.read(&mut byte);
+        assert!(matches!(read, Ok(0)) || read.as_ref().is_err_and(|e| e.kind() != io::ErrorKind::WouldBlock && e.kind() != io::ErrorKind::TimedOut));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        drop(held);
+    }
+
+    #[test]
+    fn a_slow_head_is_cut_at_the_deadline() {
+        let (_, address) = served(4, std::time::Duration::from_millis(300));
+        let mut stream = TcpStream::connect(address).unwrap();
+        let mut trickle = stream.try_clone().unwrap();
+        std::thread::spawn(move || {
+            _ = trickle.write_all(b"GET /json/list HTTP/1.1\r\n");
+            for _ in 0..40 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if trickle.write_all(b"X: y\r\n").is_err() {
+                    break;
+                }
+            }
+        });
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(4))).unwrap();
+        let started = Instant::now();
+        let mut rest = Vec::new();
+        let read = stream.read_to_end(&mut rest);
+        assert!(read.is_ok() || read.as_ref().is_err_and(|e| e.kind() != io::ErrorKind::WouldBlock && e.kind() != io::ErrorKind::TimedOut));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "cut after {:?}", started.elapsed());
     }
 
     #[test]

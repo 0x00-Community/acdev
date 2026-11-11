@@ -1,15 +1,21 @@
+mod client;
 mod http;
 mod ws;
 
-use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::net::TcpListener;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::time::Duration;
 
 use napi_derive::napi;
+
+pub use client::Client;
 
 use crate::sync::Locked;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const CONNECTIONS: usize = 32;
+const HEAD_WAIT: Duration = Duration::from_secs(10);
 
 #[napi(object)]
 #[derive(Clone, PartialEq)]
@@ -60,68 +66,13 @@ pub fn address() -> Option<(u16, String)> {
     endpoint().map(|e| (e.port, e.token.clone()))
 }
 
-#[derive(Clone)]
-pub struct Client(Arc<Connection>);
-
-struct Connection {
-    id: u64,
-    target: Option<DevToolsTarget>,
-    writer: Mutex<TcpStream>,
-    open: AtomicBool,
-}
-
-impl Client {
-    fn new(target: Option<DevToolsTarget>, writer: TcpStream) -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        Self(Arc::new(Connection { id: NEXT.fetch_add(1, Ordering::Relaxed), target, writer: Mutex::new(writer), open: AtomicBool::new(true) }))
-    }
-
-    pub fn id(&self) -> u64 {
-        self.0.id
-    }
-
-    pub fn target(&self) -> Option<&str> {
-        self.0.target.as_ref().map(|t| t.id.as_str())
-    }
-
-    pub fn send(&self, message: &str) -> bool {
-        self.frame(ws::TEXT, message.as_bytes())
-    }
-
-    pub fn close(&self) {
-        self.frame(ws::CLOSE, &1001u16.to_be_bytes());
-        _ = self.0.writer.locked().shutdown(std::net::Shutdown::Both);
-    }
-
-    fn frame(&self, opcode: u8, payload: &[u8]) -> bool {
-        let mut writer = self.0.writer.locked();
-        if !self.0.open.load(Ordering::Acquire) {
-            return false;
-        }
-        let sent = ws::write(&mut *writer, opcode, payload).is_ok();
-        if !sent || opcode == ws::CLOSE {
-            self.0.open.store(false, Ordering::Release);
-        }
-        sent
-    }
-
-    fn pong(&self, payload: &[u8]) {
-        let mut writer = self.0.writer.locked();
-        if self.0.open.load(Ordering::Acquire) && ws::pong(&mut *writer, payload).is_err() {
-            self.0.open.store(false, Ordering::Release);
-        }
-    }
-
-    fn answer_close(&self, payload: &[u8]) {
-        let code = payload.get(..2).unwrap_or(&[0x03, 0xe8]);
-        self.frame(ws::CLOSE, code);
-    }
-}
-
 struct Endpoint {
     port: u16,
     token: String,
     browser: String,
+    limit: usize,
+    head_wait: Duration,
+    connections: AtomicUsize,
     listener: Mutex<Option<TcpListener>>,
     targets: Mutex<Vec<DevToolsTarget>>,
     clients: Mutex<Vec<Client>>,
@@ -147,13 +98,19 @@ impl Endpoint {
                 return None;
             }
         };
-        let port = listener.local_addr().map(|a| a.port()).ok()?;
-        let token = rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect();
-        log::info!("devtools: listening on 127.0.0.1:{port}");
-        Some(Self {
-            port,
-            token,
+        let endpoint = Self::new(listener, CONNECTIONS, HEAD_WAIT).inspect_err(|e| log::error!("devtools: {e}")).ok()?;
+        log::info!("devtools: listening on 127.0.0.1:{}", endpoint.port);
+        Some(endpoint)
+    }
+
+    fn new(listener: TcpListener, limit: usize, head_wait: Duration) -> std::io::Result<Self> {
+        Ok(Self {
+            port: listener.local_addr()?.port(),
+            token: rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect(),
             browser: uuid::Uuid::new_v4().to_string(),
+            limit,
+            head_wait,
+            connections: AtomicUsize::new(0),
             listener: Mutex::new(Some(listener)),
             targets: Mutex::default(),
             clients: Mutex::default(),
@@ -176,7 +133,7 @@ impl Endpoint {
             }
             *current = targets;
             let clients = self.clients.locked();
-            clients.iter().filter(|c| c.0.target.as_ref().is_some_and(|t| !current.iter().any(|n| n.id == t.id))).cloned().collect()
+            clients.iter().filter(|c| c.target().is_some_and(|id| !current.iter().any(|n| n.id == id))).cloned().collect()
         };
         for client in gone {
             client.close();

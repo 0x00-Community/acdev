@@ -5,7 +5,8 @@ pub(super) const CLOSE: u8 = 0x8;
 const CONTINUATION: u8 = 0x0;
 const BINARY: u8 = 0x2;
 const PING: u8 = 0x9;
-const PONG: u8 = 0xa;
+pub(super) const PONG: u8 = 0xa;
+const CONTROL: usize = 125;
 const MESSAGE: usize = 16 << 20;
 
 pub(super) enum Message {
@@ -81,6 +82,9 @@ fn frame(reader: &mut impl Read) -> io::Result<(bool, u8, Vec<u8>)> {
     if length > MESSAGE as u64 {
         return Err(invalid("the frame is too big"));
     }
+    if head[0] & 0x08 != 0 && (head[0] & 0x80 == 0 || length > CONTROL as u64) {
+        return Err(invalid("a control frame is fragmented or longer than 125 bytes"));
+    }
     let mut key = [0u8; 4];
     reader.read_exact(&mut key)?;
     let mut payload = vec![0u8; length as usize];
@@ -110,4 +114,34 @@ pub(super) fn write(writer: &mut impl Write, opcode: u8, payload: &[u8]) -> io::
 
 pub(super) fn pong(writer: &mut impl Write, payload: &[u8]) -> io::Result<()> {
     write(writer, PONG, payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn masked(first: u8, payload: &[u8]) -> Vec<u8> {
+        let mut frame = vec![first];
+        match payload.len() {
+            n if n < 126 => frame.push(0x80 | n as u8),
+            n => {
+                frame.push(0x80 | 126);
+                frame.extend_from_slice(&(n as u16).to_be_bytes());
+            }
+        }
+        frame.extend_from_slice(&[0, 0, 0, 0]);
+        frame.extend_from_slice(payload);
+        frame
+    }
+
+    #[test]
+    fn control_frames_are_short_and_whole() {
+        let next = |bytes: Vec<u8>| Messages::default().next(&mut bytes.as_slice());
+        assert!(matches!(next(masked(0x80 | PING, b"hi")), Ok(Message::Ping(p)) if p == b"hi"));
+        assert!(matches!(next(masked(0x80 | PING, &[0; 125])), Ok(Message::Ping(_))));
+        assert!(next(masked(0x80 | PING, &[0; 126])).is_err());
+        assert!(next(masked(PING, b"hi")).is_err());
+        assert!(next(masked(CLOSE, &[0x03, 0xe8])).is_err());
+        assert!(matches!(next([masked(TEXT, b"a"), masked(0x80, b"b")].concat()), Ok(Message::Text(t)) if t == "ab"));
+    }
 }

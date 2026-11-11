@@ -346,7 +346,11 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   (DevTools 前端连 WebSocket 时加不了头, 所以令牌在地址里), 不在列表里的目标升级前回 404. WebSocket 上: `Browser.getVersion` 自己答, 别的
   方法交给 `acde_runtime::devtools::forward` 装上的 `Forward` (`attach(client)` / `message(client, text) -> bool` / `detach(client)`, 在连接
   线程上调用; `Client::target()` 是 web 名, 浏览器端点是 None; `Client::send(text)` 任意线程发一条文本帧, 连接断了回 false), 没装或它回
-  false 时答 `-32601 '<method>' wasn't found`; 请求带 `sessionId` 的回答原样带回. 只收文本帧 (16 MB 以内), 二进制帧关连接.
+  false 时答 `-32601 '<method>' wasn't found`; 请求带 `sessionId` 的回答原样带回. 只收文本帧 (16 MB 以内), 二进制帧关连接;
+  控制帧不超过 125 字节、不分片. 防护: `Host` 头只认 `127.0.0.1`、`localhost`、`[::1]` (可带端口), 别的 (含没有) 在看令牌之前回 400 (防 DNS
+  重绑定, WebSocket 的 `Origin` 不查); 同时最多 32 条连接, 多的接下就关; 请求头从建连起 10 秒内读完, 否则断开. `Client::send` 只把帧放进
+  这个客户端的有界队列 (256 帧) 就返回, 不阻塞调用方 (页面线程也能调); 每个客户端一条 `acde-devtools-send` 线程按序写出, 套接字写超时
+  10 秒; 队列满、写失败或超时都断开这个客户端.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 没人接的 `error` / `unhandledrejection` (交给 `host.reportError` 的那些) 报 `error(kind, text)`
   (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认; 栈和 console 文字里 `http(s)://…/x.js:行:列` 的帧, 包里有这个文件的 source map 时
