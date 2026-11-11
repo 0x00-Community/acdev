@@ -1,7 +1,8 @@
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -11,6 +12,9 @@ use acde_model::{Easing, Mode, Scope};
 use smithay::backend::input::AxisSource;
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_registry::WlRegistry;
+use wayland_client::protocol::wl_seat::{self, WlSeat};
+use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notification_v1::{self, ExtIdleNotificationV1};
+use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notifier_v1::{self, ExtIdleNotifierV1};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
 
 use crate::compositor::{Animate, CanvasInfo, Compositor, Grant, Handle, Injected, Stats, WindowInfo};
@@ -44,6 +48,20 @@ pub struct Link {
     qh: QueueHandle<Reader>,
     stop: Mutex<Option<OwnedFd>>,
     reader: Mutex<Option<JoinHandle<()>>>,
+    idle: Mutex<Idle>,
+    idle_round: Arc<AtomicU32>,
+}
+
+struct Idle {
+    notifier: Option<ExtIdleNotifierV1>,
+    seat: Option<WlSeat>,
+    watches: Vec<ExtIdleNotificationV1>,
+}
+
+struct IdleWatch {
+    round: Arc<AtomicU32>,
+    mine: u32,
+    index: u32,
 }
 
 /// Where the reader thread hands the compositor's events.
@@ -72,6 +90,8 @@ pub enum Notice {
     Parent { window: u32, parent: Option<u32> },
     Milestone { title: String, time_ms: f64 },
     InputTarget { window: Option<u32>, x: f64, y: f64, button: u32 },
+    /// The seat has had no input for the `index`th timeout of [`Link::set_idle`] (`idle`), or has again.
+    Idle { index: u32, idle: bool },
     /// The connection ended (the compositor quit or died).
     Exit,
 }
@@ -164,6 +184,7 @@ impl Link {
         let (globals, mut queue) = registry_queue_init::<Reader>(&conn).map_err(|e| format!("acde_shell registry: {e}"))?;
         let qh = queue.handle();
         let shell: AcdeShell = globals.bind(&qh, 1..=1, ()).map_err(|e| format!("acde_shell: {e}"))?;
+        let idle = Idle { notifier: globals.bind(&qh, 1..=1, ()).ok(), seat: globals.bind(&qh, 1..=1, ()).ok(), watches: Vec::new() };
         conn.flush().map_err(|e| format!("acde_shell: {e}"))?;
         let (stopped, stop) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).map_err(|e| format!("acde_shell: {e}"))?;
         let mut reader = Reader { sink };
@@ -176,7 +197,7 @@ impl Link {
                 (reader.sink)(Notice::Exit);
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { conn, shell, qh, stop: Mutex::new(Some(stop)), reader: Mutex::new(Some(thread)) })
+        Ok(Self { conn, shell, qh, stop: Mutex::new(Some(stop)), reader: Mutex::new(Some(thread)), idle: Mutex::new(idle), idle_round: Arc::default() })
     }
 
     fn sent(&self) {
@@ -309,6 +330,37 @@ impl Link {
         rx.recv_timeout(REPLY_WAIT).map_err(|e| e.to_string())?.map(|(pid, _)| pid)
     }
 
+    pub fn set_screens(&self, on: bool) {
+        self.shell.set_screens(on.into());
+        self.sent();
+    }
+
+    /// Watches the seat's idleness (ext-idle-notify, so idle-inhibit holds it off): one watch per timeout (ms), each
+    /// a [`Notice::Idle`] with its index. Replaces the watches given before; none stops watching.
+    pub fn set_idle(&self, timeouts: &[u32]) -> Result<(), String> {
+        let mut idle = self.idle.lock().map_err(|e| e.to_string())?;
+        let mine = self.idle_round.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        for watch in idle.watches.drain(..) {
+            watch.destroy();
+        }
+        let result = match (&idle.notifier, &idle.seat) {
+            (Some(notifier), Some(seat)) => {
+                let made: Vec<_> = timeouts
+                    .iter()
+                    .zip(0..)
+                    .map(|(&ms, index)| notifier.get_idle_notification(ms, seat, &self.qh, IdleWatch { round: self.idle_round.clone(), mine, index }))
+                    .collect();
+                idle.watches = made;
+                Ok(())
+            }
+            _ if timeouts.is_empty() => Ok(()),
+            _ => Err("合成器没有 ext_idle_notifier_v1 或 wl_seat".to_owned()),
+        };
+        drop(idle);
+        self.sent();
+        result
+    }
+
     /// Stops the reader thread, then asks the compositor to quit.
     pub fn quit(&self) {
         drop(self.stop.lock().ok().and_then(|mut s| s.take()));
@@ -413,6 +465,28 @@ impl Notice {
 
 impl Dispatch<WlRegistry, GlobalListContents> for Reader {
     fn event(_: &mut Self, _: &WlRegistry, _: <WlRegistry as Proxy>::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<WlSeat, ()> for Reader {
+    fn event(_: &mut Self, _: &WlSeat, _: wl_seat::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<ExtIdleNotifierV1, ()> for Reader {
+    fn event(_: &mut Self, _: &ExtIdleNotifierV1, _: ext_idle_notifier_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<ExtIdleNotificationV1, IdleWatch> for Reader {
+    fn event(state: &mut Self, _: &ExtIdleNotificationV1, event: ext_idle_notification_v1::Event, watch: &IdleWatch, _: &Connection, _: &QueueHandle<Self>) {
+        if watch.round.load(Ordering::Relaxed) != watch.mine {
+            return;
+        }
+        let idle = match event {
+            ext_idle_notification_v1::Event::Idled => true,
+            ext_idle_notification_v1::Event::Resumed => false,
+            _ => return,
+        };
+        (state.sink)(Notice::Idle { index: watch.index, idle });
+    }
 }
 
 impl Dispatch<AcdeShell, ()> for Reader {

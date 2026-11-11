@@ -30,6 +30,8 @@ mod sound;
 #[cfg(target_os = "linux")]
 mod office;
 #[cfg(target_os = "linux")]
+mod power;
+#[cfg(target_os = "linux")]
 mod offload;
 #[cfg(target_os = "linux")]
 mod jsruntime;

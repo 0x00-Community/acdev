@@ -204,6 +204,21 @@ impl Desk {
         self.link().set_scale(output.to_owned(), scale as i32).map_err(|e| Failure::new(500, "scale_failed", e))
     }
 
+    /// `display.setBrightness(id, 0..1)`: the built-in display's backlight (`acde:power`'s, through logind).
+    pub fn set_brightness(&self, caller: u32, output: &str, value: f64) -> Done<()> {
+        self.session_rights(caller, "acde.display", |c| c.display)?;
+        let display = self.state().look.display();
+        let found = display["displays"].as_array().and_then(|list| list.iter().find(|d| d["id"].as_str() == Some(output)).cloned());
+        let Some(found) = found else { return Err(Failure::missing(format!("acde.display: no display {output}"))) };
+        if found["brightness"].is_null() {
+            return Err(Failure::new(501, "unsupported", format!("acde.display: the brightness of {output} cannot be set here (only a built-in backlight)")));
+        }
+        self.power().call(acde_runtime::PowerCall::SetBrightness { value }).map_err(|e| Failure::new(500, "brightness_failed", e))?;
+        let state = &*self.state();
+        self.to_all(state, &json!({ "type": "display", "state": state.look.display() }));
+        Ok(())
+    }
+
     pub fn desktops(&self, caller: u32) -> Done<Value> {
         self.session_rights(caller, "acde.desktops", |c| c.desktops)?;
         Ok(serde_json::to_value(&self.state().look.desktops).unwrap_or_default())

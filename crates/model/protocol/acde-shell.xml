@@ -179,6 +179,11 @@
       <arg name="callback" type="new_id" interface="acde_shell_result"/>
     </request>
 
+    <request name="set_screens">
+      <description summary="the outputs on or off (DPMS); the compositor turns them on itself at the next input"/>
+      <arg name="on" type="uint"/>
+    </request>
+
     <request name="quit">
       <description summary="the compositor stops; the connection closes when it has"/>
     </request>

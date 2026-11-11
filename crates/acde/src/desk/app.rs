@@ -38,6 +38,7 @@ pub struct Capabilities {
     pub system: bool,
     pub display: bool,
     pub audio: bool,
+    pub power: bool,
     #[serde(flatten)]
     pub services: HashMap<String, Value>,
 }
@@ -254,7 +255,7 @@ impl Look {
             "displays": [{
                 "id": o.name, "name": name, "builtin": builtin, "primary": true, "enabled": true,
                 "mode": mode, "modes": [mode], "scale": self.scale, "scales": [1, 2, 3],
-                "brightness": null, "rotation": 0,
+                "brightness": if builtin { acde_runtime::backlight_brightness() } else { None }, "rotation": 0,
             }],
             "nightLight": null,
         })

@@ -456,6 +456,7 @@ runtime 侧是 shell `link.rs` 的 `Link` (wayland-client, 读线程 `acde-shell
 | `inject_move` / `inject_motion` / `inject_button` / `inject_wheel` / `inject_key` | `inject` | type 在 Broker 侧先解析成枚举 |
 | `animate` | `animate` | `given` 位标记给了哪些值 (没给的不变, 没给 easing 用缺省) |
 | `launch` → `acde_shell_result` | `launch` | argv、env (key=value) 是以 NUL 结尾的串首尾相接; 合成器起程序 (它的 `WAYLAND_DISPLAY`, 去掉 `DISPLAY`), 回 `done(pid)` |
+| `set_screens` | `Link::set_screens` | 屏幕开关 (DPMS), 见「电源和电池」; 合成器在下一次输入时自己打开 |
 | `quit` | `quit` | Broker 先停读线程再发, 然后等合成器线程拆完 (同进程时; 分进程时由主进程等) |
 
 事件一种一个: `output`、`window_open`、`window_close`、`window_title`、`window_fullscreen(fullscreen)` (→ `windowfullscreen` /
@@ -784,7 +785,7 @@ acde-base 不认识它们.
 ## 本机信息 (`acde:system`)
 
 给系统设置一类的页面用 (acde-dopame 的「关于本机」「存储」「时间」): 桌面全有, 应用要清单的 `system: true`; 桌面包自己的应用 (包里有
-`desktops`, 照 acdert 的「系统应用」) 不写也有 `system`、`display` 和 `audio` (Broker `apps.ts` 的 `AppRegistry.SYSTEM_APP`: acdert 的 SDK 校验不认这些键,
+`desktops`, 照 acdert 的「系统应用」) 不写也有 `system`、`display`、`audio` 和 `power` (Broker `apps.ts` 的 `AppRegistry.SYSTEM_APP`: acdert 的 SDK 校验不认这些键,
 acde-dopame 的清单写不进去). 实现在 crates/runtime
 `system.rs` (`system_call(SysCall)`, 阻塞, 由 crates/acde `system.rs` 放到 `acde-system` 线程上跑; 内核态窗口走 SYSTEM 接口的
 `system.<方法>`), JS 侧 `isolate.ts` 加上 `on`. 方法 (都返回 promise; 类型 acde-api `AcdeSystem`):
@@ -806,9 +807,10 @@ acde-dopame 的清单写不进去). 实现在 crates/runtime
 「保留」就用 `configure` 改回原来的值). 权限同 `acde:system` (`display`). 现在只能改主输出的**整数缩放** (1、2、3):
 
 - `state()`: `{displays, nightLight: null}`, 一块主输出 `{id: 输出名, name: EDID 的厂商和型号 (没有时是输出名), builtin (eDP / LVDS / DSI),
-  primary, enabled, mode {width, height, refresh (Hz)}, modes: [当前的], scale, scales: [1, 2, 3], brightness: null, rotation: 0}`.
+  primary, enabled, mode {width, height, refresh (Hz)}, modes: [当前的], scale, scales: [1, 2, 3], brightness (内置屏是背光的 0..1, 见「电源和电池」, 别的是 null), rotation: 0}`.
   `configure(id, {scale})` 经 `natives.desk.setScale` → `acde_shell.set_scale(输出名, 缩放)`; patch 里别的键 (mode、rotation …) 和
-  `setBrightness` / `setNightLight` 都 reject (`code 'unsupported'`, 501). `on('changed', fn)`: 输出变了时 `Desk` 给所有 isolate 发
+  `setNightLight` 都 reject (`code 'unsupported'`, 501); `setBrightness(id, 0..1)` 经 `natives.desk.setBrightness` 调 `acde:power` 的同一个背光
+  (logind), 只对 brightness 不是 null 的 (内置屏) 有效, 别的 501, 改完给所有 isolate 发 `display`. `on('changed', fn)`: 输出变了时 `Desk` 给所有 isolate 发
   `{type: 'display', state}`.
 - 合成器 (crates/shell `compositor/outputs.rs`, `mod.rs` `set_output_scale`): 改那块输出的 `Scale::Integer`, 重排输出位置, 主输出的
   canvas 按「canvas 创建后不变」**重建** (`WindowTable::replace_canvas`: 窗口、z 序、焦点搬过去, `fullscreen` 铺满新 canvas,
@@ -839,6 +841,49 @@ crates/acde `sound.rs` 绑成 `natives.sound` (每次调用一条线程, 内核�
 - `setDefault(id)`、`setVolume(id, 0..1.5)` (保持声道比例)、`setMuted(id, on)`、`setBalance(id, -1..1)`、`setPort(id, port)`、
   `setProfile(card, profile)`、`moveStream(id, device | null)` (null 是跟默认设备). 失败 reject (message 是原因).
 - `on('changed', fn)`: 有变化 (80 ms 内合并) 时收到新的 `state()`; 返回退订函数.
+
+## 电源和电池 (`acde:power`)
+
+照 KDE 的「节能」(PowerDevil 的 KCM 和守护进程) 和电池小部件, 界面在 acde-dopame 设置的「电源和电池」. 权限: 桌面全有, 应用要清单的
+`power: true`, 桌面包自己的应用不写也有 (`AppRegistry.SYSTEM_APP`). 实现在 crates/runtime `power/` (`Power`: 一个 runtime 一份, 在 `Desk` 的
+`System` 里; 设置、D-Bus、`acde-power` 线程), crates/acde `power.rs` 绑成 `natives.power` (调用放到 `acde-power-call` 线程; 内核态窗口走
+SYSTEM 的 `power.<方法>`), isolate.ts 的 `powerModule` 把 `watch` 变成 `on`. 类型 acde-api `AcdePower`.
+
+- 读: UPower (`OnBattery`、`LidIsPresent` / `LidIsClosed`; 电池的 Percentage、State、TimeToEmpty / TimeToFull、`Capacity` 当健康度、EnergyRate;
+  几块电池时 `battery` 是 DisplayDevice 的汇总, `batteries` 逐块), power-profiles-daemon (`org.freedesktop.UPower.PowerProfiles`, 没有再试
+  `net.hadess.PowerProfiles`), logind (`Can*`、block 模式的 sleep / idle inhibitor 列成「挡着睡眠的程序」), 背光 `/sys/class/backlight`
+  (firmware 先于 platform 先于 raw). UPower 和 ppd 的属性变了 (250 ms 合并) 给所有 `on('changed')` 发新的 state.
+- 写都不要 root: 电源模式写 ppd 的 `ActiveProfile`; 亮度经 logind `Session.SetBrightness` (最低 1%, 不会黑屏); 充电上限: 电池的
+  `charge_control_end_threshold` 可写时直接写 (起点不小于终点时先把起点调到终点减 5), 否则 UPower 支持时 `EnableChargeThreshold` (只能开关,
+  上限是 UPower 的), 都不行就 reject (KDE 用 KAuth 的 root helper, 这里没有).
+- 设置存 `$XDG_CONFIG_HOME/acde/power.json`, 组和键照 `powerdevilrc`: `AC` / `Battery` / `LowBattery` 各有 `Display` (`DimDisplayWhenIdle`、
+  `DimDisplayIdleTimeoutSec`、`TurnOffDisplayWhenIdle`、`TurnOffDisplayIdleTimeoutSec`、`UseProfileSpecificDisplayBrightness`、`DisplayBrightness`)、
+  `SuspendAndShutdown` (`AutoSuspendAction`、`AutoSuspendIdleTimeoutSec`、`LidAction`、`PowerButtonAction`、`InhibitLidActionWhenExternalMonitorPresent`、
+  `SleepMode`)、`Performance` (`PowerProfile`, 空是不变), `General` 有 `BatteryLowLevel`、`BatteryCriticalLevel`、`BatteryCriticalAction`. 动作是
+  KDE 的数 (0 不做、1 睡眠、2 休眠、8 关机、16 问、32 锁屏、64 息屏), SleepMode 1 待机、2 混合睡眠、3 先待机再休眠. 只写改过的键, 没写的用
+  Plasma 6 的默认: 变暗 / 息屏 / 自动睡眠 AC 5 / 10 / 15 分钟, Battery 2 / 5 / 10, LowBattery 1 / 2 / 5; 自动睡眠在虚拟机或不能睡时是不做;
+  合盖睡眠 (不能睡时息屏), 接着外接显示器时合盖不动; 电源键问; LowBattery 切到省电模式; 低电量 10%, 严重 5%, 严重时能休眠就休眠, 否则关机.
+- 方法 (都返回 promise): `state()` (`{onBattery, battery, batteries, lid, profile, profiles, degraded, screenOffSeconds, sleepSeconds, current,
+  settings, can, brightness, inhibitors, policy}`, `screenOffSeconds` / `sleepSeconds` 是现在这个方案的), `setProfile(p)`, `configure(patch)`
+  (`{ac?, battery?, lowBattery?: 部分 PowerPolicy, lowLevel?, criticalLevel?, criticalAction?}`, 不认识的键和值 reject), `setScreenOff(s | null)` /
+  `setSleep(s | null)` (改现在这个方案), `suspend()` / `hibernate()`, `setBrightness(0..1)`, `setChargeLimit(50..100 | null)`;
+  `on('changed' | 'prompt' | 'critical', 处理函数)`.
+- **谁执行**: 策略在 runtime 的 `acde-power` 线程上 (像 PowerDevil 是会话里的守护进程), 只在自己的会话里: Broker 在 `Main.session()` 且不是
+  登录页、不是 `acde window` 时调 `desk.startPower()`; 嵌套和 RDP 后端只存不执行 (`state().policy` 为 false), 登录页的合盖和电源键归 logind.
+  - 空闲: 用合成器已有的 ext-idle-notify (smithay, 输入时 `activity()`): runtime 的 acde_shell 连接 (`Link::set_idle`) 也绑它, 每个超时一个
+    notification, 事件是 `Notice::Idle {index, idle}`, 所以 Wayland 的 idle-inhibit (放视频) 照样挡住; 到点时再看 logind 的 `BlockInhibited`
+    有没有 `idle`. 变暗: 背光调到当前的 30%, 再有输入调回. 息屏: acde_shell `set_screens(0)` → 合成器 DRM 后端每块输出 `DrmCompositor::clear`
+    (DPMS 关, 不出帧、不发 frame 回调), 任何输入 (`activity()`) 时合成器自己打开、整屏重画; RDP / 嵌套后端不理. 自动睡眠和其他动作走 logind
+    (`Suspend` / `HybridSleep` / `SuspendThenHibernate` 按 SleepMode, `Hibernate`, `PowerOff`, `interactive` 为 false; 锁屏是 `Session.Lock`).
+  - 合盖和电源键: 策略开始时拿 logind 的 `handle-power-key:handle-lid-switch` block inhibitor (runtime 死了 fd 跟着关, logind 接回去).
+    合盖看 UPower 的 `LidIsClosed` 从开到合, logind 的 `Docked` 为真且没开「外接显示器也这样」时不动; 电源键是合成器里 session 级的快捷键
+    `XF86PowerOff` (owner 0), `Desk` 截下来交给策略. 「问我」给所有拿着 acde:power 的 isolate 发 `prompt`, Dopame 的桌面打开系统菜单.
+  - 方案: 插着电是 AC, 用电池是 Battery, 电量不高于 `BatteryLowLevel` 是 LowBattery; 换方案 (或改了设置) 时设电源模式 (`PowerProfile` 非空)
+    和亮度 (`UseProfileSpecificDisplayBrightness`), 重设空闲计时.
+  - 严重低电量: 用电池且不高于 `BatteryCriticalLevel` 时发 `critical {action, seconds: 60}`, 60 秒后还这样就做 `BatteryCriticalAction`.
+- 显示器的亮度: `acde:display` 的内置屏 `brightness` / `setBrightness` 是同一个背光 (`acde_runtime::backlight_brightness()`、`Power::call(SetBrightness)`).
+- 还没有: 锁屏后的息屏时间 (没有锁屏界面)、键盘背光、外接显示器的 DDC/CI 亮度、外设电量、`org.freedesktop.ScreenSaver` /
+  `PowerManagement.Inhibit` (只认 Wayland idle-inhibit 和 logind inhibitor)、睡前暂停媒体、按 KDE 的充电起点单独设.
 
 ## 桌面和窗口 (两个启动位置)
 

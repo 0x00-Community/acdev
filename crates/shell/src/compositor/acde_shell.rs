@@ -326,6 +326,7 @@ impl Compositor {
                 Self::answer(&callback, self.launch(&strings(&argv), &cwd, &env).map(|pid| (pid, 0)).map_err(|e| e.to_string()));
                 return;
             }
+            Request::SetScreens { on } => Command::SetScreens(on != 0),
             Request::Quit => Command::Quit,
         };
         self.on_command(command);

@@ -80,6 +80,9 @@ impl Compositor {
 
     pub fn activity(&mut self) {
         self.layers.idle.notify_activity(&self.seat);
+        if self.screens_off() {
+            self.set_screens(true);
+        }
     }
 }
 

@@ -43,6 +43,7 @@ export interface IsolateDesk {
   desktops(): Promise<{ desktops: DesktopEntry[]; current: string }>
   displays(): Promise<unknown>
   setScale(output: string, scale: number): Promise<void>
+  setBrightness(output: string, value: number): Promise<void>
   chooseDesktop(id: string, remember: boolean): Promise<void>
   openPath(path: string, options: { app?: string; select?: boolean }): Promise<{ app: string; window: number }>
   handlers(path: string): Promise<{ mime: string; handlers: { id: string; label: string; icon: string; default: boolean }[] }>
@@ -185,6 +186,7 @@ export interface BrokerDesk {
   inspectRun(steps: readonly { ref: string; action: string; text?: unknown }[]): Promise<{ ok: boolean; text: string }>
   inspectOpen(name: string): Promise<{ ok: boolean; text: string }>
   warmAccessibility(): void
+  startPower(): void
   quit(): void
 }
 

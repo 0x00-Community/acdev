@@ -414,7 +414,7 @@ export class Modules {
     }
   }
 
-  #display(desk: Pick<IsolateDesk, 'displays' | 'setScale'>): Record<string, unknown> {
+  #display(desk: Pick<IsolateDesk, 'displays' | 'setScale' | 'setBrightness'>): Record<string, unknown> {
     const unsupported = (what: string) => Promise.reject(Object.assign(new Error(`acde:display: ${what} is not supported here`), { code: 'unsupported', status: 501 }))
     return {
       state: () => desk.displays(),
@@ -425,7 +425,7 @@ export class Modules {
         if (!keys.length) return Promise.resolve()
         return desk.setScale(String(id), Number(patch['scale']))
       },
-      setBrightness: () => unsupported('brightness'),
+      setBrightness: (id: string, value: number) => desk.setBrightness(String(id), Number(value)),
       setNightLight: () => unsupported('night light'),
       on: (type: string, handler: (state: unknown) => void) => {
         if (type !== 'changed') throw new TypeError(`acde:display has no ${String(type)} event`)

@@ -47,6 +47,13 @@ declare module 'acde:audio' {
   export default audio
 }
 
+declare module 'acde:power' {
+  import type { AcdePage } from '@dopame/acde-api'
+  const power: NonNullable<AcdePage['power']>
+  export { power }
+  export default power
+}
+
 declare module 'acde:windows' {
   import type { AcdePage } from '@dopame/acde-api'
   const windows: NonNullable<AcdePage['windows']>

@@ -78,6 +78,7 @@ pub struct DrmTarget {
     libinput: Libinput,
     idle_vblank: bool,
     paused: bool,
+    blank: bool,
 }
 
 impl DrmTarget {
@@ -150,7 +151,7 @@ impl DrmTarget {
         })
         .map_err(|e| e.to_string())?;
 
-        let target = Target::Drm(Box::new(Self { session, manager, screens, libinput, idle_vblank: false, paused: false }));
+        let target = Target::Drm(Box::new(Self { session, manager, screens, libinput, idle_vblank: false, paused: false, blank: false }));
         Ok((Backend::new(renderer, primary, target), render_node))
     }
 
@@ -206,7 +207,7 @@ impl DrmTarget {
 impl Compositor {
     pub fn render_drm(&mut self) {
         let Target::Drm(drm) = &mut self.backend.target else { return };
-        if drm.paused {
+        if drm.paused || drm.blank {
             return;
         }
         let dirty = std::mem::take(&mut self.backend.dirty);
@@ -280,7 +281,35 @@ impl Compositor {
 
     pub fn screens_pending(&self) -> bool {
         let Target::Drm(drm) = &self.backend.target else { return false };
-        !drm.paused && drm.screens.iter().any(|s| s.dirty && !s.presenting)
+        !drm.paused && !drm.blank && drm.screens.iter().any(|s| s.dirty && !s.presenting)
+    }
+
+    pub fn screens_off(&self) -> bool {
+        matches!(&self.backend.target, Target::Drm(drm) if drm.blank)
+    }
+
+    pub fn set_screens(&mut self, on: bool) {
+        let Target::Drm(drm) = &mut self.backend.target else {
+            return log::debug!("屏幕{}: 这个后端没有 DPMS", if on { "打开" } else { "关闭" });
+        };
+        if drm.blank != on {
+            return;
+        }
+        drm.blank = !on;
+        log::info!("屏幕{}", if on { "打开" } else { "关闭 (DPMS)" });
+        for screen in &mut drm.screens {
+            if !on && let Err(e) = screen.surface.with_compositor(|c| c.clear()) {
+                log::warn!("关闭屏幕 {}: {e}", screen.output.name());
+            }
+            screen.dirty = on;
+            screen.presenting = false;
+            screen.queued = None;
+            screen.sampled.clear();
+        }
+        self.backend.presenting = false;
+        if on {
+            self.backend.damaged();
+        }
     }
 
     fn send_dmabuf_feedback(&self, output: &Output, states: &RenderElementStates, feedback: &ScreenFeedback) {
@@ -327,7 +356,7 @@ impl Compositor {
 
     fn drm_watchdog(&mut self) {
         let Target::Drm(drm) = &mut self.backend.target else { return };
-        if drm.paused || !drm.screens.iter().any(|s| s.presenting && s.queued.is_some_and(|t| t.elapsed() > WATCHDOG)) {
+        if drm.paused || drm.blank || !drm.screens.iter().any(|s| s.presenting && s.queued.is_some_and(|t| t.elapsed() > WATCHDOG)) {
             return;
         }
         log::warn!("翻页超过 {WATCHDOG:?} 没完成 (待机唤醒?), 重置 DRM 状态");

@@ -181,6 +181,10 @@ pub fn call(name: &str, a: &mut WireArgs, desk: &Arc<Desk>, me: u32) -> Answer {
             let (output, scale) = (a.str(0), a.f64(1));
             later(move || desk.set_scale(me, &output, scale).map(|()| Value::Null))
         }
+        "setBrightness" => {
+            let (output, value) = (a.str(0), a.f64(1));
+            later(move || desk.set_brightness(me, &output, value).map(|()| Value::Null))
+        }
         "chooseDesktop" => {
             let (id, remember) = (a.str(0), a.bool(1));
             now(null(desk.choose_desktop(me, &id, remember)))

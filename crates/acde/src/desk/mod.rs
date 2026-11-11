@@ -8,6 +8,7 @@ mod inspect;
 mod js;
 pub mod wire;
 mod open;
+mod power;
 mod session;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -143,6 +144,7 @@ struct System {
     networks: acde_runtime::Networks,
     sounds: acde_runtime::Sounds,
     office: Option<acde_runtime::OfficeService>,
+    power: acde_runtime::Power,
 }
 
 pub struct Desk {
@@ -287,7 +289,14 @@ impl Desk {
                 }
                 return;
             }
+            Notice::Idle { index, idle } => {
+                drop(guard);
+                return self.power().idle(index, idle);
+            }
             Notice::Shortcut { owner, key, scope } => {
+                if self.power_key(&key, scope) {
+                    return;
+                }
                 let event = json!({ "type": "shortcut", "window": owner, "key": key, "title": scope.map(Scope::as_str) });
                 let to = if scope == Some(Scope::App) && state.live.contains_key(&owner) { owner } else { 0 };
                 return self.post(state, to, json!({ "type": "events", "events": [event] }));
@@ -403,6 +412,7 @@ impl Desk {
             office: system.office.clone().filter(|_| all || caps.is_some_and(|c| c.office)),
             system: all || caps.is_some_and(|c| c.system),
             sound: (all || caps.is_some_and(|c| c.audio)).then(|| system.sounds.clone()),
+            power: (all || caps.is_some_and(|c| c.power)).then(|| system.power.clone()),
         }
     }
 

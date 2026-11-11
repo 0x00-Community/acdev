@@ -36,6 +36,7 @@ interface IsolateNatives extends Natives {
   readonly network?: object
   readonly system?: object
   readonly sound?: { watch(callback: (state: unknown) => void): void }
+  readonly power?: { watch(callback: (event: { type: string }) => void): void }
   readonly office?: { writePage(key: string, html: string): string }
 }
 
@@ -165,6 +166,7 @@ export default async function boot(natives: IsolateNatives): Promise<void> {
   if (natives.network) modules.value['network'] = natives.network
   if (natives.system) modules.value['system'] = systemModule(natives.system)
   if (natives.sound) modules.value['audio'] = audioModule(natives.sound)
+  if (natives.power) modules.value['power'] = powerModule(natives.power)
   const office = natives.office
   if (office) modules.value['office'] = { ...office, editorPage: async (setup: { api: string; config: unknown }, theme: 'light' | 'dark') => office.writePage(...OfficePage.page(setup, theme)) }
   modules.define(host)
@@ -206,6 +208,38 @@ async function installFrame(url: string, style: 'mac' | 'windows' | null, self: 
     })
   } catch (error) {
     Log.write(Level.Warn, 'acde_host', `window frame ${url}: ${(error as Error)?.message ?? String(error)}`)
+  }
+}
+
+function powerModule(natives: { watch(callback: (event: { type: string }) => void): void }): object {
+  const EVENTS = ['changed', 'prompt', 'critical']
+  const handlers = new Map<string, Set<(value: unknown) => void>>()
+  let watching = false
+  const { watch: _, ...methods } = natives
+  return {
+    ...methods,
+    on(type: string, handler: unknown): () => boolean {
+      if (!EVENTS.includes(type)) throw new TypeError(`acde:power has no ${String(type)} event`)
+      if (typeof handler !== 'function') throw new TypeError('acde:power on: the handler is not a function')
+      if (!watching) {
+        watching = true
+        natives.watch((event) => {
+          const value = event.type === 'changed' ? (event as { state?: unknown }).state : event
+          for (const h of handlers.get(event.type) ?? []) {
+            try {
+              h(value)
+            } catch (error) {
+              reportError(error)
+            }
+          }
+        })
+      }
+      let set = handlers.get(type)
+      if (!set) handlers.set(type, (set = new Set()))
+      const own = (value: unknown) => (handler as (value: unknown) => void)(value)
+      set.add(own)
+      return () => set.delete(own)
+    },
   }
 }
 

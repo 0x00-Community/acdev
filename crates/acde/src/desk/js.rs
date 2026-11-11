@@ -175,6 +175,7 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, desk: A
         "desktops" => desktops,
         "displays" => displays,
         "setScale" => set_scale,
+        "setBrightness" => set_brightness,
         "chooseDesktop" => choose_desktop,
         "openPath" => open_path,
         "handlers" => handlers,
@@ -562,6 +563,14 @@ fn set_scale(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut 
     })
 }
 
+fn set_brightness(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_caller!(scope, |desk, me| {
+        let output = bind::arg_string(scope, &args, 0);
+        let value = args.get(1).number_value(scope).unwrap_or(f64::NAN);
+        later(scope, &mut rv, move || desk.set_brightness(me, &output, value).map(|()| Value::Null))
+    })
+}
+
 fn choose_desktop(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     with_caller!(scope, |desk, me| {
         let (id, remember) = (bind::arg_string(scope, &args, 0), bind::arg_bool(scope, &args, 1));
@@ -697,6 +706,7 @@ pub fn broker_object(scope: &mut v8::PinScope, args: v8::FunctionCallbackArgumen
         "inspectRun" => b_inspect_run,
         "inspectOpen" => b_inspect_open,
         "warmAccessibility" => b_warm_accessibility,
+        "startPower" => b_start_power,
         "quit" => b_quit,
     );
     rv.set(object.into());
@@ -1018,4 +1028,8 @@ fn b_inspect_open(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments,
 
 fn b_warm_accessibility(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
     with_broker!(scope, |desk| desk.warm_accessibility())
+}
+
+fn b_start_power(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    with_broker!(scope, |desk| desk.start_power())
 }

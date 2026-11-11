@@ -108,6 +108,7 @@ pub enum Command {
     SetScale { output: String, scale: i32, reply: mpsc::Sender<Result<(), String>> },
     Unshortcut { combo: String, scope: acde_model::Scope, owner: u32 },
     Connect(UnixStream),
+    SetScreens(bool),
     Quit,
 }
 
@@ -418,6 +419,9 @@ impl Compositor {
     }
 
     fn render(&mut self) {
+        if self.screens_off() {
+            return;
+        }
         if !(self.backend.dirty || self.screens_pending()) || self.backend.presenting || self.render_timer.is_some() {
             return;
         }
@@ -712,6 +716,7 @@ impl Compositor {
                     log::warn!("{e}");
                 }
             }
+            Command::SetScreens(on) => self.set_screens(on),
             Command::Quit => {
                 self.clear_session_env();
                 self.signal.stop();
