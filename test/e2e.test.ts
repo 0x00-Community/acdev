@@ -126,7 +126,7 @@ describe('acde test', () => {
     expect(one.out).toContain(`${selected}\nacde test: 1 file, 1 passed, 0 failed\n`)
     expect(one.started.map((e) => e.headless)).toEqual([null])
     const bail = await acdeTest(s, ['--bail'])
-    expect(bail.out).toContain('acde test: 2 tests ran: 1 passed, 1 failed\n' +
+    expect(bail.out).toContain('acde test: 1 test ran: 0 passed, 1 failed\n' +
       `acde test: 1 file, 0 passed, 1 failed, 1 not run (--bail): ${BROKEN}`)
     writeFileSync(join(s.project, 'e2e/unloadable.e2e.ts'), "import { test } from 'acde/test'\nthrow new Error('no')\n")
     const unloadable = await acdeTest(s, [TASKS, join('e2e', 'unloadable.e2e.ts')])

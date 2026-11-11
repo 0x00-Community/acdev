@@ -271,7 +271,7 @@ describe('acde.config.jsonc', () => {
 
   test('a desktop config grants a service shell modules: the built desktop lists {name, modules}', async () => {
     const dir = join(tmp(), 'mine')
-    expect((await cli(['new', dir, '--template', 'desktop'], tmp())).code).toBe(0)
+    expect((await cli(['new', dir, '--template', 'desktop', '--no-install'], tmp())).code).toBe(0)
     writeFileSync(join(dir, 'clock.js'), "export default async (ctx) => ({ api: { clock: await ctx.import('acde:windows') } })\n")
     writeFileSync(join(dir, 'plain.js'), 'export default () => ({ api: { plain: { now: () => Date.now() } } })\n')
     const config = readFileSync(join(dir, 'acde.config.jsonc'), 'utf8')

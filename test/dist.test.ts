@@ -157,9 +157,8 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(first.code, first.out).toBe(0)
     expect(first.out).toContain(`installed acde 0.0.2 with acdert ${SDK}`)
     for (const file of ['acde-0.0.2.tar.gz', `acdert-host-${SDK}.tar.gz`]) {
-      expect(first.out, 'no terminal: the size, then a line when done').toContain(`downloading ${file} (`)
-      expect(first.out).toContain(`downloaded ${file}`)
-      expect(first.out).toContain(`checking ${file} against its SHA256SUMS`)
+      expect(first.out, 'no terminal: the size first, then the checked file').toContain(`downloading ${file} (`)
+      expect(first.out).toMatch(new RegExp(`${file.replace(/\./g, '\\.')}: \\d+ [KM]B, SHA-256 matches`))
     }
     expect(first.stdout.trimEnd().split('\n').at(-1)).toBe(`  export PATH="${join(home, '.acde', 'bin')}:$PATH"`)
     const runtime = join(home, '.acde', 'bin', 'acdert')
