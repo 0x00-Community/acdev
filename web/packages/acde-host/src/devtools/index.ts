@@ -83,6 +83,10 @@ export class DevToolsPage {
     return false
   }
 
+  emitTo(session: number, domain: string, method: string, params: DevToolsParams): void {
+    if (this.#sessions.has(session)) this.send(session, JSON.stringify({ method: `${domain}.${method}`, params }))
+  }
+
   emit(domain: string, method: string, params: DevToolsParams): void {
     const text = JSON.stringify({ method: `${domain}.${method}`, params })
     for (const session of this.#sessions.values()) if (session.enabled.has(domain)) this.send(session.id, text)

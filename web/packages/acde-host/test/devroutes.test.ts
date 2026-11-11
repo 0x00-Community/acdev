@@ -226,12 +226,14 @@ describe('DOM domain served by the page', () => {
       },
     }
     const sent: Record<string, unknown>[] = []
+    const to: number[] = []
     let handler: ((session: number, text: string | null) => void) | null = null
     const host = {
       devtoolsHandler: (fn: (session: number, text: string | null) => void) => ((handler = fn), 'alpha#1'),
-      devtoolsSend: (_: number, text: string) => void sent.push(JSON.parse(text) as Record<string, unknown>),
+      devtoolsSend: (session: number, text: string) => void (sent.push(JSON.parse(text) as Record<string, unknown>), to.push(session)),
     }
-    DevToolsPage.install(host, (page) => [DomDomain.create(source, (method, params) => page.emit('DOM', method, params)), CssDomain.create(source)])
+    const dom = (page: DevToolsPage) => DomDomain.create(source, (session, method, params) => page.emitTo(session, 'DOM', method, params))
+    DevToolsPage.install(host, (page) => [dom(page), CssDomain.create(source)])
     const ask = async (message: Record<string, unknown>, session = 1) => {
       handler!(session, JSON.stringify(message))
       await new Promise((resolve) => setTimeout(resolve, 0))
@@ -239,7 +241,8 @@ describe('DOM domain served by the page', () => {
     }
     const mutate = (records: DomRecord[]) => changed!(records)
     const end = (session: number) => handler!(session, null)
-    return { document, html, body, title, sent, ask, end, mutate, styles, lookup: () => lookup, observing: () => changed !== null }
+    const events = (session: number) => sent.filter((m, i) => to[i] === session && typeof m['method'] === 'string')
+    return { document, html, body, title, sent, events, ask, end, mutate, styles, lookup: () => lookup, observing: () => changed !== null }
   }
   type Described = { nodeId: number; nodeName: string; attributes?: string[]; childNodeCount: number; children?: Described[]; nodeValue: string }
 
@@ -332,6 +335,47 @@ describe('DOM domain served by the page', () => {
     assert.equal((last['result'] as { nodeIds: number[] }).nodeIds.length, 1)
     const over = await ask({ id: 3, method: 'DOM.getSearchResults', params: { searchId, fromIndex: 0, toIndex: 1001 } })
     assert.equal((over['error'] as { code: number }).code, -32000)
+  })
+
+  test('each session keeps its own expanded nodes and gets only the events for them', async () => {
+    const { document, html, body, title, sent, events, ask, end, mutate, observing } = tree()
+    await ask({ id: 1, method: 'DOM.getDocument', params: { depth: -1 } }, 1)
+    await ask({ id: 1, method: 'DOM.getDocument', params: { depth: 1 } }, 2)
+    sent.length = 0
+    await ask({ id: 2, method: 'DOM.getDocument', params: { depth: 1 } }, 2)
+    const added = new FakeNode(1, 'P')
+    body.append(added)
+    mutate([{ type: 'childList', target: body, addedNodes: [added], removedNodes: [], attributeName: null }])
+    title.attributes = [{ name: 'class', value: 'small' }]
+    mutate([{ type: 'attributes', target: title, addedNodes: [], removedNodes: [], attributeName: 'class' }])
+    assert.deepEqual(
+      events(1).map((m) => m['method']),
+      ['DOM.childNodeInserted', 'DOM.attributeModified'],
+      'getDocument of session 2 did not forget what session 1 expanded',
+    )
+    assert.deepEqual(events(2), [], 'session 2 never expanded html, so body and the h1 are unknown to it')
+    await ask({ id: 3, method: 'DOM.requestChildNodes', params: { nodeId: html.id } }, 2)
+    const pushed = events(2).filter((m) => m['method'] === 'DOM.setChildNodes')
+    assert.deepEqual(pushed.map((m) => (m['params'] as { parentId: number }).parentId), [html.id])
+    assert.equal(events(1).filter((m) => m['method'] === 'DOM.setChildNodes').length, 0, 'session 1 is not told of it')
+    sent.length = 0
+    const p = new FakeNode(1, 'P')
+    body.append(p)
+    mutate([{ type: 'childList', target: body, addedNodes: [p], removedNodes: [], attributeName: null }])
+    assert.deepEqual(events(1).map((m) => m['method']), ['DOM.childNodeInserted'])
+    assert.deepEqual(events(2).map((m) => m['params']), [{ nodeId: body.id, childNodeCount: 3 }])
+    sent.length = 0
+    await ask({ id: 4, method: 'DOM.getDocument', params: { depth: 1 } }, 1)
+    const late = await ask({ id: 5, method: 'DOM.querySelector', params: { nodeId: document.id, selector: 'h1' } }, 1)
+    assert.deepEqual(late['result'], { nodeId: title.id })
+    assert.deepEqual(
+      events(1).filter((m) => m['method'] === 'DOM.setChildNodes').map((m) => (m['params'] as { parentId: number }).parentId),
+      [html.id, body.id],
+      'after its own getDocument session 1 is sent the path again',
+    )
+    end(1)
+    end(2)
+    assert.equal(observing(), false, 'no session left, nothing watched')
   })
 
   test('page changes reach the open tree as DOM events', async () => {

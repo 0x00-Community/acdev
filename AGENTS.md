@@ -367,14 +367,17 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   经同一个 `Remote` 投成 `Posted::Page`, 在页面线程上交给页面装的处理器 (`host.devtoolsHandler(fn)` → 回 frame id 即 web 名; `fn(session, text)`,
   客户端断开时 `fn(session, null)`), 处理器经 `host.devtoolsSend(session, text)` 把回复和事件发回这个客户端. 页面没装处理器时 Rust 直接答 -32601.
   JS 一侧在 acde-host `devtools/`: `DevToolsPage` (只在 `ACDE_DEV` 时由 `worker.ts` 装) 按域分发, 每个客户端一份 `enabled`, 没有自己
-  `enable` / `disable` 的域由它记开关, 没实现的方法答 -32601, `emit(domain, method, params)` 只发给开了这个域的客户端; 域是 `DevToolsDomain`
-  `{name, methods}`. 已有: `Page` (`devtools/page.ts`): `getFrameTree` / `getResourceTree`, 主 frame 的 `id` 和 `loaderId` 是 web 名
+  `enable` / `disable` 的域由它记开关, 没实现的方法答 -32601, `emit(domain, method, params)` 只发给开了这个域的客户端, `emitTo(session, …)` 只发给
+  这一个; 域是 `DevToolsDomain` `{name, methods, closed?}` (`closed(session)`: 客户端断开). 已有: `Page` (`devtools/page.ts`): `getFrameTree` / `getResourceTree`, 主 frame 的 `id` 和 `loaderId` 是 web 名
   (和上下文 auxData 的 `frameId` 一样), `url` 是页面地址, `resources` 还空着. 加一个域: 在 `devtools/` 写一个 `DevToolsDomain`, 在 `worker.ts`
   `DevToolsPage.install` 的列表里加上; 域名不在 `DOMAINS` 里时再加进去 (不加就仍然交给 V8).
   `DOM` (#190, `devtools/dom.ts`, 页面一侧的取数在 `devtools/pagedom.ts`): 只读的元素树. `getDocument` / `requestChildNodes` (发 `setChildNodes`) /
   `describeNode` 的 `nodeId` 和 `backendNodeId` 都是 render 的节点 id (`WebInternals.idOf`, 和 `acde inspect` 的 ref 同一个), 只有空白的文本节点
-  不列. `enable` 或 `getDocument` 之后用页面的 `MutationObserver` (不让页面看到) 推 `childNodeInserted` / `childNodeRemoved` (父节点展开过时;
-  没展开过推 `childNodeCountUpdated`) / `attributeModified` / `attributeRemoved` / `characterDataModified`, 最后一个客户端 `disable` 时停.
+  不列. 哪些节点展开过 (子节点发给了前端) 按客户端 session 各记一份: `getDocument` 只重置自己的, `setChildNodes` 只发给要它的 session,
+  断开或 `disable` 时删掉那份, 所以几个前端各看各的、后连上的也拿得到完整的树. `enable` 或 `getDocument` 之后用页面的 `MutationObserver`
+  (不让页面看到) 逐个 session 推: 父节点在它那里展开过就推 `childNodeInserted` / `childNodeRemoved`, 只是见过 (它的父节点展开过) 推
+  `childNodeCountUpdated`; `attributeModified` / `attributeRemoved` / `characterDataModified` 只推给见过这个节点的 session. 最后一个客户端
+  `disable` 或断开时停.
   编辑类方法 (`setAttributeValue`、`setOuterHTML`、`removeNode` ...) 回 -32000 "read only". `resolveNode` 要 V8 的 objectId, 由 `inspector/page.rs`
   `rewrite` 改写成这个客户端 V8 session 里的 `Runtime.evaluate` (表达式调页面上 `Symbol.for('acde.devtools.node')` 的查找函数, 只在 dev 时装),
   回来的 `result` 改名成 `object` (补 `subtype: 'node'`), 找不到是 -32000.
@@ -384,8 +387,8 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   `'<选择器>' is not a valid selector.` (异常在 acde-host 里接住, 不进页面); 结果里前端没见过的节点, 先沿祖先自上而下给没展开过的推
   `setChildNodes` (同 `requestChildNodes`, `DomDomain.#reveal`). `performSearch` 照 Chrome: 元素名、属性名和属性值、非空白文本里含查询串
   (不分大小写; `"…"` 是整串相等; `<x` 元素名开头, `x>` 结尾, `<x>` 相等), 再并上按 CSS 选择器查到的 (选择器无效就只算文本), 按文档顺序;
-  不支持 XPath. 最多留 1000 个 (多的丢掉, `resultCount` 是留下的数). 结果按客户端 session 存 (`searchId` 是 `<session>.<序号>`), `getSearchResults` 只认本 session 的, 区间越界回 -32000;
-  `discardSearchResults` 或断开 (`DevToolsDomain.closed`) 时删掉.
+  不支持 XPath. 最多留 1000 个 (多的丢掉, `resultCount` 是留下的数). 结果按客户端 session 存 (`searchId` 是 `<session>.<序号>`),
+  `getSearchResults` 只认本 session 的, 区间越界回 -32000; `discardSearchResults` 或断开 (`DevToolsDomain.closed`) 时删掉.
   `Network` (#188, `devtools/network.ts` `NetworkDomain`): fetch 和 XHR. 数据来自 acde-dom 观察点的 `network` (`NetworkObserver`): `Tracked`
   只在 `recording()` 为真 (有客户端 `Network.enable`) 时把请求头、请求体、响应头和收到的每块数据交给它, 没人开时不记录也不复制. 事件
   `requestWillBeSent` / `responseReceived` / `dataReceived` / `loadingFinished` / `loadingFailed` (失败、中止 (`canceled`)、没有 network 能力

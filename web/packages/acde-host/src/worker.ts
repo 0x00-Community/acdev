@@ -156,7 +156,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
       network = new NetworkDomain(devtools, href)
       return [
         PageDomain.create(devtools.frameId, href),
-        DomDomain.create(source, (method, params) => devtools.emit('DOM', method, params)),
+        DomDomain.create(source, (session, method, params) => devtools.emitTo(session, 'DOM', method, params)),
         CssDomain.create(source),
         OverlayDomain.create(PageDom.overlay(page, dom.highlight?.bind(dom))),
         network.domain(),

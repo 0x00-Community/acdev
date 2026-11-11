@@ -37,7 +37,7 @@ export interface DomSource {
 
 export type Quad = [number, number, number, number, number, number, number, number]
 
-type Emit = (method: string, params: DevToolsParams) => void
+type Emit = (session: number, method: string, params: DevToolsParams) => void
 
 const TEXT = 3
 const ELEMENT = 1
@@ -65,7 +65,7 @@ export class DomDomain {
   readonly #source: DomSource
   readonly #emit: Emit
   readonly #sessions = new Set<number>()
-  readonly #expanded = new Set<number>()
+  readonly #expanded = new Map<number, Set<number>>()
   readonly #searches = new Map<number, Map<string, DomNode[]>>()
   #searchSeq = 0
   #stop: (() => void) | null = null
@@ -86,18 +86,18 @@ export class DomDomain {
       enable: (_, session) => domain.#enable(session),
       disable: (_, session) => domain.#disable(session),
       getDocument: (params, session) => domain.#document(params, session),
-      requestChildNodes: (params) => domain.#children(params),
-      describeNode: (params) => ({ node: domain.#describe(domain.#node(params), DomDomain.#depth(params, 0)) }),
+      requestChildNodes: (params, session) => domain.#children(params, session.id),
+      describeNode: (params, session) => ({ node: domain.#describe(domain.#node(params), DomDomain.#depth(params, 0), domain.#known(session.id)) }),
       resolveNode: () => {
         throw new DevToolsError(-32000, 'resolveNode is answered by the runtime')
       },
       getBoxModel: (params) => ({ model: DomDomain.box(source, domain.#node(params)) }),
       pushNodesByBackendIdsToFrontend: (params) => ({ backendNodeIds: params['backendNodeIds'] ?? [] }),
-      querySelector: (params) => {
+      querySelector: (params, session) => {
         const found = domain.#query(params)[0]
-        return { nodeId: found ? domain.#reveal(found) : 0 }
+        return { nodeId: found ? domain.#reveal(found, session.id) : 0 }
       },
-      querySelectorAll: (params) => ({ nodeIds: domain.#query(params).map((node) => domain.#reveal(node)) }),
+      querySelectorAll: (params, session) => ({ nodeIds: domain.#query(params).map((node) => domain.#reveal(node, session.id)) }),
       performSearch: (params, session) => domain.#search(params, session),
       getSearchResults: (params, session) => domain.#results(params, session),
       discardSearchResults: (params, session) => void domain.#searches.get(session.id)?.delete(String(params['searchId'])),
@@ -107,7 +107,7 @@ export class DomDomain {
         throw new DevToolsError(-32000, READ_ONLY)
       }
     }
-    return { name: 'DOM', methods, closed: (session) => void domain.#searches.delete(session) }
+    return { name: 'DOM', methods, closed: (session) => domain.#closed(session) }
   }
 
   static node(source: DomSource, params: DevToolsParams): DomNode {
@@ -148,14 +148,31 @@ export class DomDomain {
     }
   }
 
-  #reveal(node: DomNode): number {
+  #known(session: number): Set<number> {
+    let known = this.#expanded.get(session)
+    if (!known) this.#expanded.set(session, (known = new Set()))
+    return known
+  }
+
+  #closed(session: number): void {
+    this.#searches.delete(session)
+    this.#expanded.delete(session)
+    this.#sessions.delete(session)
+    if (this.#sessions.size === 0) {
+      this.#stop?.()
+      this.#stop = null
+    }
+  }
+
+  #reveal(node: DomNode, session: number): number {
+    const known = this.#known(session)
     const path: DomNode[] = []
     for (let parent = node.parentNode; parent; parent = parent.parentNode) path.unshift(parent)
     for (const parent of path) {
       const id = this.#source.idOf(parent)
-      if (this.#expanded.has(id)) continue
-      this.#expanded.add(id)
-      this.#emit('setChildNodes', { parentId: id, nodes: this.#shown(parent).map((child) => this.#describe(child, 0)) })
+      if (known.has(id)) continue
+      known.add(id)
+      this.#emit(session, 'setChildNodes', { parentId: id, nodes: this.#shown(parent).map((child) => this.#describe(child, 0, known)) })
     }
     return this.#source.idOf(node)
   }
@@ -178,7 +195,7 @@ export class DomDomain {
     if (!(Number.isInteger(from) && Number.isInteger(to) && from >= 0 && from <= to && to <= found.length)) {
       throw new DevToolsError(-32000, 'Invalid search result range')
     }
-    return { nodeIds: found.slice(from, to).map((node) => this.#reveal(node)) }
+    return { nodeIds: found.slice(from, to).map((node) => this.#reveal(node, session.id)) }
   }
 
   static matches(source: DomSource, query: string): DomNode[] {
@@ -230,25 +247,27 @@ export class DomDomain {
   #disable(session: DevToolsSession): void {
     session.enabled.delete('DOM')
     this.#sessions.delete(session.id)
+    this.#expanded.delete(session.id)
     if (this.#sessions.size === 0) {
       this.#stop?.()
       this.#stop = null
-      this.#expanded.clear()
     }
   }
 
   #document(params: DevToolsParams, session: DevToolsSession): unknown {
     if (!this.#sessions.has(session.id)) this.#enable(session)
-    this.#expanded.clear()
-    return { root: this.#describe(this.#source.document(), DomDomain.#depth(params, 2)) }
+    const known = new Set<number>()
+    this.#expanded.set(session.id, known)
+    return { root: this.#describe(this.#source.document(), DomDomain.#depth(params, 2), known) }
   }
 
-  #children(params: DevToolsParams): void {
+  #children(params: DevToolsParams, session: number): void {
     const parent = this.#node(params)
     const id = this.#source.idOf(parent)
-    this.#expanded.add(id)
+    const known = this.#known(session)
+    known.add(id)
     const depth = DomDomain.#depth(params, 1)
-    this.#emit('setChildNodes', { parentId: id, nodes: this.#shown(parent).map((child) => this.#describe(child, depth - 1)) })
+    this.#emit(session, 'setChildNodes', { parentId: id, nodes: this.#shown(parent).map((child) => this.#describe(child, depth - 1, known)) })
   }
 
   #node(params: DevToolsParams): DomNode {
@@ -271,7 +290,7 @@ export class DomDomain {
     return out
   }
 
-  #describe(node: DomNode, depth: number): Record<string, unknown> {
+  #describe(node: DomNode, depth: number, known: Set<number>): Record<string, unknown> {
     const id = this.#source.idOf(node)
     const shown = this.#shown(node)
     const out: Record<string, unknown> = {
@@ -288,8 +307,8 @@ export class DomDomain {
     if (node.nodeType === DOCUMENT) Object.assign(out, { documentURL: node.documentURI ?? '', baseURL: node.baseURI ?? '', xmlVersion: '' })
     if (node.nodeType === DOCUMENT_TYPE) Object.assign(out, { publicId: node.publicId ?? '', systemId: node.systemId ?? '' })
     if (depth > 0 && shown.length) {
-      this.#expanded.add(id)
-      out['children'] = shown.map((child) => this.#describe(child, depth - 1))
+      known.add(id)
+      out['children'] = shown.map((child) => this.#describe(child, depth - 1, known))
     }
     return out
   }
@@ -301,33 +320,42 @@ export class DomDomain {
   }
 
   #changed(records: readonly DomRecord[]): void {
-    for (const record of records) {
-      const target = this.#source.idOf(record.target)
-      if (record.type === 'attributes' && record.attributeName) {
-        const value = record.target.attributes ? Array.from(record.target.attributes).find((a) => a.name === record.attributeName) : undefined
-        if (value) this.#emit('attributeModified', { nodeId: target, name: record.attributeName, value: value.value })
-        else this.#emit('attributeRemoved', { nodeId: target, name: record.attributeName })
-        continue
-      }
-      if (record.type === 'characterData') {
-        this.#emit('characterDataModified', { nodeId: target, characterData: record.target.nodeValue ?? '' })
-        continue
-      }
-      if (record.type !== 'childList') continue
-      if (!this.#expanded.has(target)) {
-        this.#emit('childNodeCountUpdated', { nodeId: target, childNodeCount: this.#shown(record.target).length })
-        continue
-      }
-      for (let i = 0; i < record.removedNodes.length; i++) {
-        const node = record.removedNodes[i]!
-        if (node.nodeType === TEXT && !(node.nodeValue ?? '').trim()) continue
-        this.#emit('childNodeRemoved', { parentNodeId: target, nodeId: this.#source.idOf(node) })
-      }
-      for (let i = 0; i < record.addedNodes.length; i++) {
-        const node = record.addedNodes[i]!
-        if (node.parentNode !== record.target || (node.nodeType === TEXT && !(node.nodeValue ?? '').trim())) continue
-        this.#emit('childNodeInserted', { parentNodeId: target, previousNodeId: this.#previous(node), node: this.#describe(node, 0) })
-      }
+    for (const session of this.#sessions) {
+      const known = this.#expanded.get(session)
+      if (known) for (const record of records) this.#tell(session, known, record)
+    }
+  }
+
+  #tell(session: number, known: Set<number>, record: DomRecord): void {
+    const target = this.#source.idOf(record.target)
+    const parent = record.target.parentNode
+    const seen = record.target.nodeType === DOCUMENT || (parent !== null && known.has(this.#source.idOf(parent)))
+    if (record.type === 'attributes' && record.attributeName) {
+      if (!seen) return
+      const value = record.target.attributes ? Array.from(record.target.attributes).find((a) => a.name === record.attributeName) : undefined
+      if (value) this.#emit(session, 'attributeModified', { nodeId: target, name: record.attributeName, value: value.value })
+      else this.#emit(session, 'attributeRemoved', { nodeId: target, name: record.attributeName })
+      return
+    }
+    if (record.type === 'characterData') {
+      if (seen) this.#emit(session, 'characterDataModified', { nodeId: target, characterData: record.target.nodeValue ?? '' })
+      return
+    }
+    if (record.type !== 'childList') return
+    if (!known.has(target)) {
+      if (seen) this.#emit(session, 'childNodeCountUpdated', { nodeId: target, childNodeCount: this.#shown(record.target).length })
+      return
+    }
+    for (let i = 0; i < record.removedNodes.length; i++) {
+      const node = record.removedNodes[i]!
+      if (node.nodeType === TEXT && !(node.nodeValue ?? '').trim()) continue
+      known.delete(this.#source.idOf(node))
+      this.#emit(session, 'childNodeRemoved', { parentNodeId: target, nodeId: this.#source.idOf(node) })
+    }
+    for (let i = 0; i < record.addedNodes.length; i++) {
+      const node = record.addedNodes[i]!
+      if (node.parentNode !== record.target || (node.nodeType === TEXT && !(node.nodeValue ?? '').trim())) continue
+      this.#emit(session, 'childNodeInserted', { parentNodeId: target, previousNodeId: this.#previous(node), node: this.#describe(node, 0, known) })
     }
   }
 }
