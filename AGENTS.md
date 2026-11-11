@@ -841,6 +841,10 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
   联接出 root (源或目标)、源本身是链接、文件夹里有链接 (先整棵查一遍, 复制中途变成链接也停, 删掉已复制的部分)、把文件夹复制进它自己, 都是 `EINVAL`.
 
 打开文件一律不跟随符号链接 (unix `O_NOFOLLOW | O_NONBLOCK`, 不会卡在 FIFO 上; Windows `FILE_FLAG_OPEN_REPARSE_POINT` 再查是不是链接).
+读写、建、删、改名都先打开父文件夹 (`fs/beneath.rs` `Dir`) 再对其中的名字操作, 检查和使用之间换掉中间文件夹也出不了 root: Linux `openat2`
+(`RESOLVE_BENEATH`, root 内的链接照常可走, 出 root 是 `EXDEV` → `EINVAL`), 之后经 `/proc/self/fd/<fd>/<名字>` 和 `renameat2(RENAME_NOREPLACE)`;
+Windows 打开父文件夹 (不给 `FILE_SHARE_DELETE`, 开着时改不了名、删不掉), 用 `GetFinalPathNameByHandleW` 查最终路径在 root 里 (不分大小写), 改名用不带
+`MOVEFILE_REPLACE_EXISTING` 的 `MoveFileExW`; 其他 unix (macOS) 还是先 `canonicalize` 再按路径用 (没验证). 改名不会覆盖同时出现的同名项 (`EEXIST`).
 
 **拖放不再授权** (#69): 系统拖放只交给页面 `File` 和只读句柄, 不记一次性授权, 也不往 `text/uri-list` / `text/plain` 里放绝对路径;
 Linux 会话 (`crates/window` `drop_performed`) 有本地文件时同样去掉这两项, 路径只经 `Event.files` 交给页面宿主.

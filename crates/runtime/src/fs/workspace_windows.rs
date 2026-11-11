@@ -231,3 +231,65 @@ fn windows_desktop_override_distinguishes_disk_unc_and_device_paths() {
         assert!(windows_directory(input).is_none(), "accepted {input:?}");
     }
 }
+
+fn junction(at: &Path, target: &Path) {
+    let status = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "New-Item -ItemType Junction -Path $env:ACDE_TEST_JUNCTION -Target $env:ACDE_TEST_TARGET -ErrorAction Stop | Out-Null",
+        ])
+        .env("ACDE_TEST_JUNCTION", at)
+        .env("ACDE_TEST_TARGET", target)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn a_folder_swapped_for_a_junction_after_the_check_is_refused() {
+    let s = Scratch::new();
+    let root = PathBuf::from(&s.root.path);
+    let outside = s.path.join("outside");
+    fs::create_dir_all(outside.join("b")).unwrap();
+    fs::write(outside.join("b/file.txt"), "outside").unwrap();
+    let setup = |n: usize| {
+        let (a, old) = (root.join("a"), root.join(format!("a-old-{n}")));
+        if a.exists() {
+            fs::remove_dir(&a).unwrap();
+        }
+        fs::create_dir_all(a.join("b")).unwrap();
+        fs::write(a.join("b/file.txt"), "inside").unwrap();
+        let outside = outside.clone();
+        beneath::hook::before_open(move || {
+            fs::rename(&a, &old).unwrap();
+            junction(&a, &outside);
+        });
+    };
+    let cases: [(&str, &dyn Fn() -> Outcome<()>); 5] = [
+        ("read", &|| WorkspaceFs::read_text_in(&s.root, "a/b/file.txt").map(drop)),
+        ("write", &|| WorkspaceFs::write_file_in(&s.root, "a/b/file.txt", b"changed", &WriteOptions::default()).map(drop)),
+        ("mkdir", &|| WorkspaceFs::mkdir_in(&s.root, "a/b/made", &MkdirOptions::default()).map(drop)),
+        ("rename", &|| WorkspaceFs::rename_in(&s.root, "a/b/file.txt", "a/b/moved.txt").map(drop)),
+        ("remove", &|| WorkspaceFs::remove_in(&s.root, "a/b/file.txt")),
+    ];
+    for (n, (name, run)) in cases.into_iter().enumerate() {
+        setup(n);
+        assert_eq!(answer(run()), (400, "EINVAL"), "{name}");
+    }
+    let _ = fs::remove_dir(root.join("a"));
+    assert_eq!(fs::read_to_string(outside.join("b/file.txt")).unwrap(), "outside");
+    assert_eq!(fs::read_dir(outside.join("b")).unwrap().count(), 1);
+}
+
+#[test]
+fn a_rename_never_replaces_a_name_that_appears_meanwhile() {
+    let s = Scratch::new();
+    let root = PathBuf::from(&s.root.path);
+    fs::write(root.join("a.txt"), "a").unwrap();
+    let late = root.join("b.txt");
+    beneath::hook::before_open(move || fs::write(&late, "late").unwrap());
+    assert_eq!(answer(WorkspaceFs::rename_in(&s.root, "a.txt", "b.txt")), (409, "EEXIST"));
+    assert_eq!(fs::read_to_string(root.join("b.txt")).unwrap(), "late");
+}
