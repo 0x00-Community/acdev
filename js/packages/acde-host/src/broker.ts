@@ -27,6 +27,7 @@ export interface BrokerShell {
   stats(reset?: boolean): Record<string, unknown>
   windows(): ShellWindow[]
   inject(event: InjectEvent): void
+  screenshot(path?: string): Promise<{ path: string; width: number; height: number }>
   quit(): void
   readonly socketName: string
 }
@@ -152,6 +153,7 @@ export class Broker {
       stats: (reset) => desk.stats(reset),
       windows: () => desk.windows(),
       inject: (event) => desk.inject(event),
+      screenshot: (path) => desk.screenshot(path),
       quit: () => desk.quit(),
       socketName: desk.socketName,
     }

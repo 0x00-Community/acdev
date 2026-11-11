@@ -166,6 +166,7 @@ export interface BrokerDesk {
   windows(): ShellWindow[]
   stats(reset?: boolean): Record<string, unknown>
   inject(event: InjectEvent): void
+  screenshot(path?: string): Promise<{ path: string; width: number; height: number }>
   startProgram(argv: readonly string[], options?: { cwd?: string; env?: Record<string, string> }): number
   children(): number[]
   ask(window: number, kind: 'inspect' | 'debug.eval' | 'debug.stats', payload: unknown): Promise<unknown>

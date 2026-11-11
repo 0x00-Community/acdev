@@ -1640,7 +1640,7 @@ xdg-desktop-portal Settings 的 `org.freedesktop.appearance` `color-scheme` (run
 Unicode 键和剪贴板、跟着客户端改尺寸、多个客户端.
 
 **调试运行中的会话** (`ACDE_DEBUG_DIR=<目录>`): 放进去的每个 `<name>.mjs` 由 Broker import, 默认导出被调用, 参数是 `DebugApi`
-(`src/debug.ts`): `broker`, `shell` (`inject`, `stats` …), `isolate(name, code)` (在一个 isolate 里求值, 结果结构化克隆回来), `stats(reset?)`,
+(`src/debug.ts`): `broker`, `shell` (`inject`, `stats`, `screenshot(path?)` …: 合成器离屏画一遍主输出存 PNG, 和桌面按 PrintScreen 同一条路, 不读 DRM 帧缓冲), `isolate(name, code)` (在一个 isolate 里求值, 结果结构化克隆回来), `stats(reset?)`,
 `sleep`, `readText`, `readDir`. 结果写到 `<name>.out`. `packaging/qemu/drive.sh` 是它的命令行.
 
 #### 启动标记

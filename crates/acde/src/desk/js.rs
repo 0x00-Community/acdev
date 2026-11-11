@@ -667,6 +667,7 @@ pub fn broker_object(scope: &mut v8::PinScope, args: v8::FunctionCallbackArgumen
         "windows" => b_windows,
         "stats" => b_stats,
         "inject" => b_inject,
+        "screenshot" => b_screenshot,
         "startProgram" => b_start_program,
         "children" => b_children,
         "ask" => b_ask,
@@ -837,6 +838,13 @@ fn b_stats(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv
     with_broker!(scope, |desk| {
         let reset = bind::arg_bool(scope, &args, 0);
         rv.set(offload::json(scope, &stats_json(&desk.link().stats(reset))))
+    })
+}
+
+fn b_screenshot(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    with_broker!(scope, |desk| {
+        let path: Option<String> = arg(scope, &args, 0);
+        later(scope, &mut rv, move || desk.screenshot(path))
     })
 }
 
