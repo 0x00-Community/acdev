@@ -5,6 +5,8 @@ artifacts=$1
 version=$2
 out=$3
 here=$(dirname -- "$0")
+. "$here/targets.sh"
+targets=$(release_targets)
 repo=$(cd -- "$here/../.." && pwd)
 sdk="$repo/web/packages/acde-api"
 mkdir -p "$out"
@@ -22,9 +24,8 @@ pack() {
   fi
 }
 
-for entry in "x86_64-unknown-linux-gnu:" "aarch64-apple-darwin:" "x86_64-apple-darwin:" "x86_64-pc-windows-msvc:.exe"; do
-  triple=${entry%%:*}
-  ext=${entry#*:}
+for triple in $targets; do
+  ext=$(target_exe "$triple")
   src="$artifacts/acdert-$triple/acdert-$triple$ext"
   if [ ! -f "$src" ]; then
     echo "::error::missing binary $src" >&2

@@ -3,11 +3,11 @@ set -euo pipefail
 
 dir=$1
 version=$2
-required=(
-  "acdert-x86_64-unknown-linux-gnu.tar.xz"
-  "acdert-aarch64-apple-darwin.tar.xz"
-  "acdert-x86_64-apple-darwin.tar.xz"
-  "acdert-x86_64-pc-windows-msvc.tar.gz"
+. "$(dirname -- "$0")/targets.sh"
+targets=$(release_targets)
+required=()
+for triple in $targets; do required+=("$(target_archive "$triple")"); done
+required+=(
   "acdert-host-$version.tar.gz"
   "acde-api-$version.tar.gz"
   "LICENSE"

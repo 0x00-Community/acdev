@@ -1451,8 +1451,12 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
   - `pkgs` 作业 (两边都跑) 把版本目录和 `SHA256SUMS`、`latest.json` 组成 `pkgs` 产物 (保留 30 天). `upload` (OIDC 传 S3)、`release`
     (`gh` 建 GitHub 预发布) 和 `latest` 只在 github.com 上跑; Gitea 上正式发布在 `pkgs` 之后由 `tag` 用 git 推注释标签, 上传 S3、写
     `latest.json`、CloudFront 失效和建 Gitea release 由人手动做 (用 `pkgs` 产物). `gh` 只对 GitHub 用.
-  - Gitea 的 runner 只有 Linux 容器 (`ubuntu-24.04` 标签, 镜像 `docker.gitea.com/runner-images:ubuntu-24.04`); `build` 矩阵里的 macOS 和 Windows
-    要有对应标签的 runner 才能跑, 否则 `stage` 等不到四个 binary. 步骤默认 `bash -e -o pipefail`.
+  - Gitea 默认的 runner 是 Linux 容器 (`ubuntu-24.04` 标签, 镜像 `docker.gitea.com/runner-images:ubuntu-24.04`); `build` 矩阵里的 macOS 和 Windows
+    要有对应标签的 runner 才能跑 (内网: Windows 是 110 上的 w110, `windows-2025`; macOS Intel 是 150, `macos-15-intel`; 没有 `macos-15`). 步骤默认 `bash -e -o pipefail`.
+- 少出目标: 输入 `skip_targets` (逗号分隔的 triple, 默认空 = 四个都出). `plan` 用 `scripts/release/targets.sh` 的 `targets_without` 去掉它们, 输出
+  `targets` 和 `build` 的矩阵 (`fromJSON(needs.plan.outputs.matrix)`, 每个 triple 的 runner 标签也在 `targets.sh`); 写错名字或全去掉都失败. 之后的作业带
+  `RELEASE_TARGETS`, `stage.sh`、`check-stage.sh`、`pkgs` 和 GitHub release 都只要求和收这些目标的压缩包. 缺了某个目标的版本, acde 的安装器
+  在那个平台上报 `acdert <版本> has no build for this platform (<triple>); it is built for: ...` (acde `install.sh` / `install.ps1`).
 - SDK 只以 `pkgs.dopame.ai/acdert/<版本>/acde-api-<版本>.tar.gz` 发布 (用户定, 2026-11-11: 不再发 npm, npm 上已发的版本不动), 只发压缩后的构建,
   见下面 web/packages 的 acde-api. 它不做混淆 (决定, 2026-11-09: 它的 `.d.ts` 是公共接口, 混淆只增加调试难度, 收益低). 别的包不发,
   开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`, acde 新建工程时从这个地址装 SDK.

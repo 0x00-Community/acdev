@@ -18,6 +18,10 @@ on:
         description: 'full or short sha on origin/main to publish or rehearse; a formal release needs it, a rehearsal defaults to the run commit'
         type: string
         default: ''
+      skip_targets:
+        description: 'comma-separated targets not to build or ship this time (e.g. aarch64-apple-darwin); empty builds all four'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -38,6 +42,8 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}
       mode: ${{ steps.plan.outputs.mode }}
+      targets: ${{ steps.plan.outputs.targets }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -53,7 +59,12 @@ jobs:
           PUBLISH_INPUT: ${{ github.event.inputs.publish }}
           COMMIT: ${{ github.event.inputs.commit }}
           SERVER: ${{ github.server_url }}
+          SKIP: ${{ github.event.inputs.skip_targets }}
         run: |
+          . scripts/release/targets.sh
+          targets=$(targets_without "${SKIP:-}")
+          echo "targets=$targets"
+          { echo "targets=$targets"; echo "matrix=$(targets_matrix $targets)"; } >> "$GITHUB_OUTPUT"
           if [ "${PUBLISH_INPUT:-}" = true ]; then publish=true; else publish=false; fi
           if [ "$SERVER" = https://github.com ]; then github=true; else github=false; fi
           echo "publish=$publish github=$github"
@@ -68,12 +79,7 @@ jobs:
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { triple: aarch64-apple-darwin, os: macos-15 }
-          - { triple: x86_64-apple-darwin, os: macos-15-intel }
-          - { triple: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
-          - { triple: x86_64-pc-windows-msvc, os: windows-2025, exe: .exe }
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -186,6 +192,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       VERSION: ${{ needs.plan.outputs.version }}
+      RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -239,6 +246,7 @@ jobs:
     env:
       TAG: ${{ needs.plan.outputs.tag }}
       VERSION: ${{ needs.plan.outputs.version }}
+      RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
@@ -252,8 +260,10 @@ jobs:
         run: scripts/release/check-stage.sh release-stage "$VERSION"
       - name: GitHub release (created once, a re-run replaces the assets)
         run: |
-          files=(acdert-x86_64-unknown-linux-gnu.tar.xz acdert-aarch64-apple-darwin.tar.xz acdert-x86_64-apple-darwin.tar.xz
-            acdert-x86_64-pc-windows-msvc.tar.gz "acdert-host-$VERSION.tar.gz" LICENSE)
+          . scripts/release/targets.sh
+          files=()
+          for triple in $(release_targets); do files+=("$(target_archive "$triple")"); done
+          files+=("acdert-host-$VERSION.tar.gz" LICENSE)
           level=$(sed -n 's/^export const API_LEVEL = \([0-9][0-9]*\).*/\1/p' web/packages/acde-api/src/runtime/level.js)
           test -n "$level"
           notes="Contract level $level: packages need \"apiLevel\": $level (packages without it, or built for another level, are refused; rebuild them with the current acde).
@@ -273,6 +283,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       VERSION: ${{ needs.plan.outputs.version }}
+      RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
@@ -289,10 +300,9 @@ jobs:
           command -v jq > /dev/null || { sudo apt-get update && sudo apt-get install -y --no-install-recommends jq; }
           scripts/release/check-stage.sh release-stage "$VERSION"
           mkdir -p "pkgs/$VERSION"
-          cp release-stage/acdert-x86_64-unknown-linux-gnu.tar.xz release-stage/acdert-aarch64-apple-darwin.tar.xz \
-            release-stage/acdert-x86_64-apple-darwin.tar.xz release-stage/acdert-x86_64-pc-windows-msvc.tar.gz \
-            "release-stage/acdert-host-$VERSION.tar.gz" release-stage/LICENSE \
-            "release-stage/acde-api-$VERSION.tar.gz" "pkgs/$VERSION/"
+          . scripts/release/targets.sh
+          for triple in $(release_targets); do cp "release-stage/$(target_archive "$triple")" "pkgs/$VERSION/"; done
+          cp "release-stage/acdert-host-$VERSION.tar.gz" release-stage/LICENSE "release-stage/acde-api-$VERSION.tar.gz" "pkgs/$VERSION/"
           (cd "pkgs/$VERSION" && sha256sum -- * > SHA256SUMS)
           scripts/release/check-stage.sh "pkgs/$VERSION" "$VERSION"
           files=$(cd "pkgs/$VERSION" && ls | jq -R . | jq -sc .)
@@ -318,6 +328,7 @@ jobs:
       id-token: write
     env:
       VERSION: ${{ needs.plan.outputs.version }}
+      RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
@@ -375,6 +386,7 @@ jobs:
       id-token: write
     env:
       VERSION: ${{ needs.plan.outputs.version }}
+      RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
     steps:
       - uses: christopherhx/gitea-download-artifact@89488ecb8305ea3f5c6b0e4b000a2d28388fbda5 # v7
         with:
