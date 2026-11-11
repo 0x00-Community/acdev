@@ -38,3 +38,5 @@ inherits = "release"
 debug = "line-tables-only"
 split-debuginfo = "packed"
 strip = "symbols"
+lto = "fat"
+codegen-units = 1
