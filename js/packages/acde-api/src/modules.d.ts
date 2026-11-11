@@ -68,6 +68,13 @@ declare module 'acde:devices' {
   export default devices
 }
 
+declare module 'acde:bluetooth' {
+  import type { AcdePage } from '@dopame/acde-api'
+  const bluetooth: NonNullable<AcdePage['bluetooth']>
+  export { bluetooth }
+  export default bluetooth
+}
+
 declare module 'acde:windows' {
   import type { AcdePage } from '@dopame/acde-api'
   const windows: NonNullable<AcdePage['windows']>

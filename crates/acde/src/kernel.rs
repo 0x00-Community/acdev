@@ -502,6 +502,7 @@ impl Driver {
                         "audio": self.grants.sound.is_some(),
                         "power": self.grants.power.is_some(),
                         "devices": self.grants.devices.is_some(),
+                        "bluetooth": self.grants.bluetooth.is_some(),
                     },
                 })))
             }
@@ -535,6 +536,7 @@ impl Driver {
             Some(("sound", method)) => g.sound.as_ref().map(|s| crate::sound::wire(s, method, a, events)),
             Some(("power", method)) => g.power.as_ref().map(|p| crate::power::wire(p, method, a, events)),
             Some(("devices", method)) => g.devices.as_ref().map(|d| crate::devices::wire(d, method, a, events)),
+            Some(("bluetooth", method)) => g.bluetooth.as_ref().map(|b| crate::bluetooth::wire(b, method, a, events)),
             Some(("ime", method)) => Some(crate::surface::ime_wire(&mut self.imes, method, a, events)),
             _ => None,
         };

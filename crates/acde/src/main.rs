@@ -26,6 +26,7 @@ mod isolate;
 mod network;
 mod system;
 mod devices;
+mod bluetooth;
 #[cfg(target_os = "linux")]
 mod sound;
 #[cfg(target_os = "linux")]

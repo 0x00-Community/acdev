@@ -44,6 +44,7 @@ pub struct Grants {
     pub sound: Option<acde_runtime::Sounds>,
     pub power: Option<acde_runtime::Power>,
     pub devices: Option<acde_runtime::Devices>,
+    pub bluetooth: Option<acde_runtime::Bluetooths>,
 }
 
 impl Grants {
@@ -71,6 +72,9 @@ impl Grants {
         }
         if let Some(devices) = self.devices {
             crate::devices::install(scope, natives, devices);
+        }
+        if let Some(bluetooth) = self.bluetooth {
+            crate::bluetooth::install(scope, natives, bluetooth);
         }
     }
 }
@@ -228,6 +232,7 @@ impl Spec {
         crate::sound::clear();
         crate::power::clear();
         crate::devices::clear();
+        crate::bluetooth::clear();
         crate::office::clear();
         crate::own::clear();
         crate::desk::clear();

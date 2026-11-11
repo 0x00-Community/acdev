@@ -41,6 +41,7 @@ pub struct Capabilities {
     pub input: bool,
     pub power: bool,
     pub devices: bool,
+    pub bluetooth: bool,
     #[serde(flatten)]
     pub services: HashMap<String, Value>,
 }

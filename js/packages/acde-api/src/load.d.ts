@@ -11,6 +11,7 @@ export interface AcdeModules {
   readonly input: NonNullable<AcdePage['input']>
   readonly power: NonNullable<AcdePage['power']>
   readonly devices: NonNullable<AcdePage['devices']>
+  readonly bluetooth: NonNullable<AcdePage['bluetooth']>
   readonly windows: NonNullable<AcdePage['windows']>
   readonly apps: NonNullable<AcdePage['apps']>
   readonly desktop: NonNullable<AcdePage['desktop']>

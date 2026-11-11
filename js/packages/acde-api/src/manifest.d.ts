@@ -76,6 +76,7 @@ export interface Capabilities {
   readonly input?: boolean
   readonly power?: boolean
   readonly devices?: boolean
+  readonly bluetooth?: boolean
   readonly [service: string]: unknown
 }
 

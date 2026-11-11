@@ -1,4 +1,5 @@
 mod atspi;
+mod bluetooth;
 mod bus;
 mod devices;
 mod failure;
@@ -22,6 +23,7 @@ mod unixhttp;
 mod voice;
 mod xkb;
 pub use atspi::Accessibility;
+pub use bluetooth::{BtCall, Bluetooths};
 pub use bus::DesktopBus;
 pub use devices::{DevCall, Devices, Topic};
 pub use greetd::{GreetUser, Greetd};

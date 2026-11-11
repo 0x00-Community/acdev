@@ -274,7 +274,7 @@ const info = call(Iface.Natives, 'init', []) as {
   place: 'desktop' | 'window'
   window: number
   storage: boolean
-  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean; system?: boolean; audio?: boolean; power?: boolean; devices?: boolean }
+  grants: { fs: boolean; terminal: boolean; network: boolean; office: boolean; system?: boolean; audio?: boolean; power?: boolean; devices?: boolean; bluetooth?: boolean }
 }
 
 function listen(callback: (value: unknown) => void): number {
@@ -356,6 +356,29 @@ const devices = info.grants.devices
         deviceTokens.delete(id)
       },
     })
+  : undefined
+let pairingToken = 0
+const bluetooth = info.grants.bluetooth
+  ? system(
+      'bluetooth',
+      {
+        state: 'a', setPowered: 'a', setDiscoverable: 'a', setName: 'a', scan: 'a', pair: 'a', answer: 'a', connect: 'a',
+        disconnect: 'a', forget: 'a', setTrusted: 'a', setBlocked: 'a', rename: 'a', setOnLogin: 'a',
+      },
+      {
+        watch: (callback: (state: unknown) => void) => {
+          if (typeof callback !== 'function') throw new TypeError('acde.bluetooth.watch: the callback is not a function')
+          call(Iface.System, 'bluetooth.watch', [listen(callback)])
+        },
+        pairing: (callback: ((request: unknown) => void) | null) => {
+          if (typeof callback === 'function') {
+            if (pairingToken) listeners.set(pairingToken, callback)
+            else pairingToken = listen(callback)
+          }
+          call(Iface.System, 'bluetooth.pairing', [typeof callback === 'function' ? pairingToken : 0])
+        },
+      },
+    )
   : undefined
 const office = info.grants.office ? (system('office', { server: 'a', state: 'a', status: 'a', save: 'a', new: 'a', writePage: 'r' }) as { writePage(key: string, html: string): string }) : undefined
 
@@ -481,6 +504,7 @@ const natives = {
   network,
   system: systemNatives,
   sound,
+  bluetooth,
   power,
   devices,
   office,

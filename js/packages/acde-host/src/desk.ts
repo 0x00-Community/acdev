@@ -190,6 +190,7 @@ export interface BrokerDesk {
   inspectRun(steps: readonly { ref: string; action: string; text?: unknown }[]): Promise<{ ok: boolean; text: string }>
   inspectOpen(name: string): Promise<{ ok: boolean; text: string }>
   warmAccessibility(): void
+  restoreBluetooth(): void
   startPower(): void
   startDevices(): void
   quit(): void
