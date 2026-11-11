@@ -211,9 +211,10 @@ export class BunBundler extends Bundler {
   }
 
   protected async server(job: BackendJob, wrapper: string): Promise<void> {
+    const onBun = (process.env['ACDE_HOST_RUNTIME'] || (process.versions['bun'] ? 'bun' : 'node')) === 'bun'
     const result = await Bun.build({
       ...BunBundler.OPTIONS,
-      target: 'node',
+      target: job.dev && onBun ? 'bun' : 'node',
       external: ['bun', 'bun:*'],
       entrypoints: [wrapper],
       outdir: job.out,
