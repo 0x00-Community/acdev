@@ -266,15 +266,15 @@ function open(name: string): { ok: boolean; text: string } {
   return { ok: true, text: 'opened beta' }
 }
 
-const DEVTOOLS_TOKEN = 'fake-token'
+const DEVTOOLS_TOKEN = process.env['FAKE_ACDERT_DEVTOOLS_TOKENLESS'] ? null : 'fake-token'
 let devtoolsPort: Promise<number> | null = null
 
-function devtools(): Promise<{ port: number; token: string }> {
+function devtools(): Promise<{ port: number; token?: string }> {
   devtoolsPort ??= new Promise((resolve, reject) => {
     const server = http.createServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
       record({ devtools: `${url.pathname}${url.search}` })
-      if (url.searchParams.get('token') !== DEVTOOLS_TOKEN) {
+      if (DEVTOOLS_TOKEN !== null && url.searchParams.get('token') !== DEVTOOLS_TOKEN) {
         response.writeHead(401).end()
         return
       }
@@ -283,12 +283,13 @@ function devtools(): Promise<{ port: number; token: string }> {
         return
       }
       const port = (server.address() as { port: number }).port
+      const query = DEVTOOLS_TOKEN ? `?token=${DEVTOOLS_TOKEN}` : ''
       const targets = webs().map((web) => ({
         id: String(web.window),
         type: 'page',
         title: web.title ?? '',
         url: `acde://${web.app ?? 'desktop'}/`,
-        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${web.window}?token=${DEVTOOLS_TOKEN}`,
+        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${web.window}${query}`,
       }))
       response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(targets))
     })
@@ -296,7 +297,7 @@ function devtools(): Promise<{ port: number; token: string }> {
     server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port))
     server.unref()
   })
-  return devtoolsPort.then((port) => ({ port, token: DEVTOOLS_TOKEN }))
+  return devtoolsPort.then((port) => (DEVTOOLS_TOKEN ? { port, token: DEVTOOLS_TOKEN } : { port }))
 }
 
 function webs() {

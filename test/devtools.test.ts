@@ -77,8 +77,28 @@ describe('acde devtools', () => {
     expect(() => Devtools.pick(targets, ['ledger'], 'ledger')).toThrow('no DevTools target for ledger')
   })
 
-  test('acdert must answer with a port and a token', () => {
+  test('acdert answers a port, with or without a token', () => {
     expect(Devtools.endpoint({ port: 9300, token: 'abc' })).toEqual({ port: 9300, token: 'abc' })
-    expect(() => Devtools.endpoint({ port: 9300 })).toThrow('acdert answered devtools without a port and a token')
+    expect(Devtools.endpoint({ port: 9300 })).toEqual({ port: 9300 })
+    expect(Devtools.endpoint({ port: 9300, token: '' })).toEqual({ port: 9300 })
+    expect(() => Devtools.endpoint({ token: 'abc' })).toThrow('acdert answered devtools without a port')
+  })
+
+  test('without a token the list and the socket are used as given', async () => {
+    const asked: [string, RequestInit | undefined][] = []
+    const socket = 'ws://127.0.0.1:9300/devtools/page/7'
+    const page = { id: '7', title: 'Notes', type: 'page', url: 'acde://notes/', webSocketDebuggerUrl: socket }
+    const fetcher = (async (url: string, init?: RequestInit) => {
+      asked.push([url, init])
+      return new Response(JSON.stringify([page]))
+    }) as unknown as typeof fetch
+    expect(await Devtools.targets({ port: 9300 }, fetcher)).toEqual([page])
+    expect(asked[0]![0]).toBe('http://127.0.0.1:9300/json/list')
+    expect(asked[0]![1]?.headers).toBeUndefined()
+    await Devtools.targets({ port: 9300, token: 'abc' }, fetcher)
+    expect(asked[1]![0]).toBe('http://127.0.0.1:9300/json/list?token=abc')
+    expect(asked[1]![1]?.headers).toEqual({ authorization: 'Bearer abc' })
+    expect(Devtools.url(page, { port: 9300 }))
+      .toBe('devtools://devtools/bundled/inspector.html?ws=127.0.0.1%3A9300%2Fdevtools%2Fpage%2F7')
   })
 })

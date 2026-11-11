@@ -6,7 +6,7 @@ import { Acde } from './driver/acde.ts'
 
 export interface Endpoint {
   readonly port: number
-  readonly token: string
+  readonly token?: string
 }
 
 export interface Target {
@@ -46,15 +46,15 @@ export class Devtools {
 
   static endpoint(answer: unknown): Endpoint {
     const { port, token } = (answer ?? {}) as { port?: unknown; token?: unknown }
-    if (!Number.isInteger(port) || typeof token !== 'string' || !token)
-      throw new Error('acdert answered devtools without a port and a token')
-    return { port: port as number, token }
+    if (!Number.isInteger(port)) throw new Error('acdert answered devtools without a port')
+    return typeof token === 'string' && token ? { port: port as number, token } : { port: port as number }
   }
 
   static async targets(endpoint: Endpoint, fetcher: typeof fetch = fetch): Promise<Target[]> {
-    const url = `http://127.0.0.1:${endpoint.port}/json/list?token=${encodeURIComponent(endpoint.token)}`
-    const response = await fetcher(url, {
-      headers: { authorization: `Bearer ${endpoint.token}` },
+    const { token } = endpoint
+    const query = token ? `?token=${encodeURIComponent(token)}` : ''
+    const response = await fetcher(`http://127.0.0.1:${endpoint.port}/json/list${query}`, {
+      ...(token && { headers: { authorization: `Bearer ${token}` } }),
       signal: AbortSignal.timeout(Devtools.LIST_MS),
     })
     if (!response.ok) throw new Error(`the DevTools endpoint answered /json/list with ${response.status}`)
@@ -87,7 +87,7 @@ export class Devtools {
 
   static url(target: Target, endpoint: Endpoint): string {
     const socket = new URL(target.webSocketDebuggerUrl)
-    if (!socket.searchParams.has('token')) socket.searchParams.set('token', endpoint.token)
+    if (endpoint.token && !socket.searchParams.has('token')) socket.searchParams.set('token', endpoint.token)
     const ws = `${socket.host}${socket.pathname}${socket.search}`
     return `${Devtools.FRONTEND}?ws=${encodeURIComponent(ws)}`
   }
