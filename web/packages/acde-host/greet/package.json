@@ -3,6 +3,7 @@
   "private": true,
   "description": "acde as greetd's greeter (acde --greeter): pick a user and a desktop, log in into that desktop",
   "acde": {
+    "apiLevel": 1,
     "desktops": [
       {
         "id": "greet",
