@@ -94,6 +94,36 @@ self.setMenus([
 ])
 ```
 
+## A second window of your app
+
+An app opens another window of itself with `open` from `acde:open`, like any other app. It needs two things in its config: `multiple`, so that a second window is allowed, and its own id in the `open` capability:
+
+```jsonc
+{
+  "id": "notes",
+  "multiple": true,
+  "requests": ["edit-note"],
+  "capabilities": { "open": ["notes"] }
+}
+```
+
+```js
+import { open } from 'acde:open'
+import { window as self } from 'acde:window'
+
+const { window } = await open('notes', { kind: 'edit-note', note: 'todo' })
+
+self.on('request', (request) => {
+  if (request.kind === 'edit-note') load(request.note)
+})
+```
+
+- The new window runs the same `entry`; a request tells it what to show. Like any request it needs a `kind` that the app lists in its own `requests`; `open('notes')` with no request opens a plain window.
+- Without `multiple`, `open('notes', …)` opens nothing new: it resolves with the window that already runs, and that window gets the request.
+- Without `notes` in `open`, the call is rejected with 403 `forbidden` (`Notes may not use open notes (not in its manifest's capabilities)`), even though it is the app's own id.
+- Pass `{ parent: self.id }` as the third argument to make the new window a child of this one (see [Opening apps](open.md#apps)).
+- The windows share storage (`localStorage`, IndexedDB, cookies) but not memory: each is its own page.
+
 ## Browser APIs
 
 | API | In acde |

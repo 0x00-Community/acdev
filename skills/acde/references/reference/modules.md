@@ -337,7 +337,7 @@ interface WifiNetwork {
 
 ## acde:session
 
-Shell module.
+Shell module: only the desktop page and the system apps of its package (with `"session": true` in their capabilities) can import it; an ordinary app cannot, even if it declares `session`.
 
 ```ts
 interface AcdeSession {
