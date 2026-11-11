@@ -8,6 +8,7 @@ import type { ImeEvent, NativeIme } from './ime'
 import type { NativeSurface } from './native'
 import { DevHot } from './devhot'
 import { DevToolsPage } from './devtools'
+import { CssDomain } from './devtools/css'
 import { DomDomain } from './devtools/dom'
 import { PageDom } from './devtools/pagedom'
 import { NetworkDomain } from './devtools/network'
@@ -149,11 +150,13 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const inspect = new PageInspect(page, dom, web, surface.contentOffset)
   if (natives.env['ACDE_DEV']) {
     const href = () => String((page.window as { location?: { href?: unknown } }).location?.href ?? '')
+    const source = PageDom.source(page, dom)
     DevToolsPage.install(host, (devtools) => {
       network = new NetworkDomain(devtools, href)
       return [
         PageDomain.create(devtools.frameId, href),
-        DomDomain.create(PageDom.source(page), (method, params) => devtools.emit('DOM', method, params)),
+        DomDomain.create(source, (method, params) => devtools.emit('DOM', method, params)),
+        CssDomain.create(source),
         network.domain(),
       ]
     })

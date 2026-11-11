@@ -29,7 +29,12 @@ export interface DomSource {
   nodeOf(id: number): DomNode | null
   observe(changed: (records: readonly DomRecord[]) => void): () => void
   expose(lookup: (id: number) => DomNode): void
+  computed(node: DomNode): [string, string][]
+  inline(node: DomNode): [string, string, boolean][]
+  rect(node: DomNode): readonly [number, number, number, number] | null
 }
+
+export type Quad = [number, number, number, number, number, number, number, number]
 
 type Emit = (method: string, params: DevToolsParams) => void
 
@@ -82,6 +87,7 @@ export class DomDomain {
       resolveNode: () => {
         throw new DevToolsError(-32000, 'resolveNode is answered by the runtime')
       },
+      getBoxModel: (params) => ({ model: DomDomain.box(source, domain.#node(params)) }),
       pushNodesByBackendIdsToFrontend: (params) => ({ backendNodeIds: params['backendNodeIds'] ?? [] }),
     }
     for (const name of EDITS) {
@@ -90,6 +96,34 @@ export class DomDomain {
       }
     }
     return { name: 'DOM', methods }
+  }
+
+  static node(source: DomSource, params: DevToolsParams): DomNode {
+    const id = Number(params['nodeId'] ?? params['backendNodeId'])
+    const node = Number.isInteger(id) ? source.nodeOf(id) : null
+    if (!node) throw new DevToolsError(-32000, 'Could not find node with given id')
+    return node
+  }
+
+  static box(source: DomSource, node: DomNode): Record<string, unknown> {
+    const rect = node.nodeType === ELEMENT ? source.rect(node) : null
+    const values = new Map(source.computed(node))
+    if (!rect || values.get('display') === 'none') throw new DevToolsError(-32000, 'Could not compute box model.')
+    const px = (name: string) => Number.parseFloat(values.get(name) ?? '') || 0
+    const sides = (prefix: string, suffix = '') => ['top', 'right', 'bottom', 'left'].map((side) => px(`${prefix}-${side}${suffix}`))
+    const [x, y, width, height] = rect
+    const border = [x, y, x + width, y + height]
+    const inset = ([l, t, r, b]: number[], [top, right, bottom, left]: number[], sign: number) => [
+      l! + sign * left!,
+      t! + sign * top!,
+      r! - sign * right!,
+      b! - sign * bottom!,
+    ]
+    const padding = inset(border, sides('border', '-width'), 1)
+    const content = inset(padding, sides('padding'), 1)
+    const margin = inset(border, sides('margin'), -1)
+    const quad = ([l, t, r, b]: number[]): Quad => [l!, t!, r!, t!, r!, b!, l!, b!]
+    return { content: quad(content), padding: quad(padding), border: quad(border), margin: quad(margin), width, height }
   }
 
   #enable(session: DevToolsSession): void {
@@ -123,10 +157,7 @@ export class DomDomain {
   }
 
   #node(params: DevToolsParams): DomNode {
-    const id = Number(params['nodeId'] ?? params['backendNodeId'])
-    const node = Number.isInteger(id) ? this.#source.nodeOf(id) : null
-    if (!node) throw new DevToolsError(-32000, 'Could not find node with given id')
-    return node
+    return DomDomain.node(this.#source, params)
   }
 
   static #depth(params: DevToolsParams, fallback: number): number {

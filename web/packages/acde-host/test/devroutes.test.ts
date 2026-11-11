@@ -3,6 +3,7 @@ import { describe, test } from 'node:test'
 import { DevRoutes, type DevRoute } from '../src/devroutes.ts'
 import { SourceMaps } from '../src/devlog.ts'
 import { DevToolsPage } from '../src/devtools/index.ts'
+import { CssDomain } from '../src/devtools/css.ts'
 import { DomDomain, type DomNode, type DomRecord } from '../src/devtools/dom.ts'
 import { NetworkDomain } from '../src/devtools/network.ts'
 import { PageDomain } from '../src/devtools/page.ts'
@@ -189,6 +190,16 @@ describe('DOM domain served by the page', () => {
     }
     index(document)
     let changed: ((records: readonly DomRecord[]) => void) | null = null
+    const box: [string, string][] = [
+      ['display', 'block'],
+      ...['top', 'right', 'bottom', 'left'].flatMap((side): [string, string][] => [
+        [`margin-${side}`, '8px'],
+        [`border-${side}-width`, '1px'],
+        [`padding-${side}`, '4px'],
+      ]),
+    ]
+    const styles = new Map<FakeNode, [string, string][]>([[title, [['color', 'rgb(255, 0, 0)'], ...box]]])
+    const rects = new Map<FakeNode, [number, number, number, number]>([[title, [10, 20, 100, 50]]])
     let lookup: ((id: number) => DomNode) | null = null
     const source = {
       document: () => document,
@@ -196,6 +207,9 @@ describe('DOM domain served by the page', () => {
       nodeOf: (id: number) => nodes.get(id) ?? null,
       observe: (fn: (records: readonly DomRecord[]) => void) => ((changed = fn), () => void (changed = null)),
       expose: (fn: (id: number) => DomNode) => void (lookup = fn),
+      computed: (node: DomNode) => styles.get(node as FakeNode) ?? [],
+      inline: (node: DomNode): [string, string, boolean][] => (node === title ? [['color', 'red', true]] : []),
+      rect: (node: DomNode) => rects.get(node as FakeNode) ?? null,
     }
     const sent: Record<string, unknown>[] = []
     let handler: ((session: number, text: string | null) => void) | null = null
@@ -203,14 +217,14 @@ describe('DOM domain served by the page', () => {
       devtoolsHandler: (fn: (session: number, text: string | null) => void) => ((handler = fn), 'alpha#1'),
       devtoolsSend: (_: number, text: string) => void sent.push(JSON.parse(text) as Record<string, unknown>),
     }
-    DevToolsPage.install(host, (page) => [DomDomain.create(source, (method, params) => page.emit('DOM', method, params))])
+    DevToolsPage.install(host, (page) => [DomDomain.create(source, (method, params) => page.emit('DOM', method, params)), CssDomain.create(source)])
     const ask = async (message: Record<string, unknown>) => {
       handler!(1, JSON.stringify(message))
       await new Promise((resolve) => setTimeout(resolve, 0))
       return sent.at(-1)!
     }
     const mutate = (records: DomRecord[]) => changed!(records)
-    return { document, html, body, title, sent, ask, mutate, lookup: () => lookup, observing: () => changed !== null }
+    return { document, html, body, title, sent, ask, mutate, styles, lookup: () => lookup, observing: () => changed !== null }
   }
   type Described = { nodeId: number; nodeName: string; attributes?: string[]; childNodeCount: number; children?: Described[]; nodeValue: string }
 
@@ -278,6 +292,36 @@ describe('DOM domain served by the page', () => {
     assert.deepEqual(title.attributes, [{ name: 'class', value: 'big' }])
     await ask({ id: 3, method: 'DOM.disable' })
     assert.equal(observing(), false)
+  })
+
+  test('computed style and box model come from the page; matched rules are only the inline style', async () => {
+    const { body, title, ask, styles } = tree()
+    const computed = await ask({ id: 1, method: 'CSS.getComputedStyleForNode', params: { nodeId: title.id } })
+    const values = (computed['result'] as { computedStyle: { name: string; value: string }[] }).computedStyle
+    assert.deepEqual(values[0], { name: 'color', value: 'rgb(255, 0, 0)' })
+    const box = await ask({ id: 2, method: 'DOM.getBoxModel', params: { nodeId: title.id } })
+    assert.deepEqual(box['result'], {
+      model: {
+        content: [15, 25, 105, 25, 105, 65, 15, 65],
+        padding: [11, 21, 109, 21, 109, 69, 11, 69],
+        border: [10, 20, 110, 20, 110, 70, 10, 70],
+        margin: [2, 12, 118, 12, 118, 78, 2, 78],
+        width: 100,
+        height: 50,
+      },
+    })
+    const matched = await ask({ id: 3, method: 'CSS.getMatchedStylesForNode', params: { nodeId: title.id } })
+    const result = matched['result'] as { inlineStyle: { cssProperties: unknown[]; cssText: string }; matchedCSSRules: unknown[] }
+    assert.deepEqual(result.inlineStyle.cssProperties, [{ name: 'color', value: 'red', important: true, implicit: false, disabled: false }])
+    assert.equal(result.inlineStyle.cssText, 'color: red !important;')
+    assert.deepEqual(result.matchedCSSRules, [])
+    styles.set(title, [['color', 'rgb(0, 0, 255)']])
+    const again = await ask({ id: 4, method: 'CSS.getComputedStyleForNode', params: { nodeId: title.id } })
+    assert.deepEqual((again['result'] as { computedStyle: unknown[] }).computedStyle, [{ name: 'color', value: 'rgb(0, 0, 255)' }])
+    const unrendered = await ask({ id: 5, method: 'DOM.getBoxModel', params: { nodeId: body.id } })
+    assert.equal((unrendered['error'] as { code: number }).code, -32000)
+    const edit = await ask({ id: 6, method: 'CSS.setStyleTexts', params: { edits: [] } })
+    assert.match((edit['error'] as { message: string }).message, /read only/)
   })
 })
 

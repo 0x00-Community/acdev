@@ -383,6 +383,11 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   被拒都带 `errorText`), `requestId` 是 `Tracked.id`, `loaderId` / `frameId` 是 web 名, 时间戳是 `performance.now()` 秒. 请求完成后整个
   响应体留着给 `Network.getResponseBody` (文字类型且是合法 UTF-8 回文字, 其余 base64; 没有的回 -32000), 每页最多 16 MiB, 超出时丢最早的;
   单个超过上限的不留. WebSocket、EventSource、图片样式表字体 (#189) 还不报.
+  `CSS` (#191, `devtools/css.ts`) 和 `DOM.getBoxModel`: 取数和 `getComputedStyle` / `getBoundingClientRect` 是同一个原生接口 (`dom.computedStyleAll`,
+  `dom.rect`, 经 `pagedom.ts`). `getComputedStyleForNode` 是 stylo 算出的全部值; `getBoxModel` 的 border 是 `rect` (变换后的包围盒),
+  按算出的 `border-*-width` / `padding-*` 往里缩得 padding / content, 按 `margin-*` 往外扩得 margin (`auto` 当 0), `display: none` 或不是元素回 -32000.
+  `getMatchedStylesForNode` 只给 inline style (元素的 `style` 声明, 没有 `styleSheetId`, 不可编辑), `matchedCSSRules` / `inherited` 留空:
+  render 还没有可靠的“哪条规则命中”来源, 不编. 编辑类方法 (`setStyleTexts`、`addRule` ...) 回 -32000 read only. 每次选中都现取, 页面改了样式再选就是新的.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 有 inspector 的 dev 页面 (`host.inspected()`) 里 acde-dom 的 console 还把原参数交给 V8 自带的
   `console` (装上前的 `globalThis.console`, 同名方法, 每次一份), 由它报给 inspector (`Runtime.consoleAPICalled`, 真的 RemoteObject 和调用栈);
