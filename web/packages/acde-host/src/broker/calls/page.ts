@@ -2,6 +2,7 @@ import type { DownloadEvent, NotificationEvent } from '@dopame/acde-api'
 import type { Native, NativeFileChooser } from '../../native'
 import { Downloads } from '../../downloads'
 import { Level, Log } from '../../log'
+import { HostStrings } from '../../language'
 import { basename } from '../../sys/path'
 import type { BrokerShell } from '../types'
 import { Web } from '../web'
@@ -15,6 +16,7 @@ export interface PageHost {
   notifications(): boolean
   devReload(app: string | null): Promise<void>
   toDesktop(event: Record<string, unknown>): void
+  language(): string | undefined
 }
 
 export class PanelCalls {
@@ -86,12 +88,14 @@ export class PageCalls {
         const options = (args[0] ?? {}) as Record<string, unknown>
         const chooser = await this.#fileChooser()
         if (!chooser) return null
-        const label = web.app?.label ?? '桌面'
+        const strings = HostStrings.of(this.#host.language())
+        const label = web.app?.label ?? strings.desktop
         if (method === 'open') {
           const multiple = options['multiple'] === true
-          return chooser.openFile({ title: `${label}: 打开`, multiple, directory: options['directory'] === true, filters: filters(options['filters']) })
+          const directory = options['directory'] === true
+          return chooser.openFile({ title: `${label}: ${strings.open}`, multiple, directory, filters: filters(options['filters']) })
         }
-        return chooser.saveFile({ title: `${label}: 保存`, name: text(options['name'], 255), filters: filters(options['filters']) })
+        return chooser.saveFile({ title: `${label}: ${strings.save}`, name: text(options['name'], 255), filters: filters(options['filters']) })
       }
       case 'download': {
         const [name, type, bytes] = args as [unknown, unknown, unknown]

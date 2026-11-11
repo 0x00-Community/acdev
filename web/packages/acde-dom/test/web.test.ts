@@ -62,7 +62,7 @@ test('storage, location / history, matchMedia, navigator, screen, viewport', asy
     location: ['http://acde.local/index.html#desk', '#desk', '/index.html', 'http://acde.local'],
     history: ['?wp=2', '#setup', 1, 2],
     media: [true, true, false],
-    nav: ['Linux x86_64', 'zh-CN', 'function', false],
+    nav: ['Linux x86_64', 'en-US', 'function', false],
     ua: true,
     view: [1280, 800, 1, 1280],
   })

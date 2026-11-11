@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 
 const PLACES: [(&str, &str); 6] =
-    [("desktop", "桌面"), ("documents", "文档"), ("downloads", "下载"), ("music", "音乐"), ("pictures", "图片"), ("videos", "视频")];
+    [("desktop", "Desktop"), ("documents", "Documents"), ("downloads", "Downloads"), ("music", "Music"), ("pictures", "Pictures"), ("videos", "Videos")];
 
 #[napi_derive::napi(object)]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,7 +40,7 @@ impl Files {
     pub(in crate::fs) fn roots(&self, fs: &WorkspaceFs, owner: &str, granted: Vec<Granted>) -> Outcome<Vec<FinderRoot>> {
         let private = fs.private_dir(owner);
         std::fs::DirBuilder::new().recursive(true).create(&private)?;
-        let mut roots = vec![self.root("private".into(), private, "应用数据", RootSource::Private)];
+        let mut roots = vec![self.root("private".into(), private, "App data", RootSource::Private)];
         for &(name, label) in PLACES.iter().filter(|(name, _)| self.places.contains(name)) {
             let Some(path) = fs.place_dir(name) else { continue };
             let root = self.root(name.into(), path, label, RootSource::Place);
@@ -130,7 +130,7 @@ mod tests {
         let all = Workspace::at(&home.text());
         let app = all.files(Files::new(&[], false), "notes");
         let roots = json(app.call(FsCall::Roots));
-        assert_eq!(roots, json!([{"id": "private", "label": "应用数据", "source": "private", "mode": "writable", "reason": null, "exists": true}]));
+        assert_eq!(roots, json!([{"id": "private", "label": "App data", "source": "private", "mode": "writable", "reason": null, "exists": true}]));
         assert_eq!(write(&app, "private", "a.txt", "mine")["name"], "a.txt");
         assert_eq!(read(&app, "private", "a.txt"), "mine");
         assert!(home.0.join("data").join("acde").join("files").join("notes").join("a.txt").is_file());
@@ -165,7 +165,7 @@ mod tests {
         let ids: Vec<&str> = roots.as_array().unwrap().iter().map(|root| root["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["private", "documents"]);
         assert_eq!(roots[1]["place"], "documents");
-        assert_eq!(roots[1]["label"], "文档");
+        assert_eq!(roots[1]["label"], "Documents");
         assert!(roots[1].get("path").is_none(), "{roots}");
         assert_eq!(read(&app, "documents", "report.txt"), "report");
         assert_eq!(write(&app, "documents", "new.txt", "new")["name"], "new.txt");

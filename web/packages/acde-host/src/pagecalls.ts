@@ -4,6 +4,7 @@ import { existsSync, readFileSync, stat, writeFileSync } from './sys/fs'
 import { basename } from './sys/path'
 import { Level, Log } from './log'
 import { FileTypes } from './mimedb'
+import { HostStrings } from './language'
 
 type Env = WebInternals['env']
 type Chooser = NonNullable<Env['files']>
@@ -42,7 +43,8 @@ type Notice = { title: string; body: string; icon: string; tag: string }
 
 interface FolderSetup {
   readonly picker: FolderPicker | null
-  readonly label: string
+  readonly label: string | null
+  language(): string | undefined
   readonly privateDirectory: (() => string) | null
   readonly notify: boolean
 }
@@ -149,8 +151,9 @@ export class PageCalls implements HandOver {
         if (!picker) return null
         try {
           const writable = mode === 'readwrite'
-          const prompt = writable ? '选择要授权读写的文件夹' : '选择要读取的文件夹'
-          const path = await picker.directory(`${this.#setup.label}: ${prompt}`, writable)
+          const strings = HostStrings.of(this.#setup.language())
+          const prompt = writable ? strings.writeFolder : strings.readFolder
+          const path = await picker.directory(`${this.#setup.label ?? strings.desktop}: ${prompt}`, writable)
           if (!path) return null
           this.#folders.add(path)
           return { name: basename(path) || path, path }

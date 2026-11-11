@@ -361,9 +361,9 @@ impl WorkspaceFs {
         let desktop = self.desktop()?;
         let root = |path: String, label: &str, source: RootSource| FinderRoot::new(path, label, source);
         let downloads = self.downloads().filter(|dir| *dir != desktop && work.as_ref() != Some(dir));
-        let down = downloads.map(|path| root(path, "下载", RootSource::Downloads));
+        let down = downloads.map(|path| root(path, "Downloads", RootSource::Downloads));
         let work = work.filter(|path| *path != desktop).map(|path| root(path, "~/agentos-work", RootSource::Default));
-        Ok([root(desktop, "桌面", RootSource::Desktop)].into_iter().chain(down).chain(work).collect())
+        Ok([root(desktop, "Desktop", RootSource::Desktop)].into_iter().chain(down).chain(work).collect())
     }
 
     pub fn granted(path: &str) -> FinderRoot {

@@ -419,10 +419,10 @@ export class Navigator {
     return this.userAgent.replace(/^Mozilla\//, '')
   }
   get language(): string {
-    return navigatorLanguages.get(this)?.language ?? this.languages[0] ?? 'zh-CN'
+    return navigatorLanguages.get(this)?.language ?? this.languages[0] ?? 'en-US'
   }
   get languages(): readonly string[] {
-    return Object.freeze([...(navigatorLanguages.get(this)?.languages ?? ['zh-CN', 'zh', 'en'])])
+    return Object.freeze([...(navigatorLanguages.get(this)?.languages ?? ['en-US', 'en'])])
   }
   get hardwareConcurrency(): number {
     return this.#options.hardwareConcurrency ?? 4

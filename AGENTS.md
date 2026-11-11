@@ -1165,7 +1165,10 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 
 - **配色** (`appearance.ts`): `ACDE_COLOR_SCHEME`, 否则 portal 的 `org.freedesktop.appearance` `color-scheme`, 变了发给所有 web (`matchMedia` 发 change).
   **语言** (`language.ts`): 按 `LANGUAGE` / `LC_ALL` / `LC_MESSAGES` / `LANG`; 都没设时用系统的首选语言 (sys `languages()`, hostwin `system/languages.rs`:
-  Windows `GetUserPreferredUILanguages`、macOS `NSLocale.preferredLanguages`, Linux 不取); `acde:session` 的 `setLanguage(tag)` 写 `locale.conf` 并发 `languagechange`.
+  Windows `GetUserPreferredUILanguages`、macOS `NSLocale.preferredLanguages`, Linux 读系统区域 `/etc/locale.conf` 或 `/etc/default/locale`, #147);
+  还是没有时 `en-US` (acde-dom 的默认同样是 `en-US`). `acde:session` 的 `setLanguage(tag)` 写 `locale.conf` 并发 `languagechange`.
+  运行时自己的文字跟着页面语言 (acde-host `language.ts` `HostStrings`, 中文或英文, 别的语言用英文): `acde:fs` / `acde:office` 的根的 `label`
+  (runtime 给英文, web 侧按 `source` / `place` 换: 应用数据、桌面、文档…; 选的文件夹用文件夹名不换), 文件夹 / 打开 / 保存选择器的标题.
 - **远程桌面**: `ACDE_BACKEND=rdp` 离屏合成用 RDP 送出 (shell `compositor/rdp.rs`). 要 `ACDE_RDP_USER` / `ACDE_RDP_PASSWORD` 和证书
   (`ACDE_RDP_CERT` / `ACDE_RDP_KEY`, 默认 `$XDG_CONFIG_HOME/agentos/rdp/{cert,key}.pem`); `ACDE_RDP_ADDR` (0.0.0.0:3390)、`ACDE_SIZE`
   (默认 1440x900)、`ACDE_RDP_SECURITY` (tls / nla). 还没有: 光标形状、Unicode 键和剪贴板、跟着客户端改尺寸、多个客户端.

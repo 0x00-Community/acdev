@@ -21,6 +21,7 @@ import { bindNatives, type Natives } from './sys/natives'
 import { process } from './sys/process'
 import { StartupTimeline } from './timeline'
 import { WebAppPage } from './webapp'
+import { HostStrings } from './language'
 
 interface WebNatives extends Natives {
   readonly host: HostNative & {
@@ -56,6 +57,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const { host, port, init } = natives
   Host.label = init.name
 
+  let language = init.languages?.language
   const look = { resources: init.resources, reducedMotion: init.reducedMotion === true, dark: init.dark === true }
   const dom = natives.createDocument(init.width, init.height, init.scale, look)
   const surface = natives.claimSurface(init.token, { frame: init.kind === 'window' ? Frame.height(init.app) : 0 })
@@ -135,6 +137,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
         if (m.width && m.height) self?.moved(WindowSelf.output(m.width, m.height, m.scale ?? self.output.scale, m.workArea))
         return
       case 'languages':
+        language = m.language
         return page.setLanguages({ language: m.language, languages: m.languages })
       case 'colorscheme':
         dom.setDark?.(m.dark === true)
@@ -154,7 +157,8 @@ export default async function boot(natives: WebNatives): Promise<void> {
   }
   const privateDirectory = natives.storage?.privateDirectory ? () => natives.storage!.privateDirectory!() : null
   const notify = init.tier?.capabilities?.statuses.find((s) => s.name === 'notifications')?.state !== 'unsupported'
-  const calls = new PageCalls(page, rpc, init.name, { picker: natives.picker ?? null, label: init.app?.label ?? '桌面', privateDirectory, notify })
+  const setup = { picker: natives.picker ?? null, label: init.app?.label ?? null, language: () => language, privateDirectory, notify }
+  const calls = new PageCalls(page, rpc, init.name, setup)
   web.handOver = calls
   bridge.handOver = calls
   if (self) self.handOver = calls
@@ -174,7 +178,10 @@ export default async function boot(natives: WebNatives): Promise<void> {
     bridge.value['desktop'] = { ...(bridge.value['desktop'] as object), pin: (element: Element, options?: { margin?: number }) => pinned.pin(element, options) }
   }
   if (bridge.value['desktop']) bridge.value['desktop'] = { ...(bridge.value['desktop'] as object), ...Frame.desktop(surface) }
-  if (natives.fs) bridge.value['fs'] = natives.fs
+  if (natives.fs) {
+    const fs = natives.fs as { roots(): Promise<unknown> }
+    bridge.value['fs'] = { ...natives.fs, roots: async () => HostStrings.roots(await fs.roots(), language) }
+  }
   if (natives.terminal) bridge.value['terminal'] = natives.terminal
   if (natives.network) bridge.value['network'] = natives.network
   if (natives.office) {
@@ -186,7 +193,11 @@ export default async function boot(natives: WebNatives): Promise<void> {
       if (!held || held.kind !== 'file') return Promise.reject(new TypeError('acde:office state: not a file handle this page was given'))
       return office.open(held.path, held.writable)
     }
-    bridge.value['office'] = { ...natives.office, state, editorPage }
+    const labelled = async (...args: Parameters<typeof state>) => {
+      const result = (await state(...args)) as { roots?: unknown } | null
+      return result && typeof result === 'object' && 'roots' in result ? { ...result, roots: HostStrings.roots(result.roots, language) } : result
+    }
+    bridge.value['office'] = { ...natives.office, state: labelled, editorPage }
   }
   bridge.define(host)
   const app = self ? new WebAppPage(page, rpc, init.name) : null

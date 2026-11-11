@@ -220,6 +220,7 @@ export class Broker {
       notifications: () => this.#launchable.capabilities.supported('notifications'),
       devReload: (app) => this.devReload(app),
       toDesktop: (event) => this.#toDesktop(event),
+      language: () => this.language.current.language,
     })
     StartupTimeline.mark('shell created')
   }
