@@ -545,7 +545,7 @@ function namedProperties(document: NamedSource): object {
     const quoted = cssString(key)
     return document.querySelector(NAMED_BY_NAME.map((tag) => `${tag}[name=${quoted}]`).join(','))
   }
-  const target = Object.create(EventTarget.prototype) as object
+  const target = Object.create(EventTarget.prototype, { [Symbol.toStringTag]: { value: 'WindowProperties', configurable: true } }) as object
   return new Proxy(target, {
     get: (object, key, receiver) => (key in object ? Reflect.get(object, key, receiver) : (named(key) ?? undefined)),
     has: (object, key) => key in object || named(key) !== null,
