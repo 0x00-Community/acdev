@@ -13,6 +13,9 @@ use v8::inspector::{
 use crate::rt;
 
 mod devtools;
+mod page;
+
+pub use page::{install as page_handler, reply as page_reply};
 
 const GROUP: i32 = 1;
 
@@ -91,6 +94,7 @@ impl ChannelImpl for Forward {
 enum Posted {
     Connect(u32, Sink),
     Message(u32, String),
+    Page(u32, String),
     Disconnect(u32),
 }
 
@@ -132,13 +136,17 @@ impl Remote {
         self.post(Posted::Message(session, message));
     }
 
+    pub fn page(&self, session: u32, message: String) {
+        self.post(Posted::Page(session, message));
+    }
+
     pub fn disconnect(&self, session: u32) {
         self.post(Posted::Disconnect(session));
     }
 
     fn post(&self, posted: Posted) {
         if self.pending.push(posted) {
-            _ = self.wake.send(rt::Msg::Task(Box::new(|_: &mut v8::PinScope| dispatch_posted())));
+            _ = self.wake.send(rt::Msg::Task(Box::new(|scope: &mut v8::PinScope| dispatch_posted(scope))));
         }
     }
 }
@@ -157,6 +165,7 @@ struct State {
     wake: Sender<rt::Msg>,
     name: String,
     listed: bool,
+    page: page::PageSide,
     inspector: V8Inspector,
 }
 
@@ -200,7 +209,7 @@ pub(crate) fn attach(scope: &mut v8::PinScope, name: &str) {
     let main = Session { session, inbox, calls: Cell::new(0) };
     let wake = rt::current().sender();
     let (pending, next, name, listed) = (Arc::default(), Arc::new(AtomicU32::new(1)), name.to_owned(), false);
-    let state = State { main, extra: Default::default(), pending, next, wake, name, listed, inspector };
+    let state = State { main, extra: Default::default(), pending, next, wake, name, listed, page: Default::default(), inspector };
     STATE.with(|s| *s.borrow_mut() = Some(state));
 }
 
@@ -208,13 +217,14 @@ pub fn remote() -> Option<Remote> {
     STATE.with(|s| s.borrow().as_ref().map(|s| Remote { pending: s.pending.clone(), next: s.next.clone(), wake: s.wake.clone() }))
 }
 
-pub fn dispatch_posted() {
+pub fn dispatch_posted(scope: &mut v8::PinScope) {
     let Some(pending) = STATE.with(|s| s.borrow().as_ref().map(|s| s.pending.clone())) else { return };
     while let Some(posted) = pending.pop() {
         match posted {
             Posted::Connect(id, sink) => STATE.with(|s| {
                 let s = s.borrow();
                 let Some(s) = s.as_ref() else { return };
+                s.page.connected(id, sink.clone());
                 let channel = Channel::new(Box::new(Forward(sink)));
                 let session = s.inspector.connect(GROUP, channel, StringView::empty(), V8InspectorClientTrustLevel::FullyTrusted);
                 if s.extra.borrow_mut().insert(id, Rc::new(session)).is_none() {
@@ -227,7 +237,9 @@ pub fn dispatch_posted() {
                     session.dispatch_protocol_message(StringView::from(message.as_bytes()));
                 }
             }
+            Posted::Page(id, message) => page::message(scope, id, &message),
             Posted::Disconnect(id) => {
+                page::disconnected(scope, id);
                 let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow_mut().remove(&id)));
                 if session.is_some() {
                     rt::current().keep_alive(false);
@@ -347,7 +359,7 @@ mod tests {
         let main = runtime.task(|_| send("Runtime.evaluate", r#"{"expression":"1 + 1"}"#));
         assert!(main.is_some_and(|reply| reply.contains("\"value\":2")), "the main session still works");
         remote.disconnect(session);
-        runtime.task(|_| dispatch_posted());
+        runtime.task(|scope| dispatch_posted(scope));
         assert!(STATE.with(|s| s.borrow().as_ref().is_some_and(|s| s.extra.borrow().is_empty())), "the second session is gone");
         runtime.lp.keep_alive(false);
         stop();

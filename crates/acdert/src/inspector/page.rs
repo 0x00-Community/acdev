@@ -1,0 +1,83 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use super::{STATE, Sink};
+use crate::bind;
+
+pub(super) const DOMAINS: [&str; 5] = ["Page", "DOM", "CSS", "Overlay", "Network"];
+
+#[derive(Default)]
+pub(super) struct PageSide {
+    sinks: RefCell<HashMap<u32, Sink>>,
+    handler: RefCell<Option<v8::Global<v8::Function>>>,
+}
+
+impl PageSide {
+    pub(super) fn connected(&self, id: u32, sink: Sink) {
+        self.sinks.borrow_mut().insert(id, sink);
+    }
+}
+
+pub(super) fn routed(message: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(message) else { return false };
+    value["method"].as_str().and_then(|method| method.split_once('.')).is_some_and(|(domain, _)| DOMAINS.contains(&domain))
+}
+
+pub(super) fn message(scope: &mut v8::PinScope, id: u32, message: &str) {
+    let found = STATE.with(|s| s.borrow().as_ref().map(|s| (s.page.handler.borrow().clone(), s.page.sinks.borrow().get(&id).cloned())));
+    let Some((handler, Some(sink))) = found else { return };
+    let Some(handler) = handler else { return sink(not_found(message)) };
+    let args = [v8::Integer::new_from_unsigned(scope, id).into(), bind::string(scope, message).into()];
+    bind::call(scope, &handler, &args);
+}
+
+pub(super) fn disconnected(scope: &mut v8::PinScope, id: u32) {
+    let handler = STATE.with(|s| {
+        let s = s.borrow();
+        let s = s.as_ref()?;
+        s.page.sinks.borrow_mut().remove(&id)?;
+        s.page.handler.borrow().clone()
+    });
+    if let Some(handler) = handler {
+        let args = [v8::Integer::new_from_unsigned(scope, id).into(), v8::null(scope).into()];
+        bind::call(scope, &handler, &args);
+    }
+}
+
+fn not_found(message: &str) -> String {
+    let value = serde_json::from_str::<serde_json::Value>(message).unwrap_or_default();
+    let method = value["method"].as_str().unwrap_or_default();
+    let mut answer = serde_json::json!({"id": value["id"], "error": {"code": -32601, "message": format!("'{method}' wasn't found")}});
+    if let Some(session) = value.get("sessionId") {
+        answer["sessionId"] = session.clone();
+    }
+    answer.to_string()
+}
+
+pub fn install(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let Ok(function) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+        return bind::throw_type_error(scope, "devtoolsHandler: the handler is a function");
+    };
+    let handler = v8::Global::new(scope, function);
+    let name = STATE.with(|s| {
+        s.borrow().as_ref().map(|s| {
+            *s.page.handler.borrow_mut() = Some(handler);
+            s.name.clone()
+        })
+    });
+    if let Some(name) = name {
+        rv.set(bind::string(scope, &name).into());
+    }
+}
+
+pub fn reply(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let id = bind::arg_f64(scope, &args, 0);
+    if !(0.0..=f64::from(u32::MAX)).contains(&id) {
+        return;
+    }
+    let text = bind::arg_string(scope, &args, 1);
+    let sink = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.page.sinks.borrow().get(&(id as u32)).cloned()));
+    if let Some(sink) = sink {
+        sink(text);
+    }
+}

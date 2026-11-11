@@ -356,8 +356,16 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   它的目标页面上开一个 inspector session (`Remote::connect`), 回复和通知直接 `Client::send` 回去; `message` 原样投给这个 session
   (目标还没登记时回 false, 端点答 -32601), `detach` 断开. 页面关了: 给它的客户端发 `Inspector.detached {reason: "target_closed"}` 再关
   WebSocket. 有 session 连着时页面事件循环不退出 (`keep_alive`). 现在 V8 只答 Runtime、Debugger、Console、Profiler、HeapProfiler 等它自己的
-  域; Page / DOM / Network 以后接, Page 的主 frame id 要等于 web 名 (和上下文 auxData 的 `frameId` 一样). 没人接的页面错误 (`host.reportError`)
-  也经 `inspector::thrown` 报给 inspector (`Runtime.exceptionThrown`, 带 Error 本身, 栈在它的 `description` 里).
+  域. 没人接的页面错误 (`host.reportError`) 也经 `inspector::thrown` 报给 inspector (`Runtime.exceptionThrown`, 带 Error 本身, 栈在它的
+  `description` 里).
+  **页面这边答的域** (#187): `Page`、`DOM`、`CSS`、`Overlay`、`Network` (`inspector/page.rs` `DOMAINS`, 按方法名点前面的域分) 不进 V8 session,
+  经同一个 `Remote` 投成 `Posted::Page`, 在页面线程上交给页面装的处理器 (`host.devtoolsHandler(fn)` → 回 frame id 即 web 名; `fn(session, text)`,
+  客户端断开时 `fn(session, null)`), 处理器经 `host.devtoolsSend(session, text)` 把回复和事件发回这个客户端. 页面没装处理器时 Rust 直接答 -32601.
+  JS 一侧在 acde-host `devtools/`: `DevToolsPage` (只在 `ACDE_DEV` 时由 `worker.ts` 装) 按域分发, 每个客户端一份 `enabled`, 没有自己
+  `enable` / `disable` 的域由它记开关, 没实现的方法答 -32601, `emit(domain, method, params)` 只发给开了这个域的客户端; 域是 `DevToolsDomain`
+  `{name, methods}`. 已有: `Page` (`devtools/page.ts`): `getFrameTree` / `getResourceTree`, 主 frame 的 `id` 和 `loaderId` 是 web 名
+  (和上下文 auxData 的 `frameId` 一样), `url` 是页面地址, `resources` 还空着. 加一个域: 在 `devtools/` 写一个 `DevToolsDomain`, 在 `worker.ts`
+  `DevToolsPage.install` 的列表里加上; 域名不在 `DOMAINS` 里时再加进去 (不加就仍然交给 V8).
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 有 inspector 的 dev 页面 (`host.inspected()`) 里 acde-dom 的 console 还把原参数交给 V8 自带的
   `console` (装上前的 `globalThis.console`, 同名方法, 每次一份), 由它报给 inspector (`Runtime.consoleAPICalled`, 真的 RemoteObject 和调用栈);

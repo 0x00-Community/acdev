@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { DevRoutes, type DevRoute } from '../src/devroutes.ts'
 import { SourceMaps } from '../src/devlog.ts'
+import { DevToolsPage } from '../src/devtools/index.ts'
+import { PageDomain } from '../src/devtools/page.ts'
 
 const route = (args: Record<string, unknown>, id = 1): DevRoute => DevRoutes.parse(args, id)
 const text = (reply: unknown) => {
@@ -81,5 +83,59 @@ describe('SourceMaps', () => {
   test('text without frames, or frames before any mapping, is kept', () => {
     assert.equal(maps.stack('just text'), 'just text')
     assert.equal(maps.stack('at http://acde.local/assets/main.js:1:3'), 'at http://acde.local/assets/main.js:1:3')
+  })
+})
+
+describe('DevTools domains served by the page', () => {
+  const devtools = () => {
+    const sent: [number, Record<string, unknown>][] = []
+    let handler: ((session: number, text: string | null) => void) | null = null
+    const host = {
+      devtoolsHandler: (fn: (session: number, text: string | null) => void) => ((handler = fn), 'alpha#1'),
+      devtoolsSend: (session: number, text: string) => void sent.push([session, JSON.parse(text) as Record<string, unknown>]),
+    }
+    const page = DevToolsPage.install(host, (page) => [PageDomain.create(page.frameId, () => 'http://app.acde/index.html')])
+    const ask = async (session: number, message: Record<string, unknown>) => {
+      handler!(session, JSON.stringify(message))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    return { sent, page: page!, ask, end: (session: number) => handler!(session, null) }
+  }
+
+  test('Page answers the frame tree with the web name as the frame id', async () => {
+    const { sent, ask } = devtools()
+    await ask(4, { id: 1, method: 'Page.enable' })
+    await ask(4, { id: 2, method: 'Page.getFrameTree', sessionId: 's' })
+    await ask(4, { id: 3, method: 'Page.getResourceTree' })
+    assert.deepEqual(sent[0], [4, { id: 1, result: {} }])
+    const [, tree] = sent[1]!
+    assert.equal(tree['sessionId'], 's')
+    const frame = (tree['result'] as { frameTree: { frame: Record<string, unknown> } }).frameTree.frame
+    assert.deepEqual([frame['id'], frame['url'], frame['securityOrigin']], ['alpha#1', 'http://app.acde/index.html', 'http://app.acde'])
+    assert.deepEqual((sent[2]![1]['result'] as { frameTree: { resources: unknown[] } }).frameTree.resources, [])
+  })
+
+  test('an unknown method answers -32601 and the session keeps working', async () => {
+    const { sent, ask } = devtools()
+    await ask(1, { id: 1, method: 'Page.reload' })
+    await ask(1, { id: 2, method: 'DOM.getDocument' })
+    await ask(1, { id: 3, method: 'Page.getFrameTree' })
+    assert.deepEqual(sent.map(([, m]) => (m['error'] as { code?: number } | undefined)?.code ?? 'ok'), [-32601, -32601, 'ok'])
+  })
+
+  test('events reach only the sessions that enabled the domain, and an ended session is forgotten', async () => {
+    const { sent, page, ask, end } = devtools()
+    await ask(1, { id: 1, method: 'Page.enable' })
+    await ask(2, { id: 1, method: 'Page.getFrameTree' })
+    await ask(3, { id: 1, method: 'Page.enable' })
+    end(3)
+    sent.length = 0
+    page.emit('Page', 'frameNavigated', { frame: { id: 'alpha#1' } })
+    assert.deepEqual(sent, [[1, { method: 'Page.frameNavigated', params: { frame: { id: 'alpha#1' } } }]])
+  })
+
+  test('without the host side nothing is installed', () => {
+    assert.equal(DevToolsPage.install({}, () => []), null)
+    assert.equal(DevToolsPage.install({ devtoolsHandler: () => undefined, devtoolsSend: () => {} }, () => []), null)
   })
 })

@@ -25,6 +25,8 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object>
         "readSourceMap" => read_source_map,
         "liveEdit" => live_edit,
         "inspected" => inspected,
+        "devtoolsHandler" => crate::inspector::page_handler,
+        "devtoolsSend" => crate::inspector::page_reply,
         "addImportMap" => add_import_map,
         "encodeUtf8" => encode_utf8,
         "decode" => crate::encoding::decode,

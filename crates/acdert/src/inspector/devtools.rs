@@ -80,7 +80,10 @@ impl<P: Peer> Pages<P> {
     fn message(&self, peer: &P, message: &str) -> bool {
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let Some(attached) = sessions.get(&peer.id()) else { return false };
-        attached.remote.send(attached.session, message.to_owned());
+        match super::page::routed(message) {
+            true => attached.remote.page(attached.session, message.to_owned()),
+            false => attached.remote.send(attached.session, message.to_owned()),
+        }
         true
     }
 
@@ -188,6 +191,57 @@ mod tests {
         assert_eq!(fake.got.lock().unwrap().last().map(String::as_str), Some(TARGET_CLOSED));
         assert!(fake.closed.load(Ordering::SeqCst), "the WebSocket is closed");
         assert!(!pages.message(&fake, "{}"), "the session is gone");
+        crate::inspector::stop();
+    }
+
+    fn answer(runtime: &mut rt::Runtime, fake: &Fake, id: i64) -> serde_json::Value {
+        runtime.lp.delay(Duration::from_secs(10), |_: &mut v8::PinScope| {});
+        let deadline = Instant::now() + Duration::from_secs(10);
+        runtime.run_until(|| values(fake).iter().any(|m| m["id"] == id) || Instant::now() > deadline);
+        values(fake).into_iter().find(|m| m["id"] == id).expect("an answer")
+    }
+
+    fn run(scope: &mut v8::PinScope, code: &str) -> Option<String> {
+        let code = v8::String::new(scope, code)?;
+        let value = v8::Script::compile(scope, code, None)?.run(scope)?;
+        Some(value.to_rust_string_lossy(scope))
+    }
+
+    const HANDLER: &str = "const frame = host.devtoolsHandler((session, text) => {
+        if (text === null) return void (globalThis.gone = session)
+        const m = JSON.parse(text)
+        host.devtoolsSend(session, JSON.stringify({id: m.id, result: {frameTree: {frame: {id: frame}}}}))
+    })";
+
+    #[test]
+    fn page_domains_go_to_the_page_handler_and_the_rest_to_v8() {
+        let mut runtime = rt::Runtime::new(None, "alpha#1");
+        runtime.task(|scope| crate::inspector::attach(scope, "alpha#1"));
+        let pages = Pages::<Fake>::default();
+        pages.opened("alpha#1", crate::inspector::remote().expect("an inspector"));
+        let fake = Fake::default();
+        pages.attach(&fake);
+        assert!(pages.message(&fake, r#"{"id":1,"method":"Page.getFrameTree","sessionId":"s"}"#));
+        let refused = answer(&mut runtime, &fake, 1);
+        assert_eq!((&refused["error"]["code"], &refused["sessionId"]), (&serde_json::json!(-32601), &serde_json::json!("s")), "no handler yet");
+        runtime.task(|scope| {
+            let host = v8::Object::new(scope);
+            crate::methods!(scope, host, "devtoolsHandler" => crate::inspector::page_handler, "devtoolsSend" => crate::inspector::page_reply);
+            let global = scope.get_current_context().global(scope);
+            let key = crate::bind::string(scope, "host");
+            global.set(scope, key.into(), host.into());
+            run(scope, HANDLER).expect("the handler is installed");
+        });
+        assert!(pages.message(&fake, r#"{"id":2,"method":"Page.getFrameTree"}"#));
+        assert!(pages.message(&fake, r#"{"id":3,"method":"Runtime.evaluate","params":{"expression":"6 * 7"}}"#));
+        assert_eq!(answer(&mut runtime, &fake, 2)["result"]["frameTree"]["frame"]["id"], "alpha#1", "the frame id is the web name");
+        assert_eq!(answer(&mut runtime, &fake, 3)["result"]["result"]["value"], 42, "Runtime still goes to V8");
+        pages.detach(&fake);
+        let gone = runtime.task(|scope| {
+            crate::inspector::dispatch_posted(scope);
+            run(scope, "String(globalThis.gone)")
+        });
+        assert_eq!(gone.as_deref(), Some("1"), "the handler hears the session end");
         crate::inspector::stop();
     }
 }
