@@ -159,7 +159,7 @@ impl RdpSettings {
                     RdpSecurity::Tls => builder.with_tls(acceptor),
                 };
                 let mut server = builder
-                    .with_input_handler(Handler { notify: notify.clone(), size })
+                    .with_input_handler(Handler { notify: notify.clone(), size, held: Default::default() })
                     .with_display_handler(Display { size, updates, notify, video: video.clone() })
                     .with_credential_validator(Some(Arc::new(ExactMatchCredentialValidator::new(credentials.clone()))))
                     .with_gfx_factory(video.as_ref().map(Video::factory))

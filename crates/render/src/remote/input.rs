@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use ironrdp_server::{DesktopSize, KeyboardEvent, MouseEvent, RdpServerInputHandler};
 
 use super::server::{RdpEvent, RdpNotify};
@@ -14,6 +16,12 @@ pub enum RdpInput {
 pub(crate) struct Handler {
     pub(crate) notify: RdpNotify,
     pub(crate) size: DesktopSize,
+    pub(crate) held: BTreeSet<u32>,
+}
+
+struct Ascii {
+    code: u32,
+    shift: bool,
 }
 
 impl Handler {
@@ -23,6 +31,48 @@ impl Handler {
     const BTN_SIDE: u32 = 0x113;
     const BTN_EXTRA: u32 = 0x114;
     const WHEEL_DETENT: f64 = 120.0;
+    const KEY_LEFTSHIFT: u32 = 42;
+    const ROWS: [(&str, &str, u32); 4] = [("1234567890-=", "!@#$%^&*()_+", 2), ("qwertyuiop[]", "QWERTYUIOP{}", 16), ("asdfghjkl;'`", "ASDFGHJKL:\"~", 30), ("\\zxcvbnm,./", "|ZXCVBNM<>?", 43)];
+    const SINGLES: [(char, u32); 5] = [(' ', 57), ('\r', 28), ('\n', 28), ('\t', 15), ('\u{8}', 14)];
+
+    fn ascii(c: char) -> Option<Ascii> {
+        if let Some(&(_, code)) = Self::SINGLES.iter().find(|(s, _)| *s == c) {
+            return Some(Ascii { code, shift: false });
+        }
+        Self::ROWS.iter().find_map(|(plain, shifted, first)| {
+            let at = |row: &str| row.chars().position(|x| x == c).and_then(|i| u32::try_from(i).ok());
+            at(plain).map(|i| Ascii { code: first + i, shift: false }).or_else(|| at(shifted).map(|i| Ascii { code: first + i, shift: true }))
+        })
+    }
+
+    fn key(&mut self, code: u32, pressed: bool) {
+        if pressed {
+            self.held.insert(code);
+        } else {
+            self.held.remove(&code);
+        }
+        self.send(RdpInput::Key { code, pressed });
+    }
+
+    fn release_all(&mut self) {
+        for code in core::mem::take(&mut self.held) {
+            self.send(RdpInput::Key { code, pressed: false });
+        }
+    }
+
+    fn unicode(&mut self, unit: u16, pressed: bool) {
+        let Some(key) = char::from_u32(u32::from(unit)).and_then(Self::ascii) else {
+            log::debug!(target: "rdp::input", "unicode {unit:#06x} 没有对应的键, 丢掉");
+            return;
+        };
+        if pressed && key.shift {
+            self.key(Self::KEY_LEFTSHIFT, true);
+        }
+        self.key(key.code, pressed);
+        if !pressed && key.shift {
+            self.key(Self::KEY_LEFTSHIFT, false);
+        }
+    }
 
     fn send(&self, input: RdpInput) {
         (self.notify)(RdpEvent::Input(input));
@@ -62,11 +112,17 @@ impl Handler {
 
 impl RdpServerInputHandler for Handler {
     fn keyboard(&mut self, event: KeyboardEvent) {
-        if let KeyboardEvent::Pressed { code, extended } | KeyboardEvent::Released { code, extended } = event {
-            let pressed = matches!(event, KeyboardEvent::Pressed { .. });
-            if let Some(code) = Self::evdev(code, extended) {
-                self.send(RdpInput::Key { code, pressed });
+        log::debug!(target: "rdp::input", "{event:?}");
+        match event {
+            KeyboardEvent::Pressed { code, extended } | KeyboardEvent::Released { code, extended } => {
+                let pressed = matches!(event, KeyboardEvent::Pressed { .. });
+                if let Some(code) = Self::evdev(code, extended) {
+                    self.key(code, pressed);
+                }
             }
+            KeyboardEvent::UnicodePressed(unit) => self.unicode(unit, true),
+            KeyboardEvent::UnicodeReleased(unit) => self.unicode(unit, false),
+            KeyboardEvent::Synchronize(_) => self.release_all(),
         }
     }
 
