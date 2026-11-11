@@ -167,7 +167,7 @@ impl Shared {
         let root = |id: &str| self.root_in(owner, view, id);
         match call {
             FsCall::Roots => json(self.allowed(owner, view).json()),
-            FsCall::List { root: at, path, hidden } => json(self.fs.list_in(root(&at)?, path.as_deref().unwrap_or(""), hidden.unwrap_or(true)).json()),
+            FsCall::List { root: at, path, hidden } => json(self.fs.list_in(root(&at)?, path.as_deref().unwrap_or(""), hidden.unwrap_or(false)).json()),
             FsCall::Preview { root: at, path } => json(WorkspaceFs::preview_in(&root(&at)?, &path).json()),
             FsCall::Download { root: at, path } => WorkspaceFs::raw_in(&root(&at)?, &path).map(|(name, data)| FsReply::File { name, data }),
             FsCall::Locate { path } => json(self.locate(owner, &path, view)),
@@ -583,6 +583,26 @@ mod tests {
             std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
             assert_eq!(with.admit(root.join("linked/out.pdf").to_str().unwrap()).unwrap_err().status, 403);
         }
+        _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn listings_leave_hidden_entries_out_unless_asked() {
+        let base = std::env::temp_dir().join(format!("acde-hidden-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("seen.txt"), "a").unwrap();
+        std::fs::write(base.join(".dot"), "b").unwrap();
+        let root = base.to_string_lossy().into_owned();
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None, writes: Writes::default() };
+        let app = all.scoped(Some(vec![]), Some("lister"));
+        app.grant(&root).unwrap();
+        let names = |hidden: Option<bool>| {
+            let listed = json(app.call(FsCall::List { root: root.clone(), path: None, hidden }));
+            listed["entries"].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
+        };
+        assert_eq!(names(None), ["seen.txt"]);
+        assert_eq!(names(Some(false)), ["seen.txt"]);
+        assert_eq!(names(Some(true)).len(), 2);
         _ = std::fs::remove_dir_all(base);
     }
 
