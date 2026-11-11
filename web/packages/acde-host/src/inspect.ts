@@ -146,7 +146,7 @@ export class Inspect {
         rect: [row.x, row.y, row.width, row.height],
         z: row.z,
         focus: row.focus,
-        hidden: !!row.hidden,
+        hidden: !!row.hidden || row.state === 'minimized',
         pid: row.pid ?? null,
         parent: row.parent ?? null,
         modal: !!row.modal,
@@ -294,7 +294,8 @@ export class Inspect {
     switch (action) {
       case 'focus':
       case 'restore':
-        if (window.hidden) this.#host.hide(window.id, false)
+        if (window.state === 'minimized' && this.#host.shell.setState) this.#host.shell.setState(window.id, 'normal')
+        else if (window.hidden) this.#host.hide(window.id, false)
         this.#focus(window)
         return { ok: true, text: `${window.ref} is in front` }
       case 'minimize':
