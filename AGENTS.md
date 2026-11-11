@@ -942,8 +942,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 第一个参数是 root (`roots()` 里某项的 `id`; 下面按路径的根 `id` 就是 `path`), 第二个是相对路径: 绝对路径、`..` 出 root、经符号链接出 root 都拒绝 (`WorkspaceFs::resolve`),
 root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOWNLOAD_DIR` 或 `~/Downloads`, 存在时)、`~/agentos-work` (存在时), 加上用户授给
 这个应用的文件夹. 根列表每个 web 缓存 (#143, runtime `fs/access/cache.rs` `RootCache`, 存在 `Workspace` 上): `roots()` 每次重建并刷新缓存; 别的调用用缓存,
-授权变了 (任何应用的授予或撤销, `Grants::changes`) 或超过 2 秒就重建; 调用失败时若缓存里的根不见了或重建结果不同, 用新列表重试一次.
-所以内容和顺序与不缓存时一致, 只省掉每次调用都查环境变量、建桌面 / 私有文件夹、对每个根 `is_dir`. Windows 上隐藏和系统属性的文件按隐藏文件算. 运行时不记 Finder 看到哪里 (`state()` / `place()` 随 #69 移除, 由文件管理器自己记).
+授权变了 (任何应用的授予或撤销, `Grants::changes`) 或超过 2 秒就重建; 调用点名的根 (`FsCall::targets`) 在缓存里找不到时, 先重建再执行;
+只读调用 (`FsCall::reads`) 失败后, 若缓存里的根不见了或重建结果不同, 用新列表重试一次; 写操作进了文件系统后失败不重试 (避免 copy / rename / delete 执行两次), 所以根文件夹刚被删时的写操作在缓存过期 (2 秒) 前直接报错.
+列表内容和顺序与不缓存时一致, 只省掉每次调用都查环境变量、建桌面 / 私有文件夹、对每个根 `is_dir`. Windows 上隐藏和系统属性的文件按隐藏文件算. 运行时不记 Finder 看到哪里 (`state()` / `place()` 随 #69 移除, 由文件管理器自己记).
 
 **应用的根** (#66; runtime `fs/access/files.rs` `Files`, Broker `broker/access/files.ts` `FileAccess`): 所有应用 (系统应用也是) 的 root 是不透明的标识, 不是路径:
 `private` (本应用的私有数据文件夹 `$XDG_DATA_HOME/acde/files/<应用 id>`, 没设时 `$HOME/.local/share/...`, 第一次用时建), 公共位置名 (SDK `SHARED_PLACES`:

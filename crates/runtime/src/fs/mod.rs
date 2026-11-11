@@ -129,6 +129,29 @@ impl FsCall {
         !matches!(self, Self::WriteChunk { .. } | Self::TruncateWrite { .. } | Self::CommitWrite { .. } | Self::AbortWrite { .. })
     }
 
+    fn reads(&self) -> bool {
+        matches!(
+            self,
+            Self::Locate { .. }
+                | Self::List { .. }
+                | Self::Preview { .. }
+                | Self::Download { .. }
+                | Self::Stat { .. }
+                | Self::ReadText { .. }
+                | Self::ReadBytes { .. }
+                | Self::ReadRange { .. }
+        )
+    }
+
+    fn targets(&self) -> impl Iterator<Item = &str> {
+        let other = match self {
+            Self::Copy { to_root, .. } => Some(to_root.as_str()),
+            Self::Revoke { root } => Some(root.as_str()),
+            _ => None,
+        };
+        self.scope().into_iter().chain(other)
+    }
+
     fn scope(&self) -> Option<&str> {
         match self {
             Self::Roots | Self::Locate { .. } | Self::Revoke { .. } => None,
@@ -378,12 +401,16 @@ impl Workspace {
             return Ok(self.shared.call(&call, owner, view, &[], &self.writes)?);
         }
         let grants = self.shared.grants.changes();
-        let roots = match call {
+        let mut roots = match call {
             FsCall::Roots => self.cache.keep(grants, self.fresh_roots()?),
             _ => self.cache.get(grants, || self.fresh_roots())?,
         };
+        if call.targets().any(|id| Shared::root_in(&roots, view, id).is_err()) {
+            let grants = self.shared.grants.changes();
+            roots = self.cache.keep(grants, self.fresh_roots()?);
+        }
         match self.shared.call(&call, owner, view, &roots, &self.writes) {
-            Err(failure) if !matches!(call, FsCall::Roots) => {
+            Err(failure) if call.reads() => {
                 let missing = roots.iter().any(|root| root.exists && !std::path::Path::new(&root.path).is_dir());
                 let grants = self.shared.grants.changes();
                 let fresh = self.fresh_roots()?;
