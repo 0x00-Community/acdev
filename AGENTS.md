@@ -1459,8 +1459,10 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
     官方 `actions/upload-artifact` / `download-artifact` v4 起把 github.com 以外的服务器一律当 GHES 拒绝. 两者都是官方版本 (上传 v7.0.2、下载 v7.0.0)
     加一个提交, 只把打包的 `dist/index.js` 里 `isGhes()` 改成返回 false (下载那个 2026-11-11 对比过官方 v7.0.0); 换 SHA 前照样对着官方版本重看.
   - `pkgs` 作业 (两边都跑) 把版本目录和 `SHA256SUMS`、`latest.json` 组成 `pkgs` 产物 (保留 30 天). `upload` (OIDC 传 S3)、`release`
-    (`gh` 建 GitHub 预发布) 和 `latest` 只在 github.com 上跑; Gitea 上正式发布在 `pkgs` 之后由 `tag` 用 git 推注释标签, 上传 S3、写
+    (`gh` 建 GitHub 预发布) 和 `latest` 只在 github.com 上跑; Gitea 上正式发布在 `pkgs` 之后由 `tag-gitea` (只 needs `plan`、`pkgs`) 用 git 推注释标签, 上传 S3、写
     `latest.json`、CloudFront 失效和建 Gitea release 由人手动做 (用 `pkgs` 产物). `gh` 只对 GitHub 用.
+  - Gitea 上一个作业的 needs 里有被跳过的作业时, 它不看自己的 `if` 也跟着跳过 (run 2013: `upload` 跳过, `tag` 没打 `v0.0.9`). 所以 Gitea 要跑的作业不 needs 只在 GitHub 跑的作业:
+    标签分两个作业, `tag` (GitHub, needs `upload`, 上传之后才打) 和 `tag-gitea` (Gitea); `release`、`latest` 只在 GitHub 跑, 在 Gitea 上跳过正合适.
   - Gitea 默认的 runner 是 Linux 容器 (`ubuntu-24.04` 标签, 镜像 `docker.gitea.com/runner-images:ubuntu-24.04`); `build` 矩阵里的 macOS 和 Windows
     要有对应标签的 runner 才能跑 (内网: Windows 是 110 上的 w110, `windows-2025`; macOS Intel 是 150, `macos-15-intel`; 没有 `macos-15`). 步骤默认 `bash -e -o pipefail`.
   - Gitea 上不能只重跑失败的作业: 重跑时产物按尝试次数隔开, 后面的作业只拿得到这次尝试上传的产物 (run 1993 只重跑 Windows 后,
