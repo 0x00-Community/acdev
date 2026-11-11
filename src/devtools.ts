@@ -76,9 +76,9 @@ export class Devtools {
 
   static #named(targets: readonly Target[], named: string): Target | undefined {
     const wanted = named.toLowerCase()
-    const titles = (target: Target) => [target.title, target.title.replace(/ \([^()]*\)$/, '')]
+    const titles = (target: Target) => [target.title ?? '', (target.title ?? '').replace(/ \([^()]*\)$/, '')]
       .map((t) => t.toLowerCase())
-    const services = (target: Target) => target.title.replace(/^services:\s*/i, '').split(',')
+    const services = (target: Target) => (target.title ?? '').replace(/^services:\s*/i, '').split(',')
       .map((s) => s.trim().toLowerCase())
     return targets.find((target) => titles(target).includes(wanted))
       ?? targets.find((target) => target.type === 'service'
