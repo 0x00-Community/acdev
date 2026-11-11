@@ -18,7 +18,7 @@
 
 ## 是什么
 
-acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座. acdert 是它的运行时, 和开发者 CLI [acde](https://github.com/dopame-org/acde)
+acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座. acdert 是它的运行时, 和开发者 CLI [acde](http://gitea.dopamine/AC/acde)
 的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdert. 改名成 acdert 的只有程序、Arch 包和
 crate; `acde:` 模块、`@dopame/acde-api`、`acde_*` 协议、`ACDE_*` 环境变量、`$XDG_*/acde/` 这些都不改. 桌面是一张网页: JS 在内嵌的 V8 里
 (不用 Node), Blitz (`vendors/acrender`) 排版, vello 在 GPU 上画; 不监听端口 (RDP 后端除外). 具体的桌面由桌面包提供 (例如
@@ -1363,7 +1363,7 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
   整个 artifact 里没有 `.map` / `.ts`. 开发构建 (`bun run --filter @dopame/acde-host build`, `dist/`) 不变: 可读、带 map, `acde dev` 用它.
   `LICENSE` (专有许可) 随 tarball 和 GitHub release 发布. 启动和帧的数字见下面 acde-host 一条 (`scripts/release-perf/bench.sh`).
 
-- 发版 = 单独提交改版本号 (根 `Cargo.toml` 与 `web/packages/*/package.json` 一起改, 再 `bun install` 刷新 `web/bun.lock`) 并合入 `main`, 然后在 Actions 手动运行 release:
+- 发版 = 单独提交改版本号 (根 `Cargo.toml` 与 `web/packages/*/package.json` 一起改, 再 `bun install` 刷新 `web/bun.lock`) 并合入 `main` (推 origin 时 GitHub 镜像一起更新), 然后在 GitHub 的 Actions 手动运行 release (Gitea 上的 Actions 不发版):
   预演 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=false` (只构建检查, 不打标签、不上传; `-f commit=<sha>` 可选, 留空用运行的提交);
   正式发布 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=true -f commit=<sha>` (`commit` 必填, 可以是短 SHA, 必须是 `origin/main` 的头或它的祖先).
   不再手动打 `v*` 标签, 工作流也不由 push 或标签触发 (先有标签后构建失败会留下半成品). 正式发布只允许在 `main` 上运行.
@@ -1422,6 +1422,10 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
   `@ts-expect-error`)、`vendors/` 改动处的 `acrender:` / `acde:` 标记. derive 要读的文字写成属性.
 - 几个会话共用工作区和 git index: 只改自己负责的路径, 别人没提交的文件先等. 提交一律 `git commit -- <自己的路径>`, 推前 `git show --stat HEAD`
   和 `git log origin/main..HEAD` 看一眼. `git add` / `git rm` 之后立刻提交.
+- 仓库在内网 Gitea (`origin` = `ssh://git@gitea.dopamine:2333/AC/acdert.git`, 网页 `http://gitea.dopamine/AC/acdert`), GitHub 的
+  `dopame-org/acdert` 是镜像 (远端 `gh`). `origin` 配两个 pushurl (先 Gitea 再 GitHub), `git push origin` 一次推两边; 新检出照这样配:
+  `git remote add gh git@github.com:dopame-org/acdert.git`, `git config --add remote.origin.pushurl <Gitea 地址>`, 再 `--add` 一次 GitHub 地址.
+  发版仍在 GitHub Actions 上跑 (见「发版」); Cargo.toml / package.json / PKGBUILD 里的仓库地址照旧写 GitHub (npm 的 trusted publishing 认它).
 - 不 force push, 不 amend / rebase 已推送的提交. 提交信息英文, Conventional Commits, 每行不超过 72 字符, 正文写原因和验证情况 (性能数字注明
   负载), 不加 Co-Authored-By.
 - 改 `crates/shell`、`crates/render`、`crates/hostwin`、`vendors/acrender` 或 `web/` 的提交, 先在这棵树编出来的 acdert 上起一次, 提交信息里写验了
