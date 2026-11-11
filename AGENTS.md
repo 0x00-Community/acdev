@@ -536,7 +536,9 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `--tries=3`; BusyBox wget 不认 `--tries` / `--show-progress`, 只用 `-q -T 30 -O`. 进度测试用 `Bun.spawn` 的 `terminal` 开伪终端), shasum / sha256sum / openssl 校验, acde 和 acdert 都下载校验完、在暂存目录里
   拼好 (`bin/acdert`、`bin/app/`) 才动安装目录, 失败什么都不动. 解进 `$ACDE_INSTALL` (默认 `~/.acde`) 的临时目录再改名成
   `versions/<版本>`; `current` 原子换 (`mv -T` / `mv -h`, 退回 `ln -sfn`); `bin` → `current/bin` (相对链接). PATH 上没有且没给 `--no-modify-path` 时按
-  `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次. 这个终端的 PATH 上没有时, 输出的最后单独一行是
+  `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次. sh 一族的那行是
+  `case ":$PATH:" in *":$HOME/.acde/bin:"*) ;; *) export PATH=… ;; esac`: 同时读 `.zprofile` 和 `.zshrc` (登录的交互 zsh) 或 `.profile` 和 `.bashrc`
+  的 shell 里也只加一次; 以前装的不带判断的整行原地换成这行 (`awk` 改写, 写回原文件). 这个终端的 PATH 上没有时, 输出的最后单独一行是
   这个终端里要敲的 `export PATH=…` (fish 是 `fish_add_path`): 装完在原来的终端里敲 `acde` 是 command not found, 人会漏看夹在中间的提示.
 - **install.ps1** (Windows PowerShell 5.1 或 PowerShell 7.2+, 只有 x64): 出错 `throw` 不 `exit` (`irm | iex` 时 `exit` 关掉用户的终端); 参数也可走
   `ACDE_VERSION` / `ACDE_NO_MODIFY_PATH`; 用系统的 `tar.exe`. 下载不用 `Invoke-WebRequest` (5.1 上它的进度条每块重画, 下载慢几倍, 所以以前全程
