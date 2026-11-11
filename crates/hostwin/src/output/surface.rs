@@ -351,7 +351,7 @@ impl Surface {
         let (framed, host) = match server.state().entries.get_mut(&self.window) {
             Some(e) => {
                 e.title = title.to_owned();
-                (e.frame > 0.0, e.host)
+                (e.frame > 0.0, e.host || e.primary)
             }
             None => (false, false),
         };

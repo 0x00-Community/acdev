@@ -230,6 +230,8 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   桌面的结束会话. `ACDE_HOST_DUMP=<目录>` 让合成器在画面停下 300 ms 后把整个合成结果读回写成 `screen.png` (和 `screenshot` 同一段).
 - **独立应用的主窗口用宿主的控件** (`acdert app`, 平台层 `Host::controls()` 为真时, 现在只有 Win32): Broker 给 `acdert app <id>` 起的那个窗口的
   `grant` 带 `host: true`, 窗口表记 `Entry.host`. 它没有运行时的窗框 (`frame` 按 0), 宿主窗口自己的标题栏和按钮是唯一的一套; 标题交给宿主窗口.
+  没有宿主控件的平台 (macOS / Linux winit) 也把第一个这样的窗口记成 `Entry.primary`, 它画运行时的窗框, 标题同样交给宿主窗口 (`Cmd::Title`),
+  所以 Dock、⌘Tab、任务栏显示应用的标题, 不是 `acde`.
   它的状态落到宿主窗口上 (`request_state` 发 `Cmd::HostState`, `platform/win32/frame.rs`): 最小化是最小化宿主窗口, `filled` 是最大化 (平台工作区),
   全屏是去掉边框铺满所在显示器 (记下样式和位置, 回去时还原), `normal` 还原. 用户在平台上做的 (任务栏最小化、`Win+Down`、Snap、标题栏最大化)
   由 `WM_SIZE` 变成 `HostEvent::State`, 运行时照收并照常发 `state` / `windowstate`; Snap 后是 `normal` 加新尺寸. 页面的 grab hint 变成

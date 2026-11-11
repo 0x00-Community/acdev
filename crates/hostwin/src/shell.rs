@@ -68,6 +68,7 @@ pub(crate) struct Entry {
     pub parent: Option<u32>,
     pub modal: bool,
     pub host: bool,
+    pub primary: bool,
     pub minimize: bool,
     pub dark_page: bool,
     pub input: Option<[f64; 4]>,
@@ -297,6 +298,7 @@ impl State {
         entry.parent = parent;
         entry.modal = grant.modal && parent.is_some();
         entry.host = grant.host && self.controls && !grant.desktop;
+        entry.primary |= grant.host && !grant.desktop && !self.standalone;
         self.standalone |= grant.host;
         if grant.desktop {
             acde_render::FrameStyle::follow_session();
@@ -894,6 +896,19 @@ pub(crate) mod tests {
         open(&mut s, primary);
         let again = Grant { host: true, mode: Some(Mode::Fullscreen), size: Some([300.0, 200.0]), ..Grant::default() };
         assert_eq!(s.host_size(&again), None);
+    }
+
+    #[test]
+    fn only_the_first_host_grant_names_the_host_window() {
+        let mut s = screen();
+        let (desktop, _) = s.grant(Grant { desktop: true, ..Grant::default() });
+        let free = open(&mut s, Grant::default());
+        let primary = open(&mut s, Grant { host: true, mode: Some(Mode::Fullscreen), ..Grant::default() });
+        let second = open(&mut s, Grant { host: true, ..Grant::default() });
+        let primaries: Vec<bool> = [desktop, free, primary, second].iter().map(|id| s.entries[id].primary).collect();
+        assert_eq!(primaries, [false, false, true, false]);
+        s.grant(Grant { window: Some(primary), host: true, ..Grant::default() });
+        assert!(s.entries[&primary].primary, "a later grant of the same window keeps it");
     }
 
     #[test]
