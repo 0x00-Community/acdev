@@ -101,6 +101,7 @@ fn claim_surface(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         "reservePanel" => reserve_panel,
         "setDoubleClick" => set_double_click,
         "setFrameTheme" => set_frame_theme,
+        "setPageDark" => set_page_dark,
         "setClipboard" => set_clipboard,
         "readClipboard" => read_clipboard,
         "startDrag" => start_drag,
@@ -311,7 +312,7 @@ fn set_frame_theme(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments
         let v = bind::arg_f64(scope, &args, i);
         (0.0..=f64::from(u32::MAX)).contains(&v).then(|| (v as u32).to_be_bytes())
     };
-    let mut colors = [FrameColors::default(); 2];
+    let mut colors = [FrameColors::default(); 4];
     for (i, c) in colors.iter_mut().enumerate() {
         let at = i as i32 * 4;
         *c = FrameColors { background: color(scope, at), title: color(scope, at + 1), line: color(scope, at + 2), buttons: color(scope, at + 3) };
@@ -320,11 +321,17 @@ fn set_frame_theme(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments
     let theme = FrameTheme {
         active: colors[0],
         inactive: colors[1],
-        style: [None, Some(FrameStyle::Mac), Some(FrameStyle::Windows)].get(pick(scope, 8) as usize).copied().flatten(),
-        side: [None, Some(ButtonSide::Left), Some(ButtonSide::Right)].get(pick(scope, 9) as usize).copied().flatten(),
-        align: [None, Some(TitleAlign::Center), Some(TitleAlign::Start)].get(pick(scope, 10) as usize).copied().flatten(),
+        light: [colors[2], colors[3]],
+        style: [None, Some(FrameStyle::Mac), Some(FrameStyle::Windows)].get(pick(scope, 16) as usize).copied().flatten(),
+        side: [None, Some(ButtonSide::Left), Some(ButtonSide::Right)].get(pick(scope, 17) as usize).copied().flatten(),
+        align: [None, Some(TitleAlign::Center), Some(TitleAlign::Start)].get(pick(scope, 18) as usize).copied().flatten(),
     };
     with_surface(scope, |surface| surface.set_frame_theme(theme));
+}
+
+fn set_page_dark(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let dark = bind::arg_bool(scope, &args, 0);
+    with_surface(scope, |surface| surface.set_page_dark(dark));
 }
 
 fn request_activate(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

@@ -20,6 +20,7 @@ pub(crate) enum Msg {
     Fullscreen(bool),
     Theme(acde_render::FrameTheme),
     Active(bool),
+    PageDark(bool),
     Refresh(Option<f64>),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
     Stop,
@@ -215,6 +216,7 @@ impl Surface {
                     server.set_theme(theme);
                 }
             }
+            C::PageDark(dark) => self.set_page_dark(dark),
             C::DoubleClick(action) => {
                 if let (Some(server), Ok(action)) = (server(), DoubleClick::try_from(action)) {
                     server.state().double_click = action;
@@ -327,6 +329,20 @@ impl Surface {
     pub fn content_offset(&self) -> (f64, f64) {
         let frame = server().and_then(|s| s.state().entries.get(&self.window).map(|e| e.frame));
         (0.0, frame.unwrap_or(0.0))
+    }
+
+    fn set_page_dark(&self, dark: bool) {
+        let Some(server) = server() else { return };
+        let framed = match server.state().entries.get_mut(&self.window) {
+            Some(e) if e.dark_page != dark => {
+                e.dark_page = dark;
+                e.frame > 0.0
+            }
+            _ => false,
+        };
+        if framed {
+            self.link.send(Msg::PageDark(dark));
+        }
     }
 
     fn set_title(&self, title: &str) {

@@ -69,6 +69,7 @@ pub(crate) struct Entry {
     pub modal: bool,
     pub host: bool,
     pub minimize: bool,
+    pub dark_page: bool,
     pub input: Option<[f64; 4]>,
     pub reserve: Option<(u32, f64)>,
     pub frame: f64,
@@ -101,6 +102,7 @@ impl Entry {
             fullscreen: self.mode == Mode::Fullscreen || self.state == WindowState::Fullscreen,
             theme,
             active,
+            dark_page: self.dark_page,
             minimize: self.minimize,
         }
     }

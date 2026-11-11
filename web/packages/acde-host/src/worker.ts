@@ -214,6 +214,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
           ? PageSource.html(htmlPage, init.resources)
           : PageSource.window(init.app!, init.theme ?? '')
   await page.loadPage(html)
+  if (init.kind === 'window' && Frame.height(init.app) > 0) Frame.followScheme(page.window as never, surface, (run) => void setTimeout(run, 50))
   if (init.devState) {
     DevState.restore(page.window as never, init.devState as DevSnapshot, (restored, missed) =>
       Log.write(Level.Info, 'acde_host', `[${init.name}] acde dev: state restored (${restored} kept${missed ? `, ${missed} not found` : ''})`),

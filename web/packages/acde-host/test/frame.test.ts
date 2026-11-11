@@ -17,9 +17,10 @@ describe('Frame.desktop', () => {
     const desktop = Frame.desktop({ setFrameTheme: (...args) => void calls.push(args) })
     desktop.setFrameTheme({ active: { background: '#000' }, buttonSide: 'left' })
     desktop.setFrameTheme(null)
+    const none = (n: number) => Array<number>(n).fill(-1)
     assert.deepEqual(calls, [
-      [0x000000ff, -1, -1, -1, -1, -1, -1, -1, 0, 1, 0],
-      [-1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0],
+      [0x000000ff, ...none(15), 0, 1, 0],
+      [...none(16), 0, 0, 0],
     ])
   })
 
@@ -27,8 +28,17 @@ describe('Frame.desktop', () => {
     const calls: number[][] = []
     const desktop = Frame.desktop({ setFrameTheme: (...args) => void calls.push(args) })
     assert.throws(() => desktop.setFrameTheme({ active: { background: 'blue' } }), (e: Error) => e instanceof TypeError && /active.background/.test(e.message))
-    assert.throws(() => desktop.setFrameTheme({ shadow: true } as never), TypeError)
     assert.deepEqual(calls, [])
+  })
+
+  test('keys this runtime does not know are left out, not refused', () => {
+    const calls: number[][] = []
+    const warned: string[] = []
+    const desktop = Frame.desktop({ setFrameTheme: (...args) => void calls.push(args) }, (line) => void warned.push(line))
+    desktop.setFrameTheme({ shadow: true, active: { background: '#000' } } as never)
+    assert.deepEqual(warned, ['setFrameTheme: ignored shadow (not known to this runtime)'])
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]![0], 0x000000ff)
   })
 
   test('an unknown action is a TypeError and changes nothing', () => {
@@ -37,5 +47,49 @@ describe('Frame.desktop', () => {
     assert.throws(() => desktop.setDoubleClick('maximize' as never), TypeError)
     assert.throws(() => desktop.setDoubleClick(undefined as never), TypeError)
     assert.deepEqual(calls, [])
+  })
+})
+
+describe('Frame.darkPage', () => {
+  const page = (computed: string, meta: string | null) => ({
+    document: {
+      documentElement: {} as Element,
+      querySelector: () => (meta === null ? null : ({ getAttribute: () => meta } as unknown as Element)),
+    },
+    getComputedStyle: () => ({ getPropertyValue: () => computed }),
+    MutationObserver: class {
+      observe(): void {}
+    },
+  })
+
+  test('a page supports dark when its root color-scheme or its color-scheme meta names dark', () => {
+    assert.equal(Frame.darkPage(page('light dark', null)), true)
+    assert.equal(Frame.darkPage(page('dark', null)), true)
+    assert.equal(Frame.darkPage(page('normal', 'light dark')), true)
+    assert.equal(Frame.darkPage(page('only light', null)), false)
+    assert.equal(Frame.darkPage(page('normal', null)), false)
+    assert.equal(Frame.darkPage(page('', 'darker')), false)
+  })
+
+  test('followScheme tells the surface at once and again only when the answer changes', () => {
+    let computed = 'normal'
+    let changed = () => {}
+    const tells: boolean[] = []
+    const watched = {
+      ...page('', null),
+      getComputedStyle: () => ({ getPropertyValue: () => computed }),
+      MutationObserver: class {
+        constructor(callback: () => void) {
+          changed = callback
+        }
+        observe(): void {}
+      },
+    }
+    Frame.followScheme(watched, { setPageDark: (dark) => void tells.push(dark) }, (run) => run())
+    changed()
+    computed = 'light dark'
+    changed()
+    changed()
+    assert.deepEqual(tells, [false, true])
   })
 })

@@ -86,6 +86,7 @@ export interface NativeSurface {
   reservePanel?(id: number, edge: number, thickness: number): void
   setDoubleClick?(action: 'fill' | 'minimize' | 'none'): void
   setFrameTheme?(...args: number[]): void
+  setPageDark?(dark: boolean): void
 }
 
 export type Shell = Pick<NativeSurface, 'setClipboard' | 'readClipboard' | 'setImeArea'>

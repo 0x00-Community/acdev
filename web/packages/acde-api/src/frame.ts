@@ -5,10 +5,12 @@ export interface FrameThemeWire {
   readonly style: number
   readonly side: number
   readonly align: number
+  readonly ignored: readonly string[]
 }
 
 export class FrameThemes {
-  static readonly KEYS = ['active', 'inactive', 'buttonStyle', 'buttonSide', 'titleAlign'] as const
+  static readonly KEYS = ['active', 'inactive', 'light', 'buttonStyle', 'buttonSide', 'titleAlign'] as const
+  static readonly STATES = ['active', 'inactive'] as const
   static readonly COLORS = ['background', 'title', 'line', 'buttons'] as const
   static readonly #CHOICES = {
     buttonStyle: ['dots', 'glyphs'],
@@ -34,16 +36,22 @@ export class FrameThemes {
   }
 
   static parse(raw: unknown): FrameThemeWire | string {
-    if (raw === null || raw === undefined) return { colors: Array(8).fill(-1), style: 0, side: 0, align: 0 }
+    if (raw === null || raw === undefined) return { colors: Array(16).fill(-1), style: 0, side: 0, align: 0, ignored: [] }
     if (typeof raw !== 'object' || Array.isArray(raw)) return 'a frame theme is an object (or null for the runtime look)'
     const theme = raw as Record<string, unknown>
-    const unknown = Object.keys(theme).find((key) => !(FrameThemes.KEYS as readonly string[]).includes(key))
-    if (unknown) return `unknown key ${JSON.stringify(unknown)} (${FrameThemes.KEYS.join(', ')})`
+    const ignored = Object.keys(theme).filter((key) => !(FrameThemes.KEYS as readonly string[]).includes(key))
     const colors: number[] = []
-    for (const state of ['active', 'inactive'] as const) {
-      const found = FrameThemes.#colors(state, theme[state])
-      if (typeof found === 'string') return found
-      colors.push(...found)
+    const light = theme['light']
+    const notObject = typeof light !== 'object' || light === null || Array.isArray(light)
+    if (light !== undefined && notObject) return 'light is an object with active and inactive colors'
+    const lightStates = (light ?? {}) as Record<string, unknown>
+    ignored.push(...Object.keys(lightStates).filter((key) => !(FrameThemes.STATES as readonly string[]).includes(key)).map((key) => `light.${key}`))
+    for (const [prefix, states] of [['', theme], ['light.', lightStates]] as const) {
+      for (const state of FrameThemes.STATES) {
+        const found = FrameThemes.#colors(`${prefix}${state}`, states[state], ignored)
+        if (typeof found === 'string') return found
+        colors.push(...found)
+      }
     }
     const codes: number[] = []
     for (const key of ['buttonStyle', 'buttonSide', 'titleAlign'] as const) {
@@ -53,15 +61,14 @@ export class FrameThemes {
       codes.push(value === undefined ? 0 : choices.indexOf(value) + 1)
     }
     const [style, side, align] = codes as [number, number, number]
-    return { colors, style, side, align }
+    return { colors, style, side, align, ignored }
   }
 
-  static #colors(state: keyof Pick<FrameTheme, 'active' | 'inactive'>, raw: unknown): number[] | string {
+  static #colors(state: string, raw: unknown, ignored: string[]): number[] | string {
     if (raw === undefined) return Array(4).fill(-1)
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return `${state} is an object of colors (${FrameThemes.COLORS.join(', ')})`
     const colors = raw as Record<string, unknown>
-    const unknown = Object.keys(colors).find((key) => !(FrameThemes.COLORS as readonly string[]).includes(key))
-    if (unknown) return `${state}: unknown key ${JSON.stringify(unknown)} (${FrameThemes.COLORS.join(', ')})`
+    ignored.push(...Object.keys(colors).filter((key) => !(FrameThemes.COLORS as readonly string[]).includes(key)).map((key) => `${state}.${key}`))
     const out: number[] = []
     for (const key of FrameThemes.COLORS) {
       if (colors[key] === undefined) {

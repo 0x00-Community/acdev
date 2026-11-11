@@ -400,10 +400,16 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   会话里还没有 (只记 debug 日志).
   `acde.desktop.setFrameTheme(theme | null)` (SDK `FrameTheme`: `active` / `inactive` 各 `{background?, title?, line?, buttons?}`, 颜色是
   `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` / `rgb()` / `rgba()`; `buttonStyle: 'dots' | 'glyphs'`, `buttonSide: 'left' | 'right'`,
-  `titleAlign: 'center' | 'start'`; 每次给的是整个主题, 不和上次的合并) 声明运行时画的标题栏的样子, 运行时照旧画、命中、拖动和双击. 检查在 SDK `FrameThemes.parse`
-  (`@dopame/acde-api/manifest`; 不认识的键、坏颜色、别的取值抛 TypeError), 转成 11 个数交给 surface 的 `setFrameTheme` (整个宿主一份,
+  `titleAlign: 'center' | 'start'`, `light: {active?, inactive?}`; 每次给的是整个主题, 不和上次的合并) 声明运行时画的标题栏的样子, 运行时照旧画、命中、拖动和双击.
+  检查在 SDK `FrameThemes.parse` (`@dopame/acde-api/manifest`; 坏颜色和别的取值抛 TypeError; 不认识的键 (各层) 不再报错, 忽略并记一行 warn, #114:
+  以后加的可选键在旧运行时上不出错, 但 acde-base 和这次修改 (#114) 之前的 acdert 仍会抛, 桌面要先探测), 转成 19 个数交给 surface 的 `setFrameTheme` (整个宿主一份,
   `State.theme`). 设了就重画所有开着的有窗框的窗口 (`Msg::Theme`), 焦点变化时窗口换 `active` / `inactive` (`Msg::Active`); `null` 回到
   今天的样子. 只管合成里的窗口; 会话里还没有 (只记 debug 日志). 谁有它同 `setDoubleClick`.
+  **页面不支持深色时用 `light`** (#114): 主题带了 `light` 的配色时, 页面没声明支持深色的窗口改画 `light` 那套 (缺的项用运行时默认, 不借深色主题的);
+  声明了的照旧用 `active` / `inactive`. 规则同浏览器: 根元素计算后的 `color-scheme` 含 `dark`, 或 `<meta name="color-scheme">` 的内容含 `dark`.
+  web (acde-host `frame.ts` `Frame.followScheme`, 只给有窗框的应用窗口) 在页面载入后判断一次, 之后 DOM 有变化 (子节点、属性、文字, 50 ms 合并一次)
+  再判断, 结果变了才经 surface 的 `setPageDark(dark)` 交给 hostwin (`Entry.dark_page`, `Msg::PageDark`, 画在 `Bar.dark_page`). 只经 CSSOM
+  (`insertRule`) 改的 `color-scheme` 不触发重新判断. 还没判断时当作不支持. 会话侧待实现 (会话的标题栏还没有主题).
   `acde.desktop.on('edge', fn)` (SDK `ScreenEdgeEvent` `{type: 'screenedge', edge: 'top' | 'right' | 'bottom' | 'left', entered, output}`, #113):
   指针进入、离开屏幕的一条边时各发一次 (角上是两条边各一次), 给桌面藏起菜单栏和 Dock 时用; 只发事件, 不动焦点和输入. 边的判断在 acde-model
   `ScreenEdge::touched` (离边不到 1 个逻辑像素, 且那一侧外面没有别的输出; 边的变化 `ScreenEdge::changes`). 会话: 合成器 (crates/shell `input.rs`

@@ -13,6 +13,7 @@ fn bar(title: &str, width: f64, scale: f64) -> Bar {
         fullscreen: false,
         theme: FrameTheme::default(),
         active: true,
+        dark_page: false,
         minimize: true,
     }
 }
@@ -217,4 +218,15 @@ fn a_disabled_minimize_button_is_dimmed_and_not_hit() {
     let glyphs = Bar { minimize: false, ..windows("", 400.0, 1.0) };
     assert_eq!(glyphs.button_at(400.0 - 138.0, 16.0), None);
     assert_eq!(glyphs.button_at(399.0, 16.0), Some(FrameButton::Close));
+}
+
+#[test]
+fn a_page_without_dark_gets_the_light_colours() {
+    let light = FrameColors { background: Some([0xf6, 0xf4, 0xf9, 0xff]), ..FrameColors::default() };
+    let theme = FrameTheme { active: DARK, light: [light, FrameColors::default()], ..FrameTheme::default() };
+    assert_eq!(theme.colors(true, false).background, light.background);
+    assert_eq!(theme.colors(false, false).background, light.background);
+    assert_eq!(theme.colors(true, true).background, DARK.background);
+    let plain = FrameTheme { active: DARK, ..FrameTheme::default() };
+    assert_eq!(plain.colors(true, false).background, DARK.background);
 }

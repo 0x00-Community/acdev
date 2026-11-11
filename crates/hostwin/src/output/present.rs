@@ -169,6 +169,11 @@ impl Presenter {
                 self.render.invalidate();
                 self.dirty = true;
             }
+            Msg::PageDark(dark) => {
+                self.bar.dark_page = dark;
+                self.render.invalidate();
+                self.dirty = true;
+            }
             Msg::Refresh(hz) => {
                 let pace = pace(hz);
                 log::debug!(target: "perf::raster", "window {} pace ms={:.3}", self.id, pace.as_secs_f64() * 1000.0);

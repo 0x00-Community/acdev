@@ -576,6 +576,7 @@ export interface FrameColors {
 export interface FrameTheme {
   readonly active?: FrameColors
   readonly inactive?: FrameColors
+  readonly light?: { readonly active?: FrameColors; readonly inactive?: FrameColors }
   readonly buttonStyle?: 'dots' | 'glyphs'
   readonly buttonSide?: 'left' | 'right'
   readonly titleAlign?: 'center' | 'start'

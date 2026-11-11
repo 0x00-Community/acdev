@@ -108,6 +108,7 @@ impl FrameColors {
 pub struct FrameTheme {
     pub active: FrameColors,
     pub inactive: FrameColors,
+    pub light: [FrameColors; 2],
     pub style: Option<FrameStyle>,
     pub side: Option<ButtonSide>,
     pub align: Option<TitleAlign>,
@@ -125,8 +126,10 @@ impl FrameTheme {
         self.side.unwrap_or_else(|| self.style().side())
     }
 
-    pub fn colors(&self, active: bool) -> FrameColors {
-        let chosen = if active { self.active } else { self.inactive.or(self.active) };
+    pub fn colors(&self, active: bool, dark_page: bool) -> FrameColors {
+        let none = FrameColors::default();
+        let [on, off] = if dark_page || self.light == [none; 2] { [self.active, self.inactive] } else { self.light };
+        let chosen = if active { on } else { off.or(on) };
         chosen.or(Self::DEFAULT)
     }
 
@@ -226,6 +229,7 @@ pub struct Bar {
     pub fullscreen: bool,
     pub theme: FrameTheme,
     pub active: bool,
+    pub dark_page: bool,
     pub minimize: bool,
 }
 
@@ -298,7 +302,7 @@ impl Decoration {
         let mut scene = Scene::new();
         let scale = Affine::scale(bar.scale);
         let (w, h) = (bar.width, bar.height);
-        let colors = bar.theme.colors(bar.active);
+        let colors = bar.theme.colors(bar.active, bar.dark_page);
         let paint = |rgba: Rgba| Color::from_rgba8(rgba[0], rgba[1], rgba[2], rgba[3]);
         let text = colors.title.map_or(Color::TRANSPARENT, paint);
         scene.fill(Fill::NonZero, scale, colors.background.map_or(Color::TRANSPARENT, paint), None, &Rect::new(0.0, 0.0, w, h));
