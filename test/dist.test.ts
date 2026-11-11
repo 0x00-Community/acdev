@@ -396,6 +396,8 @@ describe('the release archive and the installed CLI', () => {
       const refused = await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })
       expect(refused.code).not.toBe(0)
       expect(refused.out).toContain('acde 0.0.2 does not name the acdert it runs with')
+      expect(refused.out).toContain('the oldest version that can is 0.0.8')
+      expect(refused.stderr.trim().split(/\r?\n/), 'one line, no PowerShell error record').toHaveLength(1)
       expect(existsSync(join(home, 'current'))).toBe(false)
       writeFileSync(join(old, 'latest.json'), JSON.stringify({ version: '0.0.1', sdk: SDK }, null, 2))
       expect((await installPs1(home, 'runtime', { ACDE_DIST: server.url.origin })).code).not.toBe(0)

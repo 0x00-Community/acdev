@@ -193,8 +193,8 @@ main() {
       [ -z "$runtime" ] || say "acde $version names no acdert of its own; latest.json pairs it with acdert $runtime"
     fi
   fi
-  [ -n "$runtime" ] || die "acde $version does not name the acdert it runs with" \
-    "(no $ACDE_DIST/$version/acdert-version, and latest.json does not describe $version): install a newer acde"
+  [ -n "$runtime" ] || die "acde $version does not name the acdert it runs with, so it cannot be installed" \
+    "(the oldest version that can is 0.0.8): leave out --version for the latest"
   case $runtime in
     '' | *[!0-9A-Za-z.-]*) die "acdert-version of acde $version is not a version: '$runtime'" ;;
   esac

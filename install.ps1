@@ -179,8 +179,8 @@ function Install-Acde {
                 $runtime = [string]$info.sdk
                 Write-Host "acde: acde $Version names no acdert of its own; latest.json pairs it with acdert $runtime"
             } else {
-                throw ("acde: acde $Version does not name the acdert it runs with (no $dist/$Version/acdert-version, " +
-                    "and latest.json does not describe $Version): install a newer acde")
+                throw ("acde: acde $Version does not name the acdert it runs with, so it cannot be installed " +
+                    '(the oldest version that can is 0.0.8): leave out -Version and ACDE_VERSION for the latest')
             }
         }
         if ($runtime -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
@@ -352,4 +352,10 @@ function Install-Acde {
     }
 }
 
-Install-Acde -Version $Version -NoModifyPath:$NoModifyPath
+try {
+    Install-Acde -Version $Version -NoModifyPath:$NoModifyPath
+} catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    $global:LASTEXITCODE = 1
+    if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -eq 'install.ps1') { exit 1 }
+}

@@ -45,7 +45,7 @@ This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/b
 curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh -s -- --no-modify-path
 ```
 
-To install a specific version: `sh -s -- --version 0.1.0`.
+To install a specific version: `sh -s -- --version 0.0.8`. The oldest version the installers can install is 0.0.8.
 
 ## Windows
 
@@ -60,10 +60,10 @@ This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`.
 `irm | iex` cannot pass parameters. Set environment variables before it, or run the script as a script block to pass its parameters `-Version` and `-NoModifyPath`:
 
 ```powershell
-$env:ACDE_VERSION = '0.1.0'; $env:ACDE_NO_MODIFY_PATH = '1'
+$env:ACDE_VERSION = '0.0.8'; $env:ACDE_NO_MODIFY_PATH = '1'
 irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 
-& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version 0.1.0 -NoModifyPath
+& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version 0.0.8 -NoModifyPath
 ```
 
 ### Installer options
