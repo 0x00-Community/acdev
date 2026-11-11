@@ -244,7 +244,7 @@ On a machine without a display, such as a server over ssh, start the session wit
 ```sh
 acde dev --headless &
 acde inspect          # the windows and the focused window's elements, as text
-acde shot notes       # ./notes#1048576.png
+acde shot notes       # ./notes.png
 acde screen           # ./screen.png, every window together
 ```
 
