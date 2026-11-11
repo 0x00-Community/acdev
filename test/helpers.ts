@@ -65,7 +65,9 @@ export function env(extra: Record<string, string>): Record<string, string> {
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && !SCRUBBED.test(key)) out[key] = value
   }
-  return { ...out, ...extra }
+  const shown = out['WAYLAND_DISPLAY'] || out['DISPLAY']
+  const display: Record<string, string> = shown ? {} : { WAYLAND_DISPLAY: 'acde-test' }
+  return { ...display, ...out, ...extra }
 }
 
 export interface Ran {

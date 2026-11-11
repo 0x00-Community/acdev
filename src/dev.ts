@@ -142,6 +142,9 @@ export class DevSession {
     return { kind: 'desktop', id: desktops[0] ?? DevSession.DEFAULT_DESKTOP }
   }
 
+  static readonly WINDOW_HINT =
+    'if acdert could not open a window here (no display, e.g. over ssh), run acde dev --headless'
+
   static async runtimeLevel(acdert: string): Promise<RuntimeProbe> {
     const ran = await Runtime.capture([acdert, '--version'], { timeout: VERSION_MS })
     const level = /\(contract level (\d+)\)/.exec(ran.stdout)
@@ -173,6 +176,8 @@ export class DevSession {
   }
 
   async run(): Promise<number> {
+    const display = this.#headless ? null : Runtime.noDisplay()
+    if (display) throw new Error(`${display}: run acde dev --headless`)
     for (const unit of this.#units) {
       const sdk = unit.pkg.sdkWarning()
       if (sdk) console.error(`acde: warning: ${sdk}`)
@@ -223,6 +228,7 @@ export class DevSession {
         const code = await started.exited
         if (code !== 0)
           console.error(`acde: acdert exited (${code}) before it was ready; acde doctor checks the runtime, the GPU and this setup`)
+        this.#hint(code)
         return code
       }
       this.#link.send({ type: 'hello', role: 'dev' })
@@ -232,7 +238,9 @@ export class DevSession {
           this.#changed(unit, file === null ? null : String(file)))
       }
       watchers.push(...this.#units.map((u) => u.watcher!))
-      return await started.exited
+      const code = await started.exited
+      this.#hint(code)
+      return code
     } finally {
       if (running) child?.kill('SIGTERM')
       for (const [signal, handler] of signals) process.off(signal, handler)
@@ -243,6 +251,10 @@ export class DevSession {
       this.#link = null
       if (process.platform !== 'win32') rmSync(this.#endpoint, { force: true })
     }
+  }
+
+  #hint(code: number): void {
+    if (!this.#headless && code !== 0 && code < 128) console.error(`acde: ${DevSession.WINDOW_HINT}`)
   }
 
   #publish(): void {

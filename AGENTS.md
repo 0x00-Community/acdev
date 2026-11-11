@@ -302,6 +302,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   10 s 不退出就结束它, 同样算第 0 级). 有工程的 `apiLevel` 与它不同时报 `<名字>: needs level N, runtime is level M` 并退出 1,
   不起 acdert; 所有工程都没写 `apiLevel` (旧的手写包) 时不探测. 重新构建后级别变得不符算构建失败, 不发 `reload`.
 - 环境: `ACDE_PATH` (所有构建结果加继承的; 不装)、`ACDE_DEV` (acdert 要听的地址)、`--headless` 时 `ACDE_HEADLESS=1`.
+- 没有显示 (`Runtime.noDisplay`: Linux 上 `WAYLAND_DISPLAY` 和 `DISPLAY` 都没有): 不带 `--headless` 的 `acde dev` 和 `acde test --headed`
+  在构建前就报 `no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` (test 说去掉 `--headed`) 并退出 1; 否则 acdert 只报
+  `acde_shell registry … Connection reset by peer` 和 libseat 的错 (gitea acde#43). 不带 `--headless` 的 acdert 非零退出 (不是信号, 码 < 128) 时
+  再补一行 `DevSession.WINDOW_HINT`. 测试的 `env()` 在没有显示的机器上补 `WAYLAND_DISPLAY=acde-test`, 假 acdert 照常起.
 - `fs.watch` 每个工程, 跳过路径里任何一段在 `SKIPPED` (`src/paths.ts`, 含 `__screenshots__` / `__snapshots__`) 的、e2e 测试文件、只是目录的事件、`--out` 目录和嵌在里面的别的工程 (acde test 写基线时不能把应用重载掉); 150 ms 合并, 一次构建一个, 只重建改了的那个 (重读配置),
   给它的每个应用发 `reload {app}`, 它是在跑的桌面时再发 `reload`. 构建失败只打一行.
 - acdert 退出 acde 跟着退出 (退出码跟它), acde 的连接断了 acdert 也退出. SIGINT 吞掉 (终端也发给了 acdert), SIGTERM / SIGHUP 转给 acdert.

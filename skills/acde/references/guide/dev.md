@@ -29,6 +29,8 @@ The session is ready when `acde webs`, run from the project directory, lists the
 
 `--headless` doesn't open a window (a **headless session**), which suits scripts and CI. Pages still render and screenshots still work. It still needs a GPU, so it doesn't run on Linux CI machines without one (macOS CI runners work); see [Platform support](../reference/platforms.md).
 
+On a machine without a display, such as a Linux server over ssh, use `--headless` and look at the session with `acde shot`, `acde screen` and `acde inspect`. On Linux, `acde dev` without `--headless` (and `acde test --headed`) stops at once when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set, and says so. If acdert exits with an error anyway, `acde dev` adds the same `--headless` hint after acdert's own messages.
+
 ## Reloading
 
 - Changes within 150 ms are merged into one build, and only the project that changed is rebuilt.

@@ -68,6 +68,11 @@ export class Runtime {
     }
   }
 
+  static noDisplay(env: Env = process.env, platform: NodeJS.Platform = process.platform): string | null {
+    if (platform !== 'linux' || env['WAYLAND_DISPLAY'] || env['DISPLAY']) return null
+    return 'no display here (no WAYLAND_DISPLAY or DISPLAY)'
+  }
+
   static killTree(child: Child): void {
     if (process.platform === 'win32' && child.pid && child.process.exitCode === null) {
       const options = { stdio: 'ignore', timeout: Runtime.KILL_MS, windowsHide: true } as const
