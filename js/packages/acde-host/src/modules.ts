@@ -397,6 +397,9 @@ export class Modules {
         shortcut: (combo: string, scope: 'session' | 'desktop' = 'desktop') => desk.shortcut(String(combo), scope),
         unshortcut: (combo: string, scope: 'session' | 'desktop' = 'desktop') => desk.unshortcut(String(combo), scope),
       }
+      this.value['launch'] = {
+        start: (argv: string[], options?: { cwd?: string; env?: Record<string, string>; slot?: boolean }): number => windows.api.launch(argv, options),
+      }
     } else {
       this.value['windows'] = windows.api
       this.value['open'] = apps.open
