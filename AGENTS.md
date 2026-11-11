@@ -1459,6 +1459,8 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
     `latest.json`、CloudFront 失效和建 Gitea release 由人手动做 (用 `pkgs` 产物). `gh` 只对 GitHub 用.
   - Gitea 默认的 runner 是 Linux 容器 (`ubuntu-24.04` 标签, 镜像 `docker.gitea.com/runner-images:ubuntu-24.04`); `build` 矩阵里的 macOS 和 Windows
     要有对应标签的 runner 才能跑 (内网: Windows 是 110 上的 w110, `windows-2025`; macOS Intel 是 150, `macos-15-intel`; 没有 `macos-15`). 步骤默认 `bash -e -o pipefail`.
+  - Gitea 上不能只重跑失败的作业: 重跑时产物按尝试次数隔开, 后面的作业只拿得到这次尝试上传的产物 (run 1993 只重跑 Windows 后,
+    `stage` 报 `missing binary artifacts/acdert-x86_64-unknown-linux-gnu/...`). 某个平台失败时整次重新触发 (GitHub 的单作业重跑能拿到前一次的产物).
 - 少出目标: 输入 `skip_targets` (逗号分隔的 triple, 不带空格, 默认空 = 四个都出). `plan` 用 `scripts/release/targets.sh` 的 `targets_without` 去掉它们,
   输出逗号分隔的 `targets`; 写错名字、带空格或全去掉都失败. `build` 仍是写死的四项矩阵 (Gitea 1.27 不能用 `fromJSON(needs…)` 当矩阵):
   被跳过的一项 `runs-on` 由 `skip_targets` 改成 `ubuntu-24.04` (`runs-on` 在建运行时就求值, 只能看输入, 看不到 `needs`; 否则 Gitea 上
