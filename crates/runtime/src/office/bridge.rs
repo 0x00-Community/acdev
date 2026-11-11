@@ -24,7 +24,14 @@ struct Request {
 pub fn listen(path: &str) -> std::io::Result<async_io::Async<UnixListener>> {
     if let Some(parent) = std::path::Path::new(path).parent() {
         use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        if let Some(above) = parent.parent().filter(|above| !above.as_os_str().is_empty()) {
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(above)?;
+        }
+        match std::fs::DirBuilder::new().mode(0o711).create(parent) {
+            Ok(()) => std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o711))?,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
     }
     match std::fs::remove_file(path) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
@@ -200,6 +207,8 @@ mod tests {
         let path = dir.join("run/bridge.sock");
         let listener = listen(path.to_str().unwrap()).expect("listen");
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o666);
+        assert_eq!(std::fs::metadata(dir.join("run")).unwrap().permissions().mode() & 0o777, 0o711);
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
         let task = crate::rt::spawn_abortable(serve(listener, Arc::new(Stub)));
         let answer = ask(&path, "GET /office/file/t1?x=1 HTTP/1.1\r\nAuthorization: Bearer x\r\n\r\n");
         assert!(answer.starts_with("HTTP/1.1 200 OK\r\n"), "{answer}");

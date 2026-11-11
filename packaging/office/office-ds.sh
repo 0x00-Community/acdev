@@ -16,11 +16,11 @@
 #   OFFICE_DS_MEMORY    memory limit [4g]
 #   OFFICE_DS_CPUS      CPU limit [2]
 #   AGENTRT_OFFICE_ENV_FILE  JWT secret file shared with agentrt [${XDG_CONFIG_HOME:-~/.config}/agentos/office/ds.env]
-#   ACDE_RUNTIME_DIR   where acde's office bridge socket lives [${XDG_RUNTIME_DIR}/acde]
+#   ACDE_RUNTIME_DIR   acde's runtime directory; the office bridge socket is in its office/ [${XDG_RUNTIME_DIR}/acde]
 #
 # The secret is generated locally (mode 0600) and never printed.
 # Document Server calls the bridge back at http://127.0.0.1:7979 inside the container: the image's nginx forwards that
-# to acde's unix socket (office.sock, mounted from ACDE_RUNTIME_DIR); acde listens on no TCP port. A container made
+# to acde's unix socket (office.sock; only ACDE_RUNTIME_DIR/office is mounted); acde listens on no TCP port. A container made
 # by an older version of this script keeps its old settings: `down` then `up` recreates it.
 set -eu
 
@@ -29,7 +29,7 @@ NAME=${OFFICE_DS_NAME:-agentrt-office-ds}
 PORT=${OFFICE_DS_PORT:-8085}
 MEMORY=${OFFICE_DS_MEMORY:-4g}
 CPUS=${OFFICE_DS_CPUS:-2}
-BRIDGE_DIR=${ACDE_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/acde}
+BRIDGE_DIR=${ACDE_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/acde}/office
 ENV_FILE=${AGENTRT_OFFICE_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/agentos/office/ds.env}
 BRIDGE_CONF=$(dirname "$ENV_FILE")/acde-bridge.conf
 
@@ -56,10 +56,16 @@ save_gz() {
 
 health() { curl -fsS --max-time 3 "http://127.0.0.1:$PORT/healthcheck" 2>/dev/null; }
 
-# the callback address inside the container -> acde's bridge socket (the socket is 0666 in a 0700 directory)
+# the callback address inside the container -> acde's bridge socket. Only the bridge's own directory is mounted; it
+# holds nothing but office.sock (0666). nginx's workers run as www-data, which is neither the directory's owner nor
+# its group under Docker (host uid) or rootless podman (container root), so the directory is 0711: they may pass
+# through it to the socket but not list it. The parent (acde/, inside the 0700 XDG_RUNTIME_DIR) stays 0700, so
+# other host users still cannot reach it.
 bridge() {
+  mkdir -p "$(dirname "$BRIDGE_DIR")"
+  chmod 700 "$(dirname "$BRIDGE_DIR")"
   mkdir -p "$BRIDGE_DIR"
-  chmod 700 "$BRIDGE_DIR"
+  chmod 711 "$BRIDGE_DIR"
   mkdir -p "$(dirname "$BRIDGE_CONF")"
   cat > "$BRIDGE_CONF" <<'CONF'
 server {
@@ -77,6 +83,13 @@ up() {
   docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" || die "cannot pull $IMAGE; on an offline host use: $0 load FILE"
   secret
   bridge
+  if docker container inspect "$NAME" >/dev/null 2>&1; then
+    mounted=$(docker container inspect -f '{{range .Mounts}}{{if eq .Destination "/run/acde"}}{{.Source}}{{end}}{{end}}' "$NAME")
+    if [ "$mounted" != "$BRIDGE_DIR" ]; then
+      echo "office-ds: $NAME mounts ${mounted:-nothing} at /run/acde, not $BRIDGE_DIR; recreating it (the data volumes stay)"
+      docker rm -f "$NAME" >/dev/null
+    fi
+  fi
   if docker container inspect "$NAME" >/dev/null 2>&1; then
     docker start "$NAME" >/dev/null
   else

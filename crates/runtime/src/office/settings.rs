@@ -33,7 +33,7 @@ impl OfficeSettings {
         let config = var("XDG_CONFIG_HOME").unwrap_or_else(|| format!("{home}/.config"));
         Ok(Self {
             document_server,
-            socket: var("AGENTRT_OFFICE_SOCKET").unwrap_or_else(|| format!("{runtime}/acde/office.sock")),
+            socket: var("AGENTRT_OFFICE_SOCKET").unwrap_or_else(|| format!("{runtime}/acde/office/office.sock")),
             bridge_url,
             env_file: var("AGENTRT_OFFICE_ENV_FILE").unwrap_or_else(|| format!("{config}/agentos/office/ds.env")),
             secret_override: var("AGENTRT_OFFICE_JWT_SECRET"),
