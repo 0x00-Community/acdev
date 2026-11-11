@@ -66,11 +66,23 @@ export class Devtools {
 
   static pick(targets: readonly Target[], wanted: readonly string[], named: string | null): Target {
     const found = wanted.map((id) => targets.find((target) => target.id === id)).find((target) => target)
+      ?? (named === null ? undefined : Devtools.#named(targets, named))
     if (found) return found
     const listed = targets.map((t) => `  ${t.id}  ${t.type}  ${t.title || t.url}`).join('\n')
     const what = named === null ? 'the focused page' : named
     const which = listed ? `; the targets are:\n${listed}` : ' (the list is empty)'
     throw new Error(`no DevTools target for ${what}${which}`)
+  }
+
+  static #named(targets: readonly Target[], named: string): Target | undefined {
+    const wanted = named.toLowerCase()
+    const titles = (target: Target) => [target.title, target.title.replace(/ \([^()]*\)$/, '')]
+      .map((t) => t.toLowerCase())
+    const services = (target: Target) => target.title.replace(/^services:\s*/i, '').split(',')
+      .map((s) => s.trim().toLowerCase())
+    return targets.find((target) => titles(target).includes(wanted))
+      ?? targets.find((target) => target.type === 'service'
+        && (wanted === 'services' || wanted === 'service' || services(target).includes(wanted)))
   }
 
   static url(target: Target, endpoint: Endpoint): string {
@@ -158,7 +170,8 @@ export class Devtools {
     const webs = await acde.webs()
     if (named !== null) {
       const web = webs.find((w) => w.name === named) ?? webs.find((w) => w.app === named)
-        ?? webs.find((w) => String(w.window) === named)
+        ?? webs.find((w) => String(w.window) === named) ?? webs.find((w) => w.title === named)
+        ?? webs.find((w) => w.title?.toLowerCase() === named.toLowerCase())
       return web ? [named, web.name, String(web.window)] : [named]
     }
     const windows = await acde.windows()
