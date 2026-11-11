@@ -52,12 +52,7 @@ pub fn wanted(place: Place) -> bool {
     }
 }
 
-/// Rings of a jsrt that splits long messages into parts (it has
-/// `call_spin_us`, which came with them); without parts a message must fit
-/// in one ring, so the rings are as long as the longest message.
-fn ring_size() -> u32 {
-    if std::path::Path::new("/sys/module/jsrt/parameters/call_spin_us").exists() { 1 << 20 } else { 16 << 20 }
-}
+const RING: u32 = 1 << 20;
 const SPIN: Duration = Duration::from_micros(50);
 
 enum In {
@@ -160,7 +155,7 @@ struct Driver {
 impl Driver {
     fn run(spec: Spec, tx: Sender<In>, wake: Arc<OwnedFd>, rx: Receiver<In>) -> (i32, Option<String>) {
         let mem_limit = if spec.heap_mb > 0.0 { (spec.heap_mb * 1024.0 * 1024.0) as u64 } else { 0 };
-        let iso = match Isolate::create(&Options { name: spec.name.clone(), mem_limit, stack_size: Spec::STACK as u32, ring_size: ring_size() }) {
+        let iso = match Isolate::create(&Options { name: spec.name.clone(), mem_limit, stack_size: Spec::STACK as u32, ring_size: RING }) {
             Ok(iso) => iso,
             Err(e) => {
                 log::error!("[{}] /dev/jsrt: {e}", spec.name);

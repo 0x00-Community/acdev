@@ -1,0 +1,5 @@
+{
+  "type": "app",
+  "label": "Hello",
+  "capabilities": { "fs": true }
+}

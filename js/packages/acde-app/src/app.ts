@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import type { AcdeConfig, AppConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
+import type { AcdeConfig, DesktopConfig, DesktopManifest, PackageManifest, ServiceManifest, WindowAppConfig } from '@dopame/acde-api'
 import acdeVite from '../../acde-api/src/vite.js'
 import { Frameworks, type Output } from './frameworks.ts'
 import { appId } from './sockets.ts'
@@ -31,18 +31,6 @@ const BACKENDS = ['server.ts', 'server.js', 'src/server.ts', 'src/server.js', 's
 const DEFAULT_PORT = 3000
 const BUN_OPTIONS = { target: 'bun', format: 'esm', splitting: false, minify: { syntax: true, whitespace: false, identifiers: false }, throw: false } as const
 
-interface Legacy {
-  readonly id?: string
-  readonly label?: string
-  readonly icon?: string
-  readonly capabilities?: AppConfig['capabilities']
-  readonly heapMb?: number
-  readonly multiple?: boolean
-  readonly web?: string
-  readonly server?: string
-  readonly backend?: false | { readonly port?: number }
-}
-
 export class Project {
   static readonly CONFIGS = ['acde.config.jsonc', 'acde.config.json']
 
@@ -59,28 +47,14 @@ export class Project {
     const pkg = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>) : {}
     this.pkg = pkg
     const found = Project.CONFIGS.map((name) => join(this.dir, name)).find((path) => existsSync(path))
-    if (!found && !existsSync(file)) throw new Error(`no ${Project.CONFIGS[0]} or package.json in ${this.dir}`)
+    if (!found) throw new Error(`no ${Project.CONFIGS[0]} in ${this.dir}`)
     const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
-    if (found) {
-      const config = Bun.JSONC.parse(readFileSync(found, 'utf8')) as AcdeConfig
-      if (typeof config !== 'object' || config === null || (config.type !== 'app' && config.type !== 'desktop')) {
-        throw new Error(`${basename(found)}: "type" is "app" (a window app) or "desktop"`)
-      }
-      this.config = config
-      this.from = basename(found)
-    } else {
-      const legacy = (pkg['acde'] ?? {}) as Legacy
-      if (typeof legacy !== 'object' || legacy === null) throw new Error(`${file}: "acde" is not an object`)
-      const { web, server, backend, ...app } = legacy
-      this.config = {
-        type: 'app',
-        ...app,
-        label: legacy.label ?? text(pkg['displayName']) ?? text(pkg['productName']),
-        entry: web ?? 'index.html',
-        backend: backend === false ? false : { ...(server !== undefined && { entry: server }), ...(backend?.port !== undefined && { port: backend.port }) },
-      }
-      this.from = 'package.json'
+    const config = Bun.JSONC.parse(readFileSync(found, 'utf8')) as AcdeConfig
+    if (typeof config !== 'object' || config === null || (config.type !== 'app' && config.type !== 'desktop')) {
+      throw new Error(`${basename(found)}: "type" is "app" (a window app) or "desktop"`)
     }
+    this.config = config
+    this.from = basename(found)
     this.name = text(this.config.name) ?? text(pkg['name']) ?? basename(this.dir)
     this.version = text(this.config.version) ?? text(pkg['version']) ?? '0.0.0'
   }

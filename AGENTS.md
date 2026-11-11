@@ -571,7 +571,7 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
 (区里 `replies` 的 size 为 0 说明内核太旧, 报 `Unsupported`); `eval(source, name, module)` 交源码 (脚本或 ES 模块, 错误以
 `Kind::Error` 消息回来); `recv(&mut buf)` 取 `to_window` 的下一条整消息 (`Message { kind, flags, len }`; `JSRT_MSG_PART` 分块的
 先攒在 `Isolate` 里, 收齐才返回); `send(kind, flags, data)` 写 `to_engine` 的一条记录, `send_from(kind, flags, data, &mut sent)` 写任意长的
-消息 (装得下一条记录就一条, 旧内核也认; 否则按环的 1/4 分块), 没地方时 `Err(Full)`, `sent` 记着写到哪, 等引擎消费 (`Events::SPACE`)
+消息 (装得下一条记录就一条, 否则按环的 1/4 分块), 没地方时 `Err(Full)`, `sent` 记着写到哪, 等引擎消费 (`Events::SPACE`)
 后用同一份数据再调; `reply(data)` 回答最早那个 `Kind::Call`, 长回答分块时自己等地方 (引擎在等这个回答, 边收边发 SPACE; 等到的别的事件
 存着, 下次 `wait` 一起返回).
 写了或消费了之后要踢一下引擎: `Waiter` (io_uring, `JSRT_CMD_KICK` 和 `JSRT_CMD_WAIT` 在同一次 `io_uring_enter` 里, 一个来回
@@ -584,14 +584,13 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
 内置模块 `jsrt:host`: `call(data)` (同步问窗口进程, 等回答时引擎什么别的都不跑)、`now` / `timeOrigin`、`randomBytes` /
 `randomUUID`、`serialize` / `deserialize` (字节和用户态 V8 一样)、`encodeUtf8` / `decodeUtf8`、`importModule` / `runModule` /
 `runScript` / `defineModule` (模块向窗口要: CALL flags 2, `specifier\0referrer`, 回 `url\0source` 或 `\0原因`)、`onTaskEnd`、
-`setReporter`、`exit`、`onMessage` (新的 jsrt_v8). 新的 jsrt_v8 带 ICU (时区是模块参数 `jsrt.timezone`, 包里的 modprobe.d 从
-`/etc/localtime` 取; 旧的没有 ICU, `\p{…}` 正则、`Intl` 不行), 没有 WebAssembly. `ACDE_KERNEL_JS=all`: 桌面也进内核 (实验).
+`setReporter`、`exit`、`onMessage`. jsrt_v8 带 ICU (时区是模块参数 `jsrt.timezone`, 包里的 modprobe.d 从
+`/etc/localtime` 取), 没有 WebAssembly. `ACDE_KERNEL_JS=all`: 桌面也进内核 (实验).
 
 **应用窗口在内核里** (阶段 2, crates/acde `kernel.rs`、`wire.rs`、`desk/wire.rs`, JS `acde-host/src/kernel.ts`):
 `Spec::spawn` 在 `kernel::wanted(place)` 时改走 `kernel::spawn`: 只对 `Place::Window`, `/dev/jsrt` 可读写就用 (默认开),
 `ACDE_KERNEL_JS=0` 关掉; 设了 `=1` 却打不开时打 warn 再退回用户态. 窗口进程起一条 `acde-window` 线程: 建 isolate (栈和用户态
-一样 8 MiB; 环 1 MiB, 内核能分块时 (有 `/sys/module/jsrt/parameters/call_spin_us`), 否则 16 MiB, 因为模块源码和 `readAsset`
-的整份内容要一次过环), 把 `app_dir()/kernel.js` 当模块 `acde://host/kernel.js` 求值, 然后 poll isolate 的 fd 和一个 eventfd (别的线程的
+一样 8 MiB; 环 1 MiB, 长消息由内核分块), 把 `app_dir()/kernel.js` 当模块 `acde://host/kernel.js` 求值, 然后 poll isolate 的 fd 和一个 eventfd (别的线程的
 输入、异步调用的结果从这进来). 回答了同步调用之后先自旋 50 µs 看 `to_window` (`Isolate::pending`), 连着的调用不用睡一觉再被叫醒;
 内核那边 `jsrt_call` 等回答也先自旋 (`jsrt.call_spin_us`). 发给引擎的消息排在 `outbox`, 长的分块续写 (`sent`).
 
@@ -605,7 +604,7 @@ HTML / CSS / 布局 / 渲染仍在窗口进程 (render). 引擎跑在调用者�
   V8 回调和 `wire()` 分发 (`Args` trait: `V8Args` / `WireArgs`), 不写两遍.
 - **kernel.ts 的坑**: 页面的 shim 会换掉全局 `setTimeout` / `clearTimeout` / `queueMicrotask` / `postMessage` (换成页面版, 页面版又调
   host), 所以 kernel.ts 在顶层先拿住引擎的; shim 还把全局 `onmessage` 定义成页面的访问器, 所以内核来的消息走 jsrt:host 的
-  `onMessage`, 不经全局 `onmessage` (要 38030d4d4 以后的 jsrt_v8). 引擎在 onTaskEnd 之后才把没处理的 rejection 交给 reporter, 所以
+  `onMessage`, 不经全局 `onmessage`. 引擎在 onTaskEnd 之后才把没处理的 rejection 交给 reporter, 所以
   `reportError` 自己 flush.
 - **属性缓存** (kernel.ts 的 `cachedDom`): `getAttribute` / `hasAttribute` 一次同步调用约几十微秒, 页面每帧读 canvas 的 `width` /
   `height` 时会上万次, 所以引擎这边按节点缓存读到的值. 自己的 `setAttribute` / `removeAttribute` / `setValue` (有的控件改 `value`
@@ -682,10 +681,6 @@ acde 依次在这些地方找包: acde-host 自己 (只有品牌资源, 没有�
 `--greeter` 和 `acde window` 不记), 否则第一个装了的 acde 桌面, 否则第一个外部会话, 都没有就报错退出. `acde window <app>`
 不算外部会话, 一个桌面也没有时用一个空的 (`Packages.bare`, id `window`, 没有服务). 桌面可以通过
 `acde.desktops.choose(id, remember)` 换桌面: Broker 关掉当前桌面和它的服务, 启动新的; `remember` 写状态文件 (KDE 也行, 下次直接交出去).
-改了名的桌面 (`Packages.RENAMED`, 现在只有 `dopamine` → `dopame`): 这三处给旧 id 都先找新 id (没装新的才认旧的),
-记住的是旧 id 而找到的是新桌面时把状态文件改写成新 id;
-起这个桌面时新的页面存储 (`$XDG_CONFIG_HOME/acde/storage/dopame.json`) 不在而旧的 (`dopamine.json`) 在, 就把旧文件改名过去 (只搬文件,
-里面的键由桌面包自己迁).
 
 交出会话: 选的是外部会话时 (`choose`, 或启动时按上面的规则选中它), acde 把要跑的命令写进交接文件
 `$XDG_RUNTIME_DIR/acde/exec` (没有就 `/run/user/<uid>/acde/exec`; 第一行是逐个单引号引起来的 argv, 之后每行一个
@@ -847,7 +842,7 @@ acde-dopame 的清单写不进去). 实现在 crates/runtime
 - 按显示器记住 (照 KWin 的 `~/.config/kwinoutputconfig.json`): `$XDG_CONFIG_HOME/acde/display.json` 的 `{outputs: [{connectorName,
   edidIdentifier, scale}]}`, 先按 EDID 标识 (和 KWin 同一个格式: `厂商 产品号 序列号 周 年 型号年`, 读 `/sys/class/drm/*-<输出名>/edid`)
   找, 没有 EDID 的按接口名; 每次改都写 (先写 `.tmp` 再改名, 别的键留着). 起合成器时缩放的顺序: 这个文件 → `ACDE_SCALE` → 按 EDID
-  的物理宽度算. DRM 输出的名字和内核 / KWin 一样 (`HDMI-A-1`, 原来是 `HDMIA-1`).
+  的物理宽度算. DRM 输出的名字和内核 / KWin 一样 (`HDMI-A-1`).
 
 ## 声音 (`acde:audio`)
 
@@ -1078,9 +1073,7 @@ JS 侧 `isolate.ts` 的 `devicesModule` 加上 `on`. 类型 acde-api `AcdeDevice
 ## 网页应用 (`acde app`, SDK, 应用后端)
 
 acde-base 自己是运行时 (像 wrangler 之于 Workers): 工具是 acde 的子命令 `acde app`, 对外只发一个 JS 包 —— SDK
-`@dopame/acde-api` (类型, `load` 和 Vite 插件, 见「js/packages/acde-api」). 原来的 acde-sdk 仓库 (Rust 的 `acde-sdk` 命令 + d.ts) 并进来了:
-它的 `new` / `check` 成了 `acde app new` / `check`, d.ts 由 acde-api 代替; 它照 multiproc 分支写的 `intercept` (外设劫持) 在
-split-window 上没有, 没带过来 (按第一原则, 这类能力以后只经 `acde` 提供, 不再加 `acde:*` 窗口事件).
+`@dopame/acde-api` (类型, `load` 和 Vite 插件, 见「js/packages/acde-api」).
 
 - **`acde.config.jsonc`** (照 wrangler.jsonc; 也认 `acde.config.json`; 类型 `AcdeConfig` 和 `config.schema.json` 在 SDK 里):
   工程根目录的这份配置声明工程是什么 —— `"type": "app"` 是一个窗口应用, `"type": "desktop"` 是一个桌面 (用户可以自己做桌面,
@@ -1091,8 +1084,7 @@ split-window 上没有, 没带过来 (按第一原则, 这类能力以后只经 
   (桌面自带的窗口应用, 每个和 app 的字段一样, `id` / `entry` 必填). 这份配置只在构建时读: `acde app build` (acde-app `app.ts`
   的 `Project`) 把它变成包的 package.json 清单 (运行时只认清单, 见「桌面包」). 产物: app 是 `assets/` (`/app/<id>/`)、`backend/`;
   desktop 是 `desktop/` (`/desktop/<id>/`, 清单的 `entry` 是 `desktop/<页面>`)、`services/`、`apps/<id>/{assets,backend}`.
-  没有这份配置时, package.json 的 `acde` 简写 (`id`、`label`、`web`、`server`、`backend` …, 没有 `apps`) 当作 app 读; 两样都没有
-  也行: id 取 package.json 的 `name`, label 取 `displayName` / `productName`.
+  `id` 没写时由 `name` 得出. 没有这份配置的工程不认 (手写的包除外, 见下面的 `acde app`).
 - **框架** (acde-app `src/frameworks.ts`, app 的 `framework`, 默认 `auto`): 按 package.json 的依赖认, 用框架自己的构建, 不改用户
   的配置文件; 没有 node_modules 时先 `bun install`; 构建工具一律 `bun --bun` 跑 (机器上没有 Node). 先认先得:
   | 依赖 | 怎么构建 | 产物 |

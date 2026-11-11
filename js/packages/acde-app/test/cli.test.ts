@@ -120,6 +120,7 @@ describe('backends', () => {
   test("Node's modules and npm-style servers build: node:http stays an import", async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'package.json'), '{"name": "node-app"}')
+    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app" }')
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>node</title><p>node</p>')
     writeFileSync(join(dir, 'server.js'), "import http from 'node:http'\nhttp.createServer((req, res) => res.end('hi')).listen(3000)\n")
     const out = join(dir, '.acde')
@@ -222,9 +223,19 @@ describe('mistakes', () => {
   test('no index.html', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'package.json'), '{"name": "empty"}')
+    writeFileSync(join(dir, 'acde.config.jsonc'), '{ "type": "app" }')
     const result = await cli(['build', '--out', join(dir, '.acde')], dir)
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('no index.html')
+  })
+
+  test('a package.json without acde.config.jsonc is not a project', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'package.json'), '{"name": "plain", "acde": {"label": "Plain"}}')
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>plain</title>')
+    const result = await cli(['check'], dir)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('no acde.config.jsonc')
   })
 
   test('unknown command', async () => {

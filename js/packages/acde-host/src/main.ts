@@ -8,7 +8,7 @@ import { WaylandSessions } from './foreign'
 import { DesktopEntries } from './open'
 import { Packages, type InstalledDesktop } from './packages'
 import { AppRegistry } from './apps'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from './sys/fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from './sys/fs'
 import { bindNatives, type Natives } from './sys/natives'
 import { xdgHome } from './sys/os'
 import { dirname, join, resolve } from './sys/path'
@@ -123,19 +123,7 @@ class Main {
   static storageFile(desktop: string): string | null {
     const set = process.env['ACDE_STORAGE']
     if (set !== undefined) return set || null
-    const dir = join(xdgHome('config'), 'acde', 'storage')
-    const file = join(dir, `${desktop}.json`)
-    for (const [before, now] of Object.entries(Packages.RENAMED)) {
-      const old = join(dir, `${before}.json`)
-      if (now !== desktop || existsSync(file) || !existsSync(old)) continue
-      try {
-        renameSync(old, file)
-        Log.write(Level.Info, 'acde_host', `desktop ${before} is now ${now}: its page storage moved to ${file}`)
-      } catch (error) {
-        Log.write(Level.Warn, 'acde_host', `desktop ${before} is now ${now}: ${old} not moved: ${(error as Error).message}`)
-      }
-    }
-    return file
+    return join(xdgHome('config'), 'acde', 'storage', `${desktop}.json`)
   }
 
   static remember(id: string): void {

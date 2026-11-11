@@ -30,7 +30,6 @@ export interface InstalledDesktop {
 
 export class Packages {
   static readonly HEAP_MB = 1024
-  static readonly RENAMED: Readonly<Record<string, string>> = { dopamine: 'dopame' }
 
   static get HOST(): string {
     return join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -193,7 +192,7 @@ export class Packages {
   choose(wanted: string | null, foreign = true, quiet = false): InstalledDesktop | ForeignSession {
     const warn = quiet ? () => {} : Packages.#warn
     const find = (id: string) => {
-      const found = this.find(Object.hasOwn(Packages.RENAMED, id) ? Packages.RENAMED[id]! : id) ?? this.find(id)
+      const found = this.find(id)
       return found && (foreign || found.kind === 'acde') ? found : null
     }
     if (wanted) {
@@ -214,13 +213,6 @@ export class Packages {
     for (const [id, where] of [[process.env['ACDE_DESKTOP'], 'ACDE_DESKTOP'], [remembered, Packages.rememberFile()]] as const) {
       if (!id) continue
       const found = find(id)
-      if (found && found.id !== id && id === remembered) {
-        try {
-          Packages.remember(found.id)
-        } catch (error) {
-          warn(`${Packages.rememberFile()}: desktop ${id} is now ${found.id}, not rewritten: ${(error as Error).message}`)
-        }
-      }
       if (found) return found
       warn(`${where} names desktop ${id}, which is not installed${this.find(id) ? ' as an acde desktop' : ''}`)
     }

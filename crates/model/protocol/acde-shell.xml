@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <protocol name="acde_shell">
   <copyright>
-    Copyright dopamine-org. Apache-2.0.
+    Copyright dopame-org. Apache-2.0.
   </copyright>
 
   <interface name="acde_shell" version="1">
