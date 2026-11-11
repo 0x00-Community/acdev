@@ -26,6 +26,7 @@
 | `ACDE_STORAGE` | Root directory for web storage; set it to empty to keep storage in memory only |
 | `ACDE_AUTOSTART` | `0` to skip autostart items |
 | `ACDE_AUDIO=null` | No sound |
+| `ACDE_CAPTURE=fake` | A fake camera and microphone (`Fake camera`, `Fake microphone`) in place of the system's devices, for `getUserMedia()` |
 | `ACDE_FRAME_STYLE` | Title bar style: macOS traffic lights or Windows buttons |
 
 ## App backends

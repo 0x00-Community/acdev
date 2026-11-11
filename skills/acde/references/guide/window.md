@@ -31,10 +31,10 @@ self.on('beforeclose', async () => {
 | `setTitle(title)` | Sets the title |
 | `setMenus(menus)` | App menus (shown in the desktop's menu bar) |
 | `close()` | Closes the window at once; `beforeclose` is not asked |
-| `minimize()` | Minimizes the window; the same as `requestState('minimized')` |
+| `minimize()` | Minimizes the window, as `requestState('minimized')` does; the promise rejects with `status: 409`, `code: 'unavailable'` when the window cannot be minimized |
 | `state` / `requestState(state)` | The window's state: `normal`, `minimized`, `filled` (fills the work area), `fullscreen`; see [Window state](#window-state) |
 | `requestMode(mode)` | Whether the user can move and resize the window: `free` (both), `fixed` (move only), `pinned` (neither) |
-| `output` | The screen the window is on: `{width, height, scale, workArea: {x, y, width, height}}` in logical pixels; `workArea` leaves out what the desktop's panels reserve |
+| `output` | The screen the window is on: `{width, height, scale, workArea: {x, y, width, height}}` in logical pixels; `workArea` leaves out what the desktop's panels reserve. In a session that runs a single app the screen is the host window: with `"size": [400, 300]`, `output` and its `workArea` are both 400 × 300 |
 | `requestAttention()` | Requests attention (for example a bouncing Dock icon; up to the desktop) |
 | `requestActivate()` | Brings the window to the front and requests focus; the system may turn this into a request for attention |
 | `setGrabHint(rect, edges?)` | Pressing in this area makes the system move the window (no `edges`) or resize it (with edges) |
@@ -42,7 +42,7 @@ self.on('beforeclose', async () => {
 | `requestGrab(kind)` / `releaseGrab(kind)` | Takes exclusive pointer or keyboard input (`'pointer'` / `'keyboard'`) |
 | `shortcut(combo)` / `unshortcut(combo)` | Registers an app-level global shortcut, such as `'ctrl+shift+k'` |
 | `hostControls` | `true` when the host system draws the window's minimize / maximize / close buttons, so a frameless app should hide its own |
-| `minimizable` | `false` when this window cannot be minimized |
+| `minimizable` | `false` when this window cannot be minimized. In a session that runs a single app, on macOS and headless, the app's window is such a window: it fills the host window |
 
 ### Window state
 
@@ -56,15 +56,15 @@ self.on('state', ({ state, previous }) => {
 self.requestState('fullscreen') // 'normal' | 'minimized' | 'filled' | 'fullscreen'
 ```
 
-- `requestState()` returns nothing. The system decides: when it refuses, nothing changes and no event arrives. A `fixed` window can only be minimized, and a `pinned` one cannot change state.
+- `requestState()` returns nothing. The system decides: when it refuses, nothing changes and no event arrives. A `fixed` window can only be minimized, and a `pinned` one cannot change state. A window whose `minimizable` is `false` cannot be minimized: `requestState('minimized')` changes nothing, and `minimize()` rejects.
 - The state also changes without the page asking: the title bar's buttons, the desktop minimizing the window, the user bringing a minimized window back. Keep the UI in step with the `state` event (or `self.state`), not with what the page last requested.
 - A minimized window that gets the focus again returns to the state it had before (`fullscreen`, for example).
-- In a single-app `acde dev` session the app already fills the host window, and state requests may change nothing. Try states in a desktop session.
+- In a single-app `acde dev` session the app already fills the host window, and state requests may change nothing (headless on macOS, `minimized`, `filled` and `fullscreen` all leave the state `normal`, and no event arrives). Try states in a desktop session.
 - The standard Fullscreen API (`element.requestFullscreen()`) is not supported; it rejects with `NotSupportedError`.
 
 ### Events
 
-Subscribe with `on(name, handler)`, which returns an unsubscribe function. Events are not dispatched on the global `window`.
+Subscribe with `on(name, handler)`, which returns an unsubscribe function. A name the module does not have throws a `TypeError` (`acde:window has no nosuch event (activate, deactivate, beforeclose, request, suspend, resume, grab, grablost, state, output, hostcontrols, minimizable, shortcut)`). Events are not dispatched on the global `window`.
 
 | Event | When |
 | --- | --- |

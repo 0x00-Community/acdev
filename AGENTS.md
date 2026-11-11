@@ -277,9 +277,11 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `allowed|denied <app> <能力> (prompt <id>)`. 没有待答的、点名的不在待答里 (已有决定时说 `it is already granted|denied (revoke takes that back)`) 退出 1.
   `acde revoke <app> <能力>` 是 driver 的 `revoke`, 打 `revoked <app> <能力>`, 没有那条决定时退出 1. `acde webs` 的表是空的时候 (单应用会话的应用在等批准)
   每个待答提示再打一行 `<app> waits for approval of <能力>: acde allow (or acde deny)` (`Approvals.waiting`, `Format.waiting`; MCP 的 `webs` / `start`
-  同理, 后半句是 `the answer tool allows or denies it`); 桌面会话里 `webs` 总有桌面页, 不打这行, 看 `acde permissions`. 实测 (acdert 0.0.8 加当天的修复):
-  单应用会话里拒绝必需能力后 acdert 记一行错误退出 1, 下次 `acde dev` 再问; 撤销必需能力后应用照常跑到下一次 reload, reload 时 acdert 退出 1;
-  桌面里拒绝会留着, 应用不进列表.
+  同理, 后半句是 `the answer tool allows or denies it`); 桌面会话里 `webs` 总有桌面页, 不打这行, 看 `acde permissions`. 实测 (2026-11-11, acdert 0.0.9
+  加当天的修复): 单应用会话里拒绝必需能力后 acdert 记一行 `acdert app <id>: <名字>: "<能力>" is denied by the user; acdert app asks for it again the next
+  time it runs` 退出 1, 下次 `acde dev` 再问 (`… was denied "<能力>" in an earlier run: asking again`); 撤销必需能力后应用照常跑到下一次 reload,
+  reload 时 acdert 记同一行退出 1; 桌面里拒绝会留着 (跨会话), 应用不进列表 (`acde:apps` 发 `changed`), 撤销已批准的必需能力后应用同样出列表,
+  开着的窗口留到下一次 reload (日志 `acde dev: reload: <名字>: "<能力>" is denied by the user`, 窗口关掉); 撤销之后这一次运行里一直算被拒, 下次起运行时再问.
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
   `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDE_FOLLOWED=1`: 会话文件按子进程 pid 找, `acde dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,
@@ -475,9 +477,19 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
 - 命令、参数、配置字段、清单、`acde:` 模块、测试 API、MCP 工具、对外可见的行为变了, **同一个提交里改 skill**. 不去改 www 里生成的英文页
   (那边的检查会拦). acdert 一侧的变化 (模块、平台差异、Web 兼容性) 也改在这里.
 - skill 只写对外的用法 (怎么用、会看到什么), 不写实现; 实现和取舍写在本文件.
-- skill 里引的输出要是工具真的打出来的, 按它出现的场合逐字引 (2026-11-11 对着 acdert 0.0.9 重跑过): 拒绝必需能力时单应用的 `acde dev`
-  日志是 `acdert app <id>: <名字>: "<能力>" is denied by the user`, 桌面里触发提示的 `apps.open()` 以 `<名字>: "<能力>" is denied by the user`
-  (403 `denied`) 拒绝, 之后再开是 `<名字> needs "<能力>" (denied by the user)` (404); `fs` 调用没批准的位置 (没问过或被拒) 的错误消息也是前一句.
+- skill 里引的输出要是工具真的打出来的, 按它出现的场合逐字引 (2026-11-11 对着 acdert 0.0.9 加当天宿主层的修复重跑过, macOS, headless): 拒绝必需能力时
+  单应用的 `acde dev` 日志是 `acdert app <id>: <名字>: "<能力>" is denied by the user; acdert app asks for it again the next time it runs`, 桌面里
+  `apps.open()` (触发提示的那次和之后每一次) 以 `<名字>: "<能力>" is denied by the user` (403 `denied`) 拒绝, 不再有 `<名字> needs "<能力>" (denied by
+  the user)` (404) 这一句; `needs "…" (…)` 只剩平台没有和服务没跑两种 (404 `unsupported_app`). 要批准的能力按状态分开说 (`acde:capabilities` 的
+  `not-asked` / `asking` / `available` / `denied`): 被批准挡住的调用都是 403 带 `capability`, `code` 是 `not_asked` (`… is not asked for yet; ask for it
+  with acde:capabilities request("…")`)、`asking` (`… is waiting for the user's answer`) 或 `denied` (`… is denied by the user`); 可选模块的动态
+  `import()` 以同样三句的 `TypeError` 拒绝 (前面是 `acde:<模块>: `), `load()` 只给 `null`.
+  **摄像头和麦克风** (`reference/web.md`): 用运行时的假设备 `ACDE_CAPTURE=fake` 验的 (`Fake camera` / `Fake microphone`, `reference/env.md` 列了它):
+  可选的由 `getUserMedia()` 自己触发提示 (先麦克风后摄像头), `permissions.query` 没答之前是 `prompt`, 拒绝或撤销后 `denied`. 「批准之后回答的是系统
+  自己对设备的权限」这半句照 acdert 的 `permits.ts` 写 (批准后转给原生的 `permission()`), 本机上假设备和真设备看到的都是 `granted`; macOS 系统自己的
+  授权对话框没验. 撤销不会结束已经在跑的轨道 (实测 `readyState` 仍是 `live`), skill 没写这一条.
+  **不能最小化的窗口**: 单应用会话的主窗口在 macOS 的宿主窗口和 headless 上验过 (`minimizable` 假、`minimize()` 409 `unavailable`、
+  `act w1 minimize` 退出 1), skill 只写这两种; Linux 宿主和 Windows (宿主自己有控件) 没验, 没写.
   `inspect --find` 的窗口行是另一种格式 (`w1 notes "Notes":`, 桌面 `w0 desktop:`). `inspect --all` / `--find` 跳过的是窗口行标了
   `[minimized]` 的窗口, 即不在屏幕上的窗口: 状态是 `minimized` 的 (`act w1 minimize`、页面的 `minimize()`、桌面的 `requestState`), 和桌面
   `windows.hide()` 藏起的. 判断在运行时 (acdert `inspect.ts` 的 `Inspect.#offScreen`), acde 原样打它的文字: 窗口表里这样的窗口 `hidden` 为真

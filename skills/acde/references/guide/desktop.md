@@ -44,9 +44,9 @@ for (const app of await apps.list()) {
 apps.on('changed', ({ apps }) => render(apps))
 ```
 
-`app.icon` is an icon name or an image URL; the desktop decides how to draw it. An app that cannot run here is not in the list: one that requires a capability this platform lacks, or one whose required capability the user denied.
+`app.icon` is an icon name or an image URL; the desktop decides how to draw it. An app that cannot run here is not in the list: one that requires a capability this platform lacks, or one whose required capability the user denied. `changed` fires with the new list when it changes, also when the user denies a capability an app requires or takes its approval back.
 
-`apps.open(id)` asks the user first when the app needs an approval (see [Approval prompts](#approval-prompts)), and rejects when the app cannot start: with `status: 403`, `code: 'denied'` (`Viewer: "launch" is denied by the user`) when the user denies that prompt, and with `status: 404`, `code: 'unsupported_app'` (`Viewer needs "launch" (denied by the user)`, `Viewer needs "network" (unsupported on this platform)`) for an app that is not in the list. The desktop also imports `acde:openPath`, `acde:handlers`, and `acde:setDefault` (see [Opening apps](open.md#files-and-links)). Installing packages and listing native programs are in `acde:packages` (`refresh`, `install`, `natives`, `runNative`).
+`apps.open(id)` asks the user first when the app needs an approval (see [Approval prompts](#approval-prompts)), and rejects when the app cannot start: with `status: 403`, `code: 'denied'` (`Viewer: "launch" is denied by the user`) when the user denies that prompt, and every time after it while the denial stands; with `status: 404`, `code: 'unsupported_app'` (`Viewer needs "network" (unsupported on this platform)`) for an app that requires what this platform lacks. The desktop also imports `acde:openPath`, `acde:handlers`, and `acde:setDefault` (see [Opening apps](open.md#files-and-links)). Installing packages and listing native programs are in `acde:packages` (`refresh`, `install`, `natives`, `runNative`).
 
 ## Windows
 
@@ -64,7 +64,7 @@ await windows.animate(id, { opacity: 0, scale: 0.9, duration: 180, easing: 'ease
 
 Window events: `open` `close` `title` `state` `activate` `minsize` `parent` `menus` `crash` `hang` `responsive` `attention` `ready` `show` `animated`. Any other name throws a `TypeError`. Each event is `{type: 'window<name>', window, …}`.
 
-A window's state is `normal`, `minimized`, `filled`, or `fullscreen`. The runtime carries out state changes itself, whether the app asked (`minimize()`, `requestState()`), the user pressed a title bar button, or the desktop called `windows.requestState(id, state)`; the desktop learns of every change from the `state` event (`{window, state, previous}`). `windows.focus(id)` or `windows.show(id)` on a minimized window brings it back in the state it had before. Hiding (`hide` / `show`) is separate from the state and only the desktop can do it. A window that hangs (`hang`) can be ended with `kill`; `close(id)` asks the app first (its `beforeclose`).
+A window's state is `normal`, `minimized`, `filled`, or `fullscreen`. The runtime carries out state changes itself, whether the app asked (`minimize()`, `requestState()`), the user pressed a title bar button, or the desktop called `windows.requestState(id, state)`; the desktop learns of every change from the `state` event (`{window, state, previous}`). `windows.list()` gives every window with its current `state`. `windows.focus(id)` or `windows.show(id)` on a minimized window brings it back in the state it had before. Hiding (`hide` / `show`) is separate from the state and only the desktop can do it. A window that hangs (`hang`) can be ended with `kill`; `close(id)` asks the app first (its `beforeclose`).
 
 ## Panels
 

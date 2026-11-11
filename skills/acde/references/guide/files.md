@@ -78,7 +78,7 @@ await fs.writeFile(picked.id, 'export.txt', 'hello')
 Each named place is a capability of its own, `fs.<place>` (`fs.downloads`), and the user must approve it:
 
 - The user is asked before the app's first launch, one place at a time. Until every prompt is answered, **the app opens no window**; `acde dev` prints a line like `Notes (notes) waits for the user to allow "fs.downloads" …`. In a dev session, answer with `acde allow` or `acde deny`; see [Debugging](tools.md#approvals).
-- If the user denies a place, the app does not start. A single-app `acde dev` then logs `acdert app notes: Notes: "fs.documents" is denied by the user`, exits with code 1, and asks again the next time it is started. In a desktop, the `apps.open()` that raised the prompt rejects with `Notes: "fs.documents" is denied by the user`, and the denial is kept until it is taken back: opening the app fails with `Notes needs "fs.documents" (denied by the user)`. See [Capabilities](capabilities.md#approval).
+- If the user denies a place, the app does not start. A single-app `acde dev` then logs `acdert app notes: Notes: "fs.documents" is denied by the user; acdert app asks for it again the next time it runs`, exits with code 1, and asks again the next time it is started. In a desktop, the `apps.open()` that raised the prompt rejects with `Notes: "fs.documents" is denied by the user` (`status: 403`, `code: 'denied'`), and the denial is kept until it is taken back: the app leaves the app list, and opening it again rejects the same way. See [Capabilities](capabilities.md#approval).
 - Once approved, the place is in `roots()` as `{ id: 'downloads', source: 'place', place: 'downloads', … }` and its `id` works as the first argument: `fs.list('downloads')`. When the folder does not exist on this machine, the root has `mode: 'unavailable'` and calls on it reject with `ENOENT`.
 - If the user takes the approval back while the app runs, the place leaves `roots()` and calls on it reject with `denied` (see [Errors](#errors)).
 
@@ -142,7 +142,9 @@ On failure the promise rejects with an `Error` that has a `code` and a `status`:
 | --- | --- | --- |
 | `EINVAL` | 400 | Invalid arguments, an absolute path or one that escapes the root, a missing parent folder, wrong type, symbolic link |
 | `EACCES` | 403 | The first argument is not one of the app's roots, the root is read-only, or the system does not allow it |
-| `denied` | 403 | The root is a shared place the user has not approved (not asked yet, denied, or taken back); the error also has `capability` (`fs.downloads`) |
+| `not_asked` | 403 | The root is a shared place of an optional `fs` that the user was not asked about yet: `request('fs.<place>')` asks. The error also has `capability` (`fs.downloads`) |
+| `asking` | 403 | The prompt for that place waits for the user's answer; the error has `capability` |
+| `denied` | 403 | The user denied that place or took the approval back; the error has `capability` |
 | `ENOENT` | 404 | Does not exist |
 | `EEXIST` | 409 | Already exists |
 | `ECONFLICT` | 409 | Changed or deleted by someone else after it was opened |
@@ -167,7 +169,9 @@ What the common mistakes look like:
 | --- | --- |
 | A path as the root: `fs.list('/tmp')` | `EACCES`: `this app may not use the files of /tmp (not one of its roots)` |
 | A place that is not in `fs.roots`: `fs.list('downloads')` with `"fs": true` | `EACCES`: `this app may not use the files of downloads (not one of its roots)` |
-| A place that is in `fs.roots` but not approved (not asked for yet, or denied): `fs.list('downloads')` | `denied`: `Notes: "fs.downloads" is denied by the user` |
+| A place of an optional `fs` before `request('fs.downloads')`: `fs.list('downloads')` | `not_asked`: `Notes: "fs.downloads" is not asked for yet; ask for it with acde:capabilities request("fs.downloads")` |
+| The same call while the prompt waits | `asking`: `Notes: "fs.downloads" is waiting for the user's answer` |
+| A place the user denied or took back: `fs.list('downloads')` | `denied`: `Notes: "fs.downloads" is denied by the user` |
 | An absolute path as the second argument: `fs.readText('private', '/etc/hosts')` | `EINVAL`: `path must be relative to the workspace` |
 | `..` out of the root: `fs.readText('private', '../x')` | `EINVAL`: `path escapes the workspace` |
 | Writing into a folder that does not exist, without `mkdirs` | `EINVAL`: `parent directory is missing or outside the workspace` |

@@ -28,7 +28,7 @@ Who can import what. "App" is an app of its own package; a "system app" ships in
 
 A module the platform lacks is missing for everyone there (see [Platform support](platforms.md)). An import that is not allowed fails with a `TypeError` whose message names the missing declaration, such as `acde:terminal needs "terminal" in the capabilities of Notes`. Desktop services cannot import `acde:` modules; a service that the desktop grants shell modules gets them from `ctx.import()`; see [Service API](service.md).
 
-Events are subscribed with `on(type, handler)`, which returns an unsubscribe function. `acde:windows`, `acde:launch`, and `acde:desktop` throw a `TypeError` for an event type they do not have. Two modules take a callback instead: `acde:terminal` (`subscribe`) and `acde:network` (`watch`).
+Events are subscribed with `on(type, handler)`, which returns an unsubscribe function. `on()` throws a `TypeError` for an event type the module does not have, such as `acde:window has no nosuch event (activate, deactivate, …)`. Two modules take a callback instead: `acde:terminal` (`subscribe`) and `acde:network` (`watch`).
 
 ## acde:window
 
@@ -101,7 +101,7 @@ interface WindowHost {
 
 - Full screen is a state: `requestState('fullscreen')`. `requestMode('fullscreen')` throws a `TypeError`, and so does an unknown state. `requestState` has no result; follow the `state` event. See [Window state](../guide/window.md#window-state).
 - `close()` closes the window without asking `beforeclose`.
-- `minimize()` rejects with `status: 409`, `code: 'unavailable'` for a window that cannot be minimized (`minimizable` is `false`).
+- `minimize()` rejects with `status: 409`, `code: 'unavailable'` for a window that cannot be minimized (`minimizable` is `false`): `window 1048576 cannot be minimized: it fills the host window, which only the host window's own controls minimize here` for the app's window in a session that runs a single app, on macOS and headless. `requestState('minimized')` changes nothing there.
 - `suspend` and `resume` are declared, but the runtime does not send them yet.
 - Coordinates are logical pixels of the page (the content area). Shortcut combos are written like `ctrl+alt+t`: keys are xkb keysym names, the key names X11 and Wayland use (`t`, `return`, `escape`, `f5`, `space`; case doesn't matter), and Shift is part of the combo.
 
@@ -121,13 +121,13 @@ interface AcdeCapabilities {
 interface CapabilityStatus {
   name: string
   kind: 'system' | 'service'
-  state: 'available' | 'not-declared' | 'unsupported' | 'service-not-running' | 'shell-only' | 'denied'
+  state: 'available' | 'not-asked' | 'asking' | 'not-declared' | 'unsupported' | 'service-not-running' | 'shell-only' | 'denied'
   reason: string
   optional: boolean
 }
 ```
 
-`level` is the contract level (1). `request(name)` asks the user for a capability that needs approval and resolves with its status after the answer; for anything else it resolves at once. Names are capability names, `fs.<place>` for a shared place (`fs.downloads`), and service names. See [Capabilities](../guide/capabilities.md#acdecapabilities).
+`level` is the contract level (1). `request(name)` asks the user for a capability that needs approval and resolves with its status after the answer; for anything else it resolves at once. A capability that needs approval is `available` only once the user allowed it: `not-asked` before the prompt, `asking` while it waits, `denied` after a denial or after the approval was taken back. A call that the approval stops fails with `status: 403`, the `capability`, and one of the codes `not_asked`, `asking`, `denied`. Names are capability names, `fs.<place>` for a shared place (`fs.downloads`), and service names. See [Capabilities](../guide/capabilities.md#acdecapabilities).
 
 ## acde:fs
 
@@ -190,7 +190,8 @@ interface FinderPreview {
 - `list` includes hidden entries unless `hidden` is `false`.
 - `copy` copies a file or a folder from one root into the folder `toDir` of another; a taken name gets a number (`todo 2.md`), and `path` is where the copy is in `toRoot`.
 - `revoke` gives back a folder the user picked.
-- Limits: `readText` / `readBytes` 64 MiB; `preview` text 256 KiB. `download` always answers `contentType: 'application/octet-stream'`.
+- Limits: `readText` / `readBytes` 64 MiB; `preview` text 256 KiB.
+- `download` answers the type the system knows for the file's name as `contentType`: `text/markdown` for `note.md`, `image/png` for `shot.png`, and `application/octet-stream` for a name it knows no type for (`data.xyz`). The types come from the system, as described under [Files and links](../guide/open.md#files-and-links).
 - Errors have `code` and `status`; see [Files and folders](../guide/files.md#errors).
 
 ## acde:open
@@ -232,7 +233,7 @@ interface AcdeAppList {
 interface DesktopApp { id: string; label: string; icon: string; script: string }
 ```
 
-`list()` gives the apps that can run here; `open` is the function of `acde:open`. Installing packages and native programs are in [`acde:packages`](#acdepackages).
+`list()` gives the apps that can run here; `open` is the function of `acde:open`. `changed` fires with the new list when it changes, also when the user denies a capability an app requires or takes its approval back. Installing packages and native programs are in [`acde:packages`](#acdepackages).
 
 ## acde:openPath / acde:handlers / acde:setDefault
 
@@ -422,7 +423,7 @@ interface AcdeWindows {
   launch(argv: string[], options?: { cwd?: string; env?: Record<string, string>; slot?: boolean }): number | Promise<number>
 }
 
-interface NativeWindow { id: number; appId: string | null; title: string | null; web?: boolean; state?: WindowState }
+interface NativeWindow { id: number; appId: string | null; title: string | null; web?: boolean; state: WindowState }
 ```
 
 `WindowsEventType`: `open` `close` `title` `state` `activate` `minsize` `parent` `menus` `crash` `hang` `responsive` `attention` `ready` `show` `animated`. Every event is `{ type: 'window<name>', window: number, … }`:
@@ -440,7 +441,7 @@ interface NativeWindow { id: number; appId: string | null; title: string | null;
 - A window's state changes are reported by `state`; full screen and minimizing have no events of their own. `requestState` rejects an unknown state with a `TypeError`.
 - `close(id)` asks the app (`beforeclose`); `kill(id)` ends the window without asking.
 - `animate` may finish at once where the runtime cannot animate; `animated` still fires.
-- A row of `list()` may come without `state`; keep the state from the `state` events.
+- Every row of `list()` has the window's current `state`, and `list()` has every window, also in a system app that started after a window opened.
 - An app starts native programs with [`acde:launch`](#acdelaunch), not with `launch` here.
 
 ## acde:desktop

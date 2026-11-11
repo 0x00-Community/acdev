@@ -155,7 +155,7 @@ w1 notes "Notes":
 
 When nothing matches it says so on stderr and exits with code 1. Elements scrolled out of view are found only with `--offscreen`; without it, a note under the tree says how many were left out (`(1 more outside the visible area; scroll, or add offscreen)`).
 
-Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `key` `drag` `focus`; a window ref (`w1`) also accepts `close` `minimize` `restore`. The argument to `key` looks like `"ctrl+a backspace"`; the argument to `drag` is the target ref. When closing a window ends acdert (the app's window when `acde dev` runs one app), `acde dev` ends with it; `act w1 close` then says so and exits with code 0.
+Actions: `click` `double` `right` `hover` `scroll` `type` `settext` `select` `key` `drag` `focus`; a window ref (`w1`) also accepts `close` `minimize` `restore`. `minimize` on a window that cannot be minimized changes nothing, says why and exits with code 1; in a session that runs a single app, on macOS and headless, that is the app's own window: `w1 cannot be minimized: it fills the host window, which only the host window's own controls minimize here`. The argument to `key` looks like `"ctrl+a backspace"`; the argument to `drag` is the target ref. When closing a window ends acdert (the app's window when `acde dev` runs one app), `acde dev` ends with it; `act w1 close` then says so and exits with code 0.
 
 #### Key names
 
@@ -260,9 +260,9 @@ $ acde revoke notes fs.downloads
 revoked notes fs.downloads
 ```
 
-`acde revoke <app> <capability>` removes a decision. For the rest of this run the capability counts as denied (its calls reject with `code: 'denied'`), and the next run asks again. In a session that runs a single app, an app that has lost a required capability cannot start again: the next reload ends the session, and the next `acde dev` asks.
+`acde revoke <app> <capability>` removes a decision. For the rest of this run the capability counts as denied (its calls reject with `code: 'denied'`), and the next run asks again. In a session that runs a single app, an app that has lost a required capability cannot start again: the next reload ends the session with the line `acdert app notes: Notes: "fs.downloads" is denied by the user; acdert app asks for it again the next time it runs` and exit code 1, and the next `acde dev` asks.
 
-If you deny a capability the app requires, the app does not start. In a session that runs a single app, `acde dev` then logs `acdert app notes: Notes: "fs.downloads" is denied by the user` and exits with code 1; the next `acde dev` of that app asks again (`Notes (notes) was denied "fs.downloads" in an earlier run: asking again`), so a denial never locks you out of your own app. In a desktop the denial stays until it is revoked: the app leaves the app list and opening it fails with `Notes needs "fs.downloads" (denied by the user)`. Which capabilities need approval, and how an app can make one optional, is in [Capabilities](capabilities.md#approval).
+If you deny a capability the app requires, the app does not start. In a session that runs a single app, `acde dev` then logs `acdert app notes: Notes: "fs.downloads" is denied by the user; acdert app asks for it again the next time it runs` and exits with code 1; the next `acde dev` of that app asks again (`Notes (notes) was denied "fs.downloads" in an earlier run: asking again`), so a denial never locks you out of your own app. In a desktop the denial stays until it is revoked: the app leaves the app list and opening it rejects with `status: 403`, `code: 'denied'` (see [Desktops](desktop.md#apps)). Which capabilities need approval, and how an app can make one optional, is in [Capabilities](capabilities.md#approval).
 
 ## Errors
 

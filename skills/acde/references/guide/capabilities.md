@@ -62,8 +62,8 @@ Some capabilities need the user's consent as well as the declaration: `terminal`
 - **When**: a required capability is asked for before the app's first launch, one prompt per capability, one at a time. Until every prompt is answered the app opens **no window**. Nothing answers a prompt automatically. (An [optional](#optional-capabilities) one is asked for when the page requests it.)
 - **In a dev session**: `acde dev` prints a line like `Notes (notes) waits for the user to allow "terminal" (prompt 1; answer it with acde allow or acde deny, …)`, and `acde webs` lists no page for the app. Answer with `acde allow` or `acde deny`; see [Debugging](tools.md#approvals). In a desktop, the desktop shows the prompt (see [Desktops](desktop.md#approval-prompts)); tests answer with `acde.allow()` (see [Testing](testing.md#approvals)).
 - **Allowed**: the decision is stored per app (`$XDG_CONFIG_HOME/acde/permissions.json`) and the user is not asked again.
-- **Denied**: the app does not start. In a desktop the denial is stored like an approval: the app leaves the app list, and opening it fails with `Notes needs "terminal" (denied by the user)` until the decision is taken back. `acde dev` of a single app logs `acdert app notes: Notes: "terminal" is denied by the user` and exits with code 1; the next `acde dev` of that app asks again (`Notes (notes) was denied "terminal" in an earlier run: asking again`).
-- **Taking a decision back**: `acde revoke <app> <capability>` (or the desktop, through `acde:permissions`) removes it. In the session that is running, the capability then counts as denied: its calls reject with `status: 403`, `code: 'denied'`, and the error's `capability` names it; an app that required it cannot be opened or reloaded until the runtime starts again, when the user is asked again.
+- **Denied**: the app does not start. `acde dev` of a single app logs `acdert app notes: Notes: "terminal" is denied by the user; acdert app asks for it again the next time it runs` and exits with code 1; the next `acde dev` of that app asks again (`Notes (notes) was denied "terminal" in an earlier run: asking again`). In a desktop the denial is stored like an approval: the app leaves the app list (`acde:apps` fires `changed`), and `apps.open()` rejects with `status: 403`, `code: 'denied'` and the message `Notes: "terminal" is denied by the user`, the call that raised the prompt and every later one.
+- **Taking a decision back**: `acde revoke <app> <capability>` (or the desktop, through `acde:permissions`) removes it, whether it was an approval or a denial. In the session that is running, the capability then counts as denied: its calls fail with `status: 403`, `code: 'denied'`, and the error's `capability` names it. An app that required it leaves the app list and cannot be opened or reloaded: in a desktop a reload closes its window, and a session that runs the app alone ends at its next reload with the line a denial logs. The user is asked again when the runtime starts the next time.
 
 ## Optional capabilities
 
@@ -78,7 +78,9 @@ Everything in `capabilities` is required by default: if the platform lacks one, 
 
 - The app starts without asking the user, and it also starts on a platform that lacks the capability.
 - An optional module must not be imported statically (`acde check`: `acde:terminal is optional ("terminal" is in optional): reach it with load('terminal') from @dopame/acde-api instead of importing it`). Get it with `load()`, which resolves to `null` while the module is unavailable.
-- A capability that needs approval is asked for when the page calls `request(name)` from `acde:capabilities`. It resolves with the capability's status once the user has answered. Only when the user allowed it (`state: 'available'`) does `load()` return the module from then on; when the user denied it, the state is `denied` and `load()` keeps resolving to `null`.
+- A capability that needs approval is asked for when the page calls `request(name)` from `acde:capabilities`. Its state is `not-asked` until then and `asking` while the prompt waits; `request()` resolves with the capability's status once the user has answered. Only when the user allowed it (`state: 'available'`) does `load()` return the module from then on; when the user denied it, the state is `denied` and `load()` keeps resolving to `null`.
+- `load()` gives `null` without a reason. A dynamic `import('acde:terminal')` rejects with a `TypeError` that says where the approval stands: `acde:terminal: "terminal" is not asked for yet; ask for it with acde:capabilities request("terminal")`, `acde:terminal: "terminal" is waiting for the user's answer`, or `acde:terminal: "terminal" is denied by the user`.
+- `camera` and `microphone` have no module to load: the page calls `navigator.mediaDevices.getUserMedia()`, which raises the prompt itself when the capability was not asked for yet. See [Web compatibility](../reference/web.md#media).
 
 ```js
 import { load } from '@dopame/acde-api'
@@ -108,7 +110,9 @@ await capabilities.request('terminal') // asks the user if needed; resolves with
 
 | `state` | Meaning |
 | --- | --- |
-| `available` | Declared, and this platform has it. For a capability that needs approval this does **not** say the user allowed it: before `request()` has resolved, check `load()` for `null` instead |
+| `available` | Declared, this platform has it, and the user allowed it if it needs approval |
+| `not-asked` | Needs approval, and the user was not asked yet: `request()` asks |
+| `asking` | The approval prompt waits for the user's answer |
 | `not-declared` | Not in the app's `capabilities` / `services` |
 | `unsupported` | This platform, or this way of running, lacks it |
 | `service-not-running` | The desktop service is not running |

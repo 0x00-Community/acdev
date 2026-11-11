@@ -84,7 +84,7 @@ A package the runtime refuses is not in the app list or the desktop list. Rebuil
 
 Any other key is an error: desktop services go in `services`. System apps are never asked for approval.
 
-Everything in `capabilities` and `services` is required unless `optional` lists it (`optional` takes names from `capabilities` only). An app with a required item that is missing here (unsupported on the platform, denied by the user, service not running) is left out of the app list and refuses to start, for example with `Notes needs "network" (unsupported on this platform)`.
+Everything in `capabilities` and `services` is required unless `optional` lists it (`optional` takes names from `capabilities` only). An app with a required item that is missing here (unsupported on the platform, denied by the user, service not running) is left out of the app list and refuses to start, for example with `Notes needs "network" (unsupported on this platform)`; a denial has a sentence of its own, `Notes: "terminal" is denied by the user` (see [Capabilities](../guide/capabilities.md#approval)).
 
 ## URLs
 
