@@ -30,15 +30,15 @@ impl super::Host for Host {
     }
 
     fn choose_folder(&self, _: &str, reply: FolderReply) {
-        let _ = reply.send(Err("no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand (acde dev op choose)".to_owned()));
+        let _ = reply.send(Err(unanswered("no folder chooser", "choose_folder", "chooseFolder")));
     }
 
     fn open_files(&self, _: OpenRequest, reply: FilesReply) {
-        let _ = reply.send(Err("no file chooser without a host window (ACDE_HEADLESS): answer it beforehand (acde dev op choose)".to_owned()));
+        let _ = reply.send(Err(unanswered("no file chooser", "choose_files", "chooseFiles")));
     }
 
     fn save_file(&self, _: SaveRequest, reply: FolderReply) {
-        let _ = reply.send(Err("no save chooser without a host window (ACDE_HEADLESS): answer it beforehand (acde dev op choose)".to_owned()));
+        let _ = reply.send(Err(unanswered("no save chooser", "choose_save_file", "chooseSaveFile")));
     }
 
     fn exit(&self, code: i32) {
@@ -79,4 +79,8 @@ pub(crate) fn run(mut handler: Box<dyn Handler>) -> Result<i32, String> {
         }
     }
     Ok(0)
+}
+
+fn unanswered(what: &str, tool: &str, method: &str) -> String {
+    format!("{what} without a host window (ACDE_HEADLESS): answer it beforehand with the MCP tool {tool} or acde.{method}() in a test")
 }
