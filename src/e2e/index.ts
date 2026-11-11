@@ -116,7 +116,7 @@ export class E2eRun {
     const lines = error.stack.split('\n')
     const frame = (line: string) => /^\s+at /.test(line)
     const internal = (line: string) =>
-      inside.some((dir) => line.includes(dir)) || /\((native|node:[^)]*|internal:[^)]*)\)$/.test(line)
+      inside.some((dir) => line.includes(dir)) || /\((native|node:|internal:)[^)]*\)$/.test(line)
     const kept = lines.filter((line) => !frame(line) || !internal(line))
     if (kept.some(frame)) error.stack = kept.join('\n')
   }
