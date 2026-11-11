@@ -12,6 +12,8 @@ use v8::inspector::{
 
 use crate::rt;
 
+mod devtools;
+
 const GROUP: i32 = 1;
 
 thread_local! {
@@ -153,6 +155,8 @@ struct State {
     pending: Arc<Pending>,
     next: Arc<AtomicU32>,
     wake: Sender<rt::Msg>,
+    name: String,
+    listed: bool,
     inspector: V8Inspector,
 }
 
@@ -177,10 +181,14 @@ pub fn start(scope: &mut v8::PinScope, name: &str) {
     attach(scope, name);
     if dev() {
         send("Debugger.enable", "{}");
+        if let Some(remote) = remote() {
+            devtools::opened(name, remote);
+            STATE.with(|s| s.borrow_mut().as_mut().map(|s| s.listed = true));
+        }
     }
 }
 
-fn attach(scope: &mut v8::PinScope, name: &str) {
+pub(crate) fn attach(scope: &mut v8::PinScope, name: &str) {
     let context = scope.get_current_context();
     let client = Client { isolate: unsafe { scope.as_raw_isolate_ptr() }, context: v8::Global::new(scope, context) };
     let inspector = V8Inspector::create(scope, V8InspectorClient::new(Box::new(client)));
@@ -191,7 +199,8 @@ fn attach(scope: &mut v8::PinScope, name: &str) {
     let session = inspector.connect(GROUP, channel, StringView::empty(), V8InspectorClientTrustLevel::FullyTrusted);
     let main = Session { session, inbox, calls: Cell::new(0) };
     let wake = rt::current().sender();
-    let state = State { main, extra: Default::default(), pending: Default::default(), next: Arc::new(AtomicU32::new(1)), wake, inspector };
+    let (pending, next, name, listed) = (Arc::default(), Arc::new(AtomicU32::new(1)), name.to_owned(), false);
+    let state = State { main, extra: Default::default(), pending, next, wake, name, listed, inspector };
     STATE.with(|s| *s.borrow_mut() = Some(state));
 }
 
@@ -208,7 +217,9 @@ pub fn dispatch_posted() {
                 let Some(s) = s.as_ref() else { return };
                 let channel = Channel::new(Box::new(Forward(sink)));
                 let session = s.inspector.connect(GROUP, channel, StringView::empty(), V8InspectorClientTrustLevel::FullyTrusted);
-                s.extra.borrow_mut().insert(id, Rc::new(session));
+                if s.extra.borrow_mut().insert(id, Rc::new(session)).is_none() {
+                    rt::current().keep_alive(true);
+                }
             }),
             Posted::Message(id, message) => {
                 let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow().get(&id).cloned()));
@@ -218,6 +229,9 @@ pub fn dispatch_posted() {
             }
             Posted::Disconnect(id) => {
                 let session = STATE.with(|s| s.borrow().as_ref().and_then(|s| s.extra.borrow_mut().remove(&id)));
+                if session.is_some() {
+                    rt::current().keep_alive(false);
+                }
                 drop(session);
             }
         }
@@ -239,9 +253,27 @@ pub fn send(method: &str, params: &str) -> Option<String> {
 pub fn stop() {
     let state = STATE.with(|s| s.borrow_mut().take());
     if let Some(state) = state {
+        if state.listed {
+            devtools::closed(&state.name);
+        }
         state.extra.borrow_mut().clear();
         drop(state);
     }
+}
+
+pub fn thrown(scope: &mut v8::PinScope, exception: v8::Local<v8::Value>) {
+    if !dev() {
+        return;
+    }
+    let stack = v8::Exception::get_stack_trace(scope, exception);
+    let context = scope.get_current_context();
+    STATE.with(|s| {
+        let s = s.borrow();
+        let Some(s) = s.as_ref() else { return };
+        let message = "Uncaught";
+        let trace = s.inspector.create_stack_trace(stack);
+        s.inspector.exception_thrown(context, StringView::from(message.as_bytes()), exception, StringView::empty(), StringView::empty(), 0, 0, trace, 0);
+    });
 }
 
 pub fn live_edit(url: &str, source: &str) -> Result<(), String> {

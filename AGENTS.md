@@ -351,6 +351,13 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   重绑定, WebSocket 的 `Origin` 不查); 同时最多 32 条连接, 多的接下就关; 请求头从建连起 10 秒内读完, 否则断开. `Client::send` 只把帧放进
   这个客户端的有界队列 (256 帧) 就返回, 不阻塞调用方 (页面线程也能调); 每个客户端一条 `acde-devtools-send` 线程按序写出, 套接字写超时
   10 秒; 队列满、写失败或超时都断开这个客户端.
+  页面目标接到页面的 V8 inspector (#184, crates/acdert `inspector/devtools.rs` 的 `Pages`, 第一次登记时经 `forward` 装上): dev 模式下每个 isolate
+  `inspector::start` 后把 `inspector::remote()` 按 web 名登记 (`devtools::opened`), `inspector::stop` 时 `closed`. 客户端 `attach` 时在
+  它的目标页面上开一个 inspector session (`Remote::connect`), 回复和通知直接 `Client::send` 回去; `message` 原样投给这个 session
+  (目标还没登记时回 false, 端点答 -32601), `detach` 断开. 页面关了: 给它的客户端发 `Inspector.detached {reason: "target_closed"}` 再关
+  WebSocket. 有 session 连着时页面事件循环不退出 (`keep_alive`). 现在 V8 只答 Runtime、Debugger、Console、Profiler、HeapProfiler 等它自己的
+  域; Page / DOM / Network 以后接, Page 的主 frame id 要等于 web 名 (和上下文 auxData 的 `frameId` 一样). 没人接的页面错误 (`host.reportError`)
+  也经 `inspector::thrown` 报给 inspector (`Runtime.exceptionThrown`, 带 Error 本身, 栈在它的 `description` 里).
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 没人接的 `error` / `unhandledrejection` (交给 `host.reportError` 的那些) 报 `error(kind, text)`
   (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认; 栈和 console 文字里 `http(s)://…/x.js:行:列` 的帧, 包里有这个文件的 source map 时
@@ -367,7 +374,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 都能热替换才动手, 否则整页重载:
 
 1. 样式: 新旧 HTML 的 `<style>` / `<link rel=stylesheet>` 按顺序和页面里的对上, 换文字或 `href` (加 `acde-dev=<n>` 让 render 重读).
-2. JS 函数体: 内容变了的 module 脚本经 V8 inspector 的 `Debugger.setScriptSource` 换源码 (crates/acdert `inspector.rs`: 有 `ACDE_DEV` 时每个
+2. JS 函数体: 内容变了的 module 脚本经 V8 inspector 的 `Debugger.setScriptSource` 换源码 (crates/acdert `inspector/`: 有 `ACDE_DEV` 时每个
    isolate 一个 inspector session, V8 带 `--inspector-live-edit`; 性能采样 `profile.rs` 也用这个 session, 同步 `inspector::send`).
    同一个 inspector 还能开别的 session (#182, 给开发者工具用): 页面线程上 `inspector::remote()` 拿到可跨线程的 `Remote`,
    `connect(sink)` → session 号, `send(session, 协议消息 JSON)`, `disconnect(session)`. 投递进一个队列 (`Pending`, 带 Condvar,
