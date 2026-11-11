@@ -20,6 +20,12 @@ export class Tools {
   static readonly FOLLOW_MS = 500
   static readonly STOP_MS = 10_000
   static readonly LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug', 'errors'])
+  static readonly NOTHING = 2
+
+  static missing(text: string): string | null {
+    const gone = /^(element|window) \S+ is gone$/.exec(text)
+    return gone ? `there is no such ${gone[1]} (any more); acde inspect --find TEXT gives the current refs` : null
+  }
 
   static async run(command: string, args: readonly string[], flags: ReadonlyMap<string, string>): Promise<number> {
     const session = Tools.pid(flags.get('session'))
@@ -82,7 +88,7 @@ export class Tools {
           }
           const hint = flags.has('offscreen') ? '' : '; elements scrolled out of view need --offscreen'
           console.error(`acde: no element's name or value contains ${JSON.stringify(find.trim())}${hint}`)
-          return 1
+          return Tools.NOTHING
         }
         case 'query': {
           const found = await acde.query({
@@ -92,11 +98,12 @@ export class Tools {
             ...(limit !== undefined && { limit }),
           })
           console.log(Format.matches(found, args[0]!))
-          return 0
+          return found.count ? 0 : Tools.NOTHING
         }
         case 'act': {
           const result = await acde.act(args[0]!, args[1] as InspectAction, args[2])
-          console.log(result.text)
+          if (result.ok) console.log(result.text)
+          else console.error(`acde: act ${args[0]}: ${Tools.missing(result.text) ?? result.text}`)
           return result.ok ? 0 : 1
         }
         case 'console': {

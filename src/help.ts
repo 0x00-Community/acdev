@@ -172,6 +172,7 @@ export class Help {
         + 'camera or microphone prompts that wait.'], [], ['acde webs']),
       inspecting('inspect', '', 'Print the screen as text, with refs', [
         'The windows, then the elements of the focused window, one per line with a ref such as w1.12 that act takes.',
+        'Exit code 2: --find found nothing.',
       ], [
         { flag: '--find TEXT', about: 'only elements whose name or value contains TEXT' },
         { flag: '--window W', about: 'that window instead of the focused one' },
@@ -181,6 +182,7 @@ export class Help {
       inspecting('query', '<selector>', 'Find elements by CSS selector', [
         'The elements a CSS selector matches in the focused window, each with a ref act takes; also what inspect '
           + 'leaves out (not rendered ones are marked [hidden]).',
+        'Exit code 2: nothing matches.',
       ], [
         { flag: '--window W', about: 'that window instead of the focused one' },
         { flag: '--ref REF', about: 'only under that element' },
@@ -192,6 +194,7 @@ export class Help {
           + `${WINDOW_ACTIONS.join(', ')}.`,
         'key takes key names separated by spaces (ctrl+a backspace); type and settext take text; drag takes the '
           + 'target ref; scroll takes pixels.',
+        'Exit code 1: the action was not done, or the ref does not exist (acde inspect --find gives current refs).',
       ], [], ['acde act w1.12 click', 'acde act w1.3 type "hello"', 'acde act w1.3 key "ctrl+a backspace"']),
       inspecting('eval', '<web> <code|->', 'Evaluate JavaScript in a page', [
         'Runs code in a web (a web name, an app id or desktop) and prints the result as JSON; - reads the code '

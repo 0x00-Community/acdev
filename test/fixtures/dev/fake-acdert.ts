@@ -187,6 +187,7 @@ function snapshot(m: Record<string, unknown>) {
 function act(ref: string, action: string, arg: unknown): { ok: boolean; text: string } {
   const text = `${action} ${ref} ${JSON.stringify(arg ?? null)}`
   if (action === 'fail') return { ok: false, text }
+  if (ref === 'w1.404') return { ok: false, text: 'element 404 is gone' }
   if (action === 'select') {
     const values = Array.isArray(arg) ? arg : [arg]
     if (ref !== 'w1.6') return { ok: false, text: 'not a <select>' }

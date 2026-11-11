@@ -139,7 +139,7 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `--limit` | `query`: list at most this many elements (1 to 3000, default 600) |
 | `--all` | `inspect`: every window that is not marked `[minimized]`, and elements hidden by `opacity: 0` or `visibility`. `allow`, `deny`: every waiting prompt |
 
-`acde query` prints `N in <window>:` and one line per element, or `nothing in <window> matches "<selector>"`; both exit with code 0. `acde act` prints what it did and what changed, and exits with code 1 when the action was not done (the reason is then the only line).
+`acde query` prints `N in <window>:` and one line per element (exit code 0), or `nothing in <window> matches "<selector>"` (exit code 2). `acde inspect --find TEXT` exits with code 2 when no element's name or value contains TEXT. Exit code 2 always means the command worked and found nothing; 1 means an error, such as a window or element that does not exist. `acde act` prints what it did and what changed; when the action was not done it prints the reason on stderr (`acde: act <ref>: <reason>`) and exits with code 1. A ref that no longer exists says `there is no such element (any more); acde inspect --find TEXT gives the current refs`.
 
 `acde permissions` prints two blocks and exits with code 0:
 
