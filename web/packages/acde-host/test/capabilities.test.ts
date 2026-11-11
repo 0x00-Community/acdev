@@ -68,14 +68,16 @@ describe('CapabilityCheck', () => {
   test('required capabilities refuse the app and name what is missing', () => {
     const c = check('win32', 'desktop')
     const refusal = c.refusal(app({ label: 'Docs', capabilities: { office: true, fs: true } }), third) as Error & { status: number; code: string }
-    assert.equal(refusal.message, 'Docs needs "office" (unsupported on this platform)')
+    assert.equal(refusal.message, 'Docs needs "office" (not available on Windows host windows); list it in "optional" to run without it')
     assert.equal(refusal.status, 404)
     assert.equal(refusal.code, 'unsupported_app')
     const stopped = c.refusal(app({ label: 'Board', services: ['desk'] }), third) as Error & { status: number; code: string }
     assert.equal(stopped.message, 'Board needs "desk" (service not running)')
     assert.equal(stopped.status, 503)
     assert.equal(c.refusal(app({ capabilities: { office: true }, optional: ['office'] }), third), null)
-    assert.equal(c.refusal(app({ capabilities: { network: true, fs: true } }), third)?.message, 'Demo needs "network" (unsupported on this platform)')
+    const network = c.refusal(app({ capabilities: { network: true, fs: true } }), third)?.message
+    assert.equal(network, 'Demo needs "network" (not available on Windows host windows); list it in "optional" to run without it')
+    assert.match(String(check('linux', 'desktop').refusal(app({ capabilities: { slots: true } }), third)), /not available on Linux host windows/)
   })
 
   test('declared but unavailable module capabilities get a refusal reason at import', () => {
@@ -113,7 +115,8 @@ describe('CapabilityCheck', () => {
     const states = Object.fromEntries(snapshot.statuses.map((s) => [s.name, s.state]))
     assert.equal(states['fs'], 'available')
     assert.equal(states['windows'], 'available')
-    assert.equal(states['terminal'], 'unsupported')
+    assert.equal(states['terminal'], 'available')
+    assert.equal(states['network'], 'unsupported')
   })
 })
 

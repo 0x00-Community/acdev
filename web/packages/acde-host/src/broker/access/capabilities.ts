@@ -95,9 +95,12 @@ export class CapabilityCheck {
   refusal(app: AppManifest, origin: AppOrigin): Error | null {
     const missing = this.missing(app, origin)
     if (!missing.length) return null
-    const names = missing.map((status) => `"${status.name}" (${status.reason})`).join(', ')
+    const where = this.#where()
+    const lacking = (status: CapabilityStatus) => status.state === 'unsupported' && status.kind === 'system'
+    const names = missing.map((status) => `"${status.name}" (${lacking(status) ? `not available on ${where}` : status.reason})`).join(', ')
     const stopped = missing.some((status) => status.state === 'service-not-running')
-    const error = new Error(`${app.label} needs ${names}`)
+    const optional = missing.some(lacking) ? '; list it in "optional" to run without it' : ''
+    const error = new Error(`${app.label} needs ${names}${optional}`)
     return Object.assign(error, stopped ? { status: 503, code: 'service_not_running' } : { status: 404, code: 'unsupported_app' })
   }
 
@@ -115,6 +118,12 @@ export class CapabilityCheck {
     const mode = this.#host.mode()
     const row = platformSupport(this.#host.platform, mode)
     return { level: API_LEVEL, platform: this.#host.platform, mode, window: row?.window ?? CapabilityCheck.#NO_FEATURES, statuses: this.statuses(app, origin) }
+  }
+
+  #where(): string {
+    const mode = this.#host.mode()
+    const name = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[this.#host.platform] ?? this.#host.platform
+    return mode === 'session' ? `${name} sessions` : `${name} host windows`
   }
 
   supported(name: string): boolean {

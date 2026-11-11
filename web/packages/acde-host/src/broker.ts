@@ -665,16 +665,14 @@ export class Broker {
       const open = [...this.#windows.values()].filter((r) => r.kind === 'web' && r.app?.id === app)
       const primary = open.find((record) => record.id === this.#standaloneWindow)
       const web = (primary ?? open[0])?.web ?? null
+      const refused = after ? this.#launchable.unsupported(app) : new Error(`${app} is no longer in its package`)
+      if (refused && open.length) {
+        Log.write(Level.Error, 'acde_host', `acde dev: ${refused.message}; the open window keeps the previous version until the manifest is fixed`)
+        return
+      }
       const state = await Broker.#snapshot(web)
       if (primary) {
-        if (this.#stopped || !web || primary.web !== web || web.closing || web.reloading) return
-        if (!after || !this.#launchable.available(after)) {
-          Log.write(
-            Level.Error, 'acde_host', `acdert app ${app}: the app or a required system service is no longer available`,
-          )
-          this.#end('exit')
-          return
-        }
+        if (this.#stopped || !web || primary.web !== web || web.closing || web.reloading || !after) return
         if (state) this.#devStates.set(app, state)
         const backend = primary.app?.backend ? this.backends.stop(app) : undefined
         primary.app = after
