@@ -237,12 +237,13 @@ jobs:
         run: scripts/release/check-stage.sh release-stage "$VERSION"
       - name: GitHub release (created once, a re-run replaces the assets)
         run: |
-          files=(acdert-x86_64-unknown-linux-gnu acdert-aarch64-apple-darwin acdert-x86_64-apple-darwin acdert-x86_64-pc-windows-msvc.exe "acdert-host-$VERSION.tar.gz" LICENSE)
+          files=(acdert-x86_64-unknown-linux-gnu.tar.xz acdert-aarch64-apple-darwin.tar.xz acdert-x86_64-apple-darwin.tar.xz
+            acdert-x86_64-pc-windows-msvc.tar.gz "acdert-host-$VERSION.tar.gz" LICENSE)
           level=$(sed -n 's/^export const API_LEVEL = \([0-9][0-9]*\).*/\1/p' web/packages/acde-api/src/runtime/level.js)
           test -n "$level"
           notes="Contract level $level: packages need \"apiLevel\": $level (packages without it, or built for another level, are refused; rebuild them with the current acde).
           The runtime is not yet a security boundary: until the third-party sandbox ships, local and developer builds run as the developer's own code.
-          Release builds (split debug information is not attached). Put the app/ directory from acdert-host-$VERSION.tar.gz next to the binary."
+          Release builds (split debug information is not attached). Each acdert-<target>.tar.xz (Windows: .tar.gz) holds only the acdert binary; put the app/ directory from acdert-host-$VERSION.tar.gz next to it."
           cd release-stage
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
@@ -278,8 +279,9 @@ jobs:
         run: |
           scripts/release/check-stage.sh release-stage "$VERSION"
           mkdir -p "pkgs/$VERSION"
-          cp release-stage/acdert-x86_64-unknown-linux-gnu release-stage/acdert-aarch64-apple-darwin release-stage/acdert-x86_64-apple-darwin \
-            release-stage/acdert-x86_64-pc-windows-msvc.exe "release-stage/acdert-host-$VERSION.tar.gz" release-stage/LICENSE \
+          cp release-stage/acdert-x86_64-unknown-linux-gnu.tar.xz release-stage/acdert-aarch64-apple-darwin.tar.xz \
+            release-stage/acdert-x86_64-apple-darwin.tar.xz release-stage/acdert-x86_64-pc-windows-msvc.tar.gz \
+            "release-stage/acdert-host-$VERSION.tar.gz" release-stage/LICENSE \
             "release-stage/acde-api-$VERSION.tar.gz" "pkgs/$VERSION/"
           (cd "pkgs/$VERSION" && sha256sum -- * > SHA256SUMS)
           scripts/release/check-stage.sh "pkgs/$VERSION" "$VERSION"

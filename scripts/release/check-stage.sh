@@ -4,16 +4,38 @@ set -euo pipefail
 dir=$1
 version=$2
 required=(
-  "acdert-x86_64-unknown-linux-gnu"
-  "acdert-aarch64-apple-darwin"
-  "acdert-x86_64-apple-darwin"
-  "acdert-x86_64-pc-windows-msvc.exe"
+  "acdert-x86_64-unknown-linux-gnu.tar.xz"
+  "acdert-aarch64-apple-darwin.tar.xz"
+  "acdert-x86_64-apple-darwin.tar.xz"
+  "acdert-x86_64-pc-windows-msvc.tar.gz"
   "acdert-host-$version.tar.gz"
   "acde-api-$version.tar.gz"
   "LICENSE"
 )
 optional=("SHA256SUMS")
 problems=0
+
+# A binary archive holds one executable plain file and nothing else:
+# acdert in the .tar.xz of macOS and Linux, acdert.exe in the Windows
+# .tar.gz. The installers place exactly that member.
+check_runtime() {
+  local archive=$1 member=$2 names verbose
+  if ! names=$(tar -tf "$archive") || ! verbose=$(tar -tvf "$archive"); then
+    echo "::error::cannot list the binary archive: $(basename "$archive")"
+    return 1
+  fi
+  if [ "$names" != "$member" ]; then
+    echo "::error::$(basename "$archive") must hold only $member, it holds:"
+    sed 's/^/  /' <<< "$names"
+    return 1
+  fi
+  case "$verbose" in
+    -rwxr-xr-x*) ;;
+    *)
+      echo "::error::$member in $(basename "$archive") is not an executable plain file: $verbose"
+      return 1 ;;
+  esac
+}
 
 # The SDK archive must hold exactly the npm layout: package.json, LICENSE,
 # config.schema.json and the built src/ tree (.js and .d.ts, in plain
@@ -146,6 +168,18 @@ for name_req in "${required[@]}"; do
   if [ ! -f "$dir/$name_req" ]; then
     echo "::error::missing from release staging: $name_req"
     problems=1
+  fi
+done
+
+for name_req in "${required[@]}"; do
+  case "$name_req" in
+    acdert-host-*) member="" ;;
+    acdert-*.tar.xz) member=acdert ;;
+    acdert-*.tar.gz) member=acdert.exe ;;
+    *) member="" ;;
+  esac
+  if [ -n "$member" ] && [ -f "$dir/$name_req" ]; then
+    check_runtime "$dir/$name_req" "$member" || problems=1
   fi
 done
 

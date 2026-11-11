@@ -24,6 +24,48 @@ cp "$repo/LICENSE" "$artifacts/host/LICENSE"
 
 "$here/stage.sh" "$artifacts" "$version" "$work/stage"
 echo "staged: $(ls -A "$work/stage" | tr '\n' ' ')"
+for triple in x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc; do
+  archive="$work/stage/acdert-$triple.tar.xz"
+  member=acdert
+  if [ "$triple" = x86_64-pc-windows-msvc ]; then
+    archive="$work/stage/acdert-$triple.tar.gz"
+    member=acdert.exe
+  fi
+  if [ "$(tar -xOf "$archive" "$member")" != "binary $triple" ]; then
+    echo "FAIL: $(basename "$archive") does not hold the $triple binary as $member" >&2
+    exit 1
+  fi
+done
+echo "binary archives hold their binary"
+
+linux="$work/stage/acdert-x86_64-unknown-linux-gnu.tar.xz"
+cp "$linux" "$work/good-linux.tar.xz"
+bad="$work/bad-runtime"
+# variant|error the check must report
+for variant in "extra|must hold only acdert" "plain|not an executable plain file"; do
+  IFS='|' read -r kind expect <<< "$variant"
+  rm -rf "$bad"
+  mkdir -p "$bad"
+  printf 'binary\n' > "$bad/acdert"
+  chmod 755 "$bad/acdert"
+  case "$kind" in
+    extra) printf 'symbols\n' > "$bad/acdert.dwp" ;;
+    plain) chmod 644 "$bad/acdert" ;;
+  esac
+  (cd "$bad" && tar -cf - *) | xz -c > "$linux"
+  if out=$("$here/check-stage.sh" "$work/stage" "$version" 2>&1); then
+    echo "FAIL: the check accepted a binary archive with $kind" >&2
+    exit 1
+  fi
+  if ! grep -qF -- "$expect" <<< "$out"; then
+    echo "FAIL: the check rejected a binary archive with $kind, but not with \"$expect\":" >&2
+    printf '%s\n' "$out" >&2
+    exit 1
+  fi
+  echo "rejected a binary archive with $kind: $expect"
+done
+cp "$work/good-linux.tar.xz" "$linux"
+
 echo "sdk archive entries:"
 tar -tzf "$work/stage/acde-api-$version.tar.gz" | sed 's/^/  /'
 
@@ -99,4 +141,4 @@ for variant in \
 done
 
 "$here/check-stage.sh" "$work/stage" "$version"
-echo "dry run passed: symbols never reached the staging, the sdk archive holds only the published layout, and the check rejects leaks"
+echo "dry run passed: symbols never reached the staging, each binary archive holds only its binary, the sdk archive holds only the published layout, and the check rejects leaks"
