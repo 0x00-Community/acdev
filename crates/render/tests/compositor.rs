@@ -146,12 +146,76 @@ fn release_drops_subtree_and_ids_stay_unique() {
     assert!(page.doc.create_element("div").unwrap() > frame);
 }
 
+#[cfg(target_os = "linux")]
+fn resident_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string("/proc/self/statm").unwrap();
+    Some(statm.split_whitespace().nth(1).unwrap().parse::<u64>().unwrap() * 4096)
+}
+
+#[cfg(target_os = "macos")]
+fn resident_bytes() -> Option<u64> {
+    #[repr(C, packed(4))]
+    #[derive(Default)]
+    struct MachTaskBasicInfo {
+        virtual_size: u64,
+        resident_size: u64,
+        resident_size_max: u64,
+        user_time: [i32; 2],
+        system_time: [i32; 2],
+        policy: i32,
+        suspend_count: i32,
+    }
+    unsafe extern "C" {
+        static mach_task_self_: u32;
+        fn task_info(task: u32, flavor: i32, info: *mut MachTaskBasicInfo, count: *mut u32) -> i32;
+    }
+    const MACH_TASK_BASIC_INFO: i32 = 20;
+    let mut info = MachTaskBasicInfo::default();
+    let mut count = (size_of::<MachTaskBasicInfo>() / size_of::<u32>()) as u32;
+    let status = unsafe { task_info(mach_task_self_, MACH_TASK_BASIC_INFO, &mut info, &mut count) };
+    assert_eq!(status, 0, "task_info failed with {status}");
+    Some(info.resident_size)
+}
+
+#[cfg(windows)]
+fn resident_bytes() -> Option<u64> {
+    #[repr(C)]
+    #[derive(Default)]
+    struct ProcessMemoryCounters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn K32GetProcessMemoryInfo(process: isize, counters: *mut ProcessMemoryCounters, cb: u32) -> i32;
+    }
+    let mut counters = ProcessMemoryCounters { cb: size_of::<ProcessMemoryCounters>() as u32, ..Default::default() };
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    assert_ne!(ok, 0, "GetProcessMemoryInfo failed: {}", std::io::Error::last_os_error());
+    Some(counters.working_set_size as u64)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn resident_bytes() -> Option<u64> {
+    None
+}
+
 #[test]
 fn release_keeps_memory_flat() {
-    let rss = || {
-        let statm = std::fs::read_to_string("/proc/self/statm").unwrap();
-        statm.split_whitespace().nth(1).unwrap().parse::<u64>().unwrap() * 4096
-    };
+    if resident_bytes().is_none() {
+        eprintln!("skipped: no resident memory reading on this platform");
+        return;
+    }
+    let rss = || resident_bytes().unwrap();
     let page = Page::new(CSS);
     let round = |page: &Page| {
         let root = page.div(page.body, "list");
