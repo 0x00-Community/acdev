@@ -51,6 +51,25 @@ export interface FileChooser {
   entries(dir: PickedFile): Promise<PickedEntry[]>
   entry(dir: PickedFile, name: string, create: 'file' | 'directory' | null): Promise<PickedEntry | null>
   remove(dir: PickedFile, name: string, recursive: boolean): Promise<boolean>
+  readonly ranged?: RangedFiles
+}
+
+export interface FileRange {
+  readonly bytes: Uint8Array
+  readonly size: number
+  readonly lastModified: number
+  readonly version: string
+}
+
+export interface RangedFiles {
+  readonly wholeLimit: number
+  readonly chunkLimit: number
+  readRange(file: PickedFile, offset: number, length: number, version: string | null): Promise<FileRange | null>
+  openWrite(file: PickedFile, keepExistingData: boolean): Promise<{ readonly id: string; readonly size: number }>
+  writeChunk(id: string, offset: number, bytes: Uint8Array): Promise<void>
+  truncateWrite(id: string, size: number): Promise<void>
+  commitWrite(id: string): Promise<void>
+  abortWrite(id: string): Promise<void>
 }
 
 export function resolveUrl(url: string): string {

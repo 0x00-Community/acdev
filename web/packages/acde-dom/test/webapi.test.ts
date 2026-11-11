@@ -485,3 +485,93 @@ test('handles handed over for writing (open requests, pickers): createWritable w
   assert.deepEqual(picked, { name: 'doc.txt', path: '/home/u/doc.txt', kind: 'file', mode: 'readwrite' })
   assert.equal(web.internals.handles.picked({ name: 'doc.txt', path: '/etc/passwd' }), null)
 })
+
+function rangedFiles(files: Map<string, Node>, calls: string[]) {
+  const versions = new Map<string, number>()
+  const open = new Map<string, { path: string; bytes: Uint8Array }>()
+  const version = (path: string) => `v${versions.get(path) ?? 0}`
+  const conflict = () => Object.assign(new Error('file changed'), { code: 'ECONFLICT' })
+  return {
+    touch: (path: string) => void versions.set(path, (versions.get(path) ?? 0) + 1),
+    open,
+    ranged: {
+      wholeLimit: 16,
+      chunkLimit: 8,
+      readRange: async (file: { path: string }, offset: number, length: number, expected: string | null) => {
+        const node = files.get(file.path)
+        if (!ArrayBuffer.isView(node)) return null
+        if (expected !== null && expected !== version(file.path)) throw conflict()
+        calls.push(`read ${offset}+${length}`)
+        const bytes = node.slice(Math.min(offset, node.length), Math.min(offset + length, node.length))
+        return { bytes, size: node.length, lastModified: 1000, version: version(file.path) }
+      },
+      openWrite: async (file: { path: string }, keep: boolean) => {
+        const node = files.get(file.path)
+        const bytes = keep && ArrayBuffer.isView(node) ? node.slice() : new Uint8Array(0)
+        const id = `w${open.size + 1}`
+        open.set(id, { path: file.path, bytes })
+        return { id, size: bytes.length }
+      },
+      writeChunk: async (id: string, offset: number, chunk: Uint8Array) => {
+        if (chunk.length > 8) throw new Error('chunk too large')
+        calls.push(`write ${offset}+${chunk.length}`)
+        const session = open.get(id)!
+        const grown = new Uint8Array(Math.max(session.bytes.length, offset + chunk.length))
+        grown.set(session.bytes)
+        grown.set(chunk, offset)
+        session.bytes = grown
+      },
+      truncateWrite: async (id: string, size: number) => {
+        const session = open.get(id)!
+        const sized = new Uint8Array(size)
+        sized.set(session.bytes.subarray(0, size))
+        session.bytes = sized
+      },
+      commitWrite: async (id: string) => {
+        const session = open.get(id)!
+        files.set(session.path, session.bytes)
+        open.delete(id)
+      },
+      abortWrite: async (id: string) => void open.delete(id),
+    },
+  }
+}
+
+test('file handles read large files in ranges and write them in chunks committed on close', async () => {
+  using web = await page()
+  const big = new Uint8Array(40).map((_, i) => 65 + (i % 26))
+  const files = new Map<string, Node>([['/home/u/big.bin', big], ['/home/u/small.txt', new TextEncoder().encode('small')]])
+  const calls: string[] = []
+  const r = rangedFiles(files, calls)
+  web.internals.env.files = { ...chooser({}, files).files, ranged: r.ranged }
+  const handle = (path: string) => web.internals.handles.of({ name: path.split('/').pop()!, path }, 'file', 'readwrite')
+  Object.assign(web.context as Record<string, unknown>, { bigHandle: handle('/home/u/big.bin'), smallHandle: handle('/home/u/small.txt') })
+  web.run(`globalThis.out = []; (async () => {
+    const file = await bigHandle.getFile()
+    out.push(file.size, await file.slice(24, 30).text())
+    const chunks = []
+    for await (const chunk of file.stream()) chunks.push(chunk.length)
+    out.push(chunks.join(','), (await file.text()).slice(0, 3), await (async () => new Response(file.slice(1, 4)))().then(() => 'body', (e) => e.name))
+    out.push(await (await smallHandle.getFile()).text())
+    const w = await bigHandle.createWritable()
+    await w.write('0123456789abcdefghij'); await w.write({ type: 'write', position: 24, data: new Blob(['XY']) })
+    await w.close()
+    const kept = await smallHandle.createWritable({ keepExistingData: true })
+    await kept.truncate(3); await kept.write({ type: 'write', position: 5, data: '!' }); await kept.close()
+    const dropped = await smallHandle.createWritable(); await dropped.write('gone'); await dropped.abort()
+  })().catch((e) => out.push('error ' + e.name + ' ' + e.message))`)
+  await web.wait(20)
+  assert.deepEqual(web.json('out'), [40, 'YZABCD', '40', 'ABC', 'NotReadableError', 'small'])
+  assert.deepEqual(calls.filter((call) => call.startsWith('write')), ['write 0+8', 'write 8+8', 'write 16+4', 'write 24+2', 'write 5+1', 'write 0+4'])
+  assert.equal(new TextDecoder().decode(files.get('/home/u/big.bin') as Uint8Array), '0123456789abcdefghij\0\0\0\0XY')
+  assert.equal(new TextDecoder().decode(files.get('/home/u/small.txt') as Uint8Array), 'sma\0\0!')
+  assert.equal(r.open.size, 0)
+  ;(web.context as Record<string, unknown>)['touch'] = () => r.touch('/home/u/big.bin')
+  web.run(`out = []; bigHandle.getFile().then(async (file) => {
+    out.push(await file.slice(0, 2).text())
+    touch()
+    await file.text().catch((e) => out.push(e.name))
+  })`)
+  await web.wait(10)
+  assert.deepEqual(web.json('out'), ['01', 'NotReadableError'])
+})

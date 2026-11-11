@@ -2,6 +2,7 @@ use super::FsError;
 #[cfg(not(windows))]
 use super::path::NodePath;
 use super::path::same_folder;
+use super::ranged::{OpenWrite, Opened, Range, RangeOptions, Writes};
 use super::workspace::{Contents, EntryKind, FinderRoot, WorkspaceFs, WriteOptions};
 use crate::failure::{Errno, Failure, Outcome};
 use crate::sync::Locked;
@@ -10,6 +11,8 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Default)]
 pub struct PickedFolders {
     roots: Arc<Mutex<Vec<FinderRoot>>>,
+    files: Arc<Mutex<Vec<(String, bool)>>>,
+    writes: Writes,
 }
 
 type Picked<T> = std::result::Result<T, FsError>;
@@ -25,13 +28,31 @@ impl PickedFolders {
         Ok(path)
     }
 
+    pub fn allow_file(&self, path: &str, writable: bool) {
+        let mut files = self.files.locked();
+        match files.iter_mut().find(|(known, _)| same_folder(known, path)) {
+            Some(known) => known.1 = writable,
+            None => files.push((path.to_owned(), writable)),
+        }
+    }
+
     fn locate(&self, path: &str) -> Outcome<(FinderRoot, String)> {
-        let roots = self.roots.locked();
-        roots
+        let inside = self
+            .roots
+            .locked()
             .iter()
             .filter_map(|root| within(path, &root.path).map(|relative| (root.clone(), relative)))
-            .max_by_key(|(root, _)| root.path.len())
-            .ok_or_else(|| Failure::http(403, "not inside a folder the user picked"))
+            .max_by_key(|(root, _)| root.path.len());
+        if let Some(found) = inside {
+            return Ok(found);
+        }
+        let files = self.files.locked();
+        let picked = files.iter().find(|(known, _)| same_folder(known, path)).and_then(|(known, writable)| {
+            let known = std::path::Path::new(known);
+            let (parent, name) = (known.parent()?.to_str()?, known.file_name()?.to_str()?);
+            Some((WorkspaceFs::granted(parent).access(*writable), name.to_owned()))
+        });
+        picked.ok_or_else(|| Failure::http(403, "not inside a folder the user picked"))
     }
 
     pub fn entries(&self, dir: &str) -> Picked<Vec<(String, EntryKind)>> {
@@ -62,6 +83,37 @@ impl PickedFolders {
         let (root, relative) = self.locate(path)?;
         WorkspaceFs::write_file_in(&root, &relative, data, &WriteOptions::default())?;
         Ok(())
+    }
+
+    pub fn read_range(&self, path: &str, offset: Option<u64>, length: Option<u64>, version: Option<String>) -> Picked<Option<Range>> {
+        let (root, relative) = self.locate(path)?;
+        match WorkspaceFs::read_range_in(&root, &relative, offset, length, &RangeOptions { if_version: version }) {
+            Ok(range) => Ok(Some(range)),
+            Err(failure) if failure.errno == Errno::Noent => Ok(None),
+            Err(failure) => Err(failure.into()),
+        }
+    }
+
+    pub fn open_write(&self, path: &str, keep_existing_data: bool) -> Picked<Opened> {
+        let (root, relative) = self.locate(path)?;
+        Ok(self.writes.open_in(&root, &relative, &OpenWrite { keep_existing_data, ..OpenWrite::default() })?)
+    }
+
+    pub fn write_chunk(&self, id: &str, offset: Option<u64>, data: &[u8]) -> Picked<()> {
+        Ok(self.writes.chunk(id, offset, data)?)
+    }
+
+    pub fn truncate_write(&self, id: &str, size: Option<u64>) -> Picked<()> {
+        Ok(self.writes.truncate(id, size)?)
+    }
+
+    pub fn commit_write(&self, id: &str) -> Picked<()> {
+        self.writes.commit(id)?;
+        Ok(())
+    }
+
+    pub fn abort_write(&self, id: &str) -> Picked<()> {
+        Ok(self.writes.abort(id)?)
     }
 }
 

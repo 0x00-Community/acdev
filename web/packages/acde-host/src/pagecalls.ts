@@ -23,7 +23,20 @@ export interface FolderPicker {
   read(path: string): Promise<{ bytes: Uint8Array; lastModified: number } | null>
   write(path: string, bytes: Uint8Array): Promise<void>
   adopt?(path: string): string
+  allowFile?(path: string, writable: boolean): void
+  readRange?(path: string, offset: number, length: number, version: string | null): Promise<FileRange | null>
+  openWrite?(path: string, keepExistingData: boolean): Promise<{ id: string; size: number }>
+  writeChunk?(id: string, offset: number, bytes: Uint8Array): Promise<void>
+  truncateWrite?(id: string, size: number): Promise<void>
+  commitWrite?(id: string): Promise<void>
+  abortWrite?(id: string): Promise<void>
 }
+
+type FileRange = { bytes: Uint8Array; size: number; lastModified: number; version: string }
+type Ranged = NonNullable<Chooser['ranged']>
+
+const WHOLE_LIMIT = 64 * 1024 * 1024
+const CHUNK_LIMIT = 16 * 1024 * 1024
 
 type Notice = { title: string; body: string; icon: string; tag: string }
 
@@ -80,7 +93,26 @@ export class PageCalls implements HandOver {
   #grant(path: string): Picked {
     this.#granted.add(path)
     const mode = stat(path)?.mode ?? 0o666
-    return { name: basename(path), path, writable: (mode & 0o200) !== 0 }
+    const writable = (mode & 0o200) !== 0
+    this.#setup.picker?.allowFile?.(path, writable)
+    return { name: basename(path), path, writable }
+  }
+
+  #ranged(): Ranged | undefined {
+    const picker = this.#setup.picker
+    if (!picker?.allowFile || !picker.readRange || !picker.openWrite || !picker.writeChunk) return undefined
+    if (!picker.truncateWrite || !picker.commitWrite || !picker.abortWrite) return undefined
+    const { readRange, openWrite, writeChunk, truncateWrite, commitWrite, abortWrite } = picker
+    return {
+      wholeLimit: WHOLE_LIMIT,
+      chunkLimit: CHUNK_LIMIT,
+      readRange: (file, offset, length, version) => readRange.call(picker, file.path, offset, length, version),
+      openWrite: (file, keep) => openWrite.call(picker, file.path, keep),
+      writeChunk: (id, offset, bytes) => writeChunk.call(picker, id, offset, bytes),
+      truncateWrite: (id, size) => truncateWrite.call(picker, id, size),
+      commitWrite: (id) => commitWrite.call(picker, id),
+      abortWrite: (id) => abortWrite.call(picker, id),
+    }
   }
 
   #inFolder(path: string): FolderPicker | null {
@@ -153,6 +185,7 @@ export class PageCalls implements HandOver {
         if (to) return to.write(file.path, bytes)
         writeFileSync(check(file), bytes)
       },
+      ranged: this.#ranged(),
     }
   }
 

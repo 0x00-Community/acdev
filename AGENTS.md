@@ -795,7 +795,8 @@ root 本身不能替换或删. Finder 的根: 桌面文件夹、下载 (`XDG_DOW
   应用 (第三方应用, 和只有 `fs: true` 的系统应用) 只拿 `{kind, handle, file?}`; 点名了公共位置的系统应用和没有 `fs` 的系统应用拿 `url` 加 `handle`;
   按路径的 `{root, path, file}` 加 `handle` 只给桌面页面.
 - 选择器: `showOpenFilePicker` 的文件只读 (只读属性) 时句柄是只读的, 别的可写; `showSaveFilePicker` 可写; `showDirectoryPicker` 照 `mode`.
-- 句柄怎么登记: 文件记在这个页面的 `PageCalls` (和打开选择器选中的文件一起, 读写走 acde-host `sys/fs`), 文件夹经 `natives.picker.adopt` (crates/acdert
+- 句柄怎么登记: 文件记在这个页面的 `PageCalls` (和打开选择器选中的文件一起; 整读整写走 acde-host `sys/fs`, 同时经 `natives.picker.allowFile` 记进
+  这个 web 的 `PickedFolders`, 只认这一个路径, 大文件的按需读和分块写走它), 文件夹经 `natives.picker.adopt` (crates/acdert
   `picker.rs` `adopt`) 进这个 web 的 `PickedFolders`, 读写和选的文件夹一样不出这个文件夹、不跟随链接. acde-dom 经 `WebInternals.handles` (`of` / `picked` /
   `transfer`) 造句柄、认句柄、往 `DataTransfer` 里放; 页面自己 `new FileSystemFileHandle(...)` 造不出能读的句柄 (`PageCalls` 只认登记过的路径).
 - 交出去: 应用的 `acde.apps.open({kind: 'open-file', handle})` (或 `open(appId, …)`) 在 web 里把 `handle` 换成 `held: {path, kind, writable}`, 只认这个页面登记过的句柄
@@ -849,6 +850,24 @@ Windows 的 `XDG_DESKTOP_DIR` 和 `XDG_DOWNLOAD_DIR` 支持盘符绝对路径及
   两个 root 都要在本应用的 root 里 (按路径的根两边都过清单检查), 否则 403 `EACCES`; 没批准的公共位置 403 `denied`; 源是 root 本身、`..` 或经链接 /
   联接出 root (源或目标)、源本身是链接、文件夹里有链接 (先整棵查一遍, 复制中途变成链接也停, 删掉已复制的部分)、把文件夹复制进它自己, 都是 `EINVAL`.
 
+**大文件** (#75, runtime `fs/ranged.rs`): `readText` / `readBytes` / `writeFile` 和整读整写仍限 64 MiB. 更大的文件主路径是标准接口:
+句柄的 `getFile()` 超过 64 MiB 时给按需读的 `File` (acde-dom `core/blob.ts` `RangedSource`), `slice()` 不读, `stream()` 每次读 4 MiB,
+`text()` / `arrayBuffer()` 才整读; 打开时记下 `version`, 之后文件变了读是 `NotReadableError` (同 Chromium). 按需读的 `Blob` 在同步用到字节的地方
+(`structuredClone` / `postMessage`、`fetch` / XHR 的请求体、表单的 multipart、`blob:` URL、IndexedDB、WebSocket 发送) 是 `NotReadableError`, `FileReader` 照常.
+`createWritable()` 开一个写入 (`keepExistingData` 先把原内容复制进去), `write` 按位置写进同一文件夹的临时文件 (`.<名字>.<uuid>.acde-part`,
+每块最多 16 MiB, 大的数据和按需读的 `Blob` 分块写), `seek` 只移位置, `truncate` 截断或补零, `close()` 提交: fsync 后和 `writeFile` 一样原子替换
+(unix 保留权限和属主, Windows `ReplaceFileW`; 原来没有这个文件时不覆盖地改名), `abort()` 删掉临时文件. 写的位置超过当前长度时中间补零, 同
+`FileSystemWritableFileStream.write({position})`. 文件夹不让建临时文件时是 `EACCES`, 不退回原地写. 同一个流的操作按调用顺序排队, 一次失败后流的操作都 reject.
+
+`acde:fs` 的底层调用 (根和路径的规则同上): `readRange(root, path, offset, length, {ifVersion}?)` → `{data, offset, size, modifiedMs, version}`
+(`size` 是整个文件的; 一次最多 16 MiB, 超过 413 `EFBIG`; 超出文件末尾的部分不返回; `ifVersion` 对不上 409 `ECONFLICT`);
+`openWrite(root, path, {keepExistingData, create, ifVersion, mkdirs}?)` → `{id, size}`; `writeChunk(id, offset, data)`; `truncateWrite(id, size)`;
+`commitWrite(id)` → `FinderEntry` (带 `version`); `abortWrite(id)`. `create` 同 `writeFile`, 在提交时再查一次 (`new` 时文件已有是 `EEXIST`, `never` 时没了是 `ENOENT`);
+给了 `ifVersion` 时打开和提交时都比, 中途别人改了是 `ECONFLICT`, 临时文件删掉、原文件不动. 偏移、长度和大小是非负整数, 否则 `EINVAL`.
+限制 (`Writes`, 每个 web 一份): 同时最多 16 个写入 (再开是 `EINVAL`); 加长文件前查剩余空间, 写完剩不到 256 MiB 时 507 `ENOSPC`;
+10 分钟没有操作的写入自动放弃 (`acde-fs-writes` 线程每 30 秒查一次; 之后用这个 `id` 是 `EINVAL`); web 结束 (关页面、崩溃) 时放弃它全部的写入;
+进程被杀留下的 `.acde-part` 在下次在同一文件夹开写入时删掉超过 20 分钟没改的. 写入的调用和 `writeFile` 一样进这个 web 的改动队列, `readRange` 走读的线程池.
+
 打开文件一律不跟随符号链接 (unix `O_NOFOLLOW | O_NONBLOCK`, 不会卡在 FIFO 上; Windows `FILE_FLAG_OPEN_REPARSE_POINT` 再查是不是链接).
 读写、建、删、改名都先打开父文件夹 (`fs/beneath.rs` `Dir`) 再对其中的名字操作, 检查和使用之间换掉中间文件夹也出不了 root: Linux `openat2`
 (`RESOLVE_BENEATH`, root 内的链接照常可走, 出 root 是 `EXDEV` → `EINVAL`), 之后经 `/proc/self/fd/<fd>/<名字>` 和 `renameat2(RENAME_NOREPLACE)`;
@@ -863,7 +882,7 @@ Linux 会话 (`crates/window` `drop_performed`) 有本地文件时同样去掉�
 `env.files` → crates/acdert `picker.rs` 绑的 `natives.picker` (不是 `acde:` 模块). 选择器在 `acde-picker` 线程上开, 先取 `choose` 事先给的答复
 (crates/acdert `chooser.rs`, 三种选择器都在这里定去哪): Linux 是 portal
 FileChooser (`directory: true`), macOS 是 hostwin 主线程上的 `NSOpenPanel` sheet, Windows 是 `SHBrowseForFolderW`. handle 的读写在 runtime
-`fs/picked.rs` `PickedFolders` (每个 web 一份, 只在内存, 选中的文件夹当 root; 新建 `O_EXCL | O_NOFOLLOW`, 一个文件最多 64 MiB).
+`fs/picked.rs` `PickedFolders` (每个 web 一份, 只在内存, 选中的文件夹当 root; 新建 `O_EXCL | O_NOFOLLOW`; 整读整写一个文件最多 64 MiB, 更大的见「大文件」).
 Windows 选择器返回盘符或 UNC 绝对路径, 内存句柄和持久授权使用同一路径规则. `bash scripts/check-directory-picker.sh` 用预设选择结果验收.
 用户选中的文件夹同时授给调用的应用 (`acde:fs` 多一个 root `{source: 'granted', label}`, 文件夹没了是 `mode: 'unavailable'`):
 默认的只读选择给只读网页句柄和只读的 root (`mode: 'read_only'`, 能列出和读, 写入、新建、mkdir、rename、删除、复制进去都是 403 `EACCES`,

@@ -162,6 +162,11 @@ impl<'v> Args<'_, '_, '_, 'v> {
         }
     }
 
+    pub fn count(&mut self, i: usize) -> Option<u64> {
+        let n = self.given(i)?.number_value(self.scope)?;
+        (n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n <= 9_007_199_254_740_991.0).then_some(n as u64)
+    }
+
     pub fn json(&mut self, i: usize) -> Option<serde_json::Value> {
         let value = self.given(i)?;
         let text = v8::json::stringify(self.scope, value)?.to_rust_string_lossy(self.scope);

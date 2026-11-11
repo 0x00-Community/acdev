@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use acde_runtime::{EntryKind, FsError, PickedFolders, Workspace};
+use acde_runtime::{EntryKind, FsError, Opened, PickedFolders, Range, Workspace};
 
 use crate::{bind, offload};
 
@@ -16,6 +16,8 @@ enum Reply {
     Kind(Option<EntryKind>),
     Removed(bool),
     Read(Option<(Vec<u8>, i64)>),
+    Range(Option<Range>),
+    Opened(Opened),
     Done,
 }
 
@@ -71,6 +73,13 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>, picker:
         "read" => read,
         "write" => write,
         "adopt" => adopt_folder,
+        "allowFile" => allow_file,
+        "readRange" => read_range,
+        "openWrite" => open_write,
+        "writeChunk" => write_chunk,
+        "truncateWrite" => truncate_write,
+        "commitWrite" => commit_write,
+        "abortWrite" => abort_write,
     );
     bind::set(scope, natives, "picker", object.into());
 }
@@ -136,10 +145,79 @@ fn write(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: 
     });
 }
 
+fn count(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments, i: i32) -> Option<u64> {
+    let n = args.get(i).number_value(scope)?;
+    (n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n <= 9_007_199_254_740_991.0).then_some(n as u64)
+}
+
+fn allow_file(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let path = bind::arg_string(scope, &args, 0);
+    let writable = bind::arg_bool(scope, &args, 1);
+    match PICKER.with(|p| p.borrow().clone()) {
+        Some(picker) => picker.folders.allow_file(&path, writable),
+        None => bind::throw_error(scope, "this web has no file handles"),
+    }
+}
+
+fn read_range(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let path = bind::arg_string(scope, &args, 0);
+    let (offset, length) = (count(scope, &args, 1), count(scope, &args, 2));
+    let version = args.get(3).is_string().then(|| bind::arg_string(scope, &args, 3));
+    run(scope, &mut rv, move |picker| Ok(Reply::Range(picker.folders.read_range(&path, offset, length, version)?)));
+}
+
+fn open_write(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let path = bind::arg_string(scope, &args, 0);
+    let keep = bind::arg_bool(scope, &args, 1);
+    run(scope, &mut rv, move |picker| Ok(Reply::Opened(picker.folders.open_write(&path, keep)?)));
+}
+
+fn write_chunk(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let id = bind::arg_string(scope, &args, 0);
+    let offset = count(scope, &args, 1);
+    let Some(data) = bind::with_bytes(args.get(2), <[u8]>::to_vec) else {
+        return bind::throw_type_error(scope, "picker.writeChunk: the data is bytes");
+    };
+    run(scope, &mut rv, move |picker| {
+        picker.folders.write_chunk(&id, offset, &data)?;
+        Ok(Reply::Done)
+    });
+}
+
+fn truncate_write(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let id = bind::arg_string(scope, &args, 0);
+    let size = count(scope, &args, 1);
+    run(scope, &mut rv, move |picker| {
+        picker.folders.truncate_write(&id, size)?;
+        Ok(Reply::Done)
+    });
+}
+
+fn commit_write(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let id = bind::arg_string(scope, &args, 0);
+    run(scope, &mut rv, move |picker| {
+        picker.folders.commit_write(&id)?;
+        Ok(Reply::Done)
+    });
+}
+
+fn abort_write(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let id = bind::arg_string(scope, &args, 0);
+    run(scope, &mut rv, move |picker| {
+        picker.folders.abort_write(&id)?;
+        Ok(Reply::Done)
+    });
+}
+
 fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, answer: Answer) {
     let value: v8::Local<v8::Value> = match answer {
         Ok(Reply::Path(Some(path))) => bind::string(scope, &path).into(),
-        Ok(Reply::Path(None) | Reply::Kind(None) | Reply::Read(None)) => v8::null(scope).into(),
+        Ok(Reply::Path(None) | Reply::Kind(None) | Reply::Read(None) | Reply::Range(None)) => v8::null(scope).into(),
+        Ok(Reply::Range(Some(range))) => crate::js_object!(scope, {
+            "bytes" => range.data, "offset" => range.offset, "size" => range.size, "lastModified" => range.modified_ms, "version" => range.version
+        })
+        .into(),
+        Ok(Reply::Opened(opened)) => crate::js_object!(scope, {"id" => opened.id, "size" => opened.size}).into(),
         Ok(Reply::Kind(Some(kind))) => bind::string(scope, kind.as_str()).into(),
         Ok(Reply::Removed(removed)) => v8::Boolean::new(scope, removed).into(),
         Ok(Reply::Done) => v8::undefined(scope).into(),

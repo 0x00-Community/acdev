@@ -54,7 +54,7 @@ pub(crate) fn save(dir: &Dir, name: &str, data: &[u8], mut original: File, info:
 }
 
 #[cfg(unix)]
-fn keep(file: &File, info: &Metadata) -> io::Result<()> {
+pub(super) fn keep(file: &File, info: &Metadata) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt;
     file.set_permissions(info.permissions())?;
     _ = rustix::fs::fchown(file, Some(rustix::fs::Uid::from_raw(info.uid())), Some(rustix::fs::Gid::from_raw(info.gid())));
@@ -62,18 +62,18 @@ fn keep(file: &File, info: &Metadata) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-fn keep(_: &File, _: &Metadata) -> io::Result<()> {
+pub(super) fn keep(_: &File, _: &Metadata) -> io::Result<()> {
     Ok(())
 }
 
 #[cfg(unix)]
-fn replace(dir: &Dir, temp: &str, name: &str) -> io::Result<()> {
+pub(super) fn replace(dir: &Dir, temp: &str, name: &str) -> io::Result<()> {
     std::fs::rename(dir.child(temp), dir.child(name))?;
     File::open(dir.path())?.sync_all()
 }
 
 #[cfg(windows)]
-fn replace(dir: &Dir, temp: &str, name: &str) -> io::Result<()> {
+pub(super) fn replace(dir: &Dir, temp: &str, name: &str) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW};
     let wide = |name: &str| dir.child(name).as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();

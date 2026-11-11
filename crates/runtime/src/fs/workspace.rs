@@ -381,7 +381,7 @@ impl WorkspaceFs {
         fs::canonicalize(path).map(|real| real.to_string_lossy().into_owned())
     }
 
-    fn clean(relative: &str) -> Outcome<String> {
+    pub(super) fn clean(relative: &str) -> Outcome<String> {
         if relative.contains('\0') || relative.is_absolute() {
             return Err(Failure::invalid("path must be relative to the workspace"));
         }
@@ -439,7 +439,7 @@ impl WorkspaceFs {
         Dir::open(&Self::realpath(&root.path)?, relative).map_err(Self::walk_error)
     }
 
-    fn parent(root: &FinderRoot, relative: &str) -> Outcome<(Dir, String)> {
+    pub(super) fn parent(root: &FinderRoot, relative: &str) -> Outcome<(Dir, String)> {
         let dir = Self::dir(root, relative.dirname())?;
         Ok((dir, relative.basename().to_owned()))
     }
@@ -545,7 +545,7 @@ impl WorkspaceFs {
         Ok((absolute.basename().to_owned(), contents.data))
     }
 
-    fn contents(root: &FinderRoot, relative: &str) -> Outcome<(String, Contents)> {
+    pub(super) fn opened(root: &FinderRoot, relative: &str) -> Outcome<(String, File, Metadata)> {
         let Resolved { absolute, real, relative } = Self::resolve(root, relative, true)?;
         if !fs::metadata(&real)?.is_file() {
             return Err(Failure::invalid("not a regular file"));
@@ -556,6 +556,11 @@ impl WorkspaceFs {
         if !info.is_file() {
             return Err(Failure::invalid("not a regular file"));
         }
+        Ok((absolute, file, info))
+    }
+
+    fn contents(root: &FinderRoot, relative: &str) -> Outcome<(String, Contents)> {
+        let (absolute, file, info) = Self::opened(root, relative)?;
         let too_large = || Failure::http(413, "file exceeds 64 MiB");
         if info.len() > MAX_RAW_BYTES {
             return Err(too_large());
@@ -726,7 +731,7 @@ impl WorkspaceFs {
         Ok(true)
     }
 
-    fn make_dirs(root: &FinderRoot, relative: &str) -> Outcome<String> {
+    pub(super) fn make_dirs(root: &FinderRoot, relative: &str) -> Outcome<String> {
         let clean = Self::clean(relative)?;
         let real_root = Self::realpath(&root.path)?;
         let mut at = root.path.clone();

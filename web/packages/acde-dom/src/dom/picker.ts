@@ -1,8 +1,8 @@
-import { Blob, File } from '../core/blob'
+import { Blob, blobInMemory, File, RangedSource } from '../core/blob'
 import { bytesOf } from '../core/encoding'
 import { DOMException } from '../core/exception'
 import { getters, host as native, tag } from '../core/host'
-import { env, type FileFilter, type PickedEntry, type PickedFile } from './env'
+import { env, type FileFilter, type PickedEntry, type PickedFile, type RangedFiles } from './env'
 
 export function acceptFilters(accept: string): FileFilter[] {
   const tokens = accept.split(',').map((t) => t.trim()).filter(Boolean)
@@ -22,6 +22,17 @@ function typeFilters(types: unknown): FileFilter[] {
 }
 
 export async function readPicked(file: PickedFile): Promise<File> {
+  const ranged = env.files!.ranged
+  const head = ranged ? await ranged.readRange(file, 0, 0, null) : null
+  if (ranged && !head) throw notFound()
+  if (ranged && head && head.size > ranged.wholeLimit) {
+    const source = new RangedSource(async (offset, length) => {
+      const range = await host(() => ranged.readRange(file, offset, length, head.version))
+      if (!range) throw notReadable()
+      return range.bytes
+    }, head.size)
+    return new File([source], file.name, { type: env.fileType(file.name), lastModified: head.lastModified })
+  }
   const read = await env.files!.read(file)
   if (!read) throw notFound()
   return new File([read.bytes], file.name, { type: env.fileType(file.name), lastModified: read.lastModified })
@@ -33,6 +44,11 @@ function aborted(): DOMException {
 
 function notFound(): DOMException {
   return new DOMException('A requested file or directory could not be found at the time an operation was processed.', 'NotFoundError')
+}
+
+function notReadable(): DOMException {
+  const what = 'The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.'
+  return new DOMException(what, 'NotReadableError')
 }
 
 function mismatch(): DOMException {
@@ -48,6 +64,7 @@ function failed(error: unknown): DOMException {
   if (code === 'ENOENT') return notFound()
   if (code === 'ENOTEMPTY') return new DOMException('The object can not be modified in this way.', 'InvalidModificationError')
   if (code === 'EACCES') return notAllowed()
+  if (code === 'ECONFLICT') return notReadable()
   return new DOMException((error as Error)?.message ?? String(error), 'InvalidStateError')
 }
 
@@ -117,13 +134,18 @@ export class FileSystemFileHandle extends FileSystemHandle {
   async createWritable(options?: { keepExistingData?: boolean }): Promise<FileSystemWritableFileStream> {
     if (this[MODE] !== 'readwrite') throw notAllowed()
     const picked = this[PICKED]
+    const ranged = env.files!.ranged
+    if (ranged) {
+      const { id, size } = await host(() => ranged.openWrite(picked, !!options?.keepExistingData))
+      return new FileSystemWritableFileStream(SINK, rangedSink(ranged, id), size)
+    }
     let existing: Uint8Array = new Uint8Array(0)
     if (options?.keepExistingData) {
       const read = await host(() => env.files!.read(picked))
       if (!read) throw notFound()
       existing = read.bytes
     }
-    return new FileSystemWritableFileStream(picked, existing)
+    return new FileSystemWritableFileStream(SINK, memorySink(picked, existing), existing.length)
   }
 }
 tag(FileSystemFileHandle)
@@ -206,37 +228,68 @@ async function childOf(handle: FileSystemDirectoryHandle, name: string, create: 
 
 type WriteParams = { type: 'write'; data: unknown; position?: number } | { type: 'seek'; position: number } | { type: 'truncate'; size: number }
 
+interface Sink {
+  readonly limit: number
+  write(position: number, bytes: Uint8Array): Promise<void>
+  truncate(size: number): Promise<void>
+  close(): Promise<void>
+  abort(): Promise<void>
+}
+
+function memorySink(picked: PickedFile, existing: Uint8Array): Sink {
+  let bytes = existing.slice()
+  let size = existing.length
+  const resize = (length: number) => {
+    if (length <= bytes.length) return
+    const grown = new Uint8Array(Math.max(length, bytes.length * 2))
+    grown.set(bytes.subarray(0, size))
+    bytes = grown
+  }
+  return {
+    limit: Number.MAX_SAFE_INTEGER,
+    async write(position, chunk) {
+      resize(position + chunk.length)
+      if (position > size) bytes.fill(0, size, position)
+      bytes.set(chunk, position)
+      size = Math.max(size, position + chunk.length)
+    },
+    async truncate(length) {
+      resize(length)
+      if (length > size) bytes.fill(0, size, length)
+      size = length
+    },
+    close: () => host(() => env.files!.write(picked, bytes.slice(0, size))),
+    async abort() {},
+  }
+}
+
+function rangedSink(ranged: RangedFiles, id: string): Sink {
+  return {
+    limit: ranged.chunkLimit,
+    write: (position, bytes) => host(() => ranged.writeChunk(id, position, bytes)),
+    truncate: (size) => host(() => ranged.truncateWrite(id, size)),
+    close: () => host(() => ranged.commitWrite(id)),
+    abort: () => host(() => ranged.abortWrite(id)),
+  }
+}
+
 export class FileSystemWritableFileStream {
-  readonly #picked: PickedFile
-  #bytes: Uint8Array
+  readonly #sink: Sink
   #size: number
   #position = 0
   #closed = false
+  #failed: unknown = null
+  #queue: Promise<void> = Promise.resolve()
 
-  constructor(picked: PickedFile, existing: Uint8Array) {
-    this.#picked = picked
-    this.#bytes = existing.slice()
-    this.#size = existing.length
+  constructor(token: unknown, sink: Sink, size: number) {
+    if (token !== SINK) throw new TypeError('Illegal constructor')
+    this.#sink = sink
+    this.#size = size
   }
 
-  async write(data: unknown): Promise<void> {
-    if (this.#closed) throw new TypeError('The stream is closed.')
-    const typed = data !== null && typeof data === 'object' && 'type' in (data as object) && typeof (data as { type: unknown }).type === 'string'
-    const params = typed && !(data instanceof Blob) ? (data as WriteParams) : ({ type: 'write', data } as WriteParams)
-    if (params.type === 'seek') return void (this.#position = Math.max(0, Math.trunc(params.position)))
-    if (params.type === 'truncate') {
-      this.#resize(Math.max(0, Math.trunc(params.size)))
-      this.#size = Math.max(0, Math.trunc(params.size))
-      this.#position = Math.min(this.#position, this.#size)
-      return
-    }
-    if (params.position !== undefined) this.#position = Math.max(0, Math.trunc(params.position))
-    const chunk = await chunkBytes(params.data)
-    const end = this.#position + chunk.length
-    this.#resize(end)
-    this.#bytes.set(chunk, this.#position)
-    this.#size = Math.max(this.#size, end)
-    this.#position = end
+  write(data: unknown): Promise<void> {
+    if (this.#closed) return Promise.reject(new TypeError('The stream is closed.'))
+    return this.#then(() => this.#write(data))
   }
 
   seek(position: number): Promise<void> {
@@ -247,36 +300,74 @@ export class FileSystemWritableFileStream {
     return this.write({ type: 'truncate', size })
   }
 
-  async close(): Promise<void> {
-    if (this.#closed) throw new TypeError('The stream is closed.')
+  close(): Promise<void> {
+    if (this.#closed) return Promise.reject(new TypeError('The stream is closed.'))
     this.#closed = true
-    const picked = this.#picked
-    const bytes = this.#bytes.slice(0, this.#size)
-    await host(() => env.files!.write(picked, bytes))
+    return this.#then(() => this.#sink.close())
   }
 
-  async abort(): Promise<void> {
+  abort(): Promise<void> {
+    const open = !this.#closed
     this.#closed = true
+    const aborting = this.#queue.then(() => (open ? this.#sink.abort() : undefined))
+    this.#queue = aborting.catch(() => {})
+    return aborting
   }
 
   getWriter(): { write(data: unknown): Promise<void>; close(): Promise<void>; abort(): Promise<void>; releaseLock(): void; ready: Promise<void> } {
     return { write: (data) => this.write(data), close: () => this.close(), abort: () => this.abort(), releaseLock: () => {}, ready: Promise.resolve() }
   }
 
-  #resize(length: number): void {
-    if (length <= this.#bytes.length) return
-    const grown = new Uint8Array(Math.max(length, this.#bytes.length * 2))
-    grown.set(this.#bytes.subarray(0, this.#size))
-    this.#bytes = grown
+  #then(step: () => Promise<void>): Promise<void> {
+    const run = this.#queue.then(() => {
+      if (this.#failed !== null) throw this.#failed
+      return step().catch((error: unknown) => {
+        this.#failed = error
+        throw error
+      })
+    })
+    this.#queue = run.catch(() => {})
+    return run
+  }
+
+  async #write(data: unknown): Promise<void> {
+    const typed = data !== null && typeof data === 'object' && 'type' in (data as object) && typeof (data as { type: unknown }).type === 'string'
+    const params = typed && !(data instanceof Blob) ? (data as WriteParams) : ({ type: 'write', data } as WriteParams)
+    if (params.type === 'seek') return void (this.#position = Math.max(0, Math.trunc(params.position)))
+    if (params.type === 'truncate') {
+      const size = Math.max(0, Math.trunc(params.size))
+      await this.#sink.truncate(size)
+      this.#size = size
+      this.#position = Math.min(this.#position, size)
+      return
+    }
+    if (params.position !== undefined) this.#position = Math.max(0, Math.trunc(params.position))
+    for await (const chunk of chunksOf(params.data)) {
+      for (let at = 0; at < chunk.length; at += this.#sink.limit) {
+        const piece = chunk.subarray(at, Math.min(chunk.length, at + this.#sink.limit))
+        await this.#sink.write(this.#position, piece)
+        this.#position += piece.length
+        this.#size = Math.max(this.#size, this.#position)
+      }
+    }
   }
 }
 getters(FileSystemWritableFileStream.prototype, { locked: false })
 tag(FileSystemWritableFileStream)
 
-async function chunkBytes(data: unknown): Promise<Uint8Array> {
-  if (typeof data === 'string') return native.encodeUtf8(data)
-  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer())
-  return bytesOf(data as ArrayBuffer)
+const SINK = Symbol('sink')
+
+async function* chunksOf(data: unknown): AsyncGenerator<Uint8Array, void, undefined> {
+  if (typeof data === 'string') return yield native.encodeUtf8(data)
+  if (!(data instanceof Blob)) return yield bytesOf(data as ArrayBuffer)
+  const memory = blobInMemory(data)
+  if (memory) return yield memory
+  const reader = data.stream().getReader()
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) return
+    yield value
+  }
 }
 
 export async function showOpenFilePicker(options?: { multiple?: boolean; types?: unknown; excludeAcceptAllOption?: boolean }): Promise<FileSystemFileHandle[]> {

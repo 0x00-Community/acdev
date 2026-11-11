@@ -83,6 +83,25 @@ export interface FileData {
   readonly version: string
 }
 
+export interface FileRange {
+  readonly data: Uint8Array
+  readonly offset: number
+  readonly size: number
+  readonly modifiedMs: number
+  readonly version: string
+}
+
+export interface ReadRangeOptions {
+  ifVersion?: string
+}
+
+export interface OpenWriteOptions {
+  keepExistingData?: boolean
+  ifVersion?: string
+  create?: 'new' | 'always' | 'never'
+  mkdirs?: boolean
+}
+
 export interface WriteFileOptions {
   ifModifiedMs?: number
   ifVersion?: string
@@ -108,6 +127,12 @@ export interface AcdeFs {
   readText(root: string, path: string): Promise<FileText>
   readBytes(root: string, path: string): Promise<FileData>
   writeFile(root: string, path: string, data: string | Uint8Array, options?: WriteFileOptions): Promise<FinderEntry>
+  readRange(root: string, path: string, offset: number, length: number, options?: ReadRangeOptions): Promise<FileRange>
+  openWrite(root: string, path: string, options?: OpenWriteOptions): Promise<{ id: string; size: number }>
+  writeChunk(id: string, offset: number, data: string | Uint8Array): Promise<void>
+  truncateWrite(id: string, size: number): Promise<void>
+  commitWrite(id: string): Promise<FinderEntry>
+  abortWrite(id: string): Promise<void>
   copy(fromRoot: string, fromPath: string, toRoot: string, toDir: string): Promise<FinderEntry & { path: string }>
   rename(root: string, from: string, to: string): Promise<FinderEntry>
   delete(root: string, path: string): Promise<{ status: 'deleted'; path: string }>

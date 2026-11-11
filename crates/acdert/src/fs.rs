@@ -13,7 +13,7 @@ const READ: bool = false;
 const CHANGE: bool = true;
 const READERS: usize = 4;
 
-const METHODS: [(&str, bool, Method); 15] = [
+const METHODS: [(&str, bool, Method); 21] = [
     ("roots", READ, |_| FsCall::Roots),
     ("list", READ, |a| FsCall::List { root: a.string(0), path: a.text(1), hidden: a.flag(2) }),
     ("preview", READ, |a| FsCall::Preview { root: a.string(0), path: a.string(1) }),
@@ -29,6 +29,12 @@ const METHODS: [(&str, bool, Method); 15] = [
     ("readBytes", READ, |a| FsCall::ReadBytes { root: a.string(0), path: a.string(1) }),
     ("writeFile", CHANGE, |a| FsCall::WriteFile { root: a.string(0), path: a.string(1), data: a.data(2), options: a.json(3) }),
     ("revoke", CHANGE, |a| FsCall::Revoke { root: a.string(0) }),
+    ("readRange", READ, |a| FsCall::ReadRange { root: a.string(0), path: a.string(1), offset: a.count(2), length: a.count(3), options: a.json(4) }),
+    ("openWrite", CHANGE, |a| FsCall::OpenWrite { root: a.string(0), path: a.string(1), options: a.json(2) }),
+    ("writeChunk", CHANGE, |a| FsCall::WriteChunk { id: a.string(0), offset: a.count(1), data: a.data(2) }),
+    ("truncateWrite", CHANGE, |a| FsCall::TruncateWrite { id: a.string(0), size: a.count(1) }),
+    ("commitWrite", CHANGE, |a| FsCall::CommitWrite { id: a.string(0) }),
+    ("abortWrite", CHANGE, |a| FsCall::AbortWrite { id: a.string(0) }),
 ];
 
 struct Changes {
@@ -111,6 +117,12 @@ fn settle(scope: &mut v8::PinScope, resolver: v8::Local<v8::PromiseResolver>, re
         Ok(FsReply::Bytes { data, modified_ms, version }) => {
             let size = data.len();
             let read = crate::js_object!(scope, {"data" => data, "modifiedMs" => modified_ms, "size" => size, "version" => version});
+            resolver.resolve(scope, read.into());
+        }
+        Ok(FsReply::Range(range)) => {
+            let read = crate::js_object!(scope, {
+                "data" => range.data, "offset" => range.offset, "size" => range.size, "modifiedMs" => range.modified_ms, "version" => range.version
+            });
             resolver.resolve(scope, read.into());
         }
         Err(FsError { status, code, message }) => {

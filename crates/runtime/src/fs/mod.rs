@@ -3,6 +3,7 @@ mod beneath;
 mod copy;
 pub(crate) mod path;
 mod picked;
+mod ranged;
 mod save;
 pub(crate) mod workspace;
 
@@ -13,6 +14,8 @@ use path::NodePath;
 #[cfg(windows)]
 use path::windows_directory;
 pub use picked::PickedFolders;
+pub use ranged::{MAX_CHUNK, Opened, Range, Writes};
+use ranged::{OpenWrite, RangeOptions};
 pub use workspace::EntryKind;
 use workspace::{Contents, FinderRoot, MkdirOptions, WorkspaceFs, WriteOptions};
 
@@ -95,6 +98,12 @@ pub enum FsCall {
     Copy { from_root: String, from_path: String, to_root: String, to_dir: String },
     Rename { root: String, from: String, to: String },
     Delete { root: String, path: String },
+    ReadRange { root: String, path: String, offset: Option<u64>, length: Option<u64>, options: Option<Value> },
+    OpenWrite { root: String, path: String, options: Option<Value> },
+    WriteChunk { id: String, offset: Option<u64>, data: Option<Vec<u8>> },
+    TruncateWrite { id: String, size: Option<u64> },
+    CommitWrite { id: String },
+    AbortWrite { id: String },
 }
 
 pub enum FsReply {
@@ -102,6 +111,7 @@ pub enum FsReply {
     File { name: String, data: Vec<u8> },
     Text { text: String, modified_ms: i64, size: u64, version: String },
     Bytes { data: Vec<u8>, modified_ms: i64, version: String },
+    Range(Range),
     Done,
 }
 
@@ -122,6 +132,7 @@ impl FsCall {
     fn scope(&self) -> Option<&str> {
         match self {
             Self::Roots | Self::Locate { .. } | Self::Revoke { .. } => None,
+            Self::WriteChunk { .. } | Self::TruncateWrite { .. } | Self::CommitWrite { .. } | Self::AbortWrite { .. } => None,
             Self::List { root, .. }
             | Self::Preview { root, .. }
             | Self::Download { root, .. }
@@ -133,7 +144,9 @@ impl FsCall {
             | Self::WriteFile { root, .. }
             | Self::Copy { from_root: root, .. }
             | Self::Rename { root, .. }
-            | Self::Delete { root, .. } => Some(root),
+            | Self::Delete { root, .. }
+            | Self::ReadRange { root, .. }
+            | Self::OpenWrite { root, .. } => Some(root),
         }
     }
 }
@@ -149,7 +162,7 @@ impl Shared {
         Self { fs: WorkspaceFs::new(), grants: Arc::new(grants) }
     }
 
-    fn call(&self, call: FsCall, owner: Option<&str>, view: View) -> Outcome<FsReply> {
+    fn call(&self, call: FsCall, owner: Option<&str>, view: View, writes: &Writes) -> Outcome<FsReply> {
         let json = |value: Outcome<Value>| value.map(FsReply::Json);
         let root = |id: &str| self.root_in(owner, view, id);
         match call {
@@ -181,6 +194,21 @@ impl Shared {
                 let data = data.ok_or_else(|| Failure::invalid("data must be a string or a Uint8Array"))?;
                 json(WorkspaceFs::write_file_in(&root(&at)?, &path, &data, &options).json())
             }
+            FsCall::ReadRange { root: at, path, offset, length, options } => {
+                let options: RangeOptions = options_of("readRange", options)?;
+                WorkspaceFs::read_range_in(&root(&at)?, &path, offset, length, &options).map(FsReply::Range)
+            }
+            FsCall::OpenWrite { root: at, path, options } => {
+                let options: OpenWrite = options_of("openWrite", options)?;
+                json(writes.open_in(&root(&at)?, &path, &options).json())
+            }
+            FsCall::WriteChunk { id, offset, data } => {
+                let data = data.ok_or_else(|| Failure::invalid("data must be a string or a Uint8Array"))?;
+                writes.chunk(&id, offset, &data).map(|()| FsReply::Done)
+            }
+            FsCall::TruncateWrite { id, size } => writes.truncate(&id, size).map(|()| FsReply::Done),
+            FsCall::CommitWrite { id } => json(writes.commit(&id).json()),
+            FsCall::AbortWrite { id } => writes.abort(&id).map(|()| FsReply::Done),
             FsCall::Copy { from_root, from_path, to_root, to_dir } => json(copy::copy(&root(&from_root)?, &from_path, &root(&to_root)?, &to_dir)),
             FsCall::Rename { root: at, from, to } => json(WorkspaceFs::rename_in(&root(&at)?, &from, &to).json()),
             FsCall::Delete { root: at, path } => {
@@ -261,28 +289,29 @@ pub struct Workspace {
     roots: Option<Arc<[String]>>,
     owner: Option<Arc<str>>,
     files: Option<Arc<Files>>,
+    writes: Writes,
 }
 
 impl Workspace {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self { shared: Arc::new(Shared::new()), roots: None, owner: None, files: None }
+        Self { shared: Arc::new(Shared::new()), roots: None, owner: None, files: None, writes: Writes::default() }
     }
 
     #[cfg(test)]
     pub(crate) fn at(home: &str) -> Self {
         let shared = Shared { fs: WorkspaceFs::at(home), grants: Arc::new(Grants::new(None)) };
-        Self { shared: Arc::new(shared), roots: None, owner: None, files: None }
+        Self { shared: Arc::new(shared), roots: None, owner: None, files: None, writes: Writes::default() }
     }
 
     pub fn scoped(&self, roots: Option<Vec<String>>, owner: Option<&str>) -> Self {
         let owner = owner.filter(|owner| Grants::valid_owner(owner)).map(Into::into);
-        Self { shared: Arc::clone(&self.shared), roots: roots.map(Into::into), owner, files: None }
+        Self { shared: Arc::clone(&self.shared), roots: roots.map(Into::into), owner, files: None, writes: Writes::default() }
     }
 
     pub fn files(&self, files: Files, owner: &str) -> Self {
         let owner = Some(owner).filter(|owner| Grants::valid_owner(owner)).map(Into::into);
-        Self { shared: Arc::clone(&self.shared), roots: Some(Arc::from([])), owner, files: Some(Arc::new(files)) }
+        Self { shared: Arc::clone(&self.shared), roots: Some(Arc::from([])), owner, files: Some(Arc::new(files)), writes: Writes::default() }
     }
 
     fn allows(&self, root: &str) -> bool {
@@ -330,7 +359,7 @@ impl Workspace {
             if owner.is_none() {
                 return Err(Failure::http(403, "this web has no app to own its files").into());
             }
-            return Ok(self.shared.call(call, owner, View::Files(files))?);
+            return Ok(self.shared.call(call, owner, View::Files(files), &self.writes)?);
         }
         if self.roots.is_some() {
             if let FsCall::Copy { to_root, .. } = &call
@@ -340,7 +369,7 @@ impl Workspace {
             }
             match call.scope() {
                 Some(root) if self.allows(root) => {}
-                None if matches!(call, FsCall::Roots | FsCall::Locate { .. } | FsCall::Revoke { .. }) => {}
+                None => {}
                 what => {
                     let what = what.unwrap_or("its workspaces");
                     return Err(Failure::http(403, format!("this app may not use the files of {what} (not in its manifest's capabilities)")).into());
@@ -353,7 +382,7 @@ impl Workspace {
         }
         let allows = |root: &str| self.allows(root);
         let scope = self.roots.as_ref().map(|_| &allows as &dyn Fn(&str) -> bool);
-        Ok(self.shared.call(call, owner, View::All(scope))?)
+        Ok(self.shared.call(call, owner, View::All(scope), &self.writes)?)
     }
 }
 
@@ -431,7 +460,8 @@ mod tests {
         let picked = base.join("Picked");
         std::fs::create_dir_all(&picked).unwrap();
         let finder = Finder { shared: Arc::new(Shared::with(Grants::new(None))) };
-        let web = Workspace { shared: Arc::clone(&finder.shared), roots: None, owner: None, files: None }.files(Files::new(&[], false), "vault");
+        let web = Workspace { shared: Arc::clone(&finder.shared), roots: None, owner: None, files: None, writes: Writes::default() }
+            .files(Files::new(&[], false), "vault");
         let path = web.grant(picked.to_str().unwrap()).unwrap();
         let token = Files::token(&path);
         let ids = |workspace: &Workspace| {
@@ -454,7 +484,8 @@ mod tests {
         let picked = base.join("Shown");
         std::fs::create_dir_all(&picked).unwrap();
         let finder = Finder { shared: Arc::new(Shared::with(Grants::new(None))) };
-        let web = Workspace { shared: Arc::clone(&finder.shared), roots: None, owner: None, files: None }.files(Files::new(&[], false), "viewer");
+        let web = Workspace { shared: Arc::clone(&finder.shared), roots: None, owner: None, files: None, writes: Writes::default() }
+            .files(Files::new(&[], false), "viewer");
         let token = Files::token(&web.grant_as(picked.to_str().unwrap(), false).unwrap());
         assert_eq!(finder.folders("viewer".into()), [GrantedFolder { id: token.clone(), label: "Shown".into(), exists: true }]);
         assert!(finder.revoke_folder("viewer".into(), token.clone()).unwrap());
@@ -473,7 +504,7 @@ mod tests {
         std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
         std::fs::write(&file, "inside").unwrap();
         std::fs::write(&sibling, "outside").unwrap();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None, writes: Writes::default() };
         let scoped = all.scoped(Some(vec![]), Some("locate-probe"));
         let owner = all.scoped(None, Some("locate-probe"));
         let other = all.scoped(Some(vec![]), Some("other"));
@@ -502,7 +533,7 @@ mod tests {
         std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
         std::fs::write(&file, "inside").unwrap();
         std::fs::write(&sibling, "outside").unwrap();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None, writes: Writes::default() };
         let scoped = all.scoped(Some(vec![]), Some("locate-case"));
         let root = scoped.grant(root.to_str().unwrap()).unwrap();
         let locate = |path: &str| json(scoped.call(FsCall::Locate { path: path.to_owned() }));
@@ -526,7 +557,7 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(root.join("in.pdf"), "in").unwrap();
         std::fs::write(outside.join("out.pdf"), "out").unwrap();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None, writes: Writes::default() };
         let with = all.scoped(Some(vec![]), Some("admit-with"));
         with.grant(root.to_str().unwrap()).unwrap();
         let without = all.scoped(Some(vec![]), Some("admit-without"));
@@ -562,7 +593,7 @@ mod tests {
         std::fs::create_dir_all(&picked).unwrap();
         std::fs::write(picked.join("a.md"), "# a").unwrap();
         let picked = picked.to_string_lossy().into_owned();
-        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None };
+        let all = Workspace { shared: Arc::new(Shared::with(Grants::new(None))), roots: None, owner: None, files: None, writes: Writes::default() };
         let limited = all.scoped(Some(vec![]), Some("vault"));
         let other = all.scoped(None, Some("other"));
         let list = |workspace: &Workspace| json(workspace.call(FsCall::List { root: picked.clone(), path: None, hidden: None }));
