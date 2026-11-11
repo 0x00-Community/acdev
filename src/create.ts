@@ -1,6 +1,8 @@
 import * as p from '@clack/prompts'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync,
+} from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { installed, runtimes, which } from 'acde/launcher'
 import { Project } from './app.ts'
@@ -228,20 +230,32 @@ export class Creator {
     if (!Project.ID.test(id)) throw new Error(`id ${JSON.stringify(id)}: lowercase letters, digits and -`)
     const pm = options.pm ? PackageManager.named(options.pm) : PackageManager.invoking()
     const step = Creator.#steps(chatty)
-    if (starter.scaffold) {
-      const target = resolve(dir)
-      const [at, name] = target === process.cwd() ? [target, '.'] : [dirname(target), basename(target)]
-      await step(`${starter.label}: its own scaffolding`, [starter.scaffold(name, pm)], at, { CI: '1' })
-      Creator.adopt(dir, id, label, starter.label)
-    } else {
-      Creator.lay(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
+    const existed = existsSync(dir)
+    try {
+      if (starter.scaffold) {
+        const target = resolve(dir)
+        const [at, name] = target === process.cwd() ? [target, '.'] : [dirname(target), basename(target)]
+        await step(`${starter.label}: its own scaffolding`, [starter.scaffold(name, pm)], at, { CI: '1' })
+        Creator.adopt(dir, id, label, starter.label)
+      } else {
+        Creator.lay(dir, starter.kind, pm.name, id, label, options.backend ? ['backend'] : [])
+      }
+      if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml')))
+        writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+      Creator.#pin(dir, pm)
+    } catch (error) {
+      Creator.#undo(dir, existed)
+      const left = existed ? `${dir} is empty again` : `${dir} was removed`
+      throw new Error(`the ${starter.label} project was not made (${left}): ${Creator.#why(error)}`, { cause: error })
     }
-    if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml')))
-      writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
-    Creator.#pin(dir, pm)
     const pkg = new AppPackage(dir)
     const install = options.install ?? true
-    if (install) await step(`${pm.name} install`, [pm.install], dir)
+    if (install) {
+      await step(`${pm.name} install`, [pm.install], dir).catch((error: unknown) => {
+        throw new Error(`the project is in ${dir}, but its dependencies are not installed; once the cause below is `
+          + `fixed, run ${pm.name} install there: ${Creator.#why(error)}`, { cause: error })
+      })
+    }
     if (options.git && !Creator.#inRepo(dir)) {
       await step(
         'git init',
@@ -250,7 +264,10 @@ export class Creator {
           ['git', 'add', '--all'],
         ],
         dir,
-      )
+      ).catch((error: unknown) => {
+        const why = `the project is in ${dir} and ready, but it is not a git repository yet: ${Creator.#why(error)}`
+        throw new Error(why, { cause: error })
+      })
       const commit = spawnSync('git', ['commit', '--quiet', '--message', 'Initial commit (acde new)'], {
         cwd: dir,
         stdio: 'ignore',
@@ -401,6 +418,17 @@ export class Creator {
     } catch (error) {
       return { code: 127, output: `${Buffer.concat(chunks).toString()}${(error as Error).message}` }
     }
+  }
+
+  static #undo(dir: string, existed: boolean): void {
+    if (!existsSync(dir)) return
+    const gone = { recursive: true, force: true } as const
+    if (!existed) rmSync(dir, gone)
+    else for (const name of readdirSync(dir)) if (name !== '.git') rmSync(join(dir, name), gone)
+  }
+
+  static #why(error: unknown): string {
+    return error instanceof Error ? error.message : String(error)
   }
 
   static #steps(chatty: boolean) {

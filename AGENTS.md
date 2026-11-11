@@ -136,6 +136,10 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   `CI` 不许新建 lockfile, 装依赖那步不能带). 再叠 `templates/framework/acde.config.jsonc` (没有 `entry`: 构建认框架), `.gitignore` 加 `.acde/`; 根上有 `index.html` 的 (Vite 系)
   把它的 `<title>` 换成显示名 (窗口标题先用 `document.title`), 别的框架的标题在组件里, 不改.
   加模板就是 `STARTERS` 加一项.
+- 某一步失败 (`Creator.create`): 先一句话说结果, 再接命令的输出. 铺文件或脚手架失败时撤掉做了一半的工程 (目录是 acde new 建的就删掉, 原本就有的
+  空目录清空、保留 `.git`): `the <模板> project was not made (<dir> was removed): ...`; 装依赖失败时工程留着, 说怎么补:
+  `the project is in <dir>, but its dependencies are not installed; once the cause below is fixed, run <pm> install there: ...`;
+  `git init` 失败同样留着工程 (`... ready, but it is not a git repository yet: ...`).
 - 模板按第 1 级契约写 (`test/templates.test.ts`): 应用的配置 (`templates/app`、`templates/framework`) 列出 `capabilities`、`optional`、
   `services`、`requests`、`schemes` (空值加说明; `fs.roots` 只点名 SDK 的 `SHARED_PLACES`), 声明即授予 (运行时没有批准步骤, acdert#146), 新工程无界面也能启动;
   类型引用分层: 应用写 `@dopame/acde-api/app`, 桌面页写 `@dopame/acde-api/shell`; 桌面页经 `apps.open(id)` 打开应用 (第 1 级的 `acde:apps`

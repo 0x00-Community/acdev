@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { API_LEVEL, platformSupport, RUNNING_MODES } from '@dopame/acde-api/manifest'
 import { Project } from '../src/app.ts'
@@ -166,4 +166,16 @@ describe('mistakes', () => {
     expect(Project.idOf('notes')).toBe('notes')
     expect(Project.idOf('@x/--')).toBeNull()
   })
+})
+
+describe('acde new when a step fails', () => {
+  test('a failed install keeps the project and says how to finish it', async () => {
+    const dir = join(tmp(), 'no-deps')
+    const made = await cli(['new', dir, '--pm', 'bun', '--yes'], tmp(), { ACDERT_DIST: 'http://127.0.0.1:9' })
+    expect(made.code).toBe(1)
+    expect(made.stdout).toBe('')
+    expect(made.stderr).toStartWith(`acde: the project is in ${dir}, but its dependencies are not installed; `
+      + 'once the cause below is fixed, run bun install there: bun install failed (exit ')
+    expect(existsSync(join(dir, 'acde.config.jsonc'))).toBe(true)
+  }, 60_000)
 })
