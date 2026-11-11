@@ -911,7 +911,16 @@ export class Acde {
 
   async #request(op: string, args: Readonly<Record<string, unknown>> = {}): Promise<unknown> {
     this.#connected()
-    return this.#client.request(op, args)
+    try {
+      return await this.#client.request(op, args)
+    } catch (error) {
+      throw Acde.unsupported(op, error)
+    }
+  }
+
+  static unsupported(op: string, error: unknown): unknown {
+    if (!(error instanceof Error) || !error.message.startsWith(`no op ${op} (`)) return error
+    return new Error(`this acdert does not support ${op}; acde doctor checks the pairing`, { cause: error })
   }
 
   #connected(): void {

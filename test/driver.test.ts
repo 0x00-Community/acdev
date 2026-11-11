@@ -127,6 +127,15 @@ describe('Locator composition and input helpers', () => {
     check(Modifiers.chord([])).toBe(null)
     check(() => Modifiers.chord(['Hyper' as never])).toThrow('unknown modifier')
   })
+
+  test('an op an older acdert does not know says so and points at acde doctor', () => {
+    const old = new Error('no op pointer (webs, eval, shot)')
+    check((Acde.unsupported('pointer', old) as Error).message)
+      .toBe('this acdert does not support pointer; acde doctor checks the pairing')
+    check(Acde.unsupported('shot', old)).toBe(old)
+    const other = new Error('pointer: x and y are numbers')
+    check(Acde.unsupported('pointer', other)).toBe(other)
+  })
 })
 
 describe('the driver against acde dev with a stand-in acdert', () => {
