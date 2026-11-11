@@ -1453,8 +1453,11 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
     `latest.json`、CloudFront 失效和建 Gitea release 由人手动做 (用 `pkgs` 产物). `gh` 只对 GitHub 用.
   - Gitea 默认的 runner 是 Linux 容器 (`ubuntu-24.04` 标签, 镜像 `docker.gitea.com/runner-images:ubuntu-24.04`); `build` 矩阵里的 macOS 和 Windows
     要有对应标签的 runner 才能跑 (内网: Windows 是 110 上的 w110, `windows-2025`; macOS Intel 是 150, `macos-15-intel`; 没有 `macos-15`). 步骤默认 `bash -e -o pipefail`.
-- 少出目标: 输入 `skip_targets` (逗号分隔的 triple, 默认空 = 四个都出). `plan` 用 `scripts/release/targets.sh` 的 `targets_without` 去掉它们, 输出
-  `targets` 和 `build` 的矩阵 (`fromJSON(needs.plan.outputs.matrix)`, 每个 triple 的 runner 标签也在 `targets.sh`); 写错名字或全去掉都失败. 之后的作业带
+- 少出目标: 输入 `skip_targets` (逗号分隔的 triple, 不带空格, 默认空 = 四个都出). `plan` 用 `scripts/release/targets.sh` 的 `targets_without` 去掉它们,
+  输出逗号分隔的 `targets`; 写错名字、带空格或全去掉都失败. `build` 仍是写死的四项矩阵 (Gitea 1.27 不能用 `fromJSON(needs…)` 当矩阵):
+  被跳过的一项 `runs-on` 由 `skip_targets` 改成 `ubuntu-24.04` (`runs-on` 在建运行时就求值, 只能看输入, 看不到 `needs`; 否则 Gitea 上
+  `macos-15` 没有 runner, 这一项会一直排队), 任务级 `env.BUILD` 按 `needs.plan.outputs.targets` 算, 每一步都带 `if: env.BUILD == 'true'`,
+  所以这一项空跑成功. 不用任务级 `if` 判断矩阵: Gitea 1.27 支持, GitHub 的任务级 `if` 不认 `matrix`. 之后的作业带
   `RELEASE_TARGETS`, `stage.sh`、`check-stage.sh`、`pkgs` 和 GitHub release 都只要求和收这些目标的压缩包. 缺了某个目标的版本, acde 的安装器
   在那个平台上报 `acdert <版本> has no build for this platform (<triple>); it is built for: ...` (acde `install.sh` / `install.ps1`).
 - SDK 只以 `pkgs.dopame.ai/acdert/<版本>/acde-api-<版本>.tar.gz` 发布 (用户定, 2026-11-11: 不再发 npm, npm 上已发的版本不动), 只发压缩后的构建,

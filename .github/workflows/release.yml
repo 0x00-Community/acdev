@@ -19,7 +19,7 @@ on:
         type: string
         default: ''
       skip_targets:
-        description: 'comma-separated targets not to build or ship this time (e.g. aarch64-apple-darwin); empty builds all four'
+        description: 'targets not to build or ship this time, comma-separated without spaces (e.g. aarch64-apple-darwin); empty builds all four'
         type: string
         default: ''
 
@@ -43,7 +43,6 @@ jobs:
       tag: ${{ steps.plan.outputs.tag }}
       mode: ${{ steps.plan.outputs.mode }}
       targets: ${{ steps.plan.outputs.targets }}
-      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,9 +61,11 @@ jobs:
           SKIP: ${{ github.event.inputs.skip_targets }}
         run: |
           . scripts/release/targets.sh
+          case "${SKIP:-}" in *[[:space:]]*) echo "::error::skip_targets takes triples separated by commas, without spaces: '$SKIP'"; exit 1 ;; esac
           targets=$(targets_without "${SKIP:-}")
+          targets=${targets// /,}
           echo "targets=$targets"
-          { echo "targets=$targets"; echo "matrix=$(targets_matrix $targets)"; } >> "$GITHUB_OUTPUT"
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
           if [ "${PUBLISH_INPUT:-}" = true ]; then publish=true; else publish=false; fi
           if [ "$SERVER" = https://github.com ]; then github=true; else github=false; fi
           echo "publish=$publish github=$github"
@@ -79,37 +80,51 @@ jobs:
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    runs-on: ${{ matrix.os }}
+      matrix:
+        include:
+          - { triple: aarch64-apple-darwin, os: macos-15 }
+          - { triple: x86_64-apple-darwin, os: macos-15-intel }
+          - { triple: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
+          - { triple: x86_64-pc-windows-msvc, os: windows-2025, exe: .exe }
+    runs-on: ${{ contains(format(',{0},', github.event.inputs.skip_targets), format(',{0},', matrix.triple)) && 'ubuntu-24.04' || matrix.os }}
+    env:
+      BUILD: ${{ contains(format(',{0},', needs.plan.outputs.targets), format(',{0},', matrix.triple)) }}
     steps:
+      - name: skipped target
+        if: env.BUILD != 'true'
+        run: echo "${{ matrix.triple }} is in skip_targets; nothing to build"
       - uses: actions/checkout@v7
+        if: env.BUILD == 'true'
         with:
           ref: ${{ needs.plan.outputs.sha }}
       - name: system libraries
-        if: runner.os == 'Linux'
+        if: env.BUILD == 'true' && runner.os == 'Linux'
         run: >
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           clang pkg-config libssl-dev libdrm-dev libgbm-dev libinput-dev libudev-dev
           libpipewire-0.3-dev libspa-0.2-dev libwayland-dev libxkbcommon-dev libfontconfig-dev
           libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       - name: nasm
-        if: runner.os == 'Windows'
+        if: env.BUILD == 'true' && runner.os == 'Windows'
         shell: bash
         run: |
           curl -sSfL -o "$RUNNER_TEMP/nasm.zip" https://www.nasm.us/pub/nasm/releasebuilds/3.02/win64/nasm-3.02-win64.zip
           7z x -y -o"$RUNNER_TEMP" "$RUNNER_TEMP/nasm.zip" > /dev/null
           cygpath -w "$RUNNER_TEMP/nasm-3.02" >> "$GITHUB_PATH"
       - name: python for stylo
-        if: runner.os == 'Windows'
+        if: env.BUILD == 'true' && runner.os == 'Windows'
         shell: bash
         run: echo "PYTHON3=$(cygpath -w "$(command -v python)")" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
+        if: env.BUILD == 'true'
         with:
           targets: ${{ matrix.triple }}
       - uses: Swatinem/rust-cache@v2
+        if: env.BUILD == 'true'
         with:
           key: dist-${{ matrix.triple }}
       - name: rustc flags (static CRT on Windows, paths remapped, PDB by file name)
+        if: env.BUILD == 'true'
         shell: bash
         run: |
           cargo_home="${CARGO_HOME:-$HOME/.cargo}"
@@ -127,8 +142,10 @@ jobs:
           flags="$flags --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$sysroot=/rustc --remap-path-prefix=$workspace=/src"
           echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"
       - name: "acdert (dist profile: release build, split debug information)"
+        if: env.BUILD == 'true'
         run: cargo build --profile dist -p acdert --target ${{ matrix.triple }}
       - name: stage binary and split debug information
+        if: env.BUILD == 'true'
         shell: bash
         run: |
           dist=target/${{ matrix.triple }}/dist
@@ -140,11 +157,13 @@ jobs:
           if [ -z "$(ls -A symbols)" ]; then echo "::error::no split debug information was produced"; exit 1; fi
           ls -la out symbols
       - uses: christopherhx/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7
+        if: env.BUILD == 'true'
         with:
           name: acdert-${{ matrix.triple }}
           path: out
           retention-days: 1
       - uses: christopherhx/gitea-upload-artifact@8818363695ca2d5782c64f6453273341374767b7 # v7
+        if: env.BUILD == 'true'
         with:
           name: symbols-${{ matrix.triple }}
           path: symbols

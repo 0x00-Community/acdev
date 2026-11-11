@@ -48,14 +48,3 @@ targets_without() {
   fi
   echo "${left[*]}"
 }
-
-targets_matrix() {
-  local t first=1
-  printf '{"include":['
-  for t in "$@"; do
-    [ "$first" = 1 ] || printf ','
-    first=0
-    printf '{"triple":"%s","os":"%s","exe":"%s"}' "$t" "$(target_os "$t")" "$(target_exe "$t")"
-  done
-  printf ']}'
-}
