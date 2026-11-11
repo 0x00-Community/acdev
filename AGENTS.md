@@ -687,6 +687,10 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     一遍扫完); 自有属性和原型上的成员优先 (`length`、`item` 还是自己的).
   - `HTMLFormControlsCollection` (`form.elements`, 同一个对象; 不含 `<input type=image>`): 一个匹配给元素, 几个给活的 `RadioNodeList`
     (现在是 `NodeList` 的子类, `value` 读写选中的单选钮). `fieldset.elements` 是 `HTMLCollection`.
+  - `Window` (named access, #170): `Window.prototype` 和 `EventTarget.prototype` 之间是一个 Proxy (`window.ts` `namedProperties`, 规范的
+    WindowProperties): id 等于名字的元素 (原生 id 表, `getElementById`), 没有再找 `name` 等于名字的 `embed` / `form` / `img` / `object`.
+    `window.box` 和裸名字 `box` 都能取到, 每次现查 (删除、改 id 立刻生效); 全局对象的自有属性、`Window.prototype` 的成员和 `let` / `const`
+    声明优先; 不可枚举. 几个同名元素时只给第一个 (规范给 `HTMLCollection`), 不管 iframe 的 `name`.
   - `HTMLFormElement` (`[LegacyOverrideBuiltIns]`): `form[0]`、`form.title`. 先找它的 listed 元素 (不含图片按钮), 没有再找它里面的 `img`,
     都没有再查 past names map (元素改名后旧名字仍然指它, 元素不再属于这个表单时去掉); 名字盖过原型上的成员 (`<input name="submit">` 之后
     `form.submit` 是那个 input), 只有自有属性排在名字前面. 写入照普通对象走原型上的 setter (`form.action = …` 仍然改属性).

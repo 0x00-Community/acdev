@@ -373,3 +373,37 @@ test('a form whose controls are named after every member of its interfaces works
   assert.deepEqual([inside.plain['valid'], inside.plain['open']], [[false, false], [false, false]])
   assert.deepEqual(inside.plain['outer'], [false, null, 'i'])
 })
+
+test('window: elements by id and the listed elements by name, real globals first, following the DOM', async () => {
+  using web = await page(`<!doctype html><html><body>
+    <div id="box"></div><span id="taken"></span><div id="Array"></div><img name="logo"><input name="field"><div id="later"></div>
+  </body></html>`)
+  web.run('let taken = 1')
+  const result = web.json(`(() => {
+    const out = {}
+    out.byId = [box === document.getElementById('box'), window.box === box, 'box' in window, typeof nothingHere, window.nothingHere]
+    out.byName = [window.logo && window.logo.localName, window.field]
+    out.globals = [taken, window.taken === document.getElementById('taken'), Array === globalThis.Array, typeof Array.isArray]
+    out.hidden = [Object.keys(window).includes('box'), Object.getOwnPropertyDescriptor(window, 'box') === undefined]
+    document.getElementById('box').remove()
+    out.removed = [typeof box, window.box]
+    const later = document.getElementById('later')
+    later.id = 'renamed'
+    out.renamed = [window.later, renamed === later]
+    later.id = 'later'
+    out.back = window.later === later
+    window.box = 'mine'
+    out.assigned = window.box
+    return out
+  })()`)
+  assert.deepEqual(result, {
+    byId: [true, true, true, 'undefined', undefined],
+    byName: ['img', undefined],
+    globals: [1, true, true, 'function'],
+    hidden: [false, true],
+    removed: ['undefined', undefined],
+    renamed: [undefined, true],
+    back: true,
+    assigned: 'mine',
+  })
+})

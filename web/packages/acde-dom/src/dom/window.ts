@@ -15,6 +15,7 @@ import type { Storage } from '../storage/webstorage'
 import { HashChangeEvent, MediaQueryListEvent, PopStateEvent } from './events'
 import { HANDLER_TYPES } from './element'
 import { rootScroll } from './layout'
+import { cssString } from './node'
 import { FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemHandle, FileSystemWritableFileStream, showDirectoryPicker, showOpenFilePicker, showSaveFilePicker } from './picker'
 import { documentId, dom, rootElementId, wrap } from './realm'
 import { urlParts } from './reflect'
@@ -513,7 +514,36 @@ interface WindowParts {
   readonly getSelection: () => unknown
 }
 
+interface NamedSource {
+  getElementById(id: string): Element | null
+  querySelector(selectors: string): Element | null
+}
+
+const NAMED_BY_NAME = ['embed', 'form', 'img', 'object']
+
+function namedProperties(document: NamedSource): object {
+  const named = (key: string | symbol): Element | null => {
+    if (typeof key !== 'string' || !key) return null
+    const byId = document.getElementById(key)
+    if (byId) return byId
+    const quoted = cssString(key)
+    return document.querySelector(NAMED_BY_NAME.map((tag) => `${tag}[name=${quoted}]`).join(','))
+  }
+  const target = Object.create(EventTarget.prototype) as object
+  return new Proxy(target, {
+    get: (object, key, receiver) => (key in object ? Reflect.get(object, key, receiver) : (named(key) ?? undefined)),
+    has: (object, key) => key in object || named(key) !== null,
+    getOwnPropertyDescriptor: (object, key) => {
+      const own = Reflect.getOwnPropertyDescriptor(object, key)
+      if (own || key in object) return own
+      const element = named(key)
+      return element ? { value: element, writable: true, enumerable: false, configurable: true } : undefined
+    },
+  })
+}
+
 export function installWindow(global: typeof globalThis, parts: WindowParts): void {
+  Object.setPrototypeOf(Window.prototype, namedProperties(parts.document as NamedSource))
   Object.setPrototypeOf(global, Window.prototype)
   const self = () => global
   const getters: Record<string, () => unknown> = {
