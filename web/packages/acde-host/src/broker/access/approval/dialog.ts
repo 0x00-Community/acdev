@@ -12,10 +12,6 @@ export interface PromptAnswers {
 
 export class ApprovalDialogs {
   static readonly #WHAT: Partial<Record<ApprovalCapability, string>> = {
-    launch: 'It can start programs on this computer.',
-    slots: 'It can show the windows of other programs inside its own.',
-    terminal: 'It can run commands in a terminal.',
-    network: 'It can connect to other computers on the network.',
     camera: 'It can use the camera.',
     microphone: 'It can use the microphone.',
   }
@@ -31,8 +27,7 @@ export class ApprovalDialogs {
 
   static text(prompt: PermissionPrompt): { title: string; message: string } {
     const { label, capability } = prompt
-    const place = capability.startsWith('fs.') ? capability.slice(3) : null
-    const what = place ? `It can read and change the files in your ${place} folder.` : (ApprovalDialogs.#WHAT[capability] ?? '')
+    const what = ApprovalDialogs.#WHAT[capability] ?? ''
     const ask =
       prompt.reason === 'launch'
         ? `${label} needs "${capability}" to start. ${what}\n\nAllow it? If you do not, ${label} does not start.`

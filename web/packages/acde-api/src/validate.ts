@@ -55,7 +55,7 @@ export const WEB_CAPABILITIES = ['notifications'] as const
 
 export const CAPABILITY_MODULES = ['fs', 'terminal', 'network', 'office'] as const
 
-export const APPROVAL_CAPABILITIES = ['launch', 'slots', 'terminal', 'network', 'camera', 'microphone'] as const
+export const APPROVAL_CAPABILITIES = ['camera', 'microphone'] as const
 
 export interface ImportRule {
   readonly allowed: boolean

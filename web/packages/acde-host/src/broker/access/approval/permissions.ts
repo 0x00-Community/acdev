@@ -60,7 +60,7 @@ export class Permissions {
   }
 
   static approval(capability: string): capability is ApprovalCapability {
-    return Permissions.#APPROVAL.has(capability) || Manifest.place(capability) !== null
+    return Permissions.#APPROVAL.has(capability)
   }
 
   static folder(capability: string): string | null {
@@ -86,7 +86,7 @@ export class Permissions {
   gated(app: AppManifest, origin: AppOrigin): ApprovalCapability[] {
     if (origin.system) return []
     const declared = Object.keys(app.capabilities).filter((name): name is ApprovalCapability => !!app.capabilities[name] && Permissions.approval(name))
-    return [...declared, ...Manifest.places(app.capabilities).map((place) => `fs.${place}` as ApprovalCapability)]
+    return declared
   }
 
   permit(app: AppManifest, origin: AppOrigin, capability: string): Permit {

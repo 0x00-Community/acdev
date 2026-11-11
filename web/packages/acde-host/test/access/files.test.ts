@@ -28,31 +28,14 @@ test('fs: true means the private folder and picked folders for system apps too; 
   assert.equal(FileAccess.grant(null, null), true)
 })
 
-test('each shared place a third-party app names needs approval and is asked before launch', async () => {
+test('shared places a third-party app names are granted on declaration, without a prompt', async () => {
   const p = permissions()
   const tool = app({ capabilities: { fs: { roots: ['documents', 'music'] } } })
-  assert.deepEqual(p.gated(tool, third), ['fs.documents', 'fs.music'])
-  assert.deepEqual(p.gated(tool, system), [])
-  assert.deepEqual(p.gated(app({ capabilities: { fs: true } }), third), [])
-  assert.ok(Permissions.approval('fs.documents'))
-  assert.ok(!Permissions.approval('fs.agentos-work'))
-  const admitted = p.admit(tool, third)
-  await Promise.resolve()
-  assert.deepEqual(p.pending().map((prompt) => prompt.capability), ['fs.documents'])
-  p.answer(p.pending()[0]!.id, true)
-  for (let i = 0; i < 10 && !p.pending().length; i++) await Promise.resolve()
-  p.answer(p.pending()[0]!.id, false)
-  await assert.rejects(admitted, (e: Error & { capability?: string }) => e.capability === 'fs.music')
-})
-
-test('places of an optional fs are asked on request', async () => {
-  const p = permissions()
-  const tool = app({ capabilities: { fs: { roots: ['videos'] } }, optional: ['fs'] })
+  assert.deepEqual(p.gated(tool, third), [])
+  assert.ok(!Permissions.approval('fs.documents'))
   await p.admit(tool, third)
   assert.deepEqual(p.pending(), [])
-  const asked = p.ask(tool, third, 'fs.videos', 'request')
-  p.answer(p.pending()[0]!.id, true)
-  assert.equal(await asked, true)
+  assert.equal(p.permit(tool, third, 'fs.documents'), 'granted')
 })
 
 test('acde:capabilities reports each declared place', () => {

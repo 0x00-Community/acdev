@@ -7,7 +7,7 @@ import { Launchable } from '../../src/broker/access/launchable.ts'
 import { Permissions } from '../../src/broker/access/approval/permissions.ts'
 
 const tool = ((): AppManifest => {
-  const parsed = Manifest.app({ id: 'tool', label: 'Tool', icon: 'app', entry: '/t/index.html', capabilities: { terminal: true } })
+  const parsed = Manifest.app({ id: 'tool', label: 'Tool', icon: 'app', entry: '/t/index.html', capabilities: { camera: true } })
   if (typeof parsed === 'string') throw new Error(parsed)
   return parsed
 })()
@@ -53,21 +53,21 @@ test('a single-app session that lost a required capability ends by naming the ap
   assert.equal(refusal(launchable), null, 'still startable while the prompt waits')
   permissions.answer(permissions.pending()[0]!.id, true)
   await admitted
-  assert.equal(permissions.revoke('tool', 'terminal'), true)
+  assert.equal(permissions.revoke('tool', 'camera'), true)
   const error = refusal(launchable)!
-  assert.equal(error.message, 'Tool: "terminal" is denied by the user')
-  assert.deepEqual([error.status, error.code, error.capability], [403, 'denied', 'terminal'])
-  assert.equal(Launchable.ended('tool', error), 'acdert app tool: Tool: "terminal" is denied by the user; acdert app asks for it again the next time it runs')
+  assert.equal(error.message, 'Tool: "camera" is denied by the user')
+  assert.deepEqual([error.status, error.code, error.capability], [403, 'denied', 'camera'])
+  assert.equal(Launchable.ended('tool', error), 'acdert app tool: Tool: "camera" is denied by the user; acdert app asks for it again the next time it runs')
   assert.deepEqual(saved(), {}, 'the decision is gone, so the next run asks')
   const next = run(saved(), true)
   assert.equal(refusal(next.launchable), null)
-  assert.equal(next.permissions.approval(tool, origin, 'terminal'), 'not-asked')
+  assert.equal(next.permissions.approval(tool, origin, 'camera'), 'not-asked')
 })
 
 test('a denial of an earlier run keeps the app from a desktop but not from acdert app, which asks again', () => {
-  const desktop = refusal(run({ 'tool:terminal': 'denied' }, false).launchable)!
-  assert.deepEqual([desktop.message, desktop.code], ['Tool: "terminal" is denied by the user', 'denied'])
-  assert.equal(refusal(run({ 'tool:terminal': 'denied' }, true).launchable), null)
+  const desktop = refusal(run({ 'tool:camera': 'denied' }, false).launchable)!
+  assert.deepEqual([desktop.message, desktop.code], ['Tool: "camera" is denied by the user', 'denied'])
+  assert.equal(refusal(run({ 'tool:camera': 'denied' }, true).launchable), null)
 })
 
 test('an end that is not a denial promises nothing about the next run', () => {

@@ -194,10 +194,11 @@ test('requests: the private request kinds an app accepts', () => {
     assert.match(String(app(bad)), /requests/, JSON.stringify(bad))
   }
 })
-test('capabilities that reach outside the app need approval; the rest are granted on declaration', () => {
-  assert.deepEqual([...APPROVAL_CAPABILITIES], ['launch', 'slots', 'terminal', 'network', 'camera', 'microphone'])
+test('only the camera and the microphone need consent; the rest are granted on declaration', () => {
+  assert.deepEqual([...APPROVAL_CAPABILITIES], ['camera', 'microphone'])
   for (const name of APPROVAL_CAPABILITIES) assert.ok(Manifest.CAPABILITIES.has(name), name)
-  for (const name of ['office', 'open', 'openFiles', 'fs']) assert.ok(!(APPROVAL_CAPABILITIES as readonly string[]).includes(name), name)
+  const granted = ['office', 'open', 'openFiles', 'fs', 'launch', 'slots', 'terminal', 'network']
+  for (const name of granted) assert.ok(!(APPROVAL_CAPABILITIES as readonly string[]).includes(name), name)
 })
 
 test('a system app may declare acde:permissions; a third-party app may not', () => {

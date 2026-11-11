@@ -15,8 +15,8 @@ const app = (fields: Record<string, unknown>): AppManifest => {
 
 const session = () => {
   const installed = [
-    app({ id: 'tool', label: 'Tool', capabilities: { launch: true } }),
-    app({ id: 'notes', label: 'Notes', capabilities: { terminal: true }, optional: ['terminal'] }),
+    app({ id: 'tool', label: 'Tool', capabilities: { camera: true } }),
+    app({ id: 'notes', label: 'Notes', capabilities: { microphone: true }, optional: ['microphone'] }),
   ]
   const origin = { level: 1, system: false }
   const apps = { get: (id: string) => installed.find((a) => a.id === id) ?? null, origin: () => origin, list: () => installed } as unknown as AppRegistry
@@ -65,13 +65,13 @@ test('revoking a required capability takes the app off the list and says so; an 
   const admitted = approvals.permissions.admit(installed[0]!, origin)
   approvals.permissions.answer(approvals.permissions.pending()[0]!.id, true)
   await admitted
-  const asked = approvals.permissions.ask(installed[1]!, origin, 'terminal', 'request')
+  const asked = approvals.permissions.ask(installed[1]!, origin, 'microphone', 'request')
   approvals.permissions.answer(approvals.permissions.pending()[0]!.id, true)
   await asked
   assert.deepEqual(changes(), [], 'granting changes no list')
-  approvals.permissions.revoke('notes', 'terminal')
+  approvals.permissions.revoke('notes', 'microphone')
   assert.deepEqual(changes(), [])
-  approvals.permissions.revoke('tool', 'launch')
+  approvals.permissions.revoke('tool', 'camera')
   assert.deepEqual(changes(), [['notes']])
 })
 

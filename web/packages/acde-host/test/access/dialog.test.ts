@@ -45,22 +45,22 @@ const open = (native: boolean | 'none' = true) => {
 
 test('a required capability is asked in a native dialog and its answer is stored like a desktop answer', async () => {
   const { permissions, shown, files } = open()
-  const tool = app('tool', { launch: true })
+  const tool = app('tool', { camera: true })
   const admitted = permissions.admit(tool, third)
   await settle()
   assert.equal(shown.length, 1)
   assert.match(shown[0]!.title, /Tool/)
-  assert.match(shown[0]!.message, /"launch"/)
+  assert.match(shown[0]!.message, /"camera"/)
   assert.match(shown[0]!.message, /does not start/)
   shown[0]!.answer(true)
   await admitted
-  assert.deepEqual(files.get('p'), { 'tool:launch': 'granted' })
+  assert.deepEqual(files.get('p'), { 'tool:camera': 'granted' })
   assert.deepEqual(permissions.list('tool').map((row) => row.decision), ['granted'])
 })
 
 test('no in the dialog keeps the app from starting', async () => {
   const { permissions, shown } = open()
-  const admitted = permissions.admit(app('tool', { launch: true }), third)
+  const admitted = permissions.admit(app('tool', { camera: true }), third)
   await settle()
   shown[0]!.answer(false)
   await assert.rejects(admitted, (e: Error & { code?: string }) => e.code === 'denied')
@@ -68,9 +68,9 @@ test('no in the dialog keeps the app from starting', async () => {
 
 test('an optional request is asked in the dialog with its own wording', async () => {
   const { permissions, shown } = open()
-  const asked = permissions.ask(app('tool', { launch: true }, ['launch']), third, 'launch', 'request')
+  const asked = permissions.ask(app('tool', { camera: true }, ['camera']), third, 'camera', 'request')
   await settle()
-  assert.match(shown[0]!.message, /asks to use "launch"/)
+  assert.match(shown[0]!.message, /asks to use "camera"/)
   assert.doesNotMatch(shown[0]!.message, /does not start/)
   shown[0]!.answer(true)
   assert.equal(await asked, true)
@@ -78,22 +78,22 @@ test('an optional request is asked in the dialog with its own wording', async ()
 
 test('one dialog at a time; the next prompt shows after the first is answered', async () => {
   const { permissions, shown } = open()
-  const one = permissions.ask(app('tool', { launch: true }), third, 'launch', 'request')
-  const two = permissions.ask(app('other', { slots: true }), third, 'slots', 'request')
+  const one = permissions.ask(app('tool', { camera: true }), third, 'camera', 'request')
+  const two = permissions.ask(app('other', { microphone: true }), third, 'microphone', 'request')
   await settle()
   assert.equal(shown.length, 1)
   shown[0]!.answer(false)
   await settle()
   assert.equal(shown.length, 2)
-  assert.match(shown[1]!.message, /"slots"/)
+  assert.match(shown[1]!.message, /"microphone"/)
   shown[1]!.answer(true)
   assert.deepEqual(await Promise.all([one, two]), [false, true])
 })
 
 test('an answer from elsewhere closes the open dialog and drops queued ones', async () => {
   const { permissions, shown, dismissed } = open()
-  const one = permissions.ask(app('tool', { launch: true }), third, 'launch', 'request')
-  const two = permissions.ask(app('other', { slots: true }), third, 'slots', 'request')
+  const one = permissions.ask(app('tool', { camera: true }), third, 'camera', 'request')
+  const two = permissions.ask(app('other', { microphone: true }), third, 'microphone', 'request')
   await settle()
   permissions.answer(2, true)
   await settle()
@@ -108,7 +108,7 @@ test('an answer from elsewhere closes the open dialog and drops queued ones', as
 test('without a native dialog the prompt keeps waiting for another answer', async () => {
   for (const native of [false, 'none'] as const) {
     const { permissions, shown } = open(native)
-    const asked = permissions.ask(app('tool', { launch: true }), third, 'launch', 'request')
+    const asked = permissions.ask(app('tool', { camera: true }), third, 'camera', 'request')
     await settle()
     assert.equal(shown.length, 0)
     assert.equal(permissions.pending().length, 1)

@@ -1,6 +1,4 @@
-import type { PlaceCapability } from '../runtime/places'
-
-export type ApprovalCapability = 'launch' | 'slots' | 'terminal' | 'network' | 'camera' | 'microphone' | PlaceCapability
+export type ApprovalCapability = 'camera' | 'microphone'
 
 export type FolderCapability = `fs.folder-${string}`
 

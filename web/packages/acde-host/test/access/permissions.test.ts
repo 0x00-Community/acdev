@@ -39,120 +39,121 @@ const open = (file = Math.random().toString(36).slice(2)) => {
   return { permissions, told, changes, file }
 }
 
-test('only capabilities that reach outside the app wait for approval', () => {
+test('only the camera and the microphone wait for approval', () => {
   const { permissions } = open()
-  const tool = app({ office: true, open: true, openFiles: true, fs: true, launch: true, network: true, camera: true })
-  assert.deepEqual(permissions.gated(tool, third), ['launch', 'network', 'camera'])
-  assert.equal(permissions.permit(tool, third, 'office'), 'granted')
-  assert.equal(permissions.permit(tool, third, 'launch'), 'ask')
+  const tool = app({ office: true, openFiles: true, fs: { roots: ['documents'] }, launch: true, terminal: true, network: true, camera: true, microphone: true })
+  assert.deepEqual(permissions.gated(tool, third), ['camera', 'microphone'])
+  for (const name of ['office', 'launch', 'terminal', 'network', 'fs.documents']) assert.equal(permissions.permit(tool, third, name), 'granted', name)
+  assert.equal(permissions.permit(tool, third, 'camera'), 'ask')
 })
 
 test('system apps are granted without a prompt', async () => {
   const { permissions, told } = open()
-  const tool = app({ launch: true, terminal: true })
+  const tool = app({ camera: true, microphone: true })
   assert.deepEqual(permissions.gated(tool, system), [])
   await permissions.admit(tool, system)
-  assert.equal(permissions.permit(tool, system, 'launch'), 'granted')
+  assert.equal(permissions.permit(tool, system, 'camera'), 'granted')
   assert.deepEqual(told, [])
 })
 
-test('a required capability is asked before launch; an answer of no refuses with a typed error', async () => {
+test('a required capability is asked before camera; an answer of no refuses with a typed error', async () => {
   const { permissions, told } = open()
-  const tool = app({ launch: true, slots: true, terminal: true }, ['terminal'])
+  const tool = app({ camera: true, slots: true, microphone: true }, ['microphone'])
   const admitted = permissions.admit(tool, third)
   await Promise.resolve()
   const prompts = permissions.pending()
-  const launch = { id: 1, app: 'tool', label: 'Tool', capability: 'launch', reason: 'launch' }
-  assert.deepEqual(prompts, [launch], 'unsupported slots and optional terminal are not asked')
+  const camera = { id: 1, app: 'tool', label: 'Tool', capability: 'camera', reason: 'launch' }
+  assert.deepEqual(prompts, [camera], 'unsupported slots and optional microphone are not asked')
   assert.deepEqual(told, [{ type: 'permissionprompt', ...prompts[0]! }])
   permissions.answer(1, false)
   await assert.rejects(admitted, (e: Error & { status?: number; code?: string; capability?: string }) =>
-    e.status === 403 && e.code === 'denied' && e.capability === 'launch' && /denied by the user/.test(e.message))
-  assert.deepEqual(told[1], { type: 'permissionanswered', id: 1, app: 'tool', capability: 'launch', allowed: false })
-  assert.equal(permissions.permit(tool, third, 'launch'), 'denied')
+    e.status === 403 && e.code === 'denied' && e.capability === 'camera' && /denied by the user/.test(e.message))
+  assert.deepEqual(told[1], { type: 'permissionanswered', id: 1, app: 'tool', capability: 'camera', allowed: false })
+  assert.equal(permissions.permit(tool, third, 'camera'), 'denied')
 })
 
 test('an optional capability is asked on request, and the same prompt is shared while it waits', async () => {
   const { permissions } = open()
-  const tool = app({ terminal: true }, ['terminal'])
+  const tool = app({ microphone: true }, ['microphone'])
   await permissions.admit(tool, third)
   assert.deepEqual(permissions.pending(), [])
-  const first = permissions.ask(tool, third, 'terminal', 'request')
-  const second = permissions.ask(tool, third, 'terminal', 'request')
+  const first = permissions.ask(tool, third, 'microphone', 'request')
+  const second = permissions.ask(tool, third, 'microphone', 'request')
   assert.equal(permissions.pending().length, 1)
   permissions.answer(permissions.pending()[0]!.id, true)
   assert.deepEqual(await Promise.all([first, second]), [true, true])
-  assert.equal(permissions.permit(tool, third, 'terminal'), 'granted')
+  assert.equal(permissions.permit(tool, third, 'microphone'), 'granted')
 })
 
 test('an app sees whether a capability was not asked for, is being asked, or was answered', async () => {
   const { permissions, changes } = open()
-  const tool = app({ terminal: true, launch: true, office: true, fs: { roots: ['downloads'] } }, ['terminal', 'launch', 'fs'])
-  assert.deepEqual(permissions.approvals(tool, third), { terminal: 'not-asked', launch: 'not-asked', 'fs.downloads': 'not-asked' })
+  const tool = app({ microphone: true, camera: true, office: true, fs: { roots: ['downloads'] } }, ['microphone', 'camera', 'fs'])
+  assert.deepEqual(permissions.approvals(tool, third), { microphone: 'not-asked', camera: 'not-asked' })
+  assert.equal(permissions.approval(tool, third, 'fs.downloads'), 'granted', 'shared places are granted on declaration')
   assert.equal(permissions.approval(tool, third, 'office'), 'granted', 'not given by approval')
-  assert.equal(permissions.approval(tool, system, 'terminal'), 'granted', 'system apps are not asked')
-  const asked = permissions.ask(tool, third, 'terminal', 'request')
-  assert.equal(permissions.approval(tool, third, 'terminal'), 'asking')
-  assert.deepEqual(changes, [['tool', 'terminal', 'asking']], 'the app is told that the prompt is up')
-  assert.equal(permissions.approval(tool, third, 'launch'), 'not-asked')
+  assert.equal(permissions.approval(tool, system, 'microphone'), 'granted', 'system apps are not asked')
+  const asked = permissions.ask(tool, third, 'microphone', 'request')
+  assert.equal(permissions.approval(tool, third, 'microphone'), 'asking')
+  assert.deepEqual(changes, [['tool', 'microphone', 'asking']], 'the app is told that the prompt is up')
+  assert.equal(permissions.approval(tool, third, 'camera'), 'not-asked')
   permissions.answer(permissions.pending()[0]!.id, false)
   assert.equal(await asked, false)
-  assert.equal(permissions.approval(tool, third, 'terminal'), 'denied')
-  assert.deepEqual(changes.at(-1), ['tool', 'terminal', 'denied'])
-  const places = permissions.ask(tool, third, 'fs.downloads', 'request')
+  assert.equal(permissions.approval(tool, third, 'microphone'), 'denied')
+  assert.deepEqual(changes.at(-1), ['tool', 'microphone', 'denied'])
+  const camera = permissions.ask(tool, third, 'camera', 'request')
   permissions.answer(permissions.pending()[0]!.id, true)
-  assert.equal(await places, true)
-  assert.deepEqual(permissions.approvals(tool, third), { terminal: 'denied', launch: 'not-asked', 'fs.downloads': 'granted' })
-  assert.equal(permissions.revoke('tool', 'fs.downloads'), true)
-  assert.equal(permissions.approval(tool, third, 'fs.downloads'), 'denied', 'a revoked capability is not asked again in this run')
+  assert.equal(await camera, true)
+  assert.deepEqual(permissions.approvals(tool, third), { microphone: 'denied', camera: 'granted' })
+  assert.equal(permissions.revoke('tool', 'camera'), true)
+  assert.equal(permissions.approval(tool, third, 'camera'), 'denied', 'a revoked capability is not asked again in this run')
 })
 
 test('the error says which of the three states holds', () => {
   const error = (approval?: 'denied' | 'not-asked' | 'asking') => {
-    const { message, status, code, capability } = Permissions.error('Tool', 'launch', approval)
+    const { message, status, code, capability } = Permissions.error('Tool', 'camera', approval)
     return { message, status, code, capability }
   }
-  assert.deepEqual(error(), { message: 'Tool: "launch" is denied by the user', status: 403, code: 'denied', capability: 'launch' })
+  assert.deepEqual(error(), { message: 'Tool: "camera" is denied by the user', status: 403, code: 'denied', capability: 'camera' })
   assert.deepEqual(error('not-asked'), {
-    message: 'Tool: "launch" is not asked for yet; ask for it with acde:capabilities request("launch")',
+    message: 'Tool: "camera" is not asked for yet; ask for it with acde:capabilities request("camera")',
     status: 403,
     code: 'not_asked',
-    capability: 'launch',
+    capability: 'camera',
   })
-  assert.deepEqual(error('asking'), { message: `Tool: "launch" is waiting for the user's answer`, status: 403, code: 'asking', capability: 'launch' })
+  assert.deepEqual(error('asking'), { message: `Tool: "camera" is waiting for the user's answer`, status: 403, code: 'asking', capability: 'camera' })
 })
 
 test('decisions persist across restarts', async () => {
   const { permissions, file } = open()
-  const tool = app({ launch: true, network: true })
+  const tool = app({ camera: true, microphone: true })
   const asked = permissions.admit(tool, third)
   permissions.answer((await next(permissions)).id, true)
   permissions.answer((await next(permissions)).id, false)
   await assert.rejects(asked)
   const again = open(file).permissions
-  assert.equal(again.permit(tool, third, 'launch'), 'granted')
-  assert.equal(again.permit(tool, third, 'network'), 'denied')
+  assert.equal(again.permit(tool, third, 'camera'), 'granted')
+  assert.equal(again.permit(tool, third, 'microphone'), 'denied')
   assert.deepEqual(again.list('tool'), [
-    { app: 'tool', label: 'Tool', capability: 'launch', decision: 'granted' },
-    { app: 'tool', label: 'Tool', capability: 'network', decision: 'denied' },
+    { app: 'tool', label: 'Tool', capability: 'camera', decision: 'granted' },
+    { app: 'tool', label: 'Tool', capability: 'microphone', decision: 'denied' },
   ])
 })
 
 test('revoking takes a decision back at once, one run never asks twice, and the next run asks again', async () => {
   const { permissions, changes, file, told } = open()
-  const tool = app({ launch: true })
+  const tool = app({ camera: true })
   const asked = permissions.admit(tool, third)
   await Promise.resolve()
   permissions.answer(permissions.pending()[0]!.id, true)
   await asked
-  assert.equal(permissions.revoke('tool', 'launch'), true)
-  assert.deepEqual(changes.at(-1), ['tool', 'launch', 'denied'])
-  assert.equal(permissions.permit(tool, third, 'launch'), 'denied')
+  assert.equal(permissions.revoke('tool', 'camera'), true)
+  assert.deepEqual(changes.at(-1), ['tool', 'camera', 'denied'])
+  assert.equal(permissions.permit(tool, third, 'camera'), 'denied')
   const before = told.length
-  assert.equal(await permissions.ask(tool, third, 'launch', 'request'), false)
+  assert.equal(await permissions.ask(tool, third, 'camera', 'request'), false)
   assert.equal(told.length, before, 'no second prompt in this run')
   assert.deepEqual(permissions.list('tool'), [])
-  assert.equal(open(file).permissions.permit(tool, third, 'launch'), 'ask')
+  assert.equal(open(file).permissions.permit(tool, third, 'camera'), 'ask')
   assert.throws(() => permissions.revoke('tool', 'office'), (e: Error & { status?: number }) => e.status === 400)
 })
 
@@ -161,9 +162,9 @@ test('the acde driver lists and answers prompts through the dev requests', async
   const replies: [number, boolean, string][] = []
   const devRespond = (id: number, ok: boolean, payload: string) => void replies.push([id, ok, payload])
   const dev = new DevRequests({ shell: { devRespond }, permissions } as never)
-  const asked = permissions.ask(app({ launch: true }), third, 'launch', 'launch')
+  const asked = permissions.ask(app({ camera: true }), third, 'camera', 'launch')
   await dev.request(JSON.stringify({ id: 1, op: 'permissions' }))
-  assert.deepEqual(JSON.parse(replies[0]![2]), { pending: [{ id: 1, app: 'tool', label: 'Tool', capability: 'launch', reason: 'launch' }], decisions: [] })
+  assert.deepEqual(JSON.parse(replies[0]![2]), { pending: [{ id: 1, app: 'tool', label: 'Tool', capability: 'camera', reason: 'launch' }], decisions: [] })
   await dev.request(JSON.stringify({ id: 2, op: 'answer', prompt: 1, allow: true }))
   assert.equal(await asked, true)
   await dev.request(JSON.stringify({ id: 3, op: 'answer', prompt: 1, allow: true }))
@@ -200,25 +201,25 @@ test('folders an app holds are listed by token and revoked like approvals', () =
 
 test('acdert app asks again about a denial of an earlier run; a desktop keeps it', async () => {
   const file = 'again'
-  files.set(file, { 'tool:launch': 'denied', 'tool:network': 'granted' })
-  const tool = app({ launch: true, network: true })
+  files.set(file, { 'tool:camera': 'denied', 'tool:microphone': 'granted' })
+  const tool = app({ camera: true, microphone: true })
   const make = (asksAgain: boolean) =>
     new Permissions({ store: stored(file), label: () => 'Tool', supported: () => true, tell: () => {}, changed: () => {}, log: () => {}, asksAgain: () => asksAgain })
 
   const desktop = make(false)
-  assert.equal(desktop.approval(tool, third, 'launch'), 'denied')
+  assert.equal(desktop.approval(tool, third, 'camera'), 'denied')
   await assert.rejects(desktop.admit(tool, third), /denied by the user/)
   assert.deepEqual(desktop.pending(), [])
 
   const standalone = make(true)
-  assert.equal(standalone.approval(tool, third, 'launch'), 'not-asked', 'the earlier denial is asked about again')
+  assert.equal(standalone.approval(tool, third, 'camera'), 'not-asked', 'the earlier denial is asked about again')
   const admitted = standalone.admit(tool, third)
   const prompt = await next(standalone)
-  assert.deepEqual([prompt.capability, prompt.reason], ['launch', 'launch'], 'the granted network is not asked')
-  assert.deepEqual(files.get(file), { 'tool:network': 'granted' }, 'the old denial is dropped once it is asked again')
+  assert.deepEqual([prompt.capability, prompt.reason], ['camera', 'launch'], 'the granted microphone is not asked')
+  assert.deepEqual(files.get(file), { 'tool:microphone': 'granted' }, 'the old denial is dropped once it is asked again')
   standalone.answer(prompt.id, false)
   await assert.rejects(admitted, /denied by the user/)
-  assert.deepEqual(files.get(file), { 'tool:network': 'granted', 'tool:launch': 'denied' })
+  assert.deepEqual(files.get(file), { 'tool:microphone': 'granted', 'tool:camera': 'denied' })
   await assert.rejects(standalone.admit(tool, third), /denied by the user/, 'a no of this run is not asked twice')
   assert.deepEqual(standalone.pending(), [])
 })

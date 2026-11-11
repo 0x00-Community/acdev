@@ -547,8 +547,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   时经 rpc 问用户, 已经在问的并进同一个提示, 回答之后的状态; 别的直接回当前状态, 不问). 快照在 web 起来时由 Broker 算好放进 `WebInit.tier.capabilities`, 之后 Broker 发 `permit`
   消息更新 (`{capability, approval, status}`): 提示弹出时 (`Permissions.ask` 调 `changed(…, 'asking')`) 变 `asking`, 回答或撤销后变 `available` / `denied`, `get` 和 `list` 都跟着变.
   应用按状态做事: `not-asked` 调 `request`, `asking` 等, `denied` 告诉用户, `available` 直接用.
-- **批准** (`broker/access/approval/permissions.ts` `Permissions`, SDK `APPROVAL_CAPABILITIES`): `launch`、`slots`、`terminal`、`network`、`camera`、
-  `microphone` 要用户批准, 可撤销, 第 1 级包在 `fs.roots` 里点名的公共位置也是, 每个位置一项 `fs.<位置>` (如 `fs.documents`, SDK `PlaceCapability`; `fs` 可选时它们也可选, 经 `request("fs.documents")` 问); 其余 (自己的窗口、能力查询、列出和打开应用、按类型打开、桌面服务、`office`) 声明即有.
+- **批准** (`broker/access/approval/permissions.ts` `Permissions`, SDK `APPROVAL_CAPABILITIES`): **仅 `camera`、`microphone` 需要用户同意** (用户决定 2026-11-11, 同浏览器:
+  第一次 `getUserMedia` 时问), 可撤销; 其余能力 (`launch`、`slots`、`terminal`、`network`、`fs.roots` 点名的公共位置、自己的窗口、能力查询、列出和打开应用、
+  按类型打开、桌面服务、`office`) 声明即有, 不问 (#146).
   系统应用 (和任一已装桌面同包) 不问. 必需的在第一次启动前按能力一个一个问 (`Broker.launch` 是 async, `admit` 之后才 grant 窗口),
   拒绝时不启动, 报 `<label>: "launch" is denied by the user` (403 `denied`, 带 `capability`); 平台不支持的不问, 照旧按 unsupported 拒绝. 可选的在
   `acde:capabilities` `request(name)` 时问 (`camera` / `microphone` 还在 `getUserMedia` 时问, 是同一个提示); 没批准的模块不定义, 批准后 web 收 `permit` 再定义, `load()` 拿得到.

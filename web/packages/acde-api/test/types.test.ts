@@ -241,14 +241,14 @@ import { permissions } from 'acde:permissions'
 import type { AcdePermissionError, ApprovalCapability } from ${JSON.stringify(`${src}shell`)}
 permissions.on('prompt', (prompt) => {
   const capability: ApprovalCapability = prompt.capability
-  void permissions.answer(prompt.id, prompt.reason === 'launch' && capability !== 'network')
+  void permissions.answer(prompt.id, prompt.reason === 'launch' && capability !== 'microphone')
 })
 permissions.on('answered', (event) => event.allowed satisfies boolean)
 const pending = await permissions.pending()
 pending.map((prompt) => prompt.app satisfies string)
 const decisions = await permissions.list('notes')
 decisions.map((d) => d.decision satisfies 'granted' | 'denied')
-export const revoked: Promise<boolean> = permissions.revoke('notes', 'launch')
+export const revoked: Promise<boolean> = permissions.revoke('notes', 'camera')
 export function refused(error: AcdePermissionError): [403, 'denied' | 'not_asked' | 'asking', string] {
   return [error.status, error.code, error.capability]
 }
