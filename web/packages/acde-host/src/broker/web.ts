@@ -40,10 +40,10 @@ export class Web {
     return this.#exited
   }
 
-  static caller(app: AppManifest, tier: WebTier, permitted: (capability: string) => boolean = () => true): OpenCaller {
+  static caller(app: AppManifest, tier: WebTier): OpenCaller {
     const fs = FileAccess.grant(app.capabilities, tier)
     if (fs === true) return { roots: null, owner: app.id }
-    const places = fs ? fs.places.filter((place) => permitted(`fs.${place}`)) : []
+    const places = fs ? fs.places : []
     return { roots: [], owner: app.id, places, paths: !!fs?.paths }
   }
 

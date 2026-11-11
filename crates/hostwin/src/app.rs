@@ -320,7 +320,6 @@ impl Handler for App {
             HostEvent::Cmd(Cmd::ChooseFolder { title, reply }) => host.choose_folder(&title, reply),
             HostEvent::Cmd(Cmd::OpenFiles { request, reply }) => host.open_files(request, reply),
             HostEvent::Cmd(Cmd::SaveFile { request, reply }) => host.save_file(request, reply),
-            HostEvent::Cmd(Cmd::Approve { title, message, reply }) => host.approve(&title, &message, reply),
             HostEvent::Cmd(Cmd::Exit(code)) => host.exit(code),
         }
     }

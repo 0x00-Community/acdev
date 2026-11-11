@@ -14,9 +14,6 @@ import { PageCalls, type FolderPicker } from './pagecalls'
 import { PageInspect } from './pageinspect'
 import { Pinned } from './pinned'
 import { RemoteBridge, WindowList, WindowSelf } from './remote'
-import { Permits } from './broker/access/approval/permits'
-import type { Permit } from './broker/access/approval/permissions'
-import type { CapabilityStatus } from '@dopame/acde-api/manifest'
 import { Rpc } from './rpc'
 import { OfficePage } from './office'
 import { readFileSync, readTextOr } from './sys/fs'
@@ -73,7 +70,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
     const entry = `${PageSource.ORIGIN}${init.app!.entry}`
     host.readAsset = (url) => read(url) ?? (/^http:\/\/acde\.local\/(?:[?#].*)?$/.test(url) ? read(entry) : null)
   }
-  const permits = new Permits(init.tier?.permits, init.app?.label ?? init.kind)
   const page = install(globalThis, dom, host, {
     url: (htmlEntry ? init.url : undefined) ?? `${PageSource.ORIGIN}/`,
     ...init.languages,
@@ -81,7 +77,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     ...(natives.storage && { storage: natives.storage }),
     gpu: natives.gpu,
     audio: natives.audio,
-    ...(natives.capture && { capture: permits.capture(natives.capture) }),
+    ...(natives.capture && { capture: natives.capture }),
     ...(init.screen && { screen: init.screen }),
   })
   const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null
@@ -103,7 +99,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const output = WindowSelf.output(init.screen?.width ?? 0, init.screen?.height ?? 0, init.scale, init.screen?.workArea)
   const self = init.kind === 'window' && init.app ? new WindowSelf(rpc, surface, globalThis as never, init.request ?? null, output) : null
   const windows = new WindowList(rpc)
-  const bridge = new RemoteBridge(rpc, init, self, windows, permits)
+  const bridge = new RemoteBridge(rpc, init, self, windows)
   if (natives.backend) installBackendTransport({ ...natives.backend, port: init.kind === 'window' && init.app?.backend ? init.app.backend.port : null })
   const web = new Host(page, dom, init.scale, natives.Ime, windows)
   const debug = !!natives.env['ACDE_DEBUG_DIR'] || !!natives.env['ACDE_DEV']
@@ -130,9 +126,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
       scale?: number
       workArea?: { x: number; y: number; width: number; height: number }
       routes?: DevRoute[]
-      capability?: string
-      permit?: Permit
-      status?: CapabilityStatus
     }
     switch (m.type) {
       case 'devroutes':
@@ -151,8 +144,6 @@ export default async function boot(natives: WebNatives): Promise<void> {
         return page.mediaChanged()
       case 'devhot':
         return devhot()
-      case 'permit':
-        return m.capability && m.permit ? bridge.permit(m.capability, m.permit, m.status ?? null) : undefined
       default:
         web.deliver([m] as never)
     }

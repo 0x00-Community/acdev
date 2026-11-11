@@ -22,10 +22,6 @@ declare module 'acde:desktop' {
   const desktop: import('../types/page').AcdeDesktop
   export { desktop, desktop as default }
 }
-declare module 'acde:permissions' {
-  const permissions: import('../types/permissions').AcdePermissions
-  export { permissions, permissions as default }
-}
 declare module 'acde:setDefault' {
   const setDefault: import('../types/page').AcdeOpenFiles['setDefault']
   export { setDefault, setDefault as default }

@@ -4,7 +4,6 @@ import { Manifest, type AppManifest, type RunningMode } from '@dopame/acde-api/m
 import type { AppOrigin } from '../../src/apps.ts'
 import { CapabilityCheck } from '../../src/broker/access/capabilities.ts'
 import { FileAccess } from '../../src/broker/access/files.ts'
-import { Permissions, type Permit } from '../../src/broker/access/approval/permissions.ts'
 
 const third: AppOrigin = { level: 1, system: false }
 const system: AppOrigin = { level: 1, system: true }
@@ -13,9 +12,6 @@ const app = (fields: Record<string, unknown>): AppManifest => {
   if (typeof parsed === 'string') throw new Error(parsed)
   return parsed
 }
-const permissions = () =>
-  new Permissions({ store: null, label: () => 'Tool', supported: () => true, tell: () => {}, changed: () => {}, log: () => {} })
-
 test('fs: true at level 1 gives only the private folder and picked folders', () => {
   assert.deepEqual(FileAccess.grant({ fs: true }, third), { places: [], paths: false })
   assert.deepEqual(FileAccess.grant({ fs: { roots: ['documents', 'pictures'] } }, third), { places: ['documents', 'pictures'], paths: false })
@@ -28,79 +24,15 @@ test('fs: true means the private folder and picked folders for system apps too; 
   assert.equal(FileAccess.grant(null, null), true)
 })
 
-test('each shared place a third-party app names needs approval and is asked before launch', async () => {
-  const p = permissions()
-  const tool = app({ capabilities: { fs: { roots: ['documents', 'music'] } } })
-  assert.deepEqual(p.gated(tool, third), ['fs.documents', 'fs.music'])
-  assert.deepEqual(p.gated(tool, system), [])
-  assert.deepEqual(p.gated(app({ capabilities: { fs: true } }), third), [])
-  assert.ok(Permissions.approval('fs.documents'))
-  assert.ok(!Permissions.approval('fs.agentos-work'))
-  const admitted = p.admit(tool, third)
-  await Promise.resolve()
-  assert.deepEqual(p.pending().map((prompt) => prompt.capability), ['fs.documents'])
-  p.answer(p.pending()[0]!.id, true)
-  for (let i = 0; i < 10 && !p.pending().length; i++) await Promise.resolve()
-  p.answer(p.pending()[0]!.id, false)
-  await assert.rejects(admitted, (e: Error & { capability?: string }) => e.capability === 'fs.music')
-})
-
-test('places of an optional fs are asked on request', async () => {
-  const p = permissions()
-  const tool = app({ capabilities: { fs: { roots: ['videos'] } }, optional: ['fs'] })
-  await p.admit(tool, third)
-  assert.deepEqual(p.pending(), [])
-  const asked = p.ask(tool, third, 'fs.videos', 'request')
-  p.answer(p.pending()[0]!.id, true)
-  assert.equal(await asked, true)
-})
-
 test('acde:capabilities reports each declared place', () => {
-  const check = (denied: string[] = []) =>
-    new CapabilityCheck({
-      platform: 'win32',
-      mode: () => 'desktop' as RunningMode,
-      running: () => false,
-      present: () => true,
-      denied: (_, __, capability) => denied.includes(capability),
-    })
+  const check = () =>
+    new CapabilityCheck({ platform: 'win32', mode: () => 'desktop' as RunningMode, running: () => false, present: () => true })
   const tool = app({ capabilities: { fs: { roots: ['documents'] } } })
   const status = check().status('fs.documents', tool, third)
   assert.deepEqual(status, { name: 'fs.documents', kind: 'system', state: 'available', reason: 'available', optional: false })
   assert.equal(check().status('fs.music', tool, third).state, 'not-declared')
-  assert.equal(check(['fs.documents']).status('fs.documents', tool, third).state, 'denied')
   assert.ok(check().statuses(tool, third).some((s) => s.name === 'fs.documents'))
-  assert.deepEqual(check(['fs.documents']).missing(tool, third).map((s) => s.name), ['fs.documents'])
-})
-
-test('the page cannot use a place it was not allowed, and roots() leaves it out', async () => {
-  const permits: Record<string, Permit> = { 'fs.documents': 'granted', 'fs.music': 'ask' }
-  const calls: unknown[][] = []
-  const native = {
-    roots: async () => [{ id: 'private' }, { id: 'documents', place: 'documents' }, { id: 'music', place: 'music' }],
-    list: async (...args: unknown[]) => void calls.push(args),
-  }
-  const fs = FileAccess.guard(native, (capability) => permits[capability] ?? null, 'Tool')
-  assert.deepEqual((await fs.roots()).map((root) => root.id), ['private', 'documents'])
-  await fs.list('documents', '')
-  await fs.list('private', '')
-  await assert.rejects(fs.list('music', ''), (e: Error & { status?: number; code?: string; capability?: string }) =>
-    e.status === 403 && e.code === 'denied' && e.capability === 'fs.music')
-  permits['fs.music'] = 'granted'
-  await fs.list('music', '')
-  assert.deepEqual(calls.map((args) => args[0]), ['documents', 'private', 'music'])
-})
-
-test('a copy needs both roots allowed', async () => {
-  const permits: Record<string, Permit> = { 'fs.documents': 'granted', 'fs.music': 'denied' }
-  const calls: unknown[][] = []
-  const native = { copy: async (...args: unknown[]) => void calls.push(args) }
-  const fs = FileAccess.guard(native, (capability) => permits[capability] ?? null, 'Tool')
-  await fs.copy('documents', 'a.txt', 'private', '')
-  await assert.rejects(fs.copy('documents', 'music', 'music', ''), (e: Error & { capability?: string }) => e.capability === 'fs.music')
-  await assert.rejects(fs.copy('music', 'a.txt', 'documents', ''), (e: Error & { capability?: string }) => e.capability === 'fs.music')
-  await fs.copy('private', 'music', 'documents', 'music')
-  assert.deepEqual(calls, [['documents', 'a.txt', 'private', ''], ['private', 'music', 'documents', 'music']])
+  assert.deepEqual(check().missing(tool, third), [])
 })
 
 test('open file requests give third-party apps only a handle; system apps with places keep their paths', () => {
@@ -112,47 +44,11 @@ test('open file requests give third-party apps only a handle; system apps with p
   assert.equal(FileAccess.view({ fs: true }, system), 'handle')
 })
 
-test('a revoked picked folder leaves roots() and its calls answer 403 denied', async () => {
-  const permits: Record<string, Permit> = {}
-  const calls: unknown[][] = []
-  const native = {
-    roots: async () => [{ id: 'private' }, { id: 'folder-0123456789abcdef', source: 'granted' }],
-    list: async (...args: unknown[]) => void calls.push(args),
-  }
-  const fs = FileAccess.guard(native, (capability) => permits[capability] ?? null, 'Tool')
-  assert.deepEqual((await fs.roots()).map((root) => root.id), ['private', 'folder-0123456789abcdef'])
-  await fs.list('folder-0123456789abcdef', '')
-  permits['fs.folder-0123456789abcdef'] = 'denied'
-  assert.deepEqual((await fs.roots()).map((root) => root.id), ['private'])
-  await assert.rejects(fs.list('folder-0123456789abcdef', ''), (e: Error & { status?: number; code?: string; capability?: string }) =>
-    e.status === 403 && e.code === 'denied' && e.capability === 'fs.folder-0123456789abcdef')
-  assert.deepEqual(calls.map((args) => args[0]), ['folder-0123456789abcdef'])
-})
-
-test('acde:office follows the same place approvals as acde:fs', async () => {
-  const permits: Record<string, Permit> = { 'fs.documents': 'granted', 'fs.music': 'denied' }
-  const calls: unknown[][] = []
-  const roots = [{ id: 'private' }, { id: 'documents', place: 'documents' }, { id: 'music', place: 'music' }]
-  const native = {
-    state: async (...args: unknown[]) => (calls.push(['state', ...args]), { roots, root: args[0] ?? null }),
-    new: async (body: unknown) => (calls.push(['new', body]), { path: 'a.docx' }),
-    status: async (key: unknown) => (calls.push(['status', key]), {}),
-  }
-  const office = FileAccess.guard(native, (capability) => permits[capability] ?? null, 'Writer', true)
-  const state = (await office.state('documents', '', 'a.docx')) as { roots: { id: string }[] }
-  assert.deepEqual(state.roots.map((root) => root.id), ['private', 'documents'])
-  await assert.rejects(office.state('music'), (e: Error & { code?: string; capability?: string }) => e.code === 'denied' && e.capability === 'fs.music')
-  await assert.rejects(office.new({ root: 'music', kind: 'docx' }), (e: Error & { capability?: string }) => e.capability === 'fs.music')
-  await office.new({ root: 'private', kind: 'docx' })
-  await office.status('music')
-  assert.deepEqual(calls.map((c) => c[0]), ['state', 'new', 'status'])
-})
-
-test('an open file request from a level 1 app is admitted through its approved places', async () => {
+test('an open file request from a level 1 app is admitted through its declared places', async () => {
   const { Web } = await import('../../src/broker/web.ts')
   const writer = app({ capabilities: { fs: { roots: ['documents', 'pictures'] } } })
-  const caller = Web.caller(writer, { level: 1, system: false, shell: [], refused: {} }, (capability) => capability !== 'fs.pictures')
-  assert.deepEqual(caller, { roots: [], owner: 'tool', places: ['documents'], paths: false })
+  const caller = Web.caller(writer, { level: 1, system: false, shell: [], refused: {} })
+  assert.deepEqual(caller, { roots: [], owner: 'tool', places: ['documents', 'pictures'], paths: false })
   const own = Web.caller(app({ capabilities: { fs: true } }), { level: 1, system: true, shell: [], refused: {} })
   assert.deepEqual(own, { roots: [], owner: 'tool', places: [], paths: false })
 })

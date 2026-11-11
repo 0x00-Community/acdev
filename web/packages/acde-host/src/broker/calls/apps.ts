@@ -19,7 +19,6 @@ export interface AppsHost {
   launch(appId: string, request: Record<string, unknown> | null, family?: WindowFamily | null): Promise<{ window: number }>
   record(id: number): FamilyWindow | undefined
   raise(opened: { window: number }): unknown
-  permitted(appId: string, capability: string): boolean
 }
 
 export class AppCalls {
@@ -67,7 +66,7 @@ export class AppCalls {
 
   #caller(web: Web) {
     const app = web.app!
-    return Web.caller(app, web.tier, (capability) => this.#host.permitted(app.id, capability))
+    return Web.caller(app, web.tier)
   }
 
   packages(web: Web, method: string, args: unknown[]): unknown {

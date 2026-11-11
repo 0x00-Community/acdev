@@ -152,13 +152,3 @@ pub fn save_file(request: SaveRequest) -> Result<Option<std::path::PathBuf>, Str
     ask(|reply| platform::Cmd::SaveFile { request, reply }, "save chooser")
 }
 
-pub fn approve(title: &str, message: &str) -> Result<Option<bool>, String> {
-    if platform::headless() {
-        return Ok(None);
-    }
-    ask(|reply| platform::Cmd::Approve { title: title.to_owned(), message: message.to_owned(), reply }, "approval dialog")
-}
-
-pub fn dismiss_approval() {
-    platform::dismiss_approval();
-}

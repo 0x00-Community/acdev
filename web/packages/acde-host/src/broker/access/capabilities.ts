@@ -17,7 +17,6 @@ export interface CapabilityHost {
   mode(): RunningMode
   running(service: string): boolean
   present(capability: string): boolean
-  denied(app: AppManifest, origin: AppOrigin, capability: string): boolean
 }
 
 export interface CapabilitySnapshot {
@@ -35,7 +34,6 @@ export class CapabilityCheck {
     unsupported: 'unsupported on this platform',
     'service-not-running': 'service not running',
     'shell-only': 'shell only',
-    denied: 'denied by the user',
   }
   static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
   static readonly #WEB: ReadonlySet<string> = new Set(WEB_CAPABILITIES)
@@ -52,7 +50,7 @@ export class CapabilityCheck {
       const declared = !app || Manifest.places(app.capabilities).includes(place)
       const state: CapabilityState = !declared
         ? 'not-declared'
-        : !this.supported('fs') ? 'unsupported' : app && this.#host.denied(app, origin, name) ? 'denied' : 'available'
+        : this.supported('fs') ? 'available' : 'unsupported'
       return { name, kind: 'system', state, reason: CapabilityCheck.REASONS[state], optional: !!app && app.optional.includes('fs') }
     }
     if (CapabilityCheck.#WEB.has(name)) {
@@ -67,7 +65,7 @@ export class CapabilityCheck {
       : !declared
         ? 'not-declared'
         : system
-          ? !this.supported(name) ? 'unsupported' : app && this.#host.denied(app, origin, name) ? 'denied' : 'available'
+          ? this.supported(name) ? 'available' : 'unsupported'
           : this.#host.running(name) ? 'available' : 'service-not-running'
     return {
       name,
@@ -124,30 +122,22 @@ export class CapabilityCheck {
     return !!row && !row.unsupported.includes(name) && this.#host.present(name)
   }
 
-  static module(snapshot: CapabilitySnapshot, ask: (name: string) => Promise<CapabilityStatus>): { module: object; update(status: CapabilityStatus): void } {
+  static module(snapshot: CapabilitySnapshot): object {
     const known = new Map(snapshot.statuses.map((status) => [status.name, status]))
-    const update = (status: CapabilityStatus) => void known.set(status.name, status)
     const get = (name: string): CapabilityStatus => {
       const key = String(name)
       const found = known.get(key)
       if (found) return { ...found }
       return { name: key, kind: 'service', state: 'not-declared', reason: CapabilityCheck.REASONS['not-declared'], optional: false }
     }
-    const module = Object.freeze({
+    return Object.freeze({
       level: snapshot.level,
       platform: snapshot.platform,
       mode: snapshot.mode,
       window: Object.freeze({ ...snapshot.window }),
       get,
       list: (): CapabilityStatus[] => snapshot.statuses.map((status) => ({ ...status })),
-      request: async (name: string): Promise<CapabilityStatus> => {
-        const status = known.get(String(name))
-        if (!status || status.state !== 'available') return get(name)
-        const answered = await ask(String(name))
-        update(answered)
-        return { ...answered }
-      },
+      request: async (name: string): Promise<CapabilityStatus> => get(name),
     })
-    return { module, update }
   }
 }

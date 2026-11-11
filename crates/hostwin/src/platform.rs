@@ -4,7 +4,6 @@ use crate::{OpenRequest, SaveRequest};
 
 pub(crate) type FolderReply = std::sync::mpsc::SyncSender<Result<Option<PathBuf>, String>>;
 pub(crate) type FilesReply = std::sync::mpsc::SyncSender<Result<Option<Vec<PathBuf>>, String>>;
-pub(crate) type ApproveReply = std::sync::mpsc::SyncSender<Result<Option<bool>, String>>;
 
 pub(crate) enum Cmd {
     Title(String),
@@ -15,7 +14,6 @@ pub(crate) enum Cmd {
     ChooseFolder { title: String, reply: FolderReply },
     OpenFiles { request: OpenRequest, reply: FilesReply },
     SaveFile { request: SaveRequest, reply: FolderReply },
-    Approve { title: String, message: String, reply: ApproveReply },
     HostState(Option<acde_model::WindowState>),
     HostSize([f64; 2]),
     Exit(i32),
@@ -89,10 +87,6 @@ pub(crate) trait Host {
     fn set_state(&self, _: Option<acde_model::WindowState>) {}
 
     fn set_size(&self, _: [f64; 2]) {}
-
-    fn approve(&self, _: &str, _: &str, reply: ApproveReply) {
-        let _ = reply.send(Ok(None));
-    }
 }
 
 #[derive(Clone)]
@@ -120,13 +114,6 @@ pub(crate) fn clipboard_set(text: String) {
 
 pub(crate) fn clipboard_get() -> String {
     if headless() { headless::clipboard_get() } else { native::clipboard_get() }
-}
-
-pub(crate) fn dismiss_approval() {
-    #[cfg(windows)]
-    if !headless() {
-        native::dismiss_approval();
-    }
 }
 
 pub(crate) fn click_settings() -> acde_model::ClickSettings {

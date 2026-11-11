@@ -6,13 +6,11 @@ import { Level, Log } from '../log'
 import { isAbsolute } from '../sys/path'
 import type { BrokerShell, WebInfo } from './types'
 import type { Web } from './web'
-import type { Permissions } from './access/approval/permissions'
 
 export interface DevHost {
   readonly shell: BrokerShell
   readonly inspect: Inspect
   readonly devlog: DevLog
-  readonly permissions: Permissions
   webs(): Web[]
   desktop(): Web | null
   title(web: Web): string
@@ -21,8 +19,7 @@ export interface DevHost {
 
 export class DevRequests {
   static readonly #OPS =
-    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, pointer, clipboard, ' +
-    'permissions, answer, revoke, drop'
+    'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, pointer, clipboard, drop'
   readonly #host: DevHost
   #routes: DevRoute[] = []
   #nextRoute = 1
@@ -131,20 +128,6 @@ export class DevRequests {
         return this.#choose(args)
       case 'drop':
         return this.#drop(args)
-      case 'permissions':
-        return { pending: this.#host.permissions.pending(), decisions: this.#host.permissions.list() }
-      case 'answer': {
-        if (!Number.isInteger(args['prompt']) || typeof args['allow'] !== 'boolean') throw new Error('answer: prompt is a prompt id and allow is true or false')
-        this.#host.permissions.answer(args['prompt'] as number, args['allow'])
-        return { prompt: args['prompt'], allow: args['allow'] }
-      }
-      case 'revoke': {
-        const { app, capability } = args
-        if (typeof app !== 'string' || !app || typeof capability !== 'string' || !capability) {
-          throw new Error('revoke: app is an app id and capability is the approved capability (as in permissions)')
-        }
-        return { app, capability, revoked: this.#host.permissions.revoke(app, capability) }
-      }
       case 'route': {
         const route = DevRoutes.parse(args, this.#nextRoute++)
         this.#routes.push(route)
