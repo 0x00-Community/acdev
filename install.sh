@@ -90,17 +90,47 @@ main() {
     *) triple=$cpu-$(printf '%s' "$os" | tr '[:upper:]' '[:lower:]') ;;
   esac
 
+  bar=0
+  [ -t 2 ] && bar=1
   if command -v curl >/dev/null 2>&1; then
     fetch() {
       curl -fsSL "$1" -o "$2"
+    }
+    size_of() {
+      curl -fsSIL "$1" 2>/dev/null | tr -d '\r' | awk 'tolower($1) == "content-length:" { n = $2 } END { print n }'
+    }
+    pull() {
+      if [ "$bar" = 1 ]; then curl -fL --progress-bar "$1" -o "$2"; else fetch "$1" "$2"; fi
     }
   elif command -v wget >/dev/null 2>&1; then
     fetch() {
       wget -q -O "$2" "$1"
     }
+    size_of() {
+      wget --spider -S "$1" 2>&1 | tr -d '\r' | awk 'tolower($1) == "content-length:" { n = $2 } END { print n }'
+    }
+    if wget --help 2>&1 | grep -q -- --show-progress; then
+      shown='-q --show-progress --progress=bar:force:noscroll'
+    else
+      shown=
+    fi
+    pull() {
+      if [ "$bar" = 1 ]; then wget $shown -O "$2" "$1"; else fetch "$1" "$2"; fi
+    }
   else
     die "needs curl or wget to download acde"
   fi
+
+  download() {
+    bytes=$(size_of "$1")
+    case $bytes in
+      '' | *[!0-9]*) say "downloading $3" ;;
+      *) say "downloading $3 ($(awk -v b="$bytes" 'BEGIN {
+        if (b < 1048576) printf "%d KB", (b + 1023) / 1024; else printf "%.1f MB", b / 1048576 }'))" ;;
+    esac
+    pull "$1" "$2" || return 1
+    [ "$bar" = 1 ] || say "downloaded $3"
+  }
 
   if command -v shasum >/dev/null 2>&1; then
     sha256() {
@@ -135,6 +165,7 @@ main() {
   }
 
   verify() {
+    say "checking $2 against its SHA256SUMS"
     expected=$(listed "$1" "$2")
     [ -n "$expected" ] || die "$2 is not in its SHA256SUMS"
     actual=$(sha256 "$3")
@@ -147,7 +178,7 @@ main() {
   fetch "$ACDE_DIST/$version/SHA256SUMS" "$tmp/SHA256SUMS" ||
     die "could not download $ACDE_DIST/$version/SHA256SUMS (is there an acde $version?)"
   [ -n "$(listed "$tmp/SHA256SUMS" "$file")" ] || die "acde $version is not in its SHA256SUMS ($file)"
-  fetch "$ACDE_DIST/$version/$file" "$tmp/$file" || die "could not download $ACDE_DIST/$version/$file"
+  download "$ACDE_DIST/$version/$file" "$tmp/$file" "$file" || die "could not download $ACDE_DIST/$version/$file"
   verify "$tmp/SHA256SUMS" "$file" "$tmp/$file"
   runtime=
   if fetch "$ACDE_DIST/$version/acdert-version" "$tmp/acdert-version" 2>/dev/null; then
@@ -178,9 +209,10 @@ main() {
     die "acdert $runtime has no build for this platform ($triple); it is built for: ${supported% }"
   fi
   host=acdert-host-$runtime.tar.gz
-  fetch "$ACDERT_DIST/$runtime/$binary" "$tmp/$binary" || die "could not download $ACDERT_DIST/$runtime/$binary"
+  download "$ACDERT_DIST/$runtime/$binary" "$tmp/$binary" "$binary" ||
+    die "could not download $ACDERT_DIST/$runtime/$binary"
   verify "$tmp/acdert.sums" "$binary" "$tmp/$binary"
-  fetch "$ACDERT_DIST/$runtime/$host" "$tmp/$host" || die "could not download $ACDERT_DIST/$runtime/$host"
+  download "$ACDERT_DIST/$runtime/$host" "$tmp/$host" "$host" || die "could not download $ACDERT_DIST/$runtime/$host"
   verify "$tmp/acdert.sums" "$host" "$tmp/$host"
 
   root=${ACDE_INSTALL:-$HOME/.acde}

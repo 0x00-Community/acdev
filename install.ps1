@@ -56,6 +56,58 @@ function Install-Acde {
         default { "$("$cpu".ToLowerInvariant())-pc-windows-msvc" }
     }
 
+    $showProgress = -not ([Console]::IsOutputRedirected -or [Console]::IsErrorRedirected)
+
+    function Format-Size([long]$Bytes) {
+        if ($Bytes -lt 1MB) { return '{0} KB' -f [math]::Ceiling($Bytes / 1KB) }
+        return '{0:N1} MB' -f ($Bytes / 1MB)
+    }
+
+    function Save-Large([string]$Uri, [string]$OutFile, [string]$Name) {
+        try {
+            $response = ([Net.WebRequest]::Create($Uri)).GetResponse()
+        } catch {
+            throw "acde: could not download ${Uri}: $($_.Exception.Message)"
+        }
+        try {
+            $total = $response.ContentLength
+            $sized = if ($total -gt 0) { " ($(Format-Size $total))" } else { '' }
+            Write-Host "acde: downloading $Name$sized"
+            $activity = "acde: downloading $Name"
+            $ProgressPreference = 'Continue'
+            $source = $response.GetResponseStream()
+            $target = [IO.File]::Create($OutFile)
+            try {
+                $buffer = New-Object byte[] 262144
+                $done = [long]0
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                while (($read = $source.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    $target.Write($buffer, 0, $read)
+                    $done += $read
+                    if ($showProgress -and $clock.ElapsedMilliseconds -ge 250) {
+                        $clock.Restart()
+                        if ($total -gt 0) {
+                            $percent = [int](100 * $done / $total)
+                            $status = "$(Format-Size $done) of $(Format-Size $total) ($percent%)"
+                            Write-Progress -Activity $activity -Status $status -PercentComplete $percent
+                        } else {
+                            Write-Progress -Activity $activity -Status (Format-Size $done)
+                        }
+                    }
+                }
+            } finally {
+                $target.Dispose()
+                $source.Dispose()
+            }
+            if ($showProgress) { Write-Progress -Activity $activity -Completed }
+            Write-Host "acde: downloaded $Name"
+        } catch {
+            throw "acde: could not download ${Uri}: $($_.Exception.Message)"
+        } finally {
+            $response.Dispose()
+        }
+    }
+
     function Get-Listed([string]$Sums, [string]$File) {
         foreach ($line in Get-Content -LiteralPath $Sums) {
             $fields = $line.Trim() -split '\s+', 2
@@ -67,6 +119,7 @@ function Install-Acde {
     }
 
     function Assert-Sum([string]$Sums, [string]$File, [string]$Path) {
+        Write-Host "acde: checking $File against its SHA256SUMS"
         $want = Get-Listed $Sums $File
         if (-not $want) {
             throw "acde: $File is not in its SHA256SUMS"
@@ -98,8 +151,8 @@ function Install-Acde {
         Write-Host "acde: installing $name from $dist"
         $tarball = Join-Path -Path $work -ChildPath "$name.tar.gz"
         $sums = Join-Path -Path $work -ChildPath 'SHA256SUMS'
-        Save-Remote "$dist/$Version/$name.tar.gz" $tarball
         Save-Remote "$dist/$Version/SHA256SUMS" $sums
+        Save-Large "$dist/$Version/$name.tar.gz" $tarball "$name.tar.gz"
 
         Assert-Sum $sums "$name.tar.gz" $tarball
         $pairing = Join-Path -Path $work -ChildPath 'acdert-version'
@@ -151,9 +204,9 @@ function Install-Acde {
         $bundle = "acdert-host-$runtime.tar.gz"
         $binaryFile = Join-Path -Path $work -ChildPath $binary
         $bundleFile = Join-Path -Path $work -ChildPath $bundle
-        Save-Remote "$runtimeDist/$runtime/$binary" $binaryFile
+        Save-Large "$runtimeDist/$runtime/$binary" $binaryFile $binary
         Assert-Sum $runtimeSums $binary $binaryFile
-        Save-Remote "$runtimeDist/$runtime/$bundle" $bundleFile
+        Save-Large "$runtimeDist/$runtime/$bundle" $bundleFile $bundle
         Assert-Sum $runtimeSums $bundle $bundleFile
 
         $unpacked = Join-Path -Path $work -ChildPath 'x'
