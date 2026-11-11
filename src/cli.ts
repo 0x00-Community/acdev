@@ -189,6 +189,10 @@ class Cli {
 
   static async main(argv: readonly string[]): Promise<number> {
     const [first = ''] = argv
+    if (argv.length === 0) {
+      console.log(`acde ${Mcp.version()}: acde --help lists the commands`)
+      return 0
+    }
     if (['--version', '-v', 'version'].includes(first)) {
       for (const line of await Cli.versions()) console.log(line)
       return 0

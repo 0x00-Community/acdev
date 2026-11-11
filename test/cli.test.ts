@@ -723,8 +723,9 @@ describe('mistakes', () => {
     const asked = 'acde: new: a directory (or run it in a terminal to be asked) (acde new --help)'
     expect(lines(nameless.stderr)).toEqual([asked])
     const bare = await cli([], APP)
-    expect(bare.code).toBe(1)
-    expect(bare.stderr).toContain('usage: acde <command>')
+    expect(bare.code).toBe(0)
+    expect(lines(bare.stdout)).toEqual([expect.stringMatching(/^acde \S+: acde --help lists the commands$/)])
+    expect(bare.stderr).toBe('')
   })
 
   test('--version: acde, then the SDK and the acdert it finds; --help: all, or one command', async () => {
