@@ -22,6 +22,7 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object>
         "runModule" => run_module,
         "runScript" => run_script,
         "readAsset" => read_asset,
+        "readSourceMap" => read_source_map,
         "liveEdit" => live_edit,
         "addImportMap" => add_import_map,
         "encodeUtf8" => encode_utf8,
@@ -177,6 +178,14 @@ fn run_script(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut
 fn read_asset(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
     let url = bind::arg_string(scope, &args, 0);
     match crate::dom::read_asset(&url) {
+        Some(bytes) => rv.set(bind::uint8_array(scope, bytes).into()),
+        None => rv.set_null(),
+    }
+}
+
+fn read_source_map(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let url = bind::arg_string(scope, &args, 0);
+    match crate::dom::read_source_map(&url) {
         Some(bytes) => rv.set(bind::uint8_array(scope, bytes).into()),
         None => rv.set_null(),
     }

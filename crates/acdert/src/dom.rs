@@ -24,7 +24,7 @@ pub fn render_handle() -> Option<acde_render::RenderHandle> {
 struct Assets(Vec<acde_render::Resource>);
 
 impl Assets {
-    fn file(&self, url: &str) -> Option<PathBuf> {
+    fn file(&self, url: &str, map: bool) -> Option<PathBuf> {
         let parsed = url::Url::parse(url).ok()?;
         if parsed.origin().ascii_serialization() != ORIGIN {
             return None;
@@ -32,7 +32,7 @@ impl Assets {
         let path = parsed.path();
         let (name, dirs) = self.0.iter().filter_map(|r| Some((path.strip_prefix(r.prefix.as_str())?, &r.dirs))).min_by_key(|(name, _)| name.len())?;
         let name = percent(name);
-        if name.is_empty() || name.ends_with(".map") || name.split('/').any(|seg| seg.is_empty() || seg.starts_with('.')) {
+        if name.is_empty() || name.ends_with(".map") != map || name.split('/').any(|seg| seg.is_empty() || seg.starts_with('.')) {
             return None;
         }
         dirs.iter().map(|dir| Path::new(dir).join(&name)).find(|file| file.is_file())
@@ -44,11 +44,15 @@ thread_local! {
 }
 
 fn asset_file(url: &str) -> Option<PathBuf> {
-    ASSETS.with(|a| a.borrow().file(url))
+    ASSETS.with(|a| a.borrow().file(url, false))
 }
 
 pub fn read_asset(url: &str) -> Option<Vec<u8>> {
     std::fs::read(asset_file(url)?).ok()
+}
+
+pub fn read_source_map(url: &str) -> Option<Vec<u8>> {
+    std::fs::read(ASSETS.with(|a| a.borrow().file(url, true))?).ok()
 }
 
 fn percent(text: &str) -> String {

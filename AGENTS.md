@@ -301,7 +301,10 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
     有窗口是系统剪贴板); 会话没有, 回错.
 - **dev 日志** (只在有 `ACDE_DEV` 时): acde-dom `core/observe.ts` 的 `observe(observer)` 是页面里唯一的观察点, 没注册时零开销. `console.*`
   (照打日志之外) 报 `console(level, text)`; 没人接的 `error` / `unhandledrejection` (交给 `host.reportError` 的那些) 报 `error(kind, text)`
-  (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认); `fetch` / XHR / EventSource (都经 `exchange`, 加上本地资源和够不着的地址)
+  (Error 的 stack, 别的 realm 来的按 `stack` / `name` + `message` 认; 栈和 console 文字里 `http(s)://…/x.js:行:列` 的帧, 包里有这个文件的 source map 时
+  换成源码位置, 如 `src/main.js:8:9`: acde-host `devlog.ts` `SourceMaps` 读文件末尾的 `sourceMappingURL` (同源文件或 data: URL), 按文件缓存,
+  map 经 host 的 `readSourceMap` 读 (crates/acdert `dom.rs`: 页面的 `readAsset` / fetch 仍拿不到 `.map`); 没有 map 的帧原样留. 交给
+  `host.reportError` 的 "page error" 日志也用换过的栈, #45); `fetch` / XHR / EventSource (都经 `exchange`, 加上本地资源和够不着的地址)
   和 WebSocket 报 `request`: start → response (WebSocket 是 101) → end (收到的字节) 或 error (中止是 `aborted`; 够不着时说清是「应用里没有这个
   文件, 也没有后端」还是「不是这个应用的地址」). 页面 (`worker.ts`) 把它们单向 `port.post` 成 `{devlog, time, …}` 给 Broker (不是 rpc,
   页面重启、崩溃了记录还在); Broker 的 `DevLog` 两种各留最后 5000 条、文字最长 16 KB, 请求按 web + id 合成一条, web 没了时还开着的记成

@@ -22,12 +22,14 @@ import { process } from './sys/process'
 import { StartupTimeline } from './timeline'
 import { WebAppPage } from './webapp'
 import { HostStrings } from './language'
+import { SourceMaps } from './devlog'
 
 interface WebNatives extends Natives {
   readonly host: HostNative & {
     onTaskEnd(fn: () => void): void
     setReporter(fn: (error: unknown, promise?: Promise<unknown>) => void): void
     requestFrame(): void
+    readSourceMap?(url: string): Uint8Array | null
   }
   readonly port: { post(message: unknown): void; onMessage(fn: (message: unknown) => void): void }
   readonly init: WebInit
@@ -72,6 +74,19 @@ export default async function boot(natives: WebNatives): Promise<void> {
     const entry = `${PageSource.ORIGIN}${init.app!.entry}`
     host.readAsset = (url) => read(url) ?? (/^http:\/\/acde\.local\/(?:[?#].*)?$/.test(url) ? read(entry) : null)
   }
+  const maps = new SourceMaps(
+    (url) => host.readAsset(url),
+    (url) => host.readSourceMap?.(url) ?? null,
+  )
+  const report = host.reportError.bind(host)
+  host.reportError = (error) => {
+    const stack = (error as { stack?: unknown } | null)?.stack
+    const mapped = typeof stack === 'string' ? maps.stack(stack) : null
+    if (!mapped || mapped === stack) return report(error)
+    const copy = new Error(String((error as { message?: unknown }).message ?? ''))
+    Object.defineProperty(copy, 'stack', { value: mapped })
+    report(copy)
+  }
   const page = install(globalThis, dom, host, {
     url: (htmlEntry ? init.url : undefined) ?? `${PageSource.ORIGIN}/`,
     ...init.languages,
@@ -85,8 +100,8 @@ export default async function boot(natives: WebNatives): Promise<void> {
   const routes = natives.env['ACDE_DEV'] ? new DevRoutes(init.devRoutes ?? [], (id) => port.post({ devroute: id })) : null
   if (routes) {
     observe({
-      console: (level, text) => port.post({ devlog: 'console', time: Log.clock(), level, text }),
-      error: (kind, text) => port.post({ devlog: 'error', time: Log.clock(), kind, text }),
+      console: (level, text) => port.post({ devlog: 'console', time: Log.clock(), level, text: maps.stack(text) }),
+      error: (kind, text) => port.post({ devlog: 'error', time: Log.clock(), kind, text: maps.stack(text) }),
       request: (event) => port.post({ devlog: 'request', time: Log.clock(), event }),
       route: (_kind, method, url) => routes.match(method, url),
     })

@@ -160,3 +160,118 @@ export class DevLog {
     return { entries: matching.slice(-limit), next, dropped: since > 0 && since < first ? first - since : 0 }
   }
 }
+
+type Segment = readonly [column: number, source: number, line: number, sourceColumn: number]
+
+interface SourceMap {
+  readonly sources: readonly string[]
+  readonly lines: readonly (readonly Segment[])[]
+}
+
+export class SourceMaps {
+  static readonly #BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  static readonly #FRAME = /(https?:\/\/[^\s()]+?\.m?js)(?:\?[^\s():]*)?:(\d+):(\d+)/g
+  readonly #read: (url: string) => Uint8Array | null
+  readonly #readMap: (url: string) => Uint8Array | null
+  readonly #maps = new Map<string, SourceMap | null>()
+
+  constructor(read: (url: string) => Uint8Array | null, readMap: (url: string) => Uint8Array | null) {
+    this.#read = read
+    this.#readMap = readMap
+  }
+
+  stack(text: string): string {
+    if (!text.includes('.js:')) return text
+    return text.replace(SourceMaps.#FRAME, (whole, url: string, line: string, column: string) => {
+      const map = this.#map(url)
+      const found = map ? SourceMaps.#find(map, Number(line) - 1, Number(column) - 1) : null
+      return found ?? whole
+    })
+  }
+
+  #map(url: string): SourceMap | null {
+    if (this.#maps.has(url)) return this.#maps.get(url)!
+    let map: SourceMap | null = null
+    try {
+      map = this.#load(url)
+    } catch {
+      map = null
+    }
+    this.#maps.set(url, map)
+    return map
+  }
+
+  #load(url: string): SourceMap | null {
+    const code = this.#read(url)
+    if (!code) return null
+    const text = new TextDecoder().decode(code)
+    const link = /\/\/[#@] sourceMappingURL=(\S+)\s*$/.exec(text.slice(-4096))?.[1]
+    if (!link) return null
+    let json: string
+    let base = url
+    const inline = /^data:application\/json[^,]*;base64,(.+)$/.exec(link)
+    if (inline) json = new TextDecoder().decode(Uint8Array.from(atob(inline[1]!), (c) => c.charCodeAt(0)))
+    else {
+      base = new URL(link, url).href
+      const bytes = this.#readMap(base)
+      if (!bytes) return null
+      json = new TextDecoder().decode(bytes)
+    }
+    const raw = JSON.parse(json) as { sources?: string[]; sourceRoot?: string; mappings?: string }
+    if (typeof raw.mappings !== 'string' || !Array.isArray(raw.sources)) return null
+    const root = raw.sourceRoot ? `${raw.sourceRoot.replace(/\/?$/, '/')}` : ''
+    const origin = new URL(url).origin
+    const sources = raw.sources.map((source) => {
+      const resolved = new URL(root + source, base)
+      return resolved.origin === origin ? resolved.pathname.replace(/^\//, '') : resolved.href
+    })
+    return { sources, lines: SourceMaps.#decode(raw.mappings) }
+  }
+
+  static #decode(mappings: string): Segment[][] {
+    const lines: Segment[][] = []
+    let [source, line, sourceColumn] = [0, 0, 0]
+    for (const text of mappings.split(';')) {
+      const segments: Segment[] = []
+      let column = 0
+      for (const part of text.split(',')) {
+        if (!part) continue
+        const values: number[] = []
+        let value = 0
+        let shift = 0
+        for (const char of part) {
+          const digit = SourceMaps.#BASE64.indexOf(char)
+          if (digit < 0) return lines
+          value += (digit & 31) << shift
+          if (digit & 32) shift += 5
+          else {
+            values.push(value & 1 ? -(value >>> 1) : value >>> 1)
+            value = 0
+            shift = 0
+          }
+        }
+        column += values[0] ?? 0
+        if (values.length < 4) continue
+        source += values[1]!
+        line += values[2]!
+        sourceColumn += values[3]!
+        segments.push([column, source, line, sourceColumn])
+      }
+      lines.push(segments)
+    }
+    return lines
+  }
+
+  static #find(map: SourceMap, line: number, column: number): string | null {
+    const segments = map.lines[line]
+    if (!segments?.length) return null
+    let found: Segment | null = null
+    for (const segment of segments) {
+      if (segment[0] > column) break
+      found = segment
+    }
+    if (!found) return null
+    const source = map.sources[found[1]]
+    return source === undefined ? null : `${source}:${found[2] + 1}:${found[3] + 1}`
+  }
+}

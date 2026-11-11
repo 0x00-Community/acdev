@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { DevRoutes, type DevRoute } from '../src/devroutes.ts'
+import { SourceMaps } from '../src/devlog.ts'
 
 const route = (args: Record<string, unknown>, id = 1): DevRoute => DevRoutes.parse(args, id)
 const text = (reply: unknown) => {
@@ -59,5 +60,26 @@ describe('DevRoutes', () => {
     assert.equal(routes.match('GET', 'http://acde.local/other'), null)
     routes.set([])
     assert.equal(routes.match('GET', 'http://acde.local/api/todos'), null)
+  })
+})
+
+describe('SourceMaps', () => {
+  const encode = (text: string) => new TextEncoder().encode(text)
+  const files: Record<string, string> = {
+    'http://acde.local/assets/main.js': 'function f(){throw new Error("x")}\n//# sourceMappingURL=main.js.map\n',
+    'http://acde.local/assets/main.js.map': JSON.stringify({ version: 3, sources: ['../src/main.ts'], mappings: 'UAEI' }),
+    'http://acde.local/assets/plain.js': 'function g(){}\n',
+  }
+  const read = (url: string) => (url in files ? encode(files[url]!) : null)
+  const maps = new SourceMaps((url) => (url.endsWith('.map') ? null : read(url)), (url) => (url.endsWith('.map') ? read(url) : null))
+
+  test('stack frames in files with a map point at the source', () => {
+    const stack = 'Error: x\n    at f (http://acde.local/assets/main.js:1:12)\n    at http://acde.local/assets/plain.js:1:3'
+    assert.equal(maps.stack(stack), 'Error: x\n    at f (src/main.ts:3:5)\n    at http://acde.local/assets/plain.js:1:3')
+  })
+
+  test('text without frames, or frames before any mapping, is kept', () => {
+    assert.equal(maps.stack('just text'), 'just text')
+    assert.equal(maps.stack('at http://acde.local/assets/main.js:1:3'), 'at http://acde.local/assets/main.js:1:3')
   })
 })
