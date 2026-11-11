@@ -101,8 +101,9 @@ impl super::Host for Host {
         self.frame.set(self.hwnd, state);
     }
 
-    fn set_size(&self, size: [f64; 2]) {
+    fn set_size(&self, size: [f64; 2]) -> Option<(u32, u32)> {
         self.frame.resize(self.hwnd, size);
+        None
     }
 
     fn set_title(&self, title: &str) {

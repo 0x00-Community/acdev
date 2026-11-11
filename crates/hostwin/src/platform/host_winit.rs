@@ -59,10 +59,11 @@ impl super::Host for Host {
         self.exit.set(Some(code));
     }
 
-    fn set_size(&self, [w, h]: [f64; 2]) {
-        if !self.window.is_maximized() && self.window.fullscreen().is_none() {
-            _ = self.window.request_inner_size(LogicalSize::new(w, h));
+    fn set_size(&self, [w, h]: [f64; 2]) -> Option<(u32, u32)> {
+        if self.window.is_maximized() || self.window.fullscreen().is_some() {
+            return None;
         }
+        self.window.request_inner_size(LogicalSize::new(w, h)).map(|size| (size.width.max(1), size.height.max(1)))
     }
 }
 

@@ -314,7 +314,12 @@ impl Handler for App {
             }
             HostEvent::Refresh(hz) => server.set_refresh(hz),
             HostEvent::Cmd(Cmd::HostState(to)) => host.set_state(to),
-            HostEvent::Cmd(Cmd::HostSize(size)) => host.set_size(size),
+            HostEvent::Cmd(Cmd::HostSize(size)) => {
+                if let Some(now) = host.set_size(size) {
+                    let scale = server.state().screen[2];
+                    self.resized(server, now, scale);
+                }
+            }
             HostEvent::Redraw => server.relayout(),
             HostEvent::Cmd(Cmd::Title(title)) => host.set_title(&title),
             HostEvent::Cmd(Cmd::ImeArea(rect)) => host.set_ime_area(rect),

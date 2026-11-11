@@ -91,7 +91,9 @@ pub(crate) trait Host {
 
     fn set_state(&self, _: Option<acde_model::WindowState>) {}
 
-    fn set_size(&self, _: [f64; 2]) {}
+    fn set_size(&self, _: [f64; 2]) -> Option<(u32, u32)> {
+        None
+    }
 
     fn approve(&self, _: &str, _: &str, reply: ApproveReply) {
         let _ = reply.send(Ok(None));
