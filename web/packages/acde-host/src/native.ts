@@ -94,7 +94,7 @@ export type Shell = Pick<NativeSurface, 'setClipboard' | 'readClipboard' | 'setI
 
 export interface NativeDevToolsTarget {
   readonly id: string
-  readonly kind: 'page'
+  readonly kind: 'page' | 'service'
   readonly title: string
   readonly url: string
 }

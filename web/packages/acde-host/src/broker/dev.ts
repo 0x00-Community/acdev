@@ -25,6 +25,7 @@ export interface DevHost {
   reload(app: string | null): Promise<void>
   screen(): Screen
   readonly devtools: NativeDevTools | null
+  services(): readonly string[]
 }
 
 interface DevInit {
@@ -37,6 +38,7 @@ interface DevInit {
 export class DevRequests {
   static readonly STATE_MS = 500
   static readonly TARGETS_MS = 250
+  static readonly SERVICES = 'broker'
   static readonly #OPS =
     'webs, eval, shot, snapshot, act, run, open, query, console, network, screen, emulate, choose, route, unroute, pointer, clipboard, ' +
     'permissions, answer, revoke, drop, input, clock, dialog, init, uninit, reload, resize, devtools'
@@ -74,9 +76,11 @@ export class DevRequests {
     const targets: NativeDevToolsTarget[] = this.#host.webs().map((web) => ({
       id: web.name,
       kind: 'page',
-      title: this.#host.title(web),
+      title: `${this.#host.title(web)} (${web.kind === 'desktop' ? 'desktop' : (web.app?.id ?? web.name)})`,
       url: web.url ?? `${PageSource.ORIGIN}/`,
     }))
+    const services = this.#host.services()
+    if (services.length) targets.push({ id: DevRequests.SERVICES, kind: 'service', title: `services: ${services.join(', ')}`, url: '' })
     const key = JSON.stringify(targets)
     if (key === this.#targets) return
     this.#targets = key

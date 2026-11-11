@@ -209,6 +209,7 @@ export class Broker {
       reload: (app) => this.devReload(app),
       screen: () => this.#screen(),
       devtools: this.native.DevTools ?? null,
+      services: () => this.bridge.services.names,
     })
     this.#appCalls = new AppCalls({
       shell: this.shell,

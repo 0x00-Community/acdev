@@ -112,6 +112,10 @@ export class DesktopServices {
     }
   }
 
+  get names(): string[] {
+    return this.#running.map((service) => service.name)
+  }
+
   running(name: string): boolean {
     return this.#running.some((service) => service.name === name)
   }

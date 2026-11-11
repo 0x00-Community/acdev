@@ -340,8 +340,10 @@ MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址�
   线程 `acde-devtools`, 每条连接一条 `acde-devtools-conn`; 没有 `ACDE_DEV` 时 `open()` 回 null, 不开任何端口. 每个请求都要令牌: 查询参数
   `?token=` (HTTP 和 WebSocket 都认) 或 `Authorization: Bearer`, 不对回 401. `GET /json/version` (`Browser`、`Protocol-Version`、
   浏览器的 `webSocketDebuggerUrl`), `GET /json` 和 `/json/list` (每个目标 `{id, type, title, url, webSocketDebuggerUrl, devtoolsFrontendUrl,
-  description}`), 别的 404. 目标就是 Broker 的 webs: `id` 是 web 名 (`alpha#7`, 桌面 `desktop`, 地址里按百分号编码), `type` 都是 `page`
-  (服务和后端以后定), `title` 同 `webs` 的, `url` 是页面地址; `DevRequests` 每 250 ms 算一次 (`publish()`), 列表变了才推给
+  description}`), 别的 404. 目标是 Broker 的 webs 加上服务 (#193): web 的 `id` 是 web 名 (`alpha#7`, 桌面 `desktop`, 地址里按百分号编码),
+  `type` 是 `page`, `title` 是 `webs` 的标题加括号里的应用 id (桌面是 `(desktop)`), `url` 是页面地址; 服务都跑在 Broker 的 isolate 里, 合成
+  一个目标: `id` 是 `broker` (Broker 的 isolate 名, 它和别的 isolate 一样在 inspector 里登记), `type` 是 `service`, `title` 是
+  `services: <服务名, …>`, `url` 空, 有服务在跑时才列; 后端以后定. `DevRequests` 每 250 ms 算一次 (`publish()`), 列表变了才推给
   `DevTools.targets`, 从列表里消失的目标的 WebSocket 以 1001 关掉. `webSocketDebuggerUrl` 是 `ws://127.0.0.1:<port>/devtools/page/<id>?token=…`
   (DevTools 前端连 WebSocket 时加不了头, 所以令牌在地址里), 不在列表里的目标升级前回 404. WebSocket 上: `Browser.getVersion` 自己答, 别的
   方法交给 `acde_runtime::devtools::forward` 装上的 `Forward` (`attach(client)` / `message(client, text) -> bool` / `detach(client)`, 在连接
