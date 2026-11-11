@@ -310,6 +310,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   10 s 不退出就结束它, 同样算第 0 级). 有工程的 `apiLevel` 与它不同时报 `<名字>: needs level N, runtime is level M` 并退出 1,
   不起 acdert; 所有工程都没写 `apiLevel` (旧的手写包) 时不探测. 重新构建后级别变得不符算构建失败, 不发 `reload`.
 - 环境: `ACDE_PATH` (所有构建结果加继承的; 不装)、`ACDE_DEV` (acdert 要听的地址)、`--headless` 时 `ACDE_HEADLESS=1`.
+- 没有显示 (`Runtime.noDisplay`: Linux 上 `WAYLAND_DISPLAY` 和 `DISPLAY` 都没有): 不带 `--headless` 的 `acde dev` 和 `acde test --headed`
+  在构建前就报 `no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless` (test 说去掉 `--headed`) 并退出 1; 否则 acdert 只报
+  `acde_shell registry … Connection reset by peer` 和 libseat 的错 (gitea acde#43). 不带 `--headless` 的 acdert 非零退出 (不是信号, 码 < 128) 时
+  再补一行 `DevSession.WINDOW_HINT`. 测试的 `env()` 在没有显示的机器上补 `WAYLAND_DISPLAY=acde-test`, 假 acdert 照常起.
 - `fs.watch` 每个工程, 跳过路径里任何一段在 `SKIPPED` (`src/paths.ts`, 含 `__screenshots__` / `__snapshots__`) 的、e2e 测试文件、只是目录的事件、`--out` 目录和嵌在里面的别的工程 (acde test 写基线时不能把应用重载掉); 150 ms 合并, 一次构建一个, 只重建改了的那个 (重读配置),
   给它的每个应用发 `reload {app}`, 它是在跑的桌面时再发 `reload`. 构建失败只打一行.
 - acdert 退出 acde 跟着退出 (退出码跟它), acde 的连接断了 acdert 也退出. SIGINT 吞掉 (终端也发给了 acdert), SIGTERM / SIGHUP 转给 acdert.
@@ -320,7 +324,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - dev IPC: **acdert 听, acde 不转发.** 地址 `DevClient.endpoint()`: unix 上 `<会话目录>/<pid>.sock` (acde 先 `prepare` 目录、删掉旧 socket;
   acdert 设 0600: 它能在页面里求值), Windows 上 `\\.\pipe\acde-dev-<pid>`. acde dev 起了 acdert 后每 50 ms 重试连接 (`DevClient.reach`; 10 s 还连不上
   就提示 acdert 太旧), 连上发 `{type: 'hello', role: 'dev'}` 再写会话文件, `reload` 走这条连接. 一行一个 JSON; 工具和 driver 各自直连 acdert 发
-  `{type: 'request', id, op, ...}`, 唯一的超时在 `DevClient` (30 s). op 见 acdert AGENTS.md 的「acde dev」.
+  `{type: 'request', id, op, ...}`, 唯一的超时在 `DevClient` (30 s). `DevClient.close()` 立即让在途的请求失败
+  (清掉它们的 30 s 定时器), `end()` 后销毁连接 (最多等 1 s) 并 `unref`: Windows 的命名管道没有半关闭, 只 `end()` 时 acdert 收不到 EOF,
+  连接和在途请求的定时器会让进程一直不退 (gitea acde#50). op 见 acdert AGENTS.md 的「acde dev」.
 
 ## 开发工具、driver、MCP、e2e
 
@@ -360,8 +366,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - **driver** (`acde/driver`, `src/driver/`, 只用 `node:` 模块): `Acde.attach` / `Acde.launch` (用工程的运行时跑 `cliFile()` (`Acde.runtime`: 规则同
   `Cli.follow`, 没有就用 `process.execPath`), 带 `ACDE_FOLLOWED=1`: 会话文件按子进程 pid 找, `acde dev` 自己再换运行时的话登记的是孙进程, 永远等不到;
   输出进 `Logs`,
-  等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdert 先答 `webs`, 窗口稍后进表; 有待答的批准提示 (只剩摄像头 / 麦克风会问) 也算起来了; 默认 120 s (等不到会话文件时报出这段时间里别的进程登记的会话); `close()` 时 SIGTERM, 10 s 后
-  SIGKILL).
+  等会话文件再等 `ready()`: 窗口表不空且每个 web 的窗口都在表里, 因为 acdert 先答 `webs`, 窗口稍后进表; 有待答的批准提示 (只剩摄像头 / 麦克风会问) 也算起来了; 默认 120 s (等不到会话文件时报出这段时间里别的进程登记的会话); `close()` 见下文 `Acde.#stop`).
   **起不来** (`LaunchError`, 是 `Error`, `name` 仍是 `Error`: 0.0.8 的输出里是 `error:` / `Error:`; `phase` / `code` / `logs` 是 getter, bun 打错误时
   不把它们当自有属性列出来): 消息第一行是 0.0.8 的原文, 说停在哪一步的是加在后面的一行, 再后面是输出的最后 40 行; `logs` 是全部输出.
   `exited`: `acde dev exited (N) before it was ready:` (子进程退出后先等输出读完, 最多 `DRAIN_MS` 1 s, 再报, 所以最后几行不会丢);
@@ -371,7 +376,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `acdert runs and answers, but no window appeared (pages: N, windows: M) and no approval prompt waits; last output:`; 轮询中连接断了不直接抛
   `acdert closed the connection` (acdert 先退, acde dev 随后才退, 下一轮就是 `exited`), 到限时还没退出才说连接断了; `failed`: 其余的错 (连不上、
   acdert 不答), 消息不变, 原错误在 `cause`.
-  失败和 `close()` 都经 `Acde.#stop`: SIGTERM, 10 s 后 SIGKILL, 等的是进程退出 (`Child.gone`, `exit` 事件) 而不是管道关闭 (`Child.exited`,
+  `close()` 先经自己的连接给 acdert 发 `{type: 'quit'}` (acdert 退出, acde dev 随之走自己的收尾), 再关连接.
+  失败和 `close()` 都经 `Acde.#stop`: unix 上 SIGTERM, 10 s 后 SIGKILL; Windows 上 SIGTERM 就是 `TerminateProcess`, acde dev 的收尾不跑、
+  acdert 不随它结束, 所以只在发过 `quit` 时等它自己退 10 s, 否则或到时就 `Runtime.killTree` (`taskkill /T /F` 连 acdert 一起结束, 再 SIGKILL).
+  等的是进程退出 (`Child.gone`, `exit` 事件) 而不是管道关闭 (`Child.exited`,
   `close` 事件): 构建卡住时 acde dev 被结束后它的构建子进程还拿着管道, 等 `close` 永远等不到, 测试只能由 bun 在限时加宽限期后杀掉, 什么都不留
   (实测过). 之后等输出读完 (最多 1 s) 再销毁两根管道. 等待用可取消的定时器: 原来 `close()` 里没取消的 10 s 定时器让只用 driver 的脚本在
   `close()` 之后还要等 10 s 才退出. 没解决的: acde dev 在构建中被结束时, 构建工具的子进程不随它结束 (没有进程组; `acde test` 里用进程组会让
@@ -431,7 +439,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `permissions` / `answer {allow, prompt? | app? + capability?}` / `revoke {app, capability}` 和命令行的批准命令共用 `Approvals`, `answer` / `revoke` 标成 destructive (`answer` 带 `allow: true` 时必须给 `app` 和 `capability`, 不认只给 id 或什么都不给: 批准替的是用户的回答, 而且决定是持久的, 所以批准了什么要写在这次调用里, 客户端问用户时看得见; 拒绝不要求)
   (它替用户做决定), `prompt` 和 `app` / `capability` 不能同时给; `query` 的输出是 `Format.matches`; `clipboard` 在有窗口的会话里碰的是用户的系统剪贴板, 要 `system: true` 才做, 标成 destructive / openWorld 让客户端先问) (`start` / `stop` / `logs` 是自己起 `acde dev` 的). stdout 只走协议.
   会话: 钉住的 (`--session`、`sessions {use}`), 否则 `start` 起的, 否则按工作目录挑 (每次调用前看 IPC 断没断). stdin 关闭或收到信号时停掉 `start`
-  起的. 工具出错回 `isError`, 不抛协议错误. 正在用的会话断了之后的下一次调用说它停了: `start` 起的报
+  起的 (在途的工具调用随连接关闭失败, 不再等 acdert 回答; 进程随后自己退出). 工具出错回 `isError`, 不抛协议错误. 正在用的会话断了之后的下一次调用说它停了: `start` 起的报
   `the acde dev started here (pid N) stopped; last output: …` (只报一次); 接上去的先等它的会话文件消失 (最多 `Mcp.DELISTED_MS` 2 s, 免得又挑中
   正在退出的那个), 再照常挑, 挑到别的会话 (比如用户重起的 `acde dev`) 就接着用, 挑不到时报 `acde dev N stopped; <挑会话的错误>`.
 - **e2e** (`src/e2e/`): 文件 `*.e2e.{ts,tsx,js,mjs,mts}` (普通 `bun test` 匹配不到, 不会起 acdert), 从 `acde/test` 导入. 每个测试一个新 `acde dev`
@@ -536,7 +544,9 @@ lib/acde-api/       @dopame/acde-api 的构建产物 (压缩的 js、d.ts、pack
   `--tries=3`; BusyBox wget 不认 `--tries` / `--show-progress`, 只用 `-q -T 30 -O`. 进度测试用 `Bun.spawn` 的 `terminal` 开伪终端), shasum / sha256sum / openssl 校验, acde 和 acdert 都下载校验完、在暂存目录里
   拼好 (`bin/acdert`、`bin/app/`) 才动安装目录, 失败什么都不动. 解进 `$ACDE_INSTALL` (默认 `~/.acde`) 的临时目录再改名成
   `versions/<版本>`; `current` 原子换 (`mv -T` / `mv -h`, 退回 `ln -sfn`); `bin` → `current/bin` (相对链接). PATH 上没有且没给 `--no-modify-path` 时按
-  `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次. 这个终端的 PATH 上没有时, 输出的最后单独一行是
+  `$SHELL` 往 zsh / bash (macOS 加 `.bash_profile`) / fish / `.profile` 的启动文件加一次. sh 一族的那行是
+  `case ":$PATH:" in *":$HOME/.acde/bin:"*) ;; *) export PATH=… ;; esac`: 同时读 `.zprofile` 和 `.zshrc` (登录的交互 zsh) 或 `.profile` 和 `.bashrc`
+  的 shell 里也只加一次; 以前装的不带判断的整行原地换成这行 (`awk` 改写, 写回原文件). 这个终端的 PATH 上没有时, 输出的最后单独一行是
   这个终端里要敲的 `export PATH=…` (fish 是 `fish_add_path`): 装完在原来的终端里敲 `acde` 是 command not found, 人会漏看夹在中间的提示.
 - **install.ps1** (Windows PowerShell 5.1 或 PowerShell 7.2+, 只有 x64): 出错 `throw` 不 `exit` (`irm | iex` 时 `exit` 关掉用户的终端); 参数也可走
   `ACDE_VERSION` / `ACDE_NO_MODIFY_PATH`; 用系统的 `tar.exe`. 下载不用 `Invoke-WebRequest` (5.1 上它的进度条每块重画, 下载慢几倍, 所以以前全程

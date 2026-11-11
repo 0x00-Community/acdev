@@ -6,7 +6,9 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { Color } from '../src/color.ts'
 import { Doctor, type Check, type Repair } from '../src/doctor.ts'
+import { DevSession } from '../src/dev.ts'
 import { Sessions } from '../src/sessions.ts'
+import { Runtime } from '../src/runtime.ts'
 import { Versions } from '../src/versions.ts'
 import { cleanup, collect, env, standIn, tmp, WINDOWS } from './helpers.ts'
 
@@ -173,6 +175,25 @@ describe('acde doctor', () => {
     expect(ran.code).toBe(1)
     expect(ran.stderr).toContain('web layer unavailable: fake acdert has no GPU')
     expect(ran.stderr).toContain('acde: acdert exited (1) before it was ready; acde doctor checks the runtime, the GPU and this setup')
+    expect(ran.stderr).toContain(`acde: ${DevSession.WINDOW_HINT}`)
+  }, 60_000)
+
+  test('acde dev and acde test --headed without a display (Linux) stop at once and point at headless', async () => {
+    const s = standIn()
+    const bare = env(s.env)
+    delete bare['WAYLAND_DISPLAY']
+    delete bare['DISPLAY']
+    expect(Runtime.noDisplay(bare, 'linux')).toBe('no display here (no WAYLAND_DISPLAY or DISPLAY)')
+    expect(Runtime.noDisplay({ DISPLAY: ':0' }, 'linux')).toBeNull()
+    expect(Runtime.noDisplay({}, 'darwin')).toBeNull()
+    expect(Runtime.noDisplay({}, 'win32')).toBeNull()
+    if (process.platform !== 'linux') return
+    const dev = await collect([process.execPath, CLI, 'dev'], { cwd: s.project, env: bare })
+    expect([dev.code, dev.stderr.trim()])
+      .toEqual([1, 'acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde dev --headless'])
+    const headed = await collect([process.execPath, CLI, 'test', '--headed'], { cwd: s.project, env: bare })
+    expect([headed.code, headed.stderr.trim()])
+      .toEqual([1, 'acde: no display here (no WAYLAND_DISPLAY or DISPLAY): run acde test without --headed'])
   }, 60_000)
 
   test('format: one line per check, a fix under it, a last line that counts', () => {

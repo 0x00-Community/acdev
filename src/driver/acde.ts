@@ -423,14 +423,15 @@ export class Acde {
     }
   }
 
-  static async #stop(child: Child): Promise<void> {
+  static async #stop(child: Child, quitting = false): Promise<void> {
     const timer = new AbortController()
     const gone = child.gone.catch(() => -1)
     const late = sleep(Acde.STOP_MS, null, { signal: timer.signal }).catch(() => null)
-    child.kill('SIGTERM')
+    const windows = process.platform === 'win32'
+    if (!windows) child.kill('SIGTERM')
     try {
-      if ((await Promise.race([gone, late])) !== null) return
-      child.kill('SIGKILL')
+      if ((!windows || quitting) && (await Promise.race([gone, late])) !== null) return
+      Runtime.killTree(child)
       await gone
     } finally {
       timer.abort()
@@ -898,10 +899,11 @@ export class Acde {
 
   async close(): Promise<void> {
     this.#closing = true
+    if (this.#owned) this.#client.send({ type: 'quit' })
     this.#client.close()
     if (!this.#owned) return
     const { child, dir } = this.#owned
-    await Acde.#stop(child)
+    await Acde.#stop(child, true)
     await this.logs?.drained(Acde.DRAIN_MS)
     Acde.#release(child)
     Sessions.removeIfCurrent(this.session, dir)

@@ -97,6 +97,8 @@ export class TestRunner {
       throw new Error('acde test needs bun (the tests run on bun test): install it from https://bun.sh, ' +
         'then run acde test again')
     }
+    const display = options.headed ? Runtime.noDisplay() : null
+    if (display) throw new Error(`${display}: run acde test without --headed`)
     const cwd = options.cwd ?? process.cwd()
     const suites = TestRunner.suites(options.targets, cwd)
     const where = (options.targets.length ? options.targets : ['.']).join(', ')

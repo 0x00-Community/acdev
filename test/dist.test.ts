@@ -102,6 +102,8 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
   let server: ReturnType<typeof Bun.serve>
   let base: string
 
+  const GUARDED = 'case ":$PATH:" in *":$HOME/.acde/bin:"*) ;; *) export PATH="$HOME/.acde/bin:$PATH" ;; esac'
+
   function install(home: string, args: string[] = [], extra: Record<string, string> = {}) {
     return run(['sh', join(out, 'install.sh'), ...args], {
       HOME: home, SHELL: '/bin/zsh', ACDE_DIST: base, ACDERT_DIST: `${base}/runtime`,
@@ -167,7 +169,7 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(existsSync(join(home, '.acde', 'bin', 'app', 'dist', 'broker.js'))).toBe(true)
     expect(readlinkSync(join(home, '.acde', 'current'))).toBe('versions/0.0.2')
     expect(readlinkSync(join(home, '.acde', 'bin'))).toBe('current/bin')
-    const line = '\n# acde\nexport PATH="$HOME/.acde/bin:$PATH"\n'
+    const line = `\n# acde\n${GUARDED}\n`
     const startup = ['.zshrc', '.zprofile', '.profile', ...(which('bash') ? ['.bashrc'] : [])]
     for (const file of startup) {
       expect(readFileSync(join(home, file), 'utf8'), file).toBe(line)
@@ -177,10 +179,32 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(again.code, again.out).toBe(0)
     expect(readlinkSync(join(home, '.acde', 'current'))).toBe('versions/0.0.1')
     for (const file of startup) expect(readFileSync(join(home, file), 'utf8').match(/# acde/g), file).toHaveLength(1)
+    const bin = join(home, '.acde', 'bin')
+    const once = (shell: string, files: string[]) => {
+      const script = `${files.map((f) => `. ./${f}`).join('; ')}; echo "$PATH"`
+      return run([shell, '-c', script], { HOME: home, PATH: '/usr/bin:/bin' }, home)
+    }
+    const sourced = await once('sh', startup)
+    expect(sourced.stdout.trim().split(':').filter((dir) => dir === bin), 'every file read, acde once').toHaveLength(1)
+    if (which('zsh')) {
+      const zsh = await once('zsh', ['.zprofile', '.zshrc'])
+      expect(zsh.stdout.trim().split(':').filter((dir) => dir === bin), 'a login and interactive zsh').toHaveLength(1)
+    }
     if (which('bash')) {
       const login = await run(['bash', '-lc', 'command -v acde'], { HOME: home, PATH: '/usr/bin:/bin' }, home)
       expect(login.stdout.trim(), 'a login bash finds acde').toBe(join(home, '.acde', 'bin', 'acde'))
     }
+  }, 60_000)
+
+  test('install.sh: the unguarded PATH line of an earlier install becomes the guarded one, in place', async () => {
+    const home = tmp()
+    const earlier = '# mine\n\n# acde\nexport PATH="$HOME/.acde/bin:$PATH"\nalias ll="ls -l"\n'
+    writeFileSync(join(home, '.zshrc'), earlier)
+    const ran = await install(home)
+    expect(ran.code, ran.out).toBe(0)
+    expect(readFileSync(join(home, '.zshrc'), 'utf8')).toBe(`# mine\n\n# acde\n${GUARDED}\nalias ll="ls -l"\n`)
+    expect(ran.out).toContain(`made the acde PATH line in ${join(home, '.zshrc')} add $HOME/.acde/bin only once`)
+    expect(readFileSync(join(home, '.zprofile'), 'utf8')).toBe(`\n# acde\n${GUARDED}\n`)
   }, 60_000)
 
   test('install.sh: a progress bar in a terminal, none when captured, a line per checked file either way', async () => {

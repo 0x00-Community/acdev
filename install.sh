@@ -309,7 +309,15 @@ main() {
         ;;
       *.cshrc | *.tcshrc) line="setenv PATH \"$bin:\$PATH\"" ;;
       *.nu) line="\$env.PATH = (\$env.PATH | split row (char esep) | prepend '$bin')" ;;
-      *) line="export PATH=\"$shown:\$PATH\"" ;;
+      *)
+        unguarded="export PATH=\"$shown:\$PATH\""
+        line="case \":\$PATH:\" in *\":$shown:\"*) ;; *) $unguarded ;; esac"
+        if grep -qsxF "$unguarded" "$1"; then
+          updated=$(awk -v old="$unguarded" -v new="$line" '$0 == old { $0 = new } { print }' "$1") &&
+            printf '%s\n' "$updated" >"$1" && say "made the acde PATH line in $1 add $shown only once"
+          return
+        fi
+        ;;
     esac
     if ! grep -qsF "$line" "$1"; then
       printf '\n# acde\n%s\n' "$line" >>"$1"

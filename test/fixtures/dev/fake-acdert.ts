@@ -365,6 +365,7 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       return void ok(snapshot(m))
     case 'act':
       if (m['action'] === process.env['FAKE_ACDERT_DIES_ON']) process.exit(1)
+      if (m['action'] === process.env['FAKE_ACDERT_HANGS_ON']) return
       if (m['ref'] === 'w1' && m['action'] === 'close' && process.argv[2] === 'app') {
         if (process.env['FAKE_ACDERT_CLOSE'] !== 'answers') process.exit(0)
         setTimeout(() => process.exit(0), 150)
