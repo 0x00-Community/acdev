@@ -3,6 +3,7 @@ name: release
 # Run by hand. Build, check and preview: gh workflow run release.yml -R dopame-org/acde --ref main
 # Publish: gh workflow run release.yml -R dopame-org/acde --ref main -f publish=true -f commit=<sha>
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
+# Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (gh, jq, awscli) comes from Debian's apt.
 on:
   workflow_dispatch:
     inputs:
@@ -35,11 +36,16 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    container: node:22-bookworm
     outputs:
       sha: ${{ steps.version.outputs.sha }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
+      - name: tools from Debian 12
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends gh > /dev/null
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acde
@@ -139,11 +145,16 @@ jobs:
   pkgs:
     needs: [plan, exe]
     runs-on: ubuntu-24.04
+    container: node:22-bookworm
     env:
       TAG: ${{ needs.plan.outputs.tag }}
       SHA: ${{ needs.plan.outputs.sha }}
       SDK_VERSION: ${{ needs.plan.outputs.version }}
     steps:
+      - name: tools from Debian 12
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq > /dev/null
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: acde
@@ -263,6 +274,7 @@ jobs:
   guard:
     needs: [plan, pkgs]
     runs-on: ubuntu-24.04
+    container: node:22-bookworm
     env:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
@@ -295,12 +307,17 @@ jobs:
     needs: [plan, guard]
     if: ${{ inputs.publish && needs.guard.result == 'success' }}
     runs-on: ubuntu-24.04
+    container: node:22-bookworm
     permissions:
       contents: read
       id-token: write
     env:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
+      - name: tools from Debian 12
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq awscli > /dev/null
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: acde-release
@@ -386,6 +403,7 @@ jobs:
     needs: [plan, guard, upload]
     if: ${{ inputs.publish && needs.upload.result == 'success' }}
     runs-on: ubuntu-24.04
+    container: node:22-bookworm
     permissions:
       contents: write
     env:
@@ -423,12 +441,17 @@ jobs:
     needs: [plan, guard, tag]
     if: ${{ inputs.publish && needs.tag.result == 'success' }}
     runs-on: ubuntu-24.04
+    container: node:22-bookworm
     permissions:
       contents: read
       id-token: write
     env:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
+      - name: tools from Debian 12
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq awscli > /dev/null
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: acde-release
