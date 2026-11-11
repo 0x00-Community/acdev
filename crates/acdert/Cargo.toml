@@ -9,8 +9,6 @@ path = "src/main.rs"
 
 [dependencies]
 v8 = "152"
-# ICU 78 data for V8's Intl (v8 152 is ICU 78)
-deno_core_icudata = "0"
 acde-napi = { path = "../acde-napi" }
 acde-render = { path = "../render" }
 acde-gpu = { path = "../gpu" }
