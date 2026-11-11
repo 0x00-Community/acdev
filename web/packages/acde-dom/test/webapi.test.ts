@@ -692,3 +692,38 @@ test('network: a tracked request hands headers and bodies to the network observe
   assert.equal(Tracked.start('fetch', 'GET', 'http://app.acde/b'), null, 'no observer wants it')
   observe(null)
 })
+
+test('network: app files the renderer serves itself are reported with their type, and only while recording', async () => {
+  using web = await page()
+  web.host.assets.set('/public/logo.png', new Uint8Array([1, 2, 3]))
+  web.host.assets.set('/public/site.css', 'p { color: red }')
+  const calls: unknown[][] = []
+  let recording = true
+  const network: NetworkObserver = {
+    recording: () => recording,
+    start: (id, kind, method, url) => void calls.push(['start', kind, method, url]),
+    response: (id, status, statusText, headers) => void calls.push(['response', status, headers]),
+    data: (id, chunk) => void calls.push(['data', chunk.length]),
+    end: (id, bytes) => void calls.push(['end', bytes]),
+    error: (id, message) => void calls.push(['error', message]),
+  }
+  web.context['__network'] = network
+  web.run('__acdeDom.observe({ network: globalThis.__network })')
+  web.dom.loader!(-1, 'http://acde.local/public/logo.png', 'image', '', true)
+  web.dom.loader!(-1, 'http://acde.local/public/site.css', 'style', '', true)
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ['start', 'image', 'GET', 'http://acde.local/public/logo.png'],
+    ['response', 200, [['content-length', '3'], ['content-type', 'image/png']]],
+    ['data', 3],
+    ['end', 3],
+    ['start', 'stylesheet', 'GET', 'http://acde.local/public/site.css'],
+    ['response', 200, [['content-length', '16'], ['content-type', 'text/css']]],
+    ['data', 16],
+    ['end', 16],
+  ])
+  recording = false
+  calls.length = 0
+  web.dom.loader!(-1, 'http://acde.local/public/logo.png', 'image', '', true)
+  assert.deepEqual(calls, [])
+  web.run('__acdeDom.observe(null)')
+})

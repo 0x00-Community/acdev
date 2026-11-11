@@ -8,7 +8,7 @@ import { Headers } from './core/net/headers'
 import { fetch, net, Request, Response } from './core/net'
 import { WebSocket } from './core/net/websocket'
 import { XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net/xhr'
-import { loadResource } from './core/resources'
+import { loadResource, reportServed } from './core/resources'
 import {
   ReadableStream,
   ReadableStreamDefaultController,
@@ -165,10 +165,13 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   if (installed) throw new Error('acde-dom is installed in this context already')
   installCore(global, hostNative, options)
   bindDom(domNative)
-  domNative.setLoader((id, url, destination, cors) => loadResource(url, destination, cors, (bytes, opaque) => {
-    domNative.loaded(id, bytes, opaque)
-    if (destination === 'style') loads.expect()
-  }))
+  domNative.setLoader((id, url, destination, cors, served) => {
+    if (served) return reportServed(url, destination)
+    loadResource(url, destination, cors, (bytes, opaque) => {
+      domNative.loaded(id, bytes, opaque)
+      if (destination === 'style') loads.expect()
+    })
+  })
   env.url = hostNative.parseUrl(options.url, null)?.href ?? options.url
   objectUrlOrigin.value = new URL(env.url).origin
   net.base = () => env.url

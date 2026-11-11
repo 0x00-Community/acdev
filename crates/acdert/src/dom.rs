@@ -126,7 +126,12 @@ pub fn create_document<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionC
     ASSETS.with(|a| *a.borrow_mut() = Assets(resources.clone()));
     let name = Some(crate::rt::web_name());
     let tasks = crate::rt::current().sender();
-    let loader = acde_render::Loader::new(move |load| _ = tasks.send(crate::rt::Msg::Task(Box::new(move |scope| start_load(scope, load)))));
+    let reported = std::env::var_os("ACDE_DEV").is_some();
+    let loader = acde_render::Loader::new(move |load| {
+        if reported || !load.served {
+            _ = tasks.send(crate::rt::Msg::Task(Box::new(move |scope| start_load(scope, load))));
+        }
+    });
     let options = acde_render::Options {
         base_url: Some(format!("{ORIGIN}/")),
         resources: Some(resources),
@@ -158,6 +163,11 @@ thread_local! {
 fn start_load(scope: &mut v8::PinScope, load: acde_render::Load) {
     let Some(callback) = LOADS.with(|l| l.borrow().callback.clone()) else { return };
     let (url, destination, cors) = (load.url.clone(), load.destination, load.cors);
+    if load.served {
+        let args = [(-1.0_f64).js(scope), url.js(scope), destination.js(scope), cors.js(scope), true.js(scope)];
+        bind::call(scope, callback, &args);
+        return;
+    }
     let id = LOADS.with(|l| l.borrow_mut().pending.add(load));
     let args = [id.js(scope), url.js(scope), destination.js(scope), cors.js(scope)];
     if bind::call(scope, callback, &args).is_none() {

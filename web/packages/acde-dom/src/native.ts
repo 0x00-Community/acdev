@@ -168,7 +168,7 @@ export interface DomNative {
   sheetUrl(id: number): string | null
   sheetOpaque(id: number): boolean
   sheetSerial(id: number): number
-  setLoader(load: ((id: number, url: string, destination: string, cors: string) => void) | null): void
+  setLoader(load: ((id: number, url: string, destination: string, cors: string, served?: boolean) => void) | null): void
   loaded(id: number, bytes: Uint8Array | null, opaque: boolean): void
   canvas(id: number, commands: Uint8Array): void
   measureText(id: number, font: string, text: string): Float64Array

@@ -23,6 +23,23 @@ function problem(destination: string, status: number, type: string): string | nu
   return null
 }
 
+function served(kind: RequestKind, url: string, asset: { bytes: Uint8Array; type: string }): void {
+  const tracked = Tracked.network(kind, 'GET', url)
+  tracked?.response(200, 'OK', assetHead(asset))
+  tracked?.received(asset.bytes.length, asset.bytes)
+  tracked?.end(asset.bytes.length)
+}
+
+export function reportServed(url: string, destination: string): void {
+  if (!observer?.network?.recording()) return
+  const routed = route(url, 'GET')
+  const kind = KINDS[destination] ?? 'fetch'
+  if (routed && 'asset' in routed) return served(kind, url, routed.asset)
+  const tracked = Tracked.network(kind, 'GET', url)
+  tracked?.response(200, 'OK')
+  tracked?.end(0)
+}
+
 export function loadResource(url: string, destination: string, cors: string, done: (bytes: Uint8Array | null, opaque: boolean) => void): void {
   const kind = KINDS[destination] ?? 'fetch'
   const routed = route(url, 'GET')
@@ -32,10 +49,7 @@ export function loadResource(url: string, destination: string, cors: string, don
     return done(null, false)
   }
   if ('asset' in routed) {
-    const tracked = Tracked.network(kind, 'GET', url)
-    tracked?.response(200, 'OK', assetHead(routed.asset))
-    tracked?.received(routed.asset.bytes.length, routed.asset.bytes)
-    tracked?.end(routed.asset.bytes.length)
+    served(kind, url, routed.asset)
     return done(routed.asset.bytes, false)
   }
   const font = destination === 'font'
