@@ -157,7 +157,7 @@ interface AcdeFs {
 interface FinderRoot {
   id: string
   label: string
-  source: 'private' | 'place' | 'granted' | 'desktop' | 'downloads' | 'default' | 'task'
+  source: 'private' | 'place' | 'granted' | 'desktop' | 'downloads' | 'default'
   place?: 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos'
   path?: string
   mode: 'writable' | 'read_only' | 'unavailable'
