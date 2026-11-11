@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
-import { Doctor, type Check } from '../src/doctor.ts'
+import { Doctor, type Check, type Repair } from '../src/doctor.ts'
 import { Sessions } from '../src/sessions.ts'
 import { Versions } from '../src/versions.ts'
 import { cleanup, collect, env, standIn, tmp, WINDOWS } from './helpers.ts'
@@ -15,6 +16,13 @@ afterAll(cleanup)
 
 function doctor(args: string[], cwd: string, vars: Record<string, string>) {
   return collect([process.execPath, CLI, 'doctor', ...args], { cwd, env: env(vars) })
+}
+
+function isolated(): Record<string, string> {
+  const home = tmp()
+  return {
+    HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: '', XDG_DATA_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', APPDATA: '',
+  }
 }
 
 function line(out: string, title: string): string {
@@ -198,5 +206,108 @@ describe('acde doctor', () => {
     expect(Doctor.inside(root, root)).toBe(true)
     expect(Doctor.inside(`${root}-other`, root)).toBe(false)
     expect(Doctor.inside(join(root, '..', 'x'), root)).toBe(false)
+  })
+})
+
+describe('acde doctor --fix', () => {
+  const SKILL = 'install the acde skill for the coding agents found here (acde skills install)'
+
+  test('fixes the skill and .acde/ in .gitignore without asking, then checks again', async () => {
+    const s = standIn()
+    const vars: Record<string, string> = { ...s.env, ...isolated(), FAKE_ACDERT_DOCTOR: 'ok' }
+    const git = spawnSync('git', ['init', '-q'], { cwd: s.project })
+    const before = await doctor([], s.project, vars)
+    expect(line(before.stdout, 'agent skill')).toBe('warn   agent skill: the acde skill is not installed for any coding agent')
+    const ran = await doctor(['--fix'], s.project, vars)
+    expect(ran.stdout).toContain(`fixing: ${SKILL}\n`)
+    expect(ran.stdout).toContain(`fixed: ${SKILL}\n`)
+    expect(existsSync(join(vars['HOME']!, '.agents', 'skills', 'acde', 'SKILL.md'))).toBe(true)
+    const after = ran.stdout.slice(ran.stdout.indexOf('acde doctor: after fixing:\n'))
+    expect(after).toMatch(/\nok     agent skill: current in /)
+    if (git.status === 0) {
+      expect(ran.stdout).toContain(`added .acde/ to ${join(s.project, '.gitignore')}\n`)
+      expect(readFileSync(join(s.project, '.gitignore'), 'utf8')).toBe('.acde/\n')
+      expect(line(after, 'git')).toBe('ok     git: .acde/ (the build output) is ignored')
+    }
+    expect(ran.code).toBe(0)
+    const again = await doctor(['--fix'], s.project, vars)
+    expect(again.stdout).toContain('acde doctor: nothing here it can fix; the fix lines say what to do')
+    expect(again.stdout).not.toContain('after fixing')
+  }, 120_000)
+
+  test('what installs or stops something waits for --yes: without a terminal it is skipped and says so', async () => {
+    const s = standIn()
+    const vars: Record<string, string> = { ...s.env, ...isolated(), FAKE_ACDERT_DOCTOR: 'ok' }
+    mkdirSync(join(s.project, 'local-dep'))
+    writeFileSync(join(s.project, 'local-dep', 'package.json'), '{"name":"local-dep","version":"1.0.0"}')
+    writeFileSync(join(s.project, 'package.json'),
+      JSON.stringify({ name: 'alpha', packageManager: 'bun@1.4.4', dependencies: { 'local-dep': 'file:./local-dep' } }))
+    const does = `install the project's dependencies (bun install in ${s.project})`
+    const asked = await doctor(['--fix'], s.project, vars)
+    expect(asked.stdout).toContain(`skipped: ${does} (it asks first: pass --yes to allow it)\n`)
+    expect(existsSync(join(s.project, 'node_modules'))).toBe(false)
+    const yes = await doctor(['--fix', '--yes'], s.project, vars)
+    expect(yes.stdout).toContain(`fixed: ${does}\n`)
+    expect(existsSync(join(s.project, 'node_modules', 'local-dep', 'package.json'))).toBe(true)
+    expect(line(yes.stdout.slice(yes.stdout.indexOf('after fixing')), 'dependencies')).toMatch(/^ok     dependencies: installed with bun/)
+    const refused = await doctor(['--yes'], s.project, vars)
+    expect(refused.code).toBe(1)
+    expect(refused.stderr).toBe('acde: doctor: --yes is for --fix (acde doctor --help)\n')
+  }, 120_000)
+
+  test('a sessions directory that is not a directory is made again', async () => {
+    const s = standIn()
+    const vars: Record<string, string> = { ...s.env, ...isolated(), FAKE_ACDERT_DOCTOR: 'ok' }
+    const dir = Sessions.dir(env(vars))
+    writeFileSync(dir, 'not a directory')
+    const broken = await doctor([], s.project, vars)
+    expect(broken.code).toBe(1)
+    expect(line(broken.stdout, 'acde dev sessions')).toBe(`error  acde dev sessions: ${dir} is not a plain directory; remove it and run again`)
+    const ran = await doctor(['--fix'], s.project, vars)
+    expect(ran.stdout).toContain(`made ${dir} again\n`)
+    expect(statSync(dir).isDirectory()).toBe(true)
+    expect(line(ran.stdout.slice(ran.stdout.indexOf('after fixing')), 'acde dev sessions')).toBe('ok     acde dev sessions: none running')
+    expect(ran.code).toBe(0)
+  }, 120_000)
+
+  test('--fix --json: one object on stdout with what was fixed; the progress goes to stderr', async () => {
+    const s = standIn()
+    const vars: Record<string, string> = { ...s.env, ...isolated(), FAKE_ACDERT_DOCTOR: 'ok' }
+    const ran = await doctor(['--fix', '--json'], s.project, vars)
+    const report = JSON.parse(ran.stdout) as { ok: boolean; fixed: { repair: Repair; result: string }[]; checks: Check[] }
+    expect(report.fixed).toContainEqual(expect.objectContaining({ repair: expect.objectContaining({ action: 'skill' }), result: 'fixed' }))
+    expect(report.checks.find((check) => check.id === 'skill')?.status).toBe('ok')
+    expect(ran.stderr).toContain(`fixed: ${SKILL}`)
+  }, 120_000)
+
+  test('the checks say what they would fix; only problems are fixed, each once; the user may say no', async () => {
+    const dir = tmp()
+    const gitignore: Repair = { action: 'gitignore', target: dir, ask: false, does: 'add .acde/' }
+    const asking: Repair = { action: 'gitignore', target: join(dir, 'x'), ask: true, does: 'something that asks' }
+    const checks: Check[] = [
+      Doctor.mend(Doctor.warn('gitignore', 'git', 'not ignored'), gitignore),
+      Doctor.mend(Doctor.error('again', 'again', 'same repair'), gitignore),
+      Doctor.mend(Doctor.ok('fine', 'fine', 'nothing wrong'), asking),
+      Doctor.mend(Doctor.warn('ask', 'ask', 'needs asking'), asking),
+      Doctor.error('gpu', 'gpu', 'no driver', 'install the driver'),
+    ]
+    expect(Doctor.repairs(checks)).toEqual([gitignore, asking])
+    expect(JSON.parse(Doctor.json(checks)).checks[0].repair).toEqual(gitignore)
+    const said: string[] = []
+    const asked: string[] = []
+    const fixed = await Doctor.fix(checks, {
+      yes: false, output: 'capture', say: (text) => said.push(text), allowing: 'never shown',
+      confirm: async (repair) => {
+        asked.push(repair.does)
+        return false
+      },
+    })
+    expect(asked).toEqual(['something that asks'])
+    expect(fixed.map((done) => done.result)).toEqual(['fixed', 'skipped'])
+    expect(said).toEqual(['fixing: add .acde/', `added .acde/ to ${join(dir, '.gitignore')}`, 'fixed: add .acde/', 'skipped: something that asks'])
+    const none: string[] = []
+    expect(await Doctor.fix([checks[4]!], { yes: true, output: 'capture', say: (text) => none.push(text), confirm: null, allowing: '' }))
+      .toEqual([])
+    expect(none).toEqual(['acde doctor: nothing here it can fix; the fix lines say what to do'])
   })
 })

@@ -149,6 +149,33 @@ export class Mcp {
     )
 
     s.registerTool(
+      'doctor_fix',
+      {
+        description: 'Check this machine as doctor does, then fix what acde may fix: install the acde skill, add .acde/ '
+          + 'to .gitignore, make the sessions directory again. With allow: true also what downloads or stops something: '
+          + 'run the acde installer again for a missing or mismatched acdert, install the project\'s dependencies, stop '
+          + 'a session that does not answer; set allow only when the user agreed. Approvals, GPU drivers and the '
+          + 'project\'s code are never touched. Answers what it did, then the checks again.',
+        inputSchema: z.object({
+          dir: z.string().optional().describe('the project directory, relative to the working directory (default: the '
+            + 'working directory)'),
+          allow: z.boolean().optional().describe('also the fixes that download, install or stop something (the user agreed)'),
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      },
+      (args) => this.#safe(async () => {
+        const options = { ...(args.dir !== undefined && { dir: args.dir }) }
+        const lines: string[] = []
+        await Doctor.fix(await Doctor.run(options), {
+          yes: args.allow === true, output: 'capture', say: (line) => lines.push(line), confirm: null,
+          allowing: 'call again with allow: true once the user agreed',
+        })
+        const after = await Doctor.run(options)
+        return Mcp.#text(`${lines.join('\n')}\n\n${Doctor.format(after)}`)
+      }),
+    )
+
+    s.registerTool(
       'start',
       {
         description: 'Run acde dev (build, start acdert, rebuild and reload on change) and use that session. Without '

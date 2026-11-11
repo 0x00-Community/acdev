@@ -32,12 +32,18 @@ const USAGE = `usage: acde <command>
                                                    project: its desktop or app; several or --desktop: all in that
                                                    desktop (default: the desktop project among them, else dopame);
                                                    --headless: no host window
-  doctor [dir] [--json] [--online]                 check this machine for acde dev and say how to fix what is wrong:
+  doctor [dir] [--json] [--online] [--fix [--yes]]
+                                                   check this machine for acde dev and say how to fix what is wrong:
                                                    acde on PATH, Bun and Node.js, acdert (found, runs, pairs with
                                                    this acde, and its own check of the GPU and its files), running
                                                    sessions and waiting approvals, the project in dir (default: the
                                                    current directory), the agent skill; --online: whether a newer
-                                                   acde is out; --json: one JSON object; exit code 1 on an error
+                                                   acde is out; --json: one JSON object; exit code 1 on an error;
+                                                   --fix: then fix what acde may (the skill, .acde/ in .gitignore,
+                                                   the sessions directory), and ask before what downloads or stops
+                                                   something (the installer again for acdert, the project's install,
+                                                   a session that does not answer; --yes: do those without asking);
+                                                   approvals, drivers and the project's code stay the user's
  with an acde dev running (the one whose projects hold this directory, or --session PID):
   webs                                             the webs (windows' pages) acdert runs
   eval <web> <code|->                              evaluate code in a web (a web name, an app id or desktop),
@@ -115,7 +121,7 @@ class Cli {
     build: { args: [0, 1], flags: ['out'] },
     install: { args: [0, 1], flags: ['out'] },
     dev: { args: [0, Infinity], flags: ['out', 'app', 'desktop'], switches: ['headless'] },
-    doctor: { args: [0, 1], switches: ['json', 'online'] },
+    doctor: { args: [0, 1], switches: ['json', 'online', 'fix', 'yes'] },
     webs: { args: [0, 0], flags: ['session'] },
     eval: { args: [2, 2], flags: ['session'] },
     shot: { args: [1, 1], flags: ['session', 'output'] },
@@ -249,11 +255,7 @@ class Cli {
       })
     }
     if (command === 'skills') return Skills.run(args, flags)
-    if (command === 'doctor') {
-      const checks = await Doctor.run({ ...(args[0] !== undefined && { dir: args[0] }), online: flags.has('online') })
-      console.log(flags.has('json') ? Doctor.json(checks) : Doctor.format(checks))
-      return Doctor.failed(checks) ? 1 : 0
-    }
+    if (command === 'doctor') return await Cli.doctor(args[0], flags)
     if (command === 'mcp')
       return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!) } : {})
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)
@@ -293,6 +295,30 @@ class Cli {
     const using = current === 'bun' ? 'Bun' : 'Node.js'
     console.error(`acde: this project runs on ${needed}, which is not on PATH: going on with ${using}`)
     return null
+  }
+
+  static async doctor(dir: string | undefined, flags: ReadonlyMap<string, string>): Promise<number> {
+    if (flags.has('yes') && !flags.has('fix')) throw new Error('doctor: --yes is for --fix (acde doctor --help)')
+    const options = { ...(dir !== undefined && { dir }), online: flags.has('online') }
+    const json = flags.has('json')
+    const checks = await Doctor.run(options)
+    if (!flags.has('fix')) {
+      console.log(json ? Doctor.json(checks) : Doctor.format(checks))
+      return Doctor.failed(checks) ? 1 : 0
+    }
+    if (!json) console.log(Doctor.format(checks))
+    const interactive = !json && !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
+    const fixed = await Doctor.fix(checks, {
+      yes: flags.has('yes'),
+      output: json ? 'stderr' : 'inherit',
+      say: (line) => (json ? console.error(line) : console.log(line)),
+      confirm: interactive ? async (repair) => (await p.confirm({ message: `${repair.does}?`, initialValue: false })) === true : null,
+      allowing: 'pass --yes to allow it',
+    })
+    const after = fixed.some((done) => done.result === 'fixed') ? await Doctor.run(options) : checks
+    if (json) console.log(Doctor.json(after, fixed))
+    else if (after !== checks) console.log(`acde doctor: after fixing:\n${Doctor.format(after)}`)
+    return Doctor.failed(after) ? 1 : 0
   }
 
   static async create(dir: string, flags: ReadonlyMap<string, string>): Promise<number> {

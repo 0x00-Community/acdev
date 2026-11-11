@@ -204,6 +204,32 @@ describe.skipIf(NO_INSTALL_SH)('dist and install.sh', () => {
     expect(usage.stderr).toContain('usage: acde <command>')
   }, 60_000)
 
+  test('acde doctor --fix --yes runs the installer again when the acdert next to acde is gone', async () => {
+    const home = tmp()
+    expect((await install(home, ['--no-modify-path'])).code).toBe(0)
+    const runtime = join(home, '.acde', 'versions', '0.0.2', 'bin', 'acdert')
+    rmSync(runtime)
+    const acde = join(home, '.acde', 'bin', 'acde')
+    const vars = {
+      HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, ACDE_DIST: base, ACDERT_DIST: `${base}/runtime`,
+      XDG_CONFIG_HOME: '', XDG_DATA_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '',
+    }
+    const does = `run the installer of acde 0.0.2 again (${base}/install.sh), which downloads the acdert this acde pairs with, ` +
+      'checks it against SHA256SUMS and puts it next to acde'
+    const checked = await run(['sh', acde, 'doctor'], vars, home)
+    expect(checked.stdout).toContain(`error  acdert: acde dev needs the Dopame runtime (acdert) and found none: no ${realpathSync(home)}`)
+    const asked = await run(['sh', acde, 'doctor', '--fix'], vars, home)
+    expect(asked.stdout).toContain(`skipped: ${does} (it asks first: pass --yes to allow it)\n`)
+    expect(asked.stdout).toContain('fixed: install the acde skill for the coding agents found here (acde skills install)\n')
+    expect(existsSync(runtime)).toBe(false)
+    const fixed = await run(['sh', acde, 'doctor', '--fix', '--yes'], vars, home)
+    expect(fixed.out).toContain(`installed acde 0.0.2 with acdert ${SDK}`)
+    expect(fixed.stdout).toContain(`fixed: ${does}\n`)
+    expect(existsSync(runtime)).toBe(true)
+    expect(readlinkSync(join(home, '.acde', 'current'))).toBe('versions/0.0.2')
+    expect(existsSync(join(home, '.zshrc'))).toBe(false)
+  }, 120_000)
+
   test('the installed skill is linked through current, so another version brings its own', async () => {
     const home = tmp()
     expect((await install(home, ['--no-modify-path'])).code).toBe(0)

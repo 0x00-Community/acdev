@@ -20,7 +20,7 @@ acde 的开发者 CLI. 和 [acdert](https://github.com/dopame-org/acdert) 的关
 | `acde build [目录] [--out .acde]` | 先查 `acde:` 导入, 构建成 acdert 认的包; 产物清单再过一遍 `Manifest.check` |
 | `acde install [目录] [--out]` | build 后装进 `$XDG_DATA_HOME/acde/packages/<id>` (先拷到 `<id>.new-<pid>` 再换; 手写的包: 指向工程的符号链接) |
 | `acde dev [目录...] [--out] [--app ID] [--desktop ID\|目录] [--headless]` | 构建、起 acdert、改了就重新构建并 `reload` |
-| `acde doctor [目录] [--json] [--online]` | 查这台机器上 `acde dev` / `acde test` 要的东西, 每项给出怎么修 (见「acde doctor」) |
+| `acde doctor [目录] [--json] [--online] [--fix [--yes]]` | 查这台机器上 `acde dev` / `acde test` 要的东西, 每项给出怎么修; `--fix` 修 acde 能修的 (见「acde doctor」) |
 | `acde webs` / `eval` / `shot` / `inspect` / `query` / `act` / `console` / `network` / `screen` / `stop` (`--session <pid>`) | 看和操作跑着的 `acde dev` 里的页面; `stop` 结束它 |
 | `acde permissions` / `allow` / `deny` / `revoke` (`--session <pid>`) | 看待答的批准提示和已有决定, 答提示, 撤销决定 (见「开发工具」的「批准」) |
 | `acde mcp [--session <pid>]` | stdio 上的 MCP 服务 (`claude mcp add acde -- acde mcp`) |
@@ -266,6 +266,25 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 - **`acde dev` 指向 doctor**: 找不到 acdert 的错误末尾那句; acdert 在 dev IPC 连上之前就退出且退出码不是 0 (GPU 不可用、宿主文件缺失、动态库缺失都是这样)
   时打 `acde: acdert exited (<码>) before it was ready; acde doctor checks the runtime, the GPU and this setup`, 退出码跟 acdert.
 - MCP 的 `doctor` 工具 (`{dir?, online?}`) 回同一份 `Doctor.format`, 只读, `openWorldHint` (`online` 时联网); 有错误也不是 `isError` (那是工具本身失败).
+- **`--fix`** (用户 2026-11-11 定的范围: 直接修 acde 自己的、可撤销的; 下载 / 安装 / 结束进程的先问; 用户该做的决定一律不碰): 能修的检查带一个
+  可序列化的 `repair` `{action, target, ask, does}` (和给人看的 `fix` 文字分开, 修的时候只看 `repair`, 不解析文字; 不该修的检查根本没有 `repair`,
+  想修也修不了). `Doctor.repairs` 只取 `warn` / `error` 上的, 按 `action:target` 去重 (重装可能挂在 `acdert`、`contract`、`runtime.host` 几项上).
+  `Doctor.fix` 逐个做: `ask` 的先问 (`--yes` 不问; 终端里 @clack 的 confirm, 默认否; 不在终端也没 `--yes` 时跳过并说 `pass --yes to allow it`),
+  打 `fixing:` / `fixed:` / `failed: …: <原因>` / `skipped:`; 有修成的就再跑一遍检查, 退出码看第二遍. 动作 (`Doctor.apply`):
+  - `skill` (不问): 子进程跑 `acde skills install` (`cliRuntime()` + `cliFile()`), 和用户敲的同一条路, 不在这里另装一份.
+  - `gitignore` (不问): `Creator.ignoreBuild` (`acde new` 的框架模板也用它).
+  - `sessions-dir` (不问): 只在它是链接或文件时 (别的用户的目录不修), 删掉再 `Sessions.prepare`.
+  - `reinstall` (问): 全局装的 acde、`ACDERT` 没指定时, 挂在 acdert 找不到 / 起不来 (macOS 隔离的除外: 重装不解决, 那是用户的安全决定) / 没有契约级别、
+    契约级别或版本不配对、`runtime.host` 错误、旧 acdert 版本也不对 这几处. 从 `$ACDE_DIST` 取 `install.sh` (Windows `install.ps1`) 存进临时目录,
+    `sh <它> --version <这个 acde 的版本> --no-modify-path` (Windows `powershell -NoProfile -ExecutionPolicy Bypass -File <它> -Version … -NoModifyPath`),
+    `ACDE_INSTALL` 设成这个 acde 的安装根. 只修当前版本, 不顺手升级; 不改 shell 启动文件. 下载、校验、原子替换都是安装器自己的, TS 里不另写一份.
+  - `dependencies` (问): 工程包管理器的 `install` (`PackageManager.install`).
+  - `stop` (问): 子进程跑 `acde stop --session <pid>`.
+  子进程的输出: 文字模式直接给终端; `--json` 时 stdout 指到 fd 2, stdout 上只有最后的 JSON (`{ok, fixed: [{repair, result, said}], checks}`);
+  MCP 收下来, 每个最多留最后 20 行. 时限: acde 子命令 60 s, 安装器和包管理器 15 min.
+  MCP 的 `doctor_fix` (`{dir?, allow?}`): 同一个 `Doctor.fix`, `allow` 就是 `--yes`, 没有 confirm (跳过时说 `call again with allow: true once the user
+  agreed`), 标成 destructive / openWorld 让客户端先问用户. 不修的: 待答的批准、GPU 驱动和系统库、macOS 隔离、PATH 上别的 acde、工程的代码和配置
+  (含 `@dopame/acde-api` 版本不对, 要改 package.json).
 - 实测 (2026-11-11, 本仓库加 acdert 的 `acdert doctor`): macOS (M3 Pro, Metal) 源码跑和经 `install.sh` 从本地镜像装到临时 HOME 后跑 (PATH 前后两种);
   Linux .234 (Panther Lake, Mesa Vulkan) 经 SSH 无显示 (`display` 警告)、`WAYLAND_DISPLAY` 设了、`VK_DRIVER_FILES` 指向不存在的 ICD (`gpu` 错误);
   一个不可执行的 `ACDERT`、退出码 127 加动态库报错的、启动就退出的假 acdert. 没在 Windows 上跑.
@@ -395,7 +414,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   基线: acde test 里是测试文件旁的 `__screenshots__/<文件名>/<名字>-<平台>.png` (不给名字是 `<测试名>-<序号>`), 单用 driver 时名字要是 .png 路径.
 - **trace** (`trace.ts`): `acde.trace` 记每个动作和断言 (Locator / AppWindow 的方法、`expect`、`open`、`route`、`choose*` …; 嵌套的只记最外层) 的
   标题、耗时、结果; `screenshots` 开着时每步之后拍整屏. `write(dir)` 写 `trace.txt`, 有截图时再写 `trace.html` (自带的查看页) 和 `trace/NNN.png`.
-- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 30 个工具 (`doctor` 见「acde doctor」, 其余建在 driver 上) (含 `route` / `unroute` / `clipboard`, `act` 的 drag / select,
+- **MCP** (`src/mcp.ts`, `@modelcontextprotocol/server`): 31 个工具 (`doctor` / `doctor_fix` 见「acde doctor」, 其余建在 driver 上) (含 `route` / `unroute` / `clipboard`, `act` 的 drag / select,
   `input` (原始鼠标键盘)、`clock`、`dialog` (答复下一个并列出已有的)、`resize`, 这四个在 `src/mcppage.ts` 的 `PageTools.register`, 经
   `PageToolsHost` 用 `Mcp` 的会话和结果);
   `permissions` / `answer {allow, prompt? | app? + capability?}` / `revoke {app, capability}` 和命令行的批准命令共用 `Approvals`, `answer` / `revoke` 标成 destructive (`answer` 带 `allow: true` 时必须给 `app` 和 `capability`, 不认只给 id 或什么都不给: 批准替的是用户的回答, 而且决定是持久的, 所以批准了什么要写在这次调用里, 客户端问用户时看得见; 拒绝不要求)
@@ -626,7 +645,9 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
 ## 测试
 
 `bun test`: `cli` (build、install、配置、public 和图标、新工程、用错的参数)、`doctor` (假 acdert 扮演有 / 没有 `acdert doctor`、报 GPU 错误、
-给不出报告、另一个契约级别、起不来的 acdert; 工程的几项; 跑着的 `acde dev` 里等批准的应用; `acde dev` 在 acdert 提前退出时的提示)、`templates` (自带模板和框架配置的第 1 级形态: 新建、check、
+给不出报告、另一个契约级别、起不来的 acdert; 工程的几项; 跑着的 `acde dev` 里等批准的应用; `acde dev` 在 acdert 提前退出时的提示; `--fix`:
+不问就修的 skill / `.gitignore` / 会话目录, 不在终端时跳过、`--yes` 才做的工程依赖, `--json`, 去重和拒绝; 重装运行时在 `dist` 里: 经 install.sh
+装好后删掉 acdert, `--fix` 跳过, `--fix --yes` 跑安装器装回来)、`templates` (自带模板和框架配置的第 1 级形态: 新建、check、
 build 后 SDK 校验无错无警告)、`skills` (skill 的写法规则、和命令 / MCP 工具对得上、`acde skills` 在临时 HOME 里装和删)、`imports` (`acde:` 导入:
 分词, 第三方 / 系统应用、桌面页、服务、手写的包、框架应用; check 和 Bun / Vite 两种 build)、`launcher`、`runtime`、`listen`、`channel` (帧编解码与流量控制;
 打好的 preload 在真的 node 上由测试扮演运行时, 用 `node:child_process` 的额外管道当 fd 3 / 4, 没有 node ≥ 22 就跳过这一半)、`node` (打好的后端在 Node 上跑; 要

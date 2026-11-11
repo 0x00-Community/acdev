@@ -1,9 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { PermissionPrompt } from '@dopame/acde-api'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
-import { BUN_MINIMUM, findAcdert, installed, NODE_MINIMUM, packageRoot, runtimes, which, type FoundAcdert } from 'acde/launcher'
+import {
+  BUN_MINIMUM, cliFile, cliRuntime, findAcdert, installed, NODE_MINIMUM, packageRoot, runtimes, which, type FoundAcdert,
+} from 'acde/launcher'
 import { Agents } from './agents.ts'
 import { Project } from './app.ts'
 import { Creator } from './create.ts'
@@ -12,12 +15,21 @@ import { Acde } from './driver/acde.ts'
 import { AppPackage } from './package.ts'
 import { up } from './paths.ts'
 import { PackageManager } from './pm.ts'
-import { Runtime } from './runtime.ts'
+import { Runtime, type SpawnOptions } from './runtime.ts'
 import { Sessions, type Session } from './sessions.ts'
 import { Skills } from './skills.ts'
 import { Versions } from './versions.ts'
 
 export type Status = 'ok' | 'warn' | 'error' | 'skip'
+
+export type RepairAction = 'reinstall' | 'sessions-dir' | 'stop' | 'dependencies' | 'skill' | 'gitignore'
+
+export interface Repair {
+  readonly action: RepairAction
+  readonly target: string
+  readonly ask: boolean
+  readonly does: string
+}
 
 export interface Check {
   readonly id: string
@@ -25,6 +37,23 @@ export interface Check {
   readonly status: Status
   readonly summary: string
   readonly fix?: string
+  readonly repair?: Repair
+}
+
+export type Output = 'inherit' | 'stderr' | 'capture'
+
+export interface Fixed {
+  readonly repair: Repair
+  readonly result: 'fixed' | 'failed' | 'skipped'
+  readonly said: string
+}
+
+export interface FixOptions {
+  readonly yes: boolean
+  readonly output: Output
+  readonly say: (line: string) => void
+  readonly confirm: ((repair: Repair) => Promise<boolean>) | null
+  readonly allowing: string
 }
 
 export interface DoctorOptions {
@@ -58,6 +87,10 @@ export class Doctor {
   static readonly RUNTIME_MS = 60_000
   static readonly SESSION_MS = 3_000
   static readonly ONLINE_MS = 5_000
+  static readonly FETCH_MS = 30_000
+  static readonly ACDE_MS = 60_000
+  static readonly INSTALL_MS = 15 * 60_000
+  static readonly KEEP_LINES = 20
   static readonly ANSWER = 'acde allow (or acde deny): approving is the user\'s decision'
   static readonly PLATFORMS: Readonly<Record<string, string>> = { darwin: 'macos', win32: 'windows', linux: 'linux' }
   static readonly STATUSES: readonly Status[] = ['ok', 'warn', 'error', 'skip']
@@ -67,13 +100,15 @@ export class Doctor {
     const probe = found.path ? await DevSession.runtimeLevel(found.path) : null
     const runs = found.path !== null && probe !== null && probe.failed === null
     const available = runtimes()
+    const reinstall = Doctor.reinstallable(found) ? Doctor.reinstall() : null
     return [
       Doctor.acde(),
       Doctor.onPath(),
       Doctor.runtimes(available),
-      Doctor.acdert(found, probe),
-      runs ? Doctor.contract(probe) : Doctor.skip('contract', 'contract level', 'needs an acdert that runs'),
-      ...(runs ? await Doctor.selfCheck(found.path!, probe) : [Doctor.skip('runtime', 'runtime check', 'needs an acdert that runs')]),
+      Doctor.acdert(found, probe, reinstall),
+      runs ? Doctor.contract(probe, reinstall) : Doctor.skip('contract', 'contract level', 'needs an acdert that runs'),
+      ...(runs ? await Doctor.selfCheck(found.path!, probe, reinstall)
+        : [Doctor.skip('runtime', 'runtime check', 'needs an acdert that runs')]),
       ...(await Doctor.sessions()),
       ...Doctor.project(resolve(options.dir ?? '.'), options.dir !== undefined, available),
       Doctor.skill(),
@@ -100,8 +135,8 @@ export class Doctor {
     return lines.join('\n')
   }
 
-  static json(checks: readonly Check[]): string {
-    return JSON.stringify({ ok: !Doctor.failed(checks), checks }, null, 2)
+  static json(checks: readonly Check[], fixed?: readonly Fixed[]): string {
+    return JSON.stringify({ ok: !Doctor.failed(checks), ...(fixed && { fixed }), checks }, null, 2)
   }
 
   static acde(): Check {
@@ -129,41 +164,48 @@ export class Doctor {
     return Doctor.ok('runtimes', 'Bun and Node.js', summary)
   }
 
-  static acdert(found: FoundAcdert, probe: RuntimeProbe | null): Check {
-    if (!found.path || !probe) return Doctor.error('acdert', 'acdert', found.problem ?? 'not found', Doctor.acdertFix(found))
+  static acdert(found: FoundAcdert, probe: RuntimeProbe | null, reinstall: Repair | null = null): Check {
+    if (!found.path || !probe)
+      return Doctor.mend(Doctor.error('acdert', 'acdert', found.problem ?? 'not found', Doctor.acdertFix(found)), reinstall)
     const where = `${found.path} (${FROM[found.from!]})`
-    if (probe.failed) return Doctor.error('acdert', 'acdert', `${where} does not run: ${probe.failed}`, Doctor.runFix(found, probe))
+    if (probe.failed) {
+      const fix = Doctor.runFix(found, probe)
+      const quarantine = process.platform === 'darwin' && fix.startsWith('macOS keeps it in quarantine')
+      const failing = Doctor.error('acdert', 'acdert', `${where} does not run: ${probe.failed}`, fix)
+      return quarantine ? failing : Doctor.mend(failing, reinstall)
+    }
     if (probe.level === 0) {
       const told = probe.said ? `says ${JSON.stringify(probe.said)}` : 'printed nothing'
-      return Doctor.error('acdert', 'acdert', `${where}: --version ${told}, no contract level: it is older than contract levels`,
-        Doctor.acdertFix(found))
+      return Doctor.mend(Doctor.error('acdert', 'acdert', `${where}: --version ${told}, no contract level: it is older than contract levels`,
+        Doctor.acdertFix(found)), reinstall)
     }
     return Doctor.ok('acdert', 'acdert', `${probe.said.split(/\r?\n/)[0]} at ${where}`)
   }
 
-  static contract(probe: RuntimeProbe): Check {
+  static contract(probe: RuntimeProbe, reinstall: Repair | null = null): Check {
     const version = /^acdert (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
     const sdk = Versions.sdk()
     const pairs = `acde ${Versions.acde()} is built with SDK ${sdk}, which pairs with acdert ${sdk}`
     if (probe.level !== API_LEVEL) {
-      return Doctor.error('contract', 'contract level', `acde builds level ${API_LEVEL} apps, but acdert ${version} runs level ` +
-        `${probe.level}: acde dev refuses to start it`, Doctor.pairFix(sdk))
+      return Doctor.mend(Doctor.error('contract', 'contract level', `acde builds level ${API_LEVEL} apps, but acdert ${version} runs ` +
+        `level ${probe.level}: acde dev refuses to start it`, Doctor.pairFix(sdk)), reinstall)
     }
     if (version !== sdk) {
-      return Doctor.warn('contract', 'contract level', `level ${API_LEVEL} on both sides, but ${pairs} and this one is ${version}`,
-        Doctor.pairFix(sdk))
+      return Doctor.mend(Doctor.warn('contract', 'contract level', `level ${API_LEVEL} on both sides, but ${pairs} and this one is ` +
+        `${version}`, Doctor.pairFix(sdk)), reinstall)
     }
     return Doctor.ok('contract', 'contract level', `level ${API_LEVEL} on both sides (acdert ${version}, SDK ${sdk})`)
   }
 
-  static async selfCheck(acdert: string, probe: RuntimeProbe): Promise<Check[]> {
+  static async selfCheck(acdert: string, probe: RuntimeProbe, reinstall: Repair | null = null): Promise<Check[]> {
     const help = await Runtime.capture([acdert, '--help'], { timeout: Doctor.HELP_MS })
     if (!/^\s*acdert doctor\b/m.test(help.stdout)) {
       const version = /^acdert (\S+) /.exec(probe.said)?.[1] ?? 'unknown'
       const sdk = Versions.sdk()
       const fix = version === sdk ? 'use a newer build of acdert: this one was built before acdert doctor' : Doctor.pairFix(sdk)
-      return [Doctor.warn('runtime', 'runtime check', `acdert ${version} cannot check itself (it has no acdert doctor), so its GPU ` +
-        'and host files were not checked', fix)]
+      const old = Doctor.warn('runtime', 'runtime check', `acdert ${version} cannot check itself (it has no acdert doctor), so its ` +
+        'GPU and host files were not checked', fix)
+      return [version === sdk ? old : Doctor.mend(old, reinstall)]
     }
     const ran = await Runtime.capture([acdert, 'doctor', '--json'], { timeout: Doctor.RUNTIME_MS })
     if (ran.timedOut)
@@ -176,19 +218,28 @@ export class Doctor {
       const said = ran.error ?? (ran.stderr.trim().split(/\r?\n/).at(-1) || `exit code ${ran.code}`)
       return [Doctor.error('runtime', 'runtime check', `acdert doctor gave no report: ${said}`)]
     }
-    return report.checks.map((check) => ({
-      id: `runtime.${check.id}`,
-      title: check.title,
-      status: Doctor.STATUSES.includes(check.status) ? check.status : 'error',
-      summary: check.summary,
-      ...(check.fix && { fix: check.fix }),
-    }))
+    return report.checks.map((check) => {
+      const mapped: Check = {
+        id: `runtime.${check.id}`,
+        title: check.title,
+        status: Doctor.STATUSES.includes(check.status) ? check.status : 'error',
+        summary: check.summary,
+        ...(check.fix && { fix: check.fix }),
+      }
+      return check.id === 'host' ? Doctor.mend(mapped, reinstall) : mapped
+    })
   }
 
   static async sessions(): Promise<Check[]> {
     const dir = Sessions.dir()
     const problem = Sessions.problem(dir)
-    if (problem) return [Doctor.error('sessions', 'acde dev sessions', problem, `remove ${dir}`)]
+    if (problem) {
+      const info = lstatSync(dir)
+      const replaceable = info.isSymbolicLink() || !info.isDirectory()
+      const failing = Doctor.error('sessions', 'acde dev sessions', problem, `remove ${dir}`)
+      return [replaceable ? Doctor.mend(failing, { action: 'sessions-dir', target: dir, ask: false,
+        does: `remove ${dir}, which is not a plain directory, and make it again` }) : failing]
+    }
     const running = Sessions.list(dir)
     if (running.length === 0) return [Doctor.ok('sessions', 'acde dev sessions', 'none running')]
     const checks = [Doctor.ok('sessions', 'acde dev sessions', `${running.length} running: ` +
@@ -203,7 +254,10 @@ export class Doctor {
       prompts = await Doctor.#within(Doctor.#pending(session), Doctor.SESSION_MS)
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error)
-      return [Doctor.warn('sessions', 'acde dev sessions', `acde dev ${session.pid} does not answer: ${why}`, `acde stop --session ${session.pid}`)]
+      const stuck = Doctor.warn('sessions', 'acde dev sessions', `acde dev ${session.pid} does not answer: ${why}`,
+        `acde stop --session ${session.pid}`)
+      return [Doctor.mend(stuck, { action: 'stop', target: String(session.pid), ask: true,
+        does: `stop acde dev ${session.pid}, which does not answer (acde stop --session ${session.pid})` })]
     }
     return prompts.map((prompt) => Doctor.warn('approval', 'approval', `${prompt.app} waits for approval of ${prompt.capability} ` +
       `in acde dev ${session.pid}, so it opens no window until the prompt is answered`, Doctor.ANSWER))
@@ -276,7 +330,8 @@ export class Doctor {
     const missing = Object.keys(declared).filter((name) => Doctor.installedPackage(dir, name) === null)
     if (missing.length > 0) {
       const named = missing.length > 3 ? `${missing.slice(0, 3).join(', ')} and ${missing.length - 3} more` : missing.join(', ')
-      return Doctor.warn('dependencies', 'dependencies', `not installed: ${named}`, `${pm.name} install`)
+      return Doctor.mend(Doctor.warn('dependencies', 'dependencies', `not installed: ${named}`, `${pm.name} install`),
+        { action: 'dependencies', target: dir, ask: true, does: `install the project's dependencies (${pm.name} install in ${dir})` })
     }
     const sdk = Versions.sdk()
     const apiAt = Doctor.installedPackage(dir, '@dopame/acde-api')
@@ -304,7 +359,10 @@ export class Doctor {
     if (inside.status !== 0 || inside.stdout.trim() !== 'true') return null
     const checked = spawnSync(git, ['check-ignore', '-q', '.acde/'], { cwd: dir })
     if (checked.status === 0) return Doctor.ok('gitignore', 'git', '.acde/ (the build output) is ignored')
-    if (checked.status === 1) return Doctor.warn('gitignore', 'git', '.acde/ (the build output) is not ignored by git', 'add .acde/ to .gitignore')
+    if (checked.status === 1) {
+      return Doctor.mend(Doctor.warn('gitignore', 'git', '.acde/ (the build output) is not ignored by git', 'add .acde/ to .gitignore'),
+        { action: 'gitignore', target: dir, ask: false, does: `add .acde/ to ${join(dir, '.gitignore')}` })
+    }
     return null
   }
 
@@ -314,11 +372,16 @@ export class Doctor {
     const source = Skills.stable()
     const seen = Skills.places(Agents.all()).map((place) => ({ place, state: Skills.look(source, place).state }))
     const placed = seen.filter(({ state }) => state === 'current' || state === 'outdated' || state === 'broken')
-    if (placed.length === 0) return Doctor.warn('skill', 'agent skill', 'the acde skill is not installed for any coding agent', 'acde skills install')
+    const install: Repair = { action: 'skill', target: '', ask: false,
+      does: 'install the acde skill for the coding agents found here (acde skills install)' }
+    if (placed.length === 0) {
+      return Doctor.mend(Doctor.warn('skill', 'agent skill', 'the acde skill is not installed for any coding agent',
+        'acde skills install'), install)
+    }
     const stale = placed.filter(({ state }) => state !== 'current')
     if (stale.length > 0) {
-      return Doctor.warn('skill', 'agent skill', stale.map(({ place, state }) => `${Skills.at(place)} is ${state}`).join('; '),
-        'acde skills install')
+      return Doctor.mend(Doctor.warn('skill', 'agent skill', stale.map(({ place, state }) => `${Skills.at(place)} is ${state}`)
+        .join('; '), 'acde skills install'), install)
     }
     return Doctor.ok('skill', 'agent skill', `current in ${placed.map(({ place }) => Skills.at(place)).join(', ')}`)
   }
@@ -345,6 +408,135 @@ export class Doctor {
     const base = (env['ACDE_DIST'] || Doctor.DIST).replace(/\/+$/, '')
     if (process.platform === 'win32') return `run the installer again: irm ${base}/install.ps1 | iex`
     return `run the installer again: curl -fsSL ${base}/install.sh | sh`
+  }
+
+  static reinstallable(found: FoundAcdert): boolean {
+    return installed(packageRoot()) && found.from !== 'ACDERT'
+  }
+
+  static reinstall(env: NodeJS.ProcessEnv = process.env): Repair {
+    const version = Versions.acde()
+    const script = process.platform === 'win32' ? 'install.ps1' : 'install.sh'
+    return {
+      action: 'reinstall',
+      target: version,
+      ask: true,
+      does: `run the installer of acde ${version} again (${Doctor.dist(env)}/${script}), which downloads the acdert this acde ` +
+        `pairs with, checks it against SHA256SUMS and puts it next to acde`,
+    }
+  }
+
+  static dist(env: NodeJS.ProcessEnv = process.env): string {
+    return (env['ACDE_DIST'] || Doctor.DIST).replace(/\/+$/, '')
+  }
+
+  static installRoot(): string {
+    return resolve(Doctor.home(), '..', '..')
+  }
+
+  static mend(check: Check, repair: Repair | null): Check {
+    return repair ? { ...check, repair } : check
+  }
+
+  static repairs(checks: readonly Check[]): Repair[] {
+    const seen = new Map<string, Repair>()
+    for (const check of checks) {
+      if (!check.repair || (check.status !== 'warn' && check.status !== 'error')) continue
+      const key = `${check.repair.action}:${check.repair.target}`
+      if (!seen.has(key)) seen.set(key, check.repair)
+    }
+    return [...seen.values()]
+  }
+
+  static async fix(checks: readonly Check[], options: FixOptions): Promise<Fixed[]> {
+    const repairs = Doctor.repairs(checks)
+    if (repairs.length === 0) {
+      options.say('acde doctor: nothing here it can fix; the fix lines say what to do')
+      return []
+    }
+    const done: Fixed[] = []
+    for (const repair of repairs) {
+      if (repair.ask && !options.yes) {
+        const agreed = options.confirm ? await options.confirm(repair) : false
+        if (!agreed) {
+          const how = options.confirm ? '' : ` (it asks first: ${options.allowing})`
+          options.say(`skipped: ${repair.does}${how}`)
+          done.push({ repair, result: 'skipped', said: '' })
+          continue
+        }
+      }
+      options.say(`fixing: ${repair.does}`)
+      try {
+        const said = await Doctor.apply(repair, options.output)
+        if (said) options.say(said)
+        options.say(`fixed: ${repair.does}`)
+        done.push({ repair, result: 'fixed', said })
+      } catch (error) {
+        const why = error instanceof Error ? error.message : String(error)
+        options.say(`failed: ${repair.does}: ${why}`)
+        done.push({ repair, result: 'failed', said: why })
+      }
+    }
+    return done
+  }
+
+  static async apply(repair: Repair, output: Output): Promise<string> {
+    switch (repair.action) {
+      case 'skill':
+        return await Doctor.#run([cliRuntime(), cliFile(), 'skills', 'install'], {}, output, Doctor.ACDE_MS)
+      case 'stop':
+        return await Doctor.#run([cliRuntime(), cliFile(), 'stop', '--session', repair.target], {}, output, Doctor.ACDE_MS)
+      case 'gitignore':
+        return `added .acde/ to ${Creator.ignoreBuild(repair.target)}`
+      case 'sessions-dir':
+        rmSync(repair.target, { force: true })
+        Sessions.prepare(repair.target)
+        return `made ${repair.target} again`
+      case 'dependencies':
+        return await Doctor.#run(PackageManager.of(repair.target).install, { cwd: repair.target }, output, Doctor.INSTALL_MS)
+      case 'reinstall':
+        return await Doctor.#reinstall(repair.target, output)
+    }
+  }
+
+  static async #reinstall(version: string, output: Output): Promise<string> {
+    const windows = process.platform === 'win32'
+    const script = windows ? 'install.ps1' : 'install.sh'
+    const url = `${Doctor.dist()}/${script}`
+    const response = await fetch(url, { signal: AbortSignal.timeout(Doctor.FETCH_MS) })
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
+    const dir = mkdtempSync(join(tmpdir(), 'acde-doctor-'))
+    try {
+      const file = join(dir, script)
+      writeFileSync(file, await response.text())
+      const argv = windows
+        ? ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file, '-Version', version, '-NoModifyPath']
+        : ['sh', file, '--version', version, '--no-modify-path']
+      return await Doctor.#run(argv, { env: { ...process.env, ACDE_INSTALL: Doctor.installRoot() } }, output, Doctor.INSTALL_MS)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  static async #run(argv: readonly string[], options: SpawnOptions, output: Output, timeout: number): Promise<string> {
+    const shown = argv.slice(argv[1] === cliFile() ? 2 : 0).join(' ')
+    if (output === 'capture') {
+      const ran = await Runtime.capture(argv, { ...options, timeout })
+      const said = `${ran.stdout}${ran.stderr}`.trim().split(/\r?\n/).slice(-Doctor.KEEP_LINES).join('\n')
+      if (ran.error) throw new Error(ran.error)
+      if (ran.timedOut) throw new Error(`${shown} did not finish within ${timeout / 1000} s`)
+      if (ran.code !== 0) throw new Error(`${shown} exited with code ${ran.code}${said ? `:\n${said}` : ''}`)
+      return said
+    }
+    const child = Runtime.spawn(argv, { ...options, stdio: ['ignore', output === 'inherit' ? 'inherit' : 2, 'inherit'] })
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeout)
+    try {
+      const code = await child.exited
+      if (code !== 0) throw new Error(`${shown} exited with code ${code}`)
+      return ''
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   static home(): string {
@@ -378,7 +570,7 @@ export class Doctor {
 
   static pathFix(home: string): string {
     if (!installed(packageRoot())) return `bun link (in ${home}) puts this checkout's acde on PATH`
-    const root = resolve(home, '..', '..')
+    const root = Doctor.installRoot()
     const bin = process.platform === 'win32' ? join(root, 'current', 'bin') : join(root, 'bin')
     return `add ${bin} to PATH (the installer does that unless it is told not to)`
   }

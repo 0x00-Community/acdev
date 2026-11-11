@@ -13,17 +13,21 @@ On error, acde prints one line, `acde: <reason>`, and exits with code 1. A wrong
 ### acde doctor
 
 ```text
-acde doctor [dir] [--json] [--online]
+acde doctor [dir] [--json] [--online] [--fix [--yes]]
 ```
 
 Checks what `acde dev` and `acde test` need on this machine: acde on PATH, Bun and Node.js, acdert (found, runs, runs the contract level this acde builds, is the release this acde pairs with), the runtime's own checks (`acdert doctor`: its host files, the GPU, and on Linux the display), running `acde dev` sessions and the approvals they wait for, the project in `dir` (default: the current directory; `acde check`, this platform, its dependencies, `.acde/` in `.gitignore`), and the acde skill for coding agents. See [Check the setup](../guide/doctor.md).
 
 | Option | Description |
 | --- | --- |
-| `--json` | One JSON object instead of lines: `{"ok": …, "checks": [{"id", "title", "status", "summary", "fix"}]}` |
+| `--json` | One JSON object instead of lines: `{"ok": …, "checks": [{"id", "title", "status", "summary", "fix", "repair"}]}`; with `--fix` also `"fixed"` |
 | `--online` | Also ask `pkgs.dopame.ai` (or `ACDE_DIST`) whether a newer acde is out |
+| `--fix` | After the checks, fix what acde can: some fixes right away, the others after asking; then check again. See [Fix what it can](../guide/doctor.md#fix-what-it-can) |
+| `--yes` | With `--fix`: do the fixes that ask first without asking |
 
 It prints one line per check, `<status> <check>: <what it found>`, with `fix: …` on the next line for a problem, and a last line that counts errors and warnings. The status is `ok`, `warn`, `error` or `skip` (not checked: no project here, or an earlier check failed). It exits with code 1 when a check is an error, else 0. A `dir` that holds no acde project is an error.
+
+With `--fix`, after the report it prints `fixing: <what>`, the output of what it runs, and `fixed: <what>` or `failed: <what>: <why>` for each fix, `skipped: <what>` for one that was not allowed, and then `acde doctor: after fixing:` and the checks again; the exit code follows the second run. When nothing can be fixed it says `acde doctor: nothing here it can fix; the fix lines say what to do`. `--yes` without `--fix` is an error.
 
 ## Projects
 

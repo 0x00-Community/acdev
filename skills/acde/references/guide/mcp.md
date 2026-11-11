@@ -19,6 +19,7 @@ Other clients: the command is `acde mcp`, with no arguments (add `--session <pid
 | Tool | What it does |
 | --- | --- |
 | `doctor` | Checks this machine for `acde dev`, as [`acde doctor`](doctor.md) does; call it first when `start` fails |
+| `doctor_fix` | Checks, fixes what acde may fix, and checks again, as `acde doctor --fix` does; `allow: true` also runs the fixes that download, install or stop something, so pass it only when the user agreed. Marked as an action that needs confirmation |
 | `sessions` | Lists running `acde dev` sessions; can pin one |
 | `start` / `stop` / `logs` | Starts its own `acde dev` session (for the project in the working directory by default), stops it, reads its output |
 | `webs` | Lists pages; when an app waits for an approval instead, says so |

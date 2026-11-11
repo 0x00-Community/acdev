@@ -286,10 +286,15 @@ export class Creator {
     Creator.#copy(join(Creator.TEMPLATES, 'framework'), dir, { id, label, framework })
     Creator.#wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' })
     Creator.#title(dir, label)
+    Creator.ignoreBuild(dir)
+  }
+
+  static ignoreBuild(dir: string): string {
     const ignore = join(dir, '.gitignore')
     const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
     if (!/^\/?\.acde\/?$/m.test(ignored))
       writeFileSync(ignore, `${ignored}${ignored && !ignored.endsWith('\n') ? '\n' : ''}.acde/\n`)
+    return ignore
   }
 
   static #title(dir: string, label: string): void {

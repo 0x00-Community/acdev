@@ -1,6 +1,6 @@
 # Check the setup
 
-`acde doctor` checks what `acde dev` and `acde test` need on this machine and says how to fix what is wrong. Run it after installing, in a project you are about to work on, and whenever `acde dev`, `acde test` or the MCP `start` does not come up.
+`acde doctor` checks what `acde dev` and `acde test` need on this machine and says how to fix what is wrong; `acde doctor --fix` fixes what acde may fix itself. Run it after installing, in a project you are about to work on, and whenever `acde dev`, `acde test` or the MCP `start` does not come up.
 
 ```sh
 acde doctor
@@ -91,6 +91,33 @@ warn   approval: notes waits for approval of terminal in acde dev 4242, so it op
        fix: acde allow (or acde deny): approving is the user's decision
 ```
 
+## Fix what it can
+
+`acde doctor --fix` runs the checks, prints them, then fixes what it can and checks again:
+
+| Fix | When | Asks first |
+| --- | --- | --- |
+| `acde skills install` | The acde skill is not installed for any coding agent, or an installed one is outdated or broken | No |
+| Add `.acde/` to the project's `.gitignore` | git does not ignore the build output | No |
+| Remove and make again the sessions directory | It is a link or a file, not a directory | No |
+| Run the installer of this acde version again (`install.sh --version <this version> --no-modify-path`, `install.ps1 -Version … -NoModifyPath` on Windows) | The runtime next to acde is missing, does not run, is of another contract level or release, or lacks its host files; only for an installed acde, and not when `ACDERT` names the runtime | Yes: it downloads the runtime and replaces the install, all or nothing, as the installer always does |
+| The project's install (`bun install`, `npm install`, …) | Its dependencies are not installed | Yes: it downloads packages and runs their install scripts |
+| `acde stop --session <pid>` | A running `acde dev` does not answer | Yes: it ends a process you started |
+
+In a terminal it asks about each fix in the last column. Without a terminal (a script, a coding agent) it skips them and says so, `skipped: … (it asks first: pass --yes to allow it)`, unless it is given `--yes`. A coding agent passes `--yes` only when the user agreed.
+
+It never touches what is the user's to decide: an app that waits for an approval, a GPU driver or a system library, a binary in macOS quarantine, another acde on PATH, the project's code and config. Those keep their `fix:` line.
+
+```text
+fixing: install the acde skill for the coding agents found here (acde skills install)
+acde: skill linked to /Users/me/.agents/skills/acde (Cline, Codex, …)
+fixed: install the acde skill for the coding agents found here (acde skills install)
+skipped: install the project's dependencies (bun install in /Users/me/notes) (it asks first: pass --yes to allow it)
+acde doctor: after fixing:
+ok     acde: 0.0.9 on Bun 1.4.4 (/Users/me/.acde/versions/0.0.9)
+…
+```
+
 ## acde dev points here
 
 When `acde dev` finds no runtime, its error ends with `(acde doctor checks the whole setup)`. When the runtime exits before the session is ready, `acde dev` prints the runtime's log line and then:
@@ -112,6 +139,6 @@ acde: acdert exited (1) before it was ready; acde doctor checks the runtime, the
 }
 ```
 
-`ok` is false when a check is an error. The ids are `acde`, `path`, `runtimes`, `acdert`, `contract`, `runtime` (when the runtime cannot check itself), `runtime.host`, `runtime.gpu`, `runtime.display`, `sessions`, `approval`, `project`, `platform`, `dependencies`, `gitignore`, `skill` and `latest`; `fix` is left out when there is none. The MCP server has the same check as its `doctor` tool; see [MCP](mcp.md).
+`ok` is false when a check is an error. A check that `--fix` can repair carries `"repair": {"action", "target", "ask", "does"}` (`ask` is true for the fixes that ask first), and with `--fix` the object also has `"fixed": [{"repair", "result", "said"}]`, `result` being `fixed`, `failed` or `skipped`; the progress lines then go to stderr. The ids are `acde`, `path`, `runtimes`, `acdert`, `contract`, `runtime` (when the runtime cannot check itself), `runtime.host`, `runtime.gpu`, `runtime.display`, `sessions`, `approval`, `project`, `platform`, `dependencies`, `gitignore`, `skill` and `latest`; `fix` is left out when there is none. The MCP server has the same check as its `doctor` tool, and the fixes as `doctor_fix`; see [MCP](mcp.md).
 
 The runtime's part also runs on its own, `acdert doctor` (or `acdert doctor --json`), with the same exit codes.
