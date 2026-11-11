@@ -64,6 +64,15 @@ function onSocket(options: object, path: string): Options {
   return mapped
 }
 
+const announced = new Set<number>()
+
+function announce(port: number): void {
+  if (announced.has(port)) return
+  announced.add(port)
+  console.log(`acde: port ${port} is served through acde, not over TCP: the app's pages reach it `
+    + `(a relative URL such as /api/…, or localhost:${port}); other programs on this machine cannot`)
+}
+
 function looksBound<T extends object>(server: T, port: number, hostname?: string): T {
   const host = hostname && hostname !== '0.0.0.0' && hostname !== '::' ? hostname : 'localhost'
   const shown = host.includes(':') ? `[${host}]` : host
@@ -83,6 +92,7 @@ function onUnix(original: Fn, fallback: () => number): Fn {
     const path = prepare(port)
     const server = original.call(Bun, onSocket(options, path), ...args.slice(1)) as Options
     live.add(path)
+    announce(port)
     const stop = server['stop'] as Fn
     const release = controlled(() => (server['stop'] as Fn)())
     server['stop'] = function (...rest: unknown[]) {
@@ -192,7 +202,10 @@ function patchListen(proto: object): void {
   target.listen = function (this: NetServer, ...args: unknown[]) {
     const mapped = nodeArgs(args)
     if (!mapped) return listen.apply(this, args)
-    if (channelMode(process.env, typeof Bun !== 'undefined')) return listenChannel(this, mapped)
+    if (channelMode(process.env, typeof Bun !== 'undefined')) {
+      announce(mapped.port)
+      return listenChannel(this, mapped)
+    }
     const path = prepare(mapped.port)
     const server = this as NetServer & { address: Fn }
     delete (server as Partial<typeof server>).address
@@ -208,6 +221,7 @@ function patchListen(proto: object): void {
     })
     server.once('listening', () => {
       live.add(path)
+      announce(mapped.port)
       const release = controlled(() => new Promise((done) => server.close(done)))
       server.once('close', release)
     })

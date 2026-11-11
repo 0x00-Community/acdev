@@ -48,6 +48,7 @@ describe('listen on a port goes to <dir>/<port>.sock', () => {
   test('Bun.serve({port: 3000, hostname: "0.0.0.0"})', async () => {
     const dir = join(tmp(), 'sockets')
     const child = start('bun-serve.ts', { ACDE_APP_SOCKETS: dir })
+    expect(await line(child, 'acde: port 3000')).toContain('is served through acde, not over TCP')
     expect(await line(child, 'ready')).toBe('ready 3000 http://localhost:3000/')
     expect(await get(join(dir, '3000.sock'))).toBe('bun-serve /p')
     if (!WINDOWS) expect(statSync(dir).mode & 0o777).toBe(0o700)
