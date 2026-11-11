@@ -195,6 +195,12 @@ describe('dev sessions: $TMPDIR/acde-dev/<pid>.json', () => {
       .toThrow(/several[\s\S]*--session <pid>:\n  11  app alpha/)
     expect(() => Sessions.pick([a, { ...a, pid: 14 }], join(root, 'a'))).toThrow('several acde dev sessions run')
     expect(() => Sessions.pick([], root)).toThrow('no acde dev is running')
+    mkdirSync(join(root, 'other'))
+    writeFileSync(join(root, 'other', 'acde.config.jsonc'), '{}')
+    const other = `no acde dev runs the project in ${join(root, 'other')}; `
+      + 'to use another one, pass --session <pid>:\n  13'
+    expect(() => Sessions.pick([c], join(root, 'other'))).toThrow(other)
+    expect(Sessions.pick([c], join(root, 'other'), 13).pid).toBe(13)
     expect(() => Sessions.pick([a], root, 99)).toThrow('no acde dev with pid 99:\n  11')
   })
 

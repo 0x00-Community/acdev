@@ -4,7 +4,8 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
-import { contains } from './paths.ts'
+import { CONFIGS } from './configs.ts'
+import { contains, up } from './paths.ts'
 
 export interface Session {
   readonly pid: number
@@ -113,7 +114,12 @@ export class Sessions {
     const deepest = Math.max(...sessions.map(depth))
     const matching = deepest < 0 ? [] : sessions.filter((s) => depth(s) === deepest)
     if (matching.length === 1) return matching[0]!
-    if (matching.length === 0 && sessions.length === 1) return sessions[0]!
+    const project = up(here, (dir) => [...CONFIGS, 'package.json'].some((name) => existsSync(join(dir, name))) && dir)
+    if (matching.length === 0 && sessions.length === 1 && project === null) return sessions[0]!
+    if (matching.length === 0 && project !== null) {
+      throw new Error(`no acde dev runs the project in ${project}; to use another one, pass --session <pid>`
+        + Sessions.#listing(sessions))
+    }
     const why = matching.length > 1
       ? `several acde dev sessions run ${here}`
       : `no acde dev runs ${here}, and there are several`
