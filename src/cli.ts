@@ -305,19 +305,20 @@ class Cli {
   static report(pkg: AppPackage, platform = AppPackage.here()): boolean {
     const target = platform === null ? null : pkg.platform(platform)
     const { errors, warnings, notes } = pkg.check()
-    for (const warning of warnings) console.error(`warning: ${warning}`)
-    for (const note of notes) console.error(`note: ${note}`)
-    for (const error of errors) console.error(`error: ${error}`)
-    if (errors.length === 0) console.log(`ok: ${pkg.name}, ${pkg.kind}`)
+    const [out, err] = [Color.palette(), Color.palette(Color.enabled(process.stderr))]
+    for (const warning of warnings) console.error(`${err.warn('warning:')} ${warning}`)
+    for (const note of notes) console.error(`${err.dim('note:')} ${note}`)
+    for (const error of errors) console.error(`${err.error('error:')} ${error}`)
+    if (errors.length === 0) console.log(`${out.ok('ok:')} ${pkg.name}, ${pkg.kind}`)
     if (!target) return errors.length === 0
-    for (const note of target.notes) console.error(`note: ${note}`)
-    for (const error of target.errors) console.error(`error: ${error}`)
+    for (const note of target.notes) console.error(`${err.dim('note:')} ${note}`)
+    for (const error of target.errors) console.error(`${err.error('error:')} ${error}`)
     if (target.errors.length > 0) {
       console.error(`hint: to run on ${platform} without it, list the capability in "optional" and import it with `
         + `load('<name>') from @dopame/acde-api`)
     }
     const modes = `${platform} (${target.modes.join(', ')})`
-    if (target.errors.length === 0) console.log(`ok: ${modes}: every required capability is there`)
+    if (target.errors.length === 0) console.log(`${out.ok('ok:')} ${modes}: every required capability is there`)
     return errors.length === 0 && target.errors.length === 0
   }
 }

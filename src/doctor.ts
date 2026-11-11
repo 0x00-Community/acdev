@@ -7,6 +7,7 @@ import {
   BUN_MINIMUM, cliFile, cliRuntime, findAcdert, installed, NODE_MINIMUM, packageRoot, runtimes, which, type FoundAcdert,
 } from 'acde/launcher'
 import { Agents } from './agents.ts'
+import { Color, type Palette } from './color.ts'
 import { Project } from './app.ts'
 import { Creator } from './create.ts'
 import { DevSession, type RuntimeProbe } from './dev.ts'
@@ -121,10 +122,11 @@ export class Doctor {
     return checks.some((check) => check.status === 'error')
   }
 
-  static format(checks: readonly Check[]): string {
+  static format(checks: readonly Check[], c: Palette = Color.palette()): string {
     const lines: string[] = []
+    const paint = { ok: c.ok, warn: c.warn, error: c.error, skip: c.dim }
     for (const check of checks) {
-      lines.push(`${check.status.padEnd(6)} ${check.title}: ${check.summary}`)
+      lines.push(`${paint[check.status](check.status.padEnd(6))} ${check.title}: ${check.summary}`)
       if (check.fix) lines.push(`${''.padEnd(6)} fix: ${check.fix}`)
     }
     const count = (status: Status) => checks.filter((check) => check.status === status).length

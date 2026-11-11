@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { API_LEVEL } from '@dopame/acde-api/manifest'
+import { Color } from '../src/color.ts'
 import { Doctor, type Check, type Repair } from '../src/doctor.ts'
 import { Sessions } from '../src/sessions.ts'
 import { Versions } from '../src/versions.ts'
@@ -181,7 +182,7 @@ describe('acde doctor', () => {
       Doctor.error('acdert', 'acdert', 'not found', 'run the installer again'),
       Doctor.skip('contract', 'contract level', 'needs an acdert that runs'),
     ]
-    expect(Doctor.format(checks)).toBe([
+    expect(Doctor.format(checks, Color.palette(false))).toBe([
       'ok     acde: 0.0.9',
       'warn   agent skill: not installed',
       '       fix: acde skills install',
@@ -190,7 +191,13 @@ describe('acde doctor', () => {
       'skip   contract level: needs an acdert that runs',
       'acde doctor: 1 error, 1 warning',
     ].join('\n'))
-    expect(Doctor.format([checks[0]!])).toBe('ok     acde: 0.0.9\nacde doctor: everything acde needs is here')
+    const coloured = Doctor.format(checks, Color.palette(true)).split('\n')
+    expect(coloured[0]).toBe('\x1b[32mok    \x1b[39m acde: 0.0.9')
+    expect(coloured[1]).toBe('\x1b[33mwarn  \x1b[39m agent skill: not installed')
+    expect(coloured[3]).toStartWith('\x1b[1;31merror \x1b[22;39m acdert')
+    expect(coloured[5]).toStartWith('\x1b[2mskip  \x1b[22m contract')
+    expect(Doctor.format([checks[0]!], Color.palette(false)))
+      .toBe('ok     acde: 0.0.9\nacde doctor: everything acde needs is here')
     expect(Doctor.format(checks.slice(0, 2)).split('\n').at(-1)).toBe('acde doctor: no errors, 1 warning')
     expect(Doctor.failed(checks)).toBe(true)
     expect(Doctor.failed(checks.slice(0, 2))).toBe(false)
