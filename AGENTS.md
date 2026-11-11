@@ -1428,19 +1428,31 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
   整个 artifact 里没有 `.map` / `.ts`. 开发构建 (`bun run --filter @dopame/acde-host build`, `dist/`) 不变: 可读、带 map, `acde dev` 用它.
   `LICENSE` (专有许可) 随 tarball 和 GitHub release 发布. 启动和帧的数字见下面 acde-host 一条 (`scripts/release-perf/bench.sh`).
 
-- 发版 = 单独提交改版本号 (根 `Cargo.toml` 与 `web/packages/*/package.json` 一起改, 再 `bun install` 刷新 `web/bun.lock`) 并合入 `main` (推 origin 时 GitHub 镜像一起更新), 然后在 GitHub 的 Actions 手动运行 release (Gitea 上的 Actions 不发版):
+- 发版 = 单独提交改版本号 (根 `Cargo.toml` 与 `web/packages/*/package.json` 一起改, 再 `bun install` 刷新 `web/bun.lock`) 并合入 `main` (推 origin 时 GitHub 镜像一起更新), 然后手动运行 release (Gitea 和 GitHub 的 Actions 都能跑, 区别见下面「在 Gitea 上」):
   预演 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=false` (只构建检查, 不打标签、不上传; `-f commit=<sha>` 可选, 留空用运行的提交);
   正式发布 `gh workflow run release.yml -R dopame-org/acdert --ref main -f publish=true -f commit=<sha>` (`commit` 必填, 可以是短 SHA, 必须是 `origin/main` 的头或它的祖先).
   不再手动打 `v*` 标签, 工作流也不由 push 或标签触发 (先有标签后构建失败会留下半成品). 正式发布只允许在 `main` 上运行.
 - 正式发布的顺序 (同一个工作流, 任何一步失败就停在那里): 判断版本 (`plan`: 先把 `commit` 解析成完整 SHA 并打印, 版本和标签都从这个提交读取, 所有 job 都 checkout 它; 源码里的版本必须一致; 标签已存在于另一个提交则失败并说明; 在同一个提交上则续跑) →
   构建、host、stage、泄漏检查 → `upload` 把版本目录传到 AWS S3 桶 `dopame-pkgs` 的 `acdert/<版本>/` 并逐个校验 → `tag` 在通过的提交上建注释标签 `v<版本>` →
   `release` 建 GitHub 预发布 → `latest` 最后更新 `acdert/latest.json` 并让 CloudFront `E3ET3L14ALFOXX` 失效 `/acdert/latest.json` 与 `/acdert/<版本>/*`.
-  所以上传失败 (如权限问题) 不会留下标签. 并发: 准备阶段 (plan、build 每个 triple、host、stage) 各有自己的组 (`release-prepare-<publish|rehearsal>-<ref>-<job>`),
-  新的预演只取消旧运行里的同一个 job; 同一次运行的并行 job 不能共用一个组 (会互相取消, 只剩一个在跑). 发布阶段的 job 按 needs 串行, 共用 `release-publish`, 不取消. `upload` 对已存在的对象: sha256 元数据一致则跳过, 不一致或缺元数据则拒绝覆盖 (上一次留下的对象要先人工清理).
+  所以上传失败 (如权限问题) 不会留下标签. 并发: 准备阶段 (plan、build 每个 triple、host、stage) 各有自己的组 (`release-prepare-<ref>-<job>`), 不取消
+  (Gitea 上同组的第二次运行会被取消, GitHub 是排队; 等前一次跑完再触发); 同一次运行的并行 job 不能共用一个组 (会互相取消, 只剩一个在跑). 发布阶段的 job 按 needs 串行, 共用 `release-publish`, 不取消. `upload` 对已存在的对象: sha256 元数据一致则跳过, 不一致或缺元数据则拒绝覆盖 (上一次留下的对象要先人工清理).
   版本目录是四个 binary 压缩包、host bundle (`app/` 和 `LICENSE`)、`LICENSE`、`acde-api-<版本>.tar.gz` (SDK 发布构建的 `package/` 布局, acde 按 `package/` 解包) 和 `SHA256SUMS`;
   `acdert/latest.json` (`{version, tag, commit, base, files}`, 不缓存) 指向最新的一版; 下载地址 `https://pkgs.dopame.ai/acdert/<版本>/<文件>`. 版本目录的缓存头是一年 `immutable`.
   凭证走 GitHub OIDC, 不存密钥: IAM 角色 `dopame-acdert-release` 只能读写 `dopame-pkgs/acdert/*`、失效那个 distribution. 它的信任策略目前只允许 `refs/tags/v*`;
   正式发布由 `main` 上的 `workflow_dispatch` 运行, OIDC sub 是 `repo:dopame-org@342965929/acdert@1445550002:ref:refs/heads/main`, 所以信任策略还要加上这个分支 (在 AWS 侧改, 仓库里没有这份策略).
+- 在 Gitea 上 (内网 `AC/acdert` → Actions → release → Run workflow; Gitea 读 `.github/workflows`; 写法照 acde-dopame 2026-11-11 在 Gitea 1.27.1 / runner v0.6.1 上验证过的):
+  - 是否发布只在 `plan` 里由 shell 判断一次: 环境变量 `PUBLISH_INPUT` 是 `github.event.inputs.publish` 的原样, 等于 `true` 才发布, 结果写进
+    `plan` 的输出 (`publish`, 以及 `github`: 服务器是不是 github.com), 后面的作业只看 `needs.plan.outputs`. 不用 `inputs.publish`:
+    这台 Gitea 勾了 publish 时它仍是 false; `github.event.inputs.publish` 在 Gitea 上是布尔值、在 GitHub 上是字符串, 放进环境变量后两边都是文字 `true`.
+  - 产物用 `christopherhx/gitea-upload-artifact` (v7 分支, 钉 `8818363`) 和 `christopherhx/gitea-download-artifact` (v7 分支, 钉 `89488ec`):
+    官方 `actions/upload-artifact` / `download-artifact` v4 起把 github.com 以外的服务器一律当 GHES 拒绝. 两者都是官方版本 (上传 v7.0.2、下载 v7.0.0)
+    加一个提交, 只把打包的 `dist/index.js` 里 `isGhes()` 改成返回 false (下载那个 2026-11-11 对比过官方 v7.0.0); 换 SHA 前照样对着官方版本重看.
+  - `pkgs` 作业 (两边都跑) 把版本目录和 `SHA256SUMS`、`latest.json` 组成 `pkgs` 产物 (保留 30 天). `upload` (OIDC 传 S3)、`release`
+    (`gh` 建 GitHub 预发布) 和 `latest` 只在 github.com 上跑; Gitea 上正式发布在 `pkgs` 之后由 `tag` 用 git 推注释标签, 上传 S3、写
+    `latest.json`、CloudFront 失效和建 Gitea release 由人手动做 (用 `pkgs` 产物). `gh` 只对 GitHub 用.
+  - Gitea 的 runner 只有 Linux 容器 (`ubuntu-24.04` 标签, 镜像 `docker.gitea.com/runner-images:ubuntu-24.04`); `build` 矩阵里的 macOS 和 Windows
+    要有对应标签的 runner 才能跑, 否则 `stage` 等不到四个 binary. 步骤默认 `bash -e -o pipefail`.
 - SDK 只以 `pkgs.dopame.ai/acdert/<版本>/acde-api-<版本>.tar.gz` 发布 (用户定, 2026-11-11: 不再发 npm, npm 上已发的版本不动), 只发压缩后的构建,
   见下面 web/packages 的 acde-api. 它不做混淆 (决定, 2026-11-09: 它的 `.d.ts` 是公共接口, 混淆只增加调试难度, 收益低). 别的包不发,
   开发者装 acde 和 acdert 走 acde 仓库的 `install.sh`, acde 新建工程时从这个地址装 SDK.
