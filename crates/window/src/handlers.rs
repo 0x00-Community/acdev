@@ -1,4 +1,3 @@
-use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 
 use acde_model::Event;
@@ -262,9 +261,7 @@ impl DataDeviceHandler for App {
             let data = pipes
                 .into_iter()
                 .filter_map(|(mime, fd)| {
-                    let mut text = String::new();
-                    std::fs::File::from(fd).read_to_string(&mut text).ok()?;
-                    Some((mime, text))
+                    Some((mime, acde_driver::Fd::read_string(fd).ok()?))
                 })
                 .collect();
             offer.finish();
@@ -292,7 +289,7 @@ impl DataSourceHandler for App {
         };
         let Some(text) = text else { return };
         std::thread::spawn(move || {
-            let _ = std::fs::File::from(OwnedFd::from(pipe)).write_all(text.as_bytes());
+            let _ = acde_driver::Fd::write_all(OwnedFd::from(pipe), text.as_bytes());
         });
     }
 

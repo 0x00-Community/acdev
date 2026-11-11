@@ -128,6 +128,7 @@ pub(crate) struct Canvas {
     stack: Vec<State>,
     path: BezPath,
     bitmap: std::cell::OnceCell<Option<Arc<CanvasImage>>>,
+    max_commands: usize,
 }
 
 struct Reader<'a> {
@@ -271,6 +272,7 @@ impl Canvas {
             stack: Vec::new(),
             path: BezPath::new(),
             bitmap: Default::default(),
+            max_commands: Self::max_commands(),
         }
     }
 
@@ -279,12 +281,11 @@ impl Canvas {
     }
 
     fn max_commands() -> usize {
-        static MAX: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-        *MAX.get_or_init(|| match std::env::var("ACDE_CANVAS_MAX_COMMANDS").ok().and_then(|v| v.parse::<usize>().ok()) {
+        match acde_driver::Var::CanvasMaxCommands.parse::<usize>() {
             Some(0) => usize::MAX,
             Some(n) => n,
             None => MAX_COMMANDS,
-        })
+        }
     }
 
     fn scene(&mut self) -> &mut Scene {
@@ -537,7 +538,7 @@ impl Canvas {
                 op => return Err(Error::new(format!("canvas: unknown command {op}"))),
             }
         }
-        if self.scene.commands.len() > Self::max_commands() {
+        if self.scene.commands.len() > self.max_commands {
             self.flatten();
         }
         Ok(())

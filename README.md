@@ -6,12 +6,12 @@ acde (Agent Computer Desktop Environment): Linux 桌面的底座, 替代 KDE Pla
 - 网页用自己的渲染器 (Blitz 分叉) 在 GPU 上画, 不是 Chromium; JS 跑在内嵌的 V8 里, 不用 Node, 不开端口.
 - 普通 Wayland 程序照常能跑; 没有 Xwayland, 只会 X11 的程序跑不了.
 - 现成的网页工程 (React、Vue、Next.js …) 用 `acde app build` / `acde app run` 打成桌面应用. 各框架的构建验过, 在 acde 窗口里跑还没逐个验.
-- 桌面长什么样由桌面包决定, 例如 [acde-dopame](https://github.com/dopame-org/acde-dopame); 这里只是平台: 合成器、渲染、系统接口和登录页.
+- 桌面长什么样由桌面包决定, 例如 [acde-dopame](http://gitea.dopamine/AC/acde-dopame); 这里只是平台: 合成器、渲染、系统接口和登录页.
 
 ## 跑起来
 
-要 Linux、有 Vulkan 驱动的显卡 (lavapipe 这类 CPU 实现不行)、Rust 和 bun. GPU 驱动 acgpu 是 git 依赖
-(`github.com/dopame-org/acgpu`), 构建时要能拉到.
+要 Linux、有 Vulkan 驱动的显卡 (lavapipe 这类 CPU 实现不行)、Rust 和 bun. GPU 驱动 acgpu 是路径依赖:
+要和本仓库并排检出 (`../acgpu`).
 
 ```sh
 cargo build --release -p acde

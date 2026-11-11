@@ -23,7 +23,7 @@ blitz-traits = "=0.3.0-beta.4"
 # 和 blitz-dom (acrender) 用的同一份 stylo, 读 overflow / visibility
 stylo = "=0.22.0"
 # 网页图层画进 acgpu 的 2D 场景; 谁来画、离屏的 canvas 画在哪, 都由 acgpu 定 (xe3: Intel Xe3 自己画能画的, 其余归 Vulkan 回退 fallback-vulkan)
-acgpu = { git = "https://github.com/dopame-org/acgpu", rev = "b87e29d72fdb292b7f4d8446ede6086e89589333", features = ["xe3"] }
+acgpu = { path = "../../../acgpu", features = ["xe3"] }
 # blitz-dom (acrender) 用的 parley, 取插入点几何
 parley = { version = "=0.12.0", default-features = false, features = ["std"] }
 # acgpu 场景用的 kurbo, 算脏区域的包围盒
@@ -38,7 +38,14 @@ bytemuck = "1"
 parking_lot = "0.12"
 # 日志和全链路计时: 帧的耗时, 输入到上屏的 Trace 跟着 Frame 走
 acde-log = { path = "../log" }
+acde-driver = { path = "../driver" }
+ironrdp-server = { version = "0.13", features = ["helper"] }
+ntex = { version = "4.4", features = ["openssl"] }
+async-channel = "2"
+async-trait = "0.1"
+anyhow = "1"
 log = "0.4"
+smithay = { version = "0.7.0", default-features = false, features = ["backend_gbm"] }
 # Dom 的 HTML 解析 (和 stylo 的 web_atoms 同版本; 自己的 TreeSink: scripting 开着、留 doctype、片段不挂到文档上)
 html5ever = "=0.40.1"
 # 和 blitz-dom 同版本: ElementState (:focus-visible / :active / :checked), matchMedia 的媒体查询解析

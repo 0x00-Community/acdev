@@ -8,7 +8,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/dopame-org/acde-base",
+    "url": "http://gitea.dopamine/AC/acde-base",
     "directory": "js/packages/acde-dom"
   },
   "engines": {

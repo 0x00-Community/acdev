@@ -67,8 +67,12 @@ class Main {
   static session(): boolean {
     const { env } = process
     if (env['ACDE_BACKEND'] === 'drm') return true
-    if (env['ACDE_BACKEND'] === 'rdp') return false
+    if (Main.remote()) return false
     return !env['DISPLAY'] && !env['WAYLAND_DISPLAY']
+  }
+
+  static remote(): boolean {
+    return process.env['ACDE_BACKEND'] === 'rdp'
   }
 
   static readonly LOGIN_COMMAND = ['/usr/bin/acde']
@@ -241,7 +245,7 @@ class Main {
       width,
       height,
       scale,
-      reducedMotion: Main.#switch('ACDE_REDUCED_MOTION'),
+      reducedMotion: Main.#switch('ACDE_REDUCED_MOTION') ?? (Main.remote() || null),
       dark: fixed ?? false,
       session,
       storageFile: (id) => (greeter ? null : Main.storageFile(id)),

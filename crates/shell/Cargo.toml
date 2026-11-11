@@ -11,6 +11,8 @@ link = ["dep:wayland-backend"]
 [dependencies]
 # canvas / window 的模型 (纯数据, 不依赖 Wayland / 渲染)
 acde-model = { path = "../model" }
+acde-driver = { path = "../driver" }
+acde-render = { path = "../render" }
 # acde_window 协议 (crates/model/protocol/acde-window.xml) 的服务端代码
 wayland-scanner = "0.31"
 bitflags = "2"
@@ -20,8 +22,6 @@ wayland-client = "0.31"
 smithay-client-toolkit = "0.21"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 wayland-backend = { version = "0.3", optional = true }
-# `Link` 的读线程: poll 连接和停止管道 (退出时先停读线程, 合成器再关连接); 接过 acde runtime 继承的 acde_shell fd
-rustix = { version = "1", features = ["event", "pipe", "fs"] }
 smithay = { version = "0.7.0", default-features = false, features = [
 	"backend_gbm", "backend_drm", "backend_libinput", "backend_udev", "backend_session_libseat", "backend_egl", "renderer_gl", "use_system_lib",
 	"wayland_frontend", "desktop",
@@ -37,10 +37,3 @@ acde-log = { path = "../log" }
 xcursor = "0.3"
 # 截屏存 PNG
 png = "0.18"
-# RDP 后端 (ACDE_BACKEND=rdp): 合成结果作为远程桌面发给 RDP 客户端, 键鼠从客户端回来. 服务端是 vendors/ironrdp-server
-# (改成跑在 ntex 上, TLS 用 OpenSSL), 在自己的线程上跑一个 ntex System. ntex 的版本和 feature 跟 crates/runtime 一致 (不选运行时: Linux 上先 io_uring, 不行用 polling)
-ironrdp-server = { version = "0.13", features = ["helper"] }
-ntex = { version = "4.4", features = ["openssl"] }
-async-channel = "2"
-async-trait = "0.1"
-anyhow = "1"

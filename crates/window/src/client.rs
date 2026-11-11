@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::io::Read;
 use std::os::fd::OwnedFd;
-use std::sync::{Arc, LazyLock, mpsc};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use acde_model::{Event, Inbox, Waker};
-use acde_paint::{Drawn, Painter, Sheet};
+use acde_render::{Drawn, Painter, Sheet};
 use smithay::backend::allocator::Buffer as _;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::reexports::calloop::channel::{self, Channel};
@@ -33,12 +32,13 @@ use wayland_protocols::wp::fractional_scale::v1::client::{wp_fractional_scale_ma
 use wayland_protocols::wp::linux_dmabuf::zv1::client::zwp_linux_buffer_params_v1;
 use wayland_protocols::wp::viewporter::client::{wp_viewport, wp_viewporter};
 
+use acde_driver::{Dri, Fd, Var};
+
 use crate::panel::PanelView;
 use crate::protocol::{acde_window, acde_window_manager};
 
-static PAGE_FPS: LazyLock<Option<f64>> = LazyLock::new(|| std::env::var("ACDE_PAGE_FPS").ok().and_then(|v| v.parse::<f64>().ok()).filter(|f| *f > 0.0));
-
 const PANEL_WAIT: Duration = Duration::from_millis(200);
+const FENCE_WAIT: Duration = Duration::from_secs(1);
 const REFRESH_SLACK: f64 = 0.9;
 pub(crate) const TEXT: [&str; 3] = ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING"];
 
@@ -70,7 +70,7 @@ pub struct Surface {
     events: Arc<Inbox>,
     commands: channel::Sender<Command>,
     thread: Option<std::thread::JoinHandle<()>>,
-    lost: acde_paint::Lost,
+    lost: acde_render::Lost,
 }
 
 impl Surface {
@@ -79,7 +79,7 @@ impl Surface {
         let (commands, rx) = channel::channel();
         let (ready, ready_rx) = mpsc::sync_channel(1);
         let inbox = events.clone();
-        let lost = acde_paint::Lost::default();
+        let lost = acde_render::Lost::default();
         let raster = lost.clone();
         let thread = std::thread::Builder::new()
             .name("acde-window".into())
@@ -268,7 +268,7 @@ pub(crate) struct App {
     pub(crate) drag: Option<Drag>,
     pub(crate) over: Option<(f64, f64)>,
     pub(crate) presenting: Vec<acde_log::Trace>,
-    pub(crate) fenced: std::collections::VecDeque<(u64, bool, acde_paint::Finished)>,
+    pub(crate) fenced: std::collections::VecDeque<(u64, bool, acde_render::Finished)>,
     pub(crate) unshown: Option<acde_render::Frame>,
     pub(crate) unshown_since: Option<std::time::Instant>,
     pub(crate) fences: u64,
@@ -276,6 +276,7 @@ pub(crate) struct App {
     pub(crate) tick_timer: Option<smithay::reexports::calloop::RegistrationToken>,
     pub(crate) outputs: smithay_client_toolkit::output::OutputState,
     pub(crate) refresh: Option<Duration>,
+    pub(crate) page_interval: Option<Duration>,
     pub(crate) shape: Option<wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1>,
     pub(crate) fractional_scale: bool,
     pub(crate) window_id: u32,
@@ -284,7 +285,7 @@ pub(crate) struct App {
 }
 
 impl App {
-    fn run(token: u64, render: acde_render::RenderHandle, events: Arc<Inbox>, commands: Channel<Command>, ready: mpsc::SyncSender<Result<u32, String>>, lost: acde_paint::Lost) -> Result<(), String> {
+    fn run(token: u64, render: acde_render::RenderHandle, events: Arc<Inbox>, commands: Channel<Command>, ready: mpsc::SyncSender<Result<u32, String>>, lost: acde_render::Lost) -> Result<(), String> {
         let conn = Connection::connect_to_env().map_err(|e| format!("连接合成器: {e}"))?;
         let (globals, queue) = registry_queue_init::<App>(&conn).map_err(|e| format!("registry: {e}"))?;
         let qh = queue.handle();
@@ -371,6 +372,7 @@ impl App {
             tick_timer: None,
             outputs: smithay_client_toolkit::output::OutputState::new(&globals, &qh),
             refresh: None,
+            page_interval: Var::PageFps.parse::<f64>().filter(|f| *f > 0.0).map(|fps| Duration::from_secs_f64(1.0 / fps)),
             shape: None,
             fractional_scale: false,
             window_id: 0,
@@ -384,20 +386,15 @@ impl App {
     }
 
     fn gbm() -> Result<smithay::reexports::gbm::Device<DeviceFd>, String> {
-        if let Ok(path) = std::env::var("ACDE_RENDER_NODE") {
+        if let Some(path) = Dri::forced() {
             return Self::gbm_at(&path);
         }
-        let mut nodes: Vec<String> = std::fs::read_dir("/dev/dri")
-            .map(|dir| dir.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.starts_with("renderD") || n.starts_with("card")).collect())
-            .unwrap_or_default();
-        nodes.sort_by_key(|n| (!n.starts_with("renderD"), n.len(), n.clone()));
         let mut failed = Vec::new();
-        for node in nodes {
-            let path = format!("/dev/dri/{node}");
-            match Self::gbm_at(&path).and_then(|device| Self::allocates(&device).map(|()| device).map_err(|e| format!("{path} {e}"))) {
+        for path in Dri::nodes() {
+            match Self::gbm_at(&path).and_then(|device| Self::allocates(&device).map(|()| device).map_err(|e| format!("{} {e}", path.display()))) {
                 Ok(device) => {
                     if !failed.is_empty() {
-                        log::info!("网页窗口用 {path} 分配画布 ({})", failed.join("; "));
+                        log::info!("网页窗口用 {} 分配画布 ({})", path.display(), failed.join("; "));
                     }
                     return Ok(device);
                 }
@@ -407,9 +404,8 @@ impl App {
         Err(if failed.is_empty() { "/dev/dri 里没有能用的设备".into() } else { failed.join("; ") })
     }
 
-    fn gbm_at(path: &str) -> Result<smithay::reexports::gbm::Device<DeviceFd>, String> {
-        let file = std::fs::OpenOptions::new().read(true).write(true).open(path).map_err(|e| format!("打开 {path}: {e}"))?;
-        smithay::reexports::gbm::Device::new(DeviceFd::from(OwnedFd::from(file))).map_err(|e| format!("GBM {path}: {e}"))
+    fn gbm_at(path: &std::path::Path) -> Result<smithay::reexports::gbm::Device<DeviceFd>, String> {
+        smithay::reexports::gbm::Device::new(DeviceFd::from(Dri::open(path)?)).map_err(|e| format!("GBM {}: {e}", path.display()))
     }
 
     fn allocates(device: &smithay::reexports::gbm::Device<DeviceFd>) -> Result<(), String> {
@@ -496,7 +492,7 @@ impl App {
     }
 
     fn interval(&self) -> Option<Duration> {
-        PAGE_FPS.map(|fps| Duration::from_secs_f64(1.0 / fps)).or(self.refresh)
+        self.page_interval.or(self.refresh)
     }
 
     pub(crate) fn note_refresh(&mut self) {
@@ -559,8 +555,7 @@ impl App {
             let Err(e) = inserted else { return };
             log::warn!("网页窗口 fence: {}", e.error);
             let fence = e.inserted.unwrap();
-            let mut fds = [rustix::event::PollFd::new(&fence, rustix::event::PollFlags::IN)];
-            let _ = rustix::event::poll(&mut fds, Some(&rustix::event::Timespec { tv_sec: 1, tv_nsec: 0 }));
+            let _ = Fd::readable(&fence, Some(FENCE_WAIT));
         }
         self.fence_signalled(seq);
     }
@@ -582,8 +577,8 @@ impl App {
         self.paint();
     }
 
-    fn present(&mut self, finished: acde_paint::Finished) {
-        let acde_paint::Finished { drawn, took, trace, .. } = finished;
+    fn present(&mut self, finished: acde_render::Finished) {
+        let acde_render::Finished { drawn, took, trace, .. } = finished;
         let mut main = None;
         for d in drawn {
             match d.plane {
@@ -712,9 +707,7 @@ impl App {
         let Some(pipe) = mime.and_then(|m| offer.receive(m).ok()) else { return reply(String::new()) };
         let _ = self.conn.flush();
         std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = std::fs::File::from(OwnedFd::from(pipe)).read_to_string(&mut text);
-            reply(text);
+            reply(Fd::read_string(OwnedFd::from(pipe)).unwrap_or_default());
         });
     }
 

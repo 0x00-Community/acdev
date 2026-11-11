@@ -61,6 +61,19 @@ impl Injected {
 
 pub(super) const WHEEL_STEP: f64 = 15.0;
 
+impl From<acde_render::RdpInput> for Injected {
+    fn from(input: acde_render::RdpInput) -> Self {
+        use acde_render::RdpInput as Input;
+        match input {
+            Input::Move { x, y } => Self::moved(x, y),
+            Input::Motion { dx, dy } => Self::motion(dx, dy),
+            Input::Button { button, pressed } => Self::Button { button, pressed },
+            Input::Wheel { dx, dy } => Self::wheel(dx * WHEEL_STEP, dy * WHEEL_STEP, WheelKind::Wheel),
+            Input::Key { code, pressed } => Self::Key { code, pressed },
+        }
+    }
+}
+
 impl Compositor {
     pub fn on_input<I: InputBackend>(&mut self, event: InputEvent<I>) {
         self.activity();
@@ -139,7 +152,7 @@ impl Compositor {
         let pos = pointer.current_location();
         let pressed = state == ButtonState::Pressed;
         let window = self.window_under(pos).map(|(w, _)| w);
-        if pressed && super::env::ENV.debug_input {
+        if pressed && acde_driver::Var::DebugInput.is_set() {
             let target = window.as_ref().and_then(Self::window_id);
             self.emit(ShellEvent::InputTarget { window: target, x: pos.x, y: pos.y, button });
         }

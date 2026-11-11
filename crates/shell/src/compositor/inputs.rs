@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use acde_driver::Config;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use smithay::backend::input::AxisSource;
@@ -190,14 +189,14 @@ impl InputConfig {
         Ok(())
     }
 
-    fn path() -> Option<PathBuf> {
-        let config = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-        Some(config.join("acde").join("input.json"))
+    fn file() -> Option<Config> {
+        Config::at("acde/input.json")
     }
 
     pub fn load() -> Self {
-        let Some(path) = Self::path() else { return Self::default() };
-        let text = match std::fs::read_to_string(&path) {
+        let Some(file) = Self::file() else { return Self::default() };
+        let path = file.path();
+        let text = match file.read_string() {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Self::default(),
             Err(e) => {
@@ -213,13 +212,9 @@ impl InputConfig {
     }
 
     fn save(&self) -> Result<(), String> {
-        let path = Self::path().ok_or("没有 XDG_CONFIG_HOME 也没有 HOME")?;
-        let dir = path.parent().ok_or("输入设置的目录")?;
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let file = Self::file().ok_or("没有 XDG_CONFIG_HOME 也没有 HOME")?;
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, text + "\n").map_err(|e| format!("{}: {e}", tmp.display()))?;
-        std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+        file.write(text + "\n")
     }
 
     pub fn xkb(&self) -> Xkb {

@@ -32,7 +32,7 @@ pkgver=0.0.0
 pkgrel=1
 pkgdesc='Dopame desktop base: Wayland compositor with natively rendered desktops, system API and login screen'
 arch=('x86_64' 'aarch64')
-url='https://github.com/dopame-org/acde-base'
+url='http://gitea.dopamine/AC/acde-base'
 license=('Apache-2.0')
 depends=(
   # compositor: DRM/KMS, GBM and EGL/GLES (mesa), input, seat, udev; Wayland clients only (no X server)

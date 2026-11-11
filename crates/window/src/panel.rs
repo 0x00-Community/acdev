@@ -154,7 +154,7 @@ impl App {
         self.panels.iter().find(|p| p.surface() == surface).map(|p| (f64::from(p.rect[0]), f64::from(p.rect[1])))
     }
 
-    pub(crate) fn present_panel(&mut self, drawn: acde_paint::Drawn) {
+    pub(crate) fn present_panel(&mut self, drawn: acde_render::Drawn) {
         let plane = drawn.plane;
         let Some(buffer) = self.current_buffer(&drawn) else { return };
         let scale = self.scale;
@@ -206,7 +206,6 @@ impl App {
     }
 
     fn writable(fd: &std::os::fd::OwnedFd) -> bool {
-        let mut fds = [rustix::event::PollFd::new(fd, rustix::event::PollFlags::OUT)];
-        matches!(rustix::event::poll(&mut fds, Some(&rustix::event::Timespec { tv_sec: 0, tv_nsec: 0 })), Ok(1))
+        acde_driver::Fd::writable(fd, Some(std::time::Duration::ZERO)).unwrap_or(false)
     }
 }

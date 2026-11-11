@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
-use acde_render::acgpu::fallback::wgpu;
-use acde_render::gpu::Shared;
+use crate::acgpu::fallback::wgpu;
+use crate::gpu::Shared;
 
 type LostListener = Box<dyn Fn(&str) + Send>;
 type Waiter = Box<dyn FnOnce(Option<Arc<Gpu>>) + Send>;
@@ -73,7 +73,7 @@ impl Gpu {
         if GPU.set(gpu.clone()).is_err() {
             return GPU.get().cloned().flatten();
         }
-        acde_render::gpu::install(gpu.as_ref().map(|g| g.shared.clone()));
+        crate::gpu::install(gpu.as_ref().map(|g| g.shared.clone()));
         let waiters = std::mem::take(&mut *WAITERS.lock().unwrap_or_else(|e| e.into_inner()));
         for waiter in waiters {
             waiter(gpu.clone());
@@ -114,7 +114,7 @@ impl Gpu {
         self.exporting
     }
 
-    pub fn images(&self) -> &Arc<acde_render::acgpu::fallback::ImageSet> {
+    pub fn images(&self) -> &Arc<crate::acgpu::fallback::ImageSet> {
         &self.shared.images
     }
 
