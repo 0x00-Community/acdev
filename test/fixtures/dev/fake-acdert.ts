@@ -34,6 +34,7 @@ const windows: Win[] = [
   { ref: 'w1', id: 7, kind: 'web', app: 'alpha', title: 'Alpha', rect: [4, 2, 8, 6], focus: true, hidden: false },
 ]
 const WINDOWLESS = !!process.env['FAKE_ACDERT_WINDOWLESS']
+let pageless = Number(process.env['FAKE_ACDERT_PAGELESS_SHOTS'] ?? 0)
 const held = process.env['FAKE_ACDERT_WAITS'] || WINDOWLESS ? windows.splice(0) : []
 const tasks: { name: string; done: boolean }[] = []
 let draft = ''
@@ -351,6 +352,10 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     case 'eval':
       return void (m['web'] === 'nope' ? fail('no web "nope"') : ok({ value: { web: m['web'], code: m['code'] } }))
     case 'shot': {
+      if (pageless > 0) {
+        pageless--
+        return void fail('window 7 has no page')
+      }
       const win = windows.find((w) => webs().some((x) => x.name === m['web'] && x.window === w.id))
       if (!win) return void ok({ png: PNG, width: 1, height: 1 })
       return void ok({ png: picture(win).toString('base64'), width: win.rect[2], height: win.rect[3] })

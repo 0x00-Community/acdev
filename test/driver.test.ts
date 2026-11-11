@@ -130,6 +130,17 @@ describe('Locator composition and input helpers', () => {
 })
 
 describe('the driver against acde dev with a stand-in acdert', () => {
+  test('a screenshot waits for a window whose page is not there yet', async () => {
+    const s = standIn()
+    const env = { ...s.env, FAKE_ACDERT_PAGELESS_SHOTS: '3' }
+    const acde = await Acde.launch({ cwd: s.project, env, timeout: 2_000 })
+    try {
+      check((await acde.screenshot('alpha#7')).png.subarray(1, 4).toString()).toBe('PNG')
+    } finally {
+      await acde.close()
+    }
+  }, 60_000)
+
   test('launch, find by role and text, act, wait for what comes later, assert, open, logs, close', async () => {
     const s = standIn()
     const acde = await Acde.launch({ cwd: s.project, env: s.env, timeout: 2_000 })

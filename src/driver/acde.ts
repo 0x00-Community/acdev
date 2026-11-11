@@ -301,6 +301,7 @@ export class LaunchError extends Error {
 
 export class Acde {
   static readonly TIMEOUT_MS = 5_000
+  static readonly PAGE_WAIT_MS = 5_000
   static readonly START_TIMEOUT_MS = 120_000
   static readonly STOP_MS = 10_000
   static readonly DRAIN_MS = 1_000
@@ -496,7 +497,23 @@ export class Acde {
   }
 
   async screenshot(web: string, options: { readonly path?: string } = {}): Promise<Shot> {
-    const answer = (await this.#request('shot', { web })) as { png?: unknown; width?: unknown; height?: unknown } | null
+    type Answer = { png?: unknown; width?: unknown; height?: unknown } | null
+    const shoot = () => this.#request('shot', { web }) as Promise<Answer>
+    let answer: Awaited<ReturnType<typeof shoot>>
+    for (const until = Date.now() + Acde.PAGE_WAIT_MS; ;) {
+      try {
+        answer = await shoot()
+        break
+      } catch (error) {
+        const early = /has no page/.test((error as Error).message)
+        if (!early) throw error
+        if (Date.now() >= until) {
+          throw new Error(`${web}: its window has no page yet (still loading after ${Acde.PAGE_WAIT_MS / 1000} s); `
+            + 'try again when acde webs lists it with a title')
+        }
+        await sleep(200)
+      }
+    }
     if (typeof answer?.png !== 'string') throw new Error('acdert answered shot without a png')
     const png = Buffer.from(answer.png, 'base64')
     const path = options.path === undefined ? null : resolve(options.path)
