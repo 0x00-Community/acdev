@@ -11,7 +11,7 @@ import {
   type WindowFeatures,
 } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../apps'
-import { Permissions, type Approval } from './approval/permissions'
+import type { Approval } from './approval/permissions'
 
 export interface CapabilityHost {
   readonly platform: string
@@ -42,7 +42,7 @@ export class CapabilityCheck {
   }
   static readonly #SHELL: ReadonlySet<string> = new Set(SHELL_MODULES)
   static readonly #WEB: ReadonlySet<string> = new Set(WEB_CAPABILITIES)
-  static readonly #STARTS: ReadonlySet<CapabilityState> = new Set<CapabilityState>(['available', 'not-asked', 'asking'])
+  static readonly #STARTS: ReadonlySet<CapabilityState> = new Set<CapabilityState>(['available', 'not-asked', 'asking', 'denied'])
   static readonly #NO_FEATURES: WindowFeatures = { backdrop: 'unsupported' }
   readonly #host: CapabilityHost
 
@@ -108,8 +108,6 @@ export class CapabilityCheck {
   refusal(app: AppManifest, origin: AppOrigin): Error | null {
     const missing = this.missing(app, origin)
     if (!missing.length) return null
-    const denied = missing.every((status) => status.state === 'denied')
-    if (denied) return Permissions.error(app.label, missing[0]!.name)
     const where = this.#where()
     const lacking = (status: CapabilityStatus) => status.state === 'unsupported' && status.kind === 'system'
     const names = missing.map((status) => `"${status.name}" (${lacking(status) ? `not available on ${where}` : status.reason})`).join(', ')

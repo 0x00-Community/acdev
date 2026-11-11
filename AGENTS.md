@@ -535,10 +535,9 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   必需的, 逐个查状态: `available`、`not-declared`、`unsupported` (平台表不支持或运行时没开起来, 如 fs 的 Finder、office)、`service-not-running`、
   `shell-only` (第三方应用的外壳模块), 要批准的能力 (见「批准」) 另有 `not-asked` (还没问过用户)、`asking` (提示已经弹出, 在等回答)、`denied` (用户拒绝或撤销);
   要批准的能力只有批准了才是 `available`. `reason` 是这个状态的一句话 (`not asked for yet`、`waiting for the user's answer`、`denied by the user` …).
-  必需的既不是 `available` 也不是等着问的 (`not-asked` / `asking`, 启动时会问) 时应用不进 `acde:apps` 列表和打开方式, 启动报
+  必需的既不是 `available` 也不是批准的那几种状态 (`not-asked` / `asking` / `denied`, 使用时才问, 被拒只让调用失败) 时应用不进 `acde:apps` 列表和打开方式, 启动报
   `<label> needs "network" (not available on Windows host windows); list it in "optional" to run without it` (平台缺的系统能力写出平台和运行方式,
-  #148; 404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`, 原因照 `reason`); 缺的只是被用户拒绝的
-  (`CapabilityCheck.refusal`) 报批准那句 `<label>: "camera" is denied by the user` (403 `denied`, 带 `capability`), 和 `admit` 拒绝时一样.
+  #148; 404 `unsupported_app`; 有服务没在跑时 503 `service_not_running`, 原因照 `reason`).
   `acde dev` 重载时新清单要的能力不可用: 记一行这个错误, 开着的窗口留在旧版本, 会话不退出, 改好清单再存就照常重载. 可选的照常启动;
   声明了但不可用的 fs / terminal / network / office 在 import 时报原因.
 - **平台支持表** (SDK `src/runtime/platforms.js` 的 `PLATFORM_SUPPORT` / `platformSupport(platform, mode)`, 从包根和 `/manifest` 导出, 运行时、acde 的
@@ -553,20 +552,20 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **批准** (`broker/access/approval/permissions.ts` `Permissions`, SDK `APPROVAL_CAPABILITIES`): **仅 `camera`、`microphone` 需要用户同意** (用户决定 2026-11-11, 同浏览器:
   第一次 `getUserMedia` 时问), 可撤销; 其余能力 (`launch`、`slots`、`terminal`、`network`、`fs.roots` 点名的公共位置、自己的窗口、能力查询、列出和打开应用、
   按类型打开、桌面服务、`office`) 声明即有, 不问 (#146).
-  系统应用 (和任一已装桌面同包) 不问. 必需的在第一次启动前按能力一个一个问 (`Broker.launch` 是 async, `admit` 之后才 grant 窗口),
-  拒绝时不启动, 报 `<label>: "launch" is denied by the user` (403 `denied`, 带 `capability`); 平台不支持的不问, 照旧按 unsupported 拒绝. 可选的在
-  `acde:capabilities` `request(name)` 时问 (`camera` / `microphone` 还在 `getUserMedia` 时问, 是同一个提示); 没批准的模块不定义, 批准后 web 收 `permit` 再定义, `load()` 拿得到.
+  系统应用 (和任一已装桌面同包) 不问. 启动时不问, 必需的和可选的一样 (同浏览器): 第一次 `getUserMedia` 或 `acde:capabilities` `request(name)` 时问,
+  是同一个提示 (`reason: 'request'`); 回答「否」、还没答或撤销都只让这些调用失败 (`NotAllowedError` / 403), 应用照常启动、照常在列表里
+  (`CapabilityCheck.missing` 不把 `not-asked` / `asking` / `denied` 算缺); 平台不支持的不问, 照旧按 unsupported 拒绝. 没批准的模块不定义, 批准后 web 收 `permit` 再定义, `load()` 拿得到.
   **没批准时的话按当时的状态说** (`Permissions.approval` 四态 `granted` / `not-asked` / `asking` / `denied`, 文字只在 `Permissions.reason`; Broker 自己的 `permit` 仍是
   `granted` / `denied` / `ask` 三态, 管该不该问): import 报 `acde:terminal: "terminal" is not asked for yet; ask for it with acde:capabilities request("terminal")`、
   `… is waiting for the user's answer` 或 `… is denied by the user` (`Permits.reason`, 一个模块有几道门时 (`acde:launch` 的 `launch` / `slots`) 每道没批准的各说一句;
   状态变了 `RemoteBridge.permit` 重新 `refuseModule`, 所以拒绝之后的 import 说的是拒绝); 调用报 `AcdePermissionError` (403, 带 `capability`),
   `code` 是 `denied`、`not_asked` 或 `asking`, 文字是 `<label>: ` 加同一句: `acde:fs` / `acde:office` 里还没问过的公共位置 (`FileAccess.guard`)、
   `acde.launch` / `acde.windows.launch` (`Approvals.allow`)、撤销后的 terminal / network 都走这里 (camera / microphone 走标准接口: `getUserMedia` 自己弹提示, 见「摄像头和麦克风」). 决定按应用持久 (`$XDG_CONFIG_HOME/acde/permissions.json`, `{"<app>:<能力>": "granted" | "denied"}`, 不看 `ACDE_STORAGE`);
-  拒绝也记, 必需能力被拒的应用不进列表, 桌面收 `appschanged` (`acde:apps` 的 `on('changed')`): 每次决定变了 (`Approvals` 的 `changed`) 都经
+  拒绝也记 (不影响列表), 桌面收 `appschanged` (`acde:apps` 的 `on('changed')`): 每次决定变了 (`Approvals` 的 `changed`) 都经
   `broker/listing.ts` `AppListing.changed()` 比一次, 列表和桌面上次拿到的 (桌面页面起来时、`list()` 的结果或上一次事件) 不一样才发; `refreshApps` 也走它 (清单变了一定发). 撤销 (`revoke`) 删掉记录: 这一次运行里当作拒绝 (同一次运行不问第二次), 下次运行再问. 撤销后的调用报同样的
   403 `denied`: Broker 侧 (`acde.launch` / `acde.windows.launch`) 当场查, web 侧 terminal / network 的模块和 camera / microphone 的 capture 经
   `broker/access/approval/permits.ts` `Permits` 包一层. 外壳模块 `acde:permissions` (桌面和声明它的系统应用): `pending()`、`answer(id, allow)`、`list(app?)`、
-  `revoke(app, capability)`、`on('prompt' | 'answered')` (`permissionprompt {id, app, label, capability, reason: 'launch' | 'request'}`、
+  `revoke(app, capability)`、`on('prompt' | 'answered')` (`permissionprompt {id, app, label, capability, reason: 'request'}`、
   `permissionanswered {id, app, capability, allowed}`). 用户选给应用的文件夹 (#86) 也在 `list` 里: 每个一行 `{app, label, capability: 'fs.folder-<令牌>',
   decision: 'granted', folder: {label, exists}}` (只给文件夹名, 不给路径; Broker 经 napi `Finder.folders(app)` 读授权文件), `revoke(app, 'fs.folder-<令牌>')`
   经 `Finder.revokeFolder` 删掉授权 (回有没有删到) 并给这个应用的 web 发 `permit` 拒绝: 它离开 `roots()`, 以它为 root 的调用 403 `denied` (`FileAccess.guard`).
@@ -577,13 +576,11 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   **单应用模式的原生对话框** (`acdert app`, 宿主窗口; `broker/access/approval/dialog.ts` `ApprovalDialogs`, 由 `broker/approvals.ts` 接上): 提示同时交给宿主的
   `approve(title, message)` (hostwin `Cmd::Approve`, Windows 是 `platform/win32/approve.rs` 的 `MessageBoxW`, 以宿主窗口为 owner, 是 / 否, 默认否),
   一次只开一个, 其余排队; 答案经 `Permissions.answer` 写进同一份 `permissions.json`, 和桌面答的一样. driver 或别处先答了, Broker 调
-  `dismissApproval` 关掉还开着的对话框 (它不算回答), 排队的直接丢掉. headless 和 macOS / Linux 宿主窗口没有对话框 (`approve` 回 null), 照旧等 driver.
-  拒绝必需能力时 `acdert app` 记一行错误后退出. 会话里撤销了正在跑的应用的必需能力 (`acde revoke`), 这一次运行里它算拒绝, 页面还开着 (调用报 403 `denied`),
-  下一次重载 (`devReload` 对主窗口用 `Launchable.app` 重新查一遍: 应用没了、级别不对、平台不支持、服务没在跑、被拒绝各报各的话) 时结束会话. 两处的那行错误都是
-  `Launchable.ended`: `acdert app <id>: <原因>`, 原因是拒绝 (`code: 'denied'`) 时后面加 `; acdert app asks for it again the next time it runs`
-  (撤销删掉了记录, 拒绝的记录下次按下面的规则再问, 所以这句总成立). **`acdert app` 里以前的拒绝会再问一次** (`PermissionsHost.asksAgain`, 单应用模式为真): 记录里是
+  `dismissApproval` 关掉还开着的对话框 (它不算回答), 排队的直接丢掉. headless 和 macOS / Linux 宿主窗口没有对话框 (`approve` 回 null), 照旧等 driver 或 `acde allow` / `acde deny`.
+  `devReload` 对主窗口用 `Launchable.app` 重新查一遍 (应用没了、级别不对、平台不支持、服务没在跑各报各的话), 查不过时结束会话, 那行错误是
+  `Launchable.ended`: `acdert app <id>: <原因>`. **`acdert app` 里以前的拒绝会再问一次** (`PermissionsHost.asksAgain`, 单应用模式为真): 记录里是
   `denied`、这一次运行还没问过的能力, `permit` 当作 `ask`, 问的时候删掉旧记录并记一行 `was denied … in an earlier run: asking again`; 这一次运行里答了「否」照旧不问第二次.
-  单应用模式是开发者点名要跑这个应用, 又没有桌面的权限界面; 不这样的话拒绝一次之后每次 `acde dev` 都在开窗前退出, 而 `acde revoke` 要有会话才能用, 只剩手改 `permissions.json`. 桌面和会话里记下的拒绝照旧有效.
+  单应用模式是开发者点名要跑这个应用, 又没有桌面的权限界面; 不这样的话拒绝一次之后这个应用在 `acde dev` 里再也问不到, 而 `acde revoke` 要有会话才能用, 只剩手改 `permissions.json`. 桌面和会话里记下的拒绝照旧有效.
   `icon` 是 `ICON_NAMES` (`@dopame/acde-api/manifest`, 和 Dopame art 引擎 `APPS` 的名字一致, 加名字两边一起改) 之一, 或 assets 下以
   `.svg` / `.png` 结尾的同源 URL; 运行时原样交给桌面 (`acde.apps.list()`、`windowopen` 的 `icon`).
 - **沙箱**: 每个 web 是独立的 isolate, 页面和 acde-host 的 web.js 在同一个 realm. ⚠ 这不是安全边界: 页面碰得到宿主给 web 的原生接口

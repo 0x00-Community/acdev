@@ -46,31 +46,25 @@ const refusal = (launchable: Launchable): (Error & { status?: number; code?: str
   }
 }
 
-test('a single-app session that lost a required capability ends by naming the app and the capability', async () => {
+test('the camera never keeps an app from starting: not asked, waiting, denied or revoked', async () => {
   const { permissions, launchable, saved } = run({}, true)
-  assert.equal(refusal(launchable), null, 'not asked yet: the launch asks')
-  const admitted = permissions.admit(tool, origin)
-  assert.equal(refusal(launchable), null, 'still startable while the prompt waits')
-  permissions.answer(permissions.pending()[0]!.id, true)
-  await admitted
+  assert.equal(refusal(launchable), null, 'not asked yet: the first use asks')
+  const asked = permissions.ask(tool, origin, 'camera', 'request')
+  assert.equal(refusal(launchable), null, 'startable while the prompt waits')
+  permissions.answer(permissions.pending()[0]!.id, false)
+  assert.equal(await asked, false)
+  assert.equal(refusal(launchable), null, 'a no only fails getUserMedia')
   assert.equal(permissions.revoke('tool', 'camera'), true)
-  const error = refusal(launchable)!
-  assert.equal(error.message, 'Tool: "camera" is denied by the user')
-  assert.deepEqual([error.status, error.code, error.capability], [403, 'denied', 'camera'])
-  assert.equal(Launchable.ended('tool', error), 'acdert app tool: Tool: "camera" is denied by the user; acdert app asks for it again the next time it runs')
+  assert.equal(refusal(launchable), null)
   assert.deepEqual(saved(), {}, 'the decision is gone, so the next run asks')
-  const next = run(saved(), true)
-  assert.equal(refusal(next.launchable), null)
-  assert.equal(next.permissions.approval(tool, origin, 'camera'), 'not-asked')
 })
 
-test('a denial of an earlier run keeps the app from a desktop but not from acdert app, which asks again', () => {
-  const desktop = refusal(run({ 'tool:camera': 'denied' }, false).launchable)!
-  assert.deepEqual([desktop.message, desktop.code], ['Tool: "camera" is denied by the user', 'denied'])
+test('a denial of an earlier run keeps the app neither from a desktop nor from acdert app', () => {
+  assert.equal(refusal(run({ 'tool:camera': 'denied' }, false).launchable), null)
   assert.equal(refusal(run({ 'tool:camera': 'denied' }, true).launchable), null)
 })
 
-test('an end that is not a denial promises nothing about the next run', () => {
+test('an end names the app and the reason', () => {
   assert.equal(Launchable.ended('tool', new Error('no app tool')), 'acdert app tool: no app tool')
   const unsupported = Object.assign(new Error('Tool needs "office" (unsupported on this platform)'), { status: 404, code: 'unsupported_app' })
   assert.equal(Launchable.ended('tool', unsupported), 'acdert app tool: Tool needs "office" (unsupported on this platform)')

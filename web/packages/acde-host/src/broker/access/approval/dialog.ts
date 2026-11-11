@@ -28,11 +28,7 @@ export class ApprovalDialogs {
   static text(prompt: PermissionPrompt): { title: string; message: string } {
     const { label, capability } = prompt
     const what = ApprovalDialogs.#WHAT[capability] ?? ''
-    const ask =
-      prompt.reason === 'launch'
-        ? `${label} needs "${capability}" to start. ${what}\n\nAllow it? If you do not, ${label} does not start.`
-        : `${label} asks to use "${capability}". ${what}\n\nAllow it?`
-    return { title: `${label}: allow "${capability}"?`, message: ask }
+    return { title: `${label}: allow "${capability}"?`, message: `${label} asks to use "${capability}". ${what}\n\nAllow it?` }
   }
 
   event(event: PermissionPromptEvent | PermissionAnsweredEvent): void {

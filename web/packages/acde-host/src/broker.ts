@@ -643,7 +643,6 @@ export class Broker {
     family: WindowFamily | null = null,
   ): Promise<{ window: number }> {
     const app = this.#launchable.app(appId)
-    if (!this.#windows.running(appId)) await this.permissions.admit(app, this.apps.origin(app.id))
     if (!app.multiple) {
       const running = this.#windows.running(appId)
       if (running) {

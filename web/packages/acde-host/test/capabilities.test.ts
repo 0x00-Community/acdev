@@ -129,19 +129,16 @@ describe('CapabilityCheck', () => {
 })
 
 describe('CapabilityCheck and approval', () => {
-  test('a supported capability the user denied reports denied by the user and fails the required check', () => {
-    const a = app({ capabilities: { launch: true, openFiles: true } })
-    const c = check('win32', 'desktop', [], [], { launch: 'denied' })
-    assert.deepEqual(c.status('launch', a, third), { name: 'launch', kind: 'system', state: 'denied', reason: 'denied by the user', optional: false })
-    assert.deepEqual(c.missing(a, third).map((s) => s.name), ['launch'])
-    const refusal = c.refusal(a, third) as Error & { status: number; code: string; capability: string }
-    assert.equal(refusal.message, 'Demo: "launch" is denied by the user')
-    assert.deepEqual([refusal.status, refusal.code, refusal.capability], [403, 'denied', 'launch'])
-    const both = check('win32', 'desktop', [], [], { launch: 'denied' }).refusal(app({ capabilities: { launch: true, office: true } }), third)
-    const expected = 'Demo needs "launch" (denied by the user), "office" (not available on Windows host windows); list it in "optional" to run without it'
-    assert.equal(both!.message, expected, 'what the platform lacks comes first')
+  test('a capability the user denied reports denied by the user and does not keep the app from starting', () => {
+    const a = app({ capabilities: { camera: true, openFiles: true } })
+    const c = check('linux', 'desktop', [], [], { camera: 'denied' })
+    assert.deepEqual(c.status('camera', a, third), { name: 'camera', kind: 'system', state: 'denied', reason: 'denied by the user', optional: false })
+    assert.deepEqual(c.missing(a, third), [])
+    assert.equal(c.refusal(a, third), null)
+    const both = check('linux', 'desktop', [], [], { camera: 'denied' }).refusal(app({ capabilities: { camera: true, slots: true } }), third)
+    assert.match(both!.message, /^Demo needs "slots" \(not available on [^)]+\); list it in "optional" to run without it$/, 'only what the platform lacks is named')
     assert.equal((both as Error & { code: string }).code, 'unsupported_app')
-    assert.equal(check('win32', 'desktop', [], [], { network: 'denied' }).status('network', app({ capabilities: { network: true } }), third).state, 'unsupported')
+    assert.equal(check('win32', 'desktop', [], [], { camera: 'denied' }).status('camera', app({ capabilities: { camera: true } }), third).state, 'unsupported')
   })
 
   test('a capability nobody answered yet is not asked or asking, never available', () => {

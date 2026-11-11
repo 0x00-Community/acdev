@@ -48,23 +48,23 @@ const session = () => {
   return { approvals, listing, installed, origin, changes }
 }
 
-test('the desktop is told when an answer takes an app off the list', async () => {
+test('an answer of no keeps the app on the list', async () => {
   const { approvals, listing, installed, origin, changes } = session()
   assert.deepEqual(listing.list().map((a) => a.id), ['tool', 'notes'])
-  const admitted = approvals.permissions.admit(installed[0]!, origin)
+  const asked = approvals.permissions.ask(installed[0]!, origin, 'camera', 'request')
   assert.deepEqual(changes(), [], 'an app whose prompt waits stays on the list')
   approvals.permissions.answer(approvals.permissions.pending()[0]!.id, false)
-  await assert.rejects(admitted, /denied by the user/)
-  assert.deepEqual(changes(), [['notes']])
-  assert.deepEqual(listing.list().map((a) => a.id), ['notes'])
+  assert.equal(await asked, false)
+  assert.deepEqual(changes(), [])
+  assert.deepEqual(listing.list().map((a) => a.id), ['tool', 'notes'])
 })
 
-test('revoking a required capability takes the app off the list and says so; an optional one changes nothing', async () => {
+test('granting or revoking the camera or the microphone changes no list', async () => {
   const { approvals, installed, origin, listing, changes } = session()
   listing.list()
-  const admitted = approvals.permissions.admit(installed[0]!, origin)
+  const camera = approvals.permissions.ask(installed[0]!, origin, 'camera', 'request')
   approvals.permissions.answer(approvals.permissions.pending()[0]!.id, true)
-  await admitted
+  assert.equal(await camera, true)
   const asked = approvals.permissions.ask(installed[1]!, origin, 'microphone', 'request')
   approvals.permissions.answer(approvals.permissions.pending()[0]!.id, true)
   await asked
@@ -72,7 +72,8 @@ test('revoking a required capability takes the app off the list and says so; an 
   approvals.permissions.revoke('notes', 'microphone')
   assert.deepEqual(changes(), [])
   approvals.permissions.revoke('tool', 'camera')
-  assert.deepEqual(changes(), [['notes']])
+  assert.deepEqual(changes(), [])
+  assert.deepEqual(listing.list().map((a) => a.id), ['tool', 'notes'])
 })
 
 test('a forced change is told even when the rows are the same, and a list the desktop already has is not told again', () => {

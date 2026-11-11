@@ -7,7 +7,7 @@ export interface PermissionPrompt {
   readonly app: string
   readonly label: string
   readonly capability: ApprovalCapability
-  readonly reason: 'launch' | 'request'
+  readonly reason: 'request'
 }
 
 export interface PermissionPromptEvent extends PermissionPrompt {

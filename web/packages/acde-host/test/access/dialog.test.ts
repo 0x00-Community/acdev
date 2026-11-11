@@ -43,37 +43,29 @@ const open = (native: boolean | 'none' = true) => {
   return { permissions, shown, dismissed: () => dismissed, files }
 }
 
-test('a required capability is asked in a native dialog and its answer is stored like a desktop answer', async () => {
+test('a camera use is asked in a native dialog and its answer is stored like a desktop answer', async () => {
   const { permissions, shown, files } = open()
   const tool = app('tool', { camera: true })
-  const admitted = permissions.admit(tool, third)
+  const asked = permissions.ask(tool, third, 'camera', 'request')
   await settle()
   assert.equal(shown.length, 1)
   assert.match(shown[0]!.title, /Tool/)
-  assert.match(shown[0]!.message, /"camera"/)
-  assert.match(shown[0]!.message, /does not start/)
+  assert.match(shown[0]!.message, /asks to use "camera"/)
   shown[0]!.answer(true)
-  await admitted
+  assert.equal(await asked, true)
   assert.deepEqual(files.get('p'), { 'tool:camera': 'granted' })
   assert.deepEqual(permissions.list('tool').map((row) => row.decision), ['granted'])
 })
 
-test('no in the dialog keeps the app from starting', async () => {
-  const { permissions, shown } = open()
-  const admitted = permissions.admit(app('tool', { camera: true }), third)
+test('no in the dialog is stored as a denial', async () => {
+  const { permissions, shown, files } = open()
+  const tool = app('tool', { camera: true })
+  const asked = permissions.ask(tool, third, 'camera', 'request')
   await settle()
   shown[0]!.answer(false)
-  await assert.rejects(admitted, (e: Error & { code?: string }) => e.code === 'denied')
-})
-
-test('an optional request is asked in the dialog with its own wording', async () => {
-  const { permissions, shown } = open()
-  const asked = permissions.ask(app('tool', { camera: true }, ['camera']), third, 'camera', 'request')
-  await settle()
-  assert.match(shown[0]!.message, /asks to use "camera"/)
-  assert.doesNotMatch(shown[0]!.message, /does not start/)
-  shown[0]!.answer(true)
-  assert.equal(await asked, true)
+  assert.equal(await asked, false)
+  assert.deepEqual(files.get('p'), { 'tool:camera': 'denied' })
+  assert.equal(permissions.permit(tool, third, 'camera'), 'denied')
 })
 
 test('one dialog at a time; the next prompt shows after the first is answered', async () => {

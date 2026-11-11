@@ -241,7 +241,7 @@ import { permissions } from 'acde:permissions'
 import type { AcdePermissionError, ApprovalCapability } from ${JSON.stringify(`${src}shell`)}
 permissions.on('prompt', (prompt) => {
   const capability: ApprovalCapability = prompt.capability
-  void permissions.answer(prompt.id, prompt.reason === 'launch' && capability !== 'microphone')
+  void permissions.answer(prompt.id, prompt.reason === 'request' && capability !== 'microphone')
 })
 permissions.on('answered', (event) => event.allowed satisfies boolean)
 const pending = await permissions.pending()

@@ -7,7 +7,7 @@ import type {
   PermissionPrompt,
   PermissionPromptEvent,
 } from '@dopame/acde-api'
-import { APPROVAL_CAPABILITIES, Manifest } from '@dopame/acde-api/manifest'
+import { APPROVAL_CAPABILITIES } from '@dopame/acde-api/manifest'
 import type { AppManifest, AppOrigin } from '../../../apps'
 
 export type Permit = 'granted' | 'denied' | 'ask'
@@ -105,14 +105,6 @@ export class Permissions {
 
   approvals(app: AppManifest, origin: AppOrigin): Record<string, Approval> {
     return Object.fromEntries(this.gated(app, origin).map((name) => [name, this.approval(app, origin, name)]))
-  }
-
-  async admit(app: AppManifest, origin: AppOrigin): Promise<void> {
-    for (const capability of this.gated(app, origin)) {
-      const base = Manifest.place(capability) ? 'fs' : capability
-      if (app.optional.includes(base) || !this.#host.supported(base)) continue
-      if (!(await this.ask(app, origin, capability, 'launch'))) throw Permissions.error(app.label, capability)
-    }
   }
 
   async ask(app: AppManifest, origin: AppOrigin, capability: ApprovalCapability, reason: PermissionPrompt['reason']): Promise<boolean> {

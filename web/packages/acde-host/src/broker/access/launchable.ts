@@ -30,8 +30,7 @@ export class Launchable {
   }
 
   static ended(appId: string, error: Error): string {
-    const again = (error as { code?: string }).code === 'denied' ? '; acdert app asks for it again the next time it runs' : ''
-    return `acdert app ${appId}: ${error.message}${again}`
+    return `acdert app ${appId}: ${error.message}`
   }
 
   available(app: AppManifest): boolean {
