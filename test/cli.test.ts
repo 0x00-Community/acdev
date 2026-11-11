@@ -649,6 +649,9 @@ describe('acde check --platform', () => {
     const linux = await cli(['check', '--platform', 'linux'], required)
     expect(linux.code).toBe(0)
     expect(linux.stdout).toContain('linux (session, desktop, standalone): every required capability is there')
+    const scripted = await cli(['check', '--', '--platform', 'linux'], required)
+    expect(scripted.code, 'a leading -- as package manager scripts pass it').toBe(0)
+    expect(scripted.stdout).toBe(linux.stdout)
 
     const optional = project({ type: 'app', id: 'term', capabilities: { terminal: true }, optional: ['terminal'] })
     const noted = await cli(['check', '--platform', 'windows'], optional)

@@ -129,7 +129,7 @@ class Cli {
         continue
       }
       if (arg === '--') {
-        positional = true
+        positional = i > 0
         continue
       }
       const [flag, inline] = arg.startsWith('--')
