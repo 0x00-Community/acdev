@@ -320,8 +320,20 @@ export class Inspect {
       case 'focus':
       case 'restore':
         if (window.hidden) this.#host.hide(window.id, false)
+        if (action === 'restore' && (window.state === 'filled' || window.state === 'fullscreen')) this.#host.shell.setState?.(window.id, 'normal')
         this.#focus(window)
         return { ok: true, text: `${window.ref} is in front` }
+      case 'fill':
+      case 'fullscreen': {
+        const state = action === 'fill' ? 'filled' : 'fullscreen'
+        if (window.kind === 'desktop') return { ok: false, text: `the desktop cannot be made ${state}` }
+        if (window.mode === 'fullscreen') return { ok: false, text: `${window.ref} already fills the host window` }
+        if (!this.#host.shell.setState) return { ok: false, text: `this session cannot make ${window.ref} ${state}` }
+        if (window.hidden) this.#host.hide(window.id, false)
+        this.#host.shell.setState(window.id, state)
+        this.#focus(window)
+        return { ok: true, text: `${window.ref} is ${state}` }
+      }
       case 'minimize': {
         if (window.kind === 'desktop') return { ok: false, text: 'the desktop cannot be minimized' }
         const reason = WindowCalls.unminimizable(this.#host.shell.windows().find((row) => (row.window ?? row.id) === window.id))

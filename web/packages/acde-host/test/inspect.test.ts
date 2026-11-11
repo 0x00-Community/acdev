@@ -142,3 +142,31 @@ test('query finds the elements of a minimized window and says none of them is vi
   const shown = await inspect.api.query({ selector: 'button' })
   assert.deepEqual([shown.window, ...shown.nodes.map((n) => n.visible)], ['w2', true])
 })
+
+test('act fill and fullscreen set the window state, restore sets it back, the desktop says no', async () => {
+  const rows: Record<string, unknown>[] = [DESKTOP, { id: A, mode: 'free', state: 'normal', z: 2 }]
+  const { inspect, done } = session(rows)
+  const filled = await inspect.api.act('w1', 'fill')
+  assert.equal(filled.ok, true)
+  assert.match(filled.text, /^w1 is filled/)
+  assert.deepEqual(done.slice(0, 2), [`state ${A} filled`, `focus ${A}`])
+  done.length = 0
+  const full = await inspect.api.act('w1', 'fullscreen')
+  assert.equal(full.ok, true)
+  assert.deepEqual(done.slice(0, 1), [`state ${A} fullscreen`])
+  done.length = 0
+  const restored = await inspect.api.act('w1', 'restore')
+  assert.equal(restored.ok, true)
+  assert.deepEqual(done.slice(0, 1), [`state ${A} normal`])
+  const desktop = await inspect.api.act('w0', 'fullscreen')
+  assert.equal(desktop.ok, false)
+  assert.match(desktop.text, /^the desktop cannot be made fullscreen/)
+})
+
+test('act fill says no for a window that already fills the host window', async () => {
+  const { inspect, done } = session([{ id: A, mode: 'fullscreen', state: 'normal', minimize: false }])
+  const result = await inspect.api.act('w1', 'fill')
+  assert.equal(result.ok, false)
+  assert.match(result.text, /^w1 already fills the host window/)
+  assert.deepEqual(done, [])
+})

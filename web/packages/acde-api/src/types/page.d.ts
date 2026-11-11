@@ -380,6 +380,8 @@ export type InspectAction =
   | 'close'
   | 'minimize'
   | 'restore'
+  | 'fill'
+  | 'fullscreen'
 
 export type InspectArg = string | number | readonly string[] | null
 
