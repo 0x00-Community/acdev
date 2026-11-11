@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import acdeVite from '@dopame/acde-api/vite'
+import { InlineStyles } from './inline-styles.ts'
 import { PackageManager } from './pm.ts'
 import { Runtime } from './runtime.ts'
 
@@ -181,6 +182,7 @@ export class BunBundler extends Bundler {
         ],
       })) as Built
       Bundler.check('web', result)
+      if (html) InlineStyles.bundle(job.entry, join(job.out, basename(job.entry)), job.out, job.base, job.rules.dir)
       return html ? basename(job.entry) : relative(job.out, result.outputs.find((o) => o.kind === 'entry-point')!.path)
     } finally {
       process.chdir(cwd)
