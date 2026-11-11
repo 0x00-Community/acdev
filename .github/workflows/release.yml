@@ -240,12 +240,15 @@ jobs:
           v=${TAG#v}
           mkdir -p smoke
           tar -xzf "$GITHUB_WORKSPACE/out/$v/acde-$v.tar.gz" -C smoke
-          if "smoke/acde-$v/bin/acde" 2>&1 | grep -q 'usage: acde <command>'; then
-            echo "shim ok"
-          else
-            echo "::error::bin/acde does not start the CLI"
-            exit 1
-          fi
+          out=$("smoke/acde-$v/bin/acde" 2>&1 || true)
+          case $out in
+            *'usage: acde <command>'*) echo "shim ok" ;;
+            *)
+              printf '%s\n' "$out"
+              echo "::error::bin/acde does not start the CLI"
+              exit 1
+              ;;
+          esac
           test "$(head -c 2 "smoke/acde-$v/bin/acde.exe")" = MZ || {
             echo "::error::bin/acde.exe is missing or not a Windows executable"
             exit 1
