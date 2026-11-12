@@ -290,7 +290,8 @@ acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写�
 
 - `{"type":"reload","app"?,"hot"?}` → Broker 的 `devreload`: 有 app 时关掉它所有窗口 (不问 `beforeclose`) 再按记住的 rect 打开 (清单的 `size` 变了时按新尺寸, 中心不动, 不超出屏幕), 没有 app 时
   重起 desktop web (服务不重起). `hot: true` 时先试热替换 (下面).
-- `{"type":"quit"}`.
+- `{"type":"quit"}` (dev 连接断开也一样) → Broker 的 `exit` 事件, 照常收尾 (关页面、停后端、删 socket 目录) 后退出; 6 秒没退完
+  直接 `Cmd::Exit(0)`.
 - `{"type":"request","id","op",…}` (id 是数字或字符串, 只在这条连接里有意义) → id 换成进程内递增的号, 整行作为 `devrequest` 推给 Broker
   (`broker/dev.ts` `DevRequests.request`), 做完调 `Shell.devRespond`, 按号找回连接、换回原 id 写出 `{"type":"response","id","ok":true,"result"}` 或
   `{…,"ok":false,"error":"<文字>"}`, 每个请求恰好一次 (超时在工具一侧); 连接断了, 它还没回答的请求作废. `web` 参数是 web 名

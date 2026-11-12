@@ -35,6 +35,22 @@ fn send(writer: &Writer, line: &str) -> io::Result<()> {
     writer.flush()
 }
 
+const QUIT_WAIT: std::time::Duration = std::time::Duration::from_secs(6);
+
+fn quit(proxy: &Proxy) {
+    let Some(server) = server() else { return proxy.send(Cmd::Exit(0)) };
+    server.broker.push(Event { kind: "exit".into(), ..Default::default() });
+    let later = proxy.clone();
+    let spawned = std::thread::Builder::new().name("acde-dev-quit".into()).spawn(move || {
+        std::thread::sleep(QUIT_WAIT);
+        log::warn!("acde dev: the session did not end within {} s of quit, exiting", QUIT_WAIT.as_secs());
+        later.send(Cmd::Exit(0));
+    });
+    if spawned.is_err() {
+        proxy.send(Cmd::Exit(0));
+    }
+}
+
 pub(crate) fn listen(proxy: Proxy) {
     let Ok(endpoint) = std::env::var("ACDE_DEV") else { return };
     let spawned = std::thread::Builder::new().name("acde-dev".into()).spawn(move || {
@@ -63,7 +79,7 @@ fn serve<S: io::Read + Send + 'static>(reader: S, writer: Box<dyn Write + Send>,
         });
         if dev {
             log::info!("acde dev disconnected, exiting");
-            proxy.send(Cmd::Exit(0));
+            quit(&proxy);
         }
     });
     if let Err(e) = spawned {
@@ -299,7 +315,7 @@ fn handle(line: &str, writer: &Arc<Writer>, dev: &mut bool, proxy: &Proxy) {
             }
         }
         Some("request") => request(message, writer),
-        Some("quit") => proxy.send(Cmd::Exit(0)),
+        Some("quit") => quit(proxy),
         other => log::warn!("acde dev: unknown message type {other:?}"),
     }
 }
