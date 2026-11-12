@@ -985,7 +985,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     目录, 分区放掉时删), 经 `natives.storage.privateDirectory()` 登记进这个 web 的 `PickedFolders` 和 `pagecalls.ts` 的文件夹表,
     返回名字是 `''` 的可读写 `FileSystemDirectoryHandle`. 内存分区的私有文件夹在 `$XDG_RUNTIME_DIR` (没有时用临时目录) 下新建的
     `acde-storage-<pid>-<随机>` (0700, 已有同名的就换名字, 不复用), 进程退出时删, 读写和 `showDirectoryPicker` 的同一套. `createSyncAccessHandle` 只在 worker 里, 没有.
-- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; 从别的主机 `import` ES 模块 (`modules.rs`).
+- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; 从别的主机 `import` ES 模块 (`modules.rs`; `blob:` 和 `data:` 模块可以: `compile_graph` 经 `host.setModuleSource` 登记的 acde-dom `moduleSource` 同步取文字, 只认 JavaScript MIME 类型, 和 fetch 走同一个 `inline`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /

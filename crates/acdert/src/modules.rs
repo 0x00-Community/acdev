@@ -14,6 +14,7 @@ struct Map {
     by_hash: HashMap<i32, Vec<(v8::Global<v8::Module>, String)>>,
     builtins: HashMap<String, v8::Global<v8::Object>>,
     refused: HashMap<String, String>,
+    inline_source: Option<v8::Global<v8::Function>>,
 }
 
 thread_local! {
@@ -177,7 +178,10 @@ fn compile_graph<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str) -> Option<v8::
     if let Some(exports) = builtin(scope, url) {
         return synthetic(scope, url, exports);
     }
-    let source = thrown(scope, loader().and_then(|loader| loader.load(url)))?;
+    let source = match url.starts_with("blob:") || url.starts_with("data:") {
+        true => inline_source(scope, url)?,
+        false => thrown(scope, loader().and_then(|loader| loader.load(url)))?,
+    };
     let module = compile(scope, url, &source)?;
     imports(scope, module, url)?;
     Some(module)
@@ -207,6 +211,24 @@ fn resolve_callback<'s>(
     let target = thrown(scope, target(&specifier, &referrer))?;
     let module = cached(scope, &target);
     thrown(scope, module.ok_or_else(|| format!("acdert: module {target} was not loaded")))
+}
+
+pub fn set_inline_source(function: Option<v8::Global<v8::Function>>) {
+    MAP.with(|m| m.borrow_mut().inline_source = function);
+}
+
+fn inline_source(scope: &mut v8::PinScope, url: &str) -> Option<String> {
+    let Some(function) = MAP.with(|m| m.borrow().inline_source.clone()) else {
+        return thrown(scope, Err(format!("acdert: module {url}: this page reads no blob: or data: modules")));
+    };
+    let function = v8::Local::new(scope, function);
+    let receiver = v8::undefined(scope).into();
+    let arg = v8::String::new(scope, url)?.into();
+    let source = function.call(scope, receiver, &[arg])?;
+    if source.is_null_or_undefined() {
+        return thrown(scope, Err(format!("acdert: module {url}: no such blob: or data: URL")));
+    }
+    Some(source.to_rust_string_lossy(scope))
 }
 
 fn thrown<T>(scope: &mut v8::PinScope, result: Result<T, String>) -> Option<T> {

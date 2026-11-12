@@ -607,3 +607,14 @@ test("an app's own resources get page loading types; documents and unknown names
     '/app/table.csv': 'application/octet-stream', '/app/blob.zzz': 'application/octet-stream',
   })
 })
+
+test('moduleSource: the text of blob: and data: modules, for JavaScript MIME types only', async () => {
+  using web = await page()
+  const moduleSource = web.host.moduleSource!
+  const url = web.run(`URL.createObjectURL(new Blob(['export default 1'], { type: 'Text/JavaScript; charset=utf-8' }))`) as string
+  assert.equal(moduleSource(url), 'export default 1')
+  assert.equal(moduleSource('data:text/javascript,export%20default%202'), 'export default 2')
+  const plain = web.run(`URL.createObjectURL(new Blob(['x'], { type: '' }))`) as string
+  assert.throws(() => moduleSource(plain), /expected a JavaScript module script/)
+  assert.equal(moduleSource('blob:http://acde.local/none'), null)
+})

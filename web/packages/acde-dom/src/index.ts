@@ -5,7 +5,7 @@ import { globals, host, KEY, report, setReport } from './core/host'
 import { observer, type PageErrorKind } from './core/observe'
 import { EventSource } from './core/net/eventsource'
 import { Headers } from './core/net/headers'
-import { fetch, net, Request, Response } from './core/net'
+import { fetch, moduleSource, net, Request, Response } from './core/net'
 import { WebSocket } from './core/net/websocket'
 import { XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload } from './core/net/xhr'
 import { loadResource, reportServed } from './core/resources'
@@ -239,6 +239,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
 
   let frameVersion = -1
   onCssEventsWanted(() => frames.request())
+  host.setModuleSource?.(moduleSource)
   inner(document, 'addEventListener').call(document, 'pointerdown', (event: Event) => lightDismiss(event.target as never), true)
   inner(document, 'addEventListener').call(document, 'keydown', (event: Event & { readonly key?: string }) => {
     if (event.key === 'Escape' && !event.defaultPrevented) escape()

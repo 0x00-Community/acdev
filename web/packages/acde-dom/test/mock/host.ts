@@ -77,6 +77,11 @@ export class MockHost implements HostNative {
   defineModule(url: string): void {
     throw new Error(`modules are not supported in tests: ${url}`)
   }
+  moduleSource: ((url: string) => string | null) | null = null
+  setModuleSource(source: ((url: string) => string | null) | null): void {
+    this.moduleSource = source
+  }
+
   refuseModule(url: string): void {
     throw new Error(`modules are not supported in tests: ${url}`)
   }

@@ -19,6 +19,7 @@ pub fn object<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object>
         "importModule" => import_module,
         "defineModule" => define_module,
         "refuseModule" => refuse_module,
+        "setModuleSource" => set_module_source,
         "runModule" => run_module,
         "runScript" => run_script,
         "readAsset" => read_asset,
@@ -153,6 +154,11 @@ fn define_module(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, 
         return bind::throw_type_error(scope, &format!("defineModule: {url} is not an {} module", crate::modules::SCHEME));
     }
     crate::modules::define(scope, &url, exports);
+}
+
+fn set_module_source(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let function = v8::Local::<v8::Function>::try_from(args.get(0)).ok().map(|f| v8::Global::new(scope, f));
+    crate::modules::set_inline_source(function);
 }
 
 fn refuse_module(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {

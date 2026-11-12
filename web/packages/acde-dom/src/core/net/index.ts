@@ -90,6 +90,22 @@ export function unreachable(url: string): string {
 
 }
 
+const JAVASCRIPT_TYPES = new Set([
+  'application/ecmascript', 'application/javascript', 'application/x-ecmascript', 'application/x-javascript', 'text/ecmascript',
+  'text/javascript', 'text/javascript1.0', 'text/javascript1.1', 'text/javascript1.2', 'text/javascript1.3', 'text/javascript1.4',
+  'text/javascript1.5', 'text/jscript', 'text/livescript', 'text/x-ecmascript', 'text/x-javascript',
+])
+
+export function moduleSource(url: string): string | null {
+  const found = inline(url)
+  if (!found) return null
+  const essence = found.type.split(';')[0]!.trim().toLowerCase()
+  if (!JAVASCRIPT_TYPES.has(essence)) {
+    throw new TypeError(`Failed to load module script: expected a JavaScript module script, but ${url} has the MIME type "${found.type}"`)
+  }
+  return host.decode(found.bytes, 'utf-8', false, false)
+}
+
 function inline(url: string): Loaded | null {
   if (url.startsWith('blob:')) {
     const hash = url.indexOf('#')
