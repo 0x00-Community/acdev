@@ -1,5 +1,8 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, relative } from 'node:path'
+import {
+  copyFileSync, cpSync, existsSync, linkSync, mkdirSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync,
+} from 'node:fs'
+import { basename, delimiter, dirname, join, relative } from 'node:path'
+import { which } from 'acde/launcher'
 import acdeVite from '@dopame/acde-api/vite'
 import { ViteBundler, type Bundler } from './bundler.ts'
 import { up } from './paths.ts'
@@ -94,7 +97,29 @@ export class Frameworks {
   static #tool(b: Build, name: string, args: readonly string[], env?: Record<string, string>): Promise<void> {
     const bin = PackageManager.bin(b.dir, name, Frameworks.#deps(b.pkg))
     if (!bin) throw new Error(`no ${name} in node_modules: run ${PackageManager.of(b.dir).name} install first`)
-    return Frameworks.#spawn(b.dir, [process.execPath, ...(Runtime.bun ? ['--bun'] : []), bin, ...args], env)
+    return Frameworks.#spawn(b.dir, [process.execPath, ...(Runtime.bun ? ['--bun'] : []), bin, ...args], {
+      ...env,
+      ...Frameworks.node(b.scratch),
+    })
+  }
+
+  static node(scratch: string, path = process.env): Record<string, string> {
+    if (!Runtime.bun || which('node', path)) return {}
+    const dir = join(scratch, 'bin')
+    const node = join(dir, process.platform === 'win32' ? 'node.exe' : 'node')
+    if (!existsSync(node)) {
+      mkdirSync(dir, { recursive: true })
+      if (process.platform !== 'win32') symlinkSync(process.execPath, node)
+      else {
+        try {
+          linkSync(process.execPath, node)
+        } catch {
+          copyFileSync(process.execPath, node)
+        }
+      }
+    }
+    const key = Object.keys(path).find((name) => name.toUpperCase() === 'PATH') ?? 'PATH'
+    return { [key]: [dir, path[key]].filter(Boolean).join(delimiter) }
   }
 
   static #page(dir: string): string | null {
