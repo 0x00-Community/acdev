@@ -1,5 +1,5 @@
 export class Pkgs {
-  static readonly BASE = 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs'
+  static readonly BASE = 'https://pkgs.dopame.ai'
   static readonly ACDE = `${Pkgs.BASE}/acde`
   static readonly ACDERT = `${Pkgs.BASE}/acdert`
 

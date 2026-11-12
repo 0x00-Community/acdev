@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-ACDE_DIST=${ACDE_DIST:-https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde}
+ACDE_DIST=${ACDE_DIST:-https://pkgs.dopame.ai/acde}
 ACDE_DIST=${ACDE_DIST%/}
-ACDERT_DIST=${ACDERT_DIST:-https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert}
+ACDERT_DIST=${ACDERT_DIST:-https://pkgs.dopame.ai/acdert}
 ACDERT_DIST=${ACDERT_DIST%/}
 
 say() {

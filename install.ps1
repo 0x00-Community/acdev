@@ -17,8 +17,8 @@ function Install-Acde {
     $progress = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
 
-    $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde' }
-    $runtimeDist = if ($env:ACDERT_DIST) { $env:ACDERT_DIST.TrimEnd('/') } else { 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert' }
+    $dist = if ($env:ACDE_DIST) { $env:ACDE_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acde' }
+    $runtimeDist = if ($env:ACDERT_DIST) { $env:ACDERT_DIST.TrimEnd('/') } else { 'https://pkgs.dopame.ai/acdert' }
     $install = if ($env:ACDE_INSTALL) { $env:ACDE_INSTALL } else { Join-Path -Path $HOME -ChildPath '.acde' }
 
     $shell = $PSVersionTable.PSVersion

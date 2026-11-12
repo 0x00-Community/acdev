@@ -3,9 +3,7 @@ name: release
 # Run by hand. Build, check and preview: gh workflow run release.yml -R dopame-org/acde --ref main
 # Publish: gh workflow run release.yml -R dopame-org/acde --ref main -f publish=true -f commit=<sha>
 # The order of a publish: versioned files uploaded and read back, then the annotated tag, then latest.json last.
-# Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, python3-venv) comes from Debian's apt.
-# Files go to Tencent Cloud COS (bucket shared with others: only keys under pkgs/ are written) with scripts/cos.py,
-# using the COS_SECRET_ID and COS_SECRET_KEY secrets; PKGS is the public address of that prefix.
+# Linux jobs run in node:22-bookworm (Debian 12, Node 22): what it lacks (jq, awscli) comes from Debian's apt.
 # Runs on the internal Gitea (AC/acde → Actions → release → Run workflow), which reads .github/workflows, and on GitHub.
 # Commits, versions and tags are answered by git, not by a forge API. The publish switch is read once, in plan, by
 # the shell: Gitea gives inputs.publish as false even when ticked and github.event.inputs.publish as a boolean where
@@ -33,12 +31,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PKGS: https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs
-  COS_BUCKET: calbin-1318886512
-  COS_REGION: ap-beijing
-  COS_PREFIX: pkgs
-  COS_SDK: cos-python-sdk-v5==1.9.45
+  PKGS: https://pkgs.dopame.ai
+  AWS_REGION: ap-southeast-1
+  ROLE: arn:aws:iam::312030312811:role/dopame-acde-release
+  BUCKET: dopame-pkgs
   PREFIX: acde
+  CLOUDFRONT_DISTRIBUTION: E3ET3L14ALFOXX
 
 jobs:
   plan:
@@ -158,7 +156,7 @@ jobs:
           path: acde
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - name: the SDK tarball from PKGS, checked against its SHA256SUMS
+      - name: the SDK tarball from pkgs.dopame.ai, checked against its SHA256SUMS
         run: |
           set -eu
           base="$PKGS/acdert/$SDK_VERSION"
@@ -239,8 +237,8 @@ jobs:
           v=${TAG#v}
           files=$(cd "$GITHUB_WORKSPACE/out/$v" && ls | jq -R . | jq -sc .)
           jq -n --arg version "$v" --arg tag "$TAG" --arg commit "$SHA" --arg sdk "$SDK_VERSION" \
-            --arg base "$PKGS/$PREFIX/$v/" --argjson files "$files" \
-            '{version: $version, tag: $tag, commit: $commit, sdk: $sdk, base: $base, files: $files}' \
+            --argjson files "$files" \
+            '{version: $version, tag: $tag, commit: $commit, sdk: $sdk, base: "https://pkgs.dopame.ai/acde/\($version)/", files: $files}' \
             > "$GITHUB_WORKSPACE/out/latest.json"
           cat "$GITHUB_WORKSPACE/out/latest.json"
       - name: the archive starts the CLI
@@ -308,13 +306,14 @@ jobs:
     container: node:22-bookworm
     permissions:
       contents: read
+      id-token: write
     env:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - name: tools from Debian 12
         run: |
           apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq python3-venv > /dev/null
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq awscli > /dev/null
       - uses: christopherhx/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           name: acde-release
@@ -345,33 +344,64 @@ jobs:
             exit 1
           fi
           (cd "out/$v" && sha256sum -c SHA256SUMS)
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acde
-          ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: false
-      - name: the COS client, with uv when the runner has it, else in a venv
+      - name: credentials for the role, from the Gitea key or the GitHub OIDC token
+        env:
+          KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           set -eu
-          if command -v uv > /dev/null; then
-            echo "COS=uv run --no-project --with $COS_SDK python acde/scripts/cos.py" >> "$GITHUB_ENV"
+          if [ -n "${KEY_ID:-}" ]; then
+            creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
+              --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
           else
-            python3 -m venv "$RUNNER_TEMP/cos"
-            "$RUNNER_TEMP/cos/bin/pip" install --quiet --disable-pip-version-check "$COS_SDK"
-            echo "COS=$RUNNER_TEMP/cos/bin/python acde/scripts/cos.py" >> "$GITHUB_ENV"
+            token=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+            echo "::add-mask::$token"
+            creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE" \
+              --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
+              --duration-seconds 3600 --query Credentials --output json)
           fi
-      - name: upload the versioned files, each read back; a published version is never overwritten
-        env:
-          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          key=$(jq -r .AccessKeyId <<< "$creds")
+          secret=$(jq -r .SecretAccessKey <<< "$creds")
+          session=$(jq -r .SessionToken <<< "$creds")
+          echo "::add-mask::$key"
+          echo "::add-mask::$secret"
+          echo "::add-mask::$session"
+          {
+            echo "AWS_ACCESS_KEY_ID=$key"
+            echo "AWS_SECRET_ACCESS_KEY=$secret"
+            echo "AWS_SESSION_TOKEN=$session"
+          } >> "$GITHUB_ENV"
+      - name: upload the versioned files, then read them back
         run: |
           set -eu
           v=$(cat out/latest)
           immutable='public, max-age=31536000, immutable'
           text='text/plain; charset=utf-8'
-          $COS once "out/$v/acde-$v.tar.gz" "$PREFIX/$v/acde-$v.tar.gz" application/gzip "$immutable"
-          $COS once "out/$v/acdert-version" "$PREFIX/$v/acdert-version" "$text" "$immutable"
-          $COS once "out/$v/SHA256SUMS" "$PREFIX/$v/SHA256SUMS" "$text" "$immutable"
+          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
+          # a published version is identical or refused, never overwritten; a rerun skips the identical files
+          publish_once() {
+            key="$PREFIX/$2"
+            if aws s3api head-object --bucket "$BUCKET" --key "$key" > /dev/null 2> head.err; then
+              aws s3 cp "s3://$BUCKET/$key" published.tmp --only-show-errors
+              if cmp -s published.tmp "$1"; then
+                echo "already published, identical: $2"
+              else
+                echo "::error::$2 is already published with different content: a version is never overwritten"
+                exit 1
+              fi
+            elif grep -qE 'Not Found|NotFound|404' head.err; then
+              put "$1" "$2" "$3" "$4"
+            else
+              echo "::error::cannot check $2: $(cat head.err)"
+              exit 1
+            fi
+            aws s3 cp "s3://$BUCKET/$key" readback.tmp --only-show-errors
+            cmp -s readback.tmp "$1" || { echo "::error::$2 does not read back as uploaded"; exit 1; }
+          }
+          publish_once "out/$v/acde-$v.tar.gz" "$v/acde-$v.tar.gz" application/gzip "$immutable"
+          publish_once "out/$v/acdert-version" "$v/acdert-version" "$text" "$immutable"
+          publish_once "out/$v/SHA256SUMS" "$v/SHA256SUMS" "$text" "$immutable"
 
   tag:
     needs: [plan, guard, upload]
@@ -418,13 +448,14 @@ jobs:
     container: node:22-bookworm
     permissions:
       contents: read
+      id-token: write
     env:
       TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - name: tools from Debian 12
         run: |
           apt-get update -qq
-          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq python3-venv > /dev/null
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq awscli > /dev/null
       - uses: christopherhx/gitea-download-artifact@3f0bddcec1b25ce059fe5de36de56d8d8519397f # v8 (official v8.0.1 + isGhes false)
         with:
           name: acde-release
@@ -439,39 +470,58 @@ jobs:
             exit 1
           fi
           (cd "out/$v" && sha256sum -c SHA256SUMS)
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          path: acde
-          ref: ${{ needs.plan.outputs.sha }}
-          persist-credentials: false
-      - name: the COS client, with uv when the runner has it, else in a venv
-        run: |
-          set -eu
-          if command -v uv > /dev/null; then
-            echo "COS=uv run --no-project --with $COS_SDK python acde/scripts/cos.py" >> "$GITHUB_ENV"
-          else
-            python3 -m venv "$RUNNER_TEMP/cos"
-            "$RUNNER_TEMP/cos/bin/pip" install --quiet --disable-pip-version-check "$COS_SDK"
-            echo "COS=$RUNNER_TEMP/cos/bin/python acde/scripts/cos.py" >> "$GITHUB_ENV"
-          fi
-      - name: update the pointers, latest and latest.json last
+      - name: credentials for the role, from the Gitea key or the GitHub OIDC token
         env:
-          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
-          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          KEY_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           set -eu
-          fresh='no-cache'
+          if [ -n "${KEY_ID:-}" ]; then
+            creds=$(AWS_ACCESS_KEY_ID="$KEY_ID" AWS_SECRET_ACCESS_KEY="$KEY_SECRET" aws sts assume-role --role-arn "$ROLE" \
+              --role-session-name "acde-$GITHUB_RUN_ID" --duration-seconds 3600 --query Credentials --output json)
+          else
+            token=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+            echo "::add-mask::$token"
+            creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE" \
+              --role-session-name "acde-$GITHUB_RUN_ID" --web-identity-token "$token" \
+              --duration-seconds 3600 --query Credentials --output json)
+          fi
+          key=$(jq -r .AccessKeyId <<< "$creds")
+          secret=$(jq -r .SecretAccessKey <<< "$creds")
+          session=$(jq -r .SessionToken <<< "$creds")
+          echo "::add-mask::$key"
+          echo "::add-mask::$secret"
+          echo "::add-mask::$session"
+          {
+            echo "AWS_ACCESS_KEY_ID=$key"
+            echo "AWS_SECRET_ACCESS_KEY=$secret"
+            echo "AWS_SESSION_TOKEN=$session"
+          } >> "$GITHUB_ENV"
+      - name: update the pointers, latest.json last
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          fresh='public, max-age=0, must-revalidate'
           text='text/plain; charset=utf-8'
-          $COS pointer out/install.sh "$PREFIX/install.sh" "$text" "$fresh"
-          $COS pointer out/install.ps1 "$PREFIX/install.ps1" "$text" "$fresh"
-          $COS pointer out/install.md "$PREFIX/install.md" 'text/markdown; charset=utf-8' "$fresh"
-          $COS pointer out/latest "$PREFIX/latest" "$text" "$fresh"
-          $COS pointer out/latest.json "$PREFIX/latest.json" application/json "$fresh"
+          put() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" --only-show-errors --content-type "$3" --cache-control "$4"; }
+          put out/install.sh install.sh "$text" "$fresh"
+          put out/install.ps1 install.ps1 "$text" "$fresh"
+          put out/install.md install.md 'text/markdown; charset=utf-8' "$fresh"
+          put out/latest latest "$text" "$fresh"
+          put out/latest.json latest.json application/json "$fresh"
+      - name: invalidate
+        run: |
+          set -eu
+          v=$(cat out/latest)
+          aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION" \
+            --paths /acde/latest /acde/latest.json /acde/install.sh /acde/install.ps1 /acde/install.md \
+            "/acde/$v/SHA256SUMS" "/acde/$v/acdert-version" "/acde/$v/acde-$v.tar.gz" --query Invalidation.Id --output text
       - run: |
           {
-            echo "curl -fsSL $PKGS/$PREFIX/install.sh | sh"
+            echo "curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh"
             echo
-            echo "irm $PKGS/$PREFIX/install.ps1 | iex"
+            echo "irm https://pkgs.dopame.ai/acde/install.ps1 | iex"
             echo
-            echo "Read $PKGS/$PREFIX/install.md and follow it to set up acde on this machine."
+            echo "Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine."
           } >> "$GITHUB_STEP_SUMMARY"

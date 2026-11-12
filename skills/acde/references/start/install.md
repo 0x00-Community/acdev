@@ -7,7 +7,7 @@ The installer sets up acde (the CLI, the project templates, and the SDK) togethe
 Give your agent this prompt:
 
 ```text
-Read https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.md and follow it to set up acde on this machine.
+Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.
 ```
 
 The page it reads tells it to check for Bun or Node.js, run the installer below, install the acde skill for itself, and report what is ready. See [Coding agents](../guide/agents.md).
@@ -36,7 +36,7 @@ acde itself is JavaScript; these are the platforms the runtime is built for (`aa
 ## macOS / Linux
 
 ```sh
-curl -fsSL https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.sh | sh
+curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh
 ```
 
 This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/bin` to PATH in the startup files of every shell on the machine, once each, and lists them: `~/.profile` (sh, dash, ksh and login shells), `~/.bashrc` and an existing `~/.bash_profile` or `~/.bash_login` (bash), `~/.zshrc` and `~/.zprofile` (zsh), `~/.config/fish/conf.d/acde.fish` (fish), `~/.cshrc` and an existing `~/.tcshrc` (csh, tcsh), and nushell's `env.nu`. In the sh-family files the line adds `~/.acde/bin` only when PATH doesn't have it yet, so a shell that reads several of them (a login zsh reads `.zprofile` and `.zshrc`) has it once; an unguarded line from an earlier install is replaced in place. Before each download it prints the file's name and size; in a terminal it shows a progress bar; after each one, and also when its output is captured (a coding agent, CI), it prints the file's size and that its SHA-256 matches. A download that stalls (under 1 KB/s for 30 seconds) is retried twice, then the installer stops and installs nothing.
@@ -44,7 +44,7 @@ This installs into `~/.acde` (change it with `ACDE_INSTALL`) and adds `~/.acde/b
 To leave your startup files alone:
 
 ```sh
-curl -fsSL https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.sh | sh -s -- --no-modify-path
+curl -fsSL https://pkgs.dopame.ai/acde/install.sh | sh -s -- --no-modify-path
 ```
 
 To install a specific version: `sh -s -- --version 0.0.9`. The oldest version on the download site is 0.0.9.
@@ -54,7 +54,7 @@ To install a specific version: `sh -s -- --version 0.0.9`. The oldest version on
 In PowerShell:
 
 ```powershell
-irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1 | iex
+irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 ```
 
 This installs into `%USERPROFILE%\.acde` and adds it to your user `Path`. Like the macOS / Linux installer, it shows each download's progress (size, speed, time left) in a terminal, prints the size and SHA-256 check of each file, and gives up on a download that receives nothing for 30 seconds after three tries. If you turned progress off (`$ProgressPreference = 'SilentlyContinue'`), it stays off.
@@ -65,9 +65,9 @@ After 0.0.9, in the classic Windows console (powershell.exe or cmd.exe started o
 
 ```powershell
 $env:ACDE_VERSION = '0.0.9'; $env:ACDE_NO_MODIFY_PATH = '1'
-irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1 | iex
+irm https://pkgs.dopame.ai/acde/install.ps1 | iex
 
-& ([scriptblock]::Create((irm https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.ps1))) -Version 0.0.9 -NoModifyPath
+& ([scriptblock]::Create((irm https://pkgs.dopame.ai/acde/install.ps1))) -Version 0.0.9 -NoModifyPath
 ```
 
 ## Installer options
@@ -114,7 +114,7 @@ The runtime renders pages only on the GPU, so it needs a working GPU (Metal on m
 
 ### Install the runtime by hand
 
-Use this only when the installer cannot set up the runtime, for example without access to `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/` from the machine. The result is an `acdert` binary with its `app/` directory next to it; set `ACDERT` to the path of that binary (`~/.acdert/acdert` in the commands below). Each runtime release is in `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/<version>/`, and `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/latest.json` names the latest version. A release has:
+Use this only when the installer cannot set up the runtime, for example without access to `https://pkgs.dopame.ai/` from the machine. The result is an `acdert` binary with its `app/` directory next to it; set `ACDERT` to the path of that binary (`~/.acdert/acdert` in the commands below). Each runtime release is in `https://pkgs.dopame.ai/acdert/<version>/`, and `https://pkgs.dopame.ai/acdert/latest.json` names the latest version. A release has:
 
 | File | What it is |
 | --- | --- |
@@ -136,7 +136,7 @@ On macOS or Linux, paste the lines below, with `target` set for your platform (t
 ```sh
 (
 target=aarch64-apple-darwin
-base=https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert
+base=https://pkgs.dopame.ai/acdert
 version=$(curl -fsSL "$base/latest.json" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p')
 mkdir -p ~/.acdert && cd ~/.acdert
 curl -fsSLO "$base/$version/acdert-$target.tar.xz" -O "$base/$version/acdert-host-$version.tar.gz" -O "$base/$version/SHA256SUMS"
@@ -158,7 +158,7 @@ On Windows, in PowerShell:
 ```powershell
 & {
   $ProgressPreference = 'SilentlyContinue'
-  $base = 'https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert'
+  $base = 'https://pkgs.dopame.ai/acdert'
   $version = (Invoke-RestMethod "$base/latest.json").version
   $dir = "$env:USERPROFILE\.acdert"
   New-Item -ItemType Directory -Force $dir | Out-Null
