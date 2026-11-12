@@ -3,7 +3,7 @@ import { Crashes } from './crashes'
 import { PageSource } from './page'
 import { mkdirSync, readDirOr, rmSync, stat } from './sys/fs'
 import { sys } from './sys/natives'
-import { runtimeDir, xdgHome } from './sys/os'
+import { ownRuntimeDir, xdgHome } from './sys/os'
 import { dirname, join } from './sys/path'
 import { process, stopGroup } from './sys/process'
 import { unref } from './sys/timers'
@@ -46,7 +46,7 @@ export class AppBackends {
   }
 
   static socketsRoot(): string {
-    return join(runtimeDir(), 'acde', 'apps')
+    return ownRuntimeDir()
   }
 
   static socketDir(id: string, pid = process.pid, root = AppBackends.socketsRoot()): string {

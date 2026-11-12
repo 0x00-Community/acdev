@@ -30,6 +30,11 @@ export function runtimeDir(): string {
   return join(base, `acde-${process.getuid()}`)
 }
 
+export function ownRuntimeDir(): string {
+  const shared = !!process.env['XDG_RUNTIME_DIR'] || process.platform === 'linux'
+  return shared ? join(runtimeDir(), 'acde') : runtimeDir()
+}
+
 export function userDir(name: 'PICTURES' | 'DOWNLOAD', fallback: string): string {
   const home = homedir()
   try {

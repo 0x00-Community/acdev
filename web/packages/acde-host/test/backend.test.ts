@@ -7,7 +7,7 @@ bindNatives({ host: {} as never, sys: { platform: 'linux', argv: [], pid: 4300 }
 
 describe('AppBackends sockets', () => {
   test('each runtime has its own directory per app', () => {
-    assert.equal(AppBackends.socketDir('notes', 4100, '/run/user/1000/acde/apps'), '/run/user/1000/acde/apps/4100/notes')
+    assert.equal(AppBackends.socketDir('notes', 4100, '/run/user/1000/acde'), '/run/user/1000/acde/4100/notes')
     assert.notEqual(AppBackends.socketDir('notes', 4100, '/r'), AppBackends.socketDir('notes', 4200, '/r'))
   })
 
