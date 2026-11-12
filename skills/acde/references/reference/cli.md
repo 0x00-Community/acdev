@@ -139,6 +139,8 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `acde input <web> <events\|->` | Sends a JSON array of raw mouse and keyboard events to a page, in its CSS pixels: `move` / `down` / `up` (`x`, `y`, `button`), `wheel` (`x`, `y`, `dx`, `dy`), `keydown` / `keyup` (`key`), `text` (`text`), `wait` (`ms`, up to 10000). Moves are a frame apart, so moves with the button down draw a path; `keydown`, `wait`, `keyup` holds a key (after 0.0.9) |
 | `acde console [--web W] [--level L] [--since S] [--follow]` | Page logs and errors; `--since reload` or `--since N` |
 | `acde network [--web W] [--failed] [--since S] [--follow]` | Page requests; `--since reload` or `--since N`. With nothing to show, `console` and `network` print `acde: no console entries` / `acde: no requests` on stderr and exit 0 (after 0.0.9) |
+| `acde choose <folder\|open\|save> [path...] [--cancel]` | (after 0.0.9) Answers the next folder, file or save picker the page opens: one folder, one or more files, or the file to write; `--cancel` answers it as cancelled. Prints `the next folder picker answers <path>`. A headless session shows no picker, so answer it before the action that opens it |
+| `acde drop <web> <file...> [--at X,Y]` | (after 0.0.9) Drops files onto a page as a drag from the system would (`dragenter`, `dragover`, `drop` with the files), at `X,Y` in its CSS pixels or in the middle. Prints `dropped N files onto <web>` |
 | `acde permissions` | The camera and microphone prompts that wait and the decisions made |
 | `acde allow [<prompt id> \| <app> <capability>] [--all]` | Allows a waiting camera or microphone prompt |
 | `acde deny [<prompt id> \| <app> <capability>] [--all]` | Denies a waiting camera or microphone prompt |
@@ -153,6 +155,8 @@ These work with a running `acde dev` session, and all of them accept `--session 
 | `--ref` | `query`: search only under this element (`w1.12`) |
 | `--limit` | `query`: list at most this many elements (1 to 3000, default 600) |
 | `--all` | `inspect`: every window that is not marked `[minimized]`, and elements hidden by `opacity: 0` or `visibility`. `allow`, `deny`: every waiting prompt |
+| `--cancel` | `choose`: answer the picker as cancelled |
+| `--at` | `drop`: where to drop, `X,Y` in the page's CSS pixels |
 
 `acde query` prints `N in <window>:` and one line per element (exit code 0), or `acde: nothing in <window> matches "<selector>"` on stderr (exit code 2; in 0.0.9 on stdout, without `acde: `). `acde inspect --find TEXT` exits with code 2 when no element's name or value contains TEXT. Exit code 2 always means the command worked and found nothing; 1 means an error, such as a window or element that does not exist. `acde act` prints what it did and what changed; when the action was not done it prints the reason on stderr (`acde: act <ref>: <reason>`) and exits with code 1. A ref that no longer exists says `there is no such element (any more); acde inspect --find TEXT gives the current refs`.
 

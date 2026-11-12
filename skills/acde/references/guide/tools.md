@@ -265,7 +265,7 @@ acde shot notes       # ./notes.png
 acde screen           # ./screen.png, every window together
 ```
 
-A headless session has no picker dialogs: a folder, file or save picker the page opens fails unless it was answered beforehand, and the page sees it as cancelled. Answer it from a test with `chooseFolder`, `chooseFiles` or `chooseSaveFile` ([Testing](testing.md#network-file-pickers-clipboard)), or from an agent with the MCP tools `choose_folder`, `choose_files` and `choose_save_file` ([MCP](mcp.md)). The session output names the missing answer: `no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand with the MCP tool choose_folder or acde.chooseFolder() in a test`. A headless session also has its own clipboard and no camera or microphone dialog (see below).
+A headless session has no picker dialogs: a folder, file or save picker the page opens fails unless it was answered beforehand, and the page sees it as cancelled. Answer it from a test with `chooseFolder`, `chooseFiles` or `chooseSaveFile` ([Testing](testing.md#network-file-pickers-clipboard)), from an agent with the MCP tools `choose_folder`, `choose_files` and `choose_save_file` ([MCP](mcp.md)), or (after 0.0.9) from the shell with `acde choose folder ~/Notes`, `acde choose open a.md b.md` or `acde choose save out.md` (`--cancel` to cancel). `acde drop <web> <file...>` (after 0.0.9) drops files onto a page, as a drag from the file manager would. The session output names the missing answer: `no folder chooser without a host window (ACDE_HEADLESS): answer it beforehand with the MCP tool choose_folder or acde.chooseFolder() in a test`. A headless session also has its own clipboard and no camera or microphone dialog (see below).
 
 ## Camera and microphone
 

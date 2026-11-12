@@ -48,6 +48,8 @@ class Cli {
     network: { args: [0, 0], flags: ['session', 'web', 'since'], switches: ['follow', 'failed'] },
     screen: { args: [0, 0], flags: ['session', 'output'] },
     pointer: { args: [2, 2], flags: ['session'] },
+    choose: { args: [1, Infinity], flags: ['session'], switches: ['cancel'] },
+    drop: { args: [2, Infinity], flags: ['session', 'at'] },
     permissions: { args: [0, 0], flags: ['session'] },
     allow: { args: [0, 2], flags: ['session'], switches: ['all'] },
     deny: { args: [0, 2], flags: ['session'], switches: ['all'] },

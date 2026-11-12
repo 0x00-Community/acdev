@@ -13,7 +13,7 @@ import { Sessions } from './sessions.ts'
 
 export class Tools {
   static readonly COMMANDS = new Set([
-    'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'permissions',
+    'webs', 'eval', 'shot', 'inspect', 'query', 'act', 'input', 'console', 'network', 'screen', 'pointer', 'choose', 'drop', 'permissions',
     'allow', 'deny', 'revoke', 'stop',
   ])
   static readonly ANSWER = 'acde allow (or acde deny)'
@@ -63,6 +63,27 @@ export class Tools {
     return parsed as InputEvent[]
   }
 
+  static choice(args: readonly string[], cancel: boolean): { kind: 'folder' | 'open' | 'save'; paths: string[] | null } {
+    const [kind, ...paths] = args
+    if (kind !== 'folder' && kind !== 'open' && kind !== 'save') {
+      throw new Error(`choose: ${kind} is not a picker; give folder, open or save (acde choose --help)`)
+    }
+    if (cancel) {
+      if (paths.length) throw new Error('choose: --cancel takes no paths (acde choose --help)')
+      return { kind, paths: null }
+    }
+    if (!paths.length) throw new Error(`choose ${kind}: give the ${kind === 'open' ? 'files' : kind === 'folder' ? 'folder' : 'file'} to answer, or --cancel (acde choose --help)`)
+    if (kind !== 'open' && paths.length > 1) throw new Error(`choose ${kind}: one path, not ${paths.length} (acde choose --help)`)
+    return { kind, paths }
+  }
+
+  static at(text: string | undefined): [number, number] | undefined {
+    if (text === undefined) return undefined
+    const point = text.split(',').map((v) => Number(v.trim()))
+    if (point.length !== 2 || !point.every(Number.isFinite)) throw Output.option('drop', 'at', text, 'X,Y in the page\'s CSS pixels')
+    return point as [number, number]
+  }
+
   static missing(text: string): string | null {
     const gone = /^(element|window) \S+ is gone$/.exec(text)
     return gone ? `there is no such ${gone[1]} (any more); acde inspect --find TEXT gives the current refs` : null
@@ -85,6 +106,8 @@ export class Tools {
       throw Output.option(command, 'since', start, 'reload, or the number of an entry')
     const limit = command === 'query' ? Tools.#limit(flags.get('limit')) : undefined
     const wanted = command === 'allow' || command === 'deny' ? Tools.wanted(command, args, flags) : {}
+    const choice = command === 'choose' ? Tools.choice(args, flags.has('cancel')) : null
+    const at = command === 'drop' ? Tools.at(flags.get('at')) : undefined
     if (command === 'stop') return await Tools.#stop(session)
     const say = (line: string) => console.error(line)
     const acde = await Acde.attach(session === undefined ? { say } : { session, say })
@@ -188,6 +211,20 @@ export class Tools {
         case 'screen':
           console.log((await acde.screen({ path: resolve(flags.get('output') ?? 'screen.png') })).path)
           return 0
+        case 'choose': {
+          const { kind, paths } = choice!
+          if (kind === 'folder') await acde.chooseFolder(paths?.[0] ?? null)
+          else if (kind === 'open') await acde.chooseFiles(paths)
+          else await acde.chooseSaveFile(paths?.[0] ?? null)
+          const what = paths === null ? 'cancels it' : `answers ${paths.map((p) => resolve(p)).join(', ')}`
+          console.log(`the next ${kind === 'open' ? 'file' : kind} picker ${what}`)
+          return 0
+        }
+        case 'drop': {
+          const dropped = await acde.drop(args.slice(1), { web: args[0]!, ...(at && { x: at[0], y: at[1] }) })
+          console.log(`dropped ${dropped.files.length} file${dropped.files.length === 1 ? '' : 's'} onto ${dropped.web}`)
+          return 0
+        }
         case 'pointer': {
           const [x, y] = args.map(Number) as [number, number]
           if (!Number.isFinite(x) || !Number.isFinite(y))
