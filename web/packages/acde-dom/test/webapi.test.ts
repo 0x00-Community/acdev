@@ -342,7 +342,7 @@ test('popover: show / hide / toggle with beforetoggle and toggle, auto popovers 
   const states = (id: string) => web.dom.openStates.get(web.internals.idOf(web.run(`document.getElementById('${id}')`)))?.open
   assert.equal(web.json<{ threw: string }>('after').threw, 'NotSupportedError')
   assert.deepEqual(['a', 'b', 'c', 'm'].map(states), [false, false, true, true], 'c closes a and b (not its ancestors); manual m stays')
-  assert.deepEqual(web.json('log').slice(0, 6), ['a before open', 'b before open', 'm before open', 'c before open', 'b before closed', 'a before closed'], 'the opening one first, as HTML orders it')
+  assert.deepEqual(web.json<string[]>('log').slice(0, 6), ['a before open', 'b before open', 'm before open', 'c before open', 'b before closed', 'a before closed'], 'the opening one first, as HTML orders it')
   web.run(`document.getElementById('t').click()`)
   assert.equal(states('c'), false, 'popovertarget toggles c closed')
   web.run(`document.getElementById('c').addEventListener('beforetoggle', (e) => e.preventDefault(), { once: true })`)
