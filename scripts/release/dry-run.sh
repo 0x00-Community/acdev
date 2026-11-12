@@ -141,4 +141,6 @@ for variant in \
 done
 
 "$here/check-stage.sh" "$work/stage" "$version"
-echo "dry run passed: symbols never reached the staging, each binary archive holds only its binary, the sdk archive holds only the published layout, and the check rejects leaks"
+bash "$here/cos.sh" selftest
+echo "dry run passed: symbols never reached the staging, each binary archive holds only its binary, the sdk archive holds only the published layout,"
+echo "the check rejects leaks, and the COS upload rules hold"
