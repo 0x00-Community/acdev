@@ -8,6 +8,8 @@ import { audioNative, mediaEvents } from '../audio/index'
 import { NodeType, type AudioNative } from '../native'
 import { MediaStream, trackSource, watchTrack, type MediaStreamTrack } from '../media/stream'
 import { contexts as gpuContexts, type GPUCanvasContext } from '../gpu/index'
+import { webglContexts, type WebGLContextBase } from '../webgl/index'
+import { base64 } from '../core/encoding'
 import { canvases, type CanvasContext2d, type CanvasElement } from './canvas'
 import { ATTRIBUTE_CHANGED, flags, parsedHooks, setAttribute, tokenList, type DOMTokenList, type Element } from './element'
 import { clonedHooks, type Node } from './node'
@@ -152,21 +154,36 @@ export class HTMLCanvasElement extends HTMLElement {
 
   override [ATTRIBUTE_CHANGED](name: string, value: string | null): void {
     super[ATTRIBUTE_CHANGED](name, value)
-    if (name === 'width' || name === 'height') canvases.resized(this as unknown as CanvasElement)
+    if (name === 'width' || name === 'height') {
+      canvases.resized(this as unknown as CanvasElement)
+      webglContexts.resized(this)
+    }
   }
 
-  getContext(type: string, _options?: unknown): CanvasContext2d | GPUCanvasContext | null {
+  getContext(type: string, options?: unknown): CanvasContext2d | GPUCanvasContext | WebGLContextBase | null {
     const kind = String(type)
-    if (kind === '2d') return gpuContexts.has(this) ? null : canvases.context(this as unknown as CanvasElement)
-    if (kind === 'webgpu') return canvases.has(this as unknown as CanvasElement) ? null : gpuContexts.of(this, this[ID])
+    const webgl = webglContexts.has(this)
+    if (kind === '2d') return gpuContexts.has(this) || webgl ? null : canvases.context(this as unknown as CanvasElement)
+    if (kind === 'webgpu') return canvases.has(this as unknown as CanvasElement) || webgl ? null : gpuContexts.of(this, this[ID])
+    if (kind === 'webgl' || kind === 'experimental-webgl' || kind === 'webgl2') {
+      if (canvases.has(this as unknown as CanvasElement) || gpuContexts.has(this)) return null
+      return webglContexts.of(this, this[ID], kind === 'webgl2' ? 'webgl2' : 'webgl', options)
+    }
     return null
   }
 
   toDataURL(type = 'image/png', _quality?: number): string {
+    const webgl = webglContexts.png(this)
+    if (webgl !== undefined) return webgl ? `data:image/png;base64,${base64(webgl)}` : 'data:,'
     return gpuContexts.dataURL(this) ?? canvases.toDataURL(this as unknown as CanvasElement, String(type))
   }
 
   toBlob(callback: (blob: Blob | null) => void, type = 'image/png', quality?: number): void {
+    const webgl = webglContexts.png(this)
+    if (webgl !== undefined) {
+      host.setTimer(0, () => callback(webgl ? new Blob([webgl], { type: 'image/png' }) : null))
+      return
+    }
     const png = gpuContexts.png(this)
     if (png) {
       png.then((bytes) => callback(new Blob([bytes], { type: 'image/png' })), () => callback(null))

@@ -1,5 +1,5 @@
 import { install, installBackendTransport, observe } from '@dopame/acde-dom'
-import type { AudioNative, BackendTransport, CaptureNative, DomNative, GpuNative, HostNative, StorageNative } from '@dopame/acde-dom'
+import type { AudioNative, BackendTransport, CaptureNative, DomNative, GpuNative, HostNative, StorageNative, WebglNative } from '@dopame/acde-dom'
 import type { WebInit } from './broker'
 import { Frame } from './frame'
 import { FsModule } from './fsmodule'
@@ -54,6 +54,7 @@ interface WebNatives extends Natives {
   claimSurface(token: bigint, options?: { frame?: number }): NativeSurface
   readonly Ime?: new (callback: (event: ImeEvent) => void) => NativeIme
   readonly gpu?: GpuNative
+  readonly webgl?: WebglNative
   readonly audio?: AudioNative
   readonly capture?: CaptureNative
   readonly storage?: StorageNative
@@ -110,6 +111,7 @@ export default async function boot(natives: WebNatives): Promise<void> {
     ...init.navigator,
     ...(natives.storage && { storage: natives.storage }),
     gpu: natives.gpu,
+    webgl: natives.webgl,
     audio: natives.audio,
     ...(natives.capture && { capture: permits.capture(natives.capture, access) }),
     ...(init.screen && { screen: init.screen }),

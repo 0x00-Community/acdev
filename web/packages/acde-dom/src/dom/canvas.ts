@@ -40,6 +40,8 @@ export class TextMetrics {
 }
 tag(TextMetrics)
 
+export const canvasSources = { present(_canvas: Element): void {} }
+
 export class ImageData {
   readonly width: number
   readonly height: number
@@ -637,6 +639,7 @@ export class CanvasContext2d {
     const [sx, sy, sw, sh, dx, dy, dw, dh] =
       a.length >= 8 ? a : a.length >= 4 ? [0, 0, iw, ih, a[0]!, a[1]!, a[2]!, a[3]!] : [0, 0, iw, ih, a[0]!, a[1]!, iw, ih]
     if (![sx, sy, dx, dy].every(Number.isFinite)) return
+    if (tag === 'canvas') canvasSources.present(image)
     this.#sync(NEEDS_IMAGE)
     this.#cmd().u8(Sub.DrawImage).u8(tag === 'img' ? 0 : 1).u32(id).f32(sx!, sy!, sw!, sh!, dx!, dy!, dw!, dh!)
   }

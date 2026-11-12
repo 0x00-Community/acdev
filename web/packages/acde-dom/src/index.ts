@@ -28,6 +28,7 @@ import { idbTaskEnded, installIndexedDB } from './storage/idb/idb'
 import { StorageManager } from './storage/manager'
 import { installCaches } from './storage/cache'
 import { contexts as gpuContexts, installGpu } from './gpu/index'
+import { installWebgl, webglContexts, type WebglNative } from './webgl/index'
 import { installAudio } from './audio/index'
 import { NodeType } from './native'
 import { Animation, AnimationEffect, AnimationPlaybackEvent, AnimationTimeline, animate, animationsOf, DocumentTimeline, KeyframeEffect } from './dom/animation'
@@ -95,6 +96,7 @@ import { adoptTimers } from './core/timers'
 
 export { hostTime, type ClockRequest, type ClockState } from './core/clock'
 export type { AudioNative, CaptureNative, DomNative, GpuNative, HostNative, StorageAreaNative, StorageNative } from './native'
+export type { WebglNative } from './webgl/index'
 export { installBackendTransport, type BackendTransport, type Header as BackendHeader, type HttpEvent, type WsEvent } from './core/backend'
 export { NO_NETWORK } from './core/net'
 export {
@@ -117,6 +119,7 @@ export interface InstallOptions extends CoreOptions, NavigatorOptions {
   readonly storage?: StorageNative
   readonly logNetwork?: boolean
   readonly gpu?: GpuNative
+  readonly webgl?: WebglNative
   readonly audio?: AudioNative
   readonly capture?: CaptureNative
   readonly screen?: { width: number; height: number }
@@ -225,6 +228,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   globals(global, { StorageManager })
   globals(global, installCaches(options.storage?.caches))
   if (options.gpu) globals(global, installGpu(global, options.gpu, externalPixels))
+  if (options.webgl) globals(global, installWebgl(options.webgl, () => frames.request()))
   if (options.audio) globals(global, installAudio(options.audio))
   installCapture(options.capture)
   globals(global, { MediaStream, MediaStreamTrack, MediaDeviceInfo, InputDeviceInfo, OverconstrainedError, Permissions, PermissionStatus })
@@ -288,6 +292,7 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
       }
       const loading = deliverLoads()
       const playing = presentVideos()
+      webglContexts.present()
       canvases.flush()
       gpuContexts.present()
       frameVersion = version
@@ -350,6 +355,8 @@ function externalPixels(source: unknown): { width: number; height: number; rgba:
     return { width: source.width, height: source.height, rgba: new Uint8Array(source.data.buffer, source.data.byteOffset, source.data.byteLength) }
   }
   if (source instanceof media.HTMLCanvasElement) {
+    const webgl = webglContexts.pixels(source)
+    if (webgl !== undefined) return webgl
     const gpu = gpuContexts.pixels(source)
     if (gpu !== undefined) return gpu
     const { width, height } = source
