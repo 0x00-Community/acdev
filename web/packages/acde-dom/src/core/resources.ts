@@ -1,7 +1,7 @@
 import type { Header } from './backend'
 import { concat } from './encoding'
 import { host } from './host'
-import { assetHead, exchange, headerOf, net, route, unreachable } from './net'
+import { assetHead, exchange, headerOf, net, route, typeOfName, unreachable } from './net'
 import { observer, Tracked, type RequestKind } from './observe'
 import { URL } from './url'
 
@@ -30,10 +30,17 @@ function served(kind: RequestKind, url: string, asset: { bytes: Uint8Array; type
   tracked?.end(asset.bytes.length)
 }
 
-export function reportServed(url: string, destination: string): void {
+export function reportServed(url: string, destination: string, cached = false): void {
   if (!observer?.network?.recording()) return
-  const routed = route(url, 'GET')
   const kind = KINDS[destination] ?? 'fetch'
+  if (cached) {
+    const tracked = Tracked.network(kind, 'GET', url)
+    const type = typeOfName(new URL(url).pathname)
+    tracked?.response(200, 'OK', type ? [['content-type', type]] : [], true)
+    tracked?.end(0)
+    return
+  }
+  const routed = route(url, 'GET')
   if (routed && 'asset' in routed) return served(kind, url, routed.asset)
   const tracked = Tracked.network(kind, 'GET', url)
   tracked?.response(200, 'OK')

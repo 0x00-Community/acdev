@@ -45,7 +45,7 @@ export class NetworkDomain {
   readonly observer: NetworkObserver = {
     recording: () => this.page.listening('Network'),
     start: (id, kind, method, url, headers, body) => this.#start(id, kind, method, url, headers, body),
-    response: (id, status, statusText, headers) => this.#response(id, status, statusText, headers),
+    response: (id, status, statusText, headers, fromCache) => this.#response(id, status, statusText, headers, fromCache === true),
     data: (id, chunk) => this.#data(id, chunk),
     end: (id, bytes) => this.#end(id, bytes),
     error: (id, message) => this.#error(id, message),
@@ -154,7 +154,7 @@ export class NetworkDomain {
     })
   }
 
-  #response(id: number, status: number, statusText: string, headers: NetworkHeaders): void {
+  #response(id: number, status: number, statusText: string, headers: NetworkHeaders, fromCache = false): void {
     const open = this.#live(id)
     if (!open) return
     open.mimeType = NetworkDomain.mimeType(headers)
@@ -181,6 +181,7 @@ export class NetworkDomain {
         connectionId: 0,
         encodedDataLength: 0,
         securityState: 'neutral',
+        fromMemoryCache: fromCache,
         timing: NetworkDomain.timing(open.start, now),
       },
     })

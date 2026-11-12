@@ -686,10 +686,10 @@ export class MockDom implements DomNative {
     this.#loaded = []
     return out
   }
-  loader: ((id: number, url: string, destination: string, cors: string, served?: boolean) => void) | null = null
+  loader: ((id: number, url: string, destination: string, cors: string, served?: boolean, cached?: boolean) => void) | null = null
   loads = new Map<number, Uint8Array | null>()
   #sheetLoads = new Map<number, { link: number; url: string }>()
-  setLoader(load: ((id: number, url: string, destination: string, cors: string, served?: boolean) => void) | null): void {
+  setLoader(load: ((id: number, url: string, destination: string, cors: string, served?: boolean, cached?: boolean) => void) | null): void {
     this.loader = load
   }
   opaqueLoads = new Set<number>()

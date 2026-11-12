@@ -308,8 +308,9 @@ fn an_image_taken_from_the_cache_is_still_reported_to_the_loader() {
     dom.insert_before(by_id(&dom, "body"), b, NONE).unwrap();
     dom.take_loaded();
     let again = take(&loads, "https://img.example.com/a.png");
-    assert!(again.served, "taken from the cache, so only reported");
+    assert!(again.served && again.cached, "taken from the cache, so only reported, as a cache hit");
     assert_eq!(again.destination, "image");
+    assert!(loads.lock().unwrap().is_empty(), "inserting the image that has its picture asks for nothing more");
 }
 
 #[test]

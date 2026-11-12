@@ -165,8 +165,8 @@ export function install(global: typeof globalThis, domNative: DomNative, hostNat
   if (installed) throw new Error('acde-dom is installed in this context already')
   installCore(global, hostNative, options)
   bindDom(domNative)
-  domNative.setLoader((id, url, destination, cors, served) => {
-    if (served) return reportServed(url, destination)
+  domNative.setLoader((id, url, destination, cors, served, cached) => {
+    if (served) return reportServed(url, destination, cached === true)
     loadResource(url, destination, cors, (bytes, opaque) => {
       domNative.loaded(id, bytes, opaque)
       if (destination === 'style') loads.expect()

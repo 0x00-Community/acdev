@@ -14,6 +14,7 @@ pub struct Load {
     pub destination: &'static str,
     pub cors: &'static str,
     pub served: bool,
+    pub cached: bool,
     done: Option<Done>,
 }
 
@@ -91,7 +92,7 @@ impl NetProvider for LocalNet {
         if let Some(loader) = &self.loader
             && matches!(url.scheme(), "http" | "https" | "blob")
         {
-            (loader.0)(Load { url: url.to_string(), destination, cors: "", served: true, done: None });
+            (loader.0)(Load { url: url.to_string(), destination, cors: "", served: true, cached: true, done: None });
         }
     }
 
@@ -120,12 +121,12 @@ impl NetProvider for LocalNet {
                     _ = wake.send(());
                 }
             });
-            return (loader.0)(Load { url: url.to_string(), destination, cors, served: false, done: Some(done) });
+            return (loader.0)(Load { url: url.to_string(), destination, cors, served: false, cached: false, done: Some(done) });
         }
         if let (Some(_), Some(loader)) = (&bytes, &self.loader)
             && matches!(url.scheme(), "http" | "https")
         {
-            (loader.0)(Load { url: url.to_string(), destination: handler.destination(), cors: handler.cors(), served: true, done: None });
+            (loader.0)(Load { url: url.to_string(), destination: handler.destination(), cors: handler.cors(), served: true, cached: false, done: None });
         }
         self.arrived.store(true, Ordering::Release);
         match bytes {

@@ -562,6 +562,18 @@ describe('DevTools Network domain', () => {
     assert.deepEqual((await ask({ id: 5, method: 'Network.getResponseBody', params: { requestId: '2' } }))!['result'], { body: '123456', base64Encoded: false })
   })
 
+  test('a cache hit is marked fromMemoryCache, a fetched response is not', async () => {
+    const { observer, ask, events } = network()
+    await ask({ id: 1, method: 'Network.enable' })
+    observer.start(1, 'image', 'GET', 'http://app.acde/pic.svg', [], null)
+    observer.response(1, 200, 'OK', [['content-type', 'image/svg+xml']], true)
+    observer.end(1, 0)
+    observer.start(2, 'image', 'GET', 'http://app.acde/other.svg', [], null)
+    observer.response(2, 200, 'OK', [])
+    const cached = events('responseReceived').map((e) => (e['response'] as { fromMemoryCache: boolean }).fromMemoryCache)
+    assert.deepEqual(cached, [true, false])
+  })
+
   test('a response carries its timing: start time, send at 0, headers when they arrived, unknown phases -1', async () => {
     const times = [10, 10.25]
     const { observer, ask, events } = network(NetworkDomain.BODIES, () => times.shift() ?? 11)

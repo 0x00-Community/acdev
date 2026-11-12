@@ -684,7 +684,7 @@ test('network: a tracked request hands headers and bodies to the network observe
   const id = tracked.id
   assert.deepEqual(calls, [
     ['start', id, 'fetch', 'POST', 'http://app.acde/a', [['x-a', '1']], new Uint8Array([1, 2])],
-    ['response', id, 200, 'OK', [['content-type', 'text/plain']]],
+    ['response', id, 200, 'OK', [['content-type', 'text/plain']], false],
     ['data', id, [7, 8, 9]],
     ['end', id, 3],
   ])
@@ -755,3 +755,30 @@ test('network: an image the renderer takes from its cache is still reported, als
   ])
   web.run('__acdeDom.observe(null)')
 })
+
+test('network: an image taken from the renderer cache is reported once as a cache hit, without reading the file', async () => {
+  using web = await page()
+  let reads = 0
+  const read = web.host.readAsset.bind(web.host)
+  web.host.readAsset = (url: string) => (reads++, read(url))
+  const calls: unknown[][] = []
+  const network: NetworkObserver = {
+    recording: () => true,
+    start: (id, kind, method, url) => void calls.push(['start', kind, url]),
+    response: (id, status, statusText, headers, fromCache) => void calls.push(['response', status, headers, fromCache]),
+    data: (id, chunk) => void calls.push(['data', chunk.length]),
+    end: (id, bytes) => void calls.push(['end', bytes]),
+    error: (id, message) => void calls.push(['error', message]),
+  }
+  web.context['__network'] = network
+  web.run('__acdeDom.observe({ network: globalThis.__network })')
+  web.dom.loader!(-1, 'http://acde.local/pic.svg', 'image', '', true, true)
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ['start', 'image', 'http://acde.local/pic.svg'],
+    ['response', 200, [['content-type', 'image/svg+xml']], true],
+    ['end', 0],
+  ])
+  assert.equal(reads, 0)
+  web.run('__acdeDom.observe(null)')
+})
+

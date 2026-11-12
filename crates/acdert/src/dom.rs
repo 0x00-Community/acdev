@@ -164,7 +164,7 @@ fn start_load(scope: &mut v8::PinScope, load: acde_render::Load) {
     let Some(callback) = LOADS.with(|l| l.borrow().callback.clone()) else { return };
     let (url, destination, cors) = (load.url.clone(), load.destination, load.cors);
     if load.served {
-        let args = [(-1.0_f64).js(scope), url.js(scope), destination.js(scope), cors.js(scope), true.js(scope)];
+        let args = [(-1.0_f64).js(scope), url.js(scope), destination.js(scope), cors.js(scope), true.js(scope), load.cached.js(scope)];
         bind::call(scope, callback, &args);
         return;
     }

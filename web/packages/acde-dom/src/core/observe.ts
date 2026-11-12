@@ -38,7 +38,7 @@ export type NetworkHeaders = readonly (readonly [string, string])[]
 export interface NetworkObserver {
   recording(): boolean
   start(id: number, kind: RequestKind, method: string, url: string, headers: NetworkHeaders, body: Uint8Array | null): void
-  response(id: number, status: number, statusText: string, headers: NetworkHeaders): void
+  response(id: number, status: number, statusText: string, headers: NetworkHeaders, fromCache?: boolean): void
   data(id: number, chunk: Uint8Array): void
   end(id: number, bytes: number): void
   error(id: number, message: string): void
@@ -107,10 +107,10 @@ export class Tracked {
     return tracked
   }
 
-  response(status: number, statusText: string, headers: NetworkHeaders = []): void {
+  response(status: number, statusText: string, headers: NetworkHeaders = [], fromCache = false): void {
     if (this.#done) return
     this.sink({ phase: 'response', id: this.id, status, statusText })
-    this.network?.response(this.id, status, statusText, headers)
+    this.network?.response(this.id, status, statusText, headers, fromCache)
   }
 
   received(bytes: number, data?: Uint8Array): void {
