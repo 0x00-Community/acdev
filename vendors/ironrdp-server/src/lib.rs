@@ -3,7 +3,10 @@
 #![allow(clippy::arithmetic_side_effects)] // TODO: should we enable this lint back?
 
 // acde: ntex and openssl instead of tokio and tokio_rustls (connections are ntex `Io`, TLS is OpenSSL)
-pub use {ntex, openssl};
+pub use {ironrdp_dvc, ironrdp_svc, ntex, openssl};
+// acde: the graphics pipeline's types (H.264 surfaces, handlers) for a display that sends video
+#[cfg(feature = "egfx")]
+pub use ironrdp_egfx;
 
 mod macros;
 

@@ -26,6 +26,9 @@ pub enum DisplayUpdate {
     HidePointer,
     DefaultPointer,
     CachedPointer(u16),
+    // acde: one frame's bitmaps, sent as one surface-commands update between frame markers so the client shows them
+    // together instead of rect by rect
+    Frame(Vec<BitmapUpdate>),
 }
 
 #[derive(Clone)]
@@ -299,6 +302,10 @@ pub trait RdpServerDisplay: Send {
 
     /// Return a display updates receiver
     async fn updates(&mut self) -> Result<Box<dyn RdpServerDisplayUpdates>>;
+
+    /// acde: the client asks for the whole picture again (`RefreshRectangle`, or `SuppressOutput` with a rectangle):
+    /// clients such as mstsc drop what arrives before their surface is ready and ask for it this way
+    fn request_refresh(&mut self) {}
 
     /// Request a new size for the display
     fn request_layout(&mut self, layout: DisplayControlMonitorLayout) {
