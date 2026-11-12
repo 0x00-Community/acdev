@@ -190,6 +190,7 @@ pub struct Linked {
     pub serial: u64,
     pub vertex: wgpu::ShaderModule,
     pub fragment: wgpu::ShaderModule,
+    pub points: Option<(wgpu::ShaderModule, wgpu::ShaderModule)>,
     pub locations: Vec<(String, UniformLocation)>,
 }
 

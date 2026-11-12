@@ -249,14 +249,16 @@ impl Context {
                         source: wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(m.clone())),
                     })
                 };
-                (module(&info.vertex, "acde webgl vertex"), module(&info.fragment, "acde webgl fragment"))
+                let points =
+                    info.points.as_ref().map(|p| (module(&p.vertex, "acde webgl vertex (points)"), module(&p.fragment, "acde webgl fragment (points)")));
+                (module(&info.vertex, "acde webgl vertex"), module(&info.fragment, "acde webgl fragment"), points)
             });
-            modules.map(|(vertex, fragment)| (info, vertex, fragment))
+            modules.map(|(vertex, fragment, points)| (info, vertex, fragment, points))
         });
         let serial = self.next_serial();
         let Some(p) = self.program_mut(program) else { return };
         match result {
-            Ok((info, vertex, fragment)) => {
+            Ok((info, vertex, fragment, points)) => {
                 let mut locations = Vec::new();
                 for (i, u) in info.uniforms.iter().enumerate() {
                     push_locations(&mut locations, &u.name, u.size, i);
@@ -269,7 +271,7 @@ impl Context {
                 p.units = info.samplers.iter().map(|s| vec![0; s.size as usize]).collect();
                 p.block_bindings = vec![0; info.blocks.len()];
                 p.data_version += 1;
-                p.linked = Some(Rc::new(Linked { info, serial, vertex, fragment, locations }));
+                p.linked = Some(Rc::new(Linked { info, serial, vertex, fragment, points, locations }));
                 p.link_ok = true;
                 p.log.clear();
             }

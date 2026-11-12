@@ -470,7 +470,14 @@ impl Context {
                 t.used = generation;
             }
         }
+        let wide = mode == POINTS && index.is_none() && instances == 1 && linked.points.is_some() && vertex_layouts.iter().all(|l| !l.2);
+        if wide {
+            for layout in &mut vertex_layouts {
+                layout.2 = true;
+            }
+        }
         let (topology, generated) = match mode {
+            POINTS if wide => (wgpu::PrimitiveTopology::TriangleList, false),
             POINTS => (wgpu::PrimitiveTopology::PointList, false),
             LINES => (wgpu::PrimitiveTopology::LineList, false),
             LINE_STRIP => (wgpu::PrimitiveTopology::LineStrip, false),
@@ -529,7 +536,7 @@ impl Context {
         if call_count == 0 {
             return;
         }
-        let pipeline = match self.pipeline(&linked, &target, &vertex_layouts, &layout_bindings, topology, indexed_strip.then_some(index_format)) {
+        let pipeline = match self.pipeline(&linked, &target, &vertex_layouts, &layout_bindings, topology, indexed_strip.then_some(index_format), wide) {
             Some(p) => p,
             None => return,
         };
@@ -543,8 +550,16 @@ impl Context {
         let [sf, ..] = self.state.stencil;
         let blend = self.blend_constant();
         let align = self.limits.uniform_alignment;
-        let data = self.program(program).map(|p| (p.data.clone(), p.data_version)).unwrap_or_default();
-        let sizes = info.uniform_sizes;
+        let mut data = self.program(program).map(|p| (p.data.clone(), p.data_version)).unwrap_or_default();
+        let mut sizes = info.uniform_sizes;
+        if let Some(points) = info.points.as_ref().filter(|_| wide) {
+            let vertex = &mut data.0[0];
+            vertex.resize(points.size as usize, 0);
+            let at = points.viewport as usize;
+            vertex[at..at + 4].copy_from_slice(&(vw.max(1) as f32).to_le_bytes());
+            vertex[at + 4..at + 8].copy_from_slice(&(vh.max(1) as f32).to_le_bytes());
+            sizes[0] = points.size;
+        }
         self.pass_for_draw(target);
         let pass = self.recorder.pass.as_mut().unwrap_or_else(|| unreachable!());
         let uniforms = [pass.push_data(&data.0[0], align), pass.push_data(&data.0[1], align)];
@@ -569,6 +584,7 @@ impl Context {
         let call = match &index {
             Some(_) if generated => Call::Indexed { indices: 0..call_count, base_vertex: 0, instances: 0..instances },
             Some(_) => Call::Indexed { indices: 0..call_count, base_vertex: 0, instances: 0..instances },
+            None if wide => Call::Draw { vertices: 0..6, instances: first as u32..(first + count) as u32 },
             None => Call::Draw { vertices: first as u32..(first + count) as u32, instances: 0..instances },
         };
         pass.draws.push(Draw {
@@ -755,6 +771,7 @@ impl Context {
         bindings: &[Binding],
         topology: wgpu::PrimitiveTopology,
         strip: Option<wgpu::IndexFormat>,
+        wide: bool,
     ) -> Option<wgpu::RenderPipeline> {
         let s = &self.state;
         let default = s.draw_framebuffer.is_none();
@@ -848,6 +865,7 @@ impl Context {
             mask,
             targets,
             discard: cull_all,
+            points: wide,
         };
         if cull_all {
             return None;
@@ -900,11 +918,15 @@ impl Context {
                 bias: wgpu::DepthBiasState { constant: d.bias.0, slope_scale: f32::from_bits(d.bias.1), clamp: 0.0 },
             }
         });
+        let modules = match (&linked.points, wide) {
+            (Some((v, f)), true) => (v, f),
+            _ => (&linked.vertex, &linked.fragment),
+        };
         let result = self.scoped(|device| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("acde webgl"),
                 layout: Some(&layout.1),
-                vertex: wgpu::VertexState { module: &linked.vertex, entry_point: Some("main"), compilation_options: Default::default(), buffers: &buffers },
+                vertex: wgpu::VertexState { module: modules.0, entry_point: Some("main"), compilation_options: Default::default(), buffers: &buffers },
                 primitive: wgpu::PrimitiveState {
                     topology,
                     strip_index_format: strip,
@@ -917,7 +939,7 @@ impl Context {
                 depth_stencil,
                 multisample: wgpu::MultisampleState { count: key.samples, mask: key.mask, alpha_to_coverage_enabled: key.alpha_to_coverage },
                 fragment: Some(wgpu::FragmentState {
-                    module: &linked.fragment,
+                    module: modules.1,
                     entry_point: Some("main"),
                     compilation_options: Default::default(),
                     targets: &color_targets,

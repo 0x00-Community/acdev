@@ -64,7 +64,8 @@ impl Context {
         };
         match name {
             ACTIVE_TEXTURE => Int(i64::from(TEXTURE0 + s.active_texture)),
-            ALIASED_LINE_WIDTH_RANGE | ALIASED_POINT_SIZE_RANGE => Floats(vec![1.0, 1.0]),
+            ALIASED_LINE_WIDTH_RANGE => Floats(vec![1.0, 1.0]),
+            ALIASED_POINT_SIZE_RANGE => Floats(vec![1.0, 1024.0]),
             ALPHA_BITS => Int(fb_bits(self, 3)),
             RED_BITS => Int(fb_bits(self, 0)),
             GREEN_BITS => Int(fb_bits(self, 1)),

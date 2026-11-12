@@ -53,6 +53,7 @@ pub struct PipelineKey {
     pub mask: u64,
     pub targets: Vec<Option<(wgpu::TextureFormat, Option<BlendKey>, u32)>>,
     pub discard: bool,
+    pub points: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

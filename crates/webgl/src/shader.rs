@@ -175,9 +175,17 @@ pub struct Output {
     pub kind: Kind,
 }
 
+pub struct Points {
+    pub vertex: Module,
+    pub fragment: Module,
+    pub viewport: u32,
+    pub size: u32,
+}
+
 pub struct Linked {
     pub vertex: Module,
     pub fragment: Module,
+    pub points: Option<Points>,
     pub attributes: Vec<Attribute>,
     pub uniforms: Vec<Uniform>,
     pub samplers: Vec<Sampler>,
@@ -501,6 +509,7 @@ pub fn link(vs: &Compiled, fs: &Compiled, bound: &HashMap<String, u32>, limits: 
         first_binding: 0,
         draw_buffers,
         dropped: dropped_vs.into_iter().collect(),
+        points: None,
     };
     let fragment_options = WebGlOptions {
         locations: varying_locations.into_iter().collect(),
@@ -509,8 +518,30 @@ pub fn link(vs: &Compiled, fs: &Compiled, bound: &HashMap<String, u32>, limits: 
         first_binding: vertex_resources,
         draw_buffers,
         dropped: dropped_fs.into_iter().collect(),
+        points: None,
     };
     let extensions: Vec<&str> = Vec::new();
+    let wide = vs.info.point_size.is_some_and(|g| vs.live.globals.contains(&g));
+    let point_options = |options: &WebGlOptions| WebGlOptions { points: Some(varyings), ..options.clone() };
+    let points = match wide {
+        true => {
+            let (pv, pvinfo) = Frontend::default()
+                .parse_webgl(&options(ShaderStage::Vertex, vs.version, &extensions), point_options(&vertex_options), &vs.source)
+                .map_err(|e| log(&vs.source, e))?;
+            let (pf, _) = Frontend::default()
+                .parse_webgl(&options(ShaderStage::Fragment, fs.version, &extensions), point_options(&fragment_options), &fs.source)
+                .map_err(|e| log(&fs.source, e))?;
+            let (viewport, size) = match pvinfo.uniforms.map(|g| &pv.types[pv.global_variables[g].ty].inner) {
+                Some(TypeInner::Struct { members, span }) => (members.iter().find(|m| m.name.as_deref() == Some("webgl_point")).map_or(0, |m| m.offset), *span),
+                _ => (0, 0),
+            };
+            let (pv, pf) = (compacted(&pv), compacted(&pf));
+            validate(&pv)?;
+            validate(&pf)?;
+            Some(Points { vertex: pv, fragment: pf, viewport, size })
+        }
+        false => None,
+    };
     let (vertex, vinfo) =
         Frontend::default().parse_webgl(&options(ShaderStage::Vertex, vs.version, &extensions), vertex_options, &vs.source).map_err(|e| log(&vs.source, e))?;
     let (fragment, finfo) = Frontend::default()
@@ -616,6 +647,7 @@ pub fn link(vs: &Compiled, fs: &Compiled, bound: &HashMap<String, u32>, limits: 
         uniform_sizes: [struct_size(&vertex.module, vertex.info.uniforms), struct_size(&fragment.module, fragment.info.uniforms)],
         vertex: vertex_final,
         fragment: fragment_final,
+        points,
         attributes,
         uniforms,
         samplers,

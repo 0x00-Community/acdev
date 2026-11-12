@@ -258,3 +258,31 @@ fn multisampled_depth_resolve() {
     gl.draw(TRIANGLES, 3, 3, 1, None);
     assert_eq!(pixel(&mut gl, 2, 2), [255, 0, 0, 255], "the resolved depth hides a farther triangle");
 }
+
+#[test]
+fn wide_points() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let Some(gpu) = gpu() else { return };
+    let mut gl = Context::new(gpu, false, Attributes { antialias: false, ..Default::default() }, 8, 8);
+    let p = program(
+        &mut gl,
+        "attribute vec2 p; void main() { gl_PointSize = 4.0; gl_Position = vec4(p, 0.0, 1.0); }",
+        "precision mediump float; void main() { gl_FragColor = vec4(gl_PointCoord, 0.0, 1.0); }",
+    );
+    gl.use_program(Some(p));
+    let b = gl.create_buffer();
+    gl.bind_buffer(ARRAY_BUFFER, Some(b));
+    gl.buffer_data(ARRAY_BUFFER, Some(&floats(&[0.0, 0.0])), 0, STATIC_DRAW);
+    gl.vertex_attrib_pointer(0, 2, FLOAT, false, 0, 0, false);
+    gl.enable_vertex_attrib(0, true);
+    gl.draw(POINTS, 0, 1, 1, None);
+    assert_eq!(gl.get_error(), NO_ERROR);
+    let mut all = [0u8; 8 * 8 * 4];
+    gl.read_pixels(0, 0, 8, 8, RGBA, UNSIGNED_BYTE, &mut all);
+    let lit = all.chunks(4).filter(|p| p[3] == 255).count();
+    assert_eq!(lit, 16, "a 4 px point covers 4 x 4 pixels");
+    let top_left = pixel(&mut gl, 2, 5);
+    let bottom_right = pixel(&mut gl, 5, 2);
+    assert!(top_left[0] < 64 && top_left[1] < 64, "gl_PointCoord starts at the top left: {top_left:?}");
+    assert!(bottom_right[0] > 191 && bottom_right[1] > 191, "and ends at the bottom right: {bottom_right:?}");
+}
