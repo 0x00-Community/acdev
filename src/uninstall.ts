@@ -2,8 +2,9 @@ import {
   existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import * as p from '@clack/prompts'
+import { Project } from './app.ts'
 import { Exit } from './output.ts'
 import { AppPackage } from './package.ts'
 import { Jsonc } from './runtime.ts'
@@ -139,7 +140,7 @@ export class Uninstall {
   static entries(entry: Installed, env: NodeJS.ProcessEnv = process.env): Entries[] {
     const apps = new Set(entry.apps)
     const stores: [string, (key: string) => boolean][] = [
-      [join(Uninstall.#home(env, 'CONFIG'), 'acde', 'permissions.json'), (key) => apps.has(key.slice(0, key.lastIndexOf(':')))],
+      [join(Uninstall.#home(env, 'CONFIG'), 'acde', 'permissions.json'), (key) => Uninstall.#permission(key, apps)],
       [join(Uninstall.#home(env, 'STATE'), 'acde', 'windows.json'), (key) => apps.has(key)],
     ]
     return stores.flatMap(([file, mine]) => {
@@ -147,6 +148,16 @@ export class Uninstall {
       const keys = saved ? Object.keys(saved).filter(mine) : []
       return keys.length > 0 ? [{ file, keys }] : []
     })
+  }
+
+  static #permission(key: string, apps: ReadonlySet<string>): boolean {
+    const at = key.lastIndexOf(':')
+    return at > 0 && apps.has(key.slice(0, at)) && Project.ID.test(key.slice(at + 1))
+  }
+
+  static #inside(parent: string, path: string): boolean {
+    const step = relative(resolve(parent), resolve(path))
+    return step !== '' && !step.startsWith('..') && !isAbsolute(step)
   }
 
   static forget(found: Entries): string | null {
@@ -180,16 +191,19 @@ export class Uninstall {
     const set = env['ACDE_STORAGE']
     const storage = set === undefined ? join(data, 'storage') : set || null
     const legacy = set === undefined ? config : null
-    const paths = [
-      ...entry.apps.flatMap((id) => [
-        ...(storage ? [join(storage, `app-${id}`)] : []), join(data, 'apps', id), join(data, 'files', id),
-        join(grants, `${id}.json`), ...(legacy ? [join(legacy, `app-${id}.json`)] : []),
+    const apps = entry.apps.filter((id) => Project.ID.test(id))
+    const desktops = entry.desktops.filter((id) => Project.ID.test(id))
+    const under = (parent: string, child: string): [string, string] => [parent, join(parent, child)]
+    const paths: [string, string][] = [
+      ...apps.flatMap((id) => [
+        ...(storage ? [under(storage, `app-${id}`)] : []), under(join(data, 'apps'), id), under(join(data, 'files'), id),
+        under(grants, `${id}.json`), ...(legacy ? [under(legacy, `app-${id}.json`)] : []),
       ]),
-      ...entry.desktops.flatMap((id) => [
-        ...(storage ? [join(storage, `desktop-${id}`)] : []), ...(legacy ? [join(legacy, `${id}.json`)] : []),
+      ...desktops.flatMap((id) => [
+        ...(storage ? [under(storage, `desktop-${id}`)] : []), ...(legacy ? [under(legacy, `${id}.json`)] : []),
       ]),
     ]
-    return paths.filter((path) => existsSync(path))
+    return paths.filter(([parent, path]) => Uninstall.#inside(parent, path) && existsSync(path)).map(([, path]) => path)
   }
 
   static remove(entry: Installed): void {
@@ -210,7 +224,7 @@ export class Uninstall {
     const link = isLink ? Uninstall.#target(path) : null
     const manifest = Uninstall.#manifest(path)
     const ids = (list: unknown) => Array.isArray(list)
-      ? list.map((item) => (item as { id?: unknown })?.id).filter((id): id is string => typeof id === 'string')
+      ? list.map((item) => (item as { id?: unknown })?.id).filter((id): id is string => typeof id === 'string' && Project.ID.test(id))
       : []
     const id = path.split(/[\\/]/).pop()!
     return { id, path, link, apps: ids(manifest?.apps), desktops: ids(manifest?.desktops) }

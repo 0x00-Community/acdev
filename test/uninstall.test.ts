@@ -106,4 +106,23 @@ describe('acde uninstall and the apps\' data', () => {
     expect(Uninstall.data(entry, { ...m.env, ACDE_STORAGE: moved })).toEqual([join(moved, 'app-notes'), ...rest])
     expect(Uninstall.data(entry, { ...m.env, ACDE_STORAGE: '' })).toEqual(rest)
   })
+
+  test('an app id that is not a valid id never reaches the file system, and only <id>:<capability> keys go', async () => {
+    const m = machine()
+    const evil = join(m.packages, 'evil')
+    mkdirSync(evil, { recursive: true })
+    writeFileSync(join(evil, 'package.json'), JSON.stringify({ name: 'evil', acde: { apps: [{ id: '../..' }, { id: 'x/../../..' }] } }))
+    const entry = Uninstall.find('evil', m.packages)!
+    expect(entry.apps).toEqual([])
+    expect(Uninstall.data(entry, m.env)).toEqual([])
+    expect(Uninstall.data({ ...entry, apps: ['..', 'notes/..'] }, m.env)).toEqual([])
+    await Uninstall.run('evil', {
+      yes: true, confirm: null, say: () => undefined, dir: m.packages, sessions: [], data: true, env: m.env,
+    })
+    for (const path of m.data) expect(existsSync(path), path).toBe(true)
+    writeFileSync(m.permissions, JSON.stringify({ 'notes:terminal': 'granted', 'notes:': 'x', 'notes:../a': 'y', 'other:terminal': 'granted' }))
+    const notes = Uninstall.find('notes', m.packages)!
+    expect(Uninstall.entries(notes, m.env)[0]!.keys).toEqual(['notes:terminal'])
+  })
+
 })
