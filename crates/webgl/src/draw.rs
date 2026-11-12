@@ -536,7 +536,7 @@ impl Context {
         if call_count == 0 {
             return;
         }
-        let pipeline = match self.pipeline(&linked, &target, &vertex_layouts, &layout_bindings, topology, indexed_strip.then_some(index_format), wide) {
+        let pipeline = match self.pipeline(&linked, &target, &vertex_layouts, &layout_bindings, (topology, indexed_strip.then_some(index_format), wide)) {
             Some(p) => p,
             None => return,
         };
@@ -769,9 +769,7 @@ impl Context {
         target: &Target,
         vertex: &[(u32, u64, bool, wgpu::VertexFormat)],
         bindings: &[Binding],
-        topology: wgpu::PrimitiveTopology,
-        strip: Option<wgpu::IndexFormat>,
-        wide: bool,
+        (topology, strip, wide): (wgpu::PrimitiveTopology, Option<wgpu::IndexFormat>, bool),
     ) -> Option<wgpu::RenderPipeline> {
         let s = &self.state;
         let default = s.draw_framebuffer.is_none();
