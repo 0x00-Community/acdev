@@ -22,15 +22,15 @@ acde (Agent Computer Desktop Environment) 是 Dopame 的桌面基座, 分四个�
 
 | 仓库 (gitea AC/) | 是什么 | 产出 |
 | --- | --- | --- |
-| acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`crates/acdert/src/platform.rs` 的 `Platform` / `Window`, 合成器接口) | lib (`crates/acdert` 的 lib); 过渡期还带 Linux 会话的 `acdert` 二进制 |
+| acdert (本仓库) | 通用运行时逻辑: V8、DOM、render、存储、媒体、WebGPU / WebGL 绑定; 平台特化的接口 (`crates/acdert/src/platform.rs` 的 `Platform` / `Window`, 合成器接口) | lib (`crates/acdert` 等) |
 | [acde-dbg](http://gitea.dopamine/AC/acde-dbg) | 跨平台调试运行时: 宿主窗口 (hostwin)、DevTools、`acde dev` 拉起的就是它; 合成器用 OpenGL / Vulkan (wgpu) 或 acgpu | 二进制 `acde-dbg` |
-| [acde-system](http://gitea.dopamine/AC/acde-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器用 acgpu | 二进制 `acde-base` |
+| [acde-system](http://gitea.dopamine/AC/acde-system) | Dopame OS 特化运行时: Wayland 合成器、DRM/KMS、会话、RDP、系统服务; 合成器用 acgpu | 二进制 `acde-system` |
 | [acde-cli](http://gitea.dopamine/AC/acde-cli) | 开发者 CLI `acde` | `acde` |
 
 平台特化的部分只经接口进来: 前端 (acde-dbg / acde-system 的 main) 实现 `Platform` (认领窗口 surface、文件选择器、`native` 上多挂的导出、内容类型),
 交给 `acdert::start` / `acdert::common`; 运行时把它放在每个事件循环上 (`rt::Loop::platform`, web 线程从 Broker 那里继承), 不用全局变量.
 外部 crate 用的绑定工具在 lib 根上平铺导出 (`acdert::{string, get, set, offload, failure, current, Msg, methods!, …}`).
-会话里的 shell / window / paint / supervise 还在本仓库, 等 acde-system 用 acgpu 实现合成器接口后搬过去.
+会话里的 shell / window / paint / supervise 已搬到 acde-system; vendors (含 smithay 一侧用的 ironrdp-server、libseat-sys) 仍在本仓库, 两个前端都用 `../acdert/vendors`.
 
 acdert 和开发者 CLI [acde-cli](http://gitea.dopamine/AC/acde-cli)
 的关系像 workerd 和 wrangler: acdert 跑桌面和应用, acde (bun) 建工程、构建、装包, `acde dev` 拉起 acdert. 改名成 acdert 的只有程序、Arch 包和
@@ -1654,13 +1654,11 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | 路径 | 职责 |
 | --- | --- |
 | `crates/acdert` | `acdert` lib (外加过渡期的 Linux 会话可执行文件): 内嵌 V8 (rusty_v8), 每个 isolate 的事件循环 (`rt.rs`), 模块加载 (`modules.rs`), web 线程 (`web.rs`), DOM 绑定 (`dom.rs`), 注入的能力, 声音, inspector, 主进程 (`supervise.rs`, Linux), 自检 (`doctor.rs`) |
-| `crates/shell` | Wayland 合成器 (Linux 会话), napi `Shell` |
+| `crates/shell` / `crates/window` / `crates/paint` | 会话 (Wayland 合成器、会话里 web 的 Wayland 客户端和光栅化) 已搬到 [acde-system](http://gitea.dopamine/AC/acde-system), 说明在它的 AGENTS.md |
 | `crates/render` | Blitz 包成的渲染引擎 (`Document` / `Dom` / `RenderHandle`), 窗框 `Decoration`. `Dom` 在 `dom.rs` (结构、加锁读写的辅助、小工具) 和 `dom/`: `types.rs` (`NodeType` / `Ns` / `Viewport` / `Quad`)、`values.rs` (控件种类、数值字符串、`RangeValue`)、`dom_tree.rs` / `dom_view.rs` (`Dom` 的公开方法: 树、属性、文本、选择器 / 表单、几何、样式、图片、样式表、画布)、`engine_tree.rs` / `engine_state.rs` (`Engine` 上对应的实现: 节点与树操作、解析、属性 / 控件值、焦点选区、滚动、图片状态、innerText)、`select.rs`、`semantics.rs` |
 | `crates/gpu` | `acde-gpu`: 合成器接口和 wgpu 设备层. 2D 场景 (`Scene` / `PaintScene` / 滤镜)、页面的 `Part` / `Pass` / `Content`、`Px` / `Backdrop` / `Shadow` / `Effect`, 共享设备 `Gpu` (WebGPU / WebGL / video / canvas 图都在它上面) 和 `GpuImage`; 接口 `Compositor` (前端在发布 `Gpu` 时用 `Gpu::set_compositor` 装上) 交出 `Offscreen` (render 画 canvas、滤镜、阴影、截图用). 不依赖 vello |
 | `crates/vello` | `acde-vello`: 合成器的 vello / wgpu 实现 (`VelloCompositor`, `Offscreen`, `Composer`, 会话的 `Raster`); acde-dbg 和会话用它. acgpu 实现以后也放本仓库 |
 | `crates/webgl` | `acde-webgl`: wgpu 上的 WebGL 1 / 2 (见「WebGL」). 检查: `cargo test --release -p acde-webgl` |
-| `crates/paint` | `acde-paint`: 会话里 web 的光栅化线程 (帧 → GBM dmabuf), WebGPU 和 canvas 共用的设备 |
-| `crates/window` | `acde-window`: 会话里 web 的 Wayland 客户端 (sctk): toplevel、dmabuf、输入、剪贴板、拖放、`acde_window`、窗框子 surface |
 | `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty / Windows 伪控制台上的终端、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
 | `crates/model` | canvas / 窗口表、计划、快捷键、shell 事件 (`Event` / `Inbox`)、`acde_window` / `acde_shell` 协议 |
 | `crates/log` | `acde-log`: 日志和计时 |
@@ -1670,7 +1668,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `web/packages/acde-host` | acdert 的 JS: Broker 和每个 web 的宿主, 包发现, 桌面服务, 登录页 |
 | `web/packages/acde-dom` | web 里的浏览器全局对象和 DOM |
 | `web/packages/acde-api` | `@dopame/acde-api`: SDK (唯一对外发布的 JS 包) |
-| `packaging/arch` / `office` / `qemu` | Arch 包; ONLYOFFICE Document Server 容器脚本; 会话里驱动和测量 |
+| `packaging/office` | ONLYOFFICE Document Server 容器脚本 (Arch 包和会话里的驱动测量 `packaging/arch` / `qemu` 已搬到 acde-system) |
 
 ### web/packages
 

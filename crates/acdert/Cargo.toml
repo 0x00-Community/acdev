@@ -6,10 +6,6 @@ edition.workspace = true
 [lib]
 path = "src/lib.rs"
 
-[[bin]]
-name = "acdert"
-path = "src/main.rs"
-
 [dependencies]
 v8 = "152"
 acde-napi = { path = "../acde-napi" }
@@ -43,9 +39,6 @@ base64 = "0"
 # runtime, shell (smithay) and their napi exports build on Linux only; elsewhere acde runs scripts without them
 # (development checks on a Mac)
 [target.'cfg(target_os = "linux")'.dependencies]
-tikv-jemallocator = "0"
-acde-shell = { path = "../shell", features = ["napi"] }
-acde-window = { path = "../window" }
 # WebGPU (webgpu/): descriptors come as JSON, read into wgpu-types (its serde names are WebGPU's)
 wgpu-types = { version = "30", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

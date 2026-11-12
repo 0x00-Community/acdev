@@ -25,11 +25,7 @@ mod picker;
 mod platform;
 mod profile;
 mod rt;
-#[cfg(target_os = "linux")]
-mod session;
 mod storage;
-#[cfg(target_os = "linux")]
-mod supervise;
 mod surface;
 mod sys;
 mod terminal;
@@ -43,10 +39,6 @@ pub use bind::*;
 pub use offload::{failure, run as offload};
 pub use platform::{Headless, Platform, Portal, Shared, Window};
 pub use rt::{Msg, current};
-#[cfg(target_os = "linux")]
-pub use session::Session;
-#[cfg(target_os = "linux")]
-pub use supervise::Supervisor;
 pub use sys::Entry;
 pub use web::app_dir;
 pub use webnative::event_object;

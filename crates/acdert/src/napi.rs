@@ -1,8 +1,6 @@
 use std::ffi::c_void;
 
 use acde_runtime as _;
-#[cfg(target_os = "linux")]
-use acde_shell as _;
 
 use crate::rt;
 
