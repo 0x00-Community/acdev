@@ -640,22 +640,30 @@ export class Inspect {
     const shell = this.#host.shell
     this.#focus(window)
     let moved = false
+    let pointer: { x: number; y: number } | null = null
+    const to = (event: { x: number; y: number }) => {
+      const point = at(event)
+      if (pointer?.x !== point.x || pointer.y !== point.y) shell.inject({ type: 'move', ...point })
+      pointer = point
+      return point
+    }
     for (const event of events) {
       if (event?.type === 'move' && moved) await Inspect.#sleep(Inspect.DRAG_STEP_MS)
       moved = event?.type === 'move'
       switch (event?.type) {
         case 'move':
-          shell.inject({ type: 'move', ...at(event) })
+          pointer = at(event)
+          shell.inject({ type: 'move', ...pointer })
           break
         case 'down':
         case 'up': {
           const button = buttons[(event.button ?? 'left') as keyof typeof buttons] as number | undefined
           if (button === undefined) throw new Error(`input: button is left, right or middle, not ${String(event.button)}`)
-          shell.inject({ type: event.type, ...at(event), button })
+          shell.inject({ type: event.type, ...to(event), button })
           break
         }
         case 'wheel':
-          shell.inject({ type: 'wheel', ...at(event), dx: Number(event.dx) || 0, dy: Number(event.dy) || 0, source: 'wheel' })
+          shell.inject({ type: 'wheel', ...to(event), dx: Number(event.dx) || 0, dy: Number(event.dy) || 0, source: 'wheel' })
           break
         case 'keydown':
         case 'keyup': {
