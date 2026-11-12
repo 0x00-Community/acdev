@@ -10,6 +10,14 @@ References in your pages that start with `/` and point to a file in public:
 - `url(/x)` in CSS: kept as is when the project is an app whose entry is HTML, because the runtime also serves the app's directory at `/`. Elsewhere (a desktop, or the apps it bundles) it is bundled as usual.
 - If the file can't be found anywhere, the build fails and tells you which URL in which file, and what's missing from public.
 
+## Files your scripts refer to
+
+A file that only your JavaScript names is bundled one of these ways:
+
+- `import logo from './logo.png'`: `logo` is its URL in the built app.
+- `new URL('./logo.png', import.meta.url)`: the file is copied and the URL points at it (with Bun, acde does this; with Node.js, Vite does). The path must be a literal that starts with `./` or `../` and names a file that exists; a module (`.js`, `.ts`, …) is left alone.
+- A path in a string (`img.src = 'img/logo.png'`) is not seen by any bundler: put the file in `public/` and refer to it as `/img/logo.png`.
+
 ## URLs
 
 App pages have the origin `http://acde.local`. An app's files are served both under `/app/<id>/` and at `/`, so `/logo.png` and relative paths both work.
