@@ -562,7 +562,7 @@ describe('acde dev with a stand-in acdert', () => {
   }, 60_000)
 
   test('acde devtools starts the browser on its own profile, opens the front end with Target.createTarget, '
-    + 'then reuses that browser', async () => {
+    + 'then reuses that browser and brings an open front end to the front', async () => {
     const base = tmp()
     const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' })
     const dev = start([], alpha)
@@ -574,7 +574,7 @@ describe('acde dev with a stand-in acdert', () => {
       ACDE_BROWSER: browser, FAKE_BROWSER_LOG: log, XDG_CACHE_HOME: cache, LOCALAPPDATA: cache, HOME: base,
       USERPROFILE: base,
     }
-    type Said = { started?: string[]; pid?: number; method?: string; params?: { url?: string } }
+    type Said = { started?: string[]; pid?: number; method?: string; params?: { url?: string; targetId?: string } }
     const said = () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Said)
     try {
       await until('the session file', () => existsSync(dev.file))
@@ -596,7 +596,13 @@ describe('acde dev with a stand-in acdert', () => {
         .toEqual([url])
       const again = await dev.tool(['devtools', 'alpha'], alpha, undefined, vars)
       expect(again.code, again.stderr).toBe(0)
+      expect(again.stderr).toContain(`acde: brought DevTools for Alpha to the front in ${browser}`)
       expect(said().filter((entry) => entry.started)).toHaveLength(1)
+      expect(said().filter((entry) => entry.method === 'Target.createTarget')).toHaveLength(1)
+      expect(said().filter((entry) => entry.method === 'Target.activateTarget').map((entry) => entry.params))
+        .toEqual([{ targetId: 'fake-target-1' }])
+      const desk = await dev.tool(['devtools', 'desktop'], alpha, undefined, vars)
+      expect(desk.stderr).toContain(`acde: opened DevTools for Desk in ${browser}`)
       expect(said().filter((entry) => entry.method === 'Target.createTarget')).toHaveLength(2)
       const nowhere = { ...vars, ACDE_BROWSER: join(base, 'nope') }
       const missing = await dev.tool(['devtools', 'alpha'], alpha, undefined, nowhere)

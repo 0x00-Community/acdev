@@ -155,15 +155,18 @@ export class Devtools {
       console.error(`acde: DevTools for ${title}: ${why}; ${paste}`)
       return 0
     }
+    let how: unknown
     try {
-      await (options.launch ?? ((chosen: Browser, address: string) => DevtoolsBrowser.open(chosen, address, lookup)))(
+      how = await (options.launch ?? ((chosen: Browser, address: string) => DevtoolsBrowser.open(chosen, address, lookup)))(
         browser, url)
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error)
       console.error(`acde: DevTools for ${title}: could not open it in ${browser.name} (${why}); ${paste}`)
       return 0
     }
-    console.error(`acde: opened DevTools for ${title} in ${browser.name}`)
+    console.error(how === 'focused'
+      ? `acde: brought DevTools for ${title} to the front in ${browser.name}`
+      : `acde: opened DevTools for ${title} in ${browser.name}`)
     return 0
   }
 

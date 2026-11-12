@@ -10,6 +10,7 @@ record({ started: argv, pid: process.pid })
 if (!profile) process.exit(2)
 const file = join(profile, 'DevToolsActivePort')
 
+const targets: { targetId: string; type: string; url: string }[] = []
 let idle: ReturnType<typeof setTimeout>
 const quit = () => {
   rmSync(file, { force: true })
@@ -31,9 +32,15 @@ const server = Bun.serve({
   },
   websocket: {
     message(socket, data) {
-      const message = JSON.parse(String(data)) as { id: number; method: string; params?: unknown }
+      const message = JSON.parse(String(data)) as { id: number; method: string; params?: { url?: string } }
       record({ method: message.method, params: message.params })
-      socket.send(JSON.stringify({ id: message.id, result: { targetId: 'fake-target' } }))
+      let result: object = {}
+      if (message.method === 'Target.createTarget') {
+        const targetId = `fake-target-${targets.length + 1}`
+        targets.push({ targetId, type: 'page', url: message.params?.url ?? '' })
+        result = { targetId }
+      } else if (message.method === 'Target.getTargets') result = { targetInfos: targets }
+      socket.send(JSON.stringify({ id: message.id, result }))
       later()
     },
   },
