@@ -351,3 +351,50 @@ fn svg_path_strings_with_their_transform() {
     assert!(Page::red(&px, 20, 20) && !Page::red(&px, 70, 20));
     assert_eq!(Page::reds(&px), 400);
 }
+
+fn filter(ops: Ops, effects: &[(u8, &[f32])]) -> Ops {
+    let mut ops = ops.u8(14);
+    ops.0.extend((effects.len() as u32).to_le_bytes());
+    for (kind, values) in effects {
+        ops = ops.u8(*kind).op_args(values);
+    }
+    ops
+}
+
+#[test]
+fn filter_blurs_and_recolors_what_is_drawn() {
+    let page = Page::new();
+    let ops = filter(Ops::default(), &[(0, &[3.0])]).fill_style(RED).fill_rect(30.0, 10.0, 40.0, 30.0);
+    ops.apply(&page.doc, page.canvas);
+    let px = page.pixels();
+    let [r, g, b, _] = Page::at(&px, 28, 25);
+    assert!(r > 240 && g < 245 && g > 120 && b > 120, "blur spreads the red past its edge: {:?}", [r, g, b]);
+    assert!(Page::red(&px, 50, 25), "and keeps its middle red");
+
+    let page = Page::new();
+    let ops = filter(Ops::default(), &[(3, &[1.0])]).fill_style(RED).fill_rect(30.0, 10.0, 40.0, 30.0);
+    ops.apply(&page.doc, page.canvas);
+    let [r, g, b, _] = Page::at(&page.pixels(), 50, 25);
+    assert!(r == g && g == b && (40..70).contains(&r), "grayscale(1) of red is its luma: {:?}", [r, g, b]);
+
+    let page = Page::new();
+    let ops = filter(Ops::default(), &[]).fill_style(RED).fill_rect(30.0, 10.0, 40.0, 30.0);
+    ops.apply(&page.doc, page.canvas);
+    assert_eq!(Page::reds(&page.pixels()), 1200, "no effects: no filter");
+}
+
+#[test]
+fn draw_image_of_an_svg_image() {
+    let page = Page::new();
+    let img = page.doc.create_element("img").unwrap();
+    let svg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Crect width='10' height='10' fill='red'/%3E%3C/svg%3E";
+    page.doc.set_attribute(img, "src", svg).unwrap();
+    page.doc.commit();
+    page.doc.sync();
+    let mut ops = Ops::default().op(45, &[]).u8(0);
+    ops.0.extend(img.to_le_bytes());
+    ops.op_args(&[0.0, 0.0, f32::NAN, f32::NAN, 20.0, 10.0, 30.0, 30.0]).apply(&page.doc, page.canvas);
+    let px = page.pixels();
+    assert!(Page::red(&px, 35, 25), "the SVG drawn scaled into 20,10 30x30");
+    assert!(!Page::red(&px, 15, 25) && !Page::red(&px, 55, 25));
+}

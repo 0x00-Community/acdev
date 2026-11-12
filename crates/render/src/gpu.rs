@@ -38,6 +38,10 @@ pub fn shadow(scene: Scene, size: (u32, u32), place: Affine, sigma: f64, color: 
     with(|o| o.shadow(scene, size, place, sigma, color))
 }
 
+pub fn filtered(scene: Scene, size: (u32, u32), place: Affine, filter: &acde_gpu::Filter) -> Option<Arc<GpuImage>> {
+    with(|o| o.filtered(scene, size, place, filter))
+}
+
 pub fn rasterize(scene: Scene, size: (u32, u32)) -> Vec<u8> {
     with(|o| Ok(o.rasterize(scene, size))).unwrap_or_else(|| vec![0; (size.0 * size.1 * 4) as usize])
 }

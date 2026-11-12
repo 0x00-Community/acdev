@@ -95,6 +95,7 @@ struct State {
     rtl: bool,
     clips: Vec<(BezPath, Fill)>,
     own: usize,
+    filter: Option<Arc<acde_gpu::Filter>>,
 }
 
 impl Default for State {
@@ -113,6 +114,7 @@ impl Default for State {
             rtl: false,
             clips: Vec::new(),
             own: 0,
+            filter: None,
         }
     }
 }
@@ -402,6 +404,7 @@ impl Canvas {
                         self.state.font = font;
                     }
                 }
+                14 => self.state.filter = Self::filter(&mut r)?,
                 12 => {
                     self.state.align = r.u8()?;
                     self.state.baseline = r.u8()?;
@@ -669,6 +672,36 @@ impl Canvas {
         self.ellipse(center, (radius, radius), 0.0, a0, a1, ccw);
     }
 
+    /// ctx.filter as acde-dom sends it: a count, then each function (0 blur, 1 brightness, 2 contrast, 3 grayscale,
+    /// 4 hue-rotate in radians, 5 invert, 6 opacity, 7 saturate, 8 sepia, 9 drop-shadow x y blur rgba); none for 0
+    fn filter(r: &mut Reader) -> Result<Option<Arc<acde_gpu::Filter>>> {
+        use acde_gpu::{ColorMatrix, DropShadow, FilterEffect, GaussianBlur};
+        let n = r.u32()?;
+        let mut effects = Vec::with_capacity(n as usize);
+        for _ in 0..n {
+            let kind = r.u8()?;
+            let a = r.f()? as f32;
+            let effect: FilterEffect = match kind {
+                0 => GaussianBlur { std_deviation: a }.into(),
+                1 => ColorMatrix::brightness(a).into(),
+                2 => ColorMatrix::contrast(a).into(),
+                3 => ColorMatrix::grayscale(a).into(),
+                4 => ColorMatrix::hue_rotate(a).into(),
+                5 => ColorMatrix::invert(a).into(),
+                6 => ColorMatrix::opacity(a).into(),
+                7 => ColorMatrix::saturate(a).into(),
+                8 => ColorMatrix::sepia(a).into(),
+                _ => {
+                    let [dy, blur] = r.fs::<2>()?;
+                    let color = r.color()?;
+                    DropShadow { dx: a, dy: dy as f32, std_deviation: blur as f32 / 2.0, color }.into()
+                }
+            };
+            effects.push(effect);
+        }
+        Ok((!effects.is_empty()).then(|| Arc::new(effects.into_iter().collect())))
+    }
+
     fn layered(&mut self, bounds: Rect, draw: impl Fn(&mut Scene)) {
         let plain = self.state.alpha >= 1.0 && self.state.blend == BlendMode::default();
         if !plain {
@@ -679,10 +712,32 @@ impl Canvas {
         if let Some((tile, place)) = self.shadow_tile(bounds, &draw) {
             self.scene().draw_image(tile.as_ref(), place);
         }
-        draw(self.scene());
+        match self.filtered(bounds, &draw) {
+            Some((image, place)) => self.scene().draw_image(image.as_ref(), place),
+            None if self.state.filter.is_some() => {}
+            None => draw(self.scene()),
+        }
         if !plain {
             self.scene().pop_layer();
         }
+    }
+
+    /// what `draw` draws inside `bounds`, put through ctx.filter: drawn into an image of that area (grown by how far the
+    /// effects reach, cut to the canvas), filtered, and placed back
+    fn filtered(&self, bounds: Rect, draw: &dyn Fn(&mut Scene)) -> Option<(peniko::ImageBrush, Affine)> {
+        let filter = self.state.filter.as_ref()?;
+        let reach = filter.expansion();
+        let canvas = Rect::new(0.0, 0.0, self.size.0, self.size.1);
+        let grown = Rect::new(bounds.x0 + reach.x0, bounds.y0 + reach.y0, bounds.x1 + reach.x1, bounds.y1 + reach.y1);
+        let area = if bounds.is_finite() { grown.intersect(canvas).expand() } else { canvas };
+        if area.width() < 1.0 || area.height() < 1.0 || area.width() * area.height() > f64::from(MAX_SIDE).powi(2) {
+            return None;
+        }
+        let mut shape = Scene::new();
+        draw(&mut shape);
+        let size = (area.width() as u32, area.height() as u32);
+        let image = gpu::filtered(shape, size, Affine::translate(-area.origin().to_vec2()), filter)?;
+        Some((image.brush(), Affine::translate(area.origin().to_vec2())))
     }
 
     fn shadow_tile(&self, bounds: Rect, draw: &dyn Fn(&mut Scene)) -> Option<(peniko::ImageBrush, Affine)> {

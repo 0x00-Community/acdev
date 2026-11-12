@@ -1376,7 +1376,11 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
 - `Dom::capture(id, scale)`: 单独录一个元素 (拖动图标), 单边超过 2048 缩小; JS 拿 `picture` 编号 (`dom.rs`, 每个 web 留最后一个).
 - canvas 2D (acde-dom `dom/canvas.ts` 编成命令流, `Dom::canvas`): 要像素的都在 GPU 上 (render `gpu.rs`, 用 `acde_gpu::Gpu::publish` 登记的设备):
   超过 20000 条命令 (`ACDE_CANVAS_MAX_COMMANDS`) 画成纹理再接着记, canvas 当图片源是 `GpuImage`, `shadowBlur` 用 `blur.wgsl`,
-  `getImageData` / `toDataURL` 同步读回. 提交都拿 `Gpu::submit_lock`.
+  `getImageData` / `toDataURL` 同步读回. 提交都拿 `Gpu::submit_lock`. `drawImage` 一张 SVG 的 `<img>` 时按它的自然尺寸画成场景
+  (blitz-paint `svg_picture`, 和 `<img>` 同一画法). `ctx.filter`: acde-dom 解析 `<filter-value-list>` (无效的值不改, 长度只认 px),
+  命令 14 送效果 (blur、brightness、contrast、grayscale、hue-rotate、invert、opacity、saturate、sepia、drop-shadow; url() 不支持);
+  有滤镜时每次绘制先把它的范围 (加上效果外扩, 裁到画布) 画进一张图, acde-gpu `Offscreen::filtered` 依次做 (`blur.wgsl` 的
+  `blur_rgba` 全通道模糊、`matrix.wgsl` 颜色矩阵、drop-shadow 是 alpha 模糊再垫在下面), 再画回去; 阴影还按没滤过的形状算.
 - 选项 `default_lang` (默认 zh-Hans, 选 CJK 地区变体)、`reduced_motion`、`dark` (事后用 `set_reduced_motion` / `set_dark` 改, 都只改
   viewport, 媒体查询和 `matchMedia` 跟着变). `semantics(root, limit, offscreen, invisible)`: offscreen 时不按可见范围剪, invisible 见「看和操作桌面」. `<iframe>` 不加载
   (`skip_iframe_content`), 只是空盒子. 增量录制见 vendors/acrender; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
