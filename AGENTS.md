@@ -868,6 +868,16 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
 - **声音**: `Audio` / `AudioContext` (acde-dom `src/audio/`, crates/acdert `audio/`): 解码 (symphonia) 和混音 (每个 web 一个 48 kHz 立体声 f32
   `Mixer`, 线程 `acde-audio`) 到处一样. 输出: Linux PipeWire (`output.rs`); macOS / Windows cpal 默认设备 (`output_cpal.rs`, 用设备当前的采样率,
   Hermite 重采样, 设备要 f32). 3 秒没声音关流; 没有设备 (或 `ACDE_AUDIO=null`) 按墙上时间渲染丢掉.
+  - **空间化** (`PannerNode` / `AudioListener`, crates/acdert `audio/spatial.rs`): 方位角、仰角、三种距离模型、声锥和 `equalpower` 照规范
+    §6 的算法 (参数在一个 quantum 里变时逐样本算, 不变时每 quantum 算一次), 单元测试对着 Chrome 的 `OfflineAudioContext` 输出 (2e-5 内).
+    和规范伪代码不同、照 Chrome 的一处: 声锥用「声源指向听者」的方向 (正对听者的声源增益是 1). 监听者是每个 context 一个隐藏的图节点
+    (`Kind::Listener`, 9 个参数, 第一次读 `context.listener` 时建), 排序时每个 panner 排在它后面; 还没建时用规范的默认值.
+    `HRTF` 不是实测的冲激响应 (仓库里没有 HRTF 数据库): 球形头模型 (Brown & Duda 1998), 每只耳朵一个分数延迟 (Woodworth 公式, 头半径
+    0.10 m; 8 抽头加窗 sinc, 多 4 个样本的固定延迟) 和一个头影滤波器 (一极一零), 外加一个后方衰减; 各方向的宽带电平和耳间时差按 Chrome
+    (IRCAM 数据) 的白噪声测量标定 (`EAR_LEVELS` / `REAR_LEVELS`, 测试里 ±0.05、±3 个样本). 没有耳廓的仰角线索. 照规范 HRTF 下参数按 k-rate,
+    每 quantum 算一次, 增益、延迟和滤波系数在 quantum 内线性过渡 (不出拉链声); 立体声输入左进左耳、右进右耳 (和 Chrome 一样不交叉).
+    输入变静时清掉延迟线和滤波器状态. `BiquadFilterNode`、`ConvolverNode`、`DynamicsCompressorNode`、`WaveShaperNode`、`DelayNode` 还没渲染
+    (输入原样通过, 第一次用时 warn 一次).
 - **视频** (crates/media `acde-media`): 用系统的框架解码, 不随包带编解码器 (用户定, 2026-11-09; acdert 闭源, 不链接 GPL 的 ffmpeg).
   - `Player::open(bytes)` 探出 `Info {duration, width, height, audio, video}`, 每个轨一条读线程 (`acde-video` / `acde-video-audio`) 各自往
     有界队列里解: 视频 RGBA 帧 (领先 4 帧), 音频 48 kHz 立体声 f32 交错 (领先半秒). 两个轨分开读, 不会一个轨满了卡住解封装器让另一个轨饿死.
