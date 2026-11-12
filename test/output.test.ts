@@ -89,6 +89,26 @@ describe('colour and error output', () => {
     expect(debugging.text).toContain('    at ')
   })
 
+  test('an error wraps to the width of a terminal, with a hanging indent and paths kept whole', () => {
+    const terminal = { ...sink(true), columns: 60 }
+    const agents = 'claude-code, codex, cursor, gemini-cli, windsurf, and 71 more'
+    const said = `skills: --agent nope: not an agent acde knows (${agents}); pass a skills directory with --dir`
+    Output.fail(new Error(said), terminal, { NO_COLOR: '1' })
+    expect(terminal.text).toBe([
+      'acde: skills: --agent nope: not an agent acde knows',
+      '      (claude-code, codex, cursor, gemini-cli, windsurf, and',
+      '      71 more); pass a skills directory with --dir',
+      '',
+    ].join('\n'))
+    const piped = sink(false)
+    Output.fail(new Error(`a long one ${'x '.repeat(60)}`), piped, {})
+    expect(piped.text.split('\n')).toHaveLength(2)
+    const framed = { ...sink(true), columns: 60 }
+    const frame = 'src/main.js:2:16: Unexpected ;\n  const broken = ;\n                 ^'
+    Output.fail(new Error(frame), framed, { NO_COLOR: '1' })
+    expect(framed.text).toBe('acde: src/main.js:2:16: Unexpected ;\n  const broken = ;\n                 ^\n')
+  })
+
   test('console.error goes through acde, not the runtime: same bytes on every runtime', () => {
     const terminal = sink(true)
     const [error, warn] = [console.error, console.warn]

@@ -278,14 +278,35 @@ describe('acde doctor', () => {
     expect(Doctor.failed(checks.slice(0, 2))).toBe(false)
   })
 
-  test('format: rows are not wrapped, so a path or command in a summary or fix copies whole', () => {
+  test('format in a terminal: summaries wrap to its width, never inside a path; fix lines stay whole', () => {
+    const home = '/Users/Jane Doe/Library/Application Support/acde'
+    const display = 'neither WAYLAND_DISPLAY nor DISPLAY is set, so acdert app and acdert desktop cannot open a host '
+      + 'window here: they would try to start a session on the screen (DRM) instead'
+    const checks = [
+      Doctor.warn('display', 'display', display, 'run acde dev --headless, or run it inside a graphical session'),
+      Doctor.ok('acdert', 'acdert', `acdert 0.0.9 (contract level 1) at ${home}/bin/acdert (installed next to acde)`),
+    ]
+    const lines = Doctor.format(checks, Color.palette(false), 60).split('\n')
+    expect(lines.slice(0, 5)).toEqual([
+      'warn   display: neither WAYLAND_DISPLAY nor DISPLAY is set,',
+      '       so acdert app and acdert desktop cannot open a host',
+      '       window here: they would try to start a session on the',
+      '       screen (DRM) instead',
+      '       fix: run acde dev --headless, or run it inside a graphical session',
+    ])
+    expect(lines).toContain(`       ${home}/bin/acdert (installed`)
+    const prose = lines.filter((l) => !l.includes(home) && !l.includes('fix:'))
+    for (const line of prose) expect(line.length, line).toBeLessThanOrEqual(60)
+  })
+
+  test('format: not in a terminal, rows are not wrapped, so a path or command in a summary or fix copies whole', () => {
     const home = '/Users/Jane Doe/Library/Application Support/acde'
     const checks = [
       Doctor.warn('path', 'PATH', `acde on PATH is another one (/usr/local/bin/acde), not this one (${home})`,
         `add ${home}/bin to PATH (the installer does that unless it is told not to)`),
       Doctor.warn('latest', 'latest release', 'acde 0.0.10 is out; this is 0.0.9', Doctor.installer({})),
     ]
-    expect(Doctor.format(checks, Color.palette(false)).split('\n')).toEqual([
+    expect(Doctor.format(checks, Color.palette(false), null).split('\n')).toEqual([
       `warn   PATH: acde on PATH is another one (/usr/local/bin/acde), not this one (${home})`,
       `       fix: add ${home}/bin to PATH (the installer does that unless it is told not to)`,
       'warn   latest release: acde 0.0.10 is out; this is 0.0.9',

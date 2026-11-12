@@ -11,6 +11,7 @@ import { Color, type Palette } from './color.ts'
 import { Project } from './app.ts'
 import { Creator } from './create.ts'
 import { DevSession, type RuntimeProbe } from './dev.ts'
+import { Help } from './help.ts'
 import type { PermissionPrompt } from './driver/acde.ts'
 import { Sdk } from './sdk.ts'
 import { Acde } from './driver/acde.ts'
@@ -123,12 +124,14 @@ export class Doctor {
     return checks.some((check) => check.status === 'error')
   }
 
-  static format(checks: readonly Check[], c: Palette = Color.palette()): string {
+  static format(checks: readonly Check[], c: Palette = Color.palette(), width = Help.terminal()): string {
     const lines: string[] = []
     const paint = { ok: c.ok, warn: c.warn, error: c.error, skip: c.dim }
+    const indent = ''.padEnd(7)
     for (const check of checks) {
-      lines.push(`${paint[check.status](check.status.padEnd(6))} ${check.title}: ${check.summary}`)
-      if (check.fix) lines.push(`${''.padEnd(6)} fix: ${check.fix}`)
+      const status = `${paint[check.status](check.status.padEnd(6))} `
+      lines.push(...Help.block(Help.unbroken(`${check.title}: ${check.summary}`), width, indent, status))
+      if (check.fix) lines.push(`${indent}fix: ${check.fix}`)
     }
     const count = (status: Status) => checks.filter((check) => check.status === status).length
     const [errors, warnings] = [count('error'), count('warn')]
