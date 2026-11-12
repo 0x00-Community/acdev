@@ -274,7 +274,7 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   GPU 上画, 不认 lavapipe): 能在有 Metal 的 macOS 机器 (含 GitHub 的 macOS runner, 没验) 或有 GPU 的 Linux / Windows 上无人值守地跑, 不能在
   没有 GPU 的 Linux CI 上跑. Linux 上设了它就算「在别人的桌面里」, 不要 `WAYLAND_DISPLAY` / `DISPLAY`.
 - **系统能力**: fs、选文件夹、声音、剪贴板到处都有; 打开 / 保存文件在 Linux (portal)、macOS (`NSOpenPanel` / `NSSavePanel`) 和 Windows (Common Item Dialog, `platform/win32/dialog.rs`) 有; 应用后端的 unix socket 只在 unix; network、office、runtime 的 IME、语音、
-  WebGPU 只在 Linux. OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`), 它不带根证书: runtime `http.rs` 的 `tls()` 在那两处从系统证书库
+  WebGPU 只在 Linux (WebGL 到处都有, 见「WebGL」). OpenSSL 在 macOS / Windows 上静态编进去 (`vendored`), 它不带根证书: runtime `http.rs` 的 `tls()` 在那两处从系统证书库
   (Keychain / Windows 证书存储, rustls-native-certs) 读进来; Linux 用系统的 OpenSSL 和它的证书目录. Windows 的证书库是按需下载的
   (第三方根证书要等系统自己的 TLS 第一次用到才进库), 所以 Windows 上 OpenSSL 校验失败时 (`system_trusts`) 再把对方的证书链交给
   `CertGetCertificateChain` + `CertVerifyCertificateChainPolicy` (SSL 策略, 带主机名) 验一次, 它会下载缺的根证书; 两边都不认才拒绝.
@@ -1013,7 +1013,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
     目录, 分区放掉时删), 经 `natives.storage.privateDirectory()` 登记进这个 web 的 `PickedFolders` 和 `pagecalls.ts` 的文件夹表,
     返回名字是 `''` 的可读写 `FileSystemDirectoryHandle`. 内存分区的私有文件夹在 `$XDG_RUNTIME_DIR` (没有时用临时目录) 下新建的
     `acde-storage-<pid>-<随机>` (0700, 已有同名的就换名字, 不复用), 进程退出时删, 读写和 `showDirectoryPicker` 的同一套. `createSyncAccessHandle` 只在 worker 里, 没有.
-- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas / createImageBitmap、全屏和指针锁定、`:target`; 从别的主机 `import` ES 模块 (`modules.rs`; `blob:` 和 `data:` 模块可以: `compile_graph` 经 `host.setModuleSource` 登记的 acde-dom `moduleSource` 同步取文字, 只认 JavaScript MIME 类型, 和 fetch 走同一个 `inline`).
+- **还没有**: shadow root 里的 `<style>` 不隔离 (会作用到整个文档)、XML 文档里的样式表处理指令 (`<?xml-stylesheet?>`) 和 XML 文档的渲染 (只当 DOM 用)、`DecompressionStream` / `CompressionStream`、`speechSynthesis`; `<select>` 的 `appearance: base-select` / `::picker(select)`、`<datalist>`、Storage Buckets、Web Worker、`crypto.subtle`、OffscreenCanvas、全屏和指针锁定、`:target`; 从别的主机 `import` ES 模块 (`modules.rs`; `blob:` 和 `data:` 模块可以: `compile_graph` 经 `host.setModuleSource` 登记的 acde-dom `moduleSource` 同步取文字, 只认 JavaScript MIME 类型, 和 fetch 走同一个 `inline`).
 - **后端** (acde-host `backend.ts`, unix): PATH 上有 `bun` 就 `bun --preload acde-listen.js server.js`, 否则 `node --import <acde-listen.js 的 file: URL> server.js`
   (Node ≥ 22.3; `ACDE_RUNTIME=node` (acde dev 按工程的运行时设) 时先找 node, 没有再 bun; 两样都没有不起, 打一行 warn; 同一份构建产物两边都能跑, 见 acde 的「和 acdert 的契约」), 第一个窗口打开时起, 最后一个关掉时停 (SIGTERM 进程组,
   3 秒后 SIGKILL), 一分钟内第 4 次崩溃后不再起. `child.rs` 起: 自己的会话和进程组, 环境从零建 (`ACDE_APP_ID` / `ACDE_APP_DATA` /
@@ -1424,6 +1424,9 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   命令 14 送效果 (blur、brightness、contrast、grayscale、hue-rotate、invert、opacity、saturate、sepia、drop-shadow; url() 不支持);
   有滤镜时每次绘制先把它的范围 (加上效果外扩, 裁到画布) 画进一张图, acde-gpu `Offscreen::filtered` 依次做 (`blur.wgsl` 的
   `blur_rgba` 全通道模糊、`matrix.wgsl` 颜色矩阵、drop-shadow 是 alpha 模糊再垫在下面), 再画回去; 阴影还按没滤过的形状算.
+- `createImageBitmap` / `ImageBitmap` (acde-dom `dom/bitmap.ts`): 把 `<img>`、`Blob`、`ImageData`、canvas、`ImageBitmap` 画进一个不挂在文档上的
+  2D 画布, 支持裁剪矩形、`resizeWidth` / `resizeHeight`、`imageOrientation: 'flipY'`、`premultiplyAlpha` (WebGL 上传时按它, 不看
+  `UNPACK_FLIP_Y_WEBGL` / `UNPACK_PREMULTIPLY_ALPHA_WEBGL`); `<video>` 来源报 `NotSupportedError`. 2D `drawImage` 和 WebGPU 外部拷贝收它.
 - 选项 `default_lang` (默认 zh-Hans, 选 CJK 地区变体)、`reduced_motion`、`dark` (事后用 `set_reduced_motion` / `set_dark` 改, 都只改
   viewport, 媒体查询和 `matchMedia` 跟着变). `semantics(root, limit, offscreen, invisible)`: offscreen 时不按可见范围剪, invisible 见「看和操作桌面」. `<iframe>` 不加载
   (`skip_iframe_content`), 只是空盒子. 增量录制见 vendors/acrender; `ACDE_PAINT_VERIFY=1` 每帧再整页录一次比对 (测试用). 图片缓存最多 256 张 /
@@ -1485,7 +1488,45 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   `hostwin/src/app.rs` 的 `run` 里 `Gpu::publish` 之后起 `acde-warm` 线程预编这套 `Offscreen` 着色器.
 - 帧预算: 120 fps 下每帧 8 ms. 盯 acde-dom `test/cost.test.ts` / `test/caches.test.ts`、shell / DomNative 的 `stats`、`drive.sh perf`; 提交里写测到的数.
 - WebGPU (`navigator.gpu`, 只在 Linux): crates/acdert `webgpu/`, 跑在光栅化线程的设备上; 回调由 `acde-gpu-poll` 线程非阻塞轮询 (每帧路径上不用
-  `poll(Wait)`, 它拿着 snatch 读锁会卡住别的线程的提交). WebGL 还没有, 要做时也只经 wgpu.
+  `poll(Wait)`, 它拿着 snatch 读锁会卡住别的线程的提交). WebGL 也只经 wgpu, 见下一节.
+
+### WebGL (`crates/webgl` `acde-webgl`, acdert `webgl.rs`, acde-dom `webgl/`)
+
+WebGL 1 和 2 在每个 OS 上都有 (Windows 没验过), 是 wgpu 上的一台 GL 状态机, 用 `Gpu::shared()` 那台设备 (和画布、页面共用), 不用 ANGLE、不用系统 OpenGL.
+
+- **分层**: acde-dom `webgl/index.ts` 是标准的 `WebGLRenderingContext` / `WebGL2RenderingContext` 和 WebGL 对象 (`WebGLBuffer` …), 只管参数换算、
+  对象包装和扩展对象; 状态、校验和 GL 错误都在 acde-webgl 的 `Context` (Rust, 不依赖 V8, 能单测); acdert `webgl.rs` 把它绑成 `natives.webgl`
+  (每个 canvas 一个 `Context`, 调用的第一个参数是上下文编号). `getError` 同步, 所以每个调用自己校验; 会失败的 wgpu 调用 (建纹理 / 渲染缓冲 /
+  绘制缓冲 / 管线 / 绑定组、提交) 都在错误范围 (`Context::scoped`) 里, 失败时报 GL 错误 (`OUT_OF_MEMORY` / `INVALID_OPERATION`) 并记日志.
+- **着色器**: GLSL ES 1.00 / 3.00 经 vendors/naga 的 WebGL 方言 (`Frontend::parse_webgl`, 见「vendors」) 变成 naga IR, 直接交给 wgpu
+  (`ShaderSource::Naga`). `compileShader` 只解析校验, `linkProgram` 按两个着色器重新解析一遍: attribute 位置 (`bindAttribLocation` / layout / 依次)、
+  varying 按名字配位置、不活跃的 attribute 和对面没有的 varying 降成普通全局. 活跃与否 (`getActiveUniform` 等) 按 `live.rs` 从语句往回追的表达式算.
+  每个阶段的散 uniform 是一个 uniform 块 (第 0 组, 顶点 0、片元 1, 动态偏移; std140, 但 matCx2 按 WGSL 的自然布局, bool 存成 uint);
+  采样器拆成纹理和采样器两个全局 (第 1 组), uniform 块也在第 1 组. 拿常量下标的采样器数组可以, 循环下标不行 (编译错误).
+- **坐标**: 顶点着色器出口把 y 取反、z 从 [-w, w] 换到 [0, w], 所以纹理和帧缓冲里第 0 行是 GL 的最下面一行: 视口、剪裁、`gl_FragCoord`、
+  `readPixels`、拷贝都和 GL 一样, 正反面反过来 (GL 的 CCW 是 wgpu 的 `Cw`), 只有把绘制缓冲交给页面时翻一次 (`read.rs` `present`).
+- **录制**: 绘制攒进渲染通道 (`pass.rs`), 目标、需要排序的上传 (缓冲 / 纹理在本次提交里已经被用过时走编码器拷贝, 否则 `queue.write_*`)、
+  读回、换帧时结束. 散 uniform、常量 attribute、生成的索引放在每个通道一块数据缓冲里. 管线按 (程序、绑定、顶点格式、图元、混合 / 深度 /
+  模板 / 剪裁状态、目标格式) 缓存, 绑定组按资源身份缓存. 清屏能用加载操作就用 (整幅、掩码全开), 否则画一个全屏三角形.
+- **wgpu 没有的**: TRIANGLE_FAN / LINE_LOOP 和 8 位索引在 CPU 上展开 (ELEMENT_ARRAY 缓冲留一份 CPU 副本, 也用来算索引范围); 非归一化整数当
+  float、3 个分量的 8 / 16 位、打包的 2_10_10_10、divisor > 1 的顶点数据由计算着色器 (`helpers.rs` `CONVERT`) 转成 32 位四分量; 不对齐的
+  `bufferSubData` 用按字节拷贝的计算着色器; GL 缓冲在 wgpu 那边多留 256 字节尾巴 (Metal 按整个步长检查最后一个顶点). RGB / LUMINANCE / ALPHA
+  和 565 / 4444 / 5551 存成 RGBA8, 上传时在 CPU 上展开. 写 `gl_PointSize` 的程序另链一份点变体: 非索引、非实例的 `POINTS` 每点画一个
+  实例 (6 个顶点), 属性按实例步进 (`ALIASED_POINT_SIZE_RANGE` [1, 1024]). 多重采样的深度经 `blitFramebuffer` 由 frag_depth 解析 (模板不解析).
+- **画布**: 默认帧缓冲是 RGBA8 (`antialias` 时 4 倍多重采样), `alpha: false` 时不写 alpha. 绘制缓冲在渲染那一步 (`frame`, 2D 画布刷新之前)
+  交成 canvas 的 `GpuImage` (`Dom::canvas_image`), `preserveDrawingBuffer: false` 时下一次绘制先清; 2D `drawImage` 一个 WebGL canvas 前先交.
+  `toDataURL` / `toBlob` / WebGPU 外部拷贝读交出去的图. 纹理来源: `ImageData`、`<img>` (位图按 CPU 字节、SVG 在 GPU 上画)、2D canvas、
+  `<video>` 的帧、WebGL / WebGPU canvas、`ImageBitmap` (render `Dom::image_pixels`), GPU 上的来源经 blit 着色器翻转 / 预乘写进去.
+- **查询和同步**: 遮挡查询每个绘制一个查询位, 提交后映射回读; fence 等 `on_submitted_work_done`. 两者都要在结束它们的任务之后才可用 (acde-dom 按任务计数).
+- **还没有**: transform feedback (`beginTransformFeedback` 报 `INVALID_OPERATION`)、`PIXEL_PACK_BUFFER` / `PIXEL_UNPACK_BUFFER` 上传和读回、
+  `EXT_disjoint_timer_query`、带数据上传到 depth24 / depth32f (只有 depth16 能写)、copyTexImage 到 LUMINANCE / ALPHA 不换算、模板的 blit 解析、
+  索引或实例化的宽点 (一个像素)、uniform 里的 bool 数组和含 bool 的结构、std140 块里的 matCx2、着色器校验比 ANGLE 宽松 (隐式转换照
+  GLSL 4.x), origin-clean (跨源图片能读出来, 和 2D canvas 一样还没有), 上下文丢失后不恢复 (`restoreContext` 什么也不做).
+- **检查**: `cargo test --release -p acde-webgl` (着色器翻译、渲染、uniform、查询、多重采样、宽点); `ACDE_WEBGL_SHADERS=<目录>` 时再把目录里
+  `name_NNN.vert` / `name_NNN+1.frag` 一对对链接并生成 MSL / SPIR-V / HLSL (three.js 0.187 的 36 个程序是从 Chrome 里拦 `shaderSource` 得到的).
+  2026-11-12 three.js (标准 / 物理 / Phong / Lambert / Toon / Matcap / 法线 / 深度材质、三种阴影、实例化、变形、蒙皮、点、线、精灵、
+  EffectComposer + UnrealBloomPass + 4 倍多重采样的半浮点目标、PNG / SVG / 2D canvas 纹理) 和 pixi 8.23 在 macOS (Metal) 和 .234 (Vulkan)
+  上逐个物体和 Chrome 对比一致.
 
 ## 构建、运行、平台
 
@@ -1718,6 +1759,7 @@ JS 热点: `ACDE_PROFILE_DIR=<目录>` 让每个 isolate 开 V8 采样 profiler 
 | `crates/hostwin` | `acde-hostwin`: 调试模式的宿主窗口和合成 (见「宿主窗口」) |
 | `crates/render` | Blitz 包成的渲染引擎 (`Document` / `Dom` / `RenderHandle`), 窗框 `Decoration`. `Dom` 在 `dom.rs` (结构、加锁读写的辅助、小工具) 和 `dom/`: `types.rs` (`NodeType` / `Ns` / `Viewport` / `Quad`)、`values.rs` (控件种类、数值字符串、`RangeValue`)、`dom_tree.rs` / `dom_view.rs` (`Dom` 的公开方法: 树、属性、文本、选择器 / 表单、几何、样式、图片、样式表、画布)、`engine_tree.rs` / `engine_state.rs` (`Engine` 上对应的实现: 节点与树操作、解析、属性 / 控件值、焦点选区、滚动、图片状态、innerText)、`select.rs`、`semantics.rs` |
 | `crates/gpu` | `acde-gpu`: 2D 场景和 vello 渲染器, 每个 OS 一个 wgpu 后端 |
+| `crates/webgl` | `acde-webgl`: wgpu 上的 WebGL 1 / 2 (见「WebGL」). 检查: `cargo test --release -p acde-webgl` |
 | `crates/paint` | `acde-paint`: 会话里 web 的光栅化线程 (帧 → GBM dmabuf), WebGPU 和 canvas 共用的设备 |
 | `crates/window` | `acde-window`: 会话里 web 的 Wayland 客户端 (sctk): toplevel、dmabuf、输入、剪贴板、拖放、`acde_window`、窗框子 surface |
 | `crates/runtime` | 系统接口 (napi 导出 + 注入用的 Rust 对象). 异步执行器 `rt.rs`: `acde-rt` 线程上的 ntex System (不用 tokio, TLS 用 OpenSSL). 检查: `cargo test -p acde-runtime` (含真 pty / Windows 伪控制台上的终端、unix socket 上的 HTTP / WebSocket)、`ime-check.sh`、`portal-check.sh`、`atspi-check.sh` (经 `tests/run.sh`) |
@@ -1786,7 +1828,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 ## vendors
 
 依赖只来自 crates.io 和 `vendors/` (没有 git 来源; 镜像在自己的 `$CARGO_HOME/config.toml` 里换, bun 用 `BUN_CONFIG_REGISTRY`). vendors 是直接放进
-仓库的源码, 改动处加 `acrender:` (ironrdp-server、fslock、async-dnssd 是 `acde:`) 注释并同步下表, 升级上游时重打. 有 `Cargo.toml` 的末尾加空的
+仓库的源码, 改动处加 `acrender:` (ironrdp-server、fslock、async-dnssd、naga 是 `acde:`) 注释并同步下表, 升级上游时重打. 有 `Cargo.toml` 的末尾加空的
 `[workspace]`, 根 `Cargo.toml` 用 `[patch.crates-io]` 替换上游.
 
 | 目录 | 上游 |
@@ -1795,6 +1837,7 @@ Bun workspace (`bun install`, `bun run build`, `bun run typecheck`, `bun run tes
 | `fontique` / `parley` | linebender/parley |
 | `stylo` / `stylo_atoms` | servo/stylo |
 | `vello` | crates.io 0.11.0 |
+| `naga` | crates.io 30.0.1 (wgpu 用的同一版, 整个换掉): GLSL 前端加 WebGL 方言 (`front/glsl` 的 `Frontend::parse_webgl`、`WebGlOptions`: ES 1.00 / 3.00、attribute / varying、组合采样器拆开 (数组按常量下标、采样器参数带隐藏的采样器参数)、散 uniform 成块、`gl_FragColor` / `gl_FragData` / int `gl_VertexID`、矩阵 attribute 按列、出口翻 y 改 z、宽点、丢掉的接口变量), 另外 `const in` 参数、`modf`、精度语句接受采样器、嵌套深度上限 128 (表达式和语句; 深的源码报错而不是栈溢出)、数组层数 / 采样器数组长度的上界; MSL 后端给跨度大于元素的数组元素加填充 (`back/msl/writer.rs` `padded_element`) |
 | `taffy` | DioxusLabs/taffy `4e59968` (Blitz 钉的提交), 未改 |
 | `ironrdp-server` | Devolutions/IronRDP |
 | `libseat-sys` 0.2.0 / `fslock` 0.2.1 (v8 的构建依赖) / `async-dnssd` 0.5.1 (经 sspi) | crates.io |
