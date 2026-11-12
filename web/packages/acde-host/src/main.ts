@@ -3,6 +3,7 @@ import { Appearance } from './appearance'
 import { Autostart } from './autostart'
 import { Broker } from './broker'
 import { DebugDir } from './debug'
+import { Failure } from './failure'
 import type { GreetUser, Native, NativeDesktopBus } from './native'
 import { WaylandSessions } from './foreign'
 import { DesktopEntries } from './open'
@@ -326,7 +327,7 @@ export default async function main(natives: Natives): Promise<void> {
     if (error instanceof UsageError) {
       process.stderr.write(`${error.message}\n${UsageError.USAGE}\n`)
       code = 2
-    } else process.stderr.write(`acde: ${(error as Error).stack ?? error}\n`)
+    } else process.stderr.write(Failure.line(error, !!process.env['ACDE_DEBUG']))
   }
   process.exit(code)
 }

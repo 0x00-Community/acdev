@@ -1506,7 +1506,7 @@ acdert --launch foot --seconds 10 --stats # 起一个程序; 10 秒后停; 打�
 有 `error` 退出 1, 否则 0; 不认的参数一行原因加用法, 退出 2.
 
 环境变量: `ACDE_PATH`、`ACDE_DESKTOP`、`ACDE_STORAGE` (网页存储的根目录, 默认 `$XDG_DATA_HOME/acde/storage`, 空: 只在
-内存, 见「网页存储」)、`ACDE_REDUCED_MOTION=1/0`、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
+内存, 见「网页存储」)、`ACDE_REDUCED_MOTION=1/0`、`ACDE_AUTOSTART=1/0`、`ACDE_DEBUG_DIR`、`ACDE_DEBUG` (启动失败时 stderr 打整个调用栈; 不设时只打一行 `acde: <message>`, 不带 `Error:`, acde 同样约定)、`ACDE_BUS_NAMES=1/0`、`ACDE_COLOR_SCHEME=light/dark`、`ACDE_SIZE`、
 `ACDE_DEV`、`ACDE_HOST_DUMP`、`ACDE_HOST_FAULT`、`ACDE_HEADLESS=1`、`ACDE_SCALE` (headless 的缩放)、`ACDE_AUDIO=null`; shell 的见上.
 
 - **配色** (`appearance.ts`): `ACDE_COLOR_SCHEME`, 否则 portal 的 `org.freedesktop.appearance` `color-scheme`, 变了发给所有 web (`matchMedia` 发 change).
