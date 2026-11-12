@@ -593,12 +593,15 @@ fn images() {
 
     let img = dom.create_element(Ns::Html, "img").unwrap();
     dom.set_attribute(img, "src", PNG).unwrap();
-    assert_eq!(dom.image_state(img).unwrap()[2], 0.0);
-    dom.insert_before(dom.query_selector(dom.document(), "body").unwrap(), img, NONE).unwrap();
+    assert_eq!(dom.image_state(img).unwrap(), [2.0, 3.0, 1.0], "an <img> out of the document loads too (new Image())");
     assert_eq!(dom.take_loaded(), vec![img]);
+    let missing = dom.create_element(Ns::Html, "img").unwrap();
+    dom.set_attribute(missing, "src", "/nothing-here.png").unwrap();
+    assert_eq!(dom.image_state(missing).unwrap(), [0.0, 0.0, 2.0], "and fails out of it");
+    dom.insert_before(dom.query_selector(dom.document(), "body").unwrap(), img, NONE).unwrap();
     assert_eq!(dom.image_state(img).unwrap(), [2.0, 3.0, 1.0]);
     dom.set_attribute(none, "src", PNG).unwrap();
-    assert_eq!(dom.take_loaded(), vec![none]);
+    assert_eq!(dom.take_loaded(), vec![none, missing], "the one that failed out of the document is reported, for its error event");
 }
 
 #[test]

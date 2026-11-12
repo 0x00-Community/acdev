@@ -1653,6 +1653,7 @@ acrender 和上游结构的不同: HTML 解析用 crates/render 自己的 html5e
 | 文件 | 改了什么 |
 | --- | --- |
 | `node/element.rs` `SpecialElementData::RangeInput`, blitz-paint `render/form_controls.rs` `draw_range` / `accent_color` | `<input type=range>` 画轨道和滑块 (`appearance: none` 时不画); 复选框、单选框和滑块的强调色都从 `accent_color` 取 |
+| `mutator.rs` `set_attribute` | 不在文档里的 `<img>` 设 `src` 也取图 (HTML 的 update the image data; `new Image()` 预加载): 上游在文档外不做任何特殊处理, 图一直不来; render 的 `image_state` 也不再把文档外的图一律当作加载中, 取不到就报失败 |
 | `animation_events.rs` (新), `stylo.rs` `resolve_stylist_pass`, `document.rs` `take_animation_events` / `has_css_animations` | 推进 CSS 动画和过渡时记事件 (animationstart / iteration / end / cancel, transitionrun / start / end / cancel; elapsedTime 照 Servo 的 `script/animations.rs`, 取到微秒): 上游 Servo 在 script 里发, Blitz 没有. 第一次 `take_animation_events` 之后才记, 最多攒 4096 个; 离开文档的元素上没结束的动画和没结束的过渡记 cancel, 已结束的动画被样式去掉不记 |
 | `node/node.rs` `NodeFlags::IN_XML_DOCUMENT`, `stylo.rs` `is_html_element_in_html_document` | 上游写死 `true` (类型选择器和属性名全按小写比); 改成 HTML 命名空间且所属文档不是 XML 文档 (这个标记由 crates/render 在 adopt 时设). SVG 的 `linearGradient` 这类名字在 HTML 文档里也按原样比 |
 | `layout/damage.rs` `propagate_damage_flags` | 内联 `<svg>` 后代的损伤只重建这个 `<svg>`, 往上只传 REPAINT |

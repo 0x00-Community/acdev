@@ -455,6 +455,11 @@ impl DocumentMutator<'_> {
         // If node if not in the document, then don't apply any special behaviours
         // and simply set the attribute value
         if !node.flags.is_in_document() {
+            // acrender: except an <img>'s src, which loads in or out of a document (HTML "update the image data"),
+            // as `new Image()` preloads do
+            if (tag, attr) == tag_and_attr!("img", "src") {
+                self.load_image(node_id);
+            }
             return;
         }
 

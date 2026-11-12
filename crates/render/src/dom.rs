@@ -2149,7 +2149,7 @@ impl Engine {
                 (f64::from(size.width()), f64::from(size.height()), LOADED, src)
             }
             _ if src.is_empty() => (0.0, 0.0, NO_SRC, src),
-            _ if !n.flags.is_in_document() || doc.is_image_pending(node) => (0.0, 0.0, LOADING, src),
+            _ if doc.is_image_pending(node) => (0.0, 0.0, LOADING, src),
             _ => (0.0, 0.0, FAILED, src),
         }
     }
