@@ -136,6 +136,25 @@ describe('templates at contract level 1', () => {
     expect(read('src/app.html')).toContain('<title>Again</title>')
   })
 
+  test('pages made by Vite say save to reload, not HMR: acde dev reloads the page', () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'made-by-vite' }))
+    mkdirSync(join(dir, 'src', 'components'), { recursive: true })
+    mkdirSync(join(dir, 'node_modules', 'x'), { recursive: true })
+    const react = '<p>\n  Edit <code>src/App.tsx</code> and save to test HMR\n</p>\n'
+    writeFileSync(join(dir, 'src', 'App.tsx'), react)
+    const vue = 'Edit <code>components/HelloWorld.vue</code> to test HMR'
+    writeFileSync(join(dir, 'src', 'components', 'HelloWorld.vue'), vue)
+    writeFileSync(join(dir, 'node_modules', 'x', 'index.js'), '// to test HMR')
+    Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
+    const read = (...path: string[]) => readFileSync(join(dir, ...path), 'utf8')
+    expect(read('src', 'App.tsx')).toBe('<p>\n  Edit <code>src/App.tsx</code> and save to reload the page\n</p>\n')
+    expect(read('src', 'components', 'HelloWorld.vue'))
+      .toBe('Edit <code>components/HelloWorld.vue</code> and save to reload the page')
+    expect(read('node_modules', 'x', 'index.js')).toBe('// to test HMR')
+    expect(Creator.reloading('Click to test HMR')).toBe('Click and save to reload the page')
+  })
+
   test('the framework overlay declares the same level 1 fields', () => {
     const dir = tmp()
     const pkg = { name: 'made-by-vite', devDependencies: { vite: '^8.0.0' } }

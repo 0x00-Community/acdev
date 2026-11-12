@@ -7,7 +7,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { installed, runtimes, which } from 'acde/launcher'
 import { Project } from './app.ts'
 import { AppPackage } from './package.ts'
-import { up } from './paths.ts'
+import { SKIPPED, up } from './paths.ts'
 import { PackageManager, type PmName } from './pm.ts'
 import { Runtime } from './runtime.ts'
 import { Sdk } from './sdk.ts'
@@ -336,7 +336,31 @@ export class Creator {
     Creator.#copy(join(Creator.TEMPLATES, 'framework'), dir, { id, label, framework })
     Creator.#wire(dir, { 'acde:dev': 'dev', 'acde:build': 'build', 'acde:check': 'check' })
     Creator.#title(dir, label)
+    Creator.#reloads(dir)
     Creator.ignoreBuild(dir)
+  }
+
+  static reloading(text: string): string {
+    return text
+      .replace(/\band save to test HMR\b/g, 'and save to reload the page')
+      .replace(/\bto test HMR\b/g, 'and save to reload the page')
+  }
+
+  static #reloads(dir: string): void {
+    const pages = /\.(?:[cm]?[jt]sx?|vue|svelte|astro|html)$/
+    const walk = (at: string): void => {
+      for (const entry of readdirSync(at, { withFileTypes: true })) {
+        const path = join(at, entry.name)
+        if (entry.isDirectory()) {
+          if (!SKIPPED.has(entry.name)) walk(path)
+        } else if (entry.isFile() && pages.test(entry.name)) {
+          const text = readFileSync(path, 'utf8')
+          const changed = Creator.reloading(text)
+          if (changed !== text) writeFileSync(path, changed)
+        }
+      }
+    }
+    walk(dir)
   }
 
   static ignoreBuild(dir: string): string {

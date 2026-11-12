@@ -35,7 +35,7 @@ On a machine without a display, such as a Linux server over ssh, use `--headless
 
 - Changes within 150 ms are merged into one build, and only the project that changed is rebuilt.
 - Apps: the window is closed and reopened at its previous position and size (or the new `size`, if that changed in the config). Desktops: the desktop page reloads; services are not restarted.
-- State survives a reload where possible: form values, scroll position, focus, and selection are restored.
+- State survives a reload where possible: form values, scroll position, focus, and selection are restored. The page itself reloads: there is no hot module replacement, so component state (a React counter, Vue state, values in memory) starts over; see [Frameworks](frameworks.md#saving-in-acde-dev).
 - A failed build prints a single error line, and windows keep showing the last good build.
 - Changes in `node_modules`, `.acde`, `.git`, framework output directories such as `dist` / `build` / `.next`, `*.e2e.*` test files, and `__screenshots__` do not trigger a build.
 
