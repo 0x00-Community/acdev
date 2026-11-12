@@ -364,9 +364,18 @@ fn paused(isolate: v8::UnsafeRawIsolatePtr, context: &v8::Global<v8::Context>) {
         let mut raw = isolate;
         let isolate = unsafe { v8::Isolate::ref_from_raw_isolate_ptr_mut(&mut raw) };
         v8::scope_with_context!(let scope, isolate, context);
+        v8::tc_scope!(let tc, scope);
         while !resume() {
             pending.wait(PAUSE_POLL);
-            dispatch_posted(scope);
+            dispatch_posted(tc);
+            if tc.has_terminated() {
+                break;
+            }
+            if let Some(exception) = tc.exception() {
+                let text = exception.to_rust_string_lossy(tc);
+                log::warn!(target: "acde_host", "[{}] devtools: while paused: {text}", rt::web_name());
+                tc.reset();
+            }
         }
     }
     STATE.with(|s| s.borrow().as_ref().map(|s| s.pause.depth.set(s.pause.depth.get().saturating_sub(1))));
@@ -644,6 +653,7 @@ mod tests {
         assert_eq!(value.as_deref(), Some("went on"));
         stop();
     }
+
     #[test]
     fn debugger_pause_interrupts_a_busy_loop() {
         let mut runtime = rt::Runtime::new(None, "spinning");
