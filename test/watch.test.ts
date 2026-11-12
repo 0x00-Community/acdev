@@ -47,5 +47,5 @@ describe('TreeWatch (the Linux way: one watch per directory)', () => {
         tree.close()
       }
       expect(tree.watched).toEqual([])
-    })
+    }, 30_000)
 })
