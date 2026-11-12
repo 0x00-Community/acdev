@@ -29,7 +29,6 @@ fn blur(@builtin(global_invocation_id) id: vec3<u32>) {
     textureStore(dst, at, vec4<f32>(p.color.rgb, p.color.a * sum / total));
 }
 
-// every channel, for a canvas filter's blur(): premultiplied while summed, stored straight like the source
 @compute @workgroup_size(8, 8)
 fn blur_rgba(@builtin(global_invocation_id) id: vec3<u32>) {
     let size = vec2<i32>(textureDimensions(src));

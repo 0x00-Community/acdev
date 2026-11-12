@@ -672,8 +672,6 @@ impl Canvas {
         self.ellipse(center, (radius, radius), 0.0, a0, a1, ccw);
     }
 
-    /// ctx.filter as acde-dom sends it: a count, then each function (0 blur, 1 brightness, 2 contrast, 3 grayscale,
-    /// 4 hue-rotate in radians, 5 invert, 6 opacity, 7 saturate, 8 sepia, 9 drop-shadow x y blur rgba); none for 0
     fn filter(r: &mut Reader) -> Result<Option<Arc<acde_gpu::Filter>>> {
         use acde_gpu::{ColorMatrix, DropShadow, FilterEffect, GaussianBlur};
         let n = r.u32()?;
@@ -722,8 +720,6 @@ impl Canvas {
         }
     }
 
-    /// what `draw` draws inside `bounds`, put through ctx.filter: drawn into an image of that area (grown by how far the
-    /// effects reach, cut to the canvas), filtered, and placed back
     fn filtered(&self, bounds: Rect, draw: &dyn Fn(&mut Scene)) -> Option<(peniko::ImageBrush, Affine)> {
         let filter = self.state.filter.as_ref()?;
         let reach = filter.expansion();

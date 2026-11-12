@@ -67,7 +67,6 @@ type Rgba = [number, number, number, number]
 
 const colors = new Map<string, Rgba | null>()
 
-// ctx.filter's <filter-value-list>: [kind, ...numbers] per function, as render's Canvas::filter reads them; null if invalid
 const FILTERS: Record<string, number> = {
   blur: 0, brightness: 1, contrast: 2, grayscale: 3, 'hue-rotate': 4, invert: 5, opacity: 6, saturate: 7, sepia: 8, 'drop-shadow': 9,
 }

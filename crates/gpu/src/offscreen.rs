@@ -184,8 +184,6 @@ impl Offscreen {
         Ok(self.blurred(&shape.texture, sigma, color))
     }
 
-    /// `scene` drawn at `size` and then put through `filter`'s effects in order, in the image's pixels (a canvas's
-    /// ctx.filter): blur() on every channel, color matrices, drop-shadow() under the image
     pub fn filtered(&mut self, scene: Scene, size: (u32, u32), place: Affine, filter: &crate::Filter) -> Result<Arc<GpuImage>, String> {
         let mut image = self.draw(scene, size, place)?;
         for effect in filter.effects() {

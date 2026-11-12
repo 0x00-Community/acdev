@@ -168,7 +168,6 @@ function screenCTM(id: number): DOMMatrix {
   return m
 }
 
-// the box render drew an element in (text, images, use: what has no geometry here), in its user space
 function drawnBox(id: number): [number, number, number, number] | null {
   const r = rectOf(id)
   if (!r[2] && !r[3]) return null
@@ -313,12 +312,10 @@ export const SVGImageElement = svgClass('SVGImageElement', SVGGraphicsElement, '
 export const SVGForeignObjectElement = svgClass('SVGForeignObjectElement', SVGGraphicsElement, 'foreignObject')
 export const SVGSwitchElement = svgClass('SVGSwitchElement', SVGGraphicsElement, 'switch')
 export const SVGAElement = svgClass('SVGAElement', SVGGraphicsElement, 'a')
-// an SVG text's characters as it lays them out (xml:space default: no newlines, tabs as spaces, spaces collapsed, trimmed)
 function svgText(id: number): string {
   return dom.textContent(id).replace(/[\r\n]/g, '').replace(/\t/g, ' ').replace(/ +/g, ' ').trim()
 }
 
-// the advance of `text` in the element's computed font, letter-spacing included
 function advance(id: number, text: string): number {
   if (!text) return 0
   const style = (property: string) => computedStyleOf(id, '', property)

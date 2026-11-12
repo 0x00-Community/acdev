@@ -1,4 +1,3 @@
-// a canvas filter's color matrix (feColorMatrix rows, straight alpha, as CSS filter functions are defined)
 struct Matrix {
     rows: array<vec4<f32>, 4>,
     bias: vec4<f32>,
