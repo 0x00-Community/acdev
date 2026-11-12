@@ -117,6 +117,8 @@ pub struct FrameTheme {
 impl FrameTheme {
     const DEFAULT: FrameColors =
         FrameColors { background: Some([0xf4, 0xf2, 0xf7, 0xff]), title: Some([0x3a, 0x35, 0x42, 0xff]), line: Some([0, 0, 0, 20]), buttons: None };
+    pub const DEFAULT_DARK: FrameColors =
+        FrameColors { background: Some([0x2b, 0x28, 0x31, 0xff]), title: Some([0xe6, 0xe2, 0xec, 0xff]), line: Some([0xff, 0xff, 0xff, 24]), buttons: None };
 
     pub fn style(&self) -> FrameStyle {
         self.style.unwrap_or_else(FrameStyle::current)
@@ -128,9 +130,10 @@ impl FrameTheme {
 
     pub fn colors(&self, active: bool, dark_page: bool) -> FrameColors {
         let none = FrameColors::default();
+        let unset = self.active == none && self.inactive == none && self.light == [none; 2];
         let [on, off] = if dark_page || self.light == [none; 2] { [self.active, self.inactive] } else { self.light };
         let chosen = if active { on } else { off.or(on) };
-        chosen.or(Self::DEFAULT)
+        chosen.or(if unset && dark_page { Self::DEFAULT_DARK } else { Self::DEFAULT })
     }
 
     pub fn grab_hints(&self, w: f64, h: f64, top: f64) -> [([f64; 4], u32); 9] {
@@ -290,7 +293,7 @@ impl Decoration {
     const FAMILY: &'static str = "system-ui, sans-serif";
     const ELLIPSIS: &'static str = "…";
     const RING: Color = Color::from_rgba8(0, 0, 0, 46);
-    const OFF: Color = Color::from_rgba8(0, 0, 0, 40);
+    const OFF_ALPHA: f32 = 0.16;
 
     pub fn new() -> Self {
         let fonts =
@@ -305,6 +308,7 @@ impl Decoration {
         let colors = bar.theme.colors(bar.active, bar.dark_page);
         let paint = |rgba: Rgba| Color::from_rgba8(rgba[0], rgba[1], rgba[2], rgba[3]);
         let text = colors.title.map_or(Color::TRANSPARENT, paint);
+        let off = text.multiply_alpha(Self::OFF_ALPHA);
         scene.fill(Fill::NonZero, scale, colors.background.map_or(Color::TRANSPARENT, paint), None, &Rect::new(0.0, 0.0, w, h));
         scene.fill(Fill::NonZero, scale, colors.line.map_or(Color::TRANSPARENT, paint), None, &Rect::new(0.0, h - 1.0, w, h));
         let (style, side) = (bar.style(), bar.side());
@@ -313,13 +317,13 @@ impl Decoration {
             match style {
                 FrameStyle::Mac => {
                     let centre = ((from + to) / 2.0, h / 2.0);
-                    let fill = if bar.minimize || button != FrameButton::Minimize { colors.buttons.map_or_else(|| button.color(), paint) } else { Self::OFF };
+                    let fill = if bar.minimize || button != FrameButton::Minimize { colors.buttons.map_or_else(|| button.color(), paint) } else { off };
                     scene.fill(Fill::NonZero, scale, fill, None, &Circle::new(centre, Self::DOT / 2.0));
                     scene.stroke(&Stroke::new(0.5), scale, Self::RING, None, &Circle::new(centre, Self::DOT / 2.0 - 0.25));
                 }
                 FrameStyle::Windows => {
                     let glyph = Self::glyph(button, bar.fullscreen, ((from + to) / 2.0 - Self::GLYPH / 2.0).round(), ((h - Self::GLYPH) / 2.0).round());
-                    let ink = if bar.minimize || button != FrameButton::Minimize { colors.buttons.map_or(text, paint) } else { Self::OFF };
+                    let ink = if bar.minimize || button != FrameButton::Minimize { colors.buttons.map_or(text, paint) } else { off };
                     scene.stroke(&Stroke::new(1.0), scale, ink, None, &glyph);
                 }
             }

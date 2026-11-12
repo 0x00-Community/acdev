@@ -90,10 +90,44 @@ describe('Frame.darkPage', () => {
     }
     Frame.followScheme(watched, { setPageDark: (dark) => void tells.push(dark) }, (run) => run())
     changed()
-    computed = 'light dark'
+    computed = 'dark'
     changed()
     changed()
     assert.deepEqual(tells, [false, true])
+  })
+
+  test('the frame is dark for a page that is dark now: dark only, or light and dark in a dark scheme', () => {
+    assert.equal(Frame.darkFrame(page('dark', null), false), true)
+    assert.equal(Frame.darkFrame(page('only dark', null), false), true)
+    assert.equal(Frame.darkFrame(page('light dark', null), false), false)
+    assert.equal(Frame.darkFrame(page('light dark', null), true), true)
+    assert.equal(Frame.darkFrame(page('normal', 'dark light'), true), true)
+    assert.equal(Frame.darkFrame(page('normal', null), true), false, 'a page that names no scheme is light')
+    assert.equal(Frame.darkFrame(page('only light', null), true), false)
+  })
+
+  test('followScheme follows prefers-color-scheme for a page that supports both', () => {
+    let dark = false
+    let flip = () => {}
+    const tells: boolean[] = []
+    const watched = {
+      ...page('light dark', null),
+      matchMedia: (query: string) => {
+        assert.equal(query, '(prefers-color-scheme: dark)')
+        return {
+          get matches() {
+            return dark
+          },
+          addEventListener: (type: 'change', listener: () => void) => void (flip = listener),
+        }
+      },
+    }
+    Frame.followScheme(watched, { setPageDark: (value) => void tells.push(value) }, (run) => run())
+    dark = true
+    flip()
+    dark = false
+    flip()
+    assert.deepEqual(tells, [false, true, false])
   })
 
   test('followScheme watches the root, the head and its scheme parts, never a subtree', () => {

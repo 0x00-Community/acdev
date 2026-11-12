@@ -6,7 +6,13 @@ import { Level, Log } from './log'
 interface SchemePage {
   readonly document: { readonly documentElement: Element | null; readonly head: Element | null; querySelector(selector: string): Element | null }
   getComputedStyle(element: Element): { getPropertyValue(name: string): string }
+  matchMedia?(query: string): SchemeQuery
   readonly MutationObserver: new (callback: () => void) => SchemeObserver
+}
+
+interface SchemeQuery {
+  readonly matches: boolean
+  addEventListener(type: 'change', listener: () => void): void
 }
 
 interface SchemeObserver {
@@ -15,6 +21,7 @@ interface SchemeObserver {
 }
 
 const DARK = /(^|\s)dark(\s|$)/i
+const LIGHT = /(^|\s)light(\s|$)/i
 const SCHEME_ATTRIBUTES = ['name', 'content', 'rel', 'href', 'media', 'disabled']
 
 export class Frame {
@@ -52,11 +59,20 @@ export class Frame {
     }
   }
 
-  static darkPage(page: SchemePage): boolean {
-    const meta = page.document.querySelector('meta[name="color-scheme" i]')?.getAttribute('content') ?? ''
-    if (DARK.test(meta.trim())) return true
+  static scheme(page: SchemePage): string {
+    const meta = (page.document.querySelector('meta[name="color-scheme" i]')?.getAttribute('content') ?? '').trim()
+    if (DARK.test(meta)) return meta
     const root = page.document.documentElement
-    return !!root && DARK.test(page.getComputedStyle(root).getPropertyValue('color-scheme').trim())
+    return root ? page.getComputedStyle(root).getPropertyValue('color-scheme').trim() : ''
+  }
+
+  static darkPage(page: SchemePage): boolean {
+    return DARK.test(Frame.scheme(page))
+  }
+
+  static darkFrame(page: SchemePage, prefersDark: boolean): boolean {
+    const scheme = Frame.scheme(page)
+    return DARK.test(scheme) && (prefersDark || !LIGHT.test(scheme))
   }
 
   static followScheme(page: SchemePage, surface: Pick<NativeSurface, 'setPageDark'>, later: (run: () => void) => void): void {
@@ -72,6 +88,8 @@ export class Frame {
     const top = new page.MutationObserver(schedule)
     const rootWatch = new page.MutationObserver(schedule)
     const head = new page.MutationObserver(schedule)
+    const prefers = page.matchMedia?.('(prefers-color-scheme: dark)') ?? null
+    prefers?.addEventListener('change', schedule)
     const check = () => {
       queued = false
       const current = page.document.documentElement
@@ -81,7 +99,7 @@ export class Frame {
         if (root) rootWatch.observe(root, { attributes: true, childList: true })
       }
       Frame.watchHead(head, page.document.head)
-      const dark = Frame.darkPage(page)
+      const dark = Frame.darkFrame(page, prefers?.matches ?? false)
       if (dark === shown) return
       shown = dark
       surface.setPageDark?.(dark)

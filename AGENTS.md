@@ -587,12 +587,15 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   `State.theme`). 设了就重画所有开着的有窗框的窗口 (`Msg::Theme`), 焦点变化时窗口换 `active` / `inactive` (`Msg::Active`); `null` 回到
   今天的样子. 只管合成里的窗口; 会话里还没有 (只记 debug 日志). 谁有它同 `setDoubleClick`.
   **页面不支持深色时用 `light`** (#114): 主题带了 `light` 的配色时, 页面没声明支持深色的窗口改画 `light` 那套 (缺的项用运行时默认, 不借深色主题的);
-  声明了的照旧用 `active` / `inactive`. 规则同浏览器: 根元素计算后的 `color-scheme` 含 `dark`, 或 `<meta name="color-scheme">` 的内容含 `dark`.
+  声明了的照旧用 `active` / `inactive`. 规则同浏览器: 根元素计算后的 `color-scheme` 含 `dark`, 或 `<meta name="color-scheme">` 的内容含 `dark`;
+  页面同时声明了 `light` 时, 还要 `prefers-color-scheme: dark` 成立 (系统是深色, 或 `emulate` 成深色) 才算深色, 也就是页面此刻画成深色时.
+  **没有主题时** (单独跑的应用, 没有桌面设 `setFrameTheme`) 深色页面的窗口画运行时的深色默认 (`FrameTheme::DEFAULT_DARK`), 别的画浅色默认.
+  禁用的最小化按钮按标题文字的颜色取 16% 不透明度 (深色标题栏上也看得见).
   web (acde-host `frame.ts` `Frame.followScheme`, 只给有窗框的应用窗口) 在页面载入后判断一次, 之后只在影响配色的地方变了时 (50 ms 合并一次)
   再判断: 文档节点的子节点、根元素的属性和子节点、`<head>` 的子节点, 以及 `<head>` 每个子元素的 `name` `content` `rel` `href` `media`
   `disabled` 属性和 `<style>` 的文字; 每次判断时按当前的 `<head>` 重新挂. 一个观察器都不带 `subtree`: acde-dom 只要文档里有带 `subtree`
   的观察器, 每次 DOM 变动都要取目标的全部祖先逐个查 (`mutation.ts` `interested`), 改样式会慢约 25% (#206); 也不观察 `<body>`.
-  先看 meta, meta 没说 dark 才读根元素的计算样式. 结果变了才经 surface 的
+  先看 meta, meta 没说 dark 才读根元素的计算样式; 另外监听页面 `matchMedia('(prefers-color-scheme: dark)')` 的 `change`. 结果变了才经 surface 的
   `setPageDark(dark)` 交给 hostwin (`Entry.dark_page`, `Msg::PageDark`, 画在 `Bar.dark_page`). 只经 CSSOM (`insertRule`) 改的
   `color-scheme`, 以及 `<body>` 里的 `<style>` 不触发重新判断. 回归基准 `bash scripts/dom-perf/bench.sh` (无头, 有窗框的应用里 1 万个
   节点的创建和改样式, 每边多轮中位数); 设 `BASE_ACDERT` / `BASE_APP` 时与基准版本交替跑, 任一项比值超过 `DOM_PERF_LIMIT` (默认 1.1, 即 #206 的验收线: 不超过基准版本的 110%) 退出码非零. 还没判断时当作不支持. 会话侧待实现 (会话的标题栏还没有主题).

@@ -230,3 +230,15 @@ fn a_page_without_dark_gets_the_light_colours() {
     let plain = FrameTheme { active: DARK, ..FrameTheme::default() };
     assert_eq!(plain.colors(true, false).background, DARK.background);
 }
+
+#[test]
+fn without_a_theme_a_dark_page_gets_the_dark_default() {
+    let unset = FrameTheme::default();
+    assert_eq!(unset.colors(true, true), FrameTheme::DEFAULT_DARK);
+    assert_eq!(unset.colors(false, true), FrameTheme::DEFAULT_DARK);
+    assert_eq!(unset.colors(true, false).background, Some([0xf4, 0xf2, 0xf7, 0xff]));
+    let light = FrameColors { background: Some([0xf6, 0xf4, 0xf9, 0xff]), ..FrameColors::default() };
+    let themed = FrameTheme { active: light, ..FrameTheme::default() };
+    assert_eq!(themed.colors(true, true).background, light.background, "a desktop's theme stays its own");
+    assert_eq!(themed.colors(true, true).title, Some([0x3a, 0x35, 0x42, 0xff]), "and is filled in from the light default");
+}
