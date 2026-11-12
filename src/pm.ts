@@ -42,11 +42,22 @@ export class PackageManager {
       for (const [file, name] of PackageManager.LOCKS) if (existsSync(join(at, file))) return new PackageManager(name, at)
       const pkg = join(at, 'package.json')
       if (!existsSync(pkg)) return null
-      const field = (JSON.parse(readFileSync(pkg, 'utf8')) as { packageManager?: unknown }).packageManager
+      const field = PackageManager.#manifest(pkg).packageManager
       const named = typeof field === 'string' ? field.split('@', 1)[0]! : ''
       return (PackageManager.NAMES as readonly string[]).includes(named) ? new PackageManager(named as PmName, at) : null
     })
     return found ?? PackageManager.invoking()
+  }
+
+  static #manifest(file: string): { readonly packageManager?: unknown } {
+    let value: unknown
+    try {
+      value = JSON.parse(readFileSync(file, 'utf8'))
+    } catch (error) {
+      const why = error instanceof Error ? error.message.split('\n', 1)[0] : String(error)
+      throw new Error(`${file} is not valid JSON (${why}): acde reads it to tell which package manager the project uses`)
+    }
+    return value && typeof value === 'object' ? (value as { packageManager?: unknown }) : {}
   }
 
   get runtime(): 'bun' | 'node' {

@@ -298,13 +298,14 @@ export class Doctor {
   static findings(pkg: AppPackage, sdkElsewhere = false): Check {
     let errors: readonly string[]
     let warnings: readonly string[]
+    let sdk: string | null = null
     try {
       ;({ errors, warnings } = pkg.check())
+      sdk = pkg.sdkWarning()
     } catch (error) {
       errors = [error instanceof Error ? error.message : String(error)]
       warnings = []
     }
-    const sdk = pkg.sdkWarning()
     if (sdk !== null && sdkElsewhere) warnings = warnings.filter((warning) => warning !== sdk)
     else if (sdk !== null && errors.length === 0 && warnings.length === 1 && warnings[0] === sdk)
       return Doctor.warn('project', 'project', `${pkg.name}: ${sdk}`, Doctor.SDK_FIX)
@@ -332,7 +333,13 @@ export class Doctor {
   static dependencies(dir: string, available: Available): Check | null {
     const manifest = Doctor.#json(join(dir, 'package.json'))
     if (!manifest) return null
-    const pm = PackageManager.of(dir)
+    let pm: PackageManager
+    try {
+      pm = PackageManager.of(dir)
+    } catch (error) {
+      return Doctor.error('dependencies', 'dependencies', error instanceof Error ? error.message : String(error),
+        'make that package.json valid JSON')
+    }
     const declared = { ...Doctor.#record(manifest['dependencies']), ...Doctor.#record(manifest['devDependencies']) }
     const runtime = pm.runtime === 'bun' ? `Bun ${BUN_MINIMUM.join('.')}+` : `Node.js ${NODE_MINIMUM.join('.')}+`
     if (!available[pm.runtime]) {

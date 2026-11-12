@@ -177,6 +177,20 @@ describe('acde doctor', () => {
     expect(stale.stdout).not.toContain('acde check lists them')
   }, 60_000)
 
+  test('a package.json above the project that is not JSON: findings that name it, not a crash', async () => {
+    const s = standIn()
+    writeFileSync(join(dirname(s.project), 'package.json'), '{ not json')
+    writeFileSync(join(s.project, 'package.json'), JSON.stringify({ name: 'alpha' }))
+    const ran = await doctor([], s.project, s.env)
+    expect(ran.code).toBe(1)
+    expect(ran.stderr).not.toMatch(/^acde: /m)
+    const broken = /^error  (project: alpha|dependencies): \S+package\.json is not valid JSON \(.+\): acde reads it to tell which package manager the project uses$/
+    expect(line(ran.stdout, 'project')).toMatch(broken)
+    expect(line(ran.stdout, 'dependencies')).toMatch(broken)
+    expect(fixAfter(ran.stdout, 'dependencies')).toBe('make that package.json valid JSON')
+    expect(ran.stdout).toContain('acde doctor: ')
+  }, 60_000)
+
   test('an app that waits for approval in a running acde dev: a warning that names it', async () => {
     const s = standIn()
     const dev = Bun.spawn([process.execPath, CLI, 'dev'], {

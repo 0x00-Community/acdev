@@ -307,7 +307,9 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
   `dependencies` (工程的包管理器对应的运行时不在 PATH 上是警告; 依赖没装是警告, 像 Node 解析一样往上找 `node_modules/<名字>/package.json`, 所以 workspace
   里提升到上层的也算装了; SDK 版本只报一次 (gitea acde#92): package.json 写的 (`Sdk.state`) 或装的 `@dopame/acde-api` 和这个 acde 构建所用的版本不同时,
   `dependencies` 报这一行 (排在依赖没装之前), fix 一律是 `Doctor.SDK_FIX` (`run acde sdk update`), 这时 `project` 去掉 `acde check` 里同一条 SDK 警告;
-  运行时不在 PATH 上而轮不到这一行时, SDK 警告是 `project` 唯一一条就用同一个 fix)、`gitignore` (在 git 仓库里
+  运行时不在 PATH 上而轮不到这一行时, SDK 警告是 `project` 唯一一条就用同一个 fix; `PackageManager.of` 往上读到不是 JSON 的 package.json 时
+  报 `<文件> is not valid JSON (…): acde reads it to tell which package manager the project uses`, `dependencies` 和 `project` 都是这条错误,
+  不崩. `acde check` / `dev` / `build` 遇到它也是这一行报错退出 1, 不再是不带文件名的 `JSON Parse error`)、`gitignore` (在 git 仓库里
   且 `git check-ignore -q .acde/` 不中是警告; 没有 git 或不在仓库里不出这项).
 - **修法的文字** (`Doctor.acdertFix` / `pairFix` / `runFix` / `pathFix`): 全局装的 acde 一律是重跑安装器 (`curl -fsSL $ACDE_DIST/install.sh | sh`, Windows
   `irm …/install.ps1 | iex`), 检出的 acde 是编 acdert 再设 `ACDERT`; `ACDERT` 指错时是改它; macOS 上起不来且有 `com.apple.quarantine` 属性时是
