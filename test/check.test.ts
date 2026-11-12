@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { Pkgs } from '../src/pkgs.ts'
@@ -193,6 +193,49 @@ describe('acde check on a project', () => {
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
     expect(readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')).toBe('the old lock\n')
     expect(existsSync(join(dir, 'yarn.lock'))).toBe(false)
+  })
+
+  test('acde sdk update in a workspace member keeps and writes the files where the package manager has them', async () => {
+    const root = realpathSync(tmp())
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'mono', private: true, workspaces: ['packages/*'] }))
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n")
+    writeFileSync(join(root, 'pnpm-lock.yaml'), 'the old root lock\n')
+    const member = oldProject(join(root, 'packages', 'app'))
+    const before = readFileSync(join(member, 'package.json'), 'utf8')
+    const pnpm = fakePm('pnpm', [
+      "import { writeFileSync } from 'node:fs'",
+      `writeFileSync(${JSON.stringify(join(root, 'pnpm-lock.yaml'))}, 'a new root lock\\n')`,
+      'process.exit(1)',
+    ].join('\n'))
+    const failed = await cli(['sdk', 'update'], member, { PATH: pnpm })
+    expect(failed.code).toBe(1)
+    expect(failed.stderr).toContain(`package.json and ${join('..', '..', 'pnpm-lock.yaml')} are as before`)
+    expect(readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8')).toBe('the old root lock\n')
+    expect(readFileSync(join(member, 'package.json'), 'utf8')).toBe(before)
+    rmSync(join(root, 'pnpm-lock.yaml'))
+    rmSync(join(root, 'pnpm-workspace.yaml'))
+    writeFileSync(join(root, 'package-lock.json'), 'the old npm lock\n')
+    const npm = (exit: number) => fakePm('npm', [
+      "import { writeFileSync } from 'node:fs'",
+      'const [command] = process.argv.slice(2)',
+      "if (command === '--version') console.log('12.2.2')",
+      `else if (command === 'prefix') console.log(${JSON.stringify(root)})`,
+      'else {',
+      `  writeFileSync(${JSON.stringify(join(root, 'package-lock.json'))}, 'a new npm lock\\n')`,
+      `  process.exit(${exit})`,
+      '}',
+    ].join('\n'))
+    const npmFailed = await cli(['sdk', 'update'], member, { PATH: npm(1) })
+    expect(npmFailed.code).toBe(1)
+    expect(npmFailed.stderr).toContain(`package.json and ${join('..', '..', 'package-lock.json')} are as before`)
+    expect(readFileSync(join(root, 'package-lock.json'), 'utf8')).toBe('the old npm lock\n')
+    expect(existsSync(join(root, '.npmrc'))).toBe(false)
+    expect(existsSync(join(member, 'package-lock.json'))).toBe(false)
+    const updated = await cli(['sdk', 'update'], member, { PATH: npm(0) })
+    expect(updated.code, updated.out).toBe(0)
+    expect(updated.stdout).toContain(`; ${join('..', '..', '.npmrc')} now has allow-remote=root`)
+    expect(readFileSync(join(root, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
+    expect(existsSync(join(member, '.npmrc'))).toBe(false)
   })
 
   test('acde sdk update: a package manager that does not start leaves the project as it was', async () => {

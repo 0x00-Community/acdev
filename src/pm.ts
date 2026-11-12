@@ -18,9 +18,11 @@ export class PackageManager {
   static readonly RUNTIMES: Readonly<Record<string, PmName>> = { node: 'npm', bun: 'bun' }
 
   readonly name: PmName
+  readonly at: string | null
 
-  constructor(name: PmName) {
+  constructor(name: PmName, at: string | null = null) {
     this.name = name
+    this.at = at
   }
 
   static named(name: string): PackageManager {
@@ -36,15 +38,15 @@ export class PackageManager {
   }
 
   static of(dir: string): PackageManager {
-    const name = up(dir, (at): PmName | null => {
-      for (const [file, name] of PackageManager.LOCKS) if (existsSync(join(at, file))) return name
+    const found = up(dir, (at): PackageManager | null => {
+      for (const [file, name] of PackageManager.LOCKS) if (existsSync(join(at, file))) return new PackageManager(name, at)
       const pkg = join(at, 'package.json')
       if (!existsSync(pkg)) return null
       const field = (JSON.parse(readFileSync(pkg, 'utf8')) as { packageManager?: unknown }).packageManager
       const named = typeof field === 'string' ? field.split('@', 1)[0]! : ''
-      return (PackageManager.NAMES as readonly string[]).includes(named) ? (named as PmName) : null
+      return (PackageManager.NAMES as readonly string[]).includes(named) ? new PackageManager(named as PmName, at) : null
     })
-    return name ? new PackageManager(name) : PackageManager.invoking()
+    return found ?? PackageManager.invoking()
   }
 
   get runtime(): 'bun' | 'node' {

@@ -22,6 +22,7 @@ export class Sdk {
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
   static readonly NPMRC = 'allow-remote=root'
   static readonly SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
+  static readonly PREFIX_MS = 30_000
   static readonly LOCKS = [
     'package-lock.json', 'npm-shrinkwrap.json', 'bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'yarn.lock',
   ]
@@ -114,9 +115,10 @@ export class Sdk {
     ]
   }
 
-  static async update(dir: string): Promise<string> {
+  static async update(given: string): Promise<string> {
+    if (!existsSync(join(given, 'package.json'))) throw new Error(`sdk: no package.json in ${given}`)
+    const dir = realpathSync(given)
     const file = join(dir, 'package.json')
-    if (!existsSync(file)) throw new Error(`sdk: no package.json in ${dir}`)
     const before = readFileSync(file, 'utf8')
     const pkg = JSON.parse(before) as Record<string, Record<string, string> | unknown>
     const state = Sdk.state(dir, pkg)
@@ -126,7 +128,11 @@ export class Sdk {
     pkg[section] = deps
     const pm = PackageManager.of(dir)
     const install = Sdk.#install(pm)
-    const kept = Sdk.#keep([file, ...[...Sdk.LOCKS, '.npmrc'].map((name) => join(dir, name))])
+    const config = pm.name === 'npm' ? realpathSync(await Sdk.#prefix(install[0]!, dir)) : dir
+    const places = [...new Set([dir, ...(pm.at === null ? [] : [realpathSync(pm.at)]), config])]
+    const kept = Sdk.#keep([file, ...places.flatMap((at) => [
+      ...(at === dir ? [] : ['package.json']), ...Sdk.LOCKS, '.npmrc',
+    ].map((name) => join(at, name)))])
     const indent = /^\{\n(\s+)"/.exec(before.replace(/\r\n/g, '\n'))?.[1] ?? '  '
     let signal: NodeJS.Signals | null = null
     let child: Child | null = null
@@ -143,7 +149,7 @@ export class Sdk {
     let failure: string | null = null
     try {
       writeFileSync(file, `${JSON.stringify(pkg, null, indent)}\n`)
-      npmrc = pm.name === 'npm' && Sdk.allowRemote(dir)
+      npmrc = pm.name === 'npm' && Sdk.allowRemote(config)
       child = Runtime.spawn(install, { cwd: dir, stdio: 'inherit' })
       const code = await child.exited.catch((error: unknown) => {
         failure = `${pm.name} install did not start (${Output.message(error)})`
@@ -157,13 +163,14 @@ export class Sdk {
       for (const [name, stop] of stops) process.off(name, stop)
     }
     if (signal === null && failure === null) {
-      const added = npmrc ? `; .npmrc now has ${Sdk.NPMRC} (npm 12 refuses URL dependencies without it)` : ''
+      const npmrcAt = Sdk.#shown(dir, join(config, '.npmrc'))
+      const added = npmrc ? `; ${npmrcAt} now has ${Sdk.NPMRC} (npm 12 refuses URL dependencies without it)` : ''
       return `acde: ${Sdk.NAME} is ${state.paired} (${url}), installed with ${pm.name}${added}`
     }
     const failed = Sdk.#restore(kept)
     const was = state.spec === null ? `no ${Sdk.NAME}` : `${Sdk.NAME} ${state.version ?? state.spec}`
-    const back = [...kept].filter(([path, text]) => text !== null && basename(path) !== '.npmrc' && !failed.has(path))
-      .map(([path]) => Sdk.#shown(dir, path))
+    const back = [...kept].filter(([path, text]) => text !== null && !failed.has(path)
+      && (path === file || Sdk.LOCKS.includes(basename(path)))).map(([path]) => Sdk.#shown(dir, path))
     const cause = signal === null ? failure! : `interrupted (${signal})`
     const same = back.length > 0 ? `${back.join(' and ')} are as before (${was})` : ''
     const undone = failed.size === 0 ? `so the update to ${state.paired} was undone: ${same}`
@@ -181,6 +188,14 @@ export class Sdk {
     } catch (error) {
       throw new Error(`sdk: ${Output.message(error)}, and this project installs with ${pm.name}: nothing was changed`)
     }
+  }
+
+  static async #prefix(npm: string, dir: string): Promise<string> {
+    const ran = await Runtime.capture([npm, 'prefix'], { cwd: dir, timeout: Sdk.PREFIX_MS })
+    const prefix = ran.code === 0 ? ran.stdout.trim() : ''
+    if (prefix && existsSync(prefix)) return prefix
+    const why = ran.error ?? (ran.timedOut ? `no answer within ${Sdk.PREFIX_MS / 1000} s` : ran.stderr.trim() || `exit ${ran.code}`)
+    throw new Error(`sdk: npm prefix (where npm keeps this project's lock file and .npmrc) failed: ${why}; nothing was changed`)
   }
 
   static #shown(dir: string, path: string): string {

@@ -149,6 +149,9 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   `allow-remote=root` (`Sdk.allowRemote`: 已有任何 `allow-remote` 行就不动; `acde new --pm npm` 和 npm 工程的 `sdk update` 都加),
   npm 11 以前对这行只是忽略或提示未知配置. `sdk update` 先做完会失败的 (读 package.json、`PackageManager.of`、找包管理器的程序: 不在 PATH 上报
   `<pm> is not on PATH, and this project installs with <pm>: nothing was changed`) 并记下 package.json、各锁文件和 `.npmrc`, 然后才写.
+  workspace 成员的锁文件在根上: 记下的是工程目录、`PackageManager.of` 找到锁文件或 `packageManager` 的目录 (`PackageManager.at`) 和 npm 时
+  `npm prefix` 给的目录 (npm 的 workspace 根) 这几处的文件; `.npmrc` 写在 `npm prefix` 那里 (npm 12.2.2 实测: 成员里的 `.npmrc` 报
+  `ignoring workspace config` 不读). 往上找到的锁文件可能不属于这个工程 (外层不是 workspace), 所以写回只动内容变了的.
   之后任何失败 (安装起不来、退出码非 0、写文件抛错、SIGINT / SIGTERM / SIGHUP) 都写回 (gitea acde#89): 只动内容变了的, 新出现的删掉,
   每个文件单独恢复, 恢复不了的列在同一条报错里 (`could not be undone completely: could not put back <文件> (<原因>)`), 恢复了的照报
   `… was undone: package.json and <锁文件> are as before`. 收到信号时先停包管理器 (SIGINT 发 SIGTERM, SIGTERM / SIGHUP 原样转; Windows 上
