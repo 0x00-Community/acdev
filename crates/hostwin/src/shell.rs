@@ -12,6 +12,7 @@ use crate::output::compose::Layer;
 use crate::output::surface::{Link, Shot};
 use crate::platform::Cmd;
 
+pub(crate) mod menu;
 pub(crate) mod pointer;
 pub(crate) use pointer::Press;
 
@@ -77,6 +78,10 @@ pub(crate) struct Entry {
     pub backdrop: Option<([f64; 4], [f64; 4])>,
     pub pending: Option<([f64; 4], [f64; 4])>,
     pub drawn: (u32, u32),
+    pub menus: Vec<menu::Menu>,
+    pub menu_open: Option<menu::Open>,
+    pub menu_labels: Vec<[f64; 4]>,
+    pub menu_place: Option<acde_render::MenuPlace>,
 }
 
 impl Entry {
@@ -84,9 +89,27 @@ impl Entry {
         let top = self.frame;
         let mut hints: Vec<([f64; 4], u32)> = self.hints.iter().map(|&([x, y, w, h], edges)| ([x, y + top, w, h], edges)).collect();
         if top > 0.0 {
+            let frame = hints.len();
             hints.extend(theme.grab_hints(self.rect[2], self.rect[3], top));
+            if let (Some([lx, _, lw, _]), Some(([x, _, w, _], _))) = (self.menu_labels.last(), hints.get_mut(frame)) {
+                let start = x.max(lx + lw);
+                *w = (*x + *w - start).max(0.0);
+                *x = start;
+            }
         }
         hints
+    }
+
+    pub fn menu_msg(&self) -> crate::output::surface::Msg {
+        let labels = self.menus.iter().map(|m| m.label.clone()).collect();
+        let open = self.menu_open.and_then(|o| Some((o.index, menu::list(self.menus.get(o.index)?, o.hover))));
+        crate::output::surface::Msg::Menu(labels, open)
+    }
+
+    pub fn tell_menu(&self) {
+        if let Some(link) = &self.link {
+            link.send(self.menu_msg());
+        }
     }
 
     pub fn shown(&self) -> bool {
@@ -105,6 +128,8 @@ impl Entry {
             active,
             dark_page: self.dark_page,
             minimize: self.minimizable(),
+            menus: self.menus.iter().map(|m| m.label.clone()).collect(),
+            open: self.menu_open.map(|o| o.index),
         }
     }
 
@@ -518,6 +543,30 @@ impl Shell {
 
     pub fn set_state(&self, window: u32, state: WindowState) {
         crate::output::surface::request_state(window, Some(state));
+    }
+
+    pub fn set_menus(&self, window: u32, menus: &str) -> Result<(), String> {
+        let menus = menu::parse(menus)?;
+        let Some(server) = server() else { return Ok(()) };
+        let mut state = server.state();
+        let Some(e) = state.entries.get_mut(&window).filter(|e| e.frame > 0.0) else { return Ok(()) };
+        if e.menus == menus {
+            return Ok(());
+        }
+        e.menus = menus;
+        e.menu_open = e.menu_open.filter(|o| o.index < e.menus.len()).map(|o| menu::Open { hover: None, ..o });
+        if e.menus.is_empty() {
+            e.menu_labels.clear();
+        }
+        e.tell_menu();
+        Ok(())
+    }
+
+    pub fn menus(&self, window: u32) -> Option<String> {
+        let server = server()?;
+        let state = server.state();
+        let e = state.entries.get(&window)?;
+        Some(menu::geometry(&e.menus, &e.menu_labels, e.menu_open, e.menu_place.as_ref()).to_string())
     }
 
     pub fn hide(&self, window: u32, hidden: bool) {

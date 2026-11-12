@@ -49,16 +49,24 @@ test('other windows minimize as before', () => {
   assert.deepEqual(states, ['minimized'])
 })
 
-const windowEvents = () => {
+const windowEvents = (framesMenus = false) => {
   const sent: WindowsEvent[] = []
   const asked: string[] = []
+  const shellCalls: string[] = []
+  const record = { id: 9, title: 'Notes', app: { id: 'notes' }, menus: [] }
   const host = {
-    shell: { windows: () => [] },
-    record: (id: number) => (id === 9 ? { id: 9, title: 'Notes', app: { id: 'notes' }, menus: [] } : undefined),
+    shell: {
+      windows: () => [],
+      shortcut: (combo: string, scope: string, owner: number) => void shellCalls.push(`shortcut ${combo} ${scope} ${owner}`),
+      unshortcut: (combo: string, scope: string, owner: number) => void shellCalls.push(`unshortcut ${combo} ${scope} ${owner}`),
+      setMenus: (window: number, menus: string) => void shellCalls.push(`setMenus ${window} ${menus}`),
+    },
+    record: (id: number) => (id === 9 ? record : undefined),
     toDesktop: (event: WindowsEvent) => void sent.push(event),
+    framesMenus: () => framesMenus,
   }
   const rpc = { call: (scope: string, method: string) => void asked.push(`${scope}.${method}`) }
-  return { calls: new WindowCalls(host as never), sent, asked, web: { kind: 'window', window: 9, rpc } as never }
+  return { calls: new WindowCalls(host as never), sent, asked, shellCalls, web: { kind: 'window', window: 9, rpc } as never }
 }
 
 test('without runtime window states a window minimizes itself through its own surface', () => {
@@ -81,6 +89,16 @@ test('an app window tells the desktop what it does with typed window events', ()
     { type: 'windowattention', window: 9 },
     { type: 'windowready', window: 9 },
   ] satisfies WindowsEvent[])
+})
+
+test('menus bind their shortcuts, and go to the window frame only when no desktop shows them', () => {
+  const menus: WindowMenu[] = [{ id: 'file', label: 'File', items: [{ id: 'save', label: 'Save', shortcut: 'ctrl+s', action: true }] }]
+  const desktop = windowEvents(false)
+  desktop.calls.self(desktop.web, 'setMenus', [menus])
+  assert.deepEqual(desktop.shellCalls, ['shortcut ctrl+s menu 9'])
+  const alone = windowEvents(true)
+  alone.calls.self(alone.web, 'setMenus', [menus])
+  assert.deepEqual(alone.shellCalls, ['shortcut ctrl+s menu 9', `setMenus 9 ${JSON.stringify(menus)}`])
 })
 
 test('a page notification reaches the desktop as a notification event', async () => {

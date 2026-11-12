@@ -22,6 +22,7 @@ pub(crate) enum Msg {
     Theme(acde_render::FrameTheme),
     Active(bool),
     PageDark(bool),
+    Menu(Vec<String>, Option<(usize, acde_render::MenuList)>),
     Refresh(Option<f64>),
     Capture(mpsc::SyncSender<Result<Shot, String>>),
     Stop,

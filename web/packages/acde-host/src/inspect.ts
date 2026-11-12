@@ -89,6 +89,24 @@ interface Tree {
   readonly notes: string[]
 }
 
+type Box = readonly [number, number, number, number]
+
+interface MenuGeometry {
+  readonly menus: readonly { readonly id: string; readonly label: string; readonly rect: Box }[]
+  readonly open: {
+    readonly index: number
+    readonly hover: number | null
+    readonly items: readonly {
+      readonly label: string
+      readonly shortcut: string | null
+      readonly checked: boolean
+      readonly disabled: boolean
+      readonly separator: boolean
+      readonly rect: Box
+    }[]
+  } | null
+}
+
 const LEFT = 0x110
 const RIGHT = 0x111
 const MIDDLE = 0x112
@@ -284,13 +302,15 @@ export class Inspect {
 
   async #step(step: InspectStep): Promise<ActResult & { window?: InspectWindow }> {
     const parsed = Inspect.#parse(step.ref)
-    if (!parsed) return { ok: false, text: `cannot read ref ${step.ref} (expected like w3 or w3.12)` }
+    if (!parsed) return { ok: false, text: `cannot read ref ${step.ref} (expected like w3, w3.12 or a menu, w3.m1 or w3.m1.2)` }
     const window = this.windows().find((w) => w.ref === `w${parsed.window}`)
     if (!window) return { ok: false, text: `no window w${parsed.window}` }
     const arg = step.text ?? null
     try {
       const done =
-        parsed.node === null
+        parsed.menu !== null
+          ? await this.#menuAct(window, parsed.menu, parsed.item, step.action)
+          : parsed.node === null
           ? await this.#windowAct(window, step.action, arg)
           : window.kind === 'native'
             ? await this.#nativeAct(window, parsed.node, step.action, arg)
@@ -693,7 +713,72 @@ export class Inspect {
     const notes: string[] = []
     if (tree.hidden) notes.push(`(${tree.hidden} more outside the visible area; scroll, or add offscreen)`)
     if (tree.truncated) notes.push(`(too many elements, listed ${limit}; snapshot a ref to see what is under it)`)
-    return { nodes: tree.nodes.map(convert), notes }
+    const menus = node === null ? this.#menus(window) : null
+    return { nodes: [...(menus ? [Inspect.#menubar(window, menus)] : []), ...tree.nodes.map(convert)], notes }
+  }
+
+  #menus(window: InspectWindow): MenuGeometry | null {
+    const text = this.#host.shell.menus?.(window.id)
+    if (!text) return null
+    const geometry = JSON.parse(text) as MenuGeometry
+    return geometry.menus.length ? geometry : null
+  }
+
+  static #menubar(window: InspectWindow, geometry: MenuGeometry): InspectNode {
+    const [ox, oy] = window.rect
+    const at = ([x, y, w, h]: Box): Box => [x + ox, y + oy, w, h]
+    const menus = geometry.menus.map((menu, i): InspectNode => {
+      const open = geometry.open?.index === i ? geometry.open : null
+      const items = (open?.items ?? []).flatMap((item, k): InspectNode[] => {
+        if (item.separator) return []
+        const states = [...(item.disabled ? ['disabled'] : []), ...(item.checked ? ['checked'] : []), ...(open?.hover === k ? ['focused'] : [])]
+        return [{
+          ref: `${window.ref}.m${i + 1}.${k + 1}`,
+          role: 'menuitem',
+          name: item.label,
+          ...(item.shortcut ? { value: item.shortcut } : {}),
+          ...(states.length ? { states } : {}),
+          rect: at(item.rect),
+        }]
+      })
+      return {
+        ref: `${window.ref}.m${i + 1}`,
+        role: 'menuitem',
+        name: menu.label,
+        states: [open ? 'expanded' : 'collapsed'],
+        rect: at(menu.rect),
+        ...(items.length ? { children: items } : {}),
+      }
+    })
+    return { ref: `${window.ref}.m`, role: 'menubar', children: menus }
+  }
+
+  async #menuAct(window: InspectWindow, menu: number, item: number | null, action: InspectAction): Promise<ActResult> {
+    const ref = `${window.ref}.m${menu}${item === null ? '' : `.${item}`}`
+    if (action !== 'click' && action !== 'hover') return { ok: false, text: `a menu can be clicked or hovered, not ${action}` }
+    const geometry = this.#menus(window)
+    if (!geometry) return { ok: false, text: `${window.ref} shows no menus (menus show on the window frame only when no desktop does)` }
+    const label = geometry.menus[menu - 1]
+    if (!label) return { ok: false, text: `no menu ${ref}; ${window.ref} has ${geometry.menus.length}` }
+    const centre = ([x, y, w, h]: Box): [number, number] => [window.rect[0] + x + w / 2, window.rect[1] + y + h / 2]
+    if (item === null) return this.#pointer(window, ...centre(label.rect), action, null)
+    let open = geometry.open?.index === menu - 1 ? geometry.open : null
+    if (!open) {
+      const opened = this.#pointer(window, ...centre(label.rect), geometry.open ? 'hover' : 'click', null)
+      if (!opened.ok) return opened
+      const started = Date.now()
+      while (!open && Date.now() - started < Inspect.OPEN_MS) {
+        await Inspect.#sleep(20)
+        const now = this.#menus(window)?.open
+        open = now?.index === menu - 1 && now.items.length ? now : null
+      }
+      if (!open) return { ok: false, text: `${window.ref}.m${menu} did not open` }
+    }
+    const row = open.items[item - 1]
+    if (!row || row.separator) return { ok: false, text: `no item ${ref}` }
+    if (row.disabled && action === 'click') return { ok: false, text: `${ref} (${row.label}) is disabled` }
+    const done = this.#pointer(window, ...centre(row.rect), action, null)
+    return done.ok ? { ok: true, text: `${action === 'click' ? 'chose' : 'hovered'} ${label.label} › ${row.label}` } : done
   }
 
   async #nativeTree(window: InspectWindow, limit: number): Promise<Tree> {
@@ -751,9 +836,11 @@ export class Inspect {
     return ref
   }
 
-  static #parse(ref: string): { window: number; node: number | null } | null {
-    const m = /^w(\d+)(?:\.(\d+))?$/.exec(ref.trim())
-    return m ? { window: Number(m[1]), node: m[2] === undefined ? null : Number(m[2]) } : null
+  static #parse(ref: string): { window: number; node: number | null; menu: number | null; item: number | null } | null {
+    const m = /^w(\d+)(?:\.(\d+)|\.m([1-9]\d*)(?:\.([1-9]\d*))?)?$/.exec(ref.trim())
+    if (!m) return null
+    const number = (v: string | undefined) => (v === undefined ? null : Number(v))
+    return { window: Number(m[1]), node: number(m[2]), menu: number(m[3]), item: number(m[4]) }
   }
 
   static #shape(windows: readonly InspectWindow[]): string {

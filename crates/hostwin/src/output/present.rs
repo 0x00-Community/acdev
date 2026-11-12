@@ -48,6 +48,8 @@ pub(crate) struct Presenter {
     dirty: bool,
     bar: Bar,
     decoration: Option<Decoration>,
+    menu: Option<acde_render::MenuList>,
+    menu_closed: bool,
 }
 
 impl Presenter {
@@ -84,6 +86,8 @@ impl Presenter {
             dirty: true,
             decoration: (bar.height > 0.0).then(Decoration::new),
             bar,
+            menu: None,
+            menu_closed: false,
         })
     }
 
@@ -181,6 +185,14 @@ impl Presenter {
                 self.render.invalidate();
                 self.dirty = true;
             }
+            Msg::Menu(labels, open) => {
+                self.menu_closed |= self.menu.is_some() && open.is_none();
+                self.bar.menus = labels;
+                self.bar.open = open.as_ref().map(|(index, _)| *index);
+                self.menu = open.map(|(_, list)| list);
+                self.render.invalidate();
+                self.dirty = true;
+            }
             Msg::Refresh(hz) => {
                 let pace = pace(hz);
                 log::debug!(target: "perf::raster", "window {} pace ms={:.3}", self.id, pace.as_secs_f64() * 1000.0);
@@ -202,6 +214,11 @@ impl Presenter {
         let started = Instant::now();
         let (decoration, size) = self.framed(Vec::new());
         let top = size.1 - self.size.1;
+        if (self.menu.is_some() || std::mem::take(&mut self.menu_closed))
+            && let Some(scratch) = self.scratch.get_mut(&self.id)
+        {
+            scratch.drawn = false;
+        }
         let plane = Self::in_layers(frame.plane, frame.size);
         let mut result = self.layered(self.id, size, &plane, top, decoration, Color::WHITE);
         for panel in frame.panels {
@@ -268,6 +285,21 @@ impl Presenter {
         let down = Affine::translate((0.0, f64::from(top)));
         let mut scenes: Vec<(Scene, Affine)> = page.into_iter().map(|(scene, place)| (scene, down * place)).collect();
         scenes.push((decoration.scene(&bar), Affine::IDENTITY));
+        let labels = decoration.menu_labels(&bar);
+        let place = match (&self.menu, bar.open.and_then(|i| labels.get(i))) {
+            (Some(list), Some(&[x, ..])) => {
+                let (scene, place) = decoration.menu_list(&bar, list, x, bar.height);
+                scenes.push((scene, Affine::IDENTITY));
+                Some(place)
+            }
+            _ => None,
+        };
+        if let Some(server) = server()
+            && let Some(e) = server.state().entries.get_mut(&self.id)
+        {
+            e.menu_labels = labels;
+            e.menu_place = place;
+        }
         (scenes, (self.size.0, self.size.1 + top))
     }
 

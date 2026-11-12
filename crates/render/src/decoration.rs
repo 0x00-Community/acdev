@@ -1,5 +1,5 @@
 use acde_gpu::{Glyph, PaintScene, Scene};
-use kurbo::{Affine, BezPath, Circle, Line, Rect, Shape, Stroke, Vec2};
+use kurbo::{Affine, BezPath, Circle, Line, Rect, RoundedRect, Shape, Stroke, Vec2};
 use parley::fontique::{Collection, CollectionOptions, SourceCache};
 use parley::{FontContext, FontFamily, FontWeight, Layout, LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty};
 use peniko::{Color, Fill};
@@ -234,6 +234,29 @@ pub struct Bar {
     pub active: bool,
     pub dark_page: bool,
     pub minimize: bool,
+    pub menus: Vec<String>,
+    pub open: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuRow {
+    pub label: String,
+    pub shortcut: Option<String>,
+    pub checked: bool,
+    pub disabled: bool,
+    pub separator: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuList {
+    pub rows: Vec<MenuRow>,
+    pub hover: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MenuPlace {
+    pub rect: [f64; 4],
+    pub rows: Vec<[f64; 4]>,
 }
 
 impl Bar {
@@ -258,6 +281,44 @@ impl Bar {
 
     pub fn pixels(&self) -> (u32, u32) {
         ((self.width * self.scale).round().max(1.0) as u32, (self.height * self.scale).round().max(1.0) as u32)
+    }
+
+    pub fn menus_start(&self) -> f64 {
+        match self.side() {
+            ButtonSide::Left => self.style().reserved() + Decoration::MENU_LEAD,
+            ButtonSide::Right => Decoration::PAD - Decoration::MENU_PAD,
+        }
+    }
+
+    pub fn shortcut_text(&self, combo: &str) -> String {
+        let mut parts: Vec<String> = combo.split('+').map(|p| p.trim().to_ascii_lowercase()).filter(|p| !p.is_empty()).collect();
+        let Some(key) = parts.pop() else { return String::new() };
+        let order = ["ctrl", "control", "alt", "shift", "super", "meta", "logo"];
+        parts.sort_by_key(|m| order.iter().position(|o| o == m).unwrap_or(order.len()));
+        let key = match key.chars().count() {
+            1 => key.to_uppercase(),
+            _ => key[..1].to_uppercase() + &key[1..],
+        };
+        match self.style() {
+            FrameStyle::Mac => {
+                let symbol = |m: &str| match m {
+                    "ctrl" | "control" => "⌃",
+                    "alt" => "⌥",
+                    "shift" => "⇧",
+                    _ => "⌘",
+                };
+                parts.iter().map(|m| symbol(m)).collect::<String>() + &key
+            }
+            FrameStyle::Windows => {
+                let name = |m: &str| match m {
+                    "ctrl" | "control" => "Ctrl",
+                    "alt" => "Alt",
+                    "shift" => "Shift",
+                    _ => "Win",
+                };
+                parts.iter().map(|m| name(m)).chain(std::iter::once(key.as_str())).collect::<Vec<_>>().join("+")
+            }
+        }
     }
 
     pub fn button_at(&self, x: f64, y: f64) -> Option<FrameButton> {
@@ -293,6 +354,18 @@ impl Decoration {
     const FAMILY: &'static str = "system-ui, sans-serif";
     const ELLIPSIS: &'static str = "…";
     const RING: Color = Color::from_rgba8(0, 0, 0, 46);
+    const MENU_LEAD: f64 = 2.0;
+    const MENU_PAD: f64 = 8.0;
+    const MENU_WEIGHT: f32 = 400.0;
+    const LIST_ROW: f64 = 24.0;
+    const LIST_SEPARATOR: f64 = 9.0;
+    const LIST_INSET: f64 = 5.0;
+    const LIST_TEXT: f64 = 24.0;
+    const LIST_END: f64 = 14.0;
+    const LIST_GAP: f64 = 28.0;
+    const LIST_MIN: f64 = 180.0;
+    const LIST_RADIUS: f64 = 8.0;
+    const ACCENT: Color = Color::from_rgb8(0x2f, 0x6f, 0xe8);
     const OFF_ALPHA: f32 = 0.16;
 
     pub fn new() -> Self {
@@ -328,7 +401,16 @@ impl Decoration {
                 }
             }
         }
-        self.title(&mut scene, bar, text);
+        let labels = self.menu_labels(bar);
+        for (i, (label, [x, y, w, h])) in bar.menus.iter().zip(&labels).enumerate() {
+            if bar.open == Some(i) {
+                let shape = RoundedRect::new(*x, y + 4.0, x + w, y + h - 4.0, 5.0);
+                scene.fill(Fill::NonZero, scale, text.multiply_alpha(0.12), None, &shape);
+            }
+            self.text(&mut scene, label, bar.scale, (x + Self::MENU_PAD, *y), *h, text);
+        }
+        let lead = labels.last().map(|[x, _, w, _]| x + w);
+        self.title(&mut scene, bar, text, lead);
         scene
     }
 
@@ -355,13 +437,103 @@ impl Decoration {
         path
     }
 
-    fn title(&mut self, scene: &mut Scene, bar: &Bar, color: Color) {
+    pub fn menu_labels(&mut self, bar: &Bar) -> Vec<[f64; 4]> {
+        let mut x = bar.menus_start();
+        let mut out = Vec::with_capacity(bar.menus.len());
+        for label in &bar.menus {
+            let w = f64::from(self.styled(label, Self::MENU_WEIGHT, 1.0).width()) + 2.0 * Self::MENU_PAD;
+            out.push([x, 0.0, w, bar.height]);
+            x += w;
+        }
+        out
+    }
+
+    pub fn menu_list(&mut self, bar: &Bar, list: &MenuList, at: f64, below: f64) -> (Scene, MenuPlace) {
+        let mut widths = (0.0f64, 0.0f64);
+        for row in list.rows.iter().filter(|r| !r.separator) {
+            widths.0 = widths.0.max(f64::from(self.styled(&row.label, Self::MENU_WEIGHT, 1.0).width()));
+            if let Some(keys) = &row.shortcut {
+                widths.1 = widths.1.max(f64::from(self.styled(&bar.shortcut_text(keys), Self::MENU_WEIGHT, 1.0).width()));
+            }
+        }
+        let gap = if widths.1 > 0.0 { Self::LIST_GAP } else { 0.0 };
+        let width = (Self::LIST_TEXT + widths.0 + gap + widths.1 + Self::LIST_END + 2.0 * Self::LIST_INSET).max(Self::LIST_MIN).ceil();
+        let x = at.min(bar.width - width).max(0.0);
+        let mut y = below + Self::LIST_INSET;
+        let mut rows = Vec::with_capacity(list.rows.len());
+        for row in &list.rows {
+            let h = if row.separator { Self::LIST_SEPARATOR } else { Self::LIST_ROW };
+            rows.push([x + Self::LIST_INSET, y, width - 2.0 * Self::LIST_INSET, h]);
+            y += h;
+        }
+        let rect = [x, below, width, y + Self::LIST_INSET - below];
+        let colors = bar.theme.colors(true, bar.dark_page);
+        let dark = colors.background.is_some_and(|[r, g, b, _]| u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114 < 128_000);
+        let (panel, ink) = match dark {
+            true => (Color::from_rgb8(0x2f, 0x2c, 0x35), Color::from_rgb8(0xec, 0xe8, 0xf2)),
+            false => (Color::from_rgb8(0xff, 0xff, 0xff), Color::from_rgb8(0x24, 0x21, 0x2b)),
+        };
+        let mut scene = Scene::new();
+        let scale = Affine::scale(bar.scale);
+        let [rx, ry, rw, rh] = rect;
+        let outline = Rect::new(rx, ry, rx + rw, ry + rh);
+        scene.draw_box_shadow(scale, outline.with_origin((rx, ry + 3.0)), Color::from_rgba8(0, 0, 0, 60), Self::LIST_RADIUS, 8.0);
+        let shape = RoundedRect::from_rect(outline, Self::LIST_RADIUS);
+        scene.fill(Fill::NonZero, scale, panel, None, &shape);
+        scene.stroke(&Stroke::new(1.0), scale, ink.multiply_alpha(0.14), None, &shape);
+        for (i, (row, &[x, y, w, h])) in list.rows.iter().zip(&rows).enumerate() {
+            if row.separator {
+                let mid = (y + h / 2.0).floor() + 0.5;
+                scene.stroke(&Stroke::new(1.0), scale, ink.multiply_alpha(0.12), None, &Line::new((x + 6.0, mid), (x + w - 6.0, mid)));
+                continue;
+            }
+            let lit = list.hover == Some(i) && !row.disabled;
+            if lit {
+                scene.fill(Fill::NonZero, scale, Self::ACCENT, None, &RoundedRect::new(x, y, x + w, y + h, 5.0));
+            }
+            let color = match (lit, row.disabled) {
+                (true, _) => Color::WHITE,
+                (false, true) => ink.multiply_alpha(0.35),
+                (false, false) => ink,
+            };
+            if row.checked {
+                self.text(&mut scene, "✓", bar.scale, (x + 7.0, y), h, color);
+            }
+            self.text(&mut scene, &row.label, bar.scale, (x + Self::LIST_TEXT - Self::LIST_INSET, y), h, color);
+            if let Some(keys) = &row.shortcut {
+                let keys = bar.shortcut_text(keys);
+                let kw = f64::from(self.styled(&keys, Self::MENU_WEIGHT, 1.0).width());
+                let dim = if lit { Color::WHITE.multiply_alpha(0.85) } else { color.multiply_alpha(0.6) };
+                self.text(&mut scene, &keys, bar.scale, (x + w - Self::LIST_END + Self::LIST_INSET - kw, y), h, dim);
+            }
+        }
+        (scene, MenuPlace { rect, rows })
+    }
+
+    fn text(&mut self, scene: &mut Scene, text: &str, scale: f64, (x, y): (f64, f64), height: f64, color: Color) {
+        let layout = self.styled(text, Self::MENU_WEIGHT, scale);
+        let Some(line) = layout.lines().next() else { return };
+        let top = (height * scale - f64::from(line.metrics().line_height)) / 2.0;
+        let transform = Affine::translate((x * scale, y * scale + top));
+        for item in line.items() {
+            let PositionedLayoutItem::GlyphRun(run) = item else { continue };
+            let glyphs = run.positioned_glyphs().map(|g| Glyph { id: g.id as _, x: g.x, y: g.y });
+            let r = run.run();
+            let coords: &[i16] = bytemuck::cast_slice(r.normalized_coords());
+            scene.draw_glyphs(r.font(), r.font_size(), false, coords, Vec2::ZERO, Fill::NonZero, color, 1.0, transform, None, glyphs);
+        }
+    }
+
+    fn title(&mut self, scene: &mut Scene, bar: &Bar, color: Color, lead: Option<f64>) {
         let reserved = bar.style().reserved();
-        let (left, right) = match (bar.align(), bar.side()) {
+        let (mut left, right) = match (bar.align(), bar.side()) {
             (TitleAlign::Center, _) => (reserved, reserved),
             (TitleAlign::Start, ButtonSide::Right) => (Self::PAD, reserved + Self::PAD),
             (TitleAlign::Start, ButtonSide::Left) => (reserved + Self::PAD, Self::PAD),
         };
+        if let Some(lead) = lead {
+            left = left.max(lead + Self::PAD);
+        }
         let room = (bar.width - left - right) * bar.scale;
         if bar.title.is_empty() || room <= 0.0 {
             return;
@@ -383,9 +555,10 @@ impl Decoration {
             }
         }
         let Some(line) = layout.lines().next() else { return };
-        let x = match bar.align() {
-            TitleAlign::Center => (bar.width * bar.scale - f64::from(layout.width())) / 2.0,
-            TitleAlign::Start => left * bar.scale,
+        let x = match (bar.align(), lead) {
+            (TitleAlign::Center, None) => (bar.width * bar.scale - f64::from(layout.width())) / 2.0,
+            (TitleAlign::Center, Some(_)) => ((bar.width * bar.scale - f64::from(layout.width())) / 2.0).max(left * bar.scale),
+            (TitleAlign::Start, _) => left * bar.scale,
         };
         let y = (bar.height * bar.scale - f64::from(line.metrics().line_height)) / 2.0;
         let transform = Affine::translate((x, y));
@@ -403,10 +576,14 @@ impl Decoration {
     }
 
     fn layout(&mut self, text: &str, scale: f64) -> Layout<()> {
+        self.styled(text, 600.0, scale)
+    }
+
+    fn styled(&mut self, text: &str, weight: f32, scale: f64) -> Layout<()> {
         let mut builder = self.layouts.ranged_builder(&mut self.fonts, text, scale as f32, true);
         builder.push_default(StyleProperty::FontFamily(FontFamily::from(Self::FAMILY)));
         builder.push_default(StyleProperty::FontSize(Self::FONT_SIZE));
-        builder.push_default(StyleProperty::FontWeight(FontWeight::new(600.0)));
+        builder.push_default(StyleProperty::FontWeight(FontWeight::new(weight)));
         builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.0)));
         builder.push_default(StyleProperty::Locale(parley::Language::parse("zh-Hans").ok()));
         let mut layout = builder.build(text);

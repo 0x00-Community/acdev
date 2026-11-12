@@ -59,6 +59,8 @@ fn broker(scope: &mut v8::PinScope, _: v8::FunctionCallbackArguments, mut rv: v8
         "animate" => animate,
         "shortcut" => shortcut,
         "unshortcut" => unshortcut,
+        "setMenus" => set_menus,
+        "menus" => menus,
         "inject" => inject,
         "drop" => drop_files,
         "quit" => quit,
@@ -321,6 +323,22 @@ fn shortcut_call(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments,
     let owner = bind::arg_f64(scope, args, 2) as u32;
     if let Some(Err(e)) = with(scope, |shell| shell.shortcut(&combo, &kind, owner, on)) {
         bind::throw_error(scope, &e);
+    }
+}
+
+fn set_menus(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, _: v8::ReturnValue) {
+    let window = bind::arg_f64(scope, &args, 0) as u32;
+    let menus = bind::arg_string(scope, &args, 1);
+    if let Some(Err(e)) = with(scope, |shell| shell.set_menus(window, &menus)) {
+        bind::throw_error(scope, &e);
+    }
+}
+
+fn menus(scope: &mut v8::PinScope, args: v8::FunctionCallbackArguments, mut rv: v8::ReturnValue) {
+    let window = bind::arg_f64(scope, &args, 0) as u32;
+    match with(scope, |shell| shell.menus(window)).flatten() {
+        Some(text) => rv.set(bind::string(scope, &text).into()),
+        None => rv.set_null(),
     }
 }
 

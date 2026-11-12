@@ -223,6 +223,16 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   (`present.rs` `framed`) 把 render 的 `Decoration` 场景和下移了窗框高度的页面画进同一张纹理, 合成器只看到一层. 命中在窗框上
   (`Hit.bar`) 时页面收不到指针 (收 `pointerleave`); 三个按钮按下和松开在同一个上时发 `framebutton`; 标题栏 (按钮区外) 移动、四边 4 px /
   四角 10 px 改大小, 由 `Entry::grab_hints(&State.theme)` 和页面的 hint (下移窗框高度) 合成, 窗框的优先. `contentOffset` 是 `[0, H]`, 输入法候选框也加 `H`.
+  **窗框上的菜单** (单应用会话, 没有桌面显示菜单时; Broker 的 `framesMenus` 是 `options.standalone`): 应用 `setMenus` 时 Broker 把整份菜单
+  (JSON) 交给 `Shell::set_menus` (`shell/menu.rs` 解析; 没有 `onSelect` 的项当禁用), 存在 `Entry.menus`. `Bar.menus` 是各菜单名, 画在按钮后面
+  (`Bar::menus_start`: Mac 样式在三个圆点后, Windows 样式在左边), 标题让到菜单右边 (居中的标题放不下时往右挪, 再不行截断). 出帧线程画标题栏时
+  算出各菜单名的矩形写回 `Entry.menu_labels` (需要字体排版, 只有出帧线程有 `Decoration`); 标题栏的移动 hint 从最后一个菜单名右边开始, 按在菜单名上
+  不拖动也不数双击. 打开的菜单 (`Entry.menu_open`: 第几个菜单、悬停的项) 由 `Decoration::menu_list` 画在页面上面 (紧贴标题栏下沿, 超出窗口右边时
+  左移; 圆角、阴影、分隔线、禁用项变淡、勾、右边是快捷键的文字: Mac 样式 `⌃⌥⇧⌘`, Windows 样式 `Ctrl+Shift+…`), 各行的矩形写回 `Entry.menu_place`.
+  开着时每帧整张重画 (页面的局部重画会盖掉列表), 关上后再整张画一次. 输入 (`app.rs`): 按在菜单名上打开; 开着时按在某一项上、松开时还在同一项上
+  就选中 (`menuselect {window, key: 菜单 id, title: 项 id}` → Broker 调应用窗口的 `menu`, 和桌面的 `invokeMenu` 一样); 按在打开的菜单名上或别处关上
+  (这一下不给页面); 指针移到另一个菜单名上换过去; 上下键在可选的项间移动 (跳过分隔线和禁用项, 首尾相接), 左右键换菜单, 回车 / 空格选中, Esc 关上;
+  开着时键、滚轮、指针移动都不给页面; 宿主窗口失焦时关上. `Shell::menus(window)` 是给 inspect 的 JSON (菜单名和打开的列表, 窗口坐标).
   **双击标题栏**: 左键按在最上面的 hint 是「没有 edges」的地方 (运行时的标题栏, 或 `frame: false` 页面自己给的标题区) 时由 `State::press` 数次数
   (crates/model `Clicks`: 同一个窗口、平台双击时间内、平台双击矩形内; Windows 是 `GetDoubleClickTime` / `SM_CXDOUBLECLK`, headless 和 winit 是
   500 ms、4 × 4); 第二下按照桌面声明的动作 (`State.double_click`, model `DoubleClick`: `fill` 铺满 / 还原, `minimize`, `none`; 默认 `fill`)
@@ -1340,7 +1350,10 @@ directory, filters})` / `saveFile({title, name, filters})`, filter 是 `{name, g
   加 `tag` 和 `visible`: 有大小、不是 hidden / display:none / 透明)、`point(id)` (元素可点的一点: 先 `scrollIntoView`, 在中心和四个四分点上 `hitTest`, 全被挡时报挡住的
   元素; 元素已经不在文档里 (被移除, 或节点已释放) 时各个调用都回 `element N is gone`, 没有盒子或 `visibility` 不是 visible 的回 `the element is not displayed`, 不拿旧位置去 `hitTest` (那样报出来的是「被别的元素挡住」); 打开的下拉列表里的 option 用 `pickerOptionRect` 那一行的中心)、`type(id, text, replace)` (走输入法提交那条路 `Host.insertText`)、`select(id, values)` (元素自己、祖先或里面的 `<select>`; 按 value
   再按文字找选项, 禁用的回错, 单选给多个回错; 设好后发 `input` 和 `change`)、`focus(id)`, 坐标加 `contentOffset`.
-- **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
+- **Broker** (`inspect.ts`): 窗口 ref `w0` (桌面)、`w1` …, 元素 `w3.12`, 窗框上的菜单 `w3.m1` (第 1 个菜单) 和 `w3.m1.2` (它的第 2 项, 分隔线也占号):
+  有窗框菜单的窗口, 树的最前面是 `menubar [w3.m]`, 下面每个菜单一个 `menuitem` (`expanded` / `collapsed`), 打开的那个下面列出它的项 (快捷键是 value,
+  `disabled` / `checked` / `focused`). act 菜单 `click` / `hover` 是在菜单名中心发真的指针事件; act 一项时菜单没开就先点开 (别的菜单开着时移过去),
+  等列表画出来再点那一行, 禁用的项不点. acde 的 driver 不用改: `getByRole('menuitem', { name })` 找到这些节点, 点它们走同一个 act. `snapshot({window?, ref?, all?, diff?, limit?, find?, tree?, offscreen?})` →
   `{text, windows, trees}`: 列出焦点窗口 (或指定的) 的树 (`all` 列全部没最小化的窗口, 并留下透明和 `visibility: hidden` 的元素).
   `text` 是固定的英文格式, 不随系统语言变 (页面给的名字和值原样): 窗口从上到下一行一个, `- window "Notes" [app=notes] [focused] [w1]`
   (桌面是 `- desktop`, 标记依次是 `app=`、`native`、`focused`、`minimized`、不是 `free` 的模式、窗口状态 `filled` / `fullscreen` (和模式相同时只写一次)), 列了树的窗口下面缩进两格一行一个节点

@@ -153,6 +153,18 @@ mod tests {
     }
 
     #[test]
+    fn a_press_on_a_menu_title_does_not_move_the_window() {
+        let mut s = screen();
+        let settings = ClickSettings::default();
+        let w = open(&mut s, Grant { rect: Some([100.0, 100.0, 400.0, 300.0]), ..Grant::default() });
+        let e = s.entries.get_mut(&w).expect("framed");
+        e.frame = 32.0;
+        e.menu_labels = vec![[78.0, 0.0, 40.0, 32.0], [118.0, 0.0, 44.0, 32.0]];
+        assert!(matches!(s.press(w, [100.0 + 130.0, 115.0], 0.0, settings), Press::Plain), "on the second menu title");
+        assert!(matches!(s.press(w, [100.0 + 170.0, 115.0], 1000.0, settings), Press::Drag(0, _)), "past the menus");
+    }
+
+    #[test]
     fn only_a_granted_host_window_on_a_host_with_controls_maps_hints_to_the_host() {
         let mut s = screen();
         let plain = open(&mut s, Grant { host: true, ..Grant::default() });

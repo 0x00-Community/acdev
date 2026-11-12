@@ -104,6 +104,8 @@ impl App {
             active: true,
             dark_page: deco.dark_page,
             minimize: true,
+            menus: Vec::new(),
+            open: None,
         })
     }
 

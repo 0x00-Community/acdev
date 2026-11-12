@@ -9,6 +9,7 @@ use crate::output::compose::{self, Compositor};
 use crate::output::gpu::Gpu;
 use crate::output::surface::Msg;
 use crate::platform::{self, Cmd, Handler, Host, HostEvent, Monitor, Proxy};
+use crate::shell::menu::{self, Open};
 use crate::shell::{Press, State};
 
 const DESKTOP: [f64; 2] = [1440.0, 900.0];
@@ -189,7 +190,14 @@ struct App {
     swallowed: HashSet<u32>,
     devtools: crate::dev::DevtoolsKey,
     frame_press: Option<(u32, FrameButton)>,
+    menu_press: Option<(u32, usize)>,
     edges: u8,
+}
+
+enum MenuHit {
+    Label(usize),
+    Row(usize),
+    Outside,
 }
 
 pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
@@ -289,6 +297,10 @@ impl Handler for App {
                     server.event(id, Event::named(if focused { "activate" } else { "deactivate" }));
                 }
                 if !focused {
+                    if let Some((id, _)) = Self::open_menu(server) {
+                        Self::set_menu(server, id, None);
+                    }
+                    self.menu_press = None;
                     self.modifiers = 0;
                     self.devtools.blur();
                 }
@@ -413,7 +425,7 @@ impl App {
     }
 
     fn wheel(&self, server: &Server, dx: f64, dy: f64) {
-        if dx == 0.0 && dy == 0.0 {
+        if (dx == 0.0 && dy == 0.0) || Self::open_menu(server).is_some() {
             return;
         }
         if let Some((target, [ox, oy])) = self.target(server) {
@@ -451,6 +463,16 @@ impl App {
         if let Some(drag) = &self.drag {
             let rect = Self::dragged(drag, (x, y));
             server.set_rect(drag.window, rect);
+            return;
+        }
+        if let Some((id, open)) = Self::open_menu(server) {
+            let next = match self.menu_hit(server, id) {
+                MenuHit::Label(index) if index != open.index => Some(Open { index, hover: None }),
+                MenuHit::Row(row) => Some(Open { hover: Some(row), ..open }),
+                MenuHit::Label(_) => Some(open),
+                MenuHit::Outside => Some(Open { hover: None, ..open }),
+            };
+            Self::set_menu(server, id, next);
             return;
         }
         let Some((target, [ox, oy])) = self.target(server) else {
@@ -530,6 +552,95 @@ impl App {
         [r.x, r.y, r.w, r.h]
     }
 
+    fn open_menu(server: &Server) -> Option<(u32, Open)> {
+        server.state().entries.iter().find_map(|(id, e)| e.menu_open.map(|o| (*id, o)))
+    }
+
+    fn set_menu(server: &Server, id: u32, open: Option<Open>) {
+        let mut state = server.state();
+        let Some(e) = state.entries.get_mut(&id) else { return };
+        let open = open.filter(|o| o.index < e.menus.len());
+        if e.menu_open == open {
+            return;
+        }
+        if open.is_none_or(|o| e.menu_open.is_none_or(|was| was.index != o.index)) {
+            e.menu_place = None;
+        }
+        e.menu_open = open;
+        e.tell_menu();
+    }
+
+    fn menu_hit(&self, server: &Server, id: u32) -> MenuHit {
+        let state = server.state();
+        let Some(e) = state.entries.get(&id) else { return MenuHit::Outside };
+        let (x, y) = (self.pointer.0 - e.rect[0], self.pointer.1 - e.rect[1]);
+        if let Some(index) = menu::at(&e.menu_labels, x, y) {
+            return MenuHit::Label(index);
+        }
+        match e.menu_place.as_ref().and_then(|place| menu::at(&place.rows, x, y)) {
+            Some(row) => MenuHit::Row(row),
+            None => MenuHit::Outside,
+        }
+    }
+
+    fn select_menu(server: &Server, id: u32, index: usize, row: usize) {
+        let picked = {
+            let state = server.state();
+            state.entries.get(&id).and_then(|e| {
+                let menu = e.menus.get(index)?;
+                let item = menu.items.get(row).filter(|i| i.usable())?;
+                Some((menu.id.clone(), item.id.clone()))
+            })
+        };
+        let Some((menu, item)) = picked else { return };
+        Self::set_menu(server, id, None);
+        server.broker.push(Event { kind: "menuselect".into(), window: Some(id), key: Some(menu), title: Some(item), ..Default::default() });
+    }
+
+    fn menu_pressed(&mut self, server: &Server) -> bool {
+        if let Some((id, open)) = Self::open_menu(server) {
+            match self.menu_hit(server, id) {
+                MenuHit::Row(row) => self.menu_press = Some((id, row)),
+                MenuHit::Label(index) if index != open.index => Self::set_menu(server, id, Some(Open { index, hover: None })),
+                MenuHit::Label(_) | MenuHit::Outside => Self::set_menu(server, id, None),
+            }
+            return true;
+        }
+        let Some(hit) = server.state().hit(self.pointer.0, self.pointer.1).filter(|hit| hit.bar && !hit.blocked) else { return false };
+        let MenuHit::Label(index) = self.menu_hit(server, hit.entry) else { return false };
+        server.activate(hit.target);
+        Self::set_menu(server, hit.entry, Some(Open { index, hover: None }));
+        true
+    }
+
+    fn menu_released(&mut self, server: &Server) -> bool {
+        let Some((id, row)) = self.menu_press.take() else { return false };
+        if let MenuHit::Row(now) = self.menu_hit(server, id)
+            && now == row
+            && let Some((_, open)) = Self::open_menu(server)
+        {
+            Self::select_menu(server, id, open.index, row);
+        }
+        true
+    }
+
+    fn menu_key(&mut self, server: &Server, evdev: u32, pressed: bool) -> bool {
+        let Some((id, open)) = Self::open_menu(server) else { return false };
+        if !pressed || keys::is_modifier(evdev) {
+            return true;
+        }
+        let step = {
+            let state = server.state();
+            state.entries.get(&id).map_or(menu::Step::Close, |e| menu::key(&e.menus, open, menu::key_of(evdev)))
+        };
+        match step {
+            menu::Step::Stay(open) => Self::set_menu(server, id, Some(open)),
+            menu::Step::Close => Self::set_menu(server, id, None),
+            menu::Step::Select(index, row) => Self::select_menu(server, id, index, row),
+        }
+        true
+    }
+
     fn frame_pressed(server: &Server, id: u32, pressed: FrameButton) {
         let fullscreen = server.state().entries.get(&id).is_some_and(|e| e.mode == Mode::Fullscreen || e.state == WindowState::Fullscreen);
         match pressed {
@@ -567,6 +678,9 @@ impl App {
     fn button(&mut self, server: &Server, button: u32, pressed: bool) {
         let (x, y) = self.pointer;
         if pressed {
+            if self.pressed.is_empty() && self.menu_press.is_none() && self.menu_pressed(server) {
+                return;
+            }
             if self.pressed.is_empty() {
                 let hit = server.state().hit(x, y);
                 let Some(hit) = hit else { return };
@@ -592,6 +706,9 @@ impl App {
         } else {
             if self.drag.is_some() && button == keys::BUTTON_LEFT {
                 self.drag = None;
+                return;
+            }
+            if self.menu_released(server) {
                 return;
             }
             if button == keys::BUTTON_LEFT
@@ -644,6 +761,9 @@ impl App {
                 let window = server.state().focus;
                 return server.broker.push(Event { kind: "devtools".into(), window, ..Default::default() });
             }
+        }
+        if self.menu_key(server, evdev, pressed) {
+            return;
         }
         if pressed && !keys::is_modifier(evdev) {
             if let Some(shortcut) = self.shortcut(server, evdev) {

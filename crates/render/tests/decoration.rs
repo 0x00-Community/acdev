@@ -1,5 +1,5 @@
 use acde_gpu::RenderCommand;
-use acde_render::{Bar, ButtonSide, Decoration, FrameButton, FrameColors, FrameStyle, FrameTheme, TitleAlign};
+use acde_render::{Bar, ButtonSide, Decoration, FrameButton, FrameColors, FrameStyle, FrameTheme, MenuList, MenuRow, TitleAlign};
 
 mod common;
 
@@ -15,6 +15,8 @@ fn bar(title: &str, width: f64, scale: f64) -> Bar {
         active: true,
         dark_page: false,
         minimize: true,
+        menus: Vec::new(),
+        open: None,
     }
 }
 
@@ -241,4 +243,56 @@ fn without_a_theme_a_dark_page_gets_the_dark_default() {
     let themed = FrameTheme { active: light, ..FrameTheme::default() };
     assert_eq!(themed.colors(true, true).background, light.background, "a desktop's theme stays its own");
     assert_eq!(themed.colors(true, true).title, Some([0x3a, 0x35, 0x42, 0xff]), "and is filled in from the light default");
+}
+
+fn with_menus(bar: Bar) -> Bar {
+    Bar { menus: vec!["File".into(), "View".into()], ..bar }
+}
+
+#[test]
+fn menu_titles_follow_the_buttons_and_push_the_title_past_them() {
+    let mac = with_menus(bar("Notes", 600.0, 1.0));
+    let labels = Decoration::new().menu_labels(&mac);
+    assert_eq!(labels.len(), 2);
+    assert_eq!(labels[0][0], Decoration::BUTTONS + 2.0, "after the traffic lights");
+    assert_eq!(labels[1][0], labels[0][0] + labels[0][2], "side by side");
+    assert!(labels.iter().all(|r| r[1] == 0.0 && r[3] == 32.0), "as tall as the bar");
+    let win = with_menus(windows("Notes", 600.0, 1.0));
+    let left = Decoration::new().menu_labels(&win);
+    assert_eq!(left[0][0], 4.0, "at the left edge, the buttons are on the right");
+    let end = left[1][0] + left[1][2];
+    let runs = glyph_runs(&win);
+    let title = runs.iter().map(|(x, _)| *x).fold(f64::MIN, f64::max);
+    assert!(title > end, "the title starts after the menus: {runs:?}, menus end at {end}");
+    let narrow = with_menus(bar("A long window title that would sit under the menus", 260.0, 1.0));
+    let first = Decoration::new().menu_labels(&narrow);
+    let runs = glyph_runs(&narrow);
+    let starts: Vec<f64> = runs.iter().map(|(x, _)| *x).collect();
+    assert!(starts.iter().skip(2).all(|x| *x >= first[1][0] + first[1][2]), "{starts:?}");
+}
+
+#[test]
+fn the_open_list_has_rows_under_its_title_and_stays_in_the_window() {
+    let b = Bar { open: Some(0), ..with_menus(bar("", 300.0, 1.0)) };
+    let row = |label: &str, shortcut: Option<&str>| MenuRow { label: label.into(), shortcut: shortcut.map(Into::into), ..MenuRow::default() };
+    let list = MenuList { rows: vec![row("New", Some("ctrl+n")), MenuRow { separator: true, ..MenuRow::default() }, row("Quit", None)], hover: Some(0) };
+    let (scene, place) = Decoration::new().menu_list(&b, &list, 80.0, 32.0);
+    assert!(!scene.commands.is_empty());
+    assert_eq!(place.rect[1], 32.0, "under the bar");
+    assert_eq!(place.rows.len(), 3);
+    assert!(place.rows[1][3] < place.rows[0][3], "a separator is thinner than a row");
+    assert_eq!(place.rows[2][1], place.rows[1][1] + place.rows[1][3]);
+    let (_, near_edge) = Decoration::new().menu_list(&b, &list, 290.0, 32.0);
+    assert!(near_edge.rect[0] + near_edge.rect[2] <= 300.0, "moved left to stay in the window: {:?}", near_edge.rect);
+}
+
+#[test]
+fn shortcuts_are_written_the_way_the_frame_style_writes_them() {
+    let mac = bar("", 300.0, 1.0);
+    assert_eq!(mac.shortcut_text("ctrl+shift+l"), "⌃⇧L");
+    assert_eq!(mac.shortcut_text("shift+Ctrl+n"), "⌃⇧N", "modifiers in a fixed order");
+    assert_eq!(mac.shortcut_text("super+space"), "⌘Space");
+    let win = windows("", 300.0, 1.0);
+    assert_eq!(win.shortcut_text("ctrl+shift+l"), "Ctrl+Shift+L");
+    assert_eq!(win.shortcut_text("alt+f4"), "Alt+F4");
 }

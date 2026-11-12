@@ -237,6 +237,7 @@ export class Broker {
       closeWeb: (id, force) => this.closeWeb(id, force),
       hide: (id, hidden) => this.#hide(id, hidden),
       toDesktop: (event) => this.#toDesktop(event),
+      framesMenus: () => !!this.#options.standalone,
       usable: (appId) => {
         const app = this.apps.get(appId)
         return !!app && this.#launchable.available(app)
@@ -584,8 +585,10 @@ export class Broker {
       case 'edgeenter':
       case 'edgeleave':
         return this.#toDesktop({ type: 'screenedge', edge: event.key, entered: event.type === 'edgeenter', output: event.title ?? '' })
+      case 'menuselect':
       case 'shortcut': {
         const owner = event.window === undefined ? undefined : this.#windows.get(event.window)
+        if (event.type === 'menuselect') return void owner?.web?.rpc.call('window', 'menu', [event.key, event.title]).catch(() => undefined)
         if (event.title === 'menu') {
           const hit = owner?.menuKeys?.get(event.key ?? '')
           if (hit && owner?.web) void owner.web.rpc.call('window', 'menu', [hit.menu, hit.item]).catch(() => undefined)

@@ -22,6 +22,7 @@ export interface WindowsHost {
   closeWeb(id: number, force?: boolean): Promise<boolean>
   hide(id: number, hidden: boolean): void
   toDesktop(event: Record<string, unknown>): void
+  framesMenus(): boolean
   usable(appId: string): boolean
   launch(appId: string, request: Record<string, unknown>): void
   allow(web: WindowsCaller, capability: 'launch' | 'slots'): void
@@ -147,6 +148,7 @@ export class WindowCalls {
       case 'setMenus':
         record.menus = (args[0] as WireMenu[]) ?? []
         MenuKeys.bind(this.#host.shell, record, record.menus)
+        if (this.#host.framesMenus()) this.#host.shell.setMenus?.(record.id, JSON.stringify(record.menus))
         return this.#host.toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
       case 'close':
         return this.#host.closeWeb(record.id, true)

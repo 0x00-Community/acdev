@@ -33,6 +33,8 @@ export interface BrokerShell {
   stats(reset?: boolean): Record<string, unknown>
   windows(): ShellWindow[]
   animate(window: number, options: AnimateOptions): void
+  setMenus?(window: number, menus: string): void
+  menus?(window: number): string | null
   shortcut(combo: string, scope: 'session' | 'desktop' | 'app' | 'menu', owner: number): void
   unshortcut(combo: string, scope: 'session' | 'desktop' | 'app' | 'menu', owner: number): void
   inject(event: {
