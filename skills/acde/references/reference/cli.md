@@ -13,7 +13,7 @@ Exit codes are the same for every command:
 | 0 | Done (also an empty list, such as `acde console` with no entries) |
 | 1 | An error: a wrong argument, something that failed, or something that stops it (a package in use) |
 | 2 | Nothing done, but not an error: nothing matched (`acde query`, `acde inspect --find`) or nothing to remove (`acde uninstall`) |
-| 3 | Cancelled or not confirmed: Ctrl+C in a question of `acde new`, a declined `acde uninstall`, or no terminal to ask in and no `--yes` |
+| 3 | Cancelled or not confirmed: Ctrl+C in a question of `acde new` or during `acde sdk update`, a declined `acde uninstall`, or no terminal to ask in and no `--yes` |
 
 What a command found goes to stdout; "nothing found", errors and notes go to stderr with the `acde:` prefix.
 
@@ -110,7 +110,7 @@ Removes a package that `acde install` put into the packages directory, found by 
 acde sdk [update] [dir]
 ```
 
-Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with. `acde sdk update` points the dependency at that version's tarball on `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/<version>/` and reinstalls with the project's package manager (from its lock file or `packageManager`). In an npm project it also adds `allow-remote=root` to `.npmrc` (npm 12 refuses URL dependencies without it; projects `acde new` makes with npm have it already). If the install fails, it puts `package.json`, the lock file and `.npmrc` back as they were and says so; run the install again to bring `node_modules` back in line. `acde check` also warns when `node_modules` holds another SDK version than `package.json` names. `acde check` and `acde dev` warn when the two differ, for example after upgrading acde.
+Shows the project's `@dopame/acde-api` and the SDK version this acde pairs with. `acde sdk update` points the dependency at that version's tarball on `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/<version>/` and reinstalls with the project's package manager (from its lock file or `packageManager`). In an npm project it also adds `allow-remote=root` to `.npmrc` (npm 12 refuses URL dependencies without it; projects `acde new` makes with npm have it already). If the package manager is not on PATH it changes nothing. If the install fails or is interrupted (Ctrl+C), it puts `package.json`, the lock file and `.npmrc` back as they were and says so, naming any file it could not put back; run the install again to bring `node_modules` back in line. `acde check` also warns when `node_modules` holds another SDK version than `package.json` names. `acde check` and `acde dev` warn when the two differ, for example after upgrading acde.
 
 ### acde dev
 

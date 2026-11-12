@@ -1,10 +1,11 @@
 import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { installDir, installed } from 'acde/launcher'
 import { up } from './paths.ts'
 import { Pkgs } from './pkgs.ts'
+import { Output } from './output.ts'
 import { PackageManager } from './pm.ts'
-import { Runtime } from './runtime.ts'
+import { Runtime, type Child } from './runtime.ts'
 
 export interface SdkState {
   readonly section: 'dependencies' | 'devDependencies' | null
@@ -20,6 +21,7 @@ export class Sdk {
   static readonly DIST = Pkgs.ACDERT
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
   static readonly NPMRC = 'allow-remote=root'
+  static readonly SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
   static readonly LOCKS = [
     'package-lock.json', 'npm-shrinkwrap.json', 'bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'yarn.lock',
   ]
@@ -123,36 +125,86 @@ export class Sdk {
     const deps = { ...((pkg[section] as Record<string, string> | undefined) ?? {}), [Sdk.NAME]: url }
     pkg[section] = deps
     const pm = PackageManager.of(dir)
-    const kept = Sdk.#keep(dir, [...Sdk.LOCKS, '.npmrc'])
+    const install = Sdk.#install(pm)
+    const kept = Sdk.#keep([file, ...[...Sdk.LOCKS, '.npmrc'].map((name) => join(dir, name))])
     const indent = /^\{\n(\s+)"/.exec(before.replace(/\r\n/g, '\n'))?.[1] ?? '  '
-    writeFileSync(file, `${JSON.stringify(pkg, null, indent)}\n`)
-    const npmrc = pm.name === 'npm' && Sdk.allowRemote(dir)
-    const code = await Runtime.spawn(pm.install, { cwd: dir, stdio: 'inherit' }).exited
-    if (code !== 0) {
-      writeFileSync(file, before)
-      Sdk.#restore(dir, kept)
-      const was = state.spec === null ? `no ${Sdk.NAME}` : `${Sdk.NAME} ${state.version ?? state.spec}`
-      const locks = Object.keys(kept).filter((name) => name !== '.npmrc' && kept[name] !== null)
-      const back = ['package.json', ...locks].join(' and ')
-      throw new Error(`sdk: ${pm.name} install exited with ${code}, so the update to ${state.paired} was undone: `
-        + `${back} are as before (${was}); node_modules may be half updated: run ${pm.name} install to match them`)
+    let signal: NodeJS.Signals | null = null
+    let child: Child | null = null
+    const stops = Sdk.SIGNALS.map((name) => [name, () => {
+      const first = signal === null
+      signal ??= name
+      if (!child) return
+      if (!first) Runtime.killTree(child)
+      else if (process.platform !== 'win32') child.kill(name === 'SIGINT' ? 'SIGTERM' : name)
+    }] as const)
+    for (const [name, stop] of stops) process.on(name, stop)
+    let npmrc = false
+    let ran = false
+    let failure: string | null = null
+    try {
+      writeFileSync(file, `${JSON.stringify(pkg, null, indent)}\n`)
+      npmrc = pm.name === 'npm' && Sdk.allowRemote(dir)
+      child = Runtime.spawn(install, { cwd: dir, stdio: 'inherit' })
+      const code = await child.exited.catch((error: unknown) => {
+        failure = `${pm.name} install did not start (${Output.message(error)})`
+        return null
+      })
+      ran = code !== null
+      if (code !== null && code !== 0) failure = `${pm.name} install exited with ${code}`
+    } catch (error) {
+      failure = Output.message(error)
+    } finally {
+      for (const [name, stop] of stops) process.off(name, stop)
     }
-    const added = npmrc ? `; .npmrc now has ${Sdk.NPMRC} (npm 12 refuses URL dependencies without it)` : ''
-    return `acde: ${Sdk.NAME} is ${state.paired} (${url}), installed with ${pm.name}${added}`
+    if (signal === null && failure === null) {
+      const added = npmrc ? `; .npmrc now has ${Sdk.NPMRC} (npm 12 refuses URL dependencies without it)` : ''
+      return `acde: ${Sdk.NAME} is ${state.paired} (${url}), installed with ${pm.name}${added}`
+    }
+    const failed = Sdk.#restore(kept)
+    const was = state.spec === null ? `no ${Sdk.NAME}` : `${Sdk.NAME} ${state.version ?? state.spec}`
+    const back = [...kept].filter(([path, text]) => text !== null && basename(path) !== '.npmrc' && !failed.has(path))
+      .map(([path]) => Sdk.#shown(dir, path))
+    const cause = signal === null ? failure! : `interrupted (${signal})`
+    const same = back.length > 0 ? `${back.join(' and ')} are as before (${was})` : ''
+    const undone = failed.size === 0 ? `so the update to ${state.paired} was undone: ${same}`
+      : `and the update to ${state.paired} could not be undone completely: could not put back `
+        + `${[...failed].map(([path, why]) => `${Sdk.#shown(dir, path)} (${why})`).join(', ')}`
+        + `${same && `; ${same}`}`
+    const rerun = ran ? `; node_modules may be half updated: run ${pm.name} install to match them` : ''
+    const message = `sdk: ${cause}, ${undone}${rerun}`
+    throw signal === null ? new Error(message) : new SdkInterrupted(message)
   }
 
-  static #keep(dir: string, names: readonly string[]): Record<string, string | null> {
-    return Object.fromEntries(names.map((name) => {
-      const file = join(dir, name)
-      return [name, existsSync(file) ? readFileSync(file, 'latin1') : null]
-    }))
+  static #install(pm: PackageManager): string[] {
+    try {
+      return pm.install
+    } catch (error) {
+      throw new Error(`sdk: ${Output.message(error)}, and this project installs with ${pm.name}: nothing was changed`)
+    }
   }
 
-  static #restore(dir: string, kept: Readonly<Record<string, string | null>>): void {
-    for (const [name, text] of Object.entries(kept)) {
-      const file = join(dir, name)
-      if (text === null) rmSync(file, { force: true })
-      else writeFileSync(file, text, 'latin1')
+  static #shown(dir: string, path: string): string {
+    return relative(dir, path) || path
+  }
+
+  static #keep(paths: readonly string[]): Map<string, string | null> {
+    return new Map(paths.map((path) => [path, existsSync(path) ? readFileSync(path, 'latin1') : null]))
+  }
+
+  static #restore(kept: ReadonlyMap<string, string | null>): Map<string, string> {
+    const failed = new Map<string, string>()
+    for (const [path, text] of kept) {
+      try {
+        const now = existsSync(path) ? readFileSync(path, 'latin1') : null
+        if (now === text) continue
+        if (text === null) rmSync(path, { recursive: true, force: true })
+        else writeFileSync(path, text, 'latin1')
+      } catch (error) {
+        failed.set(path, Output.message(error))
+      }
     }
+    return failed
   }
 }
+
+export class SdkInterrupted extends Error {}

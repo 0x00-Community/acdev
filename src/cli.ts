@@ -17,7 +17,7 @@ import { Exit, Output } from './output.ts'
 import { PackageManager } from './pm.ts'
 import { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
-import { Sdk } from './sdk.ts'
+import { Sdk, SdkInterrupted } from './sdk.ts'
 import { Skills } from './skills.ts'
 import { Tools } from './tools.ts'
 import { Uninstall } from './uninstall.ts'
@@ -222,8 +222,15 @@ class Cli {
         throw new Error(`sdk: ${args[0]} is not a subcommand or a directory: the only subcommand is update `
           + '(acde sdk update [dir]); acde sdk [dir] shows the SDK of a project')
       }
-      if (update) console.log(await Sdk.update(dir))
-      else {
+      if (update) {
+        try {
+          console.log(await Sdk.update(dir))
+        } catch (error) {
+          if (!(error instanceof SdkInterrupted)) throw error
+          Output.fail(error)
+          return Exit.DECLINED
+        }
+      } else {
         const file = join(dir, 'package.json')
         if (!existsSync(file)) {
           throw new Error(`sdk: no package.json in ${dir}: run it in a project directory, or pass one `

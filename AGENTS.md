@@ -147,8 +147,13 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   (锁文件或 `packageManager`) 重装. 版本对得上但 `node_modules` 里 (往上找) 装的是别的版本时, 警告改成 `package.json names … but X is
   installed: run <pm> install` (`SdkState.installed`). npm 12 默认拒绝网址依赖 (`EALLOWREMOTE`, gitea acde#89): npm 工程的 `.npmrc` 写
   `allow-remote=root` (`Sdk.allowRemote`: 已有任何 `allow-remote` 行就不动; `acde new --pm npm` 和 npm 工程的 `sdk update` 都加),
-  npm 11 以前对这行只是忽略或提示未知配置. `sdk update` 先记下 package.json、各锁文件和 `.npmrc`, 安装失败时原样写回 (新加的删掉) 并报
-  `… was undone: package.json and <锁文件> are as before`; `node_modules` 不回滚, 提示重跑安装.
+  npm 11 以前对这行只是忽略或提示未知配置. `sdk update` 先做完会失败的 (读 package.json、`PackageManager.of`、找包管理器的程序: 不在 PATH 上报
+  `<pm> is not on PATH, and this project installs with <pm>: nothing was changed`) 并记下 package.json、各锁文件和 `.npmrc`, 然后才写.
+  之后任何失败 (安装起不来、退出码非 0、写文件抛错、SIGINT / SIGTERM / SIGHUP) 都写回 (gitea acde#89): 只动内容变了的, 新出现的删掉,
+  每个文件单独恢复, 恢复不了的列在同一条报错里 (`could not be undone completely: could not put back <文件> (<原因>)`), 恢复了的照报
+  `… was undone: package.json and <锁文件> are as before`. 收到信号时先停包管理器 (SIGINT 发 SIGTERM, SIGTERM / SIGHUP 原样转; Windows 上
+  Ctrl+C 本来就到它, 不转), 等它退出再写回 (不然它还会写锁文件), 第二个信号 SIGKILL; 被打断退出码 3 (`Exit.DECLINED`), 别的失败 1.
+  `node_modules` 不回滚; 安装真跑过时才提示重跑安装.
 - 模板 (`STARTERS`): `html` (`templates/app`, `--backend` 再叠 `templates/backend`)、`desktop` (`templates/desktop`)、`react` / `vue` / `svelte` /
   `solid` / `preact` / `vanilla` (create-vite)、`next` / `nuxt` / `sveltekit` / `astro` (官方脚手架). 框架模板照 `npm create cloudflare`: 经工程的包管理器
   跑脚手架最新版 (`PackageManager.exec`: `bun x --bun` / `npx --yes` / `dlx`), stdin 关掉, 输出收着、失败时整段打出; 只有这一步带 `CI=1` (yarn 见到
