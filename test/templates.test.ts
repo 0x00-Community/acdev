@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { API_LEVEL, Manifest, SHARED_PLACES, type PackageManifest } from '@dopame/acde-api/manifest'
 import { Creator } from '../src/create.ts'
@@ -136,23 +136,38 @@ describe('templates at contract level 1', () => {
     expect(read('src/app.html')).toContain('<title>Again</title>')
   })
 
-  test('pages made by Vite say save to reload, not HMR: acde dev reloads the page', () => {
-    const dir = tmp()
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'made-by-vite' }))
-    mkdirSync(join(dir, 'src', 'components'), { recursive: true })
-    mkdirSync(join(dir, 'node_modules', 'x'), { recursive: true })
-    const react = '<p>\n  Edit <code>src/App.tsx</code> and save to test HMR\n</p>\n'
-    writeFileSync(join(dir, 'src', 'App.tsx'), react)
-    const vue = 'Edit <code>components/HelloWorld.vue</code> to test HMR'
-    writeFileSync(join(dir, 'src', 'components', 'HelloWorld.vue'), vue)
-    writeFileSync(join(dir, 'node_modules', 'x', 'index.js'), '// to test HMR')
-    Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
-    const read = (...path: string[]) => readFileSync(join(dir, ...path), 'utf8')
-    expect(read('src', 'App.tsx')).toBe('<p>\n  Edit <code>src/App.tsx</code> and save to reload the page\n</p>\n')
-    expect(read('src', 'components', 'HelloWorld.vue'))
-      .toBe('Edit <code>components/HelloWorld.vue</code> and save to reload the page')
-    expect(read('node_modules', 'x', 'index.js')).toBe('// to test HMR')
-    expect(Creator.reloading('Click to test HMR')).toBe('Click and save to reload the page')
+  const vite = join(import.meta.dir, 'fixtures', 'create-vite')
+  for (const template of readdirSync(vite)) {
+    test(`create-vite ${template}: no page or README mentions HMR once acde adopts it (acde dev reloads)`, () => {
+      const dir = tmp()
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'made-by-vite' }))
+      cpSync(join(vite, template), dir, { recursive: true })
+      for (const file of readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.txt')))
+        renameSync(join(dir, file), join(dir, file.slice(0, -'.txt'.length)))
+      mkdirSync(join(dir, 'node_modules', 'x'), { recursive: true })
+      writeFileSync(join(dir, 'node_modules', 'x', 'index.js'), '// save to test HMR')
+      Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
+      const read = (path: string) => readFileSync(join(dir, path), 'utf8')
+      const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => !f.startsWith('node_modules'))
+      for (const file of files.filter((f) => /\.(tsx|vue|svelte|ts|md)$/.test(f)))
+        expect(read(file), file).not.toMatch(/hmr/i)
+      const pages = files.filter((f) => /\.(tsx|vue|svelte|ts)$/.test(f))
+      for (const page of pages) expect(read(page), page).toMatch(/Edit <code>[^<]+<\/code> and save to reload the page/)
+      expect(read(join('node_modules', 'x', 'index.js'))).toBe('// save to test HMR')
+    })
+  }
+
+  test('the HMR wording: plain, wrapped in <code>, split over lines; README sentences and sections', () => {
+    expect(Creator.reloading('Edit <code>src/App.tsx</code> and save to test <code>HMR</code>'))
+      .toBe('Edit <code>src/App.tsx</code> and save to reload the page')
+    expect(Creator.reloading('Edit <code>src/my-element.ts</code> and save to test\n    <code>HMR</code>'))
+      .toBe('Edit <code>src/my-element.ts</code> and save to reload the page')
+    expect(Creator.reloading('Edit <code>x.vue</code> to test HMR'))
+      .toBe('Edit <code>x.vue</code> and save to reload the page')
+    expect(Creator.readmeReloading('React working in Vite with HMR and some Oxlint rules.'))
+      .toBe('React working in Vite with some Oxlint rules.')
+    expect(Creator.readmeReloading('**Why?**\n\nkept\n\n**Why is HMR odd?**\n\ngone\n\n**Next**\n\nkept too\n'))
+      .toBe('**Why?**\n\nkept\n\n**Next**\n\nkept too\n')
   })
 
   test('the framework overlay declares the same level 1 fields', () => {

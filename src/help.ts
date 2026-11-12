@@ -329,6 +329,17 @@ export class Help {
     return text.split(/\s+/).filter(Boolean)
   }
 
+  static unbroken(text: string): string[] {
+    const tokens: string[] = []
+    let previous = ''
+    for (const word of Help.words(text)) {
+      if (tokens.length && /[\\/]/.test(previous)) tokens[tokens.length - 1] += ` ${word}`
+      else tokens.push(word)
+      previous = word
+    }
+    return tokens
+  }
+
   static overview(
     commands: readonly HelpCommand[], version: string, c: Palette = Color.palette(), width = Help.width(),
   ): string {

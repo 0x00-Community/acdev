@@ -252,9 +252,24 @@ export class Creator {
   }
 
   static reloading(text: string): string {
+    const hmr = String.raw`\s*(?:<code>\s*)?HMR(?:\s*<\/code>)?`
     return text
-      .replace(/\band save to test HMR\b/g, 'and save to reload the page')
-      .replace(/\bto test HMR\b/g, 'and save to reload the page')
+      .replace(new RegExp(String.raw`\bsave to test${hmr}`, 'g'), 'save to reload the page')
+      .replace(new RegExp(String.raw`\bto test${hmr}`, 'g'), 'and save to reload the page')
+  }
+
+  static readmeReloading(text: string): string {
+    const kept: string[] = []
+    let dropping = false
+    for (const line of text.split('\n')) {
+      if (/^\*\*.+\*\*\s*$/.test(line)) dropping = /\bHMR\b/.test(line)
+      else if (/^#/.test(line)) dropping = false
+      if (!dropping) kept.push(line)
+    }
+    return kept.join('\n')
+      .replace(/ with HMR and /g, ' with ')
+      .replace(/\bHMR and /g, '')
+      .replace(/\n{3,}/g, '\n\n')
   }
 
   static #reloads(dir: string): void {
@@ -264,11 +279,16 @@ export class Creator {
         const path = join(at, entry.name)
         if (entry.isDirectory()) {
           if (!SKIPPED.has(entry.name)) walk(path)
-        } else if (entry.isFile() && pages.test(entry.name)) {
-          const text = readFileSync(path, 'utf8')
-          const changed = Creator.reloading(text)
-          if (changed !== text) writeFileSync(path, changed)
+          continue
         }
+        const rewrite = !entry.isFile() ? null
+          : pages.test(entry.name) ? Creator.reloading
+          : /^readme\.md$/i.test(entry.name) ? Creator.readmeReloading
+          : null
+        if (!rewrite) continue
+        const text = readFileSync(path, 'utf8')
+        const changed = rewrite(text)
+        if (changed !== text) writeFileSync(path, changed)
       }
     }
     walk(dir)

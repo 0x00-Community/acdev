@@ -1,8 +1,10 @@
 import { format } from 'node:util'
 import { Color, type Palette } from './color.ts'
+import { Help } from './help.ts'
 
 export interface Sink {
   readonly isTTY?: boolean
+  readonly columns?: number
   write(text: string): unknown
 }
 
@@ -52,7 +54,9 @@ export class Output {
 
   static fail(error: unknown, stream: Sink = process.stderr, env: NodeJS.ProcessEnv = process.env): void {
     const c = Output.palette(stream, env)
-    stream.write(`${c.error('acde:')} ${Output.message(error)}\n`)
+    const [head = '', ...rest] = Output.message(error).split('\n')
+    const said = Help.block(Help.unbroken(head), Help.terminal(stream), '      ', `${c.error('acde:')} `)
+    stream.write(`${[...said, ...rest].join('\n')}\n`)
     if (Output.debug(env) && error instanceof Error && error.stack) stream.write(`${error.stack}\n`)
   }
 }

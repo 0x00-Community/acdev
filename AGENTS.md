@@ -39,8 +39,10 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 `acde --help` 是分组简表 (Project / Develop / Inspect a running session / Agents, 每命令一行对齐); 任何命令后面的 `--help` / `-h` (`--` 之前)
 和 `acde help <命令>` 打那个命令的完整说明、选项 (含默认值) 和例子 (`Help.command`; 开发会话的工具命令带 `--session`). 按终端宽度换行并保持缩进 (`Help.width`: stdout 的 `columns`, 40 到 100 列; 不是终端时 80 列). 选项说明和命令摘要同一写法: 大写开头、不加句号; 列举取值的写 `One of a, b, c`. `Help.terminal()` 只在 stdout 是终端时给宽度, `acde new` 的 then 提示和 `acde skills` 状态表 (第一列至少 16 宽) 用它折行; 不是终端时不折, 脚本照旧按行读.
 要复制的命令、路径、网址不折断 (折在中间, 复制下来就成了两条命令, 比如 `curl -fsSL` 单独一行), 长了交给终端软换行 (复制时仍是一行):
-`acde doctor` (`Doctor.format`) 每项一行 `title: summary`、一行 `fix:`, 都不折, 因为 summary 里随处插着路径 (带空格的也有), fix 是命令,
-文字里分不出哪段能折; `Help.block` / `Help.wrap` 收文字 (按空白拆成词, `Help.words`) 或一组不可拆的片段, `acde skills` 状态表的路径是一个片段,
+`acde doctor` (`Doctor.format`) 在终端里把 `title: summary` 折到终端宽度, 续行缩进 7 列; `fix:` 一行不折 (是命令). summary 里随处插着路径
+(带空格的也有), 所以按 `Help.unbroken` 拆片段: 含 `/` 或 `\` 的词和它后面那个词粘成一片不拆, 带空格的路径因此整段留在一行, 长于一行时
+由终端软换行 (acde#86 验收: 80 列终端里 doctor 原来有 195 列的行). 顶层的错误 (`Output.fail`) 第一行同样按 stderr 的宽度折, 续行缩进 6 列
+(对齐 `acde: ` 之后), 第二行起 (代码框、插入符) 原样; stderr 不是终端时不折. `Help.block` / `Help.wrap` 收文字 (按空白拆成词, `Help.words`) 或一组不可拆的片段, `acde skills` 状态表的路径是一个片段,
 带空格也不拆, 只折后面的 agent 名单. 宽度按终端列数算 (`Color.width`, 依赖 `string-width`: 按字素簇, 中日韩和全角字符 2 列, 组合符号和零宽字符
 0 列, 颜色码不算); 只在空白处折, 中文之间不断开 (帮助是英文, 而路径里的中文也不能断). `--agent` 写错时只列 `Agents.COMMON` 几个, 其余写成 `and N more`.
 颜色 (`src/color.ts`): 写到的那个流是终端才上色, `NO_COLOR` 非空不上色, `FORCE_COLOR` 强制上色 (`0`、`false` 视为关, 同 Node 和 chalk),
@@ -142,8 +144,12 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
 - **package.json** (`Creator.lay` / `adopt`): 自带模板的脚本 `dev` / `build` / `check` 是 `acde <同名>`; 框架模板不动框架的脚本, 加 `acde:dev` /
   `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acde`, 工程里没有 `acde` 依赖. 建好后的下一步提示 (`Creator.next`)
   给含空白的目录加双引号, Windows 上不转义反斜杠. devDependencies: `@dopame/acde-api` (`Creator.api`); npm / pnpm / yarn 下自带模板另加 `vite: ^8` (`Creator.VITE`: Node 上用工程的 Vite 打包).
-- 框架脚手架的“save to test HMR”(acde#90, `Creator.reloading`): `adopt` 最后把工程里 (跳过 `SKIPPED` 目录) 页面源码的 `and save to test HMR` / `to test HMR`
-  改成 `and save to reload the page`: acde dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢 (表单值、滚动、焦点、选区由运行时恢复).
+- 框架脚手架的“save to test HMR”(acde#90, `Creator.reloading` / `readmeReloading`): `adopt` 最后遍历工程 (跳过 `SKIPPED` 目录). 页面源码里
+  `save to test HMR` / `to test HMR` 改成 `(and) save to reload the page`, `HMR` 可以包在 `<code>` 里、和前文隔着换行 (create-vite 9 的写法:
+  `and save to test <code>HMR</code>`; lit 模板拆成两行). `README.md` 里删掉标题行 (`**…**`) 提到 HMR 的整节 (svelte 的问答), 把
+  `with HMR and` 改成 `with`、`HMR and ` 删掉 (react、svelte 的介绍句). acde dev 每次保存跑同一种生产构建再整页重载, 没有 HMR, 组件状态会丢
+  (表单值、滚动、焦点、选区由运行时恢复). 测试用 `test/fixtures/create-vite/<模板>/` 里 create-vite 9.3.4 原样的文件 (提到 HMR 的那些; 源码加了
+  `.txt` 后缀, 免得被类型检查和格式检查当成本仓源码), 换新版 create-vite 时照着更新.
 - `@dopame/acde-api` 的依赖写法 (acde#29, acde#60): SDK 不发 npm, 只在 pkgs 上. 一律写这个 acde 配对的那一版 SDK 的 tarball 地址
   `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/<版本>/acde-api-<版本>.tar.gz` (`Creator.sdkVersion()`: 全局装的取随包 `lib/acde-api/package.json`, 检出跑的
   取 acde 自己 `file:` 依赖的 acdert 检出里的 SDK 版本). 没有别的覆盖方式, 不回退到 npm 版本号; `ACDERT_DIST` 设了时换掉地址前缀, 只给本地镜像
