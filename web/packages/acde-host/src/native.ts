@@ -70,6 +70,7 @@ export interface NativeSurface {
   setImeArea?(x: number, y: number, width: number, height: number): void
   pump(): RawShellEvent[]
   wait(): Promise<void>
+  waitThen?(callback: () => void): void
   requestFrame(): void
   setClipboard(text: string): void
   readClipboard(): Promise<string>

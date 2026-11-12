@@ -1,4 +1,4 @@
-import { fire, type Event } from '../core/event'
+import { fireFromTask, type Event } from '../core/event'
 import { DOMException } from '../core/exception'
 import { G, host } from '../core/host'
 import { NONE, NodeType } from '../native'
@@ -75,7 +75,7 @@ export class Input {
   }
 
   #fire(target: Element, type: string, init: Record<string, unknown>, Kind: new (type: string, init: Record<string, unknown>) => Event = MouseEvent as never): boolean {
-    return fire(target, new Kind(type, { bubbles: true, cancelable: true, composed: true, view: G, ...init }))
+    return fireFromTask(target, new Kind(type, { bubbles: true, cancelable: true, composed: true, view: G, ...init }))
   }
 
   #init(x: number, y: number, options: PointerOptions, button = 0) {

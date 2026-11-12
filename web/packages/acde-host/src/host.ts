@@ -235,7 +235,28 @@ export class Host {
     this.#surface = surface
     this.#text.attach(surface)
     surface.requestFrame()
+    if (surface.waitThen) {
+      const waitThen = surface.waitThen.bind(surface)
+      return new Promise<void>((done) => {
+        const turn = () => {
+          try {
+            this.#turn(surface)
+          } finally {
+            if (this.#closed) done()
+            else waitThen(turn)
+          }
+        }
+        turn()
+      })
+    }
     while (!this.#closed) {
+      this.#turn(surface)
+      await surface.wait()
+    }
+  }
+
+  #turn(surface: NativeSurface): void {
+    {
       const events: ShellEvent[] = []
       for (const raw of surface.pump()) {
         if (this.#activation(raw)) continue
@@ -272,7 +293,6 @@ export class Host {
         if (event) events.push(event)
       }
       this.#handle(events)
-      await surface.wait()
     }
   }
 
