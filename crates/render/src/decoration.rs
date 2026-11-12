@@ -295,9 +295,11 @@ impl Bar {
         let Some(key) = parts.pop() else { return String::new() };
         let order = ["ctrl", "control", "alt", "shift", "super", "meta", "logo"];
         parts.sort_by_key(|m| order.iter().position(|o| o == m).unwrap_or(order.len()));
-        let key = match key.chars().count() {
-            1 => key.to_uppercase(),
-            _ => key[..1].to_uppercase() + &key[1..],
+        let mut chars = key.chars();
+        let key: String = match (chars.next(), key.chars().count()) {
+            (_, 1) => key.to_uppercase(),
+            (Some(first), _) => first.to_uppercase().chain(chars).collect(),
+            (None, _) => String::new(),
         };
         match self.style() {
             FrameStyle::Mac => {

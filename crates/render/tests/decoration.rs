@@ -295,4 +295,7 @@ fn shortcuts_are_written_the_way_the_frame_style_writes_them() {
     let win = windows("", 300.0, 1.0);
     assert_eq!(win.shortcut_text("ctrl+shift+l"), "Ctrl+Shift+L");
     assert_eq!(win.shortcut_text("alt+f4"), "Alt+F4");
+    assert_eq!(win.shortcut_text("ctrl+éclair"), "Ctrl+Éclair", "a key name is cut by character, not by byte");
+    assert_eq!(mac.shortcut_text("ctrl+ü"), "⌃Ü");
+    assert_eq!(mac.shortcut_text(""), "");
 }
