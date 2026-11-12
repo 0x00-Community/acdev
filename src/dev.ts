@@ -1,11 +1,12 @@
-import { existsSync, rmSync, statSync, watch, type FSWatcher } from 'node:fs'
-import { delimiter, resolve } from 'node:path'
+import { existsSync, rmSync, statSync } from 'node:fs'
+import { basename, delimiter, resolve } from 'node:path'
 import { DevClient } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
 import { contains, E2E_FILE, SKIPPED } from './paths.ts'
 import { Runtime, type Child } from './runtime.ts'
 import { Sessions, type Reloaded } from './sessions.ts'
+import { TreeWatch, type Watching } from './watch.ts'
 
 const SETTLE_MS = 150
 const VERSION_MS = 10_000
@@ -30,7 +31,7 @@ interface Unit {
   readonly out: string
   built: Built | null
   timer?: ReturnType<typeof setTimeout>
-  watcher?: FSWatcher
+  watcher?: Watching
 }
 
 export interface RuntimeProbe {
@@ -187,7 +188,7 @@ export class DevSession {
     await this.#checkLevels()
     this.#shown = target.kind === 'desktop' ? target.id : null
     DevClient.prepare(this.#endpoint)
-    const watchers: FSWatcher[] = []
+    const watchers: Watching[] = []
     const signals: [NodeJS.Signals, () => void][] = []
     let child: Child | null = null
     let running = false
@@ -234,8 +235,8 @@ export class DevSession {
       this.#link.send({ type: 'hello', role: 'dev' })
       this.#publish()
       for (const unit of this.#units) {
-        unit.watcher = watch(unit.pkg.dir, { recursive: true }, (_, file) =>
-          this.#changed(unit, file === null ? null : String(file)))
+        const skip = (dir: string) => SKIPPED.has(basename(dir)) || contains(unit.out, dir)
+        unit.watcher = TreeWatch.start(unit.pkg.dir, skip, (file) => this.#changed(unit, file))
       }
       watchers.push(...this.#units.map((u) => u.watcher!))
       const code = await started.exited

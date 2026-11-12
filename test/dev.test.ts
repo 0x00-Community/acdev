@@ -1,7 +1,8 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
 import {
-  chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync,
+  chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, symlinkSync,
+  writeFileSync,
 } from 'node:fs'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -449,6 +450,28 @@ describe('acde dev with a stand-in acdert', () => {
     expect(gone.code).toBe(1)
     expect(gone.stderr).toContain('no acde dev is running')
   }, 120_000)
+
+  test('a file saved atomically (renamed over) is still watched: the next in-place write rebuilds too', async () => {
+    const base = tmp()
+    const alpha = project(join(base, 'alpha'), { type: 'app', id: 'alpha' }, { 'util.js': 'export const v = 0' })
+    const dev = start([alpha], base)
+    const reloads = () => dev.entries().filter((e) => e.got?.['type'] === 'reload').length
+    try {
+      await until('the session file', () => existsSync(dev.file))
+      await Bun.sleep(200)
+      writeFileSync(join(alpha, 'util.js.tmp'), 'export const v = 1')
+      renameSync(join(alpha, 'util.js.tmp'), join(alpha, 'util.js'))
+      await until('the reload after the atomic save', () => reloads() >= 1)
+      await Bun.sleep(400)
+      writeFileSync(join(alpha, 'util.js'), 'export const v = 2')
+      await until('the reload after the in-place write', () => reloads() >= 2)
+      mkdirSync(join(alpha, 'lib'))
+      writeFileSync(join(alpha, 'lib', 'more.js'), 'export {}')
+      await until('the reload after a file in a new directory', () => reloads() >= 3)
+    } finally {
+      await dev.stop()
+    }
+  }, 30_000)
 
   test('the desktop project among them is the desktop; a change there reloads its apps and the desktop', async () => {
     const base = tmp()
