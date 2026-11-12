@@ -17,7 +17,8 @@ const ACTION = z.enum(ACTIONS as [InspectAction, ...InspectAction[]])
 const ARG = z.union([z.string(), z.number(), z.array(z.string())])
 
 const INSTRUCTIONS = [
-  `acde: see and drive the desktop and apps of an acde dev session (acdert runs them; no browser, no devtools).`,
+  `acde: see and drive the desktop and apps of an acde dev session (acdert runs them, not a browser). For Chrome `
+    + `DevTools on a page, the user runs acde devtools in a terminal (an acdert from 0.0.9 or older has none).`,
   `- A session: the acde dev whose projects hold the working directory is used. If none runs, call start (it runs acde `
     + `dev here and keeps its output for logs); sessions lists them and pins one.`,
   `- Look with snapshot: windows first (w0 is the desktop, w1, w2 … the others), then the focused window's elements, `
@@ -48,10 +49,10 @@ const INSTRUCTIONS = [
     + `page's size.`,
   `- start {headless: true} runs without a window on screen (same pages, same input, screenshots still work). A page's `
     + `folder, open or save chooser then needs choose_folder, choose_files or choose_save_file first.`,
-  `- An app that needs the user's approval for a capability (terminal, network, camera, microphone, launch, slots, a `
-    + `shared folder) opens no window until its prompt is answered: webs is then empty and says what waits. `
-    + `permissions lists the prompts and the decisions, answer allows or denies a prompt, revoke takes a decision `
-    + `back.`,
+  `- Declared capabilities are granted without asking; only the camera and the microphone ask the user, the first `
+    + `time a page calls getUserMedia, which waits for the answer (an acdert from 0.0.9 or older asks when an app that `
+    + `declares one starts, and its window waits). webs says what waits. permissions lists the prompts and the `
+    + `decisions, answer allows or denies a prompt, revoke takes a decision back.`,
 ].join('\n')
 
 const ANSWER = 'the answer tool allows or denies it'
@@ -223,7 +224,8 @@ export class Mcp {
       'permissions',
       {
         description: 'The approval prompts that wait (id, app, capability, why it is asked) and the decisions made '
-          + '(app, capability, granted or denied). An app that waits for an approval has no window yet.',
+          + '(app, capability, granted or denied). Only the camera and the microphone ask; a page that waits for '
+          + 'an answer waits in getUserMedia.',
         inputSchema: z.object({}),
         annotations: look,
       },
@@ -242,7 +244,7 @@ export class Mcp {
           allow: z.boolean().describe('true grants the capability, false denies it'),
           prompt: z.number().int().positive().optional().describe('the id permissions shows'),
           app: z.string().optional().describe('the app id, together with capability'),
-          capability: z.string().optional().describe('the capability asked for (network, fs.downloads, …), together '
+          capability: z.string().optional().describe('the capability asked for (camera or microphone), together '
             + 'with app'),
         }),
         annotations: { ...drive, destructiveHint: true },
