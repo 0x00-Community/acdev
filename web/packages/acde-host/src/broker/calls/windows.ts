@@ -1,6 +1,7 @@
 import type { WindowMenusEvent, WindowsEvent, WindowState, WindowTitleEvent } from '@dopame/acde-api'
 import { Level, Log } from '../../log'
 import { PageSource } from '../../page'
+import { MenuKeys } from '../menukeys'
 import { WindowRecords } from '../records'
 import type { AnimateOptions, BrokerShell, ShellWindow, WindowRecord, WireMenu } from '../types'
 import { Web } from '../web'
@@ -145,6 +146,7 @@ export class WindowCalls {
         return this.#host.toDesktop({ type: 'windowtitle', window: record.id, appId: record.app!.id, title: record.title } satisfies WindowTitleEvent)
       case 'setMenus':
         record.menus = (args[0] as WireMenu[]) ?? []
+        MenuKeys.bind(this.#host.shell, record, record.menus)
         return this.#host.toDesktop({ type: 'windowmenus', window: record.id, menus: record.menus } satisfies WindowMenusEvent)
       case 'close':
         return this.#host.closeWeb(record.id, true)

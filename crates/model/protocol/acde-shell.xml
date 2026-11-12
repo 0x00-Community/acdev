@@ -30,6 +30,7 @@
       <entry name="session" value="0"/>
       <entry name="desktop" value="1"/>
       <entry name="app" value="2"/>
+      <entry name="menu" value="3" summary="a window's menu item: before app, only while the owner is focused"/>
     </enum>
 
     <enum name="wheel_source">

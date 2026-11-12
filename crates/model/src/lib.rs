@@ -694,6 +694,27 @@ mod tests {
     }
 
     #[test]
+    fn a_menu_item_shortcut_beats_the_app_one_and_keeps_its_own_name() {
+        let mut s = Shortcuts::default();
+        let combo = Combo { mods: Combo::CTRL, key: 49 };
+        let b = |scope, owner| Binding { combo, scope, owner };
+        assert!(s.register(b(Scope::App, 7), "ctrl+n").is_ok());
+        assert!(s.register(b(Scope::Menu, 7), "Ctrl+N").is_ok());
+        assert!(s.register(b(Scope::Menu, 7), "Ctrl+N").is_ok());
+        assert!(s.register(b(Scope::Menu, 8), "ctrl+n").is_ok());
+        let found = s.find(combo, Some(7)).unwrap();
+        assert_eq!(found, b(Scope::Menu, 7));
+        assert_eq!(s.name(found), Some("Ctrl+N"));
+        assert_eq!(s.find(combo, Some(3)), None, "only while the owner is focused");
+        s.unregister(combo, Scope::Menu, 7);
+        assert_eq!(s.find(combo, Some(7)), Some(b(Scope::App, 7)));
+        assert_eq!(s.name(b(Scope::App, 7)), Some("ctrl+n"));
+        s.forget(8);
+        assert_eq!(s.find(combo, Some(8)), None);
+        assert!(s.register(Binding { combo, scope: Scope::Session, owner: 0 }, "").is_err(), "taken by the app and menu bindings");
+    }
+
+    #[test]
     fn transition_runs_from_delay_to_end() {
         let to = Look { opacity: 0.0, scale: 0.5, ..Look::default() };
         let tr = Transition { from: Look::default(), to, start_ms: 100.0, duration_ms: 200.0, easing: Easing::Linear };

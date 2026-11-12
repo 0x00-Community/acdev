@@ -125,8 +125,12 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
 - **grab** (shell `grabs.rs`): `request_grab(kind)` 在被别人拿着或框架在移窗时拒绝; 键盘 grab 同时给焦点. 收回 (发一次 `grab_lost`): 在别的窗口
   按下 (`other_window`)、Esc (`esc`, 这次 Esc 不发)、焦点被给别人 (`focus_lost`)、客户端死掉.
 - **全局快捷键** (crates/model `shortcut.rs`): 组合写成 `ctrl+alt+t` (键是 xkb keysym 名, 按未修饰的那层匹配, Shift 写进组合). 作用域 session /
-  desktop / app, 先到先得, 冲突拒绝, session 级不可覆盖; 匹配顺序 session → 焦点窗口的 app 级 → desktop. 命中的键 (连同松开) 不发给窗口, 发
-  `shortcut {window: owner, key, title: 作用域}`. keyboard-shortcuts-inhibit 生效时只有 session 级还拦.
+  desktop / app / menu, 先到先得, 冲突拒绝, session 级不可覆盖; 匹配顺序 session → 焦点窗口的 menu 级 → 焦点窗口的 app 级 → desktop. 命中的键 (连同松开) 不发给窗口, 发
+  `shortcut {window: owner, key, title: 作用域}`, `key` 是这一条绑定注册时写的文字 (同一组合的 app 级和 menu 级各记各的). keyboard-shortcuts-inhibit 生效时只有 session 级还拦.
+  menu 级是窗口菜单项的快捷键 (acde-host `broker/menukeys.ts`): 应用 `setMenus` 时 Broker 给有 `onSelect`、没禁用、带 `shortcut` 的项注册
+  (同一文字只给第一项; 被占的记一行 warn 跳过), 再 `setMenus` 时按差异增删, 窗口关掉时随 app 级一起忘掉. 按下时 Broker 不转发事件, 直接
+  调应用窗口的 `menu` (同桌面的 `invokeMenu`), 所以应用另用 `self.shortcut()` 注册了同一组合也只跑一次 (菜单项赢). 有没有桌面都这样:
+  桌面只显示菜单和快捷键文字, 不用自己绑.
 
 ### 协议 `acde_window` (客户端 ↔ 框架, `crates/model/protocol/acde-window.xml`)
 

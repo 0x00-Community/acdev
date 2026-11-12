@@ -632,7 +632,7 @@ impl App {
         let state = server.state();
         let combo = Combo { mods: self.modifiers | self.injected_mods, key: evdev };
         let binding = state.shortcuts.find(combo, state.focus)?;
-        let name = state.shortcuts.name(combo).unwrap_or_default().to_owned();
+        let name = state.shortcuts.name(binding).unwrap_or_default().to_owned();
         Some(Event { kind: "shortcut".into(), window: Some(binding.owner), key: Some(name), title: Some(binding.scope.as_str().into()), ..Default::default() })
     }
 

@@ -586,6 +586,11 @@ export class Broker {
         return this.#toDesktop({ type: 'screenedge', edge: event.key, entered: event.type === 'edgeenter', output: event.title ?? '' })
       case 'shortcut': {
         const owner = event.window === undefined ? undefined : this.#windows.get(event.window)
+        if (event.title === 'menu') {
+          const hit = owner?.menuKeys?.get(event.key ?? '')
+          if (hit && owner?.web) void owner.web.rpc.call('window', 'menu', [hit.menu, hit.item]).catch(() => undefined)
+          return
+        }
         const to = event.title === 'app' && owner?.web ? owner.web : this.#desktop
         return to?.thread.post(event)
       }

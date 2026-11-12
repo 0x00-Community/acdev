@@ -1,4 +1,4 @@
-wire!("scope" Scope { Session = "session", Desktop = "desktop", App = "app" });
+wire!("scope" Scope { Session = "session", Desktop = "desktop", App = "app", Menu = "menu" });
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Combo {
@@ -34,7 +34,7 @@ impl Combo {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Binding {
     pub combo: Combo,
     pub scope: Scope,
@@ -53,12 +53,12 @@ impl std::fmt::Display for Taken {
 #[derive(Default)]
 pub struct Shortcuts {
     bindings: Vec<Binding>,
-    names: std::collections::HashMap<Combo, String>,
+    names: std::collections::HashMap<Binding, String>,
 }
 
 impl Shortcuts {
-    pub fn name(&self, combo: Combo) -> Option<&str> {
-        self.names.get(&combo).map(String::as_str)
+    pub fn name(&self, binding: Binding) -> Option<&str> {
+        self.names.get(&binding).map(String::as_str)
     }
 
     pub fn register(&mut self, new: Binding, name: &str) -> Result<(), Taken> {
@@ -66,7 +66,7 @@ impl Shortcuts {
             b.combo == new.combo
                 && match (b.scope, new.scope) {
                     (Scope::Session, _) | (_, Scope::Session) => true,
-                    (Scope::App, Scope::App) => b.owner == new.owner,
+                    (Scope::App, Scope::App) | (Scope::Menu, Scope::Menu) => b.owner == new.owner,
                     (x, y) => x == y,
                 }
         });
@@ -75,20 +75,24 @@ impl Shortcuts {
             Some(_) => {}
             None => self.bindings.push(new),
         }
-        self.names.insert(new.combo, name.to_owned());
+        self.names.insert(new, name.to_owned());
         Ok(())
     }
 
     pub fn unregister(&mut self, combo: Combo, scope: Scope, owner: u32) {
         self.bindings.retain(|b| !(b.combo == combo && b.scope == scope && b.owner == owner));
+        self.names.retain(|b, _| !(b.combo == combo && b.scope == scope && b.owner == owner));
     }
 
     pub fn forget(&mut self, owner: u32) {
-        self.bindings.retain(|b| !(b.scope == Scope::App && b.owner == owner));
+        let owned = |b: &Binding| matches!(b.scope, Scope::App | Scope::Menu) && b.owner == owner;
+        self.bindings.retain(|b| !owned(b));
+        self.names.retain(|b, _| !owned(b));
     }
 
     pub fn find(&self, combo: Combo, focused: Option<u32>) -> Option<Binding> {
-        let of = |scope: Scope| self.bindings.iter().find(|b| b.combo == combo && b.scope == scope && (scope != Scope::App || Some(b.owner) == focused));
-        of(Scope::Session).or_else(|| of(Scope::App)).or_else(|| of(Scope::Desktop)).copied()
+        let windowed = |scope: Scope| matches!(scope, Scope::App | Scope::Menu);
+        let of = |scope: Scope| self.bindings.iter().find(|b| b.combo == combo && b.scope == scope && (!windowed(scope) || Some(b.owner) == focused));
+        of(Scope::Session).or_else(|| of(Scope::Menu)).or_else(|| of(Scope::App)).or_else(|| of(Scope::Desktop)).copied()
     }
 }

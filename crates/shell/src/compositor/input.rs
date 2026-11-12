@@ -250,7 +250,7 @@ impl Compositor {
             Some(Key::Vt(vt)) => self.change_vt(vt),
             Some(Key::Esc) => self.lose_grabs(WireLost::Esc),
             Some(Key::Shortcut(binding)) => {
-                let name = self.shortcuts.name(binding.combo).map(str::to_owned);
+                let name = self.shortcuts.name(binding).map(str::to_owned);
                 self.emit(ShellEvent::Shortcut { owner: binding.owner, key: name, scope: binding.scope });
             }
             Some(Key::Held) | None => {}

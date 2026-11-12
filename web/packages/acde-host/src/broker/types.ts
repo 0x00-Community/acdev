@@ -33,8 +33,8 @@ export interface BrokerShell {
   stats(reset?: boolean): Record<string, unknown>
   windows(): ShellWindow[]
   animate(window: number, options: AnimateOptions): void
-  shortcut(combo: string, scope: 'session' | 'desktop' | 'app', owner: number): void
-  unshortcut(combo: string, scope: 'session' | 'desktop' | 'app', owner: number): void
+  shortcut(combo: string, scope: 'session' | 'desktop' | 'app' | 'menu', owner: number): void
+  unshortcut(combo: string, scope: 'session' | 'desktop' | 'app' | 'menu', owner: number): void
   inject(event: {
     type: 'move' | 'motion' | 'down' | 'up' | 'wheel' | 'keydown' | 'keyup'
     x?: number
@@ -122,6 +122,11 @@ export interface WireMenu {
   readonly items: readonly (WireMenuSeparator | WireMenuItem)[]
 }
 
+export interface MenuKey {
+  readonly menu: string
+  readonly item: string
+}
+
 interface WireMenuSeparator {
   readonly type: 'separator'
 }
@@ -182,6 +187,7 @@ export interface WindowRecord {
   web: Web | null
   app: AppManifest | null
   menus: WireMenu[]
+  menuKeys?: ReadonlyMap<string, MenuKey>
   request?: Record<string, unknown> | null
   url?: string | null
   mode?: 'fullscreen' | 'free'
