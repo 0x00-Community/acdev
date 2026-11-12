@@ -4,6 +4,7 @@ use std::os::windows::ffi::OsStringExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command, Stdio};
+use std::time::UNIX_EPOCH;
 
 const BUN_OK: &str = "const [a,b]=process.versions.bun.split('.').map(Number);process.exit(a>1||(a===1&&b>=4)?0:1)";
 const NODE_OK: &str = concat!(
@@ -80,6 +81,37 @@ fn version(runtime: &Path) -> String {
         .unwrap_or_default()
 }
 
+fn stamp(runtime: Option<&Path>) -> String {
+    let Some(runtime) = runtime else { return "-".into() };
+    let Ok(meta) = runtime.metadata() else {
+        return "-".into();
+    };
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    format!("{}|{}|{}", runtime.display(), modified, meta.len())
+}
+
+fn cache_key(bun: Option<&Path>, node: Option<&Path>) -> String {
+    format!("bun {}\tnode {}", stamp(bun), stamp(node))
+}
+
+fn cached(file: &Path, key: &str) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(file).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != key {
+        return None;
+    }
+    let chosen = PathBuf::from(lines.next()?);
+    chosen.is_file().then_some(chosen)
+}
+
+fn remember(file: &Path, key: &str, chosen: &Path) {
+    let _ = std::fs::write(file, format!("{key}\n{}\n", chosen.display()));
+}
+
 fn runtime(bun: Option<PathBuf>, node: Option<PathBuf>) -> Result<PathBuf, String> {
     if let Some(bun) = bun.as_deref().filter(|b| fits(b, BUN_OK)) {
         return Ok(bun.to_path_buf());
@@ -110,12 +142,27 @@ fn main() {
         eprintln!("acde: cannot tell where acde.exe is installed");
         exit(1);
     };
-    let runtime = match runtime(on_path("bun.exe"), on_path("node.exe")) {
-        Ok(runtime) => runtime,
-        Err(message) => {
-            eprintln!("{message}");
-            exit(1);
-        }
+    let (bun, node) = (on_path("bun.exe"), on_path("node.exe"));
+    let cache = cli
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(|lib| lib.join("runtime-cache"));
+    let key = cache_key(bun.as_deref(), node.as_deref());
+    let runtime = match cache.as_deref().and_then(|file| cached(file, &key)) {
+        Some(runtime) => runtime,
+        None => match runtime(bun, node) {
+            Ok(runtime) => {
+                if let Some(file) = cache.as_deref() {
+                    remember(file, &key, &runtime);
+                }
+                runtime
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                exit(1);
+            }
+        },
     };
     let rest = arguments(&command_line());
     let mut command = Command::new(&runtime);
@@ -137,7 +184,28 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::arguments;
+    use super::{arguments, cache_key, cached, remember};
+    use std::path::Path;
+
+    #[test]
+    fn the_runtime_choice_is_kept_until_a_runtime_changes() {
+        let dir = std::env::temp_dir().join(format!("acde-exe-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bun = dir.join("bun.exe");
+        std::fs::write(&bun, "one").unwrap();
+        let file = dir.join("runtime-cache");
+        let key = cache_key(Some(&bun), None);
+        assert_eq!(cached(&file, &key), None);
+        remember(&file, &key, &bun);
+        assert_eq!(cached(&file, &key), Some(bun.clone()));
+        std::fs::write(&bun, "a newer bun").unwrap();
+        assert_eq!(cached(&file, &cache_key(Some(&bun), None)), None);
+        assert_eq!(
+            cached(&file, &cache_key(Some(&bun), Some(Path::new("C:\\nowhere\\node.exe")))),
+            None
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().collect()

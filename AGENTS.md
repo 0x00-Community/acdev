@@ -5,6 +5,10 @@ acde 的开发者 CLI. 和 [acdert](http://gitea.dopamine/AC/acdert) 的关系�
 窗口模型、dev IPC 的 op) 以 acdert 的 AGENTS.md 为准 (并排检出在 `../acdert`), 这里只写工具.
 
 - 说明都在本文件里 (没有 README). full agentic. TypeScript, 跑在开发者已有的 bun ≥ 1.4 或 Node.js ≥ 22.3 (`process.getBuiltinModule`) 上. 测试 `bun test`, 类型检查 `bun run typecheck`.
+- 启动快 (gitea acde#94): `src/cli.ts` 只静态导入轻模块 (`test/launcher.test.ts` 核对清单), 其余在用到的命令里 `await import()`;
+  `-v` 探 acdert 用 `Runtime.level` (`DevSession.runtimeLevel` 转给它), 帮助用 `src/starters.ts` 和 `driver/types.ts` 的 `ACTIONS`.
+  发布包的 cli.js 开 splitting (`chunk-<hash>.js`), 懒导入的模块才真的晚加载. `bun run startup [acde 路径] [--max-version-ms N] [--max-help-ms N]`
+  (`scripts/startup.ts`) 量 `acde -v` 和 `acde --help` 的中位数 (先跑一次热身), 超过上限退出 1.
 - 仓库脚本: `bun run acde <命令> [参数]` 从源码跑 CLI (即 `bun bin/acde.mjs`, 经 launcher 的 `run`, 退出码原样传回);
   `bun run test`、`bun run typecheck`、`bun run dist -- <参数>` (见「分发」). 要在别的目录当 `acde` 用时 `bun link` / `npm link`.
 - 代码不写注释 (`//`, `/* */`, JSDoc 都不写), 要说明的写进本文件; 工具要读的指令 (`/// <reference>`、`@ts-expect-error`) 除外.
@@ -640,6 +644,9 @@ bin/acde            scripts/acde.sh 跑 lib/acde/dist/cli.js: bun ≥ 1.4 用 bu
 bin/acde.exe        Windows 的启动器 (exe/, Rust, 无依赖, 静态 CRT): 选法和提示同 acde.cmd, 只在 PATH 里找 bun.exe / node.exe (不找当前目录); 把自己的原始命令行去掉程序名后原样交给运行时 (raw_arg, 不重新拆分和转义), 自己忽略 Ctrl+C 交给子进程处理, 透传退出码. PATHEXT 里 .EXE 在 .CMD 前, 所以 `acde` 先命中它; PowerShell 调 .cmd 时经 cmd 会丢掉参数里的双引号 (acde#33), 调 .exe 不会
 bin/acde.cmd        Windows 的后备启动器 (直接 `acde.cmd …`; acde.exe 被安全软件拦下或缺失时用) 和 dist.ts 没给 --exe 时唯一的启动器: scripts/acde.cmd (CRLF), 同样的选法和提示; 按 `where bun.exe` / `node.exe` 的完整路径直接调 (yarn 4 跑脚本时 PATH 最前面是它的 `node.cmd` 包装, 不带 `call` 调 .cmd 不会回来, acde 一声不响地退出 0; `call` 又会把参数里的 % 再展开一次)
 bin/acdert[.exe]    安装器放的 acdert (不在归档里)
+lib/runtime-cache   三个启动器记下的选择 (gitea acde#94: 每次起 bun/node 探版本在 Windows 上要 1 s 以上): 第一行是 PATH 上 bun 和 node 的
+                    路径 (acde.exe 再加修改时间纳秒和大小, acde.cmd 加 %~t 和 %~z), 第二行 (acde.cmd 用 * 隔开) 是选中的运行时. 键对得上、
+                    选中的文件还在 (sh 另要求 bun/node 都不比缓存新, -nt) 就直接起它, 否则照旧探测再写; 写不进去不报错. 只在探测通过时写
 bin/app/            安装器从 acdert-host 解出的 app/ 目录原样 (dist/broker.js、dist/web.js、brand/、greet/、package.json); acdert 找 <自己>/app/dist
 LICENSE             专有 LICENSE, 归档顶层 (和 lib/acde/LICENSE 一样)
 lib/acde/           package.json (exports, 与源码仓库不同: 指向 dist)、launcher.mjs (压缩和轻度混淆)、launcher.d.mts、LICENSE、templates/ (用户起步模板, 含 .ts 是正常的)、

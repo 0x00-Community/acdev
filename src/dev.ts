@@ -7,12 +7,11 @@ import { DevClient } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
 import { contains, E2E_FILE, SKIPPED } from './paths.ts'
-import { Runtime, type Child } from './runtime.ts'
+import { Runtime, type Child, type RuntimeProbe } from './runtime.ts'
 import { Claims, Sessions, type Reloaded } from './sessions.ts'
 import { TreeWatch, type Watching } from './watch.ts'
 
 const SETTLE_MS = 150
-const VERSION_MS = 10_000
 const MARK_MS = 2_000
 
 export interface Target {
@@ -40,12 +39,7 @@ interface Unit {
   watcher?: Watching
 }
 
-export interface RuntimeProbe {
-  readonly level: number
-  readonly said: string
-  readonly stderr: string
-  readonly failed: string | null
-}
+export type { RuntimeProbe }
 
 export class DevSession {
   static readonly DEFAULT_DESKTOP = 'dopame'
@@ -189,15 +183,8 @@ export class DevSession {
   static readonly WINDOW_HINT =
     'if acdert could not open a window here (no display, e.g. over ssh), run acde dev --headless'
 
-  static async runtimeLevel(acdert: string): Promise<RuntimeProbe> {
-    const ran = await Runtime.capture([acdert, '--version'], { timeout: VERSION_MS })
-    const level = /\(contract level (\d+)\)/.exec(ran.stdout)
-    const stderr = ran.stderr.trim()
-    const last = stderr.split(/\r?\n/).at(-1)
-    const failed = ran.error
-      ?? (ran.timedOut ? `it did not exit within ${VERSION_MS / 1000} s`
-        : ran.code !== 0 ? `it exited with code ${ran.code}${last ? `: ${last}` : ''}` : null)
-    return { level: level ? Number(level[1]) : 0, said: ran.stdout.trim(), stderr, failed }
+  static runtimeLevel(acdert: string): Promise<RuntimeProbe> {
+    return Runtime.level(acdert)
   }
 
   static refusal(unit: { readonly pkg: AppPackage; readonly built: Built | null }, runtime: number): string | null {
