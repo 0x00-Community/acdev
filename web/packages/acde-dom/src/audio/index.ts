@@ -15,8 +15,15 @@ export function audioNative(): AudioNative | null {
 export const mediaEvents = { ended: (_media: number): void => {} }
 
 const ID = Symbol('id')
+const CONTEXT = Symbol('context')
+const CURVED = Symbol('curved')
 const UPLOAD = Symbol('upload')
 const SET_STATE = Symbol('setState')
+
+interface ParamOwner {
+  readonly [ID]: number
+  readonly [CONTEXT]: BaseAudioContext
+}
 
 const playing = new Map<number, AudioScheduledSourceNode>()
 const releasedNodes = new FinalizationRegistry<number>((id) => native?.release(id))
@@ -36,7 +43,7 @@ function time(what: string, value: unknown): number {
 }
 
 class AudioParam {
-  readonly #owner: AudioNode
+  readonly #owner: ParamOwner
   readonly #node: number
   readonly #index: number
   readonly #default: number
@@ -44,8 +51,9 @@ class AudioParam {
   readonly #max: number
   #value: number
   #automated = false
+  #curve: [start: number, end: number] | null = null
 
-  constructor(token: unknown, owner: AudioNode, index: number, defaultValue: number, min: number, max: number) {
+  constructor(token: unknown, owner: ParamOwner, index: number, defaultValue: number, min: number, max: number) {
     illegal(token)
     this.#owner = owner
     this.#node = owner[ID]
@@ -85,8 +93,12 @@ class AudioParam {
     return [this.#node, this.#index]
   }
 
-  get [KEY](): AudioNode {
-    return this.#owner
+  get [CONTEXT](): BaseAudioContext {
+    return this.#owner[CONTEXT]
+  }
+
+  [CURVED](): boolean {
+    return this.#curve !== null && this.#curve[1] >= this.#owner[CONTEXT].currentTime
   }
 
   #automate(op: number, value: number, at: number, extra = 0): this {
@@ -123,16 +135,21 @@ class AudioParam {
     const d = finite('setValueCurveAtTime', duration)
     if (d <= 0) throw new RangeError("Failed to execute 'setValueCurveAtTime': the duration must be positive.")
     this.#automated = true
+    this.#curve = [at, at + d]
     native?.automateCurve(this.#node, this.#index, curve, at, d)
     return this
   }
 
   cancelScheduledValues(cancelTime: number): this {
-    return this.#automate(5, 0, time('cancelScheduledValues', cancelTime))
+    const at = time('cancelScheduledValues', cancelTime)
+    if (this.#curve && at <= this.#curve[0]) this.#curve = null
+    return this.#automate(5, 0, at)
   }
 
   cancelAndHoldAtTime(cancelTime: number): this {
-    return this.#automate(6, 0, time('cancelAndHoldAtTime', cancelTime))
+    const at = time('cancelAndHoldAtTime', cancelTime)
+    if (this.#curve) this.#curve = at <= this.#curve[0] ? null : [this.#curve[0], Math.min(this.#curve[1], at)]
+    return this.#automate(6, 0, at)
   }
 }
 tag(AudioParam)
@@ -145,6 +162,8 @@ const enum Kind {
   ConstantSource = 5,
   Through = 6,
   Stream = 7,
+  Panner = 8,
+  Listener = 9,
 }
 
 class AudioNode extends EventTarget {
@@ -172,6 +191,9 @@ class AudioNode extends EventTarget {
   get context(): BaseAudioContext {
     return this.#context
   }
+  get [CONTEXT](): BaseAudioContext {
+    return this.#context
+  }
   get numberOfInputs(): number {
     return this.#inputs
   }
@@ -184,7 +206,7 @@ class AudioNode extends EventTarget {
   connect(destination: AudioNode | AudioParam, output = 0, _input = 0): AudioNode | undefined {
     if (Number(output) >= this.#outputs) throw new DOMException(`Failed to execute 'connect' on 'AudioNode': output index (${output}) exceeds number of outputs (${this.#outputs}).`, 'IndexSizeError')
     if (destination instanceof AudioParam) {
-      if (destination[KEY].context !== this.#context) throw new DOMException("Failed to execute 'connect' on 'AudioNode': cannot connect to an AudioParam belonging to a different audio context.", 'InvalidAccessError')
+      if (destination[CONTEXT] !== this.#context) throw new DOMException("Failed to execute 'connect' on 'AudioNode': cannot connect to an AudioParam belonging to a different audio context.", 'InvalidAccessError')
       const [node, index] = destination[ID]
       native?.connect(this[ID], node, index)
       return undefined
@@ -215,9 +237,9 @@ tag(AudioDestinationNode)
 
 type ParamSpec = [name: string, value: number, min?: number, max?: number]
 
-function params(node: AudioNode, options: object | undefined, specs: ParamSpec[]): AudioParam[] {
+function params(owner: ParamOwner, options: object | undefined, specs: ParamSpec[]): AudioParam[] {
   return specs.map(([name, value, min = -3.4028234663852886e38, max = 3.4028234663852886e38], i) => {
-    const p = new AudioParam(KEY, node, i, value, min, max)
+    const p = new AudioParam(KEY, owner, i, value, min, max)
     const given = (options as Record<string, unknown> | undefined)?.[name]
     if (given !== undefined) p.value = Number(given)
     return p
@@ -434,6 +456,246 @@ const AnalyserNode = nodeClass('AnalyserNode', Kind.Through, [], (node) => {
   })
 })
 
+function float(what: string, value: unknown): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) throw new TypeError(`Failed to execute '${what}': The provided float value is non-finite.`)
+  return n
+}
+
+function setVector(what: string, owner: string, list: AudioParam[], values: unknown[]): void {
+  const v = values.map((x) => float(what, x))
+  if (list.some((p) => p[CURVED]())) throw new DOMException(`Failed to execute '${what}' on '${owner}': an automation curve is set on one of its AudioParams.`, 'NotSupportedError')
+  list.forEach((p, i) => (p.value = v[i]!))
+}
+
+export class AudioListener {
+  readonly [ID]: number
+  readonly #context: BaseAudioContext
+  readonly positionX: AudioParam
+  readonly positionY: AudioParam
+  readonly positionZ: AudioParam
+  readonly forwardX: AudioParam
+  readonly forwardY: AudioParam
+  readonly forwardZ: AudioParam
+  readonly upX: AudioParam
+  readonly upY: AudioParam
+  readonly upZ: AudioParam
+
+  constructor(token: unknown, context: BaseAudioContext) {
+    illegal(token)
+    this.#context = context
+    this[ID] = newId()
+    native?.createNode(context[ID], this[ID], Kind.Listener)
+    const names = ['positionX', 'positionY', 'positionZ', 'forwardX', 'forwardY', 'forwardZ', 'upX', 'upY', 'upZ']
+    const list = params(this, undefined, names.map((name, i): ParamSpec => [name, [0, 0, 0, 0, 0, -1, 0, 1, 0][i]!]))
+    ;[this.positionX, this.positionY, this.positionZ, this.forwardX, this.forwardY, this.forwardZ, this.upX, this.upY, this.upZ] = list as [AudioParam, AudioParam, AudioParam, AudioParam, AudioParam, AudioParam, AudioParam, AudioParam, AudioParam]
+  }
+
+  get [CONTEXT](): BaseAudioContext {
+    return this.#context
+  }
+
+  setPosition(x: number, y: number, z: number): void {
+    setVector('setPosition', 'AudioListener', [this.positionX, this.positionY, this.positionZ], [x, y, z])
+  }
+
+  setOrientation(x: number, y: number, z: number, xUp: number, yUp: number, zUp: number): void {
+    setVector('setOrientation', 'AudioListener', [this.forwardX, this.forwardY, this.forwardZ, this.upX, this.upY, this.upZ], [x, y, z, xUp, yUp, zUp])
+  }
+}
+tag(AudioListener)
+
+const PANNING_MODELS = ['equalpower', 'HRTF']
+const DISTANCE_MODELS = ['linear', 'inverse', 'exponential']
+const COUNT_MODES = ['max', 'clamped-max', 'explicit']
+
+interface PannerOptions {
+  panningModel?: string
+  distanceModel?: string
+  positionX?: number
+  positionY?: number
+  positionZ?: number
+  orientationX?: number
+  orientationY?: number
+  orientationZ?: number
+  refDistance?: number
+  maxDistance?: number
+  rolloffFactor?: number
+  coneInnerAngle?: number
+  coneOuterAngle?: number
+  coneOuterGain?: number
+  channelCount?: number
+  channelCountMode?: string
+  channelInterpretation?: string
+}
+
+function double(property: string, value: unknown): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) throw new TypeError(`Failed to set the '${property}' property on 'PannerNode': The provided double value is non-finite.`)
+  return n
+}
+
+export class PannerNode extends AudioNode {
+  readonly positionX: AudioParam
+  readonly positionY: AudioParam
+  readonly positionZ: AudioParam
+  readonly orientationX: AudioParam
+  readonly orientationY: AudioParam
+  readonly orientationZ: AudioParam
+  #panningModel = 'equalpower'
+  #distanceModel = 'inverse'
+  #refDistance = 1
+  #maxDistance = 10000
+  #rolloffFactor = 1
+  #coneInnerAngle = 360
+  #coneOuterAngle = 360
+  #coneOuterGain = 0
+  #channelCount = 2
+  #channelCountMode = 'clamped-max'
+
+  constructor(context: BaseAudioContext, options?: PannerOptions) {
+    checkContext(context)
+    super(KEY, context, Kind.Panner)
+    Object.defineProperties(this, {
+      channelCount: { get: () => this.#channelCount, set: (v: unknown) => this.#setChannelCount(v), enumerable: true, configurable: true },
+      channelCountMode: { get: () => this.#channelCountMode, set: (v: unknown) => this.#setChannelCountMode(v), enumerable: true, configurable: true },
+    })
+    ;[this.positionX, this.positionY, this.positionZ, this.orientationX, this.orientationY, this.orientationZ] = params(this, options, [
+      ['positionX', 0], ['positionY', 0], ['positionZ', 0], ['orientationX', 1], ['orientationY', 0], ['orientationZ', 0],
+    ]) as [AudioParam, AudioParam, AudioParam, AudioParam, AudioParam, AudioParam]
+    if (options) {
+      for (const [key, list] of [['panningModel', PANNING_MODELS], ['distanceModel', DISTANCE_MODELS], ['channelCountMode', COUNT_MODES]] as const) {
+        const given = options[key]
+        if (given !== undefined && !list.includes(String(given))) throw new TypeError(`Failed to construct 'PannerNode': The provided value '${given}' is not a valid enum value of type ${key === 'channelCountMode' ? 'ChannelCountMode' : key === 'panningModel' ? 'PanningModelType' : 'DistanceModelType'}.`)
+      }
+      if (options.channelCount !== undefined) this.#setChannelCount(options.channelCount)
+      if (options.channelCountMode !== undefined) this.#setChannelCountMode(options.channelCountMode)
+      if (options.channelInterpretation !== undefined) this.channelInterpretation = String(options.channelInterpretation)
+      if (options.panningModel !== undefined) this.#panningModel = String(options.panningModel)
+      if (options.distanceModel !== undefined) this.#distanceModel = String(options.distanceModel)
+      if (options.refDistance !== undefined) this.refDistance = options.refDistance
+      if (options.maxDistance !== undefined) this.maxDistance = options.maxDistance
+      if (options.rolloffFactor !== undefined) this.rolloffFactor = options.rolloffFactor
+      if (options.coneInnerAngle !== undefined) this.coneInnerAngle = options.coneInnerAngle
+      if (options.coneOuterAngle !== undefined) this.coneOuterAngle = options.coneOuterAngle
+      if (options.coneOuterGain !== undefined) this.coneOuterGain = options.coneOuterGain
+    }
+    this.#send()
+  }
+
+  #setChannelCount(value: unknown): void {
+    const n = Math.trunc(Number(value))
+    if (!(n >= 1 && n <= 2)) throw new DOMException(`Failed to set the 'channelCount' property on 'AudioNode': The channelCount provided (${value}) is outside the range [1, 2].`, 'NotSupportedError')
+    this.#channelCount = n
+  }
+
+  #setChannelCountMode(value: unknown): void {
+    const mode = String(value)
+    if (!COUNT_MODES.includes(mode)) return
+    if (mode === 'max') throw new DOMException("Failed to set the 'channelCountMode' property on 'AudioNode': Panner: 'max' is not allowed", 'NotSupportedError')
+    this.#channelCountMode = mode
+  }
+
+  #send(): void {
+    native?.setPanner(
+      this[ID],
+      this.#panningModel === 'HRTF',
+      DISTANCE_MODELS.indexOf(this.#distanceModel),
+      this.#refDistance,
+      this.#maxDistance,
+      this.#rolloffFactor,
+      this.#coneInnerAngle,
+      this.#coneOuterAngle,
+      this.#coneOuterGain,
+    )
+  }
+
+  get panningModel(): string {
+    return this.#panningModel
+  }
+  set panningModel(value: string) {
+    const model = String(value)
+    if (!PANNING_MODELS.includes(model)) return
+    this.#panningModel = model
+    this.#send()
+  }
+
+  get distanceModel(): string {
+    return this.#distanceModel
+  }
+  set distanceModel(value: string) {
+    const model = String(value)
+    if (!DISTANCE_MODELS.includes(model)) return
+    this.#distanceModel = model
+    this.#send()
+  }
+
+  get refDistance(): number {
+    return this.#refDistance
+  }
+  set refDistance(value: number) {
+    const v = double('refDistance', value)
+    if (v < 0) throw new RangeError(`Failed to set the 'refDistance' property on 'PannerNode': The refDistance provided (${v}) is less than the minimum bound (0).`)
+    this.#refDistance = v
+    this.#send()
+  }
+
+  get maxDistance(): number {
+    return this.#maxDistance
+  }
+  set maxDistance(value: number) {
+    const v = double('maxDistance', value)
+    if (v <= 0) throw new RangeError(`Failed to set the 'maxDistance' property on 'PannerNode': The maxDistance provided (${v}) should be greater than 0.`)
+    this.#maxDistance = v
+    this.#send()
+  }
+
+  get rolloffFactor(): number {
+    return this.#rolloffFactor
+  }
+  set rolloffFactor(value: number) {
+    const v = double('rolloffFactor', value)
+    if (v < 0) throw new RangeError(`Failed to set the 'rolloffFactor' property on 'PannerNode': The rolloffFactor provided (${v}) is less than the minimum bound (0).`)
+    this.#rolloffFactor = v
+    this.#send()
+  }
+
+  get coneInnerAngle(): number {
+    return this.#coneInnerAngle
+  }
+  set coneInnerAngle(value: number) {
+    this.#coneInnerAngle = double('coneInnerAngle', value)
+    this.#send()
+  }
+
+  get coneOuterAngle(): number {
+    return this.#coneOuterAngle
+  }
+  set coneOuterAngle(value: number) {
+    this.#coneOuterAngle = double('coneOuterAngle', value)
+    this.#send()
+  }
+
+  get coneOuterGain(): number {
+    return this.#coneOuterGain
+  }
+  set coneOuterGain(value: number) {
+    const v = double('coneOuterGain', value)
+    if (v < 0 || v > 1) throw new DOMException(`Failed to set the 'coneOuterGain' property on 'PannerNode': The coneOuterGain provided (${v}) is outside the range [0, 1].`, 'InvalidStateError')
+    this.#coneOuterGain = v
+    this.#send()
+  }
+
+  setPosition(x: number, y: number, z: number): void {
+    setVector('setPosition', 'PannerNode', [this.positionX, this.positionY, this.positionZ], [x, y, z])
+  }
+
+  setOrientation(x: number, y: number, z: number): void {
+    setVector('setOrientation', 'PannerNode', [this.orientationX, this.orientationY, this.orientationZ], [x, y, z])
+  }
+}
+tag(PannerNode)
+
 function checkContext(context: unknown): void {
   if (!(context instanceof BaseAudioContext)) throw new TypeError("Failed to construct the node: parameter 1 is not of type 'BaseAudioContext'.")
 }
@@ -521,6 +783,7 @@ tag(AudioBuffer)
 export class BaseAudioContext extends EventTarget {
   readonly [ID]: number
   readonly #destination: AudioDestinationNode
+  #listener: AudioListener | null = null
   #state: 'suspended' | 'running' | 'closed' = 'running'
   #frozen = 0
 
@@ -546,6 +809,9 @@ export class BaseAudioContext extends EventTarget {
   }
   get destination(): AudioDestinationNode {
     return this.#destination
+  }
+  get listener(): AudioListener {
+    return (this.#listener ??= new AudioListener(KEY, this))
   }
 
   [SET_STATE](state: 'suspended' | 'running' | 'closed'): void {
@@ -600,8 +866,8 @@ export class BaseAudioContext extends EventTarget {
   createChannelMerger(): never {
     throw new DOMException('ChannelMergerNode is not supported', 'NotSupportedError')
   }
-  createPanner(): never {
-    throw new DOMException('PannerNode is not supported', 'NotSupportedError')
+  createPanner(): PannerNode {
+    return new PannerNode(this)
   }
   createScriptProcessor(): never {
     throw new DOMException('ScriptProcessorNode is not supported', 'NotSupportedError')
@@ -628,7 +894,7 @@ export class BaseAudioContext extends EventTarget {
     )
   }
 }
-getters(BaseAudioContext.prototype, { listener: () => ({}), audioWorklet: undefined })
+getters(BaseAudioContext.prototype, { audioWorklet: undefined })
 defineHandlers(BaseAudioContext.prototype, ['statechange'])
 tag(BaseAudioContext)
 
@@ -702,5 +968,6 @@ export function installAudio(audio: AudioNative): Record<string, unknown> {
     AudioContext, BaseAudioContext, AudioNode, AudioParam, AudioDestinationNode, AudioScheduledSourceNode,
     OscillatorNode, GainNode, AudioBufferSourceNode, StereoPannerNode, ConstantSourceNode, AudioBuffer, PeriodicWave,
     BiquadFilterNode, DynamicsCompressorNode, DelayNode, WaveShaperNode, ConvolverNode, AnalyserNode, MediaStreamAudioSourceNode,
+    PannerNode, AudioListener,
   }
 }

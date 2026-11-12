@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use super::spatial::{self, Hrtf, HrtfModel, Listener, PannerConfig, V3};
+
 pub const QUANTUM: usize = 128;
 
 pub type Bus = [[f32; QUANTUM]; 2];
@@ -45,7 +47,11 @@ pub enum Kind {
     ConstantSource,
     Through,
     Stream,
+    Panner,
+    Listener,
 }
+
+const LISTENER_DEFAULTS: [f32; 9] = [0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 1.0, 0.0];
 
 impl Kind {
     pub fn from_code(code: u32) -> Option<Kind> {
@@ -57,6 +63,8 @@ impl Kind {
             5 => Kind::ConstantSource,
             6 => Kind::Through,
             7 => Kind::Stream,
+            8 => Kind::Panner,
+            9 => Kind::Listener,
             _ => return None,
         })
     }
@@ -69,6 +77,8 @@ impl Kind {
         match self {
             Kind::Oscillator | Kind::BufferSource => 2,
             Kind::Gain | Kind::StereoPanner | Kind::ConstantSource => 1,
+            Kind::Panner => 6,
+            Kind::Listener => 9,
             Kind::Destination | Kind::Through | Kind::Stream => 0,
         }
     }
@@ -83,6 +93,8 @@ impl Kind {
             Kind::BufferSource => vec![any(1.0), any(0.0)],
             Kind::StereoPanner => vec![(0.0, -1.0, 1.0)],
             Kind::ConstantSource => vec![any(1.0)],
+            Kind::Panner => [0.0, 0.0, 0.0, 1.0, 0.0, 0.0].map(any).to_vec(),
+            Kind::Listener => LISTENER_DEFAULTS.map(any).to_vec(),
             Kind::Destination | Kind::Through | Kind::Stream => vec![],
         };
         debug_assert_eq!(params.len(), self.param_count());
@@ -130,6 +142,7 @@ pub enum NodeOp {
     Stop(f64),
     Release,
     Stream(Option<Box<super::live::LiveTap>>),
+    Panner(PannerConfig),
 }
 
 #[derive(Clone, Debug)]
@@ -400,6 +413,12 @@ struct Node {
     phase: f64,
     buf: Buffer,
     stream: Option<Box<super::live::LiveTap>>,
+    panner: Option<Box<Panner>>,
+}
+
+struct Panner {
+    config: PannerConfig,
+    hrtf: Option<Hrtf>,
 }
 
 impl Node {
@@ -423,6 +442,7 @@ impl Node {
             phase: 0.0,
             buf: Buffer { data: None, pos: None, offset: 0.0, duration: None, played: 0.0, looping: false, loop_start: 0.0, loop_end: 0.0 },
             stream: None,
+            panner: (kind == Kind::Panner).then(|| Box::new(Panner { config: PannerConfig::default(), hrtf: None })),
         }
     }
 
@@ -449,6 +469,11 @@ pub struct Graph {
     order_dirty: bool,
     input: Bus,
     values: Box<[[f32; QUANTUM]; MAX_PARAMS]>,
+    still: [bool; MAX_PARAMS],
+    listener: Option<u32>,
+    listening: Box<[[f32; QUANTUM]; 9]>,
+    listener_still: bool,
+    hrtf: Option<Arc<HrtfModel>>,
     pub gone: Vec<u32>,
 }
 
@@ -472,7 +497,23 @@ impl Graph {
         let mut nodes = HashMap::new();
         nodes.insert(dest, Node::new(Kind::Destination, rate, Arc::new(Shared::new(Kind::Destination))));
         let values = Box::new([[0.0; QUANTUM]; MAX_PARAMS]);
-        Graph { rate, frame: 0, dest, nodes, order: Vec::new(), order_dirty: true, input: [[0.0; QUANTUM]; 2], values, gone: Vec::new() }
+        let listening = Box::new(LISTENER_DEFAULTS.map(|v| [v; QUANTUM]));
+        Graph {
+            rate,
+            frame: 0,
+            dest,
+            nodes,
+            order: Vec::new(),
+            order_dirty: true,
+            input: [[0.0; QUANTUM]; 2],
+            values,
+            still: [true; MAX_PARAMS],
+            listener: None,
+            listening,
+            listener_still: true,
+            hrtf: None,
+            gone: Vec::new(),
+        }
     }
 
     fn now(&self) -> f64 {
@@ -485,6 +526,9 @@ impl Graph {
     }
 
     pub fn add(&mut self, id: u32, kind: Kind, shared: Arc<Shared>) {
+        if kind == Kind::Listener {
+            self.listener = Some(id);
+        }
         self.nodes.insert(id, Node::new(kind, self.rate, shared));
         self.order_dirty = true;
     }
@@ -559,6 +603,14 @@ impl Graph {
                     node.stream = tap;
                 }
             }
+            NodeOp::Panner(config) => {
+                if let Some(p) = &mut node.panner {
+                    p.config = config;
+                }
+            }
+        }
+        if node.panner.as_ref().is_some_and(|p| p.config.hrtf) && self.hrtf.is_none() {
+            self.hrtf = Some(Arc::new(HrtfModel::new(self.rate)));
         }
     }
 
@@ -593,7 +645,8 @@ impl Graph {
             state.insert(root, 1);
             while let Some(&mut (id, ref mut next)) = stack.last_mut() {
                 let node = &self.nodes[&id];
-                let feeds = node.inputs.iter().chain(node.param_inputs.iter().flatten());
+                let listener = self.listener.filter(|_| node.kind == Kind::Panner);
+                let feeds = node.inputs.iter().chain(node.param_inputs.iter().flatten()).chain(listener.iter());
                 if let Some(&input) = feeds.clone().nth(*next) {
                     *next += 1;
                     if self.nodes.contains_key(&input) && !state.contains_key(&input) {
@@ -682,7 +735,7 @@ impl Graph {
         }
         for p in 0..node.params.len() {
             let values = &mut self.values[p];
-            node.params[p].fill(values, frame, self.rate);
+            self.still[p] = node.params[p].fill(values, frame, self.rate) && node.param_inputs[p].is_empty();
             for input in &node.param_inputs[p] {
                 if let Some(from) = self.nodes.get(input)
                     && !from.silent
@@ -699,6 +752,10 @@ impl Graph {
             }
             node.shared.params[p].store(values[QUANTUM - 1].to_bits(), Ordering::Relaxed);
         }
+        if node.kind == Kind::Listener {
+            self.listening.copy_from_slice(&self.values[..9]);
+            self.listener_still = self.still[..9].iter().all(|s| *s);
+        }
         let rate = self.rate;
         let input = &self.input;
         let values = &self.values;
@@ -709,8 +766,21 @@ impl Graph {
             _ => empty,
         };
         let (from, to) = range.unwrap_or_default();
+        if node.silent
+            && let Some(Panner { hrtf: Some(h), .. }) = node.panner.as_deref_mut()
+        {
+            h.reset();
+        }
         match node.kind {
             _ if node.silent => {}
+            Kind::Panner => {
+                node.mono = false;
+                let still = self.still[..6].iter().all(|s| *s) && self.listener_still;
+                if let Some(p) = node.panner.as_deref_mut() {
+                    pan(p, self.hrtf.as_deref(), input, mono, values, &self.listening, still, &mut node.out);
+                }
+            }
+            Kind::Listener => {}
             Kind::Destination | Kind::Through => {
                 node.out = *input;
                 node.mono = mono;
@@ -779,6 +849,52 @@ impl Graph {
         {
             node.src.ended = true;
         }
+    }
+}
+
+fn listener_at(values: &[[f32; QUANTUM]; 9], i: usize) -> Listener {
+    let v = |k: usize| f64::from(values[k][i]);
+    Listener { position: V3::new(v(0), v(1), v(2)), forward: V3::new(v(3), v(4), v(5)), up: V3::new(v(6), v(7), v(8)) }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pan(
+    p: &mut Panner,
+    model: Option<&HrtfModel>,
+    input: &Bus,
+    mono: bool,
+    values: &[[f32; QUANTUM]; MAX_PARAMS],
+    listening: &[[f32; QUANTUM]; 9],
+    still: bool,
+    out: &mut Bus,
+) {
+    let source = |i: usize| V3::new(f64::from(values[0][i]), f64::from(values[1][i]), f64::from(values[2][i]));
+    let orientation = |i: usize| V3::new(f64::from(values[3][i]), f64::from(values[4][i]), f64::from(values[5][i]));
+    if p.config.hrtf
+        && let Some(model) = model
+    {
+        let spot = spatial::locate(&p.config, source(0), orientation(0), &listener_at(listening, 0));
+        let h = p.hrtf.get_or_insert_with(|| Hrtf::new(model));
+        h.process(model, &spot, input, mono, out);
+        return;
+    }
+    p.hrtf = None;
+    let mut spot = spatial::locate(&p.config, source(0), orientation(0), &listener_at(listening, 0));
+    for i in 0..QUANTUM {
+        if !still && i > 0 {
+            spot = spatial::locate(&p.config, source(i), orientation(i), &listener_at(listening, i));
+        }
+        let (gl, gr, left) = spatial::equal_power(spot.azimuth, mono);
+        let (gl, gr, g) = (gl as f32, gr as f32, spot.gain as f32);
+        let (l, r) = if mono {
+            (input[0][i] * gl, input[0][i] * gr)
+        } else if left {
+            (input[0][i] + input[1][i] * gl, input[1][i] * gr)
+        } else {
+            (input[0][i] * gl, input[1][i] + input[0][i] * gr)
+        };
+        out[0][i] = l * g;
+        out[1][i] = r * g;
     }
 }
 
@@ -888,6 +1004,7 @@ fn play_buffer(node: &mut Node, from: usize, to: usize, rate: f64, values: &[[f3
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::spatial::DistanceModel;
 
     const RATE: f64 = 48000.0;
 
@@ -1179,6 +1296,346 @@ mod tests {
         render(&mut g, 4);
         assert!(!g.has(2) && !g.has(3));
         assert!(!g.active());
+    }
+
+    struct Case {
+        name: &'static str,
+        stereo: bool,
+        pos: [f32; 3],
+        orient: [f32; 3],
+        listener: Option<[[f32; 3]; 3]>,
+        config: PannerConfig,
+        ramp: bool,
+        left: &'static [f32],
+        right: &'static [f32],
+    }
+
+    fn equal_power_case(c: &Case) -> (Vec<f32>, Vec<f32>) {
+        let mut g = Graph::new(RATE, 1);
+        g.add(5, Kind::Listener, Arc::new(Shared::new(Kind::Listener)));
+        if let Some(l) = c.listener {
+            for (i, v) in l.iter().flatten().enumerate() {
+                g.node(5, NodeOp::Param(i, ParamOp::Value(*v)));
+            }
+        }
+        if c.stereo {
+            let data = Arc::new(AudioData { rate: RATE, channels: vec![vec![1.0; 4096], vec![0.5; 4096]] });
+            g.add(2, Kind::BufferSource, Arc::new(Shared::new(Kind::BufferSource)));
+            g.node(2, NodeOp::Buffer(Some(data)));
+        } else {
+            g.add(2, Kind::ConstantSource, Arc::new(Shared::new(Kind::ConstantSource)));
+        }
+        g.add(3, Kind::Panner, Arc::new(Shared::new(Kind::Panner)));
+        g.node(3, NodeOp::Panner(c.config));
+        for (i, v) in c.pos.iter().chain(&c.orient).enumerate() {
+            g.node(3, NodeOp::Param(i, ParamOp::Value(*v)));
+        }
+        if c.ramp {
+            g.node(3, NodeOp::Param(0, ParamOp::SetAt(-2.0, 0.0)));
+            g.node(3, NodeOp::Param(0, ParamOp::Linear(2.0, 1024.0 / RATE)));
+        }
+        g.connect(2, 3, None);
+        g.connect(3, 1, None);
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
+        let (mut left, mut right) = (Vec::new(), Vec::new());
+        for _ in 0..8 {
+            let mut out = [[0.0; QUANTUM]; 2];
+            g.render(&mut out, &mut Vec::new());
+            left.extend_from_slice(&out[0]);
+            right.extend_from_slice(&out[1]);
+        }
+        (left, right)
+    }
+
+    #[test]
+    fn panner_matches_chrome_for_equal_power_distance_and_cones() {
+        let cases = [
+            Case {
+                name: "front",
+                stereo: false,
+                pos: [0.0, 0.0, -1.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.7071067690849304],
+                right: &[0.7071067690849304],
+            },
+            Case {
+                name: "right",
+                stereo: false,
+                pos: [1.0, 0.0, 0.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[6.123234262925839e-17],
+                right: &[1.0],
+            },
+            Case {
+                name: "left30",
+                stereo: false,
+                pos: [-0.5, 0.0, -0.866],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.8660285472869873],
+                right: &[0.49999457597732544],
+            },
+            Case {
+                name: "behind_right",
+                stereo: false,
+                pos: [1.0, 0.0, 1.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.27059805393218994],
+                right: &[0.6532814502716064],
+            },
+            Case {
+                name: "above",
+                stereo: false,
+                pos: [0.0, 1.0, 0.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.7071067690849304],
+                right: &[0.7071067690849304],
+            },
+            Case {
+                name: "elevated",
+                stereo: false,
+                pos: [1.0, 2.0, -1.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.15622985363006592],
+                right: &[0.37717220187187195],
+            },
+            Case {
+                name: "same_point",
+                stereo: false,
+                pos: [0.0, 0.0, 0.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.7071067690849304],
+                right: &[0.7071067690849304],
+            },
+            Case {
+                name: "stereo_left",
+                stereo: true,
+                pos: [-1.0, 0.0, -1.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.9571067690849304],
+                right: &[0.2499999850988388],
+            },
+            Case {
+                name: "stereo_right",
+                stereo: true,
+                pos: [2.0, 0.0, -1.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.20000000298023224],
+                right: &[0.62360680103302],
+            },
+            Case {
+                name: "inverse",
+                stereo: false,
+                pos: [0.0, 0.0, -10.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ref_distance: 2.0, rolloff: 1.5, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.10101525485515594],
+                right: &[0.10101525485515594],
+            },
+            Case {
+                name: "linear",
+                stereo: false,
+                pos: [3.0, 0.0, -4.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { distance: DistanceModel::Linear, ref_distance: 1.0, max_distance: 10.0, rolloff: 0.5, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.3478327989578247],
+                right: &[0.6956655979156494],
+            },
+            Case {
+                name: "linear_clamp_rolloff",
+                stereo: false,
+                pos: [3.0, 0.0, -4.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { distance: DistanceModel::Linear, ref_distance: 1.0, max_distance: 10.0, rolloff: 2.0, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.24845200777053833],
+                right: &[0.49690401554107666],
+            },
+            Case {
+                name: "linear_ref_gt_max",
+                stereo: false,
+                pos: [0.0, 0.0, -4.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { distance: DistanceModel::Linear, ref_distance: 8.0, max_distance: 2.0, rolloff: 0.5, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.5892556309700012],
+                right: &[0.5892556309700012],
+            },
+            Case {
+                name: "exponential",
+                stereo: false,
+                pos: [0.0, 0.0, -8.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { distance: DistanceModel::Exponential, ref_distance: 2.0, rolloff: 0.7, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.2679433524608612],
+                right: &[0.2679433524608612],
+            },
+            Case {
+                name: "inverse_ref0",
+                stereo: false,
+                pos: [0.0, 0.0, -8.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ref_distance: 0.0, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.0],
+                right: &[0.0],
+            },
+            Case {
+                name: "cone_facing",
+                stereo: false,
+                pos: [0.0, 0.0, -2.0],
+                orient: [0.0, 0.0, 1.0],
+                listener: None,
+                config: PannerConfig { cone_inner: 60.0, cone_outer: 120.0, cone_outer_gain: 0.1, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.3535533845424652],
+                right: &[0.3535533845424652],
+            },
+            Case {
+                name: "cone_away",
+                stereo: false,
+                pos: [0.0, 0.0, -2.0],
+                orient: [0.0, 0.0, -1.0],
+                listener: None,
+                config: PannerConfig { cone_inner: 60.0, cone_outer: 120.0, cone_outer_gain: 0.1, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.0353553406894207],
+                right: &[0.0353553406894207],
+            },
+            Case {
+                name: "cone_between",
+                stereo: false,
+                pos: [0.0, 0.0, -2.0],
+                orient: [0.6, 0.0, -0.8],
+                listener: None,
+                config: PannerConfig { cone_inner: 60.0, cone_outer: 120.0, cone_outer_gain: 0.1, ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.0353553406894207],
+                right: &[0.0353553406894207],
+            },
+            Case {
+                name: "listener_turned",
+                stereo: false,
+                pos: [0.0, 0.0, -3.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: Some([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.3333333432674408],
+                right: &[4.4386020192632714e-08],
+            },
+            Case {
+                name: "listener_moved",
+                stereo: false,
+                pos: [5.0, 0.0, -1.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: Some([[4.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]]),
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: false,
+                left: &[0.27059805393218994],
+                right: &[0.6532814502716064],
+            },
+            Case {
+                name: "ramp",
+                stereo: false,
+                pos: [-2.0, 0.0, -1.0],
+                orient: [1.0, 0.0, 0.0],
+                listener: None,
+                config: PannerConfig { ..PannerConfig::default() },
+                ramp: true,
+                left: &[0.4352501928806305, 0.6532814502716064, 0.7071067690849304, 0.27059805393218994, 0.10307992994785309],
+                right: &[0.10274861752986908, 0.27059805393218994, 0.7071067690849304, 0.6532814502716064, 0.43589091300964355],
+            },
+        ];
+        for c in &cases {
+            let (left, right) = equal_power_case(c);
+            let at: &[usize] = if c.ramp { &[0, 256, 512, 768, 1023] } else { &[500] };
+            for (k, &i) in at.iter().enumerate() {
+                assert!(
+                    (left[i] - c.left[k]).abs() < 2e-5 && (right[i] - c.right[k]).abs() < 2e-5,
+                    "{} @{i}: {} {} vs {} {}",
+                    c.name,
+                    left[i],
+                    right[i],
+                    c.left[k],
+                    c.right[k]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_panner_follows_the_listener_it_depends_on() {
+        let mut g = Graph::new(RATE, 1);
+        g.add(2, Kind::ConstantSource, Arc::new(Shared::new(Kind::ConstantSource)));
+        g.add(3, Kind::Panner, Arc::new(Shared::new(Kind::Panner)));
+        g.add(9, Kind::Listener, Arc::new(Shared::new(Kind::Listener)));
+        g.node(3, NodeOp::Param(0, ParamOp::Value(1.0)));
+        g.node(9, NodeOp::Param(0, ParamOp::Value(2.0)));
+        g.connect(2, 3, None);
+        g.connect(3, 1, None);
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
+        let mut out = [[0.0; QUANTUM]; 2];
+        g.render(&mut out, &mut Vec::new());
+        assert!((out[0][0] - 1.0).abs() < 1e-6 && out[1][0].abs() < 1e-6, "the source is left of a listener at x = 2: {} {}", out[0][0], out[1][0]);
+    }
+
+    #[test]
+    fn hrtf_panner_spatializes_and_stops_cleanly() {
+        let mut g = Graph::new(RATE, 1);
+        g.add(2, Kind::ConstantSource, Arc::new(Shared::new(Kind::ConstantSource)));
+        g.add(3, Kind::Panner, Arc::new(Shared::new(Kind::Panner)));
+        g.node(3, NodeOp::Panner(PannerConfig { hrtf: true, ..PannerConfig::default() }));
+        g.node(3, NodeOp::Param(0, ParamOp::Value(1.0)));
+        g.connect(2, 3, None);
+        g.connect(3, 1, None);
+        g.node(2, NodeOp::Start { when: 0.0, offset: 0.0, duration: None });
+        g.node(2, NodeOp::Stop(4.0 * QUANTUM as f64 / RATE));
+        let (mut left, mut right) = (Vec::new(), Vec::new());
+        for _ in 0..8 {
+            let mut out = [[0.0; QUANTUM]; 2];
+            g.render(&mut out, &mut Vec::new());
+            left.extend_from_slice(&out[0]);
+            right.extend_from_slice(&out[1]);
+        }
+        assert!(left.iter().chain(&right).all(|v| v.is_finite()));
+        assert!(right[300] > left[300] && left[300] > 0.0, "{} {}", left[300], right[300]);
+        assert!(left[6 * QUANTUM..].iter().chain(&right[6 * QUANTUM..]).all(|v| *v == 0.0));
     }
 
     #[test]

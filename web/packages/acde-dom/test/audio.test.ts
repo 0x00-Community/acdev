@@ -32,6 +32,7 @@ function fakeAudio() {
     paramValue: () => 0.25,
     setWave: record('setWave'),
     setLoop: record('setLoop'),
+    setPanner: record('setPanner'),
     setBuffer: record('setBuffer'),
     start: record('start'),
     stop: record('stop'),
@@ -234,6 +235,68 @@ test('pass-through nodes keep pages that use them playing', () => {
   `)
   assert.deepEqual(w.json('result'), { type: 'highpass', bins: 1024 })
   assert.deepEqual((audio.named('createNode') as number[][]).map((n) => n[2]), [6, 6])
+  w.close()
+})
+
+test('a PannerNode and the context\'s AudioListener: params, attributes and their checks reach the audio thread', () => {
+  const { web: w, audio } = web()
+  w.run(`
+    const ctx = new AudioContext()
+    const p = ctx.createPanner()
+    const errors = []
+    const tryIt = (f) => { try { f(); errors.push('none') } catch (e) { errors.push(e.name) } }
+    p.panningModel = 'HRTF'
+    p.panningModel = 'bogus'
+    p.distanceModel = 'linear'
+    p.refDistance = 3
+    p.rolloffFactor = 0.6
+    p.maxDistance = 400
+    p.coneOuterGain = 0.25
+    tryIt(() => { p.refDistance = -1 })
+    tryIt(() => { p.maxDistance = 0 })
+    tryIt(() => { p.rolloffFactor = -0.1 })
+    tryIt(() => { p.coneOuterGain = 2 })
+    tryIt(() => { p.refDistance = NaN })
+    tryIt(() => { p.channelCount = 3 })
+    tryIt(() => { p.channelCountMode = 'max' })
+    tryIt(() => { p.channelCount = 1 })
+    tryIt(() => new PannerNode(ctx, { panningModel: 'stereo' }))
+    p.positionX.linearRampToValueAtTime(5, 2)
+    p.setPosition(1, 2, 3)
+    p.orientationY.setValueCurveAtTime([0, 1], 0, 10)
+    tryIt(() => p.setOrientation(0, 0, 1))
+    const l = ctx.listener
+    l.setOrientation(1, 0, 0, 0, 1, 0)
+    l.positionX.value = 7
+    const src = ctx.createBufferSource()
+    src.connect(p).connect(ctx.destination)
+    src.connect(l.positionY)
+    const q = new PannerNode(ctx, { panningModel: 'HRTF', positionZ: -4, coneInnerAngle: 90 })
+    globalThis.result = {
+      errors,
+      model: p.panningModel, distance: p.distanceModel, ref: p.refDistance, count: p.channelCount, mode: p.channelCountMode,
+      same: ctx.listener === l, isNode: l instanceof AudioNode, forward: [l.forwardX.defaultValue, l.forwardY.defaultValue, l.forwardZ.defaultValue],
+      up: l.upY.defaultValue, orientation: p.orientationX.defaultValue, q: [q.panningModel, q.coneInnerAngle],
+      globals: [typeof PannerNode, typeof AudioListener],
+    }
+  `)
+  assert.deepEqual(w.json('result'), {
+    errors: ['RangeError', 'RangeError', 'RangeError', 'InvalidStateError', 'TypeError', 'NotSupportedError', 'NotSupportedError', 'none', 'TypeError', 'NotSupportedError'],
+    model: 'HRTF', distance: 'linear', ref: 3, count: 1, mode: 'clamped-max',
+    same: true, isNode: false, forward: [0, 0, -1], up: 1, orientation: 1, q: ['HRTF', 90],
+    globals: ['function', 'function'],
+  })
+  const nodes = audio.named('createNode') as [number, number, number][]
+  const panner = nodes.find((n) => n[2] === 8)![1]
+  const listener = nodes.find((n) => n[2] === 9)![1]
+  const source = nodes.find((n) => n[2] === 3)![1]
+  const settings = (audio.named('setPanner') as unknown[][]).filter((c) => c[0] === panner)
+  assert.deepEqual(settings.at(-1), [panner, true, 0, 3, 400, 0.6, 360, 360, 0.25])
+  assert.deepEqual(settings[0], [panner, false, 1, 1, 10000, 1, 360, 360, 0])
+  const automation = audio.named('automate') as number[][]
+  assert.deepEqual(automation.filter((a) => a[0] === panner && a[2] === 0).map((a) => [a[1], a[3]]), [[0, 1], [1, 2], [2, 3]])
+  assert.deepEqual(automation.filter((a) => a[0] === listener).map((a) => [a[1], a[3]]), [[3, 1], [4, 0], [5, 0], [6, 0], [7, 1], [8, 0], [0, 7]])
+  assert.deepEqual(audio.named('connect'), [[source, panner, -1], [panner, (audio.named('createContext') as number[][])[0]![1], -1], [source, listener, 1]])
   w.close()
 })
 

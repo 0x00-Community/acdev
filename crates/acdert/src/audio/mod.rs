@@ -5,6 +5,7 @@ mod mixer;
 mod output;
 #[cfg(not(target_os = "linux"))]
 mod output_cpal;
+mod spatial;
 pub mod video;
 
 use std::cell::RefCell;
@@ -95,6 +96,7 @@ pub fn install(scope: &mut v8::PinScope, natives: v8::Local<v8::Object>) {
         "paramValue" => param_value,
         "setWave" => set_wave,
         "setLoop" => set_loop,
+        "setPanner" => set_panner,
         "setBuffer" => set_buffer,
         "start" => start,
         "stop" => stop,
@@ -169,6 +171,19 @@ senders! {
     disconnect(s, a) => Cmd::Disconnect { from: arg_u32(s, &a, 0), to: int(s, &a, 1) as i64, param: int(s, &a, 2) };
     set_wave(s, a) => Cmd::Node { node: arg_u32(s, &a, 0), op: NodeOp::Wave(Wave::from_code(arg_u32(s, &a, 1))) };
     set_loop(s, a) => Cmd::Node { node: arg_u32(s, &a, 0), op: NodeOp::Loop { looping: arg_bool(s, &a, 1), start: finite(s, &a, 2), end: finite(s, &a, 3) } };
+    set_panner(s, a) => Cmd::Node {
+        node: arg_u32(s, &a, 0),
+        op: NodeOp::Panner(spatial::PannerConfig {
+            hrtf: arg_bool(s, &a, 1),
+            distance: spatial::DistanceModel::from_code(arg_u32(s, &a, 2)),
+            ref_distance: finite(s, &a, 3),
+            max_distance: finite(s, &a, 4),
+            rolloff: finite(s, &a, 5),
+            cone_inner: finite(s, &a, 6),
+            cone_outer: finite(s, &a, 7),
+            cone_outer_gain: finite(s, &a, 8),
+        }),
+    };
     set_buffer(s, a) => {
         let (node, buffer) = (arg_u32(s, &a, 0), arg_u32(s, &a, 1));
         Cmd::Node { node, op: NodeOp::Buffer(with_state(|state| state.buffers.get(&buffer).cloned())) }

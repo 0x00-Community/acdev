@@ -541,6 +541,7 @@ export interface AudioNative {
   paramValue(node: number, param: number): number
   setWave(node: number, type: number): void
   setLoop(node: number, loop: boolean, loopStart: number, loopEnd: number): void
+  setPanner(node: number, hrtf: boolean, distanceModel: number, refDistance: number, maxDistance: number, rolloffFactor: number, coneInnerAngle: number, coneOuterAngle: number, coneOuterGain: number): void
   setBuffer(node: number, buffer: number): void
   start(node: number, when: number, offset: number, duration: number): void
   stop(node: number, when: number): void
