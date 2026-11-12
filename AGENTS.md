@@ -1424,7 +1424,7 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
   检查必须以预期的错误拒绝, 并列出 SDK 归档条目;
   `bash scripts/release/plan-dry-run.sh` 覆盖判断版本的各个分支 (预演、正式发布、标签已存在、版本不一致、非 main 拒绝).
   dry-run.sh 最后跑 `scripts/release/cos.sh selftest`: 用内存里的假存储桶核对上传规则 (同内容跳过、不同内容或缺 sha256 拒绝且不动远端、
-  前缀外和 `..` 的键拒绝、`latest.json` 覆盖并不缓存), 不要 SDK 也不联网.
+  前缀外和 `..` 的键拒绝、`latest.json` 覆盖并不缓存、`latest` 写别的名字拒绝), 不要 SDK 也不联网.
 - 缓存: build job 用 `Swatinem/rust-cache@v2` (pinned major). 发布作业不用 OIDC, 也没有 `id-token` 权限.
   host bundle 用 release 构建 (`bun run --filter @dopame/acde-host build:release`, 写到 `web/packages/acde-host/dist-release/`): 标识符压缩, 没有
   source map 也没有 `sourceMappingURL`, 再过一遍 javascript-obfuscator 的轻量预设 (`scripts/release-options.mjs`: 只重命名标识符和字符串数组, 不做
@@ -1448,7 +1448,7 @@ install.ps1 只用系统的 `tar.exe`, Windows 10 带的那个不一定认 xz). 
   目录结构不变). 版本目录的缓存头是一年 `immutable`.
   上传 (`scripts/release/cos.sh`, 有 uv 用 `uv run --with cos-python-sdk-v5`, 没有就在 `RUNNER_TEMP` 建 python3 venv 装 SDK; 规则在
   `scripts/release/cos.py`): 桶 `calbin-1318886512`、区域 `ap-beijing`、前缀 `pkgs` 写在工作流的 `env` (`COS_BUCKET` / `COS_REGION` / `COS_PREFIX`,
-  公开地址 `PKGS_URL`), 凭据是 Gitea secrets `COS_SECRET_ID` / `COS_SECRET_KEY` (只给 `upload`、`latest`、`latest-gitea` 的环境). 桶是共用的:
+  公开地址 `PKGS_URL`), 凭据是 Gitea secrets `COS_SECRET_ID` / `COS_SECRET_KEY` (只放在调用 `cos.sh` 的那几步的 `env`, 检出、下载产物等步骤拿不到). `latest` 子命令只写名字是 `latest.json` 的键, 别的拒绝. 桶是共用的:
   键一律是 `pkgs/<dest>/<文件>`, `COS_PREFIX` 只能是一段, 带空段、`.`、`..` 的键拒绝, 不写前缀外的东西. 版本目录只收普通文件.
 - 在 Gitea 上 (内网 `AC/acdert` → Actions → release → Run workflow; Gitea 读 `.github/workflows`; 写法照 acde-dopame 2026-11-11 在 Gitea 1.27.1 / runner v0.6.1 上验证过的):
   - 是否发布只在 `plan` 里由 shell 判断一次: 环境变量 `PUBLISH_INPUT` 是 `github.event.inputs.publish` 的原样, 等于 `true` 才发布, 结果写进

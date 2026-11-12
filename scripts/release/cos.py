@@ -2,7 +2,7 @@
 
   python scripts/release/cos.py put <version-dir> <dest>      version directory, e.g. pkgs/0.0.9 -> acdert/0.0.9
   python scripts/release/cos.py verify <version-dir> <dest>   every object is there with the local sha256
-  python scripts/release/cos.py latest <file> <dest>          latest.json, replaced, Cache-Control: no-cache
+  python scripts/release/cos.py latest <file> <dest>          latest.json, replaced, Cache-Control: no-cache (dest must end in latest.json)
   python scripts/release/cos.py selftest                      the rules against an in-memory bucket (no SDK, no network)
 
 The bucket, region and key prefix come from COS_BUCKET, COS_REGION and COS_PREFIX, the credentials from COS_SECRET_ID and
@@ -19,6 +19,7 @@ import sys
 IMMUTABLE = "public, max-age=31536000, immutable"
 NO_CACHE = "no-cache"
 TEXT = {"LICENSE", "SHA256SUMS"}
+LATEST = "latest.json"
 
 
 class Refused(Exception):
@@ -118,6 +119,8 @@ def latest(client, bucket: str, prefix: str, local: str, dest: str) -> None:
     if not path.is_file() or path.is_symlink():
         raise Refused(f"{local} is not a regular file")
     name = key(prefix, dest, "")
+    if name.rsplit("/", 1)[-1] != LATEST:
+        raise Refused(f"latest only replaces {LATEST}, not {name}")
     upload(client, bucket, path, name, sha256(path), NO_CACHE)
     print(f"put {name} (no-cache)")
 
@@ -192,6 +195,11 @@ def selftest() -> None:
         body, head = bucket.objects["pkgs/acdert/latest.json"]
         assert body == b'{"version": "0.0.1-dry"}\n', "latest.json is replaced"
         assert head["Cache-Control"] == NO_CACHE and head["Content-Type"] == "application/json", head
+        before = dict(bucket.objects)
+        refused(lambda: latest(bucket, "b", "pkgs", str(info), "acdert/0.0.0-dry/SHA256SUMS"), "only replaces latest.json")
+        refused(lambda: latest(bucket, "b", "pkgs", str(info), "acdert/0.0.0-dry/"), "only replaces latest.json")
+        refused(lambda: latest(bucket, "b", "pkgs", str(info), "acdert/not-latest.json"), "only replaces latest.json")
+        assert bucket.objects == before, "a refused latest writes nothing"
         assert all(k.startswith("pkgs/") for k in bucket.objects), sorted(bucket.objects)
     print("cos.py rules hold")
 
