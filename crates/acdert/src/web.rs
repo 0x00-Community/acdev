@@ -225,6 +225,7 @@ impl Spec {
         crate::host::clear();
         crate::audio::clear();
         crate::capture::clear();
+        crate::webgl::clear();
         #[cfg(target_os = "linux")]
         crate::webgpu::clear();
         bind::clear_promises();
@@ -371,6 +372,7 @@ fn run_web(runtime: &mut rt::Runtime, init: Vec<u8>, env: &[(String, String)], g
         bind::set(scope, natives, "createDocument", create.into());
         crate::webnative::install(scope, natives);
         grants.install(scope, natives);
+        crate::webgl::install(scope, natives);
         #[cfg(target_os = "linux")]
         crate::webgpu::install(scope, natives);
         crate::audio::install(scope, natives);

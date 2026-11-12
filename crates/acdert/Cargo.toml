@@ -12,6 +12,8 @@ v8 = "152"
 acde-napi = { path = "../acde-napi" }
 acde-render = { path = "../render" }
 acde-gpu = { path = "../gpu" }
+# WebGL (webgl.rs): the GL state machine on the shared wgpu device
+acde-webgl = { path = "../webgl" }
 acde-hostwin = { path = "../hostwin" }
 acde-runtime = { path = "../runtime" }
 # web storage (storage.rs): localStorage shared by the webs of one app or desktop, kept in SQLite

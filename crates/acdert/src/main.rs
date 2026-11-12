@@ -33,6 +33,7 @@ mod surface;
 mod sys;
 mod terminal;
 mod web;
+mod webgl;
 #[cfg(target_os = "linux")]
 mod webgpu;
 mod webnative;
