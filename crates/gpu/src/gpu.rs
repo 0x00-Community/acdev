@@ -63,6 +63,10 @@ pub fn adapters() -> (wgpu::Instance, Vec<wgpu::Adapter>) {
     (instance, adapters)
 }
 
+pub fn webgpu_features(adapter: &wgpu::Adapter) -> wgpu::Features {
+    adapter.features() & wgpu::Features::all_webgpu_mask()
+}
+
 pub fn no_adapter(instance: &wgpu::Instance) -> String {
     let (api, hint) = cfg_select! {
         windows => ("Direct3D 12", "install or update the GPU's driver from its vendor or Windows Update"),
@@ -141,7 +145,8 @@ impl Gpu {
             if weak.upgrade().is_some_and(|gpu| gpu.gone()) {
                 return log::debug!("GPU error after the device was lost: {error}");
             }
-            panic!("wgpu error: {error}");
+            let thread = std::thread::current();
+            log::error!("wgpu error on thread {} with no page to report it to: {error}", thread.name().unwrap_or("unnamed"));
         }));
         let weak = Arc::downgrade(&gpu);
         gpu.device.set_device_lost_callback(move |reason, message| {
@@ -160,7 +165,12 @@ impl Gpu {
         let (instance, adapters) = adapters();
         let Some(adapter) = adapters.into_iter().next() else { return Err(no_adapter(&instance)) };
         let info = adapter.get_info();
-        let desc = wgpu::DeviceDescriptor { label: Some(label), required_limits: adapter.limits(), ..Default::default() };
+        let desc = wgpu::DeviceDescriptor {
+            label: Some(label),
+            required_features: webgpu_features(&adapter),
+            required_limits: adapter.limits(),
+            ..Default::default()
+        };
         let (device, queue) = pollster::block_on(adapter.request_device(&desc)).map_err(|e| format!("opening {}: {e}", info.name))?;
         Ok((instance, adapter, Self::new(device, queue, info)))
     }

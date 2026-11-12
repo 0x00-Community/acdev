@@ -52,7 +52,7 @@ impl Device {
 
     fn open_adapter(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), String> {
         let limits = adapter.limits();
-        let features = adapter.features() & wgpu::Features::all_webgpu_mask();
+        let features = crate::gpu::webgpu_features(adapter);
         let hal = unsafe {
             let hal_adapter = adapter.as_hal::<Vk>().ok_or("not a Vulkan adapter")?;
             let caps = hal_adapter.physical_device_capabilities();

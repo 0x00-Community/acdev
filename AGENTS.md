@@ -177,11 +177,14 @@ acdert (一个进程)   主线程: 平台事件循环 (Windows win32, 别处 win
   合成线程每收到一批消息就合成一次, 早交出去会贴上一张空纹理 (面板只剩 backdrop 模糊, 一帧).
 - **GPU**: `gpu.rs` 只开 `acde_gpu::BACKEND` 一个后端 (Windows DX12、macOS Metal、Linux Vulkan), 不要 CPU 设备; `WGPU_VALIDATION` /
   `WGPU_DEBUG` 照 wgpu 的环境变量. 所有 `surface.configure` 和提交都拿 `acde_gpu::Gpu::submit_lock`.
+  设备请求适配器支持的全部 WebGPU 可选特性 (`acde_gpu::webgpu_features`, 与 Linux 会话 `Device::open` 同一套, #213).
   不重建设备: 设备丢失 (`gpu.rs` 的 `on_lost`) 或合成 / 出帧线程 panic (`guarded`) 时记一条 `host window: … exiting` 的 error, 经 `Cmd::Exit`
   照常退出 (丢失退 1, panic 退 101), 5 秒内没退完直接 `process::exit`. 取 surface 纹理时 Outdated / Lost 重新 configure 后当场再取一次,
   还不行或 Timeout / Occluded 时 50 ms 后再合成一次, 静止的页面不用等下一次输入. `ACDE_HOST_FAULT=outdated|lost|panic` (调试用) 让合成线程
   在第 3 次合成时把这一帧的 surface 当成过期、`acde_gpu::Gpu::destroy` 或 panic. 设备丢失后 (丢失回调或 `destroy`, `Gpu::gone`) wgpu 报的未捕获错误
   只记 debug, 不再 panic (以前出帧线程会在丢失之后多 panic 一次, 无界面时可能挂住不退出, #97).
+  wgpu 在出错调用所在的线程上回调未捕获错误: 设了 `acde_gpu::set_error_sink` 的线程 (WebGPU 所在的 web) 交给当前设备的错误作用域或
+  `uncapturederror`; 没设的线程 (合成、出帧、光栅化、轮询) 只记一条带线程名的 error, 不 panic (#213).
 - **刷新率**: 出帧节奏跟宿主窗口所在的显示器. Win32 (`platform/win32/refresh.rs`) 在窗口挪到另一台显示器 (`WM_MOVE` / `WM_SIZE` /
   `WM_DPICHANGED` 时比 `MonitorFromWindow`) 或 `WM_DISPLAYCHANGE` 后重读这台显示器的当前模式 (`EnumDisplaySettingsW` 按设备名), 发
   `HostEvent::Refresh`; `Server::set_refresh` 变了才记进 `State.refresh` 并给每条出帧线程发 `Msg::Refresh`, 打 `host window: monitor refresh` (启动时也打一次).
