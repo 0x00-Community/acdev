@@ -16,6 +16,7 @@ import { Sdk } from './sdk.ts'
 import { Acde } from './driver/acde.ts'
 import { AppPackage } from './package.ts'
 import { up } from './paths.ts'
+import { Pkgs } from './pkgs.ts'
 import { PackageManager } from './pm.ts'
 import { Runtime, type SpawnOptions } from './runtime.ts'
 import { Sessions, type Session } from './sessions.ts'
@@ -84,7 +85,7 @@ const FROM: Readonly<Record<NonNullable<FoundAcdert['from']>, string>> = {
 }
 
 export class Doctor {
-  static readonly DIST = 'https://pkgs.dopame.ai/acde'
+  static readonly DIST = Pkgs.ACDE
   static readonly HELP_MS = 10_000
   static readonly RUNTIME_MS = 60_000
   static readonly SESSION_MS = 3_000

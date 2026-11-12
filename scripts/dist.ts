@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util'
 import JavaScriptObfuscator from 'javascript-obfuscator'
 import ts from 'typescript'
 import { Bundler } from '../src/bundler.ts'
+import { Pkgs } from '../src/pkgs.ts'
 import { shipLeaks } from './shipped.ts'
 import { skillProblems } from './skill.ts'
 
@@ -134,6 +135,9 @@ writeFileSync(pairing, `${values.sdk}\n`)
 const paired = createHash('sha256').update(readFileSync(pairing)).digest('hex')
 writeFileSync(join(dir, 'SHA256SUMS'), `${paired}  ${PAIRING}\n${sum}  ${name}.tar.gz\n`)
 writeFileSync(join(out, 'latest'), `${version}\n`)
+const scripts = ['install.sh', 'install.ps1'].map((file) => readFileSync(join(ROOT, file), 'utf8'))
+const addresses = Pkgs.scriptProblems(scripts[0]!, scripts[1]!)
+if (addresses.length > 0) throw new Error(addresses.join('\n'))
 copyFileSync(join(ROOT, 'install.sh'), join(out, 'install.sh'))
 copyFileSync(join(ROOT, 'install.ps1'), join(out, 'install.ps1'))
 copyFileSync(join(ROOT, 'install.md'), join(out, 'install.md'))

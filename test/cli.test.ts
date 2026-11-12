@@ -14,6 +14,7 @@ import { API_LEVEL, Manifest, platformSupport, RUNNING_MODES } from '@dopame/acd
 import { which } from '../launcher.mjs'
 import { Project } from '../src/app.ts'
 import { Creator } from '../src/create.ts'
+import { Pkgs } from '../src/pkgs.ts'
 import { Sdk } from '../src/sdk.ts'
 import { ACTIONS } from '../src/driver/acde.ts'
 import type { AppPackage } from '../src/package.ts'
@@ -490,14 +491,14 @@ describe('a project made by acde from its checkout', () => {
     })
   }
 
-  test('the SDK is the tarball of the version this acde pairs with, from pkgs.dopame.ai', () => {
+  test('the SDK is the tarball of the version this acde pairs with, from the download site', () => {
     expect(Creator.INSTALLED).toBe(false)
     const { version } = JSON.parse(readFileSync(join(API, 'package.json'), 'utf8')) as { version: string }
     expect(Sdk.paired()).toBe(version)
     const saved = process.env['ACDERT_DIST']
     delete process.env['ACDERT_DIST']
     try {
-      expect(Sdk.url()).toBe(`https://pkgs.dopame.ai/acdert/${version}/acde-api-${version}.tar.gz`)
+      expect(Sdk.url()).toBe(`${Pkgs.ACDERT}/${version}/acde-api-${version}.tar.gz`)
     } finally {
       if (saved !== undefined) process.env['ACDERT_DIST'] = saved
     }

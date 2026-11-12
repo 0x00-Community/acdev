@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { installDir, installed } from 'acde/launcher'
+import { Pkgs } from './pkgs.ts'
 import { PackageManager } from './pm.ts'
 import { Runtime } from './runtime.ts'
 
@@ -14,7 +15,7 @@ export interface SdkState {
 export class Sdk {
   static readonly NAME = '@dopame/acde-api'
   static readonly SECTIONS = ['devDependencies', 'dependencies'] as const
-  static readonly DIST = 'https://pkgs.dopame.ai/acdert'
+  static readonly DIST = Pkgs.ACDERT
   static readonly ROOT = realpathSync(join(import.meta.dirname, '..'))
 
   static paired(): string {

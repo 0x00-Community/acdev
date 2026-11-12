@@ -121,7 +121,7 @@ dev 只多了改动后自动重建刷新和调试接口；“装好后的样子�
   `acde:build` / `acde:check`. 脚本调 PATH 上全局装的 `acde`, 工程里没有 `acde` 依赖. 建好后的下一步提示 (`Creator.next`)
   给含空白的目录加双引号, Windows 上不转义反斜杠. devDependencies: `@dopame/acde-api` (`Creator.api`); npm / pnpm / yarn 下自带模板另加 `vite: ^8` (`Creator.VITE`: Node 上用工程的 Vite 打包).
 - `@dopame/acde-api` 的依赖写法 (acde#29, acde#60): SDK 不发 npm, 只在 pkgs 上. 一律写这个 acde 配对的那一版 SDK 的 tarball 地址
-  `https://pkgs.dopame.ai/acdert/<版本>/acde-api-<版本>.tar.gz` (`Creator.sdkVersion()`: 全局装的取随包 `lib/acde-api/package.json`, 检出跑的
+  `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acdert/<版本>/acde-api-<版本>.tar.gz` (`Creator.sdkVersion()`: 全局装的取随包 `lib/acde-api/package.json`, 检出跑的
   取 acde 自己 `file:` 依赖的 acdert 检出里的 SDK 版本). 没有别的覆盖方式, 不回退到 npm 版本号; `ACDERT_DIST` 设了时换掉地址前缀, 只给本地镜像
   测试用 (测试的 `sdkMirror()` 把检出的 SDK 打成同样的 tarball 再起本地服务), 文档不提. 换机器、CI 都装得上, lockfile 记下 tarball 与校验和.
   开发 acde 的人 `bun link` / `npm link` 把 `bin/acde.mjs` 放上 PATH.
@@ -265,7 +265,7 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 运行时级别和 SDK 的 `API_LEVEL` 不同是错误 (dev 会拒绝); 相同但 acdert 版本不是 SDK 的版本 (配对的那版) 是警告) → 运行时自检 (`runtime.<id>`, 见下) →
 `acde dev sessions` (`sessions`: 会话目录有问题是错误; 列出在跑的; 每个会话连上去问 `permissions`, 3 s 不答是警告) 和每个待答提示一条 `approval` 警告
 (应用答之前不开窗口, fix 说批准是用户的决定) → 工程 (见下) → `agent skill` (`skill`: 没装、`outdated` / `broken` 是警告) → `--online` 时 `latest release`
-(`latest`: GET `$ACDE_DIST/latest` (默认 `https://pkgs.dopame.ai/acde`), 5 s; 比这个新是警告, fix 是重跑安装器; 取不到是警告).
+(`latest`: GET `$ACDE_DIST/latest` (默认 `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde`), 5 s; 比这个新是警告, fix 是重跑安装器; 取不到是警告).
 有 `error` 退出 1. 输出 `Doctor.format`: 每项 `<状态补到 6 列> <标题>: <内容>`, 有 fix 时下一行 7 个空格加 `fix: …`, 最后一行
 `acde doctor: N errors, M warnings` / `no errors, M warnings` / `everything acde needs is here`; `--json` 是 `{ok, checks: [{id, title, status, summary, fix?}]}`.
 
@@ -490,8 +490,10 @@ Node 上 `node` 跑. 配置写了 `entry` 时不认 Vite (html / desktop 模板�
 ## 分发 (`install.sh`, `install.ps1`, `scripts/dist.ts`)
 
 只有全局安装: 安装器把 acde 和与它配对的 acdert 一起装, 不经 npm, 不要 root, 不带也不下载 bun / Node. 下载地址 `ACDE_DIST` (默认
-`https://pkgs.dopame.ai/acde`) 和 `ACDERT_DIST` (默认 `https://pkgs.dopame.ai/acdert`), 两个脚本开头各一处, 末尾的 `/` 去掉. 桶是 `dopame-pkgs`,
-前缀 `acde/`, 由 CloudFront 经 `pkgs.dopame.ai` 提供: `acde/install.sh`、`acde/install.ps1`、`acde/install.md` (给 agent 读的安装步骤, 见
+`Pkgs.ACDE`) 和 `ACDERT_DIST` (默认 `Pkgs.ACDERT`), 两个脚本开头各一处, 末尾的 `/` 去掉. 地址只有一处: `src/pkgs.ts` 的 `Pkgs.BASE`
+(`https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs`, 腾讯云 COS), `Doctor.DIST`、`Sdk.DIST`、测试都引用它; 脚本不能 import,
+`scripts/dist.ts` 打包前用 `Pkgs.scriptProblems` 对两个脚本的默认值, 不一致就失败 (`test/pkgs.test.ts` 也查). 桶是 `calbin-1318886512`
+(`ap-beijing`, 和别人共用, 我们只写 `pkgs/` 前缀下), 公开读, 前缀 `pkgs/acde/`: `acde/install.sh`、`acde/install.ps1`、`acde/install.md` (给 agent 读的安装步骤, 见
 「Skill 与文档」)、`acde/latest`、`acde/latest.json`、`acde/<版本>/SHA256SUMS`、`acde/<版本>/acdert-version`、`acde/<版本>/acde-<版本>.tar.gz`
 (一个通用包, 不分平台); 官网 `https://dopame.ai/install.*` 指向这里. 发布由 `.github/workflows/release.yml` 完成 (见下). 本地托管目录就是 dist.ts 的
 `--out`: `install.sh`、`install.ps1`、`install.md`、`latest` (版本号)、`<版本>/SHA256SUMS`、`<版本>/acdert-version`、`<版本>/acde-<版本>.tar.gz`.
@@ -661,8 +663,8 @@ skills/acde/references/<组>/<页>.md     组是 start / guide / reference; 路�
   (`{created: [绝对路径]}`); `remove` 删掉 skill 后从那一处往上, 只删记过且已空的目录, 删了就从记录里去掉. 用户原有的目录 (没记过的) 和
   里面还有别的东西的目录都不动. 记录放 acde 自己的数据目录, 不在 agent 的 skills 目录里留文件.
 
-**`install.md`** (仓库根, 发布到 `https://pkgs.dopame.ai/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
-`Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
+**`install.md`** (仓库根, 发布到 `https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.md`): 写给 agent 的安装步骤. 用户只要把一句话交给自己的 agent:
+`Read https://calbin-1318886512.cos.ap-beijing.myqcloud.com/pkgs/acde/install.md and follow it to set up acde on this machine.` 步骤是: 查 Bun / Node.js、跑安装脚本、确认
 `acde` 能跑、`acde skills install`、`acde doctor` 查一遍 (找到的运行时、它的 GPU 自检等; 安装器已把配对的 acdert 装在 acde 旁边; `acdert` 那项是错误时先重跑安装器, 安装器在这台机器上用不了时才问用户, 同意了只照 skill `start/install.md` 的「Install the runtime by hand」从 pkgs 装, 不编、不找别的来路)、建一个工程 check 和 build 再 `acde dev --headless`
 截图、汇报. 步骤放在这个文件里而不是 prompt 里, 改步骤不用改用户手里的那句话. 安装脚本的行为、`acde skills`、运行时怎么找变了, 这个文件一起改;
 改完在临时 `HOME` 里照着走一遍 (`ACDE_DIST` 指向本地 `dist.ts --out` 的目录).

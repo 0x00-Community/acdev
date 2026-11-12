@@ -8,6 +8,7 @@ import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { which } from '../launcher.mjs'
 import { systemTar } from '../scripts/shipped.ts'
+import { Pkgs } from '../src/pkgs.ts'
 import { cleanup, collect, env, skipping, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
@@ -453,7 +454,7 @@ describe('the release archive and the installed CLI', () => {
       devDependencies?: Record<string, string>
     }
     const api = manifest.devDependencies?.['@dopame/acde-api'] ?? ''
-    expect(api).toBe(`https://pkgs.dopame.ai/acdert/${SDK}/acde-api-${SDK}.tar.gz`)
+    expect(api).toBe(`${Pkgs.ACDERT}/${SDK}/acde-api-${SDK}.tar.gz`)
     expect(api).not.toContain(home)
   }, 300_000)
 

@@ -5,6 +5,7 @@ import {
 import { join } from 'node:path'
 import { skillProblems } from '../scripts/skill.ts'
 import { Agents } from '../src/agents.ts'
+import { Pkgs } from '../src/pkgs.ts'
 import { cleanup, collect, env, tmp } from './helpers.ts'
 
 const ROOT = join(import.meta.dir, '..')
@@ -59,7 +60,7 @@ describe('the skill', () => {
     const used = code.flatMap((line) => /^acde ([a-z]+)\b/.exec(line)?.[1] ?? [])
     expect(used.length).toBeGreaterThan(8)
     expect(used.filter((command) => !commands.has(command))).toEqual([])
-    const prompt = 'Read https://pkgs.dopame.ai/acde/install.md and follow it to set up acde on this machine.'
+    const prompt = `Read ${Pkgs.ACDE}/install.md and follow it to set up acde on this machine.`
     for (const page of ['start/install.md', 'guide/agents.md']) {
       expect(readFileSync(join(SKILL, 'references', page), 'utf8')).toContain(prompt)
     }

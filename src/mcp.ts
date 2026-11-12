@@ -138,7 +138,8 @@ export class Mcp {
         inputSchema: z.object({
           dir: z.string().optional().describe('the project directory to check, relative to the working directory '
             + '(default: the working directory)'),
-          online: z.boolean().optional().describe('also ask pkgs.dopame.ai whether a newer acde is out'),
+          online: z.boolean().optional()
+            .describe('also ask the acde download site (ACDE_DIST) whether a newer acde is out'),
         }),
         annotations: { readOnlyHint: true, openWorldHint: true },
       },
