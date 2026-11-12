@@ -299,7 +299,8 @@ describe('acde doctor', () => {
     for (const line of prose) expect(line.length, line).toBeLessThanOrEqual(60)
   })
 
-  test('format: not in a terminal, rows are not wrapped, so a path or command in a summary or fix copies whole', () => {
+  test('format: not in a terminal, rows are not wrapped, ' +
+    'so a path or command in a summary or fix copies whole', () => {
     const home = '/Users/Jane Doe/Library/Application Support/acde'
     const checks = [
       Doctor.warn('path', 'PATH', `acde on PATH is another one (/usr/local/bin/acde), not this one (${home})`,

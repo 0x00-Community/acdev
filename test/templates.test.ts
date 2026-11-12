@@ -148,11 +148,13 @@ describe('templates at contract level 1', () => {
       writeFileSync(join(dir, 'node_modules', 'x', 'index.js'), '// save to test HMR')
       Creator.adopt(dir, 'made-by-vite', 'Vite App', 'React')
       const read = (path: string) => readFileSync(join(dir, path), 'utf8')
-      const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => !f.startsWith('node_modules'))
+      const files = readdirSync(dir, { recursive: true, encoding: 'utf8' })
+        .filter((f) => !f.startsWith('node_modules'))
       for (const file of files.filter((f) => /\.(tsx|vue|svelte|ts|md)$/.test(f)))
         expect(read(file), file).not.toMatch(/hmr/i)
       const pages = files.filter((f) => /\.(tsx|vue|svelte|ts)$/.test(f))
-      for (const page of pages) expect(read(page), page).toMatch(/Edit <code>[^<]+<\/code> and save to reload the page/)
+      const reloads = /Edit <code>[^<]+<\/code> and save to reload the page/
+      for (const page of pages) expect(read(page), page).toMatch(reloads)
       expect(read(join('node_modules', 'x', 'index.js'))).toBe('// save to test HMR')
     })
   }
