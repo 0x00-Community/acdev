@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { which } from '../launcher.mjs'
 import { Pkgs } from '../src/pkgs.ts'
 import { Sdk } from '../src/sdk.ts'
-import { cleanup, collect, env, sdkMirror, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, collect, env, fakePm, sdkMirror, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 
@@ -21,18 +21,6 @@ function oldProject(dir = tmp(), fields: Record<string, unknown> = {}): string {
     name: 'old', ...fields, devDependencies: { '@dopame/acde-api': OLD },
   }, null, 2))
   return dir
-}
-
-function fakePm(name: string, script: string): string {
-  const bin = tmp()
-  const entry = join(bin, `${name}.mjs`)
-  writeFileSync(entry, script)
-  if (WINDOWS) writeFileSync(join(bin, `${name}.cmd`), `@echo off\r\n"${process.execPath}" "${entry}" %*\r\n`)
-  else {
-    writeFileSync(join(bin, name), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(entry)} "$@"\n`,
-      { mode: 0o755 })
-  }
-  return bin
 }
 
 afterAll(cleanup)
@@ -236,6 +224,23 @@ describe('acde check on a project', () => {
     expect(updated.stdout).toContain(`; ${join('..', '..', '.npmrc')} now has allow-remote=root`)
     expect(readFileSync(join(root, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
     expect(existsSync(join(member, '.npmrc'))).toBe(false)
+  })
+
+  test('acde sdk update writes allow-remote=root for npm 12, not for npm 11, which warns about it or narrows it', async () => {
+    const npm = (version: string) => fakePm('npm', [
+      'const [command] = process.argv.slice(2)',
+      `if (command === '--version') console.log(${JSON.stringify(version)})`,
+      "else if (command === 'prefix') console.log(process.cwd())",
+    ].join('\n'))
+    const eleven = oldProject(tmp(), { packageManager: 'npm@11.10.0' })
+    const kept = await cli(['sdk', 'update'], eleven, { PATH: npm('11.10.0') })
+    expect(kept.code, kept.out).toBe(0)
+    expect(kept.stdout).toBe(`acde: @dopame/acde-api is ${Sdk.paired()} (${Sdk.url()}), installed with npm\n`)
+    expect(existsSync(join(eleven, '.npmrc'))).toBe(false)
+    const twelve = oldProject(tmp(), { packageManager: 'npm@12.2.2' })
+    const added = await cli(['sdk', 'update'], twelve, { PATH: npm('12.2.2') })
+    expect(added.stdout).toContain('installed with npm; .npmrc now has allow-remote=root (npm 12 refuses')
+    expect(readFileSync(join(twelve, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
   })
 
   test('acde sdk update: a package manager that does not start leaves the project as it was', async () => {

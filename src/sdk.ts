@@ -23,6 +23,7 @@ export class Sdk {
   static readonly NPMRC = 'allow-remote=root'
   static readonly SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
   static readonly PREFIX_MS = 30_000
+  static readonly NPM_REFUSES = 12
   static readonly LOCKS = [
     'package-lock.json', 'npm-shrinkwrap.json', 'bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'yarn.lock',
   ]
@@ -75,6 +76,10 @@ export class Sdk {
     } catch {
       return null
     }
+  }
+
+  static refusesUrls(npm: string | null): boolean {
+    return npm !== null && Number(npm.split('.', 1)[0]) >= Sdk.NPM_REFUSES
   }
 
   static allowRemote(dir: string): boolean {
@@ -130,6 +135,7 @@ export class Sdk {
     const install = Sdk.#install(pm)
     const config = pm.name === 'npm' ? realpathSync(await Sdk.#prefix(install[0]!, dir)) : dir
     const places = [...new Set([dir, ...(pm.at === null ? [] : [realpathSync(pm.at)]), config])]
+    const gate = pm.name === 'npm' && Sdk.refusesUrls(pm.version())
     const kept = Sdk.#keep([file, ...places.flatMap((at) => [
       ...(at === dir ? [] : ['package.json']), ...Sdk.LOCKS, '.npmrc',
     ].map((name) => join(at, name)))])
@@ -149,7 +155,7 @@ export class Sdk {
     let failure: string | null = null
     try {
       writeFileSync(file, `${JSON.stringify(pkg, null, indent)}\n`)
-      npmrc = pm.name === 'npm' && Sdk.allowRemote(config)
+      npmrc = gate && Sdk.allowRemote(config)
       child = Runtime.spawn(install, { cwd: dir, stdio: 'inherit' })
       const code = await child.exited.catch((error: unknown) => {
         failure = `${pm.name} install did not start (${Output.message(error)})`

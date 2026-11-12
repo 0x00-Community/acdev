@@ -267,8 +267,9 @@ export class Creator {
       }
       if (pm.name === 'yarn' && !existsSync(join(dir, '.yarnrc.yml')))
         writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
-      if (pm.name === 'npm') Sdk.allowRemote(dir)
-      Creator.#pin(dir, pm)
+      const version = pm.version()
+      if (pm.name === 'npm' && Sdk.refusesUrls(version)) Sdk.allowRemote(dir)
+      Creator.#pin(dir, pm, version)
     } catch (error) {
       Creator.#undo(dir, existed)
       const left = existed ? `${dir} is empty again` : `${dir} was removed`
@@ -388,11 +389,10 @@ export class Creator {
     return new PackageManager(runtime === 'bun' ? 'bun' : 'npm')
   }
 
-  static #pin(dir: string, pm: PackageManager): void {
+  static #pin(dir: string, pm: PackageManager, version: string | null): void {
     const file = join(dir, 'package.json')
     const json = JSON.parse(readFileSync(file, 'utf8')) as { packageManager?: string }
     if (json.packageManager) return
-    const version = pm.version()
     if (!version) return
     json.packageManager = `${pm.name}@${version}`
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)

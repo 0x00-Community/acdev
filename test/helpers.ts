@@ -179,6 +179,18 @@ export function fakeBrowser(root: string): string {
   return browser
 }
 
+export function fakePm(name: string, script: string): string {
+  const bin = tmp()
+  const entry = join(bin, `${name}.mjs`)
+  writeFileSync(entry, script)
+  if (WINDOWS) writeFileSync(join(bin, `${name}.cmd`), `@echo off\r\n"${process.execPath}" "${entry}" %*\r\n`)
+  else {
+    writeFileSync(join(bin, name), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(entry)} "$@"\n`,
+      { mode: 0o755 })
+  }
+  return bin
+}
+
 export function standIn(): { root: string; env: Record<string, string>; project: string } {
   const root = tmp()
   const log = join(root, 'fake.log')

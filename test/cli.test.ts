@@ -20,7 +20,7 @@ import { ACTIONS } from '../src/driver/acde.ts'
 import type { AppPackage } from '../src/package.ts'
 import { PackageManager } from '../src/pm.ts'
 import { Tools } from '../src/tools.ts'
-import { cleanup, collect, env, sdkMirror, standIn, tmp, WINDOWS } from './helpers.ts'
+import { cleanup, collect, env, fakePm, sdkMirror, standIn, tmp, WINDOWS } from './helpers.ts'
 
 const CLI = join(import.meta.dir, '../src/cli.ts')
 const APP = join(import.meta.dir, 'fixtures/app')
@@ -521,10 +521,18 @@ describe('a project made by acde from its checkout', () => {
     }
   })
 
-  test('npm projects get an .npmrc that lets npm 12 fetch the SDK tarball; others do not', async () => {
-    const npm = join(tmp(), 'with-npm')
-    expect((await cli(['new', npm, '--pm', 'npm', '--no-install'], tmp())).code).toBe(0)
-    expect(readFileSync(join(npm, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
+  test('npm 12 projects get an .npmrc that lets npm fetch the SDK tarball; npm 11 and others do not', async () => {
+    const npm = (version: string) => fakePm('npm', `console.log(${JSON.stringify(version)})`)
+    const twelve = join(tmp(), 'with-npm-12')
+    expect((await cli(['new', twelve, '--pm', 'npm', '--no-install'], tmp(), { PATH: npm('12.2.2') })).code).toBe(0)
+    expect(readFileSync(join(twelve, '.npmrc'), 'utf8')).toBe('allow-remote=root\n')
+    expect(JSON.parse(readFileSync(join(twelve, 'package.json'), 'utf8')).packageManager).toBe('npm@12.2.2')
+    const eleven = join(tmp(), 'with-npm-11')
+    expect((await cli(['new', eleven, '--pm', 'npm', '--no-install'], tmp(), { PATH: npm('11.10.0') })).code).toBe(0)
+    expect(existsSync(join(eleven, '.npmrc'))).toBe(false)
+    expect(Sdk.refusesUrls('12.0.0')).toBe(true)
+    expect(Sdk.refusesUrls('11.16.0')).toBe(false)
+    expect(Sdk.refusesUrls(null)).toBe(false)
     const bun = join(tmp(), 'with-bun')
     expect((await cli(['new', bun, '--pm', 'bun', '--no-install'], tmp())).code).toBe(0)
     expect(existsSync(join(bun, '.npmrc'))).toBe(false)
