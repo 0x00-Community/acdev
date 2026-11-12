@@ -35,6 +35,9 @@ const windows: Win[] = [
   { ref: 'w1', id: 7, kind: 'web', app: 'alpha', title: 'Alpha', rect: [4, 2, 8, 6], focus: true, hidden: false },
 ]
 const WINDOWLESS = !!process.env['FAKE_ACDERT_WINDOWLESS']
+const OPENS = !!process.env['FAKE_ACDERT_OPENS']
+const ORIGIN = process.env['FAKE_ACDERT_ORIGIN'] ?? 'http://acde.local'
+const pages = new Map<number, string>([[7, `${ORIGIN}/index.html`]])
 let pageless = Number(process.env['FAKE_ACDERT_PAGELESS_SHOTS'] ?? 0)
 if (WINDOWLESS) windows.length = 0
 const tasks: { name: string; done: boolean }[] = []
@@ -151,7 +154,42 @@ function tree(win: Win): Node[] {
       })),
     },
     { ref: 'w1.5', role: 'text', name: `${tasks.length} tasks`, rect: [4, 6, 8, 1] },
+    ...(OPENS ? [{ ref: 'w1.30', role: 'link', name: 'Other page', rect: [4, 7, 4, 1] } as Node] : []),
   ]
+}
+
+function navigate(from: Win, href: string, target: string): string {
+  const url = new URL(href, pages.get(from.id) ?? `${ORIGIN}/`).href
+  if (url.startsWith('http://acde.local/')) {
+    if (['_self', '_parent', '_top'].includes(target.trim().toLowerCase())) {
+      pages.set(from.id, url)
+      return `reloaded ${url}`
+    }
+    const id = Math.max(8, ...windows.map((w) => w.id)) + 1
+    for (const w of windows) w.focus = false
+    windows.push({
+      ref: `w${windows.length}`, id, kind: 'web', app: from.app, title: from.title, rect: [5, 3, 8, 6], focus: true,
+      hidden: false,
+    })
+    pages.set(id, url)
+    return `opened ${url}`
+  }
+  if (/^https?:\/\//i.test(url)) {
+    record({ openUrl: url })
+    return `handed ${url} to the system`
+  }
+  return `does not follow ${url}`
+}
+
+function evaluate(web: string, code: string): unknown {
+  const win = windows.find((w) => webs().some((x) => x.name === web && x.window === w.id))
+  const opened = /^window\.open\((['"])(.*?)\1(?:,\s*(['"])(.*?)\3)?\)$/.exec(code)
+  if (win && opened) {
+    navigate(win, opened[2]!, opened[4] ?? '_blank')
+    return null
+  }
+  if (win && code === 'location.href') return pages.get(win.id) ?? null
+  return { web, code }
 }
 
 function find(nodes: Node[], needle: string): Node[] {
@@ -205,6 +243,10 @@ function act(ref: string, action: string, arg: unknown): { ok: boolean; text: st
     if (a < 0 || b < 0 || !tasks[a] || !tasks[b]) return { ok: false, text: `cannot drag ${ref} onto ${String(arg)}` }
     tasks.splice(b, 0, ...tasks.splice(a, 1))
     return { ok: true, text }
+  }
+  if (ref === 'w1.30' && action === 'click') {
+    const alpha = windows.find((w) => w.id === 7)!
+    return { ok: true, text: `${text}: ${navigate(alpha, '/other.html', '_blank')}` }
   }
   if (ref === 'w1.2' && action === 'settext') draft = String(arg ?? '')
   if (ref === 'w1.2' && action === 'type') draft += String(arg ?? '')
@@ -303,7 +345,7 @@ function devtools(): Promise<{ port: number; token?: string }> {
 function webs() {
   const names: Record<number, string> = { 0: 'desktop', 7: 'alpha#7', 8: 'beta#8' }
   return windows.map((w) => ({
-    name: names[w.id]!,
+    name: names[w.id] ?? `${w.app}#${w.id}`,
     app: w.app,
     kind: w.kind === 'desktop' ? 'desktop' : 'app',
     window: w.id,
@@ -419,7 +461,8 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
     case 'webs':
       return void ok({ webs: webs() })
     case 'eval':
-      return void (m['web'] === 'nope' ? fail('no web "nope"') : ok({ value: { web: m['web'], code: m['code'] } }))
+      if (m['web'] === 'nope') return void fail('no web "nope"')
+      return void ok({ value: evaluate(String(m['web']), String(m['code'])) })
     case 'shot': {
       if (pageless > 0) {
         pageless--

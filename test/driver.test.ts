@@ -258,6 +258,50 @@ describe('the driver against acde dev with a stand-in acdert', () => {
     check(Sessions.list(sessions)).toEqual([])
   }, 60_000)
 
+  test('a same-origin _blank link and window.open open another window of the app; the first keeps its page',
+    async () => {
+      const s = standIn()
+      const acde = await Acde.launch({ cwd: s.project, env: { ...s.env, FAKE_ACDERT_OPENS: '1' }, timeout: 2_000 })
+      try {
+        const first = acde.window({ id: 7 })
+        const field = first.getByRole('textbox', { name: 'New task' })
+        await field.fill('Keep me')
+        await first.getByRole('link', { name: 'Other page' }).click()
+        check((await acde.webs()).map((w) => [w.name, w.app])).toEqual([['desktop', null], ['alpha#7', 'alpha'],
+          ['alpha#9', 'alpha']])
+        check(await acde.evaluate('alpha#7', 'location.href')).toBe('http://acde.local/index.html')
+        check(await acde.evaluate('alpha#9', 'location.href')).toBe('http://acde.local/other.html')
+        await expect(field).toHaveValue('Keep me')
+
+        check(await first.evaluate("window.open('/other.html')")).toBeNull()
+        check((await acde.webs()).map((w) => w.name)).toEqual(['desktop', 'alpha#7', 'alpha#9', 'alpha#10'])
+        check(await acde.evaluate('alpha#10', 'location.href')).toBe('http://acde.local/other.html')
+        check(await acde.evaluate('alpha#7', 'location.href')).toBe('http://acde.local/index.html')
+        await expect(field).toHaveValue('Keep me')
+      } finally {
+        await acde.close()
+      }
+    }, 60_000)
+
+  test('an app served by a dev server (not under acde.local): a same-origin link opens no window of the app',
+    async () => {
+      const s = standIn()
+      const env = { ...s.env, FAKE_ACDERT_OPENS: '1', FAKE_ACDERT_ORIGIN: 'http://localhost:5173' }
+      const acde = await Acde.launch({ cwd: s.project, env, timeout: 2_000 })
+      try {
+        const first = acde.window({ id: 7 })
+        await first.getByRole('link', { name: 'Other page' }).click()
+        check(await first.evaluate("window.open('/other.html')")).toBeNull()
+        check((await acde.webs()).map((w) => w.name)).toEqual(['desktop', 'alpha#7'])
+        check(await acde.evaluate('alpha#7', 'location.href')).toBe('http://localhost:5173/index.html')
+        const log = readFileSync(join(s.root, 'fake.log'), 'utf8').split('\n').filter(Boolean)
+          .map((line) => JSON.parse(line) as { openUrl?: string }).flatMap((entry) => entry.openUrl ?? [])
+        check(log).toEqual(['http://localhost:5173/other.html', 'http://localhost:5173/other.html'])
+      } finally {
+        await acde.close()
+      }
+    }, 60_000)
+
   test('closing the only window of a single-app session ends it, and close says so; ' +
     'any other loss of the connection is an error', async () => {
     const s = standIn()
