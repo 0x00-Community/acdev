@@ -539,6 +539,7 @@ mod signals {
                     SIGHUP => "SIGHUP",
                     _ => "SIGTERM",
                 };
+                crate::inspector::release_pauses();
                 _ = loop_tx.send(super::signalled(callback.clone(), name));
             }
         });
@@ -575,6 +576,7 @@ mod signals {
         let Some((loop_tx, callback)) = LISTENER.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return 0;
         };
+        crate::inspector::release_pauses();
         i32::from(loop_tx.send(super::signalled(callback, name)).is_ok())
     }
 }

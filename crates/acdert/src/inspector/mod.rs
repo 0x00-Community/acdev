@@ -331,11 +331,17 @@ pub fn stop_when(stopping: Arc<AtomicBool>) {
 
 const PAUSE_POLL: Duration = Duration::from_millis(100);
 
+static RELEASED: AtomicBool = AtomicBool::new(false);
+
+pub fn release_pauses() {
+    RELEASED.store(true, Ordering::SeqCst);
+}
+
 fn paused(isolate: v8::UnsafeRawIsolatePtr, context: &v8::Global<v8::Context>) {
     let Some(pending) = STATE.with(|s| {
         let s = s.borrow();
         let s = s.as_ref()?;
-        if s.extra.borrow().is_empty() {
+        if s.extra.borrow().is_empty() || RELEASED.load(Ordering::SeqCst) {
             return None;
         }
         s.pause.quit.set(false);
@@ -350,7 +356,7 @@ fn paused(isolate: v8::UnsafeRawIsolatePtr, context: &v8::Global<v8::Context>) {
         STATE.with(|s| {
             s.borrow().as_ref().is_none_or(|s| {
                 let stopping = s.pause.stopping.borrow().as_ref().is_some_and(|f| f.load(Ordering::SeqCst));
-                s.pause.quit.get() || stopping || s.extra.borrow().is_empty()
+                s.pause.quit.get() || stopping || s.extra.borrow().is_empty() || RELEASED.load(Ordering::SeqCst)
             })
         })
     };
