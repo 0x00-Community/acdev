@@ -29,7 +29,10 @@ export class DevtoolsBrowser {
   }
 
   static args(profile: string): string[] {
-    return [`--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check']
+    return [
+      `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',
+      '--no-startup-window',
+    ]
   }
 
   static activePort(profile: string): ActivePort | null {

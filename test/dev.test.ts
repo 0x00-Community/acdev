@@ -589,6 +589,7 @@ describe('acde dev with a stand-in acdert', () => {
       const caches = process.platform === 'darwin' ? join(base, 'Library', 'Caches') : cache
       expect(profile.startsWith(join(caches, 'acde', 'devtools'))).toBe(true)
       expect(started[0]!.started).toContain('--remote-debugging-port=0')
+      expect(started[0]!.started).toContain('--no-startup-window')
       expect(started[0]!.started).not.toContain(url)
       expect(said().filter((entry) => entry.method === 'Target.createTarget').map((entry) => entry.params?.url))
         .toEqual([url])
