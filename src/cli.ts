@@ -1,27 +1,14 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import * as p from '@clack/prompts'
-import { API_LEVEL } from '@dopame/acde-api/manifest'
 import { findAcdert, requireAcdert, run, runtimes } from 'acde/launcher'
-import { Creator, STARTERS } from './create.ts'
-import { DevSession } from './dev.ts'
-import { Devtools } from './devtools.ts'
-import { Doctor } from './doctor.ts'
-import { ACTIONS } from './driver/acde.ts'
-import { TestRunner } from './e2e/runner.ts'
+import { ACTIONS } from './driver/types.ts'
 import { Color } from './color.ts'
 import { Help } from './help.ts'
-import { Mcp } from './mcp.ts'
 import { Exit, Output } from './output.ts'
-import { PackageManager } from './pm.ts'
-import { AppPackage } from './package.ts'
+import type { AppPackage } from './package.ts'
 import { Runtime } from './runtime.ts'
-import { Sdk, SdkInterrupted } from './sdk.ts'
-import { Sessions } from './sessions.ts'
-import { Skills } from './skills.ts'
-import { Tools } from './tools.ts'
-import { Uninstall } from './uninstall.ts'
+import { STARTERS } from './starters.ts'
 import { Versions } from './versions.ts'
 
 interface Spec {
@@ -126,10 +113,11 @@ class Cli {
   }
 
   static async versions(): Promise<string[]> {
+    const { API_LEVEL } = await import('@dopame/acde-api/manifest')
     const lines = [Versions.acde(), `sdk ${Versions.sdk()} (contract level ${API_LEVEL})`]
     const acdert = findAcdert().path
     if (!acdert) return [...lines, 'acdert: not found (ACDERT, next to acde, PATH)']
-    const { said, failed } = await DevSession.runtimeLevel(acdert)
+    const { said, failed } = await Runtime.level(acdert)
     if (failed) return [...lines, `acdert does not run (${failed}): ${acdert}`]
     const named = said.split(/\r?\n/).map((line) => line.trim())
       .find((line) => /^acdert \S+ \(contract level \d+\)$/.test(line))
@@ -157,11 +145,13 @@ class Cli {
       return 0
     }
     const { command, args, flags } = Cli.parse(argv)
+    const { Tools } = await import('./tools.ts')
     if (Tools.COMMANDS.has(command)) return await Tools.run(command, args, flags)
     if (command === 'devtools') {
       const session = Tools.pid(flags.get('session'), command)
       const say = (line: string) => console.error(line)
       const window = args[0] !== undefined ? { window: args[0] } : {}
+      const { Devtools } = await import('./devtools.ts')
       return await Devtools.run({ ...window, ...(session !== undefined && { session }), say })
     }
     const followed = await Cli.follow(command, args[0] ?? '.', argv)
@@ -180,6 +170,7 @@ class Cli {
       const video = flags.has('video') ? flags.get('video') || 'failed' : undefined
       if (video !== undefined && video !== 'on' && video !== 'failed' && video !== 'off')
         throw Output.option('test', 'video', video, 'failed (the default: only for failing tests), on or off')
+      const { TestRunner } = await import('./e2e/runner.ts')
       return await TestRunner.run({
         targets: args,
         ...(flags.has('desktop') && { desktop: flags.get('desktop')! }),
@@ -194,8 +185,9 @@ class Cli {
         ...(video !== undefined && { video }),
       })
     }
-    if (command === 'skills') return Skills.run(args, flags)
+    if (command === 'skills') return (await import('./skills.ts')).Skills.run(args, flags)
     if (command === 'uninstall') {
+      const { Uninstall } = await import('./uninstall.ts')
       const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
       const confirm = interactive ? Uninstall.ask : null
       if (flags.has('data') && flags.has('keep-data'))
@@ -205,10 +197,13 @@ class Cli {
       return await Uninstall.run(args[0], { yes: flags.has('yes'), confirm, say, ...(data !== undefined && { data }) })
     }
     if (command === 'doctor') return await Cli.doctor(args[0], flags)
-    if (command === 'mcp')
+    if (command === 'mcp') {
+      const { Mcp } = await import('./mcp.ts')
       return await Mcp.serve(flags.has('session') ? { session: Tools.pid(flags.get('session')!, command) } : {})
+    }
     if (command === 'new') return await Cli.create(args[0] ?? '', flags)
     if (command === 'dev') {
+      const [{ DevSession }, { Sessions }] = await Promise.all([import('./dev.ts'), import('./sessions.ts')])
       const session = new DevSession({
         dirs: args,
         ...(flags.has('out') && { out: flags.get('out')! }),
@@ -223,6 +218,7 @@ class Cli {
       return await session.run()
     }
     if (command === 'sdk') {
+      const { Sdk, SdkInterrupted } = await import('./sdk.ts')
       const update = args[0] === 'update'
       const dir = resolve((update ? args[1] : args[0]) ?? '.')
       if (!update && args[0] !== undefined && !existsSync(dir)) {
@@ -249,6 +245,7 @@ class Cli {
       return 0
     }
     const started = performance.now()
+    const { AppPackage } = await import('./package.ts')
     const platform = flags.get('platform')
     if (platform !== undefined) AppPackage.platformKey(platform)
     const pkg = new AppPackage(args[0] ?? '.')
@@ -272,6 +269,7 @@ class Cli {
     const current = Runtime.bun ? 'bun' : 'node'
     let wanted: 'bun' | 'node'
     try {
+      const { PackageManager } = await import('./pm.ts')
       wanted = PackageManager.of(resolve(dir)).runtime
     } catch (error) {
       console.error(`acde: ${Output.message(error)}: going on with ${current === 'bun' ? 'Bun' : 'Node.js'}`)
@@ -293,6 +291,7 @@ class Cli {
     if (flags.has('yes') && !flags.has('fix')) throw new Error('doctor: --yes is for --fix (acde doctor --help)')
     const options = { ...(dir !== undefined && { dir }), online: flags.has('online') }
     const json = flags.has('json')
+    const [{ Doctor }, { confirm: ask }] = await Promise.all([import('./doctor.ts'), import('@clack/prompts')])
     const checks = await Doctor.run(options)
     if (!flags.has('fix')) {
       console.log(json ? Doctor.json(checks) : Doctor.format(checks))
@@ -304,7 +303,9 @@ class Cli {
       yes: flags.has('yes'),
       output: json ? 'stderr' : 'inherit',
       say: (line) => (json ? console.error(line) : console.log(line)),
-      confirm: interactive ? async (repair) => (await p.confirm({ message: `${repair.does}?`, initialValue: false })) === true : null,
+      confirm: interactive
+        ? async (repair) => (await ask({ message: `${repair.does}?`, initialValue: false })) === true
+        : null,
       allowing: 'pass --yes to allow it',
     })
     const after = fixed.some((done) => done.result === 'fixed') ? await Doctor.run(options) : checks
@@ -326,6 +327,9 @@ class Cli {
 
   static async create(dir: string, flags: ReadonlyMap<string, string>): Promise<number> {
     const started = performance.now()
+    const [{ Creator }, { PackageManager }, { AppPackage }, p] = await Promise.all([
+      import('./create.ts'), import('./pm.ts'), import('./package.ts'), import('@clack/prompts'),
+    ])
     const interactive = !flags.has('yes') && process.stdin.isTTY === true && process.stdout.isTTY === true
     const given = {
       ...(dir && { dir }),
@@ -342,7 +346,7 @@ class Cli {
     if (!interactive) {
       if (!given.dir) throw new Error('new: a directory (or run it in a terminal to be asked) (acde new --help)')
       const created = await Creator.create(given, false)
-      Cli.report(created.pkg)
+      Cli.report(created.pkg, AppPackage.here())
       const made = `${created.starter.label} in ${Cli.shown(created.pkg.dir)} (${Cli.took(started)})`
       console.log(`acde: ${made}. next: ${Creator.next(created).join(' && ')}`)
       const width = Help.terminal()
@@ -364,7 +368,7 @@ class Cli {
     return errors.length === 0 ? 0 : 1
   }
 
-  static report(pkg: AppPackage, platform = AppPackage.here()): boolean {
+  static report(pkg: AppPackage, platform: string | null): boolean {
     const target = platform === null ? null : pkg.platform(platform)
     const { errors, warnings, notes } = pkg.check()
     const [out, err] = [Color.palette(), Color.palette(Color.enabled(process.stderr))]

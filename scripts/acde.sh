@@ -20,18 +20,36 @@ at_least() {
   esac
   [ "$major" -gt "$2" ] || { [ "$major" -eq "$2" ] && [ "$minor" -ge "$3" ]; }
 }
-bun_version=
-node_version=
-if command -v bun >/dev/null 2>&1; then
-  bun_version=$(bun --version 2>/dev/null)
-  if at_least "$bun_version" 1 4; then
-    exec bun "$cli" "$@"
+cache=$(dirname "$bin")/lib/runtime-cache
+bun=$(command -v bun 2>/dev/null) || bun=
+node=$(command -v node 2>/dev/null) || node=
+key="bun $bun	node $node"
+fresh() {
+  [ -z "$1" ] || [ ! "$1" -nt "$cache" ]
+}
+if [ -f "$cache" ] && fresh "$bun" && fresh "$node"; then
+  { IFS= read -r cached_key && IFS= read -r chosen; } <"$cache" 2>/dev/null || cached_key=
+  if [ "$cached_key" = "$key" ] && [ -n "$chosen" ] && [ -x "$chosen" ]; then
+    exec "$chosen" "$cli" "$@"
   fi
 fi
-if command -v node >/dev/null 2>&1; then
-  node_version=$(node -p "process.versions.bun ? '' : process.versions.node" 2>/dev/null)
+remember() {
+  { printf '%s\n%s\n' "$key" "$1" >"$cache"; } 2>/dev/null || :
+}
+bun_version=
+node_version=
+if [ -n "$bun" ]; then
+  bun_version=$("$bun" --version 2>/dev/null)
+  if at_least "$bun_version" 1 4; then
+    remember "$bun"
+    exec "$bun" "$cli" "$@"
+  fi
+fi
+if [ -n "$node" ]; then
+  node_version=$("$node" -p "process.versions.bun ? '' : process.versions.node" 2>/dev/null)
   if at_least "$node_version" 22 3; then
-    exec node "$cli" "$@"
+    remember "$node"
+    exec "$node" "$cli" "$@"
   fi
 fi
 if [ -n "$bun_version" ]; then
