@@ -254,7 +254,6 @@ export class Sessions {
     return null
   }
 
-
   static #sweep(dir: string): void {
     for (const name of readdirSync(dir)) {
       const left = /^(?:(\d+)\.(?:[0-9a-z]+\.)?sock|\d+\.json\.(\d+)\.tmp|[0-9a-f]+\.claim\.(\d+)\.(?:tmp|aside))$/.exec(name)
