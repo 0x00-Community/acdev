@@ -649,7 +649,24 @@ impl Context {
     }
 
     #[allow(clippy::too_many_arguments, reason = "mirrors the GL entry point")]
-    pub fn tex_image_source(&mut self, target: u32, level: i32, internal: u32, format: u32, ty: u32, source: TexSource, sub: Option<[i32; 3]>) {
+    pub fn tex_image_source(
+        &mut self,
+        target: u32,
+        level: i32,
+        internal: u32,
+        format: u32,
+        ty: u32,
+        source: TexSource,
+        sub: Option<[i32; 3]>,
+        bitmap: Option<bool>,
+    ) {
+        if let Some(premultiplied) = bitmap {
+            let saved = (self.state.unpack_flip_y, self.state.unpack_premultiply);
+            (self.state.unpack_flip_y, self.state.unpack_premultiply) = (false, premultiplied);
+            self.tex_image_source(target, level, internal, format, ty, source, sub, None);
+            (self.state.unpack_flip_y, self.state.unpack_premultiply) = saved;
+            return;
+        }
         let (width, height) = match &source {
             TexSource::Cpu { width, height, .. } => (*width, *height),
             TexSource::Gpu(image) => (image.texture.width(), image.texture.height()),
@@ -726,7 +743,7 @@ impl Context {
                 Ok(p) => p,
                 Err(_) => return self.error(INVALID_VALUE),
             };
-            return self.tex_image_source(target, level, internal, format, ty, TexSource::Cpu { width: w, height: h, rgba: pixels }, sub);
+            return self.tex_image_source(target, level, internal, format, ty, TexSource::Cpu { width: w, height: h, rgba: pixels }, sub, None);
         }
         let Some(texture) = self.texture(id).and_then(|t| t.alloc.as_ref()).map(|a| a.texture.clone()) else { return };
         let layer = if self.texture(id).is_some_and(|t| t.target == TEXTURE_CUBE_MAP) { face } else { origin[2] };

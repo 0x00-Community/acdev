@@ -432,9 +432,10 @@ fn tex_image_source<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCall
     let (context, target, level, internal, format, ty) = (a.u(0), a.u(1), a.i(2), a.u(3), a.u(4), a.u(5));
     let kind = a.u(6);
     let source = match kind {
-        0 => Some(a.u(7)),
+        0 | 2 | 3 => Some(a.u(7)),
         _ => None,
     };
+    let bitmap = matches!(kind, 2 | 3).then_some(kind == 3);
     let pixels = (kind == 1).then(|| (a.u(7), a.u(8), a.bytes(9).unwrap_or_default()));
     let sub = (!a.value(10).is_null_or_undefined()).then(|| [a.i(10), a.i(11), a.i(12)]);
     let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
@@ -447,7 +448,7 @@ fn tex_image_source<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCall
             };
             let Some(entry) = s.contexts.get_mut(&context) else { return };
             match source {
-                Some(src) => entry.gl.tex_image_source(target, level, internal, format, ty, src, sub),
+                Some(src) => entry.gl.tex_image_source(target, level, internal, format, ty, src, sub, bitmap),
                 None => entry.gl.error(acde_webgl::consts::INVALID_VALUE),
             }
         })

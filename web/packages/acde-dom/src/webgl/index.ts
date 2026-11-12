@@ -1,6 +1,8 @@
 import { Event, fire, type EventTarget } from '../core/event'
+import { DOMException } from '../core/exception'
 import { constants, tag } from '../core/host'
-import { canvasSources, ImageData } from '../dom/canvas'
+import { bitmaps, ImageBitmap } from '../dom/bitmap'
+import { canvases, canvasSources, ImageData } from '../dom/canvas'
 import { ID } from '../dom/realm'
 import { WEBGL1, WEBGL2 } from './constants'
 
@@ -153,6 +155,12 @@ function typed<T extends Float32Array | Int32Array | Uint32Array>(Kind: { new (v
 }
 
 function sourceOf(source: unknown): [number, number, number, Uint8Array | null] | null {
+  canvases.flush()
+  if (source instanceof ImageBitmap) {
+    const canvas = bitmaps.canvas(source)
+    if (!canvas) throw new DOMException('The image bitmap is closed', 'InvalidStateError')
+    return [bitmaps.premultiplied(source) ? 3 : 2, (canvas as unknown as Record<symbol, number>)[ID] ?? 0, 0, null]
+  }
   if (source instanceof ImageData) return [1, source.width, source.height, new Uint8Array(source.data.buffer, source.data.byteOffset, source.data.byteLength)]
   if (source && typeof source === 'object' && ID in source) return [0, (source as Record<symbol, number>)[ID] ?? 0, 0, null]
   return null
