@@ -595,6 +595,8 @@ export class Broker {
         )
       case 'devrequest':
         return void this.#dev.request(event.key ?? '')
+      case 'devtools':
+        return this.#dev.devtools(this.#focusedWeb(event.window))
       case 'windowcloserequest': {
         const id = event.window || this.#standaloneWindow
         if (id) return void this.closeWeb(id).catch(() => undefined)
@@ -609,6 +611,12 @@ export class Broker {
         return
     }
     this.#windows.shellEvent(event)
+  }
+
+  #focusedWeb(window: number | undefined): Web | null {
+    const record = window === undefined ? undefined : this.#windows.get(window)
+    const web = record?.web ?? record?.owner ?? (window === undefined ? null : this.#webs().find((w) => w.window === window))
+    return web ?? this.#desktop ?? this.#webs()[0] ?? null
   }
 
   #desktopShown(): boolean {

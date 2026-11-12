@@ -18,6 +18,7 @@ struct Waiting {
 struct Requests {
     next: i64,
     waiting: HashMap<i64, Waiting>,
+    devs: Vec<Arc<Writer>>,
 }
 
 static REQUESTS: Mutex<Option<Requests>> = Mutex::new(None);
@@ -56,7 +57,10 @@ fn serve<S: io::Read + Send + 'static>(reader: S, writer: Box<dyn Write + Send>,
             handle(line.trim_end_matches(['\r', '\n']), &writer, &mut dev, &proxy);
             line.clear();
         }
-        with_requests(|r| r.waiting.retain(|_, w| !Arc::ptr_eq(&w.writer, &writer)));
+        with_requests(|r| {
+            r.waiting.retain(|_, w| !Arc::ptr_eq(&w.writer, &writer));
+            r.devs.retain(|w| !Arc::ptr_eq(w, &writer));
+        });
         if dev {
             log::info!("acde dev disconnected, exiting");
             proxy.send(Cmd::Exit(0));
@@ -187,6 +191,71 @@ pub fn respond(id: i64, result: Result<&str, &str>) -> Result<(), String> {
     reply(&waiting.writer, &waiting.id, result)
 }
 
+/// Sends an event to every connection that said hello as acde dev (the dev channel's `{"type":"event"}` line).
+/// Returns how many connections it reached.
+pub fn event(message: &str) -> Result<usize, String> {
+    let value = serde_json::from_str::<serde_json::Value>(message).map_err(|e| format!("acde dev: an event is JSON: {e}"))?;
+    if value.get("type").and_then(serde_json::Value::as_str) != Some("event") || value.get("event").and_then(serde_json::Value::as_str).is_none() {
+        return Err("acde dev: an event is an object with type \"event\" and an event name".into());
+    }
+    let line = value.to_string();
+    let devs = with_requests(|r| r.devs.clone());
+    let mut reached = 0;
+    for writer in &devs {
+        match send(writer, &line) {
+            Ok(()) => reached += 1,
+            Err(e) => log::warn!("acde dev: event: {e}"),
+        }
+    }
+    Ok(reached)
+}
+
+/// F12 in a dev session opens DevTools instead of reaching the page: each press is reported once (repeats and the
+/// release are swallowed), and F12 with a modifier, or any F12 outside dev mode, goes to the page as before.
+#[derive(Default)]
+pub(crate) struct DevtoolsKey {
+    on: bool,
+    held: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DevtoolsPress {
+    Pass,
+    Swallow,
+    Open,
+}
+
+impl DevtoolsKey {
+    pub(crate) const F12: u32 = 88;
+
+    pub(crate) fn from_env() -> Self {
+        Self { on: std::env::var_os("ACDE_DEV").is_some(), held: false }
+    }
+
+    pub(crate) fn key(&mut self, evdev: u32, pressed: bool, modifiers: u8) -> DevtoolsPress {
+        if !self.on || evdev != Self::F12 {
+            return DevtoolsPress::Pass;
+        }
+        if !pressed {
+            return if std::mem::take(&mut self.held) { DevtoolsPress::Swallow } else { DevtoolsPress::Pass };
+        }
+        if self.held {
+            return DevtoolsPress::Swallow;
+        }
+        if modifiers != 0 {
+            return DevtoolsPress::Pass;
+        }
+        self.held = true;
+        DevtoolsPress::Open
+    }
+
+    /// The host window lost the focus: the F12 that opened DevTools is usually released in the browser it brought
+    /// forward, so its release never comes here; without this the next press would count as a repeat.
+    pub(crate) fn blur(&mut self) {
+        self.held = false;
+    }
+}
+
 fn request(mut message: serde_json::Value, writer: &Arc<Writer>) {
     let Some(id) = message.get("id").filter(|id| id.is_number() || id.is_string()).cloned() else {
         log::warn!("acde dev: request without an id: {message}");
@@ -215,7 +284,12 @@ fn handle(line: &str, writer: &Arc<Writer>, dev: &mut bool, proxy: &Proxy) {
         return;
     };
     match message.get("type").and_then(|t| t.as_str()) {
-        Some("hello") => *dev |= message.get("role").and_then(|r| r.as_str()) == Some("dev"),
+        Some("hello") => {
+            if !*dev && message.get("role").and_then(|r| r.as_str()) == Some("dev") {
+                *dev = true;
+                with_requests(|r| r.devs.push(writer.clone()));
+            }
+        }
         Some("reload") => {
             let app = message.get("app").and_then(|a| a.as_str()).map(str::to_owned);
             let hot = message.get("hot").and_then(|s| s.as_bool()).unwrap_or(false);
@@ -227,5 +301,48 @@ fn handle(line: &str, writer: &Arc<Writer>, dev: &mut bool, proxy: &Proxy) {
         Some("request") => request(message, writer),
         Some("quit") => proxy.send(Cmd::Exit(0)),
         other => log::warn!("acde dev: unknown message type {other:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DevtoolsKey, DevtoolsPress};
+    use acde_model::Combo;
+
+    const F12: u32 = DevtoolsKey::F12;
+
+    #[test]
+    fn one_press_opens_once_and_its_repeats_and_release_never_reach_the_page() {
+        let mut key = DevtoolsKey { on: true, held: false };
+        assert_eq!(key.key(F12, true, 0), DevtoolsPress::Open);
+        assert_eq!(key.key(F12, true, 0), DevtoolsPress::Swallow);
+        assert_eq!(key.key(F12, true, Combo::SHIFT), DevtoolsPress::Swallow);
+        assert_eq!(key.key(F12, false, 0), DevtoolsPress::Swallow);
+        assert_eq!(key.key(F12, true, 0), DevtoolsPress::Open);
+        assert_eq!(key.key(F12, false, Combo::CTRL), DevtoolsPress::Swallow);
+    }
+
+    #[test]
+    fn a_release_lost_to_the_browser_does_not_eat_the_next_press() {
+        let mut key = DevtoolsKey { on: true, held: false };
+        assert_eq!(key.key(F12, true, 0), DevtoolsPress::Open);
+        key.blur();
+        assert_eq!(key.key(F12, true, 0), DevtoolsPress::Open);
+        assert_eq!(key.key(F12, false, 0), DevtoolsPress::Swallow);
+        assert_eq!(key.key(F12, false, 0), DevtoolsPress::Pass);
+    }
+
+    #[test]
+    fn f12_with_a_modifier_other_keys_and_any_key_outside_dev_mode_pass() {
+        let mut key = DevtoolsKey { on: true, held: false };
+        for modifier in [Combo::CTRL, Combo::SHIFT, Combo::ALT, Combo::SUPER] {
+            assert_eq!(key.key(F12, true, modifier), DevtoolsPress::Pass);
+            assert_eq!(key.key(F12, false, modifier), DevtoolsPress::Pass);
+        }
+        assert_eq!(key.key(87, true, 0), DevtoolsPress::Pass);
+        assert_eq!(key.key(87, false, 0), DevtoolsPress::Pass);
+        let mut off = DevtoolsKey::default();
+        assert_eq!(off.key(F12, true, 0), DevtoolsPress::Pass);
+        assert_eq!(off.key(F12, false, 0), DevtoolsPress::Pass);
     }
 }

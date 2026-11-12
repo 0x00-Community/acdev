@@ -187,6 +187,7 @@ struct App {
     modifiers: u8,
     injected_mods: u8,
     swallowed: HashSet<u32>,
+    devtools: crate::dev::DevtoolsKey,
     frame_press: Option<(u32, FrameButton)>,
     edges: u8,
 }
@@ -208,7 +209,7 @@ pub(crate) fn run(main: impl FnOnce() -> i32 + Send + 'static) -> i32 {
         log::error!("host window: already started");
         return 1;
     }
-    let app = App { main: Some(Box::new(main)), ..App::default() };
+    let app = App { main: Some(Box::new(main)), devtools: crate::dev::DevtoolsKey::from_env(), ..App::default() };
     let code = match platform::run(Box::new(app)) {
         Ok(code) => code,
         Err(e) => {
@@ -289,6 +290,7 @@ impl Handler for App {
                 }
                 if !focused {
                     self.modifiers = 0;
+                    self.devtools.blur();
                 }
             }
             HostEvent::PointerMove(x, y) => self.moved(server, x, y),
@@ -635,6 +637,14 @@ impl App {
     }
 
     fn key(&mut self, server: &Server, evdev: u32, pressed: bool, text: Option<String>) {
+        match self.devtools.key(evdev, pressed, self.modifiers | self.injected_mods) {
+            crate::dev::DevtoolsPress::Pass => {}
+            crate::dev::DevtoolsPress::Swallow => return,
+            crate::dev::DevtoolsPress::Open => {
+                let window = server.state().focus;
+                return server.broker.push(Event { kind: "devtools".into(), window, ..Default::default() });
+            }
+        }
         if pressed && !keys::is_modifier(evdev) {
             if let Some(shortcut) = self.shortcut(server, evdev) {
                 self.swallowed.insert(evdev);

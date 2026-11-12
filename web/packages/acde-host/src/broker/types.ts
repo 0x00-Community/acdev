@@ -48,6 +48,7 @@ export interface BrokerShell {
   quit(): void
   capture?(window: number): Promise<{ width: number; height: number; png: string }>
   devRespond?(id: number, ok: boolean, payload: string): void
+  devEvent?(message: string): number
   notify?(title: string, body: string, subtitle: string): void
   answerFolder?(path: string | null): void
   answerOpen?(paths: string[] | null): void

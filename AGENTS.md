@@ -268,9 +268,19 @@ IPC: acdert 是服务端, 在 `ACDE_DEV` 上听 (hostwin `dev.rs`, 线程 `acde-
 MCP、driver) 都直连它, 中间没有转发. unix 上是 unix socket (地址和 0700 的目录由 acde dev 定好、旧 socket 它先删, acdert bind 后设 0600,
 退出后 acde dev 删), Windows 上是命名管道服务端 (`FILE_FLAG_FIRST_PIPE_INSTANCE` 防别人抢先占名、`PIPE_REJECT_REMOTE_CLIENTS`、SDDL
 `D:P(A;;GA;;;OW)` 只给当前用户, 接一个再开下一个实例). 这条 IPC 能在页面里求值, 所以只给自己. 一行一个 JSON. 发 `{"type":"hello","role":"dev"}`
-的那条连接是 acde dev 的: 它断了 acdert 就退出; 别的 hello 忽略. Windows 上读之前先 `PeekNamedPipe`, 有数据才 `ReadFile`: 同一个同步句柄上
+的那条连接是 acde dev 的: 它断了 acdert 就退出, acdert 主动发的事件也只发给它; 别的 hello 忽略. Windows 上读之前先 `PeekNamedPipe`, 有数据才 `ReadFile`: 同一个同步句柄上
 挂着的读会让写 (回答) 一直等着. 工程的构建结果经
 `ACDE_PATH` (Windows 用 `;` 分隔) 交给 acdert, 不装进包目录; 日志就是 acdert 的 stderr.
+
+acdert 主动发的事件 (`Shell.devEvent(json)` → hostwin `dev::event`, 写给每条 acde dev 的连接, 没有就丢; 一行
+`{"type":"event","event",…}`):
+
+- `{"type":"event","event":"devtools","web","app","window"}`: 宿主窗口里按了 F12 (#196). hostwin `App::key` 前面的
+  `dev::DevtoolsKey` (只在有 `ACDE_DEV` 时开) 拦下不带修饰键的 F12: 按下推一个 `devtools` 事件给 Broker (`window` 是有焦点的窗口),
+  按住的重复和松开都吞掉, 页面收不到 (宿主窗口失焦时清掉「按住」: 打开的浏览器抢走焦点, 松开常常到不了这里); 带修饰键的 F12、没有 `ACDE_DEV` 时的 F12 照常给页面. Broker 把窗口换成 web (那个窗口的 web,
+  原生窗口的 owner, 都没有时桌面), `DevRequests.devtools` 发事件: `web` 是 web 名 (即 `/json/list` 的目标 id), `app` 是应用 id
+  (桌面是 null), `window` 是窗口号. 按键不进页面线程, 所以页面停在断点上时 F12 也照样到. acde dev 收到后和 `acde devtools <web>`
+  一样打开 DevTools (见 acde 的 `dev.ts`).
 
 收到的消息 (`reload` / `quit` 哪条连接发都照做):
 

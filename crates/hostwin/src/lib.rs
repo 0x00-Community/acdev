@@ -7,6 +7,7 @@ mod shell;
 mod system;
 
 pub use acde_model::{DoubleClick, Event, Inbox, InjectEvent, Injected, Mode, Waker, WindowState};
+pub use dev::event as dev_event;
 pub use dev::respond as dev_respond;
 pub use output::surface::{Shot, Surface};
 pub use shell::{Animate, Grant, Shell, WindowInfo};
