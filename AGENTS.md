@@ -588,7 +588,7 @@ HTML 去掉样式和脚本引用后一样时发 `hot: true`. Broker 给那个应
   否则每次 DOM 操作都产生变动记录, 大量增删节点会慢一截 (#206). 先看 meta, meta 没说 dark 才读根元素的计算样式. 结果变了才经 surface 的
   `setPageDark(dark)` 交给 hostwin (`Entry.dark_page`, `Msg::PageDark`, 画在 `Bar.dark_page`). 只经 CSSOM (`insertRule`) 改的
   `color-scheme`, 以及 `<body>` 里的 `<style>` 不触发重新判断. 回归基准 `bash scripts/dom-perf/bench.sh` (无头, 有窗框的应用里 1 万个
-  节点的创建和改样式, 每边多轮中位数); 设 `BASE_ACDERT` / `BASE_APP` 时与基准版本交替跑, 任一项比值超过 `DOM_PERF_LIMIT` (默认 1.3) 退出码非零. 还没判断时当作不支持. 会话侧待实现 (会话的标题栏还没有主题).
+  节点的创建和改样式, 每边多轮中位数); 设 `BASE_ACDERT` / `BASE_APP` 时与基准版本交替跑, 任一项比值超过 `DOM_PERF_LIMIT` (默认 1.1, 即 #206 的验收线: 不超过基准版本的 110%) 退出码非零. 还没判断时当作不支持. 会话侧待实现 (会话的标题栏还没有主题).
   `acde.desktop.on('edge', fn)` (SDK `ScreenEdgeEvent` `{type: 'screenedge', edge: 'top' | 'right' | 'bottom' | 'left', entered, output}`, #113):
   指针进入、离开屏幕的一条边时各发一次 (角上是两条边各一次), 给桌面藏起菜单栏和 Dock 时用; 只发事件, 不动焦点和输入. 边的判断在 acde-model
   `ScreenEdge::touched` (离边不到 1 个逻辑像素, 且那一侧外面没有别的输出; 边的变化 `ScreenEdge::changes`). 会话: 合成器 (crates/shell `input.rs`

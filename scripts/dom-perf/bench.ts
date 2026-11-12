@@ -15,7 +15,7 @@ const sides = [
     : []),
 ]
 const rounds = Number(process.env['DOM_PERF_ROUNDS'] ?? 3)
-const limit = Number(process.env['DOM_PERF_LIMIT'] ?? 1.3)
+const limit = Number(process.env['DOM_PERF_LIMIT'] ?? 1.1)
 
 const pkgRoot = join(run, 'package')
 await mkdir(pkgRoot, { recursive: true })
