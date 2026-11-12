@@ -49,6 +49,8 @@ export class DevClient {
   #next = 1
   #closed: Error | null = null
   #ended = false
+  /** Events acdert sends on its own (`{ type: 'event', event, ... }`), only to the connection that said hello as acde dev. */
+  onEvent: (message: Message) => void = () => undefined
 
   private constructor(socket: net.Socket, timeoutMs: number) {
     this.#socket = socket
@@ -135,6 +137,7 @@ export class DevClient {
   }
 
   #response(message: Message): void {
+    if (message['type'] === 'event' && typeof message['event'] === 'string') return this.onEvent(message)
     const id = message['id']
     const waiting = typeof id === 'number' ? this.#waiting.get(id) : undefined
     if (message['type'] !== 'response' || !waiting) return

@@ -1,6 +1,7 @@
 import { existsSync, rmSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { delimiter, resolve } from 'node:path'
-import { DevClient } from './ipc.ts'
+import { Devtools } from './devtools.ts'
+import { DevClient, type Message } from './ipc.ts'
 import { AppPackage, type Built } from './package.ts'
 import { Project } from './app.ts'
 import { contains, E2E_FILE, SKIPPED } from './paths.ts'
@@ -56,6 +57,7 @@ export class DevSession {
   #shown: string | null = null
   #level: number | null = null
   #reloaded: Reloaded | null = null
+  #presses: Promise<void> = Promise.resolve()
 
   constructor(options: DevOptions) {
     const packages = (options.dirs.length ? options.dirs : ['.']).map((dir) => new AppPackage(dir))
@@ -231,6 +233,7 @@ export class DevSession {
         this.#hint(code)
         return code
       }
+      this.#link.onEvent = (message) => this.#event(message)
       this.#link.send({ type: 'hello', role: 'dev' })
       this.#publish()
       for (const unit of this.#units) {
@@ -250,6 +253,28 @@ export class DevSession {
       this.#link?.close()
       this.#link = null
       if (process.platform !== 'win32') rmSync(this.#endpoint, { force: true })
+    }
+  }
+
+  #event(message: Message): void {
+    if (message['event'] === 'devtools') this.#presses = this.#presses.then(() => this.#devtools(message))
+  }
+
+  /**
+   * F12 in a host window: open DevTools on the page acdert names, as acde devtools <page> does. Presses run one after
+   * another, so a second press finds the window the first opened and brings it to the front.
+   */
+  async #devtools(message: Message): Promise<void> {
+    const link = this.#link
+    const web = message['web']
+    if (!link || typeof web !== 'string') return
+    try {
+      const endpoint = Devtools.endpoint(await link.request('devtools'))
+      const wanted = [web, ...(Number.isInteger(message['window']) ? [String(message['window'])] : [])]
+      const target = Devtools.pick(await Devtools.targets(endpoint), wanted, web)
+      await Devtools.present(target, endpoint, { address: 'fallback' })
+    } catch (error) {
+      console.error(`acde: F12: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 

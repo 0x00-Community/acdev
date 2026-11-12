@@ -352,6 +352,7 @@ record({
 })
 console.error('[alpha#7] js: fake acdert is up')
 const endpoint = process.env['ACDE_DEV']!
+const devs: ((message: object) => void)[] = []
 const server = net.createServer((socket) => {
   const send = (message: object) => socket.write(`${JSON.stringify(message)}\n`)
   let owner = false
@@ -365,7 +366,10 @@ const server = net.createServer((socket) => {
       const message = JSON.parse(buffer.slice(0, at)) as Record<string, unknown>
       buffer = buffer.slice(at + 1)
       record({ got: message })
-      if (message['type'] === 'hello' && message['role'] === 'dev') owner = true
+      if (message['type'] === 'hello' && message['role'] === 'dev' && !owner) {
+        owner = true
+        devs.push(send)
+      }
       if (message['type'] === 'quit') process.exit(0)
       if (message['type'] === 'request') answer(message, send)
     }
@@ -498,6 +502,13 @@ function answer(m: Record<string, unknown>, send: (message: object) => void): vo
       return void ok({ text: clipboard })
     case 'devtools':
       return void devtools().then(ok, (error: Error) => fail(error.message))
+    case 'press-f12': {
+      const web = webs().find((w) => w.name === (m['web'] ?? 'alpha#7'))
+      const event = web ? { type: 'event', event: 'devtools', web: web.name, app: web.app, window: web.window }
+        : { type: 'event', event: 'devtools', web: String(m['web']), app: null, window: 99 }
+      for (const dev of devs) dev(event)
+      return void ok({ told: devs.length })
+    }
     case 'slow':
       return
     default:
