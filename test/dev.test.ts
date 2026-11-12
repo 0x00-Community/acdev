@@ -335,7 +335,7 @@ describe('acde dev with a stand-in acdert', () => {
       const webs = await dev.tool(['webs'], alpha)
       expect(webs.stdout).toContain('alpha#7  app      alpha  7       Alpha')
       expect(webs.code).toBe(0)
-      const frontend = (id: number) => new RegExp('^devtools://devtools/bundled/inspector\\.html\\?ws='
+      const frontend = (id: number) => new RegExp('^devtools://devtools/bundled/devtools_app\\.html\\?ws='
         + `127\\.0\\.0\\.1%3A\\d+%2Fdevtools%2Fpage%2F${id}%3Ftoken%3Dfake-token\\n$`)
       const noBrowser = { ACDE_BROWSER: 'none' }
       const focused = await dev.tool(['devtools'], alpha, undefined, noBrowser)
@@ -363,7 +363,7 @@ describe('acde dev with a stand-in acdert', () => {
       })
       expect(opened).toBe(0)
       expect(launched).toHaveLength(1)
-      expect(launched[0]!.startsWith(`${chromium} devtools://devtools/bundled/inspector.html?ws=`)).toBe(true)
+      expect(launched[0]!.startsWith(`${chromium} devtools://devtools/bundled/devtools_app.html?ws=`)).toBe(true)
       const evaluated = await dev.tool(['eval', 'alpha', 'document.title'], join(alpha))
       expect(JSON.parse(evaluated.stdout)).toEqual({ web: 'alpha', code: 'document.title' })
       const piped = await dev.tool(['eval', 'desktop', '-'], alpha, '1 +\n1')
@@ -569,7 +569,7 @@ describe('acde dev with a stand-in acdert', () => {
       const opened = await dev.tool(['devtools', 'alpha'], alpha, undefined, { ACDE_BROWSER: 'none' })
       expect(opened.code, opened.stderr).toBe(0)
       expect(opened.stdout)
-        .toMatch(/^devtools:\/\/devtools\/bundled\/inspector\.html\?ws=127\.0\.0\.1%3A\d+%2Fdevtools%2Fpage%2F7\n$/)
+        .toMatch(/^devtools:\/\/devtools\/bundled\/devtools_app\.html\?ws=127\.0\.0\.1%3A\d+%2Fdevtools%2Fpage%2F7\n$/)
       expect(dev.entries().some((e) => (e as { devtools?: string }).devtools === '/json/list')).toBe(true)
     } finally {
       await dev.stop()
@@ -597,7 +597,7 @@ describe('acde dev with a stand-in acdert', () => {
       expect(first.code, first.stderr).toBe(0)
       expect(first.stderr).toContain(`acde: opened DevTools for Alpha in ${browser}`)
       const url = first.stdout.trim()
-      expect(url).toStartWith('devtools://devtools/bundled/inspector.html?ws=127.0.0.1%3A')
+      expect(url).toStartWith('devtools://devtools/bundled/devtools_app.html?ws=127.0.0.1%3A')
       const started = said().filter((entry) => entry.started)
       expect(started).toHaveLength(1)
       const profile = started[0]!.started!.find((arg) => arg.startsWith('--user-data-dir='))!.slice(16)

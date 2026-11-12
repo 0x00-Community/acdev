@@ -46,7 +46,7 @@ describe('acde devtools', () => {
     const target = { id: '7', title: 'Notes', type: 'page', url: 'acde://notes/', webSocketDebuggerUrl: '' }
     const withToken = { ...target, webSocketDebuggerUrl: 'ws://127.0.0.1:9300/devtools/page/7?token=abc' }
     const without = { ...target, webSocketDebuggerUrl: 'ws://127.0.0.1:9300/devtools/page/7' }
-    const expected = 'devtools://devtools/bundled/inspector.html?ws='
+    const expected = 'devtools://devtools/bundled/devtools_app.html?ws='
       + '127.0.0.1%3A9300%2Fdevtools%2Fpage%2F7%3Ftoken%3Dabc'
     expect(Devtools.url(withToken, endpoint)).toBe(expected)
     expect(Devtools.url(without, endpoint)).toBe(expected)
@@ -99,6 +99,6 @@ describe('acde devtools', () => {
     expect(asked[1]![0]).toBe('http://127.0.0.1:9300/json/list?token=abc')
     expect(asked[1]![1]?.headers).toEqual({ authorization: 'Bearer abc' })
     expect(Devtools.url(page, { port: 9300 }))
-      .toBe('devtools://devtools/bundled/inspector.html?ws=127.0.0.1%3A9300%2Fdevtools%2Fpage%2F7')
+      .toBe('devtools://devtools/bundled/devtools_app.html?ws=127.0.0.1%3A9300%2Fdevtools%2Fpage%2F7')
   })
 })

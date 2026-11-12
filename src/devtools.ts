@@ -40,7 +40,7 @@ export interface DevtoolsOptions {
 }
 
 export class Devtools {
-  static readonly FRONTEND = 'devtools://devtools/bundled/inspector.html'
+  static readonly FRONTEND = 'devtools://devtools/bundled/devtools_app.html'
   static readonly NONE = 'none'
   static readonly LIST_MS = 10_000
 
