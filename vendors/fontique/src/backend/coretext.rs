@@ -26,7 +26,8 @@ use std::path::{Path, PathBuf};
 const DEFAULT_GENERIC_FAMILIES: &[(GenericFamily, &[&str])] = &[
     (GenericFamily::Serif, &["Times", "Times New Roman"]),
     (GenericFamily::SansSerif, &["Helvetica"]),
-    (GenericFamily::Monospace, &["Courier", "Courier New"]),
+    // acrender: Menlo first, as Chrome and Safari draw `monospace` on macOS (Courier is a typewriter serif)
+    (GenericFamily::Monospace, &["Menlo", "Courier", "Courier New"]),
     (GenericFamily::Cursive, &["Apple Chancery"]),
     (GenericFamily::Fantasy, &["Papyrus"]),
     (GenericFamily::SystemUi, &["System Font", ".SF NS"]),
