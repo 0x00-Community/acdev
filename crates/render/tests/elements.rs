@@ -220,6 +220,20 @@ fn pointer_events_all_takes_the_hit_back_from_a_none_ancestor() {
 }
 
 #[test]
+fn an_inline_svg_without_a_view_box_draws_in_css_pixels() {
+    let doc = page(
+        "<!doctype html><style>body { margin: 0; background: #fff; } svg { display: block; width: 100px; height: 100px; }</style>
+        <svg><rect id=r x=10 y=10 width=30 height=30 fill=red /><circle cx=150 cy=50 r=20 fill=red /></svg>",
+    );
+    let px = pixels(&doc);
+    assert_eq!(rgb(&px, 25.0, 25.0), [255, 0, 0]);
+    assert_eq!(rgb(&px, 45.0, 45.0), [255, 255, 255], "not stretched to the 100px box");
+    assert_eq!(rgb(&px, 135.0, 50.0), [255, 255, 255], "clipped to the svg's box");
+    let r = rect(&doc, "r");
+    assert!([(r.x, 10.0), (r.y, 10.0), (r.width, 30.0), (r.height, 30.0)].iter().all(|&(a, b)| near(a, b)), "{r:?}");
+}
+
+#[test]
 fn simple_svg_images_paint_as_backgrounds_and_masks() {
     let svg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect width='10' height='10' fill='red'/%3E%3C/svg%3E";
     let doc = page(&format!(
